@@ -50,7 +50,7 @@ Pre-compiled release packages are published on the GitHub [Releases](https://git
 
 See [Linux installation and builds](packaging/linux/README.md) for apt, dnf,
 zypper, pacman and Flatpak commands. [Signed repository preparation](packaging/repositories/README.md)
-supports package-manager updates once the owner configures signing and HTTPS hosting.
+publishes package-manager metadata to the configured GitHub Pages repository after a release.
 
 ---
 

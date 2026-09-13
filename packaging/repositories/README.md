@@ -1,19 +1,19 @@
 # Signed package repositories
 
 `build.py` prepares static HTTPS repository trees for apt, dnf/zypper and pacman.
-It does not publish a service. The repository preparation workflow produces artifacts;
-an operator must configure an HTTPS host and publish them before these commands work.
-Use a stable URL you control, and publish the signing-key fingerprint independently.
-
-Configure the repository Actions secret `PACKAGE_SIGNING_KEY` with the ASCII-armored
-dedicated private signing key, and Actions variable `PACKAGE_SIGNING_FINGERPRINT`
-with its full fingerprint. Run the package-repository preparation workflow with
+The repository is hosted on GitHub Pages at
+`https://viceverse-cz.github.io/Serein/`. Its current package-signing fingerprint is
+`CA19DA939E9BCAB500751CE480FE95CAD86141A5`; verify this through an independent
+channel before trusting the key. Configure the repository Actions secret
+`PACKAGE_SIGNING_KEY` with the ASCII-armored dedicated private signing key, and
+Actions variable `PACKAGE_SIGNING_FINGERPRINT` with its full fingerprint. Run the package-repository preparation workflow with
 `tag` (an existing Serein release), `channel` (`nightly` or `production`) and
 `base_url` (the final HTTPS root). It downloads the distribution-labelled assets,
 verifies their release `SHA256SUMS`, signs repositories and uploads the
-`signed-package-repositories` artifact. Download and extract that artifact, merge
-its channel/distribution trees with the site's other existing trees, and atomically
-publish the combined contents at `base_url`. The workflow performs no deployment.
+`signed-package-repositories` artifact. The release workflow calls the same workflow
+after publishing a release and deploys the merged tree to GitHub Pages. Manual runs
+deploy only when their `deploy` input is enabled; otherwise they leave a reviewable
+artifact without changing the site.
 
 Each invocation accepts native packages from **one build distribution and architecture**:
 
