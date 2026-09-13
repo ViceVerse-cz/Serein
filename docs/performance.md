@@ -128,3 +128,53 @@ rotations. Neither measures native UI performance.
 Native CPU, RSS, frame timing and fullscreen transition latency are unmeasured:
 native computer-control APIs are disabled in this session and the Orca CLI is
 absent. No runtime speed or memory improvement is claimed.
+
+## Cross-server emoji and information cards - September 14, 2026
+
+Baseline: `5c45721989234737ef99bf13f71385feb91be8b8`. After: `7da50d5` on
+`feat/cross-server-emoji`. Windows 11 Home 10.0.26200, Ryzen 7 7800X3D
+(16 logical processors), 33,410,678,784 bytes usable RAM, Rust 1.98.1. Both
+standard packages use `cargo xtask package`, including voice, without demo or
+developer-session features. Separate worktrees retain separate `dist` outputs;
+builds ran sequentially with the same Cargo release target.
+
+| Package metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 70,443,008 | 70,501,376 | +58,368 (+0.0829%) |
+| Full portable package bytes | 76,862,594 | 76,922,488 | +59,894 (+0.0779%) |
+| ZIP bytes | 44,681,625 | 44,701,148 | +19,523 (+0.0437%) |
+
+One package per revision, 227 files each; package size sums all files, and ZIP
+uses PowerShell `Compress-Archive -CompressionLevel Optimal`. These sizes precede
+this performance note and the native evidence images. `makensis` was unavailable,
+so these are portable package measurements, not NSIS installer sizes.
+
+Native comparison uses `cargo build --release --locked -p serein --features demo`
+and explicit `--demo --demo-emoji` at 1120x760, 1x display scale, dark appearance.
+The empty picker search is focused in the initial synthetic fixture. After five
+seconds of warmup, PowerShell samples the demo process eleven times at one-second
+intervals. CPU is the process CPU-time delta divided by actual elapsed time, with
+one core equal to 100%; settled working set/private bytes use the median of the
+last five readings, and peak working set is the OS lifetime process high-water
+mark. No task build runs during sampling. The configured renderer is wgpu;
+the actual adapter/backend is not logged. Available host GPUs are an RTX 5070 Ti
+and AMD integrated graphics.
+
+| Native process metric | Baseline | After |
+| --- | ---: | ---: |
+| Idle CPU, one core = 100% | 14.991% | Not measured |
+| Settled working set bytes | 176,566,272 | Not measured |
+| Settled private bytes | 398,360,576 | Not measured |
+| Lifetime peak working set bytes | 197,861,376 | Not measured |
+
+The baseline interval was 10.110 seconds, with no child processes. The changed
+demo release also built successfully, but the user stopped Computer Use with
+physical Escape before its screenshot or process sample. No further native
+control was attempted. A paired CPU/memory comparison, startup latency, and p95
+frame latency therefore remain unmeasured; no runtime improvement is claimed.
+
+The baseline synthetic reducer replay used one warmup and five direct runs of
+the release `replay-bench`: 48.4728, 48.1248, 44.2041, 44.3448, and 45.3094 ms
+(median 45.3094 ms), retaining 236,992-237,477 estimated bytes / 500 records.
+The changed replay was not run. This workload does not measure emoji interaction
+latency, process RSS, or live Discord behavior.
