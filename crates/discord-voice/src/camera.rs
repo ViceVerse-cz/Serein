@@ -45,14 +45,40 @@ pub struct Camera {
 	shared: Arc<Shared>,
 }
 
+/// Device identities and friendly labels, limited to 32 entries and 136 KiB total.
+pub type DeviceList = Vec<(String, String)>;
+
+/// Enumeration never opens a capture stream.
+pub fn devices() -> Result<DeviceList, &'static str> {
+	#[cfg(target_os = "windows")]
+	{
+		windows::devices()
+	}
+	#[cfg(not(target_os = "windows"))]
+	{
+		Err("Camera selection is currently available on Windows only")
+	}
+}
+
 impl Camera {
 	/// Call only after an explicit camera-on gesture in a connected call.
 	pub fn start(
+		device: Option<String>,
 		on_frame: Arc<dyn Fn(Frame) + Send + Sync>,
 		wake: Arc<dyn Fn() + Send + Sync>,
 	) -> Result<Self, &'static str> {
 		if !SUPPORTED {
 			return Err("Camera capture is unavailable on this platform");
+		}
+		if device
+			.as_ref()
+			.is_some_and(|id| id.len() > 4096 || id.contains('\0'))
+		{
+			return Err("Invalid camera device selection");
+		}
+		#[cfg(not(target_os = "windows"))]
+		if device.is_some() {
+			return Err("Camera selection is currently available on Windows only");
 		}
 		if RUNNING
 			.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -72,7 +98,7 @@ impl Camera {
 					}
 					#[cfg(any(target_os = "windows", target_os = "linux"))]
 					{
-						run(&worker, &on_frame, &wake)
+						run(&worker, device.as_deref(), &on_frame, &wake)
 					}
 					#[cfg(not(any(
 						target_os = "macos",
@@ -159,6 +185,7 @@ fn encode_rgb(
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 fn run(
 	shared: &Shared,
+	device: Option<&str>,
 	on_frame: &Arc<dyn Fn(Frame) + Send + Sync>,
 	wake: &Arc<dyn Fn() + Send + Sync>,
 ) -> Result<(), &'static str> {
@@ -177,10 +204,11 @@ fn run(
 	};
 	#[cfg(target_os = "windows")]
 	{
-		windows::run(shared, &mut emit)
+		windows::run(shared, device, &mut emit)
 	}
 	#[cfg(target_os = "linux")]
 	{
+		let _ = device;
 		linux::run(shared, &mut emit)
 	}
 }
@@ -459,6 +487,23 @@ mod macos {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn camera_rejects_unbounded_or_nul_device_ids_before_starting_worker() {
+		for id in ["x".repeat(4097), "dshow:bad\0id".into()] {
+			let error = Camera::start(
+				Some(id),
+				Arc::new(|_| panic!("no capture")),
+				Arc::new(|| {}),
+			)
+			.err();
+			if SUPPORTED {
+				assert_eq!(error, Some("Invalid camera device selection"));
+			} else {
+				assert!(error.is_some());
+			}
+		}
+	}
 	use openh264::formats::YUVSource;
 	#[test]
 	fn camera_frames_are_bounded_independently_decodable_and_stop_is_immediate() {

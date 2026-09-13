@@ -197,6 +197,11 @@ pub struct MessagingUi {
 	pub screen: screen::ScreenUi,
 	pub voice_camera_available: bool,
 	pub voice_camera_status: &'static str,
+	pub voice_cameras: Vec<(String, String)>,
+	pub voice_camera_device: Option<String>,
+	pub voice_refresh_cameras: bool,
+	pub voice_camera_device_status: &'static str,
+	pub voice_camera_devices_loading: bool,
 	pub voice_camera_preview: Option<egui::TextureHandle>,
 	/// Decoded remote cameras by user; the desktop bounds and replaces them.
 	pub voice_remote_video: Vec<(Id, egui::TextureHandle)>,

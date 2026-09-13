@@ -1,5 +1,10 @@
 # Resolved dependencies
 
+September 13 Windows camera selection: the existing `windows 0.61.3` bindings
+also enable DirectShow, COM StructuredStorage, Variant, GDI and Ole for virtual
+camera enumeration and capture. No package versions or new dependencies are
+introduced; existing Windows binding licenses/notices apply.
+
 September 12 egui refresh: `egui` and `eframe` now pin upstream `main` commit
 `441971a776322a482e371775219380eca812cfa9`, verified with `git ls-remote`.
 The new `ContainerAtom` API lays out the server-menu title and chevron inside

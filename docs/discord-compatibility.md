@@ -98,12 +98,16 @@ settings remain outside this editor. Sources, limits and reproduction are in
 
 ## Outgoing camera capture — September 12, 2026
 
-The existing camera sender now accepts native capture on Windows (Media Foundation)
+The existing camera sender now accepts native capture on Windows (Media Foundation and DirectShow)
 and Linux (V4L2), alongside macOS (AVFoundation). Both new adapters feed the existing
 H264 negotiation, opcode 12 video announcement, DAVE encryption and bounded RTP
 sender. These normal-user video extensions remain unofficial and live-unverified.
 The button requires a connected call, channel video permission and negotiated H264;
 capture requires an explicit click. No camera opens in the synthetic demo.
+September 13: Windows settings and call controls now enumerate/select cameras,
+including DirectShow-only virtual sources. A read-only native enumeration test
+found three registered virtual cameras on the Windows test machine; it did not
+activate any source. Actual capture and Discord delivery remain unverified.
 Native limits, platform requirements and the owner-operated validation gate are in
 [Camera in calls](voice.md#camera-in-calls-macos-windows-and-linux). Receiving video
 and recording remain unsupported. This section supersedes older camera-exclusion

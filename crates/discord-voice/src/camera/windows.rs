@@ -1,6 +1,8 @@
 //! Media Foundation capture; native callbacks copy one bounded frame, never encode.
 #![allow(unsafe_code)]
 
+mod directshow;
+
 use super::{FRAME_INTERVAL, HEIGHT, Shared, WIDTH};
 use std::{
 	marker::PhantomData,
@@ -124,13 +126,21 @@ impl IMFSourceReaderCallback_Impl for Callback_Impl {
 
 pub(super) fn run(
 	shared: &Shared,
+	device: Option<&str>,
 	emit: &mut dyn FnMut(Vec<u8>) -> Result<(), &'static str>,
 ) -> Result<(), &'static str> {
 	if shared.stopped.load(Ordering::Acquire) {
 		return Ok(());
 	}
 	let _runtime = Runtime::open()?;
-	let source = first_camera()?;
+	if device.is_some_and(|id| id.starts_with("dshow:")) {
+		return directshow::run(shared, device, emit);
+	}
+	let cameras = camera_sources()?;
+	if cameras.is_empty() && device.is_none() {
+		return directshow::run(shared, None, emit);
+	}
+	let source = selected_camera(cameras, device)?;
 	let (send, receive) = mpsc::sync_channel(1);
 	let stride = Arc::new(AtomicI32::new(0));
 	let callback: IMFSourceReaderCallback = Callback {
@@ -153,8 +163,7 @@ pub(super) fn run(
 		reader
 			.SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)
 			.map_err(|_| UNAVAILABLE)?;
-		// ponytail: first camera, native VGA modes only; add selection/resizing when
-		// needed. Selecting native dimensions first bounds upstream decoder input.
+		// Native dimensions are selected first to bound upstream decoder input.
 		let mut selected = false;
 		for index in 0..256 {
 			let Ok(native) = reader.GetNativeMediaType(VIDEO, index) else {
@@ -169,7 +178,9 @@ pub(super) fn run(
 			}
 		}
 		if !selected {
-			return Err("The first Windows camera does not offer a supported 640×480 capture mode");
+			return Err(
+				"The selected Windows camera does not offer a supported 640×480 capture mode",
+			);
 		}
 		let output = MFCreateMediaType().map_err(|_| INVALID)?;
 		output
@@ -236,7 +247,7 @@ fn attributes(count: u32) -> Result<IMFAttributes, &'static str> {
 	attributes.ok_or(UNAVAILABLE)
 }
 
-fn first_camera() -> Result<Source, &'static str> {
+fn camera_sources() -> Result<Vec<IMFActivate>, &'static str> {
 	// SAFETY: MF owns the returned count-sized array of COM pointers. Release
 	// every activation and CoTaskMemFree the array, even when activation fails.
 	unsafe {
@@ -251,27 +262,92 @@ fn first_camera() -> Result<Source, &'static str> {
 		let mut count = 0;
 		MFEnumDeviceSources(&attributes, &mut devices, &mut count).map_err(|_| UNAVAILABLE)?;
 		if devices.is_null() {
-			return Err("No Windows camera is available");
+			return Ok(Vec::new());
 		}
 		let entries = std::slice::from_raw_parts_mut(devices, count as usize);
 		let result = entries
-			.first()
-			.and_then(Option::as_ref)
-			.ok_or("No Windows camera is available")
-			.and_then(|device| {
-				device
-					.SetUINT32(&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_MAX_BUFFERS, 1)
-					.map_err(|_| UNAVAILABLE)?;
-				device
-					.ActivateObject::<IMFMediaSource>()
-					.map(Source)
-					.map_err(|_| UNAVAILABLE)
-			});
+			.iter_mut()
+			.take(32)
+			.filter_map(Option::take)
+			.collect();
 		for entry in entries {
 			*entry = None;
 		}
 		CoTaskMemFree(Some(devices.cast()));
-		result
+		Ok(result)
+	}
+}
+
+fn device_string(device: &IMFActivate, key: &windows::core::GUID, limit: usize) -> Option<String> {
+	// SAFETY: Fixed-size destination; GetString verifies its capacity. No native allocation retained.
+	unsafe {
+		let mut buffer = [0u16; 4096];
+		let length = device.GetStringLength(key).ok()? as usize;
+		if length == 0 || length >= buffer.len() {
+			return None;
+		}
+		device
+			.GetString(key, &mut buffer[..length + 1], None)
+			.ok()?;
+		let value = String::from_utf16(&buffer[..length]).ok()?;
+		(value.len() <= limit && !value.contains('\0')).then_some(value)
+	}
+}
+
+fn device_id(device: &IMFActivate) -> Option<String> {
+	device_string(
+		device,
+		&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK,
+		4093,
+	)
+	.map(|id| format!("mf:{id}"))
+}
+
+pub(super) fn devices() -> Result<Vec<(String, String)>, &'static str> {
+	let _runtime = Runtime::open()?;
+	let mf = camera_sources();
+	let ds = directshow::devices();
+	if mf.is_err() && ds.is_err() {
+		return Err(UNAVAILABLE);
+	}
+	let mut devices: Vec<_> = mf
+		.unwrap_or_default()
+		.iter()
+		.filter_map(|device| {
+			Some((
+				device_id(device)?,
+				device_string(device, &MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, 256)?,
+			))
+		})
+		.collect();
+	// Keep backend identities distinct: virtual devices may share a friendly name.
+	devices.extend(
+		ds.unwrap_or_default()
+			.into_iter()
+			.take(32usize.saturating_sub(devices.len())),
+	);
+	Ok(devices)
+}
+
+fn selected_camera(
+	cameras: Vec<IMFActivate>,
+	selected: Option<&str>,
+) -> Result<Source, &'static str> {
+	let selected = cameras
+		.iter()
+		.find(|camera| selected.is_none_or(|id| device_id(camera).as_deref() == Some(id)))
+		.ok_or(
+			"Selected camera is disconnected or unavailable. Refresh cameras and choose another device.",
+		)?;
+	// SAFETY: Activation happens only on an explicit camera-on action; Source shuts down on drop.
+	unsafe {
+		selected
+			.SetUINT32(&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_MAX_BUFFERS, 1)
+			.map_err(|_| UNAVAILABLE)?;
+		selected
+			.ActivateObject::<IMFMediaSource>()
+			.map(Source)
+			.map_err(|_| UNAVAILABLE)
 	}
 }
 
@@ -398,6 +474,16 @@ fn rgb_rows(bytes: &[u8], first: usize, stride: i32) -> Result<Vec<u8>, &'static
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	#[ignore = "manual read-only device enumeration; never activates a camera"]
+	fn list_windows_camera_names_without_capture() {
+		let devices = devices().expect("camera enumeration");
+		assert!(devices.len() <= 32);
+		for (id, name) in devices {
+			assert!(id.len() <= 4096 && name.len() <= 256);
+			println!("Camera: {name}");
+		}
+	}
 	#[test]
 	fn rgb_rows_handle_padding_bottom_up_and_reject_invalid_bounds() {
 		let pitch = WIDTH * 4 + 8;

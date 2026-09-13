@@ -1143,6 +1143,9 @@ impl MessagingUi {
 				design::card(ui, |ui| self.voice_processing_controls(ui));
 			}
 		});
+		ui.add_space(8.0);
+		ui.label(design::eyebrow(ui, "Camera", colors.muted));
+		design::card(ui, |ui| self.camera_settings_content(ui, demo));
 		if active && let Some(code) = &self.voice_privacy_code {
 			egui::CollapsingHeader::new("Voice privacy code").show(ui, |ui| {
 				ui.add(
@@ -1168,6 +1171,87 @@ impl MessagingUi {
 				.color(colors.muted),
 			);
 		}
+	}
+
+	fn camera_settings_content(&mut self, ui: &mut egui::Ui, demo: bool) {
+		let colors = design::palette(ui);
+		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+		if !demo && !cfg!(target_os = "windows") {
+			ui.label("Camera selection is currently available on Windows. Other supported platforms use the default camera.");
+			return;
+		}
+		if demo && self.voice_cameras.is_empty() {
+			self.voice_cameras = vec![
+				(
+					"synthetic-integrated".into(),
+					"Integrated Camera (preview)".into(),
+				),
+				("synthetic-usb".into(), "USB Camera (preview)".into()),
+			];
+		}
+		if ui.is_enabled()
+			&& !demo && self.voice_camera_device_status.is_empty()
+			&& !self.voice_camera_devices_loading
+		{
+			self.voice_camera_device_status = "Looking for cameras...";
+			self.voice_refresh_cameras = true;
+			ui.ctx().request_repaint();
+		}
+		let label = ui.label(design::medium(ui, "Camera device", 15.0));
+		device_combo(
+			ui,
+			"voice-camera",
+			&self.voice_cameras,
+			&mut self.voice_camera_device,
+		)
+		.labelled_by(label.id);
+		if ui
+			.add_enabled(
+				!demo && !self.voice_camera_devices_loading,
+				egui::Button::new("Refresh cameras").small(),
+			)
+			.clicked()
+		{
+			self.voice_refresh_cameras = true;
+		}
+		if !self.voice_camera_device_status.is_empty() && !demo {
+			ui.label(
+				RichText::new(self.voice_camera_device_status)
+					.size(12.0)
+					.color(colors.muted),
+			);
+		}
+		ui.label(
+			RichText::new(if demo {
+				"Offline preview. These cameras are synthetic; capture is off."
+			} else {
+				"Changing devices stops your camera and takes effect the next time you turn it on."
+			})
+			.size(12.0)
+			.color(colors.muted),
+		);
+	}
+
+	fn camera_settings_popup(&mut self, trigger: &egui::Response, demo: bool) {
+		let id = trigger.id.with("camera-settings-open");
+		let mut open = trigger
+			.ctx
+			.data_mut(|data| *data.get_temp_mut_or_default::<bool>(id));
+		if trigger.clicked() {
+			open = !open;
+		}
+		let close_behavior = if egui::Popup::is_any_open(&trigger.ctx) {
+			egui::PopupCloseBehavior::IgnoreClicks
+		} else {
+			egui::PopupCloseBehavior::CloseOnClickOutside
+		};
+		egui::Popup::menu(trigger)
+			.open_bool(&mut open)
+			.style(|_: &mut egui::Style| {})
+			.width(300.0)
+			.close_behavior(close_behavior)
+			.show(|ui| self.camera_settings_content(ui, demo));
+		trigger.ctx.data_mut(|data| data.insert_temp(id, open));
 	}
 
 	fn voice_audio_controls(&mut self, ui: &mut egui::Ui) {
@@ -1476,10 +1560,20 @@ impl MessagingUi {
 					} else if !state.can_camera(channel) {
 						"Camera is unavailable with current channel permissions"
 					} else {
-						"Share your default camera with this call"
+						"Share your selected camera with this call"
 					},
 				)
 				.clicked();
+				let camera_settings = control(
+					ui,
+					crate::icons::Icon::ChevronDown,
+					28.0,
+					true,
+					STAGE_TEXT,
+					"Camera settings",
+					"Choose a camera",
+				);
+				self.camera_settings_popup(&camera_settings, state.demo);
 				self.screen_share_control(ui, state);
 				if focused {
 					let shown = self.voice_focus_participants;
@@ -1908,7 +2002,7 @@ impl MessagingUi {
 				let mut share_clicked = false;
 				ui.horizontal(|ui| {
 					ui.spacing_mut().item_spacing.x = 8.0;
-					let width = ((ui.available_width() - 2.0 * 8.0) / 3.0).max(32.0);
+					let width = ((ui.available_width() - 3.0 * 8.0 - 24.0) / 3.0).max(24.0);
 					camera_clicked = card_action(
 						ui,
 						width,
@@ -1933,10 +2027,17 @@ impl MessagingUi {
 						} else if !state.can_camera(channel_id) {
 							"Camera is unavailable with current channel permissions"
 						} else {
-							"Share your default camera with this call"
+							"Share your selected camera with this call"
 						},
 					)
 					.clicked();
+					let camera_settings = crate::icons::button(
+						ui,
+						crate::icons::Icon::ChevronDown,
+						24.0,
+						"Camera settings",
+					);
+					self.camera_settings_popup(&camera_settings, state.demo);
 					share_clicked = card_action(
 						ui,
 						width,
@@ -2073,7 +2174,7 @@ const TILE_GAP: f32 = 8.0;
 /// Height shared by every control, pill and the hang-up button in the call bar.
 const CONTROL_HEIGHT: f32 = 48.0;
 /// Mic, settings chevron, deafen, camera and screen share sit in one pill.
-const MEDIA_PILL: f32 = 220.0;
+const MEDIA_PILL: f32 = 248.0;
 const HANG_UP: f32 = 64.0;
 const BAR_GAP: f32 = 12.0;
 
@@ -2591,6 +2692,139 @@ fn device_combo(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn camera_settings_bound_layout_and_only_request_discovery_once() {
+		let mut disabled = MessagingUi::default();
+		egui::Context::default()
+			.run_ui(Default::default(), |ui| {
+				ui.add_enabled_ui(false, |ui| disabled.camera_settings_content(ui, false));
+			})
+			.drop_without_applying_deltas();
+		assert!(!disabled.voice_refresh_cameras);
+		assert!(disabled.voice_camera_device_status.is_empty());
+		for demo in [false, true] {
+			for theme in [egui::Theme::Dark, egui::Theme::Light] {
+				let ctx = egui::Context::default();
+				ctx.set_theme(theme);
+				let mut messaging = MessagingUi {
+					voice_cameras: vec![(
+						"synthetic-camera".into(),
+						"Long synthetic camera name ".repeat(20),
+					)],
+					voice_camera_device: Some("synthetic-camera".into()),
+					..Default::default()
+				};
+				for width in [240.0, 640.0] {
+					for frame in 0..2 {
+						let mut output = ctx.run_ui(
+							egui::RawInput {
+								screen_rect: Some(egui::Rect::from_min_size(
+									egui::Pos2::ZERO,
+									egui::vec2(width, 600.0),
+								)),
+								..Default::default()
+							},
+							|ui| {
+								let available = ui.available_width();
+								let content =
+									ui.scope(|ui| messaging.camera_settings_content(ui, demo));
+								assert!(content.response.rect.width() <= available + 1.0);
+							},
+						);
+						output.textures_delta.clear();
+						assert_eq!(
+							messaging.voice_camera_device.as_deref(),
+							Some("synthetic-camera")
+						);
+						assert_eq!(
+							messaging.voice_refresh_cameras,
+							!demo && cfg!(target_os = "windows") && width == 240.0 && frame == 0
+						);
+						assert!(messaging.voice_camera_preview.is_none());
+						messaging.voice_refresh_cameras = false;
+					}
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn camera_popup_selects_second_device_without_starting_capture() {
+		fn labels(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+			match shape {
+				egui::Shape::Text(text) => out.push((
+					text.galley.job.text.clone(),
+					text.galley.rect.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| labels(shape, out)),
+				_ => {}
+			}
+		}
+		let ctx = egui::Context::default();
+		let frame = |messaging: &mut MessagingUi, events: Vec<egui::Event>| {
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(640.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					let trigger = ui.button("Choose camera");
+					messaging.camera_settings_popup(&trigger, true);
+				},
+			);
+			output.textures_delta.clear();
+			let mut text = vec![];
+			for shape in output.shapes {
+				labels(&shape.shape, &mut text);
+			}
+			text
+		};
+		let click = |messaging: &mut MessagingUi, pos: egui::Pos2| {
+			for pressed in [true, false] {
+				frame(
+					messaging,
+					vec![
+						egui::Event::PointerMoved(pos),
+						egui::Event::PointerButton {
+							pos,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				);
+			}
+		};
+		let mut messaging = MessagingUi::default();
+		for label in ["Choose camera", "System default", "USB Camera (preview)"] {
+			frame(&mut messaging, vec![]);
+			let text = frame(&mut messaging, vec![]);
+			let pos = text
+				.iter()
+				.find(|(text, _)| text == label)
+				.unwrap_or_else(|| panic!("Missing control: {label}"))
+				.1
+				.center();
+			click(&mut messaging, pos);
+		}
+		assert_eq!(
+			messaging.voice_camera_device.as_deref(),
+			Some("synthetic-usb")
+		);
+		assert!(!messaging.voice_refresh_cameras);
+		assert!(messaging.voice_camera_preview.is_none());
+		assert!(
+			frame(&mut messaging, vec![])
+				.iter()
+				.any(|(text, _)| text == "Camera device"),
+			"Selecting a device keeps the parent camera popup open"
+		);
+	}
 
 	#[test]
 	fn solo_call_stages_show_both_local_previews_without_a_roster() {

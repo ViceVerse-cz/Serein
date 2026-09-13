@@ -1,5 +1,31 @@
 # Initial performance evidence
 
+## Windows camera selection and DirectShow fallback — September 13, 2026
+
+Baseline `67d82443f1653975f8a0f9132c31c8139f4be052` has identical runtime sources
+and dependency manifests to the verified `438278d` package retained from the
+keybinds task (`git diff 438278d 67d8244 -- apps crates Cargo.toml Cargo.lock` was
+empty before edits). Reused that verified package; no old unverified executable
+was treated as a baseline. Windows 11 Home 10.0.26200, Ryzen 7 7800X3D, Rust
+1.98.1 MSVC. Standard release packages include voice, exclude demo/developer
+features, and are unsigned. Separate full package copies and one PowerShell
+`Compress-Archive` per revision; measurements precede this report.
+
+| Metric (bytes) | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 68,877,824 | 68,986,368 | +108,544 (+0.158%) |
+| Full package | 142,036,909 | 142,148,872 | +111,963 (+0.079%) |
+| Compressed package | 82,130,844 | 82,171,135 | +40,291 (+0.049%) |
+
+The explicit read-only Windows enumeration check found three registered virtual
+cameras without activating any source. This is device-discovery evidence, not a
+capture benchmark. Synthetic tests cover selector interaction, disabled/demo
+discovery guards, RGB format/buffer bounds and aspect-preserving conversion.
+Native screenshots and UI interaction sampling remain unavailable because the
+Orca CLI is absent and native computer APIs are disabled. Actual capture, live
+Discord delivery, idle/active CPU and memory, display/renderer metrics and frame
+timing were not measured. No capture-performance improvement is claimed.
+
 ## Windows automatic startup — September 12, 2026
 
 Baseline `073f0d23adb85c37b9a3779bd30da05ff05d3480`; Windows 11 Home

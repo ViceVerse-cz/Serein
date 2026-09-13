@@ -301,13 +301,28 @@ UDP transport. No camera recording or cache is created; the codec is included on
 Video SSRC assignment, H264 selection and opcode 12 announcements follow the
 [public interoperability implementation](https://github.com/dank074/Discord-video-stream/blob/master/src/client/voice/BaseMediaConnection.ts)
 (checked September 11, 2026); these normal-user video extensions remain unofficial and
-live-unverified. This initial sender has no remote-video decoding, camera picker, adaptive
+live-unverified. This initial sender has no adaptive
 bitrate or RTP retransmission. Physical
 permission/device behavior, delivery to the official client and network-loss performance
 require the owner-controlled live gate; an offline launch does not establish those results.
 
-Windows uses the first enumerated camera and requires a native 640×480 mode that
-Media Foundation can convert to RGB32. Allow desktop camera access in Windows
+Windows exposes a camera picker in Voice & Audio settings and beside both call
+camera controls. Discovery runs on a worker without activating a camera. Up to
+32 device IDs (4 KiB each) and names (256 bytes each) are retained. The selected
+ID is session-local. Refresh discovers added/removed devices; a missing selected
+device is reported rather than silently opening another camera. Changing selection
+stops active capture and requires another camera-on click.
+
+Media Foundation devices use a native 640×480 mode convertible to RGB32.
+DirectShow discovery/capture additionally covers virtual cameras such as OBS and
+NVIDIA Broadcast, which may not appear in Media Foundation enumeration.
+Its native input is limited to 1920×1080, converted to RGB24 and fitted into
+640×480 with aspect-preserving nearest-neighbor scaling and black bars. It retains
+one callback frame (at most 8,294,400 bytes) and validates the negotiated input
+allocator against eight buffers of at most that size each. Vendor-driver and
+upstream decoder allocations remain separate from those application limits.
+Default selection falls back to DirectShow when Media Foundation lists no devices.
+Allow desktop camera access in Windows
 Settings > Privacy & security > Camera; Windows N may require the Media Feature
 Pack. Linux tries `/dev/video0` through `/dev/video63` and uses the first accessible
 progressive, single-plane 640×480 YUYV/MJPEG streaming camera. The session or sandbox
@@ -323,5 +338,8 @@ are separate from application queue limits and are not a measured whole-process 
 
 Windows uses the documented [asynchronous source reader](https://learn.microsoft.com/en-us/windows/win32/medfound/using-the-source-reader-in-asynchronous-mode)
 and [bounded 2D buffer locking](https://learn.microsoft.com/en-us/windows/win32/api/mfobjects/nf-mfobjects-imf2dbuffer2-lock2dsize).
+The virtual-camera fallback uses the documented DirectShow
+[device enumerator](https://learn.microsoft.com/en-us/windows/win32/directshow/selecting-a-capture-device)
+and [sample grabber](https://learn.microsoft.com/en-us/windows/win32/directshow/using-the-sample-grabber).
 Linux follows the kernel's [V4L2 capture interface](https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/capture.c.html).
 Both feed the existing camera transport; no Discord wire behavior changed in this extension.

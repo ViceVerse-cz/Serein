@@ -102,12 +102,14 @@ pub struct Voice {
 	screen: crate::screen::Screen,
 	watch: crate::watch::Watch,
 	camera: Option<discord_voice::camera::Camera>,
+	camera_device: Option<String>,
 	camera_generation: u64,
 	camera_preview: Option<std::sync::Arc<std::sync::Mutex<Option<egui::ColorImage>>>>,
 	pending: Option<Pending>,
 	live: Option<Live>,
 	retiring: Option<mpsc::Receiver<()>>,
 	device_scan: Option<mpsc::Receiver<Result<discord_voice::audio::DeviceList, &'static str>>>,
+	camera_scan: Option<mpsc::Receiver<Result<discord_voice::camera::DeviceList, &'static str>>>,
 }
 impl Voice {
 	pub fn stop(&mut self) {
@@ -294,6 +296,7 @@ impl Voice {
 	) -> Option<Command> {
 		self.reap();
 		ui.voice_speaking.clear();
+		self.poll_camera_devices(state.demo, ui, ctx);
 		if ui.voice_refresh_devices {
 			ui.voice_refresh_devices = false;
 			if !state.demo && self.device_scan.is_none() {
@@ -603,6 +606,58 @@ impl Voice {
 		self.watch
 			.poll(runtime, state, ui, ctx, watched, stream_audio)
 	}
+	fn poll_camera_devices(&mut self, demo: bool, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
+		if demo {
+			ui.voice_refresh_cameras = false;
+			ui.voice_camera_devices_loading = false;
+			self.camera_scan = None;
+			return;
+		}
+		if std::mem::take(&mut ui.voice_refresh_cameras) && self.camera_scan.is_none() {
+			let (send, receive) = mpsc::sync_channel(1);
+			let wake = ctx.clone();
+			match std::thread::Builder::new()
+				.name("camera-devices".into())
+				.spawn(move || {
+					let result = std::panic::catch_unwind(discord_voice::camera::devices)
+						.unwrap_or(Err("Camera device discovery failed"));
+					let _ = send.send(result);
+					wake.request_repaint();
+				}) {
+				Ok(_) => {
+					self.camera_scan = Some(receive);
+					ui.voice_camera_devices_loading = true;
+					ui.voice_camera_device_status = "Looking for cameras…";
+				}
+				Err(_) => ui.voice_camera_device_status = "Could not start camera device discovery",
+			}
+		}
+		if let Some(scan) = &self.camera_scan {
+			match scan.try_recv() {
+				Ok(result) => {
+					ui.voice_camera_device_status = match result {
+						Ok(devices) => {
+							ui.voice_cameras = devices;
+							if ui.voice_cameras.is_empty() {
+								"No cameras found. Check the camera connection or virtual camera installation, then refresh."
+							} else {
+								"Cameras loaded"
+							}
+						}
+						Err(error) => error,
+					};
+					self.camera_scan = None;
+					ui.voice_camera_devices_loading = false;
+				}
+				Err(mpsc::TryRecvError::Disconnected) => {
+					ui.voice_camera_device_status = "Camera device discovery stopped";
+					ui.voice_camera_devices_loading = false;
+					self.camera_scan = None;
+				}
+				Err(mpsc::TryRecvError::Empty) => {}
+			}
+		}
+	}
 	fn poll_camera(
 		&mut self,
 		state: &mut State,
@@ -616,6 +671,13 @@ impl Voice {
 				.as_ref()
 				.is_some_and(|live| live.camera_negotiated);
 		let requested = state.voice.active.as_ref().is_some_and(|call| call.camera);
+		if requested && self.camera.is_some() && self.camera_device != ui.voice_camera_device {
+			self.stop_camera();
+			ui.voice_camera_preview = None;
+			ui.voice_camera_status =
+				"Camera device changed. Turn on the camera to use the selected device.";
+			return state.set_call_camera(false);
+		}
 		let preview_allowed = camera_preview_allowed(state);
 		let error = self.camera.as_ref().and_then(|camera| camera.error());
 		if !requested || !preview_allowed || !ui.voice_camera_available || error.is_some() {
@@ -662,10 +724,12 @@ impl Voice {
 			});
 			let wake = ctx.clone();
 			match discord_voice::camera::Camera::start(
+				ui.voice_camera_device.clone(),
 				on_frame,
 				std::sync::Arc::new(move || wake.request_repaint()),
 			) {
 				Ok(camera) => {
+					self.camera_device = ui.voice_camera_device.clone();
 					self.camera = Some(camera);
 					self.camera_preview = Some(receive);
 					ui.voice_camera_status = "Opening camera…";
@@ -872,6 +936,41 @@ fn camera_preview_allowed(state: &State) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	#[allow(clippy::field_reassign_with_default)] // MessagingUi has private fields in another crate.
+	fn camera_discovery_updates_selection_without_starting_capture_and_demo_does_not_scan() {
+		let mut voice = Voice::default();
+		let mut ui = ui::MessagingUi::default();
+		ui.voice_refresh_cameras = true;
+		let ctx = egui::Context::default();
+		voice.poll_camera_devices(true, &mut ui, &ctx);
+		assert!(voice.camera_scan.is_none() && !ui.voice_refresh_cameras);
+		let (send, receive) = mpsc::sync_channel(1);
+		voice.camera_scan = Some(receive);
+		ui.voice_camera_devices_loading = true;
+		ui.voice_camera_device = Some("dshow:second".into());
+		send.send(Ok(vec![
+			("dshow:first".into(), "First camera".into()),
+			("dshow:second".into(), "Second camera".into()),
+		]))
+		.unwrap();
+		voice.poll_camera_devices(false, &mut ui, &ctx);
+		assert_eq!(ui.voice_cameras.len(), 2);
+		assert_eq!(ui.voice_camera_device.as_deref(), Some("dshow:second"));
+		assert!(!ui.voice_camera_devices_loading);
+		assert!(voice.camera.is_none() && voice.camera_scan.is_none());
+		let (send, receive) = mpsc::sync_channel(1);
+		voice.camera_scan = Some(receive);
+		send.send(Ok(vec![])).unwrap();
+		voice.poll_camera_devices(true, &mut ui, &ctx);
+		assert_eq!(
+			ui.voice_cameras.len(),
+			2,
+			"Demo must not consume a real device scan"
+		);
+		assert!(voice.camera_scan.is_none());
+	}
 	#[test]
 	fn local_camera_survives_peer_rekeys_but_requires_join_and_permission() {
 		for mut state in [

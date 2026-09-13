@@ -34,13 +34,15 @@ Apple Color Emoji was visually checked with a synthetic moon status on September
 
 ## Camera capture (September 12, 2026)
 
-Outgoing in-call capture uses AVFoundation on macOS, Media Foundation on Windows,
+Outgoing in-call capture uses AVFoundation on macOS, Media Foundation and DirectShow on Windows,
 and V4L2 on Linux. The existing camera button becomes available after the voice
 server negotiates H264; capture starts only after an explicit click in a connected
-call. All adapters require 640×480 capture and send at most 15 encoded frames/s.
+call. All adapters send 640×480 video at most 15 encoded frames/s.
 Windows needs desktop camera permission; Linux needs an accessible streaming
 `/dev/videoN` node supporting progressive YUYV or MJPEG. Linux portal-only camera
-access and camera selection are not implemented. See [camera limits and validation](voice.md#camera-in-calls-macos-windows-and-linux).
+access is not implemented. Windows has a device picker in settings and call controls,
+including DirectShow virtual cameras; macOS/Linux still use their default selection.
+See [camera limits and validation](voice.md#camera-in-calls-macos-windows-and-linux).
 Windows compilation and isolated Linux adapter tests do not establish working
 physical capture or delivery to an official Discord client; these remain unverified.
 
