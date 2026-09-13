@@ -38,7 +38,19 @@ fn channel_result(bytes: &[u8], guild: Id, channel: Option<Id>) -> Result<Outcom
 	let value = channel_value(bytes, guild, channel)?;
 	let dto: discord_protocol::ChannelDto =
 		discord_protocol::decode(bytes).map_err(|_| Failure::Protocol)?;
-	let overwrites = value
+	let overwrites = overwrites_from_value(&value)?;
+	let metadata = overwrites.map(|overwrites| permissions::Channel {
+		id: dto.id,
+		guild,
+		overwrites: Some(overwrites),
+	});
+	Ok(Outcome::Channel {
+		channel: Box::new(dto.into_model()),
+		permissions: metadata,
+	})
+}
+fn overwrites_from_value(value: &Value) -> Result<Option<Vec<permissions::Overwrite>>, Failure> {
+	value
 		.get("permission_overwrites")
 		.map(|rows| {
 			let rows = rows
@@ -74,19 +86,11 @@ fn channel_result(bytes: &[u8], guild: Id, channel: Option<Id>) -> Result<Outcom
 			}
 			Ok(result)
 		})
-		.transpose()?;
-	let metadata = overwrites.map(|overwrites| permissions::Channel {
-		id: dto.id,
-		guild,
-		overwrites: Some(overwrites),
-	});
-	Ok(Outcome::Channel {
-		channel: Box::new(dto.into_model()),
-		permissions: metadata,
-	})
+		.transpose()
 }
 fn edit_from_value(value: &Value) -> Result<Edit, Failure> {
 	let edit = Edit {
+		overwrites: overwrites_from_value(value)?.ok_or(Failure::Protocol)?,
 		name: value["name"].as_str().ok_or(Failure::Protocol)?.to_owned(),
 		topic: match value.get("topic") {
 			None | Some(Value::Null) => String::new(),
@@ -173,18 +177,24 @@ impl DiscordApi {
 		channel_result(&bytes, guild, Some(channel))?;
 		let (method, path, body) = match action {
 			Action::Load => {
-				if !matches!(source["type"].as_u64(), Some(0 | 5)) {
-					return Err(Failure::Protocol);
-				}
 				return edit_from_value(&source).map(Outcome::Details);
 			}
 			Action::Edit { before, after } => {
-				if !matches!(source["type"].as_u64(), Some(0 | 5)) {
-					return Err(Failure::Protocol);
-				}
 				let current = edit_from_value(&source)?;
 				let mut body = json!({});
-				if (before.name != after.name && current.name != before.name)
+				if before.topic != after.topic && after.topic.chars().count() > 1024 {
+					return Err(Failure::Protocol);
+				}
+				if !matches!(source["type"].as_u64(), Some(0 | 5))
+					&& (before.topic != after.topic
+						|| before.slowmode != after.slowmode
+						|| before.nsfw != after.nsfw)
+				{
+					return Err(Failure::Protocol);
+				}
+				if (before.overwrites != after.overwrites
+					&& current.overwrites != before.overwrites)
+					|| (before.name != after.name && current.name != before.name)
 					|| (before.topic != after.topic && current.topic != before.topic)
 					|| (before.slowmode != after.slowmode && current.slowmode != before.slowmode)
 					|| (before.nsfw != after.nsfw && current.nsfw != before.nsfw)
@@ -192,6 +202,11 @@ impl DiscordApi {
 					return Err(Failure::ProtocolAt(
 						"Channel settings changed; reopen the editor before saving",
 					));
+				}
+				if before.overwrites != after.overwrites {
+					body["permission_overwrites"] = Value::Array(after.overwrites.iter().map(|row| {
+						json!({"id":row.id.to_string(),"type":row.kind,"allow":row.allow.to_string(),"deny":row.deny.to_string()})
+					}).collect());
 				}
 				if before.name != after.name {
 					body["name"] = after.name.clone().into();
@@ -263,6 +278,23 @@ impl DiscordApi {
 		}
 		let expected = matches!(action, Action::Edit { .. }).then_some(channel);
 		let outcome = channel_result(&bytes, guild, expected).map_err(write_failure)?;
+		if let Action::Edit { before, after } = action
+			&& before.overwrites != after.overwrites
+		{
+			let confirmed = match &outcome {
+				Outcome::Channel { permissions, .. } => permissions
+					.as_ref()
+					.and_then(|p| p.overwrites.as_ref())
+					.is_some_and(|rows| {
+						rows.len() == after.overwrites.len()
+							&& after.overwrites.iter().all(|row| rows.contains(row))
+					}),
+				_ => false,
+			};
+			if !confirmed {
+				return Err(Failure::Ambiguous);
+			}
+		}
 		if let Outcome::Channel {
 			channel: created, ..
 		} = &outcome
@@ -469,16 +501,71 @@ mod tests {
 				topic: "stale topic".into(),
 				slowmode: 30,
 				nsfw: true,
+				overwrites: edit_from_value(&source()).unwrap().overwrites,
 			},
 			after: Edit {
 				name: "rename".into(),
 				topic: "stale topic".into(),
 				slowmode: 30,
 				nsfw: true,
+				overwrites: edit_from_value(&source()).unwrap().overwrites,
 			},
 		};
 		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &edit), server);
 		assert!(matches!(result, Err(Failure::Ambiguous)));
+		let mut category = source();
+		category["type"] = 4.into();
+		category["permission_overwrites"][0]["allow"] = (1_u128 << 100).to_string().into();
+		let before = edit_from_value(&category).unwrap();
+		let mut after = before.clone();
+		after.overwrites[0].deny |= permissions::SEND_MESSAGES;
+		let edit = Action::Edit {
+			before: before.clone(),
+			after: after.clone(),
+		};
+		let server = async {
+			reply(&listener, "GET /channels/3 HTTP/1.1", 200, category.clone()).await;
+			let mut saved = category.clone();
+			saved["permission_overwrites"][0]["deny"] = after.overwrites[0].deny.to_string().into();
+			saved["permission_overwrites"]
+				.as_array_mut()
+				.unwrap()
+				.reverse();
+			let body = reply(&listener, "PATCH /channels/3 HTTP/1.1", 200, saved).await;
+			assert_eq!(body.as_object().unwrap().len(), 1);
+			assert_eq!(
+				body["permission_overwrites"][0]["allow"],
+				(1_u128 << 100).to_string()
+			);
+			assert_eq!(
+				body["permission_overwrites"][1],
+				category["permission_overwrites"][1]
+			);
+		};
+		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &edit), server);
+		assert!(result.is_ok());
+		for missing in [false, true] {
+			let server = async {
+				reply(&listener, "GET /channels/3 HTTP/1.1", 200, category.clone()).await;
+				let mut response = category.clone();
+				if missing {
+					response
+						.as_object_mut()
+						.unwrap()
+						.remove("permission_overwrites");
+				}
+				reply(&listener, "PATCH /channels/3 HTTP/1.1", 200, response).await;
+			};
+			let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &edit), server);
+			assert!(matches!(result, Err(Failure::Ambiguous)));
+		}
+		let server = async {
+			let mut changed = category.clone();
+			changed["permission_overwrites"][1]["deny"] = "64".into();
+			reply(&listener, "GET /channels/3 HTTP/1.1", 200, changed).await;
+		};
+		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &edit), server);
+		assert!(matches!(result, Err(Failure::ProtocolAt(_))));
 		let server = async {
 			let mut wrong = source();
 			wrong["guild_id"] = "99".into();

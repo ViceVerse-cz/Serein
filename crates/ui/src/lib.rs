@@ -12,6 +12,7 @@ mod avatars;
 pub use avatars::{EMBED_EDGE, GifFrames, LARGE_EDGE, fit_edge};
 mod categories;
 mod channel_menu;
+mod channel_permissions;
 #[cfg(test)]
 mod channel_welcome_tests;
 mod composer_text;

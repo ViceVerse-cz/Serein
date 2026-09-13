@@ -27,6 +27,20 @@ Duplication reads current settings and permission overwrites first; creating und
 a category copies that category's overwrites. Admin actions require known View
 Channel and Manage Channels permissions and surface server rejection.
 
+Category/channel permissions (September 14): Edit Category and Edit Channel expose
+Overview and Permissions for text, announcement, voice, stage, category, forum and
+media channels. Category/nontext overview edits rename only. Permission saves use
+the documented bulk channel PATCH and additionally require Manage Roles
+(Manage Permissions in the UI). Grantable bits are checked before dispatch; the
+service remains authoritative. Private controls edit the @everyone View Channel
+overwrite, and advanced controls edit individual role/member allow/deny bits.
+Unknown bits and untouched overwrites are retained. A fresh GET rejects conflicting
+overwrite snapshots before saving. Discord's documented
+[category syncing](https://docs.discord.com/developers/topics/permissions#permission-syncing)
+applies to already-synced children; this client does not rewrite unsynced children.
+Member suggestions use the loaded member window, with explicit member ID entry
+for other members. Live permission changes and category propagation are unverified.
+
 Mute durations and notification overrides use the existing unofficial
 `PATCH /users/@me/guilds/{guild}/settings` route. Channel mute expiry is decoded from
 service settings; newer permanent mutes replace earlier timers. Edits send only

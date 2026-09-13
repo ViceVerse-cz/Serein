@@ -18,15 +18,20 @@ pub fn execute(
 		.channel(channel)
 		.ok_or(Failure::Forbidden)
 		.map(|source| match action {
-			Action::Load => Outcome::Details(
-				state
-					.channel_details(channel)
-					.cloned()
-					.unwrap_or_else(|| Edit {
+			Action::Load => {
+				Outcome::Details(state.channel_details(channel).cloned().unwrap_or_else(|| {
+					Edit {
 						name: source.name.clone(),
+						overwrites: state
+							.permissions
+							.channels
+							.get(&channel)
+							.and_then(|p| p.overwrites.clone())
+							.unwrap_or_default(),
 						..Edit::default()
-					}),
-			),
+					}
+				}))
+			}
 			Action::Delete => Outcome::Deleted,
 			Action::Mute(mute) => Outcome::Preferences {
 				muted: Some(mute != Mute::Unmute),
@@ -66,8 +71,12 @@ pub fn execute(
 						source.parent_id
 					};
 				}
+				let mut edited_overwrites = None;
 				match action {
-					Action::Edit { after, .. } => updated.name = after.name,
+					Action::Edit { after, .. } => {
+						updated.name = after.name;
+						edited_overwrites = Some(after.overwrites);
+					}
 					Action::Duplicate { name } | Action::CreateText { name } => {
 						*next_id += 1;
 						updated.id = Id(*next_id);
@@ -82,10 +91,12 @@ pub fn execute(
 					permissions: Some(model::permissions::Channel {
 						id: updated.id,
 						guild,
-						overwrites: permission_source
-							.and_then(|id| state.permissions.channels.get(&id))
-							.and_then(|p| p.overwrites.clone())
-							.or(Some(vec![])),
+						overwrites: edited_overwrites.or_else(|| {
+							permission_source
+								.and_then(|id| state.permissions.channels.get(&id))
+								.and_then(|p| p.overwrites.clone())
+								.or(Some(vec![]))
+						}),
 					}),
 					channel: Box::new(updated),
 				}

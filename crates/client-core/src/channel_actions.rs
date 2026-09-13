@@ -5,7 +5,7 @@ use crate::{
 };
 use model::{
 	Id, Patch,
-	permissions::{MANAGE_CHANNELS, VIEW_CHANNEL},
+	permissions::{MANAGE_CHANNELS, MANAGE_ROLES, VIEW_CHANNEL},
 };
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -14,18 +14,29 @@ pub struct Edit {
 	pub topic: String,
 	pub slowmode: u32,
 	pub nsfw: bool,
+	pub overwrites: Vec<model::permissions::Overwrite>,
 }
 impl Edit {
 	pub fn valid(&self) -> bool {
 		valid_name(&self.name)
 			&& self.name.capacity() <= 400
-			&& self.topic.chars().count() <= 1024
-			&& self.topic.capacity() <= 4096
+			&& self.topic.chars().count() <= 4096
+			&& self.topic.capacity() <= 16384
 			&& self.slowmode <= 21600
 			&& !self.topic.contains('\0')
+			&& self.overwrites.capacity() <= model::permissions::MAX_OVERWRITES
+			&& self.overwrites.iter().enumerate().all(|(index, row)| {
+				row.id.0 != 0
+					&& row.kind <= 1
+					&& !self.overwrites[..index]
+						.iter()
+						.any(|other| other.id == row.id)
+			})
 	}
 	pub fn bytes(&self) -> usize {
-		self.name.capacity() + self.topic.capacity()
+		self.name.capacity()
+			+ self.topic.capacity()
+			+ self.overwrites.capacity() * size_of::<model::permissions::Overwrite>()
 	}
 }
 pub fn valid_name(name: &str) -> bool {
@@ -125,6 +136,114 @@ impl State {
 			.is_some_and(|c| c.guild.is_some() && matches!(c.kind, 0 | 2 | 4 | 5 | 13 | 15 | 16))
 			&& self.permission(channel, VIEW_CHANNEL | MANAGE_CHANNELS) == Some(true)
 	}
+	pub fn can_manage_channel_permissions(&self, channel: Id) -> bool {
+		self.can_manage_channel(channel) && self.permission(channel, MANAGE_ROLES) == Some(true)
+	}
+	pub fn can_open_channel_settings(&self, channel: Id) -> bool {
+		self.can_manage_channel(channel)
+	}
+	pub fn can_edit_channel_permission(&self, channel: Id, bits: u128) -> bool {
+		if !self.can_manage_channel_permissions(channel) {
+			return false;
+		}
+		let Some(source) = self.channel(channel) else {
+			return false;
+		};
+		let Some(guild) = source.guild.and_then(|id| self.permissions.guilds.get(&id)) else {
+			return false;
+		};
+		let Some(user) = self.user.as_ref().map(|u| u.id) else {
+			return false;
+		};
+		// Discord permits guild/parent bits, or any bit when the actor has an
+		// applicable MANAGE_ROLES channel overwrite. Existing unknown bits stay intact.
+		let elevated = self
+			.permissions
+			.channels
+			.get(&channel)
+			.and_then(|c| c.overwrites.as_ref())
+			.is_some_and(|rows| {
+				rows.iter().any(|row| {
+					row.allow & MANAGE_ROLES != 0
+						&& match row.kind {
+							0 => {
+								row.id == guild.id
+									|| guild
+										.member
+										.as_ref()
+										.is_some_and(|m| m.roles.contains(&row.id))
+							}
+							1 => row.id == user,
+							_ => false,
+						}
+				})
+			});
+		if elevated {
+			return true;
+		}
+		let now = Self::permission_time();
+		let Some(mut available) = model::permissions::effective(guild, user, Some(&[]), now) else {
+			return false;
+		};
+		if let Some(parent) = source
+			.parent_id
+			.and_then(|id| self.channel(id))
+			.filter(|p| p.guild == Some(guild.id) && p.kind == 4)
+			&& let Some(overwrites) = self
+				.permissions
+				.channels
+				.get(&parent.id)
+				.filter(|p| p.guild == guild.id)
+				.and_then(|p| p.overwrites.as_deref())
+			&& let Some(parent_bits) =
+				model::permissions::effective(guild, user, Some(overwrites), now)
+		{
+			available |= parent_bits;
+		}
+		available & bits == bits
+	}
+	fn channel_edit_allowed(&self, channel: Id, before: &Edit, after: &Edit) -> bool {
+		let overview = before.name != after.name
+			|| before.topic != after.topic
+			|| before.slowmode != after.slowmode
+			|| before.nsfw != after.nsfw;
+		if before.topic != after.topic && after.topic.chars().count() > 1024 {
+			return false;
+		}
+		if overview && !self.can_manage_channel(channel) {
+			return false;
+		}
+		if (before.topic != after.topic
+			|| before.slowmode != after.slowmode
+			|| before.nsfw != after.nsfw)
+			&& !self
+				.channel(channel)
+				.is_some_and(|c| matches!(c.kind, 0 | 5))
+		{
+			return false;
+		}
+		if before.overwrites != after.overwrites {
+			if !self.can_manage_channel_permissions(channel) {
+				return false;
+			}
+			for row in before.overwrites.iter().chain(&after.overwrites) {
+				let old = before
+					.overwrites
+					.iter()
+					.find(|o| o.id == row.id && o.kind == row.kind);
+				let new = after
+					.overwrites
+					.iter()
+					.find(|o| o.id == row.id && o.kind == row.kind);
+				let changed = old.map_or(0, |o| o.allow) ^ new.map_or(0, |o| o.allow)
+					| (old.map_or(0, |o| o.deny) ^ new.map_or(0, |o| o.deny));
+				if !self.can_edit_channel_permission(channel, changed) {
+					return false;
+				}
+			}
+		}
+		self.can_open_channel_settings(channel)
+	}
 	pub fn channel_action_pending(&self) -> bool {
 		self.channel_actions.pending.is_some()
 	}
@@ -132,7 +251,7 @@ impl State {
 		self.channel_actions
 			.details
 			.as_ref()
-			.filter(|(id, _)| *id == channel && self.can_manage_channel(channel))
+			.filter(|(id, _)| *id == channel && self.can_open_channel_settings(channel))
 			.map(|(_, edit)| edit)
 	}
 	pub fn channel_action_status(&self, channel: Id) -> Option<&'static str> {
@@ -165,10 +284,14 @@ impl State {
 		let personal = matches!(action, Action::Mute(_) | Action::Notifications(_));
 		if !action.valid()
 			|| !self.can_view(channel)
-			|| (!personal && !self.can_manage_channel(channel))
-			|| (matches!(action, Action::Edit { .. } | Action::Load)
-				&& !matches!(source.kind, 0 | 5))
-		{
+			|| (!personal
+				&& !match &action {
+					Action::Load => self.can_open_channel_settings(channel),
+					Action::Edit { before, after } => {
+						self.channel_edit_allowed(channel, before, after)
+					}
+					_ => self.can_manage_channel(channel),
+				}) {
 			self.channel_actions.status =
 				Some((channel, "Channel action unavailable or invalid", false));
 			return None;
@@ -319,7 +442,7 @@ impl State {
 				return Ok(());
 			}
 			Ok(Outcome::Details(edit)) => {
-				if self.can_manage_channel(channel) && !observed {
+				if self.can_open_channel_settings(channel) && !observed {
 					self.channel_actions.details = Some((channel, edit));
 				} else {
 					self.channel_actions.status = Some((
@@ -337,12 +460,15 @@ impl State {
 				let creating =
 					matches!(action, Action::Duplicate { .. } | Action::CreateText { .. });
 				if self.guild(guild).is_some()
-					&& self.can_manage_channel(channel)
 					&& (if creating {
-						self.channel(updated.id).is_none()
+						self.can_manage_channel(channel)
 					} else {
-						!observed
-					}) {
+						self.can_open_channel_settings(channel)
+					}) && (if creating {
+					self.channel(updated.id).is_none()
+				} else {
+					!observed
+				}) {
 					let target = updated.id;
 					self.apply(crate::Envelope {
 						generation: self.generation,
@@ -360,7 +486,7 @@ impl State {
 					}
 				}
 				if self.demo
-					&& !observed && self.can_manage_channel(channel)
+					&& !observed && self.can_open_channel_settings(channel)
 					&& let Action::Edit { after, .. } = &action
 				{
 					self.channel_actions.details = Some((channel, after.clone()));
@@ -474,6 +600,123 @@ mod tests {
 			}),
 		});
 	}
+	#[test]
+	fn category_settings_preserve_overwrites_and_separate_edit_permissions() {
+		let mut state = state();
+		state.channels[0].kind = 4;
+		let before = Edit {
+			name: "Category".into(),
+			overwrites: vec![model::permissions::Overwrite {
+				id: Id(2),
+				kind: 0,
+				allow: 1 << 100,
+				deny: 0,
+			}],
+			..Edit::default()
+		};
+		let load = state.request_channel_action(Id(3), Action::Load).unwrap();
+		finish(&mut state, load, Ok(Outcome::Details(before.clone())));
+		let after = Edit {
+			name: "Renamed".into(),
+			..before.clone()
+		};
+		assert!(
+			state
+				.request_channel_action(
+					Id(3),
+					Action::Edit {
+						before: before.clone(),
+						after
+					}
+				)
+				.is_some()
+		);
+		state.cancel_channel_action();
+		let load = state.request_channel_action(Id(3), Action::Load).unwrap();
+		finish(&mut state, load, Ok(Outcome::Details(before.clone())));
+		assert_eq!(
+			state.channel_details(Id(3)).unwrap().overwrites,
+			before.overwrites
+		);
+		let guild = state.permissions.guilds.get_mut(&Id(2)).unwrap();
+		guild.owner = Some(Id(99));
+		guild.roles = Some(vec![model::permissions::Role {
+			id: Id(2),
+			name: String::new(),
+			color: 0,
+			position: 0,
+			hoist: false,
+			bits: VIEW_CHANNEL | MANAGE_ROLES,
+		}]);
+		guild.member = Some(model::permissions::Member {
+			roles: vec![],
+			timeout_until: None,
+		});
+		state.permissions.clear_cache();
+		assert!(!state.can_manage_channel(Id(3)));
+		assert!(!state.can_open_channel_settings(Id(3)));
+		assert!(!state.can_edit_channel_permission(Id(3), VIEW_CHANNEL));
+		state
+			.permissions
+			.guilds
+			.get_mut(&Id(2))
+			.unwrap()
+			.roles
+			.as_mut()
+			.unwrap()[0]
+			.bits |= MANAGE_CHANNELS;
+		state.permissions.clear_cache();
+		assert!(state.can_open_channel_settings(Id(3)));
+		assert!(state.can_edit_channel_permission(Id(3), VIEW_CHANNEL));
+		assert!(state.can_edit_channel_permission(Id(3), 0));
+		assert!(!state.can_edit_channel_permission(Id(3), model::permissions::MANAGE_GUILD));
+		let mut after = before.clone();
+		after.topic = "Unsupported category topic".into();
+		assert!(
+			state
+				.request_channel_action(
+					Id(3),
+					Action::Edit {
+						before: before.clone(),
+						after
+					}
+				)
+				.is_none()
+		);
+		let mut after = before.clone();
+		after.overwrites[0].deny |= VIEW_CHANNEL;
+		assert!(
+			state
+				.request_channel_action(
+					Id(3),
+					Action::Edit {
+						before: before.clone(),
+						after: after.clone()
+					}
+				)
+				.is_some()
+		);
+		state.cancel_channel_action();
+		let load = state.request_channel_action(Id(3), Action::Load).unwrap();
+		finish(&mut state, load, Ok(Outcome::Details(before.clone())));
+		let mut stale = before.clone();
+		stale.overwrites[0].allow = 0;
+		assert!(
+			state
+				.request_channel_action(
+					Id(3),
+					Action::Edit {
+						before: stale,
+						after
+					}
+				)
+				.is_none()
+		);
+		let mut invalid = before;
+		invalid.overwrites.push(invalid.overwrites[0]);
+		assert!(!invalid.valid());
+	}
+
 	#[test]
 	fn channel_writes_check_access_bounds_queue_failure_and_stale_completions() {
 		let mut state = state();

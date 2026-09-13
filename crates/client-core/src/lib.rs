@@ -48,7 +48,7 @@ pub const MAX_NAV: usize = 4000;
 pub const MAX_MEMBER_PRESENCE_BYTES: usize = 128 * 1024;
 pub const MAX_EVENT_BYTES: usize = 4 * 1024 * 1024;
 pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 MiB byte budget.
-pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM settings <=33 KiB; group icon <=350 KiB
+pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM settings <=33 KiB; channel edit <=128 KiB; group icon <=350 KiB
 
 pub enum Command {
 	MessagingPermissions {
