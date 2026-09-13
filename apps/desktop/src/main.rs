@@ -679,6 +679,15 @@ impl Desktop {
 					.any(|arg| matches!(arg.as_str(), "--demo-call" | "--demo-call-stream"))
 				{
 					test_support::call_demo_state()
+				} else if std::env::args().any(|arg| {
+					matches!(
+						arg.as_str(),
+						"--demo-empty-channel" | "--demo-empty-channel-long"
+					)
+				}) {
+					test_support::empty_channel_demo_state(
+						std::env::args().any(|arg| arg == "--demo-empty-channel-long"),
+					)
 				} else if std::env::args().any(|arg| arg == "--demo-chat") {
 					test_support::chat_demo_state()
 				} else {

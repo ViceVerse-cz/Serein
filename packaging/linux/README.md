@@ -1,4 +1,60 @@
-# Debian / Ubuntu packages
+# Linux packages
+
+Release builds provide native packages for Ubuntu 26.04 (`apt`), Fedora 44 (`dnf`),
+openSUSE Tumbleweed (`zypper`) and Arch (`pacman`), plus a
+[Flatpak bundle](../flatpak/README.md) for distributions with a compatible Flatpak runtime.
+Download the file labelled for your distribution from
+[Releases](https://github.com/ViceVerse-cz/Serein/releases), then use its actual filename:
+
+```sh
+sudo apt install ./serein-*.deb                     # Ubuntu 26.04
+sudo dnf install ./serein-*.fc44.*.rpm              # Fedora 44
+sudo zypper install ./serein-*.suse.*.rpm           # openSUSE Tumbleweed
+sudo pacman -U ./serein-*.pkg.tar.zst               # Arch
+flatpak install --user ./serein-*.flatpak           # Flatpak bundle
+```
+
+Use a directory containing only the selected package. Local build artifacts are
+unsigned; package-manager signature policy may require an operator-signed package.
+The [signed repository setup](../repositories/README.md) prepares apt, dnf/zypper
+and pacman repositories for normal package-manager upgrades. Hosting and signing
+credentials must be configured before those repository URLs are usable. Serein is
+not listed in distribution archives, AUR or Flathub by this change.
+
+## Native builds
+
+Build on the target distribution; converting an Ubuntu binary to RPM or Arch does
+not make its shared libraries compatible. The release workflow builds each format
+inside its matching distribution container, as an unprivileged user. CI currently
+targets x86_64; native Debian/RPM staging also validates aarch64 ELF headers.
+
+```sh
+cargo xtask package --format deb    # Debian/Ubuntu; also the default Linux format
+cargo xtask package --format rpm    # Fedora or openSUSE
+cargo xtask package --format arch   # Arch; makepkg must run without root
+cargo xtask package --format dir    # dist/linux-root/usr, for the Flatpak SDK build
+```
+
+`install-build-deps.sh` installs build dependencies as root on the explicitly
+supported CI distributions. It is intended for fresh build containers. Normal
+packaging runs without root and never installs or starts Serein. RPM uses
+`rpmbuild` dependency generation; Arch derives native library package dependencies
+from the host package database and uses `makepkg`. Both inspect package metadata,
+payload contents/permissions and the native executable's library closure. Runtime
+Vulkan/EGL, Wayland/X11, portal and credential-service requirements remain explicit.
+
+Run the synthetic package checks on the corresponding build distribution:
+
+```sh
+python3 packaging/linux/test_package.py --format deb
+python3 packaging/linux/test_package.py --format rpm
+python3 packaging/linux/test_package.py --format arch
+```
+
+These package `/bin/true`, never Serein or a live account. Native application
+builds and package inspection do not prove desktop login, graphics or physical audio.
+
+## Debian / Ubuntu details
 
 On a Debian/Ubuntu Linux build host, `cargo xtask package` produces the standard
 `dist/serein_<version>-1_<architecture>.deb` including voice. Native `amd64` and `arm64`

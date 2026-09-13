@@ -1,0 +1,132 @@
+name: Linux packages
+
+on:
+  pull_request:
+    paths: ['packaging/linux/**', 'packaging/flatpak/**', 'packaging/repositories/**', 'tools/xtask/**', '.github/workflows/linux-packages.yml', '.github/workflows/package-repositories.yml']
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
+      tag:
+        type: string
+        default: development
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distribution: ubuntu-26.04
+            image: ubuntu:26.04
+            format: deb
+          - distribution: fedora-44
+            image: fedora:44
+            format: rpm
+          - distribution: opensuse-tumbleweed
+            image: opensuse/tumbleweed:latest
+            format: rpm
+          - distribution: arch
+            image: archlinux:base
+            format: arch
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8.0.1
+        if: inputs.release == true
+        with:
+          name: release-manifests
+          path: .
+      - name: Install native build tools
+        run: bash packaging/linux/install-build-deps.sh
+      - name: Signed apt repository regression
+        if: matrix.format == 'deb'
+        run: |
+          apt-get install -y apt-utils gnupg
+          python3 -m unittest discover -s packaging/repositories -p 'test_*.py'
+          sh packaging/repositories/smoke-deb.sh
+      - name: Create unprivileged builder
+        run: |
+          useradd --create-home builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            /home/builder/.cargo/registry
+            /home/builder/.cargo/git
+            target
+          key: linux-${{ matrix.distribution }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+      - name: Build and inspect native package
+        env:
+          FORMAT: ${{ matrix.format }}
+        run: |
+          chown -R builder:builder /home/builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- env HOME=/home/builder bash <<'BUILD'
+            set -eu
+            curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            export PATH="$HOME/.cargo/bin:$PATH"
+            rustup show active-toolchain
+            PYTHONDONTWRITEBYTECODE=1 python3 packaging/linux/test_package.py --format "$FORMAT"
+            cargo xtask package --format "$FORMAT"
+          BUILD
+      - name: Collect distribution-labelled package
+        env:
+          DISTRIBUTION: ${{ matrix.distribution }}
+          TAG: ${{ inputs.tag || 'development' }}
+        run: |
+          mkdir release-assets
+          for package in dist/*.deb dist/*.rpm dist/*.pkg.tar.zst; do
+            test -f "$package" || continue
+            cp "$package" "release-assets/serein-$TAG-Linux-$DISTRIBUTION-$(basename "$package")"
+          done
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: serein-linux-${{ matrix.distribution }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  flatpak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8.0.1
+        if: inputs.release == true
+        with:
+          name: release-manifests
+          path: .
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - name: Install Flatpak build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive --no-related flathub org.gnome.Sdk//49 org.gnome.Platform//49
+      - name: Build locked offline Flatpak
+        run: |
+          python3 -m unittest discover -s packaging/flatpak -p 'test_*.py'
+          python3 packaging/flatpak/build.py target/flatpak-build
+      - name: Collect Flatpak bundle
+        env:
+          TAG: ${{ inputs.tag || 'development' }}
+        run: |
+          mkdir release-assets
+          cp target/flatpak-build/Serein-linux.flatpak "release-assets/serein-$TAG-Linux-x86_64.flatpak"
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: serein-linux-flatpak
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14

@@ -108,6 +108,55 @@ pub fn visible_range(rows: &[(Id, f32)], min: f32, max: f32) -> (usize, usize, f
 	}
 	(first, end, top)
 }
+fn channel_welcome(ui: &mut egui::Ui, channel: &model::Channel, height: f32) {
+	let colors = crate::design::palette(ui);
+	let width = (ui.available_width() - 32.0).max(1.0);
+	let heading = egui::WidgetText::from(
+		crate::design::semibold(ui, format!("Welcome to #{}", channel.name), 28.0)
+			.color(colors.text_strong),
+	)
+	.into_galley(
+		ui,
+		Some(egui::TextWrapMode::Wrap),
+		width,
+		egui::TextStyle::Heading,
+	);
+	let description = egui::WidgetText::from(
+		RichText::new("This is the beginning of the conversation.").color(colors.muted),
+	)
+	.into_galley(
+		ui,
+		Some(egui::TextWrapMode::Wrap),
+		width,
+		egui::TextStyle::Body,
+	);
+	// Scroll contents have unbounded available height. Use the finite viewport and
+	// measured, wrapped text so short channels sit above the composer at every width.
+	let content_height = 32.0 + 64.0 + 16.0 + heading.size().y + 8.0 + description.size().y;
+	ui.add_space((height - content_height).max(0.0));
+	egui::Frame::NONE
+		.inner_margin(egui::Margin::same(16))
+		.show(ui, |ui| {
+			let (badge, _) = ui.allocate_exact_size(egui::Vec2::splat(64.0), egui::Sense::hover());
+			ui.painter()
+				.circle_filled(badge.center(), 32.0, colors.raised);
+			crate::icons::paint(
+				ui.painter(),
+				match channel.kind {
+					5 => crate::icons::Icon::Megaphone,
+					10..=12 => crate::icons::Icon::Threads,
+					_ => crate::icons::Icon::Hash,
+				},
+				badge.shrink(14.0),
+				colors.text_strong,
+			);
+			ui.add_space(16.0);
+			ui.add(egui::Label::new(heading));
+			ui.add_space(8.0);
+			ui.add(egui::Label::new(description));
+		});
+}
+
 fn loading_messages(ui: &mut egui::Ui, fill_viewport: bool) {
 	let colors = crate::design::palette(ui);
 	let height = if fill_viewport {
@@ -670,26 +719,33 @@ impl TimelineView {
 		let history_available = state
 			.selected
 			.is_some_and(|channel| state.can_read_history(channel));
+		let empty = state.timeline.display_iter().next().is_none()
+			&& !state
+				.pending
+				.iter()
+				.any(|p| Some(p.channel) == state.selected);
+		// An empty historical page or a pending refresh is not proof of a new channel.
+		let welcome = empty
+			&& history_available
+			&& state.freshness == model::Freshness::Fresh
+			&& !state.history_pending
+			&& !state.history_targeted
+			&& state.history_before.is_none()
+			&& state.history_after.is_none()
+			&& state.older_exhausted
+			&& state
+				.selected
+				.and_then(|id| state.channel(id))
+				.is_some_and(|channel| channel.guild.is_some() && channel.supports_text());
 		if !history_available {
 			ui.weak("Message history is unavailable with current permission information.");
 		}
 		if history_available && state.freshness == model::Freshness::Loading {
-			let empty = state.timeline.display_iter().next().is_none()
-				&& !state
-					.pending
-					.iter()
-					.any(|p| Some(p.channel) == state.selected);
 			loading_messages(ui, empty);
 			if empty {
 				return;
 			}
-		} else if state.timeline.display_iter().next().is_none()
-			&& history_available
-			&& !state
-				.pending
-				.iter()
-				.any(|p| Some(p.channel) == state.selected)
-		{
+		} else if empty && history_available && !welcome {
 			ui.label(match state.freshness {
 				model::Freshness::Loading => "Loading messages…",
 				model::Freshness::Unavailable => "You cannot view this conversation.",
@@ -782,6 +838,9 @@ impl TimelineView {
 			!ui.input(|input| input.is_scrolling()) && ui.ctx().dragged_id().is_none();
 		let output = scroll.show_viewport(ui, |ui, viewport| {
 			ui.spacing_mut().item_spacing.y = 0.0;
+			if welcome && let Some(channel) = state.selected.and_then(|id| state.channel(id)) {
+				channel_welcome(ui, channel, viewport.height() - end_padding);
+			}
 			let (first, _, top) = visible_range(
 				&self.rows,
 				(viewport.min.y - 100.0).max(0.0),

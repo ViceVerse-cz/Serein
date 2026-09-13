@@ -1,0 +1,36 @@
+{
+  "app-id": "org.serein.desktop",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "49",
+  "sdk": "org.gnome.Sdk",
+  "command": "serein",
+  "rename-icon": "serein",
+  "finish-args": [
+    "--share=network",
+    "--share=ipc",
+    "--socket=wayland",
+    "--socket=fallback-x11",
+    "--device=dri",
+    "--socket=pulseaudio",
+    "--talk-name=org.freedesktop.secrets",
+    "--talk-name=org.freedesktop.Notifications"
+  ],
+  "modules": [
+    {
+      "name": "serein",
+      "buildsystem": "simple",
+      "build-options": {
+        "append-path": "/run/build/serein/flatpak-rust/bin",
+        "env": {"CARGO_NET_OFFLINE": "true", "CARGO_HOME": "/run/build/serein/flatpak-cargo-home"}
+      },
+      "build-commands": [
+        "test \"$(rustc --version | cut -d ' ' -f 2)\" = 1.98.1",
+        "cargo xtask package --format dir",
+        "cp -a dist/linux-root/usr/. /app/",
+        "rm -f /app/share/icons/hicolor/1024x1024/apps/serein.png",
+        "install -Dm644 packaging/flatpak/org.serein.desktop.metainfo.xml /app/share/metainfo/org.serein.desktop.metainfo.xml"
+      ],
+      "sources": [{"type": "dir", "path": "source"}]
+    }
+  ]
+}

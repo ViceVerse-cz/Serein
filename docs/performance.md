@@ -41,8 +41,40 @@ Both builds use `cargo xtask package`, including voice, without demo/developer-s
 
 One package per revision; installed size sums files, ZIP uses PowerShell `Compress-Archive`.
 Both package file lists match. Sizes were captured before adding this measurement note;
-no runtime source changes followed. The title strip now requests a native drag on the
+later main integration is outside this comparison. The title strip requests a native drag on the
 initial primary-button press instead of waiting for a movement threshold. Synthetic input
 tests verify command timing and caption-button isolation, not actual OS movement.
 Native CPU, RSS, frame timing and drag latency are unmeasured: native computer-control APIs
 are disabled in this session and the Orca CLI is absent. No runtime speed claim is made.
+
+# Empty-channel welcome — September 13, 2026
+
+Baseline: `7eb23fa` with the same new offline empty-channel fixture injected for
+the preview only. Both previews were built with
+`cargo build --release --locked -p serein --features demo` and launched with
+`--demo --demo-empty-channel`. Standard packages exclude that fixture.
+
+Ubuntu 26.04.1 x64, Ryzen 5 7535U (12 logical CPUs), 14 GiB usable RAM,
+Rust 1.98.1, eframe/wgpu, default dark palette, 1× scale, 1120×760.
+The comparison used an isolated Xvfb 21.1.22 display with hardware presentation
+unavailable, rather than the owner's interactive desktop. No builds ran during
+sampling. The window was resized to 1120×760 after three seconds, then left
+untouched for five more seconds before one ten-second sample (11 readings at
+one-second intervals). Both windows were unfocused, with no caret animation.
+
+| Process metric | Baseline | Welcome | Delta |
+| --- | ---: | ---: | ---: |
+| Idle CPU, one core = 100% | 0.0% | 0.0% | 0.0 percentage points |
+| Settled RSS | 255,496 KiB | 241,488 KiB | −14,008 KiB (−5.48%) |
+| Peak RSS through sample end | 255,496 KiB | 241,488 KiB | −14,008 KiB (−5.48%) |
+
+CPU comes from `/proc/<pid>/stat` user/system tick deltas over the actual sample
+duration; no CPU ticks were observed in either idle interval. Settled RSS is the
+median of the last five `VmRSS` readings, and peak RSS is `VmHWM`. Neither process
+had children; the shared Xvfb server is test infrastructure and is excluded.
+Startup/close frame diagnostics showed nine callbacks and zero timeline reflows
+for each run. This single pair is noisy and does not establish a memory
+improvement or physical-GPU performance. Earlier interactive-desktop samples
+were discarded after external input changed the scene. Startup latency and p95
+frame latency remain unmeasured. Standard executable/installed/compressed package
+sizes are recorded in the task PR, using the built packages.
