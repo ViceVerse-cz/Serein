@@ -682,6 +682,26 @@ pub fn load_page_with_cursors(state: &mut State, before: Option<Id>, after: Opti
 		},
 	});
 }
+/// A confirmed empty guild channel, using the ordinary history response path.
+pub fn empty_channel_demo_state(long_name: bool) -> State {
+	let mut state = demo_state();
+	let channel = state.selected.unwrap();
+	if long_name {
+		state.channels.iter_mut().find(|c| c.id == channel).unwrap().name =
+			"🌙-a-place-for-project-updates-and-the-little-things-that-make-a-community-feel-like-home".into();
+	}
+	let _ = state.history(None);
+	state.apply(Envelope {
+		generation: state.generation,
+		event: Event::History {
+			channel,
+			request: state.request,
+			older: false,
+			messages: vec![],
+		},
+	});
+	state
+}
 /// Additional native chat scenario: fixed dates, grouped authors and unread events.
 pub fn chat_demo_state() -> State {
 	let mut state = demo_state();

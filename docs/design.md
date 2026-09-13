@@ -58,6 +58,13 @@ reference an unknown family.
 - Member list (240px): ONLINE/OFFLINE eyebrows with counts (DMs show MEMBERS), 42px rows with
   presence dots, custom status and hover fill; opens a Members window on narrow layouts.
 
+Confirmed empty guild text, announcement and thread histories show a welcome above the
+composer: a circular channel-kind icon, a wrapped semibold channel heading and a short
+description, using the active palette. Loading, unavailable, incomplete and historical
+pages keep their existing status treatment; pending messages suppress the welcome.
+`--features demo -- --demo --demo-empty-channel` previews this state offline;
+`--demo-empty-channel-long` exercises a long Unicode name and `--demo-light` selects light mode.
+
 Icons are [Phosphor Icons](https://phosphoricons.com) 2.1.1 (MIT) in the fill/bold weights,
 rasterized once into `assets/icons/atlas.png` (37 white glyphs in 64px cells) and tinted at
 draw time by `crates/ui/src/icons.rs`; there is no icon font. Provenance and the regeneration
@@ -80,3 +87,8 @@ Windows/Linux rendering (including the inline title bar, which is macOS-only) re
 Palette contrast is asserted by a unit test for every opaque preset: body text ≥ 7:1 on `chat`,
 muted text ≥ 4.5:1 on `sidebar`, accent text ≥ 4.5:1 on `accent`. Gradient presets are not
 contrast-certified because their surfaces are translucent.
+
+The empty-channel welcome was inspected natively on Ubuntu 26.04.1 at 1120×760
+and at 760×520 with a long Unicode name in light/dark mode. The committed pair
+uses an isolated Xvfb display; the offline composer was also exercised by typing
+and pressing Enter, which replaced the welcome with the synthetic message.
