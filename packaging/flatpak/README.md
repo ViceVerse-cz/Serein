@@ -7,7 +7,7 @@ no moving Rust SDK extension or compiler is shipped in the application.
 
 ```sh
 flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install --user --noninteractive flathub org.gnome.Sdk//49 org.gnome.Platform//49
+flatpak install --user --noninteractive --no-related flathub org.gnome.Sdk//49 org.gnome.Platform//49
 python3 packaging/flatpak/build.py target/flatpak-build
 ```
 
