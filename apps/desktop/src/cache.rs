@@ -521,6 +521,88 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn shortcut_restore_waits_for_queue_space_without_losing_or_duplicating_the_request() {
+		let (send, commands) = mpsc::sync_channel(16);
+		let (_, receive) = mpsc::sync_channel(16);
+		let cache = Cache {
+			send,
+			receive,
+			budget: Arc::new(Budget::default()),
+			history: Arc::new(HistorySafety::default()),
+		};
+		let mut view = ui::MessagingUi::default();
+		view.channel_preferences_reload = true;
+		for _ in 0..16 {
+			assert!(cache.queue(7, Id(0), Operation::LoadAppPreferences));
+		}
+		assert!(!crate::queue_channel_preferences(
+			Some(&cache),
+			&mut view,
+			7,
+			Id(42)
+		));
+		assert!(view.channel_preferences_reload);
+		assert!(!view.channel_preferences_load_pending);
+		assert!(view.channel_preferences_status.is_empty());
+		commands.try_recv().unwrap();
+		assert!(crate::queue_channel_preferences(
+			Some(&cache),
+			&mut view,
+			7,
+			Id(42)
+		));
+		assert!(!view.channel_preferences_reload);
+		assert!(view.channel_preferences_load_pending);
+		// A second READY or retry click while loading cannot enqueue another restore.
+		view.channel_preferences_reload = true;
+		assert!(!crate::queue_channel_preferences(
+			Some(&cache),
+			&mut view,
+			7,
+			Id(42)
+		));
+		for _ in 0..15 {
+			assert!(matches!(
+				commands.try_recv().unwrap().3,
+				Operation::LoadAppPreferences
+			));
+		}
+		let (generation, account, epoch, operation, reservation) = commands.try_recv().unwrap();
+		assert_eq!((generation, account), (7, Id(42)));
+		assert!(matches!(operation, Operation::LoadChannelPreferences));
+		assert!(commands.try_recv().is_err());
+		let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
+		let preferences = model::ChannelPreferences {
+			favorites: vec![Id(19)],
+			pinned: vec![Id(20)],
+		};
+		store
+			.as_ref()
+			.unwrap()
+			.save_channel_preferences(account, &preferences)
+			.unwrap();
+		let Outcome::ChannelPreferences(Ok(restored)) =
+			execute(&mut store, &cache.history, account, epoch, operation)
+		else {
+			panic!("Expected restored shortcuts");
+		};
+		assert_eq!(restored, preferences);
+		drop(reservation);
+		assert_eq!(*cache.budget.used.lock().unwrap(), 0);
+		view.clear();
+		assert!(!view.channel_preferences_load_pending && !view.channel_preferences_reload);
+		view.channel_preferences_reload = true;
+		assert!(!crate::queue_channel_preferences(
+			None,
+			&mut view,
+			8,
+			Id(43)
+		));
+		assert!(!view.channel_preferences_reload);
+		assert!(!view.channel_preferences_status.is_empty());
+	}
+
+	#[test]
 	fn notification_choice_survives_a_full_queue_and_database_reopen() {
 		let root = std::env::temp_dir().join(format!(
 			"serein-notification-restart-{}-{}",

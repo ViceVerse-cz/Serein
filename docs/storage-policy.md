@@ -40,6 +40,11 @@ one additional before/after pair in the existing command lane. Settings are read
 and written on demand and never persisted locally. Picker suggestions reuse the
 loaded member window and role mirror; searches are capped at 64 characters and
 explicit member IDs at 20 characters.
+Shortcut restore retains one request when the storage queue is full, then admits it
+when worker completions free space. Only one load can be in flight; account/session
+reset clears its flags. Actual storage failures stop automatic retries and retain
+the explicit Retry shortcuts action. Queue pressure alone no longer reports a
+failed restore. Queue, payload and database bounds are unchanged.
 
 Community extensions (September 12): packages and grants are stored under the
 application data directory's `extensions` subtree. Plugin data/grants are

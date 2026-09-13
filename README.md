@@ -29,29 +29,79 @@
 
 ## Downloads & Installation
 
-### Homebrew (macOS, Apple Silicon)
+Pre-compiled releases for macOS, Linux, and Windows are published on GitHub [Releases](https://github.com/ViceVerse-cz/rustcord/releases).
 
+| Platform | Format | Architectures | Details |
+|---|---|---|---|
+| **Windows** | `-Setup.exe`, `.zip` | `x86_64` | Per-user NSIS installer (recommended) or standalone portable archive |
+| **macOS** | Homebrew Cask, `.zip` | Apple Silicon (`aarch64`) | Signed and notarized `.app` bundle |
+| **Linux** | `.deb`, `.rpm`, `.pkg.tar.zst`, `.flatpak` | `x86_64` | Ubuntu, Fedora, openSUSE, Arch, and Flatpak |
+
+---
+
+### Windows
+
+#### 1. Setup Installer (Recommended)
+Download `serein-<version>-Windows-X64-Setup.exe` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases) and run it:
+- Installs per-user to `%LOCALAPPDATA%\Programs\Serein` without requiring administrator/UAC elevation.
+- Automatically registers Start Menu shortcuts and configures AppUserModelID (`org.serein.desktop`) for native Windows toast notifications.
+- Registers in Windows Settings (Installed Apps / Add or Remove Programs) with full uninstall support.
+- Fully compatible with in-app self-updates: updates automatically synchronize the registered version.
+
+#### 2. Standalone PowerShell Setup
+Extract `serein-<version>-Windows-X64.zip` and run:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+To uninstall later:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Uninstall
+```
+
+#### 3. Portable Archive
+Extract `serein-<version>-Windows-X64.zip` anywhere and launch `serein.exe`. To enable native desktop notifications:
+```powershell
+powershell -File .\install-notifications.ps1
+```
+
+---
+
+### macOS (Apple Silicon)
+
+#### Homebrew Cask
 ```sh
 brew tap ViceVerse-cz/serein https://github.com/ViceVerse-cz/Serein.git
 brew install --cask serein
 ```
+The explicit repository URL keeps the cask in this repository; a separate `homebrew-serein` tap is not required.
 
-The explicit repository URL keeps the cask in this repository; a separate
-`homebrew-serein` tap is not required.
+#### Standalone Bundle
+Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases), unzip, and drag `Serein.app` to your `/Applications` folder.
 
-### Pre-built Releases
+---
 
-Pre-compiled release packages are published on the GitHub [Releases](https://github.com/ViceVerse-cz/rustcord/releases) page:
+### Linux (Package Managers)
 
-| Platform | Format | Architectures | Details |
-|---|---|---|---|
-| **macOS** | `.zip` archive | Apple Silicon (`aarch64`) | Signed and notarized `.app` bundle |
-| **Linux** | `.deb`, `.rpm`, `.pkg.tar.zst`, `.flatpak` | `x86_64` | Ubuntu 26.04, Fedora 44, openSUSE Tumbleweed, Arch; Flatpak |
-| **Windows** | `.zip` archive | `x86_64` | Standalone executable package |
+Download the package matching your distribution from [Releases](https://github.com/ViceVerse-cz/rustcord/releases):
 
-See [Linux installation and builds](packaging/linux/README.md) for apt, dnf,
-zypper, pacman and Flatpak commands. [Signed repository preparation](packaging/repositories/README.md)
-publishes package-manager metadata to the configured GitHub Pages repository after a release.
+```sh
+# Ubuntu / Debian (.deb)
+sudo apt install ./serein-*.deb
+
+# Fedora (.rpm)
+sudo dnf install ./serein-*.fc44.*.rpm
+
+# openSUSE Tumbleweed (.rpm)
+sudo zypper install ./serein-*.suse.*.rpm
+
+# Arch Linux (.pkg.tar.zst)
+sudo pacman -U ./serein-*.pkg.tar.zst
+
+# Flatpak Bundle (.flatpak)
+flatpak install --user ./serein-*.flatpak
+```
+
+See [Linux installation and builds](packaging/linux/README.md) for full distribution build instructions and dependencies. [Signed package repositories](packaging/repositories/README.md) are also published to GitHub Pages (`https://viceverse-cz.github.io/Serein/`) for apt, dnf/zypper, and pacman.
 
 ---
 

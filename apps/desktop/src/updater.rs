@@ -237,6 +237,7 @@ impl Updater {
 				let stage = self.staged.as_ref().expect("checked stage");
 				let directory = stage.directory.clone();
 				let installation = stage.installation.clone();
+				let version = self.package.as_ref().map(|p| p.version.clone());
 				let old_helper = self.helper.take();
 				self.start(runtime, ctx, 0, move |cancel, _| async move {
 					let helper = tokio::task::spawn_blocking(move || {
@@ -246,7 +247,7 @@ impl Updater {
 						if cancel.load(Ordering::Relaxed) {
 							return Err("Update cancelled.".into());
 						}
-						install::prepare_restart(&directory, &installation)
+						install::prepare_restart(&directory, &installation, version.as_deref())
 					})
 					.await
 					.map_err(|_| "Could not prepare the update restart.".to_owned())??;

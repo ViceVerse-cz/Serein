@@ -22,6 +22,7 @@ const WINDOWS_FILES: &[&str] = &[
 	"licenses",
 	"source",
 	"install-notifications.ps1",
+	"setup.ps1",
 ];
 
 fn installation() -> Result<PathBuf, String> {
@@ -587,7 +588,11 @@ impl Prepared {
 		let _ = self.child.wait();
 	}
 }
-pub(super) fn prepare_restart(directory: &Path, installation: &Path) -> Result<Prepared, String> {
+pub(super) fn prepare_restart(
+	directory: &Path,
+	installation: &Path,
+	version: Option<&str>,
+) -> Result<Prepared, String> {
 	let mut nonce = [0_u8; 8];
 	getrandom::fill(&mut nonce)
 		.map_err(|_| "Cannot create a unique restart handoff.".to_owned())?;
@@ -598,6 +603,8 @@ pub(super) fn prepare_restart(directory: &Path, installation: &Path) -> Result<P
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
 		Err(_) => return Err("Cannot reset the update handoff.".into()),
 	}
+	#[cfg(target_os = "macos")]
+	let _ = version;
 	#[cfg(target_os = "macos")]
 	let mut child = {
 		verify_mac(&directory.join("package/Serein.app"), installation)?;
@@ -622,7 +629,13 @@ pub(super) fn prepare_restart(directory: &Path, installation: &Path) -> Result<P
 		let script = directory.join("install.ps1");
 		fs::write(&script, WINDOWS_HELPER)
 			.map_err(|_| "Cannot prepare the update helper.".to_owned())?;
-		let plan = serde_json::json!({ "installation": installation, "parent": std::process::id(), "files": WINDOWS_FILES, "marker": marker });
+		let plan = serde_json::json!({
+			"installation": installation,
+			"parent": std::process::id(),
+			"files": WINDOWS_FILES,
+			"marker": marker,
+			"version": version,
+		});
 		fs::write(
 			directory.join("plan.json"),
 			serde_json::to_vec(&plan).map_err(|_| "Cannot encode the update plan.".to_owned())?,
@@ -646,7 +659,7 @@ pub(super) fn prepare_restart(directory: &Path, installation: &Path) -> Result<P
 	};
 	#[cfg(not(any(target_os = "macos", windows)))]
 	{
-		let _ = (installation, marker);
+		let _ = (installation, marker, version);
 		Err("In-app installation is unsupported on this platform.".into())
 	}
 	#[cfg(any(target_os = "macos", windows))]
@@ -744,6 +757,10 @@ try {
     }
     Move-Item -LiteralPath $source -Destination $target
     $replaced.Add($name)
+  }
+  $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Serein'
+  if ($plan.version -and (Test-Path -LiteralPath $uninstallKey)) {
+    Set-ItemProperty -LiteralPath $uninstallKey -Name 'DisplayVersion' -Value ([string]$plan.version) -ErrorAction SilentlyContinue
   }
   Start-Process -FilePath (Join-Path $installation 'serein.exe') -WorkingDirectory $installation
 } catch {

@@ -297,7 +297,7 @@ pub fn show(
 										format!("View image {}", attachment.filename),
 									)
 								});
-								media_context_menu(&response, attachment, download, demo);
+								media_context_menu(&response, attachment, download, opening, demo);
 								if response
 									.on_hover_text(
 										attachment
@@ -319,11 +319,7 @@ pub fn show(
 				ui.push_id(("attachment", attachment.id), |ui| {
 					if attachment.is_video() {
 						let response = video.show(ui, message, attachment);
-						media_context_menu(&response, attachment, download, demo);
-						ui.horizontal_wrapped(|ui| {
-							download_button(ui, attachment, download, demo);
-							open_original(ui, attachment, opening);
-						});
+						media_context_menu(&response, attachment, download, opening, demo);
 					} else if attachment.is_audio() {
 						let response = audio.show(ui, message, attachment);
 						if attachment.is_voice_message() {
@@ -371,10 +367,11 @@ pub struct DownloadUi {
 	pub active: bool,
 	pub status: String,
 }
-fn media_context_menu(
+pub(super) fn media_context_menu(
 	response: &egui::Response,
 	attachment: &Attachment,
 	download: &mut DownloadUi,
+	opening: &mut Option<String>,
 	demo: bool,
 ) {
 	if let Some(copy) = media_menu(
@@ -382,6 +379,7 @@ fn media_context_menu(
 		attachment.is_video(),
 		attachment.media.url.as_deref(),
 		download,
+		opening,
 		demo,
 	) {
 		if copy {
@@ -402,6 +400,7 @@ pub(crate) fn embed_context_menu(
 		false,
 		media.url.as_deref().or(media.proxy_url.as_deref()),
 		download,
+		&mut None,
 		demo,
 	) {
 		download.embed_request = Some((media.clone(), copy));
@@ -412,6 +411,7 @@ fn media_menu(
 	video: bool,
 	url: Option<&str>,
 	download: &DownloadUi,
+	opening: &mut Option<String>,
 	demo: bool,
 ) -> Option<bool> {
 	if !video && response.has_focus() {
@@ -450,11 +450,15 @@ fn media_menu(
 				ui.close();
 			}
 		}
-		if let Some(url) = url.and_then(external_url)
-			&& ui.button("Copy link").clicked()
-		{
-			ui.ctx().copy_text(url);
-			ui.close();
+		if let Some(url) = url.and_then(external_url) {
+			if video && ui.button("Open original…").clicked() {
+				*opening = Some(url.clone());
+				ui.close();
+			}
+			if ui.button("Copy link").clicked() {
+				ui.ctx().copy_text(url);
+				ui.close();
+			}
 		}
 	});
 	action
@@ -617,7 +621,7 @@ pub fn viewer(
 								.as_deref()
 								.unwrap_or(&attachment.filename),
 						);
-					media_context_menu(&response, attachment, download, demo);
+					media_context_menu(&response, attachment, download, opening, demo);
 				},
 			);
 			// Top bar: position counter on the left, actions on the right.
