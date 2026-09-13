@@ -40,6 +40,7 @@ pub fn synthetic_own_profile(user: &model::User) -> model::UserProfile {
 }
 mod contact_editor;
 mod join_server;
+mod keybinds;
 mod profile_edit;
 mod reactions;
 mod reading;
@@ -2343,6 +2344,7 @@ impl MessagingUi {
 		}
 		self.extensions
 			.show_result(&ctx, state, &mut self.draft_changes, self.editing.is_some());
+		self.keybinds_shortcut(&ctx);
 		let settings_open = self.settings.open || self.server_settings.is_open();
 		if self.settings.open {
 			self.show_settings(&ctx, state, &mut commands);

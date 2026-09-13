@@ -22,12 +22,13 @@ enum Page {
 	Notifications,
 	Activity,
 	Voice,
+	Keybinds,
 	Storage,
 	Extensions,
 	Themes,
 }
 impl Page {
-	const ALL: [Self; 10] = [
+	const ALL: [Self; 11] = [
 		Self::Account,
 		Self::Profile,
 		Self::General,
@@ -35,17 +36,19 @@ impl Page {
 		Self::Notifications,
 		Self::Activity,
 		Self::Voice,
+		Self::Keybinds,
 		Self::Storage,
 		Self::Extensions,
 		Self::Themes,
 	];
 	const USER: [Self; 2] = [Self::Account, Self::Profile];
-	const APP: [Self; 8] = [
+	const APP: [Self; 9] = [
 		Self::General,
 		Self::Appearance,
 		Self::Notifications,
 		Self::Activity,
 		Self::Voice,
+		Self::Keybinds,
 		Self::Storage,
 		Self::Extensions,
 		Self::Themes,
@@ -59,6 +62,7 @@ impl Page {
 			Self::Notifications => "Notifications",
 			Self::Activity => "Game Activity",
 			Self::Voice => "Voice & Audio",
+			Self::Keybinds => "Keybinds",
 			Self::Storage => "Data & Privacy",
 			Self::Extensions => "Extensions",
 			Self::Themes => "Themes",
@@ -73,6 +77,7 @@ impl Page {
 			Self::Notifications => "Desktop alerts saved on this device.",
 			Self::Activity => "Show others what you are playing.",
 			Self::Voice => "Microphone, speakers and voice processing.",
+			Self::Keybinds => "Keyboard shortcuts for Serein.",
 			Self::Storage => "What Serein keeps on this device.",
 			Self::Extensions => "Manage community plugins.",
 			Self::Themes => "Choose a community theme.",
@@ -94,6 +99,9 @@ impl Page {
 				"voice audio microphone speakers devices volume gain noise suppression push to talk"
 			}
 			Self::Storage => "data privacy local storage clear cache drafts credentials",
+			Self::Keybinds => {
+				"system keybinds keyboard shortcuts custom default formatting navigation"
+			}
 			Self::Extensions => "extensions plugins shop store catalog import community tools",
 			Self::Themes => "themes shop store catalog import community appearance colors",
 		};
@@ -102,6 +110,27 @@ impl Page {
 }
 
 impl MessagingUi {
+	pub(super) fn keybinds_shortcut(&mut self, ctx: &egui::Context) {
+		if !self.server_settings.is_open()
+			&& !self.switcher.is_open()
+			&& !self.ime_active
+			&& !egui::Popup::is_any_open(ctx)
+			&& ctx.memory(|memory| memory.top_modal_layer().is_none() || self.settings.open)
+			&& ctx.input(|input| {
+				input.focused
+					&& !input
+						.events
+						.iter()
+						.any(|event| matches!(event, egui::Event::Ime(_)))
+			}) && ctx
+			.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Slash))
+		{
+			self.settings.open = true;
+			self.settings.page = Page::Keybinds;
+			self.settings.query.clear();
+		}
+	}
+
 	pub(super) fn open_voice_settings(&mut self) {
 		self.settings.open = true;
 		self.settings.page = Page::Voice;
@@ -251,6 +280,7 @@ impl MessagingUi {
 										false,
 									),
 									Page::Storage => self.storage_page(ui, state),
+									Page::Keybinds => crate::keybinds::show(ui),
 									Page::Extensions | Page::Themes => {
 										self.extensions
 											.select_themes(self.settings.page == Page::Themes);
@@ -1118,5 +1148,39 @@ fn theme_preference_cards(ui: &mut egui::Ui) {
 	});
 	if let Some(preference) = chosen {
 		ui.ctx().set_theme(preference);
+	}
+}
+
+#[cfg(test)]
+mod keybind_tests {
+	use super::*;
+
+	#[test]
+	fn keybinds_shortcut_opens_page_and_respects_ime() {
+		let ctx = egui::Context::default();
+		let mut view = MessagingUi::default();
+		for ime in [true, false] {
+			view.ime_active = ime;
+			view.settings.query = "theme".into();
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					events: vec![egui::Event::Key {
+						key: egui::Key::Slash,
+						physical_key: None,
+						pressed: true,
+						repeat: false,
+						modifiers: egui::Modifiers::COMMAND,
+					}],
+					..Default::default()
+				},
+				|ui| view.keybinds_shortcut(ui.ctx()),
+			);
+			output.textures_delta.clear();
+			assert_eq!(view.settings.open, !ime);
+			if !ime {
+				assert!(view.settings.page == Page::Keybinds);
+				assert!(view.settings.query.is_empty());
+			}
+		}
 	}
 }

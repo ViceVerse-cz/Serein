@@ -3868,3 +3868,26 @@ Inspected synthetic offline framebuffer exports in dark/light themes at
 details. Native computer APIs are disabled in this session, so native input and
 accessibility validation remain unavailable. These exports, layout tests and
 local HTTP fixtures do not prove live Discord interoperability.
+# Keybinds settings package comparison (September 13, 2026)
+
+Baseline `b2b8a50c0c1699601fb4c53ba6ad0bc48a7a5d7c`, compared with the
+keybinds settings implementation. Windows 11 Home 10.0.26200, Ryzen 7 7800X3D,
+approximately 31 GiB usable RAM, pinned Rust 1.98.1. Both revisions used
+`cargo xtask package`: release, no default features, voice included, unsigned.
+The baseline UI crate finished compiling before the implementation was wired in.
+Separate copies of the full `dist` tree were measured and compressed using
+PowerShell `Compress-Archive`, one package per revision.
+
+| Metric (bytes) | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 68,865,024 | 68,877,824 | +12,800 (+0.019%) |
+| Full package | 142,024,109 | 142,036,909 | +12,800 (+0.009%) |
+| Compressed package | 82,125,289 | 82,130,844 | +5,555 (+0.007%) |
+
+Native screenshots and scripted interaction measurements were unavailable:
+the Orca CLI is not installed and the available computer-use API disables native
+applications. The standard release package excludes demo support and exited
+before an attempted synthetic idle sample; no process measurements from that
+attempt are valid. CPU, memory, frame timing, display scale and renderer behavior
+remain unmeasured. Offline egui layout checks cover narrow/wide and dark/light
+states; they are not native visual or live Discord evidence.
