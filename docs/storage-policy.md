@@ -1,5 +1,16 @@
 # Local storage policy and audit
 
+Notification sounds (September 13): three owner-supplied MP3 tracks are embedded
+in the executable (106,608 bytes total), with no runtime files or downloads.
+The existing single lazy worker and one-slot fixed-size request queue decode one
+track at a time outside rendering/audio callbacks. Each asset is capped at
+128 KiB encoded, 48 kHz stereo and five seconds decoded (PCM vector capacity
+less than 4 MiB). Conversion retains at most five seconds of stereo f32 at the output
+device rate, capped at 192 kHz / 7,680,000 bytes, alongside source PCM during
+conversion. Decoder/device allocations are separate. Playback buffers are
+released after each cue; cancellation silences the callback and is checked by
+the worker every 20 ms. No notification-audio cache or storage migration is added.
+
 Explicit media clipboard copies (September 13) reuse the bounded attachment
 download worker. One original video, at most 100 MiB, remains in a randomized
 `serein-clipboard-*` OS temporary directory while its file clipboard entry is

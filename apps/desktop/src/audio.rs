@@ -384,7 +384,7 @@ fn decode(mut bytes: Vec<u8>, current: &impl Fn() -> bool) -> Result<Pcm, &'stat
 	Ok(pcm)
 }
 
-fn decode_stream(
+pub(super) fn decode_stream(
 	source: Box<dyn MediaSource>,
 	current: &impl Fn() -> bool,
 	emit: &mut impl FnMut(&[f32], usize, u32, Option<Duration>) -> Result<(), &'static str>,

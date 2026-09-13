@@ -103,7 +103,7 @@ impl Runtime {
 				sound = Some(Sound::IncomingRing);
 			}
 		} else if let Some((_, played)) = &mut self.ring
-			&& played.elapsed() >= Duration::from_secs(3)
+			&& played.elapsed() >= crate::notification_sounds::RING_INTERVAL
 		{
 			*played = Instant::now();
 			sound = Some(Sound::IncomingRing);
