@@ -661,12 +661,12 @@ pub const WINDOW_CONTROLS_WIDTH: f32 = if cfg!(target_os = "windows") {
 /// Make `rect` behave like a native title bar: drag moves the window and, where the app
 /// draws its own frame (Windows), a double click toggles maximize.
 pub fn window_drag(ui: &mut egui::Ui, rect: egui::Rect) {
-	let response = ui.interact(
-		rect,
-		ui.id().with("window-drag"),
-		egui::Sense::click_and_drag(),
-	);
-	if response.drag_started() {
+	// The OS owns dragging. Sensing only clicks lets child caption buttons win hit testing.
+	let response = ui.interact(rect, ui.id().with("window-drag"), egui::Sense::click());
+	// StartDrag must reach the window backend on the press, before egui's drag threshold.
+	if response.is_pointer_button_down_on()
+		&& ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+	{
 		ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
 	}
 	if cfg!(target_os = "windows") && response.double_clicked() {

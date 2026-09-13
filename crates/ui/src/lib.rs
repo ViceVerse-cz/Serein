@@ -61,6 +61,8 @@ mod settings;
 mod switcher;
 mod thumbhash;
 mod timeline;
+#[cfg(test)]
+mod title_bar_tests;
 mod typing;
 pub mod updates;
 mod user_menu;
@@ -629,6 +631,8 @@ impl MessagingUi {
 			.show_separator_line(false)
 			.frame(egui::Frame::new().fill(design::window_palette(ui).base))
 			.show(ui, |ui| {
+				// Caption text belongs to the window drag region, not text selection.
+				ui.style_mut().interaction.selectable_labels = false;
 				let rect = ui.max_rect();
 				design::window_drag(ui, rect);
 				let title_rect = egui::Rect::from_center_size(

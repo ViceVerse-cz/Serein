@@ -2,6 +2,12 @@
 
 Target platforms are Windows, macOS and Linux. **macOS arm64, Windows x64 and Linux x64 have local build evidence.** macOS has native visual checks; Windows has offline tests and a process/window startup smoke check only. Minimum OS versions, other architectures, real screen-reader support and native login-method support are not certified.
 
+The custom title strip requests a native window move on the initial primary-button press,
+including over its nonselectable context title. It does not wait for egui's text/drag threshold.
+Caption buttons and other clickable title-strip controls keep their own actions; Windows
+double-click maximize/restore remains available. Synthetic egui input tests check command
+dispatch, not native OS window movement, which still requires a desktop interaction check.
+
 | Platform | Build/runtime requirements | Status |
 |---|---|---|
 | macOS | Rust 1.98.1, Xcode command-line tools; Metal/wgpu, system WKWebView, Keychain | Local arm64 build and native synthetic window tested on macOS 27.0 beta, Apple M1 Pro / 16 GiB |

@@ -25,3 +25,24 @@ The encoded assets total 106,608 bytes. Source decoding and sample-rate conversi
 run outside UI/audio callbacks; the callback copies prepared samples and tracks
 the final device playback timestamp. Memory ceilings are documented in
 [storage-policy.md](storage-policy.md).
+
+## Title-strip dragging — September 13, 2026
+
+Baseline: `7eb23fa`, built in a detached worktree. After: the title-strip press handling
+and nonselectable caption text from `fix/titlebar-drag`, on that same baseline.
+Windows x64, Ryzen 7 7800X3D, approximately 32 GiB RAM, Rust 1.98.1.
+Both builds use `cargo xtask package`, including voice, without demo/developer-session features.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 70,288,896 | 70,289,920 | +1,024 (+0.0015%) |
+| Installed package bytes | 76,691,365 | 76,692,825 | +1,460 (+0.0019%) |
+| ZIP bytes | 44,629,357 | 44,629,786 | +429 (+0.0010%) |
+
+One package per revision; installed size sums files, ZIP uses PowerShell `Compress-Archive`.
+Both package file lists match. Sizes were captured before adding this measurement note;
+no runtime source changes followed. The title strip now requests a native drag on the
+initial primary-button press instead of waiting for a movement threshold. Synthetic input
+tests verify command timing and caption-button isolation, not actual OS movement.
+Native CPU, RSS, frame timing and drag latency are unmeasured: native computer-control APIs
+are disabled in this session and the Orca CLI is absent. No runtime speed claim is made.
