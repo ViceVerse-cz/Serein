@@ -32,7 +32,7 @@ enum Page {
 	Themes,
 }
 impl Page {
-	const ALL: [Self; 12] = [
+	const ALL: [Self; 13] = [
 		Self::Account,
 		Self::Profile,
 		Self::General,
@@ -48,7 +48,7 @@ impl Page {
 		Self::Themes,
 	];
 	const USER: [Self; 2] = [Self::Account, Self::Profile];
-	const APP: [Self; 10] = [
+	const APP: [Self; 11] = [
 		Self::General,
 		Self::Appearance,
 		Self::MessagingPermissions,
