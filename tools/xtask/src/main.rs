@@ -185,6 +185,18 @@ fn copy_directory(source: &std::path::Path, destination: &std::path::Path) -> Re
 	Ok(())
 }
 fn package() -> Result<(), String> {
+	let options: Vec<String> = std::env::args().skip(2).collect();
+	let format = match options.as_slice() {
+		[] => "deb",
+		[flag, value]
+			if flag == "--format"
+				&& matches!(value.as_str(), "deb" | "rpm" | "arch" | "dir")
+				&& cfg!(target_os = "linux") =>
+		{
+			value.as_str()
+		}
+		_ => return Err("Use cargo xtask package [--format deb|rpm|arch|dir (Linux only)]".into()),
+	};
 	let arguments = [
 		"build",
 		"--release",
@@ -350,6 +362,8 @@ fn package() -> Result<(), String> {
 				"packaging/linux/package.py",
 				root.to_str().ok_or("Invalid package path")?,
 				env!("CARGO_PKG_VERSION"),
+				"--format",
+				format,
 			],
 		)?;
 	}

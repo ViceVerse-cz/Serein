@@ -31,7 +31,7 @@ assert(notes.includes('fix scrolling'));
 const workflow = load(readFileSync('.github/workflows/release.yml', 'utf8'));
 assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
 for (const job of Object.values(workflow.jobs)) {
-  for (const step of job.steps) {
+  for (const step of job.steps ?? []) {
     if (step.run && step.shell !== 'pwsh') execFileSync('bash', ['-n'], { input: step.run });
   }
 }

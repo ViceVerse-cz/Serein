@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.serein.desktop</id>
+  <name>Serein</name>
+  <summary>Experimental unofficial native Discord client</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <description>
+    <p>Serein is an experimental native client for existing Discord accounts, built with Rust and egui. It includes messaging and voice without a web-based application shell.</p>
+    <p>This client is unofficial and is not affiliated with Discord.</p>
+  </description>
+  <launchable type="desktop-id">org.serein.desktop.desktop</launchable>
+  <url type="homepage">https://github.com/ViceVerse-cz/Serein</url>
+  <url type="bugtracker">https://github.com/ViceVerse-cz/Serein/issues</url>
+  <developer id="cz.viceverse"><name>Serein contributors</name></developer>
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-chat">intense</content_attribute>
+    <content_attribute id="social-audio">intense</content_attribute>
+    <content_attribute id="social-contacts">intense</content_attribute>
+  </content_rating>
+</component>

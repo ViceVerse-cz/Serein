@@ -45,8 +45,12 @@ Pre-compiled release packages are published on the GitHub [Releases](https://git
 | Platform | Format | Architectures | Details |
 |---|---|---|---|
 | **macOS** | `.zip` archive | Apple Silicon (`aarch64`) | Signed and notarized `.app` bundle |
-| **Linux** | `.deb` package / binary | `x86_64` | Ubuntu/Debian native package |
+| **Linux** | `.deb`, `.rpm`, `.pkg.tar.zst`, `.flatpak` | `x86_64` | Ubuntu 26.04, Fedora 44, openSUSE Tumbleweed, Arch; Flatpak |
 | **Windows** | `.zip` archive | `x86_64` | Standalone executable package |
+
+See [Linux installation and builds](packaging/linux/README.md) for apt, dnf,
+zypper, pacman and Flatpak commands. [Signed repository preparation](packaging/repositories/README.md)
+supports package-manager updates once the owner configures signing and HTTPS hosting.
 
 ---
 
@@ -130,7 +134,7 @@ cargo replay
 # Run authentication bridge JS test harness
 node tests/login-handoff.cjs
 
-# Package release including voice (macOS .app bundle, Linux .deb)
+# Package release including voice (macOS .app bundle, Linux .deb by default)
 cargo xtask package
 ```
 

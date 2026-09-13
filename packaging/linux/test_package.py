@@ -1,14 +1,18 @@
-"""Synthetic Debian package regression check; never launches Serein or installs it."""
+"""Synthetic native package regression check; never launches Serein or installs it."""
 
 from pathlib import Path
+import argparse
 import shutil
 import tempfile
 import unittest
 
 import package as packaging
 
+FORMAT = "deb"
+ARTIFACTS = None
 
-class DebianPackageTest(unittest.TestCase):
+
+class NativePackageTest(unittest.TestCase):
     def test_package_allowlist_and_corrupt_archive_detection(self):
         with tempfile.TemporaryDirectory(prefix="serein-debian-test-") as directory:
             root = Path(directory)
@@ -35,6 +39,31 @@ class DebianPackageTest(unittest.TestCase):
             (staged / "debug.log").write_text("synthetic private marker")
             (staged / "docs/stale.log").write_text("synthetic private marker")
             (staged / "previous.deb").write_text("old package")
+            if FORMAT != "deb":
+                packaging.native_package(staged, "0.1.0-test", FORMAT)
+                if FORMAT == "arch":
+                    artifact, = staged.glob("*.pkg.tar.*")
+                    metadata = packaging.output("bsdtar", "-xOf", str(artifact), ".PKGINFO")
+                    version = next(line.removeprefix("pkgver = ") for line in metadata.splitlines()
+                                   if line.startswith("pkgver = "))
+                    self.assertEqual(packaging.output("vercmp", version, "0.1.0-1"), "-1")
+                if ARTIFACTS and FORMAT != "dir":
+                    ARTIFACTS.mkdir(parents=True, exist_ok=True)
+                    for artifact in staged.glob("*.rpm" if FORMAT == "rpm" else "*.pkg.tar.*"):
+                        shutil.copyfile(artifact, ARTIFACTS / artifact.name)
+                if FORMAT == "dir":
+                    listing = "\n".join(packaging.payload_files(staged / "linux-root"))
+                    for excluded in ["debug.log", "stale.log", "stale.deb", "previous.deb", "stale-nested.log"]:
+                        self.assertNotIn(excluded, listing)
+                    self.assertIn("licenses/voice/", listing)
+                    with self.assertRaisesRegex(ValueError, "already exists"):
+                        packaging.native_package(staged, "0.1.0-test", FORMAT)
+                with self.assertRaisesRegex(ValueError, "semantic application version"):
+                    packaging.native_package(staged, "0.1.0\nmalformed", FORMAT)
+                (staged / "serein").write_bytes(b"MZ synthetic wrong architecture")
+                with self.assertRaisesRegex(ValueError, "ELF executable"):
+                    packaging.native_package(staged, "0.1.0", FORMAT)
+                return
             packaging.package(staged, "0.1.0-test")
             artifact = next(staged.glob("serein_*.deb"))
             self.assertEqual(packaging.output("dpkg-deb", "--field", str(artifact), "Package"), "serein")
@@ -60,4 +89,10 @@ class DebianPackageTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--format", choices=["deb", "rpm", "arch", "dir"], default="deb")
+    parser.add_argument("--artifacts", type=Path, help="Retain synthetic packages for repository checks")
+    args, remaining = parser.parse_known_args()
+    FORMAT = args.format
+    ARTIFACTS = args.artifacts
+    unittest.main(argv=[__file__, *remaining])

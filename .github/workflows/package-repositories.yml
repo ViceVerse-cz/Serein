@@ -1,0 +1,138 @@
+name: Prepare signed package repositories
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Serein release tag to package
+        required: true
+        type: string
+      channel:
+        description: Repository release channel
+        required: true
+        type: choice
+        options: [nightly, production]
+      base_url:
+        description: Public HTTPS root where the generated repository tree will be hosted
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download existing Linux release packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release download "$TAG" --pattern '*Linux-*.deb' --pattern '*Linux-*.rpm' --pattern '*Linux-*.pkg.tar.zst' --pattern SHA256SUMS.txt --dir packages
+          python3 packaging/repositories/verify_downloads.py packages
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: repository-inputs
+          path: packages/*
+          if-no-files-found: error
+          retention-days: 1
+
+  repositories:
+    needs: download
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distribution: ubuntu-26.04
+            image: ubuntu:26.04
+            format: deb
+            architecture: amd64
+          - distribution: fedora-44
+            image: fedora:44
+            format: rpm
+            architecture: x86_64
+          - distribution: opensuse-tumbleweed
+            image: fedora:44
+            format: rpm
+            architecture: x86_64
+          - distribution: arch
+            image: archlinux:base
+            format: arch
+            architecture: x86_64
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install repository tools
+        env:
+          FORMAT: ${{ matrix.format }}
+        run: |
+          case "$FORMAT" in
+            deb) apt-get update && apt-get install -y python3 apt-utils gnupg ca-certificates ;;
+            rpm) dnf install -y python3 rpm-sign createrepo_c gnupg2 ;;
+            arch) pacman -Syu --noconfirm --needed python pacman gnupg libarchive ;;
+          esac
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: repository-inputs
+          path: packages
+      - name: Sign packages and repository metadata
+        env:
+          PACKAGE_SIGNING_KEY: ${{ secrets.PACKAGE_SIGNING_KEY }}
+          FINGERPRINT: ${{ vars.PACKAGE_SIGNING_FINGERPRINT }}
+          DISTRIBUTION: ${{ matrix.distribution }}
+          FORMAT: ${{ matrix.format }}
+          ARCHITECTURE: ${{ matrix.architecture }}
+          CHANNEL: ${{ inputs.channel }}
+          BASE_URL: ${{ inputs.base_url }}
+        run: |
+          set -eu
+          export GNUPGHOME="$RUNNER_TEMP/serein-signing"
+          mkdir -m 700 "$GNUPGHOME"
+          trap 'gpgconf --kill all; rm -rf "$GNUPGHOME"' EXIT
+          test -n "$PACKAGE_SIGNING_KEY" && test -n "$FINGERPRINT"
+          printf '%s' "$PACKAGE_SIGNING_KEY" | gpg --batch --import
+          unset PACKAGE_SIGNING_KEY
+          mkdir selected
+          for package in packages/*-Linux-"$DISTRIBUTION"-*; do
+            test -f "$package" || continue
+            cp "$package" selected/
+          done
+          python3 packaging/repositories/build.py --input selected --output site \
+            --channel "$CHANNEL" --distribution "$DISTRIBUTION" --format "$FORMAT" \
+            --architecture "$ARCHITECTURE" --key "$FINGERPRINT" --base-url "$BASE_URL"
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: signed-repository-${{ matrix.distribution }}
+          path: site/
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble:
+    needs: repositories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: signed-repository-*
+          path: downloads
+      - name: Assemble hosting tree
+        run: |
+          mkdir site
+          for repository in downloads/signed-repository-*; do
+            cp -a "$repository"/. site/
+          done
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: signed-package-repositories
+          path: site/
+          if-no-files-found: error
+          retention-days: 14
