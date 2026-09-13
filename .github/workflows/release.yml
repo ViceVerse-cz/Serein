@@ -194,3 +194,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: bun .github/release/release.mjs publish
+
+  repositories:
+    needs: [prepare, build, linux, publish]
+    if: needs.prepare.outputs.release == 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/package-repositories.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      channel: ${{ inputs.channel }}
+      base_url: https://viceverse-cz.github.io/Serein
+      deploy: true
+    secrets: inherit
