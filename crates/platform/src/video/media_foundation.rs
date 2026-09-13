@@ -260,9 +260,44 @@ impl Decoder {
 			video
 				.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)
 				.map_err(|_| INVALID)?;
+			video
+				.SetUINT64(
+					&MF_MT_FRAME_SIZE,
+					(u64::from(width) << 32) | u64::from(height),
+				)
+				.map_err(|_| INVALID)?;
 			reader
 				.SetCurrentMediaType(VIDEO, None, &video)
 				.map_err(|_| UNSUPPORTED)?;
+			if manager.is_some() && rotation != 0 {
+				// Apply track rotation once in rgba_frame, without the GPU processor also
+				// correcting it. If its control is unavailable, use the software reader.
+				let extended = reader
+					.cast::<IMFSourceReaderEx>()
+					.map_err(|_| UNSUPPORTED)?;
+				let mut configured = false;
+				for index in 0..8 {
+					let mut transform = None;
+					if extended
+						.GetTransformForStream(VIDEO, index, None, &mut transform)
+						.is_err()
+					{
+						break;
+					}
+					if let Some(transform) = transform
+						&& let Ok(control) = transform.cast::<IMFVideoProcessorControl>()
+					{
+						control
+							.SetRotation(ROTATION_NONE)
+							.map_err(|_| UNSUPPORTED)?;
+						configured = true;
+						break;
+					}
+				}
+				if !configured {
+					return Err(UNSUPPORTED);
+				}
+			}
 			reader
 				.SetStreamSelection(video_index, true)
 				.map_err(|_| INVALID)?;
@@ -473,17 +508,8 @@ impl Decoder {
 			if !(-MAX_SECONDS..=MAX_SECONDS).contains(&pts) {
 				return Err(INVALID);
 			}
-			let bytes = sample_bytes(&sample)?;
 			if index == self.video_index {
-				let rgba = rgba_frame(
-					&bytes,
-					self.width,
-					self.height,
-					self.stride,
-					self.rotation,
-					self.buffer_height,
-					self.crop,
-				)?;
+				let rgba = self.video_frame(&sample)?;
 				return Ok(Some(Sample::Video {
 					pts,
 					width: self.info.width,
@@ -492,6 +518,7 @@ impl Decoder {
 				}));
 			}
 			if Some(index) == self.audio_index {
+				let bytes = sample_bytes(&sample)?;
 				let frame_bytes = usize::from(self.info.channels) * 4;
 				if frame_bytes == 0
 					|| bytes.len() % frame_bytes != 0
@@ -521,6 +548,70 @@ impl Decoder {
 			}
 		}
 		Err(INVALID)
+	}
+
+	fn video_frame(&self, sample: &IMFSample) -> Result<Vec<u8>, &'static str> {
+		let convert = |bytes: &[u8], stride| {
+			rgba_frame(
+				bytes,
+				self.width,
+				self.height,
+				stride,
+				self.rotation,
+				self.buffer_height,
+				self.crop,
+			)
+		};
+		// The media type's default stride describes a linear buffer, not necessarily the
+		// GPU surface. Read the actual top scanline/pitch so DXVA cannot flip the picture.
+		// SAFETY: Lock2DSize supplies the accessible allocation; validate every offset and
+		// length before borrowing it, then release the read-only lock after conversion.
+		unsafe {
+			if sample.GetTotalLength().map_err(|_| INVALID)? as usize > MAX_BYTES {
+				return Err(INVALID);
+			}
+			let buffer = sample.ConvertToContiguousBuffer().map_err(|_| INVALID)?;
+			if let Ok(surface) = buffer.cast::<IMF2DBuffer2>() {
+				let mut top = std::ptr::null_mut();
+				let mut start = std::ptr::null_mut();
+				let mut stride = 0;
+				let mut length = 0;
+				surface
+					.Lock2DSize(
+						MF2DBuffer_LockFlags_Read,
+						&mut top,
+						&mut stride,
+						&mut start,
+						&mut length,
+					)
+					.map_err(|_| INVALID)?;
+				let result = (|| {
+					if start.is_null() || top.is_null() || length as usize > MAX_BYTES {
+						return Err(INVALID);
+					}
+					let pitch =
+						validate_stride(self.width + self.crop.0, self.buffer_height, stride)?;
+					let top_offset = (top as usize).checked_sub(start as usize).ok_or(INVALID)?;
+					let bottom_up_offset = if stride < 0 {
+						pitch * (self.buffer_height as usize - 1)
+					} else {
+						0
+					};
+					let first = top_offset.checked_sub(bottom_up_offset).ok_or(INVALID)?;
+					let size = pitch * self.buffer_height as usize;
+					if first
+						.checked_add(size)
+						.is_none_or(|end| end > length as usize)
+					{
+						return Err(INVALID);
+					}
+					convert(std::slice::from_raw_parts(start.add(first), size), stride)
+				})();
+				surface.Unlock2D().map_err(|_| INVALID)?;
+				return result;
+			}
+		}
+		convert(&sample_bytes(sample)?, self.stride)
 	}
 }
 

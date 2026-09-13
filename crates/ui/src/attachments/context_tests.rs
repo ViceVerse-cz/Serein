@@ -274,7 +274,7 @@ fn video_controls_still_handle_primary_clicks() {
 		for (control, pos) in [
 			egui::pos2(200.0, 193.0),
 			egui::pos2(21.0, 213.0),
-			egui::pos2(375.0, 213.0),
+			egui::pos2(345.0, 213.0),
 		]
 		.into_iter()
 		.enumerate()
@@ -297,7 +297,7 @@ fn video_controls_still_handle_primary_clicks() {
 					},
 					|ui| {
 						let response = video.show(ui, &message, &attachment);
-						media_context_menu(&response, &attachment, &mut download, false);
+						media_context_menu(&response, &attachment, &mut download, &mut None, false);
 					},
 				)
 				.drop_without_applying_deltas();
@@ -313,7 +313,7 @@ fn video_controls_still_handle_primary_clicks() {
 					modifiers: egui::Modifiers::NONE,
 				}]);
 			}
-			match (control, video.command) {
+			match (control, video.command.take()) {
 				(0, Some(VideoCommand::Seek(position))) => assert!(position > 0.0),
 				(1, Some(VideoCommand::Pause(pause))) => {
 					assert_eq!(pause, state == VideoState::Playing)

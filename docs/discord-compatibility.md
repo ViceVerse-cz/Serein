@@ -881,8 +881,11 @@ Synthetic tests exercise UI actions, bounds, coalescing, clearing and reconnect.
 
 MOV/MP4 attachments play inside the message with Discord-style overlay controls: a
 centered play button on the picture, and a translucent bar over its lower edge with seek,
-elapsed/total time and volume that hides while playing until the pointer or keyboard focus
-returns. Every platform decodes through the same credential-free, validated Discord CDN
+elapsed/total time, volume and fullscreen that hides while playing until the pointer or keyboard
+focus returns. Fullscreen reuses the active player and texture; Escape or its exit button restores
+the previous window mode. File actions (save, copy and open original) use the video's right-click
+menu. The seek range remains the full duration while a requested position buffers.
+Every platform decodes through the same credential-free, validated Discord CDN
 range reader; no attachment is opened as an OS URL and no webview is involved.
 The reader retains up to eight 256 KiB ranges to avoid refetching data when the decoder
 switches between audio and video. Linux polls both bounded output queues without waiting
@@ -890,6 +893,8 @@ on one track while the other needs draining. Clock-only UI updates run at 10 Hz;
 frames and playback-state changes request immediate repaint.
 
 * Windows: Media Foundation. Windows codec availability controls playback (including HEVC).
+  GPU frames use their actual row layout, and track rotation is applied once; an unavailable
+  native rotation control falls back to the software reader.
 * macOS: a bounded Rust MPEG-4 demuxer feeds VideoToolbox (H.264 and HEVC, including
   B-frame reordering) and Symphonia's pure-Rust AAC-LC decoder. HE-AAC, MP3-in-MP4,
   fragmented files, external data references and encrypted tracks are rejected.
@@ -899,11 +904,11 @@ frames and playback-state changes request immediate repaint.
   orientation tags applied.
 
 Unsupported containers/codecs show an error inside the player with the existing
-download/open fallback. Limits are 100 MiB encoded, two hours, 1920 pixels per side and
+download/open actions in the context menu. Limits are 100 MiB encoded, two hours, 1920 pixels per side and
 1920x1080 total pixels, and mono/stereo audio up to 96 kHz. Rotated portrait video uses
 the same pixel budget.
-Only an explicit attachment Play starts decoding; leaving its visible message/channel,
-hiding the app, logout, replacement or cancellation stops that player. Embeds with web
+Only an explicit attachment Play starts decoding; leaving its visible message (unless
+fullscreen) or channel, hiding the app, logout, replacement or cancellation stops that player. Embeds with web
 video pages continue using their external link action. No live Discord media was tested.
 
 The native MPEG-4 source does not support external tracks; it receives an unnamed byte

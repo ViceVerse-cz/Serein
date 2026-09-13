@@ -37,6 +37,8 @@ pub struct VideoUi {
 	shade: Option<egui::TextureHandle>,
 	/// Keyboard focus rested on an overlay control last frame, so keep the overlay visible.
 	controls_focused: bool,
+	/// Keep the viewport's previous mode so leaving playback restores the window.
+	fullscreen: Option<(egui::Context, bool, egui::Id)>,
 }
 impl Default for VideoUi {
 	fn default() -> Self {
@@ -51,11 +53,13 @@ impl Default for VideoUi {
 			texture: None,
 			shade: None,
 			controls_focused: false,
+			fullscreen: None,
 		}
 	}
 }
 impl VideoUi {
 	pub fn stop(&mut self) {
+		self.exit_fullscreen();
 		self.active = None;
 		self.texture = None;
 		self.state = VideoState::Idle;
@@ -63,6 +67,46 @@ impl VideoUi {
 		self.duration = 0.0;
 		self.seen = false;
 		self.command = Some(VideoCommand::Stop);
+	}
+	fn exit_fullscreen(&mut self) {
+		if let Some((ctx, previous, focus)) = self.fullscreen.take() {
+			ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(previous));
+			ctx.memory_mut(|memory| memory.request_focus(focus));
+		}
+	}
+	pub(super) fn is_fullscreen(&self) -> bool {
+		self.fullscreen.is_some()
+	}
+	pub(super) fn show_fullscreen(
+		&mut self,
+		ctx: &egui::Context,
+		message: &Message,
+		attachment: &Attachment,
+		download: &mut crate::DownloadUi,
+		opening: &mut Option<String>,
+		demo: bool,
+	) {
+		let screen = ctx.content_rect();
+		let id = egui::Id::unique("video-fullscreen");
+		let overlay = egui::Modal::new(id)
+			.area(
+				egui::Modal::default_area(id).anchor(egui::Align2::LEFT_TOP, screen.min.to_vec2()),
+			)
+			.backdrop_color(egui::Color32::BLACK)
+			.frame(egui::Frame::NONE)
+			.show(ctx, |ui| {
+				ui.set_min_size(screen.size());
+				ui.set_max_size(screen.size());
+				let response = self.show_player(ui, message, attachment, true);
+				crate::attachments::media_context_menu(
+					&response, attachment, download, opening, demo,
+				);
+			});
+		// The shared link confirmation is drawn before the timeline. Leave the video
+		// overlay when opening an original so that confirmation remains visible.
+		if overlay.should_close() || opening.is_some() {
+			self.exit_fullscreen();
+		}
 	}
 	/// The desktop rejects stale session/player frames before handing over decoded pixels.
 	pub fn accept_frame(
@@ -133,14 +177,30 @@ impl VideoUi {
 		message: &Message,
 		attachment: &Attachment,
 	) -> egui::Response {
+		self.show_player(ui, message, attachment, false)
+	}
+	fn show_player(
+		&mut self,
+		ui: &mut egui::Ui,
+		message: &Message,
+		attachment: &Attachment,
+		fullscreen: bool,
+	) -> egui::Response {
 		let colors = crate::design::palette(ui);
 		let active = self.active.as_ref().is_some_and(|(channel, id, file)| {
 			*channel == message.channel && *id == message.id && file == attachment
 		});
 		let state = if active { self.state } else { VideoState::Idle };
 		let width = ui.available_width().clamp(1.0, MAX_WIDTH);
-		let (stage, mut response) =
-			ui.allocate_exact_size(stage_size(attachment, width), egui::Sense::click());
+		let size = if fullscreen {
+			ui.available_size().max(egui::Vec2::splat(1.0))
+		} else {
+			stage_size(attachment, width)
+		};
+		let (stage, mut response) = ui.allocate_exact_size(size, egui::Sense::click());
+		if active && self.is_fullscreen() && !fullscreen {
+			return response;
+		}
 		let label = match state {
 			VideoState::Loading => "Cancel",
 			VideoState::Playing => "Pause",
@@ -302,6 +362,11 @@ impl VideoUi {
 					se: CORNER,
 				})
 				.paint_at(ui, bar);
+			let duration = if self.duration.is_finite() && self.duration > 0.0 {
+				self.duration
+			} else {
+				1.0
+			};
 			let can_seek = self.duration.is_finite()
 				&& self.duration > 0.0
 				&& matches!(state, VideoState::Playing | VideoState::Paused);
@@ -329,12 +394,9 @@ impl VideoUi {
 					let mut position = self.position.max(0.0);
 					let seek = ui.add_enabled(
 						can_seek,
-						egui::Slider::new(
-							&mut position,
-							0.0..=if can_seek { self.duration } else { 1.0 },
-						)
-						.show_value(false)
-						.trailing_fill(true),
+						egui::Slider::new(&mut position, 0.0..=duration)
+							.show_value(false)
+							.trailing_fill(true),
 					);
 					seek.widget_info(|| egui::WidgetInfo::slider(can_seek, position, "Seek video"));
 					controls_focused |= seek.has_focus();
@@ -407,7 +469,68 @@ impl VideoUi {
 							.color(white),
 						);
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-							ui.spacing_mut().slider_width = 56.0;
+							let (rect, button) = ui
+								.allocate_exact_size(egui::Vec2::splat(22.0), egui::Sense::click());
+							let label = if fullscreen {
+								"Exit fullscreen (Esc)"
+							} else {
+								"Fullscreen"
+							};
+							button.widget_info(|| {
+								egui::WidgetInfo::labeled(
+									egui::WidgetType::Button,
+									ui.is_enabled(),
+									label,
+								)
+							});
+							if fullscreen {
+								crate::icons::paint(
+									ui.painter(),
+									crate::icons::Icon::Close,
+									rect.shrink(3.0),
+									white,
+								);
+							} else {
+								for (x, y) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+									let corner = rect.center() + egui::vec2(x * 7.0, y * 7.0);
+									ui.painter().add(egui::Shape::line(
+										vec![
+											corner - egui::vec2(x * 5.0, 0.0),
+											corner,
+											corner - egui::vec2(0.0, y * 5.0),
+										],
+										egui::Stroke::new(1.5, white),
+									));
+								}
+							}
+							controls_focused |= button.has_focus();
+							if button.has_focus() {
+								ui.painter().rect_stroke(
+									rect,
+									3,
+									egui::Stroke::new(2.0, colors.accent),
+									egui::StrokeKind::Inside,
+								);
+							}
+							response |= button.clone();
+							let button_id = button.id;
+							if button
+								.on_hover_text(label)
+								.on_hover_cursor(egui::CursorIcon::PointingHand)
+								.clicked()
+							{
+								if fullscreen {
+									self.exit_fullscreen();
+								} else {
+									let previous =
+										ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
+									self.fullscreen = Some((ui.ctx().clone(), previous, button_id));
+									ui.ctx()
+										.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+								}
+							}
+							ui.spacing_mut().slider_width =
+								(ui.available_width() - 24.0).clamp(24.0, 56.0);
 							let mut volume_value = self.volume;
 							let volume = ui.add(
 								egui::Slider::new(&mut volume_value, 0.0..=1.0)
@@ -456,6 +579,11 @@ impl VideoUi {
 		response
 	}
 }
+impl Drop for VideoUi {
+	fn drop(&mut self) {
+		self.exit_fullscreen();
+	}
+}
 fn stage_size(attachment: &Attachment, width: f32) -> egui::Vec2 {
 	let ratio = if attachment.media.width > 0 && attachment.media.height > 0 {
 		attachment.media.width as f32 / attachment.media.height as f32
@@ -464,9 +592,9 @@ fn stage_size(attachment: &Attachment, width: f32) -> egui::Vec2 {
 	};
 	egui::vec2(width, (width / ratio.clamp(0.5, 3.0)).min(MAX_HEIGHT))
 }
-/// Stage plus the download/open row the attachment list draws underneath.
+/// Stage plus the spacing after each attachment; all controls are overlays or menu actions.
 pub(super) fn estimated_height(attachment: &Attachment, width: f32) -> f32 {
-	stage_size(attachment, width.clamp(1.0, MAX_WIDTH)).y + 54.0
+	stage_size(attachment, width.clamp(1.0, MAX_WIDTH)).y + 6.0
 }
 fn timestamp(seconds: f64) -> String {
 	let seconds = seconds.max(0.0) as u64;
@@ -533,8 +661,8 @@ mod tests {
 							false,
 						);
 						assert!(ui.min_rect().width() <= width + 2.0);
-						// The stage and the file-action row drive the layout estimate; overlay
-						// controls never add height.
+						// Only the stage and attachment spacing drive the layout estimate;
+						// overlay controls and menu actions never add height.
 						assert!(
 							(ui.min_rect().height() - estimated_height(&attachment, width)).abs()
 								< 24.0,
@@ -584,7 +712,7 @@ mod tests {
 			video.state = VideoState::Playing;
 			frame(&mut video, Some(egui::Key::ArrowRight));
 			assert!(matches!(video.command.take(), Some(VideoCommand::Seek(_))));
-			for key in [egui::Key::Tab, egui::Key::ArrowLeft] {
+			for key in [egui::Key::Tab, egui::Key::Tab, egui::Key::ArrowLeft] {
 				frame(&mut video, Some(key));
 			}
 			assert!(
