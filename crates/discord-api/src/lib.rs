@@ -5,6 +5,7 @@ mod channel_actions;
 mod forum;
 mod group_actions;
 mod guild_folders;
+mod messaging_permissions;
 mod notification_settings;
 mod profile_edit;
 pub mod rpc;
@@ -436,6 +437,10 @@ impl DiscordApi {
 	}
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
+			Command::MessagingPermissions { request, change } => Event::MessagingPermissions {
+				request,
+				result: self.account_messaging_permissions(change).await,
+			},
 			Command::AccountNotificationSettings {
 				request,
 				section,

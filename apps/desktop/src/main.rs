@@ -1769,7 +1769,8 @@ impl Desktop {
 		if self.state.demo {
 			let event = match command {
 				// Demo preference changes are applied synchronously by client-core.
-				Command::AccountNotificationSettings { .. } => return,
+				Command::AccountNotificationSettings { .. }
+				| Command::MessagingPermissions { .. } => return,
 				Command::ChannelAction {
 					guild,
 					channel,

@@ -1042,6 +1042,18 @@ normal-user session interoperability. Parser, reducer and local HTTP tests are
 synthetic; live normal-account behavior remains unverified.
 
 
+## Messaging permissions
+
+Messaging Permissions exposes spam filtering, all-server/per-server DM and message
+request preferences, friend request sources and personalized messages, and connected
+game messaging preferences. Content Filters is not included. Reads and version-guarded
+writes use the unofficial `/users/@me/settings-proto/1` route and preserve untouched
+fields in the changed subtree. The UI updates after the service confirms the values;
+these are account preferences, not a new local spam classifier or game integration.
+Field mappings follow the community-maintained
+[PreloadedUserSettings schema](https://github.com/discord-userdoccers/discord-protos/blob/master/discord_protos/discord_users/v1/PreloadedUserSettings.proto).
+Live normal-user interoperability remains unverified. Offline demo changes stay in RAM.
+
 ## User notification preferences
 
 Notification Overview reads `/users/@me/settings-proto/1` and performs a fresh,

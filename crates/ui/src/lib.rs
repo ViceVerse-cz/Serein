@@ -30,6 +30,7 @@ mod invites;
 mod local_time;
 mod markdown;
 mod mentions;
+mod messaging_permissions;
 mod notification_settings;
 mod notifications;
 mod pending;

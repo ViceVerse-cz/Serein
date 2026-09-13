@@ -10,6 +10,7 @@ pub mod gifs;
 pub mod group_actions;
 pub mod guild_folders;
 pub mod invites;
+pub mod messaging_permissions;
 pub mod notification_settings;
 pub mod notifications;
 pub mod permissions;

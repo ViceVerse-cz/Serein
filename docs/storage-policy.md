@@ -635,6 +635,15 @@ model fields and are skipped during decoding. The editor retains one bounded
 to SQLite. Closing settings, changing guild/session, and permission revocation
 release the applicable metadata. Existing bounded avatar caches remain shared.
 
+### Messaging permissions
+
+The account preference snapshot stays in session RAM, with at most 4,096 IDs in
+each of two guild lists (64 KiB combined allocated ID storage). A single pending
+update uses the existing command queue; bulk changes carry at most 4,096 IDs
+(32 KiB). HTTP responses are capped at 1 MiB and preserved protobuf subtrees at
+128 KiB each. Disconnect, resync and account reset invalidate the snapshot and
+pending request. No preferences or raw settings payloads are saved to SQLite or logs.
+
 ### Server audit log
 
 One active guild audit view retains at most 500 entries, 1,000 referenced users

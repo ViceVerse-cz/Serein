@@ -13,6 +13,7 @@ mod permissions_tests;
 
 pub mod invites;
 pub mod message_actions;
+pub mod messaging_permissions;
 pub mod notification_settings;
 pub mod notifications;
 pub mod presence;
@@ -47,9 +48,13 @@ pub const MAX_NAV: usize = 4000;
 pub const MAX_MEMBER_PRESENCE_BYTES: usize = 128 * 1024;
 pub const MAX_EVENT_BYTES: usize = 4 * 1024 * 1024;
 pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 MiB byte budget.
-pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; one pending group icon <=350 KiB
+pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM settings <=33 KiB; group icon <=350 KiB
 
 pub enum Command {
+	MessagingPermissions {
+		request: u64,
+		change: Option<model::messaging_permissions::Change>,
+	},
 	AccountNotificationSettings {
 		request: u64,
 		section: model::notification_settings::Section,
@@ -193,6 +198,10 @@ pub enum Command {
 	},
 }
 pub enum Event {
+	MessagingPermissions {
+		request: u64,
+		result: Result<model::messaging_permissions::Snapshot, auth::Failure>,
+	},
 	SocialNotification(model::notification_settings::SocialNotification),
 	AccountNotificationSettings {
 		request: u64,
@@ -371,6 +380,7 @@ pub struct NavigationIndex {
 }
 
 pub struct State {
+	pub messaging_permissions: messaging_permissions::Settings,
 	pub notification_settings: notification_settings::Settings,
 	pub guild_folders: Option<model::guild_folders::Settings>,
 	pub folders_pending: bool,
@@ -445,6 +455,7 @@ pub struct State {
 impl Default for State {
 	fn default() -> Self {
 		Self {
+			messaging_permissions: Default::default(),
 			notification_settings: Default::default(),
 			guild_folders: None,
 			folders_pending: false,
@@ -870,6 +881,15 @@ impl State {
 		})
 	}
 	pub fn command_rejected(&mut self, command: Command) {
+		if let Command::MessagingPermissions { request, .. } = command {
+			self.apply_messaging_permissions(
+				request,
+				Err(auth::Failure::ProtocolAt(
+					"Messaging permissions were not queued; try again",
+				)),
+			);
+			return;
+		}
 		if let Command::AccountNotificationSettings { request, .. } = command {
 			self.apply_account_notification_settings(
 				request,
@@ -1170,6 +1190,7 @@ impl State {
 			Event::Ready { .. } | Event::Disconnected | Event::Resync
 		) {
 			self.local_game_activity = Default::default();
+			self.invalidate_messaging_permissions(None);
 			self.interrupt_own_profile();
 		}
 		if let Event::Typing(signal) = &envelope.event {
@@ -1383,6 +1404,10 @@ impl State {
 			Event::NotificationPreferences(event) => self.apply_notification_preferences(event),
 			Event::SocialNotification(item) => {
 				self.receive_social_notification(item);
+				Ok(())
+			}
+			Event::MessagingPermissions { request, result } => {
+				self.apply_messaging_permissions(request, result);
 				Ok(())
 			}
 			Event::AccountNotificationSettings { request, result } => {
@@ -2303,6 +2328,7 @@ impl State {
 			_ => {}
 		}
 		if failure.ends_session() {
+			self.invalidate_messaging_permissions(Some(failure));
 			self.interrupt_notification_settings(failure);
 			self.interrupt_own_profile();
 			self.local_game_activity = Default::default();
@@ -2392,6 +2418,9 @@ impl Event {
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ match self {
+				Self::MessagingPermissions { result, .. } => result
+					.as_ref()
+					.map_or(0, model::messaging_permissions::Snapshot::bytes),
 				Self::InviteChallenge { challenge, .. } => challenge.bytes(),
 				Self::GroupAction(group_actions::Event::Written {
 					result: Ok(Some(patch)),

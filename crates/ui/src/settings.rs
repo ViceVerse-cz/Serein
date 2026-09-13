@@ -11,6 +11,7 @@ pub(super) struct Settings {
 	query: String,
 	editor: crate::profile_edit::Editor,
 	pub(super) notifications: crate::notification_settings::Navigation,
+	pub(super) messaging_permissions: crate::messaging_permissions::Navigation,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -20,6 +21,7 @@ enum Page {
 	General,
 	#[default]
 	Appearance,
+	MessagingPermissions,
 	Notifications,
 	Activity,
 	Voice,
@@ -29,11 +31,12 @@ enum Page {
 	Themes,
 }
 impl Page {
-	const ALL: [Self; 11] = [
+	const ALL: [Self; 12] = [
 		Self::Account,
 		Self::Profile,
 		Self::General,
 		Self::Appearance,
+		Self::MessagingPermissions,
 		Self::Notifications,
 		Self::Activity,
 		Self::Voice,
@@ -43,9 +46,10 @@ impl Page {
 		Self::Themes,
 	];
 	const USER: [Self; 2] = [Self::Account, Self::Profile];
-	const APP: [Self; 9] = [
+	const APP: [Self; 10] = [
 		Self::General,
 		Self::Appearance,
+		Self::MessagingPermissions,
 		Self::Notifications,
 		Self::Activity,
 		Self::Voice,
@@ -60,6 +64,7 @@ impl Page {
 			Self::Profile => "Profile",
 			Self::General => "General",
 			Self::Appearance => "Appearance",
+			Self::MessagingPermissions => "Messaging Permissions",
 			Self::Notifications => "Notifications",
 			Self::Activity => "Game Activity",
 			Self::Voice => "Voice & Audio",
@@ -75,6 +80,9 @@ impl Page {
 			Self::Profile => "Choose how you appear across Discord.",
 			Self::General => "Startup and window behavior on this device.",
 			Self::Appearance => "Theme, colour preset, zoom and layout.",
+			Self::MessagingPermissions => {
+				"Control who can contact you and how messages are filtered."
+			}
 			Self::Notifications => "Choose which notifications you receive and how they appear.",
 			Self::Activity => "Show others what you are playing.",
 			Self::Voice => "Microphone, speakers and voice processing.",
@@ -93,6 +101,9 @@ impl Page {
 			}
 			Self::Appearance => {
 				"appearance customization primary accent hex window tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
+			}
+			Self::MessagingPermissions => {
+				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
 			}
 			Self::Notifications => {
 				"notifications desktop system alerts overview sounds badges email streaming friends reactions"
@@ -275,6 +286,9 @@ impl MessagingUi {
 										ui.add_space(8.0);
 										self.reading_settings(ui, state.demo);
 									}
+									Page::MessagingPermissions => {
+										self.messaging_permissions_settings(ui, state, commands)
+									}
 									Page::Notifications => {
 										self.notification_settings(ui, state, commands)
 									}
@@ -299,6 +313,9 @@ impl MessagingUi {
 			});
 		if modal.should_close() {
 			self.settings.open = false;
+		}
+		if !self.settings.open {
+			self.settings.messaging_permissions.requested = false;
 		}
 	}
 
@@ -329,7 +346,26 @@ impl MessagingUi {
 					ui.add_space(2.0);
 					for page in visible {
 						if nav_item(ui, page.label(), self.settings.page == page).clicked() {
+							if page == Page::MessagingPermissions && self.settings.page != page {
+								self.settings.messaging_permissions.requested = false;
+							}
 							self.settings.page = page;
+						}
+						if page == Page::MessagingPermissions && self.settings.page == page {
+							ui.indent("messaging-permission-sections", |ui| {
+								for tab in crate::messaging_permissions::Tab::ALL {
+									if nav_item(
+										ui,
+										tab.label(),
+										self.settings.messaging_permissions.active == tab,
+									)
+									.clicked()
+									{
+										self.settings.messaging_permissions.jump = Some(tab);
+										self.settings.messaging_permissions.active = tab;
+									}
+								}
+							});
 						}
 						if page == Page::Notifications && self.settings.page == page {
 							ui.indent("notification-sections", |ui| {
