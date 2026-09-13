@@ -530,8 +530,7 @@ impl Formatted {
 			opening,
 			users,
 			profile,
-			&mut crate::avatars::Avatars::default(),
-			true,
+			(&mut crate::avatars::Avatars::default(), true, &[]),
 		);
 	}
 	pub fn show_with_images(
@@ -540,16 +539,16 @@ impl Formatted {
 		opening: &mut Option<String>,
 		users: &[model::User],
 		profile: &mut Option<model::User>,
-		images: &mut crate::avatars::Avatars,
-		demo: bool,
+		media: (&mut crate::avatars::Avatars, bool, &[model::Guild]),
 	) {
+		let (images, demo, guilds) = media;
 		let mut revealed = u32::MAX;
 		self.show_references(
 			ui,
 			opening,
 			users,
 			profile,
-			(&[], &mut None),
+			(&[], &mut None, guilds),
 			(images, demo, &mut revealed),
 		);
 	}
@@ -559,10 +558,10 @@ impl Formatted {
 		opening: &mut Option<String>,
 		users: &[model::User],
 		profile: &mut Option<model::User>,
-		references: (&[model::Channel], &mut Option<Id>),
+		references: (&[model::Channel], &mut Option<Id>, &[model::Guild]),
 		media: (&mut crate::avatars::Avatars, bool, &mut u32),
 	) {
-		let (channels, channel) = references;
+		let (channels, channel, guilds) = references;
 		let (images, demo, revealed) = media;
 		ui.allocate_ui_with_layout(
 			egui::vec2(ui.available_width(), 0.0),
@@ -672,8 +671,8 @@ impl Formatted {
 					if let Some(index) = target {
 						let url = &self.links[index];
 						let label: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-						let response =
-							Self::show_emoji(spans, ui, true, images, demo).on_hover_text(url);
+						let response = Self::show_emoji(spans, ui, true, images, demo, guilds)
+							.on_hover_text(url);
 						// Text selection in egui's Link overwrites its accessibility role.
 						response.widget_info(|| {
 							egui::WidgetInfo::labeled(
@@ -686,7 +685,7 @@ impl Formatted {
 							*opening = Some(url.clone());
 						}
 					} else {
-						Self::show_emoji(spans, ui, false, images, demo);
+						Self::show_emoji(spans, ui, false, images, demo, guilds);
 					}
 					start += count;
 				}
@@ -702,6 +701,7 @@ impl Formatted {
 		link: bool,
 		images: &mut crate::avatars::Avatars,
 		demo: bool,
+		guilds: &[model::Guild],
 	) -> egui::Response {
 		struct Inline {
 			text: String,
@@ -846,7 +846,7 @@ impl Formatted {
 					Some(id) => images.custom_image(ui.ctx(), id, size, demo),
 					None => inline.image.clone(),
 				};
-				if let Some(image) = image {
+				if let Some(image) = &image {
 					let painted = image.calc_size(egui::Vec2::splat(size), image.size());
 					image.paint_at(ui, egui::Rect::from_center_size(rect.center(), painted));
 				} else {
@@ -857,6 +857,24 @@ impl Formatted {
 						egui::FontId::proportional(size),
 						ui.visuals().weak_text_color(),
 					);
+				}
+				if !link {
+					let hit = ui
+						.interact(
+							*rect,
+							response.id.with(("emoji", *index, &inline.text)),
+							egui::Sense::click(),
+						)
+						.on_hover_cursor(egui::CursorIcon::PointingHand)
+						.on_hover_text(&inline.text);
+					hit.widget_info(|| {
+						egui::WidgetInfo::labeled(
+							egui::WidgetType::Button,
+							ui.is_enabled(),
+							format!("Show emoji details: {}", inline.text),
+						)
+					});
+					crate::emoji_details::show(ui, &hit, &inline.text, image, guilds);
 				}
 			}
 			if link && response.hovered() {
@@ -1320,7 +1338,7 @@ mod tests {
 							&mut opening,
 							&[],
 							&mut profile,
-							(&[], &mut channel),
+							(&[], &mut channel, &[]),
 							(&mut images, false, mask),
 						)
 					},
@@ -1417,7 +1435,7 @@ mod tests {
 						&mut None,
 						&[],
 						&mut None,
-						(&[], &mut None),
+						(&[], &mut None, &[]),
 						(&mut images, false, &mut mask),
 					)
 				},
@@ -1576,7 +1594,7 @@ mod tests {
 							&mut opening,
 							&[],
 							&mut profile,
-							(&channels, &mut channel),
+							(&channels, &mut channel, &[]),
 							(&mut crate::avatars::Avatars::default(), true, &mut revealed),
 						)
 					},
@@ -1608,7 +1626,15 @@ mod tests {
 					time: Some(clock),
 					..Default::default()
 				},
-				|ui| parsed.show_with_images(ui, &mut None, &[], &mut None, &mut avatars, true),
+				|ui| {
+					parsed.show_with_images(
+						ui,
+						&mut None,
+						&[],
+						&mut None,
+						(&mut avatars, true, &[]),
+					)
+				},
 			)
 		};
 		let mut output = run(vec![]);
@@ -1706,6 +1732,131 @@ mod tests {
 				),
 				"partial emoji copied: {copied:?}"
 			);
+		}
+	}
+	#[test]
+	fn emoji_click_shows_default_known_or_unknown_source_and_escape_closes() {
+		fn text_shapes<'a>(shape: &'a egui::Shape, texts: &mut Vec<&'a egui::epaint::TextShape>) {
+			match shape {
+				egui::Shape::Text(text) => texts.push(text),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						text_shapes(shape, texts);
+					}
+				}
+				_ => {}
+			}
+		}
+		for light in [false, true] {
+			for (source, title, description) in [
+				(
+					"\u{1f9c2}",
+					":salt:",
+					"A default emoji. You can use this emoji everywhere on Discord.",
+				),
+				(
+					"<:old_name:9001>",
+					":serein_wave:",
+					"From Emoji source server",
+				),
+				(
+					"<:unknown:999999>",
+					":unknown:",
+					"Source server unavailable in this session.",
+				),
+			] {
+				let ctx = egui::Context::default();
+				if light {
+					ctx.set_visuals(egui::Visuals::light());
+				}
+				crate::emoji::install(&ctx).unwrap();
+				let mut state = test_support::demo_state();
+				for guild in &mut state.guilds {
+					guild.name = "Emoji source server".into();
+				}
+				let parsed = Formatted::parse(source);
+				let mut images = crate::avatars::Avatars::default();
+				let mut clock = 0.0;
+				let mut frame = |events| {
+					clock += 0.02;
+					ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(egui::Rect::from_min_size(
+								egui::Pos2::ZERO,
+								egui::vec2(360.0, 300.0),
+							)),
+							events,
+							time: Some(clock),
+							..Default::default()
+						},
+						|ui| {
+							parsed.show_with_images(
+								ui,
+								&mut None,
+								&[],
+								&mut None,
+								(&mut images, true, &state.guilds),
+							)
+						},
+					)
+				};
+				let mut output = frame(vec![]);
+				let mut texts = vec![];
+				for shape in &output.shapes {
+					text_shapes(&shape.shape, &mut texts);
+				}
+				let text = texts
+					.iter()
+					.find(|text| text.galley.text() == source)
+					.unwrap();
+				let row = &text.galley.rows[0];
+				let glyph = &row.glyphs[0];
+				let point = text.pos
+					+ egui::vec2(glyph.pos.x + glyph.advance_width / 2.0, row.size.y / 2.0);
+				output.textures_delta.clear();
+				frame(vec![egui::Event::PointerMoved(point)]).drop_without_applying_deltas();
+				for pressed in [true, false] {
+					frame(vec![egui::Event::PointerButton {
+						pos: point,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					}])
+					.drop_without_applying_deltas();
+				}
+				frame(vec![]).drop_without_applying_deltas();
+				let output = frame(vec![]);
+				let mut texts = vec![];
+				for shape in &output.shapes {
+					text_shapes(&shape.shape, &mut texts);
+				}
+				assert!(
+					texts.iter().any(|text| text.galley.text() == title),
+					"missing title {title}"
+				);
+				assert!(
+					texts.iter().any(|text| text.galley.text() == description),
+					"missing description {description}"
+				);
+				for text in texts {
+					let rect = text.galley.rect.translate(text.pos.to_vec2());
+					assert!(
+						rect.right() <= 360.5 && rect.bottom() <= 300.5,
+						"clipped emoji details: {rect:?}"
+					);
+				}
+				output.drop_without_applying_deltas();
+				assert!(egui::Popup::is_any_open(&ctx));
+				frame(vec![egui::Event::Key {
+					key: egui::Key::Escape,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers::NONE,
+				}])
+				.drop_without_applying_deltas();
+				assert!(!egui::Popup::is_any_open(&ctx));
+			}
 		}
 	}
 	#[test]

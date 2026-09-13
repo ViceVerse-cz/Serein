@@ -21,6 +21,7 @@ mod embeds;
 mod extensions_ui;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
 pub mod emoji;
+mod emoji_details;
 mod emoji_picker;
 pub mod fonts;
 mod formatting;
@@ -2015,12 +2016,11 @@ impl MessagingUi {
 			.filter(|r| r.is_empty())
 			.map(|r| r.primary.index.0);
 		self.mention_menu.refresh(
+			state,
 			channel,
 			composer_content,
 			cursor.filter(|_| mention_enabled),
 			&mention_users,
-			&state.channels,
-			&state.guilds,
 		);
 		let mention_pick = if mention_enabled {
 			self.mention_menu.keys(ctx)
@@ -2173,11 +2173,16 @@ impl MessagingUi {
                             && ctx.memory(|m| m.has_focus(composer_id) || m.had_focus_last_frame(composer_id))
                             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
                         let remaining = if editing_here { MAX_CONTENT * 4 } else { MAX_DRAFT_BYTES.saturating_sub(state.draft_bytes()) };
-                        let mut new_draft = String::new();
+                        // Temporarily own the buffer so suggestions can borrow the current
+                        // permission state without cloning the draft or server catalogs.
+                        let restore_empty_draft = self.draft_restore_pending && state.drafts.contains_key(&channel);
+                        let mut new_draft = if editing_here { String::new() } else {
+                            state.drafts.remove(&channel).unwrap_or_default()
+                        };
                         let draft = if let Some((_, _, content)) = &mut editing {
                             content
                         } else {
-                            state.drafts.get_mut(&channel).unwrap_or(&mut new_draft)
+                            &mut new_draft
                         };
                         let mut mention_changed = false;
                         if let Some(pick) = pick {
@@ -2284,7 +2289,7 @@ impl MessagingUi {
                             .map(|r| r.primary.index.0)
                             .filter(|_| mention_enabled);
                         self.mention_menu
-                            .refresh(channel, draft, mention_cursor, &mention_users, &state.channels, &state.guilds);
+                            .refresh(state, channel, draft, mention_cursor, &mention_users);
                         if let Some(pick) = self.mention_menu.show(ui, composer_anchor, &mut self.avatars, demo)
                             && let Some(cursor) = mentions::insert(draft, pick)
                         {
@@ -2309,11 +2314,11 @@ impl MessagingUi {
                             } else if cleared {
                                 self.clear_draft(state, channel);
                             } else {
-                                if !new_draft.is_empty() {
-                                    state.drafts.insert(channel, new_draft);
-                                }
                                 self.draft_changes.push(channel);
                             }
+                        }
+                        if !editing_here && (!new_draft.is_empty() || restore_empty_draft) {
+                            state.drafts.insert(channel, new_draft);
                         }
                         edit
                             }).inner
@@ -5482,6 +5487,17 @@ mod composer_tests {
 			.or_insert("saved synthetic draft".into());
 		assert_eq!(state.drafts[&Id(1)], "saved synthetic draft");
 		messaging.clear_draft(&mut state, Id(1));
+		for _ in 0..3 {
+			egui::Context::default()
+				.run_ui(Default::default(), |ui| {
+					messaging.show(ui, &mut state);
+				})
+				.drop_without_applying_deltas();
+		}
+		assert!(
+			state.drafts.contains_key(&Id(1)),
+			"unchanged renders must retain the explicit clear until hydration completes"
+		);
 		state
 			.drafts
 			.entry(Id(1))

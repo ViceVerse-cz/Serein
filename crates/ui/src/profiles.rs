@@ -827,8 +827,7 @@ pub fn show(
 													opening,
 													&[],
 													&mut linked_user,
-													avatars,
-													state.demo,
+													(avatars, state.demo, &state.guilds),
 												);
 												if let Some(user) = linked_user {
 													action = Some(Action::Profile(user));

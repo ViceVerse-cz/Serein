@@ -1,7 +1,7 @@
 //! Suggestions use only bounded people, guild text channels and emoji already loaded in this session.
 use crate::avatars::Avatars;
 use client_core::State;
-use model::{Channel, Guild, Id, User};
+use model::{Id, User};
 use std::ops::Range;
 
 /// Rows shown for people and channels, like Discord's short member list.
@@ -14,6 +14,7 @@ const VISIBLE_ROWS: f32 = 8.5;
 #[derive(Default)]
 pub struct Menu {
 	channel: Option<Id>,
+	generation: u64,
 	range: Range<usize>,
 	query: String,
 	kind: Option<Kind>,
@@ -50,6 +51,7 @@ enum Candidate {
 		id: Id,
 		name: String,
 		animated: bool,
+		server: String,
 	},
 }
 impl Candidate {
@@ -66,7 +68,9 @@ impl Candidate {
 			Candidate::User { user } => format!("<@{}> ", user.id),
 			Candidate::Channel { id, .. } => format!("<#{id}> "),
 			Candidate::Unicode { text, .. } => format!("{text} "),
-			Candidate::Custom { id, name, animated } => {
+			Candidate::Custom {
+				id, name, animated, ..
+			} => {
 				format!("<{}:{name}:{id}> ", if *animated { "a" } else { "" })
 			}
 		}
@@ -176,21 +180,34 @@ fn rank(query: &str, name: &str, id: Id) -> Option<u8> {
 		None
 	}
 }
+
+/// Keep only the best bounded choices, without cloning every joined server's matching catalog.
+type Ranked = ((u8, u8, u64), Candidate);
+
+fn push_emoji(out: &mut Vec<Ranked>, key: (u8, u8, u64), candidate: impl FnOnce() -> Candidate) {
+	let index = out.partition_point(|(other, _)| *other <= key);
+	if index < EMOJI_LIMIT {
+		if out.len() == EMOJI_LIMIT {
+			out.pop();
+		}
+		out.insert(index, (key, candidate()));
+	}
+}
 impl Menu {
 	pub fn refresh(
 		&mut self,
+		state: &State,
 		channel: Id,
 		draft: &str,
 		cursor: Option<usize>,
 		users: &[User],
-		channels: &[Channel],
-		guilds: &[Guild],
 	) {
 		let Some((range, query, kind)) = cursor.and_then(|cursor| query(draft, cursor)) else {
 			*self = Self::default();
 			return;
 		};
 		if self.channel != Some(channel)
+			|| self.generation != state.generation
 			|| self.range != range
 			|| self.query != query
 			|| self.kind != Some(kind)
@@ -200,23 +217,26 @@ impl Menu {
 			self.follow = true;
 		}
 		self.channel = Some(channel);
+		self.generation = state.generation;
 		self.range = range;
 		self.query = query.into();
 		self.kind = Some(kind);
 		let query = query.to_lowercase();
-		let guild = channels
+		let guild = state
+			.channels
 			.iter()
 			.find(|c| c.id == channel)
 			.and_then(|c| c.guild);
-		let mut ranked: Vec<(u8, Candidate)> = match kind {
+		let mut ranked: Vec<Ranked> = match kind {
 			Kind::User => users
 				.iter()
 				.filter_map(|user| {
 					rank(&query, &user.name, user.id)
-						.map(|r| (r, Candidate::User { user: user.clone() }))
+						.map(|r| ((r, 0, 0), Candidate::User { user: user.clone() }))
 				})
 				.collect(),
-			Kind::Channel => channels
+			Kind::Channel => state
+				.channels
 				.iter()
 				.filter(|c| {
 					guild.is_some()
@@ -227,7 +247,7 @@ impl Menu {
 				.filter_map(|c| {
 					rank(&query, &c.name, c.id).map(|r| {
 						(
-							r,
+							(r, 0, 0),
 							Candidate::Channel {
 								id: c.id,
 								name: c.name.chars().take(120).collect(),
@@ -237,35 +257,36 @@ impl Menu {
 				})
 				.collect(),
 			Kind::Emoji => {
-				let mut out: Vec<(u8, Candidate)> = guild
-					.and_then(|id| guilds.iter().find(|g| g.id == id))
-					.and_then(|g| g.emojis.as_deref())
-					.into_iter()
-					.flatten()
-					.filter(|emoji| emoji.usable())
-					.filter_map(|emoji| {
-						rank(&query, &emoji.name, Id(0)).map(|r| {
-							(
-								r,
-								Candidate::Custom {
-									id: emoji.id,
-									name: emoji.name.clone(),
-									animated: emoji.animated,
-								},
-							)
-						})
-					})
-					.collect();
-				out.extend(
-					crate::emoji_picker::standard()
-						.iter()
-						.zip(crate::emoji_picker::shortcodes())
-						.filter_map(|((text, _), code)| {
-							let bare = &code[1..code.len() - 1];
-							rank(&query, bare, Id(0))
-								.map(|r| (r, Candidate::Unicode { text, code }))
-						}),
-				);
+				let mut out = Vec::with_capacity(EMOJI_LIMIT);
+				for guild in &state.guilds {
+					let source_match = rank(&query, &guild.name, Id(0)).map(|_| 2);
+					for emoji in guild.emojis.iter().flatten() {
+						if let Some(rank) = rank(&query, &emoji.name, Id(0)).or(source_match)
+							&& state
+								.custom_emoji_unavailable_reason(channel, guild.id, emoji)
+								.is_none()
+						{
+							push_emoji(&mut out, (rank, 0, emoji.id.0), || Candidate::Custom {
+								id: emoji.id,
+								name: emoji.name.clone(),
+								animated: emoji.animated,
+								server: guild.name.chars().take(120).collect(),
+							});
+						}
+					}
+				}
+				for (index, ((text, _), code)) in crate::emoji_picker::standard()
+					.iter()
+					.zip(crate::emoji_picker::shortcodes())
+					.enumerate()
+				{
+					if let Some(rank) = rank(&query, &code[1..code.len() - 1], Id(0)) {
+						push_emoji(&mut out, (rank, 1, index as u64), || Candidate::Unicode {
+							text,
+							code,
+						});
+					}
+				}
 				out
 			}
 		};
@@ -444,6 +465,10 @@ fn row(
 		egui::Vec2::splat(24.0),
 	);
 	let text_left = icon.right() + 10.0;
+	let source = match candidate {
+		Candidate::Custom { server, .. } => Some(server.as_str()),
+		_ => None,
+	};
 	let primary = match candidate {
 		Candidate::User { user } => {
 			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
@@ -500,10 +525,26 @@ fn row(
 		egui::pos2(text_left + max_text.max(0.0), rect.bottom()),
 	);
 	ui.painter().with_clip_rect(clip).galley(
-		egui::pos2(text_left, rect.center().y - galley.size().y / 2.0),
+		egui::pos2(
+			text_left,
+			if source.is_some() {
+				rect.top() + 1.0
+			} else {
+				rect.center().y - galley.size().y / 2.0
+			},
+		),
 		galley,
 		colors.text,
 	);
+	if let Some(source) = source {
+		ui.painter().with_clip_rect(clip).text(
+			egui::pos2(text_left, rect.bottom() - 2.0),
+			egui::Align2::LEFT_BOTTOM,
+			source,
+			egui::FontId::proportional(11.0),
+			colors.muted,
+		);
+	}
 	response.widget_info(|| {
 		egui::WidgetInfo::selected(
 			egui::WidgetType::Button,
@@ -513,7 +554,7 @@ fn row(
 				Candidate::User { user } => user.name.clone(),
 				Candidate::Channel { name, .. } => name.clone(),
 				Candidate::Unicode { code, .. } => (*code).to_owned(),
-				Candidate::Custom { name, .. } => name.clone(),
+				Candidate::Custom { name, server, .. } => format!("{name} from {server}"),
 			},
 		)
 	});
@@ -523,6 +564,81 @@ fn row(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use model::Channel;
+
+	#[test]
+	fn cross_server_emoji_search_names_sources_bounds_and_account_reset() {
+		let mut state = State {
+			channels: vec![channel(1, None, 1, "DM"), channel(2, None, 3, "Group DM")],
+			guilds: [20, 10]
+				.into_iter()
+				.map(|id| model::Guild {
+					id: Id(id),
+					name: format!("Source{id}"),
+					icon: None,
+					emojis: Some(
+						(1..=300)
+							.map(|index| model::CustomEmoji {
+								id: Id(id * 1000 + index),
+								name: "same_wave".into(),
+								animated: id == 10,
+								available: true,
+								managed: false,
+								roles: Some(vec![]),
+							})
+							.collect(),
+					),
+				})
+				.collect(),
+			..State::default()
+		};
+		let mut menu = Menu::default();
+		menu.refresh(&state, Id(1), ":same", Some(5), &[]);
+		assert_eq!(menu.candidates.len(), EMOJI_LIMIT);
+		assert_eq!(menu.candidates[0].id(), Id(10001));
+		assert!(
+			matches!(&menu.candidates[0], Candidate::Custom { server, .. } if server == "Source10")
+		);
+		let ids = menu
+			.candidates
+			.iter()
+			.map(Candidate::id)
+			.collect::<Vec<_>>();
+		state.guilds.reverse();
+		for guild in &mut state.guilds {
+			guild.emojis.as_mut().unwrap().reverse();
+		}
+		menu.refresh(&state, Id(1), ":same", Some(5), &[]);
+		assert_eq!(
+			menu.candidates
+				.iter()
+				.map(Candidate::id)
+				.collect::<Vec<_>>(),
+			ids
+		);
+		let mut draft = ":same".into();
+		insert(&mut draft, menu.pick(0).unwrap()).unwrap();
+		assert_eq!(draft, "<a:same_wave:10001> ");
+		menu.refresh(&state, Id(2), ":source20", Some(9), &[]);
+		assert_eq!(menu.candidates[0].id(), Id(20001));
+		assert!(menu.candidates.iter().all(
+			|candidate| matches!(candidate, Candidate::Custom { server, .. } if server == "Source20")
+		));
+		menu.selected = 10;
+		menu.dismissed = true;
+		state.generation += 1;
+		menu.refresh(&state, Id(2), ":source20", Some(9), &[]);
+		assert_eq!(menu.selected, 0);
+		assert!(!menu.dismissed);
+		state
+			.guilds
+			.iter_mut()
+			.find(|g| g.id == Id(20))
+			.unwrap()
+			.emojis = None;
+		menu.refresh(&state, Id(2), ":source20", Some(9), &[]);
+		assert!(menu.candidates.is_empty());
+	}
 	#[test]
 	fn composer_enter_accepts_suggestion_without_sending_message() {
 		for (draft, expected, guild, kind) in [
@@ -645,7 +761,7 @@ mod tests {
 		assert_eq!(query("čau @Zo", 7), Some((5..8, "Zo", Kind::User)));
 		let mut menu = Menu::default();
 		let users = vec![user(1, "Zoe"), user(2, "Zoë")];
-		menu.refresh(Id(1), "čau @Zo", Some(7), &users, &[], &[]);
+		menu.refresh(&State::default(), Id(1), "čau @Zo", Some(7), &users);
 		let ctx = egui::Context::default();
 		let mut chosen = None;
 		let mut output = ctx.run_ui(
@@ -678,9 +794,9 @@ mod tests {
 		assert_eq!(insert(&mut draft, chosen.unwrap()), Some(9));
 		assert_eq!(draft, "čau <@2> ");
 		let users = (1..=1000).map(|id| user(id, "User")).collect::<Vec<_>>();
-		menu.refresh(Id(1), "@", Some(1), &users, &[], &[]);
+		menu.refresh(&State::default(), Id(1), "@", Some(1), &users);
 		assert_eq!(menu.candidates.len(), 8);
-		menu.refresh(Id(1), "no query", Some(8), &users, &[], &[]);
+		menu.refresh(&State::default(), Id(1), "no query", Some(8), &users);
 		assert!(menu.candidates.is_empty());
 	}
 
@@ -702,21 +818,24 @@ mod tests {
 	#[test]
 	fn channel_references_scope_bound_and_insert_unicode_without_user_mentions() {
 		let mut menu = Menu::default();
-		let mut channels = vec![
-			channel(1, Some(Id(9)), 0, "Home"),
-			channel(2, Some(Id(8)), 0, "Žlutá other guild"),
-			channel(3, None, 1, "Žlutá DM"),
-			channel(4, Some(Id(9)), 2, "Žlutá voice"),
-			channel(5, Some(Id(9)), 4, "Žlutá category"),
-			channel(6, Some(Id(9)), 5, "Žlutá announcements"),
-			channel(7, Some(Id(9)), 11, "Žlutá thread"),
-			channel(8, Some(Id(9)), 15, "Žlutá forum container"),
-		];
+		let mut state = State {
+			channels: vec![
+				channel(1, Some(Id(9)), 0, "Home"),
+				channel(2, Some(Id(8)), 0, "Žlutá other guild"),
+				channel(3, None, 1, "Žlutá DM"),
+				channel(4, Some(Id(9)), 2, "Žlutá voice"),
+				channel(5, Some(Id(9)), 4, "Žlutá category"),
+				channel(6, Some(Id(9)), 5, "Žlutá announcements"),
+				channel(7, Some(Id(9)), 11, "Žlutá thread"),
+				channel(8, Some(Id(9)), 15, "Žlutá forum container"),
+			],
+			..State::default()
+		};
 		assert_eq!(query("čau #Žl", 7), Some((5..9, "Žl", Kind::Channel)));
 		for text in ["https://host/#name", "abc#name", "<#6>"] {
 			assert!(query(text, text.chars().count()).is_none());
 		}
-		menu.refresh(Id(1), "čau #Žl", Some(7), &[], &channels, &[]);
+		menu.refresh(&state, Id(1), "čau #Žl", Some(7), &[]);
 		assert_eq!(
 			menu.candidates.iter().map(|c| c.id()).collect::<Vec<_>>(),
 			[Id(6), Id(7)]
@@ -743,21 +862,16 @@ mod tests {
 		let mut draft = "čau #Žl".into();
 		assert_eq!(insert(&mut draft, pick.unwrap()), Some(9));
 		assert_eq!(draft, "čau <#6> ");
-		menu.refresh(Id(3), "#", Some(1), &[], &channels, &[]);
+		menu.refresh(&state, Id(3), "#", Some(1), &[]);
 		assert!(menu.candidates.is_empty());
-		channels.extend((20..40).map(|id| channel(id, Some(Id(9)), 0, &"é".repeat(300))));
-		menu.refresh(Id(1), "#é", Some(2), &[], &channels, &[]);
+		state
+			.channels
+			.extend((20..40).map(|id| channel(id, Some(Id(9)), 0, &"é".repeat(300))));
+		menu.refresh(&state, Id(1), "#é", Some(2), &[]);
 		assert_eq!(menu.candidates.len(), 8);
 		assert!(menu.candidates.iter().all(|c| c.token().len() <= 40));
 		let mut full = format!("{} #", "x".repeat(client_core::MAX_CONTENT - 2));
-		menu.refresh(
-			Id(1),
-			&full,
-			Some(client_core::MAX_CONTENT),
-			&[],
-			&channels,
-			&[],
-		);
+		menu.refresh(&state, Id(1), &full, Some(client_core::MAX_CONTENT), &[]);
 		assert!(insert(&mut full, menu.pick(0).unwrap()).is_none());
 	}
 	#[test]
@@ -791,9 +905,14 @@ mod tests {
 				},
 			]),
 		}];
-		let channels = vec![channel(1, Some(Id(9)), 0, "general")];
+		let state = State {
+			guilds,
+			channels: vec![channel(1, None, 1, "DM")],
+			user: Some(user(7, "Owner")),
+			..State::default()
+		};
 		let mut menu = Menu::default();
-		menu.refresh(Id(1), "hi :he", Some(6), &[], &channels, &guilds);
+		menu.refresh(&state, Id(1), "hi :he", Some(6), &[]);
 		assert!(menu.candidates.len() > 8, "all matching emoji are listed");
 		assert!(menu.candidates.len() <= EMOJI_LIMIT);
 		assert!(matches!(

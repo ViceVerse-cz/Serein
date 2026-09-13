@@ -138,7 +138,7 @@ impl Editor {
 						draft,
 						profile,
 						avatars,
-						state.demo,
+						(state.demo, &state.guilds),
 						&mut self.preview_link,
 					);
 				});
@@ -224,7 +224,7 @@ impl Editor {
 				draft,
 				profile,
 				avatars,
-				state.demo,
+				(state.demo, &state.guilds),
 				&mut self.preview_link,
 			);
 		}
@@ -333,9 +333,10 @@ fn preview(
 	draft: &Draft,
 	profile: &UserProfile,
 	avatars: &mut Avatars,
-	demo: bool,
+	media: (bool, &[model::Guild]),
 	opening: &mut Option<String>,
 ) {
+	let (demo, guilds) = media;
 	let colors = design::palette(ui);
 	ui.label(design::eyebrow(ui, "Preview", colors.muted));
 	ui.add_space(4.0);
@@ -421,8 +422,7 @@ fn preview(
 									opening,
 									&[],
 									&mut None,
-									avatars,
-									demo,
+									(avatars, demo, guilds),
 								);
 							}
 						});

@@ -187,6 +187,217 @@ fn state() -> State {
 }
 
 #[test]
+fn cross_server_emoji_checks_destination_and_known_source_roles() {
+	let mut state = state();
+	let mut emoji = model::CustomEmoji {
+		id: Id(400),
+		name: "party".into(),
+		animated: true,
+		available: true,
+		managed: false,
+		roles: Some(vec![]),
+	};
+	state.guilds.push(Guild {
+		id: Id(40),
+		name: "Emoji source".into(),
+		icon: None,
+		emojis: Some(vec![emoji.clone()]),
+	});
+	state.channels.push(Channel {
+		guild: None,
+		..channel(41, 1, None)
+	});
+	let (source, found) = state.custom_emoji(emoji.id).unwrap();
+	assert_eq!(source.id, Id(40));
+	assert_eq!(found, &emoji);
+	assert!(state.custom_emoji(Id(999)).is_none());
+	assert_eq!(
+		state.custom_emoji_unavailable_reason(Id(41), Id(40), &emoji),
+		None
+	);
+	assert!(
+		state
+			.custom_emoji_unavailable_reason(Id(20), Id(40), &emoji)
+			.is_some()
+	);
+	assert!(
+		state
+			.custom_emoji_unavailable_reason(Id(30), Id(40), &emoji)
+			.is_some()
+	);
+	state.guilds[0].emojis = Some(vec![model::CustomEmoji {
+		id: Id(401),
+		..emoji.clone()
+	}]);
+	let (local, local_emoji) = state.custom_emoji(Id(401)).unwrap();
+	assert_eq!(
+		state.custom_emoji_unavailable_reason(Id(20), local.id, local_emoji),
+		None
+	);
+	permission(
+		&mut state,
+		PermissionEvent::Channel {
+			channel: Id(20),
+			guild: Some(Id(10)),
+			overwrites: Patch::Value(vec![p::Overwrite {
+				id: Id(2),
+				kind: 1,
+				allow: p::USE_EXTERNAL_EMOJIS,
+				deny: 0,
+			}]),
+		},
+	);
+	for target in [Id(20), Id(30), Id(41)] {
+		assert_eq!(
+			state.custom_emoji_unavailable_reason(target, Id(40), &emoji),
+			None
+		);
+	}
+	assert!(
+		state
+			.custom_emoji_unavailable_reason(Id(21), Id(40), &emoji)
+			.is_some()
+	);
+	assert!(
+		state
+			.custom_emoji_unavailable_reason(Id(999), Id(40), &emoji)
+			.is_some()
+	);
+	assert!(
+		state
+			.custom_emoji_unavailable_reason(Id(41), Id(999), &emoji)
+			.is_some()
+	);
+
+	emoji.roles = Some(vec![Id(42)]);
+	assert!(
+		state
+			.custom_emoji_unavailable_reason(Id(41), Id(40), &emoji)
+			.is_some()
+	);
+	permission(
+		&mut state,
+		PermissionEvent::Guild(p::Guild {
+			id: Id(40),
+			owner: Some(Id(999)),
+			roles: None,
+			member: Some(p::Member {
+				roles: vec![Id(42)],
+				timeout_until: None,
+			}),
+		}),
+	);
+	assert_eq!(
+		state.custom_emoji_unavailable_reason(Id(41), Id(40), &emoji),
+		None
+	);
+	permission(
+		&mut state,
+		PermissionEvent::Member {
+			guild: Id(40),
+			roles: Patch::Value(vec![]),
+			timeout_until: Patch::Absent,
+		},
+	);
+	assert!(
+		state
+			.custom_emoji_unavailable_reason(Id(41), Id(40), &emoji)
+			.is_some()
+	);
+	emoji.roles = Some(vec![Id(40)]);
+	assert_eq!(
+		state.custom_emoji_unavailable_reason(Id(41), Id(40), &emoji),
+		None
+	);
+	emoji.roles = None;
+	assert!(
+		state
+			.custom_emoji_unavailable_reason(Id(41), Id(40), &emoji)
+			.is_some()
+	);
+	emoji.roles = Some(vec![]);
+	emoji.managed = true;
+	assert!(
+		state
+			.custom_emoji_unavailable_reason(Id(41), Id(40), &emoji)
+			.is_some()
+	);
+	emoji.managed = false;
+	emoji.available = false;
+	assert!(
+		state
+			.custom_emoji_unavailable_reason(Id(41), Id(40), &emoji)
+			.is_some()
+	);
+}
+
+#[test]
+fn new_custom_reactions_require_eligibility_but_existing_and_removal_stay_separate() {
+	let mut state = state();
+	let emoji = model::ReactionEmoji {
+		id: Some(Id(400)),
+		name: Some("party".into()),
+	};
+	assert!(!state.can_react(Id(100), Some(&emoji), true));
+	assert!(state.prepare_reaction(Id(100), emoji.clone()).is_none());
+	state.guilds.push(Guild {
+		id: Id(40),
+		name: "Emoji source".into(),
+		icon: None,
+		emojis: Some(vec![model::CustomEmoji {
+			id: Id(400),
+			name: "party".into(),
+			animated: false,
+			available: true,
+			managed: false,
+			roles: Some(vec![]),
+		}]),
+	});
+	assert!(!state.can_react(Id(100), Some(&emoji), true));
+	permission(
+		&mut state,
+		PermissionEvent::Channel {
+			channel: Id(20),
+			guild: Some(Id(10)),
+			overwrites: Patch::Value(vec![p::Overwrite {
+				id: Id(2),
+				kind: 1,
+				allow: p::USE_EXTERNAL_EMOJIS,
+				deny: 0,
+			}]),
+		},
+	);
+	assert!(state.can_react(Id(100), Some(&emoji), true));
+	state.guilds.last_mut().unwrap().emojis = None;
+	assert!(!state.can_react(Id(100), Some(&emoji), true));
+	deny(&mut state, p::ADD_REACTIONS | p::USE_EXTERNAL_EMOJIS);
+	state
+		.timeline
+		.set_reactions(
+			Id(100),
+			Some(vec![model::Reaction {
+				emoji: emoji.clone(),
+				count: 1,
+				me: false,
+				me_burst: false,
+			}]),
+		)
+		.unwrap();
+	assert!(state.can_react(Id(100), Some(&emoji), true));
+	assert!(state.can_react(Id(100), Some(&emoji), false));
+	permission(
+		&mut state,
+		PermissionEvent::Member {
+			guild: Id(10),
+			roles: Patch::Absent,
+			timeout_until: Patch::Value(State::permission_time() + 60),
+		},
+	);
+	assert!(!state.can_react(Id(100), Some(&emoji), true));
+	assert!(state.can_react(Id(100), Some(&emoji), false));
+}
+
+#[test]
 fn role_rest_catalog_and_self_membership_revoke_selected_history_immediately() {
 	use model::{server_admin as admin, server_roles as roles};
 	for self_assignment in [false, true] {

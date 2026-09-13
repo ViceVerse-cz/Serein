@@ -67,10 +67,10 @@ fn text(
 	cache: &mut FormatCache,
 	opening: &mut Option<String>,
 	profile: &mut Option<model::User>,
-	media: (&mut Avatars, bool),
+	media: (&mut Avatars, bool, &[model::Guild]),
 ) {
 	let formatted = cache.get_part(message.id, part.0, part.1);
-	formatted.show_with_images(ui, opening, &message.mentions, profile, media.0, media.1);
+	formatted.show_with_images(ui, opening, &message.mentions, profile, media);
 	if formatted.limited {
 		ui.small("Text display limited");
 	}
@@ -447,7 +447,7 @@ pub fn show(
 											cache,
 											opening,
 											profile,
-											(images, demo),
+											(images, demo, &state.guilds),
 										);
 									}
 								});
@@ -495,7 +495,7 @@ pub fn show(
 											cache,
 											opening,
 											profile,
-											(images, demo),
+											(images, demo, &state.guilds),
 										);
 									}
 								});

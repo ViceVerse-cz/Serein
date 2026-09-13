@@ -1208,7 +1208,11 @@ impl TimelineView {
 													&mut self.opening,
 													&message.mentions,
 													profile,
-													(&state.channels, &mut self.channel_reference),
+													(
+														&state.channels,
+														&mut self.channel_reference,
+														&state.guilds,
+													),
 													(avatars, state.demo, &mut text),
 												);
 											}

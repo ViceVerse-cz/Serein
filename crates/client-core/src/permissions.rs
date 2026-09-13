@@ -1,6 +1,6 @@
 //! Bounded session-only mirror for this account; Discord remains authoritative.
 use crate::{Command, State, auth::AuthState};
-use model::{Freshness, Id, Patch, ReactionEmoji, permissions as p};
+use model::{CustomEmoji, Freshness, Id, Patch, ReactionEmoji, permissions as p};
 use std::{
 	cell::RefCell,
 	collections::{BTreeMap, BTreeSet},
@@ -512,6 +512,70 @@ impl State {
 		self.can_call(channel)
 			&& self.permission(channel, p::VIEW_CHANNEL | p::CONNECT | p::STREAM) == Some(true)
 	}
+	/// Resolve provenance from the bounded catalogs already received for this account.
+	pub fn custom_emoji(&self, id: Id) -> Option<(&model::Guild, &CustomEmoji)> {
+		self.guilds.iter().find_map(|guild| {
+			guild
+				.emojis
+				.as_ref()?
+				.iter()
+				.find(|emoji| emoji.id == id)
+				.map(|emoji| (guild, emoji))
+		})
+	}
+	/// Local eligibility for an emoji borrowed from `source`'s catalog. Discord still
+	/// decides account entitlements, including Nitro; this is not a send guarantee.
+	pub fn custom_emoji_unavailable_reason(
+		&self,
+		channel: Id,
+		source: Id,
+		emoji: &CustomEmoji,
+	) -> Option<&'static str> {
+		if !emoji.valid() || !emoji.available {
+			return Some("This emoji is unavailable on its server");
+		}
+		if self.guild(source).is_none() {
+			return Some("This emoji's server is no longer available");
+		}
+		if emoji.managed {
+			return Some("Access to this integration's emoji could not be verified");
+		}
+		let Some(roles) = &emoji.roles else {
+			return Some("This emoji's role requirements are unavailable");
+		};
+		if !roles.is_empty() {
+			let Some(member) = self
+				.permissions
+				.guilds
+				.get(&source)
+				.and_then(|guild| guild.member.as_ref())
+			else {
+				return Some("Your roles on this emoji's server are unavailable");
+			};
+			if !roles
+				.iter()
+				.any(|role| *role == source || member.roles.contains(role))
+			{
+				return Some("You need an allowed role on this emoji's server");
+			}
+		}
+		let Some(target) = self
+			.channel(channel)
+			.filter(|target| self.can_view(target.id))
+		else {
+			return Some("Access to this conversation is unavailable");
+		};
+		if target.guild.is_some_and(|guild| guild != source) {
+			match self.permission(channel, p::USE_EXTERNAL_EMOJIS) {
+				Some(true) => {}
+				Some(false) => return Some("Use External Emojis is disabled in this channel"),
+				None => {
+					return Some("External emoji permissions are unavailable; reload the channel");
+				}
+			}
+		}
+		None
+	}
 	pub fn can_react(&self, message: Id, emoji: Option<&ReactionEmoji>, add: bool) -> bool {
 		let Some(channel) = self.selected else {
 			return false;
@@ -536,6 +600,20 @@ impl State {
 					.any(|reaction| reaction.emoji.same(emoji) && reaction.count > 0)
 			})
 		});
+		if add
+			&& !existing
+			&& let Some(id) = emoji.and_then(|emoji| emoji.id)
+		{
+			let Some((source, custom)) = self.custom_emoji(id) else {
+				return false;
+			};
+			if self
+				.custom_emoji_unavailable_reason(channel, source.id, custom)
+				.is_some()
+			{
+				return false;
+			}
+		}
 		(!add || existing || self.permission(channel, p::ADD_REACTIONS) == Some(true))
 			&& (!add || !self.timed_out(channel))
 	}

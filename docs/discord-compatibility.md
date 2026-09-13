@@ -329,7 +329,7 @@ no live Discord session was used.
 
 ### Custom server emoji, chat picker and copying (September 10, 2026)
 
-The current server's catalog is received from READY and known-guild GUILD_CREATE, updated
+Joined servers' catalogs are received from READY and known-guild GUILD_CREATE, updated
 by GUILD_EMOJIS_UPDATE, and cleared on GUILD_DELETE. The documented emoji fields and update
 shape are supported by [Emoji Resource](https://docs.discord.com/developers/resources/emoji)
 and [Gateway Events](https://docs.discord.com/developers/events/gateway-events#guild-emojis-update).
@@ -345,13 +345,23 @@ participate in text selection: copying a selection retains Unicode sequences/cus
 and right-click Copy emoji copies the entire token. Selection endpoints treat each image as
 one item, avoiding broken ZWJ sequences or partial custom markup. Whole-message Copy is unchanged.
 
-The chat Emoji button opens a searchable Unicode/name palette and current-server tab. Choosing
+The chat Emoji button opens a searchable Unicode/name palette and a joined-server rail, also
+available in DMs. Search matches custom emoji names and source server names across loaded
+catalogs; `:name` autocomplete includes usable customs with their source server. Choosing
 inserts at the saved text cursor or replaces its selection, preserves Unicode presentation
 selectors, and records the draft without sending. Escape/close restores keyboard focus.
-Only catalog entries explicitly available, unmanaged and unrestricted by roles are enabled;
-unknown eligibility remains disabled. Cross-server/DM catalog selection and full role/Nitro
-entitlement inference are not implemented; the service remains authoritative for actual sends.
+Catalog entries must be explicitly available and unmanaged, with known role restrictions
+matched against the account's known source-server roles. A destination guild must allow
+USE_EXTERNAL_EMOJIS for another server's emoji; DMs have no guild permission gate. New custom
+reactions use the same eligibility rules, while existing reaction/removal semantics remain.
+Unknown eligibility remains disabled. Account/Nitro entitlement inference is not implemented;
+Discord remains authoritative for actual sends and reactions, including entitlement rejection.
 Animated emoji are inserted with their original animated markup and shown as still previews.
+Clicking a rendered message, embed or profile emoji opens a native information card. Standard
+emoji show their shortcode and default-emoji explanation; customs use their catalog name and
+source server when the ID is known, otherwise explicitly report unknown provenance. Code and
+concealed spoilers stay inert, links keep their link action, and selection/copy retains the
+original Unicode or custom markup. These paths are verified offline, not on a live account.
 The composer now displays known user mentions as `@name`, Unicode as bundled Twemoji, and custom emoji as static server artwork, while retaining original wire text for editing/copy/send. Unresolved user IDs remain literal; unavailable server artwork shows its name.
 
 

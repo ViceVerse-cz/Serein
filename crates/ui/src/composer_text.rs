@@ -504,7 +504,7 @@ mod tests {
 					"emoji-9001".into(),
 					Some(egui::ColorImage::filled(dimensions, Color32::WHITE)),
 				);
-				message.show_with_images(ui, &mut None, &[], &mut None, &mut avatars, false);
+				message.show_with_images(ui, &mut None, &[], &mut None, (&mut avatars, false, &[]));
 				let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
 					layout.galley(ui, buffer.as_str(), width, &[], &mut avatars, true)
 				};

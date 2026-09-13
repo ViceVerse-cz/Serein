@@ -1,5 +1,13 @@
 # Local storage policy and audit
 
+Cross-server emoji (September 14): browsing and provenance reuse the existing bounded joined
+guild catalogs and avatar cache. Picker search retains at most 1,000 borrowed catalog pairs;
+autocomplete retains at most 256 ranked suggestions, with custom names capped at 32 ASCII bytes
+and source labels at 120 Unicode scalars. Only visible cells request artwork. No new catalog,
+network endpoint, persistent metadata, background job, or storage migration is introduced.
+Emoji information cards resolve names and source servers on demand from the loaded catalogs;
+unknown/deleted source metadata remains explicitly unknown.
+
 Notification sounds (September 13): three owner-supplied MP3 tracks are embedded
 in the executable (106,608 bytes total), with no runtime files or downloads.
 The existing single lazy worker and one-slot fixed-size request queue decode one
