@@ -101,3 +101,30 @@ The synthetic queue/SQLite check verifies recovery after all 16 slots are occupi
 it is not a timing benchmark. Native CPU, RSS and restore latency are unmeasured
 because native computer-control APIs are disabled and the Orca CLI is absent.
 No runtime speed or memory improvement is claimed.
+## Video orientation and fullscreen controls - September 13, 2026
+
+Baseline: `a90f0759ada23206809dc5374aef3e472875571a`. After: that revision plus
+the video orientation, context-menu, fullscreen and seek-buffering changes on
+`fix/video-player-controls`. Both packages were built sequentially in the same
+detached worktree, with the baseline output copied aside before the second build.
+Windows x64, Ryzen 7 7800X3D (16 logical processors), approximately 32 GiB RAM,
+Rust 1.98.1. Both use `cargo xtask package`, including voice, without demo or
+developer-session features.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 70,294,016 | 70,314,496 | +20,480 (+0.0291%) |
+| Installed package bytes | 76,702,334 | 76,723,260 | +20,926 (+0.0273%) |
+| ZIP bytes | 44,632,434 | 44,636,533 | +4,099 (+0.0092%) |
+
+One package per revision; installed size sums all files, and ZIP size uses
+PowerShell `Compress-Archive`. Package file lists match. Measurements precede
+this performance note and the final playback-visibility documentation clarification.
+Fullscreen reuses the existing decoder session and texture.
+The offline UI check verifies stable seek range during loading and fullscreen
+commands; the native Windows decoder check verifies upright rows and four track
+rotations. Neither measures native UI performance.
+
+Native CPU, RSS, frame timing and fullscreen transition latency are unmeasured:
+native computer-control APIs are disabled in this session and the Orca CLI is
+absent. No runtime speed or memory improvement is claimed.

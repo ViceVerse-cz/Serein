@@ -122,7 +122,10 @@ In-app installation requires an extracted Windows release or an installed,
 writable macOS `.app` outside a mounted disk image/App Translocation. macOS checks
 strict code-signature validity, the existing publisher's TeamIdentifier and bundle
 identifier, and Gatekeeper acceptance. Windows currently relies on the repository's
-HTTPS/checksum trust boundary because its published packages are unsigned. Native
-helpers wait for the old process to exit, retain a rollback copy during replacement,
-and relaunch Serein. A failed recovery leaves its backup available with a visible
-recovery path on the next update attempt. Package-manager metadata is not modified.
+HTTPS/checksum trust boundary because its published packages are unsigned. When
+installed via the per-user installer (`%LOCALAPPDATA%\Programs\Serein`), write
+permissions are maintained without administrator elevation, and the update helper
+automatically updates the Windows uninstall `DisplayVersion` registry key upon
+successful upgrade. Native helpers wait for the old process to exit, retain a rollback
+copy during replacement, and relaunch Serein. A failed recovery leaves its backup
+available with a visible recovery path on the next update attempt.

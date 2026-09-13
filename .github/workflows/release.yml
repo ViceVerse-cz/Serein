@@ -139,7 +139,12 @@ jobs:
       - name: Archive Windows package
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path "$env:PACKAGE_ROOT/*" -DestinationPath "release-assets/$env:ASSET.zip"
+        run: |
+          Compress-Archive -Path "$env:PACKAGE_ROOT/*" -DestinationPath "release-assets/$env:ASSET.zip"
+          $installer = Get-ChildItem -Path "dist-installer/*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($installer) {
+            Copy-Item -LiteralPath $installer.FullName -Destination "release-assets/$env:ASSET-Setup.exe"
+          }
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ env.ASSET }}

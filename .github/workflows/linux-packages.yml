@@ -86,7 +86,8 @@ jobs:
           mkdir release-assets
           for package in dist/*.deb dist/*.rpm dist/*.pkg.tar.zst; do
             test -f "$package" || continue
-            cp "$package" "release-assets/serein-$TAG-Linux-$DISTRIBUTION-$(basename "$package")"
+            # GitHub replaces ~ in asset names; normalize before generating checksums.
+            cp "$package" "release-assets/serein-$TAG-Linux-$DISTRIBUTION-$(basename "$package" | tr '~' '.')"
           done
       - uses: actions/upload-artifact@v7.0.1
         with:

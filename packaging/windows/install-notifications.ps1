@@ -1,6 +1,6 @@
 # Run explicitly after extracting Serein to its final folder. No administrator rights required.
 # Creates only the current user's Serein Start Menu shortcut; does not enable OS alerts in Serein.
-param([switch]$Remove)
+param([switch]$Remove, [switch]$Force)
 $ErrorActionPreference = 'Stop'
 $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Serein.lnk'
 if ($Remove) {
@@ -9,7 +9,8 @@ if ($Remove) {
 }
 $executable = Join-Path $PSScriptRoot 'serein.exe'
 if (!(Test-Path -LiteralPath $executable)) { throw 'Keep this script next to serein.exe in its final folder.' }
-if (Test-Path -LiteralPath $shortcut) { throw 'Serein.lnk already exists. Remove it explicitly with -Remove before replacing it.' }
+if ((Test-Path -LiteralPath $shortcut) -and !$Force) { throw 'Serein.lnk already exists. Remove it explicitly with -Remove before replacing it.' }
+if ($Force -and (Test-Path -LiteralPath $shortcut)) { Remove-Item -LiteralPath $shortcut -Force }
 
 # A desktop toast requires a Start Menu shortcut carrying the same AppUserModelID as the notifier.
 # https://learn.microsoft.com/windows/win32/shell/enable-desktop-toast-with-appusermodelid

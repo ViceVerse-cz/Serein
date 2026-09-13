@@ -258,7 +258,9 @@ fn play_decoded(
 				if let Ok(mut update) = session.update.lock() {
 					update.frame = None;
 					update.state = VideoState::Loading;
+					update.position = target;
 				}
+				ctx.request_repaint();
 				continue 'seek;
 			}
 			if failed.load(Ordering::Acquire) {

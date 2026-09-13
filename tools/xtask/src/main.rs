@@ -1,6 +1,6 @@
 use std::{
 	path::PathBuf,
-	process::{Command, ExitCode},
+	process::{Command, ExitCode, Stdio},
 };
 fn run(args: &[&str]) -> Result<(), String> {
 	run_tool("cargo", args)
@@ -184,6 +184,53 @@ fn copy_directory(source: &std::path::Path, destination: &std::path::Path) -> Re
 	}
 	Ok(())
 }
+#[allow(dead_code)]
+fn package_windows(root: &std::path::Path) -> Result<(), String> {
+	let nsis_candidates = [
+		PathBuf::from("makensis"),
+		PathBuf::from("makensis.exe"),
+		PathBuf::from(r"C:\Program Files (x86)\NSIS\makensis.exe"),
+		PathBuf::from(r"C:\Program Files\NSIS\makensis.exe"),
+	];
+
+	let makensis = nsis_candidates.iter().find(|cmd| {
+		Command::new(cmd)
+			.arg("/VERSION")
+			.stdout(Stdio::null())
+			.stderr(Stdio::null())
+			.status()
+			.is_ok_and(|s| s.success())
+	});
+
+	if let Some(makensis) = makensis {
+		let installer_dir = PathBuf::from("dist-installer");
+		std::fs::create_dir_all(&installer_dir).map_err(|e| e.to_string())?;
+		let version = env!("CARGO_PKG_VERSION");
+		let status = Command::new(makensis)
+			.args([
+				&format!("-DVERSION={version}"),
+				&format!("-DDIST_DIR={}", root.display()),
+				&format!("-DOUTPUT_DIR={}", installer_dir.display()),
+				"packaging/windows/installer.nsi",
+			])
+			.status()
+			.map_err(|e| e.to_string())?;
+		if !status.success() {
+			return Err("NSIS installer compilation failed".into());
+		}
+		println!(
+			"Windows installer created: {}",
+			installer_dir
+				.join(format!("serein-{version}-setup.exe"))
+				.display()
+		);
+	} else {
+		println!(
+			"makensis not found; skipping Windows installer binary creation (installer script available at packaging/windows/installer.nsi)"
+		);
+	}
+	Ok(())
+}
 fn package() -> Result<(), String> {
 	let options: Vec<String> = std::env::args().skip(2).collect();
 	let format = match options.as_slice() {
@@ -228,6 +275,8 @@ fn package() -> Result<(), String> {
 			root.join("install-notifications.ps1"),
 		)
 		.map_err(|e| e.to_string())?;
+		std::fs::copy("packaging/windows/setup.ps1", root.join("setup.ps1"))
+			.map_err(|e| e.to_string())?;
 	}
 	let source = std::env::var_os("CARGO_TARGET_DIR")
 		.map_or_else(|| PathBuf::from("target"), PathBuf::from)
@@ -366,6 +415,9 @@ fn package() -> Result<(), String> {
 				format,
 			],
 		)?;
+	}
+	if cfg!(windows) {
+		package_windows(&root)?;
 	}
 	println!(
 		"{} package executable: {} ({} bytes)",
