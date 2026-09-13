@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  if (window !== window.top || location.origin !== "https://serein-captcha.verification.invalid") return;
+  if (window !== window.top || !["https://serein-captcha.verification.invalid/", "serein-captcha://verification.invalid/"].includes(location.href)) return;
   const config = __SEREIN_CAPTCHA_CONFIG__;
   let finished = false;
   document.addEventListener("keydown", event => {

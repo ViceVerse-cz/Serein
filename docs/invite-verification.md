@@ -16,7 +16,7 @@ stop behavior.
 
 The sitekey is taken from the service response, never hardcoded. The challenge's
 enterprise data, request token and session ID remain bound to that attempt. The
-Windows verification view has its own incognito context, an app-local reserved
+verification view has its own incognito context, an app-local reserved
 origin and a random IPC capability. It receives no Discord account token and uses
 no solver, browser-profile access, origin spoofing, fingerprint override or backend.
 The widget's generated passcode is not saved to SQLite or diagnostics. The browser
@@ -42,7 +42,8 @@ Implementation evidence checked September 13, 2026:
   `X-Captcha-Session-Id` headers. This is unofficial protocol evidence, not a
   documented Discord third-party client contract.
 
-Windows is the initial embedded-verification platform. The owner reported a successful
+Windows and macOS embed verification; Linux opens a temporary GTK4/WebKit6 window. The owner reported a successful
 manual live check on September 13, 2026; this is not an agent-observed interoperability
-test. macOS/Linux embedded verification remains unavailable. Offline fixtures never
+test. macOS/Linux live verification remains unverified. Linux uses an ephemeral network
+session and a bounded main-frame query, with no cross-frame passcode IPC. Offline fixtures never
 contact hCaptcha or join a server.

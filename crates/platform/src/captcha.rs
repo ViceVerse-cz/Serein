@@ -1,27 +1,34 @@
 //! A temporary, human-operated verification widget. Never receives the account token.
 use client_core::captcha::{Challenge, Solution};
+#[cfg(not(target_os = "linux"))]
 use std::sync::Arc;
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_os = "linux"))]
 use std::{
 	borrow::Cow,
 	sync::mpsc::{self, Receiver},
 	time::{Duration, Instant},
 };
 #[cfg(target_os = "windows")]
-use wry::{WebView, WebViewBuilder, WebViewBuilderExtWindows};
+use wry::WebViewBuilderExtWindows;
+#[cfg(not(target_os = "linux"))]
+use wry::{WebView, WebViewBuilder};
 
+#[cfg(target_os = "linux")]
+#[path = "captcha_linux.rs"]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::CaptchaView;
+
+#[cfg(not(target_os = "linux"))]
 pub struct CaptchaView {
-	#[cfg(target_os = "windows")]
 	view: WebView,
-	#[cfg(target_os = "windows")]
 	results: Receiver<Result<Solution, &'static str>>,
-	#[cfg(target_os = "windows")]
 	opened: Instant,
 }
 
+#[cfg(not(target_os = "linux"))]
 impl CaptchaView {
-	#[cfg(target_os = "windows")]
 	pub fn open(
 		parent: Arc<winit::window::Window>,
 		challenge: &Challenge,
@@ -30,7 +37,6 @@ impl CaptchaView {
 	) -> Result<Self, &'static str> {
 		Self::build(parent, challenge, dark, wake, include_str!("captcha.js"))
 	}
-	#[cfg(target_os = "windows")]
 	fn build(
 		parent: Arc<winit::window::Window>,
 		challenge: &Challenge,
@@ -38,23 +44,15 @@ impl CaptchaView {
 		wake: impl Fn() + Send + Sync + 'static,
 		script: &str,
 	) -> Result<Self, &'static str> {
-		let mut random = [0_u8; 32];
-		getrandom::fill(&mut random).map_err(|_| "Verification could not start.")?;
-		let capability = random
-			.iter()
-			.map(|byte| format!("{byte:02x}"))
-			.collect::<String>()
-			+ ":";
-		let config = serde_json::json!({"capability": capability, "sitekey": challenge.sitekey(), "rqdata": challenge.rqdata(), "invisible": challenge.invisible(), "dark": dark});
-		let script = script.replace("__SEREIN_CAPTCHA_CONFIG__", &config.to_string());
-		let html = include_str!("captcha.html")
-			.replace("__THEME__", if dark { "dark" } else { "light" })
-			.replace("__BACKGROUND__", if dark { "#18191c" } else { "#f7f8fa" })
-			.replace("__FOREGROUND__", if dark { "#dbdee1" } else { "#313338" });
+		let (capability, _, html) = page(challenge, dark)?;
+		let script = script.replace(
+			"__SEREIN_CAPTCHA_CONFIG__",
+			&config(challenge, dark, &capability).to_string(),
+		);
 		let (send, results) = mpsc::sync_channel(1);
-		let view = WebViewBuilder::new()
+		let builder = WebViewBuilder::new()
 			.with_visible(false)
-			.with_incognito(true).with_devtools(false).with_https_scheme(true)
+			.with_incognito(true).with_devtools(false)
 			.with_custom_protocol("serein-captcha".into(), move |_, request| {
 				let valid = request.method() == "GET" && request.uri() == "serein-captcha://verification.invalid/";
 				wry::http::Response::builder().status(if valid {200} else {404})
@@ -65,7 +63,7 @@ impl CaptchaView {
 			})
 			.with_url("serein-captcha://verification.invalid/")
 			.with_initialization_script_for_main_only(script, true)
-			.with_navigation_handler(|url| own_origin(&url))
+			.with_navigation_handler(|url| own_origin(&url) || hcaptcha_origin(&url))
 			.with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
 			.with_download_started_handler(|_, _| false)
 			.with_ipc_handler(move |request| {
@@ -73,31 +71,21 @@ impl CaptchaView {
 				// The main-only bootstrap also checks window.top and keeps the capability private.
 				if !own_origin(&request.uri().to_string()) || request.body().len() > 8270 { return; }
 				let body = zeroize::Zeroizing::new(request.into_body());
-				let Some(payload) = body.strip_prefix(&capability) else {return;};
-				let result = if let Some(value) = payload.strip_prefix("verified:") {
-					let Some(solution) = Solution::new(value.to_owned()) else {return;};
-					Ok(solution)
-				} else { match payload {"cancelled:" => Err("Verification cancelled."), "expired:" => Err("Verification expired. Please try again."), "error:" => Err("Verification could not load. Try again or open the invite in Discord."), _ => return} };
+				let Some(result) = parse_result(&body, &capability) else { return; };
 				if send.try_send(result).is_ok() {wake();}
-			})
-			.build_as_child(parent.as_ref()).map_err(|_| "The native verification window could not open.")?;
+			});
+		#[cfg(target_os = "windows")]
+		let builder = builder.with_https_scheme(true);
+		let view = builder
+			.build_as_child(parent.as_ref())
+			.map_err(|_| "The native verification window could not open.")?;
 		Ok(Self {
 			view,
 			results,
 			opened: Instant::now(),
 		})
 	}
-	#[cfg(not(target_os = "windows"))]
-	pub fn open(
-		_: Arc<winit::window::Window>,
-		_: &Challenge,
-		_: bool,
-		_: impl Fn() + Send + Sync + 'static,
-	) -> Result<Self, &'static str> {
-		Err("Verification is unavailable on this platform. Open the invite in Discord.")
-	}
 	pub fn set_bounds(&self, x: i32, y: i32, width: u32, height: u32) {
-		#[cfg(target_os = "windows")]
 		if self
 			.view
 			.set_bounds(wry::Rect {
@@ -108,33 +96,83 @@ impl CaptchaView {
 		{
 			let _ = self.view.set_visible(width > 0 && height > 0);
 		}
-		#[cfg(not(target_os = "windows"))]
-		let _ = (x, y, width, height);
 	}
 	pub fn poll(&self) -> Option<Result<Solution, &'static str>> {
-		#[cfg(target_os = "windows")]
-		return self.results.try_recv().ok();
-		#[cfg(not(target_os = "windows"))]
-		None
+		self.results.try_recv().ok()
 	}
 	pub fn expired(&self) -> bool {
-		#[cfg(target_os = "windows")]
-		return self.opened.elapsed() >= Duration::from_secs(300);
-		#[cfg(not(target_os = "windows"))]
-		true
+		self.opened.elapsed() >= Duration::from_secs(300)
 	}
 }
 
-#[cfg(any(target_os = "windows", test))]
+fn config(challenge: &Challenge, dark: bool, capability: &str) -> serde_json::Value {
+	serde_json::json!({"capability": capability, "sitekey": challenge.sitekey(), "rqdata": challenge.rqdata(), "invisible": challenge.invisible(), "dark": dark})
+}
+
+pub(super) fn page(
+	challenge: &Challenge,
+	dark: bool,
+) -> Result<(String, String, String), &'static str> {
+	let mut random = [0_u8; 32];
+	getrandom::fill(&mut random).map_err(|_| "Verification could not start.")?;
+	let capability = random
+		.iter()
+		.map(|byte| format!("{byte:02x}"))
+		.collect::<String>()
+		+ ":";
+	let config = config(challenge, dark, &capability);
+	let script =
+		include_str!("captcha.js").replace("__SEREIN_CAPTCHA_CONFIG__", &config.to_string());
+	let html = include_str!("captcha.html")
+		.replace("__THEME__", if dark { "dark" } else { "light" })
+		.replace("__BACKGROUND__", if dark { "#18191c" } else { "#f7f8fa" })
+		.replace("__FOREGROUND__", if dark { "#dbdee1" } else { "#313338" });
+	Ok((capability, script, html))
+}
+
+pub(super) fn parse_result(body: &str, capability: &str) -> Option<Result<Solution, &'static str>> {
+	if body.len() > 8270 {
+		return None;
+	}
+	let payload = body.strip_prefix(capability)?;
+	Some(if let Some(value) = payload.strip_prefix("verified:") {
+		Ok(Solution::new(value.to_owned())?)
+	} else {
+		Err(match payload {
+			"cancelled:" => "Verification cancelled.",
+			"expired:" => "Verification expired. Please try again.",
+			"error:" => "Verification could not load. Try again or open the invite in Discord.",
+			_ => return None,
+		})
+	})
+}
+
+#[cfg(any(not(target_os = "linux"), test))]
 fn own_origin(value: &str) -> bool {
 	url::Url::parse(value).is_ok_and(|url| {
-		url.scheme() == "https"
+		((url.scheme() == "https"
 			&& url.host_str() == Some("serein-captcha.verification.invalid")
-			&& url.port_or_known_default() == Some(443)
+			&& url.port_or_known_default() == Some(443))
+			|| (cfg!(target_os = "macos")
+				&& url.scheme() == "serein-captcha"
+				&& url.host_str() == Some("verification.invalid")
+				&& url.port().is_none()))
 			&& url.username().is_empty()
 			&& url.password().is_none()
 			&& url.path() == "/"
 			&& url.query().is_none()
+	})
+}
+
+fn hcaptcha_origin(value: &str) -> bool {
+	url::Url::parse(value).is_ok_and(|url| {
+		url.scheme() == "https"
+			&& url.username().is_empty()
+			&& url.password().is_none()
+			&& url.port_or_known_default() == Some(443)
+			&& url
+				.host_str()
+				.is_some_and(|host| host == "hcaptcha.com" || host.ends_with(".hcaptcha.com"))
 	})
 }
 

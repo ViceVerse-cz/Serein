@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://hcaptcha.com https://*.hcaptcha.com; frame-src https://hcaptcha.com https://*.hcaptcha.com; connect-src https://hcaptcha.com https://*.hcaptcha.com; style-src 'unsafe-inline' https://hcaptcha.com https://*.hcaptcha.com; img-src data: https://hcaptcha.com https://*.hcaptcha.com; base-uri 'none'; form-action 'none'">
 <style>
 :root{color-scheme:__THEME__}*{box-sizing:border-box}body{margin:0;background:__BACKGROUND__;color:__FOREGROUND__;font:14px system-ui,sans-serif}main{min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px 12px;gap:18px}#status{margin:0;text-align:center;line-height:1.5;max-width:420px}#captcha{min-height:78px}button{border:0;border-radius:8px;background:#5865f2;color:white;padding:10px 18px;font:inherit;cursor:pointer}button:focus-visible{outline:3px solid #8ea1ff;outline-offset:3px}
 </style></head><body><main><p id="status" role="status" aria-live="polite">Loading secure verification…</p><div id="captcha"></div><button id="verify" hidden>Start verification</button></main></body></html>

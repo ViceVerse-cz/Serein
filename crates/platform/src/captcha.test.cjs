@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const template = fs.readFileSync(__dirname + "/captcha.js", "utf8");
-function page({invisible = false, origin = "https://serein-captcha.verification.invalid", subframe = false} = {}) {
+function page({invisible = false, origin = "https://serein-captcha.verification.invalid", subframe = false, href = origin + "/"} = {}) {
   const listeners = {}, messages = [], calls = [];
   const nodes = Object.fromEntries(["status", "verify"].map(id => [id, {addEventListener: (name, cb) => listeners[id + name] = cb}]));
   let params;
@@ -23,7 +23,7 @@ function page({invisible = false, origin = "https://serein-captcha.verification.
     head: {appendChild: script => calls.push(["script", script])}
   };
   const config = {capability: "random-capability:", sitekey: "service-sitekey", rqdata: 'quoted"data', dark: true, invisible};
-  vm.runInNewContext(template.replace("__SEREIN_CAPTCHA_CONFIG__", JSON.stringify(config)), {window, document, location: {origin}});
+  vm.runInNewContext(template.replace("__SEREIN_CAPTCHA_CONFIG__", JSON.stringify(config)), {window, document, location: {origin, href}});
   listeners.DOMContentLoaded?.();
   window.sereinCaptchaLoaded?.();
   return {listeners, messages, calls, params};
@@ -55,3 +55,6 @@ assert.deepEqual(current.messages, ["random-capability:cancelled:"]);
 assert.equal(page({subframe: true}).calls.length, 0);
 assert.equal(page({origin: "https://discord.com"}).calls.length, 0);
 console.log("Offline CAPTCHA callback checks passed.");
+
+assert.ok(page({origin: "null", href: "serein-captcha://verification.invalid/"}).params);
+assert.equal(page({href: "serein-captcha://verification.invalid/other"}).calls.length, 0);

@@ -75,7 +75,11 @@ impl Captcha {
 			(bounds.width() * scale).round() as u32,
 			(bounds.height() * scale).round() as u32,
 		);
-		ctx.request_repaint_after(Duration::from_secs(1));
+		ctx.request_repaint_after(if cfg!(target_os = "linux") {
+			Duration::from_millis(20)
+		} else {
+			Duration::from_secs(1)
+		});
 		let result = if view.expired() {
 			Some(Err("Verification expired. Start the check again."))
 		} else {
