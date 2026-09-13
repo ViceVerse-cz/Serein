@@ -115,6 +115,7 @@ pub struct MessagingUi {
 	pub channel_preferences: model::ChannelPreferences,
 	pub channel_preferences_changed: bool,
 	pub channel_preferences_loaded: bool,
+	pub channel_preferences_load_pending: bool,
 	pub channel_preferences_reload: bool,
 	pub channel_preferences_save_pending: bool,
 	pub channel_preferences_status: &'static str,

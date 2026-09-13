@@ -33,6 +33,11 @@ and saving run on the existing bounded cache worker; corrupt/oversized records a
 save failures are shown. Shortcuts survive restart and are removed on account
 logout. They do not sync to Discord. Channel edit drafts, authoritative settings,
 pending actions and locally observed mute expiry times remain bounded session RAM.
+Shortcut restore retains one request when the storage queue is full, then admits it
+when worker completions free space. Only one load can be in flight; account/session
+reset clears its flags. Actual storage failures stop automatic retries and retain
+the explicit Retry shortcuts action. Queue pressure alone no longer reports a
+failed restore. Queue, payload and database bounds are unchanged.
 
 Community extensions (September 12): packages and grants are stored under the
 application data directory's `extensions` subtree. Plugin data/grants are

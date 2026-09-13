@@ -78,3 +78,26 @@ improvement or physical-GPU performance. Earlier interactive-desktop samples
 were discarded after external input changed the scene. Startup latency and p95
 frame latency remain unmeasured. Standard executable/installed/compressed package
 sizes are recorded in the task PR, using the built packages.
+
+## Channel shortcut restore - September 13, 2026
+
+Baseline: `a90f0759ada23206809dc5374aef3e472875571a`. After: that revision plus
+the shortcut restore fix on `fix/channel-shortcut-restore`. Windows x64,
+Ryzen 7 7800X3D (16 logical processors), 31.1 GiB usable RAM, Rust 1.98.1.
+Both use `cargo xtask package`, including voice, without demo/developer-session
+features, built sequentially in the same worktree with baseline output copied aside.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 70,294,016 | 70,294,016 | 0 (0%) |
+| Installed package bytes | 76,702,334 | 76,702,726 | +392 (+0.0005%) |
+| ZIP bytes | 44,632,436 | 44,632,874 | +438 (+0.0010%) |
+
+One package per revision; installed size sums files, ZIP uses PowerShell
+`Compress-Archive`, and package file lists match. Sizes precede this measurement
+note. The fix retains one pending restore flag until the existing bounded worker
+has queue space, with no timer, worker, queue expansion or database migration.
+The synthetic queue/SQLite check verifies recovery after all 16 slots are occupied;
+it is not a timing benchmark. Native CPU, RSS and restore latency are unmeasured
+because native computer-control APIs are disabled and the Orca CLI is absent.
+No runtime speed or memory improvement is claimed.

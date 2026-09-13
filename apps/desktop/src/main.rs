@@ -427,6 +427,36 @@ fn access_candidates(state: &State, event: &Event) -> Vec<model::Id> {
 		.map(|c| c.id)
 		.collect()
 }
+fn queue_channel_preferences(
+	cache: Option<&cache::Cache>,
+	messaging: &mut ui::MessagingUi,
+	generation: u64,
+	account: model::Id,
+) -> bool {
+	if !messaging.channel_preferences_reload || messaging.channel_preferences_load_pending {
+		return false;
+	}
+	let Some(cache) = cache else {
+		messaging.channel_preferences_reload = false;
+		messaging.channel_preferences_status =
+			"Local storage is unavailable; channel shortcuts could not be restored.";
+		return false;
+	};
+	let accepted = cache.queue(
+		generation,
+		account,
+		cache::Operation::LoadChannelPreferences,
+	);
+	// Keep one request until the bounded worker has room. Its completions wake the UI;
+	// queue pressure is not a failed read and needs neither a timer nor another click.
+	messaging.channel_preferences_reload = !accepted;
+	messaging.channel_preferences_load_pending = accepted;
+	if accepted {
+		messaging.channel_preferences_status = "";
+	}
+	accepted
+}
+
 fn wants_cached_history(state: &State, channel: model::Id, request: u64) -> bool {
 	state.selected == Some(channel)
 		&& state.request == request
@@ -1244,6 +1274,7 @@ impl Desktop {
 		self.messaging.channel_preferences = model::ChannelPreferences::default();
 		self.messaging.channel_preferences_changed = false;
 		self.messaging.channel_preferences_loaded = false;
+		self.messaging.channel_preferences_load_pending = false;
 		self.messaging.channel_preferences_reload = false;
 		self.messaging.channel_preferences_save_pending = false;
 		self.messaging.channel_preferences_status = "";
@@ -2856,7 +2887,17 @@ impl Desktop {
 			for _ in 0..16 {
 				match cache.receive.try_recv() {
 					Ok(value) => cached.push(value),
-					Err(_) => break,
+					Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+						if self.messaging.channel_preferences_reload
+							|| self.messaging.channel_preferences_load_pending
+						{
+							self.messaging.channel_preferences_reload = false;
+							self.messaging.channel_preferences_load_pending = false;
+							self.messaging.channel_preferences_status = "Local storage worker stopped; restart Serein to restore shortcuts.";
+						}
+						break;
+					}
+					Err(std::sync::mpsc::TryRecvError::Empty) => break,
 				}
 			}
 		}
@@ -2976,13 +3017,21 @@ impl Desktop {
 				continue;
 			}
 			match outcome {
-				cache::Outcome::ChannelPreferences(result) => match result {
-					Ok(preferences) => self.messaging.restore_channel_preferences(preferences),
-					Err(_) => {
-						self.messaging.channel_preferences_status =
-							"Could not restore channel shortcuts."
+				cache::Outcome::ChannelPreferences(result) => {
+					self.messaging.channel_preferences_load_pending = false;
+					self.messaging.channel_preferences_reload = false;
+					match result {
+						Ok(preferences) => self.messaging.restore_channel_preferences(preferences),
+						Err(error) => {
+							self.messaging.channel_preferences_status = match error {
+								local_store::StoreError::Incompatible => {
+									"Saved channel shortcuts are damaged or incompatible with this build."
+								}
+								_ => "Could not read channel shortcuts from local storage.",
+							};
+						}
 					}
-				},
+				}
 				cache::Outcome::ChannelPreferencesSaved(result) => {
 					self.messaging.channel_preferences_save_pending = false;
 					self.messaging.channel_preferences_status = if result.is_ok() {
@@ -3230,12 +3279,11 @@ impl Desktop {
 					self.messaging.draft_restore_pending =
 						self.queue_cache(cache::Operation::LoadDrafts);
 					self.queue_cache(cache::Operation::LoadGifFavorites);
-					if !self.messaging.channel_preferences_loaded
-						&& !self.queue_cache(cache::Operation::LoadChannelPreferences)
-					{
-						self.messaging.channel_preferences_status =
-							"Could not restore channel shortcuts.";
-					}
+				}
+				if !self.messaging.channel_preferences_loaded
+					&& !self.messaging.channel_preferences_load_pending
+				{
+					self.messaging.channel_preferences_reload = true;
 				}
 				if let Some(secret) = self.pending_save.take()
 					&& let Some(store) = &self.store
@@ -4138,13 +4186,16 @@ impl eframe::App for Desktop {
 			let favorites = self.state.gifs.favorites.clone();
 			self.queue_cache(cache::Operation::SaveGifFavorites(favorites));
 		}
-		if std::mem::take(&mut self.messaging.channel_preferences_reload) {
-			self.messaging.channel_preferences_status =
-				if self.queue_cache(cache::Operation::LoadChannelPreferences) {
-					""
-				} else {
-					"Could not restore channel shortcuts."
-				};
+		if !self.fixture_only
+			&& !self.state.demo
+			&& let Some(user) = &self.state.user
+		{
+			self.cache_pending += usize::from(queue_channel_preferences(
+				self.cache.as_ref(),
+				&mut self.messaging,
+				self.state.generation,
+				user.id,
+			));
 		}
 		if self.messaging.channel_preferences_changed
 			&& !self.messaging.channel_preferences_save_pending
