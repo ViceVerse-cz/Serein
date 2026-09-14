@@ -101,7 +101,6 @@ fn rows<'a>(
 	state: &'a State,
 	guild: Option<Id>,
 	collapsed: &BTreeSet<Id>,
-	selected: Option<Id>,
 	show_hidden: bool,
 ) -> Vec<Row<'a>> {
 	let channels = &state.channels;
@@ -148,16 +147,12 @@ fn rows<'a>(
 	}
 	let append = |channel: &'a Channel, collapsed: bool, rows: &mut Vec<Row<'a>>| {
 		let children = threads.get(&channel.id);
-		if !collapsed
-			|| Some(channel.id) == selected
-			|| children.is_some_and(|children| children.iter().any(|c| Some(c.id) == selected))
-		{
+		if !collapsed {
 			rows.push(Row::Channel(channel, false));
 			rows.extend(
 				children
 					.into_iter()
 					.flatten()
-					.filter(|c| !collapsed || Some(c.id) == selected)
 					.map(|c| Row::Channel(c, true)),
 			);
 		}
@@ -219,7 +214,6 @@ impl MessagingUi {
 				state,
 				self.guild,
 				&self.collapsed_categories,
-				state.selected,
 				self.show_hidden_channels,
 			);
 			let channel_rows = if let Some(guild) = self.guild {
@@ -722,7 +716,7 @@ mod tests {
 		};
 		for collapsed in [BTreeSet::new(), BTreeSet::from([Id(4)])] {
 			let output = promote(
-				rows(&state, Some(Id(100)), &collapsed, None, false),
+				rows(&state, Some(Id(100)), &collapsed, false),
 				&state,
 				Id(100),
 				&preferences,
@@ -870,11 +864,8 @@ mod tests {
 			..State::default()
 		};
 		assert!(!MessagingUi::default().show_hidden_channels);
-		assert!(rows(&state, Some(Id(100)), &BTreeSet::new(), None, false).is_empty());
-		assert_eq!(
-			rows(&state, Some(Id(100)), &BTreeSet::new(), None, true).len(),
-			1
-		);
+		assert!(rows(&state, Some(Id(100)), &BTreeSet::new(), false).is_empty());
+		assert_eq!(rows(&state, Some(Id(100)), &BTreeSet::new(), true).len(), 1);
 	}
 	#[test]
 	fn channel_rows_scroll_continuously_past_voice_participants() {
@@ -977,7 +968,7 @@ mod tests {
 			state.channels.push(dm);
 		}
 		let order = |state: &State| {
-			rows(state, None, &BTreeSet::new(), state.selected, true)
+			rows(state, None, &BTreeSet::new(), true)
 				.into_iter()
 				.filter_map(|row| match row {
 					Row::Channel(channel, _) => Some(channel.id.0),
@@ -1151,18 +1142,12 @@ mod tests {
 			..State::default()
 		};
 		assert_eq!(
-			ids(rows(&layout, Some(Id(100)), &BTreeSet::new(), None, true,)),
+			ids(rows(&layout, Some(Id(100)), &BTreeSet::new(), true,)),
 			[3, 2, 4, 7, 8, 5, 9]
 		);
 		assert_eq!(
-			ids(rows(
-				&layout,
-				Some(Id(100)),
-				&BTreeSet::from([Id(4)]),
-				Some(Id(8)),
-				true,
-			)),
-			[3, 2, 4, 8, 5, 9]
+			ids(rows(&layout, Some(Id(100)), &BTreeSet::from([Id(4)]), true,)),
+			[3, 2, 4, 5, 9]
 		);
 		let mut hierarchy = vec![
 			channel(4, 4, 0, None),
@@ -1188,13 +1173,7 @@ mod tests {
 			channels: hierarchy.clone(),
 			..State::default()
 		};
-		let expanded = rows(
-			&hierarchy_state,
-			Some(Id(100)),
-			&BTreeSet::new(),
-			None,
-			true,
-		);
+		let expanded = rows(&hierarchy_state, Some(Id(100)), &BTreeSet::new(), true);
 		assert_eq!(expanded.len(), hierarchy.len() - 1);
 		assert_eq!(
 			ids(expanded),
@@ -1204,11 +1183,9 @@ mod tests {
 			&hierarchy_state,
 			Some(Id(100)),
 			&BTreeSet::from([Id(4)]),
-			Some(Id(8)),
 			true,
 		);
-		assert!(matches!(collapsed.last(), Some(Row::Channel(c, true)) if c.id == Id(8)));
-		assert_eq!(ids(collapsed), [20, 21, 22, 23, 24, 25, 27, 28, 4, 7, 8]);
+		assert_eq!(ids(collapsed), [20, 21, 22, 23, 24, 25, 27, 28, 4]);
 		assert!(!hierarchy[1].supports_text() && !hierarchy[6].supports_text());
 		assert!(hierarchy[2].supports_text());
 		assert_eq!(kind_label(16), "Media · loaded posts");
@@ -1252,6 +1229,7 @@ mod tests {
 		assert!(state.selected.is_none());
 		// A category is a keyboard-operable button, never a history-selection command.
 		state.channels = vec![channel(4, 4, 0, None), channel(8, 0, 0, Some(Id(4)))];
+		state.selected = Some(Id(8));
 		// Direct fixture replacement must invalidate derived views, as State::apply does.
 		state.revision += 1;
 		state.invalidate_navigation();
@@ -1273,7 +1251,15 @@ mod tests {
 			output.textures_delta.clear();
 		}
 		assert!(view.collapsed_categories.contains(&Id(4)));
-		assert!(state.selected.is_none());
+		assert_eq!(state.selected, Some(Id(8)));
+		ctx.run_ui(egui::RawInput::default(), |ui| {
+			assert!(view.channel_list(ui, &mut state).is_none());
+		})
+		.drop_without_applying_deltas();
+		assert!(matches!(
+			view.channel_cache.rows.as_slice(),
+			[CachedRow::Category(_, 1)]
+		));
 		// Forum containers never request history; their loaded posts remain keyboard-selectable.
 		state.channels = vec![channel(7, 15, 0, None), channel(8, 11, 0, Some(Id(7)))];
 		state.revision += 1;
