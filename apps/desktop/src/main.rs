@@ -164,7 +164,7 @@ fn demo_check_updates() {
 	}
 	println!("Offline update flow, preference compatibility, and settings rendering passed.");
 }
-/// One offline debug path through the shipped Wasm, reducer, and native egui rows.
+/// One offline debug path through the shipped Wasm, reducer, and egui rows.
 #[cfg(feature = "demo")]
 fn demo_check_extensions() {
 	let enabled =
@@ -207,7 +207,10 @@ fn demo_check_extensions() {
 	ui::design::apply(&ctx);
 	let mut messaging = ui::MessagingUi::default();
 	let mut saw_deleted = false;
+	let mut saw_author = false;
+	let mut saw_avatar = false;
 	for _ in 0..3 {
+		let mut deleted_color = egui::Color32::TRANSPARENT;
 		let frame = ctx.run_ui(
 			egui::RawInput {
 				screen_rect: Some(egui::Rect::from_min_size(
@@ -217,15 +220,49 @@ fn demo_check_extensions() {
 				..Default::default()
 			},
 			|ui| {
+				deleted_color = ui::design::palette(ui).danger;
 				let _ = messaging.show(ui, &mut state);
 			},
 		);
-		saw_deleted |= frame.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text().contains("Deleted - kept by Message delete protector")));
+		let body_left = frame.shapes.iter().find_map(|shape| match &shape.shape {
+			egui::Shape::Text(text) if text.galley.text() == message.content => Some(text.pos.x),
+			_ => None,
+		});
+		for shape in &frame.shapes {
+			if let egui::Shape::Text(text) = &shape.shape {
+				assert!(
+					!text
+						.galley
+						.text()
+						.contains("Deleted - kept by Message delete protector")
+				);
+				if text.galley.text() == message.content {
+					assert!(
+						text.galley
+							.job
+							.sections
+							.iter()
+							.all(|section| section.format.color == deleted_color)
+					);
+					saw_deleted = true;
+				}
+				saw_author |= text.galley.text() == message.author.name
+					&& body_left.is_some_and(|left| (text.pos.x - left).abs() < 0.1);
+			}
+			if let egui::Shape::Rect(image) = &shape.shape
+				&& image.brush.is_some()
+			{
+				let rect = image.rect;
+				saw_avatar |= (rect.width() - 40.0).abs() < 0.1
+					&& (rect.height() - 40.0).abs() < 0.1
+					&& body_left.is_some_and(|left| (rect.right() + 16.0 - left).abs() < 0.1);
+			}
+		}
 		frame.drop_without_applying_deltas();
 	}
 	assert!(
-		saw_deleted,
-		"native timeline renders the retained deletion label"
+		saw_deleted && saw_author && saw_avatar,
+		"retained row renders red text ({saw_deleted}), author ({saw_author}), and a normal 40-pixel avatar ({saw_avatar})"
 	);
 	state.set_preserve_deleted_messages(false);
 	assert!(

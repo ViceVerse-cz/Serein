@@ -887,35 +887,75 @@ impl TimelineView {
 				if state.timeline.is_deleted(*id) {
 					let colors = crate::design::palette(ui);
 					let response = ui.push_id(row_id, |ui| {
-						egui::Frame::new()
-							.fill(colors.danger.gamma_multiply(0.10))
-							.inner_margin(egui::Margin::symmetric(16, 10))
+						egui::Frame::NONE
+							.inner_margin(egui::Margin {
+								left: 16,
+								right: 16,
+								top: 14,
+								bottom: 1,
+							})
 							.show(ui, |ui| {
 								ui.set_min_width((width - 32.0).max(1.0));
-								ui.horizontal_wrapped(|ui| {
-									ui.label(
-										RichText::new(&message.author.name)
-											.strong()
-											.color(colors.danger),
-									);
-									ui.label(
-										RichText::new("Deleted - kept by Message delete protector")
-											.small()
-											.color(colors.danger),
-									);
+								ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
+								ui.horizontal_top(|ui| {
+									avatars.show_plain(ui, &message.author, 40.0, state.demo);
+									ui.vertical(|ui| {
+										ui.set_width(ui.available_width());
+										ui.allocate_ui_with_layout(
+											egui::vec2(ui.available_width(), 22.0),
+											egui::Layout::left_to_right(egui::Align::Center),
+											|ui| {
+												ui.spacing_mut().item_spacing.x = 8.0;
+												crate::account_badge::name(
+													ui,
+													&message.author,
+													state.user_display_name(&message.author),
+													15.5,
+													colors.text_strong,
+													egui::Sense::hover(),
+													48.0,
+												);
+												let time = timestamp(*id);
+												ui.label(
+													RichText::new(format!(
+														"{:02}:{:02}",
+														time.hour(),
+														time.minute()
+													))
+													.size(12.0)
+													.color(colors.muted),
+												)
+												.on_hover_text_with(|| {
+													format!("Deleted message · {} UTC", time)
+												});
+											},
+										);
+										let body = ui.add(
+											egui::Label::new(
+												RichText::new(if message.content.is_empty() {
+													"[Deleted message had no text]"
+												} else {
+													&message.content
+												})
+												.size(16.0)
+												.color(colors.danger),
+											)
+											.wrap()
+											.selectable(true),
+										);
+										body.widget_info(|| {
+											egui::WidgetInfo::labeled(
+												egui::WidgetType::Label,
+												true,
+												format!(
+													"Deleted message by {}. {}",
+													state.user_display_name(&message.author),
+													message.content
+												),
+											)
+										});
+									});
 								});
-								ui.add(
-									egui::Label::new(
-										RichText::new(if message.content.is_empty() {
-											"[Deleted message had no text]"
-										} else {
-											&message.content
-										})
-										.color(colors.danger),
-									)
-									.wrap()
-									.selectable(true),
-								);
 							});
 					});
 					measurements.push((
