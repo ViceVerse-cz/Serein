@@ -1,3 +1,104 @@
+# Friends-home derived rows - September 14, 2026
+
+Baseline: `b30b41ae24517ff1fdbd4efe288b9781281645e4`, the fetched main revision
+at implementation start. After: that baseline plus `fix/friends-home-idle`.
+The installed nightly `1.0.0-nightly.20260914.16` maps to release source
+`ee8c246f5dbd40b31e80d00a2967ed931f05e787`; it does not contain the report ZIP's
+friends-home cache. The installed client was not updated or used for these tests.
+The ZIP was not applied wholesale: it also contained unrelated older source.
+
+Friends Online/All now reuse a bounded filtered, sorted ID list. Relationship
+changes invalidate it; Online additionally tracks online eligibility and gateway
+connection state. Visible rows resolve current profiles and activities every
+paint. Rail unread aggregation and folder row construction are reused on idle
+wakes. The caret, Windows badge wake, VSync, DM lookup/order, 15-chat rail cap,
+muted-guild visibility and existing action/confirmation paths are unchanged.
+Cold Online filtering still scans the bounded presence list. No presence index,
+protocol change, persistence migration or release optimization setting was added.
+
+## Reproducible synthetic release workload
+
+Windows 11 Home 10.0.26200 x64, Ryzen 7 7800X3D (16 logical processors),
+33,410,678,784 bytes usable RAM (31.1 GiB), Rust 1.98.1. Both revisions use
+the locked release profile, thin LTO, one codegen unit and default UI features.
+`crates/ui/examples/friends_idle.rs` is identical on both revisions. It extends
+the existing offline fixture to 4,000 friends, with the original 16 presence
+records and seven Online rows, and runs `MessagingUi::show` in egui at 1120x760,
+1x scale, default dark style. It asserts the exact Online count and no commands.
+Five warmup frames precede 200 timed frames in each process; one process warmup
+per revision precedes five alternating before/after pairs. No Cargo builds ran
+during measurement. Build once with
+`cargo build --release --locked -p ui --example friends_idle`, copy each executable
+aside, then invoke those executables directly.
+
+| Metric | Baseline median | After median | Delta |
+| --- | ---: | ---: | ---: |
+| 200 synthetic egui frames | 43.963 ms | 18.721 ms | -25.242 ms (-57.4%) |
+
+Raw baseline runs: 44.786, 43.116, 43.197, 43.963, 45.158 ms.
+Raw after runs: 18.311, 19.112, 20.175, 18.721, 18.605 ms.
+This isolates repeated UI work, including egui output checks; it excludes native
+event-loop timing, renderer/GPU presentation, tessellation, account startup and
+process memory. It is not a native idle-CPU or p95-frame-latency measurement, nor
+a benchmark of worst-case presence/navigation cardinality or live Discord.
+
+## Reducer and standard package checks
+
+On the same host, build the locked release `replay-bench` once per revision,
+then invoke the two retained executables: one process warmup each, followed by
+five alternating measured pairs with no concurrent Cargo builds. Each run applies
+100,000 synthetic message events. Median baseline 44.7470 ms, after 42.9669 ms
+(-1.7801 ms, -4.0%); ranges overlap, so this is not a reducer speedup claim.
+Both retain 500 timeline records and 236,992..237,477 estimated timeline bytes,
+not process RSS. Baseline runs: 41.7816, 44.7470, 46.2731, 45.2156, 43.4238 ms.
+After runs: 45.0100, 42.9669, 42.9716, 41.7902, 42.0629 ms.
+
+Standard packages use `cargo xtask package` (release, voice included, no demo or
+developer-session features), with separate before/after `dist` directories.
+
+| Package metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 70,444,544 | 70,472,704 | +28,160 (+0.0400%) |
+| Full portable package bytes | 74,508,095 | 74,536,255 | +28,160 (+0.0378%) |
+| ZIP bytes | 42,649,871 | 42,661,631 | +11,760 (+0.0276%) |
+
+One package per revision, 186 matching file paths; full package size sums all
+files, and ZIP uses PowerShell `Compress-Archive -CompressionLevel Optimal` on
+each `dist` directory. `makensis` was absent, so installer size is unmeasured;
+these are unsigned portable packages, not published or installed builds.
+
+## Native sampling and limits
+
+`scripts/frame-sample.ps1` accepts an exact prebuilt executable and launches only
+`--demo --demo-friends --demo-frame-sample=8,15` (requires `--features demo`).
+The fixture selects Friends Online and requests Search focus. Two bounded JSON
+markers bracket the sample after warmup; callback wall-time buckets exclude
+warmup and stop at the complete marker. They end at `FrameMetrics::finish`, before
+tessellation/presentation. The script records binary hash, revision, profile,
+actual elapsed time, CPU-time delta (one core = 100%), sampled peak and final
+working-set/private bytes, focus/input counts, viewport size and scale. It rejects
+disturbed/unfocused samples, changed marker geometry and delayed marker receipt.
+It only closes its own spawned process. Run five matching pairs separately for
+debug and release; never compare lifetime buckets to a shorter idle window.
+
+Native measurements remain unavailable here. A debug baseline with identical
+sample-only instrumentation built successfully, but a 3 s warmup / 3 s smoke run
+timed out after 66 s without completing a sample. The native control pipe was
+unavailable (`os error 2`) and the Orca CLI absent, so window focus/rendering could
+not be verified. Demo mode has no live badge timer, and unfocused egui caret
+rendering does not keep requesting frames; the sampler deliberately adds no
+timer to disguise that distinction. The failed sample is discarded. Native
+debug/release idle CPU, peak/settled process memory, p95 and first-paint latency
+are unmeasured, and there is no claim of a production CPU improvement.
+
+The supplied report's 82.744% to 43.028% CPU comparison is not reused: its baseline
+was ten seconds at about 144 seconds uptime, versus eight seconds warmup plus
+15 seconds afterward without verified navigation/focus. Its frame buckets also
+covered different process lifetimes, including splash/READY. It cannot establish
+an equivalent-workload speedup. READY apply and work after `FrameMetrics::finish`
+remain outside this fix. Synthetic regression checks do not prove live service
+compatibility; rollout still requires owner-controlled native verification.
+
 # Notification sound replacement — September 13, 2026
 
 Baseline: `6d9e32222d1e3bd4d4edfd01f30854033788b11f` (synthesized mono cues).

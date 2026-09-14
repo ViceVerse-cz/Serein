@@ -123,6 +123,7 @@ pub struct MessagingUi {
 	pub channel_preferences_status: &'static str,
 	join_server: join_server::JoinDialog,
 	folder_ui: guild_folders::FolderUi,
+	rail_cache: notifications::RailCache,
 	member_cache_key: Option<(u64, u64, Option<Id>, bool, u64)>,
 	member_cache: Vec<MemberRow>,
 	member_count: usize,

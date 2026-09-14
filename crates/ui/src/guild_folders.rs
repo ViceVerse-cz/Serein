@@ -10,18 +10,83 @@ use model::{
 	Id,
 	guild_folders::{Folder, Settings},
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 #[derive(Default)]
 pub(super) struct FolderUi {
 	expanded: BTreeSet<u64>,
 	editor: Option<(u64, String, [u8; 3])>,
 	generation: u64,
+	key: Option<(u64, u64)>,
+	// Fixed-size rows: bounded to (MAX_NAV + MAX_FOLDERS) * size_of::<Row>() bytes.
+	rows: Box<[Row]>,
 }
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Item {
 	Server(Id),
 	Folder(u64),
+}
+type Row = (Item, Option<(u64, u32)>);
+
+impl FolderUi {
+	fn sync_rows(&mut self, state: &State) -> bool {
+		let key = (state.generation, state.revision);
+		if self.key == Some(key) {
+			return false;
+		}
+		let mut rows = Vec::new();
+		let mut seen = BTreeSet::new();
+		if let Some(settings) = &state.guild_folders {
+			self.expanded
+				.retain(|id| settings.folders.iter().any(|f| f.id == Some(*id)));
+			for folder in &settings.folders {
+				if let Some(id) = folder.id {
+					rows.push((
+						Item::Folder(id),
+						self.expanded
+							.contains(&id)
+							.then_some((id, folder.color.unwrap_or(design::DEFAULT_PRIMARY_RGB))),
+					));
+				}
+				for &id in &folder.guild_ids {
+					seen.insert(id);
+					if folder.id.is_none_or(|id| self.expanded.contains(&id))
+						&& state.guild(id).is_some()
+					{
+						rows.push((
+							Item::Server(id),
+							folder.id.map(|folder_id| {
+								(
+									folder_id,
+									folder.color.unwrap_or(design::DEFAULT_PRIMARY_RGB),
+								)
+							}),
+						));
+					}
+				}
+			}
+		}
+		rows.extend(
+			state
+				.guilds
+				.iter()
+				.filter(|g| !seen.contains(&g.id))
+				.map(|g| (Item::Server(g.id), None)),
+		);
+		// Validated settings contain each guild only once, plus at most MAX_FOLDERS headers.
+		self.rows = rows
+			.into_iter()
+			.take(client_core::MAX_NAV + model::guild_folders::MAX_FOLDERS)
+			.collect();
+		self.key = Some(key);
+		true
+	}
+	fn toggle(&mut self, id: u64) {
+		if !self.expanded.remove(&id) {
+			self.expanded.insert(id);
+		}
+		self.key = None;
+	}
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Placement {
@@ -184,7 +249,6 @@ impl MessagingUi {
 		ui: &mut egui::Ui,
 		state: &mut State,
 		commands: &mut Vec<Command>,
-		badges: &BTreeMap<Id, (bool, u32)>,
 	) {
 		if self.folder_ui.generation != state.generation {
 			// Folders the owner left open survive a restart and a session change.
@@ -202,49 +266,7 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
-		let mut rows = Vec::new();
-		let mut seen = BTreeSet::new();
-		if let Some(settings) = &state.guild_folders {
-			self.folder_ui
-				.expanded
-				.retain(|id| settings.folders.iter().any(|f| f.id == Some(*id)));
-			for folder in &settings.folders {
-				if let Some(id) = folder.id {
-					rows.push((
-						Item::Folder(id),
-						self.folder_ui
-							.expanded
-							.contains(&id)
-							.then_some((id, folder.color.unwrap_or(design::DEFAULT_PRIMARY_RGB))),
-					));
-				}
-				for &id in &folder.guild_ids {
-					seen.insert(id);
-					if folder
-						.id
-						.is_none_or(|id| self.folder_ui.expanded.contains(&id))
-						&& state.guilds.iter().any(|g| g.id == id)
-					{
-						rows.push((
-							Item::Server(id),
-							folder.id.map(|folder_id| {
-								(
-									folder_id,
-									folder.color.unwrap_or(design::DEFAULT_PRIMARY_RGB),
-								)
-							}),
-						));
-					}
-				}
-			}
-		}
-		rows.extend(
-			state
-				.guilds
-				.iter()
-				.filter(|g| !seen.contains(&g.id))
-				.map(|g| (Item::Server(g.id), None)),
-		);
+		self.folder_ui.sync_rows(state);
 		let colors = design::palette(ui);
 		let enabled = state.guild_folders.is_some()
 			&& !state.folders_pending
@@ -253,7 +275,8 @@ impl MessagingUi {
 		let mut refresh = false;
 		let mut drop_rows = Vec::new();
 		let mut background: Option<(u64, egui::layers::ShapeIdx, egui::Rect, Color32)> = None;
-		for (item, group) in rows {
+		for index in 0..self.folder_ui.rows.len() {
+			let (item, group) = self.folder_ui.rows[index];
 			if group.map(|g| g.0) != background.as_ref().map(|b| b.0) {
 				background = group.map(|(id, rgb)| {
 					let tint = Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
@@ -287,7 +310,7 @@ impl MessagingUi {
 								self.guild == Some(id),
 								state.demo,
 							);
-							let (unread, count) = badges.get(&id).copied().unwrap_or_default();
+							let (unread, count) = self.rail_cache.guild_badge(id);
 							rail_indicator(
 								ui,
 								response.rect,
@@ -338,12 +361,10 @@ impl MessagingUi {
 							let unread = folder
 								.guild_ids
 								.iter()
-								.any(|g| badges.get(g).is_some_and(|b| b.0));
-							let count = folder
-								.guild_ids
-								.iter()
-								.filter_map(|g| badges.get(g))
-								.fold(0u32, |sum, b| sum.saturating_add(b.1));
+								.any(|g| self.rail_cache.guild_badge(*g).0);
+							let count = folder.guild_ids.iter().fold(0u32, |sum, g| {
+								sum.saturating_add(self.rail_cache.guild_badge(*g).1)
+							});
 							if !open {
 								rail_indicator(
 									ui,
@@ -374,11 +395,7 @@ impl MessagingUi {
 								)
 							});
 							if response.clicked() {
-								if open {
-									self.folder_ui.expanded.remove(&id);
-								} else {
-									self.folder_ui.expanded.insert(id);
-								}
+								self.folder_ui.toggle(id);
 								// Bounded mirror of the open set, saved as a device preference.
 								self.expanded_folders =
 									self.folder_ui.expanded.iter().copied().take(256).collect();
@@ -662,6 +679,104 @@ impl MessagingUi {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn folder_rows_cache_tracks_expansion_order_color_and_acknowledged_writes() {
+		let settings = Settings {
+			folders: vec![
+				Folder {
+					id: Some(7),
+					guild_ids: vec![Id(1), Id(2)],
+					name: Some("Synthetic folder".into()),
+					color: Some(0x123456),
+				},
+				standalone(Id(3)),
+			],
+			..Default::default()
+		};
+		let mut state = State {
+			demo: true,
+			guilds: (1..=3)
+				.map(|id| model::Guild {
+					id: Id(id),
+					name: "Synthetic server".into(),
+					icon: None,
+					emojis: None,
+				})
+				.collect(),
+			guild_folders: Some(settings),
+			..State::default()
+		};
+		let mut folders = FolderUi::default();
+		assert!(folders.sync_rows(&state));
+		assert_eq!(
+			&*folders.rows,
+			&[(Item::Folder(7), None), (Item::Server(Id(3)), None)]
+		);
+		for _ in 0..10 {
+			assert!(!folders.sync_rows(&state));
+		}
+		folders.toggle(7);
+		assert!(folders.sync_rows(&state));
+		assert_eq!(
+			&*folders.rows,
+			&[
+				(Item::Folder(7), Some((7, 0x123456))),
+				(Item::Server(Id(1)), Some((7, 0x123456))),
+				(Item::Server(Id(2)), Some((7, 0x123456))),
+				(Item::Server(Id(3)), None),
+			]
+		);
+		let mut changed = state.guild_folders.clone().unwrap();
+		edit(&mut changed, Edit::Shift(Item::Server(Id(2)), false));
+		edit(
+			&mut changed,
+			Edit::Customize(7, "New name".into(), 0xabcdef),
+		);
+		state.save_guild_folders(changed);
+		assert!(folders.sync_rows(&state));
+		assert_eq!(folders.rows[1], (Item::Server(Id(2)), Some((7, 0xabcdef))));
+		assert_eq!(folders.rows[2], (Item::Server(Id(1)), Some((7, 0xabcdef))));
+		let original = folders.rows.clone();
+		state.demo = false;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let mut changed = state.guild_folders.clone().unwrap();
+		edit(&mut changed, Edit::Dissolve(7));
+		let command = state.save_guild_folders(changed.clone()).unwrap();
+		assert!(!folders.sync_rows(&state));
+		state.command_rejected(command);
+		assert!(!folders.sync_rows(&state));
+		assert!(state.folders_error.is_some());
+		assert_eq!(folders.rows, original);
+		assert!(state.save_guild_folders(changed.clone()).is_some());
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::GuildFolders(Ok(changed)),
+		});
+		assert!(folders.sync_rows(&state));
+		assert_eq!(
+			&*folders.rows,
+			&[
+				(Item::Server(Id(2)), None),
+				(Item::Server(Id(1)), None),
+				(Item::Server(Id(3)), None),
+			]
+		);
+		assert!(folders.expanded.is_empty());
+		let original = folders.rows.clone();
+		assert!(state.load_guild_folders().is_some());
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::GuildFolders(Err(client_core::auth::Failure::Network)),
+		});
+		assert!(folders.sync_rows(&state));
+		assert!(state.folders_error.is_some());
+		assert_eq!(folders.rows, original);
+		state.logout();
+		assert!(folders.sync_rows(&state));
+		assert!(folders.rows.is_empty());
+	}
 
 	#[test]
 	fn wide_drop_zones_and_order_preserve_folder_membership() {

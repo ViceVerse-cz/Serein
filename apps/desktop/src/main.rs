@@ -53,6 +53,18 @@ fn main() -> eframe::Result {
 		eprintln!("Demo support is not included; rebuild with --features demo and run with --demo");
 		std::process::exit(2);
 	}
+	let frame_sample = std::env::args()
+		.find_map(|arg| arg.strip_prefix("--demo-frame-sample").map(str::to_owned))
+		.map(|value| {
+			parse_frame_sample(
+				demo && std::env::args().any(|arg| arg == "--demo-friends"),
+				&value,
+			)
+			.unwrap_or_else(|reason| {
+				eprintln!("{reason}");
+				std::process::exit(2);
+			})
+		});
 	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-extensions") {
 		demo_check_extensions();
@@ -107,7 +119,7 @@ fn main() -> eframe::Result {
 		"Serein",
 		options,
 		Box::new(move |cc| {
-			let desktop = Desktop::new(cc, demo)?;
+			let desktop = Desktop::new(cc, demo, frame_sample)?;
 			if start_minimized {
 				cc.egui_ctx
 					.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -294,32 +306,133 @@ fn demo_check_extensions() {
 	);
 }
 
-/// Opt-in aggregate CPU callback timings; no payloads, per-frame logs, or repaint timer.
+fn parse_frame_sample(demo: bool, value: &str) -> Result<(Duration, Duration), &'static str> {
+	let invalid = "Use --demo --demo-friends --demo-frame-sample=WARMUP,SAMPLE (whole seconds, warmup 1..600, sample 1..600)";
+	let (warmup, sample) = value
+		.strip_prefix('=')
+		.and_then(|value| value.split_once(','))
+		.ok_or(invalid)?;
+	let warmup = warmup.parse::<u64>().map_err(|_| invalid)?;
+	let sample = sample.parse::<u64>().map_err(|_| invalid)?;
+	if !demo || !(1..=600).contains(&warmup) || !(1..=600).contains(&sample) {
+		return Err(invalid);
+	}
+	Ok((Duration::from_secs(warmup), Duration::from_secs(sample)))
+}
+
+struct FrameSample {
+	ready: std::time::Instant,
+	duration: Duration,
+	started: Option<std::time::Instant>,
+	complete: bool,
+}
+
+/// Opt-in aggregate callback wall time; excludes tessellation/presentation, not a CPU timer.
+/// Sample mode emits two bounded records and never schedules repaints.
 struct FrameMetrics {
 	enabled: bool,
 	started: Option<std::time::Instant>,
+	sample: Option<FrameSample>,
 	frames: u64,
 	inputless: u64,
+	viewport_focused: u64,
+	search_focused: u64,
+	viewport_size: Option<[f32; 2]>,
+	pixels_per_point: f32,
+	max_micros: u64,
 	buckets: [u64; 8],
 	reflows: (u64, u64),
 }
 impl Default for FrameMetrics {
 	fn default() -> Self {
+		Self::new(None)
+	}
+}
+impl FrameMetrics {
+	fn new(sample: Option<(Duration, Duration)>) -> Self {
 		Self {
-			enabled: std::env::var_os("SEREIN_FRAME_DIAGNOSTICS").is_some_and(|v| v == "1"),
+			enabled: sample.is_some()
+				|| std::env::var_os("SEREIN_FRAME_DIAGNOSTICS").is_some_and(|v| v == "1"),
 			started: None,
+			sample: sample.map(|(warmup, duration)| FrameSample {
+				ready: std::time::Instant::now() + warmup,
+				duration,
+				started: None,
+				complete: false,
+			}),
 			frames: 0,
 			inputless: 0,
+			viewport_focused: 0,
+			search_focused: 0,
+			viewport_size: None,
+			pixels_per_point: 0.0,
+			max_micros: 0,
 			buckets: [0; 8],
 			reflows: (0, 0),
 		}
 	}
-}
-impl FrameMetrics {
-	fn begin(&mut self, ctx: &egui::Context) {
-		if self.enabled {
-			self.started = Some(std::time::Instant::now());
+	fn sample_active_at(&mut self, now: std::time::Instant) -> bool {
+		let viewport_size = self.viewport_size;
+		let pixels_per_point = self.pixels_per_point;
+		let Some(sample) = &mut self.sample else {
+			return true;
+		};
+		if sample.complete || now < sample.ready {
+			return false;
+		}
+		let started = *sample.started.get_or_insert_with(|| {
+			Self::sample_record(serde_json::json!({
+				"serein_frame_sample": "start",
+				"viewport_size": viewport_size,
+				"pixels_per_point": pixels_per_point,
+			}));
+			now
+		});
+		let elapsed = now.duration_since(started);
+		if elapsed < sample.duration {
+			return true;
+		}
+		sample.complete = true;
+		Self::sample_record(serde_json::json!({
+			"serein_frame_sample": "complete",
+			"elapsed_ms": elapsed.as_millis(),
+			"callbacks": self.frames,
+			"without_input": self.inputless,
+			"viewport_focused": self.viewport_focused,
+			"search_focused": self.search_focused,
+			"viewport_size": viewport_size,
+			"pixels_per_point": pixels_per_point,
+			"callback_wall_us_limits": [1000, 2000, 4000, 8000, 16000, 32000, 64000],
+			"callback_wall_us_buckets": self.buckets,
+			"max_callback_wall_us": self.max_micros,
+		}));
+		false
+	}
+	fn sample_record(record: serde_json::Value) {
+		use std::io::Write;
+		let mut output = std::io::stdout().lock();
+		let _ = writeln!(output, "{record}");
+		let _ = output.flush();
+	}
+	fn begin(&mut self, ctx: &egui::Context, search_focused: bool) {
+		self.started = None;
+		if !self.enabled {
+			return;
+		}
+		if self.sample.is_some() {
+			self.viewport_size = ctx.input(|i| {
+				i.viewport()
+					.inner_rect
+					.map(|rect| [rect.width(), rect.height()])
+			});
+			self.pixels_per_point = ctx.pixels_per_point();
+		}
+		let now = std::time::Instant::now();
+		if self.sample_active_at(now) {
+			self.started = Some(now);
 			self.inputless += u64::from(ctx.input(|i| i.events.is_empty()));
+			self.viewport_focused += u64::from(ctx.input(|i| i.focused));
+			self.search_focused += u64::from(search_focused);
 		}
 	}
 	fn finish(&mut self) {
@@ -328,16 +441,20 @@ impl FrameMetrics {
 			let bucket = [1000, 2000, 4000, 8000, 16000, 32000, 64000]
 				.partition_point(|limit| *limit < micros);
 			self.buckets[bucket] += 1;
+			self.max_micros = self
+				.max_micros
+				.max(u64::try_from(micros).unwrap_or(u64::MAX));
 			self.frames += 1;
 		}
 	}
 }
 impl Drop for FrameMetrics {
 	fn drop(&mut self) {
-		if self.enabled {
+		if self.enabled && self.sample.is_none() {
 			use std::io::Write;
 			let _ = writeln!(
 				std::io::stderr(),
+				// Preserve the legacy diagnostic label; elapsed callback time is wall time.
 				"[Serein frames] callbacks={} without_input={} cpu_us_buckets(1000,2000,4000,8000,16000,32000,64000,above)={:?} reflows(total,consecutive)={:?}",
 				self.frames,
 				self.inputless,
@@ -693,6 +810,7 @@ impl Desktop {
 	fn new(
 		cc: &eframe::CreationContext<'_>,
 		demo: bool,
+		frame_sample: Option<(Duration, Duration)>,
 	) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
 		ui::fonts::install(&cc.egui_ctx);
 		ui::emoji::install_async(&cc.egui_ctx)?;
@@ -809,19 +927,21 @@ impl Desktop {
 		}
 		#[cfg(feature = "demo")]
 		if demo {
-			let fixture = demo_members(None, model::Id(22), 0);
-			state.direct_presences = fixture
-				.rows
-				.into_iter()
-				.flatten()
-				.filter(|member| member.user.id != model::Id(1))
-				.map(|member| model::MemberPresence {
-					user: member.user.id,
-					status: member.status,
-					custom_status: member.custom_status,
-					activities: member.activities,
-				})
-				.collect();
+			if !std::env::args().any(|arg| arg == "--demo-friends") {
+				let fixture = demo_members(None, model::Id(22), 0);
+				state.direct_presences = fixture
+					.rows
+					.into_iter()
+					.flatten()
+					.filter(|member| member.user.id != model::Id(1))
+					.map(|member| model::MemberPresence {
+						user: member.user.id,
+						status: member.status,
+						custom_status: member.custom_status,
+						activities: member.activities,
+					})
+					.collect();
+			}
 			// Synthetic role metadata exercises the same bounded permission mirror as live events.
 			for guild in state.permissions.guilds.values_mut() {
 				if let Some(roles) = &mut guild.roles {
@@ -912,6 +1032,10 @@ impl Desktop {
 			.last()
 			.map_or(10_000, |m| m.id.0.max(10_000));
 		let mut messaging = ui::MessagingUi::default();
+		#[cfg(feature = "demo")]
+		if frame_sample.is_some() {
+			messaging.prepare_friends_sample();
+		}
 		messaging.tray_available = platform::tray::supported();
 		let startup = startup::Startup::new(&cc.egui_ctx, &runtime, &mut messaging, demo);
 		#[cfg(feature = "demo")]
@@ -1251,7 +1375,7 @@ impl Desktop {
 				.clone(),
 			monitor_geometry: None,
 			monitor_period: None,
-			frame_metrics: FrameMetrics::default(),
+			frame_metrics: FrameMetrics::new(frame_sample),
 			avatars: None,
 			avatar_cleanup: None,
 			avatar_start_failed: false,
@@ -3527,7 +3651,17 @@ impl eframe::App for Desktop {
 		}
 	}
 	fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
-		self.frame_metrics.begin(ctx);
+		let search_focused = {
+			#[cfg(feature = "demo")]
+			{
+				self.frame_metrics.sample.is_some() && self.messaging.friends_sample_focused(ctx)
+			}
+			#[cfg(not(feature = "demo"))]
+			{
+				false
+			}
+		};
+		self.frame_metrics.begin(ctx, search_focused);
 		self.startup.sync(
 			ctx,
 			&self.runtime,
@@ -4352,6 +4486,31 @@ impl eframe::App for Desktop {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn frame_sample_is_bounded_demo_only_and_excludes_warmup() {
+		for (demo, value) in [
+			(false, "=8,15"),
+			(true, "=0,15"),
+			(true, "=8,0"),
+			(true, "=601,15"),
+			(true, "=8,601"),
+			(true, "=8,15,1"),
+			(true, "=8.5,15"),
+			(true, ""),
+		] {
+			assert!(parse_frame_sample(demo, value).is_err());
+		}
+		let durations = parse_frame_sample(true, "=8,15").unwrap();
+		let mut metrics = FrameMetrics::new(Some(durations));
+		let ready = metrics.sample.as_ref().unwrap().ready;
+		assert!(!metrics.sample_active_at(ready - Duration::from_secs(1)));
+		assert_eq!(metrics.frames, 0);
+		assert!(metrics.sample_active_at(ready));
+		assert!(metrics.sample_active_at(ready + Duration::from_secs(14)));
+		assert!(!metrics.sample_active_at(ready + Duration::from_secs(15)));
+		assert!(!metrics.sample_active_at(ready + Duration::from_secs(16)));
+		assert!(metrics.sample.as_ref().unwrap().complete);
+	}
 	#[test]
 	fn disk_cache_does_not_replace_resident_previews_or_deleted_positions() {
 		for deleted in [false, true] {

@@ -80,6 +80,7 @@ pub struct Actions {
 	friends_known: bool,
 	relationships: BTreeMap<Id, bool>,
 	known: bool,
+	view: u64,
 	sequence: u64,
 	pending: Option<(Action, u64, bool)>,
 	status: Option<&'static str>,
@@ -88,11 +89,19 @@ impl Actions {
 	pub(crate) fn reset(&mut self) {
 		*self = Self {
 			sequence: self.sequence,
+			view: self.view.wrapping_add(1),
 			..Self::default()
 		};
 	}
+	fn bump_view(&mut self) {
+		self.view = self.view.wrapping_add(1);
+	}
 }
 impl State {
+	/// Changes whenever friend filtering or ordering may change, including optimistic blocks.
+	pub fn relationship_view(&self) -> u64 {
+		self.user_actions.view
+	}
 	pub fn user_note(&self, user: Id) -> Option<&str> {
 		self.user_actions
 			.note
@@ -221,6 +230,13 @@ impl State {
 			.map(|(user, _)| user)
 			.filter(|u| self.user_blocked(u.id) == Some(false))
 	}
+	pub fn friend(&self, user: Id) -> Option<&model::User> {
+		self.user_actions
+			.friends
+			.get(&user)
+			.map(|(user, _)| user)
+			.filter(|user| self.user_blocked(user.id) == Some(false))
+	}
 	pub fn friends_known(&self) -> bool {
 		self.user_actions.friends_known
 	}
@@ -318,11 +334,17 @@ impl State {
 		self.user_actions.sequence = self.user_actions.sequence.wrapping_add(1);
 		let request = self.user_actions.sequence;
 		self.user_actions.pending = Some((action.clone(), request, false));
+		if matches!(action, Action::Block { .. }) {
+			self.user_actions.bump_view();
+		}
 		self.user_actions.status = None;
 		Some(Command::UserAction { action, request })
 	}
 	pub(crate) fn cancel_user_action(&mut self) {
-		if self.user_actions.pending.take().is_some() {
+		if let Some((action, _, _)) = self.user_actions.pending.take() {
+			if matches!(action, Action::Block { .. }) {
+				self.user_actions.bump_view();
+			}
 			self.user_actions.status =
 				Some("Outcome unknown · check the official client before retrying");
 		}
@@ -346,6 +368,17 @@ impl State {
 		}
 	}
 	pub(crate) fn apply_user_action(&mut self, event: Event) -> Result<(), &'static str> {
+		// Bump before applying: invalid full snapshots can clear previously visible entries.
+		if matches!(
+			&event,
+			Event::Nicknames(_)
+				| Event::Nickname { .. }
+				| Event::Friends(_)
+				| Event::Friend { .. }
+				| Event::Relationships(_)
+		) {
+			self.user_actions.bump_view();
+		}
 		match event {
 			Event::NoteChanged { user, text } => {
 				if user.0 == 0 || !valid_personal_text(&text, false) {
@@ -693,6 +726,9 @@ impl State {
 				}
 				let observed = *observed;
 				self.user_actions.pending = None;
+				if matches!(action, Action::Block { .. }) {
+					self.user_actions.bump_view();
+				}
 				if let Err(failure) = result {
 					self.user_actions.status = Some(failure.label());
 					self.status = failure.label();
@@ -786,6 +822,7 @@ impl State {
 		Ok(())
 	}
 	fn store_relationship(&mut self, user: Id, blocked: bool) -> Result<(), &'static str> {
+		self.user_actions.bump_view();
 		if blocked {
 			self.user_actions.friends.remove(&user);
 			self.user_actions.nicknames.remove(&user);
@@ -839,6 +876,125 @@ fn valid_friend(user: &model::User, username: &str) -> bool {
 mod tests {
 	use super::*;
 	use crate::{Envelope, Event as CoreEvent};
+	#[test]
+	fn relationship_view_tracks_all_friend_inputs_and_failed_mutations() {
+		let mut state = state();
+		let mut user = state.channels[0].recipients[0].clone();
+		let mut view = state.relationship_view();
+		for event in [
+			Event::Relationships(Some(vec![])),
+			Event::Friends(Some(vec![(user.clone(), "friend".into())])),
+			Event::Nickname {
+				user: user.id,
+				text: "Nickname".into(),
+			},
+			Event::Nicknames(vec![]),
+			{
+				user.name = "Changed display name".into();
+				Event::FriendProfile((user.clone(), "changed_username".into()))
+			},
+		] {
+			state.apply_user_action(event).unwrap();
+			assert!(state.relationship_view() > view);
+			view = state.relationship_view();
+		}
+		assert!(state.friend(user.id) == state.friends().next());
+		assert_eq!(state.friend(user.id).unwrap().name, "Changed display name");
+		assert!(state.friend(Id(999)).is_none());
+		for cancelled in [false, true] {
+			let command = state.set_user_blocked(user.id, true).unwrap();
+			assert!(state.relationship_view() > view);
+			assert!(state.friend(user.id).is_none());
+			view = state.relationship_view();
+			if cancelled {
+				state.cancel_user_action();
+			} else {
+				finish(&mut state, command, Err(Failure::Forbidden));
+			}
+			assert!(state.relationship_view() > view);
+			assert!(state.friend(user.id) == state.friends().next());
+			assert!(state.friend(user.id).is_some());
+			view = state.relationship_view();
+		}
+		// A rejected full snapshot clears existing values before reporting the error.
+		assert!(
+			state
+				.apply_user_action(Event::Friends(Some(vec![
+					(user.clone(), "friend".into()),
+					(user.clone(), "duplicate".into()),
+				])))
+				.is_err()
+		);
+		assert!(state.relationship_view() > view);
+		assert!(state.friend(user.id).is_none());
+		state
+			.apply_user_action(Event::Friends(Some(vec![(user.clone(), "friend".into())])))
+			.unwrap();
+		view = state.relationship_view();
+		assert!(
+			state
+				.apply_user_action(Event::Relationships(Some(vec![(Id(0), false)])))
+				.is_err()
+		);
+		assert!(state.relationship_view() > view);
+		assert!(state.friend(user.id).is_none());
+		state
+			.apply_user_action(Event::Relationships(Some(vec![])))
+			.unwrap();
+		view = state.relationship_view();
+		state
+			.apply_user_action(Event::Relationship {
+				user: user.id,
+				blocked: true,
+			})
+			.unwrap();
+		assert!(state.relationship_view() > view);
+		assert!(state.friend(user.id).is_none());
+		// A rejected block can remove a friend before the relationship capacity check.
+		state.user_actions.relationships = (10..10 + MAX_RELATIONSHIPS as u64)
+			.map(|id| (Id(id), false))
+			.collect();
+		state
+			.apply_user_action(Event::Friends(Some(vec![(user.clone(), "friend".into())])))
+			.unwrap();
+		view = state.relationship_view();
+		assert!(state.store_relationship(user.id, true).is_err());
+		assert!(state.relationship_view() > view);
+		assert!(state.friend(user.id).is_none());
+	}
+
+	#[test]
+	fn relationship_view_survives_ready_and_rejects_stale_generation() {
+		let mut state = state();
+		let user = state.channels[0].recipients[0].clone();
+		state
+			.apply_user_action(Event::Relationships(Some(vec![])))
+			.unwrap();
+		state
+			.apply_user_action(Event::Friends(Some(vec![(user.clone(), "friend".into())])))
+			.unwrap();
+		let view = state.relationship_view();
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::Ready {
+				permissions: Default::default(),
+				user: state.user.clone().unwrap(),
+				guilds: vec![],
+				channels: state.channels.clone(),
+			},
+		});
+		assert!(state.relationship_view() > view);
+		assert!(state.friend(user.id).is_none());
+		let generation = state.generation;
+		state.logout();
+		let view = state.relationship_view();
+		state.apply(Envelope {
+			generation,
+			event: CoreEvent::UserAction(Event::Friends(Some(vec![(user, "stale".into())]))),
+		});
+		assert_eq!(state.relationship_view(), view);
+		assert_eq!(state.friends().count(), 0);
+	}
 	#[test]
 	fn personal_edits_are_bounded_confirmed_and_reconcile_newer_service_state() {
 		let mut state = state();

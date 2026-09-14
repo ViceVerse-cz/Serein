@@ -552,6 +552,8 @@ pub struct State {
 	pub local_game_activity: Option<model::RichActivity>,
 	#[doc(hidden)]
 	pub direct_presence_bytes: Option<(usize, usize)>,
+	#[doc(hidden)]
+	pub direct_presence_epoch: u64,
 	pub member_request: u64,
 	pub guilds: Vec<Guild>,
 	pub channels: Vec<Channel>,
@@ -625,6 +627,7 @@ impl Default for State {
 			direct_presences: vec![],
 			local_game_activity: Default::default(),
 			direct_presence_bytes: None,
+			direct_presence_epoch: 0,
 			member_request: 0,
 			guilds: vec![],
 			channels: vec![],
@@ -1520,8 +1523,7 @@ impl State {
 					self.invalidate_startup_preferences(warnings.notifications, warnings.sessions);
 				}
 				if warnings.presence {
-					self.direct_presences.clear();
-					self.direct_presence_bytes = None;
+					self.clear_direct_presences();
 				}
 				Ok(())
 			}
@@ -1982,8 +1984,7 @@ impl State {
 				guilds,
 				channels,
 			} => {
-				self.direct_presences.clear();
-				self.direct_presence_bytes = None;
+				self.clear_direct_presences();
 				if self
 					.user
 					.as_ref()
@@ -2413,8 +2414,7 @@ impl State {
 				self.cancel_server_admin();
 				self.cancel_group_action();
 				self.cancel_invite_join();
-				self.direct_presences.clear();
-				self.direct_presence_bytes = None;
+				self.clear_direct_presences();
 				self.permissions = permissions::Permissions::default();
 				self.read_state.cancel();
 				self.clear_profile();
@@ -2604,8 +2604,7 @@ impl State {
 			self.cancel_server_admin();
 			self.cancel_group_action();
 			self.cancel_invite_join();
-			self.direct_presences.clear();
-			self.direct_presence_bytes = None;
+			self.clear_direct_presences();
 			self.clear_cached_history();
 			self.clear_search();
 			self.search_target = None;
