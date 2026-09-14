@@ -161,13 +161,9 @@ fn channel_welcome(ui: &mut egui::Ui, channel: &model::Channel, height: f32) {
 		});
 }
 
-fn loading_messages(ui: &mut egui::Ui, fill_viewport: bool) {
+fn loading_messages(ui: &mut egui::Ui) {
 	let colors = crate::design::palette(ui);
-	let height = if fill_viewport {
-		ui.available_height()
-	} else {
-		ui.available_height().min(144.0)
-	};
+	let height = ui.available_height();
 	let (rect, response) = ui.allocate_exact_size(
 		egui::vec2(ui.available_width(), height),
 		egui::Sense::hover(),
@@ -178,11 +174,7 @@ fn loading_messages(ui: &mut egui::Ui, fill_viewport: bool) {
 	let painter = ui.painter().with_clip_rect(ui.clip_rect().intersect(rect));
 	let fill = colors.muted.gamma_multiply(0.22);
 	let text_width = (rect.width() - 88.0).clamp(0.0, 480.0);
-	let rows = if fill_viewport {
-		(height / 68.0).ceil().clamp(0.0, 128.0) as usize
-	} else {
-		2
-	};
+	let rows = (height / 68.0).ceil().clamp(0.0, 128.0) as usize;
 	for (index, length) in [0.85, 0.65, 0.95, 0.55]
 		.into_iter()
 		.cycle()
@@ -752,11 +744,9 @@ impl TimelineView {
 		if !history_available {
 			ui.weak("Message history is unavailable with current permission information.");
 		}
-		if history_available && state.freshness == model::Freshness::Loading {
-			loading_messages(ui, empty);
-			if empty {
-				return;
-			}
+		if history_available && state.freshness == model::Freshness::Loading && empty {
+			loading_messages(ui);
+			return;
 		} else if empty && history_available && !welcome {
 			ui.label(match state.freshness {
 				model::Freshness::Loading => "Loading messages…",
@@ -902,9 +892,15 @@ impl TimelineView {
 			if welcome && let Some(channel) = state.selected.and_then(|id| state.channel(id)) {
 				channel_welcome(ui, channel, viewport.height() - end_padding);
 			}
+			// Initial bottom alignment can expose more rows after estimates shrink.
+			let overscan = if channel_changed && self.following {
+				viewport.height().max(100.0)
+			} else {
+				100.0
+			};
 			let (first, _, top) = visible_range(
 				&self.rows,
-				(viewport.min.y - 100.0).max(0.0),
+				(viewport.min.y - overscan).max(0.0),
 				viewport.max.y + 100.0,
 			);
 			let (anchor, _, anchor_top) = visible_range(&self.rows, viewport.min.y, viewport.max.y);
@@ -1867,7 +1863,11 @@ impl TimelineView {
 			self.revision = u64::MAX;
 			if self.following {
 				self.jump = true;
-				if !dimensions_changed {
+				// Settle a newly selected chat before presenting estimated row positions.
+				// Keep resize and active scrolling on their existing anchored path.
+				if !dimensions_changed
+					|| (channel_changed && scroll_delta == 0.0 && self.autoscroll_origin.is_none())
+				{
 					ui.ctx().request_discard("Timeline message heights settled");
 				}
 			}
@@ -4314,6 +4314,104 @@ mod tests {
 			);
 		}
 	}
+	#[test]
+	fn switching_cached_chats_keeps_message_positions_stable() {
+		for (width, count) in [(900.0, 2), (360.0, 50)] {
+			let mut state = test_support::demo_state();
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let mut view = TimelineView::default();
+			let mut avatars = crate::avatars::Avatars::default();
+			let mut render = |state: &mut State| {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(width, 480.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						view.show(
+							ui,
+							state,
+							&mut None,
+							&mut None,
+							(&mut avatars, &mut None),
+							None,
+						)
+					},
+				);
+				let y = output.shapes.iter().find_map(|shape| match &shape.shape {
+					egui::Shape::Text(text) if text.galley.text().contains("Switch anchor") => {
+						Some(text.pos.y)
+					}
+					_ => None,
+				});
+				output.drop_without_applying_deltas();
+				y
+			};
+			for channel in [Id(20), Id(21)] {
+				state.select(channel);
+				state.history(None);
+				let messages = (0..count)
+					.map(|index| {
+						let mut message = text_message(1000 * channel.0 + index);
+						message.channel = channel;
+						message.content = if index == count - 1 {
+							"Switch anchor".into()
+						} else {
+							"A wrapped synthetic message with different measured and estimated heights. ".repeat(3)
+						};
+						message
+					})
+					.collect();
+				state.apply(client_core::Envelope {
+					generation: state.generation,
+					event: client_core::Event::History {
+						channel,
+						request: state.request,
+						older: false,
+						messages,
+					},
+				});
+				for _ in 0..6 {
+					render(&mut state);
+				}
+			}
+			for channel in [Id(20), Id(21), Id(20)] {
+				assert!(matches!(
+					state.select(channel),
+					Some(client_core::Command::History { .. })
+				));
+				assert!(state.history_pending);
+				let first = render(&mut state).expect("cached switch must paint last message");
+				for _ in 0..4 {
+					let next = render(&mut state).expect("settled chat must paint last message");
+					assert!(
+						(first - next).abs() <= 1.0,
+						"cached switch moved from {first} to {next} at width {width}"
+					);
+				}
+				let messages = state.timeline.iter().cloned().collect();
+				state.apply(client_core::Envelope {
+					generation: state.generation,
+					event: client_core::Event::History {
+						channel,
+						request: state.request,
+						older: false,
+						messages,
+					},
+				});
+				let refreshed = render(&mut state).expect("refreshed chat must paint last message");
+				assert!(
+					(first - refreshed).abs() <= 1.0,
+					"refresh moved from {first} to {refreshed} at width {width}"
+				);
+			}
+		}
+	}
+
 	#[test]
 	fn resident_preview_renders_only_selected_rows_while_revalidating() {
 		fn collect(shape: &egui::Shape, labels: &mut Vec<String>) {
