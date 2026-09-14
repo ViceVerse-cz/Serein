@@ -1,0 +1,41 @@
+name: Nix test build
+on:
+  push:
+    branches: [main]
+    paths: ['flake.nix', 'flake.lock', 'nix/**', '.github/workflows/nix.yml']
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths: ['flake.nix', 'flake.lock', 'nix/**', '.github/workflows/nix.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: nix-test-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@v23
+      - uses: DeterminateSystems/magic-nix-cache-action@v14
+      - name: Evaluate all flake systems
+        run: nix flake show --all-systems --print-build-logs
+      - name: Test-build host package
+        run: nix build --print-build-logs --show-trace .#serein
+      - name: Verify installed binary
+        run: test -x result/bin/serein
+      - name: Verify Linux desktop assets
+        if: runner.os == 'Linux'
+        run: test -f result/share/applications/org.serein.desktop.desktop
+      - name: Verify macOS app bundle
+        if: runner.os == 'macOS'
+        run: test -d result/Applications/Serein.app
