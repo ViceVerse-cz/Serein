@@ -34,6 +34,30 @@ impl MessagingUi {
 		}
 	}
 
+	/// Zoom row shared by the settings page and the signed-out appearance menu.
+	pub(crate) fn zoom_row(&mut self, ui: &mut egui::Ui, value: &mut ReadingPreferences) {
+		let colors = design::palette(ui);
+		ui.horizontal(|ui| {
+			ui.label(design::medium(ui, "Zoom", 15.0).color(colors.text_strong));
+			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+				let mut zoom = self.reading_zoom_draft.unwrap_or(value.zoom_percent);
+				let response = ui.add(
+					egui::Slider::new(&mut zoom, 80..=150)
+						.suffix("%")
+						.trailing_fill(true),
+				);
+				// Applying zoom rescales this slider under the pointer, so commit only
+				// once the drag ends; typed values apply immediately.
+				if response.dragged() {
+					self.reading_zoom_draft = Some(zoom);
+				} else {
+					self.reading_zoom_draft = None;
+					value.zoom_percent = zoom;
+				}
+			});
+		});
+	}
+
 	pub fn reading_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
 		ui.label(design::eyebrow(ui, "Reading and layout", colors.muted));
@@ -43,25 +67,7 @@ impl MessagingUi {
 			ui.spacing_mut().slider_width = (ui.available_width() - 220.0).clamp(120.0, 360.0);
 			// The rail must stay visible on the raised card surface.
 			ui.visuals_mut().widgets.inactive.bg_fill = colors.selected;
-			ui.horizontal(|ui| {
-				ui.label(design::medium(ui, "Zoom", 15.0).color(colors.text_strong));
-				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-					let mut zoom = self.reading_zoom_draft.unwrap_or(value.zoom_percent);
-					let response = ui.add(
-						egui::Slider::new(&mut zoom, 80..=150)
-							.suffix("%")
-							.trailing_fill(true),
-					);
-					// Applying zoom rescales this slider under the pointer, so commit only
-					// once the drag ends; typed values apply immediately.
-					if response.dragged() {
-						self.reading_zoom_draft = Some(zoom);
-					} else {
-						self.reading_zoom_draft = None;
-						value.zoom_percent = zoom;
-					}
-				});
-			});
+			self.zoom_row(ui, &mut value);
 			ui.separator();
 			ui.horizontal(|ui| {
 				ui.label(design::medium(ui, "Sidebar width", 15.0).color(colors.text_strong));

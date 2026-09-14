@@ -32,17 +32,12 @@ impl Default for Updates {
 	}
 }
 impl MessagingUi {
-	pub fn show_signed_out_updates(&mut self, ctx: &egui::Context) {
-		if !self.settings.open {
-			return;
-		}
-		let mut open = true;
-		egui::Window::new("Updates")
-			.open(&mut open)
-			.resizable(false)
-			.default_width(460.0)
-			.show(ctx, |ui| self.update_settings(ui, false));
-		self.settings.open = open;
+	/// Update controls for the signed-out header, rendered inside its menu popup so the
+	/// screen never grows a second, movable window.
+	pub fn updates_menu(&mut self, ui: &mut egui::Ui, demo: bool) {
+		ui.set_min_width(340.0);
+		ui.set_max_width(340.0);
+		self.update_settings(ui, demo);
 	}
 
 	pub(super) fn update_settings(&mut self, ui: &mut egui::Ui, demo: bool) {

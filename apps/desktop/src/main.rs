@@ -38,6 +38,13 @@ use std::{sync::Arc, time::Duration};
 #[cfg(feature = "developer-session")]
 use zeroize::Zeroizing;
 
+/// Sign-in header strip: doubles as the window drag region, so it clears the traffic lights.
+const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
+	44.0
+} else {
+	60.0
+};
+
 fn main() -> eframe::Result {
 	let demo = std::env::args().any(|arg| arg == "--demo");
 	let start_minimized = startup::minimized_launch(demo, std::env::args());
@@ -2476,7 +2483,7 @@ impl Desktop {
 			.show(ui, |ui| {
 				accent_glow(ui);
 				ui::design::window_drag(ui, ui.max_rect());
-				let header = egui::Frame::NONE
+				egui::Frame::NONE
 					.inner_margin(egui::Margin {
 						left: (16.0 + ui::design::TRAFFIC_LIGHT_INSET) as i8,
 						right: if ui::design::WINDOW_CONTROLS_WIDTH > 0.0 {
@@ -2500,7 +2507,6 @@ impl Desktop {
 							);
 						});
 					});
-				ui::design::window_drag(ui, header.response.rect);
 				let time = ui.input(|i| i.time) as f32;
 				ui.ctx().request_repaint();
 				ui.vertical_centered(|ui| {
@@ -2518,7 +2524,7 @@ impl Desktop {
 					ui.painter().rect_filled(mark, 14, p.accent);
 					ui::icons::paint(
 						ui.painter(),
-						ui::icons::Icon::Discord,
+						ui::icons::Icon::Serein,
 						mark.shrink(13.0),
 						p.accent_text,
 					);
@@ -2587,52 +2593,86 @@ impl Desktop {
 			.frame(egui::Frame::NONE.fill(ui::design::window_palette(ui).canvas))
 			.show(ui, |ui| {
 				accent_glow(ui);
-				let header = egui::Frame::NONE
-					.inner_margin(egui::Margin {
-						left: (16.0 + ui::design::TRAFFIC_LIGHT_INSET) as i8,
-						right: if ui::design::WINDOW_CONTROLS_WIDTH > 0.0 {
-							0
-						} else {
-							24
-						},
-						top: if ui::design::WINDOW_CONTROLS_WIDTH > 0.0 {
-							0
-						} else {
-							18
-						},
-						bottom: 12,
-					})
+				egui::Panel::top("sign-in-header")
+					.exact_size(SIGN_IN_HEADER_HEIGHT)
+					.show_separator_line(false)
+					.frame(egui::Frame::NONE)
 					.show(ui, |ui| {
-						ui.horizontal(|ui| {
-							ui.label(ui::design::semibold(ui, "Serein", 20.0).color(p.text_strong));
-							ui.add_space(6.0);
-							egui::Frame::NONE
-								.fill(p.accent.gamma_multiply(0.16))
-								.corner_radius(4)
-								.inner_margin(egui::Margin::symmetric(6, 2))
-								.show(ui, |ui| {
-									ui.label(
-										ui::design::semibold(ui, "EARLY PREVIEW", 10.0)
-											.color(p.accent),
-									);
-								});
+						// Drag first: later widgets win hit testing, so the header buttons stay clickable.
+						ui::design::window_drag(ui, ui.max_rect());
+						ui.horizontal_centered(|ui| {
+							ui.add_space(16.0 + ui::design::TRAFFIC_LIGHT_INSET);
+							// Wordmark lockup: app mark, name, then a quiet outlined stage pill.
+							let (mark, _) = ui
+								.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
+							ui.painter().rect_filled(mark, 6, p.accent);
+							ui::icons::paint(
+								ui.painter(),
+								ui::icons::Icon::Serein,
+								mark.shrink(5.0),
+								p.accent_text,
+							);
+							ui.add_space(8.0);
+							ui.label(ui::design::semibold(ui, "Serein", 16.0).color(p.text_strong));
+							ui.add_space(8.0);
+							// Painted rather than framed: the pill must hug the text, not the row height.
+							let stage = ui.painter().layout_no_wrap(
+								"Early preview".to_owned(),
+								egui::FontId::new(10.5, ui::design::medium_family(ui.ctx())),
+								p.muted,
+							);
+							let (pill, _) = ui.allocate_exact_size(
+								egui::vec2(stage.size().x + 16.0, 19.0),
+								egui::Sense::hover(),
+							);
+							ui.painter().rect_stroke(
+								pill,
+								9,
+								egui::Stroke::new(1.0, p.border),
+								egui::StrokeKind::Inside,
+							);
+							ui.painter()
+								.galley(pill.center() - stage.size() * 0.5, stage, p.muted);
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
-									ui::design::window_controls(ui);
+									if ui::design::WINDOW_CONTROLS_WIDTH > 0.0 {
+										ui::design::window_controls(ui);
+									} else {
+										ui.add_space(24.0);
+									}
 									ui.add_space(12.0);
-									ui.menu_button("Appearance", |ui| {
-										egui::widgets::global_theme_preference_buttons(ui);
-										self.messaging.reading_settings(
-											ui,
-											self.fixture_only || self.state.demo,
-										);
-									});
+									// These popups hold settings controls, so a click inside
+									// must not dismiss them the way a menu command would.
+									let sticky = || {
+										egui::containers::menu::MenuConfig::new().close_behavior(
+											egui::PopupCloseBehavior::CloseOnClickOutside,
+										)
+									};
+									egui::containers::menu::MenuButton::new("Appearance")
+										.config(sticky())
+										.ui(ui, |ui| self.messaging.appearance_menu(ui));
+									ui.add_space(8.0);
+									let updates = &self.messaging.updates;
+									let (label, color) = if updates.ready {
+										("Restart to update", p.link)
+									} else if updates.busy {
+										("Updating…", p.muted)
+									} else if updates.available {
+										("Update available", p.link)
+									} else {
+										("Updates", p.muted)
+									};
+									let demo = self.fixture_only || self.state.demo;
+									egui::containers::menu::MenuButton::new(
+										egui::RichText::new(label).color(color),
+									)
+									.config(sticky())
+									.ui(ui, |ui| self.messaging.updates_menu(ui, demo));
 								},
 							);
 						});
 					});
-				ui::design::window_drag(ui, header.response.rect);
 				egui::ScrollArea::vertical()
 					.id_salt("sign-in-scroll")
 					.show(ui, |ui| {
@@ -2675,7 +2715,7 @@ impl Desktop {
 				ui.vertical_centered(|ui| {
 					let (rect, _) = ui.allocate_exact_size(egui::vec2(56.0, 56.0), egui::Sense::hover());
 					ui.painter().rect_filled(rect, 14, p.accent);
-					ui::icons::paint(ui.painter(), ui::icons::Icon::Discord, rect.shrink(13.0), p.accent_text);
+					ui::icons::paint(ui.painter(), ui::icons::Icon::Serein, rect.shrink(13.0), p.accent_text);
 					ui.add_space(16.0);
 					ui.label(ui::design::semibold(ui, "Welcome to Serein", 24.0).color(p.text_strong));
 					ui.add_space(6.0);
@@ -2686,7 +2726,7 @@ impl Desktop {
 				let label = if self.state.auth == AuthState::Authenticating { "Waiting for Discord…" } else { "Continue with Discord" };
 				let button = ui
 					.add_enabled_ui(can_sign_in, |ui| {
-						ui::design::primary_icon_button(ui, ui::icons::Icon::Discord, label)
+						ui::design::primary_icon_button(ui, ui::icons::Icon::Serein, label)
 					})
 					.inner;
 				if button.clicked() {
@@ -3752,28 +3792,6 @@ impl eframe::App for Desktop {
 			ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
 			self.confirming_close = true;
 		}
-		if self.state.user.is_none() && self.login.is_none() {
-			egui::Panel::top("signed-out-updates")
-				.exact_size(36.0)
-				.show_separator_line(false)
-				.frame(egui::Frame::NONE.fill(ui::design::window_palette(ui).base))
-				.show(ui, |ui| {
-					ui::design::window_drag(ui, ui.max_rect());
-					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-						let label = if self.messaging.updates.ready {
-							"Restart to update"
-						} else if self.messaging.updates.available {
-							"Update available"
-						} else {
-							"Updates"
-						};
-						if ui.small_button(label).clicked() {
-							self.messaging.open_update_settings();
-						}
-					});
-				});
-			self.messaging.show_signed_out_updates(&ctx);
-		}
 		if self.login.is_some() {
 			let p = ui::design::palette(ui);
 			egui::Panel::top("login-header")
@@ -3794,7 +3812,7 @@ impl eframe::App for Desktop {
 						ui.painter().rect_filled(rect, 8, p.accent);
 						ui::icons::paint(
 							ui.painter(),
-							ui::icons::Icon::Discord,
+							ui::icons::Icon::Serein,
 							rect.shrink(7.0),
 							p.accent_text,
 						);

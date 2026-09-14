@@ -693,6 +693,40 @@ impl MessagingUi {
 		}
 	}
 
+	/// Compact appearance popup for the signed-out header: mode, colour preset and zoom.
+	/// Deliberately narrower than the settings page; everything else lives in Settings.
+	pub fn appearance_menu(&mut self, ui: &mut egui::Ui) {
+		let colors = design::palette(ui);
+		ui.set_min_width(324.0);
+		ui.set_max_width(324.0);
+		ui.spacing_mut().item_spacing.y = 6.0;
+		ui.label(design::eyebrow(ui, "Mode", colors.muted));
+		theme_preference_cards(ui);
+		ui.add_space(6.0);
+		ui.label(design::eyebrow(ui, "Theme", colors.muted));
+		let current = design::variant();
+		ui.horizontal_wrapped(|ui| {
+			ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
+			for variant in design::Variant::ALL {
+				let swatch = design::builtin_colors(ui.visuals().dark_mode, variant);
+				let selected = variant == current;
+				if preset_swatch(ui, variant.label(), &swatch, selected).clicked() && !selected {
+					design::set_variant(variant);
+					design::apply(ui.ctx());
+					self.theme_variant_changed = Some(variant);
+				}
+			}
+		});
+		ui.add_space(6.0);
+		ui.label(design::eyebrow(ui, "Display", colors.muted));
+		let mut value = self.reading_preferences;
+		ui.spacing_mut().slider_width = 96.0;
+		self.zoom_row(ui, &mut value);
+		if value != self.reading_preferences {
+			self.apply_reading_preferences(ui.ctx(), value);
+		}
+	}
+
 	fn appearance_settings(&mut self, ui: &mut egui::Ui) {
 		self.extensions.reset_theme_button(ui);
 		let colors = design::palette(ui);
@@ -766,63 +800,7 @@ impl MessagingUi {
 					} else {
 						variant == Some(current)
 					};
-					let (rect, response) =
-						ui.allocate_exact_size(egui::vec2(76.0, 70.0), egui::Sense::click());
-					response.widget_info(|| {
-						egui::WidgetInfo::selected(
-							egui::WidgetType::RadioButton,
-							true,
-							selected,
-							&label,
-						)
-					});
-					let painter = &ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
-					if response.hovered() || response.has_focus() {
-						painter.rect_filled(rect, 6, colors.hover);
-					}
-					let center = egui::pos2(rect.center().x, rect.top() + 24.0);
-					match swatch.backdrop {
-						Some([top, bottom]) => {
-							painter.circle_filled(center, 20.0, bottom);
-							painter.circle_filled(center - egui::vec2(5.0, 5.0), 11.0, top);
-						}
-						None => {
-							painter.circle_filled(center, 20.0, swatch.chat);
-							painter.circle_filled(center + egui::vec2(5.0, 5.0), 9.0, swatch.base);
-						}
-					}
-					painter.circle_stroke(
-						center,
-						20.0,
-						egui::Stroke::new(
-							if selected { 2.5 } else { 1.0 },
-							if selected {
-								colors.accent
-							} else {
-								colors.border
-							},
-						),
-					);
-					if selected {
-						painter.circle_filled(center, 10.0, colors.accent);
-						icons::paint(
-							painter,
-							icons::Icon::Check,
-							egui::Rect::from_center_size(center, egui::Vec2::splat(12.0)),
-							colors.accent_text,
-						);
-					}
-					painter.text(
-						egui::pos2(rect.center().x, rect.bottom() - 10.0),
-						egui::Align2::CENTER_CENTER,
-						&label,
-						egui::FontId::proportional(11.0),
-						if selected {
-							colors.text_strong
-						} else {
-							colors.muted
-						},
-					);
+					let response = preset_swatch(ui, &label, &swatch, selected);
 					if response.on_hover_text(&label).clicked()
 						&& !selected && !self.extensions.busy
 					{
@@ -1086,6 +1064,68 @@ pub(super) fn close_control(ui: &mut egui::Ui) -> egui::Response {
 }
 
 /// Dark, light or system cards with a miniature of each palette and a radio marker.
+/// One colour-preset cell: the palette circles, the selection ring and the caption.
+fn preset_swatch(
+	ui: &mut egui::Ui,
+	label: &str,
+	swatch: &design::Palette,
+	selected: bool,
+) -> egui::Response {
+	let colors = design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(egui::vec2(76.0, 70.0), egui::Sense::click());
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, selected, label)
+	});
+	let painter = &ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+	if response.hovered() || response.has_focus() {
+		painter.rect_filled(rect, 6, colors.hover);
+	}
+	let center = egui::pos2(rect.center().x, rect.top() + 24.0);
+	match swatch.backdrop {
+		Some([top, bottom]) => {
+			painter.circle_filled(center, 20.0, bottom);
+			painter.circle_filled(center - egui::vec2(5.0, 5.0), 11.0, top);
+		}
+		None => {
+			painter.circle_filled(center, 20.0, swatch.chat);
+			painter.circle_filled(center + egui::vec2(5.0, 5.0), 9.0, swatch.base);
+		}
+	}
+	painter.circle_stroke(
+		center,
+		20.0,
+		egui::Stroke::new(
+			if selected { 2.5 } else { 1.0 },
+			if selected {
+				colors.accent
+			} else {
+				colors.border
+			},
+		),
+	);
+	if selected {
+		painter.circle_filled(center, 10.0, colors.accent);
+		icons::paint(
+			painter,
+			icons::Icon::Check,
+			egui::Rect::from_center_size(center, egui::Vec2::splat(12.0)),
+			colors.accent_text,
+		);
+	}
+	painter.text(
+		egui::pos2(rect.center().x, rect.bottom() - 10.0),
+		egui::Align2::CENTER_CENTER,
+		label,
+		egui::FontId::proportional(11.0),
+		if selected {
+			colors.text_strong
+		} else {
+			colors.muted
+		},
+	);
+	response
+}
+
 fn theme_preference_cards(ui: &mut egui::Ui) {
 	let colors = design::palette(ui);
 	let current = ui.ctx().options(|options| options.theme_preference);
@@ -1093,10 +1133,18 @@ fn theme_preference_cards(ui: &mut egui::Ui) {
 	ui.horizontal(|ui| {
 		ui.spacing_mut().item_spacing.x = 10.0;
 		let width = ((ui.available_width() - 20.0) / 3.0).clamp(88.0, 240.0);
+		// Narrow cards (the signed-out appearance popup) cannot hold the long system label.
 		for (preference, label) in [
 			(egui::ThemePreference::Dark, "Dark"),
 			(egui::ThemePreference::Light, "Light"),
-			(egui::ThemePreference::System, "Sync with system"),
+			(
+				egui::ThemePreference::System,
+				if width < 140.0 {
+					"System"
+				} else {
+					"Sync with system"
+				},
+			),
 		] {
 			let selected = current == preference;
 			let (rect, response) =
@@ -1229,3 +1277,4 @@ mod keybind_tests {
 		}
 	}
 }
+
