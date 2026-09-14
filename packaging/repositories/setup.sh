@@ -14,12 +14,57 @@ else
     SUDO=""
 fi
 
+# Styling & Colors
+BOLD='\033[1m'
+DIM='\033[2m'
+BLUE='\033[1;34m'
+CYAN='\033[1;36m'
+GREEN='\033[1;32m'
+PURPLE='\033[1;35m'
+YELLOW='\033[1;33m'
+RED='\033[1;31m'
+NC='\033[0m'
+
+# Disable colors if not running in a terminal
+if [ ! -t 1 ]; then
+    BOLD=""
+    DIM=""
+    BLUE=""
+    CYAN=""
+    GREEN=""
+    PURPLE=""
+    YELLOW=""
+    RED=""
+    NC=""
+fi
+
+banner() {
+    printf '%b' "${CYAN}"
+    cat << 'EOF'
+     _____ _____ ____  _____ ___ _   _ 
+    /  ___|  ___|  _ \| ____|_ _| \ | |
+    \ `--.| |__ | |_) | |__  | ||  \| |
+     `--. \  __||  _ <|  __| | || |\  |
+    /\__/ / |___| | \ \ |___ | || | \ |
+    \____/\____/|_|  \_\____/|___|_| \_|
+EOF
+    printf '%b\n' "${DIM} Lightweight, native Discord client in Rust${NC}\n"
+}
+
 log() {
-    printf '\033[1;34m::\033[0m %s\n' "$1"
+    printf " %b::%b %s\n" "${BLUE}" "${NC}" "$1"
+}
+
+success() {
+    printf " %b✔%b %s\n" "${GREEN}" "${NC}" "$1"
+}
+
+warn() {
+    printf " %b!%b %s\n" "${YELLOW}" "${NC}" "$1"
 }
 
 error() {
-    printf '\033[1;31merror:\033[0m %s\n' "$1" >&2
+    printf " %b✖ error:%b %s\n" "${RED}" "${NC}" "$1" >&2
     exit 1
 }
 
@@ -48,8 +93,10 @@ verify_key() {
     if [ "$fingerprint" != "$expected" ]; then
         error "GPG fingerprint mismatch! Expected: $expected, Got: $fingerprint. Refusing to install untrusted key."
     fi
-    log "GPG key verified ($fingerprint)"
+    success "Cryptographic key verified (${DIM}$fingerprint${NC})"
 }
+
+banner
 
 if [ ! -f /etc/os-release ]; then
     error "/etc/os-release not found. Unsupported Linux distribution."
@@ -75,32 +122,32 @@ trap 'rm -rf "$TEMP_DIR"' EXIT HUP INT TERM
 KEY_URL="$BASE_URL/$CHANNEL/ubuntu-26.04/$DEB_ARCH/apt/serein.asc"
 KEY_FILE="$TEMP_DIR/serein.asc"
 
-log "Configuring Serein $CHANNEL repository for $ID..."
-log "Downloading signing key..."
+log "Configuring Serein ${BOLD}${CHANNEL}${NC} repository for ${BOLD}${PRETTY_NAME:-$ID}${NC} (${ARCH})..."
+log "Fetching official signing key..."
 download "$KEY_URL" "$KEY_FILE"
 verify_key "$KEY_FILE"
 
+INSTALL_CMD=""
+
 case "$ID" in
     ubuntu|debian|pop|linuxmint|elementary|neon)
-        log "Configuring APT repository..."
+        log "Installing APT keyring and source list..."
         $SUDO install -Dm644 "$KEY_FILE" /etc/apt/keyrings/serein.asc
 
-        # Determine distribution directory; default to ubuntu-26.04 if on derivative
         DIST="ubuntu-26.04"
         REPO_URL="$BASE_URL/$CHANNEL/$DIST/$DEB_ARCH/apt"
 
         printf 'deb [arch=%s signed-by=/etc/apt/keyrings/serein.asc] %s ./\n' "$DEB_ARCH" "$REPO_URL" | \
             $SUDO tee /etc/apt/sources.list.d/serein.list >/dev/null
 
-        log "Updating package lists..."
-        $SUDO apt-get update -o Dir::Etc::sourcelist="sources.list.d/serein.list" -o Dir::Etc::sourceparts="-" || $SUDO apt-get update
+        log "Updating APT package lists..."
+        $SUDO apt-get update -o Dir::Etc::sourcelist="sources.list.d/serein.list" -o Dir::Etc::sourceparts="-" >/dev/null 2>&1 || $SUDO apt-get update >/dev/null 2>&1
 
-        log "Success! Install Serein by running:"
-        printf '\n    %s apt install serein\n\n' "$SUDO"
+        INSTALL_CMD="$SUDO apt install serein"
         ;;
 
     fedora|rhel|centos|rocky|alma)
-        log "Configuring DNF repository..."
+        log "Importing RPM key and configuring DNF repository..."
         $SUDO rpm --import "$KEY_FILE"
 
         REPO_FILE="$TEMP_DIR/serein.repo"
@@ -108,28 +155,26 @@ case "$ID" in
         download "$REPO_URL/serein.repo" "$REPO_FILE"
         $SUDO install -m644 "$REPO_FILE" /etc/yum.repos.d/serein.repo
 
-        log "Success! Install Serein by running:"
-        printf '\n    %s dnf install serein\n\n' "$SUDO"
+        INSTALL_CMD="$SUDO dnf install serein"
         ;;
 
     opensuse*|suse|sles)
-        log "Configuring Zypper repository..."
+        log "Importing RPM key and configuring Zypper repository..."
         $SUDO rpm --import "$KEY_FILE"
 
         REPO_FILE="$TEMP_DIR/serein.repo"
         REPO_URL="$BASE_URL/$CHANNEL/opensuse-tumbleweed/$RPM_ARCH/rpm"
         download "$REPO_URL/serein.repo" "$REPO_FILE"
         $SUDO install -m644 "$REPO_FILE" /etc/zypp/repos.d/serein.repo
-        $SUDO zypper --non-interactive refresh || true
+        $SUDO zypper --non-interactive refresh serein-$CHANNEL >/dev/null 2>&1 || true
 
-        log "Success! Install Serein by running:"
-        printf '\n    %s zypper install serein\n\n' "$SUDO"
+        INSTALL_CMD="$SUDO zypper install serein"
         ;;
 
     arch|manjaro|endeavouros|garuda|cachyos)
-        log "Configuring Pacman repository..."
-        $SUDO pacman-key --add "$KEY_FILE"
-        $SUDO pacman-key --lsign-key "$EXPECTED_FINGERPRINT"
+        log "Importing key into Pacman keyring..."
+        $SUDO pacman-key --add "$KEY_FILE" >/dev/null 2>&1
+        $SUDO pacman-key --lsign-key "$EXPECTED_FINGERPRINT" >/dev/null 2>&1
 
         PACMAN_CONF="/etc/pacman.conf"
         REPO_URL="$BASE_URL/$CHANNEL/arch/$ARCH_ARCH/arch"
@@ -141,13 +186,56 @@ case "$ID" in
                 $SUDO tee -a "$PACMAN_CONF" >/dev/null
         fi
 
-        $SUDO pacman -Sy
+        log "Syncing Pacman database..."
+        $SUDO pacman -Sy >/dev/null 2>&1
 
-        log "Success! Install Serein by running:"
-        printf '\n    %s pacman -S serein\n\n' "$SUDO"
+        INSTALL_CMD="$SUDO pacman -S serein"
         ;;
 
     *)
         error "Distribution '$ID' is not automatically supported by this script. See packaging/repositories/README.md for manual instructions."
         ;;
 esac
+
+success "Repository configuration complete!"
+printf '\n'
+
+# Prompt to install if interactive terminal is attached
+DO_INSTALL="false"
+
+# When run via `curl ... | sh`, stdin is the script itself. We can read from /dev/tty if available.
+if [ -t 0 ]; then
+    TTY_INPUT=1
+elif [ -e /dev/tty ] && [ -r /dev/tty ]; then
+    TTY_INPUT=1
+else
+    TTY_INPUT=0
+fi
+
+if [ "$TTY_INPUT" -eq 1 ]; then
+    printf "%b?%b Would you like to install %bSerein%b now? [Y/n]: " "${PURPLE}" "${NC}" "${BOLD}" "${NC}"
+    if [ -t 0 ]; then
+        read -r answer
+    else
+        read -r answer </dev/tty
+    fi
+    case "$answer" in
+        [nN][oO]|[nN])
+            DO_INSTALL="false"
+            ;;
+        *)
+            DO_INSTALL="true"
+            ;;
+    esac
+fi
+
+if [ "$DO_INSTALL" = "true" ]; then
+    log "Installing Serein (${INSTALL_CMD})..."
+    $INSTALL_CMD
+    printf '\n'
+    success "${BOLD}Serein installed successfully!${NC}"
+    log "Launch it from your desktop application launcher or run ${BOLD}serein${NC}."
+else
+    log "To install Serein later, run:"
+    printf '\n    %b%s%b\n\n' "${CYAN}" "$INSTALL_CMD" "${NC}"
+fi
