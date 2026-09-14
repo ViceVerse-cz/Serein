@@ -1361,7 +1361,8 @@ impl TimelineView {
 											&& state.freshness == model::Freshness::Fresh
 											&& state.can_read_history(message.channel),
 										state.reactions.busy(),
-										state.reactions.invalidated(message.id),
+										(state.history_pending && state.history_before.is_none())
+											|| state.reactions.invalidated(message.id),
 										(avatars, state.demo),
 										|emoji, add| state.can_react(*id, Some(emoji), add),
 									) {

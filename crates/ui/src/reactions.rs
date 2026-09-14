@@ -10,7 +10,9 @@ pub fn show(
 	media: (&mut crate::avatars::Avatars, bool),
 	can_react: impl Fn(&ReactionEmoji, bool) -> bool,
 ) -> Option<Option<ReactionEmoji>> {
-	if reactions.is_some_and(<[Reaction]>::is_empty) {
+	// Unknown cached counts are not a failure while history/reactions are loading.
+	// Allocate no placeholder row, so reaction-free messages do not jump in height.
+	if reactions.is_some_and(<[Reaction]>::is_empty) || (reactions.is_none() && refreshing) {
 		return None;
 	}
 	let mut action = None;
@@ -19,16 +21,9 @@ pub fn show(
 		ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
 		ui.spacing_mut().interact_size.y = 26.0;
 		let Some(reactions) = reactions else {
-			ui.weak(if refreshing {
-				"Updating reactions…"
-			} else {
-				"Reactions unavailable"
-			});
+			ui.weak("Reactions unavailable");
 			if ui
-				.add_enabled(
-					enabled && !refreshing,
-					egui::Button::new("Reload reactions").small(),
-				)
+				.add_enabled(enabled, egui::Button::new("Reload reactions").small())
 				.clicked()
 			{
 				action = Some(None);
