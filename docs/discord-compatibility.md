@@ -1,5 +1,15 @@
 # Discord compatibility — checked 2026-09-10
 
+## Gateway login payload bound — September 14, 2026
+
+The [Gateway](https://docs.discord.com/developers/events/gateway) documents zlib-stream
+transport compression but no READY size; a normal account's READY (unofficial, inlines every
+server's channels, roles, emojis and user settings) is routinely larger than 4 MiB decompressed.
+The Gateway transport, outer packet, READY and READY_SUPPLEMENTAL decoders now accept up to
+64 MiB; per-event decoders, REST bodies and retained projections keep their 4 MiB or smaller
+limits. Verified only with a synthetic offline WebSocket; the affected account's live payload
+was not inspected. See docs/authentication.md.
+
 ## Received forwards — September 13, 2026
 
 Received forward references display their single attached

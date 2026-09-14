@@ -51,11 +51,24 @@ impl TryFrom<String> for Timestamp {
 	}
 }
 pub const MAX_WIRE: usize = 4 * 1024 * 1024;
+/// A normal account's READY carries every joined server's channels, roles, emojis and settings,
+/// and legitimately exceeds the per-event/REST bound. Retained projections keep their own limits.
+pub const MAX_GATEWAY_WIRE: usize = 64 * 1024 * 1024;
 #[derive(Debug, thiserror::Error)]
 #[error("Unsupported or oversized Discord payload")]
 pub struct DecodeError;
 pub fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, DecodeError> {
-	if bytes.len() > MAX_WIRE {
+	decode_limited(bytes, MAX_WIRE)
+}
+/// Whole Gateway packets and login snapshots (READY, READY_SUPPLEMENTAL).
+pub fn decode_gateway<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, DecodeError> {
+	decode_limited(bytes, MAX_GATEWAY_WIRE)
+}
+fn decode_limited<T: serde::de::DeserializeOwned>(
+	bytes: &[u8],
+	limit: usize,
+) -> Result<T, DecodeError> {
+	if bytes.len() > limit {
 		return Err(DecodeError);
 	}
 	serde_json::from_slice(bytes).map_err(|_| DecodeError)

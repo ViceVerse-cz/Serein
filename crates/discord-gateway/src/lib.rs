@@ -33,7 +33,7 @@ use zeroize::Zeroizing;
 fn socket_failure(error: tokio_tungstenite::tungstenite::Error) -> Failure {
 	match error {
 		tokio_tungstenite::tungstenite::Error::Capacity(_) => {
-			Failure::CapacityAt("Gateway frame exceeds 4 MiB; connection stopped")
+			Failure::CapacityAt("Gateway frame exceeds 64 MiB; connection stopped")
 		}
 		_ => Failure::Network,
 	}
@@ -508,8 +508,8 @@ async fn run_inner(
 		#[cfg(test)]
 		let url = test_endpoint.unwrap_or(url);
 		let config = WebSocketConfig::default()
-			.max_message_size(Some(MAX_WIRE))
-			.max_frame_size(Some(MAX_WIRE))
+			.max_message_size(Some(MAX_GATEWAY_WIRE))
+			.max_frame_size(Some(MAX_GATEWAY_WIRE))
 			.write_buffer_size(0)
 			.max_write_buffer_size(64 * 1024);
 		let connection = timeout(
@@ -544,7 +544,8 @@ async fn run_inner(
 			attempt += 1;
 			continue;
 		};
-		let packet: GatewayPacket = decode(text.as_bytes()).map_err(|_| Failure::Protocol)?;
+		let packet: GatewayPacket =
+			decode_gateway(text.as_bytes()).map_err(|_| Failure::Protocol)?;
 		if packet.op != 10 {
 			return Err(Failure::Protocol);
 		}
@@ -737,7 +738,7 @@ async fn run_inner(
 					};
 					match frame {
 						Some(Ok(Frame::Text(text))) => {
-							let packet: GatewayPacket = decode(text.as_bytes()).map_err(|_| Failure::Protocol)?;
+							let packet: GatewayPacket = decode_gateway(text.as_bytes()).map_err(|_| Failure::Protocol)?;
 							if let Some(sequence) = packet.s { state.sequence = Some(sequence); }
 							match packet.op {
 								11 => heartbeat.ack(),
@@ -808,7 +809,7 @@ async fn run_inner(
 										ready_at = Some(Instant::now());
 									}
 									"READY_SUPPLEMENTAL" => {
-										let mut extra: ReadySupplemental = decode(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;
+										let mut extra: ReadySupplemental = decode_gateway(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;
 										if let Some(friends) = extra.merged_presences.as_ref().and_then(|m| m.friends.as_deref()).or(extra.presences.as_deref()) {
 											direct_presence.friends(friends, Instant::now(), &emit)?;
 										}

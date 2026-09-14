@@ -71,7 +71,7 @@ impl Pending {
 			#[serde(default, borrow)]
 			friends: Option<&'a serde_json::value::RawValue>,
 		}
-		if bytes.len() > discord_protocol::MAX_WIRE {
+		if bytes.len() > discord_protocol::MAX_GATEWAY_WIRE {
 			return Ok(());
 		}
 		let Ok(data) = serde_json::from_slice::<Snapshot<'_>>(bytes) else {

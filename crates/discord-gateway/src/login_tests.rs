@@ -22,11 +22,12 @@ async fn packet(socket: &mut WebSocketStream<TcpStream>) -> Value {
 	serde_json::from_str(&text).unwrap()
 }
 
-async fn login(users: Vec<Value>, supplemental: Option<Value>) {
+async fn login(users: Vec<Value>, guilds: Vec<Value>, supplemental: Option<Value>) {
 	timeout(Duration::from_secs(10), async {
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
 		let ready = AtomicBool::new(false);
+		let expected_guilds = guilds.len();
 		let server = async {
 			let (stream, _) = listener.accept().await.unwrap();
 			let mut socket = accept_async(stream).await.unwrap();
@@ -42,7 +43,7 @@ async fn login(users: Vec<Value>, supplemental: Option<Value>) {
 					"user":{"id":"1","username":"Synthetic owner"},
 					"session_id":"synthetic-large-login",
 					"resume_gateway_url":"wss://gateway.discord.gg/",
-					"users":users,"guilds":[],"private_channels":[]
+					"users":users,"guilds":guilds,"private_channels":[]
 				}}),
 			)
 			.await;
@@ -87,7 +88,7 @@ async fn login(users: Vec<Value>, supplemental: Option<Value>) {
 					guilds, channels, ..
 				} = event
 				{
-					assert!(guilds.is_empty() && channels.is_empty());
+					assert!(guilds.len() == expected_guilds && channels.is_empty());
 					ready.store(true, Ordering::Relaxed);
 				}
 				Ok(())
@@ -111,7 +112,7 @@ async fn ready_accepts_4097_referenced_users_without_voice() {
 	let users = (2..4099)
 		.map(|id| json!({"id":id.to_string(),"username":"Synthetic user"}))
 		.collect();
-	login(users, None).await;
+	login(users, Vec::new(), None).await;
 }
 
 #[tokio::test]
@@ -120,7 +121,7 @@ async fn ready_accepts_byte_heavy_referenced_users_without_voice() {
 	let users = (2..3002)
 		.map(|id| json!({"id":id.to_string(),"username":name}))
 		.collect();
-	login(users, None).await;
+	login(users, Vec::new(), None).await;
 }
 
 #[tokio::test]
@@ -134,12 +135,27 @@ async fn supplemental_accepts_4097_members_without_voice() {
 	};
 	login(
 		Vec::new(),
+		Vec::new(),
 		Some(json!({
 			"guilds":[{"id":"10","members":members(2,3002),"voice_states":[]}],
 			"merged_members":[members(3002,4099)]
 		})),
 	)
 	.await;
+}
+
+#[tokio::test]
+async fn ready_between_4_and_64_mib_logs_in() {
+	// A normal account in many servers receives a READY far above the per-event bound.
+	let padding = "x".repeat(64 * 1024);
+	let guilds = (1..=96)
+		.map(|id| {
+			json!({"id":id.to_string(),"owner_id":"1","name":"Synthetic","roles":[],"channels":[],
+				"synthetic_padding":padding})
+		})
+		.collect::<Vec<_>>();
+	assert!(serde_json::to_vec(&guilds).unwrap().len() > discord_protocol::MAX_WIRE);
+	login(Vec::new(), guilds, None).await;
 }
 
 #[tokio::test]
@@ -161,7 +177,7 @@ async fn oversized_frames_stop_login_during_and_after_hello() {
 				}
 				// The client may close as soon as it reads the oversized frame header.
 				let _ = socket
-					.send(Frame::Text(" ".repeat(MAX_WIRE + 1).into()))
+					.send(Frame::Text(" ".repeat(MAX_GATEWAY_WIRE + 1).into()))
 					.await;
 				// Keep the peer open until the client reports the capacity error.
 				socket
@@ -187,7 +203,7 @@ async fn oversized_frames_stop_login_during_and_after_hello() {
 			assert_eq!(
 				result,
 				Err(Failure::CapacityAt(
-					"Gateway frame exceeds 4 MiB; connection stopped"
+					"Gateway frame exceeds 64 MiB; connection stopped"
 				)),
 				"after_hello={after_hello}"
 			);

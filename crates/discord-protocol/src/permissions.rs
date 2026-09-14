@@ -1,5 +1,5 @@
 //! Minimal, session-only permission metadata. No member directory is retained.
-use crate::{DecodeError, Timestamp, decode};
+use crate::{DecodeError, Timestamp, decode, decode_gateway};
 use model::{Id, Patch, permissions as p};
 use serde::{
 	Deserialize, Deserializer,
@@ -376,7 +376,7 @@ fn checked_snapshot(
 }
 /// Decode separately from navigation: missing metadata must remain unknown, and voice may consume members.
 pub fn ready(bytes: &[u8], user: Id) -> Result<p::Snapshot, DecodeError> {
-	let ready: Ready = decode(bytes)?;
+	let ready: Ready = decode_gateway(bytes)?;
 	checked_snapshot(ready.guilds.0, ready.merged_members.map(|m| m.0), user)
 }
 /// The gateway envelope is parsed once; each consumer validates only its own fields.
@@ -385,9 +385,9 @@ pub fn ready_fields(
 	merged: Option<&[u8]>,
 	user: Id,
 ) -> Result<p::Snapshot, DecodeError> {
-	let guilds: List<Guild, MAX_ITEMS> = decode(guilds)?;
+	let guilds: List<Guild, MAX_ITEMS> = decode_gateway(guilds)?;
 	let merged: Option<List<List<Member, MAX_ITEMS>, MAX_ITEMS>> =
-		merged.map(decode).transpose()?;
+		merged.map(decode_gateway).transpose()?;
 	checked_snapshot(guilds.0, merged.map(|m| m.0), user)
 }
 pub fn guild(bytes: &[u8], user: Id) -> Result<p::Snapshot, DecodeError> {
@@ -471,7 +471,7 @@ fn passive_member(
 }
 
 pub fn supplemental(bytes: &[u8], user: Id) -> Result<Vec<MemberUpdate>, DecodeError> {
-	let ready: Ready = decode(bytes)?;
+	let ready: Ready = decode_gateway(bytes)?;
 	if ready
 		.merged_members
 		.as_ref()

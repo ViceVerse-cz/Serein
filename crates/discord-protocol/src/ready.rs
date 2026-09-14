@@ -1,7 +1,7 @@
 //! Split READY once, borrowing the large arrays for their independent bounded projections.
 use crate::{
-	ChannelDto, DecodeError, MAX_WIRE, Ready, UserDto, notifications, permissions, presence,
-	read_state,
+	ChannelDto, DecodeError, MAX_GATEWAY_WIRE, MAX_WIRE, Ready, UserDto, notifications,
+	permissions, presence, read_state,
 };
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -36,7 +36,7 @@ fn empty_array() -> &'static RawValue {
 	serde_json::from_str("[]").expect("constant JSON array")
 }
 pub fn decode(bytes: &[u8]) -> Result<Envelope<'_>, DecodeError> {
-	if bytes.len() > MAX_WIRE {
+	if bytes.len() > MAX_GATEWAY_WIRE {
 		return Err(DecodeError);
 	}
 	serde_json::from_slice(bytes).map_err(|_| DecodeError)
@@ -60,7 +60,7 @@ impl Envelope<'_> {
 			user_guild_settings: self.user_guild_settings,
 			sessions: self.sessions,
 			private_channels: self.private_channels,
-			guilds: crate::decode(self.guilds.get().as_bytes())?,
+			guilds: crate::decode_gateway(self.guilds.get().as_bytes())?,
 			presences: self.presences,
 			merged_presences: self.merged_presences,
 		})

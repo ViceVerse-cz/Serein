@@ -42,6 +42,17 @@ Offline WebSocket regressions cover 4,097 referenced users, UTF-8 names crossing
 and 4,097 combined supplemental members. This reproduces one cause of issue #143; the affected
 reporter's actual account payload has not been inspected or tested.
 
+Large READY payloads (September 14): a normal account in many servers receives a READY whose
+decompressed JSON exceeds the 4 MiB per-event bound because every joined server ships its
+channels, roles, emojis and settings inline. The old 4 MiB Gateway limit reported
+"Decompressed Gateway payload exceeds 4 MiB; connection stopped" and ended login. The WebSocket
+frame, zlib-stream compressed/decompressed accumulation, outer Gateway packet, READY and
+READY_SUPPLEMENTAL decoders now share a 64 MiB bound (`MAX_GATEWAY_WIRE`). Individual dispatch
+events, REST responses and every retained projection (navigation, permissions, voice roster,
+presence) keep their existing limits, so RAM retained after login is unchanged; only the
+transient login parse is larger. An offline WebSocket regression logs in with a READY between
+4 and 64 MiB. The reporter's actual payload size has not been inspected.
+
 Hard Gateway frame/compressed/decompressed payload, navigation, actual voice roster, and desktop
 synchronization queue limits remain enforced. Their capacity failures identify the limit using
 fixed local text and still terminate the connection. An oversized frame stops immediately during

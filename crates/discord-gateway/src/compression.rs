@@ -1,4 +1,4 @@
-use crate::{Failure, Frame, MAX_WIRE};
+use crate::{Failure, Frame, MAX_GATEWAY_WIRE};
 use flate2::{Decompress, FlushDecompress, Status};
 
 pub(crate) struct Decoder {
@@ -22,9 +22,9 @@ impl Decoder {
 			}
 			return Ok(Some(frame));
 		};
-		if bytes.len() > MAX_WIRE.saturating_sub(self.pending.len()) {
+		if bytes.len() > MAX_GATEWAY_WIRE.saturating_sub(self.pending.len()) {
 			return Err(Failure::CapacityAt(
-				"Compressed Gateway payload exceeds 4 MiB; connection stopped",
+				"Compressed Gateway payload exceeds 64 MiB; connection stopped",
 			));
 		}
 		self.pending.extend_from_slice(&bytes);
@@ -46,9 +46,9 @@ impl Decoder {
 			if status == Status::StreamEnd {
 				return Err(Failure::Protocol);
 			}
-			if written > MAX_WIRE.saturating_sub(output.len()) {
+			if written > MAX_GATEWAY_WIRE.saturating_sub(output.len()) {
 				return Err(Failure::CapacityAt(
-					"Decompressed Gateway payload exceeds 4 MiB; connection stopped",
+					"Decompressed Gateway payload exceeds 64 MiB; connection stopped",
 				));
 			}
 			output.extend_from_slice(&chunk[..written]);
@@ -99,26 +99,26 @@ mod tests {
 			offset = encoder.get_ref().len();
 		}
 		assert_eq!(
-			Decoder::default().frame(Frame::Binary(vec![0; MAX_WIRE + 1].into())),
+			Decoder::default().frame(Frame::Binary(vec![0; MAX_GATEWAY_WIRE + 1].into())),
 			Err(Failure::CapacityAt(
-				"Compressed Gateway payload exceeds 4 MiB; connection stopped"
+				"Compressed Gateway payload exceeds 64 MiB; connection stopped"
 			))
 		);
 		// Give Sync enough output space to emit its marker in the same call.
 		let mut bomb = flate2::Compress::new(flate2::Compression::fast(), true);
-		let mut compressed = Vec::with_capacity(MAX_WIRE + 1024);
+		let mut compressed = Vec::with_capacity(MAX_GATEWAY_WIRE + 1024);
 		bomb.compress_vec(
-			&vec![b'x'; MAX_WIRE + 1],
+			&vec![b'x'; MAX_GATEWAY_WIRE + 1],
 			&mut compressed,
 			flate2::FlushCompress::Sync,
 		)
 		.unwrap();
-		assert_eq!(bomb.total_in(), (MAX_WIRE + 1) as u64);
+		assert_eq!(bomb.total_in(), (MAX_GATEWAY_WIRE + 1) as u64);
 		assert!(compressed.ends_with(&[0, 0, 255, 255]));
 		assert_eq!(
 			Decoder::default().frame(Frame::Binary(compressed.into())),
 			Err(Failure::CapacityAt(
-				"Decompressed Gateway payload exceeds 4 MiB; connection stopped"
+				"Decompressed Gateway payload exceeds 64 MiB; connection stopped"
 			))
 		);
 	}
