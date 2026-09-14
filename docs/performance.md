@@ -1,3 +1,49 @@
+# Last-viewed server channel - September 14, 2026
+
+Baseline: `ff3d711a91e0b3ae6de4c6aadbcce156264152fb`. After:
+`1ae551548f1f0e66e8b27172edb1e279eecce1fa`. The baseline package and replay
+were built from `7e7dcd14295dbd2626b7b6f71e9f639e28ca10aa`, whose Git tree
+matches the baseline exactly (`ac90a66b3a8195fbdd27a4d777104e88ef160479`).
+Separate worktree `dist` directories preserve both standard voice-enabled
+release packages; neither uses an installed or authenticated client.
+
+Windows 11 Home 10.0.26200 x64, Ryzen 7 7800X3D, 33,410,678,784 bytes usable
+RAM, pinned Rust 1.98.1 MSVC. Both used `CARGO_BUILD_JOBS=2`, the same Cargo
+target directory (serial builds), and `cargo xtask package` (locked release,
+no default features, voice included). Both portable packages contain 186 files.
+`makensis` was unavailable, so these are unsigned portable packages, not NSIS
+installers. The existing OpenH264 LNK4255 warning was nonfatal on both builds.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 70,523,392 | 70,525,952 | +2,560 (+0.004%) |
+| Full portable package, bytes | 74,586,943 | 74,589,503 | +2,560 (+0.003%) |
+| ZIP, PowerShell Compress-Archive Optimal, bytes | 42,681,137 | 42,682,443 | +1,306 (+0.003%) |
+| Synthetic 100,000-message reducer median, ms | 46.6756 | 41.6362 | -5.0394 (-10.8%; noisy) |
+| Retained timeline, estimated bytes | 236,992..237,477 | 236,992..237,477 | unchanged |
+| Retained message records | 500 | 500 | unchanged |
+
+Build the workload once per revision with `cargo replay`, then invoke the
+resulting `release/replay-bench.exe` directly: one warmup, five measured runs,
+with no concurrent Cargo build during measurement. Baseline warmup: 43.3129 ms;
+samples: 48.1569, 46.6756, 41.7873, 47.9139, 43.6477 ms. After warmup:
+47.2663 ms; samples: 45.8912, 41.6362, 44.2464, 41.2978, 41.2562 ms.
+This generic reducer does not exercise server clicks; the timing difference is
+not evidence of a navigation speedup. ZIP each package with
+`Compress-Archive -Path dist/* -DestinationPath <separate-output.zip> -CompressionLevel Optimal`;
+measure executable length and sum all files under `dist`.
+
+Server clicks now select through the existing history/resident-window path.
+Remembered server/channel IDs add at most 16 KiB vector payload and a fixed
+header; visits scan at most 1,024 entries. Cold/invalid remembered selections
+scan existing bounded navigation to choose an accessible fallback. There is no
+per-frame work, timer, persistence or new network endpoint for this memory.
+Focused reducer and synthetic egui pointer tests cover restoration, repeated
+click no-op, revoked/deleted fallback, voice preview, logout and memory bounds.
+`cargo xtask check` passed. Native screenshots and interaction CPU/memory/p95
+were unavailable: Orca CLI is absent and the Windows Computer Use native pipe
+fails with OS error 2. These tests are not native visual or live Discord proof.
+
 # Friends-home derived rows - September 14, 2026
 
 Baseline: `b30b41ae24517ff1fdbd4efe288b9781281645e4`, the fetched main revision
