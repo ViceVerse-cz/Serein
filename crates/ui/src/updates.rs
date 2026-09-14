@@ -10,11 +10,13 @@ pub struct Updates {
 	pub ready: bool,
 	pub supported: bool,
 	pub flatpak: bool,
+	pub linux_update_cmd: Option<String>,
 	pub progress: Option<f32>,
 	pub check_requested: bool,
 	pub download_requested: bool,
 	pub restart_requested: bool,
 	pub copied_diagnostics: Option<f64>,
+	pub copied_command: Option<f64>,
 }
 impl Default for Updates {
 	fn default() -> Self {
@@ -27,11 +29,13 @@ impl Default for Updates {
 			ready: false,
 			supported: false,
 			flatpak: false,
+			linux_update_cmd: None,
 			progress: None,
 			check_requested: false,
 			download_requested: false,
 			restart_requested: false,
 			copied_diagnostics: None,
+			copied_command: None,
 		}
 	}
 }
@@ -67,6 +71,19 @@ impl MessagingUi {
 		#[cfg(target_os = "linux")]
 		let package_type = if self.updates.flatpak {
 			"\n- **Packaging:** Flatpak"
+		} else if let Some(cmd) = &self.updates.linux_update_cmd {
+			let mgr = if cmd.contains("dnf") {
+				"DNF (RPM)"
+			} else if cmd.contains("apt") {
+				"APT (DEB)"
+			} else if cmd.contains("pacman") {
+				"Pacman (Arch)"
+			} else if cmd.contains("zypper") {
+				"Zypper (RPM)"
+			} else {
+				"Native Package"
+			};
+			format!("\n- **Packaging:** {mgr}")
 		} else {
 			"\n- **Packaging:** Native / AppImage"
 		};
@@ -181,7 +198,31 @@ impl MessagingUi {
 			ui.weak("Flatpak manages updates via its repository. Run `flatpak update` or use GNOME Software / KDE Discover to install new releases.");
 		} else if !self.updates.supported {
 			ui.add_space(12.0);
-			ui.weak("In-app installation requires a macOS or Windows release package, or a Linux x86-64 AppImage. Other Linux installations use their package manager.");
+			if let Some(cmd) = &self.updates.linux_update_cmd {
+				ui.label(design::eyebrow(ui, "Package Manager Updates", colors.muted));
+				ui.weak("Serein was installed via your Linux distribution's package manager. Run this command in your terminal to install updates:");
+				ui.add_space(6.0);
+				let copied_cmd = self
+					.updates
+					.copied_command
+					.is_some_and(|until| ui.input(|i| i.time) < until);
+				ui.horizontal(|ui| {
+					ui.monospace(cmd);
+					let btn_label = if copied_cmd {
+						"✓ Copied"
+					} else {
+						"Copy command"
+					};
+					if ui.button(btn_label).clicked() {
+						ui.ctx().copy_text(cmd.clone());
+						self.updates.copied_command = Some(ui.input(|i| i.time) + 2.5);
+						ui.ctx()
+							.request_repaint_after(std::time::Duration::from_secs(3));
+					}
+				});
+			} else {
+				ui.weak("In-app installation requires a macOS or Windows release package, or a Linux x86-64 AppImage. Other Linux installations use their package manager.");
+			}
 		}
 		ui.add_space(16.0);
 		ui.separator();

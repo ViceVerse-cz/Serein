@@ -40,6 +40,12 @@ class RepositoryInputs(unittest.TestCase):
             package.symlink_to(manifest)
             with self.assertRaisesRegex(ValueError, "unsafe"):
                 verify(root)
+            package.unlink()
+            flatpak_pkg = root / "serein.flatpak"
+            flatpak_pkg.write_bytes(b"synthetic flatpak")
+            flatpak_entry = hashlib.sha256(flatpak_pkg.read_bytes()).hexdigest() + "  ./serein.flatpak\n"
+            manifest.write_text(flatpak_entry)
+            verify(root)
 
     def test_rejects_unsafe_paths_keys_and_urls(self):
         good = dict(distribution="ubuntu-26.04", architecture="amd64",

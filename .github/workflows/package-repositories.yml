@@ -61,7 +61,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
         run: |
-          gh release download "$TAG" --pattern '*Linux-*.deb' --pattern '*Linux-*.rpm' --pattern '*Linux-*.pkg.tar.zst' --pattern SHA256SUMS.txt --dir packages
+          gh release download "$TAG" --pattern '*Linux-*.deb' --pattern '*Linux-*.rpm' --pattern '*Linux-*.pkg.tar.zst' --pattern '*Linux-*.flatpak' --pattern SHA256SUMS.txt --dir packages
           python3 packaging/repositories/verify_downloads.py packages
       - uses: actions/upload-artifact@v7.0.1
         with:
@@ -145,7 +145,7 @@ jobs:
           retention-days: 14
 
   assemble:
-    needs: repositories
+    needs: [repositories, download]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
@@ -160,6 +160,11 @@ jobs:
         with:
           pattern: flatpak-site*
           path: downloads-flatpak
+      - uses: actions/download-artifact@v8.0.1
+        continue-on-error: true
+        with:
+          name: repository-inputs
+          path: packages
       - name: Assemble hosting tree
         run: |
           mkdir -p site
@@ -175,7 +180,23 @@ jobs:
           cp packaging/flatpak/serein.flatpakref site/flatpak/serein.flatpakref
           cp packaging/linux/hicolor/256x256/apps/serein.png site/icons/serein.png
           if [ -d downloads-flatpak ]; then
-            cp -a downloads-flatpak/. site/
+            for dir in downloads-flatpak downloads-flatpak/flatpak-site; do
+              if [ -d "$dir/flatpak" ]; then
+                cp -a "$dir"/. site/
+              fi
+            done
+          fi
+          # If OSTree repo config is missing, import Flatpak bundle and build OSTree repository
+          if [ ! -f site/flatpak/repo/config ] && [ -d packages ]; then
+            bundle=$(ls packages/*Linux-*.flatpak 2>/dev/null | head -n 1 || true)
+            if [ -n "$bundle" ] && [ -f "$bundle" ]; then
+              echo "Importing Flatpak bundle into OSTree repository..."
+              sudo apt-get update
+              sudo apt-get install -y flatpak ostree
+              mkdir -p site/flatpak/repo
+              flatpak build-import-bundle site/flatpak/repo "$bundle"
+              flatpak build-update-repo --generate-static-deltas site/flatpak/repo
+            fi
           fi
           # Ensure GitHub Pages serves all files and directories without Jekyll processing
           touch site/.nojekyll

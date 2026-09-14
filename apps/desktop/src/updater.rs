@@ -139,6 +139,7 @@ impl Updater {
 		let supported = cfg!(any(target_os = "macos", windows)) || install::appimage_session();
 		view.supported = supported;
 		view.flatpak = install::flatpak_session();
+		view.linux_update_cmd = install::linux_package_manager_update_command().map(str::to_owned);
 		if !enabled {
 			if let Some(job) = &self.job {
 				job.cancel.store(true, Ordering::Relaxed);
@@ -188,6 +189,13 @@ impl Updater {
 										if install::flatpak_session() {
 											format!(
 												"Serein {} is available. Update with `flatpak update` or your Software center.",
+												p.version,
+											)
+										} else if let Some(cmd) =
+											install::linux_package_manager_update_command()
+										{
+											format!(
+												"Serein {} is available. Run `{cmd}` to update.",
 												p.version,
 											)
 										} else {

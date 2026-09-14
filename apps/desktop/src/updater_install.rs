@@ -42,6 +42,57 @@ pub(super) fn appimage_session() -> bool {
 	})
 }
 
+pub(super) fn linux_package_manager_update_command() -> Option<&'static str> {
+	if !cfg!(target_os = "linux") || flatpak_session() || appimage_session() {
+		return None;
+	}
+	if let Ok(content) = fs::read_to_string("/etc/os-release") {
+		let mut id = String::new();
+		let mut id_like = String::new();
+		for line in content.lines() {
+			if let Some(val) = line.strip_prefix("ID=") {
+				id = val.trim_matches('"').to_ascii_lowercase();
+			} else if let Some(val) = line.strip_prefix("ID_LIKE=") {
+				id_like = val.trim_matches('"').to_ascii_lowercase();
+			}
+		}
+		if id == "fedora"
+			|| id == "rhel"
+			|| id == "centos"
+			|| id_like.contains("fedora")
+			|| id_like.contains("rhel")
+		{
+			return Some("sudo dnf upgrade serein");
+		}
+		if id == "ubuntu"
+			|| id == "debian"
+			|| id == "pop"
+			|| id == "linuxmint"
+			|| id_like.contains("debian")
+			|| id_like.contains("ubuntu")
+		{
+			return Some("sudo apt update && sudo apt install --only-upgrade serein");
+		}
+		if id == "arch" || id == "manjaro" || id == "endeavouros" || id_like.contains("arch") {
+			return Some("sudo pacman -Syu serein");
+		}
+		if id.contains("suse") || id_like.contains("suse") {
+			return Some("sudo zypper update serein");
+		}
+	}
+	if Path::new("/usr/bin/dnf").is_file() {
+		Some("sudo dnf upgrade serein")
+	} else if Path::new("/usr/bin/apt").is_file() {
+		Some("sudo apt update && sudo apt install --only-upgrade serein")
+	} else if Path::new("/usr/bin/pacman").is_file() {
+		Some("sudo pacman -Syu serein")
+	} else if Path::new("/usr/bin/zypper").is_file() {
+		Some("sudo zypper update serein")
+	} else {
+		None
+	}
+}
+
 fn appimage_header(header: &[u8]) -> bool {
 	header.len() >= 20
 		&& header[..7] == *b"\x7fELF\x02\x01\x01"
