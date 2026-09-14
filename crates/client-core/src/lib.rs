@@ -2118,7 +2118,11 @@ impl State {
 				}
 				for message in &mut messages {
 					if self.reactions.invalidated(message.id) {
-						message.reactions = None;
+						// Keep newer live counts without retaining stale message content.
+						message.reactions = self
+							.timeline
+							.get(message.id)
+							.and_then(|current| current.reactions.clone());
 					}
 				}
 				self.older_exhausted = if let Some(after) = self.history_after {
@@ -2195,10 +2199,13 @@ impl State {
 					&& self.reactions.invalidated(m.id)
 					&& m.reactions.is_some()
 				{
-					self.refresh_reactions(m.id);
+					self.queue_reaction_read(m.id);
 				}
 				if self.reactions.invalidated(m.id) {
-					m.reactions = None;
+					m.reactions = self
+						.timeline
+						.get(m.id)
+						.and_then(|old| old.reactions.clone());
 				}
 				self.confirm(&m);
 				if deletion.is_err() {
@@ -2226,7 +2233,7 @@ impl State {
 					&& self.reactions.invalidated(p.id)
 					&& !matches!(p.reactions, Patch::Absent)
 				{
-					self.refresh_reactions(p.id);
+					self.queue_reaction_read(p.id);
 				}
 				if self.reactions.invalidated(p.id) {
 					p.reactions = Patch::Absent;
@@ -2803,6 +2810,12 @@ impl Event {
 				Self::ReadState(read_state::Event::Latest(entries)) => {
 					entries.capacity() * size_of::<(Id, Patch<Id>)>()
 				}
+				Self::Reactions(
+					reactions::Event::Delta { emoji, .. }
+					| reactions::Event::Cleared {
+						emoji: Some(emoji), ..
+					},
+				) => emoji.name.as_ref().map_or(0, String::capacity),
 				Self::Reactions(reactions::Event::Read { result, .. }) => {
 					result.as_ref().map_or(0, |r| model::reaction_bytes(r))
 				}

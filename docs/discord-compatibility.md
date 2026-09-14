@@ -321,6 +321,18 @@ Login compatibility correction (September 10): READY read_state accepts both the
 
 ## Reaction refresh and pinned messages - September 10
 
+Incoming reaction updates (September 14): validated Gateway add/remove events now
+update the affected Unicode/custom emoji count immediately, including burst counts.
+Remove-emoji and remove-all events update the same visible list. Own normal/burst
+membership flags prevent optimistic toggles from double-counting their Gateway echoes.
+The existing bounded, coalesced message readback remains in the background to reconcile
+HTTP/Gateway ordering; known counts stay visible while it runs. Unknown snapshots are
+not treated as zero, and unsupported event details retain the conservative readback
+path. Repeated/stale sequenced reaction dispatches are ignored. Late history responses
+preserve newer reaction values without discarding newer message content. These are
+synthetic parser/Gateway/reducer/egui checks, not live normal-account validation.
+Wire types follow the official [Gateway reaction events](https://docs.discord.com/developers/events/gateway-events#message-reaction-add).
+
 Reaction readback now uses a history request with limit=1 and around=the exact message ID, matching the current normal-user [discord.py-self get_message implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py). The prior single-message GET can reject normal-user sessions; its Forbidden result caused the existing channel-invalidation policy to clear the conversation. Exactly one matching channel/message record is accepted. Missing targets, neighboring messages and malformed/oversized-count replies leave reaction state unavailable without substituting content. Genuine Forbidden history responses still revoke the channel and its cached history. No write is automatically retried.
 
 Pinned-message browsing uses GET /channels/{channel}/messages/pins?limit=25, following [Discord's Get Channel Pins reference](https://docs.discord.com/developers/resources/message#get-channel-pins) and the primary normal-user implementation's [pins_from request](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) and [pin iterator](https://github.com/dolfies/discord.py-self/blob/master/discord/abc.py), rechecked September 10. Older pages send the last pin's timestamp as the ISO8601 before cursor, independently of message IDs. Nanosecond precision is retained; each page must advance in pin order. Pages replace the previous 25-item snapshot, with explicit Older pins, Retry older pins after failure, and Reload to newest. Returned has_more controls continuation; no complete/stable listing is promised while remote pins change. Summaries remain text-only with concealed spoilers. No pin/unpin mutation, background polling or automatic acknowledgement is implemented. Open message revalidates normal history. Search, pins and archives share one cancellable task/result slot; none of these snapshots is persisted. No owner-controlled live service test has validated these changes.

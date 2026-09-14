@@ -69,6 +69,56 @@ pub fn validated_url(value: &str) -> Result<String, Failure> {
 	url.set_query(Some("v=10&encoding=json&compress=zlib-stream"));
 	Ok(url.to_string())
 }
+
+fn reaction_event(
+	name: &str,
+	bytes: &[u8],
+	sequenced: bool,
+) -> Result<client_core::reactions::Event, Failure> {
+	use client_core::reactions::Event as ReactionEvent;
+	if sequenced {
+		match name {
+			"MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" => {
+				if let Ok(delta) = decode::<ReactionDelta>(bytes) {
+					return Ok(ReactionEvent::Delta {
+						channel: delta.channel_id,
+						message: delta.message_id,
+						user: delta.user_id,
+						emoji: delta.emoji,
+						add: name == "MESSAGE_REACTION_ADD",
+						burst: delta.burst,
+					});
+				}
+			}
+			"MESSAGE_REACTION_REMOVE_EMOJI" => {
+				if let Ok(target) = decode::<ReactionEmojiTarget>(bytes) {
+					return Ok(ReactionEvent::Cleared {
+						channel: target.channel_id,
+						message: target.message_id,
+						emoji: Some(target.emoji),
+					});
+				}
+			}
+			"MESSAGE_REACTION_REMOVE_ALL" => {
+				let target = decode::<ReactionTarget>(bytes).map_err(|_| Failure::Protocol)?;
+				return Ok(ReactionEvent::Cleared {
+					channel: target.channel_id,
+					message: target.message_id,
+					emoji: None,
+				});
+			}
+			_ => {}
+		}
+	}
+	// Unknown details or an unsequenced event cannot safely change a count. Keep
+	// the existing invalidation path without retaining unvalidated wire strings.
+	let target = decode::<ReactionTarget>(bytes).map_err(|_| Failure::Protocol)?;
+	Ok(ReactionEvent::Changed {
+		channel: target.channel_id,
+		message: target.message_id,
+	})
+}
+
 #[derive(Default)]
 struct ResumeState {
 	session: Option<Zeroizing<String>>,
@@ -739,6 +789,12 @@ async fn run_inner(
 					match frame {
 						Some(Ok(Frame::Text(text))) => {
 							let packet: GatewayPacket = decode_gateway(text.as_bytes()).map_err(|_| Failure::Protocol)?;
+							// Reaction counts are additive: do not apply a repeated dispatch or
+							// move the resume cursor backwards when one is replayed.
+							if packet.op == 0
+								&& matches!(packet.t.as_deref(), Some("MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI"))
+								&& packet.s.zip(state.sequence).is_some_and(|(next, last)| next <= last)
+							{ continue; }
 							if let Some(sequence) = packet.s { state.sequence = Some(sequence); }
 							match packet.op {
 								11 => heartbeat.ack(),
@@ -928,8 +984,7 @@ async fn run_inner(
 									}
 									"MESSAGE_UPDATE" => emit(Event::Patch(decode::<PatchDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model()))?,
 									"MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI" => {
-										let target=decode::<ReactionTarget>(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;
-										emit(Event::Reactions(client_core::reactions::Event::Changed{channel:target.channel_id,message:target.message_id}))?;
+										emit(Event::Reactions(reaction_event(packet.t.as_deref().unwrap_or(""), packet.d.get().as_bytes(), packet.s.is_some())?))?;
 									}
 									"MESSAGE_DELETE" => { let d: Deleted = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; emit(Event::Delete { channel:d.channel_id, id:d.id })?; }
 									"MESSAGE_DELETE_BULK" => { let d: BulkDeleted = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; if d.ids.len() > 100 { return Err(Failure::Capacity); } emit(Event::DeleteBulk { channel:d.channel_id, ids: d.ids })?; }
@@ -1152,6 +1207,79 @@ mod tests {
 			"user":{"id":"1","username":"synthetic"}, "session_id":session,
 			"resume_gateway_url":"wss://gateway.discord.gg/", "guilds":[], "private_channels":[]
 		}})
+	}
+
+	#[test]
+	fn reaction_dispatch_preserves_burst_and_falls_back_for_unsafe_details() {
+		use client_core::reactions::Event as ReactionEvent;
+		let wire = json!({"channel_id":"2","message_id":"3","user_id":"4","emoji":{"id":"5","name":null},"type":1,"burst":true});
+		for (name, adding) in [
+			("MESSAGE_REACTION_ADD", true),
+			("MESSAGE_REACTION_REMOVE", false),
+		] {
+			let event = reaction_event(name, &serde_json::to_vec(&wire).unwrap(), true).unwrap();
+			assert!(matches!(event, ReactionEvent::Delta {
+				channel: Id(2), message: Id(3), user: Id(4), emoji, add, burst: true,
+			} if add == adding && emoji.id == Some(Id(5)) && emoji.name.is_none()));
+		}
+		for fields in [
+			json!({"type":2}),
+			json!({"type":0}),
+			json!({"user_id":null}),
+			json!({"emoji":{"id":null,"name":"x".repeat(129)}}),
+		] {
+			let mut value = wire.clone();
+			value
+				.as_object_mut()
+				.unwrap()
+				.extend(fields.as_object().unwrap().clone());
+			assert!(matches!(
+				reaction_event(
+					"MESSAGE_REACTION_ADD",
+					&serde_json::to_vec(&value).unwrap(),
+					true
+				)
+				.unwrap(),
+				ReactionEvent::Changed {
+					channel: Id(2),
+					message: Id(3)
+				}
+			));
+		}
+		for name in [
+			"MESSAGE_REACTION_ADD",
+			"MESSAGE_REACTION_REMOVE",
+			"MESSAGE_REACTION_REMOVE_ALL",
+			"MESSAGE_REACTION_REMOVE_EMOJI",
+		] {
+			assert!(matches!(
+				reaction_event(name, &serde_json::to_vec(&wire).unwrap(), false).unwrap(),
+				ReactionEvent::Changed {
+					channel: Id(2),
+					message: Id(3)
+				}
+			));
+		}
+		assert!(matches!(
+			reaction_event(
+				"MESSAGE_REACTION_REMOVE_EMOJI",
+				br#"{"channel_id":"2","message_id":"3"}"#,
+				true
+			)
+			.unwrap(),
+			ReactionEvent::Changed {
+				channel: Id(2),
+				message: Id(3)
+			}
+		));
+		assert!(matches!(
+			reaction_event(
+				"MESSAGE_REACTION_ADD",
+				br#"{"channel_id":"0","message_id":"3"}"#,
+				true
+			),
+			Err(Failure::Protocol)
+		));
 	}
 
 	#[tokio::test]
@@ -1398,6 +1526,7 @@ mod tests {
                     (5,"CHANNEL_UPDATE",json!({"id":"4","permission_overwrites":[]})),
                     (6,"CHANNEL_DELETE",json!({"id":"3","guild_id":"2","type":4})),
                     (7,"MESSAGE_REACTION_ADD",json!({"channel_id":"4","message_id":"9","user_id":"1","emoji":{"id":null,"name":"x"}})),
+                    (7,"MESSAGE_REACTION_ADD",json!({"channel_id":"4","message_id":"9","user_id":"1","emoji":{"id":null,"name":"x"}})),
                     (8,"MESSAGE_REACTION_REMOVE",json!({"channel_id":"4","message_id":"9","user_id":"1","emoji":{"id":null,"name":"x"}})),
                     (9,"MESSAGE_REACTION_REMOVE_ALL",json!({"channel_id":"4","message_id":"9"})),
                     (10,"MESSAGE_REACTION_REMOVE_EMOJI",json!({"channel_id":"4","message_id":"9","emoji":{"id":null,"name":"x"}})),
@@ -1425,6 +1554,8 @@ mod tests {
                     (32,"GUILD_DELETE",json!({"id":"2"})),
                     (33,"GUILD_CREATE",json!({"id":"2","owner_id":"7","roles":[{"id":"2","permissions":"68608"}],"members":[{"user":{"id":"1","username":"Synthetic"},"roles":[]}],"channels":[{"id":"4","type":0,"name":"Synthetic channel","position":0,"parent_id":null,"last_message_id":"9","permission_overwrites":[]}]})),
                 ] {send(&mut socket,json!({"op":0,"t":name,"s":sequence,"d":data})).await;}
+                // A stale replay must neither change counts nor regress the heartbeat cursor.
+                send(&mut socket,json!({"op":0,"t":"MESSAGE_REACTION_ADD","s":7,"d":{"channel_id":"4","message_id":"9","user_id":"1","emoji":{"id":null,"name":"x"}}})).await;
                 acknowledge(&mut socket,33).await;
                 // Force a heartbeat reply to race the following terminal close.
                 send(&mut socket,json!({"op":1,"d":null})).await;
@@ -1457,9 +1588,25 @@ mod tests {
                         assert_eq!((*channel,*guild),(Id(4),None));
                         assert_eq!(*overwrites,model::Patch::Value(Vec::new()));
                     }
-                    if let Event::Reactions(client_core::reactions::Event::Changed{channel,message})=&event {
-                        assert_eq!((*channel,*message),(Id(4),Id(9)));
-                        reaction_changes.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
+                    if let Event::Reactions(reaction)=&event {
+                        let change=reaction_changes.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
+                        match reaction {
+                            client_core::reactions::Event::Delta{channel,message,user,emoji,add,burst} => {
+                                assert!(change < 2);
+                                assert_eq!((*channel,*message,*user),(Id(4),Id(9),Id(1)));
+                                assert_eq!(*add,change==0);
+                                assert!(!burst);
+                                assert_eq!(emoji.name.as_deref(),Some("x"));
+                                assert_eq!(emoji.id,None);
+                            }
+                            client_core::reactions::Event::Cleared{channel,message,emoji} => {
+                                assert!((2..4).contains(&change));
+                                assert_eq!((*channel,*message),(Id(4),Id(9)));
+                                assert_eq!(emoji.as_ref().and_then(|emoji|emoji.name.as_deref()),if change==2 {None}else{Some("x")});
+                                assert!(emoji.as_ref().is_none_or(|emoji|emoji.id.is_none()));
+                            }
+                            _ => panic!("valid sequenced reactions must keep their typed change"),
+                        }
                     }
                     if let Event::GuildEmojis {guild,emojis}=&event {
                         assert_eq!(*guild,Id(2));
