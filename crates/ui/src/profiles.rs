@@ -131,20 +131,7 @@ fn more_menu(
 	ui.set_min_width(200.0);
 	ui.spacing_mut().button_padding = vec2(8.0, 6.0);
 	let own_profile = state.user.as_ref().is_some_and(|own| own.id == user.id);
-	if !user.webhook && !own_profile {
-		let message = ui.add_enabled(dm_channel.is_some(), egui::Button::new("Message"));
-		match dm_channel {
-			Some(channel) if message.clicked() => {
-				action = Some(Action::Message(channel));
-				ui.close();
-			}
-			Some(_) => {}
-			None => {
-				message.on_disabled_hover_text("No open direct message with this user.");
-			}
-		}
-		ui.separator();
-	}
+	// Message is the card's own footer button, so the menu does not repeat it.
 	if ui
 		.button(if user.webhook {
 			"Copy webhook ID"
@@ -782,15 +769,13 @@ pub fn show(
 				})
 				.show(ui, |ui| {
 					ui.spacing_mut().item_spacing.y = 8.0;
-					let footer = if state.user.as_ref().is_some_and(|own| own.id == user.id) {
-						40.0
-					} else {
-						0.0
-					} + if state.user_action_status().is_some() {
-						24.0
-					} else {
-						0.0
-					};
+					// Every card now ends in one primary-action row, plus the action status line.
+					let footer = 40.0
+						+ if state.user_action_status().is_some() {
+							24.0
+						} else {
+							0.0
+						};
 					egui::Frame::new()
 						.fill(theme.panel)
 						.corner_radius(RADIUS)
@@ -1151,9 +1136,10 @@ pub fn show(
 									});
 							}
 						});
-					// Footer: only the own-profile edit action; Message moved into the overflow menu.
-					if state.user.as_ref().is_some_and(|own| own.id == user.id)
-						&& ui
+					// Footer: one full-width primary action. Friend and the overflow live in the
+					// banner circles, but the card still needs this row to keep its proportions.
+					if state.user.as_ref().is_some_and(|own| own.id == user.id) {
+						if ui
 							.add_sized(
 								[ui.available_width(), 32.0],
 								egui::Button::new(
@@ -1164,8 +1150,43 @@ pub fn show(
 								.corner_radius(RADIUS),
 							)
 							.clicked()
+						{
+							action = Some(Action::Edit);
+						}
+					} else if let Some(channel) = dm_channel {
+						if ui
+							.add_sized(
+								[ui.available_width(), 32.0],
+								egui::Button::new(
+									RichText::new(format!("Message @{}", user.name))
+										.color(colors.accent_text)
+										.strong(),
+								)
+								.fill(colors.accent)
+								.stroke(Stroke::NONE)
+								.corner_radius(RADIUS),
+							)
+							.clicked()
+						{
+							action = Some(Action::Message(channel));
+						}
+					} else if ui
+						.add_sized(
+							[ui.available_width(), 32.0],
+							egui::Button::new(
+								RichText::new(if user.webhook {
+									"Copy webhook ID"
+								} else {
+									"Copy user ID"
+								})
+								.size(13.0)
+								.strong(),
+							)
+							.corner_radius(RADIUS),
+						)
+						.clicked()
 					{
-						action = Some(Action::Edit);
+						ui.ctx().copy_text(user.id.to_string());
 					}
 					if let Some(status) = state.user_action_status() {
 						ui.add(
@@ -1442,7 +1463,9 @@ mod tests {
 					output.drop_without_applying_deltas();
 				}
 				assert_eq!(painted.contains("Webhook"), webhook);
-				assert!(!painted.contains("Copy"));
+				assert_eq!(painted.contains("Copy webhook ID"), webhook);
+				assert_eq!(painted.contains("Copy user ID"), !webhook);
+				// No open DM in this fixture, so the footer falls back to the copy action.
 				assert!(!painted.contains("Message"));
 				assert_eq!(painted.contains("Unsupported service response"), !webhook);
 				assert_eq!(painted.contains("Retry profile"), !webhook);
