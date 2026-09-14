@@ -23,6 +23,12 @@ and pacman repositories for normal package-manager upgrades. Hosting and signing
 credentials must be configured before those repository URLs are usable. Serein is
 not listed in distribution archives, AUR or Flathub by this change.
 
+Native DEB, RPM and Arch packages require the GStreamer Good plugin set, which
+provides `autoaudiosink` used by WebKit. Package-manager installation pulls it in
+even when recommended/optional packages are disabled. This changes future packages,
+not already-published releases. Source builds and extracted directory archives do
+not install system dependencies; on Arch/CachyOS install `gst-plugins-good` yourself.
+
 ## Native builds
 
 Build on the target distribution; converting an Ubuntu binary to RPM or Arch does
@@ -97,9 +103,10 @@ loaded Vulkan/EGL, X11/Wayland libraries and the D-Bus/desktop-portal services t
 ELF inspection cannot discover. A working graphical session, graphics driver,
 portal backend and unlocked Secret Service provider are still necessary for the
 corresponding features. The package recommends a GTK or KDE portal backend and
-GNOME Keyring; an existing compatible provider can be used instead. It also recommends
-the GStreamer base, good and libav plugin sets, which inline attachment video loads at
-run time through `decodebin`; without them the player reports an unsupported format. GTK/WebKit
+GNOME Keyring; an existing compatible provider can be used instead. The GStreamer
+good plugin set is required; base and libav remain recommended for inline attachment
+video loaded at run time through `decodebin`; without the needed codecs the player
+reports an unsupported format. GTK/WebKit
 and voice library requirements come from the built executable. The
 resulting version constraints target the build distribution; inspect `Depends`
 with `dpkg-deb --field <package.deb> Depends` before distributing elsewhere.
