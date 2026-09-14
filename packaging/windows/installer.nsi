@@ -85,7 +85,7 @@ Function .onInit
     ${If} $0 != 0
       MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${PRODUCT_NAME} is currently running. Please close Serein before continuing." IDRETRY retry_init IDCANCEL cancel_init
       retry_init:
-        Continue
+        ${Continue}
       cancel_init:
         Abort
     ${Else}
@@ -139,7 +139,7 @@ Function un.onInit
     ${If} $0 != 0
       MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${PRODUCT_NAME} is currently running. Please close Serein before uninstalling." IDRETRY retry_uninit IDCANCEL cancel_uninit
       retry_uninit:
-        Continue
+        ${Continue}
       cancel_uninit:
         Abort
     ${Else}
