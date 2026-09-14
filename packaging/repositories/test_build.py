@@ -63,6 +63,17 @@ class RepositoryInputs(unittest.TestCase):
         self.assertIn("EXPECTED_FINGERPRINT=", content)
         self.assertIn("CA19DA939E9BCAB500751CE480FE95CAD86141A5", content)
 
+    def test_generate_index(self):
+        from build import generate_index
+        with tempfile.TemporaryDirectory() as temporary:
+            dest = Path(temporary) / "site"
+            generate_index(dest)
+            index_file = dest / "index.html"
+            self.assertTrue(index_file.is_file())
+            content = index_file.read_text()
+            self.assertIn("Serein Linux Repositories", content)
+            self.assertIn("setup.sh", content)
+
 
 if __name__ == "__main__":
     unittest.main()

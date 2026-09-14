@@ -143,9 +143,23 @@ jobs:
         run: |
           mkdir release-assets
           cp target/flatpak-build/Serein-linux.flatpak "release-assets/serein-$TAG-Linux-x86_64.flatpak"
+          cp target/flatpak-build/serein.flatpakref "release-assets/serein.flatpakref"
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: serein-linux-flatpak
           path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Collect Flatpak repository for web hosting
+        run: |
+          mkdir -p target/flatpak-site/flatpak
+          cp -a target/flatpak-build/repo target/flatpak-site/flatpak/
+          cp target/flatpak-build/serein.flatpakref target/flatpak-site/flatpak/
+          mkdir -p target/flatpak-site/icons
+          cp packaging/linux/hicolor/256x256/apps/serein.png target/flatpak-site/icons/serein.png
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: flatpak-site
+          path: target/flatpak-site/*
           if-no-files-found: error
           retention-days: 14

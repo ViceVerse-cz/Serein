@@ -148,16 +148,39 @@ jobs:
     needs: repositories
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v8.0.1
         with:
           pattern: signed-repository-*
           path: downloads
+      - uses: actions/download-artifact@v8.0.1
+        continue-on-error: true
+        with:
+          name: flatpak-site
+          path: downloads-flatpak
       - name: Assemble hosting tree
         run: |
-          mkdir site
+          mkdir -p site
           for repository in downloads/signed-repository-*; do
+            test -d "$repository" || continue
             cp -a "$repository"/. site/
           done
+          # Copy setup script to webroot
+          cp packaging/repositories/setup.sh site/setup.sh
+          chmod 755 site/setup.sh
+          # Flatpak reference and application icon
+          mkdir -p site/flatpak site/icons
+          cp packaging/flatpak/serein.flatpakref site/flatpak/serein.flatpakref
+          cp packaging/linux/hicolor/256x256/apps/serein.png site/icons/serein.png
+          if [ -d downloads-flatpak ]; then
+            cp -a downloads-flatpak/. site/
+          fi
+          # Ensure GitHub Pages serves all files and directories without Jekyll processing
+          touch site/.nojekyll
+          # Webroot landing page
+          python3 packaging/repositories/build.py --generate-index site
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: signed-package-repositories
