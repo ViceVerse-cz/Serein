@@ -2,7 +2,7 @@ use crate::{
 	State,
 	auth::{AuthState, Failure},
 };
-use model::{Freshness, Id, Patch};
+use model::{Channel, Freshness, Id, Patch};
 use std::collections::BTreeMap;
 
 pub enum Event {
@@ -25,6 +25,18 @@ pub enum Event {
 		request: u64,
 		result: Result<(), Failure>,
 	},
+}
+impl Event {
+	pub fn bytes(&self) -> usize {
+		size_of::<Self>()
+			+ match self {
+				Self::Snapshot { entries, .. } => entries.as_ref().map_or(0, |entries| {
+					entries.capacity() * size_of::<(Id, Option<Id>, u32)>()
+				}),
+				Self::Latest(entries) => entries.capacity() * size_of::<(Id, Patch<Id>)>(),
+				_ => 0,
+			}
+	}
 }
 #[derive(Default)]
 pub struct ReadState {
@@ -257,10 +269,11 @@ impl State {
 				version,
 				partial,
 			} => {
-				if entries
-					.as_ref()
-					.is_some_and(|items| items.len() > crate::MAX_NAV)
-				{
+				if entries.as_ref().is_some_and(|items| {
+					items.len() > crate::MAX_NAV
+						|| items.capacity() * size_of::<(Id, Option<Id>, u32)>() > 16 * 1024 * 1024
+				}) {
+					self.read_state.reset();
 					return Err("Read-state capacity exceeded");
 				}
 				self.read_state = ReadState {
@@ -275,11 +288,7 @@ impl State {
 					}
 				}
 				for (channel, message, count) in entries.unwrap_or_default() {
-					if !self
-						.channels
-						.iter()
-						.any(|c| c.id == channel && c.supports_text())
-					{
+					if !self.channel(channel).is_some_and(Channel::supports_text) {
 						continue;
 					}
 					self.read_state.activity.set_count(channel, count);
@@ -292,6 +301,9 @@ impl State {
 						self.read_state.reset();
 						return Err("Duplicate channel read state");
 					}
+				}
+				if self.read_state.known {
+					self.startup_warnings.read_state = false;
 				}
 			}
 			Event::Ack {
@@ -336,7 +348,8 @@ impl State {
 					return Err("Channel update capacity exceeded");
 				}
 				for (id, latest) in channels {
-					if let Some(channel) = self.channels.iter_mut().find(|c| c.id == id) {
+					if let Some(index) = self.channel_index(id) {
+						let channel = &mut self.channels[index];
 						if let Some(previous) = channel.last_message {
 							self.read_state
 								.activity

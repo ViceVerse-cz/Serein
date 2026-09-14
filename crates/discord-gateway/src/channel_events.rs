@@ -16,7 +16,7 @@ pub(super) fn ready_calls(ready: &Ready, calls: &mut Calls) -> Result<BTreeSet<I
 		> client_core::MAX_NAV
 	{
 		return Err(Failure::CapacityAt(
-			"Account navigation exceeds 4,000 entries; connection stopped",
+			"Account navigation exceeds 131,072 entries; connection stopped",
 		));
 	}
 	calls.allowed.clear();

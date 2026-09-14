@@ -366,7 +366,9 @@ struct Desktop {
 fn access_candidates(state: &State, event: &Event) -> Vec<model::Id> {
 	use client_core::permissions::Event as Permission;
 	let (guilds, channel): (Option<Vec<model::Id>>, Option<model::Id>) = match event {
-		Event::Ready { .. } | Event::Permissions(Permission::Snapshot(_)) => (None, None),
+		Event::Startup(_) | Event::Ready { .. } | Event::Permissions(Permission::Snapshot(_)) => {
+			(None, None)
+		}
 		Event::Permissions(permission) => match permission {
 			Permission::Guild(guild) => (Some(vec![guild.id]), None),
 			Permission::Role { guild, .. }
@@ -3166,7 +3168,7 @@ impl Desktop {
 				_ => {}
 			}
 			let voice_failure = self.voice.observe(&self.state, &mut event.event);
-			let ready = matches!(event.event, Event::Ready { .. });
+			let ready = event.event.ready_navigation().is_some();
 			let resumed = matches!(event.event, Event::Resumed);
 			let confirmed_channel = confirmed_recovery_channel(&self.state, &event.event);
 			let deleted_shortcut = match &event.event {

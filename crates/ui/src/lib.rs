@@ -2667,6 +2667,30 @@ impl MessagingUi {
 		egui::CentralPanel::default()
 			.frame(egui::Frame::new().fill(background.chat).inner_margin(0))
 			.show(ui, |ui| {
+				let warnings = state.startup_warnings;
+				let unavailable: Vec<_> = [
+					(warnings.read_state, "read status"),
+					(warnings.notifications, "notification settings"),
+					(warnings.sessions, "session status"),
+					(warnings.presence, "friend presence"),
+					(warnings.emojis, "some server emoji"),
+				]
+				.into_iter()
+				.filter_map(|(unavailable, label)| unavailable.then_some(label))
+				.collect();
+				if !unavailable.is_empty() {
+					egui::Frame::new()
+						.inner_margin(egui::Margin::symmetric(16, 6))
+						.show(ui, |ui| {
+							ui.colored_label(
+								colors.warning,
+								format!(
+									"Connected with some data unavailable: {}. Reconnect to retry.",
+									unavailable.join(", ")
+								),
+							);
+						});
+				}
 				if state.selected.is_none() && self.guild.is_none() {
 					self.call_bar(ui, state, &mut commands);
 					self.timeline.download.show_status(ui);
@@ -5182,6 +5206,69 @@ mod composer_tests {
 					"Activity image appears and clears with its presence"
 				);
 			}
+		}
+	}
+
+	#[test]
+	fn startup_warning_is_visible_then_clears_on_ready_and_logout() {
+		fn contains_warning(shape: &egui::Shape) -> bool {
+			match shape {
+				egui::Shape::Text(text) => text.galley.job.text.contains(
+					"Connected with some data unavailable: read status, notification settings",
+				),
+				egui::Shape::Vec(shapes) => shapes.iter().any(contains_warning),
+				_ => false,
+			}
+		}
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut state = test_support::demo_state();
+		let mut messaging = MessagingUi::default();
+		let visible = |messaging: &mut MessagingUi, state: &mut State| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(1120.0, 900.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					messaging.show(ui, state);
+				},
+			);
+			let visible = output
+				.shapes
+				.iter()
+				.any(|shape| contains_warning(&shape.shape));
+			output.drop_without_applying_deltas();
+			visible
+		};
+		for logout in [false, true] {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::StartupWarnings(model::account::Warnings {
+					read_state: true,
+					notifications: true,
+					..Default::default()
+				}),
+			});
+			visible(&mut messaging, &mut state);
+			assert!(visible(&mut messaging, &mut state));
+			if logout {
+				state.logout();
+			} else {
+				state.apply(client_core::Envelope {
+					generation: state.generation,
+					event: client_core::Event::Ready {
+						user: state.user.clone().unwrap(),
+						guilds: state.guilds.clone(),
+						channels: state.channels.clone(),
+						permissions: Default::default(),
+					},
+				});
+			}
+			assert!(!visible(&mut messaging, &mut state));
 		}
 	}
 

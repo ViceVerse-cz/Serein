@@ -4,7 +4,7 @@ use serde::{
 	Deserialize, Deserializer,
 	de::{SeqAccess, Visitor},
 };
-const MAX_ENTRIES: usize = 4000;
+const MAX_ENTRIES: usize = model::account::MAX_ENTRIES;
 
 /// Discord sends cursors as snowflake strings, but some non-channel read-state kinds carry a
 /// bare integer `0`; either spelling of zero means "no cursor".
@@ -23,6 +23,11 @@ fn cursor<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Id>, D::Error> {
 	}
 }
 pub(crate) fn entries<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+	d: D,
+) -> Result<Vec<T>, D::Error> {
+	crate::permissions::List::<T, 4000>::deserialize(d).map(|rows| rows.0)
+}
+pub(crate) fn account_entries<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
 	d: D,
 ) -> Result<Vec<T>, D::Error> {
 	struct List<T>(std::marker::PhantomData<T>);
@@ -69,7 +74,7 @@ impl<'de> Deserialize<'de> for Snapshot {
 			}
 			fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<Snapshot, A::Error> {
 				Ok(Snapshot {
-					entries: entries(serde::de::value::SeqAccessDeserializer::new(seq))?,
+					entries: account_entries(serde::de::value::SeqAccessDeserializer::new(seq))?,
 					version: None,
 					partial: false,
 				})
@@ -77,7 +82,7 @@ impl<'de> Deserialize<'de> for Snapshot {
 			fn visit_map<M: serde::de::MapAccess<'de>>(self, map: M) -> Result<Snapshot, M::Error> {
 				#[derive(Deserialize)]
 				struct Versioned {
-					#[serde(deserialize_with = "entries")]
+					#[serde(deserialize_with = "account_entries")]
 					entries: Vec<Entry>,
 					#[serde(default)]
 					version: Option<u64>,
@@ -116,7 +121,7 @@ pub struct LatestChannel {
 }
 #[derive(Deserialize)]
 pub struct PassiveUpdate {
-	#[serde(default, deserialize_with = "entries")]
+	#[serde(default, deserialize_with = "account_entries")]
 	pub updated_channels: Vec<LatestChannel>,
 }
 

@@ -582,15 +582,18 @@ impl State {
 				}
 			},
 			Outcome::Emojis(page) => {
-				if let Some(guild) = self.guilds.iter_mut().find(|guild| guild.id == event.guild) {
-					guild.emojis = Some(page.items.iter().map(|row| row.emoji.clone()).collect());
-				}
-				self.invalidate_navigation();
+				self.apply(crate::Envelope {
+					generation: self.generation,
+					event: crate::Event::GuildEmojis {
+						guild: event.guild,
+						emojis: page.items.iter().map(|row| row.emoji.clone()).collect(),
+					},
+				});
 				self.server_admin.emojis = Some(page);
 			}
 			Outcome::Members(page) => {
 				if let Some(enabled) = page.show_in_channel_list {
-					if self.server_members_shortcuts.len() < crate::MAX_NAV
+					if self.server_members_shortcuts.len() < 4000
 						|| self.server_members_shortcuts.contains_key(&event.guild)
 					{
 						self.server_members_shortcuts.insert(event.guild, enabled);
@@ -609,13 +612,16 @@ impl State {
 					&& self.server_admin.requested_permission_revision
 						== self.server_admin.permission_revision
 				{
-					if let Some(own) = self
-						.permissions
-						.guilds
-						.get_mut(&event.guild)
-						.and_then(|guild| guild.member.as_mut())
+					if self
+						.update_permissions(crate::permissions::Event::Member {
+							guild: event.guild,
+							roles: model::Patch::Value(member.roles.clone()),
+							timeout_until: model::Patch::Absent,
+						})
+						.is_err()
 					{
-						own.roles.clone_from(&member.roles);
+						self.fail(crate::auth::Failure::Capacity);
+						return Err("Permission metadata exceeds safe capacity");
 					}
 					self.permissions.clear_cache();
 					self.invalidate_navigation();
@@ -667,7 +673,7 @@ impl State {
 				if let Some(page) = &mut self.server_admin.members {
 					page.show_in_channel_list = Some(enabled);
 				}
-				if self.server_members_shortcuts.len() < crate::MAX_NAV
+				if self.server_members_shortcuts.len() < 4000
 					|| self.server_members_shortcuts.contains_key(&event.guild)
 				{
 					self.server_members_shortcuts.insert(event.guild, enabled);

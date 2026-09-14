@@ -16,6 +16,13 @@ impl State {
 		}
 		if threads.len() + removed.len() > MAX_NAV
 			|| parents.as_ref().is_some_and(|p| p.len() > MAX_NAV)
+			|| threads.iter().map(Channel::bytes).sum::<usize>()
+				+ threads.capacity().saturating_sub(threads.len()) * size_of::<Channel>()
+				+ removed.capacity() * size_of::<Id>()
+				+ parents
+					.as_ref()
+					.map_or(0, |parents| parents.capacity() * size_of::<Id>())
+				> MAX_EVENT_BYTES
 		{
 			return Err("Thread snapshot exceeds safe capacity");
 		}
@@ -63,14 +70,18 @@ impl State {
 			return Err("Thread snapshot has invalid channel scope");
 		}
 		let retained = self.channels.iter().filter(|c| !in_scope(c));
-		if retained.clone().count() + threads.len() + self.guilds.len() > MAX_NAV
+		let retained_len = retained.clone().count() + threads.len();
+		if retained_len + self.guilds.len() > MAX_NAV
 			|| retained.map(Channel::bytes).sum::<usize>()
 				+ threads.iter().map(Channel::bytes).sum::<usize>()
 				+ self.guilds.iter().map(model::Guild::bytes).sum::<usize>()
-				> MAX_EVENT_BYTES
+				+ (self.guilds.capacity() - self.guilds.len()) * size_of::<model::Guild>()
+				+ self.permissions.bytes()
+				> model::account::MAX_BYTES
 		{
 			return Err("Thread snapshot exceeds safe capacity");
 		}
+		let mut next = Vec::with_capacity(retained_len);
 		for thread in &mut threads {
 			if let Some(old) = previous.get(&thread.id) {
 				thread.last_message = thread.last_message.max(old.last_message);
@@ -96,7 +107,9 @@ impl State {
 			.collect();
 		self.remove_channels(&removed);
 		self.channels.retain(|c| !in_scope(c));
-		self.channels.extend(threads);
+		next.append(&mut self.channels);
+		next.extend(threads);
+		self.channels = next;
 		// The snapshot just replaced this scope, so any fetched forum page is stale.
 		if let Some(parent) = self.posts.parent
 			&& self.channel(parent).and_then(|c| c.guild) == Some(guild)

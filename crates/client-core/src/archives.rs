@@ -1,6 +1,6 @@
 //! A single bounded archive page; opening a result admits one transient conversation.
 use crate::{
-	Command, MAX_EVENT_BYTES, MAX_NAV, State,
+	Command, MAX_NAV, State,
 	auth::{AuthState, Failure},
 };
 use model::{
@@ -155,16 +155,31 @@ impl State {
 			.iter()
 			.filter(|c| Some(c.id) != self.archived_thread);
 		let guild_bytes = self.guilds.iter().map(model::Guild::bytes).sum::<usize>();
-		if retained.clone().count() + self.guilds.len() >= MAX_NAV
-			|| retained.map(Channel::bytes).sum::<usize>() + guild_bytes + thread.bytes()
-				> MAX_EVENT_BYTES
+		let final_len = retained.clone().count() + 1;
+		if final_len + self.guilds.len() > MAX_NAV
+			|| retained.map(Channel::bytes).sum::<usize>()
+				+ guild_bytes
+				+ thread.bytes()
+				+ self.permissions.bytes()
+				+ self.channels.capacity().saturating_sub(final_len) * size_of::<Channel>()
+				+ (self.guilds.capacity() - self.guilds.len()) * size_of::<model::Guild>()
+				> model::account::MAX_BYTES
 		{
 			self.archives.as_mut()?.error = Some("Thread exceeds the navigation budget");
 			return None;
 		}
 		let thread = thread.clone();
+		if self
+			.channels
+			.try_reserve_exact(final_len.saturating_sub(self.channels.len()))
+			.is_err()
+		{
+			self.archives.as_mut()?.error = Some("Thread exceeds the navigation budget");
+			return None;
+		}
 		self.retire_archived_thread(None);
 		self.channels.push(thread);
+		self.invalidate_navigation();
 		self.archived_thread = Some(id);
 		self.select(id)
 	}
@@ -615,7 +630,7 @@ mod tests {
 			"Account item budget applies to transient insertion"
 		);
 		state.channels.truncate(2);
-		state.channels[1].name.reserve(MAX_EVENT_BYTES);
+		state.channels[1].name.reserve(model::account::MAX_BYTES);
 		state.request_archives(Id(10), Kind::Public, None).unwrap();
 		state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
 		assert!(

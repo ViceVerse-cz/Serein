@@ -1,5 +1,14 @@
 # Authentication and owner-controlled live validation
 
+Large accounts: READY no longer shares the 4,000-entry account ceiling or the 4 MiB
+ordinary-event queue limit. A bounded startup path retains all admitted navigation and
+permissions, while failed optional read-state/settings/presence/emoji sections produce a
+feature warning without aborting valid login. Account identity, relationships, session ID,
+resume address, navigation and permissions remain required and validated. Safety-budget
+failures still stop with a static explanation; neither an unlimited payload nor guaranteed
+interoperability is promised. See [storage policy](storage-policy.md#large-account-startup-september-14-2026)
+for component limits. The reported issue #154 build and live trigger are not yet verified.
+
 Linux uses GTK4/WebKit6 with a fresh ephemeral NetworkSession and persistent credential
 storage disabled. Normal TLS validation remains enabled. Scripts run at document start only
 in the top Discord frame. Native navigation and candidate origin checks restrict the login
@@ -48,9 +57,9 @@ channels, roles, emojis and settings inline. The old 4 MiB Gateway limit reporte
 "Decompressed Gateway payload exceeds 4 MiB; connection stopped" and ended login. The WebSocket
 frame, zlib-stream compressed/decompressed accumulation, outer Gateway packet, READY and
 READY_SUPPLEMENTAL decoders now share a 64 MiB bound (`MAX_GATEWAY_WIRE`). Individual dispatch
-events, REST responses and every retained projection (navigation, permissions, voice roster,
-presence) keep their existing limits, so RAM retained after login is unchanged; only the
-transient login parse is larger. An offline WebSocket regression logs in with a READY between
+events and REST responses keep their existing limits. Navigation and permission storage now
+use the larger, separate account budgets above; voice rosters and presence caches remain bounded
+at their existing sizes. An offline WebSocket regression logs in with a READY between
 4 and 64 MiB. The reporter's actual payload size has not been inspected.
 
 Hard Gateway frame/compressed/decompressed payload, navigation, actual voice roster, and desktop

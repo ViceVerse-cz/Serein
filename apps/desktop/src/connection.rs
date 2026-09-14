@@ -103,7 +103,7 @@ impl Connection {
                         if activity_observed.send_if_modified(|current| { if *current == observation { false } else { *current = observation; true } }) { activity_wake.request_repaint(); }
                         Ok(())
                     },|event|{
-                        if let Event::Ready{user:ready_user,channels,..}=&event {
+                        if let Some((ready_user,_,channels))=event.ready_navigation() {
                             if ready_user.id!=user.id {return Err(Failure::InvalidCredential);}
                             *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|c.guild.is_none()&&c.kind==1&&c.recipients.len()==1).map(|c|c.id).collect();
                         }
@@ -114,7 +114,7 @@ impl Connection {
                         }
                         if let Event::Unavailable(channel)=&event {gateway_channels.lock().map_err(|_|Failure::Protocol)?.remove(channel);}
 
-                        if matches!(&event,Event::Ready{..}|Event::Resumed) {let _=voice_online.send(true);}
+                        if event.ready_navigation().is_some() || matches!(&event,Event::Resumed) {let _=voice_online.send(true);}
                         if matches!(&event,Event::Disconnected|Event::Resync) {let _=voice_online.send(false);}
                         gateway_emit(event)
                     }).await.err().unwrap_or(Failure::Network).protocol_at("Gateway connection: unsupported handshake or event");
@@ -418,13 +418,14 @@ async fn run_activity_sharing(
 	}
 }
 
-// One bounded GUILD_CREATE can fan out into MAX_NAV channel events synchronously.
-// Many small events share the original eight-snapshot aggregate byte budget.
-const RELIABLE_ITEMS: usize = client_core::MAX_NAV + EVENT_SLOTS;
+// Ordinary bursts retain their original budget. Startup uses one reserved slot in this
+// same FIFO so subsequent dispatches cannot overtake the account snapshot.
+const RELIABLE_ITEMS: usize = 4000 + EVENT_SLOTS;
 const RELIABLE_BYTES: usize = EVENT_SLOTS * MAX_EVENT_BYTES;
 struct ReliableSender {
 	send: mpsc::Sender<(Envelope, OwnedSemaphorePermit)>,
 	bytes: Arc<Semaphore>,
+	startup: Arc<Semaphore>,
 }
 pub struct ReliableEvents {
 	receive: mpsc::Receiver<(Envelope, OwnedSemaphorePermit)>,
@@ -446,6 +447,7 @@ fn reliable_events(wake: egui::Context) -> (ReliableSender, ReliableEvents) {
 		ReliableSender {
 			send,
 			bytes: Arc::new(Semaphore::new(RELIABLE_BYTES)),
+			startup: Arc::new(Semaphore::new(1)),
 		},
 		ReliableEvents { receive, wake },
 	)
@@ -465,20 +467,35 @@ fn emit_event(
 		return Ok(());
 	}
 	let bytes = envelope.event.bytes();
-	if bytes > MAX_EVENT_BYTES {
+	let startup = matches!(&envelope.event, Event::Startup(_) | Event::Ready { .. });
+	let overhead = size_of::<(Envelope, OwnedSemaphorePermit)>() - size_of::<Event>();
+	if startup && bytes.saturating_add(overhead) > model::account::MAX_BYTES {
+		return Err(Failure::CapacityAt(
+			"Account startup snapshot exceeds 128 MiB; connection stopped",
+		));
+	}
+	if !startup && bytes > MAX_EVENT_BYTES {
 		return Err(Failure::CapacityAt(
 			"Account synchronization event exceeds 4 MiB; connection stopped",
 		));
 	}
 	// Event::bytes includes Event itself; also charge envelope padding and the owned permit.
-	let bytes = bytes + size_of::<(Envelope, OwnedSemaphorePermit)>() - size_of::<Event>();
-	let permit = reliable
-		.bytes
-		.clone()
-		.try_acquire_many_owned(bytes as u32)
-		.map_err(|_| {
-			Failure::CapacityAt("Account synchronization queue exceeds 32 MiB; connection stopped")
-		})?;
+	let bytes = bytes + overhead;
+	let permit = if startup {
+		reliable.startup.clone().try_acquire_owned().map_err(|_| {
+			Failure::CapacityAt("Account startup snapshot is already queued; connection stopped")
+		})?
+	} else {
+		reliable
+			.bytes
+			.clone()
+			.try_acquire_many_owned(bytes as u32)
+			.map_err(|_| {
+				Failure::CapacityAt(
+					"Account synchronization queue exceeds 32 MiB; connection stopped",
+				)
+			})?
+	};
 	reliable
 		.send
 		.try_send((envelope, permit))
@@ -667,6 +684,104 @@ mod tests {
 				last_message: None,
 			}),
 		}
+	}
+
+	fn large_startup() -> client_core::Startup {
+		use serde_json::json;
+		let guilds: Vec<_> = (0..200_u64).map(|g| {
+			let id = 10 + g;
+			json!({"id":id.to_string(),"name":"Synthetic large account","owner_id":"1",
+				"roles":[{"id":id.to_string(),"permissions":"1024"}],
+				"channels":(0..100).map(|c| json!({"id":(1000+g*100+c).to_string(),
+					"name":"synthetic-channel".repeat(6),"type":0,"permission_overwrites":[]})).collect::<Vec<_>>()})
+		}).collect();
+		let bytes = serde_json::to_vec(&json!({"user":{"id":"1","username":"Synthetic"},
+			"session_id":"synthetic","resume_gateway_url":"wss://gateway.discord.gg/","guilds":guilds}))
+		.unwrap();
+		let envelope = discord_protocol::ready::decode(&bytes).unwrap();
+		let permissions = envelope.permissions().unwrap();
+		let (mut ready, warnings) = envelope.navigation().unwrap();
+		let (guilds, channels) = ready.navigation().unwrap();
+		client_core::Startup {
+			user: ready.user.into_model(),
+			guilds,
+			channels,
+			permissions,
+			read_state: client_core::read_state::Event::Snapshot {
+				entries: None,
+				version: None,
+				partial: false,
+			},
+			notifications: None,
+			session_dnd: None,
+			warnings,
+		}
+	}
+
+	#[test]
+	fn large_startup_crosses_the_queue_atomically_and_keeps_ordinary_budgets() {
+		let ctx = egui::Context::default();
+		let (send, mut events) = reliable_events(ctx.clone());
+		let (typing, _) = mpsc::channel(8);
+		let startup = large_startup();
+		assert!(startup.bytes() > MAX_EVENT_BYTES);
+		let mut state = client_core::State::default();
+		let generation = state.generation;
+		emit_event(
+			&send,
+			&typing,
+			Envelope {
+				generation,
+				event: Event::Startup(Box::new(startup.prepare().unwrap())),
+			},
+			&ctx,
+		)
+		.unwrap();
+		assert_eq!(send.startup.available_permits(), 0);
+		assert_eq!(send.bytes.available_permits(), RELIABLE_BYTES);
+		// A second startup cannot multiply the reserved 128 MiB capacity.
+		assert_eq!(
+			emit_event(
+				&send,
+				&typing,
+				Envelope {
+					generation,
+					event: Event::Startup(Box::new(large_startup().prepare().unwrap()))
+				},
+				&ctx
+			),
+			Err(Failure::CapacityAt(
+				"Account startup snapshot is already queued; connection stopped"
+			))
+		);
+		let mut later = queued_channel(25_000);
+		later.generation = generation;
+		emit_event(&send, &typing, later, &ctx).unwrap();
+		state.apply(events.try_recv().unwrap());
+		assert_eq!(state.auth, client_core::auth::AuthState::Authenticated);
+		assert_eq!((state.guilds.len(), state.channels.len()), (200, 20_000));
+		assert!(state.can_read_history(model::Id(1000)));
+		assert!(state.can_read_history(model::Id(20_999)));
+		assert_eq!(send.startup.available_permits(), 1);
+		let next = events.try_recv().unwrap();
+		assert!(matches!(next.event, Event::ChannelCreated(_)));
+		state.apply(next);
+		assert_eq!(send.bytes.available_permits(), RELIABLE_BYTES);
+		state.logout();
+		assert!(state.channels.is_empty() && state.guilds.is_empty());
+		// Dropping the consumer also releases startup capacity.
+		emit_event(
+			&send,
+			&typing,
+			Envelope {
+				generation,
+				event: Event::Startup(Box::new(large_startup().prepare().unwrap())),
+			},
+			&ctx,
+		)
+		.unwrap();
+		drop(events);
+		assert_eq!(send.startup.available_permits(), 1);
 	}
 
 	#[test]

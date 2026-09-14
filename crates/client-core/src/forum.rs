@@ -1,7 +1,5 @@
 //! Forum containers list their posts (threads) and create one post at a time.
-use crate::{
-	Command, MAX_CONTENT, MAX_EVENT_BYTES, MAX_NAV, State, auth::AuthState, auth::Failure,
-};
+use crate::{Command, MAX_CONTENT, MAX_NAV, State, auth::AuthState, auth::Failure};
 use model::{Channel, Id, permissions as p};
 
 pub const MAX_TITLE: usize = 100;
@@ -135,24 +133,35 @@ impl State {
 		// Every returned row advances the offset, even one this state already knew.
 		let returned = page.threads.len();
 		for post in page.threads {
-			if let Some(existing) = self.channels.iter_mut().find(|c| c.id == post.id) {
+			if let Some(index) = self.channel_index(post.id) {
+				let existing = &self.channels[index];
 				if existing.parent_id == Some(parent) && existing.guild == Some(guild) {
+					let bytes =
+						self.navigation_bytes() - existing.name.capacity() + post.name.capacity();
+					if bytes + self.permissions.bytes() > model::account::MAX_BYTES {
+						self.posts.error = Some("Posts exceed the navigation budget");
+						self.posts.more = false;
+						return;
+					}
+					let existing = &mut self.channels[index];
 					existing.last_message = existing.last_message.max(post.last_message);
 					existing.message_count = post.message_count.or(existing.message_count);
 					existing.name = post.name;
+					self.set_navigation_bytes(bytes);
 				}
 				continue;
 			}
-			let bytes = self.channels.iter().map(Channel::bytes).sum::<usize>()
-				+ self.guilds.iter().map(model::Guild::bytes).sum::<usize>();
+			let bytes = self.navigation_bytes();
 			if self.channels.len() + self.guilds.len() >= MAX_NAV
-				|| bytes + post.bytes() > MAX_EVENT_BYTES
+				|| bytes + post.bytes() + self.permissions.bytes() > model::account::MAX_BYTES
+				|| self.channels.try_reserve_exact(1).is_err()
 			{
 				self.posts.error = Some("Posts exceed the navigation budget");
 				self.posts.more = false;
 				return;
 			}
 			self.channels.push(post);
+			self.invalidate_navigation();
 		}
 		self.posts.loaded = self.posts.loaded.saturating_add(returned);
 		self.posts.more = page.more && returned > 0;
@@ -229,15 +238,16 @@ impl State {
 			}
 			existing.message_count = post.message_count.or(existing.message_count);
 		} else {
-			let bytes = self.channels.iter().map(Channel::bytes).sum::<usize>()
-				+ self.guilds.iter().map(model::Guild::bytes).sum::<usize>();
+			let bytes = self.navigation_bytes();
 			if self.channels.len() + self.guilds.len() >= MAX_NAV
-				|| bytes + post.bytes() > MAX_EVENT_BYTES
+				|| bytes + post.bytes() + self.permissions.bytes() > model::account::MAX_BYTES
+				|| self.channels.try_reserve_exact(1).is_err()
 			{
 				self.posting.error = Some("Post exceeds the navigation budget");
 				return;
 			}
 			self.channels.push(post.clone());
+			self.invalidate_navigation();
 		}
 		self.posting.created = Some(post.id);
 	}
@@ -292,6 +302,53 @@ mod tests {
 		state.channels[3].last_message = Some(Id(500));
 		crate::tests::grant_permissions(&mut state);
 		state
+	}
+
+	#[test]
+	fn forum_title_replacement_updates_budget_and_preserves_original_when_full() {
+		let mut state = state();
+		let before = state.navigation_bytes();
+		let previous_capacity = state.channel(Id(21)).unwrap().name.capacity();
+		state.request_forum_posts(Id(20), false).unwrap();
+		let mut post = channel(21, Some(Id(20)), 11);
+		post.name = "Longer synthetic title".into();
+		let expected = before - previous_capacity + post.name.capacity();
+		state.apply_forum_posts(
+			Id(20),
+			state.posts.request,
+			Ok(model::forum::Page {
+				threads: vec![post],
+				more: false,
+			}),
+		);
+		assert_eq!(state.navigation_bytes(), expected);
+		state.guilds[0].name = String::with_capacity(
+			model::account::MAX_BYTES - expected - state.permissions.bytes()
+				+ state.guilds[0].name.capacity()
+				- 32,
+		);
+		state.invalidate_navigation();
+		let original = state.channel(Id(21)).unwrap().clone();
+		state.reload_forum_posts(Id(20));
+		state.request_forum_posts(Id(20), false).unwrap();
+		let mut post = original.clone();
+		post.name = "x".repeat(128);
+		post.last_message = Some(Id(900));
+		state.apply_forum_posts(
+			Id(20),
+			state.posts.request,
+			Ok(model::forum::Page {
+				threads: vec![post],
+				more: true,
+			}),
+		);
+		assert!(state.channel(Id(21)) == Some(&original));
+		assert_eq!(
+			state.posts.error,
+			Some("Posts exceed the navigation budget")
+		);
+		assert!(!state.posts.more && !state.posts.loading);
+		assert!(state.navigation_bytes() + state.permissions.bytes() <= model::account::MAX_BYTES);
 	}
 
 	#[test]

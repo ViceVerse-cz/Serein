@@ -44,7 +44,7 @@ pub const MAX_DRAFT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_CONTENT: usize = 2000;
 /// Discord accepts at most ten attachments per message.
 pub const MAX_ATTACHMENTS: usize = 10;
-pub const MAX_NAV: usize = 4000;
+pub const MAX_NAV: usize = model::account::MAX_ENTRIES;
 pub const MAX_MEMBER_PRESENCE_BYTES: usize = 128 * 1024;
 pub const MAX_EVENT_BYTES: usize = 4 * 1024 * 1024;
 pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 MiB byte budget.
@@ -197,7 +197,132 @@ pub enum Command {
 		pinned: bool,
 	},
 }
+pub struct Startup {
+	pub user: User,
+	pub guilds: Vec<Guild>,
+	pub channels: Vec<Channel>,
+	pub permissions: model::permissions::Snapshot,
+	pub read_state: read_state::Event,
+	pub notifications: Option<notifications::Event>,
+	pub session_dnd: Option<bool>,
+	pub warnings: model::account::Warnings,
+}
+impl Startup {
+	/// Validate and build the permission mirror on the Gateway worker before enqueueing.
+	pub fn prepare(mut self) -> Result<PreparedStartup, auth::Failure> {
+		if self.bytes() > model::account::MAX_BYTES {
+			return Err(auth::Failure::ProtocolAt(
+				"Account startup exceeds safe capacity",
+			));
+		}
+		let spare_bytes = (self.guilds.capacity() - self.guilds.len()) * size_of::<Guild>()
+			+ (self.channels.capacity() - self.channels.len()) * size_of::<Channel>();
+		let permissions = prepare_navigation(
+			&self.user,
+			&self.guilds,
+			&self.channels,
+			std::mem::take(&mut self.permissions),
+			spare_bytes,
+		)
+		.map_err(auth::Failure::ProtocolAt)?;
+		let bytes = self.bytes() + permissions.bytes() + size_of::<permissions::Permissions>();
+		if bytes > model::account::MAX_BYTES {
+			return Err(auth::Failure::ProtocolAt(
+				"Account startup exceeds safe capacity",
+			));
+		}
+		Ok(PreparedStartup {
+			data: self,
+			permissions,
+			bytes,
+		})
+	}
+	pub fn bytes(&self) -> usize {
+		size_of::<Self>()
+			+ self.user.heap_bytes()
+			+ self.permissions.bytes()
+			+ self.guilds.capacity().saturating_sub(self.guilds.len()) * size_of::<Guild>()
+			+ self.channels.capacity().saturating_sub(self.channels.len()) * size_of::<Channel>()
+			+ self.guilds.iter().map(Guild::bytes).sum::<usize>()
+			+ self.channels.iter().map(Channel::bytes).sum::<usize>()
+			+ self.read_state.bytes()
+			+ self
+				.notifications
+				.as_ref()
+				.map_or(0, notifications::Event::bytes)
+	}
+}
+pub struct PreparedStartup {
+	data: Startup,
+	permissions: permissions::Permissions,
+	bytes: usize,
+}
+impl PreparedStartup {
+	pub fn data(&self) -> &Startup {
+		&self.data
+	}
+	pub fn permission_state(&self) -> &permissions::Permissions {
+		&self.permissions
+	}
+	pub fn bytes(&self) -> usize {
+		self.bytes
+	}
+}
+impl std::ops::Deref for PreparedStartup {
+	type Target = Startup;
+	fn deref(&self) -> &Startup {
+		&self.data
+	}
+}
+fn prepare_navigation(
+	user: &User,
+	guilds: &[Guild],
+	channels: &[Channel],
+	permissions: model::permissions::Snapshot,
+	spare_bytes: usize,
+) -> Result<permissions::Permissions, &'static str> {
+	if channels.len() + guilds.len() > MAX_NAV
+		|| channels.iter().any(|c| c.recipients.len() > 64)
+		|| guilds
+			.iter()
+			.any(|g| g.emojis.as_ref().is_some_and(|e| !valid_custom_emojis(e)))
+		|| guilds.iter().map(Guild::bytes).sum::<usize>()
+			+ channels.iter().map(Channel::bytes).sum::<usize>()
+			+ permissions.bytes()
+			+ spare_bytes
+			> model::account::MAX_BYTES
+	{
+		return Err("Account navigation exceeds safe capacity");
+	}
+	let guild_ids: BTreeSet<_> = guilds.iter().map(|guild| guild.id).collect();
+	let channel_ids: BTreeSet<_> = channels.iter().map(|channel| channel.id).collect();
+	if user.id.0 == 0
+		|| guild_ids.len() != guilds.len()
+		|| channel_ids.len() != channels.len()
+		|| guild_ids.contains(&Id(0))
+		|| channel_ids.contains(&Id(0))
+		|| channels.iter().any(|channel| {
+			channel
+				.guild
+				.is_some_and(|guild| !guild_ids.contains(&guild))
+		}) {
+		return Err("Invalid account navigation");
+	}
+	let mut permission_state = permissions::Permissions::default();
+	permission_state.replace(permissions)?;
+	if guilds.iter().map(Guild::bytes).sum::<usize>()
+		+ channels.iter().map(Channel::bytes).sum::<usize>()
+		+ permission_state.bytes()
+		+ spare_bytes
+		> model::account::MAX_BYTES
+	{
+		return Err("Account navigation exceeds safe capacity");
+	}
+	Ok(permission_state)
+}
 pub enum Event {
+	Startup(Box<PreparedStartup>),
+	StartupWarnings(model::account::Warnings),
 	MessagingPermissions {
 		request: u64,
 		result: Result<model::messaging_permissions::Snapshot, auth::Failure>,
@@ -409,6 +534,7 @@ pub struct State {
 	pub history_targeted: bool,
 	pub reply_deletions: ReplyDeletions,
 	pub read_state: read_state::ReadState,
+	pub startup_warnings: model::account::Warnings,
 	pub notification_preferences: notifications::Preferences,
 	pub reactions: reactions::Reactions,
 	pub profile: Option<profile::ProfileView>,
@@ -482,6 +608,7 @@ impl Default for State {
 			history_targeted: false,
 			reply_deletions: ReplyDeletions::default(),
 			read_state: read_state::ReadState::default(),
+			startup_warnings: Default::default(),
 			notification_preferences: notifications::Preferences::default(),
 			reactions: reactions::Reactions::default(),
 			profile: None,
@@ -540,7 +667,9 @@ impl State {
 			return bytes;
 		}
 		let bytes = self.channels.iter().map(Channel::bytes).sum::<usize>()
-			+ self.guilds.iter().map(Guild::bytes).sum::<usize>();
+			+ self.guilds.iter().map(Guild::bytes).sum::<usize>()
+			+ (self.channels.capacity() - self.channels.len()) * size_of::<Channel>()
+			+ (self.guilds.capacity() - self.guilds.len()) * size_of::<Guild>();
 		self.set_navigation_bytes(bytes);
 		bytes
 	}
@@ -1181,9 +1310,71 @@ impl State {
 		self.freshness = Freshness::Stale;
 	}
 	pub fn apply(&mut self, envelope: Envelope) {
+		self.apply_with_permissions(envelope, None);
+	}
+	fn apply_with_permissions(
+		&mut self,
+		envelope: Envelope,
+		prepared_permissions: Option<permissions::Permissions>,
+	) {
 		self.reply_deletions.0.clear();
 		if envelope.generation != self.generation {
 			return;
+		}
+		if let Event::Startup(startup) = envelope.event {
+			if startup.bytes() > model::account::MAX_BYTES {
+				self.auth = auth::AuthState::Failed;
+				self.status = "Account startup exceeds safe capacity";
+				return;
+			}
+			let PreparedStartup {
+				data,
+				permissions: prepared,
+				..
+			} = *startup;
+			let Startup {
+				user,
+				guilds,
+				channels,
+				permissions,
+				read_state,
+				notifications,
+				session_dnd,
+				mut warnings,
+			} = data;
+			self.apply_with_permissions(
+				Envelope {
+					generation: envelope.generation,
+					event: Event::Ready {
+						user,
+						guilds,
+						channels,
+						permissions,
+					},
+				},
+				Some(prepared),
+			);
+			if self.auth != auth::AuthState::Authenticated {
+				return;
+			}
+			warnings.read_state |= self.apply_read_state(read_state).is_err();
+			if let Some(settings) = notifications {
+				warnings.notifications |= self.apply_notification_preferences(settings).is_err();
+			}
+			let _ =
+				self.apply_notification_preferences(notifications::Event::Presence(session_dnd));
+			self.apply(Envelope {
+				generation: envelope.generation,
+				event: Event::StartupWarnings(warnings),
+			});
+			return;
+		}
+		if matches!(envelope.event, Event::Ready { .. } | Event::Resync) {
+			self.startup_warnings = Default::default();
+		}
+		if matches!(envelope.event, Event::Resync) {
+			self.read_state.reset();
+			self.notification_preferences = Default::default();
 		}
 		if matches!(
 			envelope.event,
@@ -1313,6 +1504,27 @@ impl State {
 			self.clear_search();
 		}
 		let result = match envelope.event {
+			Event::Startup(_) => {
+				unreachable!("startup is applied atomically before ordinary events")
+			}
+			Event::StartupWarnings(warnings) => {
+				self.startup_warnings.read_state |= warnings.read_state;
+				self.startup_warnings.notifications |= warnings.notifications;
+				self.startup_warnings.sessions |= warnings.sessions;
+				self.startup_warnings.presence |= warnings.presence;
+				self.startup_warnings.emojis |= warnings.emojis;
+				if warnings.read_state {
+					self.read_state.reset();
+				}
+				if warnings.notifications || warnings.sessions {
+					self.invalidate_startup_preferences(warnings.notifications, warnings.sessions);
+				}
+				if warnings.presence {
+					self.direct_presences.clear();
+					self.direct_presence_bytes = None;
+				}
+				Ok(())
+			}
 			Event::GuildFolders(result) => {
 				self.apply_guild_folders(result);
 				Ok(())
@@ -1358,11 +1570,7 @@ impl State {
 				self.clear_profile();
 				self.profile_cache.clear();
 				self.server_admin.permissions_changed(&event);
-				let result = self.permissions.update(event);
-				if result.is_err() {
-					self.permissions = permissions::Permissions::default();
-				}
-				result
+				self.update_permissions(event)
 			}
 			Event::Archives {
 				parent,
@@ -1438,16 +1646,25 @@ impl State {
 			Event::GuildJoined(guild) => {
 				self.observe_server_joined(guild.id);
 				if !self.guilds.iter().any(|g| g.id == guild.id) {
-					let bytes = self.navigation_bytes() + guild.bytes();
+					let capacity = self.guilds.capacity();
+					let mut bytes = self.navigation_bytes() + guild.bytes() - size_of::<Guild>();
 					if guild.id.0 == 0
 						|| guild.name.len() > 512
 						|| self.guilds.len() + self.channels.len() >= MAX_NAV
-						|| bytes > MAX_EVENT_BYTES
+						|| bytes + self.permissions.bytes() > model::account::MAX_BYTES
 					{
 						self.fail(auth::Failure::Capacity);
 						return;
 					}
 					self.guilds.push(guild);
+					bytes += (self.guilds.capacity() - capacity) * size_of::<Guild>();
+					if bytes + self.permissions.bytes() > model::account::MAX_BYTES {
+						self.guilds.pop();
+						self.guilds.shrink_to_fit();
+						self.invalidate_navigation();
+						self.fail(auth::Failure::Capacity);
+						return;
+					}
 					self.set_navigation_bytes(bytes);
 				}
 				Ok(())
@@ -1482,8 +1699,10 @@ impl State {
 						.map_or(0, custom_emoji_bytes);
 					let navigation_bytes = self.navigation_bytes();
 					if !valid_custom_emojis(&emojis)
-						|| navigation_bytes - previous + custom_emoji_bytes(&emojis)
-							> MAX_EVENT_BYTES
+						|| navigation_bytes - previous
+							+ custom_emoji_bytes(&emojis)
+							+ self.permissions.bytes()
+							> model::account::MAX_BYTES
 					{
 						self.guilds[index].emojis = None;
 						self.navigation_index.bytes.set(None);
@@ -1492,11 +1711,16 @@ impl State {
 					}
 					self.guilds[index].emojis = Some(emojis);
 					self.navigation_index.bytes.set(None);
+					if self.guilds.iter().all(|guild| guild.emojis.is_some()) {
+						self.startup_warnings.emojis = false;
+					}
 				}
 				Ok(())
 			}
 			Event::GuildChanged(patch) => {
-				if let Some(guild) = self.guilds.iter_mut().find(|guild| guild.id == patch.id) {
+				if let Some(index) = self.guilds.iter().position(|guild| guild.id == patch.id) {
+					let previous = self.guilds[index].clone();
+					let guild = &mut self.guilds[index];
 					match patch.name {
 						Patch::Value(name) => guild.name = name.chars().take(128).collect(),
 						Patch::Null => guild.name.clear(),
@@ -1506,6 +1730,14 @@ impl State {
 						Patch::Value(icon) => guild.icon = valid_avatar_hash(&icon).then_some(icon),
 						Patch::Null => guild.icon = None,
 						Patch::Absent => {}
+					}
+					if self.navigation_bytes() + self.permissions.bytes()
+						> model::account::MAX_BYTES
+					{
+						self.guilds[index] = previous;
+						self.navigation_index.bytes.set(None);
+						self.fail(auth::Failure::Capacity);
+						return;
 					}
 				}
 				Ok(())
@@ -1531,12 +1763,17 @@ impl State {
 					return;
 				}
 				let old = self.channel_index(channel.id);
-				let navigation_bytes = self.navigation_bytes()
-					- old.map_or(0, |index| self.channels[index].bytes())
-					+ channel.bytes();
+				let capacity = self.channels.capacity();
+				let mut navigation_bytes =
+					self.navigation_bytes() - old.map_or(0, |index| self.channels[index].bytes())
+						+ channel.bytes() - if old.is_none() {
+						size_of::<Channel>()
+					} else {
+						0
+					};
 				if channel.recipients.len() > 64
 					|| (old.is_none() && self.channels.len() + self.guilds.len() >= MAX_NAV)
-					|| navigation_bytes > MAX_EVENT_BYTES
+					|| navigation_bytes + self.permissions.bytes() > model::account::MAX_BYTES
 				{
 					self.fail(auth::Failure::Capacity);
 					return;
@@ -1567,6 +1804,15 @@ impl State {
 						.get_mut()
 						.insert(id, self.channels.len());
 					self.channels.push(channel);
+					navigation_bytes +=
+						(self.channels.capacity() - capacity) * size_of::<Channel>();
+					if navigation_bytes + self.permissions.bytes() > model::account::MAX_BYTES {
+						self.channels.pop();
+						self.channels.shrink_to_fit();
+						self.invalidate_navigation();
+						self.fail(auth::Failure::Capacity);
+						return;
+					}
 					self.navigation_index
 						.channel_stamp
 						.set(Some(self.channel_stamp()));
@@ -1582,7 +1828,9 @@ impl State {
 				{
 					self.clear_archives();
 				}
-				if let Some(channel) = self.channels.iter_mut().find(|c| c.id == patch.id) {
+				if let Some(index) = self.channels.iter().position(|c| c.id == patch.id) {
+					let previous = self.channels[index].clone();
+					let channel = &mut self.channels[index];
 					if let Some(latest) = channel.last_message {
 						self.read_state.activity.observe_latest(channel.id, latest);
 					}
@@ -1617,7 +1865,17 @@ impl State {
 					if let Patch::Value(count) = patch.message_count {
 						channel.message_count = Some(count);
 					}
-					if self.selected == Some(channel.id) && !navigable(channel) {
+					if self.navigation_bytes() + self.permissions.bytes()
+						> model::account::MAX_BYTES
+					{
+						self.channels[index] = previous;
+						self.navigation_index.bytes.set(None);
+						self.fail(auth::Failure::Capacity);
+						return;
+					}
+					if self.selected == Some(self.channels[index].id)
+						&& !navigable(&self.channels[index])
+					{
 						self.selected = None;
 						self.invalidate_members();
 						self.timeline.clear();
@@ -1632,16 +1890,26 @@ impl State {
 				Ok(())
 			}
 			Event::RecipientAdded { channel, user } => {
-				if let Some(c) = self
+				if let Some(index) = self
 					.channels
-					.iter_mut()
-					.find(|c| c.id == channel && c.guild.is_none())
+					.iter()
+					.position(|c| c.id == channel && c.guild.is_none())
 				{
+					let previous = self.channels[index].clone();
+					let c = &mut self.channels[index];
 					if let Some(old) = c.recipients.iter_mut().find(|u| u.id == user.id) {
 						*old = user;
 					} else if c.recipients.len() < 64 {
 						c.recipients.push(user);
 					} else {
+						self.fail(auth::Failure::Capacity);
+						return;
+					}
+					if self.navigation_bytes() + self.permissions.bytes()
+						> model::account::MAX_BYTES
+					{
+						self.channels[index] = previous;
+						self.navigation_index.bytes.set(None);
 						self.fail(auth::Failure::Capacity);
 						return;
 					}
@@ -1725,26 +1993,18 @@ impl State {
 					self.status = "Different account rejected; log out before switching accounts";
 					return;
 				}
-				if channels.len() + guilds.len() > MAX_NAV
-					|| channels.iter().any(|c| c.recipients.len() > 64)
-					|| guilds
-						.iter()
-						.any(|g| g.emojis.as_ref().is_some_and(|e| !valid_custom_emojis(e)))
-					|| guilds.iter().map(Guild::bytes).sum::<usize>()
-						+ channels.iter().map(Channel::bytes).sum::<usize>()
-						+ permissions.bytes()
-						> MAX_EVENT_BYTES
-				{
-					self.auth = auth::AuthState::Failed;
-					self.status = "Account navigation exceeds safe capacity";
-					return;
-				}
-				let mut permission_state = permissions::Permissions::default();
-				if permission_state.replace(permissions).is_err() {
-					self.auth = auth::AuthState::Failed;
-					self.status = "Permission metadata exceeds safe capacity";
-					return;
-				}
+				let permission_state = match prepared_permissions.map(Ok).unwrap_or_else(|| {
+					let spare_bytes = (guilds.capacity() - guilds.len()) * size_of::<Guild>()
+						+ (channels.capacity() - channels.len()) * size_of::<Channel>();
+					prepare_navigation(&user, &guilds, &channels, permissions, spare_bytes)
+				}) {
+					Ok(permissions) => permissions,
+					Err(status) => {
+						self.auth = auth::AuthState::Failed;
+						self.status = status;
+						return;
+					}
+				};
 				let current: BTreeMap<_, _> = channels
 					.iter()
 					.map(|channel| (channel.id, channel))
@@ -2373,11 +2633,24 @@ impl State {
 }
 
 impl Event {
+	pub fn ready_navigation(&self) -> Option<(&User, &[Guild], &[Channel])> {
+		match self {
+			Self::Ready {
+				user,
+				guilds,
+				channels,
+				..
+			} => Some((user, guilds, channels)),
+			Self::Startup(startup) => Some((&startup.user, &startup.guilds, &startup.channels)),
+			_ => None,
+		}
+	}
 	/// Events that can change channel scope or permission inputs.
 	pub fn changes_access(&self) -> bool {
 		matches!(
 			self,
 			Event::Ready { .. }
+				| Event::Startup(_)
 				| Event::GroupAction(group_actions::Event::Written {
 					result: Ok(None),
 					..
@@ -2418,6 +2691,7 @@ impl Event {
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ match self {
+				Self::Startup(startup) => startup.bytes(),
 				Self::MessagingPermissions { result, .. } => result
 					.as_ref()
 					.map_or(0, model::messaging_permissions::Snapshot::bytes),
@@ -3137,7 +3411,7 @@ mod tests {
 			roles: Some(vec![]),
 		};
 		let mut state = State::default();
-		let mut guilds: Vec<_> = (1..=32)
+		let mut guilds: Vec<_> = (1..=700)
 			.map(|id| Guild {
 				id: Id(id),
 				name: "Synthetic".into(),

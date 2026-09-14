@@ -189,8 +189,15 @@ impl State {
 		selected: Option<Id>,
 	) {
 		let guild = catalog.guild;
-		if let Some(metadata) = self.permissions.guilds.get_mut(&guild) {
+		if let Some(mut metadata) = self.permissions.guilds.get(&guild).cloned() {
 			metadata.roles = Some(catalog.items.iter().map(Role::permission_role).collect());
+			if self
+				.update_permissions(crate::permissions::Event::Guild(metadata))
+				.is_err()
+			{
+				self.fail(crate::auth::Failure::Capacity);
+				return;
+			}
 		}
 		if let Some(page) = &mut self.server_admin.members {
 			page.roles = catalog

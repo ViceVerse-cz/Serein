@@ -1,4 +1,5 @@
 //! UI-neutral session entities. No filesystem or network dependencies.
+pub mod account;
 pub mod archives;
 mod channel_preferences;
 pub mod messaging_permissions;

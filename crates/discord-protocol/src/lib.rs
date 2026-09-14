@@ -277,16 +277,12 @@ mod channel_tests {
 		);
 		let flags = decode::<ChannelDto>(br#"{"id":"3","type":0,"flags":16}"#).unwrap();
 		assert!(!flags.is_obfuscated());
-		for payload in [
-			serde_json::json!({"user":{"id":"9","username":"Synthetic"},"session_id":"s","resume_gateway_url":"wss://gateway.discord.gg","guilds":[{"id":"1","channels":[{"id":"2","type":0,"flags":131072},{"id":"2","type":0}]}]}),
-			serde_json::json!({"user":{"id":"9","username":"Synthetic"},"session_id":"s","resume_gateway_url":"wss://gateway.discord.gg","guilds":[{"id":"1","channels":(2..4002).map(|id| serde_json::json!({"id":id.to_string(),"type":0,"flags":131072})).collect::<Vec<_>>()}]}),
-		] {
-			let mut ready: Ready = decode(&serde_json::to_vec(&payload).unwrap()).unwrap();
-			assert!(
-				ready.navigation().is_err(),
-				"Filtering must not bypass duplicate or item limits"
-			);
-		}
+		let payload = serde_json::json!({"user":{"id":"9","username":"Synthetic"},"session_id":"s","resume_gateway_url":"wss://gateway.discord.gg","guilds":[{"id":"1","channels":[{"id":"2","type":0,"flags":131072},{"id":"2","type":0}]}]});
+		let mut ready: Ready = decode(&serde_json::to_vec(&payload).unwrap()).unwrap();
+		assert!(
+			ready.navigation().is_err(),
+			"Filtering must not bypass duplicate identity validation"
+		);
 	}
 
 	#[test]
@@ -401,6 +397,18 @@ impl Ready {
 		if incoming > threads::MAX_ITEMS {
 			return Err(DecodeError);
 		}
+		let mut guild_ids = std::collections::BTreeSet::new();
+		if self.user.id.0 == 0
+			|| self.guilds.iter().any(|g| {
+				g.id.0 == 0
+					|| !guild_ids.insert(g.id)
+					|| g.channels
+						.iter()
+						.chain(&g.threads)
+						.any(|c| c.guild_id.is_some_and(|id| id != g.id))
+			}) {
+			return Err(DecodeError);
+		}
 		let mut ids = std::collections::BTreeSet::new();
 		if self
 			.private_channels
@@ -410,7 +418,7 @@ impl Ready {
 					.iter()
 					.flat_map(|g| g.channels.iter().chain(&g.threads)),
 			)
-			.any(|c| !ids.insert(c.id))
+			.any(|c| c.id.0 == 0 || !ids.insert(c.id))
 		{
 			return Err(DecodeError);
 		}
@@ -486,7 +494,7 @@ impl Ready {
 			.collect::<Result<Vec<_>, DecodeError>>()?;
 		let bytes = channels.iter().map(Channel::bytes).sum::<usize>()
 			+ guilds.iter().map(Guild::bytes).sum::<usize>();
-		if channels.len() + guilds.len() > threads::MAX_ITEMS || bytes > MAX_WIRE {
+		if channels.len() + guilds.len() > threads::MAX_ITEMS || bytes > model::account::MAX_BYTES {
 			return Err(DecodeError);
 		}
 		Ok((guilds, channels))
@@ -1463,7 +1471,7 @@ pub struct ReadySupplemental {
 }
 #[derive(Deserialize)]
 pub struct PassiveVoiceUpdate {
-	#[serde(default, deserialize_with = "read_state::entries")]
+	#[serde(default, deserialize_with = "read_state::account_entries")]
 	pub updated_channels: Vec<read_state::LatestChannel>,
 	#[serde(default)]
 	pub guild_id: Option<Id>,

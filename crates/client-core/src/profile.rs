@@ -254,7 +254,12 @@ impl State {
 			.filter(|recipient| recipient.id == user.id)
 			.map(|recipient| user.heap_bytes().saturating_sub(recipient.heap_bytes()))
 			.sum::<usize>();
-		if self.navigation_bytes().saturating_add(extra) > crate::MAX_EVENT_BYTES {
+		if self
+			.navigation_bytes()
+			.saturating_add(extra)
+			.saturating_add(self.permissions.bytes())
+			> model::account::MAX_BYTES
+		{
 			return false;
 		}
 		self.user = Some(user.clone());

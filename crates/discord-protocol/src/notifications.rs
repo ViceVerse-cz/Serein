@@ -25,7 +25,9 @@ pub struct Override {
 	pub message_notifications: Option<u8>,
 }
 #[derive(Deserialize)]
-pub struct Overrides(#[serde(deserialize_with = "crate::read_state::entries")] pub Vec<Override>);
+pub struct Overrides(
+	#[serde(deserialize_with = "crate::read_state::account_entries")] pub Vec<Override>,
+);
 #[derive(Deserialize)]
 pub struct Setting {
 	pub guild_id: Option<Id>,
@@ -44,12 +46,12 @@ pub struct Setting {
 #[serde(untagged)]
 pub enum Snapshot {
 	Versioned {
-		#[serde(deserialize_with = "crate::read_state::entries")]
+		#[serde(deserialize_with = "crate::read_state::account_entries")]
 		entries: Vec<Setting>,
 		#[serde(default)]
 		partial: bool,
 	},
-	Legacy(#[serde(deserialize_with = "crate::read_state::entries")] Vec<Setting>),
+	Legacy(#[serde(deserialize_with = "crate::read_state::account_entries")] Vec<Setting>),
 }
 impl Snapshot {
 	pub fn entries(self) -> (Vec<Setting>, bool) {
@@ -139,8 +141,7 @@ mod tests {
 			None
 		);
 		assert_eq!(crate::decode::<Sessions>(br#"[]"#).unwrap().dnd(), None);
-		let oversized =
-			serde_json::json!({"entries":vec![serde_json::json!({"guild_id":null});4001]});
+		let oversized = serde_json::json!({"entries":vec![serde_json::json!({"guild_id":null});model::account::MAX_ENTRIES+1]});
 		assert!(crate::decode::<Snapshot>(&serde_json::to_vec(&oversized).unwrap()).is_err());
 	}
 }

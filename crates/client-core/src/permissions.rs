@@ -6,7 +6,8 @@ use std::{
 	collections::{BTreeMap, BTreeSet},
 };
 
-pub const MAX_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_BYTES: usize = model::account::MAX_PERMISSION_BYTES;
+const MAX_DECISIONS: usize = 4000;
 #[derive(Default)]
 pub struct Permissions {
 	cache: RefCell<BTreeMap<(Id, Id, Id), Decision>>,
@@ -112,7 +113,7 @@ impl Permissions {
 			.filter(|until| *until > now)
 			.unwrap_or(i64::MAX);
 		let mut cache = self.cache.borrow_mut();
-		if cache.len() >= crate::MAX_NAV && !cache.contains_key(&key) {
+		if cache.len() >= MAX_DECISIONS && !cache.contains_key(&key) {
 			cache.clear();
 		}
 		cache.insert(
@@ -132,19 +133,19 @@ impl Permissions {
 	}
 	fn valid(&self) -> bool {
 		self.guilds.len() + self.channels.len() <= crate::MAX_NAV
-			&& self.bytes() + crate::MAX_NAV * 128 <= MAX_BYTES
+			&& self.bytes() + MAX_DECISIONS * 128 <= MAX_BYTES
 			&& self
 				.guilds
 				.values()
 				.map(|g| g.roles.as_ref().map_or(0, Vec::len))
 				.sum::<usize>()
-				<= 16_384
+				<= model::account::MAX_ROLES
 			&& self
 				.channels
 				.values()
 				.map(|c| c.overwrites.as_ref().map_or(0, Vec::len))
 				.sum::<usize>()
-				<= 32_768
+				<= model::account::MAX_OVERWRITES
 			&& self.guilds.values().all(|g| {
 				g.id.0 != 0
 					&& g.roles.as_ref().is_none_or(|roles| {
@@ -380,6 +381,19 @@ impl Permissions {
 }
 
 impl State {
+	pub(crate) fn update_permissions(&mut self, event: Event) -> Result<(), &'static str> {
+		let result = self.permissions.update(event).and_then(|()| {
+			if self.navigation_bytes() + self.permissions.bytes() > model::account::MAX_BYTES {
+				Err("Account navigation exceeds safe capacity")
+			} else {
+				Ok(())
+			}
+		});
+		if result.is_err() {
+			self.permissions = Permissions::default();
+		}
+		result
+	}
 	/// Highest separately displayed role, then highest role carrying a name color.
 	pub fn member_roles(
 		&self,

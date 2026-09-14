@@ -5,10 +5,24 @@
 The [Gateway](https://docs.discord.com/developers/events/gateway) documents zlib-stream
 transport compression but no READY size; a normal account's READY (unofficial, inlines every
 server's channels, roles, emojis and user settings) is routinely larger than 4 MiB decompressed.
-The Gateway transport, outer packet, READY and READY_SUPPLEMENTAL decoders now accept up to
-64 MiB; per-event decoders, REST bodies and retained projections keep their 4 MiB or smaller
-limits. Verified only with a synthetic offline WebSocket; the affected account's live payload
-was not inspected. See docs/authentication.md.
+The Gateway transport, outer packet, READY and READY_SUPPLEMENTAL decoders accept up to
+64 MiB. Ordinary dispatch decoders and REST bodies retain their existing limits. Account
+navigation and permission projections support 131,072 entries, subject to a combined
+128 MiB estimated allocation budget and a 64 MiB permission sub-budget. These are finite
+client safety ceilings, not Discord quotas or a whole-process memory guarantee.
+
+READY read state, notification settings, session/friend presence and individual guild emoji
+catalogs decode independently. Rejected optional sections remain unavailable and produce a
+bounded feature warning; they do not abort otherwise valid login. Unknown read state is not
+treated as read, and unknown notification settings or DND suppress desktop alerts. Identity,
+session/resume address, relationships, navigation, permissions and voice data remain strict.
+Supplemental optional metadata follows the same policy. No raw payload or parser error is logged.
+
+The Gateway prepares the permission mirror before transferring one atomic startup event to
+the UI. Its single reserved slot permits up to 128 MiB while ordinary events retain their
+4 MiB limit and separate 32 MiB queue budget. Subsequent channel/thread updates use the same
+account capacity as login. Verified with synthetic offline data only; issue #154's affected
+build and exact live payload remain unknown. See docs/authentication.md.
 
 ## Received forwards — September 13, 2026
 

@@ -7,6 +7,7 @@ const MAX_OBSERVED: usize = 4096;
 const MAX_OBSERVED_BYTES: usize = 128 * 1024;
 const MAX_NOTIFICATIONS: usize = 32;
 const MAX_NOTIFICATION_BYTES: usize = 16 * 1024;
+const MAX_SETTINGS_BYTES: usize = 32 * 1024 * 1024;
 
 pub struct Notification {
 	pub channel: Id,
@@ -111,6 +112,13 @@ pub struct Setting {
 	pub channels: Vec<(Id, Option<bool>, Option<u8>)>,
 	pub channel_mute_until: Vec<(Id, i64)>,
 }
+impl Setting {
+	fn bytes(&self) -> usize {
+		size_of::<Self>()
+			+ self.channels.capacity() * size_of::<(Id, Option<bool>, Option<u8>)>()
+			+ self.channel_mute_until.capacity() * size_of::<(Id, i64)>()
+	}
+}
 pub enum Event {
 	Settings {
 		entries: Vec<Setting>,
@@ -142,6 +150,31 @@ pub struct Preferences {
 	dnd: Option<bool>,
 }
 impl State {
+	pub(crate) fn invalidate_startup_preferences(&mut self, settings: bool, sessions: bool) {
+		if settings {
+			self.notification_preferences.settings.clear();
+		}
+		if sessions {
+			self.notification_preferences.dnd = None;
+		}
+		self.read_state.activity.clear_notifications();
+	}
+	fn check_notification_capacity(&mut self) -> Result<(), &'static str> {
+		let settings = &self.notification_preferences.settings;
+		if settings.len() > MAX_NAV
+			|| settings
+				.values()
+				.map(|setting| setting.bytes() + 64)
+				.sum::<usize>()
+				> MAX_SETTINGS_BYTES
+		{
+			self.notification_preferences.settings.clear();
+			self.startup_warnings.notifications = true;
+			self.read_state.activity.clear_notifications();
+			return Err("Notification settings exceed safe byte capacity");
+		}
+		Ok(())
+	}
 	pub fn guild_channel_muted(&self, channel: Id) -> Option<bool> {
 		let guild = self.channel(channel)?.guild?;
 		let setting = self.notification_preferences.settings.get(&Some(guild));
@@ -192,7 +225,7 @@ impl State {
 			}
 			setting.channel_mute_until.push((channel, until));
 		}
-		Ok(())
+		self.check_notification_capacity()
 	}
 	pub(crate) fn confirm_channel_preferences(
 		&mut self,
@@ -234,7 +267,7 @@ impl State {
 			setting.channels.push((channel, muted, level));
 		}
 		self.read_state.activity.clear_notifications();
-		Ok(())
+		self.check_notification_capacity()
 	}
 
 	/// Per-DM notification override; absent settings remain unknown outside the fixture.
@@ -280,7 +313,7 @@ impl State {
 			setting.channels.push((channel, Some(muted), None));
 		}
 		self.read_state.activity.clear_notifications();
-		Ok(())
+		self.check_notification_capacity()
 	}
 	/// Latest known message activity, retained across deletion for navigation ordering.
 	pub fn channel_activity(&self, channel: &model::Channel) -> Id {
@@ -407,12 +440,17 @@ impl State {
 	pub fn apply_notification_preferences(&mut self, event: Event) -> Result<(), &'static str> {
 		self.observe_dm_settings(&event);
 		self.read_state.activity.clear_notifications();
-		if event.bytes() > 512 * 1024 {
+		if event.bytes() > MAX_SETTINGS_BYTES {
 			self.notification_preferences = Preferences::default();
 			return Err("Notification settings exceed safe byte capacity");
 		}
 		match event {
-			Event::Presence(dnd) => self.notification_preferences.dnd = dnd,
+			Event::Presence(dnd) => {
+				self.notification_preferences.dnd = dnd;
+				if dnd.is_some() {
+					self.startup_warnings.sessions = false;
+				}
+			}
 			Event::Invalidate => self.notification_preferences = Preferences::default(),
 			Event::Settings { entries, replace } => {
 				let keys: BTreeSet<_> = entries.iter().map(|s| s.guild).collect();
@@ -426,9 +464,21 @@ impl State {
 				let overrides = entries.iter().map(|s| s.channels.len()).sum::<usize>();
 				let old_overrides: usize = old.iter().map(|s| s.channels.len()).sum();
 				if old.len().saturating_add(entries.len()) > MAX_NAV
+					|| old
+						.iter()
+						.map(|setting| setting.bytes() + 64)
+						.sum::<usize>() + entries
+						.iter()
+						.map(|setting| setting.bytes() + 64)
+						.sum::<usize>() > MAX_SETTINGS_BYTES
 					|| overrides.saturating_add(old_overrides) > MAX_NAV
 					|| keys.len() != entries.len()
 					|| entries.iter().any(|s| {
+						let channels: BTreeMap<_, _> = s
+							.channels
+							.iter()
+							.map(|(id, muted, _)| (*id, *muted))
+							.collect();
 						if s.channel_mute_until.len() > s.channels.len()
 							|| s.channel_mute_until
 								.iter()
@@ -436,19 +486,11 @@ impl State {
 								.collect::<BTreeSet<_>>()
 								.len() != s.channel_mute_until.len()
 							|| s.channel_mute_until.iter().any(|(id, until)| {
-								*until < 0
-									|| !s
-										.channels
-										.iter()
-										.any(|(c, m, _)| c == id && *m == Some(true))
+								*until < 0 || channels.get(id) != Some(&Some(true))
 							}) {
 							return true;
 						}
-						s.channels
-							.iter()
-							.map(|(id, ..)| *id)
-							.collect::<BTreeSet<_>>()
-							.len() != s.channels.len()
+						channels.len() != s.channels.len()
 					}) {
 					self.notification_preferences = Preferences::default();
 					return Err(
@@ -457,6 +499,7 @@ impl State {
 				}
 				if replace {
 					self.notification_preferences.settings.clear();
+					self.startup_warnings.notifications = false;
 				}
 				for setting in entries {
 					self.notification_preferences

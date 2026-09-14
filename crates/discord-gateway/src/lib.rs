@@ -759,11 +759,14 @@ async fn run_inner(
 									"READY" => {
 										direct_presence=presence::Pending::default();
 										active_members=None;members_deadline=None;sent_members = !subscriptions_open;
-										let envelope = ready::decode(packet.d.get().as_bytes()).map_err(|_| Failure::ProtocolAt("Gateway login: unsupported READY payload"))?;
+										let envelope = ready::decode(packet.d.get().as_bytes()).map_err(|_| Failure::ProtocolAt("Gateway login: invalid READY identity or relationships"))?;
 										if envelope.user.bot { return Err(Failure::InvalidCredential); }
 										let permissions = envelope.permissions().map_err(|_|Failure::ProtocolAt("Gateway login: invalid permission metadata"))?;
-										let mut ready = envelope.navigation().map_err(|_| Failure::ProtocolAt("Gateway login: unsupported READY payload"))?;
+										let (mut ready, warnings) = envelope.navigation().map_err(|_| Failure::ProtocolAt("Gateway login: invalid READY guild or channel metadata"))?;
 										owner_id=Some(ready.user.id);
+										if ready.user.username.is_empty() || ready.user.username.len() > 128 || ready.user.username.chars().any(char::is_control) || ready.session_id.is_empty() || ready.session_id.chars().any(char::is_control) {
+											return Err(Failure::ProtocolAt("Gateway login: invalid account identity or session ID"));
+										}
 										if ready.session_id.len() > 2048 { return Err(Failure::CapacityAt("Gateway session ID exceeds 2 KiB; connection stopped")); }
 										state.url = Some(validated_url(&ready.resume_gateway_url).map_err(|f|f.protocol_at("Gateway login: resume address rejected"))?);
 										state.session = Some(Zeroizing::new(std::mem::take(&mut ready.session_id)));
@@ -785,11 +788,19 @@ async fn run_inner(
 										}
 										let (guilds, channels) = ready.navigation().map_err(|_| Failure::ProtocolAt("Gateway login: invalid or oversized channel/thread navigation"))?;
 										let (read_entries,read_version,partial)=ready.read_state.take().map_or((None,None,false),|snapshot|(Some(snapshot.entries.into_iter().filter(|e|e.kind==0).map(|e|(e.id,e.last_message_id,e.mention_count)).collect()),snapshot.version,snapshot.partial));
-										if guilds.len() + channels.len() > MAX_NAV { return Err(Failure::CapacityAt("Account navigation exceeds 4,000 entries; connection stopped")); }
+										if guilds.len() + channels.len() > MAX_NAV { return Err(Failure::CapacityAt("Account navigation exceeds 131,072 entries; connection stopped")); }
 										direct_presence.bootstrap_users=friends.as_ref().into_iter().flatten().map(|(u,_)|u.id).chain(channels.iter().filter(|c|c.guild.is_none() && matches!(c.kind,1|3)).flat_map(|c|c.recipients.iter().map(|u|u.id))).take(client_core::presence::MAX_DIRECT_PRESENCES).collect();
 										calls.allowed=channels.iter().filter(|c|(c.guild.is_none() && c.kind==1 && c.recipients.len()==1) || (c.guild.is_some() && c.kind==2)).map(|c|(c.id,c.guild)).collect();
 										if was_ready { emit(Event::Resync)?; }
-										emit(Event::Ready { user: ready.user.into_model(), guilds, channels, permissions })?; was_ready = true;
+										let notifications = ready.user_guild_settings.take().map(|snapshot| {
+											let (entries, replace) = snapshot.entries();
+											notification_preferences(entries, replace)
+										});
+										emit(Event::Startup(Box::new(client_core::Startup {
+											user: ready.user.into_model(), guilds, channels, permissions,
+											read_state: client_core::read_state::Event::Snapshot {entries:read_entries,version:read_version,partial},
+											notifications, session_dnd: ready.sessions.as_ref().and_then(|s| s.dnd()), warnings,
+										}.prepare()?)))?; was_ready = true;
 
 										let nicknames = ready.relationships.as_ref().map(|s| s.nicknames());
 										emit(Event::UserAction(client_core::user_actions::Event::Relationships(ready.relationships.take().map(|s| s.entries()))))?;
@@ -799,17 +810,12 @@ async fn run_inner(
 										if let Some(friends) = ready.merged_presences.as_ref().and_then(|m| m.friends.as_deref()).or(ready.presences.as_deref()) {
 											direct_presence.friends(friends, Instant::now(), &emit)?;
 										}
-										emit(Event::ReadState(client_core::read_state::Event::Snapshot{entries:read_entries,version:read_version,partial}))?;
-										if let Some(snapshot) = ready.user_guild_settings.take() {
-											let (entries,replace)=snapshot.entries();
-											emit(notification_settings(entries,replace))?;
-										}
-										if let Some(sessions) = ready.sessions.as_ref() { emit(Event::NotificationPreferences(client_core::notifications::Event::Presence(sessions.dnd())))?; }
 										if !participants.is_empty() { emit(Event::Voice(client_core::voice::Event::Snapshot { partial: false, guild: None, participants }))?; }
 										ready_at = Some(Instant::now());
 									}
 									"READY_SUPPLEMENTAL" => {
-										let mut extra: ReadySupplemental = decode_gateway(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;
+										let (mut extra, warnings) = ready::supplemental(packet.d.get().as_bytes()).map_err(|_|Failure::ProtocolAt("Gateway login: invalid supplemental guild or voice metadata"))?;
+										if warnings != model::account::Warnings::default() { emit(Event::StartupWarnings(warnings))?; }
 										if let Some(friends) = extra.merged_presences.as_ref().and_then(|m| m.friends.as_deref()).or(extra.presences.as_deref()) {
 											direct_presence.friends(friends, Instant::now(), &emit)?;
 										}
@@ -819,7 +825,7 @@ async fn run_inner(
 											if !updates.is_empty() {emit(Event::Permissions(client_core::permissions::Event::Members(updates)))?;}
 										}
 
-										if extra.guilds.len() > MAX_NAV || extra.merged_members.len() > MAX_NAV { return Err(Failure::CapacityAt("Supplemental login exceeds 4,000 server groups; connection stopped")); }
+										if extra.guilds.len() > MAX_NAV || extra.merged_members.len() > MAX_NAV { return Err(Failure::CapacityAt("Supplemental login exceeds 131,072 server groups; connection stopped")); }
 										let mut participants = Vec::new();
 										let mut roster_bytes = 0;
 										for (index, guild) in extra.guilds.iter_mut().enumerate() {
@@ -1038,7 +1044,13 @@ fn notification_settings(
 	entries: Vec<discord_protocol::notifications::Setting>,
 	replace: bool,
 ) -> Event {
-	Event::NotificationPreferences(client_core::notifications::Event::Settings {
+	Event::NotificationPreferences(notification_preferences(entries, replace))
+}
+fn notification_preferences(
+	entries: Vec<discord_protocol::notifications::Setting>,
+	replace: bool,
+) -> client_core::notifications::Event {
+	client_core::notifications::Event::Settings {
 		entries: entries
 			.into_iter()
 			.map(|s| client_core::notifications::Setting {
@@ -1070,7 +1082,7 @@ fn notification_settings(
 			})
 			.collect(),
 		replace,
-	})
+	}
 }
 
 #[cfg(test)]
@@ -1430,12 +1442,12 @@ mod tests {
                 Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
                 "wss://gateway.discord.gg/".into(),watch::channel(None).1,mpsc::channel(1).1,None,
                 |event| {
-                    if let Event::Ready { channels, permissions, .. } = &event {
+					if let Event::Startup(startup) = &event {
+						let (channels, permissions) = (&startup.channels, startup.permission_state());
                         assert!(channels.iter().any(|c| c.id == Id(5) && c.guild == Some(Id(2))));
-                        assert_eq!(permissions.guilds[0].owner,Some(Id(9)));
-                        assert_eq!(permissions.guilds[0].member.as_ref().unwrap().roles,Vec::<Id>::new());
-                    }
-                    if let Event::ReadState(client_core::read_state::Event::Snapshot {entries,version,partial})=&event {
+                        assert_eq!(permissions.guilds[&Id(2)].owner,Some(Id(9)));
+                        assert_eq!(permissions.guilds[&Id(2)].member.as_ref().unwrap().roles,Vec::<Id>::new());
+						let client_core::read_state::Event::Snapshot {entries,version,partial} = &startup.read_state else { panic!("startup read snapshot missing") };
                         assert!(entries.as_ref().is_some_and(Vec::is_empty));
                         assert_eq!(*version,None);
                         assert!(!partial);
@@ -1597,7 +1609,7 @@ mod tests {
 				None,
 				|event| {
 					let label = match event {
-						Event::Ready { .. } => "ready",
+						Event::Startup(_) => "ready",
 						Event::Resumed => "resumed",
 						Event::DirectPresence(_) => "presence",
 						Event::Resync => "resync",
@@ -1712,7 +1724,7 @@ mod tests {
 				"wss://gateway.discord.gg/".into(), watch::channel(None).1, receive, None,
 				|event| {
 					match event {
-						Event::Ready { .. } => controls.try_send(V::Sync { channel: Id(2) }).unwrap(),
+						Event::Startup(_) => controls.try_send(V::Sync { channel: Id(2) }).unwrap(),
 						Event::Voice(E::Call { channel, ringing, participants, unavailable }) => {
 							assert_eq!(channel, Id(2));
 							assert_eq!(ringing, Some(vec![]));
@@ -1759,7 +1771,7 @@ mod tests {
             };
             let client=run_inner(Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),"wss://gateway.discord.gg/".into(),watch::channel(None).1,receive,None,|event| {
                 match event {
-                    Event::Ready{..}=>controls.try_send(V::Join{channel:Id(2),request:7,ring:false}).unwrap(),
+                    Event::Startup(_)=>controls.try_send(V::Join{channel:Id(2),request:7,ring:false}).unwrap(),
                     Event::Voice(E::State{request,session,..})=>{assert_eq!(request,Some(7));assert_eq!(session.unwrap().expose(),"synthetic-call-session");},
                     Event::Voice(E::Server{request,token,..})=>{assert_eq!(request,7);assert_eq!(token.unwrap().expose(),"synthetic-call-token");controls.try_send(V::Leave{channel:Id(2),request}).unwrap();},
                     _=>{},

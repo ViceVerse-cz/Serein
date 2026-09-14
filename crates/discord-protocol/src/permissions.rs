@@ -7,8 +7,9 @@ use serde::{
 };
 use std::{collections::BTreeSet, marker::PhantomData};
 
-const MAX_ITEMS: usize = 4000;
-const MAX_BYTES: usize = 2 * 1024 * 1024;
+const MAX_ITEMS: usize = model::account::MAX_ENTRIES;
+const MAX_BYTES: usize = model::account::MAX_PERMISSION_BYTES;
+const MAX_MEMBERS: usize = 4000;
 
 pub(crate) struct List<T, const N: usize>(pub(crate) Vec<T>);
 impl<T, const N: usize> Default for List<T, N> {
@@ -204,7 +205,7 @@ struct Guild {
 	#[serde(default)]
 	roles: Option<List<Role, 512>>,
 	#[serde(default)]
-	members: List<Member, MAX_ITEMS>,
+	members: List<Member, MAX_MEMBERS>,
 	#[serde(default)]
 	channels: List<Channel, MAX_ITEMS>,
 }
@@ -225,7 +226,7 @@ struct Ready {
 	#[serde(default)]
 	guilds: List<Guild, MAX_ITEMS>,
 	#[serde(default)]
-	merged_members: Option<List<List<Member, MAX_ITEMS>, MAX_ITEMS>>,
+	merged_members: Option<List<List<Member, MAX_MEMBERS>, MAX_ITEMS>>,
 }
 fn nonzero(id: Id) -> Result<(), DecodeError> {
 	if id.0 == 0 { Err(DecodeError) } else { Ok(()) }
@@ -263,24 +264,21 @@ fn self_member(
 	Ok(selected)
 }
 fn checked_snapshot(
-	guilds: Vec<Guild>,
-	mut merged: Option<Vec<List<Member, MAX_ITEMS>>>,
+	guilds: impl IntoIterator<Item = Result<(Guild, Vec<Member>), DecodeError>>,
 	user: Id,
 ) -> Result<p::Snapshot, DecodeError> {
 	nonzero(user)?;
-	if merged
-		.as_ref()
-		.is_some_and(|rows| rows.len() != guilds.len())
-	{
-		return Err(DecodeError);
-	}
 	let mut snapshot = p::Snapshot {
 		guilds: Vec::new(),
 		channels: Vec::new(),
 	};
 	let mut guild_ids = BTreeSet::new();
 	let mut channel_ids = BTreeSet::new();
-	for (index, guild) in guilds.into_iter().enumerate() {
+	let mut bytes = 0;
+	let mut role_count = 0;
+	let mut overwrite_count = 0;
+	for row in guilds {
+		let (guild, extra) = row?;
 		nonzero(guild.id)?;
 		if !guild_ids.insert(guild.id) {
 			return Err(DecodeError);
@@ -305,10 +303,6 @@ fn checked_snapshot(
 					.collect::<Result<Vec<_>, DecodeError>>()
 			})
 			.transpose()?;
-		let extra = merged
-			.as_mut()
-			.map(|rows| std::mem::take(&mut rows[index].0))
-			.unwrap_or_default();
 		let member = self_member(
 			guild.members.0.into_iter().chain(extra),
 			user,
@@ -325,12 +319,15 @@ fn checked_snapshot(
 			}),
 			_ => None,
 		});
-		snapshot.guilds.push(p::Guild {
+		role_count += roles.as_ref().map_or(0, Vec::len);
+		let retained_guild = p::Guild {
 			id: guild.id,
 			owner,
 			roles,
 			member,
-		});
+		};
+		bytes += retained_guild.bytes();
+		snapshot.guilds.push(retained_guild);
 		for channel in guild.channels.0 {
 			nonzero(channel.id)?;
 			if !channel_ids.insert(channel.id) || channel.guild_id.is_some_and(|id| id != guild.id)
@@ -343,41 +340,49 @@ fn checked_snapshot(
 			};
 			// Threads use the admitted parent's overwrites; hidden channels never become permission sources.
 			if channel.flags & (1 << 17) == 0 && !matches!(channel.kind, Some(10..=12)) {
-				snapshot.channels.push(p::Channel {
+				overwrite_count += overwrites.as_ref().map_or(0, Vec::len);
+				let retained_channel = p::Channel {
 					id: channel.id,
 					guild: guild.id,
 					overwrites,
-				});
+				};
+				bytes += retained_channel.bytes();
+				snapshot.channels.push(retained_channel);
 			}
 		}
-		if snapshot.guilds.len() + snapshot.channels.len() > MAX_ITEMS {
+		if guild_ids.len() + channel_ids.len() > MAX_ITEMS
+			|| bytes > MAX_BYTES
+			|| role_count > model::account::MAX_ROLES
+			|| overwrite_count > model::account::MAX_OVERWRITES
+		{
 			return Err(DecodeError);
 		}
 	}
 	snapshot.guilds.shrink_to_fit();
 	snapshot.channels.shrink_to_fit();
-	if snapshot.bytes() > MAX_BYTES
-		|| snapshot
-			.guilds
-			.iter()
-			.map(|g| g.roles.as_ref().map_or(0, Vec::len))
-			.sum::<usize>()
-			> 16_384
-		|| snapshot
-			.channels
-			.iter()
-			.map(|c| c.overwrites.as_ref().map_or(0, Vec::len))
-			.sum::<usize>()
-			> 32_768
-	{
+	if snapshot.bytes() > MAX_BYTES {
 		return Err(DecodeError);
 	}
 	Ok(snapshot)
 }
 /// Decode separately from navigation: missing metadata must remain unknown, and voice may consume members.
 pub fn ready(bytes: &[u8], user: Id) -> Result<p::Snapshot, DecodeError> {
-	let ready: Ready = decode_gateway(bytes)?;
-	checked_snapshot(ready.guilds.0, ready.merged_members.map(|m| m.0), user)
+	#[derive(Deserialize)]
+	struct Fields<'a> {
+		#[serde(default = "crate::ready::empty_array", borrow)]
+		guilds: &'a serde_json::value::RawValue,
+		#[serde(default, borrow)]
+		merged_members: Option<&'a serde_json::value::RawValue>,
+	}
+	if bytes.len() > crate::MAX_GATEWAY_WIRE {
+		return Err(DecodeError);
+	}
+	let fields: Fields<'_> = serde_json::from_slice(bytes).map_err(|_| DecodeError)?;
+	ready_fields(
+		fields.guilds.get().as_bytes(),
+		fields.merged_members.map(|m| m.get().as_bytes()),
+		user,
+	)
 }
 /// The gateway envelope is parsed once; each consumer validates only its own fields.
 pub fn ready_fields(
@@ -385,13 +390,38 @@ pub fn ready_fields(
 	merged: Option<&[u8]>,
 	user: Id,
 ) -> Result<p::Snapshot, DecodeError> {
-	let guilds: List<Guild, MAX_ITEMS> = decode_gateway(guilds)?;
-	let merged: Option<List<List<Member, MAX_ITEMS>, MAX_ITEMS>> =
-		merged.map(decode_gateway).transpose()?;
-	checked_snapshot(guilds.0, merged.map(|m| m.0), user)
+	if guilds.len() > crate::MAX_GATEWAY_WIRE
+		|| merged.is_some_and(|m| m.len() > crate::MAX_GATEWAY_WIRE)
+	{
+		return Err(DecodeError);
+	}
+	let guilds: List<&serde_json::value::RawValue, MAX_ITEMS> =
+		serde_json::from_slice(guilds).map_err(|_| DecodeError)?;
+	let merged: Option<List<&serde_json::value::RawValue, MAX_ITEMS>> = merged
+		.map(serde_json::from_slice)
+		.transpose()
+		.map_err(|_| DecodeError)?;
+	if merged
+		.as_ref()
+		.is_some_and(|rows| rows.0.len() != guilds.0.len())
+	{
+		return Err(DecodeError);
+	}
+	checked_snapshot(
+		guilds.0.into_iter().enumerate().map(|(index, guild)| {
+			let guild: Guild = decode_gateway(guild.get().as_bytes())?;
+			let members: List<Member, MAX_MEMBERS> = merged
+				.as_ref()
+				.map(|rows| decode_gateway(rows.0[index].get().as_bytes()))
+				.transpose()?
+				.unwrap_or_default();
+			Ok((guild, members.0))
+		}),
+		user,
+	)
 }
 pub fn guild(bytes: &[u8], user: Id) -> Result<p::Snapshot, DecodeError> {
-	checked_snapshot(vec![decode(bytes)?], None, user)
+	checked_snapshot([Ok((decode(bytes)?, Vec::new()))], user)
 }
 pub fn role(bytes: &[u8]) -> Result<(Id, p::Role), DecodeError> {
 	#[derive(Deserialize)]
@@ -445,7 +475,7 @@ pub fn passive(bytes: &[u8], user: Id) -> Result<Option<MemberUpdate>, DecodeErr
 		#[serde(default)]
 		guild_id: Option<Id>,
 		#[serde(default)]
-		updated_members: List<Member, MAX_ITEMS>,
+		updated_members: List<Member, MAX_MEMBERS>,
 	}
 	let update: Update = decode(bytes)?;
 	passive_member(update.guild_id, update.updated_members.0, user)
@@ -455,7 +485,7 @@ pub fn passive_fields(
 	members: &[u8],
 	user: Id,
 ) -> Result<Option<MemberUpdate>, DecodeError> {
-	let members: List<Member, MAX_ITEMS> = decode(members)?;
+	let members: List<Member, MAX_MEMBERS> = decode(members)?;
 	passive_member(guild, members.0, user)
 }
 fn passive_member(
@@ -782,7 +812,7 @@ mod tests {
 		let guilds: Vec<_> = (1..=33).map(|guild| json!({"id":guild.to_string(),"roles":(100..612).map(|id| json!({"id":id.to_string(),"permissions":"0"})).collect::<Vec<_>>()})).collect();
 		let bytes = serde_json::to_vec(&json!({"guilds":guilds})).unwrap();
 		assert!(bytes.len() < crate::MAX_WIRE);
-		assert!(ready(&bytes, Id(9)).is_err());
+		assert!(ready(&bytes, Id(9)).is_ok());
 		let channels: Vec<_> = (10..43).map(|id| json!({"id":id.to_string(),"type":0,"permission_overwrites":
             (100..1100).map(|role| json!({"id":role.to_string(),"type":0,"allow":"0","deny":"0"})).collect::<Vec<_>>()
         })).collect();
@@ -790,8 +820,8 @@ mod tests {
 			serde_json::to_vec(&json!({"guilds":[{"id":"1","channels":channels}]})).unwrap();
 		assert!(bytes.len() < crate::MAX_WIRE);
 		assert!(
-			ready(&bytes, Id(9)).is_err(),
-			"Aggregate retained overwrite and byte limits apply below the wire limit"
+			ready(&bytes, Id(9)).is_ok(),
+			"Normal accounts can exceed the old aggregate overwrite and byte limits"
 		);
 	}
 }

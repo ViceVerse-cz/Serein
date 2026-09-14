@@ -14,6 +14,233 @@ const BITS: u128 = p::VIEW_CHANNEL
 	| p::SPEAK
 	| p::USE_VAD;
 
+fn large_startup() -> crate::Startup {
+	let mut startup = crate::Startup {
+		user: user(),
+		guilds: vec![],
+		channels: vec![],
+		permissions: p::Snapshot::default(),
+		read_state: crate::read_state::Event::Snapshot {
+			entries: None,
+			version: None,
+			partial: false,
+		},
+		notifications: None,
+		session_dnd: Some(false),
+		warnings: Default::default(),
+	};
+	let mut reads = Vec::new();
+	let mut settings = Vec::new();
+	for guild in 100..300 {
+		let mut permission_guild = snapshot().guilds.remove(0);
+		permission_guild.id = Id(guild);
+		permission_guild.roles.as_mut().unwrap()[0].id = Id(guild);
+		startup.permissions.guilds.push(permission_guild);
+		startup.guilds.push(Guild {
+			id: Id(guild),
+			name: "Synthetic large account".into(),
+			icon: None,
+			emojis: Some(vec![]),
+		});
+		let mut setting = crate::notifications::Setting {
+			guild: Some(Id(guild)),
+			muted: Some(false),
+			level: Some(0),
+			..Default::default()
+		};
+		for index in 0..100 {
+			let id = guild * 1000 + index;
+			let mut item = channel(id, 0, None);
+			item.guild = Some(Id(guild));
+			item.name = "Synthetic account channel ".repeat(4);
+			item.last_message = Some(Id(id + 1));
+			startup.channels.push(item);
+			startup.permissions.channels.push(p::Channel {
+				id: Id(id),
+				guild: Id(guild),
+				overwrites: Some(vec![]),
+			});
+			reads.push((Id(id), Some(Id(id)), 0));
+			setting.channels.push((Id(id), Some(false), Some(0)));
+		}
+		settings.push(setting);
+	}
+	startup.read_state = crate::read_state::Event::Snapshot {
+		entries: Some(reads),
+		version: Some(1),
+		partial: false,
+	};
+	startup.notifications = Some(crate::notifications::Event::Settings {
+		entries: settings,
+		replace: true,
+	});
+	startup
+}
+
+#[test]
+fn large_startup_retains_permissions_read_state_and_subsequent_channel_threads() {
+	let startup = large_startup();
+	assert!(startup.bytes() > crate::MAX_EVENT_BYTES);
+	let mut state = State::default();
+	apply(
+		&mut state,
+		Event::Startup(Box::new(startup.prepare().unwrap())),
+	);
+	assert_eq!(state.auth, crate::auth::AuthState::Authenticated);
+	assert_eq!((state.guilds.len(), state.channels.len()), (200, 20_000));
+	for item in &state.channels {
+		assert!(state.can_view(item.id));
+		assert_eq!(state.read_marker(item.id), Some(Some(item.id)));
+	}
+	assert!(state.notification_allowed(Id(299_099)));
+	let latest = state
+		.channels
+		.iter()
+		.map(|channel| (channel.id, Patch::Value(Id(channel.id.0 + 2))))
+		.collect();
+	apply(
+		&mut state,
+		Event::ReadState(crate::read_state::Event::Latest(latest)),
+	);
+	assert_eq!(
+		state.channel(Id(299_099)).unwrap().last_message,
+		Some(Id(299_101))
+	);
+	let mut new_channel = channel(999_000, 0, None);
+	new_channel.guild = Some(Id(299));
+	apply(&mut state, Event::ChannelCreated(new_channel));
+	permission(
+		&mut state,
+		PermissionEvent::Channel {
+			channel: Id(999_000),
+			guild: Some(Id(299)),
+			overwrites: Patch::Value(vec![]),
+		},
+	);
+	assert!(state.can_view(Id(999_000)));
+	let mut thread = channel(999_001, 11, Some(Id(999_000)));
+	thread.guild = Some(Id(299));
+	apply(
+		&mut state,
+		Event::ThreadsSync {
+			guild: Id(299),
+			parents: Some(vec![Id(999_000)]),
+			threads: vec![thread],
+			removed: vec![],
+		},
+	);
+	assert_eq!(state.channels.len(), 20_002);
+	assert!(state.can_view(Id(999_001)));
+	permission(
+		&mut state,
+		PermissionEvent::Channel {
+			channel: Id(999_000),
+			guild: Some(Id(299)),
+			overwrites: Patch::Value(vec![p::Overwrite {
+				id: Id(2),
+				kind: 1,
+				allow: 0,
+				deny: p::VIEW_CHANNEL,
+			}]),
+		},
+	);
+	assert!(!state.can_view(Id(999_000)) && !state.can_view(Id(999_001)));
+}
+
+#[test]
+fn invalid_optional_startup_data_is_unknown_and_recovers_only_from_full_snapshots() {
+	let mut startup = large_startup();
+	startup.read_state = crate::read_state::Event::Snapshot {
+		entries: Some(vec![(Id(100_000), None, 0); 2]),
+		version: None,
+		partial: false,
+	};
+	startup.notifications = Some(crate::notifications::Event::Settings {
+		entries: vec![crate::notifications::Setting::default(); 2],
+		replace: true,
+	});
+	startup.warnings.sessions = true;
+	let mut state = State::default();
+	apply(
+		&mut state,
+		Event::Startup(Box::new(startup.prepare().unwrap())),
+	);
+	assert_eq!(state.auth, crate::auth::AuthState::Authenticated);
+	assert!(
+		state.startup_warnings.read_state
+			&& state.startup_warnings.notifications
+			&& state.startup_warnings.sessions
+	);
+	assert_eq!(state.read_marker(Id(100_000)), None);
+	assert!(!state.notification_allowed(Id(100_000)));
+	state
+		.apply_read_state(crate::read_state::Event::Snapshot {
+			entries: Some(vec![(Id(100_000), Some(Id(5)), 0)]),
+			version: None,
+			partial: true,
+		})
+		.unwrap();
+	assert!(state.startup_warnings.read_state);
+	assert_eq!(state.read_marker(Id(100_000)), Some(Some(Id(5))));
+	assert_eq!(state.read_marker(Id(100_001)), None);
+	let replacement = large_startup();
+	state.apply_read_state(replacement.read_state).unwrap();
+	state
+		.apply_notification_preferences(replacement.notifications.unwrap())
+		.unwrap();
+	assert!(!state.startup_warnings.read_state && !state.startup_warnings.notifications);
+	assert!(!state.notification_allowed(Id(100_000)));
+	state
+		.apply_notification_preferences(crate::notifications::Event::Presence(Some(false)))
+		.unwrap();
+	assert!(state.notification_allowed(Id(100_000)));
+	apply(
+		&mut state,
+		Event::StartupWarnings(model::account::Warnings {
+			presence: true,
+			..Default::default()
+		}),
+	);
+	apply(
+		&mut state,
+		Event::StartupWarnings(model::account::Warnings {
+			emojis: true,
+			..Default::default()
+		}),
+	);
+	assert!(state.startup_warnings.presence && state.startup_warnings.emojis);
+	apply(&mut state, Event::Resync);
+	assert_eq!(state.startup_warnings, Default::default());
+	assert!(!state.notification_preferences_known());
+	let generation = state.generation;
+	state.logout();
+	state.apply(Envelope {
+		generation,
+		event: Event::Startup(Box::new(large_startup().prepare().unwrap())),
+	});
+	assert!(state.channels.is_empty());
+	assert_eq!(state.startup_warnings, Default::default());
+}
+
+#[test]
+fn startup_rejects_duplicate_navigation_and_unused_capacity_before_publication() {
+	let mut startup = large_startup();
+	startup.channels[1].id = startup.channels[0].id;
+	assert!(startup.prepare().is_err());
+	let mut state = State::default();
+	apply(
+		&mut state,
+		Event::Ready {
+			user: user(),
+			guilds: vec![],
+			channels: Vec::with_capacity(model::account::MAX_BYTES / size_of::<Channel>() + 1),
+			permissions: p::Snapshot::default(),
+		},
+	);
+	assert_eq!(state.auth, crate::auth::AuthState::Failed);
+	assert!(state.channels.is_empty());
+}
+
 fn user() -> User {
 	User {
 		id: Id(2),

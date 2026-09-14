@@ -1,5 +1,30 @@
 # Local storage policy and audit
 
+## Large account startup (September 14, 2026)
+
+Account navigation supports 131,072 guild/channel entries within 128 MiB of estimated
+navigation and permission storage. The permission mirror has a 64 MiB sub-budget,
+131,072 aggregate roles and 1,048,576 aggregate overwrites; per-object role/overwrite
+validation remains unchanged. Permission decisions still cache at most 4,000 entries.
+Incoming read-state snapshot vectors use at most 131,072 entries / 16 MiB; retained
+read maps are bounded by account channels, with the existing separate activity/alert budgets.
+Notification preferences
+use bounded account collections / 32 MiB. These are on-demand ceilings, not reservations
+or an RSS guarantee. This section supersedes the older account snapshot limits below.
+
+The reliable FIFO retains its 4,008-item capacity; ordinary events share a 32 MiB budget
+and a 4 MiB per-event limit. One startup snapshot may use a separate memory reservation,
+capped at 128 MiB including its metadata, within that same FIFO; consuming or dropping
+it releases the reservation. Concurrent startup snapshots are rejected. Startup buffers,
+the prior account state during replacement, decoding, maps and runtime/allocator overhead
+can add to peak memory. Gateway compression still caps input and output at 64 MiB each.
+
+Rejected optional READY metadata is discarded by section. Only fixed feature-warning flags
+remain; invalid read state stays unknown, and missing settings or DND suppress alerts.
+Fresh READY/logout release stale optional state. Valid authoritative updates can restore
+features. No payload logs, account database changes, background directory fetching, or
+new persistent caches are added.
+
 Cross-server emoji (September 14): browsing and provenance reuse the existing bounded joined
 guild catalogs and avatar cache. Picker search retains at most 1,000 borrowed catalog pairs;
 autocomplete retains at most 256 ranked suggestions, with custom names capped at 32 ASCII bytes

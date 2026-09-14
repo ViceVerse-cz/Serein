@@ -23,11 +23,26 @@ async fn packet(socket: &mut WebSocketStream<TcpStream>) -> Value {
 }
 
 async fn login(users: Vec<Value>, guilds: Vec<Value>, supplemental: Option<Value>) {
+	login_metadata(users, guilds, supplemental, json!({}), Default::default()).await;
+}
+
+async fn login_metadata(
+	users: Vec<Value>,
+	guilds: Vec<Value>,
+	supplemental: Option<Value>,
+	metadata: Value,
+	warnings: model::account::Warnings,
+) {
 	timeout(Duration::from_secs(10), async {
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
 		let ready = AtomicBool::new(false);
 		let expected_guilds = guilds.len();
+		let expected_channels: usize = guilds
+			.iter()
+			.map(|g| g["channels"].as_array().map_or(0, Vec::len))
+			.sum();
+		let state = std::sync::Mutex::new(client_core::State::default());
 		let server = async {
 			let (stream, _) = listener.accept().await.unwrap();
 			let mut socket = accept_async(stream).await.unwrap();
@@ -37,16 +52,17 @@ async fn login(users: Vec<Value>, guilds: Vec<Value>, supplemental: Option<Value
 			)
 			.await;
 			assert_eq!(packet(&mut socket).await["op"], 2);
-			send(
-				&mut socket,
-				json!({"op":0,"t":"READY","s":1,"d":{
-					"user":{"id":"1","username":"Synthetic owner"},
-					"session_id":"synthetic-large-login",
-					"resume_gateway_url":"wss://gateway.discord.gg/",
-					"users":users,"guilds":guilds,"private_channels":[]
-				}}),
-			)
-			.await;
+			let mut initial = json!({"op":0,"t":"READY","s":1,"d":{
+				"user":{"id":"1","username":"Synthetic owner"},
+				"session_id":"synthetic-large-login",
+				"resume_gateway_url":"wss://gateway.discord.gg/",
+				"users":users,"guilds":guilds,"private_channels":[]
+			}});
+			initial["d"]
+				.as_object_mut()
+				.unwrap()
+				.extend(metadata.as_object().unwrap().clone());
+			send(&mut socket, initial).await;
 			let sequence = if let Some(supplemental) = supplemental {
 				send(
 					&mut socket,
@@ -84,12 +100,29 @@ async fn login(users: Vec<Value>, guilds: Vec<Value>, supplemental: Option<Value
 			mpsc::channel(1).1,
 			None,
 			|event| {
-				if let Event::Ready {
-					guilds, channels, ..
-				} = event
-				{
-					assert!(guilds.len() == expected_guilds && channels.is_empty());
+				let mut state = state.lock().unwrap();
+				let startup = matches!(&event, Event::Startup(_));
+				if let Event::Startup(snapshot) = &event {
+					assert_eq!(snapshot.guilds.len(), expected_guilds);
+					assert_eq!(snapshot.channels.len(), expected_channels);
+					assert_eq!(snapshot.warnings, warnings);
 					ready.store(true, Ordering::Relaxed);
+				}
+				let generation = state.generation;
+				state.apply(client_core::Envelope { generation, event });
+				if startup {
+					assert_eq!(
+						state.auth,
+						client_core::auth::AuthState::Authenticated,
+						"{}",
+						state.status
+					);
+					assert_eq!(state.channels.len(), expected_channels);
+					assert_eq!(state.guilds.len(), expected_guilds);
+					assert_eq!(state.startup_warnings, warnings);
+					for channel in &state.channels {
+						assert!(state.can_read_history(channel.id));
+					}
 				}
 				Ok(())
 			},
@@ -105,6 +138,69 @@ async fn login(users: Vec<Value>, guilds: Vec<Value>, supplemental: Option<Value
 	})
 	.await
 	.expect("synthetic login exceeded its bounded deadline");
+}
+
+fn large_guilds(count: u64) -> Vec<Value> {
+	(0..count)
+		.map(|index| {
+			let guild = 10 + index;
+			json!({"id":guild.to_string(),"name":"Synthetic server","owner_id":"1",
+			"roles":[{"id":guild.to_string(),"permissions":"1024"}],
+			"channels":(0..100).map(|channel| json!({
+				"id":(1000+index*100+channel).to_string(), "type":0,
+				"name":format!("synthetic-{channel}"),"permission_overwrites":[]
+			})).collect::<Vec<_>>()})
+		})
+		.collect()
+}
+
+#[tokio::test]
+async fn large_accounts_keep_all_navigation_and_permissions() {
+	for count in [70, 96, 200] {
+		let start = std::time::Instant::now();
+		login(Vec::new(), large_guilds(count), None).await;
+		eprintln!(
+			"synthetic startup: {count} guilds, {} channels, {:?}",
+			count * 100,
+			start.elapsed()
+		);
+	}
+}
+
+#[tokio::test]
+async fn optional_metadata_faults_do_not_abort_large_login() {
+	use model::account::Warnings;
+	let entries = (1000..5101)
+		.map(|id| json!({"id":id.to_string(),"last_message_id":"0"}))
+		.collect::<Vec<_>>();
+	login_metadata(
+		Vec::new(),
+		large_guilds(96),
+		None,
+		json!({"read_state":{"entries":entries}}),
+		Warnings::default(),
+	)
+	.await;
+	let mut guilds = large_guilds(96);
+	guilds[0]["emojis"] = json!([{"id":"9","name":null}]);
+	login_metadata(
+		Vec::new(),
+		guilds,
+		None,
+		json!({
+			"read_state":{"entries":[{"id":"invalid"}]},
+			"user_guild_settings":{"entries":[{"guild_id":"10","muted":"invalid"}]},
+			"sessions":[{"status":false}], "presences":false
+		}),
+		Warnings {
+			read_state: true,
+			notifications: true,
+			sessions: true,
+			presence: true,
+			emojis: true,
+		},
+	)
+	.await;
 }
 
 #[tokio::test]
@@ -192,7 +288,10 @@ async fn oversized_frames_stop_login_during_and_after_hello() {
 				None,
 				|event| {
 					assert!(
-						!matches!(event, Event::Ready { .. } | Event::Disconnected),
+						!matches!(
+							event,
+							Event::Startup(_) | Event::Ready { .. } | Event::Disconnected
+						),
 						"oversized login must stop without Ready or reconnecting"
 					);
 					Ok(())
@@ -210,5 +309,63 @@ async fn oversized_frames_stop_login_during_and_after_hello() {
 		})
 		.await
 		.expect("oversized synthetic frame exceeded its bounded deadline");
+	}
+}
+
+#[tokio::test]
+async fn invalid_owner_identity_or_session_never_emits_startup() {
+	for (field, value) in [
+		("username", ""),
+		("username", "bad\nname"),
+		("session_id", ""),
+		("session_id", "bad\nsession"),
+	] {
+		timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
+			let server = async {
+				let (stream, _) = listener.accept().await.unwrap();
+				let mut socket = accept_async(stream).await.unwrap();
+				send(
+					&mut socket,
+					json!({"op":10,"d":{"heartbeat_interval":1000}}),
+				)
+				.await;
+				assert_eq!(packet(&mut socket).await["op"], 2);
+				let mut payload = json!({"op":0,"t":"READY","s":1,"d":{
+					"user":{"id":"1","username":"Synthetic"},"session_id":"synthetic",
+					"resume_gateway_url":"wss://gateway.discord.gg/"}});
+				if field == "username" {
+					payload["d"]["user"][field] = json!(value);
+				} else {
+					payload["d"][field] = json!(value);
+				}
+				send(&mut socket, payload).await;
+				socket
+			};
+			let client = run_inner(
+				Arc::new(
+					SessionSecret::from_owner_input("synthetic-identity-test".into()).unwrap(),
+				),
+				"wss://gateway.discord.gg/".into(),
+				watch::channel(None).1,
+				mpsc::channel(1).1,
+				None,
+				|event| {
+					assert!(event.ready_navigation().is_none());
+					Ok(())
+				},
+				Some(&endpoint),
+			);
+			let (_socket, result) = tokio::join!(server, client);
+			assert_eq!(
+				result,
+				Err(Failure::ProtocolAt(
+					"Gateway login: invalid account identity or session ID"
+				))
+			);
+		})
+		.await
+		.unwrap();
 	}
 }

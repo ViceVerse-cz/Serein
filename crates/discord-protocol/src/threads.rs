@@ -7,8 +7,8 @@ use serde::{
 };
 use std::collections::BTreeSet;
 
-pub(crate) const MAX_ITEMS: usize = 4000;
-pub(crate) const MAX_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_ITEMS: usize = model::account::MAX_ENTRIES;
+pub(crate) const MAX_BYTES: usize = model::account::MAX_BYTES;
 
 pub(crate) fn list<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
 	d: D,
@@ -17,7 +17,7 @@ pub(crate) fn list<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
 	impl<'de, T: Deserialize<'de>> Visitor<'de> for List<T> {
 		type Value = Vec<T>;
 		fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-			f.write_str("at most 4000 navigation entries")
+			f.write_str("bounded account navigation entries")
 		}
 		fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
 			let mut values = Vec::new();
@@ -67,7 +67,7 @@ pub struct ThreadMetadata {
 pub struct ThreadMembers {
 	pub id: Id,
 	pub guild_id: Id,
-	#[serde(default, deserialize_with = "list")]
+	#[serde(default, deserialize_with = "crate::read_state::entries")]
 	pub removed_member_ids: Vec<Id>,
 }
 impl ThreadListSync {
@@ -204,7 +204,7 @@ mod tests {
 			decode::<ThreadListSync>(&serde_json::to_vec(&oversized).unwrap())
 				.unwrap()
 				.into_model()
-				.is_err()
+				.is_ok()
 		);
 	}
 	#[test]

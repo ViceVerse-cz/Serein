@@ -1334,7 +1334,8 @@ mod tests {
 			.unwrap();
 		assert!(!state.notification_allowed(channel.id));
 		let mut oversized = setting;
-		oversized.channels = Vec::with_capacity(100_000);
+		oversized.channels =
+			Vec::with_capacity(32 * 1024 * 1024 / size_of::<(Id, Option<bool>, Option<u8>)>() + 1);
 		assert!(
 			state
 				.apply_notification_preferences(n::Event::Settings {
