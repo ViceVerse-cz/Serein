@@ -128,6 +128,7 @@ pub struct MessagingUi {
 	member_count: usize,
 	composer_layout: composer_text::Layout,
 	channel_cache: categories::Cache,
+	hidden_muted_guilds: std::collections::BTreeSet<Id>,
 	search: search::SearchUi,
 	settings: settings::Settings,
 	server_settings: server_settings::Editor,

@@ -43,8 +43,14 @@ the existing acknowledgement adapter without changing the selected conversation;
 Invite to Channel opens the existing invite dialog for that channel. Favorites
 and pins are account-isolated local shortcuts, not Discord-synchronized favorites.
 
+The empty channel-list area also has a server-scoped right-click menu. Hide Muted
+Channels is a bounded, session-only per-server view preference; the selected channel
+stays visible. Create Channel, Create Category and Invite to Server reuse the same
+permission checks, confirmation UI and request lanes as the existing channel and
+server menus.
+
 Text/announcement editing (name, topic, slowmode and age restriction), channel
-duplication, text-channel creation and confirmed deletion use the documented
+duplication, text-channel/category creation and confirmed deletion use the documented
 [channel routes](https://docs.discord.com/developers/resources/channel#modify-channel)
 and [guild channel creation route](https://docs.discord.com/developers/resources/guild#create-guild-channel).
 Duplication reads current settings and permission overwrites first; creating under

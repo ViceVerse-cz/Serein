@@ -266,6 +266,11 @@ impl DiscordApi {
 					Some(body),
 				)
 			}
+			Action::CreateCategory { name } => (
+				Method::POST,
+				format!("/guilds/{guild}/channels"),
+				Some(json!({"name":name,"type":4})),
+			),
 			_ => return Err(Failure::Protocol),
 		};
 		let bytes = self
@@ -303,6 +308,9 @@ impl DiscordApi {
 				return Err(Failure::Ambiguous);
 			}
 			if matches!(action, Action::CreateText { .. }) && created.kind != 0 {
+				return Err(Failure::Ambiguous);
+			}
+			if matches!(action, Action::CreateCategory { .. }) && created.kind != 4 {
 				return Err(Failure::Ambiguous);
 			}
 			if matches!(action, Action::Duplicate { .. })
@@ -490,6 +498,20 @@ mod tests {
 		let create = Action::CreateText { name: "new".into() };
 		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &create), server);
 		assert!(result.is_ok());
+		let server = async {
+			reply(&listener, "GET /channels/3 HTTP/1.1", 200, source()).await;
+			let mut category = source();
+			category["id"] = "10".into();
+			category["name"] = "Projects".into();
+			category["type"] = 4.into();
+			let body = reply(&listener, "POST /guilds/2/channels HTTP/1.1", 200, category).await;
+			assert_eq!(body, json!({"name":"Projects","type":4}));
+		};
+		let create = Action::CreateCategory {
+			name: "Projects".into(),
+		};
+		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &create), server);
+		assert!(matches!(result, Ok(Outcome::Channel { channel, .. }) if channel.kind == 4));
 		let server = async {
 			reply(&listener, "GET /channels/3 HTTP/1.1", 200, source()).await;
 			let body = reply(&listener, "PATCH /channels/3 HTTP/1.1", 500, json!({})).await;

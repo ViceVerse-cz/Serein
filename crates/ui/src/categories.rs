@@ -19,7 +19,7 @@ enum CachedRow {
 	Channel(usize, bool),
 	Participant(usize),
 }
-type CacheKey = (u64, u64, Option<Id>, Option<Id>, bool);
+type CacheKey = (u64, u64, Option<Id>, Option<Id>, bool, bool);
 #[derive(Default)]
 pub(super) struct Cache {
 	key: Option<CacheKey>,
@@ -193,12 +193,18 @@ fn kind_label(kind: u8) -> &'static str {
 
 impl MessagingUi {
 	pub(super) fn channel_list(&mut self, ui: &mut egui::Ui, state: &mut State) -> Option<Id> {
+		self.hidden_muted_guilds
+			.retain(|guild| state.guild(*guild).is_some());
+		let hide_muted = self
+			.guild
+			.is_some_and(|guild| self.hidden_muted_guilds.contains(&guild));
 		let key = (
 			state.generation,
 			state.revision,
 			self.guild,
 			state.selected,
 			self.show_hidden_channels,
+			hide_muted,
 		);
 		if self.channel_cache.key != Some(key) {
 			// Session-only keys are pruned on navigation updates, never accumulated in egui memory.
@@ -216,11 +222,26 @@ impl MessagingUi {
 				&self.collapsed_categories,
 				self.show_hidden_channels,
 			);
-			let channel_rows = if let Some(guild) = self.guild {
+			let mut channel_rows = if let Some(guild) = self.guild {
 				promote(channel_rows, state, guild, &self.channel_preferences)
 			} else {
 				channel_rows
 			};
+			if hide_muted {
+				channel_rows.retain(|row| {
+					!matches!(row, Row::Channel(channel, _) if Some(channel.id) != state.selected && state.guild_channel_muted(channel.id) == Some(true))
+				});
+				let mut index = 0;
+				while index < channel_rows.len() {
+					if matches!(channel_rows[index], Row::Section(_))
+						&& !matches!(channel_rows.get(index + 1), Some(Row::Channel(..)))
+					{
+						channel_rows.remove(index);
+					} else {
+						index += 1;
+					}
+				}
+			}
 			let mut participants = BTreeMap::<Id, Vec<_>>::new();
 			for entry in &state.voice.roster {
 				if Some(entry.guild) == self.guild && state.can_view(entry.channel) {
@@ -276,7 +297,7 @@ impl MessagingUi {
 		let row_count = self.channel_cache.rows.len().max(usize::from(dm_list)) + prefix;
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
-		egui::ScrollArea::vertical()
+		let output = egui::ScrollArea::vertical()
 			.id_salt(("channel-list", self.guild))
 			.auto_shrink([false, false])
 			.show_rows(ui, row_height, row_count, |ui, range| {
@@ -688,6 +709,35 @@ impl MessagingUi {
 					}
 				}
 			});
+		if let Some(guild) = self.guild {
+			let content_bottom =
+				output.inner_rect.top() - output.state.offset.y + output.content_size.y;
+			if content_bottom < output.inner_rect.bottom() {
+				let empty = egui::Rect::from_min_max(
+					egui::pos2(
+						output.inner_rect.left(),
+						content_bottom.max(output.inner_rect.top()),
+					),
+					output.inner_rect.max,
+				);
+				let response = ui.interact(
+					empty,
+					ui.id().with(("server-channel-area", guild)),
+					egui::Sense::click(),
+				);
+				let mut next = hide_muted;
+				self.channel_menu
+					.sidebar_context(&response, state, guild, &mut next);
+				if next != hide_muted {
+					if next {
+						self.hidden_muted_guilds.insert(guild);
+					} else {
+						self.hidden_muted_guilds.remove(&guild);
+					}
+					self.channel_cache.invalidate();
+				}
+			}
+		}
 		ui.spacing_mut().item_spacing.y = previous_spacing;
 		selected
 	}
@@ -866,6 +916,101 @@ mod tests {
 		assert!(!MessagingUi::default().show_hidden_channels);
 		assert!(rows(&state, Some(Id(100)), &BTreeSet::new(), false).is_empty());
 		assert_eq!(rows(&state, Some(Id(100)), &BTreeSet::new(), true).len(), 1);
+	}
+	#[test]
+	fn empty_server_sidebar_opens_server_actions() {
+		fn labels(shape: &egui::Shape, output: &mut Vec<(String, egui::Rect)>) {
+			match shape {
+				egui::Shape::Text(text) => output.push((
+					text.galley.job.text.clone(),
+					text.galley.rect.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| labels(shape, output)),
+				_ => {}
+			}
+		}
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut state = test_support::chat_demo_state();
+		let mut permissions = test_support::permission_snapshot(&state);
+		for guild in &mut permissions.guilds {
+			guild.owner = state.user.as_ref().map(|user| user.id);
+		}
+		state.permissions.replace(permissions).unwrap();
+		let mut view = MessagingUi {
+			guild: Some(Id(10)),
+			..Default::default()
+		};
+		let render = |view: &mut MessagingUi, state: &mut State, events| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(260.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| view.sidebar(ui, state, "Synthetic", &mut vec![]),
+			);
+			let mut text = vec![];
+			for shape in &output.shapes {
+				labels(&shape.shape, &mut text);
+			}
+			output.drop_without_applying_deltas();
+			text
+		};
+		render(&mut view, &mut state, vec![]);
+		let empty = egui::pos2(130.0, 600.0);
+		for pressed in [true, false] {
+			render(
+				&mut view,
+				&mut state,
+				vec![
+					egui::Event::PointerMoved(empty),
+					egui::Event::PointerButton {
+						pos: empty,
+						button: egui::PointerButton::Secondary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			);
+		}
+		let text = render(&mut view, &mut state, vec![]);
+		for expected in [
+			"Hide Muted Channels",
+			"Create Channel",
+			"Create Category",
+			"Invite to Server",
+		] {
+			assert!(
+				text.iter().any(|(label, _)| label == expected),
+				"missing {expected}: {text:?}"
+			);
+		}
+		let hide = text
+			.iter()
+			.find(|(label, _)| label == "Hide Muted Channels")
+			.unwrap()
+			.1
+			.center();
+		for pressed in [true, false] {
+			render(
+				&mut view,
+				&mut state,
+				vec![
+					egui::Event::PointerMoved(hide),
+					egui::Event::PointerButton {
+						pos: hide,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			);
+		}
+		assert!(view.hidden_muted_guilds.contains(&Id(10)));
 	}
 	#[test]
 	fn channel_rows_scroll_continuously_past_voice_participants() {

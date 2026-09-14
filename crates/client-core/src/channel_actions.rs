@@ -57,6 +57,7 @@ pub enum Action {
 	Edit { before: Edit, after: Edit },
 	Duplicate { name: String },
 	CreateText { name: String },
+	CreateCategory { name: String },
 	Delete,
 	Mute(Mute),
 	Notifications(u8),
@@ -65,9 +66,9 @@ impl Action {
 	pub fn valid(&self) -> bool {
 		match self {
 			Self::Edit { before, after } => before.valid() && after.valid(),
-			Self::Duplicate { name } | Self::CreateText { name } => {
-				valid_name(name) && name.capacity() <= 400
-			}
+			Self::Duplicate { name }
+			| Self::CreateText { name }
+			| Self::CreateCategory { name } => valid_name(name) && name.capacity() <= 400,
 			Self::Mute(Mute::For(seconds)) => matches!(seconds, 900 | 3600 | 10800 | 28800 | 86400),
 			Self::Notifications(level) => *level <= 3,
 			_ => true,
@@ -414,7 +415,9 @@ impl State {
 					c.id == channel && c.guild == Some(guild)
 				}
 				(
-					Action::Duplicate { .. } | Action::CreateText { .. },
+					Action::Duplicate { .. }
+					| Action::CreateText { .. }
+					| Action::CreateCategory { .. },
 					Outcome::Channel { channel: c, .. },
 				) => c.id.0 != 0 && c.id != channel && c.guild == Some(guild),
 				(Action::Delete, Outcome::Deleted) => true,
@@ -457,8 +460,12 @@ impl State {
 				channel: updated,
 				permissions,
 			}) => {
-				let creating =
-					matches!(action, Action::Duplicate { .. } | Action::CreateText { .. });
+				let creating = matches!(
+					action,
+					Action::Duplicate { .. }
+						| Action::CreateText { .. }
+						| Action::CreateCategory { .. }
+				);
 				if self.guild(guild).is_some()
 					&& (if creating {
 						self.can_manage_channel(channel)
@@ -758,6 +765,31 @@ mod tests {
 			})),
 		);
 		assert!(state.channel_details(Id(3)).is_none());
+		let pending = state
+			.request_channel_action(
+				Id(3),
+				Action::CreateCategory {
+					name: "projects".into(),
+				},
+			)
+			.unwrap();
+		let mut category = state.channels[0].clone();
+		category.id = Id(4);
+		category.kind = 4;
+		category.name = "projects".into();
+		finish(
+			&mut state,
+			pending,
+			Ok(Outcome::Channel {
+				channel: Box::new(category),
+				permissions: None,
+			}),
+		);
+		assert!(
+			state
+				.channel(Id(4))
+				.is_some_and(|channel| channel.kind == 4)
+		);
 		state.permissions.guilds.get_mut(&Id(2)).unwrap().owner = Some(Id(9));
 		state.permissions.clear_cache();
 		assert!(
