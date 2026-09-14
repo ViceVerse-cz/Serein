@@ -103,6 +103,8 @@ impl CaptchaView {
 		settings.set_enable_webrtc(false);
 		settings.set_enable_media(false);
 		settings.set_enable_webaudio(false);
+		// Software rendering prevents DMA-BUF/EGL initialization crashes on Wayland and in Flatpak.
+		settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
 		let manager = webkit6::UserContentManager::new();
 		manager.add_script(&webkit6::UserScript::new(
 			&script,
