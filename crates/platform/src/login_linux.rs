@@ -1,5 +1,5 @@
 //! A separate ephemeral GTK4/WebKit6 window for owner-operated Discord login.
-use super::{Failure, SessionSecret, discord_origin};
+use super::{Failure, SessionSecret, captcha::hcaptcha_origin, discord_origin};
 use std::{
 	cell::{Cell, RefCell},
 	rc::Rc,
@@ -154,7 +154,9 @@ impl LoginView {
 					.and_then(|decision| decision.navigation_action())
 					.and_then(|action| action.request())
 					.and_then(|request| request.uri())
-					.is_some_and(|uri| discord_origin(&uri)),
+					// NavigationAction includes child frames. The response policy below
+					// still restricts the main document to Discord.
+					.is_some_and(|uri| discord_origin(&uri) || hcaptcha_origin(&uri)),
 				webkit6::PolicyDecisionType::Response => decision
 					.downcast_ref::<webkit6::ResponsePolicyDecision>()
 					.is_some_and(|response| {

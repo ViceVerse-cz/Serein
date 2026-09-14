@@ -167,8 +167,7 @@ fn own_origin(value: &str) -> bool {
 	})
 }
 
-#[cfg(not(target_os = "linux"))]
-fn hcaptcha_origin(value: &str) -> bool {
+pub(crate) fn hcaptcha_origin(value: &str) -> bool {
 	url::Url::parse(value).is_ok_and(|url| {
 		url.scheme() == "https"
 			&& url.username().is_empty()

@@ -2,8 +2,10 @@
 
 Linux uses GTK4/WebKit6 with a fresh ephemeral NetworkSession and persistent credential
 storage disabled. Normal TLS validation remains enabled. Scripts run at document start only
-in the top Discord frame. Native navigation and candidate origin checks restrict the login
-to https://discord.com. Popups, downloads, file choosers, permission requests, HTTP-auth,
+in the top Discord frame. Navigation permits HTTPS hcaptcha.com and its subdomains on
+port 443 for embedded challenges, using the same origin validation as invite verification.
+The main-document response and candidate origin checks still restrict login to
+https://discord.com. Popups, downloads, file choosers, permission requests, HTTP-auth,
 notifications and printing are denied; embedded challenge availability remains unverified.
 
 WebKit6 script-message callbacks lack trusted sender-frame metadata. The callback accepts

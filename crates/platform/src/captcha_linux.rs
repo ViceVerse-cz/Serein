@@ -292,16 +292,7 @@ impl Drop for CaptchaView {
 }
 
 fn allowed_frame(value: &str) -> bool {
-	value == PAGE
-		|| url::Url::parse(value).is_ok_and(|url| {
-			url.scheme() == "https"
-				&& url.username().is_empty()
-				&& url.password().is_none()
-				&& url.port_or_known_default() == Some(443)
-				&& url
-					.host_str()
-					.is_some_and(|host| host == "hcaptcha.com" || host.ends_with(".hcaptcha.com"))
-		})
+	value == PAGE || super::hcaptcha_origin(value)
 }
 
 #[cfg(test)]
