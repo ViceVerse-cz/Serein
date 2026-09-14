@@ -2925,14 +2925,32 @@ impl MessagingUi {
 			self.archives.show(&ctx, state, &mut commands);
 		}
 		self.screen.show(&ctx, state);
-		if let Some(id) = self.timeline.channel_reference.take()
-			&& let Some(target) = state
+		if let Some(id) = self.timeline.channel_reference.take() {
+			state.clear_channel_action_result(id);
+			self.timeline.pending_channel_reference = Some(id);
+		}
+		if let Some(id) = self.timeline.pending_channel_reference {
+			if let Some(target) = state
 				.channel(id)
 				.filter(|c| c.guild.is_some() && c.supports_text())
-		{
-			self.guild = target.guild;
-			if let Some(command) = state.select(id) {
-				commands.push(command);
+			{
+				self.timeline.pending_channel_reference = None;
+				self.guild = target.guild;
+				if let Some(command) = state.select(id) {
+					commands.push(command);
+				}
+			} else if state.channel_action_status(id).is_some() {
+				self.timeline.pending_channel_reference = None;
+			} else if let Some(guild) = state
+				.selected
+				.and_then(|selected| state.channel(selected))
+				.and_then(|source| source.guild)
+			{
+				if let Some(command) = state.request_channel_reference(guild, id) {
+					commands.push(command);
+				}
+			} else {
+				self.timeline.pending_channel_reference = None;
 			}
 		}
 		if let Some(message) = self.timeline.mark_read.take()

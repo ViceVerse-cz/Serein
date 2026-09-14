@@ -49,6 +49,26 @@ fn channel_result(bytes: &[u8], guild: Id, channel: Option<Id>) -> Result<Outcom
 		permissions: metadata,
 	})
 }
+fn thread_reference_result(bytes: &[u8], guild: Id, channel: Id) -> Result<Outcome, Failure> {
+	let dto: discord_protocol::ChannelDto =
+		discord_protocol::decode(bytes).map_err(|_| Failure::Protocol)?;
+	if dto.id != channel
+		|| dto.guild_id != Some(guild)
+		|| dto.is_obfuscated()
+		|| !dto
+			.name
+			.as_deref()
+			.is_some_and(client_core::channel_actions::valid_name)
+	{
+		return Err(Failure::Protocol);
+	}
+	let channel =
+		discord_protocol::threads::into_thread(dto, guild).map_err(|_| Failure::Protocol)?;
+	Ok(Outcome::Channel {
+		channel: Box::new(channel),
+		permissions: None,
+	})
+}
 fn overwrites_from_value(value: &Value) -> Result<Option<Vec<permissions::Overwrite>>, Failure> {
 	value
 		.get("permission_overwrites")
@@ -172,10 +192,14 @@ impl DiscordApi {
 		let bytes = self
 			.request_limited(Method::GET, &path, None, MAX_CHANNEL_BYTES)
 			.await?;
+		if *action == Action::Reference {
+			return thread_reference_result(&bytes, guild, channel);
+		}
 		let source = channel_value(&bytes, guild, Some(channel))?;
 		// Validate full overwrite metadata before copying it to a creation request.
 		channel_result(&bytes, guild, Some(channel))?;
 		let (method, path, body) = match action {
+			Action::Reference => unreachable!("handled before channel settings validation"),
 			Action::Load => {
 				return edit_from_value(&source).map(Outcome::Details);
 			}
@@ -449,6 +473,30 @@ mod tests {
 			.unwrap();
 		payload
 	}
+	#[test]
+	fn thread_references_require_the_requested_guild_id_and_parent() {
+		let valid =
+			br#"{"id":"4","guild_id":"2","parent_id":"3","type":11,"name":"Synthetic thread"}"#;
+		let Outcome::Channel {
+			channel,
+			permissions,
+		} = thread_reference_result(valid, Id(2), Id(4)).unwrap()
+		else {
+			panic!()
+		};
+		assert_eq!(channel.name, "Synthetic thread");
+		assert_eq!(channel.parent_id, Some(Id(3)));
+		assert!(permissions.is_none());
+		for invalid in [
+			br#"{"id":"4","guild_id":"9","parent_id":"3","type":11,"name":"Foreign"}"#.as_slice(),
+			br#"{"id":"4","guild_id":"2","type":11,"name":"No parent"}"#.as_slice(),
+			br#"{"id":"4","guild_id":"2","parent_id":"3","type":0,"name":"Not a thread"}"#
+				.as_slice(),
+		] {
+			assert!(thread_reference_result(invalid, Id(2), Id(4)).is_err());
+		}
+	}
+
 	#[tokio::test]
 	async fn channel_routes_preserve_permissions_scope_partial_edits_and_never_retry() {
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

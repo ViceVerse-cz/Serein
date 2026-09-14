@@ -25,6 +25,7 @@ pub struct TimelineView {
 	pub(super) reply_started: bool,
 	pub(super) quick_delete: Option<(Id, Id)>,
 	pub(super) channel_reference: Option<Id>,
+	pub(super) pending_channel_reference: Option<Id>,
 	pub(super) reply_target: Option<Id>,
 	highlighted: Option<(Id, f64)>,
 	target_browsing: bool,
