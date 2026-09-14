@@ -178,3 +178,48 @@ the release `replay-bench`: 48.4728, 48.1248, 44.2041, 44.3448, and 45.3094 ms
 (median 45.3094 ms), retaining 236,992-237,477 estimated bytes / 500 records.
 The changed replay was not run. This workload does not measure emoji interaction
 latency, process RSS, or live Discord behavior.
+
+## Large account READY startup - September 14, 2026
+
+Baseline: `3cb739a4d679721d272f7182f82f82d6db138da1`. After:
+`0661fe27afcb52b2ba691335503823eeec8629d1` on `fix/ready-large-accounts`.
+Windows 11 Home 10.0.26200, Ryzen 7 7800X3D, 33,410,678,784 bytes RAM,
+Rust 1.98.1 x86_64-pc-windows-msvc. Both standard release packages use
+`cargo xtask package`, including voice, without demo or developer-session features.
+Separate worktrees preserve separate `dist` outputs. Build target reuse was serialized;
+stale affected workspace release artifacts were cleared before the successful changed build.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 70,501,376 | 70,543,872 | +42,496 (+0.0603%) |
+| Full portable package bytes | 74,564,927 | 74,607,423 | +42,496 (+0.0570%) |
+| ZIP bytes | 42,651,848 | 42,669,470 | +17,622 (+0.0413%) |
+| Synthetic 100,000-event reducer replay, median ms | 45.0037 | 42.6369 | -2.3668 (-5.2591%) |
+| Retained timeline estimated bytes / records | 236,992-237,477 / 500 | 236,992-237,477 / 500 | Unchanged |
+
+One package per revision, matching 186-file lists; installed size sums all files.
+ZIP uses `Compress-Archive -LiteralPath dist -CompressionLevel Optimal`.
+`makensis` was unavailable, so these are unsigned portable packages, not NSIS installers.
+Both package builds passed with the same nonfatal OpenH264 LNK4255 linker warning.
+Sizes precede this performance-note-only commit.
+
+Replay uses `cargo replay` to build, then the preserved release executable directly:
+one warmup and five measured runs per revision, with no concurrent task build during
+the measured runs. Baseline runs: 46.0115, 44.0077, 46.0564, 41.7041, 45.0037 ms.
+After runs: 42.6369, 42.1586, 42.2748, 43.6456, 43.2793 ms. These small samples on a
+shared workstation are noisy; the lower observed median is not a claimed runtime
+improvement. This existing workload measures a synthetic message reducer, not large-account
+startup time, process RSS, UI frame latency, or live Discord compatibility.
+
+Separate offline regressions admit 70, 96, and 200 guilds with 100 channels each and
+transfer a prepared 200-guild / 20,000-channel snapshot above 4 MiB through the actual
+desktop FIFO into authenticated state. They verify permissions, subsequent event order,
+optional-data warning behavior, and queue reservation release; they are correctness checks,
+not startup benchmarks.
+
+Native before/after screenshots, startup latency, peak/settled app memory, idle CPU and
+p95 frame time remain unmeasured: the Computer Use native pipe returned OS error 2 and
+the Orca CLI is not installed. The egui warning-render test is not native visual evidence.
+No owner-account or live load test was performed. Account budgets are finite component
+allocation estimates (128 MiB navigation/permission and 64 MiB permission sub-budget),
+not whole-process memory guarantees; decoding and old/new state replacement add peak memory.
