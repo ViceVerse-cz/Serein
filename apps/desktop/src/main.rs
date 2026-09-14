@@ -91,6 +91,14 @@ fn main() -> eframe::Result {
 			}
 		},
 		renderer: eframe::Renderer::Wgpu,
+		wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
+			// Keep cursor-driven redraws synchronized even where AutoVsync selects FifoRelaxed.
+			surface: eframe::egui_wgpu::SurfaceConfig {
+				present_mode: eframe::wgpu::PresentMode::Fifo,
+				..eframe::egui_wgpu::SurfaceConfig::LOW_LATENCY
+			},
+			..Default::default()
+		},
 		persist_window: false,
 		persistence_path: None,
 		..Default::default()
