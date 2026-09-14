@@ -1,5 +1,17 @@
 # Local storage policy and audit
 
+## Last-viewed server channels (September 14, 2026)
+
+Server navigation remembers at most 1,024 guild/channel ID pairs in session RAM
+(16 KiB vector payload, plus its fixed header). Updating a visit replaces that
+server's entry; the oldest visit is evicted at capacity. There are no names,
+message contents, timers, disk writes, or schema changes. Logout releases the
+list; it is not restored across application restarts. Reopening a server checks
+current channel membership, supported kind, and view permission before selecting
+its remembered channel, otherwise preferring an accessible ordinary text/forum
+channel. Voice selection only opens its existing preview, never joins a call.
+With no accessible channel, the existing conversation remains intact.
+
 ## Friends-home derived UI caches (September 14, 2026)
 
 Friends Online/All retain one filtered, sorted boxed ID list: at most 4,000 IDs

@@ -328,6 +328,9 @@ impl MessagingUi {
 							}
 							if response.clicked() {
 								self.guild = Some(id);
+								if let Some(command) = state.select_guild(id) {
+									commands.push(command);
+								}
 							}
 							response
 						}
@@ -679,6 +682,99 @@ impl MessagingUi {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn server_icon_restores_channel_once_in_standalone_and_expanded_folder() {
+		for grouped in [false, true] {
+			let mut state = test_support::demo_state();
+			state.guilds[0].name = "Click target".into();
+			state.guilds[0].icon = None;
+			state.guild_folders = Some(Settings {
+				folders: vec![Folder {
+					id: grouped.then_some(7),
+					..standalone(Id(10))
+				}],
+				..Default::default()
+			});
+			let _ = state.select(Id(21));
+			let _ = state.select(Id(22));
+			assert_eq!(state.selected, Some(Id(22)));
+			let ctx = egui::Context::default();
+			let mut view = MessagingUi::default();
+			view.expanded_folders.push(7);
+			view.folder_ui.expanded.insert(7);
+			let frame = |view: &mut MessagingUi, state: &mut State, events| {
+				let mut commands = Vec::new();
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(200.0, 400.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| view.server_folders(ui, state, &mut commands),
+				);
+				let position = output
+					.shapes
+					.iter()
+					.find_map(|shape| match &shape.shape {
+						egui::Shape::Text(text) if text.galley.text() == "Ct" => {
+							Some(text.pos + text.galley.rect.center().to_vec2())
+						}
+						_ => None,
+					})
+					.expect("server icon must be rendered");
+				output.drop_without_applying_deltas();
+				(commands, position)
+			};
+			for _ in 0..3 {
+				assert!(frame(&mut view, &mut state, vec![]).0.is_empty());
+			}
+			for repeat in [false, true] {
+				let (_, pos) = frame(&mut view, &mut state, vec![]);
+				let mut commands = Vec::new();
+				for pressed in [true, false] {
+					commands.extend(
+						frame(
+							&mut view,
+							&mut state,
+							vec![
+								egui::Event::PointerMoved(pos),
+								egui::Event::PointerButton {
+									pos,
+									button: egui::PointerButton::Primary,
+									pressed,
+									modifiers: egui::Modifiers::NONE,
+								},
+							],
+						)
+						.0,
+					);
+				}
+				assert_eq!(view.guild, Some(Id(10)));
+				assert_eq!(state.selected, Some(Id(21)));
+				if repeat {
+					assert!(
+						commands.is_empty(),
+						"repeated server clicks must not reload or join voice"
+					);
+				} else {
+					assert!(
+						matches!(
+							commands.as_slice(),
+							[Command::History {
+								channel: Id(21),
+								..
+							}]
+						),
+						"server click must request only the selected channel history"
+					);
+				}
+			}
+		}
+	}
 
 	#[test]
 	fn folder_rows_cache_tracks_expansion_order_color_and_acknowledged_writes() {
