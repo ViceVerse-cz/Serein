@@ -138,6 +138,7 @@ impl Updater {
 		}
 		let supported = cfg!(any(target_os = "macos", windows)) || install::appimage_session();
 		view.supported = supported;
+		view.flatpak = install::flatpak_session();
 		if !enabled {
 			if let Some(job) = &self.job {
 				job.cancel.store(true, Ordering::Relaxed);
@@ -183,7 +184,16 @@ impl Updater {
 							Ok(Outcome::Checked(package)) => {
 								self.status = package.as_ref().map_or_else(
 									|| "Serein is up to date on this channel.".into(),
-									|p| format!("Serein {} is available.", p.version),
+									|p| {
+										if install::flatpak_session() {
+											format!(
+												"Serein {} is available. Update with `flatpak update` or your Software center.",
+												p.version,
+											)
+										} else {
+											format!("Serein {} is available.", p.version)
+										}
+									},
 								);
 								self.package = package;
 								self.auto_download = true;

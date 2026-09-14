@@ -25,6 +25,14 @@ const WINDOWS_FILES: &[&str] = &[
 	"setup.ps1",
 ];
 
+pub(super) fn flatpak_session() -> bool {
+	static FLATPAK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+	*FLATPAK.get_or_init(|| {
+		cfg!(target_os = "linux")
+			&& (Path::new("/.flatpak-info").is_file() || std::env::var_os("FLATPAK_ID").is_some())
+	})
+}
+
 pub(super) fn appimage_session() -> bool {
 	static APPIMAGE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 	*APPIMAGE.get_or_init(|| {
@@ -64,6 +72,12 @@ fn installation() -> Result<PathBuf, String> {
 		.map_err(|_| "Cannot locate the installed application.".to_owned())?;
 	if cfg!(target_os = "linux") {
 		if !appimage_session() {
+			if flatpak_session() {
+				return Err(
+					"Flatpak updates are managed through its repository or `flatpak update`."
+						.into(),
+				);
+			}
 			return Err(
 				"Use your package manager to update Serein, or run a release AppImage.".into(),
 			);

@@ -9,6 +9,7 @@ pub struct Updates {
 	pub available: bool,
 	pub ready: bool,
 	pub supported: bool,
+	pub flatpak: bool,
 	pub progress: Option<f32>,
 	pub check_requested: bool,
 	pub download_requested: bool,
@@ -25,6 +26,7 @@ impl Default for Updates {
 			available: false,
 			ready: false,
 			supported: false,
+			flatpak: false,
 			progress: None,
 			check_requested: false,
 			download_requested: false,
@@ -62,8 +64,17 @@ impl MessagingUi {
 		#[cfg(not(target_os = "linux"))]
 		let session_type = "";
 
+		#[cfg(target_os = "linux")]
+		let package_type = if self.updates.flatpak {
+			"\n- **Packaging:** Flatpak"
+		} else {
+			"\n- **Packaging:** Native / AppImage"
+		};
+		#[cfg(not(target_os = "linux"))]
+		let package_type = "";
+
 		format!(
-			"- **Serein Version:** {} ({channel})\n- **Operating System:** {os} ({arch}){session_type}\n- **Display Scale:** {scale:.2}\n- **Theme:** {theme_mode} ({theme_variant})\n- **Update Channel:** {update_channel}\n- **Auto Update:** {}",
+			"- **Serein Version:** {} ({channel})\n- **Operating System:** {os} ({arch}){session_type}{package_type}\n- **Display Scale:** {scale:.2}\n- **Theme:** {theme_mode} ({theme_variant})\n- **Update Channel:** {update_channel}\n- **Auto Update:** {}",
 			self.build.version,
 			if self.updates.auto_update {
 				"Enabled"
@@ -165,7 +176,11 @@ impl MessagingUi {
 		if demo {
 			ui.add_space(12.0);
 			ui.weak("Offline preview. Update actions are simulated and preferences are not saved.");
+		} else if self.updates.flatpak {
+			ui.add_space(12.0);
+			ui.weak("Flatpak manages updates via its repository. Run `flatpak update` or use GNOME Software / KDE Discover to install new releases.");
 		} else if !self.updates.supported {
+			ui.add_space(12.0);
 			ui.weak("In-app installation requires a macOS or Windows release package, or a Linux x86-64 AppImage. Other Linux installations use their package manager.");
 		}
 		ui.add_space(16.0);

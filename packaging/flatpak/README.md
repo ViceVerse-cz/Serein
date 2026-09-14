@@ -17,18 +17,37 @@ sources and downloads exactly Cargo.lock's registry/Git dependencies with
 `cargo vendor --locked`. `--prepare-only` stops after this network-enabled step.
 The actual application build is offline inside Flatpak's build sandbox, using
 the standard release configuration including voice and bundled notices/source.
-The generated bundle is `target/flatpak-build/Serein-linux.flatpak`. CI can upload
-that file as an artifact; building it does not publish an application or repository.
+The build produces:
+- `target/flatpak-build/Serein-linux.flatpak`: single-file standalone bundle
+- `target/flatpak-build/repo/`: exported static OSTree repository with static deltas
+- `target/flatpak-build/serein.flatpakref`: one-click repository install file
 
+### Installing and Automatic Updates
+
+#### Option A: One-click repository install (Recommended for automatic updates)
+To install Serein configured to receive automatic updates from the hosted OSTree repository:
+
+```sh
+flatpak install --user packaging/flatpak/serein.flatpakref
+# Or from a published URL:
+# flatpak install --user https://viceverse-cz.github.io/Serein/flatpak/serein.flatpakref
+```
+
+Once installed via `.flatpakref`, your desktop environment (GNOME Software, KDE Discover)
+and `flatpak update` will automatically discover and install new releases.
+
+The in-app **Settings -> Updates** screen automatically detects when Serein is running
+inside Flatpak, checks GitHub releases, and prompts you to update through `flatpak update`
+or your desktop software manager when a new release is available.
+
+#### Option B: Standalone bundle (Offline install)
 ```sh
 flatpak install --user ./target/flatpak-build/Serein-linux.flatpak
 flatpak run org.serein.desktop
 flatpak uninstall --user org.serein.desktop
 ```
 
-This is an unsigned local bundle, not a Flathub listing or an update repository.
-Install a newer bundle to update; the in-app Linux updater delegates installation
-to package management. Runtime updates remain managed by Flatpak.
+### Sandbox Permissions
 
 The sandbox grants network, graphics, Wayland with X11 fallback, audio and
 specific Secret Service/notification D-Bus names. Files are selected through

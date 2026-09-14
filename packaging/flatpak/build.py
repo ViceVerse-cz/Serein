@@ -10,10 +10,24 @@ import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_REPO_URL = "https://viceverse-cz.github.io/Serein/flatpak/repo"
 
 
 def output(*args, cwd=ROOT):
     return subprocess.check_output(args, cwd=cwd, text=True).strip()
+
+
+def generate_flatpakref(repo_url=DEFAULT_REPO_URL):
+    return f"""[Flatpak Ref]
+Name=org.serein.desktop
+Branch=master
+Title=Serein
+Comment=Fast, secure and lightweight native Discord client
+Icon=https://viceverse-cz.github.io/Serein/icons/serein.png
+Url={repo_url}
+RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo
+IsRuntime=false
+"""
 
 
 def prepare(destination):
@@ -49,14 +63,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("destination", type=Path, help="New build directory; existing paths are refused")
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--repo-url", default=DEFAULT_REPO_URL,
+                        help="Hosted OSTree repository URL for the generated .flatpakref")
     args = parser.parse_args()
     destination = args.destination.resolve()
     prepare(destination)
     if not args.prepare_only:
         subprocess.run(["flatpak-builder", "--user", "--repo=repo", "build",
                         "org.serein.desktop.json"], cwd=destination, check=True)
+        subprocess.run(["flatpak", "build-update-repo", "--generate-static-deltas", "repo"],
+                       cwd=destination, check=True)
         subprocess.run(["flatpak", "build-bundle", "--runtime-repo=https://flathub.org/repo/flathub.flatpakrepo",
                         "repo", "Serein-linux.flatpak", "org.serein.desktop"], cwd=destination, check=True)
+        (destination / "serein.flatpakref").write_text(generate_flatpakref(args.repo_url))
 
 
 if __name__ == "__main__":
