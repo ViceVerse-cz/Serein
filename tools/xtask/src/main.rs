@@ -208,6 +208,7 @@ fn package_windows(root: &std::path::Path) -> Result<(), String> {
 		let version = env!("CARGO_PKG_VERSION");
 		let status = Command::new(makensis)
 			.args([
+				"-NOCD",
 				&format!("-DVERSION={version}"),
 				&format!("-DDIST_DIR={}", root.display()),
 				&format!("-DOUTPUT_DIR={}", installer_dir.display()),

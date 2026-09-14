@@ -21,11 +21,19 @@ SetCompressor /SOLID lzma
 !endif
 
 !ifndef DIST_DIR
-  !define DIST_DIR "..\..\dist"
+  !if /FileExists "dist"
+    !define DIST_DIR "dist"
+  !else
+    !define DIST_DIR "..\..\dist"
+  !endif
 !endif
 
 !ifndef OUTPUT_DIR
-  !define OUTPUT_DIR "..\..\dist-installer"
+  !if /FileExists "dist"
+    !define OUTPUT_DIR "dist-installer"
+  !else
+    !define OUTPUT_DIR "..\..\dist-installer"
+  !endif
 !endif
 
 Name "${PRODUCT_NAME} ${VERSION}"
@@ -33,8 +41,19 @@ OutFile "${OUTPUT_DIR}\serein-${VERSION}-setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\Serein"
 InstallDirRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "InstallLocation"
 
-!define MUI_ICON "${__FILEDIR__}\Serein.ico"
-!define MUI_UNICON "${__FILEDIR__}\Serein.ico"
+!if /FileExists "packaging\windows\Serein.ico"
+  !define MUI_ICON "packaging\windows\Serein.ico"
+  !define MUI_UNICON "packaging\windows\Serein.ico"
+!else if /FileExists "${__FILEDIR__}\Serein.ico"
+  !define MUI_ICON "${__FILEDIR__}\Serein.ico"
+  !define MUI_UNICON "${__FILEDIR__}\Serein.ico"
+!else if /FileExists "Serein.ico"
+  !define MUI_ICON "Serein.ico"
+  !define MUI_UNICON "Serein.ico"
+!else
+  !define MUI_ICON "${__FILEDIR__}\Serein.ico"
+  !define MUI_UNICON "${__FILEDIR__}\Serein.ico"
+!endif
 
 !define MUI_ABORTWARNING
 
