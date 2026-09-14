@@ -43,6 +43,10 @@ opus2 = { version = "=0.4.0", default-features = false, features = ["backend-lib
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 arboard = "=3.6.1"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Native Wayland clipboard so copied files paste without an XWayland bridge.
+arboard = { version = "=3.6.1", features = ["wayland-data-control"] }
+
 [build-dependencies]
 find-msvc-tools = "=0.1.12"
 

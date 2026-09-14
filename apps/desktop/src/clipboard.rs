@@ -91,6 +91,7 @@ fn read(request: ui::AttachmentPaste) -> Result<Read, &'static str> {
 			if paths.len() > discord_api::upload::MAX_FILES {
 				return Err("Attach up to 10 files per message");
 			}
+			let paths: Vec<_> = paths.into_iter().map(normalize).collect();
 			if paths
 				.iter()
 				.any(|path| !path.is_absolute() || path.as_os_str().as_encoded_bytes().len() > 4096)
@@ -132,6 +133,25 @@ fn read(request: ui::AttachmentPaste) -> Result<Read, &'static str> {
 	png(&image.bytes, image.width, image.height)
 }
 
+/// Linux file managers publish `text/uri-list` with CRLF line endings and may name a
+/// `localhost` authority; arboard leaves both in the path, which then fails as a filename.
+#[cfg(unix)]
+fn normalize(path: std::path::PathBuf) -> std::path::PathBuf {
+	use std::os::unix::ffi::OsStrExt;
+	let bytes = path.as_os_str().as_bytes();
+	let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
+	let bytes = match bytes.strip_prefix(b"localhost/") {
+		Some(_) => &bytes[b"localhost".len()..],
+		None => bytes,
+	};
+	std::path::PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+}
+
+#[cfg(not(unix))]
+fn normalize(path: std::path::PathBuf) -> std::path::PathBuf {
+	path
+}
+
 fn png(bytes: &[u8], width: usize, height: usize) -> Result<Read, &'static str> {
 	let pixels = width.checked_mul(height).ok_or("Image is too large")?;
 	if pixels == 0 || pixels > 4 * 1024 * 1024 || bytes.len() != pixels * 4 {
@@ -151,6 +171,38 @@ fn png(bytes: &[u8], width: usize, height: usize) -> Result<Read, &'static str> 
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	#[cfg(unix)]
+	fn uri_list_paths_lose_line_endings_and_localhost() {
+		use std::path::PathBuf;
+		let normalize = |s: &str| super::normalize(PathBuf::from(s));
+		assert_eq!(normalize("/home/a/b.png\r"), PathBuf::from("/home/a/b.png"));
+		assert_eq!(normalize("localhost/tmp/x"), PathBuf::from("/tmp/x"));
+		assert_eq!(normalize("/plain"), PathBuf::from("/plain"));
+		assert_eq!(normalize("localhost"), PathBuf::from("localhost"));
+	}
+
+	#[test]
+	#[ignore = "Explicit native check: replaces the system clipboard with a temp file"]
+	fn native_copied_file_reads_as_paste_paths() {
+		let dir = std::env::temp_dir().join(format!("serein-paste-{}", std::process::id()));
+		std::fs::create_dir_all(&dir).unwrap();
+		let file = dir.join("copied file.txt");
+		std::fs::write(&file, b"hello").unwrap();
+		let mut clipboard = arboard::Clipboard::new().unwrap();
+		clipboard.set().file_list(&[&file]).unwrap();
+		let request = ui::AttachmentPaste {
+			target: eframe::egui::Id::new("paste"),
+			text: None,
+			image: None,
+		};
+		let super::Read::Paths(paths) = super::read(request).unwrap() else {
+			panic!("Expected copied file paths")
+		};
+		assert_eq!(paths, vec![file.canonicalize().unwrap()]);
+		let _ = std::fs::remove_dir_all(dir);
+	}
+
 	#[test]
 	fn pasted_images_are_bounded_png_upload_sources() {
 		let super::Read::Content(super::Content::File(source)) =
