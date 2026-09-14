@@ -1736,7 +1736,7 @@ impl TimelineView {
 		}
 
 		if at_bottom
-			&& self.at_current_latest
+			&& (can_load_newer || self.at_current_latest)
 			&& ui.input(|input| {
 				(scroll_delta < 0.0
 					&& input
@@ -1745,9 +1745,14 @@ impl TimelineView {
 						.is_some_and(|pos| output.inner_rect.contains(pos)))
 					|| (input.pointer.any_down() && output.state.offset.y > output.inner)
 			}) {
-			self.target_browsing = false;
-			if state.history_targeted || state.history_after.is_some() {
-				self.latest = true;
+			if can_load_newer {
+				self.load_newer = true;
+				self.browse_away();
+			} else {
+				self.target_browsing = false;
+				if state.history_targeted || state.history_after.is_some() {
+					self.latest = true;
+				}
 			}
 			ui.ctx().request_repaint();
 		}
@@ -2204,6 +2209,59 @@ mod tests {
 				assert!(view.target_browsing && view.mark_read.is_none());
 			}
 		}
+	}
+
+	#[test]
+	fn downward_wheel_at_pinned_target_loads_next_page() {
+		let mut state = test_support::demo_state();
+		state.timeline.clear();
+		state.selected = Some(Id(20));
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.history_targeted = true;
+		state.history_before = Some(Id(51));
+		state
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(20))
+			.unwrap()
+			.last_message = Some(Id(100));
+		for id in 1..=50 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		state.search_target = Some(Id(50));
+		state.revision += 1;
+		assert!(state.can_load_newer());
+
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		for _ in 0..5 {
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		}
+		assert!(!view.at_current_latest);
+
+		banner_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![
+				egui::Event::PointerMoved(egui::pos2(450.0, 300.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					delta: egui::vec2(0.0, -600.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+				},
+			],
+			false,
+		);
+
+		assert!(view.load_newer);
+		assert!(view.target_browsing);
 	}
 
 	#[test]
