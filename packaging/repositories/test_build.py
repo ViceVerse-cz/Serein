@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -52,6 +53,15 @@ class RepositoryInputs(unittest.TestCase):
                              ("base_url", "https://example.org/?token=secret")]:
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 validate(argparse.Namespace(**(good | {field: value})))
+
+    def test_setup_script_syntax_and_default_fingerprint(self):
+        setup_sh = Path(__file__).resolve().parent / "setup.sh"
+        self.assertTrue(setup_sh.is_file())
+        res = subprocess.run(["sh", "-n", str(setup_sh)], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        content = setup_sh.read_text()
+        self.assertIn("EXPECTED_FINGERPRINT=", content)
+        self.assertIn("CA19DA939E9BCAB500751CE480FE95CAD86141A5", content)
 
 
 if __name__ == "__main__":

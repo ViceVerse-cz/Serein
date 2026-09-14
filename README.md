@@ -113,8 +113,23 @@ installation. The image uses host GTK4/WebKitGTK 6.0 and other native libraries;
 release builds target Ubuntu 26.04 x86_64. See [AppImage setup and runtime
 dependencies](packaging/appimage/README.md) before running it.
 
-#### Native Package Managers
+#### Native Package Repositories & Managers
 
+##### 1. Automatic Repository Setup (Recommended for apt, dnf, zypper, pacman)
+Run the setup script to detect your distribution, verify the GPG signing key fingerprint, and configure the signed repository:
+```sh
+curl -fsSL https://viceverse-cz.github.io/Serein/setup.sh | sh
+```
+Then install `serein` using your standard package manager:
+```sh
+# Ubuntu / Debian: sudo apt install serein
+# Fedora:          sudo dnf install serein
+# openSUSE:        sudo zypper install serein
+# Arch Linux:      sudo pacman -S serein
+```
+Your package manager will keep Serein automatically updated alongside the rest of your system.
+
+##### 2. Standalone Packages (Manual Install)
 Download the package matching your distribution from [Releases](https://github.com/ViceVerse-cz/rustcord/releases):
 
 ```sh
@@ -131,7 +146,7 @@ sudo zypper install ./serein-*.suse.*.rpm
 sudo pacman -U ./serein-*.pkg.tar.zst
 ```
 
-See [Linux installation and builds](packaging/linux/README.md) for full distribution build instructions and dependencies. [Signed package repositories](packaging/repositories/README.md) are also published to GitHub Pages (`https://viceverse-cz.github.io/Serein/`) for apt, dnf/zypper, and pacman.
+See [Linux installation and builds](packaging/linux/README.md) for distribution build instructions, and [Signed package repositories](packaging/repositories/README.md) for manual repository setup and GPG verification details.
 
 ---
 

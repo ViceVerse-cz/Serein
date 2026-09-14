@@ -49,7 +49,24 @@ publishes the supplied release snapshot, not an unbounded history of packages.
 apt metadata expires after 30 days to limit stale signed-metadata replay; regenerate
 and republish before expiry even when the application version has not changed.
 
-## Install from a published repository
+## Automatic setup script
+
+Run the automatic repository setup script to detect your distribution (Ubuntu/Debian, Fedora, openSUSE, Arch Linux), verify the GPG signing key fingerprint, and configure the repository:
+
+```sh
+curl -fsSL https://viceverse-cz.github.io/Serein/setup.sh | sh
+# Or run from the cloned repository:
+# sh packaging/repositories/setup.sh
+```
+
+To configure a specific channel or base URL:
+```sh
+curl -fsSL https://viceverse-cz.github.io/Serein/setup.sh | SEREIN_CHANNEL=production sh
+```
+
+After running the script, update your package lists and install `serein` using your distribution's native package manager (`apt`, `dnf`, `zypper`, or `pacman`). Subsequent system updates will automatically update Serein.
+
+## Manual installation from a published repository
 
 Set `BASE` to the configured HTTPS repository root and choose **one** channel.
 These examples use nightly (automatic package-manager upgrades remain controlled
