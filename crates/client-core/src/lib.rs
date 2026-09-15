@@ -2240,9 +2240,9 @@ impl State {
 				}
 				self.typing_message(&m);
 				if let Some(post) = self
-					.channels
-					.iter_mut()
-					.find(|c| c.id == m.channel && matches!(c.kind, 10..=12))
+					.channel_index(m.channel)
+					.and_then(|index| self.channels.get_mut(index))
+					.filter(|c| matches!(c.kind, 10..=12))
 				{
 					post.message_count = post.message_count.map(|n| n.saturating_add(1));
 				}

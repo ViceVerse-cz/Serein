@@ -19,6 +19,10 @@ fn main() {
 		navigation();
 		return;
 	}
+	if std::env::args().nth(1).as_deref() == Some("--wide-channels") {
+		wide_channels();
+		return;
+	}
 	let start = Instant::now();
 	let mut state = test_support::demo_state();
 	let mut samples = Vec::new();
@@ -44,6 +48,36 @@ fn main() {
 	state.logout();
 	assert_eq!(state.timeline.bytes(), 0);
 	assert!(!state.has_unsent());
+}
+
+fn wide_channels() {
+	let mut state = test_support::demo_state();
+	let target = state.channel(Id(20)).expect("demo conversation").clone();
+	state.channels = (0..20_000_u64)
+		.map(|index| {
+			let mut channel = target.clone();
+			channel.id = Id(100_000 + index);
+			channel
+		})
+		.chain(std::iter::once(target.clone()))
+		.collect();
+	state.invalidate_navigation();
+	let start = Instant::now();
+	for id in 1..=10_000 {
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Message(test_support::message(1_000_000 + id, Id(20))),
+		});
+	}
+	println!(
+		"Synthetic wide-channel reducer: 10000 messages into the last of 20001 channels in {:?}; {} retained records / {} estimated bytes. Excludes startup, RSS, UI and live compatibility.",
+		start.elapsed(),
+		state.timeline.len(),
+		state.timeline.bytes()
+	);
+	assert_eq!(state.timeline.len(), 500);
+	state.logout();
+	assert_eq!(state.timeline.bytes(), 0);
 }
 
 fn navigation() {
