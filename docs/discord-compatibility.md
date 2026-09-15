@@ -276,6 +276,14 @@ media-free pings. Pong packets cannot enter the authenticated media decoder. A l
 test covers repeated idle-viewer pings followed by encrypted audio/video delivery.
 Whether this resolves the owner's approximately 16-second receive stall remains unverified live.
 
+Video reassembly now propagates packet gaps, unfinished pictures and malformed frames
+to the existing keyframe recovery path. Dependent pictures are gated until an intact
+keyframe arrives; the existing rate-limited PLI asks the sender for that refresh.
+Previously these losses were discarded silently and recovery relied on a later decoder
+error or periodic keyframe. A regression reproduces the missing request before the fix
+and verifies recovery afterward. The owner's later Linux-to-macOS video-only lag is
+not yet attributed to this defect by matching logs.
+
 Stop, call teardown, changed generation, lost video permission or stream-server replacement stop capture and transport. New sharing waits for native worker retirement and matching STREAM_DELETE. No automatic retry or recording is performed. Rekeying pauses capture readiness, drains queued encoded frames, and requires an IDR before resuming transmission. The encoder requests periodic IDRs every two seconds of encoded frames. The current sender handles RTCP PLI and optional system audio, but has no NACK/RTX repair or congestion adaptation; lossy-network quality and service acceptance of high-quality presets remain unverified.
 
 Owner-operated validation is still required: allow screen-recording permission, join a private call, choose a window, verify viewing in the official client, then test Stop, source closure, permission loss, viewer changes/rekey and both quality presets. No live account/capture was used for agent tests. Native Windows execution and live Discord video interoperability are not established by macOS builds or synthetic tests.
