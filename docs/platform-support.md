@@ -73,7 +73,7 @@ loading and synthetic checks do not establish live Discord challenge acceptance.
 Windows and Linux General settings offer Show Serein in System Tray, off by default. Minimizing
 keeps the window in the taskbar, including taskbar clicks and automatic startup. The icon supports
 keyboard/mouse restore and a Show Serein / Quit menu. Quit uses the normal unsaved
-work/download exit checks; the window Close button retains normal exit behavior.
+work/download exit checks. On Windows the window Close button retains normal exit behavior.
 Disabling removes the tray icon without changing the window's minimized state.
 The Windows adapter uses existing user32/Shell APIs and dependencies, with no background
 polling. A synthetic native Windows test verifies registration,
@@ -82,6 +82,11 @@ minimize/restore, own-window taskbar recovery, Quit event and cleanup.
 Linux uses `ksni` and the session bus's StatusNotifierWatcher, with the bundled icon
 and the same Show Serein / Quit actions. A compatible desktop tray host is required;
 desktops without one report the tray unavailable and keep normal window behavior.
+On Linux, closing the window keeps the app running once tray registration succeeds.
+Show Serein restores the window; Quit and explicit update restart use the existing exit checks.
+An unavailable or disabled tray keeps normal close behavior. Losing the host requests restoration
+of a hidden window. Winit cannot hide/unhide native Wayland windows, so a compositor such as
+Hyprland may leave the window visible after Close; the close request is still cancelled.
 If the host exits, toggle the setting off/on after the host returns to retry.
 Wayland compositors may decline application-requested focus. Flatpak permits only
 the additional `org.kde.StatusNotifierWatcher` bus name, not unrestricted session-bus

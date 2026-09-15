@@ -10,3 +10,6 @@ tokio.workspace = true
 ksni = "=0.3.6"
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+egui.workspace = true

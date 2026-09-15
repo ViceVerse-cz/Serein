@@ -1,4 +1,4 @@
-//! Opt-in native tray icon. Minimizing and closing keep their normal window behavior.
+//! Opt-in native tray icon. Linux routes window close to an available tray; Quit exits.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]

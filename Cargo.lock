@@ -4914,6 +4914,7 @@ dependencies = [
  "windows-core 0.61.2",
  "winit",
  "wry",
+ "zbus",
  "zeroize",
 ]
 
@@ -6966,6 +6967,7 @@ dependencies = [
 name = "tray-debug"
 version = "0.1.0"
 dependencies = [
+ "egui",
  "image",
  "ksni",
  "tokio",

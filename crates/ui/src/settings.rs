@@ -671,7 +671,11 @@ impl MessagingUi {
 			design::switch(
 				ui,
 				"Show Serein in System Tray",
-				Some("Show a notification-area icon. Minimized windows stay in the taskbar."),
+				Some(if cfg!(target_os = "linux") {
+					"Closing the window keeps Serein in the tray. Use the tray menu to quit."
+				} else {
+					"Show a notification-area icon. Minimized windows stay in the taskbar."
+				}),
 				&mut self.minimize_to_tray,
 			);
 		});

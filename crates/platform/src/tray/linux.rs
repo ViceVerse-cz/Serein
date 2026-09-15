@@ -9,11 +9,16 @@ use tokio::sync::oneshot;
 
 struct Events {
 	bits: AtomicU8,
+	// Pending -> ready, or permanently unavailable until this registration is replaced.
+	availability: AtomicU8,
 	wake: Box<dyn Fn() + Send + Sync>,
 }
 
 impl Events {
 	fn push(&self, event: Event) {
+		if event == Event::Unavailable {
+			self.availability.store(2, Ordering::Release);
+		}
 		if self.bits.fetch_or(event as u8, Ordering::Relaxed) & event as u8 == 0 {
 			(self.wake)();
 		}
@@ -32,6 +37,7 @@ impl Tray {
 			.map_err(|_| "The tray requires the application runtime.")?;
 		let events = Arc::new(Events {
 			bits: AtomicU8::new(0),
+			availability: AtomicU8::new(0),
 			wake: Box::new(wake),
 		});
 		let (stop, mut stopped) = oneshot::channel();
@@ -45,7 +51,7 @@ impl Tray {
 				return;
 			};
 			let mut pixels = icon.into_rgba8().into_raw();
-			for pixel in pixels.chunks_exact_mut(4) {
+			for pixel in pixels.as_chunks_mut::<4>().0 {
 				pixel.rotate_right(1); // StatusNotifier pixmaps use ARGB, not RGBA.
 			}
 			let item = Item {
@@ -61,6 +67,28 @@ impl Tray {
 				worker_events.push(Event::Unavailable);
 				return;
 			};
+			// ksni subscribes to watcher changes after registration. Recheck after
+			// subscribing so a host lost during registration cannot leave a phantom tray.
+			let host_present = tokio::select! {
+				_ = &mut stopped => false,
+				result = tokio::time::timeout(Duration::from_secs(3), async {
+					let bus = zbus::Connection::session().await?;
+					let dbus = zbus::fdo::DBusProxy::new(&bus).await?;
+					dbus.name_has_owner("org.kde.StatusNotifierWatcher".try_into().unwrap()).await
+				}) => matches!(result, Ok(Ok(true))),
+			};
+			if !host_present || handle.is_closed() {
+				worker_events.push(Event::Unavailable);
+				let _ = tokio::time::timeout(Duration::from_secs(2), handle.shutdown()).await;
+				return;
+			}
+			if worker_events
+				.availability
+				.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+				.is_ok()
+			{
+				(worker_events.wake)();
+			}
 			let _ = stopped.await;
 			let _ = tokio::time::timeout(Duration::from_secs(2), handle.shutdown()).await;
 		});
@@ -68,6 +96,9 @@ impl Tray {
 			events,
 			_stop: stop,
 		})
+	}
+	pub fn is_available(&self) -> bool {
+		self.events.availability.load(Ordering::Acquire) == 1
 	}
 
 	pub fn take_event(&self) -> Option<Event> {

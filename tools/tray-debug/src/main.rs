@@ -2,6 +2,11 @@
 #[cfg(target_os = "linux")]
 #[path = "../../../crates/platform/src/tray.rs"]
 mod tray;
+#[cfg(all(target_os = "linux", test))]
+pub use egui;
+#[cfg(all(target_os = "linux", test))]
+#[path = "../../../apps/desktop/src/tray_window.rs"]
+mod tray_window;
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
@@ -17,17 +22,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(target_os = "linux")]
 mod linux {
 	use super::tray::{self, Event, Tray};
-	use std::{sync::Arc, time::Duration};
+	use std::{
+		sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+		},
+		time::Duration,
+	};
 	use tokio::sync::{Notify, watch};
 
-	struct Watcher(watch::Sender<String>);
+	struct Watcher(watch::Sender<String>, Arc<AtomicBool>);
 	#[zbus::interface(name = "org.kde.StatusNotifierWatcher")]
 	impl Watcher {
 		fn register_status_notifier_item(&self, service: String) {
 			self.0.send_replace(service);
 		}
 		#[zbus(property)]
-		fn is_status_notifier_host_registered(&self) -> bool {
+		async fn is_status_notifier_host_registered(
+			&self,
+			#[zbus(connection)] bus: &zbus::Connection,
+		) -> bool {
+			if self.1.swap(false, Ordering::Relaxed) {
+				bus.release_name("org.kde.StatusNotifierWatcher")
+					.await
+					.unwrap();
+			}
 			true
 		}
 	}
@@ -59,17 +78,25 @@ mod linux {
 		};
 		let missing = start();
 		event(&missing, &wake, Event::Unavailable).await;
+		assert!(!missing.is_available());
 		drop(missing);
 		println!("PASS: absent host");
 
 		let (registered, mut registration) = watch::channel(String::new());
+		let lose_during_registration = Arc::new(AtomicBool::new(false));
 		let host = zbus::connection::Builder::session()?
 			.name("org.kde.StatusNotifierWatcher")?
-			.serve_at("/StatusNotifierWatcher", Watcher(registered))?
+			.serve_at(
+				"/StatusNotifierWatcher",
+				Watcher(registered, lose_during_registration.clone()),
+			)?
 			.build()
 			.await?;
 		let tray = start();
 		registration.changed().await?;
+		while !tray.is_available() {
+			wake.notified().await;
+		}
 		println!("PASS: registration");
 		let service = registration.borrow_and_update().clone();
 		let item = zbus::Proxy::new(
@@ -103,6 +130,7 @@ mod linux {
 		}
 		host.release_name("org.kde.StatusNotifierWatcher").await?;
 		event(&tray, &wake, Event::Unavailable).await;
+		assert!(!tray.is_available());
 		drop(tray);
 		println!("PASS: host loss");
 		while dbus.name_has_owner(service.as_str().try_into()?).await? {
@@ -125,6 +153,12 @@ mod linux {
 		while dbus.name_has_owner(service.as_str().try_into()?).await? {
 			tokio::time::sleep(Duration::from_millis(10)).await;
 		}
+		lose_during_registration.store(true, Ordering::Relaxed);
+		let tray = start();
+		event(&tray, &wake, Event::Unavailable).await;
+		assert!(!tray.is_available());
+		drop(tray);
+		println!("PASS: host lost during registration");
 		println!(
 			"PASS: absent host, registration, icon, coalesced Show, menu Show/Quit, unregister and host loss (synthetic private D-Bus; no desktop rendering)."
 		);
