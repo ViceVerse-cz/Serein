@@ -54,3 +54,14 @@ windows-core = "=0.61.2"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.189"
 image = { version = "=0.25.10", default-features = false, features = ["jpeg"] }
+gstreamer = "=0.25.3"
+gstreamer-app = "=0.25.2"
+gstreamer-video = "=0.25.3"
+zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }
+
+# The offline Linux pipeline example also runs on macOS without capture or D-Bus.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+gstreamer = "=0.25.3"
+gstreamer-app = "=0.25.2"
+gstreamer-video = "=0.25.3"
+zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }

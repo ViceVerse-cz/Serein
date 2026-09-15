@@ -30,6 +30,15 @@ even when recommended/optional packages are disabled. This changes future packag
 not already-published releases. Source builds and extracted directory archives do
 not install system dependencies; on Arch/CachyOS install `gst-plugins-good` yourself.
 
+Screen sharing additionally requires the Base plugins and the PipeWire source plugin;
+these are native package dependencies (`gstreamer1.0-pipewire` on Debian/Ubuntu,
+`pipewire-gstreamer` on Fedora, `gstreamer-plugin-pipewire` on openSUSE and
+`gst-plugin-pipewire` on Arch). Use a ScreenCast-capable portal backend matching your
+desktop; the GTK fallback alone does not provide screen capture. VA-API/NVENC and OpenGL
+plugins plus compatible drivers enable hardware encoding; otherwise Serein uses bundled
+OpenH264. Hardware plugin names/availability vary by distribution and repository.
+Native screen capture and installation of the updated packages remain unverified.
+
 ## Native builds
 
 Build on the target distribution; converting an Ubuntu binary to RPM or Arch does

@@ -141,7 +141,7 @@ def package(root, application_version):
         # dlopen libraries and desktop services are invisible to ELF DT_NEEDED.
         depends += (", libvulkan1, libegl1, libxkbcommon0, libxkbcommon-x11-0, "
                     "libwayland-client0, libx11-6, libx11-xcb1, libxcursor1, libxi6, libxrandr2, "
-                    "dbus-user-session | dbus-x11, xdg-desktop-portal, gstreamer1.0-plugins-good")
+                    "dbus-user-session | dbus-x11, xdg-desktop-portal, gstreamer1.0-plugins-good, gstreamer1.0-plugins-base, gstreamer1.0-pipewire")
         installed_kib = sum(1 if p.is_dir() else max(1, (p.stat().st_size + 1023) // 1024)
                             for p in stage.rglob("*"))
         control = stage / "DEBIAN/control"
@@ -151,8 +151,8 @@ def package(root, application_version):
             "Maintainer: Serein contributors <noreply@github.com>\n"
             "Homepage: https://github.com/ViceVerse-cz/rustcord\n"
             f"Installed-Size: {installed_kib}\nDepends: {depends}\n"
-            "Recommends: gnome-keyring, xdg-desktop-portal-gtk | xdg-desktop-portal-kde, "
-            "gstreamer1.0-plugins-base, gstreamer1.0-libav\n"
+            "Recommends: gnome-keyring, xdg-desktop-portal-gnome | xdg-desktop-portal-kde | xdg-desktop-portal-wlr, "
+            "gstreamer1.0-plugins-bad, gstreamer1.0-gl, gstreamer1.0-libav\n"
             "Description: Unofficial native Discord client\n"
             " Native Rust desktop client for existing Discord accounts.\n"
             " Unofficial, experimental, and not endorsed by Discord.\n",
@@ -239,7 +239,9 @@ def rpm_package(temporary, stage, application_version, distro):
         "libwayland-client.so.0", "libX11.so.6", "libX11-xcb.so.1", "libXcursor.so.1",
         "libXi.so.6", "libXrandr.so.2"]] + [
             "dbus" if distro == "fedora" else "dbus-1", "xdg-desktop-portal",
-            "gstreamer1-plugins-good" if distro == "fedora" else "gstreamer-plugins-good"]
+            "gstreamer1-plugins-good" if distro == "fedora" else "gstreamer-plugins-good",
+            "gstreamer1-plugins-base" if distro == "fedora" else "gstreamer-plugins-base",
+            "pipewire-gstreamer" if distro == "fedora" else "gstreamer-plugin-pipewire"]
     plugins = "gstreamer1-plugins-base" if distro == "fedora" else "gstreamer-plugins-base"
     spec = temporary / "serein.spec"
     spec.write_text(
@@ -296,7 +298,7 @@ def arch_package(temporary, stage, application_version, libraries):
     version = application_version.replace("-", "pre.", 1).replace("-", ".")
     depends = {"vulkan-icd-loader", "libglvnd", "libxkbcommon", "libxkbcommon-x11",
                "wayland", "libx11", "libxcursor", "libxi", "libxrandr", "dbus", "xdg-desktop-portal",
-               "gst-plugins-good"}
+               "gst-plugins-good", "gst-plugins-base", "gst-plugin-pipewire"}
     # Resolve linked libraries to the native pacman package/version (ABI floor).
     for path in re.findall(r"(?:=>\s+|^\s*)(/\S+)", libraries, re.MULTILINE):
         owner = output("pacman", "-Qqo", path)
@@ -314,7 +316,7 @@ def arch_package(temporary, stage, application_version, libraries):
         "license=('MIT' 'Apache-2.0')\noptions=('!strip' '!debug' '!lto')\n"
         + "depends=(" + " ".join(f"'{item}'" for item in sorted(depends)) + ")\n"
         "optdepends=('gnome-keyring: Secret Service credential provider' "
-        "'gst-plugins-base: inline video' 'gst-libav: inline video')\n"
+        "'gst-plugins-bad: hardware screen encoding' 'gst-libav: inline video')\n"
         "package() { cp -a \"$startdir/payload/.\" \"$pkgdir/\"; }\n", encoding="utf-8")
     checked("makepkg", "--nodeps", "--noconfirm", cwd=temporary)
     artifact, = temporary.glob("serein-*.pkg.tar.*")

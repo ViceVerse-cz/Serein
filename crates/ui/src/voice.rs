@@ -584,7 +584,9 @@ impl MessagingUi {
 		let hint = match tile {
 			Tile::LocalScreen => {
 				self.screen_tile(ui, rect, compact);
-				"Your screen · local preview"
+				self.screen
+					.capture_status
+					.unwrap_or("Your screen · local preview")
 			}
 			Tile::Stream(streamer) => {
 				self.stream_tile(ui, state, rect, channel, *streamer, compact);
@@ -897,6 +899,12 @@ impl MessagingUi {
 	fn stage_notices(&self, state: &State, channel: Id, connected: bool) -> Vec<(String, bool)> {
 		let mut notices = Vec::new();
 		if let Some(call) = state.voice.active.as_ref().filter(|c| c.channel == channel) {
+			if self.screen.context == Some((state.generation, channel, call.request)) {
+				let status = self.screen.capture_status.unwrap_or(self.screen.status);
+				if !status.is_empty() {
+					notices.push((status.into(), false));
+				}
+			}
 			if !self.voice_camera_status.is_empty() {
 				notices.push((self.voice_camera_status.into(), false));
 			}
@@ -1764,9 +1772,15 @@ impl MessagingUi {
 			color,
 			label,
 			if enabled {
-				label
+				self.screen
+					.capture_status
+					.unwrap_or(if self.screen.status.is_empty() {
+						label
+					} else {
+						self.screen.status
+					})
 			} else {
-				"Screen sharing requires a connected call and video permission on macOS or Windows."
+				"Screen sharing requires a connected call and video permission on a supported desktop."
 			},
 		)
 		.clicked()
@@ -2140,13 +2154,15 @@ impl MessagingUi {
 							"Share your screen"
 						},
 						if can_share {
-							if self.screen.busy {
+							if let Some(status) = self.screen.capture_status {
+								status
+							} else if self.screen.busy {
 								"Stop sharing your screen"
 							} else {
 								"Share a screen or window"
 							}
 						} else {
-							"Screen sharing requires a connected call and video permission on macOS or Windows."
+							"Screen sharing requires a connected call and video permission on a supported desktop."
 						},
 					)
 					.clicked();

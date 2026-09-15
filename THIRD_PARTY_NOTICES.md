@@ -211,3 +211,11 @@ with ab_glyph 0.2.32 / ab_glyph_rasterizer 0.1.10 / owned_ttf_parser 0.25.1
 Their notices and license texts are retained in
 [the Adwaita dependency notices](assets/licenses/dependencies/wayland-adwaita-LICENSES.txt)
 and copied by the existing dependency-notice packaging step.
+
+Linux screen sharing reuses the already locked **gstreamer 0.25.3**,
+**gstreamer-app 0.25.2**, **gstreamer-video 0.25.3** Rust bindings
+(MIT OR Apache-2.0) and **zbus 5.19.0** (MIT, Tokio backend).
+GStreamer/PipeWire, VA-API/NVENC/OpenGL plugins and GPU drivers are native runtime
+components supplied by the distribution/Flatpak runtime, not new bundled codec source.
+Their upstream licenses and distribution packaging terms still apply. Software encoding
+uses the existing bundled OpenH264 notices above.

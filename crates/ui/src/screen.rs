@@ -20,6 +20,7 @@ pub struct ScreenUi {
 	pub request: Option<Request>,
 	pub busy: bool,
 	pub status: &'static str,
+	pub capture_status: Option<&'static str>,
 	pub supported: bool,
 	pub preview: Option<egui::TextureHandle>,
 	height: u32,
@@ -38,9 +39,10 @@ impl Default for ScreenUi {
 			request: None,
 			busy: false,
 			status: "",
+			capture_status: None,
 			supported: false,
 			preview: None,
-			height: 1080,
+			height: if cfg!(target_os = "linux") { 720 } else { 1080 },
 			fps: 30,
 			cursor: true,
 			audio: true,
@@ -154,7 +156,7 @@ impl ScreenUi {
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				if ui
 					.add_enabled(
-						!state.demo,
+						!state.demo && !cfg!(target_os = "linux"),
 						egui::Button::new(
 							egui::RichText::new("Refresh").size(12.0).color(colors.link),
 						)
@@ -323,7 +325,12 @@ impl ScreenUi {
 				text_width,
 			);
 			let kind = ui.painter().layout_no_wrap(
-				if display { "Screen" } else { "Window" }.to_owned(),
+				match source.id {
+					SourceId::Portal => "System permission dialog",
+					SourceId::Display(_) => "Screen",
+					SourceId::Window(_) => "Window",
+				}
+				.to_owned(),
 				egui::FontId::proportional(11.0),
 				colors.muted,
 			);
@@ -414,6 +421,7 @@ mod tests {
 			id: SourceId::Window(7),
 			name: "Notes".into(),
 		});
+		picker.height = 1080;
 		picker.fps = 60;
 		let settings = picker.settings().unwrap();
 		assert_eq!(
