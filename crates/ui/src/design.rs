@@ -1208,6 +1208,53 @@ fn contrast(a: Color32, b: Color32) -> f32 {
 #[cfg(test)]
 mod tests {
 	#[test]
+	fn action_button_text_uses_the_current_palette() {
+		use super::*;
+		for theme in [egui::ThemePreference::Dark, egui::ThemePreference::Light] {
+			for kind in [
+				ButtonKind::Neutral,
+				ButtonKind::Outline,
+				ButtonKind::Primary,
+			] {
+				let ctx = egui::Context::default();
+				ctx.set_theme(theme);
+				apply(&ctx);
+				let mut expected = Color32::TRANSPARENT;
+				let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+					let palette = palette(ui);
+					expected = match kind {
+						ButtonKind::Neutral => palette.text,
+						ButtonKind::Outline => palette.text_strong,
+						_ => palette.accent_text,
+					};
+					button(ui, "Readable action", kind);
+				});
+				let text = output
+					.shapes
+					.iter()
+					.find_map(|shape| match &shape.shape {
+						egui::Shape::Text(text) if text.galley.job.text == "Readable action" => {
+							Some(text)
+						}
+						_ => None,
+					})
+					.expect("button label is painted");
+				let color = text
+					.override_text_color
+					.unwrap_or(text.galley.job.sections[0].format.color);
+				assert_eq!(
+					if color == Color32::PLACEHOLDER {
+						text.fallback_color
+					} else {
+						color
+					},
+					expected
+				);
+				output.drop_without_applying_deltas();
+			}
+		}
+	}
+	#[test]
 	fn theme_card_preview_inherits_builtin_colors_not_the_active_theme() {
 		use super::*;
 		set_variant(Variant::Standard);
@@ -1678,7 +1725,11 @@ pub fn button(ui: &mut egui::Ui, label: &str, kind: ButtonKind) -> egui::Respons
 			egui::StrokeKind::Outside,
 		);
 	}
-	painter.galley(rect.center() - galley.size() * 0.5, galley.clone(), text);
+	painter.galley_with_override_text_color(
+		rect.center() - galley.size() * 0.5,
+		galley.clone(),
+		text,
+	);
 	response
 }
 

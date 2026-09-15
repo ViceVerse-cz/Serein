@@ -331,6 +331,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		return Err("Viewport must be 500-1920 by 520-1200".into());
 	}
 	let light = args.iter().any(|arg| arg == "--light");
+	let theme_editor = value("--theme-editor=").map(str::to_owned);
 	let thumbnail = args.iter().any(|arg| arg == "--thumbnail");
 	let extension = value("--extension=").map(str::to_owned);
 	let fixture = extension.as_deref().map(extension_fixture).transpose()?;
@@ -401,6 +402,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					messaging
 						.extensions
 						.preview_themes(args.iter().any(|arg| arg == "--themes"));
+					if let Some(tab) = &theme_editor {
+						let mut package = extensions::parse_package(include_bytes!(
+							"../../../extensions/ocean.serein-extension"
+						))
+						.expect("valid theme fixture");
+						package.manifest.name = "My ocean".into();
+						package.manifest.author = "You".into();
+						messaging.extensions.receive_theme_edit(
+							Box::new(package),
+							None,
+							None,
+							true,
+						);
+						let bytes = include_bytes!("../../../extensions/previews/ocean.png");
+						let pixels = image::load_from_memory(bytes)
+							.expect("valid fixture image")
+							.to_rgba8();
+						messaging.extensions.receive_theme_image(
+							bytes.to_vec(),
+							Arc::new(egui::ColorImage::from_rgba_unmultiplied(
+								[pixels.width() as usize, pixels.height() as usize],
+								pixels.as_raw(),
+							)),
+						);
+						messaging.extensions.preview_theme_editor_tab(tab);
+					}
 				}
 			}
 			Ok(Box::new(Preview {

@@ -103,6 +103,15 @@ fn identity() -> String {
 }
 
 impl ThemeEditor {
+	#[cfg(feature = "demo")]
+	pub(crate) fn preview_tab(&mut self, label: &str) {
+		if let Some(tab) = EditorTab::ALL
+			.into_iter()
+			.find(|tab| tab.label().eq_ignore_ascii_case(label))
+		{
+			self.tab = tab;
+		}
+	}
 	pub fn new() -> Self {
 		Self {
 			package: Box::new(Package {
@@ -315,6 +324,7 @@ impl ThemeEditor {
 	) -> bool {
 		let mut close = false;
 		ui.add_enabled_ui(!busy, |ui| {
+			ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 			ui.horizontal_wrapped(|ui| {
 				if dialog::action(ui, "Back", dialog::Action::Neutral).clicked() {
 					if self.dirty {
@@ -322,6 +332,16 @@ impl ThemeEditor {
 					} else {
 						close = true;
 					}
+				}
+				if self.dirty {
+					ui.label(
+						egui::RichText::new("Unsaved changes")
+							.size(12.0)
+							.color(design::palette(ui).muted),
+					);
+				}
+				if ui.max_rect().width() >= 600.0 {
+					ui.add_space((ui.available_size_before_wrap().x - 278.0).max(0.0));
 				}
 				let valid = self
 					.package
@@ -352,9 +372,6 @@ impl ThemeEditor {
 						self.validation_error = Some((tab, message));
 					}
 				}
-				if self.dirty {
-					ui.weak("Unsaved changes");
-				}
 			});
 		});
 		if busy {
@@ -368,6 +385,18 @@ impl ThemeEditor {
 			ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 			for tab in EditorTab::ALL {
 				ui.selectable_value(&mut self.tab, tab, tab.label());
+			}
+			if self.tab != EditorTab::Basics {
+				if ui.available_size_before_wrap().x >= 220.0 {
+					ui.add_space((ui.available_size_before_wrap().x - 210.0).max(0.0));
+				}
+				ui.allocate_ui_with_layout(
+					egui::vec2(202.0, 32.0),
+					egui::Layout::left_to_right(egui::Align::Center),
+					|ui| {
+						appearance_switch(ui, &mut self.dark);
+					},
+				);
 			}
 		});
 		ui.add_space(8.0);
@@ -383,6 +412,7 @@ impl ThemeEditor {
 	) -> bool {
 		let mut changed = false;
 		ui.add_enabled_ui(!busy, |ui| {
+			ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 			if let Some((_, message)) = self.validation_error.filter(|(tab, _)| *tab == self.tab) {
 				design::card(ui, |ui| {
 					ui.colored_label(ui.visuals().error_fg_color, message)
@@ -391,7 +421,11 @@ impl ThemeEditor {
 			}
 			match self.tab {
 				EditorTab::Basics => {
-					design::section(ui, "Basics", Some("Name your theme before you save it."));
+					design::section(
+						ui,
+						"Theme details",
+						Some("How your theme appears in the gallery."),
+					);
 					let show_errors = self.show_errors;
 					design::card(ui, |ui| {
 						let manifest = &mut self.package.manifest;
@@ -411,11 +445,6 @@ impl ThemeEditor {
 							);
 						}
 					});
-					ui.add_space(12.0);
-					design::hint(
-						ui,
-						"This name appears in Themes. You can change it before saving.",
-					);
 					ui.add_space(20.0);
 					design::section(
 						ui,
@@ -425,13 +454,10 @@ impl ThemeEditor {
 					self.cover_card(ui, requests, &mut changed);
 				}
 				EditorTab::Background => {
-					appearance_switch(ui, &mut self.dark);
 					design::section(
 						ui,
-						"Background",
-						Some(
-							"One image fills the app. Pick a section on the map to adjust its surface.",
-						),
+						"App background",
+						Some("Use one image behind your conversations and sidebars."),
 					);
 					self.image_card(ui, requests, &mut changed);
 					if !self.package.background_image.is_empty() {
@@ -504,7 +530,7 @@ impl ThemeEditor {
 								ui,
 								"Section opacity",
 								Some(
-									"0% reveals the image. 100% covers it with the section color.",
+									"Select an area, then choose how much of the image shows through.",
 								),
 							);
 							let base = design::builtin_colors(self.dark, design::variant());
@@ -527,11 +553,10 @@ impl ThemeEditor {
 					}
 				}
 				EditorTab::Colors => {
-					appearance_switch(ui, &mut self.dark);
 					design::section(
 						ui,
-						"Colors",
-						Some("Pick the main colors people see in conversations."),
+						"Conversation colors",
+						Some("Click a swatch to choose a color, or enter its hex value."),
 					);
 					let theme = self
 						.package
@@ -564,7 +589,6 @@ impl ThemeEditor {
 					}
 				}
 				EditorTab::Advanced => {
-					appearance_switch(ui, &mut self.dark);
 					design::section(
 						ui,
 						"Advanced",
@@ -941,16 +965,14 @@ impl ThemeEditor {
 }
 
 fn appearance_switch(ui: &mut egui::Ui, dark: &mut bool) {
-	ui.horizontal_wrapped(|ui| {
-		ui.label("Editing appearance");
-		ui.selectable_value(dark, true, "Dark");
-		ui.selectable_value(dark, false, "Light");
-	});
-	design::hint(
-		ui,
-		"The image is shared. Colors and section opacity are separate for Dark and Light.",
-	);
-	ui.add_space(16.0);
+	ui.label(
+		egui::RichText::new("Editing")
+			.size(12.0)
+			.color(design::palette(ui).muted),
+	)
+	.on_hover_text("Colors and opacity are saved separately for dark and light appearance.");
+	ui.selectable_value(dark, true, "Dark");
+	ui.selectable_value(dark, false, "Light");
 }
 
 fn map_palette(
@@ -981,6 +1003,77 @@ fn section_map(
 	fit: BackgroundFit,
 	sections: &mut SectionOpacity,
 ) -> bool {
+	let mut changed = false;
+	if ui.available_width() >= 620.0 {
+		ui.horizontal_top(|ui| {
+			let width = ui.available_width() * 0.55;
+			ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+				section_diagram(ui, texture, selected, colors, fit, sections);
+			});
+			ui.add_space(12.0);
+			ui.vertical(|ui| {
+				changed = section_controls(ui, selected, sections);
+			});
+		});
+	} else {
+		section_diagram(ui, texture, selected, colors, fit, sections);
+		ui.add_space(12.0);
+		changed = section_controls(ui, selected, sections);
+	}
+	changed
+}
+
+fn section_controls(
+	ui: &mut egui::Ui,
+	selected: &mut ImageRegion,
+	sections: &mut SectionOpacity,
+) -> bool {
+	let mut changed = false;
+	design::card(ui, |ui| {
+		let palette = design::palette(ui);
+		ui.visuals_mut().widgets.inactive.bg_fill = palette.base;
+		ui.visuals_mut().widgets.inactive.weak_bg_fill = palette.base;
+		ui.visuals_mut().selection.bg_fill = palette.accent;
+		ui.label(design::medium(ui, "Selected section", 13.0));
+		egui::ComboBox::from_id_salt("background-section")
+			.width(ui.available_width())
+			.selected_text(selected.label())
+			.show_ui(ui, |ui| {
+				for region in [
+					ImageRegion::TopBars,
+					ImageRegion::ServerList,
+					ImageRegion::PeopleChannels,
+					ImageRegion::MessageList,
+					ImageRegion::MemberList,
+					ImageRegion::InputArea,
+				] {
+					ui.selectable_value(selected, region, region.label());
+				}
+			});
+		design::hint(ui, selected.description());
+		ui.add_space(12.0);
+		ui.label("Surface opacity");
+		ui.spacing_mut().slider_width = (ui.available_width() - 60.0).max(80.0);
+		changed = ui
+			.add(
+				egui::Slider::new(selected.opacity(sections), 0..=100)
+					.suffix("%")
+					.trailing_fill(true),
+			)
+			.changed();
+		design::hint(ui, "0% shows the image. 100% is a solid section color.");
+	});
+	changed
+}
+
+fn section_diagram(
+	ui: &mut egui::Ui,
+	texture: Option<&egui::TextureHandle>,
+	selected: &mut ImageRegion,
+	colors: design::Palette,
+	fit: BackgroundFit,
+	sections: &mut SectionOpacity,
+) {
 	let width = ui.available_width().clamp(1.0, 520.0);
 	let (rect, _) =
 		ui.allocate_exact_size(egui::vec2(width, width * 9.0 / 16.0), egui::Sense::hover());
@@ -1110,22 +1203,6 @@ fn section_map(
 			);
 		}
 	}
-	ui.add_space(12.0);
-	let mut changed = false;
-	design::card(ui, |ui| {
-		ui.label(design::medium(ui, selected.label(), 15.0));
-		ui.weak(selected.description());
-		ui.add_space(8.0);
-		changed = ui
-			.add(
-				egui::Slider::new(selected.opacity(sections), 0..=100)
-					.text("Surface opacity")
-					.suffix("%"),
-			)
-			.on_hover_text("0% reveals the image; 100% hides it behind the section color.")
-			.changed();
-	});
-	changed
 }
 
 fn rgba([r, g, b, a]: [u8; 4]) -> egui::Color32 {
@@ -1218,10 +1295,32 @@ fn color_label(key: &str) -> &str {
 }
 /// Settings rows align values at the right; narrow pages stack instead of clipping controls.
 fn row(ui: &mut egui::Ui, label: &str, controls: impl FnOnce(&mut egui::Ui) -> bool) -> bool {
+	settings_row(ui, label, None, controls)
+}
+fn settings_row(
+	ui: &mut egui::Ui,
+	label: &str,
+	description: Option<&str>,
+	controls: impl FnOnce(&mut egui::Ui) -> bool,
+) -> bool {
 	ui.push_id(label, |ui| {
 		ui.add_space(4.0);
-		if ui.available_width() < 440.0 {
-			ui.label(label);
+		let height = if description.is_some() { 54.0 } else { 42.0 };
+		let heading = |ui: &mut egui::Ui| {
+			ui.label(design::medium(ui, label, 14.0).color(design::palette(ui).text_strong));
+			if let Some(description) = description {
+				ui.add(
+					egui::Label::new(
+						egui::RichText::new(description)
+							.size(12.0)
+							.color(design::palette(ui).muted),
+					)
+					.wrap(),
+				);
+			}
+		};
+		if ui.available_width() < 500.0 {
+			heading(ui);
 			ui.allocate_ui_with_layout(
 				egui::vec2(ui.available_width(), 42.0),
 				egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
@@ -1230,12 +1329,22 @@ fn row(ui: &mut egui::Ui, label: &str, controls: impl FnOnce(&mut egui::Ui) -> b
 			.inner
 		} else {
 			ui.allocate_ui_with_layout(
-				egui::vec2(ui.available_width(), 42.0),
+				egui::vec2(ui.available_width(), height),
 				egui::Layout::left_to_right(egui::Align::Center),
 				|ui| {
-					ui.label(label);
-					let width = 270.0;
-					ui.add_space((ui.available_width() - width).max(0.0));
+					let width = 250.0;
+					let label_width =
+						(ui.available_width() - width - ui.spacing().item_spacing.x).max(1.0);
+					ui.allocate_ui_with_layout(
+						egui::vec2(label_width, height),
+						egui::Layout::top_down(egui::Align::Min)
+							.with_main_align(egui::Align::Center),
+						|ui| {
+							ui.set_min_width(label_width);
+							ui.set_min_height(height);
+							heading(ui);
+						},
+					);
 					ui.allocate_ui_with_layout(
 						egui::vec2(width, 42.0),
 						egui::Layout::left_to_right(egui::Align::Center),
@@ -1258,7 +1367,7 @@ fn text_field(
 ) -> bool {
 	ui.push_id(label, |ui| {
 		let colors = design::palette(ui);
-		let label = ui.label(design::eyebrow(ui, label, colors.muted));
+		let label = ui.label(design::medium(ui, label, 13.0).color(colors.text_strong));
 		let changed = design::input(
 			ui,
 			egui::TextEdit::singleline(value)
@@ -1279,14 +1388,26 @@ fn color_override(
 	map: &mut std::collections::BTreeMap<String, String>,
 	fallback: egui::Color32,
 ) -> bool {
-	let changed = row(ui, color_label(key), |ui| {
+	let description = match key {
+		"accent" => Some("Buttons, selection and highlights"),
+		"text" => Some("Messages and regular labels"),
+		"muted" => Some("Timestamps and supporting text"),
+		"sidebar" => Some("Channel, conversation and member lists"),
+		"chat" => Some("Background behind your messages"),
+		_ => None,
+	};
+	let changed = settings_row(ui, color_label(key), description, |ui| {
 		let mut value = map.get(key).cloned().unwrap_or_else(|| hex(fallback));
 		let mut changed = color_input(ui, &mut value);
 		if changed {
 			map.insert(key.into(), value);
 		}
 		if ui
-			.add_enabled(map.contains_key(key), egui::Button::new("Reset"))
+			.add_enabled(
+				map.contains_key(key),
+				egui::Button::new("Reset").frame(false),
+			)
+			.on_hover_text("Use the default color for this appearance")
 			.clicked()
 		{
 			map.remove(key);
@@ -1500,6 +1621,34 @@ mod tests {
 			);
 		}
 		assert_eq!(editor.region, ImageRegion::MemberList);
+		assert_eq!(sections, SectionOpacity::default());
+		// The text selector provides the same navigation as the map.
+		for label in ["Member list", "Top bars"] {
+			let labels = map_frame(&ctx, &mut editor.region, &mut sections, vec![]);
+			let position = labels
+				.iter()
+				.find(|(text, _)| text == label)
+				.unwrap()
+				.1
+				.center();
+			for pressed in [true, false] {
+				map_frame(
+					&ctx,
+					&mut editor.region,
+					&mut sections,
+					vec![
+						egui::Event::PointerMoved(position),
+						egui::Event::PointerButton {
+							pos: position,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				);
+			}
+		}
+		assert_eq!(editor.region, ImageRegion::TopBars);
 		assert_eq!(sections, SectionOpacity::default());
 		editor.package.manifest.author = "Creator".into();
 		assert!(editor.package.validate().is_ok());

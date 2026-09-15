@@ -188,6 +188,12 @@ impl ExtensionUi {
 			});
 		}
 	}
+	#[cfg(feature = "demo")]
+	pub fn preview_theme_editor_tab(&mut self, label: &str) {
+		if let Some(editor) = &mut self.theme_editor {
+			editor.preview_tab(label);
+		}
+	}
 	pub fn receive_theme_image(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
 		if bytes.len() > extensions::MAX_BACKGROUND_BYTES
 			|| image.size.contains(&0)
@@ -333,7 +339,12 @@ impl ExtensionUi {
 			return;
 		};
 		let mut requests = Vec::new();
-		let close = editor.toolbar(ui, self.busy, &mut requests);
+		let close = ui
+			.scope(|ui| {
+				ui.set_max_width(ui.available_width().min(720.0));
+				editor.toolbar(ui, self.busy, &mut requests)
+			})
+			.inner;
 		for request in requests {
 			self.queue(ui.ctx(), request);
 		}
