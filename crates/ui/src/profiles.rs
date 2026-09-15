@@ -936,13 +936,19 @@ pub fn show(
 											if !bio.is_empty() {
 												section(ui, &theme, &mut sections, "ABOUT ME");
 												let mut linked_user = None;
-												formatted.get(user.id, bio).show_with_images(
-													ui,
-													opening,
-													&[],
-													&mut linked_user,
-													(avatars, state.demo, &state.guilds),
-												);
+												ui.scope(|ui| {
+													ui.style_mut().text_styles.insert(
+														egui::TextStyle::Body,
+														egui::FontId::proportional(13.0),
+													);
+													formatted.get(user.id, bio).show_with_images(
+														ui,
+														opening,
+														&[],
+														&mut linked_user,
+														(avatars, state.demo, &state.guilds),
+													);
+												});
 												if let Some(user) = linked_user {
 													action = Some(Action::Profile(user));
 												}

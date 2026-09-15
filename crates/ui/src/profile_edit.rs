@@ -417,13 +417,19 @@ fn preview(
 								ui.separator();
 								ui.add_space(8.0);
 								ui.label(design::eyebrow(ui, "About Me", colors.text_strong));
-								crate::markdown::Formatted::parse(&draft.bio).show_with_images(
-									ui,
-									opening,
-									&[],
-									&mut None,
-									(avatars, demo, guilds),
-								);
+								ui.scope(|ui| {
+									ui.style_mut().text_styles.insert(
+										egui::TextStyle::Body,
+										egui::FontId::proportional(13.0),
+									);
+									crate::markdown::Formatted::parse(&draft.bio).show_with_images(
+										ui,
+										opening,
+										&[],
+										&mut None,
+										(avatars, demo, guilds),
+									);
+								});
 							}
 						});
 				});

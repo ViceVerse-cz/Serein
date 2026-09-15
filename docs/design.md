@@ -50,7 +50,7 @@ window/menu radius, softer than the 4px/8px pair the layout started from.
 Inter (Regular, Medium, SemiBold; SIL OFL 1.1) leads proportional text; egui's default faces and
 the bundled Noto CJK/Arabic fallbacks follow in every family. egui has no synthetic bold, so
 `design::semibold`/`design::medium` select the heavier families for author names, headings,
-channel names and uppercase 12px eyebrows. Body is 15px, small 12px. Until `fonts::install`
+channel names and uppercase 11px eyebrows. Body is 13px, small 11px. Until `fonts::install`
 marks a context, the weight families resolve to the default face so headless tests never
 reference an unknown family.
 

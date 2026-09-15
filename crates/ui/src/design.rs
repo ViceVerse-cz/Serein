@@ -596,7 +596,7 @@ pub fn medium(ui: &egui::Ui, text: impl Into<String>, size: f32) -> RichText {
 }
 /// Uppercase section heading used above channel categories and member groups.
 pub fn eyebrow(ui: &egui::Ui, text: impl Into<String>, color: Color32) -> RichText {
-	semibold(ui, text.into().to_uppercase(), 12.0).color(color)
+	semibold(ui, text.into().to_uppercase(), 11.0).color(color)
 }
 
 // Registered once per context, including when appearance settings reapply the theme.
@@ -626,43 +626,43 @@ pub fn apply(ctx: &egui::Context) {
 	ctx.add_plugin(ClickableCursor);
 	let variant = variant();
 	let metrics = EXTENSION_STYLE.get();
-	let item_spacing = metrics.item_spacing.unwrap_or([8, 8]);
-	let button_padding = metrics.button_padding.unwrap_or([12, 6]);
+	let item_spacing = metrics.item_spacing.unwrap_or([7, 7]);
+	let button_padding = metrics.button_padding.unwrap_or([11, 5]);
 	for theme in [egui::Theme::Dark, egui::Theme::Light] {
 		let p = opaque_surfaces(colors(theme == egui::Theme::Dark, variant));
 		let mut style = (*ctx.style_of(theme)).clone();
 		style.text_styles.insert(
 			egui::TextStyle::Heading,
 			FontId::new(
-				f32::from(metrics.heading_size.unwrap_or(20)),
+				f32::from(metrics.heading_size.unwrap_or(18)),
 				semibold_family(ctx),
 			),
 		);
 		style.text_styles.insert(
 			egui::TextStyle::Body,
-			FontId::proportional(f32::from(metrics.body_size.unwrap_or(15))),
+			FontId::proportional(f32::from(metrics.body_size.unwrap_or(13))),
 		);
 		style.text_styles.insert(
 			egui::TextStyle::Button,
 			FontId::new(
-				f32::from(metrics.button_size.unwrap_or(14)),
+				metrics.button_size.map_or(12.5, f32::from),
 				medium_family(ctx),
 			),
 		);
 		style.text_styles.insert(
 			egui::TextStyle::Small,
-			FontId::proportional(f32::from(metrics.small_size.unwrap_or(12))),
+			FontId::proportional(f32::from(metrics.small_size.unwrap_or(11))),
 		);
 		style.text_styles.insert(
 			egui::TextStyle::Monospace,
-			FontId::monospace(f32::from(metrics.monospace_size.unwrap_or(14))),
+			FontId::monospace(metrics.monospace_size.map_or(12.5, f32::from)),
 		);
 		style.spacing.item_spacing =
 			egui::vec2(f32::from(item_spacing[0]), f32::from(item_spacing[1]));
 		style.spacing.button_padding =
 			egui::vec2(f32::from(button_padding[0]), f32::from(button_padding[1]));
-		style.spacing.interact_size.y = f32::from(metrics.control_height.unwrap_or(32));
-		style.spacing.menu_margin = egui::Margin::same(8);
+		style.spacing.interact_size.y = f32::from(metrics.control_height.unwrap_or(29));
+		style.spacing.menu_margin = egui::Margin::same(7);
 		style.visuals.panel_fill = p.chat;
 		// Sub-pixel binning rasterizes each glyph at up to four fractional x offsets, so
 		// stems land between physical pixels and read as blurry at 1x — where most Windows

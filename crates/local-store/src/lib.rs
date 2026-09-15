@@ -234,7 +234,7 @@ impl LocalStore {
 		}
 		transaction.execute_batch("CREATE TABLE IF NOT EXISTS reading_preferences(
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1),
-                zoom_percent INTEGER NOT NULL CHECK(typeof(zoom_percent)='integer' AND zoom_percent BETWEEN 80 AND 150),
+                zoom_percent INTEGER NOT NULL CHECK(typeof(zoom_percent)='integer' AND zoom_percent BETWEEN 70 AND 160),
                 sidebar_width INTEGER NOT NULL CHECK(typeof(sidebar_width)='integer' AND sidebar_width BETWEEN 190 AND 360),
                 show_members INTEGER NOT NULL CHECK(typeof(show_members)='integer' AND show_members IN (0,1))
             );
@@ -251,6 +251,54 @@ impl LocalStore {
                 value TEXT NOT NULL CHECK(typeof(value)='text' AND length(CAST(value AS BLOB))<=8192)
             );")?;
 		transaction.pragma_update(None, "user_version", version.max(NATIVE_SCHEMA))?;
+		let needs_zoom_bounds_migration: bool = transaction
+			.query_row(
+				"SELECT sql FROM sqlite_master WHERE type='table' AND name='reading_preferences'",
+				[],
+				|row| row.get::<_, String>(0),
+			)
+			.map(|sql| sql.contains("BETWEEN 80 AND 150"))
+			.unwrap_or(false);
+		if needs_zoom_bounds_migration {
+			let has_animate_gifs: bool = transaction.query_row(
+				"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='animate_gifs')",
+				[],
+				|row| row.get(0),
+			)?;
+			let has_hide_media_links: bool = transaction.query_row(
+				"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='hide_media_links')",
+				[],
+				|row| row.get(0),
+			)?;
+			let has_confirm_external_links: bool = transaction.query_row(
+				"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='confirm_external_links')",
+				[],
+				|row| row.get(0),
+			)?;
+			let mut create_sql = String::from(
+				"CREATE TABLE reading_preferences_bounds(
+					singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+					zoom_percent INTEGER NOT NULL CHECK(typeof(zoom_percent)='integer' AND zoom_percent BETWEEN 70 AND 160),
+					sidebar_width INTEGER NOT NULL CHECK(typeof(sidebar_width)='integer' AND sidebar_width BETWEEN 190 AND 360),
+					show_members INTEGER NOT NULL CHECK(typeof(show_members)='integer' AND show_members IN (0,1))",
+			);
+		if has_animate_gifs {
+			create_sql.push_str(", animate_gifs INTEGER NOT NULL DEFAULT 0 CHECK(typeof(animate_gifs)='integer' AND animate_gifs IN (0,1))");
+		}
+		if has_hide_media_links {
+			create_sql.push_str(", hide_media_links INTEGER NOT NULL DEFAULT 1 CHECK(typeof(hide_media_links)='integer' AND hide_media_links IN (0,1))");
+		}
+		if has_confirm_external_links {
+			create_sql.push_str(", confirm_external_links INTEGER NOT NULL DEFAULT 1 CHECK(typeof(confirm_external_links)='integer' AND confirm_external_links IN (0,1))");
+		}
+		create_sql.push_str(
+			");
+				INSERT INTO reading_preferences_bounds SELECT * FROM reading_preferences;
+				DROP TABLE reading_preferences;
+				ALTER TABLE reading_preferences_bounds RENAME TO reading_preferences;",
+		);
+		transaction.execute_batch(&create_sql)?;
+	}
 		let has_animate_gifs: bool = transaction.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='animate_gifs')",
 			[],
@@ -385,7 +433,7 @@ impl LocalStore {
 						row.get_ref(5)?,
 					) {
 						(
-							ValueRef::Integer(zoom @ 80..=150),
+							ValueRef::Integer(zoom @ 70..=160),
 							ValueRef::Integer(width @ 190..=360),
 							ValueRef::Integer(members @ 0..=1),
 							ValueRef::Integer(animate_gifs @ 0..=1),
@@ -1610,7 +1658,7 @@ mod tests {
 	#[test]
 	fn reading_preferences_validate_storage_types_bounds_and_atomic_replacement() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
-		for (zoom_percent, sidebar_width) in [(80, 190), (150, 360)] {
+		for (zoom_percent, sidebar_width) in [(70, 190), (160, 360)] {
 			for show_members in [false, true] {
 				let preferences = ReadingPreferences {
 					zoom_percent,
@@ -1627,8 +1675,8 @@ mod tests {
 		let previous = store.reading_preferences().unwrap();
 		for (zoom_percent, sidebar_width) in [
 			(0, 236),
-			(79, 236),
-			(151, 236),
+			(69, 236),
+			(161, 236),
 			(u16::MAX, 236),
 			(100, 189),
 			(100, 361),
@@ -1681,8 +1729,8 @@ mod tests {
 			.execute_batch("PRAGMA ignore_check_constraints=ON;")
 			.unwrap();
 		for invalid in [
-			"zoom_percent=79",
-			"zoom_percent=151",
+			"zoom_percent=69",
+			"zoom_percent=161",
 			"zoom_percent=-1",
 			"zoom_percent=65536",
 			"zoom_percent=80.5",

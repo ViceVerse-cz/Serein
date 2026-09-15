@@ -896,7 +896,7 @@ impl MessagingUi {
 							);
 							inner.spacing_mut().item_spacing.x = 12.0;
 							inner.push_id(member.user.id.0, |ui| {
-								let avatar = self.avatars.show(ui, &member.user, 32.0, state.demo);
+								let avatar = self.avatars.show(ui, &member.user, 28.0, state.demo);
 								user_menu::show(
 									&avatar,
 									state,
@@ -996,7 +996,7 @@ impl MessagingUi {
 	) {
 		let colors = design::palette(ui);
 		egui::Panel::top("sidebar-header")
-			.exact_size(48.0)
+			.exact_size(43.0)
 			.show_separator_line(false)
 			.frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(16, 0)))
 			.show(ui, |ui| {
@@ -1043,7 +1043,7 @@ impl MessagingUi {
 									}),
 								|ui| {
 									ui.add_sized(
-										[(ui.available_width() - 36.0).max(60.0), 30.0],
+										[(ui.available_width() - 36.0).max(60.0), 27.0],
 										egui::Button::new("Find conversation").truncate(),
 									)
 								},
@@ -1062,7 +1062,7 @@ impl MessagingUi {
 						}
 						let friends = state.selected.is_none();
 						let (rect, response) =
-							ui.allocate_exact_size(egui::vec2(30.0, 30.0), egui::Sense::click());
+							ui.allocate_exact_size(egui::vec2(27.0, 27.0), egui::Sense::click());
 						let hovered = response.hovered() || response.has_focus();
 						if friends || hovered {
 							ui.painter().rect_filled(
@@ -1166,7 +1166,7 @@ impl MessagingUi {
 						ui.horizontal(|ui| {
 							ui.spacing_mut().item_spacing.x = 8.0;
 							if let Some(user) = &state.user {
-								let avatar = self.avatars.show(ui, user, 32.0, state.demo);
+								let avatar = self.avatars.show(ui, user, 28.0, state.demo);
 								avatar.widget_info(|| {
 									egui::WidgetInfo::labeled(
 										egui::WidgetType::Button,
@@ -1318,7 +1318,7 @@ impl MessagingUi {
 	) {
 		let colors = design::palette(ui);
 		egui::Panel::top("channel-header")
-			.exact_size(48.0)
+			.exact_size(43.0)
 			.show_separator_line(false)
 			.frame(
 				egui::Frame::new()
@@ -1341,7 +1341,7 @@ impl MessagingUi {
 					ui.spacing_mut().item_spacing.x = 8.0;
 					match channel.as_ref() {
 						Some(c) if c.guild.is_none() && c.kind == 3 => {
-							let avatar = self.avatars.show_group(ui, c, 24.0, state.demo);
+							let avatar = self.avatars.show_group(ui, c, 22.0, state.demo);
 							self.group_menu.context(
 								&avatar,
 								state,
@@ -1356,7 +1356,7 @@ impl MessagingUi {
 							if let Some(user) = c.recipients.first() {
 								// Header avatar identifies the conversation; the profile is a
 								// context-menu action, not a click target.
-								let avatar = self.avatars.show_plain(ui, user, 24.0, state.demo);
+								let avatar = self.avatars.show_plain(ui, user, 22.0, state.demo);
 								if dm {
 									user_menu::show_with_pin(
 										&avatar,
