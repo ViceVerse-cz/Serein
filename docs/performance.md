@@ -796,4 +796,24 @@ packet and queue bounds. No dependency change. The owner confirmed audible share
 browser audio; the release sender log records about 50 audio packets/s and 19–22
 video frames/s after negotiation. These are sender counters from one owner test,
 not a controlled performance comparison or proof of smooth viewer playback.
-The owner still reports intermittent lag; viewer-side diagnostics are pending.
+The owner still reports intermittent lag; the subsequently supplied viewer log stops
+accepting audio and video while the main call continues.
+
+### Idle media UDP keepalive follow-up
+
+Against preserved `be42b72`, the release executable is 72,583,680 bytes (+3,072),
+the portable package totals 76,652,756 bytes (+3,072), and its Optimal ZIP is
+43,297,676 bytes (+2,464); still 187 files. Same host, toolchain and compression
+method as above, one package per revision. Compilation/linking completed, but
+`cargo xtask package` could not replace the running `target/release/serein.exe`
+(Windows access denied). The newly linked `target/release/deps/serein.exe` was
+copied into the existing standard `dist` resources and zipped; SHA-256 verified
+that the packaged executable matches the linked output. The running build was
+left untouched. This is a manually refreshed portable package, not a successful
+rerun of the standard packaging command.
+
+The keepalive adds eight UDP payload bytes per connection every five seconds
+after discovery (1.6 bytes/s, excluding network headers), with no queue, extra
+thread or dependency. The localhost test verifies repeated idle-viewer pings and
+subsequent encrypted audio/video delivery. Live freeze recovery, CPU/RSS and
+end-to-end latency remain unmeasured; no playback improvement is claimed yet.

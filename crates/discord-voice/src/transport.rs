@@ -103,6 +103,18 @@ async fn send(ws: &mut Socket, message: Message) -> Result<(), &'static str> {
 async fn json_send(ws: &mut Socket, value: Value) -> Result<(), &'static str> {
 	send(ws, Message::Text(value.to_string().into())).await
 }
+// Native voice UDP ping: signaling heartbeats alone do not maintain an idle
+// media path (notably a receive-only stream or a muted call).
+async fn udp_keepalive(socket: &UdpSocket, sequence: &mut u32) -> Result<(), &'static str> {
+	*sequence = sequence.wrapping_add(1);
+	let mut packet = [0x13, 0x37, 0xca, 0xfe, 0, 0, 0, 0];
+	packet[4..].copy_from_slice(&sequence.to_le_bytes());
+	socket
+		.send(&packet)
+		.await
+		.map_err(|_| "Voice UDP keepalive failed")?;
+	Ok(())
+}
 fn number(data: &Value, key: &str) -> Result<u64, &'static str> {
 	data[key].as_u64().ok_or("Malformed voice signaling field")
 }
@@ -256,6 +268,8 @@ async fn run_inner(
 	// this grace does a sole member conclude nobody else is in the call.
 	let mut secured_at: Option<Instant> = None;
 	let mut udp: Option<UdpSocket> = None;
+	let mut next_udp_ping = Instant::now();
+	let mut udp_ping_sequence = 0;
 	let mut discovering = false;
 	let mut discovery_deadline = Instant::now();
 	let mut ssrc = 0u32;
@@ -314,6 +328,10 @@ async fn run_inner(
 				let now=Instant::now();
 				if deadline.is_some_and(|d|now>=d) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,resuming));}
 				if discovering && now>=discovery_deadline {return Err("Discord voice UDP discovery timed out; check the network firewall");}
+				if !discovering && now>=next_udp_ping && let Some(socket)=&udp {
+					udp_keepalive(socket,&mut udp_ping_sequence).await?;
+					next_udp_ping=now+Duration::from_secs(5);
+				}
 				if let Some(interval)=heartbeat_ms && now>=heartbeat_at {
 					if awaiting_ack.is_some() {return Err("Discord voice heartbeat was not acknowledged; rejoin the call");}
 					heartbeat_nonce=heartbeat_nonce.wrapping_add(1);
@@ -825,6 +843,8 @@ async fn run_stream_inner(
 	let mut encryption: Option<Encryption> = None;
 	let mut secured_at: Option<Instant> = None;
 	let mut udp: Option<UdpSocket> = None;
+	let mut next_udp_ping = Instant::now();
+	let mut udp_ping_sequence = 0;
 	let mut discovering = false;
 	let mut discovery_deadline = Instant::now();
 	let mut audio_ssrc = 0u32;
@@ -852,6 +872,10 @@ async fn run_stream_inner(
 				let now=Instant::now();
 				if deadline.is_some_and(|at| now>=at) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,false));}
 				if discovering && now>=discovery_deadline {return Err("Discord stream UDP discovery timed out");}
+				if !discovering && now>=next_udp_ping && let Some(socket)=&udp {
+					udp_keepalive(socket,&mut udp_ping_sequence).await?;
+					next_udp_ping=now+Duration::from_secs(5);
+				}
 				if let Some(interval)=heartbeat_ms && now>=heartbeat_at {
 					if awaiting_ack.is_some() {return Err("Discord stream heartbeat was not acknowledged");}
 					heartbeat_nonce=heartbeat_nonce.wrapping_add(1);
@@ -1051,6 +1075,15 @@ async fn run_stream_inner(
 mod tests {
 	use super::*;
 	use opus2::Decoder;
+	async fn receive_media(socket: &UdpSocket, packet: &mut [u8]) -> (usize, SocketAddr) {
+		loop {
+			let received = socket.recv_from(packet).await.unwrap();
+			if received.0 != 8 {
+				return received;
+			}
+			assert_eq!(&packet[..4], &[0x13, 0x37, 0xca, 0xfe]);
+		}
+	}
 	#[test]
 	fn stream_audio_is_bounded_paced_and_cleared_on_rekey_or_stall() {
 		let start = Instant::now();
@@ -1449,7 +1482,7 @@ mod tests {
 				waiting_rx.await.unwrap();
 				// Even queued synthetic capture cannot leave while the empty room lacks media keys.
 				assert!(
-					timeout(Duration::from_millis(80), udp.recv_from(&mut probe))
+					timeout(Duration::from_millis(80), receive_media(&udp, &mut probe))
 						.await
 						.is_err()
 				);
@@ -1517,7 +1550,7 @@ mod tests {
 					_ => panic!("unexpected test client frame before SSRC acknowledgement"),
 				}
 			}
-			let (length, _) = udp.recv_from(&mut probe).await.unwrap();
+			let (length, _) = receive_media(&udp, &mut probe).await;
 			let mut transport = Encryption::new(&[7; 32]);
 			let opened = transport.open(&probe[..length]).unwrap();
 			let (ssrc, ciphertext) = (opened.ssrc, opened.payload);
