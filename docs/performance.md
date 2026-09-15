@@ -1,3 +1,24 @@
+# Theme card covers and local editing - September 15, 2026
+
+Baseline: `c36b5a2` on `feat/theme-maker`; intervening `e925b0b` changed only
+this performance note. After: `b8ee526`. Both Windows x64 portable packages used
+the pinned Rust 1.98.1 MSVC toolchain, locked `cargo xtask package`, and voice in
+the release build. Builds used separate worktrees and Cargo targets; the root
+`dist` was untouched. Both packages contain 186 files. The baseline package was
+retained from the prior theme-maker measurement; the after package was built
+for this change. `makensis` was unavailable, so no installer was produced.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 70,922,240 | 70,965,248 | +43,008 (+0.061%) |
+| Full portable package, bytes | 74,988,303 | 75,031,311 | +43,008 (+0.057%) |
+
+The worker bounds each selected cover to a 2 MiB static image and shrinks its
+decoded card image to at most 640 x 360. Native UI CPU, memory, frame timing,
+and before/after screenshots remain unmeasured because desktop window capture
+is unavailable in this session. Package sizes and synthetic tests are separate
+from installed-client visual or live Discord evidence.
+
 # Theme maker and continuous image surfaces - September 15, 2026
 
 Baseline: branch fork `aec1f19a10a045d3607de995f65723c7f749be66`.
