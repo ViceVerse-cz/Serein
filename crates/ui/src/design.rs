@@ -564,13 +564,14 @@ fn customize(mut palette: Palette, primary: Option<[u8; 3]>) -> Palette {
 	palette
 }
 pub(crate) fn theme_preview_palette(ui: &egui::Ui, theme: &extensions::Theme) -> Palette {
-	let base = palette(ui);
+	let base = builtin_colors(ui.visuals().dark_mode, variant());
 	let theme = if ui.visuals().dark_mode {
 		&theme.dark
 	} else {
 		&theme.light
 	};
-	extension_palette(theme).map_or(base, |overrides| recolor(base, overrides))
+	let colors = extension_palette(theme).map_or(base, |overrides| recolor(base, overrides));
+	opaque_surfaces(customize(colors, primary_color()))
 }
 pub fn palette(ui: &egui::Ui) -> Palette {
 	opaque_surfaces(colors(ui.visuals().dark_mode, variant()))
@@ -1196,6 +1197,38 @@ fn contrast(a: Color32, b: Color32) -> f32 {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn theme_card_preview_inherits_builtin_colors_not_the_active_theme() {
+		use super::*;
+		set_variant(Variant::Standard);
+		set_primary_color(None);
+		let ctx = egui::Context::default();
+		ctx.set_theme(egui::ThemePreference::Dark);
+		let mut active = extensions::Theme::default();
+		active
+			.dark
+			.colors
+			.insert("sidebar".into(), "#FF0000".into());
+		set_extension_theme(Some(&active));
+		apply(&ctx);
+		let mut candidate = extensions::Theme::default();
+		candidate
+			.dark
+			.colors
+			.insert("accent".into(), "#00FF00".into());
+		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+			assert_eq!(palette(ui).sidebar, rgb(0xff0000));
+			let preview = theme_preview_palette(ui, &candidate);
+			assert_eq!(
+				preview.sidebar,
+				builtin_colors(true, Variant::Standard).sidebar
+			);
+			assert_eq!(preview.accent, rgb(0x00ff00));
+		});
+		output.textures_delta.clear();
+		set_extension_theme(None);
+	}
+
 	#[test]
 	fn clickable_cursor_preserves_disabled_text_and_specialized_controls() {
 		use egui::{CursorIcon, Sense};

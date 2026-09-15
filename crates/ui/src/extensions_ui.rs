@@ -232,14 +232,18 @@ impl ExtensionUi {
 		if !self.previewing_theme() {
 			return false;
 		}
-		// Recovery controls keep the built-in colors even when the draft is unreadable.
-		let colors = design::builtin_colors(true, design::Variant::Standard);
+		let colors = design::palette(ui);
+		let surface = design::section_surface(
+			ui,
+			design::window_palette(ui).base,
+			design::ImageSection::TopBar,
+		);
 		let mut back = false;
 		egui::Panel::top("theme-preview-return")
 			.show_separator_line(false)
 			.frame(
 				egui::Frame::new()
-					.fill(colors.raised)
+					.fill(surface)
 					.inner_margin(egui::Margin::symmetric(16, 8)),
 			)
 			.show(ui, |ui| {

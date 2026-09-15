@@ -79,7 +79,8 @@ emergency reset shortcut.
 These metrics affect controls that inherit the shared native style. Custom
 painted elements, explicit text sizes, fixed-height rows and per-widget padding
 or radius overrides retain their own geometry. Shop thumbnails preview palette
-colors, not all control metrics. Themes cannot rearrange application panels,
+colors with omitted values from the built-in preset, not the currently selected
+theme or all control metrics. Themes cannot rearrange application panels,
 inject CSS/scripts, load fonts, fetch image URLs, or change message data.
 
 Run the offline validation/application example with:
