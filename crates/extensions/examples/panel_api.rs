@@ -73,6 +73,7 @@ fn main() {
 	let mut package = extensions::Package {
 		manifest: appearance_manifest,
 		theme: None,
+		background_image: Vec::new(),
 		wasm: module,
 	};
 	assert!(matches!(

@@ -112,10 +112,44 @@ macro_rules! export {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThemePalette {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub background: Option<Background>,
 	#[serde(default)]
 	pub colors: BTreeMap<String, String>,
 	#[serde(default)]
 	pub backdrop: Option<[String; 2]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Background {
+	pub opacity: u8,
+	pub fit: BackgroundFit,
+	pub target: BackgroundTarget,
+}
+impl Default for Background {
+	fn default() -> Self {
+		Self {
+			opacity: 25,
+			fit: BackgroundFit::Cover,
+			target: BackgroundTarget::Window,
+		}
+	}
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundFit {
+	#[default]
+	Cover,
+	Contain,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundTarget {
+	#[default]
+	Window,
+	Chat,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

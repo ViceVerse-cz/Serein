@@ -132,6 +132,15 @@ impl Page {
 }
 
 impl MessagingUi {
+	pub(super) fn theme_preview_navigation(&mut self, ui: &mut egui::Ui) {
+		if self.settings.open {
+			self.extensions.stop_theme_preview(ui.ctx());
+		} else if self.extensions.theme_preview_bar(ui) {
+			self.settings.open = true;
+			self.settings.page = Page::Themes;
+			self.settings.query.clear();
+		}
+	}
 	pub fn open_update_settings(&mut self) {
 		self.settings.open = true;
 		self.settings.page = Page::Updates;
@@ -228,17 +237,31 @@ impl MessagingUi {
 						bottom: 24,
 					}))
 					.show(ui, |ui| {
+						let editing_theme =
+							self.settings.page == Page::Themes && self.extensions.editing_theme();
 						ui.horizontal_top(|ui| {
 							ui.vertical(|ui| {
 								ui.spacing_mut().item_spacing.y = 2.0;
 								ui.label(
-									design::semibold(ui, self.settings.page.label(), 20.0)
-										.color(colors.text_strong),
+									design::semibold(
+										ui,
+										if editing_theme {
+											"Theme maker"
+										} else {
+											self.settings.page.label()
+										},
+										20.0,
+									)
+									.color(colors.text_strong),
 								);
 								ui.label(
-									RichText::new(self.settings.page.description())
-										.size(13.0)
-										.color(colors.muted),
+									RichText::new(if editing_theme {
+										"Customize your colors, backgrounds and controls."
+									} else {
+										self.settings.page.description()
+									})
+									.size(13.0)
+									.color(colors.muted),
 								);
 							});
 							ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {

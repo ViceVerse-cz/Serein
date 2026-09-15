@@ -11,11 +11,18 @@ use std::{
 use ui::{ExtensionContext, ExtensionEntry, ExtensionRequest};
 
 struct Pending {
+	theme_save: bool,
 	generation: u64,
 	cleanup: bool,
 	reconcile: bool,
 	preview: Option<(String, String)>,
 	invocation: Option<(String, Invocation, ExtensionContext)>,
+}
+type PickedBackground = (Vec<u8>, Arc<egui::ColorImage>);
+
+enum ThemePickerResult {
+	Image(Result<Option<PickedBackground>, String>),
+	Export(Option<PathBuf>, Box<extensions::Package>),
 }
 #[derive(Default)]
 pub struct Bridge {
@@ -28,6 +35,8 @@ pub struct Bridge {
 	catalog: BTreeMap<String, CatalogEntry>,
 	imported: Option<InstallSource>,
 	picker: Option<mpsc::Receiver<Option<PathBuf>>>,
+	theme_picker: Option<mpsc::Receiver<ThemePickerResult>>,
+	theme_preview: Option<(Box<extensions::Theme>, Option<Arc<egui::ColorImage>>)>,
 }
 impl Bridge {
 	pub fn cleanup_pending(&self) -> bool {
@@ -38,6 +47,8 @@ impl Bridge {
 			entry.preserve_deleted_messages = false;
 		}
 		self.picker = None;
+		self.theme_picker = None;
+		self.theme_preview = None;
 		self.pending.retain(|_, pending| pending.cleanup);
 		if let Some(host) = &mut self.host {
 			host.cancel();
@@ -51,6 +62,7 @@ impl Bridge {
 				self.pending.insert(
 					token,
 					Pending {
+						theme_save: false,
 						generation: *generation,
 						cleanup: true,
 						reconcile: false,
@@ -95,6 +107,8 @@ impl Bridge {
 			self.host.as_mut().unwrap().cancel();
 			self.pending.retain(|_, pending| pending.cleanup);
 			self.picker = None;
+			self.theme_picker = None;
+			self.theme_preview = None;
 			self.imported = None;
 			self.installed.clear();
 			self.disabled.clear();
@@ -243,19 +257,33 @@ impl Bridge {
 						"Package inspected. Review its source and capabilities before enabling."
 							.into();
 				}
-				Ok(Event::ThemeSelected(id)) => {
+				Ok(Event::ThemeSelected {
+					id,
+					background_image,
+				}) => {
+					self.theme_preview = None;
 					for entry in &mut self.installed {
 						entry.active_theme = id.as_deref() == Some(entry.manifest.id.as_str());
+						entry.background_image = if entry.active_theme {
+							background_image.clone()
+						} else {
+							None
+						};
 					}
 					self.apply_theme(ctx);
 					self.entries(messaging);
 				}
 				Ok(Event::Enabled(installed)) => {
+					if pending.as_ref().is_some_and(|p| p.theme_save) {
+						self.theme_preview = None;
+						messaging.extensions.theme_saved(&installed.manifest.id);
+					}
 					messaging.extensions.remove_runtime(&installed.manifest.id);
 					let theme = installed.manifest.kind == ExtensionKind::Theme;
 					if theme {
 						for old in &mut self.installed {
 							old.active_theme = false;
+							old.background_image = None;
 						}
 					}
 					self.installed
@@ -299,6 +327,10 @@ impl Bridge {
 							.present_output(id, invocation, context, output, state);
 					}
 				}
+				Ok(Event::EditTheme { package, image }) => {
+					messaging.extensions.receive_theme_edit(package, image)
+				}
+				Ok(Event::ThemeExported) => messaging.extensions.status = "Theme exported.".into(),
 				Ok(Event::LoggedOut | Event::Preview { .. }) => {}
 			}
 		}
@@ -323,6 +355,36 @@ impl Bridge {
 				Err(mpsc::TryRecvError::Empty) => {}
 			}
 		}
+		if let Some(receiver) = &self.theme_picker {
+			match receiver.try_recv() {
+				Ok(result) => {
+					self.theme_picker = None;
+					match result {
+						ThemePickerResult::Image(Ok(Some((bytes, image)))) => {
+							messaging.extensions.receive_theme_image(bytes, image)
+						}
+						ThemePickerResult::Image(Err(error)) => {
+							messaging.extensions.report_error(error)
+						}
+						ThemePickerResult::Export(Some(path), package) => self.submit(
+							Job::ExportTheme { path, package },
+							None,
+							state.generation,
+							ctx,
+							messaging,
+						),
+						_ => {}
+					}
+				}
+				Err(mpsc::TryRecvError::Disconnected) => {
+					self.theme_picker = None;
+					messaging
+						.extensions
+						.report_error("Theme file selection ended.".into());
+				}
+				Err(mpsc::TryRecvError::Empty) => {}
+			}
+		}
 		for request in std::mem::take(&mut messaging.extensions.requests) {
 			if !matches!(request, ExtensionRequest::Preview { .. })
 				&& !self.pending.is_empty()
@@ -336,6 +398,58 @@ impl Bridge {
 				self.pending.clear();
 			}
 			match request {
+				ExtensionRequest::PreviewTheme { theme, image } => {
+					self.theme_preview = theme.map(|theme| (theme, image));
+					self.apply_theme(ctx);
+				}
+				ExtensionRequest::EditTheme { id } => self.submit(
+					Job::EditTheme { id },
+					None,
+					state.generation,
+					ctx,
+					messaging,
+				),
+				ExtensionRequest::SaveTheme { package } => self.submit(
+					Job::SaveTheme { package },
+					None,
+					state.generation,
+					ctx,
+					messaging,
+				),
+				ExtensionRequest::PickThemeImage if self.theme_picker.is_none() => {
+					let (send, receive) = mpsc::sync_channel(1);
+					let future = platform::save::theme_background_source(window.clone());
+					let ctx = ctx.clone();
+					runtime.spawn(async move {
+						let result = if let Some(path) = future.await {
+							tokio::task::spawn_blocking(move || {
+								crate::extensions::read_background(&path)
+									.map(|(bytes, image)| Some((bytes, Arc::new(image))))
+							})
+							.await
+							.unwrap_or_else(|_| Err("Background image worker failed.".into()))
+						} else {
+							Ok(None)
+						};
+						let _ = send.send(ThemePickerResult::Image(result));
+						ctx.request_repaint();
+					});
+					self.theme_picker = Some(receive);
+				}
+				ExtensionRequest::ExportTheme { package } if self.theme_picker.is_none() => {
+					let (send, receive) = mpsc::sync_channel(1);
+					let future = platform::save::theme_destination(
+						window.clone(),
+						&format!("{}.serein-extension", package.manifest.id),
+					);
+					let ctx = ctx.clone();
+					runtime.spawn(async move {
+						let _ = send.send(ThemePickerResult::Export(future.await, package));
+						ctx.request_repaint();
+					});
+					self.theme_picker = Some(receive);
+				}
+				ExtensionRequest::PickThemeImage | ExtensionRequest::ExportTheme { .. } => {}
 				ExtensionRequest::SelectTheme { id } => {
 					self.submit(
 						Job::SelectTheme { id },
@@ -478,7 +592,19 @@ impl Bridge {
 						&& entry.preserve_deleted_messages
 				}),
 		);
+		let max_texture = ctx.input(|input| input.max_texture_side);
+		if self
+			.installed
+			.iter()
+			.filter_map(|entry| entry.background_image.as_ref())
+			.any(|image| image.size.iter().any(|side| *side > max_texture))
+		{
+			messaging.extensions.status = format!(
+				"This device supports background images up to {max_texture} pixels per edge. Choose a smaller image."
+			);
+		}
 		messaging.extensions.busy = self.picker.is_some()
+			|| self.theme_picker.is_some()
 			|| self
 				.pending
 				.values()
@@ -509,12 +635,15 @@ impl Bridge {
 			_ => None,
 		};
 		let cleanup = matches!(job, Job::Disable { .. } | Job::Logout { .. });
-		let reconcile = cleanup || matches!(job, Job::Enable { .. } | Job::SelectTheme { .. });
+		let theme_save = matches!(job, Job::SaveTheme { .. });
+		let reconcile =
+			cleanup || theme_save || matches!(job, Job::Enable { .. } | Job::SelectTheme { .. });
 		match self.host.as_mut().unwrap().submit(job, ctx) {
 			Ok(token) => {
 				self.pending.insert(
 					token,
 					Pending {
+						theme_save,
 						cleanup,
 						reconcile,
 						preview,
@@ -642,7 +771,8 @@ impl Bridge {
 				entry.error.is_none()
 					&& !self.disabled.contains(&entry.manifest.id)
 					&& entry.theme.is_some()
-					&& (entry.manifest.kind == ExtensionKind::Plugin || entry.active_theme)
+					&& (entry.manifest.kind == ExtensionKind::Plugin
+						|| entry.active_theme && self.theme_preview.is_none())
 			})
 			.collect();
 		entries.sort_by_key(|entry| {
@@ -651,11 +781,28 @@ impl Bridge {
 				&entry.manifest.id,
 			)
 		});
-		let mut appearance = extensions::Theme::default();
+		let mut appearance = self
+			.theme_preview
+			.as_ref()
+			.map_or_else(extensions::Theme::default, |(theme, _)| (**theme).clone());
 		for entry in &entries {
 			appearance.overlay(entry.theme.as_ref().unwrap());
 		}
-		ui::design::set_extension_theme((!entries.is_empty()).then_some(&appearance));
+		ui::design::set_extension_theme(
+			(!entries.is_empty() || self.theme_preview.is_some()).then_some(&appearance),
+		);
+		ui::design::set_background_image(
+			ctx,
+			self.theme_preview.as_ref().map_or_else(
+				|| {
+					entries
+						.iter()
+						.find(|entry| entry.active_theme)
+						.and_then(|entry| entry.background_image.clone())
+				},
+				|(_, image)| image.clone(),
+			),
+		);
 		ui::design::apply(ctx);
 	}
 }

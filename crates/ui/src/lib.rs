@@ -19,6 +19,7 @@ mod composer_text;
 pub mod design;
 mod embeds;
 mod extensions_ui;
+mod theme_editor;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
 pub mod emoji;
 mod emoji_details;
@@ -2473,12 +2474,18 @@ impl MessagingUi {
 		self.extensions
 			.show_result(&ctx, state, &mut self.draft_changes, self.editing.is_some());
 		self.keybinds_shortcut(&ctx);
+		self.theme_preview_navigation(ui);
 		let settings_open = self.settings.open || self.server_settings.is_open();
+		self.extensions.begin_theme_editor_frame();
 		if self.settings.open {
 			self.show_settings(&ctx, state, &mut commands);
+			if self.extensions.previewing_theme() {
+				self.settings.open = false;
+			}
 			ui.disable();
 		}
 		if self.server_settings.is_open() {
+			self.extensions.stop_theme_preview(&ctx);
 			if self.profile.is_some()
 				&& ctx
 					.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
@@ -2569,7 +2576,15 @@ impl MessagingUi {
 			.resizable(true)
 			.default_size(rail + f32::from(self.reading_preferences.sidebar_width).min(sidebar_max))
 			.size_range(rail + 190.0..=rail + sidebar_max)
-			.frame(egui::Frame::new().fill(background.base).inner_margin(0))
+			.frame(
+				egui::Frame::new()
+					.fill(if design::has_window_background(ui) {
+						egui::Color32::TRANSPARENT
+					} else {
+						background.base
+					})
+					.inner_margin(0),
+			)
 			.show(ui, |ui| {
 				egui::Panel::bottom("account-footer")
 					.show_separator_line(false)
@@ -2830,6 +2845,7 @@ impl MessagingUi {
 						bottom: 0,
 					})
 					.show(ui, |ui| {
+						design::paint_chat_background(ui, ui.available_rect_before_wrap());
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
 						self.timeline.extension_actions = self.extensions.message_actions();
 						self.timeline.show_with_scroll(

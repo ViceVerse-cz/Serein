@@ -320,10 +320,12 @@ pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 struct ExtensionPalette {
 	colors: [Option<Color32>; 18],
 	backdrop: Option<[Color32; 2]>,
+	background: Option<extensions::Background>,
 }
 thread_local! {
 	static EXTENSION_THEME: std::cell::Cell<Option<[ExtensionPalette; 2]>> = const { std::cell::Cell::new(None) };
 	static EXTENSION_STYLE: std::cell::Cell<extensions::ThemeStyle> = std::cell::Cell::new(extensions::ThemeStyle::default());
+	static BACKGROUND_IMAGE: std::cell::RefCell<Option<(std::sync::Arc<egui::ColorImage>, egui::TextureHandle)>> = const { std::cell::RefCell::new(None) };
 }
 const THEME_FIELDS: [&str; 18] = [
 	"base",
@@ -360,7 +362,11 @@ fn extension_palette(theme: &extensions::ThemePalette) -> Option<ExtensionPalett
 		Some([a, b]) => Some([color(a)?, color(b)?]),
 		None => None,
 	};
-	Some(ExtensionPalette { colors, backdrop })
+	Some(ExtensionPalette {
+		colors,
+		backdrop,
+		background: theme.background,
+	})
 }
 /// Install color and native control overrides; malformed themes reset to built-in appearance.
 /// Call [`apply`] after changing this value. No parsing or allocation runs while drawing.
@@ -374,6 +380,93 @@ pub fn set_extension_theme(theme: Option<&extensions::Theme>) {
 	});
 	EXTENSION_THEME.set(palettes);
 	EXTENSION_STYLE.set(theme.map_or_else(extensions::ThemeStyle::default, |theme| theme.style));
+	if theme.is_none() {
+		BACKGROUND_IMAGE.with(|image| *image.borrow_mut() = None);
+	}
+}
+
+/// Upload only a changed worker-decoded image; slider changes reuse the texture.
+pub fn set_background_image(ctx: &egui::Context, image: Option<std::sync::Arc<egui::ColorImage>>) {
+	BACKGROUND_IMAGE.with(|current| {
+		let mut current = current.borrow_mut();
+		if let Some(image) = image {
+			if image
+				.size
+				.iter()
+				.any(|side| *side > ctx.input(|input| input.max_texture_side))
+			{
+				*current = None;
+				return;
+			}
+			if current
+				.as_ref()
+				.is_some_and(|(old, _)| std::sync::Arc::ptr_eq(old, &image))
+			{
+				return;
+			}
+			let texture = ctx.load_texture(
+				"theme-background",
+				image.clone(),
+				egui::TextureOptions::LINEAR,
+			);
+			*current = Some((image, texture));
+		} else {
+			*current = None;
+		}
+	});
+}
+
+pub fn has_window_background(ui: &egui::Ui) -> bool {
+	BACKGROUND_IMAGE.with(|image| image.borrow().is_some())
+		&& EXTENSION_THEME.get().is_some_and(|palettes| {
+			palettes[usize::from(ui.visuals().dark_mode)]
+				.background
+				.unwrap_or_default()
+				.target == extensions::BackgroundTarget::Window
+		})
+}
+
+/// A message-area image sits above the chat surface and below message content.
+pub fn paint_chat_background(ui: &egui::Ui, rect: egui::Rect) {
+	let background = EXTENSION_THEME
+		.get()
+		.and_then(|palettes| palettes[usize::from(ui.visuals().dark_mode)].background)
+		.unwrap_or_default();
+	if background.target != extensions::BackgroundTarget::Chat {
+		return;
+	}
+	BACKGROUND_IMAGE.with(|image| {
+		if let Some((_, texture)) = image.borrow().as_ref() {
+			paint_background_image(ui.painter(), rect, texture, background);
+		}
+	});
+}
+
+/// Draw a centered static image without changing its aspect ratio.
+pub fn paint_background_image(
+	painter: &egui::Painter,
+	rect: egui::Rect,
+	texture: &egui::TextureHandle,
+	background: extensions::Background,
+) {
+	if rect.width() <= 0.0 || rect.height() <= 0.0 || background.opacity == 0 {
+		return;
+	}
+	let size = texture.size_vec2();
+	let ratio = rect.size() / size;
+	let scale = match background.fit {
+		extensions::BackgroundFit::Cover => ratio.x.max(ratio.y),
+		extensions::BackgroundFit::Contain => ratio.x.min(ratio.y),
+	};
+	let image_rect = egui::Rect::from_center_size(rect.center(), size * scale);
+	painter
+		.with_clip_rect(rect.intersect(painter.clip_rect()))
+		.image(
+			texture.id(),
+			image_rect,
+			egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+			Color32::from_white_alpha((u16::from(background.opacity) * 255 / 100) as u8),
+		);
 }
 fn recolor(mut palette: Palette, theme: ExtensionPalette) -> Palette {
 	for (destination, color) in [
@@ -466,9 +559,13 @@ fn opaque_surfaces(mut palette: Palette) -> Palette {
 }
 /// Paint the gradient backdrop behind every panel; a no-op for opaque variants.
 pub fn paint_backdrop(ctx: &egui::Context) {
-	let Some([top, bottom]) = colors(ctx.theme() == egui::Theme::Dark, variant()).backdrop else {
+	let dark = ctx.theme() == egui::Theme::Dark;
+	let palette = colors(dark, variant());
+	let has_image = BACKGROUND_IMAGE.with(|image| image.borrow().is_some());
+	if palette.backdrop.is_none() && !has_image {
 		return;
-	};
+	}
+	let [top, bottom] = palette.backdrop.unwrap_or([palette.base.to_opaque(); 2]);
 	let rect = ctx.content_rect();
 	let mut mesh = egui::Mesh::default();
 	let mid = Color32::from_rgba_premultiplied(
@@ -485,6 +582,23 @@ pub fn paint_backdrop(ctx: &egui::Context) {
 	mesh.add_triangle(0, 2, 3);
 	ctx.layer_painter(egui::LayerId::background())
 		.add(egui::Shape::mesh(mesh));
+	BACKGROUND_IMAGE.with(|image| {
+		if let Some((_, texture)) = image.borrow().as_ref() {
+			let background = EXTENSION_THEME
+				.get()
+				.and_then(|palettes| palettes[usize::from(dark)].background)
+				.unwrap_or_default();
+			if background.target != extensions::BackgroundTarget::Window {
+				return;
+			}
+			paint_background_image(
+				&ctx.layer_painter(egui::LayerId::background()),
+				rect,
+				texture,
+				background,
+			);
+		}
+	});
 }
 
 pub const SEMIBOLD: &str = "semibold";
@@ -1689,6 +1803,7 @@ mod extension_theme_tests {
 			]
 			.into(),
 			backdrop: Some(["#010203".into(), "#040506".into()]),
+			background: None,
 		};
 		let palette = recolor(
 			builtin_colors(true, Variant::Standard),

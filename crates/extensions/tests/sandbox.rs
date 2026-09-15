@@ -19,6 +19,7 @@ fn plugin(wasm: &str) -> Package {
 			}],
 		},
 		theme: None,
+		background_image: Vec::new(),
 		wasm: wat::parse_str(wasm).unwrap(),
 	}
 }

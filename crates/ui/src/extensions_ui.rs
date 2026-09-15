@@ -63,6 +63,20 @@ impl ExtensionContext {
 }
 
 pub enum ExtensionRequest {
+	EditTheme {
+		id: String,
+	},
+	PickThemeImage,
+	SaveTheme {
+		package: Box<extensions::Package>,
+	},
+	ExportTheme {
+		package: Box<extensions::Package>,
+	},
+	PreviewTheme {
+		theme: Option<Box<extensions::Theme>>,
+		image: Option<Arc<egui::ColorImage>>,
+	},
 	SelectTheme {
 		id: Option<String>,
 	},
@@ -107,7 +121,7 @@ struct ResultPanel {
 }
 
 /// Card chrome under the 16:9 preview: badges, title, blurb and the action row.
-const CARD_BODY: f32 = 168.0;
+const CARD_BODY: f32 = 196.0;
 const CARD_RADIUS: u8 = 12;
 const FOOTER_HEIGHT: f32 = 34.0;
 
@@ -135,8 +149,153 @@ pub struct ExtensionUi {
 	previews: BTreeMap<String, PreviewImage>,
 	preview_clock: u64,
 	enlarged: Option<String>,
+	theme_editor: Option<crate::theme_editor::ThemeEditor>,
+	theme_editor_visible: bool,
 }
 impl ExtensionUi {
+	pub(crate) fn editing_theme(&self) -> bool {
+		self.theme_editor.is_some()
+	}
+	pub fn theme_editor_dirty(&self) -> bool {
+		self.theme_editor
+			.as_ref()
+			.is_some_and(|editor| editor.dirty)
+	}
+	pub fn receive_theme_edit(
+		&mut self,
+		package: Box<extensions::Package>,
+		image: Option<Arc<egui::ColorImage>>,
+	) {
+		if self.theme_editor.is_none()
+			&& package.manifest.kind == ExtensionKind::Theme
+			&& package.theme.is_some()
+		{
+			self.theme_editor = Some(crate::theme_editor::ThemeEditor::duplicate(package, image));
+		}
+	}
+	pub fn receive_theme_image(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
+		if bytes.len() > extensions::MAX_BACKGROUND_BYTES
+			|| image.size.contains(&0)
+			|| image.size.into_iter().any(|side| side > 4096)
+			|| image.pixels.len() > 4_000_000
+			|| image.pixels.len() != image.size[0] * image.size[1]
+		{
+			return;
+		}
+		if let Some(editor) = &mut self.theme_editor {
+			editor.receive_image(bytes, image);
+			if editor.preview {
+				self.requests
+					.retain(|request| !matches!(request, ExtensionRequest::PreviewTheme { .. }));
+				let request = editor.preview_request();
+				if self.requests.len() < 4
+					&& request_bytes(&request)
+						.saturating_add(self.requests.iter().map(request_bytes).sum::<usize>())
+						<= 2 * extensions::MAX_PACKAGE_BYTES
+				{
+					self.requests.push(request);
+				}
+			}
+		}
+	}
+	pub fn theme_saved(&mut self, id: &str) {
+		if let Some(editor) = &mut self.theme_editor
+			&& editor.package.manifest.id == id
+		{
+			editor.dirty = false;
+			editor.preview = false;
+		}
+	}
+	pub fn stop_theme_preview(&mut self, ctx: &egui::Context) {
+		if let Some(editor) = &mut self.theme_editor
+			&& editor.preview
+		{
+			editor.preview = false;
+			self.queue(
+				ctx,
+				ExtensionRequest::PreviewTheme {
+					theme: None,
+					image: None,
+				},
+			);
+		}
+	}
+	pub(crate) fn begin_theme_editor_frame(&mut self) {
+		self.theme_editor_visible = false;
+	}
+	pub(crate) fn previewing_theme(&self) -> bool {
+		self.theme_editor
+			.as_ref()
+			.is_some_and(|editor| editor.preview)
+	}
+	pub(crate) fn theme_preview_bar(&mut self, ui: &mut egui::Ui) -> bool {
+		if !self.previewing_theme() {
+			return false;
+		}
+		// Recovery controls keep the built-in colors even when the draft is unreadable.
+		let colors = design::builtin_colors(true, design::Variant::Standard);
+		let mut back = false;
+		egui::Panel::top("theme-preview-return")
+			.show_separator_line(false)
+			.frame(
+				egui::Frame::new()
+					.fill(colors.raised)
+					.inner_margin(egui::Margin::symmetric(16, 8)),
+			)
+			.show(ui, |ui| {
+				ui.horizontal_wrapped(|ui| {
+					ui.label(
+						egui::RichText::new("Theme preview · Changes are not saved")
+							.size(14.0)
+							.color(colors.text),
+					);
+					back = ui
+						.add(
+							egui::Button::new(
+								egui::RichText::new("Back to theme editor")
+									.size(14.0)
+									.color(colors.accent_text),
+							)
+							.fill(colors.accent)
+							.min_size(egui::vec2(160.0, 32.0)),
+						)
+						.clicked();
+				});
+			});
+		if back {
+			self.stop_theme_preview(ui.ctx());
+		}
+		back
+	}
+	fn edit_theme(&mut self, ui: &mut egui::Ui) {
+		let Some(mut editor) = self.theme_editor.take() else {
+			return;
+		};
+		if !self.status.is_empty() {
+			design::card(ui, |ui| {
+				ui.add(egui::Label::new(&self.status).wrap());
+			});
+			ui.add_space(12.0);
+		}
+		let mut requests = Vec::new();
+		let close = editor.show(ui, self.busy, &mut requests);
+		for request in requests {
+			self.queue(ui.ctx(), request);
+		}
+		if close {
+			if editor.preview {
+				self.queue(
+					ui.ctx(),
+					ExtensionRequest::PreviewTheme {
+						theme: None,
+						image: None,
+					},
+				);
+			}
+		} else {
+			self.theme_editor = Some(editor);
+		}
+	}
 	pub fn set_entries(&mut self, entries: Vec<ExtensionEntry>) {
 		self.consent = None;
 		self.previews.retain(|id, _| {
@@ -392,9 +551,14 @@ impl ExtensionUi {
 	pub fn report_error(&mut self, message: String) {
 		let message: String = message.chars().take(512).collect();
 		self.status = message.clone();
-		self.error = Some(message);
+		self.error = if self.theme_editor_visible && self.theme_editor.is_some() {
+			None
+		} else {
+			Some(message)
+		};
 	}
 	pub fn reset_runtime(&mut self) {
+		self.theme_editor = None;
 		self.error = None;
 		self.result = None;
 		self.consent = None;
@@ -433,6 +597,10 @@ impl ExtensionUi {
 		});
 	}
 	pub(crate) fn queue(&mut self, ctx: &egui::Context, request: ExtensionRequest) {
+		if matches!(request, ExtensionRequest::PreviewTheme { .. }) {
+			self.requests
+				.retain(|pending| !matches!(pending, ExtensionRequest::PreviewTheme { .. }));
+		}
 		if self.requests.len()
 			< if matches!(&request, ExtensionRequest::Disable { .. }) {
 				extensions::MAX_PLUGINS * 2
@@ -440,8 +608,16 @@ impl ExtensionUi {
 				4
 			} && request_bytes(&request)
 			.saturating_add(self.requests.iter().map(request_bytes).sum::<usize>())
-			<= 4 * extensions::MAX_IO_BYTES
-		{
+			<= if matches!(
+				request,
+				ExtensionRequest::SaveTheme { .. }
+					| ExtensionRequest::ExportTheme { .. }
+					| ExtensionRequest::PreviewTheme { .. }
+			) {
+				2 * extensions::MAX_PACKAGE_BYTES
+			} else {
+				4 * extensions::MAX_IO_BYTES
+			} {
 			self.requests.push(request);
 			ctx.request_repaint();
 		} else {
@@ -653,12 +829,27 @@ impl ExtensionUi {
 		}
 	}
 	pub(crate) fn settings(&mut self, ui: &mut egui::Ui, state: &State) {
+		self.theme_editor_visible = self.themes;
+		if self.themes && self.theme_editor.is_some() {
+			self.edit_theme(ui);
+			return;
+		}
 		self.preview_clock = self.preview_clock.saturating_add(1);
 
 		let colors = design::palette(ui);
 		self.toolbar(ui, &colors);
 		if self.themes {
 			ui.add_space(10.0);
+			if ui
+				.add_enabled(
+					!self.busy && self.theme_editor.is_none(),
+					egui::Button::new("Create theme"),
+				)
+				.clicked()
+			{
+				self.status.clear();
+				self.theme_editor = Some(crate::theme_editor::ThemeEditor::new());
+			}
 			self.reset_theme_button(ui);
 		}
 		ui.add_space(14.0);
@@ -901,6 +1092,23 @@ impl ExtensionUi {
 			.truncate(),
 		)
 		.on_hover_text(&entry.manifest.name);
+		if self.themes
+			&& entry.enabled
+			&& !entry.cleanup_pending
+			&& ui
+				.add_enabled(
+					!self.busy && self.theme_editor.is_none(),
+					egui::Button::new("Duplicate and edit"),
+				)
+				.clicked()
+		{
+			self.queue(
+				ui.ctx(),
+				ExtensionRequest::EditTheme {
+					id: entry.manifest.id.clone(),
+				},
+			);
+		}
 		ui.spacing_mut().item_spacing.y = 2.0;
 		ui.add(
 			egui::Label::new(
@@ -1159,10 +1367,12 @@ impl ExtensionUi {
 										colors.sidebar.to_opaque(),
 									);
 								});
-								ui.hyperlink_to(
-									egui::RichText::new("View source").size(12.0),
-									&consent.entry.manifest.source,
-								);
+								if !consent.entry.manifest.source.is_empty() {
+									ui.hyperlink_to(
+										egui::RichText::new("View source").size(12.0),
+										&consent.entry.manifest.source,
+									);
+								}
 							});
 						});
 					});
@@ -1316,6 +1526,9 @@ impl ExtensionUi {
 		}
 	}
 	fn reset_theme(&mut self, ctx: &egui::Context) {
+		self.stop_theme_preview(ctx);
+		self.theme_editor = None;
+		design::set_background_image(ctx, None);
 		let ids: Vec<_> = self
 			.entries
 			.iter()
@@ -1478,6 +1691,15 @@ impl ExtensionUi {
 fn request_bytes(request: &ExtensionRequest) -> usize {
 	std::mem::size_of_val(request)
 		+ match request {
+			ExtensionRequest::PickThemeImage => 0,
+			ExtensionRequest::EditTheme { id } => id.len(),
+			ExtensionRequest::SaveTheme { package } | ExtensionRequest::ExportTheme { package } => {
+				package.background_image.len() + package.wasm.len() + 16384
+			}
+			ExtensionRequest::PreviewTheme { theme, image } => {
+				usize::from(theme.is_some()) * 16384
+					+ image.as_ref().map_or(0, |image| image.pixels.len() * 4)
+			}
 			ExtensionRequest::RefreshCatalog | ExtensionRequest::Import => 0,
 			ExtensionRequest::SelectTheme { id } => id.as_ref().map_or(0, String::len),
 			ExtensionRequest::Enable {

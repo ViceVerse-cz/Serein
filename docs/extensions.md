@@ -18,7 +18,8 @@ Disable stops accepting results immediately, then removes Serein's downloaded
 package, temporary files and extension data. A failure to remove files is shown
 and cleanup is retried on the next load. Re-enabling requires downloading or
 importing the package again and starts with fresh extension settings. Serein
-never deletes the creator's Git repository or the user's imported original.
+never deletes the creator's Git repository, the user's imported original, or an
+exported theme/image source.
 
 Plugin grants and data belong to the signed-in account. Logout invalidates
 plugin results, drains bounded in-flight work and clears that account's extension data. Theme selection is a device
@@ -101,7 +102,9 @@ the ordinary Send action and are discarded when their originating context is
 stale. Account/session changes invalidate outstanding results.
 
 Themes override named colors and native typography, spacing, padding and corner
-radii. See the complete [theme API](theme-api.md) for fields, bounds and inheritance.
+radii, plus an optional embedded PNG/JPEG background with per-mode opacity and fit.
+Settings > Themes > Create theme provides a native editor and portable export.
+See the complete [theme API](theme-api.md) for fields, bounds and inheritance.
 
 Plugins can request the `appearance` capability to return an `appearance` object
 using that same theme schema. This works from activation or a user-invoked action,

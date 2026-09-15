@@ -9,6 +9,7 @@ pub use runtime::invoke;
 pub const API_VERSION: u32 = 1;
 pub const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_MODULE_BYTES: usize = 4 * 1024 * 1024;
+pub const MAX_BACKGROUND_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_PREVIEW_BYTES: usize = 256 * 1024;
 pub const MAX_CATALOG_BYTES: usize = 1024 * 1024;
 pub const MAX_IO_BYTES: usize = 256 * 1024;
@@ -88,10 +89,47 @@ pub struct Manifest {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThemePalette {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub background: Option<Background>,
 	#[serde(default)]
 	pub colors: BTreeMap<String, String>,
 	#[serde(default)]
 	pub backdrop: Option<[String; 2]>,
+}
+
+/// Image settings for the package's single embedded static background.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Background {
+	pub opacity: u8,
+	pub fit: BackgroundFit,
+	pub target: BackgroundTarget,
+}
+
+impl Default for Background {
+	fn default() -> Self {
+		Self {
+			opacity: 25,
+			fit: BackgroundFit::Cover,
+			target: BackgroundTarget::Window,
+		}
+	}
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundFit {
+	#[default]
+	Cover,
+	Contain,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundTarget {
+	#[default]
+	Window,
+	Chat,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,6 +174,8 @@ pub struct ThemeStyle {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Package {
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub background_image: Vec<u8>,
 	pub manifest: Manifest,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub theme: Option<Theme>,
@@ -298,7 +338,10 @@ impl Manifest {
 		if self.api_version != API_VERSION {
 			return Err(Error::Version);
 		}
-		if !valid_id(&self.id) || !valid_https_url(&self.source) {
+		if !valid_id(&self.id)
+			|| !(valid_https_url(&self.source)
+				|| self.kind == ExtensionKind::Theme && self.source.is_empty())
+		{
 			return Err(Error::Invalid);
 		}
 		for value in [&self.name, &self.version, &self.author, &self.license] {
@@ -383,6 +426,7 @@ impl Theme {
 			(&mut self.dark, &other.dark),
 		] {
 			base.colors.extend(overlay.colors.clone());
+			base.background = overlay.background.or(base.background);
 			if overlay.backdrop.is_some() {
 				base.backdrop.clone_from(&overlay.backdrop);
 			}
@@ -451,6 +495,12 @@ impl Theme {
 			"mention_text",
 		];
 		for palette in [&self.light, &self.dark] {
+			if palette
+				.background
+				.is_some_and(|background| background.opacity > 100)
+			{
+				return Err(Error::Invalid);
+			}
 			if palette.colors.len() > NAMES.len() {
 				return Err(Error::Limit);
 			}
@@ -473,11 +523,14 @@ impl Theme {
 impl Package {
 	pub fn validate(&self) -> Result<(), Error> {
 		self.manifest.validate()?;
+		if self.background_image.len() > MAX_BACKGROUND_BYTES {
+			return Err(Error::Limit);
+		}
 		match self.manifest.kind {
 			ExtensionKind::Theme if self.wasm.is_empty() => {
 				self.theme.as_ref().ok_or(Error::Invalid)?.validate()
 			}
-			ExtensionKind::Plugin if self.theme.is_none() => {
+			ExtensionKind::Plugin if self.theme.is_none() && self.background_image.is_empty() => {
 				if self.wasm.len() > MAX_MODULE_BYTES {
 					return Err(Error::Limit);
 				}
@@ -516,6 +569,9 @@ pub fn parse_catalog(bytes: &[u8]) -> Result<Catalog, Error> {
 	let mut ids = BTreeSet::new();
 	for entry in &catalog.entries {
 		entry.manifest.validate()?;
+		if !valid_https_url(&entry.manifest.source) {
+			return Err(Error::Invalid);
+		}
 		if entry.description.len() > 1024
 			|| entry.description.chars().count() > 256
 			|| entry.description.chars().any(char::is_control)

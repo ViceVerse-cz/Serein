@@ -20,7 +20,8 @@ Themes remain opt-in and use the existing preview, install, selection and reset 
 The existing limit of eight installed themes is unchanged; remove an installed theme
 before adding another if that limit is reached.
 
-The `light` and `dark` objects each accept `colors` and an optional `backdrop`.
+The `light` and `dark` objects each accept `colors`, an optional `backdrop`,
+and optional `background` image settings.
 Color values are `#RRGGBB` or `#RRGGBBAA`. Supported color names are:
 
 | Area | Tokens |
@@ -49,9 +50,9 @@ font sizes are whole logical pixels, before the user's display scale.
 | `item_spacing` | [8, 8] | Each axis 0–24 |
 | `button_padding` | [12, 6] | Each axis 0–24 |
 | `control_height` | 32 | 24–56 |
-| `widget_radius` | 4 | 0–24 |
-| `window_radius` | 8 | 0–24 |
-| `menu_radius` | 8 | 0–24 |
+| `widget_radius` | 8 | 0–24 |
+| `window_radius` | 12 | 0–24 |
+| `menu_radius` | 12 | 0–24 |
 
 For example, this `theme` value provides a flatter, roomier appearance:
 
@@ -79,10 +80,62 @@ These metrics affect controls that inherit the shared native style. Custom
 painted elements, explicit text sizes, fixed-height rows and per-widget padding
 or radius overrides retain their own geometry. Shop thumbnails preview palette
 colors, not all control metrics. Themes cannot rearrange application panels,
-inject CSS/scripts, load fonts or images, fetch URLs, or change message data.
+inject CSS/scripts, load fonts, fetch image URLs, or change message data.
 
 Run the offline validation/application example with:
 
 ```sh
 cargo run --locked -p ui --example theme_api
 ```
+
+## Theme maker and embedded backgrounds
+
+Settings > Themes > Create theme opens the editor inside the Themes settings page.
+Background, Colors, Typography and Details use the same native settings controls
+and spacing as the rest of Serein. Duplicate and edit
+creates a new unreviewed identity from an installed theme. Colors, alpha, gradients,
+typography, spacing and corners use the fields and bounds above. Preview in app
+temporarily applies the draft and closes Settings to show the normal conversation
+view, including the current account's loaded conversations. A persistent
+Back to theme editor button restores the saved appearance and reopens the same
+draft. Opening Settings again also ends preview; edits remain available. Preview
+does not save changes or send messages. Save and apply uses the existing
+installed-theme store, while Export writes a portable `.serein-extension` package.
+Local saves can replace only a theme previously created by the editor; imported
+or reviewed packages must be duplicated first. The eight-theme limit still applies.
+A local theme may leave the manifest `source` empty. Catalog entries still require a
+credential-free HTTPS source repository. Complete source, author and licensing
+metadata before sharing a package, and include attribution required by image licenses.
+
+A theme package may contain one `background_image` field: a JSON byte array holding
+a PNG or JPEG, at most 2 MiB compressed. There are no paths or remote image URLs in
+the package. Both palettes share this image and can set different image settings:
+
+```json
+"background": { "opacity": 25, "fit": "cover", "target": "chat" }
+```
+
+Opacity is an integer from 0 to 100. Fit is `cover` (center crop) or `contain`
+(centered whole image); defaults are 25 and `cover`. Target is `chat` for the message
+area or `window` for the whole-window backdrop. Missing targets retain `window`
+for existing packages; newly chosen editor images default to Message area.
+A missing setting inherits the
+underlying image settings. A supplied background object replaces those settings
+when an appearance plugin overlays the selected theme. Plugins cannot supply bytes,
+open an image file, or fetch an image URL.
+
+Images are decoded on the extension worker, with at most 4,096 pixels per edge,
+4,000,000 pixels, and 32 MiB decoder allocation. Only a static decoded image is used.
+Invalid images fail before installation or export. The 16 MiB serialized package
+limit includes the embedded byte array. Older packages remain valid and keep their
+appearance; older clients may reject packages with the new background fields.
+
+Message-area images paint above the chat surface and below messages, clipped to
+the message area; they are visible without changing surface alpha. The message
+input and channel header keep their normal surfaces. Whole-window images paint
+after the base/gradient and before main surfaces; use sidebar/chat color alpha to
+reveal those images. Popouts and small
+controls keep their readable composited surfaces. Opacity changes reuse the texture;
+changing, removing or resetting the background releases the previous texture.
+The custom accent preference still overrides theme accents, and Ctrl+Shift+F12
+remains available during editing and app preview.

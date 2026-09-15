@@ -3972,6 +3972,7 @@ impl eframe::App for Desktop {
 					.any(|p| p.delivery != Delivery::Confirmed)
 				|| self.messaging.has_edit()
 				|| self.messaging.has_server_settings_changes()
+				|| self.messaging.extensions.theme_editor_dirty()
 				|| self.state.server_settings.pending
 				|| self.state.server_admin.pending
 				|| self.uploads.has_unsent()
@@ -4359,6 +4360,7 @@ impl eframe::App for Desktop {
 				if self.state.has_unsent()
 					|| self.messaging.has_edit()
 					|| self.messaging.has_server_settings_changes()
+					|| self.messaging.extensions.theme_editor_dirty()
 					|| self.state.server_settings.pending
 					|| self.state.server_admin.pending
 					|| self.uploads.has_unsent()
@@ -4436,6 +4438,9 @@ impl eframe::App for Desktop {
 		}
 		if self.confirming_close || self.confirming_logout {
 			let mut notes: Vec<&str> = Vec::new();
+			if self.messaging.extensions.theme_editor_dirty() {
+				notes.push("Unsaved theme changes will be discarded.");
+			}
 			if self.forgetting {
 				notes.push("Wait for saved-login removal to finish.");
 			}
