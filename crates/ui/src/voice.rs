@@ -56,7 +56,8 @@ impl MessagingUi {
 		if selected {
 			ui.painter().rect_filled(row, 8, colors.selected);
 		} else if hovered {
-			ui.painter().rect_filled(row, 8, colors.hover);
+			ui.painter()
+				.rect_filled(row, 8, crate::design::row_highlight(ui, colors.hover, 1.0));
 		}
 		let text_color = if !viewable {
 			colors.muted.gamma_multiply(0.6)

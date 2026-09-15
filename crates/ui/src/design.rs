@@ -469,6 +469,16 @@ pub fn has_section_background(ui: &egui::Ui) -> bool {
 		})
 }
 
+/// Keep large hover rows translucent over a shared background image.
+pub fn row_highlight(ui: &egui::Ui, color: Color32, strength: f32) -> Color32 {
+	if has_section_background(ui) {
+		let [r, g, b, _] = color.to_srgba_unmultiplied();
+		Color32::from_rgba_unmultiplied(r, g, b, 48)
+	} else {
+		color.gamma_multiply(strength)
+	}
+}
+
 /// A message-area image sits above the chat surface and below message content.
 pub fn paint_chat_background(ui: &egui::Ui, rect: egui::Rect) {
 	let background = EXTENSION_THEME

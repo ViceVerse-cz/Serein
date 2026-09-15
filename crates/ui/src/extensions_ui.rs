@@ -156,6 +156,11 @@ impl ExtensionUi {
 	pub(crate) fn editing_theme(&self) -> bool {
 		self.theme_editor.is_some()
 	}
+	pub(crate) fn theme_editor_tab_key(&self) -> u8 {
+		self.theme_editor
+			.as_ref()
+			.map_or(0, |editor| editor.tab_key() + 1)
+	}
 	pub fn theme_editor_dirty(&self) -> bool {
 		self.theme_editor
 			.as_ref()

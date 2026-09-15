@@ -294,7 +294,11 @@ impl MessagingUi {
 							ui.add_space(12.0);
 						}
 						egui::ScrollArea::vertical()
-							.id_salt(("settings-content", self.settings.page as u8))
+							.id_salt((
+								"settings-content",
+								self.settings.page as u8,
+								self.extensions.theme_editor_tab_key(),
+							))
 							.auto_shrink([false, false])
 							.show(ui, |ui| {
 								let scroll_padding = if self.settings.page == Page::Profile {

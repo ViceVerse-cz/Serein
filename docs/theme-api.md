@@ -92,9 +92,12 @@ cargo run --locked -p ui --example theme_api
 ## Theme maker and embedded backgrounds
 
 Settings > Themes > Create theme opens the editor inside the Themes settings page.
-Background and the main colors appear together on one page. Preview and Save stay
-above the scrolling controls; additional colors, typography, gradients and sharing
-details expand when needed. Choosing Save reveals missing theme details.
+Basics, Background, Colors and Advanced tabs keep required identity fields visible
+and related controls together. Preview and Save stay above the scrolling controls.
+Background shows a clickable synthetic app map: select a top bar, list or message
+area to edit that section's opacity. The image is shared, while colors and surface
+opacity can differ between Dark and Light. Choosing Save opens the tab with the
+first invalid field and shows a nearby error.
 The selected image has its own thumbnail. Duplicate and edit
 creates a new unreviewed identity from an installed theme. Colors, alpha, gradients,
 typography, spacing and corners use the fields and bounds above. Preview in app

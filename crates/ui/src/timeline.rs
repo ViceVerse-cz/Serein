@@ -1470,7 +1470,7 @@ impl TimelineView {
 							egui::Shape::rect_filled(
 								rect,
 								0.0,
-								colors.warning.gamma_multiply(0.10),
+								crate::design::row_highlight(ui, colors.warning, 0.10),
 							),
 						);
 						ui.painter().rect_filled(
@@ -1529,9 +1529,9 @@ impl TimelineView {
 								rect,
 								0.0,
 								if mentioned {
-									colors.warning.gamma_multiply(0.16)
+									crate::design::row_highlight(ui, colors.warning, 0.16)
 								} else {
-									colors.hover.gamma_multiply(0.7)
+									crate::design::row_highlight(ui, colors.hover, 0.7)
 								},
 							),
 						);
@@ -1679,7 +1679,11 @@ impl TimelineView {
 					{
 						ui.painter().set(
 							background,
-							egui::Shape::rect_filled(rect, 0.0, colors.accent.gamma_multiply(0.25)),
+							egui::Shape::rect_filled(
+								rect,
+								0.0,
+								crate::design::row_highlight(ui, colors.accent, 0.25),
+							),
 						);
 					}
 				});
@@ -2083,6 +2087,40 @@ mod pending_tests;
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn message_hover_keeps_the_shared_image_visible() {
+		let ctx = egui::Context::default();
+		ctx.set_theme(egui::ThemePreference::Dark);
+		let color = egui::Color32::from_rgb(32, 40, 48);
+		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+			assert_eq!(
+				crate::design::row_highlight(ui, color, 0.7),
+				color.gamma_multiply(0.7)
+			);
+		});
+		output.textures_delta.clear();
+		let mut theme = extensions::Theme::default();
+		theme.dark.background = Some(extensions::Background {
+			sections: Some(extensions::SectionOpacity::default()),
+			..Default::default()
+		});
+		crate::design::set_extension_theme(Some(&theme));
+		crate::design::set_background_image(
+			&ctx,
+			Some(std::sync::Arc::new(egui::ColorImage::filled(
+				[1, 1],
+				egui::Color32::WHITE,
+			))),
+		);
+		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+			assert!(crate::design::has_section_background(ui));
+			assert_eq!(crate::design::row_highlight(ui, color, 0.7).a(), 48);
+		});
+		output.textures_delta.clear();
+		crate::design::set_extension_theme(None);
+	}
+
 	// Synthetic regressions: no transport or acknowledgement worker is running.
 	fn banner_frame(
 		ctx: &egui::Context,

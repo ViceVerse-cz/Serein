@@ -892,7 +892,11 @@ impl MessagingUi {
 							});
 							let row = rect.shrink2(egui::vec2(0.0, 1.0));
 							if response.hovered() || response.has_focus() {
-								ui.painter().rect_filled(row, 6, colors.hover);
+								ui.painter().rect_filled(
+									row,
+									6,
+									design::row_highlight(ui, colors.hover, 1.0),
+								);
 							}
 							let mut inner = ui.new_child(
 								egui::UiBuilder::new()
@@ -2582,6 +2586,7 @@ impl MessagingUi {
 		let sidebar_max = self.prepare_reading_sidebar(ui, "navigation", rail);
 		let navigation = egui::Panel::left("navigation")
 			.resizable(true)
+			.show_separator_line(!design::has_window_background(ui))
 			.default_size(rail + f32::from(self.reading_preferences.sidebar_width).min(sidebar_max))
 			.size_range(rail + 190.0..=rail + sidebar_max)
 			.frame(
@@ -2607,10 +2612,14 @@ impl MessagingUi {
 				// The lists sit on their own rounded surface beside the rail, above the card.
 				ui.painter().rect_filled(
 					ui.available_rect_before_wrap(),
-					egui::CornerRadius {
-						nw: 8,
-						sw: 8,
-						..Default::default()
+					if design::has_window_background(ui) {
+						egui::CornerRadius::ZERO
+					} else {
+						egui::CornerRadius {
+							nw: 8,
+							sw: 8,
+							..Default::default()
+						}
 					},
 					design::section_surface(
 						ui,
@@ -2674,6 +2683,7 @@ impl MessagingUi {
 			};
 			egui::Panel::right("search-pane")
 				.resizable(false)
+				.show_separator_line(!design::has_window_background(ui))
 				.exact_size(width)
 				.frame(
 					egui::Frame::new()
@@ -2700,6 +2710,7 @@ impl MessagingUi {
 			if wide_members {
 				egui::Panel::right("people-pane")
 					.resizable(false)
+					.show_separator_line(!design::has_window_background(ui))
 					.exact_size(240.0)
 					.frame(
 						egui::Frame::new()
