@@ -59,7 +59,7 @@ flatpak uninstall --user cz.viceverse.serein
 ### Sandbox Permissions
 
 The sandbox grants network, graphics, Wayland with X11 fallback, audio and
-specific Secret Service/notification D-Bus names. Files are selected through
+specific Secret Service/notification/StatusNotifierWatcher D-Bus names. Files are selected through
 the existing desktop portal; home and session-bus access are not granted.
 Caches/preferences use Flatpak's isolated XDG directories under
 `~/.var/app/cz.viceverse.serein`; a native installation's data is not imported.

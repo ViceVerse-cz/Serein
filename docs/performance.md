@@ -407,3 +407,22 @@ the Orca CLI is not installed. The egui warning-render test is not native visual
 No owner-account or live load test was performed. Account budgets are finite component
 allocation estimates (128 MiB navigation/permission and 64 MiB permission sub-budget),
 not whole-process memory guarantees; decoding and old/new state replacement add peak memory.
+
+
+## Cross-platform close-to-tray package size (September 15, 2026)
+
+Windows x86_64, pinned Rust 1.98.1, one standard `cargo xtask package` per revision, including voice and `--release --locked --no-default-features`. Baseline is clean detached `64718b2`; changed and baseline `dist` directories were preserved separately.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 72,051,200 | 72,059,392 | +8,192 (+0.011%) |
+| Portable package bytes (187 files) | 76,118,820 | 76,126,988 | +8,168 (+0.011%) |
+| NSIS/compressed installer | Unavailable | Unavailable | `makensis` missing |
+
+The package delta includes a 24-byte CRLF/LF checkout difference in the identical ksni license text; the executable delta is +8 KiB. These are size observations, not runtime performance claims.
+
+Native screenshots and matched CPU/RSS/frame-time sampling remain unavailable: Orca CLI
+is not installed and there is no macOS/Hyprland test session. Windows synthetic native tray
+checks pass; the macOS termination adapter and native smoke check have only been type-checked
+against the Apple target with a synthetic window stub. No native macOS performance or
+behavior claim follows from those checks.

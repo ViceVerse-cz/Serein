@@ -1,5 +1,9 @@
 # Third-party notices
 
+Linux tray integration uses **ksni 0.3.6** (Unlicense), reusing the already-resolved
+zbus, Tokio and image dependencies. Its unmodified release license is retained in
+`assets/licenses/files/ksni-0.3.6-UNLICENSE`; `Cargo.lock` records the archive checksum.
+
 Packaging copies the repository's bundled notices, license texts and corresponding component
 source without scanning dependencies or checking license coverage. Declared-license checks run
 separately in the dedicated license CI job (`cargo xtask licenses`); its failure does not block

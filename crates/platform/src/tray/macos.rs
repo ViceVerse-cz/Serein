@@ -1,8 +1,21 @@
 use super::{Event, Events};
-use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained, sel};
-use objc2_app_kit::{NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem};
+use objc2::{
+	DefinedClass, MainThreadOnly, define_class, msg_send,
+	rc::Retained,
+	runtime::{AnyObject, Imp, Sel},
+	sel,
+};
+use objc2_app_kit::{
+	NSApplication, NSApplicationTerminateReply, NSImage, NSMenu, NSMenuItem, NSStatusBar,
+	NSStatusItem,
+};
 use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, ns_string};
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
+
+thread_local! {
+	// Exactly one UI-thread-owned tray can intercept application termination.
+	static TERMINATION_TARGET: RefCell<Option<Retained<Target>>> = const { RefCell::new(None) };
+}
 
 struct State {
 	window: Arc<winit::window::Window>,
@@ -39,12 +52,81 @@ impl Target {
 	fn emit(&self, event: Event) {
 		let state = self.ivars();
 		// Restore before Quit as well, so the app can display its unsaved-draft prompt.
-		state.window.set_visible(true);
-		state.window.set_minimized(false);
-		state.window.focus_window();
+		if event != Event::Close {
+			state.window.set_visible(true);
+			state.window.set_minimized(false);
+			state.window.focus_window();
+		}
 		state.events.push(event);
 		(state.wake)();
 	}
+}
+
+unsafe extern "C-unwind" fn should_terminate(
+	_delegate: &AnyObject,
+	_selector: Sel,
+	_application: &NSApplication,
+) -> NSApplicationTerminateReply {
+	// Release the RefCell borrow before waking the event loop, which may reenter AppKit.
+	let target = TERMINATION_TARGET.with(|slot| slot.borrow().clone());
+	if let Some(target) = target {
+		target.emit(Event::Close);
+		NSApplicationTerminateReply::TerminateCancel
+	} else {
+		// AppKit's default for a delegate without applicationShouldTerminate:.
+		NSApplicationTerminateReply::TerminateNow
+	}
+}
+
+fn intercept_termination(mtm: MainThreadMarker) -> Result<(), &'static str> {
+	if TERMINATION_TARGET.with(|slot| slot.borrow().is_some()) {
+		return Err("A macOS tray icon is already active.");
+	}
+	let delegate = NSApplication::sharedApplication(mtm)
+		.delegate()
+		.ok_or("The macOS application delegate is unavailable.")?;
+	let object: &AnyObject = (*delegate).as_ref();
+	let class = object.class();
+	if class.name() != c"WinitApplicationDelegate" {
+		return Err("The macOS application delegate cannot support close to tray.");
+	}
+	let selector = sel!(applicationShouldTerminate:);
+	// SAFETY: Objective-C IMP erases the typed signature. Our callback matches the
+	// protocol: NSUInteger return, object receiver, selector, NSApplication argument.
+	let implementation: Imp = unsafe {
+		std::mem::transmute(
+			should_terminate
+				as unsafe extern "C-unwind" fn(
+					&AnyObject,
+					Sel,
+					&NSApplication,
+				) -> NSApplicationTerminateReply,
+		)
+	};
+	if let Some(method) = class.instance_method(selector) {
+		if !std::ptr::fn_addr_eq(method.implementation(), implementation) {
+			return Err("The macOS application already has a termination handler.");
+		}
+	} else {
+		// SAFETY: add only a missing optional method to the existing delegate class;
+		// never replace the delegate or its methods/ivars, which winit relies on.
+		// Q@:@ is NSUInteger/object/selector/object on supported 64-bit macOS targets.
+		// This process-lifetime callback owns no raw state and permits exit when inactive.
+		let added = unsafe {
+			objc2::ffi::class_addMethod(
+				(class as *const objc2::runtime::AnyClass).cast_mut(),
+				selector,
+				implementation,
+				c"Q@:@".as_ptr(),
+			)
+		};
+		if !added.as_bool() {
+			return Err("The macOS termination handler could not be installed.");
+		}
+		// Re-register the same delegate so AppKit can refresh optional callbacks.
+		NSApplication::sharedApplication(mtm).setDelegate(Some(&delegate));
+	}
+	Ok(())
 }
 
 /// Main-thread ownership prevents cross-thread callbacks and destruction.
@@ -113,7 +195,13 @@ impl Tray {
 			tray.menu.addItem(&item);
 		}
 		tray.item.setMenu(Some(&tray.menu));
+		intercept_termination(mtm)?;
+		TERMINATION_TARGET.with(|slot| *slot.borrow_mut() = Some(tray.target.clone()));
 		Ok(tray)
+	}
+
+	pub fn is_available(&self) -> bool {
+		self.item.isVisible()
 	}
 
 	pub fn take_event(&self) -> Option<Event> {
@@ -123,6 +211,16 @@ impl Tray {
 
 impl Drop for Tray {
 	fn drop(&mut self) {
+		TERMINATION_TARGET.with(|slot| {
+			let mut target = slot.borrow_mut();
+			if target.as_ref().is_some_and(|target| {
+				std::ptr::eq(Retained::as_ptr(target), Retained::as_ptr(&self.target))
+			}) {
+				target.take()
+			} else {
+				None
+			}
+		});
 		self.item.setMenu(None);
 		for item in self.menu.itemArray() {
 			// SAFETY: disconnect even a menu item retained by AppKit's active menu tracking.

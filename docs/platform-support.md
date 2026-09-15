@@ -76,17 +76,37 @@ provider rejection and missing native webview runtimes fail visibly. macOS/Linux
 live CAPTCHA acceptance remains unverified. Widget
 loading and synthetic checks do not establish live Discord challenge acceptance.
 
-## Opt-in tray icon (September 13, 2026)
+## Opt-in tray icon (September 14, 2026)
 
-Windows General settings offer Show Serein in System Tray, off by default. Minimizing
+Windows and Linux General settings offer Show Serein in System Tray, off by default. Minimizing
 keeps the window in the taskbar, including taskbar clicks and automatic startup. The icon supports
 keyboard/mouse restore and a Show Serein / Quit menu. Quit uses the normal unsaved
-work/download exit checks; the window Close button retains normal exit behavior.
+work/download exit checks. With an available tray enabled, closing the window keeps Serein
+running on Windows, macOS and Linux. Windows and macOS hide the window; Show Serein restores it.
+Tray Quit and explicit update restart restore the window before running the existing exit checks.
 Disabling removes the tray icon without changing the window's minimized state.
-The adapter uses existing user32/Shell APIs and dependencies, with no background
+The Windows adapter uses existing user32/Shell APIs and dependencies, with no background
 polling. A synthetic native Windows test verifies registration,
-minimize/restore, own-window taskbar recovery, Quit event and cleanup. macOS uses a native menu bar icon with Show Serein / Quit actions; minimized windows
-remain in the Dock. Linux retains an explicitly disabled control.
+minimize/restore, own-window taskbar recovery, Quit event and cleanup.
+
+Linux uses `ksni` and the session bus's StatusNotifierWatcher, with the bundled icon
+and the same Show Serein / Quit actions. A compatible desktop tray host is required;
+desktops without one report the tray unavailable and keep normal window behavior.
+Linux close-to-tray starts only after tray registration succeeds.
+An unavailable or disabled tray keeps normal close behavior. Losing the host requests restoration
+of a hidden window. Winit cannot hide/unhide native Wayland windows, so a compositor such as
+Hyprland may leave the window visible after Close; the close request is still cancelled.
+If the host exits, toggle the setting off/on after the host returns to retry.
+Wayland compositors may decline application-requested focus. Flatpak permits only
+the additional `org.kde.StatusNotifierWatcher` bus name, not unrestricted session-bus
+access. The protocol can be checked without a desktop or account using
+`dbus-run-session -- cargo run --locked -p tray-debug`; it does not verify panel
+rendering, compositor focus, or sandbox interoperability.
+
+macOS uses a native menu bar icon with Show Serein / Quit actions; minimized windows
+remain in the Dock. While the tray is enabled, the app-menu Quit action, Cmd+Q and Dock Quit
+follow the window-close policy. Quit from the tray exits; disabling the tray restores
+the app menu's original Quit action.
 
 ## Opt-in automatic startup
 
@@ -97,7 +117,7 @@ Windows Startup Apps can override this registration. Disable startup before dele
 a portable installation, or re-enable it after moving the executable.
 Minimized launches stay in the taskbar even when the saved tray preference is enabled;
 the tray can attach safely after a minimized launch. Tray failures leave the window
-recoverable. The Close button still exits, and the tray Quit action retains unsaved
+recoverable. Close hides to an available enabled tray, and tray Quit retains unsaved
 work checks. macOS registers a per-user `~/Library/LaunchAgents/cz.viceverse.serein.startup.plist`
 for the next graphical login, with the same launch flags. Turning it off removes only
 that file. It does not launch a second client when enabled or restart after Quit.
