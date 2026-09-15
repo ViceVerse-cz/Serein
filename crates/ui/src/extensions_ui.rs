@@ -296,6 +296,19 @@ impl ExtensionUi {
 			self.theme_editor = Some(editor);
 		}
 	}
+	pub(crate) fn theme_editor_toolbar(&mut self, ui: &mut egui::Ui) {
+		let Some(mut editor) = self.theme_editor.take() else {
+			return;
+		};
+		let mut requests = Vec::new();
+		let close = editor.toolbar(ui, self.busy, &mut requests);
+		for request in requests {
+			self.queue(ui.ctx(), request);
+		}
+		if !close {
+			self.theme_editor = Some(editor);
+		}
+	}
 	pub fn set_entries(&mut self, entries: Vec<ExtensionEntry>) {
 		self.consent = None;
 		self.previews.retain(|id, _| {

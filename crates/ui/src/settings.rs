@@ -256,7 +256,7 @@ impl MessagingUi {
 								);
 								ui.label(
 									RichText::new(if editing_theme {
-										"Customize your colors, backgrounds and controls."
+										"Make it yours. Preview changes in your conversations."
 									} else {
 										self.settings.page.description()
 									})
@@ -289,6 +289,10 @@ impl MessagingUi {
 								});
 						}
 						ui.add_space(16.0);
+						if self.settings.page == Page::Themes && self.extensions.editing_theme() {
+							self.extensions.theme_editor_toolbar(ui);
+							ui.add_space(12.0);
+						}
 						egui::ScrollArea::vertical()
 							.id_salt(("settings-content", self.settings.page as u8))
 							.auto_shrink([false, false])

@@ -15,7 +15,8 @@ pub(crate) struct ThemeEditor {
 	pub preview: bool,
 	dark: bool,
 	discard: bool,
-	tab: usize,
+	reveal_details: bool,
+	thumbnail: Option<egui::TextureHandle>,
 }
 
 fn identity() -> String {
@@ -55,7 +56,8 @@ impl ThemeEditor {
 			preview: false,
 			dark: true,
 			discard: false,
-			tab: 0,
+			reveal_details: false,
+			thumbnail: None,
 		}
 	}
 	pub fn duplicate(mut package: Box<Package>, image: Option<Arc<egui::ColorImage>>) -> Self {
@@ -74,6 +76,7 @@ impl ThemeEditor {
 	pub fn receive_image(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
 		self.package.background_image = bytes;
 		self.image = Some(image);
+		self.thumbnail = None;
 		self.dirty = true;
 		if let Some(theme) = self.package.theme.as_mut() {
 			for palette in [&mut theme.light, &mut theme.dark] {
@@ -91,139 +94,157 @@ impl ThemeEditor {
 			image: self.image.clone(),
 		}
 	}
-	/// Returns true once the draft can be discarded.
-	pub fn show(
+	/// The settings shell keeps these actions outside its scrolling content.
+	pub fn toolbar(
 		&mut self,
 		ui: &mut egui::Ui,
 		busy: bool,
 		requests: &mut Vec<ExtensionRequest>,
 	) -> bool {
 		let mut close = false;
+		ui.add_enabled_ui(!busy, |ui| {
+			ui.horizontal_wrapped(|ui| {
+				if dialog::action(ui, "Back", dialog::Action::Neutral).clicked() {
+					if self.dirty {
+						self.discard = true;
+					} else {
+						close = true;
+					}
+				}
+				let valid = self
+					.package
+					.theme
+					.as_ref()
+					.is_some_and(|theme| theme.validate().is_ok());
+				ui.add_enabled_ui(valid, |ui| {
+					if dialog::action(ui, "Preview in app", dialog::Action::Outline).clicked() {
+						self.preview = true;
+						requests.push(self.preview_request());
+					}
+					if dialog::action(ui, "Save and apply", dialog::Action::Primary).clicked() {
+						if self.package.validate().is_ok() {
+							requests.push(ExtensionRequest::SaveTheme {
+								package: self.package.clone(),
+							});
+						} else {
+							self.reveal_details = true;
+						}
+					}
+				});
+				if self.dirty {
+					ui.weak("Unsaved changes");
+				}
+			});
+		});
+		if busy {
+			ui.horizontal(|ui| {
+				ui.spinner();
+				ui.weak("Working...");
+			});
+		}
+		ui.add_space(8.0);
+		ui.separator();
+		close
+	}
+
+	pub fn show(
+		&mut self,
+		ui: &mut egui::Ui,
+		busy: bool,
+		requests: &mut Vec<ExtensionRequest>,
+	) -> bool {
 		let mut changed = false;
 		ui.add_enabled_ui(!busy, |ui| {
 			ui.horizontal_wrapped(|ui| {
-				close = dialog::action(ui, "Back to themes", dialog::Action::Neutral).clicked();
-				if self.dirty { ui.weak("Unsaved changes"); }
-				if busy { ui.spinner(); }
-			});
-			ui.add_space(12.0);
-			design::section(ui, "Your theme", None);
-			design::card(ui, |ui| {
-				changed |= text_field(ui, "Theme name", &mut self.package.manifest.name, 32, "My theme");
-				changed |= text_field(ui, "Created by", &mut self.package.manifest.author, 32, "Your name");
+				ui.label(design::medium(ui, &self.package.manifest.name, 16.0));
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					egui::ComboBox::from_id_salt("theme-appearance").selected_text(if self.dark { "Editing dark colors" } else { "Editing light colors" }).show_ui(ui, |ui| {
+						ui.selectable_value(&mut self.dark, true, "Editing dark colors");
+						ui.selectable_value(&mut self.dark, false, "Editing light colors");
+					});
+				});
 			});
 			ui.add_space(16.0);
-			ui.horizontal_wrapped(|ui| {
-				ui.label("Appearance");
-				for (dark, label) in [(true, "Dark"), (false, "Light")] {
-					if dialog::action(ui, label, if self.dark == dark { dialog::Action::Primary } else { dialog::Action::Outline }).clicked() { self.dark = dark; }
-				}
-			});
-			ui.add_space(8.0);
-			if dialog::action(ui, "Preview in app", dialog::Action::Outline).clicked() {
-				self.preview = true;
-				requests.push(self.preview_request());
-			}
-			design::hint(ui, "See this theme in your conversations, then return here to keep editing.");
-			if design::primary_color().is_some() { ui.weak("Your custom primary color overrides this theme's accent in the app."); }
-			design::divider(ui);
-			ui.horizontal_wrapped(|ui| {
-				for (index, label) in ["Background", "Colors", "Typography", "Details"].into_iter().enumerate() {
-					if dialog::action(ui, label, if self.tab == index { dialog::Action::Primary } else { dialog::Action::Neutral }).clicked() { self.tab = index; }
-				}
-			});
-			ui.add_space(16.0);
+			design::section(ui, "Background", Some("Choose what appears behind your messages."));
+			self.image_card(ui, requests, &mut changed);
 			let theme = self.package.theme.as_mut().expect("theme editor always holds a theme");
 			let palette = if self.dark { &mut theme.dark } else { &mut theme.light };
 			let base = design::builtin_colors(self.dark, design::variant());
-			match self.tab {
-				0 => {
-					design::section(ui, "Background image", Some("Add a photo or illustration behind your messages."));
-					design::card(ui, |ui| {
-						ui.horizontal_wrapped(|ui| {
-							if dialog::action(ui, "Choose image", dialog::Action::Outline).clicked() { requests.push(ExtensionRequest::PickThemeImage); }
-							if !self.package.background_image.is_empty() && dialog::action(ui, "Remove image", dialog::Action::Neutral).clicked() {
-								self.package.background_image.clear(); self.image = None; palette.background = None; changed = true;
-							}
-						});
-						ui.weak("PNG or JPEG, up to 2 MiB and 4 million pixels.");
-						if !self.package.background_image.is_empty() {
-							ui.add_space(12.0);
-							let background = palette.background.get_or_insert(Background { opacity: 25, fit: BackgroundFit::Cover, target: BackgroundTarget::Chat });
-							changed |= row(ui, "Show image in", |ui| {
-								let a = ui.selectable_value(&mut background.target, BackgroundTarget::Chat, "Message area").changed();
-								a | ui.selectable_value(&mut background.target, BackgroundTarget::Window, "Whole window").changed()
-							});
-							changed |= row(ui, "Image opacity", |ui| ui.add(egui::Slider::new(&mut background.opacity, 0..=100).suffix("%")).changed());
-							changed |= row(ui, "Image fit", |ui| {
-								let a = ui.selectable_value(&mut background.fit, BackgroundFit::Cover, "Cover").changed();
-								a | ui.selectable_value(&mut background.fit, BackgroundFit::Contain, "Contain").changed()
-							});
-							if background.target == BackgroundTarget::Window {
-								ui.add_space(8.0);
-								ui.weak("Lower surface opacity to reveal the image behind the app.");
-								for (key, default) in [("sidebar", base.sidebar), ("chat", base.chat)] { changed |= opacity(ui, key, &mut palette.colors, default); }
-							}
-						}
-					});
-					ui.add_space(20.0);
-					design::section(ui, "Window gradient", Some("Blend two colors across the app background."));
-					let mut gradient = palette.backdrop.is_some();
-					if design::switch(ui, "Use a gradient", None, &mut gradient).changed() {
-						palette.backdrop = gradient.then(|| [hex(base.base), hex(base.chat)]); changed = true;
-					}
-					if let Some(stops) = &mut palette.backdrop {
-						for (index, stop) in stops.iter_mut().enumerate() {
-							ui.push_id(index, |ui| { changed |= row(ui, if index == 0 { "Start color" } else { "End color" }, |ui| color_input(ui, stop)); });
-						}
-					}
+			if !self.package.background_image.is_empty() {
+				let background = palette.background.get_or_insert(Background { target: BackgroundTarget::Chat, ..Default::default() });
+				changed |= row(ui, "Image opacity", |ui| ui.add(egui::Slider::new(&mut background.opacity, 0..=100).suffix("%")).changed());
+				changed |= row(ui, "Image fit", |ui| {
+					let mut changed = false;
+					egui::ComboBox::from_id_salt("image-fit").selected_text(match background.fit { BackgroundFit::Cover => "Fill area", BackgroundFit::Contain => "Fit entire image" }).show_ui(ui, |ui| {
+						changed |= ui.selectable_value(&mut background.fit, BackgroundFit::Cover, "Fill area").changed();
+						changed |= ui.selectable_value(&mut background.fit, BackgroundFit::Contain, "Fit entire image").changed();
+					}); changed
+				});
+				changed |= row(ui, "Show image in", |ui| {
+					let mut changed = false;
+					egui::ComboBox::from_id_salt("image-target").selected_text(match background.target { BackgroundTarget::Chat => "Message area", BackgroundTarget::Window => "Whole window" }).show_ui(ui, |ui| {
+						changed |= ui.selectable_value(&mut background.target, BackgroundTarget::Chat, "Message area").changed();
+						changed |= ui.selectable_value(&mut background.target, BackgroundTarget::Window, "Whole window").changed();
+					}); changed
+				});
+				if background.target == BackgroundTarget::Window {
+					design::hint(ui, "Lower the surface opacity to see the image through the app.");
+					for (key, fallback) in [("sidebar", base.sidebar), ("chat", base.chat)] { changed |= opacity(ui, key, &mut palette.colors, fallback); }
 				}
-				1 => {
-					design::section(ui, "Colors", Some("Changes apply to the selected appearance. Reset any color to inherit the app default."));
-					for (key, fallback) in colors(base) { ui.push_id(key, |ui| { changed |= color_override(ui, key, &mut palette.colors, fallback); }); }
+			}
+			changed |= color_override(ui, "chat", &mut palette.colors, base.chat);
+			design::divider(ui);
+			design::section(ui, "Colors", Some("Start with your accent, text and sidebar."));
+			for (key, fallback) in [("accent", base.accent), ("text", base.text), ("muted", base.muted), ("sidebar", base.sidebar)] {
+				changed |= color_override(ui, key, &mut palette.colors, fallback);
+			}
+			if design::primary_color().is_some() { design::hint(ui, "Your custom primary color overrides the theme accent. Change it in Appearance to use this accent."); }
+			ui.add_space(12.0);
+			ui.collapsing("More colors", |ui| {
+				for (key, fallback) in colors(base) {
+					if !["chat", "accent", "text", "muted", "sidebar"].contains(&key) { changed |= color_override(ui, key, &mut palette.colors, fallback); }
 				}
-				2 => {
-					design::section(ui, "Text sizes", Some("Typography and spacing apply to both light and dark appearances."));
-					let s = &mut theme.style;
-					for (label, value, default, min, max) in [("Message & body text", &mut s.body_size, 15, 10, 28), ("Headings", &mut s.heading_size, 20, 12, 40), ("Buttons", &mut s.button_size, 14, 10, 28), ("Small text", &mut s.small_size, 12, 10, 28), ("Code", &mut s.monospace_size, 14, 10, 28)] { changed |= metric(ui, label, value, default, min..=max); }
-					ui.add_space(20.0);
-					design::section(ui, "Spacing & corners", None);
-					changed |= metric(ui, "Control height", &mut s.control_height, 32, 24..=56);
-					changed |= pair_metric(ui, "Item spacing", &mut s.item_spacing, [8, 8]);
-					changed |= pair_metric(ui, "Button padding", &mut s.button_padding, [12, 6]);
-					for (label, value, default) in [("Control corners", &mut s.widget_radius, 8), ("Window corners", &mut s.window_radius, 12), ("Menu corners", &mut s.menu_radius, 12)] { changed |= metric(ui, label, value, default, 0..=24); }
+			});
+			ui.add_space(12.0);
+			ui.collapsing("Window gradient", |ui| {
+				let mut enabled = palette.backdrop.is_some();
+				if design::switch(ui, "Use a gradient", Some("Blend two colors behind the app's surfaces."), &mut enabled).changed() {
+					palette.backdrop = enabled.then(|| [hex(base.base), hex(base.chat)]); changed = true;
 				}
-				_ => {
-					design::section(ui, "Sharing details", Some("These details travel with your exported theme."));
-					let m = &mut self.package.manifest;
+				if let Some(stops) = &mut palette.backdrop {
+					for (index, stop) in stops.iter_mut().enumerate() { changed |= row(ui, if index == 0 { "Start color" } else { "End color" }, |ui| color_input(ui, stop)); }
+				}
+			});
+			design::divider(ui);
+			ui.collapsing("Text, spacing & corners", |ui| {
+				design::hint(ui, "These settings apply to both dark and light appearances.");
+				let s = &mut theme.style;
+				for (label, value, default, min, max) in [("Body text", &mut s.body_size, 15, 10, 28), ("Headings", &mut s.heading_size, 20, 12, 40), ("Buttons", &mut s.button_size, 14, 10, 28), ("Small text", &mut s.small_size, 12, 10, 28), ("Code", &mut s.monospace_size, 14, 10, 28), ("Control height", &mut s.control_height, 32, 24, 56)] { changed |= metric(ui, label, value, default, min..=max); }
+				changed |= pair_metric(ui, "Item spacing", &mut s.item_spacing, [8, 8]);
+				changed |= pair_metric(ui, "Button padding", &mut s.button_padding, [12, 6]);
+				for (label, value, default) in [("Control corners", &mut s.widget_radius, 8), ("Window corners", &mut s.window_radius, 12), ("Menu corners", &mut s.menu_radius, 12)] { changed |= metric(ui, label, value, default, 0..=24); }
+			});
+			ui.add_space(12.0);
+			let reveal = std::mem::take(&mut self.reveal_details);
+			egui::CollapsingHeader::new("Theme details & export").open(reveal.then_some(true)).show(ui, |ui| {
+				if reveal { ui.scroll_to_cursor(Some(egui::Align::Center)); design::hint(ui, "Add your creator name and check these details, then choose Save and apply."); }
+				let m = &mut self.package.manifest;
+				changed |= text_field(ui, "Theme name", &mut m.name, 32, "My theme");
+				changed |= text_field(ui, "Created by", &mut m.author, 32, "Your name");
+				ui.collapsing("Sharing information", |ui| {
 					changed |= text_field(ui, "License", &mut m.license, 32, "CC0-1.0");
 					changed |= text_field(ui, "Version", &mut m.version, 32, "1.0.0");
 					changed |= text_field(ui, "Source URL", &mut m.source, 512, "Optional");
-					ui.add_space(8.0);
-					ui.weak("Use your own image or one its license allows you to share. Keep attribution when duplicating a theme.");
-				}
-			}
-			self.dirty |= changed;
-			if changed && self.preview { requests.push(self.preview_request()); }
-			design::divider(ui);
-			let valid = self.package.validate().is_ok();
-			if !valid { ui.weak("Add a theme name and creator, and check your colors and sharing details before saving."); ui.add_space(8.0); }
-			ui.horizontal_wrapped(|ui| {
-				ui.add_enabled_ui(valid, |ui| {
-					if dialog::action(ui, "Save and apply", dialog::Action::Primary).clicked() { requests.push(ExtensionRequest::SaveTheme { package: self.package.clone() }); }
+					design::hint(ui, "Only share images you own or have permission to use. Keep required attribution.");
+				});
+				ui.add_space(8.0);
+				ui.add_enabled_ui(self.package.validate().is_ok(), |ui| {
 					if dialog::action(ui, "Export theme", dialog::Action::Outline).clicked() { requests.push(ExtensionRequest::ExportTheme { package: self.package.clone() }); }
 				});
-				close |= dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
 			});
-			ui.add_space(8.0);
-			ui.weak("Emergency reset: Ctrl+Shift+F12");
+			self.dirty |= changed;
+			if changed && self.preview { requests.push(self.preview_request()); }
 		});
-		if close && !busy {
-			self.discard = self.dirty;
-			if !self.dirty {
-				return true;
-			}
-		}
 		if self.discard {
 			match dialog::Confirm::new(
 				"discard-theme-draft",
@@ -241,6 +262,97 @@ impl ThemeEditor {
 			}
 		}
 		false
+	}
+
+	fn image_card(
+		&mut self,
+		ui: &mut egui::Ui,
+		requests: &mut Vec<ExtensionRequest>,
+		changed: &mut bool,
+	) {
+		if self.thumbnail.is_none()
+			&& let Some(image) = &self.image
+			&& image
+				.size
+				.iter()
+				.all(|side| *side <= ui.ctx().input(|input| input.max_texture_side))
+		{
+			self.thumbnail = Some(ui.ctx().load_texture(
+				"theme-image-thumbnail",
+				image.clone(),
+				egui::TextureOptions::LINEAR,
+			));
+		}
+		design::card(ui, |ui| {
+			ui.horizontal(|ui| {
+				let (rect, _) =
+					ui.allocate_exact_size(egui::vec2(96.0, 68.0), egui::Sense::hover());
+				let colors = design::palette(ui);
+				ui.painter().rect_filled(rect, 6, colors.base);
+				if let Some(texture) = &self.thumbnail {
+					design::paint_background_image(
+						ui.painter(),
+						rect,
+						texture,
+						Background {
+							opacity: 100,
+							..Default::default()
+						},
+					);
+				} else {
+					crate::icons::paint(
+						ui.painter(),
+						crate::icons::Icon::Image,
+						rect.shrink(20.0),
+						colors.muted,
+					);
+				}
+				ui.add_space(8.0);
+				ui.vertical(|ui| {
+					let selected = self.image.is_some();
+					ui.label(design::medium(
+						ui,
+						if selected {
+							"Background image"
+						} else {
+							"No image selected"
+						},
+						14.0,
+					));
+					if let Some(image) = &self.image {
+						ui.weak(format!("{} x {} pixels", image.size[0], image.size[1]));
+					}
+					ui.horizontal_wrapped(|ui| {
+						if dialog::action(
+							ui,
+							if selected {
+								"Replace image"
+							} else {
+								"Choose image"
+							},
+							dialog::Action::Outline,
+						)
+						.clicked()
+						{
+							requests.push(ExtensionRequest::PickThemeImage);
+						}
+						if selected
+							&& dialog::action(ui, "Remove", dialog::Action::Neutral).clicked()
+						{
+							self.package.background_image.clear();
+							self.image = None;
+							self.thumbnail = None;
+							if let Some(theme) = self.package.theme.as_mut() {
+								theme.light.background = None;
+								theme.dark.background = None;
+							}
+							*changed = true;
+						}
+					});
+				});
+			});
+		});
+		design::hint(ui, "PNG or JPEG, up to 2 MiB");
 	}
 }
 

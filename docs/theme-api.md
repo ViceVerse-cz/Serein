@@ -91,8 +91,10 @@ cargo run --locked -p ui --example theme_api
 ## Theme maker and embedded backgrounds
 
 Settings > Themes > Create theme opens the editor inside the Themes settings page.
-Background, Colors, Typography and Details use the same native settings controls
-and spacing as the rest of Serein. Duplicate and edit
+Background and the main colors appear together on one page. Preview and Save stay
+above the scrolling controls; additional colors, typography, gradients and sharing
+details expand when needed. Choosing Save reveals missing theme details.
+The selected image has its own thumbnail. Duplicate and edit
 creates a new unreviewed identity from an installed theme. Colors, alpha, gradients,
 typography, spacing and corners use the fields and bounds above. Preview in app
 temporarily applies the draft and closes Settings to show the normal conversation
