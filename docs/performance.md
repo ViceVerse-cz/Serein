@@ -483,3 +483,14 @@ No UI speed or memory improvement is claimed. Matched native release CPU, memory
 frame-time measurements remain unavailable because native desktop capture/control is
 disabled and Orca is absent. The inspected offline debug framebuffer renders and
 behavioral tests do not establish installed-client visuals or live interoperability.
+
+
+### Back button outline follow-up
+
+`96a3a05` (verified `e452b0f` code/package) versus `310ad5e`, same Windows
+voice-enabled release command, toolchain, package worktree and ZIP method above.
+The baseline distribution was preserved separately before rebuilding. Both packages
+contain 186 files, a 71,050,240-byte executable and 75,116,303 total bytes (no change).
+The ZIP changed from 42,860,670 to 42,860,657 bytes (-13 bytes, below 0.001%). This
+compression difference is not a performance improvement. Packaging passed in 3m 15s;
+NSIS remains unavailable. Native UI timing/memory limitations above still apply.
