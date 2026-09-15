@@ -620,14 +620,26 @@ work bounds derived from the dimensions, not throughput measurements.
 
 Native Windows frame time, CPU/RSS, GPU copy load and viewer FPS remain unmeasured on
 this macOS host. The owner observed severe lag at 1080p60 before this follow-up; the
-new result requires another Windows measurement. NVIDIA hardware H.264 is not used:
-the current bounded Annex-B path remains OpenH264 software encoding.
+new result requires another Windows measurement.
+
+The next follow-up prefers a Windows Media Foundation hardware H.264 transform and
+falls back to the existing OpenH264 encoder when hardware activation, encoding, or a
+forced keyframe fails. It keeps the existing bounded CPU BGRA-to-NV12 conversion and
+GPU readback, so this offloads H.264 compression but is not a zero-copy pipeline.
+The native transform and fallback source both produce the same bounded Annex-B stream.
+Actual NVIDIA encoder selection, viewer FPS, sender CPU and stop/start stability still
+require owner testing on Windows hardware.
 
 The standard macOS release package at the preceding `0e7d2a3` revision versus this
 follow-up changed from 66,716,336 to 66,716,480 executable bytes (+144), from
 72,626,189 to 72,626,333 installed bundle bytes (+144), and from 43,390,952 to
 43,393,402 ZIP bytes (+2,450). One package per revision used the same host and
 `cargo xtask package`; ZIP compression noise is not a speed improvement or regression.
+
+The hardware-encoder follow-up, compared with that preceding package, is 66,716,320
+executable bytes (-160), 72,626,173 installed bundle bytes (-160), and 43,393,952
+ZIP bytes (+550). The Windows-only Media Foundation module is excluded from this
+macOS package; these measurements cover only the small shared encoder selection change.
 
 
 ## 2026-09-15: gallery preview, customization and selection
