@@ -20,3 +20,10 @@ and light background page (`--light`). The light check exposed and verified the
 shared action-button text-color fix. Focused egui tests cover section selection
 through both the map and menu, save validation, and palette-aware button text.
 Native keyboard/scroll interaction and release UI timing remain unmeasured.
+
+## Back button visibility
+
+`back-before.png` uses `e452b0f` (the code baseline for `96a3a05`);
+`back-after.png` uses `310ad5e`. Same Background fixture, viewport and scale as
+above. Back now uses the shared outlined action style. The light/narrow variant
+was also inspected locally. These remain synthetic framebuffer captures.
