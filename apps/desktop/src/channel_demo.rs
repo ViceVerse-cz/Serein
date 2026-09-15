@@ -95,22 +95,27 @@ pub fn execute(
 			},
 			action => {
 				let mut updated = source.clone();
-				let permission_source = if matches!(action, Action::CreateText { .. }) {
+				let permission_source = if matches!(action, Action::Create { .. }) {
 					if source.kind == 4 {
 						Some(source.id)
 					} else {
 						source.parent_id
 					}
+				} else if matches!(action, Action::CreateCategory { .. }) {
+					None
 				} else {
 					Some(source.id)
 				};
-				if matches!(action, Action::CreateText { .. }) {
-					updated.kind = 0;
+				if let Action::Create { kind, .. } = &action {
+					updated.kind = kind.wire_kind();
 					updated.parent_id = if source.kind == 4 {
 						Some(source.id)
 					} else {
 						source.parent_id
 					};
+				} else if matches!(action, Action::CreateCategory { .. }) {
+					updated.kind = 4;
+					updated.parent_id = None;
 				}
 				let mut edited_overwrites = None;
 				match action {
@@ -118,7 +123,9 @@ pub fn execute(
 						updated.name = after.name;
 						edited_overwrites = Some(after.overwrites);
 					}
-					Action::Duplicate { name } | Action::CreateText { name } => {
+					Action::Duplicate { name }
+					| Action::Create { name, .. }
+					| Action::CreateCategory { name } => {
 						*next_id += 1;
 						updated.id = Id(*next_id);
 						updated.name = name;
@@ -200,13 +207,32 @@ mod tests {
 		run(
 			&mut state,
 			Id(20),
-			Action::CreateText {
-				name: "new-channel".into(),
+			Action::CreateCategory {
+				name: "spaces".into(),
 			},
 			&mut next_id,
 		);
-		assert!(state.can_view(Id(next_id)));
-		assert_eq!(state.channel(Id(next_id)).unwrap().kind, 0);
+		let category = Id(next_id);
+		assert_eq!(state.channel(category).unwrap().kind, 4);
+		assert_eq!(state.channel(category).unwrap().parent_id, None);
+		use client_core::channel_actions::CreateKind;
+		for kind in [CreateKind::Text, CreateKind::Voice, CreateKind::Forum] {
+			run(
+				&mut state,
+				category,
+				Action::Create {
+					name: "new-channel".into(),
+					kind,
+				},
+				&mut next_id,
+			);
+			assert!(state.can_view(Id(next_id)));
+			assert_eq!(state.channel(Id(next_id)).unwrap().kind, kind.wire_kind());
+			assert_eq!(
+				state.channel(Id(next_id)).unwrap().parent_id,
+				Some(category)
+			);
+		}
 		let created = Id(next_id);
 		run(&mut state, created, Action::Delete, &mut next_id);
 		assert!(state.channel(created).is_none());

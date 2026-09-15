@@ -351,13 +351,13 @@ impl DiscordApi {
 				format!("/guilds/{guild}/channels"),
 				Some(duplicate_body(&source, name)?),
 			),
-			Action::CreateText { name } => {
+			Action::Create { name, kind } => {
 				let parent = if source["type"] == 4 {
 					json!(channel.to_string())
 				} else {
 					source["parent_id"].clone()
 				};
-				let mut body = json!({"name":name,"type":0,"parent_id":parent});
+				let mut body = json!({"name":name,"type":kind.wire_kind(),"parent_id":parent});
 				if !parent.is_null() {
 					let parent_id: Id =
 						serde_json::from_value(parent).map_err(|_| Failure::Protocol)?;
@@ -427,7 +427,9 @@ impl DiscordApi {
 			if expected.is_none() && created.id == channel {
 				return Err(Failure::Ambiguous);
 			}
-			if matches!(action, Action::CreateText { .. }) && created.kind != 0 {
+			if let Action::Create { kind, .. } = action
+				&& created.kind != kind.wire_kind()
+			{
 				return Err(Failure::Ambiguous);
 			}
 			if matches!(action, Action::CreateCategory { .. }) && created.kind != 4 {
@@ -659,6 +661,7 @@ impl DiscordApi {
 mod tests {
 	use super::*;
 	use client_core::auth::SessionSecret;
+	use client_core::channel_actions::CreateKind;
 	use std::sync::Arc;
 	use tokio::{
 		io::{AsyncReadExt, AsyncWriteExt},
@@ -804,22 +807,46 @@ mod tests {
 		};
 		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &duplicate), server);
 		assert!(matches!(result, Ok(Outcome::Channel { .. })));
-		let server = async {
-			reply(&listener, "GET /channels/3 HTTP/1.1", 200, source()).await;
-			let mut category = source();
-			category["id"] = "4".into();
-			category["type"] = 4.into();
-			reply(&listener, "GET /channels/4 HTTP/1.1", 200, category.clone()).await;
-			let body = reply(&listener, "POST /guilds/2/channels HTTP/1.1", 200, created).await;
-			assert_eq!(
-				body["permission_overwrites"],
-				category["permission_overwrites"]
-			);
-			assert_eq!(body["parent_id"], "4");
-		};
-		let create = Action::CreateText { name: "new".into() };
-		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &create), server);
-		assert!(result.is_ok());
+		for kind in [CreateKind::Text, CreateKind::Voice, CreateKind::Forum] {
+			for direct_category in [false, true] {
+				for response_kind in [kind.wire_kind(), 4] {
+					let server = async {
+						let mut category = source();
+						category["id"] = "4".into();
+						category["type"] = 4.into();
+						category["permission_overwrites"][0]["allow"] =
+							(1_u128 << 100).to_string().into();
+						if !direct_category {
+							reply(&listener, "GET /channels/3 HTTP/1.1", 200, source()).await;
+						}
+						reply(&listener, "GET /channels/4 HTTP/1.1", 200, category.clone()).await;
+						let mut response = created.clone();
+						response["type"] = response_kind.into();
+						let body =
+							reply(&listener, "POST /guilds/2/channels HTTP/1.1", 200, response)
+								.await;
+						assert_eq!(
+							body,
+							json!({"name":"new","type":kind.wire_kind(),"parent_id":"4","permission_overwrites":category["permission_overwrites"]})
+						);
+					};
+					let create = Action::Create {
+						name: "new".into(),
+						kind,
+					};
+					let anchor = if direct_category { Id(4) } else { Id(3) };
+					let (result, ()) =
+						tokio::join!(api.channel_action(Id(2), anchor, &create), server);
+					if response_kind == kind.wire_kind() {
+						assert!(
+							matches!(result, Ok(Outcome::Channel { channel, .. }) if channel.kind == kind.wire_kind())
+						);
+					} else {
+						assert!(matches!(result, Err(Failure::Ambiguous)));
+					}
+				}
+			}
+		}
 		let server = async {
 			reply(&listener, "GET /channels/3 HTTP/1.1", 200, source()).await;
 			let mut category = source();

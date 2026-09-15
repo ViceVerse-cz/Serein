@@ -1,3 +1,24 @@
+# Channel creation types - September 15, 2026
+
+Baseline: clean `544a3f8`. After: the channel-creation-types changes on that base.
+One standard Windows x64 `cargo xtask package` per revision, Rust 1.98.1 MSVC,
+locked dependencies, release profile and voice included. Separate worktree `dist`
+directories preserve both packages. Package bytes sum all files; ZIP uses .NET
+`System.IO.Compression.ZipFile.CreateFromDirectory` with its default compression.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 72,637,440 | 72,638,976 | +1,536 (+0.0021%) |
+| Portable package bytes | 76,703,564 | 76,705,100 | +1,536 (+0.0020%) |
+| ZIP bytes | 43,318,150 | 43,318,988 | +838 (+0.0019%) |
+
+Native CPU, memory and frame timing remain unmeasured: Windows Computer Use
+reported an unavailable native pipe (OS error 2), and Orca is not installed.
+No speed improvement is claimed. The production build was launched for owner
+testing; this is not synthetic screenshot or live interoperability evidence.
+Packaging passed; the existing OpenH264 LNK4255 warning was nonfatal. NSIS is
+unavailable, so these are unsigned portable packages rather than installers.
+
 # Theme editor readability - September 15, 2026
 
 Baseline: `235cf01`, reusing the verified `ae36f54` package because intervening

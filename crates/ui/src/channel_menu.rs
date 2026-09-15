@@ -3,7 +3,7 @@ use crate::shortcuts::ShortcutView;
 use crate::{design, dialog, icons, user_menu};
 use client_core::{
 	Command, State,
-	channel_actions::{Action, Edit, Mute},
+	channel_actions::{Action, CreateKind, Edit, Mute},
 };
 use model::{Channel, Id, Shortcut};
 
@@ -26,6 +26,7 @@ struct Dialog {
 	channel: Id,
 	guild: Id,
 	kind: Kind,
+	create_kind: CreateKind,
 	draft: Edit,
 	before: Edit,
 	loaded: bool,
@@ -201,7 +202,7 @@ impl ChannelMenu {
 						},
 						Kind::Duplicate,
 					),
-					("Create Text Channel", Kind::Create),
+					("Create Channel", Kind::Create),
 					(
 						if channel.kind == 4 {
 							"Delete Category"
@@ -322,6 +323,7 @@ impl ChannelMenu {
 						channel: id,
 						guild,
 						kind,
+						create_kind: CreateKind::Text,
 						draft: Edit {
 							name: if matches!(kind, Kind::Create | Kind::CreateCategory) {
 								String::new()
@@ -397,8 +399,8 @@ impl ChannelMenu {
 				"Copies settings and permissions. Messages are not copied.",
 			),
 			Kind::Create => (
-				"Create Text Channel",
-				"Text channels are where your members talk.",
+				"Create Channel",
+				"Choose a space for messages, voice, or posts.",
 			),
 			Kind::CreateCategory => ("Create Category", "Categories organize related channels."),
 			Kind::Delete => (
@@ -536,8 +538,9 @@ impl ChannelMenu {
 								Kind::Duplicate => Action::Duplicate {
 									name: dialog.draft.name.clone(),
 								},
-								Kind::Create => Action::CreateText {
+								Kind::Create => Action::Create {
 									name: dialog.draft.name.clone(),
+									kind: dialog.create_kind,
 								},
 								Kind::CreateCategory => Action::CreateCategory {
 									name: dialog.draft.name.clone(),
@@ -617,9 +620,34 @@ impl ChannelMenu {
 
 impl Dialog {
 	fn overview(&mut self, ui: &mut egui::Ui, channel: &Channel) {
+		if self.kind == Kind::Create {
+			dialog::label(ui, "Channel type");
+			for (kind, label, description) in [
+				(
+					CreateKind::Text,
+					"Text",
+					"Send messages, images, and files.",
+				),
+				(
+					CreateKind::Voice,
+					"Voice",
+					"Talk together with voice, video, and screen sharing.",
+				),
+				(
+					CreateKind::Forum,
+					"Forum",
+					"Organize discussions into separate posts.",
+				),
+			] {
+				ui.radio_value(&mut self.create_kind, kind, label);
+				ui.indent(label, |ui| dialog::hint(ui, description));
+			}
+			ui.add_space(10.0);
+		}
 		let label = dialog::label(
 			ui,
-			if channel.kind == 4 || self.kind == Kind::CreateCategory {
+			if self.kind == Kind::CreateCategory || (channel.kind == 4 && self.kind != Kind::Create)
+			{
 				"Category name"
 			} else {
 				"Channel name"
@@ -870,6 +898,82 @@ mod tests {
 		}
 	}
 	#[test]
+	fn create_channel_selects_type_before_submitting() {
+		for (kind, label, width, light) in [
+			(CreateKind::Text, "Text", 1120.0, false),
+			(CreateKind::Voice, "Voice", 760.0, true),
+			(CreateKind::Forum, "Forum", 320.0, false),
+		] {
+			let ctx = egui::Context::default();
+			design::apply(&ctx);
+			ctx.set_visuals(if light {
+				egui::Visuals::light()
+			} else {
+				egui::Visuals::dark()
+			});
+			let mut state = test_support::chat_demo_state();
+			state
+				.channels
+				.iter_mut()
+				.find(|c| c.id == Id(20))
+				.unwrap()
+				.kind = 4;
+			let mut permissions = test_support::permission_snapshot(&state);
+			for guild in &mut permissions.guilds {
+				guild.owner = state.user.as_ref().map(|u| u.id);
+			}
+			state.permissions.replace(permissions).unwrap();
+			let mut h = Harness {
+				state,
+				menu: ChannelMenu::default(),
+				prefs: Default::default(),
+				commands: vec![],
+				copied: vec![],
+				width,
+			};
+			let (row, _) = h.frame(&ctx, vec![]);
+			h.click(&ctx, row.rect.center(), PointerButton::Secondary);
+			let (_, text) = h.frame(&ctx, vec![]);
+			h.click(
+				&ctx,
+				text.iter()
+					.find(|(s, _)| s == "Create Channel")
+					.unwrap()
+					.1
+					.center(),
+				PointerButton::Primary,
+			);
+			let (_, text) = h.frame(&ctx, vec![]);
+			assert!(text.iter().any(|(s, _)| s == "CHANNEL NAME"));
+			assert!(!text.iter().any(|(s, _)| s == "CATEGORY NAME"));
+			let viewport = Rect::from_min_size(Pos2::ZERO, egui::vec2(width, 760.0));
+			for choice in ["Text", "Voice", "Forum"] {
+				assert!(viewport.contains_rect(text.iter().find(|(s, _)| s == choice).unwrap().1));
+			}
+			h.click(
+				&ctx,
+				text.iter().find(|(s, _)| s == label).unwrap().1.center(),
+				PointerButton::Primary,
+			);
+			assert_eq!(h.menu.dialog.as_ref().unwrap().create_kind, kind);
+			assert!(h.commands.is_empty());
+			h.menu.dialog.as_mut().unwrap().draft.name = "new-space".into();
+			let (_, text) = h.frame(&ctx, vec![]);
+			let submit = text
+				.iter()
+				.rev()
+				.find(|(s, _)| s == "Create Channel")
+				.unwrap()
+				.1;
+			assert!(viewport.contains_rect(submit));
+			h.click(&ctx, submit.center(), PointerButton::Primary);
+			assert!(matches!(h.commands.as_slice(), [Command::ChannelAction {
+				action: Action::Create { name, kind: sent }, ..
+			}] if name == "new-space" && *sent == kind));
+		}
+	}
+
+	#[test]
 	fn category_and_channel_permissions_load_edit_and_submit_a_preserved_snapshot() {
 		use client_core::channel_actions::{Event as ChannelEvent, Outcome};
 		use model::permissions as p;
@@ -1062,7 +1166,7 @@ mod tests {
 					"Notification Settings",
 					"Edit Channel",
 					"Duplicate Channel",
-					"Create Text Channel",
+					"Create Channel",
 					"Delete Channel",
 					"Copy Channel ID",
 				] {
@@ -1139,7 +1243,7 @@ mod tests {
 					"Invite to Channel",
 					"Edit Channel",
 					"Duplicate Channel",
-					"Create Text Channel",
+					"Create Channel",
 					"Delete Channel",
 				] {
 					assert!(!text.iter().any(|(label, _)| label == hidden));

@@ -75,12 +75,17 @@ permission checks, confirmation UI and request lanes as the existing channel and
 server menus.
 
 Text/announcement editing (name, topic, slowmode and age restriction), channel
-duplication, text-channel/category creation and confirmed deletion use the documented
+duplication, text/voice/forum channel and category creation, and confirmed deletion use the documented
 [channel routes](https://docs.discord.com/developers/resources/channel#modify-channel)
 and [guild channel creation route](https://docs.discord.com/developers/resources/guild#create-guild-channel).
 Duplication reads current settings and permission overwrites first; creating under
 a category copies that category's overwrites. Admin actions require known View
 Channel and Manage Channels permissions and surface server rejection.
+The Create Channel dialog selects Text, Voice, or Forum (posts). The selected type
+is checked against the creation response before admitting the new channel. Voice
+settings and forum layout use service defaults; private access remains available
+through the existing channel Permissions editor. Coverage is synthetic; live
+normal-account creation remains unverified.
 
 Category/channel permissions (September 14): Edit Category and Edit Channel expose
 Overview and Permissions for text, announcement, voice, stage, category, forum and

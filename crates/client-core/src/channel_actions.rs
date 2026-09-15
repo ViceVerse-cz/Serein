@@ -62,6 +62,22 @@ pub struct PostDetails {
 	pub level: u8,
 	pub mute_until: Option<i64>,
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CreateKind {
+	#[default]
+	Text,
+	Voice,
+	Forum,
+}
+impl CreateKind {
+	pub fn wire_kind(self) -> u8 {
+		match self {
+			Self::Text => 0,
+			Self::Voice => 2,
+			Self::Forum => 15,
+		}
+	}
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
 	Reference,
@@ -76,7 +92,7 @@ pub enum Action {
 	PostNotifications(u8),
 	Edit { before: Edit, after: Edit },
 	Duplicate { name: String },
-	CreateText { name: String },
+	Create { name: String, kind: CreateKind },
 	CreateCategory { name: String },
 	Delete,
 	Mute(Mute),
@@ -88,7 +104,7 @@ impl Action {
 			Self::Edit { before, after } => before.valid() && after.valid(),
 			Self::PostRename(name)
 			| Self::Duplicate { name }
-			| Self::CreateText { name }
+			| Self::Create { name, .. }
 			| Self::CreateCategory { name } => valid_name(name) && name.capacity() <= 400,
 			Self::Mute(Mute::For(seconds)) | Self::PostMute(Mute::For(seconds)) => {
 				matches!(seconds, 900 | 3600 | 10800 | 28800 | 86400)
@@ -582,10 +598,18 @@ impl State {
 					}
 					(
 						Action::Duplicate { .. }
-						| Action::CreateText { .. }
+						| Action::Create { .. }
 						| Action::CreateCategory { .. },
 						Outcome::Channel { channel: c, .. },
-					) => c.id.0 != 0 && c.id != channel && c.guild == Some(guild),
+					) => {
+						c.id.0 != 0
+							&& c.id != channel && c.guild == Some(guild)
+							&& match &action {
+								Action::Create { kind, .. } => c.kind == kind.wire_kind(),
+								Action::CreateCategory { .. } => c.kind == 4,
+								_ => true,
+							}
+					}
 					(Action::Delete, Outcome::Deleted) => true,
 					(Action::Mute(mute), Outcome::Preferences { muted, .. }) => {
 						*muted == Some(*mute != Mute::Unmute)
@@ -695,7 +719,7 @@ impl State {
 				let creating = matches!(
 					action,
 					Action::Duplicate { .. }
-						| Action::CreateText { .. }
+						| Action::Create { .. }
 						| Action::CreateCategory { .. }
 				);
 				if self.guild(guild).is_some()
@@ -857,6 +881,52 @@ mod tests {
 				result,
 			}),
 		});
+	}
+	#[test]
+	fn creation_checks_kind_name_and_permissions() {
+		for kind in [CreateKind::Text, CreateKind::Voice, CreateKind::Forum] {
+			for response_kind in [kind.wire_kind(), 4] {
+				let mut state = state();
+				assert!(
+					state
+						.request_channel_action(
+							Id(3),
+							Action::Create {
+								name: " ".into(),
+								kind,
+							}
+						)
+						.is_none()
+				);
+				let action = Action::Create {
+					name: "new".into(),
+					kind,
+				};
+				let command = state.request_channel_action(Id(3), action.clone()).unwrap();
+				let mut created = state.channels[0].clone();
+				created.id = Id(4);
+				created.kind = response_kind;
+				finish(
+					&mut state,
+					command,
+					Ok(Outcome::Channel {
+						channel: Box::new(created),
+						permissions: None,
+					}),
+				);
+				assert_eq!(
+					state.channel(Id(4)).is_some(),
+					response_kind == kind.wire_kind()
+				);
+				assert_eq!(
+					state.channel_action_succeeded(Id(3)),
+					response_kind == kind.wire_kind()
+				);
+				state.permissions.guilds.get_mut(&Id(2)).unwrap().owner = Some(Id(9));
+				state.permissions.clear_cache();
+				assert!(state.request_channel_action(Id(3), action).is_none());
+			}
+		}
 	}
 	#[test]
 	fn category_settings_preserve_overwrites_and_separate_edit_permissions() {
