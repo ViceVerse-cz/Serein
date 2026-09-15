@@ -1,5 +1,11 @@
 //! Explicitly selected, memory-only screen capture and H.264 encoding.
 pub use client_core::screen::{Settings, Source, SourceId};
+#[cfg(target_os = "linux")]
+#[path = "screen/audio_linux.rs"]
+mod audio_linux;
+#[cfg(all(test, not(target_os = "windows")))]
+#[path = "screen/audio_windows.rs"]
+mod audio_windows;
 #[cfg(not(target_os = "linux"))]
 #[path = "screen/capture.rs"]
 mod capture;
@@ -23,7 +29,7 @@ use openh264::{
 };
 use std::sync::{
 	Arc, Mutex,
-	atomic::{AtomicBool, Ordering},
+	atomic::{AtomicBool, AtomicU64, Ordering},
 	mpsc,
 };
 
@@ -49,18 +55,26 @@ pub struct EncodedFrame {
 /// Longest system-audio chunk accepted from the OS: 100 ms of 48 kHz stereo.
 pub const MAX_AUDIO_SAMPLES: usize = 4800 * 2;
 
+#[derive(Debug)]
+pub struct AudioChunk {
+	pub samples: Vec<f32>,
+	/// Capture generation; old buffers must not cross an encryption transition.
+	pub epoch: u64,
+}
+
 pub struct Video {
 	pub settings: Settings,
 	pub frames: tokio::sync::mpsc::Receiver<EncodedFrame>,
 	pub ready: Arc<AtomicBool>,
 	pub keyframe: Arc<AtomicBool>,
 	/// Interleaved 48 kHz stereo system audio, present only when the share requested it.
-	pub audio: Option<tokio::sync::mpsc::Receiver<Vec<f32>>>,
+	pub audio: Option<tokio::sync::mpsc::Receiver<AudioChunk>>,
+	pub audio_epoch: Arc<AtomicU64>,
 }
 
 /// Whether this platform can capture system audio with the screen.
 pub fn audio_supported() -> bool {
-	cfg!(target_os = "macos")
+	supported()
 }
 
 pub fn supported() -> bool {
@@ -102,6 +116,8 @@ impl Worker {
 		}
 		let stop = Arc::new(AtomicBool::new(false));
 		let ready = Arc::new(AtomicBool::new(false));
+		let audio_epoch = Arc::new(AtomicU64::new(0));
+		let worker_audio_epoch = audio_epoch.clone();
 		let keyframe = Arc::new(AtomicBool::new(true));
 		let preview = Arc::new(Mutex::new(None));
 		let worker_preview = preview.clone();
@@ -116,8 +132,8 @@ impl Worker {
 		// A few frames of slack absorbs send jitter without forcing keyframes on every hiccup.
 		let (send, frames) = tokio::sync::mpsc::channel(3);
 		let (complete, done) = mpsc::sync_channel(1);
-		let (_audio_send, audio) = if settings.audio && audio_supported() {
-			let (send, receive) = tokio::sync::mpsc::channel(16);
+		let (audio_send, audio) = if settings.audio && audio_supported() {
+			let (send, receive) = tokio::sync::mpsc::channel(4);
 			(Some(send), Some(receive))
 		} else {
 			(None, None)
@@ -127,6 +143,7 @@ impl Worker {
 		std::thread::Builder::new()
 			.name("screen-encoder".into())
 			.spawn(move || {
+				let finished_ready = worker_ready.clone();
 				#[cfg(target_os = "linux")]
 				let result = linux::run(
 					settings,
@@ -134,6 +151,8 @@ impl Worker {
 					worker_ready,
 					worker_keyframe,
 					send,
+					audio_send,
+					worker_audio_epoch,
 					worker_preview,
 					worker_status,
 					worker_preview_visible,
@@ -146,10 +165,12 @@ impl Worker {
 					worker_ready,
 					worker_keyframe,
 					send,
-					_audio_send,
+					audio_send,
+					worker_audio_epoch,
 					worker_preview,
 					&wake,
 				);
+				finished_ready.store(false, Ordering::Release);
 				let _ = complete.try_send(result);
 				wake();
 			})
@@ -171,6 +192,7 @@ impl Worker {
 				ready,
 				keyframe,
 				audio,
+				audio_epoch,
 			},
 		))
 	}
@@ -216,7 +238,8 @@ fn encode_loop(
 	ready: Arc<AtomicBool>,
 	keyframe: Arc<AtomicBool>,
 	send: tokio::sync::mpsc::Sender<EncodedFrame>,
-	audio: Option<tokio::sync::mpsc::Sender<Vec<f32>>>,
+	audio: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
+	audio_epoch: Arc<AtomicU64>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	wake: &impl Fn(),
 ) -> Result<(), &'static str> {
@@ -226,13 +249,26 @@ fn encode_loop(
 	let origin = Instant::now();
 	let (raw_send, raw) = mpsc::sync_channel(1);
 	let capture_stop = Arc::new(AtomicBool::new(false));
-	let _native = capture::Capture::start(settings, raw_send, audio, capture_stop.clone())?;
+	let _native = capture::Capture::start(
+		settings,
+		raw_send,
+		audio,
+		capture_stop.clone(),
+		ready.clone(),
+		audio_epoch,
+	)?;
 	let mut encoding = None;
 	let mut first_frame_deadline = Some(Instant::now() + Duration::from_secs(15));
 	let mut next_frame = Instant::now();
 	let mut next_preview = Instant::now();
 
 	while !stop.load(Ordering::Acquire) && !send.is_closed() {
+		#[cfg(target_os = "windows")]
+		if _native.failed() {
+			return Err(
+				"System audio capture stopped; check your output device or share without audio",
+			);
+		}
 		if capture_stop.load(Ordering::Acquire) {
 			return Err("The selected screen or window stopped sharing");
 		}

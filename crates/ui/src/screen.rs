@@ -45,7 +45,7 @@ impl Default for ScreenUi {
 			height: if cfg!(target_os = "linux") { 720 } else { 1080 },
 			fps: 30,
 			cursor: true,
-			audio: true,
+			audio: cfg!(target_os = "macos"),
 		}
 	}
 }
@@ -90,7 +90,7 @@ impl ScreenUi {
 			height: self.height,
 			fps: self.fps,
 			cursor: self.cursor,
-			audio: self.audio && cfg!(target_os = "macos"),
+			audio: self.audio,
 		};
 		settings.valid().then_some(settings)
 	}
@@ -214,27 +214,25 @@ impl ScreenUi {
 			Some("Include the pointer in the shared video."),
 			&mut self.cursor,
 		);
-		if cfg!(target_os = "macos") {
+		if self.supported {
 			ui.add_space(6.0);
 			crate::design::switch(
 				ui,
 				"Share system audio",
-				Some(
-					"Send what your Mac plays along with the screen. Serein's own call audio is left out.",
-				),
+				Some(if cfg!(target_os = "macos") {
+					"Send what your Mac plays along with the screen. Serein's own call audio is left out."
+				} else {
+					"Share all sound from your default output, including other apps and this call. Use a separate output for call audio to avoid echo."
+				}),
 				&mut self.audio,
 			);
 		}
 		ui.add_space(4.0);
 		ui.add(
 			egui::Label::new(
-				egui::RichText::new(if cfg!(target_os = "macos") {
-					"Your call microphone keeps its current settings."
-				} else {
-					"Screen video only. Your call microphone keeps its current settings."
-				})
-				.size(12.0)
-				.color(colors.muted),
+				egui::RichText::new("Your call microphone keeps its current settings.")
+					.size(12.0)
+					.color(colors.muted),
 			)
 			.wrap(),
 		);
@@ -429,6 +427,10 @@ mod tests {
 			(1920, 1080, 60)
 		);
 		assert_eq!(settings.bit_rate(), 16_000_000);
+		picker.audio = true;
+		assert!(picker.settings().unwrap().audio);
+		picker.audio = false;
+		assert!(!picker.settings().unwrap().audio);
 		picker.sources.clear();
 		assert!(picker.settings().is_none());
 	}

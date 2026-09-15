@@ -25,7 +25,7 @@ sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 libasound2t64 libfontconfig1 \
   libvulkan1 libegl1 libxkbcommon0 libxkbcommon-x11-0 \
   libwayland-client0 libx11-6 libx11-xcb1 libxcursor1 libxi6 libxrandr2 \
   dbus-user-session xdg-desktop-portal xdg-desktop-portal-gnome gnome-keyring \
-  gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-pulseaudio gstreamer1.0-libav \
   gstreamer1.0-pipewire gstreamer1.0-plugins-bad gstreamer1.0-gl
 ```
 

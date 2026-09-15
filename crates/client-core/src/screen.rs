@@ -26,7 +26,7 @@ pub struct Settings {
 	pub height: u32,
 	pub fps: u32,
 	pub cursor: bool,
-	/// Share system audio with the screen (macOS only); the microphone is unaffected.
+	/// Share system audio with the screen; call microphone settings are independent.
 	pub audio: bool,
 }
 impl Settings {

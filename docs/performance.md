@@ -407,3 +407,35 @@ the Orca CLI is not installed. The egui warning-render test is not native visual
 No owner-account or live load test was performed. Account budgets are finite component
 allocation estimates (128 MiB navigation/permission and 64 MiB permission sub-budget),
 not whole-process memory guarantees; decoding and old/new state replacement add peak memory.
+
+## Linux and Windows stream audio — September 15, 2026
+
+Compared baseline `0628052` with the stream-audio implementation on macOS 27.0
+(26A428), Apple M1 Pro, 16 GiB RAM, Rust 1.98.1. Both use `cargo xtask package`:
+the standard release build including voice, without demo/developer-session features.
+Baseline output was preserved in a detached worktree before building the changed tree.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Packaged macOS executable bytes | 66,409,328 | 66,410,496 | +1,168 (+0.0018%) |
+| Installed app bundle bytes | 72,316,725 | 72,317,893 | +1,168 (+0.0016%) |
+| Compressed app ZIP bytes | 43,275,334 | 43,277,237 | +1,903 (+0.0044%) |
+
+One build per revision; executable file size after the packaging strip/sign step.
+This measures the shared audio transport changes on macOS, not the size or runtime
+cost of the Linux/Windows adapters. Installed size sums regular files in `Serein.app`;
+ZIP uses `ditto -c -k --keepParent`. Compression varies with binary content and metadata;
+these tiny deltas do not establish a runtime improvement. No Rust dependency was added.
+
+Capture uses four bounded PCM chunks (up to 38,400 bytes each); the sender reserves
+38,400 PCM bytes and sends one 20 ms stereo Opus frame per tick. Linux adds four
+bounded appsink buffers and a separate event-driven audio worker. These are component
+limits, not RSS measurements. Synthetic checks exercise audio gates, rekey generation
+tags, queue pressure, malformed PCM, pacing and cancellation without opening devices.
+
+Linux/Windows hardware capture CPU, RSS, A/V latency and native before/after UI
+screenshots remain unmeasured because those desktop sessions are unavailable here.
+The macOS demo does not execute either new native adapter; no native performance
+improvement or live interoperability is claimed. Windows cross-checking on this Mac
+also stopped in existing native Opus/OpenH264 build scripts (missing Visual Studio
+generator / incompatible host C++ flags), before checking the Windows adapter.

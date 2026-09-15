@@ -2,10 +2,10 @@ use super::{
 	MAX_FRAME_HEIGHT, MAX_FRAME_WIDTH, MAX_RAW_BYTES, MAX_SOURCE_HEIGHT, MAX_SOURCE_WIDTH,
 	MAX_SOURCES, bounded_name,
 };
-use crate::screen::{RawFrame, Settings as CaptureSettings, Source, SourceId};
+use crate::screen::{AudioChunk, RawFrame, Settings as CaptureSettings, Source, SourceId};
 use std::sync::{
 	Arc,
-	atomic::{AtomicBool, Ordering},
+	atomic::{AtomicBool, AtomicU64, Ordering},
 	mpsc::SyncSender,
 };
 use windows_capture::{
@@ -19,6 +19,9 @@ use windows_capture::{
 	},
 	window::Window,
 };
+
+#[path = "audio_windows.rs"]
+mod audio;
 
 fn monitor_id(monitor: &Monitor) -> u64 {
 	u64::try_from(monitor.as_raw_hmonitor() as usize).unwrap_or(0)
@@ -164,14 +167,17 @@ impl GraphicsCaptureApiHandler for Handler {
 
 pub(crate) struct Capture {
 	control: Option<CaptureControl<Handler, &'static str>>,
+	audio: Option<audio::Audio>,
 }
 
 impl Capture {
 	pub(crate) fn start(
 		settings: CaptureSettings,
 		frames: SyncSender<RawFrame>,
-		_audio: Option<tokio::sync::mpsc::Sender<Vec<f32>>>,
+		audio: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
 		stop: Arc<AtomicBool>,
+		ready: Arc<AtomicBool>,
+		audio_epoch: Arc<AtomicU64>,
 	) -> Result<Self, &'static str> {
 		if settings.width == 0
 			|| settings.height == 0
@@ -181,7 +187,7 @@ impl Capture {
 		{
 			return Err("Invalid screen capture settings");
 		}
-		match settings.source {
+		let mut capture = match settings.source {
 			SourceId::Portal => return Err("The desktop screen picker is available only on Linux"),
 			SourceId::Display(id) => {
 				let monitor = Monitor::enumerate()
@@ -189,7 +195,7 @@ impl Capture {
 					.into_iter()
 					.find(|monitor| monitor_id(monitor) == id)
 					.ok_or("Selected display is no longer available")?;
-				start_item(settings, monitor, frames, stop)
+				start_item(settings, monitor, frames, stop.clone())
 			}
 			SourceId::Window(id) => {
 				let window = Window::enumerate()
@@ -197,9 +203,17 @@ impl Capture {
 					.into_iter()
 					.find(|window| window_id(window) == id)
 					.ok_or("Selected window is no longer available")?;
-				start_item(settings, window, frames, stop)
+				start_item(settings, window, frames, stop.clone())
 			}
+		}?;
+		if let Some(send) = audio {
+			capture.audio = Some(audio::Audio::start(send, stop, ready, audio_epoch)?);
 		}
+		Ok(capture)
+	}
+
+	pub(crate) fn failed(&self) -> bool {
+		self.audio.as_ref().is_some_and(audio::Audio::failed)
 	}
 }
 
@@ -262,11 +276,13 @@ where
 		Handler::start_free_threaded(native).map_err(|_| "Screen capture could not be started")?;
 	Ok(Capture {
 		control: Some(control),
+		audio: None,
 	})
 }
 
 impl Drop for Capture {
 	fn drop(&mut self) {
+		self.audio.take();
 		if let Some(control) = self.control.take() {
 			let _ = control.stop();
 		}

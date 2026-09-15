@@ -54,8 +54,10 @@ impl Capture {
 	pub(crate) fn start(
 		_settings: Settings,
 		_frames: SyncSender<RawFrame>,
-		_audio: Option<tokio::sync::mpsc::Sender<Vec<f32>>>,
+		_audio: Option<tokio::sync::mpsc::Sender<crate::screen::AudioChunk>>,
 		_stop: Arc<AtomicBool>,
+		_ready: Arc<AtomicBool>,
+		_audio_epoch: Arc<std::sync::atomic::AtomicU64>,
 	) -> Result<Self, &'static str> {
 		Err("Screen sharing is supported only on macOS and Windows")
 	}
