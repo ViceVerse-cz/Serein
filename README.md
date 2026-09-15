@@ -45,12 +45,12 @@ Pre-compiled releases for macOS, Linux, and Windows are published on GitHub [Rel
 |---|---|---|---|
 | **Windows** | `-Setup.exe`, `.zip` | `x86_64` | Per-user NSIS installer (recommended) or standalone portable archive |
 | **macOS** | Homebrew Cask, `.zip` | Apple Silicon (`aarch64`) | Signed and notarized `.app` bundle |
-| **Linux** | Flatpak (recommended), Repositories (`apt`, `dnf`, `zypper`, `pacman`), `.AppImage` | `x86_64` | Flatpak with automatic updates; signed package repositories; portable AppImage |
+| **Linux** | Flatpak (recommended), Repositories (`apt`, `dnf`, `zypper`, `pacman`), Gentoo ebuild, `.AppImage` | `x86_64` | Flatpak with automatic updates; signed package repositories; portable AppImage |
 
 ---
 
 <details open>
-<summary><h3>🐧 Linux (Flatpak, Repositories, AppImage)</h3></summary>
+<summary><h3>🐧 Linux (Flatpak, Repositories, Gentoo, AppImage)</h3></summary>
 
 #### 1. Flatpak (Recommended)
 
@@ -88,7 +88,20 @@ After setup, manage Serein with your native package manager:
 ```
 Your normal system updates (`apt upgrade`, `dnf upgrade`, `zypper update`, `pacman -Syu`) will keep Serein updated. See [Signed package repositories](packaging/repositories/README.md) for manual GPG verification steps.
 
-#### 3. Standalone AppImage (Portable)
+#### 3. Gentoo (source or binary)
+
+Gentoo users can install Serein from the [vitaly-zdanevich-overlay](https://github.com/vitaly-zdanevich/gentoo-overlay) overlay. It provides a source ebuild ([net-im/serein](https://github.com/vitaly-zdanevich/gentoo-overlay/tree/main/net-im/serein)) and a prebuilt amd64 ebuild ([net-im/serein-bin](https://github.com/vitaly-zdanevich/gentoo-overlay/tree/main/net-im/serein-bin)).
+
+```sh
+sudo eselect repository add vitaly-zdanevich-overlay git https://github.com/vitaly-zdanevich/gentoo-overlay.git
+sudo emaint sync -r vitaly-zdanevich-overlay
+echo 'net-im/serein ~amd64' | sudo tee /etc/portage/package.accept_keywords/serein
+sudo emerge --ask net-im/serein
+```
+
+Use `net-im/serein-bin` in the keyword file and emerge command to install the prebuilt binary instead. The source ebuild requires Rust 1.98.1 or newer. The binary ebuild targets amd64 systems with glibc 2.43 or newer. The two ebuilds install the same files, so choose one.
+
+#### 4. Standalone AppImage (Portable)
 
 Download `serein-<version>-Linux-X64.AppImage` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases), make it executable, and run:
 ```sh
