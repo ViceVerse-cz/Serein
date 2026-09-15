@@ -7,6 +7,7 @@
     makeWrapper,
     swift,
     swiftpm,
+    apple-sdk_15,
     wrapGAppsHook4,
     autoPatchelfHook,
     glib,
@@ -94,7 +95,13 @@ rustPlatform.buildRustPackage rec {
         gst_all_1.gst-plugins-base
         gst_all_1.gst-plugins-good
         gst_all_1.gst-libav
+    ]
+    # apple-metal 0.9.0 needs macOS 15 Metal APIs (MTLResidencySet, MTLLogState);
+    # default SDK 14.4 lacks them, so use SDK 15 on Darwin.
+    ++ lib.optionals stdenv.hostPlatform.isDarwin [
+        apple-sdk_15
     ];
+
     # macOS links system frameworks (AppKit, AVFoundation, ScreenCaptureKit,
     # VideoToolbox, Security for the keychain) from the default Apple SDK in
     # stdenv; no nixpkgs framework inputs are needed.
