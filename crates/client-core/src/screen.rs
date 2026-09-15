@@ -7,6 +7,8 @@ pub const MAX_SOURCE_NAME_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceId {
+	/// The Linux desktop chooses the source after an explicit Share action.
+	Portal,
 	Display(u64),
 	Window(u64),
 }
@@ -24,7 +26,7 @@ pub struct Settings {
 	pub height: u32,
 	pub fps: u32,
 	pub cursor: bool,
-	/// Share system audio with the screen (macOS only); the microphone is unaffected.
+	/// Share system audio with the screen; call microphone settings are independent.
 	pub audio: bool,
 }
 impl Settings {

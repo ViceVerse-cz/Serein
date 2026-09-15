@@ -298,9 +298,62 @@ suppression. These signals do not establish Krisp-equivalent real-world quality.
 
 ## Screen sharing
 
-In a connected call, select **Share your screen**, choose a display/window, 720p or 1080p, 15/30/60 fps and cursor visibility, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. System audio is not included; call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
+In a connected call, select **Share your screen**, choose a display/window, 720p or 1080p, 15/30/60 fps, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
 
 Capture uses macOS 14+ ScreenCaptureKit (screen-recording permission in System Settings) or Windows Graphics Capture. Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
+
+Linux uses the desktop ScreenCast portal and PipeWire. Share Screen opens the system
+screen/window picker after the quality dialog; source discovery never opens that picker.
+The default is 720p30. The worker tries VA-API, NVENC with GPU scaling, NVENC with CPU
+scaling, then the existing OpenH264 software encoder. The call stage identifies the
+active encoder and software fallback. GPU buffers stay native where driver/plugin
+negotiation permits; zero-copy is not guaranteed, especially across GPUs. Local preview
+is capped at 640×360/10 fps and suspended when minimized or viewing another channel.
+ScreenCast-capable portal backends are required on both Wayland and X11; there is no
+separate X11 capture fallback. AV1/H.265 sending is not included.
+
+System audio defaults off on Linux and Windows. It shares other applications' playback,
+even when sharing one window, and excludes Serein's own audio, including call playback
+and watched streams. Exclusion happens at capture on the sender: a viewer cannot remove
+their voice once another sender has mixed it into stream audio. Other apps' notifications
+and audio remain included. macOS retains ScreenCaptureKit's current-process exclusion.
+
+Linux captures individual playback streams through PulseAudio's per-stream monitor API,
+also implemented by PipeWire's PulseAudio server. It excludes Serein and streams whose
+application identity cannot be established; it never falls back to a whole-output monitor
+or microphone. The ScreenCast portal grants video only; audio uses the existing desktop
+audio access, including Flatpak's PulseAudio socket permission. A separate bounded worker
+handles discovery, capture and mixing outside video encoding and rendering. No applications
+are moved between outputs and no virtual device is installed.
+
+Windows uses native process loopback with `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`,
+excluding Serein and its child processes across outputs. This requires Windows build 20348+
+(Windows 11 or Windows Server 2022; ordinary Windows 10 22H2 is older). Unsupported systems
+or failed isolation report an audio error; turn audio off to share video alone. There is no
+whole-output fallback. Neither adapter records to disk.
+
+Native contracts: [PulseAudio per-stream monitoring](https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/Developer/Clients/WritingVolumeControlUIs/)
+and [Microsoft process-loopback capture](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/).
+
+Both feed the existing stream RTC connection with 48 kHz stereo Opus at 128 kbps and
+DAVE/transport encryption, independently of microphone mute. Capture output is gated
+by secure readiness. The transport keeps at most 100 ms pending, sends one 20 ms frame
+per tick, and clears queued/pending PCM on encryption transitions or a 100 ms stall.
+Capture buffers carry their encryption generation; late buffers from an earlier
+generation are discarded even if a pause and restart happen between worker iterations.
+Stop sharing and call teardown release audio together with the screen capture.
+
+The offline debug command is `cargo run --offline --locked -p discord-voice --example linux_screen`.
+It compiles the actual portal/pipeline/worker modules on Linux or macOS with GStreamer,
+checks pre-cancellation without D-Bus, and exercises synthetic preview, the secure-readiness
+gate, stereo audio, bounded slow-consumer behavior, oversized-buffer rejection and software
+H.264. It never captures a desktop or opens an audio device. Native Linux portal interaction,
+VA-API/NVENC, package installation, performance and Discord viewing remain unverified.
+Windows process exclusion, Linux application selection and actual remote sound still
+require owner-controlled tests; synthetic samples do not establish those outcomes.
+Use two clients with headphones, enable audio on the sender, play another app and speak
+from the viewer: the app should be audible without the viewer's voice returning in the
+stream. Repeat while starting/stopping apps, changing outputs, rekeying and stopping sharing.
 
 The native demo (`cargo run --locked -p serein -- --demo --demo-voice`) exposes a synthetic picker without OS source discovery or capture. Live screen sharing requires the same owner-controlled login gate as voice testing. See [compatibility and limits](discord-compatibility.md#outgoing-screen-sharing--september-11-2026).
 

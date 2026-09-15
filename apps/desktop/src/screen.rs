@@ -212,6 +212,7 @@ impl Screen {
 			ui.screen.busy = false;
 			ui.screen.supported = false;
 			ui.screen.preview = None;
+			ui.screen.capture_status = None;
 			return None;
 		}
 		ui.screen.supported = discord_voice::screen::supported();
@@ -242,7 +243,7 @@ impl Screen {
 					Err(_) => self.status = "Could not start screen source discovery",
 				}
 			} else if !ui.screen.supported {
-				self.status = "Screen sharing is supported only on macOS and Windows";
+				self.status = "Screen sharing is unavailable on this platform";
 			}
 		}
 		if let Some(scan) = &self.source_scan {
@@ -272,6 +273,8 @@ impl Screen {
 						.or_else(|| ui.screen.sources.first().map(|source| source.id));
 					self.status = if ui.screen.sources.is_empty() {
 						"No shareable screens or windows were found"
+					} else if cfg!(target_os = "linux") {
+						"Share Screen opens your desktop’s screen/window picker"
 					} else {
 						"Choose a screen or window"
 					};
@@ -405,6 +408,10 @@ impl Screen {
 			self.request_stop(error);
 		}
 		if let Some(live) = &self.live {
+			live.worker.set_preview_visible(
+				state.selected == Some(live.context.channel)
+					&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false)),
+			);
 			if let Some(frame) = live.worker.take_preview() {
 				let image = egui::ColorImage::from_rgba_unmultiplied(
 					[frame.width() as usize, frame.height() as usize],
@@ -435,6 +442,10 @@ impl Screen {
 			|| self.closing.is_some()
 			|| self.retiring.is_some();
 		ui.screen.status = self.status;
+		ui.screen.capture_status = self
+			.live
+			.as_ref()
+			.and_then(|live| live.worker.capture_status());
 		self.command.take()
 	}
 	fn finish_start(&mut self, runtime: &Runtime, ctx: &egui::Context) {

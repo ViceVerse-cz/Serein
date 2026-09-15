@@ -151,3 +151,28 @@ automatically updates the Windows uninstall `DisplayVersion` registry key upon
 successful upgrade. Native helpers wait for the old process to exit, retain a rollback
 copy during replacement, and relaunch Serein. A failed recovery leaves its backup
 available with a visible recovery path on the next update attempt.
+
+## Linux screen sharing
+
+Screen sharing requires PipeWire, a ScreenCast-capable portal backend for the current
+desktop (GNOME, KDE or the compositor-specific backend), and GStreamer Base/Good plus
+the PipeWire source plugin. GStreamer 1.24+ is recommended; GPU scaling/encoding also
+needs the applicable VA, NVCodec and OpenGL plugins and working driver support.
+Native packages declare the PipeWire and Base runtime plugins; hardware codec availability
+still depends on distribution packaging and drivers. The software fallback reuses bundled
+OpenH264. Flatpak needs compatible plugins/GPU access inside its runtime; no extra sandbox
+permission or host socket access is added. Native Linux validation remains pending.
+
+Optional Linux stream audio uses native `libpulse` per-application monitoring on
+PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse development
+package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
+The existing Flatpak PulseAudio socket permission covers this access; the ScreenCast
+portal's PipeWire remote grants video only. Windows uses native process loopback on
+build 20348+ (Windows 11 / Server 2022), with a visible audio error on older systems.
+Both exclude Serein's playback and capture other applications even when sharing one
+window. There is no whole-output fallback. Hardware exclusion and receiving sound in
+an official client remain unverified.
+
+macOS development checks that compile the Linux media adapter require
+`brew install gstreamer pulseaudio`. The standard macOS application does not link
+libpulse, and ordinary tests never start its server or access audio devices.

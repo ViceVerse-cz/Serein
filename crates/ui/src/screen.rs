@@ -20,6 +20,7 @@ pub struct ScreenUi {
 	pub request: Option<Request>,
 	pub busy: bool,
 	pub status: &'static str,
+	pub capture_status: Option<&'static str>,
 	pub supported: bool,
 	pub preview: Option<egui::TextureHandle>,
 	height: u32,
@@ -38,12 +39,13 @@ impl Default for ScreenUi {
 			request: None,
 			busy: false,
 			status: "",
+			capture_status: None,
 			supported: false,
 			preview: None,
-			height: 1080,
+			height: if cfg!(target_os = "linux") { 720 } else { 1080 },
 			fps: 30,
 			cursor: true,
-			audio: true,
+			audio: cfg!(target_os = "macos"),
 		}
 	}
 }
@@ -88,7 +90,7 @@ impl ScreenUi {
 			height: self.height,
 			fps: self.fps,
 			cursor: self.cursor,
-			audio: self.audio && cfg!(target_os = "macos"),
+			audio: self.audio,
 		};
 		settings.valid().then_some(settings)
 	}
@@ -154,7 +156,7 @@ impl ScreenUi {
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				if ui
 					.add_enabled(
-						!state.demo,
+						!state.demo && !cfg!(target_os = "linux"),
 						egui::Button::new(
 							egui::RichText::new("Refresh").size(12.0).color(colors.link),
 						)
@@ -212,27 +214,25 @@ impl ScreenUi {
 			Some("Include the pointer in the shared video."),
 			&mut self.cursor,
 		);
-		if cfg!(target_os = "macos") {
+		if self.supported {
 			ui.add_space(6.0);
 			crate::design::switch(
 				ui,
 				"Share system audio",
-				Some(
-					"Send what your Mac plays along with the screen. Serein's own call audio is left out.",
-				),
+				Some(if cfg!(target_os = "macos") {
+					"Send what your Mac plays along with the screen. Serein's own call audio is left out."
+				} else {
+					"Share sound from other apps, even when sharing one window. Serein's own audio is left out."
+				}),
 				&mut self.audio,
 			);
 		}
 		ui.add_space(4.0);
 		ui.add(
 			egui::Label::new(
-				egui::RichText::new(if cfg!(target_os = "macos") {
-					"Your call microphone keeps its current settings."
-				} else {
-					"Screen video only. Your call microphone keeps its current settings."
-				})
-				.size(12.0)
-				.color(colors.muted),
+				egui::RichText::new("Your call microphone keeps its current settings.")
+					.size(12.0)
+					.color(colors.muted),
 			)
 			.wrap(),
 		);
@@ -323,7 +323,13 @@ impl ScreenUi {
 				text_width,
 			);
 			let kind = ui.painter().layout_no_wrap(
-				if display { "Screen" } else { "Window" }.to_owned(),
+				match source.id {
+					SourceId::Display(_) => "Screen",
+					SourceId::Window(_) => "Window",
+					#[allow(unreachable_patterns)] // Portal may be absent outside Linux.
+					_ => "System permission dialog",
+				}
+				.to_owned(),
 				egui::FontId::proportional(11.0),
 				colors.muted,
 			);
@@ -414,6 +420,7 @@ mod tests {
 			id: SourceId::Window(7),
 			name: "Notes".into(),
 		});
+		picker.height = 1080;
 		picker.fps = 60;
 		let settings = picker.settings().unwrap();
 		assert_eq!(
@@ -421,6 +428,10 @@ mod tests {
 			(1920, 1080, 60)
 		);
 		assert_eq!(settings.bit_rate(), 16_000_000);
+		picker.audio = true;
+		assert!(picker.settings().unwrap().audio);
+		picker.audio = false;
+		assert!(!picker.settings().unwrap().audio);
 		picker.sources.clear();
 		assert!(picker.settings().is_none());
 	}

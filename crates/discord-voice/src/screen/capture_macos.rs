@@ -90,13 +90,20 @@ struct Handler {
 
 /// System audio as interleaved 48 kHz stereo `f32`, bounded per buffer and never stored.
 struct AudioHandler {
-	audio: tokio::sync::mpsc::Sender<Vec<f32>>,
+	audio: tokio::sync::mpsc::Sender<crate::screen::AudioChunk>,
 	stop: Arc<AtomicBool>,
+	ready: Arc<AtomicBool>,
+	audio_epoch: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl SCStreamOutputTrait for AudioHandler {
 	fn did_output_sample_buffer(&self, sample: CMSampleBuffer, kind: SCStreamOutputType) {
-		if kind != SCStreamOutputType::Audio || self.stop.load(Ordering::Acquire) {
+		let epoch = self.audio_epoch.load(Ordering::Acquire);
+		if kind != SCStreamOutputType::Audio
+			|| self.stop.load(Ordering::Acquire)
+			|| !self.ready.load(Ordering::Acquire)
+			|| self.audio.capacity() == 0
+		{
 			return;
 		}
 		let Some(list) = sample.audio_buffer_list() else {
@@ -150,7 +157,12 @@ impl SCStreamOutputTrait for AudioHandler {
 			return;
 		}
 		// A full queue drops audio rather than blocking the capture callback.
-		let _ = self.audio.try_send(interleaved);
+		if self.ready.load(Ordering::Acquire) && !self.stop.load(Ordering::Acquire) {
+			let _ = self.audio.try_send(crate::screen::AudioChunk {
+				samples: interleaved,
+				epoch,
+			});
+		}
 	}
 }
 
@@ -241,8 +253,10 @@ impl Capture {
 	pub(crate) fn start(
 		settings: Settings,
 		frames: SyncSender<RawFrame>,
-		audio: Option<tokio::sync::mpsc::Sender<Vec<f32>>>,
+		audio: Option<tokio::sync::mpsc::Sender<crate::screen::AudioChunk>>,
 		stop: Arc<AtomicBool>,
+		ready: Arc<AtomicBool>,
+		audio_epoch: Arc<std::sync::atomic::AtomicU64>,
 	) -> Result<Self, &'static str> {
 		initialize();
 		if settings.width == 0
@@ -290,6 +304,8 @@ impl Capture {
 				}
 				SCContentFilter::create().with_window(&window).build()
 			}
+			#[allow(unreachable_patterns)] // Portal may be absent from platform-scoped models.
+			_ => return Err("The desktop screen picker is available only on Linux"),
 		};
 		let mut config = SCStreamConfiguration::new()
 			.with_width(settings.width)
@@ -329,6 +345,8 @@ impl Capture {
 					AudioHandler {
 						audio,
 						stop: stop.clone(),
+						ready,
+						audio_epoch,
 					},
 					SCStreamOutputType::Audio,
 				)

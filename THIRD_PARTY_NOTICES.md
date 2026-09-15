@@ -1,5 +1,11 @@
 # Third-party notices
 
+Linux stream audio uses **libpulse-sys 1.23.0** (MIT OR Apache-2.0) to capture individual
+application playback streams. Its unmodified MIT text and provenance are under
+`assets/licenses/voice` and ship with packages.
+The external system `libpulse` library retains its own license; it is dynamically linked,
+not bundled here. macOS uses the bindings only for offline Linux development checks.
+
 Packaging copies the repository's bundled notices, license texts and corresponding component
 source without scanning dependencies or checking license coverage. Declared-license checks run
 separately in the dedicated license CI job (`cargo xtask licenses`); its failure does not block
@@ -197,3 +203,11 @@ Test-only WAT/WAST/wasm-encoder/wasmparser 0.245.1 use the wasm-tools MIT
 license at `76927bf4bdbddf4b15f835c5eddfffbdfe3bdbd5` (`wat-1.245.1-LICENSE-MIT`);
 leb128fmt license texts are also bundled. These test tools are not a plugin
 compiler shipped to end users. Creator packages carry their own license metadata.
+
+Linux screen sharing reuses the already locked **gstreamer 0.25.3**,
+**gstreamer-app 0.25.2**, **gstreamer-video 0.25.3** Rust bindings
+(MIT OR Apache-2.0) and **zbus 5.19.0** (MIT, Tokio backend).
+GStreamer/PipeWire, VA-API/NVENC/OpenGL plugins and GPU drivers are native runtime
+components supplied by the distribution/Flatpak runtime, not new bundled codec source.
+Their upstream licenses and distribution packaging terms still apply. Software encoding
+uses the existing bundled OpenH264 notices above.

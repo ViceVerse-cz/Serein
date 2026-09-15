@@ -30,6 +30,20 @@ even when recommended/optional packages are disabled. This changes future packag
 not already-published releases. Source builds and extracted directory archives do
 not install system dependencies; on Arch/CachyOS install `gst-plugins-good` yourself.
 
+Screen sharing additionally requires the Base plugins and the PipeWire source plugin;
+these are native package dependencies (`gstreamer1.0-pipewire` on Debian/Ubuntu,
+`pipewire-gstreamer` on Fedora, `gstreamer-plugin-pipewire` on openSUSE and
+`gst-plugin-pipewire` on Arch). Use a ScreenCast-capable portal backend matching your
+desktop; the GTK fallback alone does not provide screen capture. VA-API/NVENC and OpenGL
+plugins plus compatible drivers enable hardware encoding; otherwise Serein uses bundled
+OpenH264. Hardware plugin names/availability vary by distribution and repository.
+Stream audio additionally links the system `libpulse` client library and uses individual
+application monitors on PulseAudio or PipeWire-Pulse. Serein's playback is excluded;
+no virtual device or output rerouting is required. Native package tools derive the
+linked libpulse runtime dependency from the executable. Source builds require its
+development package, installed by `install-build-deps.sh`.
+Native screen capture and installation of the updated packages remain unverified.
+
 ## Native builds
 
 Build on the target distribution; converting an Ubuntu binary to RPM or Arch does

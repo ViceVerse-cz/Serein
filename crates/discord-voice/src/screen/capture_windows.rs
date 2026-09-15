@@ -2,12 +2,13 @@ use super::{
 	MAX_FRAME_HEIGHT, MAX_FRAME_WIDTH, MAX_RAW_BYTES, MAX_SOURCE_HEIGHT, MAX_SOURCE_WIDTH,
 	MAX_SOURCES, bounded_name,
 };
-use crate::screen::{RawFrame, Settings as CaptureSettings, Source, SourceId};
+use crate::screen::{AudioChunk, RawFrame, Settings as CaptureSettings, Source, SourceId};
 use std::sync::{
 	Arc,
-	atomic::{AtomicBool, Ordering},
+	atomic::{AtomicBool, AtomicU64, Ordering},
 	mpsc::SyncSender,
 };
+use std::time::{Duration, Instant};
 use windows_capture::{
 	capture::{CaptureControl, Context, GraphicsCaptureApiHandler},
 	frame::Frame,
@@ -19,6 +20,9 @@ use windows_capture::{
 	},
 	window::Window,
 };
+
+#[path = "audio_windows.rs"]
+mod audio;
 
 fn monitor_id(monitor: &Monitor) -> u64 {
 	u64::try_from(monitor.as_raw_hmonitor() as usize).unwrap_or(0)
@@ -83,6 +87,9 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 struct Flags {
 	frames: SyncSender<RawFrame>,
 	stop: Arc<AtomicBool>,
+	pending: Arc<AtomicBool>,
+	next_frame: Instant,
+	interval: Duration,
 }
 
 struct Handler(Flags);
@@ -104,6 +111,13 @@ impl GraphicsCaptureApiHandler for Handler {
 			control.stop();
 			return Ok(());
 		}
+		let now = Instant::now();
+		if now + Duration::from_millis(2) < self.0.next_frame
+			|| self.0.pending.swap(true, Ordering::AcqRel)
+		{
+			return Ok(());
+		}
+		self.0.next_frame = (self.0.next_frame + self.0.interval).max(now + self.0.interval / 2);
 		let (width, height) = (frame.width(), frame.height());
 		let Some(row_bytes) = (width as usize).checked_mul(4) else {
 			self.0.stop.store(true, Ordering::Release);
@@ -147,12 +161,19 @@ impl GraphicsCaptureApiHandler for Handler {
 		for row in source[..source_len].chunks_exact(stride) {
 			data.extend_from_slice(&row[..row_bytes]);
 		}
-		let _ = self.0.frames.try_send(RawFrame {
-			width,
-			height,
-			stride: row_bytes,
-			data,
-		});
+		if self
+			.0
+			.frames
+			.try_send(RawFrame {
+				width,
+				height,
+				stride: row_bytes,
+				data,
+			})
+			.is_err()
+		{
+			self.0.pending.store(false, Ordering::Release);
+		}
 		Ok(())
 	}
 
@@ -164,14 +185,18 @@ impl GraphicsCaptureApiHandler for Handler {
 
 pub(crate) struct Capture {
 	control: Option<CaptureControl<Handler, &'static str>>,
+	audio: Option<audio::Audio>,
 }
 
 impl Capture {
 	pub(crate) fn start(
 		settings: CaptureSettings,
 		frames: SyncSender<RawFrame>,
-		_audio: Option<tokio::sync::mpsc::Sender<Vec<f32>>>,
+		audio: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
 		stop: Arc<AtomicBool>,
+		ready: Arc<AtomicBool>,
+		audio_epoch: Arc<AtomicU64>,
+		pending: Arc<AtomicBool>,
 	) -> Result<Self, &'static str> {
 		if settings.width == 0
 			|| settings.height == 0
@@ -181,14 +206,14 @@ impl Capture {
 		{
 			return Err("Invalid screen capture settings");
 		}
-		match settings.source {
+		let mut capture = match settings.source {
 			SourceId::Display(id) => {
 				let monitor = Monitor::enumerate()
 					.map_err(|_| "Displays could not be enumerated")?
 					.into_iter()
 					.find(|monitor| monitor_id(monitor) == id)
 					.ok_or("Selected display is no longer available")?;
-				start_item(settings, monitor, frames, stop)
+				start_item(settings, monitor, frames, stop.clone(), pending)
 			}
 			SourceId::Window(id) => {
 				let window = Window::enumerate()
@@ -196,9 +221,19 @@ impl Capture {
 					.into_iter()
 					.find(|window| window_id(window) == id)
 					.ok_or("Selected window is no longer available")?;
-				start_item(settings, window, frames, stop)
+				start_item(settings, window, frames, stop.clone(), pending)
 			}
+			#[allow(unreachable_patterns)] // Portal may be absent from platform-scoped models.
+			_ => return Err("The desktop screen picker is available only on Linux"),
+		}?;
+		if let Some(send) = audio {
+			capture.audio = Some(audio::Audio::start(send, stop, ready, audio_epoch)?);
 		}
+		Ok(capture)
+	}
+
+	pub(crate) fn failed(&self) -> bool {
+		self.audio.as_ref().is_some_and(audio::Audio::failed)
 	}
 }
 
@@ -232,6 +267,7 @@ fn start_item<T>(
 	item: T,
 	frames: SyncSender<RawFrame>,
 	stop: Arc<AtomicBool>,
+	pending: Arc<AtomicBool>,
 ) -> Result<Capture, &'static str>
 where
 	T: NativeSource,
@@ -242,7 +278,13 @@ where
 	if width == 0 || height == 0 || width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT {
 		return Err("Selected source exceeds the 4K capture limit");
 	}
-	let flags = Flags { frames, stop };
+	let flags = Flags {
+		frames,
+		stop,
+		pending,
+		next_frame: Instant::now(),
+		interval: Duration::from_secs_f64(1.0 / f64::from(settings.fps)),
+	};
 	let native = Settings::new(
 		item,
 		if settings.cursor {
@@ -261,11 +303,13 @@ where
 		Handler::start_free_threaded(native).map_err(|_| "Screen capture could not be started")?;
 	Ok(Capture {
 		control: Some(control),
+		audio: None,
 	})
 }
 
 impl Drop for Capture {
 	fn drop(&mut self) {
+		self.audio.take();
 		if let Some(control) = self.control.take() {
 			let _ = control.stop();
 		}

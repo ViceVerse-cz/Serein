@@ -1,23 +1,41 @@
 //! Explicitly selected, memory-only screen capture and H.264 encoding.
 pub use client_core::screen::{Settings, Source, SourceId};
+#[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
+#[cfg_attr(all(test, target_os = "macos"), allow(dead_code))]
+#[path = "screen/audio_linux.rs"]
+mod audio_linux;
+#[cfg(all(test, not(target_os = "windows")))]
+#[path = "screen/audio_windows.rs"]
+mod audio_windows;
+#[cfg(not(target_os = "linux"))]
+#[path = "screen/capture.rs"]
 mod capture;
+#[cfg(target_os = "linux")]
+#[path = "screen/gstreamer.rs"]
+mod gstreamer;
+#[cfg(target_os = "linux")]
+#[path = "screen/linux.rs"]
+mod linux;
+#[cfg(target_os = "linux")]
+#[path = "screen/portal_linux.rs"]
+mod portal_linux;
 
 use openh264::{
 	OpenH264API,
 	encoder::{
-		BitRate, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod, RateControlMode,
-		UsageType,
+		BitRate, Complexity, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod,
+		RateControlMode, UsageType,
 	},
 	formats::{BgraSliceU8, YUVBuffer},
 };
-use std::{
-	sync::{
-		Arc, Mutex,
-		atomic::{AtomicBool, Ordering},
-		mpsc,
-	},
-	time::{Duration, Instant},
+use std::sync::{
+	Arc, Mutex,
+	atomic::{AtomicBool, AtomicU64, Ordering},
+	mpsc,
 };
+
+#[cfg(not(target_os = "linux"))]
+use std::time::{Duration, Instant};
 
 pub const MAX_RAW_BYTES: usize = 3840 * 2160 * 4;
 pub const MAX_ENCODED_BYTES: usize = 2 * 1024 * 1024;
@@ -38,25 +56,43 @@ pub struct EncodedFrame {
 /// Longest system-audio chunk accepted from the OS: 100 ms of 48 kHz stereo.
 pub const MAX_AUDIO_SAMPLES: usize = 4800 * 2;
 
+#[derive(Debug)]
+pub struct AudioChunk {
+	pub samples: Vec<f32>,
+	/// Capture generation; old buffers must not cross an encryption transition.
+	pub epoch: u64,
+}
+
 pub struct Video {
 	pub settings: Settings,
 	pub frames: tokio::sync::mpsc::Receiver<EncodedFrame>,
 	pub ready: Arc<AtomicBool>,
 	pub keyframe: Arc<AtomicBool>,
 	/// Interleaved 48 kHz stereo system audio, present only when the share requested it.
-	pub audio: Option<tokio::sync::mpsc::Receiver<Vec<f32>>>,
+	pub audio: Option<tokio::sync::mpsc::Receiver<AudioChunk>>,
+	pub audio_epoch: Arc<AtomicU64>,
 }
 
 /// Whether this platform can capture system audio with the screen.
 pub fn audio_supported() -> bool {
-	cfg!(target_os = "macos")
+	supported()
 }
 
 pub fn supported() -> bool {
-	cfg!(any(target_os = "macos", target_os = "windows"))
+	cfg!(any(
+		target_os = "macos",
+		target_os = "windows",
+		target_os = "linux"
+	))
 }
 
 pub fn sources() -> Result<Vec<Source>, &'static str> {
+	#[cfg(target_os = "linux")]
+	return Ok(vec![Source {
+		id: SourceId::Portal,
+		name: "Choose in the system picker".into(),
+	}]);
+	#[cfg(not(target_os = "linux"))]
 	capture::sources()
 }
 
@@ -65,6 +101,10 @@ pub struct Worker {
 	ready: Arc<AtomicBool>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	done: Option<mpsc::Receiver<Result<(), &'static str>>>,
+	#[cfg(target_os = "linux")]
+	status: Arc<Mutex<&'static str>>,
+	#[cfg(target_os = "linux")]
+	preview_visible: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -77,14 +117,24 @@ impl Worker {
 		}
 		let stop = Arc::new(AtomicBool::new(false));
 		let ready = Arc::new(AtomicBool::new(false));
+		let audio_epoch = Arc::new(AtomicU64::new(0));
+		let worker_audio_epoch = audio_epoch.clone();
 		let keyframe = Arc::new(AtomicBool::new(true));
 		let preview = Arc::new(Mutex::new(None));
 		let worker_preview = preview.clone();
+		#[cfg(target_os = "linux")]
+		let status = Arc::new(Mutex::new("Choose a screen or window in the system picker"));
+		#[cfg(target_os = "linux")]
+		let worker_status = status.clone();
+		#[cfg(target_os = "linux")]
+		let preview_visible = Arc::new(AtomicBool::new(true));
+		#[cfg(target_os = "linux")]
+		let worker_preview_visible = preview_visible.clone();
 		// A few frames of slack absorbs send jitter without forcing keyframes on every hiccup.
 		let (send, frames) = tokio::sync::mpsc::channel(3);
 		let (complete, done) = mpsc::sync_channel(1);
 		let (audio_send, audio) = if settings.audio && audio_supported() {
-			let (send, receive) = tokio::sync::mpsc::channel(16);
+			let (send, receive) = tokio::sync::mpsc::channel(4);
 			(Some(send), Some(receive))
 		} else {
 			(None, None)
@@ -94,6 +144,22 @@ impl Worker {
 		std::thread::Builder::new()
 			.name("screen-encoder".into())
 			.spawn(move || {
+				let finished_ready = worker_ready.clone();
+				#[cfg(target_os = "linux")]
+				let result = linux::run(
+					settings,
+					worker_stop,
+					worker_ready,
+					worker_keyframe,
+					send,
+					audio_send,
+					worker_audio_epoch,
+					worker_preview,
+					worker_status,
+					worker_preview_visible,
+					&wake,
+				);
+				#[cfg(not(target_os = "linux"))]
 				let result = encode_loop(
 					settings,
 					worker_stop,
@@ -101,9 +167,11 @@ impl Worker {
 					worker_keyframe,
 					send,
 					audio_send,
+					worker_audio_epoch,
 					worker_preview,
 					&wake,
 				);
+				finished_ready.store(false, Ordering::Release);
 				let _ = complete.try_send(result);
 				wake();
 			})
@@ -114,6 +182,10 @@ impl Worker {
 				ready: ready.clone(),
 				preview,
 				done: Some(done),
+				#[cfg(target_os = "linux")]
+				status,
+				#[cfg(target_os = "linux")]
+				preview_visible,
 			},
 			Video {
 				settings,
@@ -121,8 +193,21 @@ impl Worker {
 				ready,
 				keyframe,
 				audio,
+				audio_epoch,
 			},
 		))
+	}
+
+	pub fn set_preview_visible(&self, _visible: bool) {
+		#[cfg(target_os = "linux")]
+		self.preview_visible.store(_visible, Ordering::Release);
+	}
+
+	pub fn capture_status(&self) -> Option<&'static str> {
+		#[cfg(target_os = "linux")]
+		return self.status.try_lock().ok().map(|status| *status);
+		#[cfg(not(target_os = "linux"))]
+		None
 	}
 
 	pub fn result(&self) -> Option<Result<(), &'static str>> {
@@ -146,6 +231,7 @@ impl Drop for Worker {
 	}
 }
 
+#[cfg(not(target_os = "linux"))]
 #[allow(clippy::too_many_arguments)] // Media outputs of one explicitly started capture.
 fn encode_loop(
 	settings: Settings,
@@ -153,7 +239,8 @@ fn encode_loop(
 	ready: Arc<AtomicBool>,
 	keyframe: Arc<AtomicBool>,
 	send: tokio::sync::mpsc::Sender<EncodedFrame>,
-	audio: Option<tokio::sync::mpsc::Sender<Vec<f32>>>,
+	audio: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
+	audio_epoch: Arc<AtomicU64>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	wake: &impl Fn(),
 ) -> Result<(), &'static str> {
@@ -163,18 +250,48 @@ fn encode_loop(
 	let origin = Instant::now();
 	let (raw_send, raw) = mpsc::sync_channel(1);
 	let capture_stop = Arc::new(AtomicBool::new(false));
-	let _native = capture::Capture::start(settings, raw_send, audio, capture_stop.clone())?;
+	#[cfg(target_os = "windows")]
+	let raw_pending = Arc::new(AtomicBool::new(false));
+	#[cfg(target_os = "windows")]
+	let _native = capture::Capture::start(
+		settings,
+		raw_send,
+		audio,
+		capture_stop.clone(),
+		ready.clone(),
+		audio_epoch,
+		raw_pending.clone(),
+	)?;
+	#[cfg(not(target_os = "windows"))]
+	let _native = capture::Capture::start(
+		settings,
+		raw_send,
+		audio,
+		capture_stop.clone(),
+		ready.clone(),
+		audio_epoch,
+	)?;
 	let mut encoding = None;
 	let mut first_frame_deadline = Some(Instant::now() + Duration::from_secs(15));
 	let mut next_frame = Instant::now();
 	let mut next_preview = Instant::now();
 
 	while !stop.load(Ordering::Acquire) && !send.is_closed() {
+		#[cfg(target_os = "windows")]
+		if _native.failed() {
+			return Err(
+				"System audio capture stopped; check your output device or share without audio",
+			);
+		}
 		if capture_stop.load(Ordering::Acquire) {
 			return Err("The selected screen or window stopped sharing");
 		}
 		let frame = match raw.recv_timeout(Duration::from_millis(100)) {
-			Ok(frame) => frame,
+			Ok(frame) => {
+				#[cfg(target_os = "windows")]
+				raw_pending.store(false, Ordering::Release);
+				frame
+			}
 			Err(_) if stop.load(Ordering::Acquire) || send.is_closed() => break,
 			Err(mpsc::RecvTimeoutError::Timeout)
 				if first_frame_deadline.is_none_or(|deadline| Instant::now() < deadline) =>
@@ -256,12 +373,17 @@ fn encode_loop(
 	Ok(())
 }
 
-fn encoder(settings: Settings) -> Result<Encoder, &'static str> {
+pub(super) fn encoder(settings: Settings) -> Result<Encoder, &'static str> {
 	let config = EncoderConfig::new()
 		.bitrate(BitRate::from_bps(settings.bit_rate()))
 		.max_frame_rate(FrameRate::from_hz(settings.fps as f32))
 		.usage_type(UsageType::ScreenContentRealTime)
 		.rate_control_mode(RateControlMode::Bitrate)
+		.complexity(if cfg!(target_os = "windows") {
+			Complexity::Low
+		} else {
+			Complexity::Medium
+		})
 		.num_threads(encoder_threads())
 		.intra_frame_period(IntraFramePeriod::from_num_frames(settings.fps * 2));
 	Encoder::with_api_config(OpenH264API::from_source(), config)
@@ -272,7 +394,7 @@ fn encoder_threads() -> u16 {
 	std::thread::available_parallelism().map_or(2, |count| count.get().clamp(2, 8) as u16)
 }
 
-fn encode_pixels(
+pub(super) fn encode_pixels(
 	encoder: &mut Encoder,
 	yuv: &mut YUVBuffer,
 	pixels: &[u8],
@@ -331,7 +453,7 @@ fn validate_frame(frame: &RawFrame) -> Result<(usize, usize), &'static str> {
 	Ok((row_bytes, required))
 }
 
-fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'static str> {
+pub(super) fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'static str> {
 	validate_frame(frame)?;
 	let scale = (640.0 / f64::from(frame.width))
 		.min(360.0 / f64::from(frame.height))
@@ -352,6 +474,7 @@ fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'static str> {
 	}))
 }
 
+#[cfg(any(test, not(target_os = "linux")))]
 fn fit_frame(frame: RawFrame, width: u32, height: u32) -> Result<Vec<u8>, &'static str> {
 	let (row_bytes, required) = validate_frame(&frame)?;
 
@@ -411,6 +534,10 @@ mod tests {
 			ready: Arc::new(AtomicBool::new(false)),
 			preview: Arc::new(Mutex::new(Some(preview))),
 			done: None,
+			#[cfg(target_os = "linux")]
+			status: Arc::new(Mutex::new("")),
+			#[cfg(target_os = "linux")]
+			preview_visible: Arc::new(AtomicBool::new(true)),
 		};
 		assert!(worker.take_preview().is_some());
 		assert!(worker.take_preview().is_none());

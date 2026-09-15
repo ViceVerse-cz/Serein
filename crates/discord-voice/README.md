@@ -88,4 +88,18 @@ actual keyboard/breath/wind rejection still requires owner-operated listening.
 
 ## Optional outgoing screen video
 
-`screen::Worker` owns the selected native capture guard and OpenH264 encoder on a worker thread. `run_stream` owns a separate Discord RTC connection, shares the parent call's ephemeral `Identity`, and enables capture readiness only after DAVE is ready. Frame queues are each capacity one. `video` handles bounded Annex-B/FU-A RTP packetization after DAVE frame encryption. The first sender is video-only, without RTX/RTCP feedback or congestion adaptation. Native and wire behavior, bounds and the unverified live gate are in [the compatibility addendum](../../docs/discord-compatibility.md#outgoing-screen-sharing--september-11-2026).
+`screen::Worker` owns native capture and encoding outside rendering. Linux uses the
+ScreenCast portal/PipeWire/GStreamer path with hardware H.264 attempts and OpenH264
+fallback. `run_stream` owns a separate Discord RTC connection, shares the parent
+call's ephemeral `Identity`, and enables outgoing media only after DAVE is ready.
+`video` handles bounded Annex-B/FU-A RTP packetization after DAVE frame encryption.
+
+Optional system audio uses macOS ScreenCaptureKit, Windows process loopback excluding
+Serein's process tree (build 20348+), or Linux PulseAudio/PipeWire per-application monitors
+excluding Serein and unknown identities. Windows/Linux still include other applications
+when sharing one window. Linux has a separate bounded audio worker so video encoding
+cannot delay its sampling. Audio reaches the existing
+stereo Opus sender through four bounded chunks (up to 38,400 PCM bytes each), plus
+100 ms / 38,400 bytes pending at the sender. Buffers are tagged before queueing with
+the capture generation so a rekey rejects late old audio. Native and wire behavior,
+platform limits and the unverified live gate are in [the compatibility addendum](../../docs/discord-compatibility.md#outgoing-screen-sharing--september-11-2026).
