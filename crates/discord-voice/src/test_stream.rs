@@ -243,6 +243,30 @@ async fn exchange() {
 		.await;
 		assert_eq!(requested.is_ok(), expected, "PLI media SSRC {media}");
 	}
+	// A receive-only stream must maintain UDP even without outgoing media or
+	// keyframe requests. Echo native pong packets before verifying media below.
+	let mut ping = [0; MAX_PACKET + 1];
+	let mut ping_sequence = 0u32;
+	timeout(Duration::from_secs(8), async {
+		while ping_sequence < 2 {
+			tokio::select! {
+				result = view_udp.recv_from(&mut ping) => {
+					let (length, address) = result.unwrap();
+					assert_eq!(address, view_addr);
+					if length != 8 { continue; } // Authenticated RTCP is separate.
+					assert_eq!(&ping[..4], &[0x13, 0x37, 0xca, 0xfe]);
+					ping_sequence += 1;
+					assert_eq!(&ping[4..8], &ping_sequence.to_le_bytes());
+					ping[..4].copy_from_slice(&[0x13, 0x37, 0xf0, 0x0d]);
+					view_udp.send_to(&ping[..8], view_addr).await.unwrap();
+				}
+				_ = message(&mut send_ws) => {},
+				_ = message(&mut view_ws) => {},
+			}
+		}
+	})
+	.await
+	.expect("Idle viewer stopped maintaining UDP");
 	let mut encoder = openh264::encoder::Encoder::with_api_config(
 		openh264::OpenH264API::from_source(),
 		openh264::encoder::EncoderConfig::new(),
@@ -277,6 +301,10 @@ async fn exchange() {
 			result = send_udp.recv_from(&mut packet) => {
 				let (length, address) = result.unwrap();
 				assert_eq!(address, send_addr);
+				if length == 8 {
+					assert_eq!(&packet[..4], &[0x13, 0x37, 0xca, 0xfe]);
+					continue;
+				}
 				let rtp = transport.open(&packet[..length]).expect("Authenticated RTP");
 				match rtp.payload_type {
 					120 => {

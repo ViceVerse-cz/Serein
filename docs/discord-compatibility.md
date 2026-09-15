@@ -267,6 +267,15 @@ Gateway opcodes 18/19 and STREAM_CREATE/STREAM_SERVER_UPDATE/STREAM_DELETE are u
 
 Screen source discovery and capture occur off the UI/audio threads. Application-owned source lists are capped at 64 labels of 256 bytes. Raw BGRA frames are capped at 3840×2160/33,177,600 bytes; macOS requests the selected output dimensions. Windows prechecks source size and stops on oversized callback frames, but its upstream driver adapter can resize its native GPU pool before that callback. One raw frame and three encoded frames can be queued; H264 frames are capped at 2 MiB, encrypted packetization at 2,048 fragments of at most 1,200 transport bytes. Quality presets target 4–16 Mbps, with frame dropping under load. They are limits/targets, not measured delivery guarantees.
 
+Call and stream transports send an eight-byte native UDP ping after discovery and every
+five seconds, including receive-only streams and muted calls. The packet uses the
+`0x1337CAFE` prefix and a little-endian sequence, following the unofficial
+[native transport implementation](https://github.com/dolfies/discord-native-voice/blob/master/src/transport/udp.rs).
+Signaling heartbeats are separate; neither audio capture nor DAVE readiness gates these
+media-free pings. Pong packets cannot enter the authenticated media decoder. A localhost
+test covers repeated idle-viewer pings followed by encrypted audio/video delivery.
+Whether this resolves the owner's approximately 16-second receive stall remains unverified live.
+
 Stop, call teardown, changed generation, lost video permission or stream-server replacement stop capture and transport. New sharing waits for native worker retirement and matching STREAM_DELETE. No automatic retry or recording is performed. Rekeying pauses capture readiness, drains queued encoded frames, and requires an IDR before resuming transmission. The encoder requests periodic IDRs every two seconds of encoded frames. The current sender handles RTCP PLI and optional system audio, but has no NACK/RTX repair or congestion adaptation; lossy-network quality and service acceptance of high-quality presets remain unverified.
 
 Owner-operated validation is still required: allow screen-recording permission, join a private call, choose a window, verify viewing in the official client, then test Stop, source closure, permission loss, viewer changes/rekey and both quality presets. No live account/capture was used for agent tests. Native Windows execution and live Discord video interoperability are not established by macOS builds or synthetic tests.
