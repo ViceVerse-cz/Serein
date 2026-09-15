@@ -298,7 +298,7 @@ fn authorize() -> Status {
 			core::HSTRING,
 		};
 		match ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(
-			"org.serein.desktop",
+			"cz.viceverse.serein",
 		))
 		.and_then(|notifier| notifier.Setting())
 		{
@@ -341,7 +341,7 @@ fn notification(kind: Kind) -> notify_rust::Notification {
 	#[cfg(target_os = "linux")]
 	notification.hint(notify_rust::Hint::SuppressSound(true));
 	#[cfg(target_os = "windows")]
-	notification.app_id("org.serein.desktop");
+	notification.app_id("cz.viceverse.serein");
 	notification
 }
 
@@ -354,7 +354,7 @@ fn close(outstanding: &mut Option<NotificationHandle>) {
 	if outstanding.take().is_some() {
 		use windows::{UI::Notifications::ToastNotificationManager, core::HSTRING};
 		let _ = ToastNotificationManager::History()
-			.and_then(|history| history.ClearWithId(&HSTRING::from("org.serein.desktop")));
+			.and_then(|history| history.ClearWithId(&HSTRING::from("cz.viceverse.serein")));
 	}
 }
 

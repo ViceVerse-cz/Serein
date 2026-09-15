@@ -293,8 +293,12 @@ impl ActiveMembers {
 						return Err(Failure::Protocol);
 					}
 					if start < 100 {
-						self.rows[start..=end.min(99)].fill(None);
-						self.synced = false;
+						let rows = &mut self.rows[start..=end.min(99)];
+						// Invalidating empty positions must not expire the remaining members.
+						if rows.iter().any(Option::is_some) {
+							self.synced = false;
+						}
+						rows.fill(None);
 					}
 				}
 				MemberOp::Update { index, item } => {
@@ -541,6 +545,7 @@ async fn run_inner(
 	let mut owner_id = None;
 	let mut attempt = 0;
 	let mut calls = voice::Calls::default();
+	let mut inbox = channel_events::Inbox::default();
 	let mut known_guilds = std::collections::BTreeSet::new();
 	let mut voice_open = true;
 	while attempt < 6 {
@@ -842,6 +847,20 @@ async fn run_inner(
 												participants.append(&mut rows);
 											}
 										}
+										let mut message_requests = Vec::new();
+										let mut message_spams = Vec::new();
+										inbox.reset();
+										for channel in &ready.private_channels {
+											inbox.observe(channel);
+											if channel.is_obfuscated() {
+												continue;
+											}
+											if channel.pending_spam_direct() {
+												message_spams.push(channel.id);
+											} else if channel.pending_message_request() {
+												message_requests.push(channel.id);
+											}
+										}
 										let (guilds, channels) = ready.navigation().map_err(|_| Failure::ProtocolAt("Gateway login: invalid or oversized channel/thread navigation"))?;
 										let (read_entries,read_version,partial)=ready.read_state.take().map_or((None,None,false),|snapshot|(Some(snapshot.entries.into_iter().filter(|e|e.kind==0).map(|e|(e.id,e.last_message_id,e.mention_count)).collect()),snapshot.version,snapshot.partial));
 										if guilds.len() + channels.len() > MAX_NAV { return Err(Failure::CapacityAt("Account navigation exceeds 131,072 entries; connection stopped")); }
@@ -859,9 +878,13 @@ async fn run_inner(
 										}.prepare()?)))?; was_ready = true;
 
 										let nicknames = ready.relationships.as_ref().map(|s| s.nicknames());
+										let spam_requests = ready.relationships.as_ref().map(|s| s.spam_incoming_ids());
 										emit(Event::UserAction(client_core::user_actions::Event::Relationships(ready.relationships.take().map(|s| s.entries()))))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Friends(friends)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Requests(requests)))?;
+										emit(Event::UserAction(client_core::user_actions::Event::RequestSpams(spam_requests)))?;
+										emit(Event::UserAction(client_core::user_actions::Event::MessageRequests(Some(message_requests))))?;
+										emit(Event::UserAction(client_core::user_actions::Event::MessageSpams(Some(message_spams))))?;
 										if let Some(nicknames) = nicknames { emit(Event::UserAction(client_core::user_actions::Event::Nicknames(nicknames)))?; }
 										if let Some(friends) = ready.merged_presences.as_ref().and_then(|m| m.friends.as_deref()).or(ready.presences.as_deref()) {
 											direct_presence.friends(friends, Instant::now(), &emit)?;
@@ -943,6 +966,7 @@ async fn run_inner(
 										let incoming = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && matches!(relationship.kind,3|4)).then_some(relationship.kind==3);
 										emit(Event::UserAction(client_core::user_actions::Event::Friend { user: relationship.id, friend, profile: profile.clone() }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Request { user: relationship.id, incoming, profile }))?;
+										emit(Event::UserAction(client_core::user_actions::Event::RequestSpam { user: relationship.id, spam: packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 3 && relationship.is_spam_request }))?;
 										if friend { match relationship.nickname {
 											model::Patch::Absent => {},
 											model::Patch::Null => emit(Event::UserAction(client_core::user_actions::Event::Nickname { user: relationship.id, text: String::new() }))?,
@@ -989,25 +1013,37 @@ async fn run_inner(
 									"MESSAGE_DELETE" => { let d: Deleted = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; emit(Event::Delete { channel:d.channel_id, id:d.id })?; }
 									"MESSAGE_DELETE_BULK" => { let d: BulkDeleted = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; if d.ids.len() > 100 { return Err(Failure::Capacity); } emit(Event::DeleteBulk { channel:d.channel_id, ids: d.ids })?; }
 									"AUTH_SESSION_CHANGE" => return Err(Failure::Expired),
-									"CHANNEL_DELETE" => { let c: ChannelDto = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; calls.invalidate(c.id); emit(Event::Unavailable(c.id))?; }
+									"CHANNEL_DELETE" => { let c: ChannelDto = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; inbox.forget(c.id); calls.invalidate(c.id); emit(Event::Unavailable(c.id))?; }
 									"CHANNEL_CREATE" => {
 										let permissions=owner_id.map(|owner|channel_events::permission_metadata(packet.d.get().as_bytes(),owner)).transpose()?.flatten();
-										let event=channel_events::create(packet.d.get().as_bytes())?;
+										let (event, request, spam)=channel_events::create(packet.d.get().as_bytes(),&mut inbox)?;
 										match &event {
 											Event::ChannelCreated(c) => channel_events::admit_call(c,&known_guilds,&mut calls),
 											Event::Unavailable(id) => calls.invalidate(*id),
 											_=>{}
 										}
 										emit(event)?;
+										if let Some(channel) = request {
+											emit(Event::UserAction(client_core::user_actions::Event::MessageRequest { channel, pending: true }))?;
+										}
+										if let Some(channel) = spam {
+											emit(Event::UserAction(client_core::user_actions::Event::MessageSpam { channel, spam: true }))?;
+										}
 										if let Some(permissions)=permissions {emit(permissions)?;}
 									}
 									"CHANNEL_UPDATE" => {
 										let permissions=owner_id.map(|owner|channel_events::permission_metadata(packet.d.get().as_bytes(),owner)).transpose()?.flatten();
-										let update=channel_events::update(packet.d.get().as_bytes())?;
+										let update=channel_events::update(packet.d.get().as_bytes(),&mut inbox)?;
 										if let Some(channel)=update.restored {channel_events::admit_call(&channel,&known_guilds,&mut calls);emit(Event::ChannelRestored(channel))?;}
 										if let Event::Unavailable(id)=&update.event {calls.invalidate(*id);}
 										if let Event::ChannelChanged(patch)=&update.event && let model::Patch::Value(kind)=patch.kind && kind != 2 && kind != 1 {calls.invalidate(patch.id);}
 										emit(update.event)?;
+										if let Some((channel, pending)) = update.message_request {
+											emit(Event::UserAction(client_core::user_actions::Event::MessageRequest { channel, pending }))?;
+										}
+										if let Some((channel, spam)) = update.spam_direct {
+											emit(Event::UserAction(client_core::user_actions::Event::MessageSpam { channel, spam }))?;
+										}
 										if let Some(permissions)=permissions {emit(permissions)?;}
 									}
 									"THREAD_CREATE" | "THREAD_UPDATE" | "THREAD_DELETE" | "THREAD_LIST_SYNC" | "THREAD_MEMBERS_UPDATE" => {
@@ -1767,7 +1803,10 @@ mod tests {
 						Event::UserAction(
 							client_core::user_actions::Event::Relationships(None)
 							| client_core::user_actions::Event::Requests(None)
-							| client_core::user_actions::Event::Friends(None),
+							| client_core::user_actions::Event::Friends(None)
+							| client_core::user_actions::Event::MessageRequests(_)
+							| client_core::user_actions::Event::MessageSpams(_)
+							| client_core::user_actions::Event::RequestSpams(_),
 						) => return Ok(()),
 						_ => return Err(Failure::Protocol),
 					};
@@ -2235,6 +2274,11 @@ mod member_tests {
 			presence(Some(Id(1)), Id(3), model::Patch::Value("idle".into())),
 			now,
 		);
+		list.update(decode(br#"{"guild_id":"1","id":"everyone","member_count":2,"ops":[{"op":"INVALIDATE","range":[3,99]}]}"#).unwrap()).unwrap();
+		assert!(list.synced);
+		assert_eq!(list.rows[0].as_ref().unwrap().user.name, "First");
+		assert_eq!(list.rows[1].as_ref().unwrap().user.name, "Second");
+		assert!(list.rows[2].is_none());
 		list.update(decode(br#"{"guild_id":"1","id":"everyone","member_count":2,"ops":[{"op":"INVALIDATE","range":[0,99]}]}"#).unwrap()).unwrap();
 		assert!(!list.synced && list.take_presence().is_none() && list.presence_deadline.is_none());
 	}

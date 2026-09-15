@@ -77,7 +77,7 @@ fn rows<'a>(
 	let mut groups: BTreeMap<Option<Id>, Vec<&Channel>> = BTreeMap::new();
 	let mut threads: BTreeMap<Id, Vec<&Channel>> = BTreeMap::new();
 	for channel in channels.iter().filter(|c| {
-		scope.admits(c) && (show_hidden || state.can_view(c.id)) && !roster.lifted(c.id)
+		scope.admits(c, state) && (show_hidden || state.can_view(c.id)) && !roster.lifted(c.id)
 	}) {
 		if matches!(channel.kind, 10..=12)
 			&& let Some(parent) = channel.parent_id.and_then(|id| parents.get(&id))

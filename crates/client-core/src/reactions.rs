@@ -1057,6 +1057,7 @@ mod tests {
 					author: user,
 					content: "Synthetic".into(),
 					reactions: Some(vec![]),
+					author_roles: vec![],
 					mention_roles: vec![],
 					mention_everyone: false,
 					suppress_notifications: false,

@@ -19,7 +19,7 @@ def output(*args, cwd=ROOT):
 
 def generate_flatpakref(repo_url=DEFAULT_REPO_URL):
     return f"""[Flatpak Ref]
-Name=org.serein.desktop
+Name=cz.viceverse.serein
 Branch=master
 Title=Serein
 Comment=Fast, secure and lightweight native Discord client
@@ -36,7 +36,7 @@ def prepare(destination):
     pin = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
     sysroot = Path(output("rustup", "run", pin, "rustc", "--print", "sysroot"))
     version = output(str(sysroot / "bin/rustc"), "--version").split()[1]
-    manifest = json.loads((ROOT / "packaging/flatpak/org.serein.desktop.json").read_text())
+    manifest = json.loads((ROOT / "packaging/flatpak/cz.viceverse.serein.json").read_text())
     if version != pin or f"= {pin}" not in manifest["modules"][0]["build-commands"][0]:
         raise ValueError("Flatpak manifest and installed Rust must match rust-toolchain.toml")
     destination.mkdir(parents=True, exist_ok=False)
@@ -56,7 +56,7 @@ def prepare(destination):
     config = output("rustup", "run", pin, "cargo", "vendor", "--locked", "cargo-vendor", cwd=source)
     with (source / ".cargo/config.toml").open("a") as stream:
         stream.write("\n" + config + "\n")
-    (destination / "org.serein.desktop.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (destination / "cz.viceverse.serein.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
 def main():
@@ -70,11 +70,11 @@ def main():
     prepare(destination)
     if not args.prepare_only:
         subprocess.run(["flatpak-builder", "--user", "--repo=repo", "build",
-                        "org.serein.desktop.json"], cwd=destination, check=True)
+                        "cz.viceverse.serein.json"], cwd=destination, check=True)
         subprocess.run(["flatpak", "build-update-repo", "--generate-static-deltas", "repo"],
                        cwd=destination, check=True)
         subprocess.run(["flatpak", "build-bundle", "--runtime-repo=https://flathub.org/repo/flathub.flatpakrepo",
-                        "repo", "Serein-linux.flatpak", "org.serein.desktop"], cwd=destination, check=True)
+                        "repo", "Serein-linux.flatpak", "cz.viceverse.serein"], cwd=destination, check=True)
         (destination / "serein.flatpakref").write_text(generate_flatpakref(args.repo_url))
 
 

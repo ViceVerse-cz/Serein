@@ -197,7 +197,7 @@ jobs:
           ostree --repo=site/flatpak/repo init --mode=archive-z2
           flatpak build-import-bundle site/flatpak/repo "$1"
           flatpak build-update-repo --generate-static-deltas site/flatpak/repo
-          flatpak repo --metadata=app/org.serein.desktop/x86_64/master site/flatpak/repo > /dev/null
+          flatpak repo --metadata=app/cz.viceverse.serein/x86_64/master site/flatpak/repo > /dev/null
           # Ensure GitHub Pages serves all files and directories without Jekyll processing
           touch site/.nojekyll
           # Webroot landing page

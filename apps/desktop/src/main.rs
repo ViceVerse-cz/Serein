@@ -85,7 +85,7 @@ fn main() -> eframe::Result {
 				.with_inner_size([1120.0, 760.0])
 				.with_min_inner_size([760.0, 520.0])
 				.with_active(!start_minimized)
-				.with_app_id("org.serein.desktop");
+				.with_app_id("cz.viceverse.serein");
 			#[cfg(any(target_os = "windows", target_os = "linux"))]
 			let builder = builder
 				.with_icon(eframe::icon_data::from_png_bytes(icon).expect("bundled app icon"));
@@ -901,7 +901,9 @@ impl Desktop {
 				} else if std::env::args().any(|arg| arg == "--demo-chat") {
 					test_support::chat_demo_state()
 				} else {
-					test_support::demo_state()
+					let mut state = test_support::demo_state();
+					test_support::seed_demo_folder_mosaic(&mut state);
+					state
 				}
 			};
 		}
@@ -2975,6 +2977,7 @@ impl Desktop {
 					self.pending_save = None;
 					let generation = self.state.generation + 1;
 					self.state = test_support::demo_state();
+					test_support::seed_demo_folder_mosaic(&mut self.state);
 					self.state.generation = generation;
 					self.messaging.clear();
 				}
@@ -3347,7 +3350,7 @@ impl Desktop {
 					self.credential_status = if result.is_ok() {
 						"Saved login removed"
 					} else {
-						"Could not remove saved login; remove org.serein.desktop / discord-session in your OS credential manager"
+						"Could not remove saved login; remove cz.viceverse.serein / discord-session in your OS credential manager"
 					};
 				}
 			}

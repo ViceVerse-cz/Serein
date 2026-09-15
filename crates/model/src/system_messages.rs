@@ -174,6 +174,7 @@ mod tests {
 			reactions: None,
 			id: Id(1),
 			channel: Id(2),
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,

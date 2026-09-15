@@ -56,8 +56,9 @@ and republish before expiry even when the application version has not changed.
 
 Run the automatic repository setup script to detect your distribution, verify the
 GPG signing key fingerprint, and configure the repository. Native setup accepts
-Ubuntu 26.04, Fedora 43/44, openSUSE Tumbleweed and Arch Linux. Other versions and
-derivatives must use the Flatpak bundle instead of incompatible native packages:
+Ubuntu 26.04, Fedora 43/44, openSUSE Tumbleweed, Arch Linux and distributions that
+declare `ID_LIKE=arch`. Other versions and derivatives must use the Flatpak bundle
+instead of incompatible native packages:
 
 ```sh
 curl -fsSL https://viceverse-cz.github.io/Serein/setup.sh | sh

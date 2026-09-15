@@ -30,6 +30,7 @@ pub mod server_invites;
 pub mod server_roles;
 pub mod server_settings;
 pub mod stream;
+pub mod thread_members;
 pub mod threads;
 pub mod typing;
 use attachments::AttachmentList;
@@ -137,10 +138,27 @@ pub struct ChannelDto {
 	pub permission_overwrites: Option<Vec<Overwrite>>,
 	#[serde(default)]
 	pub message_count: Option<u32>,
+	#[serde(default)]
+	pub is_message_request: bool,
+	#[serde(default)]
+	pub is_spam: bool,
 }
+const CHANNEL_FLAG_SPAM: u64 = 1 << 5;
 impl ChannelDto {
 	pub fn is_obfuscated(&self) -> bool {
 		self.flags & (1 << 17) != 0
+	}
+
+	fn spam_folder(&self) -> bool {
+		self.is_spam || self.flags & CHANNEL_FLAG_SPAM != 0
+	}
+
+	pub fn pending_message_request(&self) -> bool {
+		self.guild_id.is_none() && self.kind == 1 && self.is_message_request && !self.spam_folder()
+	}
+
+	pub fn pending_spam_direct(&self) -> bool {
+		self.guild_id.is_none() && self.kind == 1 && self.spam_folder()
 	}
 
 	pub fn into_model(self) -> Channel {
@@ -192,10 +210,68 @@ pub struct ChannelPatchDto {
 	pub flags: Patch<u64>,
 	#[serde(default)]
 	pub message_count: Patch<u32>,
+	#[serde(default)]
+	pub is_message_request: Patch<bool>,
+	#[serde(default)]
+	pub is_spam: Patch<bool>,
 }
 impl ChannelPatchDto {
 	pub fn is_obfuscated(&self) -> bool {
 		matches!(self.flags, Patch::Value(flags) if flags & (1 << 17) != 0)
+	}
+
+	fn spam_folder(&self) -> Option<bool> {
+		let flagged = match self.flags {
+			Patch::Value(flags) => Some(flags & CHANNEL_FLAG_SPAM != 0),
+			Patch::Null => Some(false),
+			Patch::Absent => None,
+		};
+		let marked = match self.is_spam {
+			Patch::Value(marked) => Some(marked),
+			Patch::Null => Some(false),
+			Patch::Absent => None,
+		};
+		match (marked, flagged) {
+			(Some(true), _) | (_, Some(true)) => Some(true),
+			(None, None) => None,
+			_ => Some(false),
+		}
+	}
+
+	pub fn pending_message_request(&self) -> Option<bool> {
+		let request = match self.is_message_request {
+			Patch::Value(v) => Some(v),
+			Patch::Null => Some(false),
+			Patch::Absent => None,
+		};
+		match (request, self.spam_folder()) {
+			(_, Some(true)) => Some(false),
+			(Some(false), _) => Some(false),
+			(Some(true), _) => Some(true),
+			(None, _) => None,
+		}
+	}
+
+	pub fn merged_inbox(&self, prior: (bool, bool)) -> (bool, bool) {
+		if matches!(self.kind, Patch::Value(kind) if kind != 1) {
+			return (false, false);
+		}
+		let request = match self.is_message_request {
+			Patch::Value(v) => v,
+			Patch::Null => false,
+			Patch::Absent => prior.0,
+		};
+		(request, self.spam_folder().unwrap_or(prior.1))
+	}
+
+	pub fn pending_spam_direct(&self) -> Option<bool> {
+		match self.is_spam {
+			Patch::Value(_) | Patch::Null => self.spam_folder(),
+			Patch::Absent => match self.flags {
+				Patch::Value(flags) if flags & CHANNEL_FLAG_SPAM != 0 => Some(true),
+				_ => None,
+			},
+		}
 	}
 
 	pub fn into_model(self) -> model::ChannelPatch {
@@ -547,6 +623,8 @@ pub struct MessageDto {
 	pub channel_id: Id,
 	pub author: UserDto,
 	#[serde(default)]
+	pub member: Option<MessageMemberDto>,
+	#[serde(default)]
 	pub content: String,
 	#[serde(default)]
 	pub mentions: MentionList,
@@ -572,6 +650,11 @@ pub struct MessageDto {
 	pub flags: u64,
 	#[serde(rename = "type", default)]
 	pub kind: u8,
+}
+#[derive(Deserialize)]
+pub struct MessageMemberDto {
+	#[serde(default, deserialize_with = "permissions::member_roles")]
+	pub roles: Vec<Id>,
 }
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -696,6 +779,7 @@ impl MessageDto {
 			channel: self.channel_id,
 			author,
 			content: self.content,
+			author_roles: self.member.map_or_else(Vec::new, |member| member.roles),
 			mention_roles: self.mention_roles,
 			mention_everyone: self.mention_everyone,
 			suppress_notifications: self.flags & (1 << 12) != 0,
@@ -887,6 +971,35 @@ mod tests {
 		let user: UserDto =
 			decode(br#"{"id":"3","username":"Synthetic member","bot":true}"#).unwrap();
 		assert_eq!(user.into_model().account_label(), Some("BOT"));
+	}
+	#[test]
+	fn message_author_roles_are_bounded_and_session_only() {
+		let mut wire = serde_json::json!({
+			"id":"100", "channel_id":"20", "author":{"id":"3","username":"Synthetic"},
+			"member":{"roles":["12", "11"]}
+		});
+		let read =
+			|value: &serde_json::Value| decode::<MessageDto>(&serde_json::to_vec(value).unwrap());
+		let message = read(&wire).unwrap().into_model();
+		assert_eq!(message.author_roles, vec![Id(11), Id(12)]);
+		let mut plain = message.clone();
+		plain.author_roles.clear();
+		plain.author_roles.shrink_to_fit();
+		assert_eq!(message.bytes() - plain.bytes(), 2 * size_of::<Id>());
+		for roles in [
+			serde_json::json!(["0"]),
+			serde_json::json!(["11", "11"]),
+			serde_json::json!(
+				(1..=model::permissions::MAX_MEMBER_ROLES + 1)
+					.map(|id| id.to_string())
+					.collect::<Vec<_>>()
+			),
+		] {
+			wire["member"]["roles"] = roles;
+			assert!(read(&wire).is_err());
+		}
+		wire["member"] = serde_json::Value::Null;
+		assert!(read(&wire).unwrap().into_model().author_roles.is_empty());
 	}
 	#[test]
 	fn notification_metadata_is_service_derived_and_role_mentions_are_bounded() {

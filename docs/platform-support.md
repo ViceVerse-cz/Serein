@@ -85,8 +85,8 @@ work/download exit checks; the window Close button retains normal exit behavior.
 Disabling removes the tray icon without changing the window's minimized state.
 The adapter uses existing user32/Shell APIs and dependencies, with no background
 polling. A synthetic native Windows test verifies registration,
-minimize/restore, own-window taskbar recovery, Quit event and cleanup. Linux/macOS have
-an explicitly disabled control; their tray integration is not implemented.
+minimize/restore, own-window taskbar recovery, Quit event and cleanup. macOS uses a native menu bar icon with Show Serein / Quit actions; minimized windows
+remain in the Dock. Linux retains an explicitly disabled control.
 
 ## Opt-in automatic startup
 
@@ -98,7 +98,12 @@ a portable installation, or re-enable it after moving the executable.
 Minimized launches stay in the taskbar even when the saved tray preference is enabled;
 the tray can attach safely after a minimized launch. Tray failures leave the window
 recoverable. The Close button still exits, and the tray Quit action retains unsaved
-work checks. macOS/Linux autostart remains explicitly unavailable.
+work checks. macOS registers a per-user `~/Library/LaunchAgents/cz.viceverse.serein.startup.plist`
+for the next graphical login, with the same launch flags. Turning it off removes only
+that file. It does not launch a second client when enabled or restart after Quit.
+Re-enable startup after moving the executable; disable it before uninstalling. macOS
+Login Items settings can independently block launch. Linux autostart remains unavailable.
+Native macOS sign-out/sign-in remains unverified.
 Offline tests cover isolated registry writes/removal, launch flags and settings
 interaction; an actual Windows sign-out/sign-in has not been exercised.
 

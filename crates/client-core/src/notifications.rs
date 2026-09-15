@@ -325,6 +325,29 @@ impl State {
 			.max(channel.last_message)
 			.unwrap_or(channel.id)
 	}
+	pub fn unread_directs(&self, call: Option<Id>) -> Vec<Id> {
+		let mut rows: Vec<(Id, Id)> = self
+			.channels
+			.iter()
+			.filter(|channel| {
+				channel.guild.is_none()
+					&& channel.supports_text()
+					&& !self.message_request_pending(channel.id)
+					&& !self.spam_direct(channel.id)
+					&& (Some(channel.id) == call
+						|| self.channel_unread(channel) == Some(true)
+						|| self.unread_count(channel.id) > 0)
+			})
+			.map(|channel| (self.channel_activity(channel), channel.id))
+			.collect();
+		rows.sort_unstable_by_key(|&(activity, id)| std::cmp::Reverse((activity, id)));
+		if let Some(call) = call
+			&& let Some(index) = rows.iter().position(|(_, id)| *id == call)
+		{
+			rows[..=index].rotate_right(1);
+		}
+		rows.into_iter().take(15).map(|(_, id)| id).collect()
+	}
 	/// Service badge count plus bounded activity observed since that count. A lower bound
 	/// when history or settings are incomplete; this is not an exact total unread count.
 	pub fn unread_count(&self, channel: Id) -> u32 {
@@ -834,6 +857,7 @@ mod tests {
 			},
 			content: "Synthetic".into(),
 			mentions: vec![owner.clone()],
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,

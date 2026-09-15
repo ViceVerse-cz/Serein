@@ -15,20 +15,21 @@ class SetupTest(unittest.TestCase):
 
         fingerprint = "CA19DA939E9BCAB500751CE480FE95CAD86141A5"
         cases = [
-            ("fedora", "43", "y", fingerprint, 0, True),
-            ("fedora", "44", "y", fingerprint, 0, True),
-            ("fedora", "43", "n", fingerprint, 0, False),
-            ("fedora", "43", "y", "0" * 40, 1, False),
-            ("fedora", "42", "y", fingerprint, 1, False),
-            ("ubuntu", "24.04", "y", fingerprint, 1, False),
-            ("opensuse-leap", "16.0", "y", fingerprint, 1, False),
-            ("manjaro", "26", "y", fingerprint, 1, False),
+            ("fedora", "43", "", "y", fingerprint, 0, True),
+            ("fedora", "44", "", "y", fingerprint, 0, True),
+            ("fedora", "43", "", "n", fingerprint, 0, False),
+            ("fedora", "43", "", "y", "0" * 40, 1, False),
+            ("fedora", "42", "", "y", fingerprint, 1, False),
+            ("ubuntu", "24.04", "debian", "y", fingerprint, 1, False),
+            ("opensuse-leap", "16.0", "suse", "y", fingerprint, 1, False),
+            ("manjaro", "26", "", "y", fingerprint, 1, False),
+            ("cachyos", "rolling", "arch", "n", fingerprint, 0, False),
         ]
-        for distro, version, answer, key, expected_status, installed in cases:
+        for distro, version, id_like, answer, key, expected_status, installed in cases:
             with self.subTest(distro=distro, version=version, answer=answer, key=key), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 release = root / "os-release"
-                release.write_text(f'ID={distro}\nVERSION_ID={version}\n')
+                release.write_text(f'ID={distro}\nVERSION_ID={version}\nID_LIKE="{id_like}"\n')
                 setup = root / "setup.sh"
                 setup.write_text(Path(__file__).with_name("setup.sh").read_text().replace("/etc/os-release", str(release)))
                 commands = {
@@ -38,6 +39,8 @@ class SetupTest(unittest.TestCase):
                     "gpg": f'printf "fpr:::::::::{key}:\\n"',
                     "rpm": 'echo "SIMULATED WRITE rpm $*"',
                     "install": 'echo "SIMULATED WRITE install $*"',
+                    "pacman-key": 'echo "SIMULATED WRITE pacman-key $*"',
+                    "tee": 'echo "SIMULATED WRITE tee $*"',
                     "dnf": '[ -t 0 ] || exit 20; printf "Key import [y/N]: "; read -r key_answer; '
                            '[ "$key_answer" = y ] || exit 21; echo "SIMULATED INSTALL"',
                 }
@@ -85,7 +88,12 @@ class SetupTest(unittest.TestCase):
                 self.assertEqual("SIMULATED INSTALL" in output, installed, output)
                 self.assertNotIn(r"\033[", output)
                 if expected_status == 0:
-                    self.assertIn(f"/fedora-{version}/x86_64/rpm/serein.repo", output)
+                    path = (
+                        "/arch/x86_64/arch/serein.asc"
+                        if id_like == "arch"
+                        else f"/fedora-{version}/x86_64/rpm/serein.repo"
+                    )
+                    self.assertIn(path, output)
                 else:
                     self.assertNotIn("SIMULATED WRITE", output)
 

@@ -3237,11 +3237,15 @@ mod tests {
 	fn guild_voice_requires_explicit_keyboard_join_and_demo_never_emits_media() {
 		let mut state = test_support::demo_state();
 		state.demo = false;
-		assert!(
-			state.select(Id(25)).is_none(),
-			"Voice selection must not fetch history"
-		);
+		assert!(matches!(
+			state.select(Id(25)),
+			Some(client_core::Command::History {
+				channel: Id(25),
+				..
+			})
+		));
 		assert_eq!(state.selected, Some(Id(25)));
+		assert!(state.voice.active.is_none());
 		let mut messaging = MessagingUi {
 			voice_available: true,
 			..Default::default()

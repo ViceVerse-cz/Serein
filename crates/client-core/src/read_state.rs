@@ -461,6 +461,7 @@ mod navigation_tests {
 			},
 			content: "Synthetic unread message".into(),
 			reactions: Some(vec![]),
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,

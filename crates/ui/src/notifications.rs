@@ -1,4 +1,3 @@
-use crate::design::LazyHover;
 use crate::{MessagingUi, design};
 use client_core::{Command, State};
 use egui::{Align2, Color32, FontId};
@@ -28,24 +27,16 @@ impl RailCache {
 			return false;
 		}
 		let mut badges = std::collections::BTreeMap::<Id, (bool, u32)>::new();
-		let mut direct = Vec::new();
 		for channel in state.channels.iter().take(client_core::MAX_NAV) {
 			if let Some(guild) = channel.guild {
 				let entry = badges.entry(guild).or_default();
 				entry.0 |= state.channel_unread(channel) == Some(true)
 					|| state.unread_count(channel.id) > 0;
 				entry.1 = entry.1.saturating_add(state.mention_count(channel.id));
-			} else if direct.len() < 15
-				&& channel.supports_text()
-				&& (Some(channel.id) == call
-					|| state.channel_unread(channel) == Some(true)
-					|| state.unread_count(channel.id) > 0)
-			{
-				direct.push(channel.id);
 			}
 		}
 		self.guild_badges = badges.into_iter().collect();
-		self.direct = direct.into_boxed_slice();
+		self.direct = state.unread_directs(call).into_boxed_slice();
 		self.key = Some(key);
 		true
 	}
@@ -63,6 +54,25 @@ fn direct_call(state: &State) -> Option<Id> {
 		.as_ref()
 		.filter(|call| call.guild.is_none())
 		.map(|call| call.channel)
+}
+
+fn home_request_label(friends: u32, messages: u32) -> String {
+	let mut parts = vec!["Direct Messages".to_owned()];
+	if friends > 0 {
+		parts.push(if friends == 1 {
+			"1 friend request".into()
+		} else {
+			format!("{friends} friend requests")
+		});
+	}
+	if messages > 0 {
+		parts.push(if messages == 1 {
+			"1 message request".into()
+		} else {
+			format!("{messages} message requests")
+		});
+	}
+	parts.join(" · ")
 }
 
 pub(super) fn badge(ui: &egui::Ui, center: egui::Pos2, count: u32, ring: Color32) {
@@ -194,15 +204,27 @@ impl MessagingUi {
 					},
 				);
 				rail_indicator(ui, rect, home, hovered, false);
+				let (friends, messages) = state.home_request_parts();
+				let requests = friends.saturating_add(messages);
+				if requests > 0 {
+					badge(
+						ui,
+						rect.right_bottom() - egui::vec2(8.0, 8.0),
+						requests,
+						design::window_palette(ui).base,
+					);
+				}
+				let label = home_request_label(friends, messages);
 				response.widget_info(|| {
 					egui::WidgetInfo::selected(
 						egui::WidgetType::SelectableLabel,
 						true,
 						home,
-						"Direct messages",
+						label.clone(),
 					)
 				});
-				if response.on_hover_text("Direct Messages").clicked() {
+				design::rail_name(&response, &label);
+				if response.clicked() {
 					self.guild = None;
 				}
 				self.scroll
@@ -224,11 +246,16 @@ impl MessagingUi {
 							};
 							let in_call = Some(channel.id) == call;
 							let response = if channel.kind == 3 {
-								self.avatars.show_group(ui, channel, 48.0, state.demo)
+								self.avatars.show_group_rail(ui, channel, 48.0, state.demo)
 							} else if let Some(user) = channel.recipients.first() {
-								self.avatars.show(ui, user, 48.0, state.demo)
+								self.avatars.show_rail(ui, user, 48.0, state.demo)
 							} else {
-								design::avatar(ui, &channel.name, 48.0)
+								let (rect, response) = ui.allocate_exact_size(
+									egui::Vec2::splat(48.0),
+									egui::Sense::click(),
+								);
+								design::paint_avatar(ui, &channel.name, 48.0, rect);
+								response
 							};
 							if channel.kind == 1
 								&& let Some(user) = channel.recipients.first()
@@ -265,22 +292,8 @@ impl MessagingUi {
 									),
 								)
 							});
-							if response
-								.on_hover_text_with(|| {
-									format!(
-										"{} · {}",
-										channel.name,
-										if in_call {
-											"You are in this call"
-										} else if state.channel_unread(channel).is_some() {
-											"Unread activity; count may be a lower bound"
-										} else {
-											"Session activity · read sync unavailable"
-										}
-									)
-								})
-								.clicked()
-							{
+							design::rail_name(&response, &channel.name);
+							if response.clicked() {
 								self.guild = None;
 								selected = Some(channel.id);
 							}
@@ -322,7 +335,8 @@ impl MessagingUi {
 								"Join a Server",
 							)
 						});
-						if response.on_hover_text("Join a Server").clicked() {
+						design::rail_name(&response, "Join a Server");
+						if response.clicked() {
 							self.join_server.open(state.generation);
 						}
 					});
@@ -353,6 +367,68 @@ mod tests {
 		let mut cache = RailCache::default();
 		assert!(cache.sync(&state));
 		assert_eq!(&*cache.direct, &[Id(22)]);
+		assert!(!cache.direct.contains(&Id(43)));
+		assert_eq!(state.home_request_count(), 3);
+		assert_eq!(state.home_request_parts(), (2, 1));
+		let avery = state
+			.pending_friends()
+			.find(|(user, _, incoming)| *incoming && user.id == Id(8001))
+			.map(|(user, _, _)| user.clone())
+			.expect("demo incoming Avery");
+		apply(
+			&mut state,
+			Event::ChannelCreated(model::Channel {
+				id: Id(44),
+				guild: None,
+				parent_id: None,
+				position: 0,
+				name: "Overlapping request (synthetic)".into(),
+				kind: 1,
+				recipients: vec![avery],
+				last_message: None,
+				icon: None,
+				member_list_id: None,
+				message_count: None,
+			}),
+		);
+		apply(
+			&mut state,
+			Event::UserAction(client_core::user_actions::Event::MessageRequest {
+				channel: Id(44),
+				pending: true,
+			}),
+		);
+		assert!(state.channel(Id(44)).is_some());
+		assert_eq!(state.home_request_parts(), (2, 2));
+		assert_eq!(state.home_request_count(), 4);
+		let robin = state.friend(Id(1001)).cloned().expect("demo friend Robin");
+		apply(
+			&mut state,
+			Event::ChannelCreated(model::Channel {
+				id: Id(45),
+				guild: None,
+				parent_id: None,
+				position: 0,
+				name: "Friend-flagged request (synthetic)".into(),
+				kind: 1,
+				recipients: vec![robin],
+				last_message: None,
+				icon: None,
+				member_list_id: None,
+				message_count: None,
+			}),
+		);
+		apply(
+			&mut state,
+			Event::UserAction(client_core::user_actions::Event::MessageRequest {
+				channel: Id(45),
+				pending: true,
+			}),
+		);
+		assert!(state.channel(Id(45)).is_some());
+		assert_eq!(state.home_request_parts(), (2, 2));
+		assert_eq!(state.home_request_count(), 4);
+		assert!(cache.sync(&state));
 		assert_eq!(cache.guild_badge(Id(10)), (true, 1));
 		for _ in 0..10 {
 			assert!(!cache.sync(&state));
@@ -405,7 +481,11 @@ mod tests {
 		}
 		let mut cache = RailCache::default();
 		assert!(cache.sync(&state));
-		assert_eq!(&*cache.direct, &(100..115).map(Id).collect::<Vec<_>>());
+		assert!(!cache.direct.contains(&Id(43)));
+		assert_eq!(
+			&*cache.direct,
+			&(101..=115).rev().map(Id).collect::<Vec<_>>()
+		);
 		// Exercise the local command preparation gate; no command is dispatched by this test.
 		state.demo = false;
 		let revision = state.revision;
@@ -414,12 +494,12 @@ mod tests {
 		assert!(cache.sync(&state));
 		assert_eq!(cache.direct.len(), 15);
 		assert_eq!(cache.direct[0], Id(22));
-		assert_eq!(cache.direct[14], Id(113));
+		assert_eq!(cache.direct[14], Id(102));
 		assert!(state.leave_call().is_some());
 		assert_eq!(state.revision, revision);
 		assert!(cache.sync(&state));
-		assert_eq!(cache.direct[0], Id(100));
-		assert_eq!(cache.direct[14], Id(114));
+		assert_eq!(cache.direct[0], Id(115));
+		assert_eq!(cache.direct[14], Id(101));
 		// Session failure through a local completion must also retire unread visibility.
 		state.folders_pending = true;
 		state.apply_guild_folders(Err(client_core::auth::Failure::Expired));

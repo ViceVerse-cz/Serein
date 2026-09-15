@@ -4914,6 +4914,7 @@ name = "platform"
 version = "0.1.0"
 dependencies = [
  "client-core",
+ "dirs",
  "futures-lite",
  "getrandom 0.4.3",
  "gstreamer",
@@ -4922,9 +4923,12 @@ dependencies = [
  "gtk4",
  "keyring",
  "notify-rust",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
  "objc2-core-foundation",
  "objc2-core-media",
  "objc2-core-video",
+ "objc2-foundation 0.3.2",
  "objc2-video-toolbox",
  "rfd",
  "serde_json",

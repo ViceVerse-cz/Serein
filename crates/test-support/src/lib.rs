@@ -188,6 +188,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 		} else {
 			vec![]
 		},
+		author_roles: vec![],
 		mention_roles: vec![],
 		mention_everyone: false,
 		suppress_notifications: false,
@@ -327,6 +328,46 @@ pub fn demo_state() -> State {
 					message_count: None,
 				},
 				Channel {
+					id: Id(40),
+					guild: None,
+					parent_id: None,
+					position: 0,
+					name: "Message request (synthetic)".into(),
+					kind: 1,
+					recipients: vec![User {
+						id: Id(8004),
+						name: "Rowan (synthetic)".into(),
+						avatar: None,
+						webhook: false,
+						kind: Default::default(),
+						discriminator: 0,
+					}],
+					last_message: None,
+					icon: None,
+					member_list_id: None,
+					message_count: None,
+				},
+				Channel {
+					id: Id(43),
+					guild: None,
+					parent_id: None,
+					position: 0,
+					name: "Spam request (synthetic)".into(),
+					kind: 1,
+					recipients: vec![User {
+						id: Id(8005),
+						name: "Spam (synthetic)".into(),
+						avatar: None,
+						webhook: false,
+						kind: Default::default(),
+						discriminator: 0,
+					}],
+					last_message: Some(Id(900)),
+					icon: None,
+					member_list_id: None,
+					message_count: None,
+				},
+				Channel {
 					id: Id(29),
 					guild: None,
 					parent_id: None,
@@ -459,7 +500,44 @@ pub fn demo_state() -> State {
 	});
 	state.apply(Envelope {
 		generation: state.generation,
-		event: Event::UserAction(client_core::user_actions::Event::Requests(Some(vec![]))),
+		event: Event::UserAction(client_core::user_actions::Event::Requests(Some(vec![
+			(
+				User {
+					id: Id(8001),
+					name: "Avery".into(),
+					avatar: None,
+					discriminator: 0,
+					webhook: false,
+					kind: Default::default(),
+				},
+				"avery.synthetic".into(),
+				true,
+			),
+			(
+				User {
+					id: Id(8003),
+					name: "Rowan".into(),
+					avatar: None,
+					discriminator: 0,
+					webhook: false,
+					kind: Default::default(),
+				},
+				"rowan.synthetic".into(),
+				true,
+			),
+		]))),
+	});
+	state.apply(Envelope {
+		generation: state.generation,
+		event: Event::UserAction(client_core::user_actions::Event::MessageRequests(Some(
+			vec![Id(40)],
+		))),
+	});
+	state.apply(Envelope {
+		generation: state.generation,
+		event: Event::UserAction(client_core::user_actions::Event::MessageSpams(Some(vec![
+			Id(43),
+		]))),
 	});
 	state.apply(Envelope {
 		generation: state.generation,
@@ -597,6 +675,7 @@ pub fn voice_demo_state() -> State {
 		error: None,
 	});
 	state.select(Id(25));
+	load_page(&mut state, None);
 	state.status = "Offline voice fixture · no microphone or network access";
 	state
 }
@@ -702,9 +781,58 @@ pub fn empty_channel_demo_state(long_name: bool) -> State {
 	});
 	state
 }
+
+pub fn seed_demo_folder_mosaic(state: &mut State) {
+	const EXTRA: [(u64, &str, &str); 4] = [
+		(11, "North lab", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+		(12, "Ops desk", "cccccccccccccccccccccccccccccccc"),
+		(13, "Night shift", "dddddddddddddddddddddddddddddddd"),
+		(14, "Archive", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"),
+	];
+	for (id, name, hash) in EXTRA {
+		state.guilds.push(Guild {
+			emojis: None,
+			id: Id(id),
+			name: name.into(),
+			icon: Some(hash.into()),
+		});
+	}
+	state.guild_folders = Some(model::guild_folders::Settings {
+		folders: vec![
+			model::guild_folders::Folder {
+				id: Some(1),
+				guild_ids: vec![Id(11), Id(12), Id(13), Id(14)],
+				name: Some("Synthetic folder".into()),
+				color: Some(0x5865f2),
+			},
+			model::guild_folders::Folder {
+				id: None,
+				guild_ids: vec![Id(10)],
+				name: None,
+				color: None,
+			},
+		],
+		version: 0,
+	});
+}
+
 /// Additional native chat scenario: fixed dates, grouped authors and unread events.
 pub fn chat_demo_state() -> State {
 	let mut state = demo_state();
+	state.apply(Envelope {
+		generation: state.generation,
+		event: Event::Permissions(client_core::permissions::Event::Role {
+			guild: Id(10),
+			role: model::permissions::Role {
+				id: Id(101),
+				name: "Synthetic colored role".into(),
+				bits: 0,
+				color: 0x68ada4,
+				position: 1,
+				hoist: false,
+			},
+		}),
+	});
 	state.timeline.clear();
 	state.older_exhausted = true;
 	let texts = [
@@ -724,6 +852,7 @@ pub fn chat_demo_state() -> State {
 		m.id = Id(((1_788_998_100_000u64 + i as u64 * 60_000 - 1_420_070_400_000) << 22) | 1);
 		m.author = message(if !(3..7).contains(&i) { 1 } else { 2 }, Id(20)).author;
 		m.content = (*text).into();
+		m.author_roles = vec![Id(101)];
 		if i == 8 {
 			m.reply_to = state.timeline.iter().nth(6).map(|original| original.id);
 		}

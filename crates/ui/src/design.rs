@@ -23,6 +23,58 @@ impl LazyHover for egui::Response {
 	}
 }
 
+pub fn rail_name(response: &egui::Response, name: impl AsRef<str>) {
+	let name = name.as_ref();
+	if name.is_empty() {
+		return;
+	}
+	let dragging = response
+		.ctx
+		.input(|input| input.pointer.is_decidedly_dragging());
+	if dragging {
+		return;
+	}
+	if !response.contains_pointer() && !response.hovered() && !response.has_focus() {
+		return;
+	}
+	let ctx = &response.ctx;
+	let style = ctx.style_of(ctx.theme());
+	let painter = ctx.layer_painter(egui::LayerId::new(
+		egui::Order::Tooltip,
+		response.id.with("rail-name"),
+	));
+	let font_id = egui::TextStyle::Body.resolve(style.as_ref());
+	let text_color = style.visuals.widgets.noninteractive.fg_stroke.color;
+	let galley = painter.layout(
+		name.to_owned(),
+		font_id,
+		text_color,
+		style.spacing.tooltip_width,
+	);
+	let margin = style.spacing.menu_margin;
+	let size = galley.size() + margin.sum();
+	let screen = ctx.content_rect();
+	let mut min = egui::pos2(
+		response.rect.right() + 8.0,
+		response.rect.center().y - size.y * 0.5,
+	);
+	if min.x + size.x > screen.right() {
+		min.x = (response.rect.left() - 8.0 - size.x).max(screen.left());
+	}
+	min.y = min
+		.y
+		.clamp(screen.top(), (screen.bottom() - size.y).max(screen.top()));
+	let rect = egui::Rect::from_min_size(min, size);
+	painter.rect(
+		rect,
+		style.visuals.menu_corner_radius,
+		style.visuals.window_fill(),
+		style.visuals.window_stroke(),
+		egui::StrokeKind::Inside,
+	);
+	painter.galley(rect.min + margin.left_top(), galley, text_color);
+}
+
 /// Recolour preset layered over the light/dark preference.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[repr(u8)]
@@ -780,6 +832,11 @@ pub fn apply(ctx: &egui::Context) {
 		style.spacing.interact_size.y = f32::from(metrics.control_height.unwrap_or(32));
 		style.spacing.menu_margin = egui::Margin::same(8);
 		style.visuals.panel_fill = p.chat;
+		// Sub-pixel binning rasterizes each glyph at up to four fractional x offsets, so
+		// stems land between physical pixels and read as blurry at 1x — where most Windows
+		// and Linux desktops run. Whole-pixel positioning lets the bundled Inter faces'
+		// TrueType hints grid-fit stems instead, which is what Discord gets from DirectWrite.
+		style.visuals.text_options.subpixel_binning = false;
 		style.visuals.interact_cursor = Some(egui::CursorIcon::PointingHand);
 		style.visuals.window_fill = p.raised.to_opaque();
 		style.visuals.window_corner_radius = metrics.window_radius.unwrap_or(12).into();

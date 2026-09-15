@@ -678,6 +678,7 @@ impl TimelineView {
 		self.applied_hide_media_links = self.hide_media_links;
 		let changed = self.revision != state.revision || dimensions_changed;
 		let mut offset = None;
+		let mut lead_rows = None;
 		if changed {
 			if content_dimensions_changed {
 				self.heights.clear();
@@ -702,6 +703,7 @@ impl TimelineView {
 			self.revealed
 				.retain(|id, content| state.timeline.get(*id).is_some_and(|m| content.matches(m)));
 			let mut previous = None;
+			let mut lead_basis = 0.0;
 			self.rows = state
 				.timeline
 				.display_iter()
@@ -732,9 +734,15 @@ impl TimelineView {
 						.get(&m.id)
 						.filter(|(old_key, _)| *old_key == key)
 						.map_or(estimate, |(_, height)| *height);
+					lead_basis += if height * 8.0 < estimate {
+						estimate
+					} else {
+						height
+					};
 					(m.id, height)
 				})
 				.collect();
+			lead_rows = Some(lead_basis);
 			self.revision = state.revision;
 			if !self.following
 				&& let Some((id, inset)) = self.anchor
@@ -849,6 +857,9 @@ impl TimelineView {
 				(p, height)
 			})
 			.collect();
+		let pending_height = pending_rows.iter().map(|(_, height)| *height).sum::<f32>();
+		let packed = total + pending_height + end_padding;
+		let lead_packed = lead_rows.unwrap_or(total) + pending_height + end_padding;
 		if std::mem::take(&mut self.jump) {
 			offset = Some(
 				(total + end_padding + pending_rows.iter().map(|(_, height)| height).sum::<f32>()
@@ -885,6 +896,12 @@ impl TimelineView {
 			if welcome && let Some(channel) = state.selected.and_then(|id| state.channel(id)) {
 				channel_welcome(ui, channel, viewport.height() - end_padding);
 			}
+			let lead = if welcome {
+				0.0
+			} else {
+				(viewport.height() - lead_packed).max(0.0)
+			};
+			ui.add_space(lead);
 			// Initial bottom alignment can expose more rows after estimates shrink.
 			let overscan = if channel_changed && self.following {
 				viewport.height().max(100.0)
@@ -893,10 +910,14 @@ impl TimelineView {
 			};
 			let (first, _, top) = visible_range(
 				&self.rows,
-				(viewport.min.y - overscan).max(0.0),
-				viewport.max.y + 100.0,
+				(viewport.min.y - overscan - lead).max(0.0),
+				(viewport.max.y + 100.0 - lead).max(0.0),
 			);
-			let (anchor, _, anchor_top) = visible_range(&self.rows, viewport.min.y, viewport.max.y);
+			let (anchor, _, anchor_top) = visible_range(
+				&self.rows,
+				(viewport.min.y - lead).max(0.0),
+				(viewport.max.y - lead).max(0.0),
+			);
 			let content_top = ui.cursor().top();
 			let clip = ui.clip_rect();
 			// Measure leading overscan without changing the visible rows or parent bounds.
@@ -961,7 +982,16 @@ impl TimelineView {
 													&message.author,
 													state.user_display_name(&message.author),
 													15.5,
-													colors.text_strong,
+													state.message_author_color(message).map_or(
+														colors.text_strong,
+														|rgb| {
+															crate::design::role_name_color(
+																rgb,
+																colors.chat,
+																colors.text_strong,
+															)
+														},
+													),
 													egui::Sense::hover(),
 													48.0,
 												);
@@ -1221,7 +1251,16 @@ impl TimelineView {
 													&message.author,
 													state.user_display_name(&message.author),
 													15.5,
-													colors.text_strong,
+													state.message_author_color(message).map_or(
+														colors.text_strong,
+														|rgb| {
+															crate::design::role_name_color(
+																rgb,
+																colors.chat,
+																colors.text_strong,
+															)
+														},
+													),
 													egui::Sense::click(),
 													48.0,
 												);
@@ -1751,22 +1790,30 @@ impl TimelineView {
 		self.scroll_offset = output.state.offset.y;
 		// ScrollArea applies wheel input after laying out its contents. Preserve that
 		// movement when new row measurements rebuild the timeline on the next pass.
+		let spare = if welcome {
+			0.0
+		} else {
+			(output.inner_rect.height() - lead_packed).max(0.0)
+		};
+		let lead = spare;
 		let (anchor, _, anchor_top) = visible_range(
 			&self.rows,
-			output.state.offset.y,
-			output.state.offset.y + output.inner_rect.height(),
+			(output.state.offset.y - lead).max(0.0),
+			(output.state.offset.y + output.inner_rect.height() - lead).max(0.0),
 		);
 		self.anchor = self
 			.rows
 			.get(anchor)
-			.map(|(id, _)| (*id, output.state.offset.y - anchor_top));
+			.map(|(id, _)| (*id, output.state.offset.y - lead - anchor_top));
 		if selected_reply.is_some() {
 			state.reply = selected_reply;
 			self.reply_started = true;
 		}
 		let distance_from_bottom =
 			(output.content_size.y - output.state.offset.y - output.inner_rect.height()).max(0.0);
-		let at_bottom = distance_from_bottom <= 3.0;
+		let whole_conversation_visible =
+			state.older_exhausted && packed <= output.inner_rect.height() + 3.0;
+		let at_bottom = distance_from_bottom <= 3.0 || whole_conversation_visible;
 		// The live edge counts even when service latest metadata outlived a deleted message;
 		// otherwise the unread banners could never resolve for that channel.
 		self.at_current_latest = state.live_edge_latest().is_some()
@@ -1775,9 +1822,6 @@ impl TimelineView {
 					Some(channel.id) == state.selected && channel.last_message == Some(message.id)
 				})
 			});
-
-		let whole_conversation_visible =
-			state.older_exhausted && output.content_size.y <= output.inner_rect.height() + 3.0;
 		if initial_unread_gap
 			&& !state.history_targeted
 			&& state.history_before.is_none()
@@ -1861,6 +1905,7 @@ impl TimelineView {
 		}
 		// A user scroll near the top requests one page; a short initial view never drains history.
 		self.load_older = !self.following
+			&& spare == 0.0
 			&& output.state.offset.y < 160.0
 			&& ui.input(|i| {
 				scroll_delta > 0.0
@@ -2534,6 +2579,7 @@ mod tests {
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -4724,6 +4770,7 @@ mod tests {
 				discriminator: 0,
 			},
 			content: "<#4> ".repeat(12),
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -4886,6 +4933,7 @@ mod tests {
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -4973,6 +5021,7 @@ mod tests {
 			unsupported: false,
 			extra_content: Default::default(),
 			attachments: vec![],
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,

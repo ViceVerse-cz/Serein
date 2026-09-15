@@ -54,6 +54,13 @@ channel names and uppercase 12px eyebrows. Body is 15px, small 12px. Until `font
 marks a context, the weight families resolve to the default face so headless tests never
 reference an unknown family.
 
+Text is rasterized by egui on the CPU, not by DirectWrite or Core Text, so sharpness at 1x
+scale depends on the font carrying its own hints. The bundled Inter faces are therefore
+upstream's hinted TrueType builds rather than the CFF originals, sub-pixel binning is off, and
+the faces opt out of symmetric rendering. Together these put glyph stems on whole pixels; the
+CFF builds with binning on looked soft on 1x Windows and Linux displays. See
+[#200](https://github.com/ViceVerse-cz/Serein/issues/200) and `assets/README.md`.
+
 ## Layout
 
 - 36px title strip (`base`): hidden native title bar on macOS with traffic lights inline, centred

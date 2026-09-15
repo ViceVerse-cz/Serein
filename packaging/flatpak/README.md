@@ -36,7 +36,7 @@ flatpak install --user packaging/flatpak/serein.flatpakref
 Once installed via `.flatpakref`, your desktop environment (GNOME Software, KDE Discover)
 and `flatpak update` will automatically discover and install new releases.
 
-If installation reports `No such ref 'app/org.serein.desktop/x86_64/master'`,
+If installation reports `No such ref 'app/cz.viceverse.serein/x86_64/master'`,
 check that the hosted `flatpak/repo/summary` exists. Publishing the `.flatpakref`
 alone is insufficient. The package-repository workflow imports the release's
 checksum-verified Flatpak bundle and requires the app ref before uploading the
@@ -52,8 +52,8 @@ or your desktop software manager when a new release is available.
 #### Option B: Standalone bundle (Offline install)
 ```sh
 flatpak install --user ./target/flatpak-build/Serein-linux.flatpak
-flatpak run org.serein.desktop
-flatpak uninstall --user org.serein.desktop
+flatpak run cz.viceverse.serein
+flatpak uninstall --user cz.viceverse.serein
 ```
 
 ### Sandbox Permissions
@@ -62,7 +62,7 @@ The sandbox grants network, graphics, Wayland with X11 fallback, audio and
 specific Secret Service/notification D-Bus names. Files are selected through
 the existing desktop portal; home and session-bus access are not granted.
 Caches/preferences use Flatpak's isolated XDG directories under
-`~/.var/app/org.serein.desktop`; a native installation's data is not imported.
+`~/.var/app/cz.viceverse.serein`; a native installation's data is not imported.
 Saved credentials still require the host's unlocked Secret Service and never
 fall back to files. That service permission is not an application-specific
 credential isolation guarantee. Audio access permits microphone use, but Serein's

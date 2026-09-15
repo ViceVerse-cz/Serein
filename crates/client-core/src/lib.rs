@@ -164,6 +164,7 @@ pub enum Command {
 	},
 	Voice(voice::Command),
 	Members {
+		thread: bool,
 		guild: Option<Id>,
 		channel: Option<Id>,
 		request: u64,
@@ -851,6 +852,7 @@ impl State {
 		if !self.can_view(channel.id) {
 			return None;
 		}
+		let thread = matches!(channel.kind, 10..=12);
 		let list_id = self.member_list_id(channel);
 		let rows = if channel.guild.is_none() && self.freshness != Freshness::Unavailable {
 			let mut users = channel.recipients.clone();
@@ -879,7 +881,7 @@ impl State {
 			Freshness::Unavailable
 		} else if channel.guild.is_none() {
 			Freshness::Fresh
-		} else if list_id.is_none() {
+		} else if !thread && list_id.is_none() {
 			Freshness::Unavailable
 		} else {
 			Freshness::Loading
@@ -893,9 +895,10 @@ impl State {
 			freshness,
 		});
 		let command = Command::Members {
-			guild: channel
-				.guild
-				.filter(|_| list_id.is_some() && self.freshness != Freshness::Unavailable),
+			thread,
+			guild: channel.guild.filter(|_| {
+				(thread || list_id.is_some()) && self.freshness != Freshness::Unavailable
+			}),
 			channel: Some(channel.id),
 			request: self.member_request,
 			list_id,
@@ -907,6 +910,7 @@ impl State {
 		self.member_request = self.member_request.wrapping_add(1);
 		self.members = None;
 		Command::Members {
+			thread: false,
 			guild: None,
 			channel: None,
 			request: self.member_request,
@@ -1970,6 +1974,7 @@ impl State {
 				if self.user.as_ref().is_some_and(|u| u.id == user) {
 					self.end_voice_channel(channel);
 					self.read_state.forget(channel);
+					self.forget_direct_inbox(channel);
 					self.channels.retain(|c| c.id != channel);
 					self.prune_direct_presence();
 					if self.selected == Some(channel) {
@@ -2606,6 +2611,7 @@ impl State {
 			self.permissions.channels.remove(id);
 			self.end_voice_channel(*id);
 			self.read_state.forget(*id);
+			self.forget_direct_inbox(*id);
 		}
 		if !removed.is_empty() {
 			self.clear_profile();
@@ -2834,6 +2840,18 @@ impl Event {
 				Self::UserAction(user_actions::Event::Relationships(entries)) => entries
 					.as_ref()
 					.map_or(0, |e| e.capacity() * size_of::<(Id, bool)>()),
+				Self::UserAction(user_actions::Event::MessageRequests(entries)) => entries
+					.as_ref()
+					.map_or(0, |e| e.capacity() * size_of::<Id>()),
+				Self::UserAction(user_actions::Event::MessageRequest { .. }) => size_of::<Id>(),
+				Self::UserAction(user_actions::Event::MessageSpams(entries)) => entries
+					.as_ref()
+					.map_or(0, |e| e.capacity() * size_of::<Id>()),
+				Self::UserAction(user_actions::Event::MessageSpam { .. }) => size_of::<Id>(),
+				Self::UserAction(user_actions::Event::RequestSpams(entries)) => entries
+					.as_ref()
+					.map_or(0, |e| e.capacity() * size_of::<Id>()),
+				Self::UserAction(user_actions::Event::RequestSpam { .. }) => size_of::<Id>(),
 				Self::Archives { result, .. } => {
 					result.as_ref().map_or(0, model::archives::Page::bytes)
 				}
@@ -3274,14 +3292,28 @@ mod tests {
 		state.select(Id(20));
 		state.channels.retain(|c| c.id != Id(10));
 		state.invalidate_navigation();
-		assert!(state.select_guild(Id(1)).is_none());
+		assert!(matches!(
+			state.select_guild(Id(1)),
+			Some(Command::History {
+				channel: Id(12),
+				..
+			})
+		));
+		assert!(state.voice.active.is_none());
 		assert_eq!(
 			state.selected,
 			Some(Id(12)),
 			"voice is only viewed, never joined"
 		);
 		state.select(Id(20));
-		assert!(state.select_guild(Id(1)).is_none());
+		assert!(matches!(
+			state.select_guild(Id(1)),
+			Some(Command::History {
+				channel: Id(12),
+				..
+			})
+		));
+		assert!(state.voice.active.is_none());
 		assert_eq!(
 			state.selected,
 			Some(Id(12)),
@@ -3855,6 +3887,7 @@ mod tests {
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -4278,11 +4311,14 @@ mod tests {
 		);
 		assert!(state.can_call(Id(1)));
 		assert!(
-			state.select(Id(1)).is_none(),
-			"Voice navigation does not request text history"
+			matches!(
+				state.select(Id(1)),
+				Some(Command::History { channel: Id(1), .. })
+			),
+			"Voice navigation requests its channel chat history"
 		);
 		assert_eq!(state.selected, Some(Id(1)));
-		assert!(!state.history_pending);
+		assert!(state.history_pending);
 		assert!(state.start_call(Id(1), false).is_some());
 	}
 

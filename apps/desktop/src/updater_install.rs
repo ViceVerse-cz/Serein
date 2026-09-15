@@ -695,7 +695,7 @@ fn verify_mac(candidate: &Path, installed: &Path) -> Result<(), String> {
 	}
 	let old = identity(installed)?;
 	let new = identity(candidate)?;
-	if old != new || new.1 != "org.serein.desktop" {
+	if old != new || new.1 != "cz.viceverse.serein" {
 		return Err("The update was not signed by this Serein publisher.".into());
 	}
 	let status = Command::new("/usr/sbin/spctl")

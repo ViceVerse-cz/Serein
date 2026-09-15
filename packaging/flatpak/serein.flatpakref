@@ -1,5 +1,5 @@
 [Flatpak Ref]
-Name=org.serein.desktop
+Name=cz.viceverse.serein
 Branch=master
 Title=Serein
 Comment=Fast, secure and lightweight native Discord client

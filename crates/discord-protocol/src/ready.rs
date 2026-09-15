@@ -404,6 +404,8 @@ mod tests {
 					recipients: Vec::new(),
 					permission_overwrites: None,
 					message_count: None,
+					is_message_request: false,
+					is_spam: false,
 				})
 				.collect();
 			assert_eq!(

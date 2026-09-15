@@ -25,8 +25,10 @@ impl Scope {
 	}
 
 	/// Channels this list may show at all, before permission filtering.
-	pub fn admits(self, channel: &Channel) -> bool {
-		channel.guild == self.guild() && channel.kind != 4
+	pub fn admits(self, channel: &Channel, state: &State) -> bool {
+		channel.guild == self.guild()
+			&& channel.kind != 4
+			&& (self.guild().is_some() || !state.spam_direct(channel.id))
 	}
 
 	/// Rosters in display order. Home pins DMs; guilds keep one Favorites shelf.
@@ -100,7 +102,7 @@ impl<'a> Roster<'a> {
 		let mut buckets: Vec<Vec<(usize, &Channel)>> = vec![Vec::new(); rosters.len()];
 		for channel in &state.channels {
 			if let Some(&(index, position)) = rank.get(&channel.id)
-				&& scope.admits(channel)
+				&& scope.admits(channel, state)
 				&& (show_hidden || state.can_view(channel.id))
 			{
 				buckets[index].push((position, channel));

@@ -12,6 +12,14 @@ Voice is included in every build without a feature flag. Source builds require C
 
 ## Implemented behavior and limits
 
+Guild voice channels have a chat icon with a **Show chat / Hide chat** tooltip in the channel header.
+Chat uses the existing message timeline, composer, drafts and permission checks without
+requiring a voice connection. Wide windows place chat beside the stage; narrow windows
+show chat in the main area until Hide chat restores the stage. The existing bounded
+history/cache and message transports are shared. Normal-account interoperability remains
+unofficial and live-unverified. The offline debug check is
+`cargo run --locked -p ui --example voice_chat`.
+
 The Audio menu provides session-only Microphone gain and Speaker volume controls from 0% to
 200%, initially 100%. Reset levels restores both to 100%. Changes apply to the active call
 without reopening devices and carry across calls/device changes in the same session; logout

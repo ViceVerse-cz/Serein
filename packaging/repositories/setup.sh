@@ -104,6 +104,11 @@ fi
 
 . /etc/os-release
 
+DISTRO_ID="$ID"
+case " ${ID_LIKE:-} " in
+    *" arch "*) DISTRO_ID="arch" ;;
+esac
+
 ARCH=$(uname -m)
 case "$ARCH" in
     x86_64) ;;
@@ -113,7 +118,7 @@ case "$ARCH" in
 esac
 
 # Native packages must match the distribution that built their shared libraries.
-case "$ID:${VERSION_ID:-}" in
+case "$DISTRO_ID:${VERSION_ID:-}" in
     ubuntu:26.04) REPO_PATH="ubuntu-26.04/amd64/apt" ;;
     fedora:43|fedora:44) REPO_PATH="fedora-$VERSION_ID/$ARCH/rpm" ;;
     opensuse-tumbleweed:*) REPO_PATH="opensuse-tumbleweed/$ARCH/rpm" ;;
@@ -133,7 +138,7 @@ verify_key "$KEY_FILE"
 
 INSTALL_CMD=""
 
-case "$ID" in
+case "$DISTRO_ID" in
     ubuntu)
         log "Installing APT keyring and source list..."
         $SUDO install -Dm644 "$KEY_FILE" /etc/apt/keyrings/serein.asc

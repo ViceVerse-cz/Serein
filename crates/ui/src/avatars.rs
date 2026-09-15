@@ -519,6 +519,25 @@ impl Avatars {
 		size: f32,
 		demo: bool,
 	) -> egui::Response {
+		self.group_avatar(ui, channel, size, demo, true)
+	}
+	pub fn show_group_rail(
+		&mut self,
+		ui: &mut egui::Ui,
+		channel: &model::Channel,
+		size: f32,
+		demo: bool,
+	) -> egui::Response {
+		self.group_avatar(ui, channel, size, demo, false)
+	}
+	fn group_avatar(
+		&mut self,
+		ui: &mut egui::Ui,
+		channel: &model::Channel,
+		size: f32,
+		demo: bool,
+		hover_name: bool,
+	) -> egui::Response {
 		let (rect, response) =
 			ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click());
 		let colors = crate::design::palette(ui);
@@ -573,7 +592,11 @@ impl Avatars {
 				format!("Group {}", channel.name),
 			)
 		});
-		response
+		if hover_name {
+			response.on_hover_text(&channel.name)
+		} else {
+			response
+		}
 	}
 	pub fn show_guild(
 		&mut self,
@@ -582,7 +605,26 @@ impl Avatars {
 		selected: bool,
 		demo: bool,
 	) -> egui::Response {
-		self.show_guild_sized(ui, guild, selected, demo, 48.0)
+		self.guild_avatar(ui, guild, selected, demo, 48.0, true)
+	}
+	pub fn show_guild_rail(
+		&mut self,
+		ui: &mut egui::Ui,
+		guild: &model::Guild,
+		selected: bool,
+		demo: bool,
+	) -> egui::Response {
+		self.guild_avatar(ui, guild, selected, demo, 48.0, false)
+	}
+	pub fn paint_guild(
+		&mut self,
+		ui: &mut egui::Ui,
+		guild: &model::Guild,
+		rect: egui::Rect,
+		demo: bool,
+		radius: u8,
+	) {
+		self.paint_guild_face(ui, guild, rect, demo, false, radius);
 	}
 	pub fn show_guild_sized(
 		&mut self,
@@ -592,6 +634,46 @@ impl Avatars {
 		demo: bool,
 		size: f32,
 	) -> egui::Response {
+		self.guild_avatar(ui, guild, selected, demo, size, true)
+	}
+	fn guild_avatar(
+		&mut self,
+		ui: &mut egui::Ui,
+		guild: &model::Guild,
+		selected: bool,
+		demo: bool,
+		size: f32,
+		hover_name: bool,
+	) -> egui::Response {
+		let (rect, response) =
+			ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click_and_drag());
+		let highlight = selected || response.hovered() || response.has_focus();
+		self.paint_guild_face(ui, guild, rect, demo, highlight, (size * 0.29) as u8);
+		response.widget_info(|| {
+			egui::WidgetInfo::selected(
+				egui::WidgetType::SelectableLabel,
+				ui.is_enabled(),
+				selected,
+				format!("Server {}", guild.name),
+			)
+		});
+		if hover_name {
+			response.on_hover_text(&guild.name)
+		} else {
+			response
+		}
+	}
+	fn paint_guild_face(
+		&mut self,
+		ui: &mut egui::Ui,
+		guild: &model::Guild,
+		rect: egui::Rect,
+		demo: bool,
+		highlight: bool,
+		radius: u8,
+	) {
+		let size = rect.width().min(rect.height());
+		let initials_size = (size * 0.5).clamp(7.0, 16.0);
 		let short: String = guild
 			.name
 			.split_whitespace()
@@ -599,19 +681,21 @@ impl Avatars {
 			.take(2)
 			.collect();
 		let colors = crate::design::palette(ui);
-		let (rect, response) =
-			ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click_and_drag());
-		let rounded = selected || response.hovered() || response.has_focus();
-		// Server tiles keep one rounded-square silhouette; selection is shown by the rail
-		// underline and ring rather than by morphing a circle into a squircle.
-		let radius: u8 = (size * 0.29) as u8;
 		let mut painted = false;
 		if ui.is_rect_visible(rect)
 			&& let Some(key) = guild.icon_key()
 		{
 			#[cfg(any(test, feature = "demo"))]
 			if demo && !self.textures.contains_key(&key) {
-				let mut image = ColorImage::filled([32, 32], egui::Color32::from_rgb(20, 161, 168));
+				let seed = key
+					.bytes()
+					.fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
+				let fill = egui::Color32::from_rgb(
+					70 + (seed % 140) as u8,
+					90 + ((seed >> 8) % 120) as u8,
+					110 + ((seed >> 16) % 100) as u8,
+				);
+				let mut image = ColorImage::filled([32, 32], fill);
 				for row in [8, 14, 20] {
 					for y in row..row + 3 {
 						for x in 7..25 {
@@ -631,7 +715,7 @@ impl Avatars {
 			ui.painter().rect_filled(
 				rect,
 				radius,
-				if rounded {
+				if highlight {
 					colors.accent
 				} else {
 					colors.raised
@@ -641,23 +725,14 @@ impl Avatars {
 				rect.center(),
 				egui::Align2::CENTER_CENTER,
 				short,
-				egui::FontId::new(16.0, crate::design::medium_family(ui.ctx())),
-				if rounded {
+				egui::FontId::new(initials_size, crate::design::medium_family(ui.ctx())),
+				if highlight {
 					colors.accent_text
 				} else {
 					colors.text
 				},
 			);
 		}
-		response.widget_info(|| {
-			egui::WidgetInfo::selected(
-				egui::WidgetType::SelectableLabel,
-				ui.is_enabled(),
-				selected,
-				format!("Server {}", guild.name),
-			)
-		});
-		response.on_hover_text(&guild.name)
 	}
 	pub fn show_gif_embed(
 		&mut self,
@@ -972,7 +1047,7 @@ impl Avatars {
 		size: f32,
 		demo: bool,
 	) -> egui::Response {
-		self.user_avatar(ui, user, size, demo, true)
+		self.user_avatar(ui, user, size, demo, true, true)
 	}
 	/// Avatar that never opens a profile: rows that already own their click keep it quiet.
 	pub fn show_plain(
@@ -982,7 +1057,16 @@ impl Avatars {
 		size: f32,
 		demo: bool,
 	) -> egui::Response {
-		self.user_avatar(ui, user, size, demo, false)
+		self.user_avatar(ui, user, size, demo, false, true)
+	}
+	pub fn show_rail(
+		&mut self,
+		ui: &mut egui::Ui,
+		user: &User,
+		size: f32,
+		demo: bool,
+	) -> egui::Response {
+		self.user_avatar(ui, user, size, demo, true, false)
 	}
 	fn user_avatar(
 		&mut self,
@@ -991,6 +1075,7 @@ impl Avatars {
 		size: f32,
 		demo: bool,
 		opens_profile: bool,
+		hover_name: bool,
 	) -> egui::Response {
 		let (_, response) = ui.allocate_exact_size(
 			egui::Vec2::splat(size),
@@ -1000,7 +1085,11 @@ impl Avatars {
 				egui::Sense::hover()
 			},
 		);
-		let response = response.on_hover_text(&user.name);
+		let response = if hover_name {
+			response.on_hover_text(&user.name)
+		} else {
+			response
+		};
 		let rect = ui
 			.layout()
 			.align_size_within_rect(egui::Vec2::splat(size), response.rect);

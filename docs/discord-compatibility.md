@@ -585,7 +585,8 @@ the READY-only member-list ID. Member requests now compute that ID from the exis
 bounded role/overwrite mirror, so GUILD_CREATE, newly delivered/restored channels and
 Reload people use current metadata. A change in list identity retires the active request
 and lets the visible pane request again; unchanged metadata preserves pending replies.
-Missing metadata still means unavailable; threads retain their separate-protocol limitation.
+Missing metadata still means unavailable for ordinary guild channels. Thread participants now
+use the separate REST snapshot described below.
 The shared hash accepts the same u128 permission values as the permission parser.
 
 The original [subscription lifecycle](https://github.com/dolfies/discord.py-self/blob/2ba64a9a997e151a9c259984e0a179b1fdf4aff4/discord/state.py)
@@ -983,6 +984,33 @@ The native MPEG-4 source does not support external tracks; it receives an unname
 stream without a base URL and Media Foundation starts with socket support disabled.
 See [Microsoft MPEG-4 source documentation](https://learn.microsoft.com/en-us/windows/win32/medfound/mpeg-4-file-source).
 
+### Home rail request badge (September 15, 2026)
+
+The Direct Messages tile on the server rail shows a bottom-right count. The count is
+incoming friend requests that are not `is_spam_request`, plus pending non-spam
+message-request DMs from people who are not friends and not blocked.
+Official Message Requests are DMs from people who are not friends
+([Discord Support](https://support.discord.com/hc/en-us/articles/7924992471191-Message-Requests)).
+A loaded request channel still counts when that person also has a pending friend
+request. A message-request id with no loaded channel or with no other recipient
+is not counted. Outgoing friend requests do not increment the friend addend.
+Spam-flagged incoming friend requests stay on the Pending list and do not
+increment the badge. Spam-folder DMs do not increment it and do not appear on
+the unread rail or the Direct Messages sidebar. The unofficial relationship field
+`is_spam_request` comes from the
+[docs.discord.food relationship object](https://docs.discord.food/resources/relationships#relationship-object).
+The unofficial channel fields `is_message_request` and `is_spam`, plus channel
+flag `IS_SPAM` (`1 << 5`), come from the
+[docs.discord.food channel object](https://docs.discord.food/resources/channel#channel-object).
+READY, CHANNEL_CREATE, and CHANNEL_UPDATE fill the channel inbox sets.
+RELATIONSHIP_ADD, RELATIONSHIP_UPDATE, and RELATIONSHIP_REMOVE update the
+incoming friend-request spam set. This change does not add a Message Requests
+or Spam inbox.
+
+Unread private conversations on the rail sort by latest known activity, newest first.
+An active DM call stays visible and pinned at the top. The rail keeps at most 15 rows
+after that sort.
+
 ### Friend requests (September 12, 2026)
 
 Friends now includes Add Friend and Pending, with searchable incoming/outgoing lists,
@@ -1167,3 +1195,21 @@ updates Discord's real account preference for its server-generated notifications
 The scheduled-event alert above means an event started, not a locally fabricated
 advance reminder. [Notification center research](https://docs.discord.food/resources/notification-center).
 Offline parser, reducer and HTTP checks are not evidence of live Discord delivery.
+
+## Thread participants — September 15, 2026
+
+Opening a thread's People pane now requests the documented
+[List Thread Members](https://docs.discord.com/developers/resources/channel#list-thread-members)
+route with `with_member=true&limit=100`, rather than requiring an ordinary guild
+member-list identity. The pane shows joined thread participants, not the parent
+channel's member list. This is a snapshot of the first 100 participants; reopening
+the pane refreshes it, and failed reads retain Reload people. There is no background
+pagination or thread-member subscription. Missing presence remains unknown.
+
+Requests use the existing authenticated REST client. Closing/replacing the member
+view cancels the previous read; session, channel, request and permission checks
+reject retired replies. Responses are bounded to 512 KiB on the wire and 100
+members / 128 KiB retained metadata. Optional-view capacity failures do not end
+the account session. Synthetic tests and native offline screenshots cover the
+loading path, not live service acceptance. The documented endpoint has application
+intent restrictions; normal-account interoperability remains unofficial/unverified.

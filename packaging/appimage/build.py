@@ -37,13 +37,13 @@ def build(root, version):
         stage_payload(root, appdir)
         shutil.copyfile("packaging/appimage/AppRun", appdir / "AppRun")
         (appdir / "AppRun").chmod(0o755)
-        shutil.copyfile("packaging/linux/serein.desktop", appdir / "org.serein.desktop.desktop")
+        shutil.copyfile("packaging/linux/serein.desktop", appdir / "cz.viceverse.serein.desktop")
         shutil.copyfile("packaging/linux/hicolor/256x256/apps/serein.png", appdir / "serein.png")
         doc = appdir / "usr/share/doc/serein"
         shutil.copyfile("packaging/appimage/README.md", doc / "AppImage-README.md")
         shutil.copyfile("packaging/appimage/RUNTIME-LICENSE", doc / "licenses/AppImage-runtime.txt")
         (doc / "AppImage-host-libraries.txt").write_text(libraries, encoding="utf-8")
-        subprocess.run(["desktop-file-validate", str(appdir / "org.serein.desktop.desktop")], check=True)
+        subprocess.run(["desktop-file-validate", str(appdir / "cz.viceverse.serein.desktop")], check=True)
         candidate = temporary / f"serein-{version}-Linux-X64.AppImage"
         subprocess.run([str(appimagetool), "--runtime-file", str(runtime),
                         "--no-appstream", str(appdir), str(candidate)], check=True,

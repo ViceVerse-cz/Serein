@@ -4,18 +4,26 @@ No Discord logos, proprietary fonts or copied client assets are bundled. The int
 |---|---|---:|---|
 | `fonts/NotoSansCJKjp-Regular.otf` | 2.004 | 16,467,736 | © 2014–2021 Adobe; [OFL 1.1](fonts/NotoSansCJK-LICENSE.txt) |
 | `fonts/NotoSansArabic.ttf` | 2.012 | 844,676 | Copyright 2022 The Noto Project Authors; [OFL 1.1](fonts/NotoSansArabic-OFL.txt) |
-| `fonts/Inter-Regular.otf` | 3.19 | 258,992 | Copyright (c) 2016-2020 The Inter Project Authors; [OFL 1.1](fonts/Inter-OFL.txt) |
-| `fonts/Inter-Medium.otf` | 3.19 | 269,692 | Copyright (c) 2016-2020 The Inter Project Authors; [OFL 1.1](fonts/Inter-OFL.txt) |
-| `fonts/Inter-SemiBold.otf` | 3.19 | 270,760 | Copyright (c) 2016-2020 The Inter Project Authors; [OFL 1.1](fonts/Inter-OFL.txt) |
+| `fonts/Inter-Regular.ttf` | 3.19 (hinted) | 680,240 | Copyright (c) 2016-2020 The Inter Project Authors; [OFL 1.1](fonts/Inter-OFL.txt) |
+| `fonts/Inter-Medium.ttf` | 3.19 (hinted) | 694,512 | Copyright (c) 2016-2020 The Inter Project Authors; [OFL 1.1](fonts/Inter-OFL.txt) |
+| `fonts/Inter-SemiBold.ttf` | 3.19 (hinted) | 710,040 | Copyright (c) 2016-2020 The Inter Project Authors; [OFL 1.1](fonts/Inter-OFL.txt) |
 
 Downloaded September 10, 2026 from pinned upstream sources:
 
 - [Noto CJK font](https://github.com/notofonts/noto-cjk/blob/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf), [license](https://github.com/notofonts/noto-cjk/blob/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/LICENSE). SHA-256: `68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5`.
 - [Noto Sans Arabic font](https://github.com/google/fonts/blob/334b789e33413f3aba4264d9aa6c97f7b94c5a2f/ofl/notosansarabic/NotoSansArabic%5Bwdth%2Cwght%5D.ttf), [license](https://github.com/google/fonts/blob/334b789e33413f3aba4264d9aa6c97f7b94c5a2f/ofl/notosansarabic/OFL.txt). The upstream variable-font filename is shortened locally; font bytes are unchanged. SHA-256: `63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e`.
 
-- [Inter 3.19](https://github.com/rsms/inter/tree/v3.19/docs/font-files) static OTF instances `Inter-Regular.otf`, `Inter-Medium.otf`, `Inter-SemiBold.otf` and [license](https://github.com/rsms/inter/blob/v3.19/LICENSE.txt), fetched through the jsDelivr GitHub mirror of that tag on September 10, 2026. SHA-256: Regular `a7e791e8f5a0fb02b65663f7fca73e1d1ca9543f772ad480cbd76f4e3fe3f8cc`, Medium `99dab2bdcb613c4c8264000a94351d1227f74dc95a86d1249493aeee0c0179c4`, SemiBold `8c1990b6012254ea2b487161697d107357dd0ee55811cfd91c8c11227bbef457`.
+- [Inter 3.19](https://github.com/rsms/inter/releases/tag/v3.19) static TrueType instances `Inter-Regular.ttf`, `Inter-Medium.ttf`, `Inter-SemiBold.ttf`, taken from the `Inter Hinted for Windows/Desktop/` directory of the official `Inter-3.19.zip` release archive (SHA-256 `150ab6230d1762a57bebf35dfc04d606ff91598a31d785f7f100356ecdcc0032`), re-fetched September 15, 2026. The archive's `LICENSE.txt` is byte-identical to the bundled `fonts/Inter-OFL.txt`. SHA-256: Regular `529be850e06f62f8904f22bda77e45bde4834498fdbec4ff4201fa3177447a3a`, Medium `6df88fcb83ac96582350f801355c6eff55f15710093e9627fb431caa40521151`, SemiBold `2de533bda937a063c595b07c6bd9b70c8c5087d0649a1c8330f7ac11fcc05602`.
 
-The five font blobs total **18,111,856 bytes (17.27 MiB)**, below the 18 MiB asset ceiling asserted by `cargo test -p ui bundled_fallbacks`. This raw size is separate from compressed distribution size, font-parser/layout memory and GPU glyph-atlas allocations. Package the license files and third-party copyright notices with the executable.
+  These are the **hinted** builds. Upstream ships Inter twice: CFF outlines without
+  TrueType instructions, and these `ttfautohint`-generated TrueType builds. egui rasterizes
+  glyphs itself and only grid-fits stems when a face carries its own instructions, so the
+  CFF originals rendered effectively unhinted and read as blurry at 1x scale, where most
+  Windows and Linux desktops run ([#200](https://github.com/ViceVerse-cz/Serein/issues/200)).
+  The instructions cost ~1.3 MB. The glyph designs and advance widths are unchanged, so text
+  layout and line breaking are unaffected.
+
+The five font blobs total **19,397,204 bytes (18.50 MiB)**, below the 20 MiB asset ceiling asserted by `cargo test -p ui bundled_fallbacks`. This raw size is separate from compressed distribution size, font-parser/layout memory and GPU glyph-atlas allocations. Package the license files and third-party copyright notices with the executable.
 
 The focused test checks egui glyph availability for synthetic Japanese kana/kanji, simplified/traditional Chinese, Korean, Arabic, Latin and combining accents in both font families. It does not prove complete Unicode coverage, correct Arabic shaping/bidirectional editing, actual IME behavior, screen-reader behavior, or platform rendering. The single CJK face uses Japanese regional Han forms; locale-specific forms and extended emoji remain incomplete. Fallback glyphs in code blocks are not guaranteed to have the primary monospace font's cell width.
 

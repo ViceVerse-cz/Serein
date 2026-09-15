@@ -804,9 +804,16 @@ mod tests {
 			participants: vec![entry(2, 20)],
 		});
 		assert!(state.voice.active.is_none());
-		assert!(state.select(Id(20)).is_none());
+		assert!(matches!(
+			state.select(Id(20)),
+			Some(crate::Command::History {
+				channel: Id(20),
+				..
+			})
+		));
 		assert_eq!(state.selected, Some(Id(20)));
-		assert!(!state.history_pending);
+		assert!(state.history_pending);
+		assert!(state.voice.active.is_none());
 		state.apply_voice(Event::Snapshot {
 			guild: None,
 			partial: true,

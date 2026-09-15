@@ -4,11 +4,42 @@ use crate::{
 	auth::{AuthState, Failure},
 };
 use model::Id;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const MAX_RELATIONSHIPS: usize = 4000;
 pub const MAX_RELATIONSHIP_BYTES: usize = 128 * 1024;
 pub const MAX_FRIEND_BYTES: usize = 2 * 1024 * 1024;
+
+fn replace_id_set(
+	dest: &mut BTreeSet<Id>,
+	entries: Option<Vec<Id>>,
+	exclusive: Option<&mut BTreeSet<Id>>,
+	capacity: &'static str,
+	invalid: &'static str,
+) -> Result<(), &'static str> {
+	let Some(entries) = entries else {
+		dest.clear();
+		return Ok(());
+	};
+	if entries.len() > MAX_RELATIONSHIPS
+		|| entries.capacity() * size_of::<Id>() > MAX_RELATIONSHIP_BYTES
+	{
+		return Err(capacity);
+	}
+	let mut next = BTreeSet::new();
+	for id in entries {
+		if id.0 == 0 || !next.insert(id) {
+			return Err(invalid);
+		}
+	}
+	if let Some(exclusive) = exclusive {
+		for id in &next {
+			exclusive.remove(id);
+		}
+	}
+	*dest = next;
+	Ok(())
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum Action {
@@ -63,6 +94,21 @@ pub enum Event {
 		user: Id,
 		blocked: bool,
 	},
+	MessageRequests(Option<Vec<Id>>),
+	MessageRequest {
+		channel: Id,
+		pending: bool,
+	},
+	MessageSpams(Option<Vec<Id>>),
+	MessageSpam {
+		channel: Id,
+		spam: bool,
+	},
+	RequestSpams(Option<Vec<Id>>),
+	RequestSpam {
+		user: Id,
+		spam: bool,
+	},
 	Written {
 		action: Action,
 		request: u64,
@@ -79,6 +125,9 @@ pub struct Actions {
 	friends: BTreeMap<Id, (model::User, String)>,
 	friends_known: bool,
 	relationships: BTreeMap<Id, bool>,
+	message_requests: BTreeSet<Id>,
+	spam_directs: BTreeSet<Id>,
+	spam_requests: BTreeSet<Id>,
 	known: bool,
 	view: u64,
 	sequence: u64,
@@ -156,6 +205,103 @@ impl State {
 			.requests
 			.values()
 			.filter(|(u, _, _)| self.user_blocked(u.id) == Some(false))
+	}
+	fn stranger_message_request(&self, channel: &model::Channel) -> bool {
+		let mut other = false;
+		for user in &channel.recipients {
+			if self.user_actions.friends.contains_key(&user.id)
+				|| self.user_blocked(user.id) == Some(true)
+			{
+				return false;
+			}
+			other = true;
+		}
+		other
+	}
+	pub fn home_request_parts(&self) -> (u32, u32) {
+		let friends = self
+			.pending_friends()
+			.filter(|(user, _, incoming)| {
+				*incoming && !self.user_actions.spam_requests.contains(&user.id)
+			})
+			.count();
+		let messages = self
+			.user_actions
+			.message_requests
+			.iter()
+			.filter(|channel| {
+				self.channel(**channel)
+					.is_some_and(|channel| self.stranger_message_request(channel))
+			})
+			.count();
+		(
+			u32::try_from(friends).unwrap_or(u32::MAX),
+			u32::try_from(messages).unwrap_or(u32::MAX),
+		)
+	}
+	pub fn home_request_count(&self) -> u32 {
+		let (friends, messages) = self.home_request_parts();
+		friends.saturating_add(messages)
+	}
+	pub(crate) fn forget_direct_inbox(&mut self, channel: Id) {
+		self.user_actions.message_requests.remove(&channel);
+		self.user_actions.spam_directs.remove(&channel);
+	}
+	pub(crate) fn message_request_pending(&self, channel: Id) -> bool {
+		self.user_actions.message_requests.contains(&channel)
+	}
+	pub fn spam_direct(&self, channel: Id) -> bool {
+		self.user_actions.spam_directs.contains(&channel)
+	}
+	fn set_message_request(&mut self, channel: Id, pending: bool) -> Result<(), &'static str> {
+		if channel.0 == 0 {
+			return Err("Invalid message request");
+		}
+		if pending {
+			if !self.user_actions.message_requests.contains(&channel)
+				&& self.user_actions.message_requests.len() >= MAX_RELATIONSHIPS
+			{
+				return Err("Message requests exceed safe capacity");
+			}
+			self.user_actions.spam_directs.remove(&channel);
+			self.user_actions.message_requests.insert(channel);
+		} else {
+			self.user_actions.message_requests.remove(&channel);
+		}
+		Ok(())
+	}
+	fn set_spam_request(&mut self, user: Id, spam: bool) -> Result<(), &'static str> {
+		if user.0 == 0 {
+			return Err("Invalid friend request");
+		}
+		if spam {
+			if !self.user_actions.spam_requests.contains(&user)
+				&& self.user_actions.spam_requests.len() >= MAX_RELATIONSHIPS
+			{
+				return Err("Friend requests exceed safe capacity");
+			}
+			self.user_actions.spam_requests.insert(user);
+		} else {
+			self.user_actions.spam_requests.remove(&user);
+		}
+		Ok(())
+	}
+	fn set_spam_direct(&mut self, channel: Id, spam: bool) -> Result<(), &'static str> {
+		if channel.0 == 0 {
+			return Err("Invalid message request");
+		}
+		if spam {
+			if !self.user_actions.spam_directs.contains(&channel)
+				&& self.user_actions.spam_directs.len() >= MAX_RELATIONSHIPS
+			{
+				return Err("Message requests exceed safe capacity");
+			}
+			self.user_actions.message_requests.remove(&channel);
+			self.user_actions.spam_directs.insert(channel);
+		} else {
+			self.user_actions.spam_directs.remove(&channel);
+		}
+		Ok(())
 	}
 	pub fn friend_requests_known(&self) -> bool {
 		self.user_actions.requests_known
@@ -558,10 +704,13 @@ impl State {
 					} else if let Some(entry) = self.user_actions.requests.get_mut(&user) {
 						entry.2 = incoming;
 					}
-				} else if let Some((_, name, _)) = self.user_actions.requests.remove(&user)
-					&& self.user_actions.last_requested.as_deref() == Some(&name)
-				{
-					self.user_actions.last_requested = None;
+				} else {
+					self.user_actions.spam_requests.remove(&user);
+					if let Some((_, name, _)) = self.user_actions.requests.remove(&user)
+						&& self.user_actions.last_requested.as_deref() == Some(&name)
+					{
+						self.user_actions.last_requested = None;
+					}
 				}
 			}
 			Event::FriendProfile(profile) => {
@@ -700,6 +849,42 @@ impl State {
 					}
 					self.user_actions.known = true;
 				}
+			}
+			Event::MessageRequests(entries) => {
+				replace_id_set(
+					&mut self.user_actions.message_requests,
+					entries,
+					Some(&mut self.user_actions.spam_directs),
+					"Message requests exceed safe capacity",
+					"Message requests contain invalid or duplicate channels",
+				)?;
+			}
+			Event::MessageRequest { channel, pending } => {
+				self.set_message_request(channel, pending)?;
+			}
+			Event::MessageSpams(entries) => {
+				replace_id_set(
+					&mut self.user_actions.spam_directs,
+					entries,
+					Some(&mut self.user_actions.message_requests),
+					"Message requests exceed safe capacity",
+					"Message requests contain invalid or duplicate channels",
+				)?;
+			}
+			Event::MessageSpam { channel, spam } => {
+				self.set_spam_direct(channel, spam)?;
+			}
+			Event::RequestSpams(entries) => {
+				replace_id_set(
+					&mut self.user_actions.spam_requests,
+					entries,
+					None,
+					"Friend requests exceed safe capacity",
+					"Friend requests contain invalid or duplicate users",
+				)?;
+			}
+			Event::RequestSpam { user, spam } => {
+				self.set_spam_request(user, spam)?;
 			}
 			Event::Relationship { user, blocked } => {
 				self.store_relationship(user, blocked)?;

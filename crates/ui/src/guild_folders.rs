@@ -1,4 +1,3 @@
-use crate::design::LazyHover;
 use crate::{
 	MessagingUi, design,
 	icons::{self, Icon},
@@ -18,7 +17,6 @@ pub(super) struct FolderUi {
 	editor: Option<(u64, String, [u8; 3])>,
 	generation: u64,
 	key: Option<(u64, u64)>,
-	// Fixed-size rows: bounded to (MAX_NAV + MAX_FOLDERS) * size_of::<Row>() bytes.
 	rows: Box<[Row]>,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -73,7 +71,6 @@ impl FolderUi {
 				.filter(|g| !seen.contains(&g.id))
 				.map(|g| (Item::Server(g.id), None)),
 		);
-		// Validated settings contain each guild only once, plus at most MAX_FOLDERS headers.
 		self.rows = rows
 			.into_iter()
 			.take(client_core::MAX_NAV + model::guild_folders::MAX_FOLDERS)
@@ -140,7 +137,6 @@ fn edit(settings: &mut Settings, edit: Edit) {
 		}
 		Edit::Shift(item, down) => {
 			if let Some(i) = entry(settings, item) {
-				// Servers inside a folder reorder within that folder.
 				if let Item::Server(id) = item
 					&& settings.folders[i].id.is_some()
 				{
@@ -243,6 +239,55 @@ fn drop_target(
 	Some((item, rect, placement))
 }
 
+const MOSAIC: usize = 4;
+const MOSAIC_PREVIEW: f32 = 40.0;
+const MOSAIC_ICON: f32 = 19.0;
+const MOSAIC_GAP: f32 = 2.0;
+
+fn folder_mosaic<'a>(folder: &Folder, state: &'a State) -> [Option<&'a model::Guild>; MOSAIC] {
+	let mut slots = [None; MOSAIC];
+	let mut filled = 0;
+	for id in &folder.guild_ids {
+		if filled == MOSAIC {
+			break;
+		}
+		if let Some(guild) = state.guild(*id) {
+			slots[filled] = Some(guild);
+			filled += 1;
+		}
+	}
+	slots
+}
+
+fn mosaic_cell(tile: egui::Rect, index: usize) -> egui::Rect {
+	let preview = egui::Rect::from_center_size(tile.center(), egui::Vec2::splat(MOSAIC_PREVIEW));
+	let col = (index % 2) as f32;
+	let row = (index / 2) as f32;
+	let pitch = MOSAIC_ICON + MOSAIC_GAP;
+	egui::Rect::from_min_size(
+		preview.min + egui::vec2(col * pitch, row * pitch),
+		egui::Vec2::splat(MOSAIC_ICON),
+	)
+}
+
+fn paint_folder_tile(
+	ui: &mut egui::Ui,
+	avatars: &mut crate::avatars::Avatars,
+	rect: egui::Rect,
+	fill: Color32,
+	mosaic: [Option<&model::Guild>; MOSAIC],
+	demo: bool,
+) {
+	let plate = (rect.width().min(rect.height()) * 0.29) as u8;
+	ui.painter().rect_filled(rect, plate, fill);
+	let circle = (MOSAIC_ICON * 0.5).ceil() as u8;
+	for (index, guild) in mosaic.into_iter().enumerate() {
+		if let Some(guild) = guild {
+			avatars.paint_guild(ui, guild, mosaic_cell(rect, index), demo, circle);
+		}
+	}
+}
+
 impl MessagingUi {
 	pub(super) fn server_folders(
 		&mut self,
@@ -251,7 +296,6 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 	) {
 		if self.folder_ui.generation != state.generation {
-			// Folders the owner left open survive a restart and a session change.
 			self.folder_ui = FolderUi {
 				generation: state.generation,
 				expanded: self.expanded_folders.iter().copied().collect(),
@@ -304,7 +348,7 @@ impl MessagingUi {
 							let Some(guild) = state.guilds.iter().find(|g| g.id == id) else {
 								return;
 							};
-							let response = self.avatars.show_guild(
+							let response = self.avatars.show_guild_rail(
 								ui,
 								guild,
 								self.guild == Some(id),
@@ -326,6 +370,7 @@ impl MessagingUi {
 									colors.base,
 								);
 							}
+							design::rail_name(&response, &guild.name);
 							if response.clicked() {
 								self.guild = Some(id);
 								if let Some(command) = state.select_guild(id) {
@@ -351,15 +396,28 @@ impl MessagingUi {
 								Sense::click_and_drag(),
 							);
 							let open = self.folder_ui.expanded.contains(&id);
-							if !open {
-								ui.painter().rect_filled(rect, 12, colors.raised);
+							if open {
+								icons::paint(
+									ui.painter(),
+									Icon::FolderOpen,
+									rect.shrink(9.0),
+									tint,
+								);
+							} else {
+								let fill = if response.hovered() || response.has_focus() {
+									tint.lerp_to_gamma(Color32::WHITE, 0.1)
+								} else {
+									tint
+								};
+								paint_folder_tile(
+									ui,
+									&mut self.avatars,
+									rect,
+									fill,
+									folder_mosaic(folder, state),
+									state.demo,
+								);
 							}
-							icons::paint(
-								ui.painter(),
-								if open { Icon::FolderOpen } else { Icon::Folder },
-								rect.shrink(9.0),
-								tint,
-							);
 
 							let unread = folder
 								.guild_ids
@@ -399,13 +457,14 @@ impl MessagingUi {
 							});
 							if response.clicked() {
 								self.folder_ui.toggle(id);
-								// Bounded mirror of the open set, saved as a device preference.
 								self.expanded_folders =
 									self.folder_ui.expanded.iter().copied().take(256).collect();
 							}
-							response.on_hover_text_with(|| {
-								format!("{name} · {} servers", folder.guild_ids.len())
-							})
+							design::rail_name(
+								&response,
+								format!("{name} · {} servers", folder.guild_ids.len()),
+							);
+							response
 						}
 					};
 					response.context_menu(|ui| {
@@ -556,7 +615,6 @@ impl MessagingUi {
 				}
 			}
 		}
-		// Keep the moving icon in the rail; its original slot stays available for layout.
 		if let Some(item) = egui::DragAndDrop::payload::<Item>(ui.ctx())
 			&& let Some(pointer) = ui.ctx().pointer_hover_pos()
 		{
@@ -584,18 +642,20 @@ impl MessagingUi {
 								.and_then(|s| s.folders.iter().find(|f| f.id == Some(id)))
 							{
 								let rgb = folder.color.unwrap_or(design::DEFAULT_PRIMARY_RGB);
+								let tint = Color32::from_rgb(
+									(rgb >> 16) as u8,
+									(rgb >> 8) as u8,
+									rgb as u8,
+								);
 								let (rect, _) =
 									ui.allocate_exact_size(egui::Vec2::splat(48.0), Sense::hover());
-								ui.painter().rect_filled(rect, 12, colors.raised);
-								icons::paint(
-									ui.painter(),
-									Icon::Folder,
-									rect.shrink(9.0),
-									Color32::from_rgb(
-										(rgb >> 16) as u8,
-										(rgb >> 8) as u8,
-										rgb as u8,
-									),
+								paint_folder_tile(
+									ui,
+									&mut self.avatars,
+									rect,
+									tint,
+									folder_mosaic(folder, state),
+									state.demo,
 								);
 							}
 						}
