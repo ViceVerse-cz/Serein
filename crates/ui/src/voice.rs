@@ -42,7 +42,7 @@ impl MessagingUi {
 		let (rect, response) = ui
 			.push_id(channel.id, |ui| {
 				ui.allocate_exact_size(
-					egui::vec2(ui.available_width(), 34.0),
+					egui::vec2(ui.available_width(), 31.0),
 					if viewable {
 						egui::Sense::click()
 					} else {
@@ -84,7 +84,7 @@ impl MessagingUi {
 			(row.width() - 40.0 - elapsed_width).max(10.0),
 		);
 		let name_rect = egui::Rect::from_min_size(
-			egui::pos2(row.left() + 34.0, row.center().y - name.size().y * 0.5),
+			egui::pos2(row.left() + 31.0, row.center().y - name.size().y * 0.5),
 			egui::vec2(row.width() - 40.0 - elapsed_width, name.size().y),
 		);
 		ui.painter()
@@ -139,7 +139,7 @@ impl MessagingUi {
 			("voice-participant", entry.channel, entry.participant.user),
 			|ui| {
 				ui.horizontal(|ui| {
-					ui.set_min_height(34.0);
+					ui.set_min_height(31.0);
 					ui.spacing_mut().item_spacing.x = 6.0;
 					let avatar = if let Some(user) = user {
 						self.avatars.show(ui, user, 28.0, state.demo)

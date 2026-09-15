@@ -64,7 +64,7 @@ fn main() {
 	ui::design::apply(&ctx);
 	assert_eq!(
 		ctx.style_of(egui::Theme::Dark).text_styles[&egui::TextStyle::Body].size,
-		15.0
+		13.0
 	);
 	assert_eq!(
 		ctx.style_of(egui::Theme::Dark)
@@ -72,13 +72,13 @@ fn main() {
 			.widgets
 			.inactive
 			.corner_radius,
-		4.into()
+		8.into()
 	);
 	ui::design::set_extension_theme(None);
 	ui::design::apply(&ctx);
 	assert_eq!(
 		ctx.style_of(egui::Theme::Dark).spacing.button_padding,
-		egui::vec2(12.0, 6.0)
+		egui::vec2(11.0, 5.0)
 	);
 	println!("Theme API debug check passed: legacy package, both appearances, bounds and reset.");
 }

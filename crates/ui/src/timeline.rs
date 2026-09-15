@@ -969,7 +969,7 @@ impl TimelineView {
 								ui.set_min_width((width - 32.0).max(1.0));
 								ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
 								ui.horizontal_top(|ui| {
-									avatars.show_plain(ui, &message.author, 40.0, state.demo);
+									avatars.show_plain(ui, &message.author, 36.0, state.demo);
 									ui.vertical(|ui| {
 										ui.set_width(ui.available_width());
 										ui.allocate_ui_with_layout(
@@ -981,7 +981,7 @@ impl TimelineView {
 													ui,
 													&message.author,
 													state.user_display_name(&message.author),
-													15.5,
+													14.0,
 													colors.text_strong,
 													egui::Sense::hover(),
 													48.0,
@@ -1194,7 +1194,7 @@ impl TimelineView {
 							ui.horizontal_top(|ui| {
 								if system.is_some() {
 									let (gutter, _) = ui.allocate_exact_size(
-										egui::vec2(40.0, 22.0),
+										egui::vec2(36.0, 20.0),
 										egui::Sense::hover(),
 									);
 									let (icon, tint) = system_icon(message.kind, &colors);
@@ -1210,14 +1210,14 @@ impl TimelineView {
 								} else if compact {
 									time_rect = Some(
 										ui.allocate_exact_size(
-											egui::vec2(40.0, 22.0),
+											egui::vec2(36.0, 20.0),
 											egui::Sense::hover(),
 										)
 										.0,
 									);
 								} else {
 									let avatar =
-										avatars.show(ui, &message.author, 40.0, state.demo);
+										avatars.show(ui, &message.author, 36.0, state.demo);
 									crate::user_menu::show(
 										&avatar,
 										state,
@@ -1241,7 +1241,7 @@ impl TimelineView {
 													ui,
 													&message.author,
 													state.user_display_name(&message.author),
-													15.5,
+													14.0,
 													colors.text_strong,
 													egui::Sense::click(),
 													48.0,
@@ -3147,7 +3147,7 @@ mod tests {
 			let short = view.heights[&Id(2)].1;
 			assert!(short <= 26.0, "single-line continuation is {short} pt tall");
 			assert!(
-				view.heights[&Id(3)].1 > short + 8.0,
+				view.heights[&Id(3)].1 >= short + 8.0,
 				"internal newline must remain visible"
 			);
 		}

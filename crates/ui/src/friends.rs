@@ -99,7 +99,7 @@ impl MessagingUi {
 			let label = ui.label("Username");
 			let input = ui
 				.add_sized(
-					[ui.available_width(), 48.0],
+					[ui.available_width(), 43.0],
 					egui::TextEdit::singleline(&mut self.friends.username)
 						.hint_text("Enter a username")
 						.char_limit(33)
@@ -239,11 +239,11 @@ impl MessagingUi {
 					"friend-requests",
 					egui::ScrollArea::vertical().auto_shrink([false, false]),
 				)
-				.show_rows(ui, 72.0, rows.len(), |ui, range| {
+				.show_rows(ui, 64.0, rows.len(), |ui, range| {
 					for (user, name, incoming) in &rows[range] {
 						ui.push_id(user.id.0, |ui| {
 							let (rect, _) = ui.allocate_exact_size(
-								vec2(ui.available_width(), 72.0),
+								vec2(ui.available_width(), 58.0),
 								egui::Sense::hover(),
 							);
 							ui.painter().hline(
@@ -258,7 +258,7 @@ impl MessagingUi {
 							);
 							// The friends surfaces keep their own row actions; the profile
 							// stays behind the context menu instead of every click.
-							self.avatars.show_plain(&mut row, user, 40.0, state.demo);
+							self.avatars.show_plain(&mut row, user, 36.0, state.demo);
 							let width = (row.available_width() - 88.0).max(1.0);
 							row.allocate_ui_with_layout(
 								vec2(width, 44.0),
@@ -268,7 +268,7 @@ impl MessagingUi {
 										egui::Label::new(design::semibold(
 											ui,
 											state.user_display_name(user),
-											16.0,
+											14.5,
 										))
 										.truncate(),
 									);
@@ -325,7 +325,7 @@ impl MessagingUi {
 			.inner_margin(egui::Margin::symmetric(24, 8))
 			.show(ui, |ui| {
 				ui.horizontal_wrapped(|ui| {
-					ui.set_min_height(32.0);
+					ui.set_min_height(28.0);
 					ui.spacing_mut().item_spacing.x = 16.0;
 					icons::inline(ui, Icon::People, 22.0, colors.muted);
 					ui.label(design::semibold(ui, "Friends", 16.0));
@@ -376,10 +376,10 @@ impl MessagingUi {
 				egui::Frame::new()
 					.stroke(egui::Stroke::new(1.0, colors.border))
 					.corner_radius(8)
-					.inner_margin(egui::Margin::symmetric(12, 8))
+					.inner_margin(egui::Margin::symmetric(10, 6))
 					.show(ui, |ui| {
 						ui.horizontal(|ui| {
-							icons::inline(ui, Icon::Search, 18.0, colors.muted);
+							icons::inline(ui, Icon::Search, 16.0, colors.muted);
 							let search = ui.add(
 								egui::TextEdit::singleline(&mut self.friends.query)
 									.id(egui::Id::unique("friends-search"))
@@ -435,7 +435,7 @@ impl MessagingUi {
 						"friends-list",
 						egui::ScrollArea::vertical().auto_shrink([false, false]),
 					)
-					.show_rows(ui, 64.0, self.friends.list.len(), |ui, range| {
+					.show_rows(ui, 58.0, self.friends.list.len(), |ui, range| {
 						for index in range {
 							let Some(user) = state.friend(self.friends.list[index]) else {
 								continue;
@@ -444,7 +444,7 @@ impl MessagingUi {
 								let (status, custom, activities) =
 									profiles::presence(state, user.id, None);
 								let (rect, response) = ui.allocate_exact_size(
-									vec2(ui.available_width(), 64.0),
+									vec2(ui.available_width(), 58.0),
 									egui::Sense::click(),
 								);
 								ui.painter().hline(
@@ -471,13 +471,13 @@ impl MessagingUi {
 								);
 								let mut avatar_ui = ui.new_child(egui::UiBuilder::new().max_rect(
 									egui::Rect::from_min_size(
-										rect.min + vec2(0.0, 12.0),
-										vec2(40.0, 40.0),
+										rect.min + vec2(0.0, 11.0),
+										vec2(36.0, 36.0),
 									),
 								));
 								let avatar =
 									self.avatars
-										.show_plain(&mut avatar_ui, user, 40.0, state.demo);
+										.show_plain(&mut avatar_ui, user, 36.0, state.demo);
 								if let Some(status) = status {
 									design::presence_dot(
 										ui,

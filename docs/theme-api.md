@@ -41,17 +41,17 @@ font sizes are whole logical pixels, before the user's display scale.
 
 | Field | Default | Allowed range |
 | --- | --- | --- |
-| `body_size` | 15 | 10–28 |
-| `heading_size` | 20 | 12–40 |
-| `button_size` | 14 | 10–28 |
-| `small_size` | 12 | 10–28 |
-| `monospace_size` | 14 | 10–28 |
-| `item_spacing` | [8, 8] | Each axis 0–24 |
-| `button_padding` | [12, 6] | Each axis 0–24 |
-| `control_height` | 32 | 24–56 |
-| `widget_radius` | 4 | 0–24 |
-| `window_radius` | 8 | 0–24 |
-| `menu_radius` | 8 | 0–24 |
+| `body_size` | 13 | 10–28 |
+| `heading_size` | 18 | 12–40 |
+| `button_size` | 13 | 10–28 |
+| `small_size` | 11 | 10–28 |
+| `monospace_size` | 13 | 10–28 |
+| `item_spacing` | [7, 7] | Each axis 0–24 |
+| `button_padding` | [11, 5] | Each axis 0–24 |
+| `control_height` | 29 | 24–56 |
+| `widget_radius` | 8 | 0–24 |
+| `window_radius` | 12 | 0–24 |
+| `menu_radius` | 12 | 0–24 |
 
 For example, this `theme` value provides a flatter, roomier appearance:
 

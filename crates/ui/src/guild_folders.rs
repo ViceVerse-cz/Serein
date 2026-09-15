@@ -392,7 +392,7 @@ impl MessagingUi {
 							let tint =
 								Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
 							let (rect, response) = ui.allocate_exact_size(
-								egui::Vec2::splat(48.0),
+								egui::Vec2::splat(40.0),
 								Sense::click_and_drag(),
 							);
 							let open = self.folder_ui.expanded.contains(&id);
@@ -620,7 +620,7 @@ impl MessagingUi {
 		{
 			let clip = ui.clip_rect();
 			let top = clip.top();
-			let bottom = (clip.bottom() - 48.0).max(top);
+			let bottom = (clip.bottom() - 40.0).max(top);
 			let position = egui::pos2(ui.max_rect().left(), (pointer.y - 24.0).clamp(top, bottom));
 			ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
 			egui::Area::new(egui::Id::unique("server-drag-preview"))
@@ -648,7 +648,7 @@ impl MessagingUi {
 									rgb as u8,
 								);
 								let (rect, _) =
-									ui.allocate_exact_size(egui::Vec2::splat(48.0), Sense::hover());
+									ui.allocate_exact_size(egui::Vec2::splat(40.0), Sense::hover());
 								paint_folder_tile(
 									ui,
 									&mut self.avatars,

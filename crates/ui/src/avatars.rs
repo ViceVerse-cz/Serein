@@ -605,7 +605,7 @@ impl Avatars {
 		selected: bool,
 		demo: bool,
 	) -> egui::Response {
-		self.guild_avatar(ui, guild, selected, demo, 48.0, true)
+		self.guild_avatar(ui, guild, selected, demo, 40.0, true)
 	}
 	pub fn show_guild_rail(
 		&mut self,
@@ -614,7 +614,7 @@ impl Avatars {
 		selected: bool,
 		demo: bool,
 	) -> egui::Response {
-		self.guild_avatar(ui, guild, selected, demo, 48.0, false)
+		self.guild_avatar(ui, guild, selected, demo, 40.0, false)
 	}
 	pub fn paint_guild(
 		&mut self,

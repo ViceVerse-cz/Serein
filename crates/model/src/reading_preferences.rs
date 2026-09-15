@@ -12,7 +12,7 @@ impl Default for ReadingPreferences {
 	fn default() -> Self {
 		Self {
 			zoom_percent: 100,
-			sidebar_width: 236,
+			sidebar_width: 212,
 			show_members: true,
 			animate_gifs: false,
 			hide_media_links: true,
@@ -22,7 +22,7 @@ impl Default for ReadingPreferences {
 }
 impl ReadingPreferences {
 	pub fn is_valid(self) -> bool {
-		(80..=150).contains(&self.zoom_percent) && (190..=360).contains(&self.sidebar_width)
+		(70..=160).contains(&self.zoom_percent) && (190..=360).contains(&self.sidebar_width)
 	}
 }
 
@@ -34,9 +34,9 @@ mod tests {
 	fn defaults_and_inclusive_bounds() {
 		let defaults = ReadingPreferences::default();
 		assert_eq!(defaults.zoom_percent, 100);
-		assert_eq!(defaults.sidebar_width, 236);
+		assert_eq!(defaults.sidebar_width, 212);
 		assert!(defaults.show_members && defaults.is_valid());
-		for zoom_percent in [0, 79, 80, 150, 151, u16::MAX] {
+		for zoom_percent in [0, 69, 70, 160, 161, u16::MAX] {
 			for sidebar_width in [0, 189, 190, 360, 361, u16::MAX] {
 				for show_members in [false, true] {
 					let preferences = ReadingPreferences {
@@ -49,7 +49,7 @@ mod tests {
 					};
 					assert_eq!(
 						preferences.is_valid(),
-						matches!(zoom_percent, 80 | 150) && matches!(sidebar_width, 190 | 360)
+						matches!(zoom_percent, 70 | 160) && matches!(sidebar_width, 190 | 360)
 					);
 				}
 			}

@@ -39,7 +39,7 @@ fn link(
 	strong: bool,
 ) {
 	let target = url.and_then(external_url);
-	let mut text = RichText::new(label);
+	let mut text = RichText::new(label).size(if strong { 13.5 } else { 12.0 });
 	if strong {
 		text = text.strong();
 	}
@@ -386,8 +386,16 @@ pub fn show(
 			let frame = egui::Frame::new()
 				.fill(colors.raised)
 				.corner_radius(5)
-				.inner_margin(12)
+				.inner_margin(10)
 				.show(ui, |ui| {
+					ui.style_mut().text_styles.insert(
+						egui::TextStyle::Body,
+						egui::FontId::proportional(12.5),
+					);
+					ui.style_mut().text_styles.insert(
+						egui::TextStyle::Small,
+						egui::FontId::proportional(11.0),
+					);
 					ui.set_width((width - 24.0).max(1.0));
 					// Size independently of the remaining timeline viewport.
 					ui.set_max_height(640.0);
@@ -484,7 +492,7 @@ pub fn show(
 									for (offset, column) in columns.iter_mut().enumerate() {
 										let f = &embed.fields[field + offset];
 										column.add(
-											egui::Label::new(RichText::new(&f.name).strong())
+											egui::Label::new(RichText::new(&f.name).size(12.5).strong())
 												.wrap()
 												.selectable(true),
 										);
@@ -550,7 +558,7 @@ pub fn show(
 									}
 									ui.add(
 										egui::Label::new(
-											RichText::new(&footer.text).small().color(colors.muted),
+											RichText::new(&footer.text).size(11.5).color(colors.muted),
 										)
 										.wrap()
 										.selectable(true),

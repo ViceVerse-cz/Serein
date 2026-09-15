@@ -388,7 +388,7 @@ impl MessagingUi {
 			ui.label(RichText::new("No conversations available here.").color(colors.muted));
 		}
 		let dm_list = self.guild.is_none();
-		let row_height = if dm_list { 44.0 } else { 34.0 };
+		let row_height = if dm_list { 40.0 } else { 31.0 };
 		let row_count = self.channel_cache.rows.len().max(usize::from(dm_list));
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
@@ -570,7 +570,7 @@ impl MessagingUi {
 									}
 								} else if let Some(user) = channel.recipients.first() {
 									let avatar =
-										self.avatars.show(&mut inner, user, 32.0, state.demo);
+										self.avatars.show(&mut inner, user, 28.0, state.demo);
 									if channel.kind == 1
 										&& let Some(status) =
 											crate::profiles::presence(state, user.id, None).0
@@ -640,13 +640,13 @@ impl MessagingUi {
 									.then(|| format!("{} Members", channel.recipients.len().max(1)))
 							};
 							let name =
-								egui::Label::new(design::medium(ui, label, 15.0).color(name_color))
+								egui::Label::new(design::medium(ui, label, 13.5).color(name_color))
 									.truncate()
 									.selectable(false);
 							if let Some(subtitle) = subtitle {
 								inner.vertical(|ui| {
 									ui.spacing_mut().item_spacing.y = 0.0;
-									ui.add_space(((row.height() - 34.0) * 0.5).max(0.0));
+									ui.add_space(((row.height() - 31.0) * 0.5).max(0.0));
 									ui.add(name);
 									ui.add(
 										egui::Label::new(
@@ -1207,7 +1207,7 @@ mod tests {
 					scroll.offset.y = offset;
 					scroll.store(&ctx, id);
 					view.channel_list(ui, &mut state);
-					assert_eq!(ui.spacing().item_spacing.y, 8.0);
+					assert_eq!(ui.spacing().item_spacing.y, 7.0);
 				},
 			);
 			let y = output.shapes.iter().find_map(|shape| match &shape.shape {

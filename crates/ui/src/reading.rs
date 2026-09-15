@@ -26,7 +26,7 @@ impl MessagingUi {
 		if std::mem::take(&mut self.reading_zoom_pending) {
 			return;
 		}
-		let percent = (ctx.zoom_factor() * 100.0).round().clamp(80.0, 150.0) as u16;
+		let percent = (ctx.zoom_factor() * 100.0).round().clamp(70.0, 160.0) as u16;
 		self.reading_preferences.zoom_percent = percent;
 		let zoom = f32::from(percent) / 100.0;
 		if (ctx.zoom_factor() - zoom).abs() > 0.001 {
@@ -38,11 +38,11 @@ impl MessagingUi {
 	pub(crate) fn zoom_row(&mut self, ui: &mut egui::Ui, value: &mut ReadingPreferences) {
 		let colors = design::palette(ui);
 		ui.horizontal(|ui| {
-			ui.label(design::medium(ui, "Zoom", 15.0).color(colors.text_strong));
+			ui.label(design::medium(ui, "Zoom", 13.5).color(colors.text_strong));
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				let mut zoom = self.reading_zoom_draft.unwrap_or(value.zoom_percent);
 				let response = ui.add(
-					egui::Slider::new(&mut zoom, 80..=150)
+					egui::Slider::new(&mut zoom, 70..=160)
 						.suffix("%")
 						.trailing_fill(true),
 				);
@@ -70,7 +70,7 @@ impl MessagingUi {
 			self.zoom_row(ui, &mut value);
 			ui.separator();
 			ui.horizontal(|ui| {
-				ui.label(design::medium(ui, "Sidebar width", 15.0).color(colors.text_strong));
+				ui.label(design::medium(ui, "Sidebar width", 13.5).color(colors.text_strong));
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.add(
 						egui::Slider::new(&mut value.sidebar_width, 190..=360)
@@ -312,7 +312,7 @@ mod tests {
 		view.apply_reading_preferences(
 			&ctx,
 			ReadingPreferences {
-				zoom_percent: 151,
+				zoom_percent: 161,
 				..custom
 			},
 		);
@@ -409,7 +409,13 @@ mod tests {
 		sidebar_frame(&mut view, 900.0, vec![]);
 		view.sync_reading_zoom(&ctx);
 		sidebar_frame(&mut view, 900.0, vec![]);
-		assert_eq!(view.reading_preferences.zoom_percent, 150);
-		assert!((ctx.zoom_factor() - 1.5).abs() < 0.001);
+		assert_eq!(view.reading_preferences.zoom_percent, 160);
+		assert!((ctx.zoom_factor() - 1.6).abs() < 0.001);
+		ctx.set_zoom_factor(0.5);
+		sidebar_frame(&mut view, 900.0, vec![]);
+		view.sync_reading_zoom(&ctx);
+		sidebar_frame(&mut view, 900.0, vec![]);
+		assert_eq!(view.reading_preferences.zoom_percent, 70);
+		assert!((ctx.zoom_factor() - 0.7).abs() < 0.001);
 	}
 }
