@@ -169,7 +169,7 @@ mod native {
 			ActivateAudioInterfaceAsync(
 				VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
 				&IAudioClient::IID,
-				Some(&variant),
+				Some(&*variant),
 				&completion,
 			)?
 		};
