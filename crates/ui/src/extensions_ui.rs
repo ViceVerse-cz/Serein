@@ -1175,27 +1175,6 @@ impl ExtensionUi {
 			.truncate(),
 		)
 		.on_hover_text(&entry.manifest.name);
-		if self.themes
-			&& entry.enabled
-			&& !entry.cleanup_pending
-			&& ui
-				.add_enabled(
-					!self.busy && self.theme_editor.is_none(),
-					egui::Button::new(if entry.local_theme {
-						"Edit theme"
-					} else {
-						"Duplicate and edit"
-					}),
-				)
-				.clicked()
-		{
-			self.queue(
-				ui.ctx(),
-				ExtensionRequest::EditTheme {
-					id: entry.manifest.id.clone(),
-				},
-			);
-		}
 		ui.spacing_mut().item_spacing.y = 2.0;
 		ui.add(
 			egui::Label::new(
@@ -1273,9 +1252,37 @@ impl ExtensionUi {
 				.iter()
 				.filter(|action| action.surface == Surface::Panel)
 				.collect();
-			let count =
-				1 + usize::from(entry.update_available) + usize::from(!panel_actions.is_empty());
+			let count = 1
+				+ usize::from(self.themes)
+				+ usize::from(entry.update_available)
+				+ usize::from(!panel_actions.is_empty());
 			let each = ((ui.available_width() - 8.0 * (count - 1) as f32) / count as f32).max(1.0);
+			if self.themes
+				&& ui
+					.add_enabled_ui(!self.busy && self.theme_editor.is_none(), |ui| {
+						card_button(
+							ui,
+							if entry.local_theme {
+								"Edit theme"
+							} else {
+								"Copy & edit"
+							},
+							egui::vec2(each, FOOTER_HEIGHT),
+							neutral,
+							outline,
+							colors.text_strong,
+						)
+					})
+					.inner
+					.clicked()
+			{
+				self.queue(
+					ui.ctx(),
+					ExtensionRequest::EditTheme {
+						id: entry.manifest.id.clone(),
+					},
+				);
+			}
 			if entry.update_available
 				&& ui
 					.add_enabled_ui(!self.busy, |ui| {
@@ -1322,11 +1329,7 @@ impl ExtensionUi {
 			}
 			if card_button(
 				ui,
-				if count == 1 {
-					"Disable & delete data"
-				} else {
-					"Disable"
-				},
+				"Disable",
 				egui::vec2(ui.available_width().max(1.0), FOOTER_HEIGHT),
 				neutral,
 				outline,
@@ -2214,6 +2217,43 @@ mod tests {
 			shop.theme_editor.as_ref().unwrap().package.manifest.id,
 			"local-cover"
 		);
+	}
+	#[test]
+	fn theme_card_keeps_edit_and_disable_side_by_side() {
+		for width in [320.0, 900.0] {
+			let ctx = egui::Context::default();
+			let mut shop = ExtensionUi {
+				themes: true,
+				..Default::default()
+			};
+			let mut theme = entry();
+			theme.manifest.kind = ExtensionKind::Theme;
+			theme.manifest.id = "local-card".into();
+			theme.enabled = true;
+			theme.local_theme = true;
+			theme.theme_preview = Some(extensions::Theme::default());
+			shop.set_entries(vec![theme]);
+			frame(&ctx, &mut shop, width, vec![]);
+			let labels = frame(&ctx, &mut shop, width, vec![]);
+			let edit = labels
+				.iter()
+				.find(|(text, _)| text == "Edit theme")
+				.unwrap()
+				.1;
+			let disable = labels.iter().find(|(text, _)| text == "Disable").unwrap().1;
+			assert!(
+				edit.right() < disable.left() && (edit.center().y - disable.center().y).abs() < 4.0
+			);
+			assert!(
+				!labels
+					.iter()
+					.any(|(text, _)| text == "Disable & delete data")
+			);
+			click(&ctx, &mut shop, width, &labels, "Disable");
+			assert!(shop.requests.iter().any(
+				|request| matches!(request, ExtensionRequest::Disable { id } if id == "local-card")
+			));
+		}
 	}
 	fn frame(
 		ctx: &egui::Context,
