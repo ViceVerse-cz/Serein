@@ -101,6 +101,9 @@ first invalid field and shows a nearby error.
 The selected image has its own thumbnail. Customize on a bundled or installed theme
 creates a new unreviewed identity; bundled originals do not require installation first.
 Local themes retain their Edit theme action and save to the same identity.
+Installed inactive themes show Use theme, which switches and persists the active
+appearance without reinstalling. A filled Active badge identifies the current theme;
+Disable remains a separate action that removes the installed theme and its data.
 Clicking a bundled or installed theme thumbnail temporarily previews it on the normal app.
 Back to themes restores the saved appearance and discards the temporary preview draft;
 Customize restores the saved appearance and opens that draft in the editor.

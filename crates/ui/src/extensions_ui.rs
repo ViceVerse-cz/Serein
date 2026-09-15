@@ -1315,23 +1315,31 @@ impl ExtensionUi {
 							)
 							.clicked();
 					}
-					if entry.cleanup_pending || entry.enabled {
-						ui.label(
-							egui::RichText::new(if entry.cleanup_pending {
-								"Cleanup pending"
-							} else if active {
-								"Active"
-							} else {
-								"Installed"
+					if entry.cleanup_pending {
+						badge(ui, "Cleanup pending", colors.warning, colors.raised);
+					} else if entry.enabled && active {
+						badge(ui, "Active", colors.accent_text, colors.accent);
+					} else if entry.enabled
+						&& ui
+							.add_enabled_ui(!self.busy, |ui| {
+								card_button(
+									ui,
+									"Use theme",
+									egui::vec2(88.0, 24.0),
+									colors.accent,
+									egui::Stroke::NONE,
+									colors.accent_text,
+								)
 							})
-							.size(11.0)
-							.color(if entry.cleanup_pending {
-								colors.warning
-							} else if active {
-								colors.accent
-							} else {
-								colors.muted
-							}),
+							.inner
+							.on_hover_text("Apply this installed theme to the app.")
+							.clicked()
+					{
+						self.queue(
+							ui.ctx(),
+							ExtensionRequest::SelectTheme {
+								id: Some(entry.manifest.id.clone()),
+							},
 						);
 					}
 					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -2502,6 +2510,26 @@ mod tests {
 			assert!(
 				edit.right() < disable.left() && (edit.center().y - disable.center().y).abs() < 4.0
 			);
+			let use_theme = labels
+				.iter()
+				.find(|(text, _)| text == "Use theme")
+				.unwrap()
+				.1;
+			assert!(use_theme.bottom() < edit.top() && use_theme.right() <= width);
+			shop.busy = true;
+			click(&ctx, &mut shop, width, &labels, "Use theme");
+			assert!(shop.requests.is_empty());
+			shop.busy = false;
+			let labels = frame(&ctx, &mut shop, width, vec![]);
+			click(&ctx, &mut shop, width, &labels, "Use theme");
+			assert!(
+				matches!(shop.requests.pop(), Some(ExtensionRequest::SelectTheme { id: Some(id) }) if id == "local-card")
+			);
+			// The desktop confirms selection only after the existing persistence job succeeds.
+			shop.active_theme = Some("local-card".into());
+			let labels = frame(&ctx, &mut shop, width, vec![]);
+			assert!(labels.iter().any(|(text, _)| text == "Active"));
+			assert!(!labels.iter().any(|(text, _)| text == "Use theme"));
 			assert!(
 				!labels
 					.iter()

@@ -5,7 +5,8 @@ captures or live Discord evidence. Windows, 125% scale, 1400 x 1000 logical view
 
 - `gallery-before.png`: verified pre-change example from `1f5349b`; through baseline
   `fd0cf4e` only documentation changed. Bundled originals offer Install theme only.
-- `gallery-after.png`: same fixture with Customize available before installation.
+- `gallery-after.png`: same fixture with Customize available before installation,
+  Use theme on an installed inactive theme, and a filled Active badge.
 - `app-preview.png`: new `--theme-preview` fixture loads bundled BlackTheme into the
   production full-app preview/return flow. The example consumes appearance requests
   locally; it has no account or service adapters. This is a new-state illustration,
@@ -20,5 +21,7 @@ cargo run --locked -p serein --features demo --example profile_preview -- --demo
 The light/narrow render was also inspected locally. Behavioral tests exercise
 Customize before installation, preview requests, returning to the gallery, retaining
 the editable copy, all bundled theme loads, and rejecting corrupt installed packages.
+The gallery interaction test also checks Use theme, disabling it during work, and the
+confirmed Active state at narrow and wide widths while retaining Edit/Disable actions.
 Native keyboard/scroll interaction and matched release CPU/memory/frame-time evidence
 remain unavailable: native desktop control/capture is disabled and Orca is absent.
