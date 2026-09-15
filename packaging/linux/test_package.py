@@ -75,6 +75,8 @@ class NativePackageTest(unittest.TestCase):
             self.assertEqual(packaging.output("dpkg-deb", "--field", str(artifact), "Package"), "serein")
             self.assertIn("gstreamer1.0-plugins-good", packaging.output(
                 "dpkg-deb", "--field", str(artifact), "Depends").split(", "))
+            self.assertIn("gstreamer1.0-pulseaudio", packaging.output(
+                "dpkg-deb", "--field", str(artifact), "Depends").split(", "))
             listing = packaging.output("dpkg-deb", "--contents", str(artifact))
             for excluded in ["debug.log", "stale.log", "stale.deb", "previous.deb", "stale-nested.log"]:
                 self.assertNotIn(excluded, listing)

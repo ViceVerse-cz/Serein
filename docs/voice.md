@@ -306,7 +306,7 @@ suppression. These signals do not establish Krisp-equivalent real-world quality.
 
 ## Screen sharing
 
-In a connected call, select **Share your screen**, choose a display/window, 720p or 1080p, 15/30/60 fps and cursor visibility, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. System audio is not included; call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
+In a connected call, select **Share your screen**, choose a display/window, 720p or 1080p, 15/30/60 fps, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
 
 Capture uses macOS 14+ ScreenCaptureKit (screen-recording permission in System Settings) or Windows Graphics Capture. Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
@@ -318,13 +318,43 @@ active encoder and software fallback. GPU buffers stay native where driver/plugi
 negotiation permits; zero-copy is not guaranteed, especially across GPUs. Local preview
 is capped at 640×360/10 fps and suspended when minimized or viewing another channel.
 ScreenCast-capable portal backends are required on both Wayland and X11; there is no
-separate X11 capture fallback. System audio and AV1/H.265 sending are not included.
+separate X11 capture fallback. AV1/H.265 sending is not included.
+
+System audio defaults off on Linux and Windows. It captures the default output's entire
+mix, even when sharing one window, including notifications and Serein's call audio.
+To avoid sending the call back to participants, route call playback to a different output
+in Audio settings, or leave system audio off. macOS keeps its existing ScreenCaptureKit
+capture, which excludes Serein's own audio.
+
+Linux uses GStreamer's `pulsesrc` with the explicit `@DEFAULT_MONITOR@` device through
+PulseAudio or PipeWire's PulseAudio server. It refuses a non-monitor destination and
+never falls back to the microphone. The ScreenCast portal grants video only; audio uses
+the desktop audio access already available to the app (including Flatpak's existing
+PulseAudio socket permission). An event-driven audio worker keeps audio independent
+of video encoding and isolates native PulseAudio calls from the portal worker.
+Native driver/server calls can delay audio retirement; portal permission is revoked
+before waiting for that worker, and another share waits for complete retirement.
+Windows uses CPAL's native WASAPI output loopback;
+the default output must accept stereo 48 kHz float capture. An unsupported format or
+capture error fails visibly; turn audio off to share video alone. Restart sharing after
+changing the default output. Neither adapter installs a virtual device or records to disk.
+
+Both feed the existing stream RTC connection with 48 kHz stereo Opus at 128 kbps and
+DAVE/transport encryption, independently of microphone mute. Capture output is gated
+by secure readiness. The transport keeps at most 100 ms pending, sends one 20 ms frame
+per tick, and clears queued/pending PCM on encryption transitions or a 100 ms stall.
+Capture buffers carry their encryption generation; late buffers from an earlier
+generation are discarded even if a pause and restart happen between worker iterations.
+Stop sharing and call teardown release audio together with the screen capture.
 
 The offline debug command is `cargo run --offline --locked -p discord-voice --example linux_screen`.
 It compiles the actual portal/pipeline/worker modules on Linux or macOS with GStreamer,
 checks pre-cancellation without D-Bus, and exercises synthetic preview, the secure-readiness
-gate and software H.264. It never captures a desktop. Native Linux portal interaction,
+gate, stereo audio, bounded slow-consumer behavior, oversized-buffer rejection and software
+H.264. It never captures a desktop or opens an audio device. Native Linux portal interaction,
 VA-API/NVENC, package installation, performance and Discord viewing remain unverified.
+Windows output loopback, native Linux monitor selection and actual remote sound also
+require owner-controlled tests; synthetic samples do not establish those outcomes.
 
 The native demo (`cargo run --locked -p serein -- --demo --demo-voice`) exposes a synthetic picker without OS source discovery or capture. Live screen sharing requires the same owner-controlled login gate as voice testing. See [compatibility and limits](discord-compatibility.md#outgoing-screen-sharing--september-11-2026).
 

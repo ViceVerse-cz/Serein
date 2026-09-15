@@ -1,6 +1,7 @@
 //! Linux ownership: one portal session and one bounded media pipeline, no recorder.
 use super::{
-	EncodedFrame, MAX_ENCODED_BYTES, Settings, SourceId, encode_pixels, encoder,
+	AudioChunk, EncodedFrame, MAX_ENCODED_BYTES, Settings, SourceId, audio_linux, encode_pixels,
+	encoder,
 	gstreamer::{self as capture, Capture, Mode},
 	portal_linux::Portal,
 	preview_frame,
@@ -12,7 +13,7 @@ use std::{
 	os::fd::AsRawFd,
 	sync::{
 		Arc, Mutex,
-		atomic::{AtomicBool, Ordering},
+		atomic::{AtomicBool, AtomicU64, Ordering},
 	},
 	time::{Duration, Instant},
 };
@@ -24,6 +25,8 @@ pub(super) fn run(
 	ready: Arc<AtomicBool>,
 	keyframe: Arc<AtomicBool>,
 	send: tokio::sync::mpsc::Sender<EncodedFrame>,
+	audio_send: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
+	audio_epoch: Arc<AtomicU64>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	status: Arc<Mutex<&'static str>>,
 	preview_visible: Arc<AtomicBool>,
@@ -41,7 +44,16 @@ pub(super) fn run(
 	runtime.block_on(async {
 		let mut portal = Portal::open(settings.cursor, &stop).await?;
 		let origin = Instant::now();
+		let mut audio = None;
 		let result = async {
+			if stop.load(Ordering::Acquire) || send.is_closed() {
+				return Ok(());
+			}
+			audio = audio_send
+				.map(|send| {
+					audio_linux::Worker::start(send, stop.clone(), ready.clone(), audio_epoch)
+				})
+				.transpose()?;
 			for mode in Mode::ALL {
 				if stop.load(Ordering::Acquire) || send.is_closed() {
 					return Ok(());
@@ -95,6 +107,12 @@ pub(super) fn run(
 					}
 					if portal.is_closed() {
 						return Err("The desktop stopped screen sharing");
+					}
+					if let Some(audio) = &mut audio
+						&& let Some(result) = audio.result()
+					{
+						return result
+							.and(Err("System audio stopped; share again or turn off audio"));
 					}
 					if pipeline.failed() {
 						break;
@@ -214,7 +232,12 @@ pub(super) fn run(
 			Err("No screen encoder could start; check PipeWire, portal and GStreamer plugins")
 		}
 		.await;
+		ready.store(false, Ordering::Release);
+		stop.store(true, Ordering::Release);
+		drop(send);
 		portal.close().await;
+		// Revoke the portal before waiting for a possibly blocked native audio driver.
+		drop(audio);
 		result
 	})
 }
