@@ -1,5 +1,18 @@
 # Discord compatibility — checked 2026-09-10
 
+## Forum post context menu — September 15, 2026
+
+Forum/media post cards and sidebar entries support right-click and Shift+F10.
+The menu reuses read acknowledgements and device-local favorites, and adds
+follow/unfollow, close/reopen, lock/unlock, title editing, pin/unpin and confirmed
+deletion through Discord's channel and thread-member routes. Owner/Manage Threads
+permissions gate edits; locking, pinning and deletion require Manage Threads.
+Thread mute durations and notification levels use the unofficial
+`PATCH /channels/{id}/thread-members/@me/settings` route for followed posts.
+One bounded, session-only details snapshot is loaded on demand. Archived cards
+reuse the existing single transient channel admission without selecting the post.
+The fast-pass debug check is synthetic; live interoperability remains unverified.
+
 ## Group DM calling — September 15, 2026
 
 Group conversations now share one-to-one call discovery, ringing, Answer/Decline/Join,

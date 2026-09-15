@@ -1,5 +1,13 @@
 # Local storage policy and audit
 
+## Forum post context menu (September 15, 2026)
+
+Post actions share the existing single pending channel-operation slot and retain
+one fixed-size post-details snapshot. REST responses are capped at 64 KiB; the
+title draft is bounded to 100 characters / 400 UTF-8 bytes. Favorites reuse the
+existing account-isolated preference storage. Post metadata and editor drafts
+remain session-only, with no new database table, queue or background polling.
+
 ## Theme maker and embedded backgrounds (September 15, 2026)
 
 Editor saves reuse the device-wide themes directory and active selection record;

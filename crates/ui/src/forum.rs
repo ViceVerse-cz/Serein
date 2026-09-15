@@ -49,6 +49,10 @@ impl ForumUi {
 		forum: Id,
 		commands: &mut Vec<Command>,
 		session: &mut crate::scroll::Session,
+		(menu, view): (
+			&mut crate::channel_menu::ChannelMenu,
+			crate::shortcuts::ShortcutView<'_>,
+		),
 	) {
 		if self.forum != Some(forum) {
 			self.forum = Some(forum);
@@ -139,13 +143,20 @@ impl ForumUi {
 							});
 						}
 						for post in active {
-							if card(ui, post, false, now).clicked() {
+							if archived.iter().any(|row| row.id == post.id) {
+								continue;
+							}
+							let response = card(ui, post, false, now);
+							menu.context(&response, state, post, view);
+							if response.clicked() {
 								open = Some(Open::Active(post.id));
 							}
 						}
 						posts_request = posts_footer(ui, state, forum);
 						for post in archived {
-							if card(ui, post, true, now).clicked() {
+							let response = card(ui, post, true, now);
+							menu.context(&response, state, post, view);
+							if response.clicked() {
 								open = Some(Open::Archived(post.id));
 							}
 						}
@@ -625,6 +636,10 @@ mod tests {
 					Id(26),
 					&mut commands,
 					&mut crate::scroll::Session::default(),
+					(
+						&mut crate::channel_menu::ChannelMenu::default(),
+						crate::shortcuts::ShortcutView::new(&Default::default(), true),
+					),
 				)
 			});
 			assert!(
@@ -639,6 +654,10 @@ mod tests {
 					Id(26),
 					&mut commands,
 					&mut crate::scroll::Session::default(),
+					(
+						&mut crate::channel_menu::ChannelMenu::default(),
+						crate::shortcuts::ShortcutView::new(&Default::default(), true),
+					),
 				)
 			});
 			assert!(commands.is_empty());
@@ -651,6 +670,10 @@ mod tests {
 					Id(26),
 					&mut commands,
 					&mut crate::scroll::Session::default(),
+					(
+						&mut crate::channel_menu::ChannelMenu::default(),
+						crate::shortcuts::ShortcutView::new(&Default::default(), true),
+					),
 				)
 			});
 			let draft = forum.draft.as_mut().unwrap();
@@ -693,6 +716,10 @@ mod tests {
 					Id(26),
 					&mut commands,
 					&mut crate::scroll::Session::default(),
+					(
+						&mut crate::channel_menu::ChannelMenu::default(),
+						crate::shortcuts::ShortcutView::new(&Default::default(), true),
+					),
 				)
 			});
 			assert!(
@@ -724,6 +751,10 @@ mod tests {
 					Id(26),
 					&mut commands,
 					&mut crate::scroll::Session::default(),
+					(
+						&mut crate::channel_menu::ChannelMenu::default(),
+						crate::shortcuts::ShortcutView::new(&Default::default(), true),
+					),
 				)
 			});
 			let Some(Command::ForumPosts {
@@ -743,6 +774,10 @@ mod tests {
 					Id(26),
 					&mut commands,
 					&mut crate::scroll::Session::default(),
+					(
+						&mut crate::channel_menu::ChannelMenu::default(),
+						crate::shortcuts::ShortcutView::new(&Default::default(), true),
+					),
 				)
 			});
 			assert!(commands.is_empty(), "A pending page is never re-requested");
@@ -774,6 +809,10 @@ mod tests {
 					Id(26),
 					&mut commands,
 					&mut crate::scroll::Session::default(),
+					(
+						&mut crate::channel_menu::ChannelMenu::default(),
+						crate::shortcuts::ShortcutView::new(&Default::default(), true),
+					),
 				)
 			});
 			assert!(commands.is_empty(), "A loaded forum stays quiet");

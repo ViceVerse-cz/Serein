@@ -2,7 +2,7 @@
 use client_core::{
 	Event, State,
 	auth::Failure,
-	channel_actions::{Action, Edit, Mute, Outcome},
+	channel_actions::{Action, Edit, Mute, Outcome, PostDetails},
 };
 use model::Id;
 
@@ -31,6 +31,47 @@ pub fn execute(
 						..Edit::default()
 					}
 				}))
+			}
+			action @ (Action::PostLoad
+			| Action::PostFollow(_)
+			| Action::PostArchive(_)
+			| Action::PostLock(_)
+			| Action::PostRename(_)
+			| Action::PostPin(_)
+			| Action::PostMute(_)
+			| Action::PostNotifications(_)) => {
+				let mut details = state.post_details(channel).copied().unwrap_or(PostDetails {
+					owner: state.user.as_ref().map(|u| u.id),
+					level: 3,
+					..PostDetails::default()
+				});
+				let mut updated = source.clone();
+				match action {
+					Action::PostFollow(value) => details.followed = value,
+					Action::PostArchive(value) => details.archived = value,
+					Action::PostLock(value) => details.locked = value,
+					Action::PostRename(value) => updated.name = value,
+					Action::PostPin(value) => details.pinned = value,
+					Action::PostNotifications(value) => details.level = value,
+					Action::PostMute(value) => {
+						details.muted = value != Mute::Unmute;
+						details.mute_until = if let Mute::For(seconds) = value {
+							Some(
+								std::time::SystemTime::now()
+									.duration_since(std::time::UNIX_EPOCH)
+									.unwrap_or_default()
+									.as_secs() as i64 + i64::from(seconds),
+							)
+						} else {
+							None
+						};
+					}
+					_ => {}
+				}
+				Outcome::Post {
+					channel: Box::new(updated),
+					details,
+				}
 			}
 			Action::Delete => Outcome::Deleted,
 			Action::Mute(mute) => Outcome::Preferences {

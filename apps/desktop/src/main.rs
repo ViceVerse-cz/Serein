@@ -17,6 +17,8 @@ mod game_activity;
 mod group_icon;
 mod notification_runtime;
 mod notification_sounds;
+#[cfg(feature = "demo")]
+mod post_menu_demo;
 mod reading_settings;
 mod screen;
 #[cfg(feature = "demo")]
@@ -65,6 +67,11 @@ fn main() -> eframe::Result {
 				std::process::exit(2);
 			})
 		});
+	#[cfg(feature = "demo")]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-post-menu") {
+		post_menu_demo::check();
+		return Ok(());
+	}
 	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-extensions") {
 		demo_check_extensions();

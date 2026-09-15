@@ -126,6 +126,11 @@ impl State {
 	}
 
 	pub fn open_archived_thread(&mut self, id: Id) -> Option<Command> {
+		self.admit_archived_thread(id)?;
+		self.select(id)
+	}
+
+	pub fn admit_archived_thread(&mut self, id: Id) -> Option<()> {
 		let view = self.archives.as_ref()?;
 		if view.loading || !self.can_archive(view.parent, view.kind) {
 			return None;
@@ -148,7 +153,7 @@ impl State {
 				self.archives.as_mut()?.error = Some("Thread conflicts with current navigation");
 				return None;
 			}
-			return self.select(id);
+			return Some(());
 		}
 		let retained = self
 			.channels
@@ -181,7 +186,7 @@ impl State {
 		self.channels.push(thread);
 		self.invalidate_navigation();
 		self.archived_thread = Some(id);
-		self.select(id)
+		Some(())
 	}
 
 	pub(super) fn retire_archived_thread(&mut self, keep: Option<Id>) {

@@ -40,6 +40,7 @@ mod messaging_permissions;
 mod notification_settings;
 mod notifications;
 mod pending;
+mod post_menu;
 mod profiles;
 /// Synthetic global profile used exclusively by the desktop's offline command adapter.
 #[cfg(any(test, feature = "demo"))]
@@ -2880,8 +2881,18 @@ impl MessagingUi {
 					}
 				}
 				if selected_forum {
-					self.forum
-						.show(ui, state, channel, &mut commands, &mut self.scroll);
+					let view = shortcuts::ShortcutView::new(
+						&self.channel_preferences,
+						self.shortcuts_available(state),
+					);
+					self.forum.show(
+						ui,
+						state,
+						channel,
+						&mut commands,
+						&mut self.scroll,
+						(&mut self.channel_menu, view),
+					);
 					return;
 				}
 				egui::Panel::bottom("composer")

@@ -1,6 +1,6 @@
 //! Documented channel administration routes and isolated unofficial user settings writes.
 use crate::{DiscordApi, Failure};
-use client_core::channel_actions::{Action, Edit, Mute, Outcome};
+use client_core::channel_actions::{Action, Edit, Mute, Outcome, PostDetails};
 use model::{Id, permissions};
 use reqwest::Method;
 use serde_json::{Value, json};
@@ -67,6 +67,85 @@ fn thread_reference_result(bytes: &[u8], guild: Id, channel: Id) -> Result<Outco
 	Ok(Outcome::Channel {
 		channel: Box::new(channel),
 		permissions: None,
+	})
+}
+// GET channel includes the current user's member object for joined threads.
+fn post_result(bytes: &[u8], guild: Id, channel: Id) -> Result<Outcome, Failure> {
+	let Outcome::Channel {
+		channel: target, ..
+	} = thread_reference_result(bytes, guild, channel)?
+	else {
+		unreachable!()
+	};
+	if target.kind != 11 {
+		return Err(Failure::Protocol);
+	}
+	let value: Value = discord_protocol::decode(bytes).map_err(|_| Failure::Protocol)?;
+	let owner = match value.get("owner_id") {
+		None | Some(Value::Null) => None,
+		Some(value) => {
+			Some(serde_json::from_value::<Id>(value.clone()).map_err(|_| Failure::Protocol)?)
+		}
+	};
+	if owner.is_some_and(|id| id.0 == 0) {
+		return Err(Failure::Protocol);
+	}
+	let flags = value
+		.get("flags")
+		.map_or(Some(0), Value::as_u64)
+		.ok_or(Failure::Protocol)?;
+	let member = match value.get("member") {
+		None | Some(Value::Null) => None,
+		Some(member) if member.is_object() => Some(member),
+		_ => return Err(Failure::Protocol),
+	};
+	if let Some(member) = member
+		&& let Some(id) = member.get("id")
+	{
+		let id: Id = serde_json::from_value(id.clone()).map_err(|_| Failure::Protocol)?;
+		if id != channel {
+			return Err(Failure::Protocol);
+		}
+	}
+	let member_flags = member
+		.map_or(Some(0), |m| m["flags"].as_u64())
+		.ok_or(Failure::Protocol)?;
+	let level = match member_flags & 14 {
+		0 => 3,
+		2 => 0,
+		4 => 1,
+		8 => 2,
+		_ => return Err(Failure::Protocol),
+	};
+	let muted = member
+		.and_then(|m| m.get("muted"))
+		.map_or(Some(false), Value::as_bool)
+		.ok_or(Failure::Protocol)?;
+	let mute_until = member
+		.and_then(|m| m.get("mute_config"))
+		.filter(|v| !v.is_null())
+		.map(|v| {
+			serde_json::from_value::<discord_protocol::notifications::MuteConfig>(v.clone())
+				.map_err(|_| Failure::Protocol)
+		})
+		.transpose()?
+		.and_then(|m| m.until());
+	Ok(Outcome::Post {
+		channel: target,
+		details: PostDetails {
+			owner,
+			archived: value["thread_metadata"]["archived"]
+				.as_bool()
+				.ok_or(Failure::Protocol)?,
+			locked: value["thread_metadata"]["locked"]
+				.as_bool()
+				.ok_or(Failure::Protocol)?,
+			pinned: flags & 2 != 0,
+			followed: member.is_some(),
+			muted,
+			level,
+			mute_until,
+		},
 	})
 }
 fn overwrites_from_value(value: &Value) -> Result<Option<Vec<permissions::Overwrite>>, Failure> {
@@ -194,6 +273,23 @@ impl DiscordApi {
 			.await?;
 		if *action == Action::Reference {
 			return thread_reference_result(&bytes, guild, channel);
+		}
+		if matches!(
+			action,
+			Action::PostLoad
+				| Action::PostFollow(_)
+				| Action::PostArchive(_)
+				| Action::PostLock(_)
+				| Action::PostRename(_)
+				| Action::PostPin(_)
+				| Action::PostMute(_)
+				| Action::PostNotifications(_)
+		) || (matches!(action, Action::Delete)
+			&& serde_json::from_slice::<Value>(&bytes)
+				.ok()
+				.is_some_and(|v| v["type"] == 11))
+		{
+			return self.post_action(guild, channel, action, &bytes).await;
 		}
 		let source = channel_value(&bytes, guild, Some(channel))?;
 		// Validate full overwrite metadata before copying it to a creation request.
@@ -345,6 +441,149 @@ impl DiscordApi {
 		}
 		Ok(outcome)
 	}
+	async fn post_action(
+		&self,
+		guild: Id,
+		channel: Id,
+		action: &Action,
+		bytes: &[u8],
+	) -> Result<Outcome, Failure> {
+		let initial = post_result(bytes, guild, channel)?;
+		let Outcome::Post {
+			channel: target,
+			details,
+		} = &initial
+		else {
+			unreachable!()
+		};
+		let parent = target.parent_id.ok_or(Failure::Protocol)?;
+		let parent_bytes = self
+			.request_limited(
+				Method::GET,
+				&format!("/channels/{parent}"),
+				None,
+				MAX_CHANNEL_BYTES,
+			)
+			.await?;
+		let parent_value = channel_value(&parent_bytes, guild, Some(parent))?;
+		if !matches!(parent_value["type"].as_u64(), Some(15 | 16)) {
+			return Err(Failure::Protocol);
+		}
+		if matches!(action, Action::PostLoad) {
+			return Ok(initial);
+		}
+		let source: Value = discord_protocol::decode(bytes).map_err(|_| Failure::Protocol)?;
+		let path = format!("/channels/{channel}");
+		let (method, write_path, body) = match action {
+			Action::PostFollow(follow) => {
+				if details.archived {
+					return Err(Failure::ProtocolAt(
+						"Reopen the post before changing follow settings",
+					));
+				}
+				(
+					if *follow { Method::PUT } else { Method::DELETE },
+					format!("{path}/thread-members/@me"),
+					None,
+				)
+			}
+			Action::PostArchive(archived) => (
+				Method::PATCH,
+				path.clone(),
+				Some(json!({"archived":archived})),
+			),
+			Action::PostLock(locked) => {
+				(Method::PATCH, path.clone(), Some(json!({"locked":locked})))
+			}
+			Action::PostRename(name) => (Method::PATCH, path.clone(), Some(json!({"name":name}))),
+			Action::PostPin(pinned) => {
+				let flags = source
+					.get("flags")
+					.map_or(Some(0), Value::as_u64)
+					.ok_or(Failure::Protocol)?;
+				(
+					Method::PATCH,
+					path.clone(),
+					Some(json!({"flags":if *pinned { flags | 2 } else { flags & !2 }})),
+				)
+			}
+			Action::Delete => (Method::DELETE, path.clone(), None),
+			Action::PostMute(_) | Action::PostNotifications(_) => {
+				if !details.followed {
+					return Err(Failure::ProtocolAt(
+						"Follow the post before changing its notifications",
+					));
+				}
+				// Unofficial normal-user route: https://docs.discord.food/resources/channel#modify-thread-settings
+				let body = match action {
+					Action::PostNotifications(level) => {
+						let flags = source["member"]["flags"]
+							.as_u64()
+							.ok_or(Failure::Protocol)?;
+						json!({"flags": (flags & !15) | match level {0 => 2, 1 => 4, 2 => 8, _ => 0}})
+					}
+					Action::PostMute(mute) => {
+						let seconds = if let Mute::For(seconds) = mute {
+							Some(*seconds)
+						} else {
+							None
+						};
+						let end = seconds
+							.map(|seconds| {
+								let until = SystemTime::now()
+									.duration_since(UNIX_EPOCH)
+									.unwrap_or_default()
+									.as_secs() + u64::from(seconds);
+								discord_protocol::pins::format_cursor(
+									i128::from(until) * 1_000_000_000,
+								)
+							})
+							.transpose()
+							.map_err(|_| Failure::Protocol)?;
+						json!({"muted": *mute != Mute::Unmute, "mute_config":{"end_time":end,"selected_time_window":seconds.map_or(-1,i64::from)}})
+					}
+					_ => unreachable!(),
+				};
+				(
+					Method::PATCH,
+					format!("{path}/thread-members/@me/settings"),
+					Some(body),
+				)
+			}
+			_ => return Err(Failure::Protocol),
+		};
+		let requested_until = body
+			.as_ref()
+			.and_then(|body| body.get("mute_config"))
+			.map(|config| {
+				serde_json::from_value::<discord_protocol::notifications::MuteConfig>(
+					config.clone(),
+				)
+				.map_err(|_| Failure::Protocol)
+			})
+			.transpose()?
+			.and_then(|config| config.until());
+		let response = self
+			.request_limited(method, &write_path, body, MAX_CHANNEL_BYTES)
+			.await
+			.map_err(write_failure)?;
+		if matches!(action, Action::Delete) {
+			thread_reference_result(&response, guild, channel).map_err(write_failure)?;
+			return Ok(Outcome::Deleted);
+		}
+		let refreshed = self
+			.request_limited(Method::GET, &path, None, MAX_CHANNEL_BYTES)
+			.await
+			.map_err(write_failure)?;
+		let outcome = post_result(&refreshed, guild, channel).map_err(write_failure)?;
+		if let (Action::PostMute(mute), Outcome::Post { details, .. }) = (action, &outcome)
+			&& *mute != Mute::Unmute
+			&& details.mute_until != requested_until
+		{
+			return Err(Failure::Ambiguous);
+		}
+		Ok(outcome)
+	}
 	async fn channel_notification_action(
 		&self,
 		guild: Id,
@@ -472,6 +711,41 @@ mod tests {
 			.await
 			.unwrap();
 		payload
+	}
+	#[test]
+	fn post_details_validate_thread_scope_and_member_flags() {
+		let mut value = json!({"id":"4","guild_id":"2","parent_id":"3","type":11,"name":"Post","owner_id":"7","flags":2,"thread_metadata":{"archived":false,"locked":true},"member":{"id":"4","flags":5,"muted":true}});
+		let result = post_result(&serde_json::to_vec(&value).unwrap(), Id(2), Id(4)).unwrap();
+		assert!(matches!(
+			result,
+			Outcome::Post {
+				details: PostDetails {
+					owner: Some(Id(7)),
+					followed: true,
+					pinned: true,
+					locked: true,
+					muted: true,
+					level: 1,
+					..
+				},
+				..
+			}
+		));
+		value["member"]["flags"] = 6.into();
+		assert!(post_result(&serde_json::to_vec(&value).unwrap(), Id(2), Id(4)).is_err());
+		value.as_object_mut().unwrap().remove("member");
+		assert!(matches!(
+			post_result(&serde_json::to_vec(&value).unwrap(), Id(2), Id(4)),
+			Ok(Outcome::Post {
+				details: PostDetails {
+					followed: false,
+					level: 3,
+					..
+				},
+				..
+			})
+		));
+		assert!(post_result(&serde_json::to_vec(&value).unwrap(), Id(9), Id(4)).is_err());
 	}
 	#[test]
 	fn thread_references_require_the_requested_guild_id_and_parent() {

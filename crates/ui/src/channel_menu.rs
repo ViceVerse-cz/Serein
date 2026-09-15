@@ -36,6 +36,7 @@ struct Dialog {
 
 #[derive(Default)]
 pub(super) struct ChannelMenu {
+	posts: crate::post_menu::PostMenu,
 	pub invite_requested: Option<(Id, Id)>,
 	pub shortcut_requested: Option<crate::shortcuts::Intent>,
 	requested: Option<(Id, Intent)>,
@@ -60,6 +61,14 @@ impl ChannelMenu {
 		view: ShortcutView<'_>,
 	) {
 		let Some(guild) = channel.guild else { return };
+		if channel.kind == 11 && channel.parent_id.is_some_and(|id| state.is_forum(id)) {
+			self.posts.context(response, state, channel, view);
+			if let Some(intent) = self.posts.shortcut_requested.take() {
+				self.shortcut_requested = Some(intent);
+			}
+			self.generation = state.generation;
+			return;
+		}
 		let colors = design::palette_for(&response.ctx);
 		user_menu::popup(
 			response,
@@ -291,6 +300,7 @@ impl ChannelMenu {
 			*self = Self::default();
 			return;
 		}
+		self.posts.show(ctx, state, active, commands);
 		if let Some((id, intent)) = self.requested.take()
 			&& let Some(channel) = state.channel(id)
 			&& let Some(guild) = channel.guild.filter(|g| Some(*g) == active)
@@ -761,7 +771,7 @@ fn toggle_row(ui: &mut egui::Ui, label: &str, value: &mut bool) -> egui::Respons
 	response
 }
 
-fn row(ui: &mut egui::Ui, label: &str, enabled: bool, danger: bool) -> egui::Response {
+pub(super) fn row(ui: &mut egui::Ui, label: &str, enabled: bool, danger: bool) -> egui::Response {
 	let colors = design::palette(ui);
 	ui.add_enabled(
 		enabled,
