@@ -270,7 +270,6 @@ impl Capture {
 		let content =
 			SCShareableContent::get().map_err(|_| "Screen recording permission denied")?;
 		let filter = match settings.source {
-			SourceId::Portal => return Err("The desktop screen picker is available only on Linux"),
 			SourceId::Display(id) => {
 				let display = content
 					.displays()
@@ -305,6 +304,8 @@ impl Capture {
 				}
 				SCContentFilter::create().with_window(&window).build()
 			}
+			#[allow(unreachable_patterns)] // Portal may be absent from platform-scoped models.
+			_ => return Err("The desktop screen picker is available only on Linux"),
 		};
 		let mut config = SCStreamConfiguration::new()
 			.with_width(settings.width)

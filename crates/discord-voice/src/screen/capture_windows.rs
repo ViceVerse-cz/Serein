@@ -188,7 +188,6 @@ impl Capture {
 			return Err("Invalid screen capture settings");
 		}
 		let mut capture = match settings.source {
-			SourceId::Portal => return Err("The desktop screen picker is available only on Linux"),
 			SourceId::Display(id) => {
 				let monitor = Monitor::enumerate()
 					.map_err(|_| "Displays could not be enumerated")?
@@ -205,6 +204,8 @@ impl Capture {
 					.ok_or("Selected window is no longer available")?;
 				start_item(settings, window, frames, stop.clone())
 			}
+			#[allow(unreachable_patterns)] // Portal may be absent from platform-scoped models.
+			_ => return Err("The desktop screen picker is available only on Linux"),
 		}?;
 		if let Some(send) = audio {
 			capture.audio = Some(audio::Audio::start(send, stop, ready, audio_epoch)?);

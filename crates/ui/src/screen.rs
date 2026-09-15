@@ -324,9 +324,10 @@ impl ScreenUi {
 			);
 			let kind = ui.painter().layout_no_wrap(
 				match source.id {
-					SourceId::Portal => "System permission dialog",
 					SourceId::Display(_) => "Screen",
 					SourceId::Window(_) => "Window",
+					#[allow(unreachable_patterns)] // Portal may be absent outside Linux.
+					_ => "System permission dialog",
 				}
 				.to_owned(),
 				egui::FontId::proportional(11.0),
