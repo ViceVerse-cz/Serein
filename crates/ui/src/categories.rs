@@ -163,6 +163,9 @@ fn rows<'a>(
 	}
 	for category in categories {
 		let children = groups.remove(&Some(category.id)).unwrap_or_default();
+		if !show_hidden && children.is_empty() {
+			continue;
+		}
 		let count = children
 			.iter()
 			.map(|c| 1 + threads.get(&c.id).map_or(0, Vec::len))
@@ -916,6 +919,32 @@ mod tests {
 		assert!(!MessagingUi::default().show_hidden_channels);
 		assert!(rows(&state, Some(Id(100)), &BTreeSet::new(), false).is_empty());
 		assert_eq!(rows(&state, Some(Id(100)), &BTreeSet::new(), true).len(), 1);
+	}
+	#[test]
+	fn categories_without_visible_children_follow_hidden_visibility() {
+		let mut state = test_support::demo_state();
+		state.guilds[0].id = Id(100);
+		state.channels = vec![channel(4, 4, 0, None), channel(7, 0, 0, Some(Id(4)))];
+		let mut permissions = test_support::permission_snapshot(&state);
+		permissions.channels.retain(|c| c.id != Id(7));
+		state.permissions.replace(permissions).unwrap();
+		assert!(state.can_view(Id(4)));
+		assert!(!state.can_view(Id(7)));
+		assert!(rows(&state, Some(Id(100)), &BTreeSet::new(), false).is_empty());
+		assert_eq!(rows(&state, Some(Id(100)), &BTreeSet::new(), true).len(), 2);
+		// Obfuscated children may be omitted from navigation entirely.
+		state.channels.retain(|c| c.id != Id(7));
+		assert!(rows(&state, Some(Id(100)), &BTreeSet::new(), false).is_empty());
+		assert_eq!(rows(&state, Some(Id(100)), &BTreeSet::new(), true).len(), 1);
+		state.channels.push(channel(7, 0, 0, Some(Id(4))));
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		assert!(matches!(
+			rows(&state, Some(Id(100)), &BTreeSet::from([Id(4)]), false).as_slice(),
+			[Row::Category(_, 1)]
+		));
 	}
 	#[test]
 	fn empty_server_sidebar_opens_server_actions() {
