@@ -857,6 +857,8 @@ mod tests {
 			},
 			content: "Synthetic".into(),
 			mentions: vec![owner.clone()],
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,

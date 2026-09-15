@@ -1992,6 +1992,19 @@ impl State {
 					.find(|c| c.id == channel && c.guild.is_none())
 				{
 					c.recipients.retain(|u| u.id != user);
+					for (id, participants) in &mut self.voice.dm_participants {
+						if *id == channel {
+							participants.retain(|p| p.user != user);
+						}
+					}
+					if let Some(call) = &mut self.voice.active
+						&& call.channel == channel
+					{
+						call.participants.retain(|p| p.user != user);
+						if call.watching == Some(user) {
+							call.watching = None;
+						}
+					}
 					if self.selected == Some(channel) && self.members.is_some() {
 						let _ = self.request_members();
 					}
@@ -3292,14 +3305,28 @@ mod tests {
 		state.select(Id(20));
 		state.channels.retain(|c| c.id != Id(10));
 		state.invalidate_navigation();
-		assert!(state.select_guild(Id(1)).is_none());
+		assert!(matches!(
+			state.select_guild(Id(1)),
+			Some(Command::History {
+				channel: Id(12),
+				..
+			})
+		));
+		assert!(state.voice.active.is_none());
 		assert_eq!(
 			state.selected,
 			Some(Id(12)),
 			"voice is only viewed, never joined"
 		);
 		state.select(Id(20));
-		assert!(state.select_guild(Id(1)).is_none());
+		assert!(matches!(
+			state.select_guild(Id(1)),
+			Some(Command::History {
+				channel: Id(12),
+				..
+			})
+		));
+		assert!(state.voice.active.is_none());
 		assert_eq!(
 			state.selected,
 			Some(Id(12)),
@@ -3873,6 +3900,8 @@ mod tests {
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -4296,11 +4325,14 @@ mod tests {
 		);
 		assert!(state.can_call(Id(1)));
 		assert!(
-			state.select(Id(1)).is_none(),
-			"Voice navigation does not request text history"
+			matches!(
+				state.select(Id(1)),
+				Some(Command::History { channel: Id(1), .. })
+			),
+			"Voice navigation requests its channel chat history"
 		);
 		assert_eq!(state.selected, Some(Id(1)));
-		assert!(!state.history_pending);
+		assert!(state.history_pending);
 		assert!(state.start_call(Id(1), false).is_some());
 	}
 

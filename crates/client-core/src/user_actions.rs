@@ -164,6 +164,31 @@ impl State {
 	pub fn user_display_name<'a>(&'a self, user: &'a model::User) -> &'a str {
 		self.friend_nickname(user.id).unwrap_or(&user.name)
 	}
+	pub fn message_author_name<'a>(&'a self, message: &'a model::Message) -> &'a str {
+		if message.author.webhook {
+			return &message.author.name;
+		}
+		if let Some(guild) = self
+			.channel(message.channel)
+			.and_then(|channel| channel.guild)
+		{
+			let member = self
+				.members
+				.as_ref()
+				.filter(|list| list.guild == Some(guild))
+				.and_then(|list| {
+					list.rows
+						.iter()
+						.flatten()
+						.find(|m| m.user.id == message.author.id)
+				});
+			let nick = member.map_or(message.author_nick.as_deref(), |m| m.nick.as_deref());
+			if let Some(nick) = nick.filter(|nick| !nick.is_empty()) {
+				return nick;
+			}
+		}
+		self.user_display_name(&message.author)
+	}
 	pub fn conversation_name<'a>(&'a self, channel: &'a model::Channel) -> &'a str {
 		if channel.kind == 1
 			&& let Some(user) = channel.recipients.first()

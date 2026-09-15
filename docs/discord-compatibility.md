@@ -1,5 +1,15 @@
 # Discord compatibility — checked 2026-09-10
 
+## Group DM calling — September 15, 2026
+
+Group conversations now share one-to-one call discovery, ringing, Answer/Decline/Join,
+media controls, camera, screen sharing and viewing. The existing unofficial private-call
+Gateway and REST paths are reused with `guild_id: null`; multi-party encryption uses the
+bounded authenticated voice roster already used by server calls. Participant metadata is
+restricted to the account and current recipients. See [group workflow and limits](voice.md#group-dm-calls).
+The offline group-call debug check passed for this `!fast` pass; live Discord interoperability,
+physical devices and production readiness remain unverified.
+
 ## Gateway login payload bound — September 14, 2026
 
 The [Gateway](https://docs.discord.com/developers/events/gateway) documents zlib-stream
@@ -138,7 +148,7 @@ interoperability and native screenshot inspection remain unverified.
 
 ## Existing DM calls — September 11, 2026
 
-Viewing a supported one-to-one DM requests its call state using the existing unofficial
+Viewing a supported one-to-one or group DM requests its call state using the existing unofficial
 Gateway opcode 13. CALL_CREATE/UPDATE keep an ongoing-call banner independently of ringing
 or local media; CALL_DELETE/unavailability removes it. Join never rings an already known
 call. [Primary implementation evidence and owner-controlled live checks](voice.md) distinguish

@@ -233,6 +233,8 @@ pub struct MessagingUi {
 	pub voice_focus: Option<voice::StageFocus>,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.
 	pub voice_focus_participants: bool,
+	/// Session-only visibility of the selected guild voice channel's chat.
+	pub voice_chat_open: bool,
 	/// Tile click to start (`Some(user)`) or stop (`None`) watching, applied by the stage.
 	watch_request: Option<Option<Id>>,
 	pub voice_inputs: Vec<(String, String)>,
@@ -1398,6 +1400,23 @@ impl MessagingUi {
 					}
 					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 						ui.spacing_mut().item_spacing.x = 4.0;
+						if selected_voice
+							&& icons::toggle(
+								ui,
+								icons::Icon::Forum,
+								32.0,
+								self.voice_chat_open,
+								if self.voice_chat_open {
+									"Hide chat"
+								} else {
+									"Show chat"
+								},
+							)
+							.clicked()
+						{
+							self.voice_chat_open = !self.voice_chat_open;
+							self.focus_switched_composer = self.voice_chat_open;
+						}
 						if let Some(c) = channel
 							.as_ref()
 							.filter(|c| c.guild.is_none() && c.kind == 3)
@@ -1540,7 +1559,11 @@ impl MessagingUi {
 								commands.push(state.history(None));
 							}
 						}
-						if let Some(channel) = state.selected.filter(|_| dm) {
+						if let Some(channel) = state.selected.filter(|_| {
+							channel
+								.as_ref()
+								.is_some_and(|c| c.guild.is_none() && matches!(c.kind, 1 | 3))
+						}) {
 							self.voice_settings(ui, state.demo, state.voice.active.is_some());
 							self.call_button(ui, state, channel, commands);
 						}
@@ -2765,8 +2788,22 @@ impl MessagingUi {
 					return;
 				};
 				if selected_voice {
-					self.voice_channel(ui, state, channel, &mut commands);
-					return;
+					if !self.voice_chat_open {
+						self.voice_channel(ui, state, channel, &mut commands);
+						return;
+					}
+					// Keep the existing conversation renderer beside the stage. On narrow
+					// windows chat takes the body; Hide chat returns to the full stage.
+					if ui.available_width() >= 720.0 {
+						let chat_width = (ui.available_width() * 0.4).clamp(320.0, 440.0);
+						egui::Panel::left("voice-stage")
+							.exact_size(ui.available_width() - chat_width)
+							.resizable(false)
+							.frame(egui::Frame::NONE)
+							.show(ui, |ui| {
+								self.voice_channel(ui, state, channel, &mut commands);
+							});
+					}
 				}
 				if selected_forum {
 					self.forum
@@ -3365,6 +3402,8 @@ mod composer_tests {
 					extra_content: Default::default(),
 					embeds: vec![],
 					attachments: vec![],
+					author_nick: None,
+					author_roles: vec![],
 					mention_roles: vec![],
 					mention_everyone: false,
 					suppress_notifications: false,

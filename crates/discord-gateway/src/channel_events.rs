@@ -7,6 +7,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 type InboxEvent = Option<(Id, bool)>;
 
+pub(super) fn private_call(kind: u8, recipients: usize) -> bool {
+	(kind == 1 && recipients == 1)
+		|| (kind == 3 && recipients < client_core::voice::MAX_PARTICIPANTS)
+}
+
 #[derive(Default)]
 pub(super) struct Inbox {
 	marks: BTreeMap<Id, (bool, bool)>,
@@ -93,8 +98,7 @@ pub(super) fn ready_calls(ready: &Ready, calls: &mut Calls) -> Result<BTreeSet<I
 	for channel in &ready.private_channels {
 		if !channel.is_obfuscated()
 			&& channel.guild_id.is_none()
-			&& channel.kind == 1
-			&& channel.recipients.len() == 1
+			&& private_call(channel.kind, channel.recipients.len())
 		{
 			calls.allowed.insert(channel.id, None);
 		}
@@ -116,7 +120,7 @@ pub(super) fn admit_call(channel: &Channel, guilds: &BTreeSet<Id>, calls: &mut C
 	let eligible = channel.id.0 != 0
 		&& match channel.guild {
 			Some(guild) => guilds.contains(&guild) && channel.kind == 2,
-			None => channel.kind == 1 && channel.recipients.len() == 1,
+			None => private_call(channel.kind, channel.recipients.len()),
 		};
 	if eligible
 		&& calls

@@ -623,6 +623,8 @@ pub struct MessageDto {
 	pub channel_id: Id,
 	pub author: UserDto,
 	#[serde(default)]
+	pub member: Option<MessageMemberDto>,
+	#[serde(default)]
 	pub content: String,
 	#[serde(default)]
 	pub mentions: MentionList,
@@ -648,6 +650,13 @@ pub struct MessageDto {
 	pub flags: u64,
 	#[serde(rename = "type", default)]
 	pub kind: u8,
+}
+#[derive(Deserialize)]
+pub struct MessageMemberDto {
+	#[serde(default)]
+	pub nick: Option<String>,
+	#[serde(default, deserialize_with = "permissions::member_roles")]
+	pub roles: Vec<Id>,
 }
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -772,6 +781,13 @@ impl MessageDto {
 			channel: self.channel_id,
 			author,
 			content: self.content,
+			author_nick: self.member.as_ref().and_then(|member| {
+				member
+					.nick
+					.as_ref()
+					.map(|nick| nick.chars().take(128).collect())
+			}),
+			author_roles: self.member.map_or_else(Vec::new, |member| member.roles),
 			mention_roles: self.mention_roles,
 			mention_everyone: self.mention_everyone,
 			suppress_notifications: self.flags & (1 << 12) != 0,
@@ -963,6 +979,58 @@ mod tests {
 		let user: UserDto =
 			decode(br#"{"id":"3","username":"Synthetic member","bot":true}"#).unwrap();
 		assert_eq!(user.into_model().account_label(), Some("BOT"));
+	}
+	#[test]
+	fn message_nickname_is_bounded_and_keeps_global_identity() {
+		let message = decode::<MessageDto>(
+			&serde_json::to_vec(&serde_json::json!({
+				"id":"100", "channel_id":"20", "author":{"id":"3","username":"Global"},
+				"member":{"nick":"界".repeat(200)}
+			}))
+			.unwrap(),
+		)
+		.unwrap()
+		.into_model();
+		assert_eq!(message.author.name, "Global");
+		assert_eq!(
+			message.author_nick.as_deref(),
+			Some("界".repeat(128).as_str())
+		);
+		let mut plain = message.clone();
+		plain.author_nick = None;
+		assert_eq!(
+			message.bytes() - plain.bytes(),
+			message.author_nick.unwrap().capacity()
+		);
+	}
+	#[test]
+	fn message_author_roles_are_bounded_and_session_only() {
+		let mut wire = serde_json::json!({
+			"id":"100", "channel_id":"20", "author":{"id":"3","username":"Synthetic"},
+			"member":{"roles":["12", "11"]}
+		});
+		let read =
+			|value: &serde_json::Value| decode::<MessageDto>(&serde_json::to_vec(value).unwrap());
+		let message = read(&wire).unwrap().into_model();
+		assert_eq!(message.author_roles, vec![Id(11), Id(12)]);
+		let mut plain = message.clone();
+		plain.author_roles.clear();
+		plain.author_roles.shrink_to_fit();
+		assert_eq!(message.bytes() - plain.bytes(), 2 * size_of::<Id>());
+		for roles in [
+			serde_json::json!(["0"]),
+			serde_json::json!(["11", "11"]),
+			serde_json::json!(
+				(1..=model::permissions::MAX_MEMBER_ROLES + 1)
+					.map(|id| id.to_string())
+					.collect::<Vec<_>>()
+			),
+		] {
+			wire["member"]["roles"] = roles;
+			assert!(read(&wire).is_err());
+		}
+		wire["member"] = serde_json::Value::Null;
+		assert!(read(&wire).unwrap().into_model().author_roles.is_empty());
 	}
 	#[test]
 	fn notification_metadata_is_service_derived_and_role_mentions_are_bounded() {

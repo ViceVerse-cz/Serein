@@ -865,7 +865,7 @@ async fn run_inner(
 										let (read_entries,read_version,partial)=ready.read_state.take().map_or((None,None,false),|snapshot|(Some(snapshot.entries.into_iter().filter(|e|e.kind==0).map(|e|(e.id,e.last_message_id,e.mention_count)).collect()),snapshot.version,snapshot.partial));
 										if guilds.len() + channels.len() > MAX_NAV { return Err(Failure::CapacityAt("Account navigation exceeds 131,072 entries; connection stopped")); }
 										direct_presence.bootstrap_users=friends.as_ref().into_iter().flatten().map(|(u,_)|u.id).chain(channels.iter().filter(|c|c.guild.is_none() && matches!(c.kind,1|3)).flat_map(|c|c.recipients.iter().map(|u|u.id))).take(client_core::presence::MAX_DIRECT_PRESENCES).collect();
-										calls.allowed=channels.iter().filter(|c|(c.guild.is_none() && c.kind==1 && c.recipients.len()==1) || (c.guild.is_some() && c.kind==2)).map(|c|(c.id,c.guild)).collect();
+										calls.allowed=channels.iter().filter(|c|(c.guild.is_none() && channel_events::private_call(c.kind,c.recipients.len())) || (c.guild.is_some() && c.kind==2)).map(|c|(c.id,c.guild)).collect();
 										if was_ready { emit(Event::Resync)?; }
 										let notifications = ready.user_guild_settings.take().map(|snapshot| {
 											let (entries, replace) = snapshot.entries();
@@ -951,7 +951,7 @@ async fn run_inner(
 										}
 									}
 									"CHANNEL_RECIPIENT_ADD" => {let d:RecipientAdded=decode(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;emit(Event::RecipientAdded {channel:d.channel_id,user:d.user.into_model()})?;}
-									"CHANNEL_RECIPIENT_REMOVE" => {let d:RecipientRemoved=decode(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;emit(Event::RecipientRemoved {channel:d.channel_id,user:d.user.id})?;}
+									"CHANNEL_RECIPIENT_REMOVE" => {let d:RecipientRemoved=decode(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;if owner_id==Some(d.user.id) {calls.allowed.remove(&d.channel_id);}emit(Event::RecipientRemoved {channel:d.channel_id,user:d.user.id})?;}
 									"USER_NOTE_UPDATE" => {
 										#[derive(serde::Deserialize)]
 										struct NoteUpdate { id: Id, note: Option<String> }
@@ -1036,7 +1036,7 @@ async fn run_inner(
 										let update=channel_events::update(packet.d.get().as_bytes(),&mut inbox)?;
 										if let Some(channel)=update.restored {channel_events::admit_call(&channel,&known_guilds,&mut calls);emit(Event::ChannelRestored(channel))?;}
 										if let Event::Unavailable(id)=&update.event {calls.invalidate(*id);}
-										if let Event::ChannelChanged(patch)=&update.event && let model::Patch::Value(kind)=patch.kind && kind != 2 && kind != 1 {calls.invalidate(patch.id);}
+										if let Event::ChannelChanged(patch)=&update.event && let model::Patch::Value(kind)=patch.kind && !matches!(kind,1..=3) {calls.invalidate(patch.id);}
 										emit(update.event)?;
 										if let Some((channel, pending)) = update.message_request {
 											emit(Event::UserAction(client_core::user_actions::Event::MessageRequest { channel, pending }))?;

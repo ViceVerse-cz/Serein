@@ -739,6 +739,8 @@ impl LocalStore {
 				nonce: None,
 				revision: 0,
 				embeds,
+				author_nick: None,
+				author_roles: vec![],
 				mention_roles: vec![],
 				mention_everyone: false,
 				suppress_notifications: false,
@@ -2079,6 +2081,8 @@ mod tests {
 					title: Some("Cached synthetic embed".into()),
 					..Default::default()
 				}],
+				author_nick: None,
+				author_roles: vec![],
 				mention_roles: vec![],
 				mention_everyone: false,
 				suppress_notifications: false,

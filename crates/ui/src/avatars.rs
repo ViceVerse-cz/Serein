@@ -17,7 +17,9 @@ struct Animation {
 	bytes: usize,
 }
 
-// A visible server emoji grid plus avatars/icons must fit without evicting each other.
+// Emoji artwork has its own working set so media cannot evict it.
+const EMOJI_TEXTURES: usize = 1024;
+const EMOJI_TEXTURE_BYTES: usize = 16 * 1024 * 1024;
 const TEXTURES: usize = 256;
 const TEXTURE_BYTES: usize = 64 * 1024 * 1024;
 /// Longest edge requested for thumbnails and for the full-screen viewer.
@@ -39,6 +41,8 @@ pub(crate) struct Avatars {
 	pub animate_gifs: bool,
 	animations: HashMap<String, Animation>,
 	textures: HashMap<String, (u64, TextureHandle)>,
+	emoji_textures: HashMap<String, (u64, TextureHandle)>,
+	emoji_bytes: usize,
 	avatar_keys: HashMap<model::Id, AvatarKey>,
 	clock: u64,
 	bytes: usize,
@@ -58,7 +62,10 @@ pub fn fit_edge(width: u32, height: u32, edge: u32) -> (u32, u32) {
 impl Avatars {
 	#[cfg(test)]
 	pub(crate) fn texture_id(&self, key: &str) -> Option<egui::TextureId> {
-		self.textures.get(key).map(|(_, texture)| texture.id())
+		self.textures
+			.get(key)
+			.or_else(|| self.emoji_textures.get(key))
+			.map(|(_, texture)| texture.id())
 	}
 	pub fn set_animation(&mut self, enabled: bool) {
 		if self.animate_gifs == enabled {
@@ -164,30 +171,37 @@ impl Avatars {
 			return;
 		};
 		self.attempts.remove(&key);
-		if let Some((_, old)) = self.textures.remove(&key) {
-			self.bytes -= old.byte_size();
+		let (textures, bytes, limit, byte_limit) = if key.starts_with("emoji-") {
+			(
+				&mut self.emoji_textures,
+				&mut self.emoji_bytes,
+				EMOJI_TEXTURES,
+				EMOJI_TEXTURE_BYTES,
+			)
+		} else {
+			(&mut self.textures, &mut self.bytes, TEXTURES, TEXTURE_BYTES)
+		};
+		if let Some((_, old)) = textures.remove(&key) {
+			*bytes -= old.byte_size();
 		}
-		while self.textures.len() >= TEXTURES || self.bytes + image.pixels.len() * 4 > TEXTURE_BYTES
-		{
-			let oldest = self
-				.textures
+		while textures.len() >= limit || *bytes + image.pixels.len() * 4 > byte_limit {
+			let oldest = textures
 				.iter()
 				.min_by_key(|(_, (age, _))| *age)
 				.map(|(key, _)| key.clone())
 				.expect("texture cache over budget");
 			self.animations.remove(&oldest);
-			self.bytes -= self
-				.textures
+			*bytes -= textures
 				.remove(&oldest)
 				.expect("oldest texture")
 				.1
 				.byte_size();
 		}
 		let texture = ctx.load_texture("service-image", image, egui::TextureOptions::LINEAR);
-		self.bytes += texture.byte_size();
+		*bytes += texture.byte_size();
 		self.clock += 1;
 		self.revision += 1;
-		self.textures.insert(key, (self.clock, texture));
+		textures.insert(key, (self.clock, texture));
 	}
 	pub(crate) fn custom_image(
 		&mut self,
@@ -198,7 +212,7 @@ impl Avatars {
 	) -> Option<egui::Image<'static>> {
 		let key = format!("emoji-{id}");
 		#[cfg(any(test, feature = "demo"))]
-		if demo && matches!(id.0, 9001 | 9002) && !self.textures.contains_key(&key) {
+		if demo && matches!(id.0, 9001 | 9002) && !self.emoji_textures.contains_key(&key) {
 			let mut image = ColorImage::filled([32, 32], egui::Color32::TRANSPARENT);
 			for y in 3..29 {
 				for x in 3..29 {
@@ -214,7 +228,7 @@ impl Avatars {
 			self.attempts.insert(key.clone(), (Instant::now(), false));
 			self.accept(_ctx, key.clone(), Some(image));
 		}
-		if let Some(entry) = self.textures.get_mut(&key) {
+		if let Some(entry) = self.emoji_textures.get_mut(&key) {
 			self.clock += 1;
 			entry.0 = self.clock;
 			let image = egui::Image::new(&entry.1).fit_to_exact_size(egui::Vec2::splat(size));
@@ -1500,6 +1514,14 @@ mod tests {
 			Some(ColorImage::filled([128, 128], egui::Color32::WHITE)),
 		);
 		assert_eq!(avatars.textures.len(), TEXTURES);
+		avatars.request("emoji-9001".into());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			"emoji-9001".into(),
+			Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+		);
+		let emoji_texture = avatars.texture_id("emoji-9001").unwrap();
 		for index in 0..80 {
 			let key = format!("embed:synthetic-{index}");
 			avatars.request(key.clone());
@@ -1510,6 +1532,15 @@ mod tests {
 			);
 		}
 		assert_eq!(avatars.textures.len(), 64);
+		assert_eq!(avatars.texture_id("emoji-9001"), Some(emoji_texture));
+		assert_eq!(avatars.emoji_bytes, 64 * 64 * 4);
+		avatars.take_requests();
+		assert!(
+			avatars
+				.custom_image(&ctx, model::Id(9001), 20.0, false)
+				.is_some()
+		);
+		assert!(avatars.take_requests().is_empty());
 		assert_eq!(
 			avatars
 				.textures

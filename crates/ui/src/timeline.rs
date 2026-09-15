@@ -980,9 +980,18 @@ impl TimelineView {
 												crate::account_badge::name(
 													ui,
 													&message.author,
-													state.user_display_name(&message.author),
+													state.message_author_name(message),
 													15.5,
-													colors.text_strong,
+													state.message_author_color(message).map_or(
+														colors.text_strong,
+														|rgb| {
+															crate::design::role_name_color(
+																rgb,
+																colors.chat,
+																colors.text_strong,
+															)
+														},
+													),
 													egui::Sense::hover(),
 													48.0,
 												);
@@ -1020,7 +1029,7 @@ impl TimelineView {
 												true,
 												format!(
 													"Deleted message by {}. {}",
-													state.user_display_name(&message.author),
+													state.message_author_name(message),
 													message.content
 												),
 											)
@@ -1129,7 +1138,10 @@ impl TimelineView {
 														self.reply_target = Some(reply);
 													}
 													preview.append(
-														&format!("@{}  ", original.author.name),
+														&format!(
+															"@{}  ",
+															state.message_author_name(original)
+														),
 														0.0,
 														egui::TextFormat {
 															font_id: egui::FontId::new(
@@ -1240,9 +1252,18 @@ impl TimelineView {
 												let author = crate::account_badge::name(
 													ui,
 													&message.author,
-													state.user_display_name(&message.author),
+													state.message_author_name(message),
 													15.5,
-													colors.text_strong,
+													state.message_author_color(message).map_or(
+														colors.text_strong,
+														|rgb| {
+															crate::design::role_name_color(
+																rgb,
+																colors.chat,
+																colors.text_strong,
+															)
+														},
+													),
 													egui::Sense::click(),
 													48.0,
 												);
@@ -2523,6 +2544,8 @@ mod tests {
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -4713,6 +4736,8 @@ mod tests {
 				discriminator: 0,
 			},
 			content: "<#4> ".repeat(12),
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -4875,6 +4900,8 @@ mod tests {
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -4962,6 +4989,8 @@ mod tests {
 			unsupported: false,
 			extra_content: Default::default(),
 			attachments: vec![],
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,

@@ -419,7 +419,7 @@ impl MessagingUi {
 		let video = tiles
 			.iter()
 			.any(|tile| self.tile_has_video(state, channel, tile));
-		let frameless = dm && !video;
+		let frameless = dm && !video && !state.is_group_dm(channel);
 		let area = ui.available_rect_before_wrap();
 		if area.width() < 40.0 || area.height() < 40.0 {
 			return;
@@ -1746,7 +1746,7 @@ impl MessagingUi {
 			.filter(|call| call.guild.is_none() && Some(call.channel) == selected)
 			.map(|call| call.channel)
 		{
-			let height = if self.stage_shows_video(state, channel) {
+			let height = if self.stage_shows_video(state, channel) || state.is_group_dm(channel) {
 				(ui.available_height() * 0.74).clamp(320.0, 900.0)
 			} else {
 				(ui.available_height() * 0.42).clamp(240.0, 340.0)
@@ -1812,12 +1812,7 @@ impl MessagingUi {
 		});
 		if let Some(channel) = state.voice.incoming.or(existing) {
 			let incoming = state.voice.incoming == Some(channel);
-			let caller = state
-				.channels
-				.iter()
-				.find(|c| c.id == channel)
-				.and_then(|c| c.recipients.first())
-				.cloned();
+			let conversation = state.channel(channel).cloned();
 			let name = state
 				.channels
 				.iter()
@@ -1835,11 +1830,15 @@ impl MessagingUi {
 				.show(ui, |ui| {
 					ui.horizontal(|ui| {
 						ui.spacing_mut().item_spacing.x = 12.0;
-						match &caller {
-							Some(user) => {
+						match conversation.as_ref() {
+							Some(group) if group.kind == 3 => {
+								self.avatars.show_group(ui, group, 40.0, state.demo);
+							}
+							Some(dm) if dm.kind == 1 && !dm.recipients.is_empty() => {
+								let user = &dm.recipients[0];
 								self.avatars.show(ui, user, 40.0, state.demo);
 							}
-							None => {
+							_ => {
 								design::avatar(ui, &name, 40.0);
 							}
 						}
@@ -3275,11 +3274,15 @@ mod tests {
 	fn guild_voice_requires_explicit_keyboard_join_and_demo_never_emits_media() {
 		let mut state = test_support::demo_state();
 		state.demo = false;
-		assert!(
-			state.select(Id(25)).is_none(),
-			"Voice selection must not fetch history"
-		);
+		assert!(matches!(
+			state.select(Id(25)),
+			Some(client_core::Command::History {
+				channel: Id(25),
+				..
+			})
+		));
 		assert_eq!(state.selected, Some(Id(25)));
+		assert!(state.voice.active.is_none());
 		let mut messaging = MessagingUi {
 			voice_available: true,
 			..Default::default()

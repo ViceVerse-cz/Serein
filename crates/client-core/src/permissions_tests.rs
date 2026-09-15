@@ -285,6 +285,8 @@ fn message(id: u64, channel: Id) -> Message {
 		extra_content: Default::default(),
 		embeds: vec![],
 		attachments: vec![],
+		author_nick: None,
+		author_roles: vec![],
 		mention_roles: vec![],
 		mention_everyone: false,
 		suppress_notifications: false,
@@ -1338,6 +1340,30 @@ fn member_role_display_tracks_live_role_metadata_and_membership() {
 		(group.map(|role| role.id), color.map(|role| role.color))
 	};
 	assert_eq!(resolved(&state, &member), (Some(Id(11)), Some(0x112233)));
+	let mut chat = message(100, Id(20));
+	chat.author_roles = member.roles.clone();
+	assert_eq!(state.message_author_color(&chat), Some(0x112233));
+	chat.author.webhook = true;
+	assert_eq!(state.message_author_color(&chat), None);
+	chat.author.webhook = false;
+	state.members = Some(crate::MemberList {
+		guild: Some(Id(10)),
+		channel: Id(20),
+		request: 1,
+		total: 1,
+		rows: vec![Some(model::Member {
+			roles: vec![],
+			..member.clone()
+		})],
+		freshness: Freshness::Fresh,
+	});
+	assert_eq!(
+		state.message_author_color(&chat),
+		None,
+		"live membership overrides the message snapshot"
+	);
+	state.members = None;
+
 	permission(
 		&mut state,
 		PermissionEvent::Role {
@@ -1346,6 +1372,7 @@ fn member_role_display_tracks_live_role_metadata_and_membership() {
 		},
 	);
 	assert_eq!(resolved(&state, &member), (Some(Id(11)), Some(0x778899)));
+	assert_eq!(state.message_author_color(&chat), Some(0x778899));
 	permission(
 		&mut state,
 		PermissionEvent::RoleRemoved {

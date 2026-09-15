@@ -768,8 +768,14 @@ impl Calls {
 						channel: call.channel_id,
 					}))?;
 				} else {
-					if call.ringing.as_ref().is_some_and(|v| v.len() > 2)
-						|| call.voice_states.as_ref().is_some_and(|v| v.len() > 2)
+					if call
+						.ringing
+						.as_ref()
+						.is_some_and(|v| v.len() > voice::MAX_PARTICIPANTS)
+						|| call
+							.voice_states
+							.as_ref()
+							.is_some_and(|v| v.len() > voice::MAX_PARTICIPANTS)
 					{
 						return Err(Failure::Capacity);
 					}
