@@ -1,4 +1,4 @@
-//! Linux window-close routing. Exit checks remain in the desktop's rendered UI.
+//! Shared window-close routing for all tray adapters. Exit checks remain in the desktop's rendered UI.
 use super::egui;
 
 #[derive(Default)]

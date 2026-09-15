@@ -1,5 +1,5 @@
-//! Synthetic protocol smoke check. Run only inside `dbus-run-session` on Linux.
-#[cfg(target_os = "linux")]
+//! Synthetic tray checks: private `dbus-run-session` on Linux, native main-thread window on macOS.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[path = "../../../crates/platform/src/tray.rs"]
 mod tray;
 #[cfg(all(target_os = "linux", test))]
@@ -8,9 +8,9 @@ pub use egui;
 #[path = "../../../apps/desktop/src/tray_window.rs"]
 mod tray_window;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn main() {
-	eprintln!("Run this debug check on Linux inside dbus-run-session.");
+	eprintln!("Run on Linux inside dbus-run-session, or on macOS from a graphical session.");
 }
 
 #[cfg(target_os = "linux")]
@@ -164,4 +164,48 @@ mod linux {
 		);
 		Ok(())
 	}
+}
+
+#[cfg(target_os = "macos")]
+#[allow(deprecated)]
+fn main() {
+	use objc2::{MainThreadMarker, msg_send, runtime::AnyObject};
+	use objc2_app_kit::{NSApplication, NSApplicationTerminateReply as Reply};
+	use std::sync::Arc;
+	assert!(tray::supported());
+	let event_loop = winit::event_loop::EventLoop::new().unwrap();
+	let window = Arc::new(
+		event_loop
+			.create_window(
+				winit::window::Window::default_attributes()
+					.with_title("Serein synthetic tray check")
+					.with_visible(false),
+			)
+			.unwrap(),
+	);
+	let app = NSApplication::sharedApplication(MainThreadMarker::new().unwrap());
+	let delegate = app.delegate().unwrap();
+	let original: &AnyObject = (*delegate).as_ref();
+	let request = || -> Reply {
+		// SAFETY: Tray installs the protocol callback with this exact signature.
+		unsafe { msg_send![&delegate, applicationShouldTerminate: &*app] }
+	};
+	for _ in 0..2 {
+		let tray = tray::Tray::new(window.clone(), || {}).unwrap();
+		assert!(tray.is_available());
+		let current = app.delegate().unwrap();
+		let current: &AnyObject = (*current).as_ref();
+		assert!(
+			std::ptr::eq(original, current),
+			"winit delegate identity must survive"
+		);
+		assert!(tray::Tray::new(window.clone(), || {}).is_err());
+		assert_eq!(request(), Reply::TerminateCancel);
+		assert_eq!(tray.take_event(), Some(tray::Event::Close));
+		drop(tray);
+		assert_eq!(request(), Reply::TerminateNow);
+	}
+	println!(
+		"PASS: macOS termination cancellation, delegate identity, duplicate rejection, disable and re-enable (synthetic window; no account)."
+	);
 }

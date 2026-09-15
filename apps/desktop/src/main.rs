@@ -23,7 +23,6 @@ mod screen;
 mod server_settings_demo;
 mod startup;
 mod toggle_setting;
-#[cfg(any(target_os = "linux", test))]
 mod tray_window;
 mod updater;
 mod uploads;
@@ -523,7 +522,6 @@ struct Desktop {
 	startup: startup::Startup,
 	tray: Option<platform::tray::Tray>,
 	tray_error: Option<&'static str>,
-	#[cfg(target_os = "linux")]
 	tray_window: tray_window::State,
 	/// `--demo-reply`: keeps two synthetic typists active on the selected fixture channel.
 	#[cfg(feature = "demo")]
@@ -1424,7 +1422,6 @@ impl Desktop {
 			tray_setting,
 			startup,
 			tray: None,
-			#[cfg(target_os = "linux")]
 			tray_window: tray_window::State::default(),
 			tray_error: None,
 			#[cfg(feature = "demo")]
@@ -3711,25 +3708,19 @@ impl eframe::App for Desktop {
 				&& !self.state.demo
 				&& (self.app_settings.loaded || self.app_settings.state.touched),
 		) {
-			#[cfg(target_os = "linux")]
 			self.tray_window.quit(ctx);
-			#[cfg(not(target_os = "linux"))]
-			ctx.send_viewport_cmd(egui::ViewportCommand::Close);
 		}
 		if let Some(tray) = &mut self.tray {
 			while let Some(event) = tray.take_event() {
 				match event {
-					platform::tray::Event::Quit => {
-						#[cfg(target_os = "linux")]
-						self.tray_window.quit(ctx);
-						#[cfg(not(target_os = "linux"))]
+					platform::tray::Event::Close => {
 						ctx.send_viewport_cmd(egui::ViewportCommand::Close);
 					}
+					platform::tray::Event::Quit => {
+						self.tray_window.quit(ctx);
+					}
 					platform::tray::Event::Show => {
-						#[cfg(target_os = "linux")]
-						{
-							self.tray_window.show(ctx);
-						}
+						self.tray_window.show(ctx);
 					}
 					platform::tray::Event::Unavailable => {
 						self.tray_error = Some(if cfg!(target_os = "linux") {
@@ -3741,7 +3732,6 @@ impl eframe::App for Desktop {
 				}
 			}
 		}
-		#[cfg(target_os = "linux")]
 		self.tray_window.logic(
 			ctx,
 			self.tray_setting.enabled
@@ -3837,7 +3827,6 @@ impl eframe::App for Desktop {
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
-		#[cfg(target_os = "linux")]
 		self.tray_window.ui(&ctx);
 		let (close_requested, dropped) = ctx.input_mut(|input| {
 			(
@@ -4532,11 +4521,8 @@ impl eframe::App for Desktop {
 				Some(ui::dialog::Choice::Cancelled) => {
 					self.updater.cancel_restart();
 					self.confirming_close = false;
-					#[cfg(target_os = "linux")]
-					{
-						self.tray_window.cancel_quit();
-						self.extension_close_pending = false;
-					}
+					self.tray_window.cancel_quit();
+					self.extension_close_pending = false;
 					self.confirming_logout = false;
 					self.download_close_pending = false;
 				}

@@ -609,18 +609,25 @@ row. Schema 12 receives the additive table without migrating messages. Demo togg
 are memory-only. Failed loads stay off and failed saves remain visible.
 
 The Windows adapter owns one icon/menu and a window procedure hook on the existing
-UI thread. Three event bits coalesce Show/Quit/failure; there is no worker, polling
+UI thread. Four event bits coalesce Show/Quit/Close/failure; there is no worker, polling
 timer, autostart or new dependency. Minimizing stays in the taskbar; enabling or disabling
-the tray icon does not hide or restore the window. Shell failure restores the window.
-Closing still follows existing application exit gates.
+the tray icon preserves minimized state. Shell failure restores the window.
+On Windows, macOS and Linux, an available enabled tray intercepts window Close before exit
+cleanup. Windows and macOS hide the window; explicit tray Quit restores it before the
+existing application exit gates. Disabling or losing the tray restores a hidden window.
+The macOS adapter adds only a missing optional termination method to winit's existing
+application delegate class, preserving its identity and callbacks. A single retained main-thread
+target routes Cmd+Q, app-menu Quit and Dock Quit through window Close while the tray is owned.
+Drop clears that target; the inactive hook returns AppKit's normal allow-termination result.
+A foreign delegate or existing foreign termination handler fails tray setup visibly.
 
 The Linux adapter registers a StatusNotifier item on the existing Tokio runtime,
 with a three-second registration deadline, a three-second post-registration host check,
 and a two-second shutdown wait. It retains one availability byte and
-one bundled 32x32 ARGB icon (4,096 bytes), two fixed menu entries, three atomic event
+one bundled 32x32 ARGB icon (4,096 bytes), two fixed menu entries, four atomic event
 bits and one cancellation signal. Dropping the adapter cancels registration or
 unregisters the item; host loss reports unavailable and requests window restoration.
-Only a confirmed available tray intercepts Linux window close; explicit Quit restores the
+Only a confirmed available tray intercepts window close; explicit Quit restores the
 window before running the existing exit guards. Native Wayland visibility requests may be ignored.
 No account data is sent to the tray, and no new settings, logs, polling loop or dedicated thread are introduced.
 

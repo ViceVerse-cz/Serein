@@ -697,11 +697,9 @@ impl MessagingUi {
 					"Show Serein in System Tray"
 				},
 				Some(if cfg!(target_os = "macos") {
-					"Show a menu bar icon. Minimized windows stay in the Dock."
-				} else if cfg!(target_os = "linux") {
-					"Closing the window keeps Serein in the tray. Use the tray menu to quit."
+					"Closing the window keeps Serein in the menu bar. Use its menu to quit."
 				} else {
-					"Show a notification-area icon. Minimized windows stay in the taskbar."
+					"Closing the window keeps Serein in the tray. Use the tray menu to quit."
 				}),
 				&mut self.minimize_to_tray,
 			);

@@ -102,7 +102,7 @@ impl Tray {
 	}
 
 	pub fn take_event(&self) -> Option<Event> {
-		[Event::Quit, Event::Unavailable, Event::Show]
+		[Event::Quit, Event::Close, Event::Unavailable, Event::Show]
 			.into_iter()
 			.find(|event| {
 				self.events

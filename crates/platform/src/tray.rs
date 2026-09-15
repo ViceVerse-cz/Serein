@@ -1,4 +1,4 @@
-//! Opt-in native tray icon. Linux routes window close to an available tray; Quit exits.
+//! Opt-in native tray icon. Window close routes to an available tray; Quit exits.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -6,6 +6,8 @@ pub enum Event {
 	Show = 1,
 	Unavailable = 2,
 	Quit = 4,
+	/// Native app-menu close, subject to the same close-to-tray policy as the window.
+	Close = 8,
 }
 
 pub const fn supported() -> bool {
@@ -26,7 +28,7 @@ impl Events {
 		self.0.set(self.0.get() | event as u8);
 	}
 	fn take(&self) -> Option<Event> {
-		let event = [Event::Quit, Event::Unavailable, Event::Show]
+		let event = [Event::Quit, Event::Close, Event::Unavailable, Event::Show]
 			.into_iter()
 			.find(|event| self.0.get() & *event as u8 != 0)?;
 		self.0.set(self.0.get() & !(event as u8));
@@ -60,6 +62,9 @@ impl Tray {
 		_wake: impl Fn() + 'static,
 	) -> Result<Self, &'static str> {
 		Err("The tray icon is unavailable on this platform.")
+	}
+	pub fn is_available(&self) -> bool {
+		false
 	}
 	pub fn take_event(&self) -> Option<Event> {
 		None
@@ -210,6 +215,10 @@ mod native {
 				return Err(UNAVAILABLE);
 			}
 			Ok(tray)
+		}
+
+		pub fn is_available(&self) -> bool {
+			self.state.enabled.get() && self.state.present.get()
 		}
 
 		pub fn take_event(&self) -> Option<Event> {
@@ -392,6 +401,7 @@ mod native {
 			let wakes = Rc::new(Cell::new(0));
 			let wake = wakes.clone();
 			let tray = Tray::new(window.clone(), move || wake.set(wake.get() + 1)).unwrap();
+			assert!(tray.is_available());
 			let hwnd = tray.state.icon.hWnd;
 			let icon = tray.state.icon;
 			assert!(Tray::new(window.clone(), || {}).is_err());
@@ -410,10 +420,14 @@ mod native {
 				assert!(!IsIconic(hwnd).as_bool());
 				assert_eq!(tray.take_event(), Some(Event::Show));
 				tray.state.remove_icon();
+				assert!(!tray.is_available());
 				let _ = SendMessageW(hwnd, tray.state.restart, None, None);
-				assert!(tray.state.present.get());
+				assert!(tray.is_available());
 				assert_eq!(GetMenuItemID(tray.state.menu, 1), QUIT as u32);
+				let _ = ShowWindow(hwnd, SW_HIDE);
+				assert!(!IsWindowVisible(hwnd).as_bool());
 				tray.state.activate(QUIT);
+				assert!(IsWindowVisible(hwnd).as_bool());
 				assert_eq!(tray.take_event(), Some(Event::Quit));
 				assert!(IsWindow(Some(hwnd)).as_bool()); // Quit is an app event, never forced destruction.
 				let _ = ShowWindow(hwnd, SW_MINIMIZE);
@@ -452,7 +466,9 @@ mod tests {
 			events.push(Event::Show);
 		}
 		events.push(Event::Unavailable);
+		events.push(Event::Close);
 		assert_eq!(events.take(), Some(Event::Quit));
+		assert_eq!(events.take(), Some(Event::Close));
 		assert_eq!(events.take(), Some(Event::Unavailable));
 		assert_eq!(events.take(), Some(Event::Show));
 		assert_eq!(events.take(), None);
