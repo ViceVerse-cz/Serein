@@ -73,6 +73,8 @@ pub(crate) struct Assembler {
 	fragmenting: bool,
 	broken: bool,
 	started: bool,
+	// Preserve loss across frame resets until Receivers schedules recovery.
+	lost: bool,
 }
 impl Assembler {
 	/// Feed one packet; returns a complete access unit when the marker closes an intact frame.
@@ -85,6 +87,7 @@ impl Assembler {
 	) -> Option<Vec<u8>> {
 		if self.started && timestamp != self.timestamp {
 			// A new picture started before the previous marker arrived: drop the partial one.
+			self.lost = true;
 			self.reset_frame();
 			self.timestamp = timestamp;
 		}
@@ -102,11 +105,13 @@ impl Assembler {
 		if !self.broken && self.append(payload).is_err() {
 			self.broken = true;
 		}
+		self.lost |= self.broken;
 		if !marker {
 			return None;
 		}
 		let complete = (!self.broken && !self.fragmenting && !self.frame.is_empty())
 			.then(|| std::mem::take(&mut self.frame));
+		self.lost |= complete.is_none();
 		self.reset_frame();
 		self.started = false;
 		complete
@@ -262,8 +267,12 @@ impl Receivers {
 		payload: &[u8],
 	) -> Option<(u64, Vec<u8>)> {
 		let (_, user, assembler) = self.sources.iter_mut().find(|(s, _, _)| *s == ssrc)?;
-		let frame = assembler.push(sequence, timestamp, marker, payload)?;
-		Some((*user, frame))
+		let user = *user;
+		let frame = assembler.push(sequence, timestamp, marker, payload);
+		if std::mem::take(&mut assembler.lost) {
+			self.require_keyframe(user);
+		}
+		frame.map(|frame| (user, frame))
 	}
 }
 
@@ -491,6 +500,31 @@ mod tests {
 			sequence = sequence.wrapping_add(1);
 		}
 		assert!(huge.push(sequence, 1, true, &chunk).is_none());
+	}
+	#[test]
+	fn packet_loss_requests_a_keyframe_before_accepting_predictions() {
+		for missing_marker in [false, true] {
+			let mut receivers = Receivers::default();
+			receivers.announce(7, 700).unwrap();
+			assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+			assert!(receivers.accept(7, true));
+			assert!(receivers.keyframe_requests().next().is_none());
+			if missing_marker {
+				assert!(receivers.push(700, 2, 1800, false, &[0x41, 1]).is_none());
+				// A new timestamp exposes an unfinished prior picture even without a sequence gap.
+				assert!(receivers.push(700, 3, 2700, true, &[0x41, 2]).is_some());
+			} else {
+				assert!(receivers.push(700, 3, 1800, true, &[0x41, 1]).is_none());
+			}
+			assert_eq!(receivers.keyframe_requests().collect::<Vec<_>>(), vec![700]);
+			assert!(!receivers.accept(7, false));
+			assert!(receivers.push(700, 4, 3600, true, &[0x41, 3]).is_some());
+			assert!(!receivers.accept(7, false));
+			assert!(receivers.push(700, 5, 4500, true, &[0x65, 4]).is_some());
+			assert!(receivers.accept(7, true));
+			assert!(receivers.keyframe_requests().next().is_none());
+			assert!(receivers.accept(7, false));
+		}
 	}
 	#[test]
 	fn receivers_bind_ssrcs_to_users_within_the_source_limit() {
