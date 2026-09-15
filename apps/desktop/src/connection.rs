@@ -135,7 +135,6 @@ impl Connection {
                 }));
                 let mut history:Option<AbortTask>=None;
                 let mut profile:Option<AbortTask>=None;
-                let mut thread_members:Option<AbortTask>=None;
                 let mut invite:Option<AbortTask>=None;
                 let mut search:Option<AbortTask>=None;
                 let mut gifs:Option<AbortTask>=None;
@@ -312,22 +311,10 @@ impl Connection {
                                 continue;
                             }
                             if let Command::Members {guild,channel,request,list_id,thread} = command {
-                                drop(thread_members.take());
-                                if thread {
-                                    member_send.send(None).map_err(|_|Failure::Network)?;
-                                    if let (Some(guild),Some(channel))=(guild,channel) {
-                                        let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
-                                        thread_members=Some(AbortTask(tokio::spawn(async move {
-                                            let result=api.thread_members(guild,channel,request).await;
-                                            let failure=result.as_ref().err().copied().filter(|failure|failure.ends_session() && *failure!=Failure::Capacity);
-                                            let list=result.unwrap_or(model::MemberList {guild:Some(guild),channel,request,total:0,rows:vec![],freshness:model::Freshness::Unavailable});
-                                            if let Some(error)=emit(Event::Members(list)).err().or(failure) {api.stop();let _=finished.send(Some(error));}
-                                            wake.request_repaint();
-                                        })));
-                                    }
-                                    continue;
-                                }
-                                let subscription=match (guild,channel,list_id) { (Some(guild),Some(channel),Some(list_id)) => Some(discord_gateway::MemberSubscription {guild,channel,request,list_id}), _=>None };
+                                let subscription=match (guild,channel,list_id) {
+                                    (Some(guild),Some(channel),list_id) if thread || list_id.is_some() => Some(discord_gateway::MemberSubscription {guild,channel,request,thread,list_id:list_id.unwrap_or_default()}),
+                                    _=>None
+                                };
                                 member_send.send(subscription).map_err(|_|Failure::Network)?;
                                 continue;
                             }

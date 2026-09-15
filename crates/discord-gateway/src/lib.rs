@@ -206,19 +206,25 @@ fn ignored_dispatch_label(name: Option<&str>) -> &'static str {
 
 #[derive(Clone)]
 pub struct MemberSubscription {
+	pub thread: bool,
 	pub guild: Id,
 	pub channel: Id,
 	pub request: u64,
 	pub list_id: String,
 }
-fn subscription_packet(guild: Id, channel: Option<Id>) -> Frame {
-	let channels = channel.map_or_else(
+fn subscription_packet(guild: Id, channel: Option<Id>, thread: bool) -> Frame {
+	let channels = channel.filter(|_| !thread).map_or_else(
 		|| serde_json::json!({}),
 		|channel| serde_json::json!({channel.to_string():[[0,99]]}),
 	);
 	// Unofficial guild subscriptions require typing=true before channel ranges work.
 	// This receives events; it does not send a typing notification or request members in bulk.
-	Frame::Text(serde_json::json!({"op":37,"d":{"subscriptions":{guild.to_string():{"typing":channel.is_some(),"threads":false,"activities":false,"members":[],"channels":channels}}}}).to_string().into())
+	let threads: Vec<_> = channel
+		.filter(|_| thread)
+		.into_iter()
+		.map(|id| id.to_string())
+		.collect();
+	Frame::Text(serde_json::json!({"op":37,"d":{"subscriptions":{guild.to_string():{"typing":channel.is_some(),"threads":false,"activities":false,"members":[],"channels":channels,"thread_member_lists":threads}}}}).to_string().into())
 }
 struct ActiveMembers {
 	subscription: MemberSubscription,
@@ -228,6 +234,84 @@ struct ActiveMembers {
 	pending_presence: BTreeMap<Id, model::MemberPresence>,
 	presence_deadline: Option<Instant>,
 }
+
+/// Offline debug check of the user subscription packet and its bounded snapshot path.
+#[cfg(debug_assertions)]
+pub fn debug_thread_member_check(guild: Id, channel: Id, request: u64) -> MemberList {
+	let Frame::Text(packet) = subscription_packet(guild, Some(channel), true) else {
+		unreachable!()
+	};
+	let packet: serde_json::Value = serde_json::from_str(&packet).unwrap();
+	let subscription = &packet["d"]["subscriptions"][guild.to_string()];
+	assert_eq!(packet["op"], 37);
+	assert_eq!(subscription["channels"], serde_json::json!({}));
+	assert_eq!(
+		subscription["thread_member_lists"],
+		serde_json::json!([channel.to_string()])
+	);
+	let mut active = ActiveMembers::new(MemberSubscription {
+		guild,
+		channel,
+		request,
+		list_id: String::new(),
+		thread: true,
+	});
+	let payload = serde_json::json!({"guild_id":guild.to_string(),"thread_id":channel.to_string(),"members":[{"user_id":"987","member":{"user":{"id":"987","username":"Synthetic thread participant"},"nick":"Post reader","roles":[]},"presence":{"status":"online","activities":[]}}]});
+	assert!(
+		active
+			.thread_update(&serde_json::to_vec(&payload).unwrap())
+			.unwrap()
+	);
+	let list = active.snapshot(Freshness::Fresh);
+	assert_eq!(
+		list.rows[0].as_ref().unwrap().status.as_deref(),
+		Some("online")
+	);
+	assert_eq!(
+		list.rows[0].as_ref().unwrap().nick.as_deref(),
+		Some("Post reader")
+	);
+	let mut stale = payload.clone();
+	stale["thread_id"] = serde_json::json!(if channel == Id(986) { "985" } else { "986" });
+	assert!(
+		!active
+			.thread_update(&serde_json::to_vec(&stale).unwrap())
+			.unwrap()
+	);
+	let mut invalid = payload.clone();
+	invalid["members"][0]["user_id"] = serde_json::json!("988");
+	assert!(
+		active
+			.thread_update(&serde_json::to_vec(&invalid).unwrap())
+			.is_err()
+	);
+	let mut large = payload.clone();
+	large["members"] = serde_json::Value::Array((1..=101).map(|id| serde_json::json!({"user_id":id.to_string(),"member":{"user":{"id":id.to_string(),"username":"Synthetic"}},"presence":{"status":"offline","activities":[]}})).collect());
+	assert!(
+		active
+			.thread_update(&serde_json::to_vec(&large).unwrap())
+			.unwrap()
+	);
+	assert_eq!(active.rows.len(), 100);
+	assert_eq!(active.total, 101);
+	let empty = serde_json::json!({"guild_id":guild.to_string(),"thread_id":channel.to_string(),"members":[]});
+	assert!(
+		active
+			.thread_update(&serde_json::to_vec(&empty).unwrap())
+			.unwrap()
+	);
+	assert!(active.synced && active.rows.is_empty());
+	let Frame::Text(packet) = subscription_packet(guild, None, true) else {
+		unreachable!()
+	};
+	let packet: serde_json::Value = serde_json::from_str(&packet).unwrap();
+	assert_eq!(
+		packet["d"]["subscriptions"][guild.to_string()]["thread_member_lists"],
+		serde_json::json!([])
+	);
+	list
+}
+
 impl ActiveMembers {
 	fn new(subscription: MemberSubscription) -> Self {
 		Self {
@@ -250,7 +334,10 @@ impl ActiveMembers {
 		}
 	}
 	fn update(&mut self, update: MemberUpdate) -> Result<bool, Failure> {
-		if update.guild_id != self.subscription.guild || update.id != self.subscription.list_id {
+		if self.subscription.thread
+			|| update.guild_id != self.subscription.guild
+			|| update.id != self.subscription.list_id
+		{
 			return Ok(false);
 		}
 		// The emitted full snapshot includes the mirror's latest statuses, so a
@@ -323,6 +410,33 @@ impl ActiveMembers {
 		if self.rows.iter().flatten().map(Member::bytes).sum::<usize>() > 128 * 1024 {
 			return Err(Failure::Capacity);
 		}
+		Ok(true)
+	}
+	fn thread_update(&mut self, bytes: &[u8]) -> Result<bool, Failure> {
+		if !self.subscription.thread {
+			return Ok(false);
+		}
+		#[derive(serde::Deserialize)]
+		struct Scope {
+			guild_id: Id,
+			thread_id: Id,
+		}
+		let scope: Scope = decode(bytes).map_err(|_| Failure::Protocol)?;
+		if scope.guild_id != self.subscription.guild || scope.thread_id != self.subscription.channel
+		{
+			return Ok(false);
+		}
+		let list = discord_protocol::thread_members::members(
+			bytes,
+			scope.guild_id,
+			scope.thread_id,
+			self.subscription.request,
+		)
+		.map_err(|_| Failure::Protocol)?;
+		self.clear_presence();
+		self.rows = list.rows;
+		self.total = list.total;
+		self.synced = true;
 		Ok(true)
 	}
 	fn clear_presence(&mut self) {
@@ -662,7 +776,8 @@ async fn run_inner(
 							Duration::from_secs(5),
 							socket.send(subscription_packet(
 								subscription.guild,
-								Some(subscription.channel)
+								Some(subscription.channel),
+								subscription.thread
 							))
 						)
 						.await,
@@ -751,11 +866,11 @@ async fn run_inner(
 					subscriptions_open=changed.is_ok();
 					let same_list = subscriptions_open && (members_deadline.is_some() || active_members.as_ref().is_some_and(|active| active.synced)) && active_members.as_ref().is_some_and(|active| {
 						subscriptions.borrow().as_ref().is_some_and(|next| {
-							next.guild == active.subscription.guild && next.list_id == active.subscription.list_id
+							!next.thread && !active.subscription.thread && next.guild == active.subscription.guild && next.list_id == active.subscription.list_id
 						})
 					});
 					if !same_list {
-						if let Some(old)=active_members.take() && !matches!(timeout(Duration::from_secs(5),socket.send(subscription_packet(old.subscription.guild,None))).await,Ok(Ok(()))) {break;}
+						if let Some(old)=active_members.take() && !matches!(timeout(Duration::from_secs(5),socket.send(subscription_packet(old.subscription.guild,None,old.subscription.thread))).await,Ok(Ok(()))) {break;}
 						members_deadline=None;
 					}
 					member_diagnostics.record("subscription replaced or canceled");
@@ -921,8 +1036,17 @@ async fn run_inner(
 									}
 									"RESUMED" => { emit(Event::Resumed)?; ready_at = Some(Instant::now()); },
 									"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" | "VOICE_STATE_UPDATE" | "VOICE_SERVER_UPDATE" | "STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_DELETE" => calls.dispatch(packet.t.as_deref().unwrap_or(""),packet.d.get().as_bytes(),owner_id,&emit)?,
+									"THREAD_MEMBER_LIST_UPDATE" => {
+										if let Some(active) = &mut active_members {
+											match active.thread_update(packet.d.get().as_bytes()) {
+												Ok(true) => { emit(Event::Members(active.snapshot(Freshness::Fresh)))?; members_deadline = None; }
+												Ok(false) => {}
+												Err(_) => { active.clear_presence(); active.rows.clear(); active.synced = false; emit(Event::Members(active.snapshot(Freshness::Unavailable)))?; members_deadline = None; }
+											}
+										}
+									}
 									"GUILD_MEMBER_LIST_UPDATE" => {
-										if let Some(active)=&mut active_members {
+										if let Some(active)=&mut active_members && !active.subscription.thread {
 											let decoded = decode::<MemberUpdate>(packet.d.get().as_bytes());
 											match &decoded {
 												Err(_) => member_diagnostics.record("reply decode failed: unsupported member payload"),
@@ -2012,6 +2136,7 @@ mod member_tests {
 	#[test]
 	fn rich_activity_patches_preserve_absence_and_clear_on_status_loss() {
 		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
 			guild: Id(1),
 			channel: Id(2),
 			request: 7,
@@ -2105,6 +2230,7 @@ mod member_tests {
 	#[test]
 	fn custom_status_patches_preserve_replace_clear_and_coalesce() {
 		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
 			guild: Id(1),
 			channel: Id(2),
 			request: 7,
@@ -2156,6 +2282,7 @@ mod member_tests {
 	#[test]
 	fn member_sync_and_updates_replace_role_membership() {
 		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
 			guild: Id(1),
 			channel: Id(2),
 			request: 7,
@@ -2176,6 +2303,7 @@ mod member_tests {
 	#[test]
 	fn presence_coalesces_loaded_rows_at_a_fixed_deadline_and_snapshots_supersede_it() {
 		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
 			guild: Id(1),
 			channel: Id(2),
 			request: 7,
@@ -2285,6 +2413,7 @@ mod member_tests {
 	#[test]
 	fn presence_flood_retains_only_the_hundred_loaded_users() {
 		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
 			guild: Id(1),
 			channel: Id(2),
 			request: 7,
@@ -2327,6 +2456,7 @@ mod member_tests {
 	#[test]
 	fn presence_preserves_the_existing_loaded_row_byte_limit() {
 		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
 			guild: Id(1),
 			channel: Id(2),
 			request: 7,
@@ -2378,6 +2508,7 @@ mod member_tests {
 	#[test]
 	fn member_sync_accepts_group_headers_without_summary_counts() {
 		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
 			guild: Id(1),
 			channel: Id(2),
 			request: 7,
@@ -2393,6 +2524,7 @@ mod member_tests {
 	#[test]
 	fn member_operations_preserve_indices_scope_and_bounds() {
 		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
 			guild: Id(1),
 			channel: Id(2),
 			request: 3,
@@ -2424,7 +2556,7 @@ mod member_tests {
 		};
 		timeout(Duration::from_secs(10),async {
             let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();let endpoint=format!("ws://{}/",listener.local_addr().unwrap());
-            let (selection,receive)=watch::channel(Some(MemberSubscription {guild:Id(1),channel:Id(2),request:7,list_id:"everyone".into()}));
+            let (selection,receive)=watch::channel(Some(MemberSubscription {thread:false,guild:Id(1),channel:Id(2),request:7,list_id:"everyone".into()}));
             let server=async {
                 let (stream,_)=listener.accept().await.unwrap();let mut socket=accept_async(stream).await.unwrap();
                 socket.send(Frame::Text(json!({"op":10,"d":{"heartbeat_interval":1000}}).to_string().into())).await.unwrap();
@@ -2470,7 +2602,7 @@ mod member_tests {
                 if let Event::MemberPresence {guild,channel,request,updates}=event {
                     assert_eq!((guild,channel,request),(Id(1),Id(2),7));
                     assert_eq!(updates,vec![record(3,Some("idle"),Some("Synthetic live update"))]);
-                    selection.send(Some(MemberSubscription {guild:Id(1),channel:Id(4),request:8,list_id:"everyone".into()})).unwrap();
+                    selection.send(Some(MemberSubscription {thread:false,guild:Id(1),channel:Id(4),request:8,list_id:"everyone".into()})).unwrap();
                 }
                 Ok(())
             },Some(&endpoint));

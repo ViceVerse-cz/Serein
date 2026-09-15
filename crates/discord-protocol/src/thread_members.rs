@@ -1,7 +1,10 @@
-//! Documented thread-member REST snapshots, bounded to the visible first 100 members.
-use crate::{DecodeError, MemberDto, MemberItem, permissions::List};
+//! Unofficial user-gateway thread-member snapshots, bounded to the first 100 members.
+use crate::{DecodeError, MemberDto, MemberItem, PresenceDto};
 use model::{Freshness, Id, MemberList};
-use serde::Deserialize;
+use serde::{
+	Deserialize, Deserializer,
+	de::{IgnoredAny, SeqAccess, Visitor},
+};
 use std::collections::BTreeSet;
 
 pub const MAX_WIRE: usize = 512 * 1024;
@@ -9,9 +12,65 @@ const MAX_BYTES: usize = 128 * 1024;
 
 #[derive(Deserialize)]
 struct ThreadMember {
-	id: Option<Id>,
 	user_id: Id,
 	member: MemberDto,
+	presence: Option<PresenceDto>,
+}
+
+#[derive(Deserialize)]
+struct Snapshot {
+	guild_id: Id,
+	thread_id: Id,
+	members: Rows,
+}
+
+struct Rows {
+	rows: Vec<Option<model::Member>>,
+	total: u64,
+}
+
+impl<'de> Deserialize<'de> for Rows {
+	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+		struct Bounded;
+		impl<'de> Visitor<'de> for Bounded {
+			type Value = Rows;
+			fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+				f.write_str("a thread member list")
+			}
+			fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Rows, A::Error> {
+				let mut rows = Vec::with_capacity(100);
+				let mut seen = BTreeSet::new();
+				let mut retained = rows.capacity() * size_of::<Option<model::Member>>();
+				while rows.len() < 100 {
+					let Some(mut entry) = seq.next_element::<ThreadMember>()? else {
+						break;
+					};
+					if entry.user_id != entry.member.user.id || !seen.insert(entry.user_id) {
+						return Err(serde::de::Error::custom("Invalid thread member identity"));
+					}
+					if entry.presence.is_some() {
+						entry.member.presence = entry.presence;
+					}
+					let member = MemberItem::Member {
+						member: Box::new(entry.member),
+					}
+					.into_model()
+					.ok_or_else(|| serde::de::Error::custom("Invalid thread member"))?;
+					retained += member.bytes() - size_of::<model::Member>();
+					if !member.valid() || retained > MAX_BYTES {
+						return Err(serde::de::Error::custom("Thread member capacity exceeded"));
+					}
+					rows.push(Some(member));
+				}
+				let mut total = rows.len() as u64;
+				while seq.next_element::<IgnoredAny>()?.is_some() {
+					total += 1;
+				}
+				Ok(Rows { rows, total })
+			}
+		}
+		d.deserialize_seq(Bounded)
+	}
 }
 
 pub fn members(
@@ -23,34 +82,16 @@ pub fn members(
 	if bytes.len() > MAX_WIRE || guild.0 == 0 || channel.0 == 0 {
 		return Err(DecodeError);
 	}
-	let members: List<ThreadMember, 100> = crate::decode(bytes)?;
-	let mut rows = Vec::with_capacity(members.0.len());
-	let mut seen = BTreeSet::new();
-	let mut retained = 0;
-	for entry in members.0 {
-		if entry.id.is_some_and(|id| id != channel)
-			|| entry.user_id != entry.member.user.id
-			|| !seen.insert(entry.user_id)
-		{
-			return Err(DecodeError);
-		}
-		let member = MemberItem::Member {
-			member: Box::new(entry.member),
-		}
-		.into_model()
-		.ok_or(DecodeError)?;
-		retained += member.bytes();
-		if !member.valid() || retained > MAX_BYTES {
-			return Err(DecodeError);
-		}
-		rows.push(Some(member));
+	let snapshot: Snapshot = crate::decode(bytes)?;
+	if snapshot.guild_id != guild || snapshot.thread_id != channel {
+		return Err(DecodeError);
 	}
 	Ok(MemberList {
 		guild: Some(guild),
 		channel,
 		request,
-		total: rows.len() as u64,
-		rows,
+		total: snapshot.members.total,
+		rows: snapshot.members.rows,
 		freshness: Freshness::Fresh,
 	})
 }
@@ -62,9 +103,10 @@ mod tests {
 
 	#[test]
 	fn thread_members_validate_identity_scope_and_bounds() {
-		let entry = json!({"id":"2","user_id":"3","member":{"user":{"id":"3","username":"Synthetic"},"nick":"Thread participant","roles":["9","8"]}});
+		let entry = json!({"user_id":"3","member":{"user":{"id":"3","username":"Synthetic"},"nick":"Thread participant","roles":["9","8"]},"presence":{"status":"online"}});
+		let snapshot = |value| json!({"guild_id":"1","thread_id":"2","members":value});
 		let parse = |value| members(&serde_json::to_vec(&value).unwrap(), Id(1), Id(2), 7);
-		let list = parse(json!([entry])).unwrap();
+		let list = parse(snapshot(json!([entry]))).unwrap();
 		assert_eq!(
 			(list.guild, list.channel, list.request, list.total),
 			(Some(Id(1)), Id(2), 7, 1)
@@ -72,32 +114,32 @@ mod tests {
 		let member = list.rows[0].as_ref().unwrap();
 		assert_eq!(member.roles, vec![Id(8), Id(9)]);
 		assert_eq!(member.nick.as_deref(), Some("Thread participant"));
-		assert_eq!(member.status, None);
-		assert!(parse(json!([])).unwrap().rows.is_empty());
-		let mut without_id = entry.clone();
-		without_id.as_object_mut().unwrap().remove("id");
-		assert!(parse(json!([without_id])).is_ok());
-		for (field, value) in [
-			("id", json!("4")),
-			("user_id", json!("4")),
-			("member", json!(null)),
-		] {
+		assert_eq!(member.status.as_deref(), Some("online"));
+		assert!(parse(snapshot(json!([]))).unwrap().rows.is_empty());
+		for field in ["guild_id", "thread_id"] {
+			let mut invalid = snapshot(json!([entry]));
+			invalid[field] = json!("4");
+			assert!(parse(invalid).is_err());
+		}
+		for (field, value) in [("user_id", json!("4")), ("member", json!(null))] {
 			let mut invalid = entry.clone();
 			invalid[field] = value;
-			assert!(parse(json!([invalid])).is_err());
+			assert!(parse(snapshot(json!([invalid]))).is_err());
 		}
-		assert!(parse(json!([entry, entry])).is_err());
+		assert!(parse(snapshot(json!([entry, entry]))).is_err());
 		assert!(
-			parse(json!([{"user_id":"0","member":{"user":{"id":"0","username":"Invalid"}}}]))
-				.is_err()
+			parse(snapshot(
+				json!([{"user_id":"0","member":{"user":{"id":"0","username":"Invalid"}}}])
+			))
+			.is_err()
 		);
-		let full: Vec<_> = (1..=100).map(|id| json!({"user_id":id.to_string(),"member":{"user":{"id":id.to_string(),"username":"Synthetic"}}})).collect();
-		assert_eq!(parse(json!(full)).unwrap().rows.len(), 100);
-		assert!(parse(json!(vec![entry.clone(); 101])).is_err());
+		let full: Vec<_> = (1..=101).map(|id| json!({"user_id":id.to_string(),"member":{"user":{"id":id.to_string(),"username":"Synthetic"}}})).collect();
+		let list = parse(snapshot(json!(full))).unwrap();
+		assert_eq!((list.rows.len(), list.total), (100, 101));
 		assert!(members(&vec![b' '; MAX_WIRE + 1], Id(1), Id(2), 7).is_err());
-		assert!(members(b"[]", Id(0), Id(2), 7).is_err());
+		assert!(members(b"{}", Id(0), Id(2), 7).is_err());
 		let large: Vec<_> = (1..=100).map(|id| json!({"user_id":id.to_string(),"member":{"user":{"id":id.to_string(),"username":"Synthetic"},"roles":(1..=200).map(|role| role.to_string()).collect::<Vec<_>>()}})).collect();
-		let bytes = serde_json::to_vec(&large).unwrap();
+		let bytes = serde_json::to_vec(&snapshot(json!(large))).unwrap();
 		assert!(bytes.len() < MAX_WIRE);
 		assert!(
 			members(&bytes, Id(1), Id(2), 7).is_err(),

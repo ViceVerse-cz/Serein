@@ -609,7 +609,7 @@ bounded role/overwrite mirror, so GUILD_CREATE, newly delivered/restored channel
 Reload people use current metadata. A change in list identity retires the active request
 and lets the visible pane request again; unchanged metadata preserves pending replies.
 Missing metadata still means unavailable for ordinary guild channels. Thread participants now
-use the separate REST snapshot described below.
+use the separate Gateway snapshot described below.
 The shared hash accepts the same u128 permission values as the permission parser.
 
 The original [subscription lifecycle](https://github.com/dolfies/discord.py-self/blob/2ba64a9a997e151a9c259984e0a179b1fdf4aff4/discord/state.py)
@@ -1221,18 +1221,19 @@ Offline parser, reducer and HTTP checks are not evidence of live Discord deliver
 
 ## Thread participants — September 15, 2026
 
-Opening a thread's People pane now requests the documented
-[List Thread Members](https://docs.discord.com/developers/resources/channel#list-thread-members)
-route with `with_member=true&limit=100`, rather than requiring an ordinary guild
-member-list identity. The pane shows joined thread participants, not the parent
-channel's member list. This is a snapshot of the first 100 participants; reopening
-the pane refreshes it, and failed reads retain Reload people. There is no background
-pagination or thread-member subscription. Missing presence remains unknown.
+Opening a thread's People pane subscribes to that thread through the existing
+unofficial user Gateway subscription (`thread_member_lists`) and receives
+`THREAD_MEMBER_LIST_UPDATE`. The previous REST List Thread Members route is
+[restricted to bot accounts](https://docs.discord.food/resources/channel#list-thread-members),
+which caused normal-account participant requests to fail. The user-client packet
+and event shapes follow the upstream
+[subscription implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py)
+and [thread snapshot handler](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py).
 
-Requests use the existing authenticated REST client. Closing/replacing the member
-view cancels the previous read; session, channel, request and permission checks
-reject retired replies. Responses are bounded to 512 KiB on the wire and 100
-members / 128 KiB retained metadata. Optional-view capacity failures do not end
-the account session. Synthetic tests and native offline screenshots cover the
-loading path, not live service acceptance. The documented endpoint has application
-intent restrictions; normal-account interoperability remains unofficial/unverified.
+The pane retains the first 100 participants and their supplied presence within
+128 KiB; payloads are capped at 512 KiB. It uses one existing member subscription,
+clears it on pane close or navigation, and ignores other guild/thread snapshots.
+Reload resubscribes; a missing response uses the existing 15-second timeout.
+No bulk guild subscription, background pagination or thread join is performed.
+The offline debug check exercises the packet, decoder and state admission.
+Live acceptance remains unofficial and unverified.

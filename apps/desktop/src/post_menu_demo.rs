@@ -171,6 +171,40 @@ pub fn check() {
 	let (text, _) = frame(vec![]);
 	assert!(text.iter().any(|(label, _)| label == "Delete Post?"));
 	assert!(followed);
+	#[cfg(debug_assertions)]
+	{
+		state.select(post.id);
+		let Some(Command::Members {
+			guild: Some(guild),
+			channel: Some(channel),
+			request,
+			thread: true,
+			..
+		}) = state.request_members()
+		else {
+			panic!("post must subscribe to its participants");
+		};
+		let list = discord_gateway::debug_thread_member_check(guild, channel, request);
+		state.apply(Envelope {
+			generation: state.generation,
+			event: client_core::Event::Members(list),
+		});
+		assert_eq!(
+			state.members.as_ref().unwrap().freshness,
+			model::Freshness::Fresh
+		);
+		assert_eq!(
+			state.members.as_ref().unwrap().rows[0]
+				.as_ref()
+				.unwrap()
+				.user
+				.id,
+			Id(987)
+		);
+		println!(
+			"Thread participants debug check passed: user subscription, bounded snapshot, presence, stale scope, empty list, and unsubscribe."
+		);
+	}
 	println!(
 		"Post menu debug check passed: right-click, all controls, follow, copy ID, delete confirmation, and unchanged selection."
 	);
