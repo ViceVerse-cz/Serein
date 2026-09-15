@@ -733,9 +733,8 @@ impl State {
 			return;
 		}
 		if !self
-			.channels
-			.iter()
-			.any(|c| c.id == message.channel && c.supports_text())
+			.channel(message.channel)
+			.is_some_and(|channel| channel.supports_text())
 		{
 			return;
 		}

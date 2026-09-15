@@ -402,6 +402,43 @@ and 20 ms process time. The final run, after three seconds warmup, delivered
 the game-only bounds when Serein playback appeared. Rekey, application removal,
 Serein-only idle and stop also passed. This verifies the Pulse API with synthetic
 signals; it is not Linux/PipeWire hardware, Discord interoperability or a latency benchmark.
+# Indexed message channel lookups - September 15, 2026
+
+Baseline: fetched `origin/main` at `490be9c`; after: that revision plus the
+message-path channel-index substitutions on `perf/message-channel-index`.
+Windows 11 10.0.26200 x64, Ryzen 7 7800X3D (16 logical processors),
+33,410,678,784 bytes RAM, pinned Rust 1.98.1 MSVC, locked release profile.
+Both standard `cargo xtask package` builds included voice without demo or
+developer-session features. They ran serially in one isolated worktree with
+the same E: Cargo target; the baseline `dist` was copied aside before rebuilding.
+The portable packages each contain the same 186 file paths. `makensis` was
+unavailable, so no installer was measured. The OpenH264 LNK4255 warning was
+nonfatal in both builds.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Synthetic 10,000-message / 20,001-channel reducer, median | 711.2295 ms | 177.1066 ms | -534.1229 ms (-75.1%) |
+| Existing 100,000-message reducer, median | 45.1406 ms | 44.0192 ms | -1.1214 ms (-2.5%; noisy) |
+| Release executable bytes | 72,463,872 | 72,463,872 | 0 |
+| Full portable package bytes | 76,529,996 | 76,529,996 | 0 |
+| ZIP bytes, Compress-Archive Optimal | 43,259,755 | 43,260,003 | +248 (+0.0006%) |
+
+`cargo replay` built each release workload once. The existing `replay-bench`
+fixture gained `--wide-channels`: it clones synthetic navigation to 20,001
+channels and applies 10,000 messages to the last channel. One warmup per binary
+preceded five alternating baseline/after runs with no concurrent build.
+Wide baseline: 688.5916, 699.4779, 712.9667, 717.0727, 711.2295 ms.
+Wide after: 170.8742, 187.2572, 171.2247, 182.9038, 177.1066 ms.
+Both retained 500 records / 261,477 estimated bytes. The existing replay
+baseline: 55.4731, 47.1661, 42.6606, 45.1406, 43.8635 ms; after:
+51.7992, 43.3525, 44.0192, 43.2530, 45.6519 ms. Its ranges overlap, so
+no general reducer speedup is claimed. It retained 500 records and
+260,992..261,477 estimated bytes on both revisions.
+
+ZIPs compressed each copied package's contents with the same path layout.
+The wide case measures channel lookup work under a synthetic large navigation
+set; it does not measure actual account startup, native UI CPU/RSS/frame timing,
+network latency or live Discord compatibility.
 
 # Theme editor readability - September 15, 2026
 
