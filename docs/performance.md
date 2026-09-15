@@ -577,6 +577,59 @@ No owner-account or live load test was performed. Account budgets are finite com
 allocation estimates (128 MiB navigation/permission and 64 MiB permission sub-budget),
 not whole-process memory guarantees; decoding and old/new state replacement add peak memory.
 
+## Linux and Windows stream audio — September 15, 2026
+
+Compared baseline `0628052` with stream-audio commit `79d1bc0` on macOS 27.0
+(26A428), Apple M1 Pro, 16 GiB RAM, Rust 1.98.1. Both use `cargo xtask package`:
+the standard release build including voice, without demo/developer-session features.
+Baseline output was preserved in a detached worktree before building the changed tree.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Packaged macOS executable bytes | 66,409,328 | 66,410,496 | +1,168 (+0.0018%) |
+| Installed app bundle bytes | 72,316,725 | 72,317,893 | +1,168 (+0.0016%) |
+| Compressed app ZIP bytes | 43,275,334 | 43,277,237 | +1,903 (+0.0044%) |
+
+One build per revision; executable file size after the packaging strip/sign step.
+This measures the shared audio transport changes on macOS, not the size or runtime
+cost of the Linux/Windows adapters. Installed size sums regular files in `Serein.app`;
+ZIP uses `ditto -c -k --keepParent`. Compression varies with binary content and metadata;
+these tiny deltas do not establish a runtime improvement. No Rust dependency was added.
+
+Capture uses four bounded PCM chunks (up to 38,400 bytes each); the sender reserves
+38,400 PCM bytes and sends one 20 ms stereo Opus frame per tick. Linux adds four
+bounded appsink buffers and a separate event-driven audio worker. These are component
+limits, not RSS measurements. Synthetic checks exercise audio gates, rekey generation
+tags, queue pressure, malformed PCM, pacing and cancellation without opening devices.
+
+Linux/Windows hardware capture CPU, RSS, A/V latency and native before/after UI
+screenshots remain unmeasured because those desktop sessions are unavailable here.
+The macOS demo does not execute either new native adapter; no native performance
+improvement or live interoperability is claimed. Windows cross-checking on this Mac
+also stopped in existing native Opus/OpenH264 build scripts (missing Visual Studio
+generator / incompatible host C++ flags), before checking the Windows adapter.
+
+The follow-up after owner testing moves Windows frame admission ahead of D3D11
+readback. Capture is capped at the selected frame rate, and no new staging texture,
+GPU-to-CPU copy, or raw-frame allocation is performed while the one-frame queue is
+occupied. Windows OpenH264 uses its low-complexity mode. Before this change those
+costs ran for every compositor callback and frame-rate/queue dropping happened only
+after readback. At 1920x1080 BGRA, each avoided readback and subsequent copy is
+8,294,400 bytes; a 3840x2160 source is 33,177,600 bytes. These are buffer sizes and
+work bounds derived from the dimensions, not throughput measurements.
+
+Native Windows frame time, CPU/RSS, GPU copy load and viewer FPS remain unmeasured on
+this macOS host. The owner observed severe lag at 1080p60 before this follow-up; the
+new result requires another Windows measurement. NVIDIA hardware H.264 is not used:
+the current bounded Annex-B path remains OpenH264 software encoding.
+
+The standard macOS release package at the preceding `0e7d2a3` revision versus this
+follow-up changed from 66,716,336 to 66,716,480 executable bytes (+144), from
+72,626,189 to 72,626,333 installed bundle bytes (+144), and from 43,390,952 to
+43,393,404 ZIP bytes (+2,452). One package per revision used the same host and
+`cargo xtask package`; ZIP compression noise is not a speed improvement or regression.
+
+
 ## 2026-09-15: gallery preview, customization and selection
 
 | Metric / method | Baseline `fd0cf4e` | After `e452b0f` | Delta |

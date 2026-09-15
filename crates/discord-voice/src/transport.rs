@@ -665,6 +665,12 @@ impl StreamAudio {
 	}
 }
 
+fn soundshare_announcement(audio: &mut Option<StreamAudio>, ssrc: u32) -> Option<Value> {
+	let audio = audio.as_mut()?;
+	audio.speaking = true;
+	Some(json!({"op":5,"d":{"speaking":2,"delay":0,"ssrc":ssrc}}))
+}
+
 fn invalidate_stream(video: &mut Option<crate::screen::Video>, audio: &mut Option<StreamAudio>) {
 	if let Some(audio) = audio {
 		audio.clear();
@@ -834,6 +840,7 @@ async fn run_stream_inner(
 				if secure && !announced {
 					invalidate_stream(&mut video, &mut share_audio);
 					if let Some(video)=&video {
+						if let Some(event)=soundshare_announcement(&mut share_audio,audio_ssrc) {json_send(&mut ws,event).await?;}
 						let streams=json!([{"type":"video","rid":"100","ssrc":video_ssrc,"active":true,"quality":100,"rtx_ssrc":0,"max_bitrate":video.settings.bit_rate(),"max_framerate":video.settings.fps,"max_resolution":{"type":"fixed","width":video.settings.width,"height":video.settings.height}}]);
 						json_send(&mut ws,json!({"op":12,"d":{"audio_ssrc":audio_ssrc,"video_ssrc":video_ssrc,"rtx_ssrc":0,"streams":streams}})).await?;
 						awaiting_keyframe=true;video.keyframe.store(true, Ordering::Release); video.ready.store(true, Ordering::Release);
@@ -1132,6 +1139,21 @@ mod tests {
 				.unwrap(),
 			[0.25; STREAM_AUDIO_FRAME]
 		);
+	}
+	#[test]
+	fn soundshare_is_announced_before_captured_audio_is_enabled() {
+		let mut audio = Some(StreamAudio {
+			encoder: Encoder::new(48_000, Channels::Stereo, Application::Audio).unwrap(),
+			pending: Vec::with_capacity(STREAM_AUDIO_PENDING),
+			speaking: false,
+			last_tick: Instant::now(),
+		});
+		let event = soundshare_announcement(&mut audio, 42).unwrap();
+		assert_eq!(
+			event,
+			json!({"op":5,"d":{"speaking":2,"delay":0,"ssrc":42}})
+		);
+		assert!(audio.unwrap().speaking);
 	}
 	#[test]
 	fn negotiation_timeout_distinguishes_missing_group_from_unexecuted_transition() {

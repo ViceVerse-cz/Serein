@@ -147,7 +147,10 @@ mod native {
 			_params: params.clone(),
 		}
 		.into();
-		let variant = PROPVARIANT {
+		// The blob points into `params`; PROPVARIANT's Rust Drop would call
+		// PropVariantClear and try to free that Arc allocation with CoTaskMemFree.
+		// The completion handler owns `params` for the whole async activation.
+		let variant = ManuallyDrop::new(PROPVARIANT {
 			Anonymous: PROPVARIANT_0 {
 				Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
 					vt: VT_BLOB,
@@ -160,7 +163,7 @@ mod native {
 					..Default::default()
 				}),
 			},
-		};
+		});
 		// The native operation retains the agile completion handler and its immutable blob.
 		let operation = unsafe {
 			ActivateAudioInterfaceAsync(
