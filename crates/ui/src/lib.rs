@@ -159,6 +159,7 @@ pub struct MessagingUi {
 	profile_formatted: markdown::FormatCache,
 	pub reading_preferences: model::ReadingPreferences,
 	pub show_hidden_channels: bool,
+	pub hide_title_bar: bool,
 	pub reading_status: &'static str,
 	pub reading_save_requested: bool,
 	pub minimize_to_tray: bool,
@@ -2584,7 +2585,9 @@ impl MessagingUi {
 			.guild
 			.and_then(|id| state.guild(id))
 			.map_or_else(|| "Direct Messages".to_owned(), |g| g.name.clone());
-		self.title_bar(ui, state, &title);
+		if !cfg!(target_os = "windows") || !self.hide_title_bar {
+			self.title_bar(ui, state, &title);
+		}
 		// Server rail and channel list share one resizable column so the account card can
 		// span both, like Discord's bottom-left user pill.
 		let rail = notifications::RAIL_WIDTH;

@@ -102,7 +102,7 @@ impl Page {
 			Self::Account => "my account profile logout",
 			Self::Profile => "profile edit display name about me bio pronouns color colour",
 			Self::General => {
-				"general windows macos login menu bar startup autostart automatically open minimized minimize tray background"
+				"general windows macos login menu bar startup autostart automatically open minimized minimize tray background title bar caption"
 			}
 			Self::Appearance => {
 				"appearance customization primary accent hex window tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
@@ -654,6 +654,18 @@ impl MessagingUi {
 
 	fn general_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
+		#[cfg(target_os = "windows")]
+		{
+			design::card(ui, |ui| {
+				design::switch(
+					ui,
+					"Hide Serein title bar",
+					Some("Use the Windows title bar and window buttons instead."),
+					&mut self.hide_title_bar,
+				);
+			});
+			ui.add_space(12.0);
+		}
 		ui.add_enabled_ui(self.startup_available && !self.startup_busy, |ui| {
 			design::switch(
 				ui,
