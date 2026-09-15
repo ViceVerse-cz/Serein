@@ -1,5 +1,28 @@
 use extensions::*;
 
+#[test]
+fn section_opacity_roundtrips_and_stays_bounded() {
+	let mut theme = Theme::default();
+	theme.dark.background = Some(Background {
+		opacity: 100,
+		sections: Some(SectionOpacity::default()),
+		..Default::default()
+	});
+	let decoded: Theme = serde_json::from_slice(&serde_json::to_vec(&theme).unwrap()).unwrap();
+	assert_eq!(decoded, theme);
+	assert!(theme.validate().is_ok());
+	theme
+		.dark
+		.background
+		.as_mut()
+		.unwrap()
+		.sections
+		.as_mut()
+		.unwrap()
+		.member_list = 101;
+	assert!(theme.validate().is_err());
+}
+
 fn plugin(wasm: &str) -> Package {
 	Package {
 		manifest: Manifest {

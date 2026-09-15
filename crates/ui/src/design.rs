@@ -426,6 +426,49 @@ pub fn has_window_background(ui: &egui::Ui) -> bool {
 		})
 }
 
+#[derive(Clone, Copy)]
+pub enum ImageSection {
+	TopBar,
+	ServerList,
+	ChannelList,
+	MessageList,
+	MemberList,
+	Composer,
+}
+
+/// Cover one window image with a section surface. Only the surface changes opacity.
+pub fn section_surface(ui: &egui::Ui, color: Color32, section: ImageSection) -> Color32 {
+	if !has_window_background(ui) {
+		return color;
+	}
+	let Some(sections) = EXTENSION_THEME.get().and_then(|palettes| {
+		palettes[usize::from(ui.visuals().dark_mode)]
+			.background?
+			.sections
+	}) else {
+		return color;
+	};
+	let opacity = match section {
+		ImageSection::TopBar => sections.top_bar,
+		ImageSection::ServerList => sections.server_list,
+		ImageSection::ChannelList => sections.channel_list,
+		ImageSection::MessageList => sections.message_list,
+		ImageSection::MemberList => sections.member_list,
+		ImageSection::Composer => sections.composer,
+	};
+	let [r, g, b, _] = color.to_srgba_unmultiplied();
+	Color32::from_rgba_unmultiplied(r, g, b, (u16::from(opacity) * 255 / 100) as u8)
+}
+
+pub fn has_section_background(ui: &egui::Ui) -> bool {
+	has_window_background(ui)
+		&& EXTENSION_THEME.get().is_some_and(|palettes| {
+			palettes[usize::from(ui.visuals().dark_mode)]
+				.background
+				.is_some_and(|background| background.sections.is_some())
+		})
+}
+
 /// A message-area image sits above the chat surface and below message content.
 pub fn paint_chat_background(ui: &egui::Ui, rect: egui::Rect) {
 	let background = EXTENSION_THEME

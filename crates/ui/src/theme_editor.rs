@@ -1,7 +1,8 @@
 //! Native theme drafts. Package and image IO belongs to the desktop worker.
 use crate::{ExtensionRequest, design, dialog};
 use extensions::{
-	Background, BackgroundFit, BackgroundTarget, ExtensionKind, Manifest, Package, Theme,
+	Background, BackgroundFit, BackgroundTarget, ExtensionKind, Manifest, Package, SectionOpacity,
+	Theme,
 };
 use std::sync::{
 	Arc,
@@ -80,11 +81,10 @@ impl ThemeEditor {
 		self.dirty = true;
 		if let Some(theme) = self.package.theme.as_mut() {
 			for palette in [&mut theme.light, &mut theme.dark] {
-				palette.background.get_or_insert(Background {
-					opacity: 25,
-					fit: BackgroundFit::Cover,
-					target: BackgroundTarget::Chat,
-				});
+				let background = palette.background.get_or_insert(Background::default());
+				background.opacity = 100;
+				background.target = BackgroundTarget::Window;
+				background.sections.get_or_insert_default();
 			}
 		}
 	}
@@ -165,14 +165,16 @@ impl ThemeEditor {
 				});
 			});
 			ui.add_space(16.0);
-			design::section(ui, "Background", Some("Choose what appears behind your messages."));
+			design::section(ui, "Background", Some("One image across the app. Adjust each section below."));
 			self.image_card(ui, requests, &mut changed);
 			let theme = self.package.theme.as_mut().expect("theme editor always holds a theme");
 			let palette = if self.dark { &mut theme.dark } else { &mut theme.light };
 			let base = design::builtin_colors(self.dark, design::variant());
 			if !self.package.background_image.is_empty() {
-				let background = palette.background.get_or_insert(Background { target: BackgroundTarget::Chat, ..Default::default() });
-				changed |= row(ui, "Image opacity", |ui| ui.add(egui::Slider::new(&mut background.opacity, 0..=100).suffix("%")).changed());
+				let background = palette.background.get_or_insert(Background { opacity: 100, sections: Some(SectionOpacity::default()), ..Default::default() });
+				if background.sections.is_none() {
+					changed |= row(ui, "Image opacity", |ui| ui.add(egui::Slider::new(&mut background.opacity, 0..=100).suffix("%")).changed());
+				}
 				changed |= row(ui, "Image fit", |ui| {
 					let mut changed = false;
 					egui::ComboBox::from_id_salt("image-fit").selected_text(match background.fit { BackgroundFit::Cover => "Fill area", BackgroundFit::Contain => "Fit entire image" }).show_ui(ui, |ui| {
@@ -180,17 +182,20 @@ impl ThemeEditor {
 						changed |= ui.selectable_value(&mut background.fit, BackgroundFit::Contain, "Fit entire image").changed();
 					}); changed
 				});
-				changed |= row(ui, "Show image in", |ui| {
-					let mut changed = false;
-					egui::ComboBox::from_id_salt("image-target").selected_text(match background.target { BackgroundTarget::Chat => "Message area", BackgroundTarget::Window => "Whole window" }).show_ui(ui, |ui| {
-						changed |= ui.selectable_value(&mut background.target, BackgroundTarget::Chat, "Message area").changed();
-						changed |= ui.selectable_value(&mut background.target, BackgroundTarget::Window, "Whole window").changed();
-					}); changed
-				});
-				if background.target == BackgroundTarget::Window {
-					design::hint(ui, "Lower the surface opacity to see the image through the app.");
-					for (key, fallback) in [("sidebar", base.sidebar), ("chat", base.chat)] { changed |= opacity(ui, key, &mut palette.colors, fallback); }
-				}
+                // Existing chat-only packages keep their appearance until the owner opts in.
+                if background.sections.is_none() && dialog::action(ui, "Use image across the app", dialog::Action::Outline).clicked() {
+                    background.target = BackgroundTarget::Window;
+                    background.opacity = 100;
+                    background.sections = Some(SectionOpacity::default());
+                    changed = true;
+                }
+                if let Some(sections) = &mut background.sections {
+                    ui.add_space(12.0);
+						design::section(ui, "Section opacity", Some("0% reveals the image. 100% is solid. Text and controls keep their colors."));
+                    for (label, opacity) in [("Top bars", &mut sections.top_bar), ("Server list", &mut sections.server_list), ("People & channels", &mut sections.channel_list), ("Message list", &mut sections.message_list), ("Member list", &mut sections.member_list), ("Message input area", &mut sections.composer)] {
+                        changed |= row(ui, label, |ui| ui.add(egui::Slider::new(opacity, 0..=100).suffix("%")).changed());
+                    }
+                }
 			}
 			changed |= color_override(ui, "chat", &mut palette.colors, base.chat);
 			design::divider(ui);
@@ -386,31 +391,39 @@ fn colors(p: design::Palette) -> [(&'static str, egui::Color32); 18] {
 	]
 }
 fn color_input(ui: &mut egui::Ui, value: &mut String) -> bool {
-	ui.horizontal(|ui| {
-		let mut color = extensions::parse_color(value)
-			.map(rgba)
-			.unwrap_or(egui::Color32::TRANSPARENT);
-		let mut changed = ui.color_edit_button_srgba(&mut color).changed();
-		if changed {
-			*value = hex(color);
-		}
-		changed |= ui
-			.allocate_ui(egui::vec2(132.0, 0.0), |ui| {
-				design::input(
-					ui,
-					egui::TextEdit::singleline(value)
-						.char_limit(9)
-						.font(egui::FontId::proportional(14.0)),
+	ui.allocate_ui_with_layout(
+		egui::vec2(180.0, 42.0),
+		egui::Layout::left_to_right(egui::Align::Center),
+		|ui| {
+			let mut color = extensions::parse_color(value)
+				.map(rgba)
+				.unwrap_or(egui::Color32::TRANSPARENT);
+			let mut changed = ui.color_edit_button_srgba(&mut color).changed();
+			if changed {
+				*value = hex(color);
+			}
+			changed |= ui
+				.allocate_ui_with_layout(
+					egui::vec2(132.0, 42.0),
+					egui::Layout::left_to_right(egui::Align::Center),
+					|ui| {
+						design::input(
+							ui,
+							egui::TextEdit::singleline(value)
+								.char_limit(9)
+								.font(egui::FontId::proportional(14.0)),
+						)
+						.changed()
+					},
 				)
-				.changed()
-			})
-			.inner;
-		if extensions::parse_color(value).is_err() {
-			ui.colored_label(ui.visuals().error_fg_color, "!")
-				.on_hover_text("Use #RRGGBB or #RRGGBBAA");
-		}
-		changed
-	})
+				.inner;
+			if extensions::parse_color(value).is_err() {
+				ui.colored_label(ui.visuals().error_fg_color, "!")
+					.on_hover_text("Use #RRGGBB or #RRGGBBAA");
+			}
+			changed
+		},
+	)
 	.inner
 }
 fn color_label(key: &str) -> &str {
@@ -442,19 +455,28 @@ fn row(ui: &mut egui::Ui, label: &str, controls: impl FnOnce(&mut egui::Ui) -> b
 		ui.add_space(4.0);
 		if ui.available_width() < 440.0 {
 			ui.label(label);
-			ui.horizontal_wrapped(controls).inner
+			ui.allocate_ui_with_layout(
+				egui::vec2(ui.available_width(), 42.0),
+				egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
+				controls,
+			)
+			.inner
 		} else {
-			ui.horizontal(|ui| {
-				ui.label(label);
-				let width = 270.0;
-				ui.add_space((ui.available_width() - width).max(0.0));
-				ui.allocate_ui_with_layout(
-					egui::vec2(width, 0.0),
-					egui::Layout::left_to_right(egui::Align::Center),
-					controls,
-				)
-				.inner
-			})
+			ui.allocate_ui_with_layout(
+				egui::vec2(ui.available_width(), 42.0),
+				egui::Layout::left_to_right(egui::Align::Center),
+				|ui| {
+					ui.label(label);
+					let width = 270.0;
+					ui.add_space((ui.available_width() - width).max(0.0));
+					ui.allocate_ui_with_layout(
+						egui::vec2(width, 42.0),
+						egui::Layout::left_to_right(egui::Align::Center),
+						controls,
+					)
+					.inner
+				},
+			)
 			.inner
 		}
 	})
@@ -504,30 +526,6 @@ fn color_override(
 			changed = true;
 		}
 		changed
-	})
-}
-fn opacity(
-	ui: &mut egui::Ui,
-	key: &str,
-	map: &mut std::collections::BTreeMap<String, String>,
-	fallback: egui::Color32,
-) -> bool {
-	row(ui, &format!("{} opacity", color_label(key)), |ui| {
-		let mut color = map
-			.get(key)
-			.and_then(|v| extensions::parse_color(v).ok())
-			.unwrap_or(fallback.to_srgba_unmultiplied());
-		let mut percent = f32::from(color[3]) * 100.0 / 255.0;
-		if ui
-			.add(egui::Slider::new(&mut percent, 0.0..=100.0).suffix("%"))
-			.changed()
-		{
-			color[3] = (percent * 255.0 / 100.0).round() as u8;
-			map.insert(key.into(), hex(rgba(color)));
-			true
-		} else {
-			false
-		}
 	})
 }
 fn metric(

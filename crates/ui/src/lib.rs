@@ -646,7 +646,11 @@ impl MessagingUi {
 		egui::Panel::top("title-bar")
 			.exact_size(36.0)
 			.show_separator_line(false)
-			.frame(egui::Frame::new().fill(design::window_palette(ui).base))
+			.frame(egui::Frame::new().fill(design::section_surface(
+				ui,
+				design::window_palette(ui).base,
+				design::ImageSection::TopBar,
+			)))
 			.show(ui, |ui| {
 				// Caption text belongs to the window drag region, not text selection.
 				ui.style_mut().interaction.selectable_labels = false;
@@ -1323,7 +1327,11 @@ impl MessagingUi {
 			.show_separator_line(false)
 			.frame(
 				egui::Frame::new()
-					.fill(design::window_palette(ui).chat)
+					.fill(design::section_surface(
+						ui,
+						design::window_palette(ui).chat,
+						design::ImageSection::TopBar,
+					))
 					.inner_margin(egui::Margin::symmetric(16, 0)),
 			)
 			.show(ui, |ui| {
@@ -2604,7 +2612,11 @@ impl MessagingUi {
 						sw: 8,
 						..Default::default()
 					},
-					background.sidebar,
+					design::section_surface(
+						ui,
+						background.sidebar,
+						design::ImageSection::ChannelList,
+					),
 				);
 				self.sidebar(ui, state, &title, &mut commands);
 			});
@@ -2665,7 +2677,11 @@ impl MessagingUi {
 				.exact_size(width)
 				.frame(
 					egui::Frame::new()
-						.fill(background.sidebar)
+						.fill(design::section_surface(
+							ui,
+							background.sidebar,
+							design::ImageSection::MemberList,
+						))
 						.inner_margin(egui::Margin::same(12)),
 				)
 				.show(ui, |ui| {
@@ -2687,7 +2703,11 @@ impl MessagingUi {
 					.exact_size(240.0)
 					.frame(
 						egui::Frame::new()
-							.fill(background.sidebar)
+							.fill(design::section_surface(
+								ui,
+								background.sidebar,
+								design::ImageSection::MemberList,
+							))
 							.inner_margin(egui::Margin {
 								left: 8,
 								right: 8,
@@ -2719,8 +2739,23 @@ impl MessagingUi {
 		}
 		self.reaction_picker.sync(state, state.selected);
 		egui::CentralPanel::default()
-			.frame(egui::Frame::new().fill(background.chat).inner_margin(0))
+			.frame(
+				egui::Frame::new()
+					.fill(if design::has_section_background(ui) {
+						egui::Color32::TRANSPARENT
+					} else {
+						background.chat
+					})
+					.inner_margin(0),
+			)
 			.show(ui, |ui| {
+				let message_surface =
+					design::section_surface(ui, background.chat, design::ImageSection::MessageList);
+				if design::has_section_background(ui)
+					&& (state.selected.is_none() || selected_voice || selected_forum)
+				{
+					ui.painter().rect_filled(ui.max_rect(), 0, message_surface);
+				}
 				let warnings = state.startup_warnings;
 				let unavailable: Vec<_> = [
 					(warnings.read_state, "read status"),
@@ -2791,7 +2826,11 @@ impl MessagingUi {
 					.show_separator_line(false)
 					.frame(
 						egui::Frame::new()
-							.fill(background.chat)
+							.fill(design::section_surface(
+								ui,
+								background.chat,
+								design::ImageSection::Composer,
+							))
 							.inner_margin(egui::Margin {
 								left: 16,
 								right: 16,
@@ -2845,6 +2884,13 @@ impl MessagingUi {
 						bottom: 0,
 					})
 					.show(ui, |ui| {
+						if design::has_section_background(ui) {
+							ui.painter().rect_filled(
+								ui.available_rect_before_wrap(),
+								0,
+								message_surface,
+							);
+						}
 						design::paint_chat_background(ui, ui.available_rect_before_wrap());
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
 						self.timeline.extension_actions = self.extensions.message_actions();

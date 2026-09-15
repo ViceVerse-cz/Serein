@@ -126,6 +126,8 @@ pub struct Background {
 	pub opacity: u8,
 	pub fit: BackgroundFit,
 	pub target: BackgroundTarget,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub sections: Option<SectionOpacity>,
 }
 impl Default for Background {
 	fn default() -> Self {
@@ -133,9 +135,27 @@ impl Default for Background {
 			opacity: 25,
 			fit: BackgroundFit::Cover,
 			target: BackgroundTarget::Window,
+			sections: None,
 		}
 	}
 }
+/// Surface coverage over one continuous window image; text and controls stay opaque.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SectionOpacity {
+ pub top_bar: u8,
+ pub server_list: u8,
+ pub channel_list: u8,
+ pub message_list: u8,
+ pub member_list: u8,
+ pub composer: u8,
+}
+impl Default for SectionOpacity {
+ fn default() -> Self {
+  Self { top_bar: 85, server_list: 85, channel_list: 85, message_list: 75, member_list: 85, composer: 90 }
+ }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundFit {

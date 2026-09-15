@@ -114,13 +114,25 @@ a PNG or JPEG, at most 2 MiB compressed. There are no paths or remote image URLs
 the package. Both palettes share this image and can set different image settings:
 
 ```json
-"background": { "opacity": 25, "fit": "cover", "target": "chat" }
+"background": {
+  "opacity": 100, "fit": "cover", "target": "window",
+  "sections": {
+    "top_bar": 85, "server_list": 85, "channel_list": 85,
+    "message_list": 75, "member_list": 85, "composer": 90
+  }
+}
 ```
 
 Opacity is an integer from 0 to 100. Fit is `cover` (center crop) or `contain`
 (centered whole image); defaults are 25 and `cover`. Target is `chat` for the message
 area or `window` for the whole-window backdrop. Missing targets retain `window`
-for existing packages; newly chosen editor images default to Message area.
+for existing packages; newly chosen editor images default to the whole window.
+The optional `sections` object sets independent surface coverage, from 0 (clear)
+to 100 (solid), over that one image. It covers both title/channel bars, the server
+rail, the left DM/channel list, message list, right member/search list and the
+message input area. These percentages affect surface fills, not their text or
+controls. Missing section fields use the defaults shown above. Older packages
+without `sections` retain their previous chat/window behavior.
 A missing setting inherits the
 underlying image settings. A supplied background object replaces those settings
 when an appearance plugin overlays the selected theme. Plugins cannot supply bytes,
@@ -132,12 +144,11 @@ Invalid images fail before installation or export. The 16 MiB serialized package
 limit includes the embedded byte array. Older packages remain valid and keep their
 appearance; older clients may reject packages with the new background fields.
 
-Message-area images paint above the chat surface and below messages, clipped to
-the message area; they are visible without changing surface alpha. The message
-input and channel header keep their normal surfaces. Whole-window images paint
-after the base/gradient and before main surfaces; use sidebar/chat color alpha to
-reveal those images. Popouts and small
-controls keep their readable composited surfaces. Opacity changes reuse the texture;
+Legacy message-area images paint above the chat surface and below messages, clipped
+to the message area. Whole-window images paint after the base/gradient and before
+main surfaces. With `sections`, each main surface gets its own coverage, so changing
+one section does not change its neighbors. Popouts and small controls keep their
+readable composited surfaces. Opacity changes reuse the texture;
 changing, removing or resetting the background releases the previous texture.
 The custom accent preference still overrides theme accents, and Ctrl+Shift+F12
 remains available during editing and app preview.

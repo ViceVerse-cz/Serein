@@ -159,7 +159,11 @@ impl MessagingUi {
 			.show_separator_line(false)
 			.frame(
 				egui::Frame::new()
-					.fill(design::window_palette(ui).base)
+					.fill(design::section_surface(
+						ui,
+						design::window_palette(ui).base,
+						design::ImageSection::ServerList,
+					))
 					.inner_margin(egui::Margin {
 						left: 12,
 						right: 12,
