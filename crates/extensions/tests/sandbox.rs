@@ -1,5 +1,28 @@
 use extensions::*;
 
+#[test]
+fn section_opacity_roundtrips_and_stays_bounded() {
+	let mut theme = Theme::default();
+	theme.dark.background = Some(Background {
+		opacity: 100,
+		sections: Some(SectionOpacity::default()),
+		..Default::default()
+	});
+	let decoded: Theme = serde_json::from_slice(&serde_json::to_vec(&theme).unwrap()).unwrap();
+	assert_eq!(decoded, theme);
+	assert!(theme.validate().is_ok());
+	theme
+		.dark
+		.background
+		.as_mut()
+		.unwrap()
+		.sections
+		.as_mut()
+		.unwrap()
+		.member_list = 101;
+	assert!(theme.validate().is_err());
+}
+
 fn plugin(wasm: &str) -> Package {
 	Package {
 		manifest: Manifest {
@@ -19,6 +42,8 @@ fn plugin(wasm: &str) -> Package {
 			}],
 		},
 		theme: None,
+		background_image: Vec::new(),
+		cover_image: Vec::new(),
 		wasm: wat::parse_str(wasm).unwrap(),
 	}
 }
@@ -32,6 +57,21 @@ fn returning(json: &str) -> Package {
 		(func (export "serein_invoke") (param i32 i32) (result i64) (i64.const {})))"#,
 		(32768_u64 << 32) | json.len() as u64
 	))
+}
+
+#[test]
+fn cover_bytes_are_theme_only_and_bounded() {
+	let mut package = returning("{}");
+	package.cover_image = vec![1];
+	assert!(package.validate().is_err());
+	package.manifest.kind = ExtensionKind::Theme;
+	package.manifest.capabilities.clear();
+	package.manifest.actions.clear();
+	package.theme = Some(Theme::default());
+	package.wasm.clear();
+	assert!(package.validate().is_ok());
+	package.cover_image.resize(MAX_BACKGROUND_BYTES + 1, 0);
+	assert!(package.validate().is_err());
 }
 
 fn input() -> Invocation {

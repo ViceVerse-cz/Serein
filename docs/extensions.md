@@ -18,7 +18,8 @@ Disable stops accepting results immediately, then removes Serein's downloaded
 package, temporary files and extension data. A failure to remove files is shown
 and cleanup is retried on the next load. Re-enabling requires downloading or
 importing the package again and starts with fresh extension settings. Serein
-never deletes the creator's Git repository or the user's imported original.
+never deletes the creator's Git repository, the user's imported original, or an
+exported theme/image source.
 
 Plugin grants and data belong to the signed-in account. Logout invalidates
 plugin results, drains bounded in-flight work and clears that account's extension data. Theme selection is a device
@@ -60,7 +61,13 @@ Catalog entries may include a short `description` (at most 256 characters and
 Use an original or licensed PNG/JPEG screenshot showing the theme or plugin in
 use. Pin its URL to an immutable release or source commit, then record the exact
 file size and digest. Prefer a 16:9 image; the shop preserves its aspect ratio.
-Bundled themes show expandable native palette previews using their actual colors.
+Bundled themes show palette thumbnails using their actual colors. Clicking a bundled
+or installed theme thumbnail previews its full appearance in the normal app, with
+Back to themes and Customize actions. Bundled themes can be customized without installing
+them first; saving creates an editable local copy and preserves the original package.
+Editor-created themes may embed a separate local card cover; it replaces the palette
+illustration and is center-cropped to 16:9. It is not a catalog preview URL and does
+not change the conversation background.
 The protector shows a deleted-row illustration. Other entries without an image
 remain valid and show a built-in illustration.
 Previews describe the listed version, including when an installed version has
@@ -101,7 +108,9 @@ the ordinary Send action and are discarded when their originating context is
 stale. Account/session changes invalidate outstanding results.
 
 Themes override named colors and native typography, spacing, padding and corner
-radii. See the complete [theme API](theme-api.md) for fields, bounds and inheritance.
+radii, plus an optional embedded PNG/JPEG background with per-mode opacity and fit.
+Settings > Themes > Create theme provides a native editor and portable export.
+See the complete [theme API](theme-api.md) for fields, bounds and inheritance.
 
 Plugins can request the `appearance` capability to return an `appearance` object
 using that same theme schema. This works from activation or a user-invoked action,

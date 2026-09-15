@@ -105,7 +105,7 @@ impl Page {
 				"general windows macos login menu bar startup autostart automatically open minimized minimize tray background"
 			}
 			Self::Appearance => {
-				"appearance customization primary accent hex window tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
+				"appearance customization primary accent hex window title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
@@ -132,6 +132,18 @@ impl Page {
 }
 
 impl MessagingUi {
+	pub(super) fn theme_preview_navigation(&mut self, ui: &mut egui::Ui) {
+		if self.extensions.begin_gallery_preview(ui.ctx()) {
+			self.settings.open = false;
+		}
+		if self.settings.open {
+			self.extensions.stop_theme_preview(ui.ctx());
+		} else if self.extensions.theme_preview_bar(ui) {
+			self.settings.open = true;
+			self.settings.page = Page::Themes;
+			self.settings.query.clear();
+		}
+	}
 	pub fn open_update_settings(&mut self) {
 		self.settings.open = true;
 		self.settings.page = Page::Updates;
@@ -228,17 +240,31 @@ impl MessagingUi {
 						bottom: 24,
 					}))
 					.show(ui, |ui| {
+						let editing_theme =
+							self.settings.page == Page::Themes && self.extensions.editing_theme();
 						ui.horizontal_top(|ui| {
 							ui.vertical(|ui| {
 								ui.spacing_mut().item_spacing.y = 2.0;
 								ui.label(
-									design::semibold(ui, self.settings.page.label(), 20.0)
-										.color(colors.text_strong),
+									design::semibold(
+										ui,
+										if editing_theme {
+											"Theme maker"
+										} else {
+											self.settings.page.label()
+										},
+										20.0,
+									)
+									.color(colors.text_strong),
 								);
 								ui.label(
-									RichText::new(self.settings.page.description())
-										.size(13.0)
-										.color(colors.muted),
+									RichText::new(if editing_theme {
+										"Make it yours. Preview changes in your conversations."
+									} else {
+										self.settings.page.description()
+									})
+									.size(13.0)
+									.color(colors.muted),
 								);
 							});
 							ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
@@ -266,8 +292,16 @@ impl MessagingUi {
 								});
 						}
 						ui.add_space(16.0);
+						if self.settings.page == Page::Themes && self.extensions.editing_theme() {
+							self.extensions.theme_editor_toolbar(ui);
+							ui.add_space(12.0);
+						}
 						egui::ScrollArea::vertical()
-							.id_salt(("settings-content", self.settings.page as u8))
+							.id_salt((
+								"settings-content",
+								self.settings.page as u8,
+								self.extensions.theme_editor_tab_key(),
+							))
 							.auto_shrink([false, false])
 							.show(ui, |ui| {
 								let scroll_padding = if self.settings.page == Page::Profile {
@@ -762,6 +796,19 @@ impl MessagingUi {
 		ui.add_space(8.0);
 		ui.label(design::eyebrow(ui, "Theme", colors.muted));
 		theme_preference_cards(ui);
+		#[cfg(target_os = "windows")]
+		{
+			ui.add_space(8.0);
+			ui.label(design::eyebrow(ui, "Window", colors.muted));
+			design::card(ui, |ui| {
+				design::switch(
+					ui,
+					"Hide Serein title bar",
+					Some("Use the Windows title bar and window buttons instead."),
+					&mut self.hide_title_bar,
+				);
+			});
+		}
 		ui.add_space(8.0);
 		ui.label(design::eyebrow(ui, "Customization", colors.muted));
 		design::card(ui, |ui| {

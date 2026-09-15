@@ -46,6 +46,17 @@ pub enum InstallSource {
 }
 
 pub enum Job {
+	EditTheme {
+		id: String,
+		preview: bool,
+	},
+	SaveTheme {
+		package: Box<Package>,
+	},
+	ExportTheme {
+		package: Box<Package>,
+		path: PathBuf,
+	},
 	SelectTheme {
 		id: Option<String>,
 	},
@@ -189,13 +200,14 @@ pub fn demo_check_examples() -> Result<bool, String> {
 			return Err("Starter manifest changed".into());
 		}
 		let mut stored = Stored {
+			local_theme: false,
 			grants: manifest.capabilities.clone(),
 			package,
 			reviewed: true,
 			sha256,
 			download_bytes: starter.download_bytes,
 		};
-		let summary = stored.summary(&gate, None);
+		let summary = stored.summary(&gate, None, true);
 		if let Some(error) = summary.error {
 			return Err(error);
 		}
@@ -205,7 +217,7 @@ pub fn demo_check_examples() -> Result<bool, String> {
 			}
 			activated = true;
 			stored.grants.clear();
-			let denied = stored.summary(&gate, None);
+			let denied = stored.summary(&gate, None, true);
 			if denied.preserve_deleted_messages || denied.error.is_none() {
 				return Err("Message preservation must require explicit permission".into());
 			}
@@ -263,6 +275,9 @@ pub fn demo_check_examples() -> Result<bool, String> {
 
 #[derive(Clone)]
 pub struct InstalledExtension {
+	pub background_image: Option<Arc<eframe::egui::ColorImage>>,
+	pub cover_image: Option<Arc<eframe::egui::ColorImage>>,
+	pub local_theme: bool,
 	pub active_theme: bool,
 	pub manifest: Manifest,
 	pub theme: Option<Theme>,
@@ -274,7 +289,18 @@ pub struct InstalledExtension {
 }
 
 pub enum Event {
-	ThemeSelected(Option<String>),
+	ThemeSelected {
+		id: Option<String>,
+		background_image: Option<Arc<eframe::egui::ColorImage>>,
+	},
+	EditTheme {
+		package: Box<Package>,
+		image: Option<Arc<eframe::egui::ColorImage>>,
+		cover: Option<Arc<eframe::egui::ColorImage>>,
+		local_theme: bool,
+		preview: bool,
+	},
+	ThemeExported,
 	Loaded {
 		installed: Vec<InstalledExtension>,
 		starters: Vec<Starter>,
@@ -432,6 +458,8 @@ impl Gate {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Stored {
+	#[serde(default)]
+	local_theme: bool,
 	package: Package,
 	grants: Vec<Capability>,
 	reviewed: bool,
@@ -440,14 +468,14 @@ struct Stored {
 }
 
 impl Stored {
-	fn summary(&self, gate: &Gate, storage: Option<String>) -> InstalledExtension {
+	fn summary(&self, gate: &Gate, storage: Option<String>, active: bool) -> InstalledExtension {
 		let activation = self
 			.package
 			.manifest
 			.actions
 			.iter()
 			.find(|action| action.surface == Surface::Activation);
-		let result = activation.map_or(Ok(extensions::Output::default()), |action| {
+		let mut result = activation.map_or(Ok(extensions::Output::default()), |action| {
 			validate_grants(&self.package.manifest, &self.grants)?;
 			gate.check()?;
 			let output = extensions::invoke(
@@ -467,7 +495,28 @@ impl Stored {
 			}
 			Ok(output)
 		});
+		let background_image = if active {
+			match package_background(&self.package) {
+				Ok(image) => image,
+				Err(error) => {
+					result = Err(error);
+					None
+				}
+			}
+		} else {
+			None
+		};
+		let cover_image = match package_cover(&self.package) {
+			Ok(image) => image,
+			Err(error) => {
+				result = Err(error);
+				None
+			}
+		};
 		InstalledExtension {
+			background_image,
+			cover_image,
+			local_theme: self.local_theme,
 			active_theme: self.package.manifest.kind == ExtensionKind::Theme,
 			manifest: self.package.manifest.clone(),
 			theme: self.package.theme.clone().or_else(|| {
@@ -518,7 +567,20 @@ fn validate_job(job: &Job) -> Result<(), String> {
 			valid_id(id)?;
 			preview.validate().map_err(|e| e.to_string())?;
 		}
-		Job::SelectTheme { id: Some(id) } | Job::Disable { id, .. } => valid_id(id)?,
+		Job::SelectTheme { id: Some(id) } | Job::Disable { id, .. } | Job::EditTheme { id, .. } => {
+			valid_id(id)?
+		}
+		Job::SaveTheme { package } | Job::ExportTheme { package, .. } => {
+			if package.manifest.kind != ExtensionKind::Theme {
+				return Err("Theme editor only accepts themes".into());
+			}
+			package.validate().map_err(|error| error.to_string())?;
+			if let Job::ExportTheme { path, .. } = job
+				&& path.as_os_str().len() > 4096
+			{
+				return Err("Export path is too long".into());
+			}
+		}
 		Job::Enable { grants, .. } if grants.len() > 4 => {
 			return Err("Invalid plugin grants".into());
 		}
@@ -533,8 +595,75 @@ fn validate_job(job: &Job) -> Result<(), String> {
 fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 	gate.check()?;
 	match job {
+		Job::EditTheme { id, preview } => {
+			valid_id(&id)?;
+			let directory = root.join("themes").join(&id);
+			if directory.with_extension("disabled").exists() {
+				return Err("Theme cleanup is pending".into());
+			}
+			let (package, local_theme) = if directory.exists() {
+				let stored = read_stored(&directory.join("package.json"))?;
+				(stored.package, stored.local_theme)
+			} else {
+				let starter = starters()?
+					.into_iter()
+					.find(|starter| {
+						matches!(&starter.source, InstallSource::Bundled { manifest, .. }
+						if manifest.id == id && manifest.kind == ExtensionKind::Theme)
+					})
+					.ok_or("Theme is not available locally")?;
+				let InstallSource::Bundled { bytes, .. } = starter.source else {
+					return Err("Theme is not bundled".into());
+				};
+				(
+					extensions::parse_package(bytes).map_err(|error| error.to_string())?,
+					false,
+				)
+			};
+			if package.manifest.id != id || package.manifest.kind != ExtensionKind::Theme {
+				return Err("Theme does not match the requested package".into());
+			}
+			let image = package_background(&package)?;
+			let cover = package_cover(&package)?;
+			gate.check()?;
+			Ok(Event::EditTheme {
+				local_theme,
+				preview,
+				package: Box::new(package),
+				image,
+				cover,
+			})
+		}
+		Job::SaveTheme { package } => {
+			let bytes = encode_theme(&package)?;
+			let _ = package_cover(&package)?;
+			let directory = root.join("themes").join(&package.manifest.id);
+			if directory.exists() && !read_stored(&directory.join("package.json"))?.local_theme {
+				return Err(
+					"This theme belongs to another package; duplicate it before saving".into(),
+				);
+			}
+			let stored = Stored {
+				package: *package,
+				grants: Vec::new(),
+				reviewed: false,
+				local_theme: true,
+				sha256: digest(&bytes),
+				download_bytes: bytes.len() as u64,
+			};
+			install_stored(root, stored, None, gate).map(Event::Enabled)
+		}
+		Job::ExportTheme { package, path } => {
+			let bytes = encode_theme(&package)?;
+			// Reject invalid images before creating or replacing the user's export.
+			let _ = package_background(&package)?;
+			let _ = package_cover(&package)?;
+			export_theme(&path, &bytes, gate)?;
+			Ok(Event::ThemeExported)
+		}
 		Job::SelectTheme { id } => {
 			let parent = root.join("themes");
+			let mut background_image = None;
 			if let Some(id) = &id {
 				valid_id(id)?;
 				let stored = read_stored(&parent.join(id).join("package.json"))?;
@@ -544,11 +673,15 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 				{
 					return Err("Theme is not installed".into());
 				}
+				background_image = package_background(&stored.package)?;
 				atomic_write(&parent.join("active.json"), id.as_bytes(), gate)?;
 			} else {
 				remove_file(&parent.join("active.json"))?;
 			}
-			Ok(Event::ThemeSelected(id))
+			Ok(Event::ThemeSelected {
+				id,
+				background_image,
+			})
 		}
 		Job::Load { account } => Ok(Event::Loaded {
 			starters: starters()?,
@@ -686,9 +819,38 @@ fn enable(
 	if package.manifest != manifest {
 		return Err("Package does not match the reviewed manifest".into());
 	}
-	validate_grants(&package.manifest, &grants)?;
-	let parent = scope(root, package.manifest.kind, account)?;
-	let directory = parent.join(&package.manifest.id);
+	let stored = Stored {
+		local_theme: false,
+		package,
+		grants,
+		reviewed,
+		sha256: sha256.to_ascii_lowercase(),
+		download_bytes: bytes.len() as u64,
+	};
+	install_stored(root, stored, account, gate)
+}
+
+fn encode_theme(package: &Package) -> Result<Vec<u8>, String> {
+	if package.manifest.kind != ExtensionKind::Theme {
+		return Err("Theme editor only accepts themes".into());
+	}
+	package.validate().map_err(|error| error.to_string())?;
+	let bytes = serde_json::to_vec(package).map_err(|_| "Cannot encode theme package")?;
+	if bytes.len() > MAX_PACKAGE {
+		return Err("Theme package exceeds 16 MiB".into());
+	}
+	Ok(bytes)
+}
+
+fn install_stored(
+	root: &Path,
+	stored: Stored,
+	account: Option<&str>,
+	gate: &Gate,
+) -> Result<InstalledExtension, String> {
+	validate_grants(&stored.package.manifest, &stored.grants)?;
+	let parent = scope(root, stored.package.manifest.kind, account)?;
+	let directory = parent.join(&stored.package.manifest.id);
 	if parent.with_extension("disabled").exists() {
 		return Err("Account extension cleanup is incomplete; reopen Extensions to retry".into());
 	}
@@ -697,20 +859,13 @@ fn enable(
 			"Disable an extension first; each scope allows eight installed extensions".into(),
 		);
 	}
-	if package.manifest.kind == ExtensionKind::Plugin
+	if stored.package.manifest.kind == ExtensionKind::Plugin
 		&& !parent.exists()
 		&& count_directories(&root.join("accounts"))? >= MAX_ACCOUNTS
 	{
 		return Err("Extension storage is full; log out an old account first".into());
 	}
-	let stored = Stored {
-		package,
-		grants,
-		reviewed,
-		sha256: sha256.to_ascii_lowercase(),
-		download_bytes: bytes.len() as u64,
-	};
-	let summary = stored.summary(gate, activation_storage(&stored, &directory)?);
+	let summary = stored.summary(gate, activation_storage(&stored, &directory)?, true);
 	if let Some(error) = &summary.error {
 		return Err(error.clone());
 	}
@@ -829,13 +984,18 @@ fn load(
 				installed.push(match stored {
 					Ok(stored) => match activation_storage(&stored, &entry.path()) {
 						Ok(storage) => {
-							let mut summary = stored.summary(gate, storage);
+							let mut summary = stored.summary(
+								gate,
+								storage,
+								kind == ExtensionKind::Theme
+									&& active_theme.as_deref() == Some(id.as_str()),
+							);
 							summary.active_theme = kind == ExtensionKind::Theme
 								&& active_theme.as_deref() == Some(id.as_str());
 							summary
 						}
 						Err(error) => {
-							let mut summary = stored.summary(gate, None);
+							let mut summary = stored.summary(gate, None, false);
 							summary.theme = None;
 							summary.preserve_deleted_messages = false;
 							summary.error = Some(error);
@@ -843,6 +1003,9 @@ fn load(
 						}
 					},
 					Err(error) => InstalledExtension {
+						background_image: None,
+						cover_image: None,
+						local_theme: false,
 						active_theme: false,
 						manifest: Manifest {
 							api_version: extensions::API_VERSION,
@@ -988,6 +1151,30 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
 	Ok(bytes)
 }
 
+fn export_theme(path: &Path, bytes: &[u8], gate: &Gate) -> Result<(), String> {
+	gate.check()?;
+	let mut nonce = [0; 16];
+	getrandom::fill(&mut nonce).map_err(|_| "Cannot prepare theme export")?;
+	let temporary = path.with_extension(format!("{}.partial", digest(&nonce)));
+	let mut file = OpenOptions::new()
+		.write(true)
+		.create_new(true)
+		.open(&temporary)
+		.map_err(|_| "Cannot create theme export")?;
+	let result = (|| {
+		file.write_all(bytes)
+			.map_err(|_| "Cannot write theme export")?;
+		file.sync_all().map_err(|_| "Cannot finish theme export")?;
+		drop(file);
+		gate.check()?;
+		fs::rename(&temporary, path).map_err(|_| "Cannot replace theme export".to_owned())
+	})();
+	if result.is_err() {
+		let _ = remove_file(&temporary);
+	}
+	result
+}
+
 fn atomic_write(path: &Path, bytes: &[u8], gate: &Gate) -> Result<(), String> {
 	gate.check()?;
 	let temporary = path.with_extension("partial");
@@ -1076,14 +1263,63 @@ fn demo_preview(id: &str) -> Option<&'static [u8]> {
 	}
 }
 
-fn decode_preview(bytes: &[u8], preview: &Preview) -> Option<eframe::egui::ColorImage> {
-	use image::ImageDecoder;
-	if bytes.len() > extensions::MAX_PREVIEW_BYTES
-		|| bytes.len() as u64 != preview.download_bytes
-		|| !digest(bytes).eq_ignore_ascii_case(&preview.sha256)
-	{
-		return None;
+pub fn read_background(path: &Path) -> Result<(Vec<u8>, eframe::egui::ColorImage), String> {
+	let bytes = read_bounded(path, extensions::MAX_BACKGROUND_BYTES)?;
+	let image = decode_background(&bytes)?;
+	Ok((bytes, image))
+}
+
+pub fn read_cover(path: &Path) -> Result<(Vec<u8>, eframe::egui::ColorImage), String> {
+	let bytes = read_bounded(path, extensions::MAX_BACKGROUND_BYTES)?;
+	let image = decode_cover(&bytes)?;
+	Ok((bytes, image))
+}
+
+fn decode_cover(bytes: &[u8]) -> Result<eframe::egui::ColorImage, String> {
+	if bytes.len() > extensions::MAX_BACKGROUND_BYTES {
+		return Err("Cover image exceeds 2 MiB".into());
 	}
+	let image = decode_static_image(bytes, 4_000_000)
+		.ok_or("Choose a static PNG or JPEG within 4096 pixels per edge and 4 million pixels")?
+		.thumbnail(640, 360)
+		.into_rgba8();
+	Ok(eframe::egui::ColorImage::from_rgba_unmultiplied(
+		[image.width() as usize, image.height() as usize],
+		image.as_raw(),
+	))
+}
+
+fn package_cover(package: &Package) -> Result<Option<Arc<eframe::egui::ColorImage>>, String> {
+	if package.cover_image.is_empty() {
+		Ok(None)
+	} else {
+		decode_cover(&package.cover_image).map(|image| Some(Arc::new(image)))
+	}
+}
+
+pub fn decode_background(bytes: &[u8]) -> Result<eframe::egui::ColorImage, String> {
+	if bytes.len() > extensions::MAX_BACKGROUND_BYTES {
+		return Err("Background image exceeds 2 MiB".into());
+	}
+	let image = decode_static_image(bytes, 4_000_000)
+		.ok_or("Choose a static PNG or JPEG within 4096 pixels per edge and 4 million pixels")?
+		.into_rgba8();
+	Ok(eframe::egui::ColorImage::from_rgba_unmultiplied(
+		[image.width() as usize, image.height() as usize],
+		image.as_raw(),
+	))
+}
+
+fn package_background(package: &Package) -> Result<Option<Arc<eframe::egui::ColorImage>>, String> {
+	if package.background_image.is_empty() {
+		Ok(None)
+	} else {
+		decode_background(&package.background_image).map(|image| Some(Arc::new(image)))
+	}
+}
+
+fn decode_static_image(bytes: &[u8], max_pixels: u64) -> Option<image::DynamicImage> {
+	use image::ImageDecoder;
 	let format = image::guess_format(bytes).ok()?;
 	if !matches!(format, image::ImageFormat::Png | image::ImageFormat::Jpeg) {
 		return None;
@@ -1098,12 +1334,24 @@ fn decode_preview(bytes: &[u8], preview: &Preview) -> Option<eframe::egui::Color
 	let (width, height) = decoder.dimensions();
 	if width == 0
 		|| height == 0
-		|| u64::from(width) * u64::from(height) > 4 * 1024 * 1024
+		|| width > 4096
+		|| height > 4096
+		|| u64::from(width) * u64::from(height) > max_pixels
 		|| decoder.total_bytes() > 32 * 1024 * 1024
 	{
 		return None;
 	}
-	let mut image = image::DynamicImage::from_decoder(decoder).ok()?;
+	image::DynamicImage::from_decoder(decoder).ok()
+}
+
+fn decode_preview(bytes: &[u8], preview: &Preview) -> Option<eframe::egui::ColorImage> {
+	if bytes.len() > extensions::MAX_PREVIEW_BYTES
+		|| bytes.len() as u64 != preview.download_bytes
+		|| !digest(bytes).eq_ignore_ascii_case(&preview.sha256)
+	{
+		return None;
+	}
+	let mut image = decode_static_image(bytes, 4 * 1024 * 1024)?;
 	if image.width() > 640 || image.height() > 360 {
 		image = image.thumbnail(640, 360);
 	}
@@ -1262,6 +1510,59 @@ mod tests {
 			wake_cancel: Arc::new(tokio::sync::Notify::new()),
 		}
 	}
+	#[test]
+	fn bundled_themes_open_without_installing_and_preserve_preview_intent() {
+		let profile = Profile::new();
+		let root = profile.0.join("extensions");
+		for starter in starters().unwrap() {
+			let InstallSource::Bundled { manifest, .. } = starter.source else {
+				unreachable!()
+			};
+			let result = run(
+				&root,
+				Job::EditTheme {
+					id: manifest.id.clone(),
+					preview: true,
+				},
+				&gate(),
+			);
+			if manifest.kind == ExtensionKind::Theme {
+				let Event::EditTheme {
+					package,
+					local_theme,
+					preview,
+					..
+				} = result.unwrap()
+				else {
+					panic!("expected theme")
+				};
+				assert_eq!(package.manifest.id, manifest.id);
+				assert!(package.theme.is_some());
+				assert!(preview && !local_theme);
+			} else {
+				assert!(result.is_err());
+			}
+		}
+		assert!(!root.exists(), "preview must not install a theme");
+		let original =
+			extensions::parse_package(include_bytes!("../../../extensions/ocean.serein-extension"))
+				.unwrap();
+		let directory = root.join("themes").join(&original.manifest.id);
+		fs::create_dir_all(&directory).unwrap();
+		fs::write(directory.join("package.json"), b"invalid").unwrap();
+		assert!(
+			run(
+				&root,
+				Job::EditTheme {
+					id: original.manifest.id,
+					preview: false
+				},
+				&gate()
+			)
+			.is_err(),
+			"do not hide a corrupt installed package behind the bundled original"
+		);
+	}
 	fn theme(id: &str) -> Package {
 		Package {
 			manifest: Manifest {
@@ -1277,6 +1578,8 @@ mod tests {
 				actions: Vec::new(),
 			},
 			theme: Some(Theme::default()),
+			background_image: Vec::new(),
+			cover_image: Vec::new(),
 			wasm: Vec::new(),
 		}
 	}
@@ -1289,6 +1592,65 @@ mod tests {
 			sha256: digest(&bytes),
 			manifest: package.manifest.clone(),
 		}
+	}
+
+	#[test]
+	fn local_theme_cover_survives_edit_without_another_copy() {
+		let profile = Profile::new();
+		let root = profile.0.join("extensions");
+		let mut package = theme("local-cover");
+		package.cover_image = include_bytes!("../../../extensions/previews/ocean.png").to_vec();
+		let Event::Enabled(first) = run(
+			&root,
+			Job::SaveTheme {
+				package: Box::new(package),
+			},
+			&gate(),
+		)
+		.unwrap() else {
+			panic!("theme save did not install");
+		};
+		assert!(first.local_theme && first.cover_image.is_some());
+		let Event::EditTheme {
+			mut package,
+			local_theme,
+			cover,
+			..
+		} = run(
+			&root,
+			Job::EditTheme {
+				id: "local-cover".into(),
+				preview: false,
+			},
+			&gate(),
+		)
+		.unwrap()
+		else {
+			panic!("installed theme did not open");
+		};
+		assert!(local_theme && cover.is_some());
+		package.manifest.name = "Updated cover".into();
+		let Event::Enabled(updated) = run(&root, Job::SaveTheme { package }, &gate()).unwrap()
+		else {
+			panic!("theme edit did not save");
+		};
+		assert_eq!(updated.manifest.id, "local-cover");
+		assert_eq!(updated.manifest.name, "Updated cover");
+		assert!(updated.cover_image.is_some());
+		assert_eq!(count_directories(&root.join("themes")).unwrap(), 1);
+
+		let imported = source(&profile, &theme("imported"));
+		enable(&root, imported, Vec::new(), None, &gate()).unwrap();
+		assert!(
+			run(
+				&root,
+				Job::SaveTheme {
+					package: Box::new(theme("imported"))
+				},
+				&gate()
+			)
+			.is_err()
+		);
 	}
 
 	#[test]

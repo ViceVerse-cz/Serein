@@ -56,6 +56,13 @@ impl eframe::App for Preview {
 				event,
 			});
 		}
+		for request in std::mem::take(&mut self.messaging.extensions.requests) {
+			if let ui::ExtensionRequest::PreviewTheme { theme, image } = request {
+				ui::design::set_extension_theme(theme.as_deref());
+				ui::design::set_background_image(&ctx, image);
+				ui::design::apply(&ctx);
+			}
+		}
 		if self.requested && self.writer.is_none() {
 			let screenshot = self
 				.screenshot
@@ -204,7 +211,70 @@ fn extension_fixture(
 	Ok((package, invocation, output))
 }
 
-fn seed_catalog(extensions: &mut ui::ExtensionUi) {
+fn seed_catalog(extensions: &mut ui::ExtensionUi, themes: bool) {
+	if themes {
+		let packages: [(&[u8], &str); 6] = [
+			(
+				include_bytes!("../../../extensions/ocean.serein-extension"),
+				"",
+			),
+			(
+				include_bytes!("../../../extensions/obsidian.serein-extension"),
+				"Obsidian violet surfaces and lavender accents.",
+			),
+			(
+				include_bytes!("../../../extensions/forest.serein-extension"),
+				"Calm forest greens and fresh leafy accents.",
+			),
+			(
+				include_bytes!("../../../extensions/latte.serein-extension"),
+				"Warm coffee tones and a creamy caramel accent.",
+			),
+			(
+				include_bytes!("../../../extensions/rose.serein-extension"),
+				"Soft rose accents.",
+			),
+			(
+				include_bytes!("../../../extensions/midnight.serein-extension"),
+				"Deep, quiet surfaces.",
+			),
+		];
+		let mut entries: Vec<_> = packages
+			.into_iter()
+			.enumerate()
+			.map(|(index, (bytes, description))| {
+				let package = extensions::parse_package(bytes).expect("valid synthetic theme");
+				ui::ExtensionEntry {
+					cover_image: None,
+					local_theme: index == 0,
+					manifest: package.manifest,
+					theme_preview: package.theme,
+					description: description.into(),
+					preview: None,
+					reviewed: true,
+					sha256: "a".repeat(64),
+					download_bytes: bytes.len() as u64,
+					enabled: index < 2,
+					cleanup_pending: false,
+					update_available: false,
+					update_manifest: None,
+				}
+			})
+			.collect();
+		entries[0].manifest.name = "My ocean".into();
+		entries[0].manifest.author = "You".into();
+		let image =
+			image::load_from_memory(include_bytes!("../../../extensions/previews/ocean.png"))
+				.expect("valid synthetic cover")
+				.to_rgba8();
+		entries[0].cover_image = Some(Arc::new(egui::ColorImage::from_rgba_unmultiplied(
+			[image.width() as usize, image.height() as usize],
+			image.as_raw(),
+		)));
+		extensions.active_theme = Some(entries[0].manifest.id.clone());
+		extensions.set_entries(entries);
+		return;
+	}
 	let catalog = extensions::parse_catalog(include_bytes!("../../../extensions/catalog.json"))
 		.expect("valid fixture catalog");
 	extensions.set_entries(
@@ -212,6 +282,8 @@ fn seed_catalog(extensions: &mut ui::ExtensionUi) {
 			.entries
 			.into_iter()
 			.map(|entry| ui::ExtensionEntry {
+				cover_image: None,
+				local_theme: false,
 				manifest: entry.manifest,
 				description: entry.description,
 				preview: entry.preview,
@@ -266,6 +338,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		return Err("Viewport must be 500-1920 by 520-1200".into());
 	}
 	let light = args.iter().any(|arg| arg == "--light");
+	let theme_editor = value("--theme-editor=").map(str::to_owned);
+	let theme_preview = args.iter().any(|arg| arg == "--theme-preview");
 	let thumbnail = args.iter().any(|arg| arg == "--thumbnail");
 	let extension = value("--extension=").map(str::to_owned);
 	let fixture = extension.as_deref().map(extension_fixture).transpose()?;
@@ -329,10 +403,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					},
 				);
 				if page == "extensions" {
-					seed_catalog(&mut messaging.extensions);
+					seed_catalog(
+						&mut messaging.extensions,
+						args.iter().any(|arg| arg == "--themes"),
+					);
 					messaging
 						.extensions
 						.preview_themes(args.iter().any(|arg| arg == "--themes"));
+					if theme_preview {
+						prime_extension_chat(&mut state);
+						let package = extensions::parse_package(include_bytes!(
+							"../../../extensions/katana.serein-extension"
+						))?;
+						messaging.extensions.receive_theme_edit(
+							Box::new(package),
+							None,
+							None,
+							false,
+							true,
+						);
+					}
+					if let Some(tab) = &theme_editor {
+						let mut package = extensions::parse_package(include_bytes!(
+							"../../../extensions/ocean.serein-extension"
+						))
+						.expect("valid theme fixture");
+						package.manifest.name = "My ocean".into();
+						package.manifest.author = "You".into();
+						messaging.extensions.receive_theme_edit(
+							Box::new(package),
+							None,
+							None,
+							true,
+							false,
+						);
+						let bytes = include_bytes!("../../../extensions/previews/ocean.png");
+						let pixels = image::load_from_memory(bytes)
+							.expect("valid fixture image")
+							.to_rgba8();
+						messaging.extensions.receive_theme_image(
+							bytes.to_vec(),
+							Arc::new(egui::ColorImage::from_rgba_unmultiplied(
+								[pixels.width() as usize, pixels.height() as usize],
+								pixels.as_raw(),
+							)),
+						);
+						messaging.extensions.preview_theme_editor_tab(tab);
+					}
 				}
 			}
 			Ok(Box::new(Preview {

@@ -516,7 +516,11 @@ impl MessagingUi {
 							if active {
 								ui.painter().rect_filled(row, 8, colors.selected);
 							} else if hovered {
-								ui.painter().rect_filled(row, 8, colors.hover);
+								ui.painter().rect_filled(
+									row,
+									8,
+									crate::design::row_highlight(ui, colors.hover, 1.0),
+								);
 							}
 							if unread && !active {
 								ui.painter().rect_filled(

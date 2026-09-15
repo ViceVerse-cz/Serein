@@ -2691,7 +2691,11 @@ impl Desktop {
 							ui.label(ui::design::semibold(ui, "Serein", 16.0).color(p.muted));
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
-								ui::design::window_controls,
+								|ui| {
+									if !self.messaging.hide_title_bar {
+										ui::design::window_controls(ui);
+									}
+								},
 							);
 						});
 					});
@@ -2824,7 +2828,9 @@ impl Desktop {
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
-									if ui::design::WINDOW_CONTROLS_WIDTH > 0.0 {
+									if ui::design::WINDOW_CONTROLS_WIDTH > 0.0
+										&& !self.messaging.hide_title_bar
+									{
 										ui::design::window_controls(ui);
 									} else {
 										ui.add_space(24.0);
@@ -3975,6 +3981,7 @@ impl eframe::App for Desktop {
 					.any(|p| p.delivery != Delivery::Confirmed)
 				|| self.messaging.has_edit()
 				|| self.messaging.has_server_settings_changes()
+				|| self.messaging.extensions.theme_editor_dirty()
 				|| self.state.server_settings.pending
 				|| self.state.server_admin.pending
 				|| self.uploads.has_unsent()
@@ -4032,7 +4039,9 @@ impl eframe::App for Desktop {
 							);
 						});
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-							ui::design::window_controls(ui);
+							if !self.messaging.hide_title_bar {
+								ui::design::window_controls(ui);
+							}
 							if ui
 								.add(
 									egui::Button::new(
@@ -4362,6 +4371,7 @@ impl eframe::App for Desktop {
 				if self.state.has_unsent()
 					|| self.messaging.has_edit()
 					|| self.messaging.has_server_settings_changes()
+					|| self.messaging.extensions.theme_editor_dirty()
 					|| self.state.server_settings.pending
 					|| self.state.server_admin.pending
 					|| self.uploads.has_unsent()
@@ -4377,6 +4387,12 @@ impl eframe::App for Desktop {
 			self.sign_in_screen(ui);
 		}
 		let appearance = ctx.options(|options| options.theme_preference);
+		#[cfg(target_os = "windows")]
+		if self.window.is_decorated() != self.messaging.hide_title_bar {
+			ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(
+				self.messaging.hide_title_bar,
+			));
+		}
 		self.sync_customization(&ctx);
 		self.save_app_preferences();
 		self.messaging.updates_save_failed = self.app_settings.state.failed;
@@ -4439,6 +4455,9 @@ impl eframe::App for Desktop {
 		}
 		if self.confirming_close || self.confirming_logout {
 			let mut notes: Vec<&str> = Vec::new();
+			if self.messaging.extensions.theme_editor_dirty() {
+				notes.push("Unsaved theme changes will be discarded.");
+			}
 			if self.forgetting {
 				notes.push("Wait for saved-login removal to finish.");
 			}

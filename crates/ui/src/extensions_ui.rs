@@ -10,6 +10,8 @@ pub struct ExtensionEntry {
 	pub description: String,
 	pub preview: Option<extensions::Preview>,
 	pub theme_preview: Option<extensions::Theme>,
+	pub cover_image: Option<Arc<egui::ColorImage>>,
+	pub local_theme: bool,
 	pub manifest: Manifest,
 	pub reviewed: bool,
 	pub sha256: String,
@@ -63,6 +65,22 @@ impl ExtensionContext {
 }
 
 pub enum ExtensionRequest {
+	EditTheme {
+		id: String,
+		preview: bool,
+	},
+	PickThemeImage,
+	PickThemeCover,
+	SaveTheme {
+		package: Box<extensions::Package>,
+	},
+	ExportTheme {
+		package: Box<extensions::Package>,
+	},
+	PreviewTheme {
+		theme: Option<Box<extensions::Theme>>,
+		image: Option<Arc<egui::ColorImage>>,
+	},
 	SelectTheme {
 		id: Option<String>,
 	},
@@ -107,7 +125,8 @@ struct ResultPanel {
 }
 
 /// Card chrome under the 16:9 preview: badges, title, blurb and the action row.
-const CARD_BODY: f32 = 168.0;
+const CARD_BODY: f32 = 196.0;
+const THEME_CARD_BODY: f32 = 108.0;
 const CARD_RADIUS: u8 = 12;
 const FOOTER_HEIGHT: f32 = 34.0;
 
@@ -135,14 +154,242 @@ pub struct ExtensionUi {
 	previews: BTreeMap<String, PreviewImage>,
 	preview_clock: u64,
 	enlarged: Option<String>,
+	theme_editor: Option<crate::theme_editor::ThemeEditor>,
+	theme_editor_visible: bool,
+	gallery_preview: Option<String>,
 }
 impl ExtensionUi {
+	pub(crate) fn editing_theme(&self) -> bool {
+		self.theme_editor.is_some()
+	}
+	pub(crate) fn theme_editor_tab_key(&self) -> u8 {
+		self.theme_editor
+			.as_ref()
+			.map_or(0, |editor| editor.tab_key() + 1)
+	}
+	pub fn theme_editor_dirty(&self) -> bool {
+		self.theme_editor
+			.as_ref()
+			.is_some_and(|editor| editor.dirty)
+	}
+	pub fn receive_theme_edit(
+		&mut self,
+		package: Box<extensions::Package>,
+		image: Option<Arc<egui::ColorImage>>,
+		cover: Option<Arc<egui::ColorImage>>,
+		local_theme: bool,
+		preview: bool,
+	) {
+		if self.theme_editor.is_none()
+			&& package.manifest.kind == ExtensionKind::Theme
+			&& package.theme.is_some()
+		{
+			self.gallery_preview = preview.then(|| package.manifest.name.clone());
+			self.theme_editor = Some(if local_theme {
+				crate::theme_editor::ThemeEditor::edit(package, image, cover)
+			} else {
+				crate::theme_editor::ThemeEditor::duplicate(package, image, cover)
+			});
+		}
+	}
+	#[cfg(feature = "demo")]
+	pub fn preview_theme_editor_tab(&mut self, label: &str) {
+		if let Some(editor) = &mut self.theme_editor {
+			editor.preview_tab(label);
+		}
+	}
+	pub fn receive_theme_image(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
+		if bytes.len() > extensions::MAX_BACKGROUND_BYTES
+			|| image.size.contains(&0)
+			|| image.size.into_iter().any(|side| side > 4096)
+			|| image.pixels.len() > 4_000_000
+			|| image.pixels.len() != image.size[0] * image.size[1]
+		{
+			return;
+		}
+		if let Some(editor) = &mut self.theme_editor {
+			editor.receive_image(bytes, image);
+			if editor.preview {
+				self.requests
+					.retain(|request| !matches!(request, ExtensionRequest::PreviewTheme { .. }));
+				let request = editor.preview_request();
+				if self.requests.len() < 4
+					&& request_bytes(&request)
+						.saturating_add(self.requests.iter().map(request_bytes).sum::<usize>())
+						<= 2 * extensions::MAX_PACKAGE_BYTES
+				{
+					self.requests.push(request);
+				}
+			}
+		}
+	}
+	pub fn receive_theme_cover(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
+		if bytes.len() > extensions::MAX_BACKGROUND_BYTES
+			|| image.size.contains(&0)
+			|| image.size[0] > 640
+			|| image.size[1] > 360
+			|| image.pixels.len() != image.size[0] * image.size[1]
+		{
+			return;
+		}
+		if let Some(editor) = &mut self.theme_editor {
+			editor.receive_cover(bytes, image);
+		}
+	}
+	pub fn theme_saved(&mut self, id: &str) {
+		if let Some(editor) = &mut self.theme_editor
+			&& editor.package.manifest.id == id
+		{
+			editor.dirty = false;
+			editor.preview = false;
+		}
+	}
+	pub fn stop_theme_preview(&mut self, ctx: &egui::Context) {
+		if let Some(editor) = &mut self.theme_editor
+			&& editor.preview
+		{
+			editor.preview = false;
+			self.queue(
+				ctx,
+				ExtensionRequest::PreviewTheme {
+					theme: None,
+					image: None,
+				},
+			);
+		}
+		if self.gallery_preview.take().is_some() {
+			self.theme_editor = None;
+		}
+	}
+	pub(crate) fn begin_gallery_preview(&mut self, ctx: &egui::Context) -> bool {
+		if self.gallery_preview.is_none() || self.previewing_theme() {
+			return false;
+		}
+		let Some(editor) = &mut self.theme_editor else {
+			return false;
+		};
+		editor.preview = true;
+		let request = editor.preview_request();
+		self.queue(ctx, request);
+		true
+	}
+	pub(crate) fn begin_theme_editor_frame(&mut self) {
+		self.theme_editor_visible = false;
+	}
+	pub(crate) fn previewing_theme(&self) -> bool {
+		self.theme_editor
+			.as_ref()
+			.is_some_and(|editor| editor.preview)
+	}
+	pub(crate) fn theme_preview_bar(&mut self, ui: &mut egui::Ui) -> bool {
+		if !self.previewing_theme() {
+			return false;
+		}
+		let colors = design::palette(ui);
+		let surface = design::section_surface(
+			ui,
+			design::window_palette(ui).base,
+			design::ImageSection::TopBar,
+		);
+		let mut back = false;
+		let mut customize = false;
+		egui::Panel::top("theme-preview-return")
+			.show_separator_line(false)
+			.frame(
+				egui::Frame::new()
+					.fill(surface)
+					.inner_margin(egui::Margin::symmetric(16, 8)),
+			)
+			.show(ui, |ui| {
+				ui.horizontal_wrapped(|ui| {
+					ui.label(
+						egui::RichText::new(self.gallery_preview.as_ref().map_or_else(
+							|| "Theme preview · Changes are not saved".into(),
+							|name| format!("Previewing {name}"),
+						))
+						.size(14.0)
+						.color(colors.text),
+					);
+					back = design::button(
+						ui,
+						if self.gallery_preview.is_some() {
+							"Back to themes"
+						} else {
+							"Back to theme editor"
+						},
+						design::ButtonKind::Primary,
+					)
+					.clicked();
+					if self.gallery_preview.is_some() {
+						customize =
+							design::button(ui, "Customize", design::ButtonKind::Outline).clicked();
+					}
+				});
+			});
+		if customize {
+			self.gallery_preview = None;
+		}
+		if back || customize {
+			self.stop_theme_preview(ui.ctx());
+		}
+		back || customize
+	}
+	fn edit_theme(&mut self, ui: &mut egui::Ui) {
+		let Some(mut editor) = self.theme_editor.take() else {
+			return;
+		};
+		if !self.status.is_empty() {
+			design::card(ui, |ui| {
+				ui.add(egui::Label::new(&self.status).wrap());
+			});
+			ui.add_space(12.0);
+		}
+		let mut requests = Vec::new();
+		let close = editor.show(ui, self.busy, &mut requests);
+		for request in requests {
+			self.queue(ui.ctx(), request);
+		}
+		if close {
+			if editor.preview {
+				self.queue(
+					ui.ctx(),
+					ExtensionRequest::PreviewTheme {
+						theme: None,
+						image: None,
+					},
+				);
+			}
+		} else {
+			self.theme_editor = Some(editor);
+		}
+	}
+	pub(crate) fn theme_editor_toolbar(&mut self, ui: &mut egui::Ui) {
+		let Some(mut editor) = self.theme_editor.take() else {
+			return;
+		};
+		let mut requests = Vec::new();
+		let close = ui
+			.scope(|ui| {
+				ui.set_max_width(ui.available_width().min(720.0));
+				editor.toolbar(ui, self.busy, &mut requests)
+			})
+			.inner;
+		for request in requests {
+			self.queue(ui.ctx(), request);
+		}
+		if !close {
+			self.theme_editor = Some(editor);
+		}
+	}
 	pub fn set_entries(&mut self, entries: Vec<ExtensionEntry>) {
 		self.consent = None;
 		self.previews.retain(|id, _| {
 			let old = self.entries.iter().find(|entry| &entry.manifest.id == id);
 			let new = entries.iter().find(|entry| &entry.manifest.id == id);
-			matches!((old, new), (Some(old), Some(new)) if old.preview == new.preview)
+			matches!((old, new), (Some(old), Some(new))
+				if old.preview == new.preview
+					&& old.cover_image.as_ref().map(Arc::as_ptr)
+						== new.cover_image.as_ref().map(Arc::as_ptr))
 		});
 		self.entries = entries;
 		self.message_actions = Arc::new(
@@ -227,6 +474,21 @@ impl ExtensionUi {
 		);
 		true
 	}
+	fn open_preview(&mut self, ctx: &egui::Context, entry: &ExtensionEntry) {
+		if entry.manifest.kind == ExtensionKind::Theme && entry.theme_preview.is_some() {
+			if !self.busy && !entry.cleanup_pending && self.theme_editor.is_none() {
+				self.queue(
+					ctx,
+					ExtensionRequest::EditTheme {
+						id: entry.manifest.id.clone(),
+						preview: true,
+					},
+				);
+			}
+		} else {
+			self.enlarged = Some(entry.manifest.id.clone());
+		}
+	}
 	fn preview_image(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -239,24 +501,39 @@ impl ExtensionUi {
 		if !ui.is_rect_visible(rect) {
 			return;
 		}
-		if entry.theme_preview.is_some()
-			|| entry
-				.manifest
-				.capabilities
-				.contains(&Capability::DeletedMessages)
+		if entry.cover_image.is_none()
+			&& (entry.theme_preview.is_some()
+				|| entry
+					.manifest
+					.capabilities
+					.contains(&Capability::DeletedMessages))
 		{
 			draw_native_preview(ui, rect, entry, radius);
 			let response = ui.interact(rect, ui.id().with("enlarge-preview"), egui::Sense::click());
+			response.widget_info(|| {
+				egui::WidgetInfo::labeled(
+					egui::WidgetType::Button,
+					true,
+					format!("Preview {}", entry.manifest.name),
+				)
+			});
 			if response
 				.on_hover_text(format!("Preview {}", entry.manifest.name))
 				.clicked()
 			{
-				self.enlarged = Some(entry.manifest.id.clone());
+				self.open_preview(ui.ctx(), entry);
 			}
 			return;
 		}
 		let id = &entry.manifest.id;
-		if entry.preview.is_some()
+		if let Some(cover) = &entry.cover_image
+			&& !self.previews.contains_key(id)
+			&& self.reserve_preview(id)
+		{
+			self.receive_preview(id.clone(), Some((**cover).clone()));
+		}
+		if entry.cover_image.is_none()
+			&& entry.preview.is_some()
 			&& !self.previews.contains_key(id)
 			&& !self.busy
 			&& self.requests.len() < 4
@@ -280,12 +557,35 @@ impl ExtensionUi {
 			}
 			if let Some(texture) = &preview.texture {
 				ui.painter().rect_filled(rect, radius, colors.base);
-				let fit = texture.size_vec2()
-					* (rect.width() / texture.size_vec2().x)
-						.min(rect.height() / texture.size_vec2().y);
-				egui::Image::new(texture)
-					.corner_radius(radius)
-					.paint_at(ui, egui::Rect::from_center_size(rect.center(), fit));
+				if entry.cover_image.is_some() {
+					let source = texture.size_vec2();
+					let source_ratio = source.x / source.y;
+					let target_ratio = rect.width() / rect.height();
+					let uv = if source_ratio > target_ratio {
+						let inset = (1.0 - target_ratio / source_ratio) / 2.0;
+						egui::Rect::from_min_max(
+							egui::pos2(inset, 0.0),
+							egui::pos2(1.0 - inset, 1.0),
+						)
+					} else {
+						let inset = (1.0 - source_ratio / target_ratio) / 2.0;
+						egui::Rect::from_min_max(
+							egui::pos2(0.0, inset),
+							egui::pos2(1.0, 1.0 - inset),
+						)
+					};
+					egui::Image::new(texture)
+						.uv(uv)
+						.corner_radius(radius)
+						.paint_at(ui, rect);
+				} else {
+					let fit = texture.size_vec2()
+						* (rect.width() / texture.size_vec2().x)
+							.min(rect.height() / texture.size_vec2().y);
+					egui::Image::new(texture)
+						.corner_radius(radius)
+						.paint_at(ui, egui::Rect::from_center_size(rect.center(), fit));
+				}
 				let response =
 					ui.interact(rect, ui.id().with("enlarge-preview"), egui::Sense::click());
 				response.widget_info(|| {
@@ -296,7 +596,7 @@ impl ExtensionUi {
 					)
 				});
 				if response.on_hover_text("View preview").clicked() {
-					self.enlarged = Some(id.clone());
+					self.open_preview(ui.ctx(), entry);
 				}
 				return;
 			}
@@ -337,11 +637,12 @@ impl ExtensionUi {
 			return;
 		};
 		let texture = self.previews.get(&id).and_then(|p| p.texture.as_ref());
-		let native = entry.theme_preview.is_some()
-			|| entry
-				.manifest
-				.capabilities
-				.contains(&Capability::DeletedMessages);
+		let native = entry.cover_image.is_none()
+			&& (entry.theme_preview.is_some()
+				|| entry
+					.manifest
+					.capabilities
+					.contains(&Capability::DeletedMessages));
 		if texture.is_none() && !native {
 			self.enlarged = None;
 			return;
@@ -360,18 +661,24 @@ impl ExtensionUi {
 					egui::Sense::hover(),
 				);
 				draw_native_preview(ui, rect, entry, egui::CornerRadius::same(8));
-				ui.weak(if entry.theme_preview.is_some() {
-					"Theme palette preview"
-				} else {
-					"Example deleted-message appearance"
-				});
+				if entry.manifest.kind != ExtensionKind::Theme {
+					ui.weak("Example deleted-message appearance");
+				}
 			} else if let Some(texture) = texture {
 				ui.add(
 					egui::Image::new(texture)
 						.max_size(available.max(egui::vec2(1.0, 1.0)))
 						.corner_radius(8),
 				);
-				ui.weak("Creator preview");
+				if entry.manifest.kind != ExtensionKind::Theme {
+					ui.weak("Creator preview");
+				}
+			}
+			if entry.manifest.kind == ExtensionKind::Theme {
+				ui.weak(format!("by {}", entry.manifest.author));
+				if !entry.description.is_empty() {
+					ui.add(egui::Label::new(&entry.description).wrap());
+				}
 			}
 			close = ui.button("Close preview").clicked();
 		});
@@ -392,9 +699,15 @@ impl ExtensionUi {
 	pub fn report_error(&mut self, message: String) {
 		let message: String = message.chars().take(512).collect();
 		self.status = message.clone();
-		self.error = Some(message);
+		self.error = if self.theme_editor_visible && self.theme_editor.is_some() {
+			None
+		} else {
+			Some(message)
+		};
 	}
 	pub fn reset_runtime(&mut self) {
+		self.theme_editor = None;
+		self.gallery_preview = None;
 		self.error = None;
 		self.result = None;
 		self.consent = None;
@@ -433,6 +746,10 @@ impl ExtensionUi {
 		});
 	}
 	pub(crate) fn queue(&mut self, ctx: &egui::Context, request: ExtensionRequest) {
+		if matches!(request, ExtensionRequest::PreviewTheme { .. }) {
+			self.requests
+				.retain(|pending| !matches!(pending, ExtensionRequest::PreviewTheme { .. }));
+		}
 		if self.requests.len()
 			< if matches!(&request, ExtensionRequest::Disable { .. }) {
 				extensions::MAX_PLUGINS * 2
@@ -440,8 +757,16 @@ impl ExtensionUi {
 				4
 			} && request_bytes(&request)
 			.saturating_add(self.requests.iter().map(request_bytes).sum::<usize>())
-			<= 4 * extensions::MAX_IO_BYTES
-		{
+			<= if matches!(
+				request,
+				ExtensionRequest::SaveTheme { .. }
+					| ExtensionRequest::ExportTheme { .. }
+					| ExtensionRequest::PreviewTheme { .. }
+			) {
+				2 * extensions::MAX_PACKAGE_BYTES
+			} else {
+				4 * extensions::MAX_IO_BYTES
+			} {
 			self.requests.push(request);
 			ctx.request_repaint();
 		} else {
@@ -533,9 +858,10 @@ impl ExtensionUi {
 	}
 	fn toolbar(&mut self, ui: &mut egui::Ui, colors: &design::Palette) {
 		let height = 38.0;
-		ui.horizontal(|ui| {
+		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing.x = 8.0;
-			let field = (ui.available_width() - 244.0).max(140.0);
+			ui.spacing_mut().interact_size.y = height;
+			let field = (ui.available_width() - if self.themes { 212.0 } else { 244.0 }).max(140.0);
 			egui::Frame::new()
 				.fill(colors.base)
 				.corner_radius(9)
@@ -578,6 +904,44 @@ impl ExtensionUi {
 						}
 					});
 				});
+			if self.themes {
+				if ui
+					.add_enabled(
+						!self.busy,
+						egui::Button::new(
+							egui::RichText::new("Create theme").color(colors.accent_text),
+						)
+						.fill(colors.accent)
+						.stroke(egui::Stroke::NONE)
+						.min_size(egui::vec2(126.0, height)),
+					)
+					.clicked()
+				{
+					self.status.clear();
+					self.theme_editor = Some(crate::theme_editor::ThemeEditor::new());
+				}
+				ui.menu_button("More", |ui| {
+					if ui
+						.add_enabled(!self.busy, egui::Button::new("Import theme…"))
+						.clicked()
+					{
+						self.status.clear();
+						self.queue(ui.ctx(), ExtensionRequest::Import);
+						ui.close();
+					}
+					if ui
+						.add_enabled(!self.busy, egui::Button::new("Refresh catalog"))
+						.clicked()
+					{
+						self.previews.clear();
+						self.status.clear();
+						self.queue(ui.ctx(), ExtensionRequest::RefreshCatalog);
+						ui.close();
+					}
+					self.reset_theme_button(ui);
+				});
+				return;
+			}
 			if ui
 				.add_enabled(
 					!self.busy,
@@ -653,14 +1017,15 @@ impl ExtensionUi {
 		}
 	}
 	pub(crate) fn settings(&mut self, ui: &mut egui::Ui, state: &State) {
+		self.theme_editor_visible = self.themes;
+		if self.themes && self.theme_editor.is_some() {
+			self.edit_theme(ui);
+			return;
+		}
 		self.preview_clock = self.preview_clock.saturating_add(1);
 
 		let colors = design::palette(ui);
 		self.toolbar(ui, &colors);
-		if self.themes {
-			ui.add_space(10.0);
-			self.reset_theme_button(ui);
-		}
 		ui.add_space(14.0);
 		let mut enable = None;
 		let mut disable = None;
@@ -683,12 +1048,23 @@ impl ExtensionUi {
 			})
 			.map(|(index, _)| index)
 			.collect();
-		let columns = if ui.available_width() >= 560.0 { 2 } else { 1 };
+		let columns = if self.themes && ui.available_width() >= 700.0 {
+			3
+		} else if ui.available_width() >= if self.themes { 460.0 } else { 560.0 } {
+			2
+		} else {
+			1
+		};
 		let gap = 16.0;
 		let width = ((ui.available_width() - gap * (columns - 1) as f32) / columns as f32).max(1.0);
 		let card = (width - 2.0).max(1.0);
 		let body = (card - 28.0).max(1.0);
-		let card_height = card * 9.0 / 16.0 + CARD_BODY;
+		let body_height = if self.themes {
+			THEME_CARD_BODY
+		} else {
+			CARD_BODY
+		};
+		let card_height = card * 9.0 / 16.0 + body_height;
 		let top_radius = egui::CornerRadius {
 			nw: CARD_RADIUS,
 			ne: CARD_RADIUS,
@@ -720,7 +1096,17 @@ impl ExtensionUi {
 									egui::Frame::new()
 										.fill(colors.raised)
 										.corner_radius(CARD_RADIUS)
-										.stroke(egui::Stroke::new(1.0, colors.border))
+										.stroke(egui::Stroke::new(
+											1.0,
+											if self.themes
+												&& self.active_theme.as_deref()
+													== Some(entry.manifest.id.as_str())
+											{
+												colors.accent
+											} else {
+												colors.border
+											},
+										))
 										.show(ui, |ui| {
 											ui.set_width(card);
 											ui.set_min_height(card_height);
@@ -735,7 +1121,7 @@ impl ExtensionUi {
 												})
 												.show(ui, |ui| {
 													ui.set_width(body);
-													ui.set_min_height(CARD_BODY - 24.0);
+													ui.set_min_height(body_height - 24.0);
 													ui.spacing_mut().item_spacing =
 														egui::vec2(6.0, 6.0);
 													self.card_body(
@@ -855,83 +1241,156 @@ impl ExtensionUi {
 		invoke: &mut Option<(String, String)>,
 	) {
 		let active = self.active_theme.as_deref() == Some(entry.manifest.id.as_str());
-		ui.horizontal(|ui| {
-			ui.label(design::eyebrow(
-				ui,
-				if self.themes { "Theme" } else { "Plugin" },
-				colors.muted,
-			));
-			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-				ui.spacing_mut().item_spacing.x = 6.0;
-				if entry.cleanup_pending {
-					badge(
-						ui,
-						"Cleanup pending",
-						colors.warning,
-						design::mix(colors.raised, colors.warning, 0.16),
-					);
-				} else if entry.enabled {
-					badge(
-						ui,
-						if active {
-							"Active"
-						} else if self.themes {
-							"Installed"
-						} else {
-							"Enabled"
-						},
-						colors.positive,
-						design::mix(colors.raised, colors.positive, 0.16),
-					);
-					if entry.update_available {
+		let mut update_requested = false;
+		if !self.themes {
+			ui.horizontal(|ui| {
+				ui.label(design::eyebrow(
+					ui,
+					if self.themes { "Theme" } else { "Plugin" },
+					colors.muted,
+				));
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					ui.spacing_mut().item_spacing.x = 6.0;
+					if entry.cleanup_pending {
 						badge(
 							ui,
-							"Update",
-							colors.accent,
-							design::mix(colors.raised, colors.accent, 0.2),
+							"Cleanup pending",
+							colors.warning,
+							design::mix(colors.raised, colors.warning, 0.16),
+						);
+					} else if entry.enabled {
+						badge(
+							ui,
+							if active {
+								"Active"
+							} else if self.themes {
+								"Installed"
+							} else {
+								"Enabled"
+							},
+							colors.positive,
+							design::mix(colors.raised, colors.positive, 0.16),
+						);
+						if entry.update_available {
+							badge(
+								ui,
+								"Update",
+								colors.accent,
+								design::mix(colors.raised, colors.accent, 0.2),
+							);
+						}
+					}
+				});
+			});
+		}
+		ui.add(
+			egui::Label::new(
+				design::semibold(
+					ui,
+					&entry.manifest.name,
+					if self.themes { 16.0 } else { 17.0 },
+				)
+				.color(colors.text_strong),
+			)
+			.truncate(),
+		);
+		ui.spacing_mut().item_spacing.y = 2.0;
+		if self.themes {
+			ui.horizontal(|ui| {
+				ui.spacing_mut().interact_size.y = 16.0;
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					if entry.update_available && !entry.cleanup_pending {
+						update_requested = ui
+							.add_enabled(
+								!self.busy,
+								egui::Button::new(
+									egui::RichText::new("Update")
+										.size(11.0)
+										.color(colors.accent),
+								)
+								.frame(false),
+							)
+							.on_hover_text(
+								"Review the new release before it replaces this version.",
+							)
+							.clicked();
+					}
+					if entry.cleanup_pending {
+						badge(ui, "Cleanup pending", colors.warning, colors.raised);
+					} else if entry.enabled && active {
+						badge(ui, "Active", colors.accent_text, colors.accent);
+					} else if entry.enabled
+						&& ui
+							.add_enabled_ui(!self.busy, |ui| {
+								card_button(
+									ui,
+									"Use theme",
+									egui::vec2(88.0, 24.0),
+									colors.accent,
+									egui::Stroke::NONE,
+									colors.accent_text,
+								)
+							})
+							.inner
+							.on_hover_text("Apply this installed theme to the app.")
+							.clicked()
+					{
+						self.queue(
+							ui.ctx(),
+							ExtensionRequest::SelectTheme {
+								id: Some(entry.manifest.id.clone()),
+							},
 						);
 					}
-				}
+					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(format!("by {}", entry.manifest.author))
+									.size(12.0)
+									.color(colors.muted),
+							)
+							.truncate(),
+						);
+					});
+				});
 			});
-		});
-		ui.add(
-			egui::Label::new(
-				design::semibold(ui, &entry.manifest.name, 17.0).color(colors.text_strong),
-			)
-			.truncate(),
-		)
-		.on_hover_text(&entry.manifest.name);
-		ui.spacing_mut().item_spacing.y = 2.0;
-		ui.add(
-			egui::Label::new(
-				egui::RichText::new(format!("by {}", entry.manifest.author))
-					.size(12.0)
-					.color(colors.muted),
-			)
-			.truncate(),
-		)
-		.on_hover_text(&entry.manifest.author);
-		ui.spacing_mut().item_spacing.y = 8.0;
-		let description = if entry.description.is_empty() {
-			if self.themes {
-				"Give your conversations a different look."
-			} else {
-				"Add a new tool to your conversations."
-			}
 		} else {
-			&entry.description
+			ui.add(
+				egui::Label::new(
+					egui::RichText::new(format!("by {}", entry.manifest.author))
+						.size(12.0)
+						.color(colors.muted),
+				)
+				.truncate(),
+			)
+			.on_hover_text(&entry.manifest.author);
+			ui.spacing_mut().item_spacing.y = 8.0;
+			let description = if entry.description.is_empty() {
+				if self.themes {
+					"Give your conversations a different look."
+				} else {
+					"Add a new tool to your conversations."
+				}
+			} else {
+				&entry.description
+			};
+			ui.allocate_ui(egui::vec2(ui.available_width(), 36.0), |ui| {
+				let mut text = egui::text::LayoutJob::simple(
+					description.into(),
+					egui::FontId::proportional(13.0),
+					colors.text,
+					ui.available_width(),
+				);
+				text.wrap.max_rows = 2;
+				ui.label(text);
+			});
+		}
+		let body_height = if self.themes {
+			THEME_CARD_BODY
+		} else {
+			CARD_BODY
 		};
-		ui.allocate_ui(egui::vec2(ui.available_width(), 36.0), |ui| {
-			let mut text = egui::text::LayoutJob::simple(
-				description.into(),
-				egui::FontId::proportional(13.0),
-				colors.text,
-				ui.available_width(),
-			);
-			text.wrap.max_rows = 2;
-			ui.label(text).on_hover_text(description);
-		});
-		let footer = ui.min_rect().top() + CARD_BODY - 24.0 - FOOTER_HEIGHT;
+		let footer = ui.min_rect().top() + body_height - 24.0 - FOOTER_HEIGHT;
 		ui.add_space((footer - ui.cursor().top()).max(0.0));
 		let neutral = design::mix(colors.raised, colors.text, 0.1);
 		let outline = egui::Stroke::new(1.0, colors.border);
@@ -953,16 +1412,68 @@ impl ExtensionUi {
 				}
 				return;
 			}
+			let panel_actions: Vec<_> = entry
+				.manifest
+				.actions
+				.iter()
+				.filter(|action| action.surface == Surface::Panel)
+				.collect();
+			let show_update = entry.update_available && !self.themes;
+			let count = 1
+				+ usize::from(self.themes && entry.theme_preview.is_some())
+				+ usize::from(show_update)
+				+ usize::from(!panel_actions.is_empty());
+			let each = ((ui.available_width() - 8.0 * (count - 1) as f32) / count as f32).max(1.0);
+			if self.themes
+				&& entry.theme_preview.is_some()
+				&& ui
+					.add_enabled_ui(!self.busy && self.theme_editor.is_none(), |ui| {
+						card_button(
+							ui,
+							if entry.local_theme {
+								"Edit theme"
+							} else {
+								"Customize"
+							},
+							egui::vec2(each, FOOTER_HEIGHT),
+							neutral,
+							outline,
+							colors.text_strong,
+						)
+					})
+					.inner
+					.clicked()
+			{
+				self.queue(
+					ui.ctx(),
+					ExtensionRequest::EditTheme {
+						id: entry.manifest.id.clone(),
+						preview: false,
+					},
+				);
+			}
 			if !entry.enabled {
 				if ui
 					.add_enabled_ui(!self.busy, |ui| {
 						card_button(
 							ui,
-							"Review & enable",
+							if self.themes {
+								"Install theme"
+							} else {
+								"Review & enable"
+							},
 							egui::vec2(ui.available_width(), FOOTER_HEIGHT),
-							colors.accent,
-							egui::Stroke::NONE,
-							colors.accent_text,
+							if self.themes { neutral } else { colors.accent },
+							if self.themes {
+								outline
+							} else {
+								egui::Stroke::NONE
+							},
+							if self.themes {
+								colors.text_strong
+							} else {
+								colors.accent_text
+							},
 						)
 					})
 					.inner
@@ -972,30 +1483,24 @@ impl ExtensionUi {
 				}
 				return;
 			}
-			let panel_actions: Vec<_> = entry
-				.manifest
-				.actions
-				.iter()
-				.filter(|action| action.surface == Surface::Panel)
-				.collect();
-			let count =
-				1 + usize::from(entry.update_available) + usize::from(!panel_actions.is_empty());
-			let each = ((ui.available_width() - 8.0 * (count - 1) as f32) / count as f32).max(1.0);
-			if entry.update_available
-				&& ui
-					.add_enabled_ui(!self.busy, |ui| {
-						card_button(
-							ui,
-							"Update",
-							egui::vec2(each, FOOTER_HEIGHT),
-							colors.accent,
-							egui::Stroke::NONE,
-							colors.accent_text,
-						)
-						.on_hover_text("Review the new release before it replaces this version.")
-					})
-					.inner
-					.clicked()
+			if update_requested
+				|| (show_update
+					&& ui
+						.add_enabled_ui(!self.busy, |ui| {
+							card_button(
+								ui,
+								"Update",
+								egui::vec2(each, FOOTER_HEIGHT),
+								colors.accent,
+								egui::Stroke::NONE,
+								colors.accent_text,
+							)
+							.on_hover_text(
+								"Review the new release before it replaces this version.",
+							)
+						})
+						.inner
+						.clicked())
 			{
 				let mut update = entry.clone();
 				if let Some(manifest) = &entry.update_manifest {
@@ -1027,15 +1532,15 @@ impl ExtensionUi {
 			}
 			if card_button(
 				ui,
-				if count == 1 {
-					"Disable & delete data"
-				} else {
-					"Disable"
-				},
+				"Disable",
 				egui::vec2(ui.available_width().max(1.0), FOOTER_HEIGHT),
-				neutral,
+				if self.themes { colors.raised } else { neutral },
 				outline,
-				colors.text_strong,
+				if self.themes {
+					colors.text
+				} else {
+					colors.text_strong
+				},
 			)
 			.on_hover_text("Removes this extension and deletes its local data.")
 			.clicked()
@@ -1159,10 +1664,12 @@ impl ExtensionUi {
 										colors.sidebar.to_opaque(),
 									);
 								});
-								ui.hyperlink_to(
-									egui::RichText::new("View source").size(12.0),
-									&consent.entry.manifest.source,
-								);
+								if !consent.entry.manifest.source.is_empty() {
+									ui.hyperlink_to(
+										egui::RichText::new("View source").size(12.0),
+										&consent.entry.manifest.source,
+									);
+								}
 							});
 						});
 					});
@@ -1316,6 +1823,9 @@ impl ExtensionUi {
 		}
 	}
 	fn reset_theme(&mut self, ctx: &egui::Context) {
+		self.stop_theme_preview(ctx);
+		self.theme_editor = None;
+		design::set_background_image(ctx, None);
 		let ids: Vec<_> = self
 			.entries
 			.iter()
@@ -1478,6 +1988,19 @@ impl ExtensionUi {
 fn request_bytes(request: &ExtensionRequest) -> usize {
 	std::mem::size_of_val(request)
 		+ match request {
+			ExtensionRequest::PickThemeImage => 0,
+			ExtensionRequest::PickThemeCover => 0,
+			ExtensionRequest::EditTheme { id, .. } => id.len(),
+			ExtensionRequest::SaveTheme { package } | ExtensionRequest::ExportTheme { package } => {
+				package.background_image.len()
+					+ package.cover_image.len()
+					+ package.wasm.len()
+					+ 16384
+			}
+			ExtensionRequest::PreviewTheme { theme, image } => {
+				usize::from(theme.is_some()) * 16384
+					+ image.as_ref().map_or(0, |image| image.pixels.len() * 4)
+			}
 			ExtensionRequest::RefreshCatalog | ExtensionRequest::Import => 0,
 			ExtensionRequest::SelectTheme { id } => id.as_ref().map_or(0, String::len),
 			ExtensionRequest::Enable {
@@ -1591,7 +2114,7 @@ fn draw_native_preview(
 				colors.accent
 			},
 		);
-		if labelled {
+		if labelled && (entry.theme_preview.is_none() || rect.width() >= 500.0) {
 			painter.text(
 				at(0.41, y),
 				egui::Align2::LEFT_CENTER,
@@ -1821,6 +2344,8 @@ mod tests {
 	use super::*;
 	fn entry() -> ExtensionEntry {
 		ExtensionEntry {
+			cover_image: None,
+			local_theme: false,
 			description: String::new(),
 			theme_preview: None,
 			preview: None,
@@ -1843,6 +2368,190 @@ mod tests {
 			cleanup_pending: false,
 			update_available: false,
 			update_manifest: None,
+		}
+	}
+	#[test]
+	fn original_theme_customization_and_gallery_preview_return() {
+		for action in ["Back to themes", "Customize"] {
+			let ctx = egui::Context::default();
+			let mut shop = ExtensionUi {
+				themes: true,
+				..Default::default()
+			};
+			let package = crate::theme_editor::ThemeEditor::new().package;
+			let original_id = package.manifest.id.clone();
+			let mut original = entry();
+			original.manifest = package.manifest.clone();
+			original.theme_preview = package.theme.clone();
+			shop.set_entries(vec![original.clone()]);
+			frame(&ctx, &mut shop, 900.0, vec![]);
+			let labels = frame(&ctx, &mut shop, 900.0, vec![]);
+			click(&ctx, &mut shop, 900.0, &labels, "Customize");
+			assert!(matches!(
+				shop.requests.pop(),
+				Some(ExtensionRequest::EditTheme { preview: false, .. })
+			));
+			shop.open_preview(&ctx, &original);
+			assert!(shop.enlarged.is_none());
+			assert!(matches!(
+				shop.requests.pop(),
+				Some(ExtensionRequest::EditTheme { preview: true, .. })
+			));
+			shop.receive_theme_edit(package, None, None, false, true);
+			assert!(shop.begin_gallery_preview(&ctx));
+			assert!(!shop.begin_gallery_preview(&ctx));
+			assert!(matches!(
+				shop.requests.pop(),
+				Some(ExtensionRequest::PreviewTheme { theme: Some(_), .. })
+			));
+			frame(&ctx, &mut shop, 900.0, vec![]);
+			let labels = frame(&ctx, &mut shop, 900.0, vec![]);
+			click(&ctx, &mut shop, 900.0, &labels, action);
+			assert!(!shop.previewing_theme());
+			assert!(shop.gallery_preview.is_none());
+			assert!(matches!(
+				shop.requests.pop(),
+				Some(ExtensionRequest::PreviewTheme { theme: None, .. })
+			));
+			if action == "Customize" {
+				let editor = shop.theme_editor.as_ref().unwrap();
+				assert_ne!(editor.package.manifest.id, original_id);
+				assert!(editor.dirty);
+			} else {
+				assert!(shop.theme_editor.is_none());
+			}
+		}
+	}
+	#[test]
+	fn local_theme_opens_for_edit_and_cover_replaces_palette_preview() {
+		let ctx = egui::Context::default();
+		let mut shop = ExtensionUi {
+			themes: true,
+			..Default::default()
+		};
+		let mut local = entry();
+		local.manifest.kind = ExtensionKind::Theme;
+		local.manifest.id = "local-cover".into();
+		local.manifest.name = "Local cover".into();
+		local.enabled = true;
+		local.local_theme = true;
+		local.theme_preview = Some(extensions::Theme::default());
+		local.cover_image = Some(Arc::new(egui::ColorImage::filled(
+			[16, 9],
+			egui::Color32::GREEN,
+		)));
+		shop.set_entries(vec![local.clone()]);
+		frame(&ctx, &mut shop, 900.0, vec![]);
+		let labels = frame(&ctx, &mut shop, 900.0, vec![]);
+		assert!(labels.iter().any(|(text, _)| text == "Edit theme"));
+		assert!(
+			shop.previews
+				.get("local-cover")
+				.is_some_and(|preview| preview.texture.is_some()),
+			"custom cover should create a card texture"
+		);
+		let mut replaced = local.clone();
+		replaced.cover_image = Some(Arc::new(egui::ColorImage::filled(
+			[16, 9],
+			egui::Color32::BLUE,
+		)));
+		shop.set_entries(vec![replaced]);
+		assert!(!shop.previews.contains_key("local-cover"));
+		click(&ctx, &mut shop, 900.0, &labels, "Edit theme");
+		assert!(shop.requests.iter().any(
+			|request| matches!(request, ExtensionRequest::EditTheme { id, .. } if id == "local-cover")
+		));
+
+		let mut package = crate::theme_editor::ThemeEditor::new().package;
+		package.manifest.id = "local-cover".into();
+		shop.receive_theme_edit(
+			package.clone(),
+			None,
+			local.cover_image.clone(),
+			true,
+			false,
+		);
+		assert_eq!(
+			shop.theme_editor.as_ref().unwrap().package.manifest.id,
+			"local-cover"
+		);
+		assert!(!shop.theme_editor.as_ref().unwrap().dirty);
+		shop.theme_editor = None;
+		shop.receive_theme_edit(package, None, local.cover_image.clone(), false, false);
+		assert_ne!(
+			shop.theme_editor.as_ref().unwrap().package.manifest.id,
+			"local-cover"
+		);
+	}
+	#[test]
+	fn theme_card_keeps_edit_and_disable_side_by_side() {
+		for width in [320.0, 900.0] {
+			let ctx = egui::Context::default();
+			let mut shop = ExtensionUi {
+				themes: true,
+				..Default::default()
+			};
+			let mut theme = entry();
+			theme.manifest.kind = ExtensionKind::Theme;
+			theme.manifest.id = "local-card".into();
+			theme.enabled = true;
+			theme.local_theme = true;
+			theme.update_available = true;
+			theme.theme_preview = Some(extensions::Theme::default());
+			shop.set_entries(vec![theme]);
+			frame(&ctx, &mut shop, width, vec![]);
+			let labels = frame(&ctx, &mut shop, width, vec![]);
+			let edit = labels
+				.iter()
+				.find(|(text, _)| text == "Edit theme")
+				.unwrap()
+				.1;
+			let disable = labels.iter().find(|(text, _)| text == "Disable").unwrap().1;
+			assert!(
+				edit.right() < disable.left() && (edit.center().y - disable.center().y).abs() < 4.0
+			);
+			let use_theme = labels
+				.iter()
+				.find(|(text, _)| text == "Use theme")
+				.unwrap()
+				.1;
+			assert!(use_theme.bottom() < edit.top() && use_theme.right() <= width);
+			shop.busy = true;
+			click(&ctx, &mut shop, width, &labels, "Use theme");
+			assert!(shop.requests.is_empty());
+			shop.busy = false;
+			let labels = frame(&ctx, &mut shop, width, vec![]);
+			click(&ctx, &mut shop, width, &labels, "Use theme");
+			assert!(
+				matches!(shop.requests.pop(), Some(ExtensionRequest::SelectTheme { id: Some(id) }) if id == "local-card")
+			);
+			// The desktop confirms selection only after the existing persistence job succeeds.
+			shop.active_theme = Some("local-card".into());
+			let labels = frame(&ctx, &mut shop, width, vec![]);
+			assert!(labels.iter().any(|(text, _)| text == "Active"));
+			assert!(!labels.iter().any(|(text, _)| text == "Use theme"));
+			assert!(
+				!labels
+					.iter()
+					.any(|(text, _)| text == "Disable & delete data"
+						|| text == "THEME" || text
+						== "Give your conversations a different look.")
+			);
+			click(&ctx, &mut shop, width, &labels, "More");
+			let menu = frame(&ctx, &mut shop, width, vec![]);
+			assert!(menu.iter().any(|(text, _)| text == "Import theme…"));
+			assert!(menu.iter().any(|(text, _)| text == "Reset community theme"));
+			click(&ctx, &mut shop, width, &menu, "Refresh catalog");
+			assert!(matches!(
+				shop.requests.as_slice(),
+				[ExtensionRequest::RefreshCatalog]
+			));
+			shop.requests.clear();
+			let labels = frame(&ctx, &mut shop, width, vec![]);
+			click(&ctx, &mut shop, width, &labels, "Disable");
+			assert!(shop.requests.iter().any(
+				|request| matches!(request, ExtensionRequest::Disable { id } if id == "local-card")
+			));
 		}
 	}
 	fn frame(
@@ -1875,7 +2584,11 @@ mod tests {
 				..Default::default()
 			},
 			|ui| {
-				extensions.settings(ui, &State::default());
+				if extensions.previewing_theme() {
+					extensions.theme_preview_bar(ui);
+				} else {
+					extensions.settings(ui, &State::default());
+				}
 			},
 		);
 		let mut labels = vec![];

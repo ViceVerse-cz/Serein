@@ -19,6 +19,7 @@ mod composer_text;
 pub mod design;
 mod embeds;
 mod extensions_ui;
+mod theme_editor;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
 pub mod emoji;
 mod emoji_details;
@@ -159,6 +160,7 @@ pub struct MessagingUi {
 	profile_formatted: markdown::FormatCache,
 	pub reading_preferences: model::ReadingPreferences,
 	pub show_hidden_channels: bool,
+	pub hide_title_bar: bool,
 	pub reading_status: &'static str,
 	pub reading_save_requested: bool,
 	pub minimize_to_tray: bool,
@@ -242,6 +244,7 @@ pub struct MessagingUi {
 	pub voice_input: Option<String>,
 	pub voice_output: Option<String>,
 	pub voice_gain: VoiceGain,
+	voice_user_volumes: Option<Box<[(u64, u16); 64]>>,
 	pub voice_refresh_devices: bool,
 	pub voice_device_status: &'static str,
 	pub voice_push_to_talk: bool,
@@ -647,7 +650,11 @@ impl MessagingUi {
 		egui::Panel::top("title-bar")
 			.exact_size(36.0)
 			.show_separator_line(false)
-			.frame(egui::Frame::new().fill(design::window_palette(ui).base))
+			.frame(egui::Frame::new().fill(design::section_surface(
+				ui,
+				design::window_palette(ui).base,
+				design::ImageSection::TopBar,
+			)))
 			.show(ui, |ui| {
 				// Caption text belongs to the window drag region, not text selection.
 				ui.style_mut().interaction.selectable_labels = false;
@@ -889,7 +896,11 @@ impl MessagingUi {
 							});
 							let row = rect.shrink2(egui::vec2(0.0, 1.0));
 							if response.hovered() || response.has_focus() {
-								ui.painter().rect_filled(row, 6, colors.hover);
+								ui.painter().rect_filled(
+									row,
+									6,
+									design::row_highlight(ui, colors.hover, 1.0),
+								);
 							}
 							let mut inner = ui.new_child(
 								egui::UiBuilder::new()
@@ -1324,7 +1335,11 @@ impl MessagingUi {
 			.show_separator_line(false)
 			.frame(
 				egui::Frame::new()
-					.fill(design::window_palette(ui).chat)
+					.fill(design::section_surface(
+						ui,
+						design::window_palette(ui).chat,
+						design::ImageSection::TopBar,
+					))
 					.inner_margin(egui::Margin::symmetric(16, 0)),
 			)
 			.show(ui, |ui| {
@@ -2496,12 +2511,18 @@ impl MessagingUi {
 		self.extensions
 			.show_result(&ctx, state, &mut self.draft_changes, self.editing.is_some());
 		self.keybinds_shortcut(&ctx);
+		self.theme_preview_navigation(ui);
 		let settings_open = self.settings.open || self.server_settings.is_open();
+		self.extensions.begin_theme_editor_frame();
 		if self.settings.open {
 			self.show_settings(&ctx, state, &mut commands);
+			if self.extensions.previewing_theme() {
+				self.settings.open = false;
+			}
 			ui.disable();
 		}
 		if self.server_settings.is_open() {
+			self.extensions.stop_theme_preview(&ctx);
 			if self.profile.is_some()
 				&& ctx
 					.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
@@ -2583,16 +2604,27 @@ impl MessagingUi {
 			.guild
 			.and_then(|id| state.guild(id))
 			.map_or_else(|| "Direct Messages".to_owned(), |g| g.name.clone());
-		self.title_bar(ui, state, &title);
+		if !cfg!(target_os = "windows") || !self.hide_title_bar {
+			self.title_bar(ui, state, &title);
+		}
 		// Server rail and channel list share one resizable column so the account card can
 		// span both, like Discord's bottom-left user pill.
 		let rail = notifications::RAIL_WIDTH;
 		let sidebar_max = self.prepare_reading_sidebar(ui, "navigation", rail);
 		let navigation = egui::Panel::left("navigation")
 			.resizable(true)
+			.show_separator_line(!design::has_window_background(ui))
 			.default_size(rail + f32::from(self.reading_preferences.sidebar_width).min(sidebar_max))
 			.size_range(rail + 190.0..=rail + sidebar_max)
-			.frame(egui::Frame::new().fill(background.base).inner_margin(0))
+			.frame(
+				egui::Frame::new()
+					.fill(if design::has_window_background(ui) {
+						egui::Color32::TRANSPARENT
+					} else {
+						background.base
+					})
+					.inner_margin(0),
+			)
 			.show(ui, |ui| {
 				egui::Panel::bottom("account-footer")
 					.show_separator_line(false)
@@ -2607,12 +2639,20 @@ impl MessagingUi {
 				// The lists sit on their own rounded surface beside the rail, above the card.
 				ui.painter().rect_filled(
 					ui.available_rect_before_wrap(),
-					egui::CornerRadius {
-						nw: 8,
-						sw: 8,
-						..Default::default()
+					if design::has_window_background(ui) {
+						egui::CornerRadius::ZERO
+					} else {
+						egui::CornerRadius {
+							nw: 8,
+							sw: 8,
+							..Default::default()
+						}
 					},
-					background.sidebar,
+					design::section_surface(
+						ui,
+						background.sidebar,
+						design::ImageSection::ChannelList,
+					),
 				);
 				self.sidebar(ui, state, &title, &mut commands);
 			});
@@ -2670,10 +2710,15 @@ impl MessagingUi {
 			};
 			egui::Panel::right("search-pane")
 				.resizable(false)
+				.show_separator_line(!design::has_window_background(ui))
 				.exact_size(width)
 				.frame(
 					egui::Frame::new()
-						.fill(background.sidebar)
+						.fill(design::section_surface(
+							ui,
+							background.sidebar,
+							design::ImageSection::MemberList,
+						))
 						.inner_margin(egui::Margin::same(12)),
 				)
 				.show(ui, |ui| {
@@ -2692,10 +2737,15 @@ impl MessagingUi {
 			if wide_members {
 				egui::Panel::right("people-pane")
 					.resizable(false)
+					.show_separator_line(!design::has_window_background(ui))
 					.exact_size(240.0)
 					.frame(
 						egui::Frame::new()
-							.fill(background.sidebar)
+							.fill(design::section_surface(
+								ui,
+								background.sidebar,
+								design::ImageSection::MemberList,
+							))
 							.inner_margin(egui::Margin {
 								left: 8,
 								right: 8,
@@ -2727,8 +2777,23 @@ impl MessagingUi {
 		}
 		self.reaction_picker.sync(state, state.selected);
 		egui::CentralPanel::default()
-			.frame(egui::Frame::new().fill(background.chat).inner_margin(0))
+			.frame(
+				egui::Frame::new()
+					.fill(if design::has_section_background(ui) {
+						egui::Color32::TRANSPARENT
+					} else {
+						background.chat
+					})
+					.inner_margin(0),
+			)
 			.show(ui, |ui| {
+				let message_surface =
+					design::section_surface(ui, background.chat, design::ImageSection::MessageList);
+				if design::has_section_background(ui)
+					&& (state.selected.is_none() || selected_voice || selected_forum)
+				{
+					ui.painter().rect_filled(ui.max_rect(), 0, message_surface);
+				}
 				let warnings = state.startup_warnings;
 				let unavailable: Vec<_> = [
 					(warnings.read_state, "read status"),
@@ -2769,6 +2834,16 @@ impl MessagingUi {
 						&mut commands,
 					);
 				}
+				let message_fill = (design::has_section_background(ui)
+					&& state.selected.is_some()
+					&& !selected_voice
+					&& !selected_forum)
+					.then(|| {
+						(
+							ui.painter().add(egui::Shape::Noop),
+							ui.available_rect_before_wrap().top(),
+						)
+					});
 				self.call_bar(ui, state, &mut commands);
 				self.timeline.download.show_status(ui);
 				let Some(channel) = state.selected else {
@@ -2813,7 +2888,11 @@ impl MessagingUi {
 					.show_separator_line(false)
 					.frame(
 						egui::Frame::new()
-							.fill(background.chat)
+							.fill(design::section_surface(
+								ui,
+								background.chat,
+								design::ImageSection::Composer,
+							))
 							.inner_margin(egui::Margin {
 								left: 16,
 								right: 16,
@@ -2833,6 +2912,20 @@ impl MessagingUi {
 					&& state.history_targeted
 				{
 					commands.push(state.history(None));
+				}
+				if let Some((shape, top)) = message_fill {
+					let remaining = ui.available_rect_before_wrap();
+					ui.painter().set(
+						shape,
+						egui::Shape::rect_filled(
+							egui::Rect::from_min_max(
+								egui::pos2(remaining.left(), top),
+								remaining.right_bottom(),
+							),
+							0.0,
+							message_surface,
+						),
+					);
 				}
 				let notices: Vec<String> = [
 					match state.freshness {
@@ -2867,6 +2960,7 @@ impl MessagingUi {
 						bottom: 0,
 					})
 					.show(ui, |ui| {
+						design::paint_chat_background(ui, ui.available_rect_before_wrap());
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
 						self.timeline.extension_actions = self.extensions.message_actions();
 						self.timeline.show_with_scroll(
@@ -3257,6 +3351,51 @@ impl MessagingUi {
 #[cfg(test)]
 mod composer_tests {
 	use super::*;
+
+	#[test]
+	fn image_surface_reaches_the_channel_header_without_a_stripe() {
+		let ctx = egui::Context::default();
+		ctx.set_theme(egui::ThemePreference::Dark);
+		let mut theme = extensions::Theme::default();
+		theme.dark.background = Some(extensions::Background {
+			sections: Some(extensions::SectionOpacity::default()),
+			..Default::default()
+		});
+		design::set_extension_theme(Some(&theme));
+		design::set_background_image(
+			&ctx,
+			Some(std::sync::Arc::new(egui::ColorImage::filled(
+				[1, 1],
+				egui::Color32::WHITE,
+			))),
+		);
+		let mut state = test_support::demo_state();
+		let mut view = MessagingUi::default();
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1100.0, 800.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				view.show(ui, &mut state);
+			},
+		);
+		let message_alpha = (75 * 255 / 100) as u8;
+		let surface = output.shapes.iter().find_map(|shape| match &shape.shape {
+			egui::Shape::Rect(rect)
+				if rect.fill.a() == message_alpha && rect.rect.height() > 200.0 =>
+			{
+				Some(rect.rect)
+			}
+			_ => None,
+		});
+		assert!(surface.is_some_and(|rect| (rect.top() - 84.0).abs() <= 1.0));
+		output.textures_delta.clear();
+		design::set_extension_theme(None);
+	}
 
 	#[test]
 	fn composer_placeholder_alignment() {

@@ -26,6 +26,8 @@ fn main() {
 			.map(|bytes| {
 				let package = extensions::parse_package(bytes).unwrap();
 				ui::ExtensionEntry {
+					cover_image: None,
+					local_theme: false,
 					manifest: package.manifest,
 					theme_preview: package.theme,
 					description: String::new(),

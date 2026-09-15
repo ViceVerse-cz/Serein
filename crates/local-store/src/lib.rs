@@ -20,6 +20,7 @@ pub struct AppPreferences {
 	pub update_nightly: bool,
 	pub notification_options: model::notification_preferences::Device,
 	pub show_hidden_channels: bool,
+	pub hide_title_bar: bool,
 	pub primary_color: Option<[u8; 3]>,
 	pub voice_noise_suppression: bool,
 	pub voice_push_to_talk: bool,
@@ -38,6 +39,7 @@ impl Default for AppPreferences {
 			update_nightly: true,
 			notification_options: Default::default(),
 			show_hidden_channels: false,
+			hide_title_bar: false,
 			primary_color: None,
 			voice_noise_suppression: false,
 			voice_push_to_talk: false,
@@ -1034,6 +1036,7 @@ mod tests {
 		assert_eq!(store.app_preferences().unwrap(), AppPreferences::default());
 		let mut value = AppPreferences {
 			notifications_enabled: true,
+			hide_title_bar: true,
 			primary_color: Some([80, 120, 220]),
 			notification_options: model::notification_preferences::Device {
 				current_channel: true,

@@ -1,3 +1,91 @@
+# Theme editor readability - September 15, 2026
+
+Baseline: `235cf01`, reusing the verified `ae36f54` package because intervening
+commits changed documentation only. After: `1f5349b`. Standard Windows x64
+`cargo xtask package`, pinned Rust 1.98.1 MSVC, locked dependencies, voice included.
+The baseline distribution was copied to its own directory before the serial
+after build in the owned package worktree, reusing the same Cargo target.
+The root `dist` was untouched. Both packages contain 186 files. `makensis` was
+unavailable; the portable package passed with the nonfatal OpenH264 LNK4255 warning.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 71,029,760 | 71,039,488 | +9,728 (+0.014%) |
+| Full portable package, bytes | 75,095,823 | 75,105,551 | +9,728 (+0.013%) |
+| ZIP, PowerShell Compress-Archive Optimal, bytes | 42,850,464 | 42,856,609 | +6,145 (+0.014%) |
+
+Each ZIP contains its package's `dist/*`; full size sums all files. Native UI
+CPU, memory, and frame-time samples remain unavailable because OS window
+capture/control is disabled and Orca is absent. No runtime performance gain is
+claimed. Inspected synthetic debug framebuffer comparisons and their exact
+fixture are documented in `docs/pr-evidence/theme-editor`; these do not establish
+native OS interaction or live Discord compatibility.
+
+# Compact theme gallery - September 15, 2026
+
+Baseline: `cf4bcc2`. After: `ae36f54`. Both standard Windows x64 portable
+packages include voice and use pinned Rust 1.98.1 MSVC with locked
+`cargo xtask package`. Builds ran serially in the owned package worktree with
+the same Cargo target; the baseline distribution was copied to a separate
+directory before building the after revision. The root `dist` was untouched.
+Both packages contain 186 files. `makensis` was unavailable; no installer was
+built. The OpenH264 LNK4255 linker warning was nonfatal.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 70,965,248 | 71,029,760 | +64,512 (+0.091%) |
+| Full portable package, bytes | 75,031,311 | 75,095,823 | +64,512 (+0.086%) |
+| ZIP, PowerShell Compress-Archive Optimal, bytes | 42,835,573 | 42,850,464 | +14,891 (+0.035%) |
+
+Each ZIP contains the corresponding `dist/*`; package size sums every file.
+This is a size comparison, not a UI speed or memory result. Matched release
+CPU, memory, and frame-time measurements remain unavailable because native
+window capture/control is disabled and Orca is absent. The inspected synthetic
+debug egui/WGPU renders under `docs/pr-evidence/theme-gallery` separately cover
+layout; they are not native OS screenshots or live Discord evidence.
+
+# Theme card covers and local editing - September 15, 2026
+
+Baseline: `c36b5a2` on `feat/theme-maker`; intervening `e925b0b` changed only
+this performance note. After: `b8ee526`. Both Windows x64 portable packages used
+the pinned Rust 1.98.1 MSVC toolchain, locked `cargo xtask package`, and voice in
+the release build. Builds used separate worktrees and Cargo targets; the root
+`dist` was untouched. Both packages contain 186 files. The baseline package was
+retained from the prior theme-maker measurement; the after package was built
+for this change. `makensis` was unavailable, so no installer was produced.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 70,922,240 | 70,965,248 | +43,008 (+0.061%) |
+| Full portable package, bytes | 74,988,303 | 75,031,311 | +43,008 (+0.057%) |
+
+The worker bounds each selected cover to a 2 MiB static image and shrinks its
+decoded card image to at most 640 x 360. Native UI CPU, memory, frame timing,
+and before/after screenshots remain unmeasured because desktop window capture
+is unavailable in this session. Package sizes and synthetic tests are separate
+from installed-client visual or live Discord evidence.
+
+# Theme maker and continuous image surfaces - September 15, 2026
+
+Baseline: branch fork `aec1f19a10a045d3607de995f65723c7f749be66`.
+After: `c36b5a2` on `feat/theme-maker`. Windows x64, pinned Rust 1.98.1
+MSVC, locked release `cargo xtask package` with voice included. Each revision
+used an isolated worktree and Cargo target directory; neither build touched
+the existing `dist` or release executable. Both unsigned portable packages
+contain 186 files. `makensis` was unavailable, so no installer was built.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 70,661,120 | 70,922,240 | +261,120 (+0.37%) |
+| Full portable package, bytes | 74,727,183 | 74,988,303 | +261,120 (+0.35%) |
+| ZIP, PowerShell Compress-Archive Optimal, bytes | 42,733,973 | 42,824,299 | +90,326 (+0.21%) |
+
+ZIP each `dist/*` with `Compress-Archive -CompressionLevel Optimal`; measure
+the executable and sum all files under `dist`. The size increase is measured,
+but native demo CPU, memory, and frame timing were unavailable because desktop
+window capture/control is unavailable in this session. Synthetic tests and
+package sizes do not prove the installed live app's visual result.
+
 # Thread participant loading — September 15, 2026
 
 Baseline: `aec1f19a10a045d3607de995f65723c7f749be66`. After: that revision plus
@@ -410,7 +498,7 @@ not whole-process memory guarantees; decoding and old/new state replacement add 
 
 ## Linux and Windows stream audio — September 15, 2026
 
-Compared baseline `0628052` with the stream-audio implementation on macOS 27.0
+Compared baseline `0628052` with stream-audio commit `79d1bc0` on macOS 27.0
 (26A428), Apple M1 Pro, 16 GiB RAM, Rust 1.98.1. Both use `cargo xtask package`:
 the standard release build including voice, without demo/developer-session features.
 Baseline output was preserved in a detached worktree before building the changed tree.
@@ -439,3 +527,39 @@ The macOS demo does not execute either new native adapter; no native performance
 improvement or live interoperability is claimed. Windows cross-checking on this Mac
 also stopped in existing native Opus/OpenH264 build scripts (missing Visual Studio
 generator / incompatible host C++ flags), before checking the Windows adapter.
+
+
+## 2026-09-15: gallery preview, customization and selection
+
+| Metric / method | Baseline `fd0cf4e` | After `e452b0f` | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 71,039,488 | 71,050,240 | +10,752 (+0.015%) |
+| Full portable package, bytes | 75,105,551 | 75,116,303 | +10,752 (+0.014%) |
+| ZIP, Compress-Archive Optimal, bytes | 42,856,609 | 42,860,670 | +4,061 (+0.009%) |
+| Native release UI CPU, memory, frame time | Unmeasured | Unmeasured | Unmeasured |
+
+Standard voice-enabled `cargo xtask package` passed on Windows x64 with pinned Rust
+1.98.1 MSVC and locked dependencies. One package per revision, 186 files each; package
+size sums all files. Baseline reuses the verified `1f5349b` package, since intervening
+commits through `fd0cf4e` contain documentation only. It was preserved separately
+before the after builds in the owned package worktree; root `dist` was untouched.
+ZIP uses Compress-Archive Optimal on each `dist` directory. These measurements cover
+full-app gallery preview, bundled customization and theme selection together.
+The final release build took 3m 16s. OpenH264 LNK4255 was nonfatal. `makensis` is absent,
+so packaging produced an unsigned portable distribution, not an NSIS installer.
+
+No UI speed or memory improvement is claimed. Matched native release CPU, memory and
+frame-time measurements remain unavailable because native desktop capture/control is
+disabled and Orca is absent. The inspected offline debug framebuffer renders and
+behavioral tests do not establish installed-client visuals or live interoperability.
+
+
+### Back button outline follow-up
+
+`96a3a05` (verified `e452b0f` code/package) versus `310ad5e`, same Windows
+voice-enabled release command, toolchain, package worktree and ZIP method above.
+The baseline distribution was preserved separately before rebuilding. Both packages
+contain 186 files, a 71,050,240-byte executable and 75,116,303 total bytes (no change).
+The ZIP changed from 42,860,670 to 42,860,657 bytes (-13 bytes, below 0.001%). This
+compression difference is not a performance improvement. Packaging passed in 3m 15s;
+NSIS remains unavailable. Native UI timing/memory limitations above still apply.

@@ -17,12 +17,24 @@ pub use video_receive::{RemoteFrame, VideoSink};
 pub mod camera_video;
 
 pub type Frame = [f32; 960];
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct Controls {
 	pub muted: bool,
 	/// Zero means off; a new value invalidates frames from the previous camera instance.
 	pub camera: u64,
 	pub deafened: bool,
+	/// Session-only playback percentages (0–200); zero user IDs are unused.
+	pub user_volumes: [(u64, u16); 64],
+}
+impl Default for Controls {
+	fn default() -> Self {
+		Self {
+			muted: false,
+			camera: 0,
+			deafened: false,
+			user_volumes: [(0, 100); 64],
+		}
+	}
 }
 pub enum Status {
 	Connecting,

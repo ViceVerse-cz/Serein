@@ -453,7 +453,11 @@ impl MessagingUi {
 									egui::Stroke::new(1.0, colors.border),
 								);
 								if response.hovered() || response.has_focus() {
-									ui.painter().rect_filled(rect.shrink(1.0), 6, colors.hover);
+									ui.painter().rect_filled(
+										rect.shrink(1.0),
+										6,
+										design::row_highlight(ui, colors.hover, 1.0),
+									);
 								}
 								response.widget_info(|| {
 									egui::WidgetInfo::labeled(

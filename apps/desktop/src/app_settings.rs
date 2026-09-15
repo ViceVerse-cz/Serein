@@ -31,6 +31,7 @@ impl Settings {
 			update_nightly: ui.updates.nightly,
 			notification_options: ui.notification_options,
 			show_hidden_channels: ui.show_hidden_channels,
+			hide_title_bar: ui.hide_title_bar,
 			primary_color: ui.primary_color,
 			voice_noise_suppression: ui.voice_noise_suppression,
 			voice_push_to_talk: ui.voice_push_to_talk,
@@ -56,6 +57,7 @@ impl Settings {
 		ui.updates.nightly = value.update_nightly;
 		ui.notification_options = value.notification_options;
 		ui.show_hidden_channels = value.show_hidden_channels;
+		ui.hide_title_bar = value.hide_title_bar;
 		ui.primary_color = value.primary_color;
 		ui.voice_noise_suppression = value.voice_noise_suppression;
 		ui.voice_push_to_talk = value.voice_push_to_talk;

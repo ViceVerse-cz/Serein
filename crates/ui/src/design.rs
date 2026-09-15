@@ -372,10 +372,12 @@ pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 struct ExtensionPalette {
 	colors: [Option<Color32>; 18],
 	backdrop: Option<[Color32; 2]>,
+	background: Option<extensions::Background>,
 }
 thread_local! {
 	static EXTENSION_THEME: std::cell::Cell<Option<[ExtensionPalette; 2]>> = const { std::cell::Cell::new(None) };
 	static EXTENSION_STYLE: std::cell::Cell<extensions::ThemeStyle> = std::cell::Cell::new(extensions::ThemeStyle::default());
+	static BACKGROUND_IMAGE: std::cell::RefCell<Option<(std::sync::Arc<egui::ColorImage>, egui::TextureHandle)>> = const { std::cell::RefCell::new(None) };
 }
 const THEME_FIELDS: [&str; 18] = [
 	"base",
@@ -412,7 +414,11 @@ fn extension_palette(theme: &extensions::ThemePalette) -> Option<ExtensionPalett
 		Some([a, b]) => Some([color(a)?, color(b)?]),
 		None => None,
 	};
-	Some(ExtensionPalette { colors, backdrop })
+	Some(ExtensionPalette {
+		colors,
+		backdrop,
+		background: theme.background,
+	})
 }
 /// Install color and native control overrides; malformed themes reset to built-in appearance.
 /// Call [`apply`] after changing this value. No parsing or allocation runs while drawing.
@@ -426,6 +432,146 @@ pub fn set_extension_theme(theme: Option<&extensions::Theme>) {
 	});
 	EXTENSION_THEME.set(palettes);
 	EXTENSION_STYLE.set(theme.map_or_else(extensions::ThemeStyle::default, |theme| theme.style));
+	if theme.is_none() {
+		BACKGROUND_IMAGE.with(|image| *image.borrow_mut() = None);
+	}
+}
+
+/// Upload only a changed worker-decoded image; slider changes reuse the texture.
+pub fn set_background_image(ctx: &egui::Context, image: Option<std::sync::Arc<egui::ColorImage>>) {
+	BACKGROUND_IMAGE.with(|current| {
+		let mut current = current.borrow_mut();
+		if let Some(image) = image {
+			if image
+				.size
+				.iter()
+				.any(|side| *side > ctx.input(|input| input.max_texture_side))
+			{
+				*current = None;
+				return;
+			}
+			if current
+				.as_ref()
+				.is_some_and(|(old, _)| std::sync::Arc::ptr_eq(old, &image))
+			{
+				return;
+			}
+			let texture = ctx.load_texture(
+				"theme-background",
+				image.clone(),
+				egui::TextureOptions::LINEAR,
+			);
+			*current = Some((image, texture));
+		} else {
+			*current = None;
+		}
+	});
+}
+
+pub fn has_window_background(ui: &egui::Ui) -> bool {
+	BACKGROUND_IMAGE.with(|image| image.borrow().is_some())
+		&& EXTENSION_THEME.get().is_some_and(|palettes| {
+			palettes[usize::from(ui.visuals().dark_mode)]
+				.background
+				.unwrap_or_default()
+				.target == extensions::BackgroundTarget::Window
+		})
+}
+
+#[derive(Clone, Copy)]
+pub enum ImageSection {
+	TopBar,
+	ServerList,
+	ChannelList,
+	MessageList,
+	MemberList,
+	Composer,
+}
+
+/// Cover one window image with a section surface. Only the surface changes opacity.
+pub fn section_surface(ui: &egui::Ui, color: Color32, section: ImageSection) -> Color32 {
+	if !has_window_background(ui) {
+		return color;
+	}
+	let Some(sections) = EXTENSION_THEME.get().and_then(|palettes| {
+		palettes[usize::from(ui.visuals().dark_mode)]
+			.background?
+			.sections
+	}) else {
+		return color;
+	};
+	let opacity = match section {
+		ImageSection::TopBar => sections.top_bar,
+		ImageSection::ServerList => sections.server_list,
+		ImageSection::ChannelList => sections.channel_list,
+		ImageSection::MessageList => sections.message_list,
+		ImageSection::MemberList => sections.member_list,
+		ImageSection::Composer => sections.composer,
+	};
+	let [r, g, b, _] = color.to_srgba_unmultiplied();
+	Color32::from_rgba_unmultiplied(r, g, b, (u16::from(opacity) * 255 / 100) as u8)
+}
+
+pub fn has_section_background(ui: &egui::Ui) -> bool {
+	has_window_background(ui)
+		&& EXTENSION_THEME.get().is_some_and(|palettes| {
+			palettes[usize::from(ui.visuals().dark_mode)]
+				.background
+				.is_some_and(|background| background.sections.is_some())
+		})
+}
+
+/// Keep large hover rows translucent over a shared background image.
+pub fn row_highlight(ui: &egui::Ui, color: Color32, strength: f32) -> Color32 {
+	if has_section_background(ui) {
+		let [r, g, b, _] = color.to_srgba_unmultiplied();
+		Color32::from_rgba_unmultiplied(r, g, b, 48)
+	} else {
+		color.gamma_multiply(strength)
+	}
+}
+
+/// A message-area image sits above the chat surface and below message content.
+pub fn paint_chat_background(ui: &egui::Ui, rect: egui::Rect) {
+	let background = EXTENSION_THEME
+		.get()
+		.and_then(|palettes| palettes[usize::from(ui.visuals().dark_mode)].background)
+		.unwrap_or_default();
+	if background.target != extensions::BackgroundTarget::Chat {
+		return;
+	}
+	BACKGROUND_IMAGE.with(|image| {
+		if let Some((_, texture)) = image.borrow().as_ref() {
+			paint_background_image(ui.painter(), rect, texture, background);
+		}
+	});
+}
+
+/// Draw a centered static image without changing its aspect ratio.
+pub fn paint_background_image(
+	painter: &egui::Painter,
+	rect: egui::Rect,
+	texture: &egui::TextureHandle,
+	background: extensions::Background,
+) {
+	if rect.width() <= 0.0 || rect.height() <= 0.0 || background.opacity == 0 {
+		return;
+	}
+	let size = texture.size_vec2();
+	let ratio = rect.size() / size;
+	let scale = match background.fit {
+		extensions::BackgroundFit::Cover => ratio.x.max(ratio.y),
+		extensions::BackgroundFit::Contain => ratio.x.min(ratio.y),
+	};
+	let image_rect = egui::Rect::from_center_size(rect.center(), size * scale);
+	painter
+		.with_clip_rect(rect.intersect(painter.clip_rect()))
+		.image(
+			texture.id(),
+			image_rect,
+			egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+			Color32::from_white_alpha((u16::from(background.opacity) * 255 / 100) as u8),
+		);
 }
 fn recolor(mut palette: Palette, theme: ExtensionPalette) -> Palette {
 	for (destination, color) in [
@@ -480,13 +626,14 @@ fn customize(mut palette: Palette, primary: Option<[u8; 3]>) -> Palette {
 	palette
 }
 pub(crate) fn theme_preview_palette(ui: &egui::Ui, theme: &extensions::Theme) -> Palette {
-	let base = palette(ui);
+	let base = builtin_colors(ui.visuals().dark_mode, variant());
 	let theme = if ui.visuals().dark_mode {
 		&theme.dark
 	} else {
 		&theme.light
 	};
-	extension_palette(theme).map_or(base, |overrides| recolor(base, overrides))
+	let colors = extension_palette(theme).map_or(base, |overrides| recolor(base, overrides));
+	opaque_surfaces(customize(colors, primary_color()))
 }
 pub fn palette(ui: &egui::Ui) -> Palette {
 	opaque_surfaces(colors(ui.visuals().dark_mode, variant()))
@@ -518,9 +665,13 @@ fn opaque_surfaces(mut palette: Palette) -> Palette {
 }
 /// Paint the gradient backdrop behind every panel; a no-op for opaque variants.
 pub fn paint_backdrop(ctx: &egui::Context) {
-	let Some([top, bottom]) = colors(ctx.theme() == egui::Theme::Dark, variant()).backdrop else {
+	let dark = ctx.theme() == egui::Theme::Dark;
+	let palette = colors(dark, variant());
+	let has_image = BACKGROUND_IMAGE.with(|image| image.borrow().is_some());
+	if palette.backdrop.is_none() && !has_image {
 		return;
-	};
+	}
+	let [top, bottom] = palette.backdrop.unwrap_or([palette.base.to_opaque(); 2]);
 	let rect = ctx.content_rect();
 	let mut mesh = egui::Mesh::default();
 	let mid = Color32::from_rgba_premultiplied(
@@ -537,6 +688,23 @@ pub fn paint_backdrop(ctx: &egui::Context) {
 	mesh.add_triangle(0, 2, 3);
 	ctx.layer_painter(egui::LayerId::background())
 		.add(egui::Shape::mesh(mesh));
+	BACKGROUND_IMAGE.with(|image| {
+		if let Some((_, texture)) = image.borrow().as_ref() {
+			let background = EXTENSION_THEME
+				.get()
+				.and_then(|palettes| palettes[usize::from(dark)].background)
+				.unwrap_or_default();
+			if background.target != extensions::BackgroundTarget::Window {
+				return;
+			}
+			paint_background_image(
+				&ctx.layer_painter(egui::LayerId::background()),
+				rect,
+				texture,
+				background,
+			);
+		}
+	});
 }
 
 pub const SEMIBOLD: &str = "semibold";
@@ -1097,6 +1265,85 @@ fn contrast(a: Color32, b: Color32) -> f32 {
 #[cfg(test)]
 mod tests {
 	#[test]
+	fn action_button_text_uses_the_current_palette() {
+		use super::*;
+		for theme in [egui::ThemePreference::Dark, egui::ThemePreference::Light] {
+			for kind in [
+				ButtonKind::Neutral,
+				ButtonKind::Outline,
+				ButtonKind::Primary,
+			] {
+				let ctx = egui::Context::default();
+				ctx.set_theme(theme);
+				apply(&ctx);
+				let mut expected = Color32::TRANSPARENT;
+				let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+					let palette = palette(ui);
+					expected = match kind {
+						ButtonKind::Neutral => palette.text,
+						ButtonKind::Outline => palette.text_strong,
+						_ => palette.accent_text,
+					};
+					button(ui, "Readable action", kind);
+				});
+				let text = output
+					.shapes
+					.iter()
+					.find_map(|shape| match &shape.shape {
+						egui::Shape::Text(text) if text.galley.job.text == "Readable action" => {
+							Some(text)
+						}
+						_ => None,
+					})
+					.expect("button label is painted");
+				let color = text
+					.override_text_color
+					.unwrap_or(text.galley.job.sections[0].format.color);
+				assert_eq!(
+					if color == Color32::PLACEHOLDER {
+						text.fallback_color
+					} else {
+						color
+					},
+					expected
+				);
+				output.drop_without_applying_deltas();
+			}
+		}
+	}
+	#[test]
+	fn theme_card_preview_inherits_builtin_colors_not_the_active_theme() {
+		use super::*;
+		set_variant(Variant::Standard);
+		set_primary_color(None);
+		let ctx = egui::Context::default();
+		ctx.set_theme(egui::ThemePreference::Dark);
+		let mut active = extensions::Theme::default();
+		active
+			.dark
+			.colors
+			.insert("sidebar".into(), "#FF0000".into());
+		set_extension_theme(Some(&active));
+		apply(&ctx);
+		let mut candidate = extensions::Theme::default();
+		candidate
+			.dark
+			.colors
+			.insert("accent".into(), "#00FF00".into());
+		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+			assert_eq!(palette(ui).sidebar, rgb(0xff0000));
+			let preview = theme_preview_palette(ui, &candidate);
+			assert_eq!(
+				preview.sidebar,
+				builtin_colors(true, Variant::Standard).sidebar
+			);
+			assert_eq!(preview.accent, rgb(0x00ff00));
+		});
+		output.textures_delta.clear();
+		set_extension_theme(None);
+	}
+
+	#[test]
 	fn clickable_cursor_preserves_disabled_text_and_specialized_controls() {
 		use egui::{CursorIcon, Sense};
 		for theme in [egui::ThemePreference::Dark, egui::ThemePreference::Light] {
@@ -1535,7 +1782,11 @@ pub fn button(ui: &mut egui::Ui, label: &str, kind: ButtonKind) -> egui::Respons
 			egui::StrokeKind::Outside,
 		);
 	}
-	painter.galley(rect.center() - galley.size() * 0.5, galley.clone(), text);
+	painter.galley_with_override_text_color(
+		rect.center() - galley.size() * 0.5,
+		galley.clone(),
+		text,
+	);
 	response
 }
 
@@ -1746,6 +1997,7 @@ mod extension_theme_tests {
 			]
 			.into(),
 			backdrop: Some(["#010203".into(), "#040506".into()]),
+			background: None,
 		};
 		let palette = recolor(
 			builtin_colors(true, Variant::Standard),

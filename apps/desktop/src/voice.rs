@@ -414,12 +414,17 @@ impl Voice {
 			live.audio.set_input_enabled(state.can_speak(call.channel));
 			live.audio
 				.set_gain(ui.voice_gain.input_percent, ui.voice_gain.output_percent);
+			let user_volumes = ui.voice_user_volumes();
 			live.controls.send_if_modified(|control| {
-				if control.muted == muted && control.deafened == deafened {
+				if control.muted == muted
+					&& control.deafened == deafened
+					&& control.user_volumes == user_volumes
+				{
 					false
 				} else {
 					control.muted = muted;
 					control.deafened = deafened;
+					control.user_volumes = user_volumes;
 					true
 				}
 			});
@@ -799,6 +804,7 @@ impl Voice {
 			muted: listen_only || ui.voice_push_to_talk,
 			camera: 0,
 			deafened: false,
+			user_volumes: ui.voice_user_volumes(),
 		});
 		let remote_video: Arc<std::sync::Mutex<Vec<(u64, egui::ColorImage)>>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));
