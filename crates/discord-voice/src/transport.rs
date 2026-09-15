@@ -1079,7 +1079,7 @@ mod tests {
 		let (_, frames) = tokio::sync::mpsc::channel(3);
 		let mut video = Some(crate::screen::Video {
 			settings: crate::screen::Settings {
-				source: crate::screen::SourceId::Portal,
+				source: crate::screen::SourceId::Display(1),
 				width: 1280,
 				height: 720,
 				fps: 30,

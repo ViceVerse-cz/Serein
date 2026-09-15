@@ -45,7 +45,7 @@ fn main() {
 	runtime.block_on(async {
 		assert_eq!(portal_linux::Portal::open(true, &AtomicBool::new(true)).await.err(), Some("Screen sharing was cancelled."));
 		gst::init().unwrap();
-		let settings = Settings { source: SourceId::Portal, width: 1280, height: 720, fps: 30, cursor: true, audio: false };
+		let settings = Settings { source: SourceId::Display(1), width: 1280, height: 720, fps: 30, cursor: true, audio: false };
 		let stop = Arc::new(AtomicBool::new(false));
 		let ready = Arc::new(AtomicBool::new(false));
 		let keyframe = Arc::new(AtomicBool::new(true));
