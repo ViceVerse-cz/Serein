@@ -2807,6 +2807,16 @@ impl MessagingUi {
 						&mut commands,
 					);
 				}
+				let message_fill = (design::has_section_background(ui)
+					&& state.selected.is_some()
+					&& !selected_voice
+					&& !selected_forum)
+					.then(|| {
+						(
+							ui.painter().add(egui::Shape::Noop),
+							ui.available_rect_before_wrap().top(),
+						)
+					});
 				self.call_bar(ui, state, &mut commands);
 				self.timeline.download.show_status(ui);
 				let Some(channel) = state.selected else {
@@ -2862,6 +2872,20 @@ impl MessagingUi {
 				{
 					commands.push(state.history(None));
 				}
+				if let Some((shape, top)) = message_fill {
+					let remaining = ui.available_rect_before_wrap();
+					ui.painter().set(
+						shape,
+						egui::Shape::rect_filled(
+							egui::Rect::from_min_max(
+								egui::pos2(remaining.left(), top),
+								remaining.right_bottom(),
+							),
+							0.0,
+							message_surface,
+						),
+					);
+				}
 				let notices: Vec<String> = [
 					match state.freshness {
 						Freshness::Fresh | Freshness::Loading => None,
@@ -2895,13 +2919,6 @@ impl MessagingUi {
 						bottom: 0,
 					})
 					.show(ui, |ui| {
-						if design::has_section_background(ui) {
-							ui.painter().rect_filled(
-								ui.available_rect_before_wrap(),
-								0,
-								message_surface,
-							);
-						}
 						design::paint_chat_background(ui, ui.available_rect_before_wrap());
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
 						self.timeline.extension_actions = self.extensions.message_actions();
@@ -3293,6 +3310,51 @@ impl MessagingUi {
 #[cfg(test)]
 mod composer_tests {
 	use super::*;
+
+	#[test]
+	fn image_surface_reaches_the_channel_header_without_a_stripe() {
+		let ctx = egui::Context::default();
+		ctx.set_theme(egui::ThemePreference::Dark);
+		let mut theme = extensions::Theme::default();
+		theme.dark.background = Some(extensions::Background {
+			sections: Some(extensions::SectionOpacity::default()),
+			..Default::default()
+		});
+		design::set_extension_theme(Some(&theme));
+		design::set_background_image(
+			&ctx,
+			Some(std::sync::Arc::new(egui::ColorImage::filled(
+				[1, 1],
+				egui::Color32::WHITE,
+			))),
+		);
+		let mut state = test_support::demo_state();
+		let mut view = MessagingUi::default();
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1100.0, 800.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				view.show(ui, &mut state);
+			},
+		);
+		let message_alpha = (75 * 255 / 100) as u8;
+		let surface = output.shapes.iter().find_map(|shape| match &shape.shape {
+			egui::Shape::Rect(rect)
+				if rect.fill.a() == message_alpha && rect.rect.height() > 200.0 =>
+			{
+				Some(rect.rect)
+			}
+			_ => None,
+		});
+		assert!(surface.is_some_and(|rect| (rect.top() - 84.0).abs() <= 1.0));
+		output.textures_delta.clear();
+		design::set_extension_theme(None);
+	}
 
 	#[test]
 	fn composer_placeholder_alignment() {
