@@ -742,3 +742,30 @@ The macOS demo does not execute either new native adapter; no native performance
 improvement or live interoperability is claimed. Windows cross-checking on this Mac
 also stopped in existing native Opus/OpenH264 build scripts (missing Visual Studio
 generator / incompatible host C++ flags), before checking the Windows adapter.
+## 2026-09-15: stream packet markers and keyframe recovery
+
+| Metric / method | Baseline `0a8f0ab` | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable bytes | 72,557,568 | 72,576,000 | +18,432 (+0.0254%) |
+| Full portable package bytes | 76,626,644 | 76,645,076 | +18,432 (+0.0241%) |
+| ZIP bytes, Optimal | 43,288,437 | 43,294,686 | +6,249 (+0.0144%) |
+
+Standard voice-enabled `cargo xtask package` on Windows 11 Home build 26200,
+AMD Ryzen 7 7800X3D, 33,410,678,784 bytes RAM, pinned Rust 1.98.1 MSVC.
+One package per revision; 187 files each. Baseline `0a8f0ab` was built from the
+unchanged checkout and preserved before editing. The after column is this follow-up.
+Package size sums regular files; ZIP uses PowerShell Compress-Archive Optimal.
+Both packages built successfully. The after release build took 2m 38s.
+OpenH264 linker LNK4255 warnings were nonfatal; missing `makensis` means these
+are unsigned portable packages, without an NSIS installer.
+
+Soundshare marking adds eight bytes per audio RTP packet. The idle screen recovery
+retains one current raw snapshot, bounded to 33,177,600 bytes; fitted 720p/1080p
+snapshots use 3,686,400/8,294,400 bytes. These are component bounds, not RSS measures.
+No dependency was added. Ordinary idle screens do not encode extra frames.
+
+Native media CPU/RSS, GPU use and end-to-end audio/video latency remain unmeasured:
+native desktop control/capture is disabled in this session, and no owner-operated
+live stream was run. The two-endpoint encrypted localhost test checks media delivery,
+not capture or speakers. No speed, hardware-capture or live interoperability claim
+follows from package sizes or the passing test.

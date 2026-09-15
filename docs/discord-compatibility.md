@@ -227,12 +227,40 @@ statements in the historical voice/screen-sharing notes below.
 
 ## Outgoing screen sharing — September 11, 2026
 
+September 15 transport follow-up: screen audio keeps stereo 48 kHz Opus, 20 ms
+frames, the stream connection's audio SSRC, and opcode 5 Soundshare. It now also
+marks each audio packet with the native speaking RTP extension (ID 9, value 4).
+The RFC 8285 preamble is authenticated and extension elements are transport-encrypted
+before the existing DAVE payload. This matches the public
+[voice_media implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/voice_media.py)
+and [native sender](https://github.com/dolfies/discord-native-voice/blob/master/discord/ext/native_voice/client.py),
+not a documented Discord guarantee. Viewers announce a receive-only video state and
+request media with opcode 15 (`any: 100`), following that native receiver implementation.
+The missing packet marker and receive request are interoperability differences; their
+role in the owner's silent browser-audio report is not yet live-confirmed.
+
+The sender now receives authenticated RTCP picture-loss indications for its own video
+SSRC, coalescing requests to at most twice per second. Windows/macOS can freshly encode
+one retained current snapshot on an idle keyframe request, without waiting for screen
+movement. The additional snapshot is bounded to 33,177,600 bytes, normally reduced to
+the chosen output resolution. Ordinary idle time does not encode extra frames. Linux
+already requests periodic PipeWire keepalive frames. RTX/NACK repair and adaptive bitrate
+remain unsupported; native/live video quality is not established by these changes.
+
+A device-free localhost test runs the actual sender and viewer through an MLS exchange,
+stereo Opus and H.264, encrypted UDP forwarding, decoded audio and video. It verifies the
+local media handoff, not PulseAudio/WASAPI capture, speaker output, or Discord forwarding.
+Discord's [August 2025 patch notes](https://discord.com/blog/discord-patch-notes-august-4-2025)
+confirm Linux application-audio sharing; older articles saying Linux audio is unavailable
+are outdated. Unlike Discord's selected-application mode, Serein currently captures other
+eligible applications too, even when sharing one window, excluding its own playback.
+
 September 12 local-preview update: DM and guild call stages display the owner's
 camera and a bounded screen-share preview while waiting alone. Local capture is
 independent of DAVE readiness; outgoing media still waits for encryption readiness.
 Synthetic tests cover these paths, not native capture or live Discord acceptance.
 
-The standard build adds macOS 14+ ScreenCaptureKit and Windows Graphics Capture senders for an existing connected DM/server voice call. Share opens a native egui source/settings dialog first. It exposes 720p/1080p and 15/30/60 fps to all accounts, plus cursor visibility; only the explicit Share screen action creates a stream. No subscription fields are changed. Camera video, receiving streams and system/desktop audio remain unsupported.
+The standard build adds macOS 14+ ScreenCaptureKit and Windows Graphics Capture senders for an existing connected DM/server voice call. Share opens a native egui source/settings dialog first. It exposes 720p/1080p and 15/30/60 fps to all accounts, plus cursor visibility; only the explicit Share screen action creates a stream. No subscription fields are changed. This paragraph describes the original video sender; subsequent audio and receive extensions supersede its original limits.
 
 Linux extension (September 15, 2026): the existing H.264/DAVE sender now accepts
 portal-approved PipeWire screen/window capture. It uses the system picker, an ephemeral
@@ -281,9 +309,9 @@ permission, virtual device, output rerouting or recording file is added.
 
 Gateway opcodes 18/19 and STREAM_CREATE/STREAM_SERVER_UPDATE/STREAM_DELETE are unofficial normal-user behavior, checked against [discord.py-self](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py). A separate RTC connection uses the stream RTC server/channel IDs and the parent call session, sharing one ephemeral DAVE signing identity. The `rtc_server_id - 1` MLS group mapping comes from [discord-native-voice](https://github.com/dolfies/discord-native-voice/blob/master/discord/ext/native_voice/stream_client.py); it is not an official protocol guarantee. H264 negotiation and UDP transport are required; mismatches fail visibly. Video is DAVE-encrypted before RFC 6184 packetization and per-packet transport AEAD. There is no plaintext fallback. [DAVE protocol](https://github.com/discord/dave-protocol/blob/main/protocol.md) supplies the encryption requirement.
 
-Screen source discovery and capture occur off the UI/audio threads. Application-owned source lists are capped at 64 labels of 256 bytes. Raw BGRA frames are capped at 3840×2160/33,177,600 bytes; macOS requests the selected output dimensions. Windows prechecks source size and stops on oversized callback frames, but its upstream driver adapter can resize its native GPU pool before that callback. One raw and one encoded frame can be queued; H264 frames are capped at 2 MiB, encrypted packetization at 2,048 fragments of at most 1,200 transport bytes. Quality presets target 4–16 Mbps, with frame dropping under load. They are limits/targets, not measured delivery guarantees.
+Screen source discovery and capture occur off the UI/audio threads. Application-owned source lists are capped at 64 labels of 256 bytes. Raw BGRA frames are capped at 3840×2160/33,177,600 bytes; macOS requests the selected output dimensions. Windows prechecks source size and stops on oversized callback frames, but its upstream driver adapter can resize its native GPU pool before that callback. One raw frame and three encoded frames can be queued; H264 frames are capped at 2 MiB, encrypted packetization at 2,048 fragments of at most 1,200 transport bytes. Quality presets target 4–16 Mbps, with frame dropping under load. They are limits/targets, not measured delivery guarantees.
 
-Stop, call teardown, changed generation, lost video permission or stream-server replacement stop capture and transport. New sharing waits for native worker retirement and matching STREAM_DELETE. No automatic retry or recording is performed. Rekeying pauses capture readiness, drains queued encoded frames, and requires an IDR before resuming transmission. The encoder requests periodic IDRs every two seconds of encoded frames. This initial sender has no RTCP PLI/NACK handling, RTX, congestion adaptation or system-audio capture; lossy-network quality and service acceptance of high-quality presets remain unverified.
+Stop, call teardown, changed generation, lost video permission or stream-server replacement stop capture and transport. New sharing waits for native worker retirement and matching STREAM_DELETE. No automatic retry or recording is performed. Rekeying pauses capture readiness, drains queued encoded frames, and requires an IDR before resuming transmission. The encoder requests periodic IDRs every two seconds of encoded frames. The current sender handles RTCP PLI and optional system audio, but has no NACK/RTX repair or congestion adaptation; lossy-network quality and service acceptance of high-quality presets remain unverified.
 
 Owner-operated validation is still required: allow screen-recording permission, join a private call, choose a window, verify viewing in the official client, then test Stop, source closure, permission loss, viewer changes/rekey and both quality presets. No live account/capture was used for agent tests. Native Windows execution and live Discord video interoperability are not established by macOS builds or synthetic tests.
 

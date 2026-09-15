@@ -9,6 +9,8 @@ use std::{
 pub(crate) enum Scope {
 	Audio,
 	Transport,
+	StreamSend,
+	StreamReceive,
 }
 
 #[derive(Clone, Copy)]

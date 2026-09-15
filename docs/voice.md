@@ -444,3 +444,18 @@ The virtual-camera fallback uses the documented DirectShow
 and [sample grabber](https://learn.microsoft.com/en-us/windows/win32/directshow/using-the-sample-grabber).
 Linux follows the kernel's [V4L2 capture interface](https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/capture.c.html).
 Both feed the existing camera transport; no Discord wire behavior changed in this extension.
+
+### Screen-share audio diagnostics
+
+The existing opt-in `SEREIN_VOICE_DIAGNOSTICS=1` reporter now also emits `StreamSend`
+and `StreamReceive` summaries. `StreamSend` encode calls count captured 20 ms audio
+frames encoded, encrypted and sent. `StreamReceive` receive calls count accepted
+DAVE audio packets; mix calls count decoded frames offered to the parent call's output.
+StreamReceive drops count DAVE decryption failures or a full playback handoff queue.
+Zero sender encode calls means no PCM reached the secure sender; sender activity with
+zero receiver receive calls narrows the failure to forwarding, mapping or decryption.
+Successful receives/mixes with no sound narrows it to silent source PCM or parent
+playback/device gates. These counts do not prove audible sound and do not contain PCM,
+participant IDs, credentials or signaling contents. The existing eight-report queue,
+128-report / 64-KiB process-lifetime limits still apply. Enable it on both endpoints
+only for the owner's deliberate test, then disable it after collecting the summaries.

@@ -80,9 +80,11 @@ fn main() {
 		output.len(),
 		"failed writes still consume budget"
 	);
-	let mut transport = report;
-	transport.scope = Scope::Transport;
-	assert!(write_report(transport, &mut bytes, &mut std::io::stderr()));
+	for scope in [Scope::Transport, Scope::StreamSend, Scope::StreamReceive] {
+		let mut transport = report;
+		transport.scope = scope;
+		assert!(write_report(transport, &mut bytes, &mut std::io::stderr()));
+	}
 	println!(
 		"Offline voice diagnostics check passed: timing aggregation, disabled mode, periodic flush, bounded nonblocking queue, byte budget and closed output."
 	);
