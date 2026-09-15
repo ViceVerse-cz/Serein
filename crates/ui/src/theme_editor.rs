@@ -326,7 +326,7 @@ impl ThemeEditor {
 		ui.add_enabled_ui(!busy, |ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 			ui.horizontal_wrapped(|ui| {
-				if dialog::action(ui, "Back", dialog::Action::Neutral).clicked() {
+				if dialog::action(ui, "Back", dialog::Action::Outline).clicked() {
 					if self.dirty {
 						self.discard = true;
 					} else {
