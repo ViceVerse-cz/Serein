@@ -1,3 +1,40 @@
+# Thread participant loading — September 15, 2026
+
+Baseline: `aec1f19a10a045d3607de995f65723c7f749be66`. After: that revision plus
+`fix/thread-member-list`. macOS 27.0 (26A428), Apple M1 Pro, 16 GiB RAM,
+pinned Rust 1.98.1 aarch64-apple-darwin. Both standard voice-enabled packages
+use `cargo xtask package` (locked release, no default features). Builds ran
+serially; separate copied package directories preserve the outputs.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 64,999,792 | 65,041,520 | +41,728 (+0.0642%) |
+| Full installed package, bytes | 70,960,222 | 71,001,950 | +41,728 (+0.0588%) |
+| ZIP (Deflate level 6), bytes | 42,812,510 | 42,821,470 | +8,960 (+0.0209%) |
+| Synthetic reducer median, ms | 42.022708 | 41.725500 | -0.297208 (-0.71%) |
+
+One package per revision. Installed size sums all file lengths under `dist`;
+ZIP uses Python `zipfile.ZIP_DEFLATED`, compression level 6, on those same files.
+These measurements precede this documentation-only note and screenshot delivery.
+
+For each revision, `cargo replay` builds the workload; its preserved executable
+then runs once to warm up and five times for measurement, with no concurrent task
+build during sampling. Baseline samples (ms): 42.059334, 41.580417, 41.680334, 42.050667, 42.022708.
+After samples (ms): 41.9055, 41.592916, 41.557208, 42.451125, 41.7255.
+Both retain 500 records / 236,992–237,477 estimated timeline bytes. This generic
+100,000-event reducer does not exercise the thread REST request or measure UI
+latency, process RSS or live Discord behavior. Small shared-workstation samples
+are noisy; no speed improvement is claimed.
+
+The new read retains the existing 100-member / 128-KiB People budget, caps wire
+input at 512 KiB, and uses one cancellable task with the existing REST permits
+and bounded event queue. There is no per-frame network work or persistent cache.
+Native screenshots use separate `--features demo` builds, explicitly launched
+with `--demo`, selecting the same existing Introductions thread fixture. The
+baseline shows unavailable; the changed fixture receives its synthetic rows.
+No owner-controlled live compatibility, endpoint latency, native CPU/RSS or p95
+frame measurement was run.
+
 # Last-viewed server channel - September 14, 2026
 
 Baseline: `ff3d711a91e0b3ae6de4c6aadbcce156264152fb`. After:

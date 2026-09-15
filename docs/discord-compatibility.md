@@ -585,7 +585,8 @@ the READY-only member-list ID. Member requests now compute that ID from the exis
 bounded role/overwrite mirror, so GUILD_CREATE, newly delivered/restored channels and
 Reload people use current metadata. A change in list identity retires the active request
 and lets the visible pane request again; unchanged metadata preserves pending replies.
-Missing metadata still means unavailable; threads retain their separate-protocol limitation.
+Missing metadata still means unavailable for ordinary guild channels. Thread participants now
+use the separate REST snapshot described below.
 The shared hash accepts the same u128 permission values as the permission parser.
 
 The original [subscription lifecycle](https://github.com/dolfies/discord.py-self/blob/2ba64a9a997e151a9c259984e0a179b1fdf4aff4/discord/state.py)
@@ -1167,3 +1168,21 @@ updates Discord's real account preference for its server-generated notifications
 The scheduled-event alert above means an event started, not a locally fabricated
 advance reminder. [Notification center research](https://docs.discord.food/resources/notification-center).
 Offline parser, reducer and HTTP checks are not evidence of live Discord delivery.
+
+## Thread participants — September 15, 2026
+
+Opening a thread's People pane now requests the documented
+[List Thread Members](https://docs.discord.com/developers/resources/channel#list-thread-members)
+route with `with_member=true&limit=100`, rather than requiring an ordinary guild
+member-list identity. The pane shows joined thread participants, not the parent
+channel's member list. This is a snapshot of the first 100 participants; reopening
+the pane refreshes it, and failed reads retain Reload people. There is no background
+pagination or thread-member subscription. Missing presence remains unknown.
+
+Requests use the existing authenticated REST client. Closing/replacing the member
+view cancels the previous read; session, channel, request and permission checks
+reject retired replies. Responses are bounded to 512 KiB on the wire and 100
+members / 128 KiB retained metadata. Optional-view capacity failures do not end
+the account session. Synthetic tests and native offline screenshots cover the
+loading path, not live service acceptance. The documented endpoint has application
+intent restrictions; normal-account interoperability remains unofficial/unverified.

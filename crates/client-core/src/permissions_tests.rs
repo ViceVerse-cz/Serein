@@ -1499,3 +1499,63 @@ fn optimistic_edits_and_pins_roll_back_without_overwriting_newer_content() {
 	);
 	assert!(!state.is_pinned(Id(20), Id(100)));
 }
+
+#[test]
+fn thread_members_load_without_parent_list_and_reject_retired_replies() {
+	let mut state = state();
+	state.select(Id(30));
+	let request = state.request;
+	history(&mut state, Id(30), request, 101);
+	let Some(Command::Members {
+		thread: true,
+		guild: Some(Id(10)),
+		channel: Some(Id(30)),
+		list_id: None,
+		request,
+	}) = state.request_members()
+	else {
+		panic!("Threads must request their own participants");
+	};
+	assert_eq!(
+		state.members.as_ref().unwrap().freshness,
+		Freshness::Loading
+	);
+	let mut reply = state.members.clone().unwrap();
+	reply.freshness = Freshness::Fresh;
+	apply(&mut state, Event::Members(reply.clone()));
+	assert_eq!(state.members.as_ref().unwrap().freshness, Freshness::Fresh);
+	// Reload retires both successful and failed replies from the previous read.
+	state.request_members();
+	assert_ne!(state.members.as_ref().unwrap().request, request);
+	for freshness in [Freshness::Fresh, Freshness::Unavailable] {
+		reply.freshness = freshness;
+		apply(&mut state, Event::Members(reply.clone()));
+		assert_eq!(
+			state.members.as_ref().unwrap().freshness,
+			Freshness::Loading
+		);
+	}
+	reply.request = state.members.as_ref().unwrap().request;
+	apply(&mut state, Event::Members(reply.clone()));
+	assert_eq!(
+		state.members.as_ref().unwrap().freshness,
+		Freshness::Unavailable
+	);
+	state.request_members();
+	reply = state.members.clone().unwrap();
+	reply.freshness = Freshness::Fresh;
+	state.close_members();
+	apply(&mut state, Event::Members(reply.clone()));
+	assert!(state.members.is_none());
+	state.request_members();
+	deny(&mut state, p::VIEW_CHANNEL);
+	assert!(!state.can_view(Id(30)));
+	apply(&mut state, Event::Members(reply));
+	assert!(
+		state
+			.members
+			.as_ref()
+			.is_none_or(|list| list.freshness != Freshness::Fresh)
+	);
+	assert!(state.request_members().is_none());
+}

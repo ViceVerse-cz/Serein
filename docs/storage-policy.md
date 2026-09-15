@@ -770,3 +770,12 @@ original AppImage path and retains a hard-linked backup until the replacement
 survives its initial two-second launch check. This detects immediate launch failure,
 not application health or a successful login. Interrupted backups block subsequent
 updates for manual recovery. Native Linux packages remain package-manager managed.
+
+### Thread participant snapshots — September 15, 2026
+
+The People pane shares its existing 100-member / 128-KiB metadata limit with
+on-demand thread participant snapshots. One cancellable REST read uses the shared
+four permits and a 512-KiB wire cap; results use the existing bounded event queue.
+Replacing or closing the member view drops that read. Session/request/channel and
+view-permission checks fence late results. No member snapshots, cursors or payloads
+are persisted, and no background pagination or new queue is introduced.

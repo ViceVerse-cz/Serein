@@ -30,6 +30,7 @@ pub mod server_invites;
 pub mod server_roles;
 pub mod server_settings;
 pub mod stream;
+pub mod thread_members;
 pub mod threads;
 pub mod typing;
 use attachments::AttachmentList;

@@ -164,6 +164,7 @@ pub enum Command {
 	},
 	Voice(voice::Command),
 	Members {
+		thread: bool,
 		guild: Option<Id>,
 		channel: Option<Id>,
 		request: u64,
@@ -851,6 +852,7 @@ impl State {
 		if !self.can_view(channel.id) {
 			return None;
 		}
+		let thread = matches!(channel.kind, 10..=12);
 		let list_id = self.member_list_id(channel);
 		let rows = if channel.guild.is_none() && self.freshness != Freshness::Unavailable {
 			let mut users = channel.recipients.clone();
@@ -879,7 +881,7 @@ impl State {
 			Freshness::Unavailable
 		} else if channel.guild.is_none() {
 			Freshness::Fresh
-		} else if list_id.is_none() {
+		} else if !thread && list_id.is_none() {
 			Freshness::Unavailable
 		} else {
 			Freshness::Loading
@@ -893,9 +895,10 @@ impl State {
 			freshness,
 		});
 		let command = Command::Members {
-			guild: channel
-				.guild
-				.filter(|_| list_id.is_some() && self.freshness != Freshness::Unavailable),
+			thread,
+			guild: channel.guild.filter(|_| {
+				(thread || list_id.is_some()) && self.freshness != Freshness::Unavailable
+			}),
 			channel: Some(channel.id),
 			request: self.member_request,
 			list_id,
@@ -907,6 +910,7 @@ impl State {
 		self.member_request = self.member_request.wrapping_add(1);
 		self.members = None;
 		Command::Members {
+			thread: false,
 			guild: None,
 			channel: None,
 			request: self.member_request,
