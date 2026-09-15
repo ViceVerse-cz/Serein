@@ -255,7 +255,8 @@ impl State {
 		}
 	}
 	pub fn observe_last_message(&mut self, channel: Id, message: Id) {
-		if let Some(channel) = self.channels.iter_mut().find(|c| c.id == channel) {
+		if let Some(index) = self.channel_index(channel) {
+			let channel = &mut self.channels[index];
 			self.read_state.activity.observe_latest(channel.id, message);
 			if channel.last_message.is_none_or(|id| message > id) {
 				channel.last_message = Some(message);
