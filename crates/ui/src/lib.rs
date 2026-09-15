@@ -240,6 +240,7 @@ pub struct MessagingUi {
 	pub voice_input: Option<String>,
 	pub voice_output: Option<String>,
 	pub voice_gain: VoiceGain,
+	voice_user_volumes: Option<Box<[(u64, u16); 64]>>,
 	pub voice_refresh_devices: bool,
 	pub voice_device_status: &'static str,
 	pub voice_push_to_talk: bool,

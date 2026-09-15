@@ -80,10 +80,20 @@ impl Mixer {
 	}
 	/// Mix one 20ms frame, preserving up to 120ms packets without bursting playback queues.
 	pub fn pop(&mut self) -> (Option<Frame>, bool) {
+		self.pop_with_volumes(&[])
+	}
+	pub fn pop_with_volumes(&mut self, volumes: &[(u64, u16)]) -> (Option<Frame>, bool) {
 		let mut output = [0.0; 960];
 		let mut active = false;
 		let mut heard = false;
 		for speaker in &mut self.speakers {
+			let gain = f32::from(
+				volumes
+					.iter()
+					.take(64)
+					.find(|(user, _)| *user == speaker.user)
+					.map_or(100, |(_, percent)| (*percent).min(200)),
+			) / 100.0;
 			let mut energy = 0.0;
 			let mut filled = 0;
 			let mut decoded = 0;
@@ -124,7 +134,7 @@ impl Mixer {
 					.zip(&speaker.pcm[speaker.offset..speaker.offset + count])
 				{
 					if sample.is_finite() {
-						*mixed += sample;
+						*mixed += sample * gain;
 						energy += sample * sample;
 					}
 				}
@@ -153,6 +163,47 @@ mod tests {
 		let length = encoder.encode_float(&pcm, &mut encoded).unwrap();
 		encoded[..length].to_vec()
 	}
+	#[test]
+	fn per_user_volume_is_independent_live_and_limited() {
+		let mut mixer = Mixer::default();
+		mixer.announce(1, 11).unwrap();
+		mixer.announce(2, 22).unwrap();
+		for (volumes, expected) in [
+			(vec![], 0.3),
+			(vec![(1, 0)], 0.2),
+			(vec![(1, 50), (2, 200)], 0.45),
+			(vec![(1, 200), (2, 0)], 0.2),
+			(vec![(1, 0), (2, 0)], 0.0),
+			(vec![(99, 0)], 0.3),
+			(vec![(1, u16::MAX)], 0.4),
+		] {
+			for speaker in &mut mixer.speakers {
+				speaker.pcm.fill(speaker.user as f32 * 0.1);
+				speaker.offset = 0;
+				speaker.length = 960;
+			}
+			let frame = mixer.pop_with_volumes(&volumes).0.unwrap();
+			assert!(
+				frame
+					.iter()
+					.all(|sample| (*sample - expected).abs() < 0.0001)
+			);
+			assert_eq!(mixer.speaking().count(), 2);
+		}
+		for speaker in &mut mixer.speakers {
+			speaker.pcm.fill(0.8);
+			speaker.offset = 0;
+		}
+		assert!(
+			mixer
+				.pop_with_volumes(&[(1, 200)])
+				.0
+				.unwrap()
+				.iter()
+				.all(|s| *s == 1.0)
+		);
+	}
+
 	#[test]
 	fn independent_streams_mix_on_one_clock_and_release_on_leave() {
 		let mut together = Mixer::default();

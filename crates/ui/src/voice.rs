@@ -9,6 +9,68 @@ use egui::RichText;
 use model::Id;
 
 impl MessagingUi {
+	/// Fixed session-only overrides; zero IDs are unused slots.
+	pub fn voice_user_volumes(&self) -> [(u64, u16); 64] {
+		self.voice_user_volumes
+			.as_deref()
+			.copied()
+			.unwrap_or([(0, 100); 64])
+	}
+
+	fn voice_participant_menu(
+		&mut self,
+		response: &egui::Response,
+		state: &State,
+		entry: &RosterEntry,
+	) {
+		crate::user_menu::popup(response, egui::Popup::default_response_id(response))
+			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+			.show(|ui| {
+				ui.set_width(220.0);
+				let id = entry.participant.user.0;
+				if state.user.as_ref().is_some_and(|own| own.id.0 != id) {
+					let mut volume = self
+						.voice_user_volumes
+						.as_deref()
+						.and_then(|values| values.iter().find(|(user, _)| *user == id))
+						.map_or(100, |(_, volume)| *volume);
+					let changed = gain_slider(ui, &mut volume, "User volume").changed();
+					let reset = ui
+						.add_enabled(volume != 100, egui::Button::new("Reset volume"))
+						.clicked();
+					if changed || reset {
+						let values = self
+							.voice_user_volumes
+							.get_or_insert_with(|| Box::new([(0, 100); 64]));
+						let index = values
+							.iter()
+							.position(|(user, _)| *user == id)
+							.or_else(|| values.iter().position(|(user, _)| *user == 0))
+							.unwrap_or_else(|| {
+								values.rotate_left(1);
+								63
+							});
+						values[index] = if reset || volume == 100 {
+							(0, 100)
+						} else {
+							(id, volume)
+						};
+					}
+					ui.separator();
+				}
+				if let Some(user) = resolve_member(state, entry).0 {
+					crate::user_menu::contents(
+						ui,
+						state,
+						user,
+						&mut self.profile,
+						&mut self.user_action,
+						None,
+					);
+				}
+			});
+	}
+
 	fn is_speaking(&self, state: &State, channel: Id, participant: &Participant) -> bool {
 		!participant.muted
 			&& !participant.deafened
@@ -149,15 +211,7 @@ impl MessagingUi {
 					if self.is_speaking(state, entry.channel, &entry.participant) {
 						speaking_avatar(ui, &avatar, name);
 					}
-					if let Some(user) = user {
-						crate::user_menu::show(
-							&avatar,
-							state,
-							user,
-							&mut self.profile,
-							&mut self.user_action,
-						);
-					}
+					self.voice_participant_menu(&avatar, state, entry);
 					if avatar.clicked()
 						&& let Some(user) = user
 					{
@@ -200,15 +254,7 @@ impl MessagingUi {
 							)
 							.inner
 							.on_hover_text(name);
-						if let Some(user) = user {
-							crate::user_menu::show(
-								&response,
-								state,
-								user,
-								&mut self.profile,
-								&mut self.user_action,
-							);
-						}
+						self.voice_participant_menu(&response, state, entry);
 						if response.clicked()
 							&& let Some(user) = user
 						{
@@ -744,15 +790,7 @@ impl MessagingUi {
 				);
 			}
 		}
-		if let Some(user) = user {
-			crate::user_menu::show(
-				&avatar,
-				state,
-				user,
-				&mut self.profile,
-				&mut self.user_action,
-			);
-		}
+		self.voice_participant_menu(&avatar, state, entry);
 		if avatar.clicked()
 			&& let Some(user) = user
 		{

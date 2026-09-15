@@ -390,7 +390,7 @@ async fn run_inner(
 				let mut drops = 0;
 				if enabled && !control.deafened {
 					let start = metrics.start();
-					let (mut frame,remote_audio)=mixer.pop();
+					let (mut frame,remote_audio)=mixer.pop_with_volumes(&control.user_volumes);
 					// A watched stream's decoded audio joins the same output; one 20ms frame per tick.
 					if let Some(aux)=&stream_audio && let Ok(extra)=aux.try_recv() {
 						match &mut frame {
