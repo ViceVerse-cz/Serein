@@ -1,3 +1,24 @@
+# Theme maker and continuous image surfaces - September 15, 2026
+
+Baseline: branch fork `aec1f19a10a045d3607de995f65723c7f749be66`.
+After: `c36b5a2` on `feat/theme-maker`. Windows x64, pinned Rust 1.98.1
+MSVC, locked release `cargo xtask package` with voice included. Each revision
+used an isolated worktree and Cargo target directory; neither build touched
+the existing `dist` or release executable. Both unsigned portable packages
+contain 186 files. `makensis` was unavailable, so no installer was built.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 70,661,120 | 70,922,240 | +261,120 (+0.37%) |
+| Full portable package, bytes | 74,727,183 | 74,988,303 | +261,120 (+0.35%) |
+| ZIP, PowerShell Compress-Archive Optimal, bytes | 42,733,973 | 42,824,299 | +90,326 (+0.21%) |
+
+ZIP each `dist/*` with `Compress-Archive -CompressionLevel Optimal`; measure
+the executable and sum all files under `dist`. The size increase is measured,
+but native demo CPU, memory, and frame timing were unavailable because desktop
+window capture/control is unavailable in this session. Synthetic tests and
+package sizes do not prove the installed live app's visual result.
+
 # Last-viewed server channel - September 14, 2026
 
 Baseline: `ff3d711a91e0b3ae6de4c6aadbcce156264152fb`. After:
