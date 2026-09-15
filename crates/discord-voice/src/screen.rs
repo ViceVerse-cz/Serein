@@ -278,6 +278,7 @@ fn encode_loop(
 	let mut first_frame_deadline = Some(Instant::now() + Duration::from_secs(15));
 	let mut next_frame = Instant::now();
 	let mut next_preview = Instant::now();
+	let mut latest_frame = None;
 
 	while !stop.load(Ordering::Acquire) && !send.is_closed() {
 		#[cfg(target_os = "windows")]
@@ -293,13 +294,13 @@ fn encode_loop(
 			Ok(frame) => {
 				#[cfg(target_os = "windows")]
 				raw_pending.store(false, Ordering::Release);
-				frame
+				Some(frame)
 			}
 			Err(_) if stop.load(Ordering::Acquire) || send.is_closed() => break,
 			Err(mpsc::RecvTimeoutError::Timeout)
 				if first_frame_deadline.is_none_or(|deadline| Instant::now() < deadline) =>
 			{
-				continue;
+				None
 			}
 			Err(_) => {
 				return Err(
@@ -307,23 +308,34 @@ fn encode_loop(
 				);
 			}
 		};
-		first_frame_deadline = None;
 		if stop.load(Ordering::Acquire) || send.is_closed() {
 			break;
 		}
 		let now = Instant::now();
-		if now >= next_preview {
-			let image = preview_frame(&frame)?;
-			if let Ok(mut slot) = preview.try_lock() {
-				*slot = Some(image);
+		if let Some(frame) = &frame {
+			first_frame_deadline = None;
+			if now >= next_preview {
+				let image = preview_frame(frame)?;
+				if let Ok(mut slot) = preview.try_lock() {
+					*slot = Some(image);
+				}
+				next_preview = now + Duration::from_millis(100);
+				wake();
 			}
-			next_preview = now + Duration::from_millis(100);
-			wake();
 		}
+		let encode = retain_screen_frame(
+			&mut latest_frame,
+			frame,
+			ready.load(Ordering::Acquire),
+			keyframe.load(Ordering::Acquire),
+		)?;
 		// Local capture remains available while alone; only secure media is encoded or queued.
 		if !ready.load(Ordering::Acquire) {
 			encoding = None;
 			keyframe.store(true, Ordering::Release);
+			continue;
+		}
+		if !encode {
 			continue;
 		}
 		// Pace on an accumulating schedule with a little tolerance: capture timing jitter must
@@ -341,10 +353,22 @@ fn encode_loop(
 		if encoding.is_none() {
 			encoding = Some(ScreenEncoder::new(settings)?);
 		}
-		let pixels = fit_frame(frame, settings.width, settings.height)?;
+		let pixels = fit_frame(
+			latest_frame.take().expect("latest screen frame"),
+			settings.width,
+			settings.height,
+		)?;
+		// Retain one current source snapshot, never encoded media, for a viewer's keyframe
+		// request on an unchanged desktop. Replacing it with fitted pixels avoids a copy.
+		latest_frame = Some(RawFrame {
+			width: settings.width,
+			height: settings.height,
+			stride: settings.width as usize * 4,
+			data: pixels,
+		});
 		let force_keyframe = keyframe.swap(false, Ordering::AcqRel);
 		let (data, is_keyframe) = encoding.as_mut().expect("secure screen encoder").encode(
-			&pixels,
+			&latest_frame.as_ref().expect("fitted screen frame").data,
 			(settings.width as usize, settings.height as usize),
 			force_keyframe,
 		)?;
@@ -368,6 +392,21 @@ fn encode_loop(
 	}
 	capture_stop.store(true, Ordering::Release);
 	Ok(())
+}
+
+#[cfg(any(test, not(target_os = "linux")))]
+fn retain_screen_frame(
+	latest: &mut Option<RawFrame>,
+	frame: Option<RawFrame>,
+	ready: bool,
+	keyframe: bool,
+) -> Result<bool, &'static str> {
+	let fresh = frame.is_some();
+	if let Some(frame) = frame {
+		validate_frame(&frame)?;
+		*latest = Some(frame);
+	}
+	Ok(ready && latest.is_some() && (fresh || keyframe))
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -607,6 +646,31 @@ fn fit_frame(frame: RawFrame, width: u32, height: u32) -> Result<Vec<u8>, &'stat
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn idle_screen_keyframe_uses_latest_snapshot_only_when_ready() {
+		let frame = |value| RawFrame {
+			width: 2,
+			height: 2,
+			stride: 8,
+			data: vec![value; 16],
+		};
+		let mut latest = None;
+		assert!(!retain_screen_frame(&mut latest, None, true, true).unwrap());
+		assert!(retain_screen_frame(&mut latest, Some(frame(1)), true, false).unwrap());
+		assert!(!retain_screen_frame(&mut latest, None, true, false).unwrap());
+		assert!(retain_screen_frame(&mut latest, None, true, true).unwrap());
+		// A security pause keeps tracking the source without encoding. Its newest snapshot
+		// can be freshly encoded after readiness, even if no further capture event arrives.
+		assert!(!retain_screen_frame(&mut latest, Some(frame(2)), false, true).unwrap());
+		assert!(!retain_screen_frame(&mut latest, None, false, true).unwrap());
+		assert!(retain_screen_frame(&mut latest, None, true, true).unwrap());
+		assert_eq!(latest.as_ref().unwrap().data, vec![2; 16]);
+		let mut oversized = frame(3);
+		oversized.width = 3841;
+		assert!(retain_screen_frame(&mut latest, Some(oversized), true, true).is_err());
+		assert_eq!(latest.unwrap().data, vec![2; 16]);
+	}
 
 	#[test]
 	fn local_preview_is_bounded_and_converts_padded_bgra_without_media_readiness() {
