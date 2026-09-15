@@ -112,10 +112,12 @@ impl GraphicsCaptureApiHandler for Handler {
 			return Ok(());
 		}
 		let now = Instant::now();
-		if now < self.0.next_frame || self.0.pending.swap(true, Ordering::AcqRel) {
+		if now + Duration::from_millis(2) < self.0.next_frame
+			|| self.0.pending.swap(true, Ordering::AcqRel)
+		{
 			return Ok(());
 		}
-		self.0.next_frame = now + self.0.interval;
+		self.0.next_frame = (self.0.next_frame + self.0.interval).max(now + self.0.interval / 2);
 		let (width, height) = (frame.width(), frame.height());
 		let Some(row_bytes) = (width as usize).checked_mul(4) else {
 			self.0.stop.store(true, Ordering::Release);
