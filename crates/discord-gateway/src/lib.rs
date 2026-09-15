@@ -293,8 +293,12 @@ impl ActiveMembers {
 						return Err(Failure::Protocol);
 					}
 					if start < 100 {
-						self.rows[start..=end.min(99)].fill(None);
-						self.synced = false;
+						let rows = &mut self.rows[start..=end.min(99)];
+						// Invalidating empty positions must not expire the remaining members.
+						if rows.iter().any(Option::is_some) {
+							self.synced = false;
+						}
+						rows.fill(None);
 					}
 				}
 				MemberOp::Update { index, item } => {
@@ -2235,6 +2239,10 @@ mod member_tests {
 			presence(Some(Id(1)), Id(3), model::Patch::Value("idle".into())),
 			now,
 		);
+		list.update(decode(br#"{"guild_id":"1","id":"everyone","member_count":2,"ops":[{"op":"INVALIDATE","range":[3,99]}]}"#).unwrap()).unwrap();
+		assert!(list.synced);
+		assert_eq!(list.rows[1].as_ref().unwrap().user.name, "Updated");
+		assert_eq!(list.rows[2].as_ref().unwrap().user.id, Id(6));
 		list.update(decode(br#"{"guild_id":"1","id":"everyone","member_count":2,"ops":[{"op":"INVALIDATE","range":[0,99]}]}"#).unwrap()).unwrap();
 		assert!(!list.synced && list.take_presence().is_none() && list.presence_deadline.is_none());
 	}
