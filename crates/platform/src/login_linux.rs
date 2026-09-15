@@ -15,6 +15,7 @@ const HANDLER: &str = "sereinLogin";
 struct Handoff {
 	opened: Instant,
 	closed: Cell<bool>,
+	crashed: Cell<bool>,
 	pending: Cell<bool>,
 	querying: Cell<bool>,
 	delivered: Cell<bool>,
@@ -42,6 +43,14 @@ impl Handoff {
 		self.delivered.set(true);
 		self.pending.set(false);
 		true
+	}
+
+	fn accept_authorization(&self, uri: &str, value: &str) -> bool {
+		if value.len() > 2048 {
+			return false;
+		}
+		let body = zeroize::Zeroizing::new(format!("{}{}", self.capability, value));
+		self.accept(uri, &body)
 	}
 
 	fn close(&self) {
@@ -90,6 +99,7 @@ impl LoginView {
 		let state = Rc::new(Handoff {
 			opened,
 			closed: Cell::new(false),
+			crashed: Cell::new(false),
 			pending: Cell::new(false),
 			querying: Cell::new(false),
 			delivered: Cell::new(false),
@@ -104,6 +114,10 @@ impl LoginView {
 		session.set_tls_errors_policy(webkit6::TLSErrorsPolicy::Fail);
 		session.connect_download_started(|_, download| download.cancel());
 		let settings = webkit6::Settings::new();
+		// WebKitGTK's default identity is "Safari on Linux", which no real browser presents;
+		// hCaptcha and Discord score it as automation and reject the solved login. Present the
+		// same browser identity as the REST client that will use the session afterwards.
+		settings.set_user_agent(Some(&client_core::fingerprint::user_agent()));
 		settings.set_enable_developer_extras(false);
 		settings.set_enable_write_console_messages_to_stdout(false);
 		settings.set_allow_file_access_from_file_urls(false);
@@ -114,6 +128,12 @@ impl LoginView {
 		settings.set_javascript_can_access_clipboard(false);
 		settings.set_enable_media_stream(false);
 		settings.set_enable_webrtc(false);
+		// The login page needs no audio/video. A missing GStreamer sink (autoaudiosink)
+		// otherwise crashes the web process as soon as Discord's app initialises audio.
+		settings.set_enable_media(false);
+		settings.set_enable_webaudio(false);
+		// Software rendering prevents DMA-BUF/EGL initialization crashes on Wayland and in Flatpak.
+		settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
 		let manager = webkit6::UserContentManager::new();
 		manager.add_script(&webkit6::UserScript::new(
 			&script,
@@ -127,6 +147,33 @@ impl LoginView {
 			.user_content_manager(&manager)
 			.settings(&settings)
 			.build();
+		view.set_hexpand(true);
+		view.set_vexpand(true);
+		let resource_state = Rc::downgrade(&state);
+		let resource_view = view.downgrade();
+		let resource_notify = wake.clone();
+		view.connect_resource_load_started(move |_, _, request| {
+			let (Some(state), Some(view)) = (resource_state.upgrade(), resource_view.upgrade())
+			else {
+				return;
+			};
+			let Some(uri) = request.uri() else { return };
+			if !discord_api_uri(&uri) || !view.uri().is_some_and(|uri| discord_origin(&uri)) {
+				return;
+			}
+			let Some(headers) = request.http_headers() else {
+				return;
+			};
+			let Some(value) = headers.one("authorization") else {
+				return;
+			};
+			if value.len() > 2113 {
+				return;
+			}
+			if state.accept_authorization(&uri, &value) {
+				resource_notify();
+			}
+		});
 		let weak_state = Rc::downgrade(&state);
 		let weak_view = view.downgrade();
 		let notify = wake.clone();
@@ -177,8 +224,23 @@ impl LoginView {
 			true
 		});
 		view.connect_create(|_, _| None);
-		view.connect_permission_request(|_, request| {
-			request.deny();
+		view.connect_permission_request(|view, request| {
+			// Embedded verification's cookie access is separate from device permissions.
+			// This exception grants no device permissions or persistent storage.
+			let verification_storage = view.uri().is_some_and(|uri| discord_origin(&uri))
+				&& request
+					.downcast_ref::<webkit6::WebsiteDataAccessPermissionRequest>()
+					.is_some_and(|request| {
+						verification_storage_domains(
+							request.current_domain().as_deref(),
+							request.requesting_domain().as_deref(),
+						)
+					});
+			if verification_storage {
+				request.allow();
+			} else {
+				request.deny();
+			}
 			true
 		});
 		view.connect_query_permission_state(|_, query| {
@@ -229,6 +291,7 @@ impl LoginView {
 		let notify = wake.clone();
 		view.connect_web_process_terminated(move |_, _| {
 			if let Some(state) = weak_state.upgrade() {
+				state.crashed.set(true);
 				state.close();
 			}
 			notify();
@@ -258,6 +321,11 @@ impl LoginView {
 
 	pub fn expired(&self) -> bool {
 		!self.state.active()
+	}
+
+	/// The WebKit web process ended on its own (crash or kill) rather than by timeout or close.
+	pub fn crashed(&self) -> bool {
+		self.state.crashed.get()
 	}
 
 	pub fn resize(&self, _parent: &winit::window::Window) {}
@@ -329,9 +397,74 @@ impl Drop for LoginView {
 	}
 }
 
+fn verification_storage_domains(current: Option<&str>, requesting: Option<&str>) -> bool {
+	current == Some("discord.com")
+		&& requesting
+			.is_some_and(|domain| domain == "hcaptcha.com" || domain.ends_with(".hcaptcha.com"))
+}
+
+fn discord_api_uri(value: &str) -> bool {
+	let Ok(url) = url::Url::parse(value) else {
+		return false;
+	};
+	if !discord_origin(value) {
+		return false;
+	}
+	let mut segments = url.path_segments().into_iter().flatten();
+	segments.next() == Some("api")
+		&& segments.next().is_some_and(|version| {
+			let Some(version) = version.strip_prefix('v') else {
+				return false;
+			};
+			!version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit())
+		}) && segments.next().is_some()
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn verification_storage_is_limited_to_hcaptcha_embedded_in_discord() {
+		for domain in ["hcaptcha.com", "newassets.hcaptcha.com"] {
+			assert!(verification_storage_domains(
+				Some("discord.com"),
+				Some(domain)
+			));
+		}
+		for domain in [
+			None,
+			Some("evil.test"),
+			Some("hcaptcha.com.evil.test"),
+			Some("evilhcaptcha.com"),
+		] {
+			assert!(!verification_storage_domains(Some("discord.com"), domain));
+		}
+		for domain in [None, Some("evil.test"), Some("discord.com.evil.test")] {
+			assert!(!verification_storage_domains(domain, Some("hcaptcha.com")));
+		}
+	}
+
+	#[test]
+	fn discord_api_uri_requires_the_exact_https_api_origin() {
+		for uri in [
+			"https://discord.com/api/v9/users/@me",
+			"https://discord.com/api/v10/science?x=1",
+		] {
+			assert!(discord_api_uri(uri));
+		}
+		for uri in [
+			"https://discord.com/login",
+			"https://discord.com/api/x/endpoint",
+			"https://discord.com/api/vx/endpoint",
+			"https://discord.com/api/v9",
+			"http://discord.com/api/v9/users/@me",
+			"https://discord.com.evil.test/api/v9/users/@me",
+			"https://discord.com:444/api/v9/users/@me",
+		] {
+			assert!(!discord_api_uri(uri));
+		}
+	}
 
 	#[test]
 	fn handoff_is_scoped_bounded_single_use_and_closed_before_late_results() {
@@ -339,6 +472,7 @@ mod tests {
 		let mut state = Handoff {
 			opened,
 			closed: Cell::new(false),
+			crashed: Cell::new(false),
 			pending: Cell::new(false),
 			querying: Cell::new(false),
 			delivered: Cell::new(false),
@@ -358,6 +492,12 @@ mod tests {
 			"https://discord.com/login",
 			&(state.capability.clone() + "invalid token value")
 		));
+		assert!(
+			state.accept_authorization("https://discord.com/api/v9/users/@me", &"T".repeat(2048))
+		);
+		assert_eq!(state.token.borrow().as_ref().unwrap().expose().len(), 2048);
+		state.token.borrow_mut().take();
+		state.delivered.set(false);
 		assert!(state.token.borrow().is_none());
 		assert!(state.accept("https://discord.com/login", &valid));
 		assert_eq!(state.token.borrow().as_ref().unwrap().expose().len(), 2048);

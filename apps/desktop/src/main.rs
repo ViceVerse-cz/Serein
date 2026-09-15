@@ -37,7 +37,6 @@ use client_core::{
 use eframe::egui;
 use model::Delivery;
 use std::{sync::Arc, time::Duration};
-#[cfg(feature = "developer-session")]
 use zeroize::Zeroizing;
 
 /// Sign-in header strip: doubles as the window drag region, so it clears the traffic lights.
@@ -56,6 +55,18 @@ fn main() -> eframe::Result {
 		eprintln!("Demo support is not included; rebuild with --features demo and run with --demo");
 		std::process::exit(2);
 	}
+	let frame_sample = std::env::args()
+		.find_map(|arg| arg.strip_prefix("--demo-frame-sample").map(str::to_owned))
+		.map(|value| {
+			parse_frame_sample(
+				demo && std::env::args().any(|arg| arg == "--demo-friends"),
+				&value,
+			)
+			.unwrap_or_else(|reason| {
+				eprintln!("{reason}");
+				std::process::exit(2);
+			})
+		});
 	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-extensions") {
 		demo_check_extensions();
@@ -76,7 +87,7 @@ fn main() -> eframe::Result {
 				.with_inner_size([1120.0, 760.0])
 				.with_min_inner_size([760.0, 520.0])
 				.with_active(!start_minimized)
-				.with_app_id("org.serein.desktop");
+				.with_app_id("cz.viceverse.serein");
 			#[cfg(any(target_os = "windows", target_os = "linux"))]
 			let builder = builder
 				.with_icon(eframe::icon_data::from_png_bytes(icon).expect("bundled app icon"));
@@ -94,6 +105,22 @@ fn main() -> eframe::Result {
 			}
 		},
 		renderer: eframe::Renderer::Wgpu,
+		wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
+			wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(
+				eframe::egui_wgpu::WgpuSetupCreateNew {
+					// Prefer the efficient adapter; retain the native diagnostic override.
+					power_preference: eframe::wgpu::PowerPreference::from_env()
+						.unwrap_or(eframe::wgpu::PowerPreference::LowPower),
+					..eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle()
+				},
+			),
+			// Keep cursor-driven redraws synchronized even where AutoVsync selects FifoRelaxed.
+			surface: eframe::egui_wgpu::SurfaceConfig {
+				present_mode: eframe::wgpu::PresentMode::Fifo,
+				..eframe::egui_wgpu::SurfaceConfig::LOW_LATENCY
+			},
+			..Default::default()
+		},
 		persist_window: false,
 		persistence_path: None,
 		..Default::default()
@@ -102,7 +129,7 @@ fn main() -> eframe::Result {
 		"Serein",
 		options,
 		Box::new(move |cc| {
-			let desktop = Desktop::new(cc, demo)?;
+			let desktop = Desktop::new(cc, demo, frame_sample)?;
 			if start_minimized {
 				cc.egui_ctx
 					.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -166,7 +193,7 @@ fn demo_check_updates() {
 	}
 	println!("Offline update flow, preference compatibility, and settings rendering passed.");
 }
-/// One offline debug path through the shipped Wasm, reducer, and native egui rows.
+/// One offline debug path through the shipped Wasm, reducer, and egui rows.
 #[cfg(feature = "demo")]
 fn demo_check_extensions() {
 	let enabled =
@@ -209,7 +236,10 @@ fn demo_check_extensions() {
 	ui::design::apply(&ctx);
 	let mut messaging = ui::MessagingUi::default();
 	let mut saw_deleted = false;
+	let mut saw_author = false;
+	let mut saw_avatar = false;
 	for _ in 0..3 {
+		let mut deleted_color = egui::Color32::TRANSPARENT;
 		let frame = ctx.run_ui(
 			egui::RawInput {
 				screen_rect: Some(egui::Rect::from_min_size(
@@ -219,15 +249,49 @@ fn demo_check_extensions() {
 				..Default::default()
 			},
 			|ui| {
+				deleted_color = ui::design::palette(ui).danger;
 				let _ = messaging.show(ui, &mut state);
 			},
 		);
-		saw_deleted |= frame.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text().contains("Deleted - kept by Message delete protector")));
+		let body_left = frame.shapes.iter().find_map(|shape| match &shape.shape {
+			egui::Shape::Text(text) if text.galley.text() == message.content => Some(text.pos.x),
+			_ => None,
+		});
+		for shape in &frame.shapes {
+			if let egui::Shape::Text(text) = &shape.shape {
+				assert!(
+					!text
+						.galley
+						.text()
+						.contains("Deleted - kept by Message delete protector")
+				);
+				if text.galley.text() == message.content {
+					assert!(
+						text.galley
+							.job
+							.sections
+							.iter()
+							.all(|section| section.format.color == deleted_color)
+					);
+					saw_deleted = true;
+				}
+				saw_author |= text.galley.text() == message.author.name
+					&& body_left.is_some_and(|left| (text.pos.x - left).abs() < 0.1);
+			}
+			if let egui::Shape::Rect(image) = &shape.shape
+				&& image.brush.is_some()
+			{
+				let rect = image.rect;
+				saw_avatar |= (rect.width() - 40.0).abs() < 0.1
+					&& (rect.height() - 40.0).abs() < 0.1
+					&& body_left.is_some_and(|left| (rect.right() + 16.0 - left).abs() < 0.1);
+			}
+		}
 		frame.drop_without_applying_deltas();
 	}
 	assert!(
-		saw_deleted,
-		"native timeline renders the retained deletion label"
+		saw_deleted && saw_author && saw_avatar,
+		"retained row renders red text ({saw_deleted}), author ({saw_author}), and a normal 40-pixel avatar ({saw_avatar})"
 	);
 	state.set_preserve_deleted_messages(false);
 	assert!(
@@ -252,32 +316,133 @@ fn demo_check_extensions() {
 	);
 }
 
-/// Opt-in aggregate CPU callback timings; no payloads, per-frame logs, or repaint timer.
+fn parse_frame_sample(demo: bool, value: &str) -> Result<(Duration, Duration), &'static str> {
+	let invalid = "Use --demo --demo-friends --demo-frame-sample=WARMUP,SAMPLE (whole seconds, warmup 1..600, sample 1..600)";
+	let (warmup, sample) = value
+		.strip_prefix('=')
+		.and_then(|value| value.split_once(','))
+		.ok_or(invalid)?;
+	let warmup = warmup.parse::<u64>().map_err(|_| invalid)?;
+	let sample = sample.parse::<u64>().map_err(|_| invalid)?;
+	if !demo || !(1..=600).contains(&warmup) || !(1..=600).contains(&sample) {
+		return Err(invalid);
+	}
+	Ok((Duration::from_secs(warmup), Duration::from_secs(sample)))
+}
+
+struct FrameSample {
+	ready: std::time::Instant,
+	duration: Duration,
+	started: Option<std::time::Instant>,
+	complete: bool,
+}
+
+/// Opt-in aggregate callback wall time; excludes tessellation/presentation, not a CPU timer.
+/// Sample mode emits two bounded records and never schedules repaints.
 struct FrameMetrics {
 	enabled: bool,
 	started: Option<std::time::Instant>,
+	sample: Option<FrameSample>,
 	frames: u64,
 	inputless: u64,
+	viewport_focused: u64,
+	search_focused: u64,
+	viewport_size: Option<[f32; 2]>,
+	pixels_per_point: f32,
+	max_micros: u64,
 	buckets: [u64; 8],
 	reflows: (u64, u64),
 }
 impl Default for FrameMetrics {
 	fn default() -> Self {
+		Self::new(None)
+	}
+}
+impl FrameMetrics {
+	fn new(sample: Option<(Duration, Duration)>) -> Self {
 		Self {
-			enabled: std::env::var_os("SEREIN_FRAME_DIAGNOSTICS").is_some_and(|v| v == "1"),
+			enabled: sample.is_some()
+				|| std::env::var_os("SEREIN_FRAME_DIAGNOSTICS").is_some_and(|v| v == "1"),
 			started: None,
+			sample: sample.map(|(warmup, duration)| FrameSample {
+				ready: std::time::Instant::now() + warmup,
+				duration,
+				started: None,
+				complete: false,
+			}),
 			frames: 0,
 			inputless: 0,
+			viewport_focused: 0,
+			search_focused: 0,
+			viewport_size: None,
+			pixels_per_point: 0.0,
+			max_micros: 0,
 			buckets: [0; 8],
 			reflows: (0, 0),
 		}
 	}
-}
-impl FrameMetrics {
-	fn begin(&mut self, ctx: &egui::Context) {
-		if self.enabled {
-			self.started = Some(std::time::Instant::now());
+	fn sample_active_at(&mut self, now: std::time::Instant) -> bool {
+		let viewport_size = self.viewport_size;
+		let pixels_per_point = self.pixels_per_point;
+		let Some(sample) = &mut self.sample else {
+			return true;
+		};
+		if sample.complete || now < sample.ready {
+			return false;
+		}
+		let started = *sample.started.get_or_insert_with(|| {
+			Self::sample_record(serde_json::json!({
+				"serein_frame_sample": "start",
+				"viewport_size": viewport_size,
+				"pixels_per_point": pixels_per_point,
+			}));
+			now
+		});
+		let elapsed = now.duration_since(started);
+		if elapsed < sample.duration {
+			return true;
+		}
+		sample.complete = true;
+		Self::sample_record(serde_json::json!({
+			"serein_frame_sample": "complete",
+			"elapsed_ms": elapsed.as_millis(),
+			"callbacks": self.frames,
+			"without_input": self.inputless,
+			"viewport_focused": self.viewport_focused,
+			"search_focused": self.search_focused,
+			"viewport_size": viewport_size,
+			"pixels_per_point": pixels_per_point,
+			"callback_wall_us_limits": [1000, 2000, 4000, 8000, 16000, 32000, 64000],
+			"callback_wall_us_buckets": self.buckets,
+			"max_callback_wall_us": self.max_micros,
+		}));
+		false
+	}
+	fn sample_record(record: serde_json::Value) {
+		use std::io::Write;
+		let mut output = std::io::stdout().lock();
+		let _ = writeln!(output, "{record}");
+		let _ = output.flush();
+	}
+	fn begin(&mut self, ctx: &egui::Context, search_focused: bool) {
+		self.started = None;
+		if !self.enabled {
+			return;
+		}
+		if self.sample.is_some() {
+			self.viewport_size = ctx.input(|i| {
+				i.viewport()
+					.inner_rect
+					.map(|rect| [rect.width(), rect.height()])
+			});
+			self.pixels_per_point = ctx.pixels_per_point();
+		}
+		let now = std::time::Instant::now();
+		if self.sample_active_at(now) {
+			self.started = Some(now);
 			self.inputless += u64::from(ctx.input(|i| i.events.is_empty()));
+			self.viewport_focused += u64::from(ctx.input(|i| i.focused));
+			self.search_focused += u64::from(search_focused);
 		}
 	}
 	fn finish(&mut self) {
@@ -286,16 +451,20 @@ impl FrameMetrics {
 			let bucket = [1000, 2000, 4000, 8000, 16000, 32000, 64000]
 				.partition_point(|limit| *limit < micros);
 			self.buckets[bucket] += 1;
+			self.max_micros = self
+				.max_micros
+				.max(u64::try_from(micros).unwrap_or(u64::MAX));
 			self.frames += 1;
 		}
 	}
 }
 impl Drop for FrameMetrics {
 	fn drop(&mut self) {
-		if self.enabled {
+		if self.enabled && self.sample.is_none() {
 			use std::io::Write;
 			let _ = writeln!(
 				std::io::stderr(),
+				// Preserve the legacy diagnostic label; elapsed callback time is wall time.
 				"[Serein frames] callbacks={} without_input={} cpu_us_buckets(1000,2000,4000,8000,16000,32000,64000,above)={:?} reflows(total,consecutive)={:?}",
 				self.frames,
 				self.inputless,
@@ -370,7 +539,6 @@ struct Desktop {
 	authorized: bool,
 	#[cfg(feature = "demo")]
 	synthetic_id: u64,
-	#[cfg(feature = "developer-session")]
 	token_input: Zeroizing<String>,
 }
 /// Check only navigation whose effective access can change with this event.
@@ -654,6 +822,7 @@ impl Desktop {
 	fn new(
 		cc: &eframe::CreationContext<'_>,
 		demo: bool,
+		frame_sample: Option<(Duration, Duration)>,
 	) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
 		ui::fonts::install(&cc.egui_ctx);
 		ui::emoji::install_async(&cc.egui_ctx)?;
@@ -707,6 +876,8 @@ impl Desktop {
 					test_support::friends_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-system-messages") {
 					test_support::system_demo_state()
+				} else if std::env::args().any(|arg| arg == "--demo-code") {
+					test_support::code_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-notifications") {
 					test_support::notification_demo_state()
 				} else if std::env::args().any(|arg| {
@@ -734,7 +905,9 @@ impl Desktop {
 				} else if std::env::args().any(|arg| arg == "--demo-chat") {
 					test_support::chat_demo_state()
 				} else {
-					test_support::demo_state()
+					let mut state = test_support::demo_state();
+					test_support::seed_demo_folder_mosaic(&mut state);
+					state
 				}
 			};
 		}
@@ -770,19 +943,21 @@ impl Desktop {
 		}
 		#[cfg(feature = "demo")]
 		if demo {
-			let fixture = demo_members(None, model::Id(22), 0);
-			state.direct_presences = fixture
-				.rows
-				.into_iter()
-				.flatten()
-				.filter(|member| member.user.id != model::Id(1))
-				.map(|member| model::MemberPresence {
-					user: member.user.id,
-					status: member.status,
-					custom_status: member.custom_status,
-					activities: member.activities,
-				})
-				.collect();
+			if !std::env::args().any(|arg| arg == "--demo-friends") {
+				let fixture = demo_members(None, model::Id(22), 0);
+				state.direct_presences = fixture
+					.rows
+					.into_iter()
+					.flatten()
+					.filter(|member| member.user.id != model::Id(1))
+					.map(|member| model::MemberPresence {
+						user: member.user.id,
+						status: member.status,
+						custom_status: member.custom_status,
+						activities: member.activities,
+					})
+					.collect();
+			}
 			// Synthetic role metadata exercises the same bounded permission mirror as live events.
 			for guild in state.permissions.guilds.values_mut() {
 				if let Some(roles) = &mut guild.roles {
@@ -873,6 +1048,21 @@ impl Desktop {
 			.last()
 			.map_or(10_000, |m| m.id.0.max(10_000));
 		let mut messaging = ui::MessagingUi::default();
+		#[cfg(feature = "demo")]
+		if demo {
+			// Robin stays pinned on home. #getting-started is the guild Favorites row.
+			let _ = messaging
+				.channel_preferences
+				.set(model::Shortcut::Pinned, model::Id(22), true);
+			let _ =
+				messaging
+					.channel_preferences
+					.set(model::Shortcut::Favorite, model::Id(20), true);
+		}
+		#[cfg(feature = "demo")]
+		if frame_sample.is_some() {
+			messaging.prepare_friends_sample();
+		}
 		messaging.tray_available = platform::tray::supported();
 		let startup = startup::Startup::new(&cc.egui_ctx, &runtime, &mut messaging, demo);
 		#[cfg(feature = "demo")]
@@ -1212,7 +1402,7 @@ impl Desktop {
 				.clone(),
 			monitor_geometry: None,
 			monitor_period: None,
-			frame_metrics: FrameMetrics::default(),
+			frame_metrics: FrameMetrics::new(frame_sample),
 			avatars: None,
 			avatar_cleanup: None,
 			avatar_start_failed: false,
@@ -1256,7 +1446,6 @@ impl Desktop {
 			authorized: false,
 			#[cfg(feature = "demo")]
 			synthetic_id,
-			#[cfg(feature = "developer-session")]
 			token_input: Zeroizing::new(String::new()),
 		})
 	}
@@ -1355,10 +1544,7 @@ impl Desktop {
 		self.messaging
 			.apply_reading_preferences(ctx, self.reading.current);
 		ctx.clear_animations();
-		#[cfg(feature = "developer-session")]
-		{
-			self.token_input = Zeroizing::new(String::new());
-		}
+		self.token_input = Zeroizing::new(String::new());
 		if !was_demo && let Some(store) = &self.store {
 			self.forgetting = store
 				.send
@@ -2804,6 +2990,7 @@ impl Desktop {
 					self.pending_save = None;
 					let generation = self.state.generation + 1;
 					self.state = test_support::demo_state();
+					test_support::seed_demo_folder_mosaic(&mut self.state);
 					self.state.generation = generation;
 					self.messaging.clear();
 				}
@@ -2822,13 +3009,14 @@ impl Desktop {
 							if ui.button("Forget saved login").clicked() { self.logout(&ctx); }
 						}
 					});
-				#[cfg(feature = "developer-session")]
 				if !self.fixture_only {
-					ui.collapsing("Developer session", |ui| {
-						ui.add(egui::TextEdit::singleline(&mut *self.token_input).password(true).char_limit(2048).hint_text("Owner-supplied test credential"));
-						if ui.add_enabled(self.authorized, egui::Button::new("Connect imported session (RAM only)")).clicked() {
+					ui.collapsing("Sign in with a token", |ui| {
+						ui.small("For owners who already have a valid Discord session token, for example from another signed-in Serein install. Passwords and 2FA are never used here; this bypasses Discord's hosted login page entirely.");
+						ui.add_space(4.0);
+						ui.add(egui::TextEdit::singleline(&mut *self.token_input).password(true).char_limit(2048).hint_text("Session token"));
+						if ui.add_enabled(self.authorized, egui::Button::new("Connect with this token")).clicked() {
 							let input = std::mem::take(&mut *self.token_input);
-							match SessionSecret::from_owner_input(input) { Ok(secret) => self.connect(secret, false, &ctx), Err(f) => self.state.status = f.label() }
+							match SessionSecret::from_owner_input(input) { Ok(secret) => self.connect(secret, true, &ctx), Err(f) => self.state.status = f.label() }
 						}
 					});
 				}
@@ -3175,7 +3363,7 @@ impl Desktop {
 					self.credential_status = if result.is_ok() {
 						"Saved login removed"
 					} else {
-						"Could not remove saved login; remove org.serein.desktop / discord-session in your OS credential manager"
+						"Could not remove saved login; remove cz.viceverse.serein / discord-session in your OS credential manager"
 					};
 				}
 			}
@@ -3298,12 +3486,8 @@ impl Desktop {
 			removed_channels.retain(|id| !self.state.can_read_history(*id));
 			for channel in removed_channels.iter().copied().chain(deleted_shortcut) {
 				if self.state.channel(channel).is_none() {
-					let preferences = &mut self.messaging.channel_preferences;
-					let previous = preferences.favorites.len() + preferences.pinned.len();
-					preferences.favorites.retain(|id| *id != channel);
-					preferences.pinned.retain(|id| *id != channel);
 					self.messaging.channel_preferences_changed |=
-						previous != preferences.favorites.len() + preferences.pinned.len();
+						self.messaging.channel_preferences.forget(channel);
 				}
 			}
 			if let Some(error) = voice_failure
@@ -3427,10 +3611,14 @@ impl Desktop {
 			if let Some(secret) = login.token() {
 				self.connect(secret, true, ctx);
 			} else if login.expired() {
+				let crashed = login.crashed();
 				self.login = None;
 				self.state.auth = AuthState::Challenged;
-				self.state.status =
-					"Login timed out or token handoff unavailable; no session accepted";
+				self.state.status = if crashed {
+					"Login window stopped unexpectedly (web process ended); no session accepted"
+				} else {
+					"Login timed out or token handoff unavailable; no session accepted"
+				};
 			}
 		}
 		// Network and store workers request repaint only when their outcomes change.
@@ -3496,7 +3684,17 @@ impl eframe::App for Desktop {
 		}
 	}
 	fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
-		self.frame_metrics.begin(ctx);
+		let search_focused = {
+			#[cfg(feature = "demo")]
+			{
+				self.frame_metrics.sample.is_some() && self.messaging.friends_sample_focused(ctx)
+			}
+			#[cfg(not(feature = "demo"))]
+			{
+				false
+			}
+		};
+		self.frame_metrics.begin(ctx, search_focused);
 		self.startup.sync(
 			ctx,
 			&self.runtime,
@@ -3661,7 +3859,7 @@ impl eframe::App for Desktop {
 			if paste.generation == self.state.generation
 				&& Some(paste.channel) == self.state.selected
 				&& self.state.user.is_some()
-				&& !self.messaging.has_edit()
+				&& !self.messaging.has_edit_in(self.state.selected)
 			{
 				match result {
 					Ok(clipboard::Content::Text(text)) => {
@@ -3711,7 +3909,7 @@ impl eframe::App for Desktop {
 				&& self.login.is_none()
 				&& !self.confirming_close
 				&& !self.confirming_logout
-				&& !self.messaging.has_edit()
+				&& !self.messaging.has_edit_in(self.state.selected)
 				&& !self.downloads.is_active()
 				&& let Some(channel) = self.state.selected
 			{
@@ -4345,6 +4543,7 @@ impl eframe::App for Desktop {
 				None => {}
 			}
 		}
+		ui::design::window_resize(&ctx);
 		self.frame_metrics.reflows = self.messaging.timeline_reflows();
 		self.frame_metrics.finish();
 	}
@@ -4353,6 +4552,31 @@ impl eframe::App for Desktop {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn frame_sample_is_bounded_demo_only_and_excludes_warmup() {
+		for (demo, value) in [
+			(false, "=8,15"),
+			(true, "=0,15"),
+			(true, "=8,0"),
+			(true, "=601,15"),
+			(true, "=8,601"),
+			(true, "=8,15,1"),
+			(true, "=8.5,15"),
+			(true, ""),
+		] {
+			assert!(parse_frame_sample(demo, value).is_err());
+		}
+		let durations = parse_frame_sample(true, "=8,15").unwrap();
+		let mut metrics = FrameMetrics::new(Some(durations));
+		let ready = metrics.sample.as_ref().unwrap().ready;
+		assert!(!metrics.sample_active_at(ready - Duration::from_secs(1)));
+		assert_eq!(metrics.frames, 0);
+		assert!(metrics.sample_active_at(ready));
+		assert!(metrics.sample_active_at(ready + Duration::from_secs(14)));
+		assert!(!metrics.sample_active_at(ready + Duration::from_secs(15)));
+		assert!(!metrics.sample_active_at(ready + Duration::from_secs(16)));
+		assert!(metrics.sample.as_ref().unwrap().complete);
+	}
 	#[test]
 	fn disk_cache_does_not_replace_resident_previews_or_deleted_positions() {
 		for deleted in [false, true] {

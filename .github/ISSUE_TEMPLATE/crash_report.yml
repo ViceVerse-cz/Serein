@@ -1,0 +1,118 @@
+name: Crash or Performance Issue
+description: Report an application crash, panic, freeze, or severe performance regression
+title: "[Crash / Performance]: "
+labels: ["crash", "performance", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a crash or performance issue.
+
+        > [!TIP]
+        > **Quickly copy your client diagnostics:** In Serein, go to **Settings → Updates** and click **"Copy issue diagnostics"** (or click the **"Copy issue info"** link at the bottom of the Settings sidebar) to copy your Serein version, OS, display scale, and theme settings.
+
+        > [!CAUTION]
+        > **NEVER** share your Discord authentication token or credentials in logs, panic messages, or traces.
+
+  - type: dropdown
+    id: issue_category
+    attributes:
+      label: Issue Category
+      description: What type of problem are you experiencing?
+      options:
+        - "Application Crash / Panic on startup"
+        - "Application Crash / Panic during specific action"
+        - "Hang / Freeze / UI deadlock"
+        - "Excessive CPU usage / Framerate drops"
+        - "Memory leak / High RAM consumption"
+        - "Graphics / Shader / Driver crash"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe what happened right before the crash, freeze, or performance spike occurred.
+      placeholder: "The client abruptly exited when opening voice settings / framerate dropped below 15 FPS when scrolling server list..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to consistently reproduce the crash or performance issue.
+      placeholder: |
+        1. Run Serein with `RUST_BACKTRACE=1`
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: backtrace
+    attributes:
+      label: Rust Backtrace / Crash Log
+      description: |
+        Run Serein from the terminal with `RUST_BACKTRACE=1 serein` (or via `cargo run --bin serein`) and paste the complete panic backtrace or crash report here.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - "macOS (Apple Silicon - aarch64)"
+        - "macOS (Intel - x86_64)"
+        - "Linux (Wayland)"
+        - "Linux (X11)"
+        - "Windows 11"
+        - "Windows 10"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware & Graphics (CPU, GPU, RAM)
+      description: Details about your machine (e.g. CPU model, GPU model, driver version, display refresh rate).
+      placeholder: "e.g. AMD Ryzen 7 5800X, NVIDIA RTX 3080 (Driver 550.54), 32 GB RAM, 144Hz monitor"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Serein Version / Commit Hash
+      description: Release tag or git commit hash. Found in **Settings → Updates** or copied via **"Copy issue diagnostics"**.
+      placeholder: "e.g. 0.1.0 or commit 36b5336"
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Client & Environment Diagnostics
+      description: |
+        Paste the information copied from Serein (**Settings → Updates → "Copy issue diagnostics"** or the sidebar link) here.
+      placeholder: |
+        - **Serein Version:** ...
+        - **Operating System:** ...
+        - **Display Scale:** ...
+        - **Theme:** ...
+        - **Update Channel:** ...
+        - **Auto Update:** ...
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have searched existing GitHub issues and discussions.
+          required: true
+        - label: I have verified that no private Discord tokens or sensitive credentials appear in the backtrace.
+          required: true

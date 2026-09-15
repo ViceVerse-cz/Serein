@@ -1,25 +1,43 @@
 use crate::design::LazyHover;
+use crate::shortcuts::{Heading, Roster, Scope, ShortcutView};
 use crate::{MessagingUi, design};
 use client_core::State;
 use egui::RichText;
-use model::{Channel, Id};
+use model::{Channel, Id, Shortcut};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Where a channel row came from. A mirrored guild channel differs from its tree copy by slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Slot {
+	Tree,
+	Roster(Shortcut),
+}
+
 enum Row<'a> {
-	Section(&'static str),
+	Heading(Heading),
 	Category(&'a Channel, usize),
-	Channel(&'a Channel, bool),
+	Channel(&'a Channel, Slot, bool),
 	Participant(&'a client_core::voice::RosterEntry),
 }
 
 #[derive(Clone, Copy)]
 enum CachedRow {
-	Section(&'static str),
+	Heading(Heading),
 	Category(usize, usize),
-	Channel(usize, bool),
+	Channel(usize, Slot, bool),
 	Participant(usize),
 }
-type CacheKey = (u64, u64, Option<Id>, Option<Id>, bool);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct CacheKey {
+	generation: u64,
+	revision: u64,
+	guild: Option<Id>,
+	selected: Option<Id>,
+	show_hidden: bool,
+	hide_muted: bool,
+}
+
 #[derive(Default)]
 pub(super) struct Cache {
 	key: Option<CacheKey>,
@@ -31,85 +49,20 @@ impl Cache {
 	}
 }
 
-fn promote<'a>(
-	mut rows: Vec<Row<'a>>,
-	state: &'a State,
-	guild: Id,
-	preferences: &model::ChannelPreferences,
-) -> Vec<Row<'a>> {
-	// Shortcuts remain visible when their original category is collapsed.
-	let present: BTreeSet<_> = rows
-		.iter()
-		.filter_map(|row| match row {
-			Row::Channel(channel, _) => Some(channel.id),
-			_ => None,
-		})
-		.collect();
-	rows.extend(
-		state
-			.channels
-			.iter()
-			.filter(|channel| {
-				channel.guild == Some(guild)
-					&& channel.kind != 4
-					&& state.can_view(channel.id)
-					&& (preferences.is_pinned(channel.id) || preferences.is_favorite(channel.id))
-					&& !present.contains(&channel.id)
-			})
-			.map(|channel| Row::Channel(channel, false)),
-	);
-	let mut pinned = Vec::new();
-	let mut favorites = Vec::new();
-	let mut regular = Vec::new();
-	for row in rows {
-		match row {
-			Row::Channel(channel, _) if preferences.is_pinned(channel.id) => {
-				pinned.push(Row::Channel(channel, false))
-			}
-			Row::Channel(channel, _) if preferences.is_favorite(channel.id) => {
-				favorites.push(Row::Channel(channel, false))
-			}
-			Row::Channel(channel, true)
-				if channel
-					.parent_id
-					.is_some_and(|id| preferences.is_pinned(id)) =>
-			{
-				pinned.push(Row::Channel(channel, true))
-			}
-			Row::Channel(channel, true)
-				if channel
-					.parent_id
-					.is_some_and(|id| preferences.is_favorite(id)) =>
-			{
-				favorites.push(Row::Channel(channel, true))
-			}
-			row => regular.push(row),
-		}
-	}
-	let mut result = Vec::with_capacity(pinned.len() + favorites.len() + regular.len() + 2);
-	for (label, group) in [("Pinned", pinned), ("Favorites", favorites)] {
-		if !group.is_empty() {
-			result.push(Row::Section(label));
-			result.extend(group);
-		}
-	}
-	result.extend(regular);
-	result
-}
-
 fn rows<'a>(
 	state: &'a State,
-	guild: Option<Id>,
+	scope: Scope,
+	roster: &Roster<'a>,
 	collapsed: &BTreeSet<Id>,
-	selected: Option<Id>,
 	show_hidden: bool,
 ) -> Vec<Row<'a>> {
+	let guild = scope.guild();
 	let channels = &state.channels;
 	let mut categories: Vec<_> = channels
 		.iter()
 		.filter(|c| {
-			c.guild == guild
-				&& guild.is_some()
+			guild.is_some()
+				&& c.guild == guild
 				&& c.kind == 4
 				&& (show_hidden || state.can_view(c.id))
 		})
@@ -123,10 +76,9 @@ fn rows<'a>(
 		.collect();
 	let mut groups: BTreeMap<Option<Id>, Vec<&Channel>> = BTreeMap::new();
 	let mut threads: BTreeMap<Id, Vec<&Channel>> = BTreeMap::new();
-	for channel in channels
-		.iter()
-		.filter(|c| c.guild == guild && c.kind != 4 && (show_hidden || state.can_view(c.id)))
-	{
+	for channel in channels.iter().filter(|c| {
+		scope.admits(c, state) && (show_hidden || state.can_view(c.id)) && !roster.lifted(c.id)
+	}) {
 		if matches!(channel.kind, 10..=12)
 			&& let Some(parent) = channel.parent_id.and_then(|id| parents.get(&id))
 			&& parent.parent_id != Some(channel.id)
@@ -146,38 +98,172 @@ fn rows<'a>(
 			group.sort_unstable_by_key(|c| std::cmp::Reverse((state.channel_activity(c), c.id)));
 		}
 	}
-	let append = |channel: &'a Channel, collapsed: bool, rows: &mut Vec<Row<'a>>| {
-		let children = threads.get(&channel.id);
-		if !collapsed
-			|| Some(channel.id) == selected
-			|| children.is_some_and(|children| children.iter().any(|c| Some(c.id) == selected))
-		{
-			rows.push(Row::Channel(channel, false));
-			rows.extend(
-				children
-					.into_iter()
-					.flatten()
-					.filter(|c| !collapsed || Some(c.id) == selected)
-					.map(|c| Row::Channel(c, true)),
-			);
+	let append = |channel: &'a Channel, slot: Slot, hidden: bool, rows: &mut Vec<Row<'a>>| {
+		if hidden {
+			return;
 		}
+		rows.push(Row::Channel(channel, slot, false));
+		rows.extend(
+			threads
+				.get(&channel.id)
+				.into_iter()
+				.flatten()
+				.map(|c| Row::Channel(c, slot, true)),
+		);
+	};
+	let count = |channels: &[&Channel]| {
+		channels
+			.iter()
+			.map(|c| 1 + threads.get(&c.id).map_or(0, Vec::len))
+			.sum::<usize>()
 	};
 	let mut rows = Vec::with_capacity(channels.len());
+	for section in roster.sections() {
+		rows.push(Row::Heading(section.heading));
+		for channel in &section.channels {
+			append(channel, Slot::Roster(section.kind), false, &mut rows);
+		}
+	}
+	let mut tree = Vec::with_capacity(channels.len());
 	for channel in groups.remove(&None).unwrap_or_default() {
-		append(channel, false, &mut rows);
+		append(channel, Slot::Tree, false, &mut tree);
 	}
 	for category in categories {
 		let children = groups.remove(&Some(category.id)).unwrap_or_default();
-		let count = children
-			.iter()
-			.map(|c| 1 + threads.get(&c.id).map_or(0, Vec::len))
-			.sum();
-		rows.push(Row::Category(category, count));
+		if !show_hidden && children.is_empty() {
+			continue;
+		}
+		tree.push(Row::Category(category, count(&children)));
 		for channel in children {
-			append(channel, collapsed.contains(&category.id), &mut rows);
+			append(
+				channel,
+				Slot::Tree,
+				collapsed.contains(&category.id),
+				&mut tree,
+			);
 		}
 	}
+	if let Some(heading) = scope.remainder_heading()
+		&& !tree.is_empty()
+	{
+		rows.push(Row::Heading(heading));
+	}
+	rows.extend(tree);
 	rows
+}
+
+/// Collapsible category chrome. Real categories and shortcut headings share this painter.
+fn category_header(
+	ui: &mut egui::Ui,
+	id: impl egui::AsIdSalt,
+	name: &str,
+	count: usize,
+	collapsed: bool,
+	row_height: f32,
+) -> egui::Response {
+	let colors = design::palette(ui);
+	let (rect, response) = ui
+		.push_id(id, |ui| {
+			ui.allocate_exact_size(
+				egui::vec2(ui.available_width(), row_height),
+				egui::Sense::click(),
+			)
+		})
+		.inner;
+	let color = if response.hovered() || response.has_focus() {
+		colors.text_strong
+	} else {
+		colors.muted
+	};
+	crate::icons::paint(
+		ui.painter(),
+		if collapsed {
+			crate::icons::Icon::ChevronRight
+		} else {
+			crate::icons::Icon::ChevronDown
+		},
+		egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 7.0, rect.bottom() - 13.0),
+			egui::Vec2::splat(12.0),
+		),
+		color,
+	);
+	let label = ui.painter().layout(
+		name.to_uppercase(),
+		egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
+		color,
+		(rect.width() - 24.0).max(10.0),
+	);
+	let label_rect = egui::Rect::from_min_size(
+		egui::pos2(rect.left() + 16.0, rect.bottom() - 6.0 - label.size().y),
+		egui::vec2(rect.width() - 24.0, label.size().y),
+	);
+	ui.painter()
+		.with_clip_rect(label_rect)
+		.galley(label_rect.min, label, color);
+	let response = response.on_hover_text_with(|| {
+		format!(
+			"{name} category · {count} channels · {}",
+			if collapsed { "Expand" } else { "Collapse" }
+		)
+	});
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(
+			egui::WidgetType::Button,
+			true,
+			format!(
+				"{name} category, {}, {count} channels",
+				if collapsed { "collapsed" } else { "expanded" }
+			),
+		)
+	});
+	response
+}
+
+fn eyebrow_row(ui: &mut egui::Ui, label: &str, row_height: f32) -> egui::Rect {
+	let colors = design::palette(ui);
+	ui.allocate_ui_with_layout(
+		egui::vec2(ui.available_width(), row_height),
+		egui::Layout::left_to_right(egui::Align::Center),
+		|ui| {
+			ui.add_space(8.0);
+			ui.label(design::eyebrow(ui, label, colors.muted));
+		},
+	)
+	.response
+	.rect
+}
+
+fn shelf_row(rows: &[CachedRow], index: usize) -> bool {
+	match rows.get(index).copied() {
+		Some(CachedRow::Heading(heading)) => heading.shelf(),
+		Some(CachedRow::Channel(_, Slot::Roster(_), _)) => true,
+		Some(CachedRow::Participant(_)) => rows[..index]
+			.iter()
+			.rev()
+			.find_map(|row| match row {
+				CachedRow::Participant(_) => None,
+				CachedRow::Channel(_, slot, _) => Some(matches!(slot, Slot::Roster(_))),
+				_ => Some(false),
+			})
+			.unwrap_or(false),
+		_ => false,
+	}
+}
+
+fn paint_shelf_rule(ui: &egui::Ui, rect: egui::Rect, rows: &[CachedRow], index: usize) {
+	if rows.get(index + 1).is_none() {
+		return;
+	}
+	if !shelf_row(rows, index) || shelf_row(rows, index + 1) {
+		return;
+	}
+	let colors = design::palette(ui);
+	ui.painter().hline(
+		rect.x_range().shrink(8.0),
+		rect.bottom() + 7.5,
+		egui::Stroke::new(1.0, colors.border),
+	);
 }
 
 fn kind_label(kind: u8) -> &'static str {
@@ -198,13 +284,21 @@ fn kind_label(kind: u8) -> &'static str {
 
 impl MessagingUi {
 	pub(super) fn channel_list(&mut self, ui: &mut egui::Ui, state: &mut State) -> Option<Id> {
-		let key = (
-			state.generation,
-			state.revision,
-			self.guild,
-			state.selected,
-			self.show_hidden_channels,
-		);
+		self.hidden_muted_guilds
+			.retain(|guild| state.guild(*guild).is_some());
+		let hide_muted = self
+			.guild
+			.is_some_and(|guild| self.hidden_muted_guilds.contains(&guild));
+		let scope = Scope::of(self.guild);
+		let shortcuts_available = self.shortcuts_available(state);
+		let key = CacheKey {
+			generation: state.generation,
+			revision: state.revision,
+			guild: self.guild,
+			selected: state.selected,
+			show_hidden: self.show_hidden_channels,
+			hide_muted,
+		};
 		if self.channel_cache.key != Some(key) {
 			// Session-only keys are pruned on navigation updates, never accumulated in egui memory.
 			let categories: BTreeSet<_> = state
@@ -215,18 +309,34 @@ impl MessagingUi {
 				.collect();
 			self.collapsed_categories
 				.retain(|id| categories.contains(id));
-			let channel_rows = rows(
+			let roster = Roster::build(
 				state,
-				self.guild,
-				&self.collapsed_categories,
-				state.selected,
+				&self.channel_preferences,
+				scope,
 				self.show_hidden_channels,
 			);
-			let channel_rows = if let Some(guild) = self.guild {
-				promote(channel_rows, state, guild, &self.channel_preferences)
-			} else {
-				channel_rows
-			};
+			let mut channel_rows = rows(
+				state,
+				scope,
+				&roster,
+				&self.collapsed_categories,
+				self.show_hidden_channels,
+			);
+			if hide_muted {
+				channel_rows.retain(|row| {
+					!matches!(row, Row::Channel(channel, ..) if Some(channel.id) != state.selected && state.guild_channel_muted(channel.id) == Some(true))
+				});
+				let mut index = 0;
+				while index < channel_rows.len() {
+					if matches!(channel_rows[index], Row::Heading(..))
+						&& !matches!(channel_rows.get(index + 1), Some(Row::Channel(..)))
+					{
+						channel_rows.remove(index);
+					} else {
+						index += 1;
+					}
+				}
+			}
 			let mut participants = BTreeMap::<Id, Vec<_>>::new();
 			for entry in &state.voice.roster {
 				if Some(entry.guild) == self.guild && state.can_view(entry.channel) {
@@ -236,7 +346,7 @@ impl MessagingUi {
 			let mut rows = Vec::with_capacity(channel_rows.len() + state.voice.roster.len());
 			for row in channel_rows {
 				let channel = match &row {
-					Row::Channel(channel, _) if channel.kind == 2 => Some(channel.id),
+					Row::Channel(channel, _, _) if channel.kind == 2 => Some(channel.id),
 					_ => None,
 				};
 				rows.push(row);
@@ -260,9 +370,11 @@ impl MessagingUi {
 			self.channel_cache.rows = rows
 				.into_iter()
 				.map(|row| match row {
-					Row::Section(label) => CachedRow::Section(label),
+					Row::Heading(heading) => CachedRow::Heading(heading),
 					Row::Category(c, n) => CachedRow::Category(indices[&c.id], n),
-					Row::Channel(c, n) => CachedRow::Channel(indices[&c.id], n),
+					Row::Channel(c, slot, nested) => {
+						CachedRow::Channel(indices[&c.id], slot, nested)
+					}
 					Row::Participant(p) => {
 						CachedRow::Participant(participants[&(p.channel, p.participant.user)])
 					}
@@ -277,118 +389,53 @@ impl MessagingUi {
 		}
 		let dm_list = self.guild.is_none();
 		let row_height = if dm_list { 44.0 } else { 34.0 };
-		// The section heading shares the DM list's existing virtualized scroller.
-		let prefix = if dm_list { 1 } else { 0 };
-		let row_count = self.channel_cache.rows.len().max(usize::from(dm_list)) + prefix;
+		let row_count = self.channel_cache.rows.len().max(usize::from(dm_list));
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
-		egui::ScrollArea::vertical()
-			.id_salt(("channel-list", self.guild))
-			.auto_shrink([false, false])
+		let output = self
+			.scroll
+			.attach(
+				ui,
+				("channel-list", self.guild),
+				egui::ScrollArea::vertical().auto_shrink([false, false]),
+			)
 			.show_rows(ui, row_height, row_count, |ui, range| {
 				for index in range {
-					if index < prefix {
-						ui.allocate_ui_with_layout(
-							egui::vec2(ui.available_width(), row_height),
-							egui::Layout::left_to_right(egui::Align::Center),
-							|ui| {
-								ui.add_space(8.0);
-								ui.label(design::eyebrow(ui, "Direct Messages", colors.muted));
-							},
-						);
-						continue;
-					}
-					let Some(row) = self.channel_cache.rows.get(index - prefix).copied() else {
+					let Some(row) = self.channel_cache.rows.get(index).copied() else {
 						ui.label(
 							RichText::new("No conversations available here.").color(colors.muted),
 						);
 						continue;
 					};
 					match row {
-						CachedRow::Section(label) => {
-							ui.allocate_ui_with_layout(
-								egui::vec2(ui.available_width(), row_height),
-								egui::Layout::left_to_right(egui::Align::Center),
-								|ui| {
-									ui.add_space(8.0);
-									ui.label(design::eyebrow(ui, label, colors.muted));
-								},
-							);
+						CachedRow::Heading(heading) => {
+							let rect = eyebrow_row(ui, heading.label(), row_height);
+							paint_shelf_rule(ui, rect, &self.channel_cache.rows, index);
 						}
 						CachedRow::Participant(entry) => {
 							let entry = &state.voice.roster[entry];
-							ui.horizontal(|ui| {
+							let response = ui.horizontal(|ui| {
 								ui.add_space(28.0);
 								self.voice_participant(ui, state, entry);
 							});
+							paint_shelf_rule(
+								ui,
+								response.response.rect,
+								&self.channel_cache.rows,
+								index,
+							);
 						}
 						CachedRow::Category(category, count) => {
 							let category = &state.channels[category];
 							let collapsed = self.collapsed_categories.contains(&category.id);
-							let (rect, response) = ui
-								.push_id(category.id, |ui| {
-									ui.allocate_exact_size(
-										egui::vec2(ui.available_width(), row_height),
-										egui::Sense::click(),
-									)
-								})
-								.inner;
-							let color = if response.hovered() || response.has_focus() {
-								colors.text_strong
-							} else {
-								colors.muted
-							};
-							crate::icons::paint(
-								ui.painter(),
-								if collapsed {
-									crate::icons::Icon::ChevronRight
-								} else {
-									crate::icons::Icon::ChevronDown
-								},
-								egui::Rect::from_center_size(
-									egui::pos2(rect.left() + 7.0, rect.bottom() - 13.0),
-									egui::Vec2::splat(12.0),
-								),
-								color,
+							let response = category_header(
+								ui,
+								category.id,
+								&category.name,
+								count,
+								collapsed,
+								row_height,
 							);
-							let label = ui.painter().layout(
-								category.name.to_uppercase(),
-								egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
-								color,
-								(rect.width() - 24.0).max(10.0),
-							);
-							let label_rect = egui::Rect::from_min_size(
-								egui::pos2(
-									rect.left() + 16.0,
-									rect.bottom() - 6.0 - label.size().y,
-								),
-								egui::vec2(rect.width() - 24.0, label.size().y),
-							);
-							ui.painter().with_clip_rect(label_rect).galley(
-								label_rect.min,
-								label,
-								color,
-							);
-							let response = response.on_hover_text_with(|| {
-								format!(
-									"{} category · {} channels · {}",
-									category.name,
-									count,
-									if collapsed { "Expand" } else { "Collapse" }
-								)
-							});
-							response.widget_info(|| {
-								egui::WidgetInfo::labeled(
-									egui::WidgetType::Button,
-									true,
-									format!(
-										"{} category, {}, {} channels",
-										category.name,
-										if collapsed { "collapsed" } else { "expanded" },
-										count
-									),
-								)
-							});
 							if response.clicked() {
 								self.channel_cache.key = None;
 								if collapsed {
@@ -401,28 +448,36 @@ impl MessagingUi {
 								&response,
 								state,
 								category,
-								&mut self.channel_preferences,
-								&mut self.channel_preferences_changed,
-								state.demo || self.channel_preferences_loaded,
+								ShortcutView::new(&self.channel_preferences, shortcuts_available),
 							);
 						}
-						CachedRow::Channel(channel, nested) => {
+						CachedRow::Channel(channel, slot, nested) => {
 							let channel = &state.channels[channel];
 							let active = state.selected == Some(channel.id);
 							if channel.kind == 2 {
-								let response =
-									self.voice_channel_button(ui, state, channel, active);
+								let response = ui
+									.push_id(slot, |ui| {
+										self.voice_channel_button(ui, state, channel, active)
+									})
+									.inner;
 								self.channel_menu.context(
 									&response,
 									state,
 									channel,
-									&mut self.channel_preferences,
-									&mut self.channel_preferences_changed,
-									state.demo || self.channel_preferences_loaded,
+									ShortcutView::new(
+										&self.channel_preferences,
+										shortcuts_available,
+									),
 								);
 								if response.clicked() {
 									selected = Some(channel.id);
 								}
+								paint_shelf_rule(
+									ui,
+									response.rect,
+									&self.channel_cache.rows,
+									index,
+								);
 								continue;
 							}
 							let visible = state.can_view(channel.id);
@@ -445,7 +500,7 @@ impl MessagingUi {
 								.flatten()
 								.filter(|_| visible);
 							let (rect, response) = ui
-								.push_id(channel.id, |ui| {
+								.push_id((channel.id, slot), |ui| {
 									ui.allocate_exact_size(
 										egui::vec2(ui.available_width(), row_height),
 										if enabled || channel.guild.is_some() {
@@ -501,7 +556,15 @@ impl MessagingUi {
 									let avatar = self
 										.avatars
 										.show_group(&mut inner, channel, 32.0, state.demo);
-									self.group_menu.context(&avatar, state, channel);
+									self.group_menu.context(
+										&avatar,
+										state,
+										channel,
+										ShortcutView::new(
+											&self.channel_preferences,
+											shortcuts_available,
+										),
+									);
 									if enabled && avatar.clicked() {
 										selected = Some(channel.id);
 									}
@@ -520,12 +583,16 @@ impl MessagingUi {
 										);
 									}
 									if channel.kind == 1 {
-										crate::user_menu::show(
+										crate::user_menu::show_with_pin(
 											&avatar,
 											state,
 											user,
 											&mut self.profile,
 											&mut self.user_action,
+											Some(ShortcutView::new(
+												&self.channel_preferences,
+												shortcuts_available,
+											)),
 										);
 									}
 									// The avatar is part of the row: clicking it opens the conversation,
@@ -661,26 +728,25 @@ impl MessagingUi {
 							if channel.kind == 1
 								&& let Some(user) = channel.recipients.first()
 							{
-								crate::user_menu::show(
+								crate::user_menu::show_with_pin(
 									&response,
 									state,
 									user,
 									&mut self.profile,
 									&mut self.user_action,
+									Some(ShortcutView::new(
+										&self.channel_preferences,
+										shortcuts_available,
+									)),
 								);
 							}
+							let view =
+								ShortcutView::new(&self.channel_preferences, shortcuts_available);
 							if channel.kind == 3 && channel.guild.is_none() {
-								self.group_menu.context(&response, state, channel);
+								self.group_menu.context(&response, state, channel, view);
 							}
 							if channel.guild.is_some() {
-								self.channel_menu.context(
-									&response,
-									state,
-									channel,
-									&mut self.channel_preferences,
-									&mut self.channel_preferences_changed,
-									state.demo || self.channel_preferences_loaded,
-								);
+								self.channel_menu.context(&response, state, channel, view);
 							}
 							if enabled && response.clicked() {
 								selected = Some(channel.id);
@@ -690,10 +756,40 @@ impl MessagingUi {
 							{
 								self.timeline.opening = Some(url);
 							}
+							paint_shelf_rule(ui, rect, &self.channel_cache.rows, index);
 						}
 					}
 				}
 			});
+		if let Some(guild) = self.guild {
+			let content_bottom =
+				output.inner_rect.top() - output.state.offset.y + output.content_size.y;
+			if content_bottom < output.inner_rect.bottom() {
+				let empty = egui::Rect::from_min_max(
+					egui::pos2(
+						output.inner_rect.left(),
+						content_bottom.max(output.inner_rect.top()),
+					),
+					output.inner_rect.max,
+				);
+				let response = ui.interact(
+					empty,
+					ui.id().with(("server-channel-area", guild)),
+					egui::Sense::click(),
+				);
+				let mut next = hide_muted;
+				self.channel_menu
+					.sidebar_context(&response, state, guild, &mut next);
+				if next != hide_muted {
+					if next {
+						self.hidden_muted_guilds.insert(guild);
+					} else {
+						self.hidden_muted_guilds.remove(&guild);
+					}
+					self.channel_cache.invalidate();
+				}
+			}
+		}
 		ui.spacing_mut().item_spacing.y = previous_spacing;
 		selected
 	}
@@ -720,32 +816,36 @@ mod tests {
 			pinned: vec![Id(7)],
 			favorites: vec![Id(7), Id(9)],
 		};
-		for collapsed in [BTreeSet::new(), BTreeSet::from([Id(4)])] {
-			let output = promote(
-				rows(&state, Some(Id(100)), &collapsed, None, false),
-				&state,
-				Id(100),
-				&preferences,
-			);
-			let ids: Vec<_> = output
-				.iter()
-				.filter_map(|row| {
-					if let Row::Channel(channel, _) = row {
-						Some(channel.id)
-					} else {
-						None
-					}
+		let scope = Scope::Guild(Id(100));
+		let ids = |rows: &[Row<'_>]| {
+			rows.iter()
+				.filter_map(|row| match row {
+					Row::Channel(channel, ..) => Some(channel.id),
+					_ => None,
 				})
-				.collect();
-			assert_eq!(ids.iter().filter(|id| **id == Id(7)).count(), 1);
-			assert_eq!(ids.iter().filter(|id| **id == Id(9)).count(), 1);
-			assert!(matches!(output[0], Row::Section("Pinned")));
-			if collapsed.is_empty() {
-				assert!(matches!(output[2], Row::Channel(c, true) if c.id == Id(8)));
-			}
+				.collect::<Vec<_>>()
+		};
+		for collapsed in [BTreeSet::new(), BTreeSet::from([Id(4)])] {
+			let roster = Roster::build(&state, &preferences, scope, false);
+			let output = rows(&state, scope, &roster, &collapsed, false);
+			let found = ids(&output);
+			assert_eq!(found.iter().filter(|id| **id == Id(7)).count(), 1);
+			assert_eq!(found.iter().filter(|id| **id == Id(9)).count(), 1);
+			assert!(matches!(output[0], Row::Heading(Heading::Favorites)));
+			assert!(matches!(
+				output[2],
+				Row::Channel(c, Slot::Roster(Shortcut::Favorite), true) if c.id == Id(8)
+			));
+			assert!(output.iter().all(|row| {
+				!matches!(row, Row::Channel(c, Slot::Tree, _) if matches!(c.id, Id(7) | Id(9)))
+			}));
 		}
 		state.permissions = Default::default();
-		assert!(promote(vec![], &state, Id(100), &preferences).is_empty());
+		assert!(
+			Roster::build(&state, &preferences, scope, false)
+				.sections()
+				.is_empty()
+		);
 	}
 	#[test]
 	fn find_and_friends_stay_pinned_while_the_dm_list_scrolls() {
@@ -870,11 +970,183 @@ mod tests {
 			..State::default()
 		};
 		assert!(!MessagingUi::default().show_hidden_channels);
-		assert!(rows(&state, Some(Id(100)), &BTreeSet::new(), None, false).is_empty());
+		let list = |show_hidden| {
+			rows(
+				&state,
+				Scope::Guild(Id(100)),
+				&Roster::default(),
+				&BTreeSet::new(),
+				show_hidden,
+			)
+		};
+		assert!(list(false).is_empty());
+		assert_eq!(list(true).len(), 1);
+	}
+	#[test]
+	fn categories_without_visible_children_follow_hidden_visibility() {
+		let mut state = test_support::demo_state();
+		state.guilds[0].id = Id(100);
+		state.channels = vec![channel(4, 4, 0, None), channel(7, 0, 0, Some(Id(4)))];
+		let mut permissions = test_support::permission_snapshot(&state);
+		permissions.channels.retain(|c| c.id != Id(7));
+		state.permissions.replace(permissions).unwrap();
+		assert!(state.can_view(Id(4)));
+		assert!(!state.can_view(Id(7)));
+		assert!(
+			rows(
+				&state,
+				Scope::Guild(Id(100)),
+				&Roster::default(),
+				&BTreeSet::new(),
+				false,
+			)
+			.is_empty()
+		);
 		assert_eq!(
-			rows(&state, Some(Id(100)), &BTreeSet::new(), None, true).len(),
+			rows(
+				&state,
+				Scope::Guild(Id(100)),
+				&Roster::default(),
+				&BTreeSet::new(),
+				true,
+			)
+			.len(),
+			2
+		);
+		// Obfuscated children may be omitted from navigation entirely.
+		state.channels.retain(|c| c.id != Id(7));
+		assert!(
+			rows(
+				&state,
+				Scope::Guild(Id(100)),
+				&Roster::default(),
+				&BTreeSet::new(),
+				false,
+			)
+			.is_empty()
+		);
+		assert_eq!(
+			rows(
+				&state,
+				Scope::Guild(Id(100)),
+				&Roster::default(),
+				&BTreeSet::new(),
+				true,
+			)
+			.len(),
 			1
 		);
+		state.channels.push(channel(7, 0, 0, Some(Id(4))));
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		assert!(matches!(
+			rows(
+				&state,
+				Scope::Guild(Id(100)),
+				&Roster::default(),
+				&BTreeSet::from([Id(4)]),
+				false,
+			)
+			.as_slice(),
+			[Row::Category(_, 1)]
+		));
+	}
+	#[test]
+	fn empty_server_sidebar_opens_server_actions() {
+		fn labels(shape: &egui::Shape, output: &mut Vec<(String, egui::Rect)>) {
+			match shape {
+				egui::Shape::Text(text) => output.push((
+					text.galley.job.text.clone(),
+					text.galley.rect.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| labels(shape, output)),
+				_ => {}
+			}
+		}
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut state = test_support::chat_demo_state();
+		let mut permissions = test_support::permission_snapshot(&state);
+		for guild in &mut permissions.guilds {
+			guild.owner = state.user.as_ref().map(|user| user.id);
+		}
+		state.permissions.replace(permissions).unwrap();
+		let mut view = MessagingUi {
+			guild: Some(Id(10)),
+			..Default::default()
+		};
+		let render = |view: &mut MessagingUi, state: &mut State, events| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(260.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| view.sidebar(ui, state, "Synthetic", &mut vec![]),
+			);
+			let mut text = vec![];
+			for shape in &output.shapes {
+				labels(&shape.shape, &mut text);
+			}
+			output.drop_without_applying_deltas();
+			text
+		};
+		render(&mut view, &mut state, vec![]);
+		let empty = egui::pos2(130.0, 600.0);
+		for pressed in [true, false] {
+			render(
+				&mut view,
+				&mut state,
+				vec![
+					egui::Event::PointerMoved(empty),
+					egui::Event::PointerButton {
+						pos: empty,
+						button: egui::PointerButton::Secondary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			);
+		}
+		let text = render(&mut view, &mut state, vec![]);
+		for expected in [
+			"Hide Muted Channels",
+			"Create Channel",
+			"Create Category",
+			"Invite to Server",
+		] {
+			assert!(
+				text.iter().any(|(label, _)| label == expected),
+				"missing {expected}: {text:?}"
+			);
+		}
+		let hide = text
+			.iter()
+			.find(|(label, _)| label == "Hide Muted Channels")
+			.unwrap()
+			.1
+			.center();
+		for pressed in [true, false] {
+			render(
+				&mut view,
+				&mut state,
+				vec![
+					egui::Event::PointerMoved(hide),
+					egui::Event::PointerButton {
+						pos: hide,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			);
+		}
+		assert!(view.hidden_muted_guilds.contains(&Id(10)));
 	}
 	#[test]
 	fn channel_rows_scroll_continuously_past_voice_participants() {
@@ -977,13 +1249,19 @@ mod tests {
 			state.channels.push(dm);
 		}
 		let order = |state: &State| {
-			rows(state, None, &BTreeSet::new(), state.selected, true)
-				.into_iter()
-				.filter_map(|row| match row {
-					Row::Channel(channel, _) => Some(channel.id.0),
-					_ => None,
-				})
-				.collect::<Vec<_>>()
+			rows(
+				state,
+				Scope::Home,
+				&Roster::default(),
+				&BTreeSet::new(),
+				true,
+			)
+			.into_iter()
+			.filter_map(|row| match row {
+				Row::Channel(channel, ..) => Some(channel.id.0),
+				_ => None,
+			})
+			.collect::<Vec<_>>()
 		};
 		assert_eq!(order(&state), [35, 31, 32, 30, 34, 33]);
 		for latest in [model::Patch::Value(Id(90)), model::Patch::Null] {
@@ -1140,30 +1418,27 @@ mod tests {
 		let ids = |rows: Vec<Row<'_>>| {
 			rows.into_iter()
 				.map(|r| match r {
-					Row::Channel(c, _) | Row::Category(c, _) => c.id.0,
+					Row::Channel(c, ..) | Row::Category(c, _) => c.id.0,
 					Row::Participant(entry) => entry.participant.user.0,
-					Row::Section(_) => 0,
+					Row::Heading(..) => 0,
 				})
 				.collect::<Vec<_>>()
 		};
+		fn tree(state: &State, collapsed: BTreeSet<Id>) -> Vec<Row<'_>> {
+			rows(
+				state,
+				Scope::Guild(Id(100)),
+				&Roster::default(),
+				&collapsed,
+				true,
+			)
+		}
 		let layout = State {
 			channels: channels.clone(),
 			..State::default()
 		};
-		assert_eq!(
-			ids(rows(&layout, Some(Id(100)), &BTreeSet::new(), None, true,)),
-			[3, 2, 4, 7, 8, 5, 9]
-		);
-		assert_eq!(
-			ids(rows(
-				&layout,
-				Some(Id(100)),
-				&BTreeSet::from([Id(4)]),
-				Some(Id(8)),
-				true,
-			)),
-			[3, 2, 4, 8, 5, 9]
-		);
+		assert_eq!(ids(tree(&layout, BTreeSet::new())), [3, 2, 4, 7, 8, 5, 9]);
+		assert_eq!(ids(tree(&layout, BTreeSet::from([Id(4)]))), [3, 2, 4, 5, 9]);
 		let mut hierarchy = vec![
 			channel(4, 4, 0, None),
 			channel(7, 15, 0, Some(Id(4))),
@@ -1188,27 +1463,14 @@ mod tests {
 			channels: hierarchy.clone(),
 			..State::default()
 		};
-		let expanded = rows(
-			&hierarchy_state,
-			Some(Id(100)),
-			&BTreeSet::new(),
-			None,
-			true,
-		);
+		let expanded = tree(&hierarchy_state, BTreeSet::new());
 		assert_eq!(expanded.len(), hierarchy.len() - 1);
 		assert_eq!(
 			ids(expanded),
 			[20, 21, 22, 23, 24, 25, 27, 28, 4, 7, 9, 8, 10, 11, 12, 13]
 		);
-		let collapsed = rows(
-			&hierarchy_state,
-			Some(Id(100)),
-			&BTreeSet::from([Id(4)]),
-			Some(Id(8)),
-			true,
-		);
-		assert!(matches!(collapsed.last(), Some(Row::Channel(c, true)) if c.id == Id(8)));
-		assert_eq!(ids(collapsed), [20, 21, 22, 23, 24, 25, 27, 28, 4, 7, 8]);
+		let collapsed = tree(&hierarchy_state, BTreeSet::from([Id(4)]));
+		assert_eq!(ids(collapsed), [20, 21, 22, 23, 24, 25, 27, 28, 4]);
 		assert!(!hierarchy[1].supports_text() && !hierarchy[6].supports_text());
 		assert!(hierarchy[2].supports_text());
 		assert_eq!(kind_label(16), "Media · loaded posts");
@@ -1252,6 +1514,7 @@ mod tests {
 		assert!(state.selected.is_none());
 		// A category is a keyboard-operable button, never a history-selection command.
 		state.channels = vec![channel(4, 4, 0, None), channel(8, 0, 0, Some(Id(4)))];
+		state.selected = Some(Id(8));
 		// Direct fixture replacement must invalidate derived views, as State::apply does.
 		state.revision += 1;
 		state.invalidate_navigation();
@@ -1273,7 +1536,15 @@ mod tests {
 			output.textures_delta.clear();
 		}
 		assert!(view.collapsed_categories.contains(&Id(4)));
-		assert!(state.selected.is_none());
+		assert_eq!(state.selected, Some(Id(8)));
+		ctx.run_ui(egui::RawInput::default(), |ui| {
+			assert!(view.channel_list(ui, &mut state).is_none());
+		})
+		.drop_without_applying_deltas();
+		assert!(matches!(
+			view.channel_cache.rows.as_slice(),
+			[CachedRow::Category(_, 1)]
+		));
 		// Forum containers never request history; their loaded posts remain keyboard-selectable.
 		state.channels = vec![channel(7, 15, 0, None), channel(8, 11, 0, Some(Id(7)))];
 		state.revision += 1;

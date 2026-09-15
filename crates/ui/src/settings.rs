@@ -102,7 +102,7 @@ impl Page {
 			Self::Account => "my account profile logout",
 			Self::Profile => "profile edit display name about me bio pronouns color colour",
 			Self::General => {
-				"general windows startup autostart automatically open minimized minimize tray background"
+				"general windows macos login menu bar startup autostart automatically open minimized minimize tray background"
 			}
 			Self::Appearance => {
 				"appearance customization primary accent hex window tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
@@ -119,7 +119,7 @@ impl Page {
 			}
 			Self::Storage => "data privacy local storage clear cache drafts credentials",
 			Self::Updates => {
-				"updates auto update release channel production stable nightly download restart version check"
+				"updates auto update release channel production stable nightly download restart version check diagnostics issue bug system info debug"
 			}
 			Self::Keybinds => {
 				"system keybinds keyboard shortcuts custom default formatting navigation"
@@ -415,6 +415,27 @@ impl MessagingUi {
 						.size(11.0)
 						.color(colors.muted),
 				);
+				ui.add_space(2.0);
+				let copied = self
+					.updates
+					.copied_diagnostics
+					.is_some_and(|until| ui.input(|i| i.time) < until);
+				let link_text = if copied {
+					RichText::new("✓ Copied issue info")
+						.size(11.0)
+						.color(colors.positive)
+				} else {
+					RichText::new("Copy issue info")
+						.size(11.0)
+						.color(colors.muted)
+				};
+				if ui
+					.link(link_text)
+					.on_hover_text("Copy environment information formatted for GitHub issues")
+					.clicked()
+				{
+					self.copy_diagnostic_info(ui.ctx());
+				}
 			});
 	}
 
@@ -664,14 +685,20 @@ impl MessagingUi {
 			}
 		}
 		if !self.startup_available {
-			ui.label("Automatic startup is currently available on Windows only.");
+			ui.label("Automatic startup is currently available on Windows and macOS only.");
 		}
 		ui.add_space(12.0);
 		ui.add_enabled_ui(self.tray_available, |ui| {
 			design::switch(
 				ui,
-				"Show Serein in System Tray",
-				Some(if cfg!(target_os = "linux") {
+				if cfg!(target_os = "macos") {
+					"Show Serein in the menu bar"
+				} else {
+					"Show Serein in System Tray"
+				},
+				Some(if cfg!(target_os = "macos") {
+					"Show a menu bar icon. Minimized windows stay in the Dock."
+				} else if cfg!(target_os = "linux") {
 					"Closing the window keeps Serein in the tray. Use the tray menu to quit."
 				} else {
 					"Show a notification-area icon. Minimized windows stay in the taskbar."

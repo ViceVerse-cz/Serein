@@ -92,7 +92,7 @@ pub struct Starter {
 }
 
 pub(crate) fn starters() -> Result<Vec<Starter>, String> {
-	let packages: [(&'static [u8], &'static str); 6] = [
+	let packages: [(&'static [u8], &'static str); 10] = [
 		(
 			include_bytes!(
 				"../../../examples/extensions/packages/message-delete-protector.serein-extension"
@@ -119,6 +119,22 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 			include_bytes!("../../../extensions/latte.serein-extension"),
 			"Warm coffee tones and a creamy caramel accent.",
 		),
+		(
+			include_bytes!("../../../extensions/golden.serein-extension"),
+			"Warm charcoal and gold, with rounded, roomy controls.",
+		),
+		(
+			include_bytes!("../../../extensions/katana.serein-extension"),
+			"Katana's dark charcoal surfaces and sharp red accents. Light mode uses built-in colors.",
+		),
+		(
+			include_bytes!("../../../extensions/obsidian.serein-extension"),
+			"Obsidian violet surfaces and lavender accents in light and dark.",
+		),
+		(
+			include_bytes!("../../../extensions/teal.serein-extension"),
+			"Cool blue-green surfaces with fresh teal accents.",
+		),
 	];
 	packages
 		.into_iter()
@@ -142,13 +158,13 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 #[cfg(feature = "demo")]
 pub fn demo_check_examples() -> Result<bool, String> {
 	let starters = starters()?;
-	if starters.len() != 6
+	if starters.len() != 10
 		|| starters
 			.iter()
 			.filter(|entry| entry.theme.is_some())
-			.count() != 5
+			.count() != 9
 	{
-		return Err("Expected one starter plugin and five themes".into());
+		return Err("Expected one starter plugin and nine themes".into());
 	}
 	let gate = Gate {
 		epoch: 0,
@@ -1396,11 +1412,11 @@ mod tests {
 		assert!(!profile.0.join("cancelled.json").exists());
 	}
 
-	#[cfg(feature = "demo")]
 	#[test]
 	fn shop_preview_demo_catalog_and_images_are_local_and_hash_pinned() {
 		let starters = starters().unwrap();
-		assert_eq!(starters.len(), 6);
+		assert_eq!(starters.len(), 10);
+		let mut ids = std::collections::BTreeSet::new();
 		for starter in starters {
 			let InstallSource::Bundled {
 				bytes,
@@ -1411,6 +1427,7 @@ mod tests {
 				panic!("Expected bundled source");
 			};
 			assert_eq!(sha256, digest(bytes));
+			assert!(ids.insert(manifest.id));
 			assert_eq!(starter.download_bytes, bytes.len() as u64);
 			assert_eq!(
 				starter.theme.is_some(),

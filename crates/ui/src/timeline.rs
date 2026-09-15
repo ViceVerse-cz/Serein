@@ -25,6 +25,7 @@ pub struct TimelineView {
 	pub(super) reply_started: bool,
 	pub(super) quick_delete: Option<(Id, Id)>,
 	pub(super) channel_reference: Option<Id>,
+	pub(super) pending_channel_reference: Option<Id>,
 	pub(super) reply_target: Option<Id>,
 	highlighted: Option<(Id, f64)>,
 	target_browsing: bool,
@@ -48,6 +49,7 @@ pub struct TimelineView {
 	revision: u64,
 	channel: Option<Id>,
 	anchor: Option<(Id, f32)>,
+	scroll_offset: f32,
 	following: bool,
 	formatted: FormatCache,
 	pending_formatted: FormatCache,
@@ -157,13 +159,9 @@ fn channel_welcome(ui: &mut egui::Ui, channel: &model::Channel, height: f32) {
 		});
 }
 
-fn loading_messages(ui: &mut egui::Ui, fill_viewport: bool) {
+fn loading_messages(ui: &mut egui::Ui) {
 	let colors = crate::design::palette(ui);
-	let height = if fill_viewport {
-		ui.available_height()
-	} else {
-		ui.available_height().min(144.0)
-	};
+	let height = ui.available_height();
 	let (rect, response) = ui.allocate_exact_size(
 		egui::vec2(ui.available_width(), height),
 		egui::Sense::hover(),
@@ -174,11 +172,7 @@ fn loading_messages(ui: &mut egui::Ui, fill_viewport: bool) {
 	let painter = ui.painter().with_clip_rect(ui.clip_rect().intersect(rect));
 	let fill = colors.muted.gamma_multiply(0.22);
 	let text_width = (rect.width() - 88.0).clamp(0.0, 480.0);
-	let rows = if fill_viewport {
-		(height / 68.0).ceil().clamp(0.0, 128.0) as usize
-	} else {
-		2
-	};
+	let rows = (height / 68.0).ceil().clamp(0.0, 128.0) as usize;
 	for (index, length) in [0.85, 0.65, 0.95, 0.55]
 		.into_iter()
 		.cycle()
@@ -289,6 +283,11 @@ fn grouped(previous: Option<&Message>, message: &Message, boundary: Option<Id>) 
 			&& timestamp(previous.id).date() == timestamp(message.id).date()
 			&& (timestamp(message.id) - timestamp(previous.id)).whole_seconds() < 300
 	})
+}
+
+fn mentions_viewer(message: &Message, viewer: Option<Id>) -> bool {
+	message.mention_everyone
+		|| viewer.is_some_and(|viewer| message.mentions.iter().any(|mention| mention.id == viewer))
 }
 fn row_key(message: &Message, previous: Option<&Message>, boundary: Option<Id>) -> u64 {
 	let mut key = DefaultHasher::new();
@@ -554,6 +553,7 @@ impl TimelineView {
 		self.jump = true;
 		self.anchor = None;
 	}
+	#[cfg(test)]
 	pub fn show(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -562,6 +562,29 @@ impl TimelineView {
 		deleting: &mut Option<(Id, Id)>,
 		(avatars, profile): (&mut crate::avatars::Avatars, &mut Option<model::User>),
 		upload: Option<&crate::pending::Upload>,
+	) {
+		let mut scroll = crate::scroll::Session::default();
+		self.show_with_scroll(
+			ui,
+			state,
+			editing,
+			deleting,
+			(avatars, profile),
+			upload,
+			&mut scroll,
+		);
+	}
+
+	#[allow(clippy::too_many_arguments)]
+	pub fn show_with_scroll(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		editing: &mut Option<(Id, Id, String)>,
+		deleting: &mut Option<(Id, Id)>,
+		(avatars, profile): (&mut crate::avatars::Avatars, &mut Option<model::User>),
+		upload: Option<&crate::pending::Upload>,
+		session: &mut crate::scroll::Session,
 	) {
 		let width = ui.available_width();
 		let channel_changed = self.channel != state.selected;
@@ -646,19 +669,23 @@ impl TimelineView {
 			labels_changed = self.channel_labels != labels;
 			self.channel_labels = labels;
 		}
-		let dimensions_changed = (self.width - width).abs() > 1.0
-			|| self.text_size != text_size
+		let width_changed = (self.width - width).abs() > 1.0;
+		let content_dimensions_changed = self.text_size != text_size
 			|| self.scale != scale
 			|| labels_changed
 			|| self.hide_media_links != self.applied_hide_media_links;
+		let dimensions_changed = width_changed || content_dimensions_changed;
 		self.applied_hide_media_links = self.hide_media_links;
 		let changed = self.revision != state.revision || dimensions_changed;
 		let mut offset = None;
+		let mut lead_rows = None;
 		if changed {
-			if dimensions_changed {
+			if content_dimensions_changed {
 				self.heights.clear();
 				self.pending_heights.clear();
 			}
+			// Keep measured heights as estimates during resize. Visible rows are
+			// remeasured below; resetting everything makes the scroll extent jump.
 			self.width = width;
 			self.text_size = text_size;
 			self.scale = scale;
@@ -676,6 +703,7 @@ impl TimelineView {
 			self.revealed
 				.retain(|id, content| state.timeline.get(*id).is_some_and(|m| content.matches(m)));
 			let mut previous = None;
+			let mut lead_basis = 0.0;
 			self.rows = state
 				.timeline
 				.display_iter()
@@ -706,9 +734,15 @@ impl TimelineView {
 						.get(&m.id)
 						.filter(|(old_key, _)| *old_key == key)
 						.map_or(estimate, |(_, height)| *height);
+					lead_basis += if height * 8.0 < estimate {
+						estimate
+					} else {
+						height
+					};
 					(m.id, height)
 				})
 				.collect();
+			lead_rows = Some(lead_basis);
 			self.revision = state.revision;
 			if !self.following
 				&& let Some((id, inset)) = self.anchor
@@ -740,11 +774,9 @@ impl TimelineView {
 		if !history_available {
 			ui.weak("Message history is unavailable with current permission information.");
 		}
-		if history_available && state.freshness == model::Freshness::Loading {
-			loading_messages(ui, empty);
-			if empty {
-				return;
-			}
+		if history_available && state.freshness == model::Freshness::Loading && empty {
+			loading_messages(ui);
+			return;
 		} else if empty && history_available && !welcome {
 			ui.label(match state.freshness {
 				model::Freshness::Loading => "Loading messages…",
@@ -781,6 +813,11 @@ impl TimelineView {
 			} else {
 				self.highlighted = None;
 			}
+		}
+		let area = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+		let autoscroll_delta = session.bind(ui, ui.id().with(("timeline", state.selected)), area);
+		if autoscroll_delta > 0.0 {
+			self.following = false;
 		}
 		let mut scroll = egui::ScrollArea::vertical()
 			.id_salt(("timeline", state.selected))
@@ -820,6 +857,9 @@ impl TimelineView {
 				(p, height)
 			})
 			.collect();
+		let pending_height = pending_rows.iter().map(|(_, height)| *height).sum::<f32>();
+		let packed = total + pending_height + end_padding;
+		let lead_packed = lead_rows.unwrap_or(total) + pending_height + end_padding;
 		if std::mem::take(&mut self.jump) {
 			offset = Some(
 				(total + end_padding + pending_rows.iter().map(|(_, height)| height).sum::<f32>()
@@ -827,26 +867,57 @@ impl TimelineView {
 				.max(0.0),
 			);
 		}
+		if autoscroll_delta != 0.0 {
+			// Set the viewport before virtualization. A global scroll delta can be consumed
+			// by nested embed scroll areas and moves past the rows laid out this frame.
+			let max_offset =
+				(total + end_padding + pending_rows.iter().map(|(_, height)| height).sum::<f32>()
+					- ui.available_height())
+				.max(0.0);
+			let next =
+				(offset.unwrap_or(self.scroll_offset) - autoscroll_delta).clamp(0.0, max_offset);
+			offset = Some(next);
+			if next != self.scroll_offset {
+				ui.ctx().request_repaint();
+			}
+		}
 		if let Some(offset) = offset {
 			scroll = scroll.vertical_scroll_offset(offset);
 		}
 		let mut measurements = Vec::new();
 		let mut selected_reply = None;
 		// ScrollArea consumes wheel input while applying it; retain the viewing gesture.
-		let scroll_delta = ui.input(|input| input.smooth_scroll_delta().y);
-		let allow_hover =
-			!ui.input(|input| input.is_scrolling()) && ui.ctx().dragged_id().is_none();
+		let scroll_delta = ui.input(|input| input.smooth_scroll_delta().y) + autoscroll_delta;
+		let allow_hover = !session.holding()
+			&& !ui.input(|input| input.is_scrolling())
+			&& ui.ctx().dragged_id().is_none();
 		let output = scroll.show_viewport(ui, |ui, viewport| {
 			ui.spacing_mut().item_spacing.y = 0.0;
 			if welcome && let Some(channel) = state.selected.and_then(|id| state.channel(id)) {
 				channel_welcome(ui, channel, viewport.height() - end_padding);
 			}
+			let lead = if welcome {
+				0.0
+			} else {
+				(viewport.height() - lead_packed).max(0.0)
+			};
+			ui.add_space(lead);
+			// Initial bottom alignment can expose more rows after estimates shrink.
+			let overscan = if channel_changed && self.following {
+				viewport.height().max(100.0)
+			} else {
+				100.0
+			};
 			let (first, _, top) = visible_range(
 				&self.rows,
-				(viewport.min.y - 100.0).max(0.0),
-				viewport.max.y + 100.0,
+				(viewport.min.y - overscan - lead).max(0.0),
+				(viewport.max.y + 100.0 - lead).max(0.0),
 			);
-			let (anchor, _, anchor_top) = visible_range(&self.rows, viewport.min.y, viewport.max.y);
+			let (anchor, _, anchor_top) = visible_range(
+				&self.rows,
+				(viewport.min.y - lead).max(0.0),
+				(viewport.max.y - lead).max(0.0),
+			);
 			let content_top = ui.cursor().top();
 			let clip = ui.clip_rect();
 			// Measure leading overscan without changing the visible rows or parent bounds.
@@ -887,35 +958,84 @@ impl TimelineView {
 				if state.timeline.is_deleted(*id) {
 					let colors = crate::design::palette(ui);
 					let response = ui.push_id(row_id, |ui| {
-						egui::Frame::new()
-							.fill(colors.danger.gamma_multiply(0.10))
-							.inner_margin(egui::Margin::symmetric(16, 10))
+						egui::Frame::NONE
+							.inner_margin(egui::Margin {
+								left: 16,
+								right: 16,
+								top: 14,
+								bottom: 1,
+							})
 							.show(ui, |ui| {
 								ui.set_min_width((width - 32.0).max(1.0));
-								ui.horizontal_wrapped(|ui| {
-									ui.label(
-										RichText::new(&message.author.name)
-											.strong()
-											.color(colors.danger),
-									);
-									ui.label(
-										RichText::new("Deleted - kept by Message delete protector")
-											.small()
-											.color(colors.danger),
-									);
+								ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
+								ui.horizontal_top(|ui| {
+									avatars.show_plain(ui, &message.author, 40.0, state.demo);
+									ui.vertical(|ui| {
+										ui.set_width(ui.available_width());
+										ui.allocate_ui_with_layout(
+											egui::vec2(ui.available_width(), 22.0),
+											egui::Layout::left_to_right(egui::Align::Center),
+											|ui| {
+												ui.spacing_mut().item_spacing.x = 8.0;
+												crate::account_badge::name(
+													ui,
+													&message.author,
+													state.message_author_name(message),
+													15.5,
+													state.message_author_color(message).map_or(
+														colors.text_strong,
+														|rgb| {
+															crate::design::role_name_color(
+																rgb,
+																colors.chat,
+																colors.text_strong,
+															)
+														},
+													),
+													egui::Sense::hover(),
+													48.0,
+												);
+												let time = timestamp(*id);
+												ui.label(
+													RichText::new(format!(
+														"{:02}:{:02}",
+														time.hour(),
+														time.minute()
+													))
+													.size(12.0)
+													.color(colors.muted),
+												)
+												.on_hover_text_with(|| {
+													format!("Deleted message · {} UTC", time)
+												});
+											},
+										);
+										let body = ui.add(
+											egui::Label::new(
+												RichText::new(if message.content.is_empty() {
+													"[Deleted message had no text]"
+												} else {
+													&message.content
+												})
+												.size(16.0)
+												.color(colors.danger),
+											)
+											.wrap()
+											.selectable(true),
+										);
+										body.widget_info(|| {
+											egui::WidgetInfo::labeled(
+												egui::WidgetType::Label,
+												true,
+												format!(
+													"Deleted message by {}. {}",
+													state.message_author_name(message),
+													message.content
+												),
+											)
+										});
+									});
 								});
-								ui.add(
-									egui::Label::new(
-										RichText::new(if message.content.is_empty() {
-											"[Deleted message had no text]"
-										} else {
-											&message.content
-										})
-										.color(colors.danger),
-									)
-									.wrap()
-									.selectable(true),
-								);
 							});
 					});
 					measurements.push((
@@ -1018,7 +1138,10 @@ impl TimelineView {
 														self.reply_target = Some(reply);
 													}
 													preview.append(
-														&format!("@{}  ", original.author.name),
+														&format!(
+															"@{}  ",
+															state.message_author_name(original)
+														),
 														0.0,
 														egui::TextFormat {
 															font_id: egui::FontId::new(
@@ -1129,9 +1252,18 @@ impl TimelineView {
 												let author = crate::account_badge::name(
 													ui,
 													&message.author,
-													state.user_display_name(&message.author),
+													state.message_author_name(message),
 													15.5,
-													colors.text_strong,
+													state.message_author_color(message).map_or(
+														colors.text_strong,
+														|rgb| {
+															crate::design::role_name_color(
+																rgb,
+																colors.chat,
+																colors.text_strong,
+															)
+														},
+													),
 													egui::Sense::click(),
 													48.0,
 												);
@@ -1361,7 +1493,8 @@ impl TimelineView {
 											&& state.freshness == model::Freshness::Fresh
 											&& state.can_read_history(message.channel),
 										state.reactions.busy(),
-										state.reactions.invalidated(message.id),
+										(state.history_pending && state.history_before.is_none())
+											|| state.reactions.invalidated(message.id),
 										(avatars, state.demo),
 										|emoji, add| state.can_react(*id, Some(emoji), add),
 									) {
@@ -1371,9 +1504,8 @@ impl TimelineView {
 							});
 						});
 					let rect = row.response.rect;
-					let mentioned = state.user.as_ref().is_some_and(|user| {
-						message.mentions.iter().any(|mention| mention.id == user.id)
-					});
+					let mentioned =
+						mentions_viewer(message, state.user.as_ref().map(|user| user.id));
 					if mentioned {
 						ui.painter().set(
 							background,
@@ -1638,9 +1770,7 @@ impl TimelineView {
 				});
 				let measured = response.response.rect.height();
 				if (measured - height).abs() > 1.0 {
-					if !dimensions_changed {
-						ui.ctx().request_discard("Pending message height settled");
-					}
+					ui.ctx().request_discard("Pending message height settled");
 					ui.ctx().request_repaint();
 				}
 				self.pending_heights.insert(pending.nonce.clone(), measured);
@@ -1656,24 +1786,33 @@ impl TimelineView {
 			}
 			viewport.min.y
 		});
+		self.scroll_offset = output.state.offset.y;
 		// ScrollArea applies wheel input after laying out its contents. Preserve that
 		// movement when new row measurements rebuild the timeline on the next pass.
+		let spare = if welcome {
+			0.0
+		} else {
+			(output.inner_rect.height() - lead_packed).max(0.0)
+		};
+		let lead = spare;
 		let (anchor, _, anchor_top) = visible_range(
 			&self.rows,
-			output.state.offset.y,
-			output.state.offset.y + output.inner_rect.height(),
+			(output.state.offset.y - lead).max(0.0),
+			(output.state.offset.y + output.inner_rect.height() - lead).max(0.0),
 		);
 		self.anchor = self
 			.rows
 			.get(anchor)
-			.map(|(id, _)| (*id, output.state.offset.y - anchor_top));
+			.map(|(id, _)| (*id, output.state.offset.y - lead - anchor_top));
 		if selected_reply.is_some() {
 			state.reply = selected_reply;
 			self.reply_started = true;
 		}
 		let distance_from_bottom =
 			(output.content_size.y - output.state.offset.y - output.inner_rect.height()).max(0.0);
-		let at_bottom = distance_from_bottom <= 3.0;
+		let whole_conversation_visible =
+			state.older_exhausted && packed <= output.inner_rect.height() + 3.0;
+		let at_bottom = distance_from_bottom <= 3.0 || whole_conversation_visible;
 		// The live edge counts even when service latest metadata outlived a deleted message;
 		// otherwise the unread banners could never resolve for that channel.
 		self.at_current_latest = state.live_edge_latest().is_some()
@@ -1682,9 +1821,6 @@ impl TimelineView {
 					Some(channel.id) == state.selected && channel.last_message == Some(message.id)
 				})
 			});
-
-		let whole_conversation_visible =
-			state.older_exhausted && output.content_size.y <= output.inner_rect.height() + 3.0;
 		if initial_unread_gap
 			&& !state.history_targeted
 			&& state.history_before.is_none()
@@ -1695,7 +1831,7 @@ impl TimelineView {
 		}
 
 		if at_bottom
-			&& self.at_current_latest
+			&& (can_load_newer || self.at_current_latest)
 			&& ui.input(|input| {
 				(scroll_delta < 0.0
 					&& input
@@ -1704,11 +1840,18 @@ impl TimelineView {
 						.is_some_and(|pos| output.inner_rect.contains(pos)))
 					|| (input.pointer.any_down() && output.state.offset.y > output.inner)
 			}) {
-			self.target_browsing = false;
-			if state.history_targeted || state.history_after.is_some() {
-				self.latest = true;
+			if can_load_newer {
+				self.load_newer = true;
+				self.browse_away();
+			} else {
+				self.target_browsing = false;
+				if state.history_targeted || state.history_after.is_some() {
+					self.latest = true;
+				}
 			}
-			ui.ctx().request_repaint();
+			if autoscroll_delta == 0.0 || can_load_newer {
+				ui.ctx().request_repaint();
+			}
 		}
 		if self.reply_target.is_some() {
 			self.target_browsing = true;
@@ -1746,9 +1889,11 @@ impl TimelineView {
 			self.revision = u64::MAX;
 			if self.following {
 				self.jump = true;
-				// Resizing invalidates heights each frame; settle on the queued repaint
-				// instead of paying for an extra layout pass throughout the drag.
-				if !dimensions_changed {
+				// Settle a newly selected chat before presenting estimated row positions.
+				// Keep resize and active scrolling on their existing anchored path.
+				if !dimensions_changed
+					|| (channel_changed && scroll_delta == 0.0 && !session.holding())
+				{
 					ui.ctx().request_discard("Timeline message heights settled");
 				}
 			}
@@ -1759,9 +1904,10 @@ impl TimelineView {
 		}
 		// A user scroll near the top requests one page; a short initial view never drains history.
 		self.load_older = !self.following
+			&& spare == 0.0
 			&& output.state.offset.y < 160.0
 			&& ui.input(|i| {
-				i.smooth_scroll_delta().y > 0.0
+				scroll_delta > 0.0
 					&& i.pointer
 						.hover_pos()
 						.is_some_and(|pos| output.inner_rect.contains(pos))
@@ -2166,6 +2312,59 @@ mod tests {
 	}
 
 	#[test]
+	fn downward_wheel_at_pinned_target_loads_next_page() {
+		let mut state = test_support::demo_state();
+		state.timeline.clear();
+		state.selected = Some(Id(20));
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.history_targeted = true;
+		state.history_before = Some(Id(51));
+		state
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(20))
+			.unwrap()
+			.last_message = Some(Id(100));
+		for id in 1..=50 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		state.search_target = Some(Id(50));
+		state.revision += 1;
+		assert!(state.can_load_newer());
+
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		for _ in 0..5 {
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		}
+		assert!(!view.at_current_latest);
+
+		banner_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![
+				egui::Event::PointerMoved(egui::pos2(450.0, 300.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					delta: egui::vec2(0.0, -600.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+				},
+			],
+			false,
+		);
+
+		assert!(view.load_newer);
+		assert!(view.target_browsing);
+	}
+
+	#[test]
 	fn browsing_banner_waits_several_screens_and_click_survives_widget_order_changes() {
 		let ctx = egui::Context::default();
 		let mut state = test_support::demo_state();
@@ -2345,6 +2544,8 @@ mod tests {
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -2352,6 +2553,13 @@ mod tests {
 			reactions: Some(vec![]),
 			embeds_suppressed: false,
 		}
+	}
+	#[test]
+	fn mass_mentions_highlight_every_viewer() {
+		let mut message = text_message(1);
+		assert!(!mentions_viewer(&message, Some(Id(7))));
+		message.mention_everyone = true;
+		assert!(mentions_viewer(&message, Some(Id(7))));
 	}
 	#[test]
 	fn forwarded_audio_keeps_sender_label_and_player_in_narrow_and_wide_rows() {
@@ -4136,6 +4344,104 @@ mod tests {
 		}
 	}
 	#[test]
+	fn switching_cached_chats_keeps_message_positions_stable() {
+		for (width, count) in [(900.0, 2), (360.0, 50)] {
+			let mut state = test_support::demo_state();
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let mut view = TimelineView::default();
+			let mut avatars = crate::avatars::Avatars::default();
+			let mut render = |state: &mut State| {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(width, 480.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						view.show(
+							ui,
+							state,
+							&mut None,
+							&mut None,
+							(&mut avatars, &mut None),
+							None,
+						)
+					},
+				);
+				let y = output.shapes.iter().find_map(|shape| match &shape.shape {
+					egui::Shape::Text(text) if text.galley.text().contains("Switch anchor") => {
+						Some(text.pos.y)
+					}
+					_ => None,
+				});
+				output.drop_without_applying_deltas();
+				y
+			};
+			for channel in [Id(20), Id(21)] {
+				state.select(channel);
+				state.history(None);
+				let messages = (0..count)
+					.map(|index| {
+						let mut message = text_message(1000 * channel.0 + index);
+						message.channel = channel;
+						message.content = if index == count - 1 {
+							"Switch anchor".into()
+						} else {
+							"A wrapped synthetic message with different measured and estimated heights. ".repeat(3)
+						};
+						message
+					})
+					.collect();
+				state.apply(client_core::Envelope {
+					generation: state.generation,
+					event: client_core::Event::History {
+						channel,
+						request: state.request,
+						older: false,
+						messages,
+					},
+				});
+				for _ in 0..6 {
+					render(&mut state);
+				}
+			}
+			for channel in [Id(20), Id(21), Id(20)] {
+				assert!(matches!(
+					state.select(channel),
+					Some(client_core::Command::History { .. })
+				));
+				assert!(state.history_pending);
+				let first = render(&mut state).expect("cached switch must paint last message");
+				for _ in 0..4 {
+					let next = render(&mut state).expect("settled chat must paint last message");
+					assert!(
+						(first - next).abs() <= 1.0,
+						"cached switch moved from {first} to {next} at width {width}"
+					);
+				}
+				let messages = state.timeline.iter().cloned().collect();
+				state.apply(client_core::Envelope {
+					generation: state.generation,
+					event: client_core::Event::History {
+						channel,
+						request: state.request,
+						older: false,
+						messages,
+					},
+				});
+				let refreshed = render(&mut state).expect("refreshed chat must paint last message");
+				assert!(
+					(first - refreshed).abs() <= 1.0,
+					"refresh moved from {first} to {refreshed} at width {width}"
+				);
+			}
+		}
+	}
+
+	#[test]
 	fn resident_preview_renders_only_selected_rows_while_revalidating() {
 		fn collect(shape: &egui::Shape, labels: &mut Vec<String>) {
 			match shape {
@@ -4430,6 +4736,8 @@ mod tests {
 				discriminator: 0,
 			},
 			content: "<#4> ".repeat(12),
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -4592,6 +4900,8 @@ mod tests {
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -4679,6 +4989,8 @@ mod tests {
 			unsupported: false,
 			extra_content: Default::default(),
 			attachments: vec![],
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,

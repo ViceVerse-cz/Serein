@@ -23,6 +23,58 @@ impl LazyHover for egui::Response {
 	}
 }
 
+pub fn rail_name(response: &egui::Response, name: impl AsRef<str>) {
+	let name = name.as_ref();
+	if name.is_empty() {
+		return;
+	}
+	let dragging = response
+		.ctx
+		.input(|input| input.pointer.is_decidedly_dragging());
+	if dragging {
+		return;
+	}
+	if !response.contains_pointer() && !response.hovered() && !response.has_focus() {
+		return;
+	}
+	let ctx = &response.ctx;
+	let style = ctx.style_of(ctx.theme());
+	let painter = ctx.layer_painter(egui::LayerId::new(
+		egui::Order::Tooltip,
+		response.id.with("rail-name"),
+	));
+	let font_id = egui::TextStyle::Body.resolve(style.as_ref());
+	let text_color = style.visuals.widgets.noninteractive.fg_stroke.color;
+	let galley = painter.layout(
+		name.to_owned(),
+		font_id,
+		text_color,
+		style.spacing.tooltip_width,
+	);
+	let margin = style.spacing.menu_margin;
+	let size = galley.size() + margin.sum();
+	let screen = ctx.content_rect();
+	let mut min = egui::pos2(
+		response.rect.right() + 8.0,
+		response.rect.center().y - size.y * 0.5,
+	);
+	if min.x + size.x > screen.right() {
+		min.x = (response.rect.left() - 8.0 - size.x).max(screen.left());
+	}
+	min.y = min
+		.y
+		.clamp(screen.top(), (screen.bottom() - size.y).max(screen.top()));
+	let rect = egui::Rect::from_min_size(min, size);
+	painter.rect(
+		rect,
+		style.visuals.menu_corner_radius,
+		style.visuals.window_fill(),
+		style.visuals.window_stroke(),
+		egui::StrokeKind::Inside,
+	);
+	painter.galley(rect.min + margin.left_top(), galley, text_color);
+}
+
 /// Recolour preset layered over the light/dark preference.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[repr(u8)]
@@ -612,6 +664,11 @@ pub fn apply(ctx: &egui::Context) {
 		style.spacing.interact_size.y = f32::from(metrics.control_height.unwrap_or(32));
 		style.spacing.menu_margin = egui::Margin::same(8);
 		style.visuals.panel_fill = p.chat;
+		// Sub-pixel binning rasterizes each glyph at up to four fractional x offsets, so
+		// stems land between physical pixels and read as blurry at 1x — where most Windows
+		// and Linux desktops run. Whole-pixel positioning lets the bundled Inter faces'
+		// TrueType hints grid-fit stems instead, which is what Discord gets from DirectWrite.
+		style.visuals.text_options.subpixel_binning = false;
 		style.visuals.interact_cursor = Some(egui::CursorIcon::PointingHand);
 		style.visuals.window_fill = p.raised.to_opaque();
 		style.visuals.window_corner_radius = metrics.window_radius.unwrap_or(12).into();
@@ -668,6 +725,9 @@ pub fn apply(ctx: &egui::Context) {
 		style.visuals.widgets.open.fg_stroke = Stroke::new(1.0, p.text_strong);
 		ctx.set_style_of(theme, style);
 	}
+	ctx.options_mut(|options| {
+		options.input_options.line_scroll_speed = crate::scroll::DISCORD_LINE_SCROLL_SPEED;
+	});
 }
 /// Space reserved at the left of window strips for macOS traffic lights.
 pub const TRAFFIC_LIGHT_INSET: f32 = if cfg!(target_os = "macos") { 72.0 } else { 0.0 };
@@ -693,6 +753,91 @@ pub fn window_drag(ui: &mut egui::Ui, rect: egui::Rect) {
 		let maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
 		ui.ctx()
 			.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+	}
+}
+
+/// Native resize handles for the undecorated Windows viewport, including sign-in.
+pub fn window_resize(ctx: &egui::Context) {
+	if !cfg!(target_os = "windows")
+		|| ctx.input(|i| {
+			i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false)
+		}) {
+		return;
+	}
+	use egui::{CursorIcon as C, ResizeDirection as D};
+	let rect = ctx.viewport_rect();
+	let (l, r, t, b) = (rect.left(), rect.right(), rect.top(), rect.bottom());
+	let edge = 5.0;
+	let corner = 12.0;
+	for (index, (min, max, direction, cursor)) in [
+		(
+			[l, t],
+			[l + corner, t + corner],
+			D::NorthWest,
+			C::ResizeNwSe,
+		),
+		(
+			[r - corner, t],
+			[r, t + corner],
+			D::NorthEast,
+			C::ResizeNeSw,
+		),
+		(
+			[l, b - corner],
+			[l + corner, b],
+			D::SouthWest,
+			C::ResizeNeSw,
+		),
+		(
+			[r - corner, b - corner],
+			[r, b],
+			D::SouthEast,
+			C::ResizeNwSe,
+		),
+		(
+			[l + corner, t],
+			[r - corner, t + edge],
+			D::North,
+			C::ResizeVertical,
+		),
+		(
+			[l + corner, b - edge],
+			[r - corner, b],
+			D::South,
+			C::ResizeVertical,
+		),
+		(
+			[l, t + corner],
+			[l + edge, b - corner],
+			D::West,
+			C::ResizeHorizontal,
+		),
+		(
+			[r - edge, t + corner],
+			[r, b - corner],
+			D::East,
+			C::ResizeHorizontal,
+		),
+	]
+	.into_iter()
+	.enumerate()
+	{
+		let handle = egui::Rect::from_min_max(min.into(), max.into());
+		egui::Area::new(egui::Id::unique(("window-resize", index)))
+			.order(egui::Order::Foreground)
+			.fixed_pos(handle.min)
+			.constrain(false)
+			.default_size(handle.size())
+			.movable(false)
+			.show(ctx, |ui| {
+				let (_, response) = ui.allocate_exact_size(handle.size(), egui::Sense::click());
+				let response = response.on_hover_cursor(cursor);
+				if response.is_pointer_button_down_on()
+					&& ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary))
+				{
+					ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
+				}
+			});
 	}
 }
 
@@ -1503,6 +1648,78 @@ pub fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
 			add(ui)
 		})
 		.inner
+}
+
+/// Syntax colours for fenced code blocks: one dark and one light set, tuned to stay legible
+/// on the `raised` surface every preset uses as its code background.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CodeColors {
+	pub keyword: Color32,
+	pub type_name: Color32,
+	pub function: Color32,
+	pub string: Color32,
+	pub comment: Color32,
+	pub number: Color32,
+	pub constant: Color32,
+	pub attribute: Color32,
+	pub tag: Color32,
+	pub punctuation: Color32,
+	pub added: Color32,
+	pub removed: Color32,
+}
+impl CodeColors {
+	pub fn color(&self, token: crate::highlight::Token, plain: Color32) -> Color32 {
+		use crate::highlight::Token;
+		match token {
+			Token::Plain => plain,
+			Token::Keyword => self.keyword,
+			Token::Type => self.type_name,
+			Token::Function => self.function,
+			Token::String => self.string,
+			Token::Comment => self.comment,
+			Token::Number => self.number,
+			Token::Constant => self.constant,
+			Token::Attribute => self.attribute,
+			Token::Tag => self.tag,
+			Token::Punctuation => self.punctuation,
+			Token::Added => self.added,
+			Token::Removed => self.removed,
+		}
+	}
+}
+pub fn code_colors(ui: &egui::Ui) -> CodeColors {
+	let p = palette(ui);
+	if ui.visuals().dark_mode {
+		CodeColors {
+			keyword: rgb(0xc792ea),
+			type_name: rgb(0xffcb6b),
+			function: rgb(0x82aaff),
+			string: rgb(0xa5d97a),
+			comment: p.muted,
+			number: rgb(0xf78c6c),
+			constant: rgb(0xf07178),
+			attribute: rgb(0x89ddff),
+			tag: rgb(0xf07178),
+			punctuation: mix(p.text, p.muted, 0.5),
+			added: p.positive,
+			removed: p.danger,
+		}
+	} else {
+		CodeColors {
+			keyword: rgb(0x7c3aed),
+			type_name: rgb(0xb45309),
+			function: rgb(0x1d4ed8),
+			string: rgb(0x15803d),
+			comment: p.muted,
+			number: rgb(0xc2410c),
+			constant: rgb(0xbe185d),
+			attribute: rgb(0x0e7490),
+			tag: rgb(0xbe123c),
+			punctuation: mix(p.text, p.muted, 0.5),
+			added: p.positive,
+			removed: p.danger,
+		}
+	}
 }
 
 /// Linear blend of two colours in premultiplied space; `t` = 0 keeps `a`, 1 gives `b`.

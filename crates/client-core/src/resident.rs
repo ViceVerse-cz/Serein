@@ -196,6 +196,8 @@ impl State {
 			| Event::DeleteBulk { channel, .. }
 			| Event::Reactions(
 				reactions::Event::Changed { channel, .. }
+				| reactions::Event::Delta { channel, .. }
+				| reactions::Event::Cleared { channel, .. }
 				| reactions::Event::Written { channel, .. },
 			) => Some(*channel),
 			Event::RecipientRemoved { channel, user }
@@ -249,6 +251,8 @@ mod tests {
 			},
 			content: "Resident synthetic content".into(),
 			reactions: Some(vec![]),
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -526,6 +530,22 @@ mod tests {
 			Event::Reactions(reactions::Event::Changed {
 				channel: Id(1),
 				message: Id(1001),
+			}),
+			Event::Reactions(reactions::Event::Delta {
+				channel: Id(1),
+				message: Id(1001),
+				user: Id(2),
+				emoji: model::ReactionEmoji {
+					id: None,
+					name: Some("x".into()),
+				},
+				add: true,
+				burst: false,
+			}),
+			Event::Reactions(reactions::Event::Cleared {
+				channel: Id(1),
+				message: Id(1001),
+				emoji: None,
 			}),
 			Event::SendResult {
 				nonce: "synthetic".into(),

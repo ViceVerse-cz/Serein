@@ -250,7 +250,7 @@ where
 		} else {
 			CursorCaptureSettings::WithoutCursor
 		},
-		DrawBorderSettings::Default,
+		DrawBorderSettings::WithoutBorder,
 		SecondaryWindowSettings::Default,
 		MinimumUpdateIntervalSettings::Default,
 		DirtyRegionSettings::Default,

@@ -6,6 +6,8 @@ use std::{collections::BTreeMap, path::Path};
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
+const NATIVE_SCHEMA: u32 = 16;
+const READABLE_SCHEMA: u32 = 17;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
 pub struct LocalStore(Connection);
@@ -129,7 +131,7 @@ impl LocalStore {
 	fn initialize(mut connection: Connection) -> Result<Self> {
 		connection.busy_timeout(std::time::Duration::from_secs(2))?;
 		let version: u32 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
-		if version > 16 {
+		if version > READABLE_SCHEMA {
 			return Err(StoreError::Incompatible);
 		}
 		connection.execute_batch("PRAGMA page_size=4096; PRAGMA max_page_count=16384; PRAGMA cache_size=-2048; PRAGMA temp_store=MEMORY; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=8388608; PRAGMA secure_delete=ON; PRAGMA auto_vacuum=INCREMENTAL;
@@ -247,7 +249,8 @@ impl LocalStore {
             CREATE TABLE IF NOT EXISTS channel_preferences(
                 account TEXT PRIMARY KEY NOT NULL,
                 value TEXT NOT NULL CHECK(typeof(value)='text' AND length(CAST(value AS BLOB))<=8192)
-            ); PRAGMA user_version=16;")?;
+            );")?;
+		transaction.pragma_update(None, "user_version", version.max(NATIVE_SCHEMA))?;
 		let has_animate_gifs: bool = transaction.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='animate_gifs')",
 			[],
@@ -736,6 +739,8 @@ impl LocalStore {
 				nonce: None,
 				revision: 0,
 				embeds,
+				author_nick: None,
+				author_roles: vec![],
 				mention_roles: vec![],
 				mention_everyone: false,
 				suppress_notifications: false,
@@ -2076,6 +2081,8 @@ mod tests {
 					title: Some("Cached synthetic embed".into()),
 					..Default::default()
 				}],
+				author_nick: None,
+				author_roles: vec![],
 				mention_roles: vec![],
 				mention_everyone: false,
 				suppress_notifications: false,

@@ -136,6 +136,8 @@ mod tests {
 			},
 			content: "Synthetic reply".into(),
 			reactions: Some(vec![]),
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,

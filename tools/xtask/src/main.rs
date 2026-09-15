@@ -238,12 +238,16 @@ fn package() -> Result<(), String> {
 		[] => "deb",
 		[flag, value]
 			if flag == "--format"
-				&& matches!(value.as_str(), "deb" | "rpm" | "arch" | "dir")
+				&& matches!(value.as_str(), "deb" | "rpm" | "arch" | "dir" | "appimage")
 				&& cfg!(target_os = "linux") =>
 		{
 			value.as_str()
 		}
-		_ => return Err("Use cargo xtask package [--format deb|rpm|arch|dir (Linux only)]".into()),
+		_ => {
+			return Err(
+				"Use cargo xtask package [--format deb|rpm|arch|dir|appimage (Linux only)]".into(),
+			);
+		}
 	};
 	let arguments = [
 		"build",
@@ -391,16 +395,19 @@ fn package() -> Result<(), String> {
 		run_tool("codesign", &["--verify", "--strict", bundle])?;
 	}
 	if cfg!(target_os = "linux") {
-		run_tool(
-			"python3",
-			&[
-				"packaging/linux/package.py",
-				root.to_str().ok_or("Invalid package path")?,
-				env!("CARGO_PKG_VERSION"),
-				"--format",
-				format,
-			],
-		)?;
+		let mut arguments = vec![
+			if format == "appimage" {
+				"packaging/appimage/build.py"
+			} else {
+				"packaging/linux/package.py"
+			},
+			root.to_str().ok_or("Invalid package path")?,
+			env!("CARGO_PKG_VERSION"),
+		];
+		if format != "appimage" {
+			arguments.extend(["--format", format]);
+		}
+		run_tool("python3", &arguments)?;
 	}
 	if cfg!(windows) {
 		package_windows(&root)?;

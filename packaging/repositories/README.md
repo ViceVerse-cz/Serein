@@ -25,8 +25,11 @@ python3 packaging/repositories/build.py \
 ```
 
 The output is `site/nightly/ubuntu-26.04/amd64/apt/`. Other combinations are
-`fedora-44/x86_64/rpm`, `opensuse-tumbleweed/x86_64/rpm` and `arch/x86_64/arch`.
-Production uses a separate `production/` tree. Never point an older Ubuntu, another
+`fedora-43/x86_64/rpm`, `fedora-44/x86_64/rpm`, `opensuse-tumbleweed/x86_64/rpm`
+and `arch/x86_64/arch`.
+Production uses a separate `production/` path. The current deployment replaces the
+whole Pages snapshot with the selected channel; it does not retain the other
+channel. Flatpak also has one shared `master` ref. Never point an older Ubuntu, another
 Fedora release or a downstream Arch snapshot at packages built for a different ABI.
 The script verifies the package name and architecture; the workflow/operator must
 select artifacts from the matching distribution.
@@ -49,7 +52,36 @@ publishes the supplied release snapshot, not an unbounded history of packages.
 apt metadata expires after 30 days to limit stale signed-metadata replay; regenerate
 and republish before expiry even when the application version has not changed.
 
-## Install from a published repository
+## Automatic setup script
+
+Run the automatic repository setup script to detect your distribution, verify the
+GPG signing key fingerprint, and configure the repository. Native setup accepts
+Ubuntu 26.04, Fedora 43/44, openSUSE Tumbleweed, Arch Linux and distributions that
+declare `ID_LIKE=arch`. Other versions and derivatives must use the Flatpak bundle
+instead of incompatible native packages:
+
+```sh
+curl -fsSL https://viceverse-cz.github.io/Serein/setup.sh | sh
+# Or run from the cloned repository:
+# sh packaging/repositories/setup.sh
+```
+
+To configure a specific channel or base URL:
+```sh
+curl -fsSL https://viceverse-cz.github.io/Serein/setup.sh | SEREIN_CHANNEL=production sh
+```
+
+After running the script, update your package lists and install `serein` using your distribution's native package manager (`apt`, `dnf`, `zypper`, or `pacman`). Subsequent system updates will automatically update Serein.
+
+Fedora setup selects the host's exact version (43 or 44). Fedora 43 needs a new
+release containing its matching build and signed repository; older releases only
+contain Fedora 44 packages. Rerunning the corrected script after publication replaces
+the previously incorrect `/etc/yum.repos.d/serein.repo` on Fedora 43.
+The installer passes terminal input to the package manager even under `curl | sh`,
+so DNF's separate repository-key confirmation remains interactive. Compare its
+fingerprint with the verified key above before accepting; signature checks stay enabled.
+
+## Manual installation from a published repository
 
 Set `BASE` to the configured HTTPS repository root and choose **one** channel.
 These examples use nightly (automatic package-manager upgrades remain controlled
@@ -76,10 +108,11 @@ sudo apt update
 sudo apt install serein
 ```
 
-For Fedora 44 x86_64 (use `opensuse-tumbleweed` and zypper commands for openSUSE):
+For Fedora 43/44 x86_64 (use `opensuse-tumbleweed` and zypper commands for openSUSE):
 
 ```sh
-URL="$BASE/$CHANNEL/fedora-44/x86_64/rpm"
+. /etc/os-release
+URL="$BASE/$CHANNEL/fedora-$VERSION_ID/x86_64/rpm"
 curl --fail --location "$URL/serein.asc" -o serein.asc
 gpg --show-keys --with-subkey-fingerprint serein.asc
 # Compare the full fingerprint before importing.

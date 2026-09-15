@@ -515,16 +515,17 @@ impl Streams {
 fn choose(host: &cpal::Host, id: Option<&str>, input: bool) -> Result<cpal::Device, &'static str> {
 	if let Some(id) = id {
 		let id = id.parse().map_err(|_| "Invalid audio device selection")?;
-		host.device_by_id(&id)
-			.ok_or("Selected audio device is no longer available")
-	} else {
-		if input {
-			host.default_input_device()
-		} else {
-			host.default_output_device()
+		if let Some(device) = host.device_by_id(&id) {
+			return Ok(device);
 		}
-		.ok_or("No default audio device is available")
 	}
+	// Keep the preference, but use the default while the selected device is absent.
+	if input {
+		host.default_input_device()
+	} else {
+		host.default_output_device()
+	}
+	.ok_or("No default audio device is available")
 }
 fn config(device: &cpal::Device, input: bool) -> Result<cpal::SupportedStreamConfig, &'static str> {
 	let supported: Vec<_> = if input {

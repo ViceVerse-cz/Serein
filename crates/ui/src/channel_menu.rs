@@ -1,16 +1,18 @@
 //! Guild channel actions share one context menu and a session-scoped editor.
-use crate::{design, dialog, user_menu};
+use crate::shortcuts::ShortcutView;
+use crate::{design, dialog, icons, user_menu};
 use client_core::{
 	Command, State,
 	channel_actions::{Action, Edit, Mute},
 };
-use model::{Channel, ChannelPreferences, Id};
+use model::{Channel, Id, Shortcut};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
 	Edit,
 	Duplicate,
 	Create,
+	CreateCategory,
 	Delete,
 }
 
@@ -35,6 +37,7 @@ struct Dialog {
 #[derive(Default)]
 pub(super) struct ChannelMenu {
 	pub invite_requested: Option<(Id, Id)>,
+	pub shortcut_requested: Option<crate::shortcuts::Intent>,
 	requested: Option<(Id, Intent)>,
 	dialog: Option<Dialog>,
 	feedback: Option<Id>,
@@ -43,14 +46,18 @@ pub(super) struct ChannelMenu {
 }
 
 impl ChannelMenu {
+	/// Shows the shared "full" feedback so DM, group and guild pins report capacity alike.
+	pub fn report_capacity(&mut self, generation: u64) {
+		self.preference_error = true;
+		self.generation = generation;
+	}
+
 	pub fn context(
 		&mut self,
 		response: &egui::Response,
 		state: &State,
 		channel: &Channel,
-		prefs: &mut ChannelPreferences,
-		prefs_changed: &mut bool,
-		preferences_available: bool,
+		view: ShortcutView<'_>,
 	) {
 		let Some(guild) = channel.guild else { return };
 		let colors = design::palette_for(&response.ctx);
@@ -82,24 +89,21 @@ impl ChannelMenu {
 				intent = Some(Intent::Read);
 			}
 			ui.separator();
-			let favorite = prefs.is_favorite(channel.id);
 			if channel.kind != 4
 				&& row(
 					ui,
-					if favorite {
+					if view.contains(Shortcut::Favorite, channel.id) {
 						"Remove From Favorites"
 					} else {
 						"Add To Favorites"
 					},
-					preferences_available,
+					view.available(),
 					false,
 				)
 				.on_hover_text("Favorites are saved on this device.")
 				.clicked()
 			{
-				let changed = prefs.toggle_favorite(channel.id);
-				*prefs_changed |= changed;
-				self.preference_error = !changed;
+				self.shortcut_requested = Some(view.toggle(Shortcut::Favorite, channel.id));
 				self.generation = state.generation;
 				ui.close();
 			}
@@ -114,27 +118,6 @@ impl ChannelMenu {
 				.clicked()
 			{
 				self.invite_requested = Some((guild, channel.id));
-				self.generation = state.generation;
-				ui.close();
-			}
-			let pinned = prefs.is_pinned(channel.id);
-			if channel.kind != 4
-				&& row(
-					ui,
-					if pinned {
-						"Unpin Channel From Top"
-					} else {
-						"Pin Channel to Top"
-					},
-					preferences_available,
-					false,
-				)
-				.on_hover_text("Pinned channels are saved on this device.")
-				.clicked()
-			{
-				let changed = prefs.toggle_pinned(channel.id);
-				*prefs_changed |= changed;
-				self.preference_error = !changed;
 				self.generation = state.generation;
 				ui.close();
 			}
@@ -237,6 +220,66 @@ impl ChannelMenu {
 		});
 	}
 
+	pub fn sidebar_context(
+		&mut self,
+		response: &egui::Response,
+		state: &State,
+		guild: Id,
+		hide_muted: &mut bool,
+	) {
+		let colors = design::palette_for(&response.ctx);
+		user_menu::popup(
+			response,
+			response.id.with(("server-channel-area", state.generation)),
+		)
+		.frame(
+			egui::Frame::popup(&response.ctx.style_of(response.ctx.theme()))
+				.fill(colors.chat)
+				.inner_margin(8)
+				.corner_radius(8),
+		)
+		.show(|ui| {
+			ui.set_width(232.0);
+			ui.spacing_mut().button_padding = egui::vec2(12.0, 8.0);
+			if toggle_row(ui, "Hide Muted Channels", hide_muted).changed() {
+				ui.close();
+			}
+			ui.separator();
+			let available =
+				(state.demo || state.gateway_connected) && !state.channel_action_pending();
+			let anchor = state.channels.iter().find(|channel| {
+				channel.guild == Some(guild) && state.can_manage_channel(channel.id)
+			});
+			if let Some(anchor) = anchor {
+				for (label, kind) in [
+					("Create Channel", Kind::Create),
+					("Create Category", Kind::CreateCategory),
+				] {
+					if row(ui, label, available, false).clicked() {
+						self.requested = Some((anchor.id, Intent::Dialog(kind)));
+						self.generation = state.generation;
+						ui.close();
+					}
+				}
+			}
+			if let Some(channel) = state
+				.invite_channel(guild)
+				.filter(|channel| state.can_create_server_invite(guild, *channel))
+				&& row(
+					ui,
+					"Invite to Server",
+					available && !state.server_invite_pending() && !state.server_action_pending(),
+					false,
+				)
+				.clicked()
+			{
+				self.invite_requested = Some((guild, channel));
+				self.generation = state.generation;
+				ui.close();
+			}
+		});
+	}
+
 	pub fn show(
 		&mut self,
 		ctx: &egui::Context,
@@ -270,7 +313,7 @@ impl ChannelMenu {
 						guild,
 						kind,
 						draft: Edit {
-							name: if kind == Kind::Create {
+							name: if matches!(kind, Kind::Create | Kind::CreateCategory) {
 								String::new()
 							} else {
 								channel.name.chars().take(100).collect()
@@ -347,6 +390,7 @@ impl ChannelMenu {
 				"Create Text Channel",
 				"Text channels are where your members talk.",
 			),
+			Kind::CreateCategory => ("Create Category", "Categories organize related channels."),
 			Kind::Delete => (
 				if category {
 					"Delete Category?"
@@ -457,6 +501,7 @@ impl ChannelMenu {
 						Kind::Edit => "Save Changes",
 						Kind::Duplicate => if category { "Duplicate Category" } else { "Duplicate Channel" },
 						Kind::Create => "Create Channel",
+						Kind::CreateCategory => "Create Category",
 						Kind::Delete => if category { "Delete Category" } else { "Delete Channel" },
 					}
 				};
@@ -482,6 +527,9 @@ impl ChannelMenu {
 									name: dialog.draft.name.clone(),
 								},
 								Kind::Create => Action::CreateText {
+									name: dialog.draft.name.clone(),
+								},
+								Kind::CreateCategory => Action::CreateCategory {
 									name: dialog.draft.name.clone(),
 								},
 								Kind::Delete => Action::Delete,
@@ -561,7 +609,7 @@ impl Dialog {
 	fn overview(&mut self, ui: &mut egui::Ui, channel: &Channel) {
 		let label = dialog::label(
 			ui,
-			if channel.kind == 4 {
+			if channel.kind == 4 || self.kind == Kind::CreateCategory {
 				"Category name"
 			} else {
 				"Channel name"
@@ -570,7 +618,11 @@ impl Dialog {
 		let name = dialog::input(
 			ui,
 			egui::TextEdit::singleline(&mut self.draft.name)
-				.hint_text("new-channel")
+				.hint_text(if self.kind == Kind::CreateCategory {
+					"new-category"
+				} else {
+					"new-channel"
+				})
 				.char_limit(100),
 		)
 		.labelled_by(label.id);
@@ -677,6 +729,38 @@ impl Dialog {
 	}
 }
 
+fn toggle_row(ui: &mut egui::Ui, label: &str, value: &mut bool) -> egui::Response {
+	let mut response = row(ui, label, true, false);
+	if response.clicked() {
+		*value = !*value;
+		response.mark_changed();
+	}
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, *value, label)
+	});
+	let colors = design::palette(ui);
+	let mark = egui::Rect::from_center_size(
+		egui::pos2(response.rect.right() - 16.0, response.rect.center().y),
+		egui::Vec2::splat(24.0),
+	);
+	ui.painter().rect(
+		mark,
+		4,
+		if *value { colors.accent } else { colors.base },
+		egui::Stroke::new(1.0, colors.border),
+		egui::StrokeKind::Inside,
+	);
+	if *value {
+		icons::paint(
+			ui.painter(),
+			icons::Icon::Check,
+			mark.shrink(4.0),
+			colors.text_strong,
+		);
+	}
+	response
+}
+
 fn row(ui: &mut egui::Ui, label: &str, enabled: bool, danger: bool) -> egui::Response {
 	let colors = design::palette(ui);
 	ui.add_enabled(
@@ -697,6 +781,7 @@ fn row(ui: &mut egui::Ui, label: &str, enabled: bool, danger: bool) -> egui::Res
 mod tests {
 	use super::*;
 	use egui::{Event, Modifiers, PointerButton, Pos2, Rect};
+	use model::ChannelPreferences;
 
 	fn labels(shape: &egui::Shape, output: &mut Vec<(String, Rect)>) {
 		match shape {
@@ -723,7 +808,6 @@ mod tests {
 		state: State,
 		menu: ChannelMenu,
 		prefs: ChannelPreferences,
-		changed: bool,
 		commands: Vec<Command>,
 		copied: Vec<String>,
 		width: f32,
@@ -750,9 +834,7 @@ mod tests {
 						&response,
 						&self.state,
 						self.state.channel(Id(20)).unwrap(),
-						&mut self.prefs,
-						&mut self.changed,
-						true,
+						ShortcutView::new(&self.prefs, true),
 					);
 					row = Some(response);
 					self.menu
@@ -800,7 +882,6 @@ mod tests {
 				state,
 				menu: ChannelMenu::default(),
 				prefs: Default::default(),
-				changed: false,
 				commands: vec![],
 				copied: vec![],
 				width,
@@ -941,7 +1022,6 @@ mod tests {
 					state,
 					menu: ChannelMenu::default(),
 					prefs: ChannelPreferences::default(),
-					changed: false,
 					commands: vec![],
 					copied: vec![],
 					width: 320.0,
@@ -967,7 +1047,6 @@ mod tests {
 					"Mark As Read",
 					"Add To Favorites",
 					"Invite to Channel",
-					"Pin Channel to Top",
 					"Copy Link",
 					"Mute Channel",
 					"Notification Settings",
@@ -1003,7 +1082,14 @@ mod tests {
 					"Opening a dialog does not send a destructive action"
 				);
 				match action {
-					"Add To Favorites" => assert!(h.prefs.is_favorite(Id(20)) && h.changed),
+					"Add To Favorites" => assert_eq!(
+						h.menu.shortcut_requested,
+						Some(crate::shortcuts::Intent {
+							channel: Id(20),
+							kind: Shortcut::Favorite,
+							on: true,
+						})
+					),
 					"Copy Channel ID" => assert_eq!(h.copied, ["20"]),
 					"Invite to Channel" => {
 						assert_eq!(h.menu.invite_requested, Some((Id(10), Id(20))))

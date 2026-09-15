@@ -400,6 +400,33 @@ impl State {
 		guild: Id,
 		member: &model::Member,
 	) -> (Option<&p::Role>, Option<&p::Role>) {
+		self.display_roles(guild, &member.roles)
+	}
+	pub fn message_author_color(&self, message: &model::Message) -> Option<u32> {
+		if message.author.webhook {
+			return None;
+		}
+		let guild = self.channel(message.channel)?.guild?;
+		let roles = self
+			.members
+			.as_ref()
+			.filter(|list| list.guild == Some(guild) && list.channel == message.channel)
+			.and_then(|list| {
+				list.rows
+					.iter()
+					.flatten()
+					.find(|member| member.user.id == message.author.id)
+			})
+			.map_or(message.author_roles.as_slice(), |member| {
+				member.roles.as_slice()
+			});
+		self.display_roles(guild, roles).1.map(|role| role.color)
+	}
+	fn display_roles(
+		&self,
+		guild: Id,
+		member_roles: &[Id],
+	) -> (Option<&p::Role>, Option<&p::Role>) {
 		let Some(roles) = self
 			.permissions
 			.guilds
@@ -408,10 +435,10 @@ impl State {
 		else {
 			return (None, None);
 		};
-		if member.roles.len() > p::MAX_MEMBER_ROLES {
+		if member_roles.len() > p::MAX_MEMBER_ROLES {
 			return (None, None);
 		}
-		let assigned: BTreeSet<_> = member.roles.iter().copied().collect();
+		let assigned: BTreeSet<_> = member_roles.iter().copied().collect();
 		let assigned = roles
 			.iter()
 			.filter(|role| role.id != guild && assigned.contains(&role.id));

@@ -5,7 +5,7 @@ mod channel_preferences;
 pub mod messaging_permissions;
 pub mod notification_preferences;
 pub mod notification_settings;
-pub use channel_preferences::ChannelPreferences;
+pub use channel_preferences::{ChannelPreferences, PreferenceEdit, Shortcut};
 pub mod forum;
 pub mod gifs;
 pub mod guild_folders;
@@ -65,9 +65,17 @@ impl Serialize for Id {
 }
 impl<'de> Deserialize<'de> for Id {
 	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-		String::deserialize(d)?
-			.parse()
-			.map_err(serde::de::Error::custom)
+		struct IdVisitor;
+		impl serde::de::Visitor<'_> for IdVisitor {
+			type Value = Id;
+			fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+				f.write_str("a Discord ID string")
+			}
+			fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Id, E> {
+				value.parse().map_err(E::custom)
+			}
+		}
+		d.deserialize_str(IdVisitor)
 	}
 }
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,7 +208,7 @@ impl Channel {
 			+ self.recipients.iter().map(User::heap_bytes).sum::<usize>()
 	}
 	pub fn supports_text(&self) -> bool {
-		matches!(self.kind, 0 | 1 | 3 | 5 | 10..=12)
+		matches!(self.kind, 0..=3 | 5 | 10..=12)
 	}
 }
 #[derive(Clone)]
@@ -221,6 +229,10 @@ pub struct Message {
 	pub id: Id,
 	pub channel: Id,
 	pub author: User,
+	/// Session-only role membership supplied with this message; refreshed by live member rows.
+	pub author_roles: Vec<Id>,
+	/// Session-only guild nickname; current member rows take precedence.
+	pub author_nick: Option<String>,
 	pub content: String,
 	pub mentions: Vec<User>,
 	/// Session-only service notification metadata; never inferred from message text.
@@ -276,6 +288,8 @@ impl Message {
 				reaction_bytes(r) + r.capacity().saturating_sub(r.len()) * size_of::<Reaction>()
 			}) + self.content.capacity()
 			+ self.author.heap_bytes()
+			+ self.author_nick.as_ref().map_or(0, String::capacity)
+			+ self.author_roles.capacity() * size_of::<Id>()
 			+ mention_bytes(&self.mentions)
 			+ self.mention_roles.capacity() * size_of::<Id>()
 			+ self.nonce.as_ref().map_or(0, String::capacity)

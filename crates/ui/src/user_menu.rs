@@ -1,14 +1,16 @@
 //! Shared user actions; rendering only records intent, dispatched after borrowed rows finish.
+use crate::shortcuts::{Intent, ShortcutView};
 use client_core::{Command, State};
-use model::User;
+use model::{Shortcut, User};
 
 #[derive(Clone, PartialEq, Eq)]
-pub(super) enum Action {
+pub enum Action {
 	Note(User),
 	Nickname(User),
 	CloseDm(model::Id),
 	Block { user: model::Id, blocked: bool },
 	Mute { channel: model::Id, muted: bool },
+	Shortcut(Intent),
 }
 impl std::fmt::Debug for Action {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -18,7 +20,7 @@ impl std::fmt::Debug for Action {
 
 pub(super) fn prepare(action: Action, state: &mut State) -> Option<Command> {
 	match action {
-		Action::Note(_) | Action::Nickname(_) => None,
+		Action::Note(_) | Action::Nickname(_) | Action::Shortcut(_) => None,
 		Action::CloseDm(channel) => state.close_dm(channel),
 		Action::Block { user, blocked } => state.set_user_blocked(user, blocked),
 		Action::Mute { channel, muted } => state.set_dm_muted(channel, muted),
@@ -51,8 +53,20 @@ pub(super) fn show(
 	profile: &mut Option<User>,
 	action: &mut Option<Action>,
 ) {
+	show_with_pin(response, state, user, profile, action, None);
+}
+
+/// `view` is `Some` only where the row is a direct message, so Pin DM stays off member lists.
+pub(super) fn show_with_pin(
+	response: &egui::Response,
+	state: &State,
+	user: &User,
+	profile: &mut Option<User>,
+	action: &mut Option<Action>,
+	view: Option<ShortcutView<'_>>,
+) {
 	popup(response, egui::Popup::default_response_id(response))
-		.show(|ui| contents(ui, state, user, profile, action));
+		.show(|ui| contents(ui, state, user, profile, action, view));
 }
 
 pub(super) fn contents(
@@ -61,6 +75,7 @@ pub(super) fn contents(
 	user: &User,
 	profile: &mut Option<User>,
 	action: &mut Option<Action>,
+	view: Option<ShortcutView<'_>>,
 ) {
 	let colors = crate::design::palette(ui);
 	ui.set_min_width(200.0);
@@ -102,6 +117,20 @@ pub(super) fn contents(
 	}
 	ui.separator();
 	if let Some(dm) = dm {
+		if let Some(view) = view {
+			let pinned = view.contains(Shortcut::Pinned, dm.id);
+			if ui
+				.add_enabled(
+					view.available(),
+					egui::Button::new(if pinned { "Unpin DM" } else { "Pin DM" }),
+				)
+				.on_hover_text("Pinned direct messages are saved on this device.")
+				.clicked()
+			{
+				*action = Some(Action::Shortcut(view.toggle(Shortcut::Pinned, dm.id)));
+				ui.close();
+			}
+		}
 		let muted = state.dm_muted(dm.id) == Some(true);
 		if ui
 			.add_enabled(

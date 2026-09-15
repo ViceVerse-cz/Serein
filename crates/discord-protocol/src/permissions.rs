@@ -53,13 +53,22 @@ pub(crate) fn member_roles<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Id>, D
 #[derive(Deserialize)]
 struct Bits(#[serde(deserialize_with = "bits")] u128);
 pub(crate) fn bits<'de, D: Deserializer<'de>>(d: D) -> Result<u128, D::Error> {
-	let value = String::deserialize(d)?;
-	if value.is_empty() || value.len() > 39 || !value.bytes().all(|b| b.is_ascii_digit()) {
-		return Err(serde::de::Error::custom("Invalid permission bits"));
+	struct BitsVisitor;
+	impl Visitor<'_> for BitsVisitor {
+		type Value = u128;
+		fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+			f.write_str("a permission bit string")
+		}
+		fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<u128, E> {
+			if value.is_empty() || value.len() > 39 || !value.bytes().all(|b| b.is_ascii_digit()) {
+				return Err(E::custom("Invalid permission bits"));
+			}
+			value
+				.parse()
+				.map_err(|_| E::custom("Permission bits overflow"))
+		}
 	}
-	value
-		.parse()
-		.map_err(|_| serde::de::Error::custom("Permission bits overflow"))
+	d.deserialize_str(BitsVisitor)
 }
 #[derive(Deserialize)]
 pub(crate) struct Role {

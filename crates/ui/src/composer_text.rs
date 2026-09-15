@@ -25,12 +25,14 @@ pub(crate) struct Layout {
 }
 
 impl Layout {
+	#[allow(clippy::too_many_arguments)]
 	pub fn galley(
 		&mut self,
 		ui: &egui::Ui,
 		text: &str,
 		width: f32,
 		users: &[User],
+		mass_mentions: bool,
 		avatars: &mut Avatars,
 		demo: bool,
 	) -> Arc<egui::Galley> {
@@ -63,6 +65,7 @@ impl Layout {
 			user.id.hash(&mut key);
 			user.name.hash(&mut key);
 		}
+		mass_mentions.hash(&mut key);
 		let key = key.finish();
 		if let Some((cached, galley)) = &self.cache
 			&& *cached == key
@@ -94,6 +97,10 @@ impl Layout {
 					.find(|u| u.id == id)
 					.map_or_else(|| id.to_string(), |user| user.name.clone());
 				label = Some((format!("@{name}"), colors.mention_text));
+				background = colors.mention_bg;
+				len
+			} else if mass_mentions && let Some(len) = model::mass_mention_prefix(tail) {
+				label = Some((tail[..len].to_owned(), colors.mention_text));
 				background = colors.mention_bg;
 				len
 			} else if let Some((id, len)) = emoji::custom_prefix(tail) {
@@ -335,7 +342,7 @@ mod tests {
 		let ctx = egui::Context::default();
 		let mut layout = Layout::default();
 		let mut avatars = Avatars::default();
-		let mut text = "<@42> <@!43> <:missing:9001>".to_owned();
+		let mut text = "<@42> <@!43> @everyone @here <:missing:9001>".to_owned();
 		for dark in [true, false] {
 			ctx.set_visuals(if dark {
 				egui::Visuals::dark()
@@ -346,16 +353,29 @@ mod tests {
 				let output = ctx.run_ui(Default::default(), |ui| {
 					let colors = crate::design::palette(ui);
 					let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, _| {
-						layout.galley(ui, buffer.as_str(), width, &users(), &mut avatars, false)
+						layout.galley(
+							ui,
+							buffer.as_str(),
+							width,
+							&users(),
+							true,
+							&mut avatars,
+							false,
+						)
 					};
 					let edit = egui::TextEdit::multiline(&mut text)
 						.layouter(&mut layouter)
 						.show(ui);
 					layout.paint(ui, &edit);
 					assert_eq!(edit.galley.job.text, text);
-					assert_eq!(layout.inlines.len(), 3);
-					for (inline, label) in layout.inlines.iter().zip(["@Zoë", "@43", ":missing:"])
-					{
+					assert_eq!(layout.inlines.len(), 5);
+					for (inline, label) in layout.inlines.iter().zip([
+						"@Zoë",
+						"@43",
+						"@everyone",
+						"@here",
+						":missing:",
+					]) {
 						let mention = label.starts_with('@');
 						let galley = inline.label.as_ref().unwrap();
 						assert_eq!(galley.job.text, label);
@@ -385,7 +405,7 @@ mod tests {
 						.filter(|s| matches!(&s.shape,
 					egui::Shape::Rect(rect) if rect.fill == colors.mention_bg))
 						.count(),
-					2
+					4
 				);
 				output.drop_without_applying_deltas();
 			}
@@ -404,7 +424,7 @@ mod tests {
 				emoji::install(&ctx).unwrap();
 			}
 			let output = ctx.run_ui(Default::default(), |ui| {
-				let galley = layout.galley(ui, text, 65.0, &[], &mut avatars, true);
+				let galley = layout.galley(ui, text, 65.0, &[], false, &mut avatars, true);
 				assert_eq!(galley.job.text, text);
 				assert_eq!(layout.inlines.len(), 4);
 				for inline in &layout.inlines {
@@ -453,7 +473,7 @@ mod tests {
 				},
 				|ui| {
 					let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
-						layout.galley(ui, buffer.as_str(), width, &[], &mut avatars, true)
+						layout.galley(ui, buffer.as_str(), width, &[], false, &mut avatars, true)
 					};
 					let edit = egui::TextEdit::multiline(&mut text)
 						.id(id)
@@ -506,7 +526,7 @@ mod tests {
 				);
 				message.show_with_images(ui, &mut None, &[], &mut None, (&mut avatars, false, &[]));
 				let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
-					layout.galley(ui, buffer.as_str(), width, &[], &mut avatars, true)
+					layout.galley(ui, buffer.as_str(), width, &[], false, &mut avatars, true)
 				};
 				let edit = egui::TextEdit::multiline(&mut text)
 					.layouter(&mut layouter)
@@ -546,7 +566,7 @@ mod tests {
 		let mut avatars = Avatars::default();
 		let mut layout = Layout::default();
 		let output = ctx.run_ui(Default::default(), |ui| {
-			let galley = layout.galley(ui, text, 130.0, &users(), &mut avatars, true);
+			let galley = layout.galley(ui, text, 130.0, &users(), false, &mut avatars, true);
 			assert_eq!(galley.job.text, text);
 			let mut reconstructed = String::new();
 			for row in &galley.rows {
@@ -612,10 +632,18 @@ mod tests {
 					..Default::default()
 				},
 				|ui| {
-					layout.galley(ui, &text, 300.0, &users(), &mut avatars, true);
+					layout.galley(ui, &text, 300.0, &users(), false, &mut avatars, true);
 					layout.select_deleted_inline(&ctx, id);
 					let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
-						layout.galley(ui, buffer.as_str(), width, &users(), &mut avatars, true)
+						layout.galley(
+							ui,
+							buffer.as_str(),
+							width,
+							&users(),
+							false,
+							&mut avatars,
+							true,
+						)
 					};
 					let mut edit = egui::TextEdit::multiline(&mut text)
 						.id(id)

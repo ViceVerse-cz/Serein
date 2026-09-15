@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -39,6 +40,12 @@ class RepositoryInputs(unittest.TestCase):
             package.symlink_to(manifest)
             with self.assertRaisesRegex(ValueError, "unsafe"):
                 verify(root)
+            package.unlink()
+            flatpak_pkg = root / "serein.flatpak"
+            flatpak_pkg.write_bytes(b"synthetic flatpak")
+            flatpak_entry = hashlib.sha256(flatpak_pkg.read_bytes()).hexdigest() + "  ./serein.flatpak\n"
+            manifest.write_text(flatpak_entry)
+            verify(root)
 
     def test_rejects_unsafe_paths_keys_and_urls(self):
         good = dict(distribution="ubuntu-26.04", architecture="amd64",
@@ -52,6 +59,26 @@ class RepositoryInputs(unittest.TestCase):
                              ("base_url", "https://example.org/?token=secret")]:
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 validate(argparse.Namespace(**(good | {field: value})))
+
+    def test_setup_script_syntax_and_default_fingerprint(self):
+        setup_sh = Path(__file__).resolve().parent / "setup.sh"
+        self.assertTrue(setup_sh.is_file())
+        res = subprocess.run(["sh", "-n", str(setup_sh)], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        content = setup_sh.read_text()
+        self.assertIn("EXPECTED_FINGERPRINT=", content)
+        self.assertIn("CA19DA939E9BCAB500751CE480FE95CAD86141A5", content)
+
+    def test_generate_index(self):
+        from build import generate_index
+        with tempfile.TemporaryDirectory() as temporary:
+            dest = Path(temporary) / "site"
+            generate_index(dest)
+            index_file = dest / "index.html"
+            self.assertTrue(index_file.is_file())
+            content = index_file.read_text()
+            self.assertIn("Serein Linux Repositories", content)
+            self.assertIn("setup.sh", content)
 
 
 if __name__ == "__main__":

@@ -19,64 +19,200 @@ pub enum Action {
 	RemoveFriend,
 	AcceptFriend(Id),
 	Profile(User),
+	/// Shared user action picked from the card's overflow menu.
+	Menu(crate::user_menu::Action),
 }
 
 const WIDTH: f32 = 300.0;
 const PAD: f32 = 12.0;
 const AVATAR: f32 = 80.0;
-const RADIUS: u8 = 8;
+const RADIUS: u8 = 12;
+/// Diameter of the translucent action circles laid over the banner.
+const CIRCLE: f32 = 32.0;
 
 fn friend_target(state: &State, user: &User) -> bool {
 	!user.webhook
 		&& user.kind == model::AccountKind::Human
 		&& state.user.as_ref().is_some_and(|own| own.id != user.id)
 }
-fn friend_button(ui: &mut egui::Ui, state: &State, user: &User) -> Option<Action> {
-	if !friend_target(state, user) {
+/// Whether the account may send relationship and moderation requests right now.
+fn actions_enabled(state: &State) -> bool {
+	!state.user_action_pending()
+		&& (state.demo
+			|| (state.gateway_connected
+				&& state.auth == client_core::auth::AuthState::Authenticated))
+}
+/// Translucent round button over the banner; disabled circles still show their tooltip.
+fn header_circle(ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool) -> egui::Response {
+	let (rect, response) = ui.allocate_exact_size(
+		Vec2::splat(CIRCLE),
+		if enabled {
+			egui::Sense::click()
+		} else {
+			egui::Sense::hover()
+		},
+	);
+	let lit = enabled && (response.hovered() || response.has_focus());
+	ui.painter().circle_filled(
+		rect.center(),
+		CIRCLE * 0.5,
+		if lit {
+			Color32::from_black_alpha(200)
+		} else {
+			Color32::from_black_alpha(140)
+		},
+	);
+	icons::paint(
+		ui.painter(),
+		icon,
+		rect.shrink(8.0),
+		if enabled {
+			Color32::WHITE
+		} else {
+			Color32::from_white_alpha(120)
+		},
+	);
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+	response.on_hover_text(label)
+}
+/// Add-friend circle; hidden for blocked users, whose relationship lives in the overflow menu.
+fn friend_circle(ui: &mut egui::Ui, state: &State, user: &User) -> Option<Action> {
+	if !friend_target(state, user) || state.user_blocked(user.id) != Some(false) {
 		return None;
 	}
 	let friend = state.friends().any(|friend| friend.id == user.id);
 	let request = state
 		.pending_friends()
 		.find(|(person, _, _)| person.id == user.id);
-	let (label, action) = if state.user_blocked(user.id) == Some(true) {
-		("Blocked", None)
-	} else if friend {
-		("Friends \u{2713}", Some(Action::RemoveFriend))
+	let (icon, label, action) = if friend {
+		(
+			Icon::Check,
+			"Friends \u{2713} · click to remove",
+			Some(Action::RemoveFriend),
+		)
 	} else if let Some((_, _, incoming)) = request {
 		if *incoming {
-			("Accept Request", Some(Action::AcceptFriend(user.id)))
+			(
+				Icon::AddPeople,
+				"Accept Friend Request",
+				Some(Action::AcceptFriend(user.id)),
+			)
 		} else {
-			("Request Sent", None)
+			(Icon::AddPeople, "Friend Request Sent", None)
 		}
 	} else if !state.friends_known() || !state.friend_requests_known() {
-		("Loading friendship status...", None)
+		(Icon::AddPeople, "Loading friendship status...", None)
 	} else {
-		("Add Friend", Some(Action::AddFriend(user.id)))
+		(
+			Icon::AddPeople,
+			"Add Friend",
+			Some(Action::AddFriend(user.id)),
+		)
 	};
 	let enabled = action.is_some()
 		&& state.friends_known()
 		&& state.friend_requests_known()
-		&& state.user_blocked(user.id) == Some(false)
-		&& !state.user_action_pending()
-		&& (state.demo
-			|| (state.gateway_connected
-				&& state.auth == client_core::auth::AuthState::Authenticated));
-	let clicked = ui
+		&& actions_enabled(state);
+	if header_circle(ui, icon, label, enabled).clicked() {
+		action
+	} else {
+		None
+	}
+}
+/// Overflow menu behind the three-dots circle: webhook copy, notes, mute, block and friend removal.
+fn more_menu(
+	ui: &mut egui::Ui,
+	state: &State,
+	user: &User,
+	dm_channel: Option<Id>,
+) -> Option<Action> {
+	let colors = design::palette(ui);
+	let mut action = None;
+	ui.set_min_width(200.0);
+	ui.spacing_mut().button_padding = vec2(8.0, 6.0);
+	let own_profile = state.user.as_ref().is_some_and(|own| own.id == user.id);
+	// Message is the card's own footer button, so the menu does not repeat it.
+	if user.webhook && ui.button("Copy webhook ID").clicked() {
+		ui.ctx().copy_text(user.id.to_string());
+		ui.close();
+	}
+	if user.webhook || own_profile {
+		return action;
+	}
+	let enabled = actions_enabled(state);
+	let friend = state.friends().any(|friend| friend.id == user.id);
+	ui.separator();
+	if ui
+		.add_enabled(enabled, egui::Button::new("Add Note"))
+		.clicked()
+	{
+		action = Some(Action::Menu(crate::user_menu::Action::Note(user.clone())));
+		ui.close();
+	}
+	if ui
+		.add_enabled(
+			enabled && friend,
+			egui::Button::new(if state.friend_nickname(user.id).is_some() {
+				"Edit Friend Nickname"
+			} else {
+				"Add Friend Nickname"
+			}),
+		)
+		.on_disabled_hover_text("Private nicknames are available for confirmed friends.")
+		.clicked()
+	{
+		action = Some(Action::Menu(crate::user_menu::Action::Nickname(
+			user.clone(),
+		)));
+		ui.close();
+	}
+	ui.separator();
+	if let Some(channel) = dm_channel {
+		let muted = state.dm_muted(channel) == Some(true);
+		if ui
+			.add_enabled(
+				enabled,
+				egui::Button::new(if muted { "Unmute" } else { "Mute" }),
+			)
+			.on_hover_text("Mute this direct message's notifications until you unmute it.")
+			.clicked()
+		{
+			action = Some(Action::Menu(crate::user_menu::Action::Mute {
+				channel,
+				muted: !muted,
+			}));
+			ui.close();
+		}
+	} else {
+		ui.add_enabled(false, egui::Button::new("Mute"))
+			.on_disabled_hover_text("No open direct message with this user.");
+	}
+	if friend
+		&& ui
+			.add_enabled(enabled, egui::Button::new("Remove Friend"))
+			.clicked()
+	{
+		action = Some(Action::RemoveFriend);
+		ui.close();
+	}
+	ui.separator();
+	let blocked = state.user_blocked(user.id) == Some(true);
+	if ui
 		.add_enabled(
 			enabled,
-			egui::Button::new(label).min_size(vec2(ui.available_width(), 32.0)),
+			egui::Button::new(
+				RichText::new(if blocked { "Unblock" } else { "Block" }).color(colors.danger),
+			),
 		)
-		.on_hover_text(if friend {
-			"You are friends. Click to remove this friend."
-		} else {
-			label
-		})
-		.clicked();
-	if let Some(status) = state.user_action_status() {
-		ui.add(egui::Label::new(RichText::new(status).small()).wrap());
+		.clicked()
+	{
+		action = Some(Action::Menu(crate::user_menu::Action::Block {
+			user: user.id,
+			blocked: !blocked,
+		}));
+		ui.close();
 	}
-	if clicked { action } else { None }
+	action
 }
 
 impl crate::MessagingUi {
@@ -339,9 +475,11 @@ impl Theme {
 			// Rounded caps in the end colors, with the flat gradient band between them, so the
 			// corners stay round instead of being squared off by the mesh.
 			shapes.push(egui::Shape::rect_filled(rect, RADIUS, top));
+			// egui clamps corner radii to half the rectangle height. The gradient band
+			// covers this cap's upper half, leaving the full-radius bottom corners.
 			shapes.push(egui::Shape::rect_filled(
 				Rect::from_min_max(
-					pos2(rect.left(), rect.bottom() - radius),
+					pos2(rect.left(), rect.bottom() - 2.0 * radius),
 					rect.right_bottom(),
 				),
 				CornerRadius {
@@ -393,59 +531,6 @@ fn divider(ui: &mut egui::Ui, theme: &Theme) {
 	);
 	ui.add_space(4.0);
 }
-/// Square secondary button drawn in the card's own colors rather than the window palette.
-fn chip_button(ui: &mut egui::Ui, theme: &Theme, icon: Icon, label: &str) -> egui::Response {
-	let (rect, response) = ui.allocate_exact_size(Vec2::splat(32.0), egui::Sense::click());
-	let lit = response.hovered() || response.has_focus();
-	ui.painter().rect_filled(
-		rect,
-		RADIUS,
-		if lit { theme.chip_hover } else { theme.chip },
-	);
-	icons::paint(
-		ui.painter(),
-		icon,
-		rect.shrink(8.0),
-		if lit { theme.text } else { theme.muted },
-	);
-	response.widget_info(|| {
-		egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
-	});
-	response.on_hover_text(label)
-}
-/// Display name and glyph for a connection `type`; unknown kinds keep their raw name.
-fn brand(kind: &str) -> (Option<&'static str>, Icon) {
-	match kind.to_ascii_lowercase().as_str() {
-		"github" => (Some("GitHub"), Icon::GitHub),
-		"twitch" => (Some("Twitch"), Icon::Twitch),
-		"steam" => (Some("Steam"), Icon::Steam),
-		"spotify" => (Some("Spotify"), Icon::Spotify),
-		"youtube" => (Some("YouTube"), Icon::YouTube),
-		"twitter" => (Some("X"), Icon::XLogo),
-		"reddit" => (Some("Reddit"), Icon::Reddit),
-		"facebook" => (Some("Facebook"), Icon::Facebook),
-		"instagram" => (Some("Instagram"), Icon::Instagram),
-		"tiktok" => (Some("TikTok"), Icon::TikTok),
-		"paypal" => (Some("PayPal"), Icon::PayPal),
-		"amazon-music" => (Some("Amazon Music"), Icon::Amazon),
-		"bluesky" => (Some("Bluesky"), Icon::Bluesky),
-		"mastodon" => (Some("Mastodon"), Icon::Mastodon),
-		"skype" => (Some("Skype"), Icon::Skype),
-		// Neither icon set ships an Xbox mark (Microsoft brand guidelines); keep the controller.
-		"xbox" => (Some("Xbox"), Icon::GameController),
-		"playstation" => (Some("PlayStation"), Icon::PlayStation),
-		"battlenet" => (Some("Battle.net"), Icon::BattleNet),
-		"epicgames" => (Some("Epic Games"), Icon::EpicGames),
-		"leagueoflegends" => (Some("League of Legends"), Icon::LeagueOfLegends),
-		"riotgames" => (Some("Riot Games"), Icon::RiotGames),
-		"bungie" => (Some("Bungie.net"), Icon::Bungie),
-		"roblox" => (Some("Roblox"), Icon::Roblox),
-		"crunchyroll" => (Some("Crunchyroll"), Icon::Crunchyroll),
-		"domain" => (Some("Domain"), Icon::Globe),
-		"ebay" => (Some("eBay"), Icon::Ebay),
-		_ => (None, Icon::Link),
-	}
-}
 fn creation_date(id: Id) -> Option<String> {
 	let seconds = ((id.0 >> 22) + 1_420_070_400_000) / 1000;
 	time::OffsetDateTime::from_unix_timestamp(seconds as i64)
@@ -487,6 +572,9 @@ pub fn show(
 		.find(|c| c.kind == 1 && c.recipients.iter().any(|u| u.id == user.id))
 		.map(|c| c.id);
 	let mut action = None;
+	let menu_id = egui::Id::unique(("user-profile-more", user.id));
+	// A menu that was already open owns Escape and clicks on its own items this frame.
+	let menu_open = egui::Popup::is_id_open(ui.ctx(), menu_id);
 	let x = if anchor.x + 12.0 + WIDTH <= bounds.right() {
 		anchor.x + 12.0
 	} else {
@@ -501,6 +589,8 @@ pub fn show(
 		.show(ui.ctx(), |ui| {
 			ui.set_width(WIDTH);
 			ui.set_max_width(WIDTH);
+			// Area remembers its previous size; let details grow beyond a short prior profile.
+			ui.set_max_height(bounds.height());
 			ui.spacing_mut().item_spacing = vec2(8.0, 4.0);
 			// Cross-label drag selection paints stray highlights in this dense card.
 			ui.style_mut().interaction.selectable_labels = false;
@@ -527,12 +617,8 @@ pub fn show(
 				widgets.active.weak_bg_fill = theme.chip_hover;
 			}
 
-			// Header: banner or accent strip, overlapping avatar with presence, badge pill.
-			let has_banner = data.is_some_and(|d| d.banner_key().is_some());
-			let (banner, _) = ui.allocate_exact_size(
-				vec2(WIDTH, if has_banner { 105.0 } else { 60.0 }),
-				egui::Sense::hover(),
-			);
+			// Header: banner, overlapping avatar with presence, badge pill.
+			let (banner, _) = ui.allocate_exact_size(vec2(WIDTH, 105.0), egui::Sense::hover());
 			let top_corners = CornerRadius {
 				nw: RADIUS,
 				ne: RADIUS,
@@ -544,6 +630,31 @@ pub fn show(
 			} else {
 				ui.painter().rect_filled(banner, top_corners, colors.raised);
 			}
+			// Action circles in the banner's top-right corner: add friend, then the overflow menu.
+			let circles = Rect::from_min_size(
+				pos2(
+					banner.right() - PAD - 2.0 * CIRCLE - 8.0,
+					banner.top() + PAD,
+				),
+				vec2(2.0 * CIRCLE + 8.0, CIRCLE),
+			);
+			ui.scope_builder(
+				UiBuilder::new()
+					.max_rect(circles)
+					.layout(egui::Layout::right_to_left(egui::Align::Center)),
+				|ui| {
+					ui.spacing_mut().item_spacing.x = 8.0;
+					let more = header_circle(ui, Icon::More, "More", true);
+					egui::Popup::menu(&more).id(menu_id).show(|ui| {
+						if let Some(picked) = more_menu(ui, state, user, dm_channel) {
+							action = Some(picked);
+						}
+					});
+					if let Some(friend_action) = friend_circle(ui, state, user) {
+						action = Some(friend_action);
+					}
+				},
+			);
 			let avatar_rect = Rect::from_min_size(
 				banner.left_bottom() + vec2(PAD + 4.0, -AVATAR * 0.5 - 6.0),
 				Vec2::splat(AVATAR),
@@ -618,13 +729,13 @@ pub fn show(
 				})
 				.show(ui, |ui| {
 					ui.spacing_mut().item_spacing.y = 8.0;
-					let footer = 40.0
-						+ if friend_target(state, user) {
-							40.0 + if state.user_action_status().is_some() {
-								48.0
-							} else {
-								0.0
-							}
+					// Reserve space only for footer rows that are actually displayed.
+					let has_action = state.user.as_ref().is_some_and(|own| own.id == user.id)
+						|| dm_channel.is_some()
+						|| user.webhook;
+					let footer = if has_action { 40.0 } else { 0.0 }
+						+ if state.user_action_status().is_some() {
+							24.0
 						} else {
 							0.0
 						};
@@ -746,7 +857,10 @@ pub fn show(
 							if data.is_some() || !activities.is_empty() {
 								divider(ui, &theme);
 								let used = ui.cursor().top() - banner.top();
-								let max_height = (bounds.height() - used - footer - 48.0).max(72.0);
+								// No floor here: a busy profile (many badges, connections, a long
+								// bio) must still fit `bounds`, or the card's rounded bottom
+								// corner renders past the window edge and looks square.
+								let max_height = (bounds.height() - used - footer - 48.0).max(0.0);
 								egui::ScrollArea::vertical()
 									.id_salt("profile-details")
 									.max_height(max_height)
@@ -876,64 +990,6 @@ pub fn show(
 													);
 												}
 											});
-											if !data.connections.is_empty() {
-												section(ui, &theme, &mut sections, "CONNECTIONS");
-												for connection in &data.connections {
-													let (label, icon) = brand(&connection.kind);
-													let label = label
-														.map_or(connection.kind.as_str(), |l| l);
-													let mut hover = label.to_owned();
-													if connection.verified {
-														hover.push_str(" · Verified");
-													}
-													egui::Frame::new()
-														.fill(theme.chip)
-														.corner_radius(6)
-														.inner_margin(egui::Margin::symmetric(8, 6))
-														.show(ui, |ui| {
-															ui.set_width(ui.available_width());
-															ui.horizontal(|ui| {
-																ui.spacing_mut().item_spacing.x =
-																	8.0;
-																icons::inline(
-																	ui, icon, 18.0, theme.text,
-																);
-																ui.add(
-																	egui::Label::new(
-																		RichText::new(
-																			&connection.name,
-																		)
-																		.size(13.0)
-																		.strong(),
-																	)
-																	.truncate(),
-																);
-																if connection.verified {
-																	icons::inline(
-																		ui,
-																		Icon::Verified,
-																		14.0,
-																		theme.muted,
-																	);
-																}
-																ui.with_layout(
-																	egui::Layout::right_to_left(
-																		egui::Align::Center,
-																	),
-																	|ui| {
-																		ui.label(
-																			RichText::new(label)
-																				.size(12.0)
-																				.color(theme.muted),
-																		);
-																	},
-																);
-															});
-														})
-														.response
-														.on_hover_text(hover);
-												}
-											}
 											if !data.mutual_guilds.is_empty() {
 												ui.add_space(10.0);
 												let names: Vec<String> = data
@@ -985,64 +1041,58 @@ pub fn show(
 									});
 							}
 						});
-					if let Some(friend_action) = friend_button(ui, state, user) {
-						action = Some(friend_action);
-					}
-					ui.horizontal(|ui| {
-						ui.spacing_mut().item_spacing.x = 8.0;
-						if state.user.as_ref().is_some_and(|own| own.id == user.id) {
-							if ui
-								.add_sized(
-									[ui.available_width(), 32.0],
-									egui::Button::new(
-										RichText::new("Edit profile").color(colors.accent_text),
-									)
-									.fill(colors.accent),
-								)
-								.clicked()
-							{
-								action = Some(Action::Edit);
-							}
-						} else if let Some(channel) = dm_channel {
-							let width = ui.available_width() - 32.0 - 8.0;
-							if ui
-								.add_sized(
-									[width, 32.0],
-									egui::Button::new(
-										RichText::new(format!("Message @{}", user.name))
-											.color(colors.accent_text)
-											.strong(),
-									)
-									.fill(colors.accent)
-									.stroke(Stroke::NONE)
-									.corner_radius(RADIUS),
-								)
-								.clicked()
-							{
-								action = Some(Action::Message(channel));
-							}
-							if chip_button(ui, &theme, Icon::Copy, "Copy user ID").clicked() {
-								ui.ctx().copy_text(user.id.to_string());
-							}
-						} else if ui
+					// Footer: one full-width primary action when available.
+					if state.user.as_ref().is_some_and(|own| own.id == user.id) {
+						if ui
 							.add_sized(
 								[ui.available_width(), 32.0],
 								egui::Button::new(
-									RichText::new(if user.webhook {
-										"Copy webhook ID"
-									} else {
-										"Copy user ID"
-									})
-									.size(13.0)
-									.strong(),
+									RichText::new("Edit profile").color(colors.accent_text),
 								)
+								.fill(colors.accent)
+								.stroke(Stroke::NONE)
 								.corner_radius(RADIUS),
 							)
 							.clicked()
 						{
-							ui.ctx().copy_text(user.id.to_string());
+							action = Some(Action::Edit);
 						}
-					});
+					} else if let Some(channel) = dm_channel {
+						if ui
+							.add_sized(
+								[ui.available_width(), 32.0],
+								egui::Button::new(
+									RichText::new(format!("Message @{}", user.name))
+										.color(colors.accent_text)
+										.strong(),
+								)
+								.fill(colors.accent)
+								.stroke(Stroke::NONE)
+								.corner_radius(RADIUS),
+							)
+							.clicked()
+						{
+							action = Some(Action::Message(channel));
+						}
+					} else if user.webhook
+						&& ui
+							.add_sized(
+								[ui.available_width(), 32.0],
+								egui::Button::new(
+									RichText::new("Copy webhook ID").size(13.0).strong(),
+								)
+								.corner_radius(RADIUS),
+							)
+							.clicked()
+					{
+						ui.ctx().copy_text(user.id.to_string());
+					}
+					if let Some(status) = state.user_action_status() {
+						ui.add(
+							egui::Label::new(RichText::new(status).size(11.0).color(theme.muted))
+								.wrap(),
+						);
+					}
 					if state.demo {
 						ui.label(
 							RichText::new("Offline preview · synthetic")
@@ -1055,17 +1105,19 @@ pub fn show(
 			ui.painter().set(background, theme.background(rect));
 		});
 	let rect = response.response.rect;
-	let pressed_outside = ui.ctx().input(|i| {
-		i.pointer.any_pressed()
-			&& i.pointer
-				.interact_pos()
-				.is_some_and(|pos| !rect.contains(pos))
-	});
+	let pressed_outside = !menu_open
+		&& ui.ctx().input(|i| {
+			i.pointer.any_pressed()
+				&& i.pointer
+					.interact_pos()
+					.is_some_and(|pos| !rect.contains(pos))
+		});
 	let escape = opening.is_none()
+		&& !menu_open
 		&& ui
 			.ctx()
 			.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-	if (pressed_outside || escape) && opening.is_none() {
+	if (pressed_outside || escape) && opening.is_none() && action.is_none() {
 		action = Some(Action::Close);
 	}
 	crate::markdown::confirm_external_link(ui.ctx(), opening, confirm_links);
@@ -1151,7 +1203,7 @@ mod tests {
 		let mut chosen = None;
 		let render_button = |events, chosen: &mut Option<Action>| {
 			ctx.run_ui(input(size, events), |ui| {
-				if let Some(action) = friend_button(ui, &state, &person) {
+				if let Some(action) = friend_circle(ui, &state, &person) {
 					*chosen = Some(action);
 				}
 			})
@@ -1161,12 +1213,10 @@ mod tests {
 			.shapes
 			.iter()
 			.find_map(|s| match &s.shape {
-				egui::Shape::Text(t) if t.galley.job.text == "Friends \u{2713}" => {
-					Some(t.pos + t.galley.size() * 0.5)
-				}
+				egui::Shape::Circle(c) if (c.radius - CIRCLE * 0.5).abs() < 0.5 => Some(c.center),
 				_ => None,
 			})
-			.unwrap();
+			.expect("friend circle");
 		output.drop_without_applying_deltas();
 		let pointer = |position, pressed| {
 			vec![
@@ -1313,12 +1363,89 @@ mod tests {
 				}
 				assert_eq!(painted.contains("Webhook"), webhook);
 				assert_eq!(painted.contains("Copy webhook ID"), webhook);
+				assert!(!painted.contains("Copy user ID"));
+				// No open DM in this fixture, so non-webhook profiles have no footer action.
+				assert!(!painted.contains("Message"));
 				assert_eq!(painted.contains("Unsupported service response"), !webhook);
 				assert_eq!(painted.contains("Retry profile"), !webhook);
 				assert!(!painted.contains("Loading profile"));
 				assert!(images.take_requests().is_empty());
 			}
 		}
+	}
+	#[test]
+	fn busy_gradient_profile_never_grows_past_the_viewport() {
+		// Many badges/connections/mutual servers plus a long bio must still fit the window, or
+		// the card's rounded bottom corner renders past the edge and looks clipped square.
+		let user = test_support::message(1, Id(22)).author;
+		let mut data = synthetic(&user, Some(Id(9)));
+		data.bio =
+			"Line one of a long synthetic biography.\nLine two.\nLine three.\nLine four.".repeat(3);
+		data.badges = (0..8)
+			.map(|i| model::ProfileBadge {
+				id: format!("badge-{i}"),
+				description: format!("Synthetic badge {i}"),
+				icon: Some("c".repeat(32)),
+			})
+			.collect();
+		data.connections = (0..6)
+			.map(|i| model::ProfileConnection {
+				kind: "GitHub".into(),
+				name: format!("synthetic-profile-{i}"),
+				verified: true,
+			})
+			.collect();
+		data.mutual_guilds = (0..6)
+			.map(|i| model::ProfileGuild {
+				id: Id(100 + i),
+				nick: None,
+			})
+			.collect();
+		let view = ProfileView {
+			user: user.id,
+			guild: None,
+			request: 1,
+			loading: false,
+			error: None,
+			data: Some(data),
+		};
+		let state = State {
+			demo: true,
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		let mut opening = None;
+		let size = vec2(400.0, 500.0);
+		let mut rect = None;
+		for _ in 0..3 {
+			let output = ctx.run_ui(input(size, vec![]), |ui| {
+				show(
+					ui,
+					&user,
+					Some(&view),
+					&state,
+					&mut images,
+					&mut opening,
+					&mut FormatCache::default(),
+					true,
+					pos2(20.0, 40.0),
+				);
+			});
+			rect = Some(
+				ctx.memory(|m| m.area_rect(egui::Id::unique("user-profile-popout")))
+					.expect("popout area"),
+			);
+			output.drop_without_applying_deltas();
+		}
+		let rect = rect.expect("rendered at least once");
+		let bounds = Rect::from_min_size(Pos2::ZERO, size).shrink(8.0);
+		assert!(
+			rect.bottom() <= bounds.bottom() + 1.0,
+			"card bottom {} exceeds viewport bottom {}; its rounded corner would render off-window",
+			rect.bottom(),
+			bounds.bottom()
+		);
 	}
 	#[test]
 	fn dm_presence_does_not_use_a_visible_guild_snapshot() {

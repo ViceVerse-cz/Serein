@@ -1,13 +1,16 @@
 # Linux packages
 
-Release builds provide native packages for Ubuntu 26.04 (`apt`), Fedora 44 (`dnf`),
+Release builds target native packages for Ubuntu 26.04 (`apt`), Fedora 43/44 (`dnf`),
 openSUSE Tumbleweed (`zypper`) and Arch (`pacman`), plus a
 [Flatpak bundle](../flatpak/README.md) for distributions with a compatible Flatpak runtime.
+The [AppImage](../appimage/README.md) supports in-app updates on Linux x86_64 with
+the documented host GTK4/WebKit6 runtime; its release build targets Ubuntu 26.04.
 Download the file labelled for your distribution from
 [Releases](https://github.com/ViceVerse-cz/Serein/releases), then use its actual filename:
 
 ```sh
 sudo apt install ./serein-*.deb                     # Ubuntu 26.04
+sudo dnf install ./serein-*.fc43.*.rpm              # Fedora 43
 sudo dnf install ./serein-*.fc44.*.rpm              # Fedora 44
 sudo zypper install ./serein-*.suse.*.rpm           # openSUSE Tumbleweed
 sudo pacman -U ./serein-*.pkg.tar.zst               # Arch
@@ -21,6 +24,12 @@ and pacman repositories for normal package-manager upgrades. Hosting and signing
 credentials must be configured before those repository URLs are usable. Serein is
 not listed in distribution archives, AUR or Flathub by this change.
 
+Native DEB, RPM and Arch packages require the GStreamer Good plugin set, which
+provides `autoaudiosink` used by WebKit. Package-manager installation pulls it in
+even when recommended/optional packages are disabled. This changes future packages,
+not already-published releases. Source builds and extracted directory archives do
+not install system dependencies; on Arch/CachyOS install `gst-plugins-good` yourself.
+
 ## Native builds
 
 Build on the target distribution; converting an Ubuntu binary to RPM or Arch does
@@ -33,6 +42,7 @@ cargo xtask package --format deb    # Debian/Ubuntu; also the default Linux form
 cargo xtask package --format rpm    # Fedora or openSUSE
 cargo xtask package --format arch   # Arch; makepkg must run without root
 cargo xtask package --format dir    # dist/linux-root/usr, for the Flatpak SDK build
+cargo xtask package --format appimage # requires packaging/appimage/install-tools.sh first
 ```
 
 `install-build-deps.sh` installs build dependencies as root on the explicitly
@@ -73,7 +83,7 @@ logs, and stale license files. Temporary files are removed when packaging finish
 or raises an error.
 
 The archive installs `/usr/bin/serein`, a launcher in
-`/usr/share/applications/org.serein.desktop.desktop`, and notices and licenses under
+`/usr/share/applications/cz.viceverse.serein.desktop`, and notices and licenses under
 `/usr/share/doc/serein`. No maintainer
 scripts, background updater, automatic launch or user-profile writes are added.
 For a deliberate manual installation, use the local file:
@@ -94,9 +104,10 @@ loaded Vulkan/EGL, X11/Wayland libraries and the D-Bus/desktop-portal services t
 ELF inspection cannot discover. A working graphical session, graphics driver,
 portal backend and unlocked Secret Service provider are still necessary for the
 corresponding features. The package recommends a GTK or KDE portal backend and
-GNOME Keyring; an existing compatible provider can be used instead. It also recommends
-the GStreamer base, good and libav plugin sets, which inline attachment video loads at
-run time through `decodebin`; without them the player reports an unsupported format. GTK/WebKit
+GNOME Keyring; an existing compatible provider can be used instead. The GStreamer
+good plugin set is required; base and libav remain recommended for inline attachment
+video loaded at run time through `decodebin`; without the needed codecs the player
+reports an unsupported format. GTK/WebKit
 and voice library requirements come from the built executable. The
 resulting version constraints target the build distribution; inspect `Depends`
 with `dpkg-deb --field <package.deb> Depends` before distributing elsewhere.

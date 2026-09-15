@@ -1,4 +1,4 @@
-use model::Reaction;
+use model::{Id, Patch, Reaction, ReactionEmoji};
 use serde::{
 	Deserialize, Deserializer,
 	de::{SeqAccess, Visitor},
@@ -39,10 +39,146 @@ pub struct ReactionTarget {
 	pub message_id: model::Id,
 }
 
+fn reaction_emoji<'de, D: Deserializer<'de>>(deserializer: D) -> Result<ReactionEmoji, D::Error> {
+	let mut emoji = ReactionEmoji::deserialize(deserializer)?;
+	if !emoji.valid() {
+		return Err(serde::de::Error::custom("Invalid reaction emoji"));
+	}
+	// Retain only the validated name, never spare capacity from the wire allocation.
+	emoji.name = emoji.name.map(|name| name.as_str().to_owned());
+	Ok(emoji)
+}
+
+#[derive(Deserialize)]
+pub struct ReactionEmojiTarget {
+	pub channel_id: Id,
+	pub message_id: Id,
+	#[serde(deserialize_with = "reaction_emoji")]
+	pub emoji: ReactionEmoji,
+}
+
+#[derive(Deserialize)]
+#[serde(try_from = "ReactionDeltaWire")]
+pub struct ReactionDelta {
+	pub channel_id: Id,
+	pub message_id: Id,
+	pub user_id: Id,
+	pub emoji: ReactionEmoji,
+	pub burst: bool,
+}
+
+#[derive(Deserialize)]
+struct ReactionDeltaWire {
+	channel_id: Id,
+	message_id: Id,
+	user_id: Id,
+	#[serde(deserialize_with = "reaction_emoji")]
+	emoji: ReactionEmoji,
+	#[serde(default, rename = "type")]
+	kind: Patch<u8>,
+	#[serde(default)]
+	burst: Patch<bool>,
+}
+impl TryFrom<ReactionDeltaWire> for ReactionDelta {
+	type Error = &'static str;
+	fn try_from(wire: ReactionDeltaWire) -> Result<Self, Self::Error> {
+		// Documented types are NORMAL (0) and BURST (1). Older events omit type;
+		// use their explicit burst flag, or normal when both fields are absent.
+		let burst = match (wire.kind, wire.burst) {
+			(Patch::Absent | Patch::Value(0), Patch::Absent | Patch::Value(false)) => false,
+			(Patch::Absent | Patch::Value(1), Patch::Value(true))
+			| (Patch::Value(1), Patch::Absent) => true,
+			_ => return Err("Unsupported or conflicting reaction type"),
+		};
+		Ok(Self {
+			channel_id: wire.channel_id,
+			message_id: wire.message_id,
+			user_id: wire.user_id,
+			emoji: wire.emoji,
+			burst,
+		})
+	}
+}
+
 #[cfg(test)]
 mod tests {
+	use super::{ReactionDelta, ReactionEmojiTarget, ReactionTarget};
 	use crate::{MessageDto, PatchDto, decode};
 	use model::{Id, Patch};
+	use serde_json::json;
+
+	#[test]
+	fn reaction_deltas_validate_type_identity_and_bounded_emoji() {
+		let wire =
+			json!({"channel_id":"2","message_id":"3","user_id":"4","emoji":{"id":null,"name":"x"}});
+		for (fields, burst) in [
+			(json!({}), false),
+			(json!({"type":0,"burst":false}), false),
+			(json!({"type":1,"burst":true}), true),
+			(json!({"type":1}), true),
+			(json!({"burst":true}), true),
+		] {
+			let mut value = wire.clone();
+			value
+				.as_object_mut()
+				.unwrap()
+				.extend(fields.as_object().unwrap().clone());
+			let event: ReactionDelta = decode(&serde_json::to_vec(&value).unwrap()).unwrap();
+			assert_eq!(
+				(event.channel_id, event.message_id, event.user_id),
+				(Id(2), Id(3), Id(4))
+			);
+			assert_eq!(event.burst, burst);
+			assert_eq!(event.emoji.name.as_deref(), Some("x"));
+		}
+		for fields in [
+			json!({"type":2}),
+			json!({"type":256}),
+			json!({"type":-1}),
+			json!({"type":"1"}),
+			json!({"type":null}),
+			json!({"burst":null}),
+			json!({"type":0,"burst":true}),
+			json!({"type":1,"burst":false}),
+			json!({"user_id":"0"}),
+			json!({"channel_id":"0"}),
+			json!({"message_id":"0"}),
+			json!({"emoji":{"id":"0","name":"x"}}),
+			json!({"emoji":{"id":null,"name":null}}),
+			json!({"emoji":{"id":null,"name":""}}),
+			json!({"emoji":{"id":null,"name":"x\n"}}),
+			json!({"emoji":{"id":null,"name":"x".repeat(129)}}),
+			json!({"emoji":{"id":null,"name":"é".repeat(65)}}),
+		] {
+			let mut value = wire.clone();
+			value
+				.as_object_mut()
+				.unwrap()
+				.extend(fields.as_object().unwrap().clone());
+			assert!(decode::<ReactionDelta>(&serde_json::to_vec(&value).unwrap()).is_err());
+		}
+		for emoji in [
+			json!({"id":"5","name":null}),
+			json!({"id":null,"name":"é".repeat(64)}),
+		] {
+			let mut value = wire.clone();
+			value["emoji"] = emoji;
+			let event: ReactionDelta = decode(&serde_json::to_vec(&value).unwrap()).unwrap();
+			assert!(
+				event
+					.emoji
+					.name
+					.as_ref()
+					.is_none_or(|name| name.capacity() <= 128)
+			);
+			let cleared: ReactionEmojiTarget =
+				decode(&serde_json::to_vec(&value).unwrap()).unwrap();
+			assert_eq!(cleared.emoji, event.emoji);
+		}
+		assert!(decode::<ReactionEmojiTarget>(br#"{"channel_id":"2","message_id":"3"}"#).is_err());
+		assert!(decode::<ReactionTarget>(br#"{"channel_id":"2","message_id":"3"}"#).is_ok());
+	}
+
 	#[test]
 	fn reactions_decode_bounded_counts_custom_emoji_and_partial_removals() {
 		let raw = serde_json::json!({"id":"1","channel_id":"2","author":{"id":"3","username":"Test"},

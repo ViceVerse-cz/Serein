@@ -105,14 +105,16 @@ impl Connection {
                     },|event|{
                         if let Some((ready_user,_,channels))=event.ready_navigation() {
                             if ready_user.id!=user.id {return Err(Failure::InvalidCredential);}
-                            *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|c.guild.is_none()&&c.kind==1&&c.recipients.len()==1).map(|c|c.id).collect();
+                            *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|private_call(c)).map(|c|c.id).collect();
                         }
                         if let Event::ChannelCreated(channel)=&event {
                             let mut channels=gateway_channels.lock().map_err(|_|Failure::Protocol)?;
                             channels.remove(&channel.id);
-                            if channel.guild.is_none() && channel.kind==1 && channel.recipients.len()==1 && channels.len()<client_core::MAX_NAV {channels.insert(channel.id);}
+                            if private_call(channel) && channels.len()<client_core::MAX_NAV {channels.insert(channel.id);}
                         }
                         if let Event::Unavailable(channel)=&event {gateway_channels.lock().map_err(|_|Failure::Protocol)?.remove(channel);}
+                        if let Event::RecipientRemoved {channel,user:removed}=&event && *removed==user.id {gateway_channels.lock().map_err(|_|Failure::Protocol)?.remove(channel);}
+                        if let Event::ChannelChanged(patch)=&event && let model::Patch::Value(kind)=patch.kind && !matches!(kind,1|3) {gateway_channels.lock().map_err(|_|Failure::Protocol)?.remove(&patch.id);}
 
                         if event.ready_navigation().is_some() || matches!(&event,Event::Resumed) {let _=voice_online.send(true);}
                         if matches!(&event,Event::Disconnected|Event::Resync) {let _=voice_online.send(false);}
@@ -133,6 +135,7 @@ impl Connection {
                 }));
                 let mut history:Option<AbortTask>=None;
                 let mut profile:Option<AbortTask>=None;
+                let mut thread_members:Option<AbortTask>=None;
                 let mut invite:Option<AbortTask>=None;
                 let mut search:Option<AbortTask>=None;
                 let mut gifs:Option<AbortTask>=None;
@@ -265,6 +268,7 @@ impl Connection {
                                 if !*voice_availability.borrow() {
                                     emit(Event::Voice(E::Failed{channel,request,message:"Voice is disconnected; no call was started"}))?;continue;
                                 }
+                                if let V::Leave{channel,request}=control && voice_request.is_some_and(|(id,r,_)|id==channel && r==request) {drop(ringing.take());}
                                 let ring=match ring_action(control,user.id,&mut voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.contains(&channel)) {
                                     Ok(action)=>action,
                                     Err(())=>{emit(Event::Voice(E::Failed{channel,request,message:"Call action expired; no ringing request was sent"}))?;continue;}
@@ -307,7 +311,22 @@ impl Connection {
                                 })));
                                 continue;
                             }
-                            if let Command::Members {guild,channel,request,list_id} = command {
+                            if let Command::Members {guild,channel,request,list_id,thread} = command {
+                                drop(thread_members.take());
+                                if thread {
+                                    member_send.send(None).map_err(|_|Failure::Network)?;
+                                    if let (Some(guild),Some(channel))=(guild,channel) {
+                                        let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                        thread_members=Some(AbortTask(tokio::spawn(async move {
+                                            let result=api.thread_members(guild,channel,request).await;
+                                            let failure=result.as_ref().err().copied().filter(|failure|failure.ends_session() && *failure!=Failure::Capacity);
+                                            let list=result.unwrap_or(model::MemberList {guild:Some(guild),channel,request,total:0,rows:vec![],freshness:model::Freshness::Unavailable});
+                                            if let Some(error)=emit(Event::Members(list)).err().or(failure) {api.stop();let _=finished.send(Some(error));}
+                                            wake.request_repaint();
+                                        })));
+                                    }
+                                    continue;
+                                }
                                 let subscription=match (guild,channel,list_id) { (Some(guild),Some(channel),Some(list_id)) => Some(discord_gateway::MemberSubscription {guild,channel,request,list_id}), _=>None };
                                 member_send.send(subscription).map_err(|_|Failure::Network)?;
                                 continue;
@@ -547,6 +566,13 @@ impl TypingGate {
 	}
 }
 
+fn private_call(channel: &model::Channel) -> bool {
+	channel.guild.is_none()
+		&& ((channel.kind == 1 && channel.recipients.len() == 1)
+			|| (channel.kind == 3
+				&& channel.recipients.len() < client_core::voice::MAX_PARTICIPANTS))
+}
+
 // Ring only after the media adapter confirms transport allocation, and only once per current call.
 fn ring_action(
 	control: client_core::voice::Command,
@@ -555,6 +581,13 @@ fn ring_action(
 	dm: bool,
 ) -> Result<Option<(Option<model::Id>, bool)>, ()> {
 	use client_core::voice::Command as V;
+	if let V::Leave { channel, request } = control {
+		if active.is_some_and(|(id, r, _)| id == channel && r == request) {
+			*active = None;
+			return Ok(dm.then_some((None, true)));
+		}
+		return Ok(None);
+	}
 	if !dm {
 		return match control {
 			V::Ring { .. } | V::Decline { .. } | V::Join { ring: true, .. } => Err(()),
@@ -588,16 +621,9 @@ fn ring_action(
 			*rang = true;
 			Ok(Some((None, false)))
 		}
-		V::Leave { channel, request } => {
-			if active.is_some_and(|(id, r, _)| id == channel && r == request) {
-				*active = None;
-				Ok(Some((None, true)))
-			} else {
-				Ok(None)
-			}
-		}
 		V::Decline { .. } => Ok(Some((Some(owner), true))),
 		V::Sync { .. }
+		| V::Leave { .. }
 		| V::SetMute { .. }
 		| V::SetCamera { .. }
 		| V::StartStream { .. }

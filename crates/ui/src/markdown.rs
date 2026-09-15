@@ -1,7 +1,7 @@
 //! Bounded native text formatting. No HTML renderer, image loader, or automatic URL access.
 use egui::{FontId, Stroke, TextFormat, text::LayoutJob};
 use model::Id;
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -10,22 +10,44 @@ const MAX_EVENTS: usize = 512;
 const MAX_DEPTH: usize = 16;
 const MAX_LINKS: usize = 16;
 const MAX_SPOILERS: u8 = 32;
+const MAX_BLOCKS: usize = 32;
 
 #[derive(Clone, Copy, Default)]
 struct Style {
 	strong: bool,
 	italic: bool,
+	underline: bool,
 	code: bool,
 	strike: bool,
 	quote: bool,
+	/// Discord heading level 1–3; zero for body text.
+	heading: u8,
+	/// Discord `-# ` subtext: smaller, quieter body text.
+	small: bool,
 	link: Option<usize>,
 	mention: Option<Id>,
+	mass_mention: bool,
 	channel: Option<Id>,
 	no_autolink: bool,
 	spoiler: Option<u8>,
+	/// Fenced code block index; the block widget replaces these spans when shown.
+	block: Option<u8>,
+}
+/// One fenced block: its display text plus highlighting computed once at parse time.
+pub struct CodeBlock {
+	/// Sanitised fence info word, shown when no known language matches it.
+	tag: String,
+	language: Option<crate::highlight::Language>,
+	/// Exact text for copying.
+	code: String,
+	/// Tab-expanded text when it differs from `code`; egui has no tab stops.
+	display: Option<String>,
+	/// Highlighting of the displayed text, computed once at parse time.
+	segments: Vec<crate::highlight::Segment>,
 }
 pub struct Formatted {
 	spans: Vec<(String, Style)>,
+	blocks: Vec<CodeBlock>,
 	mention_count: usize,
 	pub links: Vec<String>,
 	pub limited: bool,
@@ -74,7 +96,7 @@ impl FormatCache {
 			let source = source[..end].to_owned();
 			self.bytes += source.capacity() + parsed.bytes();
 			self.entries.insert(id, (source, parsed, self.clock));
-			while self.entries.len() > 64 || self.bytes > 1024 * 1024 {
+			while self.entries.len() > 512 || self.bytes > 1024 * 1024 {
 				let oldest = *self
 					.entries
 					.iter()
@@ -194,6 +216,67 @@ pub(super) fn confirm_external_link(
 	}
 }
 
+/// Insert a newline before a closing ``` that ends a line of fenced content and after one that
+/// is followed by more text, so CommonMark sees the fence Discord would. A fence whose opening
+/// line already holds the closing run (` ```one line``` `) is left for the code-span path.
+fn normalize_fences(input: &str) -> std::borrow::Cow<'_, str> {
+	let bytes = input.as_bytes();
+	let mut out: Option<String> = None;
+	let mut open = false;
+	let mut i = 0;
+	let mut copied = 0;
+	while let Some(offset) = input[i..].find("```") {
+		let at = i + offset;
+		let mut run_end = at;
+		while run_end < bytes.len() && bytes[run_end] == b'`' {
+			run_end += 1;
+		}
+		let line_end = input[run_end..]
+			.find('\n')
+			.map_or(input.len(), |n| run_end + n);
+		if !open {
+			if input[run_end..line_end].contains("```") {
+				// Single-line fence pair: skip past the closing run on this line.
+				let close = run_end + input[run_end..line_end].find("```").unwrap_or(0);
+				let mut close_end = close;
+				while close_end < bytes.len() && bytes[close_end] == b'`' {
+					close_end += 1;
+				}
+				i = close_end;
+				continue;
+			}
+			open = true;
+			i = line_end;
+			continue;
+		}
+		let line_start = input[..at].rfind('\n').map_or(0, |n| n + 1);
+		let own_line = input[line_start..at].trim().is_empty();
+		let trailing = input[run_end..line_end].trim().is_empty();
+		if !own_line || !trailing {
+			let out = out.get_or_insert_with(|| String::with_capacity(input.len() + 8));
+			if !own_line {
+				out.push_str(&input[copied..at]);
+				out.push('\n');
+				copied = at;
+			}
+			if !trailing {
+				out.push_str(&input[copied..run_end]);
+				out.push('\n');
+				copied = run_end;
+			}
+		}
+		open = false;
+		i = run_end;
+	}
+	match out {
+		Some(mut out) => {
+			out.push_str(&input[copied..]);
+			std::borrow::Cow::Owned(out)
+		}
+		None => std::borrow::Cow::Borrowed(input),
+	}
+}
+
 impl Formatted {
 	pub fn parse(source: &str) -> Self {
 		let mut end = source.len().min(MAX_INPUT);
@@ -203,9 +286,13 @@ impl Formatted {
 		if let Some((line_end, _)) = source[..end].match_indices('\n').nth(127) {
 			end = line_end;
 		}
-		let input = &source[..end];
+		// Discord closes a fence at the end of any line (` ```js\ncode``` `); CommonMark needs
+		// the closing fence on its own line. Only inserted newlines differ from the source.
+		let normalized = normalize_fences(&source[..end]);
+		let input: &str = &normalized;
 		let mut output = Self {
 			spans: Vec::new(),
+			blocks: Vec::new(),
 			mention_count: 0,
 			links: Vec::new(),
 			limited: end < source.len(),
@@ -217,6 +304,18 @@ impl Formatted {
 		// link boundaries may start or end inside a concealed region.
 		let mut open_spoiler: Option<(usize, u8)> = None;
 		let mut regions = 0;
+		// Discord semantics that CommonMark lacks: `>>> ` quotes the rest of the message,
+		// `> ` quotes exactly one line, `-# ` marks one line as subtext, and blank lines
+		// between blocks are kept instead of collapsed.
+		let mut quote_all = false;
+		let mut quote_lazy = false;
+		let mut subtext = false;
+		let mut block_end = 0;
+		let mut lists: Vec<Option<u64>> = Vec::new();
+		let line_prefix = |at: usize| -> &str {
+			let line_start = input[..at].rfind('\n').map_or(0, |i| i + 1);
+			&input[line_start..at]
+		};
 		let literal = |text: &str, range: &std::ops::Range<usize>| {
 			text == &input[range.clone()]
 				&& input[..range.start]
@@ -254,19 +353,94 @@ impl Formatted {
 				return Self::limited_literal(input, source.contains("||"));
 			}
 			style.spoiler = open_spoiler.map(|(_, region)| region);
+			if quote_all {
+				style.quote = true;
+			} else if quote_lazy {
+				style.quote = false;
+			}
+			style.small = subtext;
+			if matches!(
+				event,
+				Event::Start(
+					Tag::Paragraph
+						| Tag::Heading { .. }
+						| Tag::CodeBlock(_)
+						| Tag::BlockQuote(_)
+						| Tag::List(_) | Tag::Item
+				) | Event::Rule
+			) {
+				// Source blank lines between blocks are kept. A block whose range excludes its
+				// own line terminator (fenced code) contributes one newline that is not blank.
+				if range.start > block_end && !output.spans.is_empty() {
+					let mut blank = input[block_end..range.start].matches('\n').count();
+					if blank > 0 && !input[..block_end].ends_with('\n') {
+						blank -= 1;
+					}
+					for _ in 0..blank {
+						output.push("\n", Style::default());
+					}
+				}
+				block_end = block_end.max(range.start);
+			}
 			match event {
 				Event::Start(tag) => {
 					stack.push(style);
 					match tag {
-						Tag::Strong | Tag::Heading { .. } => style.strong = true,
+						Tag::Strong if input[range.start..].starts_with("__") => {
+							style.underline = true;
+						}
+						Tag::Strong => style.strong = true,
+						Tag::Heading { level, .. } => {
+							let level = level as u8;
+							if style.quote && output.line_start() {
+								output.push("│ ", style);
+							}
+							if level <= 3 {
+								style.strong = true;
+								style.heading = level;
+							} else {
+								// Discord has three heading levels; deeper markers stay literal.
+								output.push(&"#".repeat(usize::from(level)), style);
+								output.push(" ", style);
+							}
+						}
 						Tag::Emphasis => style.italic = true,
 						Tag::Strikethrough => style.strike = true,
-						Tag::CodeBlock(_) => style.code = true,
-						Tag::BlockQuote(_) => {
-							output.push("│ ", style);
-							style.quote = true;
+						Tag::CodeBlock(CodeBlockKind::Fenced(info)) => {
+							style.code = true;
+							style.block = output.open_block(&info);
 						}
-						Tag::Item => output.push("• ", style),
+						// Discord has no indented code blocks: four leading spaces stay prose.
+						Tag::CodeBlock(CodeBlockKind::Indented) => {
+							if style.quote && output.line_start() {
+								output.push("│ ", style);
+							}
+						}
+						Tag::Paragraph => {
+							if style.quote && output.line_start() {
+								output.push("│ ", style);
+							}
+						}
+						Tag::BlockQuote(_) => {
+							style.quote = true;
+							if input[range.start..].starts_with(">>>") {
+								quote_all = true;
+							}
+						}
+						Tag::List(start) => lists.push(start),
+						Tag::Item => {
+							if style.quote && output.line_start() {
+								output.push("│ ", style);
+							}
+							output.push(&"  ".repeat(lists.len().saturating_sub(1)), style);
+							match lists.last_mut() {
+								Some(Some(number)) => {
+									output.push(&format!("{number}. "), style);
+									*number = number.saturating_add(1);
+								}
+								_ => output.push("• ", style),
+							}
+						}
 						Tag::Link { dest_url, .. } => {
 							style.no_autolink = true;
 							style.link = output.add_link(&dest_url);
@@ -284,20 +458,57 @@ impl Formatted {
 						| TagEnd::Heading(_)
 						| TagEnd::CodeBlock
 						| TagEnd::BlockQuote(_)
-						| TagEnd::Item => output.push("\n", style),
+						| TagEnd::Item => {
+							// Fenced code text carries its own terminator and a quote's inner
+							// blocks end their lines; neither may add a blank line.
+							if !(matches!(tag, TagEnd::CodeBlock | TagEnd::BlockQuote(_))
+								&& output.line_start())
+							{
+								output.push("\n", style);
+							}
+							if let Some(block) = style.block {
+								output.close_block(block);
+							}
+							subtext = false;
+							block_end = block_end.max(range.end);
+						}
+						TagEnd::List(_) => {
+							lists.pop();
+							block_end = block_end.max(range.end);
+						}
 						TagEnd::Image => output.push("]", style),
 						_ => {}
+					}
+					if matches!(tag, TagEnd::BlockQuote(_)) {
+						quote_lazy = false;
 					}
 					style = stack.pop().unwrap_or_default();
 				}
 				Event::Text(text) => {
-					if style.code || text.as_ref() != &input[range.clone()] {
-						output.push(&text, style);
+					let mut range = range;
+					let mut text: &str = &text;
+					if !style.code
+						&& text.starts_with("-# ")
+						&& literal(text, &range)
+						&& line_prefix(range.start)
+							.chars()
+							.all(|c| c == '>' || c == ' ')
+					{
+						subtext = true;
+						style.small = true;
+						text = &text[3..];
+						range.start += 3;
+					}
+					if style.code || text != &input[range.clone()] {
+						output.push(text, style);
+						if let Some(block) = style.block {
+							output.blocks[usize::from(block)].code.push_str(text);
+						}
 					} else {
 						// A raw-equal Text event can begin with one escaped character
 						// followed by ordinary source text. Keep that first character
 						// inert without suppressing later literal spoiler delimiters.
-						let escaped = if literal(&text, &range) {
+						let escaped = if literal(text, &range) {
 							0
 						} else {
 							text.chars().next().map_or(0, char::len_utf8)
@@ -331,6 +542,20 @@ impl Formatted {
 						output.push(&text, inert);
 					}
 				}
+				// ` ```code``` ` on one line is a fence to Discord but a code span to CommonMark.
+				Event::Code(text) if input[range.clone()].starts_with("```") => {
+					let block = output.open_block("");
+					let style = Style {
+						code: true,
+						block,
+						..style
+					};
+					output.push(&text, style);
+					if let Some(block) = block {
+						output.blocks[usize::from(block)].code.push_str(&text);
+						output.close_block(block);
+					}
+				}
 				Event::Code(text) => output.push(
 					&text,
 					Style {
@@ -338,7 +563,23 @@ impl Formatted {
 						..style
 					},
 				),
-				Event::SoftBreak | Event::HardBreak => output.push("\n", style),
+				Event::SoftBreak | Event::HardBreak => {
+					subtext = false;
+					if style.quote && !quote_all && !quote_lazy {
+						// A `> ` quote covers one line; CommonMark's lazy continuation does not.
+						let next = input[range.end..].trim_start_matches(' ');
+						if next.starts_with('>') {
+							output.push("\n│ ", style);
+						} else {
+							quote_lazy = true;
+							output.push("\n", style);
+						}
+					} else if style.quote {
+						output.push("\n│ ", style);
+					} else {
+						output.push("\n", style);
+					}
+				}
 				Event::Rule => output.push("────────\n", style),
 				_ => {}
 			}
@@ -373,6 +614,7 @@ impl Formatted {
 					..Default::default()
 				},
 			)],
+			blocks: Vec::new(),
 			mention_count: 0,
 			links: Vec::new(),
 			limited: true,
@@ -472,16 +714,22 @@ impl Formatted {
 	fn push_mentions(&mut self, text: &str, style: Style, source: &str) {
 		let mut consumed = 0;
 		let mut raw_cursor = 0;
-		for (start, _) in text.match_indices('<') {
+		for (start, _) in text.match_indices(['<', '@']) {
 			let reference = &text[start..];
-			let is_channel = reference.starts_with("<#");
-			let Some((id, len)) = (if is_channel {
-				model::channel_mention_prefix(reference)
-			} else {
-				model::user_mention_prefix(reference)
-			}) else {
-				continue;
-			};
+			let (id, len, is_channel, mass_mention) =
+				if let Some(len) = model::mass_mention_prefix(reference) {
+					(None, len, false, true)
+				} else {
+					let is_channel = reference.starts_with("<#");
+					let Some((id, len)) = (if is_channel {
+						model::channel_mention_prefix(reference)
+					} else {
+						model::user_mention_prefix(reference)
+					}) else {
+						continue;
+					};
+					(Some(id), len, is_channel, false)
+				};
 			if self.mention_count >= model::MAX_MENTIONS {
 				self.limited = true;
 				break;
@@ -503,8 +751,9 @@ impl Formatted {
 			self.push(
 				token,
 				Style {
-					mention: (!is_channel).then_some(id),
-					channel: is_channel.then_some(id),
+					mention: id.filter(|_| !is_channel),
+					mass_mention,
+					channel: id.filter(|_| is_channel),
 					..style
 				},
 			);
@@ -613,6 +862,21 @@ impl Formatted {
 							if response.clicked() {
 								*channel = Some(id);
 							}
+						} else if channels.iter().all(|target| target.id != id) {
+							let label = "#unknown-channel";
+							let response = ui
+								.add(egui::Link::new(egui::RichText::new(label).strong()))
+								.on_hover_text("Load channel");
+							response.widget_info(|| {
+								egui::WidgetInfo::labeled(
+									egui::WidgetType::Link,
+									ui.is_enabled(),
+									"Unknown channel, load channel",
+								)
+							});
+							if response.clicked() {
+								*channel = Some(id);
+							}
 						} else {
 							ui.add(egui::Label::new(&self.spans[start].0).selectable(true))
 								.on_hover_text(
@@ -657,17 +921,42 @@ impl Formatted {
 						start += 1;
 						continue;
 					}
+					if let Some(block) = self.spans[start].1.block {
+						let count = self.spans[start..]
+							.iter()
+							.take_while(|(_, style)| style.block == Some(block))
+							.count();
+						Self::show_code_block(ui, &self.blocks[usize::from(block)], block);
+						start += count;
+						continue;
+					}
 					let target = self.spans[start].1.link;
-					let count = self.spans[start..]
-						.iter()
-						.take_while(|(_, style)| {
-							style.link == target
-								&& style.spoiler == spoiler
-								&& style.mention.is_none()
-								&& style.channel.is_none()
-						})
-						.count();
-					let spans = &self.spans[start..start + count];
+					let count =
+						self.spans[start..]
+							.iter()
+							.take_while(|(_, style)| {
+								style.link == target
+									&& style.spoiler == spoiler && style.mention.is_none()
+									&& style.channel.is_none() && style.block.is_none()
+							})
+							.count();
+					// The block widget already breaks the line: a paragraph's trailing newline
+					// before it would otherwise add an empty row.
+					let trimmed;
+					let spans = if self
+						.spans
+						.get(start + count)
+						.is_some_and(|(_, s)| s.block.is_some())
+						&& self.spans[start + count - 1].0.ends_with('\n')
+					{
+						let mut copy = self.spans[start..start + count].to_vec();
+						let last = &mut copy[count - 1].0;
+						last.truncate(last.len() - 1);
+						trimmed = copy;
+						&trimmed[..]
+					} else {
+						&self.spans[start..start + count]
+					};
 					if let Some(index) = target {
 						let url = &self.links[index];
 						let label: String = spans.iter().map(|(text, _)| text.as_str()).collect();
@@ -692,6 +981,144 @@ impl Formatted {
 			},
 		);
 	}
+	/// Full-width framed block: optional language header with a copy control, then the
+	/// highlighted, wrapped, selectable monospace text.
+	fn show_code_block(ui: &mut egui::Ui, block: &CodeBlock, index: u8) {
+		let colors = crate::design::palette(ui);
+		let code_colors = crate::design::code_colors(ui);
+		let width = ui.max_rect().width();
+		let body = egui::TextStyle::Body.resolve(ui.style());
+		let mono = FontId::monospace((body.size * 0.9).round().max(11.0));
+		let label = block
+			.language
+			.map(crate::highlight::Language::name)
+			.filter(|_| !block.tag.is_empty())
+			.map_or_else(|| block.tag.clone(), str::to_owned);
+		let display = block.display.as_deref().unwrap_or(&block.code);
+		let plain = [(0, display.len() as u32, crate::highlight::Token::Plain)];
+		let segments: &[crate::highlight::Segment] = if block.segments.is_empty() {
+			&plain
+		} else {
+			&block.segments
+		};
+		let id = ui.id().with(("code-block", index));
+		ui.allocate_ui_with_layout(
+			egui::vec2(width, 0.0),
+			egui::Layout::top_down(egui::Align::Min),
+			|ui| {
+				ui.set_width(width);
+				ui.add_space(4.0);
+				let frame = egui::Frame::new()
+					.fill(ui.visuals().code_bg_color)
+					.stroke(Stroke::new(1.0, colors.border))
+					.corner_radius(6)
+					.inner_margin(egui::Margin::symmetric(10, 8));
+				let response = frame.show(ui, |ui| {
+					ui.set_width(ui.available_width());
+					ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+					if !label.is_empty() {
+						ui.horizontal(|ui| {
+							ui.label(
+								egui::RichText::new(&label)
+									.small()
+									.color(colors.muted)
+									.family(crate::design::semibold_family(ui.ctx())),
+							);
+							ui.with_layout(
+								egui::Layout::right_to_left(egui::Align::Center),
+								|ui| {
+									Self::copy_button(ui, id, &block.code);
+								},
+							);
+						});
+						let separator = ui.available_rect_before_wrap();
+						ui.painter().hline(
+							separator.x_range(),
+							separator.top(),
+							Stroke::new(1.0, colors.border),
+						);
+						ui.add_space(2.0);
+					}
+					let mut job = LayoutJob::default();
+					job.wrap.max_width = ui.available_width();
+					for (start, end, token) in segments {
+						job.append(
+							&display[*start as usize..*end as usize],
+							0.0,
+							TextFormat {
+								font_id: mono.clone(),
+								color: code_colors.color(*token, colors.text),
+								italics: *token == crate::highlight::Token::Comment,
+								..Default::default()
+							},
+						);
+					}
+					if display.is_empty() {
+						job.append(" ", 0.0, TextFormat::simple(mono.clone(), colors.muted));
+					}
+					let response = ui.add(egui::Label::new(job).wrap().selectable(true));
+					response.widget_info(|| {
+						egui::WidgetInfo::labeled(
+							egui::WidgetType::Label,
+							ui.is_enabled(),
+							format!(
+								"Code block{}: {}",
+								if label.is_empty() {
+									String::new()
+								} else {
+									format!(" ({label})")
+								},
+								block.code
+							),
+						)
+					});
+				});
+				if label.is_empty() {
+					// No header to hold the control: float it over the corner while hovered.
+					let rect = response.response.rect;
+					let size = 24.0;
+					let target = egui::Rect::from_min_size(
+						rect.right_top() + egui::vec2(-size - 5.0, 5.0),
+						egui::Vec2::splat(size),
+					);
+					let copied = Self::copied_recently(ui, id);
+					if ui.rect_contains_pointer(rect) || copied {
+						let mut child = ui.new_child(
+							egui::UiBuilder::new()
+								.max_rect(target)
+								.layout(egui::Layout::left_to_right(egui::Align::Center)),
+						);
+						child.painter().rect_filled(target, 6, colors.raised);
+						Self::copy_button(&mut child, id, &block.code);
+					}
+				}
+				ui.add_space(4.0);
+			},
+		);
+	}
+	fn copied_recently(ui: &egui::Ui, id: egui::Id) -> bool {
+		let now = ui.input(|input| input.time);
+		ui.data(|data| data.get_temp::<f64>(id))
+			.is_some_and(|at| now - at < 1.5)
+	}
+	fn copy_button(ui: &mut egui::Ui, id: egui::Id, code: &str) {
+		let copied = Self::copied_recently(ui, id);
+		let (icon, label) = if copied {
+			(crate::icons::Icon::Check, "Copied")
+		} else {
+			(crate::icons::Icon::Copy, "Copy code")
+		};
+		let response = crate::icons::button(ui, icon, 24.0, label);
+		if response.clicked() {
+			ui.ctx().copy_text(code.to_owned());
+			let now = ui.input(|input| input.time);
+			ui.data_mut(|data| data.insert_temp(id, now));
+		}
+		if copied {
+			ui.ctx()
+				.request_repaint_after(std::time::Duration::from_millis(200));
+		}
+	}
 	/// One galley per run: emoji occupy fixed-width slots inside the text layout, so rows
 	/// holding artwork grow before any text on them is positioned. Separate widgets would
 	/// leave text placed earlier on the row misaligned with text placed after the emoji.
@@ -709,6 +1136,7 @@ impl Formatted {
 			image: Option<egui::Image<'static>>,
 		}
 		let size = crate::emoji::inline_size(ui);
+		let mut atlas = None;
 		let body = egui::TextStyle::Body.resolve(ui.style());
 		let mut job = LayoutJob::default();
 		let mut source = String::new();
@@ -734,15 +1162,12 @@ impl Formatted {
 					|(_, len)| len,
 				);
 				let cluster = &text[offset..offset + len];
-				let image = if custom.is_none() && !style.code {
-					crate::emoji::image(ui.ctx(), cluster, size)
+				let cell = if custom.is_none() && !style.code {
+					crate::emoji::lookup(cluster)
 				} else {
 					None
 				};
-				if image.is_none()
-					&& custom.is_none()
-					&& (style.code || crate::emoji::lookup(cluster).is_none())
-				{
+				if cell.is_none() && custom.is_none() {
 					offset += len;
 					continue;
 				}
@@ -764,7 +1189,11 @@ impl Formatted {
 				inlines.push(Inline {
 					text: cluster.to_owned(),
 					custom: custom.map(|(id, _)| id),
-					image,
+					image: cell.and_then(|cell| {
+						atlas
+							.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
+							.map(|atlas| crate::emoji::image_cell(atlas, cluster, cell, size))
+					}),
 				});
 				source.push_str(cluster);
 				offset += len;
@@ -789,6 +1218,14 @@ impl Formatted {
 			let galley_mut = std::sync::Arc::make_mut(&mut galley);
 			let mut next = 0;
 			for placed in &mut galley_mut.rows {
+				if next >= inlines.len()
+					|| !placed
+						.glyphs
+						.iter()
+						.any(|glyph| glyph.chr == '\u{200b}' && glyph.line_height == size)
+				{
+					continue;
+				}
 				let row = std::sync::Arc::make_mut(&mut placed.row);
 				let mut glyphs = Vec::with_capacity(row.glyphs.len());
 				for glyph in &row.glyphs {
@@ -913,33 +1350,103 @@ impl Formatted {
 			self.spans.push((text.to_owned(), style));
 		}
 	}
+	/// Register a fenced block for `info`; beyond the block budget the text stays inline code.
+	fn open_block(&mut self, info: &str) -> Option<u8> {
+		if self.blocks.len() >= MAX_BLOCKS {
+			return None;
+		}
+		let tag: String = info
+			.split_whitespace()
+			.next()
+			.unwrap_or_default()
+			.chars()
+			.filter(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '#' | '-' | '_' | '.'))
+			.take(24)
+			.collect();
+		self.blocks.push(CodeBlock {
+			language: crate::highlight::Language::from_tag(&tag),
+			tag,
+			code: String::new(),
+			display: None,
+			segments: Vec::new(),
+		});
+		Some((self.blocks.len() - 1) as u8)
+	}
+	fn close_block(&mut self, index: u8) {
+		let block = &mut self.blocks[usize::from(index)];
+		let trimmed = block.code.trim_end_matches(['\n', '\r']).len();
+		block.code.truncate(trimmed);
+		block.display = block
+			.code
+			.contains('\t')
+			.then(|| block.code.replace('\t', "    "));
+		let display = block.display.as_deref().unwrap_or(&block.code);
+		block.segments = block
+			.language
+			.map(|language| crate::highlight::tokenize(language, display))
+			.unwrap_or_default();
+	}
+	fn line_start(&self) -> bool {
+		self.spans
+			.iter()
+			.rev()
+			.find(|(text, _)| !text.is_empty())
+			.is_none_or(|(text, _)| text.ends_with('\n'))
+	}
 	pub fn bytes(&self) -> usize {
 		self.spans.capacity() * size_of::<(String, Style)>()
 			+ self.spans.iter().map(|(s, _)| s.capacity()).sum::<usize>()
+			+ self.blocks.capacity() * size_of::<CodeBlock>()
+			+ self
+				.blocks
+				.iter()
+				.map(|b| {
+					b.tag.capacity()
+						+ b.code.capacity()
+						+ b.display.as_ref().map_or(0, String::capacity)
+						+ b.segments.capacity() * size_of::<crate::highlight::Segment>()
+				})
+				.sum::<usize>()
 			+ self.links.capacity() * size_of::<String>()
 			+ self.links.iter().map(String::capacity).sum::<usize>()
 	}
 	fn format(ui: &egui::Ui, style: &Style) -> TextFormat {
 		let visuals = ui.visuals();
+		let colors = crate::design::palette(ui);
 		let body = egui::TextStyle::Body.resolve(ui.style());
-		let color = if style.link.is_some() {
+		let color = if style.mass_mention {
+			colors.mention_text
+		} else if style.link.is_some() {
 			visuals.hyperlink_color
 		} else if style.strong {
 			visuals.strong_text_color()
-		} else if style.quote {
+		} else if style.quote || style.small {
 			visuals.weak_text_color()
 		} else {
 			visuals.text_color()
 		};
+		// Discord proportions: h1 1.5×, h2 1.25×, h3 1× (bold), subtext 0.8× body.
+		let size = body.size
+			* match style.heading {
+				1 => 1.5,
+				2 => 1.25,
+				_ if style.small => 0.8,
+				_ => 1.0,
+			};
 		TextFormat {
 			valign: ui.text_valign(),
 			font_id: if style.code {
-				FontId::monospace(body.size)
+				FontId::monospace(size)
+			} else if style.strong || style.mass_mention {
+				// egui has no synthetic bold: emphasis comes from the bundled heavier face.
+				FontId::new(size, crate::design::semibold_family(ui.ctx()))
 			} else {
-				body
+				FontId::new(size, body.family)
 			},
 			color,
-			background: if style.code {
+			background: if style.mass_mention {
+				colors.mention_bg
+			} else if style.code {
 				visuals.code_bg_color
 			} else {
 				egui::Color32::TRANSPARENT
@@ -950,7 +1457,7 @@ impl Formatted {
 			} else {
 				Stroke::NONE
 			},
-			underline: if style.link.is_some() {
+			underline: if style.link.is_some() || style.underline {
 				Stroke::new(1.0, color)
 			} else {
 				Stroke::NONE
@@ -969,7 +1476,17 @@ mod tests {
 			("Hello", "Hello"),
 			("**Hello**", "Hello"),
 			("One\nTwo", "One\nTwo"),
-			("One\n\nTwo", "One\nTwo"),
+			("One\n\nTwo", "One\n\nTwo"),
+			("One\n\n\nTwo", "One\n\n\nTwo"),
+			("text\n```\ncode\n```\n\nend", "text\ncode\n\nend"),
+			("# Title\nbody", "Title\nbody"),
+			("- a\n- b", "• a\n• b"),
+			("1. a\n2. b", "1. a\n2. b"),
+			("> quoted\nplain", "│ quoted\nplain"),
+			("> one\n> two", "│ one\n│ two"),
+			(">>> all\nof\n\nthis", "│ all\n│ of\n\n│ this"),
+			("-# small print", "small print"),
+			("#### deep", "#### deep"),
 			("```\none\ntwo\n```", "one\ntwo"),
 			("[Link](https://example.org)", "Link"),
 			("||Hidden||", "Hidden"),
@@ -1499,7 +2016,7 @@ mod tests {
 	}
 
 	#[test]
-	fn channel_references_keep_literals_bounded_and_activate_only_loaded_text_channels() {
+	fn channel_references_keep_literals_bounded_and_offer_missing_channels() {
 		let parsed = Formatted::parse(
 			"**<#42>** `<#43>` \\<#44> &lt;#45&gt; [<#46>](https://example.com) <#0>\n\n```\n<#47>\n```",
 		);
@@ -1602,7 +2119,7 @@ mod tests {
 				assert!(output.platform_output.commands.is_empty());
 				output.textures_delta.clear();
 			}
-			assert_eq!(channel, (id == 4).then_some(Id(4)));
+			assert_eq!(channel, matches!(id, 4 | 5).then_some(Id(id)));
 			assert!(opening.is_none() && profile.is_none());
 		}
 	}
@@ -1925,6 +2442,205 @@ mod tests {
 		assert_eq!(images, 2, "one image per complete grapheme, none in code");
 	}
 	#[test]
+	fn fenced_blocks_record_language_and_discord_fence_shapes() {
+		let parsed = Formatted::parse("intro\n```js\nconst a = 1;\n```\nafter");
+		assert_eq!(parsed.blocks.len(), 1);
+		assert_eq!(
+			parsed.blocks[0].language,
+			Some(crate::highlight::Language::JavaScript)
+		);
+		assert_eq!(parsed.blocks[0].code, "const a = 1;");
+		assert!(!parsed.blocks[0].segments.is_empty());
+		let block_spans: Vec<&str> = parsed
+			.spans
+			.iter()
+			.filter(|(_, style)| style.block == Some(0))
+			.map(|(text, _)| text.as_str())
+			.collect();
+		assert_eq!(block_spans.concat(), "const a = 1;\n");
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(t, s)| t == "after" && s.block.is_none() && !s.code)
+		);
+
+		// Closing fence at the end of the last content line, then text on the fence line.
+		let parsed = Formatted::parse("```py\nprint(1)``` trailing");
+		assert_eq!(parsed.blocks.len(), 1);
+		assert_eq!(parsed.blocks[0].code, "print(1)");
+		assert_eq!(
+			parsed.blocks[0].language,
+			Some(crate::highlight::Language::Python)
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(t, s)| t.contains("trailing") && s.block.is_none())
+		);
+
+		// One-line triple backticks are a block without a language; unknown tags keep their name.
+		let parsed = Formatted::parse("```echo hi``` and `inline`");
+		assert_eq!(parsed.blocks.len(), 1);
+		assert_eq!(parsed.blocks[0].code, "echo hi");
+		assert!(parsed.blocks[0].language.is_none() && parsed.blocks[0].tag.is_empty());
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(t, s)| t == "inline" && s.code && s.block.is_none())
+		);
+		let parsed = Formatted::parse("```elixir\nIO.puts 1\n```");
+		assert_eq!(parsed.blocks[0].tag, "elixir");
+		assert!(parsed.blocks[0].language.is_none());
+		assert_eq!(parsed.blocks[0].segments, Vec::new());
+
+		// Discord has no indented code blocks and bounds the block count.
+		let parsed = Formatted::parse("text\n\n    not code");
+		assert!(parsed.blocks.is_empty());
+		assert!(parsed.spans.iter().all(|(_, style)| !style.code));
+		let many = "```\nx\n```\n".repeat(MAX_BLOCKS + 4);
+		let parsed = Formatted::parse(&many);
+		assert!(parsed.blocks.len() <= MAX_BLOCKS);
+	}
+	#[test]
+	fn code_blocks_render_a_framed_widget_with_copy_control() {
+		fn walk<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
+			match shape {
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+				other => out.push(other),
+			}
+		}
+		let ctx = egui::Context::default();
+		crate::icons::install(&ctx);
+		let parsed = Formatted::parse("before\n```rust\nfn main() {}\n```\nafter");
+		let frame = |events| {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(420.0, 300.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| parsed.show(ui, &mut None),
+			)
+		};
+		let mut button = None;
+		for _ in 0..2 {
+			let output = frame(vec![]);
+			let code_bg = ctx.global_style().visuals.code_bg_color;
+			let mut shapes = Vec::new();
+			output
+				.shapes
+				.iter()
+				.for_each(|s| walk(&s.shape, &mut shapes));
+			let texts: Vec<(&str, egui::Pos2, egui::Vec2, egui::FontFamily)> = shapes
+				.iter()
+				.filter_map(|shape| match shape {
+					egui::Shape::Text(text) => Some((
+						text.galley.text(),
+						text.pos,
+						text.galley.size(),
+						text.galley.job.sections[0].format.font_id.family.clone(),
+					)),
+					_ => None,
+				})
+				.collect();
+			let code = texts
+				.iter()
+				.find(|(text, ..)| *text == "fn main() {}")
+				.expect("code text");
+			assert_eq!(code.3, egui::FontFamily::Monospace);
+			assert!(
+				texts.iter().any(|(text, ..)| *text == "Rust"),
+				"language header"
+			);
+			assert!(
+				texts.iter().any(|(text, ..)| *text == "before"),
+				"paragraph newline before the block is dropped: {texts:?}"
+			);
+			assert!(texts.iter().any(|(text, ..)| *text == "after"));
+			let bg = shapes
+				.iter()
+				.find_map(|shape| match shape {
+					egui::Shape::Rect(rect) if rect.fill == code_bg => Some(rect.rect),
+					_ => None,
+				})
+				.expect("framed background");
+			assert!(bg.contains_rect(egui::Rect::from_min_size(code.1, code.2)));
+			let header = texts
+				.iter()
+				.find(|(text, ..)| *text == "Rust")
+				.expect("header");
+			button = Some(egui::pos2(
+				bg.right() - 10.0 - 12.0,
+				header.1.y + header.2.y / 2.0,
+			));
+			output.drop_without_applying_deltas();
+		}
+		let pos = button.expect("copy control");
+		let output = frame(vec![
+			egui::Event::PointerMoved(pos),
+			egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Primary,
+				pressed: true,
+				modifiers: egui::Modifiers::NONE,
+			},
+			egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			},
+		]);
+		let copied: Vec<String> = output
+			.platform_output
+			.commands
+			.iter()
+			.filter_map(|command| match command {
+				egui::OutputCommand::CopyText(text) => Some(text.clone()),
+				_ => None,
+			})
+			.collect();
+		output.drop_without_applying_deltas();
+		assert_eq!(copied, vec!["fn main() {}".to_owned()]);
+	}
+	#[test]
+	fn mass_mentions_render_as_pills_only_for_exact_plain_tokens() {
+		let parsed = Formatted::parse("@everyone @here `@everyone` @everyone_else \\@here");
+		assert_eq!(
+			parsed
+				.spans
+				.iter()
+				.filter(|(_, style)| style.mass_mention)
+				.map(|(text, _)| text.as_str())
+				.collect::<Vec<_>>(),
+			["@everyone", "@here"]
+		);
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(Default::default(), |ui| parsed.show(ui, &mut None));
+		let colors = crate::design::palette_for(&ctx);
+		let highlighted = output
+			.shapes
+			.iter()
+			.filter_map(|shape| match &shape.shape {
+				egui::Shape::Text(text) => Some(&text.galley.job.sections),
+				_ => None,
+			})
+			.flatten()
+			.filter(|section| {
+				section.format.background == colors.mention_bg
+					&& section.format.color == colors.mention_text
+			})
+			.count();
+		assert_eq!(highlighted, 2);
+		output.drop_without_applying_deltas();
+	}
+	#[test]
 	fn mention_highlights_include_unknown_users_in_both_themes() {
 		let ctx = egui::Context::default();
 		let users = vec![model::User {
@@ -2145,9 +2861,14 @@ mod tests {
 		for id in 0..500 {
 			cache.get(Id(id), &format!("{id} {}", "日本語".repeat(2000)));
 		}
-		assert!(cache.entries.len() <= 64 && cache.bytes <= 1024 * 1024);
+		assert!(cache.entries.len() <= 512 && cache.bytes <= 1024 * 1024);
 		assert!(cache.get(Id(499), "||changed||").spoilers);
 		cache.retain(|_| false);
 		assert!(cache.entries.is_empty() && cache.bytes == 0);
+		for id in 0..500 {
+			cache.get(Id(id), "short message");
+		}
+		assert_eq!(cache.entries.len(), 500);
+		assert!(cache.bytes <= 1024 * 1024);
 	}
 }

@@ -20,7 +20,7 @@ def verify(directory):
         if name in checksums:
             raise ValueError(f"duplicate checksum entry: {name}")
         checksums[name] = digest.lower()
-    packages = sorted(p for p in directory.iterdir() if p.name.endswith((".deb", ".rpm", ".pkg.tar.zst")))
+    packages = sorted(p for p in directory.iterdir() if p.name.endswith((".deb", ".rpm", ".pkg.tar.zst", ".flatpak")))
     if not packages or len(packages) > 100:
         raise ValueError("expected 1–100 native packages")
     for package in packages:

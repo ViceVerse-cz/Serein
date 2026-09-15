@@ -39,6 +39,7 @@ pub struct VoiceConnection {
 	pub channel: Id,
 	pub guild: Option<Id>,
 	pub user: Id,
+	/// Expected peer for a one-to-one DM; groups use the authenticated voice roster.
 	pub peer: Option<Id>,
 	pub session: Secret,
 	pub token: Secret,
@@ -293,8 +294,18 @@ impl ClientState {
 			&& self.channels.iter().any(|c| {
 				c.id == channel
 					&& ((c.guild.is_some() && c.kind == 2)
-						|| (c.guild.is_none() && c.kind == 1 && c.recipients.len() == 1))
+						|| (c.guild.is_none()
+							&& ((c.kind == 1 && c.recipients.len() == 1)
+								|| (c.kind == 3 && c.recipients.len() < MAX_PARTICIPANTS))))
 			})
+	}
+	fn dm_call_participant(&self, channel: Id, user: Id) -> bool {
+		self.channel(channel).is_some_and(|c| {
+			c.guild.is_none()
+				&& matches!(c.kind, 1 | 3)
+				&& (self.user.as_ref().is_some_and(|own| own.id == user)
+					|| c.recipients.iter().any(|recipient| recipient.id == user))
+		})
 	}
 	pub fn can_camera(&self, channel: Id) -> bool {
 		self.can_call(channel) && self.permission(channel, model::permissions::STREAM) == Some(true)
@@ -461,9 +472,19 @@ impl ClientState {
 				{
 					return;
 				}
-				if ringing.as_ref().is_some_and(|r| r.len() > 2)
-					|| participants.as_ref().is_some_and(|p| p.len() > 2)
-				{
+				if ringing.as_ref().is_some_and(|r| {
+					r.len() > MAX_PARTICIPANTS
+						|| r.iter()
+							.any(|user| !self.dm_call_participant(channel, *user))
+				}) || participants.as_ref().is_some_and(|p| {
+					p.len() > MAX_PARTICIPANTS
+						|| p.iter().enumerate().any(|(index, participant)| {
+							!self.dm_call_participant(channel, participant.user)
+								|| p[..index]
+									.iter()
+									.any(|other| other.user == participant.user)
+						})
+				}) {
 					return;
 				}
 				if unavailable {
@@ -495,11 +516,17 @@ impl ClientState {
 						self.voice.incoming = None;
 					}
 				}
-				if let Some(participants) = participants {
+				if let Some(mut participants) = participants {
+					participants.shrink_to_fit();
 					if let Some(call) = &mut self.voice.active
 						&& call.channel == channel
 					{
 						call.participants = participants.clone();
+						if call.watching.is_some_and(|user| {
+							!participants.iter().any(|p| p.user == user && p.streaming)
+						}) {
+							call.watching = None;
+						}
 					}
 					self.remember_dm_participants(channel, participants);
 				}
@@ -548,11 +575,14 @@ impl ClientState {
 					}
 				}
 				if guild.is_none() {
+					if channel.is_some_and(|channel| !self.dm_call_participant(channel, user)) {
+						return;
+					}
 					// DM voice states arrive whether or not this device has joined; keep the
 					// known call membership current so a later join shows everyone.
 					for (id, participants) in &mut self.voice.dm_participants {
 						participants.retain(|p| p.user != user);
-						if channel == Some(*id) && participants.len() < 2 {
+						if channel == Some(*id) && participants.len() < MAX_PARTICIPANTS {
 							participants.push(participant);
 						}
 					}
@@ -701,14 +731,17 @@ impl ClientState {
 		}
 	}
 	fn remember_dm_participants(&mut self, channel: Id, participants: Vec<Participant>) {
-		if participants.len() > 2 || !self.voice.has_dm_call(channel) {
+		if participants.len() > MAX_PARTICIPANTS || !self.voice.has_dm_call(channel) {
 			return;
 		}
 		self.voice.dm_participants.retain(|(id, _)| *id != channel);
 		while self.voice.dm_participants.len() >= MAX_DM_CALLS {
 			self.voice.dm_participants.remove(0);
 		}
-		self.voice.dm_participants.push((channel, participants));
+		// Fixed capacity bounds every retained private-call roster by both items and bytes.
+		let mut retained = Vec::with_capacity(MAX_PARTICIPANTS);
+		retained.extend(participants);
+		self.voice.dm_participants.push((channel, retained));
 	}
 	pub(crate) fn end_voice_channel(&mut self, channel: Id) {
 		self.voice.dm_calls.retain(|id| *id != channel);
@@ -804,9 +837,16 @@ mod tests {
 			participants: vec![entry(2, 20)],
 		});
 		assert!(state.voice.active.is_none());
-		assert!(state.select(Id(20)).is_none());
+		assert!(matches!(
+			state.select(Id(20)),
+			Some(crate::Command::History {
+				channel: Id(20),
+				..
+			})
+		));
 		assert_eq!(state.selected, Some(Id(20)));
-		assert!(!state.history_pending);
+		assert!(state.history_pending);
+		assert!(state.voice.active.is_none());
 		state.apply_voice(Event::Snapshot {
 			guild: None,
 			partial: true,
@@ -1354,7 +1394,7 @@ mod tests {
 		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Connected);
 		assert!(state.leave_call().is_some());
 		state.gateway_connected = true;
-		state.channels[0].kind = 3;
+		state.channels[0].kind = 13;
 		assert!(state.start_call(Id(2), true).is_none());
 		let secret = Secret::new("SYNTHETIC_VOICE_SECRET".into()).unwrap();
 		assert!(!format!("{secret:?}").contains("SYNTHETIC"));

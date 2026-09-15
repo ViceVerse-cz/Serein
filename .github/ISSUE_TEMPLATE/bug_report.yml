@@ -1,0 +1,144 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Serein
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve Serein!
+
+        > [!TIP]
+        > **Quickly copy your client diagnostics:** In Serein, go to **Settings → Updates** and click **"Copy issue diagnostics"** (or click the **"Copy issue info"** link at the bottom of the Settings sidebar) to copy your Serein version, OS, display scale, and theme settings.
+
+        > [!CAUTION]
+        > **NEVER** share your Discord authentication token, email, passwords, or personal message content in issues.
+        > Please double-check all logs, configuration snippets, and screenshots before submitting.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe the problem you encountered...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can maintainers or contributors reproduce this issue?
+      placeholder: |
+        1. Launch Serein
+        2. Select server / channel '...'
+        3. Perform action '...'
+        4. Observe the bug
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: What should have happened instead...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+      placeholder: What occurred instead (error message, visual glitch, silent failure)...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: Which operating system and display server are you running?
+      options:
+        - "macOS (Apple Silicon - aarch64)"
+        - "macOS (Intel - x86_64)"
+        - "Linux (Wayland)"
+        - "Linux (X11)"
+        - "Windows 11"
+        - "Windows 10"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation Method
+      description: How did you install or run Serein?
+      options:
+        - "GitHub Release (Setup Installer / .app / package)"
+        - "Homebrew Cask (macOS)"
+        - "Flatpak (Linux)"
+        - "Debian / Ubuntu package (.deb)"
+        - "Fedora / openSUSE package (.rpm)"
+        - "Arch Linux package (.pkg.tar.zst / AUR)"
+        - "Built from source (cargo run / cargo build)"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Serein Version / Commit Hash
+      description: Release tag or git commit hash (e.g. `v0.1.0` or `36b5336`). Found in **Settings → Updates** or copied via **"Copy issue diagnostics"**.
+      placeholder: "e.g. 0.1.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Client & Environment Diagnostics
+      description: |
+        Paste the information copied from Serein (**Settings → Updates → "Copy issue diagnostics"** or the sidebar link) here.
+      placeholder: |
+        - **Serein Version:** ...
+        - **Operating System:** ...
+        - **Display Scale:** ...
+        - **Theme:** ...
+        - **Update Channel:** ...
+        - **Auto Update:** ...
+
+  - type: input
+    id: gpu_backend
+    attributes:
+      label: GPU & Graphics Backend
+      description: GPU model and backend if known (e.g., Apple M-series Metal, NVIDIA RTX 3080 Vulkan, Intel DX12).
+      placeholder: "e.g. Apple M2 Max (Metal) or NVIDIA RTX 4070 (Vulkan)"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs & Terminal Output
+      description: Paste any console or terminal output here (remember to redact personal tokens or sensitive data).
+      render: shell
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or Screen Recordings
+      description: Drag & drop images or screen recordings demonstrating the issue.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have searched existing GitHub issues and discussions to verify this has not been reported before.
+          required: true
+        - label: I have verified that no private Discord tokens, credentials, or sensitive personal data are included.
+          required: true
+        - label: I am using the latest release or main branch commit.
+          required: false

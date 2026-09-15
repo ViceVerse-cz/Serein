@@ -10,6 +10,12 @@ import build
 
 
 class PreparationTest(unittest.TestCase):
+    def test_generate_flatpakref(self):
+        ref = build.generate_flatpakref("https://example.com/flatpak/repo")
+        self.assertIn("Name=cz.viceverse.serein", ref)
+        self.assertIn("Url=https://example.com/flatpak/repo", ref)
+        self.assertIn("RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo", ref)
+
     def test_locked_sources_and_exact_compiler_exclude_untracked_data(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "repo"
@@ -21,8 +27,8 @@ class PreparationTest(unittest.TestCase):
             (root / "private-untracked").write_text("must not copy")
             packaging = root / "packaging/flatpak"
             packaging.mkdir(parents=True)
-            manifest = json.loads((build.ROOT / "packaging/flatpak/org.serein.desktop.json").read_text())
-            (packaging / "org.serein.desktop.json").write_text(json.dumps(manifest))
+            manifest = json.loads((build.ROOT / "packaging/flatpak/cz.viceverse.serein.json").read_text())
+            (packaging / "cz.viceverse.serein.json").write_text(json.dumps(manifest))
             compiler = Path(directory) / "compiler"
             (compiler / "bin").mkdir(parents=True)
             (compiler / "bin/rustc").write_text("compiler fixture")
@@ -50,4 +56,4 @@ class PreparationTest(unittest.TestCase):
             config = (source / ".cargo/config.toml").read_text()
             self.assertIn('[alias]', config)
             self.assertIn('directory = "cargo-vendor"', config)
-            self.assertEqual(json.loads((destination / "org.serein.desktop.json").read_text()), manifest)
+            self.assertEqual(json.loads((destination / "cz.viceverse.serein.json").read_text()), manifest)

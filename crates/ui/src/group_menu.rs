@@ -1,7 +1,8 @@
 //! Group-only menus and one session-scoped editor. Selecting an image never sends it.
+use crate::shortcuts::{Intent, ShortcutView};
 use crate::{avatars::Avatars, design, icons};
 use client_core::{Command, State};
-use model::{Channel, Id, Patch};
+use model::{Channel, Id, Patch, Shortcut};
 
 pub type IconRequest = (u64, Id, u64);
 struct Dialog {
@@ -22,6 +23,7 @@ pub(super) struct GroupMenu {
 	generation: u64,
 	revision: u64,
 	mute: Option<(Id, bool)>,
+	pub pin_requested: Option<Intent>,
 	pub icon_request: Option<IconRequest>,
 }
 impl GroupMenu {
@@ -42,7 +44,13 @@ impl GroupMenu {
 			submitted: None,
 		});
 	}
-	fn menu(&mut self, ui: &mut egui::Ui, state: &State, channel: &Channel) {
+	fn menu(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		channel: &Channel,
+		view: ShortcutView<'_>,
+	) {
 		if channel.guild.is_some() || channel.kind != 3 {
 			return;
 		}
@@ -51,6 +59,19 @@ impl GroupMenu {
 		let enabled = (state.demo || state.gateway_connected)
 			&& !state.group_action_pending()
 			&& !state.user_action_pending();
+		let pinned = view.contains(Shortcut::Pinned, channel.id);
+		if ui
+			.add_enabled_ui(view.available(), |ui| {
+				row(ui, if pinned { "Unpin DM" } else { "Pin DM" }, colors.text)
+			})
+			.inner
+			.on_hover_text("Pinned direct messages are saved on this device.")
+			.clicked()
+		{
+			self.pin_requested = Some(view.toggle(Shortcut::Pinned, channel.id));
+			ui.close();
+		}
+		ui.separator();
 		ui.add_enabled_ui(enabled, |ui| {
 			if row(ui, "Edit Group", colors.text).clicked() {
 				self.open(state, channel, true);
@@ -83,15 +104,27 @@ impl GroupMenu {
 			ui.small("Group actions unavailable while disconnected or busy.");
 		}
 	}
-	pub fn context(&mut self, response: &egui::Response, state: &State, channel: &Channel) {
+	pub fn context(
+		&mut self,
+		response: &egui::Response,
+		state: &State,
+		channel: &Channel,
+		view: ShortcutView<'_>,
+	) {
 		crate::user_menu::popup(response, response.id.with((state.generation, channel.id)))
-			.show(|ui| self.menu(ui, state, channel));
+			.show(|ui| self.menu(ui, state, channel, view));
 	}
-	pub fn dropdown(&mut self, ui: &mut egui::Ui, state: &State, channel: &Channel) {
+	pub fn dropdown(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		channel: &Channel,
+		view: ShortcutView<'_>,
+	) {
 		let response = icons::button(ui, icons::Icon::More, 28.0, "Group menu");
 		egui::Popup::menu(&response)
 			.id(response.id.with((state.generation, channel.id)))
-			.show(|ui| self.menu(ui, state, channel));
+			.show(|ui| self.menu(ui, state, channel, view));
 	}
 	pub fn accept_icon(
 		&mut self,
@@ -392,7 +425,9 @@ mod tests {
 			},
 			|ui| {
 				let row = ui.add_sized([220.0, 40.0], egui::Button::new("Synthetic group"));
-				menu.context(&row, state, state.channel(channel).unwrap());
+				let known = state.channel(channel).unwrap().clone();
+				let preferences = model::ChannelPreferences::default();
+				menu.context(&row, state, &known, ShortcutView::new(&preferences, true));
 				menu.show(ui.ctx(), state, &mut avatars, commands);
 			},
 		);

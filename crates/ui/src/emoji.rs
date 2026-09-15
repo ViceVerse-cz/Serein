@@ -79,19 +79,29 @@ pub(crate) fn lookup(text: &str) -> Option<usize> {
 
 pub(crate) fn image(ctx: &Context, text: &str, size: f32) -> Option<Image<'static>> {
 	let cell = lookup(text)?;
+	Some(image_cell(atlas(ctx)?, text, cell, size))
+}
+
+pub(crate) fn atlas(ctx: &Context) -> Option<egui::load::SizedTexture> {
 	let texture = ctx.data(|data| data.get_temp::<TextureHandle>(egui::Id::unique("twemoji")))?;
-	let [width, height] = texture.size();
+	Some((&texture).into())
+}
+
+pub(crate) fn image_cell(
+	atlas: egui::load::SizedTexture,
+	text: &str,
+	cell: usize,
+	size: f32,
+) -> Image<'static> {
 	let x = (cell % 64) as f32 * 32.0;
 	let y = (cell / 64) as f32 * 32.0;
 	let uv = egui::Rect::from_min_max(
-		egui::pos2(x / width as f32, y / height as f32),
-		egui::pos2((x + 32.0) / width as f32, (y + 32.0) / height as f32),
+		egui::pos2(x / atlas.size.x, y / atlas.size.y),
+		egui::pos2((x + 32.0) / atlas.size.x, (y + 32.0) / atlas.size.y),
 	);
-	Some(
-		Image::new((texture.id(), egui::Vec2::splat(size)))
-			.uv(uv)
-			.alt_text(text),
-	)
+	Image::new((atlas.id, egui::Vec2::splat(size)))
+		.uv(uv)
+		.alt_text(text)
 }
 
 pub(crate) fn button(ctx: &Context, emoji: &str, text: String) -> egui::Button<'static> {

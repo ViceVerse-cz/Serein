@@ -8,14 +8,18 @@ use std::{
 
 pub type GifFrames = Vec<(Duration, std::sync::Arc<ColorImage>)>;
 const ANIMATION_BYTES: usize = 16 * 1024 * 1024;
+const ANIMATION_INTERVAL: Duration = Duration::from_millis(34);
 struct Animation {
 	frames: GifFrames,
 	started: Instant,
+	next_upload: Instant,
 	frame: usize,
 	bytes: usize,
 }
 
-// A visible server emoji grid plus avatars/icons must fit without evicting each other.
+// Emoji artwork has its own working set so media cannot evict it.
+const EMOJI_TEXTURES: usize = 1024;
+const EMOJI_TEXTURE_BYTES: usize = 16 * 1024 * 1024;
 const TEXTURES: usize = 256;
 const TEXTURE_BYTES: usize = 64 * 1024 * 1024;
 /// Longest edge requested for thumbnails and for the full-screen viewer.
@@ -37,6 +41,8 @@ pub(crate) struct Avatars {
 	pub animate_gifs: bool,
 	animations: HashMap<String, Animation>,
 	textures: HashMap<String, (u64, TextureHandle)>,
+	emoji_textures: HashMap<String, (u64, TextureHandle)>,
+	emoji_bytes: usize,
 	avatar_keys: HashMap<model::Id, AvatarKey>,
 	clock: u64,
 	bytes: usize,
@@ -56,7 +62,10 @@ pub fn fit_edge(width: u32, height: u32, edge: u32) -> (u32, u32) {
 impl Avatars {
 	#[cfg(test)]
 	pub(crate) fn texture_id(&self, key: &str) -> Option<egui::TextureId> {
-		self.textures.get(key).map(|(_, texture)| texture.id())
+		self.textures
+			.get(key)
+			.or_else(|| self.emoji_textures.get(key))
+			.map(|(_, texture)| texture.id())
 	}
 	pub fn set_animation(&mut self, enabled: bool) {
 		if self.animate_gifs == enabled {
@@ -111,6 +120,7 @@ impl Avatars {
 			Animation {
 				frames,
 				started: Instant::now(),
+				next_upload: Instant::now(),
 				frame: usize::MAX,
 				bytes,
 			},
@@ -161,30 +171,37 @@ impl Avatars {
 			return;
 		};
 		self.attempts.remove(&key);
-		if let Some((_, old)) = self.textures.remove(&key) {
-			self.bytes -= old.byte_size();
+		let (textures, bytes, limit, byte_limit) = if key.starts_with("emoji-") {
+			(
+				&mut self.emoji_textures,
+				&mut self.emoji_bytes,
+				EMOJI_TEXTURES,
+				EMOJI_TEXTURE_BYTES,
+			)
+		} else {
+			(&mut self.textures, &mut self.bytes, TEXTURES, TEXTURE_BYTES)
+		};
+		if let Some((_, old)) = textures.remove(&key) {
+			*bytes -= old.byte_size();
 		}
-		while self.textures.len() >= TEXTURES || self.bytes + image.pixels.len() * 4 > TEXTURE_BYTES
-		{
-			let oldest = self
-				.textures
+		while textures.len() >= limit || *bytes + image.pixels.len() * 4 > byte_limit {
+			let oldest = textures
 				.iter()
 				.min_by_key(|(_, (age, _))| *age)
 				.map(|(key, _)| key.clone())
 				.expect("texture cache over budget");
 			self.animations.remove(&oldest);
-			self.bytes -= self
-				.textures
+			*bytes -= textures
 				.remove(&oldest)
 				.expect("oldest texture")
 				.1
 				.byte_size();
 		}
 		let texture = ctx.load_texture("service-image", image, egui::TextureOptions::LINEAR);
-		self.bytes += texture.byte_size();
+		*bytes += texture.byte_size();
 		self.clock += 1;
 		self.revision += 1;
-		self.textures.insert(key, (self.clock, texture));
+		textures.insert(key, (self.clock, texture));
 	}
 	pub(crate) fn custom_image(
 		&mut self,
@@ -195,7 +212,7 @@ impl Avatars {
 	) -> Option<egui::Image<'static>> {
 		let key = format!("emoji-{id}");
 		#[cfg(any(test, feature = "demo"))]
-		if demo && matches!(id.0, 9001 | 9002) && !self.textures.contains_key(&key) {
+		if demo && matches!(id.0, 9001 | 9002) && !self.emoji_textures.contains_key(&key) {
 			let mut image = ColorImage::filled([32, 32], egui::Color32::TRANSPARENT);
 			for y in 3..29 {
 				for x in 3..29 {
@@ -211,7 +228,7 @@ impl Avatars {
 			self.attempts.insert(key.clone(), (Instant::now(), false));
 			self.accept(_ctx, key.clone(), Some(image));
 		}
-		if let Some(entry) = self.textures.get_mut(&key) {
+		if let Some(entry) = self.emoji_textures.get_mut(&key) {
 			self.clock += 1;
 			entry.0 = self.clock;
 			let image = egui::Image::new(&entry.1).fit_to_exact_size(egui::Vec2::splat(size));
@@ -412,6 +429,11 @@ impl Avatars {
 			&& ctx.input(|input| input.focused)
 			&& let Some(animation) = self.animations.get_mut(key)
 		{
+			let now = Instant::now();
+			if now < animation.next_upload {
+				ctx.request_repaint_after(animation.next_upload - now);
+				return;
+			}
 			let total: Duration = animation.frames.iter().map(|(delay, _)| *delay).sum();
 			let mut elapsed = Duration::from_nanos(
 				(animation.started.elapsed().as_nanos() % total.as_nanos()) as u64,
@@ -423,8 +445,12 @@ impl Avatars {
 						entry.1.set(image.clone(), egui::TextureOptions::LINEAR);
 						self.bytes += entry.1.byte_size();
 						animation.frame = index;
+						animation.next_upload = now + ANIMATION_INTERVAL;
 					}
-					ctx.request_repaint_after(*delay - elapsed);
+					ctx.request_repaint_after(
+						(*delay - elapsed)
+							.max(animation.next_upload.saturating_duration_since(now)),
+					);
 					break;
 				}
 				elapsed -= *delay;
@@ -469,7 +495,9 @@ impl Avatars {
 		radius: u8,
 		cover: bool,
 	) -> bool {
-		self.advance_animation(ui.ctx(), key);
+		if ui.is_rect_visible(rect) {
+			self.advance_animation(ui.ctx(), key);
+		}
 		let Some(entry) = self.textures.get_mut(key) else {
 			return false;
 		};
@@ -504,6 +532,25 @@ impl Avatars {
 		channel: &model::Channel,
 		size: f32,
 		demo: bool,
+	) -> egui::Response {
+		self.group_avatar(ui, channel, size, demo, true)
+	}
+	pub fn show_group_rail(
+		&mut self,
+		ui: &mut egui::Ui,
+		channel: &model::Channel,
+		size: f32,
+		demo: bool,
+	) -> egui::Response {
+		self.group_avatar(ui, channel, size, demo, false)
+	}
+	fn group_avatar(
+		&mut self,
+		ui: &mut egui::Ui,
+		channel: &model::Channel,
+		size: f32,
+		demo: bool,
+		hover_name: bool,
 	) -> egui::Response {
 		let (rect, response) =
 			ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click());
@@ -559,7 +606,11 @@ impl Avatars {
 				format!("Group {}", channel.name),
 			)
 		});
-		response
+		if hover_name {
+			response.on_hover_text(&channel.name)
+		} else {
+			response
+		}
 	}
 	pub fn show_guild(
 		&mut self,
@@ -568,7 +619,26 @@ impl Avatars {
 		selected: bool,
 		demo: bool,
 	) -> egui::Response {
-		self.show_guild_sized(ui, guild, selected, demo, 48.0)
+		self.guild_avatar(ui, guild, selected, demo, 48.0, true)
+	}
+	pub fn show_guild_rail(
+		&mut self,
+		ui: &mut egui::Ui,
+		guild: &model::Guild,
+		selected: bool,
+		demo: bool,
+	) -> egui::Response {
+		self.guild_avatar(ui, guild, selected, demo, 48.0, false)
+	}
+	pub fn paint_guild(
+		&mut self,
+		ui: &mut egui::Ui,
+		guild: &model::Guild,
+		rect: egui::Rect,
+		demo: bool,
+		radius: u8,
+	) {
+		self.paint_guild_face(ui, guild, rect, demo, false, radius);
 	}
 	pub fn show_guild_sized(
 		&mut self,
@@ -578,6 +648,46 @@ impl Avatars {
 		demo: bool,
 		size: f32,
 	) -> egui::Response {
+		self.guild_avatar(ui, guild, selected, demo, size, true)
+	}
+	fn guild_avatar(
+		&mut self,
+		ui: &mut egui::Ui,
+		guild: &model::Guild,
+		selected: bool,
+		demo: bool,
+		size: f32,
+		hover_name: bool,
+	) -> egui::Response {
+		let (rect, response) =
+			ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click_and_drag());
+		let highlight = selected || response.hovered() || response.has_focus();
+		self.paint_guild_face(ui, guild, rect, demo, highlight, (size * 0.29) as u8);
+		response.widget_info(|| {
+			egui::WidgetInfo::selected(
+				egui::WidgetType::SelectableLabel,
+				ui.is_enabled(),
+				selected,
+				format!("Server {}", guild.name),
+			)
+		});
+		if hover_name {
+			response.on_hover_text(&guild.name)
+		} else {
+			response
+		}
+	}
+	fn paint_guild_face(
+		&mut self,
+		ui: &mut egui::Ui,
+		guild: &model::Guild,
+		rect: egui::Rect,
+		demo: bool,
+		highlight: bool,
+		radius: u8,
+	) {
+		let size = rect.width().min(rect.height());
+		let initials_size = (size * 0.5).clamp(7.0, 16.0);
 		let short: String = guild
 			.name
 			.split_whitespace()
@@ -585,19 +695,21 @@ impl Avatars {
 			.take(2)
 			.collect();
 		let colors = crate::design::palette(ui);
-		let (rect, response) =
-			ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click_and_drag());
-		let rounded = selected || response.hovered() || response.has_focus();
-		// Server tiles keep one rounded-square silhouette; selection is shown by the rail
-		// underline and ring rather than by morphing a circle into a squircle.
-		let radius: u8 = (size * 0.29) as u8;
 		let mut painted = false;
 		if ui.is_rect_visible(rect)
 			&& let Some(key) = guild.icon_key()
 		{
 			#[cfg(any(test, feature = "demo"))]
 			if demo && !self.textures.contains_key(&key) {
-				let mut image = ColorImage::filled([32, 32], egui::Color32::from_rgb(20, 161, 168));
+				let seed = key
+					.bytes()
+					.fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
+				let fill = egui::Color32::from_rgb(
+					70 + (seed % 140) as u8,
+					90 + ((seed >> 8) % 120) as u8,
+					110 + ((seed >> 16) % 100) as u8,
+				);
+				let mut image = ColorImage::filled([32, 32], fill);
 				for row in [8, 14, 20] {
 					for y in row..row + 3 {
 						for x in 7..25 {
@@ -617,7 +729,7 @@ impl Avatars {
 			ui.painter().rect_filled(
 				rect,
 				radius,
-				if rounded {
+				if highlight {
 					colors.accent
 				} else {
 					colors.raised
@@ -627,23 +739,14 @@ impl Avatars {
 				rect.center(),
 				egui::Align2::CENTER_CENTER,
 				short,
-				egui::FontId::new(16.0, crate::design::medium_family(ui.ctx())),
-				if rounded {
+				egui::FontId::new(initials_size, crate::design::medium_family(ui.ctx())),
+				if highlight {
 					colors.accent_text
 				} else {
 					colors.text
 				},
 			);
 		}
-		response.widget_info(|| {
-			egui::WidgetInfo::selected(
-				egui::WidgetType::SelectableLabel,
-				ui.is_enabled(),
-				selected,
-				format!("Server {}", guild.name),
-			)
-		});
-		response.on_hover_text(&guild.name)
 	}
 	pub fn show_gif_embed(
 		&mut self,
@@ -958,7 +1061,7 @@ impl Avatars {
 		size: f32,
 		demo: bool,
 	) -> egui::Response {
-		self.user_avatar(ui, user, size, demo, true)
+		self.user_avatar(ui, user, size, demo, true, true)
 	}
 	/// Avatar that never opens a profile: rows that already own their click keep it quiet.
 	pub fn show_plain(
@@ -968,7 +1071,16 @@ impl Avatars {
 		size: f32,
 		demo: bool,
 	) -> egui::Response {
-		self.user_avatar(ui, user, size, demo, false)
+		self.user_avatar(ui, user, size, demo, false, true)
+	}
+	pub fn show_rail(
+		&mut self,
+		ui: &mut egui::Ui,
+		user: &User,
+		size: f32,
+		demo: bool,
+	) -> egui::Response {
+		self.user_avatar(ui, user, size, demo, true, false)
 	}
 	fn user_avatar(
 		&mut self,
@@ -977,6 +1089,7 @@ impl Avatars {
 		size: f32,
 		demo: bool,
 		opens_profile: bool,
+		hover_name: bool,
 	) -> egui::Response {
 		let (_, response) = ui.allocate_exact_size(
 			egui::Vec2::splat(size),
@@ -986,7 +1099,11 @@ impl Avatars {
 				egui::Sense::hover()
 			},
 		);
-		let response = response.on_hover_text(&user.name);
+		let response = if hover_name {
+			response.on_hover_text(&user.name)
+		} else {
+			response
+		};
 		let rect = ui
 			.layout()
 			.align_size_within_rect(egui::Vec2::splat(size), response.rect);
@@ -1140,6 +1257,14 @@ mod tests {
 		);
 		output.textures_delta.clear();
 		assert_eq!(images.animations[&key].frame, 1);
+		// A different source frame cannot upload again before the existing deadline.
+		let animation = images.animations.get_mut(&key).unwrap();
+		animation.started = Instant::now();
+		animation.next_upload = Instant::now() + ANIMATION_INTERVAL;
+		let deadline = animation.next_upload;
+		images.gif_texture(&ctx, &gif, false);
+		assert_eq!(images.animations[&key].frame, 1);
+		assert_eq!(images.animations[&key].next_upload, deadline);
 		images.set_animation(false);
 		assert!(images.animations.is_empty());
 		assert!(images.gif_texture(&ctx, &gif, false).is_none());
@@ -1389,6 +1514,14 @@ mod tests {
 			Some(ColorImage::filled([128, 128], egui::Color32::WHITE)),
 		);
 		assert_eq!(avatars.textures.len(), TEXTURES);
+		avatars.request("emoji-9001".into());
+		avatars.take_requests();
+		avatars.accept(
+			&ctx,
+			"emoji-9001".into(),
+			Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+		);
+		let emoji_texture = avatars.texture_id("emoji-9001").unwrap();
 		for index in 0..80 {
 			let key = format!("embed:synthetic-{index}");
 			avatars.request(key.clone());
@@ -1399,6 +1532,15 @@ mod tests {
 			);
 		}
 		assert_eq!(avatars.textures.len(), 64);
+		assert_eq!(avatars.texture_id("emoji-9001"), Some(emoji_texture));
+		assert_eq!(avatars.emoji_bytes, 64 * 64 * 4);
+		avatars.take_requests();
+		assert!(
+			avatars
+				.custom_image(&ctx, model::Id(9001), 20.0, false)
+				.is_some()
+		);
+		assert!(avatars.take_requests().is_empty());
 		assert_eq!(
 			avatars
 				.textures

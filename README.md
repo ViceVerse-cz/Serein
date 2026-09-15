@@ -11,6 +11,16 @@
 </p>
 
 <p align="center">
+  <a href="#downloads--installation"><strong>📦 Downloads</strong></a> &nbsp;•&nbsp;
+  <a href="#highlights"><strong>⚡ Highlights</strong></a> &nbsp;•&nbsp;
+  <a href="#feature-showcase"><strong>✨ Showcase</strong></a> &nbsp;•&nbsp;
+  <a href="#measured-performance-vs-official-discord"><strong>📊 Benchmarks</strong></a> &nbsp;•&nbsp;
+  <a href="#quick-start"><strong>🛠️ Quick Start</strong></a> &nbsp;•&nbsp;
+  <a href="#feature-matrix"><strong>📋 Features</strong></a> &nbsp;•&nbsp;
+  <a href="#architecture-overview"><strong>🏗️ Architecture</strong></a>
+</p>
+
+<p align="center">
   <a href="https://discord.gg/UqTDGCENaN"><img src="https://img.shields.io/badge/Discord-Join%20our%20community-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="https://github.com/ViceVerse-cz/rustcord/releases"><img src="https://img.shields.io/github/v/release/ViceVerse-cz/rustcord?label=release&color=blue" alt="GitHub Release" /></a>
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/rust-1.98.1_pinned-blue.svg?logo=rust" alt="Rust 1.98.1 Pinned" /></a>
@@ -35,16 +45,67 @@ Pre-compiled releases for macOS, Linux, and Windows are published on GitHub [Rel
 |---|---|---|---|
 | **Windows** | `-Setup.exe`, `.zip` | `x86_64` | Per-user NSIS installer (recommended) or standalone portable archive |
 | **macOS** | Homebrew Cask, `.zip` | Apple Silicon (`aarch64`) | Signed and notarized `.app` bundle |
-| **Linux** | `.deb`, `.rpm`, `.pkg.tar.zst`, `.flatpak` | `x86_64` | Ubuntu, Fedora, openSUSE, Arch, and Flatpak |
+| **Linux** | Flatpak (recommended), Repositories (`apt`, `dnf`, `zypper`, `pacman`), `.AppImage` | `x86_64` | Flatpak with automatic updates; signed package repositories; portable AppImage |
 
 ---
 
-### Windows
+<details open>
+<summary><h3>🐧 Linux (Flatpak, Repositories, AppImage)</h3></summary>
+
+#### 1. Flatpak (Recommended)
+
+Flatpak is the recommended distribution format for Linux, featuring sandbox isolation, bundled GNOME/WebKit runtimes, and automatic background updates.
+
+- **One-Click Repository Install (Automatic Updates)**:
+  ```sh
+  flatpak install --user https://viceverse-cz.github.io/Serein/flatpak/serein.flatpakref
+  ```
+  Once installed, your desktop software store (GNOME Software, KDE Discover) or `flatpak update` will automatically discover and install updates.
+
+- **Standalone Offline Bundle**:
+  Download `Serein-linux.flatpak` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases):
+  ```sh
+  flatpak install --user ./Serein-linux.flatpak
+  flatpak run cz.viceverse.serein
+  ```
+
+See [Flatpak guide](packaging/flatpak/README.md) for sandbox permissions and source build details.
+
+#### 2. Native Package Repositories (apt, dnf, zypper, pacman)
+
+Configure the signed package repository for your distribution with one command:
+```sh
+curl -fsSL https://viceverse-cz.github.io/Serein/setup.sh | sh
+```
+The script detects your distribution (Ubuntu/Debian, Fedora, openSUSE, Arch Linux), cryptographically verifies the GPG signing key, and configures the repository with an option to install immediately.
+
+After setup, manage Serein with your native package manager:
+```sh
+# Ubuntu / Debian: sudo apt install serein
+# Fedora:          sudo dnf install serein
+# openSUSE:        sudo zypper install serein
+# Arch Linux:      sudo pacman -S serein
+```
+Your normal system updates (`apt upgrade`, `dnf upgrade`, `zypper update`, `pacman -Syu`) will keep Serein updated. See [Signed package repositories](packaging/repositories/README.md) for manual GPG verification steps.
+
+#### 3. Standalone AppImage (Portable)
+
+Download `serein-<version>-Linux-X64.AppImage` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases), make it executable, and run:
+```sh
+chmod +x ./serein-*-Linux-X64.AppImage
+./serein-*-Linux-X64.AppImage
+```
+Keep the AppImage in a writable directory to receive in-app updates via **Settings → Updates**. Note that the AppImage uses host GTK4 and WebKitGTK 6.0 libraries; see [AppImage setup and runtime dependencies](packaging/appimage/README.md) for host requirements.
+
+</details>
+
+<details>
+<summary><h3>🪟 Windows (Installer, PowerShell, Portable)</h3></summary>
 
 #### 1. Setup Installer (Recommended)
 Download `serein-<version>-Windows-X64-Setup.exe` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases) and run it:
 - Installs per-user to `%LOCALAPPDATA%\Programs\Serein` without requiring administrator/UAC elevation.
-- Automatically registers Start Menu shortcuts and configures AppUserModelID (`org.serein.desktop`) for native Windows toast notifications.
+- Automatically registers Start Menu shortcuts and configures AppUserModelID (`cz.viceverse.serein`) for native Windows toast notifications.
 - Registers in Windows Settings (Installed Apps / Add or Remove Programs) with full uninstall support.
 - Fully compatible with in-app self-updates: updates automatically synchronize the registered version.
 
@@ -64,9 +125,10 @@ Extract `serein-<version>-Windows-X64.zip` anywhere and launch `serein.exe`. To 
 powershell -File .\install-notifications.ps1
 ```
 
----
+</details>
 
-### macOS (Apple Silicon)
+<details>
+<summary><h3>🍎 macOS (Homebrew Cask, Standalone .app)</h3></summary>
 
 #### Homebrew Cask
 ```sh
@@ -78,50 +140,27 @@ The explicit repository URL keeps the cask in this repository; a separate `homeb
 #### Standalone Bundle
 Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases), unzip, and drag `Serein.app` to your `/Applications` folder.
 
----
-
-### Linux (Package Managers)
-
-Download the package matching your distribution from [Releases](https://github.com/ViceVerse-cz/rustcord/releases):
-
-```sh
-# Ubuntu / Debian (.deb)
-sudo apt install ./serein-*.deb
-
-# Fedora (.rpm)
-sudo dnf install ./serein-*.fc44.*.rpm
-
-# openSUSE Tumbleweed (.rpm)
-sudo zypper install ./serein-*.suse.*.rpm
-
-# Arch Linux (.pkg.tar.zst)
-sudo pacman -U ./serein-*.pkg.tar.zst
-
-# Flatpak Bundle (.flatpak)
-flatpak install --user ./serein-*.flatpak
-```
-
-See [Linux installation and builds](packaging/linux/README.md) for full distribution build instructions and dependencies. [Signed package repositories](packaging/repositories/README.md) are also published to GitHub Pages (`https://viceverse-cz.github.io/Serein/`) for apt, dnf/zypper, and pacman.
+</details>
 
 ---
 
 ## Highlights
 
-- **Pure Native Performance:** Built with pure Rust, `egui`, and `wgpu`. Immediate-mode rendering with minimal idle CPU, low memory footprint, and instantaneous launch times—zero Electron, Node.js, or web runtime overhead.
-- **Direct Gateway & REST Transports:** Direct connection to Discord's official endpoints with active rate-limiting cooldowns, heartbeat handling, reconnect/resume loops, and partial payload patching.
-- **Secure OS Credential Storage:** Session tokens are stored exclusively in your operating system's secure vault (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Never saved in plaintext.
-- **Ephemeral Authentication Webview:** Sign-in uses Discord's official hosted login page inside a temporary native webview (WKWebView, WebView2, or WebKitGTK) supporting email/password, QR login, and MFA. An origin-checked handoff secures the session credential and immediately terminates the webview.
-- **Bounded Local Persistence:** Recent chat history, drafts, image previews, settings, and diagnostics are stored in an account-isolated, bounded local SQLite database. All local data is strictly cleared upon explicit logout.
-- **Voice Calls, Video & Screen Sharing:** Complete native voice engine with 1-to-1 DM calls, server voice channels, push-to-talk, Sonora AEC3 acoustic echo cancellation, RNNoise noise suppression, Opus codec, and DAVE v1 end-to-end encryption. Includes native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture) and incoming stream & camera video playback with hardware-accelerated decoding (VideoToolbox, VA-API, DirectX).
-- **Forum Channels & Active Threads:** Browse forum channels, view posts sorted by recent activity, read message threads with unread indicators, and create new forum posts directly in-app.
-- **Server Administration Suite:** Full server management interface including Server Profiles (banners, icons, traits, descriptions), role editor with fine-grained permission matrix, paginated audit logs with action filters, invite manager with revocation, integrations and webhooks, and member moderation.
-- **GIF & Emoji Picker:** Instant KLIPY GIF search with favorites and one-click sending, full Twemoji picker with search and quick-reactions, plus custom guild emojis.
-- **Multi-Attachment Batch Uploads:** Composer staging tray supporting multiple files of any type (PDF, ZIP, 3D STL, videos, audio, images) with file-type badges, thumbnails, size indicators, individual removal, and progress tracking.
-- **Native Profile Customization:** In-app profile editor for global display names, bios / about me, pronouns, and custom accent colors with real-time live preview cards.
-- **Extensions & Theme Shop:** Git-backed plugin engine and community theme shop with preview cards, color preset toggles, permission verification, and a built-in deleted-message retention protector.
-- **Rich Media & Video Player:** Inline video playback for MOV and MP4 attachments, interactive seekable voice message waveforms, right-click media save/copy context menus, and full-resolution image viewer modals.
-- **Keybinds & Shortcuts:** Built-in keybind reference sheet styled with raised keycaps, quick edit (`Up`), quick delete (`Backspace`), and intuitive keyboard navigation.
-- **Local Game IPC & Rich Presence:** Built-in Discord IPC socket server detecting local games, showing live game activities in member rosters, DM lists, and user profiles, with opt-in system tray integration.
+- ⚡ **Pure Native Performance:** Built with pure Rust, `egui`, and `wgpu`. Immediate-mode rendering with minimal idle CPU, low memory footprint, and instantaneous launch times—zero Electron, Node.js, or web runtime overhead.
+- 🌐 **Direct Gateway & REST Transports:** Direct connection to Discord's official endpoints with active rate-limiting cooldowns, heartbeat handling, reconnect/resume loops, and partial payload patching.
+- 🔒 **Secure OS Credential Storage:** Session tokens are stored exclusively in your operating system's secure vault (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Never saved in plaintext.
+- 🛡️ **Ephemeral Authentication Webview:** Sign-in uses Discord's official hosted login page inside a temporary native webview (WKWebView, WebView2, or WebKitGTK) supporting email/password, QR login, and MFA. An origin-checked handoff secures the session credential and immediately terminates the webview.
+- 💾 **Bounded Local Persistence:** Recent chat history, drafts, image previews, settings, and diagnostics are stored in an account-isolated, bounded local SQLite database. All local data is strictly cleared upon explicit logout.
+- 🎙️ **Voice Calls, Video & Screen Sharing:** Complete native voice engine with 1-to-1 and group DM calls, server voice channels, push-to-talk, Sonora AEC3 acoustic echo cancellation, RNNoise noise suppression, Opus codec, and DAVE v1 end-to-end encryption. Includes native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture) and incoming stream & camera video playback with hardware-accelerated decoding (VideoToolbox, VA-API, DirectX).
+- 🧵 **Forum Channels & Active Threads:** Browse forum channels, view posts sorted by recent activity, read message threads with unread indicators, and create new forum posts directly in-app.
+- ⚙️ **Server Administration Suite:** Full server management interface including Server Profiles (banners, icons, traits, descriptions), role editor with fine-grained permission matrix, paginated audit logs with action filters, invite manager with revocation, integrations and webhooks, and member moderation.
+- ✨ **GIF & Twemoji Picker:** Instant KLIPY GIF search with favorites and one-click sending, full Twemoji picker with search and quick-reactions, plus custom guild emojis.
+- 📎 **Multi-Attachment Batch Uploads:** Composer staging tray supporting multiple files of any type (PDF, ZIP, 3D STL, videos, audio, images) with file-type badges, thumbnails, size indicators, individual removal, and progress tracking.
+- 👤 **Native Profile Customization:** In-app profile editor for global display names, bios / about me, pronouns, and custom accent colors with real-time live preview cards.
+- 🎨 **Extensions & Theme Shop:** Git-backed plugin engine and community theme shop with preview cards, color preset toggles, permission verification, and a built-in deleted-message retention protector.
+- 🎬 **Rich Media & Video Player:** Inline video playback for MOV and MP4 attachments, interactive seekable voice message waveforms, right-click media save/copy context menus, and full-resolution image viewer modals.
+- ⌨️ **Keybinds & Shortcuts:** Built-in keybind reference sheet styled with raised keycaps, quick edit (`Up`), quick delete (`Backspace`), and intuitive keyboard navigation.
+- 🎮 **Local Game IPC & Rich Presence:** Built-in Discord IPC socket server detecting local games, showing live game activities in member rosters, DM lists, and user profiles, with opt-in system tray integration.
 
 ---
 
@@ -203,7 +242,7 @@ cargo xtask package
 | **User Mentions & Autocomplete** | Implemented | Clickable user mentions with interactive composer autocompletion and visual highlight styling |
 | **Media Previews & Video Player** | Implemented | Inline MOV and MP4 video playback, media copy/save context menus, inline image cards, embed cards, related embed image galleries, and full-resolution image viewer modals |
 | **File & Attachment Uploads** | Implemented | Multi-attachment batch staging with file-type badges (PDF, ZIP, STL, images), thumbnail previews, individual file removal, upload progress bar, and drag-and-drop |
-| **Voice Engine & Calls** | Implemented | 1-to-1 DM calls & server channels, Opus codec, DAVE v1 E2EE, Sonora AEC3 acoustic echo cancellation, RNNoise suppression, push-to-talk (`V`), audio device selector |
+| **Voice Engine & Calls** | Implemented | 1-to-1/group DM calls & server channels, Opus codec, DAVE v1 E2EE, Sonora AEC3 acoustic echo cancellation, RNNoise suppression, push-to-talk (`V`), audio device selector |
 | **Voice Messages** | Implemented | Inline voice message playback with interactive waveforms and bounded streaming audio buffering |
 | **Screen Sharing & Video** | Implemented | Native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture), quality presets (720p/1080p, up to 60fps), and local camera/screen previews |
 | **Camera Video & Stream Viewing** | Implemented | Hardware-accelerated decoding (macOS VideoToolbox, Linux VA-API, Windows DXVA/D3D11) for incoming screen streams and camera video feeds |

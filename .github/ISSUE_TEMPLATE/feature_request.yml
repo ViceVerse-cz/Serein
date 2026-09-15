@@ -1,0 +1,60 @@
+name: Feature Request
+description: Suggest an enhancement or new capability for Serein
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature for Serein!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a specific problem, limitation, or missing Discord feature?
+      placeholder: "A clear and concise description of what the problem or gap is (e.g. 'I'm always frustrated when...')."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe what you would like Serein to do.
+      placeholder: "Provide a detailed description of how the feature should behave and integrate into the UI/UX."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative solutions, workflows, or workarounds?
+      placeholder: "Describe any alternate approaches or why existing workarounds are insufficient."
+
+  - type: dropdown
+    id: parity
+    attributes:
+      label: Discord Feature Alignment
+      description: Does this feature mirror official Discord functionality or is it unique to Serein?
+      options:
+        - "Official Discord desktop feature parity"
+        - "Native desktop enhancement (custom shortcuts, windowing, tray, system notifications)"
+        - "Performance / Resource optimization"
+        - "Developer / Customization / Theme feature"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: visual_reference
+    attributes:
+      label: Visual References & Mockups
+      description: Drag & drop UI mockups, screenshots of Discord behavior, or sketches illustrating the proposal.
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional Context
+      description: Any other context, references, or API details relevant to this request.

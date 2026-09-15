@@ -45,6 +45,7 @@ pub const MAX_CONTENT: usize = 2000;
 /// Discord accepts at most ten attachments per message.
 pub const MAX_ATTACHMENTS: usize = 10;
 pub const MAX_NAV: usize = model::account::MAX_ENTRIES;
+const MAX_VIEWED_SERVERS: usize = 1024;
 pub const MAX_MEMBER_PRESENCE_BYTES: usize = 128 * 1024;
 pub const MAX_EVENT_BYTES: usize = 4 * 1024 * 1024;
 pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 MiB byte budget.
@@ -163,6 +164,7 @@ pub enum Command {
 	},
 	Voice(voice::Command),
 	Members {
+		thread: bool,
 		guild: Option<Id>,
 		channel: Option<Id>,
 		request: u64,
@@ -552,12 +554,17 @@ pub struct State {
 	pub local_game_activity: Option<model::RichActivity>,
 	#[doc(hidden)]
 	pub direct_presence_bytes: Option<(usize, usize)>,
+	#[doc(hidden)]
+	pub direct_presence_epoch: u64,
 	pub member_request: u64,
 	pub guilds: Vec<Guild>,
 	pub channels: Vec<Channel>,
 	#[doc(hidden)]
 	pub navigation_index: NavigationIndex,
 	pub selected: Option<Id>,
+	/// Session-local guild/channel ID pairs, oldest visit first; at most 16 KiB.
+	#[doc(hidden)]
+	pub last_viewed_channels: Vec<(Id, Id)>,
 	pub timeline: Timeline,
 	pub preserve_deleted_messages: bool,
 	pub resident: resident::Windows,
@@ -625,11 +632,13 @@ impl Default for State {
 			direct_presences: vec![],
 			local_game_activity: Default::default(),
 			direct_presence_bytes: None,
+			direct_presence_epoch: 0,
 			member_request: 0,
 			guilds: vec![],
 			channels: vec![],
 			navigation_index: NavigationIndex::default(),
 			selected: None,
+			last_viewed_channels: Vec::new(),
 			timeline: Timeline::default(),
 			preserve_deleted_messages: false,
 			resident: resident::Windows::default(),
@@ -763,6 +772,42 @@ impl State {
 				})
 				.sum::<usize>()
 	}
+	fn remember_channel(&mut self, channel: Id) {
+		let Some(guild) = self.channel(channel).and_then(|c| c.guild) else {
+			return;
+		};
+		self.last_viewed_channels.retain(|(id, _)| *id != guild);
+		if self.last_viewed_channels.len() == MAX_VIEWED_SERVERS {
+			self.last_viewed_channels.remove(0);
+		}
+		self.last_viewed_channels.push((guild, channel));
+	}
+	pub fn select_guild(&mut self, guild: Id) -> Option<Command> {
+		self.guild(guild)?;
+		let available = |id| {
+			self.channel(id).is_some_and(|channel| {
+				channel.guild == Some(guild) && navigable(channel) && self.can_view(id)
+			})
+		};
+		let channel = self
+			.selected
+			.filter(|id| available(*id))
+			.or_else(|| {
+				self.last_viewed_channels
+					.iter()
+					.find(|(id, channel)| *id == guild && available(*channel))
+					.map(|(_, id)| *id)
+			})
+			.or_else(|| {
+				self.channels
+					.iter()
+					.filter(|c| c.guild == Some(guild) && available(c.id))
+					// Prefer ordinary text/forum channels over threads or voice on first visit.
+					.min_by_key(|c| (matches!(c.kind, 2 | 10..=12), c.position, c.id))
+					.map(|c| c.id)
+			})?;
+		self.select(channel)
+	}
 	pub fn select(&mut self, channel: Id) -> Option<Command> {
 		// Keep the current conversation intact, but allow a restored channel to load again.
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
@@ -776,6 +821,10 @@ impl State {
 			self.status = "Channel permissions are unavailable or access was revoked";
 			return None;
 		}
+		if let Some(previous) = self.selected {
+			self.remember_channel(previous);
+		}
+		self.remember_channel(channel);
 		self.retire_archived_thread(Some(channel));
 		self.typing.clear();
 		self.select_resident(channel);
@@ -803,6 +852,7 @@ impl State {
 		if !self.can_view(channel.id) {
 			return None;
 		}
+		let thread = matches!(channel.kind, 10..=12);
 		let list_id = self.member_list_id(channel);
 		let rows = if channel.guild.is_none() && self.freshness != Freshness::Unavailable {
 			let mut users = channel.recipients.clone();
@@ -831,7 +881,7 @@ impl State {
 			Freshness::Unavailable
 		} else if channel.guild.is_none() {
 			Freshness::Fresh
-		} else if list_id.is_none() {
+		} else if !thread && list_id.is_none() {
 			Freshness::Unavailable
 		} else {
 			Freshness::Loading
@@ -845,9 +895,10 @@ impl State {
 			freshness,
 		});
 		let command = Command::Members {
-			guild: channel
-				.guild
-				.filter(|_| list_id.is_some() && self.freshness != Freshness::Unavailable),
+			thread,
+			guild: channel.guild.filter(|_| {
+				(thread || list_id.is_some()) && self.freshness != Freshness::Unavailable
+			}),
 			channel: Some(channel.id),
 			request: self.member_request,
 			list_id,
@@ -859,6 +910,7 @@ impl State {
 		self.member_request = self.member_request.wrapping_add(1);
 		self.members = None;
 		Command::Members {
+			thread: false,
 			guild: None,
 			channel: None,
 			request: self.member_request,
@@ -1520,8 +1572,7 @@ impl State {
 					self.invalidate_startup_preferences(warnings.notifications, warnings.sessions);
 				}
 				if warnings.presence {
-					self.direct_presences.clear();
-					self.direct_presence_bytes = None;
+					self.clear_direct_presences();
 				}
 				Ok(())
 			}
@@ -1923,6 +1974,7 @@ impl State {
 				if self.user.as_ref().is_some_and(|u| u.id == user) {
 					self.end_voice_channel(channel);
 					self.read_state.forget(channel);
+					self.forget_direct_inbox(channel);
 					self.channels.retain(|c| c.id != channel);
 					self.prune_direct_presence();
 					if self.selected == Some(channel) {
@@ -1940,6 +1992,19 @@ impl State {
 					.find(|c| c.id == channel && c.guild.is_none())
 				{
 					c.recipients.retain(|u| u.id != user);
+					for (id, participants) in &mut self.voice.dm_participants {
+						if *id == channel {
+							participants.retain(|p| p.user != user);
+						}
+					}
+					if let Some(call) = &mut self.voice.active
+						&& call.channel == channel
+					{
+						call.participants.retain(|p| p.user != user);
+						if call.watching == Some(user) {
+							call.watching = None;
+						}
+					}
 					if self.selected == Some(channel) && self.members.is_some() {
 						let _ = self.request_members();
 					}
@@ -1982,8 +2047,7 @@ impl State {
 				guilds,
 				channels,
 			} => {
-				self.direct_presences.clear();
-				self.direct_presence_bytes = None;
+				self.clear_direct_presences();
 				if self
 					.user
 					.as_ref()
@@ -2117,7 +2181,11 @@ impl State {
 				}
 				for message in &mut messages {
 					if self.reactions.invalidated(message.id) {
-						message.reactions = None;
+						// Keep newer live counts without retaining stale message content.
+						message.reactions = self
+							.timeline
+							.get(message.id)
+							.and_then(|current| current.reactions.clone());
 					}
 				}
 				self.older_exhausted = if let Some(after) = self.history_after {
@@ -2194,10 +2262,13 @@ impl State {
 					&& self.reactions.invalidated(m.id)
 					&& m.reactions.is_some()
 				{
-					self.refresh_reactions(m.id);
+					self.queue_reaction_read(m.id);
 				}
 				if self.reactions.invalidated(m.id) {
-					m.reactions = None;
+					m.reactions = self
+						.timeline
+						.get(m.id)
+						.and_then(|old| old.reactions.clone());
 				}
 				self.confirm(&m);
 				if deletion.is_err() {
@@ -2225,7 +2296,7 @@ impl State {
 					&& self.reactions.invalidated(p.id)
 					&& !matches!(p.reactions, Patch::Absent)
 				{
-					self.refresh_reactions(p.id);
+					self.queue_reaction_read(p.id);
 				}
 				if self.reactions.invalidated(p.id) {
 					p.reactions = Patch::Absent;
@@ -2413,8 +2484,7 @@ impl State {
 				self.cancel_server_admin();
 				self.cancel_group_action();
 				self.cancel_invite_join();
-				self.direct_presences.clear();
-				self.direct_presence_bytes = None;
+				self.clear_direct_presences();
 				self.permissions = permissions::Permissions::default();
 				self.read_state.cancel();
 				self.clear_profile();
@@ -2554,6 +2624,7 @@ impl State {
 			self.permissions.channels.remove(id);
 			self.end_voice_channel(*id);
 			self.read_state.forget(*id);
+			self.forget_direct_inbox(*id);
 		}
 		if !removed.is_empty() {
 			self.clear_profile();
@@ -2604,8 +2675,7 @@ impl State {
 			self.cancel_server_admin();
 			self.cancel_group_action();
 			self.cancel_invite_join();
-			self.direct_presences.clear();
-			self.direct_presence_bytes = None;
+			self.clear_direct_presences();
 			self.clear_cached_history();
 			self.clear_search();
 			self.search_target = None;
@@ -2783,6 +2853,18 @@ impl Event {
 				Self::UserAction(user_actions::Event::Relationships(entries)) => entries
 					.as_ref()
 					.map_or(0, |e| e.capacity() * size_of::<(Id, bool)>()),
+				Self::UserAction(user_actions::Event::MessageRequests(entries)) => entries
+					.as_ref()
+					.map_or(0, |e| e.capacity() * size_of::<Id>()),
+				Self::UserAction(user_actions::Event::MessageRequest { .. }) => size_of::<Id>(),
+				Self::UserAction(user_actions::Event::MessageSpams(entries)) => entries
+					.as_ref()
+					.map_or(0, |e| e.capacity() * size_of::<Id>()),
+				Self::UserAction(user_actions::Event::MessageSpam { .. }) => size_of::<Id>(),
+				Self::UserAction(user_actions::Event::RequestSpams(entries)) => entries
+					.as_ref()
+					.map_or(0, |e| e.capacity() * size_of::<Id>()),
+				Self::UserAction(user_actions::Event::RequestSpam { .. }) => size_of::<Id>(),
 				Self::Archives { result, .. } => {
 					result.as_ref().map_or(0, model::archives::Page::bytes)
 				}
@@ -2804,6 +2886,12 @@ impl Event {
 				Self::ReadState(read_state::Event::Latest(entries)) => {
 					entries.capacity() * size_of::<(Id, Patch<Id>)>()
 				}
+				Self::Reactions(
+					reactions::Event::Delta { emoji, .. }
+					| reactions::Event::Cleared {
+						emoji: Some(emoji), ..
+					},
+				) => emoji.name.as_ref().map_or(0, String::capacity),
 				Self::Reactions(reactions::Event::Read { result, .. }) => {
 					result.as_ref().map_or(0, |r| model::reaction_bytes(r))
 				}
@@ -3094,6 +3182,180 @@ mod tests {
 		assert!(!state.has_unsent());
 	}
 	use super::*;
+
+	#[test]
+	fn server_selection_restores_viewed_channels_and_revalidates_access() {
+		use model::permissions as p;
+		let mut state = State {
+			user: Some(message(1).author),
+			guilds: (1..=2)
+				.map(|id| Guild {
+					id: Id(id),
+					name: "Synthetic".into(),
+					icon: None,
+					emojis: None,
+				})
+				.collect(),
+			channels: [(10, 1, 0), (11, 1, 0), (12, 1, 2), (20, 2, 0), (30, 0, 1)]
+				.into_iter()
+				.map(|(id, guild, kind)| Channel {
+					id: Id(id),
+					guild: (guild != 0).then_some(Id(guild)),
+					kind,
+					name: "Synthetic".into(),
+					position: id as i32,
+					parent_id: None,
+					recipients: vec![],
+					last_message: None,
+					icon: None,
+					member_list_id: None,
+					message_count: None,
+				})
+				.collect(),
+			..State::default()
+		};
+		state
+			.permissions
+			.replace(p::Snapshot {
+				guilds: (1..=2)
+					.map(|id| p::Guild {
+						id: Id(id),
+						owner: Some(Id(999)),
+						member: Some(p::Member {
+							roles: vec![],
+							timeout_until: None,
+						}),
+						roles: Some(vec![p::Role {
+							id: Id(id),
+							name: String::new(),
+							color: 0,
+							position: 0,
+							hoist: false,
+							bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,
+						}]),
+					})
+					.collect(),
+				channels: state
+					.channels
+					.iter()
+					.filter_map(|c| {
+						c.guild.map(|guild| p::Channel {
+							id: c.id,
+							guild,
+							overwrites: Some(vec![]),
+						})
+					})
+					.collect(),
+			})
+			.unwrap();
+		assert!(matches!(
+			state.select_guild(Id(1)),
+			Some(Command::History {
+				channel: Id(10),
+				..
+			})
+		));
+		state.select(Id(11));
+		state.select(Id(20));
+		assert!(matches!(
+			state.select_guild(Id(1)),
+			Some(Command::History {
+				channel: Id(11),
+				..
+			})
+		));
+		state.drafts.insert(Id(11), "Unsent draft".into());
+		let request = state.request;
+		assert!(state.select_guild(Id(1)).is_none());
+		assert_eq!(state.request, request);
+		assert_eq!(state.drafts[&Id(11)], "Unsent draft");
+		state.select(Id(30));
+		assert_eq!(
+			state.last_viewed_channels.len(),
+			2,
+			"DMs are not server history"
+		);
+		assert!(matches!(
+			state.select_guild(Id(1)),
+			Some(Command::History {
+				channel: Id(11),
+				..
+			})
+		));
+		state.select(Id(20));
+		state
+			.permissions
+			.channels
+			.get_mut(&Id(11))
+			.unwrap()
+			.overwrites = Some(vec![p::Overwrite {
+			id: Id(1),
+			kind: 0,
+			allow: 0,
+			deny: p::VIEW_CHANNEL,
+		}]);
+		state.permissions.clear_cache();
+		assert!(matches!(
+			state.select_guild(Id(1)),
+			Some(Command::History {
+				channel: Id(10),
+				..
+			})
+		));
+		state.select(Id(20));
+		state.channels.retain(|c| c.id != Id(10));
+		state.invalidate_navigation();
+		assert!(matches!(
+			state.select_guild(Id(1)),
+			Some(Command::History {
+				channel: Id(12),
+				..
+			})
+		));
+		assert!(state.voice.active.is_none());
+		assert_eq!(
+			state.selected,
+			Some(Id(12)),
+			"voice is only viewed, never joined"
+		);
+		state.select(Id(20));
+		assert!(matches!(
+			state.select_guild(Id(1)),
+			Some(Command::History {
+				channel: Id(12),
+				..
+			})
+		));
+		assert!(state.voice.active.is_none());
+		assert_eq!(
+			state.selected,
+			Some(Id(12)),
+			"remember a viewed voice channel too"
+		);
+		state.select(Id(20));
+		state.permissions.guilds.remove(&Id(1));
+		state.permissions.clear_cache();
+		assert!(state.select_guild(Id(1)).is_none());
+		assert_eq!(
+			state.selected,
+			Some(Id(20)),
+			"no accessible channel leaves the conversation intact"
+		);
+		state.last_viewed_channels = (100..100 + MAX_VIEWED_SERVERS as u64)
+			.map(|id| (Id(id), Id(id)))
+			.collect();
+		state.remember_channel(Id(20));
+		assert_eq!(state.last_viewed_channels.len(), MAX_VIEWED_SERVERS);
+		assert!(state.last_viewed_channels.capacity() * size_of::<(Id, Id)>() <= 16 * 1024);
+		assert!(
+			!state
+				.last_viewed_channels
+				.iter()
+				.any(|(id, _)| *id == Id(100))
+		);
+		state.logout();
+		assert!(state.last_viewed_channels.is_empty());
+	}
 
 	#[test]
 	fn reaction_readback_coalesces_races_and_never_replays_uncertain_writes() {
@@ -3638,6 +3900,8 @@ mod tests {
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,
@@ -4061,11 +4325,14 @@ mod tests {
 		);
 		assert!(state.can_call(Id(1)));
 		assert!(
-			state.select(Id(1)).is_none(),
-			"Voice navigation does not request text history"
+			matches!(
+				state.select(Id(1)),
+				Some(Command::History { channel: Id(1), .. })
+			),
+			"Voice navigation requests its channel chat history"
 		);
 		assert_eq!(state.selected, Some(Id(1)));
-		assert!(!state.history_pending);
+		assert!(state.history_pending);
 		assert!(state.start_call(Id(1), false).is_some());
 	}
 

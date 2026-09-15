@@ -492,7 +492,12 @@ pub fn parse_package(bytes: &[u8]) -> Result<Package, Error> {
 	if bytes.len() > MAX_PACKAGE_BYTES {
 		return Err(Error::Limit);
 	}
-	let package: Package = serde_json::from_slice(bytes).map_err(|_| Error::Invalid)?;
+	let mut package: Package = serde_json::from_slice(bytes).map_err(|_| Error::Invalid)?;
+	// Creator theme IDs are case-insensitive; storage still uses validated lowercase IDs.
+	// Keep plugin identities unchanged, including their action/capability references.
+	if package.manifest.kind == ExtensionKind::Theme {
+		package.manifest.id.make_ascii_lowercase();
+	}
 	package.validate()?;
 	Ok(package)
 }

@@ -1,5 +1,35 @@
 # Local storage policy and audit
 
+## Last-viewed server channels (September 14, 2026)
+
+Server navigation remembers at most 1,024 guild/channel ID pairs in session RAM
+(16 KiB vector payload, plus its fixed header). Updating a visit replaces that
+server's entry; the oldest visit is evicted at capacity. There are no names,
+message contents, timers, disk writes, or schema changes. Logout releases the
+list; it is not restored across application restarts. Reopening a server checks
+current channel membership, supported kind, and view permission before selecting
+its remembered channel, otherwise preferring an accessible ordinary text/forum
+channel. Voice selection only opens its existing preview, never joins a call.
+With no accessible channel, the existing conversation remains intact.
+
+## Friends-home derived UI caches (September 14, 2026)
+
+Friends Online/All retain one filtered, sorted boxed ID list: at most 4,000 IDs
+(32,000 bytes), plus one search string of at most 128 Unicode scalars (512 UTF-8
+bytes). Relationship and presence-membership revisions invalidate derived rows;
+Online also keys connection state. Visible rows resolve current profiles and
+presence on each paint. No copied friend profiles or additional presence index
+are retained.
+
+The server rail retains at most 15 DM IDs (120 bytes) and one sorted boxed badge
+record per guild represented in validated navigation: at most 131,072 records,
+16 bytes each on the supported 64-bit targets (2 MiB). Folder rows retain at most
+131,072 guild rows plus 200 folder headers, each 40 bytes on 64-bit targets
+(5,250,880 bytes). Rebuilds use temporary bounded vectors/maps in addition to the
+previous cache; these ceilings are not measured process RSS. Session generation,
+state revision and local expansion/call changes retire stale derived views.
+UI session reset releases the caches. No disk records or schema migration change.
+
 ## Large account startup (September 14, 2026)
 
 Account navigation supports 131,072 guild/channel entries within 128 MiB of estimated
@@ -60,7 +90,8 @@ their content and default to ordinary messages until refreshed. Schema-15 binari
 cannot reopen this upgraded cache.
 
 Channel shortcuts (September 12, schema 15): favorites and pins are device-local,
-account-isolated SQLite preferences. Both lists together contain at most 256 IDs,
+account-isolated SQLite preferences. Pins cover home DMs. Favorites cover guild
+channels. Both lists together contain at most 256 IDs,
 with at most 4 KiB retained vector storage and an 8 KiB serialized record. Loading
 and saving run on the existing bounded cache worker; corrupt/oversized records and
 save failures are shown. Shortcuts survive restart and are removed on account
@@ -214,7 +245,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 
 | Data | Location / bound | Removal |
 |---|---|---|
-| Discord token | OS credential store, service `org.serein.desktop`, account `discord-session`; at most 2048 bytes | Explicit logout / Forget saved login; invalid-token expiry also requests deletion |
+| Discord token | OS credential store, service `cz.viceverse.serein`, account `discord-session`; at most 2048 bytes | Explicit logout / Forget saved login; invalid-token expiry also requests deletion |
 | History and drafts | `dirs::data_local_dir()/serein/client.sqlite3` | Clear cached history also clears service images and keeps drafts; logout clears the authenticated account’s history and drafts |
 | Messages | 500 per window, at most 20 stored channel windows globally, 48 MiB estimated text/metadata; SQLite main database capped at 64 MiB | Oldest touched channel evicted transactionally |
 | Avatar, server-icon, profile-banner and message-preview PNGs | Account subdirectory beneath `dirs::data_local_dir()/serein/avatars`; 1 GiB / 4096 files per account, 90 days since last use, at most 2 MiB per preview (512 KiB for icons/avatars) | Clear cache or account logout; versioned avatar/icon/banner keys and hashed media-source keys separate changed images |
@@ -258,6 +289,8 @@ GIF/WebP animations retain at most 80 frames with a 160-pixel edge, about 8 MiB 
 Two queued large stills can retain 32 MiB of decoded pixels; active decoding, image
 conversion and framework/driver allocations are additional. Shared textures are bounded
 by 256 entries / 64 MiB, with a separate four-animation / 16 MiB retained-pixel budget.
+Animation texture uploads are spaced at least 34 ms apart (under 30 FPS), with
+source timing preserved by skipping frames; unfocused windows do not advance clips.
 These are component ceilings, not measured whole-process RSS. Disk eviction retains only
 32 candidate paths at a time. Worker completion fences replacement and deletion, so
 logout/clear cannot race an older worker's writes. Picture-cache failures appear in
@@ -425,9 +458,12 @@ heartbeat sequencing after unsupported dispatches. No live interoperability clai
 
 ### Existing DM call presence
 
-Session memory keeps at most 64 ongoing one-to-one DM channel IDs (512 bytes of ID storage,
+Session memory keeps at most 64 ongoing one-to-one or group DM channel IDs (512 bytes of ID storage,
 plus the Vec header), independently of the active local media session and incoming ringing.
-No voice secrets, participant payloads, audio, or new disk entries are retained for this list.
+Alongside those IDs, at most 64 call rosters retain 64 fixed-size Participant slots each
+(65,536 participant bytes on 64-bit targets, plus vector/channel headers). These contain
+only user IDs and mute/deafen/video/streaming flags. No voice secrets, audio or new disk
+entries are retained for this list.
 Duplicate updates reuse an entry; at capacity, the oldest entry is evicted. Opening a DM
 requests its call state again through the bounded existing command/signaling queues. There
 is no background polling or all-DM subscription. Deletion/unavailability or channel removal
@@ -739,3 +775,46 @@ names, symlinks and special files are validated before writing to private stagin
 beside the installation. Staging records the app/helper owner and is reused or
 cleaned before another download; backups from interrupted replacements are kept
 for recovery and block another installation instead of being deleted.
+
+Linux AppImages reuse the same 512 MiB streamed download/checksum limit and private
+sibling staging. Their Type 2 ELF header and x86-64 architecture are checked without
+executing the download. The image is not unpacked; restart atomically replaces the
+original AppImage path and retains a hard-linked backup until the replacement
+survives its initial two-second launch check. This detects immediate launch failure,
+not application health or a successful login. Interrupted backups block subsequent
+updates for manual recovery. Native Linux packages remain package-manager managed.
+
+### Thread participant snapshots — September 15, 2026
+
+The People pane shares its existing 100-member / 128-KiB metadata limit with
+on-demand thread participant snapshots. One cancellable REST read uses the shared
+four permits and a 512-KiB wire cap; results use the existing bounded event queue.
+Replacing or closing the member view drops that read. Session/request/channel and
+view-permission checks fence late results. No member snapshots, cursors or payloads
+are persisted, and no background pagination or new queue is introduced.
+
+### Opt-in macOS startup
+
+The existing startup worker writes only
+`~/Library/LaunchAgents/cz.viceverse.serein.startup.plist`, at most 16 KiB,
+with an absolute executable path and fixed autostart/minimized flags. Reads are
+bounded to 16 KiB; unknown or moved entries report an error. Enabling atomically
+replaces this file using a private sibling temporary file; disabling removes it.
+No account data, credentials or separate preference is stored. The entry runs once
+at the next graphical login; it has no KeepAlive or immediate launch. Demo mode
+keeps startup changes in memory. OS login-item restrictions remain authoritative.
+
+Chat author role IDs are session-only message metadata (at most 512 IDs per message),
+counted in the existing timeline byte budget and omitted from SQLite. Names use
+the current guild role catalog, preferring loaded member rows over message role IDs;
+missing membership uses the normal text color until service data arrives.
+
+Chat author guild nicknames are session-only message metadata, capped at 128 Unicode
+characters and counted in timeline byte limits. Current guild member rows take
+precedence. SQLite omits this field; cached history falls back to the usual name
+until message or member data refreshes.
+
+Custom emoji artwork shares the existing account-isolated image disk cache
+(4,096 files / 1 GiB, 90-day inactivity retention). Its GPU working set is separate
+from avatars and media, bounded to 1,024 textures / 16 MiB with least-recently-used
+eviction. Evicted textures reload from disk when available.

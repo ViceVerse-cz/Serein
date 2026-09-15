@@ -29,6 +29,7 @@ mod forum;
 mod friends;
 mod group_menu;
 mod guild_folders;
+mod highlight;
 pub mod icons;
 mod invites;
 mod local_time;
@@ -52,6 +53,7 @@ mod profile_edit;
 mod reactions;
 mod reading;
 pub mod screen;
+mod scroll;
 mod search;
 mod server_admin;
 mod server_audit_log;
@@ -62,6 +64,7 @@ mod server_menu;
 mod server_roles;
 mod server_settings;
 mod settings;
+mod shortcuts;
 mod switcher;
 mod thumbhash;
 mod timeline;
@@ -123,11 +126,13 @@ pub struct MessagingUi {
 	pub channel_preferences_status: &'static str,
 	join_server: join_server::JoinDialog,
 	folder_ui: guild_folders::FolderUi,
+	rail_cache: notifications::RailCache,
 	member_cache_key: Option<(u64, u64, Option<Id>, bool, u64)>,
 	member_cache: Vec<MemberRow>,
 	member_count: usize,
 	composer_layout: composer_text::Layout,
 	channel_cache: categories::Cache,
+	hidden_muted_guilds: std::collections::BTreeSet<Id>,
 	search: search::SearchUi,
 	settings: settings::Settings,
 	server_settings: server_settings::Editor,
@@ -140,6 +145,7 @@ pub struct MessagingUi {
 	archives: archives::ArchivesUi,
 	archive_parent: Option<Id>,
 	forum: forum::ForumUi,
+	scroll: scroll::Session,
 	timeline: timeline::TimelineView,
 	edit_modified: Option<(Id, Id, bool)>,
 	edit_undo_cleared: bool,
@@ -227,6 +233,8 @@ pub struct MessagingUi {
 	pub voice_focus: Option<voice::StageFocus>,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.
 	pub voice_focus_participants: bool,
+	/// Session-only visibility of the selected guild voice channel's chat.
+	pub voice_chat_open: bool,
 	/// Tile click to start (`Some(user)`) or stop (`None`) watching, applied by the stage.
 	watch_request: Option<Option<Id>>,
 	pub voice_inputs: Vec<(String, String)>,
@@ -565,6 +573,11 @@ impl MessagingUi {
 	pub fn has_edit(&self) -> bool {
 		self.editing.is_some()
 	}
+	pub fn has_edit_in(&self, channel: Option<Id>) -> bool {
+		self.editing
+			.as_ref()
+			.is_some_and(|(edit_channel, _, _)| Some(*edit_channel) == channel)
+	}
 	pub fn messages_deleted(&mut self, ctx: &egui::Context, channel: Id, ids: &[Id]) {
 		if ids.len() > 100 {
 			return;
@@ -820,9 +833,12 @@ impl MessagingUi {
 		};
 		let row_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
-		egui::ScrollArea::vertical()
-			.id_salt(("people", list.channel))
-			.auto_shrink([false, false])
+		self.scroll
+			.attach(
+				ui,
+				("people", list.channel),
+				egui::ScrollArea::vertical().auto_shrink([false, false]),
+			)
 			.show_rows(ui, 42.0, self.member_cache.len(), |ui, range| {
 				for index in range {
 					match &self.member_cache[index] {
@@ -1322,12 +1338,21 @@ impl MessagingUi {
 				let dm = channel
 					.as_ref()
 					.is_some_and(|c| c.kind == 1 && c.guild.is_none());
+				let shortcuts_available = self.shortcuts_available(state);
 				ui.horizontal_centered(|ui| {
 					ui.spacing_mut().item_spacing.x = 8.0;
 					match channel.as_ref() {
 						Some(c) if c.guild.is_none() && c.kind == 3 => {
 							let avatar = self.avatars.show_group(ui, c, 24.0, state.demo);
-							self.group_menu.context(&avatar, state, c);
+							self.group_menu.context(
+								&avatar,
+								state,
+								c,
+								shortcuts::ShortcutView::new(
+									&self.channel_preferences,
+									shortcuts_available,
+								),
+							);
 						}
 						Some(c) if c.guild.is_none() => {
 							if let Some(user) = c.recipients.first() {
@@ -1335,12 +1360,16 @@ impl MessagingUi {
 								// context-menu action, not a click target.
 								let avatar = self.avatars.show_plain(ui, user, 24.0, state.demo);
 								if dm {
-									user_menu::show(
+									user_menu::show_with_pin(
 										&avatar,
 										state,
 										user,
 										&mut self.profile,
 										&mut self.user_action,
+										Some(shortcuts::ShortcutView::new(
+											&self.channel_preferences,
+											shortcuts_available,
+										)),
 									);
 								}
 								if dm
@@ -1370,11 +1399,36 @@ impl MessagingUi {
 					}
 					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 						ui.spacing_mut().item_spacing.x = 4.0;
+						if selected_voice
+							&& icons::toggle(
+								ui,
+								icons::Icon::Forum,
+								32.0,
+								self.voice_chat_open,
+								if self.voice_chat_open {
+									"Hide chat"
+								} else {
+									"Show chat"
+								},
+							)
+							.clicked()
+						{
+							self.voice_chat_open = !self.voice_chat_open;
+							self.focus_switched_composer = self.voice_chat_open;
+						}
 						if let Some(c) = channel
 							.as_ref()
 							.filter(|c| c.guild.is_none() && c.kind == 3)
 						{
-							self.group_menu.dropdown(ui, state, c);
+							self.group_menu.dropdown(
+								ui,
+								state,
+								c,
+								shortcuts::ShortcutView::new(
+									&self.channel_preferences,
+									shortcuts_available,
+								),
+							);
 						}
 						if state.selected.is_some() && !selected_voice {
 							if self.search.open && !self.search.pins() {
@@ -1504,7 +1558,11 @@ impl MessagingUi {
 								commands.push(state.history(None));
 							}
 						}
-						if let Some(channel) = state.selected.filter(|_| dm) {
+						if let Some(channel) = state.selected.filter(|_| {
+							channel
+								.as_ref()
+								.is_some_and(|c| c.guild.is_none() && matches!(c.kind, 1 | 3))
+						}) {
 							self.voice_settings(ui, state.demo, state.voice.active.is_some());
 							self.call_button(ui, state, channel, commands);
 						}
@@ -2011,6 +2069,8 @@ impl MessagingUi {
 		} else {
 			Vec::new()
 		};
+		let mass_mentions =
+			state.permission(channel, model::permissions::MENTION_EVERYONE) == Some(true);
 		let cursor = egui::text_edit::TextEditState::load(ctx, composer_id)
 			.and_then(|s| s.cursor.char_range())
 			.filter(|r| r.is_empty())
@@ -2244,6 +2304,7 @@ impl MessagingUi {
                                 draft,
                                 ui.available_width(),
                                 &mention_users,
+                                mass_mentions,
                                 &mut self.avatars,
                                 demo,
                             );
@@ -2255,6 +2316,7 @@ impl MessagingUi {
                                 buffer.as_str(),
                                 width,
                                 &mention_users,
+                                mass_mentions,
                                 &mut self.avatars,
                                 demo,
                             )
@@ -2725,11 +2787,26 @@ impl MessagingUi {
 					return;
 				};
 				if selected_voice {
-					self.voice_channel(ui, state, channel, &mut commands);
-					return;
+					if !self.voice_chat_open {
+						self.voice_channel(ui, state, channel, &mut commands);
+						return;
+					}
+					// Keep the existing conversation renderer beside the stage. On narrow
+					// windows chat takes the body; Hide chat returns to the full stage.
+					if ui.available_width() >= 720.0 {
+						let chat_width = (ui.available_width() * 0.4).clamp(320.0, 440.0);
+						egui::Panel::left("voice-stage")
+							.exact_size(ui.available_width() - chat_width)
+							.resizable(false)
+							.frame(egui::Frame::NONE)
+							.show(ui, |ui| {
+								self.voice_channel(ui, state, channel, &mut commands);
+							});
+					}
 				}
 				if selected_forum {
-					self.forum.show(ui, state, channel, &mut commands);
+					self.forum
+						.show(ui, state, channel, &mut commands, &mut self.scroll);
 					return;
 				}
 				egui::Panel::bottom("composer")
@@ -2792,13 +2869,14 @@ impl MessagingUi {
 					.show(ui, |ui| {
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
 						self.timeline.extension_actions = self.extensions.message_actions();
-						self.timeline.show(
+						self.timeline.show_with_scroll(
 							ui,
 							state,
 							&mut self.editing,
 							&mut self.deleting,
 							(&mut self.avatars, &mut self.profile),
 							self.pending_upload.as_ref(),
+							&mut self.scroll,
 						);
 						if let Some((action, text)) = self.timeline.extension_request.take() {
 							self.extensions
@@ -2924,14 +3002,32 @@ impl MessagingUi {
 			self.archives.show(&ctx, state, &mut commands);
 		}
 		self.screen.show(&ctx, state);
-		if let Some(id) = self.timeline.channel_reference.take()
-			&& let Some(target) = state
+		if let Some(id) = self.timeline.channel_reference.take() {
+			state.clear_channel_action_result(id);
+			self.timeline.pending_channel_reference = Some(id);
+		}
+		if let Some(id) = self.timeline.pending_channel_reference {
+			if let Some(target) = state
 				.channel(id)
 				.filter(|c| c.guild.is_some() && c.supports_text())
-		{
-			self.guild = target.guild;
-			if let Some(command) = state.select(id) {
-				commands.push(command);
+			{
+				self.timeline.pending_channel_reference = None;
+				self.guild = target.guild;
+				if let Some(command) = state.select(id) {
+					commands.push(command);
+				}
+			} else if state.channel_action_status(id).is_some() {
+				self.timeline.pending_channel_reference = None;
+			} else if let Some(guild) = state
+				.selected
+				.and_then(|selected| state.channel(selected))
+				.and_then(|source| source.guild)
+			{
+				if let Some(command) = state.request_channel_reference(guild, id) {
+					commands.push(command);
+				}
+			} else {
+				self.timeline.pending_channel_reference = None;
 			}
 		}
 		if let Some(message) = self.timeline.mark_read.take()
@@ -2953,6 +3049,15 @@ impl MessagingUi {
 		}
 		self.group_menu
 			.show(&ctx, state, &mut self.avatars, &mut commands);
+		for intent in self
+			.channel_menu
+			.shortcut_requested
+			.take()
+			.into_iter()
+			.chain(self.group_menu.pin_requested.take())
+		{
+			self.apply_shortcut(state, intent);
+		}
 		if let Some(action) = self.user_action.take().or(self.timeline.user_action.take()) {
 			let command = match action {
 				user_menu::Action::Note(user) => {
@@ -2962,6 +3067,10 @@ impl MessagingUi {
 				user_menu::Action::Nickname(user) => {
 					self.profile = None;
 					self.contact_editor.open(user, true, state)
+				}
+				user_menu::Action::Shortcut(intent) => {
+					self.apply_shortcut(state, intent);
+					None
 				}
 				action => user_menu::prepare(action, state),
 			};
@@ -3046,6 +3155,10 @@ impl MessagingUi {
 				}
 				Some(profiles::Action::RemoveFriend) => {
 					self.friend_removal = Some((state.generation, user.clone()));
+				}
+				Some(profiles::Action::Menu(action)) => {
+					// Dispatched with the other user menus on the next frame.
+					self.user_action = Some(action);
 				}
 				Some(profiles::Action::Edit) => {
 					self.profile = None;
@@ -3132,6 +3245,8 @@ impl MessagingUi {
 			&& !state.demo
 			&& !ctx.egui_wants_keyboard_input()
 			&& ctx.input(|input| input.focused && input.key_down(egui::Key::V));
+		self.scroll.clear_if_unbound(&ctx);
+		self.scroll.paint(&ctx);
 		if !commands.is_empty() {
 			ctx.request_repaint();
 		}
@@ -3172,7 +3287,7 @@ mod composer_tests {
 									view.composer(ui, &mut state, Id(10), &ctx, &mut vec![]);
 									empty_height = view
 										.composer_layout
-										.galley(ui, "", 300.0, &[], &mut view.avatars, true)
+										.galley(ui, "", 300.0, &[], false, &mut view.avatars, true)
 										.rect
 										.height();
 								},
@@ -3286,6 +3401,8 @@ mod composer_tests {
 					extra_content: Default::default(),
 					embeds: vec![],
 					attachments: vec![],
+					author_nick: None,
+					author_roles: vec![],
 					mention_roles: vec![],
 					mention_everyone: false,
 					suppress_notifications: false,

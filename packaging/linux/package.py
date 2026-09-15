@@ -49,7 +49,7 @@ def stage_payload(root, stage, prefix="usr"):
         raise ValueError("Installation prefix must be usr or app")
     doc = stage / prefix / "share/doc/serein"
     copy(root / "serein", stage / prefix / "bin/serein")
-    desktop = stage / prefix / "share/applications/org.serein.desktop.desktop"
+    desktop = stage / prefix / "share/applications/cz.viceverse.serein.desktop"
     desktop.parent.mkdir(parents=True)
     desktop.write_text(Path("packaging/linux/serein.desktop").read_text(), encoding="utf-8")
     copy(Path("packaging/linux/hicolor"), stage / prefix / "share/icons/hicolor")
@@ -98,7 +98,7 @@ def smoke(package, stage, temporary, version, architecture, depends):
     checked("dpkg-deb", "--control", str(package), str(control))
     if payload_files(control) != ["control"]:
         raise ValueError("Unexpected control files or maintainer scripts")
-    checked("desktop-file-validate", str(extracted / "usr/share/applications/org.serein.desktop.desktop"))
+    checked("desktop-file-validate", str(extracted / "usr/share/applications/cz.viceverse.serein.desktop"))
     libraries = output("ldd", str(extracted / "usr/bin/serein"))
     if "not found" in libraries:
         raise ValueError(f"Unresolved packaged executable dependencies:\n{libraries}")
@@ -141,7 +141,7 @@ def package(root, application_version):
         # dlopen libraries and desktop services are invisible to ELF DT_NEEDED.
         depends += (", libvulkan1, libegl1, libxkbcommon0, libxkbcommon-x11-0, "
                     "libwayland-client0, libx11-6, libx11-xcb1, libxcursor1, libxi6, libxrandr2, "
-                    "dbus-user-session | dbus-x11, xdg-desktop-portal")
+                    "dbus-user-session | dbus-x11, xdg-desktop-portal, gstreamer1.0-plugins-good")
         installed_kib = sum(1 if p.is_dir() else max(1, (p.stat().st_size + 1023) // 1024)
                             for p in stage.rglob("*"))
         control = stage / "DEBIAN/control"
@@ -152,14 +152,14 @@ def package(root, application_version):
             "Homepage: https://github.com/ViceVerse-cz/rustcord\n"
             f"Installed-Size: {installed_kib}\nDepends: {depends}\n"
             "Recommends: gnome-keyring, xdg-desktop-portal-gtk | xdg-desktop-portal-kde, "
-            "gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-libav\n"
+            "gstreamer1.0-plugins-base, gstreamer1.0-libav\n"
             "Description: Unofficial native Discord client\n"
             " Native Rust desktop client for existing Discord accounts.\n"
             " Unofficial, experimental, and not endorsed by Discord.\n",
             encoding="utf-8")
         for path in [stage, *stage.rglob("*")]:
             path.chmod(0o755 if path.is_dir() or path == stage / "usr/bin/serein" else 0o644)
-        checked("desktop-file-validate", str(stage / "usr/share/applications/org.serein.desktop.desktop"))
+        checked("desktop-file-validate", str(stage / "usr/share/applications/cz.viceverse.serein.desktop"))
         artifact = root / f"serein_{version}_{architecture}.deb"
         candidate = temporary / artifact.name
         checked("dpkg-deb", "--root-owner-group", "-Zxz", "--build", str(stage), str(candidate))
@@ -214,7 +214,7 @@ def native_package(root, application_version, format):
         temporary = Path(directory).resolve()
         stage = temporary / "payload"
         stage_payload(root, stage)
-        checked("desktop-file-validate", str(stage / "usr/share/applications/org.serein.desktop.desktop"))
+        checked("desktop-file-validate", str(stage / "usr/share/applications/cz.viceverse.serein.desktop"))
         libraries = output("ldd", str(stage / "usr/bin/serein"))
         if "not found" in libraries:
             raise ValueError(f"Unresolved packaged executable dependencies:\n{libraries}")
@@ -238,8 +238,9 @@ def rpm_package(temporary, stage, application_version, distro):
         "libvulkan.so.1", "libEGL.so.1", "libxkbcommon.so.0", "libxkbcommon-x11.so.0",
         "libwayland-client.so.0", "libX11.so.6", "libX11-xcb.so.1", "libXcursor.so.1",
         "libXi.so.6", "libXrandr.so.2"]] + [
-            "dbus" if distro == "fedora" else "dbus-1", "xdg-desktop-portal"]
-    plugins = "gstreamer1-plugins-base, gstreamer1-plugins-good" if distro == "fedora" else "gstreamer-plugins-base, gstreamer-plugins-good"
+            "dbus" if distro == "fedora" else "dbus-1", "xdg-desktop-portal",
+            "gstreamer1-plugins-good" if distro == "fedora" else "gstreamer-plugins-good"]
+    plugins = "gstreamer1-plugins-base" if distro == "fedora" else "gstreamer-plugins-base"
     spec = temporary / "serein.spec"
     spec.write_text(
         "%global debug_package %{nil}\n%global __os_install_post %{nil}\n"
@@ -253,7 +254,7 @@ def rpm_package(temporary, stage, application_version, distro):
         "Unofficial, experimental, and not endorsed by Discord.\n"
         "\n%install\nmkdir -p %{buildroot}\ncp -a %{_serein_payload}/. %{buildroot}/\n"
         "\n%files\n%defattr(-,root,root,-)\n/usr/bin/serein\n"
-        "/usr/share/applications/org.serein.desktop.desktop\n/usr/share/doc/serein\n"
+        "/usr/share/applications/cz.viceverse.serein.desktop\n/usr/share/doc/serein\n"
         + "".join(f"/{name}\n" for name in payload_files(stage) if name.startswith("usr/share/icons/")),
         encoding="utf-8")
     # Paths are passed as RPM macro values; reject macro/shell metacharacters.
@@ -294,11 +295,15 @@ def arch_package(temporary, stage, application_version, libraries):
     # pacman's letter suffix sorts below the final version; '_' sorts above it.
     version = application_version.replace("-", "pre.", 1).replace("-", ".")
     depends = {"vulkan-icd-loader", "libglvnd", "libxkbcommon", "libxkbcommon-x11",
-               "wayland", "libx11", "libxcursor", "libxi", "libxrandr", "dbus", "xdg-desktop-portal"}
+               "wayland", "libx11", "libxcursor", "libxi", "libxrandr", "dbus", "xdg-desktop-portal",
+               "gst-plugins-good"}
     # Resolve linked libraries to the native pacman package/version (ABI floor).
     for path in re.findall(r"(?:=>\s+|^\s*)(/\S+)", libraries, re.MULTILINE):
         owner = output("pacman", "-Qqo", path)
         name, installed_version = output("pacman", "-Q", owner).split()
+        if name in {"zlib", "zlib-ng-compat"} or Path(path).name.startswith("libz.so"):
+            depends.add("libz.so")
+            continue
         depends.add(f"{name}>={installed_version}")
     if any(not re.fullmatch(r"[A-Za-z0-9@._+:>=-]+", item) for item in depends):
         raise ValueError("Invalid native Arch dependency metadata")
@@ -309,7 +314,7 @@ def arch_package(temporary, stage, application_version, libraries):
         "license=('MIT' 'Apache-2.0')\noptions=('!strip' '!debug' '!lto')\n"
         + "depends=(" + " ".join(f"'{item}'" for item in sorted(depends)) + ")\n"
         "optdepends=('gnome-keyring: Secret Service credential provider' "
-        "'gst-plugins-base: inline video' 'gst-plugins-good: inline video' 'gst-libav: inline video')\n"
+        "'gst-plugins-base: inline video' 'gst-libav: inline video')\n"
         "package() { cp -a \"$startdir/payload/.\" \"$pkgdir/\"; }\n", encoding="utf-8")
     checked("makepkg", "--nodeps", "--noconfirm", cwd=temporary)
     artifact, = temporary.glob("serein-*.pkg.tar.*")

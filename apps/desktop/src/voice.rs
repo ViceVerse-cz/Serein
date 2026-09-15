@@ -168,12 +168,11 @@ impl Voice {
 			.iter()
 			.find(|c| c.id == call.channel)
 			.ok_or("The voice channel is unavailable")?;
-		let peer = channel
-			.guild
-			.is_none()
+		// Only one-to-one DMs pin a peer; group calls use the authenticated voice roster.
+		let peer = (channel.guild.is_none() && channel.kind == 1)
 			.then(|| channel.recipients.first().map(|u| u.id))
 			.flatten();
-		if channel.guild.is_none() && peer.is_none() {
+		if channel.kind == 1 && peer.is_none() {
 			return Err("The DM recipient is unavailable");
 		}
 		self.pending = Some(Pending {
@@ -1109,6 +1108,29 @@ mod tests {
 		state.permissions.channels.remove(&Id(25));
 		state.permissions.clear_cache();
 		assert!(permission_mutes_microphone(&state, Id(25), true, true));
+	}
+	#[test]
+	fn group_negotiation_uses_the_voice_roster_and_preserves_one_to_one_peer_pinning() {
+		for kind in [1, 3] {
+			let mut state = test_support::demo_state();
+			state.demo = false;
+			let channel = state.channels.iter_mut().find(|c| c.id == Id(22)).unwrap();
+			channel.kind = kind;
+			let peer = channel.recipients[0].id;
+			if kind == 3 {
+				let mut other = channel.recipients[0].clone();
+				other.id = Id(999);
+				channel.recipients.push(other);
+			}
+			state.start_call(Id(22), true).unwrap();
+			let mut manager = Voice::default();
+			manager.begin(&state, true).unwrap();
+			let pending = manager.pending.as_ref().unwrap();
+			assert_eq!(pending.guild, None);
+			assert_eq!(pending.peer, (kind == 1).then_some(peer));
+			assert!(pending.ring);
+			assert!(manager.live.is_none());
+		}
 	}
 	#[test]
 	fn guild_negotiation_has_no_dm_peer_or_ringing_and_opens_no_devices() {

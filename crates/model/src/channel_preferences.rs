@@ -1,7 +1,23 @@
-use crate::Id;
+use crate::{Channel, Id};
+
+/// Which device-local shortcut list a channel belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Shortcut {
+	Pinned,
+	Favorite,
+}
+
+/// Outcome of one shortcut write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreferenceEdit {
+	Unchanged,
+	Changed,
+	CapacityReached,
+}
 
 /// Device-local channel shortcuts, isolated by account; never synchronized to Discord.
 /// At most 256 IDs (2 KiB of ID payload) across both lists.
+/// Vec order is display order: index 0 is shown first, and a new entry goes to the front.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ChannelPreferences {
@@ -28,40 +44,58 @@ impl ChannelPreferences {
 			})
 	}
 
-	pub fn is_favorite(&self, channel: Id) -> bool {
-		self.favorites.contains(&channel)
+	fn list(&self, kind: Shortcut) -> &Vec<Id> {
+		match kind {
+			Shortcut::Pinned => &self.pinned,
+			Shortcut::Favorite => &self.favorites,
+		}
 	}
 
-	pub fn is_pinned(&self, channel: Id) -> bool {
-		self.pinned.contains(&channel)
+	/// Display-ordered ids of one list.
+	pub fn ids(&self, kind: Shortcut) -> &[Id] {
+		self.list(kind)
 	}
 
-	/// Returns false without changing the list when the channel or capacity is invalid.
-	pub fn toggle_favorite(&mut self, channel: Id) -> bool {
-		self.toggle(channel, true)
+	pub fn contains(&self, kind: Shortcut, channel: Id) -> bool {
+		self.list(kind).contains(&channel)
 	}
 
-	pub fn toggle_pinned(&mut self, channel: Id) -> bool {
-		self.toggle(channel, false)
+	/// Home pins are 1:1 and group DMs only.
+	pub fn can_pin(channel: &Channel) -> bool {
+		channel.id.0 != 0 && channel.guild.is_none() && matches!(channel.kind, 1 | 3)
 	}
 
-	fn toggle(&mut self, channel: Id, favorite: bool) -> bool {
-		if channel.0 == 0 || !self.is_valid() {
-			return false;
+	/// Server favorites are guild channels that are not categories.
+	pub fn can_favorite(channel: &Channel) -> bool {
+		channel.id.0 != 0 && channel.guild.is_some() && channel.kind != 4
+	}
+
+	/// Idempotent. Turning a shortcut on inserts it at the front of its list.
+	pub fn set(&mut self, kind: Shortcut, channel: Id, on: bool) -> PreferenceEdit {
+		if channel.0 == 0 || !self.is_valid() || self.contains(kind, channel) == on {
+			return PreferenceEdit::Unchanged;
 		}
 		let full = self.favorites.len() + self.pinned.len() == Self::MAX_ENTRIES;
-		let ids = if favorite {
-			&mut self.favorites
-		} else {
-			&mut self.pinned
+		let ids = match kind {
+			Shortcut::Pinned => &mut self.pinned,
+			Shortcut::Favorite => &mut self.favorites,
 		};
-		if let Some(index) = ids.iter().position(|id| *id == channel) {
-			ids.remove(index);
-		} else if full {
-			return false;
+		if on {
+			if full {
+				return PreferenceEdit::CapacityReached;
+			}
+			ids.insert(0, channel);
 		} else {
-			ids.push(channel);
+			ids.retain(|id| *id != channel);
 		}
-		true
+		PreferenceEdit::Changed
+	}
+
+	/// Drops a confirmed-deleted channel from both shortcut lists.
+	pub fn forget(&mut self, channel: Id) -> bool {
+		let before = self.favorites.len() + self.pinned.len();
+		self.favorites.retain(|id| *id != channel);
+		self.pinned.retain(|id| *id != channel);
+		before != self.favorites.len() + self.pinned.len()
 	}
 }

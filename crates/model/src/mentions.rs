@@ -26,6 +26,21 @@ pub fn user_mention_prefix(text: &str) -> Option<(Id, usize)> {
 		text.len() - digits.len() + end + 1,
 	))
 }
+/// Return one exact mass-mention prefix without matching longer words.
+pub fn mass_mention_prefix(text: &str) -> Option<usize> {
+	["@everyone", "@here"].into_iter().find_map(|mention| {
+		let rest = text.strip_prefix(mention)?;
+		rest.chars()
+			.next()
+			.is_none_or(|c| !c.is_alphanumeric() && c != '_')
+			.then_some(mention.len())
+	})
+}
+pub fn has_mass_mention(content: &str) -> bool {
+	content
+		.match_indices('@')
+		.any(|(start, _)| mass_mention_prefix(&content[start..]).is_some())
+}
 /// Return one exact channel reference prefix, using the same nonzero snowflake bounds.
 pub fn channel_mention_prefix(text: &str) -> Option<(Id, usize)> {
 	let rest = text.strip_prefix("<#")?;
@@ -81,6 +96,8 @@ mod tests {
 	use super::*;
 	#[test]
 	fn exact_user_mentions_are_bounded_and_never_roles_or_everyone() {
+		assert!(has_mass_mention("hello @everyone and @here"));
+		assert!(!has_mass_mention("hello @everyone_else"));
 		assert_eq!(
 			channel_mention_prefix("<#18446744073709551615> suffix"),
 			Some((Id(u64::MAX), 23))

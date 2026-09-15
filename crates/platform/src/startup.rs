@@ -1,4 +1,4 @@
-//! Explicit opt-in launch at Windows sign-in. The OS entry is the only saved setting.
+//! Explicit opt-in launch at Windows or macOS sign-in. The OS entry is the only saved setting.
 //! Call from a worker; demo mode must keep changes in memory instead.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -8,20 +8,25 @@ pub struct Settings {
 }
 
 pub const fn available() -> bool {
-	cfg!(target_os = "windows")
+	cfg!(any(target_os = "windows", target_os = "macos"))
 }
 
 #[cfg(target_os = "windows")]
 pub use native::{load, save};
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::{load, save};
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn load() -> Result<Settings, &'static str> {
-	Err("Automatic startup is currently available on Windows only.")
+	Err("Automatic startup is currently available on Windows and macOS only.")
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn save(_settings: Settings) -> Result<(), &'static str> {
-	Err("Automatic startup is currently available on Windows only.")
+	Err("Automatic startup is currently available on Windows and macOS only.")
 }
 
 #[cfg(target_os = "windows")]

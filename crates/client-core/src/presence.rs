@@ -83,6 +83,10 @@ fn activity_bytes(activities: &Vec<RichActivity>) -> usize {
 			.sum::<usize>()
 }
 
+fn online(presence: &MemberPresence) -> bool {
+	matches!(presence.status.as_deref(), Some("online" | "idle" | "dnd"))
+}
+
 pub fn projected_row_bytes(row: &model::Member, update: &MemberPresence) -> usize {
 	if row.status == update.status
 		&& row.custom_status == update.custom_status
@@ -113,6 +117,12 @@ pub fn projected_row_bytes(row: &model::Member, update: &MemberPresence) -> usiz
 }
 
 impl State {
+	/// Invalidates Online membership, without invalidating on activity-only updates.
+	/// Connection state and relationship visibility are separate cache keys.
+	pub fn direct_presence_epoch(&self) -> u64 {
+		self.direct_presence_epoch
+	}
+
 	pub fn local_game_activity(&self) -> Option<&RichActivity> {
 		(self.user.is_some()
 			&& (self.demo
@@ -162,6 +172,7 @@ impl State {
 		if !self.gateway_connected || updates.len() > 100 {
 			return;
 		}
+		let mut membership_changed = false;
 		let mut retained_bytes = self
 			.direct_presence_bytes
 			.filter(|(count, _)| *count == self.direct_presences.len())
@@ -189,6 +200,8 @@ impl State {
 			if index.is_some_and(|i| self.direct_presences[i] == resolved) {
 				continue;
 			}
+			membership_changed |=
+				index.is_some_and(|i| online(&self.direct_presences[i])) != online(&resolved);
 			if index.is_some_and(|i| self.direct_presences[i].status.as_deref() == Some("offline"))
 				&& matches!(resolved.status.as_deref(), Some("online" | "idle" | "dnd"))
 			{
@@ -208,10 +221,15 @@ impl State {
 						+ MAX_DIRECT_PRESENCES * size_of::<MemberPresence>()
 						> MAX_DIRECT_PRESENCE_BYTES)
 			{
-				retained_bytes -= self.direct_presences.remove(0).heap_bytes();
+				let evicted = self.direct_presences.remove(0);
+				membership_changed |= online(&evicted);
+				retained_bytes -= evicted.heap_bytes();
 			}
 			retained_bytes += resolved.heap_bytes();
 			self.direct_presences.push(resolved);
+		}
+		if membership_changed {
+			self.direct_presence_epoch = self.direct_presence_epoch.wrapping_add(1);
 		}
 		self.direct_presence_bytes = Some((self.direct_presences.len(), retained_bytes));
 		if let Some(list) = &mut self.members
@@ -252,10 +270,25 @@ impl State {
 	pub(crate) fn prune_direct_presence(&mut self) {
 		self.direct_presence_bytes = None;
 		let old = std::mem::take(&mut self.direct_presences);
+		let mut membership_changed = false;
 		self.direct_presences = old
 			.into_iter()
-			.filter(|p| self.known_presence_user(p.user))
+			.filter(|p| {
+				let retained = self.known_presence_user(p.user);
+				membership_changed |= !retained && online(p);
+				retained
+			})
 			.collect();
+		if membership_changed {
+			self.direct_presence_epoch = self.direct_presence_epoch.wrapping_add(1);
+		}
+	}
+	pub(crate) fn clear_direct_presences(&mut self) {
+		if self.direct_presences.iter().any(online) {
+			self.direct_presence_epoch = self.direct_presence_epoch.wrapping_add(1);
+		}
+		self.direct_presences.clear();
+		self.direct_presence_bytes = None;
 	}
 	pub(crate) fn apply_member_presence(
 		&mut self,
@@ -813,6 +846,7 @@ mod tests {
 	fn direct_activity_patches_are_scoped_clearable_and_do_not_churn_timeline() {
 		let mut state = direct_state();
 		let revision = state.revision;
+		let initial_epoch = state.direct_presence_epoch();
 		let playing = || {
 			direct_update(
 				2,
@@ -821,6 +855,8 @@ mod tests {
 			)
 		};
 		apply(&mut state, Event::DirectPresence(vec![playing()]));
+		assert!(state.direct_presence_epoch() > initial_epoch);
+		let online_epoch = state.direct_presence_epoch();
 		let presence = state.presence_for(Id(2)).unwrap();
 		assert_eq!(presence.activities, vec![activity()]);
 		let allocation = presence.activities.as_ptr();
@@ -851,6 +887,7 @@ mod tests {
 		);
 		assert_eq!(state.direct_presences.len(), 1);
 		assert_eq!(state.revision, revision);
+		assert_eq!(state.direct_presence_epoch(), online_epoch);
 		state.request_members();
 		assert_eq!(row(&state).activities, vec![activity()]);
 		for clear in [Patch::Null, Patch::Value(vec![])] {
@@ -861,13 +898,17 @@ mod tests {
 			assert!(state.presence_for(Id(2)).unwrap().activities.is_empty());
 			assert!(row(&state).activities.is_empty());
 			apply(&mut state, Event::DirectPresence(vec![playing()]));
+			assert_eq!(state.direct_presence_epoch(), online_epoch);
 		}
 		for status in [Patch::Value("offline".into()), Patch::Null] {
+			let previous_epoch = state.direct_presence_epoch();
 			apply(
 				&mut state,
 				Event::DirectPresence(vec![direct_update(2, status, Patch::Absent)]),
 			);
 			assert!(state.presence_for(Id(2)).unwrap().activities.is_empty());
+			assert!(state.direct_presence_epoch() > previous_epoch);
+			let offline_epoch = state.direct_presence_epoch();
 			apply(
 				&mut state,
 				Event::DirectPresence(vec![direct_update(
@@ -877,12 +918,15 @@ mod tests {
 				)]),
 			);
 			assert!(state.presence_for(Id(2)).unwrap().activities.is_empty());
+			assert!(state.direct_presence_epoch() > offline_epoch);
 			apply(&mut state, Event::DirectPresence(vec![playing()]));
 		}
+		let connected_epoch = state.direct_presence_epoch();
 		apply(&mut state, Event::Disconnected);
 		assert!(state.presence_for(Id(2)).is_none());
 		assert_eq!(state.direct_presences[0].activities, vec![activity()]);
 		apply(&mut state, Event::Resumed);
+		assert_eq!(state.direct_presence_epoch(), connected_epoch);
 		assert_eq!(
 			state.presence_for(Id(2)).unwrap().activities,
 			vec![activity()]
@@ -902,8 +946,10 @@ mod tests {
 		for transition in [Event::Resync, Event::Failure(crate::auth::Failure::Expired)] {
 			let mut state = direct_state();
 			apply(&mut state, Event::DirectPresence(vec![playing()]));
+			let epoch = state.direct_presence_epoch();
 			apply(&mut state, transition);
 			assert!(state.direct_presences.is_empty());
+			assert!(state.direct_presence_epoch() > epoch);
 		}
 		state.logout();
 		state.apply(crate::Envelope {
@@ -911,6 +957,109 @@ mod tests {
 			event: Event::DirectPresence(vec![playing()]),
 		});
 		assert!(state.direct_presences.is_empty());
+	}
+
+	#[test]
+	fn direct_presence_epoch_rejects_invalid_updates_and_clears_at_ready() {
+		let mut state = direct_state();
+		for status in [Patch::Null, Patch::Value("offline".into())] {
+			apply(
+				&mut state,
+				Event::DirectPresence(vec![direct_update(2, status, Patch::Absent)]),
+			);
+			assert_eq!(state.direct_presence_epoch(), 0);
+		}
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![direct_update(
+				2,
+				Patch::Value("dnd".into()),
+				Patch::Absent,
+			)]),
+		);
+		let epoch = state.direct_presence_epoch();
+		for user in [2, 999] {
+			apply(
+				&mut state,
+				Event::DirectPresence(vec![direct_update(
+					user,
+					Patch::Value("invalid".into()),
+					Patch::Absent,
+				)]),
+			);
+			assert_eq!(state.direct_presence_epoch(), epoch);
+		}
+		state.apply(Envelope {
+			generation: state.generation + 1,
+			event: Event::DirectPresence(vec![direct_update(2, Patch::Null, Patch::Absent)]),
+		});
+		assert_eq!(state.direct_presence_epoch(), epoch);
+		let user = state.user.clone().unwrap();
+		let channels = state.channels.clone();
+		apply(
+			&mut state,
+			Event::Ready {
+				permissions: Default::default(),
+				user,
+				guilds: vec![],
+				channels,
+			},
+		);
+		assert!(state.direct_presence_epoch() > epoch);
+		assert!(state.direct_presences.is_empty());
+		let epoch = state.direct_presence_epoch();
+		state.clear_direct_presences();
+		assert_eq!(state.direct_presence_epoch(), epoch);
+	}
+
+	#[test]
+	fn activity_only_byte_eviction_invalidates_online_membership() {
+		let mut state = direct_state();
+		let large_activity = RichActivity {
+			name: "\u{1f642}".repeat(128),
+			details: Some("\u{1f642}".repeat(128)),
+			state: Some("\u{1f642}".repeat(128)),
+			..activity()
+		};
+		let large = direct_update(
+			2,
+			Patch::Value("online".into()),
+			Patch::Value(vec![large_activity; model::MAX_RICH_ACTIVITIES]),
+		);
+		let small = direct_update(2, Patch::Value("online".into()), Patch::Absent);
+		let full_count = (MAX_DIRECT_PRESENCE_BYTES
+			- MAX_DIRECT_PRESENCES * size_of::<MemberPresence>()
+			- small.resolve(None).heap_bytes())
+			/ large.resolve(None).heap_bytes();
+		assert!(full_count + 1 < MAX_DIRECT_PRESENCES);
+		let channel = state.channels[0].clone();
+		for index in 0..=full_count {
+			let user = Id(index as u64 + 2);
+			if index > 0 {
+				let mut channel = channel.clone();
+				channel.id = Id(index as u64 + 1000);
+				channel.recipients[0].id = user;
+				state.channels.push(channel);
+			}
+			let mut next = if index == full_count {
+				small.clone()
+			} else {
+				large.clone()
+			};
+			next.user = user;
+			state.apply_direct_presence(&[next]);
+		}
+		assert_eq!(state.direct_presences.len(), full_count + 1);
+		let epoch = state.direct_presence_epoch();
+		let revision = state.revision;
+		let mut next = large;
+		next.user = Id(full_count as u64 + 2);
+		next.status = Patch::Absent;
+		state.apply_direct_presence(&[next]);
+		assert_eq!(state.direct_presences.len(), full_count);
+		assert!(state.direct_presence_epoch() > epoch);
+		assert!(state.presence_for(Id(2)).is_none());
+		assert_eq!(state.revision, revision);
 	}
 
 	#[test]
@@ -944,6 +1093,20 @@ mod tests {
 				<= MAX_DIRECT_PRESENCE_BYTES
 		);
 		assert!(state.presence_for(Id(2)).is_none());
+		let epoch = state.direct_presence_epoch();
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![direct_update(
+				2,
+				Patch::Value("offline".into()),
+				Patch::Absent,
+			)]),
+		);
+		assert!(
+			state.direct_presence_epoch() > epoch,
+			"offline insertion evicts an online entry at the item cap"
+		);
+		let epoch = state.direct_presence_epoch();
 		apply(
 			&mut state,
 			Event::RecipientRemoved {
@@ -953,5 +1116,6 @@ mod tests {
 		);
 		assert!(state.presence_for(Id(300)).is_none());
 		assert!(!state.direct_presences.iter().any(|p| p.user == Id(300)));
+		assert!(state.direct_presence_epoch() > epoch);
 	}
 }

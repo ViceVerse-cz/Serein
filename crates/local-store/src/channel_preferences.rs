@@ -38,15 +38,25 @@ impl LocalStore {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use model::{PreferenceEdit, Shortcut};
 
 	#[test]
 	fn channel_shortcuts_round_trip_are_bounded_and_cleared_only_for_the_account() {
 		let mut store =
 			LocalStore::initialize(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
 		let mut value = ChannelPreferences::default();
-		assert!(!value.toggle_favorite(Id(0)));
-		assert!(value.toggle_favorite(Id(9)));
-		assert!(value.toggle_pinned(Id(9)));
+		assert_eq!(
+			value.set(Shortcut::Favorite, Id(0), true),
+			PreferenceEdit::Unchanged
+		);
+		assert_eq!(
+			value.set(Shortcut::Favorite, Id(9), true),
+			PreferenceEdit::Changed
+		);
+		assert_eq!(
+			value.set(Shortcut::Pinned, Id(9), true),
+			PreferenceEdit::Changed
+		);
 		store.save_channel_preferences(Id(1), &value).unwrap();
 		store.save_channel_preferences(Id(2), &value).unwrap();
 		assert_eq!(store.channel_preferences(Id(1)).unwrap(), value);
@@ -54,11 +64,21 @@ mod tests {
 			store.channel_preferences(Id(3)).unwrap(),
 			ChannelPreferences::default()
 		);
-		assert!(value.toggle_favorite(Id(9)));
+		assert_eq!(
+			value.set(Shortcut::Favorite, Id(9), false),
+			PreferenceEdit::Changed
+		);
 		for id in 1..ChannelPreferences::MAX_ENTRIES as u64 {
-			assert!(value.toggle_favorite(Id(id)));
+			assert_eq!(
+				value.set(Shortcut::Favorite, Id(id), true),
+				PreferenceEdit::Changed
+			);
 		}
-		assert!(!value.toggle_pinned(Id(10)));
+		assert_eq!(
+			value.set(Shortcut::Pinned, Id(10), true),
+			PreferenceEdit::CapacityReached
+		);
+		assert_eq!(value.favorites[0], Id(255));
 		store.save_channel_preferences(Id(1), &value).unwrap();
 		assert!(serde_json::to_vec(&value).unwrap().len() <= ChannelPreferences::MAX_JSON_BYTES);
 		value.favorites.push(Id(999));

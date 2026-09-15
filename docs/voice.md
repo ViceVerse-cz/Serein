@@ -1,6 +1,6 @@
 # DM and server voice
 
-The standard build implements native audio calls in existing one-to-one Discord DMs and guild voice channels. It uses the owner's existing account, Discord signaling/voice servers, Opus and DAVE version 1. There is no bot, project relay, separate account, recording service or webview call UI. **Live Discord interoperability and physical microphone/speaker behavior have not been tested; milestone 4 has not passed.**
+The standard build implements native audio calls in existing one-to-one and group Discord DMs and guild voice channels. It uses the owner's existing account, Discord signaling/voice servers, Opus and DAVE version 1. There is no bot, project relay, separate account, recording service or webview call UI. **Live Discord interoperability and physical microphone/speaker behavior have not been tested; milestone 4 has not passed.**
 
 ```sh
 cargo run --locked
@@ -11,6 +11,14 @@ cargo xtask package                     # standard artifact under dist
 Voice is included in every build without a feature flag. Source builds require CMake for bundled static libopus; Linux needs ALSA development headers. See [platform requirements](platform-support.md) and the [voice adapter README](../crates/discord-voice/README.md) for dependencies, exact resource limits and protocol tests.
 
 ## Implemented behavior and limits
+
+Guild voice channels have a chat icon with a **Show chat / Hide chat** tooltip in the channel header.
+Chat uses the existing message timeline, composer, drafts and permission checks without
+requiring a voice connection. Wide windows place chat beside the stage; narrow windows
+show chat in the main area until Hide chat restores the stage. The existing bounded
+history/cache and message transports are shared. Normal-account interoperability remains
+unofficial and live-unverified. The offline debug check is
+`cargo run --locked -p ui --example voice_chat`.
 
 The Audio menu provides session-only Microphone gain and Speaker volume controls from 0% to
 200%, initially 100%. Reset levels restores both to 100%. Changes apply to the active call
@@ -27,7 +35,7 @@ Reset levels, mute/deafen/PTT precedence and changing devices while custom level
 
 Start calls the selected existing DM; incoming calls require Answer or Decline. One active call is retained while navigating text conversations. Start rings once after Discord voice transport allocation is confirmed; Answer never rings. Required DAVE group readiness and native device readiness precede the connected-audio state. An allocation with no endpoint waits within the deadline; incompatible states fail visibly. Hangup closes local audio immediately and sends departure; another call waits for the service's departure acknowledgment. No uncertain ring write or failed main Gateway session automatically starts another call.
 
-Opening a one-to-one DM also requests its existing call state. An ongoing call shows a
+Opening a one-to-one or group DM also requests its existing call state. An ongoing call shows a
 **Call in progress** banner and **Join call**, even after ringing stops or this device leaves.
 Join uses the existing connection flow without ringing again; browsing never joins or opens
 audio devices. Incoming ringing retains Answer/Decline. Join is disabled while offline, in a
@@ -44,9 +52,31 @@ For the owner-controlled live gate, leave the peer connected in a private DM cal
 DM in Serein, wait for the banner, then explicitly Join. Verify no new ring, actual two-way
 audio, leaving/rejoining while the peer stays, and disappearance after the peer ends the call.
 
-Mute/deafen, session-local input/output selection and focused V push-to-talk are implemented. Push-to-talk releases when focus is lost and is disabled while text entry has focus. It is not a global hotkey. Devices are initialized only following an explicit call and encrypted readiness; no microphone test runs at startup. Acoustic echo cancellation is enabled automatically; see below for its limits. Device loss requires selecting a usable device and calling again; there is no automatic device fallback.
+Mute/deafen, session-local input/output selection and focused V push-to-talk are implemented. Push-to-talk releases when focus is lost and is disabled while text entry has focus. It is not a global hotkey. Devices are initialized only following an explicit call and encrypted readiness; no microphone test runs at startup. Acoustic echo cancellation is enabled automatically; see below for its limits. When opening call audio, an unavailable selected input or output falls back independently to its system default. The saved selection is retained for future opens. If no default is available or opening it fails, the call still reports an audio-device failure.
 
-DM calls accept only their expected peer. Server calls support up to 64 total participants, with independent bounded decoder/jitter state and mixed mono playback. Only DAVE version 1 is accepted; encryption downgrades and group identities outside the authenticated participant roster fail closed. Group DMs, Stage channels, recording and incoming video are unsupported. Outgoing screen sharing and macOS camera support is described below. Voice WebSocket resumption has a finite retry budget; failed resumption or main Gateway disconnect requires an explicit new call. Voice credentials, ephemeral DAVE identities and audio stay in bounded session memory. The displayed privacy code applies to the current group epoch; identities are not remembered across calls. Comparing codes does not establish long-term identity verification or text-message encryption.
+One-to-one DM calls accept only their expected peer. Group DM and server calls support up to 64 total participants, with independent bounded decoder/jitter state and mixed mono playback. Only DAVE version 1 is accepted; encryption downgrades and group identities outside the authenticated participant roster fail closed. Stage channels and recording are unsupported. Outgoing screen sharing and macOS camera support is described below. Voice WebSocket resumption has a finite retry budget; failed resumption or main Gateway disconnect requires an explicit new call. Voice credentials, ephemeral DAVE identities and audio stay in bounded session memory. The displayed privacy code applies to the current group epoch; identities are not remembered across calls. Comparing codes does not establish long-term identity verification or text-message encryption.
+
+## Group DM calls
+
+Existing group conversations expose the same Start/Answer/Decline/Join controls, call stage,
+mute/deafen, audio device and gain controls, focused push-to-talk, noise suppression,
+privacy code, camera, screen sharing and stream viewing as one-to-one calls. Opening the
+conversation only requests call presence. Starting a new call rings the group once; joining
+or answering an existing call does not ring again. Group avatars identify incoming calls.
+The shared grid fits the participant tiles in the stage while text chat remains available.
+
+Group membership uses the authenticated voice-server roster and the existing DAVE transition
+validation, rather than pinning the first recipient as a one-to-one peer. Call metadata admits
+only this account and known group recipients, rejects duplicate participants, and is bounded
+to 64 participants per call. Recipient removal drops stale participant/watch UI state; removal
+of this account closes local media and revokes subsequent call actions.
+
+The offline debug command is `cargo run --locked -p serein --example group_call`.
+Group signaling remains unofficial and live-unverified. For owner-controlled verification,
+repeat the one-to-one gate below in a private group whose participating clients the owner
+controls, including simultaneous speech, additions/removals, ringing/decline/join, camera,
+sharing/viewing, last-peer departure/rejoin, and removal of this account. This local `!fast`
+implementation pass does not establish production readiness or physical media behavior.
 
 ## Protocol classification
 
@@ -63,7 +93,7 @@ The [compatibility matrix](discord-compatibility.md) distinguishes this from res
 
 Run only when the owner explicitly elects to test and controls both sides of a private one-to-one DM. Ordinary tests/CI never access Discord or audio devices. Do not put credentials in chat, command-line arguments, screenshots, fixtures or reports.
 
-1. Build `cargo run --locked --features developer-session`. Complete the [normal-user text gate](authentication.md) with the owner's Serein session and an official Discord client. Prefer Serein's own official-login webview; do not extract another application's credential.
+1. Build `cargo run --locked`. Complete the [normal-user text gate](authentication.md) with the owner's Serein session and an official Discord client. Prefer Serein's own official-login webview; do not extract another application's credential.
 2. With headphones on both sides, open the existing private DM and deliberately select Start. Verify that the official client rings, Answer there, and wait for encrypted audio readiness. Compare the displayed current-epoch privacy codes where available. If login, transport, DAVE or permissions fail, record the redacted failure and stop that attempt; do not bypass it.
 3. Speak short test phrases in both directions. Confirm intelligibility, latency and absence of unexpected echo. A connected label, participant list or socket handshake alone is not success. Check mute, deafen, focused V press/release, focus loss and navigation to another text conversation.
 4. Hang up and verify both clients leave, microphone access ends and another call can start after departure acknowledgment. Reverse direction: call from the official client, test Decline, then a separate Answer. Confirm there is no automatic answer or retry.
@@ -81,7 +111,7 @@ An authenticated empty room displays “Connected · waiting for others”; audi
 
 `cargo run --locked -- --demo --demo-voice` shows a separately labeled synthetic roster/call scene, including long names and mute/deafen states. It cannot connect, ring, or access devices. The ordinary `--demo` fixture remains the before/after comparison scenario.
 
-For live verification, the owner must explicitly enable `voice,developer-session` and control a private guild voice channel and the participating official clients. In addition to the DM gate above: join empty then add two official-client participants; verify actual intelligible audio in every direction and simultaneous speech; exercise encrypted joins/leaves and the last peer leaving/rejoining; check self mute/deafen, server mute/deafen, denied Connect/Speak, full room, deliberate switching, a server move/disconnect and voice region migration; verify devices/keys/tasks are released on Leave/logout/exit. Never record participants or publish private account/channel data. None of these live outcomes is established by the synthetic roster screenshot.
+For live verification, the owner must explicitly enable `voice` and control a private guild voice channel and the participating official clients. In addition to the DM gate above: join empty then add two official-client participants; verify actual intelligible audio in every direction and simultaneous speech; exercise encrypted joins/leaves and the last peer leaving/rejoining; check self mute/deafen, server mute/deafen, denied Connect/Speak, full room, deliberate switching, a server move/disconnect and voice region migration; verify devices/keys/tasks are released on Leave/logout/exit. Never record participants or publish private account/channel data. None of these live outcomes is established by the synthetic roster screenshot.
 
 Permission-aware continuation: known VIEW_CHANNEL and CONNECT are required for guild joining;
 SPEAK is required before initial or sustained microphone capture, and missing/denied USE_VAD
@@ -262,7 +292,7 @@ In a connected call, select **Share your screen**, choose a display/window, 720p
 
 Capture uses macOS 14+ ScreenCaptureKit (screen-recording permission in System Settings) or Windows Graphics Capture. Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
-The native demo (`cargo run --locked -p serein -- --demo --demo-voice`) exposes a synthetic picker without OS source discovery or capture. Live screen sharing requires the same owner-controlled developer-session gate as voice testing. See [compatibility and limits](discord-compatibility.md#outgoing-screen-sharing--september-11-2026).
+The native demo (`cargo run --locked -p serein -- --demo --demo-voice`) exposes a synthetic picker without OS source discovery or capture. Live screen sharing requires the same owner-controlled login gate as voice testing. See [compatibility and limits](discord-compatibility.md#outgoing-screen-sharing--september-11-2026).
 
 ## Camera in calls (macOS, Windows and Linux)
 

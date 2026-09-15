@@ -48,6 +48,7 @@ impl ForumUi {
 		state: &mut State,
 		forum: Id,
 		commands: &mut Vec<Command>,
+		session: &mut crate::scroll::Session,
 	) {
 		if self.forum != Some(forum) {
 			self.forum = Some(forum);
@@ -75,9 +76,12 @@ impl ForumUi {
 		let mut open = None;
 		let mut archive_request = None;
 		let mut posts_request = false;
-		egui::ScrollArea::vertical()
-			.id_salt(("forum", forum))
-			.auto_shrink([false, false])
+		session
+			.attach(
+				ui,
+				("forum", forum),
+				egui::ScrollArea::vertical().auto_shrink([false, false]),
+			)
 			.show(ui, |ui| {
 				egui::Frame::new()
 					.inner_margin(egui::Margin::symmetric(16, 12))
@@ -614,17 +618,41 @@ mod tests {
 			assert!(posts.iter().all(|post| post.parent_id == Some(Id(26))));
 			let mut forum = ForumUi::default();
 			let mut commands = Vec::new();
-			frame(&ctx, |ui| forum.show(ui, &mut state, Id(26), &mut commands));
+			frame(&ctx, |ui| {
+				forum.show(
+					ui,
+					&mut state,
+					Id(26),
+					&mut commands,
+					&mut crate::scroll::Session::default(),
+				)
+			});
 			assert!(
 				commands.is_empty(),
 				"Rendering never requests history or archives"
 			);
 			forum.query = "synthetic".into();
-			frame(&ctx, |ui| forum.show(ui, &mut state, Id(26), &mut commands));
+			frame(&ctx, |ui| {
+				forum.show(
+					ui,
+					&mut state,
+					Id(26),
+					&mut commands,
+					&mut crate::scroll::Session::default(),
+				)
+			});
 			assert!(commands.is_empty());
 			forum.start_draft("Roadmap ideas".into());
 			forum.draft.as_mut().unwrap().body = "First message".into();
-			frame(&ctx, |ui| forum.show(ui, &mut state, Id(26), &mut commands));
+			frame(&ctx, |ui| {
+				forum.show(
+					ui,
+					&mut state,
+					Id(26),
+					&mut commands,
+					&mut crate::scroll::Session::default(),
+				)
+			});
 			let draft = forum.draft.as_mut().unwrap();
 			let command = state
 				.create_post(Id(26), &draft.title, &draft.body)
@@ -658,7 +686,15 @@ mod tests {
 				}),
 			);
 			assert_eq!(state.posting.created, Some(Id(1_548_000_000_000_000_000)));
-			frame(&ctx, |ui| forum.show(ui, &mut state, Id(26), &mut commands));
+			frame(&ctx, |ui| {
+				forum.show(
+					ui,
+					&mut state,
+					Id(26),
+					&mut commands,
+					&mut crate::scroll::Session::default(),
+				)
+			});
 			assert!(
 				forum.draft.is_none(),
 				"A confirmed post closes the composer"
@@ -681,7 +717,15 @@ mod tests {
 			// A live session fetches the posts the gateway never delivered, exactly once.
 			state.demo = false;
 			let mut forum = ForumUi::default();
-			frame(&ctx, |ui| forum.show(ui, &mut state, Id(26), &mut commands));
+			frame(&ctx, |ui| {
+				forum.show(
+					ui,
+					&mut state,
+					Id(26),
+					&mut commands,
+					&mut crate::scroll::Session::default(),
+				)
+			});
 			let Some(Command::ForumPosts {
 				parent: Id(26),
 				offset: 0,
@@ -692,7 +736,15 @@ mod tests {
 				panic!("the post list loads itself");
 			};
 			assert!(commands.is_empty());
-			frame(&ctx, |ui| forum.show(ui, &mut state, Id(26), &mut commands));
+			frame(&ctx, |ui| {
+				forum.show(
+					ui,
+					&mut state,
+					Id(26),
+					&mut commands,
+					&mut crate::scroll::Session::default(),
+				)
+			});
 			assert!(commands.is_empty(), "A pending page is never re-requested");
 			state.apply_forum_posts(
 				Id(26),
@@ -715,7 +767,15 @@ mod tests {
 				}),
 			);
 			forum.query.clear();
-			frame(&ctx, |ui| forum.show(ui, &mut state, Id(26), &mut commands));
+			frame(&ctx, |ui| {
+				forum.show(
+					ui,
+					&mut state,
+					Id(26),
+					&mut commands,
+					&mut crate::scroll::Session::default(),
+				)
+			});
 			assert!(commands.is_empty(), "A loaded forum stays quiet");
 			assert!(
 				state

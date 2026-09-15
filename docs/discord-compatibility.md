@@ -1,5 +1,15 @@
 # Discord compatibility — checked 2026-09-10
 
+## Group DM calling — September 15, 2026
+
+Group conversations now share one-to-one call discovery, ringing, Answer/Decline/Join,
+media controls, camera, screen sharing and viewing. The existing unofficial private-call
+Gateway and REST paths are reused with `guild_id: null`; multi-party encryption uses the
+bounded authenticated voice roster already used by server calls. Participant metadata is
+restricted to the account and current recipients. See [group workflow and limits](voice.md#group-dm-calls).
+The offline group-call debug check passed for this `!fast` pass; live Discord interoperability,
+physical devices and production readiness remain unverified.
+
 ## Gateway login payload bound — September 14, 2026
 
 The [Gateway](https://docs.discord.com/developers/events/gateway) documents zlib-stream
@@ -41,10 +51,18 @@ has not been tested by the agent.
 Guild channel rows support right-click and Shift+F10 actions. Mark As Read uses
 the existing acknowledgement adapter without changing the selected conversation;
 Invite to Channel opens the existing invite dialog for that channel. Favorites
-and pins are account-isolated local shortcuts, not Discord-synchronized favorites.
+and pinned DMs are account-isolated local shortcuts, not Discord-synchronized
+favorites. Pinned DMs sit above the home list. Guild channels use the existing
+Favorites shelf. Neither uses an unverified settings-proto field.
+
+The empty channel-list area also has a server-scoped right-click menu. Hide Muted
+Channels is a bounded, session-only per-server view preference; the selected channel
+stays visible. Create Channel, Create Category and Invite to Server reuse the same
+permission checks, confirmation UI and request lanes as the existing channel and
+server menus.
 
 Text/announcement editing (name, topic, slowmode and age restriction), channel
-duplication, text-channel creation and confirmed deletion use the documented
+duplication, text-channel/category creation and confirmed deletion use the documented
 [channel routes](https://docs.discord.com/developers/resources/channel#modify-channel)
 and [guild channel creation route](https://docs.discord.com/developers/resources/guild#create-guild-channel).
 Duplication reads current settings and permission overwrites first; creating under
@@ -130,7 +148,7 @@ interoperability and native screenshot inspection remain unverified.
 
 ## Existing DM calls — September 11, 2026
 
-Viewing a supported one-to-one DM requests its call state using the existing unofficial
+Viewing a supported one-to-one or group DM requests its call state using the existing unofficial
 Gateway opcode 13. CALL_CREATE/UPDATE keep an ongoing-call banner independently of ringing
 or local media; CALL_DELETE/unavailability removes it. Join never rings an already known
 call. [Primary implementation evidence and owner-controlled live checks](voice.md) distinguish
@@ -245,15 +263,15 @@ discord.com route is an integration assumption, not a new API guarantee. Headles
 construction and explicit confirmation; native launch, browser account selection and destination
 resolution remain owner-unverified. The browser uses its own session and Discord authorization.
 
-Loaded threads (September 10): READY guild thread arrays follow the original [discord.py-self guild parser](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py); active create/update/delete, scoped sync, archive eviction and owner-removal handling are informed by its [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py). Discord's [Gateway thread events](https://docs.discord.com/developers/events/gateway-events#thread-list-sync) document the guild/parent scope and membership fields. These primary sources establish wire evidence, not normal-account acceptance; no implementation blocks were copied. Active discovery is limited to service-supplied snapshots/events; explicit archive reads are described below, with existing subscriptions unchanged. Unknown updates do not hydrate a missing thread. See native navigation scope.
+Loaded threads (September 10): READY guild thread arrays follow the original [discord.py-self guild parser](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py); active create/update/delete, scoped sync, archive eviction and owner-removal handling are informed by its [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py). Discord's [Gateway thread events](https://docs.discord.com/developers/events/gateway-events#thread-list-sync) document the guild/parent scope and membership fields. These primary sources establish wire evidence, not normal-account acceptance; no implementation blocks were copied. Active discovery is limited to service-supplied snapshots/events; explicit archive reads are described below, with existing subscriptions unchanged. Clicking an unresolved channel mention performs one bounded documented channel read and admits only a same-guild thread whose loaded parent remains viewable. Unknown updates do not otherwise hydrate a missing thread. See native navigation scope.
 
 Serein is unofficial and not endorsed by Discord. No normal-user live session has been tested. Technical compatibility does not imply approval. Discord forbids normal-account automation outside its OAuth2/bot API and warns of account termination ([policy](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots)); its [terms](https://discord.com/terms) also apply.
 
 | Capability | Credential / evidence | Classification | Serein status / fallback |
 |---|---|---|---|
 | Supported sign-in | OAuth2 access token; [scopes](https://docs.discord.com/developers/topics/oauth2) | Documented for limited scopes; RPC/other scopes restricted | No full replacement-client grant established. No invented OAuth login |
-| Developer session import | Normal-user session credential intentionally entered by its owner; [Abaddon source](https://github.com/uowuo/abaddon/tree/master/src/discord) reviewed today | Unofficial, unstable, account risk | Developer build only, memory-only, no extraction; actual service validation pending |
-| Official login webview | The owner completes Discord’s hosted login; [Wry](https://docs.rs/wry/0.57.0/wry/) supplies an ephemeral platform webview | Official hosted UI, **unofficial/unstable handoff** | Implemented own-webview same-origin fetch/XHR header observation; synthetic bridge tests only; email, QR, MFA, CAPTCHA and passkeys are individually live-unverified |
+| Token sign-in | Normal-user session credential intentionally entered by its owner; [Abaddon source](https://github.com/uowuo/abaddon/tree/master/src/discord) reviewed today | Unofficial, unstable, account risk | Available on the main sign-in screen in every build, saved like a normal login, no extraction from other software; actual service validation pending |
+| Official login webview | The owner completes Discord’s hosted login; [Wry](https://docs.rs/wry/0.57.0/wry/) supplies an ephemeral platform webview | Official hosted UI, **unofficial/unstable handoff** | Implemented bounded same-origin Authorization-header observation in the temporary webview; synthetic bridge tests only; email, QR, MFA, CAPTCHA and passkeys are individually live-unverified |
 | Saved login | Normal session credential in [OS keyring](https://docs.rs/keyring/4.2.0/keyring/v1/) | Native credential-store integration | Save after verified native readiness, restore at launch, delete on logout; real credential-store round trip not exercised |
 | Account and guild summaries | Normal session `/users/@me`, `/users/@me/guilds`; [user API](https://docs.discord.com/developers/resources/user) and Abaddon | Public resource shapes; normal-session behavior unofficial | Experimental adapter, not live verified |
 | Channels / existing DMs | Normal session; READY navigation and guild channel resource; Abaddon | Unofficial session snapshot | Fail visibly on oversized/incompatible metadata; no member scraping |
@@ -293,7 +311,7 @@ The owner superseded the initial storage/login constraints during implementation
 
 [Discord Userdoccers’ original protocol research](https://docs.discord.food/authentication), checked 2026-09-09, describes normal-user password login, MFA tickets, and authentication tokens. It is unofficial evidence, not Discord approval. The final implementation delegates that login to Discord’s hosted UI instead of implementing these endpoints itself. Email/phone login, QR, TOTP, CAPTCHA, passkeys and device verification are offered only as the official page permits in the platform engine; none was tested with a real account here.
 
-The handoff is original code in `crates/platform/src/login-handoff.js`. It observes an Authorization header only for this temporary webview’s own `https://discord.com/api/v*/` requests, after user-controlled authentication. It reads neither localStorage nor other applications, profiles or tabs, and does not inspect passwords or QR secrets. A random per-webview capability scopes the IPC handoff; Rust validates that capability, the IPC origin, and token length, then verifies the account via `/users/@me` and rejects bot accounts. This handoff is a technical hypothesis with offline tests; Discord’s current page may use an unsupported transport, reject the embedded engine, or change its behavior. Failure must not be called successful login.
+The handoff is original code in `crates/platform/src/login-handoff.js` and the Linux WebKit resource observer. It observes an Authorization header only for this temporary webview’s own `https://discord.com/api/v*/` requests, after user-controlled authentication. It reads neither localStorage nor other applications, profiles or tabs, and does not inspect passwords or QR secrets. A random per-webview capability scopes the IPC handoff; Rust validates that capability, the IPC origin, and token length, then verifies the account via `/users/@me` and rejects bot accounts. This handoff is a technical hypothesis with offline tests; Discord’s current page may use an unsupported transport, reject the embedded engine, or change its behavior. Failure must not be called successful login.
 
 Navigation is limited to Discord’s HTTPS origin; new windows and downloads are blocked. Third-party challenge subframes are left to the platform engine; popup-dependent methods may fail. No spoofed official client user agent/properties are supplied. Resume URLs are restricted to recognized Discord gateway hosts.
 
@@ -314,6 +332,18 @@ Search continuation (September 10): guild conversations use the guild search rou
 Login compatibility correction (September 10): READY read_state accepts both the legacy array and the versioned entries/version/partial object, under the same 4000-entry bound. Serein's Identify does not request the versioned_read_states capability; rejecting the legacy shape previously rejected the entire login payload. The capability's effect is described in the original [discord.py-self capability definitions](https://github.com/dolfies/discord.py-self/blob/master/discord/flags.py), rechecked September 10. Partial snapshots leave omitted channels unknown. Identify capabilities remain unchanged. Static error labels distinguish account verification, Gateway discovery, READY decoding and connection setup without exposing payloads, credentials or remote error text. Synthetic regression and loopback evidence do not establish actual account login success.
 
 ## Reaction refresh and pinned messages - September 10
+
+Incoming reaction updates (September 14): validated Gateway add/remove events now
+update the affected Unicode/custom emoji count immediately, including burst counts.
+Remove-emoji and remove-all events update the same visible list. Own normal/burst
+membership flags prevent optimistic toggles from double-counting their Gateway echoes.
+The existing bounded, coalesced message readback remains in the background to reconcile
+HTTP/Gateway ordering; known counts stay visible while it runs. Unknown snapshots are
+not treated as zero, and unsupported event details retain the conservative readback
+path. Repeated/stale sequenced reaction dispatches are ignored. Late history responses
+preserve newer reaction values without discarding newer message content. These are
+synthetic parser/Gateway/reducer/egui checks, not live normal-account validation.
+Wire types follow the official [Gateway reaction events](https://docs.discord.com/developers/events/gateway-events#message-reaction-add).
 
 Reaction readback now uses a history request with limit=1 and around=the exact message ID, matching the current normal-user [discord.py-self get_message implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py). The prior single-message GET can reject normal-user sessions; its Forbidden result caused the existing channel-invalidation policy to clear the conversation. Exactly one matching channel/message record is accepted. Missing targets, neighboring messages and malformed/oversized-count replies leave reaction state unavailable without substituting content. Genuine Forbidden history responses still revoke the channel and its cached history. No write is automatically retried.
 
@@ -565,7 +595,8 @@ the READY-only member-list ID. Member requests now compute that ID from the exis
 bounded role/overwrite mirror, so GUILD_CREATE, newly delivered/restored channels and
 Reload people use current metadata. A change in list identity retires the active request
 and lets the visible pane request again; unchanged metadata preserves pending replies.
-Missing metadata still means unavailable; threads retain their separate-protocol limitation.
+Missing metadata still means unavailable for ordinary guild channels. Thread participants now
+use the separate REST snapshot described below.
 The shared hash accepts the same u128 permission values as the permission parser.
 
 The original [subscription lifecycle](https://github.com/dolfies/discord.py-self/blob/2ba64a9a997e151a9c259984e0a179b1fdf4aff4/discord/state.py)
@@ -963,6 +994,33 @@ The native MPEG-4 source does not support external tracks; it receives an unname
 stream without a base URL and Media Foundation starts with socket support disabled.
 See [Microsoft MPEG-4 source documentation](https://learn.microsoft.com/en-us/windows/win32/medfound/mpeg-4-file-source).
 
+### Home rail request badge (September 15, 2026)
+
+The Direct Messages tile on the server rail shows a bottom-right count. The count is
+incoming friend requests that are not `is_spam_request`, plus pending non-spam
+message-request DMs from people who are not friends and not blocked.
+Official Message Requests are DMs from people who are not friends
+([Discord Support](https://support.discord.com/hc/en-us/articles/7924992471191-Message-Requests)).
+A loaded request channel still counts when that person also has a pending friend
+request. A message-request id with no loaded channel or with no other recipient
+is not counted. Outgoing friend requests do not increment the friend addend.
+Spam-flagged incoming friend requests stay on the Pending list and do not
+increment the badge. Spam-folder DMs do not increment it and do not appear on
+the unread rail or the Direct Messages sidebar. The unofficial relationship field
+`is_spam_request` comes from the
+[docs.discord.food relationship object](https://docs.discord.food/resources/relationships#relationship-object).
+The unofficial channel fields `is_message_request` and `is_spam`, plus channel
+flag `IS_SPAM` (`1 << 5`), come from the
+[docs.discord.food channel object](https://docs.discord.food/resources/channel#channel-object).
+READY, CHANNEL_CREATE, and CHANNEL_UPDATE fill the channel inbox sets.
+RELATIONSHIP_ADD, RELATIONSHIP_UPDATE, and RELATIONSHIP_REMOVE update the
+incoming friend-request spam set. This change does not add a Message Requests
+or Spam inbox.
+
+Unread private conversations on the rail sort by latest known activity, newest first.
+An active DM call stays visible and pinned at the top. The rail keeps at most 15 rows
+after that sort.
+
 ### Friend requests (September 12, 2026)
 
 Friends now includes Add Friend and Pending, with searchable incoming/outgoing lists,
@@ -1147,3 +1205,21 @@ updates Discord's real account preference for its server-generated notifications
 The scheduled-event alert above means an event started, not a locally fabricated
 advance reminder. [Notification center research](https://docs.discord.food/resources/notification-center).
 Offline parser, reducer and HTTP checks are not evidence of live Discord delivery.
+
+## Thread participants — September 15, 2026
+
+Opening a thread's People pane now requests the documented
+[List Thread Members](https://docs.discord.com/developers/resources/channel#list-thread-members)
+route with `with_member=true&limit=100`, rather than requiring an ordinary guild
+member-list identity. The pane shows joined thread participants, not the parent
+channel's member list. This is a snapshot of the first 100 participants; reopening
+the pane refreshes it, and failed reads retain Reload people. There is no background
+pagination or thread-member subscription. Missing presence remains unknown.
+
+Requests use the existing authenticated REST client. Closing/replacing the member
+view cancels the previous read; session, channel, request and permission checks
+reject retired replies. Responses are bounded to 512 KiB on the wire and 100
+members / 128 KiB retained metadata. Optional-view capacity failures do not end
+the account session. Synthetic tests and native offline screenshots cover the
+loading path, not live service acceptance. The documented endpoint has application
+intent restrictions; normal-account interoperability remains unofficial/unverified.

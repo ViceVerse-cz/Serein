@@ -21,9 +21,17 @@ Linux packaging uses the target distribution's native tools: `dpkg-dev` for Debi
 `desktop-file-utils`. See [Linux packaging](../packaging/linux/README.md) for build
 dependencies, installation commands and supported distribution versions.
 
+`cargo xtask package --format appimage` creates a Linux x86_64 Type 2 AppImage
+including voice. The Ubuntu 26.04 release job publishes it alongside the native
+packages and release checksums. It uses host GTK4/WebKitGTK 6.0, audio and graphics
+libraries, rather than bundling a separate browser runtime. See [AppImage setup and
+builds](../packaging/appimage/README.md) for installation requirements, pinned tooling
+and package inspection. Native AppImage startup and upgrading remain unverified in
+the initial fast local pass.
+
 `cargo xtask package` builds the locked default release configuration. macOS gets `dist/Serein.app`; Windows gets an executable plus license files; Debian/Ubuntu Linux additionally produces a `.deb` with desktop integration and dependency metadata. On macOS, packaging replaces the executable through a fresh sibling file and rename, then seals the completed bundle with `codesign --force --sign -` and runs `codesign --verify --strict`. This is a **local ad-hoc signature**, with no signing identity, Developer ID certificate, or notarization. It verifies the staged bundle's integrity and does not certify Gatekeeper acceptance or a trusted publisher. The distinction between signature validity and trust is described in [Apple's code-signing guidance](https://developer.apple.com/library/archive/technotes/tn2206/_index.html).
 
-Windows/Linux local staging artifacts remain unsigned. These are not certified installers. Use `ditto -c -k --keepParent dist/Serein.app dist/Serein-macos.zip` on macOS; normal archive tools may package Windows staging output. Do not modify bundle resources after sealing; rerun packaging when source documentation changes. Linux additionally supports `--format rpm`, `--format arch` and `--format dir`; release jobs build on Ubuntu 26.04, Fedora 44, openSUSE Tumbleweed and Arch independently. [Flatpak](../packaging/flatpak/README.md) builds offline against GNOME SDK 49 with the pinned Rust compiler and locked vendored sources. Its sandbox currently excludes direct V4L2 camera access and host game IPC; desktop login/keyring/audio still need Linux runtime validation. [Signed repository preparation](../packaging/repositories/README.md) supports apt, dnf/zypper and pacman, but requires configured signing credentials and an HTTPS host; preparing artifacts does not publish repositories. Windows installer/signing and release reproducibility remain open work.
+Windows/Linux local staging artifacts remain unsigned. These are not certified installers. Use `ditto -c -k --keepParent dist/Serein.app dist/Serein-macos.zip` on macOS; normal archive tools may package Windows staging output. Do not modify bundle resources after sealing; rerun packaging when source documentation changes. Linux additionally supports `--format rpm`, `--format arch` and `--format dir`; release jobs target Ubuntu 26.04, Fedora 43/44, openSUSE Tumbleweed and Arch independently. Fedora 43 packaging was added in a local fast pass; its build and installation remain unverified until Linux CI and desktop validation. [Flatpak](../packaging/flatpak/README.md) builds offline against GNOME SDK 49 with the pinned Rust compiler and locked vendored sources. Its sandbox currently excludes direct V4L2 camera access and host game IPC; desktop login/keyring/audio still need Linux runtime validation. [Signed repository preparation](../packaging/repositories/README.md) supports apt, dnf/zypper and pacman, but requires configured signing credentials and an HTTPS host; preparing artifacts does not publish repositories. Windows installer/signing and release reproducibility remain open work.
 
 The webview lives only during login: WKWebView on macOS, WebView2 on Windows, GTK/WebKitGTK on Linux. Linux uses a separate GTK authentication window and pumps it only while login is active. Voice is built in. Audio devices open only for explicit playback, device testing, or a call reaching required encrypted readiness. Popup-dependent authentication and third-party embedded challenges may not work; do not claim all Discord login methods without live tests.
 
@@ -92,7 +100,10 @@ Wayland compositors may decline application-requested focus. Flatpak permits onl
 the additional `org.kde.StatusNotifierWatcher` bus name, not unrestricted session-bus
 access. The protocol can be checked without a desktop or account using
 `dbus-run-session -- cargo run --locked -p tray-debug`; it does not verify panel
-rendering, compositor focus, or sandbox interoperability. macOS remains disabled.
+rendering, compositor focus, or sandbox interoperability.
+
+macOS uses a native menu bar icon with Show Serein / Quit actions; minimized windows
+remain in the Dock.
 
 ## Opt-in automatic startup
 
@@ -104,7 +115,12 @@ a portable installation, or re-enable it after moving the executable.
 Minimized launches stay in the taskbar even when the saved tray preference is enabled;
 the tray can attach safely after a minimized launch. Tray failures leave the window
 recoverable. The Close button still exits, and the tray Quit action retains unsaved
-work checks. macOS/Linux autostart remains explicitly unavailable.
+work checks. macOS registers a per-user `~/Library/LaunchAgents/cz.viceverse.serein.startup.plist`
+for the next graphical login, with the same launch flags. Turning it off removes only
+that file. It does not launch a second client when enabled or restart after Quit.
+Re-enable startup after moving the executable; disable it before uninstalling. macOS
+Login Items settings can independently block launch. Linux autostart remains unavailable.
+Native macOS sign-out/sign-in remains unverified.
 Offline tests cover isolated registry writes/removal, launch flags and settings
 interaction; an actual Windows sign-out/sign-in has not been exercised.
 
@@ -112,7 +128,7 @@ interaction; an actual Windows sign-out/sign-in has not been exercised.
 
 Settings → Updates provides automatic checking/downloading, Production and Nightly
 release channels, a manual check and an explicit restart action. The title strip
-shows an available or downloaded update on macOS and Windows. Update controls are
+shows an available or downloaded update on macOS, Windows and Linux. Update controls are
 also accessible from the signed-out screen. Automatic checking runs at startup
 once saved preferences are available, then every six hours while running; turning
 it off disables automatic downloads while background checks and title-bar notices
@@ -125,7 +141,8 @@ platform/architecture asset name, published length and `SHA256SUMS.txt`. Downloa
 and installation preparation run outside rendering; installation is handed off
 only after the application's existing close/unsaved-work gates permit shutdown.
 GitHub HTTPS and repository access are the update trust boundary; release checksums
-alone are not an independent publisher signature. Linux uses its package manager.
+alone are not an independent publisher signature. Linux AppImages use this same
+trust boundary; other Linux installations use their package manager.
 
 The local `--features demo -- --demo --demo-check-updates` debug path exercises
 synthetic update states, preference compatibility and settings rendering without
@@ -133,7 +150,12 @@ network access or replacing an installation. It is not evidence of a successful
 live release upgrade or of Windows native installation behavior.
 
 In-app installation requires an extracted Windows release or an installed,
-writable macOS `.app` outside a mounted disk image/App Translocation. macOS checks
+writable macOS `.app` outside a mounted disk image/App Translocation, or a running
+x86-64 AppImage in a writable directory on a filesystem supporting hard links.
+AppImages retain their original filename, validate the Type 2 ELF architecture,
+and atomically replace the outer image after shutdown. An immediate launch failure
+restores the previous image; the two-second check is not an application-health test.
+macOS checks
 strict code-signature validity, the existing publisher's TeamIdentifier and bundle
 identifier, and Gatekeeper acceptance. Windows currently relies on the repository's
 HTTPS/checksum trust boundary because its published packages are unsigned. When

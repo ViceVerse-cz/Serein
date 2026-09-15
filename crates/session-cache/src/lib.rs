@@ -196,6 +196,12 @@ impl Timeline {
 			&& message.content.len() <= 64 * 1024
 			&& model::valid_mentions(&message.mentions)
 			&& model::valid_mention_roles(&message.mention_roles)
+			&& message.author_roles.capacity() <= model::permissions::MAX_MEMBER_ROLES
+			&& message.author_roles.iter().all(|role| role.0 != 0)
+			&& message
+				.author_nick
+				.as_ref()
+				.is_none_or(|nick| nick.len() <= 512)
 			&& model::valid_embeds(&message.embeds)
 			&& model::valid_attachments(&message.attachments)
 			&& message
@@ -937,6 +943,8 @@ mod tests {
 			extra_content: Default::default(),
 			attachments: Vec::new(),
 			embeds: Vec::new(),
+			author_nick: None,
+			author_roles: vec![],
 			mention_roles: vec![],
 			mention_everyone: false,
 			suppress_notifications: false,

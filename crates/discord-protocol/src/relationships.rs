@@ -11,6 +11,8 @@ pub struct Relationship {
 	pub nickname: model::Patch<String>,
 	#[serde(default)]
 	pub user: Option<crate::UserDto>,
+	#[serde(default)]
+	pub is_spam_request: bool,
 }
 #[derive(Deserialize)]
 pub struct Snapshot(
@@ -64,6 +66,13 @@ impl Snapshot {
 	}
 	pub fn entries(&self) -> Vec<(Id, bool)> {
 		self.0.iter().map(|r| (r.id, r.kind == 2)).collect()
+	}
+	pub fn spam_incoming_ids(&self) -> Vec<Id> {
+		self.0
+			.iter()
+			.filter(|row| row.kind == 3 && row.is_spam_request)
+			.map(|row| row.id)
+			.collect()
 	}
 	pub fn friends(
 		&self,
@@ -140,6 +149,10 @@ mod tests {
 		let requests = outgoing.requests(&[]).unwrap();
 		assert!(!requests[0].2);
 		assert_eq!(requests[0].0.id, Id(8));
+		let spam: Snapshot =
+			crate::decode(br#"[{"id":"9","type":3,"is_spam_request":true}]"#).unwrap();
+		assert_eq!(spam.spam_incoming_ids(), vec![Id(9)]);
+		assert!(spam.requests(&[]).unwrap()[0].2);
 		let invalid: Snapshot =
 			crate::decode(br#"[{"id":"2","type":1,"user":{"id":"3","username":"wrong"}}]"#)
 				.unwrap();

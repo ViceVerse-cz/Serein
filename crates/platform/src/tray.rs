@@ -9,14 +9,18 @@ pub enum Event {
 }
 
 pub const fn supported() -> bool {
-	cfg!(any(target_os = "windows", target_os = "linux"))
+	cfg!(any(
+		target_os = "windows",
+		target_os = "linux",
+		target_os = "macos"
+	))
 }
 
-#[cfg(any(target_os = "windows", test))]
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 #[derive(Default)]
 struct Events(std::cell::Cell<u8>);
 
-#[cfg(any(target_os = "windows", test))]
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 impl Events {
 	fn push(&self, event: Event) {
 		self.0.set(self.0.get() | event as u8);
@@ -39,16 +43,23 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::Tray;
 
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+#[path = "tray/macos.rs"]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::Tray;
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 pub struct Tray;
 
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 impl Tray {
 	pub fn new(
 		_window: std::sync::Arc<winit::window::Window>,
 		_wake: impl Fn() + 'static,
 	) -> Result<Self, &'static str> {
-		Err("The tray icon is currently available on Windows and Linux only.")
+		Err("The tray icon is unavailable on this platform.")
 	}
 	pub fn take_event(&self) -> Option<Event> {
 		None

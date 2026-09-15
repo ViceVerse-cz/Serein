@@ -725,6 +725,7 @@ impl Picker {
 											};
 											let search = ui.add(
 												egui::TextEdit::singleline(text)
+													.id(ui.id().with("picker-search"))
 													.char_limit(64)
 													.frame(egui::Frame::NONE)
 													.hint_text(hint)
@@ -1888,6 +1889,47 @@ mod tests {
 		state.generation += 1;
 		frame(&mut picker, &mut state, &mut avatars, vec![]);
 		assert!(picker.frequent.is_empty());
+	}
+
+	#[test]
+	fn gif_search_keeps_focus_when_the_back_button_appears() {
+		let ctx = egui::Context::default();
+		crate::emoji::install(&ctx).unwrap();
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let mut picker = Picker {
+			open: true,
+			focus: true,
+			channel: Some(channel),
+			generation: state.generation,
+			tab: Tab::Gifs,
+			..Picker::default()
+		};
+		let mut avatars = Avatars::default();
+		let mut frame = |picker: &mut Picker, state: &mut State, events| {
+			let mut commands = Vec::new();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					picker.show(ui, state, channel, &mut avatars, &mut commands);
+				},
+			);
+			output.drop_without_applying_deltas();
+		};
+
+		frame(&mut picker, &mut state, vec![]);
+		frame(&mut picker, &mut state, vec![egui::Event::Text("c".into())]);
+		frame(&mut picker, &mut state, vec![]);
+		frame(&mut picker, &mut state, vec![egui::Event::Text("a".into())]);
+
+		assert_eq!(picker.gif_query, "ca");
 	}
 
 	#[test]

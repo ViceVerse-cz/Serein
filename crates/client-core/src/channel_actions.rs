@@ -53,10 +53,12 @@ pub enum Mute {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
+	Reference,
 	Load,
 	Edit { before: Edit, after: Edit },
 	Duplicate { name: String },
 	CreateText { name: String },
+	CreateCategory { name: String },
 	Delete,
 	Mute(Mute),
 	Notifications(u8),
@@ -65,9 +67,9 @@ impl Action {
 	pub fn valid(&self) -> bool {
 		match self {
 			Self::Edit { before, after } => before.valid() && after.valid(),
-			Self::Duplicate { name } | Self::CreateText { name } => {
-				valid_name(name) && name.capacity() <= 400
-			}
+			Self::Duplicate { name }
+			| Self::CreateText { name }
+			| Self::CreateCategory { name } => valid_name(name) && name.capacity() <= 400,
 			Self::Mute(Mute::For(seconds)) => matches!(seconds, 900 | 3600 | 10800 | 28800 | 86400),
 			Self::Notifications(level) => *level <= 3,
 			_ => true,
@@ -286,6 +288,7 @@ impl State {
 			|| !self.can_view(channel)
 			|| (!personal
 				&& !match &action {
+					Action::Reference => false,
 					Action::Load => self.can_open_channel_settings(channel),
 					Action::Edit { before, after } => {
 						self.channel_edit_allowed(channel, before, after)
@@ -342,11 +345,36 @@ impl State {
 			action,
 		})
 	}
+	pub fn request_channel_reference(&mut self, guild: Id, channel: Id) -> Option<Command> {
+		if self.channel_action_pending()
+			|| self.channel(channel).is_some()
+			|| self.channel_action_status(channel).is_some()
+			|| self.guild(guild).is_none()
+			|| self
+				.selected
+				.and_then(|id| self.channel(id))
+				.and_then(|source| source.guild)
+				!= Some(guild)
+			|| (!self.demo && (self.auth != AuthState::Authenticated || !self.gateway_connected))
+		{
+			return None;
+		}
+		self.channel_actions.sequence = self.channel_actions.sequence.wrapping_add(1);
+		let request = self.channel_actions.sequence;
+		let action = Action::Reference;
+		self.channel_actions.pending = Some((guild, channel, request, action.clone(), false));
+		Some(Command::ChannelAction {
+			guild,
+			channel,
+			request,
+			action,
+		})
+	}
 	pub(crate) fn cancel_channel_action(&mut self) {
 		if let Some((_, channel, _, action, _)) = self.channel_actions.pending.take() {
 			self.channel_actions.status = Some((
 				channel,
-				if action == Action::Load {
+				if matches!(action, Action::Reference | Action::Load) {
 					"Channel load interrupted"
 				} else {
 					Failure::Ambiguous.label()
@@ -409,12 +437,29 @@ impl State {
 		let (_, _, _, action, observed) = self.channel_actions.pending.take().unwrap();
 		let result = result.and_then(|outcome| {
 			let valid = match (&action, &outcome) {
+				(
+					Action::Reference,
+					Outcome::Channel {
+						channel: target, ..
+					},
+				) => {
+					target.id == channel
+						&& target.guild == Some(guild)
+						&& matches!(target.kind, 10..=12)
+						&& target.parent_id.is_some_and(|parent| {
+							self.channel(parent).is_some_and(|source| {
+								source.guild == Some(guild) && self.can_view(parent)
+							})
+						})
+				}
 				(Action::Load, Outcome::Details(edit)) => edit.valid(),
 				(Action::Edit { .. }, Outcome::Channel { channel: c, .. }) => {
 					c.id == channel && c.guild == Some(guild)
 				}
 				(
-					Action::Duplicate { .. } | Action::CreateText { .. },
+					Action::Duplicate { .. }
+					| Action::CreateText { .. }
+					| Action::CreateCategory { .. },
 					Outcome::Channel { channel: c, .. },
 				) => c.id.0 != 0 && c.id != channel && c.guild == Some(guild),
 				(Action::Delete, Outcome::Deleted) => true,
@@ -457,10 +502,17 @@ impl State {
 				channel: updated,
 				permissions,
 			}) => {
-				let creating =
-					matches!(action, Action::Duplicate { .. } | Action::CreateText { .. });
+				let reference = action == Action::Reference;
+				let creating = matches!(
+					action,
+					Action::Duplicate { .. }
+						| Action::CreateText { .. }
+						| Action::CreateCategory { .. }
+				);
 				if self.guild(guild).is_some()
-					&& (if creating {
+					&& (if reference {
+						true
+					} else if creating {
 						self.can_manage_channel(channel)
 					} else {
 						self.can_open_channel_settings(channel)
@@ -474,6 +526,15 @@ impl State {
 						generation: self.generation,
 						event: crate::Event::ChannelCreated(*updated),
 					});
+					if reference {
+						if self.channel(target).is_none() {
+							self.channel_actions.status =
+								Some((channel, "Thread could not be loaded", false));
+							return Ok(());
+						}
+						self.retire_archived_thread(None);
+						self.archived_thread = Some(target);
+					}
 					if let Some(p) = permissions.filter(|p| p.id == target && p.guild == guild) {
 						self.apply(crate::Envelope {
 							generation: self.generation,
@@ -491,7 +552,9 @@ impl State {
 				{
 					self.channel_actions.details = Some((channel, after.clone()));
 				}
-				if creating {
+				if reference {
+					"Thread loaded"
+				} else if creating {
 					"Channel created"
 				} else {
 					"Channel updated"
@@ -718,6 +781,69 @@ mod tests {
 	}
 
 	#[test]
+	fn thread_references_reuse_channel_loading_and_require_a_viewable_parent() {
+		let mut valid = state();
+		valid.selected = Some(Id(3));
+		let command = valid.request_channel_reference(Id(2), Id(4)).unwrap();
+		assert!(matches!(
+			command,
+			Command::ChannelAction {
+				action: Action::Reference,
+				..
+			}
+		));
+		assert!(valid.request_channel_reference(Id(2), Id(4)).is_none());
+		finish(
+			&mut valid,
+			command,
+			Ok(Outcome::Channel {
+				channel: Box::new(model::Channel {
+					id: Id(4),
+					guild: Some(Id(2)),
+					parent_id: Some(Id(3)),
+					kind: 11,
+					name: "Synthetic thread".into(),
+					position: 0,
+					recipients: vec![],
+					last_message: None,
+					icon: None,
+					member_list_id: None,
+					message_count: None,
+				}),
+				permissions: None,
+			}),
+		);
+		assert_eq!(valid.channel(Id(4)).unwrap().name, "Synthetic thread");
+		assert_eq!(valid.archived_thread, Some(Id(4)));
+
+		let mut state = state();
+		state.selected = Some(Id(3));
+		let command = state.request_channel_reference(Id(2), Id(4)).unwrap();
+		finish(
+			&mut state,
+			command,
+			Ok(Outcome::Channel {
+				channel: Box::new(model::Channel {
+					id: Id(4),
+					guild: Some(Id(2)),
+					parent_id: Some(Id(99)),
+					kind: 11,
+					name: "Unknown parent".into(),
+					position: 0,
+					recipients: vec![],
+					last_message: None,
+					icon: None,
+					member_list_id: None,
+					message_count: None,
+				}),
+				permissions: None,
+			}),
+		);
+		assert!(state.channel(Id(4)).is_none());
+		assert!(!state.channel_action_succeeded(Id(4)));
+	}
+
+	#[test]
 	fn channel_writes_check_access_bounds_queue_failure_and_stale_completions() {
 		let mut state = state();
 		assert!(state.can_manage_channel(Id(3)));
@@ -758,6 +884,31 @@ mod tests {
 			})),
 		);
 		assert!(state.channel_details(Id(3)).is_none());
+		let pending = state
+			.request_channel_action(
+				Id(3),
+				Action::CreateCategory {
+					name: "projects".into(),
+				},
+			)
+			.unwrap();
+		let mut category = state.channels[0].clone();
+		category.id = Id(4);
+		category.kind = 4;
+		category.name = "projects".into();
+		finish(
+			&mut state,
+			pending,
+			Ok(Outcome::Channel {
+				channel: Box::new(category),
+				permissions: None,
+			}),
+		);
+		assert!(
+			state
+				.channel(Id(4))
+				.is_some_and(|channel| channel.kind == 4)
+		);
 		state.permissions.guilds.get_mut(&Id(2)).unwrap().owner = Some(Id(9));
 		state.permissions.clear_cache();
 		assert!(

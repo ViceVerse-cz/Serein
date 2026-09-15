@@ -16,6 +16,7 @@ mod server_integrations;
 mod server_invites;
 mod server_roles;
 mod server_settings;
+mod thread_members;
 pub mod upload;
 mod user_actions;
 use client_core::{
@@ -2012,19 +2013,28 @@ mod tests {
 }
 
 fn allowed_mentions(content: &str) -> serde_json::Value {
-	serde_json::json!({"parse":[],"users":model::mentioned_user_ids(content),"replied_user":false})
+	let everyone: &[&str] = if model::has_mass_mention(content) {
+		&["everyone"]
+	} else {
+		&[]
+	};
+	serde_json::json!({"parse":everyone,"users":model::mentioned_user_ids(content),"replied_user":false})
 }
 #[cfg(test)]
 mod mention_tests {
 	#[test]
-	fn send_and_edit_only_allow_explicit_user_mentions() {
+	fn mass_mentions_and_explicit_users_are_allowed() {
+		assert_eq!(
+			super::allowed_mentions("hello test"),
+			serde_json::json!({"parse":[],"users":[],"replied_user":false})
+		);
 		assert_eq!(
 			super::allowed_mentions("@everyone <@&4> <@7> <@!7> <@9>"),
-			serde_json::json!({"parse":[],"users":["7","9"],"replied_user":false})
+			serde_json::json!({"parse":["everyone"],"users":["7","9"],"replied_user":false})
 		);
 		assert_eq!(
 			super::allowed_mentions("@here"),
-			serde_json::json!({"parse":[],"users":[],"replied_user":false})
+			serde_json::json!({"parse":["everyone"],"users":[],"replied_user":false})
 		);
 	}
 }

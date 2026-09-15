@@ -125,17 +125,56 @@ def build(args):
     print(destination)
 
 
+
+
+def generate_index(destination: Path):
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Serein Linux Repositories</title>
+  <meta http-equiv="refresh" content="0; url=https://github.com/ViceVerse-cz/Serein">
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; background: #111214; color: #dbdee1; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .card { background: #2b2d31; padding: 2rem; border-radius: 8px; text-align: center; max-width: 480px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    h1 { margin-top: 0; color: #fff; }
+    a { color: #5865f2; text-decoration: none; font-weight: bold; }
+    a:hover { text-decoration: underline; }
+    code { background: #1e1f22; padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Serein Linux Repositories</h1>
+    <p>Signed native packages and Flatpak repository for Serein.</p>
+    <p>Run <code>curl -fsSL https://viceverse-cz.github.io/Serein/setup.sh | sh</code> to install.</p>
+    <p><a href="https://github.com/ViceVerse-cz/Serein">View project on GitHub &rarr;</a></p>
+  </div>
+</body>
+</html>
+"""
+    destination.mkdir(parents=True, exist_ok=True)
+    (destination / "index.html").write_text(html)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--channel", choices=("nightly", "production"), required=True)
-    parser.add_argument("--distribution", required=True)
-    parser.add_argument("--format", choices=("deb", "rpm", "arch"), required=True)
-    parser.add_argument("--architecture", required=True)
-    parser.add_argument("--key", required=True)
-    parser.add_argument("--base-url", required=True)
-    build(parser.parse_args())
+    parser.add_argument("--generate-index", type=Path, help="Generate landing index.html into directory")
+    parser.add_argument("--input", type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--channel", choices=("nightly", "production"))
+    parser.add_argument("--distribution")
+    parser.add_argument("--format", choices=("deb", "rpm", "arch"))
+    parser.add_argument("--architecture")
+    parser.add_argument("--key")
+    parser.add_argument("--base-url")
+    args = parser.parse_args()
+    if args.generate_index:
+        generate_index(args.generate_index)
+        return
+    if not (args.input and args.output and args.channel and args.distribution and args.format and args.architecture and args.key and args.base_url):
+        parser.error("missing required repository build arguments")
+    build(args)
 
 
 if __name__ == "__main__":

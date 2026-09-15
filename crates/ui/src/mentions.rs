@@ -39,6 +39,9 @@ enum Candidate {
 	User {
 		user: User,
 	},
+	Mass {
+		name: &'static str,
+	},
 	Channel {
 		id: Id,
 		name: String,
@@ -60,12 +63,13 @@ impl Candidate {
 		match self {
 			Candidate::User { user } => user.id,
 			Candidate::Channel { id, .. } | Candidate::Custom { id, .. } => *id,
-			Candidate::Unicode { .. } => Id(0),
+			Candidate::Mass { .. } | Candidate::Unicode { .. } => Id(0),
 		}
 	}
 	fn token(&self) -> String {
 		match self {
 			Candidate::User { user } => format!("<@{}> ", user.id),
+			Candidate::Mass { name } => format!("@{name} "),
 			Candidate::Channel { id, .. } => format!("<#{id}> "),
 			Candidate::Unicode { text, .. } => format!("{text} "),
 			Candidate::Custom {
@@ -228,13 +232,23 @@ impl Menu {
 			.find(|c| c.id == channel)
 			.and_then(|c| c.guild);
 		let mut ranked: Vec<Ranked> = match kind {
-			Kind::User => users
-				.iter()
-				.filter_map(|user| {
-					rank(&query, &user.name, user.id)
-						.map(|r| ((r, 0, 0), Candidate::User { user: user.clone() }))
-				})
-				.collect(),
+			Kind::User => {
+				let mut ranked = users
+					.iter()
+					.filter_map(|user| {
+						rank(&query, &user.name, user.id)
+							.map(|r| ((r, 0, 0), Candidate::User { user: user.clone() }))
+					})
+					.collect::<Vec<_>>();
+				if state.permission(channel, model::permissions::MENTION_EVERYONE) == Some(true) {
+					for name in ["everyone", "here"] {
+						if let Some(rank) = rank(&query, name, Id(0)) {
+							ranked.push(((rank, 0, 0), Candidate::Mass { name }));
+						}
+					}
+				}
+				ranked
+			}
 			Kind::Channel => state
 				.channels
 				.iter()
@@ -359,7 +373,7 @@ impl Menu {
 		let header = match self.kind {
 			Some(Kind::Channel) => "TEXT CHANNELS".to_owned(),
 			Some(Kind::Emoji) => format!("EMOJI MATCHING :{}", self.query),
-			_ => "MEMBERS".to_owned(),
+			_ => "MENTIONS".to_owned(),
 		};
 		let mut picked = None;
 		let follow = std::mem::take(&mut self.follow);
@@ -475,6 +489,18 @@ fn row(
 			avatars.show(&mut child, user, 24.0, demo);
 			user.name.clone()
 		}
+		Candidate::Mass { name } => {
+			ui.painter()
+				.circle_filled(icon.center(), 12.0, colors.accent);
+			ui.painter().text(
+				icon.center(),
+				egui::Align2::CENTER_CENTER,
+				"@",
+				egui::FontId::proportional(16.0),
+				colors.accent_text,
+			);
+			format!("@{name}")
+		}
 		Candidate::Channel { name, .. } => {
 			crate::icons::paint(
 				ui.painter(),
@@ -552,6 +578,7 @@ fn row(
 			selected,
 			match candidate {
 				Candidate::User { user } => user.name.clone(),
+				Candidate::Mass { name } => format!("@{name}"),
 				Candidate::Channel { name, .. } => name.clone(),
 				Candidate::Unicode { code, .. } => (*code).to_owned(),
 				Candidate::Custom { name, server, .. } => format!("{name} from {server}"),
@@ -640,10 +667,11 @@ mod tests {
 		assert!(menu.candidates.is_empty());
 	}
 	#[test]
-	fn composer_enter_accepts_suggestion_without_sending_message() {
+	fn composer_enter_accepts_profile_channel_and_mass_mentions() {
 		for (draft, expected, guild, kind) in [
 			("@Zo", "<@42> ", None, 1),
 			("#Zo", "<#42> ", Some(Id(9)), 0),
+			("@eve", "@everyone ", Some(Id(9)), 0),
 		] {
 			let ctx = egui::Context::default();
 			let mut state = State {
@@ -688,7 +716,7 @@ mod tests {
 								color: 0,
 								position: 0,
 								hoist: false,
-								bits: p::VIEW_CHANNEL | p::SEND_MESSAGES,
+								bits: p::VIEW_CHANNEL | p::SEND_MESSAGES | p::MENTION_EVERYONE,
 							}]),
 							member: Some(p::Member {
 								roles: vec![],
@@ -718,7 +746,7 @@ mod tests {
 			edit_state
 				.cursor
 				.set_char_range(Some(egui::text::CCursorRange::one(
-					egui::text::CCursor::new(3),
+					egui::text::CCursor::new(draft.chars().count()),
 				)));
 			edit_state.store(&ctx, editor);
 			let mut output = ctx.run_ui(
