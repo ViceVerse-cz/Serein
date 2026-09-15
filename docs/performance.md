@@ -580,7 +580,7 @@ the current bounded Annex-B path remains OpenH264 software encoding.
 The standard macOS release package at the preceding `0e7d2a3` revision versus this
 follow-up changed from 66,716,336 to 66,716,480 executable bytes (+144), from
 72,626,189 to 72,626,333 installed bundle bytes (+144), and from 43,390,952 to
-43,393,404 ZIP bytes (+2,452). One package per revision used the same host and
+43,393,402 ZIP bytes (+2,450). One package per revision used the same host and
 `cargo xtask package`; ZIP compression noise is not a speed improvement or regression.
 
 
