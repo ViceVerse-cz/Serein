@@ -98,8 +98,13 @@ Background shows a clickable synthetic app map: select a top bar, list or messag
 area to edit that section's opacity. The image is shared, while colors and surface
 opacity can differ between Dark and Light. Choosing Save opens the tab with the
 first invalid field and shows a nearby error.
-The selected image has its own thumbnail. Duplicate and edit
-creates a new unreviewed identity from an installed theme. Colors, alpha, gradients,
+The selected image has its own thumbnail. Customize on a bundled or installed theme
+creates a new unreviewed identity; bundled originals do not require installation first.
+Local themes retain their Edit theme action and save to the same identity.
+Clicking a bundled or installed theme thumbnail temporarily previews it on the normal app.
+Back to themes restores the saved appearance and discards the temporary preview draft;
+Customize restores the saved appearance and opens that draft in the editor.
+Colors, alpha, gradients,
 typography, spacing and corners use the fields and bounds above. Preview in app
 temporarily applies the draft and closes Settings to show the normal conversation
 view, including the current account's loaded conversations. A persistent

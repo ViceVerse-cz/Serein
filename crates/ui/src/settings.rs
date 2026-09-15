@@ -133,6 +133,9 @@ impl Page {
 
 impl MessagingUi {
 	pub(super) fn theme_preview_navigation(&mut self, ui: &mut egui::Ui) {
+		if self.extensions.begin_gallery_preview(ui.ctx()) {
+			self.settings.open = false;
+		}
 		if self.settings.open {
 			self.extensions.stop_theme_preview(ui.ctx());
 		} else if self.extensions.theme_preview_bar(ui) {

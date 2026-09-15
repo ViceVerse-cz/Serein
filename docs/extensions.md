@@ -61,7 +61,10 @@ Catalog entries may include a short `description` (at most 256 characters and
 Use an original or licensed PNG/JPEG screenshot showing the theme or plugin in
 use. Pin its URL to an immutable release or source commit, then record the exact
 file size and digest. Prefer a 16:9 image; the shop preserves its aspect ratio.
-Bundled themes show expandable native palette previews using their actual colors.
+Bundled themes show palette thumbnails using their actual colors. Clicking a bundled
+or installed theme thumbnail previews its full appearance in the normal app, with
+Back to themes and Customize actions. Bundled themes can be customized without installing
+them first; saving creates an editable local copy and preserves the original package.
 Editor-created themes may embed a separate local card cover; it replaces the palette
 illustration and is center-cropped to 16:9. It is not a catalog preview URL and does
 not change the conversation background.

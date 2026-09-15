@@ -335,9 +335,14 @@ impl Bridge {
 					image,
 					cover,
 					local_theme,
-				}) => messaging
-					.extensions
-					.receive_theme_edit(package, image, cover, local_theme),
+					preview,
+				}) => messaging.extensions.receive_theme_edit(
+					package,
+					image,
+					cover,
+					local_theme,
+					preview,
+				),
 				Ok(Event::ThemeExported) => messaging.extensions.status = "Theme exported.".into(),
 				Ok(Event::LoggedOut | Event::Preview { .. }) => {}
 			}
@@ -416,8 +421,8 @@ impl Bridge {
 					self.theme_preview = theme.map(|theme| (theme, image));
 					self.apply_theme(ctx);
 				}
-				ExtensionRequest::EditTheme { id } => self.submit(
-					Job::EditTheme { id },
+				ExtensionRequest::EditTheme { id, preview } => self.submit(
+					Job::EditTheme { id, preview },
 					None,
 					state.generation,
 					ctx,

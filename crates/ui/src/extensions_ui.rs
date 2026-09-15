@@ -67,6 +67,7 @@ impl ExtensionContext {
 pub enum ExtensionRequest {
 	EditTheme {
 		id: String,
+		preview: bool,
 	},
 	PickThemeImage,
 	PickThemeCover,
@@ -155,6 +156,7 @@ pub struct ExtensionUi {
 	enlarged: Option<String>,
 	theme_editor: Option<crate::theme_editor::ThemeEditor>,
 	theme_editor_visible: bool,
+	gallery_preview: Option<String>,
 }
 impl ExtensionUi {
 	pub(crate) fn editing_theme(&self) -> bool {
@@ -176,11 +178,13 @@ impl ExtensionUi {
 		image: Option<Arc<egui::ColorImage>>,
 		cover: Option<Arc<egui::ColorImage>>,
 		local_theme: bool,
+		preview: bool,
 	) {
 		if self.theme_editor.is_none()
 			&& package.manifest.kind == ExtensionKind::Theme
 			&& package.theme.is_some()
 		{
+			self.gallery_preview = preview.then(|| package.manifest.name.clone());
 			self.theme_editor = Some(if local_theme {
 				crate::theme_editor::ThemeEditor::edit(package, image, cover)
 			} else {
@@ -253,6 +257,21 @@ impl ExtensionUi {
 				},
 			);
 		}
+		if self.gallery_preview.take().is_some() {
+			self.theme_editor = None;
+		}
+	}
+	pub(crate) fn begin_gallery_preview(&mut self, ctx: &egui::Context) -> bool {
+		if self.gallery_preview.is_none() || self.previewing_theme() {
+			return false;
+		}
+		let Some(editor) = &mut self.theme_editor else {
+			return false;
+		};
+		editor.preview = true;
+		let request = editor.preview_request();
+		self.queue(ctx, request);
+		true
 	}
 	pub(crate) fn begin_theme_editor_frame(&mut self) {
 		self.theme_editor_visible = false;
@@ -273,6 +292,7 @@ impl ExtensionUi {
 			design::ImageSection::TopBar,
 		);
 		let mut back = false;
+		let mut customize = false;
 		egui::Panel::top("theme-preview-return")
 			.show_separator_line(false)
 			.frame(
@@ -283,27 +303,36 @@ impl ExtensionUi {
 			.show(ui, |ui| {
 				ui.horizontal_wrapped(|ui| {
 					ui.label(
-						egui::RichText::new("Theme preview · Changes are not saved")
-							.size(14.0)
-							.color(colors.text),
+						egui::RichText::new(self.gallery_preview.as_ref().map_or_else(
+							|| "Theme preview · Changes are not saved".into(),
+							|name| format!("Previewing {name}"),
+						))
+						.size(14.0)
+						.color(colors.text),
 					);
-					back = ui
-						.add(
-							egui::Button::new(
-								egui::RichText::new("Back to theme editor")
-									.size(14.0)
-									.color(colors.accent_text),
-							)
-							.fill(colors.accent)
-							.min_size(egui::vec2(160.0, 32.0)),
-						)
-						.clicked();
+					back = design::button(
+						ui,
+						if self.gallery_preview.is_some() {
+							"Back to themes"
+						} else {
+							"Back to theme editor"
+						},
+						design::ButtonKind::Primary,
+					)
+					.clicked();
+					if self.gallery_preview.is_some() {
+						customize =
+							design::button(ui, "Customize", design::ButtonKind::Outline).clicked();
+					}
 				});
 			});
-		if back {
+		if customize {
+			self.gallery_preview = None;
+		}
+		if back || customize {
 			self.stop_theme_preview(ui.ctx());
 		}
-		back
+		back || customize
 	}
 	fn edit_theme(&mut self, ui: &mut egui::Ui) {
 		let Some(mut editor) = self.theme_editor.take() else {
@@ -445,6 +474,21 @@ impl ExtensionUi {
 		);
 		true
 	}
+	fn open_preview(&mut self, ctx: &egui::Context, entry: &ExtensionEntry) {
+		if entry.manifest.kind == ExtensionKind::Theme && entry.theme_preview.is_some() {
+			if !self.busy && !entry.cleanup_pending && self.theme_editor.is_none() {
+				self.queue(
+					ctx,
+					ExtensionRequest::EditTheme {
+						id: entry.manifest.id.clone(),
+						preview: true,
+					},
+				);
+			}
+		} else {
+			self.enlarged = Some(entry.manifest.id.clone());
+		}
+	}
 	fn preview_image(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -466,11 +510,18 @@ impl ExtensionUi {
 		{
 			draw_native_preview(ui, rect, entry, radius);
 			let response = ui.interact(rect, ui.id().with("enlarge-preview"), egui::Sense::click());
+			response.widget_info(|| {
+				egui::WidgetInfo::labeled(
+					egui::WidgetType::Button,
+					true,
+					format!("Preview {}", entry.manifest.name),
+				)
+			});
 			if response
 				.on_hover_text(format!("Preview {}", entry.manifest.name))
 				.clicked()
 			{
-				self.enlarged = Some(entry.manifest.id.clone());
+				self.open_preview(ui.ctx(), entry);
 			}
 			return;
 		}
@@ -545,7 +596,7 @@ impl ExtensionUi {
 					)
 				});
 				if response.on_hover_text("View preview").clicked() {
-					self.enlarged = Some(id.clone());
+					self.open_preview(ui.ctx(), entry);
 				}
 				return;
 			}
@@ -656,6 +707,7 @@ impl ExtensionUi {
 	}
 	pub fn reset_runtime(&mut self) {
 		self.theme_editor = None;
+		self.gallery_preview = None;
 		self.error = None;
 		self.result = None;
 		self.consent = None;
@@ -1352,6 +1404,46 @@ impl ExtensionUi {
 				}
 				return;
 			}
+			let panel_actions: Vec<_> = entry
+				.manifest
+				.actions
+				.iter()
+				.filter(|action| action.surface == Surface::Panel)
+				.collect();
+			let show_update = entry.update_available && !self.themes;
+			let count = 1
+				+ usize::from(self.themes && entry.theme_preview.is_some())
+				+ usize::from(show_update)
+				+ usize::from(!panel_actions.is_empty());
+			let each = ((ui.available_width() - 8.0 * (count - 1) as f32) / count as f32).max(1.0);
+			if self.themes
+				&& entry.theme_preview.is_some()
+				&& ui
+					.add_enabled_ui(!self.busy && self.theme_editor.is_none(), |ui| {
+						card_button(
+							ui,
+							if entry.local_theme {
+								"Edit theme"
+							} else {
+								"Customize"
+							},
+							egui::vec2(each, FOOTER_HEIGHT),
+							neutral,
+							outline,
+							colors.text_strong,
+						)
+					})
+					.inner
+					.clicked()
+			{
+				self.queue(
+					ui.ctx(),
+					ExtensionRequest::EditTheme {
+						id: entry.manifest.id.clone(),
+						preview: false,
+					},
+				);
+			}
 			if !entry.enabled {
 				if ui
 					.add_enabled_ui(!self.busy, |ui| {
@@ -1382,44 +1474,6 @@ impl ExtensionUi {
 					*enable = Some(entry.clone());
 				}
 				return;
-			}
-			let panel_actions: Vec<_> = entry
-				.manifest
-				.actions
-				.iter()
-				.filter(|action| action.surface == Surface::Panel)
-				.collect();
-			let show_update = entry.update_available && !self.themes;
-			let count = 1
-				+ usize::from(self.themes)
-				+ usize::from(show_update)
-				+ usize::from(!panel_actions.is_empty());
-			let each = ((ui.available_width() - 8.0 * (count - 1) as f32) / count as f32).max(1.0);
-			if self.themes
-				&& ui
-					.add_enabled_ui(!self.busy && self.theme_editor.is_none(), |ui| {
-						card_button(
-							ui,
-							if entry.local_theme {
-								"Edit theme"
-							} else {
-								"Copy & edit"
-							},
-							egui::vec2(each, FOOTER_HEIGHT),
-							neutral,
-							outline,
-							colors.text_strong,
-						)
-					})
-					.inner
-					.clicked()
-			{
-				self.queue(
-					ui.ctx(),
-					ExtensionRequest::EditTheme {
-						id: entry.manifest.id.clone(),
-					},
-				);
 			}
 			if update_requested
 				|| (show_update
@@ -1928,7 +1982,7 @@ fn request_bytes(request: &ExtensionRequest) -> usize {
 		+ match request {
 			ExtensionRequest::PickThemeImage => 0,
 			ExtensionRequest::PickThemeCover => 0,
-			ExtensionRequest::EditTheme { id } => id.len(),
+			ExtensionRequest::EditTheme { id, .. } => id.len(),
 			ExtensionRequest::SaveTheme { package } | ExtensionRequest::ExportTheme { package } => {
 				package.background_image.len()
 					+ package.cover_image.len()
@@ -2309,6 +2363,58 @@ mod tests {
 		}
 	}
 	#[test]
+	fn original_theme_customization_and_gallery_preview_return() {
+		for action in ["Back to themes", "Customize"] {
+			let ctx = egui::Context::default();
+			let mut shop = ExtensionUi {
+				themes: true,
+				..Default::default()
+			};
+			let package = crate::theme_editor::ThemeEditor::new().package;
+			let original_id = package.manifest.id.clone();
+			let mut original = entry();
+			original.manifest = package.manifest.clone();
+			original.theme_preview = package.theme.clone();
+			shop.set_entries(vec![original.clone()]);
+			frame(&ctx, &mut shop, 900.0, vec![]);
+			let labels = frame(&ctx, &mut shop, 900.0, vec![]);
+			click(&ctx, &mut shop, 900.0, &labels, "Customize");
+			assert!(matches!(
+				shop.requests.pop(),
+				Some(ExtensionRequest::EditTheme { preview: false, .. })
+			));
+			shop.open_preview(&ctx, &original);
+			assert!(shop.enlarged.is_none());
+			assert!(matches!(
+				shop.requests.pop(),
+				Some(ExtensionRequest::EditTheme { preview: true, .. })
+			));
+			shop.receive_theme_edit(package, None, None, false, true);
+			assert!(shop.begin_gallery_preview(&ctx));
+			assert!(!shop.begin_gallery_preview(&ctx));
+			assert!(matches!(
+				shop.requests.pop(),
+				Some(ExtensionRequest::PreviewTheme { theme: Some(_), .. })
+			));
+			frame(&ctx, &mut shop, 900.0, vec![]);
+			let labels = frame(&ctx, &mut shop, 900.0, vec![]);
+			click(&ctx, &mut shop, 900.0, &labels, action);
+			assert!(!shop.previewing_theme());
+			assert!(shop.gallery_preview.is_none());
+			assert!(matches!(
+				shop.requests.pop(),
+				Some(ExtensionRequest::PreviewTheme { theme: None, .. })
+			));
+			if action == "Customize" {
+				let editor = shop.theme_editor.as_ref().unwrap();
+				assert_ne!(editor.package.manifest.id, original_id);
+				assert!(editor.dirty);
+			} else {
+				assert!(shop.theme_editor.is_none());
+			}
+		}
+	}
+	#[test]
 	fn local_theme_opens_for_edit_and_cover_replaces_palette_preview() {
 		let ctx = egui::Context::default();
 		let mut shop = ExtensionUi {
@@ -2345,19 +2451,25 @@ mod tests {
 		assert!(!shop.previews.contains_key("local-cover"));
 		click(&ctx, &mut shop, 900.0, &labels, "Edit theme");
 		assert!(shop.requests.iter().any(
-			|request| matches!(request, ExtensionRequest::EditTheme { id } if id == "local-cover")
+			|request| matches!(request, ExtensionRequest::EditTheme { id, .. } if id == "local-cover")
 		));
 
 		let mut package = crate::theme_editor::ThemeEditor::new().package;
 		package.manifest.id = "local-cover".into();
-		shop.receive_theme_edit(package.clone(), None, local.cover_image.clone(), true);
+		shop.receive_theme_edit(
+			package.clone(),
+			None,
+			local.cover_image.clone(),
+			true,
+			false,
+		);
 		assert_eq!(
 			shop.theme_editor.as_ref().unwrap().package.manifest.id,
 			"local-cover"
 		);
 		assert!(!shop.theme_editor.as_ref().unwrap().dirty);
 		shop.theme_editor = None;
-		shop.receive_theme_edit(package, None, local.cover_image.clone(), false);
+		shop.receive_theme_edit(package, None, local.cover_image.clone(), false, false);
 		assert_ne!(
 			shop.theme_editor.as_ref().unwrap().package.manifest.id,
 			"local-cover"
@@ -2444,7 +2556,11 @@ mod tests {
 				..Default::default()
 			},
 			|ui| {
-				extensions.settings(ui, &State::default());
+				if extensions.previewing_theme() {
+					extensions.theme_preview_bar(ui);
+				} else {
+					extensions.settings(ui, &State::default());
+				}
 			},
 		);
 		let mut labels = vec![];

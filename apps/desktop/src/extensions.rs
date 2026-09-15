@@ -48,6 +48,7 @@ pub enum InstallSource {
 pub enum Job {
 	EditTheme {
 		id: String,
+		preview: bool,
 	},
 	SaveTheme {
 		package: Box<Package>,
@@ -297,6 +298,7 @@ pub enum Event {
 		image: Option<Arc<eframe::egui::ColorImage>>,
 		cover: Option<Arc<eframe::egui::ColorImage>>,
 		local_theme: bool,
+		preview: bool,
 	},
 	ThemeExported,
 	Loaded {
@@ -565,7 +567,7 @@ fn validate_job(job: &Job) -> Result<(), String> {
 			valid_id(id)?;
 			preview.validate().map_err(|e| e.to_string())?;
 		}
-		Job::SelectTheme { id: Some(id) } | Job::Disable { id, .. } | Job::EditTheme { id } => {
+		Job::SelectTheme { id: Some(id) } | Job::Disable { id, .. } | Job::EditTheme { id, .. } => {
 			valid_id(id)?
 		}
 		Job::SaveTheme { package } | Job::ExportTheme { package, .. } => {
@@ -593,22 +595,41 @@ fn validate_job(job: &Job) -> Result<(), String> {
 fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 	gate.check()?;
 	match job {
-		Job::EditTheme { id } => {
+		Job::EditTheme { id, preview } => {
 			valid_id(&id)?;
 			let directory = root.join("themes").join(&id);
-			let stored = read_stored(&directory.join("package.json"))?;
-			if stored.package.manifest.id != id
-				|| stored.package.manifest.kind != ExtensionKind::Theme
-				|| directory.with_extension("disabled").exists()
-			{
-				return Err("Theme is not installed".into());
+			if directory.with_extension("disabled").exists() {
+				return Err("Theme cleanup is pending".into());
 			}
-			let image = package_background(&stored.package)?;
-			let cover = package_cover(&stored.package)?;
+			let (package, local_theme) = if directory.exists() {
+				let stored = read_stored(&directory.join("package.json"))?;
+				(stored.package, stored.local_theme)
+			} else {
+				let starter = starters()?
+					.into_iter()
+					.find(|starter| {
+						matches!(&starter.source, InstallSource::Bundled { manifest, .. }
+						if manifest.id == id && manifest.kind == ExtensionKind::Theme)
+					})
+					.ok_or("Theme is not available locally")?;
+				let InstallSource::Bundled { bytes, .. } = starter.source else {
+					return Err("Theme is not bundled".into());
+				};
+				(
+					extensions::parse_package(bytes).map_err(|error| error.to_string())?,
+					false,
+				)
+			};
+			if package.manifest.id != id || package.manifest.kind != ExtensionKind::Theme {
+				return Err("Theme does not match the requested package".into());
+			}
+			let image = package_background(&package)?;
+			let cover = package_cover(&package)?;
 			gate.check()?;
 			Ok(Event::EditTheme {
-				local_theme: stored.local_theme,
-				package: Box::new(stored.package),
+				local_theme,
+				preview,
+				package: Box::new(package),
 				image,
 				cover,
 			})
@@ -1489,6 +1510,59 @@ mod tests {
 			wake_cancel: Arc::new(tokio::sync::Notify::new()),
 		}
 	}
+	#[test]
+	fn bundled_themes_open_without_installing_and_preserve_preview_intent() {
+		let profile = Profile::new();
+		let root = profile.0.join("extensions");
+		for starter in starters().unwrap() {
+			let InstallSource::Bundled { manifest, .. } = starter.source else {
+				unreachable!()
+			};
+			let result = run(
+				&root,
+				Job::EditTheme {
+					id: manifest.id.clone(),
+					preview: true,
+				},
+				&gate(),
+			);
+			if manifest.kind == ExtensionKind::Theme {
+				let Event::EditTheme {
+					package,
+					local_theme,
+					preview,
+					..
+				} = result.unwrap()
+				else {
+					panic!("expected theme")
+				};
+				assert_eq!(package.manifest.id, manifest.id);
+				assert!(package.theme.is_some());
+				assert!(preview && !local_theme);
+			} else {
+				assert!(result.is_err());
+			}
+		}
+		assert!(!root.exists(), "preview must not install a theme");
+		let original =
+			extensions::parse_package(include_bytes!("../../../extensions/ocean.serein-extension"))
+				.unwrap();
+		let directory = root.join("themes").join(&original.manifest.id);
+		fs::create_dir_all(&directory).unwrap();
+		fs::write(directory.join("package.json"), b"invalid").unwrap();
+		assert!(
+			run(
+				&root,
+				Job::EditTheme {
+					id: original.manifest.id,
+					preview: false
+				},
+				&gate()
+			)
+			.is_err(),
+			"do not hide a corrupt installed package behind the bundled original"
+		);
+	}
 	fn theme(id: &str) -> Package {
 		Package {
 			manifest: Manifest {
@@ -1546,6 +1620,7 @@ mod tests {
 			&root,
 			Job::EditTheme {
 				id: "local-cover".into(),
+				preview: false,
 			},
 			&gate(),
 		)
