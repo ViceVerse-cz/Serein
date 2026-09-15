@@ -1,3 +1,26 @@
+# Compact theme gallery - September 15, 2026
+
+Baseline: `cf4bcc2`. After: `ae36f54`. Both standard Windows x64 portable
+packages include voice and use pinned Rust 1.98.1 MSVC with locked
+`cargo xtask package`. Builds ran serially in the owned package worktree with
+the same Cargo target; the baseline distribution was copied to a separate
+directory before building the after revision. The root `dist` was untouched.
+Both packages contain 186 files. `makensis` was unavailable; no installer was
+built. The OpenH264 LNK4255 linker warning was nonfatal.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 70,965,248 | 71,029,760 | +64,512 (+0.091%) |
+| Full portable package, bytes | 75,031,311 | 75,095,823 | +64,512 (+0.086%) |
+| ZIP, PowerShell Compress-Archive Optimal, bytes | 42,835,573 | 42,850,464 | +14,891 (+0.035%) |
+
+Each ZIP contains the corresponding `dist/*`; package size sums every file.
+This is a size comparison, not a UI speed or memory result. Matched release
+CPU, memory, and frame-time measurements remain unavailable because native
+window capture/control is disabled and Orca is absent. The inspected synthetic
+debug egui/WGPU renders under `docs/pr-evidence/theme-gallery` separately cover
+layout; they are not native OS screenshots or live Discord evidence.
+
 # Theme card covers and local editing - September 15, 2026
 
 Baseline: `c36b5a2` on `feat/theme-maker`; intervening `e925b0b` changed only
