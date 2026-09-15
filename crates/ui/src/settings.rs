@@ -102,10 +102,10 @@ impl Page {
 			Self::Account => "my account profile logout",
 			Self::Profile => "profile edit display name about me bio pronouns color colour",
 			Self::General => {
-				"general windows macos login menu bar startup autostart automatically open minimized minimize tray background title bar caption"
+				"general windows macos login menu bar startup autostart automatically open minimized minimize tray background"
 			}
 			Self::Appearance => {
-				"appearance customization primary accent hex window tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
+				"appearance customization primary accent hex window title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
@@ -654,18 +654,6 @@ impl MessagingUi {
 
 	fn general_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
-		#[cfg(target_os = "windows")]
-		{
-			design::card(ui, |ui| {
-				design::switch(
-					ui,
-					"Hide Serein title bar",
-					Some("Use the Windows title bar and window buttons instead."),
-					&mut self.hide_title_bar,
-				);
-			});
-			ui.add_space(12.0);
-		}
 		ui.add_enabled_ui(self.startup_available && !self.startup_busy, |ui| {
 			design::switch(
 				ui,
@@ -774,6 +762,19 @@ impl MessagingUi {
 		ui.add_space(8.0);
 		ui.label(design::eyebrow(ui, "Theme", colors.muted));
 		theme_preference_cards(ui);
+		#[cfg(target_os = "windows")]
+		{
+			ui.add_space(8.0);
+			ui.label(design::eyebrow(ui, "Window", colors.muted));
+			design::card(ui, |ui| {
+				design::switch(
+					ui,
+					"Hide Serein title bar",
+					Some("Use the Windows title bar and window buttons instead."),
+					&mut self.hide_title_bar,
+				);
+			});
+		}
 		ui.add_space(8.0);
 		ui.label(design::eyebrow(ui, "Customization", colors.muted));
 		design::card(ui, |ui| {

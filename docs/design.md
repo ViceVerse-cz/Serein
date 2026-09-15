@@ -64,7 +64,7 @@ CFF builds with binning on looked soft on 1x Windows and Linux displays. See
 ## Layout
 
 - 36px title strip (`base`): hidden native title bar on macOS with traffic lights inline, centred
-  context title, session status text and an OFFLINE PREVIEW / EXPERIMENTAL pill. Windows General
+  context title, session status text and an OFFLINE PREVIEW / EXPERIMENTAL pill. Windows Appearance
   settings can hide the app strip and use native window decorations instead.
 - 72px server rail (`base`): 48px home button and server icons (circle, rounded square when
   hovered/selected), white edge pill (8px unread, 20px hover, 40px selected), red mention badges.
