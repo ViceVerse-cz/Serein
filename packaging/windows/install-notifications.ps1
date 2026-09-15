@@ -42,7 +42,7 @@ public static class SereinShortcut {
         IPropertyStore store;
         SHGetPropertyStoreFromParsingName(path, IntPtr.Zero, 2, ref iid, out store);
         PropertyKey key = new PropertyKey { format = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), id = 5 };
-        PropVariant value = new PropVariant { type = 31, value = Marshal.StringToCoTaskMemUni("org.serein.desktop") };
+        PropVariant value = new PropVariant { type = 31, value = Marshal.StringToCoTaskMemUni("cz.viceverse.serein") };
         try { store.SetValue(ref key, ref value); store.Commit(); }
         finally { Marshal.FreeCoTaskMem(value.value); Marshal.FinalReleaseComObject(store); }
     }

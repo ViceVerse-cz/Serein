@@ -66,7 +66,7 @@ Flatpak is the recommended distribution format for Linux, featuring sandbox isol
   Download `Serein-linux.flatpak` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases):
   ```sh
   flatpak install --user ./Serein-linux.flatpak
-  flatpak run org.serein.desktop
+  flatpak run cz.viceverse.serein
   ```
 
 See [Flatpak guide](packaging/flatpak/README.md) for sandbox permissions and source build details.
@@ -105,7 +105,7 @@ Keep the AppImage in a writable directory to receive in-app updates via **Settin
 #### 1. Setup Installer (Recommended)
 Download `serein-<version>-Windows-X64-Setup.exe` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases) and run it:
 - Installs per-user to `%LOCALAPPDATA%\Programs\Serein` without requiring administrator/UAC elevation.
-- Automatically registers Start Menu shortcuts and configures AppUserModelID (`org.serein.desktop`) for native Windows toast notifications.
+- Automatically registers Start Menu shortcuts and configures AppUserModelID (`cz.viceverse.serein`) for native Windows toast notifications.
 - Registers in Windows Settings (Installed Apps / Add or Remove Programs) with full uninstall support.
 - Fully compatible with in-app self-updates: updates automatically synchronize the registered version.
 

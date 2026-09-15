@@ -1,5 +1,5 @@
 {
-  "app-id": "org.serein.desktop",
+  "app-id": "cz.viceverse.serein",
   "runtime": "org.gnome.Platform",
   "runtime-version": "49",
   "sdk": "org.gnome.Sdk",
@@ -29,7 +29,7 @@
         "cargo xtask package --format dir",
         "cp -a dist/linux-root/usr/. /app/",
         "rm -f /app/share/icons/hicolor/1024x1024/apps/serein.png",
-        "install -Dm644 packaging/flatpak/org.serein.desktop.metainfo.xml /app/share/metainfo/org.serein.desktop.metainfo.xml"
+        "install -Dm644 packaging/flatpak/cz.viceverse.serein.metainfo.xml /app/share/metainfo/cz.viceverse.serein.metainfo.xml"
       ],
       "sources": [{"type": "dir", "path": "source"}]
     }

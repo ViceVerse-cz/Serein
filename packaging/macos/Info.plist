@@ -3,7 +3,7 @@
 <plist version="1.0"><dict>
 <key>CFBundleName</key><string>Serein</string>
 <key>CFBundleDisplayName</key><string>Serein</string>
-<key>CFBundleIdentifier</key><string>org.serein.desktop</string>
+<key>CFBundleIdentifier</key><string>cz.viceverse.serein</string>
 <key>CFBundleExecutable</key><string>serein</string>
 <key>CFBundleIconFile</key><string>Serein.icns</string>
 <key>CFBundleIconName</key><string>Serein</string>

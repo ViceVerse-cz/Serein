@@ -49,7 +49,7 @@ def stage_payload(root, stage, prefix="usr"):
         raise ValueError("Installation prefix must be usr or app")
     doc = stage / prefix / "share/doc/serein"
     copy(root / "serein", stage / prefix / "bin/serein")
-    desktop = stage / prefix / "share/applications/org.serein.desktop.desktop"
+    desktop = stage / prefix / "share/applications/cz.viceverse.serein.desktop"
     desktop.parent.mkdir(parents=True)
     desktop.write_text(Path("packaging/linux/serein.desktop").read_text(), encoding="utf-8")
     copy(Path("packaging/linux/hicolor"), stage / prefix / "share/icons/hicolor")
@@ -98,7 +98,7 @@ def smoke(package, stage, temporary, version, architecture, depends):
     checked("dpkg-deb", "--control", str(package), str(control))
     if payload_files(control) != ["control"]:
         raise ValueError("Unexpected control files or maintainer scripts")
-    checked("desktop-file-validate", str(extracted / "usr/share/applications/org.serein.desktop.desktop"))
+    checked("desktop-file-validate", str(extracted / "usr/share/applications/cz.viceverse.serein.desktop"))
     libraries = output("ldd", str(extracted / "usr/bin/serein"))
     if "not found" in libraries:
         raise ValueError(f"Unresolved packaged executable dependencies:\n{libraries}")
@@ -159,7 +159,7 @@ def package(root, application_version):
             encoding="utf-8")
         for path in [stage, *stage.rglob("*")]:
             path.chmod(0o755 if path.is_dir() or path == stage / "usr/bin/serein" else 0o644)
-        checked("desktop-file-validate", str(stage / "usr/share/applications/org.serein.desktop.desktop"))
+        checked("desktop-file-validate", str(stage / "usr/share/applications/cz.viceverse.serein.desktop"))
         artifact = root / f"serein_{version}_{architecture}.deb"
         candidate = temporary / artifact.name
         checked("dpkg-deb", "--root-owner-group", "-Zxz", "--build", str(stage), str(candidate))
@@ -214,7 +214,7 @@ def native_package(root, application_version, format):
         temporary = Path(directory).resolve()
         stage = temporary / "payload"
         stage_payload(root, stage)
-        checked("desktop-file-validate", str(stage / "usr/share/applications/org.serein.desktop.desktop"))
+        checked("desktop-file-validate", str(stage / "usr/share/applications/cz.viceverse.serein.desktop"))
         libraries = output("ldd", str(stage / "usr/bin/serein"))
         if "not found" in libraries:
             raise ValueError(f"Unresolved packaged executable dependencies:\n{libraries}")
@@ -254,7 +254,7 @@ def rpm_package(temporary, stage, application_version, distro):
         "Unofficial, experimental, and not endorsed by Discord.\n"
         "\n%install\nmkdir -p %{buildroot}\ncp -a %{_serein_payload}/. %{buildroot}/\n"
         "\n%files\n%defattr(-,root,root,-)\n/usr/bin/serein\n"
-        "/usr/share/applications/org.serein.desktop.desktop\n/usr/share/doc/serein\n"
+        "/usr/share/applications/cz.viceverse.serein.desktop\n/usr/share/doc/serein\n"
         + "".join(f"/{name}\n" for name in payload_files(stage) if name.startswith("usr/share/icons/")),
         encoding="utf-8")
     # Paths are passed as RPM macro values; reject macro/shell metacharacters.

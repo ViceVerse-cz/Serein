@@ -83,7 +83,7 @@ logs, and stale license files. Temporary files are removed when packaging finish
 or raises an error.
 
 The archive installs `/usr/bin/serein`, a launcher in
-`/usr/share/applications/org.serein.desktop.desktop`, and notices and licenses under
+`/usr/share/applications/cz.viceverse.serein.desktop`, and notices and licenses under
 `/usr/share/doc/serein`. No maintainer
 scripts, background updater, automatic launch or user-profile writes are added.
 For a deliberate manual installation, use the local file:
