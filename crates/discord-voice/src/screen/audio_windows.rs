@@ -75,6 +75,7 @@ impl Drop for Audio {
 #[allow(unsafe_code)]
 mod native {
 	use super::*;
+	use crate::diagnostics::{Metrics, Scope, Stage};
 	use std::{
 		mem::{ManuallyDrop, size_of},
 		os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
@@ -131,12 +132,18 @@ mod native {
 	pub(super) fn run(input: &Samples, started: SyncSender<()>) -> Result<()> {
 		// This dedicated thread initializes and releases all COM objects in one MTA.
 		unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
-		let result = capture(input, started);
+		let result = (|| {
+			let mut started = Some(started);
+			while !input.stop.load(Ordering::Acquire) && !input.send.is_closed() {
+				capture(input, &mut started)?;
+			}
+			Ok(())
+		})();
 		unsafe { CoUninitialize() };
 		result
 	}
 
-	fn capture(input: &Samples, started: SyncSender<()>) -> Result<()> {
+	fn capture(input: &Samples, started: &mut Option<SyncSender<()>>) -> Result<()> {
 		if input.stop.load(Ordering::Acquire) {
 			return Err(E_FAIL.into());
 		}
@@ -226,9 +233,16 @@ mod native {
 			return Err(E_FAIL.into());
 		}
 		let epoch = input.epoch.load(Ordering::Acquire);
+		let mut metrics = Metrics::new(Scope::ScreenAudio);
+		metrics.checkpoint();
+		let start = metrics.start();
 		unsafe { client.Start()? };
-		let _ = started.try_send(());
-		let result = packets(input, &client, &capture, &event, epoch);
+		metrics.finish(Stage::CaptureRestart, start);
+		metrics.checkpoint();
+		if let Some(started) = started.take() {
+			let _ = started.try_send(());
+		}
+		let result = packets(input, &capture, &event, epoch, &mut metrics);
 		// Always stop before releasing the capture client and event, including packet errors.
 		let stopped = unsafe { client.Stop() };
 		result.and(stopped)
@@ -236,27 +250,29 @@ mod native {
 
 	fn packets(
 		input: &Samples,
-		client: &IAudioClient,
 		capture: &IAudioCaptureClient,
 		event: &OwnedHandle,
-		mut epoch: u64,
+		epoch: u64,
+		metrics: &mut Metrics,
 	) -> Result<()> {
 		while !input.stop.load(Ordering::Acquire) && !input.send.is_closed() {
-			let current = input.epoch.load(Ordering::Acquire);
-			if current != epoch {
-				// Native packets queued before a DAVE rekey must never acquire the new epoch.
-				unsafe {
-					client.Stop()?;
-					client.Reset()?;
-					client.Start()?;
-				}
-				epoch = current;
+			if input.epoch.load(Ordering::Acquire) != epoch {
+				// Stop/Reset/Start can leave process loopback permanently empty on Windows.
+				// Recreate it instead; the old client's immutable epoch prevents buffered
+				// audio from being relabeled across the encryption transition.
+				metrics.poll(true, 0, false, 0);
+				metrics.checkpoint();
+				return Ok(());
 			}
 			match unsafe { WaitForSingleObject(HANDLE(event.as_raw_handle()), 50) } {
-				WAIT_TIMEOUT => continue,
+				WAIT_TIMEOUT => {
+					metrics.poll(false, 0, true, 0);
+					continue;
+				}
 				WAIT_OBJECT_0 => {}
 				_ => return Err(E_FAIL.into()),
 			}
+			let mut dropped = 0;
 			// Bound work per wakeup as well as the bytes in each packet.
 			for _ in 0..32 {
 				if input.stop.load(Ordering::Acquire)
@@ -264,21 +280,29 @@ mod native {
 				{
 					break;
 				}
+				let start = metrics.start();
 				let (mut data, mut frames, mut flags) = (std::ptr::null_mut(), 0, 0);
 				unsafe { capture.GetBuffer(&mut data, &mut frames, &mut flags, None, None)? };
+				metrics.finish(Stage::CaptureRead, start);
 				let count = (frames as usize).saturating_mul(2);
 				let valid = count <= MAX_AUDIO_SAMPLES
 					&& (flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0
 						|| (!data.is_null() && data.align_offset(align_of::<f32>()) == 0));
 				if valid && count != 0 {
-					if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
-						input.push_at(&[0.0; MAX_AUDIO_SAMPLES][..count], epoch);
+					let start = metrics.start();
+					let queued = if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
+						input.push_at(&[0.0; MAX_AUDIO_SAMPLES][..count], epoch)
 					} else {
 						// WASAPI guarantees frames of the initialized format until ReleaseBuffer.
 						input.push_at(
 							unsafe { std::slice::from_raw_parts(data.cast::<f32>(), count) },
 							epoch,
-						);
+						)
+					};
+					if queued {
+						metrics.finish(Stage::CaptureQueue, start);
+					} else {
+						dropped += 1;
 					}
 				}
 				unsafe { capture.ReleaseBuffer(frames)? };
@@ -286,6 +310,7 @@ mod native {
 					return Err(E_FAIL.into());
 				}
 			}
+			metrics.poll(false, dropped, false, 0);
 		}
 		Ok(())
 	}
@@ -325,20 +350,20 @@ impl Samples {
 		self.push_at(data, epoch);
 	}
 
-	fn push_at(&self, data: &[f32], epoch: u64) {
+	fn push_at(&self, data: &[f32], epoch: u64) -> bool {
 		if self.stop.load(Ordering::Acquire)
 			|| !self.ready.load(Ordering::Acquire)
 			|| epoch != self.epoch.load(Ordering::Acquire)
 		{
-			return;
+			return false;
 		}
 		if data.len() > MAX_AUDIO_SAMPLES || !data.len().is_multiple_of(2) {
 			self.failed.store(true, Ordering::Release);
 			self.stop.store(true, Ordering::Release);
-			return;
+			return false;
 		}
 		if data.is_empty() {
-			return;
+			return false;
 		}
 		// Reserve first: a stalled transport must not allocate for dropped packets.
 		if let Ok(permit) = self.send.try_reserve() {
@@ -357,8 +382,10 @@ impl Samples {
 				&& epoch == self.epoch.load(Ordering::Acquire)
 			{
 				permit.send(AudioChunk { samples, epoch });
+				return true;
 			}
 		}
+		false
 	}
 }
 
@@ -376,17 +403,17 @@ mod tests {
 			epoch: Arc::new(AtomicU64::new(7)),
 			failed: Arc::new(AtomicBool::new(false)),
 		};
-		samples.push(&[0.25, -0.25]);
+		assert!(!samples.push_at(&[0.25, -0.25], 7));
 		assert!(receive.try_recv().is_err());
 		samples.ready.store(true, Ordering::Release);
-		samples.push(&[f32::NAN, f32::INFINITY, -2.0, 2.0]);
-		samples.push(&[0.5, -0.5]); // Full queue drops the new chunk.
+		assert!(samples.push_at(&[f32::NAN, f32::INFINITY, -2.0, 2.0], 7));
+		assert!(!samples.push_at(&[0.5, -0.5], 7)); // Full queue drops the new chunk.
 		samples.epoch.store(8, Ordering::Release);
 		let chunk = receive.try_recv().unwrap();
 		assert_eq!(chunk.samples, vec![0.0, 0.0, -1.0, 1.0]);
 		assert_eq!(chunk.epoch, 7); // Queued samples retain their capture generation.
 		assert!(receive.try_recv().is_err());
-		samples.push_at(&[0.25, -0.25], 7); // A native wakeup that crosses rekey is stale.
+		assert!(!samples.push_at(&[0.25, -0.25], 7)); // A native wakeup across rekey is stale.
 		assert!(receive.try_recv().is_err());
 		samples.push(&vec![0.0; MAX_AUDIO_SAMPLES]);
 		let chunk = receive.try_recv().unwrap();

@@ -675,3 +675,15 @@ NSIS remains unavailable. No dependency change. Diagnostic reports retain their
 eight-item queue and process-wide 128-report / 64-KiB output limits. Disabled
 diagnostics still evaluate a few state flags/atomic loads on the 50-Hz stream tick.
 CPU/RSS and end-to-end media latency remain unmeasured; no speed improvement is claimed.
+
+### Windows loopback recreation follow-up
+
+Against the preserved `14456e9` package, the same standard Windows release package
+has a 72,580,608-byte executable (+2,048), 76,649,684 total package bytes (+2,048),
+and a 43,295,212-byte Optimal ZIP (+95); still 187 files. Native capture clients are
+released and recreated sequentially on encryption epoch changes, preserving existing
+packet and queue bounds. No dependency change. The owner confirmed audible shared
+browser audio; the release sender log records about 50 audio packets/s and 19–22
+video frames/s after negotiation. These are sender counters from one owner test,
+not a controlled performance comparison or proof of smooth viewer playback.
+The owner still reports intermittent lag; viewer-side diagnostics are pending.
