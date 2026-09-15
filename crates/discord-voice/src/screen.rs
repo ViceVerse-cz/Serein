@@ -10,6 +10,9 @@ mod audio_windows;
 #[cfg(not(target_os = "linux"))]
 #[path = "screen/capture.rs"]
 mod capture;
+#[cfg(target_os = "windows")]
+#[path = "screen/encode_windows.rs"]
+mod encode_windows;
 #[cfg(target_os = "linux")]
 #[path = "screen/gstreamer.rs"]
 mod gstreamer;
@@ -336,17 +339,11 @@ fn encode_loop(
 			continue;
 		}
 		if encoding.is_none() {
-			encoding = Some((
-				encoder(settings)?,
-				YUVBuffer::new(settings.width as usize, settings.height as usize),
-			));
+			encoding = Some(ScreenEncoder::new(settings)?);
 		}
-		let (encoder, yuv) = encoding.as_mut().expect("secure screen encoder");
 		let pixels = fit_frame(frame, settings.width, settings.height)?;
 		let force_keyframe = keyframe.swap(false, Ordering::AcqRel);
-		let (data, is_keyframe) = encode_pixels(
-			encoder,
-			yuv,
+		let (data, is_keyframe) = encoding.as_mut().expect("secure screen encoder").encode(
 			&pixels,
 			(settings.width as usize, settings.height as usize),
 			force_keyframe,
@@ -373,6 +370,89 @@ fn encode_loop(
 	Ok(())
 }
 
+#[cfg(not(target_os = "linux"))]
+struct ScreenEncoder {
+	software: Option<Encoder>,
+	yuv: YUVBuffer,
+	#[cfg(target_os = "windows")]
+	hardware: Option<encode_windows::Encoder>,
+	#[cfg(target_os = "windows")]
+	settings: Settings,
+}
+
+#[cfg(not(target_os = "linux"))]
+impl ScreenEncoder {
+	fn new(settings: Settings) -> Result<Self, &'static str> {
+		#[cfg(target_os = "windows")]
+		let hardware = encode_windows::Encoder::new(settings).ok();
+		#[cfg(not(target_os = "windows"))]
+		let software = Some(encoder(settings)?);
+		#[cfg(target_os = "windows")]
+		let software = if hardware.is_none() {
+			Some(encoder(settings)?)
+		} else {
+			None
+		};
+		Ok(Self {
+			software,
+			yuv: YUVBuffer::new(settings.width as usize, settings.height as usize),
+			#[cfg(target_os = "windows")]
+			hardware,
+			#[cfg(target_os = "windows")]
+			settings,
+		})
+	}
+
+	fn encode(
+		&mut self,
+		pixels: &[u8],
+		dimensions: (usize, usize),
+		force_keyframe: bool,
+	) -> Result<(Vec<u8>, bool), &'static str> {
+		self.yuv.read_bgra8(BgraSliceU8::new(pixels, dimensions));
+		#[cfg(target_os = "windows")]
+		let mut software_force = force_keyframe;
+		#[cfg(not(target_os = "windows"))]
+		let software_force = force_keyframe;
+		#[cfg(target_os = "windows")]
+		{
+			use openh264::formats::YUVSource;
+			if let Some(hardware) = self.hardware.as_mut() {
+				let encoded =
+					hardware.encode(self.yuv.y(), self.yuv.u(), self.yuv.v(), force_keyframe);
+				if let Ok(encoded) = encoded {
+					return Ok(encoded);
+				}
+				self.hardware = None;
+				self.software = Some(encoder(self.settings)?);
+				software_force = true;
+			}
+		}
+		encode_yuv(
+			self.software.as_mut().expect("software screen encoder"),
+			&self.yuv,
+			software_force,
+		)
+	}
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn i420_to_nv12(y: &[u8], u: &[u8], v: &[u8], output: &mut [u8]) -> Result<(), &'static str> {
+	if u.len() != v.len() || y.len() != u.len() * 4 || output.len() != y.len() + u.len() + v.len() {
+		return Err("Invalid screen encoder color planes");
+	}
+	output[..y.len()].copy_from_slice(y);
+	for (pair, (&u, &v)) in output[y.len()..]
+		.as_chunks_mut::<2>()
+		.0
+		.iter_mut()
+		.zip(u.iter().zip(v))
+	{
+		pair.copy_from_slice(&[u, v]);
+	}
+	Ok(())
+}
+
 pub(super) fn encoder(settings: Settings) -> Result<Encoder, &'static str> {
 	let config = EncoderConfig::new()
 		.bitrate(BitRate::from_bps(settings.bit_rate()))
@@ -394,6 +474,7 @@ fn encoder_threads() -> u16 {
 	std::thread::available_parallelism().map_or(2, |count| count.get().clamp(2, 8) as u16)
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(super) fn encode_pixels(
 	encoder: &mut Encoder,
 	yuv: &mut YUVBuffer,
@@ -402,6 +483,14 @@ pub(super) fn encode_pixels(
 	force_keyframe: bool,
 ) -> Result<(Vec<u8>, bool), &'static str> {
 	yuv.read_bgra8(BgraSliceU8::new(pixels, dimensions));
+	encode_yuv(encoder, yuv, force_keyframe)
+}
+
+fn encode_yuv(
+	encoder: &mut Encoder,
+	yuv: &YUVBuffer,
+	force_keyframe: bool,
+) -> Result<(Vec<u8>, bool), &'static str> {
 	if force_keyframe {
 		encoder.force_intra_frame();
 	}
@@ -605,5 +694,13 @@ mod tests {
 			)
 			.is_err()
 		);
+	}
+
+	#[test]
+	fn interleaves_i420_chroma_for_windows_nv12() {
+		let mut nv12 = [0; 12];
+		i420_to_nv12(&[1, 2, 3, 4, 5, 6, 7, 8], &[9, 10], &[11, 12], &mut nv12).unwrap();
+		assert_eq!(nv12, [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 10, 12]);
+		assert!(i420_to_nv12(&[0; 4], &[0; 2], &[0; 2], &mut [0; 8]).is_err());
 	}
 }
