@@ -451,7 +451,14 @@ The existing opt-in `SEREIN_VOICE_DIAGNOSTICS=1` reporter now also emits `Stream
 and `StreamReceive` summaries. `StreamSend` encode calls count captured 20 ms audio
 frames encoded, encrypted and sent. `StreamReceive` receive calls count accepted
 DAVE audio packets; mix calls count decoded frames offered to the parent call's output.
-StreamReceive drops count DAVE decryption failures or a full playback handoff queue.
+StreamReceive drops count audio/video DAVE decryption failures or a full playback/
+decoder handoff queue. `video_send` counts complete encrypted H.264 frames sent;
+`video_receive` counts decrypted frames accepted by the decoder queue, not displayed frames.
+Each stream report also counts ticks with the transport key, DAVE ready, group ready,
+pending transition, waiting, announced, capture ready and audio enabled flags set,
+plus audio chunks observed in the capture queue before draining. These distinguish
+closed security gates, missing capture data and active outbound video. Tick counts
+reset every report; receiver capture-ready and queued-audio counts are always zero.
 Zero sender encode calls means no PCM reached the secure sender; sender activity with
 zero receiver receive calls narrows the failure to forwarding, mapping or decryption.
 Successful receives/mixes with no sound narrows it to silent source PCM or parent
@@ -459,3 +466,15 @@ playback/device gates. These counts do not prove audible sound and do not contai
 participant IDs, credentials or signaling contents. The existing eight-report queue,
 128-report / 64-KiB process-lifetime limits still apply. Enable it on both endpoints
 only for the owner's deliberate test, then disable it after collecting the summaries.
+
+On Windows, use `Start-Process` to attach stderr to the GUI executable; direct shell
+redirection can leave an empty file. After closing the previous test instance, run
+the intended build on each endpoint with separate output files:
+
+```powershell
+$env:SEREIN_VOICE_DIAGNOSTICS="1"
+Start-Process .\dist\serein.exe -RedirectStandardError "$PWD\stream-debug-retest.log" -Wait
+```
+
+Start sharing promptly after launch so the bounded diagnostic budget covers the test.
+Keep these local logs out of commits.

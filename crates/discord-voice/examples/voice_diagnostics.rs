@@ -7,7 +7,12 @@ fn main() {
 	metrics.send = None;
 	assert!(metrics.start().is_none());
 	metrics.poll(true, 1, true, 1);
+	metrics.add(Stage::VideoSend, Duration::from_micros(10));
+	metrics.stream_state([true; 8], 4);
 	assert_eq!(metrics.report.wakes, 0);
+	assert_eq!(metrics.report.stages, [[0; 3]; 8]);
+	assert_eq!(metrics.report.stream_ticks, [0; 8]);
+	assert_eq!(metrics.report.queued_audio, 0);
 	// Keep the synthetic sender alive for this short-lived debug process.
 	metrics.send = Some(Box::leak(Box::new(send)));
 	for stage in [
@@ -17,6 +22,8 @@ fn main() {
 		Stage::Encode,
 		Stage::Mix,
 		Stage::Receive,
+		Stage::VideoSend,
+		Stage::VideoReceive,
 	] {
 		let start = metrics.start();
 		metrics.finish(stage, start);
@@ -39,11 +46,18 @@ fn main() {
 		),
 		(1, 1, 2, 1, 3)
 	);
+	metrics.stream_state([true, true, true, false, false, true, false, true], 4);
+	metrics.stream_state([true, false, false, false, false, true, true, true], 2);
 	metrics.since -= Duration::from_secs(5);
 	metrics.poll(false, 0, false, 0);
 	let report = receive.try_recv().unwrap();
 	assert!(report.window_ms >= 5000);
+	assert_eq!(report.stream_ticks, [2, 1, 1, 0, 0, 2, 1, 2]);
+	assert_eq!(report.queued_audio, 6);
 	assert_eq!(metrics.report.wakes, 0);
+	assert_eq!(metrics.report.stages, [[0; 3]; 8]);
+	assert_eq!(metrics.report.stream_ticks, [0; 8]);
+	assert_eq!(metrics.report.queued_audio, 0);
 	for _ in 0..9 {
 		metrics.flush();
 	}
@@ -68,6 +82,12 @@ fn main() {
 			.unwrap()
 			.starts_with("[Serein voice Audio]")
 	);
+	assert!(
+		!std::str::from_utf8(&output)
+			.unwrap()
+			.contains("stream_ticks")
+	);
+	assert!(!std::str::from_utf8(&output).unwrap().contains("video_send"));
 	let mut too_small = output.len() - 1;
 	let mut rejected = Vec::new();
 	assert!(!write_report(report, &mut too_small, &mut rejected));
@@ -83,9 +103,22 @@ fn main() {
 	for scope in [Scope::Transport, Scope::StreamSend, Scope::StreamReceive] {
 		let mut transport = report;
 		transport.scope = scope;
-		assert!(write_report(transport, &mut bytes, &mut std::io::stderr()));
+		let mut output = Vec::new();
+		let before = bytes;
+		assert!(write_report(transport, &mut bytes, &mut output));
+		assert_eq!(before - bytes, output.len());
+		let text = std::str::from_utf8(&output).unwrap();
+		let stream = matches!(scope, Scope::StreamSend | Scope::StreamReceive);
+		assert_eq!(text.contains("video_send="), stream);
+		assert_eq!(text.contains("video_receive="), stream);
+		assert_eq!(text.contains("stream_ticks: transport_key=2 dave_ready=1 group_ready=1 pending=0 waiting=0 announced=2 capture_ready=1 audio_enabled=2 queued_audio=6"), stream);
+		let mut too_small = output.len() - 1;
+		let mut rejected = Vec::new();
+		assert!(!write_report(transport, &mut too_small, &mut rejected));
+		assert!(rejected.is_empty());
+		std::io::stderr().write_all(&output).unwrap();
 	}
 	println!(
-		"Offline voice diagnostics check passed: timing aggregation, disabled mode, periodic flush, bounded nonblocking queue, byte budget and closed output."
+		"Offline voice diagnostics check passed: timing and stream-state aggregation, disabled mode, periodic reset/flush, bounded nonblocking queue, byte budget and closed output."
 	);
 }

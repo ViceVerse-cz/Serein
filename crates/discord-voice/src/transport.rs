@@ -881,6 +881,12 @@ async fn run_stream_inner(
 					announced=true; deadline=None;
 				}
 				if !secure && announced {announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);emit(Status::Securing).map_err(|_|"Stream interface closed")?;}
+				metrics.stream_state([
+					encryption.is_some() && !discovering, dave.ready, dave.session.is_ready(),
+					dave.pending.is_some(), waiting, announced,
+					video.as_ref().is_some_and(|video|video.ready.load(Ordering::Acquire)),
+					share_audio.is_some() || audio.is_some(),
+				], video.as_ref().and_then(|video|video.audio.as_ref()).map_or(0,|source|source.len()));
 				if let Some(audio)=&audio {
 					if secure {
 						let start=metrics.start();
@@ -925,6 +931,7 @@ async fn run_stream_inner(
 				let secure=announced&&dave.ready&&dave.session.is_ready()&&dave.pending.is_none()&&encryption.is_some()&&!discovering&&video.as_ref().is_some_and(|video|video.ready.load(Ordering::Acquire));
 				if !secure {awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);continue;}
 				if awaiting_keyframe && !frame.keyframe {continue;}
+				let start=metrics.start();
 				crate::video::validate_source(&frame.data)?;
 				let encrypted=dave.session.encrypt(davey::MediaType::VIDEO,davey::Codec::H264,&frame.data).map_err(|_|"DAVE H264 encryption failed")?;
 				let packets=crate::video::packetize(&encrypted,&mut sequence,frame.timestamp,video_ssrc)?;
@@ -934,6 +941,7 @@ async fn run_stream_inner(
 					socket.send(&crypto.seal(&packet.header,&packet.payload)?).await.map_err(|_|"Stream UDP send failed")?;
 					if index % 32 == 31 {tokio::task::yield_now().await;}
 				}
+				metrics.finish(crate::diagnostics::Stage::VideoSend,start);
 				if frame.keyframe {
 					if awaiting_keyframe {emit(Status::Ready{privacy_code:dave.session.voice_privacy_code().unwrap_or_default().into()}).map_err(|_|"Stream interface closed")?;}
 					awaiting_keyframe=false;
@@ -970,10 +978,11 @@ async fn run_stream_inner(
 				if rtp.payload_type!=101 {continue;}
 				let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else {continue;};
 				if !dave.contains(user) {continue;}
-				let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else {continue;};
+				let start=metrics.start();
+				let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else {metrics.poll(false,1,false,0);continue;};
 				let keyframe=is_keyframe(&data);
 				if !receivers.accept(user,keyframe) {continue;}
-				if !offer(decoder,Encoded{user,data,keyframe})? {receivers.require_keyframe(user);}
+				if !offer(decoder,Encoded{user,data,keyframe})? {receivers.require_keyframe(user);metrics.poll(false,1,false,0);} else {metrics.finish(crate::diagnostics::Stage::VideoReceive,start);}
 			},
 			event=ws.next()=>{
 				let Some(Ok(event))=event else {return Err("Discord stream socket failed");};

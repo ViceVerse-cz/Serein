@@ -21,6 +21,8 @@ pub(crate) enum Stage {
 	Encode,
 	Mix,
 	Receive,
+	VideoSend,
+	VideoReceive,
 }
 
 #[derive(Clone, Copy)]
@@ -28,12 +30,14 @@ struct Report {
 	scope: Scope,
 	window_ms: u64,
 	// Each stage: calls, total elapsed microseconds, maximum elapsed microseconds.
-	stages: [[u64; 3]; 6],
+	stages: [[u64; 3]; 8],
 	wakes: u64,
 	resets: u64,
 	drops: u64,
 	stalls: u64,
 	noise_frames: u64,
+	stream_ticks: [u64; 8],
+	queued_audio: u64,
 }
 
 pub(crate) struct Metrics {
@@ -69,12 +73,14 @@ impl Metrics {
 			report: Report {
 				scope,
 				window_ms: 0,
-				stages: [[0; 3]; 6],
+				stages: [[0; 3]; 8],
 				wakes: 0,
 				resets: 0,
 				drops: 0,
 				stalls: 0,
 				noise_frames: 0,
+				stream_ticks: [0; 8],
+				queued_audio: 0,
 			},
 		}
 	}
@@ -115,6 +121,22 @@ impl Metrics {
 		}
 	}
 
+	/// Counts true state flags per stream tick and observed queued audio chunks.
+	/// Flags: transport key, DAVE ready, group ready, pending, waiting, announced,
+	/// capture ready, audio enabled.
+	pub fn stream_state(&mut self, flags: [bool; 8], queued_audio: usize) {
+		if self.send.is_none() {
+			return;
+		}
+		for (ticks, flag) in self.report.stream_ticks.iter_mut().zip(flags) {
+			*ticks = ticks.saturating_add(u64::from(flag));
+		}
+		self.report.queued_audio = self
+			.report
+			.queued_audio
+			.saturating_add(u64::try_from(queued_audio).unwrap_or(u64::MAX));
+	}
+
 	fn flush(&mut self) {
 		let Some(send) = self.send else { return };
 		self.report.window_ms = self.since.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
@@ -122,12 +144,14 @@ impl Metrics {
 			self.send = None;
 		}
 		self.since = Instant::now();
-		self.report.stages = [[0; 3]; 6];
+		self.report.stages = [[0; 3]; 8];
 		self.report.wakes = 0;
 		self.report.resets = 0;
 		self.report.drops = 0;
 		self.report.stalls = 0;
 		self.report.noise_frames = 0;
+		self.report.stream_ticks = [0; 8];
+		self.report.queued_audio = 0;
 	}
 }
 
@@ -138,8 +162,8 @@ impl Drop for Metrics {
 }
 
 fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> bool {
-	let line = format!(
-		"[Serein voice {:?}] debug={} window_ms={} wakes={} resets={} drops={} stalls={} noise_frames={} stages(calls,total_us,max_us): echo_render={:?} echo_capture={:?} noise={:?} encode={:?} mix={:?} receive={:?}\n",
+	let mut line = format!(
+		"[Serein voice {:?}] debug={} window_ms={} wakes={} resets={} drops={} stalls={} noise_frames={} stages(calls,total_us,max_us): echo_render={:?} echo_capture={:?} noise={:?} encode={:?} mix={:?} receive={:?}",
 		report.scope,
 		cfg!(debug_assertions),
 		report.window_ms,
@@ -155,6 +179,23 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 		report.stages[4],
 		report.stages[5],
 	);
+	if matches!(report.scope, Scope::StreamSend | Scope::StreamReceive) {
+		let [
+			transport_key,
+			dave_ready,
+			group_ready,
+			pending,
+			waiting,
+			announced,
+			capture_ready,
+			audio_enabled,
+		] = report.stream_ticks;
+		line.push_str(&format!(
+			" video_send={:?} video_receive={:?} stream_ticks: transport_key={transport_key} dave_ready={dave_ready} group_ready={group_ready} pending={pending} waiting={waiting} announced={announced} capture_ready={capture_ready} audio_enabled={audio_enabled} queued_audio={}",
+			report.stages[6], report.stages[7], report.queued_audio,
+		));
+	}
+	line.push('\n');
 	if line.len() > *bytes {
 		return false;
 	}
