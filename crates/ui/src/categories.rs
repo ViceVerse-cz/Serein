@@ -261,7 +261,7 @@ fn paint_shelf_rule(ui: &egui::Ui, rect: egui::Rect, rows: &[CachedRow], index: 
 	let colors = design::palette(ui);
 	ui.painter().hline(
 		rect.x_range().shrink(8.0),
-		rect.bottom() - 0.5,
+		rect.bottom() + 7.5,
 		egui::Stroke::new(1.0, colors.border),
 	);
 }
