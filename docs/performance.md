@@ -659,3 +659,19 @@ native desktop control/capture is disabled in this session, and no owner-operate
 live stream was run. The two-endpoint encrypted localhost test checks media delivery,
 not capture or speakers. No speed, hardware-capture or live interoperability claim
 follows from package sizes or the passing test.
+
+### 2026-09-16: stream diagnostic follow-up
+
+| Metric / method | Baseline `b445aae` | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable bytes | 72,576,000 | 72,578,560 | +2,560 (+0.0035%) |
+| Full portable package bytes | 76,645,076 | 76,647,636 | +2,560 (+0.0033%) |
+| ZIP bytes, Optimal | 43,294,686 | 43,295,117 | +431 (+0.0010%) |
+
+Same Windows host, pinned toolchain, standard voice-enabled package and size method
+as above; one package per revision, 187 files each. The baseline package was preserved
+before this edit. The follow-up package built in a separate checkout in 3m 20s;
+NSIS remains unavailable. No dependency change. Diagnostic reports retain their
+eight-item queue and process-wide 128-report / 64-KiB output limits. Disabled
+diagnostics still evaluate a few state flags/atomic loads on the 50-Hz stream tick.
+CPU/RSS and end-to-end media latency remain unmeasured; no speed improvement is claimed.
