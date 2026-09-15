@@ -6,6 +6,8 @@
     pkg-config,
     cmake,
     makeWrapper,
+    swift,
+    swiftpm,
     wrapGAppsHook4,
     autoPatchelfHook,
     glib,
@@ -63,7 +65,16 @@ rustPlatform.buildRustPackage rec {
         ++ lib.optionals stdenv.hostPlatform.isLinux [
             wrapGAppsHook4
             autoPatchelfHook
+        ]
+        ++ lib.optionals stdenv.hostPlatform.isDarwin [
+            swift
+            swiftpm
         ];
+
+    # The swiftpm setup hook takes over buildPhase/checkPhase unless disabled;
+    # the Rust build drives Swift itself via apple-metal's build script.
+    dontUseSwiftpmBuild = true;
+    dontUseSwiftpmCheck = true;
 
     buildInputs = lib.optionals stdenv.hostPlatform.isLinux [
         glib
