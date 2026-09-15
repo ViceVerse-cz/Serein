@@ -20,7 +20,7 @@ These are software levels, not system mixer settings or automatic gain control. 
 deafen, push-to-talk, permission and encrypted-readiness gates continue taking precedence.
 Opening settings or changing a level never starts a call or opens a microphone.
 
-Right-click another participant's voice-row name or avatar (including stage avatars) for
+Right-click another participant's voice-row name, avatar, or stage card for
 **User volume**, from 0% to 200%, and **Reset volume** (100%). Keyboard users can focus
 an avatar/name and press Shift+F10. This changes only that person's voice playback before
 mixing; the global speaker level and deafen still apply. Speaking indicators remain based on

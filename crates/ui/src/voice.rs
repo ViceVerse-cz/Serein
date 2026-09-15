@@ -544,7 +544,7 @@ impl MessagingUi {
 		let response = ui.interact(
 			rect,
 			ui.id().with(("voice-tile", tile.key())),
-			if has_video {
+			if has_video || matches!(tile, Tile::Participant(_)) {
 				egui::Sense::click()
 			} else {
 				egui::Sense::hover()
@@ -565,6 +565,7 @@ impl MessagingUi {
 			}
 			Tile::Participant(entry) => {
 				self.participant_tile(ui, state, entry, rect, frameless, compact);
+				self.voice_participant_menu(&response, state, entry);
 				""
 			}
 		};
