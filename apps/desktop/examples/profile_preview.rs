@@ -204,7 +204,70 @@ fn extension_fixture(
 	Ok((package, invocation, output))
 }
 
-fn seed_catalog(extensions: &mut ui::ExtensionUi) {
+fn seed_catalog(extensions: &mut ui::ExtensionUi, themes: bool) {
+	if themes {
+		let packages: [(&[u8], &str); 6] = [
+			(
+				include_bytes!("../../../extensions/ocean.serein-extension"),
+				"",
+			),
+			(
+				include_bytes!("../../../extensions/obsidian.serein-extension"),
+				"Obsidian violet surfaces and lavender accents.",
+			),
+			(
+				include_bytes!("../../../extensions/forest.serein-extension"),
+				"Calm forest greens and fresh leafy accents.",
+			),
+			(
+				include_bytes!("../../../extensions/latte.serein-extension"),
+				"Warm coffee tones and a creamy caramel accent.",
+			),
+			(
+				include_bytes!("../../../extensions/rose.serein-extension"),
+				"Soft rose accents.",
+			),
+			(
+				include_bytes!("../../../extensions/midnight.serein-extension"),
+				"Deep, quiet surfaces.",
+			),
+		];
+		let mut entries: Vec<_> = packages
+			.into_iter()
+			.enumerate()
+			.map(|(index, (bytes, description))| {
+				let package = extensions::parse_package(bytes).expect("valid synthetic theme");
+				ui::ExtensionEntry {
+					cover_image: None,
+					local_theme: index == 0,
+					manifest: package.manifest,
+					theme_preview: package.theme,
+					description: description.into(),
+					preview: None,
+					reviewed: true,
+					sha256: "a".repeat(64),
+					download_bytes: bytes.len() as u64,
+					enabled: index < 2,
+					cleanup_pending: false,
+					update_available: false,
+					update_manifest: None,
+				}
+			})
+			.collect();
+		entries[0].manifest.name = "My ocean".into();
+		entries[0].manifest.author = "You".into();
+		let image =
+			image::load_from_memory(include_bytes!("../../../extensions/previews/ocean.png"))
+				.expect("valid synthetic cover")
+				.to_rgba8();
+		entries[0].cover_image = Some(Arc::new(egui::ColorImage::from_rgba_unmultiplied(
+			[image.width() as usize, image.height() as usize],
+			image.as_raw(),
+		)));
+		extensions.active_theme = Some(entries[0].manifest.id.clone());
+		extensions.set_entries(entries);
+		return;
+	}
 	let catalog = extensions::parse_catalog(include_bytes!("../../../extensions/catalog.json"))
 		.expect("valid fixture catalog");
 	extensions.set_entries(
@@ -331,7 +394,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					},
 				);
 				if page == "extensions" {
-					seed_catalog(&mut messaging.extensions);
+					seed_catalog(
+						&mut messaging.extensions,
+						args.iter().any(|arg| arg == "--themes"),
+					);
 					messaging
 						.extensions
 						.preview_themes(args.iter().any(|arg| arg == "--themes"));

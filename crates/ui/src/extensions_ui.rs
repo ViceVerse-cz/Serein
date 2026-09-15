@@ -125,6 +125,7 @@ struct ResultPanel {
 
 /// Card chrome under the 16:9 preview: badges, title, blurb and the action row.
 const CARD_BODY: f32 = 196.0;
+const THEME_CARD_BODY: f32 = 108.0;
 const CARD_RADIUS: u8 = 12;
 const FOOTER_HEIGHT: f32 = 34.0;
 
@@ -598,22 +599,24 @@ impl ExtensionUi {
 					egui::Sense::hover(),
 				);
 				draw_native_preview(ui, rect, entry, egui::CornerRadius::same(8));
-				ui.weak(if entry.theme_preview.is_some() {
-					"Theme palette preview"
-				} else {
-					"Example deleted-message appearance"
-				});
+				if entry.manifest.kind != ExtensionKind::Theme {
+					ui.weak("Example deleted-message appearance");
+				}
 			} else if let Some(texture) = texture {
 				ui.add(
 					egui::Image::new(texture)
 						.max_size(available.max(egui::vec2(1.0, 1.0)))
 						.corner_radius(8),
 				);
-				ui.weak(if entry.cover_image.is_some() {
-					"Custom theme cover"
-				} else {
-					"Creator preview"
-				});
+				if entry.manifest.kind != ExtensionKind::Theme {
+					ui.weak("Creator preview");
+				}
+			}
+			if entry.manifest.kind == ExtensionKind::Theme {
+				ui.weak(format!("by {}", entry.manifest.author));
+				if !entry.description.is_empty() {
+					ui.add(egui::Label::new(&entry.description).wrap());
+				}
 			}
 			close = ui.button("Close preview").clicked();
 		});
@@ -792,9 +795,10 @@ impl ExtensionUi {
 	}
 	fn toolbar(&mut self, ui: &mut egui::Ui, colors: &design::Palette) {
 		let height = 38.0;
-		ui.horizontal(|ui| {
+		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing.x = 8.0;
-			let field = (ui.available_width() - 244.0).max(140.0);
+			ui.spacing_mut().interact_size.y = height;
+			let field = (ui.available_width() - if self.themes { 212.0 } else { 244.0 }).max(140.0);
 			egui::Frame::new()
 				.fill(colors.base)
 				.corner_radius(9)
@@ -837,6 +841,44 @@ impl ExtensionUi {
 						}
 					});
 				});
+			if self.themes {
+				if ui
+					.add_enabled(
+						!self.busy,
+						egui::Button::new(
+							egui::RichText::new("Create theme").color(colors.accent_text),
+						)
+						.fill(colors.accent)
+						.stroke(egui::Stroke::NONE)
+						.min_size(egui::vec2(126.0, height)),
+					)
+					.clicked()
+				{
+					self.status.clear();
+					self.theme_editor = Some(crate::theme_editor::ThemeEditor::new());
+				}
+				ui.menu_button("More", |ui| {
+					if ui
+						.add_enabled(!self.busy, egui::Button::new("Import theme…"))
+						.clicked()
+					{
+						self.status.clear();
+						self.queue(ui.ctx(), ExtensionRequest::Import);
+						ui.close();
+					}
+					if ui
+						.add_enabled(!self.busy, egui::Button::new("Refresh catalog"))
+						.clicked()
+					{
+						self.previews.clear();
+						self.status.clear();
+						self.queue(ui.ctx(), ExtensionRequest::RefreshCatalog);
+						ui.close();
+					}
+					self.reset_theme_button(ui);
+				});
+				return;
+			}
 			if ui
 				.add_enabled(
 					!self.busy,
@@ -921,20 +963,6 @@ impl ExtensionUi {
 
 		let colors = design::palette(ui);
 		self.toolbar(ui, &colors);
-		if self.themes {
-			ui.add_space(10.0);
-			if ui
-				.add_enabled(
-					!self.busy && self.theme_editor.is_none(),
-					egui::Button::new("Create theme"),
-				)
-				.clicked()
-			{
-				self.status.clear();
-				self.theme_editor = Some(crate::theme_editor::ThemeEditor::new());
-			}
-			self.reset_theme_button(ui);
-		}
 		ui.add_space(14.0);
 		let mut enable = None;
 		let mut disable = None;
@@ -957,12 +985,23 @@ impl ExtensionUi {
 			})
 			.map(|(index, _)| index)
 			.collect();
-		let columns = if ui.available_width() >= 560.0 { 2 } else { 1 };
+		let columns = if self.themes && ui.available_width() >= 700.0 {
+			3
+		} else if ui.available_width() >= if self.themes { 460.0 } else { 560.0 } {
+			2
+		} else {
+			1
+		};
 		let gap = 16.0;
 		let width = ((ui.available_width() - gap * (columns - 1) as f32) / columns as f32).max(1.0);
 		let card = (width - 2.0).max(1.0);
 		let body = (card - 28.0).max(1.0);
-		let card_height = card * 9.0 / 16.0 + CARD_BODY;
+		let body_height = if self.themes {
+			THEME_CARD_BODY
+		} else {
+			CARD_BODY
+		};
+		let card_height = card * 9.0 / 16.0 + body_height;
 		let top_radius = egui::CornerRadius {
 			nw: CARD_RADIUS,
 			ne: CARD_RADIUS,
@@ -994,7 +1033,17 @@ impl ExtensionUi {
 									egui::Frame::new()
 										.fill(colors.raised)
 										.corner_radius(CARD_RADIUS)
-										.stroke(egui::Stroke::new(1.0, colors.border))
+										.stroke(egui::Stroke::new(
+											1.0,
+											if self.themes
+												&& self.active_theme.as_deref()
+													== Some(entry.manifest.id.as_str())
+											{
+												colors.accent
+											} else {
+												colors.border
+											},
+										))
 										.show(ui, |ui| {
 											ui.set_width(card);
 											ui.set_min_height(card_height);
@@ -1009,7 +1058,7 @@ impl ExtensionUi {
 												})
 												.show(ui, |ui| {
 													ui.set_width(body);
-													ui.set_min_height(CARD_BODY - 24.0);
+													ui.set_min_height(body_height - 24.0);
 													ui.spacing_mut().item_spacing =
 														egui::vec2(6.0, 6.0);
 													self.card_body(
@@ -1129,83 +1178,148 @@ impl ExtensionUi {
 		invoke: &mut Option<(String, String)>,
 	) {
 		let active = self.active_theme.as_deref() == Some(entry.manifest.id.as_str());
-		ui.horizontal(|ui| {
-			ui.label(design::eyebrow(
-				ui,
-				if self.themes { "Theme" } else { "Plugin" },
-				colors.muted,
-			));
-			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-				ui.spacing_mut().item_spacing.x = 6.0;
-				if entry.cleanup_pending {
-					badge(
-						ui,
-						"Cleanup pending",
-						colors.warning,
-						design::mix(colors.raised, colors.warning, 0.16),
-					);
-				} else if entry.enabled {
-					badge(
-						ui,
-						if active {
-							"Active"
-						} else if self.themes {
-							"Installed"
-						} else {
-							"Enabled"
-						},
-						colors.positive,
-						design::mix(colors.raised, colors.positive, 0.16),
-					);
-					if entry.update_available {
+		let mut update_requested = false;
+		if !self.themes {
+			ui.horizontal(|ui| {
+				ui.label(design::eyebrow(
+					ui,
+					if self.themes { "Theme" } else { "Plugin" },
+					colors.muted,
+				));
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					ui.spacing_mut().item_spacing.x = 6.0;
+					if entry.cleanup_pending {
 						badge(
 							ui,
-							"Update",
-							colors.accent,
-							design::mix(colors.raised, colors.accent, 0.2),
+							"Cleanup pending",
+							colors.warning,
+							design::mix(colors.raised, colors.warning, 0.16),
+						);
+					} else if entry.enabled {
+						badge(
+							ui,
+							if active {
+								"Active"
+							} else if self.themes {
+								"Installed"
+							} else {
+								"Enabled"
+							},
+							colors.positive,
+							design::mix(colors.raised, colors.positive, 0.16),
+						);
+						if entry.update_available {
+							badge(
+								ui,
+								"Update",
+								colors.accent,
+								design::mix(colors.raised, colors.accent, 0.2),
+							);
+						}
+					}
+				});
+			});
+		}
+		ui.add(
+			egui::Label::new(
+				design::semibold(
+					ui,
+					&entry.manifest.name,
+					if self.themes { 16.0 } else { 17.0 },
+				)
+				.color(colors.text_strong),
+			)
+			.truncate(),
+		);
+		ui.spacing_mut().item_spacing.y = 2.0;
+		if self.themes {
+			ui.horizontal(|ui| {
+				ui.spacing_mut().interact_size.y = 16.0;
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					if entry.update_available && !entry.cleanup_pending {
+						update_requested = ui
+							.add_enabled(
+								!self.busy,
+								egui::Button::new(
+									egui::RichText::new("Update")
+										.size(11.0)
+										.color(colors.accent),
+								)
+								.frame(false),
+							)
+							.on_hover_text(
+								"Review the new release before it replaces this version.",
+							)
+							.clicked();
+					}
+					if entry.cleanup_pending || entry.enabled {
+						ui.label(
+							egui::RichText::new(if entry.cleanup_pending {
+								"Cleanup pending"
+							} else if active {
+								"Active"
+							} else {
+								"Installed"
+							})
+							.size(11.0)
+							.color(if entry.cleanup_pending {
+								colors.warning
+							} else if active {
+								colors.accent
+							} else {
+								colors.muted
+							}),
 						);
 					}
-				}
+					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(format!("by {}", entry.manifest.author))
+									.size(12.0)
+									.color(colors.muted),
+							)
+							.truncate(),
+						);
+					});
+				});
 			});
-		});
-		ui.add(
-			egui::Label::new(
-				design::semibold(ui, &entry.manifest.name, 17.0).color(colors.text_strong),
-			)
-			.truncate(),
-		)
-		.on_hover_text(&entry.manifest.name);
-		ui.spacing_mut().item_spacing.y = 2.0;
-		ui.add(
-			egui::Label::new(
-				egui::RichText::new(format!("by {}", entry.manifest.author))
-					.size(12.0)
-					.color(colors.muted),
-			)
-			.truncate(),
-		)
-		.on_hover_text(&entry.manifest.author);
-		ui.spacing_mut().item_spacing.y = 8.0;
-		let description = if entry.description.is_empty() {
-			if self.themes {
-				"Give your conversations a different look."
-			} else {
-				"Add a new tool to your conversations."
-			}
 		} else {
-			&entry.description
+			ui.add(
+				egui::Label::new(
+					egui::RichText::new(format!("by {}", entry.manifest.author))
+						.size(12.0)
+						.color(colors.muted),
+				)
+				.truncate(),
+			)
+			.on_hover_text(&entry.manifest.author);
+			ui.spacing_mut().item_spacing.y = 8.0;
+			let description = if entry.description.is_empty() {
+				if self.themes {
+					"Give your conversations a different look."
+				} else {
+					"Add a new tool to your conversations."
+				}
+			} else {
+				&entry.description
+			};
+			ui.allocate_ui(egui::vec2(ui.available_width(), 36.0), |ui| {
+				let mut text = egui::text::LayoutJob::simple(
+					description.into(),
+					egui::FontId::proportional(13.0),
+					colors.text,
+					ui.available_width(),
+				);
+				text.wrap.max_rows = 2;
+				ui.label(text);
+			});
+		}
+		let body_height = if self.themes {
+			THEME_CARD_BODY
+		} else {
+			CARD_BODY
 		};
-		ui.allocate_ui(egui::vec2(ui.available_width(), 36.0), |ui| {
-			let mut text = egui::text::LayoutJob::simple(
-				description.into(),
-				egui::FontId::proportional(13.0),
-				colors.text,
-				ui.available_width(),
-			);
-			text.wrap.max_rows = 2;
-			ui.label(text).on_hover_text(description);
-		});
-		let footer = ui.min_rect().top() + CARD_BODY - 24.0 - FOOTER_HEIGHT;
+		let footer = ui.min_rect().top() + body_height - 24.0 - FOOTER_HEIGHT;
 		ui.add_space((footer - ui.cursor().top()).max(0.0));
 		let neutral = design::mix(colors.raised, colors.text, 0.1);
 		let outline = egui::Stroke::new(1.0, colors.border);
@@ -1232,11 +1346,23 @@ impl ExtensionUi {
 					.add_enabled_ui(!self.busy, |ui| {
 						card_button(
 							ui,
-							"Review & enable",
+							if self.themes {
+								"Install theme"
+							} else {
+								"Review & enable"
+							},
 							egui::vec2(ui.available_width(), FOOTER_HEIGHT),
-							colors.accent,
-							egui::Stroke::NONE,
-							colors.accent_text,
+							if self.themes { neutral } else { colors.accent },
+							if self.themes {
+								outline
+							} else {
+								egui::Stroke::NONE
+							},
+							if self.themes {
+								colors.text_strong
+							} else {
+								colors.accent_text
+							},
 						)
 					})
 					.inner
@@ -1252,9 +1378,10 @@ impl ExtensionUi {
 				.iter()
 				.filter(|action| action.surface == Surface::Panel)
 				.collect();
+			let show_update = entry.update_available && !self.themes;
 			let count = 1
 				+ usize::from(self.themes)
-				+ usize::from(entry.update_available)
+				+ usize::from(show_update)
 				+ usize::from(!panel_actions.is_empty());
 			let each = ((ui.available_width() - 8.0 * (count - 1) as f32) / count as f32).max(1.0);
 			if self.themes
@@ -1283,21 +1410,24 @@ impl ExtensionUi {
 					},
 				);
 			}
-			if entry.update_available
-				&& ui
-					.add_enabled_ui(!self.busy, |ui| {
-						card_button(
-							ui,
-							"Update",
-							egui::vec2(each, FOOTER_HEIGHT),
-							colors.accent,
-							egui::Stroke::NONE,
-							colors.accent_text,
-						)
-						.on_hover_text("Review the new release before it replaces this version.")
-					})
-					.inner
-					.clicked()
+			if update_requested
+				|| (show_update
+					&& ui
+						.add_enabled_ui(!self.busy, |ui| {
+							card_button(
+								ui,
+								"Update",
+								egui::vec2(each, FOOTER_HEIGHT),
+								colors.accent,
+								egui::Stroke::NONE,
+								colors.accent_text,
+							)
+							.on_hover_text(
+								"Review the new release before it replaces this version.",
+							)
+						})
+						.inner
+						.clicked())
 			{
 				let mut update = entry.clone();
 				if let Some(manifest) = &entry.update_manifest {
@@ -1331,9 +1461,13 @@ impl ExtensionUi {
 				ui,
 				"Disable",
 				egui::vec2(ui.available_width().max(1.0), FOOTER_HEIGHT),
-				neutral,
+				if self.themes { colors.raised } else { neutral },
 				outline,
-				colors.text_strong,
+				if self.themes {
+					colors.text
+				} else {
+					colors.text_strong
+				},
 			)
 			.on_hover_text("Removes this extension and deletes its local data.")
 			.clicked()
@@ -1907,7 +2041,7 @@ fn draw_native_preview(
 				colors.accent
 			},
 		);
-		if labelled {
+		if labelled && (entry.theme_preview.is_none() || rect.width() >= 500.0) {
 			painter.text(
 				at(0.41, y),
 				egui::Align2::LEFT_CENTER,
@@ -2231,6 +2365,7 @@ mod tests {
 			theme.manifest.id = "local-card".into();
 			theme.enabled = true;
 			theme.local_theme = true;
+			theme.update_available = true;
 			theme.theme_preview = Some(extensions::Theme::default());
 			shop.set_entries(vec![theme]);
 			frame(&ctx, &mut shop, width, vec![]);
@@ -2247,8 +2382,21 @@ mod tests {
 			assert!(
 				!labels
 					.iter()
-					.any(|(text, _)| text == "Disable & delete data")
+					.any(|(text, _)| text == "Disable & delete data"
+						|| text == "THEME" || text
+						== "Give your conversations a different look.")
 			);
+			click(&ctx, &mut shop, width, &labels, "More");
+			let menu = frame(&ctx, &mut shop, width, vec![]);
+			assert!(menu.iter().any(|(text, _)| text == "Import theme…"));
+			assert!(menu.iter().any(|(text, _)| text == "Reset community theme"));
+			click(&ctx, &mut shop, width, &menu, "Refresh catalog");
+			assert!(matches!(
+				shop.requests.as_slice(),
+				[ExtensionRequest::RefreshCatalog]
+			));
+			shop.requests.clear();
+			let labels = frame(&ctx, &mut shop, width, vec![]);
 			click(&ctx, &mut shop, width, &labels, "Disable");
 			assert!(shop.requests.iter().any(
 				|request| matches!(request, ExtensionRequest::Disable { id } if id == "local-card")
