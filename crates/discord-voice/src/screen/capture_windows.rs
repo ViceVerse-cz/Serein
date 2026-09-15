@@ -182,6 +182,7 @@ impl Capture {
 			return Err("Invalid screen capture settings");
 		}
 		match settings.source {
+			SourceId::Portal => return Err("The desktop screen picker is available only on Linux"),
 			SourceId::Display(id) => {
 				let monitor = Monitor::enumerate()
 					.map_err(|_| "Displays could not be enumerated")?

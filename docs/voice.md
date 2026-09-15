@@ -292,6 +292,22 @@ In a connected call, select **Share your screen**, choose a display/window, 720p
 
 Capture uses macOS 14+ ScreenCaptureKit (screen-recording permission in System Settings) or Windows Graphics Capture. Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
+Linux uses the desktop ScreenCast portal and PipeWire. Share Screen opens the system
+screen/window picker after the quality dialog; source discovery never opens that picker.
+The default is 720p30. The worker tries VA-API, NVENC with GPU scaling, NVENC with CPU
+scaling, then the existing OpenH264 software encoder. The call stage identifies the
+active encoder and software fallback. GPU buffers stay native where driver/plugin
+negotiation permits; zero-copy is not guaranteed, especially across GPUs. Local preview
+is capped at 640×360/10 fps and suspended when minimized or viewing another channel.
+ScreenCast-capable portal backends are required on both Wayland and X11; there is no
+separate X11 capture fallback. System audio and AV1/H.265 sending are not included.
+
+The offline debug command is `cargo run --offline --locked -p discord-voice --example linux_screen`.
+It compiles the actual portal/pipeline/worker modules on Linux or macOS with GStreamer,
+checks pre-cancellation without D-Bus, and exercises synthetic preview, the secure-readiness
+gate and software H.264. It never captures a desktop. Native Linux portal interaction,
+VA-API/NVENC, package installation, performance and Discord viewing remain unverified.
+
 The native demo (`cargo run --locked -p serein -- --demo --demo-voice`) exposes a synthetic picker without OS source discovery or capture. Live screen sharing requires the same owner-controlled login gate as voice testing. See [compatibility and limits](discord-compatibility.md#outgoing-screen-sharing--september-11-2026).
 
 ## Camera in calls (macOS, Windows and Linux)

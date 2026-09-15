@@ -1,6 +1,17 @@
 //! Explicitly selected, memory-only screen capture and H.264 encoding.
 pub use client_core::screen::{Settings, Source, SourceId};
+#[cfg(not(target_os = "linux"))]
+#[path = "screen/capture.rs"]
 mod capture;
+#[cfg(target_os = "linux")]
+#[path = "screen/gstreamer.rs"]
+mod gstreamer;
+#[cfg(target_os = "linux")]
+#[path = "screen/linux.rs"]
+mod linux;
+#[cfg(target_os = "linux")]
+#[path = "screen/portal_linux.rs"]
+mod portal_linux;
 
 use openh264::{
 	OpenH264API,
@@ -10,14 +21,14 @@ use openh264::{
 	},
 	formats::{BgraSliceU8, YUVBuffer},
 };
-use std::{
-	sync::{
-		Arc, Mutex,
-		atomic::{AtomicBool, Ordering},
-		mpsc,
-	},
-	time::{Duration, Instant},
+use std::sync::{
+	Arc, Mutex,
+	atomic::{AtomicBool, Ordering},
+	mpsc,
 };
+
+#[cfg(not(target_os = "linux"))]
+use std::time::{Duration, Instant};
 
 pub const MAX_RAW_BYTES: usize = 3840 * 2160 * 4;
 pub const MAX_ENCODED_BYTES: usize = 2 * 1024 * 1024;
@@ -53,10 +64,20 @@ pub fn audio_supported() -> bool {
 }
 
 pub fn supported() -> bool {
-	cfg!(any(target_os = "macos", target_os = "windows"))
+	cfg!(any(
+		target_os = "macos",
+		target_os = "windows",
+		target_os = "linux"
+	))
 }
 
 pub fn sources() -> Result<Vec<Source>, &'static str> {
+	#[cfg(target_os = "linux")]
+	return Ok(vec![Source {
+		id: SourceId::Portal,
+		name: "Choose in the system picker".into(),
+	}]);
+	#[cfg(not(target_os = "linux"))]
 	capture::sources()
 }
 
@@ -65,6 +86,10 @@ pub struct Worker {
 	ready: Arc<AtomicBool>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	done: Option<mpsc::Receiver<Result<(), &'static str>>>,
+	#[cfg(target_os = "linux")]
+	status: Arc<Mutex<&'static str>>,
+	#[cfg(target_os = "linux")]
+	preview_visible: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -80,10 +105,18 @@ impl Worker {
 		let keyframe = Arc::new(AtomicBool::new(true));
 		let preview = Arc::new(Mutex::new(None));
 		let worker_preview = preview.clone();
+		#[cfg(target_os = "linux")]
+		let status = Arc::new(Mutex::new("Choose a screen or window in the system picker"));
+		#[cfg(target_os = "linux")]
+		let worker_status = status.clone();
+		#[cfg(target_os = "linux")]
+		let preview_visible = Arc::new(AtomicBool::new(true));
+		#[cfg(target_os = "linux")]
+		let worker_preview_visible = preview_visible.clone();
 		// A few frames of slack absorbs send jitter without forcing keyframes on every hiccup.
 		let (send, frames) = tokio::sync::mpsc::channel(3);
 		let (complete, done) = mpsc::sync_channel(1);
-		let (audio_send, audio) = if settings.audio && audio_supported() {
+		let (_audio_send, audio) = if settings.audio && audio_supported() {
 			let (send, receive) = tokio::sync::mpsc::channel(16);
 			(Some(send), Some(receive))
 		} else {
@@ -94,13 +127,26 @@ impl Worker {
 		std::thread::Builder::new()
 			.name("screen-encoder".into())
 			.spawn(move || {
+				#[cfg(target_os = "linux")]
+				let result = linux::run(
+					settings,
+					worker_stop,
+					worker_ready,
+					worker_keyframe,
+					send,
+					worker_preview,
+					worker_status,
+					worker_preview_visible,
+					&wake,
+				);
+				#[cfg(not(target_os = "linux"))]
 				let result = encode_loop(
 					settings,
 					worker_stop,
 					worker_ready,
 					worker_keyframe,
 					send,
-					audio_send,
+					_audio_send,
 					worker_preview,
 					&wake,
 				);
@@ -114,6 +160,10 @@ impl Worker {
 				ready: ready.clone(),
 				preview,
 				done: Some(done),
+				#[cfg(target_os = "linux")]
+				status,
+				#[cfg(target_os = "linux")]
+				preview_visible,
 			},
 			Video {
 				settings,
@@ -123,6 +173,18 @@ impl Worker {
 				audio,
 			},
 		))
+	}
+
+	pub fn set_preview_visible(&self, _visible: bool) {
+		#[cfg(target_os = "linux")]
+		self.preview_visible.store(_visible, Ordering::Release);
+	}
+
+	pub fn capture_status(&self) -> Option<&'static str> {
+		#[cfg(target_os = "linux")]
+		return self.status.try_lock().ok().map(|status| *status);
+		#[cfg(not(target_os = "linux"))]
+		None
 	}
 
 	pub fn result(&self) -> Option<Result<(), &'static str>> {
@@ -146,6 +208,7 @@ impl Drop for Worker {
 	}
 }
 
+#[cfg(not(target_os = "linux"))]
 #[allow(clippy::too_many_arguments)] // Media outputs of one explicitly started capture.
 fn encode_loop(
 	settings: Settings,
@@ -256,7 +319,7 @@ fn encode_loop(
 	Ok(())
 }
 
-fn encoder(settings: Settings) -> Result<Encoder, &'static str> {
+pub(super) fn encoder(settings: Settings) -> Result<Encoder, &'static str> {
 	let config = EncoderConfig::new()
 		.bitrate(BitRate::from_bps(settings.bit_rate()))
 		.max_frame_rate(FrameRate::from_hz(settings.fps as f32))
@@ -272,7 +335,7 @@ fn encoder_threads() -> u16 {
 	std::thread::available_parallelism().map_or(2, |count| count.get().clamp(2, 8) as u16)
 }
 
-fn encode_pixels(
+pub(super) fn encode_pixels(
 	encoder: &mut Encoder,
 	yuv: &mut YUVBuffer,
 	pixels: &[u8],
@@ -331,7 +394,7 @@ fn validate_frame(frame: &RawFrame) -> Result<(usize, usize), &'static str> {
 	Ok((row_bytes, required))
 }
 
-fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'static str> {
+pub(super) fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'static str> {
 	validate_frame(frame)?;
 	let scale = (640.0 / f64::from(frame.width))
 		.min(360.0 / f64::from(frame.height))
@@ -352,6 +415,7 @@ fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'static str> {
 	}))
 }
 
+#[cfg(any(test, not(target_os = "linux")))]
 fn fit_frame(frame: RawFrame, width: u32, height: u32) -> Result<Vec<u8>, &'static str> {
 	let (row_bytes, required) = validate_frame(&frame)?;
 
@@ -411,6 +475,10 @@ mod tests {
 			ready: Arc::new(AtomicBool::new(false)),
 			preview: Arc::new(Mutex::new(Some(preview))),
 			done: None,
+			#[cfg(target_os = "linux")]
+			status: Arc::new(Mutex::new("")),
+			#[cfg(target_os = "linux")]
+			preview_visible: Arc::new(AtomicBool::new(true)),
 		};
 		assert!(worker.take_preview().is_some());
 		assert!(worker.take_preview().is_none());

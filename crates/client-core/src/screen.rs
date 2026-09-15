@@ -7,6 +7,8 @@ pub const MAX_SOURCE_NAME_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceId {
+	/// The Linux desktop chooses the source after an explicit Share action.
+	Portal,
 	Display(u64),
 	Window(u64),
 }

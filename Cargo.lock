@@ -1509,6 +1509,9 @@ dependencies = [
  "dispatch2",
  "futures-util",
  "getrandom 0.4.3",
+ "gstreamer",
+ "gstreamer-app",
+ "gstreamer-video",
  "image",
  "libc",
  "model",
@@ -1536,6 +1539,7 @@ dependencies = [
  "windows 0.61.3",
  "windows-capture",
  "windows-core 0.61.2",
+ "zbus",
  "zeroize",
 ]
 
@@ -6788,8 +6792,10 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -8551,6 +8557,7 @@ dependencies = [
  "rustix 1.1.4",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "uuid",

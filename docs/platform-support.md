@@ -148,3 +148,14 @@ automatically updates the Windows uninstall `DisplayVersion` registry key upon
 successful upgrade. Native helpers wait for the old process to exit, retain a rollback
 copy during replacement, and relaunch Serein. A failed recovery leaves its backup
 available with a visible recovery path on the next update attempt.
+
+## Linux screen sharing
+
+Screen sharing requires PipeWire, a ScreenCast-capable portal backend for the current
+desktop (GNOME, KDE or the compositor-specific backend), and GStreamer Base/Good plus
+the PipeWire source plugin. GStreamer 1.24+ is recommended; GPU scaling/encoding also
+needs the applicable VA, NVCodec and OpenGL plugins and working driver support.
+Native packages declare the PipeWire and Base runtime plugins; hardware codec availability
+still depends on distribution packaging and drivers. The software fallback reuses bundled
+OpenH264. Flatpak needs compatible plugins/GPU access inside its runtime; no extra sandbox
+permission or host socket access is added. Native Linux validation remains pending.

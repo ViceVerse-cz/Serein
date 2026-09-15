@@ -197,3 +197,11 @@ Test-only WAT/WAST/wasm-encoder/wasmparser 0.245.1 use the wasm-tools MIT
 license at `76927bf4bdbddf4b15f835c5eddfffbdfe3bdbd5` (`wat-1.245.1-LICENSE-MIT`);
 leb128fmt license texts are also bundled. These test tools are not a plugin
 compiler shipped to end users. Creator packages carry their own license metadata.
+
+Linux screen sharing reuses the already locked **gstreamer 0.25.3**,
+**gstreamer-app 0.25.2**, **gstreamer-video 0.25.3** Rust bindings
+(MIT OR Apache-2.0) and **zbus 5.19.0** (MIT, Tokio backend).
+GStreamer/PipeWire, VA-API/NVENC/OpenGL plugins and GPU drivers are native runtime
+components supplied by the distribution/Flatpak runtime, not new bundled codec source.
+Their upstream licenses and distribution packaging terms still apply. Software encoding
+uses the existing bundled OpenH264 notices above.
