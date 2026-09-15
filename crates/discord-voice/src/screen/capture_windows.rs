@@ -8,6 +8,7 @@ use std::sync::{
 	atomic::{AtomicBool, AtomicU64, Ordering},
 	mpsc::SyncSender,
 };
+use std::time::{Duration, Instant};
 use windows_capture::{
 	capture::{CaptureControl, Context, GraphicsCaptureApiHandler},
 	frame::Frame,
@@ -86,6 +87,9 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 struct Flags {
 	frames: SyncSender<RawFrame>,
 	stop: Arc<AtomicBool>,
+	pending: Arc<AtomicBool>,
+	next_frame: Instant,
+	interval: Duration,
 }
 
 struct Handler(Flags);
@@ -107,6 +111,11 @@ impl GraphicsCaptureApiHandler for Handler {
 			control.stop();
 			return Ok(());
 		}
+		let now = Instant::now();
+		if now < self.0.next_frame || self.0.pending.swap(true, Ordering::AcqRel) {
+			return Ok(());
+		}
+		self.0.next_frame = now + self.0.interval;
 		let (width, height) = (frame.width(), frame.height());
 		let Some(row_bytes) = (width as usize).checked_mul(4) else {
 			self.0.stop.store(true, Ordering::Release);
@@ -150,12 +159,19 @@ impl GraphicsCaptureApiHandler for Handler {
 		for row in source[..source_len].chunks_exact(stride) {
 			data.extend_from_slice(&row[..row_bytes]);
 		}
-		let _ = self.0.frames.try_send(RawFrame {
-			width,
-			height,
-			stride: row_bytes,
-			data,
-		});
+		if self
+			.0
+			.frames
+			.try_send(RawFrame {
+				width,
+				height,
+				stride: row_bytes,
+				data,
+			})
+			.is_err()
+		{
+			self.0.pending.store(false, Ordering::Release);
+		}
 		Ok(())
 	}
 
@@ -178,6 +194,7 @@ impl Capture {
 		stop: Arc<AtomicBool>,
 		ready: Arc<AtomicBool>,
 		audio_epoch: Arc<AtomicU64>,
+		pending: Arc<AtomicBool>,
 	) -> Result<Self, &'static str> {
 		if settings.width == 0
 			|| settings.height == 0
@@ -194,7 +211,7 @@ impl Capture {
 					.into_iter()
 					.find(|monitor| monitor_id(monitor) == id)
 					.ok_or("Selected display is no longer available")?;
-				start_item(settings, monitor, frames, stop.clone())
+				start_item(settings, monitor, frames, stop.clone(), pending)
 			}
 			SourceId::Window(id) => {
 				let window = Window::enumerate()
@@ -202,7 +219,7 @@ impl Capture {
 					.into_iter()
 					.find(|window| window_id(window) == id)
 					.ok_or("Selected window is no longer available")?;
-				start_item(settings, window, frames, stop.clone())
+				start_item(settings, window, frames, stop.clone(), pending)
 			}
 			#[allow(unreachable_patterns)] // Portal may be absent from platform-scoped models.
 			_ => return Err("The desktop screen picker is available only on Linux"),
@@ -248,6 +265,7 @@ fn start_item<T>(
 	item: T,
 	frames: SyncSender<RawFrame>,
 	stop: Arc<AtomicBool>,
+	pending: Arc<AtomicBool>,
 ) -> Result<Capture, &'static str>
 where
 	T: NativeSource,
@@ -258,7 +276,13 @@ where
 	if width == 0 || height == 0 || width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT {
 		return Err("Selected source exceeds the 4K capture limit");
 	}
-	let flags = Flags { frames, stop };
+	let flags = Flags {
+		frames,
+		stop,
+		pending,
+		next_frame: Instant::now(),
+		interval: Duration::from_secs_f64(1.0 / f64::from(settings.fps)),
+	};
 	let native = Settings::new(
 		item,
 		if settings.cursor {

@@ -563,6 +563,26 @@ improvement or live interoperability is claimed. Windows cross-checking on this 
 also stopped in existing native Opus/OpenH264 build scripts (missing Visual Studio
 generator / incompatible host C++ flags), before checking the Windows adapter.
 
+The follow-up after owner testing moves Windows frame admission ahead of D3D11
+readback. Capture is capped at the selected frame rate, and no new staging texture,
+GPU-to-CPU copy, or raw-frame allocation is performed while the one-frame queue is
+occupied. Windows OpenH264 uses its low-complexity mode. Before this change those
+costs ran for every compositor callback and frame-rate/queue dropping happened only
+after readback. At 1920x1080 BGRA, each avoided readback and subsequent copy is
+8,294,400 bytes; a 3840x2160 source is 33,177,600 bytes. These are buffer sizes and
+work bounds derived from the dimensions, not throughput measurements.
+
+Native Windows frame time, CPU/RSS, GPU copy load and viewer FPS remain unmeasured on
+this macOS host. The owner observed severe lag at 1080p60 before this follow-up; the
+new result requires another Windows measurement. NVIDIA hardware H.264 is not used:
+the current bounded Annex-B path remains OpenH264 software encoding.
+
+The standard macOS release package at the preceding `0e7d2a3` revision versus this
+follow-up changed from 66,716,336 to 66,716,480 executable bytes (+144), from
+72,626,189 to 72,626,333 installed bundle bytes (+144), and from 43,390,952 to
+43,393,404 ZIP bytes (+2,452). One package per revision used the same host and
+`cargo xtask package`; ZIP compression noise is not a speed improvement or regression.
+
 
 ## 2026-09-15: gallery preview, customization and selection
 

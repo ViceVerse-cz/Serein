@@ -6,7 +6,7 @@ use libpulse_sys as pulse;
 use std::{
 	cell::Cell,
 	collections::VecDeque,
-	ffi::{CStr, c_void},
+	ffi::{CStr, CString, c_void},
 	ptr::{null, null_mut},
 	sync::{
 		Arc,
@@ -123,6 +123,7 @@ struct Input {
 	pid: u32,
 	binary: String,
 	serial: Option<u64>,
+	monitor: Option<CString>,
 }
 
 fn property<'a>(info: &'a pulse::pa_sink_input_info, key: &CStr) -> Option<&'a str> {
@@ -167,45 +168,81 @@ fn input(info: &pulse::pa_sink_input_info, own: &OwnApplication) -> Option<Input
 		pid: pid?.parse().ok()?,
 		binary: binary?.to_owned(),
 		serial: property(info, c"object.serial").and_then(|v| v.parse().ok()),
+		monitor: None,
 	})
 }
 
 struct Listing {
 	own: OwnApplication,
 	inputs: Vec<Input>,
-	seen: usize,
-	done: bool,
+	monitors: Vec<(u32, CString)>,
+	seen_inputs: usize,
+	seen_sinks: usize,
+	inputs_done: bool,
+	sinks_done: bool,
 	failed: bool,
 }
 struct Enumeration {
-	operation: *mut pulse::pa_operation,
+	inputs: *mut pulse::pa_operation,
+	sinks: *mut pulse::pa_operation,
 	listing: Box<Listing>,
 	started: Instant,
 	revision: u64,
 }
+
+fn resolve_monitors(inputs: &mut [Input], monitors: &[(u32, CString)]) -> Result<(), &'static str> {
+	for input in inputs {
+		input.monitor = monitors
+			.iter()
+			.find_map(|(sink, monitor)| (*sink == input.sink).then(|| monitor.clone()));
+		if input.monitor.is_none() {
+			return Err(UNAVAILABLE);
+		}
+	}
+	Ok(())
+}
+
 impl Enumeration {
 	fn start(native: &Native, own: &OwnApplication, revision: u64) -> Result<Self, &'static str> {
 		let mut listing = Box::new(Listing {
 			own: own.clone(),
 			inputs: Vec::with_capacity(MAX_INPUTS),
-			seen: 0,
-			done: false,
+			monitors: Vec::with_capacity(MAX_INPUTS),
+			seen_inputs: 0,
+			seen_sinks: 0,
+			inputs_done: false,
+			sinks_done: false,
 			failed: false,
 		});
-		// SAFETY: this stable Box lives until Drop cancels/unrefs the operation; callbacks
+		// SAFETY: this stable Box lives until Drop cancels/unrefs both operations; callbacks
 		// run only during this worker's mainloop dispatch, never concurrently with Rust reads.
-		let operation = unsafe {
+		let inputs = unsafe {
 			pulse::pa_context_get_sink_input_info_list(
 				native.context,
-				Some(listed),
+				Some(listed_input),
 				(&mut *listing as *mut Listing).cast(),
 			)
 		};
-		if operation.is_null() {
+		if inputs.is_null() {
+			return Err(UNAVAILABLE);
+		}
+		let sinks = unsafe {
+			pulse::pa_context_get_sink_info_list(
+				native.context,
+				Some(listed_sink),
+				(&mut *listing as *mut Listing).cast(),
+			)
+		};
+		if sinks.is_null() {
+			unsafe {
+				pulse::pa_operation_cancel(inputs);
+				pulse::pa_operation_unref(inputs);
+			}
 			return Err(UNAVAILABLE);
 		}
 		Ok(Self {
-			operation,
+			inputs,
+			sinks,
 			listing,
 			started: Instant::now(),
 			revision,
@@ -216,20 +253,26 @@ impl Enumeration {
 		if listing.failed || self.started.elapsed() > TIMEOUT {
 			return Err(UNAVAILABLE);
 		}
-		Ok(listing.done.then(|| std::mem::take(&mut listing.inputs)))
+		if !listing.inputs_done || !listing.sinks_done {
+			return Ok(None);
+		}
+		resolve_monitors(&mut listing.inputs, &listing.monitors)?;
+		Ok(Some(std::mem::take(&mut listing.inputs)))
 	}
 }
 impl Drop for Enumeration {
 	fn drop(&mut self) {
-		// SAFETY: cancel prevents further callbacks before the userdata Box is freed.
+		// SAFETY: cancelling both operations prevents callbacks before userdata is freed.
 		unsafe {
-			pulse::pa_operation_cancel(self.operation);
-			pulse::pa_operation_unref(self.operation);
+			pulse::pa_operation_cancel(self.inputs);
+			pulse::pa_operation_unref(self.inputs);
+			pulse::pa_operation_cancel(self.sinks);
+			pulse::pa_operation_unref(self.sinks);
 		}
 	}
 }
 
-extern "C" fn listed(
+extern "C" fn listed_input(
 	_: *mut pulse::pa_context,
 	info: *const pulse::pa_sink_input_info,
 	eol: i32,
@@ -240,11 +283,11 @@ extern "C" fn listed(
 	if eol != 0 {
 		result.failed |= eol < 0;
 		result.inputs.sort_by_key(|v| v.index);
-		result.done = true;
+		result.inputs_done = true;
 		return;
 	}
-	result.seen = result.seen.saturating_add(1);
-	if result.seen > MAX_LISTED || info.is_null() {
+	result.seen_inputs = result.seen_inputs.saturating_add(1);
+	if result.seen_inputs > MAX_LISTED || info.is_null() {
 		result.failed = true;
 		return;
 	}
@@ -255,6 +298,42 @@ extern "C" fn listed(
 		} else {
 			result.inputs.push(input);
 		}
+	}
+}
+
+extern "C" fn listed_sink(
+	_: *mut pulse::pa_context,
+	info: *const pulse::pa_sink_info,
+	eol: i32,
+	data: *mut c_void,
+) {
+	// SAFETY: registered with Enumeration's stable Box and cancelled before freeing it.
+	let result = unsafe { &mut *data.cast::<Listing>() };
+	if eol != 0 {
+		result.failed |= eol < 0;
+		result.monitors.sort_by_key(|v| v.0);
+		result.sinks_done = true;
+		return;
+	}
+	result.seen_sinks = result.seen_sinks.saturating_add(1);
+	if result.seen_sinks > MAX_LISTED || info.is_null() {
+		result.failed = true;
+		return;
+	}
+	// SAFETY: Pulse owns the sink info and monitor name for this callback. Copy a bounded
+	// C string because pa_stream_connect_record uses it after enumeration has completed.
+	let info = unsafe { &*info };
+	if info.index == pulse::PA_INVALID_INDEX || info.monitor_source_name.is_null() {
+		return;
+	}
+	let monitor = unsafe { CStr::from_ptr(info.monitor_source_name) };
+	if monitor.to_bytes().is_empty() || monitor.to_bytes().len() > 256 {
+		return;
+	}
+	if result.monitors.len() == MAX_LISTED {
+		result.failed = true;
+	} else {
+		result.monitors.push((info.index, monitor.to_owned()));
 	}
 }
 
@@ -379,7 +458,10 @@ struct Capture {
 }
 impl Capture {
 	fn start(native: &Native, input: Input, epoch: u64) -> Result<Self, &'static str> {
-		if input.index == pulse::PA_INVALID_INDEX || input.sink == pulse::PA_INVALID_INDEX {
+		if input.index == pulse::PA_INVALID_INDEX
+			|| input.sink == pulse::PA_INVALID_INDEX
+			|| input.monitor.is_none()
+		{
 			return Err(UNAVAILABLE);
 		}
 		let spec = pulse::pa_sample_spec {
@@ -412,15 +494,15 @@ impl Capture {
 			prebuf: u32::MAX,
 			minreq: u32::MAX,
 		};
-		// With a direct monitor input and no source, Pulse selects that input's sink monitor.
-		// PipeWire-Pulse targets the input node. DONT_MOVE forbids policy/device fallback.
+		// Pulse requires the sink's monitor source before it can isolate one sink input.
+		// DONT_MOVE forbids policy/device fallback to a microphone or another monitor.
 		// SAFETY: valid unconnected stream. Set monitor BEFORE connecting; failure returns
 		// without retrying a default source, so no microphone or whole-output fallback.
 		unsafe {
 			if pulse::pa_stream_set_monitor_stream(stream, capture.input.index) < 0
 				|| pulse::pa_stream_connect_record(
 					stream,
-					null(),
+					capture.input.monitor.as_ref().unwrap().as_ptr(),
 					&attr,
 					pulse::PA_STREAM_DONT_MOVE | pulse::PA_STREAM_ADJUST_LATENCY,
 				) < 0
@@ -725,12 +807,24 @@ pub(super) fn check_isolation() {
 		let mut list = Listing {
 			own: own.clone(),
 			inputs: Vec::new(),
-			seen: 0,
-			done: false,
+			monitors: Vec::new(),
+			seen_inputs: 0,
+			seen_sinks: 0,
+			inputs_done: false,
+			sinks_done: false,
 			failed: false,
 		};
-		listed(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
+		listed_input(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
 		assert_eq!(list.inputs.len(), 1);
+		let mut sink: pulse::pa_sink_info = std::mem::zeroed();
+		sink.index = 2;
+		sink.monitor_source_name = c"game-output.monitor".as_ptr();
+		listed_sink(null_mut(), &sink, 0, (&mut list as *mut Listing).cast());
+		resolve_monitors(&mut list.inputs, &list.monitors).unwrap();
+		assert_eq!(
+			list.inputs[0].monitor.as_deref(),
+			Some(c"game-output.monitor")
+		);
 		let selected = list.inputs[0].clone();
 		// A new Serein playback stream reusing a former game index is never admitted.
 		list.inputs.clear();
@@ -739,7 +833,7 @@ pub(super) fn check_isolation() {
 			c"application.process.binary".as_ptr(),
 			c"serein".as_ptr(),
 		);
-		listed(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
+		listed_input(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
 		assert!(list.inputs.is_empty());
 		pulse::pa_proplist_sets(
 			props,
@@ -747,7 +841,7 @@ pub(super) fn check_isolation() {
 			c"game".as_ptr(),
 		);
 		info.client = 5;
-		listed(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
+		listed_input(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
 		assert_ne!(
 			list.inputs[0], selected,
 			"post-attachment identity must detect index reuse"
@@ -762,10 +856,20 @@ pub(super) fn check_isolation() {
 		assert!(input(&info, &own).is_none());
 		info.sink = 2;
 		for _ in 0..MAX_INPUTS {
-			listed(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
+			listed_input(null_mut(), &info, 0, (&mut list as *mut Listing).cast());
 		}
 		assert!(list.failed);
 		assert_eq!(list.inputs.len(), MAX_INPUTS);
+		let mut missing = vec![Input {
+			index: 9,
+			client: 1,
+			sink: 99,
+			pid: 123,
+			binary: "game".into(),
+			serial: None,
+			monitor: None,
+		}];
+		assert!(resolve_monitors(&mut missing, &list.monitors).is_err());
 		pulse::pa_proplist_free(props);
 	}
 	let mut first = Pending::new(0);

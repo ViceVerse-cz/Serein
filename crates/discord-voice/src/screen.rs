@@ -23,8 +23,8 @@ mod portal_linux;
 use openh264::{
 	OpenH264API,
 	encoder::{
-		BitRate, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod, RateControlMode,
-		UsageType,
+		BitRate, Complexity, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod,
+		RateControlMode, UsageType,
 	},
 	formats::{BgraSliceU8, YUVBuffer},
 };
@@ -250,6 +250,19 @@ fn encode_loop(
 	let origin = Instant::now();
 	let (raw_send, raw) = mpsc::sync_channel(1);
 	let capture_stop = Arc::new(AtomicBool::new(false));
+	#[cfg(target_os = "windows")]
+	let raw_pending = Arc::new(AtomicBool::new(false));
+	#[cfg(target_os = "windows")]
+	let _native = capture::Capture::start(
+		settings,
+		raw_send,
+		audio,
+		capture_stop.clone(),
+		ready.clone(),
+		audio_epoch,
+		raw_pending.clone(),
+	)?;
+	#[cfg(not(target_os = "windows"))]
 	let _native = capture::Capture::start(
 		settings,
 		raw_send,
@@ -274,7 +287,11 @@ fn encode_loop(
 			return Err("The selected screen or window stopped sharing");
 		}
 		let frame = match raw.recv_timeout(Duration::from_millis(100)) {
-			Ok(frame) => frame,
+			Ok(frame) => {
+				#[cfg(target_os = "windows")]
+				raw_pending.store(false, Ordering::Release);
+				frame
+			}
 			Err(_) if stop.load(Ordering::Acquire) || send.is_closed() => break,
 			Err(mpsc::RecvTimeoutError::Timeout)
 				if first_frame_deadline.is_none_or(|deadline| Instant::now() < deadline) =>
@@ -362,6 +379,11 @@ pub(super) fn encoder(settings: Settings) -> Result<Encoder, &'static str> {
 		.max_frame_rate(FrameRate::from_hz(settings.fps as f32))
 		.usage_type(UsageType::ScreenContentRealTime)
 		.rate_control_mode(RateControlMode::Bitrate)
+		.complexity(if cfg!(target_os = "windows") {
+			Complexity::Low
+		} else {
+			Complexity::Medium
+		})
 		.num_threads(encoder_threads())
 		.intra_frame_period(IntraFramePeriod::from_num_frames(settings.fps * 2));
 	Encoder::with_api_config(OpenH264API::from_source(), config)
