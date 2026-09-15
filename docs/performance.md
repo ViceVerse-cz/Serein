@@ -1,3 +1,26 @@
+# Theme editor readability - September 15, 2026
+
+Baseline: `235cf01`, reusing the verified `ae36f54` package because intervening
+commits changed documentation only. After: `1f5349b`. Standard Windows x64
+`cargo xtask package`, pinned Rust 1.98.1 MSVC, locked dependencies, voice included.
+The baseline distribution was copied to its own directory before the serial
+after build in the owned package worktree, reusing the same Cargo target.
+The root `dist` was untouched. Both packages contain 186 files. `makensis` was
+unavailable; the portable package passed with the nonfatal OpenH264 LNK4255 warning.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 71,029,760 | 71,039,488 | +9,728 (+0.014%) |
+| Full portable package, bytes | 75,095,823 | 75,105,551 | +9,728 (+0.013%) |
+| ZIP, PowerShell Compress-Archive Optimal, bytes | 42,850,464 | 42,856,609 | +6,145 (+0.014%) |
+
+Each ZIP contains its package's `dist/*`; full size sums all files. Native UI
+CPU, memory, and frame-time samples remain unavailable because OS window
+capture/control is disabled and Orca is absent. No runtime performance gain is
+claimed. Inspected synthetic debug framebuffer comparisons and their exact
+fixture are documented in `docs/pr-evidence/theme-editor`; these do not establish
+native OS interaction or live Discord compatibility.
+
 # Compact theme gallery - September 15, 2026
 
 Baseline: `cf4bcc2`. After: `ae36f54`. Both standard Windows x64 portable
