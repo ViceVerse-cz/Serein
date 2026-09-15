@@ -72,9 +72,9 @@ existing explicit call/device-testing gates still apply.
 
 Sandboxed login, keyring, file chooser, notifications and physical audio require
 owner-controlled Linux desktop validation. Screen sharing uses the ScreenCast portal
-and PipeWire; optional system audio uses the default output monitor through the existing
-PulseAudio socket, with the GStreamer PulseAudio plugin. It includes all output audio,
-including Serein. No additional sandbox permissions are needed.
+and PipeWire; optional system audio monitors individual applications through native
+libpulse and the existing PulseAudio socket. Serein's playback and applications without
+a usable identity are excluded. No additional sandbox permissions are needed.
 The camera adapter uses direct V4L2, with no camera portal; camera capture is
 unavailable under these permissions. Host game IPC is also isolated. Do not grant
 blanket devices/home access to hide these limitations.

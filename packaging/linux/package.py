@@ -141,7 +141,7 @@ def package(root, application_version):
         # dlopen libraries and desktop services are invisible to ELF DT_NEEDED.
         depends += (", libvulkan1, libegl1, libxkbcommon0, libxkbcommon-x11-0, "
                     "libwayland-client0, libx11-6, libx11-xcb1, libxcursor1, libxi6, libxrandr2, "
-                    "dbus-user-session | dbus-x11, xdg-desktop-portal, gstreamer1.0-plugins-good, gstreamer1.0-plugins-base, gstreamer1.0-pipewire, gstreamer1.0-pulseaudio")
+                    "dbus-user-session | dbus-x11, xdg-desktop-portal, gstreamer1.0-plugins-good, gstreamer1.0-plugins-base, gstreamer1.0-pipewire")
         installed_kib = sum(1 if p.is_dir() else max(1, (p.stat().st_size + 1023) // 1024)
                             for p in stage.rglob("*"))
         control = stage / "DEBIAN/control"

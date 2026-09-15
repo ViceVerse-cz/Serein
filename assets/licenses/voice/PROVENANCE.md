@@ -1,5 +1,15 @@
 # Voice dependency license provenance
 
+September 15, 2026 stream-audio exclusion addition: `libpulse-sys 1.23.0`,
+registry archive SHA-256 `d74371848b22e989f829cc1621d2ebd74960711557d8b45cfe740f60d0a05e61`.
+`libpulse-sys-1.23.0-LICENSE-MIT` is copied unmodified from the release's
+[`LICENSE-MIT`](https://docs.rs/crate/libpulse-sys/1.23.0/source/LICENSE-MIT),
+SHA-256 `20278f4e2697210305f0a25ef5f3b73fecce789096c0ae55287684ea9282cfcb`.
+The library is dynamically linked against the system's libpulse; no PulseAudio server
+or native library is bundled. The resolved WinAPI 0.3.9 and architecture support crates
+are Windows-only declarations of libpulse-sys and are not selected by Serein's Linux
+runtime or macOS development use of these bindings.
+
 Collected September 10, 2026. Except for the separately identified canonical MPL text below, files are unmodified source license/notices, copied from the exact resolved crates.io releases or fetched from the commit recorded in the release's `.cargo_vcs_info.json`. Registry source links identify the shipped source archive; SHA-256 values below verify the copied text. All files are flat for distribution staging.
 
 Davey 0.1.4 and OpenMLS 0.8.1 omit their root license files from their registry archives. Their MIT texts were retrieved from the pinned upstream commits linked below (Davey package path `davey`, OpenMLS package path `openmls`). `libopus_sys` 0.3.3 bundles the codec under `opus/`; the registry archive is authoritative because its VCS metadata records a dirty working tree. Both its binding licenses and the bundled codec's COPYING and LICENSE_PLEASE_READ.txt are retained, including the upstream IETF patent-statement references.

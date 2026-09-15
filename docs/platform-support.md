@@ -173,11 +173,16 @@ still depends on distribution packaging and drivers. The software fallback reuse
 OpenH264. Flatpak needs compatible plugins/GPU access inside its runtime; no extra sandbox
 permission or host socket access is added. Native Linux validation remains pending.
 
-Optional stream audio uses the GStreamer PulseAudio source plugin from Good and the
-default output monitor on PulseAudio or PipeWire's PulseAudio server. Debian packages
-explicitly require `gstreamer1.0-pulseaudio` (transitional on newer Ubuntu). The existing
-Flatpak PulseAudio socket permission covers this access; the ScreenCast portal's
-PipeWire remote grants video only. Windows stream audio uses existing CPAL/WASAPI
-loopback and requires a default output accepting stereo 48 kHz float. Both share all
-audio on that output, including Serein; move call playback to another output to avoid
-echo. Hardware capture and receiving sound in an official client remain unverified.
+Optional Linux stream audio uses native `libpulse` per-application monitoring on
+PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse development
+package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
+The existing Flatpak PulseAudio socket permission covers this access; the ScreenCast
+portal's PipeWire remote grants video only. Windows uses native process loopback on
+build 20348+ (Windows 11 / Server 2022), with a visible audio error on older systems.
+Both exclude Serein's playback and capture other applications even when sharing one
+window. There is no whole-output fallback. Hardware exclusion and receiving sound in
+an official client remain unverified.
+
+macOS development checks that compile the Linux media adapter require
+`brew install gstreamer pulseaudio`. The standard macOS application does not link
+libpulse, and ordinary tests never start its server or access audio devices.

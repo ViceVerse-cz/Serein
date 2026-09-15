@@ -99,9 +99,11 @@ fallback. `run_stream` owns a separate Discord RTC connection, shares the parent
 call's ephemeral `Identity`, and enables outgoing media only after DAVE is ready.
 `video` handles bounded Annex-B/FU-A RTP packetization after DAVE frame encryption.
 
-Optional system audio uses macOS ScreenCaptureKit, Windows WASAPI output loopback,
-or Linux's PulseAudio/PipeWire output monitor. Linux has a separate event-driven
-audio worker so video encoding cannot delay its sampling. Audio reaches the existing
+Optional system audio uses macOS ScreenCaptureKit, Windows process loopback excluding
+Serein's process tree (build 20348+), or Linux PulseAudio/PipeWire per-application monitors
+excluding Serein and unknown identities. Windows/Linux still include other applications
+when sharing one window. Linux has a separate bounded audio worker so video encoding
+cannot delay its sampling. Audio reaches the existing
 stereo Opus sender through four bounded chunks (up to 38,400 PCM bytes each), plus
 100 ms / 38,400 bytes pending at the sender. Buffers are tagged before queueing with
 the capture generation so a rekey rejects late old audio. Native and wire behavior,
