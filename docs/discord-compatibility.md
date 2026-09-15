@@ -210,24 +210,30 @@ Direct X11 fallback and AV1/H.265 sending remain unsupported.
 The offline debug example does not establish native Linux capture, hardware acceleration,
 measured performance, packaging or live Discord interoperability.
 
-System audio extension (September 15, 2026): Linux PulseAudio/PipeWire output-monitor
-capture and Windows WASAPI loopback feed the existing stereo Opus/DAVE stream audio
-sender. Both are opt-in and capture the whole default output, including Serein; macOS
-ScreenCaptureKit continues excluding the current process. Windows requests stereo
-48 kHz float and fails visibly if unsupported. Linux requires `pulsesrc` and verifies a
-monitor destination, using existing audio access separately from portal-approved video.
+System audio extension (September 15, 2026): Linux PulseAudio/PipeWire application monitors
+and Windows process loopback feed the existing stereo Opus/DAVE stream audio sender.
+Both are opt-in and exclude Serein's playback, including received call and stream audio.
+Other applications are included even for a single-window share. macOS ScreenCaptureKit
+continues excluding the current process. Windows requires build 20348+ and uses native
+process-tree exclusion; unsupported systems fail visibly without whole-output fallback.
+Linux uses `pa_stream_set_monitor_stream` before connecting each recording stream,
+rejects Serein/unknown application identities and disables recording-stream movement.
+Audio access is separate from portal-approved video, using the existing PulseAudio socket.
 See [audio behavior and owner test steps](voice.md#screen-sharing).
 
 Audio chunks are at most 9,600 floats / 38,400 bytes (100 ms). The capture channel holds
-four chunks / 153,600 bytes; Linux's appsink additionally holds four bounded buffers.
+four chunks / 153,600 bytes. Linux admits at most 32 identified application streams,
+each with at most 100 ms / 38,400 bytes of pending PCM (1,228,800 bytes total), and
+limits each discovery response to 256 entries. Excess streams fail visibly.
 The transport reserves 9,600 floats / 38,400 bytes, trims before appending, drains a
 bounded queue snapshot and sends at most one 20 ms frame per tick. Current processing
 buffers and native audio-server/driver storage are additional. Rekeys and stalls clear
 the transport's queued/pending audio; generation tags reject in-flight old buffers.
-Linux audio runs on a separate event-driven worker; the portal closes before waiting
+Linux audio runs on a separate bounded worker; the portal closes before waiting
 for audio retirement if a native server/driver call stalls. Synthetic checks cover gates, bounds, sanitization,
 pacing and teardown; native output selection, sound quality, echo and live interoperability
-remain unverified. No new Rust dependency or Flatpak permission is added.
+remain unverified. Linux adds the native `libpulse-sys 1.23.0` bindings; no new Flatpak
+permission, virtual device, output rerouting or recording file is added.
 
 Gateway opcodes 18/19 and STREAM_CREATE/STREAM_SERVER_UPDATE/STREAM_DELETE are unofficial normal-user behavior, checked against [discord.py-self](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py). A separate RTC connection uses the stream RTC server/channel IDs and the parent call session, sharing one ephemeral DAVE signing identity. The `rtc_server_id - 1` MLS group mapping comes from [discord-native-voice](https://github.com/dolfies/discord-native-voice/blob/master/discord/ext/native_voice/stream_client.py); it is not an official protocol guarantee. H264 negotiation and UDP transport are required; mismatches fail visibly. Video is DAVE-encrypted before RFC 6184 packetization and per-packet transport AEAD. There is no plaintext fallback. [DAVE protocol](https://github.com/discord/dave-protocol/blob/main/protocol.md) supplies the encryption requirement.
 

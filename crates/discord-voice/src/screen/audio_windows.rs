@@ -7,7 +7,8 @@ use tokio::sync::mpsc::Sender;
 
 #[cfg(target_os = "windows")]
 pub(super) struct Audio {
-	_stream: cpal::Stream,
+	thread: Option<std::thread::JoinHandle<()>>,
+	stop: Arc<AtomicBool>,
 	failed: Arc<AtomicBool>,
 }
 
@@ -19,14 +20,6 @@ impl Audio {
 		ready: Arc<AtomicBool>,
 		audio_epoch: Arc<AtomicU64>,
 	) -> Result<Self, &'static str> {
-		use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-
-		// CPAL's WASAPI backend enables loopback when an output device is opened for input.
-		// ponytail: capture the default output mix, including Serein; process exclusion needs
-		// Windows 10 build 20348's separate process-loopback activation API.
-		let device = cpal::default_host()
-			.default_output_device()
-			.ok_or("System audio requires an available default output device")?;
 		let failed = Arc::new(AtomicBool::new(false));
 		let input = Samples {
 			send,
@@ -35,33 +28,282 @@ impl Audio {
 			epoch: audio_epoch,
 			failed: failed.clone(),
 		};
-		let failure = failed.clone();
-		let stream = device
-			.build_input_stream(
-				cpal::StreamConfig {
-					channels: 2,
-					sample_rate: 48_000,
-					buffer_size: cpal::BufferSize::Default,
-				},
-				move |data: &[f32], _| input.push(data),
-				move |_| {
-					failure.store(true, Ordering::Release);
-					stop.store(true, Ordering::Release);
-				},
-				Some(std::time::Duration::from_secs(3)),
-			)
-			.map_err(|_| {
-				"System audio could not start; set the default output to stereo, 48 kHz, or share without audio"
-			})?;
-		stream.play().map_err(|_| "System audio could not start")?;
-		Ok(Self {
-			_stream: stream,
+		let (started, result) = std::sync::mpsc::sync_channel(1);
+		let thread = std::thread::Builder::new()
+			.name("screen-audio".into())
+			.spawn(move || {
+				if native::run(&input, started).is_err() {
+					input.failed.store(true, Ordering::Release);
+					input.stop.store(true, Ordering::Release);
+				}
+			})
+			.map_err(|_| "System audio worker could not start")?;
+		let audio = Self {
+			thread: Some(thread),
+			stop,
 			failed,
-		})
+		};
+		result
+			.recv_timeout(std::time::Duration::from_secs(4))
+			.map_err(
+				|_| "Echo-free system audio could not start; Windows build 20348 or newer is required",
+			)?;
+		Ok(audio)
 	}
 
 	pub(super) fn failed(&self) -> bool {
 		self.failed.load(Ordering::Acquire)
+			|| self
+				.thread
+				.as_ref()
+				.is_some_and(std::thread::JoinHandle::is_finished)
+	}
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for Audio {
+	fn drop(&mut self) {
+		self.stop.store(true, Ordering::Release);
+		if let Some(thread) = self.thread.take() {
+			let _ = thread.join();
+		}
+	}
+}
+
+// WASAPI owns each packet until ReleaseBuffer. COM and capture objects stay on this worker.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+mod native {
+	use super::*;
+	use std::{
+		mem::{ManuallyDrop, size_of},
+		os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
+		sync::mpsc::{SyncSender, sync_channel},
+		time::{Duration, Instant},
+	};
+	use windows::{
+		Win32::{
+			Foundation::{E_FAIL, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
+			Media::Audio::*,
+			System::{
+				Com::{
+					BLOB, COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize,
+					StructuredStorage::{
+						PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
+					},
+				},
+				Threading::{CreateEventW, WaitForSingleObject},
+				Variant::VT_BLOB,
+			},
+		},
+		core::{HRESULT, Interface, Ref, Result, implement},
+	};
+
+	#[implement(IActivateAudioInterfaceCompletionHandler)]
+	struct Completion {
+		send: SyncSender<()>,
+		// Keep the activation blob alive even if cancellation wins the completion race.
+		_params: Arc<AUDIOCLIENT_ACTIVATION_PARAMS>,
+	}
+
+	impl IActivateAudioInterfaceCompletionHandler_Impl for Completion_Impl {
+		fn ActivateCompleted(
+			&self,
+			_: Ref<'_, IActivateAudioInterfaceAsyncOperation>,
+		) -> Result<()> {
+			let _ = self.send.try_send(());
+			Ok(())
+		}
+	}
+
+	fn activation_params(pid: u32) -> AUDIOCLIENT_ACTIVATION_PARAMS {
+		AUDIOCLIENT_ACTIVATION_PARAMS {
+			ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
+			Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
+				ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
+					TargetProcessId: pid,
+					ProcessLoopbackMode: PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+				},
+			},
+		}
+	}
+
+	pub(super) fn run(input: &Samples, started: SyncSender<()>) -> Result<()> {
+		// This dedicated thread initializes and releases all COM objects in one MTA.
+		unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
+		let result = capture(input, started);
+		unsafe { CoUninitialize() };
+		result
+	}
+
+	fn capture(input: &Samples, started: SyncSender<()>) -> Result<()> {
+		if input.stop.load(Ordering::Acquire) {
+			return Err(E_FAIL.into());
+		}
+		let params = Arc::new(activation_params(std::process::id()));
+		let (send, done) = sync_channel(1);
+		let completion: IActivateAudioInterfaceCompletionHandler = Completion {
+			send,
+			_params: params.clone(),
+		}
+		.into();
+		let variant = PROPVARIANT {
+			Anonymous: PROPVARIANT_0 {
+				Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
+					vt: VT_BLOB,
+					Anonymous: PROPVARIANT_0_0_0 {
+						blob: BLOB {
+							cbSize: size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
+							pBlobData: Arc::as_ptr(&params).cast_mut().cast(),
+						},
+					},
+					..Default::default()
+				}),
+			},
+		};
+		// The native operation retains the agile completion handler and its immutable blob.
+		let operation = unsafe {
+			ActivateAudioInterfaceAsync(
+				VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+				&IAudioClient::IID,
+				Some(&variant),
+				&completion,
+			)?
+		};
+		let deadline = Instant::now() + Duration::from_secs(3);
+		loop {
+			if input.stop.load(Ordering::Acquire) || Instant::now() >= deadline {
+				return Err(E_FAIL.into());
+			}
+			if done.recv_timeout(Duration::from_millis(50)).is_ok() {
+				break;
+			}
+		}
+		let mut status = HRESULT(0);
+		let mut activated = None;
+		// Completion has fired; GetActivateResult returns an owned COM reference.
+		unsafe { operation.GetActivateResult(&mut status, &mut activated)? };
+		drop(operation);
+		status.ok()?;
+		if input.stop.load(Ordering::Acquire) || input.send.is_closed() {
+			return Err(E_FAIL.into());
+		}
+		let event = unsafe { CreateEventW(None, false, false, None)? };
+		// Created before the clients so it stays open until their COM references are released.
+		let event = unsafe { OwnedHandle::from_raw_handle(event.0) };
+		let client: IAudioClient = activated.ok_or(E_FAIL)?.cast()?;
+		let format = WAVEFORMATEX {
+			wFormatTag: 3, // WAVE_FORMAT_IEEE_FLOAT
+			nChannels: 2,
+			nSamplesPerSec: 48_000,
+			nAvgBytesPerSec: 48_000 * 8,
+			nBlockAlign: 8,
+			wBitsPerSample: 32,
+			cbSize: 0,
+		};
+		// Native conversion gives stereo 48 kHz independently of physical output formats.
+		unsafe {
+			client.Initialize(
+				AUDCLNT_SHAREMODE_SHARED,
+				AUDCLNT_STREAMFLAGS_LOOPBACK
+					| AUDCLNT_STREAMFLAGS_EVENTCALLBACK
+					| AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+				0,
+				0,
+				&format,
+				None,
+			)?;
+		}
+		if unsafe { client.GetBufferSize()? } as usize > MAX_AUDIO_SAMPLES / 2 {
+			return Err(E_FAIL.into());
+		}
+		let capture: IAudioCaptureClient = unsafe { client.GetService()? };
+		unsafe { client.SetEventHandle(HANDLE(event.as_raw_handle()))? };
+		if input.stop.load(Ordering::Acquire) || input.send.is_closed() {
+			return Err(E_FAIL.into());
+		}
+		let epoch = input.epoch.load(Ordering::Acquire);
+		unsafe { client.Start()? };
+		let _ = started.try_send(());
+		let result = packets(input, &client, &capture, &event, epoch);
+		// Always stop before releasing the capture client and event, including packet errors.
+		let stopped = unsafe { client.Stop() };
+		result.and(stopped)
+	}
+
+	fn packets(
+		input: &Samples,
+		client: &IAudioClient,
+		capture: &IAudioCaptureClient,
+		event: &OwnedHandle,
+		mut epoch: u64,
+	) -> Result<()> {
+		while !input.stop.load(Ordering::Acquire) && !input.send.is_closed() {
+			let current = input.epoch.load(Ordering::Acquire);
+			if current != epoch {
+				// Native packets queued before a DAVE rekey must never acquire the new epoch.
+				unsafe {
+					client.Stop()?;
+					client.Reset()?;
+					client.Start()?;
+				}
+				epoch = current;
+			}
+			match unsafe { WaitForSingleObject(HANDLE(event.as_raw_handle()), 50) } {
+				WAIT_TIMEOUT => continue,
+				WAIT_OBJECT_0 => {}
+				_ => return Err(E_FAIL.into()),
+			}
+			// Bound work per wakeup as well as the bytes in each packet.
+			for _ in 0..32 {
+				if input.stop.load(Ordering::Acquire)
+					|| unsafe { capture.GetNextPacketSize()? } == 0
+				{
+					break;
+				}
+				let (mut data, mut frames, mut flags) = (std::ptr::null_mut(), 0, 0);
+				unsafe { capture.GetBuffer(&mut data, &mut frames, &mut flags, None, None)? };
+				let count = (frames as usize).saturating_mul(2);
+				let valid = count <= MAX_AUDIO_SAMPLES
+					&& (flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0
+						|| (!data.is_null() && data.align_offset(align_of::<f32>()) == 0));
+				if valid && count != 0 {
+					if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
+						input.push_at(&[0.0; MAX_AUDIO_SAMPLES][..count], epoch);
+					} else {
+						// WASAPI guarantees frames of the initialized format until ReleaseBuffer.
+						input.push_at(
+							unsafe { std::slice::from_raw_parts(data.cast::<f32>(), count) },
+							epoch,
+						);
+					}
+				}
+				unsafe { capture.ReleaseBuffer(frames)? };
+				if !valid {
+					return Err(E_FAIL.into());
+				}
+			}
+		}
+		Ok(())
+	}
+
+	#[cfg(test)]
+	mod tests {
+		use super::*;
+		#[test]
+		fn activation_excludes_our_entire_process_tree() {
+			let params = activation_params(42);
+			assert_eq!(
+				params.ActivationType,
+				AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK
+			);
+			let process = unsafe { params.Anonymous.ProcessLoopbackParams };
+			assert_eq!(process.TargetProcessId, 42);
+			assert_eq!(
+				process.ProcessLoopbackMode,
+				PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE
+			);
+		}
 	}
 }
 
@@ -74,9 +316,17 @@ struct Samples {
 }
 
 impl Samples {
+	#[cfg(test)]
 	fn push(&self, data: &[f32]) {
 		let epoch = self.epoch.load(Ordering::Acquire);
-		if self.stop.load(Ordering::Acquire) || !self.ready.load(Ordering::Acquire) {
+		self.push_at(data, epoch);
+	}
+
+	fn push_at(&self, data: &[f32], epoch: u64) {
+		if self.stop.load(Ordering::Acquire)
+			|| !self.ready.load(Ordering::Acquire)
+			|| epoch != self.epoch.load(Ordering::Acquire)
+		{
 			return;
 		}
 		if data.len() > MAX_AUDIO_SAMPLES || !data.len().is_multiple_of(2) {
@@ -87,7 +337,7 @@ impl Samples {
 		if data.is_empty() {
 			return;
 		}
-		// Reserve first: a stalled transport must not allocate in the audio callback.
+		// Reserve first: a stalled transport must not allocate for dropped packets.
 		if let Ok(permit) = self.send.try_reserve() {
 			let samples = data
 				.iter()
@@ -99,7 +349,10 @@ impl Samples {
 					}
 				})
 				.collect();
-			if !self.stop.load(Ordering::Acquire) && self.ready.load(Ordering::Acquire) {
+			if !self.stop.load(Ordering::Acquire)
+				&& self.ready.load(Ordering::Acquire)
+				&& epoch == self.epoch.load(Ordering::Acquire)
+			{
 				permit.send(AudioChunk { samples, epoch });
 			}
 		}
@@ -129,6 +382,8 @@ mod tests {
 		let chunk = receive.try_recv().unwrap();
 		assert_eq!(chunk.samples, vec![0.0, 0.0, -1.0, 1.0]);
 		assert_eq!(chunk.epoch, 7); // Queued samples retain their capture generation.
+		assert!(receive.try_recv().is_err());
+		samples.push_at(&[0.25, -0.25], 7); // A native wakeup that crosses rekey is stale.
 		assert!(receive.try_recv().is_err());
 		samples.push(&vec![0.0; MAX_AUDIO_SAMPLES]);
 		let chunk = receive.try_recv().unwrap();

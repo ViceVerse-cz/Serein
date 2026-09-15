@@ -222,7 +222,7 @@ impl ScreenUi {
 				Some(if cfg!(target_os = "macos") {
 					"Send what your Mac plays along with the screen. Serein's own call audio is left out."
 				} else {
-					"Share all sound from your default output, including other apps and this call. Use a separate output for call audio to avoid echo."
+					"Share sound from other apps, even when sharing one window. Serein's own audio is left out."
 				}),
 				&mut self.audio,
 			);

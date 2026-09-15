@@ -312,24 +312,28 @@ is capped at 640×360/10 fps and suspended when minimized or viewing another cha
 ScreenCast-capable portal backends are required on both Wayland and X11; there is no
 separate X11 capture fallback. AV1/H.265 sending is not included.
 
-System audio defaults off on Linux and Windows. It captures the default output's entire
-mix, even when sharing one window, including notifications and Serein's call audio.
-To avoid sending the call back to participants, route call playback to a different output
-in Audio settings, or leave system audio off. macOS keeps its existing ScreenCaptureKit
-capture, which excludes Serein's own audio.
+System audio defaults off on Linux and Windows. It shares other applications' playback,
+even when sharing one window, and excludes Serein's own audio, including call playback
+and watched streams. Exclusion happens at capture on the sender: a viewer cannot remove
+their voice once another sender has mixed it into stream audio. Other apps' notifications
+and audio remain included. macOS retains ScreenCaptureKit's current-process exclusion.
 
-Linux uses GStreamer's `pulsesrc` with the explicit `@DEFAULT_MONITOR@` device through
-PulseAudio or PipeWire's PulseAudio server. It refuses a non-monitor destination and
-never falls back to the microphone. The ScreenCast portal grants video only; audio uses
-the desktop audio access already available to the app (including Flatpak's existing
-PulseAudio socket permission). An event-driven audio worker keeps audio independent
-of video encoding and isolates native PulseAudio calls from the portal worker.
-Native driver/server calls can delay audio retirement; portal permission is revoked
-before waiting for that worker, and another share waits for complete retirement.
-Windows uses CPAL's native WASAPI output loopback;
-the default output must accept stereo 48 kHz float capture. An unsupported format or
-capture error fails visibly; turn audio off to share video alone. Restart sharing after
-changing the default output. Neither adapter installs a virtual device or records to disk.
+Linux captures individual playback streams through PulseAudio's per-stream monitor API,
+also implemented by PipeWire's PulseAudio server. It excludes Serein and streams whose
+application identity cannot be established; it never falls back to a whole-output monitor
+or microphone. The ScreenCast portal grants video only; audio uses the existing desktop
+audio access, including Flatpak's PulseAudio socket permission. A separate bounded worker
+handles discovery, capture and mixing outside video encoding and rendering. No applications
+are moved between outputs and no virtual device is installed.
+
+Windows uses native process loopback with `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`,
+excluding Serein and its child processes across outputs. This requires Windows build 20348+
+(Windows 11 or Windows Server 2022; ordinary Windows 10 22H2 is older). Unsupported systems
+or failed isolation report an audio error; turn audio off to share video alone. There is no
+whole-output fallback. Neither adapter records to disk.
+
+Native contracts: [PulseAudio per-stream monitoring](https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/Developer/Clients/WritingVolumeControlUIs/)
+and [Microsoft process-loopback capture](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/).
 
 Both feed the existing stream RTC connection with 48 kHz stereo Opus at 128 kbps and
 DAVE/transport encryption, independently of microphone mute. Capture output is gated
@@ -345,8 +349,11 @@ checks pre-cancellation without D-Bus, and exercises synthetic preview, the secu
 gate, stereo audio, bounded slow-consumer behavior, oversized-buffer rejection and software
 H.264. It never captures a desktop or opens an audio device. Native Linux portal interaction,
 VA-API/NVENC, package installation, performance and Discord viewing remain unverified.
-Windows output loopback, native Linux monitor selection and actual remote sound also
+Windows process exclusion, Linux application selection and actual remote sound still
 require owner-controlled tests; synthetic samples do not establish those outcomes.
+Use two clients with headphones, enable audio on the sender, play another app and speak
+from the viewer: the app should be audible without the viewer's voice returning in the
+stream. Repeat while starting/stopping apps, changing outputs, rekeying and stopping sharing.
 
 The native demo (`cargo run --locked -p serein -- --demo --demo-voice`) exposes a synthetic picker without OS source discovery or capture. Live screen sharing requires the same owner-controlled login gate as voice testing. See [compatibility and limits](discord-compatibility.md#outgoing-screen-sharing--september-11-2026).
 

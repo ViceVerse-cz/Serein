@@ -1,3 +1,38 @@
+# Stream audio call-playback exclusion - September 15, 2026
+
+Baseline `a28b646` and the exclusion implementation in PR #230 were packaged with
+`cargo xtask package`, standard release with voice and no demo/developer features,
+Rust 1.98.1, macOS 27.0 (26A428), Apple M1 Pro / 16 GiB. Baseline output was copied
+to a separate directory before edits. One package measurement per revision; both
+local ad-hoc signatures passed verification.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Packaged executable, bytes | 66,716,336 | 66,716,336 | 0 |
+| Installed bundle, sum of files | 72,623,733 | 72,626,189 | +2,456 (+0.0034%) |
+| ZIP, `ditto -c -k --keepParent` | 43,389,158 | 43,390,952 | +1,794 (+0.0041%) |
+
+The macOS executable is unchanged; package growth is notices/provenance. This does
+not measure Linux/Windows binary size, capture CPU, RSS or end-to-end A/V latency.
+Those native desktop measurements remain unavailable, and no speed improvement is claimed.
+
+Linux now owns at most 32 application monitors with 100 ms / 38,400 bytes of pending
+PCM each, plus the existing four-chunk transport queue. Discovery admits at most 256
+entries and one in-flight request. Mixing uses a fixed 10 ms cadence on one worker;
+with no eligible apps it sends no audio and waits up to 100 ms for native events.
+Windows uses one native process-loopback worker and the existing bounded audio queue.
+Native server/driver allocations are additional; these are payload limits, not RSS.
+
+An additional temporary harness compiled the actual Linux adapter against a private
+PulseAudio 17 server on this Mac, loading only `module-null-sink` and a private UNIX
+protocol socket (`-n`, no default or hardware modules). `pacat` supplied synthetic
+48 kHz float stereo: game `(0.125, 0.25)`, Serein `(0.5, -0.5)`, 100 ms playback latency
+and 20 ms process time. The final run, after three seconds warmup, delivered
+144,000 stereo frames in three seconds, all at the game's expected amplitude. No sample exceeded
+the game-only bounds when Serein playback appeared. Rekey, application removal,
+Serein-only idle and stop also passed. This verifies the Pulse API with synthetic
+signals; it is not Linux/PipeWire hardware, Discord interoperability or a latency benchmark.
+
 # Theme editor readability - September 15, 2026
 
 Baseline: `235cf01`, reusing the verified `ae36f54` package because intervening

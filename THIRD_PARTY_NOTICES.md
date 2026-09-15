@@ -1,5 +1,11 @@
 # Third-party notices
 
+Linux stream audio uses **libpulse-sys 1.23.0** (MIT OR Apache-2.0) to capture individual
+application playback streams. Its unmodified MIT text and provenance are under
+`assets/licenses/voice` and ship with packages.
+The external system `libpulse` library retains its own license; it is dynamically linked,
+not bundled here. macOS uses the bindings only for offline Linux development checks.
+
 Packaging copies the repository's bundled notices, license texts and corresponding component
 source without scanning dependencies or checking license coverage. Declared-license checks run
 separately in the dedicated license CI job (`cargo xtask licenses`); its failure does not block
