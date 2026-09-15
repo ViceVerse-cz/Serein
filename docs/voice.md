@@ -459,6 +459,16 @@ pending transition, waiting, announced, capture ready and audio enabled flags se
 plus audio chunks observed in the capture queue before draining. These distinguish
 closed security gates, missing capture data and active outbound video. Tick counts
 reset every report; receiver capture-ready and queued-audio counts are always zero.
+Windows also emits `ScreenAudio`: `capture_read` counts successful native buffer reads,
+`capture_queue` counts chunks handed to the stream, `stalls` counts 50-ms event
+timeouts, and `drops` counts packets rejected by the ready/epoch/queue gates. Initial
+start and epoch restarts emit bounded checkpoints before/after the native calls;
+`capture_restart` counts completed starts/restarts, while `resets` counts attempted
+epoch restarts. This separates missing wakeups, empty native buffers and blocked
+restart calls without logging audio. Dropped packets before stream readiness are expected.
+On an encryption epoch change, Windows recreates the process-loopback client instead
+of restarting it with Stop/Reset/Start. Each client's captured audio retains its original
+epoch until disposal, so queued samples cannot cross the encryption transition.
 Zero sender encode calls means no PCM reached the secure sender; sender activity with
 zero receiver receive calls narrows the failure to forwarding, mapping or decryption.
 Successful receives/mixes with no sound narrows it to silent source PCM or parent

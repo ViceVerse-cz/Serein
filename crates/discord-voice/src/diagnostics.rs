@@ -11,6 +11,8 @@ pub(crate) enum Scope {
 	Transport,
 	StreamSend,
 	StreamReceive,
+	#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+	ScreenAudio,
 }
 
 #[derive(Clone, Copy)]
@@ -23,6 +25,12 @@ pub(crate) enum Stage {
 	Receive,
 	VideoSend,
 	VideoReceive,
+	#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+	CaptureRead,
+	#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+	CaptureQueue,
+	#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+	CaptureRestart,
 }
 
 #[derive(Clone, Copy)]
@@ -30,7 +38,7 @@ struct Report {
 	scope: Scope,
 	window_ms: u64,
 	// Each stage: calls, total elapsed microseconds, maximum elapsed microseconds.
-	stages: [[u64; 3]; 8],
+	stages: [[u64; 3]; 11],
 	wakes: u64,
 	resets: u64,
 	drops: u64,
@@ -73,7 +81,7 @@ impl Metrics {
 			report: Report {
 				scope,
 				window_ms: 0,
-				stages: [[0; 3]; 8],
+				stages: [[0; 3]; 11],
 				wakes: 0,
 				resets: 0,
 				drops: 0,
@@ -137,6 +145,12 @@ impl Metrics {
 			.saturating_add(u64::try_from(queued_audio).unwrap_or(u64::MAX));
 	}
 
+	/// Queue the current aggregates before a potentially blocking native operation.
+	#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+	pub fn checkpoint(&mut self) {
+		self.flush();
+	}
+
 	fn flush(&mut self) {
 		let Some(send) = self.send else { return };
 		self.report.window_ms = self.since.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
@@ -144,7 +158,7 @@ impl Metrics {
 			self.send = None;
 		}
 		self.since = Instant::now();
-		self.report.stages = [[0; 3]; 8];
+		self.report.stages = [[0; 3]; 11];
 		self.report.wakes = 0;
 		self.report.resets = 0;
 		self.report.drops = 0;
@@ -193,6 +207,12 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 		line.push_str(&format!(
 			" video_send={:?} video_receive={:?} stream_ticks: transport_key={transport_key} dave_ready={dave_ready} group_ready={group_ready} pending={pending} waiting={waiting} announced={announced} capture_ready={capture_ready} audio_enabled={audio_enabled} queued_audio={}",
 			report.stages[6], report.stages[7], report.queued_audio,
+		));
+	}
+	if matches!(report.scope, Scope::ScreenAudio) {
+		line.push_str(&format!(
+			" capture_read={:?} capture_queue={:?} capture_restart={:?}",
+			report.stages[8], report.stages[9], report.stages[10],
 		));
 	}
 	line.push('\n');
