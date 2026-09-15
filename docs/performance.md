@@ -458,3 +458,28 @@ the Orca CLI is not installed. The egui warning-render test is not native visual
 No owner-account or live load test was performed. Account budgets are finite component
 allocation estimates (128 MiB navigation/permission and 64 MiB permission sub-budget),
 not whole-process memory guarantees; decoding and old/new state replacement add peak memory.
+
+
+## 2026-09-15: gallery preview, customization and selection
+
+| Metric / method | Baseline `fd0cf4e` | After `e452b0f` | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 71,039,488 | 71,050,240 | +10,752 (+0.015%) |
+| Full portable package, bytes | 75,105,551 | 75,116,303 | +10,752 (+0.014%) |
+| ZIP, Compress-Archive Optimal, bytes | 42,856,609 | 42,860,670 | +4,061 (+0.009%) |
+| Native release UI CPU, memory, frame time | Unmeasured | Unmeasured | Unmeasured |
+
+Standard voice-enabled `cargo xtask package` passed on Windows x64 with pinned Rust
+1.98.1 MSVC and locked dependencies. One package per revision, 186 files each; package
+size sums all files. Baseline reuses the verified `1f5349b` package, since intervening
+commits through `fd0cf4e` contain documentation only. It was preserved separately
+before the after builds in the owned package worktree; root `dist` was untouched.
+ZIP uses Compress-Archive Optimal on each `dist` directory. These measurements cover
+full-app gallery preview, bundled customization and theme selection together.
+The final release build took 3m 16s. OpenH264 LNK4255 was nonfatal. `makensis` is absent,
+so packaging produced an unsigned portable distribution, not an NSIS installer.
+
+No UI speed or memory improvement is claimed. Matched native release CPU, memory and
+frame-time measurements remain unavailable because native desktop capture/control is
+disabled and Orca is absent. The inspected offline debug framebuffer renders and
+behavioral tests do not establish installed-client visuals or live interoperability.
