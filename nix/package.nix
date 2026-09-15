@@ -2,7 +2,6 @@
     lib,
     stdenv,
     rustPlatform,
-    fetchFromGitHub,
     pkg-config,
     cmake,
     makeWrapper,
@@ -37,12 +36,7 @@ rustPlatform.buildRustPackage rec {
     pname = "serein";
     version = "1.0.0-nightly.20260914.14";
 
-    src = fetchFromGitHub {
-        owner = "ViceVerse-cz";
-        repo = "Serein";
-        tag = "v${version}";
-        hash = "sha256-qeFLf1Wk4KGUVj4eH/eWm8ucwI2AZmJXpQ0+0XmcqYE=";
-    };
+    src = ../.;
 
     cargoLock = {
         lockFile = "${src}/Cargo.lock";
