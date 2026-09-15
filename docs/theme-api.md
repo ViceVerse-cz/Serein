@@ -117,6 +117,14 @@ A theme package may contain one `background_image` field: a JSON byte array hold
 a PNG or JPEG, at most 2 MiB compressed. There are no paths or remote image URLs in
 the package. Both palettes share this image and can set different image settings:
 
+An optional, separate `cover_image` byte array holds a PNG or JPEG for the theme
+card in Settings > Themes. It is also capped at 2 MiB, uses the same static-image
+decode limits, and shrinks to at most 640 x 360 for the card. The card center-crops
+the image to 16:9; removing it restores the automatic palette preview. It has no
+effect on the conversation background. Local themes made in the editor, including
+copies of installed themes, can be edited and saved with their existing ID. Imported
+and bundled themes must be duplicated before saving, so their package is preserved.
+
 ```json
 "background": {
   "opacity": 100, "fit": "cover", "target": "window",
@@ -145,7 +153,7 @@ open an image file, or fetch an image URL.
 Images are decoded on the extension worker, with at most 4,096 pixels per edge,
 4,000,000 pixels, and 32 MiB decoder allocation. Only a static decoded image is used.
 Invalid images fail before installation or export. The 16 MiB serialized package
-limit includes the embedded byte array. Older packages remain valid and keep their
+limit includes both embedded byte arrays. Older packages remain valid and keep their
 appearance; older clients may reject packages with the new background fields.
 
 Legacy message-area images paint above the chat surface and below messages, clipped

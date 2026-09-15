@@ -212,6 +212,8 @@ fn seed_catalog(extensions: &mut ui::ExtensionUi) {
 			.entries
 			.into_iter()
 			.map(|entry| ui::ExtensionEntry {
+				cover_image: None,
+				local_theme: false,
 				manifest: entry.manifest,
 				description: entry.description,
 				preview: entry.preview,

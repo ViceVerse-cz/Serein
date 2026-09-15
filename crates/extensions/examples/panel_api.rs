@@ -74,6 +74,7 @@ fn main() {
 		manifest: appearance_manifest,
 		theme: None,
 		background_image: Vec::new(),
+		cover_image: Vec::new(),
 		wasm: module,
 	};
 	assert!(matches!(

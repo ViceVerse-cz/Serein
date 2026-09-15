@@ -62,6 +62,9 @@ Use an original or licensed PNG/JPEG screenshot showing the theme or plugin in
 use. Pin its URL to an immutable release or source commit, then record the exact
 file size and digest. Prefer a 16:9 image; the shop preserves its aspect ratio.
 Bundled themes show expandable native palette previews using their actual colors.
+Editor-created themes may embed a separate local card cover; it replaces the palette
+illustration and is center-cropped to 16:9. It is not a catalog preview URL and does
+not change the conversation background.
 The protector shows a deleted-row illustration. Other entries without an image
 remain valid and show a built-in illustration.
 Previews describe the listed version, including when an installed version has

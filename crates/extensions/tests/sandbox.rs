@@ -43,6 +43,7 @@ fn plugin(wasm: &str) -> Package {
 		},
 		theme: None,
 		background_image: Vec::new(),
+		cover_image: Vec::new(),
 		wasm: wat::parse_str(wasm).unwrap(),
 	}
 }
@@ -56,6 +57,21 @@ fn returning(json: &str) -> Package {
 		(func (export "serein_invoke") (param i32 i32) (result i64) (i64.const {})))"#,
 		(32768_u64 << 32) | json.len() as u64
 	))
+}
+
+#[test]
+fn cover_bytes_are_theme_only_and_bounded() {
+	let mut package = returning("{}");
+	package.cover_image = vec![1];
+	assert!(package.validate().is_err());
+	package.manifest.kind = ExtensionKind::Theme;
+	package.manifest.capabilities.clear();
+	package.manifest.actions.clear();
+	package.theme = Some(Theme::default());
+	package.wasm.clear();
+	assert!(package.validate().is_ok());
+	package.cover_image.resize(MAX_BACKGROUND_BYTES + 1, 0);
+	assert!(package.validate().is_err());
 }
 
 fn input() -> Invocation {

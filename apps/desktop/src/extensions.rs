@@ -275,6 +275,8 @@ pub fn demo_check_examples() -> Result<bool, String> {
 #[derive(Clone)]
 pub struct InstalledExtension {
 	pub background_image: Option<Arc<eframe::egui::ColorImage>>,
+	pub cover_image: Option<Arc<eframe::egui::ColorImage>>,
+	pub local_theme: bool,
 	pub active_theme: bool,
 	pub manifest: Manifest,
 	pub theme: Option<Theme>,
@@ -293,6 +295,8 @@ pub enum Event {
 	EditTheme {
 		package: Box<Package>,
 		image: Option<Arc<eframe::egui::ColorImage>>,
+		cover: Option<Arc<eframe::egui::ColorImage>>,
+		local_theme: bool,
 	},
 	ThemeExported,
 	Loaded {
@@ -500,8 +504,17 @@ impl Stored {
 		} else {
 			None
 		};
+		let cover_image = match package_cover(&self.package) {
+			Ok(image) => image,
+			Err(error) => {
+				result = Err(error);
+				None
+			}
+		};
 		InstalledExtension {
 			background_image,
+			cover_image,
+			local_theme: self.local_theme,
 			active_theme: self.package.manifest.kind == ExtensionKind::Theme,
 			manifest: self.package.manifest.clone(),
 			theme: self.package.theme.clone().or_else(|| {
@@ -591,14 +604,18 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 				return Err("Theme is not installed".into());
 			}
 			let image = package_background(&stored.package)?;
+			let cover = package_cover(&stored.package)?;
 			gate.check()?;
 			Ok(Event::EditTheme {
+				local_theme: stored.local_theme,
 				package: Box::new(stored.package),
 				image,
+				cover,
 			})
 		}
 		Job::SaveTheme { package } => {
 			let bytes = encode_theme(&package)?;
+			let _ = package_cover(&package)?;
 			let directory = root.join("themes").join(&package.manifest.id);
 			if directory.exists() && !read_stored(&directory.join("package.json"))?.local_theme {
 				return Err(
@@ -619,6 +636,7 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			let bytes = encode_theme(&package)?;
 			// Reject invalid images before creating or replacing the user's export.
 			let _ = package_background(&package)?;
+			let _ = package_cover(&package)?;
 			export_theme(&path, &bytes, gate)?;
 			Ok(Event::ThemeExported)
 		}
@@ -965,6 +983,8 @@ fn load(
 					},
 					Err(error) => InstalledExtension {
 						background_image: None,
+						cover_image: None,
+						local_theme: false,
 						active_theme: false,
 						manifest: Manifest {
 							api_version: extensions::API_VERSION,
@@ -1228,6 +1248,34 @@ pub fn read_background(path: &Path) -> Result<(Vec<u8>, eframe::egui::ColorImage
 	Ok((bytes, image))
 }
 
+pub fn read_cover(path: &Path) -> Result<(Vec<u8>, eframe::egui::ColorImage), String> {
+	let bytes = read_bounded(path, extensions::MAX_BACKGROUND_BYTES)?;
+	let image = decode_cover(&bytes)?;
+	Ok((bytes, image))
+}
+
+fn decode_cover(bytes: &[u8]) -> Result<eframe::egui::ColorImage, String> {
+	if bytes.len() > extensions::MAX_BACKGROUND_BYTES {
+		return Err("Cover image exceeds 2 MiB".into());
+	}
+	let image = decode_static_image(bytes, 4_000_000)
+		.ok_or("Choose a static PNG or JPEG within 4096 pixels per edge and 4 million pixels")?
+		.thumbnail(640, 360)
+		.into_rgba8();
+	Ok(eframe::egui::ColorImage::from_rgba_unmultiplied(
+		[image.width() as usize, image.height() as usize],
+		image.as_raw(),
+	))
+}
+
+fn package_cover(package: &Package) -> Result<Option<Arc<eframe::egui::ColorImage>>, String> {
+	if package.cover_image.is_empty() {
+		Ok(None)
+	} else {
+		decode_cover(&package.cover_image).map(|image| Some(Arc::new(image)))
+	}
+}
+
 pub fn decode_background(bytes: &[u8]) -> Result<eframe::egui::ColorImage, String> {
 	if bytes.len() > extensions::MAX_BACKGROUND_BYTES {
 		return Err("Background image exceeds 2 MiB".into());
@@ -1457,6 +1505,7 @@ mod tests {
 			},
 			theme: Some(Theme::default()),
 			background_image: Vec::new(),
+			cover_image: Vec::new(),
 			wasm: Vec::new(),
 		}
 	}
@@ -1469,6 +1518,64 @@ mod tests {
 			sha256: digest(&bytes),
 			manifest: package.manifest.clone(),
 		}
+	}
+
+	#[test]
+	fn local_theme_cover_survives_edit_without_another_copy() {
+		let profile = Profile::new();
+		let root = profile.0.join("extensions");
+		let mut package = theme("local-cover");
+		package.cover_image = include_bytes!("../../../extensions/previews/ocean.png").to_vec();
+		let Event::Enabled(first) = run(
+			&root,
+			Job::SaveTheme {
+				package: Box::new(package),
+			},
+			&gate(),
+		)
+		.unwrap() else {
+			panic!("theme save did not install");
+		};
+		assert!(first.local_theme && first.cover_image.is_some());
+		let Event::EditTheme {
+			mut package,
+			local_theme,
+			cover,
+			..
+		} = run(
+			&root,
+			Job::EditTheme {
+				id: "local-cover".into(),
+			},
+			&gate(),
+		)
+		.unwrap()
+		else {
+			panic!("installed theme did not open");
+		};
+		assert!(local_theme && cover.is_some());
+		package.manifest.name = "Updated cover".into();
+		let Event::Enabled(updated) = run(&root, Job::SaveTheme { package }, &gate()).unwrap()
+		else {
+			panic!("theme edit did not save");
+		};
+		assert_eq!(updated.manifest.id, "local-cover");
+		assert_eq!(updated.manifest.name, "Updated cover");
+		assert!(updated.cover_image.is_some());
+		assert_eq!(count_directories(&root.join("themes")).unwrap(), 1);
+
+		let imported = source(&profile, &theme("imported"));
+		enable(&root, imported, Vec::new(), None, &gate()).unwrap();
+		assert!(
+			run(
+				&root,
+				Job::SaveTheme {
+					package: Box::new(theme("imported"))
+				},
+				&gate()
+			)
+			.is_err()
+		);
 	}
 
 	#[test]

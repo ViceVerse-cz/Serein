@@ -75,6 +75,7 @@ impl ImageRegion {
 pub(crate) struct ThemeEditor {
 	pub package: Box<Package>,
 	pub image: Option<Arc<egui::ColorImage>>,
+	pub cover: Option<Arc<egui::ColorImage>>,
 	pub dirty: bool,
 	pub preview: bool,
 	dark: bool,
@@ -86,6 +87,7 @@ pub(crate) struct ThemeEditor {
 	reveal_advanced_colors: bool,
 	reveal_gradient: bool,
 	thumbnail: Option<egui::TextureHandle>,
+	cover_thumbnail: Option<egui::TextureHandle>,
 }
 
 fn identity() -> String {
@@ -119,8 +121,10 @@ impl ThemeEditor {
 				theme: Some(Theme::default()),
 				wasm: vec![],
 				background_image: vec![],
+				cover_image: vec![],
 			}),
 			image: None,
+			cover: None,
 			dirty: false,
 			preview: false,
 			dark: true,
@@ -132,20 +136,40 @@ impl ThemeEditor {
 			reveal_advanced_colors: false,
 			reveal_gradient: false,
 			thumbnail: None,
+			cover_thumbnail: None,
 		}
 	}
-	pub fn duplicate(mut package: Box<Package>, image: Option<Arc<egui::ColorImage>>) -> Self {
+	pub fn edit(
+		package: Box<Package>,
+		image: Option<Arc<egui::ColorImage>>,
+		cover: Option<Arc<egui::ColorImage>>,
+	) -> Self {
+		Self {
+			package,
+			image,
+			cover,
+			..Self::new()
+		}
+	}
+	pub fn duplicate(
+		mut package: Box<Package>,
+		image: Option<Arc<egui::ColorImage>>,
+		cover: Option<Arc<egui::ColorImage>>,
+	) -> Self {
 		package.manifest.id = identity();
 		package.manifest.name = format!(
 			"{} copy",
 			package.manifest.name.chars().take(30).collect::<String>()
 		);
-		Self {
-			package,
-			image,
-			dirty: true,
-			..Self::new()
-		}
+		let mut editor = Self::edit(package, image, cover);
+		editor.dirty = true;
+		editor
+	}
+	pub fn receive_cover(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
+		self.package.cover_image = bytes;
+		self.cover = Some(image);
+		self.cover_thumbnail = None;
+		self.dirty = true;
 	}
 	pub fn receive_image(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
 		self.package.background_image = bytes;
@@ -392,6 +416,13 @@ impl ThemeEditor {
 						ui,
 						"This name appears in Themes. You can change it before saving.",
 					);
+					ui.add_space(20.0);
+					design::section(
+						ui,
+						"Card cover",
+						Some("Choose the image shown on your theme card in Themes."),
+					);
+					self.cover_card(ui, requests, &mut changed);
 				}
 				EditorTab::Background => {
 					appearance_switch(ui, &mut self.dark);
@@ -729,6 +760,92 @@ impl ThemeEditor {
 			}
 		}
 		false
+	}
+
+	fn cover_card(
+		&mut self,
+		ui: &mut egui::Ui,
+		requests: &mut Vec<ExtensionRequest>,
+		changed: &mut bool,
+	) {
+		if self.cover_thumbnail.is_none()
+			&& let Some(image) = &self.cover
+			&& image
+				.size
+				.iter()
+				.all(|side| *side <= ui.ctx().input(|input| input.max_texture_side))
+		{
+			self.cover_thumbnail = Some(ui.ctx().load_texture(
+				"theme-cover-thumbnail",
+				image.clone(),
+				egui::TextureOptions::LINEAR,
+			));
+		}
+		design::card(ui, |ui| {
+			ui.horizontal_wrapped(|ui| {
+				let (rect, _) =
+					ui.allocate_exact_size(egui::vec2(112.0, 63.0), egui::Sense::hover());
+				let colors = design::palette(ui);
+				ui.painter().rect_filled(rect, 6, colors.base);
+				if let Some(texture) = &self.cover_thumbnail {
+					design::paint_background_image(
+						ui.painter(),
+						rect,
+						texture,
+						Background {
+							opacity: 100,
+							..Default::default()
+						},
+					);
+				} else {
+					crate::icons::paint(
+						ui.painter(),
+						crate::icons::Icon::Image,
+						rect.shrink(20.0),
+						colors.muted,
+					);
+				}
+				ui.add_space(8.0);
+				ui.vertical(|ui| {
+					ui.label(design::medium(
+						ui,
+						if self.cover.is_some() {
+							"Custom cover"
+						} else {
+							"Automatic preview"
+						},
+						14.0,
+					));
+					ui.horizontal_wrapped(|ui| {
+						if dialog::action(
+							ui,
+							if self.cover.is_some() {
+								"Replace cover"
+							} else {
+								"Choose cover"
+							},
+							dialog::Action::Outline,
+						)
+						.clicked()
+						{
+							requests.push(ExtensionRequest::PickThemeCover);
+						}
+						if self.cover.is_some()
+							&& dialog::action(ui, "Remove", dialog::Action::Neutral).clicked()
+						{
+							self.package.cover_image.clear();
+							self.cover = None;
+							self.cover_thumbnail = None;
+							*changed = true;
+						}
+					});
+				});
+			});
+		});
+		design::hint(
+			ui,
+			"PNG or JPEG, up to 2 MiB. This image does not change the chat background.",
+		);
 	}
 
 	fn image_card(

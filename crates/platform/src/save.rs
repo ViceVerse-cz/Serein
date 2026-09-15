@@ -48,6 +48,21 @@ pub fn theme_background_source(
 	}
 }
 
+pub fn theme_cover_source(
+	parent: Arc<winit::window::Window>,
+) -> impl std::future::Future<Output = Option<PathBuf>> + Send + 'static {
+	let dialog = rfd::AsyncFileDialog::new()
+		.set_parent(parent.as_ref())
+		.set_title("Choose theme card cover")
+		.add_filter("Static images", &["png", "jpg", "jpeg"])
+		.pick_file();
+	async move {
+		let file = dialog.await?;
+		drop(parent);
+		Some(file.path().to_owned())
+	}
+}
+
 pub fn theme_destination(
 	parent: Arc<winit::window::Window>,
 	filename: &str,

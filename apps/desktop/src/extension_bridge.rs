@@ -22,6 +22,7 @@ type PickedBackground = (Vec<u8>, Arc<egui::ColorImage>);
 
 enum ThemePickerResult {
 	Image(Result<Option<PickedBackground>, String>),
+	Cover(Result<Option<PickedBackground>, String>),
 	Export(Option<PathBuf>, Box<extensions::Package>),
 }
 #[derive(Default)]
@@ -241,6 +242,8 @@ impl Bridge {
 					let sha256 = source_hash(&source).to_owned();
 					self.imported = Some(source);
 					messaging.extensions.offer_import(ExtensionEntry {
+						cover_image: None,
+						local_theme: false,
 						manifest,
 						description: String::new(),
 						preview: None,
@@ -327,9 +330,14 @@ impl Bridge {
 							.present_output(id, invocation, context, output, state);
 					}
 				}
-				Ok(Event::EditTheme { package, image }) => {
-					messaging.extensions.receive_theme_edit(package, image)
-				}
+				Ok(Event::EditTheme {
+					package,
+					image,
+					cover,
+					local_theme,
+				}) => messaging
+					.extensions
+					.receive_theme_edit(package, image, cover, local_theme),
 				Ok(Event::ThemeExported) => messaging.extensions.status = "Theme exported.".into(),
 				Ok(Event::LoggedOut | Event::Preview { .. }) => {}
 			}
@@ -363,7 +371,13 @@ impl Bridge {
 						ThemePickerResult::Image(Ok(Some((bytes, image)))) => {
 							messaging.extensions.receive_theme_image(bytes, image)
 						}
+						ThemePickerResult::Cover(Ok(Some((bytes, image)))) => {
+							messaging.extensions.receive_theme_cover(bytes, image)
+						}
 						ThemePickerResult::Image(Err(error)) => {
+							messaging.extensions.report_error(error)
+						}
+						ThemePickerResult::Cover(Err(error)) => {
 							messaging.extensions.report_error(error)
 						}
 						ThemePickerResult::Export(Some(path), package) => self.submit(
@@ -436,6 +450,26 @@ impl Bridge {
 					});
 					self.theme_picker = Some(receive);
 				}
+				ExtensionRequest::PickThemeCover if self.theme_picker.is_none() => {
+					let (send, receive) = mpsc::sync_channel(1);
+					let future = platform::save::theme_cover_source(window.clone());
+					let ctx = ctx.clone();
+					runtime.spawn(async move {
+						let result = if let Some(path) = future.await {
+							tokio::task::spawn_blocking(move || {
+								crate::extensions::read_cover(&path)
+									.map(|(bytes, image)| Some((bytes, Arc::new(image))))
+							})
+							.await
+							.unwrap_or_else(|_| Err("Cover image worker failed.".into()))
+						} else {
+							Ok(None)
+						};
+						let _ = send.send(ThemePickerResult::Cover(result));
+						ctx.request_repaint();
+					});
+					self.theme_picker = Some(receive);
+				}
 				ExtensionRequest::ExportTheme { package } if self.theme_picker.is_none() => {
 					let (send, receive) = mpsc::sync_channel(1);
 					let future = platform::save::theme_destination(
@@ -449,7 +483,9 @@ impl Bridge {
 					});
 					self.theme_picker = Some(receive);
 				}
-				ExtensionRequest::PickThemeImage | ExtensionRequest::ExportTheme { .. } => {}
+				ExtensionRequest::PickThemeImage
+				| ExtensionRequest::PickThemeCover
+				| ExtensionRequest::ExportTheme { .. } => {}
 				ExtensionRequest::SelectTheme { id } => {
 					self.submit(
 						Job::SelectTheme { id },
@@ -700,6 +736,8 @@ impl Bridge {
 						description: entry.description.clone(),
 						preview: entry.preview.clone(),
 						theme_preview: None,
+						cover_image: None,
+						local_theme: false,
 						sha256: entry.sha256.clone(),
 						reviewed: true,
 						download_bytes: entry.download_bytes,
@@ -725,6 +763,8 @@ impl Bridge {
 					description: starter.description.into(),
 					preview: None,
 					theme_preview: starter.theme.clone(),
+					cover_image: None,
+					local_theme: false,
 					sha256: sha256.clone(),
 					reviewed: true,
 					download_bytes: starter.download_bytes,
@@ -746,6 +786,8 @@ impl Bridge {
 				description: available.map_or_else(String::new, |entry| entry.description.clone()),
 				preview: available.and_then(|entry| entry.preview.clone()),
 				theme_preview: installed.theme.clone(),
+				cover_image: installed.cover_image.clone(),
+				local_theme: installed.local_theme,
 				sha256: available
 					.map_or_else(|| installed.sha256.clone(), |entry| entry.sha256.clone()),
 				reviewed: available.map_or(installed.reviewed, |entry| entry.reviewed),

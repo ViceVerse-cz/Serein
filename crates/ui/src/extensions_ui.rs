@@ -10,6 +10,8 @@ pub struct ExtensionEntry {
 	pub description: String,
 	pub preview: Option<extensions::Preview>,
 	pub theme_preview: Option<extensions::Theme>,
+	pub cover_image: Option<Arc<egui::ColorImage>>,
+	pub local_theme: bool,
 	pub manifest: Manifest,
 	pub reviewed: bool,
 	pub sha256: String,
@@ -67,6 +69,7 @@ pub enum ExtensionRequest {
 		id: String,
 	},
 	PickThemeImage,
+	PickThemeCover,
 	SaveTheme {
 		package: Box<extensions::Package>,
 	},
@@ -170,12 +173,18 @@ impl ExtensionUi {
 		&mut self,
 		package: Box<extensions::Package>,
 		image: Option<Arc<egui::ColorImage>>,
+		cover: Option<Arc<egui::ColorImage>>,
+		local_theme: bool,
 	) {
 		if self.theme_editor.is_none()
 			&& package.manifest.kind == ExtensionKind::Theme
 			&& package.theme.is_some()
 		{
-			self.theme_editor = Some(crate::theme_editor::ThemeEditor::duplicate(package, image));
+			self.theme_editor = Some(if local_theme {
+				crate::theme_editor::ThemeEditor::edit(package, image, cover)
+			} else {
+				crate::theme_editor::ThemeEditor::duplicate(package, image, cover)
+			});
 		}
 	}
 	pub fn receive_theme_image(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
@@ -201,6 +210,19 @@ impl ExtensionUi {
 					self.requests.push(request);
 				}
 			}
+		}
+	}
+	pub fn receive_theme_cover(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
+		if bytes.len() > extensions::MAX_BACKGROUND_BYTES
+			|| image.size.contains(&0)
+			|| image.size[0] > 640
+			|| image.size[1] > 360
+			|| image.pixels.len() != image.size[0] * image.size[1]
+		{
+			return;
+		}
+		if let Some(editor) = &mut self.theme_editor {
+			editor.receive_cover(bytes, image);
 		}
 	}
 	pub fn theme_saved(&mut self, id: &str) {
@@ -323,7 +345,10 @@ impl ExtensionUi {
 		self.previews.retain(|id, _| {
 			let old = self.entries.iter().find(|entry| &entry.manifest.id == id);
 			let new = entries.iter().find(|entry| &entry.manifest.id == id);
-			matches!((old, new), (Some(old), Some(new)) if old.preview == new.preview)
+			matches!((old, new), (Some(old), Some(new))
+				if old.preview == new.preview
+					&& old.cover_image.as_ref().map(Arc::as_ptr)
+						== new.cover_image.as_ref().map(Arc::as_ptr))
 		});
 		self.entries = entries;
 		self.message_actions = Arc::new(
@@ -420,11 +445,12 @@ impl ExtensionUi {
 		if !ui.is_rect_visible(rect) {
 			return;
 		}
-		if entry.theme_preview.is_some()
-			|| entry
-				.manifest
-				.capabilities
-				.contains(&Capability::DeletedMessages)
+		if entry.cover_image.is_none()
+			&& (entry.theme_preview.is_some()
+				|| entry
+					.manifest
+					.capabilities
+					.contains(&Capability::DeletedMessages))
 		{
 			draw_native_preview(ui, rect, entry, radius);
 			let response = ui.interact(rect, ui.id().with("enlarge-preview"), egui::Sense::click());
@@ -437,7 +463,14 @@ impl ExtensionUi {
 			return;
 		}
 		let id = &entry.manifest.id;
-		if entry.preview.is_some()
+		if let Some(cover) = &entry.cover_image
+			&& !self.previews.contains_key(id)
+			&& self.reserve_preview(id)
+		{
+			self.receive_preview(id.clone(), Some((**cover).clone()));
+		}
+		if entry.cover_image.is_none()
+			&& entry.preview.is_some()
 			&& !self.previews.contains_key(id)
 			&& !self.busy
 			&& self.requests.len() < 4
@@ -461,12 +494,35 @@ impl ExtensionUi {
 			}
 			if let Some(texture) = &preview.texture {
 				ui.painter().rect_filled(rect, radius, colors.base);
-				let fit = texture.size_vec2()
-					* (rect.width() / texture.size_vec2().x)
-						.min(rect.height() / texture.size_vec2().y);
-				egui::Image::new(texture)
-					.corner_radius(radius)
-					.paint_at(ui, egui::Rect::from_center_size(rect.center(), fit));
+				if entry.cover_image.is_some() {
+					let source = texture.size_vec2();
+					let source_ratio = source.x / source.y;
+					let target_ratio = rect.width() / rect.height();
+					let uv = if source_ratio > target_ratio {
+						let inset = (1.0 - target_ratio / source_ratio) / 2.0;
+						egui::Rect::from_min_max(
+							egui::pos2(inset, 0.0),
+							egui::pos2(1.0 - inset, 1.0),
+						)
+					} else {
+						let inset = (1.0 - source_ratio / target_ratio) / 2.0;
+						egui::Rect::from_min_max(
+							egui::pos2(0.0, inset),
+							egui::pos2(1.0, 1.0 - inset),
+						)
+					};
+					egui::Image::new(texture)
+						.uv(uv)
+						.corner_radius(radius)
+						.paint_at(ui, rect);
+				} else {
+					let fit = texture.size_vec2()
+						* (rect.width() / texture.size_vec2().x)
+							.min(rect.height() / texture.size_vec2().y);
+					egui::Image::new(texture)
+						.corner_radius(radius)
+						.paint_at(ui, egui::Rect::from_center_size(rect.center(), fit));
+				}
 				let response =
 					ui.interact(rect, ui.id().with("enlarge-preview"), egui::Sense::click());
 				response.widget_info(|| {
@@ -518,11 +574,12 @@ impl ExtensionUi {
 			return;
 		};
 		let texture = self.previews.get(&id).and_then(|p| p.texture.as_ref());
-		let native = entry.theme_preview.is_some()
-			|| entry
-				.manifest
-				.capabilities
-				.contains(&Capability::DeletedMessages);
+		let native = entry.cover_image.is_none()
+			&& (entry.theme_preview.is_some()
+				|| entry
+					.manifest
+					.capabilities
+					.contains(&Capability::DeletedMessages));
 		if texture.is_none() && !native {
 			self.enlarged = None;
 			return;
@@ -552,7 +609,11 @@ impl ExtensionUi {
 						.max_size(available.max(egui::vec2(1.0, 1.0)))
 						.corner_radius(8),
 				);
-				ui.weak("Creator preview");
+				ui.weak(if entry.cover_image.is_some() {
+					"Custom theme cover"
+				} else {
+					"Creator preview"
+				});
 			}
 			close = ui.button("Close preview").clicked();
 		});
@@ -1120,7 +1181,11 @@ impl ExtensionUi {
 			&& ui
 				.add_enabled(
 					!self.busy && self.theme_editor.is_none(),
-					egui::Button::new("Duplicate and edit"),
+					egui::Button::new(if entry.local_theme {
+						"Edit theme"
+					} else {
+						"Duplicate and edit"
+					}),
 				)
 				.clicked()
 		{
@@ -1714,9 +1779,13 @@ fn request_bytes(request: &ExtensionRequest) -> usize {
 	std::mem::size_of_val(request)
 		+ match request {
 			ExtensionRequest::PickThemeImage => 0,
+			ExtensionRequest::PickThemeCover => 0,
 			ExtensionRequest::EditTheme { id } => id.len(),
 			ExtensionRequest::SaveTheme { package } | ExtensionRequest::ExportTheme { package } => {
-				package.background_image.len() + package.wasm.len() + 16384
+				package.background_image.len()
+					+ package.cover_image.len()
+					+ package.wasm.len()
+					+ 16384
 			}
 			ExtensionRequest::PreviewTheme { theme, image } => {
 				usize::from(theme.is_some()) * 16384
@@ -2065,6 +2134,8 @@ mod tests {
 	use super::*;
 	fn entry() -> ExtensionEntry {
 		ExtensionEntry {
+			cover_image: None,
+			local_theme: false,
 			description: String::new(),
 			theme_preview: None,
 			preview: None,
@@ -2088,6 +2159,61 @@ mod tests {
 			update_available: false,
 			update_manifest: None,
 		}
+	}
+	#[test]
+	fn local_theme_opens_for_edit_and_cover_replaces_palette_preview() {
+		let ctx = egui::Context::default();
+		let mut shop = ExtensionUi {
+			themes: true,
+			..Default::default()
+		};
+		let mut local = entry();
+		local.manifest.kind = ExtensionKind::Theme;
+		local.manifest.id = "local-cover".into();
+		local.manifest.name = "Local cover".into();
+		local.enabled = true;
+		local.local_theme = true;
+		local.theme_preview = Some(extensions::Theme::default());
+		local.cover_image = Some(Arc::new(egui::ColorImage::filled(
+			[16, 9],
+			egui::Color32::GREEN,
+		)));
+		shop.set_entries(vec![local.clone()]);
+		frame(&ctx, &mut shop, 900.0, vec![]);
+		let labels = frame(&ctx, &mut shop, 900.0, vec![]);
+		assert!(labels.iter().any(|(text, _)| text == "Edit theme"));
+		assert!(
+			shop.previews
+				.get("local-cover")
+				.is_some_and(|preview| preview.texture.is_some()),
+			"custom cover should create a card texture"
+		);
+		let mut replaced = local.clone();
+		replaced.cover_image = Some(Arc::new(egui::ColorImage::filled(
+			[16, 9],
+			egui::Color32::BLUE,
+		)));
+		shop.set_entries(vec![replaced]);
+		assert!(!shop.previews.contains_key("local-cover"));
+		click(&ctx, &mut shop, 900.0, &labels, "Edit theme");
+		assert!(shop.requests.iter().any(
+			|request| matches!(request, ExtensionRequest::EditTheme { id } if id == "local-cover")
+		));
+
+		let mut package = crate::theme_editor::ThemeEditor::new().package;
+		package.manifest.id = "local-cover".into();
+		shop.receive_theme_edit(package.clone(), None, local.cover_image.clone(), true);
+		assert_eq!(
+			shop.theme_editor.as_ref().unwrap().package.manifest.id,
+			"local-cover"
+		);
+		assert!(!shop.theme_editor.as_ref().unwrap().dirty);
+		shop.theme_editor = None;
+		shop.receive_theme_edit(package, None, local.cover_image.clone(), false);
+		assert_ne!(
+			shop.theme_editor.as_ref().unwrap().package.manifest.id,
+			"local-cover"
+		);
 	}
 	fn frame(
 		ctx: &egui::Context,

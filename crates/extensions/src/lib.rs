@@ -203,6 +203,8 @@ pub struct ThemeStyle {
 pub struct Package {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub background_image: Vec<u8>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub cover_image: Vec<u8>,
 	pub manifest: Manifest,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub theme: Option<Theme>,
@@ -561,14 +563,20 @@ impl Theme {
 impl Package {
 	pub fn validate(&self) -> Result<(), Error> {
 		self.manifest.validate()?;
-		if self.background_image.len() > MAX_BACKGROUND_BYTES {
+		if self.background_image.len() > MAX_BACKGROUND_BYTES
+			|| self.cover_image.len() > MAX_BACKGROUND_BYTES
+		{
 			return Err(Error::Limit);
 		}
 		match self.manifest.kind {
 			ExtensionKind::Theme if self.wasm.is_empty() => {
 				self.theme.as_ref().ok_or(Error::Invalid)?.validate()
 			}
-			ExtensionKind::Plugin if self.theme.is_none() && self.background_image.is_empty() => {
+			ExtensionKind::Plugin
+				if self.theme.is_none()
+					&& self.background_image.is_empty()
+					&& self.cover_image.is_empty() =>
+			{
 				if self.wasm.len() > MAX_MODULE_BYTES {
 					return Err(Error::Limit);
 				}
