@@ -580,10 +580,16 @@ normal-account delivery and native screenshots remain owner-controlled validatio
 
 ### Keyboard conversation navigation (September 10, 2026)
 
-Find conversation / Ctrl+K (Command+K) is a local picker over existing loaded navigation and
-current VIEW decisions. It adds no Discord route, subscription or relationship lookup. Selection
-reuses the same history/roster path as the sidebar, including cancellation and service-authoritative
-permission failures. A voice result only opens the roster and does not join. The query is session
+Find conversation / Ctrl+K (Command+K) searches loaded navigation and retained friends by display
+name, nickname and username, respecting current VIEW decisions for channels. Friends with an open
+one-to-one DM appear once; group membership does not hide a friend. Selecting a friend without
+an open DM reuses the bounded [Create DM](https://docs.discord.com/developers/resources/user#create-dm)
+request already used by server invites, then opens its confirmed channel through ordinary history
+loading. It sends no message and adds no subscription or relationship lookup. Requests are never
+automatically retried; stale sessions, mismatched recipients and later navigation cannot redirect
+the user. Other selections reuse the sidebar history/roster path, including cancellation and
+service-authoritative permission failures. A voice result only opens the roster and does not join.
+Normal-user Create DM interoperability remains unofficial and live-unverified. The query is session
 UI state and never enters message content, REST requests or SQLite. Headless keyboard/IME checks
 are synthetic; real platform input, screen readers and live navigation remain unverified.
 

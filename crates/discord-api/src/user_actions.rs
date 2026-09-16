@@ -4,6 +4,38 @@ use reqwest::Method;
 use serde_json::json;
 
 impl DiscordApi {
+	pub(super) async fn open_dm(&self, user: model::Id) -> Result<model::Channel, Failure> {
+		if user.0 == 0 {
+			return Err(Failure::Protocol);
+		}
+		let bytes = self
+			.request_limited(
+				Method::POST,
+				"/users/@me/channels",
+				Some(json!({"recipient_id": user})),
+				64 * 1024,
+			)
+			.await
+			.map_err(|failure| {
+				if failure == Failure::Capacity {
+					Failure::Ambiguous
+				} else {
+					failure
+				}
+			})?;
+		let channel: discord_protocol::ChannelDto =
+			discord_protocol::decode(&bytes).map_err(|_| Failure::Ambiguous)?;
+		let channel = channel.into_model();
+		if channel.id.0 == 0
+			|| channel.guild.is_some()
+			|| channel.kind != 1
+			|| channel.recipients.len() != 1
+			|| channel.recipients[0].id != user
+		{
+			return Err(Failure::Ambiguous);
+		}
+		Ok(channel)
+	}
 	pub(super) async fn user_note(&self, user: model::Id) -> Result<String, Failure> {
 		if user.0 == 0 {
 			return Err(Failure::Protocol);
@@ -48,7 +80,8 @@ impl DiscordApi {
 			| Action::Nickname { user: id, .. } => id,
 			Action::AddFriend { .. } => unreachable!(),
 			Action::ResolveFriend { user, .. } | Action::ProfileFriend { user, .. } => user,
-			Action::CloseDm(id)
+			Action::OpenDm(id)
+			| Action::CloseDm(id)
 			| Action::Block { user: id, .. }
 			| Action::Mute { channel: id, .. } => id,
 		};
@@ -56,7 +89,7 @@ impl DiscordApi {
 			return Err(Failure::Protocol);
 		}
 		match action {
-			Action::LoadNote(_) => Err(Failure::Protocol),
+			Action::LoadNote(_) | Action::OpenDm(_) => Err(Failure::Protocol),
 			Action::Note { user, text } | Action::Nickname { user, text } => {
 				let nickname = matches!(action, Action::Nickname { .. });
 				if !client_core::user_actions::valid_personal_text(text, nickname) {

@@ -9,6 +9,8 @@ mod channel_demo;
 mod clipboard;
 mod connection;
 mod credentials;
+#[cfg(feature = "demo")]
+mod dm_demo;
 mod downloads;
 mod emoji_upload;
 mod extension_bridge;
@@ -67,6 +69,11 @@ fn main() -> eframe::Result {
 				std::process::exit(2);
 			})
 		});
+	#[cfg(feature = "demo")]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-switcher") {
+		dm_demo::check();
+		return Ok(());
+	}
 	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-post-menu") {
 		post_menu_demo::check();
@@ -2111,35 +2118,7 @@ impl Desktop {
 					nonce,
 					request,
 				} => {
-					let recipient = self
-						.state
-						.friends()
-						.find(|f| f.id == user)
-						.cloned()
-						.unwrap();
-					let channel = self
-						.state
-						.channels
-						.iter()
-						.find(|c| {
-							c.kind == 1
-								&& c.guild.is_none() && c.recipients.len() == 1
-								&& c.recipients[0].id == user
-						})
-						.cloned()
-						.unwrap_or_else(|| model::Channel {
-							id: model::Id(100_000 + user.0),
-							guild: None,
-							name: recipient.name.clone(),
-							kind: 1,
-							parent_id: None,
-							position: 0,
-							recipients: vec![recipient],
-							last_message: None,
-							icon: None,
-							member_list_id: None,
-							message_count: None,
-						});
+					let channel = dm_demo::channel(&self.state, user).unwrap();
 					self.synthetic_id += 1;
 					let mut message = test_support::message(self.synthetic_id, channel.id);
 					message.author = self.state.user.clone().unwrap();
@@ -2155,6 +2134,14 @@ impl Desktop {
 				Command::ServerAction { action, request } => {
 					server_settings_demo::execute_action(&mut self.state, action, request)
 				}
+				Command::UserAction {
+					action: client_core::user_actions::Action::OpenDm(user),
+					request,
+				} => Event::UserAction(client_core::user_actions::Event::DmOpened {
+					user,
+					request,
+					result: dm_demo::channel(&self.state, user).map(Box::new),
+				}),
 				Command::UserAction {
 					action: client_core::user_actions::Action::LoadNote(user),
 					request,

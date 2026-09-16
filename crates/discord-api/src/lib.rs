@@ -509,6 +509,13 @@ impl DiscordApi {
 				})
 			}
 			Command::UserAction { action, request } => {
+				if let client_core::user_actions::Action::OpenDm(user) = action {
+					return Event::UserAction(client_core::user_actions::Event::DmOpened {
+						user,
+						request,
+						result: self.open_dm(user).await.map(Box::new),
+					});
+				}
 				if let client_core::user_actions::Action::LoadNote(user) = action {
 					return Event::UserAction(client_core::user_actions::Event::NoteLoaded {
 						user,

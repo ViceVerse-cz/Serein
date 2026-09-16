@@ -447,10 +447,14 @@ history or invalidate timeline layout. These are component bounds, not process R
 
 The conversation switcher retains only its open-state flags, focused control ID and a query of
 at most 128 characters / 512 UTF-8 bytes. Each open frame builds at most 20 labels from bounded
-channel/guild names; each field is limited to 128 characters. Matching normalizes one eligible
-channel's bounded names and at most 64 known DM recipient names at a time, then drops them.
-It reuses the existing navigation limits and permission cache, with no persistent query history,
-search index, directory fetch or new worker/queue. Closing clears the query; logout resets the UI.
+channel/guild and retained friend names; each field is limited to 128 characters. Matching
+normalizes one eligible channel's bounded names and at most 64 known DM recipients' names,
+nicknames and usernames at a time, then drops them. Friend matching reuses the bounded relationship
+map; a temporary set of at most 4,000 fixed-size friend IDs prevents duplicate one-to-one results.
+Opening a missing DM uses the existing single pending user action and bounded write queue, a
+64 KiB response limit, normal navigation admission limits and one fixed-size navigation target.
+It adds no persistent query history, search index or directory fetch. Closing clears the query;
+logout resets the UI and pending target.
 
 ## September 10: message type retention
 

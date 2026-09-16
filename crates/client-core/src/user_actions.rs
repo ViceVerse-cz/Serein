@@ -49,6 +49,7 @@ pub enum Action {
 	AddFriend { username: String },
 	ResolveFriend { user: Id, accept: bool },
 	ProfileFriend { user: Id, friend: bool },
+	OpenDm(Id),
 	CloseDm(Id),
 	Block { user: Id, blocked: bool },
 	Mute { channel: Id, muted: bool },
@@ -62,6 +63,11 @@ impl std::fmt::Debug for Action {
 }
 
 pub enum Event {
+	DmOpened {
+		user: Id,
+		request: u64,
+		result: Result<Box<model::Channel>, Failure>,
+	},
 	NoteChanged {
 		user: Id,
 		text: String,
@@ -132,6 +138,8 @@ pub struct Actions {
 	view: u64,
 	sequence: u64,
 	pending: Option<(Action, u64, bool)>,
+	dm_origin: Option<(Option<Id>, u64)>,
+	opened_dm: Option<(Id, Id)>,
 	status: Option<&'static str>,
 }
 impl Actions {
@@ -455,6 +463,42 @@ impl State {
 	pub fn user_action_status(&self) -> Option<&'static str> {
 		self.user_actions.status
 	}
+	pub fn open_friend_dm(&mut self, user: Id) -> Option<Command> {
+		if user.0 == 0 || self.user.as_ref().is_none_or(|owner| owner.id == user) {
+			return None;
+		}
+		self.friend(user)?;
+		if let Some(channel) = self.channels.iter().find(|channel| {
+			channel.guild.is_none()
+				&& channel.kind == 1
+				&& channel.recipients.len() == 1
+				&& channel.recipients[0].id == user
+		}) {
+			return self.select(channel.id);
+		}
+		let command = self.request_user_action(Action::OpenDm(user))?;
+		self.user_actions.dm_origin = Some((self.selected, self.request));
+		self.user_actions.opened_dm = None;
+		self.status = "Opening direct message…";
+		Some(command)
+	}
+	/// Consume one confirmed DM target without overriding navigation made during the request.
+	pub fn select_opened_dm(&mut self) -> Option<Command> {
+		let (channel, user) = self.user_actions.opened_dm.take()?;
+		let origin = self.user_actions.dm_origin.take()?;
+		if origin != (self.selected, self.request)
+			|| self.friend(user).is_none()
+			|| self.channel(channel).is_none_or(|known| {
+				known.guild.is_some()
+					|| known.kind != 1
+					|| known.recipients.len() != 1
+					|| known.recipients[0].id != user
+			}) || (!self.demo && (self.auth != AuthState::Authenticated || !self.gateway_connected))
+		{
+			return None;
+		}
+		self.select(channel)
+	}
 	pub fn close_dm(&mut self, channel: Id) -> Option<Command> {
 		if !self.is_one_to_one_dm(channel) {
 			return None;
@@ -512,6 +556,8 @@ impl State {
 		Some(Command::UserAction { action, request })
 	}
 	pub(crate) fn cancel_user_action(&mut self) {
+		self.user_actions.dm_origin = None;
+		self.user_actions.opened_dm = None;
 		if let Some((action, _, _)) = self.user_actions.pending.take() {
 			if matches!(action, Action::Block { .. }) {
 				self.user_actions.bump_view();
@@ -551,6 +597,59 @@ impl State {
 			self.user_actions.bump_view();
 		}
 		match event {
+			Event::DmOpened {
+				user,
+				request,
+				result,
+			} => {
+				if !matches!(&self.user_actions.pending, Some((Action::OpenDm(id), sequence, _)) if *id == user && *sequence == request)
+				{
+					return Ok(());
+				}
+				let result = result.and_then(|channel| {
+					if channel.id.0 == 0
+						|| channel.guild.is_some()
+						|| channel.kind != 1
+						|| channel.recipients.len() != 1
+						|| channel.recipients[0].id != user
+						|| channel.bytes() > 64 * 1024
+						|| self.channel(channel.id).is_some_and(|known| {
+							known.guild.is_some()
+								|| known.kind != 1 || known.recipients.len() != 1
+								|| known.recipients[0].id != user
+						}) {
+						Err(Failure::Ambiguous)
+					} else if self.friend(user).is_none() {
+						Err(Failure::Forbidden)
+					} else {
+						Ok(channel)
+					}
+				});
+				let channel = match result {
+					Ok(channel) => channel,
+					Err(failure) => {
+						return self.apply_user_action(Event::Written {
+							action: Action::OpenDm(user),
+							request,
+							result: Err(failure),
+						});
+					}
+				};
+				self.user_actions.pending = None;
+				let id = channel.id;
+				// Preserve newer Gateway metadata; otherwise use the normal navigation bounds.
+				if self.channel(id).is_none() {
+					self.apply(crate::Envelope {
+						generation: self.generation,
+						event: crate::Event::ChannelCreated(*channel),
+					});
+				}
+				if self.channel(id).is_some() && self.user_actions.dm_origin.is_some() {
+					self.user_actions.opened_dm = Some((id, user));
+					self.user_actions.status = None;
+					self.status = "Direct message opened";
+				}
+			}
 			Event::NoteChanged { user, text } => {
 				if user.0 == 0 || !valid_personal_text(&text, false) {
 					return Err("Invalid note");
@@ -936,6 +1035,9 @@ impl State {
 				}
 				let observed = *observed;
 				self.user_actions.pending = None;
+				if matches!(action, Action::OpenDm(_)) {
+					self.user_actions.dm_origin = None;
+				}
 				if matches!(action, Action::Block { .. }) {
 					self.user_actions.bump_view();
 				}
@@ -949,7 +1051,7 @@ impl State {
 				}
 				if !observed {
 					match action {
-						Action::LoadNote(_) => {}
+						Action::LoadNote(_) | Action::OpenDm(_) => {}
 						Action::Note { user, ref text } => {
 							self.user_actions.note = Some((user, text.clone()))
 						}
@@ -1006,6 +1108,7 @@ impl State {
 				// A change the service already echoed needs no confirmation in the menu.
 				let label = match action {
 					Action::LoadNote(_) => "Note loaded",
+					Action::OpenDm(_) => "Direct message was not confirmed; try opening it again",
 					Action::Note { .. } => "Note saved",
 					Action::Nickname { .. } => "Nickname saved",
 					Action::AddFriend { .. } => "Friend request sent · waiting for service update",

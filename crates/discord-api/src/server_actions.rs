@@ -16,26 +16,7 @@ impl DiscordApi {
 		{
 			return Err(Failure::Protocol);
 		}
-		let bytes = self
-			.request_limited(
-				Method::POST,
-				"/users/@me/channels",
-				Some(serde_json::json!({"recipient_id":user})),
-				64 * 1024,
-			)
-			.await
-			.map_err(write_failure)?;
-		let channel: discord_protocol::ChannelDto =
-			discord_protocol::decode(&bytes).map_err(|_| Failure::Ambiguous)?;
-		let channel = channel.into_model();
-		if channel.id.0 == 0
-			|| channel.guild.is_some()
-			|| channel.kind != 1
-			|| channel.recipients.len() != 1
-			|| channel.recipients[0].id != user
-		{
-			return Err(Failure::Ambiguous);
-		}
+		let channel = self.open_dm(user).await?;
 		let content = format!("https://discord.gg/{code}");
 		let message = self
 			.send_message(channel.id, &content, nonce, None, None)

@@ -1,6 +1,7 @@
 use crate::{design, icons};
 use client_core::State;
 use model::{Channel, Id};
+use std::collections::HashSet;
 
 const QUERY_CHARS: usize = 128;
 const QUERY_BYTES: usize = QUERY_CHARS * 4;
@@ -24,8 +25,14 @@ enum Kind {
 	Group,
 }
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub(super) enum Target {
+	Channel(Id),
+	Friend(Id),
+}
+
 struct Candidate {
-	id: Id,
+	target: Target,
 	kind: Kind,
 	name: String,
 	scope: String,
@@ -63,6 +70,28 @@ fn lowercase_bounded_into(buffer: &mut String, value: &str) {
 	}
 }
 
+fn labels_match<'a>(
+	labels: impl Iterator<Item = &'a str>,
+	words: &[&str],
+	label: &mut String,
+	matched: &mut [bool],
+) -> bool {
+	if words.is_empty() {
+		return true;
+	}
+	matched.fill(false);
+	for value in labels {
+		lowercase_bounded_into(label, value);
+		for (word, hit) in words.iter().zip(matched.iter_mut()) {
+			*hit = *hit || label.contains(word);
+		}
+		if matched.iter().all(|hit| *hit) {
+			return true;
+		}
+	}
+	false
+}
+
 fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 	let query = bounded(query).to_lowercase();
 	let words: Vec<_> = query.split_whitespace().collect();
@@ -70,40 +99,32 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 	let mut label = String::new();
 	let mut matched = vec![false; words.len()];
 	let mut matches = |channel: &Channel| {
-		if words.is_empty() {
-			return true;
-		}
 		let guild = channel
 			.guild
 			.and_then(|id| state.guild(id))
 			.map(|guild| guild.name.as_str());
 		let recipients = channel.guild.is_none().then(|| {
-			channel
-				.recipients
-				.iter()
-				.take(64)
-				.map(|user| user.name.as_str())
+			channel.recipients.iter().take(64).flat_map(|user| {
+				[
+					Some(user.name.as_str()),
+					state.friend(user.id).map(|friend| friend.name.as_str()),
+					state.friend_nickname(user.id),
+					state.friend_username(user.id),
+				]
+				.into_iter()
+				.flatten()
+			})
 		});
 		let labels = std::iter::once(channel.name.as_str())
 			.chain(guild)
 			.chain(recipients.into_iter().flatten());
-		matched.fill(false);
-		for value in labels {
-			lowercase_bounded_into(&mut label, value);
-			for (word, hit) in words.iter().zip(matched.iter_mut()) {
-				*hit = *hit || label.contains(word);
-			}
-			if matched.iter().all(|hit| *hit) {
-				return true;
-			}
-		}
-		false
+		labels_match(labels, &words, &mut label, &mut matched)
 	};
 	let selected = state
 		.channels
 		.iter()
 		.filter(|c| Some(c.id) == state.selected);
-	selected
+	let mut choices: Vec<_> = selected
 		.chain(
 			state
 				.channels
@@ -113,13 +134,14 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 		.filter(|c| (c.supports_text() || c.kind == 2) && state.can_view(c.id) && matches(c))
 		.take(RESULTS)
 		.map(|channel| {
-			let name = if channel.name.is_empty() && channel.guild.is_none() {
+			let name = state.conversation_name(channel);
+			let name = if name.is_empty() && channel.guild.is_none() {
 				channel
 					.recipients
 					.first()
-					.map_or("Direct message", |u| u.name.as_str())
+					.map_or("Direct message", |user| state.user_display_name(user))
 			} else {
-				channel.name.as_str()
+				name
 			};
 			let scope = channel.guild.and_then(|id| state.guild(id)).map_or(
 				if channel.guild.is_some() {
@@ -141,14 +163,51 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 				Kind::Direct
 			};
 			Candidate {
-				id: channel.id,
+				target: Target::Channel(channel.id),
 				kind,
 				name: bounded(name),
 				scope: bounded(scope),
 				current: Some(channel.id) == state.selected,
 			}
 		})
-		.collect()
+		.collect();
+	if choices.len() == RESULTS {
+		return choices;
+	}
+	// Only one-to-one DMs suppress friend rows; at most the retained 4,000 friend IDs.
+	let direct_friends: HashSet<_> = state
+		.channels
+		.iter()
+		.filter(|channel| channel.guild.is_none() && channel.kind == 1)
+		.flat_map(|channel| channel.recipients.iter().take(64))
+		.filter(|user| state.friend(user.id).is_some())
+		.map(|user| user.id)
+		.collect();
+	for user in state.friends() {
+		if direct_friends.contains(&user.id) {
+			continue;
+		}
+		let labels = [
+			Some(user.name.as_str()),
+			state.friend_nickname(user.id),
+			state.friend_username(user.id),
+		]
+		.into_iter()
+		.flatten();
+		if labels_match(labels, &words, &mut label, &mut matched) {
+			choices.push(Candidate {
+				target: Target::Friend(user.id),
+				kind: Kind::Direct,
+				name: bounded(state.user_display_name(user)),
+				scope: bounded(state.friend_username(user.id).unwrap_or("Friend")),
+				current: false,
+			});
+			if choices.len() == RESULTS {
+				break;
+			}
+		}
+	}
+	choices
 }
 
 /// Small rounded chip that names a key in the footer legend.
@@ -324,7 +383,7 @@ impl Switcher {
 		ctx.request_repaint();
 	}
 
-	pub(super) fn show(&mut self, ctx: &egui::Context, state: &State) -> Option<Id> {
+	pub(super) fn show(&mut self, ctx: &egui::Context, state: &State) -> Option<Target> {
 		if !self.open {
 			let modal = ctx.memory(|memory| memory.top_modal_layer());
 			if modal.is_none() {
@@ -464,14 +523,14 @@ impl Switcher {
 					self.selected = (self.selected + choices.len() - 1) % choices.len();
 				}
 				if enter {
-					target = Some(choices[self.selected].id);
+					target = Some(choices[self.selected].target);
 				}
 			}
 			ui.add_space(2.0);
 			ui.label(design::eyebrow(
 				ui,
 				if self.query.trim().is_empty() {
-					"Loaded conversations"
+					"Conversations and friends"
 				} else {
 					"Results"
 				},
@@ -486,7 +545,7 @@ impl Switcher {
 							icons::inline(ui, icons::Icon::Search, 28.0, colors.muted);
 							ui.add_space(6.0);
 							ui.label(
-								design::semibold(ui, "No loaded conversations match", 14.0)
+								design::semibold(ui, "No conversations or friends match", 14.0)
 									.color(colors.text),
 							);
 							ui.label(
@@ -504,7 +563,9 @@ impl Switcher {
 					for (index, choice) in choices.iter().enumerate() {
 						let selected = self.selected == index;
 						let row = ui
-							.push_id(choice.id, |ui| result_row(ui, choice, selected, !blocked))
+							.push_id(choice.target, |ui| {
+								result_row(ui, choice, selected, !blocked)
+							})
 							.inner;
 						if selected && (up || down || changed) {
 							row.scroll_to_me(Some(egui::Align::Center));
@@ -516,7 +577,7 @@ impl Switcher {
 							}
 						}
 						if row.clicked() {
-							target = Some(choice.id);
+							target = Some(choice.target);
 						}
 					}
 				});
@@ -605,8 +666,11 @@ mod tests {
 	fn search_is_bounded_scoped_and_matches_words_across_labels() {
 		let mut state = state();
 		assert_eq!(candidates(&state, "").len(), RESULTS);
-		assert_eq!(candidates(&state, "")[0].id, Id(25));
-		assert_eq!(candidates(&state, "ROOM 17 ŽOFIE")[0].id, Id(17));
+		assert_eq!(candidates(&state, "")[0].target, Target::Channel(Id(25)));
+		assert_eq!(
+			candidates(&state, "ROOM 17 ŽOFIE")[0].target,
+			Target::Channel(Id(17))
+		);
 		state.channels[16].kind = 4;
 		assert!(candidates(&state, "room 17").is_empty());
 		state.channels[16].kind = 0;
@@ -622,7 +686,7 @@ mod tests {
 			.unwrap();
 		let voice = candidates(&state, "SERVER ROOM 17");
 		assert_eq!(voice.len(), 1);
-		assert_eq!(voice[0].id, Id(17));
+		assert_eq!(voice[0].target, Target::Channel(Id(17)));
 		assert!(voice[0].label().contains("Voice · roster"));
 		state.channels[0].name = "🦀".repeat(1000);
 		assert!(bounded(&state.channels[0].name).len() <= 512);
@@ -685,7 +749,7 @@ mod tests {
 			);
 			assert_eq!(
 				frame(&mut switcher, vec![key(egui::Key::Enter)]),
-				Some(Id(1))
+				Some(Target::Channel(Id(1)))
 			);
 			assert!(!switcher.is_open());
 			ctx.memory_mut(|memory| memory.request_focus(prior));
@@ -761,7 +825,7 @@ mod tests {
 			frame(&mut switcher, vec![key(egui::Key::Tab)]);
 			assert_eq!(
 				frame(&mut switcher, vec![key(egui::Key::Enter)]),
-				Some(Id(1)),
+				Some(Target::Channel(Id(1))),
 				"Enter must activate the focused result"
 			);
 			switcher.open(&ctx);

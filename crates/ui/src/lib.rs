@@ -2583,16 +2583,28 @@ impl MessagingUi {
 			self.switcher.open(&ctx);
 		}
 		self.switcher_frame = self.switcher.is_open();
-		if let Some(channel) = self.switcher.show(&ctx, state) {
-			if state.selected != Some(channel)
-				&& let Some(command) = state.select(channel)
-			{
-				commands.push(command);
+		if let Some(command) = state.select_opened_dm() {
+			commands.push(command);
+		}
+		if let Some(target) = self.switcher.show(&ctx, state) {
+			match target {
+				switcher::Target::Channel(channel) => {
+					if state.selected != Some(channel)
+						&& let Some(command) = state.select(channel)
+					{
+						commands.push(command);
+					}
+					self.focus_switched_composer = state.selected == Some(channel)
+						&& state
+							.channel(channel)
+							.is_some_and(|known| known.supports_text());
+				}
+				switcher::Target::Friend(user) => {
+					if let Some(command) = state.open_friend_dm(user) {
+						commands.push(command);
+					}
+				}
 			}
-			self.focus_switched_composer = state.selected == Some(channel)
-				&& state
-					.channel(channel)
-					.is_some_and(|known| known.supports_text());
 		}
 		if self.navigation_channel != state.selected {
 			self.focus_switched_composer = state.selected.is_some();
