@@ -949,7 +949,8 @@ pub fn permission_snapshot(state: &State) -> model::permissions::Snapshot {
 		| p::CONNECT
 		| p::SPEAK
 		| p::USE_VAD
-		| p::MANAGE_THREADS;
+		| p::MANAGE_THREADS
+		| p::MANAGE_CHANNELS;
 	p::Snapshot {
 		guilds: state
 			.guilds

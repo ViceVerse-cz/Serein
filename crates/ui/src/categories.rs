@@ -46,48 +46,139 @@ struct DropRow {
 	id: Id,
 	kind: u8,
 	parent: Option<Id>,
-	position: i32,
 	rect: egui::Rect,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct ChannelMove {
 	parent: Option<Id>,
 	position: i32,
 	lock_permissions: bool,
+	shifts: Vec<(Id, i32)>,
 }
 
-fn drop_move(source: &Channel, target: DropRow, pointer_y: f32) -> Option<ChannelMove> {
+fn drop_move(
+	state: &State,
+	source: &Channel,
+	target: DropRow,
+	pointer_y: f32,
+) -> Option<ChannelMove> {
 	if source.id == target.id || matches!(source.kind, 10..=12) {
 		return None;
 	}
+	if source.kind == 4 {
+		if target.kind != 4 {
+			return None;
+		}
+		let mut categories: Vec<_> = state
+			.channels
+			.iter()
+			.filter(|c| c.guild == source.guild && c.kind == 4)
+			.collect();
+		categories.sort_unstable_by_key(|c| (c.position, c.id));
+		let source_idx = categories.iter().position(|c| c.id == source.id)?;
+		categories.remove(source_idx);
+		let target_idx = categories.iter().position(|c| c.id == target.id)?;
+		let after = pointer_y >= target.rect.center().y;
+		let new_idx = if after { target_idx + 1 } else { target_idx };
+		categories.insert(new_idx, source);
+		let mut shifts = Vec::new();
+		for (idx, cat) in categories.iter().enumerate() {
+			let pos = idx as i32;
+			if cat.id != source.id && cat.position != pos {
+				shifts.push((cat.id, pos));
+			}
+		}
+		return Some(ChannelMove {
+			parent: None,
+			position: new_idx as i32,
+			lock_permissions: false,
+			shifts,
+		});
+	}
 	if target.kind == 4 {
-		if source.kind != 4 && pointer_y >= target.rect.top() + 8.0 {
+		if pointer_y >= target.rect.top() + 8.0 {
+			let mut siblings: Vec<_> = state
+				.channels
+				.iter()
+				.filter(|c| {
+					c.guild == source.guild
+						&& c.parent_id == Some(target.id)
+						&& !matches!(c.kind, 4 | 10..=12)
+				})
+				.collect();
+			siblings.sort_unstable_by_key(|c| (c.position, c.id));
+			if let Some(pos) = siblings.iter().position(|c| c.id == source.id) {
+				siblings.remove(pos);
+			}
+			siblings.insert(0, source);
+			let mut shifts = Vec::new();
+			for (idx, c) in siblings.iter().enumerate() {
+				let pos = idx as i32;
+				if c.id != source.id && c.position != pos {
+					shifts.push((c.id, pos));
+				}
+			}
 			return Some(ChannelMove {
 				parent: Some(target.id),
 				position: 0,
 				lock_permissions: source.parent_id != Some(target.id),
+				shifts,
 			});
 		}
-		if source.kind != 4 {
-			return source.parent_id.is_some().then_some(ChannelMove {
+		if source.parent_id.is_some() {
+			let mut siblings: Vec<_> = state
+				.channels
+				.iter()
+				.filter(|c| {
+					c.guild == source.guild
+						&& c.parent_id.is_none()
+						&& !matches!(c.kind, 4 | 10..=12)
+				})
+				.collect();
+			siblings.sort_unstable_by_key(|c| (c.position, c.id));
+			let new_idx = siblings.len() as i32;
+			return Some(ChannelMove {
 				parent: None,
-				position: 0,
+				position: new_idx,
 				lock_permissions: false,
+				shifts: Vec::new(),
 			});
 		}
-	} else if source.kind == 4 || matches!(target.kind, 10..=12) {
 		return None;
 	}
+	if matches!(target.kind, 10..=12) {
+		return None;
+	}
+	let mut siblings: Vec<_> = state
+		.channels
+		.iter()
+		.filter(|c| {
+			c.guild == source.guild
+				&& c.parent_id == target.parent
+				&& !matches!(c.kind, 4 | 10..=12)
+		})
+		.collect();
+	siblings.sort_unstable_by_key(|c| (c.position, c.id));
+	if let Some(pos) = siblings.iter().position(|c| c.id == source.id) {
+		siblings.remove(pos);
+	}
+	let target_idx = siblings.iter().position(|c| c.id == target.id)?;
 	let after = pointer_y >= target.rect.center().y;
-	let mut position = target.position + i32::from(after);
-	if source.parent_id == target.parent && source.position < target.position {
-		position -= 1;
+	let new_idx = if after { target_idx + 1 } else { target_idx };
+	siblings.insert(new_idx, source);
+	let mut shifts = Vec::new();
+	for (idx, c) in siblings.iter().enumerate() {
+		let pos = idx as i32;
+		if c.id != source.id && c.position != pos {
+			shifts.push((c.id, pos));
+		}
 	}
 	Some(ChannelMove {
 		parent: target.parent,
-		position: position.max(0),
+		position: new_idx as i32,
 		lock_permissions: source.parent_id != target.parent && target.parent.is_some(),
+		shifts,
 	})
 }
 
@@ -506,7 +597,6 @@ impl MessagingUi {
 									id: category.id,
 									kind: category.kind,
 									parent: category.parent_id,
-									position: category.position,
 									rect: response.rect,
 								});
 							}
@@ -549,7 +639,6 @@ impl MessagingUi {
 										id: channel.id,
 										kind: channel.kind,
 										parent: channel.parent_id,
-										position: channel.position,
 										rect: response.rect,
 									});
 								}
@@ -617,7 +706,6 @@ impl MessagingUi {
 									id: channel.id,
 									kind: channel.kind,
 									parent: channel.parent_id,
-									position: channel.position,
 									rect,
 								});
 							}
@@ -882,7 +970,7 @@ impl MessagingUi {
 				.iter()
 				.copied()
 				.find(|row| pointer.y >= row.rect.top() && pointer.y <= row.rect.bottom())
-			&& let Some(change) = drop_move(channel, target, pointer.y)
+			&& let Some(change) = drop_move(state, channel, target, pointer.y)
 		{
 			ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
 			if target.kind == 4 && change.parent == Some(target.id) {
@@ -903,12 +991,14 @@ impl MessagingUi {
 			}
 			if ui.input(|input| input.pointer.any_released()) {
 				egui::DragAndDrop::take_payload::<ChannelDrag>(ui.ctx());
+				self.channel_cache.key = None;
 				self.channel_move = Some((
 					source.0,
 					client_core::channel_actions::Action::Move {
 						parent: change.parent,
 						position: change.position,
 						lock_permissions: change.lock_permissions,
+						shifts: change.shifts,
 					},
 				));
 			}
@@ -1133,24 +1223,52 @@ mod tests {
 	}
 	#[test]
 	fn channel_drop_reorders_and_syncs_new_category_permissions() {
+		let state = State {
+			channels: vec![
+				channel(1, 0, 1, Some(Id(10))),
+				channel(2, 0, 0, Some(Id(20))),
+				channel(3, 0, 1, Some(Id(20))),
+			],
+			..State::default()
+		};
 		let source = channel(1, 0, 1, Some(Id(10)));
 		let target = DropRow {
 			id: Id(2),
 			kind: 0,
 			parent: Some(Id(20)),
-			position: 3,
 			rect: egui::Rect::from_min_max(egui::pos2(0.0, 10.0), egui::pos2(100.0, 30.0)),
 		};
-		assert_eq!(
-			drop_move(&source, target, 29.0),
-			Some(ChannelMove {
-				parent: Some(Id(20)),
-				position: 4,
-				lock_permissions: true,
-			})
-		);
-		let same_parent = channel(1, 0, 1, Some(Id(20)));
-		assert_eq!(drop_move(&same_parent, target, 11.0).unwrap().position, 2);
+		let outcome = drop_move(&state, &source, target, 29.0).unwrap();
+		assert_eq!(outcome.parent, Some(Id(20)));
+		assert_eq!(outcome.position, 1);
+		assert!(outcome.lock_permissions);
+		assert_eq!(outcome.shifts, vec![(Id(3), 2)]);
+
+		let same_parent = channel(3, 0, 1, Some(Id(20)));
+		let reorder = drop_move(&state, &same_parent, target, 11.0).unwrap();
+		assert_eq!(reorder.position, 0);
+		assert_eq!(reorder.shifts, vec![(Id(2), 1)]);
+	}
+	#[test]
+	fn category_drop_reorders_sibling_categories() {
+		let mut cat1 = channel(10, 4, 0, None);
+		cat1.guild = Some(Id(100));
+		let mut cat2 = channel(20, 4, 1, None);
+		cat2.guild = Some(Id(100));
+		let state = State {
+			channels: vec![cat1.clone(), cat2.clone()],
+			..State::default()
+		};
+		let target = DropRow {
+			id: Id(20),
+			kind: 4,
+			parent: None,
+			rect: egui::Rect::from_min_max(egui::pos2(0.0, 10.0), egui::pos2(100.0, 30.0)),
+		};
+		let outcome = drop_move(&state, &cat1, target, 25.0).unwrap();
+		assert_eq!(outcome.parent, None);
+		assert_eq!(outcome.position, 1);
+		assert_eq!(outcome.shifts, vec![(Id(20), 0)]);
 	}
 	#[test]
 	fn hidden_channels_are_opt_in() {

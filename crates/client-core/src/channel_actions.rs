@@ -108,6 +108,7 @@ pub enum Action {
 		parent: Option<Id>,
 		position: i32,
 		lock_permissions: bool,
+		shifts: Vec<(Id, i32)>,
 	},
 	Delete,
 	Mute(Mute),
@@ -118,8 +119,17 @@ impl Action {
 		match self {
 			Self::Edit { before, after } => before.valid() && after.valid(),
 			Self::Move {
-				parent, position, ..
-			} => *position >= 0 && parent.is_none_or(|id| id.0 != 0),
+				parent,
+				position,
+				shifts,
+				..
+			} => {
+				*position >= 0
+					&& parent.is_none_or(|id| id.0 != 0)
+					&& shifts.len() <= 100
+					&& shifts.capacity() <= 128
+					&& shifts.iter().all(|(id, pos)| id.0 != 0 && *pos >= 0)
+			}
 			Self::PostRename(name)
 			| Self::Duplicate { name }
 			| Self::Create { name, .. }
@@ -240,6 +250,7 @@ impl State {
 		channel: Id,
 		parent: Option<Id>,
 		lock_permissions: bool,
+		shifts: &[(Id, i32)],
 	) -> bool {
 		let Some(source) = self.channel(channel) else {
 			return false;
@@ -248,7 +259,14 @@ impl State {
 			return false;
 		}
 		if source.kind == 4 {
-			return parent.is_none() && !lock_permissions;
+			if parent.is_some() || lock_permissions {
+				return false;
+			}
+			return shifts.iter().all(|(id, _)| {
+				self.channel(*id).is_some_and(|target| {
+					target.kind == 4 && target.guild == source.guild && self.can_manage_channel(*id)
+				})
+			});
 		}
 		let valid_parent = parent.is_none_or(|id| {
 			id != channel
@@ -256,7 +274,13 @@ impl State {
 					target.kind == 4 && target.guild == source.guild && self.can_manage_channel(id)
 				})
 		});
-		valid_parent && lock_permissions == (source.parent_id != parent && parent.is_some())
+		if !valid_parent || lock_permissions != (source.parent_id != parent && parent.is_some()) {
+			return false;
+		}
+		shifts.iter().all(|(id, _)| {
+			self.channel(*id)
+				.is_some_and(|c| c.guild == source.guild && self.can_manage_channel(*id))
+		})
 	}
 	pub fn can_edit_channel_permission(&self, channel: Id, bits: u128) -> bool {
 		if !self.can_manage_channel_permissions(channel) {
@@ -426,8 +450,9 @@ impl State {
 					Action::Move {
 						parent,
 						lock_permissions,
+						shifts,
 						..
-					} => self.channel_move_allowed(channel, *parent, *lock_permissions),
+					} => self.channel_move_allowed(channel, *parent, *lock_permissions, shifts),
 					_ => self.can_manage_channel(channel),
 				}) {
 			self.channel_actions.status =
@@ -839,7 +864,10 @@ impl State {
 			Ok(Outcome::Moved) => {
 				if !observed
 					&& let Action::Move {
-						parent, position, ..
+						parent,
+						position,
+						shifts,
+						..
 					} = action
 				{
 					self.apply(crate::Envelope {
@@ -855,6 +883,21 @@ impl State {
 							message_count: Patch::Absent,
 						}),
 					});
+					for (shift_id, shift_pos) in shifts {
+						self.apply(crate::Envelope {
+							generation: self.generation,
+							event: crate::Event::ChannelChanged(model::ChannelPatch {
+								id: shift_id,
+								name: Patch::Absent,
+								icon: Patch::Absent,
+								last_message: Patch::Absent,
+								parent_id: Patch::Absent,
+								position: Patch::Value(shift_pos),
+								kind: Patch::Absent,
+								message_count: Patch::Absent,
+							}),
+						});
+					}
 				}
 				"Channel moved"
 			}
@@ -1273,11 +1316,13 @@ mod tests {
 			parent: Some(Id(4)),
 			position: 2,
 			lock_permissions: true,
+			shifts: vec![(Id(4), 1)],
 		};
 		let command = state.request_channel_action(Id(3), action).unwrap();
 		finish(&mut state, command, Ok(Outcome::Moved));
 		assert_eq!(state.channel(Id(3)).unwrap().parent_id, Some(Id(4)));
 		assert_eq!(state.channel(Id(3)).unwrap().position, 2);
+		assert_eq!(state.channel(Id(4)).unwrap().position, 1);
 	}
 	#[test]
 	fn delete_ack_after_rename_removes_channel_but_late_edit_does_not_resurrect_it() {
