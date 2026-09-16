@@ -1,7 +1,8 @@
-//! Bounded Media Foundation hardware H.264 encoder for Windows screen sharing.
+//! Bounded Media Foundation hardware H.264 encoder for Windows screen sharing and camera video.
 #![allow(unsafe_code)]
 
-use super::{MAX_ENCODED_BYTES, Settings, i420_to_nv12};
+use super::{Config, Profile};
+use crate::screen::i420_to_nv12;
 use std::{
 	marker::PhantomData,
 	rc::Rc,
@@ -47,7 +48,7 @@ impl Drop for Runtime {
 	}
 }
 
-pub(super) struct Encoder {
+pub(crate) struct Encoder {
 	transform: IMFTransform,
 	events: IMFMediaEventGenerator,
 	codec: ICodecAPI,
@@ -58,6 +59,7 @@ pub(super) struct Encoder {
 	need_input: usize,
 	have_output: usize,
 	provides_samples: bool,
+	max_bytes: usize,
 }
 
 struct Activated(IMFActivate);
@@ -72,7 +74,7 @@ impl Drop for Activated {
 }
 
 impl Encoder {
-	pub(super) fn new(settings: Settings) -> Result<Self, &'static str> {
+	pub(crate) fn new(config: Config) -> Result<Self, &'static str> {
 		let runtime = Runtime::open()?;
 		// SAFETY: Media Foundation owns returned COM objects; the activation array is cleared
 		// before its CoTaskMem allocation is released.
@@ -95,32 +97,40 @@ impl Encoder {
 			);
 			let _ = codec.SetValue(
 				&CODECAPI_AVEncCommonMeanBitRate,
-				&VARIANT::from(settings.bit_rate()),
+				&VARIANT::from(config.bit_rate),
 			);
 			let _ = codec.SetValue(
 				&CODECAPI_AVEncMPVDefaultBPictureCount,
 				&VARIANT::from(0_u32),
 			);
-			let _ = codec.SetValue(&CODECAPI_AVEncMPVGOPSize, &VARIANT::from(settings.fps * 2));
+			let _ = codec.SetValue(&CODECAPI_AVEncMPVGOPSize, &VARIANT::from(config.fps * 2));
 
-			let output = video_type(settings, MFVideoFormat_H264)?;
+			let output = video_type(config, MFVideoFormat_H264)?;
 			output
-				.SetUINT32(&MF_MT_AVG_BITRATE, settings.bit_rate())
+				.SetUINT32(&MF_MT_AVG_BITRATE, config.bit_rate)
 				.map_err(|_| UNAVAILABLE)?;
+			// Advisory: an encoder that rejects the attribute keeps its own default profile.
+			let _ = output.SetUINT32(
+				&MF_MT_MPEG2_PROFILE,
+				match config.profile {
+					Profile::Baseline => eAVEncH264VProfile_Base.0 as u32,
+					Profile::Main => eAVEncH264VProfile_Main.0 as u32,
+				},
+			);
 			transform
 				.SetOutputType(0, &output, 0)
 				.map_err(|_| UNAVAILABLE)?;
 
-			let input = video_type(settings, MFVideoFormat_NV12)?;
+			let input = video_type(config, MFVideoFormat_NV12)?;
 			input
-				.SetUINT32(&MF_MT_DEFAULT_STRIDE, settings.width)
+				.SetUINT32(&MF_MT_DEFAULT_STRIDE, config.width)
 				.map_err(|_| UNAVAILABLE)?;
 			transform
 				.SetInputType(0, &input, 0)
 				.map_err(|_| UNAVAILABLE)?;
 
 			let info = transform.GetOutputStreamInfo(0).map_err(|_| UNAVAILABLE)?;
-			if info.cbSize as usize > MAX_ENCODED_BYTES {
+			if info.cbSize as usize > config.max_bytes {
 				return Err(UNAVAILABLE);
 			}
 			let provides_samples = info.dwFlags
@@ -144,7 +154,8 @@ impl Encoder {
 				_activate: activate,
 				_runtime: runtime,
 				frame: 0,
-				duration: 10_000_000 / i64::from(settings.fps),
+				duration: 10_000_000 / i64::from(config.fps),
+				max_bytes: config.max_bytes,
 				need_input: 0,
 				have_output: 0,
 				provides_samples,
@@ -152,7 +163,7 @@ impl Encoder {
 		}
 	}
 
-	pub(super) fn encode(
+	pub(crate) fn encode(
 		&mut self,
 		y: &[u8],
 		u: &[u8],
@@ -264,7 +275,7 @@ impl Encoder {
 					.GetOutputStreamInfo(0)
 					.map_err(|_| FAILED)?
 					.cbSize;
-				if size == 0 || size as usize > MAX_ENCODED_BYTES {
+				if size == 0 || size as usize > self.max_bytes {
 					return Err(FAILED);
 				}
 				let buffer = MFCreateMemoryBuffer(size).map_err(|_| FAILED)?;
@@ -286,7 +297,7 @@ impl Encoder {
 			drop(std::mem::ManuallyDrop::into_inner(output.pEvents));
 			result.map_err(|_| FAILED)?;
 			let sample = sample.ok_or(FAILED)?;
-			let data = sample_bytes(&sample)?;
+			let data = sample_bytes(&sample, self.max_bytes)?;
 			crate::video::validate_source(&data).map_err(|_| FAILED)?;
 			let keyframe = crate::video_receive::is_keyframe(&data);
 			Ok((data, keyframe))
@@ -345,7 +356,7 @@ unsafe fn hardware_encoder() -> Result<IMFActivate, &'static str> {
 }
 
 unsafe fn video_type(
-	settings: Settings,
+	config: Config,
 	subtype: windows::core::GUID,
 ) -> Result<IMFMediaType, &'static str> {
 	unsafe {
@@ -359,11 +370,11 @@ unsafe fn video_type(
 		media_type
 			.SetUINT64(
 				&MF_MT_FRAME_SIZE,
-				(u64::from(settings.width) << 32) | u64::from(settings.height),
+				(u64::from(config.width) << 32) | u64::from(config.height),
 			)
 			.map_err(|_| UNAVAILABLE)?;
 		media_type
-			.SetUINT64(&MF_MT_FRAME_RATE, u64::from(settings.fps) << 32 | 1)
+			.SetUINT64(&MF_MT_FRAME_RATE, u64::from(config.fps) << 32 | 1)
 			.map_err(|_| UNAVAILABLE)?;
 		media_type
 			.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, 1_u64 << 32 | 1)
@@ -375,10 +386,10 @@ unsafe fn video_type(
 	}
 }
 
-fn sample_bytes(sample: &IMFSample) -> Result<Vec<u8>, &'static str> {
+fn sample_bytes(sample: &IMFSample, max_bytes: usize) -> Result<Vec<u8>, &'static str> {
 	// SAFETY: Length is bounded before allocation; Lock's pointer is borrowed until Unlock.
 	unsafe {
-		if sample.GetTotalLength().map_err(|_| FAILED)? as usize > MAX_ENCODED_BYTES {
+		if sample.GetTotalLength().map_err(|_| FAILED)? as usize > max_bytes {
 			return Err(FAILED);
 		}
 		let buffer = sample.ConvertToContiguousBuffer().map_err(|_| FAILED)?;
@@ -388,7 +399,7 @@ fn sample_bytes(sample: &IMFSample) -> Result<Vec<u8>, &'static str> {
 		buffer
 			.Lock(&mut data, Some(&mut capacity), Some(&mut length))
 			.map_err(|_| FAILED)?;
-		let result = if data.is_null() || length > capacity || length as usize > MAX_ENCODED_BYTES {
+		let result = if data.is_null() || length > capacity || length as usize > max_bytes {
 			Err(FAILED)
 		} else {
 			Ok(std::slice::from_raw_parts(data, length as usize).to_vec())

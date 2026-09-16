@@ -388,8 +388,15 @@ These paths have synthetic coverage; native camera/screen capture and live Disco
 viewing still require owner-operated validation.
 
 AVFoundation on macOS, Media Foundation on Windows and V4L2 on Linux capture
-640×480 frames, capped at 15 encoded frames/second; OpenH264 encodes on a
-worker with a 600 kbit/s target (not a measured bandwidth guarantee). macOS retains one pending
+640×480 frames, capped at 15 encoded frames/second, encoded on a worker with a
+600 kbit/s target (not a measured bandwidth guarantee). The worker prefers the platform
+hardware H.264 encoder, the same VideoToolbox and Media Foundation encoders screen sharing
+uses, and VA-API or NVENC through a private GStreamer pipeline on Linux. OpenH264 remains
+the fallback when no hardware encoder is available and when one fails mid-capture, which
+switches the remaining capture to software rather than ending it. Every path requests the
+Baseline profile and codes each picture as an IDR, so the wire format is unchanged; a
+hardware encoder whose output is not independently decodable is rejected in favor of the
+software one. macOS retains one pending
 BGRA frame (1,228,800 bytes). Windows validates each native buffer against a 3,194,880-byte
 ceiling (including row padding), requests one source buffer and queues at most one
 921,600-byte RGB frame. Linux requests two mapped buffers, accepts at most four of

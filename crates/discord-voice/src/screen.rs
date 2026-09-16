@@ -10,12 +10,6 @@ mod audio_windows;
 #[cfg(not(target_os = "linux"))]
 #[path = "screen/capture.rs"]
 mod capture;
-#[cfg(target_os = "macos")]
-#[path = "screen/encode_macos.rs"]
-mod encode_macos;
-#[cfg(target_os = "windows")]
-#[path = "screen/encode_windows.rs"]
-mod encode_windows;
 #[cfg(target_os = "linux")]
 #[path = "screen/gstreamer.rs"]
 mod gstreamer;
@@ -412,11 +406,6 @@ fn retain_screen_frame(
 	Ok(ready && latest.is_some() && (fresh || keyframe))
 }
 
-#[cfg(target_os = "macos")]
-use encode_macos as hardware;
-#[cfg(target_os = "windows")]
-use encode_windows as hardware;
-
 /// Screen encoder preferring the platform hardware H.264 encoder (Media Foundation on
 /// Windows, VideoToolbox on macOS) and falling back to openh264 when it is unavailable or
 /// fails mid-stream.
@@ -424,14 +413,29 @@ use encode_windows as hardware;
 struct ScreenEncoder {
 	software: Option<Encoder>,
 	yuv: YUVBuffer,
-	hardware: Option<hardware::Encoder>,
+	hardware: Option<crate::video_encode::hardware::Encoder>,
 	settings: Settings,
 }
 
 #[cfg(not(target_os = "linux"))]
 impl ScreenEncoder {
 	fn new(settings: Settings) -> Result<Self, &'static str> {
-		let hardware = hardware::Encoder::new(settings).ok();
+		let config = crate::video_encode::Config {
+			width: settings.width,
+			height: settings.height,
+			fps: settings.fps,
+			bit_rate: settings.bit_rate(),
+			max_bytes: MAX_ENCODED_BYTES,
+			profile: crate::video_encode::Profile::Main,
+		};
+		#[cfg(target_os = "macos")]
+		let hardware = crate::video_encode::hardware::Encoder::new(
+			config,
+			crate::video_encode::SourceFormat::Bgra,
+		)
+		.ok();
+		#[cfg(target_os = "windows")]
+		let hardware = crate::video_encode::hardware::Encoder::new(config).ok();
 		let software = if hardware.is_none() {
 			Some(encoder(settings)?)
 		} else {
@@ -479,7 +483,12 @@ impl ScreenEncoder {
 }
 
 #[cfg(any(target_os = "windows", test))]
-fn i420_to_nv12(y: &[u8], u: &[u8], v: &[u8], output: &mut [u8]) -> Result<(), &'static str> {
+pub(crate) fn i420_to_nv12(
+	y: &[u8],
+	u: &[u8],
+	v: &[u8],
+	output: &mut [u8],
+) -> Result<(), &'static str> {
 	if u.len() != v.len() || y.len() != u.len() * 4 || output.len() != y.len() + u.len() + v.len() {
 		return Err("Invalid screen encoder color planes");
 	}
