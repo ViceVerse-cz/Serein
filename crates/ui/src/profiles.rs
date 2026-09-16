@@ -23,6 +23,51 @@ pub enum Action {
 	Menu(crate::user_menu::Action),
 }
 
+/// Shared Rich Presence card for member profiles and the account preview.
+pub(crate) fn activity_card(
+	ui: &mut egui::Ui,
+	activity: &model::RichActivity,
+	avatars: &mut Avatars,
+	demo: bool,
+	(fill, muted): (Color32, Color32),
+) {
+	egui::Frame::new()
+		.fill(fill)
+		.corner_radius(RADIUS)
+		.inner_margin(8)
+		.show(ui, |ui| {
+			ui.set_width(ui.available_width());
+			ui.horizontal_top(|ui| {
+				ui.spacing_mut().item_spacing.x = 10.0;
+				if let Some(image) = &activity.image {
+					avatars.show_icon(
+						ui,
+						Some(image.key()),
+						56.0,
+						demo,
+						&format!("{} activity artwork", activity.name),
+					);
+				}
+				ui.vertical(|ui| {
+					ui.set_width(ui.available_width());
+					ui.spacing_mut().item_spacing.y = 2.0;
+					ui.add(
+						egui::Label::new(RichText::new(activity.summary()).strong().size(14.0))
+							.wrap(),
+					);
+					for text in [activity.details.as_deref(), activity.state.as_deref()]
+						.into_iter()
+						.flatten()
+					{
+						ui.add(
+							egui::Label::new(RichText::new(text).size(13.0).color(muted)).wrap(),
+						);
+					}
+				});
+			});
+		});
+}
+
 const WIDTH: f32 = 300.0;
 const PAD: f32 = 12.0;
 const AVATAR: f32 = 80.0;
@@ -871,59 +916,13 @@ pub fn show(
 										if !activities.is_empty() {
 											section(ui, &theme, &mut sections, "ACTIVITY");
 											for activity in activities {
-												egui::Frame::new()
-													.fill(theme.chip)
-													.corner_radius(RADIUS)
-													.inner_margin(8)
-													.show(ui, |ui| {
-														ui.set_width(ui.available_width());
-														ui.horizontal_top(|ui| {
-															ui.spacing_mut().item_spacing.x = 10.0;
-															if let Some(image) = &activity.image {
-																avatars.show_icon(
-																	ui,
-																	Some(image.key()),
-																	56.0,
-																	state.demo,
-																	&format!(
-																		"{} activity artwork",
-																		activity.name
-																	),
-																);
-															}
-															ui.vertical(|ui| {
-																ui.set_width(ui.available_width());
-																ui.spacing_mut().item_spacing.y =
-																	2.0;
-																ui.add(
-																	egui::Label::new(
-																		RichText::new(
-																			activity.summary(),
-																		)
-																		.strong()
-																		.size(14.0),
-																	)
-																	.wrap(),
-																);
-																for text in [
-																	activity.details.as_deref(),
-																	activity.state.as_deref(),
-																]
-																.into_iter()
-																.flatten()
-																{
-																	ui.add(
-																		egui::Label::new(
-																			RichText::new(text)
-																				.size(13.0)
-																				.color(theme.muted),
-																		)
-																		.wrap(),
-																	);
-																}
-															});
-														});
-													});
+												activity_card(
+													ui,
+													activity,
+													avatars,
+													state.demo,
+													(theme.chip, theme.muted),
+												);
 											}
 										}
 										if let Some(data) = data {

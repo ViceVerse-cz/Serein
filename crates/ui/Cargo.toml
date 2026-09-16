@@ -30,3 +30,7 @@ workspace = true
 [[test]]
 name = "own_activity"
 required-features = ["demo"]
+
+[[example]]
+name = "account_presence"
+required-features = ["demo"]

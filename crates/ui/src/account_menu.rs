@@ -143,6 +143,26 @@ impl MessagingUi {
 			.show(ui, |ui| {
 				ui.set_width(ui.available_width());
 				self.account_identity_card(ui, state, commands);
+				if let Some(user) = &state.user {
+					let guild = state
+						.selected
+						.and_then(|id| state.channel(id))
+						.and_then(|c| c.guild);
+					let (_, _, activities) = profiles::presence(state, user.id, guild);
+					if !activities.is_empty() {
+						ui.add_space(8.0);
+						ui.label(design::eyebrow(ui, "ACTIVITY", colors.muted));
+						for activity in activities {
+							profiles::activity_card(
+								ui,
+								activity,
+								&mut self.avatars,
+								state.demo,
+								(colors.base, colors.muted),
+							);
+						}
+					}
+				}
 				ui.add_space(8.0);
 				ui.spacing_mut().item_spacing.y = 2.0;
 				self.account_status_row(ui);
