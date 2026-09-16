@@ -2456,7 +2456,7 @@ impl Desktop {
 									id: message.id,
 									channel,
 									author: message.author.name,
-									excerpt: message.content.chars().take(256).collect(),
+									excerpt: message.content.clone(),
 								});
 							}
 						}

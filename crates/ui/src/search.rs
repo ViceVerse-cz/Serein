@@ -40,6 +40,10 @@ pub struct SearchUi {
 	filter_draft: Option<filters::Draft>,
 	search_anchor: Option<egui::Rect>,
 	suggestion_index: usize,
+	formats: crate::markdown::FormatCache,
+	pub opening: Option<String>,
+	pub profile: Option<model::User>,
+	pub channel_reference: Option<Id>,
 }
 
 impl SearchUi {
@@ -90,6 +94,7 @@ impl SearchUi {
 			}
 		}
 		if !self.open {
+			self.formats.retain(|_| false);
 			self.filters_open = false;
 			self.filter_draft = None;
 			if state.search.is_some() {
@@ -105,6 +110,13 @@ impl SearchUi {
 		{
 			commands.push(state.clear_search());
 		}
+		self.formats.retain(|id| {
+			state
+				.search
+				.as_ref()
+				.and_then(|view| view.page.as_ref())
+				.is_some_and(|page| page.hits.iter().any(|hit| hit.id == id))
+		});
 		self.ime_frame = self.composing;
 		ctx.input(|i| {
 			for event in &i.events {
@@ -703,7 +715,13 @@ impl SearchUi {
 			});
 	}
 	/// Results pane rendered where the member list normally lives.
-	pub fn pane(&mut self, ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
+	pub fn pane(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		avatars: &mut crate::avatars::Avatars,
+	) {
 		let colors = design::palette(ui);
 		let allowed = state.can_search();
 		let mut submit = std::mem::take(&mut self.pending_submit) && !self.pins;
@@ -837,7 +855,7 @@ impl SearchUi {
 								index
 							}];
 							ui.push_id(hit.id, |ui| {
-								Self::result_card(
+								self.result_card(
 									ui,
 									state,
 									hit,
@@ -846,7 +864,7 @@ impl SearchUi {
 									} else {
 										&content_query
 									},
-									allowed,
+									avatars,
 									&mut target,
 								);
 							});
@@ -870,11 +888,12 @@ impl SearchUi {
 		}
 	}
 	fn result_card(
+		&mut self,
 		ui: &mut egui::Ui,
 		state: &State,
 		hit: &model::SearchHit,
 		query: &str,
-		allowed: bool,
+		avatars: &mut crate::avatars::Avatars,
 		target: &mut Option<Id>,
 	) {
 		let colors = design::palette(ui);
@@ -892,7 +911,7 @@ impl SearchUi {
 				.color(colors.text_strong),
 			);
 		}
-		let card = egui::Frame::new()
+		egui::Frame::new()
 			.fill(colors.base)
 			.stroke(egui::Stroke::new(1.0, colors.border))
 			.corner_radius(10)
@@ -917,6 +936,15 @@ impl SearchUi {
 							ui.label(
 								design::semibold(ui, &hit.author, 15.0).color(colors.text_strong),
 							);
+							if ui
+								.add_enabled(
+									state.can_search() && hit.id.0 < u64::MAX,
+									egui::Button::new("Jump"),
+								)
+								.clicked()
+							{
+								*target = Some(hit.id);
+							}
 							// Fixture IDs do not encode a real creation timestamp.
 							if hit.id.0 >= (1 << 22) {
 								let seconds = ((hit.id.0 >> 22) + 1_420_070_400_000) / 1000;
@@ -936,47 +964,27 @@ impl SearchUi {
 								}
 							}
 						});
-						let mut job = egui::text::LayoutJob::default();
-						let normal = egui::TextFormat {
-							font_id: egui::FontId::proportional(14.0),
-							color: colors.text,
-							..Default::default()
-						};
-						let mut rest = hit.excerpt.as_str();
-						if !query.is_empty() {
-							while let Some(index) = rest.find(query) {
-								job.append(&rest[..index], 0.0, normal.clone());
-								job.append(
-									&rest[index..index + query.len()],
-									0.0,
-									egui::TextFormat {
-										background: egui::Color32::from_rgba_unmultiplied(
-											200, 160, 30, 85,
-										),
-										..normal.clone()
-									},
-								);
-								rest = &rest[index + query.len()..];
-							}
+						let id = ui.id().with(("search-spoilers", &hit.excerpt));
+						let mut revealed = ui.data(|data| data.get_temp::<u32>(id).unwrap_or(0));
+						self.formats.get(hit.id, &hit.excerpt).show_search(
+							ui,
+							&mut self.opening,
+							&crate::mentions::known_users(state, hit.channel),
+							&mut self.profile,
+							(
+								&state.channels,
+								&mut self.channel_reference,
+								&state.guilds,
+								query,
+							),
+							(avatars, state.demo, &mut revealed),
+						);
+						if revealed != 0 {
+							ui.data_mut(|data| data.insert_temp(id, revealed));
 						}
-						job.append(rest, 0.0, normal);
-						ui.add(egui::Label::new(job).wrap().selectable(true));
 					});
 				});
 			});
-		let jump = ui
-			.interact(
-				card.response.rect,
-				ui.id().with("jump-result"),
-				egui::Sense::click(),
-			)
-			.on_hover_text("Jump to this message");
-		jump.widget_info(|| {
-			egui::WidgetInfo::labeled(egui::WidgetType::Button, allowed, "Jump to message")
-		});
-		if allowed && hit.id.0 < u64::MAX && jump.clicked() {
-			*target = Some(hit.id);
-		}
 	}
 }
 
@@ -989,7 +997,7 @@ mod tests {
 			if !view.pins {
 				view.header_input(ui, state, commands);
 			}
-			view.pane(ui, state, commands);
+			view.pane(ui, state, commands, &mut crate::avatars::Avatars::default());
 		}
 	}
 	#[test]

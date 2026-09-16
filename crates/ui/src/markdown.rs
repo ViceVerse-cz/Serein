@@ -811,6 +811,25 @@ impl Formatted {
 		media: (&mut crate::avatars::Avatars, bool, &mut u32),
 	) {
 		let (channels, channel, guilds) = references;
+		self.show_search(
+			ui,
+			opening,
+			users,
+			profile,
+			(channels, channel, guilds, ""),
+			media,
+		);
+	}
+	pub fn show_search(
+		&self,
+		ui: &mut egui::Ui,
+		opening: &mut Option<String>,
+		users: &[model::User],
+		profile: &mut Option<model::User>,
+		references: (&[model::Channel], &mut Option<Id>, &[model::Guild], &str),
+		media: (&mut crate::avatars::Avatars, bool, &mut u32),
+	) {
+		let (channels, channel, guilds, query) = references;
 		let (images, demo, revealed) = media;
 		ui.allocate_ui_with_layout(
 			egui::vec2(ui.available_width(), 0.0),
@@ -962,8 +981,9 @@ impl Formatted {
 					if let Some(index) = target {
 						let url = &self.links[index];
 						let label: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-						let response = Self::show_emoji(spans, ui, true, images, demo, guilds)
-							.on_hover_text(url);
+						let response =
+							Self::show_emoji(spans, ui, true, images, demo, guilds, query)
+								.on_hover_text(url);
 						// Text selection in egui's Link overwrites its accessibility role.
 						response.widget_info(|| {
 							egui::WidgetInfo::labeled(
@@ -976,7 +996,7 @@ impl Formatted {
 							*opening = Some(url.clone());
 						}
 					} else {
-						Self::show_emoji(spans, ui, false, images, demo, guilds);
+						Self::show_emoji(spans, ui, false, images, demo, guilds, query);
 					}
 					start += count;
 				}
@@ -1131,6 +1151,7 @@ impl Formatted {
 		images: &mut crate::avatars::Avatars,
 		demo: bool,
 		guilds: &[model::Guild],
+		query: &str,
 	) -> egui::Response {
 		struct Inline {
 			text: String,
@@ -1205,6 +1226,31 @@ impl Formatted {
 				job.append(&text[start..], 0.0, format);
 				source.push_str(&text[start..]);
 			}
+		}
+		if !query.is_empty() {
+			let mut sections = Vec::new();
+			for section in &job.sections {
+				let mut start = section.byte_range.start;
+				for (offset, matched) in job.text
+					[section.byte_range.start.0..section.byte_range.end.0]
+					.match_indices(query)
+				{
+					let from = section.byte_range.start + offset;
+					let mut normal = section.clone();
+					normal.byte_range = start..from;
+					sections.push(normal);
+					let mut highlighted = section.clone();
+					highlighted.byte_range = from..from + matched.len();
+					highlighted.format.background =
+						egui::Color32::from_rgba_unmultiplied(200, 160, 30, 85);
+					sections.push(highlighted);
+					start = from + matched.len();
+				}
+				let mut tail = section.clone();
+				tail.byte_range = start..section.byte_range.end;
+				sections.push(tail);
+			}
+			job.sections = sections;
 		}
 		let mut label = egui::Label::new(job).wrap().selectable(true);
 		if link {
