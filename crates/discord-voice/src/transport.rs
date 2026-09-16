@@ -1,7 +1,11 @@
 use crate::{
 	Controls, Frame, Status,
 	crypto::{Dave, Encryption, Identity, MAX_PACKET, MAX_SIGNAL, MODE},
-	video_receive::{Encoded, Receivers, VideoSink, is_keyframe, offer, pli, spawn_decoder},
+	diagnostics::Video,
+	video_receive::{
+		DecoderQueue, Encoded, Receivers, VideoSink, has_parameter_sets, is_keyframe, offer, pli,
+		spawn_decoder,
+	},
 };
 use client_core::voice::VoiceConnection;
 use futures_util::{SinkExt, StreamExt};
@@ -241,6 +245,7 @@ async fn run_inner(
 	};
 	let mut receivers = Receivers::default();
 	let mut next_pli = Instant::now();
+	let mut watch = VideoWatch::new();
 	let mut metrics = crate::diagnostics::Metrics::new(crate::diagnostics::Scope::Transport);
 	emit(Status::Connecting).map_err(|_| "Call interface closed")?;
 	let config = WebSocketConfig::default()
@@ -348,10 +353,12 @@ async fn run_inner(
 					deadline=None;ready_announced=true;
 					emit(Status::Ready{privacy_code:dave.session.voice_privacy_code().unwrap_or_default().into()}).map_err(|_|"Call interface closed")?;
 				}
+				watch.tick(&mut metrics,&mut receivers,decoder.as_ref(),now);
 				// Lost pictures stay frozen until the sender refreshes; ask twice a second at most.
 				if enabled && now>=next_pli && let Some(lost)=&lost && let Some(crypto)=encryption.as_mut() && let Some(socket)=&udp {
 					receivers.absorb(lost);
 					let requests:Vec<u32>=receivers.keyframe_requests().collect();
+					metrics.video(Video::PliSent,requests.len() as u64);
 					for media in requests {let (header,body)=pli(ssrc,media);socket.send(&crypto.seal_rtcp(&header,&body)?).await.map_err(|_|"Voice RTCP send failed")?;}
 					next_pli=now+Duration::from_millis(500);
 				}
@@ -442,16 +449,19 @@ async fn run_inner(
 				}
 				let Some(crypto)=&encryption else{continue;};
 				let start = metrics.start();
-				let Some(rtp)=crypto.open(&packet[..length]) else{continue;};
+				let Some(rtp)=crypto.open(&packet[..length]) else{metrics.video(Video::OpenFailed,1);continue;};
+				if rtp.payload_type==102 {metrics.video(Video::Rtx,1);continue;}
 				if rtp.payload_type==101 {
+					metrics.video(Video::Packets,1);
 					let Some(decoder)=&decoder else{continue;};
-					if !dave.ready {continue;}
+					if !dave.ready {metrics.video(Video::NotReady,1);continue;}
 					let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else{continue;};
-					if !dave.contains(user) {continue;}
-					let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else{continue;};
+					if !dave.contains(user) {metrics.video(Video::NotReady,1);continue;}
+					let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else{metrics.video(Video::DecryptFailed,1);continue;};
 					let keyframe=is_keyframe(&data);
-					if !receivers.accept(user,keyframe) {continue;}
-					if !offer(decoder,Encoded{user,data,keyframe})? {receivers.require_keyframe(user);}
+					if keyframe {metrics.video(Video::Keyframes,1);metrics.video(Video::KeyframesWithoutParams,u64::from(!has_parameter_sets(&data)));}
+					if !receivers.accept(user,keyframe) {metrics.video(Video::Gated,1);continue;}
+					if !offer(decoder,Encoded{user,data,keyframe})? {receivers.require_keyframe(user);metrics.video(Video::QueueFull,1);}
 					continue;
 				}
 				if rtp.payload_type!=120 {continue;}
@@ -689,6 +699,60 @@ fn soundshare_announcement(audio: &mut Option<StreamAudio>, ssrc: u32) -> Option
 	Some(json!({"op":5,"d":{"speaking":2,"delay":0,"ssrc":ssrc}}))
 }
 
+/// Folds remote video state into the diagnostics report once per tick.
+struct VideoWatch {
+	last_picture_at: Instant,
+	pictures: u64,
+	errors: u64,
+}
+
+impl VideoWatch {
+	fn new() -> Self {
+		Self {
+			last_picture_at: Instant::now(),
+			pictures: 0,
+			errors: 0,
+		}
+	}
+
+	fn tick(
+		&mut self,
+		metrics: &mut crate::diagnostics::Metrics,
+		receivers: &mut Receivers,
+		decoder: Option<&DecoderQueue>,
+		now: Instant,
+	) {
+		let stats = receivers.take_stats();
+		metrics.video(Video::UnknownSsrc, stats.unknown_ssrc);
+		metrics.video(Video::Incomplete, stats.incomplete);
+		metrics.video(Video::Complete, stats.complete);
+		metrics.video(Video::AwaitingTicks, u64::from(receivers.awaiting()));
+		let Some(decoder) = decoder else { return };
+		let pictures = decoder
+			.counters
+			.pictures
+			.load(std::sync::atomic::Ordering::Relaxed);
+		if pictures != self.pictures {
+			metrics.video(Video::Pictures, pictures.wrapping_sub(self.pictures));
+			self.pictures = pictures;
+			self.last_picture_at = now;
+		}
+		let errors = decoder
+			.counters
+			.errors
+			.load(std::sync::atomic::Ordering::Relaxed);
+		metrics.video(Video::DecoderErrors, errors.wrapping_sub(self.errors));
+		self.errors = errors;
+		if self.pictures > 0 {
+			let gap = now.saturating_duration_since(self.last_picture_at);
+			metrics.video_max(
+				Video::PictureGapMs,
+				gap.as_millis().min(u128::from(u64::MAX)) as u64,
+			);
+		}
+	}
+}
+
 fn invalidate_stream(video: &mut Option<crate::screen::Video>, audio: &mut Option<StreamAudio>) {
 	if let Some(audio) = audio {
 		audio.clear();
@@ -778,6 +842,7 @@ async fn run_stream_inner(
 	let mut next_keyframe = Instant::now();
 	let mut mixer = crate::mixer::Mixer::default();
 	let mut next_pli = Instant::now();
+	let mut watch = VideoWatch::new();
 	// Shared system audio: 20 ms stereo Opus frames on the stream's own audio SSRC.
 	let mut share_audio = match video.as_ref().and_then(|video| video.audio.as_ref()) {
 		Some(_) => {
@@ -921,9 +986,11 @@ async fn run_stream_inner(
 						}
 					} else {mixer.clear();}
 				}
+				watch.tick(&mut metrics,&mut receivers,decoder.as_ref(),now);
 				if secure && now>=next_pli && let Some(lost)=&lost && let Some(crypto)=encryption.as_mut() && let Some(socket)=&udp {
 					receivers.absorb(lost);
 					let requests:Vec<u32>=receivers.keyframe_requests().collect();
+					metrics.video(Video::PliSent,requests.len() as u64);
 					for media in requests {let (header,body)=pli(audio_ssrc,media);socket.send(&crypto.seal_rtcp(&header,&body)?).await.map_err(|_|"Stream RTCP send failed")?;}
 					next_pli=now+Duration::from_millis(500);
 				}
@@ -986,8 +1053,10 @@ async fn run_stream_inner(
 					next_keyframe=Instant::now()+Duration::from_millis(500);
 					continue;
 				}
-				let Some(rtp)=crypto.open(&packet[..length]) else {continue;};
-				if !dave.ready {continue;}
+				let Some(rtp)=crypto.open(&packet[..length]) else {metrics.video(Video::OpenFailed,1);continue;};
+				if rtp.payload_type==102 {metrics.video(Video::Rtx,1);continue;}
+				if rtp.payload_type==101 {metrics.video(Video::Packets,1);}
+				if !dave.ready {if rtp.payload_type==101 {metrics.video(Video::NotReady,1);}continue;}
 				if rtp.payload_type==120 {
 					if audio.is_none() {continue;}
 					let Some(user)=mixer.user(rtp.ssrc) else {continue;};
@@ -1001,12 +1070,13 @@ async fn run_stream_inner(
 				let Some(decoder)=&decoder else {continue;};
 				if rtp.payload_type!=101 {continue;}
 				let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else {continue;};
-				if !dave.contains(user) {continue;}
+				if !dave.contains(user) {metrics.video(Video::NotReady,1);continue;}
 				let start=metrics.start();
-				let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else {metrics.poll(false,1,false,0);continue;};
+				let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else {metrics.poll(false,1,false,0);metrics.video(Video::DecryptFailed,1);continue;};
 				let keyframe=is_keyframe(&data);
-				if !receivers.accept(user,keyframe) {continue;}
-				if !offer(decoder,Encoded{user,data,keyframe})? {receivers.require_keyframe(user);metrics.poll(false,1,false,0);} else {metrics.finish(crate::diagnostics::Stage::VideoReceive,start);}
+				if keyframe {metrics.video(Video::Keyframes,1);metrics.video(Video::KeyframesWithoutParams,u64::from(!has_parameter_sets(&data)));}
+				if !receivers.accept(user,keyframe) {metrics.video(Video::Gated,1);continue;}
+				if !offer(decoder,Encoded{user,data,keyframe})? {receivers.require_keyframe(user);metrics.poll(false,1,false,0);metrics.video(Video::QueueFull,1);} else {metrics.finish(crate::diagnostics::Stage::VideoReceive,start);}
 			},
 			event=ws.next()=>{
 				let Some(Ok(event))=event else {return Err("Discord stream socket failed");};

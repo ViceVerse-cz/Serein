@@ -473,9 +473,47 @@ Zero sender encode calls means no PCM reached the secure sender; sender activity
 zero receiver receive calls narrows the failure to forwarding, mapping or decryption.
 Successful receives/mixes with no sound narrows it to silent source PCM or parent
 playback/device gates. These counts do not prove audible sound and do not contain PCM,
-participant IDs, credentials or signaling contents. The existing eight-report queue,
-128-report / 64-KiB process-lifetime limits still apply. Enable it on both endpoints
+participant IDs, credentials or signaling contents. The existing eight-report queue and
+8,192-report / 8-MiB process-lifetime limits still apply. Enable it on both endpoints
 only for the owner's deliberate test, then disable it after collecting the summaries.
+
+### Remote video diagnostics
+
+Every report line carries `at_ms`, milliseconds since the first reporter started, so
+lines from different scopes can be ordered. `Transport` (call camera video) and
+`StreamReceive` (watching a screen share) lines append a `video:` group whenever any
+remote video counter is non-zero. Each counter names one place a picture can be lost
+between the UDP socket and the display, so a frozen viewer is diagnosed from one line:
+
+- `packets` / `rtx`: video RTP packets (payload 101) accepted by the transport cipher,
+  and retransmission packets (payload 102), which Serein does not yet use. Many `rtx`
+  packets mean the media server sees loss on the path.
+- `open_failed`: packets of any payload rejected by the transport AEAD.
+- `not_ready`: video packets received before the DAVE session was ready or from a
+  user outside the group; expected briefly after joining or an epoch change.
+- `unknown_ssrc`: packets on a video SSRC no sender announced.
+- `incomplete` / `complete`: pictures the RFC 6184 depacketizer discarded (sequence gap
+  or missing marker) versus intact encrypted access units.
+- `decrypt_failed`: access units that failed DAVE decryption.
+- `gated`: predicted pictures rejected because a keyframe is still owed after loss.
+- `queue_full`: frames dropped because the decoder thread was behind.
+- `keyframes` / `keyframes_without_params`: keyframes handed to the decoder, and how
+  many lacked inline SPS/PPS. A rebuilt decoder cannot start from those.
+- `pli_sent`: Picture Loss Indications sent (at most one per owed sender per 500 ms).
+- `awaiting_ticks`: 20 ms ticks spent waiting for at least one sender's keyframe.
+- `decoder_errors`: decoder failures reported by the decoder thread.
+- `pictures`: decoded pictures delivered to the display sink.
+- `picture_gap_ms`: the longest gap between delivered pictures in the window (a
+  maximum, not a sum). Zero until the first picture is delivered.
+
+Reading a freeze: `packets` rising with `pictures` at zero and `picture_gap_ms` growing
+confirms the viewer is starved, not the display. High `incomplete` with `gated` and
+`awaiting_ticks` near the full window and `pli_sent` rising but `keyframes` at zero
+means the sender is not honoring keyframe requests. `keyframes` rising alongside
+`keyframes_without_params` and `decoder_errors` means the decoder cannot restart from
+the sender's keyframes. `packets` at zero with `awaiting_ticks` high means the media
+server stopped forwarding. These are counts only; no video, identifiers or signaling
+contents are recorded.
 
 On Windows, use `Start-Process` to attach stderr to the GUI executable; direct shell
 redirection can leave an empty file. After closing the previous test instance, run

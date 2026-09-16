@@ -33,10 +33,53 @@ pub(crate) enum Stage {
 	CaptureRestart,
 }
 
+/// Per-cause remote video counters. Every silent drop in the receive path has a slot, so a
+/// frozen viewer can be diagnosed from one report line without any media leaving the process.
+#[derive(Clone, Copy)]
+pub(crate) enum Video {
+	/// Video RTP packets (payload 101) accepted by the transport cipher.
+	Packets,
+	/// Retransmission packets (payload 102); currently ignored, so a high count means loss.
+	Rtx,
+	/// Packets that failed the transport AEAD.
+	OpenFailed,
+	/// Video packets received while the DAVE session was not ready.
+	NotReady,
+	/// Packets on an SSRC no sender announced.
+	UnknownSsrc,
+	/// Pictures discarded by the depacketizer: sequence gaps or a missing marker.
+	Incomplete,
+	/// Intact encrypted access units.
+	Complete,
+	/// Access units that failed DAVE decryption.
+	DecryptFailed,
+	/// Predictions rejected while waiting for a keyframe.
+	Gated,
+	/// Frames dropped because the decoder queue was full.
+	QueueFull,
+	/// Keyframes handed to the decoder.
+	Keyframes,
+	/// Keyframes without inline SPS and PPS; a rebuilt decoder cannot use them.
+	KeyframesWithoutParams,
+	/// Picture Loss Indications sent.
+	PliSent,
+	/// Ticks spent waiting for at least one sender's keyframe.
+	AwaitingTicks,
+	/// Decoder failures reported by the decoder thread.
+	DecoderErrors,
+	/// Decoded pictures delivered to the sink.
+	Pictures,
+	/// Longest gap in milliseconds between delivered pictures (maximum, not a sum).
+	PictureGapMs,
+}
+const VIDEO_SLOTS: usize = 17;
+
 #[derive(Clone, Copy)]
 struct Report {
 	scope: Scope,
+	at_ms: u64,
 	window_ms: u64,
+	video: [u64; VIDEO_SLOTS],
 	// Each stage: calls, total elapsed microseconds, maximum elapsed microseconds.
 	stages: [[u64; 3]; 11],
 	wakes: u64,
@@ -54,6 +97,16 @@ pub(crate) struct Metrics {
 	report: Report,
 }
 
+/// Reports and bytes the reporter thread accepts before going quiet. Debug-only opt-in, but
+/// still bounded so a forgotten environment variable cannot fill a disk.
+const MAX_REPORTS: usize = 8192;
+const MAX_REPORT_BYTES: usize = 8 * 1024 * 1024;
+
+fn started() -> Instant {
+	static START: OnceLock<Instant> = OnceLock::new();
+	*START.get_or_init(Instant::now)
+}
+
 impl Metrics {
 	pub fn new(scope: Scope) -> Self {
 		static REPORTER: OnceLock<Option<mpsc::SyncSender<Report>>> = OnceLock::new();
@@ -65,8 +118,8 @@ impl Metrics {
 			std::thread::Builder::new()
 				.name("voice-diagnostics".into())
 				.spawn(move || {
-					let mut bytes = 64 * 1024;
-					for report in receive.iter().take(128) {
+					let mut bytes = MAX_REPORT_BYTES;
+					for report in receive.iter().take(MAX_REPORTS) {
 						if !write_report(report, &mut bytes, &mut std::io::stderr()) {
 							break;
 						}
@@ -80,7 +133,9 @@ impl Metrics {
 			since: Instant::now(),
 			report: Report {
 				scope,
+				at_ms: 0,
 				window_ms: 0,
+				video: [0; VIDEO_SLOTS],
 				stages: [[0; 3]; 11],
 				wakes: 0,
 				resets: 0,
@@ -113,6 +168,24 @@ impl Metrics {
 		*calls = calls.saturating_add(1);
 		*total = total.saturating_add(micros);
 		*max = (*max).max(micros);
+	}
+
+	/// Adds to one remote video counter; ignored while diagnostics are off.
+	pub fn video(&mut self, event: Video, count: u64) {
+		if self.send.is_none() {
+			return;
+		}
+		let slot = &mut self.report.video[event as usize];
+		*slot = slot.saturating_add(count);
+	}
+
+	/// Keeps the largest observed value for a maximum-style video counter.
+	pub fn video_max(&mut self, event: Video, value: u64) {
+		if self.send.is_none() {
+			return;
+		}
+		let slot = &mut self.report.video[event as usize];
+		*slot = (*slot).max(value);
 	}
 
 	pub fn poll(&mut self, reset: bool, drops: u64, stalled: bool, noise_frames: u64) {
@@ -153,6 +226,7 @@ impl Metrics {
 
 	fn flush(&mut self) {
 		let Some(send) = self.send else { return };
+		self.report.at_ms = started().elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
 		self.report.window_ms = self.since.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
 		if let Err(mpsc::TrySendError::Disconnected(_)) = send.try_send(self.report) {
 			self.send = None;
@@ -166,6 +240,7 @@ impl Metrics {
 		self.report.noise_frames = 0;
 		self.report.stream_ticks = [0; 8];
 		self.report.queued_audio = 0;
+		self.report.video = [0; VIDEO_SLOTS];
 	}
 }
 
@@ -177,9 +252,10 @@ impl Drop for Metrics {
 
 fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> bool {
 	let mut line = format!(
-		"[Serein voice {:?}] debug={} window_ms={} wakes={} resets={} drops={} stalls={} noise_frames={} stages(calls,total_us,max_us): echo_render={:?} echo_capture={:?} noise={:?} encode={:?} mix={:?} receive={:?}",
+		"[Serein voice {:?}] debug={} at_ms={} window_ms={} wakes={} resets={} drops={} stalls={} noise_frames={} stages(calls,total_us,max_us): echo_render={:?} echo_capture={:?} noise={:?} encode={:?} mix={:?} receive={:?}",
 		report.scope,
 		cfg!(debug_assertions),
+		report.at_ms,
 		report.window_ms,
 		report.wakes,
 		report.resets,
@@ -209,6 +285,32 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			report.stages[6], report.stages[7], report.queued_audio,
 		));
 	}
+	if matches!(report.scope, Scope::Transport | Scope::StreamReceive)
+		&& report.video.iter().any(|count| *count != 0)
+	{
+		let [
+			packets,
+			rtx,
+			open_failed,
+			not_ready,
+			unknown_ssrc,
+			incomplete,
+			complete,
+			decrypt_failed,
+			gated,
+			queue_full,
+			keyframes,
+			keyframes_without_params,
+			pli_sent,
+			awaiting_ticks,
+			decoder_errors,
+			pictures,
+			picture_gap_ms,
+		] = report.video;
+		line.push_str(&format!(
+			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms}"
+		));
+	}
 	if matches!(report.scope, Scope::ScreenAudio) {
 		line.push_str(&format!(
 			" capture_read={:?} capture_queue={:?} capture_restart={:?}",
@@ -222,4 +324,43 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 	// Charge attempted bytes even on a partial write. Failure never affects the call.
 	*bytes -= line.len();
 	writer.write_all(line.as_bytes()).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn video_counters_are_written_only_when_present() {
+		let mut report = Report {
+			scope: Scope::StreamReceive,
+			at_ms: 1234,
+			window_ms: 5000,
+			video: [0; VIDEO_SLOTS],
+			stages: [[0; 3]; 11],
+			wakes: 0,
+			resets: 0,
+			drops: 0,
+			stalls: 0,
+			noise_frames: 0,
+			stream_ticks: [0; 8],
+			queued_audio: 0,
+		};
+		let mut bytes = MAX_REPORT_BYTES;
+		let mut out = Vec::new();
+		assert!(write_report(report, &mut bytes, &mut out));
+		let line = String::from_utf8(out).unwrap();
+		assert!(line.contains("at_ms=1234"));
+		assert!(!line.contains(" video:"));
+
+		report.video[Video::Packets as usize] = 150;
+		report.video[Video::Gated as usize] = 40;
+		report.video[Video::PictureGapMs as usize] = 1900;
+		let mut out = Vec::new();
+		assert!(write_report(report, &mut bytes, &mut out));
+		let line = String::from_utf8(out).unwrap();
+		assert!(line.contains("video: packets=150"));
+		assert!(line.contains("gated=40"));
+		assert!(line.ends_with("picture_gap_ms=1900\n"));
+	}
 }

@@ -466,8 +466,8 @@ Schema 7 adds one checked integer `message_kind` (0..255) per cached message, wi
 Voice performance diagnostics (`SEREIN_VOICE_DIAGNOSTICS=1`) are also off by default.
 They retain at most eight fixed-size numeric reports in a worker queue (under 2 KiB),
 plus one report per producer and one being written. One background writer formats
-reports and caps attempted stderr output at 128 reports AND 64 KiB per process,
-across calls. Queue overflow drops diagnostics without delaying media. A blocked
+reports and caps attempted stderr output at 8,192 reports AND 8 MiB per process,
+across calls (about eleven hours of three concurrent five-second reporters). Queue overflow drops diagnostics without delaying media. A blocked
 stderr can stall only that single diagnostic writer. No files, identifiers, device
 names, payloads, audio, keys or telemetry are produced. Explicit shell redirection
 is owner-managed; unrelated output and appended runs are outside these limits.
