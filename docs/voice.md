@@ -570,6 +570,15 @@ restarting its stream, while `app_dropped` matching `app_captures` with `app_rea
 means no attachment ever connects. Compare against
 `parec --monitor-stream=INDEX -d SINK.monitor`, which uses the same interface.
 
+Linux screen capture reports under `ScreenVideo`: `receive` counts pictures taken from the
+pipeline, `encode` times the software encoder, `drops` counts pictures left in the pipeline
+because the transport had not drained the previous one, and `stalls` counts passes where the
+pipeline offered nothing. A share that freezes with `stalls` high and `drops` at zero means
+the desktop stopped producing pictures; `drops` rising instead means the encoder or the
+transport is behind and the pipeline is being held back, which throttles the capture source
+until it drains. Software encoding a desktop is the usual reason for the latter, so compare
+`encode` against the frame interval before concluding anything about the network.
+
 Three lines name why a share ended, because the status only shows the most recent message
 and a later stop overwrites it: `[Serein voice Screen] capture_stopped=…` from the capture
 worker, `stream_transport_stopped=…` from its RTC connection, and `share_stopped=…` for the
