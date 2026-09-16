@@ -39,6 +39,7 @@ impl Settings {
 			voice_output: ui.voice_output.clone(),
 			input_percent: ui.voice_gain.input_percent,
 			output_percent: ui.voice_gain.output_percent,
+			keybinds: ui.keybinds.clone(),
 			expanded_folders: ui.expanded_folders.clone(),
 		};
 		if value != self.current {
@@ -65,6 +66,7 @@ impl Settings {
 		ui.voice_output.clone_from(&value.voice_output);
 		ui.voice_gain.input_percent = value.input_percent;
 		ui.voice_gain.output_percent = value.output_percent;
+		ui.keybinds = value.keybinds.clone();
 		ui.expanded_folders.clone_from(&value.expanded_folders);
 	}
 }

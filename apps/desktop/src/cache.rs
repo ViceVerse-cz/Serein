@@ -242,6 +242,10 @@ impl Cache {
 				value.voice_input.as_ref().map_or(0, String::capacity)
 					+ value.voice_output.as_ref().map_or(0, String::capacity)
 					+ value.expanded_folders.capacity() * size_of::<u64>()
+					+ model::KeybindAction::ALL
+						.into_iter()
+						.map(|action| value.keybinds.chord(action).key.capacity())
+						.sum::<usize>()
 			}
 			Operation::SaveThemeVariant(value) => value.as_ref().map_or(0, String::capacity),
 			_ => 0,
