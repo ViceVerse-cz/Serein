@@ -253,9 +253,7 @@ impl Menu {
 				.channels
 				.iter()
 				.filter(|c| {
-					guild.is_some()
-						&& c.guild == guild
-						&& matches!(c.kind, 0 | 5 | 10..=12)
+					guild.is_some() && c.guild == guild && matches!(c.kind, 0 | 5 | 10..=12)
 				})
 				.filter_map(|c| {
 					rank(&query, &c.name, c.id).map(|r| {
