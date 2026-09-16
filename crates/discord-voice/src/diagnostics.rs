@@ -129,8 +129,10 @@ pub(crate) enum Capture {
 	Excluded,
 	/// Mixed 20 ms chunks handed to the stream.
 	Chunks,
-	/// Captures observed with every monitor connected, ready to be confirmed.
+	/// Attachments confirmed by a later listing and mixed from.
 	Ready,
+	/// Attachments dropped because they failed or never connected.
+	Dropped,
 }
 
 #[derive(Clone, Copy)]
@@ -142,7 +144,7 @@ struct Report {
 	signal: [u64; SIGNAL_SLOTS],
 	/// Application-audio capture (Linux): inputs allowed, captures started, applications
 	/// excluded after a failure, and mixed 20 ms chunks handed to the stream.
-	capture: [u64; 5],
+	capture: [u64; 6],
 	// Each stage: calls, total elapsed microseconds, maximum elapsed microseconds.
 	stages: [[u64; 3]; 11],
 	wakes: u64,
@@ -200,7 +202,7 @@ impl Metrics {
 				window_ms: 0,
 				video: [0; VIDEO_SLOTS],
 				signal: [0; SIGNAL_SLOTS],
-				capture: [0; 5],
+				capture: [0; 6],
 				stages: [[0; 3]; 11],
 				wakes: 0,
 				resets: 0,
@@ -326,7 +328,7 @@ impl Metrics {
 		self.report.queued_audio = 0;
 		self.report.video = [0; VIDEO_SLOTS];
 		self.report.signal = [0; SIGNAL_SLOTS];
-		self.report.capture = [0; 5];
+		self.report.capture = [0; 6];
 	}
 }
 
@@ -421,9 +423,9 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 		));
 	}
 	if matches!(report.scope, Scope::ScreenAudio) {
-		let [inputs, started, excluded, chunks, ready] = report.capture;
+		let [inputs, started, excluded, chunks, ready, dropped] = report.capture;
 		line.push_str(&format!(
-			" capture_read={:?} capture_queue={:?} capture_restart={:?} app_inputs={inputs} app_captures={started} app_excluded={excluded} app_chunks={chunks} app_ready={ready}",
+			" capture_read={:?} capture_queue={:?} capture_restart={:?} app_inputs={inputs} app_captures={started} app_excluded={excluded} app_chunks={chunks} app_ready={ready} app_dropped={dropped}",
 			report.stages[8], report.stages[9], report.stages[10],
 		));
 	}
@@ -448,7 +450,7 @@ mod tests {
 			window_ms: 5000,
 			video: [0; VIDEO_SLOTS],
 			signal: [0; SIGNAL_SLOTS],
-			capture: [0; 5],
+			capture: [0; 6],
 			stages: [[0; 3]; 11],
 			wakes: 0,
 			resets: 0,

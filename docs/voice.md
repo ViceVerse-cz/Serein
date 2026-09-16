@@ -558,14 +558,17 @@ connect, and both rising while `app_chunks` stays zero means the confirmation ke
 restarting.
 
 Per-application capture attaches to one sink input through PulseAudio's monitor-stream
-interface, which the running sound server has to implement; PipeWire's compatibility layer
-does not always accept it, and a monitor that is never accepted simply stays unconnected
-rather than failing. After ten seconds with no monitor ever connected the worker stops
-reattaching and counts those applications as excluded, so the share continues with video
-only instead of retrying forever. Confirm the server's behaviour outside Serein with
-`parec --monitor-stream=INDEX -d SINK.monitor >/dev/null`, taking `INDEX` from
-`pactl list sink-inputs short` and `SINK` from `pactl info`: no data means the isolated
-capture Serein needs is unavailable there, whatever the client.
+interface. Sink-input indices are recycled as applications restart their streams, so an
+attachment can name an index that is already gone; such an attachment never connects and
+never fails either. Each attachment is therefore tracked on its own: it is dropped after a
+second without connecting and retried from the next listing under a freshly listed index,
+and it is only mixed once a later listing shows the same application still holding that
+index. Applications are listed every 500 ms regardless of what the server reports, because
+a roster that changes continuously must not stop the confirmations. `app_dropped` counts
+attachments discarded this way; a steady trickle is normal for an application that keeps
+restarting its stream, while `app_dropped` matching `app_captures` with `app_ready` at zero
+means no attachment ever connects. Compare against
+`parec --monitor-stream=INDEX -d SINK.monitor`, which uses the same interface.
 
 Three lines name why a share ended, because the status only shows the most recent message
 and a later stop overwrites it: `[Serein voice Screen] capture_stopped=…` from the capture
