@@ -1,5 +1,6 @@
 //! Compatibility path for virtual cameras registered only with DirectShow.
 #![allow(non_snake_case)] // Custom COM interfaces preserve the Qedit.h method names.
+use super::super::format;
 use super::{FRAME_INTERVAL, HEIGHT, INVALID, Shared, TIMEOUT, UNAVAILABLE, WIDTH};
 use std::{
 	ffi::c_void,
@@ -22,7 +23,7 @@ use windows::{
 
 const SAMPLE_GRABBER: GUID = GUID::from_u128(0xc1f400a0_3f08_11d3_9f0b_006008039e37);
 const NULL_RENDERER: GUID = GUID::from_u128(0xc1f400a4_3f08_11d3_9f0b_006008039e37);
-const MAX_BYTES: usize = 1920 * 1080 * 4;
+const MAX_BYTES: usize = format::MAX_WIDTH * format::MAX_HEIGHT * 4;
 
 // Qedit.h interfaces are absent from windows-rs metadata. Keep the SDK ABI order.
 #[interface("6b652fff-11fe-4fce-92ad-0266b5d7c78f")]
@@ -229,8 +230,8 @@ fn dimensions(media: &AM_MEDIA_TYPE) -> Result<(usize, usize, bool), &'static st
 			return Err(INVALID);
 		}
 	};
-	if !(1..=1920).contains(&bitmap.biWidth)
-		|| !(1..=1080).contains(&bitmap.biHeight.unsigned_abs())
+	if !(1..=format::MAX_WIDTH as i32).contains(&bitmap.biWidth)
+		|| !(1..=format::MAX_HEIGHT as u32).contains(&bitmap.biHeight.unsigned_abs())
 		|| bitmap.biSizeImage as usize > MAX_BYTES
 	{
 		return Err(INVALID);
@@ -289,6 +290,7 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 		let mut choices = Vec::new();
 		for index in 0..count {
 			let mut pointer = std::ptr::null_mut();
+			capabilities.fill(0);
 			let result = config.GetStreamCaps(index, &mut pointer, capabilities.as_mut_ptr());
 			if pointer.is_null() {
 				continue;
@@ -298,7 +300,37 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 				continue;
 			}
 			if let Ok((width, height, _)) = dimensions(&media.0) {
-				choices.push(((width != WIDTH || height != HEIGHT, width * height), media));
+				// dimensions checked the header size; the capability block may be unaligned.
+				let interval = if media.0.formattype == FORMAT_VideoInfo {
+					std::ptr::addr_of_mut!(
+						(*media.0.pbFormat.cast::<VIDEOINFOHEADER>()).AvgTimePerFrame
+					)
+				} else {
+					std::ptr::addr_of_mut!(
+						(*media.0.pbFormat.cast::<VIDEOINFOHEADER2>()).AvgTimePerFrame
+					)
+				};
+				if size as usize >= size_of::<VIDEO_STREAM_CONFIG_CAPS>() {
+					let caps = capabilities
+						.as_ptr()
+						.cast::<VIDEO_STREAM_CONFIG_CAPS>()
+						.read_unaligned();
+					if let Some(fps) = format::nearest_fps(
+						10_000_000.0 / caps.MaxFrameInterval as f64,
+						10_000_000.0 / caps.MinFrameInterval as f64,
+					) {
+						interval.write_unaligned(
+							((10_000_000.0 / fps).round() as i64)
+								.clamp(caps.MinFrameInterval, caps.MaxFrameInterval),
+						);
+					}
+				}
+				let duration = interval.read_unaligned();
+				if duration > 0
+					&& let Some(rank) = format::rank(width, height, 10_000_000.0 / duration as f64)
+				{
+					choices.push((rank, media));
+				}
 			}
 		}
 		choices.sort_by_key(|(rank, _)| *rank);
@@ -307,7 +339,7 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 				return Ok(());
 			}
 		}
-		Err("Camera does not offer a supported capture mode up to 1920×1080")
+		Err("Camera does not offer a supported capture mode up to 1280×720")
 	}
 }
 
@@ -472,7 +504,7 @@ fn rgb_frame(
 	height: usize,
 	bottom_up: bool,
 ) -> Result<Vec<u8>, &'static str> {
-	if !(1..=1920).contains(&width) || !(1..=1080).contains(&height) {
+	if !(1..=format::MAX_WIDTH).contains(&width) || !(1..=format::MAX_HEIGHT).contains(&height) {
 		return Err(INVALID);
 	}
 	let pitch = (width * 3).next_multiple_of(4);

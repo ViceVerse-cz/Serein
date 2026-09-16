@@ -11,6 +11,7 @@ use std::sync::{
 };
 use std::{thread, time::Duration};
 
+mod format;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "windows")]
@@ -24,7 +25,7 @@ pub const SUPPORTED: bool = cfg!(any(
 	target_os = "windows",
 	target_os = "linux"
 ));
-const FRAME_INTERVAL: Duration = Duration::from_millis(67);
+const FRAME_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / format::FPS as u64);
 // Includes asynchronous teardown: rapid toggles cannot accumulate camera workers.
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -150,7 +151,7 @@ fn encoder() -> Result<Encoder, &'static str> {
 		OpenH264API::from_source(),
 		EncoderConfig::new()
 			.bitrate(BitRate::from_bps(600_000))
-			.max_frame_rate(FrameRate::from_hz(15.0))
+			.max_frame_rate(FrameRate::from_hz(format::FPS as f32))
 			.profile(Profile::Baseline)
 			.num_threads(1)
 			.debug(false),
@@ -232,7 +233,7 @@ mod macos {
 		runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject},
 	};
 	use objc2_av_foundation::*;
-	use objc2_core_media::CMSampleBuffer;
+	use objc2_core_media::{CMSampleBuffer, CMTime, CMVideoFormatDescriptionGetDimensions};
 	use objc2_core_video::*;
 	use objc2_foundation::{NSDictionary, NSNumber, NSString};
 	use std::{
@@ -357,6 +358,47 @@ mod macos {
 		_delegate: Retained<SereinCameraDelegate>,
 		queue: DispatchRetained<DispatchQueue>,
 	}
+
+	fn configure(device: &AVCaptureDevice) -> Result<(), &'static str> {
+		// SAFETY: Formats/ranges come from this device. Only this worker changes it,
+		// while locked, before capture starts. Endpoint durations stay exact.
+		unsafe {
+			let mut selected = None;
+			for native in device.formats().iter().take(256) {
+				let size = CMVideoFormatDescriptionGetDimensions(&native.formatDescription());
+				for range in native.videoSupportedFrameRateRanges().iter().take(256) {
+					let (min, max) = (range.minFrameRate(), range.maxFrameRate());
+					let Some(fps) = format::nearest_fps(min, max) else {
+						continue;
+					};
+					let Some(rank) = format::rank(size.width as usize, size.height as usize, fps)
+					else {
+						continue;
+					};
+					let duration = if fps == min {
+						range.maxFrameDuration()
+					} else if fps == max {
+						range.minFrameDuration()
+					} else {
+						CMTime::new(1, format::FPS as i32)
+					};
+					if selected.as_ref().is_none_or(|(best, _, _)| rank < *best) {
+						selected = Some((rank, native.clone(), duration));
+					}
+				}
+			}
+			let (_, native, duration) =
+				selected.ok_or("Camera does not offer a capture mode at or below 1280×720")?;
+			device
+				.lockForConfiguration()
+				.map_err(|_| "Camera configuration is unavailable")?;
+			device.setActiveFormat(&native);
+			device.setActiveVideoMinFrameDuration(duration);
+			device.setActiveVideoMaxFrameDuration(duration);
+			device.unlockForConfiguration();
+		}
+		Ok(())
+	}
 	impl Drop for CaptureSession {
 		fn drop(&mut self) {
 			// SAFETY: Owned session is configured, and teardown runs on its worker.
@@ -396,10 +438,14 @@ mod macos {
 			}
 			session.addInput(&input);
 			session.addOutput(&output);
-			if !session.canSetSessionPreset(AVCaptureSessionPreset640x480) {
-				return Err("Camera does not support 640×480 capture");
+			if !session.canSetSessionPreset(AVCaptureSessionPresetInputPriority) {
+				return Err("Camera does not support native format selection");
 			}
-			session.setSessionPreset(AVCaptureSessionPreset640x480);
+			session.beginConfiguration();
+			session.setSessionPreset(AVCaptureSessionPresetInputPriority);
+			let configured = configure(&device);
+			session.commitConfiguration();
+			configured?;
 			let format = NSNumber::new_u32(kCVPixelFormatType_32BGRA);
 			let width = NSNumber::new_usize(WIDTH);
 			let height = NSNumber::new_usize(HEIGHT);
