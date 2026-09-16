@@ -655,6 +655,7 @@ fn role_chips(ui: &mut egui::Ui, theme: &Theme, state: &State, guild: &model::Gu
 	let Some(roles) = state.guild_roles(guild.guild) else {
 		return;
 	};
+	let max_width = ui.available_width();
 	ui.horizontal_wrapped(|ui| {
 		ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
 		for role in roles
@@ -662,21 +663,30 @@ fn role_chips(ui: &mut egui::Ui, theme: &Theme, state: &State, guild: &model::Gu
 			.rev()
 			.filter(|role| role.id != guild.guild && guild.roles.contains(&role.id))
 		{
-			egui::Frame::new()
-				.fill(theme.chip)
-				.corner_radius(6)
-				.inner_margin(egui::Margin::symmetric(6, 3))
-				.show(ui, |ui| {
-					ui.spacing_mut().item_spacing.x = 5.0;
-					let color = if role.color == 0 {
-						theme.muted
-					} else {
-						rgb(role.color)
-					};
-					let (dot, _) = ui.allocate_exact_size(Vec2::splat(8.0), egui::Sense::hover());
-					ui.painter().circle_filled(dot.center(), 4.0, color);
-					ui.label(RichText::new(&role.name).size(12.0));
-				});
+			let galley = ui.painter().layout_no_wrap(
+				role.name.clone(),
+				egui::FontId::proportional(12.0),
+				theme.text,
+			);
+			let size = vec2(
+				(galley.size().x + 25.0).min(max_width),
+				galley.size().y + 6.0,
+			);
+			let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+			ui.painter().rect_filled(rect, 6, theme.chip);
+			let color = if role.color == 0 {
+				theme.muted
+			} else {
+				rgb(role.color)
+			};
+			ui.painter()
+				.circle_filled(pos2(rect.left() + 10.0, rect.center().y), 4.0, color);
+			ui.painter().with_clip_rect(rect.shrink(3.0)).galley(
+				pos2(rect.left() + 18.0, rect.center().y - galley.size().y * 0.5),
+				galley,
+				theme.text,
+			);
+			response.on_hover_text(&role.name);
 		}
 	});
 }
@@ -1869,6 +1879,76 @@ mod tests {
 		assert!(painted.contains("Maintainer"), "{painted}");
 		assert!(painted.contains("Contributor"), "{painted}");
 		assert!(!painted.contains("Role 999"), "{painted}");
+	}
+
+	#[test]
+	fn role_chips_wrap_complete_items_onto_new_rows() {
+		let mut state = test_support::demo_state();
+		let roles = [
+			(Id(101), "Maintainer"),
+			(Id(102), "Contributor"),
+			(Id(103), "Release Manager"),
+			(Id(104), "Documentation"),
+			(Id(105), "Community Helper"),
+			(Id(106), "Bug Hunter"),
+		];
+		for (position, (id, name)) in roles.iter().enumerate() {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::Permissions(client_core::permissions::Event::Role {
+					guild: Id(10),
+					role: model::permissions::Role {
+						id: *id,
+						bits: 0,
+						name: (*name).into(),
+						color: 0x5865f2,
+						position: position as i32,
+						hoist: false,
+					},
+				}),
+			});
+		}
+		let guild = model::GuildProfile {
+			guild: Id(10),
+			roles: roles.iter().map(|(id, _)| *id).collect(),
+			nick: None,
+			avatar: None,
+			banner: None,
+			bio: String::new(),
+			pronouns: String::new(),
+			joined_at: None,
+		};
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let output = ctx.run_ui(input(vec2(180.0, 300.0), vec![]), |ui| {
+			ui.set_width(180.0);
+			let theme = Theme::new(&design::palette(ui), None);
+			role_chips(ui, &theme, &state, &guild);
+		});
+		let chips: Vec<_> = output
+			.shapes
+			.iter()
+			.filter_map(|shape| match &shape.shape {
+				egui::Shape::Rect(rect) if rect.corner_radius == CornerRadius::same(6) => {
+					Some(rect.rect)
+				}
+				_ => None,
+			})
+			.collect();
+		assert_eq!(chips.len(), roles.len());
+		assert!(
+			chips.iter().skip(1).any(|chip| chip.top() > chips[0].top()),
+			"roles should occupy more than one row: {chips:?}"
+		);
+		for (index, chip) in chips.iter().enumerate() {
+			for other in chips.iter().skip(index + 1) {
+				assert!(
+					!chip.intersects(*other),
+					"role chips overlap: {chip:?} {other:?}"
+				);
+			}
+		}
+		output.drop_without_applying_deltas();
 	}
 
 	#[test]
