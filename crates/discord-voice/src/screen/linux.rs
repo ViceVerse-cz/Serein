@@ -7,6 +7,18 @@ use super::{
 	preview_frame,
 };
 use ::gstreamer as gst;
+/// A capture source that has nothing new to send still emits a keepalive picture once a
+/// second, so a frozen share is not a gap between pictures but a run of seconds carrying
+/// only that keepalive. Report such a run once it ends, with whatever was withheld during
+/// it, which separates a desktop that stopped drawing from a pipeline we held back.
+const SLOW_PICTURES: u32 = 2;
+
+fn note(event: &str, value: &str) {
+	if std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|set| set == "1") {
+		eprintln!("[Serein voice Screen] {event}={value}");
+	}
+}
+
 use gst::prelude::*;
 use openh264::formats::YUVBuffer;
 use std::{
@@ -100,6 +112,10 @@ pub(super) fn run(
 				}
 				wake();
 				let mut software = None;
+				let mut second = Instant::now();
+				let mut pictures_second = 0u32;
+				let mut withheld_second = 0u64;
+				let mut slow: Option<(Instant, u64)> = None;
 				let mut waiting_keyframe = true;
 				let mut first_frame = None;
 				let mut visible = true;
@@ -156,6 +172,7 @@ pub(super) fn run(
 							wake();
 						}
 						software = None;
+						slow = None;
 						waiting_keyframe = true;
 						first_frame = None;
 						keyframe.store(true, Ordering::Release);
@@ -252,6 +269,25 @@ pub(super) fn run(
 						}
 					}
 					metrics.poll(false, withheld, !pulled, 0);
+					pictures_second += u32::from(pulled);
+					withheld_second += withheld;
+					if second.elapsed() >= Duration::from_secs(1) {
+						if ready.load(Ordering::Acquire) && pictures_second <= SLOW_PICTURES {
+							let entry = slow.get_or_insert((second, 0));
+							entry.1 += withheld_second;
+						} else if let Some((since, withheld_total)) = slow.take() {
+							note(
+								"capture_slow_ms",
+								&format!(
+									"{} withheld={withheld_total}",
+									since.elapsed().as_millis()
+								),
+							);
+						}
+						second = Instant::now();
+						pictures_second = 0;
+						withheld_second = 0;
+					}
 					pipeline.changed().await;
 				}
 				// One bounded pass through alternatives, always destroying the old pipeline first.

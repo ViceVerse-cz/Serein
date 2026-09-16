@@ -579,6 +579,14 @@ transport is behind and the pipeline is being held back, which throttles the cap
 until it drains. Software encoding a desktop is the usual reason for the latter, so compare
 `encode` against the frame interval before concluding anything about the network.
 
+A capture source with nothing new to send still emits a keepalive picture once a second, so
+a frozen share shows as a run of seconds carrying only that keepalive rather than a gap
+between pictures. Such a run is reported once it ends as
+`[Serein voice Screen] capture_slow_ms=… withheld=…`. A `withheld` of zero means the desktop
+stopped producing pictures while the transport was keeping up, which is a compositor or
+portal matter; a non-zero `withheld` means the pipeline was held back waiting for the
+transport to drain, which throttles the capture source until it catches up.
+
 Three lines name why a share ended, because the status only shows the most recent message
 and a later stop overwrites it: `[Serein voice Screen] capture_stopped=…` from the capture
 worker, `stream_transport_stopped=…` from its RTC connection, and `share_stopped=…` for the
