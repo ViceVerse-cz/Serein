@@ -57,10 +57,12 @@ pub enum KeybindAction {
 	CodeBlock,
 	Spoiler,
 	PushToTalk,
+	ToggleMute,
+	ToggleDeafen,
 }
 
 impl KeybindAction {
-	pub const ALL: [Self; 14] = [
+	pub const ALL: [Self; 16] = [
 		Self::ShowShortcuts,
 		Self::SwitchConversation,
 		Self::CloseOverlay,
@@ -75,6 +77,8 @@ impl KeybindAction {
 		Self::CodeBlock,
 		Self::Spoiler,
 		Self::PushToTalk,
+		Self::ToggleMute,
+		Self::ToggleDeafen,
 	];
 
 	pub const fn label(self) -> &'static str {
@@ -93,11 +97,16 @@ impl KeybindAction {
 			Self::CodeBlock => "Code Block",
 			Self::Spoiler => "Spoiler",
 			Self::PushToTalk => "Push to Talk",
+			Self::ToggleMute => "Toggle Mute",
+			Self::ToggleDeafen => "Toggle Deafen",
 		}
 	}
 
 	pub const fn is_global(self) -> bool {
-		matches!(self, Self::PushToTalk)
+		matches!(
+			self,
+			Self::PushToTalk | Self::ToggleMute | Self::ToggleDeafen
+		)
 	}
 }
 
@@ -118,6 +127,8 @@ pub struct Keybinds {
 	pub code_block: KeyChord,
 	pub spoiler: KeyChord,
 	pub push_to_talk: KeyChord,
+	pub toggle_mute: KeyChord,
+	pub toggle_deafen: KeyChord,
 }
 
 impl Default for Keybinds {
@@ -137,6 +148,8 @@ impl Default for Keybinds {
 			code_block: KeyChord::new("C", PRIMARY | SHIFT),
 			spoiler: KeyChord::new("P", PRIMARY | SHIFT),
 			push_to_talk: KeyChord::new("V", 0),
+			toggle_mute: KeyChord::new("M", PRIMARY | SHIFT),
+			toggle_deafen: KeyChord::new("D", PRIMARY | SHIFT),
 		}
 	}
 }
@@ -158,6 +171,8 @@ impl Keybinds {
 			KeybindAction::CodeBlock => &self.code_block,
 			KeybindAction::Spoiler => &self.spoiler,
 			KeybindAction::PushToTalk => &self.push_to_talk,
+			KeybindAction::ToggleMute => &self.toggle_mute,
+			KeybindAction::ToggleDeafen => &self.toggle_deafen,
 		}
 	}
 
@@ -177,6 +192,8 @@ impl Keybinds {
 			KeybindAction::CodeBlock => &mut self.code_block,
 			KeybindAction::Spoiler => &mut self.spoiler,
 			KeybindAction::PushToTalk => &mut self.push_to_talk,
+			KeybindAction::ToggleMute => &mut self.toggle_mute,
+			KeybindAction::ToggleDeafen => &mut self.toggle_deafen,
 		}
 	}
 

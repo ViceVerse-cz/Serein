@@ -1,27 +1,27 @@
-//! Native global shortcut registration. Wayland intentionally falls back to focused input
-//! because the compositor, not applications, owns global keyboard observation there.
+//! Native global voice bindings. Wayland intentionally falls back to focused input because the
+//! compositor, not applications, owns global keyboard observation there.
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::HotKey};
-use model::KeyChord;
+use model::{KeyChord, KeybindAction, Keybinds};
 
-const READY: &str = "Global Push to Talk is enabled.";
+const READY: &str = "Global voice keybinds are enabled.";
 const WAYLAND: &str =
-	"Global shortcuts are unavailable on Wayland; Push to Talk works while Serein is focused.";
+	"Global voice keybinds are unavailable on Wayland; they work while Serein is focused.";
 const UNAVAILABLE: &str =
-	"Global shortcuts are unavailable on this system; Push to Talk works while Serein is focused.";
-const INVALID: &str = "This Push to Talk binding cannot be registered globally; it still works while Serein is focused.";
-const MODIFIER_REQUIRED: &str = "Add Ctrl, Alt, Shift, or Command to Push to Talk for global use; it works focused without one.";
+	"Global voice keybinds are unavailable on this system; they work while Serein is focused.";
+const INVALID: &str = "One or more voice bindings cannot be registered globally; they still work while Serein is focused.";
+const MODIFIER_REQUIRED: &str = "Add Ctrl, Alt, Shift, or Command to use a voice binding globally; it still works while Serein is focused.";
+
+const PUSH_TO_TALK: usize = 0;
+const TOGGLE_MUTE: usize = 1;
+const TOGGLE_DEAFEN: usize = 2;
 
 pub struct Hotkeys {
 	manager: Option<GlobalHotKeyManager>,
-	registered: Option<HotKey>,
+	registered: [Option<HotKey>; 3],
+	bindings: Option<[KeyChord; 3]>,
 	ptt_down: bool,
+	pending_toggles: u8,
 	status: &'static str,
-}
-
-impl Default for Hotkeys {
-	fn default() -> Self {
-		Self::new()
-	}
 }
 
 impl Hotkeys {
@@ -32,22 +32,28 @@ impl Hotkeys {
 		{
 			return Self {
 				manager: None,
-				registered: None,
+				registered: [None; 3],
+				bindings: None,
 				ptt_down: false,
+				pending_toggles: 0,
 				status: WAYLAND,
 			};
 		}
 		match GlobalHotKeyManager::new() {
 			Ok(manager) => Self {
 				manager: Some(manager),
-				registered: None,
+				registered: [None; 3],
+				bindings: None,
 				ptt_down: false,
+				pending_toggles: 0,
 				status: READY,
 			},
 			Err(_) => Self {
 				manager: None,
-				registered: None,
+				registered: [None; 3],
+				bindings: None,
 				ptt_down: false,
+				pending_toggles: 0,
 				status: if cfg!(target_os = "linux")
 					&& std::env::var_os("WAYLAND_DISPLAY").is_some()
 				{
@@ -59,49 +65,88 @@ impl Hotkeys {
 		}
 	}
 
-	pub fn sync(&mut self, chord: &KeyChord) {
-		let Some(manager) = &self.manager else { return };
-		let next = native_hotkey(chord);
-		if next.is_none() {
-			if let Some(previous) = self.registered.take() {
-				let _ = manager.unregister(previous);
-			}
-			self.status = if chord.modifiers == 0 {
-				MODIFIER_REQUIRED
-			} else {
-				INVALID
-			};
+	pub fn sync(&mut self, keybinds: &Keybinds) {
+		let next = [
+			keybinds.chord(KeybindAction::PushToTalk).clone(),
+			keybinds.chord(KeybindAction::ToggleMute).clone(),
+			keybinds.chord(KeybindAction::ToggleDeafen).clone(),
+		];
+		if self.bindings.as_ref() == Some(&next) {
 			return;
 		}
-		let Some(next) = next else {
-			self.status = INVALID;
+		self.bindings = Some(next.clone());
+		self.unregister_all();
+		self.ptt_down = false;
+		self.pending_toggles = 0;
+
+		let Some(manager) = &self.manager else {
 			return;
 		};
-		if self.registered == Some(next) {
-			return;
-		}
-		if let Some(previous) = self.registered.take() {
-			let _ = manager.unregister(previous);
-		}
-		match manager.register(next) {
-			Ok(()) => {
-				self.registered = Some(next);
-				self.status = READY;
+		let mut failed = false;
+		let mut modifier_required = false;
+		for (index, chord) in next.iter().enumerate() {
+			if !chord.is_valid() {
+				failed = true;
+				continue;
 			}
-			Err(_) => self.status = UNAVAILABLE,
+			if chord.modifiers == 0 {
+				modifier_required |= index != PUSH_TO_TALK;
+				continue;
+			}
+			let Some(hotkey) = native_hotkey(chord) else {
+				failed = true;
+				continue;
+			};
+			match manager.register(hotkey) {
+				Ok(()) => self.registered[index] = Some(hotkey),
+				Err(_) => failed = true,
+			}
+		}
+		if failed {
+			self.status = INVALID;
+		} else if modifier_required && self.global_toggle_mask() == 0 {
+			self.status = MODIFIER_REQUIRED;
+		} else {
+			self.status = READY;
+		}
+	}
+
+	fn unregister_all(&mut self) {
+		if let Some(manager) = &self.manager {
+			for hotkey in &mut self.registered {
+				if let Some(hotkey) = hotkey.take() {
+					let _ = manager.unregister(hotkey);
+				}
+			}
+		} else {
+			self.registered = [None; 3];
 		}
 	}
 
 	pub fn poll(&mut self) {
-		let Some(hotkey) = self.registered else {
-			self.ptt_down = false;
-			return;
-		};
 		while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
-			if event.id() == hotkey.id() {
-				self.ptt_down = event.state() == HotKeyState::Pressed;
+			for (index, hotkey) in self.registered.iter().enumerate() {
+				if hotkey.is_some_and(|hotkey| hotkey.id() == event.id()) {
+					match (index, event.state()) {
+						(PUSH_TO_TALK, HotKeyState::Pressed) => self.ptt_down = true,
+						(PUSH_TO_TALK, HotKeyState::Released) => self.ptt_down = false,
+						(TOGGLE_MUTE, HotKeyState::Pressed) => self.pending_toggles |= 1,
+						(TOGGLE_DEAFEN, HotKeyState::Pressed) => self.pending_toggles |= 2,
+						_ => {}
+					}
+				}
 			}
 		}
+	}
+
+	pub fn take_toggle_pending(&mut self) -> u8 {
+		std::mem::take(&mut self.pending_toggles)
+	}
+
+	/// Bits for mute/deafen bindings currently owned by the native global registrar.
+	pub fn global_toggle_mask(&self) -> u8 {
+		(self.registered[TOGGLE_MUTE].is_some() as u8)
+			| ((self.registered[TOGGLE_DEAFEN].is_some() as u8) << 1)
 	}
 
 	pub fn push_to_talk_down(&self) -> bool {
@@ -113,8 +158,14 @@ impl Hotkeys {
 	}
 }
 
+impl Drop for Hotkeys {
+	fn drop(&mut self) {
+		self.unregister_all();
+	}
+}
+
 fn native_hotkey(chord: &KeyChord) -> Option<HotKey> {
-	if !chord.is_valid() {
+	if !chord.is_valid() || chord.modifiers == 0 {
 		return None;
 	}
 	let mut value = String::new();
@@ -215,8 +266,15 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn default_push_to_talk_has_a_native_code() {
-		assert!(native_hotkey(&KeyChord::default()).is_some());
-		assert!(native_hotkey(&KeyChord::new("unknown", 0)).is_none());
+	fn modifier_bindings_have_native_codes_and_plain_keys_stay_focused() {
+		assert!(
+			native_hotkey(&KeyChord::new(
+				"M",
+				model::keybinds::PRIMARY | model::keybinds::SHIFT
+			))
+			.is_some()
+		);
+		assert!(native_hotkey(&KeyChord::default()).is_none());
+		assert!(native_hotkey(&KeyChord::new("unknown", model::keybinds::PRIMARY)).is_none());
 	}
 }

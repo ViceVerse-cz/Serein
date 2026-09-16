@@ -78,8 +78,12 @@ pub(super) fn show(
 	section(
 		ui,
 		"Voice",
-		"Hold the key during a connected call to speak.",
-		&[KeybindAction::PushToTalk],
+		"Control your microphone and incoming audio during a connected call.",
+		&[
+			KeybindAction::ToggleMute,
+			KeybindAction::ToggleDeafen,
+			KeybindAction::PushToTalk,
+		],
 		bindings,
 		capturing,
 	);

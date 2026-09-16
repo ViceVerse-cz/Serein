@@ -1521,7 +1521,7 @@ impl Desktop {
 		}
 		let mut hotkeys = platform::hotkeys::Hotkeys::new();
 		if !demo {
-			hotkeys.sync(messaging.keybinds.chord(model::KeybindAction::PushToTalk));
+			hotkeys.sync(&messaging.keybinds);
 		}
 		Ok(Self {
 			extensions: extension_bridge::Bridge::default(),
@@ -3909,13 +3909,32 @@ impl eframe::App for Desktop {
 		);
 		self.messaging.sync_reading_zoom(ctx);
 		self.poll(ctx);
-		self.hotkeys.sync(
-			self.messaging
-				.keybinds
-				.chord(model::KeybindAction::PushToTalk),
-		);
+		self.hotkeys.sync(&self.messaging.keybinds);
 		self.messaging.global_keybind_status = self.hotkeys.status();
 		self.hotkeys.poll();
+		let voice_toggles = self.hotkeys.take_toggle_pending()
+			| self
+				.messaging
+				.voice_toggle_pressed(ctx, self.hotkeys.global_toggle_mask());
+		if voice_toggles != 0
+			&& !self.fixture_only
+			&& !self.state.demo
+			&& self.state.auth == AuthState::Authenticated
+		{
+			if let Some(call) = self.state.voice.active.as_ref() {
+				let mut muted = call.muted;
+				let mut deafened = call.deafened;
+				if voice_toggles & 1 != 0 {
+					muted = !muted;
+				}
+				if voice_toggles & 2 != 0 {
+					deafened = !deafened;
+				}
+				if let Some(command) = self.state.set_call_mute(muted, deafened) {
+					self.command(command);
+				}
+			}
+		}
 		if self.updater.sync(
 			ctx,
 			&self.runtime,

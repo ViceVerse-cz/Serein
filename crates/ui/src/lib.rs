@@ -344,6 +344,31 @@ impl MessagingUi {
 		})
 	}
 
+	/// Returns focused-window mute/deafen presses that were not claimed by a native global hotkey.
+	pub fn voice_toggle_pressed(&self, ctx: &egui::Context, global_mask: u8) -> u8 {
+		if !ctx.input(|input| input.focused) || ctx.egui_wants_keyboard_input() {
+			return 0;
+		}
+		ctx.input_mut(|input| {
+			let mut toggles = 0;
+			if global_mask & 1 == 0
+				&& crate::keybinds::pressed(
+					input,
+					self.keybinds.chord(model::KeybindAction::ToggleMute),
+				) {
+				toggles |= 1;
+			}
+			if global_mask & 2 == 0
+				&& crate::keybinds::pressed(
+					input,
+					self.keybinds.chord(model::KeybindAction::ToggleDeafen),
+				) {
+				toggles |= 2;
+			}
+			toggles
+		})
+	}
+
 	pub fn take_group_icon_request(&mut self) -> Option<(u64, Id, u64)> {
 		self.group_menu.icon_request.take()
 	}
