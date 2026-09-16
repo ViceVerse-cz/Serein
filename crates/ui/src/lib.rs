@@ -2618,7 +2618,7 @@ impl MessagingUi {
 			.guild
 			.and_then(|id| state.guild(id))
 			.map_or_else(|| "Direct Messages".to_owned(), |g| g.name.clone());
-		if !cfg!(target_os = "windows") || !self.hide_title_bar {
+		if !cfg!(target_os = "linux") && !self.hide_title_bar {
 			self.title_bar(ui, state, &title);
 		}
 		// Server rail and channel list share one resizable column so the account card can

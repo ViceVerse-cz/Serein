@@ -7,9 +7,13 @@ including over its nonselectable context title. It does not wait for egui's text
 Caption buttons and other clickable title-strip controls keep their own actions; Windows
 double-click maximize/restore remains available. Synthetic egui input tests check command
 dispatch, not native OS window movement, which still requires a desktop interaction check.
-On Windows, Appearance settings can hide this 36 px strip and use the native Windows title bar
+On Windows and macOS, Appearance settings can hide this 36 px strip and use the native title bar
 and window buttons instead. The device preference defaults to showing the custom strip and
-is saved with other app preferences; older saved settings keep that default.
+is saved with other app preferences; older saved settings keep that default. macOS switches
+without restarting and keeps its native traffic lights. Linux always omits the app strip and
+requests system decorations; on Wayland compositors without server decorations, including GNOME,
+winit uses its Adwaita frame instead of the basic fallback. GNOME rendering remains unverified
+in this macOS fast local pass.
 
 | Platform | Build/runtime requirements | Status |
 |---|---|---|

@@ -36,7 +36,7 @@ windows = { version = "=0.61.3", features = ["UI_Notifications", "Win32_Security
 dirs.workspace = true
 objc2 = "=0.6.4"
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSObject", "NSString"] }
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSResponder", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSImage"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSWindow", "NSApplication", "NSResponder", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSImage"] }
 futures-lite = "=2.6.1"
 objc2-video-toolbox = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-media", "objc2-core-video", "VTBase", "VTErrors", "VTSession", "VTDecompressionSession"] }
 objc2-core-media = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-video", "CMBase", "CMTime", "CMAttachment", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer"] }

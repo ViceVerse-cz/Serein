@@ -7,6 +7,8 @@ pub mod save;
 pub mod startup;
 pub mod tray;
 pub mod video;
+#[cfg(target_os = "macos")]
+pub mod window;
 use client_core::auth::{Failure, SessionSecret};
 #[cfg(not(target_os = "linux"))]
 use std::{

@@ -197,3 +197,12 @@ Test-only WAT/WAST/wasm-encoder/wasmparser 0.245.1 use the wasm-tools MIT
 license at `76927bf4bdbddf4b15f835c5eddfffbdfe3bdbd5` (`wat-1.245.1-LICENSE-MIT`);
 leb128fmt license texts are also bundled. These test tools are not a plugin
 compiler shipped to end users. Creator packages carry their own license metadata.
+
+Linux Wayland decorations enable winit's **sctk-adwaita 0.10.1** backend (MIT),
+with ab_glyph 0.2.32 / ab_glyph_rasterizer 0.1.10 / owned_ttf_parser 0.25.1
+(Apache-2.0), ttf-parser 0.25.1 (MIT OR Apache-2.0), arrayref 0.3.9
+(BSD-2-Clause), strict-num 0.1.1 (MIT), and tiny-skia / tiny-skia-path 0.11.4
+(BSD-3-Clause). Its embedded Cantarell fallback font is SIL OFL 1.1.
+Their notices and license texts are retained in
+[the Adwaita dependency notices](assets/licenses/dependencies/wayland-adwaita-LICENSES.txt)
+and copied by the existing dependency-notice packaging step.

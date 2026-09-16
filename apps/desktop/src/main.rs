@@ -2669,7 +2669,7 @@ impl Desktop {
 				ui::design::window_drag(ui, ui.max_rect());
 				egui::Frame::NONE
 					.inner_margin(egui::Margin {
-						left: (16.0 + ui::design::TRAFFIC_LIGHT_INSET) as i8,
+						left: (16.0 + self.traffic_light_inset()) as i8,
 						right: if ui::design::WINDOW_CONTROLS_WIDTH > 0.0 {
 							0
 						} else {
@@ -2775,6 +2775,13 @@ impl Desktop {
 				});
 			});
 	}
+	fn traffic_light_inset(&self) -> f32 {
+		if self.messaging.hide_title_bar {
+			0.0
+		} else {
+			ui::design::TRAFFIC_LIGHT_INSET
+		}
+	}
 	fn sign_in_screen(&mut self, ui: &mut egui::Ui) {
 		let p = ui::design::palette(ui);
 		egui::CentralPanel::default()
@@ -2789,7 +2796,7 @@ impl Desktop {
 						// Drag first: later widgets win hit testing, so the header buttons stay clickable.
 						ui::design::window_drag(ui, ui.max_rect());
 						ui.horizontal_centered(|ui| {
-							ui.add_space(16.0 + ui::design::TRAFFIC_LIGHT_INSET);
+							ui.add_space(16.0 + self.traffic_light_inset());
 							// Wordmark lockup: app mark, name, then a quiet outlined stage pill.
 							let (mark, _) = ui
 								.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
@@ -4025,7 +4032,7 @@ impl eframe::App for Desktop {
 				.show(ui, |ui| {
 					ui::design::window_drag(ui, ui.max_rect());
 					ui.horizontal_centered(|ui| {
-						ui.add_space(ui::design::TRAFFIC_LIGHT_INSET);
+						ui.add_space(self.traffic_light_inset());
 						let (rect, _) =
 							ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::hover());
 						ui.painter().rect_filled(rect, 8, p.accent);
@@ -4404,6 +4411,13 @@ impl eframe::App for Desktop {
 			ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(
 				self.messaging.hide_title_bar,
 			));
+		}
+		#[cfg(target_os = "macos")]
+		if let Err(error) =
+			platform::window::set_native_title_bar(&self.window, self.messaging.hide_title_bar)
+		{
+			self.messaging.hide_title_bar = false;
+			self.state.status = error;
 		}
 		self.sync_customization(&ctx);
 		self.save_app_preferences();

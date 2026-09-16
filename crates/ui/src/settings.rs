@@ -796,7 +796,7 @@ impl MessagingUi {
 		ui.add_space(8.0);
 		ui.label(design::eyebrow(ui, "Theme", colors.muted));
 		theme_preference_cards(ui);
-		#[cfg(target_os = "windows")]
+		#[cfg(any(target_os = "windows", target_os = "macos"))]
 		{
 			ui.add_space(8.0);
 			ui.label(design::eyebrow(ui, "Window", colors.muted));
@@ -804,7 +804,7 @@ impl MessagingUi {
 				design::switch(
 					ui,
 					"Hide Serein title bar",
-					Some("Use the Windows title bar and window buttons instead."),
+					Some("Use the system title bar and window buttons instead."),
 					&mut self.hide_title_bar,
 				);
 			});
