@@ -21,6 +21,9 @@ const MAX_INPUTS: usize = 32;
 const MAX_LISTED: usize = 256;
 const FRAME_SAMPLES: usize = 960; // 10 ms, stereo 48 kHz.
 const TICK: Duration = Duration::from_millis(10);
+/// PipeWire's PulseAudio layer reports sink-input changes continuously. Acting on each one
+/// restarts the enumerate/verify handshake, so wait for the roster to be quiet this long.
+const SETTLE: Duration = Duration::from_millis(250);
 const TIMEOUT: Duration = Duration::from_secs(3);
 
 pub(super) struct Worker {
@@ -384,10 +387,13 @@ impl Native {
 			Ok(native)
 		}
 	}
+	/// `timeout_ms` is milliseconds; `pa_mainloop_prepare` takes microseconds, so passing
+	/// milliseconds straight through polls a thousand times too often and spins the worker.
 	fn poll(&mut self, timeout_ms: i32) -> Result<pulse::pa_context_state_t, &'static str> {
+		let timeout_us = timeout_ms.saturating_mul(1000);
 		// SAFETY: the mainloop/context remain valid; only this call dispatches callbacks.
 		unsafe {
-			if pulse::pa_mainloop_prepare(self.mainloop, timeout_ms) < 0
+			if pulse::pa_mainloop_prepare(self.mainloop, timeout_us) < 0
 				|| pulse::pa_mainloop_poll(self.mainloop) < 0
 				|| pulse::pa_mainloop_dispatch(self.mainloop) < 0
 			{
@@ -630,6 +636,8 @@ fn run(
 	let mut active_epoch = epoch.load(Ordering::Acquire);
 	let mut verifying = false;
 	let mut verified = false;
+	let mut seen_revision = native.events.revision.get();
+	let mut settle: Option<Instant> = None;
 	let started = Instant::now();
 	let mut connecting = started;
 	let mut last_tick = started;
@@ -660,17 +668,25 @@ fn run(
 			None => continue,
 		}
 		let current_epoch = epoch.load(Ordering::Acquire);
-		if !ready.load(Ordering::Acquire)
-			|| current_epoch != active_epoch
-			|| revision.get() != active_revision
-		{
+		let current_revision = revision.get();
+		if current_revision != seen_revision {
+			seen_revision = current_revision;
+			settle = Some(Instant::now() + SETTLE);
+		}
+		// Rebuilding for every reported change would never finish the handshake, so a roster
+		// change only counts once the reports stop. A roster that never settles keeps the
+		// captures it already has instead of capturing nothing at all.
+		let roster_changed =
+			current_revision != active_revision && settle.is_none_or(|at| Instant::now() >= at);
+		if !ready.load(Ordering::Acquire) || current_epoch != active_epoch || roster_changed {
 			metrics.poll(true, 0, false, 0);
 			captures.clear();
 			expected.clear();
 			verified = false;
 			verifying = false;
 			active_epoch = current_epoch;
-			active_revision = revision.get();
+			active_revision = current_revision;
+			settle = None;
 		}
 		// Coalesce events while one bounded request completes. Do not accumulate callbacks.
 		if let Some(request) = listing.as_mut()

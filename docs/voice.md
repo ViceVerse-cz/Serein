@@ -549,6 +549,12 @@ capture, and mixed chunks sent. `app_inputs=0` across a share means no other app
 exposed a PulseAudio stream with `application.process.id` and
 `application.process.binary`, so there was nothing to capture; `app_excluded` rising with
 `app_captures` means the server refuses the isolated monitor for that application.
+`app_captures` rising while `app_chunks` stays zero means captures start but the
+enumerate/verify handshake never completes, which `resets` confirms when it matches `wakes`.
+
+The screen capture worker also prints `[Serein voice Screen] capture_stopped=…` once when
+it finishes, naming the reason, because the share status only shows the most recent message
+and a later stop overwrites it.
 
 Reading a freeze: `packets` rising with `pictures` at zero and `picture_gap_ms` growing
 confirms the viewer is starved, not the display. High `incomplete` with `gated` and
