@@ -45,6 +45,8 @@ pub(super) fn run(
 		let mut portal = Portal::open(settings.cursor, &stop).await?;
 		let origin = Instant::now();
 		let mut audio = None;
+		// Sticky: the label must keep saying so after the worker is gone.
+		let mut audio_stopped = false;
 		let result = async {
 			if stop.load(Ordering::Acquire) || send.is_closed() {
 				return Ok(());
@@ -108,11 +110,14 @@ pub(super) fn run(
 					if portal.is_closed() {
 						return Err("The desktop stopped screen sharing");
 					}
-					if let Some(audio) = &mut audio
-						&& let Some(result) = audio.result()
+					// Application audio is an extra, not the share itself. If its worker stops,
+					// keep sending video and say so, rather than ending the screen share.
+					if audio
+						.as_mut()
+						.is_some_and(|worker| worker.result().is_some())
 					{
-						return result
-							.and(Err("System audio stopped; share again or turn off audio"));
+						audio = None;
+						audio_stopped = true;
 					}
 					if pipeline.failed() {
 						break;
@@ -212,10 +217,15 @@ pub(super) fn run(
 								{
 									waiting_keyframe = false;
 									*started = Instant::now();
+									let active = if audio_stopped {
+										"Screen sharing · system audio stopped"
+									} else {
+										mode.label()
+									};
 									if let Ok(mut label) = status.lock()
-										&& *label != mode.label()
+										&& *label != active
 									{
-										*label = mode.label();
+										*label = active;
 										wake();
 									}
 								} else {
