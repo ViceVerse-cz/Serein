@@ -76,6 +76,7 @@ impl LoginView {
 		wake: impl Fn() + Send + Sync + 'static,
 	) -> Result<Self, Failure> {
 		gtk4::init().map_err(|_| Failure::ProtocolAt("Linux login window unavailable"))?;
+		crate::ensure_gtk_application_id();
 		let mut random = [0_u8; 32];
 		getrandom::fill(&mut random).map_err(|_| Failure::Protocol)?;
 		let capability = random

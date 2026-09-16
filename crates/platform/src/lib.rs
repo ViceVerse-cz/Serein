@@ -36,6 +36,16 @@ pub enum CredentialError {
 	Invalid,
 	TimedOut,
 }
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ensure_gtk_application_id() {
+	static INIT: std::sync::Once = std::sync::Once::new();
+	INIT.call_once(|| {
+		let app = gtk4::gio::Application::new(Some(SERVICE), gtk4::gio::ApplicationFlags::empty());
+		std::mem::forget(app);
+	});
+}
+
 pub fn load_session() -> Result<Option<SessionSecret>, CredentialError> {
 	let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|_| CredentialError::Unavailable)?;
 	match entry.get_password() {
