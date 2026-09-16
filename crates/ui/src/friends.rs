@@ -786,6 +786,8 @@ mod tests {
 						details: None,
 						state: None,
 						image: None,
+						small_image: None,
+						started_at: None,
 					}]),
 				}]),
 			);
@@ -890,6 +892,8 @@ mod tests {
 						details: None,
 						state: None,
 						image: None,
+						small_image: None,
+						started_at: None,
 					}]),
 				}]),
 			);

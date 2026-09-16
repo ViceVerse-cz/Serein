@@ -157,25 +157,40 @@ fn display_activity(activity: &Activity) -> model::RichActivity {
 			.filter(|text| !text.is_empty())
 			.map(str::to_owned)
 	};
-	let image = activity
-		.assets
-		.as_ref()
-		.and_then(|assets| {
-			[&assets.large_image, &assets.small_image]
-				.into_iter()
-				.flatten()
-				.find_map(|id| id.parse().ok())
-		})
-		.map(|asset| model::ActivityImage::Asset {
+	let image = |id: &String| {
+		id.parse().ok().map(|asset| model::ActivityImage::Asset {
 			application: activity.application_id,
 			asset,
-		});
+		})
+	};
+	let assets = activity.assets.as_ref();
+	let large = assets
+		.and_then(|assets| assets.large_image.as_ref())
+		.and_then(image);
+	let small = assets
+		.and_then(|assets| assets.small_image.as_ref())
+		.and_then(image);
+	let primary = large
+		.clone()
+		.or_else(|| small.clone())
+		.unwrap_or(model::ActivityImage::Application(activity.application_id));
+	let small_image = small
+		.or_else(|| {
+			(large.is_some() && assets.is_some_and(|assets| assets.small_image.is_none()))
+				.then_some(model::ActivityImage::Application(activity.application_id))
+		})
+		.filter(|small| *small != primary);
 	model::RichActivity {
 		kind: activity.kind,
 		name: activity.name.trim().to_owned(),
 		details: text(&activity.details),
 		state: text(&activity.state),
-		image: Some(image.unwrap_or(model::ActivityImage::Application(activity.application_id))),
+		image: Some(primary),
+		small_image,
+		started_at: activity
+			.timestamps
+			.as_ref()
+			.and_then(|timestamps| timestamps.start),
 	}
 }
 
@@ -187,6 +202,8 @@ pub fn demo_activity() -> model::RichActivity {
 		details: Some("Playing a synthetic beatmap".into()),
 		state: Some("Solo".into()),
 		image: None,
+		small_image: None,
+		started_at: None,
 	}
 }
 
@@ -525,7 +542,12 @@ mod tests {
 		first.1.state = Some(" ".into());
 		first.1.assets = Some(rpc::Assets {
 			large_image: Some("99".into()),
+			small_image: Some("98".into()),
 			..Default::default()
+		});
+		first.1.timestamps = Some(rpc::Timestamps {
+			start: Some(1_700_000_000_000),
+			end: None,
 		});
 		publish(&values, &activity, &report, &egui::Context::default());
 		let display = report.borrow().as_ref().unwrap().clone().unwrap();
@@ -540,6 +562,23 @@ mod tests {
 				asset: model::Id(99),
 			})
 		);
+		assert_eq!(
+			display.small_image,
+			Some(model::ActivityImage::Asset {
+				application: model::Id(7),
+				asset: model::Id(98),
+			})
+		);
+		assert_eq!(display.started_at, Some(1_700_000_000_000));
+		let first = &mut values[0].as_mut().unwrap().1;
+		first.assets.as_mut().unwrap().small_image = None;
+		assert_eq!(
+			display_activity(first).small_image,
+			Some(model::ActivityImage::Application(model::Id(7)))
+		);
+		first.assets.as_mut().unwrap().large_image = None;
+		first.assets.as_mut().unwrap().small_image = Some("98".into());
+		assert!(display_activity(first).small_image.is_none());
 		values[0] = None;
 		publish(&values, &activity, &report, &egui::Context::default());
 		assert!(activity.borrow().is_none());

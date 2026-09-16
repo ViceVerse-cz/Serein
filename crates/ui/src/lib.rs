@@ -5523,6 +5523,8 @@ mod composer_tests {
 							application: Id(9001),
 							asset: Id(9002),
 						}),
+						small_image: None,
+						started_at: None,
 					}]
 				};
 				let event = if let Some(guild) = guild {
@@ -5601,9 +5603,9 @@ mod composer_tests {
 					if clear {
 						0
 					} else if dm {
-						4
+						3
 					} else {
-						2
+						1
 					},
 					"{painted}"
 				);

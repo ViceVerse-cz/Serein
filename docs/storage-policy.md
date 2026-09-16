@@ -555,9 +555,11 @@ Gateway updates coalesce for 100 ms, at most 100 users / 128 KiB per batch. Init
 filtered to the first 256 known DM recipient IDs and emitted in bounded batches. Unknown users
 are never retained in the core cache. Disconnect hides cached DM presence until successful
 resume; fresh READY, resync, failure and logout discard it. Removed recipients are pruned.
-One optional artwork reference per activity is retained: two asset IDs, one application ID, or
-a Discord media-proxy path of at most 1,024 bytes. Its enum/vector storage and allocated path
-capacity count toward the same presence budgets. Secrets, buttons and raw event payloads are
+Two optional artwork references per activity are retained (primary and badge): each contains
+two asset IDs, one application ID, or a Discord media-proxy path of at most 1,024 bytes. Their
+enum/vector storage and allocated path capacities count toward the same presence budgets.
+An optional start timestamp uses Unix milliseconds bounded to the existing RPC safe-integer
+limit; it remains session-only. Secrets, buttons and raw event payloads are
 discarded. Images needed by the visible profile share the existing credential-free image worker,
 256-texture / 64-MiB texture cache and account-isolated 1-GiB / 4,096-file / 90-day disk cache.
 Application-icon metadata responses are capped at 64 KiB and discarded after validating the
@@ -620,8 +622,9 @@ A 16-item update queue carries activities bounded to 1,152 string bytes plus fix
 eight latest per-client activities and the Gateway current/last values have the same bound.
 The latest updated connected game wins; clearing/disconnecting it restores another active game.
 
-The UI report retains that game's name/details/state (at most 384 UTF-8 bytes) and one
-fixed-size registered artwork/application reference. The state owner keeps one validated
+The UI report retains that game's name/details/state (at most 384 UTF-8 bytes), two optional
+fixed-size registered artwork/application references and its optional start timestamp.
+The state owner keeps one validated
 local display activity capped at 4 KiB of retained heap. Profile cards and member rows
 borrow it for the current account, without copying it into remote presence caches.
 It is not persisted and is cleared on sharing/game/session teardown. Equal reports do

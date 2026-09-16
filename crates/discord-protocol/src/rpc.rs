@@ -1,11 +1,10 @@
 //! Bounded, activity-only Discord IPC payloads; no authorization or account RPC commands.
 use crate::DecodeError;
-use model::Id;
+use model::{Id, MAX_ACTIVITY_TIMESTAMP};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 pub const MAX_FRAME_BYTES: usize = 16 * 1024;
-const MAX_TIMESTAMP: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Activity {
@@ -94,7 +93,7 @@ fn validate_fields(
 			[t.start, t.end]
 				.into_iter()
 				.flatten()
-				.any(|v| v > MAX_TIMESTAMP)
+				.any(|v| v > MAX_ACTIVITY_TIMESTAMP)
 				|| matches!((t.start, t.end), (Some(start), Some(end)) if end < start)
 		}) || assets.as_ref().is_some_and(|a| {
 		[&a.large_text, &a.small_text]

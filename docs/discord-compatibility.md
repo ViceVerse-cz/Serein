@@ -716,7 +716,7 @@ The existing guild subscription's `activities` flag stays unchanged: the public 
 [subscription reference](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py)
 labels its meaning unknown. Only received activity metadata is displayed; missing events remain
 unavailable. Offline status clears activity. Disconnect hides cached DM presence; a successful resume restores it and applies replayed changes. Fresh READY, resync and session reset discard the cache.
-Activity actions and elapsed/progress timers remain unsupported.
+Join/spectate actions and progress timers remain unsupported.
 
 Startup correction: Identify does not enable `DEDUPE_USER_OBJECTS`, so initial friend presence
 arrives in `READY.presences` with `user.id`. The bootstrap now accepts that format as well as
@@ -739,6 +739,17 @@ unofficial; a public sample application returned HTTP 200 without credentials on
 Synthetic decoder, local HTTP, cache and egui tests cover the implementation, not normal-user
 artwork interoperability. The owner confirmed presence text after launching the prior build;
 new artwork has not been tested against the owner's live session.
+
+Profile card presentation (September 16, 2026): member profiles and the bottom-left account
+preview share a compact card with an activity-type header, app name, single-line details/state,
+large artwork and an overlapping small image. When large artwork has no small image, the existing
+application-icon lookup supplies the badge. Both references use the existing bounded image cache
+and path validation. Received Gateway and local IPC start timestamps are retained as Unix
+milliseconds; visible cards repaint once per second to show elapsed time. Missing timestamps
+omit the timer; future starts show no negative time. The overflow menu copies the activity text
+locally. No join action, new transport or persistence is added. Synthetic tests cover metadata,
+layout and account-preview updates/clearing; native screenshots and live compatibility remain
+unverified.
 
 
 ### Inline audio attachments (September 11, 2026)

@@ -23,6 +23,8 @@ fn own_profile_and_server_member_render_local_updates_and_clear_without_changing
 				details: None,
 				state: None,
 				image: None,
+				small_image: None,
+				started_at: None,
 			};
 			state.members = Some(model::MemberList {
 				guild: Some(model::Id(10)),
@@ -93,7 +95,10 @@ fn own_profile_and_server_member_render_local_updates_and_clear_without_changing
 				assert!(painted.contains("Custom status"), "{painted}");
 				assert!(view.take_avatar_requests().is_empty());
 				if let Some(details) = details {
-					assert!(painted.matches("Playing osu!").count() >= 2, "{painted}");
+					assert!(
+						painted.contains("Playing osu!\n") && painted.contains("\nosu!\n"),
+						"{painted}"
+					);
 					assert!(
 						painted.contains(details) && painted.contains("Solo"),
 						"{painted}"
@@ -108,7 +113,8 @@ fn own_profile_and_server_member_render_local_updates_and_clear_without_changing
 						"{painted}"
 					);
 					assert!(
-						painted.matches("Playing Other session game").count() >= 2,
+						painted.contains("Playing Other session game\n")
+							&& painted.contains("\nOther session game\n"),
 						"{painted}"
 					);
 				}

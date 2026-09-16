@@ -578,3 +578,23 @@ contain 186 files, a 71,050,240-byte executable and 75,116,303 total bytes (no c
 The ZIP changed from 42,860,670 to 42,860,657 bytes (-13 bytes, below 0.001%). This
 compression difference is not a performance improvement. Packaging passed in 3m 15s;
 NSIS remains unavailable. Native UI timing/memory limitations above still apply.
+
+
+## 2026-09-16: profile preview Rich Presence cards
+
+Baseline: `a426298` (the initial account-preview implementation), compared with this card refinement on Windows x64, Rust 1.98.1 MSVC, Ryzen 7 7800X3D, 32 GB RAM, standard voice-enabled release builds. These numbers measure the refinement, not the initial addition relative to main.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 72,653,312 | 72,684,032 | +30,720 (+0.042%) |
+| Full portable package, bytes | 76,719,778 | 76,750,498 | +30,720 (+0.040%) |
+| ZIP, Compress-Archive Optimal, bytes | 43,330,075 | 43,344,292 | +14,217 (+0.033%) |
+| 100,000-event reducer replay, median ms | 43.6106 | 43.3468 | -0.2638 (-0.605%) |
+| Retained timeline estimated bytes / records | 260,992-261,477 / 500 | 260,992-261,477 / 500 | Unchanged |
+| Native UI CPU, memory, frame time | Unmeasured | Unmeasured | Unmeasured |
+
+One standard package per revision. The baseline was built in a clean detached worktree and preserved separately. Both measured distributions contain the same 186 files. The after distribution was staged from those generated paths, leaving one pre-existing obsolete `libpulse-sys-1.23.0-LICENSE-MIT` notice in root dist untouched and excluded from both measurements. ZIP uses `Compress-Archive -LiteralPath <dist> -CompressionLevel Optimal`. Both packages passed; OpenH264 LNK4255 was nonfatal. NSIS/makensis is unavailable, so these are unsigned portable packages, not installers.
+
+Replay uses `cargo replay` followed by one warmup and five measured runs of the release executable, with no concurrent task builds during measurement. Replay crates were rebuilt for the after source to avoid shared-target worktree cache ambiguity. Baseline: 45.1570, 43.6106, 42.9670, 43.6495, 43.1553 ms. After: 42.8025, 43.3468, 42.8042, 45.1077, 47.1907 ms. The small median difference is noise, not a claimed speed improvement. This workload is a synthetic message reducer, not activity-card rendering, process RSS or live interoperability.
+
+Native screenshots and matched UI CPU/memory/frame-time measurements are unavailable because native desktop capture/control is disabled and Orca is absent. No UI performance claim is made. Package sizes precede this performance-note-only edit.

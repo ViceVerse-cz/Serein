@@ -451,7 +451,11 @@ pub struct RichActivity {
 	pub details: Option<String>,
 	pub state: Option<String>,
 	pub image: Option<ActivityImage>,
+	pub small_image: Option<ActivityImage>,
+	/// Unix milliseconds, as supplied by the activity producer.
+	pub started_at: Option<u64>,
 }
+pub const MAX_ACTIVITY_TIMESTAMP: u64 = 9_007_199_254_740_991;
 impl RichActivity {
 	pub fn valid(&self) -> bool {
 		matches!(self.kind, 0..=3 | 5)
@@ -459,12 +463,20 @@ impl RichActivity {
 			&& self.details.as_deref().is_none_or(valid_presence_text)
 			&& self.state.as_deref().is_none_or(valid_presence_text)
 			&& self.image.as_ref().is_none_or(ActivityImage::valid)
+			&& self.small_image.as_ref().is_none_or(ActivityImage::valid)
+			&& self
+				.started_at
+				.is_none_or(|at| at <= MAX_ACTIVITY_TIMESTAMP)
 	}
 	pub fn heap_bytes(&self) -> usize {
 		self.name.capacity()
 			+ self.details.as_ref().map_or(0, String::capacity)
 			+ self.state.as_ref().map_or(0, String::capacity)
 			+ self.image.as_ref().map_or(0, ActivityImage::heap_bytes)
+			+ self
+				.small_image
+				.as_ref()
+				.map_or(0, ActivityImage::heap_bytes)
 	}
 	pub fn summary(&self) -> String {
 		let verb = match self.kind {
@@ -610,6 +622,8 @@ mod presence_tests {
 			details: Some("Level 2".into()),
 			state: Some("In a party".into()),
 			image: None,
+			small_image: None,
+			started_at: None,
 		};
 		let mut presence = MemberPresence {
 			user: Id(2),
@@ -660,6 +674,9 @@ mod presence_tests {
 		let mut path = String::from("external/synthetic-hash-01/https/example.com/art.png");
 		path.reserve(2048);
 		allocated.image = Some(ActivityImage::Proxy(path));
+		let mut small_path = String::from("external/synthetic-small/https/example.com/badge.png");
+		small_path.reserve(1024);
+		allocated.small_image = Some(ActivityImage::Proxy(small_path));
 		assert!(allocated.valid());
 		assert_eq!(
 			allocated.heap_bytes(),
@@ -667,7 +684,15 @@ mod presence_tests {
 				+ allocated.details.as_ref().unwrap().capacity()
 				+ allocated.state.as_ref().unwrap().capacity()
 				+ allocated.image.as_ref().unwrap().heap_bytes()
+				+ allocated.small_image.as_ref().unwrap().heap_bytes()
 		);
+		allocated.started_at = Some(MAX_ACTIVITY_TIMESTAMP);
+		assert!(allocated.valid());
+		allocated.started_at = Some(MAX_ACTIVITY_TIMESTAMP + 1);
+		assert!(!allocated.valid());
+		allocated.started_at = None;
+		allocated.small_image = Some(ActivityImage::Proxy("external/../secret".into()));
+		assert!(!allocated.valid());
 	}
 
 	#[test]

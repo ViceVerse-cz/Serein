@@ -802,6 +802,8 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 					application: model::Id(9001),
 					asset: model::Id(9002),
 				}),
+				small_image: None,
+				started_at: None,
 			}],
 		},
 	];

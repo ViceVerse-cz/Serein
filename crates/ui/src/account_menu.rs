@@ -54,7 +54,7 @@ impl MessagingUi {
 			.open_bool(&mut open)
 			.align(egui::RectAlign::TOP_START)
 			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-			.width(300.0)
+			.width(340.0)
 			.frame(
 				egui::Frame::popup(&anchor.ctx.style_of(anchor.ctx.theme()))
 					.fill(colors.raised)
@@ -62,7 +62,7 @@ impl MessagingUi {
 					.corner_radius(10),
 			)
 			.show(|ui| {
-				ui.set_width(300.0);
+				ui.set_width(340.0);
 				let height = (ui.ctx().content_rect().height() - 90.0).clamp(180.0, 620.0);
 				egui::ScrollArea::vertical()
 					.min_scrolled_height(height)
@@ -151,7 +151,6 @@ impl MessagingUi {
 					let (_, _, activities) = profiles::presence(state, user.id, guild);
 					if !activities.is_empty() {
 						ui.add_space(8.0);
-						ui.label(design::eyebrow(ui, "ACTIVITY", colors.muted));
 						for activity in activities {
 							profiles::activity_card(
 								ui,
