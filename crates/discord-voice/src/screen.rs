@@ -10,6 +10,9 @@ mod audio_windows;
 #[cfg(not(target_os = "linux"))]
 #[path = "screen/capture.rs"]
 mod capture;
+#[cfg(target_os = "macos")]
+#[path = "screen/encode_macos.rs"]
+mod encode_macos;
 #[cfg(target_os = "windows")]
 #[path = "screen/encode_windows.rs"]
 mod encode_windows;
@@ -409,24 +412,26 @@ fn retain_screen_frame(
 	Ok(ready && latest.is_some() && (fresh || keyframe))
 }
 
+#[cfg(target_os = "macos")]
+use encode_macos as hardware;
+#[cfg(target_os = "windows")]
+use encode_windows as hardware;
+
+/// Screen encoder preferring the platform hardware H.264 encoder (Media Foundation on
+/// Windows, VideoToolbox on macOS) and falling back to openh264 when it is unavailable or
+/// fails mid-stream.
 #[cfg(not(target_os = "linux"))]
 struct ScreenEncoder {
 	software: Option<Encoder>,
 	yuv: YUVBuffer,
-	#[cfg(target_os = "windows")]
-	hardware: Option<encode_windows::Encoder>,
-	#[cfg(target_os = "windows")]
+	hardware: Option<hardware::Encoder>,
 	settings: Settings,
 }
 
 #[cfg(not(target_os = "linux"))]
 impl ScreenEncoder {
 	fn new(settings: Settings) -> Result<Self, &'static str> {
-		#[cfg(target_os = "windows")]
-		let hardware = encode_windows::Encoder::new(settings).ok();
-		#[cfg(not(target_os = "windows"))]
-		let software = Some(encoder(settings)?);
-		#[cfg(target_os = "windows")]
+		let hardware = hardware::Encoder::new(settings).ok();
 		let software = if hardware.is_none() {
 			Some(encoder(settings)?)
 		} else {
@@ -435,9 +440,7 @@ impl ScreenEncoder {
 		Ok(Self {
 			software,
 			yuv: YUVBuffer::new(settings.width as usize, settings.height as usize),
-			#[cfg(target_os = "windows")]
 			hardware,
-			#[cfg(target_os = "windows")]
 			settings,
 		})
 	}
@@ -448,25 +451,25 @@ impl ScreenEncoder {
 		dimensions: (usize, usize),
 		force_keyframe: bool,
 	) -> Result<(Vec<u8>, bool), &'static str> {
-		self.yuv.read_bgra8(BgraSliceU8::new(pixels, dimensions));
-		#[cfg(target_os = "windows")]
 		let mut software_force = force_keyframe;
-		#[cfg(not(target_os = "windows"))]
-		let software_force = force_keyframe;
-		#[cfg(target_os = "windows")]
-		{
-			use openh264::formats::YUVSource;
-			if let Some(hardware) = self.hardware.as_mut() {
-				let encoded =
-					hardware.encode(self.yuv.y(), self.yuv.u(), self.yuv.v(), force_keyframe);
-				if let Ok(encoded) = encoded {
-					return Ok(encoded);
-				}
-				self.hardware = None;
-				self.software = Some(encoder(self.settings)?);
-				software_force = true;
+		if let Some(hardware) = self.hardware.as_mut() {
+			#[cfg(target_os = "macos")]
+			let encoded = hardware.encode(pixels, dimensions, force_keyframe);
+			#[cfg(target_os = "windows")]
+			let encoded = {
+				use openh264::formats::YUVSource;
+				self.yuv.read_bgra8(BgraSliceU8::new(pixels, dimensions));
+				hardware.encode(self.yuv.y(), self.yuv.u(), self.yuv.v(), force_keyframe)
+			};
+			if let Ok(encoded) = encoded {
+				return Ok(encoded);
 			}
+			// The viewer must restart from a keyframe once the software encoder takes over.
+			self.hardware = None;
+			self.software = Some(encoder(self.settings)?);
+			software_force = true;
 		}
+		self.yuv.read_bgra8(BgraSliceU8::new(pixels, dimensions));
 		encode_yuv(
 			self.software.as_mut().expect("software screen encoder"),
 			&self.yuv,
