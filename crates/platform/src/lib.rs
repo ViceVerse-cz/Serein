@@ -1,5 +1,6 @@
 //! Credential persistence and temporary owner-operated login/verification surfaces.
 pub mod badge;
+pub mod voice_shortcuts;
 pub mod captcha;
 pub mod game_activity;
 pub mod notifications;

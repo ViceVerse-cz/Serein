@@ -162,6 +162,8 @@ pub struct MessagingUi {
 	pub reading_status: &'static str,
 	pub reading_save_requested: bool,
 	pub minimize_to_tray: bool,
+	pub global_voice_shortcuts: bool,
+	pub global_voice_shortcuts_status: &'static str,
 	pub tray_available: bool,
 	pub tray_status: &'static str,
 	pub startup_enabled: bool,

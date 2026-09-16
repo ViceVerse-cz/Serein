@@ -315,7 +315,16 @@ impl MessagingUi {
 									),
 									Page::Storage => self.storage_page(ui, state),
 									Page::Updates => self.update_settings(ui, state.demo),
-									Page::Keybinds => crate::keybinds::show(ui),
+									Page::Keybinds => {
+										ui.add_enabled_ui(!state.demo, |ui| {
+											ui.checkbox(
+												&mut self.global_voice_shortcuts,
+												"Enable global voice shortcuts for this session",
+											);
+										});
+										ui.weak(self.global_voice_shortcuts_status);
+										crate::keybinds::show(ui);
+									}
 									Page::Extensions | Page::Themes => {
 										self.extensions
 											.select_themes(self.settings.page == Page::Themes);

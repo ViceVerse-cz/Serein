@@ -519,6 +519,7 @@ struct Desktop {
 	game_activity: toggle_setting::Settings,
 	tray_setting: toggle_setting::Settings,
 	startup: startup::Startup,
+	voice_shortcuts: platform::voice_shortcuts::VoiceShortcuts,
 	tray: Option<platform::tray::Tray>,
 	tray_error: Option<&'static str>,
 	/// `--demo-reply`: keeps two synthetic typists active on the selected fixture channel.
@@ -1419,6 +1420,10 @@ impl Desktop {
 			game_activity,
 			tray_setting,
 			startup,
+			voice_shortcuts: platform::voice_shortcuts::VoiceShortcuts::new({
+				let ctx = cc.egui_ctx.clone();
+				move || ctx.request_repaint()
+			}),
 			tray: None,
 			tray_error: None,
 			#[cfg(feature = "demo")]
@@ -3690,6 +3695,24 @@ impl eframe::App for Desktop {
 		);
 		self.messaging.sync_reading_zoom(ctx);
 		self.poll(ctx);
+		self.voice_shortcuts.sync(
+			self.messaging.global_voice_shortcuts && !self.fixture_only && !self.state.demo,
+			&self.runtime,
+		);
+		self.messaging.global_voice_shortcuts_status = self.voice_shortcuts.status();
+		let pending = self.voice_shortcuts.take_pending();
+		if self.state.auth == AuthState::Authenticated {
+			for mask in [1, 2] {
+				if pending & mask != 0
+					&& let Some(call) = self.state.voice.active.as_ref()
+					&& let Some(command) = self
+						.state
+						.set_call_mute(call.muted ^ (mask == 1), call.deafened ^ (mask == 2))
+				{
+					self.command(command);
+				}
+			}
+		}
 		if self.updater.sync(
 			ctx,
 			&self.runtime,

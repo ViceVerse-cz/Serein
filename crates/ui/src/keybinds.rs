@@ -11,7 +11,7 @@ pub(super) fn show(ui: &mut egui::Ui) {
 	ui.heading("Custom Keybinds");
 	ui.label("Keyboard shortcuts let you perform actions without clicking through menus.");
 	design::card(ui, |ui| {
-		ui.label("Custom keybinds are not available yet. The default shortcuts below work while Serein is focused.");
+		ui.label("Custom remapping is not available in Serein. Enable global voice shortcuts above to mute and deafen while minimized.");
 	});
 	ui.add_space(16.0);
 	ui.separator();
@@ -55,11 +55,21 @@ pub(super) fn show(ui: &mut egui::Ui) {
 		ui,
 		"Voice",
 		"Enable Push to Talk in Voice & Audio. Hold the key during a connected call, with Serein focused and no text field active.",
-		&[("Push to Talk", &["V"])],
+		&[
+			(
+				"Toggle Mute (global, when enabled)",
+				&[command, "SHIFT", "M"],
+			),
+			(
+				"Toggle Deafen (global, when enabled)",
+				&[command, "SHIFT", "D"],
+			),
+			("Push to Talk (focused)", &["V"]),
+		],
 	);
 	ui.label(
 		egui::RichText::new(
-			"Shortcuts are local to Serein; global hotkeys and custom remapping are not supported.",
+			"Global mute/deafen work during an active call, including while minimized. On Wayland, approve and configure the keys in your desktop’s shortcut dialog; its bindings take precedence. Other shortcuts require focus.",
 		)
 		.color(colors.muted),
 	);

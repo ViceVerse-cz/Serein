@@ -197,3 +197,8 @@ Test-only WAT/WAST/wasm-encoder/wasmparser 0.245.1 use the wasm-tools MIT
 license at `76927bf4bdbddf4b15f835c5eddfffbdfe3bdbd5` (`wat-1.245.1-LICENSE-MIT`);
 leb128fmt license texts are also bundled. These test tools are not a plugin
 compiler shipped to end users. Creator packages carry their own license metadata.
+
+Global voice shortcuts use **global-hotkey 0.8.0** and **keyboard-types 0.7.0**
+(MIT OR Apache-2.0) for native registration on macOS, Windows and X11, and
+**ashpd 0.13.13** (MIT) for the Linux GlobalShortcuts portal. Their upstream
+license texts are bundled under `assets/licenses/dependencies`.

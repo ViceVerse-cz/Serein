@@ -148,3 +148,20 @@ automatically updates the Windows uninstall `DisplayVersion` registry key upon
 successful upgrade. Native helpers wait for the old process to exit, retain a rollback
 copy during replacement, and relaunch Serein. A failed recovery leaves its backup
 available with a visible recovery path on the next update attempt.
+
+## Global voice shortcuts
+
+Settings → Keybinds → Enable global voice shortcuts registers Cmd+Shift+M/D on
+macOS and Ctrl+Shift+M/D on Windows and Linux X11, for mute/deafen respectively.
+They work during an active call with the window unfocused, minimized or hidden
+in the tray. Enabling is session-local; disabling or quitting releases the keys.
+Registration conflicts are shown in Keybinds; disable and re-enable after freeing
+the keys to retry. No general keyboard capture or accessibility permission is used.
+
+Linux Wayland uses the desktop's GlobalShortcuts portal (including Flatpak).
+The owner approves/configures the shortcuts in the desktop dialog; its assigned
+bindings override the suggested Ctrl+Shift+M/D. A desktop without that portal
+cannot provide these global shortcuts and displays an unavailable status.
+The desktop may remember approved bindings, but Serein still requires enabling
+them each session. Push-to-talk remains focused-only. Native shortcut operation
+on Windows, macOS and Linux is unverified in this fast implementation pass.
