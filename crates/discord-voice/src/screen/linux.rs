@@ -44,6 +44,7 @@ pub(super) fn run(
 	runtime.block_on(async {
 		let mut portal = Portal::open(settings.cursor, &stop).await?;
 		let origin = Instant::now();
+		let mut metrics = crate::diagnostics::Metrics::new(crate::diagnostics::Scope::ScreenVideo);
 		let mut audio = None;
 		// Sticky: the label must keep saying so after the worker is gone.
 		let mut audio_stopped = false;
@@ -122,6 +123,10 @@ pub(super) fn run(
 					if pipeline.failed() {
 						break;
 					}
+					// Counted per pass: whether a picture was taken, and whether one was left
+					// in the pipeline because the transport had not drained the last.
+					let mut pulled = false;
+					let mut withheld = 0;
 					let requested_visible = preview_visible.load(Ordering::Acquire);
 					if visible != requested_visible {
 						visible = requested_visible;
@@ -163,10 +168,14 @@ pub(super) fn run(
 						// and this iteration still reaches the await below. Skipping the await
 						// here would spin the worker and starve the portal on this runtime.
 						let room = mode != Mode::Software || send.capacity() > 0;
+						withheld = u64::from(!room);
 						if room
 							&& let Some(sample) =
 								pipeline.frames.try_pull_sample(gst::ClockTime::ZERO)
 						{
+							pulled = true;
+							let pull = metrics.start();
+							metrics.finish(crate::diagnostics::Stage::Receive, pull);
 							let (data, is_keyframe) = if mode == Mode::Software {
 								let raw = capture::raw(&sample)?;
 								if raw.width != settings.width || raw.height != settings.height {
@@ -183,13 +192,16 @@ pub(super) fn run(
 								}
 								let (encoder, yuv) =
 									software.as_mut().expect("software encoder initialized");
-								encode_pixels(
+								let start = metrics.start();
+								let encoded = encode_pixels(
 									encoder,
 									yuv,
 									&raw.data,
 									(settings.width as usize, settings.height as usize),
 									keyframe.swap(false, Ordering::AcqRel) || waiting_keyframe,
-								)?
+								)?;
+								metrics.finish(crate::diagnostics::Stage::Encode, start);
+								encoded
 							} else {
 								let buffer =
 									sample.buffer().ok_or("Screen encoder returned no buffer")?;
@@ -239,6 +251,7 @@ pub(super) fn run(
 							break;
 						}
 					}
+					metrics.poll(false, withheld, !pulled, 0);
 					pipeline.changed().await;
 				}
 				// One bounded pass through alternatives, always destroying the old pipeline first.
