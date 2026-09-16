@@ -24,6 +24,9 @@
     libxkbcommon,
     wayland,
     vulkan-loader,
+    libGL,
+    libGLX,
+    libglvnd,
     alsa-lib,
     gst_all_1,
     libX11,
@@ -66,48 +69,48 @@ rustPlatform.buildRustPackage rec {
             swiftpm
         ];
 
-    # The swiftpm setup hook takes over buildPhase/checkPhase unless disabled;
-    # the Rust build drives Swift itself via apple-metal's build script.
     dontUseSwiftpmBuild = true;
     dontUseSwiftpmCheck = true;
 
-    buildInputs = lib.optionals stdenv.hostPlatform.isLinux [
-        glib
-        glib-networking
-        gsettings-desktop-schemas
-        gtk4
-        webkitgtk_6_0
-        cairo
-        pango
-        gdk-pixbuf
-        graphene
-        libsoup_3
-        wayland
-        libxkbcommon
-        libX11
-        libXi
-        libXrandr
-        libXcursor
-        fontconfig
-        vulkan-loader
-        alsa-lib
-        gst_all_1.gstreamer
-        gst_all_1.gst-plugins-base
-        gst_all_1.gst-plugins-good
-        gst_all_1.gst-libav
-    ]
-    # apple-metal 0.9.0 needs macOS 15 Metal APIs (MTLResidencySet, MTLLogState);
-    # default SDK 14.4 lacks them, so use SDK 15 on Darwin.
-    ++ lib.optionals stdenv.hostPlatform.isDarwin [
-        apple-sdk_15
-    ];
-
-    # macOS links system frameworks (AppKit, AVFoundation, ScreenCaptureKit,
-    # VideoToolbox, Security for the keychain) from the default Apple SDK in
-    # stdenv; no nixpkgs framework inputs are needed.
+    buildInputs =
+        lib.optionals stdenv.hostPlatform.isLinux [
+            glib
+            glib-networking
+            gsettings-desktop-schemas
+            gtk4
+            webkitgtk_6_0
+            cairo
+            pango
+            gdk-pixbuf
+            graphene
+            libsoup_3
+            wayland
+            libxkbcommon
+            libX11
+            libXi
+            libXrandr
+            libXcursor
+            fontconfig
+            vulkan-loader
+            libGL
+            libGLX
+            libglvnd
+            alsa-lib
+            gst_all_1.gstreamer
+            gst_all_1.gst-plugins-bad
+            gst_all_1.gst-plugins-base
+            gst_all_1.gst-plugins-good
+            gst_all_1.gst-libav
+        ]
+        ++ lib.optionals stdenv.hostPlatform.isDarwin [
+            apple-sdk_15
+        ];
 
     runtimeDependencies = lib.optionals stdenv.hostPlatform.isLinux [
         vulkan-loader
+        libGL
+        libGLX
+        libglvnd
     ];
 
     doCheck = false;
@@ -122,6 +125,7 @@ rustPlatform.buildRustPackage rec {
         }"
           --prefix GST_PLUGIN_SYSTEM_PATH : "${
             lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" [
+                gst_all_1.gst-plugins-bad
                 gst_all_1.gst-plugins-base
                 gst_all_1.gst-plugins-good
                 gst_all_1.gst-libav
