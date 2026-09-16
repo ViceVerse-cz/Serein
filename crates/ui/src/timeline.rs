@@ -20,7 +20,7 @@ pub struct TimelineView {
 	applied_hide_media_links: bool,
 	pub(super) gif_favorite: Option<model::Gif>,
 	pub(super) invite_requests: Vec<String>,
-	pub(super) invite_join: Option<String>,
+	pub(super) invite_action: Option<crate::invites::Action>,
 	pub(super) edit_started: bool,
 	pub(super) reply_started: bool,
 	pub(super) quick_delete: Option<(Id, Id)>,
@@ -1371,7 +1371,7 @@ impl TimelineView {
 													state,
 													avatars,
 													&mut self.invite_requests,
-													&mut self.invite_join,
+													&mut self.invite_action,
 												);
 												if let Some(gif) = crate::embeds::show(
 													ui,

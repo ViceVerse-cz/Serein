@@ -3044,13 +3044,25 @@ impl MessagingUi {
 						if let Some(gif) = self.timeline.gif_favorite.take() {
 							state.toggle_gif_favorite(&gif);
 						}
-						if let Some(code) = self.timeline.invite_join.take() {
-							if state.invite_join.code == code && state.invite_challenge().is_some()
+						match self.timeline.invite_action.take() {
+							Some(invites::Action::OpenGuild(guild))
+								if state.guild(guild).is_some() =>
 							{
-								self.verification.active = false;
-							} else if let Some(command) = state.join_invite(code) {
-								commands.push(command);
+								self.guild = Some(guild);
+								if let Some(command) = state.select_guild(guild) {
+									commands.push(command);
+								}
 							}
+							Some(invites::Action::Join(code)) => {
+								if state.invite_join.code == code
+									&& state.invite_challenge().is_some()
+								{
+									self.verification.active = false;
+								} else if let Some(command) = state.join_invite(code) {
+									commands.push(command);
+								}
+							}
+							_ => {}
 						}
 						for code in std::mem::take(&mut self.timeline.invite_requests) {
 							if let Some(command) = state.request_invite(code) {
@@ -3756,6 +3768,127 @@ mod composer_tests {
 				[Command::Send { .. }]
 			));
 		}
+	}
+
+	#[test]
+	fn joined_invite_cards_open_servers_without_joining_and_preserve_drafts() {
+		fn button_rect(shape: &egui::Shape, label: &str) -> Option<egui::Rect> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.job.text == label => {
+					Some(text.galley.rect.translate(text.pos.to_vec2()))
+				}
+				egui::Shape::Vec(shapes) => {
+					shapes.iter().find_map(|shape| button_rect(shape, label))
+				}
+				_ => None,
+			}
+		}
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut state = edit_state();
+		state.demo = false;
+		state.guilds.push(model::Guild {
+			id: Id(100),
+			name: "Synthetic invited server".into(),
+			icon: None,
+			emojis: None,
+		});
+		let mut channel = state.channels[0].clone();
+		channel.id = Id(12);
+		channel.guild = Some(Id(100));
+		channel.kind = 0;
+		state.channels.push(channel);
+		state.last_viewed_channels.push((Id(100), Id(12)));
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let mut message = state.timeline.get(Id(20)).unwrap().clone();
+		message.content = "https://discord.gg/synthetic".into();
+		state.timeline.insert(message, true, false).unwrap();
+		state.invites.insert(
+			"synthetic".into(),
+			(
+				std::time::Instant::now(),
+				Some(Ok(model::InvitePreview {
+					guild: Id(100),
+					embed: model::Embed {
+						title: Some("Synthetic invited server".into()),
+						..Default::default()
+					},
+				})),
+			),
+		);
+		let mut view = MessagingUi::default();
+		view.reading_preferences.show_members = false;
+		let drafts = state.drafts.clone();
+		let frame = |view: &mut MessagingUi, state: &mut State, events| {
+			let mut commands = vec![];
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(760.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| commands = view.show(ui, state),
+			);
+			let rect = output
+				.shapes
+				.iter()
+				.find_map(|shape| button_rect(&shape.shape, "Go To Server"));
+			output.drop_without_applying_deltas();
+			(rect, commands)
+		};
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		let point = frame(&mut view, &mut state, vec![])
+			.0
+			.expect("Go To Server")
+			.center();
+		let mut commands = vec![];
+		for pressed in [true, false] {
+			commands.extend(
+				frame(
+					&mut view,
+					&mut state,
+					vec![
+						egui::Event::PointerMoved(point),
+						egui::Event::PointerButton {
+							pos: point,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				)
+				.1,
+			);
+		}
+		commands.extend(frame(&mut view, &mut state, vec![]).1);
+		assert_eq!((view.guild, state.selected), (Some(Id(100)), Some(Id(12))));
+		assert_eq!(state.drafts, drafts);
+		assert!(
+			!commands
+				.iter()
+				.any(|command| matches!(command, Command::JoinInvite { .. }))
+		);
+		assert_eq!(
+			commands
+				.iter()
+				.filter(|command| matches!(
+					command,
+					Command::History {
+						channel: Id(12),
+						..
+					}
+				))
+				.count(),
+			1
+		);
 	}
 
 	#[test]

@@ -598,3 +598,18 @@ One standard package per revision. The baseline was built in a clean detached wo
 Replay uses `cargo replay` followed by one warmup and five measured runs of the release executable, with no concurrent task builds during measurement. Replay crates were rebuilt for the after source to avoid shared-target worktree cache ambiguity. Baseline: 45.1570, 43.6106, 42.9670, 43.6495, 43.1553 ms. After: 42.8025, 43.3468, 42.8042, 45.1077, 47.1907 ms. The small median difference is noise, not a claimed speed improvement. This workload is a synthetic message reducer, not activity-card rendering, process RSS or live interoperability.
 
 Native screenshots and matched UI CPU/memory/frame-time measurements are unavailable because native desktop capture/control is disabled and Orca is absent. No UI performance claim is made. Package sizes precede this performance-note-only edit.
+
+## 2026-09-16: joined invite navigation
+
+| Metric / method | Baseline `2283600` | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 72,683,520 | 72,684,544 | +1,024 (+0.001%) |
+| Full portable package, bytes | 76,751,643 | 76,752,667 | +1,024 (+0.001%) |
+| ZIP, Compress-Archive Optimal, bytes | 43,344,538 | 43,345,148 | +610 (+0.001%) |
+| Native UI CPU, memory, frame time | Unmeasured | Unmeasured | Unmeasured |
+
+Matched Windows x64, Rust 1.98.1 MSVC, standard voice-enabled packages contain the same
+187 files. ZIP uses `Compress-Archive -LiteralPath <dist> -CompressionLevel Optimal`.
+Both builds passed with the same nonfatal OpenH264 LNK4255 warning. `makensis` is unavailable,
+so these are unsigned portable distributions. Native UI measurements remain unavailable because
+desktop capture/control is disabled and Orca is absent; no runtime performance claim is made.

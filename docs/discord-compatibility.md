@@ -862,6 +862,13 @@ invites and uncertain writes show errors. Challenges, membership screening, and 
 requirements remain unsupported in the native join flow. No challenge bypass or automatic retry.
 Live acceptance and restricted-server flows remain unverified; offline demo cannot join.
 
+Joined-server invite cards (September 16): a fresh invite preview for a known joined guild
+offers **Go To Server**. It uses the same navigation as the server rail, restoring an accessible
+last-viewed channel or choosing the first accessible channel. It never sends another join request.
+Accepted invites without gateway-confirmed guild membership keep the pending-access behavior.
+Synthetic click tests cover navigation, preserved drafts and the absence of a second join request;
+native visuals and live account interoperability remain unverified.
+
 Standalone joining (September 12): the server-rail **+** opens **Join a Server**,
 including when no conversation is selected. Paste a bare code or a supported Discord
 invite URL, choose **Check Invite**, review the server, then choose **Join Server**.

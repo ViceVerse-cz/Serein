@@ -2,6 +2,11 @@
 use crate::avatars::Avatars;
 use client_core::invites::valid_code;
 use model::Message;
+
+pub(crate) enum Action {
+	Join(String),
+	OpenGuild(model::Id),
+}
 fn code(raw: &str) -> Option<String> {
 	let normalized;
 	let raw = if raw.starts_with("discord.gg/") || raw.starts_with("discord.com/invite/") {
@@ -114,7 +119,7 @@ pub fn show(
 	state: &client_core::State,
 	images: &mut Avatars,
 	requests: &mut Vec<String>,
-	join: &mut Option<String>,
+	action: &mut Option<Action>,
 ) {
 	let demo = state.demo;
 	for code in codes(message) {
@@ -192,7 +197,7 @@ pub fn show(
 
 								// Action first so the text column gets whatever width remains.
 								let label = if member {
-									"Joined"
+									"Go To Server"
 								} else if verification {
 									"Verify"
 								} else if pending {
@@ -205,8 +210,8 @@ pub fn show(
 								ui.with_layout(
 									egui::Layout::right_to_left(egui::Align::Center),
 									|ui| {
-										let enabled = (verification
-											|| state.can_join_invite(&code)) && !member;
+										let enabled =
+											member || verification || state.can_join_invite(&code);
 										ui.add_enabled_ui(enabled, |ui| {
 											let fill = if verification {
 												colors.accent
@@ -229,7 +234,15 @@ pub fn show(
 											.corner_radius(6)
 											.min_size(egui::vec2(72.0, 36.0));
 											if ui.add(button).clicked() {
-												*join = Some(code.clone());
+												*action = Some(
+													if let Some(preview) =
+														preview.filter(|_| member)
+													{
+														Action::OpenGuild(preview.guild)
+													} else {
+														Action::Join(code.clone())
+													},
+												);
 											}
 										});
 										ui.with_layout(
