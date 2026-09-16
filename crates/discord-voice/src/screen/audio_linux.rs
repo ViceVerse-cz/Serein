@@ -623,7 +623,8 @@ fn run(
 	let mut listing: Option<Enumeration> = None;
 	let mut captures: Vec<Capture> = Vec::new();
 	let mut expected = Vec::new();
-	let mut failed_input = None;
+	// Applications whose monitor failed. Their audio is dropped rather than ending the share.
+	let mut excluded: Vec<Input> = Vec::new();
 	let mut active_revision = u64::MAX;
 	let mut active_epoch = epoch.load(Ordering::Acquire);
 	let mut verifying = false;
@@ -676,6 +677,12 @@ fn run(
 			let fresh = request.revision == active_revision && ready.load(Ordering::Acquire);
 			listing = None;
 			if fresh {
+				// Filter before both the verify comparison and the start loop, so an excluded
+				// application stays out of the expected set too.
+				let inputs: Vec<Input> = inputs
+					.into_iter()
+					.filter(|input| !excluded.contains(input))
+					.collect();
 				if verifying {
 					// Re-check after native attachment: indices may have been removed/reused.
 					verified = inputs == expected;
@@ -685,16 +692,17 @@ fn run(
 						continue;
 					}
 				} else {
-					if failed_input
-						.as_ref()
-						.is_some_and(|failed| inputs.contains(failed))
-					{
-						return Err(UNAVAILABLE);
-					}
-					failed_input = None;
-					expected = inputs.clone();
+					// One application refusing to be captured must not end the whole share;
+					// drop just that application's audio and keep the rest.
+					expected = Vec::with_capacity(inputs.len());
 					for input in inputs {
-						captures.push(Capture::start(&native, input, active_epoch)?);
+						match Capture::start(&native, input.clone(), active_epoch) {
+							Ok(capture) => {
+								captures.push(capture);
+								expected.push(input);
+							}
+							Err(_) => exclude(&mut excluded, input),
+						}
 					}
 					connecting = Instant::now();
 					verifying = true;
@@ -712,7 +720,7 @@ fn run(
 						pulse::PA_STREAM_FAILED | pulse::PA_STREAM_TERMINATED
 					)
 				}) {
-					failed_input = Some(capture.input.clone());
+					exclude(&mut excluded, capture.input.clone());
 					revision.set(revision.get().wrapping_add(1));
 					continue;
 				}
@@ -737,7 +745,7 @@ fn run(
 		let mut mixed = [0.0; FRAME_SAMPLES];
 		for capture in &mut captures {
 			if capture.state() != pulse::PA_STREAM_READY {
-				failed_input = Some(capture.input.clone());
+				exclude(&mut excluded, capture.input.clone());
 				revision.set(revision.get().wrapping_add(1));
 				break;
 			}
@@ -760,6 +768,14 @@ fn run(
 		}
 	}
 	Ok(())
+}
+
+/// Drops one application's audio after its monitor failed, keeping the rest of the share.
+/// The list is bounded, so a machine that keeps failing simply ends up sharing no audio.
+fn exclude(excluded: &mut Vec<Input>, input: Input) {
+	if excluded.len() < MAX_INPUTS && !excluded.contains(&input) {
+		excluded.push(input);
+	}
 }
 
 /// Device-free check shared with the Linux video debug example.
