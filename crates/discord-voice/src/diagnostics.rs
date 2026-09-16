@@ -71,8 +71,51 @@ pub(crate) enum Video {
 	Pictures,
 	/// Longest gap in milliseconds between delivered pictures (maximum, not a sum).
 	PictureGapMs,
+	/// Ticks where video stalled: sources announced but no recent picture.
+	StallTicks,
 }
-const VIDEO_SLOTS: usize = 17;
+const VIDEO_SLOTS: usize = 18;
+
+/// Voice signaling messages, so a handshake that never completes names its own missing step.
+/// Opcodes only; no signaling contents are recorded.
+#[derive(Clone, Copy)]
+pub(crate) enum Signal {
+	/// Text events received.
+	Text,
+	/// Binary DAVE events received.
+	Binary,
+	/// Text opcodes with no dedicated slot.
+	Other,
+	/// Ready (2): our SSRCs and the UDP endpoint.
+	Ready,
+	/// Session description (4): the transport key.
+	Session,
+	/// Clients connect (11): the DAVE participant list.
+	Clients,
+	/// Video (12): a sender announced its SSRCs.
+	Sender,
+	/// Prepare transition (21).
+	PrepareTransition,
+	/// Execute transition (22): the only message that makes DAVE ready.
+	ExecuteTransition,
+	/// Prepare epoch (24).
+	PrepareEpoch,
+	/// External sender (binary 25).
+	ExternalSender,
+	/// Proposals (binary 27).
+	Proposals,
+	/// Commit or welcome (binary 29 and 30).
+	Commit,
+	/// MLS key packages sent.
+	KeyPackageSent,
+	/// Transition ready (23) sent.
+	TransitionReadySent,
+	/// Our SSRC announcement (12) sent.
+	SubscribeSent,
+	/// Video sink wants (15) sent.
+	SinkWantsSent,
+}
+const SIGNAL_SLOTS: usize = 17;
 
 #[derive(Clone, Copy)]
 struct Report {
@@ -80,6 +123,7 @@ struct Report {
 	at_ms: u64,
 	window_ms: u64,
 	video: [u64; VIDEO_SLOTS],
+	signal: [u64; SIGNAL_SLOTS],
 	// Each stage: calls, total elapsed microseconds, maximum elapsed microseconds.
 	stages: [[u64; 3]; 11],
 	wakes: u64,
@@ -136,6 +180,7 @@ impl Metrics {
 				at_ms: 0,
 				window_ms: 0,
 				video: [0; VIDEO_SLOTS],
+				signal: [0; SIGNAL_SLOTS],
 				stages: [[0; 3]; 11],
 				wakes: 0,
 				resets: 0,
@@ -186,6 +231,15 @@ impl Metrics {
 		}
 		let slot = &mut self.report.video[event as usize];
 		*slot = (*slot).max(value);
+	}
+
+	/// Adds to one signaling counter; ignored while diagnostics are off.
+	pub fn signal(&mut self, event: Signal, count: u64) {
+		if self.send.is_none() {
+			return;
+		}
+		let slot = &mut self.report.signal[event as usize];
+		*slot = slot.saturating_add(count);
 	}
 
 	pub fn poll(&mut self, reset: bool, drops: u64, stalled: bool, noise_frames: u64) {
@@ -241,6 +295,7 @@ impl Metrics {
 		self.report.stream_ticks = [0; 8];
 		self.report.queued_audio = 0;
 		self.report.video = [0; VIDEO_SLOTS];
+		self.report.signal = [0; SIGNAL_SLOTS];
 	}
 }
 
@@ -285,9 +340,7 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			report.stages[6], report.stages[7], report.queued_audio,
 		));
 	}
-	if matches!(report.scope, Scope::Transport | Scope::StreamReceive)
-		&& report.video.iter().any(|count| *count != 0)
-	{
+	if report.video.iter().any(|count| *count != 0) {
 		let [
 			packets,
 			rtx,
@@ -306,9 +359,34 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			decoder_errors,
 			pictures,
 			picture_gap_ms,
+			stall_ticks,
 		] = report.video;
 		line.push_str(&format!(
-			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms}"
+			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms} stall_ticks={stall_ticks}"
+		));
+	}
+	if report.signal.iter().any(|count| *count != 0) {
+		let [
+			text,
+			binary,
+			other,
+			ready,
+			session,
+			clients,
+			sender,
+			prepare_transition,
+			execute_transition,
+			prepare_epoch,
+			external_sender,
+			proposals,
+			commit,
+			key_package_sent,
+			transition_ready_sent,
+			subscribe_sent,
+			sink_wants_sent,
+		] = report.signal;
+		line.push_str(&format!(
+			" signal: text={text} binary={binary} other={other} ready={ready} session={session} clients={clients} sender={sender} prepare_transition={prepare_transition} execute_transition={execute_transition} prepare_epoch={prepare_epoch} external_sender={external_sender} proposals={proposals} commit={commit} key_package_sent={key_package_sent} transition_ready_sent={transition_ready_sent} subscribe_sent={subscribe_sent} sink_wants_sent={sink_wants_sent}"
 		));
 	}
 	if matches!(report.scope, Scope::ScreenAudio) {
@@ -337,6 +415,7 @@ mod tests {
 			at_ms: 1234,
 			window_ms: 5000,
 			video: [0; VIDEO_SLOTS],
+			signal: [0; SIGNAL_SLOTS],
 			stages: [[0; 3]; 11],
 			wakes: 0,
 			resets: 0,
@@ -361,6 +440,13 @@ mod tests {
 		let line = String::from_utf8(out).unwrap();
 		assert!(line.contains("video: packets=150"));
 		assert!(line.contains("gated=40"));
-		assert!(line.ends_with("picture_gap_ms=1900\n"));
+		assert!(line.ends_with("stall_ticks=0\n"));
+
+		report.signal[Signal::ExecuteTransition as usize] = 2;
+		let mut out = Vec::new();
+		assert!(write_report(report, &mut bytes, &mut out));
+		let line = String::from_utf8(out).unwrap();
+		assert!(line.contains("signal: text=0"));
+		assert!(line.contains("execute_transition=2"));
 	}
 }

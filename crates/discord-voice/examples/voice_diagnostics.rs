@@ -51,6 +51,20 @@ fn main() {
 		),
 		(1, 1, 2, 1, 3)
 	);
+	// Video and signaling counters: sums accumulate, gap keeps the maximum, and both groups
+	// reset with the rest of the report.
+	metrics.video(Video::Packets, 120);
+	metrics.video(Video::Packets, 30);
+	metrics.video(Video::StallTicks, 1);
+	metrics.video_max(Video::PictureGapMs, 900);
+	metrics.video_max(Video::PictureGapMs, 2400);
+	metrics.video_max(Video::PictureGapMs, 1100);
+	metrics.signal(Signal::Text, 1);
+	metrics.signal(Signal::ExecuteTransition, 1);
+	metrics.signal(Signal::SinkWantsSent, 2);
+	assert_eq!(metrics.report.video[Video::Packets as usize], 150);
+	assert_eq!(metrics.report.video[Video::PictureGapMs as usize], 2400);
+	assert_eq!(metrics.report.signal[Signal::SinkWantsSent as usize], 2);
 	metrics.stream_state([true, true, true, false, false, true, false, true], 4);
 	metrics.stream_state([true, false, false, false, false, true, true, true], 2);
 	metrics.since -= Duration::from_secs(5);
@@ -59,6 +73,10 @@ fn main() {
 	assert!(report.window_ms >= 5000);
 	assert_eq!(report.stream_ticks, [2, 1, 1, 0, 0, 2, 1, 2]);
 	assert_eq!(report.queued_audio, 6);
+	assert_eq!(report.video[Video::Packets as usize], 150);
+	assert_eq!(report.signal[Signal::ExecuteTransition as usize], 1);
+	assert_eq!(metrics.report.video, [0; VIDEO_SLOTS]);
+	assert_eq!(metrics.report.signal, [0; SIGNAL_SLOTS]);
 	assert_eq!(metrics.report.wakes, 0);
 	assert_eq!(metrics.report.stages, [[0; 3]; 11]);
 	assert_eq!(metrics.report.stream_ticks, [0; 8]);
@@ -153,7 +171,56 @@ fn main() {
 		assert!(rejected.is_empty());
 		std::io::stderr().write_all(&output).unwrap();
 	}
+	// `write_report` destructures both counter arrays positionally, so every variant must
+	// keep its declared slot. Listing them here also proves each index stays in bounds.
+	let video = [
+		Video::Packets,
+		Video::Rtx,
+		Video::OpenFailed,
+		Video::NotReady,
+		Video::UnknownSsrc,
+		Video::Incomplete,
+		Video::Complete,
+		Video::DecryptFailed,
+		Video::Gated,
+		Video::QueueFull,
+		Video::Keyframes,
+		Video::KeyframesWithoutParams,
+		Video::PliSent,
+		Video::AwaitingTicks,
+		Video::DecoderErrors,
+		Video::Pictures,
+		Video::PictureGapMs,
+		Video::StallTicks,
+	];
+	assert_eq!(video.len(), VIDEO_SLOTS);
+	for (index, slot) in video.into_iter().enumerate() {
+		assert_eq!(slot as usize, index);
+	}
+	let signal = [
+		Signal::Text,
+		Signal::Binary,
+		Signal::Other,
+		Signal::Ready,
+		Signal::Session,
+		Signal::Clients,
+		Signal::Sender,
+		Signal::PrepareTransition,
+		Signal::ExecuteTransition,
+		Signal::PrepareEpoch,
+		Signal::ExternalSender,
+		Signal::Proposals,
+		Signal::Commit,
+		Signal::KeyPackageSent,
+		Signal::TransitionReadySent,
+		Signal::SubscribeSent,
+		Signal::SinkWantsSent,
+	];
+	assert_eq!(signal.len(), SIGNAL_SLOTS);
+	for (index, slot) in signal.into_iter().enumerate() {
+		assert_eq!(slot as usize, index);
+	}
 	println!(
-		"Offline voice diagnostics check passed: timing and stream-state aggregation, disabled mode, periodic reset/flush, bounded nonblocking queue, byte budget and closed output."
+		"Offline voice diagnostics check passed: timing, stream-state, video and signaling aggregation, disabled mode, periodic reset/flush, bounded nonblocking queue, byte budget and closed output."
 	);
 }

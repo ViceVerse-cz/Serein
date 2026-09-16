@@ -26,6 +26,10 @@ mod portal_linux;
 #[cfg(unix)]
 #[path = "../src/video.rs"]
 mod video;
+// The shared screen module reaches the platform encoders' keyframe check through this path.
+#[cfg(unix)]
+#[path = "../src/video_receive.rs"]
+mod video_receive;
 
 #[cfg(unix)]
 fn main() {
