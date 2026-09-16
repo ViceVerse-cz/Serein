@@ -1,7 +1,7 @@
 use crate::Id;
 
 pub const SEARCH_PAGE_SIZE: usize = 25;
-pub const MAX_SEARCH_BYTES: usize = 64 * 1024;
+pub const MAX_SEARCH_BYTES: usize = 256 * 1024;
 pub fn valid_search_query(query: &str) -> bool {
 	!query.trim().is_empty()
 		&& query.len() <= 1024
@@ -108,7 +108,7 @@ impl SearchPage {
 				h.id.0 > 0
 					&& h.channel == channel
 					&& h.author.len() <= 512
-					&& h.excerpt.len() <= 1024
+					&& h.excerpt.len() <= 8192
 			}) && self
 			.hits
 			.iter()

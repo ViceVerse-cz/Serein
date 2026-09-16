@@ -2754,7 +2754,17 @@ impl MessagingUi {
 						.inner_margin(egui::Margin::same(12)),
 				)
 				.show(ui, |ui| {
-					self.search.pane(ui, state, &mut commands);
+					self.search
+						.pane(ui, state, &mut commands, &mut self.avatars);
+					if let Some(link) = self.search.opening.take() {
+						self.timeline.opening = Some(link);
+					}
+					if let Some(profile) = self.search.profile.take() {
+						self.profile = Some(profile);
+					}
+					if let Some(channel) = self.search.channel_reference.take() {
+						self.timeline.channel_reference = Some(channel);
+					}
 				});
 		}
 		if show_members {
