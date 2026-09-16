@@ -152,12 +152,17 @@ pub(super) fn run(
 						let _ = pipeline.frames.try_pull_sample(gst::ClockTime::ZERO);
 					} else {
 						let started = first_frame.get_or_insert_with(Instant::now);
-						if let Some(sample) = pipeline.frames.try_pull_sample(gst::ClockTime::ZERO)
+						// While the transport is behind, leave the picture in the appsink rather
+						// than pulling and discarding it. The sink then blocks upstream, so
+						// pressure reaches the encoder instead of breaking its reference chain,
+						// and this iteration still reaches the await below. Skipping the await
+						// here would spin the worker and starve the portal on this runtime.
+						let room = mode != Mode::Software || send.capacity() > 0;
+						if room
+							&& let Some(sample) =
+								pipeline.frames.try_pull_sample(gst::ClockTime::ZERO)
 						{
 							let (data, is_keyframe) = if mode == Mode::Software {
-								if send.capacity() == 0 {
-									continue;
-								}
 								let raw = capture::raw(&sample)?;
 								if raw.width != settings.width || raw.height != settings.height {
 									return Err("Screen frame dimensions changed unexpectedly");
