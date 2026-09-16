@@ -26,6 +26,11 @@ const TICK: Duration = Duration::from_millis(10);
 /// It must exceed one full handshake: enumerate, attach, wait for every monitor to connect,
 /// then enumerate again to confirm no index was reused. A shorter wait restarts it forever.
 const SETTLE: Duration = Duration::from_millis(1000);
+/// A monitor that never reaches the ready state is a limitation of the running sound server,
+/// not a transient failure: PulseAudio's per-application monitor capture is not implemented
+/// everywhere. After this long with no monitor ever connected, stop reattaching so the worker
+/// goes quiet and the counters report the applications as excluded.
+const MONITOR_GRACE: Duration = Duration::from_secs(10);
 const TIMEOUT: Duration = Duration::from_secs(3);
 
 pub(super) struct Worker {
@@ -638,6 +643,8 @@ fn run(
 	let mut active_epoch = epoch.load(Ordering::Acquire);
 	let mut verifying = false;
 	let mut verified = false;
+	let mut first_attach: Option<Instant> = None;
+	let mut any_ready = false;
 	let mut seen_revision = native.events.revision.get();
 	let mut settle: Option<Instant> = None;
 	let started = Instant::now();
@@ -716,11 +723,20 @@ fn run(
 				} else {
 					// One application refusing to be captured must not end the whole share;
 					// drop just that application's audio and keep the rest.
+					// Reattaching forever would never produce a sample and never say why.
+					let unsupported = !any_ready
+						&& first_attach.is_some_and(|since| since.elapsed() > MONITOR_GRACE);
 					expected = Vec::with_capacity(inputs.len());
 					for input in inputs {
+						if unsupported {
+							metrics.capture(crate::diagnostics::Capture::Excluded, 1);
+							exclude(&mut excluded, input);
+							continue;
+						}
 						match Capture::start(&native, input.clone(), active_epoch) {
 							Ok(capture) => {
 								metrics.capture(crate::diagnostics::Capture::Started, 1);
+								first_attach.get_or_insert_with(Instant::now);
 								captures.push(capture);
 								expected.push(input);
 							}
@@ -752,6 +768,7 @@ fn run(
 					continue;
 				}
 				if captures.iter().all(|v| v.state() == pulse::PA_STREAM_READY) {
+					any_ready |= !captures.is_empty();
 					metrics.capture(crate::diagnostics::Capture::Ready, captures.len() as u64);
 				} else {
 					if connecting.elapsed() > TIMEOUT {

@@ -557,6 +557,16 @@ enumeration; `app_captures` rising while `app_ready` stays zero means the monito
 connect, and both rising while `app_chunks` stays zero means the confirmation keeps
 restarting.
 
+Per-application capture attaches to one sink input through PulseAudio's monitor-stream
+interface, which the running sound server has to implement; PipeWire's compatibility layer
+does not always accept it, and a monitor that is never accepted simply stays unconnected
+rather than failing. After ten seconds with no monitor ever connected the worker stops
+reattaching and counts those applications as excluded, so the share continues with video
+only instead of retrying forever. Confirm the server's behaviour outside Serein with
+`parec --monitor-stream=INDEX -d SINK.monitor >/dev/null`, taking `INDEX` from
+`pactl list sink-inputs short` and `SINK` from `pactl info`: no data means the isolated
+capture Serein needs is unavailable there, whatever the client.
+
 Three lines name why a share ended, because the status only shows the most recent message
 and a later stop overwrites it: `[Serein voice Screen] capture_stopped=…` from the capture
 worker, `stream_transport_stopped=…` from its RTC connection, and `share_stopped=…` for the
