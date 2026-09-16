@@ -680,7 +680,7 @@ impl MessagingUi {
 								)
 								.clicked()
 								{
-									self.timeline.opening = Some(url.clone());
+									self.timeline.browser_opening = Some(url.clone());
 								}
 							}
 							if count > 0 {
@@ -758,7 +758,7 @@ impl MessagingUi {
 							if !enabled
 								&& response.clicked() && let Some(url) = external
 							{
-								self.timeline.opening = Some(url);
+								self.timeline.browser_opening = Some(url);
 							}
 							paint_shelf_rule(ui, rect, &self.channel_cache.rows, index);
 						}
@@ -1371,7 +1371,7 @@ mod tests {
 			if !permitted {
 				state.permissions = Default::default();
 			}
-			view.timeline.opening = None;
+			view.timeline.browser_opening = None;
 			let ctx = egui::Context::default();
 			for key in [egui::Key::Tab, egui::Key::Enter] {
 				let output = ctx.run_ui(
@@ -1398,14 +1398,14 @@ mod tests {
 				output.drop_without_applying_deltas();
 			}
 			assert_eq!(
-				view.timeline.opening.as_deref(),
+				view.timeline.browser_opening.as_deref(),
 				permitted.then_some("https://discord.com/channels/100/9")
 			);
 			assert!(state.selected.is_none());
 		}
-		view.timeline.opening = Some("https://discord.com/channels/100/9".into());
+		view.timeline.browser_opening = Some("https://discord.com/channels/100/9".into());
 		view.clear();
-		assert!(view.timeline.opening.is_none());
+		assert!(view.timeline.browser_opening.is_none());
 	}
 
 	#[test]

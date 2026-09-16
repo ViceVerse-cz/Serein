@@ -141,6 +141,58 @@ pub(super) fn discord_url(channel: &model::Channel, message: Option<Id>) -> Opti
 	Some(url)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ChatLink {
+	pub guild: Option<Id>,
+	pub channel: Id,
+	pub message: Option<Id>,
+}
+
+/// Recognize only Discord's chat routes; other destinations keep normal link handling.
+pub(super) fn discord_chat_link(input: &str) -> Option<ChatLink> {
+	let target = external_url(input)?;
+	let url = url::Url::parse(&target).ok()?;
+	if url.scheme() != "https"
+		|| url.port().is_some()
+		|| !matches!(
+			url.host_str()?,
+			"discord.com"
+				| "www.discord.com"
+				| "ptb.discord.com"
+				| "canary.discord.com"
+				| "discordapp.com"
+				| "www.discordapp.com"
+				| "ptb.discordapp.com"
+				| "canary.discordapp.com"
+		) {
+		return None;
+	}
+	let id = |value: &str| {
+		if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+			return None;
+		}
+		value.parse::<u64>().ok().filter(|id| *id != 0).map(Id)
+	};
+	let mut path = url.path().trim_end_matches('/').split('/');
+	if !path.next()?.is_empty() || path.next()? != "channels" {
+		return None;
+	}
+	let guild = match path.next()? {
+		"@me" => None,
+		value => Some(id(value)?),
+	};
+	let channel = id(path.next()?)?;
+	let message = match path.next() {
+		Some(value) => Some(id(value)?),
+		None => None,
+	};
+	path.next().is_none().then_some(ChatLink {
+		guild,
+		channel,
+		message,
+	})
+}
+
 pub(super) fn confirm_external_link(
 	ctx: &egui::Context,
 	opening: &mut Option<String>,
@@ -1472,6 +1524,74 @@ impl Formatted {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn discord_chat_links_validate_origin_route_and_ids() {
+		for host in [
+			"discord.com",
+			"www.discord.com",
+			"ptb.discord.com",
+			"canary.discord.com",
+			"discordapp.com",
+			"www.discordapp.com",
+			"ptb.discordapp.com",
+			"canary.discordapp.com",
+		] {
+			assert_eq!(
+				discord_chat_link(&format!("https://{host}/channels/1/2/3?jump=true#message")),
+				Some(ChatLink {
+					guild: Some(Id(1)),
+					channel: Id(2),
+					message: Some(Id(3))
+				})
+			);
+		}
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/@me/2/"),
+			Some(ChatLink {
+				guild: None,
+				channel: Id(2),
+				message: None
+			})
+		);
+		assert_eq!(
+			discord_chat_link("HTTPS://DISCORD.COM:443/channels/1/2"),
+			Some(ChatLink {
+				guild: Some(Id(1)),
+				channel: Id(2),
+				message: None
+			})
+		);
+		for target in [
+			"http://discord.com/channels/1/2",
+			"https://discord.com.evil.example/channels/1/2",
+			"https://evil.discord.com/channels/1/2",
+			"https://discord.gg/channels/1/2",
+			"https://discord.com@evil.example/channels/1/2",
+			"https://user@discord.com/channels/1/2",
+			"https://discord.com:444/channels/1/2",
+			"https://discord.com/invite/example",
+			"https://discord.com/channels/1",
+			"https://discord.com/channels/1/2/3/4",
+			"https://discord.com/channels/0/2",
+			"https://discord.com/channels/1/0",
+			"https://discord.com/channels/1/2/0",
+			"https://discord.com/channels/1/+2",
+			"https://discord.com/channels/1/18446744073709551616",
+			"https://discord.com/channels/1/%32",
+			"https://discord.com/channels/1/2\n",
+			"https://discord.com\\channels/1/2",
+		] {
+			assert!(discord_chat_link(target).is_none(), "{target}");
+		}
+		assert!(
+			discord_chat_link(&format!(
+				"https://discord.com/channels/1/2?{}",
+				"x".repeat(2048)
+			))
+			.is_none()
+		);
+	}
 	#[test]
 	fn block_endings_do_not_leave_a_blank_final_line() {
 		for (source, expected) in [

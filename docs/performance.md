@@ -1,3 +1,29 @@
+# Discord chat links - September 16, 2026
+
+Baseline: clean `afb2a3e`. After: chat-link navigation on that baseline.
+One standard Windows x64 `cargo xtask package` per revision, Rust 1.98.1 MSVC,
+locked dependencies, release profile and voice included. Builds ran serially
+using a shared Cargo target and separate worktree distribution directories.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 72,636,416 | 72,641,024 | +4,608 (+0.0063%) |
+| Full portable package, bytes | 76,702,882 | 76,707,490 | +4,608 (+0.0060%) |
+| ZIP, bytes | 43,319,355 | 43,320,194 | +839 (+0.0019%) |
+
+Package bytes sum all 186 files; ZIP uses .NET
+`System.IO.Compression.ZipFile.CreateFromDirectory` with default compression.
+The baseline comparison copy excludes one obsolete 1,075-byte libpulse-sys
+license left in the existing, non-cleaned dist directory by an earlier build.
+All 185 current non-executable package files have identical SHA-256 hashes;
+the original distribution remains untouched. This is a size comparison only.
+
+Native before/after screenshots and matched CPU, memory and frame-time samples
+are unavailable: native computer control is disabled in this session and Orca
+is not installed. No runtime performance improvement is claimed. Both portable
+packages passed with the existing nonfatal OpenH264 LNK4255 warning; NSIS is not
+installed, so Windows installer binaries were not produced.
+
 # Channel creation types - September 15, 2026
 
 Baseline: clean `544a3f8`. After: the channel-creation-types changes on that base.

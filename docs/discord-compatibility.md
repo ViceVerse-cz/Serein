@@ -1,5 +1,20 @@
 # Discord compatibility — checked 2026-09-10
 
+## Chat links — September 16, 2026
+
+Clicked message and embed links matching HTTPS `/channels/{guild|@me}/{channel}`
+with an optional message ID navigate inside Serein. Exact discord.com and legacy
+discordapp.com hosts, including www, ptb and canary, are recognized. Known channels
+can be in another joined server or an existing DM/group DM. Message links reuse
+the bounded history window and target highlight; loaded messages scroll locally.
+Guild/channel identity and current view/history permissions are checked first.
+Unknown channels (including unloaded archived threads), unsupported channel kinds,
+and unavailable messages retain explicit unavailable/error feedback. Links do not
+join servers, open unknown DMs or join calls. Explicit Open in Discord controls
+still open the browser; unrelated links keep their existing confirmation behavior.
+Parsing is click-triggered and capped at 2,048 bytes, with no new cache or transport.
+Verification uses synthetic data only; live Discord interoperability is unverified.
+
 ## Forum post context menu — September 15, 2026
 
 Forum/media post cards and sidebar entries support right-click and Shift+F10.

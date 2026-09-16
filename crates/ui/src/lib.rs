@@ -2562,6 +2562,24 @@ impl MessagingUi {
 		}
 		// Foreground confirmation handles Escape before background search/archive shortcuts.
 		self.confirm_friend_removal(&ctx, state, &mut commands);
+		if let Some(link) = self
+			.timeline
+			.opening
+			.as_deref()
+			.and_then(markdown::discord_chat_link)
+		{
+			self.timeline.opening = None;
+			match state.open_chat_link(link.guild, link.channel, link.message) {
+				Ok(Some(command)) => commands.push(command),
+				Ok(None) => {}
+				Err(message) => state.status = message,
+			}
+		}
+		markdown::confirm_external_link(
+			&ctx,
+			&mut self.timeline.browser_opening,
+			self.reading_preferences.confirm_external_links,
+		);
 		markdown::confirm_external_link(
 			&ctx,
 			&mut self.timeline.opening,
@@ -3725,6 +3743,117 @@ mod composer_tests {
 				.as_slice(),
 				[Command::Send { .. }]
 			));
+		}
+	}
+
+	#[test]
+	fn discord_chat_links_navigate_from_message_text_without_opening_a_browser() {
+		fn link_rect(shape: &egui::Shape, label: &str) -> Option<egui::Rect> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.job.text.trim() == label => {
+					Some(text.galley.rect.translate(text.pos.to_vec2()))
+				}
+				egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| link_rect(shape, label)),
+				_ => None,
+			}
+		}
+		for (source, label, target_message) in [
+			(
+				"https://discord.com/channels/100/11",
+				"https://discord.com/channels/100/11",
+				None,
+			),
+			(
+				"[Other chat](https://discord.com/channels/100/11/25)",
+				"Other chat",
+				Some(Id(25)),
+			),
+		] {
+			let ctx = egui::Context::default();
+			let mut view = MessagingUi::default();
+			let mut state = edit_state();
+			let mut target = state.channels[0].clone();
+			target.id = Id(11);
+			target.guild = Some(Id(100));
+			target.kind = 0;
+			state.channels.push(target);
+			state.guilds.push(model::Guild {
+				id: Id(100),
+				name: "Linked server".into(),
+				icon: None,
+				emojis: None,
+			});
+			state
+				.permissions
+				.replace(test_support::permission_snapshot(&state))
+				.unwrap();
+			let mut message = state.timeline.get(Id(20)).unwrap().clone();
+			message.content = source.into();
+			state.timeline.insert(message, true, false).unwrap();
+			let drafts = state.drafts.clone();
+			let frame = |view: &mut MessagingUi, state: &mut State, events| {
+				let mut commands = vec![];
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(1000.0, 700.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| commands = view.show(ui, state),
+				);
+				assert!(
+					!output
+						.platform_output
+						.commands
+						.iter()
+						.any(|command| matches!(command, egui::OutputCommand::OpenUrl(_)))
+				);
+				let rect = output
+					.shapes
+					.iter()
+					.find_map(|shape| link_rect(&shape.shape, label));
+				output.drop_without_applying_deltas();
+				(rect, commands)
+			};
+			for _ in 0..3 {
+				frame(&mut view, &mut state, vec![]);
+			}
+			let point = frame(&mut view, &mut state, vec![])
+				.0
+				.expect("rendered chat link")
+				.center();
+			let mut commands = vec![];
+			for pressed in [true, false] {
+				commands.extend(
+					frame(
+						&mut view,
+						&mut state,
+						vec![
+							egui::Event::PointerMoved(point),
+							egui::Event::PointerButton {
+								pos: point,
+								button: egui::PointerButton::Primary,
+								pressed,
+								modifiers: egui::Modifiers::NONE,
+							},
+						],
+					)
+					.1,
+				);
+			}
+			commands.extend(frame(&mut view, &mut state, vec![]).1);
+			assert_eq!(state.selected, Some(Id(11)));
+			assert_eq!(view.guild, Some(Id(100)));
+			assert_eq!(state.search_target, target_message);
+			assert_eq!(state.drafts, drafts);
+			assert_eq!(commands.iter().filter(|command| matches!(command, Command::History { channel: Id(11), before, .. } if *before == target_message.map(|id| Id(id.0 + 1)))).count(), 1);
+			assert!(!commands.iter().any(|command| matches!(
+				command,
+				Command::Send { .. } | Command::Edit { .. } | Command::Delete { .. }
+			)));
 		}
 	}
 

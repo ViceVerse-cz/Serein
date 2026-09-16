@@ -63,6 +63,7 @@ pub struct TimelineView {
 	pub(super) audio: crate::audio::AudioUi,
 	pub(super) video: crate::video::VideoUi,
 	pub(super) opening: Option<String>,
+	pub(super) browser_opening: Option<String>,
 	text_size: f32,
 	scale: f32,
 	pub(super) load_older: bool,
@@ -596,6 +597,7 @@ impl TimelineView {
 				following: true,
 				download: std::mem::take(&mut self.download),
 				opening: self.opening.take(),
+				browser_opening: self.browser_opening.take(),
 				pending_viewer: self.pending_viewer.take(),
 				jump: true,
 				..Self::default()
@@ -1472,7 +1474,7 @@ impl TimelineView {
 													)
 													.clicked()
 												{
-													self.opening = target;
+													self.browser_opening = target;
 												}
 											}
 										});
@@ -3291,7 +3293,7 @@ mod tests {
 				);
 			}
 			assert_eq!(
-				view.opening,
+				view.browser_opening,
 				if allowed {
 					discord_url(&channel, Some(Id(42)))
 				} else {
@@ -3455,8 +3457,11 @@ mod tests {
 						],
 					);
 				}
-				assert_eq!(view.opening, discord_url(&channel, Some(message.id)));
-				view.opening = None;
+				assert_eq!(
+					view.browser_opening,
+					discord_url(&channel, Some(message.id))
+				);
+				view.browser_opening = None;
 			}
 			if !extra.any() {
 				assert!(
