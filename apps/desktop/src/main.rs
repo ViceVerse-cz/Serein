@@ -520,6 +520,7 @@ struct Desktop {
 	tray_setting: toggle_setting::Settings,
 	startup: startup::Startup,
 	tray: Option<platform::tray::Tray>,
+	hotkeys: platform::hotkeys::Hotkeys,
 	tray_error: Option<&'static str>,
 	/// `--demo-reply`: keeps two synthetic typists active on the selected fixture channel.
 	#[cfg(feature = "demo")]
@@ -1361,6 +1362,10 @@ impl Desktop {
 		if demo && std::env::args().any(|arg| arg == "--demo-server-settings") {
 			server_settings_demo::open(&mut state, &mut messaging);
 		}
+		let mut hotkeys = platform::hotkeys::Hotkeys::new();
+		if !demo {
+			hotkeys.sync(messaging.keybinds.chord(model::KeybindAction::PushToTalk));
+		}
 		Ok(Self {
 			extensions: extension_bridge::Bridge::default(),
 			extension_close_pending: false,
@@ -1420,6 +1425,7 @@ impl Desktop {
 			tray_setting,
 			startup,
 			tray: None,
+			hotkeys,
 			tray_error: None,
 			#[cfg(feature = "demo")]
 			demo_typing,
@@ -3696,6 +3702,10 @@ impl eframe::App for Desktop {
 		);
 		self.messaging.sync_reading_zoom(ctx);
 		self.poll(ctx);
+		self.hotkeys
+			.sync(self.messaging.keybinds.chord(model::KeybindAction::PushToTalk));
+		self.messaging.global_keybind_status = self.hotkeys.status();
+		self.hotkeys.poll();
 		if self.updater.sync(
 			ctx,
 			&self.runtime,
@@ -3760,12 +3770,8 @@ impl eframe::App for Desktop {
 				}
 			}
 		}
-		let (focused, hidden_or_closing, ptt_down) = ctx.input(|input| {
-			(
-				input.focused,
-				input.viewport().visible() == Some(false) || input.viewport().close_requested(),
-				input.key_down(egui::Key::V),
-			)
+		let hidden_or_closing = ctx.input(|input| {
+			input.viewport().visible() == Some(false) || input.viewport().close_requested()
 		});
 		if self.state.user.is_none()
 			|| (!self.state.demo && self.state.auth != AuthState::Authenticated)
@@ -3801,7 +3807,10 @@ impl eframe::App for Desktop {
 		) {
 			self.notifications.notify_kind(kind);
 		}
-		self.messaging.voice_ptt_active = focused && ptt_down && !ctx.egui_wants_keyboard_input();
+		self.messaging.voice_ptt_active = self.messaging.voice_push_to_talk
+			&& self.state.voice.active.is_some()
+			&& !self.state.demo
+			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();

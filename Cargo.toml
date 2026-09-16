@@ -41,6 +41,7 @@ time = { version = "0.3", features = ["parsing"] }
 wry = { version = "=0.57.0", default-features = false, features = ["os-webview"] }
 keyring = "=4.2.0"
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+global-hotkey = "=0.8.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
