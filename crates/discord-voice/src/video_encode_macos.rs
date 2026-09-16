@@ -1,12 +1,12 @@
-//! Bounded VideoToolbox hardware H.264 encoder for macOS screen sharing.
+//! Bounded VideoToolbox hardware H.264 encoder for macOS screen sharing and camera video.
 //!
-//! Captured BGRA pixels are copied into a CVPixelBuffer and handed to a compression session
-//! that requires the hardware encoder. Output arrives in AVCC form (length-prefixed NAL units
-//! plus out-of-band parameter sets) and is rewritten to the Annex B byte stream the rest of
-//! the pipeline packetizes, with SPS/PPS prepended to every keyframe.
+//! Captured pixels are copied into a CVPixelBuffer and handed to a compression session that
+//! requires the hardware encoder. Output arrives in AVCC form (length-prefixed NAL units plus
+//! out-of-band parameter sets) and is rewritten to the Annex B byte stream the rest of the
+//! pipeline packetizes, with SPS/PPS prepended to every keyframe.
 #![allow(unsafe_code)]
 
-use super::{MAX_ENCODED_BYTES, Settings};
+use super::{Config, Profile, SourceFormat};
 use objc2_core_foundation::{
 	CFArray, CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType,
 };
@@ -19,7 +19,7 @@ use objc2_core_video::{
 	CVPixelBuffer, CVPixelBufferCreate, CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow,
 	CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
 	kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferPixelFormatTypeKey,
-	kCVPixelFormatType_32BGRA,
+	kCVPixelFormatType_24RGB, kCVPixelFormatType_32BGRA,
 };
 use objc2_video_toolbox::{
 	VTCompressionSession, VTEncodeInfoFlags, VTSession, VTSessionSetProperty,
@@ -28,7 +28,7 @@ use objc2_video_toolbox::{
 	kVTCompressionPropertyKey_DataRateLimits, kVTCompressionPropertyKey_ExpectedFrameRate,
 	kVTCompressionPropertyKey_MaxKeyFrameInterval, kVTCompressionPropertyKey_ProfileLevel,
 	kVTCompressionPropertyKey_RealTime, kVTEncodeFrameOptionKey_ForceKeyFrame,
-	kVTProfileLevel_H264_Main_AutoLevel,
+	kVTProfileLevel_H264_Baseline_AutoLevel, kVTProfileLevel_H264_Main_AutoLevel,
 	kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder,
 };
 use std::{
@@ -42,11 +42,20 @@ const FAILED: &str = "macOS hardware video encoding failed";
 const TIMESCALE: i32 = 90_000;
 
 /// Shared with the VideoToolbox output callback: the latest encoded picture or a failure.
-#[derive(Default)]
 struct Output {
 	/// Annex B frame and whether it is a keyframe; `None` while a frame is dropped or pending.
 	frame: Option<(Vec<u8>, bool)>,
 	failed: bool,
+	/// The caller's per-frame bound; the callback is all `annex_b` can read it from.
+	max_bytes: usize,
+}
+
+/// CoreVideo pixel format for one source layout.
+fn pixel_format_type(format: SourceFormat) -> u32 {
+	match format {
+		SourceFormat::Bgra => kCVPixelFormatType_32BGRA,
+		SourceFormat::Rgb => kCVPixelFormatType_24RGB,
+	}
 }
 
 struct Session(CFRetained<VTCompressionSession>);
@@ -59,18 +68,23 @@ impl Drop for Session {
 }
 
 // Field order matters: the session must invalidate before `output` drops.
-pub(super) struct Encoder {
+pub(crate) struct Encoder {
 	session: Session,
 	output: Arc<Mutex<Output>>,
-	settings: Settings,
+	config: Config,
+	format: SourceFormat,
 	frame: i64,
 }
 
 impl Encoder {
-	pub(super) fn new(settings: Settings) -> Result<Self, &'static str> {
-		let width = i32::try_from(settings.width).map_err(|_| UNAVAILABLE)?;
-		let height = i32::try_from(settings.height).map_err(|_| UNAVAILABLE)?;
-		let output = Arc::new(Mutex::new(Output::default()));
+	pub(crate) fn new(config: Config, format: SourceFormat) -> Result<Self, &'static str> {
+		let width = i32::try_from(config.width).map_err(|_| UNAVAILABLE)?;
+		let height = i32::try_from(config.height).map_err(|_| UNAVAILABLE)?;
+		let output = Arc::new(Mutex::new(Output {
+			frame: None,
+			failed: false,
+			max_bytes: config.max_bytes,
+		}));
 		// SAFETY: Static keys are valid CFStrings; both dictionaries are plain attribute maps.
 		let specification = unsafe {
 			CFDictionary::from_slices(
@@ -78,7 +92,7 @@ impl Encoder {
 				&[CFBoolean::new(true)],
 			)
 		};
-		let pixel_format = CFNumber::new_i32(kCVPixelFormatType_32BGRA as i32);
+		let pixel_format = CFNumber::new_i32(pixel_format_type(format) as i32);
 		let source_attributes = unsafe {
 			CFDictionary::from_slices(&[kCVPixelBufferPixelFormatTypeKey], &[&*pixel_format])
 		};
@@ -109,7 +123,8 @@ impl Encoder {
 		let encoder = Self {
 			session,
 			output,
-			settings,
+			config,
+			format,
 			frame: 0,
 		};
 		encoder.configure()?;
@@ -121,16 +136,14 @@ impl Encoder {
 	}
 
 	fn configure(&self) -> Result<(), &'static str> {
-		let settings = self.settings;
-		let bit_rate =
-			CFNumber::new_i32(i32::try_from(settings.bit_rate()).map_err(|_| UNAVAILABLE)?);
-		let fps = CFNumber::new_i32(i32::try_from(settings.fps).map_err(|_| UNAVAILABLE)?);
-		let gop = CFNumber::new_i32(i32::try_from(settings.fps * 2).map_err(|_| UNAVAILABLE)?);
+		let config = self.config;
+		let bit_rate = CFNumber::new_i32(i32::try_from(config.bit_rate).map_err(|_| UNAVAILABLE)?);
+		let fps = CFNumber::new_i32(i32::try_from(config.fps).map_err(|_| UNAVAILABLE)?);
+		let gop = CFNumber::new_i32(i32::try_from(config.fps * 2).map_err(|_| UNAVAILABLE)?);
 		// Cap bursts at 1.5x the average over any one-second window so a keyframe on a busy
 		// desktop cannot balloon past the transport's per-frame limit.
-		let bytes_per_second = CFNumber::new_i32(
-			i32::try_from(settings.bit_rate() / 8 * 3 / 2).map_err(|_| UNAVAILABLE)?,
-		);
+		let bytes_per_second =
+			CFNumber::new_i32(i32::try_from(config.bit_rate / 8 * 3 / 2).map_err(|_| UNAVAILABLE)?);
 		let one_second = CFNumber::new_f64(1.0);
 		let limits = CFArray::from_objects(&[&*bytes_per_second, &*one_second]);
 		// SAFETY: Property keys and the profile level are static CFStrings exported by
@@ -147,7 +160,10 @@ impl Encoder {
 			)?;
 			self.set(
 				kVTCompressionPropertyKey_ProfileLevel,
-				kVTProfileLevel_H264_Main_AutoLevel,
+				match config.profile {
+					Profile::Baseline => kVTProfileLevel_H264_Baseline_AutoLevel,
+					Profile::Main => kVTProfileLevel_H264_Main_AutoLevel,
+				},
 			)?;
 			self.set(kVTCompressionPropertyKey_AverageBitRate, &bit_rate)?;
 			self.set(kVTCompressionPropertyKey_ExpectedFrameRate, &fps)?;
@@ -171,18 +187,20 @@ impl Encoder {
 		(status == 0).then_some(()).ok_or(UNAVAILABLE)
 	}
 
-	/// Encodes one BGRA picture of the configured size. Returns an empty frame when the
-	/// encoder dropped the picture to hold its rate.
-	pub(super) fn encode(
+	/// Encodes one picture of the configured size and source format. Returns an empty frame
+	/// when the encoder dropped the picture to hold its rate.
+	pub(crate) fn encode(
 		&mut self,
 		pixels: &[u8],
 		dimensions: (usize, usize),
 		force_keyframe: bool,
 	) -> Result<(Vec<u8>, bool), &'static str> {
 		let (width, height) = dimensions;
-		let row_bytes = width.checked_mul(4).ok_or(FAILED)?;
-		if width != self.settings.width as usize
-			|| height != self.settings.height as usize
+		let row_bytes = width
+			.checked_mul(self.format.bytes_per_pixel())
+			.ok_or(FAILED)?;
+		if width != self.config.width as usize
+			|| height != self.config.height as usize
 			|| pixels.len() != row_bytes.checked_mul(height).ok_or(FAILED)?
 		{
 			return Err(FAILED);
@@ -194,7 +212,7 @@ impl Encoder {
 			flags: CMTimeFlags::Valid,
 			epoch: 0,
 		};
-		let duration = i64::from(TIMESCALE) / i64::from(self.settings.fps);
+		let duration = i64::from(TIMESCALE) / i64::from(self.config.fps);
 		let pts = time(self.frame * duration);
 		self.frame += 1;
 		let force = force_keyframe.then(|| {
@@ -251,13 +269,14 @@ impl Encoder {
 			CFDictionary::from_slices(&[kCVPixelBufferIOSurfacePropertiesKey], &[&*surface])
 		};
 		let mut buffer: *mut CVPixelBuffer = null_mut();
+		let pixel_format = pixel_format_type(self.format);
 		// SAFETY: The out-pointer refers to an initialized local; Create returns +1 on success.
 		let status = unsafe {
 			CVPixelBufferCreate(
 				None,
 				width,
 				height,
-				kCVPixelFormatType_32BGRA,
+				pixel_format,
 				Some(attributes.as_opaque()),
 				NonNull::from(&mut buffer),
 			)
@@ -314,15 +333,19 @@ unsafe extern "C-unwind" fn output_frame(
 	if flags.contains(VTEncodeInfoFlags::FrameDropped) || sample.is_null() {
 		return;
 	}
+	let max_bytes = output.max_bytes;
 	// SAFETY: Non-null per the check above and valid for the duration of the callback.
-	match unsafe { annex_b(&*sample) } {
+	match unsafe { annex_b(&*sample, max_bytes) } {
 		Ok(frame) => output.frame = Some(frame),
 		Err(_) => output.failed = true,
 	}
 }
 
 /// Rewrites one AVCC sample as an Annex B frame, prepending parameter sets to keyframes.
-unsafe fn annex_b(sample: &CMSampleBuffer) -> Result<(Vec<u8>, bool), &'static str> {
+unsafe fn annex_b(
+	sample: &CMSampleBuffer,
+	max_bytes: usize,
+) -> Result<(Vec<u8>, bool), &'static str> {
 	// SAFETY: Accessors on a live sample buffer; every out-pointer is an initialized local.
 	unsafe {
 		let keyframe = is_sync(sample);
@@ -330,7 +353,7 @@ unsafe fn annex_b(sample: &CMSampleBuffer) -> Result<(Vec<u8>, bool), &'static s
 		let (parameter_sets, header_length) = parameter_sets(&format)?;
 		let block = sample.data_buffer().ok_or(FAILED)?;
 		let total = block.data_length();
-		if total == 0 || total > MAX_ENCODED_BYTES {
+		if total == 0 || total > max_bytes {
 			return Err(FAILED);
 		}
 		let mut avcc = vec![0u8; total];
@@ -370,7 +393,7 @@ unsafe fn annex_b(sample: &CMSampleBuffer) -> Result<(Vec<u8>, bool), &'static s
 			frame.extend_from_slice(nal);
 			at += length;
 		}
-		if frame.len() > MAX_ENCODED_BYTES {
+		if frame.len() > max_bytes {
 			return Err(FAILED);
 		}
 		crate::video::validate_source(&frame).map_err(|_| FAILED)?;
@@ -451,20 +474,28 @@ unsafe fn parameter_sets(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::screen::SourceId;
+
+	const SCREEN: Config = Config {
+		width: 1280,
+		height: 720,
+		fps: 30,
+		bit_rate: 4_000_000,
+		max_bytes: 2 * 1024 * 1024,
+		profile: Profile::Main,
+	};
+	const CAMERA: Config = Config {
+		width: 640,
+		height: 480,
+		fps: 15,
+		bit_rate: 600_000,
+		max_bytes: 128 * 1024,
+		profile: Profile::Baseline,
+	};
 
 	#[test]
 	fn encodes_annex_b_keyframes_when_hardware_is_present() {
-		let settings = Settings {
-			source: SourceId::Display(1),
-			width: 1280,
-			height: 720,
-			fps: 30,
-			cursor: false,
-			audio: false,
-		};
 		// Virtualized CI runners have no hardware encoder; only verify the stream when one is.
-		let Ok(mut encoder) = Encoder::new(settings) else {
+		let Ok(mut encoder) = Encoder::new(SCREEN, SourceFormat::Bgra) else {
 			return;
 		};
 		let mut pixels = vec![0u8; 1280 * 720 * 4];
@@ -496,5 +527,35 @@ mod tests {
 		}
 		assert!(saw_keyframe && saw_delta);
 		assert!(encoder.encode(&pixels[..1000], (1280, 720), false).is_err());
+	}
+
+	#[test]
+	fn encodes_packed_rgb_camera_pictures_as_independent_keyframes() {
+		let Ok(mut encoder) = Encoder::new(CAMERA, SourceFormat::Rgb) else {
+			return;
+		};
+		let mut pixels = vec![0u8; 640 * 480 * 3];
+		for (index, pixel) in pixels.as_chunks_mut::<3>().0.iter_mut().enumerate() {
+			*pixel = [(index % 251) as u8, (index / 640 % 253) as u8, 60];
+		}
+		// The camera sender drops to the latest frame, so every picture must stand alone.
+		for _ in 0..4 {
+			let (data, keyframe) = encoder
+				.encode(&pixels, (640, 480), true)
+				.expect("hardware encode");
+			if data.is_empty() {
+				continue;
+			}
+			assert!(keyframe && crate::video_receive::is_keyframe(&data));
+			assert!(crate::video_receive::has_parameter_sets(&data));
+			crate::video::validate_source(&data).expect("valid Annex B");
+			assert!(data.len() <= CAMERA.max_bytes);
+		}
+		// A BGRA-sized buffer is rejected against the packed RGB stride.
+		assert!(
+			encoder
+				.encode(&vec![0; 640 * 480 * 4], (640, 480), true)
+				.is_err()
+		);
 	}
 }

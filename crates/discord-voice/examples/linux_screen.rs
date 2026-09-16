@@ -30,6 +30,10 @@ mod video;
 #[cfg(unix)]
 #[path = "../src/video_receive.rs"]
 mod video_receive;
+// Non-Linux builds of this offline example still compile the shared hardware encoder facade.
+#[cfg(unix)]
+#[path = "../src/video_encode.rs"]
+mod video_encode;
 
 #[cfg(unix)]
 fn main() {
