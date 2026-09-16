@@ -1,0 +1,9 @@
+[Flatpak Ref]
+Name=org.serein.desktop
+Branch=master
+Title=Serein
+Comment=Fast, secure and lightweight native Discord client
+Icon=https://viceverse-cz.github.io/Serein/icons/serein.png
+Url=https://viceverse-cz.github.io/Serein/flatpak/repo
+RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo
+IsRuntime=false

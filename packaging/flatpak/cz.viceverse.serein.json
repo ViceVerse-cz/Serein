@@ -9,7 +9,7 @@
     "--share=network",
     "--share=ipc",
     "--socket=wayland",
-    "--socket=fallback-x11",
+    "--socket=x11",
     "--device=dri",
     "--socket=pulseaudio",
     "--talk-name=org.freedesktop.secrets",

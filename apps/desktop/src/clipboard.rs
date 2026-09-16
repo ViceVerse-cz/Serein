@@ -85,7 +85,15 @@ enum Read {
 }
 
 fn read(request: ui::AttachmentPaste) -> Result<Read, &'static str> {
-	let mut clipboard = arboard::Clipboard::new().map_err(|_| "Clipboard unavailable")?;
+	let mut clipboard = match arboard::Clipboard::new() {
+		Ok(clipboard) => clipboard,
+		Err(_) => {
+			// egui already transferred text/image clipboard data through the focused
+			// Wayland surface. Do not make that data depend on arboard's headless
+			// data-control backend, which may be unavailable in a sandbox.
+			return supplied_content(request).ok_or("Clipboard unavailable")?;
+		}
+	};
 	match clipboard.get().file_list() {
 		Ok(paths) if !paths.is_empty() => {
 			if paths.len() > discord_api::upload::MAX_FILES {
@@ -101,36 +109,56 @@ fn read(request: ui::AttachmentPaste) -> Result<Read, &'static str> {
 			return Ok(Read::Paths(paths));
 		}
 		Err(arboard::Error::ContentNotAvailable) | Ok(_) => {}
-		Err(_) => return Err("Could not read copied files; paste again"),
+		Err(_) => {
+			return match supplied_content(request) {
+				Some(content) => content,
+				None => Err("Could not read copied files; paste again"),
+			};
+		}
 	}
 	if let Some(image) = request.image {
-		let pixels = image
-			.width()
-			.checked_mul(image.height())
-			.ok_or("Image is too large")?;
-		if pixels == 0 || pixels > 4 * 1024 * 1024 || pixels != image.pixels.len() {
-			return Err("Paste an image with at most 4 million pixels");
-		}
-		let bytes: Vec<u8> = image
-			.pixels
-			.iter()
-			.flat_map(|pixel| pixel.to_srgba_unmultiplied())
-			.collect();
-		return png(&bytes, image.width(), image.height());
+		return supplied_image(image);
 	}
 	if let Ok(image) = clipboard.get_image() {
 		return png(&image.bytes, image.width, image.height);
 	}
 	if let Some(text) = request.text.or_else(|| clipboard.get_text().ok()) {
-		if text.len() > client_core::MAX_DRAFT_BYTES {
-			return Err("Pasted text exceeds the draft limit");
-		}
-		return Ok(Read::Content(Content::Text(text.replace("\r\n", "\n"))));
+		return supplied_text(text);
 	}
 	let image = clipboard
 		.get_image()
 		.map_err(|_| "Copy a file, image, or text before pasting")?;
 	png(&image.bytes, image.width, image.height)
+}
+
+fn supplied_content(request: ui::AttachmentPaste) -> Option<Result<Read, &'static str>> {
+	if let Some(image) = request.image {
+		return Some(supplied_image(image));
+	}
+	request.text.map(supplied_text)
+}
+
+fn supplied_image(image: std::sync::Arc<egui::ColorImage>) -> Result<Read, &'static str> {
+	let pixels = image
+		.width()
+		.checked_mul(image.height())
+		.ok_or("Image is too large")?;
+	if pixels == 0 || pixels > 4 * 1024 * 1024 || pixels != image.pixels.len() {
+		return Err("Paste an image with at most 4 million pixels");
+	}
+	let bytes: Vec<u8> = image
+		.pixels
+		.iter()
+		.flat_map(|pixel| pixel.to_srgba_unmultiplied())
+		.collect();
+	png(&bytes, image.width(), image.height())
+}
+
+fn supplied_text(text: String) -> Result<Read, &'static str> {
+	if text.len() > client_core::MAX_DRAFT_BYTES {
+		return Err("Pasted text exceeds the draft limit");
+	}
+	Ok(Read::Content(Content::Text(text.replace("\r\n", "\n"))))
 }
 
 /// Linux file managers publish `text/uri-list` with CRLF line endings and may name a
@@ -216,5 +244,20 @@ mod tests {
 		assert!(super::png(&[], 4096, 4096).is_err());
 		assert!(super::png(&[], 1, 1).is_err());
 		assert!(super::png(&[], 0, 0).is_err());
+	}
+
+	#[test]
+	fn supplied_text_is_prepared_without_an_os_clipboard() {
+		let request = ui::AttachmentPaste {
+			target: eframe::egui::Id::unique("paste"),
+			text: Some("line one\r\nline two".into()),
+			image: None,
+		};
+		let super::Read::Content(super::Content::Text(text)) =
+			super::supplied_content(request).unwrap().unwrap()
+		else {
+			panic!("Expected supplied clipboard text")
+		};
+		assert_eq!(text, "line one\nline two");
 	}
 }
