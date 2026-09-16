@@ -211,6 +211,9 @@ September 13: Windows settings and call controls now enumerate/select cameras,
 including DirectShow-only virtual sources. A read-only native enumeration test
 found three registered virtual cameras on the Windows test machine; it did not
 activate any source. Actual capture and Discord delivery remain unverified.
+September 16: camera capture now selects formats near the existing 640×480,
+15 fps stream, with a hard 1280×720 native input ceiling. Device-format/rate
+selection does not change Discord signaling or establish live interoperability.
 Native limits, platform requirements and the owner-operated validation gate are in
 [Camera in calls](voice.md#camera-in-calls-macos-windows-and-linux). Receiving video
 and recording remain unsupported. This section supersedes older camera-exclusion

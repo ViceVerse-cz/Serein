@@ -3,7 +3,7 @@
 
 mod directshow;
 
-use super::{FRAME_INTERVAL, HEIGHT, Shared, WIDTH};
+use super::{FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
 use std::{
 	marker::PhantomData,
 	rc::Rc,
@@ -156,7 +156,7 @@ pub(super) fn run(
 			.SetUnknown(&MF_SOURCE_READER_ASYNC_CALLBACK, &callback)
 			.map_err(|_| UNAVAILABLE)?;
 		attributes
-			.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1)
+			.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)
 			.map_err(|_| UNAVAILABLE)?;
 		let reader =
 			MFCreateSourceReaderFromMediaSource(&source.0, &attributes).map_err(|_| UNAVAILABLE)?;
@@ -164,22 +164,25 @@ pub(super) fn run(
 			.SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)
 			.map_err(|_| UNAVAILABLE)?;
 		// Native dimensions are selected first to bound upstream decoder input.
-		let mut selected = false;
+		let mut choices = Vec::new();
 		for index in 0..256 {
 			let Ok(native) = reader.GetNativeMediaType(VIDEO, index) else {
 				break;
 			};
-			if native.GetUINT64(&MF_MT_FRAME_SIZE).ok() != Some(frame_size()) {
-				continue;
-			}
-			if reader.SetCurrentMediaType(VIDEO, None, &native).is_ok() {
-				selected = true;
-				break;
+			let size = native.GetUINT64(&MF_MT_FRAME_SIZE).unwrap_or(0);
+			let rate = native.GetUINT64(&MF_MT_FRAME_RATE).unwrap_or(0);
+			let fps = (rate >> 32) as f64 / (rate as u32) as f64;
+			if let Some(rank) = format::rank((size >> 32) as usize, (size as u32) as usize, fps) {
+				choices.push((rank, native));
 			}
 		}
-		if !selected {
+		choices.sort_by_key(|(rank, _)| *rank);
+		if !choices
+			.into_iter()
+			.any(|(_, native)| reader.SetCurrentMediaType(VIDEO, None, &native).is_ok())
+		{
 			return Err(
-				"The selected Windows camera does not offer a supported 640×480 capture mode",
+				"The selected Windows camera does not offer a supported capture mode up to 1280×720",
 			);
 		}
 		let output = MFCreateMediaType().map_err(|_| INVALID)?;
