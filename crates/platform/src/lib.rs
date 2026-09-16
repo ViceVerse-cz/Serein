@@ -41,7 +41,11 @@ pub enum CredentialError {
 pub(crate) fn ensure_gtk_application_id() {
 	static INIT: std::sync::Once = std::sync::Once::new();
 	INIT.call_once(|| {
+		use gtk4::gio::prelude::ApplicationExt;
 		let app = gtk4::gio::Application::new(Some(SERVICE), gtk4::gio::ApplicationFlags::empty());
+		if let Err(error) = app.register(gtk4::gio::Cancellable::NONE) {
+			eprintln!("Linux login/verification: GApplication registration failed: {error}");
+		}
 		std::mem::forget(app);
 	});
 }
