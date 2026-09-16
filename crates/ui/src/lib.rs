@@ -3522,10 +3522,6 @@ impl MessagingUi {
 			}
 		}
 		self.verification.show(&ctx, state);
-		self.voice_ptt_active = self.voice_push_to_talk
-			&& state.voice.active.is_some()
-			&& !state.demo
-			&& self.push_to_talk_down(&ctx);
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);
 		if !commands.is_empty() {

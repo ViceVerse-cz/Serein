@@ -26,10 +26,7 @@ pub struct Hotkeys {
 
 impl Hotkeys {
 	pub fn new() -> Self {
-		if cfg!(target_os = "linux")
-			&& std::env::var_os("WAYLAND_DISPLAY").is_some()
-			&& std::env::var_os("DISPLAY").is_none()
-		{
+		if cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some() {
 			return Self {
 				manager: None,
 				registered: [None; 3],
@@ -104,7 +101,7 @@ impl Hotkeys {
 		}
 		if failed {
 			self.status = INVALID;
-		} else if modifier_required && self.global_toggle_mask() == 0 {
+		} else if modifier_required {
 			self.status = MODIFIER_REQUIRED;
 		} else {
 			self.status = READY;
@@ -130,8 +127,8 @@ impl Hotkeys {
 					match (index, event.state()) {
 						(PUSH_TO_TALK, HotKeyState::Pressed) => self.ptt_down = true,
 						(PUSH_TO_TALK, HotKeyState::Released) => self.ptt_down = false,
-						(TOGGLE_MUTE, HotKeyState::Pressed) => self.pending_toggles |= 1,
-						(TOGGLE_DEAFEN, HotKeyState::Pressed) => self.pending_toggles |= 2,
+						(TOGGLE_MUTE, HotKeyState::Pressed) => self.pending_toggles ^= 1,
+						(TOGGLE_DEAFEN, HotKeyState::Pressed) => self.pending_toggles ^= 2,
 						_ => {}
 					}
 				}
