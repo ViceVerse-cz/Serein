@@ -5,6 +5,8 @@ mod channel_preferences;
 pub mod messaging_permissions;
 pub mod notification_preferences;
 pub mod notification_settings;
+pub mod keybinds;
+pub use keybinds::{KeybindAction, Keybinds, KeyChord};
 pub use channel_preferences::{ChannelPreferences, PreferenceEdit, Shortcut};
 pub mod forum;
 pub mod gifs;

@@ -28,6 +28,8 @@ pub struct AppPreferences {
 	pub voice_output: Option<String>,
 	pub input_percent: u16,
 	pub output_percent: u16,
+	/// Device-local, account-independent keyboard bindings.
+	pub keybinds: model::Keybinds,
 	/// Expanded server folders, bounded so one device preference stays small.
 	pub expanded_folders: Vec<u64>,
 }
@@ -47,6 +49,7 @@ impl Default for AppPreferences {
 			voice_output: None,
 			input_percent: 100,
 			output_percent: 100,
+			keybinds: Default::default(),
 			expanded_folders: Vec::new(),
 		}
 	}
@@ -56,6 +59,7 @@ impl AppPreferences {
 		self.input_percent <= 200
 			&& self.output_percent <= 200
 			&& self.expanded_folders.len() <= 256
+			&& self.keybinds.is_valid()
 			&& [&self.voice_input, &self.voice_output]
 				.into_iter()
 				.all(|value| value.as_ref().is_none_or(|value| value.len() <= 1024))

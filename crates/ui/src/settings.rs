@@ -162,8 +162,12 @@ impl MessagingUi {
 						.events
 						.iter()
 						.any(|event| matches!(event, egui::Event::Ime(_)))
-			}) && ctx
-			.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Slash))
+			}) && ctx.input_mut(|input| {
+				crate::keybinds::pressed(
+					input,
+					self.keybinds.chord(model::KeybindAction::ShowShortcuts),
+				)
+			})
 		{
 			self.settings.open = true;
 			self.settings.page = Page::Keybinds;
@@ -349,7 +353,12 @@ impl MessagingUi {
 									),
 									Page::Storage => self.storage_page(ui, state),
 									Page::Updates => self.update_settings(ui, state.demo),
-									Page::Keybinds => crate::keybinds::show(ui),
+								Page::Keybinds => crate::keybinds::show(
+									ui,
+										&mut self.keybinds,
+										&mut self.keybind_capture,
+										self.global_keybind_status,
+									),
 									Page::Extensions | Page::Themes => {
 										self.extensions
 											.select_themes(self.settings.page == Page::Themes);
@@ -361,6 +370,16 @@ impl MessagingUi {
 					});
 			});
 		if modal.should_close() {
+			self.settings.open = false;
+		}
+		if self.keybind_capture.is_none()
+			&& ctx.input_mut(|input| {
+				crate::keybinds::pressed_exact(
+					input,
+					self.keybinds.chord(model::KeybindAction::CloseOverlay),
+				)
+			})
+		{
 			self.settings.open = false;
 		}
 		if !self.settings.open {

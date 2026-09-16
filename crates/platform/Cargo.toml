@@ -6,10 +6,12 @@ license.workspace = true
 
 [dependencies]
 client-core.workspace = true
+model.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 notify-rust = { version = "=4.18.0", features = ["preview-macos-un"] }
 winit.workspace = true
+global-hotkey.workspace = true
 keyring.workspace = true
 url.workspace = true
 zeroize.workspace = true

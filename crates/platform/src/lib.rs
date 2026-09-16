@@ -2,6 +2,7 @@
 pub mod badge;
 pub mod captcha;
 pub mod game_activity;
+pub mod hotkeys;
 pub mod notifications;
 pub mod processes;
 pub mod save;
