@@ -142,6 +142,8 @@ pub struct ProfileGuild {
 #[derive(Clone)]
 pub struct GuildProfile {
 	pub guild: Id,
+	/// Role IDs assigned to this member in the selected server.
+	pub roles: Vec<Id>,
 	pub nick: Option<String>,
 	pub avatar: Option<String>,
 	pub banner: Option<String>,
@@ -185,6 +187,7 @@ impl UserProfile {
 				.sum::<usize>()
 			+ self.guild.as_ref().map_or(0, |g| {
 				size_of::<GuildProfile>()
+					+ g.roles.capacity() * size_of::<Id>()
 					+ bytes(&g.nick)
 					+ bytes(&g.avatar)
 					+ bytes(&g.banner)
@@ -230,6 +233,9 @@ impl UserProfile {
 				.all(|g| g.id.0 != 0 && g.nick.as_ref().is_none_or(|n| n.len() <= 512))
 			&& self.guild.as_ref().is_none_or(|g| {
 				g.guild.0 != 0
+					&& g.roles.len() <= crate::permissions::MAX_MEMBER_ROLES
+					&& g.roles.iter().all(|id| id.0 != 0)
+					&& g.roles.windows(2).all(|ids| ids[0] < ids[1])
 					&& g.nick.as_ref().is_none_or(|n| n.len() <= 512)
 					&& g.bio.len() <= 4096
 					&& g.pronouns.len() <= 256

@@ -402,6 +402,13 @@ impl State {
 	) -> (Option<&p::Role>, Option<&p::Role>) {
 		self.display_roles(guild, &member.roles)
 	}
+	/// Known roles for a server, retained in the service's hierarchy order.
+	pub fn guild_roles(&self, guild: Id) -> Option<&[p::Role]> {
+		self.permissions
+			.guilds
+			.get(&guild)
+			.and_then(|guild| guild.roles.as_deref())
+	}
 	pub fn message_author_color(&self, message: &model::Message) -> Option<u32> {
 		if message.author.webhook {
 			return None;
