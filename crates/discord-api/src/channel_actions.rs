@@ -267,6 +267,32 @@ impl DiscordApi {
 				.channel_notification_action(guild, channel, action)
 				.await;
 		}
+		if let Action::Move {
+			parent,
+			position,
+			lock_permissions,
+		} = action
+		{
+			let bytes = self
+				.request_limited(
+					Method::PATCH,
+					&format!("/guilds/{guild}/channels"),
+					Some(json!([{
+						"id": channel.to_string(),
+						"position": position,
+						"parent_id": parent.map(|id| id.to_string()),
+						"lock_permissions": lock_permissions,
+					}])),
+					64,
+				)
+				.await
+				.map_err(write_failure)?;
+			return if bytes.is_empty() {
+				Ok(Outcome::Moved)
+			} else {
+				Err(Failure::Ambiguous)
+			};
+		}
 		let path = format!("/channels/{channel}");
 		let bytes = self
 			.request_limited(Method::GET, &path, None, MAX_CHANNEL_BYTES)
@@ -964,6 +990,35 @@ mod tests {
 				.await
 				.is_err()
 		);
+	}
+	#[tokio::test]
+	async fn channel_move_uses_the_guild_position_route() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_CHANNEL_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = async {
+			let body = reply(
+				&listener,
+				"PATCH /guilds/2/channels HTTP/1.1",
+				204,
+				Value::Null,
+			)
+			.await;
+			assert_eq!(
+				body,
+				json!([{"id":"3","position":2,"parent_id":"4","lock_permissions":true}])
+			);
+		};
+		let action = Action::Move {
+			parent: Some(Id(4)),
+			position: 2,
+			lock_permissions: true,
+		};
+		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &action), server);
+		assert!(matches!(result, Ok(Outcome::Moved)));
 	}
 	#[test]
 	fn duplication_keeps_voice_and_forum_fields_and_rejects_missing_overwrites() {

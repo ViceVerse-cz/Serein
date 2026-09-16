@@ -90,6 +90,7 @@ impl MessagingUi {
 		state: &State,
 		channel: &model::Channel,
 		selected: bool,
+		draggable: bool,
 	) -> egui::Response {
 		let colors = design::palette(ui);
 		let call = state
@@ -106,7 +107,11 @@ impl MessagingUi {
 				ui.allocate_exact_size(
 					egui::vec2(ui.available_width(), 34.0),
 					if viewable {
-						egui::Sense::click()
+						if draggable {
+							egui::Sense::click_and_drag()
+						} else {
+							egui::Sense::click()
+						}
 					} else {
 						egui::Sense::hover()
 					},

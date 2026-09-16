@@ -104,6 +104,15 @@ settings and forum layout use service defaults; private access remains available
 through the existing channel Permissions editor. Coverage is synthetic; live
 normal-account creation remains unverified.
 
+Channel hierarchy reordering (September 16): accounts with known View Channel and
+Manage Channels permissions can drag guild channels and categories. Dropping on a
+channel changes its position within that parent; dropping on a category moves the
+channel into it and asks Discord to synchronize the category permission overwrites.
+The write uses the documented
+[Modify Guild Channel Positions](https://docs.discord.com/developers/resources/guild#modify-guild-channel-positions)
+route, then reconciles the final hierarchy from Channel Update gateway events.
+Coverage is synthetic; live normal-account reordering remains unverified.
+
 Category/channel permissions (September 14): Edit Category and Edit Channel expose
 Overview and Permissions for text, announcement, voice, stage, category, forum and
 media channels. Category/nontext overview edits rename only. Permission saves use

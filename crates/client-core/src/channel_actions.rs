@@ -90,10 +90,25 @@ pub enum Action {
 	PostPin(bool),
 	PostMute(Mute),
 	PostNotifications(u8),
-	Edit { before: Edit, after: Edit },
-	Duplicate { name: String },
-	Create { name: String, kind: CreateKind },
-	CreateCategory { name: String },
+	Edit {
+		before: Edit,
+		after: Edit,
+	},
+	Duplicate {
+		name: String,
+	},
+	Create {
+		name: String,
+		kind: CreateKind,
+	},
+	CreateCategory {
+		name: String,
+	},
+	Move {
+		parent: Option<Id>,
+		position: i32,
+		lock_permissions: bool,
+	},
 	Delete,
 	Mute(Mute),
 	Notifications(u8),
@@ -102,6 +117,9 @@ impl Action {
 	pub fn valid(&self) -> bool {
 		match self {
 			Self::Edit { before, after } => before.valid() && after.valid(),
+			Self::Move {
+				parent, position, ..
+			} => *position >= 0 && parent.is_none_or(|id| id.0 != 0),
 			Self::PostRename(name)
 			| Self::Duplicate { name }
 			| Self::Create { name, .. }
@@ -125,6 +143,7 @@ pub enum Outcome {
 		permissions: Option<model::permissions::Channel>,
 	},
 	Deleted,
+	Moved,
 	Preferences {
 		muted: Option<bool>,
 		level: Option<u8>,
@@ -215,6 +234,29 @@ impl State {
 	}
 	pub fn can_open_channel_settings(&self, channel: Id) -> bool {
 		self.can_manage_channel(channel)
+	}
+	fn channel_move_allowed(
+		&self,
+		channel: Id,
+		parent: Option<Id>,
+		lock_permissions: bool,
+	) -> bool {
+		let Some(source) = self.channel(channel) else {
+			return false;
+		};
+		if !self.can_manage_channel(channel) {
+			return false;
+		}
+		if source.kind == 4 {
+			return parent.is_none() && !lock_permissions;
+		}
+		let valid_parent = parent.is_none_or(|id| {
+			id != channel
+				&& self.channel(id).is_some_and(|target| {
+					target.kind == 4 && target.guild == source.guild && self.can_manage_channel(id)
+				})
+		});
+		valid_parent && lock_permissions == (source.parent_id != parent && parent.is_some())
 	}
 	pub fn can_edit_channel_permission(&self, channel: Id, bits: u128) -> bool {
 		if !self.can_manage_channel_permissions(channel) {
@@ -381,6 +423,11 @@ impl State {
 					Action::Edit { before, after } => {
 						self.channel_edit_allowed(channel, before, after)
 					}
+					Action::Move {
+						parent,
+						lock_permissions,
+						..
+					} => self.channel_move_allowed(channel, *parent, *lock_permissions),
 					_ => self.can_manage_channel(channel),
 				}) {
 			self.channel_actions.status =
@@ -611,6 +658,7 @@ impl State {
 							}
 					}
 					(Action::Delete, Outcome::Deleted) => true,
+					(Action::Move { .. }, Outcome::Moved) => true,
 					(Action::Mute(mute), Outcome::Preferences { muted, .. }) => {
 						*muted == Some(*mute != Mute::Unmute)
 					}
@@ -787,6 +835,28 @@ impl State {
 					});
 				}
 				"Channel deleted"
+			}
+			Ok(Outcome::Moved) => {
+				if !observed
+					&& let Action::Move {
+						parent, position, ..
+					} = action
+				{
+					self.apply(crate::Envelope {
+						generation: self.generation,
+						event: crate::Event::ChannelChanged(model::ChannelPatch {
+							id: channel,
+							name: Patch::Absent,
+							icon: Patch::Absent,
+							last_message: Patch::Absent,
+							parent_id: parent.map_or(Patch::Null, Patch::Value),
+							position: Patch::Value(position),
+							kind: Patch::Absent,
+							message_count: Patch::Absent,
+						}),
+					});
+				}
+				"Channel moved"
 			}
 			Ok(Outcome::Preferences {
 				muted,
@@ -1181,6 +1251,33 @@ mod tests {
 				.request_channel_action(Id(3), Action::Delete)
 				.is_none()
 		);
+	}
+	#[test]
+	fn channel_moves_require_a_manageable_category_and_apply_the_confirmed_position() {
+		let mut state = state();
+		let mut category = state.channels[0].clone();
+		category.id = Id(4);
+		category.kind = 4;
+		category.name = "projects".into();
+		state.channels.push(category);
+		state.permissions.channels.insert(
+			Id(4),
+			model::permissions::Channel {
+				id: Id(4),
+				guild: Id(2),
+				overwrites: Some(vec![]),
+			},
+		);
+		state.permissions.clear_cache();
+		let action = Action::Move {
+			parent: Some(Id(4)),
+			position: 2,
+			lock_permissions: true,
+		};
+		let command = state.request_channel_action(Id(3), action).unwrap();
+		finish(&mut state, command, Ok(Outcome::Moved));
+		assert_eq!(state.channel(Id(3)).unwrap().parent_id, Some(Id(4)));
+		assert_eq!(state.channel(Id(3)).unwrap().position, 2);
 	}
 	#[test]
 	fn delete_ack_after_rename_removes_channel_but_late_edit_does_not_resurrect_it() {

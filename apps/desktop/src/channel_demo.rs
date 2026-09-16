@@ -18,6 +18,7 @@ pub fn execute(
 		.channel(channel)
 		.ok_or(Failure::Forbidden)
 		.map(|source| match action {
+			Action::Move { .. } => Outcome::Moved,
 			Action::Load => {
 				Outcome::Details(state.channel_details(channel).cloned().unwrap_or_else(|| {
 					Edit {

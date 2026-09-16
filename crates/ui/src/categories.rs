@@ -38,6 +38,59 @@ struct CacheKey {
 	hide_muted: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ChannelDrag(Id);
+
+#[derive(Clone, Copy)]
+struct DropRow {
+	id: Id,
+	kind: u8,
+	parent: Option<Id>,
+	position: i32,
+	rect: egui::Rect,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ChannelMove {
+	parent: Option<Id>,
+	position: i32,
+	lock_permissions: bool,
+}
+
+fn drop_move(source: &Channel, target: DropRow, pointer_y: f32) -> Option<ChannelMove> {
+	if source.id == target.id || matches!(source.kind, 10..=12) {
+		return None;
+	}
+	if target.kind == 4 {
+		if source.kind != 4 && pointer_y >= target.rect.top() + 8.0 {
+			return Some(ChannelMove {
+				parent: Some(target.id),
+				position: 0,
+				lock_permissions: source.parent_id != Some(target.id),
+			});
+		}
+		if source.kind != 4 {
+			return source.parent_id.is_some().then_some(ChannelMove {
+				parent: None,
+				position: 0,
+				lock_permissions: false,
+			});
+		}
+	} else if source.kind == 4 || matches!(target.kind, 10..=12) {
+		return None;
+	}
+	let after = pointer_y >= target.rect.center().y;
+	let mut position = target.position + i32::from(after);
+	if source.parent_id == target.parent && source.position < target.position {
+		position -= 1;
+	}
+	Some(ChannelMove {
+		parent: target.parent,
+		position: position.max(0),
+		lock_permissions: source.parent_id != target.parent && target.parent.is_some(),
+	})
+}
+
 #[derive(Default)]
 pub(super) struct Cache {
 	key: Option<CacheKey>,
@@ -160,13 +213,18 @@ fn category_header(
 	count: usize,
 	collapsed: bool,
 	row_height: f32,
+	draggable: bool,
 ) -> egui::Response {
 	let colors = design::palette(ui);
 	let (rect, response) = ui
 		.push_id(id, |ui| {
 			ui.allocate_exact_size(
 				egui::vec2(ui.available_width(), row_height),
-				egui::Sense::click(),
+				if draggable {
+					egui::Sense::click_and_drag()
+				} else {
+					egui::Sense::click()
+				},
 			)
 		})
 		.inner;
@@ -392,6 +450,7 @@ impl MessagingUi {
 		let row_count = self.channel_cache.rows.len().max(usize::from(dm_list));
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
+		let mut drop_rows = Vec::new();
 		let output = self
 			.scroll
 			.attach(
@@ -427,6 +486,8 @@ impl MessagingUi {
 						}
 						CachedRow::Category(category, count) => {
 							let category = &state.channels[category];
+							let draggable = !state.channel_action_pending()
+								&& state.can_manage_channel(category.id);
 							let collapsed = self.collapsed_categories.contains(&category.id);
 							let response = category_header(
 								ui,
@@ -435,7 +496,20 @@ impl MessagingUi {
 								count,
 								collapsed,
 								row_height,
+								draggable,
 							);
+							if draggable && response.drag_started_by(egui::PointerButton::Primary) {
+								response.dnd_set_drag_payload(ChannelDrag(category.id));
+							}
+							if draggable {
+								drop_rows.push(DropRow {
+									id: category.id,
+									kind: category.kind,
+									parent: category.parent_id,
+									position: category.position,
+									rect: response.rect,
+								});
+							}
 							if response.clicked() {
 								self.channel_cache.key = None;
 								if collapsed {
@@ -453,13 +527,32 @@ impl MessagingUi {
 						}
 						CachedRow::Channel(channel, slot, nested) => {
 							let channel = &state.channels[channel];
+							let draggable = slot == Slot::Tree
+								&& !nested && !state.channel_action_pending()
+								&& state.can_manage_channel(channel.id);
 							let active = state.selected == Some(channel.id);
 							if channel.kind == 2 {
 								let response = ui
 									.push_id(slot, |ui| {
-										self.voice_channel_button(ui, state, channel, active)
+										self.voice_channel_button(
+											ui, state, channel, active, draggable,
+										)
 									})
 									.inner;
+								if draggable
+									&& response.drag_started_by(egui::PointerButton::Primary)
+								{
+									response.dnd_set_drag_payload(ChannelDrag(channel.id));
+								}
+								if slot == Slot::Tree && !nested {
+									drop_rows.push(DropRow {
+										id: channel.id,
+										kind: channel.kind,
+										parent: channel.parent_id,
+										position: channel.position,
+										rect: response.rect,
+									});
+								}
 								self.channel_menu.context(
 									&response,
 									state,
@@ -504,7 +597,11 @@ impl MessagingUi {
 									ui.allocate_exact_size(
 										egui::vec2(ui.available_width(), row_height),
 										if enabled || channel.guild.is_some() {
-											egui::Sense::click()
+											if draggable {
+												egui::Sense::click_and_drag()
+											} else {
+												egui::Sense::click()
+											}
 										} else {
 											egui::Sense::hover()
 										},
@@ -512,6 +609,18 @@ impl MessagingUi {
 								})
 								.inner;
 							let row = rect.shrink2(egui::vec2(0.0, 1.0));
+							if draggable && response.drag_started_by(egui::PointerButton::Primary) {
+								response.dnd_set_drag_payload(ChannelDrag(channel.id));
+							}
+							if slot == Slot::Tree && !nested {
+								drop_rows.push(DropRow {
+									id: channel.id,
+									kind: channel.kind,
+									parent: channel.parent_id,
+									position: channel.position,
+									rect,
+								});
+							}
 							let hovered = enabled && (response.hovered() || response.has_focus());
 							if active {
 								ui.painter().rect_filled(row, 8, colors.selected);
@@ -765,6 +874,61 @@ impl MessagingUi {
 					}
 				}
 			});
+		if let Some(source) = egui::DragAndDrop::payload::<ChannelDrag>(ui.ctx())
+			&& let Some(pointer) = ui.ctx().pointer_hover_pos()
+			&& output.inner_rect.contains(pointer)
+			&& let Some(channel) = state.channel(source.0)
+			&& let Some(target) = drop_rows
+				.iter()
+				.copied()
+				.find(|row| pointer.y >= row.rect.top() && pointer.y <= row.rect.bottom())
+			&& let Some(change) = drop_move(channel, target, pointer.y)
+		{
+			ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+			if target.kind == 4 && change.parent == Some(target.id) {
+				ui.painter().rect_stroke(
+					target.rect.shrink(1.0),
+					6,
+					(2.0, colors.positive),
+					egui::StrokeKind::Inside,
+				);
+			} else {
+				let y = if pointer.y < target.rect.center().y {
+					target.rect.top()
+				} else {
+					target.rect.bottom()
+				};
+				ui.painter()
+					.hline(target.rect.x_range(), y, (3.0, colors.positive));
+			}
+			if ui.input(|input| input.pointer.any_released()) {
+				egui::DragAndDrop::take_payload::<ChannelDrag>(ui.ctx());
+				self.channel_move = Some((
+					source.0,
+					client_core::channel_actions::Action::Move {
+						parent: change.parent,
+						position: change.position,
+						lock_permissions: change.lock_permissions,
+					},
+				));
+			}
+		}
+		if egui::DragAndDrop::payload::<ChannelDrag>(ui.ctx()).is_some()
+			&& let Some(pointer) = ui.ctx().pointer_hover_pos()
+		{
+			let direction = if pointer.y < output.inner_rect.top() + 28.0 {
+				1.0
+			} else if pointer.y > output.inner_rect.bottom() - 28.0 {
+				-1.0
+			} else {
+				0.0
+			};
+			if direction != 0.0 {
+				ui.scroll_with_delta(egui::vec2(0.0, direction * 8.0));
+				ui.ctx()
+					.request_repaint_after(std::time::Duration::from_millis(16));
+			}
+		}
 		if let Some(guild) = self.guild {
 			let content_bottom =
 				output.inner_rect.top() - output.state.offset.y + output.content_size.y;
@@ -966,6 +1130,27 @@ mod tests {
 			message_count: None,
 			icon: None,
 		}
+	}
+	#[test]
+	fn channel_drop_reorders_and_syncs_new_category_permissions() {
+		let source = channel(1, 0, 1, Some(Id(10)));
+		let target = DropRow {
+			id: Id(2),
+			kind: 0,
+			parent: Some(Id(20)),
+			position: 3,
+			rect: egui::Rect::from_min_max(egui::pos2(0.0, 10.0), egui::pos2(100.0, 30.0)),
+		};
+		assert_eq!(
+			drop_move(&source, target, 29.0),
+			Some(ChannelMove {
+				parent: Some(Id(20)),
+				position: 4,
+				lock_permissions: true,
+			})
+		);
+		let same_parent = channel(1, 0, 1, Some(Id(20)));
+		assert_eq!(drop_move(&same_parent, target, 11.0).unwrap().position, 2);
 	}
 	#[test]
 	fn hidden_channels_are_opt_in() {

@@ -134,6 +134,7 @@ pub struct MessagingUi {
 	member_count: usize,
 	composer_layout: composer_text::Layout,
 	channel_cache: categories::Cache,
+	channel_move: Option<(Id, client_core::channel_actions::Action)>,
 	hidden_muted_guilds: std::collections::BTreeSet<Id>,
 	search: search::SearchUi,
 	settings: settings::Settings,
@@ -1146,6 +1147,11 @@ impl MessagingUi {
 					}
 				}
 				let select = self.channel_list(ui, state);
+				if let Some((channel, action)) = self.channel_move.take()
+					&& let Some(command) = state.request_channel_action(channel, action)
+				{
+					commands.push(command);
+				}
 				if let Some(id) = select
 					&& let Some(command) = state.select(id)
 				{
