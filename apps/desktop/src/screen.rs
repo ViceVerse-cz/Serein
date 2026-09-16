@@ -16,6 +16,14 @@ use zeroize::Zeroizing;
 
 const SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Names why a share ended, under the same opt-in variable as the voice reports. A share
+/// that stops by itself otherwise leaves only the latest status, which the stop overwrites.
+fn note(event: &str, reason: &str) {
+	if std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|value| value == "1") {
+		eprintln!("[Serein voice Screen] {event}={reason}");
+	}
+}
+
 pub(super) struct Call<'a> {
 	pub generation: u64,
 	pub channel: Id,
@@ -103,6 +111,7 @@ impl Screen {
 	}
 
 	fn request_stop(&mut self, message: &'static str) {
+		note("share_stopped", message);
 		let Some(context) = self.context() else {
 			self.status = message;
 			return;
@@ -499,8 +508,12 @@ impl Screen {
 				Ok(())
 			})
 			.await;
-			if let Err(error) = result {
-				send.send_replace(Some(Notice::Failed(error)));
+			match result {
+				Ok(()) => note("stream_transport_stopped", "ok"),
+				Err(error) => {
+					note("stream_transport_stopped", error);
+					send.send_replace(Some(Notice::Failed(error)));
+				}
 			}
 			wake.request_repaint();
 		});

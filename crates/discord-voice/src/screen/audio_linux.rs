@@ -23,7 +23,9 @@ const FRAME_SAMPLES: usize = 960; // 10 ms, stereo 48 kHz.
 const TICK: Duration = Duration::from_millis(10);
 /// PipeWire's PulseAudio layer reports sink-input changes continuously. Acting on each one
 /// restarts the enumerate/verify handshake, so wait for the roster to be quiet this long.
-const SETTLE: Duration = Duration::from_millis(250);
+/// It must exceed one full handshake: enumerate, attach, wait for every monitor to connect,
+/// then enumerate again to confirm no index was reused. A shorter wait restarts it forever.
+const SETTLE: Duration = Duration::from_millis(1000);
 const TIMEOUT: Duration = Duration::from_secs(3);
 
 pub(super) struct Worker {
@@ -749,7 +751,9 @@ fn run(
 					revision.set(revision.get().wrapping_add(1));
 					continue;
 				}
-				if captures.iter().any(|v| v.state() != pulse::PA_STREAM_READY) {
+				if captures.iter().all(|v| v.state() == pulse::PA_STREAM_READY) {
+					metrics.capture(crate::diagnostics::Capture::Ready, captures.len() as u64);
+				} else {
 					if connecting.elapsed() > TIMEOUT {
 						return Err(UNAVAILABLE);
 					}

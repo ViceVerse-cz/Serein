@@ -552,9 +552,16 @@ exposed a PulseAudio stream with `application.process.id` and
 `app_captures` rising while `app_chunks` stays zero means captures start but the
 enumerate/verify handshake never completes, which `resets` confirms when it matches `wakes`.
 
-The screen capture worker also prints `[Serein voice Screen] capture_stopped=…` once when
-it finishes, naming the reason, because the share status only shows the most recent message
-and a later stop overwrites it.
+`app_ready` counts captures whose monitors all connected, the step before the confirming
+enumeration; `app_captures` rising while `app_ready` stays zero means the monitors never
+connect, and both rising while `app_chunks` stays zero means the confirmation keeps
+restarting.
+
+Three lines name why a share ended, because the status only shows the most recent message
+and a later stop overwrites it: `[Serein voice Screen] capture_stopped=…` from the capture
+worker, `stream_transport_stopped=…` from its RTC connection, and `share_stopped=…` for the
+message the desktop finally acted on. Read them in that order; the first is the cause and
+the others usually follow from it.
 
 Reading a freeze: `packets` rising with `pictures` at zero and `picture_gap_ms` growing
 confirms the viewer is starved, not the display. High `incomplete` with `gated` and
