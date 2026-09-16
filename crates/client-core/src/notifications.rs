@@ -430,6 +430,7 @@ impl State {
 	fn notification_allowed_for(&self, channel: Id, mention: bool) -> bool {
 		if !self.gateway_connected
 			|| !self.can_view(channel)
+			|| !self.notification_preferences_known()
 			|| self.notification_preferences.dnd == Some(true)
 		{
 			return false;
