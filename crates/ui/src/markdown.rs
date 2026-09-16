@@ -846,7 +846,9 @@ impl Formatted {
 					}
 					if let Some(id) = self.spans[start].1.channel {
 						if let Some(target) = channels.iter().find(|target| {
-							target.id == id && target.guild.is_some() && target.supports_text()
+							target.id == id
+								&& target.guild.is_some()
+								&& matches!(target.kind, 0 | 5 | 10..=12)
 						}) {
 							let label = format!("#{}", target.name);
 							let response = ui

@@ -255,8 +255,7 @@ impl Menu {
 				.filter(|c| {
 					guild.is_some()
 						&& c.guild == guild
-						&& c.supports_text()
-						&& !matches!(c.kind, 1 | 3)
+						&& matches!(c.kind, 0 | 5 | 10..=12)
 				})
 				.filter_map(|c| {
 					rank(&query, &c.name, c.id).map(|r| {
