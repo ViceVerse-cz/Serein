@@ -294,6 +294,17 @@ impl Receivers {
 	pub fn awaiting(&self) -> bool {
 		!self.awaiting_keyframe.is_empty()
 	}
+	/// Whether any video source has been announced for this connection.
+	pub fn has_sources(&self) -> bool {
+		!self.sources.is_empty()
+	}
+	/// Ask every announced sender for a keyframe. Used when video stops without the
+	/// depacketizer seeing loss, which no per-picture signal would ever reveal.
+	pub fn require_all_keyframes(&mut self) {
+		for index in 0..self.sources.len() {
+			self.require_keyframe(self.sources[index].1);
+		}
+	}
 	/// Drains the depacketizer counters.
 	pub fn take_stats(&mut self) -> ReceiveStats {
 		std::mem::take(&mut self.stats)
@@ -540,6 +551,28 @@ fn bounded(width: usize, height: usize) -> Result<(u32, u32), ()> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn a_silent_stall_can_request_keyframes_without_observed_loss() {
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		receivers.announce(8, 800).unwrap();
+		// A clean keyframe from each sender leaves nothing owed.
+		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+		assert!(receivers.accept(7, true));
+		assert!(receivers.push(800, 1, 900, true, &[0x65, 1]).is_some());
+		assert!(receivers.accept(8, true));
+		assert!(!receivers.awaiting());
+		assert_eq!(receivers.take_stats().incomplete, 0);
+		// Video simply stops: no loss is observed, so only the stall path recovers it.
+		assert!(receivers.has_sources());
+		receivers.require_all_keyframes();
+		assert!(receivers.awaiting());
+		assert_eq!(
+			receivers.keyframe_requests().collect::<Vec<_>>(),
+			vec![700, 800]
+		);
+	}
+
 	#[test]
 	fn parameter_set_detection_needs_both_sps_and_pps() {
 		assert!(has_parameter_sets(&[

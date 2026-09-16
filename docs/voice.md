@@ -497,6 +497,26 @@ between the UDP socket and the display, so a frozen viewer is diagnosed from one
 - `pictures`: decoded pictures delivered to the display sink.
 - `picture_gap_ms`: the longest gap between delivered pictures in the window (a
   maximum, not a sum). Zero until the first picture is delivered.
+- `stall_ticks`: ticks where a source was announced but no picture had arrived for a
+  second. Each of those ticks asks every announced sender for a keyframe.
+
+A `signal:` group appears on the same lines whenever any signaling counter is non-zero.
+It records opcodes only, never their contents, so a handshake that never completes names
+its own missing step: `text` and `binary` count all received events, `other` counts text
+opcodes without a dedicated slot, and `ready` (2), `session` (4), `clients` (11),
+`sender` (12), `prepare_transition` (21), `execute_transition` (22), `prepare_epoch` (24),
+`external_sender` (binary 25), `proposals` (binary 27) and `commit` (binary 29/30) count
+the negotiation. Outbound messages are `key_package_sent`, `transition_ready_sent` (23),
+`subscribe_sent` (12) and `sink_wants_sent` (15). Only `execute_transition` makes DAVE
+ready, so a stream that reports a transport key with `dave_ready=0` and no
+`execute_transition` stalled in the MLS handshake rather than in media.
+
+Two recovery paths depend on these counters. A viewer refreshes its video sink wants
+every five seconds, and every second while stalled, because Discord stops forwarding
+video when that subscription lapses. Separately, video that stops cleanly leaves nothing
+marked lost, so no per-picture signal would ever request recovery; after a second without
+a decoded picture every announced sender is asked for a keyframe until one arrives.
+Both are visible as `sink_wants_sent`, `stall_ticks` and `pli_sent`.
 
 Reading a freeze: `packets` rising with `pictures` at zero and `picture_gap_ms` growing
 confirms the viewer is starved, not the display. High `incomplete` with `gated` and
