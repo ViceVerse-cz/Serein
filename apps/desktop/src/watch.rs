@@ -115,7 +115,9 @@ impl Watch {
 					}
 				}
 			}
-			screen::Event::Deleted => self.ended = Some("The stream ended"),
+			screen::Event::Deleted { reason } => {
+				self.ended = Some(reason.unwrap_or("The stream ended"));
+			}
 			screen::Event::Failed(message) => self.ended = Some(message),
 		}
 	}

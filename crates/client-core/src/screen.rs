@@ -56,7 +56,10 @@ pub enum Event {
 		token: Option<voice::Secret>,
 		endpoint: Option<String>,
 	},
-	Deleted,
+	/// The stream is gone. `reason` names Discord's cause when it sent one we recognise.
+	Deleted {
+		reason: Option<&'static str>,
+	},
 	Failed(&'static str),
 }
 impl Event {

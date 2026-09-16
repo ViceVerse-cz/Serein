@@ -619,6 +619,7 @@ fn run(
 	epoch: &AtomicU64,
 ) -> Result<(), &'static str> {
 	let own = OwnApplication::current()?;
+	let mut metrics = crate::diagnostics::Metrics::new(crate::diagnostics::Scope::ScreenAudio);
 	let mut native = Native::new()?;
 	let mut listing: Option<Enumeration> = None;
 	let mut captures: Vec<Capture> = Vec::new();
@@ -663,6 +664,7 @@ fn run(
 			|| current_epoch != active_epoch
 			|| revision.get() != active_revision
 		{
+			metrics.poll(true, 0, false, 0);
 			captures.clear();
 			expected.clear();
 			verified = false;
@@ -683,6 +685,8 @@ fn run(
 					.into_iter()
 					.filter(|input| !excluded.contains(input))
 					.collect();
+				metrics.add(crate::diagnostics::Stage::CaptureRestart, Duration::ZERO);
+				metrics.capture(crate::diagnostics::Capture::Inputs, inputs.len() as u64);
 				if verifying {
 					// Re-check after native attachment: indices may have been removed/reused.
 					verified = inputs == expected;
@@ -698,10 +702,14 @@ fn run(
 					for input in inputs {
 						match Capture::start(&native, input.clone(), active_epoch) {
 							Ok(capture) => {
+								metrics.capture(crate::diagnostics::Capture::Started, 1);
 								captures.push(capture);
 								expected.push(input);
 							}
-							Err(_) => exclude(&mut excluded, input),
+							Err(_) => {
+								metrics.capture(crate::diagnostics::Capture::Excluded, 1);
+								exclude(&mut excluded, input);
+							}
 						}
 					}
 					connecting = Instant::now();
@@ -720,6 +728,7 @@ fn run(
 						pulse::PA_STREAM_FAILED | pulse::PA_STREAM_TERMINATED
 					)
 				}) {
+					metrics.capture(crate::diagnostics::Capture::Excluded, 1);
 					exclude(&mut excluded, capture.input.clone());
 					revision.set(revision.get().wrapping_add(1));
 					continue;
@@ -737,6 +746,7 @@ fn run(
 			continue;
 		}
 		let stalled = last_tick.elapsed() >= Duration::from_millis(100);
+		metrics.poll(false, 0, stalled, 0);
 		last_tick = if stalled {
 			Instant::now()
 		} else {
@@ -745,11 +755,14 @@ fn run(
 		let mut mixed = [0.0; FRAME_SAMPLES];
 		for capture in &mut captures {
 			if capture.state() != pulse::PA_STREAM_READY {
+				metrics.capture(crate::diagnostics::Capture::Excluded, 1);
 				exclude(&mut excluded, capture.input.clone());
 				revision.set(revision.get().wrapping_add(1));
 				break;
 			}
+			let start = metrics.start();
 			capture.read()?;
+			metrics.finish(crate::diagnostics::Stage::CaptureRead, start);
 			if stalled {
 				capture.pending.samples.clear();
 			}
@@ -765,6 +778,8 @@ fn run(
 				samples: mixed.into_iter().map(|v| v.clamp(-1.0, 1.0)).collect(),
 				epoch: active_epoch,
 			});
+			metrics.add(crate::diagnostics::Stage::CaptureQueue, Duration::ZERO);
+			metrics.capture(crate::diagnostics::Capture::Chunks, 1);
 		}
 	}
 	Ok(())

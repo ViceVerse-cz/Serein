@@ -530,7 +530,10 @@ impl Calls {
 				)?;
 			}
 			"STREAM_DELETE" => {
-				self.emit_watch(screen::Event::Deleted, emit)?;
+				let reason = decode::<stream::Deleted>(data)
+					.ok()
+					.and_then(|deleted| deletion_reason(deleted.reason.as_deref()));
+				self.emit_watch(screen::Event::Deleted { reason }, emit)?;
 				self.watch = None;
 			}
 			_ => {}
@@ -646,18 +649,19 @@ impl Calls {
 				)?;
 			}
 			"STREAM_DELETE" => {
-				if decode::<stream::Deleted>(data).is_err() {
+				let Ok(deleted) = decode::<stream::Deleted>(data) else {
 					return self.emit_stream(
 						screen::Event::Failed("Discord sent invalid screen-share deletion"),
 						emit,
 					);
-				}
+				};
+				let reason = deletion_reason(deleted.reason.as_deref());
 				let stream = self.stream.take().unwrap();
 				emit(Event::Voice(voice::Event::Stream {
 					channel: stream.channel,
 					request: stream.request,
 					stream_request: stream.stream_request,
-					event: screen::Event::Deleted,
+					event: screen::Event::Deleted { reason },
 				}))?;
 			}
 			_ => {}
@@ -841,8 +845,48 @@ fn participant(state: &VoiceStateDto) -> Participant {
 	}
 }
 
+/// Maps Discord's STREAM_DELETE `reason` to a user-facing message. Unknown values still
+/// tell the user Discord ended it, so a silent stop is never mistaken for a local one. With
+/// `SEREIN_VOICE_DIAGNOSTICS=1` the bounded raw value also reaches stderr for reports.
+fn deletion_reason(raw: Option<&str>) -> Option<&'static str> {
+	let raw = raw?;
+	if raw.len() > 64 {
+		return Some("Discord ended the stream");
+	}
+	if std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|v| v == "1") {
+		eprintln!("[Serein voice Stream] discord_delete_reason={raw}");
+	}
+	Some(match raw {
+		"user_requested" => return None,
+		"stream_ended" => "Discord reported the stream as ended",
+		"stream_full" => "Discord reported the stream as full",
+		"unauthorized" => "Discord refused the stream: not authorized",
+		"safety_guidelines_violated" => "Discord ended the stream for a safety guideline",
+		"session_terminated" => "Discord terminated the stream session",
+		_ => "Discord ended the stream",
+	})
+}
+
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn deletion_reasons_map_to_messages_and_user_requests_stay_silent() {
+		assert_eq!(deletion_reason(None), None);
+		assert_eq!(deletion_reason(Some("user_requested")), None);
+		assert_eq!(
+			deletion_reason(Some("stream_ended")),
+			Some("Discord reported the stream as ended")
+		);
+		assert_eq!(
+			deletion_reason(Some("something_new")),
+			Some("Discord ended the stream")
+		);
+		assert_eq!(
+			deletion_reason(Some(&"x".repeat(65))),
+			Some("Discord ended the stream")
+		);
+	}
+
 	use super::*;
 	use std::sync::Mutex;
 	#[test]
@@ -1506,7 +1550,7 @@ mod tests {
 		assert!(matches!(
 			&events.lock().unwrap()[3],
 			Event::Voice(voice::Event::Stream {
-				event: screen::Event::Deleted,
+				event: screen::Event::Deleted { reason: None },
 				..
 			})
 		));

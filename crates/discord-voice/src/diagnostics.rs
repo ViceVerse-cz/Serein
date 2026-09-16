@@ -11,7 +11,7 @@ pub(crate) enum Scope {
 	Transport,
 	StreamSend,
 	StreamReceive,
-	#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+	#[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
 	ScreenAudio,
 }
 
@@ -25,11 +25,11 @@ pub(crate) enum Stage {
 	Receive,
 	VideoSend,
 	VideoReceive,
-	#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+	#[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
 	CaptureRead,
-	#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+	#[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
 	CaptureQueue,
-	#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+	#[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
 	CaptureRestart,
 }
 
@@ -117,6 +117,20 @@ pub(crate) enum Signal {
 }
 const SIGNAL_SLOTS: usize = 17;
 
+/// Linux application-audio capture counters, reported under `Scope::ScreenAudio`.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) enum Capture {
+	/// Applications the enumeration allowed (after excluding this client).
+	Inputs,
+	/// Monitor captures started.
+	Started,
+	/// Applications excluded after their capture failed.
+	Excluded,
+	/// Mixed 20 ms chunks handed to the stream.
+	Chunks,
+}
+
 #[derive(Clone, Copy)]
 struct Report {
 	scope: Scope,
@@ -124,6 +138,9 @@ struct Report {
 	window_ms: u64,
 	video: [u64; VIDEO_SLOTS],
 	signal: [u64; SIGNAL_SLOTS],
+	/// Application-audio capture (Linux): inputs allowed, captures started, applications
+	/// excluded after a failure, and mixed 20 ms chunks handed to the stream.
+	capture: [u64; 4],
 	// Each stage: calls, total elapsed microseconds, maximum elapsed microseconds.
 	stages: [[u64; 3]; 11],
 	wakes: u64,
@@ -181,6 +198,7 @@ impl Metrics {
 				window_ms: 0,
 				video: [0; VIDEO_SLOTS],
 				signal: [0; SIGNAL_SLOTS],
+				capture: [0; 4],
 				stages: [[0; 3]; 11],
 				wakes: 0,
 				resets: 0,
@@ -233,6 +251,16 @@ impl Metrics {
 		*slot = (*slot).max(value);
 	}
 
+	/// Adds to one application-audio capture counter; ignored while diagnostics are off.
+	#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+	pub fn capture(&mut self, event: Capture, count: u64) {
+		if self.send.is_none() {
+			return;
+		}
+		let slot = &mut self.report.capture[event as usize];
+		*slot = slot.saturating_add(count);
+	}
+
 	/// Adds to one signaling counter; ignored while diagnostics are off.
 	pub fn signal(&mut self, event: Signal, count: u64) {
 		if self.send.is_none() {
@@ -273,7 +301,7 @@ impl Metrics {
 	}
 
 	/// Queue the current aggregates before a potentially blocking native operation.
-	#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+	#[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
 	pub fn checkpoint(&mut self) {
 		self.flush();
 	}
@@ -296,6 +324,7 @@ impl Metrics {
 		self.report.queued_audio = 0;
 		self.report.video = [0; VIDEO_SLOTS];
 		self.report.signal = [0; SIGNAL_SLOTS];
+		self.report.capture = [0; 4];
 	}
 }
 
@@ -390,8 +419,9 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 		));
 	}
 	if matches!(report.scope, Scope::ScreenAudio) {
+		let [inputs, started, excluded, chunks] = report.capture;
 		line.push_str(&format!(
-			" capture_read={:?} capture_queue={:?} capture_restart={:?}",
+			" capture_read={:?} capture_queue={:?} capture_restart={:?} app_inputs={inputs} app_captures={started} app_excluded={excluded} app_chunks={chunks}",
 			report.stages[8], report.stages[9], report.stages[10],
 		));
 	}
@@ -416,6 +446,7 @@ mod tests {
 			window_ms: 5000,
 			video: [0; VIDEO_SLOTS],
 			signal: [0; SIGNAL_SLOTS],
+			capture: [0; 4],
 			stages: [[0; 3]; 11],
 			wakes: 0,
 			resets: 0,

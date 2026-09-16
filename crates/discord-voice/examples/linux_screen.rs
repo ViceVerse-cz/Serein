@@ -34,6 +34,10 @@ mod video_receive;
 #[cfg(unix)]
 #[path = "../src/video_encode.rs"]
 mod video_encode;
+// The application-audio worker reports its capture counters through the shared reporter.
+#[cfg(unix)]
+#[path = "../src/diagnostics.rs"]
+mod diagnostics;
 
 #[cfg(unix)]
 fn main() {

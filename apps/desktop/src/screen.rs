@@ -178,11 +178,12 @@ impl Screen {
 				};
 				pending.server = Some((token, endpoint));
 			}
-			screen::Event::Deleted => {
+			screen::Event::Deleted { reason } => {
 				self.pending = None;
 				self.retire_live();
 				self.closing = None;
-				self.status = "Screen sharing stopped";
+				// A server-side end names its cause, so it is never mistaken for a local stop.
+				self.status = reason.unwrap_or("Screen sharing stopped");
 			}
 			screen::Event::Failed(message) => self.request_stop(message),
 		}

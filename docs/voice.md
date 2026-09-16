@@ -533,6 +533,23 @@ marked lost, so no per-picture signal would ever request recovery; after a secon
 a decoded picture every announced sender is asked for a keyframe until one arrives.
 Both are visible as `sink_wants_sent`, `stall_ticks` and `pli_sent`.
 
+When Discord itself ends a stream, its `STREAM_DELETE` carries a `reason`. Both the
+sharer's status and the viewer's notice now show a message derived from it (for example
+"Discord reported the stream as ended") instead of the same text a local stop shows, and
+an unrecognised value still reads "Discord ended the stream". A `user_requested` deletion
+stays silent because it is the local stop acknowledging. With the diagnostics variable set,
+the bounded raw value is also printed as `[Serein voice Stream] discord_delete_reason=…`.
+
+Linux application audio reports under `ScreenAudio` as well: `capture_restart` counts
+completed application enumerations, `capture_read` monitor reads, `capture_queue` chunks
+handed to the stream, `resets` epoch or roster resets, `stalls` 100 ms stalls, and
+`app_inputs`, `app_captures`, `app_excluded`, `app_chunks` count the applications the
+enumeration allowed, monitor captures started, applications excluded after a failed
+capture, and mixed chunks sent. `app_inputs=0` across a share means no other application
+exposed a PulseAudio stream with `application.process.id` and
+`application.process.binary`, so there was nothing to capture; `app_excluded` rising with
+`app_captures` means the server refuses the isolated monitor for that application.
+
 Reading a freeze: `packets` rising with `pictures` at zero and `picture_gap_ms` growing
 confirms the viewer is starved, not the display. High `incomplete` with `gated` and
 `awaiting_ticks` near the full window and `pli_sent` rising but `keyframes` at zero
