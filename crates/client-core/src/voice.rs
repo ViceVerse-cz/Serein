@@ -142,6 +142,8 @@ pub enum Command {
 		channel: Id,
 		request: u64,
 		ring: bool,
+		mute: bool,
+		deaf: bool,
 	},
 	Leave {
 		channel: Id,
@@ -311,6 +313,15 @@ impl ClientState {
 		self.can_call(channel) && self.permission(channel, model::permissions::STREAM) == Some(true)
 	}
 	pub fn start_call(&mut self, channel: Id, ring: bool) -> Option<crate::Command> {
+		self.start_call_with_mute(channel, ring, false, false)
+	}
+	pub fn start_call_with_mute(
+		&mut self,
+		channel: Id,
+		ring: bool,
+		muted: bool,
+		deafened: bool,
+	) -> Option<crate::Command> {
 		if !self.can_call(channel) || self.voice.active.is_some() {
 			return None;
 		}
@@ -340,7 +351,7 @@ impl ClientState {
 			.find(|p| self.user.as_ref().is_some_and(|u| u.id == p.user));
 		let server_muted = own.is_some_and(|p| p.server_muted);
 		let server_deafened = own.is_some_and(|p| p.server_deafened);
-		let muted = !self.can_speak(channel);
+		let muted = muted || !self.can_speak(channel);
 		self.voice.sequence = self.voice.sequence.wrapping_add(1);
 		let request = self.voice.sequence;
 		self.voice.active = Some(Call {
@@ -352,7 +363,7 @@ impl ClientState {
 			request,
 			phase: Phase::Connecting,
 			muted,
-			deafened: false,
+			deafened,
 			camera: false,
 			watching: None,
 			participants,
@@ -365,6 +376,8 @@ impl ClientState {
 			channel,
 			request,
 			ring,
+			mute: muted || deafened,
+			deaf: deafened,
 		}))
 	}
 	pub fn leave_call(&mut self) -> Option<crate::Command> {
@@ -1414,11 +1427,20 @@ mod tests {
 				.contains("queue")
 		);
 		state.leave_call();
-		let command = state.start_call(Id(2), false).unwrap();
+		let command = state
+			.start_call_with_mute(Id(2), false, true, true)
+			.unwrap();
 		assert!(matches!(
 			command,
-			crate::Command::Voice(Command::Join { ring: false, .. })
+			crate::Command::Voice(Command::Join {
+				ring: false,
+				mute: true,
+				deaf: true,
+				..
+			})
 		));
+		assert!(state.voice.active.as_ref().unwrap().muted);
+		assert!(state.voice.active.as_ref().unwrap().deafened);
 		let mute = state.set_call_mute(true, false).unwrap();
 		state.command_rejected(mute);
 		assert!(state.voice.active.as_ref().unwrap().muted);

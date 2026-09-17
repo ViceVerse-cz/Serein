@@ -2102,7 +2102,7 @@ mod tests {
             };
             let client=run_inner(Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),"wss://gateway.discord.gg/".into(),watch::channel(None).1,receive,None,|event| {
                 match event {
-                    Event::Startup(_)=>controls.try_send(V::Join{channel:Id(2),request:7,ring:false}).unwrap(),
+                    Event::Startup(_)=>controls.try_send(V::Join{channel:Id(2),request:7,ring:false,mute:false,deaf:false}).unwrap(),
                     Event::Voice(E::State{request,session,..})=>{assert_eq!(request,Some(7));assert_eq!(session.unwrap().expose(),"synthetic-call-session");},
                     Event::Voice(E::Server{request,token,..})=>{assert_eq!(request,7);assert_eq!(token.unwrap().expose(),"synthetic-call-token");controls.try_send(V::Leave{channel:Id(2),request}).unwrap();},
                     _=>{},

@@ -35,27 +35,6 @@ pub(super) fn show(
 	global_status: &str,
 ) {
 	let colors = design::palette(ui);
-	ui.heading("Custom Keybinds");
-	ui.label(
-		"Make Serein feel like yours. Click any shortcut, then press the key combination you want.",
-	);
-	design::card(ui, |ui| {
-		ui.horizontal(|ui| {
-			ui.label(RichText::new("⌨").size(20.0).color(colors.accent));
-			ui.vertical(|ui| {
-				ui.label(design::semibold(
-					ui,
-					"Shortcuts are saved on this device",
-					14.0,
-				));
-				ui.weak(
-					"Application shortcuts work while Serein is focused. Voice bindings can also work globally.",
-				);
-			});
-		});
-	});
-
-	ui.add_space(18.0);
 	section(
 		ui,
 		"Navigation",
@@ -488,7 +467,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn default_bindings_round_trip_and_match() {
+	fn default_push_to_talk_does_not_consume_typing() {
 		let bindings = Keybinds::default();
 		assert!(bindings.is_valid());
 		assert_eq!(
@@ -500,7 +479,7 @@ mod tests {
 			}
 		);
 		let ctx = egui::Context::default();
-		let mut matched = false;
+		let mut down_without_consuming = false;
 		let mut output = ctx.run_ui(
 			egui::RawInput {
 				events: vec![Event::Key {
@@ -513,11 +492,22 @@ mod tests {
 				..Default::default()
 			},
 			|ui| {
-				matched =
-					ui.input_mut(|input| pressed(input, bindings.chord(KeybindAction::PushToTalk)))
+				down_without_consuming = ui.input(|input| {
+					down(input, bindings.chord(KeybindAction::PushToTalk))
+						&& input.events.iter().any(|event| {
+							matches!(
+								event,
+								Event::Key {
+									key: Key::V,
+									pressed: true,
+									..
+								}
+							)
+						})
+				})
 			},
 		);
 		output.textures_delta.clear();
-		assert!(matched);
+		assert!(down_without_consuming);
 	}
 }

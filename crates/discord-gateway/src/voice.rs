@@ -245,7 +245,11 @@ impl Calls {
 				)));
 			}
 			Command::Join {
-				channel, request, ..
+				channel,
+				request,
+				mute,
+				deaf,
+				..
 			} => {
 				let guild = *self.allowed.get(&channel).ok_or(Failure::Protocol)?;
 				if self.active.is_some() || self.departing.is_some() {
@@ -253,8 +257,8 @@ impl Calls {
 				}
 				self.active = Some((channel, request));
 				self.active_guild = guild;
-				self.muted = false;
-				self.deafened = false;
+				self.muted = mute || deaf;
+				self.deafened = deaf;
 				self.camera = false;
 				(Some(channel), guild)
 			}
@@ -994,6 +998,8 @@ mod tests {
 				channel: Id(20),
 				request: 7,
 				ring: false,
+				mute: false,
+				deaf: false,
 			})
 			.unwrap();
 		calls.packet(Command::Sync { channel: Id(2) }).unwrap();
@@ -1017,6 +1023,8 @@ mod tests {
 				channel,
 				request: 1,
 				ring: false,
+				mute: false,
+				deaf: false,
 			})
 			.unwrap();
 		calls
@@ -1089,6 +1097,8 @@ mod tests {
 				channel: Id(20),
 				request: 1,
 				ring: false,
+				mute: false,
+				deaf: false,
 			})
 			.unwrap();
 		calls.allowed.remove(&Id(20));
@@ -1133,6 +1143,8 @@ mod tests {
 				channel: Id(20),
 				request: 2,
 				ring: false,
+				mute: false,
+				deaf: false,
 			})
 			.unwrap();
 		calls.allowed.remove(&Id(20));
@@ -1178,6 +1190,8 @@ mod tests {
 				channel: Id(20),
 				request: 5,
 				ring: false,
+				mute: true,
+				deaf: true,
 			})
 			.unwrap()
 			.unwrap()
@@ -1186,6 +1200,8 @@ mod tests {
 		};
 		let join: serde_json::Value = serde_json::from_str(&join).unwrap();
 		assert_eq!(join["d"]["guild_id"], "10");
+		assert_eq!(join["d"]["self_mute"], true);
+		assert_eq!(join["d"]["self_deaf"], true);
 		calls
 			.dispatch(
 				"VOICE_SERVER_UPDATE",
@@ -1257,6 +1273,8 @@ mod tests {
 				channel: Id(21),
 				request: 6,
 				ring: false,
+				mute: false,
+				deaf: false,
 			})
 			.unwrap();
 		calls
@@ -1309,7 +1327,9 @@ mod tests {
 				.packet(Command::Join {
 					channel: Id(9),
 					request: 1,
-					ring: true
+					ring: true,
+					mute: false,
+					deaf: false,
 				})
 				.is_err()
 		);
@@ -1318,6 +1338,8 @@ mod tests {
 				channel: Id(2),
 				request: 7,
 				ring: false,
+				mute: false,
+				deaf: false,
 			})
 			.unwrap()
 			.unwrap()
@@ -1382,7 +1404,9 @@ mod tests {
 				.packet(Command::Join {
 					channel: Id(2),
 					request: 8,
-					ring: false
+					ring: false,
+					mute: false,
+					deaf: false,
 				})
 				.is_err()
 		);
@@ -1392,7 +1416,9 @@ mod tests {
 				.packet(Command::Join {
 					channel: Id(2),
 					request: 8,
-					ring: false
+					ring: false,
+					mute: false,
+					deaf: false,
 				})
 				.is_err()
 		);
@@ -1411,6 +1437,8 @@ mod tests {
 				channel: Id(2),
 				request: 8,
 				ring: false,
+				mute: false,
+				deaf: false,
 			})
 			.unwrap();
 		calls.dispatch("VOICE_STATE_UPDATE",br#"{"guild_id":"9","channel_id":"10","user_id":"1","session_id":"synthetic-session"}"#,Some(Id(1)),&emit).unwrap();
@@ -1426,6 +1454,8 @@ mod tests {
 				channel: Id(20),
 				request: 7,
 				ring: false,
+				mute: false,
+				deaf: false,
 			})
 			.unwrap();
 		let Frame::Text(create) = calls

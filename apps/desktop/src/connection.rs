@@ -605,6 +605,7 @@ fn ring_action(
 			channel,
 			request,
 			ring,
+			..
 		} => {
 			*active = Some((channel, request, !ring));
 			Ok(None)
@@ -1005,7 +1006,9 @@ mod tests {
 				V::Join {
 					channel,
 					request: 7,
-					ring: true
+					ring: true,
+					mute: false,
+					deaf: false,
 				},
 				owner,
 				&mut active,
@@ -1078,7 +1081,9 @@ mod tests {
 				V::Join {
 					channel,
 					request: 8,
-					ring: false
+					ring: false,
+					mute: false,
+					deaf: false,
 				},
 				owner,
 				&mut active,
@@ -1123,6 +1128,8 @@ mod tests {
 				channel,
 				request: 1,
 				ring: false,
+				mute: false,
+				deaf: false,
 			},
 			V::SetMute {
 				channel,

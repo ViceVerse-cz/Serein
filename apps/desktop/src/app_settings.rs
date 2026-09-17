@@ -35,6 +35,8 @@ impl Settings {
 			primary_color: ui.primary_color,
 			voice_noise_suppression: ui.voice_noise_suppression,
 			voice_push_to_talk: ui.voice_push_to_talk,
+			voice_muted: ui.voice_muted,
+			voice_deafened: ui.voice_deafened,
 			voice_input: ui.voice_input.clone(),
 			voice_output: ui.voice_output.clone(),
 			input_percent: ui.voice_gain.input_percent,
@@ -62,6 +64,8 @@ impl Settings {
 		ui.primary_color = value.primary_color;
 		ui.voice_noise_suppression = value.voice_noise_suppression;
 		ui.voice_push_to_talk = value.voice_push_to_talk;
+		ui.voice_muted = value.voice_muted;
+		ui.voice_deafened = value.voice_deafened;
 		ui.voice_input.clone_from(&value.voice_input);
 		ui.voice_output.clone_from(&value.voice_output);
 		ui.voice_gain.input_percent = value.input_percent;

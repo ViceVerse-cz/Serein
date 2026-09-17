@@ -2206,6 +2206,7 @@ impl Desktop {
 				channel,
 				request,
 				ring,
+				..
 			} = control
 			{
 				let result = self.voice.begin(&self.state, *ring);
@@ -3919,20 +3920,19 @@ impl eframe::App for Desktop {
 			| self
 				.messaging
 				.voice_toggle_pressed(ctx, self.hotkeys.global_toggle_mask());
-		if voice_toggles != 0
-			&& !self.fixture_only
-			&& self.state.auth == AuthState::Authenticated
-			&& let Some(call) = self.state.voice.active.as_ref()
-		{
-			let mut muted = call.muted;
-			let mut deafened = call.deafened;
+		if voice_toggles != 0 && !self.fixture_only {
+			let mut muted = self.messaging.voice_muted;
+			let mut deafened = self.messaging.voice_deafened;
 			if voice_toggles & 1 != 0 {
 				muted = !muted;
 			}
 			if voice_toggles & 2 != 0 {
 				deafened = !deafened;
 			}
-			if let Some(command) = self.state.set_call_mute(muted, deafened)
+			self.messaging.voice_muted = muted;
+			self.messaging.voice_deafened = deafened;
+			if self.state.auth == AuthState::Authenticated
+				&& let Some(command) = self.state.set_call_mute(muted, deafened)
 				&& !self.state.demo
 			{
 				self.command(command);

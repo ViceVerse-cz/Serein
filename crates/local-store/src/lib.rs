@@ -24,6 +24,8 @@ pub struct AppPreferences {
 	pub primary_color: Option<[u8; 3]>,
 	pub voice_noise_suppression: bool,
 	pub voice_push_to_talk: bool,
+	pub voice_muted: bool,
+	pub voice_deafened: bool,
 	pub voice_input: Option<String>,
 	pub voice_output: Option<String>,
 	pub input_percent: u16,
@@ -45,6 +47,8 @@ impl Default for AppPreferences {
 			primary_color: None,
 			voice_noise_suppression: false,
 			voice_push_to_talk: false,
+			voice_muted: false,
+			voice_deafened: false,
 			voice_input: None,
 			voice_output: None,
 			input_percent: 100,
@@ -1049,6 +1053,8 @@ mod tests {
 				..Default::default()
 			},
 			voice_noise_suppression: true,
+			voice_muted: true,
+			voice_deafened: true,
 			voice_input: Some("synthetic microphone".into()),
 			output_percent: 75,
 			..Default::default()
