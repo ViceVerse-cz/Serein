@@ -1947,20 +1947,20 @@ impl Desktop {
 							self.messaging.game_activity_status =
 								match *connection.activity_observation.borrow() {
 									Observation::Unconfirmed => {
-										"Game detected. Waiting for Discord to confirm."
+										"Local preview only. Waiting for Discord to confirm sharing."
 									}
 									Observation::ServerReceived => {
-										"Discord received your game. Public sharing is not confirmed."
+										"Discord received your game, but has not listed it publicly."
 									}
 									Observation::ServerListed => {
 										"Discord lists your game. Server and friend privacy settings still apply."
 									}
 									Observation::ServerHidden => {
 										self.messaging.discord_activity_sharing_retry = true;
-										"Discord is hiding your game. Check Activity Privacy in Discord."
+										"Discord is hiding your game. Check Registered Games and Activity Sharing in Discord."
 									}
 									Observation::ServerMissing => {
-										"Discord is not listing your game. Sharing is not confirmed."
+										"Discord did not list your game publicly. Check its Registered Games and server sharing controls."
 									}
 								};
 						}

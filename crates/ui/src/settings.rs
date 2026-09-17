@@ -935,7 +935,7 @@ impl MessagingUi {
 			design::switch(
 				ui,
 				"Share game activity",
-				Some("Detect running games and show them as activity on Discord."),
+				Some("Detect running games and ask Discord to share them as activity."),
 				&mut self.share_game_activity,
 			);
 			ui.separator();
