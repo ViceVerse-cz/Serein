@@ -1,3 +1,25 @@
+# Reaction tooltip loading - September 17, 2026
+
+Baseline: `ef0c61a`. After: the reaction-tooltip follow-up on that baseline.
+One standard Windows x64 `cargo xtask package` per revision, Rust 1.98.1 MSVC,
+locked dependencies, release profile and voice included. Builds ran serially
+using the same Cargo target; each completed `dist` was copied to a separate
+directory before the next build. Package bytes sum all 188 files; ZIP uses
+PowerShell `Compress-Archive -CompressionLevel Optimal`.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 66,171,392 | 66,169,856 | -1,536 (-0.0023%) |
+| Full portable package, bytes | 70,244,189 | 70,242,653 | -1,536 (-0.0022%) |
+| ZIP, bytes | 40,472,299 | 40,471,762 | -537 (-0.0013%) |
+
+Native screenshots and matched hover CPU, memory and frame-time sampling were
+unavailable because the computer-use runtime exposed no Windows application
+surface. An installed authenticated Serein instance was already running and was
+left untouched. No runtime performance improvement is claimed. Both packages
+passed with the existing nonfatal OpenH264 LNK4255 warning; NSIS was unavailable,
+so Windows installer binaries were not produced.
+
 # Discord chat links - September 16, 2026
 
 Baseline: clean `afb2a3e`. After: chat-link navigation on that baseline.

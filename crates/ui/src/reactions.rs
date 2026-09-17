@@ -7,6 +7,7 @@ pub enum Action {
 	Inspect(ReactionEmoji, bool),
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn show(
 	ui: &mut egui::Ui,
 	reactions: Option<&[Reaction]>,
@@ -80,16 +81,14 @@ pub fn show(
 					&label,
 				)
 			});
-			let verb = if reaction.me {
-				"Remove your reaction"
-			} else {
-				"Add your reaction"
-			};
+			let matching = details
+				.filter(|value| value.message == message && value.emoji.same(&reaction.emoji));
+			if response.hovered() && matching.is_none() && action.is_none() {
+				action = Some(Action::Inspect(reaction.emoji.clone(), false));
+			}
 			let clicked = response.clicked();
 			let secondary_clicked = response.secondary_clicked();
 			response.on_hover_ui(|ui| {
-				let matching = details
-					.filter(|value| value.message == message && value.emoji.same(&reaction.emoji));
 				if let Some(value) = matching
 					&& !value.users.is_empty()
 				{
@@ -112,13 +111,8 @@ pub fn show(
 				} else if matching.is_some_and(|value| value.error.is_some()) {
 					ui.label("Reaction details unavailable");
 				} else {
-					ui.spinner();
 					ui.label("Loading reactions…");
-					if action.is_none() {
-						action = Some(Action::Inspect(reaction.emoji.clone(), false));
-					}
 				}
-				ui.weak(format!("{verb}: {}", reaction.emoji.label()));
 			});
 			if secondary_clicked {
 				action = Some(Action::Inspect(reaction.emoji.clone(), true));
@@ -268,6 +262,52 @@ mod tests {
 			assert_eq!(ui.min_rect(), before);
 		});
 		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn hovering_starts_reaction_user_load_before_the_tooltip_opens() {
+		let ctx = egui::Context::default();
+		crate::emoji::install(&ctx).unwrap();
+		let emoji = ReactionEmoji {
+			id: None,
+			name: Some("👍".into()),
+		};
+		let mut action = None;
+		for frame in 0..2 {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(240.0, 180.0),
+					)),
+					events: (frame == 0)
+						.then(|| egui::Event::PointerMoved(egui::pos2(20.0, 15.0)))
+						.into_iter()
+						.collect(),
+					..Default::default()
+				},
+				|ui| {
+					action = show(
+						ui,
+						Some(&[Reaction {
+							emoji: emoji.clone(),
+							count: 3,
+							me: false,
+							me_burst: false,
+						}]),
+						true,
+						false,
+						false,
+						(&mut crate::avatars::Avatars::default(), true),
+						model::Id(1),
+						None,
+						|_, _| true,
+					);
+				},
+			);
+			output.drop_without_applying_deltas();
+		}
+		assert_eq!(action, Some(Action::Inspect(emoji, false)));
 	}
 
 	#[test]

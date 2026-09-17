@@ -352,6 +352,7 @@ fn divider(ui: &mut egui::Ui, label: String, unread: bool) {
 fn action_button(ui: &mut egui::Ui, icon: crate::icons::Icon, label: &str) -> egui::Response {
 	crate::icons::button(ui, icon, 28.0, label)
 }
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn message_actions(
 	popup: egui::Popup<'_>,
 	(message, extension_actions, extension_request): (
