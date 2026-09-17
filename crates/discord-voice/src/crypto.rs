@@ -261,19 +261,20 @@ impl Dave {
 	pub fn alone(&self) -> bool {
 		self.announced.len() == 1
 	}
-	/// A sole announced member with a pending epoch-zero group has nobody to negotiate with.
-	/// Discord does not always announce a transition for a fresh sole member; waiting must not
-	/// depend on it.
+	/// A sole announced member with no pending transition has nobody to negotiate with.
+	/// Discord does not always announce a transition for a fresh sole member or after
+	/// departures; waiting must not depend on it.
 	pub fn should_wait_for_peer(&self) -> bool {
 		!self.ready
 			&& !self.waiting
 			&& self.pending.is_none()
 			&& self.alone()
 			&& self.session.group().is_some()
-			&& self
-				.session
-				.epoch()
-				.is_some_and(|epoch| epoch.as_u64() == 0)
+	}
+	pub fn is_group_member(&self, user: u64) -> bool {
+		self.session
+			.get_user_ids()
+			.is_some_and(|ids| ids.contains(&user))
 	}
 	pub fn connect(&mut self, users: &[u64]) -> Result<bool, &'static str> {
 		if users.len() > MAX_PARTICIPANTS
@@ -334,6 +335,19 @@ impl Dave {
 		self.ready = false;
 		self.waiting = true;
 		Ok(())
+	}
+	/// Safely transition a sole member into waiting mode, reinitializing the group
+	/// if it still contains departed peers or has advanced beyond epoch zero.
+	pub fn enter_sole_member_waiting(&mut self) -> Result<(), &'static str> {
+		if !self.alone() {
+			return Err("Cannot enter sole member waiting with peers announced");
+		}
+		if self.session.epoch().is_none_or(|epoch| epoch.as_u64() != 0)
+			|| self.validate_group().is_err()
+		{
+			self.reinitialize()?;
+		}
+		self.wait_for_peer()
 	}
 	pub fn reset(&mut self) -> Result<(), &'static str> {
 		self.resets += 1;
@@ -710,5 +724,39 @@ mod tests {
 			.unwrap();
 		assert!(dave.group_changed(30, &[0, 0, 0]).is_err());
 		assert!(!dave.ready);
+	}
+	#[test]
+	fn sole_member_departure_waiting_and_group_membership() {
+		let server = crate::test_mls::Delivery::new();
+		let mut alice = Dave::new(1, Some(2), 3).unwrap();
+		let mut bob = Dave::new(2, Some(1), 3).unwrap();
+		alice.session.set_external_sender(&server.external).unwrap();
+		bob.session.set_external_sender(&server.external).unwrap();
+
+		alice.connect(&[2]).unwrap();
+		bob.connect(&[1]).unwrap();
+		assert!(!alice.is_group_member(2));
+		let (commit, welcome) = server.add(&mut alice, &bob.key_package().unwrap());
+		alice
+			.group_changed(29, &[&[0, 0], commit.as_slice()].concat())
+			.unwrap();
+		bob.group_changed(30, &[&[0, 0], welcome.as_slice()].concat())
+			.unwrap();
+		assert!(alice.ready && bob.ready);
+		assert!(alice.is_group_member(2));
+		assert!(!alice.is_group_member(999));
+
+		// When not alone, enter_sole_member_waiting fails closed.
+		assert!(alice.enter_sole_member_waiting().is_err());
+
+		// Bob departs: Alice is now alone and was in an established epoch > 0 group.
+		assert!(alice.disconnect(2).unwrap());
+		assert!(alice.alone());
+		assert!(alice.should_wait_for_peer());
+
+		// enter_sole_member_waiting reinitializes the epoch > 0 group and enters waiting cleanly.
+		alice.enter_sole_member_waiting().unwrap();
+		assert!(alice.waiting);
+		assert!(!alice.ready);
 	}
 }
