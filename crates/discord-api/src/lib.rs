@@ -688,6 +688,37 @@ impl DiscordApi {
 							result,
 						}
 					}
+					R::Users {
+						channel,
+						message,
+						emoji,
+						after,
+						request,
+					} => {
+						let result = match reaction_users_path(channel, message, &emoji, after) {
+							Some(path) => {
+								self.request(Method::GET, &path, None)
+									.await
+									.and_then(|bytes| {
+										let users = decode::<Vec<UserDto>>(&bytes)
+											.map_err(|_| Failure::Protocol)?;
+										if users.len() > client_core::reactions::REACTION_USER_PAGE
+										{
+											return Err(Failure::Protocol);
+										}
+										Ok(users.into_iter().map(UserDto::into_model).collect())
+									})
+							}
+							None => Err(Failure::Protocol),
+						};
+						E::Users {
+							channel,
+							message,
+							emoji,
+							request,
+							result,
+						}
+					}
 				})
 			}
 			Command::Profile {
@@ -1120,6 +1151,20 @@ fn reaction_path(
 		"/channels/{channel}/messages/{message}/reactions/{encoded}/@me"
 	))
 }
+fn reaction_users_path(
+	channel: model::Id,
+	message: model::Id,
+	emoji: &model::ReactionEmoji,
+	after: Option<model::Id>,
+) -> Option<String> {
+	let mut path = reaction_path(channel, message, emoji)?;
+	path.truncate(path.len() - "/@me".len());
+	path.push_str("?limit=100");
+	if let Some(after) = after {
+		path.push_str(&format!("&after={after}"));
+	}
+	Some(path)
+}
 fn safe_delay(seconds: Option<f64>) -> Result<Duration, Failure> {
 	let seconds = seconds.unwrap_or(1.0);
 	if !seconds.is_finite() || !(0.0..=86400.0).contains(&seconds) {
@@ -1131,6 +1176,22 @@ fn safe_delay(seconds: Option<f64>) -> Result<Duration, Failure> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn reaction_user_routes_keep_emoji_in_one_component_and_bound_pages() {
+		assert_eq!(
+			reaction_users_path(
+				model::Id(1),
+				model::Id(2),
+				&model::ReactionEmoji {
+					id: Some(model::Id(3)),
+					name: Some("a/b".into()),
+				},
+				Some(model::Id(4)),
+			)
+			.as_deref(),
+			Some("/channels/1/messages/2/reactions/%61%2F%62%3A%33?limit=100&after=4")
+		);
+	}
 	#[tokio::test]
 	async fn invite_captcha_preserves_fatal_auth_and_malformed_challenges() {
 		assert_eq!(invite_captcha(br#"{"captcha_service":"hcaptcha","captcha_sitekey":"synthetic-sitekey","captcha_rqdata":"escaped\/data"}"#).unwrap().rqdata(), Some("escaped/data"));

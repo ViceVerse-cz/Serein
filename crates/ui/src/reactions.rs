@@ -1,5 +1,11 @@
-use crate::design::LazyHover;
 use model::{Reaction, ReactionEmoji};
+
+#[derive(Debug, PartialEq)]
+pub enum Action {
+	Reload,
+	Toggle(ReactionEmoji),
+	Inspect(ReactionEmoji, bool),
+}
 
 pub fn show(
 	ui: &mut egui::Ui,
@@ -8,8 +14,10 @@ pub fn show(
 	writing: bool,
 	refreshing: bool,
 	media: (&mut crate::avatars::Avatars, bool),
+	message: model::Id,
+	details: Option<&client_core::reactions::ReactionUsers>,
 	can_react: impl Fn(&ReactionEmoji, bool) -> bool,
-) -> Option<Option<ReactionEmoji>> {
+) -> Option<Action> {
 	// Unknown cached counts are not a failure while history/reactions are loading.
 	// Allocate no placeholder row, so reaction-free messages do not jump in height.
 	if reactions.is_some_and(<[Reaction]>::is_empty) || (reactions.is_none() && refreshing) {
@@ -26,7 +34,7 @@ pub fn show(
 				.add_enabled(enabled, egui::Button::new("Reload reactions").small())
 				.clicked()
 			{
-				action = Some(None);
+				action = Some(Action::Reload);
 			}
 			return;
 		};
@@ -77,14 +85,45 @@ pub fn show(
 			} else {
 				"Add your reaction"
 			};
-			let response = response.on_hover_text_with(|| {
-				format!(
-					"{verb}: {}. Count includes super reactions; only normal reactions can be toggled here.",
-					reaction.emoji.label()
-				)
+			let clicked = response.clicked();
+			let secondary_clicked = response.secondary_clicked();
+			response.on_hover_ui(|ui| {
+				let matching = details
+					.filter(|value| value.message == message && value.emoji.same(&reaction.emoji));
+				if let Some(value) = matching
+					&& !value.users.is_empty()
+				{
+					let names = value
+						.users
+						.iter()
+						.take(3)
+						.map(|user| user.name.as_str())
+						.collect::<Vec<_>>()
+						.join(", ");
+					let remaining = reaction.count.saturating_sub(value.users.len() as u32);
+					ui.label(if remaining == 0 {
+						names
+					} else {
+						format!(
+							"{names}, and {remaining} other{}",
+							if remaining == 1 { "" } else { "s" }
+						)
+					});
+				} else if matching.is_some_and(|value| value.error.is_some()) {
+					ui.label("Reaction details unavailable");
+				} else {
+					ui.spinner();
+					ui.label("Loading reactions…");
+					if action.is_none() {
+						action = Some(Action::Inspect(reaction.emoji.clone(), false));
+					}
+				}
+				ui.weak(format!("{verb}: {}", reaction.emoji.label()));
 			});
-			if response.clicked() {
-				action = Some(Some(reaction.emoji.clone()));
+			if secondary_clicked {
+				action = Some(Action::Inspect(reaction.emoji.clone(), true));
+			} else if clicked {
+				action = Some(Action::Toggle(reaction.emoji.clone()));
 			}
 		}
 	});
@@ -104,6 +143,106 @@ pub fn add_button(
 	response.clicked().then_some((response.rect, response.id))
 }
 
+pub fn show_users(
+	ctx: &egui::Context,
+	state: &mut client_core::State,
+	avatars: &mut crate::avatars::Avatars,
+	commands: &mut Vec<client_core::Command>,
+) {
+	let Some(details) = state
+		.reactions
+		.users
+		.as_ref()
+		.filter(|details| details.open)
+	else {
+		return;
+	};
+	let reactions = state
+		.timeline
+		.get(details.message)
+		.and_then(|message| message.reactions.clone())
+		.unwrap_or_default();
+	let mut select = None;
+	let mut more = false;
+	let mut close = false;
+	let response = crate::dialog::Dialog::new("reaction-users", "Reactions")
+		.width(560.0)
+		.show(ctx, |dialog| {
+			dialog.content(|ui| {
+				ui.horizontal_wrapped(|ui| {
+					for reaction in &reactions {
+						let selected = details.emoji.same(&reaction.emoji);
+						if ui
+							.add(
+								egui::Button::new(format!(
+									"{}  {}",
+									reaction.emoji.label(),
+									reaction.count
+								))
+								.selected(selected),
+							)
+							.clicked() && !selected
+						{
+							select = Some(reaction.emoji.clone());
+						}
+					}
+				});
+			});
+			dialog.scroll(190.0, |ui| {
+				if details.users.is_empty() && details.loading {
+					ui.horizontal(|ui| {
+						ui.spinner();
+						ui.label("Loading reactions…");
+					});
+				} else if details.users.is_empty() {
+					crate::dialog::hint(
+						ui,
+						details
+							.error
+							.unwrap_or("Nobody currently has this reaction."),
+					);
+				}
+				for user in &details.users {
+					ui.horizontal(|ui| {
+						avatars.show_plain(ui, user, 36.0, state.demo);
+						ui.label(crate::design::medium(ui, &user.name, 15.0));
+					});
+				}
+				if details.users.len() >= client_core::reactions::MAX_REACTION_USERS {
+					crate::dialog::hint(ui, "Showing the first 1,000 reactions.");
+				} else if let Some(error) = details.error {
+					crate::dialog::notice(ui, crate::dialog::Level::Warning, error);
+					if crate::dialog::action(ui, "Retry", crate::dialog::Action::Neutral).clicked()
+					{
+						more = true;
+					}
+				} else if !details.exhausted {
+					if details.loading {
+						ui.spinner();
+					} else if crate::dialog::action(ui, "Load more", crate::dialog::Action::Neutral)
+						.clicked()
+					{
+						more = true;
+					}
+				}
+			});
+			dialog.footer(|ui| {
+				close =
+					crate::dialog::action(ui, "Close", crate::dialog::Action::Primary).clicked();
+			});
+		});
+	close |= response.close;
+	if close {
+		state.close_reaction_users();
+	} else if let Some(emoji) = select {
+		if let Some(command) = state.request_reaction_users(details.message, emoji, true) {
+			commands.push(command);
+		}
+	} else if more && let Some(command) = state.next_reaction_users_page() {
+		commands.push(command);
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -120,6 +259,8 @@ mod tests {
 					false,
 					false,
 					(&mut crate::avatars::Avatars::default(), true),
+					model::Id(1),
+					None,
 					|_, _| true,
 				),
 				None
@@ -171,6 +312,8 @@ mod tests {
 						false,
 						false,
 						(&mut crate::avatars::Avatars::default(), true),
+						model::Id(1),
+						None,
 						|_, add| {
 							assert!(!add, "The owned reaction is removed");
 							toggle
@@ -180,7 +323,10 @@ mod tests {
 				assert!(output.platform_output.commands.is_empty());
 				output.textures_delta.clear();
 			}
-			assert_eq!(action, toggle.then(|| Some(values[0].emoji.clone())));
+			assert!(
+				matches!(action, Some(Action::Toggle(ref emoji)) if toggle && emoji.same(&values[0].emoji))
+					|| (!toggle && action.is_none())
+			);
 		}
 	}
 }

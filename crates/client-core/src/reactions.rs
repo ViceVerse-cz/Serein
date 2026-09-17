@@ -2,7 +2,7 @@ use crate::{
 	State,
 	auth::{AuthState, Failure},
 };
-use model::{Freshness, Id, Reaction, ReactionEmoji};
+use model::{Freshness, Id, Reaction, ReactionEmoji, User};
 use std::collections::BTreeSet;
 
 pub enum Command {
@@ -16,6 +16,13 @@ pub enum Command {
 		message: Id,
 		emoji: ReactionEmoji,
 		add: bool,
+		request: u64,
+	},
+	Users {
+		channel: Id,
+		message: Id,
+		emoji: ReactionEmoji,
+		after: Option<Id>,
 		request: u64,
 	},
 }
@@ -49,6 +56,29 @@ pub enum Event {
 		request: u64,
 		result: Result<(), Failure>,
 	},
+	Users {
+		channel: Id,
+		message: Id,
+		emoji: ReactionEmoji,
+		request: u64,
+		result: Result<Vec<User>, Failure>,
+	},
+}
+pub const REACTION_USER_PAGE: usize = 100;
+pub const MAX_REACTION_USERS: usize = 1_000;
+pub const MAX_REACTION_USER_BYTES: usize = 256 * 1024;
+
+pub struct ReactionUsers {
+	pub channel: Id,
+	pub message: Id,
+	pub emoji: ReactionEmoji,
+	pub users: Vec<User>,
+	pub loading: bool,
+	pub exhausted: bool,
+	pub open: bool,
+	pub error: Option<&'static str>,
+	bytes: usize,
+	request: u64,
 }
 #[derive(Default)]
 pub struct Reactions {
@@ -58,6 +88,7 @@ pub struct Reactions {
 	// One bounded reaction list before/after the single in-flight write.
 	preview: Option<(Id, Vec<Reaction>, Vec<Reaction>)>,
 	sequence: u64,
+	pub users: Option<ReactionUsers>,
 }
 impl Reactions {
 	pub fn cancel_read(&mut self) {
@@ -70,6 +101,7 @@ impl Reactions {
 		self.read = None;
 		self.writing = None;
 		self.preview = None;
+		self.users = None;
 		self.sequence = self.sequence.wrapping_add(1);
 	}
 	pub fn busy(&self) -> bool {
@@ -87,12 +119,95 @@ impl Reactions {
 	}
 }
 impl State {
+	pub fn request_reaction_users(
+		&mut self,
+		message: Id,
+		emoji: ReactionEmoji,
+		open: bool,
+	) -> Option<crate::Command> {
+		if self.auth != AuthState::Authenticated
+			|| !self.gateway_connected
+			|| self.freshness != Freshness::Fresh
+			|| !emoji.valid()
+			|| emoji.name.is_none()
+		{
+			return None;
+		}
+		let channel = self.selected?;
+		let source = self.timeline.get(message)?;
+		if !self.can_read_history(channel)
+			|| source.channel != channel
+			|| !source
+				.reactions
+				.as_ref()?
+				.iter()
+				.any(|reaction| reaction.emoji.same(&emoji))
+		{
+			return None;
+		}
+		if let Some(details) = &mut self.reactions.users
+			&& details.message == message
+			&& details.emoji.same(&emoji)
+		{
+			details.open |= open;
+			return None;
+		}
+		self.reactions.sequence = self.reactions.sequence.wrapping_add(1);
+		let request = self.reactions.sequence;
+		self.reactions.users = Some(ReactionUsers {
+			channel,
+			message,
+			emoji: emoji.clone(),
+			users: Vec::new(),
+			loading: true,
+			exhausted: false,
+			open,
+			error: None,
+			bytes: 0,
+			request,
+		});
+		Some(crate::Command::Reactions(Command::Users {
+			channel,
+			message,
+			emoji,
+			after: None,
+			request,
+		}))
+	}
+	pub fn next_reaction_users_page(&mut self) -> Option<crate::Command> {
+		let details = self.reactions.users.as_mut()?;
+		if details.loading || details.exhausted || details.users.len() >= MAX_REACTION_USERS {
+			return None;
+		}
+		details.loading = true;
+		details.error = None;
+		self.reactions.sequence = self.reactions.sequence.wrapping_add(1);
+		details.request = self.reactions.sequence;
+		Some(crate::Command::Reactions(Command::Users {
+			channel: details.channel,
+			message: details.message,
+			emoji: details.emoji.clone(),
+			after: details.users.last().map(|user| user.id),
+			request: details.request,
+		}))
+	}
+	pub fn close_reaction_users(&mut self) {
+		self.reactions.users = None;
+	}
 	fn update_reactions(
 		&mut self,
 		channel: Id,
 		message: Id,
 		update: impl Fn(&mut Vec<Reaction>) -> Result<(), &'static str>,
 	) -> Result<(), &'static str> {
+		if self
+			.reactions
+			.users
+			.as_ref()
+			.is_some_and(|details| details.message == message && !details.open)
+		{
+			self.reactions.users = None;
+		}
 		if self.selected != Some(channel)
 			|| !self.can_view(channel)
 			|| self.freshness == Freshness::Unavailable
@@ -386,6 +501,57 @@ impl State {
 					}
 				}
 			}
+			Event::Users {
+				channel,
+				message,
+				emoji,
+				request,
+				result,
+			} => {
+				let Some(details) = &mut self.reactions.users else {
+					return Ok(());
+				};
+				if details.channel != channel
+					|| details.message != message
+					|| !details.emoji.same(&emoji)
+					|| details.request != request
+				{
+					return Ok(());
+				}
+				details.loading = false;
+				match result {
+					Ok(users) => {
+						if users.len() > REACTION_USER_PAGE
+							|| users.iter().any(|user| user.id.0 == 0)
+						{
+							return Err("Invalid reaction users");
+						}
+						let full_page = users.len() == REACTION_USER_PAGE;
+						for user in users {
+							if details.users.len() >= MAX_REACTION_USERS {
+								break;
+							}
+							if !details.users.iter().any(|known| known.id == user.id) {
+								let bytes = std::mem::size_of::<User>() + user.heap_bytes();
+								if details.bytes.saturating_add(bytes) > MAX_REACTION_USER_BYTES {
+									details.exhausted = true;
+									break;
+								}
+								details.bytes += bytes;
+								details.users.push(user);
+							}
+						}
+						details.exhausted |=
+							!full_page || details.users.len() >= MAX_REACTION_USERS;
+					}
+					Err(failure) => {
+						details.error = Some(failure.label());
+						if failure.ends_session() {
+							self.fail(failure);
+						}
+					}
+				}
+			}
 		}
 		Ok(())
 	}
@@ -438,6 +604,90 @@ fn apply_delta(
 mod tests {
 	use super::*;
 	use model::{Channel, Message, User, permissions as p};
+
+	#[test]
+	fn reaction_users_are_paged_deduplicated_and_session_only() {
+		let mut message = crate::tests::message(10);
+		let channel = message.channel;
+		let id = message.id;
+		let emoji = ReactionEmoji {
+			id: None,
+			name: Some("👍".into()),
+		};
+		message.reactions = Some(vec![Reaction {
+			emoji: emoji.clone(),
+			count: 101,
+			me: false,
+			me_burst: false,
+		}]);
+		let mut state = State {
+			selected: Some(channel),
+			user: Some(message.author.clone()),
+			channels: vec![Channel {
+				id: channel,
+				guild: None,
+				parent_id: None,
+				kind: 1,
+				name: "Synthetic".into(),
+				position: 0,
+				recipients: vec![],
+				last_message: None,
+				icon: None,
+				member_list_id: None,
+				message_count: None,
+			}],
+			gateway_connected: true,
+			auth: AuthState::Authenticated,
+			freshness: Freshness::Fresh,
+			..State::default()
+		};
+		state.timeline.insert(message, false, false).unwrap();
+		let Some(crate::Command::Reactions(Command::Users { request, .. })) =
+			state.request_reaction_users(id, emoji.clone(), true)
+		else {
+			panic!()
+		};
+		let user = |id| User {
+			id: Id(id),
+			name: format!("User {id}"),
+			avatar: None,
+			discriminator: 0,
+			kind: Default::default(),
+			webhook: false,
+		};
+		state
+			.apply_reactions(Event::Users {
+				channel,
+				message: id,
+				emoji: emoji.clone(),
+				request,
+				result: Ok((1..=REACTION_USER_PAGE as u64).map(user).collect()),
+			})
+			.unwrap();
+		let Some(crate::Command::Reactions(Command::Users {
+			after: Some(after),
+			request,
+			..
+		})) = state.next_reaction_users_page()
+		else {
+			panic!()
+		};
+		assert_eq!(after, Id(REACTION_USER_PAGE as u64));
+		state
+			.apply_reactions(Event::Users {
+				channel,
+				message: id,
+				emoji,
+				request,
+				result: Ok(vec![user(100), user(101)]),
+			})
+			.unwrap();
+		let details = state.reactions.users.as_ref().unwrap();
+		assert_eq!(details.users.len(), 101);
+		assert!(details.exhausted && details.open);
+		state.close_reaction_users();
+		assert!(state.reactions.users.is_none());
+	}
 
 	#[test]
 	fn live_reaction_deltas_preserve_counts_echoes_and_history_races() {

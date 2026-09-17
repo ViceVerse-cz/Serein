@@ -39,6 +39,7 @@ pub struct TimelineView {
 	at_current_latest: bool,
 	pub(super) reaction_picker: Option<(Id, egui::Rect, egui::Id)>,
 	pub(super) reaction: Option<(Id, Option<model::ReactionEmoji>)>,
+	pub(super) reaction_users: Option<(Id, model::ReactionEmoji, bool)>,
 	/// Requested pin change: channel, message, pinned.
 	pub(super) pin_request: Option<(Id, Id, bool)>,
 	toolbar: Option<(Id, egui::Rect)>,
@@ -367,6 +368,10 @@ fn message_actions(
 	editing: (&mut Option<(Id, Id, String)>, &mut bool),
 	deleting: &mut Option<(Id, Id)>,
 	pin: (bool, bool, &mut Option<(Id, Id, bool)>),
+	view_reactions: Option<(
+		model::ReactionEmoji,
+		&mut Option<(Id, model::ReactionEmoji, bool)>,
+	)>,
 ) {
 	let (mark_read, mark_unread, reply) = selection;
 	let (editing, edit_started) = editing;
@@ -399,6 +404,12 @@ fn message_actions(
 			.clicked()
 		{
 			*reply = Some(message.id);
+			ui.close();
+		}
+		if let Some((emoji, view)) = view_reactions
+			&& ui.button("View reactions").clicked()
+		{
+			*view = Some((message.id, emoji, true));
 			ui.close();
 		}
 		if ui
@@ -1589,9 +1600,21 @@ impl TimelineView {
 										(state.history_pending && state.history_before.is_none())
 											|| state.reactions.invalidated(message.id),
 										(avatars, state.demo),
+										message.id,
+										state.reactions.users.as_ref(),
 										|emoji, add| state.can_react(*id, Some(emoji), add),
 									) {
-										self.reaction = Some((*id, action));
+										match action {
+											crate::reactions::Action::Reload => {
+												self.reaction = Some((*id, None));
+											}
+											crate::reactions::Action::Toggle(emoji) => {
+												self.reaction = Some((*id, Some(emoji)));
+											}
+											crate::reactions::Action::Inspect(emoji, open) => {
+												self.reaction_users = Some((*id, emoji, open));
+											}
+										}
 									}
 								});
 							});
@@ -1813,6 +1836,14 @@ impl TimelineView {
 									state.is_pinned(message.channel, *id),
 									&mut self.pin_request,
 								),
+								message
+									.reactions
+									.as_ref()
+									.filter(|_| state.can_read_history(message.channel))
+									.and_then(|items| items.first())
+									.map(|reaction| {
+										(reaction.emoji.clone(), &mut self.reaction_users)
+									}),
 							);
 						}
 						self.toolbar = Some((*id, toolbar_rect));
@@ -2845,6 +2876,7 @@ mod tests {
 							(&mut editing, &mut edit_started),
 							&mut deleting,
 							(false, false, &mut None),
+							None,
 						)
 					},
 				);

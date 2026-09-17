@@ -2443,6 +2443,27 @@ impl Desktop {
 								result: Ok(()),
 							}
 						}
+						R::Users {
+							channel,
+							message,
+							emoji,
+							request,
+							..
+						} => {
+							let users = self
+								.state
+								.timeline
+								.get(message)
+								.map(|message| vec![message.author.clone()])
+								.unwrap_or_default();
+							E::Users {
+								channel,
+								message,
+								emoji,
+								request,
+								result: Ok(users),
+							}
+						}
 					})
 				}
 				Command::Voice(_) | Command::CancelProfile | Command::CancelSearch => return,

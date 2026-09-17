@@ -1317,6 +1317,19 @@ impl State {
 					request,
 					result: Err(auth::Failure::RateLimited),
 				},
+				reactions::Command::Users {
+					channel,
+					message,
+					emoji,
+					request,
+					..
+				} => reactions::Event::Users {
+					channel,
+					message,
+					emoji,
+					request,
+					result: Err(auth::Failure::RateLimited),
+				},
 			};
 			let _ = self.apply_reactions(event);
 			self.status = "Work queue full; reaction action was not sent";

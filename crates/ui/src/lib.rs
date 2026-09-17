@@ -3134,6 +3134,18 @@ impl MessagingUi {
 							&mut self.avatars,
 							&mut commands,
 						);
+						if let Some((message, emoji, open)) = self.timeline.reaction_users.take()
+							&& let Some(command) =
+								state.request_reaction_users(message, emoji, open)
+						{
+							commands.push(command);
+						}
+						crate::reactions::show_users(
+							ui.ctx(),
+							state,
+							&mut self.avatars,
+							&mut commands,
+						);
 						if let Some((channel, message)) = self.timeline.quick_delete.take()
 							&& let Some(command) = state.prepare_delete(channel, message)
 						{
