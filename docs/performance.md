@@ -9,9 +9,9 @@ PowerShell `Compress-Archive -CompressionLevel Optimal`.
 
 | Metric / method | Baseline | After | Delta |
 | --- | ---: | ---: | ---: |
-| Release executable, bytes | 66,171,392 | 66,171,392 | 0 |
-| Full portable package, bytes | 70,244,189 | 70,244,189 | 0 |
-| ZIP, bytes | 40,472,299 | 40,472,106 | -193 (-0.0005%) |
+| Release executable, bytes | 66,171,392 | 66,170,368 | -1,024 (-0.0015%) |
+| Full portable package, bytes | 70,244,189 | 70,243,165 | -1,024 (-0.0015%) |
+| ZIP, bytes | 40,472,299 | 40,471,778 | -521 (-0.0013%) |
 
 Native screenshots and matched hover CPU, memory and frame-time sampling were
 unavailable because the computer-use runtime exposed no Windows application

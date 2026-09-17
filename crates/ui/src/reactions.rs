@@ -7,6 +7,41 @@ pub enum Action {
 	Inspect(ReactionEmoji, bool),
 }
 
+fn reacting_names<'a>(names: impl Iterator<Item = &'a str>, count: u32) -> String {
+	let names = names.take(3).collect::<Vec<_>>();
+	let remaining = count.saturating_sub(names.len() as u32);
+	let names = names.join(", ");
+	if remaining == 0 {
+		names
+	} else {
+		format!(
+			"{names}, and {remaining} other{}",
+			if remaining == 1 { "" } else { "s" }
+		)
+	}
+}
+
+fn reaction_button(
+	ctx: &egui::Context,
+	avatars: &mut crate::avatars::Avatars,
+	emoji: &ReactionEmoji,
+	count: u32,
+	demo: bool,
+) -> egui::Button<'static> {
+	let label = emoji.label();
+	if emoji.id.is_none() {
+		crate::emoji::button(ctx, &label, count.to_string())
+	} else if let Some(image) = emoji
+		.id
+		.and_then(|id| avatars.custom_image(ctx, id, 18.0, demo))
+	{
+		egui::Button::image_and_text(image.alt_text(label), count.to_string())
+			.image_tint_follows_text_color(false)
+	} else {
+		egui::Button::new(format!("{label} {count}"))
+	}
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn show(
 	ui: &mut egui::Ui,
@@ -44,25 +79,8 @@ pub fn show(
 		}
 		for reaction in reactions {
 			let label = format!("{} {}", reaction.emoji.label(), reaction.count);
-			let button = if reaction.emoji.id.is_none() {
-				crate::emoji::button(
-					ui.ctx(),
-					&reaction.emoji.label(),
-					reaction.count.to_string(),
-				)
-			} else if let Some(image) = reaction
-				.emoji
-				.id
-				.and_then(|id| media.0.custom_image(ui.ctx(), id, 18.0, media.1))
-			{
-				egui::Button::image_and_text(
-					image.alt_text(reaction.emoji.label()),
-					reaction.count.to_string(),
-				)
-				.image_tint_follows_text_color(false)
-			} else {
-				egui::Button::new(label.clone())
-			};
+			let button =
+				reaction_button(ui.ctx(), media.0, &reaction.emoji, reaction.count, media.1);
 			let response = ui.add_enabled(
 				!writing
 					&& reaction.emoji.name.is_some()
@@ -126,22 +144,10 @@ pub fn show(
 						let summary = if let Some(value) = matching
 							&& !value.users.is_empty()
 						{
-							let names = value
-								.users
-								.iter()
-								.take(3)
-								.map(|user| user.name.as_str())
-								.collect::<Vec<_>>()
-								.join(", ");
-							let remaining = reaction.count.saturating_sub(value.users.len() as u32);
-							let reactors = if remaining == 0 {
-								names
-							} else {
-								format!(
-									"{names} and {remaining} other{}",
-									if remaining == 1 { "" } else { "s" }
-								)
-							};
+							let reactors = reacting_names(
+								value.users.iter().map(|user| user.name.as_str()),
+								reaction.count,
+							);
 							format!("{} reacted by {reactors}", reaction.emoji.label())
 						} else if matching.is_some_and(|value| value.error.is_some()) {
 							"Reaction details unavailable".into()
@@ -210,11 +216,13 @@ pub fn show_users(
 						let selected = details.emoji.same(&reaction.emoji);
 						if ui
 							.add(
-								egui::Button::new(format!(
-									"{}  {}",
-									reaction.emoji.label(),
-									reaction.count
-								))
+								reaction_button(
+									ui.ctx(),
+									avatars,
+									&reaction.emoji,
+									reaction.count,
+									state.demo,
+								)
 								.selected(selected),
 							)
 							.clicked() && !selected
@@ -282,6 +290,40 @@ pub fn show_users(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn truncated_reaction_names_include_the_hidden_count() {
+		assert_eq!(
+			reacting_names(["A", "B", "C", "D"].into_iter(), 9),
+			"A, B, C, and 6 others"
+		);
+		assert_eq!(reacting_names(["A", "B", "C"].into_iter(), 3), "A, B, C");
+		assert_eq!(
+			reacting_names(["A", "B", "C"].into_iter(), 4),
+			"A, B, C, and 1 other"
+		);
+	}
+
+	#[test]
+	fn custom_reaction_button_loads_its_image() {
+		let ctx = egui::Context::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+			ui.add(reaction_button(
+				ui.ctx(),
+				&mut avatars,
+				&ReactionEmoji {
+					id: Some(model::Id(9001)),
+					name: Some("catgirlvibe".into()),
+				},
+				2,
+				true,
+			));
+		});
+		assert!(!output.textures_delta.set.is_empty());
+		output.textures_delta.clear();
+	}
+
 	#[test]
 	fn empty_reactions_do_not_allocate_a_row() {
 		let ctx = egui::Context::default();
