@@ -3916,10 +3916,7 @@ impl eframe::App for Desktop {
 			| self
 				.messaging
 				.voice_toggle_pressed(ctx, self.hotkeys.global_toggle_mask());
-		if voice_toggles != 0
-			&& !self.fixture_only
-			&& self.state.auth == AuthState::Authenticated
-		{
+		if voice_toggles != 0 && !self.fixture_only && self.state.auth == AuthState::Authenticated {
 			if let Some(call) = self.state.voice.active.as_ref() {
 				let mut muted = call.muted;
 				let mut deafened = call.deafened;

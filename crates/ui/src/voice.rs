@@ -1495,7 +1495,8 @@ impl MessagingUi {
 		let can_speak = state.can_speak(channel);
 		let (mut muted, mut deafened) = (call.muted || !can_speak, call.deafened);
 		let active = if deafen { deafened } else { muted };
-		let enabled = (self.controls_enabled(state) || state.demo) && (deafen || can_speak);
+		let enabled =
+			(self.controls_enabled(state) || state.demo) && (deafen || can_speak || state.demo);
 		let label = match (deafen, active) {
 			(true, true) => "Undeafen",
 			(true, false) => "Deafen",
@@ -1591,7 +1592,7 @@ impl MessagingUi {
 						crate::icons::Icon::Microphone
 					},
 					48.0,
-					voice_toggles && can_speak,
+					voice_toggles && (can_speak || state.demo),
 					if muted { colors.danger } else { STAGE_TEXT },
 					if muted { "Unmute" } else { "Mute" },
 					if !can_speak {

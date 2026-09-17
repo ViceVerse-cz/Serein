@@ -376,10 +376,10 @@ impl ClientState {
 	}
 	pub fn set_call_mute(&mut self, muted: bool, deafened: bool) -> Option<crate::Command> {
 		let channel = self.voice.active.as_ref()?.channel;
-		if !self.can_call(channel) {
+		if !self.demo && !self.can_call(channel) {
 			return None;
 		}
-		let muted = muted || !self.can_speak(channel);
+		let muted = muted || (!self.demo && !self.can_speak(channel));
 		let call = self.voice.active.as_mut()?;
 		if call.phase == Phase::Failed {
 			return None;
