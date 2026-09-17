@@ -64,6 +64,13 @@ The webview lives only during login: WKWebView on macOS, WebView2 on Windows, GT
 
 ## Built-in voice
 
+Linux device discovery and call streams prefer CPAL's PulseAudio backend, including
+PipeWire through `pipewire-pulse`. This lists the server's sources and sinks, including
+connected Bluetooth devices and virtual filter-chain endpoints exposed by that server,
+instead of ALSA hardware modes. ALSA remains the fallback when the desktop audio server
+is unavailable. Native Linux device discovery and physical playback/capture still need
+verification on the affected system.
+
 `cargo run --locked` includes native DM and guild audio. Source builds require CMake and a C/C++ toolchain for statically bundled libopus; Linux also needs ALSA development headers (`libasound2-dev` on Debian/Ubuntu). CPAL uses native system audio. See [the voice adapter](../crates/discord-voice/README.md) for codec/protocol dependencies and limitations.
 
 `cargo xtask package` stages the standard release including voice under `dist` (`dist/Serein.app` on macOS). The macOS bundle includes its microphone-use description; actual microphone permission, capture/playback, device switching and sleep/resume have not been exercised. Windows x64 voice release packaging and synthetic protocol/audio tests pass; physical audio and live calls remain unverified on Windows. Linux x64 text/voice release builds and Debian package smoke passed on Ubuntu 26.04 under WSL2; native Linux desktop/audio runtime remains unverified. CMake is a source-build dependency, not a runtime voice service.

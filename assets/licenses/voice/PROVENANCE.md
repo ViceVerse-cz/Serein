@@ -117,3 +117,16 @@ Safe_arch 1.2.0 archive verified against Cargo.lock SHA-256 before reading its u
 | safe_arch-LICENSE-APACHE.md | [registry source](https://docs.rs/crate/safe_arch/1.2.0/source/LICENSE-APACHE.md) | `e3ba223bb1423f0aad8c3dfce0fe3148db48926d41e6fbc3afbbf5ff9e1c89cb` |
 | safe_arch-LICENSE-MIT.md | [registry source](https://docs.rs/crate/safe_arch/1.2.0/source/LICENSE-MIT.md) | `e57011537d230b14e790f6666dc00816f7b371ebbd7da8a12491e51086fec278` |
 | safe_arch-LICENSE-ZLIB.md | [registry source](https://docs.rs/crate/safe_arch/1.2.0/source/LICENSE-ZLIB.md) | `c43b9a9b1387ed53d2c49263838261129a010e280e3a174a792242c3e2c98db9` |
+
+## Linux desktop audio — September 17, 2026
+
+CPAL’s PulseAudio feature adds these unmodified registry license texts.
+They cover the Rust PulseAudio client and its newly resolved helper crates;
+no PulseAudio server is bundled.
+
+| File | Exact source | SHA-256 |
+|---|---|---|
+| pulseaudio-0.3.1-LICENSE.md | [registry source](https://docs.rs/crate/pulseaudio/0.3.1/source/LICENSE.md) | `fb9e808c9dd52f9d00f1168713933087b8fed4b7ecbbc694fc4b1d08c0c82352` |
+| enum-primitive-derive-0.3.0-LICENSE | [registry source](https://docs.rs/crate/enum-primitive-derive/0.3.0/source/LICENSE) | `819e0555b295079201b0670bb3302855303bdbbcc739f3819b13e1b3d2ec03bb` |
+| futures-0.3.34-LICENSE-MIT | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-MIT) | `6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd` |
+| futures-0.3.34-LICENSE-APACHE | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-APACHE) | `275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427` |

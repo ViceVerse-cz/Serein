@@ -1,5 +1,11 @@
 # Third-party notices
 
+Linux call audio enables CPAL’s PulseAudio backend with **pulseaudio 0.3.1**
+(MIT), **enum-primitive-derive 0.3.0** (MIT), and **futures 0.3.34**
+(MIT OR Apache-2.0). Their unmodified license texts and provenance are bundled
+under `assets/licenses/voice`. The backend connects to PulseAudio or PipeWire-Pulse;
+it does not bundle an audio server.
+
 Linux stream audio uses **libpulse-sys 1.23.0** (MIT OR Apache-2.0) to capture individual
 application playback streams. Its unmodified MIT text and provenance are under
 `assets/licenses/voice` and ship with packages.
