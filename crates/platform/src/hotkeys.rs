@@ -216,6 +216,7 @@ impl Hotkeys {
 			return match self.portal_status.load(Ordering::Relaxed) {
 				1 => WAYLAND_PENDING,
 				2 => READY,
+				4 => MODIFIER_REQUIRED,
 				_ => WAYLAND_UNAVAILABLE,
 			};
 		}
@@ -256,8 +257,11 @@ async fn portal(
 			.map(|trigger| NewShortcut::new(id, description).preferred_trigger(trigger.as_str()))
 	})
 	.collect();
+	let modifier_required = bindings[TOGGLE_MUTE..]
+		.iter()
+		.any(|chord| chord.is_valid() && chord.modifiers == 0);
 	if shortcuts.is_empty() {
-		status.store(2, Ordering::Relaxed);
+		status.store(if modifier_required { 4 } else { 3 }, Ordering::Relaxed);
 		wake();
 		return Ok(());
 	}
@@ -283,7 +287,16 @@ async fn portal(
 		}
 	});
 	registered.store(mask, Ordering::Relaxed);
-	status.store(if mask == 0 { 3 } else { 2 }, Ordering::Relaxed);
+	status.store(
+		if modifier_required {
+			4
+		} else if mask == 0 {
+			3
+		} else {
+			2
+		},
+		Ordering::Relaxed,
+	);
 	wake();
 	loop {
 		tokio::select! {
@@ -292,8 +305,8 @@ async fn portal(
 				let Some(event) = event else { return Ok(()); };
 				match event.shortcut_id() {
 					"push-to-talk" => ptt_down.store(true, Ordering::Relaxed),
-					"mute" => { pending.fetch_or(1, Ordering::Relaxed); }
-					"deafen" => { pending.fetch_or(2, Ordering::Relaxed); }
+					"mute" => { pending.fetch_xor(1, Ordering::Relaxed); }
+					"deafen" => { pending.fetch_xor(2, Ordering::Relaxed); }
 					_ => continue,
 				}
 				wake();

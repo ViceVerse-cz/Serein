@@ -1154,7 +1154,7 @@ impl MessagingUi {
 				design::switch(
 					ui,
 					"Push to talk",
-					Some("Hold V while this window is focused and you are not typing."),
+					Some("Hold your configured shortcut when you want to speak."),
 					&mut self.voice_push_to_talk,
 				);
 			} else {
@@ -1441,7 +1441,7 @@ impl MessagingUi {
 		design::switch(
 			ui,
 			"Push to talk",
-			Some("Hold V while this window is focused and you are not typing."),
+			Some("Hold your configured shortcut when you want to speak."),
 			&mut self.voice_push_to_talk,
 		)
 		.on_hover_text("Mute and deafen always take priority.");
