@@ -108,18 +108,23 @@ impl Hotkeys {
 			let status = self.portal_status.clone();
 			let wake = self.wake.clone();
 			self.portal = Some(_runtime.spawn(async move {
-				let _ = portal(
-					next,
-					pending,
-					registered.clone(),
-					ptt_down.clone(),
-					status.clone(),
-					wake.clone(),
-				)
-				.await;
+				let no_shortcuts = matches!(
+					portal(
+						next,
+						pending,
+						registered.clone(),
+						ptt_down.clone(),
+						status.clone(),
+						wake.clone(),
+					)
+					.await,
+					Ok(true)
+				);
 				registered.store(0, Ordering::Relaxed);
 				ptt_down.store(false, Ordering::Relaxed);
-				status.store(3, Ordering::Relaxed);
+				if !no_shortcuts {
+					status.store(3, Ordering::Relaxed);
+				}
 				wake();
 			}));
 			return;
@@ -242,7 +247,7 @@ async fn portal(
 	ptt_down: Arc<AtomicBool>,
 	status: Arc<AtomicU8>,
 	wake: Arc<dyn Fn() + Send + Sync>,
-) -> Result<(), ashpd::Error> {
+) -> Result<bool, ashpd::Error> {
 	use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
 	use futures_util::StreamExt;
 	let shortcuts: Vec<_> = [
@@ -263,7 +268,7 @@ async fn portal(
 	if shortcuts.is_empty() {
 		status.store(if modifier_required { 4 } else { 3 }, Ordering::Relaxed);
 		wake();
-		return Ok(());
+		return Ok(true);
 	}
 	let connection = ashpd::zbus::connection::Builder::session()?
 		.max_queued(16)
@@ -300,9 +305,9 @@ async fn portal(
 	wake();
 	loop {
 		tokio::select! {
-			_ = closed.next() => return Ok(()),
+			_ = closed.next() => return Ok(false),
 			event = activated.next() => {
-				let Some(event) = event else { return Ok(()); };
+				let Some(event) = event else { return Ok(false); };
 				match event.shortcut_id() {
 					"push-to-talk" => ptt_down.store(true, Ordering::Relaxed),
 					"mute" => { pending.fetch_xor(1, Ordering::Relaxed); }
@@ -312,7 +317,7 @@ async fn portal(
 				wake();
 			}
 			event = deactivated.next() => {
-				let Some(event) = event else { return Ok(()); };
+				let Some(event) = event else { return Ok(false); };
 				if event.shortcut_id() == "push-to-talk" {
 					ptt_down.store(false, Ordering::Relaxed);
 					wake();
