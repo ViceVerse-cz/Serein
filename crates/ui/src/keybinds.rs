@@ -22,6 +22,11 @@ const FORMATTING: &[KeybindAction] = &[
 	KeybindAction::CodeBlock,
 	KeybindAction::Spoiler,
 ];
+const VOICE: &[KeybindAction] = &[
+	KeybindAction::ToggleMute,
+	KeybindAction::ToggleDeafen,
+	KeybindAction::PushToTalk,
+];
 
 pub(super) fn show(
 	ui: &mut egui::Ui,
@@ -44,7 +49,7 @@ pub(super) fn show(
 					14.0,
 				));
 				ui.weak(
-					"Application shortcuts work while Serein is focused. Push to Talk can also work globally.",
+					"Application shortcuts work while Serein is focused. Voice bindings can also work globally.",
 				);
 			});
 		});
@@ -75,18 +80,7 @@ pub(super) fn show(
 		bindings,
 		capturing,
 	);
-	section(
-		ui,
-		"Voice",
-		"Control your microphone and incoming audio during a connected call.",
-		&[
-			KeybindAction::ToggleMute,
-			KeybindAction::ToggleDeafen,
-			KeybindAction::PushToTalk,
-		],
-		bindings,
-		capturing,
-	);
+	voice_section(ui, bindings, capturing);
 	ui.add_space(10.0);
 	ui.label(
 		RichText::new("GLOBAL AVAILABILITY")
@@ -95,6 +89,47 @@ pub(super) fn show(
 	);
 	ui.label(RichText::new(global_status).color(colors.muted));
 
+	capture(ui, bindings, capturing);
+}
+
+pub(super) fn show_voice(
+	ui: &mut egui::Ui,
+	bindings: &mut Keybinds,
+	capturing: &mut Option<KeybindAction>,
+	global_status: &str,
+) {
+	let colors = design::palette(ui);
+	ui.add_space(12.0);
+	ui.label(design::eyebrow(ui, "VOICE KEYBINDS", colors.muted));
+	ui.label("Mute, deafen and Push to Talk can be remapped independently.");
+	voice_section(ui, bindings, capturing);
+	ui.add_space(10.0);
+	ui.label(
+		RichText::new("GLOBAL AVAILABILITY")
+			.size(11.0)
+			.color(colors.muted),
+	);
+	ui.label(RichText::new(global_status).color(colors.muted));
+	capture(ui, bindings, capturing);
+}
+
+fn voice_section(
+	ui: &mut egui::Ui,
+	bindings: &mut Keybinds,
+	capturing: &mut Option<KeybindAction>,
+) {
+	section(
+		ui,
+		"Voice",
+		"Control your microphone and incoming audio during a connected call.",
+		VOICE,
+		bindings,
+		capturing,
+	);
+}
+
+fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<KeybindAction>) {
+	let colors = design::palette(ui);
 	if let Some(action) = *capturing {
 		let mut captured = None;
 		let mut cancelled = false;

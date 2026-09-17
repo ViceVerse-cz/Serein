@@ -1226,6 +1226,14 @@ impl MessagingUi {
 				design::card(ui, |ui| self.voice_processing_controls(ui));
 			}
 		});
+		if !compact {
+			crate::keybinds::show_voice(
+				ui,
+				&mut self.keybinds,
+				&mut self.keybind_capture,
+				self.global_keybind_status,
+			);
+		}
 		ui.add_space(8.0);
 		ui.label(design::eyebrow(ui, "Camera", colors.muted));
 		design::card(ui, |ui| self.camera_settings_content(ui, demo));
