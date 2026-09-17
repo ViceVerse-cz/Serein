@@ -88,32 +88,74 @@ pub fn show(
 			}
 			let clicked = response.clicked();
 			let secondary_clicked = response.secondary_clicked();
-			response.on_hover_ui(|ui| {
-				if let Some(value) = matching
-					&& !value.users.is_empty()
-				{
-					let names = value
-						.users
-						.iter()
-						.take(3)
-						.map(|user| user.name.as_str())
-						.collect::<Vec<_>>()
-						.join(", ");
-					let remaining = reaction.count.saturating_sub(value.users.len() as u32);
-					ui.label(if remaining == 0 {
-						names
-					} else {
-						format!(
-							"{names}, and {remaining} other{}",
-							if remaining == 1 { "" } else { "s" }
-						)
+			let colors = crate::design::palette(ui);
+			let width = 320.0_f32.min((ui.ctx().content_rect().width() - 40.0).max(180.0));
+			egui::Popup::from_response(&response)
+				.kind(egui::PopupKind::Tooltip)
+				.open(response.enabled() && egui::Tooltip::should_show_tooltip(&response, false))
+				.gap(4.0)
+				.width(width)
+				.interactable(false)
+				.frame(
+					egui::Frame::popup(ui.style())
+						.fill(colors.base)
+						.stroke(egui::Stroke::new(1.0, colors.border))
+						.inner_margin(12)
+						.corner_radius(6),
+				)
+				.show(|ui| {
+					ui.set_width(width - 24.0);
+					ui.horizontal_centered(|ui| {
+						let image = reaction
+							.emoji
+							.id
+							.and_then(|id| media.0.custom_image(ui.ctx(), id, 52.0, media.1))
+							.or_else(|| {
+								crate::emoji::image(ui.ctx(), &reaction.emoji.label(), 52.0)
+							});
+						if let Some(image) = image {
+							ui.add(image);
+						} else {
+							ui.label(
+								egui::RichText::new(reaction.emoji.label())
+									.size(26.0)
+									.color(colors.text_strong),
+							);
+						}
+						ui.add_space(8.0);
+						let summary = if let Some(value) = matching
+							&& !value.users.is_empty()
+						{
+							let names = value
+								.users
+								.iter()
+								.take(3)
+								.map(|user| user.name.as_str())
+								.collect::<Vec<_>>()
+								.join(", ");
+							let remaining = reaction.count.saturating_sub(value.users.len() as u32);
+							let reactors = if remaining == 0 {
+								names
+							} else {
+								format!(
+									"{names} and {remaining} other{}",
+									if remaining == 1 { "" } else { "s" }
+								)
+							};
+							format!("{} reacted by {reactors}", reaction.emoji.label())
+						} else if matching.is_some_and(|value| value.error.is_some()) {
+							"Reaction details unavailable".into()
+						} else {
+							"Loading reactions…".into()
+						};
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(summary).size(15.0).color(colors.text),
+							)
+							.wrap(),
+						);
 					});
-				} else if matching.is_some_and(|value| value.error.is_some()) {
-					ui.label("Reaction details unavailable");
-				} else {
-					ui.label("Loading reactions…");
-				}
-			});
+				});
 			if secondary_clicked {
 				action = Some(Action::Inspect(reaction.emoji.clone(), true));
 			} else if clicked {
