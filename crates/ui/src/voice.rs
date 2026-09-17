@@ -1495,7 +1495,7 @@ impl MessagingUi {
 		let can_speak = state.can_speak(channel);
 		let (mut muted, mut deafened) = (call.muted || !can_speak, call.deafened);
 		let active = if deafen { deafened } else { muted };
-		let enabled = self.controls_enabled(state) && (deafen || can_speak);
+		let enabled = (self.controls_enabled(state) || state.demo) && (deafen || can_speak);
 		let label = match (deafen, active) {
 			(true, true) => "Undeafen",
 			(true, false) => "Deafen",
@@ -1571,6 +1571,7 @@ impl MessagingUi {
 		let can_speak = state.can_speak(channel);
 		let (mut muted, mut deafened) = (call.muted || !can_speak, call.deafened);
 		let controls = self.controls_enabled(state);
+		let voice_toggles = controls || state.demo;
 		let focused = self.voice_focus.is_some();
 		let pill_width = MEDIA_PILL + if focused { 48.0 } else { 0.0 };
 		let width = pill_width + BAR_GAP + HANG_UP;
@@ -1590,7 +1591,7 @@ impl MessagingUi {
 						crate::icons::Icon::Microphone
 					},
 					48.0,
-					controls && can_speak,
+					voice_toggles && can_speak,
 					if muted { colors.danger } else { STAGE_TEXT },
 					if muted { "Unmute" } else { "Mute" },
 					if !can_speak {
@@ -1620,7 +1621,7 @@ impl MessagingUi {
 						crate::icons::Icon::Headphones
 					},
 					48.0,
-					controls,
+					voice_toggles,
 					if deafened { colors.danger } else { STAGE_TEXT },
 					if deafened { "Undeafen" } else { "Deafen" },
 					if deafened {

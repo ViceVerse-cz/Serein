@@ -3918,7 +3918,6 @@ impl eframe::App for Desktop {
 				.voice_toggle_pressed(ctx, self.hotkeys.global_toggle_mask());
 		if voice_toggles != 0
 			&& !self.fixture_only
-			&& !self.state.demo
 			&& self.state.auth == AuthState::Authenticated
 		{
 			if let Some(call) = self.state.voice.active.as_ref() {
@@ -3931,7 +3930,9 @@ impl eframe::App for Desktop {
 					deafened = !deafened;
 				}
 				if let Some(command) = self.state.set_call_mute(muted, deafened) {
-					self.command(command);
+					if !self.state.demo {
+						self.command(command);
+					}
 				}
 			}
 		}
@@ -4054,7 +4055,6 @@ impl eframe::App for Desktop {
 		}
 		self.messaging.voice_ptt_active = self.messaging.voice_push_to_talk
 			&& self.state.voice.active.is_some()
-			&& !self.state.demo
 			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
