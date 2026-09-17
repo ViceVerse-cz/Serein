@@ -380,6 +380,13 @@ can temporarily hold multiple copies. The context retains the single atlas until
 including across logout; there are no emoji downloads, disk writes, or growing texture
 queues. Unknown sequences and explicit text-presentation selectors remain font text.
 
+GIF search and trending results retain at most eight session-memory pages / 768 KiB for ten
+minutes. Reopening a fresh query reuses its page without a REST request; least-recently-used
+pages are evicted first and logout clears the cache. This cache is account-session scoped and
+is not written to SQLite. GIF favorites remain account-isolated SQLite metadata, capped at 100
+entries; their validated preview images reuse the account image disk cache described above and
+are removed by the same clear-cache/logout paths.
+
 Custom server emoji catalogs live only in session navigation memory: at most 1,000 entries
 and 256 KiB allocated data per server, including names and role lists, within the shared
 4 MiB navigation budget. Reconnect READY replaces catalogs; full emoji-update events replace
