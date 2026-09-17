@@ -182,18 +182,19 @@ async fn listen<A: Applications>(
 	let mut slots = [false; MAX_CLIENTS];
 	let mut values: [Option<(Instant, Activity)>; MAX_CLIENTS] = std::array::from_fn(|_| None);
 	let mut scanned = None;
-	let mut next_accept = Instant::now();
+	let mut next_accept_ipc = Instant::now();
+	let mut next_accept_web = Instant::now();
 	let mut invite_count = 0;
 	let _scanner = Abort(tokio::spawn(scan(service.clone(), scan_send)));
 	loop {
 		tokio::select! {
 			// An admission interval also bounds credential-free metadata requests (two per client).
 			accepted = async {
-				tokio::time::sleep_until(next_accept).await;
+				tokio::time::sleep_until(next_accept_ipc).await;
 				listener.accept().await
 			}, if workers.len() < MAX_CLIENTS => {
 				let stream = accepted.map_err(|_| "Game activity stopped. Turn sharing off and on to retry.")?;
-				next_accept = Instant::now() + Duration::from_secs(5);
+				next_accept_ipc = Instant::now() + Duration::from_secs(5);
 				let slot = claim(&mut slots);
 				let (send, user, service, invites) = (send.clone(), user.clone(), service.clone(), invite_send.clone());
 				workers.spawn(async move {
@@ -203,14 +204,14 @@ async fn listen<A: Applications>(
 			accepted = async {
 				match &web {
 					Some(listener) => {
-						tokio::time::sleep_until(next_accept).await;
+						tokio::time::sleep_until(next_accept_web).await;
 						listener.accept().await.map(Some)
 					}
 					// Never resolves: an unavailable WebSocket port must not spin this loop.
 					None => std::future::pending().await,
 				}
 			}, if workers.len() < MAX_CLIENTS => {
-				next_accept = Instant::now() + Duration::from_secs(5);
+				next_accept_web = Instant::now() + Duration::from_secs(5);
 				let Ok(Some((stream, peer))) = accepted else { continue };
 				if !peer.ip().is_loopback() { continue; }
 				let slot = claim(&mut slots);

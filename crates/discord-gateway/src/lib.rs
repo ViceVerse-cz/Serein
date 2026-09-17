@@ -225,7 +225,7 @@ fn subscription_packet(guild: Id, channel: Option<Id>, thread: bool) -> Frame {
 		.into_iter()
 		.map(|id| id.to_string())
 		.collect();
-	Frame::Text(serde_json::json!({"op":37,"d":{"subscriptions":{guild.to_string():{"typing":channel.is_some(),"threads":false,"activities":false,"members":[],"channels":channels,"thread_member_lists":threads}}}}).to_string().into())
+	Frame::Text(serde_json::json!({"op":37,"d":{"subscriptions":{guild.to_string():{"typing":channel.is_some(),"threads":false,"activities":true,"members":[],"channels":channels,"thread_member_lists":threads}}}}).to_string().into())
 }
 struct ActiveMembers {
 	subscription: MemberSubscription,
@@ -2594,7 +2594,7 @@ mod member_tests {
                     assert_eq!(packet["d"]["subscriptions"].as_object().unwrap().len(),1);
                     let subscription=&packet["d"]["subscriptions"]["1"];
                     assert_eq!(subscription["threads"],false);
-                    assert_eq!(subscription["activities"],false);
+                    assert_eq!(subscription["activities"],true);
                     assert_eq!(subscription["members"],json!([]));
                     if !subscribed {
                         assert_eq!(subscription["typing"],true);assert_eq!(subscription["channels"],json!({"2":[[0,99]]}));subscribed=true;

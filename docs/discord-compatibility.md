@@ -702,7 +702,7 @@ same parser as member snapshots: at most 128 characters / 512 UTF-8 bytes, with 
 emoji and no controls. Omitted activities preserve known custom text; null, empty or no custom
 activity clears it. These absent/null choices are defensive client policy, not a documented
 normal-user delivery guarantee. Other activities, partial profiles and device status are
-discarded; the existing subscription still sends activities=false. Bursts coalesce within a fixed 100-ms window; stale request/session/access
+discarded; the guild subscription sends activities=true to receive member presence and rich text. Bursts coalesce within a fixed 100-ms window; stale request/session/access
 updates cannot modify the pane. Self-session DND notification suppression keeps its separate
 existing path. Synthetic localhost Gateway, reducer and headless UI tests supply local evidence;
 normal-account delivery and native screenshots remain owner-controlled validation gates.
@@ -827,9 +827,8 @@ shapes observed in [discord.py-self's state implementation](https://github.com/d
 These sources were checked September 10; developer documentation is not proof of normal-user
 support. The initial text implementation added no subscription or endpoint; artwork lookup is
 described below. No agent-operated account action or live session validation was performed.
-The existing guild subscription's `activities` flag stays unchanged: the public implementation's
-[subscription reference](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py)
-labels its meaning unknown. Only received activity metadata is displayed; missing events remain
+The guild subscription sets `activities: true` so the Gateway delivers member game activity
+and rich text alongside presence. Only received activity metadata is displayed; missing events remain
 unavailable. Offline status clears activity. Disconnect hides cached DM presence; a successful resume restores it and applies replayed changes. Fresh READY, resync and session reset discard the cache.
 Join/spectate actions and progress timers remain unsupported.
 

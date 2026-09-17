@@ -1944,25 +1944,27 @@ impl Desktop {
 						own_activity = game.clone();
 						if game.is_some() && !self.game_activity.needs_attention() {
 							use discord_gateway::ActivityObservation as Observation;
-							self.messaging.game_activity_status =
-								match *connection.activity_observation.borrow() {
-									Observation::Unconfirmed => {
-										"Local preview only. Waiting for Discord to confirm sharing."
-									}
-									Observation::ServerReceived => {
-										"Discord received your game, but has not listed it publicly."
-									}
-									Observation::ServerListed => {
-										"Discord lists your game. Server and friend privacy settings still apply."
-									}
-									Observation::ServerHidden => {
-										self.messaging.discord_activity_sharing_retry = true;
-										"Discord is hiding your game. Check Registered Games and Activity Sharing in Discord."
-									}
-									Observation::ServerMissing => {
-										"Discord did not list your game publicly. Check its Registered Games and server sharing controls."
-									}
-								};
+							self.messaging.game_activity_status = match *connection
+								.activity_observation
+								.borrow()
+							{
+								Observation::Unconfirmed => {
+									"Local preview only. Waiting for Discord to confirm sharing."
+								}
+								Observation::ServerReceived => {
+									"Discord received your game, but has not listed it publicly."
+								}
+								Observation::ServerListed => {
+									"Discord lists your game. Server and friend privacy settings still apply."
+								}
+								Observation::ServerHidden => {
+									self.messaging.discord_activity_sharing_retry = true;
+									"Discord is hiding your game. Check Registered Games and Activity Sharing in Discord."
+								}
+								Observation::ServerMissing => {
+									"Discord did not list your game publicly. Check its Registered Games and server sharing controls."
+								}
+							};
 						}
 					}
 					Err(error) => self.messaging.game_activity_status = error,
