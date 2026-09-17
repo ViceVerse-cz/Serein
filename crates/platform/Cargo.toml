@@ -22,6 +22,8 @@ rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal",
 symphonia = { version = "=0.6.1", default-features = false, features = ["aac"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "=0.13.13", default-features = false, features = ["tokio", "global_shortcuts"] }
+futures-util.workspace = true
 gtk4 = { version = "=0.11.4", features = ["v4_10"] }
 webkit6 = "=0.6.1"
 

@@ -231,3 +231,6 @@ GStreamer/PipeWire, VA-API/NVENC/OpenGL plugins and GPU drivers are native runti
 components supplied by the distribution/Flatpak runtime, not new bundled codec source.
 Their upstream licenses and distribution packaging terms still apply. Software encoding
 uses the existing bundled OpenH264 notices above.
+
+Wayland global voice keybinds use **ashpd 0.13.13** (MIT) to access the desktop
+GlobalShortcuts portal. Its license is bundled under `assets/licenses/dependencies`.
