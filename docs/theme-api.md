@@ -42,6 +42,10 @@ font sizes are whole logical pixels, before the user's display scale.
 
 | Field | Default | Allowed range |
 | --- | --- | --- |
+| `transparency_blur` | user Appearance setting | `true` or `false` |
+| `transparency` | user Appearance setting | 0–100 |
+| `blur` | user Appearance setting | 0–100 |
+| `transparent_all` | user Appearance setting | `true` or `false` |
 | `body_size` | 15 | 10–28 |
 | `heading_size` | 20 | 12–40 |
 | `button_size` | 14 | 10–28 |
@@ -76,6 +80,17 @@ Existing color-only packages continue to work. Disabling or resetting a theme
 restores built-in control metrics as well as colors; `Ctrl+Shift+F12` is the
 emergency reset shortcut. Reset keeps installed themes available for re-selection;
 Disable removes the selected package and its local data.
+
+`transparency_blur` enables the window effects. `transparency` controls how much of
+the desktop shows through the conversation; `transparent_all` extends it to sidebars,
+the server rail, headers and composer. `blur` at zero disables native compositor blur;
+nonzero values request it, but the compositor chooses the exact blur radius. The option
+is available on every platform; systems without native blur keep the translucent
+surface. Theme values override the corresponding default Appearance settings.
+Disabling effects (or setting transparency to zero) disables blur and restores the
+native opaque-window hint on macOS, Windows and Wayland. X11 cannot change this hint
+after window creation. The renderer retains an alpha-capable GPU surface for live
+toggles; this is not a guarantee of identical performance to an opaque-only surface.
 
 These metrics affect controls that inherit the shared native style. Custom
 painted elements, explicit text sizes, fixed-height rows and per-widget padding

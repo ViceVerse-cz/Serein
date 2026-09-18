@@ -377,7 +377,27 @@ struct ExtensionPalette {
 thread_local! {
 	static EXTENSION_THEME: std::cell::Cell<Option<[ExtensionPalette; 2]>> = const { std::cell::Cell::new(None) };
 	static EXTENSION_STYLE: std::cell::Cell<extensions::ThemeStyle> = std::cell::Cell::new(extensions::ThemeStyle::default());
+	static WINDOW_EFFECTS: std::cell::Cell<(bool, u8, u8, bool)> = const { std::cell::Cell::new((false, 15, 50, false)) };
 	static BACKGROUND_IMAGE: std::cell::RefCell<Option<(std::sync::Arc<egui::ColorImage>, egui::TextureHandle)>> = const { std::cell::RefCell::new(None) };
+}
+
+pub fn set_window_effects(enabled: bool, transparency: u8, blur: u8, all: bool) {
+	WINDOW_EFFECTS.set((enabled, transparency.min(100), blur.min(100), all));
+}
+
+pub fn default_window_effects() -> (bool, u8, u8, bool) {
+	WINDOW_EFFECTS.get()
+}
+
+pub fn window_effects() -> (bool, u8, u8, bool) {
+	let defaults = default_window_effects();
+	let style = EXTENSION_STYLE.get();
+	(
+		style.transparency_blur.unwrap_or(defaults.0),
+		style.transparency.unwrap_or(defaults.1),
+		style.blur.unwrap_or(defaults.2),
+		style.transparent_all.unwrap_or(defaults.3),
+	)
 }
 const THEME_FIELDS: [&str; 18] = [
 	"base",
@@ -489,7 +509,11 @@ pub enum ImageSection {
 }
 
 /// Cover one window image with a section surface. Only the surface changes opacity.
-pub fn section_surface(ui: &egui::Ui, color: Color32, section: ImageSection) -> Color32 {
+pub fn section_surface(ui: &egui::Ui, mut color: Color32, section: ImageSection) -> Color32 {
+	let (enabled, _, _, all) = window_effects();
+	if enabled && !all && !matches!(section, ImageSection::MessageList) {
+		color = color.to_opaque();
+	}
 	if !has_window_background(ui) {
 		return color;
 	}
@@ -611,7 +635,32 @@ pub fn colors(dark: bool, variant: Variant) -> Palette {
 	if let Some(palettes) = EXTENSION_THEME.get() {
 		palette = recolor(palette, palettes[usize::from(dark)]);
 	}
-	customize(palette, primary_color())
+	let mut palette = customize(palette, primary_color());
+	let (enabled, transparency, _, all) = window_effects();
+	if enabled && transparency > 0 {
+		let alpha = 100 - u16::from(transparency);
+		for (surface, chrome) in [
+			(&mut palette.base, true),
+			(&mut palette.sidebar, true),
+			(&mut palette.chat, false),
+			(&mut palette.raised, true),
+			(&mut palette.canvas, false),
+			(&mut palette.surface, true),
+		] {
+			if chrome && !all {
+				continue;
+			}
+			let [r, g, b, a] = surface.to_srgba_unmultiplied();
+			*surface = Color32::from_rgba_unmultiplied(r, g, b, (u16::from(a) * alpha / 100) as u8);
+		}
+		palette.backdrop = palette.backdrop.map(|stops| {
+			stops.map(|color| {
+				let [r, g, b, a] = color.to_srgba_unmultiplied();
+				Color32::from_rgba_unmultiplied(r, g, b, (u16::from(a) * alpha / 100) as u8)
+			})
+		});
+	}
+	palette
 }
 
 fn customize(mut palette: Palette, primary: Option<[u8; 3]>) -> Palette {
@@ -662,7 +711,7 @@ fn opaque_surfaces(mut palette: Palette) -> Palette {
 	let backdrop = palette
 		.backdrop
 		.map_or(palette.chat.to_opaque(), |[top, bottom]| {
-			mix(top, bottom, 0.5)
+			mix(top, bottom, 0.5).to_opaque()
 		});
 	for surface in [
 		&mut palette.base,

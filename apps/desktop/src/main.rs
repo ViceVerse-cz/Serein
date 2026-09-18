@@ -236,6 +236,7 @@ fn main() -> eframe::Result {
 	let options = eframe::NativeOptions {
 		viewport: {
 			let builder = egui::ViewportBuilder::default()
+				.with_transparent(true)
 				.with_inner_size([1120.0, 760.0])
 				.with_min_inner_size([760.0, 520.0])
 				.with_active(!start_minimized)
@@ -700,6 +701,8 @@ struct Desktop {
 	cache_status: &'static str,
 	appearance: egui::ThemePreference,
 	appearance_changed: bool,
+	window_blur: bool,
+	window_transparent: bool,
 	reading: reading_settings::ReadingSettings,
 	app_settings: app_settings::Settings,
 	updater: updater::Updater,
@@ -1273,8 +1276,10 @@ impl Desktop {
 			.last()
 			.map_or(10_000, |m| m.id.0.max(10_000));
 		let mut messaging = ui::MessagingUi::default();
-		messaging.notifications_enabled =
-			local_store::AppPreferences::default().notifications_enabled;
+		let preference_defaults = local_store::AppPreferences::default();
+		messaging.notifications_enabled = preference_defaults.notifications_enabled;
+		messaging.transparency = preference_defaults.transparency;
+		messaging.blur = preference_defaults.blur;
 		#[cfg(feature = "demo")]
 		if demo {
 			// Robin stays pinned on home. #getting-started is the guild Favorites row.
@@ -1677,6 +1682,9 @@ impl Desktop {
 			.clone();
 		#[cfg(target_os = "windows")]
 		align_undecorated_surface(&window);
+		// Keep an alpha-capable GPU buffer for live toggles, but start with the
+		// native opaque-window hint. X11 ignores runtime transparency changes.
+		window.set_transparent(false);
 		Ok(Self {
 			extensions: extension_bridge::Bridge::default(),
 			extension_close_pending: false,
@@ -1732,6 +1740,8 @@ impl Desktop {
 			cache_status: "Loading local appearance…",
 			appearance: egui::ThemePreference::System,
 			appearance_changed: false,
+			window_blur: false,
+			window_transparent: false,
 			reading,
 			app_settings,
 			updater: updater::Updater::new(demo),
@@ -4781,11 +4791,35 @@ impl Desktop {
 	}
 }
 impl Desktop {
-	fn sync_customization(&self, ctx: &egui::Context) {
+	fn sync_customization(&mut self, ctx: &egui::Context) {
 		if self.messaging.primary_color != ui::design::primary_color() {
 			ui::design::set_primary_color(self.messaging.primary_color);
 			ui::design::apply(ctx);
 			ctx.request_repaint();
+		}
+		let effects = (
+			self.messaging.transparency_blur,
+			self.messaging.transparency,
+			self.messaging.blur,
+			self.messaging.transparent_all,
+		);
+		if effects != ui::design::default_window_effects() {
+			ui::design::set_window_effects(effects.0, effects.1, effects.2, effects.3);
+			ui::design::apply(ctx);
+			ctx.request_repaint();
+		}
+	}
+	fn sync_window_effects(&mut self) {
+		let effects = ui::design::window_effects();
+		let transparent = effects.0 && effects.1 > 0;
+		if transparent != self.window_transparent {
+			self.window.set_transparent(transparent);
+			self.window_transparent = transparent;
+		}
+		let blur = transparent && effects.2 > 0;
+		if blur != self.window_blur {
+			self.window.set_blur(blur);
+			self.window_blur = blur;
 		}
 	}
 	/// Frame period of the display the window is on; egui otherwise assumes 60 Hz.
@@ -4800,6 +4834,13 @@ impl Desktop {
 	}
 }
 impl eframe::App for Desktop {
+	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+		if self.window_transparent {
+			egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
+		} else {
+			visuals.panel_fill.to_opaque().to_normalized_gamma_f32()
+		}
+	}
 	fn persist_egui_memory(&self) -> bool {
 		false
 	}
@@ -5038,6 +5079,9 @@ impl eframe::App for Desktop {
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
 		self.tray_window.ui(&ctx);
+		// Change native hints before drawing, so the clear color and panel alpha
+		// agree for the whole frame. OS calls happen only when an effect changes.
+		self.sync_window_effects();
 		let (close_requested, dropped) = ctx.input_mut(|input| {
 			(
 				input.viewport().close_requested(),
