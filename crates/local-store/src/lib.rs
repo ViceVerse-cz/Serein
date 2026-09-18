@@ -264,6 +264,14 @@ impl LocalStore {
             CREATE TABLE IF NOT EXISTS channel_preferences(
                 account TEXT PRIMARY KEY NOT NULL,
                 value TEXT NOT NULL CHECK(typeof(value)='text' AND length(CAST(value AS BLOB))<=8192)
+            );
+            CREATE TABLE IF NOT EXISTS accounts(
+                account TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL CHECK(typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 64),
+                display TEXT CHECK(display IS NULL OR (typeof(display)='text' AND length(CAST(display AS BLOB)) BETWEEN 1 AND 64)),
+                avatar TEXT CHECK(avatar IS NULL OR (typeof(avatar)='text' AND length(avatar) BETWEEN 1 AND 34)),
+                discriminator INTEGER NOT NULL CHECK(typeof(discriminator)='integer' AND discriminator BETWEEN 0 AND 9999),
+                touched INTEGER NOT NULL CHECK(typeof(touched)='integer')
             );")?;
 		transaction.pragma_update(None, "user_version", version.max(NATIVE_SCHEMA))?;
 		let has_animate_gifs: bool = transaction.query_row(
@@ -916,6 +924,67 @@ impl LocalStore {
 		transaction.commit()?;
 		Ok(())
 	}
+	/// Switcher roster, most recently used first. Damaged rows are skipped, never fatal.
+	pub fn accounts(&self) -> Result<Vec<model::SavedAccount>> {
+		let mut query = self.0.prepare(
+			"SELECT account,name,display,avatar,discriminator FROM accounts ORDER BY touched DESC,account LIMIT ?1",
+		)?;
+		let mut rows = query.query([model::MAX_SAVED_ACCOUNTS as i64])?;
+		let mut accounts = Vec::new();
+		while let Some(row) = rows.next()? {
+			let Ok(id) = row.get::<_, String>(0)?.parse::<Id>() else {
+				continue;
+			};
+			let account = model::SavedAccount {
+				id,
+				name: row.get(1)?,
+				display: row.get(2)?,
+				avatar: row.get(3)?,
+				discriminator: row.get::<_, i64>(4)?.clamp(0, 9999) as u16,
+			};
+			if account.is_valid() {
+				accounts.push(account);
+			}
+		}
+		Ok(accounts)
+	}
+	/// Remembers one account and returns the IDs pruned to keep the roster bounded.
+	/// Callers own removing the pruned accounts' credential-store entries.
+	pub fn save_account(&mut self, account: &model::SavedAccount) -> Result<Vec<Id>> {
+		if !account.is_valid() {
+			return Err(StoreError::Capacity);
+		}
+		let transaction = self.0.transaction()?;
+		transaction.execute(
+			"INSERT INTO accounts(account,name,display,avatar,discriminator,touched) VALUES(?1,?2,?3,?4,?5,
+             MAX(unixepoch('subsec')*1000,(SELECT IFNULL(MAX(touched),0)+1 FROM accounts)))
+             ON CONFLICT(account) DO UPDATE SET name=excluded.name,display=excluded.display,avatar=excluded.avatar,discriminator=excluded.discriminator,touched=excluded.touched",
+			params![
+				account.id.to_string(),
+				account.name,
+				account.display,
+				account.avatar,
+				account.discriminator
+			],
+		)?;
+		let mut pruned = Vec::new();
+		{
+			let mut query = transaction.prepare(
+				"SELECT account FROM accounts ORDER BY touched DESC,account LIMIT -1 OFFSET ?1",
+			)?;
+			let mut rows = query.query([model::MAX_SAVED_ACCOUNTS as i64])?;
+			while let Some(row) = rows.next()? {
+				if let Ok(id) = row.get::<_, String>(0)?.parse::<Id>() {
+					pruned.push(id);
+				}
+			}
+		}
+		for id in &pruned {
+			transaction.execute("DELETE FROM accounts WHERE account=?1", [id.to_string()])?;
+		}
+		transaction.commit()?;
+		Ok(pruned)
+	}
 	pub fn forget_account(&mut self, account: Id) -> Result<()> {
 		let transaction = self.0.transaction()?;
 		for table in [
@@ -924,6 +993,7 @@ impl LocalStore {
 			"drafts",
 			"gif_favorites",
 			"channel_preferences",
+			"accounts",
 		] {
 			transaction.execute(
 				&format!("DELETE FROM {table} WHERE account=?1"),
@@ -938,6 +1008,48 @@ impl LocalStore {
 }
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn switcher_roster_orders_by_last_use_prunes_and_clears_with_the_account() {
+		use super::{Id, LocalStore};
+		let path =
+			std::env::temp_dir().join(format!("serein-accounts-{}.sqlite", std::process::id()));
+		let _ = std::fs::remove_file(&path);
+		let mut store = LocalStore::open(&path).unwrap();
+		let entry = |id: u64| model::SavedAccount {
+			id: Id(id),
+			name: format!("synthetic{id}"),
+			display: Some(format!("Synthetic {id}")),
+			avatar: None,
+			discriminator: 0,
+		};
+		assert!(store.accounts().unwrap().is_empty());
+		// One extra account beyond the bound: the least recently used entry is pruned.
+		let mut pruned = Vec::new();
+		for id in 1..=(model::MAX_SAVED_ACCOUNTS as u64 + 1) {
+			pruned.extend(store.save_account(&entry(id)).unwrap());
+		}
+		assert_eq!(pruned, vec![Id(1)]);
+		let accounts = store.accounts().unwrap();
+		assert_eq!(accounts.len(), model::MAX_SAVED_ACCOUNTS);
+		assert_eq!(accounts[0].id, Id(model::MAX_SAVED_ACCOUNTS as u64 + 1));
+		assert!(!accounts.iter().any(|account| account.id == Id(1)));
+		// Re-saving moves an account back to the front and updates its identity.
+		let mut renamed = entry(2);
+		renamed.display = Some("Renamed".into());
+		assert!(store.save_account(&renamed).unwrap().is_empty());
+		let accounts = store.accounts().unwrap();
+		assert_eq!(accounts[0], renamed);
+		// Oversized identities never reach the table, and forgetting an account drops its row.
+		let mut invalid = entry(3);
+		invalid.name = "n".repeat(65);
+		assert!(store.save_account(&invalid).is_err());
+		store.forget_account(Id(2)).unwrap();
+		let accounts = store.accounts().unwrap();
+		assert!(!accounts.iter().any(|account| account.id == Id(2)));
+		assert_eq!(accounts.len(), model::MAX_SAVED_ACCOUNTS - 1);
+		drop(store);
+		let _ = std::fs::remove_file(&path);
+	}
 	#[test]
 	fn forwarded_snapshot_survives_cache_reopen_and_upgrade() {
 		let path =

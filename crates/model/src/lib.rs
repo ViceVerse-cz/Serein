@@ -142,6 +142,54 @@ pub enum AccountKind {
 	Bot = 1,
 	App = 2,
 }
+/// Locally remembered account for the switcher: identity only, never a token.
+/// Tokens stay in the OS credential store under their own per-account entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SavedAccount {
+	pub id: Id,
+	pub name: String,
+	/// Global display name, when the account has one.
+	pub display: Option<String>,
+	pub avatar: Option<String>,
+	pub discriminator: u16,
+}
+/// Bounded roster: enough for people juggling alternates, small enough to stay readable.
+pub const MAX_SAVED_ACCOUNTS: usize = 8;
+impl SavedAccount {
+	pub fn is_valid(&self) -> bool {
+		self.id.0 != 0
+			&& (1..=64).contains(&self.name.len())
+			&& self
+				.display
+				.as_ref()
+				.is_none_or(|display| (1..=64).contains(&display.len()))
+			&& self.avatar.as_deref().is_none_or(valid_avatar_hash)
+			&& self.discriminator <= 9999
+	}
+	/// What the switcher shows: display name when set, otherwise the username.
+	pub fn label(&self) -> &str {
+		self.display
+			.as_deref()
+			.filter(|display| !display.is_empty())
+			.unwrap_or(&self.name)
+	}
+	/// Avatar lookups and name rows reuse the ordinary user widgets.
+	pub fn user(&self) -> User {
+		User {
+			kind: AccountKind::Human,
+			webhook: false,
+			id: self.id,
+			name: self.name.clone(),
+			avatar: self.avatar.clone(),
+			discriminator: self.discriminator,
+		}
+	}
+	pub fn heap_bytes(&self) -> usize {
+		self.name.capacity()
+			+ self.display.as_ref().map_or(0, String::capacity)
+			+ self.avatar.as_ref().map_or(0, String::capacity)
+	}
+}
 pub fn valid_avatar_hash(hash: &str) -> bool {
 	let hash = hash.strip_prefix("a_").unwrap_or(hash);
 	hash.len() == 32 && hash.bytes().all(|b| b.is_ascii_hexdigit())

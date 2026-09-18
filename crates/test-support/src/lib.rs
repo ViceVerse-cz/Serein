@@ -797,6 +797,33 @@ pub fn empty_channel_demo_state(long_name: bool) -> State {
 	state
 }
 
+/// Synthetic switcher roster for offline captures; these accounts never exist on Discord.
+pub fn demo_accounts(current: &model::User) -> Vec<model::SavedAccount> {
+	vec![
+		model::SavedAccount {
+			id: current.id,
+			name: current.name.clone(),
+			display: Some("Riley Quinn".into()),
+			avatar: current.avatar.clone(),
+			discriminator: current.discriminator,
+		},
+		model::SavedAccount {
+			id: Id(4242),
+			name: "riley.alt".into(),
+			display: Some("Riley (alt)".into()),
+			avatar: None,
+			discriminator: 0,
+		},
+		model::SavedAccount {
+			id: Id(4243),
+			name: "serein.testing".into(),
+			display: None,
+			avatar: None,
+			discriminator: 0,
+		},
+	]
+}
+
 pub fn seed_access_marks(state: &mut State) {
 	use model::permissions::{Overwrite, Role, VIEW_CHANNEL};
 	const GUILD: Id = Id(10);

@@ -7,6 +7,8 @@ use model::PresenceStatus;
 #[derive(Default)]
 pub(super) struct AccountMenu {
 	open: bool,
+	/// Set inside the popout: the popup owns `open` until its frame finishes.
+	close: bool,
 	generation: u64,
 	draft: String,
 	custom_open: bool,
@@ -69,7 +71,7 @@ impl MessagingUi {
 					.max_height(height)
 					.show(ui, |ui| self.account_menu_contents(ui, state, commands));
 			});
-		self.account_menu.open = open;
+		self.account_menu.open = open && !std::mem::take(&mut self.account_menu.close);
 		if self.account_menu.custom_open {
 			let ctx = anchor.ctx.clone();
 			let response = crate::dialog::Dialog::new("custom-status-editor", "Custom status")
@@ -166,7 +168,157 @@ impl MessagingUi {
 				ui.spacing_mut().item_spacing.y = 2.0;
 				self.account_status_row(ui);
 				self.account_custom_status_row(ui);
+				self.account_switcher(ui, state);
 			});
+	}
+
+	/// Other accounts remembered on this device, plus a row to remember one more.
+	fn account_switcher(&mut self, ui: &mut egui::Ui, state: &State) {
+		let colors = design::palette(ui);
+		let current = state.user.as_ref().map(|user| user.id);
+		// Bounded by MAX_SAVED_ACCOUNTS; cloned so the avatar cache stays mutably borrowable.
+		let others: Vec<model::SavedAccount> = self
+			.accounts
+			.iter()
+			.filter(|account| Some(account.id) != current)
+			.cloned()
+			.collect();
+		ui.add_space(10.0);
+		let (line, _) =
+			ui.allocate_exact_size(vec2(ui.available_width(), 1.0), egui::Sense::hover());
+		ui.painter().rect_filled(line, 0, colors.border);
+		ui.add_space(10.0);
+		ui.label(design::eyebrow(ui, "Switch accounts", colors.muted));
+		ui.add_space(4.0);
+		for account in &others {
+			self.account_switcher_row(ui, account, state.demo);
+		}
+		let response = ui
+			.scope(|ui| {
+				let width = ui.available_width();
+				ui.spacing_mut().button_padding = vec2(34.0, 10.0);
+				ui.add(
+					egui::Button::new(())
+						.left_text(
+							design::medium(ui, "Add an account", 14.0).color(colors.text_strong),
+						)
+						.frame_when_inactive(false)
+						.corner_radius(6)
+						.min_size(vec2(width, 40.0)),
+				)
+			})
+			.inner;
+		icons::paint(
+			ui.painter(),
+			icons::Icon::Plus,
+			egui::Rect::from_center_size(
+				egui::pos2(response.rect.left() + 17.0, response.rect.center().y),
+				egui::Vec2::splat(17.0),
+			),
+			colors.muted,
+		);
+		if response.clicked() {
+			self.add_account_requested = true;
+			self.account_menu.close = true;
+		}
+	}
+
+	/// One saved account: click to switch, trailing bin to forget it on this device.
+	fn account_switcher_row(
+		&mut self,
+		ui: &mut egui::Ui,
+		account: &model::SavedAccount,
+		demo: bool,
+	) {
+		let colors = design::palette(ui);
+		let (rect, _) =
+			ui.allocate_exact_size(vec2(ui.available_width(), 44.0), egui::Sense::hover());
+		let bin = egui::Rect::from_center_size(
+			egui::pos2(rect.right() - 20.0, rect.center().y),
+			egui::Vec2::splat(28.0),
+		);
+		let user = account.user();
+		let avatar = egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 22.0, rect.center().y),
+			egui::Vec2::splat(32.0),
+		);
+		let text = egui::Rect::from_min_max(
+			egui::pos2(rect.left() + 48.0, rect.top() + 3.0),
+			egui::pos2(bin.left() - 8.0, rect.bottom() - 3.0),
+		);
+		let over_bin = ui.rect_contains_pointer(bin);
+		if ui.rect_contains_pointer(rect) {
+			ui.painter().rect_filled(rect, 6, colors.hover);
+		}
+		ui.scope_builder(egui::UiBuilder::new().max_rect(avatar), |ui| {
+			self.avatars.show_plain(ui, &user, 32.0, demo);
+		});
+		ui.scope_builder(egui::UiBuilder::new().max_rect(text), |ui| {
+			ui.spacing_mut().item_spacing.y = 0.0;
+			ui.add(
+				egui::Label::new(
+					design::medium(ui, account.label(), 14.0).color(colors.text_strong),
+				)
+				.truncate()
+				.selectable(false),
+			);
+			ui.add(
+				egui::Label::new(RichText::new(&account.name).size(12.0).color(colors.muted))
+					.truncate()
+					.selectable(false),
+			);
+		});
+		icons::paint(
+			ui.painter(),
+			icons::Icon::Trash,
+			bin.shrink(7.0),
+			if over_bin {
+				colors.danger
+			} else {
+				colors.muted
+			},
+		);
+		// Registered after the contents so the row, not a label, receives the click.
+		let row = ui.interact(
+			rect,
+			ui.scope_id().with(("switch-account", account.id.0)),
+			egui::Sense::click(),
+		);
+		let forget = ui.interact(
+			bin,
+			ui.scope_id().with(("forget-account", account.id.0)),
+			egui::Sense::click(),
+		);
+		if row.has_focus() || forget.has_focus() {
+			ui.painter().rect_stroke(
+				rect.shrink(1.0),
+				6,
+				egui::Stroke::new(1.0, colors.accent),
+				egui::StrokeKind::Inside,
+			);
+		}
+		row.widget_info(|| {
+			egui::WidgetInfo::labeled(
+				egui::WidgetType::Button,
+				true,
+				format!("Switch to {}", account.label()),
+			)
+		});
+		forget.widget_info(|| {
+			egui::WidgetInfo::labeled(
+				egui::WidgetType::Button,
+				true,
+				format!("Forget {}", account.label()),
+			)
+		});
+		let forget = forget.on_hover_text("Forget this account on this device");
+		if forget.clicked() {
+			self.forget_account_requested = Some(account.id);
+			self.account_menu.close = true;
+		} else if row.clicked() {
+			self.switch_account_requested = Some(account.id);
+			self.account_menu.close = true;
+		}
 	}
 
 	/// Name, handle and current custom status, grouped on the sunken card Discord uses.
@@ -666,6 +818,123 @@ mod tests {
 			.1
 			.center()
 	}
+	fn alt_account() -> model::SavedAccount {
+		model::SavedAccount {
+			id: model::Id(424_242),
+			name: "synthetic-alt".into(),
+			display: Some("Synthetic Alt".into()),
+			avatar: None,
+			discriminator: 0,
+		}
+	}
+
+	#[test]
+	fn switcher_lists_other_accounts_without_the_signed_in_one() {
+		let size = vec2(340.0, 900.0);
+		for demo in [true, false] {
+			let ctx = egui::Context::default();
+			design::apply(&ctx);
+			let mut state = test_support::demo_state();
+			state.demo = demo;
+			let own = state.user.as_ref().unwrap().clone();
+			state.own_profile.data = Some(profiles::synthetic(&own, None));
+			// The signed-in account is remembered too, and never offered as a switch target.
+			let mut view = MessagingUi {
+				accounts: vec![
+					model::SavedAccount {
+						id: own.id,
+						name: own.name.clone(),
+						display: Some("Signed in already".into()),
+						avatar: None,
+						discriminator: own.discriminator,
+					},
+					alt_account(),
+				],
+				..Default::default()
+			};
+			view.preview_account_menu(state.generation);
+			for _ in 0..3 {
+				frame(&ctx, &mut view, &mut state, size, vec![]);
+			}
+			let text = frame(&ctx, &mut view, &mut state, size, vec![]);
+			let listed = |label: &str| text.iter().any(|(value, _)| value == label);
+			assert!(listed("SWITCH ACCOUNTS"));
+			assert!(listed("Synthetic Alt"));
+			assert!(listed("synthetic-alt"));
+			assert!(listed("Add an account"));
+			// The signed-in account is remembered but never listed as a switch target.
+			assert!(!listed("Signed in already"));
+			click(
+				&ctx,
+				&mut view,
+				&mut state,
+				size,
+				locate(&text, "Add an account"),
+			);
+			assert!(view.add_account_requested);
+			assert!(!view.account_menu.open);
+			assert_eq!(view.switch_account_requested, None);
+		}
+	}
+
+	#[test]
+	fn switcher_row_separates_switching_from_forgetting() {
+		let account = alt_account();
+		let row = |view: &mut MessagingUi, ctx: &egui::Context, events: Vec<Event>| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(300.0, 120.0))),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.scope_builder(
+						egui::UiBuilder::new()
+							.max_rect(Rect::from_min_size(Pos2::ZERO, vec2(300.0, 44.0))),
+						|ui| view.account_switcher_row(ui, &account, false),
+					);
+				},
+			);
+			output.drop_without_applying_deltas();
+		};
+		// The row spans the full width; the trailing bin owns only its own corner.
+		for (position, switches) in [
+			(Pos2::new(120.0, 22.0), true),
+			(Pos2::new(280.0, 22.0), false),
+		] {
+			let ctx = egui::Context::default();
+			design::apply(&ctx);
+			let mut view = MessagingUi::default();
+			// The pointer lands on widgets registered by an earlier frame.
+			row(&mut view, &ctx, vec![]);
+			for pressed in [true, false] {
+				row(
+					&mut view,
+					&ctx,
+					vec![
+						Event::PointerMoved(position),
+						Event::PointerButton {
+							pos: position,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				);
+			}
+			assert_eq!(
+				view.switch_account_requested,
+				switches.then_some(account.id)
+			);
+			assert_eq!(
+				view.forget_account_requested,
+				(!switches).then_some(account.id)
+			);
+			// The popout owns `open`; rows only ask it to close.
+			assert!(view.account_menu.close);
+		}
+	}
+
 	#[test]
 	fn account_menu_opens_applies_clears_and_closes_across_themes_and_sizes() {
 		for light in [false, true] {

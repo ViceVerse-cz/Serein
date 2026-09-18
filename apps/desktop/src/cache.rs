@@ -68,6 +68,8 @@ pub enum Operation {
 	SaveGifFavorites(Vec<model::Gif>),
 	LoadChannelPreferences,
 	SaveChannelPreferences(model::ChannelPreferences),
+	LoadAccounts,
+	SaveAccount(model::SavedAccount),
 	LoadChannel {
 		channel: Id,
 		request: u64,
@@ -108,6 +110,8 @@ pub enum Outcome {
 	GifFavorites(Vec<model::Gif>),
 	ChannelPreferences(Result<model::ChannelPreferences, StoreError>),
 	ChannelPreferencesSaved(Result<(), StoreError>),
+	/// The whole switcher roster plus any accounts pruned to keep it bounded.
+	Accounts(Result<(Vec<model::SavedAccount>, Vec<Id>), StoreError>),
 	Channel {
 		channel: Id,
 		request: u64,
@@ -250,6 +254,12 @@ impl Cache {
 						.sum::<usize>()
 			}
 			Operation::SaveThemeVariant(value) => value.as_ref().map_or(0, String::capacity),
+			Operation::SaveAccount(account) => {
+				if !account.is_valid() {
+					return false;
+				}
+				account.heap_bytes()
+			}
 			_ => 0,
 		};
 		let ids = match &operation {
@@ -307,6 +317,13 @@ impl Cache {
 						favorites.iter().map(model::Gif::bytes).sum::<usize>()
 							+ favorites.capacity() * size_of::<model::Gif>()
 					}
+					Outcome::Accounts(Ok((accounts, pruned))) => {
+						accounts
+							.iter()
+							.map(model::SavedAccount::heap_bytes)
+							.sum::<usize>() + accounts.capacity() * size_of::<model::SavedAccount>()
+							+ pruned.capacity() * size_of::<Id>()
+					}
 					_ => 0,
 				};
 				let reservation = results
@@ -345,6 +362,21 @@ fn execute(
 		Operation::SaveChannelPreferences(value) => {
 			return Outcome::ChannelPreferencesSaved(match store {
 				Ok(store) => store.save_channel_preferences(account, value),
+				Err(error) => Err(*error),
+			});
+		}
+		Operation::LoadAccounts => {
+			return Outcome::Accounts(match store {
+				Ok(store) => store.accounts().map(|accounts| (accounts, Vec::new())),
+				Err(error) => Err(*error),
+			});
+		}
+		Operation::SaveAccount(account) => {
+			return Outcome::Accounts(match store {
+				Ok(store) => match store.save_account(account) {
+					Ok(pruned) => store.accounts().map(|accounts| (accounts, pruned)),
+					Err(error) => Err(error),
+				},
 				Err(error) => Err(*error),
 			});
 		}
@@ -440,6 +472,8 @@ fn execute(
 		}
 		Operation::LoadChannel { .. } => "Could not read cached history",
 		Operation::LoadAppPreferences
+		| Operation::LoadAccounts
+		| Operation::SaveAccount(_)
 		| Operation::LoadChannelPreferences
 		| Operation::SaveChannelPreferences(_)
 		| Operation::SaveAppPreferences(_)
@@ -453,6 +487,8 @@ fn execute(
 	let result = match store {
 		Ok(store) => match operation {
 			Operation::LoadAppPreferences
+			| Operation::LoadAccounts
+			| Operation::SaveAccount(_)
 			| Operation::LoadChannelPreferences
 			| Operation::SaveChannelPreferences(_)
 			| Operation::SaveAppPreferences(_)

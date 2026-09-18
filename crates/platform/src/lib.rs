@@ -53,8 +53,34 @@ pub(crate) fn ensure_gtk_application_id() {
 	});
 }
 
+/// The entry restored on launch. Switching accounts rewrites it from the per-account entry.
 pub fn load_session() -> Result<Option<SessionSecret>, CredentialError> {
-	let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|_| CredentialError::Unavailable)?;
+	load_entry(ACCOUNT)
+}
+pub fn save_session(secret: &SessionSecret) -> Result<(), CredentialError> {
+	save_entry(ACCOUNT, secret)
+}
+pub fn forget_session() -> Result<(), CredentialError> {
+	forget_entry(ACCOUNT)
+}
+/// One entry per remembered account, so the switcher never keeps a second copy in memory.
+fn account_entry(account: model::Id) -> String {
+	format!("{ACCOUNT}.{account}")
+}
+pub fn load_account_session(account: model::Id) -> Result<Option<SessionSecret>, CredentialError> {
+	load_entry(&account_entry(account))
+}
+pub fn save_account_session(
+	account: model::Id,
+	secret: &SessionSecret,
+) -> Result<(), CredentialError> {
+	save_entry(&account_entry(account), secret)
+}
+pub fn forget_account_session(account: model::Id) -> Result<(), CredentialError> {
+	forget_entry(&account_entry(account))
+}
+fn load_entry(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
+	let entry = keyring::Entry::new(SERVICE, name).map_err(|_| CredentialError::Unavailable)?;
 	match entry.get_password() {
 		Ok(value) => SessionSecret::from_owner_input(value)
 			.map(Some)
@@ -63,13 +89,13 @@ pub fn load_session() -> Result<Option<SessionSecret>, CredentialError> {
 		Err(_) => Err(CredentialError::Unavailable),
 	}
 }
-pub fn save_session(secret: &SessionSecret) -> Result<(), CredentialError> {
-	keyring::Entry::new(SERVICE, ACCOUNT)
+fn save_entry(name: &str, secret: &SessionSecret) -> Result<(), CredentialError> {
+	keyring::Entry::new(SERVICE, name)
 		.and_then(|entry| entry.set_password(secret.expose()))
 		.map_err(|_| CredentialError::Unavailable)
 }
-pub fn forget_session() -> Result<(), CredentialError> {
-	match keyring::Entry::new(SERVICE, ACCOUNT).and_then(|entry| entry.delete_credential()) {
+fn forget_entry(name: &str) -> Result<(), CredentialError> {
+	match keyring::Entry::new(SERVICE, name).and_then(|entry| entry.delete_credential()) {
 		Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
 		Err(_) => Err(CredentialError::Unavailable),
 	}

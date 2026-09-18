@@ -14,6 +14,10 @@ pub enum Operation {
 	Load,
 	Save(Arc<SessionSecret>),
 	Forget,
+	/// Per-account entries back the switcher; the active entry still drives launch restore.
+	LoadAccount(model::Id),
+	SaveAccount(model::Id, Arc<SessionSecret>),
+	ForgetAccount(model::Id),
 }
 pub enum Outcome {
 	Loaded(Result<Option<SessionSecret>, CredentialError>),
@@ -35,6 +39,15 @@ impl Store {
 					Operation::Load => Outcome::Loaded(platform::load_session()),
 					Operation::Save(secret) => Outcome::Saved(platform::save_session(&secret)),
 					Operation::Forget => Outcome::Forgotten(platform::forget_session()),
+					Operation::LoadAccount(account) => {
+						Outcome::Loaded(platform::load_account_session(account))
+					}
+					Operation::SaveAccount(account, secret) => {
+						Outcome::Saved(platform::save_account_session(account, &secret))
+					}
+					Operation::ForgetAccount(account) => {
+						Outcome::Forgotten(platform::forget_account_session(account))
+					}
 				};
 				if events.send((generation, outcome)).is_err() {
 					break;
@@ -49,7 +62,14 @@ impl Store {
 		}
 	}
 	pub fn load(&mut self, generation: u64, now: Instant) -> bool {
-		if self.send.try_send((generation, Operation::Load)).is_err() {
+		self.begin_load(generation, Operation::Load, now)
+	}
+	/// Reads one saved account's token for an account switch, under the same timeout.
+	pub fn load_account(&mut self, generation: u64, account: model::Id, now: Instant) -> bool {
+		self.begin_load(generation, Operation::LoadAccount(account), now)
+	}
+	fn begin_load(&mut self, generation: u64, operation: Operation, now: Instant) -> bool {
+		if self.send.try_send((generation, operation)).is_err() {
 			return false;
 		}
 		self.loading = Some((generation, now + LOAD_TIMEOUT));

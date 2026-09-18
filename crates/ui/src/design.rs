@@ -1140,6 +1140,22 @@ pub fn primary_icon_button(
 	wide_button(ui, label, Some(icon), p.accent, Stroke::NONE, p.accent_text)
 }
 /// Full-width neutral companion to [`primary_button`].
+/// Outlined companion to `primary_icon_button`, for the quieter of two full-width actions.
+pub fn secondary_icon_button(
+	ui: &mut egui::Ui,
+	icon: crate::icons::Icon,
+	label: &str,
+) -> egui::Response {
+	let p = palette(ui);
+	wide_button(
+		ui,
+		label,
+		Some(icon),
+		Color32::TRANSPARENT,
+		Stroke::new(1.0, p.border),
+		p.text_strong,
+	)
+}
 pub fn secondary_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
 	let p = palette(ui);
 	wide_button(
@@ -1248,6 +1264,125 @@ pub(crate) fn paint_avatar(ui: &egui::Ui, name: &str, size: f32, rect: egui::Rec
 		Color32::WHITE,
 	);
 }
+/// One selectable identity: initials avatar, name, handle and a trailing chevron.
+/// Painted from local data only, so the sign-in screen never fetches before a session exists.
+pub fn account_row(ui: &mut egui::Ui, name: &str, handle: &str) -> egui::Response {
+	let p = palette(ui);
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 54.0), egui::Sense::click());
+	let enabled = ui.is_enabled();
+	let hot = enabled && (response.hovered() || response.has_focus());
+	if ui.is_rect_visible(rect) {
+		let fill = if hot {
+			row_highlight(ui, p.raised, 1.0)
+		} else {
+			p.raised
+		};
+		let border = if hot {
+			p.accent.gamma_multiply(0.7)
+		} else {
+			p.border
+		};
+		ui.painter().rect(
+			rect,
+			12,
+			if enabled {
+				fill
+			} else {
+				fill.gamma_multiply(0.6)
+			},
+			Stroke::new(1.0, border),
+			egui::StrokeKind::Inside,
+		);
+		let avatar = egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 30.0, rect.center().y),
+			egui::Vec2::splat(34.0),
+		);
+		paint_avatar(ui, name, 34.0, avatar);
+		let text = egui::Rect::from_min_max(
+			egui::pos2(rect.left() + 58.0, rect.top() + 8.0),
+			egui::pos2(rect.right() - 34.0, rect.bottom() - 8.0),
+		);
+		ui.scope_builder(egui::UiBuilder::new().max_rect(text), |ui| {
+			ui.spacing_mut().item_spacing.y = 1.0;
+			ui.add(
+				egui::Label::new(medium(ui, name, 15.0).color(p.text_strong))
+					.truncate()
+					.selectable(false),
+			);
+			ui.add(
+				egui::Label::new(RichText::new(handle).size(12.5).color(p.muted))
+					.truncate()
+					.selectable(false),
+			);
+		});
+		crate::icons::paint(
+			ui.painter(),
+			crate::icons::Icon::ChevronRight,
+			egui::Rect::from_center_size(
+				egui::pos2(rect.right() - 22.0, rect.center().y),
+				egui::Vec2::splat(16.0),
+			),
+			if hot { p.text } else { p.muted },
+		);
+		if response.has_focus() {
+			ui.painter().rect_stroke(
+				rect.expand(2.0),
+				14,
+				Stroke::new(2.0, p.accent),
+				egui::StrokeKind::Outside,
+			);
+		}
+	}
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(
+			egui::WidgetType::Button,
+			enabled,
+			format!("{name} {handle}"),
+		)
+	});
+	response
+}
+
+/// Quiet expander row: a chevron and a label, for secondary panels that stay folded away.
+pub fn disclosure(ui: &mut egui::Ui, label: &str, open: bool) -> egui::Response {
+	let p = palette(ui);
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click());
+	if ui.is_rect_visible(rect) {
+		if response.hovered() || response.has_focus() {
+			ui.painter().rect_filled(rect, 8, p.hover);
+		}
+		let icon = if open {
+			crate::icons::Icon::ChevronDown
+		} else {
+			crate::icons::Icon::ChevronRight
+		};
+		crate::icons::paint(
+			ui.painter(),
+			icon,
+			egui::Rect::from_center_size(
+				egui::pos2(rect.left() + 13.0, rect.center().y),
+				egui::Vec2::splat(14.0),
+			),
+			p.muted,
+		);
+		ui.painter().text(
+			egui::pos2(rect.left() + 30.0, rect.center().y),
+			egui::Align2::LEFT_CENTER,
+			label,
+			FontId::new(13.0, medium_family(ui.ctx())),
+			if response.hovered() {
+				p.text_strong
+			} else {
+				p.text
+			},
+		);
+	}
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+	response
+}
+
 /// Presence dot with a surface-coloured ring, bottom-right of an avatar `rect`.
 pub fn presence_dot(ui: &egui::Ui, rect: egui::Rect, color: Color32, ring: Color32) {
 	let radius = (rect.width() * 0.16).clamp(4.0, 8.0);
@@ -2008,6 +2143,85 @@ pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
 		lerp(a.b(), b.b()),
 		lerp(a.a(), b.a()),
 	)
+}
+
+#[cfg(test)]
+mod sign_in_widget_tests {
+	use super::*;
+	/// The sign-in screen depends on these two: a row that reports a click and shows both
+	/// identity lines, and an expander that reports a click without owning its own state.
+	#[test]
+	fn account_row_and_disclosure_click_and_label_themselves() {
+		for light in [false, true] {
+			let ctx = egui::Context::default();
+			ctx.set_theme(if light {
+				egui::ThemePreference::Light
+			} else {
+				egui::ThemePreference::Dark
+			});
+			apply(&ctx);
+			let area = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(320.0, 120.0));
+			let run = |events: Vec<egui::Event>| {
+				let mut clicks = (false, false);
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(area),
+						focused: true,
+						events,
+						..Default::default()
+					},
+					|ui| {
+						ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
+							ui.spacing_mut().item_spacing.y = 0.0;
+							clicks.0 = account_row(ui, "Riley Quinn", "@riley").clicked();
+							clicks.1 = disclosure(ui, "About Serein", false).clicked();
+						});
+					},
+				);
+				let mut text = Vec::new();
+				fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
+					match shape {
+						egui::Shape::Text(t) => out.push(t.galley.job.text.clone()),
+						egui::Shape::Vec(shapes) => {
+							for shape in shapes {
+								collect(shape, out);
+							}
+						}
+						_ => {}
+					}
+				}
+				for shape in &output.shapes {
+					collect(&shape.shape, &mut text);
+				}
+				output.drop_without_applying_deltas();
+				(text, clicks)
+			};
+			let (text, _) = run(vec![]);
+			for expected in ["Riley Quinn", "@riley", "About Serein", "RQ"] {
+				assert!(text.iter().any(|value| value == expected), "{expected}");
+			}
+			// The row owns the full width; the expander sits directly beneath it.
+			for (position, row) in [
+				(egui::pos2(160.0, 27.0), true),
+				(egui::pos2(160.0, 68.0), false),
+			] {
+				let mut clicks = (false, false);
+				for pressed in [true, false] {
+					clicks = run(vec![
+						egui::Event::PointerMoved(position),
+						egui::Event::PointerButton {
+							pos: position,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					])
+					.1;
+				}
+				assert_eq!(clicks, (row, !row));
+			}
+		}
+	}
 }
 
 #[cfg(test)]

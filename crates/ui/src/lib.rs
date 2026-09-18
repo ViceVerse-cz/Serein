@@ -201,6 +201,14 @@ pub struct MessagingUi {
 	collapsed_categories: std::collections::BTreeSet<Id>,
 	navigation_channel: Option<Id>,
 	pub logout_requested: bool,
+	/// Accounts remembered on this device, most recently used first.
+	pub accounts: Vec<model::SavedAccount>,
+	/// Switch to this saved account; the host ends the session and reads its saved token.
+	pub switch_account_requested: Option<Id>,
+	/// End the session and return to the sign-in screen to remember one more account.
+	pub add_account_requested: bool,
+	/// Drop one saved account: its token, cached history and drafts.
+	pub forget_account_requested: Option<Id>,
 	pub reconnect_requested: bool,
 	pub draft_changes: Vec<Id>,
 	pub draft_restore_pending: bool,
@@ -621,6 +629,8 @@ impl MessagingUi {
 		// Window preferences belong to the application, not the account being cleared.
 		*self = Self {
 			build: self.build,
+			// The switcher roster belongs to the device, not to the account being cleared.
+			accounts: std::mem::take(&mut self.accounts),
 			updates: std::mem::take(&mut self.updates),
 			minimize_to_tray: self.minimize_to_tray,
 			tray_available: self.tray_available,
