@@ -4510,7 +4510,10 @@ impl eframe::App for Desktop {
 						&ctx,
 					));
 				} else {
-					self.state.status = "Wait for the current paste to finish";
+					self.messaging.toasts.push(
+						ui::design::Level::Error,
+						"Wait for the current paste to finish",
+					);
 				}
 			}
 			if std::mem::take(&mut self.messaging.attach_requested)
