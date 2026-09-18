@@ -188,6 +188,14 @@ pub struct Theme {
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeStyle {
 	#[serde(skip_serializing_if = "Option::is_none")]
+	pub transparency_blur: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub transparency: Option<u8>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub blur: Option<u8>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub transparent_all: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub body_size: Option<u8>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub heading_size: Option<u8>,
