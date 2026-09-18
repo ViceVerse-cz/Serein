@@ -177,7 +177,7 @@ Settings → Updates provides automatic checking/downloading, Production and Nig
 release channels, a manual check and an explicit restart action. The title strip
 shows an available or downloaded update on macOS, Windows and Linux. Update controls are
 also accessible from the signed-out screen. Automatic checking runs at startup
-once saved preferences are available, then every six hours while running; turning
+once saved preferences are available, then every hour while running; turning
 it off disables automatic downloads while background checks and title-bar notices
 remain active. Nightly is the default channel and automatic downloads are off by
 default. Switching channels never installs an

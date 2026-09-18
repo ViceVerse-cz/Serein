@@ -1645,10 +1645,6 @@ impl State {
 						*guild = actual;
 					}
 				}
-				// Typed updates replace the old PermissionsChanged fallback too.
-				// Retire both snapshots and in-flight profiles before applying them.
-				self.clear_profile();
-				self.profile_cache.clear();
 				self.server_admin.permissions_changed(&event);
 				self.update_permissions(event)
 			}

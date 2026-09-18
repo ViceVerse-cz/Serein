@@ -806,49 +806,50 @@ mod tests {
 			event: Event::PermissionsChanged,
 		});
 		assert!(state.profile_cache.is_empty());
-		// Typed permission events also retire cached and in-flight views. Invalid
-		// snapshots must fail closed without accepting a late profile response.
+		// Unchanged typed permission events preserve cached and in-flight views.
+		state
+			.profile_cache
+			.insert(Id(1), None, *profile(Id(1)), now);
+		assert!(state.request_profile(Id(1), None).is_none());
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Permissions(crate::permissions::Event::RoleRemoved {
+				guild: Id(9),
+				id: Id(10),
+			}),
+		});
+		assert!(state.profile.as_ref().unwrap().data.is_some());
+		assert_eq!(state.profile_cache.len(), 1);
+
+		// Invalid snapshots still fail closed without accepting a late profile response.
 		let guild = || model::permissions::Guild {
 			id: Id(9),
 			owner: None,
 			roles: None,
 			member: None,
 		};
-		for event in [
-			Event::Permissions(crate::permissions::Event::RoleRemoved {
-				guild: Id(9),
-				id: Id(10),
-			}),
-			Event::Permissions(crate::permissions::Event::Snapshot(
+		let Some(Command::Profile { request, .. }) = state.request_profile(Id(2), None) else {
+			panic!("uncached profile request");
+		};
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Permissions(crate::permissions::Event::Snapshot(
 				model::permissions::Snapshot {
 					guilds: vec![guild(), guild()],
 					channels: vec![],
 				},
 			)),
-		] {
-			state
-				.profile_cache
-				.insert(Id(1), None, *profile(Id(1)), now);
-			assert!(state.request_profile(Id(1), None).is_none());
-			assert!(state.profile.as_ref().unwrap().data.is_some());
-			let Some(Command::Profile { request, .. }) = state.request_profile(Id(2), None) else {
-				panic!("uncached profile request");
-			};
-			state.apply(Envelope {
-				generation: state.generation,
-				event,
-			});
-			assert!(state.profile.is_none() && state.profile_cache.is_empty());
-			state.apply(Envelope {
-				generation: state.generation,
-				event: Event::Profile {
-					user: Id(2),
-					guild: None,
-					request,
-					result: Ok(profile(Id(2))),
-				},
-			});
-			assert!(state.profile.is_none() && state.profile_cache.is_empty());
-		}
+		});
+		assert!(state.profile.is_none() && state.profile_cache.is_empty());
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Profile {
+				user: Id(2),
+				guild: None,
+				request,
+				result: Ok(profile(Id(2))),
+			},
+		});
+		assert!(state.profile.is_none() && state.profile_cache.is_empty());
 	}
 }
