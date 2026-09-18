@@ -107,6 +107,18 @@ impl Gate {
 			.store(revision, Ordering::Release);
 		self.is_ready()
 	}
+	fn reopen_input<T>(
+		&self,
+		revision: u64,
+		open: impl FnOnce() -> Result<T, &'static str>,
+	) -> Result<T, &'static str> {
+		// Clear the previous failure before callbacks from the replacement can run.
+		self.input_failed_revision.store(0, Ordering::Release);
+		open().inspect_err(|_| {
+			self.input_failed_revision
+				.fetch_max(revision, Ordering::AcqRel);
+		})
+	}
 	fn capture(&self) -> bool {
 		self.is_ready()
 			&& self.input_enabled.load(Ordering::Acquire)
@@ -582,22 +594,19 @@ impl Streams {
 		gate: &Arc<Gate>,
 		revision: u64,
 	) -> bool {
-		match open_input_stream(host, settings, gate, revision) {
+		match gate.reopen_input(revision, || {
+			open_input_stream(host, settings, gate, revision)
+		}) {
 			Ok((stream, input_read, id)) => {
 				self._input = Some(stream);
 				self.input = input_read;
 				self.input_id = id;
 				self.input_callbacks = gate.input_callbacks.load(Ordering::Acquire);
 				self.input_activity = Instant::now();
-				gate.input_failed_revision.store(0, Ordering::Release);
 				gate.echo_reset.store(true, Ordering::Release);
-				true
+				gate.input_failed_revision.load(Ordering::Acquire) != revision
 			}
-			Err(_) => {
-				gate.input_failed_revision
-					.fetch_max(revision, Ordering::AcqRel);
-				false
-			}
+			Err(_) => false,
 		}
 	}
 }
@@ -1221,20 +1230,26 @@ mod tests {
 	}
 
 	#[test]
-	fn microphone_unavailability_clears_on_recovery() {
+	fn microphone_recovery_preserves_startup_failures() {
 		let audio = audio_without_devices();
 		audio.set_ready(true);
 		let revision = audio.gate.revision.load(Ordering::Acquire);
 		assert!(audio.gate.acknowledge(revision));
-		assert!(!audio.microphone_unavailable());
-		// Simulating fatal input error marks input_failed_revision.
-		audio
-			.gate
-			.input_failed_revision
-			.store(revision, Ordering::Release);
+		let gate = &audio.gate;
+		assert!(
+			gate.reopen_input::<()>(revision, || Err("unavailable"))
+				.is_err()
+		);
 		assert!(audio.microphone_unavailable());
-		// Simulating successful auto-recovery clears input_failed_revision.
-		audio.gate.input_failed_revision.store(0, Ordering::Release);
+		// A successful open can still report a fatal error through its callback.
+		gate.reopen_input(revision, || {
+			gate.input_failed_revision
+				.fetch_max(revision, Ordering::AcqRel);
+			Ok(())
+		})
+		.unwrap();
+		assert!(audio.microphone_unavailable());
+		gate.reopen_input(revision, || Ok(())).unwrap();
 		assert!(!audio.microphone_unavailable());
 	}
 }
