@@ -141,6 +141,19 @@ impl Toasts {
 		}
 		self.items
 			.retain(|toast| toast.deadline.is_none_or(|deadline| deadline > now));
-		ctx.request_repaint();
+		// A resting toast is a still image, so sleep until the soonest fade begins and
+		// only then drive frames; repainting for the whole lifetime burns a CPU core to
+		// redraw the same pixels. Hovering pushes its deadline out and reschedules here.
+		let fade_in = self
+			.items
+			.iter()
+			.filter_map(|toast| toast.deadline)
+			.map(|deadline| deadline - FADE - now)
+			.fold(f64::INFINITY, f64::min);
+		if fade_in <= 0.0 {
+			ctx.request_repaint();
+		} else if fade_in.is_finite() {
+			ctx.request_repaint_after(std::time::Duration::from_secs_f64(fade_in));
+		}
 	}
 }
