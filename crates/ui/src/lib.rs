@@ -76,6 +76,7 @@ mod thumbhash;
 mod timeline;
 #[cfg(test)]
 mod title_bar_tests;
+pub mod toasts;
 mod typing;
 pub mod updates;
 mod user_menu;
@@ -220,7 +221,8 @@ pub struct MessagingUi {
 	pub remove_attachment_requested: bool,
 	pub cancel_upload_requested: bool,
 	pub upload_busy: bool,
-	pub upload_status: Option<String>,
+	/// Transient problem and progress notices. Nothing here outlives its deadline.
+	pub toasts: toasts::Toasts,
 	pending_upload: Option<pending::Upload>,
 	pub clear_cache_requested: bool,
 	pub voice_available: bool,
@@ -2062,24 +2064,6 @@ impl MessagingUi {
 			});
 			cap_top = Some(cap.top());
 		}
-		let upload_in_timeline = self.pending_upload.as_ref().is_some_and(|upload| {
-			state.pending.iter().any(|p| {
-				p.nonce == upload.nonce
-					&& p.channel == channel
-					&& p.delivery == model::Delivery::Sending
-			})
-		});
-		if !editing_here
-			&& !upload_in_timeline
-			&& let Some(status) = self.upload_status.as_deref()
-		{
-			ui.horizontal_wrapped(|ui| {
-				ui.label(status);
-				if self.upload_busy && ui.button("Cancel upload").clicked() {
-					self.cancel_upload_requested = true;
-				}
-			});
-		}
 		let full = state.draft_bytes() >= MAX_DRAFT_BYTES
 			|| (!state.drafts.contains_key(&channel) && state.drafts.len() >= 64);
 		if full && !editing_here {
@@ -3677,6 +3661,9 @@ impl MessagingUi {
 		self.verification.show(&ctx, state);
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);
+		// Clear the title bar and channel header so a notice never sits on the chrome.
+		self.toasts
+			.show(&ctx, if self.shows_title_bar() { 96.0 } else { 60.0 });
 		if !commands.is_empty() {
 			ctx.request_repaint();
 		}

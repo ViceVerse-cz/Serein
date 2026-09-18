@@ -1229,6 +1229,22 @@ impl Desktop {
 			// The demo updater owns the flags, so ask it for its synthetic release.
 			messaging.updates.check_requested = true;
 		}
+		// `--demo-toast`: one of each severity, so the transient notice layer can be
+		// captured without provoking a real failure.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-toast") {
+			messaging.toasts.push(
+				ui::design::Level::Error,
+				"Attach up to 10 files per message",
+			);
+			messaging.toasts.push(
+				ui::design::Level::Warning,
+				"Attachments must total at most 20 MB",
+			);
+			messaging
+				.toasts
+				.push(ui::design::Level::Info, "Attachment upload cancelled");
+		}
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-game-activity") {
 			messaging.share_game_activity = true;
@@ -4128,13 +4144,14 @@ impl eframe::App for Desktop {
 							self.runtime.handle(),
 							&ctx,
 						) {
-							self.state.status = error;
+							self.messaging.toasts.push(ui::design::Level::Error, error);
 						}
 					}
-					Ok(clipboard::Content::File(..)) => {
-						self.state.status = "Attaching files is unavailable here"
-					}
-					Err(error) => self.state.status = error,
+					Ok(clipboard::Content::File(..)) => self.messaging.toasts.push(
+						ui::design::Level::Error,
+						"Attaching files is unavailable here",
+					),
+					Err(error) => self.messaging.toasts.push(ui::design::Level::Error, error),
 				}
 			}
 			self.clipboard = None;
@@ -4175,11 +4192,13 @@ impl eframe::App for Desktop {
 					&ctx,
 					dropped,
 				) {
-					self.state.status = error;
+					self.messaging.toasts.push(ui::design::Level::Error, error);
 				}
 			} else {
-				self.state.status =
-					"File not attached; return to a connected conversation and drop it again";
+				self.messaging.toasts.push(
+					ui::design::Level::Error,
+					"File not attached; return to a connected conversation and drop it again",
+				);
 			}
 		}
 		// Offline fixtures may stage a synthetic attachment without any upload selection.
@@ -4192,7 +4211,9 @@ impl eframe::App for Desktop {
 			self.messaging.attachment_files = self.uploads.files();
 		}
 		self.messaging.upload_busy = self.uploads.busy() || self.clipboard.is_some();
-		self.messaging.upload_status = self.uploads.status();
+		if let Some(notice) = self.uploads.take_notice() {
+			self.messaging.toasts.push(ui::design::Level::Error, notice);
+		}
 		if !self.state.demo {
 			let (progress, sending) = self.uploads.transfer_progress();
 			self.messaging.update_upload_progress(progress, sending);

@@ -84,7 +84,11 @@ pub struct Uploads {
 	previewing: Vec<(u64, mpsc::Receiver<Option<egui::ColorImage>>)>,
 	choosing: Option<Choosing>,
 	uploading: Option<Uploading>,
+	/// Progress of the batch in flight, and only ever a running state: terminal failures
+	/// leave through `notice`, so nothing here outlives the work it describes.
 	last: Option<Status>,
+	/// One problem, announced once. Drained by the caller into a toast.
+	notice: Option<&'static str>,
 }
 impl Uploads {
 	pub fn select_pasted(
@@ -239,9 +243,8 @@ impl Uploads {
 			if let Some(result) = result {
 				let cancelled = choosing.cancelled.load(Ordering::Acquire);
 				self.choosing = None;
-				if cancelled {
-					self.last = Some(Status::Cancelled);
-				} else {
+				self.last = None;
+				if !cancelled {
 					match result {
 						Ok(Some(selected)) => {
 							let sources: Vec<_> =
@@ -251,13 +254,12 @@ impl Uploads {
 									for (source, thumbnail) in selected {
 										self.push(source, thumbnail);
 									}
-									self.last = None;
 								}
-								Err(error) => self.last = Some(Status::Failed(error)),
+								Err(error) => self.notice = Some(error),
 							}
 						}
-						Ok(None) => self.last = Some(Status::Cancelled),
-						Err(error) => self.last = Some(Status::Failed(error)),
+						Ok(None) => {}
+						Err(error) => self.notice = Some(error),
 					}
 				}
 			}
@@ -276,22 +278,29 @@ impl Uploads {
 		if let Some(uploading) = &mut self.uploading {
 			let status = uploading.progress.borrow_and_update().clone();
 			let closed = uploading.progress.has_changed().is_err();
-			self.last = Some(if closed {
-				match status {
-					Status::Sending => Status::Failed(
-						"Message outcome unknown; check the conversation before retrying",
+			if closed {
+				// A stream that ends mid-flight is a failure to announce, not a state to hold.
+				let (reached, problem) = match status {
+					Status::Sending => (
+						None,
+						Some("Message outcome unknown; check the conversation before retrying"),
 					),
 					Status::Preparing | Status::Uploading { .. } if uploading.cancelling => {
-						Status::Cancelled
+						(Some(Status::Cancelled), None)
 					}
 					Status::Preparing | Status::Uploading { .. } => {
-						Status::Failed("Attachment upload interrupted")
+						(None, Some("Attachment upload interrupted"))
 					}
-					terminal => terminal,
+					Status::Failed(error) => (None, Some(error)),
+					terminal => (Some(terminal), None),
+				};
+				self.last = reached;
+				if problem.is_some() {
+					self.notice = problem;
 				}
 			} else {
-				status
-			});
+				self.last = Some(status);
+			}
 			// Cancellation retains this slot until the actual network worker releases its sender.
 			if closed {
 				self.uploading = None;
@@ -365,31 +374,16 @@ impl Uploads {
 			_ => (None, false),
 		}
 	}
-	pub fn status(&self) -> Option<String> {
-		if let Some(choosing) = &self.choosing {
-			if choosing.cancelled.load(Ordering::Acquire) {
-				return None;
-			}
-			return Some("Selecting attachment...".into());
-		}
-		if self.uploading.as_ref().is_some_and(|job| job.cancelling) {
-			return None;
-		}
-		Some(match self.last.as_ref()? {
-			Status::Preparing => "Preparing attachment...".into(),
-			Status::Uploading { sent, total } => {
-				format!("Uploading attachment: {sent} / {total} bytes")
-			}
-			Status::Sending => "Sending attachment message...".into(),
-			Status::Finished => return None,
-			Status::Cancelled => return None,
-			Status::Failed(error) => (*error).into(),
-		})
+	/// Takes the pending problem, if any. Progress is not reported here: the timeline's
+	/// own pending row carries it, and a toast is for what went wrong, not what is going.
+	pub fn take_notice(&mut self) -> Option<&'static str> {
+		self.notice.take()
 	}
 	pub fn remove(&mut self) {
 		self.selected.clear();
 		self.previewing.clear();
 		self.cancel();
+		self.last = None;
 	}
 	pub fn cancel(&mut self) {
 		if let Some(choosing) = &self.choosing {
@@ -571,6 +565,7 @@ mod tests {
 			previewing: vec![],
 			uploading: None,
 			last: None,
+			notice: None,
 		};
 		uploads.poll(2, Some(Id(2)), true, &context);
 		assert!(cancelled.load(Ordering::Acquire));
@@ -590,7 +585,7 @@ mod tests {
 		drop(progress);
 		uploads.poll(2, Some(Id(3)), true, &context);
 		assert!(!uploads.busy());
-		assert!(uploads.status().unwrap().contains("outcome unknown"));
+		assert!(uploads.take_notice().unwrap().contains("outcome unknown"));
 
 		let (progress, receive) = watch::channel(Status::Preparing);
 		let (cancel, _) = watch::channel(false);
@@ -601,6 +596,6 @@ mod tests {
 		drop(progress);
 		uploads.poll(2, Some(Id(2)), true, &context);
 		assert!(!uploads.busy());
-		assert_eq!(uploads.status(), None);
+		assert_eq!(uploads.take_notice(), None);
 	}
 }
