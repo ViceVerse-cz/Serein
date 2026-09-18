@@ -1,5 +1,9 @@
 # Third-party notices
 
+Linux tray integration uses **ksni 0.3.6** (Unlicense), reusing zbus, Tokio and image.
+The unmodified license is retained in `assets/licenses/files/ksni-0.3.6-UNLICENSE`;
+`Cargo.lock` records the archive checksum.
+
 Linux call audio enables CPAL’s PulseAudio backend with **pulseaudio 0.3.1**
 (MIT), **enum-primitive-derive 0.3.0** (MIT), and **futures 0.3.34**
 (MIT OR Apache-2.0). Their unmodified license texts and provenance are bundled

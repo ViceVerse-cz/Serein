@@ -32,6 +32,7 @@ mod screen;
 mod server_settings_demo;
 mod startup;
 mod toggle_setting;
+mod tray_window;
 mod updater;
 mod uploads;
 mod video;
@@ -259,6 +260,13 @@ fn main() -> eframe::Result {
 			},
 			..Default::default()
 		},
+		#[cfg(target_os = "linux")]
+		event_loop_builder: Some(Box::new(|builder| {
+			if std::env::args().any(|arg| arg == "--x11") {
+				use winit::platform::x11::EventLoopBuilderExtX11;
+				builder.with_x11();
+			}
+		})),
 		persist_window: false,
 		persistence_path: None,
 		..Default::default()
@@ -667,10 +675,7 @@ struct Desktop {
 	tray: Option<platform::tray::Tray>,
 	hotkeys: platform::hotkeys::Hotkeys,
 	tray_error: Option<&'static str>,
-	/// The window is hidden behind a live tray icon, so a restore must bring it back.
-	hidden_to_tray: bool,
-	/// Quitting from the tray, or an armed update, asked to exit: close requests stop hiding.
-	tray_quit: bool,
+	tray_window: tray_window::State,
 	/// `--demo-reply`: keeps two synthetic typists active on the selected fixture channel.
 	#[cfg(feature = "demo")]
 	demo_typing: bool,
@@ -1627,8 +1632,7 @@ impl Desktop {
 			tray_setting,
 			startup,
 			tray: None,
-			hidden_to_tray: false,
-			tray_quit: false,
+			tray_window: tray_window::State::default(),
 			hotkeys,
 			tray_error: None,
 			#[cfg(feature = "demo")]
@@ -1865,13 +1869,20 @@ impl Desktop {
 			self.tray = None;
 		} else if self.tray.is_none() {
 			let wake = ctx.clone();
-			match platform::tray::Tray::new(self.window.clone(), move || wake.request_repaint()) {
+			#[cfg(target_os = "linux")]
+			let tray = {
+				let _runtime = self.runtime.enter();
+				platform::tray::Tray::new(move || wake.request_repaint())
+			};
+			#[cfg(not(target_os = "linux"))]
+			let tray = platform::tray::Tray::new(self.window.clone(), move || wake.request_repaint());
+			match tray {
 				Ok(tray) => self.tray = Some(tray),
 				Err(error) => self.tray_error = Some(error),
 			}
 		}
-		if self.tray.is_none() {
-			self.show_from_tray(ctx);
+		if self.tray_window.hidden && !self.tray_available() {
+			self.tray_window.show(ctx);
 		}
 		self.messaging.tray_status = self
 			.tray_error
@@ -1880,27 +1891,20 @@ impl Desktop {
 			ctx.request_repaint();
 		}
 	}
-	/// Bring a tray-hidden window back. The native tray shows the window itself as well, so a
-	/// restore still works while hidden frames run app logic without a ui pass.
-	fn show_from_tray(&mut self, ctx: &egui::Context) {
-		if !std::mem::take(&mut self.hidden_to_tray) {
-			return;
-		}
-		ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-		ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-		ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-		ctx.request_repaint();
-	}
-	/// With a live tray icon, Close hides the window and Serein keeps running; the tray menu
-	/// quits with the usual unsaved-work checks. Without an icon, Close still exits.
-	fn close_to_tray(&mut self, ctx: &egui::Context) -> bool {
-		if self.tray_quit || self.tray.is_none() {
+	fn tray_available(&self) -> bool {
+		if !self.tray_setting.enabled || self.tray_error.is_some() {
 			return false;
 		}
-		ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-		ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-		self.hidden_to_tray = true;
-		true
+		#[cfg(target_os = "linux")]
+		{
+			self.tray
+				.as_ref()
+				.is_some_and(platform::tray::Tray::is_available)
+		}
+		#[cfg(not(target_os = "linux"))]
+		{
+			self.tray.is_some()
+		}
 	}
 	fn sync_own_presence(&mut self, ctx: &egui::Context) {
 		let changed = std::mem::take(&mut self.messaging.own_presence_changed);
@@ -4030,9 +4034,6 @@ impl eframe::App for Desktop {
 			}
 		};
 		self.frame_metrics.begin(ctx, search_focused);
-		if ctx.input(|input| input.viewport().close_requested()) {
-			self.close_to_tray(ctx);
-		}
 		self.startup.sync(
 			ctx,
 			&self.runtime,
@@ -4075,9 +4076,7 @@ impl eframe::App for Desktop {
 				&& (self.app_settings.loaded || self.app_settings.state.touched),
 		) {
 			// Installing needs a real exit, so this close must not stop at the tray.
-			self.tray_quit = true;
-			self.show_from_tray(ctx);
-			ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+			self.tray_window.quit(ctx);
 		}
 		self.state.expire_invite_challenge();
 		if self.state.invite_challenge().is_some() {
@@ -4120,28 +4119,48 @@ impl eframe::App for Desktop {
 				);
 			}
 		}
-		let mut tray_events = Vec::new();
+		let mut tray_events = Vec::with_capacity(4);
 		if let Some(tray) = &mut self.tray {
-			while let Some(event) = tray.take_event() {
+			// The Linux worker can refill event bits while this frame consumes them.
+			for _ in 0..4 {
+				let Some(event) = tray.take_event() else {
+					break;
+				};
 				tray_events.push(event);
 			}
 		}
+		#[cfg(target_os = "linux")]
+		let quitting = tray_events.contains(&platform::tray::Event::Quit);
 		for event in tray_events {
 			match event {
 				platform::tray::Event::Quit => {
-					self.tray_quit = true;
-					self.show_from_tray(ctx);
-					ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+					self.tray_window.quit(ctx);
 				}
-				platform::tray::Event::Show => self.show_from_tray(ctx),
+				platform::tray::Event::Show => self.tray_window.show(ctx),
+				#[cfg(target_os = "linux")]
+				platform::tray::Event::Minimize => {
+					if !quitting {
+						self.tray_window.show(ctx);
+						ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+					}
+				}
 				platform::tray::Event::Unavailable => {
-					self.tray_error = Some("Tray unavailable. The window will stay visible.");
-					self.show_from_tray(ctx);
+					self.tray_error = Some(if cfg!(target_os = "linux") {
+						"Tray unavailable. Start a StatusNotifier host, then toggle the tray off/on."
+					} else {
+						"Tray unavailable. The window will stay visible."
+					});
+					self.tray_window.show(ctx);
 				}
 			}
 		}
+		self.tray_window.logic(
+			ctx,
+			self.tray_available(),
+			self.window.is_visible().is_some(),
+		);
 		// The hide command lands after this frame, so the flag leads reported visibility.
-		let hidden_or_closing = self.hidden_to_tray
+		let hidden_or_closing = self.tray_window.hidden
 			|| ctx.input(|input| {
 				input.viewport().visible() == Some(false) || input.viewport().close_requested()
 			});
@@ -4198,14 +4217,13 @@ impl eframe::App for Desktop {
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
+		self.tray_window.ui(&ctx);
 		let (close_requested, dropped) = ctx.input_mut(|input| {
 			(
 				input.viewport().close_requested(),
 				std::mem::take(&mut input.raw.dropped_files),
 			)
 		});
-		// `logic` already turned this close into a hide, so no exit check or prompt applies.
-		let close_requested = close_requested && !self.hidden_to_tray;
 		ui::design::paint_backdrop(&ctx);
 		let upload_allowed = self.state.user.is_some()
 			&& self.state.gateway_connected
@@ -4925,6 +4943,8 @@ impl eframe::App for Desktop {
 				Some(ui::dialog::Choice::Cancelled) => {
 					self.updater.cancel_restart();
 					self.confirming_close = false;
+					self.tray_window.cancel_quit();
+					self.extension_close_pending = false;
 					self.confirming_logout = false;
 					self.download_close_pending = false;
 				}

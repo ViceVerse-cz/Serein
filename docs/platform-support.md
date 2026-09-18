@@ -127,7 +127,30 @@ polling. A synthetic native Windows test verifies registration,
 minimize/restore, own-window taskbar recovery, Quit event and cleanup. macOS uses a native menu bar icon with Show Serein / Quit actions; it draws Serein's own
 mark (`assets/brand/serein-tray.png`, rendered from the brand SVG) as an 18-point template
 image, so the system tints it for light, dark and highlighted menu bars. Minimized windows
-remain in the Dock. Linux retains an explicitly disabled control.
+remain in the Dock.
+
+Linux now uses ksni's StatusNotifierItem on the session bus with Show Serein,
+Minimize Serein and Quit actions. Enable a StatusNotifier host (for example a panel's
+tray module). Until registration succeeds, or after host loss, Close retains normal
+exit behavior. Start/restart the host and toggle the tray off/on to retry registration.
+The existing on-by-default tray preference is reused; demo changes are session-only.
+
+**Hyprland / native Wayland:** winit cannot hide, unhide, focus or unminimize a native
+Wayland window. Close requests minimization and keeps Serein running; the compositor
+may ignore this request. Show requests restoration, but native Wayland users may need
+the compositor's own window controls. A still-visible window is no longer marked hidden
+inside Serein. For working hide-on-close and tray restoration, launch through XWayland:
+`serein --x11`, or
+`flatpak run cz.viceverse.serein --x11`. XWayland and a valid DISPLAY are required;
+there is no automatic backend switch. The flag applies only to the main application window.
+Quit remains explicit and runs the existing unsaved-work/download/extension checks;
+cancelling Quit restores close-to-tray behavior.
+
+Offline lifecycle check: `cargo run --locked -p tray-debug`. On Linux, use
+`dbus-run-session -- cargo run --locked -p tray-debug` to additionally exercise
+registration, missing/lost host, icon activation and all three menu actions on a private
+synthetic bus. These checks do not establish compositor behavior. This refresh was
+prepared on macOS; NixOS/Hyprland, XWayland and Flatpak desktop validation remain pending.
 
 ## Opt-in automatic startup
 

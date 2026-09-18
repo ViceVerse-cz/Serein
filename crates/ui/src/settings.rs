@@ -749,6 +749,8 @@ impl MessagingUi {
 				},
 				Some(if cfg!(target_os = "macos") {
 					"Closing the window keeps Serein in the menu bar. Quit from its menu to exit."
+				} else if cfg!(target_os = "linux") {
+					"Close keeps Serein running. Use the tray to show, minimize or quit. On Hyprland, launch with --x11 to hide on close."
 				} else {
 					"Closing the window keeps Serein in the notification area. Quit from its menu to exit."
 				}),

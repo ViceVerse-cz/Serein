@@ -59,7 +59,9 @@ flatpak uninstall --user cz.viceverse.serein
 ### Sandbox Permissions
 
 The sandbox grants network, graphics, Wayland and X11 access, audio and
-specific Secret Service/notification D-Bus names. X11 access is required as an
+specific Secret Service/notification D-Bus names and `org.kde.StatusNotifierWatcher`
+for the tray. A StatusNotifier host must be running; no additional bus-name ownership
+or blanket session-bus permission is required. X11 access is required as an
 automatic clipboard fallback on Wayland compositors without the data-control
 protocol. Files are selected through
 the existing desktop portal; home and session-bus access are not granted.

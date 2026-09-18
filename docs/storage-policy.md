@@ -667,16 +667,24 @@ looks up metadata. The saved boolean and database schema are unchanged.
 
 ### Tray and account activity privacy (September 11, 2026)
 
-The tray icon is off by default. One strict integer in the existing independent
-`minimize_to_tray` singleton table survives restart/logout; disabling deletes its
-row. Schema 12 receives the additive table without migrating messages. Demo toggles
-are memory-only. Failed loads stay off and failed saves remain visible.
+The tray preference defaults on. The existing independent `minimize_to_tray`
+singleton table stores an explicit integer and survives restart/logout; demo toggles
+are memory-only. No account data is added to the tray or its menu.
 
-The Windows adapter owns one icon/menu and a window procedure hook on the existing
-UI thread. Three event bits coalesce Show/Quit/failure; there is no worker, polling
-timer, autostart or new dependency. Minimizing stays in the taskbar; enabling or disabling
-the tray icon does not hide or restore the window. Shell failure restores the window.
-Closing still follows existing application exit gates.
+Windows/macOS keep their native icon adapters. Linux owns one cancellable ksni
+StatusNotifierItem on the application's Tokio runtime, one bundled 32×32 ARGB icon
+(4096 bytes), and a fixed atomic bitset coalescing Show/Minimize/Quit/failure events.
+Registration and its host recheck each time out after three seconds; teardown waits
+at most two seconds. There is no polling/retry loop or persisted tray history.
+Disabling or host loss restores a hidden window; retry requires toggling the setting.
+Flatpak grants only the additional `org.kde.StatusNotifierWatcher` talk permission,
+not blanket session-bus access. No Discord identifiers, presence or secrets enter D-Bus.
+
+Close keeps the process running only with an available tray. X11 supports hiding;
+native Wayland receives a compositor-controlled minimize request and is not falsely
+marked hidden. Show and Quit restore first; Quit defers to a UI pass so existing
+unsaved-work and cleanup checks can run. Cancelling Quit restores close-to-tray behavior.
+The optional Linux `--x11` flag selects X11/XWayland without saving a new preference.
 
 While local game sharing is enabled, one cancellable account-settings operation reads
 Discord's actual sharing preference. A one-slot request channel permits an explicit
