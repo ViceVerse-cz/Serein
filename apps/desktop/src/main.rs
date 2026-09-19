@@ -690,6 +690,11 @@ struct Desktop {
 	demo_typing: bool,
 	variant_changed: bool,
 	pending_save: Option<Arc<SessionSecret>>,
+	/// Written under the account's own entry on every READY, including a launch restore, so
+	/// the switcher can always get back to an account it lists.
+	pending_account_save: Option<Arc<SessionSecret>>,
+	/// Saved account awaiting the owner's confirmation before it is forgotten.
+	confirming_forget: Option<model::Id>,
 	credential_status: &'static str,
 	forgetting: bool,
 	confirming_close: bool,
@@ -858,7 +863,7 @@ fn accent_glow(ui: &egui::Ui) {
 	let glow = rect.center() - egui::vec2(0.0, rect.height() * 0.1);
 	let radius = rect.width().max(rect.height()) * 0.55;
 	let mut mesh = egui::Mesh::default();
-	let alpha = if ui.visuals().dark_mode { 0.16 } else { 0.10 };
+	let alpha = if ui.visuals().dark_mode { 0.22 } else { 0.12 };
 	mesh.colored_vertex(glow, accent.gamma_multiply(alpha));
 	const SEGMENTS: u32 = 48;
 	for i in 0..=SEGMENTS {
@@ -1453,7 +1458,12 @@ impl Desktop {
 			if let Some(user) = state.user.as_ref() {
 				messaging.accounts = test_support::demo_accounts(user);
 			}
-			messaging.preview_account_menu(state.generation);
+			if rest == "status-editor" {
+				messaging.own_presence.custom_status = "Shipping a nicer popout".into();
+				messaging.preview_custom_status(state.generation);
+			} else {
+				messaging.preview_account_menu(state.generation);
+			}
 			state.status = "Offline fixture · account popout opened at startup";
 		}
 		#[cfg(feature = "demo")]
@@ -1576,6 +1586,8 @@ impl Desktop {
 		let mut authorized = false;
 		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
 		let mut sign_in_panels = false;
+		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
+		let mut sign_in_forget = None;
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-join-server") {
 			messaging.preview_join_server(state.generation);
@@ -1608,6 +1620,9 @@ impl Desktop {
 			state.user = None;
 			state.status = "Disconnected";
 			sign_in_panels = rest == "panels";
+			if rest == "forget" {
+				sign_in_forget = messaging.accounts.get(1).map(|account| account.id);
+			}
 			if rest == "failed" {
 				state.auth = AuthState::Failed;
 				state.status = "Synthetic fixture failure · Discord was not contacted";
@@ -1699,6 +1714,8 @@ impl Desktop {
 			demo_typing,
 			variant_changed: false,
 			pending_save: None,
+			pending_account_save: None,
+			confirming_forget: sign_in_forget,
 			credential_status: if demo {
 				"Fixture mode never opens the credential store or network"
 			} else if loading_saved {
@@ -1765,6 +1782,7 @@ impl Desktop {
 		self.state.status = "Connecting to Discord…";
 		let secret = Arc::new(secret);
 		self.pending_save = save.then(|| secret.clone());
+		self.pending_account_save = Some(secret.clone());
 		self.connection = Some(connection::Connection::start(
 			self.runtime.handle(),
 			secret,
@@ -1801,6 +1819,7 @@ impl Desktop {
 		self.login = None;
 		self.connection = None;
 		self.pending_save = None;
+		self.pending_account_save = None;
 		let old_account = self.state.user.as_ref().filter(|_| !was_demo).map(|u| u.id);
 		self.switching = None;
 		self.roster_pending = false;
@@ -2107,6 +2126,7 @@ impl Desktop {
 		true
 	}
 	fn sync_own_presence(&mut self, ctx: &egui::Context) {
+		self.expire_own_status(ctx);
 		let changed = std::mem::take(&mut self.messaging.own_presence_changed);
 		let previous_status = self.messaging.own_presence_status;
 		self.messaging.own_presence_status = if !self.messaging.own_presence.valid() {
@@ -2123,9 +2143,9 @@ impl Desktop {
 			{
 				"Could not update status: connection unavailable."
 			} else if !self.state.gateway_connected {
-				"Waiting for connection; public visibility unconfirmed."
+				"Waiting for connection."
 			} else {
-				"This session only; public visibility unconfirmed."
+				""
 			}
 		} else {
 			"Not connected; status is not shared."
@@ -2133,6 +2153,34 @@ impl Desktop {
 		if changed || previous_status != self.messaging.own_presence_status {
 			ctx.request_repaint();
 		}
+	}
+	/// A status with a "Clear after" deadline clears itself, then republishes like any edit.
+	fn expire_own_status(&mut self, ctx: &egui::Context) {
+		let Some(expires) = self.messaging.own_presence_expires else {
+			return;
+		};
+		if self.messaging.own_presence.custom_status.is_empty() {
+			self.messaging.own_presence_expires = None;
+			return;
+		}
+		let now = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap_or_default()
+			.as_millis()
+			.min(u128::from(u64::MAX)) as u64;
+		if now < expires {
+			// Wake once at the deadline; egui otherwise sleeps through it on an idle window.
+			ctx.request_repaint_after(std::time::Duration::from_millis(
+				(expires - now).min(60_000),
+			));
+			return;
+		}
+		self.messaging.own_presence_expires = None;
+		self.messaging.own_presence.custom_status.clear();
+		self.messaging.own_presence_changed = true;
+		self.messaging
+			.toasts
+			.push(ui::design::Level::Info, "Custom status cleared");
 	}
 	fn sync_game_activity(&mut self, ctx: &egui::Context) {
 		let previous_sharing = (
@@ -3292,6 +3340,7 @@ impl Desktop {
 								}
 								self.connection = None;
 								self.pending_save = None;
+								self.pending_account_save = None;
 								self.state.auth = AuthState::Unauthenticated;
 								self.state.status = "Disconnected";
 								self.credential_status = "Saved-login restore cancelled";
@@ -3465,8 +3514,8 @@ impl Desktop {
 			.inner_margin(egui::Margin {
 				left: 28,
 				right: 28,
-				top: 28,
-				bottom: 18,
+				top: 24,
+				bottom: 14,
 			})
 			.show(ui, |ui| {
 				let returning = !self.messaging.accounts.is_empty();
@@ -3477,10 +3526,10 @@ impl Desktop {
 				// Fixture builds render the enabled state for captures; the actions stay inert.
 				let ready = self.authorized && idle;
 				self.sign_in_header(ui, returning);
-				ui.add_space(18.0);
+				ui.add_space(16.0);
 				if returning {
 					self.sign_in_accounts(ui, idle);
-					ui.add_space(12.0);
+					ui.add_space(10.0);
 				}
 				let label = if waiting {
 					"Waiting for Discord…"
@@ -3519,10 +3568,10 @@ impl Desktop {
 						}
 					}
 				}
-				ui.add_space(12.0);
+				ui.add_space(10.0);
 				self.sign_in_consent(ui);
 				self.sign_in_status(ui);
-				ui.add_space(14.0);
+				ui.add_space(12.0);
 				let (line, _) = ui.allocate_exact_size(
 					egui::vec2(ui.available_width(), 1.0),
 					egui::Sense::hover(),
@@ -3536,17 +3585,17 @@ impl Desktop {
 	fn sign_in_header(&self, ui: &mut egui::Ui, returning: bool) {
 		let p = ui::design::palette(ui);
 		ui.vertical_centered(|ui| {
-			let (mark, _) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::hover());
+			let (mark, _) = ui.allocate_exact_size(egui::vec2(44.0, 44.0), egui::Sense::hover());
 			ui.painter()
-				.rect_filled(mark.expand(6.0), 18, p.accent.gamma_multiply(0.16));
-			ui.painter().rect_filled(mark, 14, p.accent);
+				.rect_filled(mark.expand(6.0), 17, p.accent.gamma_multiply(0.16));
+			ui.painter().rect_filled(mark, 13, p.accent);
 			ui::icons::paint(
 				ui.painter(),
 				ui::icons::Icon::Serein,
-				mark.shrink(12.0),
+				mark.shrink(11.0),
 				p.accent_text,
 			);
-			ui.add_space(14.0);
+			ui.add_space(12.0);
 			ui.label(
 				ui::design::semibold(
 					ui,
@@ -3592,26 +3641,71 @@ impl Desktop {
 			})
 			.collect();
 		// Four rows fit without crowding the card; the rest scroll inside the list.
-		let height = saved.len().min(4) as f32 * 60.0;
+		let rows = saved.len().min(4) as f32;
+		let height = rows * 54.0 + (rows - 1.0) * 6.0;
 		let mut chosen = None;
+		let mut forget = None;
 		egui::ScrollArea::vertical()
 			.id_salt("saved-accounts")
 			.max_height(height)
 			.min_scrolled_height(height)
 			.show(ui, |ui| {
+				ui.spacing_mut().item_spacing.y = 6.0;
 				for (id, label, handle) in saved {
-					let clicked = ui
-						.add_enabled_ui(enabled, |ui| ui::design::account_row(ui, &label, &handle))
-						.inner
-						.clicked();
-					if clicked {
+					let (row, remove) = ui
+						.add_enabled_ui(enabled, |ui| {
+							ui::design::account_row_with_remove(ui, &label, &handle, true)
+						})
+						.inner;
+					if remove.is_some_and(|remove| remove.clicked()) {
+						forget = Some(id);
+					} else if row.clicked() {
 						chosen = Some(id);
 					}
-					ui.add_space(6.0);
 				}
 			});
-		if let Some(id) = chosen {
+		if let Some(id) = forget {
+			self.confirming_forget = Some(id);
+		} else if let Some(id) = chosen {
 			self.messaging.switch_account_requested = Some(id);
+		}
+	}
+	/// Forgetting is destructive (token, cached history, drafts), so it always asks first.
+	fn confirm_forget_dialog(&mut self, ctx: &egui::Context) {
+		let Some(account) = self.confirming_forget else {
+			return;
+		};
+		let label = self
+			.messaging
+			.accounts
+			.iter()
+			.find(|saved| saved.id == account)
+			.map(|saved| saved.label().to_owned())
+			.unwrap_or_else(|| "this account".to_owned());
+		let signed_in = self
+			.state
+			.user
+			.as_ref()
+			.is_some_and(|user| user.id == account);
+		let confirm = ui::dialog::Confirm::new(
+			"forget-account",
+			format!("Forget {label}?"),
+			if signed_in {
+				"This is the account you are signed in with: you will be logged out, and its saved login, cached history and drafts on this device are removed."
+			} else {
+				"Its saved login, cached history and drafts on this device are removed. The Discord account itself is untouched; you can sign in again any time."
+			},
+		)
+		.danger()
+		.confirm_label("Forget account")
+		.cancel_label("Keep");
+		match confirm.show(ctx) {
+			Some(ui::dialog::Choice::Confirmed) => {
+				self.confirming_forget = None;
+				self.forget_saved_account(ctx, account);
+			}
+			Some(ui::dialog::Choice::Cancelled) => self.confirming_forget = None,
+			None => {}
 		}
 	}
 	/// Owner authorization, with the token handling spelled out next to the checkbox.
@@ -3620,7 +3714,7 @@ impl Desktop {
 		egui::Frame::NONE
 			.fill(p.base)
 			.corner_radius(10)
-			.inner_margin(egui::Margin::symmetric(12, 10))
+			.inner_margin(egui::Margin::symmetric(12, 9))
 			.show(ui, |ui| {
 				ui.set_width(ui.available_width());
 				ui.checkbox(
@@ -3632,7 +3726,7 @@ impl Desktop {
 				ui.add(
 					egui::Label::new(
 						egui::RichText::new(
-							"Discord's own login page opens inside Serein; passwords and 2FA stay there. Only the session token is kept, in your OS credential store.",
+							"Passwords and 2FA stay on Discord's own login page; only the session token is kept, in your OS credential store.",
 						)
 						.size(12.0)
 						.color(p.muted),
@@ -3768,6 +3862,7 @@ impl Desktop {
 			}
 			self.connection = None;
 			self.pending_save = None;
+			self.pending_account_save = None;
 			let generation = self.state.generation + 1;
 			self.state = test_support::demo_state();
 			test_support::seed_demo_folder_mosaic(&mut self.state);
@@ -4231,13 +4326,14 @@ impl Desktop {
 						self.connect(secret, switching.is_some(), ctx);
 					} else {
 						self.credential_status = credentials::loaded_status(&result);
-						// A remembered account without a token can never be restored.
-						if let Some(account) = switching
-							&& matches!(result, Ok(None) | Err(platform::CredentialError::Invalid))
-						{
-							self.forget_saved_account(ctx, account);
-							self.credential_status =
-								"That account's saved login is gone; sign in with Discord again";
+						if switching.is_some() {
+							// The entry stays: the owner decides whether to forget it. Signing
+							// in again with "Use another account" refreshes its token.
+							self.credential_status = "No saved login for that account on this device. Use another account to sign in again, or forget it with ×.";
+							self.messaging.toasts.push(
+								ui::design::Level::Warning,
+								"That account's saved login is missing; sign in again to refresh it",
+							);
 						}
 					}
 				}
@@ -4247,6 +4343,14 @@ impl Desktop {
 				credentials::Outcome::Saved(Err(_)) => {
 					self.credential_status =
 						"Could not save login; this session will not restore automatically"
+				}
+				credentials::Outcome::AccountForgotten(result) => {
+					if result.is_err() {
+						self.messaging.toasts.push(
+							ui::design::Level::Error,
+							"Could not remove that account's saved login from the OS credential store",
+						);
+					}
 				}
 				credentials::Outcome::Forgotten(result) => {
 					self.forgetting = false;
@@ -4415,18 +4519,18 @@ impl Desktop {
 				{
 					self.messaging.channel_preferences_reload = true;
 				}
-				if let Some(secret) = self.pending_save.take()
-					&& let Some(store) = &self.store
-				{
+				if let Some(store) = &self.store {
 					// The active entry restores on launch; the per-account entry backs the switcher.
-					let mut queued = store
-						.send
-						.try_send((
-							self.state.generation,
-							credentials::Operation::Save(secret.clone()),
-						))
-						.is_ok();
-					if let Some(account) = self.state.user.as_ref().map(|user| user.id) {
+					let mut queued = true;
+					if let Some(secret) = self.pending_save.take() {
+						queued &= store
+							.send
+							.try_send((self.state.generation, credentials::Operation::Save(secret)))
+							.is_ok();
+					}
+					if let Some(secret) = self.pending_account_save.take()
+						&& let Some(account) = self.state.user.as_ref().map(|user| user.id)
+					{
 						queued &= store
 							.send
 							.try_send((
@@ -4492,6 +4596,7 @@ impl Desktop {
 			}
 			self.connection = None;
 			self.pending_save = None;
+			self.pending_account_save = None;
 			self.state.apply(Envelope {
 				generation: self.state.generation,
 				event: Event::Failure(failure),
@@ -5456,10 +5561,11 @@ impl eframe::App for Desktop {
 				self.request_session_end(&ctx, SessionEnd::Add);
 			}
 			if let Some(account) = forget {
-				self.forget_saved_account(&ctx, account);
+				self.confirming_forget = Some(account);
 			}
 		}
 		self.sync_account_roster();
+		self.confirm_forget_dialog(&ctx);
 		if self.confirming_close || self.confirming_logout {
 			let mut notes: Vec<&str> = Vec::new();
 			if self.messaging.extensions.theme_editor_dirty() {

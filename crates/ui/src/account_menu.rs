@@ -12,6 +12,90 @@ pub(super) struct AccountMenu {
 	generation: u64,
 	draft: String,
 	custom_open: bool,
+	/// Chosen while the editor is open; only Apply commits it to a deadline.
+	clear_after: ClearAfter,
+}
+
+/// Discord's own "Clear after" choices. The deadline is absolute once applied, so a status
+/// set for an hour still clears an hour later even if the editor is reopened meanwhile.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum ClearAfter {
+	#[default]
+	Never,
+	Minutes30,
+	Hour,
+	Hours4,
+	Today,
+}
+
+impl ClearAfter {
+	const ALL: [Self; 5] = [
+		Self::Never,
+		Self::Minutes30,
+		Self::Hour,
+		Self::Hours4,
+		Self::Today,
+	];
+	fn label(self) -> &'static str {
+		match self {
+			Self::Never => "Don't clear",
+			Self::Minutes30 => "30 minutes",
+			Self::Hour => "1 hour",
+			Self::Hours4 => "4 hours",
+			Self::Today => "Today",
+		}
+	}
+	/// Absolute deadline in milliseconds since the Unix epoch; `None` never clears.
+	fn deadline(self) -> Option<u64> {
+		let now = crate::local_time::now();
+		let seconds = match self {
+			Self::Never => return None,
+			Self::Minutes30 => now.unix_timestamp() + 30 * 60,
+			Self::Hour => now.unix_timestamp() + 60 * 60,
+			Self::Hours4 => now.unix_timestamp() + 4 * 60 * 60,
+			// End of the local day, which is what Discord means by "Today".
+			Self::Today => {
+				let midnight = now.replace_time(time::Time::MIDNIGHT);
+				(midnight + time::Duration::days(1)).unix_timestamp()
+			}
+		};
+		u64::try_from(seconds).ok().map(|seconds| seconds * 1000)
+	}
+	/// Plain-language moment this choice lands on, for the line under the dropdown.
+	fn clears_at(self) -> Option<String> {
+		if self == Self::Never {
+			return None;
+		}
+		let now = crate::local_time::now();
+		let at = match self {
+			Self::Never => return None,
+			Self::Minutes30 => now + time::Duration::minutes(30),
+			Self::Hour => now + time::Duration::hours(1),
+			Self::Hours4 => now + time::Duration::hours(4),
+			Self::Today => now.replace_time(time::Time::MIDNIGHT) + time::Duration::days(1),
+		};
+		let clock = format!("{:02}:{:02}", at.hour(), at.minute());
+		Some(if at.date() == now.date() {
+			format!("at {clock}")
+		} else {
+			format!("at {clock} tomorrow")
+		})
+	}
+	/// Nearest choice for an existing deadline, so reopening the editor shows what is set.
+	fn nearest(expires: Option<u64>) -> Self {
+		let Some(expires) = expires else {
+			return Self::Never;
+		};
+		Self::ALL
+			.into_iter()
+			.skip(1)
+			.find(|choice| {
+				choice
+					.deadline()
+					.is_some_and(|deadline| expires <= deadline)
+			})
+			.unwrap_or(Self::Today)
+	}
 }
 
 impl AccountMenu {
@@ -20,6 +104,14 @@ impl AccountMenu {
 	pub(super) fn preview(&mut self, generation: u64) {
 		self.open = true;
 		self.generation = generation;
+	}
+	/// Fixture-only: open the custom-status editor over the popout.
+	#[cfg(any(test, feature = "demo"))]
+	pub(super) fn preview_editor(&mut self, generation: u64, draft: String) {
+		self.preview(generation);
+		self.clear_after = ClearAfter::Hour;
+		self.draft = draft;
+		self.custom_open = true;
 	}
 }
 
@@ -268,10 +360,11 @@ impl MessagingUi {
 					.selectable(false),
 			);
 		});
+		// Same affordance as the sign-in screen's saved accounts.
 		icons::paint(
 			ui.painter(),
-			icons::Icon::Trash,
-			bin.shrink(7.0),
+			icons::Icon::Close,
+			bin.shrink(8.0),
 			if over_bin {
 				colors.danger
 			} else {
@@ -548,9 +641,68 @@ impl MessagingUi {
 			self.account_menu
 				.draft
 				.clone_from(&self.own_presence.custom_status);
+			self.account_menu.clear_after = ClearAfter::nearest(self.own_presence_expires);
 			self.account_menu.custom_open = true;
 		}
 	}
+	/// "Clear after" dropdown, matching the presence rows: value on the left, chevron right.
+	fn clear_after_row(&mut self, ui: &mut egui::Ui) -> egui::Response {
+		let colors = design::palette(ui);
+		let chosen = self.account_menu.clear_after;
+		let label = design::medium(ui, chosen.label(), 14.0).color(colors.text_strong);
+		let response = ui
+			.scope(|ui| {
+				let width = ui.available_width();
+				ui.spacing_mut().button_padding = vec2(14.0, 10.0);
+				egui::containers::menu::MenuButton::from_button(
+					egui::Button::new(())
+						.left_text(label)
+						.frame_when_inactive(false)
+						.corner_radius(8)
+						.min_size(vec2(width, 44.0)),
+				)
+				.ui(ui, |ui| {
+					ui.set_width(220.0_f32.min(ui.ctx().content_rect().width() - 48.0));
+					for choice in ClearAfter::ALL {
+						let picked = choice == chosen;
+						let response = ui.add_sized(
+							[ui.available_width(), 36.0],
+							egui::Button::new(())
+								.left_text(
+									design::medium(ui, choice.label(), 14.0)
+										.color(colors.text_strong),
+								)
+								.frame_when_inactive(picked)
+								.corner_radius(6),
+						);
+						if response.clicked() {
+							self.account_menu.clear_after = choice;
+							ui.close();
+						}
+					}
+				})
+				.0
+			})
+			.inner;
+		let rect = response.rect;
+		ui.painter().rect_stroke(
+			rect,
+			8,
+			egui::Stroke::new(1.0, colors.border),
+			egui::StrokeKind::Inside,
+		);
+		icons::paint(
+			ui.painter(),
+			icons::Icon::ChevronDown,
+			egui::Rect::from_center_size(
+				egui::pos2(rect.right() - 18.0, rect.center().y),
+				egui::Vec2::splat(14.0),
+			),
+			colors.muted,
+		);
+		response
+	}
+
 	/// Live preview, bounded field and footer actions, styled like Discord's dialog.
 	fn custom_status_editor(&mut self, ui: &mut egui::Ui, state: &State) {
 		let colors = design::palette(ui);
@@ -616,21 +768,14 @@ impl MessagingUi {
 			custom_status: draft.clone(),
 		}
 		.valid();
-		let changed = draft != self.own_presence.custom_status;
-		ui.add_space(6.0);
+		let changed = draft != self.own_presence.custom_status
+			|| (!draft.is_empty()
+				&& ClearAfter::nearest(self.own_presence_expires) != self.account_menu.clear_after);
+		ui.add_space(4.0);
+		// A bounded row: a bare right-to-left layout here takes the dialog's whole remaining
+		// height and the size never settles.
 		ui.horizontal(|ui| {
-			ui.add(
-				egui::Label::new(
-					RichText::new(if state.demo {
-						"Offline preview · this session only"
-					} else {
-						"This session only"
-					})
-					.size(12.0)
-					.color(colors.muted),
-				)
-				.truncate(),
-			);
+			ui.set_height(14.0);
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				let used = self.account_menu.draft.chars().count();
 				ui.label(
@@ -644,6 +789,23 @@ impl MessagingUi {
 				);
 			});
 		});
+		ui.add_space(12.0);
+		let label = ui.label(design::eyebrow(ui, "Clear after", colors.muted));
+		ui.add_space(6.0);
+		self.clear_after_row(ui).labelled_by(label.id);
+		// The deadline is local to this client, so name the moment rather than implying
+		// Discord will clear it for you.
+		if let Some(clears) = self.account_menu.clear_after.clears_at() {
+			ui.add_space(6.0);
+			ui.add(
+				egui::Label::new(
+					RichText::new(format!("Serein clears it {clears}."))
+						.size(12.0)
+						.color(colors.muted),
+				)
+				.wrap(),
+			);
+		}
 		if !valid {
 			ui.add_space(4.0);
 			ui.add(
@@ -681,6 +843,8 @@ impl MessagingUi {
 					.clicked()
 				{
 					self.account_menu.draft.clear();
+					self.account_menu.clear_after = ClearAfter::Never;
+					self.own_presence_expires = None;
 					if !self.own_presence.custom_status.is_empty() {
 						self.own_presence.custom_status.clear();
 						self.own_presence_changed = true;
@@ -698,6 +862,9 @@ impl MessagingUi {
 					self.account_menu
 						.draft
 						.clone_from(&self.own_presence.custom_status);
+					self.own_presence_expires = (!draft.is_empty())
+						.then(|| self.account_menu.clear_after.deadline())
+						.flatten();
 					self.own_presence_changed = true;
 				}
 			});

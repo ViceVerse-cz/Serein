@@ -1275,6 +1275,17 @@ pub(crate) fn paint_avatar(ui: &egui::Ui, name: &str, size: f32, rect: egui::Rec
 /// One selectable identity: initials avatar, name, handle and a trailing chevron.
 /// Painted from local data only, so the sign-in screen never fetches before a session exists.
 pub fn account_row(ui: &mut egui::Ui, name: &str, handle: &str) -> egui::Response {
+	account_row_with_remove(ui, name, handle, false).0
+}
+
+/// `account_row` with an optional trailing remove control in place of the chevron. The
+/// second response is that control; it is registered after the row so it wins the click.
+pub fn account_row_with_remove(
+	ui: &mut egui::Ui,
+	name: &str,
+	handle: &str,
+	removable: bool,
+) -> (egui::Response, Option<egui::Response>) {
 	let p = palette(ui);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 54.0), egui::Sense::click());
@@ -1324,15 +1335,17 @@ pub fn account_row(ui: &mut egui::Ui, name: &str, handle: &str) -> egui::Respons
 					.selectable(false),
 			);
 		});
-		crate::icons::paint(
-			ui.painter(),
-			crate::icons::Icon::ChevronRight,
-			egui::Rect::from_center_size(
-				egui::pos2(rect.right() - 22.0, rect.center().y),
-				egui::Vec2::splat(16.0),
-			),
-			if hot { p.text } else { p.muted },
-		);
+		if !removable {
+			crate::icons::paint(
+				ui.painter(),
+				crate::icons::Icon::ChevronRight,
+				egui::Rect::from_center_size(
+					egui::pos2(rect.right() - 22.0, rect.center().y),
+					egui::Vec2::splat(16.0),
+				),
+				if hot { p.text } else { p.muted },
+			);
+		}
 		if response.has_focus() {
 			ui.painter().rect_stroke(
 				rect.expand(2.0),
@@ -1349,7 +1362,31 @@ pub fn account_row(ui: &mut egui::Ui, name: &str, handle: &str) -> egui::Respons
 			format!("{name} {handle}"),
 		)
 	});
-	response
+	let remove = removable.then(|| {
+		let bin = egui::Rect::from_center_size(
+			egui::pos2(rect.right() - 22.0, rect.center().y),
+			egui::Vec2::splat(28.0),
+		);
+		let remove = ui.interact(bin, response.id.with("remove"), egui::Sense::click());
+		if ui.is_rect_visible(rect) {
+			let over = enabled && (remove.hovered() || remove.has_focus());
+			if over {
+				ui.painter()
+					.circle_filled(bin.center(), 14.0, p.danger.gamma_multiply(0.16));
+			}
+			crate::icons::paint(
+				ui.painter(),
+				crate::icons::Icon::Close,
+				bin.shrink(8.0),
+				if over { p.danger } else { p.muted },
+			);
+		}
+		remove.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, format!("Forget {name}"))
+		});
+		remove.on_hover_text("Forget this account on this device")
+	});
+	(response, remove)
 }
 
 /// Quiet expander row: a chevron and a label, for secondary panels that stay folded away.

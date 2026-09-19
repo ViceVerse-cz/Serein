@@ -23,6 +23,8 @@ pub enum Outcome {
 	Loaded(Result<Option<SessionSecret>, CredentialError>),
 	Saved(Result<(), CredentialError>),
 	Forgotten(Result<(), CredentialError>),
+	/// A per-account entry; never touches the launch-restore status or `forgetting`.
+	AccountForgotten(Result<(), CredentialError>),
 }
 pub struct Store {
 	pub send: SyncSender<(u64, Operation)>,
@@ -46,7 +48,7 @@ impl Store {
 						Outcome::Saved(platform::save_account_session(account, &secret))
 					}
 					Operation::ForgetAccount(account) => {
-						Outcome::Forgotten(platform::forget_account_session(account))
+						Outcome::AccountForgotten(platform::forget_account_session(account))
 					}
 				};
 				if events.send((generation, outcome)).is_err() {

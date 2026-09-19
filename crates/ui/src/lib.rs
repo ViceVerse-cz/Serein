@@ -119,6 +119,10 @@ pub struct MessagingUi {
 	friends: friends::Friends,
 	account_menu: account_menu::AccountMenu,
 	pub own_presence: model::OwnPresence,
+	/// When the custom status clears itself, in milliseconds since the Unix epoch. The
+	/// deadline is local: Discord carries it in account settings, which this client does
+	/// not write, so the host enforces it and republishes the cleared presence.
+	pub own_presence_expires: Option<u64>,
 	pub own_presence_changed: bool,
 	pub own_presence_status: &'static str,
 	group_menu: group_menu::GroupMenu,
@@ -621,6 +625,11 @@ impl MessagingUi {
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_account_menu(&mut self, generation: u64) {
 		self.account_menu.preview(generation);
+	}
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_custom_status(&mut self, generation: u64) {
+		let draft = self.own_presence.custom_status.clone();
+		self.account_menu.preview_editor(generation, draft);
 	}
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_emoji_picker(&mut self) {
