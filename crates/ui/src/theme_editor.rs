@@ -659,6 +659,9 @@ impl ThemeEditor {
 							});
 						ui.add_space(12.0);
 						ui.collapsing("Window effects", |ui| {
+							ui.label(
+								"Requires Transparency & blur in Appearance, then an app restart.",
+							);
 							let style = &mut theme.style;
 							let defaults = design::default_window_effects();
 							let mut transparency = style.transparency_blur.unwrap_or(defaults.0);

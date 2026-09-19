@@ -42,7 +42,7 @@ font sizes are whole logical pixels, before the user's display scale.
 
 | Field | Default | Allowed range |
 | --- | --- | --- |
-| `transparency_blur` | user Appearance setting | `true` or `false` |
+| `transparency_blur` | `true` (requires Appearance opt-in) | `true` or `false` |
 | `transparency` | user Appearance setting | 0–100 |
 | `blur` | user Appearance setting | 0–100 |
 | `transparent_all` | user Appearance setting | `true` or `false` |
@@ -81,16 +81,22 @@ restores built-in control metrics as well as colors; `Ctrl+Shift+F12` is the
 emergency reset shortcut. Reset keeps installed themes available for re-selection;
 Disable removes the selected package and its local data.
 
-`transparency_blur` enables the window effects. `transparency` controls how much of
-the desktop shows through the conversation; `transparent_all` extends it to sidebars,
-the server rail, headers and composer. `blur` at zero disables native compositor blur;
-nonzero values request it, but the compositor chooses the exact blur radius. The option
-is available on every platform; systems without native blur keep the translucent
-surface. Theme values override the corresponding default Appearance settings.
-Disabling effects (or setting transparency to zero) disables blur and restores the
-native opaque-window hint on macOS, Windows and Wayland. X11 cannot change this hint
-after window creation. The renderer retains an alpha-capable GPU surface for live
-toggles; this is not a guarantee of identical performance to an opaque-only surface.
+The Appearance **Transparency & blur** switch is the device-wide opt-in and requires
+restarting Serein after enabling or disabling it. Disabled launches use an opaque
+native window and GPU surface, with no blur or transparency compositor requests.
+Themes cannot enable window effects while this switch is off. Once enabled, the
+optional theme `transparency_blur` value can disable effects for that theme;
+omitting it permits effects. Theme percentages override the Appearance defaults.
+`transparency` controls how much desktop shows through the conversation;
+`transparent_all` extends it to sidebars, the server rail, headers and composer.
+These values and theme overrides update live within an enabled session.
+`blur` at zero disables native compositor blur; nonzero values request it, but the
+compositor chooses the exact radius. Systems without native blur keep translucency.
+Setting transparency to zero disables blur and restores the native opaque-window
+hint where supported; only restarting with the Appearance switch off releases the
+alpha-capable GPU surface. X11 cannot change its native hint after window creation.
+The synthetic native preview can opt in without saved settings using
+`cargo run --locked -p serein --features demo -- --demo --demo-transparency`.
 
 These metrics affect controls that inherit the shared native style. Custom
 painted elements, explicit text sizes, fixed-height rows and per-widget padding

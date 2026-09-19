@@ -40,6 +40,8 @@ fn main() {
 	assert_eq!(merged.dark, theme.dark);
 	theme.validate().unwrap();
 	ui::design::set_extension_theme(Some(&theme));
+	assert!(!ui::design::window_effects().0);
+	ui::design::set_window_effects(true, 15, 50, false);
 	assert_eq!(ui::design::window_effects(), (true, 30, 60, true));
 	ui::design::apply(&ctx);
 	for appearance in [egui::Theme::Dark, egui::Theme::Light] {
@@ -85,7 +87,7 @@ fn main() {
 		8.into()
 	);
 	ui::design::set_extension_theme(None);
-	assert_eq!(ui::design::window_effects(), (false, 15, 50, false));
+	assert_eq!(ui::design::window_effects(), (true, 15, 50, false));
 	ui::design::set_window_effects(true, 30, 60, false);
 	let focused = ui::design::colors(true, ui::design::Variant::Standard);
 	assert!(focused.chat.a() < 255);

@@ -864,7 +864,9 @@ impl MessagingUi {
 			design::switch(
 				ui,
 				"Transparency & blur",
-				Some("Let the desktop show through the app. Custom themes can override this."),
+				Some(
+					"Restart Serein after changing this. Themes can customize effects while enabled.",
+				),
 				&mut self.transparency_blur,
 			);
 			if self.transparency_blur {
