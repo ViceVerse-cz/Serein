@@ -6,6 +6,84 @@ use model::{
 };
 use std::time::{Duration, Instant};
 
+#[derive(Default)]
+struct VoiceCues {
+	channel: Option<Id>,
+	participants: Vec<(Id, bool)>,
+	controls: Option<(bool, bool)>,
+}
+impl VoiceCues {
+	fn clear(&mut self) {
+		self.channel = None;
+		self.participants.clear();
+		self.controls = None;
+	}
+	fn update(
+		&mut self,
+		state: &State,
+		muted: bool,
+		deafened: bool,
+		live: bool,
+	) -> Option<crate::notification_sounds::Cue> {
+		use crate::notification_sounds::Cue;
+		let controls = self.controls.replace((muted, deafened));
+		if !live {
+			self.channel = None;
+			self.participants.clear();
+			return None;
+		}
+		let control = controls.and_then(|(was_muted, was_deafened)| {
+			if was_deafened != deafened {
+				Some(if deafened { Cue::Deafen } else { Cue::Undeafen })
+			} else if was_muted != muted {
+				Some(if muted { Cue::Mute } else { Cue::Unmute })
+			} else {
+				None
+			}
+		});
+		let Some(call) = state.voice.active.as_ref() else {
+			let left = self.channel.take().is_some();
+			self.participants.clear();
+			return control.or(left.then_some(Cue::Leave));
+		};
+		if !matches!(
+			call.phase,
+			client_core::voice::Phase::Connected | client_core::voice::Phase::Waiting
+		) {
+			return control;
+		}
+		let current: Vec<_> = call
+			.participants
+			.iter()
+			.map(|participant| (participant.user, participant.streaming))
+			.collect();
+		let channel_changed = self.channel.replace(call.channel) != Some(call.channel);
+		let joined = current
+			.iter()
+			.any(|(user, _)| !self.participants.iter().any(|(known, _)| known == user));
+		let left = self
+			.participants
+			.iter()
+			.any(|(user, _)| !current.iter().any(|(known, _)| known == user));
+		let streaming = current.iter().any(|(user, streaming)| {
+			*streaming
+				&& self
+					.participants
+					.iter()
+					.find(|(known, _)| known == user)
+					.is_some_and(|(_, was_streaming)| !was_streaming)
+		});
+		self.participants = current;
+		control.or_else(|| {
+			channel_changed
+				.then_some(Cue::Join)
+				.or_else(|| joined.then_some(Cue::Join))
+				.or_else(|| left.then_some(Cue::Leave))
+				.or_else(|| streaming.then_some(Cue::StreamStart))
+		})
+	}
+}
+
 pub enum Alert {
 	Message {
 		title: String,
@@ -20,6 +98,7 @@ pub struct Runtime {
 	options: Device,
 	was_audible: bool,
 	ring: Option<(Id, Instant)>,
+	voice: VoiceCues,
 	badge: Option<u32>,
 	badge_check: Option<Instant>,
 	badge_status: &'static str,
@@ -28,6 +107,7 @@ impl Runtime {
 	pub fn clear(&mut self, window: &winit::window::Window) {
 		self.sounds.stop();
 		self.ring = None;
+		self.voice.clear();
 		if self.badge.is_some_and(|count| count > 0) {
 			let _ = platform::badge::set(window, 0);
 		}
@@ -57,7 +137,7 @@ impl Runtime {
 				&& i.viewport().minimized != Some(true)
 		});
 		let mut alert = None;
-		let mut sound = None;
+		let mut sound: Option<crate::notification_sounds::Cue> = None;
 		while let Some(notification) = state.take_notification() {
 			let current = focused && ui.viewing_latest(notification.channel);
 			let cue = if current {
@@ -78,7 +158,7 @@ impl Runtime {
 					});
 				}
 				if options.allows(cue) {
-					sound = Some(cue);
+					sound = Some(cue.into());
 				}
 			}
 		}
@@ -91,21 +171,25 @@ impl Runtime {
 			}
 			self.ring = incoming.map(|id| (id, Instant::now()));
 			if incoming.is_some() {
-				sound = Some(Sound::IncomingRing);
+				sound = Some(Sound::IncomingRing.into());
 			}
 		} else if let Some((_, played)) = &mut self.ring
 			&& played.elapsed() >= crate::notification_sounds::RING_INTERVAL
 		{
 			*played = Instant::now();
-			sound = Some(Sound::IncomingRing);
+			sound = Some(Sound::IncomingRing.into());
 		}
 		if self.ring.is_some() {
 			ctx.request_repaint_after(Duration::from_millis(250));
 		}
 		// Explicit previews are allowed in the offline demo and intentionally ignore automatic mute choices.
 		if let Some(preview) = ui.notification_preview.take() {
-			sound = Some(preview);
+			sound = Some(preview.into());
 		}
+		let voice = self
+			.voice
+			.update(state, ui.voice_muted, ui.voice_deafened, live);
+		let sound = sound.or(voice);
 		if let Some(sound) = sound {
 			self.sounds.play(sound, ctx);
 		}
@@ -148,5 +232,71 @@ impl Runtime {
 			self.sounds.status()
 		};
 		alert
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::notification_sounds::Cue;
+	use client_core::voice::{Call, Participant, Phase};
+
+	fn participant(user: u64) -> Participant {
+		Participant {
+			user: Id(user),
+			muted: false,
+			deafened: false,
+			server_muted: false,
+			server_deafened: false,
+			video: false,
+			streaming: false,
+		}
+	}
+
+	#[test]
+	fn voice_cues_follow_controls_members_streams_and_call_lifecycle() {
+		let mut state = State::default();
+		let mut cues = VoiceCues::default();
+		assert_eq!(cues.update(&state, false, false, true), None);
+		state.voice.active = Some(Call {
+			channel: Id(20),
+			guild: Some(Id(10)),
+			connected_at: Some(Instant::now()),
+			server_muted: false,
+			server_deafened: false,
+			request: 1,
+			phase: Phase::Connected,
+			muted: false,
+			deafened: false,
+			participants: vec![participant(2)],
+			camera: false,
+			watching: None,
+			error: None,
+		});
+		assert_eq!(cues.update(&state, false, false, true), Some(Cue::Join));
+		state.voice.active.as_mut().unwrap().phase = Phase::Securing;
+		assert_eq!(cues.update(&state, false, false, true), None);
+		state.voice.active.as_mut().unwrap().phase = Phase::Connected;
+		state
+			.voice
+			.active
+			.as_mut()
+			.unwrap()
+			.participants
+			.push(participant(3));
+		assert_eq!(cues.update(&state, false, false, true), Some(Cue::Join));
+		state.voice.active.as_mut().unwrap().participants[1].streaming = true;
+		assert_eq!(
+			cues.update(&state, false, false, true),
+			Some(Cue::StreamStart)
+		);
+		state.voice.active.as_mut().unwrap().participants.remove(0);
+		assert_eq!(cues.update(&state, false, false, true), Some(Cue::Leave));
+		assert_eq!(cues.update(&state, true, false, true), Some(Cue::Mute));
+		assert_eq!(cues.update(&state, true, true, true), Some(Cue::Deafen));
+		assert_eq!(cues.update(&state, false, false, true), Some(Cue::Undeafen));
+		state.voice.active = None;
+		assert_eq!(cues.update(&state, false, false, true), Some(Cue::Leave));
+		assert_eq!(cues.update(&state, false, false, false), None);
 	}
 }
