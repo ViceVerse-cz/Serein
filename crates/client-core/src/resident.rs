@@ -249,6 +249,7 @@ mod tests {
 			channel: Id(channel),
 			kind: 0,
 			author: User {
+				primary_guild: None,
 				id: Id(9),
 				name: "Synthetic".into(),
 				avatar: None,

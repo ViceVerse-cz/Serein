@@ -42,6 +42,10 @@ font sizes are whole logical pixels, before the user's display scale.
 
 | Field | Default | Allowed range |
 | --- | --- | --- |
+| `transparency_blur` | `true` (requires Appearance opt-in) | `true` or `false` |
+| `transparency` | user Appearance setting | 0–100 |
+| `blur` | user Appearance setting | 0–100 |
+| `transparent_all` | user Appearance setting | `true` or `false` |
 | `body_size` | 15 | 10–28 |
 | `heading_size` | 20 | 12–40 |
 | `button_size` | 14 | 10–28 |
@@ -76,6 +80,23 @@ Existing color-only packages continue to work. Disabling or resetting a theme
 restores built-in control metrics as well as colors; `Ctrl+Shift+F12` is the
 emergency reset shortcut. Reset keeps installed themes available for re-selection;
 Disable removes the selected package and its local data.
+
+The Appearance **Transparency & blur** switch is the device-wide opt-in and requires
+restarting Serein after enabling or disabling it. Disabled launches use an opaque
+native window and GPU surface, with no blur or transparency compositor requests.
+Themes cannot enable window effects while this switch is off. Once enabled, the
+optional theme `transparency_blur` value can disable effects for that theme;
+omitting it permits effects. Theme percentages override the Appearance defaults.
+`transparency` controls how much desktop shows through the conversation;
+`transparent_all` extends it to sidebars, the server rail, headers and composer.
+These values and theme overrides update live within an enabled session.
+`blur` at zero disables native compositor blur; nonzero values request it, but the
+compositor chooses the exact radius. Systems without native blur keep translucency.
+Setting transparency to zero disables blur and restores the native opaque-window
+hint where supported; only restarting with the Appearance switch off releases the
+alpha-capable GPU surface. X11 cannot change its native hint after window creation.
+The synthetic native preview can opt in without saved settings using
+`cargo run --locked -p serein --features demo -- --demo --demo-transparency`.
 
 These metrics affect controls that inherit the shared native style. Custom
 painted elements, explicit text sizes, fixed-height rows and per-widget padding

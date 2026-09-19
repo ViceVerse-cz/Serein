@@ -41,6 +41,10 @@ pub struct AppPreferences {
 	pub show_hidden_channels: bool,
 	pub hide_title_bar: bool,
 	pub primary_color: Option<[u8; 3]>,
+	pub transparency_blur: bool,
+	pub transparency: u8,
+	pub blur: u8,
+	pub transparent_all: bool,
 	pub voice_noise_suppression: bool,
 	pub voice_push_to_talk: bool,
 	pub voice_muted: bool,
@@ -70,6 +74,10 @@ impl Default for AppPreferences {
 			show_hidden_channels: false,
 			hide_title_bar: false,
 			primary_color: None,
+			transparency_blur: false,
+			transparency: 15,
+			blur: 50,
+			transparent_all: false,
 			voice_noise_suppression: false,
 			voice_push_to_talk: false,
 			voice_muted: false,
@@ -88,7 +96,9 @@ impl Default for AppPreferences {
 }
 impl AppPreferences {
 	pub fn is_valid(&self) -> bool {
-		self.input_percent <= 200
+		self.transparency <= 100
+			&& self.blur <= 100
+			&& self.input_percent <= 200
 			&& self.output_percent <= 200
 			&& self.expanded_folders.len() <= 256
 			&& self.user_volumes.len() <= 64
@@ -929,6 +939,7 @@ impl LocalStore {
 				id: parse(row.get(0)?)?,
 				channel,
 				author: User {
+					primary_guild: None,
 					id: parse(row.get(1)?)?,
 					name: row.get(2)?,
 					avatar: row.get(7)?,
@@ -1544,6 +1555,10 @@ mod tests {
 			notifications_enabled: true,
 			hide_title_bar: true,
 			primary_color: Some([80, 120, 220]),
+			transparency_blur: true,
+			transparency: 30,
+			blur: 60,
+			transparent_all: true,
 			notification_options: model::notification_preferences::Device {
 				current_channel: true,
 				disable_sounds: true,
@@ -1560,6 +1575,9 @@ mod tests {
 		};
 		store.save_app_preferences(&value).unwrap();
 		assert_eq!(store.app_preferences().unwrap(), value);
+		value.transparency = 101;
+		assert!(store.save_app_preferences(&value).is_err());
+		value.transparency = 30;
 		value.input_percent = 201;
 		assert!(store.save_app_preferences(&value).is_err());
 		assert_eq!(store.app_preferences().unwrap().input_percent, 100);
@@ -2394,6 +2412,7 @@ mod tests {
 		assert!(messages[0].mentions.is_empty());
 		assert_eq!(store.load_drafts(Id(1)).unwrap()[&Id(2)], "kept draft");
 		messages[0].mentions = vec![User {
+			primary_guild: None,
 			id: Id(5),
 			name: "Mentioned user".into(),
 			avatar: None,
@@ -2596,6 +2615,7 @@ mod tests {
 				id: Id(100),
 				channel: Id(channel),
 				author: User {
+					primary_guild: None,
 					id: Id(1),
 					name: "Synthetic".into(),
 					avatar: Some("0123456789abcdef0123456789abcdef".into()),

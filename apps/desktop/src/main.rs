@@ -220,15 +220,18 @@ fn main() -> eframe::Result {
 		demo_check_updates();
 		return Ok(());
 	}
-	// The adapter is chosen before any window exists, so read the device preference directly.
-	let gpu_preference = if demo {
-		model::GpuPreference::default()
+	// Native GPU/window capabilities are selected before the first window exists.
+	let (gpu_preference, transparency_available) = if demo {
+		(model::GpuPreference::default(), false)
 	} else {
 		local_store::LocalStore::open_default()
 			.and_then(|store| store.app_preferences())
-			.map(|preferences| preferences.gpu_preference)
+			.map(|preferences| (preferences.gpu_preference, preferences.transparency_blur))
 			.unwrap_or_default()
 	};
+	#[cfg(feature = "demo")]
+	let transparency_available =
+		transparency_available || demo && std::env::args().any(|arg| arg == "--demo-transparency");
 	#[cfg(target_os = "windows")]
 	let icon = include_bytes!("../../../packaging/windows/serein.png").as_slice();
 	#[cfg(target_os = "linux")]
@@ -236,6 +239,7 @@ fn main() -> eframe::Result {
 	let options = eframe::NativeOptions {
 		viewport: {
 			let builder = egui::ViewportBuilder::default()
+				.with_transparent(transparency_available)
 				.with_inner_size([1120.0, 760.0])
 				.with_min_inner_size([760.0, 520.0])
 				.with_active(!start_minimized)
@@ -294,7 +298,7 @@ fn main() -> eframe::Result {
 		"Serein",
 		options,
 		Box::new(move |cc| {
-			let desktop = Desktop::new(cc, demo, frame_sample)?;
+			let desktop = Desktop::new(cc, demo, frame_sample, transparency_available)?;
 			if start_minimized {
 				cc.egui_ctx
 					.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -700,6 +704,9 @@ struct Desktop {
 	cache_status: &'static str,
 	appearance: egui::ThemePreference,
 	appearance_changed: bool,
+	transparency_available: bool,
+	window_blur: bool,
+	window_transparent: bool,
 	reading: reading_settings::ReadingSettings,
 	app_settings: app_settings::Settings,
 	updater: updater::Updater,
@@ -1037,6 +1044,7 @@ impl Desktop {
 		cc: &eframe::CreationContext<'_>,
 		demo: bool,
 		frame_sample: Option<(Duration, Duration)>,
+		transparency_available: bool,
 	) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
 		ui::fonts::install(&cc.egui_ctx);
 		ui::emoji::install_async(&cc.egui_ctx)?;
@@ -1273,10 +1281,13 @@ impl Desktop {
 			.last()
 			.map_or(10_000, |m| m.id.0.max(10_000));
 		let mut messaging = ui::MessagingUi::default();
-		messaging.notifications_enabled =
-			local_store::AppPreferences::default().notifications_enabled;
+		let preference_defaults = local_store::AppPreferences::default();
+		messaging.notifications_enabled = preference_defaults.notifications_enabled;
+		messaging.transparency = preference_defaults.transparency;
+		messaging.blur = preference_defaults.blur;
 		#[cfg(feature = "demo")]
 		if demo {
+			messaging.transparency_blur = transparency_available;
 			// Robin stays pinned on home. #getting-started is the guild Favorites row.
 			let _ = messaging
 				.channel_preferences
@@ -1677,6 +1688,8 @@ impl Desktop {
 			.clone();
 		#[cfg(target_os = "windows")]
 		align_undecorated_surface(&window);
+		// The GPU surface and X11 visual are selected at startup. Opaque launches
+		// keep the same native/compositor path as builds without window effects.
 		Ok(Self {
 			extensions: extension_bridge::Bridge::default(),
 			extension_close_pending: false,
@@ -1732,6 +1745,9 @@ impl Desktop {
 			cache_status: "Loading local appearance…",
 			appearance: egui::ThemePreference::System,
 			appearance_changed: false,
+			transparency_available,
+			window_blur: false,
+			window_transparent: transparency_available,
 			reading,
 			app_settings,
 			updater: updater::Updater::new(demo),
@@ -4781,11 +4797,38 @@ impl Desktop {
 	}
 }
 impl Desktop {
-	fn sync_customization(&self, ctx: &egui::Context) {
+	fn sync_customization(&mut self, ctx: &egui::Context) {
 		if self.messaging.primary_color != ui::design::primary_color() {
 			ui::design::set_primary_color(self.messaging.primary_color);
 			ui::design::apply(ctx);
 			ctx.request_repaint();
+		}
+		let effects = (
+			self.transparency_available,
+			self.messaging.transparency,
+			self.messaging.blur,
+			self.messaging.transparent_all,
+		);
+		if effects != ui::design::default_window_effects() {
+			ui::design::set_window_effects(effects.0, effects.1, effects.2, effects.3);
+			ui::design::apply(ctx);
+			ctx.request_repaint();
+		}
+	}
+	fn sync_window_effects(&mut self) {
+		if !self.transparency_available {
+			return;
+		}
+		let effects = ui::design::window_effects();
+		let transparent = effects.0 && effects.1 > 0;
+		if transparent != self.window_transparent {
+			self.window.set_transparent(transparent);
+			self.window_transparent = transparent;
+		}
+		let blur = transparent && effects.2 > 0;
+		if blur != self.window_blur {
+			self.window.set_blur(blur);
+			self.window_blur = blur;
 		}
 	}
 	/// Frame period of the display the window is on; egui otherwise assumes 60 Hz.
@@ -4800,6 +4843,16 @@ impl Desktop {
 	}
 }
 impl eframe::App for Desktop {
+	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+		if !self.transparency_available {
+			// Match eframe's default clear color on the ordinary opaque surface.
+			egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32()
+		} else if self.window_transparent {
+			egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
+		} else {
+			visuals.panel_fill.to_opaque().to_normalized_gamma_f32()
+		}
+	}
 	fn persist_egui_memory(&self) -> bool {
 		false
 	}
@@ -5038,6 +5091,9 @@ impl eframe::App for Desktop {
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
 		self.tray_window.ui(&ctx);
+		// Change native hints before drawing, so the clear color and panel alpha
+		// agree for the whole frame. OS calls happen only when an effect changes.
+		self.sync_window_effects();
 		let (close_requested, dropped) = ctx.input_mut(|input| {
 			(
 				input.viewport().close_requested(),

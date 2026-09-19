@@ -3819,6 +3819,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					primary_guild: None,
 					id: Id(1),
 					name: "Synthetic".into(),
 					avatar: None,
@@ -4004,6 +4005,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				primary_guild: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -4217,6 +4219,7 @@ mod tests {
 			Event::RecipientAdded {
 				channel: Id(1),
 				user: User {
+					primary_guild: None,
 					id: Id(3),
 					name: "Other".into(),
 					avatar: None,
@@ -4480,6 +4483,7 @@ mod tests {
 			message_count: None,
 		};
 		let user = || User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -4611,6 +4615,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					primary_guild: None,
 					id: Id(2),
 					name: "Synthetic".into(),
 					avatar: None,

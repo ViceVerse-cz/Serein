@@ -319,6 +319,10 @@ pub struct MessagingUi {
 	/// Set when the user picks a theme preset; the host persists it.
 	pub theme_variant_changed: Option<design::Variant>,
 	pub primary_color: Option<[u8; 3]>,
+	pub transparency_blur: bool,
+	pub transparency: u8,
+	pub blur: u8,
+	pub transparent_all: bool,
 }
 
 /// Context strip (reply/edit) drawn as the rounded top of the composer block.
@@ -1118,13 +1122,17 @@ impl MessagingUi {
 								} else {
 									colors.muted
 								};
-								let show_name = |ui: &mut egui::Ui| {
+								let mut show_name = |ui: &mut egui::Ui| {
 									// A text line must not inherit the 32-point interactive-row height.
 									ui.allocate_ui_with_layout(
 										egui::vec2(ui.available_width(), 18.0),
 										egui::Layout::left_to_right(egui::Align::Center),
 										|ui| {
 											ui.spacing_mut().item_spacing.x = 5.0;
+											let server_tag = member.user.primary_guild.as_deref();
+											let trailing =
+												profiles::server_tag_width(ui, server_tag)
+													+ if server_tag.is_some() { 5.0 } else { 0.0 };
 											account_badge::name(
 												ui,
 												&member.user,
@@ -1132,8 +1140,16 @@ impl MessagingUi {
 												15.0,
 												text_color,
 												egui::Sense::hover(),
-												0.0,
+												trailing,
 											);
+											if let Some(tag) = server_tag {
+												profiles::server_tag(
+													ui,
+													tag,
+													&mut self.avatars,
+													state.demo,
+												);
+											}
 										},
 									);
 								};
@@ -3999,6 +4015,7 @@ mod composer_tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		};
 		let mut state = State {
 			selected: Some(Id(10)),
@@ -5705,6 +5722,13 @@ mod composer_tests {
 										kind: model::AccountKind::Bot,
 										webhook: false,
 										discriminator: 0,
+										primary_guild: (id == 1).then(|| {
+											Box::new(model::ClanTag {
+												guild: Id(9),
+												tag: "SPDY".into(),
+												badge: None,
+											})
+										}),
 									},
 									nick: None,
 									roles: vec![],
@@ -5744,7 +5768,11 @@ mod composer_tests {
 							origin + egui::vec2(0.0, id as f32 * 42.0),
 							egui::vec2(width, 42.0),
 						);
-						for label in [format!("Member {id}"), format!("Activity {id}")] {
+						let mut labels = vec![format!("Member {id}"), format!("Activity {id}")];
+						if id == 1 {
+							labels.push("SPDY".into());
+						}
+						for label in labels {
 							let text = output
 								.shapes
 								.iter()
@@ -5813,6 +5841,7 @@ mod composer_tests {
 								webhook: false,
 								kind: Default::default(),
 								discriminator: 0,
+								primary_guild: None,
 							},
 							nick: None,
 							roles: vec![],
@@ -6331,6 +6360,7 @@ mod composer_tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			};
 			let mut state = State {
 				demo: true,

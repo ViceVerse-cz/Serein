@@ -85,9 +85,43 @@ pub struct UserDto {
 	pub avatar: Option<String>,
 	#[serde(default)]
 	pub discriminator: String,
+	#[serde(default)]
+	pub primary_guild: Option<PrimaryGuildDto>,
+	/// Older normal-session payloads duplicated `primary_guild` under this name.
+	#[serde(default)]
+	pub clan: Option<PrimaryGuildDto>,
+}
+#[derive(Clone, Deserialize)]
+pub struct PrimaryGuildDto {
+	pub identity_guild_id: Option<Id>,
+	pub identity_enabled: Option<bool>,
+	pub tag: Option<String>,
+	pub badge: Option<String>,
+}
+impl PrimaryGuildDto {
+	fn into_model(self) -> Option<model::ClanTag> {
+		let tag = self.tag?;
+		if self.identity_enabled == Some(false)
+			|| tag.trim().is_empty()
+			|| tag.chars().count() > 4
+			|| tag.len() > 16
+		{
+			return None;
+		}
+		Some(model::ClanTag {
+			guild: self.identity_guild_id?,
+			tag,
+			badge: self.badge.filter(|hash| model::valid_avatar_hash(hash)),
+		})
+	}
 }
 impl UserDto {
 	pub fn into_model(self) -> User {
+		let primary_guild = self
+			.primary_guild
+			.and_then(PrimaryGuildDto::into_model)
+			.or_else(|| self.clan.and_then(PrimaryGuildDto::into_model))
+			.map(Box::new);
 		User {
 			kind: if self.bot {
 				model::AccountKind::Bot
@@ -109,6 +143,7 @@ impl UserDto {
 				.ok()
 				.filter(|n| *n <= 9999)
 				.unwrap_or(0),
+			primary_guild,
 		}
 	}
 }
@@ -1474,11 +1509,27 @@ mod member_tests {
 		.unwrap();
 		let user = user.into_model();
 		assert!(user.avatar.is_none());
+		assert!(user.primary_guild.is_none());
 		assert_eq!(user.avatar_key(), "default-1");
 		assert_eq!(
 			user.avatar_url(),
 			"https://cdn.discordapp.com/embed/avatars/1.png"
 		);
+		let tagged: UserDto = decode(br#"{"id":"7","username":"Tagged","primary_guild":{"identity_guild_id":"9","identity_enabled":true,"tag":"SPDY","badge":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}"#).unwrap();
+		let tag = tagged.into_model().primary_guild.unwrap();
+		assert_eq!((tag.guild, tag.tag.as_str()), (Id(9), "SPDY"));
+		assert_eq!(
+			tag.badge.as_deref(),
+			Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		);
+		let legacy: UserDto = decode(br#"{"id":"7","username":"Legacy","primary_guild":{"identity_enabled":false,"tag":"OFF"},"clan":{"identity_guild_id":"10","identity_enabled":true,"tag":"OLD","badge":"../invalid"}}"#).unwrap();
+		let tag = legacy.into_model().primary_guild.unwrap();
+		assert_eq!(
+			(tag.guild, tag.tag.as_str(), tag.badge),
+			(Id(10), "OLD", None)
+		);
+		let oversized: UserDto = decode(br#"{"id":"7","username":"Oversized","primary_guild":{"identity_guild_id":"9","identity_enabled":true,"tag":"ABCDE"}}"#).unwrap();
+		assert!(oversized.into_model().primary_guild.is_none());
 		let member: MemberItem = decode(br#"{"member":{"user":{"id":"5","username":"Presence"},"presence":{"status":"idle","activities":[{"type":0,"name":"Game","state":"ignored"},{"type":4,"name":"Custom Status","state":" semifluent in computerspeak ","emoji":{"name":"\ud83c\udf19","id":null}}]}}}"#).unwrap();
 		let member = member.into_model().unwrap();
 		assert_eq!(member.status.as_deref(), Some("idle"));

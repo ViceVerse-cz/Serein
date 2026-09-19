@@ -943,3 +943,27 @@ after discovery (1.6 bytes/s, excluding network headers), with no queue, extra
 thread or dependency. The localhost test verifies repeated idle-viewer pings and
 subsequent encrypted audio/video delivery. Live freeze recovery, CPU/RSS and
 end-to-end latency remain unmeasured; no playback improvement is claimed yet.
+
+# Theme transparency and blur — September 19, 2026
+
+Baseline: `9fca8980`. After: this rebased transparency branch. Standard
+voice-enabled macOS packages and release demo builds used Rust 1.98.1 on macOS
+27.0, Apple M1 Pro, 16 GiB RAM, Metal, 2x display scale. Disabled transparency
+uses the same opaque native window and GPU surface selection as baseline.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 53,624,384 | 53,640,848 | +16,464 (+0.031%) |
+| Installed app bundle, bytes | 59,558,087 | 59,574,551 | +16,464 (+0.028%) |
+| ZIP, `ditto --keepParent`, bytes | 39,702,949 | 39,711,200 | +8,251 (+0.021%) |
+| Disabled idle CPU, median of 3 × 30 s after 10 s warmup | 0.067% | 0.100% | +0.033 percentage points |
+| Disabled settled RSS, median | 199,248 KiB | 199,088 KiB | -160 KiB (-0.08%) |
+| Disabled physical footprint, median | 158,090,320 B | 158,925,856 B | +835,536 B (+0.53%) |
+
+The CPU samples are quantized by the short process-time interval, and unrelated
+Cargo builds ran elsewhere on the host during sampling. The small CPU and memory
+differences are therefore treated as noise, not an improvement or regression.
+The disabled path performs no compositor calls, repaint scheduling, allocations,
+or extra draw passes; it exits window-effect synchronization before theme lookup.
+No helper processes were present. Frame callback timing is unmeasured because an
+idle event-driven window did not produce enough callbacks for a useful comparison.

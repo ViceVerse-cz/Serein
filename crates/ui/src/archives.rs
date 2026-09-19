@@ -231,6 +231,7 @@ mod tests {
 					webhook: false,
 					kind: Default::default(),
 					discriminator: 0,
+					primary_guild: None,
 				}),
 				auth: client_core::auth::AuthState::Authenticated,
 				gateway_connected: true,

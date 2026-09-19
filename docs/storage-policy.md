@@ -24,6 +24,13 @@ capacity). Smaller pictures borrow only their exact-size prefix. The high-water
 buffer remains until the worker exits, trading retention after a resolution decrease
 for avoiding repeated allocations between differently sized streams. No extra
 per-participant buffer or uninitialized memory is introduced.
+## Profile server identity tags (September 19, 2026)
+
+An ordinary in-memory user may retain one server identity: one guild ID, a tag of at
+most four Unicode scalars / 16 UTF-8 bytes and one validated badge hash. It shares the
+existing byte-bounded user, message and session caches and is released with those
+records. The field is omitted from SQLite serialization, so this change adds no stored
+profile metadata, schema migration, queue, network request or background work.
 
 ## Server-wide member lookup (September 17, 2026)
 

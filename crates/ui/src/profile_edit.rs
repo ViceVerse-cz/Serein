@@ -442,6 +442,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		};
 		let mut profile = crate::profiles::synthetic(&user, None);
 		profile.global_name = Some("Before".into());

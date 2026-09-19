@@ -798,6 +798,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(User {
+				primary_guild: None,
 				id: Id(1),
 				name: "Owner".into(),
 				avatar: None,
@@ -932,6 +933,7 @@ mod tests {
 		oversized.member = Some(Member {
 			roles: vec![],
 			user: User {
+				primary_guild: None,
 				id: Id(2),
 				name: "x".repeat(MAX_ROSTER_BYTES),
 				avatar: None,
@@ -1046,6 +1048,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(User {
+				primary_guild: None,
 				id: Id(1),
 				name: "Owner".into(),
 				avatar: None,
@@ -1196,6 +1199,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(User {
+				primary_guild: None,
 				id: Id(1),
 				name: "Owner".into(),
 				avatar: None,
@@ -1212,6 +1216,7 @@ mod tests {
 				position: 0,
 				kind: 1,
 				recipients: vec![User {
+					primary_guild: None,
 					id: Id(3),
 					name: "Peer".into(),
 					avatar: None,
@@ -1293,6 +1298,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(User {
+				primary_guild: None,
 				id: Id(1),
 				name: "Owner".into(),
 				avatar: None,
@@ -1309,6 +1315,7 @@ mod tests {
 				position: 0,
 				kind: 1,
 				recipients: vec![User {
+					primary_guild: None,
 					id: Id(3),
 					name: "Peer".into(),
 					avatar: None,

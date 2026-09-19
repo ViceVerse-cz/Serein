@@ -658,6 +658,60 @@ impl ThemeEditor {
 								}
 							});
 						ui.add_space(12.0);
+						ui.collapsing("Window effects", |ui| {
+							ui.label(
+								"Requires Transparency & blur in Appearance, then an app restart.",
+							);
+							let style = &mut theme.style;
+							let defaults = design::default_window_effects();
+							let mut transparency = style.transparency_blur.unwrap_or(defaults.0);
+							if design::switch(
+								ui,
+								"Transparency & blur",
+								Some("Override the default Appearance setting for this theme."),
+								&mut transparency,
+							)
+							.changed()
+							{
+								style.transparency_blur = Some(transparency);
+								if transparency {
+									style.transparency.get_or_insert(defaults.1);
+									style.blur.get_or_insert(defaults.2);
+									style.transparent_all.get_or_insert(defaults.3);
+								}
+								changed = true;
+							}
+							if transparency {
+								let mut amount = style.transparency.unwrap_or(defaults.1);
+								let mut blur = style.blur.unwrap_or(defaults.2);
+								let mut all = style.transparent_all.unwrap_or(defaults.3);
+								let mut effects_changed = row(ui, "Transparency", |ui| {
+									ui.add(egui::Slider::new(&mut amount, 0..=100).suffix("%"))
+										.changed()
+								});
+								effects_changed |= row(ui, "Blur", |ui| {
+									ui.add(egui::Slider::new(&mut blur, 0..=100).suffix("%"))
+										.on_hover_text(
+											"Zero disables blur; the native compositor controls its exact strength.",
+										)
+										.changed()
+								});
+								effects_changed |= design::switch(
+									ui,
+									"Apply to all surfaces",
+									Some("Include sidebars, server rail, headers, and composer."),
+									&mut all,
+								)
+								.changed();
+								if effects_changed {
+									style.transparency = Some(amount);
+									style.blur = Some(blur);
+									style.transparent_all = Some(all);
+									changed = true;
+								}
+							}
+						});
+						ui.add_space(12.0);
 						ui.collapsing("Text, spacing & corners", |ui| {
 							design::hint(ui, "These settings apply to dark and light appearances.");
 							let style = &mut theme.style;

@@ -264,6 +264,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(model::User {
+				primary_guild: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				avatar: None,

@@ -105,7 +105,7 @@ impl Page {
 				"general windows macos login menu bar startup autostart automatically open minimized minimize close tray background graphics gpu adapter render discrete integrated hardware acceleration performance battery"
 			}
 			Self::Appearance => {
-				"appearance customization primary accent hex window title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
+				"appearance customization primary accent hex window transparency blur title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
@@ -861,6 +861,36 @@ impl MessagingUi {
 		ui.add_space(8.0);
 		ui.label(design::eyebrow(ui, "Customization", colors.muted));
 		design::card(ui, |ui| {
+			design::switch(
+				ui,
+				"Transparency & blur",
+				Some(
+					"Restart Serein after changing this. Themes can customize effects while enabled.",
+				),
+				&mut self.transparency_blur,
+			);
+			if self.transparency_blur {
+				ui.indent("window-effects", |ui| {
+					ui.horizontal(|ui| {
+						ui.label("Transparency");
+						ui.add(egui::Slider::new(&mut self.transparency, 0..=100).suffix("%"));
+					});
+					ui.horizontal(|ui| {
+						ui.label("Blur");
+						ui.add(egui::Slider::new(&mut self.blur, 0..=100).suffix("%"))
+							.on_hover_text(
+								"Zero disables blur; the native compositor controls its exact strength.",
+							);
+					});
+					design::switch(
+						ui,
+						"Apply to all surfaces",
+						Some("Include sidebars, server rail, headers, and composer."),
+						&mut self.transparent_all,
+					);
+				});
+			}
+			ui.separator();
 			ui.horizontal(|ui| {
 				let label = ui.label("Primary color");
 				let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);

@@ -10,6 +10,39 @@ use client_core::{State, profile::ProfileView};
 use egui::{Color32, CornerRadius, Pos2, Rect, RichText, Stroke, UiBuilder, Vec2, pos2, vec2};
 use model::{Id, User};
 
+pub(crate) fn server_tag_width(ui: &egui::Ui, tag: Option<&model::ClanTag>) -> f32 {
+	tag.map_or(0.0, |tag| {
+		let text = ui.painter().layout_no_wrap(
+			tag.tag.clone(),
+			egui::FontId::proportional(10.0),
+			design::palette(ui).text,
+		);
+		text.size().x + 8.0 + if tag.badge.is_some() { 13.0 } else { 0.0 }
+	})
+}
+
+pub(crate) fn server_tag(
+	ui: &mut egui::Ui,
+	tag: &model::ClanTag,
+	avatars: &mut Avatars,
+	demo: bool,
+) -> egui::Response {
+	let colors = design::palette(ui);
+	egui::Frame::new()
+		.fill(colors.raised)
+		.corner_radius(4)
+		.inner_margin(egui::Margin::symmetric(4, 1))
+		.show(ui, |ui| {
+			ui.spacing_mut().item_spacing.x = 3.0;
+			if tag.badge.is_some() {
+				avatars.show_icon(ui, tag.badge_key(), 10.0, demo, "Server tag badge");
+			}
+			ui.label(RichText::new(&tag.tag).size(10.0).strong());
+		})
+		.response
+		.on_hover_text(format!("Server tag · server {}", tag.guild))
+}
+
 pub enum Action {
 	Edit,
 	Close,
@@ -984,7 +1017,11 @@ pub fn show(
 								})
 								.unwrap_or_else(|| state.user_display_name(user));
 							let display = display.split_whitespace().collect::<Vec<_>>().join(" ");
-							let clan = data.and_then(|d| d.clan.as_ref());
+							// Ordinary user payloads already carry the server identity. Keep it visible
+							// while the extended profile loads or when that optional request fails.
+							let clan = data
+								.map(|data| data.clan.as_ref())
+								.unwrap_or(user.primary_guild.as_deref());
 							let tag_width = clan.map_or(0.0, |clan| {
 								ui.painter()
 									.layout_no_wrap(
@@ -1805,6 +1842,49 @@ mod tests {
 	}
 
 	#[test]
+	fn base_user_server_tag_is_visible_without_an_extended_profile() {
+		let user = User {
+			id: Id(2),
+			name: "Synthetic person".into(),
+			avatar: None,
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+			primary_guild: Some(Box::new(model::ClanTag {
+				guild: Id(9),
+				tag: "SPDY".into(),
+				badge: None,
+			})),
+		};
+		let state = State::default();
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		let mut opening = None;
+		let mut painted = String::new();
+		for _ in 0..3 {
+			let output = ctx.run_ui(input(vec2(800.0, 600.0), vec![]), |ui| {
+				show(
+					ui,
+					&user,
+					None,
+					&state,
+					&mut images,
+					&mut opening,
+					&mut FormatCache::default(),
+					true,
+					pos2(100.0, 100.0),
+				);
+			});
+			painted.clear();
+			for shape in &output.shapes {
+				text(&shape.shape, &mut painted);
+			}
+			output.drop_without_applying_deltas();
+		}
+		assert!(painted.contains("SPDY"), "server tag missing: {painted}");
+	}
+
+	#[test]
 	fn popout_shows_selected_data_beside_anchor_and_closes_with_escape() {
 		let user = User {
 			id: Id(2),
@@ -1813,6 +1893,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		};
 		let profile = ProfileView {
 			user: user.id,
@@ -2080,6 +2161,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		};
 		let state = State::default();
 		let ctx = egui::Context::default();

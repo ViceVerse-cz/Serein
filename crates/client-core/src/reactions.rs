@@ -648,6 +648,7 @@ mod tests {
 			panic!()
 		};
 		let user = |id| User {
+			primary_guild: None,
 			id: Id(id),
 			name: format!("User {id}"),
 			avatar: None,
@@ -1236,6 +1237,7 @@ mod tests {
 	#[test]
 	fn reaction_permissions_distinguish_existing_emoji_and_late_reads() {
 		let user = User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,

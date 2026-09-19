@@ -235,6 +235,7 @@ mod tests {
 			freshness: Freshness::Fresh,
 			selected: Some(Id(10)),
 			user: Some(model::User {
+				primary_guild: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,

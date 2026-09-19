@@ -1268,6 +1268,7 @@ impl Formatted {
 								webhook: false,
 								kind: Default::default(),
 								discriminator: 0,
+								primary_guild: None,
 							}));
 						}
 						start += 1;
@@ -3687,6 +3688,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		let parsed = Formatted::parse("<@42> <@!43> `<@44>` \\<@45>");
 		for dark in [true, false] {
@@ -3736,6 +3738,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		for source in [
 			"<@42> test \u{1f610} test <@42>",
@@ -3825,6 +3828,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		for key in [egui::Key::Tab, egui::Key::Enter] {
 			let mut output = ctx.run_ui(
