@@ -684,7 +684,6 @@ Close keeps the process running only with an available tray. X11 supports hiding
 native Wayland receives a compositor-controlled minimize request and is not falsely
 marked hidden. Show and Quit restore first; Quit defers to a UI pass so existing
 unsaved-work and cleanup checks can run. Cancelling Quit restores close-to-tray behavior.
-The optional Linux `--x11` flag selects X11/XWayland without saving a new preference.
 
 While local game sharing is enabled, one cancellable account-settings operation reads
 Discord's actual sharing preference. A one-slot request channel permits an explicit

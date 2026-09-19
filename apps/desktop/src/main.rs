@@ -260,13 +260,6 @@ fn main() -> eframe::Result {
 			},
 			..Default::default()
 		},
-		#[cfg(target_os = "linux")]
-		event_loop_builder: Some(Box::new(|builder| {
-			if std::env::args().any(|arg| arg == "--x11") {
-				use winit::platform::x11::EventLoopBuilderExtX11;
-				builder.with_x11();
-			}
-		})),
 		persist_window: false,
 		persistence_path: None,
 		..Default::default()

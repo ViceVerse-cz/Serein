@@ -139,10 +139,8 @@ The existing on-by-default tray preference is reused; demo changes are session-o
 Wayland window. Close requests minimization and keeps Serein running; the compositor
 may ignore this request. Show requests restoration, but native Wayland users may need
 the compositor's own window controls. A still-visible window is no longer marked hidden
-inside Serein. For working hide-on-close and tray restoration, launch through XWayland:
-`serein --x11`, or
-`flatpak run cz.viceverse.serein --x11`. XWayland and a valid DISPLAY are required;
-there is no automatic backend switch. The flag applies only to the main application window.
+inside Serein. Native Wayland remains the default on Wayland sessions, with no
+application-level XWayland fallback or backend override.
 Quit remains explicit and runs the existing unsaved-work/download/extension checks;
 cancelling Quit restores close-to-tray behavior.
 
@@ -150,7 +148,7 @@ Offline lifecycle check: `cargo run --locked -p tray-debug`. On Linux, use
 `dbus-run-session -- cargo run --locked -p tray-debug` to additionally exercise
 registration, missing/lost host, icon activation and all three menu actions on a private
 synthetic bus. These checks do not establish compositor behavior. This refresh was
-prepared on macOS; NixOS/Hyprland, XWayland and Flatpak desktop validation remain pending.
+prepared on macOS; NixOS/Hyprland and Flatpak desktop validation remain pending.
 
 ## Opt-in automatic startup
 
