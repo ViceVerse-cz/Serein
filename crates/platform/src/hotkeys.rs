@@ -140,7 +140,7 @@ impl Hotkeys {
 				failed = true;
 				continue;
 			}
-			if chord.modifiers == 0 {
+			if chord.modifiers == 0 && !is_standalone_global_key(&chord.key) {
 				modifier_required |= index != PUSH_TO_TALK;
 				continue;
 			}
@@ -264,7 +264,7 @@ async fn portal(
 	.collect();
 	let modifier_required = bindings[TOGGLE_MUTE..]
 		.iter()
-		.any(|chord| chord.is_valid() && chord.modifiers == 0);
+		.any(|chord| chord.is_valid() && chord.modifiers == 0 && !is_standalone_global_key(&chord.key));
 	if shortcuts.is_empty() {
 		status.store(if modifier_required { 4 } else { 3 }, Ordering::Relaxed);
 		wake();
@@ -329,7 +329,7 @@ async fn portal(
 
 #[cfg(target_os = "linux")]
 fn portal_trigger(chord: &KeyChord) -> Option<String> {
-	if !chord.is_valid() || chord.modifiers == 0 {
+	if !chord.is_valid() || (chord.modifiers == 0 && !is_standalone_global_key(&chord.key)) {
 		return None;
 	}
 	let mut value = String::new();
@@ -346,8 +346,19 @@ fn portal_trigger(chord: &KeyChord) -> Option<String> {
 	Some(value)
 }
 
+fn is_standalone_global_key(name: &str) -> bool {
+	matches!(
+		name,
+		"PageDown"
+			| "PageUp"
+			| "Insert"
+			| "F1" | "F2" | "F3" | "F4" | "F5" | "F6"
+			| "F7" | "F8" | "F9" | "F10" | "F11" | "F12"
+	)
+}
+
 fn native_hotkey(chord: &KeyChord) -> Option<HotKey> {
-	if !chord.is_valid() || chord.modifiers == 0 {
+	if !chord.is_valid() || (chord.modifiers == 0 && !is_standalone_global_key(&chord.key)) {
 		return None;
 	}
 	let mut value = String::new();
@@ -461,5 +472,12 @@ mod tests {
 		);
 		assert!(native_hotkey(&KeyChord::default()).is_none());
 		assert!(native_hotkey(&KeyChord::new("unknown", model::keybinds::PRIMARY)).is_none());
+		// Plain letter key stays focused-only so typing is not swallowed
+		assert!(native_hotkey(&KeyChord::new("M", 0)).is_none());
+		// Standalone navigation and function keys can be registered globally
+		assert!(native_hotkey(&KeyChord::new("PageDown", 0)).is_some());
+		assert!(native_hotkey(&KeyChord::new("PageUp", 0)).is_some());
+		assert!(native_hotkey(&KeyChord::new("Insert", 0)).is_some());
+		assert!(native_hotkey(&KeyChord::new("F12", 0)).is_some());
 	}
 }
