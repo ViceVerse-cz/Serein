@@ -125,7 +125,6 @@ impl Default for ConflictNotice {
 }
 
 fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<KeybindAction>) {
-	let colors = design::palette(ui);
 	if let Some(action) = *capturing {
 		let mut captured = None;
 		let mut cancelled = false;
@@ -213,28 +212,26 @@ fn row(
 	let mut fade_alpha = 0.0f32;
 	let mut conflict_text = None;
 
-	if let Some(n) = notice {
-		if n.action == action {
-			let elapsed = (now - n.time) as f32;
-			const TOTAL_DURATION: f32 = 2.5;
-			const FADE_START: f32 = 1.0;
-			if elapsed < TOTAL_DURATION {
-				ui.ctx().request_repaint();
-				if elapsed < 0.6 {
-					let pulse = (elapsed * std::f32::consts::PI * 5.0).sin().abs();
-					blink_factor = pulse * pulse;
-				}
-				if elapsed < FADE_START {
-					fade_alpha = 1.0;
-				} else {
-					fade_alpha = (1.0 - (elapsed - FADE_START) / (TOTAL_DURATION - FADE_START))
-						.clamp(0.0, 1.0);
-				}
-				conflict_text = Some(format!(
-					"Already bound to {}.",
-					n.conflicting_action.label()
-				));
+	if let Some(n) = notice.filter(|n| n.action == action) {
+		let elapsed = (now - n.time) as f32;
+		const TOTAL_DURATION: f32 = 2.5;
+		const FADE_START: f32 = 1.0;
+		if elapsed < TOTAL_DURATION {
+			ui.ctx().request_repaint();
+			if elapsed < 0.6 {
+				let pulse = (elapsed * std::f32::consts::PI * 5.0).sin().abs();
+				blink_factor = pulse * pulse;
 			}
+			if elapsed < FADE_START {
+				fade_alpha = 1.0;
+			} else {
+				fade_alpha = (1.0 - (elapsed - FADE_START) / (TOTAL_DURATION - FADE_START))
+					.clamp(0.0, 1.0);
+			}
+			conflict_text = Some(format!(
+				"Already bound to {}.",
+				n.conflicting_action.label()
+			));
 		}
 	}
 
@@ -248,12 +245,10 @@ fn row(
 				if action.is_global() {
 					ui.label(RichText::new("GLOBAL").size(10.0).color(colors.accent));
 				}
-				if let Some(ref msg) = conflict_text {
-					if fade_alpha > 0.0 {
-						let text_color = colors.danger.gamma_multiply(fade_alpha);
-						ui.add_space(6.0);
-						ui.label(RichText::new(msg).size(11.0).color(text_color));
-					}
+				if let Some(ref msg) = conflict_text.filter(|_| fade_alpha > 0.0) {
+					let text_color = colors.danger.gamma_multiply(fade_alpha);
+					ui.add_space(6.0);
+					ui.label(RichText::new(msg).size(11.0).color(text_color));
 				}
 			},
 		);
