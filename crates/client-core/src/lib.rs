@@ -510,6 +510,7 @@ pub struct NavigationIndex {
 	channels: std::cell::RefCell<BTreeMap<Id, usize>>,
 	channel_stamp: std::cell::Cell<Option<(usize, usize)>>,
 	guilds: std::cell::RefCell<BTreeMap<Id, usize>>,
+	guild_stamp: std::cell::Cell<Option<(usize, usize)>>,
 }
 
 pub struct State {
@@ -731,17 +732,19 @@ impl State {
 	/// Call after replacing IDs or payloads directly in synthetic navigation vectors.
 	pub fn invalidate_navigation(&self) {
 		self.navigation_index.channel_stamp.set(None);
+		self.navigation_index.guild_stamp.set(None);
 		self.navigation_index.guilds.borrow_mut().clear();
 		self.navigation_index.bytes.set(None);
 	}
 
 	pub fn guild(&self, id: Id) -> Option<&Guild> {
-		let cached = self.navigation_index.guilds.borrow().get(&id).copied();
-		if let Some(guild) = cached
-			.and_then(|index| self.guilds.get(index))
-			.filter(|guild| guild.id == id)
-		{
-			return Some(guild);
+		let stamp = (self.guilds.as_ptr() as usize, self.guilds.len());
+		if self.navigation_index.guild_stamp.get() == Some(stamp) {
+			let cached = self.navigation_index.guilds.borrow().get(&id).copied();
+			if cached.is_none_or(|index| self.guilds.get(index).is_some_and(|guild| guild.id == id))
+			{
+				return cached.and_then(|index| self.guilds.get(index));
+			}
 		}
 		let mut index = self.navigation_index.guilds.borrow_mut();
 		*index = self
@@ -751,6 +754,7 @@ impl State {
 			.enumerate()
 			.map(|(index, guild)| (guild.id, index))
 			.collect();
+		self.navigation_index.guild_stamp.set(Some(stamp));
 		index.get(&id).and_then(|index| self.guilds.get(*index))
 	}
 
@@ -3057,6 +3061,67 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn guild_lookup_caches_misses_and_tracks_navigation_changes() {
+		let guild = |id| Guild {
+			id: Id(id),
+			name: "Synthetic".into(),
+			icon: None,
+			emojis: None,
+		};
+		let mut state = State {
+			guilds: vec![guild(1)],
+			..State::default()
+		};
+		assert!(state.guild(Id(2)).is_none());
+		{
+			// A cached miss must not rebuild (and mutably borrow) the index.
+			let _index = state.navigation_index.guilds.borrow();
+			for _ in 0..3 {
+				assert!(state.guild(Id(2)).is_none());
+				assert_eq!(state.guild(Id(1)).unwrap().id, Id(1));
+			}
+		}
+		apply(&mut state, Event::GuildJoined(guild(2)));
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+		assert_eq!(state.guild(Id(1)).unwrap().id, Id(1));
+		state.guilds.swap(0, 1);
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+		state.guilds[0] = guild(3);
+		state.invalidate_navigation();
+		assert!(state.guild(Id(1)).is_none());
+		assert_eq!(state.guild(Id(3)).unwrap().id, Id(3));
+		state.guilds.retain(|guild| guild.id != Id(3));
+		assert!(state.guild(Id(3)).is_none());
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+	}
+
+	#[test]
+	#[ignore = "manual release timing; run with --release --ignored --nocapture"]
+	fn guild_lookup_benchmark() {
+		let state = State {
+			guilds: (1..=1_000)
+				.map(|id| Guild {
+					id: Id(id),
+					name: "Synthetic".into(),
+					icon: None,
+					emojis: None,
+				})
+				.collect(),
+			..State::default()
+		};
+		for run in 0..6 {
+			let start = std::time::Instant::now();
+			for _ in 0..10_000 {
+				assert!(std::hint::black_box(state.guild(std::hint::black_box(Id(500)))).is_some());
+				assert!(
+					std::hint::black_box(state.guild(std::hint::black_box(Id(1_001)))).is_none()
+				);
+			}
+			println!("guild lookup run {run} (0 = warmup): {:?}", start.elapsed());
+		}
+	}
+
 	pub(crate) fn grant_permissions(state: &mut State) {
 		let Some(user) = &state.user else {
 			return;

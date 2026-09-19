@@ -177,6 +177,7 @@ impl LocalStore {
 		}
 		connection.execute_batch("PRAGMA page_size=4096; PRAGMA max_page_count=16384; PRAGMA cache_size=-2048; PRAGMA temp_store=MEMORY; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=8388608; PRAGMA secure_delete=ON; PRAGMA auto_vacuum=INCREMENTAL;
             CREATE TABLE IF NOT EXISTS messages(account TEXT NOT NULL,channel TEXT NOT NULL,id TEXT NOT NULL,author TEXT NOT NULL,name TEXT NOT NULL,content TEXT NOT NULL,edited INTEGER NOT NULL,reply TEXT,unsupported INTEGER NOT NULL,PRIMARY KEY(account,channel,id));
+            CREATE INDEX IF NOT EXISTS messages_channel_order ON messages(account,channel,length(id),id);
             CREATE TABLE IF NOT EXISTS channels(account TEXT NOT NULL,channel TEXT NOT NULL,touched INTEGER NOT NULL,PRIMARY KEY(account,channel));
             CREATE TABLE IF NOT EXISTS drafts(account TEXT NOT NULL,channel TEXT NOT NULL,content TEXT NOT NULL,PRIMARY KEY(account,channel));
             CREATE TABLE IF NOT EXISTS appearance(singleton INTEGER PRIMARY KEY CHECK(singleton=1),theme TEXT NOT NULL CHECK(theme IN ('light','dark')));
@@ -794,7 +795,7 @@ impl LocalStore {
 		Ok(())
 	}
 	pub fn load_channel(&self, account: Id, channel: Id) -> Result<Vec<Message>> {
-		let mut query = self.0.prepare("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
+		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
 		let mut rows = query.query(params![account.to_string(), channel.to_string()])?;
 		let mut messages = Vec::new();
 		let mut bytes = 0;
@@ -1221,6 +1222,78 @@ impl LocalStore {
 }
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn channel_order_index_upgrades_existing_cache_and_preserves_unsigned_ids() {
+		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		let ids = [9, 10, 99, 100, i64::MAX as u64 + 1, u64::MAX];
+		for id in ids.into_iter().rev() {
+			store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES('1','2',?1,'4','Synthetic','body',0,0)", [id.to_string()]).unwrap();
+		}
+		store
+			.0
+			.execute_batch("DROP INDEX messages_channel_order")
+			.unwrap();
+		let store = LocalStore::initialize(store.0).unwrap();
+		for _ in 0..2 {
+			assert_eq!(
+				store
+					.load_channel(Id(1), Id(2))
+					.unwrap()
+					.iter()
+					.map(|m| m.id.0)
+					.collect::<Vec<_>>(),
+				ids
+			);
+			assert!(store.load_channel(Id(2), Id(2)).unwrap().is_empty());
+		}
+		let mut query = store.0.prepare("EXPLAIN QUERY PLAN SELECT id,content FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500").unwrap();
+		let plan = query
+			.query_map(["1", "2"], |row| row.get::<_, String>(3))
+			.unwrap()
+			.collect::<rusqlite::Result<Vec<_>>>()
+			.unwrap();
+		assert!(
+			plan.iter()
+				.any(|step| step.contains("messages_channel_order")),
+			"{plan:?}"
+		);
+		assert!(
+			!plan.iter().any(|step| step.contains("TEMP B-TREE")),
+			"{plan:?}"
+		);
+	}
+
+	#[test]
+	#[ignore = "manual release benchmark; synthetic in-memory SQLite, not disk or UI latency"]
+	fn benchmark_channel_load() {
+		use std::{hint::black_box, time::Instant};
+		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		for count in [1, 50, 500] {
+			for id in 1..=count {
+				store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES('1',?1,?2,'4','Synthetic','synthetic benchmark message',0,0)", rusqlite::params![count.to_string(), id.to_string()]).unwrap();
+			}
+			let mut samples = Vec::new();
+			for run in 0..6 {
+				let start = Instant::now();
+				for _ in 0..200 {
+					let loaded = store
+						.load_channel(black_box(Id(1)), black_box(Id(count)))
+						.unwrap();
+					assert_eq!(loaded.len(), count as usize);
+					black_box(loaded);
+				}
+				if run != 0 {
+					samples.push(start.elapsed());
+				}
+			}
+			samples.sort_unstable();
+			println!(
+				"200 channel loads, {count} rows: median {:?}, samples {:?}",
+				samples[2], samples
+			);
+		}
+	}
+
 	#[test]
 	fn switcher_roster_orders_by_last_use_prunes_and_clears_with_the_account() {
 		use super::{Id, LocalStore};

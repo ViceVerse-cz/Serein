@@ -50,6 +50,9 @@ struct Style {
 /// Split styled text into Unicode BiDi runs in visual order. The text inside each run stays in
 /// logical order so egui's shaper can still join Arabic-family scripts correctly.
 fn bidi_spans(spans: &[(String, Style)]) -> Option<(Vec<(String, Style)>, bool)> {
+	if spans.iter().all(|(text, _)| text.is_ascii()) {
+		return None;
+	}
 	let text: String = spans.iter().map(|(text, _)| text.as_str()).collect();
 	let bidi = unicode_bidi::BidiInfo::new(&text, None);
 	if !bidi.has_rtl() {
@@ -2005,6 +2008,62 @@ mod tests {
 			"English مرحبا!"
 		);
 		assert!(bidi_spans(&[("English only".into(), style)]).is_none());
+		assert!(bidi_spans(&[]).is_none());
+		let ascii: String = (0..=127).map(char::from).collect();
+		assert!(bidi_spans(&[(ascii, style), ("second span".into(), style)]).is_none());
+		for text in ["\u{202e}English\u{202c}", "English \u{2067}مرحبا\u{2069}"] {
+			assert!(bidi_spans(&[(text.into(), style)]).is_some());
+		}
+	}
+
+	#[test]
+	#[ignore = "release-only BiDi microbenchmark; run with --ignored --nocapture"]
+	fn bidi_ascii_benchmark() {
+		use std::{hint::black_box, time::Instant};
+		const ITERATIONS: usize = 100_000;
+		for (name, spans) in [
+			(
+				"ascii",
+				vec![(
+					"A typical message with plain English text and a link https://example.com."
+						.repeat(4),
+					Style::default(),
+				)],
+			),
+			(
+				"ascii_styled",
+				vec![
+					("A styled message ".repeat(8), Style::default()),
+					(
+						"with a bold section ".repeat(8),
+						Style {
+							strong: true,
+							..Default::default()
+						},
+					),
+				],
+			),
+			(
+				"mixed_rtl",
+				vec![("English مرحبا! ".repeat(8), Style::default())],
+			),
+		] {
+			let mut samples = Vec::with_capacity(5);
+			for run in 0..6 {
+				let start = Instant::now();
+				for _ in 0..ITERATIONS {
+					black_box(bidi_spans(black_box(&spans)));
+				}
+				if run > 0 {
+					samples.push(start.elapsed());
+				}
+			}
+			samples.sort_unstable();
+			println!(
+				"{name}: {ITERATIONS} calls, median {:?}, samples {samples:?}",
+				samples[2]
+			);
+		}
 	}
 
 	#[test]

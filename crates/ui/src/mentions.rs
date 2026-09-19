@@ -723,6 +723,7 @@ mod tests {
 		for guild in &mut state.guilds {
 			guild.emojis.as_mut().unwrap().reverse();
 		}
+		state.invalidate_navigation();
 		menu.refresh(&state, Id(1), ":same", Some(5), &[]);
 		assert_eq!(
 			menu.candidates

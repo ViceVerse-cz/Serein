@@ -1108,6 +1108,7 @@ mod tests {
 			channel(8, 11, 0, Some(Id(7))),
 			channel(9, 0, 1, Some(Id(4))),
 		];
+		state.invalidate_navigation();
 		state
 			.permissions
 			.replace(test_support::permission_snapshot(&state))
@@ -1336,6 +1337,7 @@ mod tests {
 		let mut state = test_support::demo_state();
 		state.guilds[0].id = Id(100);
 		state.channels = vec![channel(4, 4, 0, None), channel(7, 0, 0, Some(Id(4)))];
+		state.invalidate_navigation();
 		let mut permissions = test_support::permission_snapshot(&state);
 		permissions.channels.retain(|c| c.id != Id(7));
 		state.permissions.replace(permissions).unwrap();

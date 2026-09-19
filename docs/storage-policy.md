@@ -1,5 +1,21 @@
 # Local storage policy and audit
 
+## Query and decoder reuse (September 19, 2026)
+
+The message cache creates an additive index on account, channel, decimal ID length
+and ID. This avoids sorting channel reads while preserving unsigned 64-bit IDs as
+text. Existing schema-20 caches gain the index on open; stored payloads and schema
+compatibility are unchanged. Index pages count toward the existing 64 MiB database
+ceiling. Channel loads reuse the connection's bounded prepared-statement cache.
+Full message comparisons and secure deletion remain enabled.
+
+Software video decoders share one initialized RGBA scratch buffer, growing only
+to the largest accepted picture in that worker (at most 8,294,400 bytes of requested
+capacity). Smaller pictures borrow only their exact-size prefix. The high-water
+buffer remains until the worker exits, trading retention after a resolution decrease
+for avoiding repeated allocations between differently sized streams. No extra
+per-participant buffer or uninitialized memory is introduced.
+
 ## Server-wide member lookup (September 17, 2026)
 
 Mention autocomplete retains at most one query of 64 Unicode scalars / 256 UTF-8
