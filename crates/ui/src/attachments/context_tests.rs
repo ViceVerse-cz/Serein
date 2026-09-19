@@ -102,6 +102,7 @@ fn select_media_menu(
 			)
 		};
 		let mut open = false;
+		let mut seen: Vec<String> = Vec::new();
 		for _ in 0..8 {
 			for (key, modifiers) in [
 				(egui::Key::Tab, egui::Modifiers::NONE),
@@ -118,6 +119,15 @@ fn select_media_menu(
 			}
 			let output = frame(vec![]);
 			open = opened(&output, label);
+			// TEMPORARY: this walk fails only on CI, so record what each stop rendered.
+			for shape in &output.shapes {
+				if let egui::Shape::Text(text) = &shape.shape {
+					let value = text.galley.job.text.clone();
+					if !seen.contains(&value) {
+						seen.push(value);
+					}
+				}
+			}
 			output.drop_without_applying_deltas();
 			if open {
 				break;
@@ -125,7 +135,7 @@ fn select_media_menu(
 		}
 		assert!(
 			open,
-			"keyboard focus never reached the media menu for {label}"
+			"keyboard focus never reached the media menu for {label}; text seen: {seen:?}"
 		);
 	} else {
 		for pressed in [true, false] {
