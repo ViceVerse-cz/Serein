@@ -294,8 +294,21 @@ impl LocalStore {
                 display TEXT CHECK(display IS NULL OR (typeof(display)='text' AND length(CAST(display AS BLOB)) BETWEEN 1 AND 64)),
                 avatar TEXT CHECK(avatar IS NULL OR (typeof(avatar)='text' AND length(avatar) BETWEEN 1 AND 34)),
                 discriminator INTEGER NOT NULL CHECK(typeof(discriminator)='integer' AND discriminator BETWEEN 0 AND 9999),
-                touched INTEGER NOT NULL CHECK(typeof(touched)='integer')
+                touched INTEGER NOT NULL CHECK(typeof(touched)='integer'),
+                has_token INTEGER NOT NULL DEFAULT 0 CHECK(typeof(has_token)='integer' AND has_token IN (0,1))
             );")?;
+		let has_token_column: bool = transaction.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('accounts') WHERE name='has_token')",
+			[],
+			|row| row.get(0),
+		)?;
+		if !has_token_column {
+			// Rows predating the flag came from a build that wrote a per-account entry on every
+			// connect, so their entries exist. Claiming otherwise would rewrite each one, which
+			// on macOS is an access-controlled keychain operation; a wrong claim self-heals on
+			// the next switch instead.
+			transaction.execute_batch("ALTER TABLE accounts ADD COLUMN has_token INTEGER NOT NULL DEFAULT 0 CHECK(typeof(has_token)='integer' AND has_token IN (0,1)); UPDATE accounts SET has_token=1;")?;
+		}
 		transaction.pragma_update(None, "user_version", version.max(NATIVE_SCHEMA))?;
 		let has_animate_gifs: bool = transaction.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='animate_gifs')",
@@ -1034,7 +1047,7 @@ impl LocalStore {
 	/// Switcher roster, most recently used first. Damaged rows are skipped, never fatal.
 	pub fn accounts(&self) -> Result<Vec<model::SavedAccount>> {
 		let mut query = self.0.prepare(
-			"SELECT account,name,display,avatar,discriminator FROM accounts ORDER BY touched DESC,account LIMIT ?1",
+			"SELECT account,name,display,avatar,discriminator,has_token FROM accounts ORDER BY touched DESC,account LIMIT ?1",
 		)?;
 		let mut rows = query.query([model::MAX_SAVED_ACCOUNTS as i64])?;
 		let mut accounts = Vec::new();
@@ -1048,12 +1061,22 @@ impl LocalStore {
 				display: row.get(2)?,
 				avatar: row.get(3)?,
 				discriminator: row.get::<_, i64>(4)?.clamp(0, 9999) as u16,
+				has_token: row.get::<_, i64>(5)? == 1,
 			};
 			if account.is_valid() {
 				accounts.push(account);
 			}
 		}
 		Ok(accounts)
+	}
+	/// Records whether the credential store holds this account's own entry. Separate from
+	/// `save_account` so an identity refresh can never claim a token that was never written.
+	pub fn set_account_token(&self, account: Id, has_token: bool) -> Result<()> {
+		self.0.execute(
+			"UPDATE accounts SET has_token=?2 WHERE account=?1",
+			params![account.to_string(), i64::from(has_token)],
+		)?;
+		Ok(())
 	}
 	/// Remembers one account and returns the IDs pruned to keep the roster bounded.
 	/// Callers own removing the pruned accounts' credential-store entries.
@@ -1128,6 +1151,7 @@ mod tests {
 			display: Some(format!("Synthetic {id}")),
 			avatar: None,
 			discriminator: 0,
+			has_token: false,
 		};
 		assert!(store.accounts().unwrap().is_empty());
 		// One extra account beyond the bound: the least recently used entry is pruned.
@@ -1146,6 +1170,40 @@ mod tests {
 		assert!(store.save_account(&renamed).unwrap().is_empty());
 		let accounts = store.accounts().unwrap();
 		assert_eq!(accounts[0], renamed);
+		// The token flag is owned by set_account_token: an identity refresh never claims one,
+		// so the client cannot be tricked into skipping the write that backs the switcher.
+		assert!(!store.accounts().unwrap()[0].has_token);
+		store.set_account_token(Id(2), true).unwrap();
+		assert!(
+			store
+				.accounts()
+				.unwrap()
+				.iter()
+				.find(|account| account.id == Id(2))
+				.unwrap()
+				.has_token
+		);
+		let mut renamed_again = renamed.clone();
+		renamed_again.display = Some("Renamed twice".into());
+		assert!(store.save_account(&renamed_again).unwrap().is_empty());
+		let refreshed = store.accounts().unwrap();
+		let refreshed = refreshed
+			.iter()
+			.find(|account| account.id == Id(2))
+			.unwrap();
+		assert_eq!(refreshed.display.as_deref(), Some("Renamed twice"));
+		assert!(refreshed.has_token);
+		store.set_account_token(Id(2), false).unwrap();
+		assert!(
+			!store
+				.accounts()
+				.unwrap()
+				.iter()
+				.find(|account| account.id == Id(2))
+				.unwrap()
+				.has_token
+		);
+		store.set_account_token(Id(2), true).unwrap();
 		// Oversized identities never reach the table, and forgetting an account drops its row.
 		let mut invalid = entry(3);
 		invalid.name = "n".repeat(65);
@@ -1157,6 +1215,39 @@ mod tests {
 		drop(store);
 		let _ = std::fs::remove_file(&path);
 	}
+	#[test]
+	fn roster_upgrade_keeps_existing_accounts_switchable_without_rewriting_their_entries() {
+		use super::{Id, LocalStore};
+		let path = std::env::temp_dir().join(format!(
+			"serein-roster-upgrade-{}.sqlite",
+			std::process::id()
+		));
+		let _ = std::fs::remove_file(&path);
+		let mut store = LocalStore::open(&path).unwrap();
+		store
+			.save_account(&model::SavedAccount {
+				id: Id(7),
+				name: "synthetic".into(),
+				display: None,
+				avatar: None,
+				discriminator: 0,
+				has_token: false,
+			})
+			.unwrap();
+		// Reopen as a build that predates the flag, then upgrade again.
+		store
+			.0
+			.execute_batch("ALTER TABLE accounts DROP COLUMN has_token;")
+			.unwrap();
+		drop(store);
+		let store = LocalStore::open(&path).unwrap();
+		let accounts = store.accounts().unwrap();
+		assert_eq!(accounts.len(), 1);
+		assert!(accounts[0].has_token, "upgraded rows keep their entry");
+		drop(store);
+		let _ = std::fs::remove_file(&path);
+	}
+
 	#[test]
 	fn forwarded_snapshot_survives_cache_reopen_and_upgrade() {
 		let path =

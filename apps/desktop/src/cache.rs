@@ -70,6 +70,10 @@ pub enum Operation {
 	SaveChannelPreferences(model::ChannelPreferences),
 	LoadAccounts,
 	SaveAccount(model::SavedAccount),
+	SetAccountToken {
+		account: Id,
+		has_token: bool,
+	},
 	LoadChannel {
 		channel: Id,
 		request: u64,
@@ -380,6 +384,18 @@ fn execute(
 				Err(error) => Err(*error),
 			});
 		}
+		Operation::SetAccountToken {
+			account: id,
+			has_token,
+		} => {
+			return Outcome::Accounts(match store {
+				Ok(store) => match store.set_account_token(*id, *has_token) {
+					Ok(()) => store.accounts().map(|accounts| (accounts, Vec::new())),
+					Err(error) => Err(error),
+				},
+				Err(error) => Err(*error),
+			});
+		}
 		Operation::LoadAppPreferences => {
 			return Outcome::AppPreferences(match store {
 				Ok(store) => store.app_preferences().map(Box::new),
@@ -474,6 +490,7 @@ fn execute(
 		Operation::LoadAppPreferences
 		| Operation::LoadAccounts
 		| Operation::SaveAccount(_)
+		| Operation::SetAccountToken { .. }
 		| Operation::LoadChannelPreferences
 		| Operation::SaveChannelPreferences(_)
 		| Operation::SaveAppPreferences(_)
@@ -489,6 +506,7 @@ fn execute(
 			Operation::LoadAppPreferences
 			| Operation::LoadAccounts
 			| Operation::SaveAccount(_)
+			| Operation::SetAccountToken { .. }
 			| Operation::LoadChannelPreferences
 			| Operation::SaveChannelPreferences(_)
 			| Operation::SaveAppPreferences(_)

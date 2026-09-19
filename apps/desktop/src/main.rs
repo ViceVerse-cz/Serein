@@ -1974,6 +1974,7 @@ impl Desktop {
 			display: display.map(str::to_owned),
 			avatar: user.avatar.clone(),
 			discriminator: user.discriminator,
+			has_token: false,
 		};
 		if !account.is_valid() {
 			return;
@@ -4326,15 +4327,37 @@ impl Desktop {
 						self.connect(secret, switching.is_some(), ctx);
 					} else {
 						self.credential_status = credentials::loaded_status(&result);
-						if switching.is_some() {
+						if let Some(account) = switching {
 							// The entry stays: the owner decides whether to forget it. Signing
-							// in again with "Use another account" refreshes its token.
+							// in again with "Use another account" refreshes its token, which the
+							// roster must expect again.
+							self.queue_cache_for(
+								model::Id(0),
+								cache::Operation::SetAccountToken {
+									account,
+									has_token: false,
+								},
+							);
 							self.credential_status = "No saved login for that account on this device. Use another account to sign in again, or forget it with ×.";
 							self.messaging.toasts.push(
 								ui::design::Level::Warning,
 								"That account's saved login is missing; sign in again to refresh it",
 							);
 						}
+					}
+				}
+				credentials::Outcome::AccountSaved(account, result) => {
+					if result.is_ok() {
+						self.queue_cache_for(
+							model::Id(0),
+							cache::Operation::SetAccountToken {
+								account,
+								has_token: true,
+							},
+						);
+					} else {
+						self.credential_status =
+							"Could not save this account for the switcher; sign in again to retry";
 					}
 				}
 				credentials::Outcome::Saved(Ok(())) => {
@@ -4522,14 +4545,24 @@ impl Desktop {
 				if let Some(store) = &self.store {
 					// The active entry restores on launch; the per-account entry backs the switcher.
 					let mut queued = true;
+					// A token the owner just supplied replaces whatever was stored before.
+					let fresh_token = self.pending_save.is_some();
 					if let Some(secret) = self.pending_save.take() {
 						queued &= store
 							.send
 							.try_send((self.state.generation, credentials::Operation::Save(secret)))
 							.is_ok();
 					}
+					// Writing an existing entry is an access-controlled keychain operation on
+					// macOS, so only write when the roster says none exists or the token is new.
 					if let Some(secret) = self.pending_account_save.take()
 						&& let Some(account) = self.state.user.as_ref().map(|user| user.id)
+						&& (fresh_token
+							|| !self
+								.messaging
+								.accounts
+								.iter()
+								.any(|saved| saved.id == account && saved.has_token))
 					{
 						queued &= store
 							.send

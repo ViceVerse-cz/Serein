@@ -806,6 +806,7 @@ pub fn demo_accounts(current: &model::User) -> Vec<model::SavedAccount> {
 			display: Some("Riley Quinn".into()),
 			avatar: current.avatar.clone(),
 			discriminator: current.discriminator,
+			has_token: true,
 		},
 		model::SavedAccount {
 			id: Id(4242),
@@ -813,6 +814,7 @@ pub fn demo_accounts(current: &model::User) -> Vec<model::SavedAccount> {
 			display: Some("Riley (alt)".into()),
 			avatar: None,
 			discriminator: 0,
+			has_token: true,
 		},
 		model::SavedAccount {
 			id: Id(4243),
@@ -820,6 +822,7 @@ pub fn demo_accounts(current: &model::User) -> Vec<model::SavedAccount> {
 			display: None,
 			avatar: None,
 			discriminator: 0,
+			has_token: true,
 		},
 	]
 }

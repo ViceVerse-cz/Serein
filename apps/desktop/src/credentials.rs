@@ -22,6 +22,8 @@ pub enum Operation {
 pub enum Outcome {
 	Loaded(Result<Option<SessionSecret>, CredentialError>),
 	Saved(Result<(), CredentialError>),
+	/// A per-account entry, so the roster can record that the entry now exists.
+	AccountSaved(model::Id, Result<(), CredentialError>),
 	Forgotten(Result<(), CredentialError>),
 	/// A per-account entry; never touches the launch-restore status or `forgetting`.
 	AccountForgotten(Result<(), CredentialError>),
@@ -44,9 +46,10 @@ impl Store {
 					Operation::LoadAccount(account) => {
 						Outcome::Loaded(platform::load_account_session(account))
 					}
-					Operation::SaveAccount(account, secret) => {
-						Outcome::Saved(platform::save_account_session(account, &secret))
-					}
+					Operation::SaveAccount(account, secret) => Outcome::AccountSaved(
+						account,
+						platform::save_account_session(account, &secret),
+					),
 					Operation::ForgetAccount(account) => {
 						Outcome::AccountForgotten(platform::forget_account_session(account))
 					}

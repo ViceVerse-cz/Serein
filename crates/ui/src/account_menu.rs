@@ -992,6 +992,7 @@ mod tests {
 			display: Some("Synthetic Alt".into()),
 			avatar: None,
 			discriminator: 0,
+			has_token: true,
 		}
 	}
 
@@ -1014,6 +1015,7 @@ mod tests {
 						display: Some("Signed in already".into()),
 						avatar: None,
 						discriminator: own.discriminator,
+						has_token: true,
 					},
 					alt_account(),
 				],

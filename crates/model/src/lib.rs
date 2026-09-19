@@ -151,6 +151,11 @@ pub struct SavedAccount {
 	pub display: Option<String>,
 	pub avatar: Option<String>,
 	pub discriminator: u16,
+	/// Whether the OS credential store holds this account's own entry. Read-only output of
+	/// the roster: writes go through `set_account_token`, so an identity refresh cannot
+	/// claim a token exists. Keeps the client from rewriting an entry it already wrote,
+	/// which on macOS is an access-controlled operation that can prompt for the keychain.
+	pub has_token: bool,
 }
 /// Bounded roster: enough for people juggling alternates, small enough to stay readable.
 pub const MAX_SAVED_ACCOUNTS: usize = 8;
