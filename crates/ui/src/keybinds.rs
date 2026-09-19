@@ -225,8 +225,8 @@ fn row(
 			if elapsed < FADE_START {
 				fade_alpha = 1.0;
 			} else {
-				fade_alpha = (1.0 - (elapsed - FADE_START) / (TOTAL_DURATION - FADE_START))
-					.clamp(0.0, 1.0);
+				fade_alpha =
+					(1.0 - (elapsed - FADE_START) / (TOTAL_DURATION - FADE_START)).clamp(0.0, 1.0);
 			}
 			conflict_text = Some(format!(
 				"Already bound to {}.",
