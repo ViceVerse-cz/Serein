@@ -438,6 +438,12 @@ impl Picker {
 			return;
 		}
 		let trigger = ui.interact(anchor, trigger_id, egui::Sense::hover());
+		// The real trigger is the hover-toolbar button, which is not registered while the
+		// popout covers the message row. Keep a node for the id focus is returned to, or
+		// AccessKit's tree validation panics on a focused id missing from the node list.
+		trigger.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Add reaction")
+		});
 		if let Some(Pick::React(message, emoji)) =
 			self.popup(ui, state, channel, avatars, commands, &trigger, None)
 			&& let Some(command) = state.prepare_reaction(message, emoji)
@@ -1952,6 +1958,88 @@ mod tests {
 		state.generation += 1;
 		frame(&mut picker, &mut state, &mut avatars, vec![]);
 		assert!(picker.frequent.is_empty());
+	}
+
+	#[test]
+	fn reaction_selection_never_focuses_a_missing_accesskit_node() {
+		// AccessKit's consumer panics when a tree update focuses an id that is not in the
+		// node list, so every frame must keep the focused widget registered as a node.
+		let ctx = egui::Context::default();
+		ctx.enable_accesskit();
+		crate::emoji::install(&ctx).unwrap();
+		let mut state = test_support::demo_state();
+		let message = Id(500);
+		let mut picker = Picker::default();
+		let mut avatars = Avatars::default();
+		let anchor = egui::Rect::from_min_size(egui::pos2(700.0, 600.0), egui::vec2(28.0, 28.0));
+		let key = |key| egui::Event::Key {
+			key,
+			physical_key: None,
+			pressed: true,
+			repeat: false,
+			modifiers: egui::Modifiers::NONE,
+		};
+		let frame = |picker: &mut Picker, state: &mut State, avatars: &mut Avatars, events| {
+			let mut commands = Vec::new();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| picker.show_reaction(ui, state, avatars, &mut commands),
+			);
+			if let Some(update) = &output.platform_output.accesskit_update {
+				assert!(
+					update.nodes.iter().any(|(id, _)| *id == update.focus),
+					"focused id {:?} is missing from the AccessKit node list",
+					update.focus
+				);
+			}
+			output.drop_without_applying_deltas();
+			commands
+		};
+		// The real trigger is the hover-toolbar button, which is not rendered while the
+		// popout covers it; a synthetic id reproduces that absent node.
+		picker.open_reaction(&state, message, anchor, egui::Id::unique("synthetic-react"));
+		for _ in 0..3 {
+			assert!(frame(&mut picker, &mut state, &mut avatars, vec![]).is_empty());
+		}
+		frame(
+			&mut picker,
+			&mut state,
+			&mut avatars,
+			vec![egui::Event::Text("rocket".into())],
+		);
+		let mut selected = false;
+		for _ in 0..12 {
+			frame(
+				&mut picker,
+				&mut state,
+				&mut avatars,
+				vec![key(egui::Key::Tab)],
+			);
+			if ctx
+				.memory(|m| m.focused())
+				.and_then(|id| ctx.read_response(id))
+				.is_some_and(|r| r.rect.size() == egui::Vec2::splat(CELL))
+			{
+				// Selecting hands focus back to the trigger, which must stay valid.
+				let commands = frame(
+					&mut picker,
+					&mut state,
+					&mut avatars,
+					vec![key(egui::Key::Enter)],
+				);
+				assert_eq!(commands.len(), 1);
+				selected = true;
+				break;
+			}
+		}
+		assert!(selected && !picker.open);
 	}
 
 	#[test]

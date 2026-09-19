@@ -703,6 +703,44 @@ fn show_system(
 	}
 }
 impl TimelineView {
+	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
+		if self.video.is_fullscreen() {
+			let current = self
+				.video
+				.active
+				.as_ref()
+				.and_then(|(channel, id, attachment)| {
+					state
+						.timeline
+						.get(*id)
+						.filter(|message| {
+							state.selected == Some(*channel)
+								&& message.channel == *channel
+								&& message.attachments.contains(attachment)
+								&& (!crate::embeds::has_media_spoilers(message)
+									|| self.revealed.get(id).is_some_and(|reveal| {
+										reveal.media && reveal.matches(message)
+									}))
+						})
+						.map(|message| (message, attachment.clone()))
+				});
+			if let Some((message, attachment)) = current {
+				self.video.show_fullscreen(
+					ctx,
+					message,
+					&attachment,
+					&mut self.download,
+					&mut self.opening,
+					state.demo,
+				);
+				return true;
+			} else {
+				self.video.stop();
+			}
+		}
+		false
+	}
+
 	/// Fixture-only: open the media viewer on one attachment.
 	#[cfg(any(test, feature = "demo"))]
 	pub(super) fn preview_image_viewer(&mut self, message: Id, attachment: Id) {
@@ -2566,39 +2604,7 @@ impl TimelineView {
 			self.pending_viewer = None;
 			self.viewing = Some((message_id, attachment_id));
 		}
-		if self.video.is_fullscreen() {
-			let current = self
-				.video
-				.active
-				.as_ref()
-				.and_then(|(channel, id, attachment)| {
-					state
-						.timeline
-						.get(*id)
-						.filter(|message| {
-							state.selected == Some(*channel)
-								&& message.channel == *channel
-								&& message.attachments.contains(attachment)
-								&& (!crate::embeds::has_media_spoilers(message)
-									|| self.revealed.get(id).is_some_and(|reveal| {
-										reveal.media && reveal.matches(message)
-									}))
-						})
-						.map(|message| (message, attachment.clone()))
-				});
-			if let Some((message, attachment)) = current {
-				self.video.show_fullscreen(
-					ui.ctx(),
-					message,
-					&attachment,
-					&mut self.download,
-					&mut self.opening,
-					state.demo,
-				);
-			} else {
-				self.video.stop();
-			}
-		}
+		self.show_fullscreen_video(ui.ctx(), state);
 		if let Some((message_id, attachment_id)) = self.viewing {
 			let message = state.timeline.get(message_id).filter(|m| {
 				!crate::embeds::has_media_spoilers(m)

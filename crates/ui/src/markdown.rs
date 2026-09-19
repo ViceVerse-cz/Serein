@@ -1271,12 +1271,17 @@ impl Formatted {
 							.iter()
 							.take_while(|(_, style)| style.block == Some(block))
 							.count();
+						// Fenced code is a block element inside this wrapping horizontal flow.
+						// Explicit row boundaries make egui reserve its full painted height,
+						// rather than placing the following paragraph back on the same row.
+						ui.end_row();
 						let code_rect = Self::show_code_block(
 							ui,
 							&self.blocks[usize::from(block)],
 							block,
 							render.surface,
 						);
+						ui.end_row();
 						render.surface.exclude(code_rect);
 						start += count;
 						continue;
@@ -3289,6 +3294,14 @@ mod tests {
 				.iter()
 				.find(|(text, ..)| *text == "fn main() {}")
 				.expect("code text");
+			let before = texts
+				.iter()
+				.find(|(text, ..)| *text == "before")
+				.expect("paragraph before code block");
+			let after = texts
+				.iter()
+				.find(|(text, ..)| *text == "after")
+				.expect("paragraph after code block");
 			assert_eq!(code.3, egui::FontFamily::Monospace);
 			assert!(
 				texts.iter().any(|(text, ..)| *text == "Rust"),
@@ -3307,6 +3320,14 @@ mod tests {
 				})
 				.expect("framed background");
 			assert!(bg.contains_rect(egui::Rect::from_min_size(code.1, code.2)));
+			assert!(
+				before.1.y + before.2.y <= bg.top(),
+				"paragraph before the block overlaps its frame: before={before:?}, block={bg:?}"
+			);
+			assert!(
+				after.1.y >= bg.bottom(),
+				"paragraph after the block overlaps its frame: after={after:?}, block={bg:?}"
+			);
 			let header = texts
 				.iter()
 				.find(|(text, ..)| *text == "Rust")

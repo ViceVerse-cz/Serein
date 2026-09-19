@@ -4153,9 +4153,11 @@ impl eframe::App for Desktop {
 			self.window.is_visible().is_some(),
 		);
 		// The hide command lands after this frame, so the flag leads reported visibility.
+		// Occlusion can occur during macOS fullscreen transitions; it is not a request
+		// to stop playback (which would also restore the window out of fullscreen).
 		let hidden_or_closing = self.tray_window.hidden
 			|| ctx.input(|input| {
-				input.viewport().visible() == Some(false) || input.viewport().close_requested()
+				input.viewport().minimized == Some(true) || input.viewport().close_requested()
 			});
 		if self.state.user.is_none()
 			|| (!self.state.demo && self.state.auth != AuthState::Authenticated)
@@ -4558,6 +4560,13 @@ impl eframe::App for Desktop {
 					self.runtime.handle(),
 					&ctx,
 					self.fixture_only || self.state.demo,
+				);
+			}
+			if let Some(fullscreen) = player.take_fullscreen_request() {
+				self.window.set_fullscreen(
+					fullscreen.then(|| {
+						winit::window::Fullscreen::Borderless(self.window.current_monitor())
+					}),
 				);
 			}
 			self.notifications.set_enabled(
