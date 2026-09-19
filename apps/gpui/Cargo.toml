@@ -1,0 +1,23 @@
+[package]
+name = "serein-gpui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gpui = "=0.2.2"
+unicode-segmentation = "1"
+client-core.workspace = true
+model.workspace = true
+discord-api.workspace = true
+discord-gateway.workspace = true
+discord-voice.workspace = true
+platform.workspace = true
+ui.workspace = true
+egui.workspace = true
+test-support.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

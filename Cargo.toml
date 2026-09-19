@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/desktop", "crates/*", "tools/*"]
+members = ["apps/desktop", "apps/gpui", "crates/*", "tools/*"]
 default-members = ["apps/desktop"]
 resolver = "3"
 
