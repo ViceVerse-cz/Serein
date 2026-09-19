@@ -620,7 +620,7 @@ mod tests {
 		let deafen_before = bindings.chord(KeybindAction::ToggleDeafen).clone();
 
 		let ctx = egui::Context::default();
-		let _ = ctx.run_ui(
+		let mut output = ctx.run_ui(
 			egui::RawInput {
 				events: vec![Event::Key {
 					key: Key::M,
@@ -635,6 +635,7 @@ mod tests {
 				capture(ui, &mut bindings, &mut capturing);
 			},
 		);
+		output.textures_delta.clear();
 
 		assert_eq!(capturing, None);
 		assert_eq!(bindings.chord(KeybindAction::ToggleDeafen), &deafen_before);
