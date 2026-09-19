@@ -300,6 +300,10 @@ pub struct MessagingUi {
 	/// Set when the user picks a theme preset; the host persists it.
 	pub theme_variant_changed: Option<design::Variant>,
 	pub primary_color: Option<[u8; 3]>,
+	pub transparency_blur: bool,
+	pub transparency: u8,
+	pub blur: u8,
+	pub transparent_all: bool,
 }
 
 /// Context strip (reply/edit) drawn as the rounded top of the composer block.
