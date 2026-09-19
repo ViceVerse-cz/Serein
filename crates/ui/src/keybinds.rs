@@ -114,6 +114,16 @@ struct ConflictNotice {
 	time: f64,
 }
 
+impl Default for ConflictNotice {
+	fn default() -> Self {
+		Self {
+			action: KeybindAction::ShowShortcuts,
+			conflicting_action: KeybindAction::ShowShortcuts,
+			time: 0.0,
+		}
+	}
+}
+
 fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<KeybindAction>) {
 	let colors = design::palette(ui);
 	if let Some(action) = *capturing {
@@ -146,7 +156,7 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ke
 				let now = ui.input(|input| input.time);
 				ui.data_mut(|data| {
 					data.insert_temp(
-						egui::Id::new("keybind_conflict"),
+						egui::Id::unique("keybind_conflict"),
 						ConflictNotice {
 							action,
 							conflicting_action: other,
@@ -159,7 +169,7 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ke
 			} else {
 				*bindings.chord_mut(action) = chord;
 				ui.data_mut(|data| {
-					data.remove_temp::<ConflictNotice>(egui::Id::new("keybind_conflict"));
+					data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
 				});
 				*capturing = None;
 			}
@@ -197,7 +207,7 @@ fn row(
 	let colors = design::palette(ui);
 	let active = *capturing == Some(action);
 	let notice: Option<ConflictNotice> =
-		ui.data(|data| data.get_temp(egui::Id::new("keybind_conflict")));
+		ui.data(|data| data.get_temp(egui::Id::unique("keybind_conflict")));
 	let now = ui.input(|input| input.time);
 	let mut blink_factor = 0.0f32;
 	let mut fade_alpha = 0.0f32;
@@ -254,13 +264,13 @@ fn row(
 					*capturing = None;
 				}
 				ui.data_mut(|data| {
-					data.remove_temp::<ConflictNotice>(egui::Id::new("keybind_conflict"));
+					data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
 				});
 			}
 			if shortcut_button(ui, bindings.chord(action), active, blink_factor).clicked() {
 				*capturing = Some(action);
 				ui.data_mut(|data| {
-					data.remove_temp::<ConflictNotice>(egui::Id::new("keybind_conflict"));
+					data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
 				});
 			}
 		});
