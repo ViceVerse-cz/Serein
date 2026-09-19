@@ -1920,6 +1920,7 @@ mod tests {
 				}
 			};
 			let events = std::sync::Mutex::new(Vec::new());
+			let sessions = std::sync::Mutex::new(Vec::new());
 			let secret = Arc::new(
 				SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap(),
 			);
@@ -1941,6 +1942,10 @@ mod tests {
 				None,
 				|event| {
 					let label = match event {
+						Event::Interaction(client_core::interactions::Event::Session(session)) => {
+							sessions.lock().unwrap().push(session.to_string());
+							return Ok(());
+						}
 						Event::Startup(_) => "ready",
 						Event::Resumed => "resumed",
 						Event::DirectPresence(_) => "presence",
@@ -1994,6 +1999,14 @@ mod tests {
 			};
 			let (result, ()) = tokio::join!(client, server);
 			assert_eq!(result, Err(Failure::Expired));
+			assert_eq!(
+				sessions.into_inner().unwrap(),
+				[
+					"synthetic-first-session",
+					"synthetic-first-session",
+					"synthetic-new-session"
+				]
+			);
 			let events = events.into_inner().unwrap();
 			assert!(
 				events

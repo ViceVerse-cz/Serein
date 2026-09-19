@@ -389,11 +389,12 @@ to eight per two seconds. The UI schedules only the next visible expiry, with no
 Existing People typing subscriptions are unchanged; guild delivery may depend on that pane's
 subscription. Service availability and normal-account acceptance remain live-unverified.
 
-Message components (September 19, issue #313): native action rows, buttons, all select
-kinds, Components V2 layout/text/media/file controls, and application modals now retain
-bounded typed service data. Modal controls include text, selects, radio groups, checkbox
-groups, checkboxes and explicit native file selection. User/mentionable selectors reuse
-on-demand member search; role/channel selectors use the loaded account catalog.
+Message components (September 19, issue #313): native action rows, buttons, string/user/
+role/mentionable/channel selects, Components V2 sections, containers, text, thumbnails,
+media galleries, files and separators retain bounded typed service data. Modal controls
+include labels, text inputs, selects, radio groups, checkbox groups, checkboxes and
+explicit native file selection. User/mentionable selectors reuse on-demand member
+search; role/channel selectors use the loaded account catalog.
 Buttons and form submits use the unofficial normal-account `POST /interactions` path,
 with the active Gateway session, a unique nonce, and no automatic write replay. Gateway
 success/failure/modal events are correlated; an HTTP acceptance alone is not completion.
@@ -401,13 +402,29 @@ Private replies are session-only and never saved with channel history. Premium p
 buttons are omitted; unknown component types retain a visible marker. Media links use
 the existing safe preview and destination-confirmation policy.
 
+Select menus show selected labels, option descriptions and emoji. Single selections
+submit directly; optional selections can be cleared. Form inputs have larger padding
+and multiline fields have room for longer answers. Link buttons keep their text on one
+line and display an external-link icon. Rendered components do not add an Open in
+Discord button. Channel category labels also stay on one line with truncation.
+
 The [official component reference](https://docs.discord.com/developers/components/reference)
 describes schemas; normal-account submission and modal Gateway events are unofficial
 ([first-hand interaction reference](https://docs.discord.food/interactions/receiving-and-responding)).
-This local fast pass uses `--demo --demo-check-components`; live bot interoperability,
-Windows/Linux rendering and production readiness remain unverified. Polls and stickers
-still retain presence markers and an Open in Discord fallback. Old cached component
-markers acquire controls only after normal history refresh.
+This is not full Discord component parity: premium purchases are unavailable, and
+synthetic checks do not verify live application responses, modal uploads or purchases.
+Normal-account interoperability and Windows/Linux visual equivalence remain unverified.
+Polls and stickers still retain presence markers and an Open in Discord fallback.
+Old cached component markers acquire controls only after normal history refresh.
+
+Run the offline native component preview with:
+
+```bash
+cargo run --locked -p serein --features demo -- --demo --demo-components
+```
+
+Choose a dropdown option or click **Open sample form** to inspect the synthetic controls.
+The separate `--demo --demo-check-components` mode checks the synthetic interaction flow.
 
 External fallback (September 10): unsupported channel rows and message placeholders offer
 Open in Discord through an explicit browser confirmation. URLs use the fixed Discord HTTPS

@@ -327,17 +327,43 @@ impl Components {
 					} else {
 						text
 					};
-					let mut button = egui::Button::new(text);
+					let image = c
+						.emoji
+						.as_ref()
+						.and_then(|emoji| emoji.id)
+						.and_then(|id| avatars.custom_image(ui.ctx(), id, 18.0, state.demo));
+					let mut button = if let Some(image) = image {
+						egui::Button::image_and_text(image, text)
+							.image_tint_follows_text_color(false)
+					} else {
+						egui::Button::new(text)
+					}
+					.wrap_mode(egui::TextWrapMode::Extend)
+					.min_size(egui::vec2(0.0, 32.0))
+					.corner_radius(6)
+					.stroke(egui::Stroke::new(1.0, colors.border));
+					if linked {
+						button = button.right_text("   ");
+					}
 					button = match c.style {
 						Some(1) => button.fill(colors.accent),
 						Some(3) => button.fill(colors.positive),
 						Some(4) => button.fill(colors.danger),
 						_ => button,
 					};
-					if ui
-						.add_enabled(!c.disabled && (linked || enabled), button)
-						.clicked()
-					{
+					let response = ui.add_enabled(!c.disabled && (linked || enabled), button);
+					if linked {
+						crate::icons::paint(
+							ui.painter(),
+							crate::icons::Icon::External,
+							egui::Rect::from_center_size(
+								response.rect.right_center() - egui::vec2(14.0, 0.0),
+								egui::Vec2::splat(16.0),
+							),
+							colors.muted,
+						);
+					}
+					if response.clicked() {
 						if linked {
 							*opening = c.url.as_deref().and_then(markdown::external_url);
 						} else if let Some(custom_id) = &c.custom_id {
@@ -361,16 +387,20 @@ impl Components {
 							message.channel,
 							&mut self.search.text,
 							&mut self.remote_search,
+							avatars,
 						);
 						let valid = values.len() >= usize::from(c.min_values.unwrap_or(1))
 							&& values.len() <= usize::from(c.max_values.unwrap_or(1));
 						if changed {
 							self.select = Some((id, values.clone()));
 						}
-						if ui
-							.add_enabled(valid, egui::Button::new("Submit selection"))
-							.clicked() && let Some(custom_id) = &c.custom_id
-						{
+						let submit = if c.max_values.unwrap_or(1) == 1 {
+							changed && valid
+						} else {
+							ui.add_enabled(valid, egui::Button::new("Submit selection"))
+								.clicked()
+						};
+						if submit && let Some(custom_id) = &c.custom_id {
 							*action = Some((message.id, custom_id.clone(), values));
 						}
 					});
@@ -470,7 +500,7 @@ impl Components {
 				_ => {
 					ui.colored_label(
 						colors.muted,
-						format!("Component type {} · Open in Discord to use", c.kind),
+						format!("Unsupported component (type {})", c.kind),
 					);
 				}
 			}
@@ -485,7 +515,7 @@ impl Components {
 		avatars: &mut Avatars,
 		opening: &mut Option<String>,
 	) {
-		let Some(modal) = state.interactions.modal.clone() else {
+		let Some(modal) = state.interactions.modal.as_ref() else {
 			if self.modal.take().is_some() {
 				self.remote_search = false;
 				self.search = Default::default();
@@ -514,6 +544,7 @@ impl Components {
 			("application-modal", state.generation, modal.id),
 			&modal.title,
 		)
+		.width(520.0)
 		.show(ctx, |dialog| {
 			let mut valid = true;
 			dialog.content(|ui| {
@@ -521,6 +552,7 @@ impl Components {
 					egui::ScrollArea::vertical()
 						.max_height(440.0)
 						.show(ui, |ui| {
+							ui.spacing_mut().item_spacing.y = 10.0;
 							for (index, component) in components.iter_mut().enumerate() {
 								ui.push_id(index, |ui| {
 									valid &= field(
@@ -569,6 +601,7 @@ fn component_label(c: &Component) -> String {
 	let emoji = c
 		.emoji
 		.as_ref()
+		.filter(|emoji| emoji.id.is_none())
 		.and_then(|emoji| emoji.name.as_deref())
 		.unwrap_or_default();
 	let label = c.label.as_deref().unwrap_or("Button");
@@ -623,6 +656,7 @@ fn initialize(components: &mut [Component]) {
 		}
 	}
 }
+#[allow(clippy::too_many_arguments)]
 fn select(
 	ui: &mut egui::Ui,
 	c: &Component,
@@ -631,22 +665,81 @@ fn select(
 	channel: Id,
 	query: &mut String,
 	remote_search: &mut bool,
+	avatars: &mut Avatars,
 ) -> bool {
 	let mut changed = false;
+	let colors = design::palette(ui);
+	let users = if matches!(c.kind, 5 | 7) && !values.is_empty() {
+		crate::mentions::known_users(state, channel)
+	} else {
+		Vec::new()
+	};
+	let selected_text = values
+		.iter()
+		.map(|value| {
+			c.options
+				.iter()
+				.find(|option| option.value == *value)
+				.map(|option| option.label.clone())
+				.or_else(|| {
+					value
+						.parse::<Id>()
+						.ok()
+						.and_then(|id| state.channel(id))
+						.map(|channel| channel.name.clone())
+				})
+				.or_else(|| {
+					crate::mentions::known_roles(state, channel)
+						.iter()
+						.find(|role| Some(role.id) == value.parse::<Id>().ok())
+						.map(|role| role.name.clone())
+				})
+				.or_else(|| {
+					users
+						.iter()
+						.find(|user| Some(user.id) == value.parse::<Id>().ok())
+						.map(|user| user.name.clone())
+				})
+				.unwrap_or_else(|| value.clone())
+		})
+		.collect::<Vec<_>>()
+		.join(", ");
+	let width = ui.available_width().min(400.0);
 	egui::ComboBox::from_id_salt("selection")
-		.selected_text(c.placeholder.as_deref().unwrap_or("Choose options"))
+		.width(width)
+		.height(360.0)
+		.selected_text(if selected_text.is_empty() {
+			c.placeholder.as_deref().unwrap_or("Choose options")
+		} else {
+			&selected_text
+		})
 		.show_ui(ui, |ui| {
-			if ui
-				.add(
-					egui::TextEdit::singleline(query)
-						.hint_text("Search options")
-						.char_limit(64),
-				)
-				.changed()
+			ui.set_min_width((width - 16.0).max(40.0));
+			if (c.min_values == Some(0) || !c.required)
+				&& !values.is_empty()
+				&& ui.button("Clear selection").clicked()
+			{
+				values.clear();
+				changed = true;
+				*remote_search = false;
+				ui.close();
+			}
+			if (c.kind != 3 || c.options.len() > 10)
+				&& ui
+					.add(
+						egui::TextEdit::singleline(query)
+							.hint_text("Search options")
+							.char_limit(64),
+					)
+					.changed()
 			{
 				*remote_search = matches!(c.kind, 5 | 7);
 			}
-			let filter = query.to_lowercase();
+			let filter = if c.kind == 3 && c.options.len() <= 10 {
+				String::new()
+			} else {
+				query.to_lowercase()
+			};
 			// Keep at most 100 matching labels (64 KiB); search still traverses the available catalog.
 			let mut options = Vec::<(String, String)>::new();
 			let mut bytes = 0;
@@ -696,14 +789,61 @@ fn select(
 			}
 			for (value, label) in &options {
 				let selected = values.contains(value);
+				let option = c.options.iter().find(|option| option.value == *value);
+				let mut job = egui::text::LayoutJob::default();
+				job.append(
+					&format!(
+						"{}{}{}",
+						if selected { "✓  " } else { "" },
+						option
+							.and_then(|o| o.emoji.as_ref())
+							.filter(|e| e.id.is_none())
+							.and_then(|e| e.name.as_ref())
+							.map(|name| format!("{name} "))
+							.unwrap_or_default(),
+						label
+					),
+					0.0,
+					egui::TextFormat {
+						font_id: egui::FontId::proportional(14.0),
+						color: colors.text,
+						..Default::default()
+					},
+				);
+				if let Some(description) = option.and_then(|option| option.description.as_deref()) {
+					job.append(
+						&format!("\n{description}"),
+						0.0,
+						egui::TextFormat {
+							font_id: egui::FontId::proportional(12.0),
+							color: colors.muted,
+							..Default::default()
+						},
+					);
+				}
+				let image = option
+					.and_then(|option| option.emoji.as_ref())
+					.and_then(|emoji| emoji.id)
+					.and_then(|id| avatars.custom_image(ui.ctx(), id, 24.0, state.demo));
+				let button = if let Some(image) = image {
+					egui::Button::image_and_text(image, job).image_tint_follows_text_color(false)
+				} else {
+					egui::Button::new(job)
+				};
 				if ui
 					.add_enabled(
-						selected || values.len() < usize::from(c.max_values.unwrap_or(1)),
-						egui::Button::new(label).selected(selected),
+						c.max_values.unwrap_or(1) == 1
+							|| selected || values.len() < usize::from(c.max_values.unwrap_or(1)),
+						button
+							.selected(selected)
+							.min_size(egui::vec2(ui.available_width(), 40.0)),
 					)
 					.clicked()
 				{
-					if selected {
+					if c.max_values.unwrap_or(1) == 1 {
+						*values = vec![value.clone()];
+						ui.close();
+					} else if selected {
 						values.retain(|existing| existing != value);
 					} else {
 						values.push(value.clone());
@@ -719,25 +859,6 @@ fn select(
 				ui.small("Refine your search to see more results");
 			}
 		});
-	for value in values.iter() {
-		let id = value.parse::<Id>().ok();
-		let label = c
-			.options
-			.iter()
-			.find(|option| option.value == *value)
-			.map(|option| option.label.as_str())
-			.or_else(|| {
-				id.and_then(|id| state.channel(id))
-					.map(|channel| channel.name.as_str())
-			})
-			.or_else(|| {
-				crate::mentions::known_roles(state, channel)
-					.iter()
-					.find(|role| Some(role.id) == id)
-					.map(|role| role.name.as_str())
-			});
-		ui.small(label.unwrap_or(value));
-	}
 	if matches!(c.kind, 5..=8) {
 		ui.small("Type to search members; available roles and channels are listed");
 	}
@@ -803,12 +924,14 @@ fn field(
 			4 => {
 				let value = c.value.get_or_insert_with(String::new);
 				let edit = if c.style == Some(2) {
-					egui::TextEdit::multiline(value)
+					egui::TextEdit::multiline(value).desired_rows(5)
 				} else {
 					egui::TextEdit::singleline(value)
 				};
 				ui.add(
 					edit.char_limit(usize::from(c.max_length.unwrap_or(4000)).min(4000))
+						.font(egui::FontId::proportional(15.0))
+						.margin(egui::vec2(12.0, 10.0))
 						.hint_text(c.placeholder.as_deref().unwrap_or_default())
 						.desired_width(f32::INFINITY),
 				);
@@ -827,6 +950,7 @@ fn field(
 					state.selected.unwrap_or(Id(0)),
 					query,
 					remote_search,
+					avatars,
 				);
 				valid = (!c.required && values.is_empty())
 					|| (values.len() >= usize::from(c.min_values.unwrap_or(1))
@@ -852,6 +976,13 @@ fn field(
 						{
 							c.values.push(option.value.clone());
 						}
+					}
+					if let Some(description) = &option.description {
+						ui.label(
+							egui::RichText::new(description)
+								.small()
+								.color(design::palette(ui).muted),
+						);
 					}
 				}
 				if c.kind == 21 {
@@ -916,10 +1047,7 @@ fn field(
 						&& c.values.len() <= usize::from(c.max_values.unwrap_or(1)));
 			}
 			_ => {
-				ui.label(format!(
-					"Unsupported form field {}. Open this form in Discord.",
-					c.kind
-				));
+				ui.label(format!("Unsupported form field (type {}).", c.kind));
 				valid = false;
 			}
 		}

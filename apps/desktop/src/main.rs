@@ -58,6 +58,13 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 };
 
 fn main() -> eframe::Result {
+	#[cfg(feature = "demo")]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-bench-components")
+	{
+		components_demo::benchmark();
+		return Ok(());
+	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-components")
@@ -1057,7 +1064,9 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if demo {
 			state = {
-				if std::env::args().any(|arg| arg == "--demo-forwarded") {
+				if std::env::args().any(|arg| arg == "--demo-components") {
+					components_demo::preview()
+				} else if std::env::args().any(|arg| arg == "--demo-forwarded") {
 					test_support::forwarded_demo_state()
 				} else if std::env::args()
 					.any(|arg| arg == "--demo-audio" || arg == "--demo-voice-messages")
@@ -2639,6 +2648,13 @@ impl Desktop {
 		if self.state.demo {
 			let event = match command {
 				Command::Interaction(request) => {
+					if std::env::args().any(|arg| arg == "--demo-components") {
+						self.state.apply(Envelope {
+							generation: self.state.generation,
+							event: components_demo::respond(request),
+						});
+						return;
+					}
 					Event::Interaction(client_core::interactions::Event::Submitted {
 						nonce: request.nonce,
 						result: Err(Failure::ProtocolAt(

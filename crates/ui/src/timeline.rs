@@ -1959,7 +1959,13 @@ impl TimelineView {
 											}
 											let unknown_system = message.unsupported
 												&& message.system_summary().is_none();
-											if unknown_system || message.extra_content.any() {
+											if unknown_system
+												|| message.extra_content.poll || message
+												.extra_content
+												.sticker_items || message.extra_content.stickers
+												|| (message.extra_content.any()
+													&& message.components.is_empty())
+											{
 												if unknown_system {
 													ui.label(
 														RichText::new(format!(
