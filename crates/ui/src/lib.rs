@@ -2702,6 +2702,12 @@ impl MessagingUi {
 		}
 		self.timeline.audio.seen = false;
 		self.timeline.video.seen = false;
+		// Fullscreen playback owns the whole client surface, including during native resizing.
+		if self.timeline.show_fullscreen_video(ui.ctx(), state) {
+			ui.painter()
+				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
+			return Vec::new();
+		}
 		self.profile_trigger = None;
 		let mut commands = Vec::new();
 		let ctx = ui.ctx().clone();

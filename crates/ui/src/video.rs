@@ -81,6 +81,7 @@ impl VideoUi {
 		if let Some((ctx, previous, focus)) = self.fullscreen.take() {
 			self.fullscreen_request = Some(previous);
 			ctx.memory_mut(|memory| memory.request_focus(focus));
+			ctx.request_repaint();
 		}
 	}
 	pub fn take_fullscreen_request(&mut self) -> Option<bool> {
@@ -98,11 +99,15 @@ impl VideoUi {
 		opening: &mut Option<String>,
 		demo: bool,
 	) {
+		// A modal sizing pass is invisible; it must not stop the active decoder.
+		self.seen = true;
 		let screen = ctx.content_rect();
 		let id = egui::Id::unique("video-fullscreen");
 		let overlay = egui::Modal::new(id)
 			.area(
-				egui::Modal::default_area(id).anchor(egui::Align2::LEFT_TOP, screen.min.to_vec2()),
+				egui::Modal::default_area(id)
+					.anchor(egui::Align2::LEFT_TOP, egui::Vec2::ZERO)
+					.fade_in(false),
 			)
 			.backdrop_color(egui::Color32::BLACK)
 			.frame(egui::Frame::NONE)

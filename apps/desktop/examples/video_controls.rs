@@ -30,6 +30,11 @@ fn frame(
 		.fullscreen = Some(fullscreen);
 	ctx.run_ui(input, |ui| {
 		let _ = view.show(ui, state);
+		// Match the desktop's visibility-based player cleanup.
+		let player = view.video();
+		if player.active.is_some() && !player.seen {
+			player.stop();
+		}
 	})
 }
 
@@ -107,12 +112,25 @@ fn main() {
 	assert_eq!(view.video().take_fullscreen_request(), Some(true));
 	assert_eq!(view.video().state, ui::VideoState::Playing);
 	assert!(view.video().command.is_none());
-	for _ in 0..2 {
-		let output = frame(&ctx, &mut view, &mut state, vec![], true);
+	// Native fullscreen changes asynchronously and can resize through intermediate sizes.
+	for fullscreen in [false, true, true, false, true] {
+		let output = frame(&ctx, &mut view, &mut state, vec![], fullscreen);
 		let exit = button(&output, "Exit fullscreen (Esc)");
 		assert!(
-			exit.x > 1400.0 && exit.y > 800.0,
+			exit.x > if fullscreen { 1400.0 } else { 800.0 }
+				&& exit.y > if fullscreen { 800.0 } else { 600.0 },
 			"Fullscreen controls fill the viewport: {exit:?}"
+		);
+		assert!(
+			!output
+				.platform_output
+				.accesskit_update
+				.as_ref()
+				.unwrap()
+				.nodes
+				.iter()
+				.any(|(_, node)| node.label() == Some("Send message")),
+			"Fullscreen must render only the player, without the chat composer"
 		);
 		assert!(view.video().seen);
 		assert_eq!(view.video().position, 6.0);
