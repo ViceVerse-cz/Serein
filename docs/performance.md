@@ -16,6 +16,8 @@ measured runs per revision. Earlier runs during background compilation were excl
 | 200 SQLite loads, one row | 4.987 ms | 0.614 ms | -4.374 ms (-87.70%) |
 | 200 SQLite loads, 50 rows | 13.967 ms | 9.211 ms | -4.755 ms (-34.05%) |
 | 200 SQLite loads, 500 rows | 123.235 ms | 74.909 ms | -48.326 ms (-39.21%) |
+| 1,000 settled timeline frames, 900px synthetic text | 228.1 ms | 211.4 ms | -16.7 ms (-7.3%) |
+| 1,000 settled timeline frames, 360px synthetic text | 157.3 ms | 141.6 ms | -15.7 ms (-10.0%) |
 | 120 alternating 1080p/720p software decodes | 491.037 ms | 475.301 ms | -15.736 ms (-3.20%) |
 | Scratch length changes in that decode workload | 120 | 1 | -119 |
 | Peak requested scratch capacity | 8,294,400 bytes | 8,294,400 bytes | 0 |
@@ -28,6 +30,14 @@ neither disk latency nor channel switching. Its normal channel window is bounded
 to 500 rows. `EXPLAIN QUERY PLAN` confirms the expression index removes the temporary
 ordering B-tree. The index adds disk/write overhead within the existing page ceiling;
 write throughput was not measured. Unsigned IDs remain text, and secure deletion stays on.
+
+Timeline measurements use 500 synthetic ordinary text rows, ten warmup frames and six
+measured batches of 1,000 frames in the release UI test binary. The settled viewport
+reuses current-dimension heights for clipped leading rows, while resize, state changes,
+dynamic content and active selection retain the full measurement path. Hidden-row renders
+fell from 4,000 to 0 across the 1,000-frame samples at both widths. Media, embeds, replies,
+components, spoilers, timestamps, invite-like links and non-empty reactions are excluded
+from reuse; the result is not a whole-app frame-time claim.
 
 The BiDi numbers measure only direction analysis, not parsing, complete message
 layout or native frame latency. Mixed RTL initially measured 700.684 → 723.470 ms;
@@ -51,6 +61,7 @@ cargo test --release --locked -p client-core guild_lookup_benchmark -- --ignored
 cargo test --release --locked -p ui bidi_ascii_benchmark -- --ignored --nocapture
 cargo test --release --locked -p local-store benchmark_channel_load -- --ignored --nocapture
 cargo test --release --locked -p discord-voice compare_alternating_software_decode -- --ignored --nocapture
+cargo test --release --locked -p ui leading_overscan_benchmark -- --ignored --nocapture
 cargo replay
 ```
 
@@ -58,7 +69,7 @@ cargo replay
 | --- | ---: | ---: | ---: |
 | Executable | 53,624,384 | 53,624,384 | 0 |
 | Installed app, sum of 197 files | 59,558,087 | 59,558,087 | 0 |
-| App ZIP, `ditto -c -k --keepParent` | 39,702,953 | 39,703,677 | +724 (+0.0018%) |
+| App ZIP, `ditto -c -k --keepParent` | 39,702,953 | 39,704,308 | +1,355 (+0.0034%) |
 
 Both `cargo xtask package` commands completed with voice and without demo/developer
 features. The preserved baseline bundle subsequently failed resource-seal verification:
@@ -85,6 +96,11 @@ allocations and its peak covers only the sample window, not startup. These singl
 idle samples and the CPU clock's coarse resolution do not establish a CPU or memory
 improvement. Interactive frame percentiles, startup latency and live media latency
 remain unmeasured. No accounts, microphone, calls or network media were used.
+
+The overscan follow-up repeated the same idle sample with the settled current binary:
+CPU was 0.00% and sampled peak/settled RSS was 203,952 KiB, versus the prior matched
+sample's 0.00% and 196,944 KiB. An earlier run reached 16.86% while loading local demo
+content, so neither run is treated as a whole-app CPU or memory claim.
 
 # Reaction tooltip loading - September 17, 2026
 

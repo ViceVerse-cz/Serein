@@ -74,6 +74,11 @@ pub struct TimelineView {
 	pub(super) remove_preserved: Option<Id>,
 	toolbar: Option<(Id, egui::Rect)>,
 	heights: BTreeMap<Id, (u64, f32)>,
+	// Heights can remain resize estimates; only these bounded active-row IDs were
+	// measured with the current dimensions and state revision.
+	measured_rows: BTreeSet<Id>,
+	#[cfg(test)]
+	leading_rendered: usize,
 	pub(super) reflow_frames: u64,
 	pub(super) consecutive_reflows: u64,
 	width: f32,
@@ -935,6 +940,9 @@ impl TimelineView {
 		let dimensions_changed = width_changed || content_dimensions_changed;
 		self.applied_hide_media_links = self.hide_media_links;
 		let changed = self.revision != state.revision || dimensions_changed;
+		if changed || self.width != width {
+			self.measured_rows.clear();
+		}
 		let mut offset = None;
 		let mut lead_rows = None;
 		if changed {
@@ -1207,6 +1215,10 @@ impl TimelineView {
 			scroll = scroll.vertical_scroll_offset(offset);
 		}
 		self.visible_authors.clear();
+		#[cfg(test)]
+		{
+			self.leading_rendered = 0;
+		}
 		let mut measurements = Vec::new();
 		let mut selected_reply = None;
 		// ScrollArea consumes wheel input while applying it; retain the viewing gesture.
@@ -1258,6 +1270,11 @@ impl TimelineView {
 						.as_ref()
 						.is_some_and(|r| rect.contains_rect(r.rect))
 			});
+			let reuse_leading = keyboard_focus.is_none()
+				&& retained_toolbar.is_none()
+				&& !egui::Popup::is_any_open(ui.ctx())
+				&& !crate::select::has_selection(ui.ctx())
+				&& !ui.input(|input| input.pointer.any_down() || input.pointer.any_released());
 			let mut end = first;
 			for index in first..self.rows.len() {
 				let row_id = ui.make_persistent_id(self.rows[index].0.0);
@@ -1285,6 +1302,36 @@ impl TimelineView {
 				let previous = index
 					.checked_sub(1)
 					.and_then(|i| state.timeline.get(self.rows[i].0));
+				// ponytail: reuse only settled ordinary text; dynamic media, references,
+				// spoilers and reactions need explicit layout invalidation before caching.
+				if index < anchor
+					&& reuse_leading
+					&& self.measured_rows.contains(&id)
+					&& message.kind == 0
+					&& !message.unsupported
+					&& !message.extra_content.any()
+					&& message.reply_to.is_none()
+					&& message.attachments.is_empty()
+					&& message.embeds.is_empty()
+					&& message.components.is_empty()
+					&& !message.content.contains(['<', '|', '/'])
+					&& state
+						.reactions
+						.display(message)
+						.is_some_and(<[_]>::is_empty)
+					&& state.interactions.pending.is_none()
+					&& let Some(&(key, height)) = self.heights.get(&id)
+					&& key == row_key(message, previous, self.unread_boundary)
+				{
+					ui.add_space(height);
+					// Keep one result per row: visible height updates below zip by index.
+					measurements.push((id, key, height));
+					continue;
+				}
+				#[cfg(test)]
+				if index < anchor {
+					self.leading_rendered += 1;
+				}
 				if state.timeline.is_deleted(id) {
 					let colors = crate::design::palette(ui);
 					let body_color = if self.suppressed_deleted_highlight.contains(&id) {
@@ -2457,6 +2504,7 @@ impl TimelineView {
 		}
 		let mut reflow = false;
 		for (id, key, height) in measurements {
+			self.measured_rows.insert(id);
 			if self
 				.heights
 				.get(&id)
@@ -5349,6 +5397,166 @@ mod tests {
 		assert_eq!(anchor_offset(&neighbors, Id(3), 25.0), 65.0);
 		assert_eq!(anchor_offset(&neighbors, Id(3), 200.0), 140.0);
 		assert_eq!(anchor_offset(&[], Id(2), 25.0), 0.0);
+	}
+
+	fn overscan_frame(
+		ctx: &egui::Context,
+		view: &mut TimelineView,
+		state: &mut State,
+		avatars: &mut crate::avatars::Avatars,
+		width: f32,
+		events: Vec<egui::Event>,
+	) {
+		ctx.run_ui(
+			egui::RawInput {
+				focused: true,
+				events,
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(width, 600.0),
+				)),
+				..Default::default()
+			},
+			|ui| view.show(ui, state, &mut None, &mut None, (avatars, &mut None), None),
+		)
+		.drop_without_applying_deltas();
+	}
+
+	fn overscan_state() -> State {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=500 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		state
+	}
+
+	#[test]
+	#[ignore = "release performance workload"]
+	fn leading_overscan_benchmark() {
+		for width in [900.0, 360.0] {
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let mut state = overscan_state();
+			let mut view = TimelineView::default();
+			let mut avatars = crate::avatars::Avatars::default();
+			for _ in 0..10 {
+				overscan_frame(&ctx, &mut view, &mut state, &mut avatars, width, vec![]);
+			}
+			view.following = false;
+			view.anchor = Some((Id(250), 5.0));
+			view.revision = u64::MAX;
+			for _ in 0..10 {
+				overscan_frame(&ctx, &mut view, &mut state, &mut avatars, width, vec![]);
+			}
+			for sample in 0..6 {
+				let started = std::time::Instant::now();
+				let mut rendered = 0;
+				for _ in 0..1000 {
+					overscan_frame(&ctx, &mut view, &mut state, &mut avatars, width, vec![]);
+					rendered += view.leading_rendered;
+				}
+				println!(
+					"width={width} sample={sample} elapsed_ms={} leading_rendered={rendered}",
+					started.elapsed().as_secs_f64() * 1000.0
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn leading_overscan_reuses_only_current_uninteracted_text_measurements() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = overscan_state();
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		for _ in 0..10 {
+			overscan_frame(&ctx, &mut view, &mut state, &mut avatars, 900.0, vec![]);
+		}
+		view.following = false;
+		view.anchor = Some((Id(250), 5.0));
+		view.revision = u64::MAX;
+		for width in [900.0, 360.0] {
+			overscan_frame(&ctx, &mut view, &mut state, &mut avatars, width, vec![]);
+			assert!(
+				view.leading_rendered > 0,
+				"New dimensions require measurement"
+			);
+			for _ in 0..10 {
+				overscan_frame(&ctx, &mut view, &mut state, &mut avatars, width, vec![]);
+			}
+			assert_eq!(
+				view.leading_rendered, 0,
+				"Settled hidden text needs no layout"
+			);
+		}
+		// Pointer selection must retain the complete label registration path.
+		for pressed in [true, false] {
+			overscan_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				&mut avatars,
+				360.0,
+				vec![egui::Event::PointerButton {
+					pos: egui::pos2(10.0, 10.0),
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				}],
+			);
+			assert!(view.leading_rendered > 0);
+		}
+		overscan_frame(&ctx, &mut view, &mut state, &mut avatars, 360.0, vec![]);
+		assert!(
+			view.leading_rendered > 0,
+			"Retained selection or focus still needs registration"
+		);
+		ctx.plugin::<egui::text_selection::LabelSelectionState>()
+			.lock()
+			.clear_selection();
+		ctx.memory_mut(|memory| {
+			if let Some(id) = memory.focused() {
+				memory.surrender_focus(id);
+			}
+		});
+		let (anchor, _, _) =
+			visible_range(&view.rows, view.scroll_offset, view.scroll_offset + 600.0);
+		let id = view.rows[anchor - 1].0;
+		let mut message = state.timeline.get(id).unwrap().clone();
+		message.content = "A relative timestamp: <t:0:R>".into();
+		state.timeline.insert(message, false, false).unwrap();
+		state.revision += 1;
+		overscan_frame(&ctx, &mut view, &mut state, &mut avatars, 360.0, vec![]);
+		assert!(
+			view.leading_rendered > 0,
+			"State changes invalidate settled heights"
+		);
+		for _ in 0..10 {
+			overscan_frame(&ctx, &mut view, &mut state, &mut avatars, 360.0, vec![]);
+		}
+		assert_eq!(
+			view.leading_rendered, 1,
+			"Only the dynamic leading row needs layout"
+		);
+		let (anchor, _, _) =
+			visible_range(&view.rows, view.scroll_offset, view.scroll_offset + 600.0);
+		for (id, height) in &view.rows[anchor..] {
+			if view.measured_rows.contains(id) {
+				assert_eq!(
+					*height, view.heights[id].1,
+					"Mixed reuse must preserve row alignment"
+				);
+			}
+		}
 	}
 
 	#[test]

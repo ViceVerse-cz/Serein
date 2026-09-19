@@ -1,5 +1,14 @@
 # Local storage policy and audit
 
+## Leading text-row measurements (September 19, 2026)
+
+The timeline tracks which cached heights were measured for the current state and
+dimensions. This set contains only IDs from the bounded active timeline: at most
+500 fixed-size IDs (4,000 bytes of ID payload, plus bounded B-tree allocation).
+State/dimension changes clear it, and channel/session changes reset the view.
+Existing heights remain available as resize estimates. No message payloads, disk
+records or additional history windows are retained.
+
 ## Query and decoder reuse (September 19, 2026)
 
 The message cache creates an additive index on account, channel, decimal ID length
