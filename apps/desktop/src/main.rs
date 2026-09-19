@@ -58,13 +58,6 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 };
 
 fn main() -> eframe::Result {
-	#[cfg(feature = "demo")]
-	if std::env::args().any(|arg| arg == "--demo")
-		&& std::env::args().any(|arg| arg == "--demo-bench-components")
-	{
-		components_demo::benchmark();
-		return Ok(());
-	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-components")
