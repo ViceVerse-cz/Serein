@@ -220,8 +220,10 @@ fn row(
 					fade_alpha = (1.0 - (elapsed - FADE_START) / (TOTAL_DURATION - FADE_START))
 						.clamp(0.0, 1.0);
 				}
-				conflict_text =
-					Some(format!("Already bound to {}.", n.conflicting_action.label()));
+				conflict_text = Some(format!(
+					"Already bound to {}.",
+					n.conflicting_action.label()
+				));
 			}
 		}
 	}
