@@ -16,6 +16,16 @@ pub const MAX_IO_BYTES: usize = 256 * 1024;
 pub const MAX_STORAGE_BYTES: usize = 1024 * 1024;
 pub const MAX_PLUGINS: usize = 8;
 pub const MAX_PANEL_ELEMENTS: usize = 64;
+/// Floor on how often the host may re-invoke a plugin's `Tick` action.
+/// Deliberately closer to "a light background heartbeat" than a render
+/// framerate: even a slow color drift looks continuous well under 10Hz,
+/// and every invocation is a real cost -- a fresh Wasm instance, JSON
+/// (de)serialization, a round trip through the single-worker queue that
+/// every other extension action shares too. The host also never lets a
+/// second tick for the same plugin queue up before the first resolves
+/// (see `apps/desktop/src/extension_bridge.rs`, `Bridge::schedule_ticks`),
+/// so this is a genuine floor even if an invocation runs slower than it.
+pub const TICK_MIN_INTERVAL_MS: u64 = 250;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -59,6 +69,15 @@ pub enum Surface {
 	Composer,
 	Panel,
 	Activation,
+	/// Invoked by the host itself, at a bounded cadence, for as long as the
+	/// plugin is enabled and the app is in the foreground. Requires the
+	/// `appearance` capability. Never receives conversation or composer
+	/// data. Used to produce time-based appearance overlays such as an
+	/// animated accent color; the host still runs each call as an
+	/// independent, fresh, fuel-limited Wasm instance, so a Tick action
+	/// cannot hold state between calls and must derive its output from
+	/// `tick_ms` alone.
+	Tick,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -268,6 +287,12 @@ pub struct Invocation {
 	pub storage: Option<String>,
 	#[serde(default)]
 	pub values: BTreeMap<String, String>,
+	/// Milliseconds elapsed since the plugin was enabled this session.
+	/// Set by the host only for a `Tick` action, monotonically
+	/// non-decreasing across successive calls for the same enable
+	/// session, and never influenced by the plugin itself.
+	#[serde(default)]
+	pub tick_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -393,6 +418,14 @@ impl Manifest {
 		{
 			return Err(Error::Invalid);
 		}
+		if self
+			.actions
+			.iter()
+			.filter(|a| a.surface == Surface::Tick)
+			.count() > 1
+		{
+			return Err(Error::Invalid);
+		}
 		let mut ids = BTreeSet::new();
 		for action in &self.actions {
 			if !valid_id(&action.id)
@@ -408,6 +441,7 @@ impl Manifest {
 				Surface::Composer => Some(Capability::Composer),
 				Surface::Panel => None,
 				Surface::Activation => None,
+				Surface::Tick => Some(Capability::Appearance),
 			};
 			if required.is_some_and(|c| !capabilities.contains(&c)) {
 				return Err(Error::Capability);
@@ -668,6 +702,8 @@ impl Invocation {
 		}
 		if self.selected_message.is_some() && action.surface != Surface::Message
 			|| self.composer.is_some() && action.surface != Surface::Composer
+			|| self.tick_ms.is_some() && action.surface != Surface::Tick
+			|| self.tick_ms.is_none() && action.surface == Surface::Tick
 		{
 			return Err(Error::Capability);
 		}
