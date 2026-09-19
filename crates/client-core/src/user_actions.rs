@@ -172,6 +172,13 @@ impl State {
 	pub fn user_display_name<'a>(&'a self, user: &'a model::User) -> &'a str {
 		self.friend_nickname(user.id).unwrap_or(&user.name)
 	}
+	pub fn member_display_name<'a>(&'a self, member: &'a model::Member) -> &'a str {
+		member
+			.nick
+			.as_deref()
+			.filter(|nick| !nick.is_empty())
+			.unwrap_or_else(|| self.user_display_name(&member.user))
+	}
 	pub fn message_author_name<'a>(&'a self, message: &'a model::Message) -> &'a str {
 		if message.author.webhook {
 			return &message.author.name;
@@ -1350,6 +1357,17 @@ mod tests {
 		finish(&mut state, write, Ok(()));
 		assert_eq!(state.user_display_name(&user), "Private name");
 		assert_eq!(state.conversation_name(&state.channels[0]), "Private name");
+		let mut member = model::Member {
+			user: user.clone(),
+			roles: vec![],
+			nick: None,
+			status: None,
+			custom_status: None,
+			activities: vec![],
+		};
+		assert_eq!(state.member_display_name(&member), "Private name");
+		member.nick = Some("Server name".into());
+		assert_eq!(state.member_display_name(&member), "Server name");
 		let write = state
 			.set_friend_nickname(user.id, "Late result".into())
 			.unwrap();

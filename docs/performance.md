@@ -1,3 +1,24 @@
+# Friend nickname member surfaces - September 19, 2026
+
+Baseline: `d160c3e`. After: this change on that baseline. One standard Windows x64
+`cargo xtask package` per revision, Rust 1.98.1 MSVC, locked dependencies,
+release profile and voice included. Builds ran serially using the same Cargo
+target; each completed six-file `dist` directory was copied aside before the
+next build. ZIP uses PowerShell `Compress-Archive -CompressionLevel Optimal`.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 66,424,320 | 66,426,880 | +2,560 (+0.0039%) |
+| Full portable package, bytes | 66,486,654 | 66,489,214 | +2,560 (+0.0039%) |
+| ZIP, bytes | 37,656,202 | 37,657,694 | +1,492 (+0.0040%) |
+
+Matched CPU, memory and frame-time sampling was unavailable because the
+computer-use runtime exposed no Windows application surface. Native before and
+after screenshots were captured through the eframe framebuffer using the same
+offline Boboli fixture and viewport. No runtime performance improvement is
+claimed. Both packages completed with the existing nonfatal OpenH264 LNK4255
+warning. NSIS was unavailable, so installer binaries were not produced.
+
 # Reaction tooltip loading - September 17, 2026
 
 Baseline: `ef0c61a`. After: the reaction-tooltip follow-up on that baseline.

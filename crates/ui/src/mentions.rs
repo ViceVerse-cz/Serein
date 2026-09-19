@@ -43,6 +43,7 @@ enum Candidate {
 	},
 	User {
 		user: User,
+		name: String,
 	},
 	Mass {
 		name: &'static str,
@@ -66,7 +67,7 @@ impl Candidate {
 	#[cfg(test)]
 	fn id(&self) -> Id {
 		match self {
-			Candidate::User { user } => user.id,
+			Candidate::User { user, .. } => user.id,
 			Candidate::Role { id, .. }
 			| Candidate::Channel { id, .. }
 			| Candidate::Custom { id, .. } => *id,
@@ -76,7 +77,7 @@ impl Candidate {
 	fn token(&self) -> String {
 		match self {
 			Candidate::Role { id, .. } => format!("<@&{id}> "),
-			Candidate::User { user } => format!("<@{}> ", user.id),
+			Candidate::User { user, .. } => format!("<@{}> ", user.id),
 			Candidate::Mass { name } => format!("@{name} "),
 			Candidate::Channel { id, .. } => format!("<#{id}> "),
 			Candidate::Unicode { text, .. } => format!("{text} "),
@@ -283,7 +284,9 @@ impl Menu {
 				let mut ranked = users
 					.iter()
 					.filter_map(|user| {
-						rank(&query, &user.name, user.id)
+						let name = member_name(state, channel, user);
+						rank(&query, name, user.id)
+							.or_else(|| rank(&query, &user.name, user.id))
 							.or_else(|| {
 								let search = &state.member_search[0];
 								(search.request.as_ref().is_some_and(|r| {
@@ -291,7 +294,15 @@ impl Menu {
 								}) && search.rows.iter().any(|m| m.user.id == user.id))
 								.then_some(0)
 							})
-							.map(|r| ((r, 0, 0), Candidate::User { user: user.clone() }))
+							.map(|r| {
+								(
+									(r, 0, 0),
+									Candidate::User {
+										user: user.clone(),
+										name: name.to_owned(),
+									},
+								)
+							})
 					})
 					.collect::<Vec<_>>();
 				for role in known_roles(state, channel)
@@ -531,6 +542,36 @@ impl Menu {
 		picked.and_then(|index| self.pick(index))
 	}
 }
+
+fn member_name<'a>(state: &'a State, channel: Id, user: &'a User) -> &'a str {
+	state
+		.members
+		.as_ref()
+		.filter(|members| members.channel == channel)
+		.and_then(|members| {
+			members
+				.rows
+				.iter()
+				.flatten()
+				.find(|member| member.user.id == user.id)
+		})
+		.or_else(|| {
+			state
+				.member_search
+				.first()
+				.filter(|search| {
+					search
+						.request
+						.as_ref()
+						.is_some_and(|request| request.channel == channel)
+				})
+				.and_then(|search| search.rows.iter().find(|member| member.user.id == user.id))
+		})
+		.map_or_else(
+			|| state.user_display_name(user),
+			|member| state.member_display_name(member),
+		)
+}
 fn row(
 	ui: &mut egui::Ui,
 	candidate: &Candidate,
@@ -566,10 +607,10 @@ fn row(
 		_ => None,
 	};
 	let primary = match candidate {
-		Candidate::User { user } => {
+		Candidate::User { user, name } => {
 			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
 			avatars.show(&mut child, user, 24.0, demo);
-			user.name.clone()
+			name.clone()
 		}
 		Candidate::Mass { .. } | Candidate::Role { .. } => {
 			let name = match candidate {
@@ -664,7 +705,7 @@ fn row(
 			true,
 			selected,
 			match candidate {
-				Candidate::User { user } => user.name.clone(),
+				Candidate::User { name, .. } => name.clone(),
 				Candidate::Mass { name } => format!("@{name}"),
 				Candidate::Role { name, .. } => format!("@{name}, role"),
 				Candidate::Channel { name, .. } => name.clone(),
@@ -865,6 +906,67 @@ mod tests {
 			kind: Default::default(),
 			discriminator: 0,
 		}
+	}
+	#[test]
+	fn user_mentions_show_server_then_friend_nicknames() {
+		let member = model::Member {
+			roles: vec![],
+			user: user(42, "Boboli Friend"),
+			nick: None,
+			status: Some("online".into()),
+			custom_status: None,
+			activities: vec![],
+		};
+		let mut state = State {
+			members: Some(model::MemberList {
+				guild: Some(Id(9)),
+				channel: Id(1),
+				request: 1,
+				rows: vec![Some(member.clone())],
+				total: 1,
+				freshness: model::Freshness::Fresh,
+			}),
+			..State::default()
+		};
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Friends(Some(
+				vec![(member.user.clone(), "boboli.friend".into())],
+			))),
+		});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Nicknames(
+				vec![(member.user.id, "Boboli Buddy".into())],
+			)),
+		});
+		let mut menu = Menu::default();
+		menu.refresh(
+			&state,
+			Id(1),
+			"@Buddy",
+			Some("@Buddy".chars().count()),
+			std::slice::from_ref(&member.user),
+		);
+		assert!(matches!(
+			menu.candidates.first(),
+			Some(Candidate::User { name, .. }) if name == "Boboli Buddy"
+		));
+		state.members.as_mut().unwrap().rows[0]
+			.as_mut()
+			.unwrap()
+			.nick = Some("Server Boboli".into());
+		menu.refresh(
+			&state,
+			Id(1),
+			"@Server",
+			Some("@Server".chars().count()),
+			std::slice::from_ref(&member.user),
+		);
+		assert!(matches!(
+			menu.candidates.first(),
+			Some(Candidate::User { name, .. }) if name == "Server Boboli"
+		));
 	}
 	#[test]
 	fn unicode_cursor_exact_insertion_bounded_choices_and_keyboard() {
