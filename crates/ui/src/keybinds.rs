@@ -107,6 +107,13 @@ fn voice_section(
 	);
 }
 
+#[derive(Clone, Copy)]
+struct ConflictNotice {
+	action: KeybindAction,
+	conflicting_action: KeybindAction,
+	time: f64,
+}
+
 fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<KeybindAction>) {
 	let colors = design::palette(ui);
 	if let Some(action) = *capturing {
@@ -136,10 +143,26 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ke
 				.into_iter()
 				.find(|other| *other != action && bindings.chord(*other) == &chord)
 			{
-				*bindings.chord_mut(other) = Keybinds::default().chord(other).clone();
+				let now = ui.input(|input| input.time);
+				ui.data_mut(|data| {
+					data.insert_temp(
+						egui::Id::new("keybind_conflict"),
+						ConflictNotice {
+							action,
+							conflicting_action: other,
+							time: now,
+						},
+					);
+				});
+				ui.ctx().request_repaint();
+				*capturing = None;
+			} else {
+				*bindings.chord_mut(action) = chord;
+				ui.data_mut(|data| {
+					data.remove_temp::<ConflictNotice>(egui::Id::new("keybind_conflict"));
+				});
+				*capturing = None;
 			}
-			*bindings.chord_mut(action) = chord;
-			*capturing = None;
 		}
 	}
 }
@@ -173,15 +196,52 @@ fn row(
 ) {
 	let colors = design::palette(ui);
 	let active = *capturing == Some(action);
+	let notice: Option<ConflictNotice> =
+		ui.data(|data| data.get_temp(egui::Id::new("keybind_conflict")));
+	let now = ui.input(|input| input.time);
+	let mut blink_factor = 0.0f32;
+	let mut fade_alpha = 0.0f32;
+	let mut conflict_text = None;
+
+	if let Some(n) = notice {
+		if n.action == action {
+			let elapsed = (now - n.time) as f32;
+			const TOTAL_DURATION: f32 = 2.5;
+			const FADE_START: f32 = 1.0;
+			if elapsed < TOTAL_DURATION {
+				ui.ctx().request_repaint();
+				if elapsed < 0.6 {
+					let pulse = (elapsed * std::f32::consts::PI * 5.0).sin().abs();
+					blink_factor = pulse * pulse;
+				}
+				if elapsed < FADE_START {
+					fade_alpha = 1.0;
+				} else {
+					fade_alpha = (1.0 - (elapsed - FADE_START) / (TOTAL_DURATION - FADE_START))
+						.clamp(0.0, 1.0);
+				}
+				conflict_text =
+					Some(format!("Already bound to {}.", n.conflicting_action.label()));
+			}
+		}
+	}
+
 	ui.horizontal(|ui| {
 		ui.set_min_height(46.0);
 		ui.allocate_ui_with_layout(
-			egui::vec2((ui.available_width() - 190.0).max(0.0), 46.0),
+			egui::vec2((ui.available_width() - 210.0).max(0.0), 46.0),
 			egui::Layout::left_to_right(egui::Align::Center),
 			|ui| {
 				ui.label(action.label());
 				if action.is_global() {
 					ui.label(RichText::new("GLOBAL").size(10.0).color(colors.accent));
+				}
+				if let Some(ref msg) = conflict_text {
+					if fade_alpha > 0.0 {
+						let text_color = colors.danger.gamma_multiply(fade_alpha);
+						ui.add_space(6.0);
+						ui.label(RichText::new(msg).size(11.0).color(text_color));
+					}
 				}
 			},
 		);
@@ -191,9 +251,15 @@ fn row(
 				if *capturing == Some(action) {
 					*capturing = None;
 				}
+				ui.data_mut(|data| {
+					data.remove_temp::<ConflictNotice>(egui::Id::new("keybind_conflict"));
+				});
 			}
-			if shortcut_button(ui, bindings.chord(action), active).clicked() {
+			if shortcut_button(ui, bindings.chord(action), active, blink_factor).clicked() {
 				*capturing = Some(action);
+				ui.data_mut(|data| {
+					data.remove_temp::<ConflictNotice>(egui::Id::new("keybind_conflict"));
+				});
 			}
 		});
 	});
@@ -283,21 +349,36 @@ fn chord_parts(chord: &KeyChord) -> Vec<String> {
 	parts
 }
 
-fn shortcut_button(ui: &mut egui::Ui, chord: &KeyChord, active: bool) -> egui::Response {
+fn shortcut_button(
+	ui: &mut egui::Ui,
+	chord: &KeyChord,
+	active: bool,
+	blink: f32,
+) -> egui::Response {
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(egui::vec2(152.0, 34.0), egui::Sense::click());
 	let fill = if active {
 		colors.accent.gamma_multiply(0.18)
+	} else if blink > 0.0 {
+		colors.danger.gamma_multiply(0.12 + 0.18 * blink)
 	} else if response.hovered() {
 		colors.hover
 	} else {
 		colors.raised
 	};
+	let border_color = if active {
+		colors.accent
+	} else if blink > 0.0 {
+		colors.danger.gamma_multiply(0.4 + 0.6 * blink)
+	} else {
+		colors.border
+	};
+	let stroke_width = if active || blink > 0.0 { 1.5 } else { 1.0 };
 	ui.painter().rect(
 		rect,
 		6,
 		fill,
-		egui::Stroke::new(1.0, if active { colors.accent } else { colors.border }),
+		egui::Stroke::new(stroke_width, border_color),
 		egui::StrokeKind::Inside,
 	);
 	if active {
@@ -522,5 +603,33 @@ mod tests {
 		assert_eq!(display_key("PageUp"), "PgUp");
 		assert_eq!(display_key("Insert"), "Ins");
 		assert_eq!(key_name_to_egui("PageDown"), Some(Key::PageDown));
+	}
+
+	#[test]
+	fn conflicting_keybind_leaves_binding_unchanged() {
+		let mut bindings = Keybinds::default();
+		let mut capturing = Some(KeybindAction::ToggleDeafen);
+		let mute_chord = bindings.chord(KeybindAction::ToggleMute).clone();
+		let deafen_before = bindings.chord(KeybindAction::ToggleDeafen).clone();
+
+		let ctx = egui::Context::default();
+		let _ = ctx.run_ui(
+			egui::RawInput {
+				events: vec![Event::Key {
+					key: Key::M,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui_modifiers(mute_chord.modifiers),
+				}],
+				..Default::default()
+			},
+			|ui| {
+				capture(ui, &mut bindings, &mut capturing);
+			},
+		);
+
+		assert_eq!(capturing, None);
+		assert_eq!(bindings.chord(KeybindAction::ToggleDeafen), &deafen_before);
 	}
 }
