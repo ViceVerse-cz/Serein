@@ -397,8 +397,8 @@ on-demand member search; role/channel selectors use the loaded account catalog.
 Buttons and form submits use the unofficial normal-account `POST /interactions` path,
 with the active Gateway session, a unique nonce, and no automatic write replay. Gateway
 success/failure/modal events are correlated; an HTTP acceptance alone is not completion.
-Private replies are session-only and never saved with channel history. Unknown component
-types and premium purchases retain an explicit official-client fallback. Media links use
+Private replies are session-only and never saved with channel history. Premium purchase
+buttons are omitted; unknown component types retain a visible marker. Media links use
 the existing safe preview and destination-confirmation policy.
 
 The [official component reference](https://docs.discord.com/developers/components/reference)

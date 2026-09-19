@@ -316,14 +316,12 @@ impl Components {
 					});
 				}
 				2 => {
+					if c.style == Some(6) {
+						return;
+					}
 					let label = component_label(c);
 					let linked = c.style == Some(5);
-					let premium = c.style == Some(6);
-					let text = egui::RichText::new(if premium {
-						format!("{label} · Open in Discord")
-					} else {
-						label
-					});
+					let text = egui::RichText::new(label);
 					let text = if matches!(c.style, Some(1 | 3 | 4)) {
 						text.color(colors.accent_text)
 					} else {
@@ -337,14 +335,10 @@ impl Components {
 						_ => button,
 					};
 					if ui
-						.add_enabled(!c.disabled && (premium || linked || enabled), button)
+						.add_enabled(!c.disabled && (linked || enabled), button)
 						.clicked()
 					{
-						if premium {
-							*opening = state.channel(message.channel).and_then(|channel| {
-								markdown::discord_url(channel, Some(message.id))
-							});
-						} else if linked {
+						if linked {
 							*opening = c.url.as_deref().and_then(markdown::external_url);
 						} else if let Some(custom_id) = &c.custom_id {
 							*action = Some((message.id, custom_id.clone(), vec![]));

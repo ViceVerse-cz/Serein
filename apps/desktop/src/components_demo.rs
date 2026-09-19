@@ -11,7 +11,7 @@ pub fn check() {
 	state.gateway_connected = true;
 	state.freshness = model::Freshness::Fresh;
 	state.auth = client_core::auth::AuthState::Authenticated;
-	let payload = serde_json::json!({"id":"99001","channel_id":channel.to_string(),"author":{"id":"99000","username":"Synthetic ticket app","bot":true},"application_id":"99000","content":"Open a synthetic support ticket","components":[{"type":1,"components":[{"type":2,"style":1,"label":"Open ticket","custom_id":"open-ticket"}]}]});
+	let payload = serde_json::json!({"id":"99001","channel_id":channel.to_string(),"author":{"id":"99000","username":"Synthetic ticket app","bot":true},"application_id":"99000","content":"Open a synthetic support ticket","components":[{"type":1,"components":[{"type":2,"style":1,"label":"Open ticket","custom_id":"open-ticket"},{"type":2,"style":6,"label":"Upgrade","sku_id":"99003"}]}]});
 	let message = discord_protocol::decode::<discord_protocol::MessageDto>(
 		&serde_json::to_vec(&payload).unwrap(),
 	)
@@ -62,6 +62,10 @@ pub fn check() {
 		.expect("native component button rendered")
 		.1
 		.center();
+	assert!(
+		labels.iter().all(|(label, _)| label != "Upgrade"),
+		"premium component button omitted"
+	);
 	let pointer = |pressed| {
 		vec![
 			eframe::egui::Event::PointerMoved(position),
