@@ -114,8 +114,13 @@ pub enum Outcome {
 	GifFavorites(Vec<model::Gif>),
 	ChannelPreferences(Result<model::ChannelPreferences, StoreError>),
 	ChannelPreferencesSaved(Result<(), StoreError>),
-	/// The whole switcher roster plus any accounts pruned to keep it bounded.
-	Accounts(Result<(Vec<model::SavedAccount>, Vec<Id>), StoreError>),
+	/// The whole switcher roster, plus any accounts pruned to keep it bounded. Pruning is
+	/// already committed when this is produced, so the IDs travel outside the roster result:
+	/// a failed re-read must not strand their saved secrets and cached data.
+	Accounts {
+		roster: Result<Vec<model::SavedAccount>, StoreError>,
+		pruned: Vec<Id>,
+	},
 	Channel {
 		channel: Id,
 		request: u64,
@@ -321,12 +326,13 @@ impl Cache {
 						favorites.iter().map(model::Gif::bytes).sum::<usize>()
 							+ favorites.capacity() * size_of::<model::Gif>()
 					}
-					Outcome::Accounts(Ok((accounts, pruned))) => {
-						accounts
-							.iter()
-							.map(model::SavedAccount::heap_bytes)
-							.sum::<usize>() + accounts.capacity() * size_of::<model::SavedAccount>()
-							+ pruned.capacity() * size_of::<Id>()
+					Outcome::Accounts { roster, pruned } => {
+						roster.as_ref().map_or(0, |accounts| {
+							accounts
+								.iter()
+								.map(model::SavedAccount::heap_bytes)
+								.sum::<usize>() + accounts.capacity() * size_of::<model::SavedAccount>()
+						}) + pruned.capacity() * size_of::<Id>()
 					}
 					_ => 0,
 				};
@@ -370,31 +376,38 @@ fn execute(
 			});
 		}
 		Operation::LoadAccounts => {
-			return Outcome::Accounts(match store {
-				Ok(store) => store.accounts().map(|accounts| (accounts, Vec::new())),
-				Err(error) => Err(*error),
-			});
+			return Outcome::Accounts {
+				roster: match store {
+					Ok(store) => store.accounts(),
+					Err(error) => Err(*error),
+				},
+				pruned: Vec::new(),
+			};
 		}
 		Operation::SaveAccount(account) => {
-			return Outcome::Accounts(match store {
+			let (roster, pruned) = match store {
 				Ok(store) => match store.save_account(account) {
-					Ok(pruned) => store.accounts().map(|accounts| (accounts, pruned)),
-					Err(error) => Err(error),
+					// Report the committed pruning even when the re-read fails.
+					Ok(pruned) => (store.accounts(), pruned),
+					Err(error) => (Err(error), Vec::new()),
 				},
-				Err(error) => Err(*error),
-			});
+				Err(error) => (Err(*error), Vec::new()),
+			};
+			return Outcome::Accounts { roster, pruned };
 		}
 		Operation::SetAccountToken {
 			account: id,
 			has_token,
 		} => {
-			return Outcome::Accounts(match store {
-				Ok(store) => match store.set_account_token(*id, *has_token) {
-					Ok(()) => store.accounts().map(|accounts| (accounts, Vec::new())),
-					Err(error) => Err(error),
+			return Outcome::Accounts {
+				roster: match store {
+					Ok(store) => store
+						.set_account_token(*id, *has_token)
+						.and(store.accounts()),
+					Err(error) => Err(*error),
 				},
-				Err(error) => Err(*error),
-			});
+				pruned: Vec::new(),
+			};
 		}
 		Operation::LoadAppPreferences => {
 			return Outcome::AppPreferences(match store {

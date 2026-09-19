@@ -92,19 +92,41 @@ fn select_media_menu(
 	};
 	frame(vec![egui::Event::PointerMoved(pos)]).drop_without_applying_deltas();
 	if keyboard {
-		for (key, modifiers) in [
-			(egui::Key::Tab, egui::Modifiers::NONE),
-			(egui::Key::F10, egui::Modifiers::SHIFT),
-		] {
-			frame(vec![egui::Event::Key {
-				key,
-				physical_key: None,
-				pressed: true,
-				repeat: false,
-				modifiers,
-			}])
-			.drop_without_applying_deltas();
+		// How many widgets precede the media depends on which overlay controls exist this
+		// frame, and a video's controls come and go with hover and playback state. Tab until
+		// the menu opens rather than assuming the media is exactly one stop away; a media
+		// that keyboard focus cannot reach still fails, now by exhausting the walk.
+		let opened = |output: &egui::FullOutput, label: &str| {
+			output.shapes.iter().any(
+				|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == label),
+			)
+		};
+		let mut open = false;
+		for _ in 0..8 {
+			for (key, modifiers) in [
+				(egui::Key::Tab, egui::Modifiers::NONE),
+				(egui::Key::F10, egui::Modifiers::SHIFT),
+			] {
+				frame(vec![egui::Event::Key {
+					key,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers,
+				}])
+				.drop_without_applying_deltas();
+			}
+			let output = frame(vec![]);
+			open = opened(&output, label);
+			output.drop_without_applying_deltas();
+			if open {
+				break;
+			}
 		}
+		assert!(
+			open,
+			"keyboard focus never reached the media menu for {label}"
+		);
 	} else {
 		for pressed in [true, false] {
 			frame(vec![

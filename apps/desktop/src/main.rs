@@ -1860,11 +1860,16 @@ impl Desktop {
 		{
 			self.forgetting = store
 				.send
-				.try_send((self.state.generation, credentials::Operation::Forget))
+				.try_send((
+					self.state.generation,
+					credentials::Request::NONE,
+					credentials::Operation::Forget,
+				))
 				.is_ok();
 			if let Some(account) = old_account {
 				let _ = store.send.try_send((
 					self.state.generation,
+					credentials::Request::NONE,
 					credentials::Operation::ForgetAccount(account),
 				));
 			}
@@ -1931,6 +1936,7 @@ impl Desktop {
 		if let Some(store) = &self.store {
 			let _ = store.send.try_send((
 				self.state.generation,
+				credentials::Request::NONE,
 				credentials::Operation::ForgetAccount(account),
 			));
 		}
@@ -4190,22 +4196,21 @@ impl Desktop {
 					}
 					continue;
 				}
-				cache::Outcome::Accounts(result) => {
+				cache::Outcome::Accounts { roster, pruned } => {
 					self.roster_pending = false;
-					match result {
-						Ok((accounts, pruned)) => {
-							self.messaging.accounts = accounts.clone();
-							// Pruned accounts keep neither a token nor cached data.
-							for account in pruned {
-								if let Some(store) = &self.store {
-									let _ = store.send.try_send((
-										self.state.generation,
-										credentials::Operation::ForgetAccount(*account),
-									));
-								}
-								self.queue_cache_for(*account, cache::Operation::Forget);
-							}
+					// Pruning is already committed, so clean up regardless of the re-read.
+					for account in pruned {
+						if let Some(store) = &self.store {
+							let _ = store.send.try_send((
+								self.state.generation,
+								credentials::Request::NONE,
+								credentials::Operation::ForgetAccount(*account),
+							));
 						}
+						self.queue_cache_for(*account, cache::Operation::Forget);
+					}
+					match roster {
+						Ok(accounts) => self.messaging.accounts = accounts.clone(),
 						Err(_) => {
 							self.roster_failed = true;
 							self.cache_error = true;
@@ -4295,7 +4300,7 @@ impl Desktop {
 				| cache::Outcome::GameActivitySaved(_)
 				| cache::Outcome::ReadingPreferences(_)
 				| cache::Outcome::ReadingPreferencesSaved(_)
-				| cache::Outcome::Accounts(_)
+				| cache::Outcome::Accounts { .. }
 				| cache::Outcome::HistoryCleared
 				| cache::Outcome::Failed { .. } => unreachable!(),
 			}
@@ -4550,7 +4555,11 @@ impl Desktop {
 					if let Some(secret) = self.pending_save.take() {
 						queued &= store
 							.send
-							.try_send((self.state.generation, credentials::Operation::Save(secret)))
+							.try_send((
+								self.state.generation,
+								credentials::Request::NONE,
+								credentials::Operation::Save(secret),
+							))
 							.is_ok();
 					}
 					// Writing an existing entry is an access-controlled keychain operation on
@@ -4568,6 +4577,7 @@ impl Desktop {
 							.send
 							.try_send((
 								self.state.generation,
+								credentials::Request::NONE,
 								credentials::Operation::SaveAccount(account, secret),
 							))
 							.is_ok();
@@ -4645,9 +4655,11 @@ impl Desktop {
 			if failure == Failure::Expired
 				&& let Some(store) = &self.store
 			{
-				let _ = store
-					.send
-					.try_send((self.state.generation, credentials::Operation::Forget));
+				let _ = store.send.try_send((
+					self.state.generation,
+					credentials::Request::NONE,
+					credentials::Operation::Forget,
+				));
 			}
 		}
 		if let Some(login) = &self.login {

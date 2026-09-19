@@ -1046,28 +1046,39 @@ impl LocalStore {
 	}
 	/// Switcher roster, most recently used first. Damaged rows are skipped, never fatal.
 	pub fn accounts(&self) -> Result<Vec<model::SavedAccount>> {
+		Ok(self.ordered_accounts()?.0)
+	}
+	/// Valid rows newest first, bounded, plus the IDs of every row that cannot produce a
+	/// usable account. Filtering happens before the bound, so a row the switcher could never
+	/// offer — a damaged ID or avatar written outside this client — cannot hide a real one.
+	fn ordered_accounts(&self) -> Result<(Vec<model::SavedAccount>, Vec<String>)> {
 		let mut query = self.0.prepare(
-			"SELECT account,name,display,avatar,discriminator,has_token FROM accounts ORDER BY touched DESC,account LIMIT ?1",
+			"SELECT account,name,display,avatar,discriminator,has_token FROM accounts ORDER BY touched DESC,account",
 		)?;
-		let mut rows = query.query([model::MAX_SAVED_ACCOUNTS as i64])?;
+		let mut rows = query.query([])?;
 		let mut accounts = Vec::new();
+		let mut damaged = Vec::new();
 		while let Some(row) = rows.next()? {
-			let Ok(id) = row.get::<_, String>(0)?.parse::<Id>() else {
-				continue;
-			};
-			let account = model::SavedAccount {
-				id,
-				name: row.get(1)?,
-				display: row.get(2)?,
-				avatar: row.get(3)?,
-				discriminator: row.get::<_, i64>(4)?.clamp(0, 9999) as u16,
-				has_token: row.get::<_, i64>(5)? == 1,
-			};
-			if account.is_valid() {
-				accounts.push(account);
+			let stored: String = row.get(0)?;
+			let account = row.get::<_, String>(0)?.parse::<Id>().ok().map(|id| {
+				Ok::<_, rusqlite::Error>(model::SavedAccount {
+					id,
+					name: row.get(1)?,
+					display: row.get(2)?,
+					avatar: row.get(3)?,
+					discriminator: row.get::<_, i64>(4)?.clamp(0, 9999) as u16,
+					has_token: row.get::<_, i64>(5)? == 1,
+				})
+			});
+			match account {
+				Some(account) if account.as_ref().is_ok_and(model::SavedAccount::is_valid) => {
+					accounts.push(account?);
+				}
+				_ => damaged.push(stored),
 			}
 		}
-		Ok(accounts)
+		accounts.truncate(model::MAX_SAVED_ACCOUNTS);
+		Ok((accounts, damaged))
 	}
 	/// Records whether the credential store holds this account's own entry. Separate from
 	/// `save_account` so an identity refresh can never claim a token that was never written.
@@ -1097,20 +1108,27 @@ impl LocalStore {
 				account.discriminator
 			],
 		)?;
+		transaction.commit()?;
+		// Keep the newest valid rows and drop everything else, damaged rows included, so a row
+		// that cannot be offered never costs a real account its place.
+		let (keep, damaged) = self.ordered_accounts()?;
+		let keep: std::collections::BTreeSet<Id> = keep.into_iter().map(|a| a.id).collect();
+		let transaction = self.0.transaction()?;
 		let mut pruned = Vec::new();
 		{
-			let mut query = transaction.prepare(
-				"SELECT account FROM accounts ORDER BY touched DESC,account LIMIT -1 OFFSET ?1",
-			)?;
-			let mut rows = query.query([model::MAX_SAVED_ACCOUNTS as i64])?;
+			let mut query = transaction.prepare("SELECT account FROM accounts")?;
+			let mut rows = query.query([])?;
 			while let Some(row) = rows.next()? {
-				if let Ok(id) = row.get::<_, String>(0)?.parse::<Id>() {
-					pruned.push(id);
+				let stored: String = row.get(0)?;
+				match stored.parse::<Id>() {
+					Ok(id) if keep.contains(&id) => {}
+					Ok(id) => pruned.push(id),
+					Err(_) => {}
 				}
 			}
 		}
-		for id in &pruned {
-			transaction.execute("DELETE FROM accounts WHERE account=?1", [id.to_string()])?;
+		for id in pruned.iter().map(Id::to_string).chain(damaged) {
+			transaction.execute("DELETE FROM accounts WHERE account=?1", [id])?;
 		}
 		transaction.commit()?;
 		Ok(pruned)
@@ -1204,6 +1222,33 @@ mod tests {
 				.has_token
 		);
 		store.set_account_token(Id(2), true).unwrap();
+		// A row that could never be offered — written outside this client — neither occupies a
+		// slot in the bounded roster nor survives the next write.
+		store
+			.0
+			.execute(
+				"INSERT INTO accounts(account,name,display,avatar,discriminator,touched,has_token)
+                 VALUES('0','damaged',NULL,NULL,0,unixepoch('subsec')*1000+5000,0)",
+				[],
+			)
+			.unwrap();
+		let listed = store.accounts().unwrap();
+		// The damaged row is newest, so an unfiltered LIMIT would have dropped a real account.
+		assert_eq!(listed.len(), model::MAX_SAVED_ACCOUNTS);
+		assert!(listed.iter().all(|account| account.id != Id(0)));
+		for id in 2..=(model::MAX_SAVED_ACCOUNTS as u64 + 1) {
+			assert!(listed.iter().any(|account| account.id == Id(id)), "{id}");
+		}
+		assert!(store.save_account(&entry(2)).unwrap().is_empty());
+		let damaged: i64 = store
+			.0
+			.query_row(
+				"SELECT COUNT(*) FROM accounts WHERE account='0'",
+				[],
+				|row| row.get(0),
+			)
+			.unwrap();
+		assert_eq!(damaged, 0, "a damaged row is dropped, not counted");
 		// Oversized identities never reach the table, and forgetting an account drops its row.
 		let mut invalid = entry(3);
 		invalid.name = "n".repeat(65);
