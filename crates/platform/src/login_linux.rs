@@ -343,7 +343,7 @@ impl LoginView {
 		// winit owns the blocking event loop on a separate display connection.
 		// Our nonblocking GLib iterations must flush GDK's queued window requests,
 		// including close replies, even when no token query is needed below.
-		self.window.display().flush();
+		gtk4::prelude::WidgetExt::display(&self.window).flush();
 		if !self.state.active()
 			|| self.state.delivered.get()
 			|| !self.state.pending.get()
@@ -398,7 +398,7 @@ impl Drop for LoginView {
 		self.view.stop_loading();
 		self.view.terminate_web_process();
 		self.window.set_child(None::<&gtk4::Widget>);
-		let display = self.window.display();
+		let display = gtk4::prelude::WidgetExt::display(&self.window);
 		self.window.destroy();
 		// No more login pumps run after drop. Send the native destroy request now
 		// so a successful handoff or cancellation cannot leave a frozen window.
