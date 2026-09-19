@@ -869,4 +869,8 @@ The baseline window still existed; flushing GDK after destruction removed it.
 This verifies buffered native destruction, not live Discord login or Wayland.
 The login pump retains its 16-iteration / 2-ms callback budget and now flushes
 queued display requests. Login CPU, RSS and frame/teardown latency are unmeasured;
-the existing offline app fixture does not open the temporary WebKit login window.
+separate offline Wayland validation confirmed teardown behavior without measuring
+latency. That check used debug demo builds, a local HTML page and a synthetic
+XHR-header handoff without sending the request, on Weston 15 inside an isolated
+1280×960 Xvfb display. The native window remained after handoff on the baseline
+and disappeared with the fix. This was not a live Discord login test.
