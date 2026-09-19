@@ -39,6 +39,10 @@ login challenges.
 Close/drop invalidates pending results, clears the secret/scripts/handler, cancels evaluation,
 stops loading, terminates the ephemeral web process and destroys the GTK window. GLib pumping
 checks a 2-ms deadline between at most 16 callbacks; one native callback may exceed that time.
+The nonblocking pump explicitly flushes GDK window requests. Teardown also flushes after
+destroying the window, since successful handoff and cancellation stop the login pump.
+This prevents queued window requests from depending on another GTK iteration; native
+close and successful-login behavior still need validation on the affected Linux desktop.
 These are implemented limits, not measured teardown/storage or live login compatibility.
 
 Serein uses Discord’s official login page in a temporary platform webview, not OAuth. The credential handoff is unofficial and live-unverified; see the compatibility matrix. Complete authentication yourself, in the application. Never send passwords, tokens, MFA codes, QR screenshots, or private message contents to the coding agent, issues, logs, or CI.
