@@ -100,14 +100,13 @@ fn main() {
 	let output = frame(&ctx, &mut view, &mut state, vec![], false);
 	let enter = button(&output, "Fullscreen");
 	output.drop_without_applying_deltas();
+	view.video().state = ui::VideoState::Playing;
 	frame(&ctx, &mut view, &mut state, pointer(enter, true), false).drop_without_applying_deltas();
 	let output = frame(&ctx, &mut view, &mut state, pointer(enter, false), false);
-	assert!(
-		output.viewport_output[&egui::ViewportId::ROOT]
-			.commands
-			.contains(&egui::ViewportCommand::Fullscreen(true))
-	);
 	output.drop_without_applying_deltas();
+	assert_eq!(view.video().take_fullscreen_request(), Some(true));
+	assert_eq!(view.video().state, ui::VideoState::Playing);
+	assert!(view.video().command.is_none());
 	for _ in 0..2 {
 		let output = frame(&ctx, &mut view, &mut state, vec![], true);
 		let exit = button(&output, "Exit fullscreen (Esc)");
@@ -133,14 +132,11 @@ fn main() {
 		}],
 		true,
 	);
-	assert!(
-		output.viewport_output[&egui::ViewportId::ROOT]
-			.commands
-			.contains(&egui::ViewportCommand::Fullscreen(false))
-	);
 	output.drop_without_applying_deltas();
-	assert_eq!(view.video().state, ui::VideoState::Paused);
+	assert_eq!(view.video().take_fullscreen_request(), Some(false));
+	assert_eq!(view.video().state, ui::VideoState::Playing);
 	assert_eq!(view.video().position, 6.0);
+	view.video().state = ui::VideoState::Paused;
 	let output = frame(&ctx, &mut view, &mut state, vec![], false);
 	let enter = button(&output, "Fullscreen");
 	output.drop_without_applying_deltas();
@@ -164,12 +160,6 @@ fn main() {
 	frame(&ctx, &mut view, &mut state, pointer(open, true), true).drop_without_applying_deltas();
 	let output = frame(&ctx, &mut view, &mut state, pointer(open, false), true);
 	assert!(
-		output.viewport_output[&egui::ViewportId::ROOT]
-			.commands
-			.contains(&egui::ViewportCommand::Fullscreen(false)),
-		"Open original must restore the window before confirmation"
-	);
-	assert!(
 		!output
 			.platform_output
 			.commands
@@ -177,6 +167,11 @@ fn main() {
 			.any(|command| matches!(command, egui::OutputCommand::OpenUrl(_)))
 	);
 	output.drop_without_applying_deltas();
+	assert_eq!(
+		view.video().take_fullscreen_request(),
+		Some(false),
+		"Open original must restore the window before confirmation"
+	);
 	let output = frame(&ctx, &mut view, &mut state, vec![], false);
 	let _ = button(&output, "Open in Browser");
 	assert!(
