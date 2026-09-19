@@ -123,6 +123,23 @@ impl LoginView {
 		parent: Arc<winit::window::Window>,
 		wake: impl Fn() + Send + Sync + 'static,
 	) -> Result<Self, Failure> {
+		Self::open_with_bounds(parent.as_ref(), bounds(&parent), wake)
+	}
+	/// Hosts the existing login flow in a native window on macOS or Windows.
+	/// Dimensions are logical pixels, including the native login header.
+	pub fn open_native(
+		parent: &impl raw_window_handle::HasWindowHandle,
+		width: f32,
+		height: f32,
+		wake: impl Fn() + Send + Sync + 'static,
+	) -> Result<Self, Failure> {
+		Self::open_with_bounds(parent, native_bounds(width, height), wake)
+	}
+	fn open_with_bounds(
+		parent: &impl raw_window_handle::HasWindowHandle,
+		bounds: wry::Rect,
+		wake: impl Fn() + Send + Sync + 'static,
+	) -> Result<Self, Failure> {
 		let (send, tokens) = mpsc::sync_channel(1);
 		let mut random = [0_u8; 32];
 		getrandom::fill(&mut random).map_err(|_| Failure::Protocol)?;
@@ -155,8 +172,8 @@ impl LoginView {
 				}
 			});
 		let view = builder
-			.with_bounds(bounds(&parent))
-			.build_as_child(parent.as_ref())
+			.with_bounds(bounds)
+			.build_as_child(parent)
 			.map_err(|_| Failure::Protocol)?;
 		Ok(Self {
 			view,
@@ -176,7 +193,22 @@ impl LoginView {
 	pub fn resize(&self, parent: &winit::window::Window) {
 		let _ = self.view.set_bounds(bounds(parent));
 	}
+	/// Resizes the macOS/Windows native host in logical pixels, including its header.
+	pub fn resize_native(&self, width: f32, height: f32) {
+		let _ = self.view.set_bounds(native_bounds(width, height));
+	}
 	pub fn pump(&self) {}
+}
+#[cfg(not(target_os = "linux"))]
+fn native_bounds(width: f32, height: f32) -> wry::Rect {
+	wry::Rect {
+		position: wry::dpi::LogicalPosition::new(0.0, LOGIN_HEADER_HEIGHT as f64).into(),
+		size: wry::dpi::LogicalSize::new(
+			width.max(0.0) as f64,
+			(height - LOGIN_HEADER_HEIGHT).max(0.0) as f64,
+		)
+		.into(),
+	}
 }
 #[cfg(not(target_os = "linux"))]
 fn bounds(parent: &winit::window::Window) -> wry::Rect {
