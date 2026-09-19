@@ -262,9 +262,9 @@ async fn portal(
 			.map(|trigger| NewShortcut::new(id, description).preferred_trigger(trigger.as_str()))
 	})
 	.collect();
-	let modifier_required = bindings[TOGGLE_MUTE..]
-		.iter()
-		.any(|chord| chord.is_valid() && chord.modifiers == 0 && !is_standalone_global_key(&chord.key));
+	let modifier_required = bindings[TOGGLE_MUTE..].iter().any(|chord| {
+		chord.is_valid() && chord.modifiers == 0 && !is_standalone_global_key(&chord.key)
+	});
 	if shortcuts.is_empty() {
 		status.store(if modifier_required { 4 } else { 3 }, Ordering::Relaxed);
 		wake();
@@ -352,8 +352,12 @@ fn is_standalone_global_key(name: &str) -> bool {
 		"PageDown"
 			| "PageUp"
 			| "Insert"
-			| "F1" | "F2" | "F3" | "F4" | "F5" | "F6"
-			| "F7" | "F8" | "F9" | "F10" | "F11" | "F12"
+			| "F1" | "F2"
+			| "F3" | "F4"
+			| "F5" | "F6"
+			| "F7" | "F8"
+			| "F9" | "F10"
+			| "F11" | "F12"
 	)
 }
 
