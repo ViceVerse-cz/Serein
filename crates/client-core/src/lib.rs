@@ -12,6 +12,7 @@ pub use permissions::ChannelAccess;
 #[cfg(test)]
 mod permissions_tests;
 
+pub mod interactions;
 pub mod invites;
 pub mod member_search;
 pub mod message_actions;
@@ -53,6 +54,7 @@ pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 
 pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM settings <=33 KiB; channel edit <=128 KiB; group icon <=350 KiB
 
 pub enum Command {
+	Interaction(interactions::Request),
 	MemberSearch(member_search::Request),
 	MessagingPermissions {
 		request: u64,
@@ -327,6 +329,7 @@ fn prepare_navigation(
 	Ok(permission_state)
 }
 pub enum Event {
+	Interaction(interactions::Event),
 	MemberSearch {
 		request: member_search::Request,
 		result: Result<Vec<Member>, auth::Failure>,
@@ -510,6 +513,7 @@ pub struct NavigationIndex {
 }
 
 pub struct State {
+	pub interactions: interactions::Interactions,
 	pub messaging_permissions: messaging_permissions::Settings,
 	pub guild_folders: Option<model::guild_folders::Settings>,
 	pub folders_pending: bool,
@@ -592,6 +596,7 @@ pub struct State {
 impl Default for State {
 	fn default() -> Self {
 		Self {
+			interactions: Default::default(),
 			messaging_permissions: Default::default(),
 			guild_folders: None,
 			folders_pending: false,
@@ -840,6 +845,7 @@ impl State {
 		self.clear_search();
 		self.search_target = None;
 		self.reactions.reset();
+		self.interactions.reset();
 		self.older_exhausted = false;
 		self.reply = None;
 		self.revision += 1;
@@ -1073,6 +1079,13 @@ impl State {
 		})
 	}
 	pub fn command_rejected(&mut self, command: Command) {
+		if let Command::Interaction(request) = command {
+			let _ = self.apply_interaction(interactions::Event::Submitted {
+				nonce: request.nonce,
+				result: Err(auth::Failure::Network),
+			});
+			return;
+		}
 		if let Command::MemberSearch(request) = command {
 			self.searched_members(
 				request,
@@ -1404,6 +1417,9 @@ impl State {
 		if envelope.generation != self.generation {
 			return;
 		}
+		if self.handle_private_message_event(&envelope.event) {
+			return;
+		}
 		if let Event::Startup(startup) = envelope.event {
 			if startup.bytes() > model::account::MAX_BYTES {
 				self.auth = auth::AuthState::Failed;
@@ -1463,6 +1479,7 @@ impl State {
 			envelope.event,
 			Event::Ready { .. } | Event::Disconnected | Event::Resync
 		) {
+			self.interactions.reset();
 			self.local_game_activity = Default::default();
 			self.invalidate_messaging_permissions(None);
 			self.interrupt_own_profile();
@@ -1702,6 +1719,7 @@ impl State {
 				threads,
 				removed,
 			} => self.apply_threads_sync(guild, parents, threads, removed),
+			Event::Interaction(event) => self.apply_interaction(event),
 			Event::Reactions(event) => self.apply_reactions(event),
 			Event::InviteChallenge { request, challenge } => {
 				self.apply_invite_challenge(request, *challenge);
@@ -2180,6 +2198,7 @@ impl State {
 				{
 					return;
 				}
+				messages.retain(|message| !message.ephemeral);
 				let mut ids = BTreeSet::new();
 				let has_deleted_reference = messages.iter().any(|message| message.reply_deleted);
 				if older != self.history_before.is_some()
@@ -2720,6 +2739,7 @@ impl State {
 	fn cancel_history(&mut self) {
 		self.typing.clear();
 		self.reactions.reset();
+		self.interactions.reset();
 		self.search_target = None;
 		self.request += 1;
 		self.history_pending = false;
@@ -2789,6 +2809,7 @@ impl Event {
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ match self {
+				Self::Interaction(event) => event.bytes(),
 				Self::Startup(startup) => startup.bytes(),
 				Self::MessagingPermissions { result, .. } => result
 					.as_ref()
@@ -3935,6 +3956,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],

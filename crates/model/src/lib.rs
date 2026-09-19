@@ -25,6 +25,8 @@ pub use profile::*;
 pub use system_messages::{Segment, SystemMessage};
 mod attachments;
 pub use attachments::*;
+mod components;
+pub use components::*;
 mod embeds;
 pub use embeds::*;
 mod extra_content;
@@ -278,6 +280,11 @@ pub struct ChannelPatch {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Message {
+	/// Original outer message flags, retained for interaction submissions.
+	pub flags: u64,
+	pub ephemeral: bool,
+	pub components: Vec<Component>,
+	pub application_id: Option<Id>,
 	/// Session-only counts; None means a service refresh is needed.
 	pub reactions: Option<Vec<Reaction>>,
 	pub id: Id,
@@ -353,6 +360,7 @@ impl Message {
 				.capacity()
 				.saturating_sub(self.attachments.len())
 				* size_of::<Attachment>()
+			+ component_bytes(&self.components)
 			+ embed_bytes(&self.embeds)
 			+ self.embeds.capacity().saturating_sub(self.embeds.len()) * size_of::<Embed>()
 	}
@@ -381,6 +389,9 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Patch<T> {
 }
 #[derive(Clone)]
 pub struct MessagePatch {
+	pub flags: Patch<u64>,
+	pub components: Patch<Vec<Component>>,
+	pub application_id: Patch<Id>,
 	pub extra_content: ExtraContentPatch,
 	pub reactions: Patch<Vec<Reaction>>,
 	pub id: Id,

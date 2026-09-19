@@ -126,6 +126,10 @@ pub fn message(id: u64, channel: Id) -> Message {
 		reply_deleted: false,
 		forwarded: false,
 		unsupported: false,
+		components: vec![],
+		application_id: None,
+		flags: 0,
+		ephemeral: false,
 		extra_content: Default::default(),
 		embeds: demo_embeds(id),
 		attachments: if id == 500 {

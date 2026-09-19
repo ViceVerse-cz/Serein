@@ -29,6 +29,9 @@ struct RevealScroll {
 
 #[derive(Default)]
 pub struct TimelineView {
+	pub(super) component_viewing: Option<(Id, u64)>,
+	pub(super) components: crate::components::Components,
+	pub(super) component_action: Option<crate::components::Action>,
 	pub(super) extension_actions: std::sync::Arc<Vec<crate::extensions_ui::MenuAction>>,
 	pub(super) extension_request: Option<(crate::extensions_ui::MenuAction, String)>,
 	pub(super) user_action: Option<crate::user_menu::Action>,
@@ -85,7 +88,7 @@ pub struct TimelineView {
 	// A fingerprint of the revealed content prevents a reload that resets model revisions from
 	// revealing edits, without cloning payloads. Pruned with the active window: at most 500 records.
 	revealed: BTreeMap<Id, Revealed>,
-	viewing: Option<(Id, Id)>,
+	pub(super) viewing: Option<(Id, Id)>,
 	/// Fixture-only: viewer to open once its message has arrived in the timeline.
 	pending_viewer: Option<(Id, Id)>,
 	pub(super) download: crate::attachments::DownloadUi,
@@ -270,6 +273,7 @@ fn layout_key(message: &Message) -> u64 {
 	message.reply_deleted.hash(&mut key);
 	message.unsupported.hash(&mut key);
 	message.extra_content.hash(&mut key);
+	message.components.hash(&mut key);
 	message.kind.hash(&mut key);
 	message.attachments.hash(&mut key);
 	message.embeds.hash(&mut key);
@@ -703,6 +707,14 @@ fn show_system(
 	}
 }
 impl TimelineView {
+	pub(super) fn reveal_private_media(&mut self, message: &Message) {
+		if self.revealed.len() >= 512 && !self.revealed.contains_key(&message.id) {
+			self.revealed.clear();
+		}
+		self.revealed
+			.insert(message.id, Revealed::new(message, 0, true));
+	}
+
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
 		if self.video.is_fullscreen() {
 			let current = self
@@ -713,11 +725,26 @@ impl TimelineView {
 					state
 						.timeline
 						.get(*id)
+						.or_else(|| {
+							state
+								.interactions
+								.ephemeral
+								.iter()
+								.find(|message| message.id == *id)
+						})
 						.filter(|message| {
 							state.selected == Some(*channel)
 								&& message.channel == *channel
 								&& message.attachments.contains(attachment)
-								&& (!crate::embeds::has_media_spoilers(message)
+								&& (self.component_viewing
+									== Some((
+										message.id,
+										egui::Id::unique((
+											&message.components,
+											&message.attachments,
+										))
+										.value(),
+									)) || !crate::embeds::has_media_spoilers(message)
 									|| self.revealed.get(id).is_some_and(|reveal| {
 										reveal.media && reveal.matches(message)
 									}))
@@ -1850,18 +1877,24 @@ impl TimelineView {
 														ui.min_rect().bottom(),
 													),
 												));
-												crate::attachments::show(
-													ui,
-													message,
-													avatars,
-													&mut self.viewing,
-													&mut self.opening,
-													&mut self.download,
-													&mut self.audio,
-													&mut self.video,
-													state.demo,
-													&mut surface,
-												);
+												if !message.extra_content.components_v2 {
+													let previous_view = self.viewing;
+													crate::attachments::show(
+														ui,
+														message,
+														avatars,
+														&mut self.viewing,
+														&mut self.opening,
+														&mut self.download,
+														&mut self.audio,
+														&mut self.video,
+														state.demo,
+														&mut surface,
+													);
+													if self.viewing != previous_view {
+														self.component_viewing = None;
+													}
+												}
 											}
 											if text != 0 || media {
 												let hide = ui.small_button("Hide spoilers");
@@ -1890,6 +1923,40 @@ impl TimelineView {
 														.color(colors.muted),
 												);
 											}
+
+											if !message.components.is_empty() {
+												let shown = ui.scope(|ui| {
+													self.components.show(
+														ui,
+														message,
+														state,
+														avatars,
+														&mut self.opening,
+														&mut crate::components::MediaUi {
+															component_viewing: &mut self
+																.component_viewing,
+															viewing: &mut self.viewing,
+															download: &mut self.download,
+															audio: &mut self.audio,
+															video: &mut self.video,
+														},
+													)
+												});
+												surface.exclude(shown.response.rect);
+												if shown.inner.is_some() {
+													self.component_action = shown.inner;
+												}
+											}
+											if state.interactions.pending.as_ref().is_some_and(
+												|pending| pending.message == Some(message.id),
+											) {
+												ui.small("Application interaction pending…");
+											}
+											if !message.components.is_empty()
+												&& let Some(error) = state.interactions.error
+											{
+												ui.colored_label(colors.danger, error);
+											}
 											let unknown_system = message.unsupported
 												&& message.system_summary().is_none();
 											if unknown_system || message.extra_content.any() {
@@ -1914,8 +1981,9 @@ impl TimelineView {
 														"Sticker · Preview unavailable",
 													),
 													(
-														message.extra_content.components
-															|| message.extra_content.components_v2,
+														(message.extra_content.components
+															|| message.extra_content.components_v2)
+															&& message.components.is_empty(),
 														"Components · Preview unavailable",
 													),
 												] {
@@ -2606,17 +2674,43 @@ impl TimelineView {
 		}
 		self.show_fullscreen_video(ui.ctx(), state);
 		if let Some((message_id, attachment_id)) = self.viewing {
-			let message = state.timeline.get(message_id).filter(|m| {
-				!crate::embeds::has_media_spoilers(m)
-					|| self
-						.revealed
-						.get(&m.id)
-						.is_some_and(|reveal| reveal.media && reveal.matches(m))
-			});
+			let message = state
+				.timeline
+				.get(message_id)
+				.or_else(|| {
+					state
+						.interactions
+						.ephemeral
+						.iter()
+						.find(|message| message.id == message_id)
+				})
+				.filter(|m| {
+					if let Some(identity) = self.component_viewing {
+						identity
+							== (
+								m.id,
+								egui::Id::unique((&m.components, &m.attachments)).value(),
+							)
+					} else {
+						!crate::embeds::has_media_spoilers(m)
+							|| self
+								.revealed
+								.get(&m.id)
+								.is_some_and(|reveal| reveal.media && reveal.matches(m))
+					}
+				});
 			self.viewing = message.and_then(|m| {
 				crate::attachments::viewer(
 					ui,
-					&m.attachments,
+					if self.component_viewing.is_some() {
+						m.attachments
+							.iter()
+							.find(|a| a.id == attachment_id)
+							.map(std::slice::from_ref)
+							.unwrap_or(&[])
+					} else {
+						&m.attachments
+					},
 					attachment_id,
 					avatars,
 					&mut self.download,
@@ -3081,6 +3175,10 @@ mod tests {
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
+			flags: 0,
 			embeds: vec![],
 			attachments: vec![],
 			author_nick: None,
@@ -5369,6 +5467,10 @@ mod tests {
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
+			flags: 0,
 			embeds: vec![],
 			embeds_suppressed: false,
 			attachments: vec![],
@@ -5514,6 +5616,10 @@ mod tests {
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
+			flags: 0,
 			embeds: vec![],
 			attachments: vec![],
 			author_nick: None,
@@ -5604,6 +5710,10 @@ mod tests {
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
+			flags: 0,
 			attachments: vec![],
 			author_nick: None,
 			author_roles: vec![],

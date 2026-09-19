@@ -153,6 +153,10 @@ mod tests {
 
 	fn message(kind: u8) -> Message {
 		Message {
+			flags: 0,
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
 			kind,
 			author: User {
 				id: Id(3),

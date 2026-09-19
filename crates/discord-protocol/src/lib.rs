@@ -615,7 +615,7 @@ pub struct MessageDto {
 	#[serde(default)]
 	pub stickers: Option<extra_content::Array>,
 	#[serde(default)]
-	pub components: Option<extra_content::Array>,
+	pub components: Option<model::ComponentList>,
 	#[serde(default)]
 	pub reactions: reactions::ReactionList,
 	pub id: Id,
@@ -721,7 +721,7 @@ struct SnapshotBody {
 	#[serde(default)]
 	stickers: Option<extra_content::Array>,
 	#[serde(default)]
-	components: Option<extra_content::Array>,
+	components: Option<model::ComponentList>,
 }
 impl MessageDto {
 	pub fn into_model(mut self) -> Message {
@@ -768,13 +768,17 @@ impl MessageDto {
 			author.kind = model::AccountKind::App;
 		}
 		Message {
+			flags: self.flags,
+			ephemeral: self.flags & (1 << 6) != 0,
 			extra_content: model::ExtraContent {
 				poll: self.poll.is_some(),
 				sticker_items: self.sticker_items.is_some_and(|a| a.0),
 				stickers: self.stickers.is_some_and(|a| a.0),
-				components: self.components.is_some_and(|a| a.0),
+				components: self.components.as_ref().is_some_and(|a| !a.0.is_empty()),
 				components_v2: snapshot_flags.unwrap_or(self.flags) & (1 << 15) != 0,
 			},
+			components: self.components.map_or_else(Vec::new, |a| a.0),
+			application_id: self.application_id,
 			reactions: Some(self.reactions.0),
 			id: self.id,
 			channel: self.channel_id,
@@ -817,13 +821,15 @@ impl MessageDto {
 #[derive(Deserialize)]
 pub struct PatchDto {
 	#[serde(default)]
+	pub application_id: Patch<Id>,
+	#[serde(default)]
 	pub poll: Patch<extra_content::Object>,
 	#[serde(default)]
 	pub sticker_items: Patch<extra_content::Array>,
 	#[serde(default)]
 	pub stickers: Patch<extra_content::Array>,
 	#[serde(default)]
-	pub components: Patch<extra_content::Array>,
+	pub components: Patch<model::ComponentList>,
 	#[serde(default)]
 	pub reactions: Patch<reactions::ReactionList>,
 	pub id: Id,
@@ -844,16 +850,27 @@ pub struct PatchDto {
 impl PatchDto {
 	pub fn into_model(self) -> MessagePatch {
 		MessagePatch {
+			flags: self.flags.clone(),
+			application_id: self.application_id,
 			extra_content: model::ExtraContentPatch {
 				poll: extra_content::object_patch(self.poll),
 				sticker_items: extra_content::array_patch(self.sticker_items),
 				stickers: extra_content::array_patch(self.stickers),
-				components: extra_content::array_patch(self.components),
+				components: match &self.components {
+					Patch::Absent => Patch::Absent,
+					Patch::Null => Patch::Null,
+					Patch::Value(c) => Patch::Value(!c.0.is_empty()),
+				},
 				components_v2: match &self.flags {
 					Patch::Absent => Patch::Absent,
 					Patch::Null => Patch::Null,
 					Patch::Value(flags) => Patch::Value(flags & (1 << 15) != 0),
 				},
+			},
+			components: match self.components {
+				Patch::Absent => Patch::Absent,
+				Patch::Null => Patch::Null,
+				Patch::Value(c) => Patch::Value(c.0),
 			},
 			reactions: match self.reactions {
 				Patch::Absent => Patch::Absent,

@@ -389,17 +389,25 @@ to eight per two seconds. The UI schedules only the next visible expiry, with no
 Existing People typing subscriptions are unchanged; guild delivery may depend on that pane's
 subscription. Service availability and normal-account acceptance remain live-unverified.
 
-Unsupported ordinary-message content (September 10): the [Discord message resource](https://docs.discord.com/developers/resources/message)
-documents poll, sticker_items, deprecated stickers, components and IS_COMPONENTS_V2 (1 << 15).
-The decoder now preserves only independent presence markers for these sources through full
-messages, absent/null partial updates and bounded local cache reloads. It keeps no poll answer,
-sticker or component payload. Native static Poll/Sticker/Components placeholders accompany any
-supported text/media and share one confirmed Open in Discord action. This implements recognition
-and a fallback, not poll voting, sticker rendering or interactive components. Old cache rows
-cannot recover metadata previously discarded and gain markers during ordinary history refresh.
-The local decoder caps arrays at 100 objects, each direct object at 64 fields, within the existing
-4 MiB wire limit; these are application bounds, not Discord quotas. Native/live behavior remains
-unverified; the source documentation does not establish normal-account API acceptance.
+Message components (September 19, issue #313): native action rows, buttons, all select
+kinds, Components V2 layout/text/media/file controls, and application modals now retain
+bounded typed service data. Modal controls include text, selects, radio groups, checkbox
+groups, checkboxes and explicit native file selection. User/mentionable selectors reuse
+on-demand member search; role/channel selectors use the loaded account catalog.
+Buttons and form submits use the unofficial normal-account `POST /interactions` path,
+with the active Gateway session, a unique nonce, and no automatic write replay. Gateway
+success/failure/modal events are correlated; an HTTP acceptance alone is not completion.
+Private replies are session-only and never saved with channel history. Unknown component
+types and premium purchases retain an explicit official-client fallback. Media links use
+the existing safe preview and destination-confirmation policy.
+
+The [official component reference](https://docs.discord.com/developers/components/reference)
+describes schemas; normal-account submission and modal Gateway events are unofficial
+([first-hand interaction reference](https://docs.discord.food/interactions/receiving-and-responding)).
+This local fast pass uses `--demo --demo-check-components`; live bot interoperability,
+Windows/Linux rendering and production readiness remain unverified. Polls and stickers
+still retain presence markers and an Open in Discord fallback. Old cached component
+markers acquire controls only after normal history refresh.
 
 External fallback (September 10): unsupported channel rows and message placeholders offer
 Open in Discord through an explicit browser confirmation. URLs use the fixed Discord HTTPS

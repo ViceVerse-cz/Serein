@@ -280,10 +280,36 @@ pub fn show(
 	demo: bool,
 	surface: &mut crate::select::Surface,
 ) {
-	for group in message
-		.attachments
-		.chunk_by(|a, b| a.is_image() == b.is_image())
-	{
+	show_subset(
+		ui,
+		message,
+		&message.attachments,
+		images,
+		viewing,
+		opening,
+		download,
+		audio,
+		video,
+		demo,
+		surface,
+	);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn show_subset(
+	ui: &mut egui::Ui,
+	message: &Message,
+	attachments: &[Attachment],
+	images: &mut Avatars,
+	viewing: &mut Option<(Id, Id)>,
+	opening: &mut Option<String>,
+	download: &mut DownloadUi,
+	audio: &mut crate::audio::AudioUi,
+	video: &mut crate::video::VideoUi,
+	demo: bool,
+	surface: &mut crate::select::Surface,
+) {
+	for group in attachments.chunk_by(|a, b| a.is_image() == b.is_image()) {
 		if group[0].is_image() {
 			let (columns, size) = image_layout(group.len(), ui.available_width());
 			ui.scope(|ui| {
@@ -1220,6 +1246,10 @@ mod tests {
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
+			flags: 0,
 			embeds: vec![],
 			embeds_suppressed: false,
 			reactions: None,

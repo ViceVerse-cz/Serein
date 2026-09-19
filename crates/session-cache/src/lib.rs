@@ -289,6 +289,8 @@ impl Timeline {
 				.author_nick
 				.as_ref()
 				.is_none_or(|nick| nick.len() <= 512)
+			&& message.application_id.is_none_or(|id| id.0 != 0)
+			&& model::valid_components(&message.components)
 			&& model::valid_embeds(&message.embeds)
 			&& model::valid_attachments(&message.attachments)
 			&& message
@@ -370,6 +372,8 @@ impl Timeline {
 		if matches!(&patch.content, Patch::Value(s) if s.len() > 64 * 1024)
 			|| matches!(&patch.reactions, Patch::Value(r) if !model::valid_reactions(r))
 			|| matches!(&patch.mentions, Patch::Value(users) if !model::valid_mentions(users))
+			|| matches!(&patch.application_id, Patch::Value(id) if id.0 == 0)
+			|| matches!(&patch.components, Patch::Value(c) if !model::valid_components(c))
 			|| matches!(&patch.embeds, Patch::Value(embeds) if !model::valid_embeds(embeds))
 			|| matches!(&patch.attachments, Patch::Value(attachments) if !model::valid_attachments(attachments))
 		{
@@ -397,6 +401,15 @@ impl Timeline {
 				.get(&patch.id)
 				.cloned()
 				.unwrap_or_else(|| patch.clone());
+			if !matches!(patch.flags, Patch::Absent) {
+				merged.flags = patch.flags;
+			}
+			if !matches!(patch.components, Patch::Absent) {
+				merged.components = patch.components;
+			}
+			if !matches!(patch.application_id, Patch::Absent) {
+				merged.application_id = patch.application_id;
+			}
 			if !matches!(patch.content, Patch::Absent) {
 				merged.content = patch.content;
 			}
@@ -510,13 +523,16 @@ fn patch_bytes(patch: &MessagePatch) -> usize {
 	};
 	size_of::<MessagePatch>()
 		+ content
-		+ match &patch.reactions {
-			Patch::Value(r) => {
-				model::reaction_bytes(r)
-					+ r.capacity().saturating_sub(r.len()) * size_of::<model::Reaction>()
-			}
+		+ match &patch.components {
+			Patch::Value(c) => model::component_bytes(c),
 			_ => 0,
-		} + match &patch.mentions {
+		} + match &patch.reactions {
+		Patch::Value(r) => {
+			model::reaction_bytes(r)
+				+ r.capacity().saturating_sub(r.len()) * size_of::<model::Reaction>()
+		}
+		_ => 0,
+	} + match &patch.mentions {
 		Patch::Value(users) => model::mention_bytes(users),
 		_ => 0,
 	} + match &patch.embeds {
@@ -533,7 +549,8 @@ fn patch_bytes(patch: &MessagePatch) -> usize {
 		_ => 0,
 	}
 }
-fn apply_patch(message: &mut Message, patch: &MessagePatch) {
+/// Apply a previously bounded patch (the caller must validate component and payload limits).
+pub fn apply_patch(message: &mut Message, patch: &MessagePatch) {
 	if matches!(patch.edited,Patch::Value(new) if message.edited_at.is_some_and(|old|new<old)) {
 		return;
 	}
@@ -547,10 +564,31 @@ fn apply_patch(message: &mut Message, patch: &MessagePatch) {
 		Patch::Null => message.reactions = Some(vec![]),
 		Patch::Value(r) => message.reactions = Some(r.clone()),
 	}
+	match patch.flags {
+		Patch::Value(flags) => {
+			message.flags = flags;
+			message.ephemeral = flags & 64 != 0;
+		}
+		Patch::Null => {
+			message.flags = 0;
+			message.ephemeral = false;
+		}
+		Patch::Absent => {}
+	}
 	// Gateway updates describe the outer message, never edits to its frozen snapshot.
 	if message.forwarded {
 		message.revision += 1;
 		return;
+	}
+	match &patch.components {
+		Patch::Value(c) => message.components.clone_from(c),
+		Patch::Null => message.components.clear(),
+		Patch::Absent => {}
+	}
+	match &patch.application_id {
+		Patch::Value(id) => message.application_id = Some(*id),
+		Patch::Null => message.application_id = None,
+		Patch::Absent => {}
 	}
 	match &patch.content {
 		Patch::Value(s) => message.content.clone_from(s),
@@ -602,6 +640,9 @@ mod tests {
 		timeline.insert(original.clone(), false, false).unwrap();
 		timeline
 			.patch(MessagePatch {
+				flags: Patch::Absent,
+				components: Patch::Absent,
+				application_id: Patch::Absent,
 				id: Id(1),
 				channel: Id(1),
 				content: Patch::Value(String::new()),
@@ -730,6 +771,9 @@ mod tests {
 		content.push_str("Pending patch");
 		timeline
 			.patch(MessagePatch {
+				flags: Patch::Absent,
+				components: Patch::Absent,
+				application_id: Patch::Absent,
 				id: Id(3),
 				channel: Id(1),
 				content: Patch::Value(content),
@@ -795,6 +839,9 @@ mod tests {
 		assert!(timeline.retained_bytes() > timeline.row_bytes());
 		timeline
 			.patch(MessagePatch {
+				flags: Patch::Absent,
+				components: Patch::Absent,
+				application_id: Patch::Absent,
 				id: Id(10),
 				channel: Id(1),
 				content: Patch::Value("late body".into()),
@@ -892,6 +939,9 @@ mod tests {
 	#[test]
 	fn content_markers_reconcile_independent_updates_before_and_after_history() {
 		let update = |extra_content| MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			id: Id(1),
 			channel: Id(1),
 			extra_content,
@@ -999,6 +1049,9 @@ mod tests {
 		timeline.insert(original.clone(), false, false).unwrap();
 		let before = timeline.bytes;
 		let patch = MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			extra_content: Default::default(),
 			reactions: model::Patch::Absent,
 			id: Id(1),
@@ -1021,6 +1074,10 @@ mod tests {
 	}
 	fn message(id: u64) -> Message {
 		Message {
+			flags: 0,
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
 			reactions: Some(vec![]),
 			id: Id(id),
 			channel: Id(1),
@@ -1107,6 +1164,9 @@ mod tests {
 			spoiler: false,
 		};
 		let update = |attachments| MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			extra_content: Default::default(),
 			reactions: model::Patch::Absent,
 			id: Id(1),
@@ -1182,6 +1242,9 @@ mod tests {
 			..Default::default()
 		};
 		let update = |embeds| MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			extra_content: Default::default(),
 			reactions: model::Patch::Absent,
 			id: Id(1),
@@ -1255,6 +1318,9 @@ mod tests {
 		t.begin_page(false);
 		t.delete(Id(1)).unwrap();
 		t.patch(MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			extra_content: Default::default(),
 			reactions: model::Patch::Absent,
 			id: Id(2),
@@ -1270,6 +1336,9 @@ mod tests {
 		t.finish_page(vec![message(1), message(2)], false).unwrap();
 		assert!(t.get(Id(1)).is_none());
 		t.patch(MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			extra_content: Default::default(),
 			reactions: model::Patch::Absent,
 			id: Id(1),
@@ -1324,6 +1393,9 @@ mod tests {
 		for (at, content) in [(20, "new edit"), (10, "old edit")] {
 			timeline
 				.patch(MessagePatch {
+					flags: Patch::Absent,
+					components: Patch::Absent,
+					application_id: Patch::Absent,
 					extra_content: Default::default(),
 					reactions: model::Patch::Absent,
 					id: Id(1),

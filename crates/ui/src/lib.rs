@@ -17,6 +17,7 @@ mod channel_menu;
 mod channel_permissions;
 #[cfg(test)]
 mod channel_welcome_tests;
+mod components;
 mod composer_text;
 pub mod design;
 mod embeds;
@@ -114,6 +115,8 @@ enum MemberRow {
 
 #[derive(Default)]
 pub struct MessagingUi {
+	pub interaction_file_request: Option<String>,
+	interaction_components: components::Components,
 	pub verification: VerificationUi,
 	pub extensions: ExtensionUi,
 	friends: friends::Friends,
@@ -379,6 +382,13 @@ fn mention_switch(ui: &mut egui::Ui, colors: &design::Palette, on: &mut bool) {
 }
 
 impl MessagingUi {
+	pub fn interaction_modal_id(&self) -> Option<Id> {
+		self.interaction_components.modal_id()
+	}
+	pub fn set_interaction_files(&mut self, custom_id: &str, files: Vec<(usize, String)>) {
+		self.interaction_components.set_files(custom_id, files);
+	}
+
 	/// Feed the frame's middle button before `show`. Never fed means never pressed.
 	pub fn middle_button(&mut self, middle: scroll::Middle) {
 		self.scroll.middle(middle);
@@ -3483,6 +3493,120 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
+
+		if let Some((message, custom_id, values)) = self.timeline.component_action.take()
+			&& let Some(command) = state.prepare_component(message, &custom_id, values)
+		{
+			commands.push(command);
+		}
+		if let Some(channel) = state.selected {
+			if state.interactions.modal.is_none()
+				&& self.timeline.components.remote_search
+				&& !self.timeline.components.search.text.is_empty()
+			{
+				self.timeline
+					.components
+					.search
+					.sync(&ctx, state, channel, 0, &mut commands);
+			}
+			if self.interaction_components.remote_search
+				&& !self.interaction_components.search.text.is_empty()
+			{
+				self.interaction_components
+					.search
+					.sync(&ctx, state, channel, 0, &mut commands);
+			}
+		}
+		self.interaction_components.dialogs(
+			&ctx,
+			state,
+			&mut commands,
+			&mut self.avatars,
+			&mut self.timeline.opening,
+		);
+		self.interaction_file_request = self.interaction_components.file_request.take();
+		if !state.interactions.ephemeral.is_empty() {
+			let messages = state.interactions.ephemeral.clone();
+			egui::Window::new("Only you can see these responses")
+				.id(egui::Id::unique("interaction-responses"))
+				.show(&ctx, |ui| {
+					egui::ScrollArea::vertical()
+						.max_height(400.0)
+						.show(ui, |ui| {
+							for message in &messages {
+								ui.strong(&message.author.name);
+								self.interaction_components.show_text(
+									ui,
+									message,
+									state,
+									&mut self.avatars,
+									&mut self.timeline.opening,
+								);
+								if !message.extra_content.components_v2
+									&& self.interaction_components.media_visible(
+										ui,
+										message,
+										state.generation,
+									) {
+									if embeds::has_media_spoilers(message) {
+										self.timeline.reveal_private_media(message);
+									}
+									if let Some(gif) = embeds::show(
+										ui,
+										message,
+										&mut self.profile_formatted,
+										&mut self.avatars,
+										&mut self.timeline.opening,
+										&mut self.timeline.download,
+										&mut self.profile,
+										state,
+									) {
+										self.timeline.gif_favorite = Some(gif);
+									}
+									let mut surface =
+										select::Surface::new(ui, ("ephemeral-media", message.id));
+									attachments::show(
+										ui,
+										message,
+										&mut self.avatars,
+										&mut self.timeline.viewing,
+										&mut self.timeline.opening,
+										&mut self.timeline.download,
+										&mut self.timeline.audio,
+										&mut self.timeline.video,
+										state.demo,
+										&mut surface,
+									);
+									surface.finish(ui);
+								}
+								if let Some((id, custom_id, values)) =
+									self.interaction_components.show(
+										ui,
+										message,
+										state,
+										&mut self.avatars,
+										&mut self.timeline.opening,
+										&mut components::MediaUi {
+											component_viewing: &mut self.timeline.component_viewing,
+											viewing: &mut self.timeline.viewing,
+											download: &mut self.timeline.download,
+											audio: &mut self.timeline.audio,
+											video: &mut self.timeline.video,
+										},
+									) && let Some(command) =
+									state.prepare_component(id, &custom_id, values)
+								{
+									commands.push(command);
+								}
+								if ui.small_button("Dismiss").clicked() {
+									state.dismiss_ephemeral(message.id);
+									self.interaction_components.forget_message(message.id);
+								}
+								ui.separator();
+							}
+						});
+				});
+		}
 		if let Some((message, emoji)) = self.timeline.reaction.take() {
 			if let Some(emoji) = emoji {
 				if let Some(command) = state.prepare_reaction(message, emoji) {
@@ -3912,6 +4036,10 @@ mod composer_tests {
 					forwarded: false,
 					unsupported: false,
 					extra_content: Default::default(),
+					components: vec![],
+					application_id: None,
+					ephemeral: false,
+					flags: 0,
 					embeds: vec![],
 					attachments: vec![],
 					author_nick: None,

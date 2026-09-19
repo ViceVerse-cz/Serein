@@ -9,8 +9,8 @@ use std::{
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
-const NATIVE_SCHEMA: u32 = 18;
-const READABLE_SCHEMA: u32 = 19;
+const NATIVE_SCHEMA: u32 = 20;
+const READABLE_SCHEMA: u32 = 20;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
 fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
@@ -248,7 +248,33 @@ impl LocalStore {
 			[],
 			|row| row.get(0),
 		)?;
+		let has_components: bool = connection.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='components')",
+			[],
+			|row| row.get(0),
+		)?;
+		let has_application_id: bool = connection.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='application_id')",
+			[],
+			|row| row.get(0),
+		)?;
+		let has_original_flags: bool = connection.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='original_flags')",
+			[],
+			|row| row.get(0),
+		)?;
 		let transaction = connection.transaction()?;
+		if !has_original_flags {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN original_flags TEXT NOT NULL DEFAULT '0' CHECK(typeof(original_flags)='text' AND length(CAST(original_flags AS BLOB)) BETWEEN 1 AND 20);")?;
+		}
+
+		if !has_application_id {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN application_id TEXT;")?;
+		}
+		if !has_components {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN components TEXT NOT NULL DEFAULT '[]' CHECK(length(CAST(components AS BLOB))<=262144);")?;
+		}
+
 		if !has_forwarded {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN forwarded INTEGER NOT NULL DEFAULT 0 CHECK(typeof(forwarded)='integer' AND forwarded IN (0,1));")?;
 		}
@@ -614,6 +640,9 @@ impl LocalStore {
 						&& (!matches!(m.kind, 19 | 23)
 							|| !m.reply_to.is_some_and(|id| id.0 > 0 && id < m.id)))
 					|| !model::valid_mentions(&m.mentions)
+					|| m.ephemeral || m.flags & 64 != 0
+					|| m.application_id.is_some_and(|id| id.0 == 0)
+					|| !model::valid_components(&m.components)
 					|| !model::valid_embeds(&m.embeds)
 					|| !model::valid_attachments(&m.attachments)
 			}) {
@@ -637,7 +666,7 @@ impl LocalStore {
 			}
 		}
 		let mut insert = transaction.prepare_cached(
-            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)")?;
+            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)")?;
 		for message in messages {
 			if previous
 				.get(&message.id)
@@ -679,6 +708,11 @@ impl LocalStore {
 			{
 				return Err(StoreError::Capacity);
 			}
+			let components =
+				serde_json::to_string(&message.components).map_err(|_| StoreError::Incompatible)?;
+			if components.len() > MAX_MEDIA_JSON {
+				return Err(StoreError::Capacity);
+			}
 			let embeds =
 				serde_json::to_string(&message.embeds).map_err(|_| StoreError::Incompatible)?;
 			let attachments = serde_json::to_string(&message.attachments)
@@ -710,6 +744,9 @@ impl LocalStore {
 				message.forwarded,
 				author_roles,
 				message.author_nick.as_deref(),
+				components,
+				message.application_id.map(|id| id.to_string()),
+				message.flags.to_string(),
 			])?;
 		}
 		drop(insert);
@@ -727,7 +764,7 @@ impl LocalStore {
 			let bytes = if (page_count - free_pages) * page_size <= 48 * 1024 * 1024 {
 				0
 			} else {
-				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
+				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(original_flags AS BLOB))+length(CAST(components AS BLOB))+coalesce(length(CAST(application_id AS BLOB)),0)+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
 			};
 			if channels <= 20 && bytes <= 48 * 1024 * 1024 {
 				break;
@@ -754,7 +791,7 @@ impl LocalStore {
 		Ok(())
 	}
 	pub fn load_channel(&self, account: Id, channel: Id) -> Result<Vec<Message>> {
-		let mut query = self.0.prepare("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
+		let mut query = self.0.prepare("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
 		let mut rows = query.query(params![account.to_string(), channel.to_string()])?;
 		let mut messages = Vec::new();
 		let mut bytes = 0;
@@ -792,6 +829,8 @@ impl LocalStore {
 				(11, MAX_MEDIA_JSON),
 				(12, 128 * 1024),
 				(19, 16 * 1024),
+				(21, MAX_MEDIA_JSON),
+				(23, 20),
 			] {
 				if row
 					.get_ref(column)?
@@ -802,7 +841,7 @@ impl LocalStore {
 					return Err(StoreError::Capacity);
 				}
 			}
-			for (column, maximum) in [(5, 20), (7, 34), (20, 512)] {
+			for (column, maximum) in [(5, 20), (7, 34), (20, 512), (22, 20)] {
 				if !matches!(row.get_ref(column)?, rusqlite::types::ValueRef::Null)
 					&& row
 						.get_ref(column)?
@@ -858,7 +897,30 @@ impl LocalStore {
 				}
 				_ => return Err(StoreError::Incompatible),
 			};
+			let flags_text = row
+				.get_ref(23)?
+				.as_str()
+				.map_err(|_| StoreError::Incompatible)?;
+			if flags_text.is_empty() || !flags_text.bytes().all(|b| b.is_ascii_digit()) {
+				return Err(StoreError::Incompatible);
+			}
+			let flags = flags_text
+				.parse::<u64>()
+				.map_err(|_| StoreError::Incompatible)?;
+			if flags & 64 != 0 {
+				return Err(StoreError::Incompatible);
+			}
 			let message = Message {
+				flags,
+				ephemeral: false,
+				application_id: row.get::<_, Option<String>>(22)?.map(parse).transpose()?,
+				components: serde_json::from_str::<model::ComponentList>(
+					row.get_ref(21)?
+						.as_str()
+						.map_err(|_| StoreError::Incompatible)?,
+				)
+				.map_err(|_| StoreError::Incompatible)?
+				.0,
 				reactions: None,
 				id: parse(row.get(0)?)?,
 				channel,
@@ -1481,7 +1543,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		for invalid in ["-1", "2", "1.5", "'bad'"] {
 			assert!(
 				store
@@ -1564,7 +1626,7 @@ mod tests {
 				.0
 				.pragma_query_value(None, "user_version", |row| row.get(0))
 				.unwrap();
-			assert_eq!(version, 18);
+			assert_eq!(version, NATIVE_SCHEMA);
 			let mut messages = store.load_channel(Id(1), Id(2)).unwrap();
 			assert_eq!(messages[0].kind, expected_kind);
 			assert_eq!(messages[0].extra_content.bits(), expected_markers);
@@ -1837,7 +1899,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		assert_eq!(
 			store.reading_preferences().unwrap(),
 			ReadingPreferences::default()
@@ -2154,7 +2216,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		let messages: Vec<_> = (0..32_u8)
 			.map(|bits| {
 				let mut message = legacy[0].clone();
@@ -2346,7 +2408,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |r| r.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		for (json, error) in [
 			("broken JSON".to_owned(), StoreError::Incompatible),
 			(
@@ -2430,6 +2492,10 @@ mod tests {
 		);
 		for channel in 1..=30 {
 			let mut message = Message {
+				flags: 0,
+				components: vec![],
+				application_id: None,
+				ephemeral: false,
 				reactions: Some(vec![]),
 				id: Id(100),
 				channel: Id(channel),
@@ -2524,5 +2590,48 @@ mod tests {
 		assert_eq!(store.appearance().unwrap(), Appearance::System);
 		drop(store);
 		std::fs::remove_dir_all(root).unwrap();
+	}
+}
+
+#[cfg(test)]
+mod component_storage_tests {
+	use super::*;
+
+	#[test]
+	fn components_migrate_round_trip_and_never_persist_private_replies() {
+		let mut store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES('1','2','3','4','Synthetic','kept',0,0)", []).unwrap();
+		for column in ["components", "application_id", "original_flags"] {
+			store
+				.0
+				.execute_batch(&format!(
+					"ALTER TABLE messages DROP COLUMN {column}; PRAGMA user_version=18;"
+				))
+				.unwrap();
+			store = LocalStore::initialize(store.0).unwrap();
+		}
+		let mut messages = store.load_channel(Id(1), Id(2)).unwrap();
+		messages[0].flags = !64;
+		messages[0].application_id = Some(Id(4));
+		messages[0].components = vec![model::Component {
+			kind: 2,
+			custom_id: Some("synthetic".into()),
+			label: Some("Press".into()),
+			style: Some(1),
+			..Default::default()
+		}];
+		store.save_channel(Id(1), Id(2), &messages).unwrap();
+		store = LocalStore::initialize(store.0).unwrap();
+		let loaded = store.load_channel(Id(1), Id(2)).unwrap();
+		assert_eq!(loaded[0].components, messages[0].components);
+		assert_eq!(loaded[0].application_id, Some(Id(4)));
+		assert_eq!(loaded[0].flags, !64);
+		messages[0].ephemeral = true;
+		messages[0].content = "private synthetic reply".into();
+		assert_eq!(
+			store.save_channel(Id(1), Id(2), &messages),
+			Err(StoreError::Capacity)
+		);
+		assert_eq!(store.load_channel(Id(1), Id(2)).unwrap()[0].content, "kept");
 	}
 }

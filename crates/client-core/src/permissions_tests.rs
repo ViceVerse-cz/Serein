@@ -282,6 +282,10 @@ fn message(id: u64, channel: Id) -> Message {
 		reply_deleted: false,
 		forwarded: false,
 		unsupported: false,
+		components: vec![],
+		application_id: None,
+		flags: 0,
+		ephemeral: false,
 		extra_content: Default::default(),
 		embeds: vec![],
 		attachments: vec![],
@@ -956,6 +960,9 @@ fn revoked_view_cannot_return_through_stale_gateway_content_or_old_history() {
 		apply(
 			&mut state,
 			Event::Patch(MessagePatch {
+				components: model::Patch::Absent,
+				flags: model::Patch::Absent,
+				application_id: model::Patch::Absent,
 				extra_content: Default::default(),
 				id: Id(203),
 				channel: Id(20),

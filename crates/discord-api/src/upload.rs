@@ -143,6 +143,7 @@ struct Target {
 
 /// What the staged files belong to: a message in an existing channel, or a new forum post.
 enum Destination {
+	Interaction(client_core::interactions::Request),
 	Send {
 		nonce: String,
 		reply: Option<client_core::Reply>,
@@ -157,6 +158,12 @@ impl Destination {
 	/// Report a failure as the event the caller's flow expects; no write was accepted.
 	fn failed(self, channel: model::Id, failure: Failure) -> Event {
 		match self {
+			Self::Interaction(request) => {
+				Event::Interaction(client_core::interactions::Event::Submitted {
+					nonce: request.nonce,
+					result: Err(failure),
+				})
+			}
 			Self::Send { nonce, .. } => Event::SendResult {
 				nonce,
 				result: Err(failure),
@@ -197,6 +204,27 @@ impl DiscordApi {
 		mut cancel: watch::Receiver<bool>,
 	) -> Event {
 		let (channel, content, target) = match command {
+			Command::Interaction(request) => {
+				if !request.valid()
+					|| !crate::interactions::valid_uploads(&request, sources.len())
+					|| !crate::interactions::valid_file_types(&request, &sources)
+					|| !matches!(&request.data, client_core::interactions::Data::Modal { .. })
+				{
+					progress
+						.send_replace(Status::Failed("Invalid modal upload; reselect the files"));
+					return Event::Interaction(client_core::interactions::Event::Submitted {
+						nonce: request.nonce,
+						result: Err(Failure::ProtocolAt(
+							"Invalid modal upload; reselect the files",
+						)),
+					});
+				}
+				(
+					request.channel_id,
+					String::new(),
+					Destination::Interaction(request),
+				)
+			}
 			Command::Send {
 				channel,
 				content,
@@ -277,6 +305,18 @@ impl DiscordApi {
 		};
 		progress.send_replace(Status::Sending);
 		match target {
+			Destination::Interaction(request) => {
+				let result = tokio::select! {
+					biased;
+					_ = cancelled(&mut cancel) => Err(Failure::Ambiguous),
+					result = self.interaction(&request,Some(attachment)) => result,
+				};
+				progress.send_replace(status(&result));
+				Event::Interaction(client_core::interactions::Event::Submitted {
+					nonce: request.nonce,
+					result,
+				})
+			}
 			Destination::Send { nonce, reply } => {
 				let result = tokio::select! {
 					biased;

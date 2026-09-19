@@ -9,6 +9,8 @@ mod captcha;
 #[cfg(feature = "demo")]
 mod channel_demo;
 mod clipboard;
+#[cfg(feature = "demo")]
+mod components_demo;
 mod connection;
 mod credentials;
 #[cfg(feature = "demo")]
@@ -19,6 +21,7 @@ mod extension_bridge;
 mod extensions;
 mod game_activity;
 mod group_icon;
+mod interaction_uploads;
 mod notification_runtime;
 mod notification_sounds;
 mod pointer;
@@ -55,6 +58,13 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 };
 
 fn main() -> eframe::Result {
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-components")
+	{
+		components_demo::check();
+		return Ok(());
+	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-suggestion-clicks")
@@ -646,6 +656,7 @@ struct Desktop {
 	notifications: platform::notifications::Notifications,
 	notification_runtime: notification_runtime::Runtime,
 	uploads: uploads::Uploads,
+	interaction_files: interaction_uploads::Files,
 	group_icon: group_icon::GroupIcon,
 	server_icon: group_icon::GroupIcon,
 	role_icon: group_icon::GroupIcon,
@@ -1669,6 +1680,7 @@ impl Desktop {
 				platform::notifications::Notifications::new(move || wake.request_repaint())
 			},
 			uploads: uploads::Uploads::default(),
+			interaction_files: Default::default(),
 			group_icon: group_icon::GroupIcon::default(),
 			server_icon: group_icon::GroupIcon::default(),
 			role_icon: group_icon::GroupIcon::default(),
@@ -2422,6 +2434,11 @@ impl Desktop {
 		}
 	}
 	fn command(&mut self, command: Command) {
+		if matches!(&command, Command::Interaction(client_core::interactions::Request {data:client_core::interactions::Data::Modal{components,..},..}) if interaction_uploads::has_files(components))
+		{
+			self.interaction_upload(command);
+			return;
+		}
 		if let Command::ServerAdmin {
 			guild,
 			request,
@@ -2621,6 +2638,14 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if self.state.demo {
 			let event = match command {
+				Command::Interaction(request) => {
+					Event::Interaction(client_core::interactions::Event::Submitted {
+						nonce: request.nonce,
+						result: Err(Failure::ProtocolAt(
+							"Offline preview does not contact applications",
+						)),
+					})
+				}
 				Command::MemberSearch(request) => {
 					let query = request.query.to_lowercase();
 					let rows = demo_members(Some(request.guild), request.channel, request.nonce)
@@ -4804,6 +4829,11 @@ impl eframe::App for Desktop {
 			// Installing needs a real exit, so this close must not stop at the tray.
 			self.tray_window.quit(ctx);
 		}
+		self.state.expire_interaction(std::time::Instant::now());
+		if self.state.interactions.busy() {
+			ctx.request_repaint_after(Duration::from_millis(250));
+		}
+		self.poll_interaction_files(ctx);
 		self.state.expire_invite_challenge();
 		if self.state.invite_challenge().is_some() {
 			ctx.request_repaint_after(Duration::from_secs(1));
@@ -5223,6 +5253,7 @@ impl eframe::App for Desktop {
 				self.messaging.notification_sound_status = "Could not save device notification settings. Changes apply only until restart.";
 			}
 			let mut commands = self.messaging.show(ui, &mut self.state);
+			self.choose_interaction_files(&ctx);
 			if let Some(command) = self.captcha.sync(
 				&mut self.state,
 				&mut self.messaging,

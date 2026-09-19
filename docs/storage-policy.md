@@ -277,8 +277,8 @@ No schema change or persistent deletion journal is introduced.
 
 Schema 7 adds one integer extra_content column (0..31) for presence of polls, sticker_items,
 legacy stickers, component arrays and the Components V2 flag. RAM uses five booleans; partial
-updates preserve each source independently. Poll answers, sticker data, component payloads and
-their URLs are not retained. Existing cached rows default to no known markers until normal
+updates preserve each source independently. Poll answers and sticker data are not retained. Schema 20 additionally retains
+typed component trees, application IDs and original message flags, within the existing history budgets. Existing cached rows default to no known markers until normal
 service revalidation because older builds discarded that metadata. Account isolation, existing
 database/cache limits and logout deletion remain unchanged; unsupported content is not rendered
 or executed from SQLite. Invalid stored marker bits reject the cached page.
@@ -908,3 +908,22 @@ FFmpeg's own demuxer/codec allocations are additional to the native-player budge
 its individual allocation requests are capped at 16 MiB and conversion uses two
 codec threads plus one filter thread. The helper is an optional installed process,
 not a bundled decoder or a total-process memory sandbox.
+
+
+### Application components and private replies (schema 20)
+
+Message component trees retain at most 40 nodes, eight nesting levels and 128 KiB
+of estimated owned data per message. Cache JSON is separately capped at 256 KiB;
+invalid stored trees reject the page. Application IDs, decimal message flags and component payloads count
+toward the existing account-isolated message cache byte budgets. Component URLs
+remain untrusted and do not authorize arbitrary fetches.
+
+One interaction and one modal are active at a time. Modal inputs, Gateway session
+IDs and file selections are never persisted. Private/ephemeral responses are a
+session-only list of at most 16 messages / 512 KiB, each at most 256 KiB, released
+on navigation, disconnect or session change. They bypass the channel timeline,
+notifications and disk writes; the disk adapter rejects ephemeral records.
+Native modal attachments reuse the bounded upload worker (10 files / 20 MB total),
+with explicit selection and no automatic write retry. Each of at most five form
+file fields stages at most 10 files / 20 MB before the combined submission bound
+is enforced; paths and contents never enter diagnostics or model/UI form data.

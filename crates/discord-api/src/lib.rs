@@ -7,6 +7,7 @@ pub mod external_assets;
 mod forum;
 mod group_actions;
 mod guild_folders;
+mod interactions;
 mod messaging_permissions;
 mod profile_edit;
 pub mod rpc;
@@ -42,6 +43,7 @@ use tokio::{
 };
 
 pub struct DiscordApi {
+	interaction_session: std::sync::Mutex<Option<zeroize::Zeroizing<String>>>,
 	ack_token: Mutex<zeroize::Zeroizing<Option<String>>>,
 	client: Client,
 	upload_client: tokio::sync::OnceCell<Client>,
@@ -138,6 +140,7 @@ impl DiscordApi {
 			.build()
 			.map_err(|_| Failure::Network)?;
 		Ok(Self {
+			interaction_session: std::sync::Mutex::new(None),
 			upload_client: tokio::sync::OnceCell::new(),
 			ack_token: Mutex::new(zeroize::Zeroizing::new(None)),
 			client,
@@ -438,6 +441,12 @@ impl DiscordApi {
 	}
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
+			Command::Interaction(request) => {
+				Event::Interaction(client_core::interactions::Event::Submitted {
+					result: self.interaction(&request, None).await,
+					nonce: request.nonce,
+				})
+			}
 			Command::MessagingPermissions { request, change } => Event::MessagingPermissions {
 				request,
 				result: self.account_messaging_permissions(change).await,

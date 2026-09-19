@@ -2,6 +2,7 @@
 mod activity;
 mod channel_events;
 mod compression;
+mod interactions;
 #[cfg(test)]
 mod login_tests;
 mod member_search;
@@ -1000,6 +1001,7 @@ async fn run_inner(
 										direct_presence.bootstrap_users=friends.as_ref().into_iter().flatten().map(|(u,_)|u.id).chain(channels.iter().filter(|c|c.guild.is_none() && matches!(c.kind,1|3)).flat_map(|c|c.recipients.iter().map(|u|u.id))).take(client_core::presence::MAX_DIRECT_PRESENCES).collect();
 										calls.allowed=channels.iter().filter(|c|(c.guild.is_none() && channel_events::private_call(c.kind,c.recipients.len())) || (c.guild.is_some() && c.kind==2)).map(|c|(c.id,c.guild)).collect();
 										if was_ready { emit(Event::Resync)?; }
+										emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?;
 										let notifications = ready.user_guild_settings.take().map(|snapshot| {
 											let (entries, replace) = snapshot.entries();
 											notification_preferences(entries, replace)
@@ -1055,7 +1057,7 @@ async fn run_inner(
 										if !participants.is_empty() { emit(Event::Voice(client_core::voice::Event::Snapshot { partial: true, guild: None, participants }))?; }
 										calls.users.clear();
 									}
-									"RESUMED" => { emit(Event::Resumed)?; ready_at = Some(Instant::now()); },
+									"RESUMED" => { emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?; emit(Event::Resumed)?; ready_at = Some(Instant::now()); },
 									"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" | "VOICE_STATE_UPDATE" | "VOICE_SERVER_UPDATE" | "STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_DELETE" => calls.dispatch(packet.t.as_deref().unwrap_or(""),packet.d.get().as_bytes(),owner_id,&emit)?,
 									"THREAD_MEMBER_LIST_UPDATE" => {
 										if let Some(active) = &mut active_members {
@@ -1133,7 +1135,12 @@ async fn run_inner(
 										emit(Event::NotificationPreferences(client_core::notifications::Event::Presence(sessions.dnd())))?;
 									}
 									"USER_SETTINGS_PROTO_UPDATE" => emit(Event::NotificationPreferences(client_core::notifications::Event::Invalidate))?,
-									"MESSAGE_CREATE" => emit(Event::Message(decode::<MessageDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model()))?,
+									"INTERACTION_SUCCESS" | "INTERACTION_FAILURE" | "INTERACTION_MODAL_CREATE" => { if let Some(event) = interactions::event(packet.t.as_deref().unwrap_or_default(),packet.d.get().as_bytes())? { emit(event)?; } },
+									"MESSAGE_CREATE" => {
+										let message = decode::<MessageDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model();
+										if message.ephemeral { emit(Event::Interaction(client_core::interactions::Event::Ephemeral(Box::new(message))))?; }
+										else { emit(Event::Message(message))?; }
+									},
 									"MESSAGE_ACK" => {
 										let ack=decode::<read_state::Ack>(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;
 										emit(Event::ReadState(client_core::read_state::Event::Ack{channel:ack.channel_id,message:ack.message_id,manual:ack.manual,mention_count:ack.mention_count,version:ack.version}))?;
