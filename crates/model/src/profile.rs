@@ -114,7 +114,7 @@ impl ProfileBadge {
 			.map(|hash| format!("badge-{hash}"))
 	}
 }
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ClanTag {
 	pub guild: Id,
 	pub tag: String,

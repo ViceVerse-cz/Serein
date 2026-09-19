@@ -896,6 +896,8 @@ mod tests {
 	#[test]
 	fn optional_login_users_are_bounded_without_rejecting_the_session() {
 		let user = |id, name: &str| UserDto {
+			primary_guild: None,
+			clan: None,
 			id: Id(id),
 			username: name.into(),
 			global_name: None,

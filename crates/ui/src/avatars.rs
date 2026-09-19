@@ -1343,6 +1343,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		};
 		let mut response_rect = egui::Rect::NOTHING;
 		let output = ctx.run_ui(Default::default(), |ui| {

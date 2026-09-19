@@ -243,6 +243,7 @@ fn startup_rejects_duplicate_navigation_and_unused_capacity_before_publication()
 
 fn user() -> User {
 	User {
+		primary_guild: None,
 		id: Id(2),
 		name: "Synthetic member".into(),
 		avatar: None,

@@ -94,6 +94,9 @@ pub struct User {
 	pub name: String,
 	pub avatar: Option<String>,
 	pub discriminator: u16,
+	/// Service-supplied server identity displayed beside this user's name.
+	#[serde(default, skip_serializing)]
+	pub primary_guild: Option<Box<ClanTag>>,
 }
 impl User {
 	pub fn account_label(&self) -> Option<&'static str> {
@@ -105,7 +108,13 @@ impl User {
 		}
 	}
 	pub fn heap_bytes(&self) -> usize {
-		self.name.capacity() + self.avatar.as_ref().map_or(0, String::capacity)
+		self.name.capacity()
+			+ self.avatar.as_ref().map_or(0, String::capacity)
+			+ self.primary_guild.as_ref().map_or(0, |guild| {
+				std::mem::size_of::<ClanTag>()
+					+ guild.tag.capacity()
+					+ guild.badge.as_ref().map_or(0, String::capacity)
+			})
 	}
 	pub fn avatar_key(&self) -> String {
 		if let Some(hash) = self
@@ -190,6 +199,7 @@ impl SavedAccount {
 			name: self.name.clone(),
 			avatar: self.avatar.clone(),
 			discriminator: self.discriminator,
+			primary_guild: None,
 		}
 	}
 	pub fn heap_bytes(&self) -> usize {

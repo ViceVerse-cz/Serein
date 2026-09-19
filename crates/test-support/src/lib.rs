@@ -109,6 +109,13 @@ pub fn message(id: u64, channel: Id) -> Message {
 			kind: Default::default(),
 			discriminator: 0,
 			id: Id(if id.is_multiple_of(2) { 1 } else { 2 }),
+			primary_guild: (!id.is_multiple_of(2)).then(|| {
+				Box::new(model::ClanTag {
+					guild: Id(10),
+					tag: "SPDY".into(),
+					badge: Some("f".repeat(32)),
+				})
+			}),
 			name: if id.is_multiple_of(2) {
 				"You (synthetic)"
 			} else {
@@ -205,6 +212,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}]
 		} else {
 			Vec::new()
@@ -253,6 +261,7 @@ pub fn demo_state() -> State {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 				id: Id(1),
 				name: "You (synthetic)".into(),
 			},
@@ -346,6 +355,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					}],
 					last_message: None,
 					icon: None,
@@ -366,6 +376,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					}],
 					last_message: Some(Id(900)),
 					icon: None,
@@ -388,6 +399,7 @@ pub fn demo_state() -> State {
 							webhook: false,
 							kind: Default::default(),
 							discriminator: 0,
+							primary_guild: None,
 						},
 					],
 					last_message: None,
@@ -526,6 +538,7 @@ pub fn demo_state() -> State {
 					name: "Avery".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -538,6 +551,7 @@ pub fn demo_state() -> State {
 					name: "Rowan".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -576,6 +590,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					},
 					format!("{}.synthetic", name.to_lowercase()),
 				)
@@ -663,6 +678,7 @@ pub fn voice_demo_state() -> State {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			},
 			nick: None,
 			status: None,
@@ -996,6 +1012,7 @@ pub fn chat_demo_state() -> State {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}];
 		}
 		if i == 8 {
@@ -1171,6 +1188,7 @@ pub fn system_demo_state() -> State {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		state.timeline.insert(m, false, false).unwrap();
 	}
@@ -1244,6 +1262,7 @@ pub fn friends_demo_state() -> State {
 					name: "Avery".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -1256,6 +1275,7 @@ pub fn friends_demo_state() -> State {
 					name: "Morgan".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
