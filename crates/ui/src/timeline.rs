@@ -36,6 +36,7 @@ pub struct TimelineView {
 	pub(super) cancel_upload: bool,
 	pending_heights: BTreeMap<String, f32>,
 	pub(super) hide_media_links: bool,
+	pub(super) instant_scrolling: bool,
 	applied_hide_media_links: bool,
 	pub(super) gif_favorite: Option<model::Gif>,
 	pub(super) invite_requests: Vec<String>,
@@ -1052,7 +1053,7 @@ impl TimelineView {
 					self.following = false;
 					self.jump = false;
 					let to = centered_offset(&self.rows, target, viewport_h, packed);
-					if (to - current_offset).abs() < 1.0 {
+					if self.instant_scrolling || (to - current_offset).abs() < 1.0 {
 						offset = Some(to);
 						self.reveal_scroll = None;
 					} else {
@@ -1084,6 +1085,7 @@ impl TimelineView {
 		let mut scroll = egui::ScrollArea::vertical()
 			.id_salt(("timeline", state.selected))
 			.auto_shrink([false, false])
+			.animated(!self.instant_scrolling)
 			.stick_to_bottom(self.following);
 		let live_edge_offset =
 			(total + end_padding + pending_rows.iter().map(|(_, height)| height).sum::<f32>()
@@ -1094,7 +1096,25 @@ impl TimelineView {
 			self.present_scroll = None;
 			offset = Some(live_edge_offset);
 		}
-		let user_scroll = ui.input(|input| input.smooth_scroll_delta().y) + autoscroll_delta;
+		let wheel = ui.input(|input| {
+			if !self.instant_scrolling {
+				input.smooth_scroll_delta().y
+			} else {
+				input
+					.raw
+					.events
+					.iter()
+					.filter_map(|event| match event {
+						egui::Event::MouseWheel { delta, .. } => Some(delta.y),
+						_ => None,
+					})
+					.sum()
+			}
+		});
+		if self.instant_scrolling {
+			ui.input_mut(|input| input.smooth_scroll_delta.y = wheel);
+		}
+		let user_scroll = wheel + autoscroll_delta;
 		if user_scroll != 0.0 && self.reveal_scroll.take().is_some() {
 			offset = None;
 		}
@@ -1145,7 +1165,7 @@ impl TimelineView {
 		let mut measurements = Vec::new();
 		let mut selected_reply = None;
 		// ScrollArea consumes wheel input while applying it; retain the viewing gesture.
-		let scroll_delta = ui.input(|input| input.smooth_scroll_delta().y) + autoscroll_delta;
+		let scroll_delta = wheel + autoscroll_delta;
 		let allow_hover = !session.holding()
 			&& !ui.input(|input| input.is_scrolling())
 			&& ui.ctx().dragged_id().is_none();
@@ -2550,7 +2570,7 @@ impl TimelineView {
 				if browsing_history {
 					self.latest = true;
 				}
-				if distance_from_bottom > 0.5 && !browsing_history {
+				if distance_from_bottom > 0.5 && !browsing_history && !self.instant_scrolling {
 					// Glide back so the reader keeps their place in the conversation.
 					self.target_browsing = false;
 					self.present_scroll = Some((output.state.offset.y, 0.0));
@@ -4743,7 +4763,10 @@ mod tests {
 			}
 			let ctx = egui::Context::default();
 			crate::design::apply(&ctx);
-			let mut view = TimelineView::default();
+			let mut view = TimelineView {
+				instant_scrolling: true,
+				..Default::default()
+			};
 			let mut avatars = crate::avatars::Avatars::default();
 			let mut frame_number = 0;
 			let mut frame = |view: &mut TimelineView, delta: f32| {

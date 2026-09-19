@@ -152,6 +152,7 @@ mod tests {
 					sidebar_width: 360,
 					show_members: false,
 					animate_gifs: false,
+					smooth_scrolling: true,
 					hide_media_links: true,
 					confirm_external_links: true,
 				}))

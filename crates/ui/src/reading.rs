@@ -96,6 +96,13 @@ impl MessagingUi {
 			ui.separator();
 			design::switch(
 				ui,
+				"Smooth scrolling",
+				Some("Animate wheel movement and jumps between messages."),
+				&mut value.smooth_scrolling,
+			);
+			ui.separator();
+			design::switch(
+				ui,
 				"Hide image and GIF links",
 				Some("Hide standalone links when their image or GIF preview is shown."),
 				&mut value.hide_media_links,
@@ -200,7 +207,7 @@ mod tests {
 				egui::RawInput {
 					screen_rect: Some(egui::Rect::from_min_size(
 						egui::Pos2::ZERO,
-						egui::vec2(480.0, 480.0),
+						egui::vec2(480.0, 560.0),
 					)),
 					events,
 					..Default::default()
@@ -220,6 +227,7 @@ mod tests {
 			sidebar_width: 300,
 			show_members: false,
 			animate_gifs: false,
+			smooth_scrolling: true,
 			hide_media_links: true,
 			confirm_external_links: true,
 		};
@@ -251,6 +259,28 @@ mod tests {
 			);
 		}
 		assert!(view.reading_preferences.show_members);
+		let found = frame(&mut view, vec![]);
+		let smooth = found
+			.iter()
+			.find(|(text, _)| text == "Smooth scrolling")
+			.unwrap()
+			.1
+			.center();
+		for pressed in [true, false] {
+			frame(
+				&mut view,
+				vec![
+					egui::Event::PointerMoved(smooth),
+					egui::Event::PointerButton {
+						pos: smooth,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			);
+		}
+		assert!(!view.reading_preferences.smooth_scrolling);
 		for _ in 0..2 {
 			let found = frame(&mut view, vec![]);
 			let reset = found

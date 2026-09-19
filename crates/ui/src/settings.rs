@@ -105,7 +105,7 @@ impl Page {
 				"general windows macos login menu bar startup autostart automatically open minimized minimize close tray background"
 			}
 			Self::Appearance => {
-				"appearance customization primary accent hex window title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
+				"appearance customization primary accent hex window title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay smooth scrolling motion hide image links confirm confirmation external browser"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
