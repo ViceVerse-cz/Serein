@@ -4141,9 +4141,11 @@ impl eframe::App for Desktop {
 			}
 		}
 		// The hide command lands after this frame, so the flag leads reported visibility.
+		// Occlusion can occur during macOS fullscreen transitions; it is not a request
+		// to stop playback (which would also restore the window out of fullscreen).
 		let hidden_or_closing = self.hidden_to_tray
 			|| ctx.input(|input| {
-				input.viewport().visible() == Some(false) || input.viewport().close_requested()
+				input.viewport().minimized == Some(true) || input.viewport().close_requested()
 			});
 		if self.state.user.is_none()
 			|| (!self.state.demo && self.state.auth != AuthState::Authenticated)
