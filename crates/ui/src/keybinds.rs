@@ -371,6 +371,9 @@ fn display_key(name: &str) -> String {
 		"Escape" => "Esc".into(),
 		"Enter" => "↵".into(),
 		"Slash" => "/".into(),
+		"PageDown" => "PgDn".into(),
+		"PageUp" => "PgUp".into(),
+		"Insert" => "Ins".into(),
 		name if name
 			.strip_prefix("Num")
 			.is_some_and(|digit| digit.len() == 1) =>
@@ -403,9 +406,12 @@ const KEYS: &[(Key, &str)] = &[
 	(Key::Backspace, "Backspace"),
 	(Key::Enter, "Enter"),
 	(Key::Space, "Space"),
+	(Key::Insert, "Insert"),
 	(Key::Delete, "Delete"),
 	(Key::Home, "Home"),
 	(Key::End, "End"),
+	(Key::PageUp, "PageUp"),
+	(Key::PageDown, "PageDown"),
 	(Key::Slash, "Slash"),
 	(Key::Backtick, "Backtick"),
 	(Key::Minus, "Minus"),
@@ -509,5 +515,16 @@ mod tests {
 		);
 		output.textures_delta.clear();
 		assert!(down_without_consuming);
+	}
+
+	#[test]
+	fn page_down_and_navigation_keys_are_supported() {
+		assert_eq!(key_name(Key::PageDown), Some("PageDown"));
+		assert_eq!(key_name(Key::PageUp), Some("PageUp"));
+		assert_eq!(key_name(Key::Insert), Some("Insert"));
+		assert_eq!(display_key("PageDown"), "PgDn");
+		assert_eq!(display_key("PageUp"), "PgUp");
+		assert_eq!(display_key("Insert"), "Ins");
+		assert_eq!(key_name_to_egui("PageDown"), Some(Key::PageDown));
 	}
 }
