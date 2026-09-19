@@ -839,3 +839,34 @@ after discovery (1.6 bytes/s, excluding network headers), with no queue, extra
 thread or dependency. The localhost test verifies repeated idle-viewer pings and
 subsequent encrypted audio/video delivery. Live freeze recovery, CPU/RSS and
 end-to-end latency remain unmeasured; no playback improvement is claimed yet.
+
+
+## Linux sign-in window teardown, September 19, 2026
+
+Compared baseline `d160c3e` with `f6498ce` on CachyOS Linux 7.2.6-1-cachyos,
+AMD Ryzen 5 7600, 30 GiB reported RAM, Rust 1.98.1, GTK 4.22.5 and WebKitGTK
+2.52.6. Both used `cargo xtask package --format dir`, the standard release
+configuration including voice, without demo or developer-session features.
+Baseline output stayed in a detached worktree; the changed platform crate was
+cleaned before the final build to avoid reusing the baseline artifact from the
+shared target directory. One package was measured per revision.
+
+| Metric | Baseline bytes | After bytes | Delta |
+| --- | ---: | ---: | ---: |
+| Installed executable | 68,832,568 | 68,836,792 | +4,224 / +0.0061% |
+| Installed regular-file total | 73,267,947 | 73,272,171 | +4,224 / +0.0058% |
+| Compressed installation tree | 43,473,374 | 43,473,493 | +119 / +0.0003% |
+
+The installed total sums regular-file sizes under `dist/linux-root`, including
+notices. Compression used GNU tar with `--sort=name --mtime=@0 --owner=0
+--group=0 --numeric-owner -C dist/linux-root -czf <archive> .` for each tree.
+These are artifact sizes, not runtime performance or reproducible-build claims.
+The packaged executable's linked libraries all resolved with `ldd`.
+
+An isolated offline GTK/X11 diagnostic observed the test window from a second
+X11 connection after `gtk_window_destroy`, without another GLib iteration.
+The baseline window still existed; flushing GDK after destruction removed it.
+This verifies buffered native destruction, not live Discord login or Wayland.
+The login pump retains its 16-iteration / 2-ms callback budget and now flushes
+queued display requests. Login CPU, RSS and frame/teardown latency are unmeasured;
+the existing offline app fixture does not open the temporary WebKit login window.
