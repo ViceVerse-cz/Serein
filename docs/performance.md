@@ -1,3 +1,24 @@
+# Optional smooth scrolling - September 19, 2026
+
+Baseline: `d160c3e`. After: this change on that baseline. One standard Windows x64
+`cargo xtask package` per revision, Rust 1.98.1 MSVC, locked dependencies,
+release profile and voice included. Builds ran serially using the same Cargo
+target; each completed six-file `dist` directory was copied aside before the
+next build. ZIP uses PowerShell `Compress-Archive -CompressionLevel Optimal`.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 66,424,320 | 66,430,464 | +6,144 (+0.0092%) |
+| Full portable package, bytes | 66,486,654 | 66,492,798 | +6,144 (+0.0092%) |
+| ZIP, bytes | 37,656,202 | 37,658,338 | +2,136 (+0.0057%) |
+
+The disabled path replaces egui's smoothed wheel delta with the current bounded
+raw wheel event sum and removes the two timeline transition animations. No new
+dependency, background task or retained message data is added. Native CPU,
+memory and frame-time sampling was unavailable, so no speed claim is made. Both
+packages completed with the existing nonfatal OpenH264 LNK4255 warning. NSIS was
+unavailable, so installer binaries were not produced.
+
 # Reaction tooltip loading - September 17, 2026
 
 Baseline: `ef0c61a`. After: the reaction-tooltip follow-up on that baseline.
