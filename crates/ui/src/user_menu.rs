@@ -32,14 +32,31 @@ pub(super) fn popup(response: &egui::Response, id: egui::Id) -> egui::Popup<'_> 
 		&& response
 			.ctx
 			.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::F10));
-	let mut popup = egui::Popup::context_menu(response).id(id);
+	let passive = !response.sense.senses_click();
+	let pointer_opened = if passive {
+		response.container_secondary_clicked()
+	} else {
+		response.secondary_clicked()
+	};
+	let mut popup = if passive {
+		egui::Popup::menu(response)
+			.open_memory(if pointer_opened {
+				Some(egui::SetOpenCommand::Bool(true))
+			} else if response.container_clicked() {
+				Some(egui::SetOpenCommand::Bool(false))
+			} else {
+				None
+			})
+			.at_pointer_fixed()
+	} else {
+		egui::Popup::context_menu(response)
+	}
+	.id(id);
 	if keyboard {
 		popup = popup
 			.open_memory(Some(egui::SetOpenCommand::Bool(true)))
 			.at_position(response.rect.right_bottom());
-	} else if !response.secondary_clicked()
-		&& egui::Popup::position_of_id(&response.ctx, id).is_none()
-	{
+	} else if !pointer_opened && egui::Popup::position_of_id(&response.ctx, id).is_none() {
 		// Keyboard-opened menus have no remembered pointer position.
 		popup = popup.at_position(response.rect.right_bottom());
 	}
@@ -135,7 +152,11 @@ pub(super) fn contents(
 		if ui
 			.add_enabled(
 				enabled,
-				egui::Button::new(if muted { "Unmute" } else { "Mute" }),
+				egui::Button::new(if muted {
+					"Unmute Conversation"
+				} else {
+					"Mute Conversation"
+				}),
 			)
 			.on_hover_text("Mute this direct message's notifications until you unmute it.")
 			.clicked()
@@ -155,7 +176,7 @@ pub(super) fn contents(
 			ui.close();
 		}
 	} else {
-		ui.add_enabled(false, egui::Button::new("Mute"))
+		ui.add_enabled(false, egui::Button::new("Mute Conversation"))
 			.on_disabled_hover_text("No open direct message with this user.");
 	}
 	ui.separator();
@@ -238,7 +259,7 @@ mod tests {
 	#[test]
 	fn user_menu_mouse_keyboard_and_actions_in_both_themes() {
 		for light in [false, true] {
-			for label in ["Profile", "Mute", "Close DM", "Block"] {
+			for label in ["Profile", "Mute Conversation", "Close DM", "Block"] {
 				let ctx = egui::Context::default();
 				ctx.set_visuals(if light {
 					egui::Visuals::light()
@@ -284,7 +305,7 @@ mod tests {
 					"Profile",
 					"Add Note",
 					"Add Friend Nickname",
-					"Mute",
+					"Mute Conversation",
 					"Close DM",
 					"Block",
 				] {
@@ -311,7 +332,7 @@ mod tests {
 				}
 				match label {
 					"Profile" => assert_eq!(profile.unwrap().id, user.id),
-					"Mute" => assert_eq!(
+					"Mute Conversation" => assert_eq!(
 						action,
 						Some(Action::Mute {
 							channel: dm.id,

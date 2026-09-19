@@ -8,11 +8,12 @@ available (for example, `dx12` or `vulkan`). Affected users confirmed that forci
 DX12 launches successfully; the new default still needs native Windows validation.
 macOS and Linux retain their existing backend defaults.
 
-Windows disables winit's undecorated drop-shadow workaround, including after title-bar
-changes. That workaround shifts the restored client area by one pixel; maximizing bypasses
-it. This is a candidate mitigation for machine-specific windowed blur, not a confirmed
-diagnosis on the affected hardware. Native DPI and eframe's physical surface sizing remain
-unchanged. macOS/Linux window creation is unchanged.
+Windows turns off winit's undecorated drop-shadow hack after the window exists, including
+after title-bar changes. egui-winit enables that hack for custom chrome. While restored it
+adds one pixel to `WM_NCCALCSIZE` top and bottom. Maximizing skips the shift, which is why
+only that state looked sharp. `ViewportBuilder::with_has_shadow` is macOS-only and does not
+disable the Windows hack. Native DPI and eframe's physical surface sizing remain unchanged.
+macOS/Linux window creation is unchanged.
 For offline inspection, run `cargo run --locked -p serein --features demo -- --demo --demo-rendering`.
 The diagnostic shows the physical client size, logical viewport, native/egui scale and WGPU
 surface dimensions sampled by a render callback, plus alternating one-pixel stripes.
@@ -110,16 +111,22 @@ provider rejection and missing native webview runtimes fail visibly. macOS/Linux
 live CAPTCHA acceptance remains unverified. Widget
 loading and synthetic checks do not establish live Discord challenge acceptance.
 
-## Opt-in tray icon (September 13, 2026)
+## Opt-out tray icon (September 13, 2026)
 
-Windows General settings offer Show Serein in System Tray, off by default. Minimizing
+Windows General settings offer Show Serein in System Tray, on by default; turning it off
+falls back to ordinary window minimize/close. Minimizing
 keeps the window in the taskbar, including taskbar clicks and automatic startup. The icon supports
 keyboard/mouse restore and a Show Serein / Quit menu. Quit uses the normal unsaved
-work/download exit checks; the window Close button retains normal exit behavior.
-Disabling removes the tray icon without changing the window's minimized state.
+work/download exit checks; while the icon is live, the window Close button hides the
+window instead of exiting, and Serein keeps running with its logic ticking so
+notifications and calls continue. Show restores the window. Disabling the setting,
+or a tray that reports itself unavailable, restores a hidden window immediately, so
+Close can never strand the application without a way back.
 The adapter uses existing user32/Shell APIs and dependencies, with no background
 polling. A synthetic native Windows test verifies registration,
-minimize/restore, own-window taskbar recovery, Quit event and cleanup. macOS uses a native menu bar icon with Show Serein / Quit actions; minimized windows
+minimize/restore, own-window taskbar recovery, Quit event and cleanup. macOS uses a native menu bar icon with Show Serein / Quit actions; it draws Serein's own
+mark (`assets/brand/serein-tray.png`, rendered from the brand SVG) as an 18-point template
+image, so the system tints it for light, dark and highlighted menu bars. Minimized windows
 remain in the Dock. Linux retains an explicitly disabled control.
 
 ## Opt-in automatic startup
@@ -131,7 +138,7 @@ Windows Startup Apps can override this registration. Disable startup before dele
 a portable installation, or re-enable it after moving the executable.
 Minimized launches stay in the taskbar even when the saved tray preference is enabled;
 the tray can attach safely after a minimized launch. Tray failures leave the window
-recoverable. The Close button still exits, and the tray Quit action retains unsaved
+recoverable. Without a tray icon the Close button still exits, and the tray Quit action retains unsaved
 work checks. macOS registers a per-user `~/Library/LaunchAgents/cz.viceverse.serein.startup.plist`
 for the next graphical login, with the same launch flags. Turning it off removes only
 that file. It does not launch a second client when enabled or restart after Quit.
@@ -147,7 +154,7 @@ Settings → Updates provides automatic checking/downloading, Production and Nig
 release channels, a manual check and an explicit restart action. The title strip
 shows an available or downloaded update on macOS, Windows and Linux. Update controls are
 also accessible from the signed-out screen. Automatic checking runs at startup
-once saved preferences are available, then every six hours while running; turning
+once saved preferences are available, then every hour while running; turning
 it off disables automatic downloads while background checks and title-bar notices
 remain active. Nightly is the default channel and automatic downloads are off by
 default. Switching channels never installs an

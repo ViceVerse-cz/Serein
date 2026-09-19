@@ -133,8 +133,7 @@ impl State {
 		{
 			return;
 		}
-		let view = &mut self.member_search[request.slot];
-		view.finished = true;
+		self.member_search[request.slot].finished = true;
 		match result {
 			Ok(rows)
 				if rows.len() <= LIMIT
@@ -145,10 +144,22 @@ impl State {
 							.all(|member| request.users.contains(&member.user.id)))
 					&& rows.iter().map(Member::bytes).sum::<usize>() <= MAX_BYTES =>
 			{
-				view.rows = rows
+				if request.slot == 1 {
+					for member in &rows {
+						self.timeline.apply_author_membership(
+							member.user.id,
+							&member.roles,
+							member.nick.as_deref(),
+						);
+					}
+				}
+				self.member_search[request.slot].rows = rows;
 			}
-			Ok(_) => view.error = Some("Member search exceeded its safety limit"),
-			Err(error) => view.error = Some(error.label()),
+			Ok(_) => {
+				self.member_search[request.slot].error =
+					Some("Member search exceeded its safety limit");
+			}
+			Err(error) => self.member_search[request.slot].error = Some(error.label()),
 		}
 	}
 }

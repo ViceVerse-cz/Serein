@@ -102,7 +102,7 @@ impl Page {
 			Self::Account => "my account profile logout",
 			Self::Profile => "profile edit display name about me bio pronouns color colour",
 			Self::General => {
-				"general windows macos login menu bar startup autostart automatically open minimized minimize tray background"
+				"general windows macos login menu bar startup autostart automatically open minimized minimize close tray background"
 			}
 			Self::Appearance => {
 				"appearance customization primary accent hex window title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
@@ -111,7 +111,7 @@ impl Page {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
 			}
 			Self::Notifications => {
-				"notifications desktop system alerts overview sounds badges email streaming friends reactions"
+				"notifications desktop system alerts overview sounds badges message ring"
 			}
 			Self::Activity => "game activity playing osu status presence sharing",
 			Self::Voice => {
@@ -341,7 +341,7 @@ impl MessagingUi {
 										self.messaging_permissions_settings(ui, state, commands)
 									}
 									Page::Notifications => {
-										self.notification_settings(ui, state, commands)
+										self.notification_settings(ui, state.demo)
 									}
 									Page::Activity => self.activity_settings(ui, state),
 									Page::Voice => self.voice_settings_content(
@@ -748,9 +748,9 @@ impl MessagingUi {
 					"Show Serein in System Tray"
 				},
 				Some(if cfg!(target_os = "macos") {
-					"Show a menu bar icon. Minimized windows stay in the Dock."
+					"Closing the window keeps Serein in the menu bar. Quit from its menu to exit."
 				} else {
-					"Show a notification-area icon. Minimized windows stay in the taskbar."
+					"Closing the window keeps Serein in the notification area. Quit from its menu to exit."
 				}),
 				&mut self.minimize_to_tray,
 			);

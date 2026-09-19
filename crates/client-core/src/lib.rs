@@ -16,14 +16,13 @@ pub mod invites;
 pub mod member_search;
 pub mod message_actions;
 pub mod messaging_permissions;
-pub mod notification_settings;
 pub mod notifications;
 pub mod presence;
 pub mod profile;
 pub mod reactions;
 pub mod read_state;
 mod replies;
-pub use replies::ReplyDeletions;
+pub use replies::{Reply, ReplyDeletions};
 pub mod group_actions;
 pub mod resident;
 pub mod screen;
@@ -58,11 +57,6 @@ pub enum Command {
 	MessagingPermissions {
 		request: u64,
 		change: Option<model::messaging_permissions::Change>,
-	},
-	AccountNotificationSettings {
-		request: u64,
-		section: model::notification_settings::Section,
-		change: Option<model::notification_settings::Change>,
 	},
 	ChannelAction {
 		guild: Id,
@@ -114,6 +108,8 @@ pub enum Command {
 		guild: Id,
 		title: String,
 		content: String,
+		/// Filenames staged for the starter message, in selection order; empty sends text only.
+		attachments: Vec<String>,
 		request: u64,
 	},
 	ForumPosts {
@@ -188,7 +184,7 @@ pub enum Command {
 		channel: Id,
 		content: String,
 		nonce: String,
-		reply: Option<Id>,
+		reply: Option<Reply>,
 	},
 	Edit {
 		request: u64,
@@ -340,11 +336,6 @@ pub enum Event {
 	MessagingPermissions {
 		request: u64,
 		result: Result<model::messaging_permissions::Snapshot, auth::Failure>,
-	},
-	SocialNotification(model::notification_settings::SocialNotification),
-	AccountNotificationSettings {
-		request: u64,
-		result: Result<model::notification_settings::Snapshot, auth::Failure>,
 	},
 	InviteChallenge {
 		request: u64,
@@ -520,7 +511,6 @@ pub struct NavigationIndex {
 
 pub struct State {
 	pub messaging_permissions: messaging_permissions::Settings,
-	pub notification_settings: notification_settings::Settings,
 	pub guild_folders: Option<model::guild_folders::Settings>,
 	pub folders_pending: bool,
 	pub folders_error: Option<&'static str>,
@@ -586,7 +576,7 @@ pub struct State {
 	pub status: &'static str,
 	pub drafts: BTreeMap<Id, String>,
 	pub pending: Vec<Pending>,
-	pub reply: Option<Id>,
+	pub reply: Option<Reply>,
 	pub send_sequence: u64,
 	pub request: u64,
 	pub history_before: Option<Id>,
@@ -603,7 +593,6 @@ impl Default for State {
 	fn default() -> Self {
 		Self {
 			messaging_permissions: Default::default(),
-			notification_settings: Default::default(),
 			guild_folders: None,
 			folders_pending: false,
 			folders_error: None,
@@ -1075,6 +1064,7 @@ impl State {
 			confirmed: None,
 		});
 		self.drafts.remove(&channel);
+		self.search_target = None;
 		Some(Command::Send {
 			channel,
 			content,
@@ -1095,15 +1085,6 @@ impl State {
 				request,
 				Err(auth::Failure::ProtocolAt(
 					"Messaging permissions were not queued; try again",
-				)),
-			);
-			return;
-		}
-		if let Command::AccountNotificationSettings { request, .. } = command {
-			self.apply_account_notification_settings(
-				request,
-				Err(auth::Failure::ProtocolAt(
-					"Notification settings were not queued; try again",
 				)),
 			);
 			return;
@@ -1558,17 +1539,15 @@ impl State {
 		}
 		if let Event::ThreadChanged { guild, patch } = &envelope.event
 			&& !self
-				.channels
-				.iter()
-				.any(|c| c.id == patch.id && c.guild == Some(*guild) && matches!(c.kind, 10..=12))
+				.channel(patch.id)
+				.is_some_and(|c| c.guild == Some(*guild) && matches!(c.kind, 10..=12))
 		{
 			return;
 		}
 		if let Event::ThreadRemoved { guild, id } = &envelope.event
 			&& !self
-				.channels
-				.iter()
-				.any(|c| c.id == *id && c.guild == Some(*guild) && matches!(c.kind, 10..=12))
+				.channel(*id)
+				.is_some_and(|c| c.guild == Some(*guild) && matches!(c.kind, 10..=12))
 		{
 			return;
 		}
@@ -1666,10 +1645,6 @@ impl State {
 						*guild = actual;
 					}
 				}
-				// Typed updates replace the old PermissionsChanged fallback too.
-				// Retire both snapshots and in-flight profiles before applying them.
-				self.clear_profile();
-				self.profile_cache.clear();
 				self.server_admin.permissions_changed(&event);
 				self.update_permissions(event)
 			}
@@ -1711,16 +1686,8 @@ impl State {
 			}
 			Event::ReadState(event) => self.apply_read_state(event),
 			Event::NotificationPreferences(event) => self.apply_notification_preferences(event),
-			Event::SocialNotification(item) => {
-				self.receive_social_notification(item);
-				Ok(())
-			}
 			Event::MessagingPermissions { request, result } => {
 				self.apply_messaging_permissions(request, result);
-				Ok(())
-			}
-			Event::AccountNotificationSettings { request, result } => {
-				self.apply_account_notification_settings(request, result);
 				Ok(())
 			}
 			Event::UserAction(event) => self.apply_user_action(event),
@@ -1757,10 +1724,10 @@ impl State {
 						self.fail(auth::Failure::Capacity);
 						return;
 					}
-					self.guilds.push(guild);
+					self.guilds.insert(0, guild);
 					bytes += (self.guilds.capacity() - capacity) * size_of::<Guild>();
 					if bytes + self.permissions.bytes() > model::account::MAX_BYTES {
-						self.guilds.pop();
+						self.guilds.remove(0);
 						self.guilds.shrink_to_fit();
 						self.invalidate_navigation();
 						self.fail(auth::Failure::Capacity);
@@ -1845,7 +1812,7 @@ impl State {
 			}
 			Event::ChannelCreated(channel) | Event::ChannelRestored(channel) => {
 				if self.archived_thread == Some(channel.id)
-					&& self.channels.iter().any(|old| {
+					&& self.channel(channel.id).is_some_and(|old| {
 						old.id == channel.id
 							&& (old.guild != channel.guild
 								|| old.parent_id != channel.parent_id
@@ -1857,7 +1824,7 @@ impl State {
 					&& (!channel
 						.guild
 						.is_some_and(|guild| self.guild(guild).is_some())
-						|| self.channels.iter().any(|old| {
+						|| self.channel(channel.id).is_some_and(|old| {
 							old.id == channel.id
 								&& (old.guild != channel.guild || !matches!(old.kind, 10..=12))
 						})) {
@@ -1929,7 +1896,7 @@ impl State {
 				{
 					self.clear_archives();
 				}
-				if let Some(index) = self.channels.iter().position(|c| c.id == patch.id) {
+				if let Some(index) = self.channel_index(patch.id) {
 					let previous = self.channels[index].clone();
 					let channel = &mut self.channels[index];
 					if let Some(latest) = channel.last_message {
@@ -1992,9 +1959,8 @@ impl State {
 			}
 			Event::RecipientAdded { channel, user } => {
 				if let Some(index) = self
-					.channels
-					.iter()
-					.position(|c| c.id == channel && c.guild.is_none())
+					.channel_index(channel)
+					.filter(|&index| self.channels[index].guild.is_none())
 				{
 					let previous = self.channels[index].clone();
 					let c = &mut self.channels[index];
@@ -2036,11 +2002,11 @@ impl State {
 					}
 					return;
 				}
-				if let Some(c) = self
-					.channels
-					.iter_mut()
-					.find(|c| c.id == channel && c.guild.is_none())
+				if let Some(index) = self
+					.channel_index(channel)
+					.filter(|&index| self.channels[index].guild.is_none())
 				{
+					let c = &mut self.channels[index];
 					c.recipients.retain(|u| u.id != user);
 					for (id, participants) in &mut self.voice.dm_participants {
 						if *id == channel {
@@ -2091,6 +2057,13 @@ impl State {
 				{
 					self.members.as_mut().unwrap().freshness = Freshness::Unavailable;
 				} else {
+					for member in list.rows.iter().flatten() {
+						self.timeline.apply_author_membership(
+							member.user.id,
+							&member.roles,
+							member.nick.as_deref(),
+						);
+					}
 					self.members = Some(list);
 				}
 				Ok(())
@@ -2377,7 +2350,7 @@ impl State {
 					channel.last_message = None;
 				}
 				if self.selected == Some(channel) {
-					if self.reply == Some(id) {
+					if self.reply_target() == Some(id) {
 						self.reply = None;
 					}
 					self.timeline.delete(id)
@@ -2421,7 +2394,7 @@ impl State {
 				if ids.len() > 100 {
 					Err("Bulk deletion exceeds safe capacity")
 				} else if self.selected == Some(channel) {
-					if self.reply.is_some_and(|id| ids.contains(&id)) {
+					if self.reply_target().is_some_and(|id| ids.contains(&id)) {
 						self.reply = None;
 					}
 					ids.into_iter().try_for_each(|id| self.timeline.delete(id))
@@ -2501,9 +2474,6 @@ impl State {
 			}
 			Event::Disconnected => {
 				self.member_search = Default::default();
-				self.interrupt_notification_settings(auth::Failure::ProtocolAt(
-					"Disconnected; reload notification settings",
-				));
 				self.cancel_message_actions();
 				self.cancel_user_action();
 				self.cancel_server_action();
@@ -2578,7 +2548,7 @@ impl State {
 			self.cancel_history();
 		}
 		if self
-			.reply
+			.reply_target()
 			.is_some_and(|target| self.timeline.is_deleted(target))
 		{
 			self.reply = None;
@@ -2719,7 +2689,6 @@ impl State {
 		}
 		if failure.ends_session() {
 			self.invalidate_messaging_permissions(Some(failure));
-			self.interrupt_notification_settings(failure);
 			self.interrupt_own_profile();
 			self.local_game_activity = Default::default();
 			self.cancel_message_actions();
@@ -2850,7 +2819,6 @@ impl Event {
 					.result
 					.as_ref()
 					.map_or(0, model::server_admin::Result::bytes),
-				Self::SocialNotification(item) => item.body.capacity(),
 				Self::GuildFolders(result) => result
 					.as_ref()
 					.map_or(0, model::guild_folders::Settings::heap_bytes),
@@ -3208,7 +3176,7 @@ mod tests {
 		assert_eq!(state.pending[0].attachments, ["a.png", "b.png", "c.pdf"]);
 		state.command_rejected(batch);
 		state.pending.clear();
-		state.reply = Some(Id(4));
+		state.reply = Some(Reply::to(Id(4)));
 		let Command::Send {
 			content,
 			nonce,
@@ -3221,7 +3189,7 @@ mod tests {
 			panic!()
 		};
 		assert!(content.is_empty());
-		assert_eq!(reply, Some(Id(4)));
+		assert_eq!(reply, Some(Reply::to(Id(4))));
 		assert_eq!(state.pending[0].attachments, ["résumé.txt"]);
 		assert!(state.draft_bytes() >= "résumé.txt".len() + nonce.len() + size_of::<Pending>());
 		apply(
@@ -4014,7 +3982,7 @@ mod tests {
 			},
 		);
 		let positions = state.timeline.row_ids().collect::<Vec<_>>();
-		state.reply = Some(Id(100));
+		state.reply = Some(Reply::to(Id(100)));
 		apply(
 			&mut state,
 			Event::Delete {
@@ -4022,7 +3990,7 @@ mod tests {
 				id: Id(100),
 			},
 		);
-		assert_eq!(state.reply, Some(Id(100)));
+		assert_eq!(state.reply_target(), Some(Id(100)));
 		assert!(state.timeline.get(Id(100)).is_some());
 		apply(
 			&mut state,
@@ -4032,7 +4000,7 @@ mod tests {
 			},
 		);
 		assert_eq!(state.reply, None);
-		state.reply = Some(Id(101));
+		state.reply = Some(Reply::to(Id(101)));
 		let mut ids: Vec<_> = (101..150).map(Id).collect();
 		ids.extend([Id(101), Id(999)]); // Duplicate and unknown IDs create no extra rows.
 		apply(
@@ -4441,7 +4409,7 @@ mod tests {
 			};
 			state.timeline.insert(message(80), true, false).unwrap();
 			state.drafts.insert(Id(1), "Preserve this draft".into());
-			state.reply = Some(Id(80));
+			state.reply = Some(Reply::to(Id(80)));
 			assert!(matches!(state.history(None), Command::History { .. }));
 			let request = state.request;
 			apply(

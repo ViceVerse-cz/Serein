@@ -1,8 +1,16 @@
 use super::{Event, Events};
-use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained, sel};
+use objc2::{
+	AllocAnyThread, DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained, sel,
+};
 use objc2_app_kit::{NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem};
-use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, ns_string};
+use objc2_foundation::{MainThreadMarker, NSData, NSObject, NSObjectProtocol, NSSize, ns_string};
 use std::sync::Arc;
+
+/// Serein's own mark, rasterized from `assets/brand/serein-mark.svg` as a menu bar template:
+/// only its alpha matters, so macOS tints it for light, dark and highlighted menu bars.
+const MARK: &[u8] = include_bytes!("../../../../assets/brand/serein-tray.png");
+/// Menu bar images are measured in points; the render is larger so Retina scales stay sharp.
+const MARK_POINTS: f64 = 18.0;
 
 struct State {
 	window: Arc<winit::window::Window>,
@@ -79,16 +87,10 @@ impl Tray {
 			.item
 			.button(mtm)
 			.ok_or("The macOS menu bar is unavailable.")?;
-		let image = if objc2::available!(macos = 11.0) {
-			NSImage::imageWithSystemSymbolName_accessibilityDescription(
-				ns_string!("bubble.left.and.bubble.right"),
-				Some(ns_string!("Serein")),
-			)
-		} else {
-			None
-		};
+		let image = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(MARK));
 		if let Some(image) = image {
 			image.setTemplate(true);
+			image.setSize(NSSize::new(MARK_POINTS, MARK_POINTS));
 			button.setImage(Some(&image));
 		} else {
 			button.setTitle(ns_string!("Serein"));

@@ -14,6 +14,7 @@ use notify_rust::NotificationHandle;
 
 // Eight bounded commands; overflow drops an alert, never message state.
 const QUEUE_ITEMS: usize = 8;
+const GENERIC_BODY: &str = "You have a new message.";
 const TITLE_BYTES: usize = 256;
 const BODY_BYTES: usize = 512;
 const IMAGE_PATH_BYTES: usize = 512;
@@ -59,27 +60,6 @@ impl Status {
 	}
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind {
-	Message,
-	Streaming,
-	UpcomingEvent,
-	Reaction,
-	FriendsOnline,
-	ProfileUpdates,
-}
-impl Kind {
-	fn body(self) -> &'static str {
-		match self {
-			Self::Message => "You have a new message.",
-			Self::Streaming => "Someone you know started streaming.",
-			Self::UpcomingEvent => "A server event is starting.",
-			Self::Reaction => "Someone reacted to your message.",
-			Self::FriendsOnline => "A friend came online.",
-			Self::ProfileUpdates => "A friend updated their profile.",
-		}
-	}
-}
 struct Alert {
 	title: Box<str>,
 	body: Box<str>,
@@ -176,12 +156,9 @@ impl Notifications {
 
 	/// Queue a privacy-preserving generic alert. False means disabled, unavailable or overloaded.
 	pub fn notify(&self) -> bool {
-		self.notify_kind(Kind::Message)
-	}
-	pub fn notify_kind(&self, kind: Kind) -> bool {
 		self.enqueue(Alert {
 			title: "Serein".into(),
-			body: kind.body().into(),
+			body: GENERIC_BODY.into(),
 			image_path: None,
 		})
 	}
@@ -471,7 +448,7 @@ mod tests {
 	fn disabled_is_lazy_and_fixed_queue_is_bounded_and_invalidated() {
 		let alert = notification(&Alert {
 			title: "Serein".into(),
-			body: Kind::Message.body().into(),
+			body: GENERIC_BODY.into(),
 			image_path: None,
 		});
 		assert_eq!(alert.summary, "Serein");

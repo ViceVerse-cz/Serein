@@ -17,6 +17,7 @@ pulldown-cmark = { version = "=0.13.4", default-features = false }
 url.workspace = true
 time.workspace = true
 unicode-segmentation = "=1.13.3"
+unicode-bidi = "=0.3.18"
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 tz-rs = "0.7.3"
 ruzstd = { version = "0.9.0", default-features = false, features = ["std"] }
@@ -34,4 +35,8 @@ required-features = ["demo"]
 
 [[example]]
 name = "account_presence"
+required-features = ["demo"]
+
+[[example]]
+name = "profile_layout"
 required-features = ["demo"]

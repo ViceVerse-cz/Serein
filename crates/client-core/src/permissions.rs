@@ -172,6 +172,9 @@ impl Permissions {
 		Ok(())
 	}
 	pub fn update(&mut self, event: Event) -> Result<(), &'static str> {
+		self.update_changed(event).map(|_| ())
+	}
+	fn update_changed(&mut self, event: Event) -> Result<bool, &'static str> {
 		let guild_ids: BTreeSet<Id> = match &event {
 			Event::Snapshot(snapshot) => snapshot.guilds.iter().map(|guild| guild.id).collect(),
 			Event::Guild(guild) => [guild.id].into(),
@@ -230,10 +233,16 @@ impl Permissions {
 			}
 			return Err(error);
 		}
+		let changed = guilds
+			.iter()
+			.any(|(id, old)| self.guilds.get(id) != old.as_ref())
+			|| channels
+				.iter()
+				.any(|(id, old)| self.channels.get(id) != old.as_ref());
 		self.cache.get_mut().retain(|(guild, channel, _), _| {
 			!guild_ids.contains(guild) && !channel_ids.contains(channel)
 		});
-		Ok(())
+		Ok(changed)
 	}
 	fn update_in_place(&mut self, event: Event) -> Result<(), &'static str> {
 		let next = self;
@@ -382,7 +391,13 @@ impl Permissions {
 
 impl State {
 	pub(crate) fn update_permissions(&mut self, event: Event) -> Result<(), &'static str> {
-		let result = self.permissions.update(event).and_then(|()| {
+		let update = self.permissions.update_changed(event);
+		// Repeated gateway snapshots must not restart an open profile request.
+		if !matches!(update, Ok(false)) {
+			self.clear_profile();
+			self.profile_cache.clear();
+		}
+		let result = update.and_then(|_| {
 			if self.navigation_bytes() + self.permissions.bytes() > model::account::MAX_BYTES {
 				Err("Account navigation exceeds safe capacity")
 			} else {
@@ -415,28 +430,29 @@ impl State {
 		}
 		let guild = self.channel(message.channel)?.guild?;
 		let roles = self
+			.live_author_roles(guild, message.channel, message.author.id)
+			.unwrap_or(message.author_roles.as_slice());
+		self.display_roles(guild, roles).1.map(|role| role.color)
+	}
+	fn live_author_roles(&self, guild: Id, channel: Id, user: Id) -> Option<&[Id]> {
+		let member = self
 			.members
 			.as_ref()
-			.filter(|list| list.guild == Some(guild) && list.channel == message.channel)
+			.filter(|list| list.guild == Some(guild) && list.channel == channel)
 			.and_then(|list| {
 				list.rows
 					.iter()
 					.flatten()
-					.find(|member| member.user.id == message.author.id)
+					.find(|member| member.user.id == user)
 			})
 			.or_else(|| {
 				let view = &self.member_search[1];
-				view.request.as_ref().filter(|request| {
-					request.guild == guild && request.channel == message.channel
-				})?;
-				view.rows
-					.iter()
-					.find(|member| member.user.id == message.author.id)
-			})
-			.map_or(message.author_roles.as_slice(), |member| {
-				member.roles.as_slice()
-			});
-		self.display_roles(guild, roles).1.map(|role| role.color)
+				view.request
+					.as_ref()
+					.filter(|request| request.guild == guild && request.channel == channel)?;
+				view.rows.iter().find(|member| member.user.id == user)
+			})?;
+		(!member.roles.is_empty()).then_some(member.roles.as_slice())
 	}
 	fn display_roles(
 		&self,

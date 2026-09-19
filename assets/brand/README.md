@@ -10,6 +10,14 @@ other vendor's branding, and no third-party font is embedded in them.
   `tools/generate-icons.py` rasterizes this one into the shared icon atlas as `serein-mark`,
   which the interface tints at draw time.
 - `serein-1024.png` — 1024×1024 sRGB RGBA preview render of the full-colour mark.
+- `serein-tray.png` — 72×72 black-on-transparent render of `serein-mark.svg`, embedded by
+  `crates/platform` as the macOS menu bar template image; macOS tints it per appearance, so only
+  its alpha is used. Regenerate with:
+
+  ```sh
+  sed 's/fill="#fff"/fill="#000"/g' assets/brand/serein-mark.svg |
+    rsvg-convert -w 72 -h 72 -o assets/brand/serein-tray.png
+  ```
 
 The packaged platform icons built from the same artwork live in `packaging/` (`macos/Serein.icns`
 and `Serein.icon`, `windows/Serein.ico`, `linux/hicolor/*`).

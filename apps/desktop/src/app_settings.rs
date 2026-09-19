@@ -44,6 +44,7 @@ impl Settings {
 			keybinds: ui.keybinds.clone(),
 			expanded_folders: ui.expanded_folders.clone(),
 			user_volumes: ui.voice_user_volume_overrides(),
+			muted_users: ui.voice_user_mutes().to_vec(),
 		};
 		if value != self.current {
 			self.state.touched = true;
@@ -74,5 +75,6 @@ impl Settings {
 		ui.keybinds = value.keybinds.clone();
 		ui.expanded_folders.clone_from(&value.expanded_folders);
 		ui.set_voice_user_volume_overrides(&value.user_volumes);
+		ui.set_voice_user_mutes(&value.muted_users);
 	}
 }

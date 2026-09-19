@@ -29,16 +29,16 @@ fn reaction_button(
 	demo: bool,
 ) -> egui::Button<'static> {
 	let label = emoji.label();
-	if emoji.id.is_none() {
-		crate::emoji::button(ctx, &label, count.to_string())
-	} else if let Some(image) = emoji
-		.id
-		.and_then(|id| avatars.custom_image(ctx, id, 18.0, demo))
-	{
-		egui::Button::image_and_text(image.alt_text(label), count.to_string())
-			.image_tint_follows_text_color(false)
-	} else {
-		egui::Button::new(format!("{label} {count}"))
+	let count = count.to_string();
+	match emoji.id {
+		None => crate::emoji::button(ctx, &label, count),
+		Some(id) => {
+			let image = avatars
+				.custom_image(ctx, id, 18.0, demo)
+				.unwrap_or_else(|| crate::emoji::blank(ctx, 18.0));
+			egui::Button::image_and_text(image.alt_text(label), count)
+				.image_tint_follows_text_color(false)
+		}
 	}
 }
 
@@ -124,14 +124,15 @@ pub fn show(
 				.show(|ui| {
 					ui.set_width(width - 24.0);
 					ui.horizontal_centered(|ui| {
-						let image = reaction
-							.emoji
-							.id
-							.and_then(|id| media.0.custom_image(ui.ctx(), id, 52.0, media.1))
-							.or_else(|| {
-								crate::emoji::image(ui.ctx(), &reaction.emoji.label(), 52.0)
-							});
-						if let Some(image) = image {
+						if let Some(image) = match reaction.emoji.id {
+							Some(id) => Some(
+								media
+									.0
+									.custom_image(ui.ctx(), id, 52.0, media.1)
+									.unwrap_or_else(|| crate::emoji::blank(ui.ctx(), 52.0)),
+							),
+							None => crate::emoji::image(ui.ctx(), &reaction.emoji.label(), 52.0),
+						} {
 							ui.add(image);
 						} else {
 							ui.label(

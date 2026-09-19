@@ -259,12 +259,6 @@ fn main() -> eframe::Result {
 			},
 			..Default::default()
 		},
-		#[cfg(target_os = "windows")]
-		window_builder: Some(Box::new(|builder| {
-			// winit's shadow hack offsets the restored client area by one pixel.
-			// Keep the undecorated client aligned with the DX12 presentation area.
-			builder.with_has_shadow(false)
-		})),
 		persist_window: false,
 		persistence_path: None,
 		..Default::default()
@@ -687,6 +681,10 @@ struct Desktop {
 	tray: Option<platform::tray::Tray>,
 	hotkeys: platform::hotkeys::Hotkeys,
 	tray_error: Option<&'static str>,
+	/// The window is hidden behind a live tray icon, so a restore must bring it back.
+	hidden_to_tray: bool,
+	/// Quitting from the tray, or an armed update, asked to exit: close requests stop hiding.
+	tray_quit: bool,
 	/// `--demo-reply`: keeps two synthetic typists active on the selected fixture channel.
 	#[cfg(feature = "demo")]
 	demo_typing: bool,
@@ -996,6 +994,14 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 	}
 }
 
+#[cfg(target_os = "windows")]
+fn align_undecorated_surface(window: &winit::window::Window) {
+	use winit::platform::windows::WindowExtWindows as _;
+	// egui-winit turns on winit's 1px restored-client shift for custom chrome.
+	// Maximized skips the shift.
+	window.set_undecorated_shadow(false);
+}
+
 impl Desktop {
 	fn new(
 		cc: &eframe::CreationContext<'_>,
@@ -1194,7 +1200,7 @@ impl Desktop {
 		}
 		let mut reading = reading_settings::ReadingSettings::default();
 		let mut game_activity = toggle_setting::Settings::default();
-		let mut tray_setting = toggle_setting::Settings::default();
+		let mut tray_setting = toggle_setting::Settings::with_default(true);
 		if cache.as_ref().is_some_and(|cache| {
 			cache.queue(
 				state.generation,
@@ -1262,6 +1268,22 @@ impl Desktop {
 			messaging.hide_title_bar = true;
 			// The demo updater owns the flags, so ask it for its synthetic release.
 			messaging.updates.check_requested = true;
+		}
+		// `--demo-toast`: one of each severity, so the transient notice layer can be
+		// captured without provoking a real failure.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-toast") {
+			messaging.toasts.push(
+				ui::design::Level::Error,
+				"Attach up to 10 files per message",
+			);
+			messaging.toasts.push(
+				ui::design::Level::Warning,
+				"Attachments must total at most 20 MB",
+			);
+			messaging
+				.toasts
+				.push(ui::design::Level::Info, "Attachment upload cancelled");
 		}
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-game-activity") {
@@ -1395,7 +1417,11 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if demo_typing {
 			// Reply bar plus an active typing row on the fixture conversation, for screenshots.
-			state.reply = state.timeline.iter().last().map(|message| message.id);
+			state.reply = state
+				.timeline
+				.iter()
+				.last()
+				.map(|message| client_core::Reply::to(message.id));
 			state.status = "Offline fixture · reply bar and typing row shown at startup";
 		}
 		#[cfg(feature = "demo")]
@@ -1598,6 +1624,12 @@ impl Desktop {
 		if !demo {
 			hotkeys.sync(&messaging.keybinds, &runtime);
 		}
+		let window = cc
+			.winit_window()
+			.ok_or("Native window unavailable")?
+			.clone();
+		#[cfg(target_os = "windows")]
+		align_undecorated_surface(&window);
 		Ok(Self {
 			extensions: extension_bridge::Bridge::default(),
 			extension_close_pending: false,
@@ -1631,10 +1663,7 @@ impl Desktop {
 			emoji_upload: emoji_upload::EmojiUpload::default(),
 			clipboard: None,
 			download_close_pending: false,
-			window: cc
-				.winit_window()
-				.ok_or("Native window unavailable")?
-				.clone(),
+			window,
 			monitor_geometry: None,
 			monitor_period: None,
 			frame_metrics: FrameMetrics::new(frame_sample),
@@ -1662,6 +1691,8 @@ impl Desktop {
 			tray_setting,
 			startup,
 			tray: None,
+			hidden_to_tray: false,
+			tray_quit: false,
 			hotkeys,
 			tray_error: None,
 			#[cfg(feature = "demo")]
@@ -2043,12 +2074,37 @@ impl Desktop {
 				Err(error) => self.tray_error = Some(error),
 			}
 		}
+		if self.tray.is_none() {
+			self.show_from_tray(ctx);
+		}
 		self.messaging.tray_status = self
 			.tray_error
 			.unwrap_or_else(|| self.tray_setting.status());
 		if previous_status != self.messaging.tray_status {
 			ctx.request_repaint();
 		}
+	}
+	/// Bring a tray-hidden window back. The native tray shows the window itself as well, so a
+	/// restore still works while hidden frames run app logic without a ui pass.
+	fn show_from_tray(&mut self, ctx: &egui::Context) {
+		if !std::mem::take(&mut self.hidden_to_tray) {
+			return;
+		}
+		ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+		ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+		ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+		ctx.request_repaint();
+	}
+	/// With a live tray icon, Close hides the window and Serein keeps running; the tray menu
+	/// quits with the usual unsaved-work checks. Without an icon, Close still exits.
+	fn close_to_tray(&mut self, ctx: &egui::Context) -> bool {
+		if self.tray_quit || self.tray.is_none() {
+			return false;
+		}
+		ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+		ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+		self.hidden_to_tray = true;
+		true
 	}
 	fn sync_own_presence(&mut self, ctx: &egui::Context) {
 		let changed = std::mem::take(&mut self.messaging.own_presence_changed);
@@ -2392,6 +2448,59 @@ impl Desktop {
 			});
 			return;
 		}
+		// A forum post with files takes the same staged-upload path as a message.
+		if let Command::CreatePost {
+			parent,
+			attachments,
+			request,
+			..
+		} = &command
+			&& !attachments.is_empty()
+		{
+			let (parent, request) = (*parent, *request);
+			let available = !self.state.demo
+				&& self.state.can_attach_post(parent)
+				&& !self.fixture_only
+				&& self.state.auth == AuthState::Authenticated
+				&& self.state.gateway_connected
+				&& self.state.selected == Some(parent)
+				&& self.connection.is_some();
+			if available
+				&& let Some(source) = self.uploads.take_source(self.state.generation, parent)
+			{
+				let (progress, receive) =
+					tokio::sync::watch::channel(discord_api::upload::Status::Preparing);
+				let (cancel, _) = tokio::sync::watch::channel(false);
+				if self.uploads.begin_upload(receive, cancel.clone()).is_ok() {
+					let request = uploads::UploadRequest {
+						command,
+						source,
+						progress,
+						cancel,
+					};
+					self.messaging.attachment = None;
+					if let Err(error) = self.connection.as_ref().unwrap().uploads.try_send(request)
+					{
+						let request = error.into_inner();
+						request
+							.progress
+							.send_replace(discord_api::upload::Status::Failed(
+								"Upload queue full; reselect the file",
+							));
+						self.state.command_rejected(request.command);
+					}
+					return;
+				}
+			}
+			self.state.apply_post(
+				parent,
+				request,
+				Err(Failure::ProtocolAt(
+					"Post not created; reconnect and reselect the attachment",
+				)),
+			);
+			return;
+		}
 		if let Command::History {
 			channel,
 			before: None,
@@ -2482,8 +2591,7 @@ impl Desktop {
 				}
 
 				// Demo preference changes are applied synchronously by client-core.
-				Command::AccountNotificationSettings { .. }
-				| Command::MessagingPermissions { .. } => return,
+				Command::MessagingPermissions { .. } => return,
 				Command::ChannelAction {
 					guild,
 					channel,
@@ -2995,7 +3103,7 @@ impl Desktop {
 					message.author = self.state.user.clone().unwrap();
 					message.content = content;
 					message.nonce = Some(nonce.clone());
-					message.reply_to = reply;
+					message.reply_to = reply.map(client_core::Reply::target);
 					Event::SendResult {
 						nonce,
 						result: Ok(message),
@@ -4296,13 +4404,6 @@ impl Desktop {
 				self.queue_cache(cache::Operation::SaveDraft { channel, content });
 			}
 			if ready && self.state.auth == AuthState::Authenticated {
-				if !self.fixture_only
-					&& !self.state.demo
-					&& let Some(command) = self.state.request_notification_settings(
-						model::notification_settings::Section::Overview,
-					) {
-					self.command(command);
-				}
 				// The worker survives logout; each accepted account READY restores its own drafts.
 				if !self.messaging.draft_restore_pending {
 					self.messaging.draft_restore_pending =
@@ -4511,6 +4612,9 @@ impl eframe::App for Desktop {
 			}
 		};
 		self.frame_metrics.begin(ctx, search_focused);
+		if ctx.input(|input| input.viewport().close_requested()) {
+			self.close_to_tray(ctx);
+		}
 		self.startup.sync(
 			ctx,
 			&self.runtime,
@@ -4552,6 +4656,9 @@ impl eframe::App for Desktop {
 				&& !self.state.demo
 				&& (self.app_settings.loaded || self.app_settings.state.touched),
 		) {
+			// Installing needs a real exit, so this close must not stop at the tray.
+			self.tray_quit = true;
+			self.show_from_tray(ctx);
 			ctx.send_viewport_cmd(egui::ViewportCommand::Close);
 		}
 		self.state.expire_invite_challenge();
@@ -4595,22 +4702,31 @@ impl eframe::App for Desktop {
 				);
 			}
 		}
+		let mut tray_events = Vec::new();
 		if let Some(tray) = &mut self.tray {
 			while let Some(event) = tray.take_event() {
-				match event {
-					platform::tray::Event::Quit => {
-						ctx.send_viewport_cmd(egui::ViewportCommand::Close)
-					}
-					platform::tray::Event::Show => {}
-					platform::tray::Event::Unavailable => {
-						self.tray_error = Some("Tray unavailable. The window will stay visible.")
-					}
+				tray_events.push(event);
+			}
+		}
+		for event in tray_events {
+			match event {
+				platform::tray::Event::Quit => {
+					self.tray_quit = true;
+					self.show_from_tray(ctx);
+					ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+				}
+				platform::tray::Event::Show => self.show_from_tray(ctx),
+				platform::tray::Event::Unavailable => {
+					self.tray_error = Some("Tray unavailable. The window will stay visible.");
+					self.show_from_tray(ctx);
 				}
 			}
 		}
-		let hidden_or_closing = ctx.input(|input| {
-			input.viewport().visible() == Some(false) || input.viewport().close_requested()
-		});
+		// The hide command lands after this frame, so the flag leads reported visibility.
+		let hidden_or_closing = self.hidden_to_tray
+			|| ctx.input(|input| {
+				input.viewport().visible() == Some(false) || input.viewport().close_requested()
+			});
 		if self.state.user.is_none()
 			|| (!self.state.demo && self.state.auth != AuthState::Authenticated)
 			|| hidden_or_closing
@@ -4644,9 +4760,6 @@ impl eframe::App for Desktop {
 			self.fixture_only,
 		) {
 			match alert {
-				notification_runtime::Alert::Generic(kind) => {
-					self.notifications.notify_kind(kind);
-				}
 				notification_runtime::Alert::Message {
 					title,
 					body,
@@ -4673,14 +4786,16 @@ impl eframe::App for Desktop {
 				std::mem::take(&mut input.raw.dropped_files),
 			)
 		});
+		// `logic` already turned this close into a hide, so no exit check or prompt applies.
+		let close_requested = close_requested && !self.hidden_to_tray;
 		ui::design::paint_backdrop(&ctx);
 		let upload_allowed = self.state.user.is_some()
 			&& self.state.gateway_connected
 			&& self.state.freshness == model::Freshness::Fresh;
-		let can_attach = self
-			.state
-			.selected
-			.is_some_and(|channel| self.state.can_attach(channel));
+		// A forum container carries its own attachment permission for a post's first message.
+		let can_attach = self.state.selected.is_some_and(|channel| {
+			self.state.can_attach(channel) || self.state.can_attach_post(channel)
+		});
 		if let Some(paste) = &self.clipboard
 			&& let Some(result) = paste.poll()
 		{
@@ -4701,13 +4816,14 @@ impl eframe::App for Desktop {
 							self.runtime.handle(),
 							&ctx,
 						) {
-							self.state.status = error;
+							self.messaging.toasts.push(ui::design::Level::Error, error);
 						}
 					}
-					Ok(clipboard::Content::File(..)) => {
-						self.state.status = "Attaching files is unavailable here"
-					}
-					Err(error) => self.state.status = error,
+					Ok(clipboard::Content::File(..)) => self.messaging.toasts.push(
+						ui::design::Level::Error,
+						"Attaching files is unavailable here",
+					),
+					Err(error) => self.messaging.toasts.push(ui::design::Level::Error, error),
 				}
 			}
 			self.clipboard = None;
@@ -4748,11 +4864,13 @@ impl eframe::App for Desktop {
 					&ctx,
 					dropped,
 				) {
-					self.state.status = error;
+					self.messaging.toasts.push(ui::design::Level::Error, error);
 				}
 			} else {
-				self.state.status =
-					"File not attached; return to a connected conversation and drop it again";
+				self.messaging.toasts.push(
+					ui::design::Level::Error,
+					"File not attached; return to a connected conversation and drop it again",
+				);
 			}
 		}
 		// Offline fixtures may stage a synthetic attachment without any upload selection.
@@ -4765,7 +4883,9 @@ impl eframe::App for Desktop {
 			self.messaging.attachment_files = self.uploads.files();
 		}
 		self.messaging.upload_busy = self.uploads.busy() || self.clipboard.is_some();
-		self.messaging.upload_status = self.uploads.status();
+		if let Some(notice) = self.uploads.take_notice() {
+			self.messaging.toasts.push(ui::design::Level::Error, notice);
+		}
 		if !self.state.demo {
 			let (progress, sending) = self.uploads.transfer_progress();
 			self.messaging.update_upload_progress(progress, sending);
@@ -5026,11 +5146,9 @@ impl eframe::App for Desktop {
 				self.state.selected,
 				self.state.user.is_some() && self.state.gateway_connected,
 			);
-			if !self
-				.state
-				.selected
-				.is_some_and(|channel| self.state.can_attach(channel))
-			{
+			if !self.state.selected.is_some_and(|channel| {
+				self.state.can_attach(channel) || self.state.can_attach_post(channel)
+			}) {
 				self.uploads.cancel();
 			}
 			if let Some(index) = self.messaging.remove_attachment_index.take() {
@@ -5062,12 +5180,15 @@ impl eframe::App for Desktop {
 						&ctx,
 					));
 				} else {
-					self.state.status = "Wait for the current paste to finish";
+					self.messaging.toasts.push(
+						ui::design::Level::Error,
+						"Wait for the current paste to finish",
+					);
 				}
 			}
 			if std::mem::take(&mut self.messaging.attach_requested)
 				&& let Some(channel) = self.state.selected
-				&& self.state.can_attach(channel)
+				&& (self.state.can_attach(channel) || self.state.can_attach_post(channel))
 				&& let Err(error) = self.uploads.start_choose(
 					self.state.generation,
 					channel,
@@ -5247,9 +5368,8 @@ impl eframe::App for Desktop {
 		let appearance = ctx.options(|options| options.theme_preference);
 		#[cfg(target_os = "windows")]
 		if self.window.is_decorated() != self.messaging.hide_title_bar {
-			// egui's Decorations command also re-enables the shifted shadow client area.
-			// Change decorations directly, retaining the shadow-free creation policy.
 			self.window.set_decorations(self.messaging.hide_title_bar);
+			align_undecorated_surface(&self.window);
 		}
 		#[cfg(target_os = "macos")]
 		if let Err(error) =

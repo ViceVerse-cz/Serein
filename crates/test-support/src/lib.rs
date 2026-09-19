@@ -970,7 +970,7 @@ pub fn chat_demo_state() -> State {
 		"Yes. History loads in small pages as you scroll up.",
 		"Only nearby messages are rendered. The cache has a fixed memory budget.",
 		"A new day, same conversation.",
-		"This looks much easier to read.",
+		"Hey <@2> — see <#21>. This looks much easier to read.",
 		"Two new messages arrived while you were away.",
 		"Welcome back. All of this is synthetic, offline data.",
 	];
@@ -981,6 +981,16 @@ pub fn chat_demo_state() -> State {
 		m.author = message(if !(3..7).contains(&i) { 1 } else { 2 }, Id(20)).author;
 		m.content = (*text).into();
 		m.author_roles = vec![Id(101)];
+		if i == 6 {
+			m.mentions = vec![User {
+				id: Id(2),
+				name: "Robin (synthetic)".into(),
+				avatar: None,
+				webhook: false,
+				kind: Default::default(),
+				discriminator: 0,
+			}];
+		}
 		if i == 8 {
 			m.reply_to = state.timeline.iter().nth(6).map(|original| original.id);
 		}

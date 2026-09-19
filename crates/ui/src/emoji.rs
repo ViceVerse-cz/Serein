@@ -125,6 +125,21 @@ pub(crate) fn button(ctx: &Context, emoji: &str, text: String) -> egui::Button<'
 	}
 }
 
+pub(crate) fn blank(ctx: &Context, size: f32) -> Image<'static> {
+	let id = egui::Id::unique("emoji-blank");
+	let texture = ctx.data(|data| data.get_temp::<TextureHandle>(id));
+	let texture = texture.unwrap_or_else(|| {
+		let texture = ctx.load_texture(
+			"emoji-blank",
+			egui::ColorImage::filled([1, 1], egui::Color32::TRANSPARENT),
+			egui::TextureOptions::LINEAR,
+		);
+		ctx.data_mut(|data| data.insert_temp(id, texture.clone()));
+		texture
+	});
+	Image::new(&texture).fit_to_exact_size(egui::Vec2::splat(size))
+}
+
 pub(crate) fn custom_prefix(text: &str) -> Option<(model::Id, usize)> {
 	let body = text
 		.strip_prefix("<:")

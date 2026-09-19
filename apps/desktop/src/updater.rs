@@ -19,7 +19,7 @@ mod install;
 const RELEASES: &str = "https://api.github.com/repos/ViceVerse-cz/Serein/releases";
 const MAX_METADATA: usize = 2 * 1024 * 1024;
 const MAX_DOWNLOAD: u64 = 512 * 1024 * 1024;
-const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+const CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Clone, Deserialize)]
 struct Asset {

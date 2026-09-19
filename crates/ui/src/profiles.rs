@@ -983,13 +983,33 @@ pub fn show(
 										.or(p.global_name.as_deref())
 								})
 								.unwrap_or_else(|| state.user_display_name(user));
-							ui.horizontal_wrapped(|ui| {
+							let display = display.split_whitespace().collect::<Vec<_>>().join(" ");
+							let clan = data.and_then(|d| d.clan.as_ref());
+							let tag_width = clan.map_or(0.0, |clan| {
+								ui.painter()
+									.layout_no_wrap(
+										clan.tag.clone(),
+										egui::FontId::proportional(12.0),
+										theme.text,
+									)
+									.size()
+									.x + 38.0
+							});
+							ui.horizontal(|ui| {
 								ui.spacing_mut().item_spacing.x = 8.0;
-								ui.add(
-									egui::Label::new(RichText::new(display).size(20.0).strong())
-										.truncate(),
+								ui.allocate_ui_with_layout(
+									vec2((ui.available_width() - tag_width).max(0.0), 24.0),
+									egui::Layout::left_to_right(egui::Align::Center),
+									|ui| {
+										ui.add(
+											egui::Label::new(
+												RichText::new(display).size(20.0).strong(),
+											)
+											.truncate(),
+										);
+									},
 								);
-								if let Some(clan) = data.and_then(|d| d.clan.as_ref()) {
+								if let Some(clan) = clan {
 									egui::Frame::new()
 										.fill(theme.chip)
 										.corner_radius(6)
@@ -1003,7 +1023,12 @@ pub fn show(
 												state.demo,
 												"Server tag badge",
 											);
-											ui.label(RichText::new(&clan.tag).size(12.0).strong());
+											ui.add(
+												egui::Label::new(
+													RichText::new(&clan.tag).size(12.0).strong(),
+												)
+												.extend(),
+											);
 										})
 										.response
 										.on_hover_text(format!(

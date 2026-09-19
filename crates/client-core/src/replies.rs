@@ -2,11 +2,34 @@ use crate::{Command, State, auth::AuthState};
 use model::{Freshness, Id, Message};
 use session_cache::Timeline;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Reply {
+	target: Id,
+	pub mention: bool,
+}
+
+impl Reply {
+	pub fn to(target: Id) -> Self {
+		Self {
+			target,
+			mention: true,
+		}
+	}
+
+	pub fn target(self) -> Id {
+		self.target
+	}
+}
+
 /// Accepted known-deleted reply targets from the last applied event (at most 50).
 #[derive(Default)]
 pub struct ReplyDeletions(pub(crate) Vec<(Id, Id)>);
 
 impl State {
+	pub fn reply_target(&self) -> Option<Id> {
+		self.reply.map(Reply::target)
+	}
+
 	/// Navigate a Discord chat link without sending messages or joining voice.
 	pub fn open_chat_link(
 		&mut self,
@@ -107,7 +130,7 @@ impl State {
 		}
 		if self.selected == Some(message.channel) {
 			self.clear_search();
-			if self.reply == Some(target) {
+			if self.reply_target() == Some(target) {
 				self.reply = None;
 			}
 		}
@@ -136,7 +159,7 @@ impl State {
 				.timeline
 				.get(target)
 				.is_none_or(|message| message.channel == channel)
-			&& (self.reply == Some(target)
+			&& (self.reply_target() == Some(target)
 				|| self
 					.timeline
 					.iter()
@@ -587,7 +610,7 @@ mod tests {
 	fn loaded_reply_target_only_scrolls_and_preserves_composer_work() {
 		let mut state = state();
 		state.timeline.insert(message(50), false, false).unwrap();
-		state.reply = Some(Id(100));
+		state.reply = Some(Reply::to(Id(100)));
 		state.drafts.insert(Id(1), "Unsent draft".into());
 		state.pending.push(Pending {
 			channel: Id(1),
@@ -611,7 +634,7 @@ mod tests {
 			state.timeline.get(Id(50)).unwrap().content.as_ptr(),
 			content
 		);
-		assert_eq!(state.reply, Some(Id(100)));
+		assert_eq!(state.reply_target(), Some(Id(100)));
 		assert_eq!(state.drafts[&Id(1)], "Unsent draft");
 		assert_eq!(state.pending[0].delivery, Delivery::Ambiguous);
 		assert!(state.can_open_reply_target(Id(100))); // Composer context is also a source.
@@ -620,7 +643,7 @@ mod tests {
 	#[test]
 	fn unloaded_reply_uses_one_scoped_page_and_preserves_deletion_guards() {
 		let mut state = state();
-		state.reply = Some(Id(50));
+		state.reply = Some(Reply::to(Id(50)));
 		state.drafts.insert(Id(1), "Unsent draft".into());
 		apply(
 			&mut state,
@@ -644,7 +667,7 @@ mod tests {
 		assert_eq!(state.timeline.row_count(), 0);
 		assert!(state.timeline.is_deleted(Id(40)));
 		assert_eq!(state.freshness, Freshness::Loading);
-		assert_eq!(state.reply, Some(Id(50)));
+		assert_eq!(state.reply_target(), Some(Id(50)));
 		assert_eq!(state.drafts[&Id(1)], "Unsent draft");
 		assert!(state.open_reply_target(Id(50)).is_none());
 		assert_eq!(state.request, request);
@@ -679,7 +702,7 @@ mod tests {
 		assert!(!state.can_open_reply_target(Id(100))); // Loaded alone is not a reference.
 		for target in [Id(0), Id(u64::MAX)] {
 			let mut invalid = self::state();
-			invalid.reply = Some(target);
+			invalid.reply = Some(Reply::to(target));
 			assert!(!invalid.can_open_reply_target(target));
 			assert!(invalid.open_reply_target(target).is_none());
 		}
@@ -748,7 +771,7 @@ mod tests {
 		for history in [false, true] {
 			let mut state = state();
 			state.timeline.insert(message(50), false, false).unwrap();
-			state.reply = Some(Id(50));
+			state.reply = Some(Reply::to(Id(50)));
 			let mut source = message(101);
 			source.reply_to = Some(Id(50));
 			source.kind = 19;

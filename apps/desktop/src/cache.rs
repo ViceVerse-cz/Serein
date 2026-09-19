@@ -717,7 +717,7 @@ mod tests {
 		let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
 		assert!(matches!(
 			execute(&mut store, &safety, Id(0), 0, Operation::LoadMinimizeToTray),
-			Outcome::MinimizeToTray(Ok(false))
+			Outcome::MinimizeToTray(Ok(true))
 		));
 		assert!(matches!(
 			execute(
@@ -725,13 +725,13 @@ mod tests {
 				&safety,
 				Id(0),
 				0,
-				Operation::SaveMinimizeToTray(true)
+				Operation::SaveMinimizeToTray(false)
 			),
 			Outcome::MinimizeToTraySaved(Ok(()))
 		));
 		assert!(matches!(
 			execute(&mut store, &safety, Id(9), 0, Operation::LoadMinimizeToTray),
-			Outcome::MinimizeToTray(Ok(true))
+			Outcome::MinimizeToTray(Ok(false))
 		));
 		let mut unavailable = Err(StoreError::Unavailable);
 		assert!(matches!(

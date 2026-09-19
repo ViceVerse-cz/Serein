@@ -135,13 +135,13 @@ impl SearchUi {
 				ui.set_height(28.0);
 				ui.horizontal_centered(|ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
-					let input = ui.add(
-						egui::TextEdit::singleline(&mut self.query)
-							.char_limit(256)
-							.frame(egui::Frame::NONE)
-							.hint_text("Search")
-							.desired_width((ui.available_width() - 28.0).max(30.0)),
-					);
+					let output = egui::TextEdit::singleline(&mut self.query)
+						.char_limit(256)
+						.frame(egui::Frame::NONE)
+						.hint_text("Search")
+						.desired_width((ui.available_width() - 28.0).max(30.0))
+						.show(ui);
+					let input = output.response;
 					input.widget_info(|| {
 						egui::WidgetInfo::labeled(
 							egui::WidgetType::TextEdit,
@@ -152,6 +152,14 @@ impl SearchUi {
 					if self.focus {
 						input.request_focus();
 						self.focus = false;
+						// Selecting a filter appends to the query; keep the caret at the end
+						// instead of leaving it at its stale position from before the change.
+						let mut cursor_state = output.state;
+						let end = egui::text::CCursor::new(self.query.chars().count());
+						cursor_state
+							.cursor
+							.set_char_range(Some(egui::text::CCursorRange::one(end)));
+						cursor_state.store(ui.ctx(), input.id);
 					}
 					if input.clicked() || input.changed() {
 						self.filters_open = true;
@@ -488,34 +496,6 @@ impl SearchUi {
 									self.pins_content(ui, state, commands);
 								});
 						}
-						// Footer protip.
-						ui.painter().hline(
-							ui.max_rect().x_range(),
-							ui.cursor().top(),
-							egui::Stroke::new(1.0, colors.border),
-						);
-						egui::Frame::new()
-							.fill(colors.base)
-							.corner_radius(egui::CornerRadius {
-								sw: 8,
-								se: 8,
-								..Default::default()
-							})
-							.inner_margin(egui::Margin::symmetric(16, 14))
-							.show(ui, |ui| {
-								ui.set_width(ui.available_width());
-								ui.vertical_centered(|ui| {
-									ui.spacing_mut().item_spacing.y = 2.0;
-									ui.label(design::eyebrow(ui, "Protip", colors.positive));
-									ui.label(
-										RichText::new(
-											"You can pin a message from its context menu.",
-										)
-										.size(13.0)
-										.color(colors.text),
-									);
-								});
-							});
 					});
 			});
 		let clicked_outside = ctx.input(|i| i.pointer.any_pressed())
@@ -538,33 +518,13 @@ impl SearchUi {
 				ui.set_width(ui.available_width());
 				ui.vertical_centered(|ui| {
 					let (rect, _) =
-						ui.allocate_exact_size(egui::Vec2::splat(96.0), egui::Sense::hover());
+						ui.allocate_exact_size(egui::Vec2::splat(64.0), egui::Sense::hover());
 					let face = colors.muted.gamma_multiply(0.35);
-					ui.painter().circle_filled(rect.center(), 44.0, face);
-					let eye = colors.sidebar;
-					ui.painter()
-						.circle_filled(rect.center() + egui::vec2(-14.0, -4.0), 4.0, eye);
-					ui.painter()
-						.circle_filled(rect.center() + egui::vec2(14.0, -4.0), 4.0, eye);
-					// Frown.
-					let mut points = Vec::with_capacity(12);
-					for i in 0..=11 {
-						let t = i as f32 / 11.0;
-						let angle = std::f32::consts::PI * (1.2 + 0.6 * t);
-						points.push(
-							rect.center()
-								+ egui::vec2(-angle.cos() * 14.0, -angle.sin() * 12.0 + 26.0),
-						);
-					}
-					ui.painter()
-						.add(egui::Shape::line(points, egui::Stroke::new(3.0, eye)));
+					ui.painter().circle_filled(rect.center(), 32.0, face);
 					icons::paint(
 						ui.painter(),
 						icons::Icon::Pin,
-						egui::Rect::from_center_size(
-							rect.center() + egui::vec2(30.0, -34.0),
-							egui::Vec2::splat(30.0),
-						),
+						rect.shrink(16.0),
 						colors.text,
 					);
 					ui.add_space(20.0);

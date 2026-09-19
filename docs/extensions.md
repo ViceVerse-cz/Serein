@@ -96,8 +96,10 @@ Actions are invoked by a message context-menu item, composer tool or panel
 button. A plugin may also declare one `activation` action that runs in the worker
 on enable/account load. With explicit `deleted_messages` consent, its boolean
 `preserve_deleted_messages` output enables session-only retention of loaded deleted
-messages. Deleted text is red and has no live message actions; default deletion,
-tombstone reconciliation and disk-cache removal remain unchanged. Disabling clears
+messages. Deleted text is red by default. Hover and a local context menu can toggle
+that highlight or remove the retained row. They never call Discord. Live service
+actions stay unavailable. Default deletion, tombstone reconciliation and disk-cache
+removal remain unchanged. Disabling clears
 retained deleted content across active and dormant windows. Logout, lost channel
 access and ordinary timeline eviction also clear it. The same 500-row / 4 MiB
 per-window budget includes both live and retained deleted payloads. Input is restricted to the granted context and bounded form values.

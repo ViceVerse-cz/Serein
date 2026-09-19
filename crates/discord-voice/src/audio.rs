@@ -107,6 +107,18 @@ impl Gate {
 			.store(revision, Ordering::Release);
 		self.is_ready()
 	}
+	fn reopen_input<T>(
+		&self,
+		revision: u64,
+		open: impl FnOnce() -> Result<T, &'static str>,
+	) -> Result<T, &'static str> {
+		// Clear the previous failure before callbacks from the replacement can run.
+		self.input_failed_revision.store(0, Ordering::Release);
+		open().inspect_err(|_| {
+			self.input_failed_revision
+				.fetch_max(revision, Ordering::AcqRel);
+		})
+	}
 	fn capture(&self) -> bool {
 		self.is_ready()
 			&& self.input_enabled.load(Ordering::Acquire)
@@ -150,6 +162,7 @@ impl Audio {
 				// ending the call; only a persistent failure is reported.
 				let mut recovery_attempts = 0u8;
 				let mut next_default_check = Instant::now();
+				let mut next_input_retry = Instant::now() + Duration::from_secs(2);
 				'audio: while !worker_gate.stopped.load(Ordering::Acquire) {
 					let revision = worker_gate.revision.load(Ordering::Acquire);
 					let current = selected.borrow_and_update().clone();
@@ -246,7 +259,7 @@ impl Audio {
 						active.input_activity = Instant::now();
 					}
 					if active._input.is_some()
-						&& active.input_activity.elapsed() >= Duration::from_secs(3)
+						&& active.input_activity.elapsed() >= Duration::from_secs(5)
 					{
 						worker_gate
 							.input_failed_revision
@@ -257,8 +270,20 @@ impl Audio {
 					{
 						active._input = None;
 						active.input_id = None;
+						next_input_retry = Instant::now() + Duration::from_secs(2);
 						worker_gate.echo_reset.store(true, Ordering::Release);
 						emit(Ok(())); // Wake the UI for the recoverable microphone warning.
+					}
+					if active._input.is_none()
+						&& worker_gate.input_enabled.load(Ordering::Acquire)
+						&& worker_gate.ready.load(Ordering::Acquire)
+						&& Instant::now() >= next_input_retry
+					{
+						next_input_retry = Instant::now() + Duration::from_secs(2);
+						let host = cpal::default_host();
+						if active.try_reopen_input(&host, &current, &worker_gate, revision) {
+							emit(Ok(()));
+						}
 					}
 					let reset = worker_gate.echo_reset.swap(false, Ordering::AcqRel);
 					let mut drops = 0;
@@ -492,64 +517,22 @@ impl Streams {
 		let host = cpal::default_host();
 		let output = choose(&host, settings.output.as_deref(), false)?;
 		let output_id = output.id().ok().map(|id| id.to_string());
-		let mut input_id = None;
 		let output_config = config(&output, false)?;
-		let (input_write, input_read) = rtrb::RingBuffer::new(8);
 		let (output_write, output_read) = rtrb::RingBuffer::new(8);
 		let (reference_write, reference_read) = rtrb::RingBuffer::new(8);
 		let render = Playback::new(output_config.sample_rate(), output_read, reference_write);
 		let echo = echo::Echo::new();
-		let mut input_stream = if gate.input_enabled.load(Ordering::Acquire) {
-			let result = (|| -> Result<cpal::Stream, &'static str> {
-				#[cfg(target_os = "macos")]
-				permission_macos::authorize(&gate, revision)?;
-				let input = choose(&host, settings.input.as_deref(), true)?;
-				input_id = input.id().ok().map(|id| id.to_string());
-				let input_config = config(&input, true)?;
-				let capture = Capture::new(input_config.sample_rate(), input_write);
-				match input_config.sample_format() {
-					cpal::SampleFormat::F32 => input_stream::<f32>(
-						&input,
-						&input_config.config(),
-						capture,
-						gate.clone(),
-						revision,
-					),
-					cpal::SampleFormat::I16 => input_stream::<i16>(
-						&input,
-						&input_config.config(),
-						capture,
-						gate.clone(),
-						revision,
-					),
-					cpal::SampleFormat::I32 => input_stream::<i32>(
-						&input,
-						&input_config.config(),
-						capture,
-						gate.clone(),
-						revision,
-					),
-					cpal::SampleFormat::U16 => input_stream::<u16>(
-						&input,
-						&input_config.config(),
-						capture,
-						gate.clone(),
-						revision,
-					),
-					_ => Err("Microphone sample format is not supported"),
-				}
-			})();
-			match result {
-				Ok(stream) => Some(stream),
+		let (input_stream, input_read, input_id) = if gate.input_enabled.load(Ordering::Acquire) {
+			match open_input_stream(&host, settings, &gate, revision) {
+				Ok((stream, read, id)) => (Some(stream), read, id),
 				Err(_) => {
 					gate.input_failed_revision
 						.fetch_max(revision, Ordering::AcqRel);
-					input_id = None;
-					None
+					(None, rtrb::RingBuffer::new(8).1, None)
 				}
 			}
 		} else {
-			None
+			(None, rtrb::RingBuffer::new(8).1, None)
 		};
 		let output_stream = match output_config.sample_format() {
 			cpal::SampleFormat::F32 => output_stream::<f32>(
@@ -591,15 +574,6 @@ impl Streams {
 		output_stream
 			.play()
 			.map_err(|_| "Could not start speaker playback")?;
-		if input_stream
-			.as_ref()
-			.is_some_and(|stream| stream.play().is_err())
-		{
-			gate.input_failed_revision
-				.fetch_max(revision, Ordering::AcqRel);
-			input_stream = None;
-			input_id = None;
-		}
 		Ok(Self {
 			input_callbacks: gate.input_callbacks.load(Ordering::Acquire),
 			input_activity: Instant::now(),
@@ -613,6 +587,77 @@ impl Streams {
 			input_id,
 		})
 	}
+	fn try_reopen_input(
+		&mut self,
+		host: &cpal::Host,
+		settings: &Devices,
+		gate: &Arc<Gate>,
+		revision: u64,
+	) -> bool {
+		match gate.reopen_input(revision, || {
+			open_input_stream(host, settings, gate, revision)
+		}) {
+			Ok((stream, input_read, id)) => {
+				self._input = Some(stream);
+				self.input = input_read;
+				self.input_id = id;
+				self.input_callbacks = gate.input_callbacks.load(Ordering::Acquire);
+				self.input_activity = Instant::now();
+				gate.echo_reset.store(true, Ordering::Release);
+				gate.input_failed_revision.load(Ordering::Acquire) != revision
+			}
+			Err(_) => false,
+		}
+	}
+}
+fn open_input_stream(
+	host: &cpal::Host,
+	settings: &Devices,
+	gate: &Arc<Gate>,
+	revision: u64,
+) -> Result<(cpal::Stream, rtrb::Consumer<Frame>, Option<String>), &'static str> {
+	#[cfg(target_os = "macos")]
+	permission_macos::authorize(gate, revision)?;
+	let input = choose(host, settings.input.as_deref(), true)?;
+	let input_id = input.id().ok().map(|id| id.to_string());
+	let input_config = config(&input, true)?;
+	let (input_write, input_read) = rtrb::RingBuffer::new(8);
+	let capture = Capture::new(input_config.sample_rate(), input_write);
+	let stream = match input_config.sample_format() {
+		cpal::SampleFormat::F32 => input_stream::<f32>(
+			&input,
+			&input_config.config(),
+			capture,
+			gate.clone(),
+			revision,
+		),
+		cpal::SampleFormat::I16 => input_stream::<i16>(
+			&input,
+			&input_config.config(),
+			capture,
+			gate.clone(),
+			revision,
+		),
+		cpal::SampleFormat::I32 => input_stream::<i32>(
+			&input,
+			&input_config.config(),
+			capture,
+			gate.clone(),
+			revision,
+		),
+		cpal::SampleFormat::U16 => input_stream::<u16>(
+			&input,
+			&input_config.config(),
+			capture,
+			gate.clone(),
+			revision,
+		),
+		_ => Err("Microphone sample format is not supported"),
+	}?;
+	stream
+		.play()
+		.map_err(|_| "Could not start microphone; check system microphone permission")?;
+	Ok((stream, input_read, input_id))
 }
 fn choose(host: &cpal::Host, id: Option<&str>, input: bool) -> Result<cpal::Device, &'static str> {
 	if let Some(id) = id {
@@ -684,6 +729,12 @@ fn supported_format(format: cpal::SampleFormat) -> bool {
 			| cpal::SampleFormat::U16
 	)
 }
+fn is_fatal_error(error: &cpal::Error) -> bool {
+	!matches!(
+		error.kind(),
+		cpal::ErrorKind::Xrun | cpal::ErrorKind::RealtimeDenied | cpal::ErrorKind::DeviceChanged
+	)
+}
 fn input_stream<T>(
 	device: &cpal::Device,
 	config: &cpal::StreamConfig,
@@ -706,10 +757,12 @@ where
 				}
 				capture.process(data, channels, &gate);
 			},
-			move |_| {
-				failure
-					.input_failed_revision
-					.fetch_max(revision, Ordering::AcqRel);
+			move |error| {
+				if is_fatal_error(&error) {
+					failure
+						.input_failed_revision
+						.fetch_max(revision, Ordering::AcqRel);
+				}
 			},
 			None,
 		)
@@ -733,10 +786,12 @@ where
 			move |data: &mut [T], _| {
 				output.render(data, channels, &gate);
 			},
-			move |_| {
-				failure
-					.failed_revision
-					.fetch_max(revision, Ordering::AcqRel);
+			move |error| {
+				if is_fatal_error(&error) {
+					failure
+						.failed_revision
+						.fetch_max(revision, Ordering::AcqRel);
+				}
 			},
 			None,
 		)
@@ -1153,5 +1208,48 @@ mod tests {
 		}
 		playback.reset();
 		assert_eq!(playback.sample(), 0.0);
+	}
+
+	#[test]
+	fn stream_errors_distinguish_transient_glitches_from_fatal_disconnects() {
+		for non_fatal in [
+			cpal::ErrorKind::Xrun,
+			cpal::ErrorKind::RealtimeDenied,
+			cpal::ErrorKind::DeviceChanged,
+		] {
+			assert!(!is_fatal_error(&cpal::Error::from(non_fatal)));
+		}
+		for fatal in [
+			cpal::ErrorKind::DeviceNotAvailable,
+			cpal::ErrorKind::StreamInvalidated,
+			cpal::ErrorKind::PermissionDenied,
+			cpal::ErrorKind::DeviceBusy,
+		] {
+			assert!(is_fatal_error(&cpal::Error::from(fatal)));
+		}
+	}
+
+	#[test]
+	fn microphone_recovery_preserves_startup_failures() {
+		let audio = audio_without_devices();
+		audio.set_ready(true);
+		let revision = audio.gate.revision.load(Ordering::Acquire);
+		assert!(audio.gate.acknowledge(revision));
+		let gate = &audio.gate;
+		assert!(
+			gate.reopen_input::<()>(revision, || Err("unavailable"))
+				.is_err()
+		);
+		assert!(audio.microphone_unavailable());
+		// A successful open can still report a fatal error through its callback.
+		gate.reopen_input(revision, || {
+			gate.input_failed_revision
+				.fetch_max(revision, Ordering::AcqRel);
+			Ok(())
+		})
+		.unwrap();
+		assert!(audio.microphone_unavailable());
+		gate.reopen_input(revision, || Ok(())).unwrap();
+		assert!(!audio.microphone_unavailable());
 	}
 }

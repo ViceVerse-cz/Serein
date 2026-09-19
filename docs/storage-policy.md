@@ -127,6 +127,10 @@ work and cleanup run outside rendering. Forced termination or filesystem failure
 can leave a temporary file; cleanup errors are visible. Clipboard contents belong
 to the OS and may also be retained by clipboard managers. No cache schema changes.
 
+Chat author membership (schema 18): `author_roles` JSON (at most 512 IDs, 16 KiB)
+and optional `author_nick` (512 UTF-8 bytes / 128 characters) travel with each
+cached message row. Schema-17 and older binaries cannot reopen this upgraded cache.
+
 Forwarded messages (schema 16): one checked, default-false `forwarded` column marks
 the immutable snapshot body. Text, embeds and attachments reuse existing bounded
 message storage; source channels/messages are never fetched. Existing rows retain
@@ -864,15 +868,15 @@ size, copied by the transport for a tick; changes replace the existing control v
 adding a queue. Values are clamped to 0–200 before mixing. A full UI table replaces its first
 retained entry; reset releases a slot. Logout/preview reset clears the table. No SQLite,
 credential-store, network setting write, or diagnostics payload is added.
-Chat author role IDs are session-only message metadata (at most 512 IDs per message),
-counted in the existing timeline byte budget and omitted from SQLite. Names use
-the current guild role catalog, preferring loaded member rows over message role IDs;
-missing membership uses the normal text color until service data arrives.
+Chat author role IDs travel with the cached message window (at most 512 IDs per
+message, 16 KiB JSON). They count toward the existing timeline and 48 MiB history
+budgets. Names use the current guild role catalog. Live member rows refresh the
+color only when they carry role IDs; an empty live row keeps the message snapshot
+so cached history can paint colors with the conversation.
 
-Chat author guild nicknames are session-only message metadata, capped at 128 Unicode
-characters and counted in timeline byte limits. Current guild member rows take
-precedence. SQLite omits this field; cached history falls back to the usual name
-until message or member data refreshes.
+Chat author guild nicknames are cached with that window, capped at 128 Unicode
+characters / 512 UTF-8 bytes. Live member rows win only when they carry a
+nickname. Missing membership keeps the stored nick or the usual name.
 
 Custom emoji artwork shares the existing account-isolated image disk cache
 (4,096 files / 1 GiB, 90-day inactivity retention). Its GPU working set is separate

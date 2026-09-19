@@ -34,8 +34,9 @@ pub struct RemoteFrame<'a> {
 pub type VideoSink = Arc<dyn Fn(RemoteFrame<'_>) + Send + Sync>;
 
 pub(crate) struct DecoderQueue {
-	send: SyncSender<(Encoded, tokio::sync::OwnedSemaphorePermit)>,
+	send: SyncSender<Decode>,
 	bytes: Arc<tokio::sync::Semaphore>,
+	removals: Arc<Mutex<Vec<u64>>>,
 	/// Decoded pictures delivered to the sink and decoder failures, for diagnostics only.
 	pub counters: Arc<DecoderCounters>,
 }
@@ -51,6 +52,11 @@ pub(crate) struct Encoded {
 	pub user: u64,
 	pub data: Vec<u8>,
 	pub keyframe: bool,
+}
+
+enum Decode {
+	Frame(Encoded, tokio::sync::OwnedSemaphorePermit),
+	Remove(u64),
 }
 
 /// True when the cleartext Annex-B access unit carries both an SPS and a PPS, so a freshly
@@ -351,16 +357,19 @@ pub(crate) fn spawn_decoder(sink: VideoSink) -> Result<(DecoderQueue, Lost), &'s
 	let (send, receive) = sync_channel(64);
 	let lost: Lost = Arc::new(Mutex::new(Vec::new()));
 	let report = lost.clone();
+	let removals = Arc::new(Mutex::new(Vec::new()));
+	let thread_removals = removals.clone();
 	let counters = Arc::new(DecoderCounters::default());
 	let thread_counters = counters.clone();
 	std::thread::Builder::new()
 		.name("remote-video".into())
-		.spawn(move || decode_loop(receive, sink, report, thread_counters))
+		.spawn(move || decode_loop(receive, sink, report, thread_removals, thread_counters))
 		.map_err(|_| "Could not start the video decoder thread")?;
 	Ok((
 		DecoderQueue {
 			send,
 			bytes: Arc::new(tokio::sync::Semaphore::new(QUEUE_BYTES)),
+			removals,
 			counters,
 		},
 		lost,
@@ -387,10 +396,22 @@ pub(crate) fn offer(sender: &DecoderQueue, frame: Encoded) -> Result<bool, &'sta
 	else {
 		return Ok(false);
 	};
-	match sender.send.try_send((frame, permit)) {
+	match sender.send.try_send(Decode::Frame(frame, permit)) {
 		Ok(()) => Ok(true),
 		Err(TrySendError::Full(_)) => Ok(false),
 		Err(TrySendError::Disconnected(_)) => Err("Video decoder stopped"),
+	}
+}
+
+/// Release one participant's decoder without blocking the media transport.
+pub(crate) fn remove(sender: &DecoderQueue, user: u64) {
+	if let Err(TrySendError::Full(Decode::Remove(user))) =
+		sender.send.try_send(Decode::Remove(user))
+		&& let Ok(mut removals) = sender.removals.lock()
+		&& removals.len() < MAX_SOURCES
+		&& !removals.contains(&user)
+	{
+		removals.push(user);
 	}
 }
 
@@ -458,9 +479,10 @@ impl Backend {
 }
 
 fn decode_loop(
-	receive: Receiver<(Encoded, tokio::sync::OwnedSemaphorePermit)>,
+	receive: Receiver<Decode>,
 	sink: VideoSink,
 	lost: Lost,
+	removals: Arc<Mutex<Vec<u64>>>,
 	counters: Arc<DecoderCounters>,
 ) {
 	let mut decoders: HashMap<u64, Backend> = HashMap::new();
@@ -469,7 +491,23 @@ fn decode_loop(
 	// After a decode error, predictions are skipped until a keyframe rebuilds the references.
 	let mut broken: Vec<u64> = Vec::new();
 	let mut scratch = Vec::new();
-	while let Ok((frame, _permit)) = receive.recv() {
+	while let Ok(message) = receive.recv() {
+		if let Ok(mut removals) = removals.lock() {
+			for user in removals.drain(..) {
+				decoders.remove(&user);
+				software_only.retain(|known| *known != user);
+				broken.retain(|known| *known != user);
+			}
+		}
+		let (frame, _permit) = match message {
+			Decode::Frame(frame, permit) => (frame, permit),
+			Decode::Remove(user) => {
+				decoders.remove(&user);
+				software_only.retain(|known| *known != user);
+				broken.retain(|known| *known != user);
+				continue;
+			}
+		};
 		if frame.data.len() > MAX_FRAME_BYTES {
 			continue;
 		}
@@ -551,6 +589,23 @@ fn bounded(width: usize, height: usize) -> Result<(u32, u32), ()> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn optimization_decoder_removal_survives_a_full_frame_queue() {
+		let (send, receive) = sync_channel(1);
+		let removals = Arc::new(Mutex::new(Vec::new()));
+		let queue = DecoderQueue {
+			send,
+			bytes: Arc::new(tokio::sync::Semaphore::new(QUEUE_BYTES)),
+			removals: removals.clone(),
+			counters: Arc::new(DecoderCounters::default()),
+		};
+		assert!(queue.send.try_send(Decode::Remove(1)).is_ok());
+		remove(&queue, 7);
+		assert_eq!(*removals.lock().unwrap(), vec![7]);
+		assert!(matches!(receive.recv().unwrap(), Decode::Remove(1)));
+	}
+
 	#[test]
 	fn a_silent_stall_can_request_keyframes_without_observed_loss() {
 		let mut receivers = Receivers::default();

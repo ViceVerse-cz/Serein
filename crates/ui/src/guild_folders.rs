@@ -32,8 +32,20 @@ impl FolderUi {
 		if self.key == Some(key) {
 			return false;
 		}
-		let mut rows = Vec::new();
 		let mut seen = BTreeSet::new();
+		if let Some(settings) = &state.guild_folders {
+			for folder in &settings.folders {
+				seen.extend(folder.guild_ids.iter().copied());
+			}
+		}
+		// Servers not yet recorded in folder settings are freshly joined; show them at the
+		// top of the list like Discord does, ahead of the user's organized folders.
+		let mut rows: Vec<Row> = state
+			.guilds
+			.iter()
+			.filter(|g| !seen.contains(&g.id))
+			.map(|g| (Item::Server(g.id), None))
+			.collect();
 		if let Some(settings) = &state.guild_folders {
 			self.expanded
 				.retain(|id| settings.folders.iter().any(|f| f.id == Some(*id)));
@@ -47,7 +59,6 @@ impl FolderUi {
 					));
 				}
 				for &id in &folder.guild_ids {
-					seen.insert(id);
 					if folder.id.is_none_or(|id| self.expanded.contains(&id))
 						&& state.guild(id).is_some()
 					{
@@ -64,13 +75,6 @@ impl FolderUi {
 				}
 			}
 		}
-		rows.extend(
-			state
-				.guilds
-				.iter()
-				.filter(|g| !seen.contains(&g.id))
-				.map(|g| (Item::Server(g.id), None)),
-		);
 		self.rows = rows
 			.into_iter()
 			.take(client_core::MAX_NAV + model::guild_folders::MAX_FOLDERS)
@@ -435,7 +439,7 @@ impl MessagingUi {
 									unread,
 								);
 							}
-							if count > 0 {
+							if !open && count > 0 {
 								badge(
 									ui,
 									rect.right_bottom() - egui::vec2(8.0, 8.0),
@@ -724,16 +728,20 @@ impl MessagingUi {
 		if let Some(change) = change
 			&& let Some(mut settings) = state.guild_folders.clone()
 		{
-			// Include newly joined servers without deleting unknown remote memberships.
-			for guild in &state.guilds {
-				if !settings
-					.folders
-					.iter()
-					.any(|f| f.guild_ids.contains(&guild.id))
-				{
-					settings.folders.push(standalone(guild.id));
-				}
-			}
+			// Include newly joined servers without deleting unknown remote memberships;
+			// keep them at the front so they stay put once seen by `sync_rows` above.
+			let new_folders: Vec<_> = state
+				.guilds
+				.iter()
+				.filter(|guild| {
+					!settings
+						.folders
+						.iter()
+						.any(|f| f.guild_ids.contains(&guild.id))
+				})
+				.map(|guild| standalone(guild.id))
+				.collect();
+			settings.folders.splice(0..0, new_folders);
 			edit(&mut settings, change);
 			if let Some(command) = state.save_guild_folders(settings) {
 				commands.push(command);

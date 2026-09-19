@@ -91,12 +91,69 @@ struct Live {
 	camera_negotiated: bool,
 	camera_clock: Instant,
 	/// Latest decoded camera picture per remote user, replaced (never queued) by the decoder.
-	remote_video: Arc<std::sync::Mutex<Vec<(u64, egui::ColorImage)>>>,
+	remote_video: Arc<std::sync::Mutex<RemotePictures>>,
 	/// Decoded audio of a watched stream, mixed into this call's playback.
 	stream_audio: mpsc::SyncSender<discord_voice::Frame>,
 }
 /// Remote cameras kept as textures at once; matches the transport's source limit.
 const MAX_REMOTE_VIDEO: usize = 16;
+type RemotePictures = Vec<(u64, Arc<egui::ColorImage>, bool)>;
+type CameraPicture = Option<(Arc<egui::ColorImage>, bool)>;
+
+#[allow(clippy::chunks_exact_to_as_chunks)] // Matches egui's faster profiled conversion loop.
+fn store_remote_frame(
+	pictures: &mut RemotePictures,
+	frame: discord_voice::RemoteFrame<'_>,
+) -> bool {
+	if frame.rgba.len() != frame.width as usize * frame.height as usize * 4 {
+		return false;
+	}
+	let entry = if let Some(index) = pictures.iter().position(|(user, _, _)| *user == frame.user) {
+		&mut pictures[index]
+	} else if pictures.len() < MAX_REMOTE_VIDEO {
+		pictures.push((frame.user, Arc::new(egui::ColorImage::default()), false));
+		pictures.last_mut().expect("remote frame inserted")
+	} else {
+		return false;
+	};
+	let size = [frame.width as usize, frame.height as usize];
+	if let Some(image) = Arc::get_mut(&mut entry.1) {
+		image.size = size;
+		image.source_size = egui::vec2(frame.width as f32, frame.height as f32);
+		image.pixels.clear();
+		image.pixels.extend(frame.rgba.chunks_exact(4).map(|pixel| {
+			egui::Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3])
+		}));
+	} else {
+		entry.1 = Arc::new(egui::ColorImage::from_rgba_unmultiplied(size, frame.rgba));
+	}
+	entry.2 = true;
+	true
+}
+
+#[allow(clippy::chunks_exact_to_as_chunks)] // Matches egui's allocation fallback loop.
+fn store_camera_frame(picture: &mut CameraPicture, rgb: &[u8]) -> bool {
+	let size = [discord_voice::camera::WIDTH, discord_voice::camera::HEIGHT];
+	if rgb.len() != size[0] * size[1] * 3 {
+		return false;
+	}
+	let (image, dirty) =
+		picture.get_or_insert_with(|| (Arc::new(egui::ColorImage::default()), false));
+	if let Some(image) = Arc::get_mut(image) {
+		image.size = size;
+		image.source_size = egui::vec2(size[0] as f32, size[1] as f32);
+		image.pixels.clear();
+		image.pixels.extend(
+			rgb.chunks_exact(3)
+				.map(|pixel| egui::Color32::from_rgb(pixel[0], pixel[1], pixel[2])),
+		);
+	} else {
+		*image = Arc::new(egui::ColorImage::from_rgb(size, rgb));
+	}
+	*dirty = true;
+	true
+}
+
 #[derive(Default)]
 pub struct Voice {
 	screen: crate::screen::Screen,
@@ -104,7 +161,7 @@ pub struct Voice {
 	camera: Option<discord_voice::camera::Camera>,
 	camera_device: Option<String>,
 	camera_generation: u64,
-	camera_preview: Option<std::sync::Arc<std::sync::Mutex<Option<egui::ColorImage>>>>,
+	camera_preview: Option<std::sync::Arc<std::sync::Mutex<CameraPicture>>>,
 	pending: Option<Pending>,
 	live: Option<Live>,
 	retiring: Option<mpsc::Receiver<()>>,
@@ -523,7 +580,13 @@ impl Voice {
 			let pictures = live
 				.remote_video
 				.try_lock()
-				.map(|mut slot| std::mem::take(&mut *slot))
+				.map(|mut slot| {
+					slot.iter_mut()
+						.filter_map(|(user, image, dirty)| {
+							std::mem::take(dirty).then(|| (*user, image.clone()))
+						})
+						.collect::<Vec<_>>()
+				})
 				.unwrap_or_default();
 			for (user, image) in pictures {
 				if let Some((_, texture)) = ui
@@ -557,6 +620,9 @@ impl Voice {
 				})
 				.unwrap_or_default();
 			ui.voice_remote_video.retain(|(id, _)| visible.contains(id));
+			if let Ok(mut pictures) = live.remote_video.try_lock() {
+				pictures.retain(|(id, _, _)| visible.contains(&Id(*id)));
+			}
 		}
 		if failure.is_none()
 			&& let Some(live) = &self.live
@@ -719,14 +785,11 @@ impl Voice {
 					timestamp: (start.elapsed().as_micros() * 90 / 1000) as u32,
 					data,
 				});
-				let image = egui::ColorImage::from_rgb(
-					[discord_voice::camera::WIDTH, discord_voice::camera::HEIGHT],
-					&frame.rgb,
-				);
-				if let Ok(mut slot) = preview.try_lock() {
-					*slot = Some(image);
+				if let Ok(mut slot) = preview.try_lock()
+					&& store_camera_frame(&mut slot, &frame.rgb)
+				{
+					wake.request_repaint();
 				}
-				wake.request_repaint();
 			});
 			let wake = ctx.clone();
 			match discord_voice::camera::Camera::start(
@@ -748,10 +811,11 @@ impl Voice {
 				}
 			}
 		}
-		let image = self
-			.camera_preview
-			.as_ref()
-			.and_then(|preview| preview.try_lock().ok()?.take());
+		let image = self.camera_preview.as_ref().and_then(|preview| {
+			let mut preview = preview.try_lock().ok()?;
+			let (image, dirty) = preview.as_mut()?;
+			std::mem::take(dirty).then(|| image.clone())
+		});
 		if let Some(image) = image {
 			if let Some(texture) = &mut ui.voice_camera_preview {
 				texture.set(image, egui::TextureOptions::LINEAR);
@@ -808,26 +872,17 @@ impl Voice {
 			deafened: false,
 			user_volumes: ui.voice_user_volumes(),
 		});
-		let remote_video: Arc<std::sync::Mutex<Vec<(u64, egui::ColorImage)>>> =
+		let remote_video: Arc<std::sync::Mutex<RemotePictures>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));
 		let pictures = remote_video.clone();
 		let picture_wake = ctx.clone();
 		let sink: discord_voice::VideoSink = Arc::new(move |frame: discord_voice::RemoteFrame| {
-			if frame.rgba.len() != frame.width as usize * frame.height as usize * 4 {
-				return;
+			if pictures
+				.lock()
+				.is_ok_and(|mut pictures| store_remote_frame(&mut pictures, frame))
+			{
+				picture_wake.request_repaint();
 			}
-			let image = egui::ColorImage::from_rgba_unmultiplied(
-				[frame.width as usize, frame.height as usize],
-				frame.rgba,
-			);
-			if let Ok(mut slot) = pictures.lock() {
-				if let Some(entry) = slot.iter_mut().find(|(user, _)| *user == frame.user) {
-					entry.1 = image;
-				} else if slot.len() < MAX_REMOTE_VIDEO {
-					slot.push((frame.user, image));
-				}
-			}
-			picture_wake.request_repaint();
 		});
 		audio.set_controls(listen_only || ui.voice_push_to_talk, false);
 		audio.set_input_enabled(input_enabled);
@@ -943,6 +998,58 @@ fn camera_preview_allowed(state: &State) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn optimization_remote_video_reuses_the_latest_frame_buffer() {
+		let mut pictures = Vec::new();
+		let rgba = [1, 2, 3, 255, 4, 5, 6, 255];
+		assert!(store_remote_frame(
+			&mut pictures,
+			discord_voice::RemoteFrame {
+				user: 7,
+				width: 2,
+				height: 1,
+				rgba: &rgba,
+			},
+		));
+		let pixels = pictures[0].1.pixels.as_ptr();
+		pictures[0].2 = false;
+		assert!(store_remote_frame(
+			&mut pictures,
+			discord_voice::RemoteFrame {
+				user: 7,
+				width: 2,
+				height: 1,
+				rgba: &rgba,
+			},
+		));
+		assert_eq!(pictures[0].1.pixels.as_ptr(), pixels);
+		assert!(pictures[0].2);
+		let upload = pictures[0].1.clone();
+		assert!(store_remote_frame(
+			&mut pictures,
+			discord_voice::RemoteFrame {
+				user: 7,
+				width: 1,
+				height: 1,
+				rgba: &rgba[..4],
+			},
+		));
+		assert!(!Arc::ptr_eq(&pictures[0].1, &upload));
+		assert_eq!(upload.size, [2, 1]);
+	}
+
+	#[test]
+	fn optimization_local_camera_reuses_the_latest_frame_buffer() {
+		let mut picture = None;
+		let rgb = vec![127; discord_voice::camera::WIDTH * discord_voice::camera::HEIGHT * 3];
+		assert!(store_camera_frame(&mut picture, &rgb));
+		let pixels = picture.as_ref().unwrap().0.pixels.as_ptr();
+		picture.as_mut().unwrap().1 = false;
+		assert!(store_camera_frame(&mut picture, &rgb));
+		assert_eq!(picture.as_ref().unwrap().0.pixels.as_ptr(), pixels);
+		assert!(picture.unwrap().1);
+	}
 
 	#[test]
 	#[allow(clippy::field_reassign_with_default)] // MessagingUi has private fields in another crate.

@@ -775,9 +775,24 @@ pub fn semibold(ui: &egui::Ui, text: impl Into<String>, size: f32) -> RichText {
 pub fn medium(ui: &egui::Ui, text: impl Into<String>, size: f32) -> RichText {
 	RichText::new(text).font(FontId::new(size, medium_family(ui.ctx())))
 }
+/// Emoji-only messages: Discord paints their artwork at about three times the body size.
+/// Scaling the body style grows every inline emoji slot with it, text included.
+pub(crate) fn jumbo_emoji(ui: &mut egui::Ui) {
+	if let Some(font) = ui.style_mut().text_styles.get_mut(&egui::TextStyle::Body) {
+		font.size *= 1.875;
+	}
+}
 /// Uppercase section heading used above channel categories and member groups.
 pub fn eyebrow(ui: &egui::Ui, text: impl Into<String>, color: Color32) -> RichText {
 	semibold(ui, text.into().to_uppercase(), 12.0).color(color)
+}
+
+fn is_activate_target(sense: egui::Sense) -> bool {
+	sense.senses_click() && (!sense.senses_drag() || sense.is_focusable())
+}
+
+pub(crate) fn menu_anchor_sense() -> egui::Sense {
+	egui::Sense::focusable_noninteractive()
 }
 
 // Registered once per context, including when appearance settings reapply the theme.
@@ -788,17 +803,13 @@ impl egui::Plugin for ClickableCursor {
 	}
 	fn on_end_pass(&mut self, ui: &mut egui::Ui) {
 		let ctx = ui.ctx();
-		// Text, resize, drag and other explicitly chosen cursors take precedence.
 		if ctx.output(|output| output.cursor_icon) != egui::CursorIcon::Default {
 			return;
 		}
 		let hovered = ctx.interaction_snapshot(|snapshot| snapshot.hovered.clone());
 		if hovered.into_iter().any(|id| {
 			ctx.read_response(id).is_some_and(|response| {
-				response.enabled()
-					&& response.hovered()
-					&& response.sense.senses_click()
-					&& !response.sense.senses_drag()
+				response.enabled() && response.hovered() && is_activate_target(response.sense)
 			})
 		}) {
 			ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -849,9 +860,6 @@ pub fn apply(ctx: &egui::Context) {
 		style.spacing.interact_size.y = f32::from(metrics.control_height.unwrap_or(32));
 		style.spacing.menu_margin = egui::Margin::same(8);
 		style.visuals.panel_fill = p.chat;
-		// Grayscale AA only. Vertical TrueType hints still snap stems on 1x.
-		// Leave the interpreter off and keep binning on. Gamma 0.5 keeps more
-		// fringe than egui's sharper 2c-c^2 dark default.
 		style.visuals.text_options.font_hinting = false;
 		style.visuals.text_options.subpixel_binning = true;
 		style.visuals.text_options.color_transfer_function = if theme == egui::Theme::Dark {
@@ -1512,7 +1520,9 @@ mod tests {
 				("button", CursorIcon::PointingHand),
 				("checkbox", CursorIcon::PointingHand),
 				("custom", CursorIcon::PointingHand),
-				("click-drag", CursorIcon::Default),
+				("click-drag", CursorIcon::PointingHand),
+				("chrome", CursorIcon::Default),
+				("menu-anchor", CursorIcon::Default),
 				("disabled", CursorIcon::Default),
 				("disabled-custom", CursorIcon::Default),
 				("hover", CursorIcon::Default),
@@ -1546,6 +1556,8 @@ mod tests {
 											match kind {
 												"hover" => Sense::hover(),
 												"click-drag" => Sense::click_and_drag(),
+												"chrome" => Sense::CLICK | Sense::DRAG,
+												"menu-anchor" => super::menu_anchor_sense(),
 												_ => Sense::click(),
 											},
 										)

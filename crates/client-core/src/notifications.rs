@@ -748,25 +748,6 @@ impl State {
 	}
 }
 
-impl State {
-	pub(crate) fn social_notification_scope_allowed(
-		&self,
-		channel: Option<Id>,
-		guild: Option<Id>,
-	) -> bool {
-		if !self.gateway_connected || self.notification_preferences.dnd != Some(false) {
-			return false;
-		}
-		if let Some(channel) = channel {
-			return self.notification_allowed(channel);
-		}
-		self.notification_preferences
-			.settings
-			.get(&guild)
-			.is_some_and(|settings| settings.muted == Some(false))
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;

@@ -409,13 +409,13 @@ async fn run(
 	// Four bounded downloads overlap; disk access and image decode stay on this worker.
 	let mut downloads = tokio::task::JoinSet::new();
 	loop {
-		let (key, bytes, mut error, fetched, cached_image) = tokio::select! {
+		let (key, bytes, mut error, fetched, cached_image, cached_frames) = tokio::select! {
 			biased;
 			_ = cancelled.changed() => break,
 			completed = downloads.join_next(), if !downloads.is_empty() => {
 				let Some(Ok((key, bytes, until))) = completed else { break };
 				cooldown = cooldown.max(until);
-				(key, bytes, disk.is_none().then_some(CACHE_ERROR), true, None)
+				(key, bytes, disk.is_none().then_some(CACHE_ERROR), true, None, Vec::new())
 			},
 			key = requests.recv(), if downloads.len() < 4 => {
 				let Some(key) = key else { break };
@@ -427,7 +427,14 @@ async fn run(
 					Err(_) => { error = Some(CACHE_ERROR); None }
 				});
 				let edge = decode_edge(&key);
-				let image = cached.as_deref().and_then(|bytes| decode(bytes, edge));
+				let frames = key
+					.starts_with("anim:")
+					.then(|| cached.as_deref().and_then(decode_animation))
+					.flatten()
+					.unwrap_or_default();
+				let image = frames.first().map(|(_, image)| image.as_ref().clone()).or_else(|| {
+					cached.as_deref().and_then(|bytes| decode(bytes, edge))
+				});
 				if image.is_none() && Instant::now() >= cooldown && let Some(client) = &client {
 					let client = client.clone();
 					downloads.spawn(async move {
@@ -443,16 +450,16 @@ async fn run(
 					});
 					continue;
 				}
-				(key, cached, error, false, image)
+				(key, cached, error, false, image, frames)
 			},
 		};
 		if *cancelled.borrow() {
 			break;
 		}
 		let edge = decode_edge(&key);
-		let mut image =
-			cached_image.or_else(|| bytes.as_deref().and_then(|bytes| decode(bytes, edge)));
-		let frames = if key.starts_with("anim:") {
+		let frames = if !cached_frames.is_empty() {
+			cached_frames
+		} else if key.starts_with("anim:") {
 			bytes
 				.as_deref()
 				.and_then(decode_animation)
@@ -460,9 +467,12 @@ async fn run(
 		} else {
 			Vec::new()
 		};
-		if image.is_none() {
-			image = frames.first().map(|(_, image)| image.as_ref().clone());
-		}
+		let image = frames
+			.first()
+			.map(|(_, image)| image.as_ref().clone())
+			.or_else(|| {
+				cached_image.or_else(|| bytes.as_deref().and_then(|bytes| decode(bytes, edge)))
+			});
 		if fetched
 			&& image.is_some()
 			&& let (Some(disk), Some(bytes)) = (&mut disk, &bytes)

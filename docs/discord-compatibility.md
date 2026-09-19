@@ -1350,34 +1350,14 @@ Live normal-user interoperability remains unverified. Offline demo changes stay 
 
 ## User notification preferences
 
-Notification Overview reads `/users/@me/settings-proto/1` and performs a fresh,
-version-guarded PATCH for the explicitly changed field. Receiving stream alerts is
-`voice_and_video.stream_notifications_enabled` (root 5, field 7), not the outbound
-`notifications.notify_friends_on_go_live` setting. Friend online, anniversary,
-profile updates and upcoming event preferences use notification fields 12, 14, 16
-and 22; reaction notifications use field 7 (all 0, DMs 1, none 2). Untouched subtree
-fields and unknown enum values are retained. These are unofficial user-account APIs.
-Schema evidence: [discord-protos](https://github.com/discord-userdoccers/discord-protos/blob/master/discord_protos/discord_users/v1/PreloadedUserSettings.proto),
-[receiving versus sending stream notifications](https://github.com/dolfies/discord.py-self/blob/master/discord/settings.py).
-
-Email preferences read and PATCH `/users/@me/email-settings`, with explicit category
-changes inside `settings.categories`. Unsubscribe disables announcements, tips and
-recommendations; communication, social, family-center and unknown preferences are
-left alone. [Primary client implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py).
-Responses must confirm the change; errors remain visible per section.
-
-Desktop alerts consume received `NOTIFICATION_CENTER_ITEM_CREATE` items for
-`go_live_push`, `scheduled_guild_event_started` and `reaction_sent`; completed,
-acknowledged and unknown kinds are ignored. A bounded queue checks current
-preferences, DND, mutes and blocks again before delivery. Received direct-presence
-changes from known offline to online notify for existing friends; received
-`USER_UPDATE` name/avatar changes notify only when the friend profile was already
-known. Initial snapshots do not create these alerts. No additional polling is used.
-There is no verified local friendship-anniversary notification event; that control
-updates Discord's real account preference for its server-generated notifications.
-The scheduled-event alert above means an event started, not a locally fabricated
-advance reminder. [Notification center research](https://docs.discord.food/resources/notification-center).
-Offline parser, reducer and HTTP checks are not evidence of live Discord delivery.
+Notification settings are device-local only: desktop alerts, message and ring
+sounds, and the Windows unread badge. Per-channel and per-server mute preferences
+still come from the account through the existing Gateway user settings events.
+The client no longer reads or writes Discord's account notification overview
+(`/users/@me/settings-proto/1` notification subtree) or email categories
+(`/users/@me/email-settings`), and it ignores `NOTIFICATION_CENTER_ITEM_CREATE`;
+stream, scheduled-event, reaction, friend-online and profile-update alerts are not
+raised. Only received messages and incoming calls produce notifications.
 
 ## Thread participants — September 15, 2026
 
@@ -1447,10 +1427,13 @@ route were checked against live responses; game-to-Gateway publication remains u
 
 ### Visible chat author roles
 
-Visible guild message authors use a separate bounded Gateway opcode 8 `user_ids`
-lookup, sharing the mention search transport and its one-second send interval.
-This fills role colors when history omits membership and the author is outside
-People's retained member list. Up to 100 visible authors are requested at once;
-failed lookups retain the normal fallback color. Profile cards already request
-guild membership through the profile endpoint. Normal-account Gateway behavior
-remains unofficial and live compatibility is unverified by the synthetic check.
+Guild history already carries `member.roles` on each message when Discord sends
+it. Those IDs are the first-paint color source and are stored with the account
+history window. A separate bounded Gateway opcode 8 `user_ids` lookup, sharing
+the mention search transport and its one-second send interval, refreshes
+membership when history omits it or a live row changes. Up to 100 visible
+authors are requested at once. Empty live rows do not wipe a message snapshot.
+Failed lookups keep the snapshot or the normal fallback color. Profile cards
+already request guild membership through the profile endpoint. Normal-account
+Gateway behavior remains unofficial and live compatibility is unverified by the
+synthetic check.

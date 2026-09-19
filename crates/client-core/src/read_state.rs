@@ -69,6 +69,10 @@ pub struct ReadState {
 	pub(crate) status: Option<(Id, &'static str)>,
 }
 impl ReadState {
+	/// True once a complete service snapshot arrived, so a channel without a row was never read.
+	pub(crate) fn known(&self) -> bool {
+		self.known
+	}
 	pub fn status(&self, channel: Id) -> Option<&'static str> {
 		self.status
 			.filter(|(id, _)| *id == channel)
@@ -638,7 +642,7 @@ impl State {
 #[cfg(test)]
 mod navigation_tests {
 	use super::*;
-	use crate::{Command, Envelope, Event as CoreEvent};
+	use crate::{Command, Envelope, Event as CoreEvent, Reply};
 	use model::{Channel, Message, User};
 	fn message(id: u64) -> Message {
 		Message {
@@ -706,7 +710,7 @@ mod navigation_tests {
 			.unwrap();
 		state.timeline.insert(message(500), false, false).unwrap();
 		state.drafts.insert(Id(1), "Preserve draft".into());
-		state.reply = Some(Id(500));
+		state.reply = Some(Reply::to(Id(500)));
 		state
 	}
 	fn apply(state: &mut State, event: CoreEvent) {
@@ -847,7 +851,7 @@ mod navigation_tests {
 			assert_eq!(state.timeline.iter().count(), 49);
 			assert_eq!(state.read_marker(Id(1)), Some(marker));
 			assert_eq!(state.drafts[&Id(1)], "Preserve draft");
-			assert_eq!(state.reply, Some(Id(500)));
+			assert_eq!(state.reply_target(), Some(Id(500)));
 			assert!(state.read_state.pending.is_none());
 			assert!(
 				matches!(state.newer_history(),Some(Command::History {before:None,after:Some(after),..}) if after.0==start+50)

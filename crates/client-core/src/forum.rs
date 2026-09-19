@@ -43,6 +43,45 @@ impl State {
 		posts
 	}
 
+	/// Is one post unread? Posts arrive through the on-demand list as well as the gateway, so
+	/// a post the service never sent a read row for counts as unread once the snapshot is
+	/// complete and the service reports a message in it.
+	pub fn post_unread(&self, post: &Channel) -> bool {
+		if let Some(unread) = self.channel_unread(post) {
+			return unread || self.unread_count(post.id) > 0;
+		}
+		self.gateway_connected
+			&& self.read_state.known()
+			&& self.can_view(post.id)
+			&& post.last_message.is_some()
+	}
+
+	/// Forum containers carry no messages themselves; Discord marks them unread when one of
+	/// their posts is, so the sidebar row needs the same aggregate.
+	pub fn forum_unread(&self, forum: Id) -> bool {
+		self.is_forum(forum)
+			&& self
+				.channels
+				.iter()
+				.any(|post| self.is_post_of(post, forum) && self.post_unread(post))
+	}
+
+	/// Mentions across a forum's loaded posts, bounded by the badge the sidebar can show.
+	pub fn forum_mentions(&self, forum: Id) -> u32 {
+		if !self.is_forum(forum) {
+			return 0;
+		}
+		self.channels
+			.iter()
+			.filter(|post| self.is_post_of(post, forum))
+			.map(|post| self.mention_count(post.id))
+			.fold(0, u32::saturating_add)
+	}
+
+	fn is_post_of(&self, post: &Channel, forum: Id) -> bool {
+		post.parent_id == Some(forum) && matches!(post.kind, 11 | 12)
+	}
+
 	pub fn can_load_posts(&self, parent: Id) -> bool {
 		// Fixtures ship their own posts; a demo session has nothing to fetch them with.
 		!self.demo
@@ -176,15 +215,47 @@ impl State {
 			&& self.permission(parent, p::SEND_MESSAGES) == Some(true)
 	}
 
+	/// A forum container is not a text channel, so `can_attach` never covers it; the starter
+	/// message still needs the container's own attachment permission.
+	pub fn can_attach_post(&self, parent: Id) -> bool {
+		self.can_create_post(parent) && self.permission(parent, p::ATTACH_FILES) == Some(true)
+	}
+
 	pub fn create_post(&mut self, parent: Id, title: &str, content: &str) -> Option<Command> {
+		self.create_post_with_attachments(parent, title, content, &[])
+	}
+
+	/// Create one post, optionally with files staged for its starter message.
+	pub fn create_post_with_attachments(
+		&mut self,
+		parent: Id,
+		title: &str,
+		content: &str,
+		filenames: &[&str],
+	) -> Option<Command> {
 		let title = title.trim();
 		let content = content.trim();
 		if !self.can_create_post(parent)
 			|| title.is_empty()
 			|| title.chars().count() > MAX_TITLE
-			|| content.is_empty()
+			|| (content.is_empty() && filenames.is_empty())
 			|| content.chars().count() > MAX_CONTENT
 		{
+			return None;
+		}
+		if !filenames.is_empty() && !self.can_attach_post(parent) {
+			return None;
+		}
+		if filenames.len() > crate::MAX_ATTACHMENTS
+			|| filenames.iter().any(|name| {
+				name.trim().is_empty()
+					|| name.len() > 256
+					|| matches!(*name, "." | "..")
+					|| name
+						.chars()
+						.any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+			}) {
+			self.posting.error = Some("Attachment filename is invalid or too long");
 			return None;
 		}
 		let guild = self.channel(parent)?.guild?;
@@ -196,6 +267,7 @@ impl State {
 			guild,
 			title: title.to_owned(),
 			content: content.to_owned(),
+			attachments: filenames.iter().map(|name| (*name).to_owned()).collect(),
 			request: self.posting.request,
 		})
 	}

@@ -55,10 +55,10 @@ marks a context, the weight families resolve to the default face so headless tes
 reference an unknown family.
 
 Text is rasterized by egui on the CPU as grayscale coverage, not by DirectWrite or Core Text.
-That cannot reproduce ClearType. TrueType hinting, even vertical-only, still snaps Inter
-stems on 1x Windows, so Inter is installed with hinting off and sub-pixel binning on. Dark
-mode remaps coverage with gamma 0.5 instead of egui's sharper `2c - c^2` curve. The bundled
-faces remain upstream's TrueType builds. See `assets/README.md`.
+That cannot reproduce ClearType. `design::apply` turns TrueType hinting off and sub-pixel
+binning on. Dark mode remaps coverage with `FontColorTransferFunction::Gamma(0.5)`. Light
+mode leaves the transfer function off. Inter faces set `FontTweak.hinting` to `Some(false)`.
+The bundled faces remain upstream's hinted TrueType builds. See `assets/README.md`.
 
 ## Layout
 

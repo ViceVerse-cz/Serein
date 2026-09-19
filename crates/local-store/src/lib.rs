@@ -2,14 +2,33 @@
 mod channel_preferences;
 use model::{Id, Message, ReadingPreferences, User};
 use rusqlite::{Connection, OptionalExtension, params};
-use std::{collections::BTreeMap, path::Path};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	path::Path,
+};
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
-const NATIVE_SCHEMA: u32 = 16;
-const READABLE_SCHEMA: u32 = 17;
+const NATIVE_SCHEMA: u32 = 18;
+const READABLE_SCHEMA: u32 = 19;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
+fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
+	let values: Vec<String> = serde_json::from_str(raw).map_err(|_| StoreError::Incompatible)?;
+	if values.len() > model::permissions::MAX_MEMBER_ROLES {
+		return Err(StoreError::Capacity);
+	}
+	let mut roles = Vec::with_capacity(values.len());
+	let mut seen = BTreeSet::new();
+	for value in values {
+		let id = value.parse::<Id>().map_err(|_| StoreError::Incompatible)?;
+		if id.0 == 0 || !seen.insert(id) {
+			return Err(StoreError::Incompatible);
+		}
+		roles.push(id);
+	}
+	Ok(roles)
+}
 pub struct LocalStore(Connection);
 /// Device-local controls, bounded independently of account caches.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -36,6 +55,8 @@ pub struct AppPreferences {
 	pub expanded_folders: Vec<u64>,
 	/// Per-user voice volume overrides, bounded so one device preference stays small.
 	pub user_volumes: Vec<(u64, u16)>,
+	/// Voice participants silenced on this device only, bounded like the volume overrides.
+	pub muted_users: Vec<u64>,
 }
 impl Default for AppPreferences {
 	fn default() -> Self {
@@ -58,6 +79,7 @@ impl Default for AppPreferences {
 			keybinds: Default::default(),
 			expanded_folders: Vec::new(),
 			user_volumes: Vec::new(),
+			muted_users: Vec::new(),
 		}
 	}
 }
@@ -68,6 +90,7 @@ impl AppPreferences {
 			&& self.expanded_folders.len() <= 256
 			&& self.user_volumes.len() <= 64
 			&& self.user_volumes.iter().all(|(_, volume)| *volume <= 200)
+			&& self.muted_users.len() <= 64
 			&& self.keybinds.is_valid()
 			&& [&self.voice_input, &self.voice_output]
 				.into_iter()
@@ -294,6 +317,24 @@ impl LocalStore {
 		if !has_confirm_external_links {
 			transaction.execute_batch("ALTER TABLE reading_preferences ADD COLUMN confirm_external_links INTEGER NOT NULL DEFAULT 1 CHECK(typeof(confirm_external_links)='integer' AND confirm_external_links IN (0,1));")?;
 		}
+		let has_author_roles: bool = transaction.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='author_roles')",
+			[],
+			|row| row.get(0),
+		)?;
+		if !has_author_roles {
+			transaction.execute_batch(
+				"ALTER TABLE messages ADD COLUMN author_roles TEXT NOT NULL DEFAULT '[]';",
+			)?;
+		}
+		let has_author_nick: bool = transaction.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='author_nick')",
+			[],
+			|row| row.get(0),
+		)?;
+		if !has_author_nick {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN author_nick TEXT;")?;
+		}
 		transaction.commit()?;
 		Ok(Self(connection))
 	}
@@ -356,7 +397,7 @@ impl LocalStore {
 		}
 		Ok(())
 	}
-	/// Application-wide opt-in; an absent override keeps ordinary window minimization.
+	/// Application-wide opt-out; an absent override keeps the tray icon enabled.
 	pub fn minimize_to_tray(&self) -> Result<bool> {
 		let stored = self
 			.0
@@ -372,21 +413,21 @@ impl LocalStore {
 			)
 			.optional()?;
 		match stored {
-			None => Ok(false),
+			None => Ok(true),
 			Some(Some(enabled)) => Ok(enabled),
 			Some(None) => Err(StoreError::Incompatible),
 		}
 	}
 	pub fn save_minimize_to_tray(&self, enabled: bool) -> Result<()> {
 		if enabled {
-			self.0.execute(
-				"INSERT INTO minimize_to_tray(singleton,enabled) VALUES(1,1)
-                ON CONFLICT(singleton) DO UPDATE SET enabled=1",
-				[],
-			)?;
-		} else {
 			self.0
 				.execute("DELETE FROM minimize_to_tray WHERE singleton=1", [])?;
+		} else {
+			self.0.execute(
+				"INSERT INTO minimize_to_tray(singleton,enabled) VALUES(1,0)
+                ON CONFLICT(singleton) DO UPDATE SET enabled=0",
+				[],
+			)?;
 		}
 		Ok(())
 	}
@@ -571,17 +612,19 @@ impl LocalStore {
 		let channel = channel.to_string();
 		let retained: std::collections::BTreeSet<_> = messages.iter().map(|m| m.id).collect();
 		let previous: BTreeMap<_, _> = existing.iter().map(|m| (m.id, m)).collect();
+		let mut deleted = false;
 		{
 			let mut delete = transaction
 				.prepare_cached("DELETE FROM messages WHERE account=?1 AND channel=?2 AND id=?3")?;
 			for message in existing {
 				if !retained.contains(&message.id) {
-					delete.execute(params![account, channel, message.id.to_string()])?;
+					deleted |=
+						delete.execute(params![account, channel, message.id.to_string()])? > 0;
 				}
 			}
 		}
 		let mut insert = transaction.prepare_cached(
-            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)")?;
+            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)")?;
 		for message in messages {
 			if previous
 				.get(&message.id)
@@ -592,6 +635,35 @@ impl LocalStore {
 			let mentions =
 				serde_json::to_string(&message.mentions).map_err(|_| StoreError::Incompatible)?;
 			if mentions.len() > 128 * 1024 {
+				return Err(StoreError::Capacity);
+			}
+			if message.author_roles.len() > model::permissions::MAX_MEMBER_ROLES
+				|| message.author_roles.iter().any(|role| role.0 == 0)
+			{
+				return Err(StoreError::Capacity);
+			}
+			{
+				let mut seen = BTreeSet::new();
+				if message.author_roles.iter().any(|role| !seen.insert(*role)) {
+					return Err(StoreError::Capacity);
+				}
+			}
+			let author_roles = serde_json::to_string(
+				&message
+					.author_roles
+					.iter()
+					.map(|role| role.to_string())
+					.collect::<Vec<_>>(),
+			)
+			.map_err(|_| StoreError::Incompatible)?;
+			if author_roles.len() > 16 * 1024 {
+				return Err(StoreError::Capacity);
+			}
+			if message
+				.author_nick
+				.as_ref()
+				.is_some_and(|nick| nick.len() > 512)
+			{
 				return Err(StoreError::Capacity);
 			}
 			let embeds =
@@ -623,13 +695,27 @@ impl LocalStore {
 				message.author.webhook,
 				message.author.kind as u8,
 				message.forwarded,
+				author_roles,
+				message.author_nick.as_deref(),
 			])?;
 		}
 		drop(insert);
 		transaction.execute("INSERT INTO channels VALUES(?1,?2,unixepoch('subsec')*1000) ON CONFLICT(account,channel) DO UPDATE SET touched=excluded.touched",params![account,channel])?;
 		// Global limit: 20 channel windows, 10000 messages AND 48 MiB content, below the 64 MiB database page ceiling.
 		loop {
-			let (channels,bytes):(i64,i64)=transaction.query_row("SELECT (SELECT count(*) FROM channels),(SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+256),0) FROM messages)",[],|r|Ok((r.get(0)?,r.get(1)?)))?;
+			let channels: i64 =
+				transaction.query_row("SELECT count(*) FROM channels", [], |row| row.get(0))?;
+			let page_count: i64 =
+				transaction.pragma_query_value(None, "page_count", |row| row.get(0))?;
+			let free_pages: i64 =
+				transaction.pragma_query_value(None, "freelist_count", |row| row.get(0))?;
+			let page_size: i64 =
+				transaction.pragma_query_value(None, "page_size", |row| row.get(0))?;
+			let bytes = if (page_count - free_pages) * page_size <= 48 * 1024 * 1024 {
+				0
+			} else {
+				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
+			};
 			if channels <= 20 && bytes <= 48 * 1024 * 1024 {
 				break;
 			}
@@ -646,13 +732,16 @@ impl LocalStore {
 				"DELETE FROM channels WHERE account=?1 AND channel=?2",
 				params![a, c],
 			)?;
+			deleted = true;
 		}
 		transaction.commit()?;
-		self.0.execute_batch("PRAGMA incremental_vacuum(64);")?;
+		if deleted {
+			self.0.execute_batch("PRAGMA incremental_vacuum(64);")?;
+		}
 		Ok(())
 	}
 	pub fn load_channel(&self, account: Id, channel: Id) -> Result<Vec<Message>> {
-		let mut query = self.0.prepare("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
+		let mut query = self.0.prepare("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
 		let mut rows = query.query(params![account.to_string(), channel.to_string()])?;
 		let mut messages = Vec::new();
 		let mut bytes = 0;
@@ -689,6 +778,7 @@ impl LocalStore {
 				(9, MAX_MEDIA_JSON),
 				(11, MAX_MEDIA_JSON),
 				(12, 128 * 1024),
+				(19, 16 * 1024),
 			] {
 				if row
 					.get_ref(column)?
@@ -699,7 +789,7 @@ impl LocalStore {
 					return Err(StoreError::Capacity);
 				}
 			}
-			for (column, maximum) in [(5, 20), (7, 34)] {
+			for (column, maximum) in [(5, 20), (7, 34), (20, 512)] {
 				if !matches!(row.get_ref(column)?, rusqlite::types::ValueRef::Null)
 					&& row
 						.get_ref(column)?
@@ -738,6 +828,23 @@ impl LocalStore {
 				return Err(StoreError::Capacity);
 			}
 			let parse = |value: String| value.parse::<Id>().map_err(|_| StoreError::Incompatible);
+			let author_roles = parse_author_roles(
+				row.get_ref(19)?
+					.as_str()
+					.map_err(|_| StoreError::Incompatible)?,
+			)?;
+			let author_nick = match row.get_ref(20)? {
+				rusqlite::types::ValueRef::Null => None,
+				rusqlite::types::ValueRef::Text(bytes) => {
+					let nick = std::str::from_utf8(bytes).map_err(|_| StoreError::Incompatible)?;
+					if nick.is_empty() {
+						None
+					} else {
+						Some(nick.chars().take(128).collect())
+					}
+				}
+				_ => return Err(StoreError::Incompatible),
+			};
 			let message = Message {
 				reactions: None,
 				id: parse(row.get(0)?)?,
@@ -762,8 +869,8 @@ impl LocalStore {
 				nonce: None,
 				revision: 0,
 				embeds,
-				author_nick: None,
-				author_roles: vec![],
+				author_nick,
+				author_roles,
 				mention_roles: vec![],
 				mention_everyone: false,
 				suppress_notifications: false,
@@ -1238,7 +1345,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 16);
+		assert_eq!(version, 18);
 		for invalid in ["-1", "2", "1.5", "'bad'"] {
 			assert!(
 				store
@@ -1321,7 +1428,7 @@ mod tests {
 				.0
 				.pragma_query_value(None, "user_version", |row| row.get(0))
 				.unwrap();
-			assert_eq!(version, 16);
+			assert_eq!(version, 18);
 			let mut messages = store.load_channel(Id(1), Id(2)).unwrap();
 			assert_eq!(messages[0].kind, expected_kind);
 			assert_eq!(messages[0].extra_content.bits(), expected_markers);
@@ -1420,7 +1527,7 @@ mod tests {
 		assert_eq!(store.load_channel(Id(1), Id(2)).unwrap()[0].kind, 255);
 	}
 	#[test]
-	fn minimize_to_tray_is_bounded_opt_in_surviving_restart_and_logout() {
+	fn minimize_to_tray_is_bounded_opt_out_surviving_restart_and_logout() {
 		let root = std::env::temp_dir().join(format!(
 			"serein-synthetic-minimize-to-tray-{}",
 			std::process::id()
@@ -1428,20 +1535,20 @@ mod tests {
 		std::fs::create_dir_all(&root).unwrap();
 		let path = root.join("test.sqlite3");
 		let store = LocalStore::open(&path).unwrap();
-		assert!(!store.minimize_to_tray().unwrap());
+		assert!(store.minimize_to_tray().unwrap());
 		store
 			.0
 			.execute_batch("DROP TABLE minimize_to_tray;")
 			.unwrap();
 		drop(store);
 		let store = LocalStore::open(&path).unwrap();
-		assert!(!store.minimize_to_tray().unwrap());
-		store.save_minimize_to_tray(true).unwrap();
-		store.save_minimize_to_tray(true).unwrap();
+		assert!(store.minimize_to_tray().unwrap());
+		store.save_minimize_to_tray(false).unwrap();
+		store.save_minimize_to_tray(false).unwrap();
 		assert!(
 			store
 				.0
-				.execute("INSERT INTO minimize_to_tray VALUES(2,1)", [])
+				.execute("INSERT INTO minimize_to_tray VALUES(2,0)", [])
 				.is_err()
 		);
 		assert!(
@@ -1452,15 +1559,15 @@ mod tests {
 		);
 		drop(store);
 		let mut store = LocalStore::open(&path).unwrap();
-		assert!(store.minimize_to_tray().unwrap());
+		assert!(!store.minimize_to_tray().unwrap());
 		store.forget_account(Id(1)).unwrap();
-		assert!(store.minimize_to_tray().unwrap());
+		assert!(!store.minimize_to_tray().unwrap());
 		store.0.execute_batch("PRAGMA query_only=ON;").unwrap();
 		assert_eq!(
-			store.save_minimize_to_tray(false),
+			store.save_minimize_to_tray(true),
 			Err(StoreError::Unavailable)
 		);
-		assert!(store.minimize_to_tray().unwrap());
+		assert!(!store.minimize_to_tray().unwrap());
 		store
 			.0
 			.execute_batch("PRAGMA query_only=OFF; PRAGMA ignore_check_constraints=ON;")
@@ -1475,7 +1582,7 @@ mod tests {
 				.unwrap();
 			assert_eq!(store.minimize_to_tray(), Err(StoreError::Incompatible));
 		}
-		store.save_minimize_to_tray(false).unwrap();
+		store.save_minimize_to_tray(true).unwrap();
 		let count: u32 = store
 			.0
 			.query_row("SELECT count(*) FROM minimize_to_tray", [], |row| {
@@ -1485,7 +1592,7 @@ mod tests {
 		assert_eq!(count, 0);
 		drop(store);
 		let store = LocalStore::open(&path).unwrap();
-		assert!(!store.minimize_to_tray().unwrap());
+		assert!(store.minimize_to_tray().unwrap());
 		store
 			.0
 			.execute_batch("DROP TABLE minimize_to_tray;")
@@ -1594,7 +1701,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 16);
+		assert_eq!(version, 18);
 		assert_eq!(
 			store.reading_preferences().unwrap(),
 			ReadingPreferences::default()
@@ -1911,7 +2018,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 16);
+		assert_eq!(version, 18);
 		let messages: Vec<_> = (0..32_u8)
 			.map(|bits| {
 				let mut message = legacy[0].clone();
@@ -2103,7 +2210,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |r| r.get(0))
 			.unwrap();
-		assert_eq!(version, 16);
+		assert_eq!(version, 18);
 		for (json, error) in [
 			("broken JSON".to_owned(), StoreError::Incompatible),
 			(

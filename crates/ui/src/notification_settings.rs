@@ -1,9 +1,7 @@
-//! Notification sections share the existing settings shell and real account commands.
+//! Device notification sections; message alerts, sounds and badges are stored locally.
 use crate::{MessagingUi, design};
-use client_core::{Command, State};
 use egui::RichText;
 use model::notification_preferences::Sound;
-use model::notification_settings::{Change, Section};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Tab {
@@ -11,7 +9,6 @@ pub(super) enum Tab {
 	Overview,
 	Sounds,
 	Badges,
-	Email,
 }
 
 #[cfg(test)]
@@ -40,11 +37,7 @@ mod tests {
 				egui::Visuals::light()
 			});
 			let mut view = MessagingUi::default();
-			let mut state = State {
-				demo: true,
-				..Default::default()
-			};
-			let render = |view: &mut MessagingUi, state: &mut State, events| {
+			let render = |view: &mut MessagingUi, events| {
 				let mut labels = vec![];
 				let output = ctx.run_ui(
 					egui::RawInput {
@@ -57,9 +50,7 @@ mod tests {
 						..Default::default()
 					},
 					|ui| {
-						let mut commands = vec![];
-						view.notification_settings(ui, state, &mut commands);
-						assert!(commands.is_empty(), "demo must not emit account writes");
+						view.notification_settings(ui, true);
 						assert!(
 							ui.min_rect().width() <= width,
 							"notification settings overflow"
@@ -72,63 +63,51 @@ mod tests {
 				output.drop_without_applying_deltas();
 				labels
 			};
-			let labels = render(&mut view, &mut state, vec![]);
+			let labels = render(&mut view, vec![]);
 			for label in [
 				"Overview",
 				"Sounds",
 				"Badges",
-				"Email",
-				"Communication Emails",
 				"Enable Unread Message Badge",
 				"Incoming Ring",
 			] {
 				assert!(labels.iter().any(|(s, _)| s == label), "missing {label}");
 			}
-			assert!(!labels.iter().any(|(s, _)| s == "Advanced"));
-			for (label, action) in [
-				("Friends come online", 0),
-				("Communication Emails", 1),
-				("Preview Sound", 2),
-			] {
-				let labels = render(&mut view, &mut state, vec![]);
-				let point = labels
-					.iter()
-					.find(|(text, _)| text == label)
-					.unwrap()
-					.1
-					.center();
-				for pressed in [true, false] {
-					render(
-						&mut view,
-						&mut state,
-						vec![
-							egui::Event::PointerMoved(point),
-							egui::Event::PointerButton {
-								pos: point,
-								button: egui::PointerButton::Primary,
-								pressed,
-								modifiers: egui::Modifiers::NONE,
-							},
-						],
-					);
-				}
-				match action {
-					0 => assert!(!state.notification_settings.overview.unwrap().friends_online),
-					1 => assert!(state.notification_settings.email.unwrap().communication),
-					_ => assert_eq!(view.notification_preview.take(), Some(Sound::Message)),
-				}
+			for label in ["Email", "Advanced", "Friends come online"] {
+				assert!(!labels.iter().any(|(s, _)| s == label), "stale {label}");
 			}
+			let labels = render(&mut view, vec![]);
+			let point = labels
+				.iter()
+				.find(|(text, _)| text == "Preview Sound")
+				.unwrap()
+				.1
+				.center();
+			for pressed in [true, false] {
+				render(
+					&mut view,
+					vec![
+						egui::Event::PointerMoved(point),
+						egui::Event::PointerButton {
+							pos: point,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				);
+			}
+			assert_eq!(view.notification_preview.take(), Some(Sound::Message));
 		}
 	}
 }
 impl Tab {
-	pub const ALL: [Self; 4] = [Self::Overview, Self::Sounds, Self::Badges, Self::Email];
+	pub const ALL: [Self; 3] = [Self::Overview, Self::Sounds, Self::Badges];
 	pub fn label(self) -> &'static str {
 		match self {
 			Self::Overview => "Overview",
 			Self::Sounds => "Sounds",
 			Self::Badges => "Badges",
-			Self::Email => "Email",
 		}
 	}
 }
@@ -136,8 +115,6 @@ impl Tab {
 pub(super) struct Navigation {
 	pub active: Tab,
 	pub jump: Option<Tab>,
-	generation: u64,
-	attempted: [bool; 2],
 }
 impl Navigation {
 	fn heading(&mut self, ui: &mut egui::Ui, tab: Tab) {
@@ -161,37 +138,13 @@ impl Navigation {
 		ui.add_space(22.0);
 	}
 }
-fn row(ui: &mut egui::Ui, label: &str, detail: Option<&str>, value: &mut bool) -> bool {
-	let changed = design::switch(ui, label, detail, value).changed();
+fn row(ui: &mut egui::Ui, label: &str, detail: Option<&str>, value: &mut bool) {
+	design::switch(ui, label, detail, value);
 	ui.add_space(10.0);
-	changed
 }
 impl MessagingUi {
-	pub(super) fn notification_settings(
-		&mut self,
-		ui: &mut egui::Ui,
-		state: &mut State,
-		commands: &mut Vec<Command>,
-	) {
-		if self.settings.notifications.generation != state.generation {
-			self.settings.notifications = Navigation {
-				generation: state.generation,
-				..Default::default()
-			};
-		}
-		for (index, section) in [(0, Section::Overview), (1, Section::Email)] {
-			if !self.settings.notifications.attempted[index]
-				&& state.notification_settings.pending.is_none()
-			{
-				if let Some(command) = state.request_notification_settings(section) {
-					commands.push(command);
-				}
-				self.settings.notifications.attempted[index] = true;
-			}
-		}
+	pub(super) fn notification_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
-		let busy = state.notification_settings.pending.is_some();
-		let mut change = None;
 		if ui.available_width() < 500.0 {
 			ui.horizontal_wrapped(|ui| {
 				for tab in Tab::ALL {
@@ -214,7 +167,7 @@ impl MessagingUi {
 			&mut self.notifications_enabled,
 		);
 		ui.label(
-			RichText::new(if state.demo {
+			RichText::new(if demo {
 				"Offline preview"
 			} else {
 				self.notification_status
@@ -222,82 +175,6 @@ impl MessagingUi {
 			.size(12.0)
 			.color(colors.muted),
 		);
-		ui.add_space(22.0);
-		ui.label(design::semibold(ui, "Notify me when...", 16.0));
-		ui.label(
-			RichText::new("These preferences sync with your Discord account.")
-				.size(12.0)
-				.color(colors.muted),
-		);
-		ui.add_space(12.0);
-		let mut overview = state.notification_settings.overview.unwrap_or_default();
-		ui.add_enabled_ui(
-			!busy && state.notification_settings.overview.is_some(),
-			|ui| {
-				for (label, value, make) in [
-					(
-						"People I know start streaming in small servers",
-						&mut overview.streaming,
-						Change::Streaming as fn(bool) -> Change,
-					),
-					(
-						"A friend and I reach a friendship anniversary",
-						&mut overview.friend_anniversary,
-						Change::FriendAnniversary,
-					),
-					(
-						"Friends come online",
-						&mut overview.friends_online,
-						Change::FriendsOnline,
-					),
-					(
-						"A server has an upcoming event",
-						&mut overview.upcoming_event,
-						Change::UpcomingEvent,
-					),
-					(
-						"Friends update their profile",
-						&mut overview.profile_updates,
-						Change::ProfileUpdates,
-					),
-				] {
-					if row(ui, label, None, value) {
-						change = Some(make(*value));
-					}
-				}
-				let narrow = ui.available_width() < 520.0;
-				let selector = |ui: &mut egui::Ui| {
-					ui.label(design::medium(ui, "Someone reacts to my messages", 16.0));
-					let old = overview.reactions;
-					egui::ComboBox::from_id_salt("notification-reactions")
-						.selected_text(match old {
-							0 => "All Messages",
-							1 => "Only Direct Messages",
-							2 => "Never",
-							_ => "Custom setting",
-						})
-						.width(200.0)
-						.show_ui(ui, |ui| {
-							for (value, label) in [
-								(0, "All Messages"),
-								(1, "Only Direct Messages"),
-								(2, "Never"),
-							] {
-								ui.selectable_value(&mut overview.reactions, value, label);
-							}
-						});
-					if old != overview.reactions {
-						change = Some(Change::Reactions(overview.reactions));
-					}
-				};
-				if narrow {
-					ui.vertical(selector);
-				} else {
-					ui.horizontal(selector);
-				}
-			},
-		);
-		self.notification_account_status(ui, state, Section::Overview);
 		self.settings.notifications.heading(ui, Tab::Sounds);
 		for (label, value, sound) in [
 			(
@@ -363,89 +240,5 @@ impl MessagingUi {
 				&mut self.notification_options.unread_badge,
 			);
 		});
-		self.settings.notifications.heading(ui, Tab::Email);
-		let mut email = state.notification_settings.email.unwrap_or_default();
-		ui.add_enabled_ui(!busy && state.notification_settings.email.is_some(), |ui| {
-			for (label, detail, value, make) in [
-				(
-					"Communication Emails",
-					"Receive emails for missed calls, messages, and message digests.",
-					&mut email.communication,
-					Change::Communication as fn(bool) -> Change,
-				),
-				(
-					"Social Emails",
-					"Receive emails for friend requests, new friend suggestions, and events in your server.",
-					&mut email.social,
-					Change::Social,
-				),
-				(
-					"Announcements and Update Emails",
-					"Receive emails about product updates, new features, improvements and bug fixes.",
-					&mut email.announcements,
-					Change::Announcements,
-				),
-				(
-					"Tip Emails",
-					"Receive emails with helpful advice and information on lesser known features.",
-					&mut email.tips,
-					Change::Tips,
-				),
-				(
-					"Recommendations Emails",
-					"Receive emails with recommended servers and suggested events.",
-					&mut email.recommendations,
-					Change::Recommendations,
-				),
-			] {
-				if row(ui, label, Some(detail), value) {
-					change = Some(make(*value));
-				}
-			}
-			ui.add_space(12.0);
-			ui.label(design::medium(
-				ui,
-				"Unsubscribe from all marketing emails",
-				16.0,
-			));
-			ui.label(
-				RichText::new(
-					"This includes product updates, new features, tips, and recommendations.",
-				)
-				.size(13.0)
-				.color(colors.muted),
-			);
-			if ui
-				.add(egui::Button::new(
-					RichText::new("Unsubscribe").color(colors.danger),
-				))
-				.clicked()
-			{
-				change = Some(Change::UnsubscribeMarketing);
-			}
-		});
-		self.notification_account_status(ui, state, Section::Email);
-		if let Some(change) = change
-			&& let Some(command) = state.update_notification_settings(change)
-		{
-			commands.push(command);
-		}
-	}
-	fn notification_account_status(&mut self, ui: &mut egui::Ui, state: &State, section: Section) {
-		let index = if section == Section::Overview { 0 } else { 1 };
-		if state.notification_settings.pending == Some(section) {
-			ui.weak("Saving / loading preferences...");
-		}
-		let error = if section == Section::Overview {
-			state.notification_settings.overview_error
-		} else {
-			state.notification_settings.email_error
-		};
-		if let Some(error) = error {
-			ui.colored_label(design::palette(ui).danger, error.label());
-			if ui.button("Retry loading preferences").clicked() {
-				self.settings.notifications.attempted[index] = false;
-			}
-		}
 	}
 }

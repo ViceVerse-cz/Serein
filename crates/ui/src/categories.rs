@@ -672,18 +672,22 @@ impl MessagingUi {
 							}
 							let access = state.channel_access(channel.id);
 							let visible = !access.hidden();
+							// Forum containers open their post list; Discord lists them as browsable rows.
+							let forum = channel.guild.is_some() && matches!(channel.kind, 15 | 16);
+							// A forum carries no messages of its own: its posts hold the activity.
 							let unread = visible
 								&& (state.channel_unread(channel) == Some(true)
-									|| state.unread_count(channel.id) > 0);
+									|| state.unread_count(channel.id) > 0
+									|| (forum && state.forum_unread(channel.id)));
 							let count = if !visible {
 								0
+							} else if forum {
+								state.forum_mentions(channel.id)
 							} else if channel.guild.is_some() {
 								state.mention_count(channel.id)
 							} else {
 								state.unread_count(channel.id)
 							};
-							// Forum containers open their post list; Discord lists them as browsable rows.
-							let forum = channel.guild.is_some() && matches!(channel.kind, 15 | 16);
 							let enabled = visible && (channel.supports_text() || forum);
 							// Kinds Serein cannot render keep Discord's own destination.
 							let external = (!channel.supports_text() && !forum)
@@ -937,7 +941,7 @@ impl MessagingUi {
 									channel.name,
 									kind_label(channel.kind),
 									channel_marks::label(access),
-									if unread && state.channel_unread(channel).is_none() {
+									if unread && !forum && state.channel_unread(channel).is_none() {
 										" · Session activity; read sync unavailable"
 									} else if count > 0 {
 										" · Notification count may be a lower bound"
@@ -1068,7 +1072,7 @@ impl MessagingUi {
 				let response = ui.interact(
 					empty,
 					ui.scope_id().with(("server-channel-area", guild)),
-					egui::Sense::click(),
+					crate::design::menu_anchor_sense(),
 				);
 				let mut next = hide_muted;
 				self.channel_menu

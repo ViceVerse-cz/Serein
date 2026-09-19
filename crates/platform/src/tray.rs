@@ -1,4 +1,5 @@
-//! Opt-in native tray icon. Minimizing and closing keep their normal window behavior.
+//! Opt-out native tray icon. Minimizing keeps its normal window behavior; the application
+//! decides what closing does, and hides the window behind a live icon instead of exiting.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]

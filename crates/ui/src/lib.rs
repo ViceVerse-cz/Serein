@@ -76,6 +76,7 @@ mod thumbhash;
 mod timeline;
 #[cfg(test)]
 mod title_bar_tests;
+pub mod toasts;
 mod typing;
 pub mod updates;
 mod user_menu;
@@ -194,6 +195,7 @@ pub struct MessagingUi {
 	reading_zoom_draft: Option<u16>,
 	/// Where the open profile was requested from; the popout is placed beside it.
 	profile_anchor: Option<(Id, egui::Pos2)>,
+	profile_trigger: Option<egui::Rect>,
 	friend_removal: Option<(u64, model::User)>,
 	members_narrow_open: bool,
 	member_reload_requested: bool,
@@ -227,7 +229,8 @@ pub struct MessagingUi {
 	pub remove_attachment_requested: bool,
 	pub cancel_upload_requested: bool,
 	pub upload_busy: bool,
-	pub upload_status: Option<String>,
+	/// Transient problem and progress notices. Nothing here outlives its deadline.
+	pub toasts: toasts::Toasts,
 	pending_upload: Option<pending::Upload>,
 	pub clear_cache_requested: bool,
 	pub voice_available: bool,
@@ -259,6 +262,8 @@ pub struct MessagingUi {
 	pub voice_output: Option<String>,
 	pub voice_gain: VoiceGain,
 	voice_user_volumes: Option<Box<[(u64, u16); 64]>>,
+	/// Speakers silenced on this device only; never sent to Discord.
+	voice_user_muted: Vec<u64>,
 	pub voice_refresh_devices: bool,
 	pub voice_device_status: &'static str,
 	pub voice_microphone_unavailable: bool,
@@ -332,6 +337,43 @@ fn composer_cap(
 		.response
 		.rect
 }
+
+fn mention_switch(ui: &mut egui::Ui, colors: &design::Palette, on: &mut bool) {
+	let font = egui::FontId::new(12.0, design::semibold_family(ui.ctx()));
+	let padding = egui::vec2(6.0, 3.0);
+	let hit =
+		ui.painter()
+			.layout_no_wrap("@ OFF".to_owned(), font.clone(), colors.muted)
+			.size() + 2.0 * padding;
+	let (rect, mut response) = ui.allocate_exact_size(hit, egui::Sense::click());
+	if response.clicked() {
+		*on = !*on;
+		response.mark_changed();
+	}
+	let label = if *on { "@ ON" } else { "@ OFF" };
+	let color = if *on { colors.link } else { colors.muted };
+	let hover = if *on {
+		"Click to disable pinging the original author."
+	} else {
+		"Click to enable pinging the original author."
+	};
+	if response.hovered() || response.has_focus() {
+		ui.painter().rect_filled(rect, 6, colors.hover);
+	}
+	let galley = ui.painter().layout_no_wrap(label.to_owned(), font, color);
+	ui.painter()
+		.galley(rect.center() - galley.size() / 2.0, galley, color);
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(
+			egui::WidgetType::Checkbox,
+			ui.is_enabled(),
+			*on,
+			"Ping the original author",
+		)
+	});
+	response.on_hover_text(hover);
+}
+
 impl MessagingUi {
 	/// Feed the frame's middle button before `show`. Never fed means never pressed.
 	pub fn middle_button(&mut self, middle: scroll::Middle) {
@@ -1996,7 +2038,7 @@ impl MessagingUi {
 		} else if let Some(reply) = state.reply {
 			let author = state
 				.timeline
-				.get(reply)
+				.get(reply.target())
 				.map_or("an earlier message", |message| message.author.name.as_str())
 				.to_owned();
 			let cap = composer_cap(ui, &colors, |ui| {
@@ -2008,9 +2050,12 @@ impl MessagingUi {
 					if icons::button(ui, icons::Icon::Close, 22.0, "Cancel reply").clicked() {
 						state.reply = None;
 					}
+					if let Some(reply) = state.reply.as_mut() {
+						mention_switch(ui, &colors, &mut reply.mention);
+					}
 					if ui
 						.add_enabled(
-							state.can_open_reply_target(reply),
+							state.can_open_reply_target(reply.target()),
 							egui::Button::new(
 								RichText::new("View original")
 									.size(12.0)
@@ -2018,36 +2063,18 @@ impl MessagingUi {
 							)
 							.frame(false),
 						)
-						.on_disabled_hover_text(if state.timeline.is_deleted(reply) {
+						.on_disabled_hover_text(if state.timeline.is_deleted(reply.target()) {
 							"The original message was deleted"
 						} else {
 							"Wait for readable, current message history"
 						})
 						.clicked()
 					{
-						self.timeline.reply_target = Some(reply);
+						self.timeline.request_reply_target(reply.target());
 					}
 				});
 			});
 			cap_top = Some(cap.top());
-		}
-		let upload_in_timeline = self.pending_upload.as_ref().is_some_and(|upload| {
-			state.pending.iter().any(|p| {
-				p.nonce == upload.nonce
-					&& p.channel == channel
-					&& p.delivery == model::Delivery::Sending
-			})
-		});
-		if !editing_here
-			&& !upload_in_timeline
-			&& let Some(status) = self.upload_status.as_deref()
-		{
-			ui.horizontal_wrapped(|ui| {
-				ui.label(status);
-				if self.upload_busy && ui.button("Cancel upload").clicked() {
-					self.cancel_upload_requested = true;
-				}
-			});
 		}
 		let full = state.draft_bytes() >= MAX_DRAFT_BYTES
 			|| (!state.drafts.contains_key(&channel) && state.drafts.len() >= 64);
@@ -2368,9 +2395,26 @@ impl MessagingUi {
                         let edit = ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.vertical(|ui| {
                                 ui.set_width(ui.available_width());
-                        cancel_edit |= keyboard_enabled && editing_here && !self.ime_active && !ime_this_frame
-                            && ctx.memory(|m| m.has_focus(composer_id) || m.had_focus_last_frame(composer_id))
-                            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+                        let composer_escape = keyboard_enabled
+                            && !self.ime_active
+                            && !ime_this_frame
+                            && ctx.memory(|m| {
+                                m.has_focus(composer_id) || m.had_focus_last_frame(composer_id)
+                            });
+                        cancel_edit |= editing_here
+                            && composer_escape
+                            && ctx.input_mut(|i| {
+                                i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                            });
+                        if !editing_here
+                            && state.reply.is_some()
+                            && composer_escape
+                            && ctx.input_mut(|i| {
+                                i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                            })
+                        {
+                            state.reply = None;
+                        }
                         let remaining = if editing_here { MAX_CONTENT * 4 } else { MAX_DRAFT_BYTES.saturating_sub(state.draft_bytes()) };
                         // Temporarily own the buffer so suggestions can borrow the current
                         // permission state without cloning the draft or server catalogs.
@@ -2668,6 +2712,7 @@ impl MessagingUi {
 		}
 		self.timeline.audio.seen = false;
 		self.timeline.video.seen = false;
+		self.profile_trigger = None;
 		let mut commands = Vec::new();
 		let ctx = ui.ctx().clone();
 		self.extensions.reset_theme_shortcut(&ctx);
@@ -3100,16 +3145,27 @@ impl MessagingUi {
 					}
 				}
 				if selected_forum {
+					// A post's first message uses the same upload tray as the composer.
+					let textures = self.attachment_textures(ui.ctx());
+					let files = self.selected_files();
 					let view = shortcuts::ShortcutView::new(
 						&self.channel_preferences,
 						self.shortcuts_available(state),
 					);
+					let mut staged = forum::Staged {
+						files: &files,
+						textures: &textures,
+						choose: &mut self.attach_requested,
+						remove: &mut self.remove_attachment_index,
+						clear: &mut self.remove_attachment_requested,
+						busy: self.upload_busy,
+					};
 					self.forum.show(
 						ui,
 						state,
 						channel,
 						&mut commands,
-						&mut self.scroll,
+						(&mut self.scroll, &mut staged),
 						(&mut self.channel_menu, view),
 					);
 					return;
@@ -3123,18 +3179,17 @@ impl MessagingUi {
 								background.chat,
 								design::ImageSection::Composer,
 							))
+							// The bottom inset matches the account card's, so the input and the
+							// account pill sit on one line across the window.
 							.inner_margin(egui::Margin {
 								left: 16,
 								right: 16,
 								top: 2,
-								bottom: 4,
+								bottom: 8,
 							}),
 					)
 					.show(ui, |ui| {
 						self.composer(ui, state, channel, &ctx, &mut commands);
-						// The typing row doubles as the bottom margin, as in Discord.
-						ui.add_space(-2.0);
-						typing::show(ui, state, channel, std::time::Instant::now());
 					});
 				if commands
 					.iter()
@@ -3193,6 +3248,19 @@ impl MessagingUi {
 						design::paint_chat_background(ui, ui.available_rect_before_wrap());
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
 						self.timeline.extension_actions = self.extensions.message_actions();
+						let mut seen = std::collections::BTreeSet::new();
+						let author_lookup: Vec<_> = state
+							.timeline
+							.iter()
+							.rev()
+							.filter(|message| !message.author.webhook)
+							.map(|message| message.author.id)
+							.filter(|id| seen.insert(*id))
+							.take(client_core::member_search::LIMIT)
+							.collect();
+						if let Some(command) = state.request_author_members(&author_lookup) {
+							commands.push(command);
+						}
 						self.timeline.show_with_scroll(
 							ui,
 							state,
@@ -3240,6 +3308,9 @@ impl MessagingUi {
 							&& let Some(command) = state.prepare_delete(channel, message)
 						{
 							commands.push(command);
+						}
+						if let Some(id) = self.timeline.remove_preserved.take() {
+							state.discard_preserved_deleted(id);
 						}
 						if let Some(nonce) = self.timeline.restore_pending.take() {
 							self.restore_pending(state, channel, &nonce);
@@ -3532,10 +3603,21 @@ impl MessagingUi {
 					commands.push(state.clear_profile());
 				}
 				Some(profiles::Action::Close) => {
-					self.profile = None;
-					self.profile_link = None;
-					self.profile_anchor = None;
-					commands.push(state.clear_profile());
+					let keep = self.profile_trigger.is_some_and(|rect| {
+						ctx.input(|input| {
+							input.pointer.any_pressed()
+								&& input
+									.pointer
+									.interact_pos()
+									.is_some_and(|pos| rect.contains(pos))
+						})
+					});
+					if !keep {
+						self.profile = None;
+						self.profile_link = None;
+						self.profile_anchor = None;
+						commands.push(state.clear_profile());
+					}
 				}
 				Some(profiles::Action::Retry) => {
 					if let Some(command) = state.request_profile(user.id, profile_guild) {
@@ -3601,6 +3683,9 @@ impl MessagingUi {
 		self.verification.show(&ctx, state);
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);
+		// Clear the title bar and channel header so a notice never sits on the chrome.
+		self.toasts
+			.show(&ctx, if self.shows_title_bar() { 96.0 } else { 60.0 });
 		if !commands.is_empty() {
 			ctx.request_repaint();
 		}
@@ -4739,14 +4824,20 @@ mod composer_tests {
 			};
 			let click = |view: &mut MessagingUi, state: &mut State, label: &str| {
 				let (labels, _) = frame(view, state, vec![]);
-				let pos = labels
-					.iter()
-					.find(|(text, _)| {
-						text == label || (label == "Jump to present" && text.ends_with(label))
-					})
-					.expect("navigation control")
-					.1
-					.center();
+				// The return to the live edge is an icon-only control with no painted text.
+				let pos = if label == "Jump to present" {
+					view.timeline
+						.present_control
+						.expect("navigation control")
+						.center()
+				} else {
+					labels
+						.iter()
+						.find(|(text, _)| text == label)
+						.expect("navigation control")
+						.1
+						.center()
+				};
 				let mut commands = vec![];
 				for pressed in [true, false] {
 					commands.extend(
@@ -4851,7 +4942,7 @@ mod composer_tests {
 			source.reply_deleted = blocked == 0;
 			source.kind = 19;
 			state.timeline.insert(source.clone(), true, false).unwrap();
-			state.reply = Some(Id(19));
+			state.reply = Some(client_core::Reply::to(Id(19)));
 			match blocked {
 				0 => {}
 				1 => {
@@ -4936,7 +5027,7 @@ mod composer_tests {
 			assert_eq!(state.request, request);
 			assert!(state.search_target.is_none());
 			assert_eq!(state.drafts, draft);
-			assert_eq!(state.reply, Some(Id(19)));
+			assert_eq!(state.reply_target(), Some(Id(19)));
 		}
 	}
 
@@ -4975,7 +5066,7 @@ mod composer_tests {
 				source.content = "||Hidden original||".into();
 				state.timeline.insert(source, false, false).unwrap();
 			}
-			state.reply = Some(Id(19));
+			state.reply = Some(client_core::Reply::to(Id(19)));
 			let draft = state.drafts.clone();
 			let frame = |view: &mut MessagingUi, state: &mut State, events| {
 				let mut commands = vec![];
@@ -5095,7 +5186,7 @@ mod composer_tests {
 				}
 				activated
 			};
-			assert_eq!(state.reply, Some(Id(19)));
+			assert_eq!(state.reply_target(), Some(Id(19)));
 			assert_eq!(state.drafts, draft);
 			assert!(view.draft_changes.is_empty());
 			assert_eq!(state.search_target, Some(Id(19)));
