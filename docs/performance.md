@@ -1,3 +1,24 @@
+# Voice event cues - September 19, 2026
+
+Baseline: `d160c3e`. After: this change on that baseline. One standard Windows x64
+`cargo xtask package` per revision, Rust 1.98.1 MSVC, locked dependencies,
+release profile and voice included. Builds ran serially using the same Cargo
+target; each completed six-file `dist` directory was copied aside before the
+next build. ZIP uses PowerShell `Compress-Archive -CompressionLevel Optimal`.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 66,424,320 | 66,447,360 | +23,040 (+0.0347%) |
+| Full portable package, bytes | 66,486,654 | 66,509,694 | +23,040 (+0.0347%) |
+| ZIP, bytes | 37,656,202 | 37,660,476 | +4,274 (+0.0113%) |
+
+The seven cues are generated only when requested, contain at most 9,600 stereo
+frames at 48 kHz and reuse the existing one-slot sound worker. No dependency or
+bundled media file was added. Native CPU and output-device latency were not
+measured, so no runtime speed or latency claim is made. Both packages completed
+with the existing nonfatal OpenH264 LNK4255 warning. NSIS was unavailable, so
+installer binaries were not produced.
+
 # Reaction tooltip loading - September 17, 2026
 
 Baseline: `ef0c61a`. After: the reaction-tooltip follow-up on that baseline.

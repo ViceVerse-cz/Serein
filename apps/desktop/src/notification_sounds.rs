@@ -14,9 +14,26 @@ use std::{
 // Five seconds of audio plus a gap; shared with the automatic incoming-call timer.
 pub const RING_INTERVAL: Duration = Duration::from_secs(6);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cue {
+	Notification(Sound),
+	Mute,
+	Unmute,
+	Deafen,
+	Undeafen,
+	Join,
+	Leave,
+	StreamStart,
+}
+impl From<Sound> for Cue {
+	fn from(value: Sound) -> Self {
+		Self::Notification(value)
+	}
+}
+
 #[derive(Default)]
 pub struct Sounds {
-	send: Option<SyncSender<(u64, Sound)>>,
+	send: Option<SyncSender<(u64, Cue)>>,
 	generation: Arc<AtomicU64>,
 	status: Arc<AtomicU8>,
 }
@@ -32,9 +49,10 @@ impl Sounds {
 		self.generation.fetch_add(1, Ordering::AcqRel);
 		self.status.store(0, Ordering::Release);
 	}
-	pub fn play(&mut self, sound: Sound, ctx: &eframe::egui::Context) {
+	pub fn play(&mut self, sound: impl Into<Cue>, ctx: &eframe::egui::Context) {
+		let sound = sound.into();
 		if self.send.is_none() {
-			let (send, receive) = mpsc::sync_channel::<(u64, Sound)>(1);
+			let (send, receive) = mpsc::sync_channel::<(u64, Cue)>(1);
 			let generation = self.generation.clone();
 			let status = self.status.clone();
 			let context = ctx.clone();
@@ -111,13 +129,19 @@ impl Drop for Sounds {
 	}
 }
 
-fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[f32; 2]>, ()> {
+fn samples(sound: Cue, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[f32; 2]>, ()> {
+	if !(8000..=192000).contains(&rate) {
+		return Err(());
+	}
+	let Cue::Notification(sound) = sound else {
+		return current().then(|| generated(sound, rate)).ok_or(());
+	};
 	let bytes: &[u8] = match sound {
 		Sound::Message => include_bytes!("../../../assets/sounds/message.mp3"),
 		Sound::CurrentChannel => include_bytes!("../../../assets/sounds/current-channel.mp3"),
 		Sound::IncomingRing => include_bytes!("../../../assets/sounds/incoming-ring.mp3"),
 	};
-	if bytes.len() > 128 * 1024 || !(8000..=192000).contains(&rate) {
+	if bytes.len() > 128 * 1024 {
 		return Err(());
 	}
 	let mut pcm = Vec::new();
@@ -157,8 +181,37 @@ fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[
 		})
 		.collect())
 }
+fn generated(sound: Cue, rate: u32) -> Vec<[f32; 2]> {
+	let tones: &[(f32, u32)] = match sound {
+		Cue::Mute => &[(520.0, 60), (330.0, 100)],
+		Cue::Unmute => &[(330.0, 60), (520.0, 100)],
+		Cue::Deafen => &[(440.0, 70), (220.0, 130)],
+		Cue::Undeafen => &[(220.0, 70), (440.0, 130)],
+		Cue::Join => &[(392.0, 70), (523.25, 110)],
+		Cue::Leave => &[(523.25, 70), (392.0, 110)],
+		Cue::StreamStart => &[(330.0, 50), (440.0, 50), (659.25, 100)],
+		Cue::Notification(_) => return Vec::new(),
+	};
+	let fade = (rate / 200).max(1) as usize;
+	let mut output = Vec::with_capacity(
+		tones
+			.iter()
+			.map(|(_, millis)| rate as usize * *millis as usize / 1000)
+			.sum(),
+	);
+	for (frequency, millis) in tones {
+		let frames = (rate as usize * *millis as usize / 1000).max(1);
+		for frame in 0..frames {
+			let edge = frame.min(frames - frame - 1).min(fade) as f32 / fade as f32;
+			let phase = std::f32::consts::TAU * *frequency * frame as f32 / rate as f32;
+			let value = phase.sin() * edge * 0.12;
+			output.push([value, value]);
+		}
+	}
+	output
+}
 fn open(
-	sound: Sound,
+	sound: Cue,
 	generation: Arc<AtomicU64>,
 	request: u64,
 	status: Arc<AtomicU8>,
@@ -314,7 +367,7 @@ mod tests {
 	fn bundled_cues_decode_in_full_at_supported_rates_and_cancel() {
 		for rate in [8000, 44100, 48000, 192000] {
 			let cues = [Sound::Message, Sound::CurrentChannel, Sound::IncomingRing]
-				.map(|s| samples(s, rate, &|| true).unwrap());
+				.map(|s| samples(s.into(), rate, &|| true).unwrap());
 			assert_ne!(cues[0], cues[1]);
 			for (cue, (min, max)) in cues.iter().zip([(0.2, 0.5), (0.1, 0.4), (3.9, 4.3)]) {
 				let seconds = cue.len() as f64 / f64::from(rate);
@@ -334,7 +387,33 @@ mod tests {
 				);
 			}
 		}
-		assert!(samples(Sound::Message, 48000, &|| false).is_err());
-		assert!(samples(Sound::Message, 0, &|| true).is_err());
+		assert!(samples(Sound::Message.into(), 48000, &|| false).is_err());
+		assert!(samples(Sound::Message.into(), 0, &|| true).is_err());
+	}
+	#[test]
+	fn voice_cues_are_short_bounded_distinct_and_cancelable() {
+		let cues = [
+			Cue::Mute,
+			Cue::Unmute,
+			Cue::Deafen,
+			Cue::Undeafen,
+			Cue::Join,
+			Cue::Leave,
+			Cue::StreamStart,
+		];
+		let rendered = cues.map(|cue| samples(cue, 48000, &|| true).unwrap());
+		for cue in &rendered {
+			assert!((4800..=9600).contains(&cue.len()));
+			assert!(
+				cue.iter()
+					.flatten()
+					.all(|sample| sample.is_finite() && sample.abs() <= 0.12)
+			);
+			assert!(cue.iter().flatten().any(|sample| sample.abs() > 0.01));
+		}
+		for pair in rendered.windows(2) {
+			assert_ne!(pair[0], pair[1]);
+		}
+		assert!(samples(Cue::Join, 48000, &|| false).is_err());
 	}
 }
