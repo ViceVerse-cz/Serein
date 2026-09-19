@@ -136,14 +136,10 @@ fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<Ke
 				.into_iter()
 				.find(|other| *other != action && bindings.chord(*other) == &chord)
 			{
-				ui.colored_label(
-					colors.danger,
-					format!("That shortcut is already used by {}.", other.label()),
-				);
-			} else {
-				*bindings.chord_mut(action) = chord;
-				*capturing = None;
+				*bindings.chord_mut(other) = Keybinds::default().chord(other).clone();
 			}
+			*bindings.chord_mut(action) = chord;
+			*capturing = None;
 		}
 	}
 }
