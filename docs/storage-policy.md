@@ -1008,3 +1008,13 @@ Formatting reuses the 512-entry / 1 MiB bounded parser cache, pruned to the curr
 page and cleared when search closes. Spoilers remain concealed until revealed;
 custom emoji reuse the existing visible-only image requests. No search persistence
 or background pagination is added.
+
+### Emoji and sticker image sharing
+
+The opt-in plugin stages public artwork as ordinary attachments only after selection.
+One host download/preparation uses generated HTTPS CDN URLs without credentials or
+redirects, capped at 8 MiB per image and 15 seconds per request. Raster preview decoding
+uses the existing 64 MiB allocation limit and 320px thumbnail edge outside rendering.
+Up to ten selected images remain in session RAM (80 MiB encoded artwork maximum),
+with no temporary files or recovery cache. Navigation/logout cancel pending preparation;
+Send remains explicit and ordinary upload permissions and cleanup apply.

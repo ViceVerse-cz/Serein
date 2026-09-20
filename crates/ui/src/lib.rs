@@ -118,6 +118,8 @@ enum MemberRow {
 
 #[derive(Default)]
 pub struct MessagingUi {
+	pub image_sharing_enabled: bool,
+	pub image_share_requested: Option<model::ImageShare>,
 	pub interaction_file_request: Option<String>,
 	interaction_components: components::Components,
 	pub verification: VerificationUi,
@@ -2422,6 +2424,7 @@ impl MessagingUi {
                         }
                         let pick = ui
                             .add_enabled_ui(!self.ime_active && !ime_this_frame, |ui| {
+                                self.emoji_picker.image_sharing_enabled = self.image_sharing_enabled;
                                 self.emoji_picker
                                     .show(ui, state, channel, &mut self.avatars, commands)
                             })
@@ -2436,6 +2439,12 @@ impl MessagingUi {
                                 Some(text)
                             },
                             Some(emoji_picker::Pick::React(_, _)) => None,
+                            Some(emoji_picker::Pick::Image(asset)) => {
+                                if editing_here { state.status = "Finish or cancel the edit before attaching an image."; }
+                                else if self.upload_busy { state.status = "Wait for the upload before attaching an image."; }
+                                else if self.image_sharing_enabled && state.can_send(channel) && state.can_attach(channel) { self.image_share_requested = Some(asset); }
+                                None
+                            },
                             Some(emoji_picker::Pick::Sticker(sticker)) => {
                                 if editing_here { state.status = "Finish or cancel the edit before sending a sticker."; }
                                 else if self.upload_busy { state.status = "Wait for the upload before sending a sticker."; }

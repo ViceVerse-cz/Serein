@@ -49,6 +49,7 @@ pub enum Capability {
 	Composer,
 	Storage,
 	DeletedMessages,
+	ImageSharing,
 	Appearance,
 }
 
@@ -281,6 +282,8 @@ pub struct Invocation {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Output {
+	#[serde(default)]
+	pub image_sharing: bool,
 	#[serde(default)]
 	pub preserve_deleted_messages: bool,
 	#[serde(default)]
@@ -709,6 +712,15 @@ impl Output {
 				return Err(Error::Capability);
 			}
 			appearance.validate()?;
+		}
+		if self.image_sharing
+			&& (!manifest.capabilities.contains(&Capability::ImageSharing)
+				|| !manifest
+					.actions
+					.iter()
+					.any(|a| a.id == input.action && a.surface == Surface::Activation))
+		{
+			return Err(Error::Capability);
 		}
 		if self.preserve_deleted_messages
 			&& (!manifest.capabilities.contains(&Capability::DeletedMessages)

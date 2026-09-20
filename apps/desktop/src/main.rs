@@ -1916,6 +1916,8 @@ impl Desktop {
 	fn end_session(&mut self, ctx: &egui::Context, intent: SessionEnd) {
 		self.captcha.close();
 		self.notification_runtime.clear(&self.window);
+		self.messaging.image_sharing_enabled = false;
+		self.messaging.image_share_requested = None;
 		let extension_logout = self.extensions.logout(ctx);
 		self.role_icon.cancel();
 		self.role_icon_scope = None;
@@ -5622,6 +5624,21 @@ impl eframe::App for Desktop {
 			}
 			if std::mem::take(&mut self.messaging.cancel_upload_requested) {
 				self.uploads.cancel();
+			}
+			if let Some(asset) = self.messaging.image_share_requested.take()
+				&& self.messaging.image_sharing_enabled
+				&& let Some(channel) = self.state.selected
+				&& self.state.can_send(channel)
+				&& self.state.can_attach(channel)
+				&& let Err(error) = self.uploads.start_image_share(
+					self.state.generation,
+					channel,
+					asset,
+					self.runtime.handle(),
+					&ctx,
+					self.state.demo,
+				) {
+				self.state.status = error;
 			}
 			if let Some(request) = self.messaging.attachment_paste_requested.take()
 				&& let Some(channel) = self.state.selected

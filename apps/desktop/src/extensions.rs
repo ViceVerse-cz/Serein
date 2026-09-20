@@ -103,12 +103,18 @@ pub struct Starter {
 }
 
 pub(crate) fn starters() -> Result<Vec<Starter>, String> {
-	let packages: [(&'static [u8], &'static str); 10] = [
+	let packages: [(&'static [u8], &'static str); 11] = [
 		(
 			include_bytes!(
 				"../../../examples/extensions/packages/message-delete-protector.serein-extension"
 			),
 			"Keep messages already seen in this session visible in red after deletion. Cleared when disabled or signed out.",
+		),
+		(
+			include_bytes!(
+				"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
+			),
+			"Stage emoji and sticker artwork as ordinary image attachments. Review and use Send to share.",
 		),
 		(
 			include_bytes!("../../../extensions/ocean.serein-extension"),
@@ -169,13 +175,13 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 #[cfg(feature = "demo")]
 pub fn demo_check_examples() -> Result<bool, String> {
 	let starters = starters()?;
-	if starters.len() != 10
+	if starters.len() != 11
 		|| starters
 			.iter()
 			.filter(|entry| entry.theme.is_some())
 			.count() != 9
 	{
-		return Err("Expected one starter plugin and nine themes".into());
+		return Err("Expected two starter plugins and nine themes".into());
 	}
 	let gate = Gate {
 		epoch: 0,
@@ -212,16 +218,21 @@ pub fn demo_check_examples() -> Result<bool, String> {
 			return Err(error);
 		}
 		if manifest.kind == ExtensionKind::Plugin {
-			if manifest.id != "message-delete-protector" || !summary.preserve_deleted_messages {
-				return Err("Message Delete Protector did not activate".into());
+			if !(manifest.id == "message-delete-protector" && summary.preserve_deleted_messages
+				|| manifest.id == "emoji-sticker-images" && summary.image_sharing)
+			{
+				return Err("Bundled plugin did not activate".into());
 			}
 			activated = true;
 			stored.grants.clear();
 			let denied = stored.summary(&gate, None, true);
-			if denied.preserve_deleted_messages || denied.error.is_none() {
-				return Err("Message preservation must require explicit permission".into());
+			if denied.preserve_deleted_messages || denied.image_sharing || denied.error.is_none() {
+				return Err("Plugin activation must require explicit permission".into());
 			}
-		} else if summary.preserve_deleted_messages || summary.theme.is_none() {
+		} else if summary.preserve_deleted_messages
+			|| summary.image_sharing
+			|| summary.theme.is_none()
+		{
 			return Err("Theme starter must only supply a valid palette".into());
 		}
 	}
@@ -286,6 +297,7 @@ pub struct InstalledExtension {
 	pub download_bytes: u64,
 	pub error: Option<String>,
 	pub preserve_deleted_messages: bool,
+	pub image_sharing: bool,
 }
 
 pub enum Event {
@@ -493,6 +505,9 @@ impl Stored {
 			{
 				return Err("Deleted message access was not granted".into());
 			}
+			if output.image_sharing && !self.grants.contains(&Capability::ImageSharing) {
+				return Err("Image sharing access was not granted".into());
+			}
 			Ok(output)
 		});
 		let background_image = if active {
@@ -528,6 +543,7 @@ impl Stored {
 			reviewed: self.reviewed,
 			sha256: self.sha256.clone(),
 			download_bytes: self.download_bytes,
+			image_sharing: result.as_ref().is_ok_and(|output| output.image_sharing),
 			preserve_deleted_messages: result
 				.as_ref()
 				.is_ok_and(|output| output.preserve_deleted_messages),
@@ -998,6 +1014,7 @@ fn load(
 							let mut summary = stored.summary(gate, None, false);
 							summary.theme = None;
 							summary.preserve_deleted_messages = false;
+							summary.image_sharing = false;
 							summary.error = Some(error);
 							summary
 						}
@@ -1025,6 +1042,7 @@ fn load(
 						download_bytes: 0,
 						error: Some(error),
 						preserve_deleted_messages: false,
+						image_sharing: false,
 					},
 				});
 			}
@@ -1777,7 +1795,7 @@ mod tests {
 	#[test]
 	fn shop_preview_demo_catalog_and_images_are_local_and_hash_pinned() {
 		let starters = starters().unwrap();
-		assert_eq!(starters.len(), 10);
+		assert_eq!(starters.len(), 11);
 		let mut ids = std::collections::BTreeSet::new();
 		for starter in starters {
 			let InstallSource::Bundled {

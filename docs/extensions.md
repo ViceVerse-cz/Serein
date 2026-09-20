@@ -109,6 +109,15 @@ panel actions are available from the composer Tools menu as well as the shop. Co
 the ordinary Send action and are discarded when their originating context is
 stale. Account/session changes invalidate outstanding results.
 
+The bundled **Emoji & Sticker Images** plugin requests `image_sharing`. Its
+activation output enables an explicit picker checkbox for staging artwork as ordinary
+image attachments. The host fetches and validates the selected image; the user reviews
+the attachment and presses Send. Enabling the plugin never sends anything, grants
+network access to Wasm, or changes native sticker/emoji entitlements. Disabling removes the option. Logout, account changes and channel navigation cancel
+pending image preparation; already selected files follow ordinary attachment handling.
+The `image_sharing` output defaults to false and is accepted only from an activation
+action with that capability granted. This capability requires a supporting host.
+
 Themes override named colors and native typography, spacing, padding and corner
 radii, plus an optional embedded PNG/JPEG background with per-mode opacity and fit.
 Settings > Themes > Create theme provides a native editor and portable export.

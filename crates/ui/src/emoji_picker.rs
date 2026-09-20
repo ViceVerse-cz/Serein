@@ -122,6 +122,7 @@ enum GifSection {
 
 /// What the composer does with a picked item.
 pub(crate) enum Pick {
+	Image(model::ImageShare),
 	Sticker(model::Sticker),
 	/// Insert text at the caret (emoji or custom emoji markup).
 	Insert(String),
@@ -195,6 +196,8 @@ fn custom_matches<'a>(
 }
 
 pub(crate) struct Picker {
+	pub image_sharing_enabled: bool,
+	as_image: bool,
 	stickers: crate::stickers::Browser,
 	reaction: Option<(Id, egui::Rect, egui::Id)>,
 	// ponytail: session-only Unicode usage; persist if cross-launch favorites are needed.
@@ -218,6 +221,8 @@ impl Default for Picker {
 	fn default() -> Self {
 		// Initialize the static catalog during application creation, outside rendering.
 		Self {
+			image_sharing_enabled: false,
+			as_image: false,
 			stickers: crate::stickers::Browser::default(),
 			reaction: None,
 			frequent: Vec::with_capacity(32),
@@ -388,6 +393,7 @@ impl Picker {
 
 	pub(crate) fn sync(&mut self, state: &State, channel: Option<Id>) {
 		if self.channel != channel || self.generation != state.generation {
+			self.as_image = false;
 			if self.generation != state.generation {
 				self.frequent.clear();
 			}
@@ -500,7 +506,19 @@ impl Picker {
 		favorites
 	}
 
+	fn images(&self) -> bool {
+		self.image_sharing_enabled && self.as_image && self.reaction.is_none()
+	}
+
 	fn pick(&self, emoji: model::ReactionEmoji, text: String) -> Pick {
+		if self.images()
+			&& let Some(id) = emoji.id
+		{
+			return Pick::Image(model::ImageShare::Emoji {
+				id,
+				animated: text.starts_with("<a:"),
+			});
+		}
 		match self.reaction {
 			Some((message, _, _)) => Pick::React(message, emoji),
 			None => Pick::Insert(text),
@@ -508,6 +526,11 @@ impl Picker {
 	}
 
 	fn can_pick(&self, state: &State, emoji: &model::ReactionEmoji) -> bool {
+		if self.images() && emoji.id.is_some() {
+			return self
+				.channel
+				.is_some_and(|channel| state.can_send(channel) && state.can_attach(channel));
+		}
 		match self.reaction {
 			Some((message, _, _)) => {
 				!state.reactions.busy() && state.can_react(message, Some(emoji), true)
@@ -533,6 +556,9 @@ impl Picker {
 		commands: &mut Vec<Command>,
 	) -> Option<Pick> {
 		self.sync(state, Some(channel));
+		if !self.image_sharing_enabled {
+			self.as_image = false;
+		}
 		if std::mem::take(&mut self.pending_open) {
 			self.open = true;
 		}
@@ -759,6 +785,19 @@ impl Picker {
 										self.focus = true;
 									}
 								}
+								if self.image_sharing_enabled
+									&& self.reaction.is_none() && self.tab != Tab::Gifs
+								{
+									ui.with_layout(
+										egui::Layout::right_to_left(egui::Align::Center),
+										|ui| {
+											ui.checkbox(&mut self.as_image, "As image")
+												.on_hover_text(
+													"Stage a normal image attachment. Review it and press Send.",
+												);
+										},
+									);
+								}
 							},
 						);
 						ui.painter().hline(
@@ -872,10 +911,22 @@ impl Picker {
 											commands.push(command);
 										}
 									}
-									if let Some(sticker) =
-										self.stickers.show(ui, state, avatars, &mut hovered_sticker)
-									{
-										selected = Some(Pick::Sticker(sticker));
+									let image_mode = self.images();
+									if let Some(sticker) = self.stickers.show(
+										ui,
+										state,
+										avatars,
+										&mut hovered_sticker,
+										image_mode,
+									) {
+										selected = Some(if image_mode {
+											Pick::Image(model::ImageShare::Sticker {
+												id: sticker.id,
+												format_type: sticker.format_type,
+											})
+										} else {
+											Pick::Sticker(sticker)
+										});
 									}
 								},
 							);
@@ -1136,12 +1187,8 @@ impl Picker {
 																			custom,
 																		)
 																});
-															let enabled = if self.reaction.is_none()
-															{
-																unavailable.is_none()
-															} else {
-																self.can_pick(state, &emoji)
-															};
+															let enabled =
+																self.can_pick(state, &emoji);
 															let response = ui
 																.push_id(
 																	(
@@ -1935,6 +1982,41 @@ fn cell(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn image_sharing_requires_enabled_plugin_and_never_changes_reactions() {
+		let state = test_support::demo_state();
+		let mut picker = Picker {
+			channel: state.selected,
+			image_sharing_enabled: true,
+			as_image: true,
+			..Default::default()
+		};
+		let emoji = model::ReactionEmoji {
+			id: Some(Id(999)),
+			name: Some("wave".into()),
+		};
+		assert!(picker.can_pick(&state, &emoji));
+		assert!(matches!(
+			picker.pick(emoji.clone(), "<a:wave:999>".into()),
+			Pick::Image(model::ImageShare::Emoji {
+				id: Id(999),
+				animated: true
+			})
+		));
+		picker.image_sharing_enabled = false;
+		assert!(!picker.can_pick(&state, &emoji));
+		assert!(matches!(
+			picker.pick(emoji.clone(), "<a:wave:999>".into()),
+			Pick::Insert(_)
+		));
+		picker.image_sharing_enabled = true;
+		picker.reaction = Some((Id(500), egui::Rect::NOTHING, egui::Id::unique("reaction")));
+		assert!(matches!(
+			picker.pick(emoji, "<a:wave:999>".into()),
+			Pick::React(Id(500), _)
+		));
+	}
 
 	#[test]
 	fn reaction_search_keyboard_selection_permissions_and_session_reset() {

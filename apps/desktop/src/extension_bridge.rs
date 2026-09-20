@@ -46,6 +46,7 @@ impl Bridge {
 	pub fn logout(&mut self, ctx: &egui::Context) -> Result<(), String> {
 		for entry in &mut self.installed {
 			entry.preserve_deleted_messages = false;
+			entry.image_sharing = false;
 		}
 		self.picker = None;
 		self.theme_picker = None;
@@ -84,6 +85,7 @@ impl Bridge {
 		window: &Arc<winit::window::Window>,
 		demo: bool,
 	) {
+		messaging.image_sharing_enabled = false;
 		let account = state
 			.user
 			.as_ref()
@@ -625,6 +627,12 @@ impl Bridge {
 				}
 			}
 		}
+		messaging.image_sharing_enabled = account.is_some()
+			&& self.installed.iter().any(|entry| {
+				entry.error.is_none()
+					&& !self.disabled.contains(&entry.manifest.id)
+					&& entry.image_sharing
+			});
 		state.set_preserve_deleted_messages(
 			account.is_some()
 				&& self.installed.iter().any(|entry| {

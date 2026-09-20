@@ -18,6 +18,7 @@ pub struct Invocation {
 
 #[derive(Default, Serialize)]
 pub struct Output {
+	pub image_sharing: bool,
 	pub preserve_deleted_messages: bool,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub appearance: Option<Theme>,

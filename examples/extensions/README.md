@@ -11,10 +11,11 @@ Build and package from this directory (Python 3 is used only by the author):
 rustup target add wasm32-unknown-unknown
 cargo build --locked --release --target wasm32-unknown-unknown
 python pack.py message-delete-protector/manifest.json target/wasm32-unknown-unknown/release/message_delete_protector.wasm packages/message-delete-protector.serein-extension
+python pack.py emoji-sticker-images/manifest.json target/wasm32-unknown-unknown/release/emoji_sticker_images.wasm packages/emoji-sticker-images.serein-extension
 ```
 
 Import the package in Settings > Extensions, review the capabilities, and enable it.
-Message delete protector is the sole example plugin. Its `activation` action returns
+Message delete protector is an example activation plugin. Its `activation` action returns
 `preserve_deleted_messages: true` after the user grants `deleted_messages`. The host
 keeps already-loaded messages in bounded session memory and displays deleted text in red
 by default. Hover and a local context menu can toggle that highlight or remove the
@@ -22,6 +23,11 @@ retained row. They never call Discord. The host never sends message bodies to th
 saves deleted bodies to disk, restores messages deleted before loading, or gives deleted
 messages live service actions.
 Disabling, logout, permission revocation and timeline eviction release retained content.
+Emoji & Sticker Images requests `image_sharing` and returns `image_sharing: true`
+from activation. This exposes the host's opt-in image attachment mode in emoji and
+sticker pickers. Wasm receives no conversation text or image bytes and cannot fetch
+or send anything. The user selects artwork, reviews the staged attachment, and
+presses the ordinary Send button. Disable/logout revoke the option.
 Ocean, Midnight, Rose, Forest and Latte are declarative themes under `extensions/`.
 The author packages compiled bytes; Serein never runs a repository's build scripts.
 
@@ -37,7 +43,8 @@ Input fields are `action`, optional `selected_message`, optional `composer`, opt
 `storage`, and `values` (input IDs mapped to strings; checkbox values are `true`/`false`).
 Only the explicitly selected action's context is included and only after capability consent.
 Output fields are optional `replacement`, optional `storage`, optional `appearance`, `panel` (array), and
-`preserve_deleted_messages` (boolean, defaults false). Only an `activation` action
+`preserve_deleted_messages` and `image_sharing` (booleans, default false).
+Only activation with `image_sharing` capability may enable image attachment mode. Only an `activation` action
 with the `deleted_messages` capability may request preservation. There is at most
 one activation action per plugin, invoked by the worker on enable/account load.
 Activation itself does not require deleted-message access: each returned effect

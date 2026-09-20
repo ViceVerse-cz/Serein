@@ -76,6 +76,28 @@ impl Source {
 			bytes: Some(bytes.into()),
 		})
 	}
+	/// Public artwork already decoded and validated by the host image worker.
+	pub fn image_bytes(filename: String, bytes: Vec<u8>) -> Result<Self, &'static str> {
+		let valid_name = filename
+			.strip_prefix("emoji-")
+			.or_else(|| filename.strip_prefix("sticker-"))
+			.and_then(|name| name.rsplit_once('.'))
+			.is_some_and(|(id, extension)| {
+				matches!(extension, "png" | "gif")
+					&& id.bytes().all(|b| b.is_ascii_digit())
+					&& id.parse::<model::Id>().is_ok_and(|id| id.0 != 0)
+			});
+		if !valid_name || filename.len() > 40 || bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
+			return Err("Choose valid emoji or sticker artwork up to 8 MiB");
+		}
+		Ok(Self {
+			path: PathBuf::new(),
+			filename,
+			size: bytes.len() as u64,
+			modified: SystemTime::UNIX_EPOCH,
+			bytes: Some(bytes.into()),
+		})
+	}
 	pub fn filename(&self) -> &str {
 		&self.filename
 	}
@@ -578,6 +600,27 @@ async fn cancelled(cancel: &mut watch::Receiver<bool>) {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn image_sources_only_accept_bounded_generated_raster_names() {
+		for name in ["emoji-7.gif", "sticker-8.png"] {
+			let source = super::Source::image_bytes(name.into(), vec![1]).unwrap();
+			assert_eq!(source.filename(), name);
+			assert_eq!(source.size(), 1);
+		}
+		for name in [
+			"emoji-0.png",
+			"emoji-+7.png",
+			"sticker-7.json",
+			"../emoji-7.png",
+			"sticker-7.png?x=1",
+		] {
+			assert!(super::Source::image_bytes(name.into(), vec![1]).is_err());
+		}
+		assert!(super::Source::image_bytes("emoji-7.png".into(), vec![]).is_err());
+		assert!(
+			super::Source::image_bytes("emoji-7.png".into(), vec![0; 8 * 1024 * 1024 + 1]).is_err()
+		);
+	}
 	use super::*;
 	use client_core::{Reply, auth::SessionSecret};
 	use std::sync::{

@@ -1,0 +1,20 @@
+{
+  "api_version": 1,
+  "id": "emoji-sticker-images",
+  "name": "Emoji & Sticker Images",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein",
+  "kind": "plugin",
+  "capabilities": [
+    "image_sharing"
+  ],
+  "actions": [
+    {
+      "id": "activate",
+      "label": "Enable image attachments",
+      "surface": "activation"
+    }
+  ]
+}

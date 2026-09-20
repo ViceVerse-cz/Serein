@@ -32,6 +32,113 @@ struct Chosen {
 /// Longest edge of the composer thumbnail; the full decode stays bounded by `image::Limits`.
 const PREVIEW_EDGE: u32 = 320;
 const PREVIEW_ALLOC: u64 = 64 * 1024 * 1024;
+const SHARE_BYTES: usize = 8 * 1024 * 1024;
+
+fn image_share_source(asset: model::ImageShare) -> Option<(String, String, image::ImageFormat)> {
+	use model::ImageShare;
+	let (id, kind, host, extension, query) = match asset {
+		ImageShare::Emoji { id, animated } => (
+			id,
+			"emoji",
+			"cdn.discordapp.com",
+			if animated { "gif" } else { "png" },
+			"",
+		),
+		ImageShare::Sticker {
+			id,
+			format_type: 1 | 2,
+		} => (id, "sticker", "cdn.discordapp.com", "png", ""),
+		ImageShare::Sticker { id, format_type: 3 } => (
+			id,
+			"sticker",
+			"media.discordapp.net",
+			"png",
+			"?passthrough=false",
+		),
+		ImageShare::Sticker { id, format_type: 4 } => {
+			(id, "sticker", "media.discordapp.net", "gif", "")
+		}
+		_ => return None,
+	};
+	(id.0 != 0).then(|| {
+		(
+			format!("https://{host}/{kind}s/{id}.{extension}{query}"),
+			format!("{kind}-{id}.{extension}"),
+			if extension == "gif" {
+				image::ImageFormat::Gif
+			} else {
+				image::ImageFormat::Png
+			},
+		)
+	})
+}
+
+async fn download_image_share(url: &str, cancelled: &AtomicBool) -> Result<Vec<u8>, &'static str> {
+	let client = reqwest::Client::builder()
+		.https_only(true)
+		.no_proxy()
+		.redirect(reqwest::redirect::Policy::none())
+		.timeout(std::time::Duration::from_secs(15))
+		.connect_timeout(std::time::Duration::from_secs(5))
+		.build()
+		.map_err(|_| "Could not prepare image download")?;
+	if cancelled.load(Ordering::Acquire) {
+		return Err("Image selection cancelled");
+	}
+	let mut response = client
+		.get(url)
+		.send()
+		.await
+		.map_err(|_| "Could not download this image")?;
+	if !response.status().is_success()
+		|| response
+			.content_length()
+			.is_some_and(|size| size > SHARE_BYTES as u64)
+	{
+		return Err("Image unavailable or larger than 8 MiB");
+	}
+	let mut bytes = Vec::with_capacity(
+		response
+			.content_length()
+			.unwrap_or(4096)
+			.min(SHARE_BYTES as u64) as usize,
+	);
+	while let Some(chunk) = response
+		.chunk()
+		.await
+		.map_err(|_| "Image download interrupted")?
+	{
+		if cancelled.load(Ordering::Acquire) {
+			return Err("Image selection cancelled");
+		}
+		if chunk.len() > SHARE_BYTES - bytes.len() {
+			return Err("Image is larger than 8 MiB");
+		}
+		bytes.extend_from_slice(&chunk);
+	}
+	Ok(bytes)
+}
+
+fn synthetic_share(format: image::ImageFormat) -> Result<Vec<u8>, &'static str> {
+	#[cfg(any(test, feature = "demo"))]
+	{
+		let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+			32,
+			32,
+			image::Rgba([103, 192, 177, 255]),
+		));
+		let mut bytes = std::io::Cursor::new(Vec::new());
+		image
+			.write_to(&mut bytes, format)
+			.map_err(|_| "Could not prepare synthetic image")?;
+		Ok(bytes.into_inner())
+	}
+	#[cfg(not(any(test, feature = "demo")))]
+	{
+		let _ = format;
+		Err("Synthetic image sharing requires a demo build")
+	}
+}
 fn previewable(filename: &str) -> bool {
 	filename.rsplit_once('.').is_some_and(|(_, extension)| {
 		matches!(
@@ -91,6 +198,64 @@ pub struct Uploads {
 	notice: Option<&'static str>,
 }
 impl Uploads {
+	/// Download and stage public artwork; sending remains the composer's explicit action.
+	#[allow(clippy::too_many_arguments)]
+	pub fn start_image_share(
+		&mut self,
+		generation: u64,
+		channel: Id,
+		asset: model::ImageShare,
+		runtime: &tokio::runtime::Handle,
+		context: &egui::Context,
+		demo: bool,
+	) -> Result<(), &'static str> {
+		if self.busy() {
+			return Err("Wait for the current attachment operation to finish");
+		}
+		if self.selected.len() >= discord_api::upload::MAX_FILES {
+			return Err("Attach up to 10 files per message");
+		}
+		let (url, filename, format) =
+			image_share_source(asset).ok_or("Unsupported emoji or sticker artwork")?;
+		let cancelled = Arc::new(AtomicBool::new(false));
+		let flag = cancelled.clone();
+		let (send, result) = mpsc::sync_channel(1);
+		let context = context.clone();
+		runtime.spawn(async move {
+			let result = async {
+				let bytes = if demo {
+					synthetic_share(format)?
+				} else {
+					download_image_share(&url, &flag).await?
+				};
+				if flag.load(Ordering::Acquire) {
+					return Ok(None);
+				}
+				let selected = tokio::task::spawn_blocking(move || {
+					if bytes.is_empty()
+						|| bytes.len() > SHARE_BYTES
+						|| image::guess_format(&bytes).ok() != Some(format)
+					{
+						return Err("Unsupported or invalid image data");
+					}
+					let thumbnail =
+						decode_preview(&bytes).ok_or("Could not decode this image safely")?;
+					let source = Source::image_bytes(filename, bytes)?;
+					Ok((source, Some(thumbnail)))
+				})
+				.await
+				.map_err(|_| "Image preparation interrupted")??;
+				Ok((!flag.load(Ordering::Acquire)).then(|| vec![selected]))
+			}
+			.await;
+			let _ = send.send(result);
+			context.request_repaint();
+		});
+		self.scope = Some((generation, channel));
+		self.last = None;
+		self.choosing = Some(Choosing { result, cancelled });
+		Ok(())
+	}
 	pub fn select_pasted(
 		&mut self,
 		generation: u64,
@@ -435,6 +600,115 @@ impl Drop for Uploads {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[tokio::test]
+	async fn image_sharing_stages_bounded_artwork_and_cancels_on_navigation() {
+		let context = egui::Context::default();
+		let runtime = tokio::runtime::Handle::current();
+		let mut uploads = Uploads::default();
+		let asset = model::ImageShare::Sticker {
+			id: Id(7),
+			format_type: 2,
+		};
+		assert_eq!(
+			image_share_source(asset).unwrap().0,
+			"https://cdn.discordapp.com/stickers/7.png"
+		);
+		assert_eq!(
+			image_share_source(model::ImageShare::Sticker {
+				id: Id(7),
+				format_type: 3
+			})
+			.unwrap()
+			.0,
+			"https://media.discordapp.net/stickers/7.png?passthrough=false"
+		);
+		assert_eq!(
+			image_share_source(model::ImageShare::Sticker {
+				id: Id(7),
+				format_type: 4
+			})
+			.unwrap()
+			.0,
+			"https://media.discordapp.net/stickers/7.gif"
+		);
+		assert_eq!(
+			image_share_source(model::ImageShare::Emoji {
+				id: Id(7),
+				animated: true
+			})
+			.unwrap()
+			.0,
+			"https://cdn.discordapp.com/emojis/7.gif"
+		);
+		for invalid in [
+			model::ImageShare::Emoji {
+				id: Id(0),
+				animated: false,
+			},
+			model::ImageShare::Sticker {
+				id: Id(7),
+				format_type: 5,
+			},
+		] {
+			assert!(
+				uploads
+					.start_image_share(1, Id(2), invalid, &runtime, &context, true)
+					.is_err()
+			);
+		}
+		async fn settle(uploads: &mut Uploads, context: &egui::Context, channel: Id) {
+			tokio::time::timeout(std::time::Duration::from_secs(5), async {
+				while uploads.busy() {
+					uploads.poll(1, Some(channel), true, context);
+					tokio::task::yield_now().await;
+				}
+			})
+			.await
+			.unwrap();
+		}
+		for asset in [
+			asset,
+			model::ImageShare::Emoji {
+				id: Id(9),
+				animated: true,
+			},
+		] {
+			uploads
+				.start_image_share(1, Id(2), asset, &runtime, &context, true)
+				.unwrap();
+			assert!(uploads.take_source(1, Id(2)).is_none());
+			settle(&mut uploads, &context, Id(2)).await;
+			assert!(uploads.take_notice().is_none());
+		}
+		assert_eq!(
+			uploads
+				.files()
+				.iter()
+				.map(|(name, _)| name.as_str())
+				.collect::<Vec<_>>(),
+			["sticker-7.png", "emoji-9.gif"]
+		);
+		assert!(uploads.previews().iter().all(Option::is_some));
+		assert!(uploads.take_source(1, Id(3)).is_none());
+		assert_eq!(uploads.take_source(1, Id(2)).unwrap().len(), 2);
+		uploads
+			.start_image_share(1, Id(2), asset, &runtime, &context, true)
+			.unwrap();
+		uploads.revalidate_scope(1, Some(Id(3)), true);
+		settle(&mut uploads, &context, Id(3)).await;
+		assert!(uploads.selection().is_none());
+		for _ in 0..discord_api::upload::MAX_FILES {
+			uploads.push(
+				Source::image_bytes("emoji-7.png".into(), vec![1]).unwrap(),
+				None,
+			);
+		}
+		assert!(
+			uploads
+				.start_image_share(1, Id(3), asset, &runtime, &context, true)
+				.is_err()
+		);
+	}
 	#[test]
 	fn progress_distinguishes_streamed_bytes_from_message_confirmation() {
 		let mut uploads = Uploads::default();
