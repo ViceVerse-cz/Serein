@@ -1,6 +1,5 @@
 //! Device notification sections; message alerts, sounds and badges are stored locally.
 use crate::{MessagingUi, design};
-use egui::RichText;
 use model::notification_preferences::Sound;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -71,7 +70,10 @@ mod tests {
 				"Enable Unread Message Badge",
 				"Incoming Ring",
 			] {
-				assert!(labels.iter().any(|(s, _)| s == label), "missing {label}");
+				assert!(
+					labels.iter().any(|(s, _)| s.eq_ignore_ascii_case(label)),
+					"missing {label}"
+				);
 			}
 			for label in ["Email", "Advanced", "Friends come online"] {
 				assert!(!labels.iter().any(|(s, _)| s == label), "stale {label}");
@@ -119,15 +121,9 @@ pub(super) struct Navigation {
 impl Navigation {
 	fn heading(&mut self, ui: &mut egui::Ui, tab: Tab) {
 		if tab != Tab::Overview {
-			ui.add_space(32.0);
-			ui.separator();
-			ui.add_space(32.0);
+			ui.add_space(12.0);
 		}
-		let heading = ui.label(
-			RichText::new(tab.label())
-				.size(26.0)
-				.color(design::palette(ui).text_strong),
-		);
+		let heading = ui.label(design::eyebrow(ui, tab.label(), design::palette(ui).muted));
 		if heading.rect.top() <= ui.clip_rect().top() + 28.0 {
 			self.active = tab;
 		}
@@ -135,16 +131,10 @@ impl Navigation {
 			ui.scroll_to_rect(heading.rect.expand(8.0), Some(egui::Align::Min));
 			self.jump = None;
 		}
-		ui.add_space(22.0);
 	}
-}
-fn row(ui: &mut egui::Ui, label: &str, detail: Option<&str>, value: &mut bool) {
-	design::switch(ui, label, detail, value);
-	ui.add_space(10.0);
 }
 impl MessagingUi {
 	pub(super) fn notification_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
-		let colors = design::palette(ui);
 		if ui.available_width() < 500.0 {
 			ui.horizontal_wrapped(|ui| {
 				for tab in Tab::ALL {
@@ -158,87 +148,89 @@ impl MessagingUi {
 			});
 		}
 		self.settings.notifications.heading(ui, Tab::Overview);
-		row(
-			ui,
-			"Enable Desktop Notifications",
-			Some(
-				"For per-channel or per-server notifications, right-click the channel or server and select Notification Settings.",
-			),
-			&mut self.notifications_enabled,
-		);
-		ui.label(
-			RichText::new(if demo {
-				"Offline preview"
-			} else {
-				self.notification_status
-			})
-			.size(12.0)
-			.color(colors.muted),
-		);
-		self.settings.notifications.heading(ui, Tab::Sounds);
-		for (label, value, sound) in [
-			(
-				"New Message",
-				&mut self.notification_options.new_message,
-				Sound::Message,
-			),
-			(
-				"New Message in the channel I'm currently reading",
-				&mut self.notification_options.current_channel,
-				Sound::CurrentChannel,
-			),
-			(
-				"Incoming Ring",
-				&mut self.notification_options.incoming_ring,
-				Sound::IncomingRing,
-			),
-		] {
-			row(ui, label, None, value);
-			if ui.link("Preview Sound").clicked() {
-				self.notification_preview = Some(sound);
-			}
-			ui.add_space(14.0);
-			ui.separator();
-			ui.add_space(10.0);
-		}
-		row(
-			ui,
-			"Disable All Notification Sounds",
-			Some(
-				"Disables notification sounds. Your individual sound preferences are saved and restored when you turn this off.",
-			),
-			&mut self.notification_options.disable_sounds,
-		);
-		if !self.notification_sound_status.is_empty() {
-			ui.label(
-				RichText::new(self.notification_sound_status)
-					.size(12.0)
-					.color(colors.muted),
+		design::card(ui, |ui| {
+			design::switch(
+				ui,
+				"Enable Desktop Notifications",
+				Some(
+					"For per-channel or per-server notifications, right-click the channel or server and select Notification Settings.",
+				),
+				&mut self.notifications_enabled,
 			);
-		}
-		ui.add_space(12.0);
-		ui.label(design::medium(ui, "Related Settings", 15.0).color(colors.muted));
-		if ui
-			.add(
-				egui::Button::new("Voice & Video  ›")
-					.min_size(egui::vec2(ui.available_width(), 48.0)),
+			if !demo && !self.notification_status.is_empty() {
+				design::hint(ui, self.notification_status);
+			}
+		});
+		self.settings.notifications.heading(ui, Tab::Sounds);
+		design::card(ui, |ui| {
+			for (index, (label, value, sound)) in [
+				(
+					"New Message",
+					&mut self.notification_options.new_message,
+					Sound::Message,
+				),
+				(
+					"New Message in the channel I'm currently reading",
+					&mut self.notification_options.current_channel,
+					Sound::CurrentChannel,
+				),
+				(
+					"Incoming Ring",
+					&mut self.notification_options.incoming_ring,
+					Sound::IncomingRing,
+				),
+			]
+			.into_iter()
+			.enumerate()
+			{
+				if index > 0 {
+					design::card_divider(ui);
+				}
+				design::switch(ui, label, None, value);
+				if design::text_action(ui, "Preview Sound").clicked() {
+					self.notification_preview = Some(sound);
+				}
+			}
+			design::card_divider(ui);
+			design::switch(
+				ui,
+				"Disable All Notification Sounds",
+				Some(
+					"Disables notification sounds. Your individual sound preferences are saved and restored when you turn this off.",
+				),
+				&mut self.notification_options.disable_sounds,
+			);
+			if !self.notification_sound_status.is_empty() {
+				design::notice(ui, design::Level::Warning, self.notification_sound_status);
+			}
+		});
+		ui.add_space(4.0);
+		design::card(ui, |ui| {
+			if design::row(
+				ui,
+				"Voice & Audio",
+				Some("Ringtones, call devices and microphone processing."),
+				|ui| design::button(ui, "Open", design::ButtonKind::Outline),
 			)
 			.clicked()
-		{
-			self.open_voice_settings();
-		}
+			{
+				self.open_voice_settings();
+			}
+		});
 		self.settings.notifications.heading(ui, Tab::Badges);
-		ui.add_enabled_ui(cfg!(target_os = "windows"), |ui| {
-			row(
-				ui,
-				"Enable Unread Message Badge",
-				Some(if cfg!(target_os = "windows") {
-					"Shows a red badge on the app icon when you have unread messages."
-				} else {
-					"App icon badges are not available on this platform yet."
-				}),
-				&mut self.notification_options.unread_badge,
-			);
+		design::card(ui, |ui| {
+			ui.add_enabled_ui(cfg!(target_os = "windows"), |ui| {
+				design::switch(
+					ui,
+					"Enable Unread Message Badge",
+					Some(if cfg!(target_os = "windows") {
+						"Shows a red badge on the app icon when you have unread messages."
+					} else {
+						"App icon badges are not available on this platform yet."
+					}),
+					&mut self.notification_options.unread_badge,
+				);
+			});
 		});
 	}
 }

@@ -149,6 +149,25 @@ fn clear_directory(root: Option<&Path>) -> Result<(), &'static str> {
 
 // Build, rather than accept, URLs. Even malformed service metadata cannot choose a host/path.
 fn cdn_url(key: &str) -> Option<String> {
+	if let Some(value) = key
+		.strip_prefix("anim:sticker-")
+		.or_else(|| key.strip_prefix("embed:sticker-"))
+	{
+		let (id, format) = value.split_once('-')?;
+		let id: Id = id.parse().ok()?;
+		if id.0 == 0 {
+			return None;
+		}
+		return match format {
+			"1" | "2" => Some(format!("https://cdn.discordapp.com/stickers/{id}.png")),
+			"4" => Some(format!("https://media.discordapp.net/stickers/{id}.gif")),
+			// Unofficial static rendition: Lottie itself is never decoded or executed.
+			"3" if key.starts_with("embed:") => Some(format!(
+				"https://media.discordapp.net/stickers/{id}.png?size=160&passthrough=false"
+			)),
+			_ => None,
+		};
+	}
 	if let Some(value) = key.strip_prefix("role-icon-") {
 		let (role, hash) = value.split_once('-')?;
 		let role: Id = role.parse().ok()?;
@@ -608,6 +627,11 @@ fn decode_animation(bytes: &[u8]) -> Option<ui::GifFrames> {
 			decoder.set_limits(limits).ok()?;
 			decoder.into_frames()
 		}
+		image::ImageFormat::Png => {
+			let mut decoder = image::codecs::png::PngDecoder::new(Cursor::new(bytes)).ok()?;
+			decoder.set_limits(limits).ok()?;
+			decoder.apng().ok()?.into_frames()
+		}
 		_ => return None,
 	};
 	let mut frames: ui::GifFrames = Vec::new();
@@ -802,6 +826,60 @@ impl Disk {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn apng_sticker_frames_preserve_pixels_and_delays() {
+		// Synthetic 1x1 APNG: opaque red for 100 ms, then opaque green for 200 ms.
+		let bytes = [
+			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1,
+			8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 8, 97, 99, 84, 76, 0, 0, 0, 2, 0, 0, 0, 0,
+			243, 141, 147, 112, 0, 0, 0, 26, 102, 99, 84, 76, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1,
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 10, 0, 0, 90, 127, 48, 208, 0, 0, 0, 13, 73, 68, 65,
+			84, 120, 156, 99, 248, 207, 192, 240, 31, 0, 5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0,
+			26, 102, 99, 84, 76, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+			0, 5, 0, 0, 202, 80, 157, 57, 0, 0, 0, 17, 102, 100, 65, 84, 0, 0, 0, 2, 120, 156, 99,
+			96, 248, 207, 240, 31, 0, 4, 1, 1, 255, 98, 231, 233, 156, 0, 0, 0, 0, 73, 69, 78, 68,
+			174, 66, 96, 130,
+		];
+		let frames = super::decode_animation(&bytes).unwrap();
+		assert_eq!(frames.len(), 2);
+		assert_eq!(frames[0].0, std::time::Duration::from_millis(100));
+		assert_eq!(frames[1].0, std::time::Duration::from_millis(200));
+		assert_eq!(frames[0].1.size, [1, 1]);
+		assert_eq!(frames[0].1.pixels[0], eframe::egui::Color32::RED);
+		assert_eq!(frames[1].1.pixels[0], eframe::egui::Color32::GREEN);
+		assert!(super::decode_animation(&bytes[..100]).is_none());
+	}
+	#[test]
+	fn sticker_urls_and_decode_budgets_are_scoped() {
+		for prefix in ["embed", "anim"] {
+			for format in [1, 2, 4] {
+				let key = format!("{prefix}:sticker-7-{format}");
+				let expected = if format == 4 {
+					"https://media.discordapp.net/stickers/7.gif"
+				} else {
+					"https://cdn.discordapp.com/stickers/7.png"
+				};
+				assert_eq!(super::cdn_url(&key).as_deref(), Some(expected));
+				assert_eq!(super::decode_edge(&key), ui::EMBED_EDGE);
+				assert!(super::disk_key(&key).unwrap().starts_with("embed-"));
+			}
+		}
+		assert_eq!(
+			super::cdn_url("embed:sticker-7-3").as_deref(),
+			Some("https://media.discordapp.net/stickers/7.png?size=160&passthrough=false")
+		);
+		for key in [
+			"anim:sticker-7-3",
+			"embed:sticker-0-1",
+			"embed:sticker-7-5",
+			"embed:sticker-7-1?x=1",
+			"embed:sticker-../7-1",
+			"embed:sticker-https://example.com-1",
+		] {
+			assert!(super::cdn_url(key).is_none(), "{key}");
+		}
+		assert!(super::decode_animation(&vec![0; super::MAX_ANIMATED_ENCODED + 1]).is_none());
+	}
 	#[test]
 	fn role_icon_urls_are_confined_to_the_role_cdn_path() {
 		assert_eq!(

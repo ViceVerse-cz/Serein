@@ -21,10 +21,224 @@ pub fn check() {
 	let mut permissions = test_support::permission_snapshot(&state);
 	for guild in &mut permissions.guilds {
 		guild.owner = state.user.as_ref().map(|user| user.id);
+		guild
+			.roles
+			.get_or_insert_default()
+			.push(model::permissions::Role {
+				id: Id(101),
+				bits: 0,
+				name: "Synthetic colored role".into(),
+				color: 0x68ada4,
+				position: 1,
+				hoist: false,
+			});
 	}
 	state.permissions.replace(permissions).unwrap();
 	state.select(Id(26));
 	let post = state.forum_posts(Id(26))[0].clone();
+	{
+		let mut alerts = test_support::demo_state();
+		let owner = alerts.user.clone().unwrap();
+		alerts
+			.apply_notification_preferences(client_core::notifications::Event::Settings {
+				entries: vec![client_core::notifications::Setting {
+					guild: post.guild,
+					muted: Some(false),
+					level: Some(1),
+					..Default::default()
+				}],
+				replace: true,
+			})
+			.unwrap();
+		alerts
+			.apply_notification_preferences(client_core::notifications::Event::Presence(Some(
+				false,
+			)))
+			.unwrap();
+		let mut message = test_support::message(post.last_message.unwrap().0 + 1, post.id);
+		message.author.id = Id(987654321);
+		message.mentions = vec![owner.clone()];
+		message.content = format!(
+			"Hello <@{}> <@!{}> <@&999> <#{}>",
+			owner.id, owner.id, post.id
+		);
+		alerts.apply(Envelope {
+			generation: alerts.generation,
+			event: client_core::Event::Message(message),
+		});
+		let notification = alerts
+			.take_notification()
+			.expect("synthetic mention notification");
+		assert_eq!(
+			notification.preview,
+			format!(
+				"Hello @{} @{} @Unknown role #{}",
+				owner.name, owner.name, post.name
+			)
+		);
+		assert_eq!(alerts.mention_count(post.id), 1);
+		let new_posts = alerts.forum_new_count(Id(26));
+		assert!(new_posts > 0);
+		alerts
+			.apply_read_state(client_core::read_state::Event::Ack {
+				channel: post.id,
+				message: Some(post.id),
+				manual: true,
+				mention_count: Some(1),
+				version: None,
+			})
+			.unwrap();
+		assert!(alerts.post_unread(alerts.channel(post.id).unwrap()));
+		assert_eq!(alerts.forum_new_count(Id(26)), new_posts - 1);
+		assert_eq!(alerts.mention_count(post.id), 1);
+		println!(
+			"Forum notifications debug check passed: readable mentions, post badge, and replies excluded from new posts."
+		);
+	}
+
+	// READY may contain a cursor before its unjoined forum post is loaded.
+	let latest = post.last_message.unwrap();
+	state.channels.retain(|channel| channel.id != post.id);
+	state.invalidate_navigation();
+	state
+		.apply_read_state(client_core::read_state::Event::Snapshot {
+			entries: Some(vec![(post.id, Some(latest), 0)]),
+			version: None,
+			partial: false,
+		})
+		.unwrap();
+	state.channels.push(post.clone());
+	state.invalidate_navigation();
+	assert!(
+		!state.post_unread(&post),
+		"startup must preserve unloaded thread cursors"
+	);
+	state
+		.apply_read_state(client_core::read_state::Event::Ack {
+			channel: post.id,
+			message: Some(Id(latest.0 - 2)),
+			manual: true,
+			mention_count: Some(0),
+			version: None,
+		})
+		.unwrap();
+	state.demo = false;
+	state.posts.parent = Some(Id(26));
+	let Command::ForumSummaries { channels, request } =
+		state.request_post_summaries(vec![post.id]).unwrap()
+	else {
+		panic!("summary request");
+	};
+	assert_eq!(channels, vec![post.id]);
+	let rows: Vec<_> = (0..3)
+		.map(|offset| {
+			serde_json::json!({
+				"id": (latest.0 - offset).to_string(), "channel_id": post.id.to_string(),
+				"author": {"id": "987654321", "username": "Synthetic"},
+				"content": "Latest synthetic reply"
+			})
+		})
+		.collect();
+	let wire = serde_json::to_vec(&rows).unwrap();
+	let summary = discord_protocol::decode::<discord_protocol::forum::Recent>(&wire)
+		.unwrap()
+		.into_summary(post.id)
+		.unwrap();
+	state.apply_forum_summaries(request, vec![(post.id, Ok(summary))]);
+	assert_eq!(state.post_new_count(&post), Some((2, true)));
+	let latest_summary = state
+		.post_summary(post.id)
+		.unwrap()
+		.latest
+		.as_ref()
+		.unwrap();
+	let author_id = latest_summary.author_id;
+	let webhook = latest_summary.webhook;
+	let author_roles = latest_summary.roles.clone();
+	assert_eq!(
+		state.forum_author_color(post.id, author_id, webhook, &author_roles),
+		None
+	);
+	let Some(Command::MemberSearch(author_request)) = state.request_author_members(&[author_id])
+	else {
+		panic!("forum author lookup")
+	};
+	let mut author_event = discord_gateway::debug_member_search_check(author_request);
+	if let client_core::Event::MemberSearch {
+		result: Ok(rows), ..
+	} = &mut author_event
+	{
+		rows[0].roles = vec![Id(101)];
+	}
+	state.apply(Envelope {
+		generation: state.generation,
+		event: author_event,
+	});
+	assert_eq!(
+		state.forum_author_color(post.id, author_id, webhook, &author_roles),
+		Some(0x68ada4)
+	);
+	let mut other_forum = state.channel(Id(26)).unwrap().clone();
+	other_forum.id = Id(126);
+	other_forum.name = "Other synthetic forum".into();
+	state.channels.push(other_forum);
+	state.invalidate_navigation();
+	assert!(state.request_forum_posts(Id(126), false).is_some());
+	assert!(state.request_forum_posts(Id(26), false).is_some());
+	assert!(
+		!state.needs_post_summary(post.id),
+		"forum switches reuse a fresh summary"
+	);
+	let uncached: Vec<_> = state
+		.forum_posts(Id(26))
+		.into_iter()
+		.filter(|candidate| candidate.id != post.id)
+		.take(client_core::forum::SUMMARY_BATCH)
+		.map(|candidate| candidate.id)
+		.collect();
+	let batch = state.request_post_summaries(uncached).unwrap();
+	assert!(
+		matches!(&batch, Command::ForumSummaries { channels, .. } if channels.len() > 1),
+		"visible forum summaries share one concurrent batch"
+	);
+	state.command_rejected(batch);
+	assert!(
+		discord_protocol::decode::<discord_protocol::forum::Recent>(&wire)
+			.unwrap()
+			.into_summary(Id(999))
+			.is_err()
+	);
+	assert!(!state.needs_post_summary(post.id));
+	let mut bounded = model::forum::Summary {
+		messages: (0..50).map(|offset| Id(latest.0 - offset)).collect(),
+		latest: Some(model::forum::Latest {
+			id: latest,
+			channel: post.id,
+			author_id: Id(987654321),
+			author: "Synthetic".into(),
+			roles: vec![],
+			webhook: false,
+			excerpt: "Reply".into(),
+		}),
+		complete: false,
+	};
+	assert!(bounded.valid(post.id));
+	bounded.messages.push(Id(latest.0 - 50));
+	assert!(!bounded.valid(post.id));
+	let mut spoiler = rows[0].clone();
+	spoiler["content"] = serde_json::json!("||private spoiler||");
+	let summary = discord_protocol::decode::<discord_protocol::forum::Recent>(
+		&serde_json::to_vec(&vec![spoiler]).unwrap(),
+	)
+	.unwrap()
+	.into_summary(post.id)
+	.unwrap();
+	assert!(!summary.latest.unwrap().excerpt.contains("private spoiler"));
+	println!(
+		"Forum debug check passed: deferred startup cursors, exact unread count, scoped bounded previews, and concealed spoilers."
+	);
+	state.demo = true;
+
 	let mut view = ui::MessagingUi::default();
 	let mut followed = false;
 	let mut frame = |events: Vec<egui::Event>| {
@@ -82,6 +296,12 @@ pub fn check() {
 	};
 	frame(vec![]);
 	let (text, _) = frame(vec![]);
+	assert!(text.iter().any(|(text, _)| text == "(2 New)"));
+	assert!(text.iter().any(|(text, _)| text == "Synthetic:"));
+	assert!(
+		text.iter()
+			.any(|(text, _)| text == "Latest synthetic reply")
+	);
 	let pos = text
 		.iter()
 		.find(|(label, rect)| label == &post.name && rect.left() > 300.0)

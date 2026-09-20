@@ -682,10 +682,13 @@ impl MessagingUi {
 								&& (state.channel_unread(channel) == Some(true)
 									|| state.unread_count(channel.id) > 0
 									|| (forum && state.forum_unread(channel.id)));
-							let count = if !visible {
+							let new_posts = if visible && forum {
+								state.forum_new_count(channel.id)
+							} else {
 								0
-							} else if forum {
-								state.forum_mentions(channel.id)
+							};
+							let count = if !visible || forum {
+								0
 							} else if channel.guild.is_some() {
 								state.mention_count(channel.id)
 							} else {
@@ -758,7 +761,25 @@ impl MessagingUi {
 									Emphasis::Idle
 								},
 							);
-							let badge_width = if count > 0 { 34.0 } else { 0.0 };
+							let new_label = (new_posts > 0).then(|| {
+								ui.painter().layout_no_wrap(
+									format!(
+										"{} New",
+										if new_posts > 99 {
+											"99+".to_owned()
+										} else {
+											new_posts.to_string()
+										}
+									),
+									egui::FontId::proportional(12.0),
+									colors.muted,
+								)
+							});
+							let badge_width = new_label
+								.as_ref()
+								.map_or(if count > 0 { 34.0 } else { 0.0 }, |label| {
+									label.size().x + 12.0
+								});
 							let trailing = badge_width
 								+ if external.is_some() { 30.0 } else { 0.0 }
 								+ channel_marks::trailing(access);
@@ -831,8 +852,9 @@ impl MessagingUi {
 							} else {
 								let icon = match channel.kind {
 									13 => crate::icons::Icon::Speaker,
+									5 => crate::icons::Icon::Megaphone,
 									15 | 16 => crate::icons::Icon::Forum,
-									10..=12 => crate::icons::Icon::Threads,
+									10..=12 => crate::icons::Icon::Thread,
 									_ => crate::icons::Icon::Hash,
 								};
 								glyph = Some(crate::icons::inline(
@@ -942,6 +964,11 @@ impl MessagingUi {
 								{
 									self.timeline.browser_opening = Some(url.clone());
 								}
+							}
+							if let Some(label) = new_label {
+								let pos = row.right_center()
+									- egui::vec2(8.0 + lane + label.size().x, label.size().y * 0.5);
+								ui.painter().galley(pos, label, colors.muted);
 							}
 							if count > 0 {
 								crate::notifications::badge(
@@ -1607,6 +1634,7 @@ mod tests {
 	fn channel_rows_scroll_continuously_past_voice_participants() {
 		let mut state = test_support::demo_state();
 		state.guilds = vec![model::Guild {
+			stickers: None,
 			id: Id(100),
 			name: "Synthetic".into(),
 			icon: None,
@@ -1802,6 +1830,7 @@ mod tests {
 				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
+				stickers: None,
 				id: Id(100),
 				name: "Synthetic".into(),
 				icon: None,
@@ -1943,6 +1972,7 @@ mod tests {
 				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
+				stickers: None,
 				id: Id(100),
 				name: "Synthetic guild".into(),
 				icon: None,

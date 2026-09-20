@@ -1083,6 +1083,7 @@ mod tests {
 			state.apply(crate::Envelope {
 				generation: state.generation,
 				event: crate::Event::Patch(model::MessagePatch {
+					sticker_items: model::Patch::Absent,
 					id,
 					channel,
 					content: model::Patch::Value("New patch body".into()),
@@ -1252,6 +1253,7 @@ mod tests {
 			selected: Some(Id(10)),
 			user: Some(user.clone()),
 			guilds: vec![model::Guild {
+				stickers: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				icon: None,
@@ -1306,6 +1308,7 @@ mod tests {
 			.timeline
 			.insert(
 				Message {
+					sticker_items: Vec::new(),
 					kind: 0,
 					id: Id(50),
 					channel: Id(10),

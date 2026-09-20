@@ -2,7 +2,7 @@ use crate::{
 	State,
 	auth::{AuthState, Failure},
 };
-use model::{Channel, Freshness, Id, Patch};
+use model::{Freshness, Id, Patch};
 use std::collections::BTreeMap;
 
 pub enum Event {
@@ -136,11 +136,11 @@ impl State {
 		if !self.gateway_connected || !self.can_view(channel.id) || !channel.supports_text() {
 			return None;
 		}
-		let read = self
-			.read_state
-			.entries
-			.get(&channel.id)
-			.map(|(id, _)| *id)?;
+		let read = match self.read_state.entries.get(&channel.id) {
+			Some((id, _)) => *id,
+			None if self.read_state.known && matches!(channel.kind, 10..=12) => None,
+			None => return None,
+		};
 		let latest = channel.last_message?;
 		let unread = read.is_none_or(|read| latest > read);
 		if unread
@@ -394,6 +394,16 @@ impl State {
 		}
 	}
 	pub fn apply_read_state(&mut self, event: Event) -> Result<(), &'static str> {
+		let new_channel = match &event {
+			Event::Ack { channel, .. } | Event::Result { channel, .. } => Some(*channel),
+			_ => None,
+		};
+		if new_channel.is_some_and(|id| !self.read_state.entries.contains_key(&id))
+			&& self.read_state.entries.len() >= crate::MAX_NAV
+		{
+			self.read_state.cancel();
+			return Err("Read-state capacity exceeded");
+		}
 		match event {
 			Event::Snapshot {
 				entries,
@@ -419,7 +429,8 @@ impl State {
 					}
 				}
 				for (channel, message, count) in entries.unwrap_or_default() {
-					if !self.channel(channel).is_some_and(Channel::supports_text) {
+					// Unjoined forum posts load after READY; keep their service cursors.
+					if self.channel(channel).is_some_and(|c| !c.supports_text()) {
 						continue;
 					}
 					self.read_state.activity.set_count(channel, count);
@@ -597,6 +608,11 @@ impl State {
 						self.read_state.revision = self.read_state.revision.wrapping_add(1);
 						let revision = self.read_state.revision;
 						for (channel, epoch, message) in channels {
+							if !self.read_state.entries.contains_key(&channel)
+								&& self.read_state.entries.len() >= crate::MAX_NAV
+							{
+								continue;
+							}
 							if self
 								.read_state
 								.entries
@@ -646,6 +662,7 @@ mod navigation_tests {
 	use model::{Channel, Message, User};
 	fn message(id: u64) -> Message {
 		Message {
+			sticker_items: Vec::new(),
 			id: Id(id),
 			channel: Id(1),
 			author: User {

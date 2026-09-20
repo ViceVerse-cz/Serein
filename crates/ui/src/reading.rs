@@ -36,71 +36,70 @@ impl MessagingUi {
 
 	/// Zoom row shared by the settings page and the signed-out appearance menu.
 	pub(crate) fn zoom_row(&mut self, ui: &mut egui::Ui, value: &mut ReadingPreferences) {
-		let colors = design::palette(ui);
-		ui.horizontal(|ui| {
-			ui.label(design::medium(ui, "Zoom", 15.0).color(colors.text_strong));
-			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-				let mut zoom = self.reading_zoom_draft.unwrap_or(value.zoom_percent);
-				let response = ui.add(
-					egui::Slider::new(&mut zoom, 80..=150)
-						.suffix("%")
-						.trailing_fill(true),
-				);
-				// Applying zoom rescales this slider under the pointer, so commit only
-				// once the drag ends; typed values apply immediately.
-				if response.dragged() {
-					self.reading_zoom_draft = Some(zoom);
-				} else {
-					self.reading_zoom_draft = None;
-					value.zoom_percent = zoom;
-				}
-			});
-		});
+		let mut zoom = self.reading_zoom_draft.unwrap_or(value.zoom_percent);
+		let response = design::slider_row(
+			ui,
+			"Zoom",
+			Some("Scales text and controls across the app."),
+			&mut zoom,
+			80..=150,
+			"%",
+		);
+		// Applying zoom rescales this slider under the pointer, so commit only
+		// once the drag ends; keyboard nudges apply immediately.
+		if response.dragged() {
+			self.reading_zoom_draft = Some(zoom);
+		} else {
+			self.reading_zoom_draft = None;
+			value.zoom_percent = zoom;
+		}
 	}
 
 	pub fn reading_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
-		ui.label(design::eyebrow(ui, "Reading and layout", colors.muted));
 		let mut value = self.reading_preferences;
-		design::card(ui, |ui| {
-			ui.spacing_mut().item_spacing.y = 10.0;
-			ui.spacing_mut().slider_width = (ui.available_width() - 220.0).clamp(120.0, 360.0);
-			// The rail must stay visible on the raised card surface.
-			ui.visuals_mut().widgets.inactive.bg_fill = colors.selected;
-			self.zoom_row(ui, &mut value);
-			ui.separator();
-			ui.horizontal(|ui| {
-				ui.label(design::medium(ui, "Sidebar width", 15.0).color(colors.text_strong));
-				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-					ui.add(
-						egui::Slider::new(&mut value.sidebar_width, 190..=360)
-							.suffix(" px")
-							.trailing_fill(true),
-					);
-				});
+		// The reset sits in the group header so it stays reachable above a tall card.
+		let mut reset = false;
+		ui.add_space(4.0);
+		ui.horizontal(|ui| {
+			ui.label(design::eyebrow(ui, "Reading and layout", colors.muted));
+			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+				reset = design::text_action(ui, "Reset reading and layout").clicked();
 			});
-			ui.separator();
+		});
+		design::card(ui, |ui| {
+			self.zoom_row(ui, &mut value);
+			ui.add_space(10.0);
+			design::slider_row(
+				ui,
+				"Sidebar width",
+				Some("Channel and conversation list width in wide windows."),
+				&mut value.sidebar_width,
+				190..=360,
+				" px",
+			);
+			design::card_divider(ui);
 			design::switch(
 				ui,
 				"Show People in wide windows",
 				Some("Keep the member list open whenever the window is wide enough."),
 				&mut value.show_members,
 			);
-			ui.separator();
+			design::card_divider(ui);
 			design::switch(
 				ui,
 				"Animate GIFs",
 				Some("Visible chat GIFs play automatically."),
 				&mut value.animate_gifs,
 			);
-			ui.separator();
+			design::card_divider(ui);
 			design::switch(
 				ui,
 				"Hide image and GIF links",
 				Some("Hide standalone links when their image or GIF preview is shown."),
 				&mut value.hide_media_links,
 			);
-			ui.separator();
+			design::card_divider(ui);
 			design::switch(
 				ui,
 				"Confirm before opening links",
@@ -108,26 +107,15 @@ impl MessagingUi {
 				&mut value.confirm_external_links,
 			);
 		});
-		ui.horizontal_wrapped(|ui| {
-			if ui.button("Reset reading and layout").clicked() {
-				value = ReadingPreferences::default();
+		if reset {
+			value = ReadingPreferences::default();
+			self.reading_save_requested = true;
+		}
+		if !demo && self.reading_status.contains("could not") {
+			design::notice(ui, design::Level::Warning, self.reading_status);
+			if design::text_action(ui, "Retry saving reading settings").clicked() {
 				self.reading_save_requested = true;
 			}
-			ui.label(
-				egui::RichText::new(if demo {
-					"Preview uses session memory only"
-				} else {
-					self.reading_status
-				})
-				.size(12.0)
-				.color(colors.muted),
-			);
-		});
-		if !demo
-			&& self.reading_status.contains("could not")
-			&& ui.button("Retry saving reading settings").clicked()
-		{
-			self.reading_save_requested = true;
 		}
 		if value != self.reading_preferences {
 			self.apply_reading_preferences(ui.ctx(), value);
@@ -200,7 +188,7 @@ mod tests {
 				egui::RawInput {
 					screen_rect: Some(egui::Rect::from_min_size(
 						egui::Pos2::ZERO,
-						egui::vec2(480.0, 480.0),
+						egui::vec2(480.0, 900.0),
 					)),
 					events,
 					..Default::default()

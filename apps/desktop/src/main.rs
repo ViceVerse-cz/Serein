@@ -61,6 +61,22 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 fn main() -> eframe::Result {
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-settings-sliders")
+	{
+		ui::design::debug_slider_check();
+		return Ok(());
+	}
+
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-mic-preview")
+	{
+		voice::debug_mic_preview_check();
+		return Ok(());
+	}
+
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-components")
 	{
 		components_demo::check();
@@ -678,6 +694,7 @@ struct Desktop {
 	uploads: uploads::Uploads,
 	interaction_files: interaction_uploads::Files,
 	group_icon: group_icon::GroupIcon,
+	profile_avatar: group_icon::GroupIcon,
 	server_icon: group_icon::GroupIcon,
 	role_icon: group_icon::GroupIcon,
 	role_icon_scope: Option<(u64, model::Id, model::Id, u64)>,
@@ -1446,6 +1463,50 @@ impl Desktop {
 			messaging.preview_settings(&page);
 		}
 		#[cfg(feature = "demo")]
+		if demo
+			&& let Some(tab) = std::env::args().find_map(|arg| {
+				arg.strip_prefix("--demo-theme-maker")
+					.map(|rest| rest.trim_start_matches('=').to_owned())
+			}) {
+			// `--demo-theme-maker` or `--demo-theme-maker=advanced`.
+			messaging.preview_theme_maker(&tab);
+		}
+		#[cfg(feature = "demo")]
+		if demo
+			&& std::env::args().any(|arg| arg == "--demo-threads")
+			&& let Some(selected) = state.selected
+		{
+			// Threads dialog for the fixture channel, for screenshots.
+			messaging.preview_threads(selected);
+		}
+		#[cfg(feature = "demo")]
+		if demo
+			&& std::env::args().any(|arg| arg == "--demo-thread-view")
+			&& let Some(thread) = state
+				.channels
+				.iter()
+				.find(|c| {
+					c.guild.is_some()
+						&& matches!(c.kind, 10..=12)
+						&& c.parent_id
+							.and_then(|id| state.channels.iter().find(|p| p.id == id))
+							.is_some_and(|p| matches!(p.kind, 0 | 5))
+				})
+				.map(|c| c.id)
+		{
+			// Open the fixture thread itself, so its starter message renders for screenshots.
+			let _ = state.select(thread);
+			// A short synthetic thread: its whole history fits, so the starter sits at the top.
+			for id in [thread.0 + 10, thread.0 + 20, thread.0 + 30] {
+				let _ = state
+					.timeline
+					.insert(test_support::message(id, thread), false, false);
+			}
+			state.history_pending = false;
+			state.freshness = model::Freshness::Fresh;
+			state.older_exhausted = true;
+		}
+		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-profile") {
 			// Presence for the fixture card comes from the same synthetic People rows.
 			let _ = state.request_members();
@@ -1508,6 +1569,12 @@ impl Desktop {
 				messaging.preview_account_menu(state.generation);
 			}
 			state.status = "Offline fixture · account popout opened at startup";
+		}
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-stickers") {
+			test_support::seed_stickers(&mut state);
+			messaging.preview_sticker_picker();
+			state.status = "Offline fixture: sticker picker";
 		}
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-emoji") {
@@ -1718,6 +1785,7 @@ impl Desktop {
 			uploads: uploads::Uploads::default(),
 			interaction_files: Default::default(),
 			group_icon: group_icon::GroupIcon::default(),
+			profile_avatar: group_icon::GroupIcon::default(),
 			server_icon: group_icon::GroupIcon::default(),
 			role_icon: group_icon::GroupIcon::default(),
 			role_icon_scope: None,
@@ -1794,6 +1862,7 @@ impl Desktop {
 		self.role_icon.cancel();
 		self.role_icon_scope = None;
 		self.group_icon.cancel();
+		self.profile_avatar.cancel();
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
 		if let Some(store) = &mut self.store {
@@ -1851,6 +1920,7 @@ impl Desktop {
 		self.role_icon.cancel();
 		self.role_icon_scope = None;
 		self.group_icon.cancel();
+		self.profile_avatar.cancel();
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
 		self.notifications.clear();
@@ -2473,6 +2543,7 @@ impl Desktop {
 			self.request_history_clear(account);
 		}
 	}
+	/// Dispatches one queued command to the demo or live transport.
 	fn command(&mut self, command: Command) {
 		if matches!(&command, Command::Interaction(client_core::interactions::Request {data:client_core::interactions::Data::Modal{components,..},..}) if interaction_uploads::has_files(components))
 		{
@@ -2768,6 +2839,7 @@ impl Desktop {
 				Command::UserAction {
 					action: client_core::user_actions::Action::OpenDm(user),
 					request,
+					..
 				} => Event::UserAction(client_core::user_actions::Event::DmOpened {
 					user,
 					request,
@@ -2776,18 +2848,19 @@ impl Desktop {
 				Command::UserAction {
 					action: client_core::user_actions::Action::LoadNote(user),
 					request,
+					..
 				} => Event::UserAction(client_core::user_actions::Event::NoteLoaded {
 					user,
 					request,
 					result: Ok(self.state.user_note(user).unwrap_or("").to_owned()),
 				}),
-				Command::UserAction { action, request } => {
-					Event::UserAction(client_core::user_actions::Event::Written {
-						action,
-						request,
-						result: Ok(()),
-					})
-				}
+				Command::UserAction {
+					action, request, ..
+				} => Event::UserAction(client_core::user_actions::Event::Written {
+					action,
+					request,
+					result: Ok(()),
+				}),
 				Command::GroupAction { action, request } => {
 					use client_core::group_actions::{Action, Event as GroupEvent};
 					use model::Patch;
@@ -2917,6 +2990,21 @@ impl Desktop {
 					})
 				}
 				Command::Voice(_) | Command::CancelProfile | Command::CancelSearch => return,
+				Command::ThreadStarter {
+					thread,
+					parent,
+					request,
+				} => {
+					// The fixture thread hangs off a synthetic parent message with its own id.
+					let mut message = test_support::message(thread.0, parent);
+					message.content =
+						"This synthetic message started the thread; replies continue below.".into();
+					Event::ThreadStarter {
+						thread,
+						request,
+						result: Ok(message),
+					}
+				}
 				Command::CreatePost {
 					parent,
 					guild,
@@ -3022,11 +3110,13 @@ impl Desktop {
 						model::SearchHit {
 							id: message.id,
 							channel,
-							author: message.author.name,
 							excerpt: format!(
 								"Synthetic pinned message: {}",
 								message.content.chars().take(200).collect::<String>()
 							),
+							author: message.author,
+							attachments: message.attachments,
+							embeds: message.embeds,
 						}
 					})
 					.collect();
@@ -3115,8 +3205,10 @@ impl Desktop {
 								hits.push(model::SearchHit {
 									id: message.id,
 									channel,
-									author: message.author.name,
-									excerpt: message.content.chars().take(256).collect(),
+									author: message.author,
+									excerpt: message.content.clone(),
+									attachments: message.attachments,
+									embeds: message.embeds,
 								});
 							}
 						}
@@ -3190,6 +3282,11 @@ impl Desktop {
 								if let Some(color) = changes.accent_color {
 									profile.accent_color = color;
 								}
+								if let Some(avatar) = changes.avatar {
+									// Synthetic hash: the fixture never uploads or fetches images.
+									profile.user.avatar = avatar
+										.map(|_| "0123456789abcdef0123456789abcdef".to_owned());
+								}
 							}
 							Ok(Box::new(profile))
 						})
@@ -3211,12 +3308,33 @@ impl Desktop {
 					};
 					Event::Members(demo_members(guild, channel, request))
 				}
-				Command::ForumPosts { .. } => return,
+				Command::ForumPosts { .. } | Command::ForumSummaries { .. } => return,
 				Command::History { before, after, .. } => {
 					test_support::load_page_with_cursors(&mut self.state, before, after);
 					return;
 				}
+				Command::StickerPacks => Event::StickerPacks(Ok(self.state.stickers.packs.clone())),
+				Command::Sticker(id) => Event::Sticker {
+					id,
+					result: self
+						.state
+						.guilds
+						.iter()
+						.filter_map(|g| g.stickers.as_ref())
+						.flatten()
+						.chain(
+							self.state
+								.stickers
+								.packs
+								.iter()
+								.flat_map(|p| p.stickers.iter()),
+						)
+						.find(|s| s.id == id)
+						.cloned()
+						.ok_or(Failure::Protocol),
+				},
 				Command::Send {
+					sticker,
 					channel,
 					content,
 					nonce,
@@ -3226,6 +3344,15 @@ impl Desktop {
 					let mut message = test_support::message(self.synthetic_id, channel);
 					message.author = self.state.user.clone().unwrap();
 					message.content = content;
+					message.sticker_items = sticker
+						.and_then(|id| {
+							self.state
+								.pending
+								.iter()
+								.find_map(|p| p.sticker.as_ref().filter(|s| s.id == id).cloned())
+						})
+						.into_iter()
+						.collect();
 					message.nonce = Some(nonce.clone());
 					message.reply_to = reply.map(client_core::Reply::target);
 					Event::SendResult {
@@ -4888,6 +5015,7 @@ impl eframe::App for Desktop {
 			);
 		}
 	}
+	/// One UI frame: pumps workers, expires challenges, renders and drains commands.
 	fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
 		let search_focused = {
 			#[cfg(feature = "demo")]
@@ -4950,8 +5078,8 @@ impl eframe::App for Desktop {
 			ctx.request_repaint_after(Duration::from_millis(250));
 		}
 		self.poll_interaction_files(ctx);
-		self.state.expire_invite_challenge();
-		if self.state.invite_challenge().is_some() {
+		self.state.expire_verification();
+		if self.state.verification().is_some() {
 			ctx.request_repaint_after(Duration::from_secs(1));
 		}
 		if self.login.is_some()
@@ -5244,6 +5372,13 @@ impl eframe::App for Desktop {
 		self.poll_avatars(&ctx);
 		if let Some((scope, result)) = self.group_icon.poll(&self.state) {
 			self.messaging.accept_group_icon(&ctx, scope, result);
+		}
+		if let Some((scope, result)) = self
+			.profile_avatar
+			.poll_scoped(self.state.generation, |user| {
+				self.state.user.as_ref().is_some_and(|own| own.id == user)
+			}) {
+			self.messaging.accept_profile_picture(&ctx, scope, result);
 		}
 		if let Some((scope, result)) = self.server_icon.poll_server(&self.state) {
 			self.messaging.accept_server_icon(&ctx, scope, result);
@@ -5557,6 +5692,30 @@ impl eframe::App for Desktop {
 				self.state.status = error;
 			}
 
+			if let Some(scope) = self.messaging.take_profile_picture_request() {
+				let result = if scope.0 != self.state.generation
+					|| !self
+						.state
+						.user
+						.as_ref()
+						.is_some_and(|own| own.id == scope.1)
+				{
+					Err("Sign in before changing your profile picture")
+				} else {
+					self.profile_avatar.start(
+						scope,
+						self.runtime.handle(),
+						&ctx,
+						self.window.clone(),
+						"Choose profile picture",
+						256,
+					)
+				};
+				if let Err(error) = result {
+					self.messaging
+						.accept_profile_picture(&ctx, scope, Err(error));
+				}
+			}
 			if let Some(scope) = self.messaging.take_group_icon_request() {
 				let result = if scope.0 != self.state.generation || !self.state.is_group_dm(scope.1)
 				{

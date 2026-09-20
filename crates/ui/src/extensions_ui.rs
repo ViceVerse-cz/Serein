@@ -198,6 +198,13 @@ impl ExtensionUi {
 			editor.preview_tab(label);
 		}
 	}
+	/// Fixture-only entry point: opens the theme maker on `label` with a fresh draft.
+	#[cfg(feature = "demo")]
+	pub fn preview_theme_maker(&mut self, label: &str) {
+		self.themes = true;
+		self.theme_editor = Some(crate::theme_editor::ThemeEditor::new());
+		self.preview_theme_editor_tab(label);
+	}
 	pub fn receive_theme_image(&mut self, bytes: Vec<u8>, image: Arc<egui::ColorImage>) {
 		if bytes.len() > extensions::MAX_BACKGROUND_BYTES
 			|| image.size.contains(&0)
@@ -1829,7 +1836,20 @@ impl ExtensionUi {
 			self.reset_theme(ctx);
 		}
 	}
-	fn reset_theme(&mut self, ctx: &egui::Context) {
+	/// Whether a community theme or an appearance plugin currently replaces the built-in look.
+	pub(crate) fn community_theme_active(&self) -> bool {
+		self.active_theme.is_some()
+			|| self.entries.iter().any(|entry| {
+				(entry.enabled || entry.cleanup_pending)
+					&& (entry.cleanup_pending
+						|| (entry.manifest.kind == ExtensionKind::Plugin
+							&& entry
+								.manifest
+								.capabilities
+								.contains(&Capability::Appearance)))
+			})
+	}
+	pub(crate) fn reset_theme(&mut self, ctx: &egui::Context) {
 		self.stop_theme_preview(ctx);
 		self.theme_editor = None;
 		design::set_background_image(ctx, None);
@@ -1857,37 +1877,18 @@ impl ExtensionUi {
 		}
 	}
 	pub(crate) fn reset_theme_button(&mut self, ui: &mut egui::Ui) {
-		if self.active_theme.is_none()
-			&& !self.entries.iter().any(|entry| {
-				(entry.enabled || entry.cleanup_pending)
-					&& (entry.cleanup_pending
-						|| (entry.manifest.kind == ExtensionKind::Plugin
-							&& entry
-								.manifest
-								.capabilities
-								.contains(&Capability::Appearance)))
-			}) {
+		if !self.community_theme_active() {
 			return;
 		}
-		let colors = design::palette(ui);
 		if ui
-			.add(
-				egui::Button::new(
-					egui::RichText::new("Reset community theme")
-						.size(13.0)
-						.color(colors.text_strong),
-				)
-				.fill(colors.raised)
-				.stroke(egui::Stroke::new(1.0, colors.border))
-				.corner_radius(8)
-				.min_size(egui::vec2(0.0, 32.0)),
-			)
+			.add_enabled(!self.busy, egui::Button::new("Use built-in appearance"))
 			.on_hover_text(
 				"Return to the built-in appearance without removing installed themes. Also available with Ctrl+Shift+F12.",
 			)
 			.clicked()
 		{
 			self.reset_theme(ui.ctx());
+			ui.close();
 		}
 	}
 
@@ -2555,8 +2556,11 @@ mod tests {
 			click(&ctx, &mut shop, width, &labels, "More");
 			let menu = frame(&ctx, &mut shop, width, vec![]);
 			assert!(menu.iter().any(|(text, _)| text == "Import theme…"));
-			assert!(menu.iter().any(|(text, _)| text == "Reset community theme"));
-			click(&ctx, &mut shop, width, &menu, "Reset community theme");
+			assert!(
+				menu.iter()
+					.any(|(text, _)| text == "Use built-in appearance")
+			);
+			click(&ctx, &mut shop, width, &menu, "Use built-in appearance");
 			assert!(matches!(
 				shop.requests.pop(),
 				Some(ExtensionRequest::SelectTheme { id: None })

@@ -1246,7 +1246,12 @@ pub fn show(
 													);
 												}
 											});
-											if !data.mutual_guilds.is_empty() {
+											if !data.mutual_guilds.is_empty()
+												&& state
+													.user
+													.as_ref()
+													.is_none_or(|own| own.id != user.id)
+											{
 												ui.add_space(10.0);
 												let names: Vec<String> = data
 													.mutual_guilds
@@ -1901,9 +1906,10 @@ mod tests {
 			request: 1,
 			loading: false,
 			error: None,
-			data: Some(synthetic(&user, None)),
+			data: Some(synthetic(&user, Some(Id(9)))),
 		};
 		let state = State {
+			user: Some(user.clone()),
 			demo: true,
 			..Default::default()
 		};
@@ -1941,6 +1947,7 @@ mod tests {
 				&& painted.contains("they / them")
 				&& painted.contains("SRN")
 		);
+		assert!(!painted.contains("Mutual Server"));
 		assert!(images.take_requests().is_empty());
 		let rect = ctx.memory(|m| m.area_rect(egui::Id::unique("user-profile-popout")));
 		let rect = rect.expect("popout area");

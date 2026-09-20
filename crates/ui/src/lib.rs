@@ -23,6 +23,7 @@ pub mod design;
 mod embeds;
 mod extensions_ui;
 mod theme_editor;
+mod thread_create;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
 pub mod emoji;
 mod emoji_details;
@@ -46,6 +47,7 @@ mod notifications;
 mod pending;
 mod post_menu;
 mod profiles;
+mod stickers;
 /// Synthetic global profile used exclusively by the desktop's offline command adapter.
 #[cfg(any(test, feature = "demo"))]
 pub fn synthetic_own_profile(user: &model::User) -> model::UserProfile {
@@ -89,6 +91,7 @@ use model::{Freshness, Id};
 pub use verification::VerificationUi;
 pub use voice::StageFocus;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
 	pub input_percent: u16,
 	pub output_percent: u16,
@@ -159,6 +162,7 @@ pub struct MessagingUi {
 	switcher_frame: bool,
 	archives: archives::ArchivesUi,
 	archive_parent: Option<Id>,
+	thread_create: thread_create::ThreadCreateUi,
 	forum: forum::ForumUi,
 	scroll: scroll::Session,
 	timeline: timeline::TimelineView,
@@ -282,7 +286,10 @@ pub struct MessagingUi {
 	/// Device-local voice intent, retained between calls and restarts.
 	pub voice_muted: bool,
 	pub voice_deafened: bool,
-	pub voice_noise_suppression: bool,
+	pub voice_processing: model::voice_settings::VoiceProcessing,
+	pub voice_preview_requested: bool,
+	pub voice_preview_level: Option<f32>,
+	pub voice_preview_status: &'static str,
 	/// Device-local application shortcuts; the desktop host mirrors the global binding.
 	pub keybinds: model::Keybinds,
 	keybind_capture: Option<model::KeybindAction>,
@@ -444,6 +451,20 @@ impl MessagingUi {
 		})
 	}
 
+	/// Pending profile picture selection: (generation, own user, editor revision).
+	pub fn take_profile_picture_request(&mut self) -> Option<(u64, Id, u64)> {
+		self.settings.editor.avatar_request.take()
+	}
+	pub fn accept_profile_picture(
+		&mut self,
+		ctx: &egui::Context,
+		request: (u64, Id, u64),
+		result: Result<Option<(String, egui::ColorImage)>, &'static str>,
+	) {
+		if let Err(error) = self.settings.editor.accept_avatar(ctx, request, result) {
+			self.toasts.push(design::Level::Error, error);
+		}
+	}
 	pub fn take_group_icon_request(&mut self) -> Option<(u64, Id, u64)> {
 		self.group_menu.icon_request.take()
 	}
@@ -460,6 +481,11 @@ impl MessagingUi {
 			self.timeline.reflow_frames,
 			self.timeline.consecutive_reflows,
 		)
+	}
+	/// Fixture-only: open the Threads dialog for `parent` at startup, as the header control would.
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_threads(&mut self, parent: Id) {
+		self.archive_parent = Some(parent);
 	}
 	/// Fixture-only entry point: opens People and the profile card for `user` as if clicked.
 	#[cfg(any(test, feature = "demo"))]
@@ -648,6 +674,10 @@ impl MessagingUi {
 	pub fn preview_custom_status(&mut self, generation: u64) {
 		let draft = self.own_presence.custom_status.clone();
 		self.account_menu.preview_editor(generation, draft);
+	}
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_sticker_picker(&mut self) {
+		self.emoji_picker.open_stickers(None);
 	}
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_emoji_picker(&mut self) {
@@ -1608,8 +1638,9 @@ impl MessagingUi {
 						Some(c) => {
 							let icon = match c.kind {
 								2 | 13 => icons::Icon::Speaker,
+								5 => icons::Icon::Megaphone,
 								15 | 16 => icons::Icon::Forum,
-								10..=12 => icons::Icon::Threads,
+								10..=12 => icons::Icon::Thread,
 								_ => icons::Icon::Hash,
 							};
 							icons::inline(ui, icon, 22.0, colors.muted);
@@ -1749,7 +1780,7 @@ impl MessagingUi {
 									state.can_archive(c.id, model::archives::Kind::Public);
 								let archive = ui
 									.add_enabled_ui(allowed, |ui| {
-										icons::button(ui, icons::Icon::Threads, 32.0, "Threads")
+										icons::button(ui, icons::Icon::Thread, 32.0, "Threads")
 									})
 									.inner;
 								if archive.clicked() {
@@ -2406,6 +2437,12 @@ impl MessagingUi {
                                 Some(text)
                             },
                             Some(emoji_picker::Pick::React(_, _)) => None,
+                            Some(emoji_picker::Pick::Sticker(sticker)) => {
+                                if editing_here { state.status = "Finish or cancel the edit before sending a sticker."; }
+                                else if self.upload_busy { state.status = "Wait for the upload before sending a sticker."; }
+                                else if let Some(command) = state.prepare_sticker_send(&sticker) { self.timeline.follow_latest(); commands.push(command); }
+                                None
+                            },
                             Some(emoji_picker::Pick::Send(url)) => {
                                 if editing_here {
                                     state.status = "Finish or cancel the edit before sending a GIF.";
@@ -3032,7 +3069,26 @@ impl MessagingUi {
 						.inner_margin(egui::Margin::same(12)),
 				)
 				.show(ui, |ui| {
-					self.search.pane(ui, state, &mut commands);
+					self.search.pane(
+						ui,
+						state,
+						&mut commands,
+						&mut self.avatars,
+						search::MediaUi {
+							download: &mut self.timeline.download,
+							audio: &mut self.timeline.audio,
+							video: &mut self.timeline.video,
+						},
+					);
+					if let Some(link) = self.search.opening.take() {
+						self.timeline.opening = Some(link);
+					}
+					if let Some(profile) = self.search.profile.take() {
+						self.profile = Some(profile);
+					}
+					if let Some(channel) = self.search.channel_reference.take() {
+						self.timeline.channel_reference = Some(channel);
+					}
 				});
 		}
 		if show_members {
@@ -3111,6 +3167,7 @@ impl MessagingUi {
 					(warnings.sessions, "session status"),
 					(warnings.presence, "friend presence"),
 					(warnings.emojis, "some server emoji"),
+					(warnings.stickers, "some server stickers"),
 				]
 				.into_iter()
 				.filter_map(|(unavailable, label)| unavailable.then_some(label))
@@ -3315,6 +3372,17 @@ impl MessagingUi {
 							self.pending_upload.as_ref(),
 							&mut self.scroll,
 						);
+						if let Some(id) = self.timeline.sticker_request.take() {
+							if let Some(command) = state.request_sticker(id) {
+								commands.push(command);
+							}
+							if let Some(command) = state.request_sticker_packs() {
+								commands.push(command);
+							}
+						}
+						if let Some(sticker) = self.timeline.browse_sticker.take() {
+							self.emoji_picker.open_stickers(Some(&sticker));
+						}
 						if let Some(command) =
 							state.request_author_members(&self.timeline.visible_authors)
 						{
@@ -3358,7 +3426,15 @@ impl MessagingUi {
 							state.discard_preserved_deleted(id);
 						}
 						if let Some(nonce) = self.timeline.restore_pending.take() {
-							self.restore_pending(state, channel, &nonce);
+							if state
+								.pending
+								.iter()
+								.any(|p| p.nonce == nonce && p.sticker.is_some())
+							{
+								state.discard_pending_sticker(&nonce);
+							} else {
+								self.restore_pending(state, channel, &nonce);
+							}
 						}
 						self.cancel_upload_requested |=
 							std::mem::take(&mut self.timeline.cancel_upload);
@@ -3468,8 +3544,33 @@ impl MessagingUi {
 				.as_ref()
 				.is_some_and(|view| Some(view.parent) == state.selected))
 		{
-			self.archives.show(&ctx, state, &mut commands);
+			self.archives
+				.show(&ctx, state, &mut commands, &mut self.avatars);
 		}
+		if let Some(parent) = self.timeline.threads_request.take() {
+			self.archive_parent = Some(parent);
+		}
+		if let Some((channel, message)) = self.timeline.thread_request.take() {
+			state.clear_channel_action_result(channel);
+			// Discord seeds the name from the starter's first line; the user can still edit it.
+			let name = state
+				.timeline
+				.get(message)
+				.map(|m| thread_create::suggested_name(&m.display_text()))
+				.unwrap_or_default();
+			self.thread_create.open(channel, Some(message), name);
+		}
+		// A thread shows the message it hangs off; read it lazily like other per-channel data.
+		if let Some(command) = state.request_thread_starter() {
+			commands.push(command);
+		}
+		if let Some(channel) = self.archives.create_requested.take() {
+			// The editor replaces the Threads dialog instead of stacking on it.
+			commands.push(state.clear_archives());
+			state.clear_channel_action_result(channel);
+			self.thread_create.open(channel, None, String::new());
+		}
+		self.thread_create.show(&ctx, state, &mut commands);
 		self.screen.show(&ctx, state);
 		if let Some(id) = self.timeline.channel_reference.take() {
 			state.clear_channel_action_result(id);
@@ -4043,6 +4144,7 @@ mod composer_tests {
 			.timeline
 			.insert(
 				model::Message {
+					sticker_items: vec![],
 					id: Id(20),
 					channel: Id(10),
 					author: user,
@@ -4257,6 +4359,7 @@ mod composer_tests {
 		let mut state = edit_state();
 		state.demo = false;
 		state.guilds.push(model::Guild {
+			stickers: None,
 			id: Id(100),
 			name: "Synthetic invited server".into(),
 			icon: None,
@@ -4392,6 +4495,7 @@ mod composer_tests {
 			target.kind = 0;
 			state.channels.push(target);
 			state.guilds.push(model::Guild {
+				stickers: None,
 				id: Id(100),
 				name: "Linked server".into(),
 				icon: None,

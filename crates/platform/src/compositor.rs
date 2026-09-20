@@ -31,9 +31,7 @@ impl Hider {
 	/// Detects a compositor that needs and supports IPC hiding. `None` means winit's own
 	/// visibility or minimize commands are the only option.
 	pub fn detect() -> Option<Self> {
-		if std::env::var_os("WAYLAND_DISPLAY").is_none() {
-			return None;
-		}
+		std::env::var_os("WAYLAND_DISPLAY")?;
 		let signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
 		if signature.is_empty() || signature.contains(['/', '\0']) {
 			return None;

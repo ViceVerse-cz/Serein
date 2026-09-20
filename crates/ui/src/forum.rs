@@ -95,6 +95,8 @@ impl ForumUi {
 		let mut open = None;
 		let mut archive_request = None;
 		let mut posts_request = false;
+		let mut summary_requests = Vec::new();
+		let mut author_lookup = Vec::new();
 		session
 			.attach(
 				ui,
@@ -161,7 +163,23 @@ impl ForumUi {
 							if archived.iter().any(|row| row.id == post.id) {
 								continue;
 							}
-							let response = card(ui, post, (false, state.post_unread(post)), now);
+							let response =
+								card(ui, state, post, (false, state.post_unread(post)), now);
+							if summary_requests.len() < client_core::forum::SUMMARY_BATCH
+								&& ui.is_rect_visible(response.rect)
+								&& state.needs_post_summary(post.id)
+							{
+								summary_requests.push(post.id);
+							}
+							if let Some(latest) = state
+								.post_summary(post.id)
+								.and_then(|summary| summary.latest.as_ref())
+								&& !latest.webhook && latest.roles.is_empty()
+								&& author_lookup.len() < client_core::member_search::LIMIT
+								&& !author_lookup.contains(&latest.author_id)
+							{
+								author_lookup.push(latest.author_id);
+							}
 							menu.context(&response, state, post, view);
 							if response.clicked() {
 								open = Some(Open::Active(post.id));
@@ -169,7 +187,14 @@ impl ForumUi {
 						}
 						posts_request = posts_footer(ui, state, forum);
 						for post in archived {
-							let response = card(ui, post, (true, state.post_unread(post)), now);
+							let response =
+								card(ui, state, post, (true, state.post_unread(post)), now);
+							if summary_requests.len() < client_core::forum::SUMMARY_BATCH
+								&& ui.is_rect_visible(response.rect)
+								&& state.needs_post_summary(post.id)
+							{
+								summary_requests.push(post.id);
+							}
 							menu.context(&response, state, post, view);
 							if response.clicked() {
 								open = Some(Open::Archived(post.id));
@@ -179,6 +204,14 @@ impl ForumUi {
 						archive_request = archive_footer(ui, state, forum, archive);
 					});
 			});
+		if open.is_none()
+			&& let Some(command) = state.request_post_summaries(summary_requests)
+		{
+			commands.push(command);
+		}
+		if let Some(command) = state.request_author_members(&author_lookup) {
+			commands.push(command);
+		}
 		if let Some(open) = open {
 			match open {
 				Open::Active(id) => {
@@ -560,6 +593,7 @@ fn tray(ui: &mut egui::Ui, staged: &mut Staged<'_>) {
 
 fn card(
 	ui: &mut egui::Ui,
+	state: &State,
 	post: &Channel,
 	(archived, unread): (bool, bool),
 	now: time::OffsetDateTime,
@@ -609,6 +643,51 @@ fn card(
 								.selectable(false),
 							);
 						});
+						let latest = state
+							.post_summary(post.id)
+							.and_then(|summary| summary.latest.as_ref());
+						if let Some(latest) = latest {
+							ui.horizontal(|ui| {
+								ui.spacing_mut().item_spacing.x = 5.0;
+								let author_color = state
+									.forum_author_color(
+										post.id,
+										latest.author_id,
+										latest.webhook,
+										&latest.roles,
+									)
+									.map_or(colors.text_strong, |rgb| {
+										design::role_name_color(
+											rgb,
+											colors.raised,
+											colors.text_strong,
+										)
+									});
+								ui.label(
+									design::semibold(ui, format!("{}:", latest.author), 14.0)
+										.color(author_color),
+								);
+								ui.add(
+									egui::Label::new(
+										RichText::new(if latest.excerpt.trim().is_empty() {
+											"Attachment or non-text message"
+										} else {
+											&latest.excerpt
+										})
+										.size(14.0)
+										.color(colors.text),
+									)
+									.truncate()
+									.selectable(false),
+								);
+							});
+						} else {
+							ui.label(
+								RichText::new("Latest message unavailable")
+									.size(14.0)
+									.color(colors.muted),
+							);
+						}
 						ui.horizontal(|ui| {
 							ui.spacing_mut().item_spacing.x = 6.0;
 							if let Some(count) = post.message_count {
@@ -616,8 +695,17 @@ fn card(
 								ui.label(
 									design::medium(ui, count.to_string(), 13.0).color(colors.text),
 								);
-								ui.label(RichText::new("·").color(colors.muted));
 							}
+							if unread {
+								let label = match state.post_new_count(post) {
+									Some((count, exact)) if count > 0 => {
+										format!("({count}{} New)", if exact { "" } else { "+" })
+									}
+									_ => "(New)".to_owned(),
+								};
+								ui.label(design::medium(ui, label, 13.0).color(colors.accent));
+							}
+							ui.label(RichText::new("·").color(colors.muted));
 							ui.label(
 								RichText::new(ago(post.last_message.unwrap_or(post.id), now))
 									.size(13.0)

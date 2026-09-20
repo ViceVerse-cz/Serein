@@ -38,7 +38,9 @@ impl Settings {
 			transparency: ui.transparency,
 			blur: ui.blur,
 			transparent_all: ui.transparent_all,
-			voice_noise_suppression: ui.voice_noise_suppression,
+			voice_noise_suppression: ui.voice_processing.effective().suppression
+				!= model::voice_settings::NoiseSuppression::Off,
+			voice_processing: Some(ui.voice_processing),
 			voice_push_to_talk: ui.voice_push_to_talk,
 			voice_muted: ui.voice_muted,
 			voice_deafened: ui.voice_deafened,
@@ -74,7 +76,9 @@ impl Settings {
 		ui.transparency = value.transparency;
 		ui.blur = value.blur;
 		ui.transparent_all = value.transparent_all;
-		ui.voice_noise_suppression = value.voice_noise_suppression;
+		ui.voice_processing = value.voice_processing.unwrap_or_else(|| {
+			model::voice_settings::VoiceProcessing::from_legacy(value.voice_noise_suppression)
+		});
 		ui.voice_push_to_talk = value.voice_push_to_talk;
 		ui.voice_muted = value.voice_muted;
 		ui.voice_deafened = value.voice_deafened;

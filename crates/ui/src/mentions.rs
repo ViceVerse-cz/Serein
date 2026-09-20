@@ -688,6 +688,7 @@ mod tests {
 			guilds: [20, 10]
 				.into_iter()
 				.map(|id| model::Guild {
+					stickers: None,
 					id: Id(id),
 					name: format!("Source{id}"),
 					icon: None,
@@ -788,6 +789,7 @@ mod tests {
 				use model::permissions as p;
 				state.channels.push(channel(42, Some(guild), 0, "Zoe"));
 				state.guilds.push(model::Guild {
+					stickers: None,
 					id: guild,
 					name: "Synthetic guild".into(),
 					icon: None,
@@ -1001,6 +1003,7 @@ mod tests {
 		assert!(query("<:wave:9001>", 12).is_none());
 		assert_eq!(query("hi :he", 6), Some((3..6, "he", Kind::Emoji)));
 		let guilds = vec![model::Guild {
+			stickers: None,
 			id: Id(9),
 			name: "Guild".into(),
 			icon: None,

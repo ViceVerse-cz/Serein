@@ -61,12 +61,8 @@ pub(super) fn show(
 	);
 	voice_section(ui, bindings, capturing);
 	ui.add_space(10.0);
-	ui.label(
-		RichText::new("GLOBAL AVAILABILITY")
-			.size(11.0)
-			.color(colors.muted),
-	);
-	ui.label(RichText::new(global_status).color(colors.muted));
+	ui.label(design::eyebrow(ui, "Global availability", colors.muted));
+	design::hint(ui, global_status);
 
 	capture(ui, bindings, capturing);
 }
@@ -78,17 +74,10 @@ pub(super) fn show_voice(
 	global_status: &str,
 ) {
 	let colors = design::palette(ui);
-	ui.add_space(12.0);
-	ui.label(design::eyebrow(ui, "VOICE KEYBINDS", colors.muted));
-	ui.label("Mute, deafen and Push to Talk can be remapped independently.");
 	voice_section(ui, bindings, capturing);
 	ui.add_space(10.0);
-	ui.label(
-		RichText::new("GLOBAL AVAILABILITY")
-			.size(11.0)
-			.color(colors.muted),
-	);
-	ui.label(RichText::new(global_status).color(colors.muted));
+	ui.label(design::eyebrow(ui, "Global availability", colors.muted));
+	design::hint(ui, global_status);
 	capture(ui, bindings, capturing);
 }
 
@@ -184,13 +173,12 @@ fn section(
 	bindings: &mut Keybinds,
 	capturing: &mut Option<KeybindAction>,
 ) {
-	ui.add_space(14.0);
-	ui.label(design::semibold(ui, title, 18.0));
-	ui.weak(description);
-	design::card(ui, |ui| {
+	design::group(ui, title, |ui| {
+		design::hint(ui, description);
+		ui.add_space(4.0);
 		for (index, action) in actions.iter().copied().enumerate() {
 			if index > 0 {
-				ui.separator();
+				design::card_divider(ui);
 			}
 			row(ui, action, bindings, capturing);
 		}
@@ -253,7 +241,7 @@ fn row(
 			},
 		);
 		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-			if ui.small_button("Reset").clicked() {
+			if design::text_action(ui, "Reset").clicked() {
 				*bindings.chord_mut(action) = Keybinds::default().chord(action).clone();
 				if *capturing == Some(action) {
 					*capturing = None;

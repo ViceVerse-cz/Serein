@@ -246,6 +246,7 @@ impl Timeline {
 						|| previous.unsupported != message.unsupported
 						|| previous.kind != message.kind
 						|| previous.reply_deleted != message.reply_deleted
+						|| previous.sticker_items != message.sticker_items
 						|| previous.extra_content != message.extra_content
 						|| previous.embeds != message.embeds
 						|| previous.attachments != message.attachments
@@ -290,6 +291,7 @@ impl Timeline {
 				.as_ref()
 				.is_none_or(|nick| nick.len() <= 512)
 			&& message.application_id.is_none_or(|id| id.0 != 0)
+			&& model::valid_stickers(&message.sticker_items, model::MAX_MESSAGE_STICKERS)
 			&& model::valid_components(&message.components)
 			&& model::valid_embeds(&message.embeds)
 			&& model::valid_attachments(&message.attachments)
@@ -373,6 +375,7 @@ impl Timeline {
 			|| matches!(&patch.reactions, Patch::Value(r) if !model::valid_reactions(r))
 			|| matches!(&patch.mentions, Patch::Value(users) if !model::valid_mentions(users))
 			|| matches!(&patch.application_id, Patch::Value(id) if id.0 == 0)
+			|| matches!(&patch.sticker_items, Patch::Value(s) if !model::valid_stickers(s,model::MAX_MESSAGE_STICKERS))
 			|| matches!(&patch.components, Patch::Value(c) if !model::valid_components(c))
 			|| matches!(&patch.embeds, Patch::Value(embeds) if !model::valid_embeds(embeds))
 			|| matches!(&patch.attachments, Patch::Value(attachments) if !model::valid_attachments(attachments))
@@ -403,6 +406,9 @@ impl Timeline {
 				.unwrap_or_else(|| patch.clone());
 			if !matches!(patch.flags, Patch::Absent) {
 				merged.flags = patch.flags;
+			}
+			if !matches!(patch.sticker_items, Patch::Absent) {
+				merged.sticker_items = patch.sticker_items;
 			}
 			if !matches!(patch.components, Patch::Absent) {
 				merged.components = patch.components;
@@ -523,10 +529,13 @@ fn patch_bytes(patch: &MessagePatch) -> usize {
 	};
 	size_of::<MessagePatch>()
 		+ content
-		+ match &patch.components {
-			Patch::Value(c) => model::component_bytes(c),
+		+ match &patch.sticker_items {
+			Patch::Value(s) => model::sticker_bytes(s),
 			_ => 0,
-		} + match &patch.reactions {
+		} + match &patch.components {
+		Patch::Value(c) => model::component_bytes(c),
+		_ => 0,
+	} + match &patch.reactions {
 		Patch::Value(r) => {
 			model::reaction_bytes(r)
 				+ r.capacity().saturating_sub(r.len()) * size_of::<model::Reaction>()
@@ -579,6 +588,11 @@ pub fn apply_patch(message: &mut Message, patch: &MessagePatch) {
 	if message.forwarded {
 		message.revision += 1;
 		return;
+	}
+	match &patch.sticker_items {
+		Patch::Value(s) => message.sticker_items.clone_from(s),
+		Patch::Null => message.sticker_items.clear(),
+		Patch::Absent => {}
 	}
 	match &patch.components {
 		Patch::Value(c) => message.components.clone_from(c),
@@ -641,6 +655,7 @@ mod tests {
 		timeline
 			.patch(MessagePatch {
 				flags: Patch::Absent,
+				sticker_items: Patch::Absent,
 				components: Patch::Absent,
 				application_id: Patch::Absent,
 				id: Id(1),
@@ -772,6 +787,7 @@ mod tests {
 		timeline
 			.patch(MessagePatch {
 				flags: Patch::Absent,
+				sticker_items: Patch::Absent,
 				components: Patch::Absent,
 				application_id: Patch::Absent,
 				id: Id(3),
@@ -840,6 +856,7 @@ mod tests {
 		timeline
 			.patch(MessagePatch {
 				flags: Patch::Absent,
+				sticker_items: Patch::Absent,
 				components: Patch::Absent,
 				application_id: Patch::Absent,
 				id: Id(10),
@@ -940,6 +957,7 @@ mod tests {
 	fn content_markers_reconcile_independent_updates_before_and_after_history() {
 		let update = |extra_content| MessagePatch {
 			flags: Patch::Absent,
+			sticker_items: Patch::Absent,
 			components: Patch::Absent,
 			application_id: Patch::Absent,
 			id: Id(1),
@@ -953,6 +971,39 @@ mod tests {
 			embeds_suppressed: Patch::Absent,
 			attachments: Patch::Absent,
 		};
+		let sticker = model::Sticker {
+			id: Id(90),
+			name: "Wave".into(),
+			description: String::new(),
+			tags: String::new(),
+			format_type: 1,
+			guild_id: None,
+			pack_id: None,
+			available: true,
+		};
+		let mut sticker_timeline = Timeline::default();
+		sticker_timeline.begin_page(false);
+		let mut sticker_patch = update(Default::default());
+		sticker_patch.sticker_items = Patch::Value(vec![sticker.clone()]);
+		sticker_timeline.patch(sticker_patch).unwrap();
+		sticker_timeline.patch(update(Default::default())).unwrap();
+		sticker_timeline
+			.finish_page(vec![message(1)], false)
+			.unwrap();
+		assert_eq!(
+			sticker_timeline.get(Id(1)).unwrap().sticker_items,
+			vec![sticker]
+		);
+		let mut clear = update(Default::default());
+		clear.sticker_items = Patch::Null;
+		sticker_timeline.patch(clear).unwrap();
+		assert!(
+			sticker_timeline
+				.get(Id(1))
+				.unwrap()
+				.sticker_items
+				.is_empty()
+		);
 		let mut original = message(1);
 		original.extra_content.sticker_items = true;
 		original.extra_content.poll = true;
@@ -1050,6 +1101,7 @@ mod tests {
 		let before = timeline.bytes;
 		let patch = MessagePatch {
 			flags: Patch::Absent,
+			sticker_items: Patch::Absent,
 			components: Patch::Absent,
 			application_id: Patch::Absent,
 			extra_content: Default::default(),
@@ -1075,6 +1127,7 @@ mod tests {
 	fn message(id: u64) -> Message {
 		Message {
 			flags: 0,
+			sticker_items: vec![],
 			components: vec![],
 			application_id: None,
 			ephemeral: false,
@@ -1166,6 +1219,7 @@ mod tests {
 		};
 		let update = |attachments| MessagePatch {
 			flags: Patch::Absent,
+			sticker_items: Patch::Absent,
 			components: Patch::Absent,
 			application_id: Patch::Absent,
 			extra_content: Default::default(),
@@ -1244,6 +1298,7 @@ mod tests {
 		};
 		let update = |embeds| MessagePatch {
 			flags: Patch::Absent,
+			sticker_items: Patch::Absent,
 			components: Patch::Absent,
 			application_id: Patch::Absent,
 			extra_content: Default::default(),
@@ -1320,6 +1375,7 @@ mod tests {
 		t.delete(Id(1)).unwrap();
 		t.patch(MessagePatch {
 			flags: Patch::Absent,
+			sticker_items: Patch::Absent,
 			components: Patch::Absent,
 			application_id: Patch::Absent,
 			extra_content: Default::default(),
@@ -1338,6 +1394,7 @@ mod tests {
 		assert!(t.get(Id(1)).is_none());
 		t.patch(MessagePatch {
 			flags: Patch::Absent,
+			sticker_items: Patch::Absent,
 			components: Patch::Absent,
 			application_id: Patch::Absent,
 			extra_content: Default::default(),
@@ -1395,6 +1452,7 @@ mod tests {
 			timeline
 				.patch(MessagePatch {
 					flags: Patch::Absent,
+					sticker_items: Patch::Absent,
 					components: Patch::Absent,
 					application_id: Patch::Absent,
 					extra_content: Default::default(),

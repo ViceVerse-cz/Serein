@@ -26,6 +26,9 @@ pub fn encode_edit(changes: &model::ProfileEdit) -> Result<serde_json::Value, De
 	if let Some(color) = changes.accent_color {
 		fields.insert("accent_color".into(), serde_json::json!(color));
 	}
+	if let Some(avatar) = &changes.avatar {
+		fields.insert("avatar".into(), serde_json::json!(avatar));
+	}
 	Ok(serde_json::Value::Object(fields))
 }
 #[derive(Deserialize)]

@@ -63,7 +63,8 @@ impl ChannelMenu {
 		view: ShortcutView<'_>,
 	) {
 		let Some(guild) = channel.guild else { return };
-		if channel.kind == 11 && channel.parent_id.is_some_and(|id| state.is_forum(id)) {
+		// Forum posts and text-channel threads both use the thread menu (close, rename, delete).
+		if matches!(channel.kind, 10..=12) && state.is_thread_channel(channel.id) {
 			self.posts.context(response, state, channel, view);
 			if let Some(intent) = self.posts.shortcut_requested.take() {
 				self.shortcut_requested = Some(intent);

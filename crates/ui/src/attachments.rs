@@ -1219,6 +1219,7 @@ mod tests {
 			},
 		};
 		let message = Message {
+			sticker_items: vec![],
 			id: Id(1),
 			channel: Id(2),
 			author: model::User {

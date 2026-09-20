@@ -24,6 +24,8 @@ pub type Frame = [f32; 960];
 #[derive(Clone, Copy)]
 pub struct Controls {
 	pub muted: bool,
+	/// Local indicator threshold; independent of received participants.
+	pub activity_threshold_db: i16,
 	/// Zero means off; a new value invalidates frames from the previous camera instance.
 	pub camera: u64,
 	pub deafened: bool,
@@ -34,6 +36,7 @@ impl Default for Controls {
 	fn default() -> Self {
 		Self {
 			muted: false,
+			activity_threshold_db: -45,
 			camera: 0,
 			deafened: false,
 			user_volumes: [(0, 100); 64],

@@ -57,6 +57,7 @@ impl Envelope<'_> {
 		let mut warnings = Warnings::default();
 		let guilds: Guilds = crate::decode_gateway(self.guilds.get().as_bytes())?;
 		warnings.emojis = guilds.1;
+		warnings.stickers = guilds.2;
 		let read_state = optional(self.read_state, &mut warnings.read_state);
 		let user_guild_settings = optional(self.user_guild_settings, &mut warnings.notifications)
 			.filter(|settings: &crate::notifications::Snapshot| {
@@ -122,6 +123,7 @@ pub fn supplemental(bytes: &[u8]) -> Result<(crate::ReadySupplemental, Warnings)
 	let guilds: Guilds = crate::decode_gateway(raw.guilds.get().as_bytes())?;
 	let mut warnings = Warnings {
 		emojis: guilds.1,
+		stickers: guilds.2,
 		..Warnings::default()
 	};
 	let presences = checked_presences(raw.presences, &mut warnings.presence);
@@ -178,9 +180,11 @@ fn checked_presences(raw: Option<&RawValue>, warning: &mut bool) -> Option<Box<R
 	})
 }
 
-// Only READY tolerates an unavailable emoji catalog. Ordinary guild responses remain strict.
+// Only READY tolerates unavailable optional catalogs. Ordinary guild responses remain strict.
 #[derive(Deserialize)]
 struct Guild<'a> {
+	#[serde(default, borrow)]
+	stickers: Option<&'a RawValue>,
 	id: model::Id,
 	#[serde(default, borrow)]
 	emojis: Option<&'a RawValue>,
@@ -201,7 +205,7 @@ struct Guild<'a> {
 	#[serde(default)]
 	members: Vec<crate::VoiceMemberDto>,
 }
-struct Guilds(Vec<crate::GuildDto>, bool);
+struct Guilds(Vec<crate::GuildDto>, bool, bool);
 impl<'de> Deserialize<'de> for Guilds {
 	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
 		struct GuildVisitor;
@@ -213,6 +217,7 @@ impl<'de> Deserialize<'de> for Guilds {
 			fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Guilds, A::Error> {
 				let mut guilds = Vec::new();
 				let mut unavailable = false;
+				let mut stickers_unavailable = false;
 				let mut entries = 0usize;
 				while let Some(guild) = seq.next_element::<Guild<'de>>()? {
 					entries += 1 + guild.channels.len() + guild.threads.len();
@@ -228,13 +233,26 @@ impl<'de> Deserialize<'de> for Guilds {
 						icon: guild.icon,
 						name: guild.name,
 						channels: guild.channels,
+						stickers: optional::<crate::stickers::Catalog>(
+							guild.stickers,
+							&mut stickers_unavailable,
+						)
+						.and_then(|catalog| {
+							match crate::stickers::guild_catalog(catalog.0, guild.id) {
+								Ok(stickers) => Some(model::StickerList(stickers)),
+								Err(_) => {
+									stickers_unavailable = true;
+									None
+								}
+							}
+						}),
 						threads: guild.threads,
 						roles: guild.roles,
 						voice_states: guild.voice_states,
 						members: guild.members,
 					});
 				}
-				Ok(Guilds(guilds, unavailable))
+				Ok(Guilds(guilds, unavailable, stickers_unavailable))
 			}
 		}
 		d.deserialize_seq(GuildVisitor)
@@ -313,7 +331,8 @@ mod tests {
 				notifications: true,
 				sessions: true,
 				presence: true,
-				emojis: true
+				emojis: true,
+				stickers: false,
 			}
 		);
 		assert!(
@@ -341,6 +360,35 @@ mod tests {
 		assert!(extra.guilds[0].emojis.is_none() && extra.merged_presences.is_none());
 		assert!(
 			supplemental(br#"{"guilds":[{"id":"1","voice_states":[{"user_id":false}]}]}"#).is_err()
+		);
+	}
+
+	#[test]
+	fn invalid_optional_stickers_preserve_ready_and_have_their_own_warning() {
+		for stickers in [
+			json!(true),
+			json!([{"id":"4","name":null,"format_type":1}]),
+			json!([{"id":"4","name":"Wave","format_type":1,"guild_id":"8"}]),
+			json!([{"id":"4","name":"Wave","format_type":1,"pack_id":"8"}]),
+		] {
+			let mut payload = fixture();
+			payload["guilds"][0]["stickers"] = stickers;
+			let bytes = serde_json::to_vec(&payload).unwrap();
+			let (mut ready, warnings) = decode(&bytes).unwrap().navigation().unwrap();
+			assert!(warnings.stickers);
+			assert!(!warnings.emojis);
+			let (guilds, channels) = ready.navigation().unwrap();
+			assert_eq!(channels.len(), 1);
+			assert!(guilds[0].stickers.is_none());
+		}
+		let mut payload = fixture();
+		payload["guilds"][0]["stickers"] = json!([{"id":"4","name":"Wave","format_type":1}]);
+		let bytes = serde_json::to_vec(&payload).unwrap();
+		let (mut ready, warnings) = decode(&bytes).unwrap().navigation().unwrap();
+		assert!(!warnings.stickers);
+		assert_eq!(
+			ready.navigation().unwrap().0[0].stickers.as_ref().unwrap()[0].guild_id,
+			Some(Id(1))
 		);
 	}
 

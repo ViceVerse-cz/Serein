@@ -60,7 +60,11 @@ impl DiscordApi {
 					.is_some_and(|pronouns| *pronouns != saved.pronouns)
 				|| changes
 					.accent_color
-					.is_some_and(|color| color != saved.accent_color))
+					.is_some_and(|color| color != saved.accent_color)
+				|| changes
+					.avatar
+					.as_ref()
+					.is_some_and(|avatar| avatar.is_some() != saved.user.avatar.is_some()))
 		{
 			return Err(Failure::ProtocolAt(
 				"Profile changes were not confirmed; reload before retrying",
@@ -147,6 +151,7 @@ mod tests {
 				bio: Some("hello".into()),
 				pronouns: Some(String::new()),
 				accent_color: Some(None),
+				avatar: None,
 			};
 			let server = async {
 				respond(
@@ -184,6 +189,7 @@ mod tests {
 				bio: Some(String::new()),
 				pronouns: Some("they/them".into()),
 				accent_color: Some(Some(0x123456)),
+				avatar: None,
 			};
 			let server = async {
 				respond(&listener, PATCH, Some(json!({"global_name":"New name","bio":"","pronouns":"they/them","accent_color":0x123456})), 200, USER).await;

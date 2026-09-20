@@ -107,6 +107,7 @@ pub(crate) fn standard() -> &'static [(&'static str, &'static str)] {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Tab {
+	Stickers,
 	Emoji,
 	Gifs,
 }
@@ -121,6 +122,7 @@ enum GifSection {
 
 /// What the composer does with a picked item.
 pub(crate) enum Pick {
+	Sticker(model::Sticker),
 	/// Insert text at the caret (emoji or custom emoji markup).
 	Insert(String),
 	/// Send this GIF address as its own message right away, like Discord.
@@ -193,6 +195,7 @@ fn custom_matches<'a>(
 }
 
 pub(crate) struct Picker {
+	stickers: crate::stickers::Browser,
 	reaction: Option<(Id, egui::Rect, egui::Id)>,
 	// ponytail: session-only Unicode usage; persist if cross-launch favorites are needed.
 	frequent: Vec<(usize, u32)>,
@@ -215,6 +218,7 @@ impl Default for Picker {
 	fn default() -> Self {
 		// Initialize the static catalog during application creation, outside rendering.
 		Self {
+			stickers: crate::stickers::Browser::default(),
 			reaction: None,
 			frequent: Vec::with_capacity(32),
 			open: false,
@@ -350,6 +354,15 @@ impl Picker {
 			}
 		};
 	}
+	pub(crate) fn open_stickers(&mut self, sticker: Option<&model::Sticker>) {
+		self.pending_open = true;
+		self.tab = Tab::Stickers;
+		self.focus = true;
+		if let Some(sticker) = sticker {
+			self.stickers.focus(sticker);
+		}
+	}
+
 	fn filter(&mut self) {
 		let query = self.query.trim().to_lowercase();
 		self.matches.clear();
@@ -386,6 +399,7 @@ impl Picker {
 			self.query.clear();
 			self.filter();
 			if !self.pending_open {
+				self.stickers = crate::stickers::Browser::default();
 				self.tab = Tab::Emoji;
 				self.gif_section = GifSection::Home;
 				self.gif_query.clear();
@@ -608,6 +622,16 @@ impl Picker {
 		let mut hovered_source: Option<&str> = None;
 		let mut hovered_gif: Option<String> = None;
 		let gifs_tab = self.tab == Tab::Gifs;
+		let stickers_tab = self.tab == Tab::Stickers;
+		let mut hovered_sticker = None;
+		if stickers_tab
+			&& !state.stickers.loaded
+			&& !state.stickers.loading
+			&& state.stickers.error.is_none()
+			&& let Some(command) = state.request_sticker_packs()
+		{
+			commands.push(command);
+		}
 		// Remote requests happen before the popout borrows navigation state immutably.
 		let gif_mode = self.gif_mode(ui);
 		if gifs_tab
@@ -662,7 +686,7 @@ impl Picker {
 							body_rect.min,
 							egui::pos2(body_rect.left() + RAIL, body_rect.bottom()),
 						);
-						let grid_rect = if gifs_tab {
+						let grid_rect = if gifs_tab || stickers_tab {
 							body_rect
 						} else {
 							egui::Rect::from_min_max(
@@ -679,8 +703,12 @@ impl Picker {
 							|ui| {
 								ui.spacing_mut().item_spacing.x = 20.0;
 								let family = crate::design::semibold_family(ui.ctx());
-								for (tab, label) in [(Tab::Gifs, "GIFs"), (Tab::Emoji, "Emoji")] {
-									if self.reaction.is_some() && tab == Tab::Gifs {
+								for (tab, label) in [
+									(Tab::Gifs, "GIFs"),
+									(Tab::Stickers, "Stickers"),
+									(Tab::Emoji, "Emoji"),
+								] {
+									if self.reaction.is_some() && tab != Tab::Emoji {
 										continue;
 									}
 									let active = self.tab == tab;
@@ -785,6 +813,12 @@ impl Picker {
 													"Search KLIPY",
 													"Search GIFs on KLIPY",
 												)
+											} else if stickers_tab {
+												(
+													&mut self.stickers.query,
+													"Find the perfect sticker",
+													"Search stickers by name",
+												)
 											} else {
 												(
 													&mut self.query,
@@ -815,7 +849,7 @@ impl Picker {
 												if gifs_tab {
 													self.gif_changed_at =
 														Some(ui.input(|i| i.time));
-												} else {
+												} else if !stickers_tab {
 													self.filter();
 												}
 											}
@@ -824,7 +858,28 @@ impl Picker {
 							},
 						);
 
-						if gifs_tab {
+						if stickers_tab {
+							ui.scope_builder(
+								egui::UiBuilder::new()
+									.max_rect(grid_rect.shrink(8.0))
+									.layout(egui::Layout::top_down(egui::Align::Min)),
+								|ui| {
+									if let Some(error) = state.stickers.error {
+										ui.label(error);
+										if ui.button("Retry sticker packs").clicked()
+											&& let Some(command) = state.request_sticker_packs()
+										{
+											commands.push(command);
+										}
+									}
+									if let Some(sticker) =
+										self.stickers.show(ui, state, avatars, &mut hovered_sticker)
+									{
+										selected = Some(Pick::Sticker(sticker));
+									}
+								},
+							);
+						} else if gifs_tab {
 							gif_action = self.gif_body(
 								ui,
 								grid_rect.shrink2(egui::vec2(16.0, 4.0)),
@@ -1158,6 +1213,37 @@ impl Picker {
 								.layout(egui::Layout::left_to_right(egui::Align::Center)),
 							|ui| {
 								ui.spacing_mut().item_spacing.x = 12.0;
+								if stickers_tab {
+									if let Some((sticker, source)) = &hovered_sticker {
+										avatars.sticker_image(
+											ui,
+											sticker,
+											egui::Vec2::splat(32.0),
+											demo,
+										);
+										ui.vertical(|ui| {
+											ui.add(
+												egui::Label::new(crate::design::semibold(
+													ui,
+													&sticker.name,
+													15.0,
+												))
+												.truncate(),
+											);
+											ui.add(
+												egui::Label::new(
+													egui::RichText::new(source)
+														.small()
+														.color(colors.muted),
+												)
+												.truncate(),
+											);
+										});
+									} else {
+										ui.label("Hover a sticker to preview it");
+									}
+									return;
+								}
 								if gifs_tab {
 									crate::icons::inline(
 										ui,
@@ -2043,6 +2129,87 @@ mod tests {
 	}
 
 	#[test]
+	fn sticker_picker_search_keyboard_send_preserves_draft_and_resets_session() {
+		let ctx = egui::Context::default();
+		crate::emoji::install(&ctx).unwrap();
+		let mut state = test_support::demo_state();
+		test_support::seed_stickers(&mut state);
+		let channel = state.selected.unwrap();
+		state.drafts.insert(channel, "Keep my draft".into());
+		let mut picker = Picker::default();
+		picker.open_stickers(None);
+		let mut avatars = Avatars::default();
+		let mut frame = |picker: &mut Picker, state: &mut State, events| {
+			let mut selected = None;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					selected = picker.show(ui, state, channel, &mut avatars, &mut Vec::new());
+				},
+			);
+			output.drop_without_applying_deltas();
+			selected
+		};
+		for _ in 0..3 {
+			frame(&mut picker, &mut state, vec![]);
+		}
+		frame(
+			&mut picker,
+			&mut state,
+			vec![egui::Event::Text("Sle".into())],
+		);
+		frame(
+			&mut picker,
+			&mut state,
+			vec![egui::Event::Text("ep".into())],
+		);
+		assert_eq!(picker.stickers.query, "Sleep");
+		let key = |key| egui::Event::Key {
+			key,
+			physical_key: None,
+			pressed: true,
+			repeat: false,
+			modifiers: egui::Modifiers::NONE,
+		};
+		let mut picked = None;
+		for _ in 0..20 {
+			frame(&mut picker, &mut state, vec![key(egui::Key::Tab)]);
+			if ctx
+				.memory(|m| m.focused())
+				.and_then(|id| ctx.read_response(id))
+				.is_some_and(|r| {
+					r.rect.width() >= 70.0 && (r.rect.width() - r.rect.height()).abs() < 0.1
+				}) {
+				picked = frame(&mut picker, &mut state, vec![key(egui::Key::Enter)]);
+				break;
+			}
+		}
+		let Some(Pick::Sticker(sticker)) = picked else {
+			panic!("keyboard sticker selection");
+		};
+		assert_eq!(sticker.name, "Sleep");
+		assert!(matches!(
+			state.prepare_sticker_send(&sticker),
+			Some(Command::Send {
+				sticker: Some(Id(9201)),
+				..
+			})
+		));
+		assert_eq!(state.drafts[&channel], "Keep my draft");
+		assert!(!picker.open);
+		state.generation += 1;
+		picker.sync(&state, Some(channel));
+		assert!(picker.stickers.query.is_empty());
+	}
+
+	#[test]
 	fn gif_search_keeps_focus_when_the_back_button_appears() {
 		let ctx = egui::Context::default();
 		crate::emoji::install(&ctx).unwrap();
@@ -2188,6 +2355,7 @@ mod tests {
 	fn server_grid_only_requests_visible_images_and_resets_on_navigation() {
 		let mut state = State {
 			guilds: vec![model::Guild {
+				stickers: None,
 				id: Id(1),
 				name: "Synthetic server".into(),
 				icon: None,

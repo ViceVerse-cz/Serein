@@ -29,6 +29,8 @@ struct RevealScroll {
 
 #[derive(Default)]
 pub struct TimelineView {
+	pub(super) sticker_request: Option<Id>,
+	pub(super) browse_sticker: Option<model::Sticker>,
 	pub(super) component_viewing: Option<(Id, u64)>,
 	pub(super) components: crate::components::Components,
 	pub(super) component_action: Option<crate::components::Action>,
@@ -70,6 +72,12 @@ pub struct TimelineView {
 	pub(super) reaction_users: Option<(Id, model::ReactionEmoji, bool)>,
 	/// Requested pin change: channel, message, pinned.
 	pub(super) pin_request: Option<(Id, Id, bool)>,
+	/// Requested new thread: parent channel and the message that starts it.
+	pub(super) thread_request: Option<(Id, Id)>,
+	/// Channel whose Threads dialog a system row asked to open.
+	pub(super) threads_request: Option<Id>,
+	/// The starter message shown as a pseudo-row at the top of an exhausted thread.
+	starter_row: Option<Id>,
 	suppressed_deleted_highlight: BTreeSet<Id>,
 	pub(super) remove_preserved: Option<Id>,
 	toolbar: Option<(Id, egui::Rect)>,
@@ -185,7 +193,7 @@ fn channel_welcome(ui: &mut egui::Ui, channel: &model::Channel, height: f32) {
 				ui.painter(),
 				match channel.kind {
 					5 => crate::icons::Icon::Megaphone,
-					10..=12 => crate::icons::Icon::Threads,
+					10..=12 => crate::icons::Icon::Thread,
 					_ => crate::icons::Icon::Hash,
 				},
 				badge.shrink(14.0),
@@ -278,6 +286,7 @@ fn layout_key(message: &Message) -> u64 {
 	message.reply_deleted.hash(&mut key);
 	message.unsupported.hash(&mut key);
 	message.extra_content.hash(&mut key);
+	message.sticker_items.hash(&mut key);
 	message.components.hash(&mut key);
 	message.kind.hash(&mut key);
 	message.attachments.hash(&mut key);
@@ -308,7 +317,7 @@ fn system_icon(kind: u8, colors: &crate::design::Palette) -> (crate::icons::Icon
 		12 | 27..=31 => (Icon::Megaphone, colors.muted),
 		14 | 15 => (Icon::Compass, colors.positive),
 		16 | 17 => (Icon::Compass, colors.warning),
-		18 | 21 => (Icon::Threads, colors.muted),
+		18 | 21 => (Icon::Thread, colors.muted),
 		22 => (Icon::AddPeople, colors.muted),
 		24 | 36 | 38 => (Icon::ShieldWarning, colors.danger),
 		37 | 39 | 62 => (Icon::ShieldWarning, colors.positive),
@@ -321,6 +330,186 @@ fn system_icon(kind: u8, colors: &crate::design::Palette) -> (crate::icons::Icon
 		46 => (Icon::ChartBar, colors.muted),
 		_ => (Icon::Help, colors.muted),
 	}
+}
+/// "N messages · last activity" summary for a thread row, built from synced metadata only.
+pub(crate) fn thread_activity(thread: &model::Channel) -> String {
+	let count = match thread.message_count {
+		Some(0) => "No replies yet".to_owned(),
+		Some(1) => "1 message".to_owned(),
+		Some(n) => format!("{n} messages"),
+		None => "Thread".to_owned(),
+	};
+	let Some(last) = thread.last_message else {
+		return count;
+	};
+	format!(
+		"{count} · Last active {}",
+		crate::local_time::ago(timestamp(last))
+	)
+}
+/// Discord-style card under a message that started a thread: name, activity, open affordance.
+fn thread_card(
+	ui: &mut egui::Ui,
+	thread: &model::Channel,
+	colors: &crate::design::Palette,
+) -> egui::Response {
+	let width = ui.available_width().min(520.0);
+	let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 56.0), egui::Sense::click());
+	let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+	if ui.is_rect_visible(rect) {
+		let hovered = response.hovered() || response.has_focus();
+		let painter = ui.painter();
+		painter.rect(
+			rect,
+			8.0,
+			if hovered { colors.hover } else { colors.raised },
+			egui::Stroke::new(1.0, colors.border),
+			egui::StrokeKind::Inside,
+		);
+		let icon = egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 26.0, rect.center().y),
+			egui::Vec2::splat(20.0),
+		);
+		crate::icons::paint(painter, crate::icons::Icon::Thread, icon, colors.muted);
+		let text_left = rect.left() + 48.0;
+		let text_right = rect.right() - 16.0;
+		let open_width = painter
+			.layout_no_wrap(
+				"View thread ›".to_owned(),
+				egui::FontId::proportional(13.0),
+				colors.link,
+			)
+			.size()
+			.x;
+		painter.text(
+			egui::pos2(text_right, rect.center().y),
+			egui::Align2::RIGHT_CENTER,
+			"View thread ›",
+			egui::FontId::proportional(13.0),
+			colors.link,
+		);
+		let name_width = (text_right - open_width - 12.0 - text_left).max(40.0);
+		let name = egui::WidgetText::from(
+			crate::design::semibold(ui, thread.name.as_str(), 14.5).color(colors.text_strong),
+		)
+		.into_galley(
+			ui,
+			Some(egui::TextWrapMode::Truncate),
+			name_width,
+			egui::FontSelection::Default,
+		);
+		painter.galley(
+			egui::pos2(text_left, rect.top() + 9.0),
+			name,
+			colors.text_strong,
+		);
+		let activity = egui::WidgetText::from(
+			RichText::new(thread_activity(thread))
+				.size(12.5)
+				.color(colors.muted),
+		)
+		.into_galley(
+			ui,
+			Some(egui::TextWrapMode::Truncate),
+			name_width,
+			egui::FontSelection::Default,
+		);
+		painter.galley(
+			egui::pos2(text_left, rect.top() + 30.0),
+			activity,
+			colors.muted,
+		);
+	}
+	response.on_hover_text(format!("Open thread “{}”", thread.name))
+}
+/// The message a thread hangs off, shown above its replies like Discord's thread view.
+fn starter_row(
+	ui: &mut egui::Ui,
+	message: &Message,
+	state: &State,
+	avatars: &mut crate::avatars::Avatars,
+	width: f32,
+) {
+	let colors = crate::design::palette(ui);
+	egui::Frame::NONE
+		.inner_margin(egui::Margin {
+			left: 16,
+			right: 16,
+			top: 14,
+			bottom: 6,
+		})
+		.show(ui, |ui| {
+			ui.set_min_width((width - 32.0).max(1.0));
+			ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
+			ui.horizontal_top(|ui| {
+				avatars.show_plain(ui, &message.author, 40.0, state.demo);
+				ui.vertical(|ui| {
+					ui.set_width(ui.available_width());
+					ui.allocate_ui_with_layout(
+						egui::vec2(ui.available_width(), 22.0),
+						egui::Layout::left_to_right(egui::Align::Center),
+						|ui| {
+							ui.spacing_mut().item_spacing.x = 8.0;
+							let color = state
+								.message_author_color(message)
+								.map_or(colors.text_strong, |rgb| {
+									crate::design::role_name_color(rgb, colors.chat, colors.text)
+								});
+							crate::account_badge::name(
+								ui,
+								&message.author,
+								state.message_author_name(message),
+								15.5,
+								color,
+								egui::Sense::hover(),
+								0.0,
+							);
+							let time = timestamp(message.id);
+							ui.label(
+								RichText::new(format!("{:02}:{:02}", time.hour(), time.minute()))
+									.size(12.0)
+									.color(colors.muted),
+							)
+							.on_hover_text_with(|| format!("{time} UTC"));
+						},
+					);
+					ui.add(
+						egui::Label::new(RichText::new(message.display_text()).color(colors.text))
+							.wrap()
+							.selectable(false),
+					);
+				});
+			});
+			ui.add_space(10.0);
+			// A labelled rule separates the starter from the replies that followed it.
+			ui.horizontal(|ui| {
+				ui.spacing_mut().item_spacing.x = 8.0;
+				let (line, _) = ui.allocate_exact_size(
+					egui::vec2((ui.available_width() - 220.0).max(24.0), 1.0),
+					egui::Sense::hover(),
+				);
+				ui.painter().hline(
+					line.x_range(),
+					line.center().y,
+					egui::Stroke::new(1.0, colors.border),
+				);
+				crate::icons::inline(ui, crate::icons::Icon::Thread, 14.0, colors.muted);
+				ui.label(
+					RichText::new("Thread started from this message")
+						.size(12.0)
+						.color(colors.muted),
+				);
+				let (line, _) = ui.allocate_exact_size(
+					egui::vec2(ui.available_width(), 1.0),
+					egui::Sense::hover(),
+				);
+				ui.painter().hline(
+					line.x_range(),
+					line.center().y,
+					egui::Stroke::new(1.0, colors.border),
+				);
+			});
+		});
 }
 fn grouped(previous: Option<&Message>, message: &Message, boundary: Option<Id>) -> bool {
 	previous.is_some_and(|previous| {
@@ -436,6 +625,7 @@ fn message_actions(
 	editing: (&mut Option<(Id, Id, String)>, &mut bool),
 	deleting: &mut Option<(Id, Id)>,
 	pin: (bool, bool, &mut Option<(Id, Id, bool)>),
+	thread: (bool, &mut Option<(Id, Id)>),
 	view_reactions: Option<(
 		model::ReactionEmoji,
 		&mut Option<(Id, model::ReactionEmoji, bool)>,
@@ -445,6 +635,7 @@ fn message_actions(
 	let (editing, edit_started) = editing;
 	let (own, can_reply, can_edit, can_delete) = actions;
 	let (can_pin, pinned, pin_request) = pin;
+	let (can_thread, thread_request) = thread;
 	popup.show(|ui| {
 		ui.set_min_width(160.0);
 		if !extension_actions.is_empty() {
@@ -472,6 +663,10 @@ fn message_actions(
 			.clicked()
 		{
 			*reply = Some(message.id);
+			ui.close();
+		}
+		if can_thread && ui.button("Create Thread\u{2026}").clicked() {
+			*thread_request = Some((message.channel, message.id));
 			ui.close();
 		}
 		if let Some((emoji, view)) = view_reactions
@@ -658,6 +853,7 @@ fn bar_button(
 	response
 }
 /// Discord-style system row: muted sentence, strong clickable names, inline timestamp.
+#[allow(clippy::too_many_arguments)]
 fn show_system(
 	ui: &mut egui::Ui,
 	system: &model::SystemMessage,
@@ -666,7 +862,11 @@ fn show_system(
 	profile: &mut Option<model::User>,
 	user_action: &mut Option<crate::user_menu::Action>,
 	surface: &mut crate::select::Surface,
+	// A "started a thread" row: the known thread, its channel, and where clicks go.
+	thread: Option<(Option<Id>, Id)>,
+	targets: (&mut Option<Id>, &mut Option<Id>),
 ) {
+	let (open_thread, open_all) = targets;
 	{
 		let colors = crate::design::palette(ui);
 		ui.horizontal_wrapped(|ui| {
@@ -683,6 +883,18 @@ fn show_system(
 				}
 				let text = crate::design::medium(ui, &segment.text, 15.0).color(colors.text_strong);
 				let Some(user) = &segment.user else {
+					// The thread name in a "started a thread" row opens the thread itself.
+					if let Some((Some(id), _)) = thread {
+						let response = ui
+							.add(egui::Label::new(text).sense(egui::Sense::click()))
+							.on_hover_cursor(egui::CursorIcon::PointingHand)
+							.on_hover_text(format!("Open thread \u{201c}{}\u{201d}", segment.text));
+						surface.keep(&response);
+						if response.clicked() {
+							*open_thread = Some(id);
+						}
+						continue;
+					}
 					let (pos, galley, response) = egui::Label::new(text)
 						.wrap()
 						.selectable(false)
@@ -698,6 +910,33 @@ fn show_system(
 				if response.clicked() {
 					*profile = Some(user.clone());
 				}
+			}
+			if let Some((_, parent)) = thread {
+				let (pos, galley, response) =
+					egui::Label::new(RichText::new(". See all ").color(colors.muted))
+						.wrap()
+						.selectable(false)
+						.layout_in_ui(ui);
+				surface.run(ui, &response, pos, galley, Vec::new());
+				let all = ui
+					.add(
+						egui::Label::new(
+							crate::design::medium(ui, "threads", 15.0).color(colors.text_strong),
+						)
+						.sense(egui::Sense::click()),
+					)
+					.on_hover_cursor(egui::CursorIcon::PointingHand)
+					.on_hover_text("Open this channel\u{2019}s threads");
+				surface.keep(&all);
+				if all.clicked() {
+					*open_all = Some(parent);
+				}
+				let (pos, galley, response) =
+					egui::Label::new(RichText::new(".").color(colors.muted))
+						.wrap()
+						.selectable(false)
+						.layout_in_ui(ui);
+				surface.run(ui, &response, pos, galley, Vec::new());
 			}
 			ui.add_space(8.0);
 			let stamp = ui
@@ -939,7 +1178,19 @@ impl TimelineView {
 			|| self.hide_media_links != self.applied_hide_media_links;
 		let dimensions_changed = width_changed || content_dimensions_changed;
 		self.applied_hide_media_links = self.hide_media_links;
-		let changed = self.revision != state.revision || dimensions_changed;
+		// A thread's starter joins the rows only once the whole thread history is loaded.
+		let starter = state.thread_starter().filter(|_| {
+			state.freshness == model::Freshness::Fresh
+				&& !state.history_pending
+				&& !state.history_targeted
+				&& state.history_before.is_none()
+				&& state.history_after.is_none()
+				&& state.older_exhausted
+		});
+		let starter_id = starter.map(|m| m.id);
+		let changed =
+			self.revision != state.revision || dimensions_changed || self.starter_row != starter_id;
+		self.starter_row = starter_id;
 		if changed || self.width != width {
 			self.measured_rows.clear();
 		}
@@ -955,10 +1206,9 @@ impl TimelineView {
 			self.width = width;
 			self.text_size = text_size;
 			self.scale = scale;
-			let row_ids: Vec<_> = state
-				.timeline
-				.display_iter()
-				.map(|message| message.id)
+			let row_ids: Vec<_> = starter_id
+				.into_iter()
+				.chain(state.timeline.display_iter().map(|message| message.id))
 				.collect();
 			self.heights
 				.retain(|id, _| row_ids.binary_search(id).is_ok());
@@ -972,9 +1222,9 @@ impl TimelineView {
 				.retain(|id, content| state.timeline.get(*id).is_some_and(|m| content.matches(m)));
 			let mut previous = None;
 			let mut lead_basis = 0.0;
-			self.rows = state
-				.timeline
-				.display_iter()
+			self.rows = starter
+				.into_iter()
+				.chain(state.timeline.display_iter())
 				.map(|m| {
 					let key = row_key(m, previous, self.unread_boundary)
 						^ u64::from(state.timeline.is_deleted(m.id));
@@ -1288,6 +1538,21 @@ impl TimelineView {
 				}
 				end = index + 1;
 				let id = self.rows[index].0;
+				if Some(id) == self.starter_row
+					&& let Some(starter) = state.thread_starter()
+				{
+					let response = ui
+						.scope_builder(egui::UiBuilder::new().scope_id(row_id), |ui| {
+							starter_row(ui, starter, state, avatars, width);
+						})
+						.response;
+					measurements.push((
+						id,
+						row_key(starter, None, self.unread_boundary),
+						response.rect.height(),
+					));
+					continue;
+				}
 				let can_mark_read = state.can_mark_read(id);
 				let can_mark_unread = state.can_mark_unread(id);
 				let Some(message) = state.timeline.get_display(id) else {
@@ -1803,6 +2068,14 @@ impl TimelineView {
 										);
 									}
 									if let Some(system) = &system {
+										// Only a thread-start row carries the thread affordances.
+										let thread = (message.kind == 18 && system.content_shown)
+											.then(|| {
+												(
+													state.thread_of(message).map(|c| c.id),
+													message.channel,
+												)
+											});
 										show_system(
 											ui,
 											system,
@@ -1811,6 +2084,11 @@ impl TimelineView {
 											profile,
 											&mut self.user_action,
 											&mut surface,
+											thread,
+											(
+												&mut self.channel_reference,
+												&mut self.threads_request,
+											),
 										);
 									}
 									let body = egui::Frame::NONE
@@ -2004,14 +2282,33 @@ impl TimelineView {
 											{
 												ui.colored_label(colors.danger, error);
 											}
+											for sticker in &message.sticker_items {
+												let response = ui
+													.push_id(sticker.id, |ui| {
+														crate::stickers::message(
+															ui,
+															sticker,
+															state,
+															avatars,
+															&mut self.sticker_request,
+															&mut self.browse_sticker,
+														)
+													})
+													.inner;
+												surface.keep(&response);
+											}
 											let unknown_system = message.unsupported
 												&& message.system_summary().is_none();
 											if unknown_system
-												|| message.extra_content.poll || message
+												|| message.extra_content.poll || ((message
 												.extra_content
-												.sticker_items || message.extra_content.stickers
-												|| (message.extra_content.any()
-													&& message.components.is_empty())
+												.sticker_items
+												|| message.extra_content.stickers)
+												&& message.sticker_items.is_empty()) || ((message
+												.extra_content
+												.components
+												|| message.extra_content.components_v2)
+												&& message.components.is_empty())
 											{
 												if unknown_system {
 													ui.label(
@@ -2029,8 +2326,9 @@ impl TimelineView {
 														"Poll · Preview unavailable",
 													),
 													(
-														message.extra_content.sticker_items
-															|| message.extra_content.stickers,
+														(message.extra_content.sticker_items
+															|| message.extra_content.stickers)
+															&& message.sticker_items.is_empty(),
 														"Sticker · Preview unavailable",
 													),
 													(
@@ -2076,6 +2374,16 @@ impl TimelineView {
 											),
 										);
 										ui.painter().rect_filled(rail, 2.0, colors.selected);
+									}
+									// A "started a thread" row already links the thread inline.
+									if system.is_none()
+										&& let Some(thread) = state.thread_of(message)
+									{
+										let card = thread_card(ui, thread, &colors);
+										surface.keep(&card);
+										if card.clicked() {
+											self.channel_reference = Some(thread.id);
+										}
 									}
 									if let Some(action) = crate::reactions::show(
 										ui,
@@ -2327,6 +2635,11 @@ impl TimelineView {
 									state.can_pin(message.channel, id),
 									state.is_pinned(message.channel, id),
 									&mut self.pin_request,
+								),
+								(
+									state.can_create_thread(message.channel)
+										&& state.thread_of(message).is_none(),
+									&mut self.thread_request,
 								),
 								message
 									.reactions
@@ -3137,6 +3450,7 @@ mod tests {
 		};
 		state.pending = (0..64)
 			.map(|i| client_core::Pending {
+				sticker: None,
 				channel: Id(20),
 				nonce: i.to_string(),
 				content: format!("Pending message {i}"),
@@ -3217,6 +3531,7 @@ mod tests {
 
 	fn text_message(id: u64) -> Message {
 		Message {
+			sticker_items: vec![],
 			id: Id(id),
 			channel: Id(20),
 			author: model::User {
@@ -3372,6 +3687,7 @@ mod tests {
 		for (own, can_delete) in [(false, true), (false, false), (true, false)] {
 			let ctx = egui::Context::default();
 			let message = text_message(1);
+			let mut thread_request = None;
 			let mut editing = None;
 			let mut edit_started = false;
 			let mut deleting = None;
@@ -3397,6 +3713,7 @@ mod tests {
 							(&mut editing, &mut edit_started),
 							&mut deleting,
 							(false, false, &mut None),
+							(own, &mut thread_request),
 							None,
 						)
 					},
@@ -3425,6 +3742,13 @@ mod tests {
 			frame(vec![]);
 			let labels = frame(vec![]);
 			assert!(labels.iter().any(|(label, _)| label == "Copy message"));
+			assert_eq!(
+				labels
+					.iter()
+					.any(|(label, _)| label.starts_with("Create Thread")),
+				own,
+				"Create Thread appears only where a thread may be started"
+			);
 			assert_eq!(labels.iter().any(|(label, _)| label == "Edit message"), own);
 			let delete = labels
 				.iter()
@@ -3625,6 +3949,98 @@ mod tests {
 			state.selected = Some(Id(30));
 			render(&mut view, &mut state, vec![]);
 			assert!(view.revealed.is_empty());
+		}
+	}
+	#[test]
+	fn thread_starter_renders_above_replies_once_history_is_exhausted() {
+		fn text(shape: &egui::Shape, out: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(t) => out.push(t.galley.job.text.clone()),
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| text(s, out)),
+				_ => {}
+			}
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = test_support::chat_demo_state();
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let (thread, parent) = state
+			.channels
+			.iter()
+			.find(|c| {
+				matches!(c.kind, 10..=12)
+					&& c.parent_id
+						.and_then(|id| state.channel(id))
+						.is_some_and(|p| matches!(p.kind, 0 | 5))
+			})
+			.map(|c| (c.id, c.parent_id.unwrap()))
+			.expect("fixture thread under a text channel");
+		state.select(thread);
+		for id in [thread.0 + 10, thread.0 + 20] {
+			state
+				.timeline
+				.insert(test_support::message(id, thread), false, false)
+				.unwrap();
+		}
+		state.history_pending = false;
+		state.freshness = model::Freshness::Fresh;
+		state.older_exhausted = true;
+		let Some(client_core::Command::ThreadStarter { request, .. }) =
+			state.request_thread_starter()
+		else {
+			panic!("thread requests its starter");
+		};
+		let mut starter = test_support::message(thread.0, parent);
+		starter.content = "The message that started it all".into();
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::ThreadStarter {
+				thread,
+				request,
+				result: Ok(starter),
+			},
+		});
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut painted = vec![];
+		for _ in 0..4 {
+			painted.clear();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 1400.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						&mut state,
+						&mut None,
+						&mut None,
+						(&mut avatars, &mut None),
+						None,
+					);
+				},
+			);
+			for shape in &output.shapes {
+				text(&shape.shape, &mut painted);
+			}
+			output.drop_without_applying_deltas();
+		}
+		assert_eq!(view.rows.first().map(|(id, _)| *id), Some(thread));
+		for label in [
+			"The message that started it all",
+			"Thread started from this message",
+		] {
+			assert!(
+				painted.iter().any(|t| t == label),
+				"missing {label}: {painted:?}"
+			);
 		}
 	}
 	#[test]
@@ -5663,6 +6079,7 @@ mod tests {
 	#[test]
 	fn channel_rename_invalidates_offscreen_reference_heights() {
 		let message = Message {
+			sticker_items: vec![],
 			id: Id(1),
 			channel: Id(2),
 			author: model::User {
@@ -5819,6 +6236,7 @@ mod tests {
 	#[test]
 	fn same_id_revision_reset_does_not_reuse_reveal_or_height() {
 		let mut message = Message {
+			sticker_items: vec![],
 			reactions: Some(vec![]),
 			id: Id(1),
 			channel: Id(2),
@@ -5914,6 +6332,7 @@ mod tests {
 			}
 		}
 		let mut message = Message {
+			sticker_items: vec![],
 			reactions: Some(vec![]),
 			id: Id(1),
 			channel: Id(2),

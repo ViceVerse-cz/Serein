@@ -1,5 +1,43 @@
 # Discord compatibility — checked 2026-09-10
 
+## Stickers - September 20, 2026
+
+The composer media picker has a Stickers tab with local name/tag/source search,
+collapsible server and standard-pack groups, a section rail, session-only recent
+choices, and a hovered preview. Clicking a sticker sends it as a separate message
+and preserves the typed draft. Reply references, pending/failed delivery and the
+existing nonce reconciliation are reused; uncertain writes are never retried.
+Channel send and external-sticker permissions gate selection. Server stickers
+outside their source server (including DMs) also require a session-confirmed
+Nitro or Nitro Basic entitlement (`premium_type` 2 or 3), populated by READY and
+updated by the current user's USER_UPDATE. Missing, unknown, Classic, or expired
+entitlements do not unlock external stickers. Local selection and send checks
+share this gate; Discord remains authoritative. There is no purchase flow. See
+[Discord subscription benefits](https://support.discord.com/hc/en-us/articles/115000435108-What-are-Nitro-Nitro-Basic).
+
+Received `sticker_items` and legacy `stickers` render transparent artwork in chat.
+Clicking opens details and related previews; View More Stickers opens the source
+in the picker. Standard packs and missing metadata load only on demand. Guild
+catalogs hydrate from READY/GUILD_CREATE and GUILD_STICKERS_UPDATE. The official
+[sticker resource](https://docs.discord.com/developers/resources/sticker) and
+[Create Message](https://docs.discord.com/developers/resources/message#create-message)
+document the object/REST shapes; normal-account interoperability is unofficial
+and live-unverified.
+
+PNG, APNG and GIF use the existing bounded image worker and animation preference.
+GIF uses the media host specified by Discord's
+[CDN reference](https://github.com/discord/discord-api-docs/blob/main/developers/reference.mdx).
+Lottie has only an unofficial, unverified static PNG proxy rendition, with the
+sticker name retained when unavailable. Long animations share the existing
+frame/pixel limits and may remain static. Sticker upload/edit/delete administration
+and synchronized cross-device favorites are not included.
+
+`--features demo -- --demo --demo-stickers` seeds an original offline catalog,
+received message and picker. Tests use only synthetic data/local HTTP. Native
+computer-use capture is blocked in this environment by a missing native pipe;
+framebuffer previews do not verify OS input, accessibility or live compatibility.
+
+
 ## Server-wide member lookup (September 17, 2026)
 
 `@name` autocomplete requests matching members beyond the first 100 subscribed
@@ -991,7 +1029,8 @@ refresh; Gateway settings updates are not consumed in this slice.
 Primary implementation evidence checked: [settings schema](https://github.com/discord-userdoccers/discord-protos)
 and [discord.py-self HTTP adapter](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py).
 Limits: 200 servers, 200 folder entries, 100 characters/400 bytes per name, 16 KiB
-retained layout, 1 MiB settings response. Oversized settings disable organization
+retained layout, and a 6 MiB response cap for Discord's 5 MiB encoded settings value
+plus its JSON envelope. Oversized settings disable organization
 without hiding normal server navigation. Demo edits stay in memory; live edits persist
 through Discord. No live account actions were performed in fast local validation.
 
@@ -1468,3 +1507,13 @@ Failed lookups keep the snapshot or the normal fallback color. Profile cards
 already request guild membership through the profile endpoint. Normal-account
 Gateway behavior remains unofficial and live compatibility is unverified by the
 synthetic check.
+
+Forum cards now load a bounded recent-message page for visible active posts through
+[Get Channel Messages](https://discord.com/developers/docs/resources/message#get-channel-messages).
+Up to four visible cards load concurrently under the existing REST permit bound.
+They show the latest plain preview with the author's known guild role color and count IDs newer than the service read cursor;
+`50+ New` indicates that the cursor precedes the retained 50-message window. Failed
+or unavailable summaries remain explicitly unavailable until refresh or new activity;
+successful summaries are reused when returning to a forum during the same session.
+Startup preserves cursors for threads loaded after READY. These changes have synthetic
+offline coverage; normal-account behavior remains unofficial and live-unverified.

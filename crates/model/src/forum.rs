@@ -32,3 +32,48 @@ impl Page {
 			})
 	}
 }
+
+/// One recent page reduced to IDs and an inert latest-message preview.
+pub struct Summary {
+	pub messages: Vec<Id>,
+	pub latest: Option<Latest>,
+	pub complete: bool,
+}
+pub struct Latest {
+	pub id: Id,
+	pub channel: Id,
+	pub author_id: Id,
+	pub author: String,
+	pub roles: Vec<Id>,
+	pub webhook: bool,
+	pub excerpt: String,
+}
+impl Summary {
+	pub fn bytes(&self) -> usize {
+		size_of::<Self>()
+			+ self.messages.capacity() * size_of::<Id>()
+			+ self.latest.as_ref().map_or(0, |hit| {
+				hit.author.capacity()
+					+ hit.roles.capacity() * size_of::<Id>()
+					+ hit.excerpt.capacity()
+			})
+	}
+	pub fn valid(&self, channel: Id) -> bool {
+		self.messages.len() <= 50
+			&& self.bytes() <= 4096
+			&& self.messages.iter().all(|id| id.0 > 0)
+			&& self.messages.windows(2).all(|w| w[0] > w[1])
+			&& (self.complete || self.messages.len() == 50)
+			&& match &self.latest {
+				Some(hit) => {
+					self.messages.first() == Some(&hit.id)
+						&& hit.channel == channel
+						&& hit.author_id.0 > 0
+						&& hit.author.len() <= 512
+						&& hit.roles.len() <= crate::permissions::MAX_MEMBER_ROLES
+						&& hit.excerpt.len() <= 1024
+				}
+				None => self.messages.is_empty(),
+			}
+	}
+}

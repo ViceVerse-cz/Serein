@@ -178,6 +178,7 @@ impl DiscordApi {
 		self.request_with_captcha(method, path, body, max_bytes, None, None)
 			.await
 	}
+	/// One typed request with an optional captcha retry and challenge output slot.
 	async fn request_with_captcha(
 		&self,
 		method: Method,
@@ -226,7 +227,9 @@ impl DiscordApi {
 			.header(AUTHORIZATION, authorization);
 		if let Some(retry) = retry {
 			if retry.expired() {
-				return Err(Failure::ProtocolAt("Verification expired; join again"));
+				return Err(Failure::ProtocolAt(
+					"Verification expired; start the check again",
+				));
 			}
 			for (name, value) in [
 				("x-captcha-key", Some(retry.passcode())),
@@ -298,9 +301,10 @@ impl DiscordApi {
 		if !status.is_success() {
 			let error = decode::<ErrorBody>(&bytes).unwrap_or_default();
 			if error.captcha_key.is_some() || matches!(error.code, Some(60003 | 50014)) {
-				if matches!(status, StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN)
+				let auth_challenge = matches!(error.code, Some(60003 | 50014));
+				if !auth_challenge
 					&& error.captcha_key.is_some()
-					&& !matches!(error.code, Some(60003 | 50014))
+					&& matches!(status, StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN)
 					&& let Some(output) = challenge.as_mut()
 				{
 					if let Some(parsed) = invite_captcha(&bytes) {
@@ -308,7 +312,15 @@ impl DiscordApi {
 						return Err(Failure::Challenged);
 					}
 					return Err(Failure::ProtocolAt(
-						"This invite's verification is unavailable; try joining in Discord",
+						"This verification is unavailable; complete the action in the official client",
+					));
+				}
+				if !auth_challenge && write && challenge.is_none() {
+					// The service can require a captcha for one write (for example a friend
+					// request). No solver is wired for this action, but it is not a session
+					// challenge: keep the connection and report a bounded local reason.
+					return Err(Failure::ProtocolAt(
+						"Discord requires verification for this action; complete it in the official client",
 					));
 				}
 
@@ -396,6 +408,7 @@ impl DiscordApi {
 	}
 	// Unofficial user endpoint; observed in discord.py-self/http.py accept_invite (2026-09-11).
 	// One explicit human solution may resume this specific write; never loop/retry automatically.
+	/// Accepts one invite, optionally resuming a single user-solved challenge.
 	async fn join_invite(
 		&self,
 		code: &str,
@@ -404,8 +417,14 @@ impl DiscordApi {
 	) -> Event {
 		let mut challenge = None;
 		let result = if client_core::invites::valid_code(code)
-			&& captcha.as_ref().is_none_or(|c| c.matches(code, request))
-		{
+			&& captcha.as_ref().is_none_or(|c| {
+				c.matches(
+					&client_core::captcha::Target::Invite {
+						code: code.to_owned(),
+					},
+					request,
+				)
+			}) {
 			self.request_with_captcha(
 				Method::POST,
 				&format!("/invites/{code}"),
@@ -439,6 +458,7 @@ impl DiscordApi {
 			}
 		}
 	}
+	/// Runs one typed command and returns its typed event.
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
 			Command::Interaction(request) => {
@@ -510,7 +530,11 @@ impl DiscordApi {
 					result: self.server_action(action).await,
 				})
 			}
-			Command::UserAction { action, request } => {
+			Command::UserAction {
+				action,
+				request,
+				captcha,
+			} => {
 				if let client_core::user_actions::Action::OpenDm(user) = action {
 					return Event::UserAction(client_core::user_actions::Event::DmOpened {
 						user,
@@ -525,7 +549,17 @@ impl DiscordApi {
 						result: self.user_note(user).await,
 					});
 				}
-				let result = self.user_action(&action).await;
+				let mut challenge = None;
+				let slot = client_core::user_actions::establishes_friendship(&action)
+					.then_some(&mut challenge);
+				let result = self.user_action(&action, captcha.as_deref(), slot).await;
+				if let Some(challenge) = challenge {
+					return Event::UserAction(client_core::user_actions::Event::Challenge {
+						action,
+						request,
+						challenge: Box::new(challenge),
+					});
+				}
 				Event::UserAction(client_core::user_actions::Event::Written {
 					action,
 					request,
@@ -559,6 +593,15 @@ impl DiscordApi {
 					result,
 				}
 			}
+			Command::ForumSummaries { channels, request } => {
+				Event::ForumSummaries {
+					request,
+					results: futures_util::future::join_all(channels.into_iter().map(
+						|channel| async move { (channel, self.forum_summary(channel).await) },
+					))
+					.await,
+				}
+			}
 			Command::ForumPosts {
 				parent,
 				guild,
@@ -582,6 +625,37 @@ impl DiscordApi {
 				let result = self.archives(parent, guild, kind, before).await;
 				Event::Archives {
 					parent,
+					request,
+					result,
+				}
+			}
+			Command::ThreadStarter {
+				thread,
+				parent,
+				request,
+			} => {
+				// Documented single-message read; a thread shares its id with its starter.
+				let result = self
+					.request(
+						Method::GET,
+						&format!("/channels/{parent}/messages/{thread}"),
+						None,
+					)
+					.await
+					.and_then(|bytes| {
+						decode::<MessageDto>(&bytes)
+							.map(MessageDto::into_model)
+							.map_err(|_| Failure::Protocol)
+					})
+					.and_then(|message| {
+						if message.id == thread && message.channel == parent {
+							Ok(message)
+						} else {
+							Err(Failure::Protocol)
+						}
+					});
+				Event::ThreadStarter {
+					thread,
 					request,
 					result,
 				}
@@ -805,14 +879,39 @@ impl DiscordApi {
 					Err(f) => Event::Failure(f),
 				}
 			}
+			Command::StickerPacks => Event::StickerPacks(
+				self.request_limited(
+					Method::GET,
+					"/sticker-packs",
+					None,
+					client_core::stickers::MAX_PACK_BYTES,
+				)
+				.await
+				.and_then(|b| {
+					discord_protocol::stickers::sticker_packs(&b).map_err(|_| Failure::Protocol)
+				}),
+			),
+			Command::Sticker(id) => Event::Sticker {
+				id,
+				result: if id.0 == 0 {
+					Err(Failure::Protocol)
+				} else {
+					self.request_limited(Method::GET, &format!("/stickers/{id}"), None, 16 * 1024)
+						.await
+						.and_then(|b| {
+							discord_protocol::stickers::sticker(&b).map_err(|_| Failure::Protocol)
+						})
+				},
+			},
 			Command::Send {
+				sticker,
 				channel,
 				content,
 				nonce,
 				reply,
 			} => {
 				let result = self
-					.send_message(channel, &content, &nonce, reply, None)
+					.send_message(channel, &content, &nonce, reply, None, sticker)
 					.await;
 				Event::SendResult { nonce, result }
 			}
@@ -1067,13 +1166,20 @@ impl DiscordApi {
 		nonce: &str,
 		reply: Option<Reply>,
 		attachment: Option<Vec<serde_json::Value>>,
+		sticker: Option<model::Id>,
 	) -> Result<model::Message, Failure> {
-		if (content.trim().is_empty() && attachment.is_none())
+		if (content.trim().is_empty() && attachment.is_none() && sticker.is_none())
 			|| content.chars().count() > client_core::MAX_CONTENT
 		{
 			return Err(Failure::Capacity);
 		}
+		if sticker.is_some_and(|id| id.0 == 0) {
+			return Err(Failure::Protocol);
+		}
 		let mut body = serde_json::json!({"content":content,"nonce":nonce,"allowed_mentions":allowed_mentions(content, reply)});
+		if let Some(sticker) = sticker {
+			body["sticker_ids"] = serde_json::json!([sticker]);
+		}
 		if let Some(reply) = reply {
 			body["message_reference"] =
 				serde_json::json!({"message_id":reply.target(),"channel_id":channel});
@@ -1832,6 +1938,36 @@ mod tests {
 			.is_none()
 		);
 	}
+
+	#[tokio::test]
+	async fn sticker_send_writes_one_id_and_preserves_reply() {
+		tokio::time::timeout(Duration::from_secs(5), async {
+            let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let mut api=DiscordApi::new(Arc::new(SessionSecret::from_owner_input("SYNTHETIC_STICKER_TOKEN".into()).unwrap())).unwrap();
+            api.base=format!("http://{}",listener.local_addr().unwrap());
+            let server=tokio::spawn(async move {
+                let (mut socket,_)=listener.accept().await.unwrap();
+                let mut request=Vec::new();
+                loop {
+                    let mut bytes=[0;1024];let n=socket.read(&mut bytes).await.unwrap();assert!(n>0);request.extend_from_slice(&bytes[..n]);assert!(request.len()<4096);
+                    if let Some(end)=request.windows(4).position(|w|w==b"\r\n\r\n") {
+                        let headers=String::from_utf8_lossy(&request[..end]);
+                        let length:usize=headers.lines().find_map(|line|line.to_ascii_lowercase().strip_prefix("content-length: ").map(str::to_owned)).unwrap().parse().unwrap();
+                        if request.len()>=end+4+length {
+                            assert!(headers.starts_with("POST /channels/2/messages HTTP/1.1"));
+                            let body:serde_json::Value=serde_json::from_slice(&request[end+4..]).unwrap();
+                            assert_eq!(body["sticker_ids"],serde_json::json!(["9"]));assert_eq!(body["content"],"");assert_eq!(body["message_reference"]["message_id"],"50");break;
+                        }
+                    }
+                }
+                let body=r#"{"id":"100","channel_id":"2","author":{"id":"1","username":"Synthetic"},"content":"","nonce":"local","sticker_items":[{"id":"9","name":"Wave","format_type":1}]}"#;
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+            });
+            let result=api.execute(Command::Send{channel:model::Id(2),content:String::new(),nonce:"local".into(),reply:Some(Reply::to(model::Id(50))),sticker:Some(model::Id(9))}).await;
+            assert!(matches!(result,Event::SendResult{result:Ok(message),..} if message.sticker_items.len()==1));
+            server.await.unwrap();
+        }).await.unwrap();
+	}
 	#[tokio::test]
 	async fn send_response_must_belong_to_the_requested_channel() {
 		tokio::time::timeout(Duration::from_secs(5), async {
@@ -1879,6 +2015,7 @@ mod tests {
 			for accepted in [true, false] {
 				let Event::SendResult { nonce, result } = api
 					.execute(Command::Send {
+						sticker: None,
 						channel: model::Id(2),
 						content: "Synthetic reply".into(),
 						nonce: "local".into(),
@@ -1989,6 +2126,7 @@ mod tests {
 		let sent = tokio::time::timeout(
 			Duration::from_secs(2),
 			api.execute(Command::Send {
+				sticker: None,
 				channel: model::Id(2),
 				content: "Synthetic local test".into(),
 				nonce: "local".into(),

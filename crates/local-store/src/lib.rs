@@ -9,8 +9,8 @@ use std::{
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
-const NATIVE_SCHEMA: u32 = 20;
-const READABLE_SCHEMA: u32 = 20;
+const NATIVE_SCHEMA: u32 = 21;
+const READABLE_SCHEMA: u32 = 21;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
 fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
@@ -46,6 +46,9 @@ pub struct AppPreferences {
 	pub blur: u8,
 	pub transparent_all: bool,
 	pub voice_noise_suppression: bool,
+	/// Absent in older preferences; migrate using the legacy suppression setting.
+	#[serde(default)]
+	pub voice_processing: Option<model::voice_settings::VoiceProcessing>,
 	pub voice_push_to_talk: bool,
 	pub voice_muted: bool,
 	pub voice_deafened: bool,
@@ -79,6 +82,7 @@ impl Default for AppPreferences {
 			blur: 50,
 			transparent_all: false,
 			voice_noise_suppression: false,
+			voice_processing: Some(model::voice_settings::VoiceProcessing::default()),
 			voice_push_to_talk: false,
 			voice_muted: false,
 			voice_deafened: false,
@@ -100,6 +104,9 @@ impl AppPreferences {
 			&& self.blur <= 100
 			&& self.input_percent <= 200
 			&& self.output_percent <= 200
+			&& self
+				.voice_processing
+				.is_none_or(|value| value.custom.is_valid())
 			&& self.expanded_folders.len() <= 256
 			&& self.user_volumes.len() <= 64
 			&& self.user_volumes.iter().all(|(_, volume)| *volume <= 200)
@@ -262,6 +269,11 @@ impl LocalStore {
 			[],
 			|row| row.get(0),
 		)?;
+		let has_stickers: bool = connection.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='sticker_items')",
+			[],
+			|row| row.get(0),
+		)?;
 		let has_components: bool = connection.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='components')",
 			[],
@@ -284,6 +296,9 @@ impl LocalStore {
 
 		if !has_application_id {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN application_id TEXT;")?;
+		}
+		if !has_stickers {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN sticker_items TEXT NOT NULL DEFAULT '[]' CHECK(length(CAST(sticker_items AS BLOB))<=32768);")?;
 		}
 		if !has_components {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN components TEXT NOT NULL DEFAULT '[]' CHECK(length(CAST(components AS BLOB))<=262144);")?;
@@ -656,6 +671,7 @@ impl LocalStore {
 					|| !model::valid_mentions(&m.mentions)
 					|| m.ephemeral || m.flags & 64 != 0
 					|| m.application_id.is_some_and(|id| id.0 == 0)
+					|| !model::valid_stickers(&m.sticker_items, model::MAX_MESSAGE_STICKERS)
 					|| !model::valid_components(&m.components)
 					|| !model::valid_embeds(&m.embeds)
 					|| !model::valid_attachments(&m.attachments)
@@ -680,7 +696,7 @@ impl LocalStore {
 			}
 		}
 		let mut insert = transaction.prepare_cached(
-            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)")?;
+            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)")?;
 		for message in messages {
 			if previous
 				.get(&message.id)
@@ -722,6 +738,11 @@ impl LocalStore {
 			{
 				return Err(StoreError::Capacity);
 			}
+			let sticker_items = serde_json::to_string(&message.sticker_items)
+				.map_err(|_| StoreError::Incompatible)?;
+			if sticker_items.len() > 32768 {
+				return Err(StoreError::Capacity);
+			}
 			let components =
 				serde_json::to_string(&message.components).map_err(|_| StoreError::Incompatible)?;
 			if components.len() > MAX_MEDIA_JSON {
@@ -761,6 +782,7 @@ impl LocalStore {
 				components,
 				message.application_id.map(|id| id.to_string()),
 				message.flags.to_string(),
+				sticker_items,
 			])?;
 		}
 		drop(insert);
@@ -778,7 +800,7 @@ impl LocalStore {
 			let bytes = if (page_count - free_pages) * page_size <= 48 * 1024 * 1024 {
 				0
 			} else {
-				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(original_flags AS BLOB))+length(CAST(components AS BLOB))+coalesce(length(CAST(application_id AS BLOB)),0)+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
+				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(original_flags AS BLOB))+length(CAST(components AS BLOB))+length(CAST(sticker_items AS BLOB))+coalesce(length(CAST(application_id AS BLOB)),0)+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
 			};
 			if channels <= 20 && bytes <= 48 * 1024 * 1024 {
 				break;
@@ -805,7 +827,7 @@ impl LocalStore {
 		Ok(())
 	}
 	pub fn load_channel(&self, account: Id, channel: Id) -> Result<Vec<Message>> {
-		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
+		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
 		let mut rows = query.query(params![account.to_string(), channel.to_string()])?;
 		let mut messages = Vec::new();
 		let mut bytes = 0;
@@ -845,6 +867,7 @@ impl LocalStore {
 				(19, 16 * 1024),
 				(21, MAX_MEDIA_JSON),
 				(23, 20),
+				(24, 32768),
 			] {
 				if row
 					.get_ref(column)?
@@ -925,6 +948,15 @@ impl LocalStore {
 				return Err(StoreError::Incompatible);
 			}
 			let message = Message {
+				sticker_items: serde_json::from_str::<
+					model::StickerList<{ model::MAX_MESSAGE_STICKERS }>,
+				>(
+					row.get_ref(24)?
+						.as_str()
+						.map_err(|_| StoreError::Incompatible)?,
+				)
+				.map_err(|_| StoreError::Incompatible)?
+				.0,
 				flags,
 				ephemeral: false,
 				application_id: row.get::<_, Option<String>>(22)?.map(parse).transpose()?,
@@ -1551,6 +1583,10 @@ mod tests {
 	fn app_preferences_round_trip_and_reject_invalid_replacement() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
 		assert_eq!(store.app_preferences().unwrap(), AppPreferences::default());
+		let legacy: AppPreferences =
+			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
+		assert!(legacy.voice_processing.is_none());
+		assert!(legacy.voice_noise_suppression);
 		let mut value = AppPreferences {
 			notifications_enabled: true,
 			hide_title_bar: true,
@@ -1566,6 +1602,7 @@ mod tests {
 				..Default::default()
 			},
 			voice_noise_suppression: true,
+			voice_processing: Some(model::voice_settings::VoiceProcessing::from_legacy(true)),
 			voice_muted: true,
 			voice_deafened: true,
 			voice_input: Some("synthetic microphone".into()),
@@ -1575,6 +1612,32 @@ mod tests {
 		};
 		store.save_app_preferences(&value).unwrap();
 		assert_eq!(store.app_preferences().unwrap(), value);
+		value
+			.voice_processing
+			.as_mut()
+			.unwrap()
+			.custom
+			.sensitivity_db = Some(-81);
+		assert!(store.save_app_preferences(&value).is_err());
+		value
+			.voice_processing
+			.as_mut()
+			.unwrap()
+			.custom
+			.sensitivity_db = None;
+		value
+			.voice_processing
+			.as_mut()
+			.unwrap()
+			.custom
+			.suppression_level = 4;
+		assert!(store.save_app_preferences(&value).is_err());
+		value
+			.voice_processing
+			.as_mut()
+			.unwrap()
+			.custom
+			.suppression_level = 0;
 		value.transparency = 101;
 		assert!(store.save_app_preferences(&value).is_err());
 		value.transparency = 30;
@@ -2608,6 +2671,7 @@ mod tests {
 		for channel in 1..=30 {
 			let mut message = Message {
 				flags: 0,
+				sticker_items: vec![],
 				components: vec![],
 				application_id: None,
 				ephemeral: false,
@@ -2749,5 +2813,40 @@ mod component_storage_tests {
 			Err(StoreError::Capacity)
 		);
 		assert_eq!(store.load_channel(Id(1), Id(2)).unwrap()[0].content, "kept");
+	}
+	#[test]
+	fn stickers_migrate_round_trip_and_reject_oversized_metadata() {
+		let mut store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES('1','2','3','4','Synthetic','kept',0,0)", []).unwrap();
+		store
+			.0
+			.execute_batch(
+				"ALTER TABLE messages DROP COLUMN sticker_items; PRAGMA user_version=20;",
+			)
+			.unwrap();
+		store = LocalStore::initialize(store.0).unwrap();
+		let mut messages = store.load_channel(Id(1), Id(2)).unwrap();
+		assert!(messages[0].sticker_items.is_empty());
+		messages[0].sticker_items.push(model::Sticker {
+			id: Id(99),
+			name: "Wave".into(),
+			description: String::new(),
+			tags: String::new(),
+			format_type: 1,
+			guild_id: None,
+			pack_id: None,
+			available: true,
+		});
+		store.save_channel(Id(1), Id(2), &messages).unwrap();
+		store = LocalStore::initialize(store.0).unwrap();
+		assert_eq!(
+			store.load_channel(Id(1), Id(2)).unwrap()[0].sticker_items,
+			messages[0].sticker_items
+		);
+		messages[0].sticker_items[0].name = "x".repeat(121);
+		assert_eq!(
+			store.save_channel(Id(1), Id(2), &messages),
+			Err(StoreError::Capacity)
+		);
 	}
 }

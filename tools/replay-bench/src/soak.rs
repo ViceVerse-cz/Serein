@@ -109,6 +109,7 @@ pub fn run(duration: Duration) {
 			apply(
 				&mut state,
 				Event::Patch(MessagePatch {
+					sticker_items: Patch::Absent,
 					id: Id(base + 2),
 					channel,
 					content: Patch::Value("Edited during load".into()),

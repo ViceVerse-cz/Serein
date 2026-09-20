@@ -69,6 +69,26 @@ fn thread_reference_result(bytes: &[u8], guild: Id, channel: Id) -> Result<Outco
 		permissions: None,
 	})
 }
+fn created_thread_result(bytes: &[u8], guild: Id, parent: Id) -> Result<Outcome, Failure> {
+	let dto: discord_protocol::ChannelDto =
+		discord_protocol::decode(bytes).map_err(|_| Failure::Protocol)?;
+	if dto.parent_id != Some(parent)
+		|| dto.id == parent
+		|| dto.is_obfuscated()
+		|| !dto
+			.name
+			.as_deref()
+			.is_some_and(client_core::channel_actions::valid_name)
+	{
+		return Err(Failure::Protocol);
+	}
+	let channel =
+		discord_protocol::threads::into_thread(dto, guild).map_err(|_| Failure::Protocol)?;
+	Ok(Outcome::Channel {
+		channel: Box::new(channel),
+		permissions: None,
+	})
+}
 // GET channel includes the current user's member object for joined threads.
 fn post_result(bytes: &[u8], guild: Id, channel: Id) -> Result<Outcome, Failure> {
 	let Outcome::Channel {
@@ -77,7 +97,7 @@ fn post_result(bytes: &[u8], guild: Id, channel: Id) -> Result<Outcome, Failure>
 	else {
 		unreachable!()
 	};
-	if target.kind != 11 {
+	if !matches!(target.kind, 10..=12) {
 		return Err(Failure::Protocol);
 	}
 	let value: Value = discord_protocol::decode(bytes).map_err(|_| Failure::Protocol)?;
@@ -327,13 +347,32 @@ impl DiscordApi {
 		) || (matches!(action, Action::Delete)
 			&& serde_json::from_slice::<Value>(&bytes)
 				.ok()
-				.is_some_and(|v| v["type"] == 11))
+				.is_some_and(|v| matches!(v["type"].as_u64(), Some(10..=12))))
 		{
 			return self.post_action(guild, channel, action, &bytes).await;
 		}
 		let source = channel_value(&bytes, guild, Some(channel))?;
 		// Validate full overwrite metadata before copying it to a creation request.
 		channel_result(&bytes, guild, Some(channel))?;
+		if let Action::CreateThread { name, message } = action {
+			if !matches!(source["type"].as_u64(), Some(0 | 5)) {
+				return Err(Failure::Protocol);
+			}
+			// Documented thread creation: from one message, or standalone in the channel.
+			let path = match message {
+				Some(message) => format!("/channels/{channel}/messages/{message}/threads"),
+				None => format!("/channels/{channel}/threads"),
+			};
+			let mut body = json!({"name": name, "auto_archive_duration": 4320});
+			if message.is_none() {
+				body["type"] = json!(11);
+			}
+			let bytes = self
+				.request_limited(Method::POST, &path, Some(body), MAX_CHANNEL_BYTES)
+				.await
+				.map_err(write_failure)?;
+			return created_thread_result(&bytes, guild, channel).map_err(write_failure);
+		}
 		let (method, path, body) = match action {
 			Action::Reference => unreachable!("handled before channel settings validation"),
 			Action::Load => {
@@ -508,7 +547,7 @@ impl DiscordApi {
 			)
 			.await?;
 		let parent_value = channel_value(&parent_bytes, guild, Some(parent))?;
-		if !matches!(parent_value["type"].as_u64(), Some(15 | 16)) {
+		if !matches!(parent_value["type"].as_u64(), Some(0 | 5 | 15 | 16)) {
 			return Err(Failure::Protocol);
 		}
 		if matches!(action, Action::PostLoad) {

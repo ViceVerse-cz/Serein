@@ -619,6 +619,64 @@ impl State {
 					.and_then(|g| g.member.as_ref())
 					.is_some_and(|member| roles.iter().any(|role| member.roles.contains(role))))
 	}
+	fn alert_preview(&self, message: &Message, mut text: &str) -> String {
+		let guild = self
+			.channel(message.channel)
+			.and_then(|channel| channel.guild);
+		let mut output = String::new();
+		let mut count = 0;
+		while !text.is_empty() && count < 160 && output.len() < 512 {
+			let (prefix, name, len) = if let Some((id, len)) = model::user_mention_prefix(text) {
+				let member = self
+					.members
+					.as_ref()
+					.filter(|list| list.guild == guild)
+					.and_then(|list| {
+						list.rows
+							.iter()
+							.flatten()
+							.find(|member| member.user.id == id)
+					});
+				let user = message
+					.mentions
+					.iter()
+					.find(|user| user.id == id)
+					.or_else(|| self.user.as_ref().filter(|user| user.id == id))
+					.or_else(|| self.friend(id));
+				let name = member
+					.and_then(|member| member.nick.as_deref().filter(|nick| !nick.is_empty()))
+					.or_else(|| user.map(|user| self.user_display_name(user)))
+					.or_else(|| member.map(|member| member.user.name.as_str()))
+					.unwrap_or("Unknown user");
+				("@", name, len)
+			} else if let Some((id, len)) = model::role_mention_prefix(text) {
+				let name = guild
+					.and_then(|guild| self.guild_roles(guild))
+					.and_then(|roles| roles.iter().find(|role| role.id == id))
+					.map_or("Unknown role", |role| role.name.as_str());
+				("@", name, len)
+			} else if let Some((id, len)) = model::channel_mention_prefix(text) {
+				let name = self
+					.channel(id)
+					.filter(|_| self.can_view(id))
+					.map_or("Unknown channel", |channel| channel.name.as_str());
+				("#", name, len)
+			} else {
+				let len = text.chars().next().unwrap().len_utf8();
+				("", &text[..len], len)
+			};
+			for character in prefix.chars().chain(name.chars()) {
+				if count == 160 || output.len() + character.len_utf8() > 512 {
+					return alert_text(&output, 160, 512);
+				}
+				output.push(character);
+				count += 1;
+			}
+			text = &text[len..];
+		}
+		alert_text(&output, 160, 512)
+	}
+
 	pub(crate) fn observe_notification(&mut self, message: &Message) {
 		if !model::valid_mention_roles(&message.mention_roles) {
 			return;
@@ -713,7 +771,7 @@ impl State {
 				"Sent a message".to_owned()
 			}
 		} else {
-			let text = alert_text(&display, 160, 512);
+			let text = self.alert_preview(message, &display);
 			if text.is_empty() {
 				"Sent a message".to_owned()
 			} else {
@@ -768,6 +826,7 @@ mod tests {
 			gateway_connected: true,
 			auth: crate::auth::AuthState::Authenticated,
 			guilds: vec![Guild {
+				stickers: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				icon: None,
@@ -924,6 +983,7 @@ mod tests {
 			discriminator: 0,
 		};
 		Message {
+			sticker_items: Vec::new(),
 			kind: 0,
 			id: Id(id),
 			channel: Id(channel),

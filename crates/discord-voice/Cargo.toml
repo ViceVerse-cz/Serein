@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 client-core.workspace = true
+model.workspace = true
 platform.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
@@ -30,7 +31,6 @@ image = { version = "=0.25.10", default-features = false }
 sha3 = { version = "=0.10.9", default-features = false }
 openmls_rust_crypto = "=0.5.1"
 openmls_basic_credential = "=0.5.0"
-model.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 screencapturekit = { version = "=10.0.3", default-features = false, features = ["macos_14_0"] }

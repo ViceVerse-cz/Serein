@@ -240,6 +240,79 @@ impl Avatars {
 			None
 		}
 	}
+	/// Transparent, clickable sticker artwork using the shared bounded media working set.
+	pub(crate) fn sticker_image(
+		&mut self,
+		ui: &mut egui::Ui,
+		sticker: &model::Sticker,
+		size: egui::Vec2,
+		demo: bool,
+	) -> egui::Response {
+		let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+		response.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &sticker.name)
+		});
+		if !ui.is_rect_visible(rect) {
+			return response;
+		}
+		let prefix = if self.animate_gifs && matches!(sticker.format_type, 2 | 4) {
+			"anim"
+		} else {
+			"embed"
+		};
+		let key = format!("{prefix}:sticker-{}-{}", sticker.id, sticker.format_type);
+		#[cfg(any(test, feature = "demo"))]
+		if demo && !self.textures.contains_key(&key) {
+			// Original synthetic mascot, generated locally; never downloaded service artwork.
+			let mut image = ColorImage::filled([128, 128], egui::Color32::TRANSPARENT);
+			let tint = [
+				egui::Color32::from_rgb(103, 192, 177),
+				egui::Color32::from_rgb(250, 181, 98),
+				egui::Color32::from_rgb(172, 155, 241),
+			][sticker.id.0 as usize % 3];
+			for y in 0..128_i32 {
+				for x in 0..128_i32 {
+					let body = (x - 64).pow(2) + (y - 65).pow(2) < 46 * 46;
+					let ears = (x - 35).pow(2) + (y - 28).pow(2) < 17 * 17
+						|| (x - 93).pow(2) + (y - 28).pow(2) < 17 * 17;
+					if body || ears {
+						let eye = (x - 47).pow(2) + (y - 59).pow(2) < 5 * 5
+							|| (x - 81).pow(2) + (y - 59).pow(2) < 5 * 5;
+						let smile = (52..=76).contains(&x) && (80..=84).contains(&y);
+						image.pixels[(y * 128 + x) as usize] = if eye || smile {
+							egui::Color32::from_rgb(35, 39, 48)
+						} else {
+							tint
+						};
+					}
+				}
+			}
+			self.attempts.insert(key.clone(), (Instant::now(), false));
+			self.accept(ui.ctx(), key.clone(), Some(image));
+		}
+		if !self.paint(ui, &key, rect, 0) {
+			let failed = self.attempts.get(&key).is_some_and(|(_, failed)| *failed);
+			let supported = sticker.id.0 != 0 && matches!(sticker.format_type, 1..=4);
+			let colors = crate::design::palette(ui);
+			let placeholder = rect.shrink(8.0);
+			ui.painter().rect_filled(placeholder, 8, colors.raised);
+			if failed || !supported {
+				response.clone().on_hover_text("Image unavailable");
+			}
+			if !demo && supported {
+				// Retry uses the shared bounded cooldown, including when the pointer is idle.
+				if let Some((attempted, _)) = self.attempts.get(&key) {
+					ui.ctx().request_repaint_after(
+						RETRY
+							.saturating_sub(attempted.elapsed())
+							.max(Duration::from_secs(1)),
+					);
+				}
+				self.request(key);
+			}
+		}
+		response
+	}
 	/// Static Tenor preview texture for the GIF picker. Synthetic previews are painted locally.
 	pub(crate) fn gif_texture(
 		&mut self,
@@ -1153,6 +1226,52 @@ fn synthetic_gif(gif: &model::Gif) -> ColorImage {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn stickers_obey_animation_preferences_and_demo_stays_offline() {
+		let ctx = egui::Context::default();
+		let sticker = model::Sticker {
+			id: model::Id(7),
+			name: "Synthetic wave".into(),
+			description: String::new(),
+			tags: String::new(),
+			format_type: 2,
+			guild_id: None,
+			pack_id: None,
+			available: true,
+		};
+		let mut images = super::Avatars::default();
+		for (enabled, prefix) in [(false, "embed"), (true, "anim")] {
+			images.set_animation(enabled);
+			ctx.run_ui(Default::default(), |ui| {
+				images.sticker_image(ui, &sticker, egui::Vec2::splat(160.0), false);
+			})
+			.drop_without_applying_deltas();
+			assert_eq!(
+				images.take_requests(),
+				vec![format!("{prefix}:sticker-7-2")]
+			);
+			images.accept(&ctx, format!("{prefix}:sticker-7-2"), None);
+			let output = ctx.run_ui(Default::default(), |ui| {
+				images.sticker_image(ui, &sticker, egui::Vec2::splat(160.0), false);
+			});
+			assert!(
+				!output
+					.shapes
+					.iter()
+					.any(|shape| matches!(&shape.shape, egui::Shape::Text(_)))
+			);
+			output.drop_without_applying_deltas();
+			assert!(images.take_requests().is_empty());
+		}
+		let mut demo = super::Avatars::default();
+		ctx.run_ui(Default::default(), |ui| {
+			demo.sticker_image(ui, &sticker, egui::Vec2::splat(160.0), true);
+		})
+		.drop_without_applying_deltas();
+		assert!(demo.take_requests().is_empty());
+		assert_eq!(demo.textures.len(), 1);
+		assert_eq!(demo.bytes, 128 * 128 * 4);
+	}
 	use super::*;
 	#[test]
 	fn placeholder_paints_decoded_thumbhash_while_the_image_is_requested() {
@@ -1543,6 +1662,7 @@ mod tests {
 		);
 		let mut preview = Avatars::default();
 		let guild = model::Guild {
+			stickers: None,
 			emojis: None,
 			id: model::Id(10),
 			name: "Synthetic server".into(),

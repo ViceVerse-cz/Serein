@@ -13,4 +13,5 @@ pub struct Warnings {
 	pub sessions: bool,
 	pub presence: bool,
 	pub emojis: bool,
+	pub stickers: bool,
 }

@@ -154,6 +154,7 @@ mod tests {
 	fn message(kind: u8) -> Message {
 		Message {
 			flags: 0,
+			sticker_items: vec![],
 			components: vec![],
 			application_id: None,
 			ephemeral: false,

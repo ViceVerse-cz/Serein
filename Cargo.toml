@@ -167,3 +167,9 @@ davey = { path = "vendor/davey" }
 
 # Linux login uses GTK4/WebKit6; exclude obsolete GTK3 declarations from the lockfile.
 wry = { path = "vendor/wry" }
+
+[profile.dev.package.sonora-ns]
+opt-level = 3
+
+[profile.dev.package.sonora-agc2]
+opt-level = 3

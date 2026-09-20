@@ -1,12 +1,10 @@
 //! Bounded presence detection, without retaining unrendered message payloads.
 use serde::{
 	Deserialize, Deserializer,
-	de::{IgnoredAny, MapAccess, SeqAccess, Visitor},
+	de::{IgnoredAny, MapAccess, Visitor},
 };
 use std::fmt;
 
-// Local parsing limits, deliberately above normal message component/sticker counts.
-const MAX_ITEMS: usize = 100;
 const MAX_FIELDS: usize = 64;
 
 pub struct Object;
@@ -34,30 +32,6 @@ impl<'de> Deserialize<'de> for Object {
 	}
 }
 
-pub struct Array(pub bool);
-impl<'de> Deserialize<'de> for Array {
-	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-		struct Presence;
-		impl<'de> Visitor<'de> for Presence {
-			type Value = Array;
-			fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-				f.write_str("a bounded content object array")
-			}
-			fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Array, A::Error> {
-				let mut count = 0;
-				while seq.next_element::<Object>()?.is_some() {
-					if count == MAX_ITEMS {
-						return Err(serde::de::Error::custom("Content array exceeds capacity"));
-					}
-					count += 1;
-				}
-				Ok(Array(count != 0))
-			}
-		}
-		d.deserialize_seq(Presence)
-	}
-}
-
 pub fn object_patch(value: model::Patch<Object>) -> model::Patch<bool> {
 	match value {
 		model::Patch::Absent => model::Patch::Absent,
@@ -65,14 +39,6 @@ pub fn object_patch(value: model::Patch<Object>) -> model::Patch<bool> {
 		model::Patch::Value(_) => model::Patch::Value(true),
 	}
 }
-pub fn array_patch(value: model::Patch<Array>) -> model::Patch<bool> {
-	match value {
-		model::Patch::Absent => model::Patch::Absent,
-		model::Patch::Null => model::Patch::Null,
-		model::Patch::Value(value) => model::Patch::Value(value.0),
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use crate::{MessageDto, PatchDto, decode};
@@ -89,8 +55,14 @@ mod tests {
 		for (fields, bits) in [
 			("", 0),
 			(r#", "poll":{}"#, 1),
-			(r#", "sticker_items":[{"id":"4"}]"#, 2),
-			(r#", "stickers":[{"name":"Synthetic"}]"#, 4),
+			(
+				r#", "sticker_items":[{"id":"4","name":"Wave","format_type":1}]"#,
+				2,
+			),
+			(
+				r#", "stickers":[{"id":"5","name":"Synthetic","format_type":1}]"#,
+				4,
+			),
 			(
 				r#", "components":[{"type":1,"components":[{"type":2}]}]"#,
 				8,
@@ -131,7 +103,7 @@ mod tests {
 	fn field_patches_preserve_absence_and_clear_only_explicit_sources() {
 		let mut message = decode::<MessageDto>(
 			wire(
-				r#", "poll":{},"sticker_items":[{}],"stickers":[{}],"components":[{}],"flags":32772"#,
+				r#", "poll":{},"sticker_items":[{"id":"4","name":"Wave","format_type":1}],"stickers":[{"id":"5","name":"Synthetic","format_type":1}],"components":[{}],"flags":32772"#,
 			)
 			.as_bytes(),
 		)

@@ -388,9 +388,13 @@ async fn run_inner(
 				capture_at = now;
 				capture_enabled = enabled;
 				capture_reset = false;
-				let latest=capture_pacer.next(&capture,enabled && !control.muted && !control.deafened,stalled);
-				local_activity=if enabled && !control.muted && !control.deafened && !stalled {
-					crate::activity::hold(latest.as_ref().map_or(0.0, |frame| frame.iter().filter(|s| s.is_finite()).map(|s| s*s).sum()),local_activity)
+				let latest=if waiting {
+					capture_pacer.preview(&capture)
+				} else {
+					capture_pacer.next(&capture,enabled && !control.muted && !control.deafened,stalled)
+				};
+				local_activity=if (enabled || waiting) && !control.muted && !control.deafened && !stalled {
+					crate::activity::hold_at(latest.as_ref().map_or(0.0, |frame| frame.iter().filter(|s| s.is_finite()).map(|s| s*s).sum()),local_activity,control.activity_threshold_db)
 				} else {0};
 				let active=enabled && !control.muted && !control.deafened && latest.is_some();
 				if active && !speaking {json_send(&mut ws,json!({"op":5,"d":{"speaking":1,"delay":0,"ssrc":ssrc}})).await?;speaking=true;}
