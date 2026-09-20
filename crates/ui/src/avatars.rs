@@ -296,24 +296,9 @@ impl Avatars {
 			let colors = crate::design::palette(ui);
 			let placeholder = rect.shrink(8.0);
 			ui.painter().rect_filled(placeholder, 8, colors.raised);
-			let label = if failed || !supported {
-				"Image unavailable"
-			} else {
-				"Loading image..."
-			};
-			ui.painter()
-				.with_clip_rect(placeholder.intersect(ui.clip_rect()))
-				.text(
-					rect.center(),
-					egui::Align2::CENTER_CENTER,
-					if size.x < 70.0 {
-						"...".to_owned()
-					} else {
-						format!("{}\n{label}", sticker.name)
-					},
-					egui::FontId::proportional(12.0),
-					colors.muted,
-				);
+			if failed || !supported {
+				response.clone().on_hover_text("Image unavailable");
+			}
 			if !demo && supported {
 				// Retry uses the shared bounded cooldown, including when the pointer is idle.
 				if let Some((attempted, _)) = self.attempts.get(&key) {
@@ -1269,9 +1254,12 @@ mod tests {
 			let output = ctx.run_ui(Default::default(), |ui| {
 				images.sticker_image(ui, &sticker, egui::Vec2::splat(160.0), false);
 			});
-			assert!(output.shapes.iter().any(|shape| matches!(
-				&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("Image unavailable")
-			)));
+			assert!(
+				!output
+					.shapes
+					.iter()
+					.any(|shape| matches!(&shape.shape, egui::Shape::Text(_)))
+			);
 			output.drop_without_applying_deltas();
 			assert!(images.take_requests().is_empty());
 		}
