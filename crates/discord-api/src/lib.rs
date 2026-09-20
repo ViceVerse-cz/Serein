@@ -298,9 +298,10 @@ impl DiscordApi {
 		if !status.is_success() {
 			let error = decode::<ErrorBody>(&bytes).unwrap_or_default();
 			if error.captcha_key.is_some() || matches!(error.code, Some(60003 | 50014)) {
-				if matches!(status, StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN)
+				let auth_challenge = matches!(error.code, Some(60003 | 50014));
+				if !auth_challenge
 					&& error.captcha_key.is_some()
-					&& !matches!(error.code, Some(60003 | 50014))
+					&& matches!(status, StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN)
 					&& let Some(output) = challenge.as_mut()
 				{
 					if let Some(parsed) = invite_captcha(&bytes) {
@@ -309,6 +310,14 @@ impl DiscordApi {
 					}
 					return Err(Failure::ProtocolAt(
 						"This invite's verification is unavailable; try joining in Discord",
+					));
+				}
+				if !auth_challenge && write && challenge.is_none() {
+					// The service can require a captcha for one write (for example a friend
+					// request). No solver is wired for this action, but it is not a session
+					// challenge: keep the connection and report a bounded local reason.
+					return Err(Failure::ProtocolAt(
+						"Discord requires verification for this action; complete it in the official client",
 					));
 				}
 

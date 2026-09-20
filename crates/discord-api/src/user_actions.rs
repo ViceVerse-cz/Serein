@@ -518,4 +518,61 @@ mod tests {
 			"writes must not retry automatically"
 		);
 	}
+	#[tokio::test]
+	async fn friend_request_captcha_reports_locally_without_ending_the_session() {
+		// Discord can answer a friend request with a per-action captcha. That is not a
+		// session challenge: the connection must stay usable and the caller must get a
+		// bounded local reason instead of a stop() that forces a manual reconnect.
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_FRIEND_CAPTCHA_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = async {
+			let (mut socket, _) = listener.accept().await.unwrap();
+			let mut bytes = Vec::new();
+			while !bytes.windows(4).any(|b| b == b"\r\n\r\n") {
+				let mut chunk = [0; 1024];
+				let count = socket.read(&mut chunk).await.unwrap();
+				assert!(count > 0);
+				bytes.extend_from_slice(&chunk[..count]);
+			}
+			assert!(bytes.starts_with(b"POST /users/@me/relationships HTTP/1.1\r\n"));
+			let body = r#"{"code":0,"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic-sitekey"}"#;
+			socket
+				.write_all(
+					format!(
+						"HTTP/1.1 400 Bad Request\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+						body.len()
+					)
+					.as_bytes(),
+				)
+				.await
+				.unwrap();
+		};
+		let (event, ()) = tokio::join!(
+			api.execute(Command::UserAction {
+				action: Action::AddFriend {
+					username: "synthetic_friend".into(),
+				},
+				request: 1,
+			}),
+			server
+		);
+		let Event::UserAction(client_core::user_actions::Event::Written { result, .. }) = event
+		else {
+			panic!("wrong result")
+		};
+		assert_eq!(
+			result,
+			Err(Failure::ProtocolAt(
+				"Discord requires verification for this action; complete it in the official client"
+			))
+		);
+		assert!(
+			!api.stopped(),
+			"an action-level captcha must not stop the session"
+		);
+	}
 }
