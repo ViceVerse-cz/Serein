@@ -261,14 +261,15 @@ mod tests {
 			.find_map(|backend| {
 				let encoder = make(backend).ok()?;
 				// The software stand-in buffers many frames by default, unlike the real-time
-				// hardware elements. Match their latency so this exercises the same shape.
-				if encoder.find_property("tune").is_some() {
+				// hardware elements. These values belong to x264: NVENC also exposes
+				// `tune`, but with different enum values.
+				if backend == "x264enc" {
 					encoder.set_property_from_str("tune", "zerolatency");
-				}
-				if encoder.find_property("speed-preset").is_some() {
 					encoder.set_property_from_str("speed-preset", "ultrafast");
 				}
-				Encoder::assemble(CAMERA, encoder).ok()
+				let encoder = Encoder::assemble(CAMERA, encoder).ok()?;
+				eprintln!("Synthetic camera encoder test using {backend}");
+				Some(encoder)
 			})
 	}
 
