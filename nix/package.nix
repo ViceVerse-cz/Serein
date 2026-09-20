@@ -26,145 +26,157 @@
     vulkan-loader,
     libGL,
     libGLX,
+    libpulseaudio,
     libglvnd,
     alsa-lib,
     gst_all_1,
+    pipewire,
     libX11,
     libXi,
     libXrandr,
     libXcursor,
     bubblewrap,
     xdg-dbus-proxy,
-}:
-rustPlatform.buildRustPackage rec {
-    pname = "serein";
-    version = "1.0.0-nightly.20260914.14";
+}: let
+    inherit (stdenv.hostPlatform) isLinux isDarwin;
 
-    src = ../.;
-
-    cargoLock = {
-        lockFile = "${src}/Cargo.lock";
-        outputHashes = {
-            "ecolor-0.36.2" = "sha256-G9x6P6ksfbEx9sTqpgzvbuMxjDUTgW2ghImLB6nUx94=";
-        };
-    };
-
-    cargoBuildFlags = [
-        "--package"
-        "serein"
+    # webKit stack
+    toolkitDeps = [
+        glib
+        glib-networking
+        gsettings-desktop-schemas
+        gtk4
+        webkitgtk_6_0
+        cairo
+        pango
+        gdk-pixbuf
+        graphene
+        libsoup_3
+        fontconfig
     ];
 
-    nativeBuildInputs =
-        [
-            pkg-config
-            cmake
-            makeWrapper
-        ]
-        ++ lib.optionals stdenv.hostPlatform.isLinux [
-            wrapGAppsHook4
-            autoPatchelfHook
-        ]
-        ++ lib.optionals stdenv.hostPlatform.isDarwin [
-            swift
-            swiftpm
-        ];
-
-    dontUseSwiftpmBuild = true;
-    dontUseSwiftpmCheck = true;
-
-    buildInputs =
-        lib.optionals stdenv.hostPlatform.isLinux [
-            glib
-            glib-networking
-            gsettings-desktop-schemas
-            gtk4
-            webkitgtk_6_0
-            cairo
-            pango
-            gdk-pixbuf
-            graphene
-            libsoup_3
-            wayland
-            libxkbcommon
-            libX11
-            libXi
-            libXrandr
-            libXcursor
-            fontconfig
-            vulkan-loader
-            libGL
-            libGLX
-            libglvnd
-            alsa-lib
-            gst_all_1.gstreamer
-            gst_all_1.gst-plugins-bad
-            gst_all_1.gst-plugins-base
-            gst_all_1.gst-plugins-good
-            gst_all_1.gst-libav
-        ]
-        ++ lib.optionals stdenv.hostPlatform.isDarwin [
-            apple-sdk_15
-        ];
-
-    runtimeDependencies = lib.optionals stdenv.hostPlatform.isLinux [
+    graphicsDeps = [
         vulkan-loader
         libGL
         libGLX
         libglvnd
     ];
 
-    doCheck = false;
+    windowingDeps = [
+        wayland
+        libxkbcommon
+        libX11
+        libXi
+        libXrandr
+        libXcursor
+    ];
 
-    preFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
-        gappsWrapperArgs+=(
-          --prefix PATH : "${
-            lib.makeBinPath [
-                bubblewrap
-                xdg-dbus-proxy
+    audioDeps = [
+        libpulseaudio
+        alsa-lib
+    ];
+
+    gstPlugins = with gst_all_1; [
+        gst-plugins-base
+        gst-plugins-good
+        gst-plugins-bad
+        gst-libav
+        gstreamer
+        pipewire
+    ];
+
+    runtimeTools = [
+        bubblewrap
+        xdg-dbus-proxy
+    ];
+in
+    rustPlatform.buildRustPackage (finalAttrs: {
+        pname = "serein";
+        version = "1.0.0-nightly.20260914.14";
+
+        src = ../.;
+
+        cargoLock = {
+            lockFile = "${finalAttrs.src}/Cargo.lock";
+            outputHashes = {
+                "ecolor-0.36.2" = "sha256-AhZEKazwb9qN/Ykq8O6Xo+ymfskszxqskboiK4omOVA=";
+            };
+        };
+
+        cargoBuildFlags = [
+            "--package"
+            "serein"
+        ];
+
+        nativeBuildInputs =
+            [
+                pkg-config
+                cmake
+                makeWrapper
             ]
-        }"
-          --prefix GST_PLUGIN_SYSTEM_PATH : "${
-            lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" [
-                gst_all_1.gst-plugins-bad
-                gst_all_1.gst-plugins-base
-                gst_all_1.gst-plugins-good
-                gst_all_1.gst-libav
+            ++ lib.optionals isLinux [
+                wrapGAppsHook4
+                autoPatchelfHook
             ]
-        }"
-        )
-    '';
+            ++ lib.optionals isDarwin [
+                swift
+                swiftpm
+            ];
 
-    postInstall =
-        lib.optionalString stdenv.hostPlatform.isLinux ''
-            install -Dm444 ${src}/packaging/linux/serein.desktop \
-              $out/share/applications/org.serein.desktop.desktop
-            substituteInPlace $out/share/applications/org.serein.desktop.desktop \
-              --replace-fail "Exec=serein" "Exec=$out/bin/serein"
+        buildInputs =
+            lib.optionals isLinux (
+                toolkitDeps ++ graphicsDeps ++ windowingDeps ++ audioDeps ++ gstPlugins
+            )
+            ++ lib.optionals isDarwin [apple-sdk_15];
 
-            for theme_dir in ${src}/packaging/linux/hicolor/*; do
-              size=$(basename "$theme_dir")
-              for icon in "$theme_dir"/apps/*; do
-                if [ -f "$icon" ]; then
-                  install -Dm444 "$icon" "$out/share/icons/hicolor/$size/apps/$(basename "$icon")"
-                fi
-              done
-            done
-        ''
-        + lib.optionalString stdenv.hostPlatform.isDarwin ''
-            mkdir -p "$out/Applications/Serein.app/Contents/MacOS" "$out/Applications/Serein.app/Contents/Resources"
-            install -Dm444 ${src}/packaging/macos/Info.plist "$out/Applications/Serein.app/Contents/Info.plist"
-            install -Dm444 ${src}/packaging/macos/Serein.icns "$out/Applications/Serein.app/Contents/Resources/Serein.icns"
-            ln -s "$out/bin/serein" "$out/Applications/Serein.app/Contents/MacOS/serein"
+        runtimeDependencies = lib.optionals isLinux graphicsDeps;
+
+        dontUseSwiftpmBuild = true;
+        dontUseSwiftpmCheck = true;
+        doCheck = false;
+
+        preFixup = lib.optionalString isLinux ''
+            gappsWrapperArgs+=(
+              --prefix PATH : "${lib.makeBinPath runtimeTools}"
+              --prefix GST_PLUGIN_SYSTEM_PATH_1_0 : "${
+                lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gstPlugins
+            }"
+            )
         '';
 
-    meta = with lib; {
-        description = "Tiny, performant, native Discord client written in Rust (egui/wgpu)";
-        homepage = "https://github.com/ViceVerse-cz/Serein";
-        license = with licenses; [
-            mit
-            asl20
-        ];
-        platforms = platforms.linux ++ platforms.darwin;
-        mainProgram = "serein";
-    };
-}
+        postInstall =
+            lib.optionalString isLinux ''
+                install -Dm444 ${finalAttrs.src}/packaging/linux/serein.desktop \
+                  $out/share/applications/org.serein.desktop.desktop
+                substituteInPlace $out/share/applications/org.serein.desktop.desktop \
+                  --replace-fail "Exec=serein" "Exec=$out/bin/serein"
+
+                for icon in ${finalAttrs.src}/packaging/linux/hicolor/*/apps/*; do
+                  [ -f "$icon" ] || continue
+                  size=$(basename "$(dirname "$(dirname "$icon")")")
+                  install -Dm444 "$icon" \
+                    "$out/share/icons/hicolor/$size/apps/$(basename "$icon")"
+                done
+            ''
+            + lib.optionalString isDarwin ''
+                app="$out/Applications/Serein.app/Contents"
+                install -Dm444 ${finalAttrs.src}/packaging/macos/Info.plist "$app/Info.plist"
+                install -Dm444 ${finalAttrs.src}/packaging/macos/Serein.icns "$app/Resources/Serein.icns"
+                mkdir -p "$app/MacOS"
+                ln -s "$out/bin/serein" "$app/MacOS/serein"
+            '';
+
+        meta = {
+            description = "Tiny, performant, native Discord client written in Rust (egui/wgpu)";
+            homepage = "https://github.com/ViceVerse-cz/Serein";
+            license = with lib.licenses; [
+                mit
+                asl20
+            ];
+            platforms = lib.platforms.linux ++ lib.platforms.darwin;
+            mainProgram = "serein";
+            maintainers = with lib.maintainers; [
+                myamusashi
+            ];
+        };
+    })
