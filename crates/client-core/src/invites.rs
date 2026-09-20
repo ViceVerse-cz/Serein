@@ -34,6 +34,7 @@ impl State {
 			)));
 		}
 	}
+	/// Builds the one explicit retry that resumes a solved invite challenge.
 	pub fn resume_invite_challenge(
 		&mut self,
 		request: u64,
@@ -276,6 +277,7 @@ impl State {
 #[cfg(test)]
 mod join_tests {
 	use super::*;
+	/// Regression: invite challenges are single-use, scoped, expiring and redacted.
 	#[test]
 	fn invite_challenge_is_single_use_scoped_expiring_and_redacted() {
 		let challenge = || {

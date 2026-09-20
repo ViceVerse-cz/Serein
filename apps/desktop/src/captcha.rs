@@ -8,9 +8,11 @@ pub struct Captcha {
 	view: Option<(u64, Verification, platform::captcha::CaptchaView)>,
 }
 impl Captcha {
+	/// Closes the temporary verification view, if one is open.
 	pub fn close(&mut self) {
 		self.view = None;
 	}
+	/// Advances the one active challenge: opens, positions, polls and resolves the provider view.
 	pub fn sync(
 		&mut self,
 		state: &mut State,

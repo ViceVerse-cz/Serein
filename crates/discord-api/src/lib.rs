@@ -178,6 +178,7 @@ impl DiscordApi {
 		self.request_with_captcha(method, path, body, max_bytes, None, None)
 			.await
 	}
+	/// One typed request with an optional captcha retry and challenge output slot.
 	async fn request_with_captcha(
 		&self,
 		method: Method,
@@ -311,7 +312,7 @@ impl DiscordApi {
 						return Err(Failure::Challenged);
 					}
 					return Err(Failure::ProtocolAt(
-						"This invite's verification is unavailable; try joining in Discord",
+						"This verification is unavailable; complete the action in the official client",
 					));
 				}
 				if !auth_challenge && write && challenge.is_none() {
@@ -407,6 +408,7 @@ impl DiscordApi {
 	}
 	// Unofficial user endpoint; observed in discord.py-self/http.py accept_invite (2026-09-11).
 	// One explicit human solution may resume this specific write; never loop/retry automatically.
+	/// Accepts one invite, optionally resuming a single user-solved challenge.
 	async fn join_invite(
 		&self,
 		code: &str,
@@ -456,6 +458,7 @@ impl DiscordApi {
 			}
 		}
 	}
+	/// Runs one typed command and returns its typed event.
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
 			Command::Interaction(request) => {

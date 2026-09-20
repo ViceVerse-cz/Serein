@@ -2473,6 +2473,7 @@ impl Desktop {
 			self.request_history_clear(account);
 		}
 	}
+	/// Dispatches one queued command to the demo or live transport.
 	fn command(&mut self, command: Command) {
 		if matches!(&command, Command::Interaction(client_core::interactions::Request {data:client_core::interactions::Data::Modal{components,..},..}) if interaction_uploads::has_files(components))
 		{
@@ -4890,6 +4891,7 @@ impl eframe::App for Desktop {
 			);
 		}
 	}
+	/// One UI frame: pumps workers, expires challenges, renders and drains commands.
 	fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
 		let search_focused = {
 			#[cfg(feature = "demo")]
@@ -4953,7 +4955,7 @@ impl eframe::App for Desktop {
 		}
 		self.poll_interaction_files(ctx);
 		self.state.expire_verification();
-		if self.state.invite_challenge().is_some() {
+		if self.state.verification().is_some() {
 			ctx.request_repaint_after(Duration::from_secs(1));
 		}
 		if self.login.is_some()

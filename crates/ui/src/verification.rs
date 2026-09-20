@@ -12,6 +12,7 @@ pub struct VerificationUi {
 }
 
 impl VerificationUi {
+	/// Renders the one pending verification dialog for the active flow.
 	pub(super) fn show(&mut self, ctx: &egui::Context, state: &mut client_core::State) {
 		self.bounds = None;
 		let Some((verification, _)) = state.verification() else {
@@ -129,6 +130,7 @@ impl VerificationUi {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	/// Synthetic state holding one pending invite challenge.
 	fn fixture() -> client_core::State {
 		let mut state = client_core::State {
 			auth: client_core::auth::AuthState::Authenticated,
@@ -173,6 +175,7 @@ mod tests {
 		});
 		state
 	}
+	/// Runs one frame and returns the rendered text labels with their rectangles.
 	fn frame(
 		ctx: &egui::Context,
 		view: &mut VerificationUi,
@@ -180,6 +183,7 @@ mod tests {
 		size: egui::Vec2,
 		events: Vec<egui::Event>,
 	) -> Vec<(String, egui::Rect)> {
+		/// Collects text labels from a shape tree.
 		fn labels(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
 			match shape {
 				egui::Shape::Text(text) => out.push((
@@ -209,6 +213,7 @@ mod tests {
 		output.drop_without_applying_deltas();
 		texts
 	}
+	/// Regression: verification needs a click, fits the viewport and cancels with Escape.
 	#[test]
 	fn verification_requires_a_click_fits_viewport_and_cancels_with_escape() {
 		for (light, size) in [
@@ -295,6 +300,7 @@ mod tests {
 		}
 	}
 
+	/// Regression: friendship verification uses friend copy and cancels its write.
 	#[test]
 	fn friend_verification_uses_friend_copy_and_cancels_the_pending_write() {
 		let ctx = egui::Context::default();

@@ -10,6 +10,7 @@ impl State {
 		let (request, challenge) = self.friend_challenge()?;
 		Some((captcha::Verification::Friend { request }, challenge))
 	}
+	/// Resumes the pending challenge with the user's solution.
 	pub fn resume_verification(
 		&mut self,
 		verification: captcha::Verification,
@@ -24,12 +25,14 @@ impl State {
 			}
 		}
 	}
+	/// Cancels the pending challenge and releases its write.
 	pub fn cancel_verification(&mut self, verification: captcha::Verification) {
 		match verification {
 			captcha::Verification::Invite { request } => self.cancel_invite_challenge(request),
 			captcha::Verification::Friend { request } => self.cancel_friend_challenge(request),
 		}
 	}
+	/// Releases any challenge that outlived its lifetime.
 	pub fn expire_verification(&mut self) {
 		self.expire_invite_challenge();
 		self.expire_friend_challenge();

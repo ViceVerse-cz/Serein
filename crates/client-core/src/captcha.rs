@@ -71,6 +71,7 @@ fn valid(value: &str, max: usize) -> bool {
 	!value.is_empty() && value.len() <= max && value.bytes().all(|b| (32..=126).contains(&b))
 }
 impl fmt::Debug for Challenge {
+	/// Redacted debug output; never prints challenge material.
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.write_str("Challenge([REDACTED])")
 	}
@@ -109,6 +110,7 @@ pub enum Verification {
 	Friend { request: u64 },
 }
 impl Verification {
+	/// The request sequence this pending challenge belongs to.
 	pub fn request(self) -> u64 {
 		match self {
 			Self::Invite { request } | Self::Friend { request } => request,
@@ -116,6 +118,7 @@ impl Verification {
 	}
 }
 impl Retry {
+	/// Whether a solved challenge may resume this exact target and request.
 	pub fn matches(&self, target: &Target, request: u64) -> bool {
 		self.target == *target && self.request == request && !self.expired()
 	}
@@ -123,6 +126,7 @@ impl Retry {
 	pub fn matches_target(&self, target: &Target) -> bool {
 		self.target == *target && !self.expired()
 	}
+	/// Whether the challenge's five-minute lifetime has elapsed.
 	pub fn expired(&self) -> bool {
 		Instant::now() >= self.expires
 	}

@@ -247,6 +247,7 @@ impl Startup {
 			bytes,
 		})
 	}
+	/// Bytes retained by this event for the bounded capacity budget.
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.user.heap_bytes()
@@ -1084,6 +1085,7 @@ impl State {
 			reply: self.reply.take(),
 		})
 	}
+	/// Reports a command the transport could not accept as a bounded outcome error.
 	pub fn command_rejected(&mut self, command: Command) {
 		if let Command::Interaction(request) = command {
 			let _ = self.apply_interaction(interactions::Event::Submitted {

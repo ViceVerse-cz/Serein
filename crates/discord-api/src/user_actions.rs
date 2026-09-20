@@ -36,6 +36,7 @@ impl DiscordApi {
 		}
 		Ok(channel)
 	}
+	/// Reads one user's private note, treating a missing note as empty.
 	pub(super) async fn user_note(&self, user: model::Id) -> Result<String, Failure> {
 		if user.0 == 0 {
 			return Err(Failure::Protocol);
@@ -54,6 +55,7 @@ impl DiscordApi {
 		}
 		Ok(text)
 	}
+	/// Runs one account write, using the captcha slot for friendship actions.
 	pub(super) async fn user_action(
 		&self,
 		action: &Action,
@@ -224,6 +226,7 @@ mod tests {
 		io::{AsyncReadExt, AsyncWriteExt},
 		net::TcpListener,
 	};
+	/// Regression: note reads handle empty, missing and forbidden responses without writes.
 	#[tokio::test]
 	async fn notes_read_empty_missing_existing_and_forbidden_without_writes() {
 		for (status, body, expected) in [
@@ -281,6 +284,7 @@ mod tests {
 			assert_eq!((user, request, result), (Id(2), 7, expected));
 		}
 	}
+	/// Regression: account and friend actions use scoped routes and confirm outcomes.
 	#[tokio::test]
 	async fn account_and_friend_request_actions_use_scoped_routes_and_confirm_remote_outcomes() {
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -579,6 +583,7 @@ mod tests {
 			"writes must not retry automatically"
 		);
 	}
+	/// Regression: a challenged friend request surfaces and resumes once with the solution.
 	#[tokio::test]
 	async fn friend_request_captcha_surfaces_and_resumes_once_with_the_solution() {
 		// Discord can answer a friend request with a per-action captcha. The session must
