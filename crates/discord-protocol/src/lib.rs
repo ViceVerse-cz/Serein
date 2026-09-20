@@ -76,6 +76,8 @@ fn decode_limited<T: serde::de::DeserializeOwned>(
 }
 #[derive(Clone, Deserialize)]
 pub struct UserDto {
+	#[serde(default)]
+	pub premium_type: model::Patch<u8>,
 	pub id: Id,
 	pub username: String,
 	#[serde(default)]

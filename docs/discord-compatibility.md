@@ -7,9 +7,13 @@ collapsible server and standard-pack groups, a section rail, session-only recent
 choices, and a hovered preview. Clicking a sticker sends it as a separate message
 and preserves the typed draft. Reply references, pending/failed delivery and the
 existing nonce reconciliation are reused; uncertain writes are never retried.
-Channel send and external-sticker permissions gate selection. Subscription and
-other service entitlement checks remain authoritative; there is no local Nitro
-entitlement model or purchase flow.
+Channel send and external-sticker permissions gate selection. Server stickers
+outside their source server (including DMs) also require a session-confirmed
+Nitro or Nitro Basic entitlement (`premium_type` 2 or 3), populated by READY and
+updated by the current user's USER_UPDATE. Missing, unknown, Classic, or expired
+entitlements do not unlock external stickers. Local selection and send checks
+share this gate; Discord remains authoritative. There is no purchase flow. See
+[Discord subscription benefits](https://support.discord.com/hc/en-us/articles/115000435108-What-are-Nitro-Nitro-Basic).
 
 Received `sticker_items` and legacy `stickers` render transparent artwork in chat.
 Clicking opens details and related previews; View More Stickers opens the source

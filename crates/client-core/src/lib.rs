@@ -216,6 +216,7 @@ pub enum Command {
 	},
 }
 pub struct Startup {
+	pub external_stickers: bool,
 	pub user: User,
 	pub guilds: Vec<Guild>,
 	pub channels: Vec<Channel>,
@@ -345,6 +346,10 @@ fn prepare_navigation(
 	Ok(permission_state)
 }
 pub enum Event {
+	StickerEntitlement {
+		user: Id,
+		premium_type: Patch<u8>,
+	},
 	StickerPacks(Result<Vec<model::StickerPack>, auth::Failure>),
 	Sticker {
 		id: Id,
@@ -1512,6 +1517,7 @@ impl State {
 				..
 			} = *startup;
 			let Startup {
+				external_stickers,
 				user,
 				guilds,
 				channels,
@@ -1536,6 +1542,7 @@ impl State {
 			if self.auth != auth::AuthState::Authenticated {
 				return;
 			}
+			self.stickers.external_allowed = external_stickers;
 			warnings.read_state |= self.apply_read_state(read_state).is_err();
 			if let Some(settings) = notifications {
 				warnings.notifications |= self.apply_notification_preferences(settings).is_err();
@@ -1559,6 +1566,9 @@ impl State {
 			envelope.event,
 			Event::Ready { .. } | Event::Disconnected | Event::Resync
 		) {
+			if matches!(envelope.event, Event::Ready { .. } | Event::Resync) {
+				self.stickers.external_allowed = false;
+			}
 			self.interrupt_stickers();
 			self.posts.clear_summaries();
 			self.interactions.reset();
@@ -1782,6 +1792,14 @@ impl State {
 				result,
 			} => {
 				self.apply_search(channel, request, result);
+				Ok(())
+			}
+			Event::StickerEntitlement { user, premium_type } => {
+				if self.user.as_ref().is_some_and(|own| own.id == user)
+					&& !matches!(premium_type, Patch::Absent)
+				{
+					self.stickers.external_allowed = matches!(premium_type, Patch::Value(2 | 3));
+				}
 				Ok(())
 			}
 			Event::StickerPacks(result) => {

@@ -187,7 +187,11 @@ impl Browser {
 												}
 												if !enabled {
 													response.on_disabled_hover_text(
-														"This sticker is unavailable with the current connection or permissions.",
+														if state.sticker_requires_nitro(sticker) {
+															"Nitro is required to use this sticker outside its server."
+														} else {
+															"This sticker is unavailable with the current connection or permissions."
+														},
 													);
 												}
 											});

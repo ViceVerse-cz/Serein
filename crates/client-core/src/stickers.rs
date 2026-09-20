@@ -8,6 +8,7 @@ pub const MAX_PACKS: usize = 128;
 pub const MAX_PACK_BYTES: usize = 1024 * 1024;
 #[derive(Default)]
 pub struct Stickers {
+	pub external_allowed: bool,
 	pub packs: Vec<StickerPack>,
 	pub loading: bool,
 	pub loaded: bool,
@@ -69,6 +70,15 @@ impl State {
 		self.stickers.detail_loading = Some(id);
 		Some(Command::Sticker(id))
 	}
+	pub fn sticker_requires_nitro(&self, sticker: &Sticker) -> bool {
+		!self.stickers.external_allowed
+			&& sticker.guild_id.is_some()
+			&& sticker.guild_id
+				!= self
+					.selected
+					.and_then(|id| self.channel(id))
+					.and_then(|c| c.guild)
+	}
 	pub fn can_send_sticker(&self, sticker: &Sticker) -> bool {
 		let Some(channel) = self.selected else {
 			return false;
@@ -86,15 +96,20 @@ impl State {
 		sticker.valid()
 			&& sticker.available
 			&& self.can_send(channel)
+			&& !self.sticker_requires_nitro(sticker)
 			&& (sticker.guild_id.is_none()
-				|| guild.is_none()
 				|| sticker.guild_id == guild
+				|| guild.is_none()
 				|| self.permission(channel, model::permissions::USE_EXTERNAL_STICKERS)
 					== Some(true))
 	}
 	pub fn prepare_sticker_send(&mut self, sticker: &Sticker) -> Option<Command> {
 		if !self.can_send_sticker(sticker) {
-			self.status = "This sticker is unavailable in this conversation";
+			self.status = if self.sticker_requires_nitro(sticker) {
+				"Nitro is required to use this sticker outside its server"
+			} else {
+				"This sticker is unavailable in this conversation"
+			};
 			return None;
 		}
 		self.prepare_message(&[], Some(sticker))
@@ -214,5 +229,44 @@ mod tests {
 		assert!(!state.stickers.loading && state.stickers.error.is_some());
 		state.gateway_connected = true;
 		assert!(state.request_sticker_packs().is_some());
+		// A server sticker in a DM needs a confirmed current-account entitlement.
+		state.freshness = crate::Freshness::Fresh;
+		let mut external = state.stickers.detail.clone().unwrap();
+		external.available = true;
+		external.guild_id = Some(Id(99));
+		external.pack_id = None;
+		state.user = Some(crate::tests::message(1).author);
+		let own = state.user.as_ref().unwrap().id;
+		assert!(state.prepare_sticker_send(&external).is_none());
+		for (premium_type, allowed) in [
+			(model::Patch::Value(2), true),
+			(model::Patch::Absent, true),
+			(model::Patch::Value(0), false),
+			(model::Patch::Value(3), true),
+			(model::Patch::Null, false),
+			(model::Patch::Value(1), false),
+			(model::Patch::Value(255), false),
+		] {
+			state.apply(crate::Envelope {
+				generation: state.generation,
+				event: crate::Event::StickerEntitlement {
+					user: own,
+					premium_type,
+				},
+			});
+			assert_eq!(state.can_send_sticker(&external), allowed);
+		}
+		state.apply(crate::Envelope {
+			generation: state.generation,
+			event: crate::Event::StickerEntitlement {
+				user: Id(999),
+				premium_type: model::Patch::Value(2),
+			},
+		});
+		assert!(!state.can_send_sticker(&external));
+		state.channels[0].guild = Some(Id(99));
+		assert!(!state.sticker_requires_nitro(&external));
+		state.channels[0].guild = Some(Id(100));
+		assert!(state.sticker_requires_nitro(&external));
 	}
 }

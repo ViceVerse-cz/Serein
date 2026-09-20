@@ -1007,6 +1007,7 @@ async fn run_inner(
 											notification_preferences(entries, replace)
 										});
 										emit(Event::Startup(Box::new(client_core::Startup {
+											external_stickers: matches!(ready.user.premium_type, model::Patch::Value(2 | 3)),
 											user: ready.user.into_model(), guilds, channels, permissions,
 											read_state: client_core::read_state::Event::Snapshot {entries:read_entries,version:read_version,partial},
 											notifications, session_dnd: ready.sessions.as_ref().and_then(|s| s.dnd()), warnings,
@@ -1122,6 +1123,7 @@ async fn run_inner(
 									}
 									"USER_UPDATE" => {
 										let user: discord_protocol::UserDto = decode(packet.d.get().as_bytes()).map_err(|_| Failure::ProtocolAt("Invalid user update"))?;
+										emit(Event::StickerEntitlement { user: user.id, premium_type: user.premium_type.clone() })?;
 										let profile = discord_protocol::relationships::friend(user).map_err(|_| Failure::ProtocolAt("Invalid user update"))?;
 										emit(Event::UserAction(client_core::user_actions::Event::FriendProfile(profile)))?;
 									}

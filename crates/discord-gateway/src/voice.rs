@@ -896,6 +896,7 @@ mod tests {
 	#[test]
 	fn optional_login_users_are_bounded_without_rejecting_the_session() {
 		let user = |id, name: &str| UserDto {
+			premium_type: model::Patch::Absent,
 			primary_guild: None,
 			clan: None,
 			id: Id(id),

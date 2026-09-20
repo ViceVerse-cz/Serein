@@ -748,6 +748,7 @@ mod tests {
 		let (mut ready, warnings) = envelope.navigation().unwrap();
 		let (guilds, channels) = ready.navigation().unwrap();
 		client_core::Startup {
+			external_stickers: false,
 			user: ready.user.into_model(),
 			guilds,
 			channels,
