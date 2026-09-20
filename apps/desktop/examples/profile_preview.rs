@@ -529,6 +529,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						status: Some("online".into()),
 						custom_status: Some("Building a quieter place".into()),
 						activities: vec![],
+						clients: model::ClientPlatforms {
+							mobile: true,
+							..Default::default()
+						},
 					}))],
 				});
 			} else if page == "dm-tags" {
@@ -578,7 +582,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				messaging.preview_sticker_picker();
 			} else if page == "profile-card" {
 				state.demo = false;
-				messaging.preview_profile(test_support::message(1, model::Id(20)).author);
+				state.gateway_connected = true;
+				let user = test_support::message(1, model::Id(20)).author;
+				state.members = Some(model::MemberList {
+					channel: model::Id(20),
+					guild: Some(model::Id(10)),
+					request: 0,
+					total: 1,
+					freshness: model::Freshness::Fresh,
+					rows: vec![Some(model::Member {
+						user: user.clone(),
+						nick: None,
+						roles: vec![],
+						status: Some("online".into()),
+						custom_status: None,
+						activities: vec![],
+						clients: model::ClientPlatforms {
+							mobile: true,
+							..Default::default()
+						},
+					})],
+				});
+				messaging.preview_profile(user);
 			} else if let Some((package, _invocation, result)) = fixture {
 				prime_extension_chat(&mut state);
 				if let Some(theme) = package.theme.as_ref() {

@@ -1014,6 +1014,7 @@ mod tests {
 			status: None,
 			custom_status: None,
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 		});
 		state.apply_voice(Event::Snapshot {
 			guild: None,

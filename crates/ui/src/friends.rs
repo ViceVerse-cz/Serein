@@ -39,7 +39,7 @@ enum Tab {
 impl Friends {
 	fn matches(&self, state: &State, user: &model::User, query: &str) -> bool {
 		if self.tab == Tab::Online {
-			let (status, _, _) = profiles::presence(state, user.id, None);
+			let (status, _, _, _) = profiles::presence(state, user.id, None);
 			if !matches!(status, Some("online" | "idle" | "dnd")) {
 				return false;
 			}
@@ -553,8 +553,9 @@ impl MessagingUi {
 								continue;
 							};
 							ui.push_id(user.id.0, |ui| {
-								let (status, custom, activities) = if restricted.is_some() {
-									(None, None, &[][..])
+								let (status, custom, activities, clients) = if restricted.is_some()
+								{
+									(None, None, &[][..], model::ClientPlatforms::default())
 								} else {
 									profiles::presence(state, user.id, None)
 								};
@@ -603,10 +604,11 @@ impl MessagingUi {
 									state.demo,
 								);
 								if let Some(status) = status {
-									design::presence_dot(
+									profiles::presence_badge(
 										ui,
 										avatar.rect,
-										profiles::presence_color(status),
+										status,
+										clients,
 										if hot { colors.hover } else { colors.chat },
 									);
 								}
@@ -981,7 +983,7 @@ mod tests {
 	fn uncached(friends: &Friends, state: &State) -> Vec<Id> {
 		let query = friends.query.trim().to_lowercase();
 		let filter = |user: &&model::User| {
-			let (status, _, _) = profiles::presence(state, user.id, None);
+			let (status, _, _, _) = profiles::presence(state, user.id, None);
 			(friends.tab != Tab::Online || matches!(status, Some("online" | "idle" | "dnd")))
 				&& (user.name.to_lowercase().contains(&query)
 					|| state
@@ -1112,6 +1114,7 @@ mod tests {
 					status: Patch::Value(if index < 7 { "online" } else { "offline" }.into()),
 					custom_status: Patch::Null,
 					activities: Patch::Null,
+					clients: Patch::Absent,
 				})
 				.collect();
 			let owner = state.user.clone().unwrap();
@@ -1182,10 +1185,11 @@ mod tests {
 						ends_at: None,
 						started_at: None,
 					}]),
+					clients: Patch::Absent,
 				}]),
 			);
 			assert!(!friends.sync_list(&state));
-			let (_, custom, activities) = profiles::presence(&state, Id(1001), None);
+			let (_, custom, activities, _) = profiles::presence(&state, Id(1001), None);
 			assert_eq!(
 				profiles::subtitle(custom, activities).as_deref(),
 				Some("Playing Synthetic game")
@@ -1204,6 +1208,7 @@ mod tests {
 					status,
 					custom_status: Patch::Absent,
 					activities: Patch::Absent,
+					clients: Patch::Absent,
 				}]),
 			);
 			assert!(friends.sync_list(&state));
@@ -1289,6 +1294,7 @@ mod tests {
 						ends_at: None,
 						started_at: None,
 					}]),
+					clients: Patch::Absent,
 				}]),
 			);
 			assert!(!view.friends.sync_list(&state));

@@ -259,7 +259,7 @@ impl MessagingUi {
 						.selected
 						.and_then(|id| state.channel(id))
 						.and_then(|c| c.guild);
-					let (_, _, activities) = profiles::presence(state, user.id, guild);
+					let (_, _, activities, _) = profiles::presence(state, user.id, guild);
 					if !activities.is_empty() {
 						ui.add_space(8.0);
 						profiles::activity_list(
