@@ -114,7 +114,7 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 			include_bytes!(
 				"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
 			),
-			"While enabled, selecting custom emoji or stickers stages an image attachment. Review and press Send.",
+			"While enabled, selecting custom emoji or stickers sends an image attachment immediately.",
 		),
 		(
 			include_bytes!("../../../extensions/ocean.serein-extension"),

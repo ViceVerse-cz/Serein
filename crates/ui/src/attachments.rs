@@ -318,7 +318,12 @@ pub(crate) fn show_subset(
 					ui.horizontal_top(|ui| {
 						for attachment in row {
 							ui.push_id(("attachment", attachment.id), |ui| {
-								let image = images.show_embed(ui, &attachment.media, size, demo);
+								let image = images.show_embed(
+									ui,
+									&attachment.media,
+									artwork_size(attachment, size),
+									demo,
+								);
 								let response =
 									ui.interact(image.rect, image.id.with("media"), Sense::click());
 								response.widget_info(|| {
@@ -380,6 +385,30 @@ pub(crate) fn show_subset(
 		}
 	}
 }
+// Shared with height estimation so compact artwork does not leave a gallery-sized gap.
+fn artwork_size(attachment: &Attachment, gallery: egui::Vec2) -> egui::Vec2 {
+	let Some((stem, extension)) = attachment.filename.rsplit_once('.') else {
+		return gallery;
+	};
+	if !matches!(extension, "png" | "gif") {
+		return gallery;
+	}
+	let (id, edge) = if let Some(id) = stem.strip_prefix("emoji-") {
+		(id, 32.0_f32)
+	} else if let Some(id) = stem.strip_prefix("sticker-") {
+		(id, 160.0_f32)
+	} else {
+		return gallery;
+	};
+	if id.is_empty()
+		|| !id.bytes().all(|b| b.is_ascii_digit())
+		|| !id.parse::<Id>().is_ok_and(|id| id.0 != 0)
+	{
+		return gallery;
+	}
+	egui::Vec2::splat(edge.min(gallery.x).min(gallery.y))
+}
+
 pub(crate) fn image_layout(count: usize, width: f32) -> (usize, egui::Vec2) {
 	let columns = if count > 1 && width >= 280.0 { 2 } else { 1 };
 	let width = ((width.min(420.0) - (columns - 1) as f32 * 6.0) / columns as f32).max(1.0);
@@ -926,7 +955,15 @@ pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 		.map(|group| {
 			if group[0].is_image() {
 				let (columns, size) = image_layout(group.len(), width);
-				group.len().div_ceil(columns) as f32 * (size.y + 6.0)
+				group
+					.chunks(columns)
+					.map(|row| {
+						row.iter()
+							.map(|a| artwork_size(a, size).y)
+							.fold(0.0_f32, f32::max)
+							+ 6.0
+					})
+					.sum::<f32>()
 			} else {
 				group
 					.iter()
@@ -950,6 +987,41 @@ pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn shared_artwork_keeps_compact_tiles_and_matching_row_heights() {
+		let mut attachment = Attachment {
+			id: Id(1),
+			filename: String::new(),
+			description: None,
+			content_type: Some("image/png".into()),
+			size: 1,
+			spoiler: false,
+			media: Default::default(),
+			duration_ms: None,
+			waveform: vec![],
+		};
+		let gallery = image_layout(1, 500.0).1;
+		for (name, edge) in [("emoji-7.gif", 32.0), ("sticker-8.png", 160.0)] {
+			attachment.filename = name.into();
+			attachment.content_type = Some("image/png".into());
+			assert_eq!(artwork_size(&attachment, gallery), egui::Vec2::splat(edge));
+			assert_eq!(estimated_height(&[attachment.clone()], 500.0), edge + 6.0);
+			assert_eq!(
+				artwork_size(&attachment, egui::Vec2::splat(20.0)),
+				egui::Vec2::splat(20.0)
+			);
+		}
+		for name in [
+			"photo.png",
+			"emoji-0.png",
+			"emoji-nope.png",
+			"sticker-8.txt",
+		] {
+			attachment.filename = name.into();
+			assert_eq!(artwork_size(&attachment, gallery), gallery);
+		}
+	}
 
 	#[test]
 	fn image_gallery_wraps_without_filenames_and_opens_each_attachment() {

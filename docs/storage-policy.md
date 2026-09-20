@@ -1017,4 +1017,5 @@ redirects, capped at 8 MiB per image and 15 seconds per request. Raster preview 
 uses the existing 64 MiB allocation limit and 320px thumbnail edge outside rendering.
 Up to ten selected images remain in session RAM (80 MiB encoded artwork maximum),
 with no temporary files or recovery cache. Navigation/logout cancel pending preparation;
-Send remains explicit and ordinary upload permissions and cleanup apply.
+The picker selection authorizes one send after validation; ordinary upload permissions
+and cleanup apply. Existing selected files are never included in that send.

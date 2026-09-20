@@ -25,8 +25,8 @@ messages live service actions.
 Disabling, logout, permission revocation and timeline eviction release retained content.
 Emoji & Sticker Images requests `image_sharing` and returns `image_sharing: true`
 from activation. While enabled, custom emoji and sticker selections stage image attachments. Wasm receives no conversation text or image bytes and cannot fetch
-or send anything. The user selects artwork, reviews the staged attachment, and
-presses the ordinary Send button. Disable/logout revoke the option.
+or send anything. Selecting artwork authorizes an immediate image send after validation; text drafts
+remain intact. Disable/logout revoke the option.
 Ocean, Midnight, Rose, Forest and Latte are declarative themes under `extensions/`.
 The author packages compiled bytes; Serein never runs a repository's build scripts.
 

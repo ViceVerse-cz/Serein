@@ -5279,6 +5279,13 @@ impl eframe::App for Desktop {
 			self.state.user.is_some() && self.state.gateway_connected,
 			&ctx,
 		);
+		if let Some(command) = self
+			.uploads
+			.image_send(&mut self.state, self.messaging.image_sharing_enabled)
+			&& !self.state.demo
+		{
+			self.command(command);
+		}
 		// Move native handles once; never load dropped bytes on the rendering thread.
 		if !dropped.is_empty() {
 			if self.messaging.accepts_server_emoji_drops() {

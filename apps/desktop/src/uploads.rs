@@ -184,6 +184,7 @@ struct Uploading {
 }
 #[derive(Default)]
 pub struct Uploads {
+	auto_image: bool,
 	scope: Option<(u64, Id)>,
 	selected: Vec<Chosen>,
 	next_key: u64,
@@ -198,7 +199,7 @@ pub struct Uploads {
 	notice: Option<&'static str>,
 }
 impl Uploads {
-	/// Download and stage public artwork; sending remains the composer's explicit action.
+	/// A picker click authorizes one image send after preparation.
 	#[allow(clippy::too_many_arguments)]
 	pub fn start_image_share(
 		&mut self,
@@ -212,8 +213,8 @@ impl Uploads {
 		if self.busy() {
 			return Err("Wait for the current attachment operation to finish");
 		}
-		if self.selected.len() >= discord_api::upload::MAX_FILES {
-			return Err("Attach up to 10 files per message");
+		if !self.selected.is_empty() {
+			return Err("Send or remove existing attachments before selecting an image");
 		}
 		let (url, filename, format) =
 			image_share_source(asset).ok_or("Unsupported emoji or sticker artwork")?;
@@ -254,7 +255,27 @@ impl Uploads {
 		self.scope = Some((generation, channel));
 		self.last = None;
 		self.choosing = Some(Choosing { result, cancelled });
+		self.auto_image = true;
 		Ok(())
+	}
+	pub fn image_send(
+		&mut self,
+		state: &mut client_core::State,
+		enabled: bool,
+	) -> Option<client_core::Command> {
+		if !enabled {
+			self.auto_image = false;
+		}
+		if !self.auto_image || self.busy() {
+			return None;
+		}
+		self.auto_image = false;
+		if self.scope != state.selected.map(|channel| (state.generation, channel))
+			|| self.selected.len() != 1
+		{
+			return None;
+		}
+		state.prepare_image_send(self.selected[0].source.filename())
 	}
 	pub fn select_pasted(
 		&mut self,
@@ -553,6 +574,7 @@ impl Uploads {
 		self.last = None;
 	}
 	pub fn cancel(&mut self) {
+		self.auto_image = false;
 		if let Some(choosing) = &self.choosing {
 			choosing.cancelled.store(true, Ordering::Release);
 		}
@@ -666,6 +688,10 @@ mod tests {
 			.await
 			.unwrap();
 		}
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		state.generation = 1;
+		state.drafts.insert(channel, "Keep typing".into());
 		for asset in [
 			asset,
 			model::ImageShare::Emoji {
@@ -674,23 +700,27 @@ mod tests {
 			},
 		] {
 			uploads
-				.start_image_share(1, Id(2), asset, &runtime, &context, true)
+				.start_image_share(1, channel, asset, &runtime, &context, true)
 				.unwrap();
-			assert!(uploads.take_source(1, Id(2)).is_none());
-			settle(&mut uploads, &context, Id(2)).await;
+			assert!(uploads.image_send(&mut state, true).is_none());
+			settle(&mut uploads, &context, channel).await;
 			assert!(uploads.take_notice().is_none());
+			assert!(
+				matches!(uploads.image_send(&mut state, true), Some(client_core::Command::Send { content, .. }) if content.is_empty())
+			);
+			assert!(uploads.image_send(&mut state, true).is_none());
+			assert_eq!(state.drafts[&channel], "Keep typing");
+			assert!(uploads.previews().iter().all(Option::is_some));
+			assert_eq!(uploads.take_source(1, channel).unwrap().len(), 1);
 		}
-		assert_eq!(
-			uploads
-				.files()
-				.iter()
-				.map(|(name, _)| name.as_str())
-				.collect::<Vec<_>>(),
-			["sticker-7.png", "emoji-9.gif"]
-		);
-		assert!(uploads.previews().iter().all(Option::is_some));
-		assert!(uploads.take_source(1, Id(3)).is_none());
-		assert_eq!(uploads.take_source(1, Id(2)).unwrap().len(), 2);
+		uploads
+			.start_image_share(1, channel, asset, &runtime, &context, true)
+			.unwrap();
+		settle(&mut uploads, &context, channel).await;
+		assert!(uploads.image_send(&mut state, false).is_none());
+		assert!(uploads.image_send(&mut state, true).is_none());
+		uploads.remove();
+
 		uploads
 			.start_image_share(1, Id(2), asset, &runtime, &context, true)
 			.unwrap();
@@ -831,6 +861,7 @@ mod tests {
 		let (send, result) = mpsc::sync_channel(1);
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let mut uploads = Uploads {
+			auto_image: false,
 			scope: Some((1, Id(2))),
 			choosing: Some(Choosing {
 				result,

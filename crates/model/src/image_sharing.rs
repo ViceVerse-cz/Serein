@@ -1,6 +1,6 @@
 use crate::Id;
 
-/// Explicitly stages public artwork as a normal attachment, without sending a message.
+/// Public artwork selected for an ordinary image attachment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageShare {
 	Emoji { id: Id, animated: bool },

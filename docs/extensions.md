@@ -111,8 +111,10 @@ stale. Account/session changes invalidate outstanding results.
 
 The bundled **Emoji & Sticker Images** plugin requests `image_sharing`. Its
 activation output makes custom emoji and sticker selections stage artwork as ordinary
-image attachments. The host fetches and validates the selected image; the user reviews
-the attachment and presses Send. Enabling the plugin never sends anything, grants
+image attachments. Selecting artwork authorizes one send after host download and
+validation, without another composer confirmation. Text drafts stay intact. Existing
+file selections must be sent or removed first. Serein displays these attachments at
+32px for emoji and 160px for stickers; other clients control their own attachment layout. Enabling the plugin never sends anything, grants
 network access to Wasm, or changes native sticker/emoji entitlements. Disabling removes the option. Logout, account changes and channel navigation cancel
 pending image preparation; already selected files follow ordinary attachment handling.
 The `image_sharing` output defaults to false and is accepted only from an activation

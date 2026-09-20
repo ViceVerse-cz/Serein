@@ -112,7 +112,7 @@ impl State {
 			};
 			return None;
 		}
-		self.prepare_message(&[], Some(sticker))
+		self.prepare_message(&[], Some(sticker), false)
 	}
 	pub fn discard_pending_sticker(&mut self, nonce: &str) {
 		self.pending.retain(|p| {

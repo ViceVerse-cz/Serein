@@ -1075,12 +1075,17 @@ impl State {
 	}
 	/// Queue the draft with up to ten attachment filenames; an empty slice sends text only.
 	pub fn prepare_send_with_attachments(&mut self, filenames: &[&str]) -> Option<Command> {
-		self.prepare_message(filenames, None)
+		self.prepare_message(filenames, None, false)
+	}
+	/// Send selected artwork without consuming the text draft.
+	pub fn prepare_image_send(&mut self, filename: &str) -> Option<Command> {
+		self.prepare_message(&[filename], None, true)
 	}
 	pub(crate) fn prepare_message(
 		&mut self,
 		filenames: &[&str],
 		sticker: Option<&Sticker>,
+		preserve_draft: bool,
 	) -> Option<Command> {
 		let channel = self.selected?;
 		if !self.can_send(channel) || (!filenames.is_empty() && !self.can_attach(channel)) {
@@ -1102,7 +1107,7 @@ impl State {
 			self.status = "Attachment filename is invalid or too long";
 			return None;
 		}
-		let content = if sticker.is_some() {
+		let content = if sticker.is_some() || preserve_draft {
 			""
 		} else {
 			self.drafts.get(&channel).map_or("", String::as_str)
@@ -1139,7 +1144,7 @@ impl State {
 			delivery: Delivery::Sending,
 			confirmed: None,
 		});
-		if sticker.is_none() {
+		if sticker.is_none() && !preserve_draft {
 			self.drafts.remove(&channel);
 		}
 		self.search_target = None;

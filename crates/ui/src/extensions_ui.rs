@@ -679,7 +679,7 @@ impl ExtensionUi {
 							.capabilities
 							.contains(&Capability::ImageSharing)
 						{
-							"Select artwork, then send the staged image attachment."
+							"Selecting artwork sends it as an image attachment."
 						} else {
 							"Example deleted-message appearance"
 						},
