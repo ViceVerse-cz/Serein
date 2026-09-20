@@ -1778,6 +1778,8 @@ mod tests {
 					channel: Id(20),
 					author: crate::message(1, Id(20)).author,
 					excerpt: "pin".into(),
+					attachments: vec![],
+					embeds: vec![],
 				})
 				.collect(),
 			total: 0,
@@ -1908,6 +1910,8 @@ mod tests {
 					channel: Id(20),
 					author: crate::message(1, Id(20)).author,
 					excerpt: "index text".into(),
+					attachments: vec![],
+					embeds: vec![],
 				}],
 				total: 50,
 				partial: false,

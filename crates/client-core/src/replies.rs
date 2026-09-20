@@ -874,6 +874,8 @@ mod tests {
 							primary_guild: None,
 						},
 						excerpt: "Synthetic".into(),
+						attachments: vec![],
+						embeds: vec![],
 					}],
 					total: 1,
 					partial: false,

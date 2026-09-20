@@ -3051,8 +3051,17 @@ impl MessagingUi {
 						.inner_margin(egui::Margin::same(12)),
 				)
 				.show(ui, |ui| {
-					self.search
-						.pane(ui, state, &mut commands, &mut self.avatars);
+					self.search.pane(
+						ui,
+						state,
+						&mut commands,
+						&mut self.avatars,
+						search::MediaUi {
+							download: &mut self.timeline.download,
+							audio: &mut self.timeline.audio,
+							video: &mut self.timeline.video,
+						},
+					);
 					if let Some(link) = self.search.opening.take() {
 						self.timeline.opening = Some(link);
 					}

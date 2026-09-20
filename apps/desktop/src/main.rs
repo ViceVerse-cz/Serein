@@ -3059,6 +3059,8 @@ impl Desktop {
 								message.content.chars().take(200).collect::<String>()
 							),
 							author: message.author,
+							attachments: message.attachments,
+							embeds: message.embeds,
 						}
 					})
 					.collect();
@@ -3149,6 +3151,8 @@ impl Desktop {
 									channel,
 									author: message.author,
 									excerpt: message.content.clone(),
+									attachments: message.attachments,
+									embeds: message.embeds,
 								});
 							}
 						}

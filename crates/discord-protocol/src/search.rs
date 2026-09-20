@@ -31,6 +31,10 @@ pub(crate) struct Hit {
 	#[serde(default)]
 	content: String,
 	#[serde(default)]
+	attachments: crate::attachments::AttachmentList,
+	#[serde(default)]
+	embeds: crate::embeds::EmbedList,
+	#[serde(default)]
 	hit: Option<bool>,
 }
 pub(crate) fn list<'de, D: Deserializer<'de>, T: Deserialize<'de>, const N: usize>(
@@ -73,6 +77,8 @@ impl Reply {
 				channel: hit.channel_id,
 				author: hit.author.into_model(),
 				excerpt: hit.content,
+				attachments: hit.attachments.0,
+				embeds: crate::embeds::bounded(hit.embeds.0),
 			};
 			if result.excerpt.len() > 8192 {
 				result.excerpt = "Message exceeds preview limit - open message to read".into();
@@ -106,6 +112,8 @@ impl Hit {
 			channel: self.channel_id,
 			author: self.author.into_model(),
 			excerpt,
+			attachments: self.attachments.0,
+			embeds: crate::embeds::bounded(self.embeds.0),
 		}
 	}
 }

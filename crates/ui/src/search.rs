@@ -41,6 +41,10 @@ pub struct SearchUi {
 	search_anchor: Option<egui::Rect>,
 	suggestion_index: usize,
 	formats: crate::markdown::FormatCache,
+	/// Bounded message shells for the current page so the chat media renderers can draw hits.
+	previews: std::collections::HashMap<Id, model::Message>,
+	/// Attachment viewer open on a result: (message, attachment).
+	viewing: Option<(Id, Id)>,
 	pub opening: Option<String>,
 	pub profile: Option<model::User>,
 	pub channel_reference: Option<Id>,
@@ -95,6 +99,8 @@ impl SearchUi {
 		}
 		if !self.open {
 			self.formats.retain(|_| false);
+			self.previews.clear();
+			self.viewing = None;
 			self.filters_open = false;
 			self.filter_draft = None;
 			if state.search.is_some() {
@@ -110,13 +116,18 @@ impl SearchUi {
 		{
 			commands.push(state.clear_search());
 		}
-		self.formats.retain(|id| {
+		let on_page = |id: Id| {
 			state
 				.search
 				.as_ref()
 				.and_then(|view| view.page.as_ref())
 				.is_some_and(|page| page.hits.iter().any(|hit| hit.id == id))
-		});
+		};
+		self.formats.retain(on_page);
+		self.previews.retain(|id, _| on_page(*id));
+		if self.viewing.is_some_and(|(message, _)| !on_page(message)) {
+			self.viewing = None;
+		}
 		self.ime_frame = self.composing;
 		ctx.input(|i| {
 			for event in &i.events {
@@ -683,10 +694,12 @@ impl SearchUi {
 		state: &mut State,
 		commands: &mut Vec<Command>,
 		avatars: &mut crate::avatars::Avatars,
+		media: MediaUi<'_>,
 	) {
 		let colors = design::palette(ui);
 		let allowed = state.can_search();
 		let mut submit = std::mem::take(&mut self.pending_submit) && !self.pins;
+		let mut media = media;
 		let mut older = None;
 		let mut target = None;
 		ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
@@ -834,6 +847,7 @@ impl SearchUi {
 										&content_query
 									},
 									avatars,
+									&mut media,
 									&mut target,
 								);
 							});
@@ -888,6 +902,20 @@ impl SearchUi {
 				}
 			}
 		}
+		if let Some((message, attachment)) = self.viewing {
+			self.viewing = self.previews.get(&message).and_then(|preview| {
+				crate::attachments::viewer(
+					ui,
+					&preview.attachments,
+					attachment,
+					avatars,
+					media.download,
+					&mut self.opening,
+					state.demo,
+				)
+				.map(|id| (message, id))
+			});
+		}
 		if let Some((query, before)) = older
 			&& let Some(command) = state.request_search(query, before)
 		{
@@ -900,6 +928,42 @@ impl SearchUi {
 			self.open = false;
 		}
 	}
+	/// Bounded message shell that lets the chat attachment and embed renderers draw a hit.
+	fn shell(&mut self, hit: &model::SearchHit) {
+		self.previews
+			.entry(hit.id)
+			.or_insert_with(|| model::Message {
+				flags: 0,
+				ephemeral: false,
+				components: vec![],
+				application_id: None,
+				reactions: None,
+				id: hit.id,
+				channel: hit.channel,
+				author: hit.author.clone(),
+				author_roles: vec![],
+				author_nick: None,
+				content: String::new(),
+				mentions: vec![],
+				mention_roles: vec![],
+				mention_everyone: false,
+				suppress_notifications: false,
+				edited: false,
+				edited_at: None,
+				revision: 0,
+				nonce: None,
+				reply_to: None,
+				kind: 0,
+				reply_deleted: false,
+				forwarded: false,
+				unsupported: false,
+				extra_content: Default::default(),
+				embeds: hit.embeds.clone(),
+				embeds_suppressed: false,
+				attachments: hit.attachments.clone(),
+			});
+	}
+	#[allow(clippy::too_many_arguments)]
 	fn result_card(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -907,6 +971,7 @@ impl SearchUi {
 		hit: &model::SearchHit,
 		query: &str,
 		avatars: &mut crate::avatars::Avatars,
+		media: &mut MediaUi<'_>,
 		target: &mut Option<Id>,
 	) {
 		let colors = design::palette(ui);
@@ -1032,10 +1097,50 @@ impl SearchUi {
 							&mut surface,
 							query,
 						);
-						surface.finish(ui);
 						if revealed != 0 {
 							ui.data_mut(|data| data.insert_temp(id, revealed));
 						}
+						if !hit.attachments.is_empty() || !hit.embeds.is_empty() {
+							ui.add_space(4.0);
+							self.shell(hit);
+							let preview = &self.previews[&hit.id];
+							if crate::embeds::has_media_spoilers(preview) {
+								ui.label(
+									RichText::new("Spoiler media - open the message to reveal it.")
+										.small()
+										.italics()
+										.color(colors.muted),
+								);
+							} else {
+								if !preview.embeds.is_empty() {
+									crate::embeds::show(
+										ui,
+										preview,
+										&mut self.formats,
+										avatars,
+										&mut self.opening,
+										media.download,
+										&mut self.profile,
+										state,
+									);
+								}
+								if !preview.attachments.is_empty() {
+									crate::attachments::show(
+										ui,
+										preview,
+										avatars,
+										&mut self.viewing,
+										&mut self.opening,
+										media.download,
+										media.audio,
+										media.video,
+										state.demo,
+										&mut surface,
+									);
+								}
+							}
+						}
+						surface.finish(ui);
 					});
 				});
 			});
@@ -1044,6 +1149,13 @@ impl SearchUi {
 }
 
 const CHIP_HEIGHT: f32 = 32.0;
+
+/// Shared download, audio and video controllers borrowed from the timeline for one frame.
+pub struct MediaUi<'a> {
+	pub download: &'a mut crate::attachments::DownloadUi,
+	pub audio: &'a mut crate::audio::AudioUi,
+	pub video: &'a mut crate::video::VideoUi,
+}
 
 /// Compact raised control used by the results header, pager and hover "Jump" action.
 struct Chip<'a> {
@@ -1275,7 +1387,17 @@ mod tests {
 			if !view.pins {
 				view.header_input(ui, state, commands);
 			}
-			view.pane(ui, state, commands, &mut crate::avatars::Avatars::default());
+			view.pane(
+				ui,
+				state,
+				commands,
+				&mut crate::avatars::Avatars::default(),
+				MediaUi {
+					download: &mut crate::attachments::DownloadUi::default(),
+					audio: &mut crate::audio::AudioUi::default(),
+					video: &mut crate::video::VideoUi::default(),
+				},
+			);
 		}
 	}
 	#[test]
@@ -1394,6 +1516,8 @@ mod tests {
 							primary_guild: None,
 						},
 						excerpt: "Synthetic pinned message".into(),
+						attachments: vec![],
+						embeds: vec![],
 					}],
 					total: 1,
 					partial: continuation.is_some(),
