@@ -1472,6 +1472,14 @@ impl Desktop {
 			messaging.preview_theme_maker(&tab);
 		}
 		#[cfg(feature = "demo")]
+		if demo
+			&& std::env::args().any(|arg| arg == "--demo-threads")
+			&& let Some(selected) = state.selected
+		{
+			// Threads dialog for the fixture channel, for screenshots.
+			messaging.preview_threads(selected);
+		}
+		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-profile") {
 			// Presence for the fixture card comes from the same synthetic People rows.
 			let _ = state.request_members();

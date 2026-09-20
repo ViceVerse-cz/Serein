@@ -481,6 +481,10 @@ impl MessagingUi {
 	}
 	/// Fixture-only entry point: opens People and the profile card for `user` as if clicked.
 	#[cfg(any(test, feature = "demo"))]
+	/// Fixture-only: open the Threads dialog for `parent` at startup, as the header control would.
+	pub fn preview_threads(&mut self, parent: Id) {
+		self.archive_parent = Some(parent);
+	}
 	pub fn preview_profile(&mut self, user: model::User) {
 		self.members_narrow_open = true;
 		self.profile = Some(user);

@@ -22,9 +22,11 @@ impl ArchivesUi {
 		let mut close = false;
 		let mut request = None;
 		let mut target = None;
-		let response = crate::dialog::Dialog::new("archived-threads", "Archived Threads")
+		let mut active_target = None;
+		let active = state.active_threads(parent);
+		let response = crate::dialog::Dialog::new("archived-threads", "Threads")
 			.subtitle(
-				"One page of up to 25 archived threads. Opening loads messages; it does not join or reopen a thread.",
+				"Active threads come from the session; older threads load one page of up to 25 at a time. Opening loads messages; it does not join or reopen a thread.",
 			)
 			.width(460.0)
 			.show(ctx, |d| {
@@ -42,6 +44,26 @@ impl ArchivesUi {
 						.truncate(),
 					);
 					ui.add_space(10.0);
+					if !active.is_empty() {
+						ui.label(
+							crate::design::semibold(ui, "Active threads", 12.0).color(colors.muted),
+						);
+						ui.add_space(4.0);
+						egui::ScrollArea::vertical()
+							.id_salt(("active-threads", parent))
+							.max_height(200.0)
+							.show(ui, |ui| {
+								for thread in &active {
+									let row = thread_row(ui, thread, &colors);
+									if row.clicked() {
+										active_target = Some(thread.id);
+									}
+								}
+							});
+						ui.add_space(10.0);
+					}
+					ui.label(crate::design::semibold(ui, "Older threads", 12.0).color(colors.muted));
+					ui.add_space(4.0);
 					ui.horizontal_wrapped(|ui| {
 						for (kind, name) in [
 							(Kind::Public, "Public"),
@@ -135,7 +157,20 @@ impl ArchivesUi {
 											{
 												target = Some(thread.id);
 											}
-											ui.add(egui::Label::new(&thread.name).truncate());
+											ui.vertical(|ui| {
+												ui.spacing_mut().item_spacing.y = 1.0;
+												ui.add(egui::Label::new(&thread.name).truncate());
+												ui.add(
+													egui::Label::new(
+														egui::RichText::new(
+															crate::timeline::thread_activity(thread),
+														)
+														.size(12.0)
+														.color(colors.muted),
+													)
+													.truncate(),
+												);
+											});
 										});
 									});
 								}
@@ -163,8 +198,62 @@ impl ArchivesUi {
 			&& let Some(command) = state.open_archived_thread(target)
 		{
 			commands.push(command);
+		} else if let Some(target) = active_target {
+			commands.push(state.clear_archives());
+			if let Some(command) = state.select(target) {
+				commands.push(command);
+			}
 		}
 	}
+}
+
+/// One active-thread row: name, message count and last activity; the whole row opens it.
+fn thread_row(
+	ui: &mut egui::Ui,
+	thread: &model::Channel,
+	colors: &crate::design::Palette,
+) -> egui::Response {
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 46.0), egui::Sense::click());
+	let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+	if ui.is_rect_visible(rect) {
+		let hovered = response.hovered() || response.has_focus();
+		let painter = ui.painter();
+		if hovered {
+			painter.rect_filled(rect, 6.0, colors.hover);
+		}
+		let icon = egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 18.0, rect.center().y),
+			egui::Vec2::splat(18.0),
+		);
+		crate::icons::paint(painter, crate::icons::Icon::Threads, icon, colors.muted);
+		let left = rect.left() + 38.0;
+		let width = (rect.right() - 8.0 - left).max(40.0);
+		for (text, y, size, color) in [
+			(
+				thread.name.clone(),
+				rect.top() + 6.0,
+				14.0,
+				colors.text_strong,
+			),
+			(
+				crate::timeline::thread_activity(thread),
+				rect.top() + 25.0,
+				12.0,
+				colors.muted,
+			),
+		] {
+			let galley = egui::WidgetText::from(egui::RichText::new(text).size(size).color(color))
+				.into_galley(
+					ui,
+					Some(egui::TextWrapMode::Truncate),
+					width,
+					egui::FontSelection::Default,
+				);
+			painter.galley(egui::pos2(left, y), galley, color);
+		}
+	}
+	response.on_hover_text(format!("Open thread “{}”", thread.name))
 }
 
 #[cfg(test)]

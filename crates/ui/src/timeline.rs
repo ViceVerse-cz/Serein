@@ -322,6 +322,108 @@ fn system_icon(kind: u8, colors: &crate::design::Palette) -> (crate::icons::Icon
 		_ => (Icon::Help, colors.muted),
 	}
 }
+/// "N messages · last activity" summary for a thread row, built from synced metadata only.
+pub(crate) fn thread_activity(thread: &model::Channel) -> String {
+	let count = match thread.message_count {
+		Some(0) => "No replies yet".to_owned(),
+		Some(1) => "1 message".to_owned(),
+		Some(n) => format!("{n} messages"),
+		None => "Thread".to_owned(),
+	};
+	let Some(last) = thread.last_message else {
+		return count;
+	};
+	let time = timestamp(last);
+	let today = crate::local_time::local(time::OffsetDateTime::now_utc()).date();
+	let when = if time.date() == today {
+		format!("today at {:02}:{:02}", time.hour(), time.minute())
+	} else if time.date().next_day() == Some(today) {
+		format!("yesterday at {:02}:{:02}", time.hour(), time.minute())
+	} else {
+		format!(
+			"{:04}-{:02}-{:02}",
+			time.year(),
+			time.month() as u8,
+			time.day()
+		)
+	};
+	format!("{count} · Last activity {when}")
+}
+/// Discord-style card under a message that started a thread: name, activity, open affordance.
+fn thread_card(
+	ui: &mut egui::Ui,
+	thread: &model::Channel,
+	colors: &crate::design::Palette,
+) -> egui::Response {
+	let width = ui.available_width().min(520.0);
+	let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 56.0), egui::Sense::click());
+	let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+	if ui.is_rect_visible(rect) {
+		let hovered = response.hovered() || response.has_focus();
+		let painter = ui.painter();
+		painter.rect(
+			rect,
+			8.0,
+			if hovered { colors.hover } else { colors.raised },
+			egui::Stroke::new(1.0, colors.border),
+			egui::StrokeKind::Inside,
+		);
+		let icon = egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 26.0, rect.center().y),
+			egui::Vec2::splat(20.0),
+		);
+		crate::icons::paint(painter, crate::icons::Icon::Threads, icon, colors.muted);
+		let text_left = rect.left() + 48.0;
+		let text_right = rect.right() - 16.0;
+		let open_width = painter
+			.layout_no_wrap(
+				"View thread ›".to_owned(),
+				egui::FontId::proportional(13.0),
+				colors.link,
+			)
+			.size()
+			.x;
+		painter.text(
+			egui::pos2(text_right, rect.center().y),
+			egui::Align2::RIGHT_CENTER,
+			"View thread ›",
+			egui::FontId::proportional(13.0),
+			colors.link,
+		);
+		let name_width = (text_right - open_width - 12.0 - text_left).max(40.0);
+		let name = egui::WidgetText::from(
+			crate::design::semibold(ui, thread.name.as_str(), 14.5).color(colors.text_strong),
+		)
+		.into_galley(
+			ui,
+			Some(egui::TextWrapMode::Truncate),
+			name_width,
+			egui::FontSelection::Default,
+		);
+		painter.galley(
+			egui::pos2(text_left, rect.top() + 9.0),
+			name,
+			colors.text_strong,
+		);
+		let activity = egui::WidgetText::from(
+			RichText::new(thread_activity(thread))
+				.size(12.5)
+				.color(colors.muted),
+		)
+		.into_galley(
+			ui,
+			Some(egui::TextWrapMode::Truncate),
+			name_width,
+			egui::FontSelection::Default,
+		);
+		painter.galley(
+			egui::pos2(text_left, rect.top() + 30.0),
+			activity,
+			colors.muted,
+		);
+	}
+	response.on_hover_text(format!("Open thread “{}”", thread.name))
+}
 fn grouped(previous: Option<&Message>, message: &Message, boundary: Option<Id>) -> bool {
 	previous.is_some_and(|previous| {
 		previous.author.id == message.author.id
@@ -2076,6 +2178,13 @@ impl TimelineView {
 											),
 										);
 										ui.painter().rect_filled(rail, 2.0, colors.selected);
+									}
+									if let Some(thread) = state.thread_of(message) {
+										let card = thread_card(ui, thread, &colors);
+										surface.keep(&card);
+										if card.clicked() {
+											self.channel_reference = Some(thread.id);
+										}
 									}
 									if let Some(action) = crate::reactions::show(
 										ui,

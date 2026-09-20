@@ -197,6 +197,54 @@ impl State {
 		}
 	}
 
+	/// Active (non-archived) threads known to the session under `parent`, newest activity first.
+	/// Only the gateway-synced thread list is used; nothing is fetched.
+	pub fn active_threads(&self, parent: Id) -> Vec<&Channel> {
+		let mut threads: Vec<&Channel> = self
+			.channels
+			.iter()
+			.filter(|c| {
+				c.parent_id == Some(parent)
+					&& matches!(c.kind, 10..=12)
+					&& Some(c.id) != self.archived_thread
+			})
+			.collect();
+		threads.sort_by(|a, b| {
+			b.last_message
+				.unwrap_or(b.id)
+				.cmp(&a.last_message.unwrap_or(a.id))
+				.then(b.id.cmp(&a.id))
+		});
+		threads
+	}
+
+	/// The thread a message started, when the session already knows it.
+	///
+	/// Messages carrying the service `HAS_THREAD` flag share their id with the thread. A
+	/// "started a thread" system row (type 18) only names the thread in `content`, so it is
+	/// matched by name against this channel's known threads; renamed threads are not inferred.
+	pub fn thread_of(&self, message: &model::Message) -> Option<&Channel> {
+		let is_thread =
+			|c: &&Channel| matches!(c.kind, 10..=12) && c.parent_id == Some(message.channel);
+		if message.flags & (1 << 5) != 0
+			&& let Some(thread) = self.channels.iter().find(|c| c.id == message.id)
+			&& is_thread(&thread)
+		{
+			return Some(thread);
+		}
+		if message.kind == 18 {
+			let name = message.content.trim();
+			if !name.is_empty() {
+				return self
+					.channels
+					.iter()
+					.filter(is_thread)
+					.find(|c| c.name.trim() == name);
+			}
+		}
+		None
+	}
+
 	fn archive_thread_kind(&self, parent: Id, kind: Kind) -> Option<u8> {
 		let parent = self.channel(parent)?;
 		Some(match kind {
@@ -226,6 +274,46 @@ mod tests {
 			icon: None,
 			member_list_id: None,
 			message_count: None,
+		}
+	}
+	fn message(id: u64, channel: Id) -> model::Message {
+		model::Message {
+			flags: 0,
+			ephemeral: false,
+			components: vec![],
+			application_id: None,
+			reactions: None,
+			id: Id(id),
+			channel,
+			author: model::User {
+				primary_guild: None,
+				id: Id(2),
+				name: "Synthetic".into(),
+				avatar: None,
+				webhook: false,
+				kind: Default::default(),
+				discriminator: 0,
+			},
+			author_roles: vec![],
+			author_nick: None,
+			content: String::new(),
+			mentions: vec![],
+			mention_roles: vec![],
+			mention_everyone: false,
+			suppress_notifications: false,
+			edited: false,
+			edited_at: None,
+			revision: 0,
+			nonce: None,
+			reply_to: None,
+			kind: 0,
+			reply_deleted: false,
+			forwarded: false,
+			unsupported: false,
+			extra_content: Default::default(),
+			embeds: vec![],
+			embeds_suppressed: false,
+			attachments: vec![],
 		}
 	}
 	fn state() -> State {
@@ -656,6 +744,90 @@ mod tests {
 		assert!(
 			state.request_archives(Id(20), Kind::Public, None).is_some(),
 			"Another loaded parent remains browsable after selected-thread revocation"
+		);
+	}
+
+	#[test]
+	fn active_threads_are_sorted_newest_first_excluding_archived_and_other_parents() {
+		let mut state = state();
+		state.channels.extend([
+			channel(30, Some(Id(10)), 11),
+			channel(31, Some(Id(10)), 11),
+			channel(32, Some(Id(20)), 11), // different parent: excluded
+			channel(33, Some(Id(10)), 0),  // not a thread kind: excluded
+		]);
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == Id(30))
+			.unwrap()
+			.last_message = Some(Id(1000));
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == Id(31))
+			.unwrap()
+			.last_message = Some(Id(2000));
+		state.archived_thread = Some(Id(31));
+		let active: Vec<Id> = state.active_threads(Id(10)).iter().map(|c| c.id).collect();
+		assert_eq!(
+			active,
+			vec![Id(30)],
+			"Newest activity first, current archived-thread transient and other parents excluded"
+		);
+	}
+
+	#[test]
+	fn thread_of_matches_flagged_starter_messages_and_named_system_rows() {
+		let mut state = state();
+		state
+			.channels
+			.extend([channel(30, Some(Id(10)), 11), channel(31, Some(Id(10)), 11)]);
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == Id(31))
+			.unwrap()
+			.name = "Introductions".into();
+
+		let mut flagged = message(30, Id(10));
+		flagged.flags = 1 << 5;
+		assert_eq!(
+			state.thread_of(&flagged).map(|c| c.id),
+			Some(Id(30)),
+			"A HAS_THREAD message shares its id with the thread it started"
+		);
+
+		let mut unflagged = message(30, Id(10));
+		unflagged.flags = 0;
+		assert!(
+			state.thread_of(&unflagged).is_none(),
+			"Without the flag, sharing an id with a thread is not proof of starting it"
+		);
+
+		let mut started = message(999, Id(10));
+		started.kind = 18;
+		started.content = "Introductions".into();
+		assert_eq!(
+			state.thread_of(&started).map(|c| c.id),
+			Some(Id(31)),
+			"Type-18 rows only carry the thread name; match by name against known threads"
+		);
+
+		let mut renamed = message(998, Id(10));
+		renamed.kind = 18;
+		renamed.content = "A name that no longer matches".into();
+		assert!(
+			state.thread_of(&renamed).is_none(),
+			"A renamed thread is not inferred; only an exact name match resolves"
+		);
+
+		let mut other_channel = message(997, Id(20));
+		other_channel.kind = 18;
+		other_channel.content = "Introductions".into();
+		assert!(
+			state.thread_of(&other_channel).is_none(),
+			"A same-named thread under a different parent channel must not match"
 		);
 	}
 }
