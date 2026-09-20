@@ -54,17 +54,35 @@ impl DiscordApi {
 		}
 		Ok(text)
 	}
-	pub(super) async fn user_action(&self, action: &Action) -> Result<(), Failure> {
+	pub(super) async fn user_action(
+		&self,
+		action: &Action,
+		captcha: Option<&client_core::captcha::Retry>,
+		challenge: Option<&mut Option<client_core::captcha::Challenge>>,
+	) -> Result<(), Failure> {
 		// Unofficial normal-user routes: discord.py-self/http.py, checked 2026-09-12.
+		// A solved challenge may only resume the friendship write it was issued for.
+		if client_core::user_actions::establishes_friendship(action) {
+			let target =
+				client_core::user_actions::challenge_target(action).ok_or(Failure::Protocol)?;
+			if captcha.is_some_and(|retry| !retry.matches_target(&target)) {
+				return Err(Failure::Protocol);
+			}
+		} else if captcha.is_some() {
+			return Err(Failure::Protocol);
+		}
 		if let Action::AddFriend { username } = action {
 			if !client_core::user_actions::valid_username(username) {
 				return Err(Failure::Protocol);
 			}
 			return self
-				.request(
+				.request_with_captcha(
 					Method::POST,
 					"/users/@me/relationships",
 					Some(json!({"username":username,"discriminator":null})),
+					crate::MAX_WIRE,
+					captcha,
+					challenge,
 				)
 				.await
 				.map(|_| ())
@@ -111,31 +129,55 @@ impl DiscordApi {
 				self.request(method, &path, Some(body)).await.map(|_| ())
 			}
 			Action::AddFriend { .. } => unreachable!(),
-			Action::ResolveFriend { user, accept } => self
-				.request(
-					if *accept { Method::PUT } else { Method::DELETE },
-					&format!("/users/@me/relationships/{user}"),
-					accept.then(|| json!({})),
-				)
-				.await
-				.map(|_| ()),
-			Action::ProfileFriend { user, friend } => self
-				.request(
-					if *friend { Method::PUT } else { Method::DELETE },
-					&format!("/users/@me/relationships/{user}"),
-					friend.then(|| json!({})),
-				)
-				.await
-				.map(|_| ())
-				.map_err(|failure| {
-					if *friend {
+			Action::ResolveFriend { user, accept } => {
+				let (method, body) = if *accept {
+					(Method::PUT, Some(json!({})))
+				} else {
+					(Method::DELETE, None)
+				};
+				let path = format!("/users/@me/relationships/{user}");
+				if *accept {
+					self.request_with_captcha(
+						method,
+						&path,
+						body,
+						crate::MAX_WIRE,
+						captcha,
+						challenge,
+					)
+					.await
+					.map(|_| ())
+				} else {
+					self.request(method, &path, body).await.map(|_| ())
+				}
+			}
+			Action::ProfileFriend { user, friend } => {
+				let (method, body) = if *friend {
+					(Method::PUT, Some(json!({})))
+				} else {
+					(Method::DELETE, None)
+				};
+				let path = format!("/users/@me/relationships/{user}");
+				if *friend {
+					self.request_with_captcha(
+						method,
+						&path,
+						body,
+						crate::MAX_WIRE,
+						captcha,
+						challenge,
+					)
+					.await
+					.map(|_| ())
+					.map_err(|failure| {
 						failure.protocol_at(
 							"Friend request rejected · check the recipient's privacy settings",
 						)
-					} else {
-						failure
-					}
-				}),
+					})
+				} else {
+					self.request(method, &path, body).await.map(|_| ())
+				}
+			}
 			Action::CloseDm(channel) => self
 				.request(Method::DELETE, &format!("/channels/{channel}"), None)
 				.await
@@ -223,7 +265,8 @@ mod tests {
 			let (event, ()) = tokio::join!(
 				api.execute(Command::UserAction {
 					action: Action::LoadNote(Id(2)),
-					request: 7
+					request: 7,
+					captcha: None,
 				}),
 				server
 			);
@@ -378,6 +421,20 @@ mod tests {
 				Ok(()),
 			),
 			(
+				// A write with no challenge solver keeps the session and reports locally.
+				Action::Block {
+					user: Id(2),
+					blocked: true,
+				},
+				"PUT /users/@me/relationships/2",
+				Some(json!({"type":2})),
+				400,
+				r#"{"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic-sitekey"}"#,
+				Err(Failure::ProtocolAt(
+					"Discord requires verification for this action; complete it in the official client",
+				)),
+			),
+			(
 				Action::Block {
 					user: Id(2),
 					blocked: false,
@@ -498,7 +555,11 @@ mod tests {
 					.unwrap();
 			};
 			let (event, ()) = tokio::join!(
-				api.execute(Command::UserAction { action, request: 1 }),
+				api.execute(Command::UserAction {
+					action,
+					request: 1,
+					captcha: None,
+				}),
 				server
 			);
 			let Event::UserAction(client_core::user_actions::Event::Written { result, .. }) = event
@@ -508,7 +569,7 @@ mod tests {
 			assert_eq!(result, expected);
 		}
 		assert_eq!(
-			api.user_action(&Action::CloseDm(Id(0))).await,
+			api.user_action(&Action::CloseDm(Id(0)), None, None).await,
 			Err(Failure::Protocol)
 		);
 		assert!(
@@ -519,60 +580,87 @@ mod tests {
 		);
 	}
 	#[tokio::test]
-	async fn friend_request_captcha_reports_locally_without_ending_the_session() {
-		// Discord can answer a friend request with a per-action captcha. That is not a
-		// session challenge: the connection must stay usable and the caller must get a
-		// bounded local reason instead of a stop() that forces a manual reconnect.
+	async fn friend_request_captcha_surfaces_and_resumes_once_with_the_solution() {
+		// Discord can answer a friend request with a per-action captcha. The session must
+		// stay usable, the challenge must surface to the user, and the solved token must be
+		// replayed on that same write only.
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let mut api = DiscordApi::new(Arc::new(
 			SessionSecret::from_owner_input("SYNTHETIC_FRIEND_CAPTCHA_TOKEN".into()).unwrap(),
 		))
 		.unwrap();
 		api.base = format!("http://{}", listener.local_addr().unwrap());
-		let server = async {
-			let (mut socket, _) = listener.accept().await.unwrap();
-			let mut bytes = Vec::new();
-			while !bytes.windows(4).any(|b| b == b"\r\n\r\n") {
-				let mut chunk = [0; 1024];
-				let count = socket.read(&mut chunk).await.unwrap();
-				assert!(count > 0);
-				bytes.extend_from_slice(&chunk[..count]);
-			}
-			assert!(bytes.starts_with(b"POST /users/@me/relationships HTTP/1.1\r\n"));
-			let body = r#"{"code":0,"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic-sitekey"}"#;
-			socket
-				.write_all(
-					format!(
-						"HTTP/1.1 400 Bad Request\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-						body.len()
+		let server = tokio::spawn(async move {
+			for attempt in 0..2 {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut bytes = Vec::new();
+				while !bytes.windows(4).any(|b| b == b"\r\n\r\n") {
+					let mut chunk = [0; 1024];
+					let count = socket.read(&mut chunk).await.unwrap();
+					assert!(count > 0);
+					bytes.extend_from_slice(&chunk[..count]);
+				}
+				let request = std::str::from_utf8(&bytes).unwrap();
+				assert!(request.starts_with("POST /users/@me/relationships HTTP/1.1"));
+				assert_eq!(
+					request.contains("x-captcha-key: synthetic-solution"),
+					attempt == 1
+				);
+				assert_eq!(
+					request.contains("x-captcha-session-id: synthetic-session"),
+					attempt == 1
+				);
+				let (status, body) = if attempt == 0 {
+					(
+						"400 Bad Request",
+						r#"{"code":0,"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic-sitekey","captcha_session_id":"synthetic-session"}"#,
 					)
-					.as_bytes(),
-				)
-				.await
-				.unwrap();
+				} else {
+					("204 No Content", "")
+				};
+				socket
+					.write_all(
+						format!(
+							"HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+							body.len()
+						)
+						.as_bytes(),
+					)
+					.await
+					.unwrap();
+			}
+		});
+		let mut state = client_core::State {
+			auth: client_core::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			..Default::default()
 		};
-		let (event, ()) = tokio::join!(
-			api.execute(Command::UserAction {
-				action: Action::AddFriend {
-					username: "synthetic_friend".into(),
-				},
-				request: 1,
-			}),
-			server
-		);
-		let Event::UserAction(client_core::user_actions::Event::Written { result, .. }) = event
-		else {
-			panic!("wrong result")
-		};
-		assert_eq!(
-			result,
-			Err(Failure::ProtocolAt(
-				"Discord requires verification for this action; complete it in the official client"
-			))
-		);
+		let first = state.add_friend("synthetic_friend").unwrap();
+		let event = api.execute(first).await;
+		assert!(matches!(
+			event,
+			Event::UserAction(client_core::user_actions::Event::Challenge { .. })
+		));
 		assert!(
 			!api.stopped(),
 			"an action-level captcha must not stop the session"
 		);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event,
+		});
+		let request = state.friend_challenge().unwrap().0;
+		let command = state
+			.resume_friend_challenge(
+				request,
+				client_core::captcha::Solution::new("synthetic-solution".into()).unwrap(),
+			)
+			.unwrap();
+		assert!(matches!(
+			api.execute(command).await,
+			Event::UserAction(client_core::user_actions::Event::Written { result: Ok(()), .. })
+		));
+		assert!(!api.stopped());
+		server.await.unwrap();
 	}
 }

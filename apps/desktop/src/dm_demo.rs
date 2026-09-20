@@ -112,6 +112,7 @@ pub fn check() {
 			Command::UserAction {
 				action: user_actions::Action::OpenDm(user),
 				request,
+				..
 			} if user == friend => Some(request),
 			_ => None,
 		})

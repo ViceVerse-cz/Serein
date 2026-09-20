@@ -1,11 +1,11 @@
-//! One temporary, user-operated verification view, tied to one session and invite request.
-use client_core::{Command, State};
+//! One temporary, user-operated verification view, tied to one session and one pending write.
+use client_core::{Command, State, captcha::Verification};
 use eframe::egui;
 use std::{sync::Arc, time::Duration};
 
 #[derive(Default)]
 pub struct Captcha {
-	view: Option<(u64, u64, platform::captcha::CaptchaView)>,
+	view: Option<(u64, Verification, platform::captcha::CaptchaView)>,
 }
 impl Captcha {
 	pub fn close(&mut self) {
@@ -20,31 +20,30 @@ impl Captcha {
 		allowed: bool,
 	) -> Option<Command> {
 		let allowed = allowed && !state.demo;
-		let verification = &mut messaging.verification;
+		let panel = &mut messaging.verification;
 		if !allowed {
 			if !state.demo {
-				verification.active = false;
+				panel.active = false;
 			}
-			verification.start_requested = false;
+			panel.start_requested = false;
 		}
 		let scope = state
-			.invite_challenge()
-			.map(|(request, _)| (state.generation, request));
+			.verification()
+			.map(|(flow, _)| (state.generation, flow));
 		if !allowed
-			|| !verification.active
+			|| !panel.active
 			|| self
 				.view
 				.as_ref()
-				.is_some_and(|(generation, request, _)| scope != Some((*generation, *request)))
+				.is_some_and(|(generation, flow, _)| scope != Some((*generation, *flow)))
 		{
 			self.close();
 		}
-		let start =
-			verification.bounds.is_some() && std::mem::take(&mut verification.start_requested);
+		let start = panel.bounds.is_some() && std::mem::take(&mut panel.start_requested);
 		if start
 			&& allowed
-			&& let Some((request, challenge)) = state.invite_challenge()
-			&& verification.request == Some(request)
+			&& let Some((flow, challenge)) = state.verification()
+			&& panel.verification == Some(flow)
 		{
 			self.close();
 			let wake = ctx.clone();
@@ -54,18 +53,18 @@ impl Captcha {
 				ctx.theme() == egui::Theme::Dark,
 				move || wake.request_repaint(),
 			) {
-				Ok(view) => self.view = Some((state.generation, request, view)),
+				Ok(view) => self.view = Some((state.generation, flow, view)),
 				Err(error) => {
-					verification.active = false;
-					verification.error = Some(error);
+					panel.active = false;
+					panel.error = Some(error);
 				}
 			}
 		}
-		let (_, request, view) = self.view.as_ref()?;
-		let request = *request;
-		let Some(bounds) = verification.bounds else {
+		let (_, flow, view) = self.view.as_ref()?;
+		let flow = *flow;
+		let Some(bounds) = panel.bounds else {
 			self.close();
-			verification.active = false;
+			panel.active = false;
 			return None;
 		};
 		let scale = ctx.pixels_per_point();
@@ -87,16 +86,16 @@ impl Captcha {
 		};
 		if let Some(result) = result {
 			self.close();
-			verification.active = false;
+			panel.active = false;
 			match result {
 				Ok(solution) => {
-					let command = state.resume_invite_challenge(request, solution);
+					let command = state.resume_verification(flow, solution);
 					if command.is_none() {
-						verification.error = Some("Verification expired. Try joining again.");
+						panel.error = Some("Verification expired. Start the check again.");
 					}
 					return command;
 				}
-				Err(error) => verification.error = Some(error),
+				Err(error) => panel.error = Some(error),
 			}
 		}
 		None

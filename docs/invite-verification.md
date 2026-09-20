@@ -1,10 +1,11 @@
-# Invite verification
+# User-solved verification
 
-An invite join can require a human-completed hCaptcha. Supported responses now keep
-the existing account connected and open a native **Verification required** dialog.
-The invite card offers **Verify** instead of a disabled Join button and a clipped
-session error. The dialog shares the application's colors, typography, focus rules
-and cancellation controls; the provider widget uses its light or dark theme.
+An invite join or a friend request can require a human-completed hCaptcha. Supported
+responses keep the existing account connected and open a native **Verification
+required** dialog. The invite card offers **Verify** instead of a disabled Join button
+and a clipped session error. The dialog shares the application's colors, typography,
+focus rules and cancellation controls; the provider widget uses its light or dark
+theme.
 
 Choose Verify, complete the provider's check, and Serein submits the resulting
 passcode once for the same invite. A new challenge requires another explicit
@@ -13,6 +14,16 @@ response. Gateway membership still determines server access; a CAPTCHA passcode
 alone never grants it. Unsupported invite CAPTCHA responses fail that join without
 stopping the session. Authentication and account-level challenges retain the existing
 stop behavior.
+
+## Friend requests
+
+Sending a friend request (by username or from a profile) or accepting one can return the
+same challenge shape. Serein reuses this dialog and scopes the challenge to that single
+pending relationship write: the solved passcode is submitted once, on the same request,
+through the same `X-Captcha-Key`, `X-Captcha-Rqtoken` and `X-Captcha-Session-Id`
+headers. Cancelling or letting the challenge expire releases the pending write so the
+user can send it again. A challenge on any other write has no solver wired; that write
+fails locally with a bounded reason and the session stays connected.
 
 The sitekey is taken from the service response, never hardcoded. The challenge's
 enterprise data, request token and session ID remain bound to that attempt. The
@@ -45,6 +56,9 @@ Implementation evidence checked September 13, 2026:
   challenge fields and `X-Captcha-Key`, `X-Captcha-Rqtoken`,
   `X-Captcha-Session-Id` headers. This is unofficial protocol evidence, not a
   documented Discord third-party client contract.
+- [Discord Userdoccers CAPTCHA handling](https://docs.discord.food/topics/captcha-handling),
+  checked September 20, 2026: challenge fields, the retry headers above, and friend
+  requests listed as a challenged action. Also unofficial evidence.
 
 Windows and macOS embed verification; Linux opens a temporary GTK4/WebKit6 window. The owner reported a successful
 manual live check on September 13, 2026; this is not an agent-observed interoperability

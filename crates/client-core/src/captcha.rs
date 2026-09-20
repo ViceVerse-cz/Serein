@@ -89,15 +89,39 @@ impl fmt::Debug for Solution {
 }
 /// Constructed only after matching the outstanding state request; consumed once.
 pub struct Retry {
-	pub(crate) code: String,
+	pub(crate) target: Target,
 	pub(crate) request: u64,
 	pub(crate) challenge: Challenge,
 	pub(crate) solution: Solution,
 	pub(crate) expires: Instant,
 }
+/// Identity of the single write a solved challenge may resume.
+#[derive(Clone, PartialEq, Eq)]
+pub enum Target {
+	Invite { code: String },
+	Friend { user: model::Id },
+	Username { username: String },
+}
+/// The user-visible flow a pending challenge belongs to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Verification {
+	Invite { request: u64 },
+	Friend { request: u64 },
+}
+impl Verification {
+	pub fn request(self) -> u64 {
+		match self {
+			Self::Invite { request } | Self::Friend { request } => request,
+		}
+	}
+}
 impl Retry {
-	pub fn matches(&self, code: &str, request: u64) -> bool {
-		self.code == code && self.request == request && !self.expired()
+	pub fn matches(&self, target: &Target, request: u64) -> bool {
+		self.target == *target && self.request == request && !self.expired()
+	}
+	/// Whether a solved challenge may resume this specific write target.
+	pub fn matches_target(&self, target: &Target) -> bool {
+		self.target == *target && !self.expired()
 	}
 	pub fn expired(&self) -> bool {
 		Instant::now() >= self.expires

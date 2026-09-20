@@ -2768,6 +2768,7 @@ impl Desktop {
 				Command::UserAction {
 					action: client_core::user_actions::Action::OpenDm(user),
 					request,
+					..
 				} => Event::UserAction(client_core::user_actions::Event::DmOpened {
 					user,
 					request,
@@ -2776,18 +2777,19 @@ impl Desktop {
 				Command::UserAction {
 					action: client_core::user_actions::Action::LoadNote(user),
 					request,
+					..
 				} => Event::UserAction(client_core::user_actions::Event::NoteLoaded {
 					user,
 					request,
 					result: Ok(self.state.user_note(user).unwrap_or("").to_owned()),
 				}),
-				Command::UserAction { action, request } => {
-					Event::UserAction(client_core::user_actions::Event::Written {
-						action,
-						request,
-						result: Ok(()),
-					})
-				}
+				Command::UserAction {
+					action, request, ..
+				} => Event::UserAction(client_core::user_actions::Event::Written {
+					action,
+					request,
+					result: Ok(()),
+				}),
 				Command::GroupAction { action, request } => {
 					use client_core::group_actions::{Action, Event as GroupEvent};
 					use model::Patch;
@@ -4950,7 +4952,7 @@ impl eframe::App for Desktop {
 			ctx.request_repaint_after(Duration::from_millis(250));
 		}
 		self.poll_interaction_files(ctx);
-		self.state.expire_invite_challenge();
+		self.state.expire_verification();
 		if self.state.invite_challenge().is_some() {
 			ctx.request_repaint_after(Duration::from_secs(1));
 		}
