@@ -510,11 +510,9 @@ impl ExtensionUi {
 		}
 		if entry.cover_image.is_none()
 			&& (entry.theme_preview.is_some()
-				|| entry
-					.manifest
-					.capabilities
-					.contains(&Capability::DeletedMessages))
-		{
+				|| entry.manifest.capabilities.iter().any(|cap| {
+					matches!(cap, Capability::DeletedMessages | Capability::ImageSharing)
+				})) {
 			draw_native_preview(ui, rect, entry, radius);
 			let response = ui.interact(
 				rect,
@@ -653,10 +651,9 @@ impl ExtensionUi {
 		let texture = self.previews.get(&id).and_then(|p| p.texture.as_ref());
 		let native = entry.cover_image.is_none()
 			&& (entry.theme_preview.is_some()
-				|| entry
-					.manifest
-					.capabilities
-					.contains(&Capability::DeletedMessages));
+				|| entry.manifest.capabilities.iter().any(|cap| {
+					matches!(cap, Capability::DeletedMessages | Capability::ImageSharing)
+				}));
 		if texture.is_none() && !native {
 			self.enlarged = None;
 			return;
@@ -676,7 +673,17 @@ impl ExtensionUi {
 				);
 				draw_native_preview(ui, rect, entry, egui::CornerRadius::same(8));
 				if entry.manifest.kind != ExtensionKind::Theme {
-					ui.weak("Example deleted-message appearance");
+					ui.weak(
+						if entry
+							.manifest
+							.capabilities
+							.contains(&Capability::ImageSharing)
+						{
+							"Select artwork, then send the staged image attachment."
+						} else {
+							"Example deleted-message appearance"
+						},
+					);
 				}
 			} else if let Some(texture) = texture {
 				ui.add(
@@ -1569,12 +1576,11 @@ impl ExtensionUi {
 		};
 		let mut close = false;
 		let theme = consent.entry.manifest.kind == ExtensionKind::Theme;
-		let illustrated = consent.entry.theme_preview.is_some()
-			|| consent
-				.entry
-				.manifest
-				.capabilities
-				.contains(&Capability::DeletedMessages);
+		let illustrated =
+			consent.entry.theme_preview.is_some()
+				|| consent.entry.manifest.capabilities.iter().any(|cap| {
+					matches!(cap, Capability::DeletedMessages | Capability::ImageSharing)
+				});
 		let response = crate::dialog::Dialog::new(
 			"extension-consent",
 			if theme {
@@ -2075,6 +2081,39 @@ fn draw_native_preview(
 			color,
 		);
 	};
+	if entry
+		.manifest
+		.capabilities
+		.contains(&Capability::ImageSharing)
+	{
+		plate(0.0, 0.0, 1.0, 1.0, colors.chat, radius);
+		panel(0.08, 0.12, 0.84, 0.68, colors.raised);
+		let center = at(0.5, 0.40);
+		let r = rect.height() * 0.15;
+		painter.circle_filled(center, r, colors.accent);
+		for x in [-0.35, 0.35] {
+			painter.circle_filled(center + egui::vec2(r * x, -r * 0.2), r * 0.09, colors.chat);
+		}
+		painter.line_segment(
+			[
+				center + egui::vec2(-r * 0.3, r * 0.35),
+				center + egui::vec2(r * 0.3, r * 0.35),
+			],
+			egui::Stroke::new((r * 0.08).max(1.0), colors.chat),
+		);
+		if rect.width() >= 150.0 {
+			painter.text(
+				at(0.5, 0.68),
+				egui::Align2::CENTER_CENTER,
+				"Image attachment",
+				egui::FontId::proportional((rect.width() / 24.0).clamp(10.0, 20.0)),
+				colors.text_strong,
+			);
+		}
+		panel(0.08, 0.86, 0.69, 0.07, colors.raised);
+		panel(0.81, 0.86, 0.11, 0.07, colors.accent);
+		return;
+	}
 	// Only the outer plates carry the card's rounding so the preview can sit flush.
 	plate(0.0, 0.0, 1.0, 1.0, colors.base, radius);
 	panel(0.08, 0.0, 0.22, 1.0, colors.sidebar);
@@ -2751,6 +2790,33 @@ mod tests {
 						[ExtensionRequest::RefreshCatalog]
 					),
 				"refreshing clears the previous status instead of reporting itself"
+			);
+		}
+	}
+
+	#[test]
+	fn image_sharing_plugin_has_local_card_and_enlarged_preview() {
+		for width in [320.0, 900.0] {
+			let ctx = egui::Context::default();
+			let mut shop = ExtensionUi::default();
+			let mut plugin = entry();
+			plugin.manifest.capabilities = vec![Capability::ImageSharing];
+			shop.set_entries(vec![plugin.clone()]);
+			for _ in 0..2 {
+				frame(&ctx, &mut shop, width, vec![]);
+			}
+			let labels = frame(&ctx, &mut shop, width, vec![]);
+			assert!(labels.iter().any(|(text, _)| text == "Image attachment"));
+			assert!(!labels.iter().any(|(text, _)| text == "Preview unavailable"));
+			shop.open_preview(&ctx, &plugin);
+			frame(&ctx, &mut shop, width, vec![]);
+			assert_eq!(shop.enlarged.as_deref(), Some(plugin.manifest.id.as_str()));
+			assert!(shop.previews.is_empty());
+			assert!(
+				!shop
+					.requests
+					.iter()
+					.any(|r| matches!(r, ExtensionRequest::Preview { .. }))
 			);
 		}
 	}

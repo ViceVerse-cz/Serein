@@ -197,7 +197,6 @@ fn custom_matches<'a>(
 
 pub(crate) struct Picker {
 	pub image_sharing_enabled: bool,
-	as_image: bool,
 	stickers: crate::stickers::Browser,
 	reaction: Option<(Id, egui::Rect, egui::Id)>,
 	// ponytail: session-only Unicode usage; persist if cross-launch favorites are needed.
@@ -222,7 +221,6 @@ impl Default for Picker {
 		// Initialize the static catalog during application creation, outside rendering.
 		Self {
 			image_sharing_enabled: false,
-			as_image: false,
 			stickers: crate::stickers::Browser::default(),
 			reaction: None,
 			frequent: Vec::with_capacity(32),
@@ -393,7 +391,6 @@ impl Picker {
 
 	pub(crate) fn sync(&mut self, state: &State, channel: Option<Id>) {
 		if self.channel != channel || self.generation != state.generation {
-			self.as_image = false;
 			if self.generation != state.generation {
 				self.frequent.clear();
 			}
@@ -507,7 +504,7 @@ impl Picker {
 	}
 
 	fn images(&self) -> bool {
-		self.image_sharing_enabled && self.as_image && self.reaction.is_none()
+		self.image_sharing_enabled && self.reaction.is_none()
 	}
 
 	fn pick(&self, emoji: model::ReactionEmoji, text: String) -> Pick {
@@ -556,9 +553,6 @@ impl Picker {
 		commands: &mut Vec<Command>,
 	) -> Option<Pick> {
 		self.sync(state, Some(channel));
-		if !self.image_sharing_enabled {
-			self.as_image = false;
-		}
 		if std::mem::take(&mut self.pending_open) {
 			self.open = true;
 		}
@@ -784,19 +778,6 @@ impl Picker {
 										self.tab = tab;
 										self.focus = true;
 									}
-								}
-								if self.image_sharing_enabled
-									&& self.reaction.is_none() && self.tab != Tab::Gifs
-								{
-									ui.with_layout(
-										egui::Layout::right_to_left(egui::Align::Center),
-										|ui| {
-											ui.checkbox(&mut self.as_image, "As image")
-												.on_hover_text(
-													"Stage a normal image attachment. Review it and press Send.",
-												);
-										},
-									);
 								}
 							},
 						);
@@ -1989,7 +1970,6 @@ mod tests {
 		let mut picker = Picker {
 			channel: state.selected,
 			image_sharing_enabled: true,
-			as_image: true,
 			..Default::default()
 		};
 		let emoji = model::ReactionEmoji {
@@ -2212,83 +2192,95 @@ mod tests {
 
 	#[test]
 	fn sticker_picker_search_keyboard_send_preserves_draft_and_resets_session() {
-		let ctx = egui::Context::default();
-		crate::emoji::install(&ctx).unwrap();
-		let mut state = test_support::demo_state();
-		test_support::seed_stickers(&mut state);
-		let channel = state.selected.unwrap();
-		state.drafts.insert(channel, "Keep my draft".into());
-		let mut picker = Picker::default();
-		picker.open_stickers(None);
-		let mut avatars = Avatars::default();
-		let mut frame = |picker: &mut Picker, state: &mut State, events| {
-			let mut selected = None;
-			let output = ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(900.0, 700.0),
-					)),
-					events,
-					..Default::default()
-				},
-				|ui| {
-					selected = picker.show(ui, state, channel, &mut avatars, &mut Vec::new());
-				},
-			);
-			output.drop_without_applying_deltas();
-			selected
-		};
-		for _ in 0..3 {
-			frame(&mut picker, &mut state, vec![]);
-		}
-		frame(
-			&mut picker,
-			&mut state,
-			vec![egui::Event::Text("Sle".into())],
-		);
-		frame(
-			&mut picker,
-			&mut state,
-			vec![egui::Event::Text("ep".into())],
-		);
-		assert_eq!(picker.stickers.query, "Sleep");
-		let key = |key| egui::Event::Key {
-			key,
-			physical_key: None,
-			pressed: true,
-			repeat: false,
-			modifiers: egui::Modifiers::NONE,
-		};
-		let mut picked = None;
-		for _ in 0..20 {
-			frame(&mut picker, &mut state, vec![key(egui::Key::Tab)]);
-			if ctx
-				.memory(|m| m.focused())
-				.and_then(|id| ctx.read_response(id))
-				.is_some_and(|r| {
-					r.rect.width() >= 70.0 && (r.rect.width() - r.rect.height()).abs() < 0.1
-				}) {
-				picked = frame(&mut picker, &mut state, vec![key(egui::Key::Enter)]);
-				break;
+		for images in [false, true] {
+			let ctx = egui::Context::default();
+			crate::emoji::install(&ctx).unwrap();
+			let mut state = test_support::demo_state();
+			test_support::seed_stickers(&mut state);
+			let channel = state.selected.unwrap();
+			state.drafts.insert(channel, "Keep my draft".into());
+			let mut picker = Picker {
+				image_sharing_enabled: images,
+				..Default::default()
+			};
+			picker.open_stickers(None);
+			let mut avatars = Avatars::default();
+			let mut frame = |picker: &mut Picker, state: &mut State, events| {
+				let mut selected = None;
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 700.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| {
+						selected = picker.show(ui, state, channel, &mut avatars, &mut Vec::new());
+					},
+				);
+				output.drop_without_applying_deltas();
+				selected
+			};
+			for _ in 0..3 {
+				frame(&mut picker, &mut state, vec![]);
 			}
+			frame(
+				&mut picker,
+				&mut state,
+				vec![egui::Event::Text("Sle".into())],
+			);
+			frame(
+				&mut picker,
+				&mut state,
+				vec![egui::Event::Text("ep".into())],
+			);
+			assert_eq!(picker.stickers.query, "Sleep");
+			let key = |key| egui::Event::Key {
+				key,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: egui::Modifiers::NONE,
+			};
+			let mut picked = None;
+			for _ in 0..20 {
+				frame(&mut picker, &mut state, vec![key(egui::Key::Tab)]);
+				if ctx
+					.memory(|m| m.focused())
+					.and_then(|id| ctx.read_response(id))
+					.is_some_and(|r| {
+						r.rect.width() >= 70.0 && (r.rect.width() - r.rect.height()).abs() < 0.1
+					}) {
+					picked = frame(&mut picker, &mut state, vec![key(egui::Key::Enter)]);
+					break;
+				}
+			}
+			if images {
+				assert!(matches!(
+					picked,
+					Some(Pick::Image(model::ImageShare::Sticker { id: Id(9201), .. }))
+				));
+			} else {
+				let Some(Pick::Sticker(sticker)) = picked else {
+					panic!("keyboard sticker selection");
+				};
+				assert_eq!(sticker.name, "Sleep");
+				assert!(matches!(
+					state.prepare_sticker_send(&sticker),
+					Some(Command::Send {
+						sticker: Some(Id(9201)),
+						..
+					})
+				));
+			}
+			assert_eq!(state.drafts[&channel], "Keep my draft");
+			assert!(!picker.open);
+			state.generation += 1;
+			picker.sync(&state, Some(channel));
+			assert!(picker.stickers.query.is_empty());
 		}
-		let Some(Pick::Sticker(sticker)) = picked else {
-			panic!("keyboard sticker selection");
-		};
-		assert_eq!(sticker.name, "Sleep");
-		assert!(matches!(
-			state.prepare_sticker_send(&sticker),
-			Some(Command::Send {
-				sticker: Some(Id(9201)),
-				..
-			})
-		));
-		assert_eq!(state.drafts[&channel], "Keep my draft");
-		assert!(!picker.open);
-		state.generation += 1;
-		picker.sync(&state, Some(channel));
-		assert!(picker.stickers.query.is_empty());
 	}
 
 	#[test]
