@@ -34,6 +34,7 @@ impl State {
 			)));
 		}
 	}
+	/// Builds the one explicit retry that resumes a solved invite challenge.
 	pub fn resume_invite_challenge(
 		&mut self,
 		request: u64,
@@ -53,7 +54,9 @@ impl State {
 			code: self.invite_join.code.clone(),
 			request: self.invite_join.sequence,
 			captcha: Some(Box::new(crate::captcha::Retry {
-				code: self.invite_join.code.clone(),
+				target: crate::captcha::Target::Invite {
+					code: self.invite_join.code.clone(),
+				},
 				request: self.invite_join.sequence,
 				challenge,
 				solution,
@@ -274,6 +277,7 @@ impl State {
 #[cfg(test)]
 mod join_tests {
 	use super::*;
+	/// Regression: invite challenges are single-use, scoped, expiring and redacted.
 	#[test]
 	fn invite_challenge_is_single_use_scoped_expiring_and_redacted() {
 		let challenge = || {
@@ -311,8 +315,16 @@ mod join_tests {
 		else {
 			panic!("retry missing")
 		};
-		assert!(retry.matches(&code, request));
-		assert!(!retry.matches("another", request));
+		assert!(retry.matches(
+			&crate::captcha::Target::Invite { code: code.clone() },
+			request
+		));
+		assert!(!retry.matches(
+			&crate::captcha::Target::Invite {
+				code: "another".into()
+			},
+			request
+		));
 		assert!(state.resume_invite_challenge(0, solution()).is_none());
 		state.apply_invite_challenge(0, challenge());
 		assert!(state.invite_challenge().is_none());

@@ -75,6 +75,7 @@ fn select_media_menu(
 						&mut audio,
 						&mut video,
 						demo,
+						&mut crate::select::Surface::new(ui, "attachment-test"),
 					);
 				}
 			},
@@ -285,6 +286,7 @@ fn video_controls_still_handle_primary_clicks() {
 			video.state = state;
 			video.duration = 12.0;
 			let mut download = DownloadUi::default();
+			let mut opening = None;
 			let mut frame = |events| {
 				ctx.run_ui(
 					egui::RawInput {
@@ -296,8 +298,21 @@ fn video_controls_still_handle_primary_clicks() {
 						..Default::default()
 					},
 					|ui| {
-						let response = video.show(ui, &message, &attachment);
-						media_context_menu(&response, &attachment, &mut download, &mut None, false);
+						let response = video.show(
+							ui,
+							&message,
+							&attachment,
+							&mut download,
+							&mut opening,
+							false,
+						);
+						media_context_menu(
+							&response,
+							&attachment,
+							&mut download,
+							&mut opening,
+							false,
+						);
 					},
 				)
 				.drop_without_applying_deltas();

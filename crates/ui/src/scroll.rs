@@ -1,34 +1,83 @@
 use crate::design;
-use egui::{AsIdSalt, IdSalt, PointerButton, Pos2, Rect, ScrollArea, Shape, Stroke, pos2};
+use egui::{AsIdSalt, IdSalt, Pos2, Rect, ScrollArea, Shape, Stroke, pos2};
 
 /// Chromium / Discord default: 3 wheel lines times 40 px. winit reports one notch as `LineDelta` 1.0.
 pub const DISCORD_LINE_SCROLL_SPEED: f32 = 120.0;
+
+/// Chromium's middle-click autoscroll shape (`autoscroll_controller.cc`): a dead zone, then
+/// the full distance from the origin raised to a power. The dead zone is a gate, not subtracted.
+pub const DEAD_ZONE: f32 = 15.0;
+const CURVE: f32 = 2.2;
+const GAIN: f32 = 0.11;
+const CEILING: f32 = 48_000.0;
+
+/// The middle button over one frame, delivered outside egui's pointer state.
+///
+/// egui starts a text selection on `any_pressed()` while a selectable label is hovered, and
+/// keeps extending it while any button is down. Middle counts. The window layer never gives
+/// egui the button; it arrives here instead.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub struct Middle {
+	/// Position of the frame's first press, if it pressed.
+	pub pressed: Option<Pos2>,
+	/// Down at the end of the frame.
+	pub down: bool,
+}
 
 #[derive(Clone, Copy, Default)]
 enum Drive {
 	#[default]
 	Idle,
-	Holding {
-		origin: Pos2,
-		target: egui::Id,
-		wandered: bool,
+	Driving {
+		aim: Aim,
+		hold: Hold,
 	},
-	Latched {
-		origin: Pos2,
-		target: egui::Id,
-	},
+}
+
+#[derive(Clone, Copy)]
+struct Aim {
+	origin: Pos2,
+	cursor: Pos2,
+	target: egui::Id,
+}
+
+#[derive(Clone, Copy)]
+enum Hold {
+	Button { wandered: bool },
+	Latched,
 }
 
 #[derive(Default)]
 pub struct Session {
 	drive: Drive,
+	middle: Middle,
 	frame: Option<u64>,
 	bound: bool,
 	last_offset: Option<(egui::Id, f32)>,
 	ignore_press: bool,
 }
 
+/// Scroll speed in points per second for a cursor `offset` points from the drive origin.
+/// Signed like `offset`. Dead zone is a gate, not subtracted.
+pub fn speed(offset: f32) -> f32 {
+	let distance = offset.abs();
+	if distance <= DEAD_ZONE {
+		return 0.0;
+	}
+	offset.signum() * (GAIN * distance.powf(CURVE)).min(CEILING)
+}
+
 impl Session {
+	/// Feed the frame's middle button before any `bind`/`attach`. Never fed means never pressed.
+	pub fn middle(&mut self, middle: Middle) {
+		self.middle = middle;
+	}
+
+	/// True while a drive needs the cursor position, including outside the window.
+	pub fn tracking(&self) -> bool {
+		matches!(self.drive, Drive::Driving { .. })
+	}
+
 	pub fn holding(&self) -> bool {
 		!matches!(self.drive, Drive::Idle)
 	}
@@ -44,21 +93,10 @@ impl Session {
 			self.try_start(ui, target, area);
 		}
 		match self.drive {
-			Drive::Holding {
-				origin,
-				target: held,
-				..
-			}
-			| Drive::Latched {
-				origin,
-				target: held,
-			} if held == target => {
+			Drive::Driving { aim, .. } if aim.target == target => {
 				self.bound = true;
-				let pointer = ui
-					.input(|input| input.pointer.hover_pos())
-					.unwrap_or(origin);
-				let dt = ui.input(|input| input.stable_dt);
-				velocity(origin, pointer, dt)
+				let dt = ui.input(|input| input.stable_dt).min(0.05);
+				-speed(aim.cursor.y - aim.origin.y) * dt
 			}
 			_ => 0.0,
 		}
@@ -100,7 +138,7 @@ impl Session {
 
 	pub fn paint(&self, ctx: &egui::Context) {
 		let origin = match self.drive {
-			Drive::Holding { origin, .. } | Drive::Latched { origin, .. } => origin,
+			Drive::Driving { aim, .. } => aim.origin,
 			Drive::Idle => return,
 		};
 		let colors = design::palette_for(ctx);
@@ -141,55 +179,54 @@ impl Session {
 	}
 
 	fn step(&mut self, ui: &egui::Ui) -> bool {
-		let input = ui.input(|input| {
+		let Drive::Driving { mut aim, hold } = self.drive else {
+			return false;
+		};
+		let middle = std::mem::take(&mut self.middle);
+		let (focused, egui_pressed, escape, wheel, hover) = ui.input(|input| {
 			(
 				input.focused,
-				input.pointer.button_down(PointerButton::Middle),
 				input.pointer.any_pressed(),
 				input.key_pressed(egui::Key::Escape),
-				input.smooth_scroll_delta().y != 0.0,
+				input.smooth_scroll_delta() != egui::Vec2::ZERO,
 				input.pointer.hover_pos(),
 			)
 		});
-		let (focused, middle_down, any_pressed, escape, wheel, hover) = input;
-		match self.drive {
-			Drive::Idle => false,
-			Drive::Holding {
-				origin,
-				target,
-				wandered,
-			} => {
-				let wandered = wandered || hover.is_some_and(|pos| (pos.y - origin.y).abs() > 8.0);
-				if !focused || escape || wheel {
-					self.idle();
-					return false;
-				}
-				if !middle_down {
-					self.drive = if wandered {
-						Drive::Idle
-					} else {
-						Drive::Latched { origin, target }
+		aim.cursor = hover.unwrap_or(aim.cursor);
+
+		if !focused || escape || wheel || egui_pressed {
+			self.idle();
+			return egui_pressed;
+		}
+		match hold {
+			Hold::Button { wandered } => {
+				let wandered = wandered || (aim.cursor.y - aim.origin.y).abs() > DEAD_ZONE;
+				if middle.down {
+					self.drive = Drive::Driving {
+						aim,
+						hold: Hold::Button { wandered },
 					};
-					if matches!(self.drive, Drive::Idle) {
-						self.last_offset = None;
-					}
-					return false;
-				}
-				self.drive = Drive::Holding {
-					origin,
-					target,
-					wandered,
-				};
-				false
-			}
-			Drive::Latched { .. } => {
-				if !focused || escape || any_pressed || wheel {
+				} else if wandered {
 					self.idle();
-					return any_pressed;
+				} else {
+					self.drive = Drive::Driving {
+						aim,
+						hold: Hold::Latched,
+					};
 				}
-				false
+			}
+			Hold::Latched => {
+				if middle.pressed.is_some() {
+					self.idle();
+					return true;
+				}
+				self.drive = Drive::Driving {
+					aim,
+					hold: Hold::Latched,
+				};
 			}
 		}
+		false
 	}
 
 	fn idle(&mut self) {
@@ -201,33 +238,24 @@ impl Session {
 		if !matches!(self.drive, Drive::Idle) {
 			return;
 		}
-		let Some(pos) = ui.input(|input| {
-			input
-				.pointer
-				.button_pressed(PointerButton::Middle)
-				.then_some(input.pointer.hover_pos())
-				.flatten()
-		}) else {
+		let Some(pos) = self.middle.pressed.filter(|pos| area.contains(*pos)) else {
 			return;
 		};
-		if area.contains(pos) {
-			self.drive = Drive::Holding {
-				origin: pos,
-				target,
-				wandered: false,
-			};
-			self.bound = true;
+		if ui.input(|input| input.pointer.any_down()) {
+			return;
 		}
+		self.drive = Drive::Driving {
+			aim: Aim {
+				origin: pos,
+				cursor: pos,
+				target,
+			},
+			hold: Hold::Button { wandered: false },
+		};
+		self.bound = true;
 	}
 }
 
 fn clamped_away(requested: f32, current: f32, next: f32) -> bool {
 	(requested - current).abs() > 0.5 && (next - current).signum() == (requested - current).signum()
-}
-
-fn velocity(origin: Pos2, pointer: Pos2, dt: f32) -> f32 {
-	let distance = pointer.y - origin.y;
-	let travel = (distance.abs() - 8.0).max(0.0);
-	let speed = (travel * 12.0 + travel * travel * 0.12).min(12000.0);
-	-distance.signum() * speed * dt.min(0.05)
 }

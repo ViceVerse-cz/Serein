@@ -12,7 +12,17 @@ const MAX_LINKS: usize = 16;
 const MAX_SPOILERS: u8 = 32;
 const MAX_BLOCKS: usize = 32;
 
-#[derive(Clone, Copy, Default)]
+/// True when the raw source escapes the token at `at` with an odd run of backslashes.
+fn escaped(source: &str, at: usize) -> bool {
+	source[..at]
+		.bytes()
+		.rev()
+		.take_while(|b| *b == b'\\')
+		.count()
+		% 2 == 1
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 struct Style {
 	strong: bool,
 	italic: bool,
@@ -26,12 +36,142 @@ struct Style {
 	small: bool,
 	link: Option<usize>,
 	mention: Option<Id>,
+	role: Option<Id>,
 	mass_mention: bool,
 	channel: Option<Id>,
+	/// Discord `<t:seconds[:style]>` reference: rendered fresh each frame, never at parse time.
+	timestamp: Option<(i64, u8)>,
 	no_autolink: bool,
 	spoiler: Option<u8>,
 	/// Fenced code block index; the block widget replaces these spans when shown.
 	block: Option<u8>,
+}
+
+/// Split styled text into Unicode BiDi runs in visual order. The text inside each run stays in
+/// logical order so egui's shaper can still join Arabic-family scripts correctly.
+fn bidi_spans(spans: &[(String, Style)]) -> Option<(Vec<(String, Style)>, bool)> {
+	if spans.iter().all(|(text, _)| text.is_ascii()) {
+		return None;
+	}
+	let text: String = spans.iter().map(|(text, _)| text.as_str()).collect();
+	let bidi = unicode_bidi::BidiInfo::new(&text, None);
+	if !bidi.has_rtl() {
+		return None;
+	}
+	let right_aligned = bidi
+		.paragraphs
+		.iter()
+		.find(|paragraph| {
+			text[paragraph.range.clone()]
+				.chars()
+				.any(|c| !c.is_whitespace())
+		})
+		.is_some_and(|paragraph| paragraph.level.is_rtl());
+	let mut styled = Vec::with_capacity(spans.len());
+	let mut start = 0;
+	for (value, style) in spans {
+		let end = start + value.len();
+		styled.push((start..end, *style));
+		start = end;
+	}
+	let mut visual: Vec<(String, Style)> = Vec::with_capacity(spans.len());
+	for paragraph in &bidi.paragraphs {
+		let (levels, runs) = bidi.visual_runs(paragraph, paragraph.range.clone());
+		for run in runs {
+			let rtl = levels.get(run.start).is_some_and(|level| level.is_rtl());
+			let mut parts: Vec<_> = styled
+				.iter()
+				.filter_map(|(range, style)| {
+					let start = range.start.max(run.start);
+					let end = range.end.min(run.end);
+					(start < end).then_some((start..end, *style))
+				})
+				.collect();
+			if rtl {
+				parts.reverse();
+			}
+			for (range, style) in parts {
+				let value = text[range].to_owned();
+				if let Some((last, last_style)) = visual.last_mut()
+					&& *last_style == style
+				{
+					last.push_str(&value);
+				} else {
+					visual.push((value, style));
+				}
+			}
+		}
+	}
+	Some((visual, right_aligned))
+}
+/// Emoji artwork is taller than the body font, so any line carrying it grows. Knowing this at
+/// parse time lets every widget on a line reserve that height before the first one is placed.
+fn has_artwork(spans: &[(String, Style)]) -> bool {
+	spans.iter().any(|(text, style)| {
+		if style.code {
+			return false;
+		}
+		let mut offset = 0;
+		while offset < text.len() {
+			if crate::emoji::custom_prefix(&text[offset..]).is_some() {
+				return true;
+			}
+			let len = text[offset..]
+				.graphemes(true)
+				.next()
+				.expect("remaining text")
+				.len();
+			if crate::emoji::lookup(&text[offset..offset + len]).is_some() {
+				return true;
+			}
+			offset += len;
+		}
+		false
+	})
+}
+/// Discord draws a message that carries nothing but emoji at roughly three times the body
+/// size. More than a couple of dozen of them stay inline, as they do in the official client.
+const MAX_JUMBO: usize = 27;
+fn only_emoji(spans: &[(String, Style)], blocks: &[CodeBlock], mentions: usize) -> bool {
+	if !blocks.is_empty() || mentions > 0 {
+		return false;
+	}
+	let mut count = 0;
+	for (text, style) in spans {
+		if style.code
+			|| style.block.is_some()
+			|| style.link.is_some()
+			|| style.timestamp.is_some()
+			|| style.channel.is_some()
+			|| style.mention.is_some()
+			|| style.role.is_some()
+			|| style.mass_mention
+			|| style.heading > 0
+			|| style.small
+			|| style.quote
+		{
+			return false;
+		}
+		let mut offset = 0;
+		while offset < text.len() {
+			if let Some((_, len)) = crate::emoji::custom_prefix(&text[offset..]) {
+				count += 1;
+				offset += len;
+				continue;
+			}
+			let cluster = text[offset..]
+				.graphemes(true)
+				.next()
+				.expect("remaining text");
+			if crate::emoji::lookup(cluster).is_some() {
+				count += 1;
+			} else if !cluster.chars().all(char::is_whitespace) {
+				return false;
+			}
+			offset += cluster.len();
+		}
+	}
+	(1..=MAX_JUMBO).contains(&count)
 }
 /// One fenced block: its display text plus highlighting computed once at parse time.
 pub struct CodeBlock {
@@ -49,6 +189,10 @@ pub struct Formatted {
 	spans: Vec<(String, Style)>,
 	blocks: Vec<CodeBlock>,
 	mention_count: usize,
+	/// Set when any span renders artwork, whose line is taller than the body font.
+	artwork: bool,
+	/// Set when the whole message is emoji, which Discord draws at a larger size.
+	jumbo: bool,
 	pub links: Vec<String>,
 	pub limited: bool,
 	pub spoilers: bool,
@@ -139,6 +283,58 @@ pub(super) fn discord_url(channel: &model::Channel, message: Option<Id>) -> Opti
 		url.push_str(&message.to_string());
 	}
 	Some(url)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ChatLink {
+	pub guild: Option<Id>,
+	pub channel: Id,
+	pub message: Option<Id>,
+}
+
+/// Recognize only Discord's chat routes; other destinations keep normal link handling.
+pub(super) fn discord_chat_link(input: &str) -> Option<ChatLink> {
+	let target = external_url(input)?;
+	let url = url::Url::parse(&target).ok()?;
+	if url.scheme() != "https"
+		|| url.port().is_some()
+		|| !matches!(
+			url.host_str()?,
+			"discord.com"
+				| "www.discord.com"
+				| "ptb.discord.com"
+				| "canary.discord.com"
+				| "discordapp.com"
+				| "www.discordapp.com"
+				| "ptb.discordapp.com"
+				| "canary.discordapp.com"
+		) {
+		return None;
+	}
+	let id = |value: &str| {
+		if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+			return None;
+		}
+		value.parse::<u64>().ok().filter(|id| *id != 0).map(Id)
+	};
+	let mut path = url.path().trim_end_matches('/').split('/');
+	if !path.next()?.is_empty() || path.next()? != "channels" {
+		return None;
+	}
+	let guild = match path.next()? {
+		"@me" => None,
+		value => Some(id(value)?),
+	};
+	let channel = id(path.next()?)?;
+	let message = match path.next() {
+		Some(value) => Some(id(value)?),
+		None => None,
+	};
+	path.next().is_none().then_some(ChatLink {
+		guild,
+		channel,
+		message,
+	})
 }
 
 pub(super) fn confirm_external_link(
@@ -277,6 +473,29 @@ fn normalize_fences(input: &str) -> std::borrow::Cow<'_, str> {
 	}
 }
 
+/// Everything one message body needs while its spans are laid out, so a quote can lay out its
+/// own nested run without repeating the argument list.
+struct Render<'a> {
+	opening: &'a mut Option<String>,
+	users: &'a [model::User],
+	profile: &'a mut Option<model::User>,
+	channels: &'a [model::Channel],
+	channel: &'a mut Option<Id>,
+	guilds: &'a [model::Guild],
+	roles: &'a [model::permissions::Role],
+	images: &'a mut crate::avatars::Avatars,
+	demo: bool,
+	revealed: &'a mut u32,
+	surface: &'a mut crate::select::Surface,
+	query: &'a str,
+	/// Row height reserved for artwork, so emoji and text share one baseline.
+	line: Option<f32>,
+}
+
+/// Discord's quote rail and the gap between it and the quoted text.
+const QUOTE_RAIL: i8 = 4;
+const QUOTE_GAP: i8 = 8;
+
 impl Formatted {
 	pub fn parse(source: &str) -> Self {
 		let mut end = source.len().min(MAX_INPUT);
@@ -297,6 +516,8 @@ impl Formatted {
 			links: Vec::new(),
 			limited: end < source.len(),
 			spoilers: false,
+			artwork: false,
+			jumbo: false,
 		};
 		let mut stack = Vec::new();
 		let mut style = Style::default();
@@ -376,8 +597,15 @@ impl Formatted {
 					if blank > 0 && !input[..block_end].ends_with('\n') {
 						blank -= 1;
 					}
+					// A blank line inside a `>>>` quote belongs to its rail, not to the text around it.
 					for _ in 0..blank {
-						output.push("\n", Style::default());
+						output.push(
+							"\n",
+							Style {
+								quote: style.quote,
+								..Style::default()
+							},
+						);
 					}
 				}
 				block_end = block_end.max(range.start);
@@ -392,9 +620,6 @@ impl Formatted {
 						Tag::Strong => style.strong = true,
 						Tag::Heading { level, .. } => {
 							let level = level as u8;
-							if style.quote && output.line_start() {
-								output.push("│ ", style);
-							}
 							if level <= 3 {
 								style.strong = true;
 								style.heading = level;
@@ -411,16 +636,7 @@ impl Formatted {
 							style.block = output.open_block(&info);
 						}
 						// Discord has no indented code blocks: four leading spaces stay prose.
-						Tag::CodeBlock(CodeBlockKind::Indented) => {
-							if style.quote && output.line_start() {
-								output.push("│ ", style);
-							}
-						}
-						Tag::Paragraph => {
-							if style.quote && output.line_start() {
-								output.push("│ ", style);
-							}
-						}
+						Tag::CodeBlock(CodeBlockKind::Indented) | Tag::Paragraph => {}
 						Tag::BlockQuote(_) => {
 							style.quote = true;
 							if input[range.start..].starts_with(">>>") {
@@ -429,9 +645,6 @@ impl Formatted {
 						}
 						Tag::List(start) => lists.push(start),
 						Tag::Item => {
-							if style.quote && output.line_start() {
-								output.push("│ ", style);
-							}
 							output.push(&"  ".repeat(lists.len().saturating_sub(1)), style);
 							match lists.last_mut() {
 								Some(Some(number)) => {
@@ -567,18 +780,9 @@ impl Formatted {
 					subtext = false;
 					if style.quote && !quote_all && !quote_lazy {
 						// A `> ` quote covers one line; CommonMark's lazy continuation does not.
-						let next = input[range.end..].trim_start_matches(' ');
-						if next.starts_with('>') {
-							output.push("\n│ ", style);
-						} else {
-							quote_lazy = true;
-							output.push("\n", style);
-						}
-					} else if style.quote {
-						output.push("\n│ ", style);
-					} else {
-						output.push("\n", style);
+						quote_lazy = !input[range.end..].trim_start_matches(' ').starts_with('>');
 					}
+					output.push("\n", style);
 				}
 				Event::Rule => output.push("────────\n", style),
 				_ => {}
@@ -603,10 +807,12 @@ impl Formatted {
 				break;
 			}
 		}
+		output.artwork = has_artwork(&output.spans);
+		output.jumbo = only_emoji(&output.spans, &output.blocks, output.mention_count);
 		output
 	}
 	fn limited_literal(input: &str, concealed: bool) -> Self {
-		Self {
+		let mut formatted = Self {
 			spans: vec![(
 				input.to_owned(),
 				Style {
@@ -619,7 +825,12 @@ impl Formatted {
 			links: Vec::new(),
 			limited: true,
 			spoilers: concealed,
-		}
+			artwork: false,
+			jumbo: false,
+		};
+		formatted.artwork = has_artwork(&formatted.spans);
+		formatted.jumbo = only_emoji(&formatted.spans, &formatted.blocks, formatted.mention_count);
+		formatted
 	}
 	fn push_spoiler_literal(
 		&mut self,
@@ -715,7 +926,32 @@ impl Formatted {
 		let mut consumed = 0;
 		let mut raw_cursor = 0;
 		for (start, _) in text.match_indices(['<', '@']) {
+			if start < consumed {
+				continue;
+			}
 			let reference = &text[start..];
+			if let Some((seconds, kind, len)) = model::timestamp_prefix(reference) {
+				let token = &text[start..start + len];
+				let Some(raw_start) = source[raw_cursor..].find(token).map(|i| i + raw_cursor)
+				else {
+					continue;
+				};
+				raw_cursor = raw_start + len;
+				if escaped(source, raw_start) {
+					continue;
+				}
+				self.push_autolinks(&text[consumed..start], style);
+				self.push(
+					token,
+					Style {
+						timestamp: Some((seconds, kind)),
+						..style
+					},
+				);
+				consumed = start + len;
+				continue;
+			}
+			let is_role = reference.starts_with("<@&");
 			let (id, len, is_channel, mass_mention) =
 				if let Some(len) = model::mass_mention_prefix(reference) {
 					(None, len, false, true)
@@ -723,6 +959,8 @@ impl Formatted {
 					let is_channel = reference.starts_with("<#");
 					let Some((id, len)) = (if is_channel {
 						model::channel_mention_prefix(reference)
+					} else if is_role {
+						model::role_mention_prefix(reference)
 					} else {
 						model::user_mention_prefix(reference)
 					}) else {
@@ -739,19 +977,15 @@ impl Formatted {
 				continue;
 			};
 			raw_cursor = raw_start + len;
-			if source[..raw_start]
-				.bytes()
-				.rev()
-				.take_while(|b| *b == b'\\')
-				.count() % 2 == 1
-			{
+			if escaped(source, raw_start) {
 				continue;
 			}
 			self.push_autolinks(&text[consumed..start], style);
 			self.push(
 				token,
 				Style {
-					mention: id.filter(|_| !is_channel),
+					mention: id.filter(|_| !is_channel && !is_role),
+					role: id.filter(|_| is_role),
 					mass_mention,
 					channel: id.filter(|_| is_channel),
 					..style
@@ -761,6 +995,10 @@ impl Formatted {
 			consumed = start + len;
 		}
 		self.push_autolinks(&text[consumed..], style);
+	}
+	/// True when the message is only emoji, so the caller can draw it at the larger size.
+	pub fn jumbo(&self) -> bool {
+		self.jumbo
 	}
 	#[cfg(test)]
 	pub fn show(&self, ui: &mut egui::Ui, opening: &mut Option<String>) {
@@ -792,87 +1030,192 @@ impl Formatted {
 	) {
 		let (images, demo, guilds) = media;
 		let mut revealed = u32::MAX;
+		let mut surface = crate::select::Surface::new(ui, "body");
 		self.show_references(
 			ui,
 			opening,
 			users,
 			profile,
-			(&[], &mut None, guilds),
+			(&[], &mut None, guilds, &[]),
 			(images, demo, &mut revealed),
+			&mut surface,
 		);
+		surface.finish(ui);
 	}
+	#[allow(clippy::too_many_arguments)]
 	pub fn show_references(
 		&self,
 		ui: &mut egui::Ui,
 		opening: &mut Option<String>,
 		users: &[model::User],
 		profile: &mut Option<model::User>,
-		references: (&[model::Channel], &mut Option<Id>, &[model::Guild]),
+		references: (
+			&[model::Channel],
+			&mut Option<Id>,
+			&[model::Guild],
+			&[model::permissions::Role],
+		),
 		media: (&mut crate::avatars::Avatars, bool, &mut u32),
+		surface: &mut crate::select::Surface,
 	) {
-		let (channels, channel, guilds) = references;
-		self.show_search(
-			ui,
-			opening,
-			users,
-			profile,
-			(channels, channel, guilds, ""),
-			media,
-		);
+		self.show_search(ui, opening, users, profile, references, media, surface, "");
 	}
+	#[allow(clippy::too_many_arguments)]
 	pub fn show_search(
 		&self,
 		ui: &mut egui::Ui,
 		opening: &mut Option<String>,
 		users: &[model::User],
 		profile: &mut Option<model::User>,
-		references: (&[model::Channel], &mut Option<Id>, &[model::Guild], &str),
+		references: (
+			&[model::Channel],
+			&mut Option<Id>,
+			&[model::Guild],
+			&[model::permissions::Role],
+		),
 		media: (&mut crate::avatars::Avatars, bool, &mut u32),
+		surface: &mut crate::select::Surface,
+		query: &str,
 	) {
-		let (channels, channel, guilds, query) = references;
+		let (channels, channel, guilds, roles) = references;
 		let (images, demo, revealed) = media;
+		// Relative timestamps age without input; a coarse tick keeps them honest without a timer.
+		if self
+			.spans
+			.iter()
+			.any(|(_, style)| matches!(style.timestamp, Some((_, b'R'))))
+		{
+			ui.ctx()
+				.request_repaint_after(std::time::Duration::from_secs(20));
+		}
+		// Wrapping rows only grow around widgets placed after the tallest one, so a
+		// mention before an emoji would keep the body line height and ride above the
+		// picture. A zero-width reservation gives every widget on the line the artwork
+		// height first; text is then centred in the same row everywhere.
+		let line = self.artwork.then(|| crate::emoji::inline_size(ui));
+		let mut render = Render {
+			opening,
+			users,
+			profile,
+			channels,
+			channel,
+			guilds,
+			roles,
+			images,
+			demo,
+			revealed,
+			surface,
+			query,
+			line,
+		};
+		self.show_run(ui, &self.spans, &mut render, false);
+	}
+	/// One wrapped paragraph flow. `quoted` marks the nested run inside a quote rail, where
+	/// another rail would repeat the indent instead of ending it.
+	fn show_run(
+		&self,
+		ui: &mut egui::Ui,
+		spans: &[(String, Style)],
+		render: &mut Render<'_>,
+		quoted: bool,
+	) {
+		let line = render.line;
 		ui.allocate_ui_with_layout(
 			egui::vec2(ui.available_width(), 0.0),
 			egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true),
 			|ui| {
 				ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
 				ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+				let reserve = |ui: &mut egui::Ui| {
+					if let Some(height) = line {
+						ui.allocate_space(egui::vec2(0.0, height));
+					}
+				};
 				let mut start = 0;
-				while start < self.spans.len() {
-					let spoiler = self.spans[start].1.spoiler;
-					if let Some(region) = spoiler
-						&& *revealed & (1_u32 << region) == 0
-					{
-						// Hidden text never reaches labels, selection, tooltips, links,
-						// mention actions, accessibility values or emoji image requests.
-						let count = self.spans[start..]
+				while start < spans.len() {
+					// Discord's quote rail spans the whole block: a nested run keeps every
+					// wrapped line inside the indent, and the rail is painted around it.
+					if !quoted && spans[start].1.quote {
+						let count = spans[start..]
 							.iter()
-							.take_while(|(_, style)| style.spoiler == spoiler)
+							.take_while(|(_, style)| style.quote)
 							.count();
-						if ui
-							.push_id(("spoiler", region), |ui| ui.button("Reveal spoiler"))
-							.inner
-							.clicked()
+						let mut quoted_spans = &spans[start..start + count];
+						while quoted_spans
+							.last()
+							.is_some_and(|(text, _)| text.trim_matches('\n').is_empty())
 						{
-							*revealed |= 1_u32 << region;
+							quoted_spans = &quoted_spans[..quoted_spans.len() - 1];
+						}
+						if !quoted_spans.is_empty() {
+							let colors = crate::design::palette(ui);
+							let width = ui.max_rect().width();
+							ui.allocate_ui_with_layout(
+								egui::vec2(width, 0.0),
+								egui::Layout::top_down(egui::Align::Min),
+								|ui| {
+									ui.set_width(width);
+									let block = egui::Frame::new()
+										.inner_margin(egui::Margin {
+											left: QUOTE_RAIL + QUOTE_GAP,
+											right: 0,
+											top: 2,
+											bottom: 2,
+										})
+										.show(ui, |ui| {
+											self.show_run(ui, quoted_spans, render, true);
+										});
+									let rect = block.response.rect;
+									ui.painter().rect_filled(
+										egui::Rect::from_min_size(
+											rect.left_top(),
+											egui::vec2(f32::from(QUOTE_RAIL), rect.height()),
+										),
+										2.0,
+										colors.selected,
+									);
+								},
+							);
 						}
 						start += count;
 						continue;
 					}
-					if self.spans[start].0.is_empty() {
+					let spoiler = spans[start].1.spoiler;
+					if let Some(region) = spoiler
+						&& *render.revealed & (1_u32 << region) == 0
+					{
+						// Hidden text never reaches labels, selection, tooltips, links,
+						// mention actions, accessibility values or emoji image requests.
+						let count = spans[start..]
+							.iter()
+							.take_while(|(_, style)| style.spoiler == spoiler)
+							.count();
+						let response = ui
+							.push_id(("spoiler", region), |ui| ui.button("Reveal spoiler"))
+							.inner;
+						render.surface.keep(&response);
+						if response.clicked() {
+							*render.revealed |= 1_u32 << region;
+						}
+						start += count;
+						continue;
+					}
+					if spans[start].0.is_empty() {
 						start += 1;
 						continue;
 					}
-					if let Some(id) = self.spans[start].1.channel {
-						if let Some(target) = channels.iter().find(|target| {
+					if let Some(id) = spans[start].1.channel {
+						reserve(ui);
+						if let Some(target) = render.channels.iter().find(|target| {
 							target.id == id
 								&& target.guild.is_some()
-								&& matches!(target.kind, 0 | 5 | 10..=12)
+								&& matches!(target.kind, 0 | 5 | 10..=12 | 15 | 16)
 						}) {
 							let label = format!("#{}", target.name);
 							let response = ui
 								.add(egui::Link::new(egui::RichText::new(&label).strong()))
 								.on_hover_text("Open channel");
+							render.surface.keep(&response);
 							response.widget_info(|| {
 								egui::WidgetInfo::labeled(
 									egui::WidgetType::Link,
@@ -881,13 +1224,14 @@ impl Formatted {
 								)
 							});
 							if response.clicked() {
-								*channel = Some(id);
+								*render.channel = Some(id);
 							}
-						} else if channels.iter().all(|target| target.id != id) {
+						} else if render.channels.iter().all(|target| target.id != id) {
 							let label = "#unknown-channel";
 							let response = ui
 								.add(egui::Link::new(egui::RichText::new(label).strong()))
 								.on_hover_text("Load channel");
+							render.surface.keep(&response);
 							response.widget_info(|| {
 								egui::WidgetInfo::labeled(
 									egui::WidgetType::Link,
@@ -896,20 +1240,27 @@ impl Formatted {
 								)
 							});
 							if response.clicked() {
-								*channel = Some(id);
+								*render.channel = Some(id);
 							}
 						} else {
-							ui.add(egui::Label::new(&self.spans[start].0).selectable(true))
-								.on_hover_text(
-									"Channel unavailable or unsupported in this session",
-								);
+							// Like fenced code, this label brings its own galley: let the
+							// block register it in reading order.
+							let (galley_pos, galley, response) = egui::Label::new(&spans[start].0)
+								.selectable(true)
+								.layout_in_ui(ui);
+							let response = response.on_hover_text(
+								"Channel unavailable or unsupported in this session",
+							);
+							render.surface.keep(&response);
+							render.surface.embed(&response, galley_pos, galley);
 						}
 						start += 1;
 						continue;
 					}
-					if let Some(id) = self.spans[start].1.mention {
+					if let Some(id) = spans[start].1.mention {
+						reserve(ui);
 						let colors = crate::design::palette(ui);
-						let user = users.iter().find(|user| user.id == id);
+						let user = render.users.iter().find(|user| user.id == id);
 						let label = format!(
 							"@{}",
 							user.map_or_else(|| id.to_string(), |u| u.name.clone())
@@ -922,6 +1273,7 @@ impl Formatted {
 									.background_color(colors.mention_bg),
 							))
 							.on_hover_text("Open user profile");
+						render.surface.keep(&response);
 						response.widget_info(|| {
 							egui::WidgetInfo::labeled(
 								egui::WidgetType::Link,
@@ -930,30 +1282,42 @@ impl Formatted {
 							)
 						});
 						if response.clicked() {
-							*profile = Some(user.cloned().unwrap_or(model::User {
+							*render.profile = Some(user.cloned().unwrap_or(model::User {
 								id,
 								name: format!("User {id}"),
 								avatar: None,
 								webhook: false,
 								kind: Default::default(),
 								discriminator: 0,
+								primary_guild: None,
 							}));
 						}
 						start += 1;
 						continue;
 					}
-					if let Some(block) = self.spans[start].1.block {
-						let count = self.spans[start..]
+					if let Some(block) = spans[start].1.block {
+						let count = spans[start..]
 							.iter()
 							.take_while(|(_, style)| style.block == Some(block))
 							.count();
-						Self::show_code_block(ui, &self.blocks[usize::from(block)], block);
+						// Fenced code is a block element inside this wrapping horizontal flow.
+						// Explicit row boundaries make egui reserve its full painted height,
+						// rather than placing the following paragraph back on the same row.
+						ui.end_row();
+						let code_rect = Self::show_code_block(
+							ui,
+							&self.blocks[usize::from(block)],
+							block,
+							render.surface,
+						);
+						ui.end_row();
+						render.surface.exclude(code_rect);
 						start += count;
 						continue;
 					}
-					let target = self.spans[start].1.link;
+					let target = spans[start].1.link;
 					let count =
-						self.spans[start..]
+						spans[start..]
 							.iter()
 							.take_while(|(_, style)| {
 								style.link == target
@@ -968,23 +1332,68 @@ impl Formatted {
 						.spans
 						.get(start + count)
 						.is_some_and(|(_, s)| s.block.is_some())
-						&& self.spans[start + count - 1].0.ends_with('\n')
+						&& spans[start + count - 1].0.ends_with('\n')
 					{
-						let mut copy = self.spans[start..start + count].to_vec();
+						let mut copy = spans[start..start + count].to_vec();
 						let last = &mut copy[count - 1].0;
 						last.truncate(last.len() - 1);
 						trimmed = copy;
 						&trimmed[..]
 					} else {
-						&self.spans[start..start + count]
+						&spans[start..start + count]
 					};
+					// Role pills share the surrounding text's galley, including wrapping and emoji heights.
+					let resolved;
+					let spans = if spans
+						.iter()
+						.any(|(_, style)| style.role.is_some() || style.timestamp.is_some())
+					{
+						resolved = spans
+							.iter()
+							.map(|(text, style)| {
+								if let Some(id) = style.role {
+									let name =
+										render.roles.iter().find(|role| role.id == id).map_or_else(
+											|| format!("unknown-role ({id})"),
+											|role| role.name.clone(),
+										);
+									(
+										format!("@{name}"),
+										Style {
+											mass_mention: true,
+											..*style
+										},
+									)
+								} else if let Some((seconds, kind)) = style.timestamp {
+									(
+										crate::local_time::discord_timestamp(seconds, kind)
+											.unwrap_or_else(|| text.clone()),
+										*style,
+									)
+								} else {
+									(text.clone(), *style)
+								}
+							})
+							.collect::<Vec<_>>();
+						&resolved[..]
+					} else {
+						spans
+					};
+					reserve(ui);
 					if let Some(index) = target {
 						let url = &self.links[index];
 						let label: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-						let response =
-							Self::show_emoji(spans, ui, true, images, demo, guilds, query)
-								.on_hover_text(url);
-						// Text selection in egui's Link overwrites its accessibility role.
+						let response = Self::show_emoji(
+							spans,
+							ui,
+							true,
+							render.images,
+							render.demo,
+							render.guilds,
+							render.surface,
+							render.query,
+						)
+						.on_hover_text(url);
 						response.widget_info(|| {
 							egui::WidgetInfo::labeled(
 								egui::WidgetType::Link,
@@ -993,10 +1402,19 @@ impl Formatted {
 							)
 						});
 						if response.clicked() {
-							*opening = Some(url.clone());
+							*render.opening = Some(url.clone());
 						}
 					} else {
-						Self::show_emoji(spans, ui, false, images, demo, guilds, query);
+						Self::show_emoji(
+							spans,
+							ui,
+							false,
+							render.images,
+							render.demo,
+							render.guilds,
+							render.surface,
+							render.query,
+						);
 					}
 					start += count;
 				}
@@ -1005,7 +1423,12 @@ impl Formatted {
 	}
 	/// Full-width framed block: optional language header with a copy control, then the
 	/// highlighted, wrapped, selectable monospace text.
-	fn show_code_block(ui: &mut egui::Ui, block: &CodeBlock, index: u8) {
+	fn show_code_block(
+		ui: &mut egui::Ui,
+		block: &CodeBlock,
+		index: u8,
+		surface: &mut crate::select::Surface,
+	) -> egui::Rect {
 		let colors = crate::design::palette(ui);
 		let code_colors = crate::design::code_colors(ui);
 		let width = ui.max_rect().width();
@@ -1023,7 +1446,7 @@ impl Formatted {
 		} else {
 			&block.segments
 		};
-		let id = ui.id().with(("code-block", index));
+		let id = ui.scope_id().with(("code-block", index));
 		ui.allocate_ui_with_layout(
 			egui::vec2(width, 0.0),
 			egui::Layout::top_down(egui::Align::Min),
@@ -1049,7 +1472,7 @@ impl Formatted {
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
-									Self::copy_button(ui, id, &block.code);
+									surface.keep(&Self::copy_button(ui, id, &block.code));
 								},
 							);
 						});
@@ -1078,7 +1501,13 @@ impl Formatted {
 					if display.is_empty() {
 						job.append(" ", 0.0, TextFormat::simple(mono.clone(), colors.muted));
 					}
-					let response = ui.add(egui::Label::new(job).wrap().selectable(true));
+					// Selection is registered by the surrounding block in `Surface::finish`,
+					// so a drag through the code selects only what the pointer crossed.
+					let (galley_pos, galley, response) = egui::Label::new(job)
+						.wrap()
+						.selectable(true)
+						.layout_in_ui(ui);
+					surface.embed(&response, galley_pos, galley);
 					response.widget_info(|| {
 						egui::WidgetInfo::labeled(
 							egui::WidgetType::Label,
@@ -1105,25 +1534,33 @@ impl Formatted {
 					);
 					let copied = Self::copied_recently(ui, id);
 					if ui.rect_contains_pointer(rect) || copied {
+						// The code text is painted later, with the block's selection, so the
+						// floating control needs a layer of its own to stay on top of it.
 						let mut child = ui.new_child(
 							egui::UiBuilder::new()
 								.max_rect(target)
+								.layer_id(egui::LayerId::new(
+									egui::Order::Middle,
+									id.with("copy-layer"),
+								))
 								.layout(egui::Layout::left_to_right(egui::Align::Center)),
 						);
 						child.painter().rect_filled(target, 6, colors.raised);
-						Self::copy_button(&mut child, id, &block.code);
+						surface.keep(&Self::copy_button(&mut child, id, &block.code));
 					}
 				}
 				ui.add_space(4.0);
 			},
-		);
+		)
+		.response
+		.rect
 	}
 	fn copied_recently(ui: &egui::Ui, id: egui::Id) -> bool {
 		let now = ui.input(|input| input.time);
 		ui.data(|data| data.get_temp::<f64>(id))
 			.is_some_and(|at| now - at < 1.5)
 	}
-	fn copy_button(ui: &mut egui::Ui, id: egui::Id, code: &str) {
+	fn copy_button(ui: &mut egui::Ui, id: egui::Id, code: &str) -> egui::Response {
 		let copied = Self::copied_recently(ui, id);
 		let (icon, label) = if copied {
 			(crate::icons::Icon::Check, "Copied")
@@ -1140,10 +1577,12 @@ impl Formatted {
 			ui.ctx()
 				.request_repaint_after(std::time::Duration::from_millis(200));
 		}
+		response
 	}
 	/// One galley per run: emoji occupy fixed-width slots inside the text layout, so rows
 	/// holding artwork grow before any text on them is positioned. Separate widgets would
 	/// leave text placed earlier on the row misaligned with text placed after the emoji.
+	#[allow(clippy::too_many_arguments)]
 	fn show_emoji(
 		spans: &[(String, Style)],
 		ui: &mut egui::Ui,
@@ -1151,6 +1590,7 @@ impl Formatted {
 		images: &mut crate::avatars::Avatars,
 		demo: bool,
 		guilds: &[model::Guild],
+		surface: &mut crate::select::Surface,
 		query: &str,
 	) -> egui::Response {
 		struct Inline {
@@ -1162,7 +1602,16 @@ impl Formatted {
 		let mut atlas = None;
 		let body = egui::TextStyle::Body.resolve(ui.style());
 		let mut job = LayoutJob::default();
-		let mut source = String::new();
+		let source: String = spans.iter().map(|(text, _)| text.as_str()).collect();
+		let bidi = bidi_spans(spans);
+		let (spans, right_aligned) = bidi
+			.as_ref()
+			.map_or((spans, false), |(spans, right)| (spans.as_slice(), *right));
+		job.halign = if right_aligned {
+			egui::Align::RIGHT
+		} else {
+			egui::Align::LEFT
+		};
 		let mut inlines: Vec<Inline> = Vec::new();
 		// Label overwrites the first section's leading space with the wrap indentation.
 		job.append("", 0.0, Self::format(ui, &Style::default()));
@@ -1196,19 +1645,10 @@ impl Formatted {
 				}
 				if offset > start {
 					job.append(&text[start..offset], 0.0, format.clone());
-					source.push_str(&text[start..offset]);
 				}
-				// One zero-width glyph plus leading space forms an unbroken inline slot; its
+				// One blank glyph forms an unbroken inline slot; its
 				// character is expanded to the wire text below so selection copies the original.
-				job.append(
-					"\u{200b}",
-					size,
-					TextFormat {
-						color: egui::Color32::TRANSPARENT,
-						line_height: Some(size),
-						..format.clone()
-					},
-				);
+				job.append(" ", 0.0, crate::emoji::inline_format(ui, size, size));
 				inlines.push(Inline {
 					text: cluster.to_owned(),
 					custom: custom.map(|(id, _)| id),
@@ -1218,13 +1658,11 @@ impl Formatted {
 							.map(|atlas| crate::emoji::image_cell(atlas, cluster, cell, size))
 					}),
 				});
-				source.push_str(cluster);
 				offset += len;
 				start = offset;
 			}
 			if start < text.len() {
 				job.append(&text[start..], 0.0, format);
-				source.push_str(&text[start..]);
 			}
 		}
 		if !query.is_empty() {
@@ -1252,10 +1690,14 @@ impl Formatted {
 			}
 			job.sections = sections;
 		}
-		let mut label = egui::Label::new(job).wrap().selectable(true);
-		if link {
-			label = label.sense(egui::Sense::click());
-		}
+		let label = egui::Label::new(job)
+			.wrap()
+			.halign(if right_aligned {
+				egui::Align::RIGHT
+			} else {
+				egui::Align::LEFT
+			})
+			.selectable(false);
 		let (pos, mut galley, mut response) = label.layout_in_ui(ui);
 		response.widget_info(|| {
 			egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), &source)
@@ -1270,7 +1712,7 @@ impl Formatted {
 					|| !placed
 						.glyphs
 						.iter()
-						.any(|glyph| glyph.chr == '\u{200b}' && glyph.line_height == size)
+						.any(|glyph| glyph.chr == ' ' && glyph.line_height == size)
 				{
 					continue;
 				}
@@ -1278,15 +1720,14 @@ impl Formatted {
 				let mut glyphs = Vec::with_capacity(row.glyphs.len());
 				for glyph in &row.glyphs {
 					// Placeholders are the only glyphs with the artwork line height; a literal
-					// zero-width space in message text keeps the body font's row height.
-					if next >= inlines.len() || glyph.chr != '\u{200b}' || glyph.line_height != size
-					{
+					// space in message text keeps the body font's row height.
+					if next >= inlines.len() || glyph.chr != ' ' || glyph.line_height != size {
 						glyphs.push(*glyph);
 						continue;
 					}
 					let index = next;
 					next += 1;
-					let left = glyph.pos.x - size;
+					let left = glyph.pos.x;
 					slots.push((
 						index,
 						egui::Rect::from_min_size(
@@ -1313,15 +1754,30 @@ impl Formatted {
 				wrap,
 			));
 		}
-		if ui.is_rect_visible(response.rect) {
-			egui::text_selection::LabelSelectionState::label_text_selection(
-				ui,
-				&response,
-				pos,
-				galley,
-				ui.visuals().text_color(),
-				Stroke::NONE,
+		let artwork = slots
+			.iter()
+			.map(|(index, rect)| {
+				let inline = &inlines[*index];
+				crate::select::Artwork {
+					rect: *rect,
+					image: match inline.custom {
+						Some(id) => images.custom_image(ui.ctx(), id, size, demo),
+						None => inline.image.clone(),
+					},
+					fallback: '?',
+				}
+			})
+			.collect();
+		surface.run(ui, &response, pos, galley, artwork);
+		if link {
+			response = ui.interact(
+				response.rect,
+				response.id.with("link"),
+				egui::Sense::click(),
 			);
+			surface.through(&response);
+		}
+		if ui.is_rect_visible(response.rect) {
 			for (index, rect) in &slots {
 				if !ui.is_rect_visible(*rect) {
 					continue;
@@ -1331,18 +1787,6 @@ impl Formatted {
 					Some(id) => images.custom_image(ui.ctx(), id, size, demo),
 					None => inline.image.clone(),
 				};
-				if let Some(image) = &image {
-					let painted = image.calc_size(egui::Vec2::splat(size), image.size());
-					image.paint_at(ui, egui::Rect::from_center_size(rect.center(), painted));
-				} else {
-					ui.painter().text(
-						rect.center(),
-						egui::Align2::CENTER_CENTER,
-						"?",
-						egui::FontId::proportional(size),
-						ui.visuals().weak_text_color(),
-					);
-				}
 				if !link {
 					let hit = ui
 						.interact(
@@ -1360,6 +1804,7 @@ impl Formatted {
 						)
 					});
 					crate::emoji_details::show(ui, &hit, &inline.text, image, guilds);
+					surface.through(&hit);
 				}
 			}
 			if link && response.hovered() {
@@ -1441,6 +1886,80 @@ impl Formatted {
 			.find(|(text, _)| !text.is_empty())
 			.is_none_or(|(text, _)| text.ends_with('\n'))
 	}
+	pub fn append_inline_preview(
+		&self,
+		job: &mut LayoutJob,
+		ui: &egui::Ui,
+		users: &[model::User],
+		roles: &[model::permissions::Role],
+		channels: &[model::Channel],
+	) {
+		let colors = crate::design::palette(ui);
+		let muted = TextFormat {
+			font_id: FontId::proportional(13.0),
+			color: colors.muted,
+			..Default::default()
+		};
+		let pill = TextFormat {
+			font_id: FontId::new(13.0, crate::design::semibold_family(ui.ctx())),
+			color: colors.mention_text,
+			background: colors.mention_bg,
+			..Default::default()
+		};
+		let mut remaining = 120;
+		for (text, style) in &self.spans {
+			if remaining == 0 {
+				break;
+			}
+			if text.is_empty() {
+				continue;
+			}
+			let (display, format) = if let Some(id) = style.mention {
+				let name = users
+					.iter()
+					.find(|user| user.id == id)
+					.map_or_else(|| id.to_string(), |user| user.name.clone());
+				(format!("@{name}"), pill.clone())
+			} else if let Some(id) = style.role {
+				let name = roles
+					.iter()
+					.find(|role| role.id == id)
+					.map_or_else(|| format!("unknown-role ({id})"), |role| role.name.clone());
+				(format!("@{name}"), pill.clone())
+			} else if let Some(id) = style.channel {
+				match channels.iter().find(|channel| channel.id == id) {
+					Some(channel)
+						if channel.guild.is_some()
+							&& matches!(channel.kind, 0 | 5 | 10..=12 | 15 | 16) =>
+					{
+						(format!("#{}", channel.name), pill.clone())
+					}
+					Some(_) => (text.clone(), muted.clone()),
+					None => ("#unknown-channel".into(), pill.clone()),
+				}
+			} else if let Some((seconds, kind)) = style.timestamp {
+				(
+					crate::local_time::discord_timestamp(seconds, kind)
+						.unwrap_or_else(|| text.clone()),
+					muted.clone(),
+				)
+			} else if style.mass_mention {
+				(text.clone(), pill.clone())
+			} else {
+				(
+					text.chars()
+						.map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })
+						.collect(),
+					muted.clone(),
+				)
+			};
+			let take: String = display.chars().take(remaining).collect();
+			remaining -= take.chars().count();
+			if !take.is_empty() {
+				job.append(&take, 0.0, format);
+			}
+		}
+	}
 	pub fn bytes(&self) -> usize {
 		self.spans.capacity() * size_of::<(String, Style)>()
 			+ self.spans.iter().map(|(s, _)| s.capacity()).sum::<usize>()
@@ -1494,7 +2013,7 @@ impl Formatted {
 			color,
 			background: if style.mass_mention {
 				colors.mention_bg
-			} else if style.code {
+			} else if style.timestamp.is_some() || style.code {
 				visuals.code_bg_color
 			} else {
 				egui::Color32::TRANSPARENT
@@ -1518,6 +2037,297 @@ impl Formatted {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn bidi_runs_keep_each_script_logical_and_follow_paragraph_direction() {
+		let style = Style::default();
+		let (rtl, right) = bidi_spans(&[("مرحبا English!".into(), style)]).unwrap();
+		assert!(right);
+		assert_eq!(
+			rtl.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			"!Englishمرحبا "
+		);
+
+		let (ltr, right) = bidi_spans(&[("English مرحبا!".into(), style)]).unwrap();
+		assert!(!right);
+		assert_eq!(
+			ltr.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			"English مرحبا!"
+		);
+		assert!(bidi_spans(&[("English only".into(), style)]).is_none());
+		assert!(bidi_spans(&[]).is_none());
+		let ascii: String = (0..=127).map(char::from).collect();
+		assert!(bidi_spans(&[(ascii, style), ("second span".into(), style)]).is_none());
+		for text in ["\u{202e}English\u{202c}", "English \u{2067}مرحبا\u{2069}"] {
+			assert!(bidi_spans(&[(text.into(), style)]).is_some());
+		}
+	}
+
+	#[test]
+	#[ignore = "release-only BiDi microbenchmark; run with --ignored --nocapture"]
+	fn bidi_ascii_benchmark() {
+		use std::{hint::black_box, time::Instant};
+		const ITERATIONS: usize = 100_000;
+		for (name, spans) in [
+			(
+				"ascii",
+				vec![(
+					"A typical message with plain English text and a link https://example.com."
+						.repeat(4),
+					Style::default(),
+				)],
+			),
+			(
+				"ascii_styled",
+				vec![
+					("A styled message ".repeat(8), Style::default()),
+					(
+						"with a bold section ".repeat(8),
+						Style {
+							strong: true,
+							..Default::default()
+						},
+					),
+				],
+			),
+			(
+				"mixed_rtl",
+				vec![("English مرحبا! ".repeat(8), Style::default())],
+			),
+		] {
+			let mut samples = Vec::with_capacity(5);
+			for run in 0..6 {
+				let start = Instant::now();
+				for _ in 0..ITERATIONS {
+					black_box(bidi_spans(black_box(&spans)));
+				}
+				if run > 0 {
+					samples.push(start.elapsed());
+				}
+			}
+			samples.sort_unstable();
+			println!(
+				"{name}: {ITERATIONS} calls, median {:?}, samples {samples:?}",
+				samples[2]
+			);
+		}
+	}
+
+	#[test]
+	fn messages_made_only_of_emoji_are_drawn_larger() {
+		for source in [
+			"\u{1f600}",
+			"\u{1f600} \u{1f389}\n\u{1f388}",
+			"<:serein_wave:9001>",
+			"**\u{1f600}**",
+		] {
+			assert!(Formatted::parse(source).jumbo(), "{source}");
+		}
+		for source in [
+			"",
+			"hi \u{1f600}",
+			"`\u{1f600}`",
+			"# \u{1f600}",
+			"<@9001> \u{1f600}",
+			"https://example.com \u{1f600}",
+			"plain text",
+			&"\u{1f600}".repeat(MAX_JUMBO + 1),
+		] {
+			assert!(!Formatted::parse(source).jumbo(), "{source}");
+		}
+	}
+
+	#[test]
+	fn wrapped_text_and_emoji_stay_inside_the_starting_margin() {
+		let ctx = egui::Context::default();
+		for source in [
+			"Words break across a narrow conversation window.",
+			"Words 😀 more words <:wave:9001> and 😀 again.",
+			"😀😀😀😀😀😀😀😀😀",
+		] {
+			for width in [40.0, 80.0, 140.0] {
+				let parsed = Formatted::parse(source);
+				let output = ctx.run_ui(Default::default(), |ui| {
+					ui.set_width(width);
+					parsed.show(ui, &mut None);
+				});
+				let galley = output
+					.shapes
+					.iter()
+					.find_map(|shape| {
+						if let egui::Shape::Text(text) = &shape.shape
+							&& text.galley.text() == source
+						{
+							Some(&text.galley)
+						} else {
+							None
+						}
+					})
+					.expect("message galley");
+				assert!(galley.rows.len() > 1);
+				assert_eq!(
+					galley
+						.rows
+						.iter()
+						.map(|row| row.glyphs.len())
+						.sum::<usize>(),
+					source.chars().count(),
+				);
+				for row in &galley.rows {
+					for glyph in &row.glyphs {
+						assert!(row.pos.x + glyph.pos.x >= -0.5, "{source}: {glyph:?}");
+						assert!(
+							row.pos.x + glyph.max_x() <= width + 1.0,
+							"{source}: {glyph:?}"
+						);
+					}
+				}
+				output.drop_without_applying_deltas();
+			}
+		}
+	}
+
+	#[test]
+	fn discord_chat_links_validate_origin_route_and_ids() {
+		for host in [
+			"discord.com",
+			"www.discord.com",
+			"ptb.discord.com",
+			"canary.discord.com",
+			"discordapp.com",
+			"www.discordapp.com",
+			"ptb.discordapp.com",
+			"canary.discordapp.com",
+		] {
+			assert_eq!(
+				discord_chat_link(&format!("https://{host}/channels/1/2/3?jump=true#message")),
+				Some(ChatLink {
+					guild: Some(Id(1)),
+					channel: Id(2),
+					message: Some(Id(3))
+				})
+			);
+		}
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/@me/2/"),
+			Some(ChatLink {
+				guild: None,
+				channel: Id(2),
+				message: None
+			})
+		);
+		assert_eq!(
+			discord_chat_link("HTTPS://DISCORD.COM:443/channels/1/2"),
+			Some(ChatLink {
+				guild: Some(Id(1)),
+				channel: Id(2),
+				message: None
+			})
+		);
+		for target in [
+			"http://discord.com/channels/1/2",
+			"https://discord.com.evil.example/channels/1/2",
+			"https://evil.discord.com/channels/1/2",
+			"https://discord.gg/channels/1/2",
+			"https://discord.com@evil.example/channels/1/2",
+			"https://user@discord.com/channels/1/2",
+			"https://discord.com:444/channels/1/2",
+			"https://discord.com/invite/example",
+			"https://discord.com/channels/1",
+			"https://discord.com/channels/1/2/3/4",
+			"https://discord.com/channels/0/2",
+			"https://discord.com/channels/1/0",
+			"https://discord.com/channels/1/2/0",
+			"https://discord.com/channels/1/+2",
+			"https://discord.com/channels/1/18446744073709551616",
+			"https://discord.com/channels/1/%32",
+			"https://discord.com/channels/1/2\n",
+			"https://discord.com\\channels/1/2",
+		] {
+			assert!(discord_chat_link(target).is_none(), "{target}");
+		}
+		assert!(
+			discord_chat_link(&format!(
+				"https://discord.com/channels/1/2?{}",
+				"x".repeat(2048)
+			))
+			.is_none()
+		);
+	}
+	#[test]
+	fn quote_rails_span_every_wrapped_line_of_their_block() {
+		fn shapes(
+			shape: &egui::Shape,
+			rails: &mut Vec<egui::Rect>,
+			texts: &mut Vec<(String, egui::Rect, usize)>,
+		) {
+			match shape {
+				egui::Shape::Rect(rect) if rect.rect.width() == f32::from(QUOTE_RAIL) => {
+					rails.push(rect.rect);
+				}
+				egui::Shape::Text(text) => texts.push((
+					text.galley.job.text.clone(),
+					text.galley.rect.translate(text.pos.to_vec2()),
+					text.galley.rows.len(),
+				)),
+				egui::Shape::Vec(children) => {
+					for shape in children {
+						shapes(shape, rails, texts);
+					}
+				}
+				_ => {}
+			}
+		}
+		let parsed = Formatted::parse(
+			"> quoted words that have to wrap over several lines inside a narrow message body\n\nafter",
+		);
+		assert!(
+			!parsed
+				.spans
+				.iter()
+				.any(|(text, _)| text.contains('\u{2502}'))
+		);
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(220.0, 300.0),
+				)),
+				..Default::default()
+			},
+			|ui| parsed.show(ui, &mut None),
+		);
+		let (mut rails, mut texts) = (vec![], vec![]);
+		for shape in &output.shapes {
+			shapes(&shape.shape, &mut rails, &mut texts);
+		}
+		output.drop_without_applying_deltas();
+		let (_, quote, rows) = texts
+			.iter()
+			.find(|(text, _, _)| text.starts_with("quoted words"))
+			.unwrap_or_else(|| panic!("Missing quote: {texts:?}"));
+		assert!(
+			*rows >= 3,
+			"The quote must wrap for this test to mean anything"
+		);
+		assert_eq!(rails.len(), 1, "One rail for one quoted block: {rails:?}");
+		let rail = rails[0];
+		assert!(
+			rail.top() <= quote.top() && rail.bottom() >= quote.bottom(),
+			"The rail must cover every wrapped line: {rail:?} against {quote:?}"
+		);
+		assert!(
+			rail.right() <= quote.left(),
+			"The rail sits left of the quoted text: {rail:?} against {quote:?}"
+		);
+	}
+
 	#[test]
 	fn block_endings_do_not_leave_a_blank_final_line() {
 		for (source, expected) in [
@@ -1530,9 +2340,9 @@ mod tests {
 			("# Title\nbody", "Title\nbody"),
 			("- a\n- b", "• a\n• b"),
 			("1. a\n2. b", "1. a\n2. b"),
-			("> quoted\nplain", "│ quoted\nplain"),
-			("> one\n> two", "│ one\n│ two"),
-			(">>> all\nof\n\nthis", "│ all\n│ of\n\n│ this"),
+			("> quoted\nplain", "quoted\nplain"),
+			("> one\n> two", "one\ntwo"),
+			(">>> all\nof\n\nthis", "all\nof\n\nthis"),
 			("-# small print", "small print"),
 			("#### deep", "#### deep"),
 			("```\none\ntwo\n```", "one\ntwo"),
@@ -1898,14 +2708,17 @@ mod tests {
 						..Default::default()
 					},
 					|ui| {
+						let mut surface = crate::select::Surface::new(ui, "body");
 						parsed.show_references(
 							ui,
 							&mut opening,
 							&[],
 							&mut profile,
-							(&[], &mut channel, &[]),
+							(&[], &mut channel, &[], &[]),
 							(&mut images, false, mask),
-						)
+							&mut surface,
+						);
+						surface.finish(ui);
 					},
 				);
 				assert!(output.platform_output.commands.is_empty());
@@ -1995,14 +2808,17 @@ mod tests {
 					..Default::default()
 				},
 				|ui| {
+					let mut surface = crate::select::Surface::new(ui, "body");
 					parsed.show_references(
 						ui,
 						&mut None,
 						&[],
 						&mut None,
-						(&[], &mut None, &[]),
+						(&[], &mut None, &[], &[]),
 						(&mut images, false, &mut mask),
-					)
+						&mut surface,
+					);
+					surface.finish(ui);
 				},
 			)
 		};
@@ -2154,14 +2970,17 @@ mod tests {
 						..Default::default()
 					},
 					|ui| {
+						let mut surface = crate::select::Surface::new(ui, "body");
 						parsed.show_references(
 							ui,
 							&mut opening,
 							&[],
 							&mut profile,
-							(&channels, &mut channel, &[]),
+							(&channels, &mut channel, &[], &[]),
 							(&mut crate::avatars::Avatars::default(), true, &mut revealed),
-						)
+							&mut surface,
+						);
+						surface.finish(ui);
 					},
 				);
 				assert!(output.platform_output.commands.is_empty());
@@ -2601,6 +3420,14 @@ mod tests {
 				.iter()
 				.find(|(text, ..)| *text == "fn main() {}")
 				.expect("code text");
+			let before = texts
+				.iter()
+				.find(|(text, ..)| *text == "before")
+				.expect("paragraph before code block");
+			let after = texts
+				.iter()
+				.find(|(text, ..)| *text == "after")
+				.expect("paragraph after code block");
 			assert_eq!(code.3, egui::FontFamily::Monospace);
 			assert!(
 				texts.iter().any(|(text, ..)| *text == "Rust"),
@@ -2619,6 +3446,14 @@ mod tests {
 				})
 				.expect("framed background");
 			assert!(bg.contains_rect(egui::Rect::from_min_size(code.1, code.2)));
+			assert!(
+				before.1.y + before.2.y <= bg.top(),
+				"paragraph before the block overlaps its frame: before={before:?}, block={bg:?}"
+			);
+			assert!(
+				after.1.y >= bg.bottom(),
+				"paragraph after the block overlaps its frame: after={after:?}, block={bg:?}"
+			);
 			let header = texts
 				.iter()
 				.find(|(text, ..)| *text == "Rust")
@@ -2658,6 +3493,173 @@ mod tests {
 		assert_eq!(copied, vec!["fn main() {}".to_owned()]);
 	}
 	#[test]
+	fn dragging_out_of_a_code_block_leaves_the_text_above_it_unselected() {
+		let ctx = egui::Context::default();
+		crate::icons::install(&ctx);
+		let parsed = Formatted::parse("before the block\n```\nalpha\nbravo\n```\nafter the block");
+		let frame = |events| {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(420.0, 300.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| parsed.show(ui, &mut None),
+			)
+		};
+		let press = |pos, pressed| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		// Locate the painted galleys, so the drag uses real glyph positions.
+		let mut code = None;
+		let mut after = None;
+		for _ in 0..2 {
+			let output = frame(Vec::new());
+			let mut shapes = Vec::new();
+			fn walk<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
+				match shape {
+					egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+					other => out.push(other),
+				}
+			}
+			output
+				.shapes
+				.iter()
+				.for_each(|s| walk(&s.shape, &mut shapes));
+			let galley = |wanted: &str| {
+				shapes.iter().find_map(|shape| match shape {
+					egui::Shape::Text(text) if text.galley.text() == wanted => {
+						Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+					}
+					_ => None,
+				})
+			};
+			code = galley("alpha\nbravo");
+			after = galley("after the block");
+			output.drop_without_applying_deltas();
+		}
+		let code = code.expect("painted code galley");
+		let after = after.expect("painted trailing paragraph");
+		// Out of the block's last line and into the paragraph under it: the paragraph above
+		// the block is registered with the rest of the body, and must stay unselected.
+		let from = egui::pos2(code.left() + 1.0, code.bottom() - 2.0);
+		let to = egui::pos2(after.right() - 1.0, after.center().y);
+		let mut copied = String::new();
+		for events in [
+			press(from, true),
+			vec![egui::Event::PointerMoved(to)],
+			press(to, false),
+			vec![egui::Event::Copy],
+		] {
+			let output = frame(events);
+			if let Some(text) =
+				output
+					.platform_output
+					.commands
+					.iter()
+					.find_map(|command| match command {
+						egui::OutputCommand::CopyText(text) => Some(text.clone()),
+						_ => None,
+					}) {
+				copied = text;
+			}
+			output.drop_without_applying_deltas();
+		}
+		assert_eq!(copied, "bravo\n\nafter the block");
+	}
+	#[test]
+	fn an_unlabelled_code_block_floats_a_copy_control_above_its_text() {
+		let ctx = egui::Context::default();
+		crate::icons::install(&ctx);
+		let parsed = Formatted::parse("```\nfirst line of code\nsecond line\nthird line\n```");
+		let frame = |events| {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(420.0, 300.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| parsed.show(ui, &mut None),
+			)
+		};
+		let mut block = None;
+		for _ in 0..2 {
+			let output = frame(Vec::new());
+			let code_bg = ctx.global_style().visuals.code_bg_color;
+			block = output.shapes.iter().find_map(|shape| match &shape.shape {
+				egui::Shape::Rect(rect) if rect.fill == code_bg => Some(rect.rect),
+				_ => None,
+			});
+			output.drop_without_applying_deltas();
+		}
+		// No language header, so the control floats in the block's top-right corner and
+		// only while the pointer is inside it.
+		let block = block.expect("framed background");
+		let pos = egui::pos2(block.right() - 17.0, block.top() + 17.0);
+		let hover = frame(vec![egui::Event::PointerMoved(pos)]);
+		let code = hover
+			.shapes
+			.iter()
+			.position(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text().starts_with("first line")))
+			.expect("painted code galley");
+		let control = hover
+			.shapes
+			.iter()
+			.position(|shape| {
+				let bounds = shape.shape.visual_bounding_rect();
+				bounds.contains(pos) && bounds.width() < 40.0
+			})
+			.expect("floating control");
+		hover.drop_without_applying_deltas();
+		assert!(
+			code < control,
+			"the block's deferred text must paint under the control, not over it"
+		);
+		let output = frame(vec![
+			egui::Event::PointerMoved(pos),
+			egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Primary,
+				pressed: true,
+				modifiers: egui::Modifiers::NONE,
+			},
+			egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			},
+		]);
+		let copied: Vec<String> = output
+			.platform_output
+			.commands
+			.iter()
+			.filter_map(|command| match command {
+				egui::OutputCommand::CopyText(text) => Some(text.clone()),
+				_ => None,
+			})
+			.collect();
+		output.drop_without_applying_deltas();
+		assert_eq!(
+			copied,
+			vec!["first line of code\nsecond line\nthird line".to_owned()]
+		);
+	}
+	#[test]
 	fn mass_mentions_render_as_pills_only_for_exact_plain_tokens() {
 		let parsed = Formatted::parse("@everyone @here `@everyone` @everyone_else \\@here");
 		assert_eq!(
@@ -2689,6 +3691,44 @@ mod tests {
 		output.drop_without_applying_deltas();
 	}
 	#[test]
+	fn timestamps_render_the_formatted_instant_not_the_raw_token() {
+		let parsed = Formatted::parse(
+			"<t:1700000000:R> <t:1700000000> `<t:1700000000:t>` \\<t:1:t> <t:1:z> <t:abc:t>",
+		);
+		let stamps: Vec<_> = parsed
+			.spans
+			.iter()
+			.filter_map(|(text, style)| style.timestamp.map(|stamp| (text.as_str(), stamp)))
+			.collect();
+		assert_eq!(
+			stamps,
+			vec![
+				("<t:1700000000:R>", (1_700_000_000, b'R')),
+				("<t:1700000000>", (1_700_000_000, b'f')),
+			]
+		);
+		let ctx = egui::Context::default();
+		let mut output = ctx.run_ui(Default::default(), |ui| {
+			ui.set_width(400.0);
+			parsed.show(ui, &mut None);
+		});
+		output.textures_delta.clear();
+		output.drop_without_applying_deltas();
+		let mut job = LayoutJob::default();
+		ctx.run_ui(Default::default(), |ui| {
+			parsed.append_inline_preview(&mut job, ui, &[], &[], &[]);
+		})
+		.drop_without_applying_deltas();
+		assert!(job.text.contains("ago"), "relative style: {}", job.text);
+		assert!(
+			job.text.contains("November 14, 2023"),
+			"default style: {}",
+			job.text
+		);
+		// Code spans, escapes and unknown styles keep the literal source.
+		assert_eq!(job.text.matches("<t:").count(), 4, "{}", job.text);
+	}
+	#[test]
 	fn mention_highlights_include_unknown_users_in_both_themes() {
 		let ctx = egui::Context::default();
 		let users = vec![model::User {
@@ -2698,6 +3738,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		let parsed = Formatted::parse("<@42> <@!43> `<@44>` \\<@45>");
 		for dark in [true, false] {
@@ -2738,6 +3779,76 @@ mod tests {
 	}
 
 	#[test]
+	fn mentions_and_emoji_share_one_row_baseline() {
+		let ctx = egui::Context::default();
+		let users = vec![model::User {
+			id: Id(42),
+			name: "rain".into(),
+			avatar: None,
+			webhook: false,
+			kind: Default::default(),
+			discriminator: 0,
+			primary_guild: None,
+		}];
+		for source in [
+			"<@42> test \u{1f610} test <@42>",
+			"<@42> test <:wave:9001> test <@42>",
+			"\u{1f610} <@42> #general",
+		] {
+			let parsed = Formatted::parse(source);
+			assert!(parsed.artwork, "{source}");
+			let mut profile = None;
+			let mut opening = None;
+			let output = ctx.run_ui(Default::default(), |ui| {
+				ui.set_width(400.0);
+				parsed.show_mentions(ui, &mut opening, &users, &mut profile);
+			});
+			fn walk(shape: &egui::Shape, rows: &mut Vec<(f32, f32, f32)>) {
+				match shape {
+					egui::Shape::Text(text) if text.galley.text() != "?" => {
+						// Artwork falls back to a "?" galley without the emoji atlas; it is
+						// centred on the row rather than sharing the text baseline.
+						for placed in &text.galley.rows {
+							for glyph in &placed.row.glyphs {
+								rows.push((glyph.line_height, placed.row.size.y, glyph.pos.y));
+							}
+						}
+					}
+					egui::Shape::Vec(shapes) => {
+						shapes.iter().for_each(|shape| walk(shape, rows));
+					}
+					_ => {}
+				}
+			}
+			let mut rows: Vec<(f32, f32, f32)> = Vec::new();
+			for shape in &output.shapes {
+				walk(&shape.shape, &mut rows);
+			}
+			// Only the body font: emoji placeholders carry the artwork font, whose own
+			// ascent says nothing about where the words sit.
+			let body = rows
+				.iter()
+				.map(|(height, ..)| *height)
+				.fold(f32::INFINITY, f32::min);
+			rows.retain(|(height, ..)| *height == body);
+			assert!(rows.len() > 4, "{source}");
+			// One shared row height and baseline: words never ride above the artwork.
+			let first = rows[0];
+			for row in &rows {
+				assert!(
+					(row.1 - first.1).abs() < 0.5 && (row.2 - first.2).abs() < 0.5,
+					"{source}: {row:?} against {first:?}"
+				);
+			}
+			output.drop_without_applying_deltas();
+		}
+	}
+	#[test]
+	fn plain_messages_keep_the_body_line_height() {
+		let parsed = Formatted::parse("plain <@42> words");
+		assert!(!parsed.artwork);
+	}
+	#[test]
 	fn user_mentions_preserve_literals_and_open_native_profiles() {
 		let parsed = Formatted::parse(
 			"Hello **<@42>** <@!42> `<@43>` \\<@44> &lt;@45&gt; [<@46>](https://example.com) <@&47>",
@@ -2767,6 +3878,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		for key in [egui::Key::Tab, egui::Key::Enter] {
 			let mut output = ctx.run_ui(

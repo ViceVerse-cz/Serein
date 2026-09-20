@@ -198,6 +198,38 @@ impl State {
 		}
 		Ok(())
 	}
+	pub fn lights_guild_rail(&self, channel: &model::Channel) -> bool {
+		channel.kind != 2
+			&& self.channel_unread(channel) == Some(true)
+			&& !self.muted_for_guild_rail(channel)
+	}
+
+	pub fn muted_for_guild_rail(&self, channel: &model::Channel) -> bool {
+		let Some(guild) = channel.guild else {
+			return false;
+		};
+		if self
+			.notification_preferences
+			.settings
+			.get(&Some(guild))
+			.is_some_and(|setting| setting.muted == Some(true))
+		{
+			return true;
+		}
+		let mut current = Some(channel.id);
+		for _ in 0..8 {
+			let Some(id) = current else {
+				break;
+			};
+			if self.guild_channel_muted(id) == Some(true) {
+				return true;
+			}
+			current = self
+				.channel(id)
+				.and_then(|c| c.parent_id.filter(|p| *p != id));
+		}
+		false
+	}
 	pub fn guild_channel_muted(&self, channel: Id) -> Option<bool> {
 		let guild = self.channel(channel)?.guild?;
 		let setting = self.notification_preferences.settings.get(&Some(guild));
@@ -587,6 +619,64 @@ impl State {
 					.and_then(|g| g.member.as_ref())
 					.is_some_and(|member| roles.iter().any(|role| member.roles.contains(role))))
 	}
+	fn alert_preview(&self, message: &Message, mut text: &str) -> String {
+		let guild = self
+			.channel(message.channel)
+			.and_then(|channel| channel.guild);
+		let mut output = String::new();
+		let mut count = 0;
+		while !text.is_empty() && count < 160 && output.len() < 512 {
+			let (prefix, name, len) = if let Some((id, len)) = model::user_mention_prefix(text) {
+				let member = self
+					.members
+					.as_ref()
+					.filter(|list| list.guild == guild)
+					.and_then(|list| {
+						list.rows
+							.iter()
+							.flatten()
+							.find(|member| member.user.id == id)
+					});
+				let user = message
+					.mentions
+					.iter()
+					.find(|user| user.id == id)
+					.or_else(|| self.user.as_ref().filter(|user| user.id == id))
+					.or_else(|| self.friend(id));
+				let name = member
+					.and_then(|member| member.nick.as_deref().filter(|nick| !nick.is_empty()))
+					.or_else(|| user.map(|user| self.user_display_name(user)))
+					.or_else(|| member.map(|member| member.user.name.as_str()))
+					.unwrap_or("Unknown user");
+				("@", name, len)
+			} else if let Some((id, len)) = model::role_mention_prefix(text) {
+				let name = guild
+					.and_then(|guild| self.guild_roles(guild))
+					.and_then(|roles| roles.iter().find(|role| role.id == id))
+					.map_or("Unknown role", |role| role.name.as_str());
+				("@", name, len)
+			} else if let Some((id, len)) = model::channel_mention_prefix(text) {
+				let name = self
+					.channel(id)
+					.filter(|_| self.can_view(id))
+					.map_or("Unknown channel", |channel| channel.name.as_str());
+				("#", name, len)
+			} else {
+				let len = text.chars().next().unwrap().len_utf8();
+				("", &text[..len], len)
+			};
+			for character in prefix.chars().chain(name.chars()) {
+				if count == 160 || output.len() + character.len_utf8() > 512 {
+					return alert_text(&output, 160, 512);
+				}
+				output.push(character);
+				count += 1;
+			}
+			text = &text[len..];
+		}
+		alert_text(&output, 160, 512)
+	}
+
 	pub(crate) fn observe_notification(&mut self, message: &Message) {
 		if !model::valid_mention_roles(&message.mention_roles) {
 			return;
@@ -681,7 +771,7 @@ impl State {
 				"Sent a message".to_owned()
 			}
 		} else {
-			let text = alert_text(&display, 160, 512);
+			let text = self.alert_preview(message, &display);
 			if text.is_empty() {
 				"Sent a message".to_owned()
 			} else {
@@ -716,25 +806,6 @@ impl State {
 	}
 }
 
-impl State {
-	pub(crate) fn social_notification_scope_allowed(
-		&self,
-		channel: Option<Id>,
-		guild: Option<Id>,
-	) -> bool {
-		if !self.gateway_connected || self.notification_preferences.dnd != Some(false) {
-			return false;
-		}
-		if let Some(channel) = channel {
-			return self.notification_allowed(channel);
-		}
-		self.notification_preferences
-			.settings
-			.get(&guild)
-			.is_some_and(|settings| settings.muted == Some(false))
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -742,6 +813,7 @@ mod tests {
 	use model::{Channel, Guild, Patch, User, permissions as p};
 	fn notification_state() -> State {
 		let owner = User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -901,6 +973,7 @@ mod tests {
 	}
 	fn message(id: u64, channel: u64) -> Message {
 		let owner = User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -932,6 +1005,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			embeds_suppressed: false,

@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [macos-latest, windows-latest, windows-11-arm, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -24,7 +24,7 @@ jobs:
         run: bash packaging/macos/test_sign_release.sh
       - name: Linux native dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev libasound2-dev cmake python3 dpkg-dev desktop-file-utils
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev libasound2-dev libpulse-dev cmake python3 dpkg-dev desktop-file-utils
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: rustfmt, clippy
@@ -46,7 +46,7 @@ jobs:
         run: cargo xtask package
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: serein-${{ runner.os }}-unsigned
+          name: serein-${{ runner.os }}-${{ runner.arch }}-unsigned
           path: dist/
   security:
     if: github.event_name == 'push' || github.event.pull_request.draft == false

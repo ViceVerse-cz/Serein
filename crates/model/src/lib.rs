@@ -2,12 +2,16 @@
 pub mod account;
 pub mod archives;
 mod channel_preferences;
+pub mod keybinds;
 pub mod messaging_permissions;
 pub mod notification_preferences;
-pub mod notification_settings;
+pub mod voice_settings;
 pub use channel_preferences::{ChannelPreferences, PreferenceEdit, Shortcut};
+pub use keybinds::{KeyChord, KeybindAction, Keybinds};
 pub mod forum;
 pub mod gifs;
+mod graphics;
+pub use graphics::GpuPreference;
 pub mod guild_folders;
 pub mod permissions;
 mod reading_preferences;
@@ -24,6 +28,8 @@ pub use profile::*;
 pub use system_messages::{Segment, SystemMessage};
 mod attachments;
 pub use attachments::*;
+mod components;
+pub use components::*;
 mod embeds;
 pub use embeds::*;
 mod extra_content;
@@ -89,6 +95,9 @@ pub struct User {
 	pub name: String,
 	pub avatar: Option<String>,
 	pub discriminator: u16,
+	/// Service-supplied server identity displayed beside this user's name.
+	#[serde(default, skip_serializing)]
+	pub primary_guild: Option<Box<ClanTag>>,
 }
 impl User {
 	pub fn account_label(&self) -> Option<&'static str> {
@@ -100,7 +109,13 @@ impl User {
 		}
 	}
 	pub fn heap_bytes(&self) -> usize {
-		self.name.capacity() + self.avatar.as_ref().map_or(0, String::capacity)
+		self.name.capacity()
+			+ self.avatar.as_ref().map_or(0, String::capacity)
+			+ self.primary_guild.as_ref().map_or(0, |guild| {
+				std::mem::size_of::<ClanTag>()
+					+ guild.tag.capacity()
+					+ guild.badge.as_ref().map_or(0, String::capacity)
+			})
 	}
 	pub fn avatar_key(&self) -> String {
 		if let Some(hash) = self
@@ -139,6 +154,60 @@ pub enum AccountKind {
 	Human = 0,
 	Bot = 1,
 	App = 2,
+}
+/// Locally remembered account for the switcher: identity only, never a token.
+/// Tokens stay in the OS credential store under their own per-account entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SavedAccount {
+	pub id: Id,
+	pub name: String,
+	/// Global display name, when the account has one.
+	pub display: Option<String>,
+	pub avatar: Option<String>,
+	pub discriminator: u16,
+	/// Whether the OS credential store holds this account's own entry. Read-only output of
+	/// the roster: writes go through `set_account_token`, so an identity refresh cannot
+	/// claim a token exists. Keeps the client from rewriting an entry it already wrote,
+	/// which on macOS is an access-controlled operation that can prompt for the keychain.
+	pub has_token: bool,
+}
+/// Bounded roster: enough for people juggling alternates, small enough to stay readable.
+pub const MAX_SAVED_ACCOUNTS: usize = 8;
+impl SavedAccount {
+	pub fn is_valid(&self) -> bool {
+		self.id.0 != 0
+			&& (1..=64).contains(&self.name.len())
+			&& self
+				.display
+				.as_ref()
+				.is_none_or(|display| (1..=64).contains(&display.len()))
+			&& self.avatar.as_deref().is_none_or(valid_avatar_hash)
+			&& self.discriminator <= 9999
+	}
+	/// What the switcher shows: display name when set, otherwise the username.
+	pub fn label(&self) -> &str {
+		self.display
+			.as_deref()
+			.filter(|display| !display.is_empty())
+			.unwrap_or(&self.name)
+	}
+	/// Avatar lookups and name rows reuse the ordinary user widgets.
+	pub fn user(&self) -> User {
+		User {
+			kind: AccountKind::Human,
+			webhook: false,
+			id: self.id,
+			name: self.name.clone(),
+			avatar: self.avatar.clone(),
+			discriminator: self.discriminator,
+			primary_guild: None,
+		}
+	}
+	pub fn heap_bytes(&self) -> usize {
+		self.name.capacity()
+			+ self.display.as_ref().map_or(0, String::capacity)
+			+ self.avatar.as_ref().map_or(0, String::capacity)
+	}
 }
 pub fn valid_avatar_hash(hash: &str) -> bool {
 	let hash = hash.strip_prefix("a_").unwrap_or(hash);
@@ -224,14 +293,19 @@ pub struct ChannelPatch {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Message {
+	/// Original outer message flags, retained for interaction submissions.
+	pub flags: u64,
+	pub ephemeral: bool,
+	pub components: Vec<Component>,
+	pub application_id: Option<Id>,
 	/// Session-only counts; None means a service refresh is needed.
 	pub reactions: Option<Vec<Reaction>>,
 	pub id: Id,
 	pub channel: Id,
 	pub author: User,
-	/// Session-only role membership supplied with this message; refreshed by live member rows.
+	/// Role membership supplied with this message.
 	pub author_roles: Vec<Id>,
-	/// Session-only guild nickname; current member rows take precedence.
+	/// Guild nickname supplied with this message.
 	pub author_nick: Option<String>,
 	pub content: String,
 	pub mentions: Vec<User>,
@@ -299,6 +373,7 @@ impl Message {
 				.capacity()
 				.saturating_sub(self.attachments.len())
 				* size_of::<Attachment>()
+			+ component_bytes(&self.components)
 			+ embed_bytes(&self.embeds)
 			+ self.embeds.capacity().saturating_sub(self.embeds.len()) * size_of::<Embed>()
 	}
@@ -327,6 +402,9 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Patch<T> {
 }
 #[derive(Clone)]
 pub struct MessagePatch {
+	pub flags: Patch<u64>,
+	pub components: Patch<Vec<Component>>,
+	pub application_id: Patch<Id>,
 	pub extra_content: ExtraContentPatch,
 	pub reactions: Patch<Vec<Reaction>>,
 	pub id: Id,
@@ -451,7 +529,11 @@ pub struct RichActivity {
 	pub details: Option<String>,
 	pub state: Option<String>,
 	pub image: Option<ActivityImage>,
+	pub small_image: Option<ActivityImage>,
+	/// Unix milliseconds, as supplied by the activity producer.
+	pub started_at: Option<u64>,
 }
+pub const MAX_ACTIVITY_TIMESTAMP: u64 = 9_007_199_254_740_991;
 impl RichActivity {
 	pub fn valid(&self) -> bool {
 		matches!(self.kind, 0..=3 | 5)
@@ -459,12 +541,20 @@ impl RichActivity {
 			&& self.details.as_deref().is_none_or(valid_presence_text)
 			&& self.state.as_deref().is_none_or(valid_presence_text)
 			&& self.image.as_ref().is_none_or(ActivityImage::valid)
+			&& self.small_image.as_ref().is_none_or(ActivityImage::valid)
+			&& self
+				.started_at
+				.is_none_or(|at| at <= MAX_ACTIVITY_TIMESTAMP)
 	}
 	pub fn heap_bytes(&self) -> usize {
 		self.name.capacity()
 			+ self.details.as_ref().map_or(0, String::capacity)
 			+ self.state.as_ref().map_or(0, String::capacity)
 			+ self.image.as_ref().map_or(0, ActivityImage::heap_bytes)
+			+ self
+				.small_image
+				.as_ref()
+				.map_or(0, ActivityImage::heap_bytes)
 	}
 	pub fn summary(&self) -> String {
 		let verb = match self.kind {
@@ -610,6 +700,8 @@ mod presence_tests {
 			details: Some("Level 2".into()),
 			state: Some("In a party".into()),
 			image: None,
+			small_image: None,
+			started_at: None,
 		};
 		let mut presence = MemberPresence {
 			user: Id(2),
@@ -660,6 +752,9 @@ mod presence_tests {
 		let mut path = String::from("external/synthetic-hash-01/https/example.com/art.png");
 		path.reserve(2048);
 		allocated.image = Some(ActivityImage::Proxy(path));
+		let mut small_path = String::from("external/synthetic-small/https/example.com/badge.png");
+		small_path.reserve(1024);
+		allocated.small_image = Some(ActivityImage::Proxy(small_path));
 		assert!(allocated.valid());
 		assert_eq!(
 			allocated.heap_bytes(),
@@ -667,7 +762,15 @@ mod presence_tests {
 				+ allocated.details.as_ref().unwrap().capacity()
 				+ allocated.state.as_ref().unwrap().capacity()
 				+ allocated.image.as_ref().unwrap().heap_bytes()
+				+ allocated.small_image.as_ref().unwrap().heap_bytes()
 		);
+		allocated.started_at = Some(MAX_ACTIVITY_TIMESTAMP);
+		assert!(allocated.valid());
+		allocated.started_at = Some(MAX_ACTIVITY_TIMESTAMP + 1);
+		assert!(!allocated.valid());
+		allocated.started_at = None;
+		allocated.small_image = Some(ActivityImage::Proxy("external/../secret".into()));
+		assert!(!allocated.valid());
 	}
 
 	#[test]

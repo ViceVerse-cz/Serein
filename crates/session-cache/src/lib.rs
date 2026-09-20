@@ -5,6 +5,17 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const MAX_MESSAGES: usize = 500;
 pub const MAX_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_MUTATIONS: usize = 1024;
+
+fn keep_author_membership(message: &mut Message, roles: &[Id], nick: Option<&str>) {
+	if message.author_roles.is_empty() && !roles.is_empty() {
+		message.author_roles = roles.to_vec();
+	}
+	if message.author_nick.is_none()
+		&& let Some(nick) = nick.filter(|n| !n.is_empty())
+	{
+		message.author_nick = Some(nick.to_owned());
+	}
+}
 #[derive(Default)]
 pub struct Timeline {
 	// None preserves only the position of a message deleted while it was loaded.
@@ -17,6 +28,7 @@ pub struct Timeline {
 	deleted: BTreeSet<Id>,
 	loading: bool,
 	retain_older: bool,
+	replace: bool,
 	preserve_deleted_messages: bool,
 }
 impl Timeline {
@@ -35,6 +47,52 @@ impl Timeline {
 	}
 	pub fn get_display(&self, id: Id) -> Option<&Message> {
 		self.messages.get(&id).and_then(Option::as_ref)
+	}
+	pub fn apply_author_membership(&mut self, user: Id, roles: &[Id], nick: Option<&str>) -> bool {
+		if user.0 == 0 {
+			return false;
+		}
+		let mut any = false;
+		for message in self.messages.values_mut().flatten() {
+			if message.author.id != user || message.author.webhook {
+				continue;
+			}
+			let next_roles =
+				(!roles.is_empty() && message.author_roles != roles).then(|| roles.to_vec());
+			let next_nick = nick.filter(|n| !n.is_empty()).and_then(|n| {
+				(message.author_nick.as_deref() != Some(n))
+					.then(|| n.chars().take(128).collect::<String>())
+			});
+			if next_roles.is_none() && next_nick.is_none() {
+				continue;
+			}
+			let before = message.bytes();
+			if let Some(roles) = next_roles {
+				message.author_roles = roles;
+			}
+			if let Some(nick) = next_nick {
+				message.author_nick = Some(nick);
+			}
+			self.bytes = self
+				.bytes
+				.saturating_sub(before)
+				.saturating_add(message.bytes());
+			any = true;
+		}
+		if any {
+			while self.row_count() > MAX_MESSAGES || self.row_bytes() > MAX_BYTES {
+				let item = if self.retain_older {
+					self.messages.pop_last()
+				} else {
+					self.messages.pop_first()
+				};
+				if let Some((_, Some(old))) = item {
+					self.bytes -= old.bytes();
+					self.payload_count -= 1;
+				}
+			}
+		}
+		any
 	}
 	pub fn set_preserve_deleted_messages(&mut self, enabled: bool) {
 		if self.preserve_deleted_messages == enabled {
@@ -64,6 +122,19 @@ impl Timeline {
 	}
 	pub fn is_deleted(&self, id: Id) -> bool {
 		self.deleted.contains(&id)
+	}
+	/// Drop a retained deleted payload while keeping the tombstone.
+	/// History cannot restore the body. A second call is a no-op.
+	pub fn discard_preserved(&mut self, id: Id) -> bool {
+		if !self.deleted.contains(&id) {
+			return false;
+		}
+		let Some(old) = self.messages.get_mut(&id).and_then(Option::take) else {
+			return false;
+		};
+		self.bytes -= old.bytes();
+		self.payload_count -= 1;
+		true
 	}
 	pub fn len(&self) -> usize {
 		self.iter().count()
@@ -100,6 +171,15 @@ impl Timeline {
 	pub fn begin_page(&mut self, older: bool) {
 		// Set eviction direction before live events can race the history response.
 		self.retain_older = older;
+		self.replace = !older;
+		self.loading = true;
+		self.changed.clear();
+		self.patches.clear();
+		self.patch_bytes = 0;
+	}
+	pub fn begin_append(&mut self) {
+		self.retain_older = false;
+		self.replace = false;
 		self.loading = true;
 		self.changed.clear();
 		self.patches.clear();
@@ -152,6 +232,11 @@ impl Timeline {
 			{
 				return Ok(());
 			}
+			keep_author_membership(
+				&mut message,
+				&previous.author_roles,
+				previous.author_nick.as_deref(),
+			);
 			message.revision = previous.revision
 				+ u64::from(
 					previous.content != message.content
@@ -164,7 +249,9 @@ impl Timeline {
 						|| previous.extra_content != message.extra_content
 						|| previous.embeds != message.embeds
 						|| previous.attachments != message.attachments
-						|| previous.embeds_suppressed != message.embeds_suppressed,
+						|| previous.embeds_suppressed != message.embeds_suppressed
+						|| previous.author_roles != message.author_roles
+						|| previous.author_nick != message.author_nick,
 				);
 		}
 		self.bytes += message.bytes();
@@ -202,6 +289,8 @@ impl Timeline {
 				.author_nick
 				.as_ref()
 				.is_none_or(|nick| nick.len() <= 512)
+			&& message.application_id.is_none_or(|id| id.0 != 0)
+			&& model::valid_components(&message.components)
 			&& model::valid_embeds(&message.embeds)
 			&& model::valid_attachments(&message.attachments)
 			&& message
@@ -238,10 +327,22 @@ impl Timeline {
 		Ok(())
 	}
 	pub fn finish_page(&mut self, items: Vec<Message>, older: bool) -> Result<(), &'static str> {
-		// A recent-page reload is authoritative for the whole retained view. Preserve only
-		// mutations observed during this request, never missing cached/old RAM records.
 		self.retain_older = older;
-		if !older {
+		let prior: BTreeMap<_, _> = self
+			.messages
+			.iter()
+			.filter_map(|(id, message)| {
+				let message = message.as_ref()?;
+				if message.author_roles.is_empty() && message.author_nick.is_none() {
+					return None;
+				}
+				Some((
+					*id,
+					(message.author_roles.clone(), message.author_nick.clone()),
+				))
+			})
+			.collect();
+		if self.replace {
 			self.messages.retain(|id, message| {
 				let keep = self.changed.contains(id)
 					|| (self.preserve_deleted_messages && self.deleted.contains(id));
@@ -252,7 +353,10 @@ impl Timeline {
 				keep
 			});
 		}
-		for item in items {
+		for mut item in items {
+			if let Some((roles, nick)) = prior.get(&item.id) {
+				keep_author_membership(&mut item, roles, nick.as_deref());
+			}
 			self.insert(item, false, older)?;
 		}
 		self.loading = false;
@@ -268,6 +372,8 @@ impl Timeline {
 		if matches!(&patch.content, Patch::Value(s) if s.len() > 64 * 1024)
 			|| matches!(&patch.reactions, Patch::Value(r) if !model::valid_reactions(r))
 			|| matches!(&patch.mentions, Patch::Value(users) if !model::valid_mentions(users))
+			|| matches!(&patch.application_id, Patch::Value(id) if id.0 == 0)
+			|| matches!(&patch.components, Patch::Value(c) if !model::valid_components(c))
 			|| matches!(&patch.embeds, Patch::Value(embeds) if !model::valid_embeds(embeds))
 			|| matches!(&patch.attachments, Patch::Value(attachments) if !model::valid_attachments(attachments))
 		{
@@ -295,6 +401,15 @@ impl Timeline {
 				.get(&patch.id)
 				.cloned()
 				.unwrap_or_else(|| patch.clone());
+			if !matches!(patch.flags, Patch::Absent) {
+				merged.flags = patch.flags;
+			}
+			if !matches!(patch.components, Patch::Absent) {
+				merged.components = patch.components;
+			}
+			if !matches!(patch.application_id, Patch::Absent) {
+				merged.application_id = patch.application_id;
+			}
 			if !matches!(patch.content, Patch::Absent) {
 				merged.content = patch.content;
 			}
@@ -408,13 +523,16 @@ fn patch_bytes(patch: &MessagePatch) -> usize {
 	};
 	size_of::<MessagePatch>()
 		+ content
-		+ match &patch.reactions {
-			Patch::Value(r) => {
-				model::reaction_bytes(r)
-					+ r.capacity().saturating_sub(r.len()) * size_of::<model::Reaction>()
-			}
+		+ match &patch.components {
+			Patch::Value(c) => model::component_bytes(c),
 			_ => 0,
-		} + match &patch.mentions {
+		} + match &patch.reactions {
+		Patch::Value(r) => {
+			model::reaction_bytes(r)
+				+ r.capacity().saturating_sub(r.len()) * size_of::<model::Reaction>()
+		}
+		_ => 0,
+	} + match &patch.mentions {
 		Patch::Value(users) => model::mention_bytes(users),
 		_ => 0,
 	} + match &patch.embeds {
@@ -431,7 +549,8 @@ fn patch_bytes(patch: &MessagePatch) -> usize {
 		_ => 0,
 	}
 }
-fn apply_patch(message: &mut Message, patch: &MessagePatch) {
+/// Apply a previously bounded patch (the caller must validate component and payload limits).
+pub fn apply_patch(message: &mut Message, patch: &MessagePatch) {
 	if matches!(patch.edited,Patch::Value(new) if message.edited_at.is_some_and(|old|new<old)) {
 		return;
 	}
@@ -445,10 +564,31 @@ fn apply_patch(message: &mut Message, patch: &MessagePatch) {
 		Patch::Null => message.reactions = Some(vec![]),
 		Patch::Value(r) => message.reactions = Some(r.clone()),
 	}
+	match patch.flags {
+		Patch::Value(flags) => {
+			message.flags = flags;
+			message.ephemeral = flags & 64 != 0;
+		}
+		Patch::Null => {
+			message.flags = 0;
+			message.ephemeral = false;
+		}
+		Patch::Absent => {}
+	}
 	// Gateway updates describe the outer message, never edits to its frozen snapshot.
 	if message.forwarded {
 		message.revision += 1;
 		return;
+	}
+	match &patch.components {
+		Patch::Value(c) => message.components.clone_from(c),
+		Patch::Null => message.components.clear(),
+		Patch::Absent => {}
+	}
+	match &patch.application_id {
+		Patch::Value(id) => message.application_id = Some(*id),
+		Patch::Null => message.application_id = None,
+		Patch::Absent => {}
 	}
 	match &patch.content {
 		Patch::Value(s) => message.content.clone_from(s),
@@ -500,6 +640,9 @@ mod tests {
 		timeline.insert(original.clone(), false, false).unwrap();
 		timeline
 			.patch(MessagePatch {
+				flags: Patch::Absent,
+				components: Patch::Absent,
+				application_id: Patch::Absent,
 				id: Id(1),
 				channel: Id(1),
 				content: Patch::Value(String::new()),
@@ -628,6 +771,9 @@ mod tests {
 		content.push_str("Pending patch");
 		timeline
 			.patch(MessagePatch {
+				flags: Patch::Absent,
+				components: Patch::Absent,
+				application_id: Patch::Absent,
 				id: Id(3),
 				channel: Id(1),
 				content: Patch::Value(content),
@@ -693,6 +839,9 @@ mod tests {
 		assert!(timeline.retained_bytes() > timeline.row_bytes());
 		timeline
 			.patch(MessagePatch {
+				flags: Patch::Absent,
+				components: Patch::Absent,
+				application_id: Patch::Absent,
 				id: Id(10),
 				channel: Id(1),
 				content: Patch::Value("late body".into()),
@@ -790,6 +939,9 @@ mod tests {
 	#[test]
 	fn content_markers_reconcile_independent_updates_before_and_after_history() {
 		let update = |extra_content| MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			id: Id(1),
 			channel: Id(1),
 			extra_content,
@@ -897,6 +1049,9 @@ mod tests {
 		timeline.insert(original.clone(), false, false).unwrap();
 		let before = timeline.bytes;
 		let patch = MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			extra_content: Default::default(),
 			reactions: model::Patch::Absent,
 			id: Id(1),
@@ -919,10 +1074,15 @@ mod tests {
 	}
 	fn message(id: u64) -> Message {
 		Message {
+			flags: 0,
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
 			reactions: Some(vec![]),
 			id: Id(id),
 			channel: Id(1),
 			author: model::User {
+				primary_guild: None,
 				avatar: None,
 				webhook: false,
 				kind: Default::default(),
@@ -1005,6 +1165,9 @@ mod tests {
 			spoiler: false,
 		};
 		let update = |attachments| MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			extra_content: Default::default(),
 			reactions: model::Patch::Absent,
 			id: Id(1),
@@ -1080,6 +1243,9 @@ mod tests {
 			..Default::default()
 		};
 		let update = |embeds| MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			extra_content: Default::default(),
 			reactions: model::Patch::Absent,
 			id: Id(1),
@@ -1153,6 +1319,9 @@ mod tests {
 		t.begin_page(false);
 		t.delete(Id(1)).unwrap();
 		t.patch(MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			extra_content: Default::default(),
 			reactions: model::Patch::Absent,
 			id: Id(2),
@@ -1168,6 +1337,9 @@ mod tests {
 		t.finish_page(vec![message(1), message(2)], false).unwrap();
 		assert!(t.get(Id(1)).is_none());
 		t.patch(MessagePatch {
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
 			extra_content: Default::default(),
 			reactions: model::Patch::Absent,
 			id: Id(1),
@@ -1222,6 +1394,9 @@ mod tests {
 		for (at, content) in [(20, "new edit"), (10, "old edit")] {
 			timeline
 				.patch(MessagePatch {
+					flags: Patch::Absent,
+					components: Patch::Absent,
+					application_id: Patch::Absent,
 					extra_content: Default::default(),
 					reactions: model::Patch::Absent,
 					id: Id(1),

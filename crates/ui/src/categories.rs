@@ -1,3 +1,4 @@
+use crate::channel_marks::{self, Emphasis};
 use crate::design::LazyHover;
 use crate::shortcuts::{Heading, Roster, Scope, ShortcutView};
 use crate::{MessagingUi, design};
@@ -5,6 +6,8 @@ use client_core::State;
 use egui::RichText;
 use model::{Channel, Id, Shortcut};
 use std::collections::{BTreeMap, BTreeSet};
+
+const MAX_VISIBLE_THREADS: usize = 3;
 
 /// Where a channel row came from. A mirrored guild channel differs from its tree copy by slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -36,6 +39,150 @@ struct CacheKey {
 	selected: Option<Id>,
 	show_hidden: bool,
 	hide_muted: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ChannelDrag(Id);
+
+#[derive(Clone, Copy)]
+struct DropRow {
+	id: Id,
+	kind: u8,
+	parent: Option<Id>,
+	rect: egui::Rect,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ChannelMove {
+	parent: Option<Id>,
+	position: i32,
+	lock_permissions: bool,
+	shifts: Vec<(Id, i32)>,
+}
+
+fn drop_move(
+	state: &State,
+	source: &Channel,
+	target: DropRow,
+	pointer_y: f32,
+) -> Option<ChannelMove> {
+	if source.id == target.id || matches!(source.kind, 10..=12) {
+		return None;
+	}
+	if source.kind == 4 {
+		if target.kind != 4 {
+			return None;
+		}
+		let mut categories: Vec<_> = state
+			.channels
+			.iter()
+			.filter(|c| c.guild == source.guild && c.kind == 4)
+			.collect();
+		categories.sort_unstable_by_key(|c| (c.position, c.id));
+		let source_idx = categories.iter().position(|c| c.id == source.id)?;
+		categories.remove(source_idx);
+		let target_idx = categories.iter().position(|c| c.id == target.id)?;
+		let after = pointer_y >= target.rect.center().y;
+		let new_idx = if after { target_idx + 1 } else { target_idx };
+		categories.insert(new_idx, source);
+		let mut shifts = Vec::new();
+		for (idx, cat) in categories.iter().enumerate() {
+			let pos = idx as i32;
+			if cat.id != source.id && cat.position != pos {
+				shifts.push((cat.id, pos));
+			}
+		}
+		return Some(ChannelMove {
+			parent: None,
+			position: new_idx as i32,
+			lock_permissions: false,
+			shifts,
+		});
+	}
+	if target.kind == 4 {
+		if pointer_y >= target.rect.top() + 8.0 {
+			let mut siblings: Vec<_> = state
+				.channels
+				.iter()
+				.filter(|c| {
+					c.guild == source.guild
+						&& c.parent_id == Some(target.id)
+						&& !matches!(c.kind, 4 | 10..=12)
+				})
+				.collect();
+			siblings.sort_unstable_by_key(|c| (c.position, c.id));
+			if let Some(pos) = siblings.iter().position(|c| c.id == source.id) {
+				siblings.remove(pos);
+			}
+			siblings.insert(0, source);
+			let mut shifts = Vec::new();
+			for (idx, c) in siblings.iter().enumerate() {
+				let pos = idx as i32;
+				if c.id != source.id && c.position != pos {
+					shifts.push((c.id, pos));
+				}
+			}
+			return Some(ChannelMove {
+				parent: Some(target.id),
+				position: 0,
+				lock_permissions: source.parent_id != Some(target.id),
+				shifts,
+			});
+		}
+		if source.parent_id.is_some() {
+			let mut siblings: Vec<_> = state
+				.channels
+				.iter()
+				.filter(|c| {
+					c.guild == source.guild
+						&& c.parent_id.is_none()
+						&& !matches!(c.kind, 4 | 10..=12)
+				})
+				.collect();
+			siblings.sort_unstable_by_key(|c| (c.position, c.id));
+			let new_idx = siblings.len() as i32;
+			return Some(ChannelMove {
+				parent: None,
+				position: new_idx,
+				lock_permissions: false,
+				shifts: Vec::new(),
+			});
+		}
+		return None;
+	}
+	if matches!(target.kind, 10..=12) {
+		return None;
+	}
+	let mut siblings: Vec<_> = state
+		.channels
+		.iter()
+		.filter(|c| {
+			c.guild == source.guild
+				&& c.parent_id == target.parent
+				&& !matches!(c.kind, 4 | 10..=12)
+		})
+		.collect();
+	siblings.sort_unstable_by_key(|c| (c.position, c.id));
+	if let Some(pos) = siblings.iter().position(|c| c.id == source.id) {
+		siblings.remove(pos);
+	}
+	let target_idx = siblings.iter().position(|c| c.id == target.id)?;
+	let after = pointer_y >= target.rect.center().y;
+	let new_idx = if after { target_idx + 1 } else { target_idx };
+	siblings.insert(new_idx, source);
+	let mut shifts = Vec::new();
+	for (idx, c) in siblings.iter().enumerate() {
+		let pos = idx as i32;
+		if c.id != source.id && c.position != pos {
+			shifts.push((c.id, pos));
+		}
+	}
+	Some(ChannelMove {
+		parent: target.parent,
+		position: new_idx as i32,
+		lock_permissions: source.parent_id != target.parent && target.parent.is_some(),
+		shifts,
+	})
 }
 
 #[derive(Default)]
@@ -108,13 +255,18 @@ fn rows<'a>(
 				.get(&channel.id)
 				.into_iter()
 				.flatten()
+				.take(MAX_VISIBLE_THREADS)
 				.map(|c| Row::Channel(c, slot, true)),
 		);
 	};
 	let count = |channels: &[&Channel]| {
 		channels
 			.iter()
-			.map(|c| 1 + threads.get(&c.id).map_or(0, Vec::len))
+			.map(|c| {
+				1 + threads
+					.get(&c.id)
+					.map_or(0, |threads| threads.len().min(MAX_VISIBLE_THREADS))
+			})
 			.sum::<usize>()
 	};
 	let mut rows = Vec::with_capacity(channels.len());
@@ -160,13 +312,18 @@ fn category_header(
 	count: usize,
 	collapsed: bool,
 	row_height: f32,
+	draggable: bool,
 ) -> egui::Response {
 	let colors = design::palette(ui);
 	let (rect, response) = ui
 		.push_id(id, |ui| {
 			ui.allocate_exact_size(
 				egui::vec2(ui.available_width(), row_height),
-				egui::Sense::click(),
+				if draggable {
+					egui::Sense::click_and_drag()
+				} else {
+					egui::Sense::click()
+				},
 			)
 		})
 		.inner;
@@ -188,12 +345,15 @@ fn category_header(
 		),
 		color,
 	);
-	let label = ui.painter().layout(
+	let mut job = egui::text::LayoutJob::simple_singleline(
 		name.to_uppercase(),
 		egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
 		color,
-		(rect.width() - 24.0).max(10.0),
 	);
+	job.wrap.max_width = (rect.width() - 24.0).max(10.0);
+	job.wrap.max_rows = 1;
+	job.wrap.break_anywhere = true;
+	let label = ui.painter().layout_job(job);
 	let label_rect = egui::Rect::from_min_size(
 		egui::pos2(rect.left() + 16.0, rect.bottom() - 6.0 - label.size().y),
 		egui::vec2(rect.width() - 24.0, label.size().y),
@@ -227,7 +387,7 @@ fn eyebrow_row(ui: &mut egui::Ui, label: &str, row_height: f32) -> egui::Rect {
 		egui::Layout::left_to_right(egui::Align::Center),
 		|ui| {
 			ui.add_space(8.0);
-			ui.label(design::eyebrow(ui, label, colors.muted));
+			ui.add(egui::Label::new(design::eyebrow(ui, label, colors.muted)).selectable(false));
 		},
 	)
 	.response
@@ -392,6 +552,7 @@ impl MessagingUi {
 		let row_count = self.channel_cache.rows.len().max(usize::from(dm_list));
 		let previous_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
+		let mut drop_rows = Vec::new();
 		let output = self
 			.scroll
 			.attach(
@@ -427,6 +588,8 @@ impl MessagingUi {
 						}
 						CachedRow::Category(category, count) => {
 							let category = &state.channels[category];
+							let draggable = !state.channel_action_pending()
+								&& state.can_manage_channel(category.id);
 							let collapsed = self.collapsed_categories.contains(&category.id);
 							let response = category_header(
 								ui,
@@ -435,7 +598,19 @@ impl MessagingUi {
 								count,
 								collapsed,
 								row_height,
+								draggable,
 							);
+							if draggable && response.drag_started_by(egui::PointerButton::Primary) {
+								response.dnd_set_drag_payload(ChannelDrag(category.id));
+							}
+							if draggable {
+								drop_rows.push(DropRow {
+									id: category.id,
+									kind: category.kind,
+									parent: category.parent_id,
+									rect: response.rect,
+								});
+							}
 							if response.clicked() {
 								self.channel_cache.key = None;
 								if collapsed {
@@ -453,13 +628,31 @@ impl MessagingUi {
 						}
 						CachedRow::Channel(channel, slot, nested) => {
 							let channel = &state.channels[channel];
+							let draggable = slot == Slot::Tree
+								&& !nested && !state.channel_action_pending()
+								&& state.can_manage_channel(channel.id);
 							let active = state.selected == Some(channel.id);
 							if channel.kind == 2 {
 								let response = ui
 									.push_id(slot, |ui| {
-										self.voice_channel_button(ui, state, channel, active)
+										self.voice_channel_button(
+											ui, state, channel, active, draggable,
+										)
 									})
 									.inner;
+								if draggable
+									&& response.drag_started_by(egui::PointerButton::Primary)
+								{
+									response.dnd_set_drag_payload(ChannelDrag(channel.id));
+								}
+								if slot == Slot::Tree && !nested {
+									drop_rows.push(DropRow {
+										id: channel.id,
+										kind: channel.kind,
+										parent: channel.parent_id,
+										rect: response.rect,
+									});
+								}
 								self.channel_menu.context(
 									&response,
 									state,
@@ -480,19 +673,27 @@ impl MessagingUi {
 								);
 								continue;
 							}
-							let visible = state.can_view(channel.id);
+							let access = state.channel_access(channel.id);
+							let visible = !access.hidden();
+							// Forum containers open their post list; Discord lists them as browsable rows.
+							let forum = channel.guild.is_some() && matches!(channel.kind, 15 | 16);
+							// A forum carries no messages of its own: its posts hold the activity.
 							let unread = visible
 								&& (state.channel_unread(channel) == Some(true)
-									|| state.unread_count(channel.id) > 0);
-							let count = if !visible {
+									|| state.unread_count(channel.id) > 0
+									|| (forum && state.forum_unread(channel.id)));
+							let new_posts = if visible && forum {
+								state.forum_new_count(channel.id)
+							} else {
+								0
+							};
+							let count = if !visible || forum {
 								0
 							} else if channel.guild.is_some() {
 								state.mention_count(channel.id)
 							} else {
 								state.unread_count(channel.id)
 							};
-							// Forum containers open their post list; Discord lists them as browsable rows.
-							let forum = channel.guild.is_some() && matches!(channel.kind, 15 | 16);
 							let enabled = visible && (channel.supports_text() || forum);
 							// Kinds Serein cannot render keep Discord's own destination.
 							let external = (!channel.supports_text() && !forum)
@@ -504,7 +705,11 @@ impl MessagingUi {
 									ui.allocate_exact_size(
 										egui::vec2(ui.available_width(), row_height),
 										if enabled || channel.guild.is_some() {
-											egui::Sense::click()
+											if draggable {
+												egui::Sense::click_and_drag()
+											} else {
+												egui::Sense::click()
+											}
 										} else {
 											egui::Sense::hover()
 										},
@@ -512,6 +717,17 @@ impl MessagingUi {
 								})
 								.inner;
 							let row = rect.shrink2(egui::vec2(0.0, 1.0));
+							if draggable && response.drag_started_by(egui::PointerButton::Primary) {
+								response.dnd_set_drag_payload(ChannelDrag(channel.id));
+							}
+							if slot == Slot::Tree && !nested {
+								drop_rows.push(DropRow {
+									id: channel.id,
+									kind: channel.kind,
+									parent: channel.parent_id,
+									rect,
+								});
+							}
 							let hovered = enabled && (response.hovered() || response.has_focus());
 							if active {
 								ui.painter().rect_filled(row, 8, colors.selected);
@@ -522,7 +738,7 @@ impl MessagingUi {
 									crate::design::row_highlight(ui, colors.hover, 1.0),
 								);
 							}
-							if unread && !active {
+							if unread && !active && !access.muted() {
 								ui.painter().rect_filled(
 									egui::Rect::from_center_size(
 										egui::pos2(row.left() - 6.0, row.center().y),
@@ -532,16 +748,41 @@ impl MessagingUi {
 									colors.text_strong,
 								);
 							}
-							let name_color = if !enabled {
-								colors.muted.gamma_multiply(0.6)
-							} else if active || hovered || unread {
-								colors.text_strong
-							} else {
-								colors.muted
-							};
-							let badge_width = if count > 0 { 34.0 } else { 0.0 };
-							let trailing =
-								badge_width + if external.is_some() { 30.0 } else { 0.0 };
+							let name_color = channel_marks::tint(
+								&colors,
+								access,
+								if !enabled {
+									Emphasis::Unavailable
+								} else if active || hovered {
+									Emphasis::Focused
+								} else if unread {
+									Emphasis::Unread
+								} else {
+									Emphasis::Idle
+								},
+							);
+							let new_label = (new_posts > 0).then(|| {
+								ui.painter().layout_no_wrap(
+									format!(
+										"{} New",
+										if new_posts > 99 {
+											"99+".to_owned()
+										} else {
+											new_posts.to_string()
+										}
+									),
+									egui::FontId::proportional(12.0),
+									colors.muted,
+								)
+							});
+							let badge_width = new_label
+								.as_ref()
+								.map_or(if count > 0 { 34.0 } else { 0.0 }, |label| {
+									label.size().x + 12.0
+								});
+							let trailing = badge_width
+								+ if external.is_some() { 30.0 } else { 0.0 }
+								+ channel_marks::trailing(access);
 							let content = egui::Rect::from_min_max(
 								egui::pos2(
 									row.left() + 8.0 + if nested { 14.0 } else { 0.0 },
@@ -555,6 +796,7 @@ impl MessagingUi {
 									.layout(egui::Layout::left_to_right(egui::Align::Center)),
 							);
 							inner.spacing_mut().item_spacing.x = if dm_list { 12.0 } else { 6.0 };
+							let mut glyph = None;
 							if channel.guild.is_none() {
 								if channel.kind == 3 {
 									let avatar = self
@@ -610,28 +852,27 @@ impl MessagingUi {
 							} else {
 								let icon = match channel.kind {
 									13 => crate::icons::Icon::Speaker,
+									5 => crate::icons::Icon::Megaphone,
 									15 | 16 => crate::icons::Icon::Forum,
 									10..=12 => crate::icons::Icon::Threads,
 									_ => crate::icons::Icon::Hash,
 								};
-								crate::icons::inline(
+								glyph = Some(crate::icons::inline(
 									&mut inner,
 									icon,
 									20.0,
-									name_color.gamma_multiply(if active || hovered {
-										1.0
-									} else {
-										0.85
-									}),
-								);
+									name_color.gamma_multiply(
+										if (active || hovered) && !access.dim() {
+											1.0
+										} else {
+											0.85
+										},
+									),
+								));
 							}
 							let mut label = String::from(state.conversation_name(channel));
-							if !enabled {
-								label.push_str(if visible {
-									" · unavailable"
-								} else {
-									" · hidden"
-								});
+							if !enabled && visible {
+								label.push_str(" · unavailable");
 							}
 							let subtitle = if dm_list && channel.kind == 1 {
 								channel.recipients.first().and_then(|user| {
@@ -643,15 +884,55 @@ impl MessagingUi {
 								(dm_list && channel.kind == 3)
 									.then(|| format!("{} Members", channel.recipients.len().max(1)))
 							};
-							let name =
-								egui::Label::new(design::medium(ui, label, 15.0).color(name_color))
-									.truncate()
-									.selectable(false);
+							let direct_user = (dm_list && channel.kind == 1)
+								.then(|| channel.recipients.first())
+								.flatten();
+							let mut show_name = |ui: &mut egui::Ui| {
+								ui.allocate_ui_with_layout(
+									egui::vec2(ui.available_width(), 18.0),
+									egui::Layout::left_to_right(egui::Align::Center),
+									|ui| {
+										ui.spacing_mut().item_spacing.x = 5.0;
+										if let Some(user) = direct_user {
+											let server_tag = user.primary_guild.as_deref();
+											let trailing =
+												crate::profiles::server_tag_width(ui, server_tag)
+													+ if server_tag.is_some() { 5.0 } else { 0.0 };
+											crate::account_badge::name(
+												ui,
+												user,
+												&label,
+												15.0,
+												name_color,
+												egui::Sense::hover(),
+												trailing,
+											);
+											if let Some(tag) = server_tag {
+												crate::profiles::server_tag(
+													ui,
+													tag,
+													&mut self.avatars,
+													state.demo,
+												);
+											}
+										} else {
+											ui.add(
+												egui::Label::new(
+													design::medium(ui, &label, 15.0)
+														.color(name_color),
+												)
+												.truncate()
+												.selectable(false),
+											);
+										}
+									},
+								);
+							};
 							if let Some(subtitle) = subtitle {
 								inner.vertical(|ui| {
 									ui.spacing_mut().item_spacing.y = 0.0;
 									ui.add_space(((row.height() - 34.0) * 0.5).max(0.0));
-									ui.add(name);
+									show_name(ui);
 									ui.add(
 										egui::Label::new(
 											RichText::new(subtitle).size(12.0).color(colors.muted),
@@ -661,13 +942,14 @@ impl MessagingUi {
 									);
 								});
 							} else {
-								inner.add(name);
+								show_name(&mut inner);
 							}
+							let lane = channel_marks::trailing(access);
 							if let Some(url) = &external {
 								let mut open = ui.new_child(
 									egui::UiBuilder::new()
 										.max_rect(egui::Rect::from_center_size(
-											row.right_center() - egui::vec2(18.0, 0.0),
+											row.right_center() - egui::vec2(18.0 + lane, 0.0),
 											egui::Vec2::splat(28.0),
 										))
 										.layout(egui::Layout::left_to_right(egui::Align::Center)),
@@ -680,15 +962,21 @@ impl MessagingUi {
 								)
 								.clicked()
 								{
-									self.timeline.opening = Some(url.clone());
+									self.timeline.browser_opening = Some(url.clone());
 								}
+							}
+							if let Some(label) = new_label {
+								let pos = row.right_center()
+									- egui::vec2(8.0 + lane + label.size().x, label.size().y * 0.5);
+								ui.painter().galley(pos, label, colors.muted);
 							}
 							if count > 0 {
 								crate::notifications::badge(
 									ui,
 									row.right_center()
 										- egui::vec2(
-											20.0 + if external.is_some() { 30.0 } else { 0.0 },
+											20.0 + lane
+												+ if external.is_some() { 30.0 } else { 0.0 },
 											0.0,
 										),
 									count,
@@ -701,12 +989,29 @@ impl MessagingUi {
 									},
 								);
 							}
+							if let Some(glyph) = glyph {
+								channel_marks::paint(
+									ui.painter(),
+									access,
+									row,
+									glyph,
+									name_color,
+									if active {
+										colors.selected
+									} else if hovered {
+										crate::design::row_highlight(ui, colors.hover, 1.0)
+									} else {
+										colors.sidebar
+									},
+								);
+							}
 							let response = response.on_hover_text_with(|| {
 								format!(
-									"{} · {}{}",
+									"{} · {}{}{}",
 									channel.name,
 									kind_label(channel.kind),
-									if unread && state.channel_unread(channel).is_none() {
+									channel_marks::label(access),
+									if unread && !forum && state.channel_unread(channel).is_none() {
 										" · Session activity; read sync unavailable"
 									} else if count > 0 {
 										" · Notification count may be a lower bound"
@@ -722,8 +1027,9 @@ impl MessagingUi {
 									egui::WidgetType::Button,
 									enabled,
 									format!(
-										"{}{}; {} notifications",
+										"{}{}{}; {} notifications",
 										channel.name,
+										channel_marks::label(access),
 										if unread { ", unread" } else { "" },
 										count
 									),
@@ -758,13 +1064,70 @@ impl MessagingUi {
 							if !enabled
 								&& response.clicked() && let Some(url) = external
 							{
-								self.timeline.opening = Some(url);
+								self.timeline.browser_opening = Some(url);
 							}
 							paint_shelf_rule(ui, rect, &self.channel_cache.rows, index);
 						}
 					}
 				}
 			});
+		if let Some(source) = egui::DragAndDrop::payload::<ChannelDrag>(ui.ctx())
+			&& let Some(pointer) = ui.ctx().pointer_hover_pos()
+			&& output.inner_rect.contains(pointer)
+			&& let Some(channel) = state.channel(source.0)
+			&& let Some(target) = drop_rows
+				.iter()
+				.copied()
+				.find(|row| pointer.y >= row.rect.top() && pointer.y <= row.rect.bottom())
+			&& let Some(change) = drop_move(state, channel, target, pointer.y)
+		{
+			ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+			if target.kind == 4 && change.parent == Some(target.id) {
+				ui.painter().rect_stroke(
+					target.rect.shrink(1.0),
+					6,
+					(2.0, colors.positive),
+					egui::StrokeKind::Inside,
+				);
+			} else {
+				let y = if pointer.y < target.rect.center().y {
+					target.rect.top()
+				} else {
+					target.rect.bottom()
+				};
+				ui.painter()
+					.hline(target.rect.x_range(), y, (3.0, colors.positive));
+			}
+			if ui.input(|input| input.pointer.any_released()) {
+				egui::DragAndDrop::take_payload::<ChannelDrag>(ui.ctx());
+				self.channel_cache.key = None;
+				self.channel_move = Some((
+					source.0,
+					client_core::channel_actions::Action::Move {
+						parent: change.parent,
+						position: change.position,
+						lock_permissions: change.lock_permissions,
+						shifts: change.shifts,
+					},
+				));
+			}
+		}
+		if egui::DragAndDrop::payload::<ChannelDrag>(ui.ctx()).is_some()
+			&& let Some(pointer) = ui.ctx().pointer_hover_pos()
+		{
+			let direction = if pointer.y < output.inner_rect.top() + 28.0 {
+				1.0
+			} else if pointer.y > output.inner_rect.bottom() - 28.0 {
+				-1.0
+			} else {
+				0.0
+			};
+			if direction != 0.0 {
+				ui.scroll_with_delta(egui::vec2(0.0, direction * 8.0));
+				ui.ctx()
+					.request_repaint_after(std::time::Duration::from_millis(16));
+			}
+		}
 		if let Some(guild) = self.guild {
 			let content_bottom =
 				output.inner_rect.top() - output.state.offset.y + output.content_size.y;
@@ -778,8 +1141,8 @@ impl MessagingUi {
 				);
 				let response = ui.interact(
 					empty,
-					ui.id().with(("server-channel-area", guild)),
-					egui::Sense::click(),
+					ui.scope_id().with(("server-channel-area", guild)),
+					crate::design::menu_anchor_sense(),
 				);
 				let mut next = hide_muted;
 				self.channel_menu
@@ -803,6 +1166,70 @@ impl MessagingUi {
 mod tests {
 	use super::*;
 	#[test]
+	fn direct_message_rows_show_the_recipient_server_tag() {
+		fn text(shape: &egui::Shape, found: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => found.push(text.galley.job.text.clone()),
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| text(shape, found)),
+				_ => {}
+			}
+		}
+		let mut dm = channel(1, 1, 0, None);
+		dm.guild = None;
+		dm.name = "Tagged person".into();
+		dm.recipients = vec![model::User {
+			id: Id(2),
+			name: "Tagged person".into(),
+			avatar: None,
+			discriminator: 0,
+			primary_guild: Some(Box::new(model::ClanTag {
+				guild: Id(9),
+				tag: "SPDY".into(),
+				badge: None,
+			})),
+			kind: Default::default(),
+			webhook: false,
+		}];
+		let mut state = State {
+			channels: vec![dm],
+			demo: true,
+			..Default::default()
+		};
+		let mut view = MessagingUi::default();
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut painted = Vec::new();
+		for _ in 0..2 {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(240.0, 180.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.channel_list(ui, &mut state);
+				},
+			);
+			painted.clear();
+			for shape in &output.shapes {
+				text(&shape.shape, &mut painted);
+			}
+			output.drop_without_applying_deltas();
+		}
+		assert!(
+			painted.iter().any(|text| text == "Tagged person"),
+			"painted text: {painted:?}"
+		);
+		assert!(
+			painted.iter().any(|text| text == "SPDY"),
+			"painted text: {painted:?}"
+		);
+		assert!(view.take_avatar_requests().is_empty());
+	}
+
+	#[test]
 	fn shortcuts_survive_collapsed_categories_without_duplicates_or_orphan_threads() {
 		let mut state = test_support::demo_state();
 		state.guilds[0].id = Id(100);
@@ -812,6 +1239,7 @@ mod tests {
 			channel(8, 11, 0, Some(Id(7))),
 			channel(9, 0, 1, Some(Id(4))),
 		];
+		state.invalidate_navigation();
 		state
 			.permissions
 			.replace(test_support::permission_snapshot(&state))
@@ -968,6 +1396,55 @@ mod tests {
 		}
 	}
 	#[test]
+	fn channel_drop_reorders_and_syncs_new_category_permissions() {
+		let state = State {
+			channels: vec![
+				channel(1, 0, 1, Some(Id(10))),
+				channel(2, 0, 0, Some(Id(20))),
+				channel(3, 0, 1, Some(Id(20))),
+			],
+			..State::default()
+		};
+		let source = channel(1, 0, 1, Some(Id(10)));
+		let target = DropRow {
+			id: Id(2),
+			kind: 0,
+			parent: Some(Id(20)),
+			rect: egui::Rect::from_min_max(egui::pos2(0.0, 10.0), egui::pos2(100.0, 30.0)),
+		};
+		let outcome = drop_move(&state, &source, target, 29.0).unwrap();
+		assert_eq!(outcome.parent, Some(Id(20)));
+		assert_eq!(outcome.position, 1);
+		assert!(outcome.lock_permissions);
+		assert_eq!(outcome.shifts, vec![(Id(3), 2)]);
+
+		let same_parent = channel(3, 0, 1, Some(Id(20)));
+		let reorder = drop_move(&state, &same_parent, target, 11.0).unwrap();
+		assert_eq!(reorder.position, 0);
+		assert_eq!(reorder.shifts, vec![(Id(2), 1)]);
+	}
+	#[test]
+	fn category_drop_reorders_sibling_categories() {
+		let mut cat1 = channel(10, 4, 0, None);
+		cat1.guild = Some(Id(100));
+		let mut cat2 = channel(20, 4, 1, None);
+		cat2.guild = Some(Id(100));
+		let state = State {
+			channels: vec![cat1.clone(), cat2.clone()],
+			..State::default()
+		};
+		let target = DropRow {
+			id: Id(20),
+			kind: 4,
+			parent: None,
+			rect: egui::Rect::from_min_max(egui::pos2(0.0, 10.0), egui::pos2(100.0, 30.0)),
+		};
+		let outcome = drop_move(&state, &cat1, target, 25.0).unwrap();
+		assert_eq!(outcome.parent, None);
+		assert_eq!(outcome.position, 1);
+		assert_eq!(outcome.shifts, vec![(Id(20), 0)]);
+	}
+	#[test]
 	fn hidden_channels_are_opt_in() {
 		let state = State {
 			channels: vec![channel(1, 0, 0, None)],
@@ -991,6 +1468,7 @@ mod tests {
 		let mut state = test_support::demo_state();
 		state.guilds[0].id = Id(100);
 		state.channels = vec![channel(4, 4, 0, None), channel(7, 0, 0, Some(Id(4)))];
+		state.invalidate_navigation();
 		let mut permissions = test_support::permission_snapshot(&state);
 		permissions.channels.retain(|c| c.id != Id(7));
 		state.permissions.replace(permissions).unwrap();
@@ -1348,6 +1826,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
 				id: Id(100),
@@ -1371,7 +1850,7 @@ mod tests {
 			if !permitted {
 				state.permissions = Default::default();
 			}
-			view.timeline.opening = None;
+			view.timeline.browser_opening = None;
 			let ctx = egui::Context::default();
 			for key in [egui::Key::Tab, egui::Key::Enter] {
 				let output = ctx.run_ui(
@@ -1398,14 +1877,14 @@ mod tests {
 				output.drop_without_applying_deltas();
 			}
 			assert_eq!(
-				view.timeline.opening.as_deref(),
+				view.timeline.browser_opening.as_deref(),
 				permitted.then_some("https://discord.com/channels/100/9")
 			);
 			assert!(state.selected.is_none());
 		}
-		view.timeline.opening = Some("https://discord.com/channels/100/9".into());
+		view.timeline.browser_opening = Some("https://discord.com/channels/100/9".into());
 		view.clear();
-		assert!(view.timeline.opening.is_none());
+		assert!(view.timeline.browser_opening.is_none());
 	}
 
 	#[test]
@@ -1488,6 +1967,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
 				id: Id(100),

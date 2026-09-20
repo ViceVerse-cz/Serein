@@ -3,6 +3,27 @@ use model::{Id, forum::Page};
 use reqwest::Method;
 
 impl DiscordApi {
+	pub(super) async fn forum_summary(
+		&self,
+		channel: Id,
+	) -> Result<model::forum::Summary, Failure> {
+		if channel.0 == 0 {
+			return Err(Failure::Protocol);
+		}
+		let bytes = self
+			.request_limited(
+				Method::GET,
+				&format!("/channels/{channel}/messages?limit=50"),
+				None,
+				discord_protocol::forum::MAX_WIRE,
+			)
+			.await?;
+		discord_protocol::decode::<discord_protocol::forum::Recent>(&bytes)
+			.map_err(|_| Failure::Protocol)?
+			.into_summary(channel)
+			.map_err(|_| Failure::Protocol)
+	}
+
 	/// Active posts of one forum. The gateway only syncs joined threads, so the list is fetched.
 	///
 	/// The per-forum search route is unofficial client behavior; a service that rejects it falls

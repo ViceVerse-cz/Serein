@@ -16,9 +16,11 @@ python pack.py message-delete-protector/manifest.json target/wasm32-unknown-unkn
 Import the package in Settings > Extensions, review the capabilities, and enable it.
 Message delete protector is the sole example plugin. Its `activation` action returns
 `preserve_deleted_messages: true` after the user grants `deleted_messages`. The host
-keeps already-loaded messages in bounded session memory and displays deleted text in red.
-It never sends message bodies to the plugin, saves deleted bodies to disk, restores
-messages deleted before loading, or gives deleted messages live service actions.
+keeps already-loaded messages in bounded session memory and displays deleted text in red
+by default. Hover and a local context menu can toggle that highlight or remove the
+retained row. They never call Discord. The host never sends message bodies to the plugin,
+saves deleted bodies to disk, restores messages deleted before loading, or gives deleted
+messages live service actions.
 Disabling, logout, permission revocation and timeline eviction release retained content.
 Ocean, Midnight, Rose, Forest and Latte are declarative themes under `extensions/`.
 The author packages compiled bytes; Serein never runs a repository's build scripts.

@@ -55,8 +55,7 @@ fn policy() -> Result<(), String> {
 		let features = node["features"].as_array().ok_or("Missing features")?;
 		for feature in features {
 			let feature = feature.as_str().unwrap_or("");
-			if ((id.contains("#eframe@") || id.contains("#egui@")) && feature == "persistence")
-				|| (id.contains("#eframe@") && feature == "glow")
+			if (id.contains("#eframe@") || id.contains("#egui@")) && feature == "persistence"
 				|| (id.contains("#reqwest@") && feature == "cookies")
 			{
 				return Err(format!("Forbidden runtime feature: {id} / {feature}"));
@@ -329,6 +328,7 @@ fn package() -> Result<(), String> {
 	for file in [
 		"NotoSansCJK-LICENSE.txt",
 		"NotoSansArabic-OFL.txt",
+		"NotoSansMath-OFL.txt",
 		"Inter-OFL.txt",
 	] {
 		std::fs::copy(
@@ -394,7 +394,17 @@ fn package() -> Result<(), String> {
 		// needs no identity and makes no Developer ID or notarization claim.
 		let bundle = root.join("Serein.app");
 		let bundle = bundle.to_str().ok_or("Invalid bundle path")?;
-		run_tool("codesign", &["--force", "--sign", "-", bundle])?;
+		// An ad-hoc signature's identity is its own hash, so it changes with every build and
+		// macOS keychain grants ("Always Allow") never survive one. A locally configured
+		// Developer ID identity keeps that trust stable across rebuilds; releases are signed
+		// and notarized separately by packaging/macos/sign-release.sh, which overrides this.
+		let identity = std::env::var("SEREIN_SIGNING_IDENTITY").unwrap_or_default();
+		let identity = if identity.trim().is_empty() {
+			"-".to_owned()
+		} else {
+			identity
+		};
+		run_tool("codesign", &["--force", "--sign", &identity, bundle])?;
 		run_tool("codesign", &["--verify", "--strict", bundle])?;
 	}
 	if cfg!(target_os = "linux") {

@@ -7,9 +7,95 @@ use model::PresenceStatus;
 #[derive(Default)]
 pub(super) struct AccountMenu {
 	open: bool,
+	/// Set inside the popout: the popup owns `open` until its frame finishes.
+	close: bool,
 	generation: u64,
 	draft: String,
 	custom_open: bool,
+	/// Chosen while the editor is open; only Apply commits it to a deadline.
+	clear_after: ClearAfter,
+}
+
+/// Discord's own "Clear after" choices. The deadline is absolute once applied, so a status
+/// set for an hour still clears an hour later even if the editor is reopened meanwhile.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum ClearAfter {
+	#[default]
+	Never,
+	Minutes30,
+	Hour,
+	Hours4,
+	Today,
+}
+
+impl ClearAfter {
+	const ALL: [Self; 5] = [
+		Self::Never,
+		Self::Minutes30,
+		Self::Hour,
+		Self::Hours4,
+		Self::Today,
+	];
+	fn label(self) -> &'static str {
+		match self {
+			Self::Never => "Don't clear",
+			Self::Minutes30 => "30 minutes",
+			Self::Hour => "1 hour",
+			Self::Hours4 => "4 hours",
+			Self::Today => "Today",
+		}
+	}
+	/// Absolute deadline in milliseconds since the Unix epoch; `None` never clears.
+	fn deadline(self) -> Option<u64> {
+		let now = crate::local_time::now();
+		let seconds = match self {
+			Self::Never => return None,
+			Self::Minutes30 => now.unix_timestamp() + 30 * 60,
+			Self::Hour => now.unix_timestamp() + 60 * 60,
+			Self::Hours4 => now.unix_timestamp() + 4 * 60 * 60,
+			// End of the local day, which is what Discord means by "Today".
+			Self::Today => {
+				let midnight = now.replace_time(time::Time::MIDNIGHT);
+				(midnight + time::Duration::days(1)).unix_timestamp()
+			}
+		};
+		u64::try_from(seconds).ok().map(|seconds| seconds * 1000)
+	}
+	/// Plain-language moment this choice lands on, for the line under the dropdown.
+	fn clears_at(self) -> Option<String> {
+		if self == Self::Never {
+			return None;
+		}
+		let now = crate::local_time::now();
+		let at = match self {
+			Self::Never => return None,
+			Self::Minutes30 => now + time::Duration::minutes(30),
+			Self::Hour => now + time::Duration::hours(1),
+			Self::Hours4 => now + time::Duration::hours(4),
+			Self::Today => now.replace_time(time::Time::MIDNIGHT) + time::Duration::days(1),
+		};
+		let clock = format!("{:02}:{:02}", at.hour(), at.minute());
+		Some(if at.date() == now.date() {
+			format!("at {clock}")
+		} else {
+			format!("at {clock} tomorrow")
+		})
+	}
+	/// Nearest choice for an existing deadline, so reopening the editor shows what is set.
+	fn nearest(expires: Option<u64>) -> Self {
+		let Some(expires) = expires else {
+			return Self::Never;
+		};
+		Self::ALL
+			.into_iter()
+			.skip(1)
+			.find(|choice| {
+				choice
+					.deadline()
+					.is_some_and(|deadline| expires <= deadline)
+			})
+			.unwrap_or(Self::Today)
+	}
 }
 
 impl AccountMenu {
@@ -18,6 +104,14 @@ impl AccountMenu {
 	pub(super) fn preview(&mut self, generation: u64) {
 		self.open = true;
 		self.generation = generation;
+	}
+	/// Fixture-only: open the custom-status editor over the popout.
+	#[cfg(any(test, feature = "demo"))]
+	pub(super) fn preview_editor(&mut self, generation: u64, draft: String) {
+		self.preview(generation);
+		self.clear_after = ClearAfter::Hour;
+		self.draft = draft;
+		self.custom_open = true;
 	}
 }
 
@@ -54,7 +148,7 @@ impl MessagingUi {
 			.open_bool(&mut open)
 			.align(egui::RectAlign::TOP_START)
 			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-			.width(300.0)
+			.width(340.0)
 			.frame(
 				egui::Frame::popup(&anchor.ctx.style_of(anchor.ctx.theme()))
 					.fill(colors.raised)
@@ -62,14 +156,14 @@ impl MessagingUi {
 					.corner_radius(10),
 			)
 			.show(|ui| {
-				ui.set_width(300.0);
+				ui.set_width(340.0);
 				let height = (ui.ctx().content_rect().height() - 90.0).clamp(180.0, 620.0);
 				egui::ScrollArea::vertical()
 					.min_scrolled_height(height)
 					.max_height(height)
 					.show(ui, |ui| self.account_menu_contents(ui, state, commands));
 			});
-		self.account_menu.open = open;
+		self.account_menu.open = open && !std::mem::take(&mut self.account_menu.close);
 		if self.account_menu.custom_open {
 			let ctx = anchor.ctx.clone();
 			let response = crate::dialog::Dialog::new("custom-status-editor", "Custom status")
@@ -143,11 +237,181 @@ impl MessagingUi {
 			.show(ui, |ui| {
 				ui.set_width(ui.available_width());
 				self.account_identity_card(ui, state, commands);
+				if let Some(user) = &state.user {
+					let guild = state
+						.selected
+						.and_then(|id| state.channel(id))
+						.and_then(|c| c.guild);
+					let (_, _, activities) = profiles::presence(state, user.id, guild);
+					if !activities.is_empty() {
+						ui.add_space(8.0);
+						for activity in activities {
+							profiles::activity_card(
+								ui,
+								activity,
+								&mut self.avatars,
+								state.demo,
+								(colors.base, colors.muted),
+							);
+						}
+					}
+				}
 				ui.add_space(8.0);
 				ui.spacing_mut().item_spacing.y = 2.0;
 				self.account_status_row(ui);
 				self.account_custom_status_row(ui);
+				self.account_switcher(ui, state);
 			});
+	}
+
+	/// Other accounts remembered on this device, plus a row to remember one more.
+	fn account_switcher(&mut self, ui: &mut egui::Ui, state: &State) {
+		let colors = design::palette(ui);
+		let current = state.user.as_ref().map(|user| user.id);
+		// Bounded by MAX_SAVED_ACCOUNTS; cloned so the avatar cache stays mutably borrowable.
+		let others: Vec<model::SavedAccount> = self
+			.accounts
+			.iter()
+			.filter(|account| Some(account.id) != current)
+			.cloned()
+			.collect();
+		ui.add_space(10.0);
+		let (line, _) =
+			ui.allocate_exact_size(vec2(ui.available_width(), 1.0), egui::Sense::hover());
+		ui.painter().rect_filled(line, 0, colors.border);
+		ui.add_space(10.0);
+		ui.label(design::eyebrow(ui, "Switch accounts", colors.muted));
+		ui.add_space(4.0);
+		for account in &others {
+			self.account_switcher_row(ui, account, state.demo);
+		}
+		let response = ui
+			.scope(|ui| {
+				let width = ui.available_width();
+				ui.spacing_mut().button_padding = vec2(34.0, 10.0);
+				ui.add(
+					egui::Button::new(())
+						.left_text(
+							design::medium(ui, "Add an account", 14.0).color(colors.text_strong),
+						)
+						.frame_when_inactive(false)
+						.corner_radius(6)
+						.min_size(vec2(width, 40.0)),
+				)
+			})
+			.inner;
+		icons::paint(
+			ui.painter(),
+			icons::Icon::Plus,
+			egui::Rect::from_center_size(
+				egui::pos2(response.rect.left() + 17.0, response.rect.center().y),
+				egui::Vec2::splat(17.0),
+			),
+			colors.muted,
+		);
+		if response.clicked() {
+			self.add_account_requested = true;
+			self.account_menu.close = true;
+		}
+	}
+
+	/// One saved account: click to switch, trailing bin to forget it on this device.
+	fn account_switcher_row(
+		&mut self,
+		ui: &mut egui::Ui,
+		account: &model::SavedAccount,
+		demo: bool,
+	) {
+		let colors = design::palette(ui);
+		let (rect, _) =
+			ui.allocate_exact_size(vec2(ui.available_width(), 44.0), egui::Sense::hover());
+		let bin = egui::Rect::from_center_size(
+			egui::pos2(rect.right() - 20.0, rect.center().y),
+			egui::Vec2::splat(28.0),
+		);
+		let user = account.user();
+		let avatar = egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 22.0, rect.center().y),
+			egui::Vec2::splat(32.0),
+		);
+		let text = egui::Rect::from_min_max(
+			egui::pos2(rect.left() + 48.0, rect.top() + 3.0),
+			egui::pos2(bin.left() - 8.0, rect.bottom() - 3.0),
+		);
+		let over_bin = ui.rect_contains_pointer(bin);
+		if ui.rect_contains_pointer(rect) {
+			ui.painter().rect_filled(rect, 6, colors.hover);
+		}
+		ui.scope_builder(egui::UiBuilder::new().max_rect(avatar), |ui| {
+			self.avatars.show_plain(ui, &user, 32.0, demo);
+		});
+		ui.scope_builder(egui::UiBuilder::new().max_rect(text), |ui| {
+			ui.spacing_mut().item_spacing.y = 0.0;
+			ui.add(
+				egui::Label::new(
+					design::medium(ui, account.label(), 14.0).color(colors.text_strong),
+				)
+				.truncate()
+				.selectable(false),
+			);
+			ui.add(
+				egui::Label::new(RichText::new(&account.name).size(12.0).color(colors.muted))
+					.truncate()
+					.selectable(false),
+			);
+		});
+		// Same affordance as the sign-in screen's saved accounts.
+		icons::paint(
+			ui.painter(),
+			icons::Icon::Close,
+			bin.shrink(8.0),
+			if over_bin {
+				colors.danger
+			} else {
+				colors.muted
+			},
+		);
+		// Registered after the contents so the row, not a label, receives the click.
+		let row = ui.interact(
+			rect,
+			ui.scope_id().with(("switch-account", account.id.0)),
+			egui::Sense::click(),
+		);
+		let forget = ui.interact(
+			bin,
+			ui.scope_id().with(("forget-account", account.id.0)),
+			egui::Sense::click(),
+		);
+		if row.has_focus() || forget.has_focus() {
+			ui.painter().rect_stroke(
+				rect.shrink(1.0),
+				6,
+				egui::Stroke::new(1.0, colors.accent),
+				egui::StrokeKind::Inside,
+			);
+		}
+		row.widget_info(|| {
+			egui::WidgetInfo::labeled(
+				egui::WidgetType::Button,
+				true,
+				format!("Switch to {}", account.label()),
+			)
+		});
+		forget.widget_info(|| {
+			egui::WidgetInfo::labeled(
+				egui::WidgetType::Button,
+				true,
+				format!("Forget {}", account.label()),
+			)
+		});
+		let forget = forget.on_hover_text("Forget this account on this device");
+		if forget.clicked() {
+			self.forget_account_requested = Some(account.id);
+			self.account_menu.close = true;
+		} else if row.clicked() {
+			self.switch_account_requested = Some(account.id);
+			self.account_menu.close = true;
+		}
 	}
 
 	/// Name, handle and current custom status, grouped on the sunken card Discord uses.
@@ -377,9 +641,68 @@ impl MessagingUi {
 			self.account_menu
 				.draft
 				.clone_from(&self.own_presence.custom_status);
+			self.account_menu.clear_after = ClearAfter::nearest(self.own_presence_expires);
 			self.account_menu.custom_open = true;
 		}
 	}
+	/// "Clear after" dropdown, matching the presence rows: value on the left, chevron right.
+	fn clear_after_row(&mut self, ui: &mut egui::Ui) -> egui::Response {
+		let colors = design::palette(ui);
+		let chosen = self.account_menu.clear_after;
+		let label = design::medium(ui, chosen.label(), 14.0).color(colors.text_strong);
+		let response = ui
+			.scope(|ui| {
+				let width = ui.available_width();
+				ui.spacing_mut().button_padding = vec2(14.0, 10.0);
+				egui::containers::menu::MenuButton::from_button(
+					egui::Button::new(())
+						.left_text(label)
+						.frame_when_inactive(false)
+						.corner_radius(8)
+						.min_size(vec2(width, 44.0)),
+				)
+				.ui(ui, |ui| {
+					ui.set_width(220.0_f32.min(ui.ctx().content_rect().width() - 48.0));
+					for choice in ClearAfter::ALL {
+						let picked = choice == chosen;
+						let response = ui.add_sized(
+							[ui.available_width(), 36.0],
+							egui::Button::new(())
+								.left_text(
+									design::medium(ui, choice.label(), 14.0)
+										.color(colors.text_strong),
+								)
+								.frame_when_inactive(picked)
+								.corner_radius(6),
+						);
+						if response.clicked() {
+							self.account_menu.clear_after = choice;
+							ui.close();
+						}
+					}
+				})
+				.0
+			})
+			.inner;
+		let rect = response.rect;
+		ui.painter().rect_stroke(
+			rect,
+			8,
+			egui::Stroke::new(1.0, colors.border),
+			egui::StrokeKind::Inside,
+		);
+		icons::paint(
+			ui.painter(),
+			icons::Icon::ChevronDown,
+			egui::Rect::from_center_size(
+				egui::pos2(rect.right() - 18.0, rect.center().y),
+				egui::Vec2::splat(14.0),
+			),
+			colors.muted,
+		);
+		response
+	}
+
 	/// Live preview, bounded field and footer actions, styled like Discord's dialog.
 	fn custom_status_editor(&mut self, ui: &mut egui::Ui, state: &State) {
 		let colors = design::palette(ui);
@@ -445,21 +768,14 @@ impl MessagingUi {
 			custom_status: draft.clone(),
 		}
 		.valid();
-		let changed = draft != self.own_presence.custom_status;
-		ui.add_space(6.0);
+		let changed = draft != self.own_presence.custom_status
+			|| (!draft.is_empty()
+				&& ClearAfter::nearest(self.own_presence_expires) != self.account_menu.clear_after);
+		ui.add_space(4.0);
+		// A bounded row: a bare right-to-left layout here takes the dialog's whole remaining
+		// height and the size never settles.
 		ui.horizontal(|ui| {
-			ui.add(
-				egui::Label::new(
-					RichText::new(if state.demo {
-						"Offline preview · this session only"
-					} else {
-						"This session only"
-					})
-					.size(12.0)
-					.color(colors.muted),
-				)
-				.truncate(),
-			);
+			ui.set_height(14.0);
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				let used = self.account_menu.draft.chars().count();
 				ui.label(
@@ -473,6 +789,23 @@ impl MessagingUi {
 				);
 			});
 		});
+		ui.add_space(12.0);
+		let label = ui.label(design::eyebrow(ui, "Clear after", colors.muted));
+		ui.add_space(6.0);
+		self.clear_after_row(ui).labelled_by(label.id);
+		// The deadline is local to this client, so name the moment rather than implying
+		// Discord will clear it for you.
+		if let Some(clears) = self.account_menu.clear_after.clears_at() {
+			ui.add_space(6.0);
+			ui.add(
+				egui::Label::new(
+					RichText::new(format!("Serein clears it {clears}."))
+						.size(12.0)
+						.color(colors.muted),
+				)
+				.wrap(),
+			);
+		}
 		if !valid {
 			ui.add_space(4.0);
 			ui.add(
@@ -510,6 +843,8 @@ impl MessagingUi {
 					.clicked()
 				{
 					self.account_menu.draft.clear();
+					self.account_menu.clear_after = ClearAfter::Never;
+					self.own_presence_expires = None;
 					if !self.own_presence.custom_status.is_empty() {
 						self.own_presence.custom_status.clear();
 						self.own_presence_changed = true;
@@ -527,6 +862,9 @@ impl MessagingUi {
 					self.account_menu
 						.draft
 						.clone_from(&self.own_presence.custom_status);
+					self.own_presence_expires = (!draft.is_empty())
+						.then(|| self.account_menu.clear_after.deadline())
+						.flatten();
 					self.own_presence_changed = true;
 				}
 			});
@@ -647,6 +985,125 @@ mod tests {
 			.1
 			.center()
 	}
+	fn alt_account() -> model::SavedAccount {
+		model::SavedAccount {
+			id: model::Id(424_242),
+			name: "synthetic-alt".into(),
+			display: Some("Synthetic Alt".into()),
+			avatar: None,
+			discriminator: 0,
+			has_token: true,
+		}
+	}
+
+	#[test]
+	fn switcher_lists_other_accounts_without_the_signed_in_one() {
+		let size = vec2(340.0, 900.0);
+		for demo in [true, false] {
+			let ctx = egui::Context::default();
+			design::apply(&ctx);
+			let mut state = test_support::demo_state();
+			state.demo = demo;
+			let own = state.user.as_ref().unwrap().clone();
+			state.own_profile.data = Some(profiles::synthetic(&own, None));
+			// The signed-in account is remembered too, and never offered as a switch target.
+			let mut view = MessagingUi {
+				accounts: vec![
+					model::SavedAccount {
+						id: own.id,
+						name: own.name.clone(),
+						display: Some("Signed in already".into()),
+						avatar: None,
+						discriminator: own.discriminator,
+						has_token: true,
+					},
+					alt_account(),
+				],
+				..Default::default()
+			};
+			view.preview_account_menu(state.generation);
+			for _ in 0..3 {
+				frame(&ctx, &mut view, &mut state, size, vec![]);
+			}
+			let text = frame(&ctx, &mut view, &mut state, size, vec![]);
+			let listed = |label: &str| text.iter().any(|(value, _)| value == label);
+			assert!(listed("SWITCH ACCOUNTS"));
+			assert!(listed("Synthetic Alt"));
+			assert!(listed("synthetic-alt"));
+			assert!(listed("Add an account"));
+			// The signed-in account is remembered but never listed as a switch target.
+			assert!(!listed("Signed in already"));
+			click(
+				&ctx,
+				&mut view,
+				&mut state,
+				size,
+				locate(&text, "Add an account"),
+			);
+			assert!(view.add_account_requested);
+			assert!(!view.account_menu.open);
+			assert_eq!(view.switch_account_requested, None);
+		}
+	}
+
+	#[test]
+	fn switcher_row_separates_switching_from_forgetting() {
+		let account = alt_account();
+		let row = |view: &mut MessagingUi, ctx: &egui::Context, events: Vec<Event>| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(300.0, 120.0))),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.scope_builder(
+						egui::UiBuilder::new()
+							.max_rect(Rect::from_min_size(Pos2::ZERO, vec2(300.0, 44.0))),
+						|ui| view.account_switcher_row(ui, &account, false),
+					);
+				},
+			);
+			output.drop_without_applying_deltas();
+		};
+		// The row spans the full width; the trailing bin owns only its own corner.
+		for (position, switches) in [
+			(Pos2::new(120.0, 22.0), true),
+			(Pos2::new(280.0, 22.0), false),
+		] {
+			let ctx = egui::Context::default();
+			design::apply(&ctx);
+			let mut view = MessagingUi::default();
+			// The pointer lands on widgets registered by an earlier frame.
+			row(&mut view, &ctx, vec![]);
+			for pressed in [true, false] {
+				row(
+					&mut view,
+					&ctx,
+					vec![
+						Event::PointerMoved(position),
+						Event::PointerButton {
+							pos: position,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				);
+			}
+			assert_eq!(
+				view.switch_account_requested,
+				switches.then_some(account.id)
+			);
+			assert_eq!(
+				view.forget_account_requested,
+				(!switches).then_some(account.id)
+			);
+			// The popout owns `open`; rows only ask it to close.
+			assert!(view.account_menu.close);
+		}
+	}
+
 	#[test]
 	fn account_menu_opens_applies_clears_and_closes_across_themes_and_sizes() {
 		for light in [false, true] {

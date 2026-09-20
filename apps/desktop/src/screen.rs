@@ -16,6 +16,14 @@ use zeroize::Zeroizing;
 
 const SIGNAL_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Names why a share ended, under the same opt-in variable as the voice reports. A share
+/// that stops by itself otherwise leaves only the latest status, which the stop overwrites.
+fn note(event: &str, reason: &str) {
+	if std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|value| value == "1") {
+		eprintln!("[Serein voice Screen] {event}={reason}");
+	}
+}
+
 pub(super) struct Call<'a> {
 	pub generation: u64,
 	pub channel: Id,
@@ -103,6 +111,7 @@ impl Screen {
 	}
 
 	fn request_stop(&mut self, message: &'static str) {
+		note("share_stopped", message);
 		let Some(context) = self.context() else {
 			self.status = message;
 			return;
@@ -178,11 +187,12 @@ impl Screen {
 				};
 				pending.server = Some((token, endpoint));
 			}
-			screen::Event::Deleted => {
+			screen::Event::Deleted { reason } => {
 				self.pending = None;
 				self.retire_live();
 				self.closing = None;
-				self.status = "Screen sharing stopped";
+				// A server-side end names its cause, so it is never mistaken for a local stop.
+				self.status = reason.unwrap_or("Screen sharing stopped");
 			}
 			screen::Event::Failed(message) => self.request_stop(message),
 		}
@@ -212,6 +222,7 @@ impl Screen {
 			ui.screen.busy = false;
 			ui.screen.supported = false;
 			ui.screen.preview = None;
+			ui.screen.capture_status = None;
 			return None;
 		}
 		ui.screen.supported = discord_voice::screen::supported();
@@ -242,7 +253,7 @@ impl Screen {
 					Err(_) => self.status = "Could not start screen source discovery",
 				}
 			} else if !ui.screen.supported {
-				self.status = "Screen sharing is supported only on macOS and Windows";
+				self.status = "Screen sharing is unavailable on this platform";
 			}
 		}
 		if let Some(scan) = &self.source_scan {
@@ -272,6 +283,8 @@ impl Screen {
 						.or_else(|| ui.screen.sources.first().map(|source| source.id));
 					self.status = if ui.screen.sources.is_empty() {
 						"No shareable screens or windows were found"
+					} else if cfg!(target_os = "linux") {
+						"Choose the system picker or, on X11, explicitly share the entire desktop"
 					} else {
 						"Choose a screen or window"
 					};
@@ -405,6 +418,10 @@ impl Screen {
 			self.request_stop(error);
 		}
 		if let Some(live) = &self.live {
+			live.worker.set_preview_visible(
+				state.selected == Some(live.context.channel)
+					&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false)),
+			);
 			if let Some(frame) = live.worker.take_preview() {
 				let image = egui::ColorImage::from_rgba_unmultiplied(
 					[frame.width() as usize, frame.height() as usize],
@@ -435,6 +452,10 @@ impl Screen {
 			|| self.closing.is_some()
 			|| self.retiring.is_some();
 		ui.screen.status = self.status;
+		ui.screen.capture_status = self
+			.live
+			.as_ref()
+			.and_then(|live| live.worker.capture_status());
 		self.command.take()
 	}
 	fn finish_start(&mut self, runtime: &Runtime, ctx: &egui::Context) {
@@ -487,8 +508,12 @@ impl Screen {
 				Ok(())
 			})
 			.await;
-			if let Err(error) = result {
-				send.send_replace(Some(Notice::Failed(error)));
+			match result {
+				Ok(()) => note("stream_transport_stopped", "ok"),
+				Err(error) => {
+					note("stream_transport_stopped", error);
+					send.send_replace(Some(Notice::Failed(error)));
+				}
 			}
 			wake.request_repaint();
 		});

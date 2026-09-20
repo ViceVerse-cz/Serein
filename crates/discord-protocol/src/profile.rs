@@ -1,8 +1,6 @@
 //! Unofficial normal-user profile response; see docs/profiles.md for source evidence.
 use crate::{DecodeError, UserDto};
-use model::{
-	ClanTag, GuildProfile, Id, ProfileBadge, ProfileConnection, ProfileGuild, UserProfile,
-};
+use model::{GuildProfile, Id, ProfileBadge, ProfileConnection, ProfileGuild, UserProfile};
 use serde::{
 	Deserialize, Deserializer,
 	de::{SeqAccess, Visitor},
@@ -27,6 +25,9 @@ pub fn encode_edit(changes: &model::ProfileEdit) -> Result<serde_json::Value, De
 	}
 	if let Some(color) = changes.accent_color {
 		fields.insert("accent_color".into(), serde_json::json!(color));
+	}
+	if let Some(avatar) = &changes.avatar {
+		fields.insert("avatar".into(), serde_json::json!(avatar));
 	}
 	Ok(serde_json::Value::Object(fields))
 }
@@ -58,32 +59,6 @@ struct ProfileUser {
 	banner: Option<String>,
 	#[serde(default)]
 	accent_color: Option<u32>,
-	/// Current name of the displayed server tag object; `clan` is its older name.
-	#[serde(default)]
-	primary_guild: Option<ClanDto>,
-	#[serde(default)]
-	clan: Option<ClanDto>,
-}
-#[derive(Deserialize, Default)]
-#[serde(default)]
-struct ClanDto {
-	identity_guild_id: Option<GuildId>,
-	identity_enabled: Option<bool>,
-	tag: Option<String>,
-	badge: Option<String>,
-}
-impl ClanDto {
-	fn into_model(self, limited: &mut bool) -> Option<ClanTag> {
-		if self.identity_enabled == Some(false) {
-			return None;
-		}
-		let tag = self.tag.filter(|t| !t.trim().is_empty())?;
-		Some(ClanTag {
-			guild: self.identity_guild_id?.id(),
-			tag: text(tag, 8, limited),
-			badge: hash(self.badge),
-		})
-	}
 }
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -112,6 +87,8 @@ impl GuildId {
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct Member {
+	#[serde(default)]
+	roles: Small<Id, 512>,
 	nick: Option<String>,
 	avatar: Option<String>,
 	banner: Option<String>,
@@ -242,10 +219,19 @@ pub fn decode_profile(bytes: &[u8], guild: Option<Id>) -> Result<UserProfile, De
 	badges.truncate(16);
 	badges.shrink_to_fit();
 	let guild = match (guild, dto.guild_member) {
-		(Some(guild), Some(member)) => {
+		(Some(guild), Some(mut member)) => {
 			let profile = dto.guild_member_profile.unwrap_or_default();
+			limited |= member.roles.limited;
+			member.roles.items.sort_unstable();
+			if member.roles.items.iter().any(|id| id.0 == 0)
+				|| member.roles.items.windows(2).any(|ids| ids[0] == ids[1])
+			{
+				return Err(DecodeError);
+			}
+			member.roles.items.shrink_to_fit();
 			Some(GuildProfile {
 				guild,
+				roles: member.roles.items,
 				nick: member.nick.map(|n| text(n, 128, &mut limited)),
 				avatar: hash(member.avatar),
 				banner: hash(profile.banner.or(member.banner)),
@@ -271,13 +257,10 @@ pub fn decode_profile(bytes: &[u8], guild: Option<Id>) -> Result<UserProfile, De
 			};
 			(top <= 0xff_ffff && bottom <= 0xff_ffff).then_some([top, bottom])
 		});
-	let clan = dto
-		.user
-		.primary_guild
-		.or(dto.user.clan)
-		.and_then(|clan| clan.into_model(&mut limited));
+	let user = dto.user.user.into_model();
+	let clan = user.primary_guild.as_deref().cloned();
 	let mut profile = UserProfile {
-		user: dto.user.user.into_model(),
+		user,
 		username,
 		global_name,
 		banner: hash(metadata.banner.or(dto.user.banner)),
@@ -340,7 +323,7 @@ mod tests {
 	fn profile_metadata_is_bounded_and_guild_identity_is_checked() {
 		let value = json!({"user":{"id":"1","username":"name","global_name":"Display","avatar":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","bio":"global bio","primary_guild":{"identity_guild_id":"2","identity_enabled":true,"tag":"SRN","badge":"ffffffffffffffffffffffffffffffff"}},
             "user_profile":{"bio":"About me","pronouns":"they/them","banner":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","accent_color":123,"theme_colors":[1193046,16777215]},
-            "guild_member":{"nick":"Server name","avatar":"cccccccccccccccccccccccccccccccc","joined_at":"2026-01-01T00:00:00Z"},
+            "guild_member":{"roles":["8","7"],"nick":"Server name","avatar":"cccccccccccccccccccccccccccccccc","joined_at":"2026-01-01T00:00:00Z"},
             "guild_member_profile":{"guild_id":2,"banner":"dddddddddddddddddddddddddddddddd","bio":"Server bio"},
             "badges":[{"id":"badge","description":"Synthetic badge","icon":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}],"connected_accounts":[{"type":"github","name":"synthetic","verified":true}],"mutual_guilds":[{"id":"2","nick":"Server name"}]});
 		let profile = decode_profile(value.to_string().as_bytes(), Some(Id(2))).unwrap();
@@ -355,9 +338,11 @@ mod tests {
 		);
 		assert!(profile.avatar_key().starts_with("member-avatar-2-1-"));
 		assert_eq!(profile.guild.as_ref().unwrap().bio, "Server bio");
+		assert_eq!(profile.guild.as_ref().unwrap().roles, [Id(7), Id(8)]);
 		assert_eq!(profile.theme_colors, Some([0x123456, 0xffffff]));
 		let clan = profile.clan.as_ref().unwrap();
 		assert_eq!((clan.guild, clan.tag.as_str()), (Id(2), "SRN"));
+		assert_eq!(profile.user.primary_guild.as_deref(), Some(clan));
 		assert_eq!(
 			clan.badge_key().as_deref(),
 			Some("clan-2-ffffffffffffffffffffffffffffffff")

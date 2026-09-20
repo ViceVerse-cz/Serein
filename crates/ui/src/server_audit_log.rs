@@ -260,7 +260,7 @@ impl AuditLogUi {
 					);
 					let response = ui.interact(
 						header,
-						ui.id().with(("audit-entry", entry.id)),
+						ui.scope_id().with(("audit-entry", entry.id)),
 						egui::Sense::click(),
 					);
 					let summary = summary(entry, page, state);

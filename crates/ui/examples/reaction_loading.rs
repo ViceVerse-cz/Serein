@@ -113,6 +113,25 @@ fn read_request(state: &mut State) -> u64 {
 	request
 }
 
+fn custom_reaction_loading_text(state: &mut State) -> String {
+	state
+		.timeline
+		.set_reactions(
+			Id(600),
+			Some(vec![model::Reaction {
+				emoji: ReactionEmoji {
+					id: Some(Id(7777)),
+					name: Some("party_parrot".into()),
+				},
+				count: 3,
+				me: false,
+				me_burst: false,
+			}]),
+		)
+		.unwrap();
+	frame(state)
+}
+
 fn main() {
 	let mut state = test_support::empty_channel_demo_state(false);
 	let channel = state.selected.unwrap();
@@ -146,6 +165,16 @@ fn main() {
 		},
 	});
 	assert!(!frame(&mut state).contains("Reactions unavailable"));
+	let custom_loading = custom_reaction_loading_text(&mut state);
+	assert!(
+		!custom_loading.contains(":party_parrot:"),
+		"custom reactions must not flash shortcode while the image loads:\n{custom_loading}"
+	);
+	assert!(
+		custom_loading.lines().any(|line| line == "3"),
+		"the count stays visible while the custom image is reserved:\n{custom_loading}"
+	);
+	state.timeline.set_reactions(Id(600), Some(vec![])).unwrap();
 	state.refresh_reactions(Id(600));
 	assert!(!frame(&mut state).contains("Reload reactions"));
 	state.reactions.reset();

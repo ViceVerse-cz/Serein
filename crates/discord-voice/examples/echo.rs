@@ -1,5 +1,7 @@
 //! Offline debug check: synthetic delayed speaker echo, followed by near-end speech.
 //! Does not open audio devices or connect to Discord.
+#![allow(dead_code)]
+
 #[path = "../src/activity.rs"]
 mod activity;
 #[path = "../src/capture.rs"]
@@ -9,6 +11,11 @@ mod echo;
 type Frame = [f32; 960];
 
 fn main() {
+	assert_eq!(activity::level_db(&[0.0; 960]), -100.0);
+	assert_eq!(activity::level_db(&[1.0; 960]), 0.0);
+	assert!((activity::level_db(&[0.1; 960]) + 20.0).abs() < 0.01);
+	assert_eq!(activity::level_db(&[f32::NAN; 960]), -100.0);
+
 	assert_eq!(activity::hold(0.0, 0), 0);
 	assert_eq!(activity::hold(960.0 * 0.001_f32.powi(2), 0), 0);
 	let mut hold = activity::hold(960.0 * 0.02_f32.powi(2), 0);
@@ -23,6 +30,15 @@ fn main() {
 	// The previous drain-to-latest sender lost half the speech in this case.
 	let (send, receive) = std::sync::mpsc::sync_channel(8);
 	let mut pacer = capture::CapturePacer::default();
+	// Empty-room detection consumes PCM locally, leaving nothing for a later peer.
+	send.try_send([0.2; 960]).unwrap();
+	assert!(pacer.next(&receive, true, false).is_none());
+	send.try_send([0.3; 960]).unwrap();
+	let preview = pacer.preview(&receive).unwrap();
+	assert_eq!(preview, [0.3; 960]);
+	assert!(activity::hold(preview.iter().map(|s| s * s).sum(), 0) > 0);
+	assert!(pacer.next(&receive, true, false).is_none());
+	assert!(pacer.preview(&receive).is_none());
 	for tick in 0..100 {
 		if tick % 2 == 0 {
 			send.try_send([tick as f32; 960]).unwrap();
@@ -47,7 +63,9 @@ fn main() {
 	// Exercise the real AEC -> RNNoise chain with synthetic hiss and short click bursts.
 	let mut filtered = echo::Echo::new();
 	let mut unfiltered = echo::Echo::new();
-	filtered.set_noise_suppression(true);
+	filtered
+		.configure(model::voice_settings::VoiceProcessing::from_legacy(true).effective())
+		.unwrap();
 	let mut seed = 17_u32;
 	let mut before = 0.0;
 	let mut after = 0.0;
@@ -106,7 +124,9 @@ fn main() {
 		voiced_after > voiced_before * 0.1,
 		"voiced signal must survive suppression: {voiced_before} -> {voiced_after}"
 	);
-	filtered.set_noise_suppression(false);
+	filtered
+		.configure(model::voice_settings::VoiceProcessing::from_legacy(false).effective())
+		.unwrap();
 	let mut bypass = [0.2; 960];
 	let mut reference = bypass;
 	filtered.render(&[0.0; 960]).unwrap();

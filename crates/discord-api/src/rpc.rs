@@ -13,12 +13,13 @@ struct Application {
 	id: Id,
 	name: String,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Asset {
 	pub id: Id,
 	pub name: String,
 }
 
+#[derive(Clone)]
 pub struct Metadata {
 	pub name: String,
 	pub assets: Vec<Asset>,
@@ -55,26 +56,36 @@ pub async fn metadata(
 		client,
 		cooldown,
 		&format!("https://discord.com/api/v10/applications/{id}/rpc"),
+		MAX_METADATA,
 	)
 	.await?;
 	let mut metadata = decode_application(id, &bytes)?;
-	// Artwork failure must not prevent the game's text presence. This lookup is once per connection.
-	if let Ok(bytes) = download(
-		client,
-		cooldown,
-		&format!("https://discord.com/api/v10/oauth2/applications/{id}/assets"),
-	)
-	.await
-	{
-		metadata.assets = decode_assets(&bytes).unwrap_or_default();
-	}
+	// Artwork failure must not prevent the game's text presence.
+	metadata.assets = assets(client, cooldown, id).await.unwrap_or_default();
 	Ok(metadata)
 }
 
-async fn download(
+/// Registered artwork is uploaded while a game runs, so this list is refetchable on a miss.
+pub async fn assets(
+	client: &Client,
+	cooldown: &mut Instant,
+	id: Id,
+) -> Result<Vec<Asset>, &'static str> {
+	let bytes = download(
+		client,
+		cooldown,
+		&format!("https://discord.com/api/v10/oauth2/applications/{id}/assets"),
+		MAX_METADATA,
+	)
+	.await?;
+	decode_assets(&bytes).ok_or("Game artwork metadata is invalid.")
+}
+
+pub(crate) async fn download(
 	client: &Client,
 	cooldown: &mut Instant,
 	url: &str,
+	limit: usize,
 ) -> Result<Vec<u8>, &'static str> {
 	let failure = "Game application lookup failed. Restart the game to retry.";
 	if Instant::now() < *cooldown {
@@ -99,13 +110,13 @@ async fn download(
 	}
 	if response
 		.content_length()
-		.is_some_and(|size| size > MAX_METADATA as u64)
+		.is_some_and(|size| size > limit as u64)
 	{
 		return Err(failure);
 	}
 	let mut bytes = Vec::new();
 	while let Some(chunk) = response.chunk().await.map_err(|_| failure)? {
-		if bytes.len().saturating_add(chunk.len()) > MAX_METADATA {
+		if bytes.len().saturating_add(chunk.len()) > limit {
 			return Err(failure);
 		}
 		bytes.extend_from_slice(&chunk);
@@ -178,11 +189,19 @@ mod tests {
 			.unwrap();
 		let mut cooldown = Instant::now();
 		for _ in 0..3 {
-			assert!(download(&client, &mut cooldown, &url).await.is_err());
+			assert!(
+				download(&client, &mut cooldown, &url, MAX_METADATA)
+					.await
+					.is_err()
+			);
 		}
 		assert!(cooldown > Instant::now() + Duration::from_secs(110));
 		server.await.unwrap();
-		assert!(download(&client, &mut cooldown, &url).await.is_err());
+		assert!(
+			download(&client, &mut cooldown, &url, MAX_METADATA)
+				.await
+				.is_err()
+		);
 	}
 
 	#[test]

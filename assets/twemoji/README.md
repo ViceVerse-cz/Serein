@@ -9,10 +9,11 @@ Source: [v17.0.3](https://github.com/jdecked/twemoji/releases/tag/v17.0.3), comm
 `b6b55fef1e8636b540a6d016a4729ca8cdf2e60b`, verified September 10, 2026.
 All 4,009 upstream `assets/72x72/*.png` images are included. Changes: resized with
 Lanczos to 30×30 pixels and arranged into a transparent PNG atlas with one pixel
-of padding on each edge of every 32×32 cell. No JavaScript runtime is included.
+of padding on each edge of every 32×32 cell, then losslessly recompressed with
+`oxipng -o max --strip all` (pixels unchanged). No JavaScript runtime is included.
 
 - `atlas.png`: RGBA, 2,048×2,016 pixels, 64 columns, 63 rows; row-major cells.
-  Compressed: 6,002,931 bytes; decoded: 16,515,072 bytes (15.75 MiB).
+  Compressed: 5,225,108 bytes; decoded: 16,515,072 bytes (15.75 MiB).
 - `index.tsv`: UTF-8 Unicode sequence, tab, zero-based cell index; one entry per
   line, sorted by Unicode sequence after removing emoji presentation selectors
   (U+FE0F). Cell indices retain the original upstream sequence order. The renderer

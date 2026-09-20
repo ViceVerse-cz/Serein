@@ -409,13 +409,13 @@ async fn run(
 	// Four bounded downloads overlap; disk access and image decode stay on this worker.
 	let mut downloads = tokio::task::JoinSet::new();
 	loop {
-		let (key, bytes, mut error, fetched, cached_image) = tokio::select! {
+		let (key, bytes, mut error, fetched, cached_image, cached_frames) = tokio::select! {
 			biased;
 			_ = cancelled.changed() => break,
 			completed = downloads.join_next(), if !downloads.is_empty() => {
 				let Some(Ok((key, bytes, until))) = completed else { break };
 				cooldown = cooldown.max(until);
-				(key, bytes, disk.is_none().then_some(CACHE_ERROR), true, None)
+				(key, bytes, disk.is_none().then_some(CACHE_ERROR), true, None, Vec::new())
 			},
 			key = requests.recv(), if downloads.len() < 4 => {
 				let Some(key) = key else { break };
@@ -427,7 +427,14 @@ async fn run(
 					Err(_) => { error = Some(CACHE_ERROR); None }
 				});
 				let edge = decode_edge(&key);
-				let image = cached.as_deref().and_then(|bytes| decode(bytes, edge));
+				let frames = key
+					.starts_with("anim:")
+					.then(|| cached.as_deref().and_then(decode_animation))
+					.flatten()
+					.unwrap_or_default();
+				let image = frames.first().map(|(_, image)| image.as_ref().clone()).or_else(|| {
+					cached.as_deref().and_then(|bytes| decode(bytes, edge))
+				});
 				if image.is_none() && Instant::now() >= cooldown && let Some(client) = &client {
 					let client = client.clone();
 					downloads.spawn(async move {
@@ -443,16 +450,16 @@ async fn run(
 					});
 					continue;
 				}
-				(key, cached, error, false, image)
+				(key, cached, error, false, image, frames)
 			},
 		};
 		if *cancelled.borrow() {
 			break;
 		}
 		let edge = decode_edge(&key);
-		let mut image =
-			cached_image.or_else(|| bytes.as_deref().and_then(|bytes| decode(bytes, edge)));
-		let frames = if key.starts_with("anim:") {
+		let frames = if !cached_frames.is_empty() {
+			cached_frames
+		} else if key.starts_with("anim:") {
 			bytes
 				.as_deref()
 				.and_then(decode_animation)
@@ -460,9 +467,12 @@ async fn run(
 		} else {
 			Vec::new()
 		};
-		if image.is_none() {
-			image = frames.first().map(|(_, image)| image.as_ref().clone());
-		}
+		let image = frames
+			.first()
+			.map(|(_, image)| image.as_ref().clone())
+			.or_else(|| {
+				cached_image.or_else(|| bytes.as_deref().and_then(|bytes| decode(bytes, edge)))
+			});
 		if fetched
 			&& image.is_some()
 			&& let (Some(disk), Some(bytes)) = (&mut disk, &bytes)
@@ -564,9 +574,12 @@ fn decode(bytes: &[u8], edge: u32) -> Option<egui::ColorImage> {
 	});
 	reader.limits(limits);
 	let mut image = reader.decode().ok()?;
-	// Only shrink: a 1024-pixel original must not be blown up to the viewer's 2048 budget.
-	if image.width() > edge || image.height() > edge {
-		image = image.thumbnail(edge, edge);
+	// wgpu textures have no mip chain. A 128px face bilinear-minified into the
+	// 48px rail aliases. Lanczos down to 64 leaves a 4/3 sample for that slot
+	// and stays near 1:1 at 150% zoom or the 72px settings icon.
+	let upload = if edge <= 128 { 64 } else { edge };
+	if image.width() > upload || image.height() > upload {
+		image = image.resize(upload, upload, image::imageops::FilterType::Lanczos3);
 	}
 	let image = image.into_rgba8();
 	Some(egui::ColorImage::from_rgba_unmultiplied(
@@ -1056,7 +1069,7 @@ mod tests {
 		assert!(decode(b"not an image", 128).is_none());
 		assert!(decode(&png(257, 1), 128).is_none());
 		let bytes = png(256, 256);
-		assert_eq!(decode(&bytes, 128).unwrap().size, [128, 128]);
+		assert_eq!(decode(&bytes, 128).unwrap().size, [64, 64]);
 		let root = std::env::temp_dir().join(format!(
 			"serein-avatar-test-{}-{}",
 			std::process::id(),
@@ -1140,7 +1153,7 @@ mod tests {
 				.unwrap()
 				.unwrap()
 		});
-		assert_eq!(result.image.unwrap().size, [128, 128]);
+		assert_eq!(result.image.unwrap().size, [64, 64]);
 		assert!(result.error.is_none());
 		// Fill the result channel, then cancel: shutdown must not wait on the renderer.
 		for _ in 0..32 {

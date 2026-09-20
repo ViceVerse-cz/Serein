@@ -54,6 +54,28 @@ impl Encryption {
 		}
 	}
 	pub fn seal(&mut self, header: &[u8; 12], frame: &[u8]) -> Result<Vec<u8>, &'static str> {
+		self.seal_packet(header, frame)
+	}
+	/// Discord's unofficial RFC 8285 extension 9 marks context audio as soundshare.
+	/// The extension preamble is authenticated; its four-byte body is encrypted.
+	pub fn seal_soundshare(
+		&mut self,
+		header: &[u8; 12],
+		frame: &[u8],
+	) -> Result<Vec<u8>, &'static str> {
+		if frame.len() > MAX_PACKET - 40 {
+			return Err("Stream audio packet exceeds transport limit");
+		}
+		let mut extended = [0; 16];
+		extended[..12].copy_from_slice(header);
+		extended[0] |= 0x10;
+		extended[12..].copy_from_slice(&[0xbe, 0xde, 0, 1]);
+		let mut payload = Vec::with_capacity(4 + frame.len());
+		payload.extend([0x90, 0x04, 0, 0]);
+		payload.extend_from_slice(frame);
+		self.seal_packet(&extended, &payload)
+	}
+	fn seal_packet(&mut self, header: &[u8], frame: &[u8]) -> Result<Vec<u8>, &'static str> {
 		self.counter = self
 			.counter
 			.checked_add(1)
@@ -79,27 +101,60 @@ impl Encryption {
 	/// Encrypt one RTCP packet: the eight-byte header stays clear as associated data, the
 	/// rest is sealed and the four-byte nonce trails, as in the `rtpsize` RTP framing.
 	pub fn seal_rtcp(&mut self, header: &[u8; 8], body: &[u8]) -> Result<Vec<u8>, &'static str> {
-		self.counter = self
-			.counter
-			.checked_add(1)
-			.ok_or("Voice transport nonce exhausted; rejoin the call")?;
+		self.seal_packet(header, body)
+	}
+	/// Authenticate RTCP feedback before honoring a PLI for our video SSRC.
+	/// As with `seal_rtcp`, only the first eight bytes remain clear on the wire.
+	pub fn requests_keyframe(&self, packet: &[u8], video_ssrc: u32) -> bool {
+		if video_ssrc == 0
+			|| !(32..=MAX_PACKET).contains(&packet.len())
+			|| packet[0] >> 6 != 2
+			|| !(192..=223).contains(&packet[1])
+		{
+			return false;
+		}
 		let mut nonce = [0; 24];
-		nonce[..4].copy_from_slice(&self.counter.to_be_bytes());
-		let data = self
-			.cipher
-			.encrypt(
-				XNonce::from_slice(&nonce),
-				Payload {
-					msg: body,
-					aad: header,
-				},
-			)
-			.map_err(|_| "Voice transport encryption failed")?;
-		let mut packet = Vec::with_capacity(header.len() + data.len() + 4);
-		packet.extend_from_slice(header);
-		packet.extend_from_slice(&data);
-		packet.extend_from_slice(&nonce[..4]);
-		Ok(packet)
+		nonce[..4].copy_from_slice(&packet[packet.len() - 4..]);
+		let Ok(body) = self.cipher.decrypt(
+			XNonce::from_slice(&nonce),
+			Payload {
+				msg: &packet[8..packet.len() - 4],
+				aad: &packet[..8],
+			},
+		) else {
+			return false;
+		};
+		let mut compound = Vec::with_capacity(8 + body.len());
+		compound.extend_from_slice(&packet[..8]);
+		compound.extend_from_slice(&body);
+		let mut remaining = compound.as_slice();
+		let mut requested = false;
+		while !remaining.is_empty() {
+			if remaining.len() < 4 || remaining[0] >> 6 != 2 {
+				return false;
+			}
+			let size = (usize::from(u16::from_be_bytes([remaining[2], remaining[3]])) + 1) * 4;
+			if size > remaining.len() {
+				return false;
+			}
+			let mut content = &remaining[..size];
+			if content[0] & 0x20 != 0 {
+				let padding = usize::from(content[size - 1]);
+				if size != remaining.len() || padding == 0 || padding > size - 4 {
+					return false;
+				}
+				content = &content[..size - padding];
+			}
+			// RFC 4585: PSFB/FMT=1 has a media SSRC and no FCI payload.
+			if content[1] == 206 && content[0] & 0x1f == 1 {
+				if content.len() != 12 {
+					return false;
+				}
+				requested |= content[8..12] == video_ssrc.to_be_bytes();
+			}
+			remaining = &remaining[size..];
+		}
+		requested
 	}
 	/// Authenticate and decrypt one Opus (120), H264 (101) or H264 RTX (102) RTP packet.
 	pub fn open(&self, packet: &[u8]) -> Option<Rtp> {
@@ -206,19 +261,20 @@ impl Dave {
 	pub fn alone(&self) -> bool {
 		self.announced.len() == 1
 	}
-	/// A sole announced member with a pending epoch-zero group has nobody to negotiate with.
-	/// Discord does not always announce a transition for a fresh sole member; waiting must not
-	/// depend on it.
+	/// A sole announced member with no pending transition has nobody to negotiate with.
+	/// Discord does not always announce a transition for a fresh sole member or after
+	/// departures; waiting must not depend on it.
 	pub fn should_wait_for_peer(&self) -> bool {
 		!self.ready
 			&& !self.waiting
 			&& self.pending.is_none()
 			&& self.alone()
 			&& self.session.group().is_some()
-			&& self
-				.session
-				.epoch()
-				.is_some_and(|epoch| epoch.as_u64() == 0)
+	}
+	pub fn is_group_member(&self, user: u64) -> bool {
+		self.session
+			.get_user_ids()
+			.is_some_and(|ids| ids.contains(&user))
 	}
 	pub fn connect(&mut self, users: &[u64]) -> Result<bool, &'static str> {
 		if users.len() > MAX_PARTICIPANTS
@@ -279,6 +335,19 @@ impl Dave {
 		self.ready = false;
 		self.waiting = true;
 		Ok(())
+	}
+	/// Safely transition a sole member into waiting mode, reinitializing the group
+	/// if it still contains departed peers or has advanced beyond epoch zero.
+	pub fn enter_sole_member_waiting(&mut self) -> Result<(), &'static str> {
+		if !self.alone() {
+			return Err("Cannot enter sole member waiting with peers announced");
+		}
+		if self.session.epoch().is_none_or(|epoch| epoch.as_u64() != 0)
+			|| self.validate_group().is_err()
+		{
+			self.reinitialize()?;
+		}
+		self.wait_for_peer()
 	}
 	pub fn reset(&mut self) -> Result<(), &'static str> {
 		self.resets += 1;
@@ -493,6 +562,93 @@ mod tests {
 		);
 	}
 	#[test]
+	fn rtcp_keyframe_requests_require_authentication_and_matching_ssrc() {
+		fn sealed(crypto: &mut Encryption, clear: &[u8]) -> Vec<u8> {
+			crypto
+				.seal_rtcp(clear[..8].try_into().unwrap(), &clear[8..])
+				.unwrap()
+		}
+		let mut crypto = Encryption::new(&[7; 32]);
+		let pli = [0x81, 206, 0, 2, 0, 0, 0, 9, 0, 0, 0, 42];
+		let packet = sealed(&mut crypto, &pli);
+		assert!(crypto.requests_keyframe(&packet, 42));
+		assert!(!crypto.requests_keyframe(&packet, 41));
+		assert!(!crypto.requests_keyframe(&packet, 0));
+		assert!(!Encryption::new(&[8; 32]).requests_keyframe(&packet, 42));
+		for i in 0..packet.len() {
+			let mut corrupt = packet.clone();
+			corrupt[i] ^= 0x40;
+			assert!(!crypto.requests_keyframe(&corrupt, 42));
+			assert!(!crypto.requests_keyframe(&packet[..i], 42));
+		}
+		assert!(!crypto.requests_keyframe(&vec![0; MAX_PACKET + 1], 42));
+
+		// The server may bundle receiver reports before the PLI in one authenticated packet.
+		let mut compound = vec![0x80, 201, 0, 1, 0, 0, 0, 9];
+		compound.extend(pli);
+		let packet = sealed(&mut crypto, &compound);
+		assert!(crypto.requests_keyframe(&packet, 42));
+		compound.extend([0x80, 201, 0]); // A valid PLI cannot hide a truncated trailing packet.
+		let packet = sealed(&mut crypto, &compound);
+		assert!(!crypto.requests_keyframe(&packet, 42));
+
+		let mut malformed = pli;
+		malformed[3] = 3; // Authenticated but claims more bytes than are present.
+		let packet = sealed(&mut crypto, &malformed);
+		assert!(!crypto.requests_keyframe(&packet, 42));
+		malformed[3] = 1; // Authenticated but missing the required media SSRC.
+		let packet = sealed(&mut crypto, &malformed);
+		assert!(!crypto.requests_keyframe(&packet, 42));
+
+		let mut padded = pli.to_vec();
+		padded[0] |= 0x20;
+		padded[3] = 3;
+		padded.extend([0, 0, 0, 4]);
+		let packet = sealed(&mut crypto, &padded);
+		assert!(crypto.requests_keyframe(&packet, 42));
+		padded[15] = 0;
+		let packet = sealed(&mut crypto, &padded);
+		assert!(!crypto.requests_keyframe(&packet, 42));
+		padded[15] = 13; // Padding may not consume the RTCP header.
+		let packet = sealed(&mut crypto, &padded);
+		assert!(!crypto.requests_keyframe(&packet, 42));
+	}
+	#[test]
+	fn soundshare_extension_is_authenticated_encrypted_and_stripped_before_dave() {
+		let mut crypto = Encryption::new(&[7; 32]);
+		let header = [0x80, 120, 0, 1, 0, 0, 0, 1, 0, 0, 0, 9];
+		let frame = b"synthetic DAVE ciphertext";
+		let packet = crypto.seal_soundshare(&header, frame).unwrap();
+		assert_eq!(packet[0], 0x90);
+		assert_eq!(&packet[1..12], &header[1..]);
+		assert_eq!(&packet[12..16], &[0xbe, 0xde, 0, 1]);
+		let mut nonce = [0; 24];
+		nonce[..4].copy_from_slice(&packet[packet.len() - 4..]);
+		let clear = crypto
+			.cipher
+			.decrypt(
+				XNonce::from_slice(&nonce),
+				Payload {
+					aad: &packet[..16],
+					msg: &packet[16..packet.len() - 4],
+				},
+			)
+			.unwrap();
+		assert_eq!(&clear[..4], &[0x90, 0x04, 0, 0]);
+		assert_eq!(&clear[4..], frame);
+		assert_eq!(crypto.open(&packet).unwrap().payload, frame);
+		for i in 0..packet.len() {
+			let mut corrupt = packet.clone();
+			corrupt[i] ^= 0x40;
+			assert!(crypto.open(&corrupt).is_none());
+		}
+		assert!(
+			crypto
+				.seal_soundshare(&header, &vec![0; MAX_PACKET])
+				.is_err()
+		);
+	}
+	#[test]
 	fn rtp_authentication_bounds_and_nonce_exhaustion() {
 		assert_eq!(
 			tracing::level_filters::STATIC_MAX_LEVEL,
@@ -568,5 +724,39 @@ mod tests {
 			.unwrap();
 		assert!(dave.group_changed(30, &[0, 0, 0]).is_err());
 		assert!(!dave.ready);
+	}
+	#[test]
+	fn sole_member_departure_waiting_and_group_membership() {
+		let server = crate::test_mls::Delivery::new();
+		let mut alice = Dave::new(1, Some(2), 3).unwrap();
+		let mut bob = Dave::new(2, Some(1), 3).unwrap();
+		alice.session.set_external_sender(&server.external).unwrap();
+		bob.session.set_external_sender(&server.external).unwrap();
+
+		alice.connect(&[2]).unwrap();
+		bob.connect(&[1]).unwrap();
+		assert!(!alice.is_group_member(2));
+		let (commit, welcome) = server.add(&mut alice, &bob.key_package().unwrap());
+		alice
+			.group_changed(29, &[&[0, 0], commit.as_slice()].concat())
+			.unwrap();
+		bob.group_changed(30, &[&[0, 0], welcome.as_slice()].concat())
+			.unwrap();
+		assert!(alice.ready && bob.ready);
+		assert!(alice.is_group_member(2));
+		assert!(!alice.is_group_member(999));
+
+		// When not alone, enter_sole_member_waiting fails closed.
+		assert!(alice.enter_sole_member_waiting().is_err());
+
+		// Bob departs: Alice is now alone and was in an established epoch > 0 group.
+		assert!(alice.disconnect(2).unwrap());
+		assert!(alice.alone());
+		assert!(alice.should_wait_for_peer());
+
+		// enter_sole_member_waiting reinitializes the epoch > 0 group and enters waiting cleanly.
+		alice.enter_sole_member_waiting().unwrap();
+		assert!(alice.waiting);
+		assert!(!alice.ready);
 	}
 }

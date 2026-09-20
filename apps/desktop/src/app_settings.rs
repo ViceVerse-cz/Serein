@@ -15,7 +15,7 @@ impl Settings {
 			cache.queue(
 				generation,
 				model::Id(0),
-				crate::cache::Operation::SaveAppPreferences(self.current.clone()),
+				crate::cache::Operation::SaveAppPreferences(Box::new(self.current.clone())),
 			)
 		});
 		// A full cache queue must not turn a device preference into a session-only change.
@@ -32,14 +32,26 @@ impl Settings {
 			notification_options: ui.notification_options,
 			show_hidden_channels: ui.show_hidden_channels,
 			hide_title_bar: ui.hide_title_bar,
+			gpu_preference: ui.gpu_preference,
 			primary_color: ui.primary_color,
-			voice_noise_suppression: ui.voice_noise_suppression,
+			transparency_blur: ui.transparency_blur,
+			transparency: ui.transparency,
+			blur: ui.blur,
+			transparent_all: ui.transparent_all,
+			voice_noise_suppression: ui.voice_processing.effective().suppression
+				!= model::voice_settings::NoiseSuppression::Off,
+			voice_processing: Some(ui.voice_processing),
 			voice_push_to_talk: ui.voice_push_to_talk,
+			voice_muted: ui.voice_muted,
+			voice_deafened: ui.voice_deafened,
 			voice_input: ui.voice_input.clone(),
 			voice_output: ui.voice_output.clone(),
 			input_percent: ui.voice_gain.input_percent,
 			output_percent: ui.voice_gain.output_percent,
+			keybinds: ui.keybinds.clone(),
 			expanded_folders: ui.expanded_folders.clone(),
+			user_volumes: ui.voice_user_volume_overrides(),
+			muted_users: ui.voice_user_mutes().to_vec(),
 		};
 		if value != self.current {
 			self.state.touched = true;
@@ -58,13 +70,25 @@ impl Settings {
 		ui.notification_options = value.notification_options;
 		ui.show_hidden_channels = value.show_hidden_channels;
 		ui.hide_title_bar = value.hide_title_bar;
+		ui.gpu_preference = value.gpu_preference;
 		ui.primary_color = value.primary_color;
-		ui.voice_noise_suppression = value.voice_noise_suppression;
+		ui.transparency_blur = value.transparency_blur;
+		ui.transparency = value.transparency;
+		ui.blur = value.blur;
+		ui.transparent_all = value.transparent_all;
+		ui.voice_processing = value.voice_processing.unwrap_or_else(|| {
+			model::voice_settings::VoiceProcessing::from_legacy(value.voice_noise_suppression)
+		});
 		ui.voice_push_to_talk = value.voice_push_to_talk;
+		ui.voice_muted = value.voice_muted;
+		ui.voice_deafened = value.voice_deafened;
 		ui.voice_input.clone_from(&value.voice_input);
 		ui.voice_output.clone_from(&value.voice_output);
 		ui.voice_gain.input_percent = value.input_percent;
 		ui.voice_gain.output_percent = value.output_percent;
+		ui.keybinds = value.keybinds.clone();
 		ui.expanded_folders.clone_from(&value.expanded_folders);
+		ui.set_voice_user_volume_overrides(&value.user_volumes);
+		ui.set_voice_user_mutes(&value.muted_users);
 	}
 }

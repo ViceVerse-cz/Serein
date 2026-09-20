@@ -109,6 +109,13 @@ pub fn message(id: u64, channel: Id) -> Message {
 			kind: Default::default(),
 			discriminator: 0,
 			id: Id(if id.is_multiple_of(2) { 1 } else { 2 }),
+			primary_guild: (!id.is_multiple_of(2)).then(|| {
+				Box::new(model::ClanTag {
+					guild: Id(10),
+					tag: "SPDY".into(),
+					badge: Some("f".repeat(32)),
+				})
+			}),
 			name: if id.is_multiple_of(2) {
 				"You (synthetic)"
 			} else {
@@ -126,6 +133,10 @@ pub fn message(id: u64, channel: Id) -> Message {
 		reply_deleted: false,
 		forwarded: false,
 		unsupported: false,
+		components: vec![],
+		application_id: None,
+		flags: 0,
+		ephemeral: false,
 		extra_content: Default::default(),
 		embeds: demo_embeds(id),
 		attachments: if id == 500 {
@@ -201,6 +212,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}]
 		} else {
 			Vec::new()
@@ -249,6 +261,7 @@ pub fn demo_state() -> State {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 				id: Id(1),
 				name: "You (synthetic)".into(),
 			},
@@ -342,6 +355,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					}],
 					last_message: None,
 					icon: None,
@@ -362,6 +376,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					}],
 					last_message: Some(Id(900)),
 					icon: None,
@@ -384,6 +399,7 @@ pub fn demo_state() -> State {
 							webhook: false,
 							kind: Default::default(),
 							discriminator: 0,
+							primary_guild: None,
 						},
 					],
 					last_message: None,
@@ -489,6 +505,20 @@ pub fn demo_state() -> State {
 		.permissions
 		.replace(permission_snapshot(&state))
 		.unwrap();
+	state
+		.apply_notification_preferences(client_core::notifications::Event::Settings {
+			entries: vec![client_core::notifications::Setting {
+				guild: Some(Id(10)),
+				muted: Some(false),
+				level: Some(3),
+				suppress_everyone: Some(false),
+				suppress_roles: Some(false),
+				channels: vec![(Id(21), Some(true), Some(3))],
+				channel_mute_until: vec![],
+			}],
+			replace: true,
+		})
+		.unwrap();
 	state.select(Id(20));
 	load_page(&mut state, None);
 	state.apply(Envelope {
@@ -508,6 +538,7 @@ pub fn demo_state() -> State {
 					name: "Avery".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -520,6 +551,7 @@ pub fn demo_state() -> State {
 					name: "Rowan".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -558,6 +590,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					},
 					format!("{}.synthetic", name.to_lowercase()),
 				)
@@ -645,6 +678,7 @@ pub fn voice_demo_state() -> State {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			},
 			nick: None,
 			status: None,
@@ -783,6 +817,122 @@ pub fn empty_channel_demo_state(long_name: bool) -> State {
 	state
 }
 
+/// Synthetic switcher roster for offline captures; these accounts never exist on Discord.
+pub fn demo_accounts(current: &model::User) -> Vec<model::SavedAccount> {
+	vec![
+		model::SavedAccount {
+			id: current.id,
+			name: current.name.clone(),
+			display: Some("Riley Quinn".into()),
+			avatar: current.avatar.clone(),
+			discriminator: current.discriminator,
+			has_token: true,
+		},
+		model::SavedAccount {
+			id: Id(4242),
+			name: "riley.alt".into(),
+			display: Some("Riley (alt)".into()),
+			avatar: None,
+			discriminator: 0,
+			has_token: true,
+		},
+		model::SavedAccount {
+			id: Id(4243),
+			name: "serein.testing".into(),
+			display: None,
+			avatar: None,
+			discriminator: 0,
+			has_token: true,
+		},
+	]
+}
+
+pub fn seed_access_marks(state: &mut State) {
+	use model::permissions::{Overwrite, Role, VIEW_CHANNEL};
+	const GUILD: Id = Id(10);
+	const STAFF: Id = Id(11);
+	const ACCESS: Id = Id(60);
+	let channel = |id, kind, parent, position, name: &str| Channel {
+		last_message: None,
+		id: Id(id),
+		guild: Some(GUILD),
+		parent_id: parent,
+		position,
+		name: name.into(),
+		kind,
+		recipients: vec![],
+		icon: None,
+		member_list_id: None,
+		message_count: None,
+	};
+	state.channels.extend([
+		channel(60, 4, None, 2, "ACCESS"),
+		channel(61, 0, Some(ACCESS), 0, "staff-notes"),
+		channel(62, 0, Some(ACCESS), 1, "secret"),
+		channel(63, 2, Some(ACCESS), 2, "locked-hangout"),
+		channel(64, 2, Some(ACCESS), 3, "vault"),
+		channel(65, 0, Some(ACCESS), 4, "unknown-room"),
+	]);
+	let mut snapshot = permission_snapshot(state);
+	if let Some(guild) = snapshot.guilds.iter_mut().find(|guild| guild.id == GUILD) {
+		if let Some(roles) = guild.roles.as_mut() {
+			roles.push(Role {
+				id: STAFF,
+				bits: 0,
+				name: "Contributors".into(),
+				color: 0,
+				position: 1,
+				hoist: false,
+			});
+		}
+		if let Some(member) = guild.member.as_mut() {
+			member.roles.push(STAFF);
+		}
+	}
+	let deny_everyone = Overwrite {
+		id: GUILD,
+		kind: 0,
+		allow: 0,
+		deny: VIEW_CHANNEL,
+	};
+	let allow_staff = Overwrite {
+		id: STAFF,
+		kind: 0,
+		allow: VIEW_CHANNEL,
+		deny: 0,
+	};
+	let deny_member = Overwrite {
+		id: state.user.as_ref().map_or(Id(1), |user| user.id),
+		kind: 1,
+		allow: 0,
+		deny: VIEW_CHANNEL,
+	};
+	for channel in &mut snapshot.channels {
+		match channel.id.0 {
+			61 | 63 => channel.overwrites = Some(vec![deny_everyone, allow_staff]),
+			62 => channel.overwrites = Some(vec![deny_everyone]),
+			64 => channel.overwrites = Some(vec![deny_member]),
+			_ => {}
+		}
+	}
+	snapshot.channels.retain(|channel| channel.id != Id(65));
+	state.permissions.replace(snapshot).unwrap();
+	state
+		.apply_notification_preferences(client_core::notifications::Event::Settings {
+			entries: vec![client_core::notifications::Setting {
+				guild: Some(GUILD),
+				muted: Some(false),
+				level: Some(3),
+				suppress_everyone: Some(false),
+				suppress_roles: Some(false),
+				channels: vec![(Id(21), Some(true), Some(3)), (Id(25), Some(true), Some(3))],
+				channel_mute_until: vec![],
+			}],
+			replace: true,
+		})
+		.unwrap();
+	state.revision += 1;
+}
 pub fn seed_demo_folder_mosaic(state: &mut State) {
 	const EXTRA: [(u64, &str, &str); 4] = [
 		(11, "North lab", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
@@ -843,7 +993,7 @@ pub fn chat_demo_state() -> State {
 		"Yes. History loads in small pages as you scroll up.",
 		"Only nearby messages are rendered. The cache has a fixed memory budget.",
 		"A new day, same conversation.",
-		"This looks much easier to read.",
+		"Hey <@2> — see <#21>. This looks much easier to read.",
 		"Two new messages arrived while you were away.",
 		"Welcome back. All of this is synthetic, offline data.",
 	];
@@ -854,6 +1004,17 @@ pub fn chat_demo_state() -> State {
 		m.author = message(if !(3..7).contains(&i) { 1 } else { 2 }, Id(20)).author;
 		m.content = (*text).into();
 		m.author_roles = vec![Id(101)];
+		if i == 6 {
+			m.mentions = vec![User {
+				id: Id(2),
+				name: "𝖘𝖓𝖎𝖎𝖝. (synthetic)".into(),
+				avatar: None,
+				webhook: false,
+				kind: Default::default(),
+				discriminator: 0,
+				primary_guild: None,
+			}];
+		}
 		if i == 8 {
 			m.reply_to = state.timeline.iter().nth(6).map(|original| original.id);
 		}
@@ -949,7 +1110,8 @@ pub fn permission_snapshot(state: &State) -> model::permissions::Snapshot {
 		| p::CONNECT
 		| p::SPEAK
 		| p::USE_VAD
-		| p::MANAGE_THREADS;
+		| p::MANAGE_THREADS
+		| p::MANAGE_CHANNELS;
 	p::Snapshot {
 		guilds: state
 			.guilds
@@ -1026,6 +1188,7 @@ pub fn system_demo_state() -> State {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		state.timeline.insert(m, false, false).unwrap();
 	}
@@ -1099,6 +1262,7 @@ pub fn friends_demo_state() -> State {
 					name: "Avery".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -1111,6 +1275,7 @@ pub fn friends_demo_state() -> State {
 					name: "Morgan".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -1271,8 +1436,9 @@ mod tests {
 				};
 				assert_eq!(after, Some(Id(last)));
 				load_page_with_cursors(&mut state, before, after);
-				assert_eq!(state.timeline.row_ids().next(), Some(Id(last + 1)));
+				assert_eq!(state.timeline.row_ids().next(), Some(Id(first)));
 				assert_eq!(state.timeline.row_ids().last(), Some(Id(last + 50)));
+				assert!(state.search_target.is_none());
 			} else {
 				assert!(state.newer_history().is_none());
 			}
@@ -1296,6 +1462,7 @@ mod tests {
 			channel,
 			message,
 			request,
+			..
 		} = state.prepare_mark_read(latest).unwrap()
 		else {
 			panic!()
@@ -1858,6 +2025,7 @@ mod tests {
 			channel,
 			message,
 			request,
+			..
 		} = state.prepare_mark_read(Id(500)).unwrap()
 		else {
 			panic!()

@@ -4,12 +4,34 @@ use client_core::State;
 use egui::RichText;
 use model::{Id, Message};
 use std::{
-	collections::BTreeMap,
+	collections::{BTreeMap, BTreeSet},
 	hash::{DefaultHasher, Hash, Hasher},
 };
 
+#[derive(Clone, Copy)]
+enum TargetReveal {
+	StayIfVisible,
+	Center,
+}
+
+const REVEAL_SCROLL_SECS: f32 = 0.3;
+/// Smooth return to the live edge from the jump-to-present control.
+const PRESENT_SCROLL_SECS: f32 = 0.32;
+/// Screens of history a reader must leave behind before the control appears.
+const PRESENT_CONTROL_SCREENS: f32 = 6.0;
+
+#[derive(Clone, Copy)]
+struct RevealScroll {
+	target: Id,
+	from: f32,
+	elapsed: f32,
+}
+
 #[derive(Default)]
 pub struct TimelineView {
+	pub(super) component_viewing: Option<(Id, u64)>,
+	pub(super) components: crate::components::Components,
+	pub(super) component_action: Option<crate::components::Action>,
 	pub(super) extension_actions: std::sync::Arc<Vec<crate::extensions_ui::MenuAction>>,
 	pub(super) extension_request: Option<(crate::extensions_ui::MenuAction, String)>,
 	pub(super) user_action: Option<crate::user_menu::Action>,
@@ -20,13 +42,19 @@ pub struct TimelineView {
 	applied_hide_media_links: bool,
 	pub(super) gif_favorite: Option<model::Gif>,
 	pub(super) invite_requests: Vec<String>,
-	pub(super) invite_join: Option<String>,
+	pub(super) invite_action: Option<crate::invites::Action>,
 	pub(super) edit_started: bool,
 	pub(super) reply_started: bool,
 	pub(super) quick_delete: Option<(Id, Id)>,
 	pub(super) channel_reference: Option<Id>,
 	pub(super) pending_channel_reference: Option<Id>,
 	pub(super) reply_target: Option<Id>,
+	pending_reveal: Option<TargetReveal>,
+	reveal_scroll: Option<RevealScroll>,
+	/// Animated return to the live edge: offset it started from and elapsed seconds.
+	present_scroll: Option<(f32, f32)>,
+	/// Where the jump-to-present control was painted this frame, for hit tests in tests.
+	pub(super) present_control: Option<egui::Rect>,
 	highlighted: Option<(Id, f64)>,
 	target_browsing: bool,
 	initial_read_checked: bool,
@@ -34,14 +62,23 @@ pub struct TimelineView {
 	pub(super) load_newer: bool,
 	channel_labels: u64,
 	pub(super) mark_read: Option<Id>,
+	pub(super) mark_unread: Option<Id>,
 	auto_read_attempt: Option<Id>,
 	at_current_latest: bool,
 	pub(super) reaction_picker: Option<(Id, egui::Rect, egui::Id)>,
 	pub(super) reaction: Option<(Id, Option<model::ReactionEmoji>)>,
+	pub(super) reaction_users: Option<(Id, model::ReactionEmoji, bool)>,
 	/// Requested pin change: channel, message, pinned.
 	pub(super) pin_request: Option<(Id, Id, bool)>,
+	suppressed_deleted_highlight: BTreeSet<Id>,
+	pub(super) remove_preserved: Option<Id>,
 	toolbar: Option<(Id, egui::Rect)>,
 	heights: BTreeMap<Id, (u64, f32)>,
+	// Heights can remain resize estimates; only these bounded active-row IDs were
+	// measured with the current dimensions and state revision.
+	measured_rows: BTreeSet<Id>,
+	#[cfg(test)]
+	leading_rendered: usize,
 	pub(super) reflow_frames: u64,
 	pub(super) consecutive_reflows: u64,
 	width: f32,
@@ -56,17 +93,19 @@ pub struct TimelineView {
 	// A fingerprint of the revealed content prevents a reload that resets model revisions from
 	// revealing edits, without cloning payloads. Pruned with the active window: at most 500 records.
 	revealed: BTreeMap<Id, Revealed>,
-	viewing: Option<(Id, Id)>,
+	pub(super) viewing: Option<(Id, Id)>,
 	/// Fixture-only: viewer to open once its message has arrived in the timeline.
 	pending_viewer: Option<(Id, Id)>,
 	pub(super) download: crate::attachments::DownloadUi,
 	pub(super) audio: crate::audio::AudioUi,
 	pub(super) video: crate::video::VideoUi,
 	pub(super) opening: Option<String>,
+	pub(super) browser_opening: Option<String>,
 	text_size: f32,
 	scale: f32,
 	pub(super) load_older: bool,
 	pub(super) latest: bool,
+	pub(super) visible_authors: Vec<Id>,
 	jump: bool,
 	unread_boundary: Option<Id>,
 }
@@ -194,6 +233,18 @@ fn loading_messages(ui: &mut egui::Ui) {
 		}
 	}
 }
+fn ease_out_cubic(t: f32) -> f32 {
+	let rest = 1.0 - t;
+	1.0 - rest * rest * rest
+}
+fn centered_offset(rows: &[(Id, f32)], id: Id, viewport_h: f32, packed: f32) -> f32 {
+	let row_top = anchor_offset(rows, id, 0.0);
+	let row_h = rows
+		.iter()
+		.find(|(row, _)| *row == id)
+		.map_or(0.0, |(_, height)| *height);
+	(row_top - (viewport_h - row_h) * 0.5).clamp(0.0, (packed - viewport_h).max(0.0))
+}
 fn anchor_offset(rows: &[(Id, f32)], id: Id, inset: f32) -> f32 {
 	if rows.is_empty() {
 		return 0.0;
@@ -211,9 +262,9 @@ fn anchor_offset(rows: &[(Id, f32)], id: Id, inset: f32) -> f32 {
 }
 fn layout_key(message: &Message) -> u64 {
 	// A layout fingerprint only; spoiler visibility uses exact text instead.
+	// Reaction counts are excluded so a +1/-1 does not drop measured heights.
 	let mut key = DefaultHasher::new();
 	message.content.hash(&mut key);
-	message.reactions.hash(&mut key);
 	for user in &message.mentions {
 		user.id.hash(&mut key);
 		user.name.hash(&mut key);
@@ -227,6 +278,7 @@ fn layout_key(message: &Message) -> u64 {
 	message.reply_deleted.hash(&mut key);
 	message.unsupported.hash(&mut key);
 	message.extra_content.hash(&mut key);
+	message.components.hash(&mut key);
 	message.kind.hash(&mut key);
 	message.attachments.hash(&mut key);
 	message.embeds.hash(&mut key);
@@ -309,11 +361,15 @@ fn divider(ui: &mut egui::Ui, label: String, unread: bool) {
 		let text = ui.painter().layout_no_wrap(label.clone(), font, color);
 		let (rect, response) = ui.allocate_exact_size(
 			egui::vec2((ui.available_width() - 16.0).max(0.0), 20.0),
-			egui::Sense::hover(),
+			crate::select::band_sense(),
 		);
 		response.widget_info(|| {
 			egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), &label)
 		});
+		let pos = egui::pos2(
+			rect.center().x - text.size().x / 2.0,
+			rect.center().y - text.size().y / 2.0,
+		);
 		let gap = (rect.width() - text.size().x - 24.0).max(0.0) / 2.0;
 		for (a, b) in [
 			(rect.left(), rect.left() + gap),
@@ -327,20 +383,43 @@ fn divider(ui: &mut egui::Ui, label: String, unread: bool) {
 				egui::Stroke::new(1.0, if unread { color } else { colors.border }),
 			);
 		}
-		ui.painter().galley(
-			egui::pos2(
-				rect.center().x - text.size().x / 2.0,
-				rect.center().y - text.size().y / 2.0,
-			),
+		egui::text_selection::LabelSelectionState::label_text_selection(
+			ui,
+			&response,
+			pos,
 			text,
 			color,
+			egui::Stroke::NONE,
 		);
+		if response.hovered() {
+			ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
+		}
 	});
 	ui.add_space(4.0);
 }
 fn action_button(ui: &mut egui::Ui, icon: crate::icons::Icon, label: &str) -> egui::Response {
 	crate::icons::button(ui, icon, 28.0, label)
 }
+
+enum DeletedLocalAction {
+	ToggleHighlight,
+	Remove,
+}
+
+fn deleted_message_actions(popup: egui::Popup<'_>, action: &mut Option<DeletedLocalAction>) {
+	popup.show(|ui| {
+		ui.set_min_width(160.0);
+		if ui.button("Toggle Deleted Highlight").clicked() {
+			*action = Some(DeletedLocalAction::ToggleHighlight);
+			ui.close();
+		}
+		if ui.button("Remove Message").clicked() {
+			*action = Some(DeletedLocalAction::Remove);
+			ui.close();
+		}
+	});
+}
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn message_actions(
 	popup: egui::Popup<'_>,
 	(message, extension_actions, extension_request): (
@@ -349,12 +428,20 @@ fn message_actions(
 		&mut Option<(crate::extensions_ui::MenuAction, String)>,
 	),
 	actions: (bool, bool, bool, bool),
-	selection: (Option<&mut Option<Id>>, &mut Option<Id>),
+	selection: (
+		Option<&mut Option<Id>>,
+		Option<&mut Option<Id>>,
+		&mut Option<Id>,
+	),
 	editing: (&mut Option<(Id, Id, String)>, &mut bool),
 	deleting: &mut Option<(Id, Id)>,
 	pin: (bool, bool, &mut Option<(Id, Id, bool)>),
+	view_reactions: Option<(
+		model::ReactionEmoji,
+		&mut Option<(Id, model::ReactionEmoji, bool)>,
+	)>,
 ) {
-	let (mark_read, reply) = selection;
+	let (mark_read, mark_unread, reply) = selection;
 	let (editing, edit_started) = editing;
 	let (own, can_reply, can_edit, can_delete) = actions;
 	let (can_pin, pinned, pin_request) = pin;
@@ -372,6 +459,10 @@ fn message_actions(
 			});
 			ui.separator();
 		}
+		if crate::select::has_selection(ui.ctx()) && ui.button("Copy").clicked() {
+			crate::select::request_copy(ui.ctx());
+			ui.close();
+		}
 		if ui.button("Copy message").clicked() {
 			ui.ctx().copy_text(message.display_text().into_owned());
 			ui.close();
@@ -383,6 +474,12 @@ fn message_actions(
 			*reply = Some(message.id);
 			ui.close();
 		}
+		if let Some((emoji, view)) = view_reactions
+			&& ui.button("View reactions").clicked()
+		{
+			*view = Some((message.id, emoji, true));
+			ui.close();
+		}
 		if ui
 			.add_enabled(
 				mark_read.is_some(),
@@ -392,6 +489,15 @@ fn message_actions(
 		{
 			if let Some(mark_read) = mark_read {
 				*mark_read = Some(message.id);
+			}
+			ui.close();
+		}
+		if ui
+			.add_enabled(mark_unread.is_some(), egui::Button::new("Mark Unread"))
+			.clicked()
+		{
+			if let Some(mark_unread) = mark_unread {
+				*mark_unread = Some(message.id);
 			}
 			ui.close();
 		}
@@ -456,12 +562,73 @@ fn overlay_bar(
 	ui.painter().rect_filled(rect, radius, fill);
 	let mut bar = ui.new_child(
 		egui::UiBuilder::new()
-			.id(ui.make_persistent_id(("timeline-overlay", radius.sw == 0)))
+			.scope_id(ui.make_persistent_id(("timeline-overlay", radius.sw == 0)))
 			.max_rect(rect.shrink2(egui::vec2(12.0, 0.0)))
 			.layout(egui::Layout::left_to_right(egui::Align::Center)),
 	);
 	bar.spacing_mut().item_spacing.x = 8.0;
 	add(&mut bar);
+}
+/// Round "back to the live edge" control floating over the bottom-right of the conversation.
+fn present_control(ui: &mut egui::Ui, rect: egui::Rect, unread: bool) -> bool {
+	let colors = crate::design::palette(ui);
+	let response = ui.interact(
+		rect,
+		ui.make_persistent_id("timeline-present"),
+		egui::Sense::click(),
+	);
+	let painter = ui.painter();
+	painter.circle_filled(
+		rect.center() + egui::vec2(0.0, 1.5),
+		rect.width() / 2.0,
+		egui::Color32::from_black_alpha(52),
+	);
+	let fill = if unread {
+		colors.accent
+	} else {
+		colors.raised.to_opaque()
+	};
+	let fill = if response.hovered() {
+		fill.gamma_multiply(1.12)
+	} else {
+		fill
+	};
+	painter.circle_filled(rect.center(), rect.width() / 2.0, fill);
+	if !unread {
+		painter.circle_stroke(
+			rect.center(),
+			rect.width() / 2.0 - 0.5,
+			egui::Stroke::new(1.0, colors.border),
+		);
+	}
+	let color = if unread {
+		colors.accent_text
+	} else {
+		colors.text_strong
+	};
+	crate::icons::paint(
+		painter,
+		crate::icons::Icon::ArrowDown,
+		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(18.0)),
+		color,
+	);
+	if response.has_focus() {
+		painter.circle_stroke(
+			rect.center(),
+			rect.width() / 2.0 + 2.0,
+			egui::Stroke::new(1.0, colors.accent),
+		);
+	}
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Jump to present")
+	});
+	response
+		.on_hover_text(if unread {
+			"New messages below · jump to present"
+		} else {
+			"Jump to present"
+		})
+		.clicked()
 }
 /// Frameless text action with a trailing arrow glyph, for use inside [`overlay_bar`].
 fn bar_button(
@@ -498,6 +665,7 @@ fn show_system(
 	state: &State,
 	profile: &mut Option<model::User>,
 	user_action: &mut Option<crate::user_menu::Action>,
+	surface: &mut crate::select::Surface,
 ) {
 	{
 		let colors = crate::design::palette(ui);
@@ -505,33 +673,106 @@ fn show_system(
 			ui.spacing_mut().item_spacing = egui::vec2(0.0, 2.0);
 			for segment in &system.segments {
 				if !segment.strong {
-					ui.label(RichText::new(&segment.text).color(colors.muted));
+					let (pos, galley, response) =
+						egui::Label::new(RichText::new(&segment.text).color(colors.muted))
+							.wrap()
+							.selectable(false)
+							.layout_in_ui(ui);
+					surface.run(ui, &response, pos, galley, Vec::new());
 					continue;
 				}
 				let text = crate::design::medium(ui, &segment.text, 15.0).color(colors.text_strong);
 				let Some(user) = &segment.user else {
-					ui.add(egui::Label::new(text));
+					let (pos, galley, response) = egui::Label::new(text)
+						.wrap()
+						.selectable(false)
+						.layout_in_ui(ui);
+					surface.run(ui, &response, pos, galley, Vec::new());
 					continue;
 				};
 				let response = ui
 					.add(egui::Label::new(text).sense(egui::Sense::click()))
 					.on_hover_cursor(egui::CursorIcon::PointingHand);
+				surface.keep(&response);
 				crate::user_menu::show(&response, state, user, profile, user_action);
 				if response.clicked() {
 					*profile = Some(user.clone());
 				}
 			}
 			ui.add_space(8.0);
-			ui.label(
-				RichText::new(format!("{:02}:{:02}", time.hour(), time.minute()))
-					.size(12.0)
-					.color(colors.muted),
-			)
-			.on_hover_text_with(|| format!("{time} UTC"));
+			let stamp = ui
+				.label(
+					RichText::new(format!("{:02}:{:02}", time.hour(), time.minute()))
+						.size(12.0)
+						.color(colors.muted),
+				)
+				.on_hover_text_with(|| format!("{time} UTC"));
+			surface.keep(&stamp);
 		});
 	}
 }
 impl TimelineView {
+	pub(super) fn reveal_private_media(&mut self, message: &Message) {
+		if self.revealed.len() >= 512 && !self.revealed.contains_key(&message.id) {
+			self.revealed.clear();
+		}
+		self.revealed
+			.insert(message.id, Revealed::new(message, 0, true));
+	}
+
+	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
+		if self.video.is_fullscreen() {
+			let current = self
+				.video
+				.active
+				.as_ref()
+				.and_then(|(channel, id, attachment)| {
+					state
+						.timeline
+						.get(*id)
+						.or_else(|| {
+							state
+								.interactions
+								.ephemeral
+								.iter()
+								.find(|message| message.id == *id)
+						})
+						.filter(|message| {
+							state.selected == Some(*channel)
+								&& message.channel == *channel
+								&& message.attachments.contains(attachment)
+								&& (self.component_viewing
+									== Some((
+										message.id,
+										egui::Id::unique((
+											&message.components,
+											&message.attachments,
+										))
+										.value(),
+									)) || !crate::embeds::has_media_spoilers(message)
+									|| self.revealed.get(id).is_some_and(|reveal| {
+										reveal.media && reveal.matches(message)
+									}))
+						})
+						.map(|message| (message, attachment.clone()))
+				});
+			if let Some((message, attachment)) = current {
+				self.video.show_fullscreen(
+					ctx,
+					message,
+					&attachment,
+					&mut self.download,
+					&mut self.opening,
+					state.demo,
+				);
+				return true;
+			} else {
+				self.video.stop();
+			}
+		}
+		false
+	}
+
 	/// Fixture-only: open the media viewer on one attachment.
 	#[cfg(any(test, feature = "demo"))]
 	pub(super) fn preview_image_viewer(&mut self, message: Id, attachment: Id) {
@@ -541,17 +782,30 @@ impl TimelineView {
 		self.channel == Some(channel) && self.following && self.at_current_latest
 	}
 	/// Leaving the latest page is deliberate reading; nothing is acknowledged automatically.
-	fn browse_away(&mut self) {
+	pub(super) fn browse_away(&mut self) {
 		self.target_browsing = true;
 		self.following = false;
 		self.jump = false;
+		self.reveal_scroll = None;
+		self.pending_reveal = None;
 		self.mark_read = None;
+		self.mark_unread = None;
 	}
 	pub(super) fn follow_latest(&mut self) {
 		self.target_browsing = false;
 		self.following = true;
 		self.jump = true;
 		self.anchor = None;
+		self.reveal_scroll = None;
+		self.pending_reveal = None;
+	}
+	pub(super) fn request_reply_target(&mut self, id: Id) {
+		self.reply_target = Some(id);
+		self.pending_reveal = Some(if self.following && self.at_current_latest {
+			TargetReveal::StayIfVisible
+		} else {
+			TargetReveal::Center
+		});
 	}
 	#[cfg(test)]
 	pub fn show(
@@ -592,16 +846,20 @@ impl TimelineView {
 			*self = Self {
 				extension_actions: self.extension_actions.clone(),
 				hide_media_links: self.hide_media_links,
+				suppressed_deleted_highlight: std::mem::take(
+					&mut self.suppressed_deleted_highlight,
+				),
 				channel: state.selected,
 				following: true,
 				download: std::mem::take(&mut self.download),
 				opening: self.opening.take(),
+				browser_opening: self.browser_opening.take(),
 				pending_viewer: self.pending_viewer.take(),
 				jump: true,
 				..Self::default()
 			};
 		}
-		let mut initial_unread_gap = false;
+		let mut unread_join = false;
 		if !self.initial_read_checked
 			&& state.freshness == model::Freshness::Fresh
 			&& !state.history_pending
@@ -609,16 +867,17 @@ impl TimelineView {
 			&& let Some(unread) = state.unread(channel)
 		{
 			self.initial_read_checked = true;
-			let marker_loaded = state
-				.read_marker(channel)
-				.flatten()
-				.is_some_and(|marker| state.timeline.row_ids().any(|id| id == marker));
-			if unread && !marker_loaded {
-				initial_unread_gap = !self.target_browsing;
-				// Opening a recent page is not consent to skip an unseen unread gap.
+			if unread {
+				let marker_loaded = state
+					.read_marker(channel)
+					.flatten()
+					.is_some_and(|marker| state.timeline.row_ids().any(|id| id == marker));
+				unread_join = !self.target_browsing;
 				self.target_browsing = true;
 				self.following = false;
-				self.jump = false;
+				if !marker_loaded {
+					self.jump = false;
+				}
 				self.mark_read = None;
 			}
 		}
@@ -659,11 +918,15 @@ impl TimelineView {
 			for channel in state
 				.channels
 				.iter()
-				.filter(|c| c.guild.is_some() && c.supports_text())
+				.filter(|c| c.guild.is_some() && (c.supports_text() || matches!(c.kind, 15 | 16)))
 			{
 				channel.id.hash(&mut labels);
 				channel.guild.hash(&mut labels);
 				channel.name.hash(&mut labels);
+			}
+			for role in crate::mentions::known_roles(state, state.selected.unwrap_or(Id(0))) {
+				role.id.hash(&mut labels);
+				role.name.hash(&mut labels);
 			}
 			let labels = labels.finish();
 			labels_changed = self.channel_labels != labels;
@@ -677,6 +940,9 @@ impl TimelineView {
 		let dimensions_changed = width_changed || content_dimensions_changed;
 		self.applied_hide_media_links = self.hide_media_links;
 		let changed = self.revision != state.revision || dimensions_changed;
+		if changed || self.width != width {
+			self.measured_rows.clear();
+		}
 		let mut offset = None;
 		let mut lead_rows = None;
 		if changed {
@@ -696,10 +962,12 @@ impl TimelineView {
 				.collect();
 			self.heights
 				.retain(|id, _| row_ids.binary_search(id).is_ok());
+			self.suppressed_deleted_highlight
+				.retain(|id| row_ids.binary_search(id).is_ok());
 			self.formatted.retain(|id| state.timeline.get(id).is_some());
 			self.toolbar = self
 				.toolbar
-				.filter(|(id, _)| state.timeline.get(*id).is_some());
+				.filter(|(id, _)| state.timeline.get_display(*id).is_some());
 			self.revealed
 				.retain(|id, content| state.timeline.get(*id).is_some_and(|m| content.matches(m)));
 			let mut previous = None;
@@ -775,7 +1043,9 @@ impl TimelineView {
 			ui.weak("Message history is unavailable with current permission information.");
 		}
 		if history_available && state.freshness == model::Freshness::Loading && empty {
+			let area = ui.available_rect_before_wrap().intersect(ui.clip_rect());
 			loading_messages(ui);
+			session.bind(ui, ui.scope_id().with(("timeline", state.selected)), area);
 			return;
 		} else if empty && history_available && !welcome {
 			ui.label(match state.freshness {
@@ -785,46 +1055,16 @@ impl TimelineView {
 				model::Freshness::Fresh => "No messages yet. Start the conversation below.",
 			});
 		}
-		if state.freshness == model::Freshness::Fresh
-			&& !state.history_pending
-			&& let Some(target) = state.search_target.take()
-		{
-			initial_unread_gap = false;
-			// Target browsing is deliberate reading, even when the service omits the target.
-			// A short result page must not acknowledge unrelated newer messages automatically.
-			self.target_browsing = true;
-			self.mark_read = None;
-			if state.timeline.get(target).is_some() {
-				self.highlighted = Some((target, ui.input(|input| input.time) + 2.0));
-				self.following = false;
-				self.jump = false;
-				self.anchor = Some((target, 0.0));
-				offset = Some(anchor_offset(&self.rows, target, 0.0));
-			} else {
-				state.status =
-					"Message was not returned; it may have been removed or become unavailable";
-			}
-		}
-		if let Some((_, until)) = self.highlighted {
-			let remaining = until - ui.input(|input| input.time);
-			if remaining > 0.0 {
-				ui.ctx()
-					.request_repaint_after(std::time::Duration::from_secs_f64(remaining));
-			} else {
-				self.highlighted = None;
-			}
-		}
 		let area = ui.available_rect_before_wrap().intersect(ui.clip_rect());
-		let autoscroll_delta = session.bind(ui, ui.id().with(("timeline", state.selected)), area);
+		let autoscroll_delta =
+			session.bind(ui, ui.scope_id().with(("timeline", state.selected)), area);
 		if autoscroll_delta > 0.0 {
 			self.following = false;
 		}
-		let mut scroll = egui::ScrollArea::vertical()
-			.id_salt(("timeline", state.selected))
-			.auto_shrink([false, false])
-			.stick_to_bottom(self.following);
 		let total: f32 = self.rows.iter().map(|(_, height)| height).sum();
-		let end_padding = 16.0;
+		// The typing indicator floats in the reserved strip above the composer; the gap keeps
+		// it from covering the last message, and stays there when nobody is typing.
+		let end_padding = 16.0 + crate::typing::OVERLAY_HEIGHT;
 		self.pending_heights.retain(|nonce, _| {
 			state
 				.pending
@@ -860,20 +1100,110 @@ impl TimelineView {
 		let pending_height = pending_rows.iter().map(|(_, height)| *height).sum::<f32>();
 		let packed = total + pending_height + end_padding;
 		let lead_packed = lead_rows.unwrap_or(total) + pending_height + end_padding;
+		if state.freshness == model::Freshness::Fresh
+			&& !state.history_pending
+			&& let Some(target) = state.search_target.take()
+		{
+			unread_join = false;
+			let reveal = self.pending_reveal.take().unwrap_or(TargetReveal::Center);
+			if state.timeline.get(target).is_some() {
+				self.highlighted = Some((target, ui.input(|input| input.time) + 2.0));
+				let viewport_h = area.height();
+				let current_offset = self
+					.scroll_offset
+					.clamp(0.0, (packed - viewport_h).max(0.0));
+				let (first, end, _) =
+					visible_range(&self.rows, current_offset, current_offset + viewport_h);
+				let visible = self.rows[first..end].iter().any(|(id, _)| *id == target);
+				let stay = match reveal {
+					TargetReveal::StayIfVisible => visible,
+					TargetReveal::Center => false,
+				};
+				if !stay {
+					self.target_browsing = true;
+					self.mark_read = None;
+					self.following = false;
+					self.jump = false;
+					let to = centered_offset(&self.rows, target, viewport_h, packed);
+					if (to - current_offset).abs() < 1.0 {
+						offset = Some(to);
+						self.reveal_scroll = None;
+					} else {
+						self.reveal_scroll = Some(RevealScroll {
+							target,
+							from: current_offset,
+							elapsed: 0.0,
+						});
+					}
+				}
+			} else {
+				// Target browsing is deliberate reading, even when the service omits the target.
+				// A short result page must not acknowledge unrelated newer messages automatically.
+				self.target_browsing = true;
+				self.mark_read = None;
+				state.status =
+					"Message was not returned; it may have been removed or become unavailable";
+			}
+		}
+		if let Some((_, until)) = self.highlighted {
+			let remaining = until - ui.input(|input| input.time);
+			if remaining > 0.0 {
+				ui.ctx()
+					.request_repaint_after(std::time::Duration::from_secs_f64(remaining));
+			} else {
+				self.highlighted = None;
+			}
+		}
+		let mut scroll = egui::ScrollArea::vertical()
+			.id_salt(("timeline", state.selected))
+			.auto_shrink([false, false])
+			.stick_to_bottom(self.following);
+		let live_edge_offset =
+			(total + end_padding + pending_rows.iter().map(|(_, height)| height).sum::<f32>()
+				- ui.available_height())
+			.max(0.0);
 		if std::mem::take(&mut self.jump) {
-			offset = Some(
-				(total + end_padding + pending_rows.iter().map(|(_, height)| height).sum::<f32>()
-					- ui.available_height())
-				.max(0.0),
-			);
+			self.reveal_scroll = None;
+			self.present_scroll = None;
+			offset = Some(live_edge_offset);
+		}
+		let user_scroll = ui.input(|input| input.smooth_scroll_delta().y) + autoscroll_delta;
+		if user_scroll != 0.0 && self.reveal_scroll.take().is_some() {
+			offset = None;
+		}
+		if user_scroll != 0.0 {
+			self.present_scroll = None;
+		}
+		// Jump to present glides back to the live edge instead of teleporting there.
+		if let Some((from, elapsed)) = &mut self.present_scroll {
+			*elapsed += ui.input(|input| input.stable_dt).clamp(1.0 / 240.0, 0.05);
+			let t = *elapsed / PRESENT_SCROLL_SECS;
+			if t >= 1.0 {
+				offset = Some(live_edge_offset);
+				self.present_scroll = None;
+				self.follow_latest();
+				self.jump = false;
+			} else {
+				offset = Some(*from + (live_edge_offset - *from) * ease_out_cubic(t));
+			}
+			ui.ctx().request_repaint();
+		}
+		if let Some(motion) = &mut self.reveal_scroll {
+			motion.elapsed += ui.input(|input| input.stable_dt).clamp(1.0 / 240.0, 0.05);
+			let t = motion.elapsed / REVEAL_SCROLL_SECS;
+			let to = centered_offset(&self.rows, motion.target, area.height(), packed);
+			if t >= 1.0 {
+				offset = Some(to);
+				self.reveal_scroll = None;
+			} else {
+				offset = Some(motion.from + (to - motion.from) * ease_out_cubic(t));
+				ui.ctx().request_repaint();
+			}
 		}
 		if autoscroll_delta != 0.0 {
 			// Set the viewport before virtualization. A global scroll delta can be consumed
 			// by nested embed scroll areas and moves past the rows laid out this frame.
-			let max_offset =
-				(total + end_padding + pending_rows.iter().map(|(_, height)| height).sum::<f32>()
-					- ui.available_height())
-				.max(0.0);
+			let max_offset = live_edge_offset;
 			let next =
 				(offset.unwrap_or(self.scroll_offset) - autoscroll_delta).clamp(0.0, max_offset);
 			offset = Some(next);
@@ -883,6 +1213,11 @@ impl TimelineView {
 		}
 		if let Some(offset) = offset {
 			scroll = scroll.vertical_scroll_offset(offset);
+		}
+		self.visible_authors.clear();
+		#[cfg(test)]
+		{
+			self.leading_rendered = 0;
 		}
 		let mut measurements = Vec::new();
 		let mut selected_reply = None;
@@ -935,6 +1270,11 @@ impl TimelineView {
 						.as_ref()
 						.is_some_and(|r| rect.contains_rect(r.rect))
 			});
+			let reuse_leading = keyboard_focus.is_none()
+				&& retained_toolbar.is_none()
+				&& !egui::Popup::is_any_open(ui.ctx())
+				&& !crate::select::has_selection(ui.ctx())
+				&& !ui.input(|input| input.pointer.any_down() || input.pointer.any_released());
 			let mut end = first;
 			for index in first..self.rows.len() {
 				let row_id = ui.make_persistent_id(self.rows[index].0.0);
@@ -947,99 +1287,253 @@ impl TimelineView {
 					break;
 				}
 				end = index + 1;
-				let (id, _) = &self.rows[index];
-				let can_mark_read = state.can_mark_read(*id);
-				let Some(message) = state.timeline.get_display(*id) else {
+				let id = self.rows[index].0;
+				let can_mark_read = state.can_mark_read(id);
+				let can_mark_unread = state.can_mark_unread(id);
+				let Some(message) = state.timeline.get_display(id) else {
 					continue;
 				};
+				if !message.author.webhook
+					&& self.visible_authors.len() < client_core::member_search::LIMIT
+					&& !self.visible_authors.contains(&message.author.id)
+				{
+					self.visible_authors.push(message.author.id);
+				}
 				let previous = index
 					.checked_sub(1)
 					.and_then(|i| state.timeline.get(self.rows[i].0));
-				if state.timeline.is_deleted(*id) {
+				// ponytail: reuse only settled ordinary text; dynamic media, references,
+				// spoilers and reactions need explicit layout invalidation before caching.
+				if index < anchor
+					&& reuse_leading
+					&& self.measured_rows.contains(&id)
+					&& message.kind == 0
+					&& !message.unsupported
+					&& !message.extra_content.any()
+					&& message.reply_to.is_none()
+					&& message.attachments.is_empty()
+					&& message.embeds.is_empty()
+					&& message.components.is_empty()
+					&& !message.content.contains(['<', '|', '/'])
+					&& state
+						.reactions
+						.display(message)
+						.is_some_and(<[_]>::is_empty)
+					&& state.interactions.pending.is_none()
+					&& let Some(&(key, height)) = self.heights.get(&id)
+					&& key == row_key(message, previous, self.unread_boundary)
+				{
+					ui.add_space(height);
+					// Keep one result per row: visible height updates below zip by index.
+					measurements.push((id, key, height));
+					continue;
+				}
+				#[cfg(test)]
+				if index < anchor {
+					self.leading_rendered += 1;
+				}
+				if state.timeline.is_deleted(id) {
 					let colors = crate::design::palette(ui);
-					let response = ui.push_id(row_id, |ui| {
-						egui::Frame::NONE
-							.inner_margin(egui::Margin {
-								left: 16,
-								right: 16,
-								top: 14,
-								bottom: 1,
-							})
-							.show(ui, |ui| {
-								ui.set_min_width((width - 32.0).max(1.0));
-								ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
-								ui.horizontal_top(|ui| {
-									avatars.show_plain(ui, &message.author, 40.0, state.demo);
-									ui.vertical(|ui| {
-										ui.set_width(ui.available_width());
-										ui.allocate_ui_with_layout(
-											egui::vec2(ui.available_width(), 22.0),
-											egui::Layout::left_to_right(egui::Align::Center),
-											|ui| {
-												ui.spacing_mut().item_spacing.x = 8.0;
-												crate::account_badge::name(
-													ui,
-													&message.author,
-													state.message_author_name(message),
-													15.5,
-													state.message_author_color(message).map_or(
-														colors.text_strong,
-														|rgb| {
-															crate::design::role_name_color(
-																rgb,
-																colors.chat,
-																colors.text_strong,
-															)
-														},
-													),
-													egui::Sense::hover(),
-													48.0,
-												);
-												let time = timestamp(*id);
-												ui.label(
-													RichText::new(format!(
-														"{:02}:{:02}",
-														time.hour(),
-														time.minute()
-													))
-													.size(12.0)
-													.color(colors.muted),
-												)
-												.on_hover_text_with(|| {
-													format!("Deleted message · {} UTC", time)
-												});
-											},
-										);
-										let body = ui.add(
-											egui::Label::new(
+					let body_color = if self.suppressed_deleted_highlight.contains(&id) {
+						colors.text
+					} else {
+						colors.danger
+					};
+					let response =
+						ui.scope_builder(egui::UiBuilder::new().scope_id(row_id), |ui| {
+							let background = ui.painter().add(egui::Shape::Noop);
+							let row = egui::Frame::NONE
+								.inner_margin(egui::Margin {
+									left: 16,
+									right: 16,
+									top: 14,
+									bottom: 1,
+								})
+								.show(ui, |ui| {
+									ui.set_min_width((width - 32.0).max(1.0));
+									ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
+									let mut surface =
+										crate::select::Surface::new(ui, "deleted-body");
+									ui.horizontal_top(|ui| {
+										avatars.show_plain(ui, &message.author, 40.0, state.demo);
+										ui.vertical(|ui| {
+											ui.set_width(ui.available_width());
+											ui.allocate_ui_with_layout(
+												egui::vec2(ui.available_width(), 22.0),
+												egui::Layout::left_to_right(egui::Align::Center),
+												|ui| {
+													ui.spacing_mut().item_spacing.x = 8.0;
+													crate::account_badge::name(
+														ui,
+														&message.author,
+														state.message_author_name(message),
+														15.5,
+														state.message_author_color(message).map_or(
+															colors.text_strong,
+															|rgb| {
+																crate::design::role_name_color(
+																	rgb,
+																	colors.chat,
+																	colors.text_strong,
+																)
+															},
+														),
+														egui::Sense::hover(),
+														48.0,
+													);
+													let time = timestamp(id);
+													ui.label(
+														RichText::new(format!(
+															"{:02}:{:02}",
+															time.hour(),
+															time.minute()
+														))
+														.size(12.0)
+														.color(colors.muted),
+													)
+													.on_hover_text_with(|| {
+														format!("Deleted message · {} UTC", time)
+													});
+												},
+											);
+											let (pos, galley, response) = egui::Label::new(
 												RichText::new(if message.content.is_empty() {
 													"[Deleted message had no text]"
 												} else {
 													&message.content
 												})
 												.size(16.0)
-												.color(colors.danger),
+												.color(body_color),
 											)
 											.wrap()
-											.selectable(true),
-										);
-										body.widget_info(|| {
-											egui::WidgetInfo::labeled(
-												egui::WidgetType::Label,
-												true,
-												format!(
-													"Deleted message by {}. {}",
-													state.message_author_name(message),
-													message.content
-												),
-											)
+											.selectable(false)
+											.layout_in_ui(ui);
+											response.widget_info(|| {
+												egui::WidgetInfo::labeled(
+													egui::WidgetType::Label,
+													true,
+													format!(
+														"Deleted message by {}. {}",
+														state.message_author_name(message),
+														message.content
+													),
+												)
+											});
+											surface.run(ui, &response, pos, galley, Vec::new());
 										});
+										surface.cover(ui.min_rect());
+										surface.finish(ui);
 									});
 								});
-							});
-					});
+							let rect = row.response.rect;
+							let focus = ui.interact(
+								rect,
+								ui.scope_id().with("message-focus"),
+								egui::Sense::focusable_noninteractive(),
+							);
+							let retained = retained_toolbar.is_some_and(|(active, _)| active == id);
+							let toolbar_hover = self
+								.toolbar
+								.filter(|(active, toolbar)| {
+									*active == id && ui.rect_contains_pointer(*toolbar)
+								})
+								.is_some();
+							let other_toolbar_hover = self
+								.toolbar
+								.filter(|(active, toolbar)| {
+									*active != id && ui.rect_contains_pointer(*toolbar)
+								})
+								.is_some();
+							let hovered =
+								allow_hover
+									&& (ui.rect_contains_pointer(rect) || toolbar_hover)
+									&& !other_toolbar_hover && !egui::Popup::is_any_open(ui.ctx())
+									&& retained_toolbar.is_none_or(|(active, _)| active == id);
+							let context_menu = (ui.rect_contains_pointer(rect) || toolbar_hover)
+								&& !other_toolbar_hover && !egui::Popup::is_any_open(
+								ui.ctx(),
+							) && (ui.input(|i| i.pointer.secondary_clicked())
+								|| crate::select::open_menu(ui.ctx()));
+							if context_menu
+								|| hovered || focus.has_focus()
+								|| keyboard_focus.as_ref().is_some_and(|r| r.id == focus.id)
+								|| retained
+							{
+								ui.painter().set(
+									background,
+									egui::Shape::rect_filled(
+										rect,
+										0.0,
+										crate::design::row_highlight(ui, colors.hover, 0.7),
+									),
+								);
+								let toolbar_rect = egui::Rect::from_min_size(
+									egui::pos2(rect.right() - 46.0, rect.top() - 10.0),
+									egui::vec2(36.0, 28.0),
+								);
+								let mut toolbar = ui.new_child(
+									egui::UiBuilder::new()
+										.id_salt("hover-actions")
+										.max_rect(toolbar_rect)
+										.layout(egui::Layout::left_to_right(egui::Align::Center)),
+								);
+								toolbar.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
+								toolbar.spacing_mut().button_padding = egui::vec2(4.0, 2.0);
+								toolbar.spacing_mut().interact_size.y = 28.0;
+								toolbar
+									.painter()
+									.rect_filled(toolbar_rect, 6.0, colors.raised);
+								toolbar.painter().rect_stroke(
+									toolbar_rect,
+									6.0,
+									egui::Stroke::new(1.0, colors.border),
+									egui::StrokeKind::Inside,
+								);
+								let menu =
+									action_button(&mut toolbar, crate::icons::Icon::More, "More");
+								menu.widget_info(|| {
+									egui::WidgetInfo::labeled(
+										egui::WidgetType::Button,
+										toolbar.is_enabled(),
+										format!(
+											"Deleted message actions for {}",
+											message.author.name
+										),
+									)
+								});
+								let mut popup = egui::Popup::menu(&menu);
+								if context_menu {
+									popup =
+										popup.open_memory(Some(egui::SetOpenCommand::Bool(true)));
+								}
+								if context_menu
+									|| (!menu.clicked()
+										&& egui::Popup::position_of_id(
+											toolbar.ctx(),
+											popup.get_id(),
+										)
+										.is_some())
+								{
+									popup = popup.at_pointer_fixed();
+								}
+								let mut action = None;
+								deleted_message_actions(popup, &mut action);
+								match action {
+									Some(DeletedLocalAction::ToggleHighlight) => {
+										if !self.suppressed_deleted_highlight.remove(&id) {
+											self.suppressed_deleted_highlight.insert(id);
+										}
+									}
+									Some(DeletedLocalAction::Remove) => {
+										self.remove_preserved = Some(id);
+									}
+									None => {}
+								}
+								self.toolbar = Some((id, toolbar_rect));
+							}
+						});
 					measurements.push((
-						*id,
+						id,
 						row_key(message, previous, self.unread_boundary) ^ 1,
 						response.response.rect.height(),
 					));
@@ -1047,22 +1541,24 @@ impl TimelineView {
 				}
 				let compact = grouped(previous, message, self.unread_boundary);
 				let new_day =
-					previous.is_none_or(|p| timestamp(p.id).date() != timestamp(*id).date());
-				let response = ui.scope_builder(egui::UiBuilder::new().id(row_id), |ui| {
+					previous.is_none_or(|p| timestamp(p.id).date() != timestamp(id).date());
+				let response = ui.scope_builder(egui::UiBuilder::new().scope_id(row_id), |ui| {
 					if new_day {
-						let date = timestamp(*id);
+						let date = timestamp(id);
 						divider(
 							ui,
 							format!("{} {}, {}", date.month(), date.day(), date.year()),
 							false,
 						);
 					}
-					if self.unread_boundary == Some(*id) {
+					if self.unread_boundary == Some(id) {
 						divider(ui, "New messages".into(), true);
 					}
 					let colors = crate::design::palette(ui);
 					let background = ui.painter().add(egui::Shape::Noop);
 					let mut time_rect = None;
+					// A reaction claims its own right click: the row menu must stay closed.
+					let mut reaction_menu = false;
 					let row = egui::Frame::NONE
 						.inner_margin(egui::Margin {
 							left: 16,
@@ -1071,6 +1567,7 @@ impl TimelineView {
 							bottom: 1,
 						})
 						.show(ui, |ui| {
+							let mut surface = crate::select::Surface::new(ui, "row");
 							ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
 							if let Some(reply) = message.reply_to {
 								ui.horizontal(|ui| {
@@ -1109,7 +1606,7 @@ impl TimelineView {
 									);
 									// Reuse only loaded content; never fetch a thread while painting.
 									if message.reply_deleted || state.timeline.is_deleted(reply) {
-										ui.add(
+										let deleted = ui.add(
 											egui::Label::new(
 												RichText::new("Message deleted")
 													.size(13.0)
@@ -1118,25 +1615,23 @@ impl TimelineView {
 											)
 											.truncate(),
 										);
+										surface.keep(&deleted);
 									} else {
 										ui.add_enabled_ui(
 											state.can_open_reply_target(reply),
 											|ui| {
 												let mut preview = egui::text::LayoutJob::default();
-												let text = if let Some(original) =
-													state.timeline.get(reply)
-												{
-													if avatars
-														.show(
-															ui,
-															&original.author,
-															16.0,
-															state.demo,
-														)
-														.clicked()
-													{
-														self.reply_target = Some(reply);
+												if let Some(original) = state.timeline.get(reply) {
+													let reply_avatar = avatars.show(
+														ui,
+														&original.author,
+														16.0,
+														state.demo,
+													);
+													if reply_avatar.clicked() {
+														self.request_reply_target(reply);
 													}
+													surface.keep(&reply_avatar);
 													preview.append(
 														&format!(
 															"@{}  ",
@@ -1155,34 +1650,45 @@ impl TimelineView {
 														},
 													);
 													if crate::embeds::has_spoilers(original) {
-														"Spoiler".into()
+														preview.append(
+															"Spoiler",
+															0.0,
+															egui::TextFormat {
+																font_id: egui::FontId::proportional(
+																	13.0,
+																),
+																color: colors.muted,
+																..Default::default()
+															},
+														);
 													} else {
-														original
-															.display_text()
-															.chars()
-															.take(120)
-															.map(|c| {
-																if matches!(c, '\n' | '\r') {
-																	' '
-																} else {
-																	c
-																}
-															})
-															.collect::<String>()
+														self.formatted
+															.get(reply, &original.content)
+															.append_inline_preview(
+																&mut preview,
+																ui,
+																&original.mentions,
+																crate::mentions::known_roles(
+																	state,
+																	original.channel,
+																),
+																&state.channels,
+															);
 													}
 												} else {
-													"Earlier message · View original".into()
-												};
-												preview.append(
-													&text,
-													0.0,
-													egui::TextFormat {
-														font_id: egui::FontId::proportional(13.0),
-														color: colors.muted,
-														..Default::default()
-													},
-												);
-												if ui
+													preview.append(
+														"Earlier message · View original",
+														0.0,
+														egui::TextFormat {
+															font_id: egui::FontId::proportional(
+																13.0,
+															),
+															color: colors.muted,
+															..Default::default()
+														},
+													);
+												}
+												let reply_preview = ui
 													.add(
 														egui::Label::new(preview)
 															.truncate()
@@ -1192,10 +1698,10 @@ impl TimelineView {
 													.on_hover_text("View original message")
 													.on_disabled_hover_text(
 														"Wait for readable, current message history",
-													)
-													.clicked()
-												{
-													self.reply_target = Some(reply);
+													);
+												surface.keep(&reply_preview);
+												if reply_preview.clicked() {
+													self.request_reply_target(reply);
 												}
 											},
 										);
@@ -1203,6 +1709,7 @@ impl TimelineView {
 								});
 							}
 							let system = message.system_message();
+							let mut body_bottom = f32::NAN;
 							ui.horizontal_top(|ui| {
 								if system.is_some() {
 									let (gutter, _) = ui.allocate_exact_size(
@@ -1240,6 +1747,7 @@ impl TimelineView {
 									if avatar.clicked() {
 										*profile = Some(message.author.clone());
 									}
+									surface.keep(&avatar);
 								}
 								ui.vertical(|ui| {
 									ui.set_width(ui.available_width());
@@ -1277,17 +1785,20 @@ impl TimelineView {
 												if author.clicked() {
 													*profile = Some(message.author.clone());
 												}
-												let time = timestamp(*id);
-												ui.label(
-													RichText::new(format!(
-														"{:02}:{:02}",
-														time.hour(),
-														time.minute()
-													))
-													.size(12.0)
-													.color(colors.muted),
-												)
-												.on_hover_text_with(|| format!("{} UTC", time));
+												surface.keep(&author);
+												let time = timestamp(id);
+												let time = ui
+													.label(
+														RichText::new(format!(
+															"{:02}:{:02}",
+															time.hour(),
+															time.minute()
+														))
+														.size(12.0)
+														.color(colors.muted),
+													)
+													.on_hover_text_with(|| format!("{} UTC", time));
+												surface.keep(&time);
 											},
 										);
 									}
@@ -1295,10 +1806,11 @@ impl TimelineView {
 										show_system(
 											ui,
 											system,
-											timestamp(*id),
+											timestamp(id),
 											state,
 											profile,
 											&mut self.user_action,
+											&mut surface,
 										);
 									}
 									let body = egui::Frame::NONE
@@ -1317,10 +1829,10 @@ impl TimelineView {
 												ui.add_space(4.0);
 											}
 											let formatted =
-												self.formatted.get(*id, &message.content);
+												self.formatted.get(id, &message.content);
 											let reveal = self
 												.revealed
-												.get(id)
+												.get(&id)
 												.filter(|reveal| reveal.matches(message));
 											let before = reveal.map_or((0, false), |reveal| {
 												(reveal.text, reveal.media)
@@ -1335,18 +1847,29 @@ impl TimelineView {
 													&& crate::embeds::standalone_media_links(
 														message,
 													)) {
-												formatted.show_references(
-													ui,
-													&mut self.opening,
-													&message.mentions,
-													profile,
-													(
-														&state.channels,
-														&mut self.channel_reference,
-														&state.guilds,
-													),
-													(avatars, state.demo, &mut text),
-												);
+												let jumbo = formatted.jumbo();
+												ui.scope(|ui| {
+													if jumbo {
+														crate::design::jumbo_emoji(ui);
+													}
+													formatted.show_references(
+														ui,
+														&mut self.opening,
+														&message.mentions,
+														profile,
+														(
+															&state.channels,
+															&mut self.channel_reference,
+															&state.guilds,
+															crate::mentions::known_roles(
+																state,
+																message.channel,
+															),
+														),
+														(avatars, state.demo, &mut text),
+														&mut surface,
+													);
+												});
 											}
 											if formatted.limited {
 												ui.label(
@@ -1359,18 +1882,29 @@ impl TimelineView {
 											}
 											if crate::embeds::has_media_spoilers(message) && !media
 											{
-												if ui.button("Reveal spoiler media").clicked() {
+												let reveal = ui.button("Reveal spoiler media");
+												surface.keep(&reveal);
+												if reveal.clicked() {
 													media = true;
 												}
 											} else {
+												let invite_top = ui.cursor().top();
 												crate::invites::show(
 													ui,
 													message,
 													state,
 													avatars,
 													&mut self.invite_requests,
-													&mut self.invite_join,
+													&mut self.invite_action,
 												);
+												surface.exclude(egui::Rect::from_min_max(
+													egui::pos2(ui.max_rect().left(), invite_top),
+													egui::pos2(
+														ui.max_rect().right(),
+														ui.min_rect().bottom(),
+													),
+												));
+												let embed_top = ui.cursor().top();
 												if let Some(gif) = crate::embeds::show(
 													ui,
 													message,
@@ -1383,34 +1917,50 @@ impl TimelineView {
 												) {
 													self.gif_favorite = Some(gif);
 												}
-												crate::attachments::show(
-													ui,
-													message,
-													avatars,
-													&mut self.viewing,
-													&mut self.opening,
-													&mut self.download,
-													&mut self.audio,
-													&mut self.video,
-													state.demo,
-												);
+												surface.exclude(egui::Rect::from_min_max(
+													egui::pos2(ui.max_rect().left(), embed_top),
+													egui::pos2(
+														ui.max_rect().right(),
+														ui.min_rect().bottom(),
+													),
+												));
+												if !message.extra_content.components_v2 {
+													let previous_view = self.viewing;
+													crate::attachments::show(
+														ui,
+														message,
+														avatars,
+														&mut self.viewing,
+														&mut self.opening,
+														&mut self.download,
+														&mut self.audio,
+														&mut self.video,
+														state.demo,
+														&mut surface,
+													);
+													if self.viewing != previous_view {
+														self.component_viewing = None;
+													}
+												}
 											}
-											if (text != 0 || media)
-												&& ui.small_button("Hide spoilers").clicked()
-											{
-												text = 0;
-												media = false;
+											if text != 0 || media {
+												let hide = ui.small_button("Hide spoilers");
+												surface.keep(&hide);
+												if hide.clicked() {
+													text = 0;
+													media = false;
+												}
 											}
 											if before != (text, media) {
 												if text == 0 && !media {
-													self.revealed.remove(id);
+													self.revealed.remove(&id);
 												} else {
 													self.revealed.insert(
-														*id,
+														id,
 														Revealed::new(message, text, media),
 													);
 												}
-												self.heights.remove(id);
+												self.heights.remove(&id);
 												ui.ctx().request_repaint();
 											}
 											if message.edited {
@@ -1420,9 +1970,49 @@ impl TimelineView {
 														.color(colors.muted),
 												);
 											}
+
+											if !message.components.is_empty() {
+												let shown = ui.scope(|ui| {
+													self.components.show(
+														ui,
+														message,
+														state,
+														avatars,
+														&mut self.opening,
+														&mut crate::components::MediaUi {
+															component_viewing: &mut self
+																.component_viewing,
+															viewing: &mut self.viewing,
+															download: &mut self.download,
+															audio: &mut self.audio,
+															video: &mut self.video,
+														},
+													)
+												});
+												surface.exclude(shown.response.rect);
+												if shown.inner.is_some() {
+													self.component_action = shown.inner;
+												}
+											}
+											if state.interactions.pending.as_ref().is_some_and(
+												|pending| pending.message == Some(message.id),
+											) {
+												ui.small("Application interaction pending…");
+											}
+											if !message.components.is_empty()
+												&& let Some(error) = state.interactions.error
+											{
+												ui.colored_label(colors.danger, error);
+											}
 											let unknown_system = message.unsupported
 												&& message.system_summary().is_none();
-											if unknown_system || message.extra_content.any() {
+											if unknown_system
+												|| message.extra_content.poll || message
+												.extra_content
+												.sticker_items || message.extra_content.stickers
+												|| (message.extra_content.any()
+													&& message.components.is_empty())
+											{
 												if unknown_system {
 													ui.label(
 														RichText::new(format!(
@@ -1444,8 +2034,9 @@ impl TimelineView {
 														"Sticker · Preview unavailable",
 													),
 													(
-														message.extra_content.components
-															|| message.extra_content.components_v2,
+														(message.extra_content.components
+															|| message.extra_content.components_v2)
+															&& message.components.is_empty(),
 														"Components · Preview unavailable",
 													),
 												] {
@@ -1465,17 +2056,17 @@ impl TimelineView {
 															&& state.can_view(c.id)
 													})
 													.and_then(|c| discord_url(c, Some(message.id)));
-												if ui
-													.add_enabled(
-														target.is_some(),
-														egui::Button::new("Open in Discord"),
-													)
-													.clicked()
-												{
-													self.opening = target;
+												let open = ui.add_enabled(
+													target.is_some(),
+													egui::Button::new("Open in Discord"),
+												);
+												surface.keep(&open);
+												if open.clicked() {
+													self.browser_opening = target;
 												}
 											}
 										});
+									body_bottom = body.response.rect.bottom();
 									if message.forwarded {
 										let rail = egui::Rect::from_min_max(
 											body.response.rect.min,
@@ -1496,12 +2087,31 @@ impl TimelineView {
 										(state.history_pending && state.history_before.is_none())
 											|| state.reactions.invalidated(message.id),
 										(avatars, state.demo),
-										|emoji, add| state.can_react(*id, Some(emoji), add),
+										message.id,
+										state.reactions.users.as_ref(),
+										|emoji, add| state.can_react(id, Some(emoji), add),
 									) {
-										self.reaction = Some((*id, action));
+										match action {
+											crate::reactions::Action::Reload => {
+												self.reaction = Some((id, None));
+											}
+											crate::reactions::Action::Toggle(emoji) => {
+												self.reaction = Some((id, Some(emoji)));
+											}
+											crate::reactions::Action::Inspect(emoji, open) => {
+												reaction_menu |= open;
+												self.reaction_users = Some((id, emoji, open));
+											}
+										}
 									}
 								});
 							});
+							let mut cover = ui.min_rect();
+							if body_bottom.is_finite() {
+								cover.max.y = body_bottom;
+							}
+							surface.cover(cover);
+							surface.finish(ui);
 						});
 					let rect = row.response.rect;
 					let mentioned =
@@ -1523,7 +2133,7 @@ impl TimelineView {
 					}
 					let focus = ui.interact(
 						rect,
-						ui.id().with("message-focus"),
+						ui.scope_id().with("message-focus"),
 						egui::Sense::focusable_noninteractive(),
 					);
 					focus.widget_info(|| {
@@ -1537,29 +2147,30 @@ impl TimelineView {
 							),
 						)
 					});
-					let retained = retained_toolbar.is_some_and(|(active, _)| active == *id);
+					let retained = retained_toolbar.is_some_and(|(active, _)| active == id);
 					// The floating toolbar overlaps the row above; pointer inside it keeps this row active.
 					let toolbar_hover = self
 						.toolbar
 						.filter(|(active, toolbar)| {
-							*active == *id && ui.rect_contains_pointer(*toolbar)
+							*active == id && ui.rect_contains_pointer(*toolbar)
 						})
 						.is_some();
 					let other_toolbar_hover = self
 						.toolbar
 						.filter(|(active, toolbar)| {
-							*active != *id && ui.rect_contains_pointer(*toolbar)
+							*active != id && ui.rect_contains_pointer(*toolbar)
 						})
 						.is_some();
 					let hovered = allow_hover
 						&& (ui.rect_contains_pointer(rect) || toolbar_hover)
 						&& !other_toolbar_hover
 						&& !egui::Popup::is_any_open(ui.ctx())
-						&& retained_toolbar.is_none_or(|(active, _)| active == *id);
+						&& retained_toolbar.is_none_or(|(active, _)| active == id);
 					let context_menu = (ui.rect_contains_pointer(rect) || toolbar_hover)
 						&& !other_toolbar_hover
-						&& !egui::Popup::is_any_open(ui.ctx())
-						&& ui.input(|i| i.pointer.secondary_clicked());
+						&& !reaction_menu && !egui::Popup::is_any_open(ui.ctx())
+						&& (ui.input(|i| i.pointer.secondary_clicked())
+							|| crate::select::open_menu(ui.ctx()));
 					if context_menu
 						|| hovered || focus.has_focus()
 						|| keyboard_focus.as_ref().is_some_and(|r| r.id == focus.id)
@@ -1578,7 +2189,7 @@ impl TimelineView {
 							),
 						);
 						if let Some(rect) = time_rect {
-							let time = timestamp(*id);
+							let time = timestamp(id);
 							ui.painter().text(
 								rect.center(),
 								egui::Align2::CENTER_CENTER,
@@ -1586,8 +2197,12 @@ impl TimelineView {
 								egui::FontId::proportional(11.0),
 								colors.muted,
 							);
-							ui.interact(rect, ui.id().with("timestamp"), egui::Sense::hover())
-								.on_hover_text_with(|| format!("{} UTC", time));
+							ui.interact(
+								rect,
+								ui.scope_id().with("timestamp"),
+								egui::Sense::hover(),
+							)
+							.on_hover_text_with(|| format!("{} UTC", time));
 						}
 						let own = state
 							.user
@@ -1619,22 +2234,22 @@ impl TimelineView {
 							egui::Stroke::new(1.0, colors.border),
 							egui::StrokeKind::Inside,
 						);
-						let react = state.can_react(*id, None, true)
+						let react = state.can_react(id, None, true)
 							|| message.reactions.as_ref().is_some_and(|items| {
 								items
 									.iter()
-									.any(|r| state.can_react(*id, Some(&r.emoji), true))
+									.any(|r| state.can_react(id, Some(&r.emoji), true))
 							});
 						if let Some((anchor, trigger)) = crate::reactions::add_button(
 							&mut toolbar,
 							react,
 							state.reactions.busy(),
 						) {
-							self.reaction_picker = Some((*id, anchor, trigger));
+							self.reaction_picker = Some((id, anchor, trigger));
 						}
 						let can_reply = state.can_send(message.channel);
-						let can_edit = !message.unsupported && state.can_edit(message.channel, *id);
-						let can_delete = state.can_delete(message.channel, *id);
+						let can_edit = !message.unsupported && state.can_edit(message.channel, id);
+						let can_delete = state.can_delete(message.channel, id);
 						if toolbar
 							.add_enabled_ui(can_reply, |ui| {
 								action_button(ui, crate::icons::Icon::Reply, "Reply")
@@ -1642,7 +2257,7 @@ impl TimelineView {
 							.inner
 							.clicked()
 						{
-							selected_reply = Some(*id);
+							selected_reply = Some(id);
 						}
 						if own
 							&& toolbar
@@ -1652,7 +2267,7 @@ impl TimelineView {
 								.inner
 								.clicked()
 						{
-							*editing = Some((message.channel, *id, message.content.clone()));
+							*editing = Some((message.channel, id, message.content.clone()));
 							self.edit_started = true;
 						}
 						if can_delete
@@ -1670,7 +2285,7 @@ impl TimelineView {
 								.inner
 								.clicked()
 							{
-								self.quick_delete = Some((message.channel, *id));
+								self.quick_delete = Some((message.channel, id));
 							}
 						} else {
 							let menu =
@@ -1703,21 +2318,30 @@ impl TimelineView {
 								(own, can_reply, can_edit, can_delete),
 								(
 									can_mark_read.then_some(&mut self.mark_read),
+									can_mark_unread.then_some(&mut self.mark_unread),
 									&mut selected_reply,
 								),
 								(editing, &mut self.edit_started),
 								deleting,
 								(
-									state.can_pin(message.channel, *id),
-									state.is_pinned(message.channel, *id),
+									state.can_pin(message.channel, id),
+									state.is_pinned(message.channel, id),
 									&mut self.pin_request,
 								),
+								message
+									.reactions
+									.as_ref()
+									.filter(|_| state.can_read_history(message.channel))
+									.and_then(|items| items.first())
+									.map(|reaction| {
+										(reaction.emoji.clone(), &mut self.reaction_users)
+									}),
 							);
 						}
-						self.toolbar = Some((*id, toolbar_rect));
+						self.toolbar = Some((id, toolbar_rect));
 					}
-					if selected_reply.or(state.reply) == Some(*id)
-						|| self.highlighted.is_some_and(|(target, _)| target == *id)
+					if selected_reply.or(state.reply_target()) == Some(id)
+						|| self.highlighted.is_some_and(|(target, _)| target == id)
 					{
 						ui.painter().set(
 							background,
@@ -1730,7 +2354,7 @@ impl TimelineView {
 					}
 				});
 				measurements.push((
-					*id,
+					id,
 					row_key(message, previous, self.unread_boundary),
 					response.response.rect.height(),
 				));
@@ -1809,7 +2433,7 @@ impl TimelineView {
 			.get(anchor)
 			.map(|(id, _)| (*id, output.state.offset.y - lead - anchor_top));
 		if selected_reply.is_some() {
-			state.reply = selected_reply;
+			state.reply = selected_reply.map(client_core::Reply::to);
 			self.reply_started = true;
 		}
 		let distance_from_bottom =
@@ -1825,44 +2449,46 @@ impl TimelineView {
 					Some(channel.id) == state.selected && channel.last_message == Some(message.id)
 				})
 			});
-		if initial_unread_gap
+		if unread_join
 			&& !state.history_targeted
 			&& state.history_before.is_none()
 			&& state.history_after.is_none()
-			&& (whole_conversation_visible || state.timeline.iter().next().is_none())
+			&& state.timeline.iter().next().is_none()
 		{
 			self.target_browsing = false;
 		}
 
-		if at_bottom
-			&& (can_load_newer || self.at_current_latest)
-			&& ui.input(|input| {
-				(scroll_delta < 0.0
-					&& input
+		let scrolled_toward_bottom = ui.input(|input| {
+			(scroll_delta < 0.0
+				&& (session.holding()
+					|| input
 						.pointer
 						.hover_pos()
-						.is_some_and(|pos| output.inner_rect.contains(pos)))
-					|| (input.pointer.any_down() && output.state.offset.y > output.inner)
-			}) {
+						.is_some_and(|pos| output.inner_rect.contains(pos))))
+				|| (input.pointer.any_down() && output.state.offset.y > output.inner)
+		});
+		if at_bottom && (can_load_newer || self.at_current_latest) {
 			if can_load_newer {
-				self.load_newer = true;
-				self.browse_away();
-			} else {
+				if scrolled_toward_bottom {
+					self.load_newer = true;
+					self.browse_away();
+					if autoscroll_delta == 0.0 {
+						ui.ctx().request_repaint();
+					}
+				}
+			} else if scrolled_toward_bottom {
 				self.target_browsing = false;
 				if state.history_targeted || state.history_after.is_some() {
 					self.latest = true;
 				}
+				if autoscroll_delta == 0.0 {
+					ui.ctx().request_repaint();
+				}
 			}
-			if autoscroll_delta == 0.0 || can_load_newer {
-				ui.ctx().request_repaint();
-			}
-		}
-		if self.reply_target.is_some() {
-			self.target_browsing = true;
-			self.mark_read = None;
 		}
 		self.following = at_bottom && !self.target_browsing;
 		if self.following
+			&& self.mark_unread.is_none()
 			&& !state.history_targeted
 			&& state.history_before.is_none()
 			&& state.history_after.is_none()
@@ -1878,6 +2504,7 @@ impl TimelineView {
 		}
 		let mut reflow = false;
 		for (id, key, height) in measurements {
+			self.measured_rows.insert(id);
 			if self
 				.heights
 				.get(&id)
@@ -1912,29 +2539,82 @@ impl TimelineView {
 			&& output.state.offset.y < 160.0
 			&& ui.input(|i| {
 				scroll_delta > 0.0
-					&& i.pointer
-						.hover_pos()
-						.is_some_and(|pos| output.inner_rect.contains(pos))
+					&& (session.holding()
+						|| i.pointer
+							.hover_pos()
+							.is_some_and(|pos| output.inner_rect.contains(pos)))
 			}) && state.can_load_older();
-		// Discord-style overlays: an unread strip hangs from the top edge, and a translucent
-		// "older messages" bar floats above the composer while the user is not following. They
-		// are painted after the scroll area so they sit above the messages and win the hit-test.
+		// Discord-style overlays: an unread strip hangs from the top edge, the typing indicator
+		// floats in the reserved strip above the composer, and a round control offers the way
+		// back to the live edge. They are painted after the scroll area so they sit above the
+		// messages and win the hit-test.
 		let colors = crate::design::palette(ui);
 		let area = output.inner_rect;
+		let now = std::time::Instant::now();
+		let typing = state
+			.selected
+			.filter(|channel| crate::typing::active(state, *channel, now));
+		// The bottom edge fades into the composer: one continuous ramp from nothing down to the
+		// chat surface, with no flat band anywhere in it. While someone is typing the ramp runs
+		// tall enough to carry the indicator, and denser once the reader has scrolled away from
+		// the live edge, so the line stays legible over the messages behind it.
+		let fade_height = if typing.is_some() {
+			crate::typing::OVERLAY_HEIGHT + 52.0
+		} else {
+			20.0
+		};
+		// Over a background image the ramp inherits the message list's own opacity, so a
+		// see-through timeline no longer bands a dark strip across the image above the composer.
+		let surface = crate::design::section_surface(
+			ui,
+			colors.chat,
+			crate::design::ImageSection::MessageList,
+		);
+		let dense = if self.following {
+			surface.gamma_multiply(0.88)
+		} else if crate::design::has_section_background(ui) {
+			surface
+		} else {
+			surface.to_opaque()
+		};
 		let fade_rect = egui::Rect::from_min_max(
-			egui::pos2(area.left(), (area.bottom() - 12.0).max(area.top())),
+			egui::pos2(area.left(), (area.bottom() - fade_height).max(area.top())),
 			area.right_bottom(),
 		);
 		let mut fade = egui::Mesh::default();
-		fade.colored_vertex(fade_rect.left_top(), egui::Color32::TRANSPARENT);
-		fade.colored_vertex(fade_rect.right_top(), egui::Color32::TRANSPARENT);
-		fade.colored_vertex(fade_rect.right_bottom(), colors.chat.gamma_multiply(0.85));
-		fade.colored_vertex(fade_rect.left_bottom(), colors.chat.gamma_multiply(0.85));
-		fade.add_triangle(0, 1, 2);
-		fade.add_triangle(0, 2, 3);
+		// Stacked strips approximate a smooth ease instead of a straight ramp, which reads as a
+		// visible edge where it starts.
+		const FADE_STEPS: usize = 12;
+		for step in 0..=FADE_STEPS {
+			let t = step as f32 / FADE_STEPS as f32;
+			let y = fade_rect.top() + fade_rect.height() * t;
+			let color = dense.gamma_multiply(t * t * (3.0 - 2.0 * t));
+			fade.colored_vertex(egui::pos2(fade_rect.left(), y), color);
+			fade.colored_vertex(egui::pos2(fade_rect.right(), y), color);
+			if step > 0 {
+				let base = (step as u32 - 1) * 2;
+				fade.add_triangle(base, base + 1, base + 3);
+				fade.add_triangle(base, base + 3, base + 2);
+			}
+		}
 		ui.painter()
 			.with_clip_rect(area)
 			.add(egui::Shape::mesh(fade));
+		if let Some(channel) = typing {
+			crate::typing::overlay(
+				ui,
+				egui::Rect::from_min_max(
+					egui::pos2(
+						area.left() + 16.0,
+						(area.bottom() - crate::typing::OVERLAY_HEIGHT).max(area.top()),
+					),
+					egui::pos2(area.right() - 16.0, area.bottom()),
+				),
+				state,
+				channel,
+				now,
+			);
+		}
 		let browsing_history = state.history_targeted
 			|| state.history_before.is_some()
 			|| state.history_after.is_some();
@@ -2015,55 +2695,37 @@ impl TimelineView {
 		// alone must not raise the bar the moment a reader nudges upward. Only pages that are
 		// detached from the live edge (targeted or forward history) show it immediately.
 		let detached_page = state.history_targeted || state.history_after.is_some();
-		if (!self.following && distance_from_bottom > 3.0 * area.height())
-			|| self.target_browsing
+		let unread = state
+			.selected
+			.is_some_and(|channel| state.unread(channel) == Some(true));
+		self.present_control = None;
+		if (!self.following && distance_from_bottom > PRESENT_CONTROL_SCREENS * area.height())
+			|| (self.target_browsing && !(at_bottom && unread))
 			|| detached_page
 		{
-			let unread = state
-				.selected
-				.is_some_and(|channel| state.unread(channel) == Some(true));
-			let mut present = false;
+			// A round control on the right edge, not a bar across the conversation: it says the
+			// same thing with far less furniture and never covers a message being read.
+			let size = 38.0;
 			let rect = egui::Rect::from_min_size(
-				egui::pos2(area.left() + 16.0, area.bottom() - 30.0),
-				egui::vec2((area.width() - 32.0).max(120.0), 30.0),
+				egui::pos2(
+					area.right() - 16.0 - size,
+					area.bottom() - crate::typing::OVERLAY_HEIGHT - 10.0 - size,
+				),
+				egui::vec2(size, size),
 			);
-			let base = colors.base.to_opaque();
-			overlay_bar(
-				ui,
-				rect,
-				egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 236),
-				egui::CornerRadius {
-					nw: 8,
-					ne: 8,
-					sw: 0,
-					se: 0,
-				},
-				|ui| {
-					ui.label(
-						RichText::new(if unread {
-							"New messages below"
-						} else {
-							"You're viewing older messages"
-						})
-						.size(13.0)
-						.color(colors.text),
-					);
-					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-						present = bar_button(
-							ui,
-							"Jump to present",
-							crate::icons::Icon::ArrowDown,
-							colors.text_strong,
-						)
-						.clicked();
-					});
-				},
-			);
+			self.present_control = Some(rect);
+			let present = present_control(ui, rect, unread);
 			if present {
 				if browsing_history {
 					self.latest = true;
 				}
-				self.follow_latest();
+				if distance_from_bottom > 0.5 && !browsing_history {
+					// Glide back so the reader keeps their place in the conversation.
+					self.target_browsing = false;
+					self.present_scroll = Some((output.state.offset.y, 0.0));
+				} else {
+					self.follow_latest();
+				}
 				ui.ctx().request_repaint();
 			}
 		}
@@ -2073,51 +2735,45 @@ impl TimelineView {
 			self.pending_viewer = None;
 			self.viewing = Some((message_id, attachment_id));
 		}
-		if self.video.is_fullscreen() {
-			let current = self
-				.video
-				.active
-				.as_ref()
-				.and_then(|(channel, id, attachment)| {
-					state
-						.timeline
-						.get(*id)
-						.filter(|message| {
-							state.selected == Some(*channel)
-								&& message.channel == *channel
-								&& message.attachments.contains(attachment)
-								&& (!crate::embeds::has_media_spoilers(message)
-									|| self.revealed.get(id).is_some_and(|reveal| {
-										reveal.media && reveal.matches(message)
-									}))
-						})
-						.map(|message| (message, attachment.clone()))
-				});
-			if let Some((message, attachment)) = current {
-				self.video.show_fullscreen(
-					ui.ctx(),
-					message,
-					&attachment,
-					&mut self.download,
-					&mut self.opening,
-					state.demo,
-				);
-			} else {
-				self.video.stop();
-			}
-		}
+		self.show_fullscreen_video(ui.ctx(), state);
 		if let Some((message_id, attachment_id)) = self.viewing {
-			let message = state.timeline.get(message_id).filter(|m| {
-				!crate::embeds::has_media_spoilers(m)
-					|| self
-						.revealed
-						.get(&m.id)
-						.is_some_and(|reveal| reveal.media && reveal.matches(m))
-			});
+			let message = state
+				.timeline
+				.get(message_id)
+				.or_else(|| {
+					state
+						.interactions
+						.ephemeral
+						.iter()
+						.find(|message| message.id == message_id)
+				})
+				.filter(|m| {
+					if let Some(identity) = self.component_viewing {
+						identity
+							== (
+								m.id,
+								egui::Id::unique((&m.components, &m.attachments)).value(),
+							)
+					} else {
+						!crate::embeds::has_media_spoilers(m)
+							|| self
+								.revealed
+								.get(&m.id)
+								.is_some_and(|reveal| reveal.media && reveal.matches(m))
+					}
+				});
 			self.viewing = message.and_then(|m| {
 				crate::attachments::viewer(
 					ui,
-					&m.attachments,
+					if self.component_viewing.is_some() {
+						m.attachments
+							.iter()
+							.find(|a| a.id == attachment_id)
+							.map(std::slice::from_ref)
+							.unwrap_or(&[])
+					} else {
+						&m.attachments
+					},
 					attachment_id,
 					avatars,
 					&mut self.download,
@@ -2293,11 +2949,13 @@ mod tests {
 						"{count} messages unexpectedly showed {forbidden}"
 					);
 				}
-				assert!(!view.target_browsing && view.following);
+				if count == 0 {
+					assert!(!view.target_browsing && view.following);
+				} else {
+					assert!(view.target_browsing && view.mark_read.is_none());
+				}
 			}
-			// Stale latest metadata (a deleted message) is acknowledged like the official
-			// client does, otherwise the channel would stay unread forever.
-			assert_eq!(view.mark_read, (!tall).then_some(Id(latest)));
+			assert_eq!(view.mark_read, (count == 0).then_some(Id(latest)));
 			if tall {
 				// Scrolling to the live edge of tall unread content resolves both banners,
 				// even when the service latest ID names a deleted message.
@@ -2377,8 +3035,11 @@ mod tests {
 		let ctx = egui::Context::default();
 		crate::design::apply(&ctx);
 		let mut view = TimelineView::default();
-		for _ in 0..5 {
+		for _ in 0..80 {
 			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+			if view.reveal_scroll.is_none() && view.highlighted.is_some() {
+				break;
+			}
 		}
 		assert!(!view.at_current_latest);
 
@@ -2423,8 +3084,8 @@ mod tests {
 		for _ in 0..5 {
 			banner_frame(&ctx, &mut view, &mut state, vec![], false);
 		}
-		for (distance, expected) in [(1_200.0, false), (2_400.0, true)] {
-			let mut labels = vec![];
+		// Several screens of scrollback pass before the control appears at all.
+		for (distance, expected) in [(1_200.0, false), (3_000.0, false), (4_200.0, true)] {
 			for _ in 0..5 {
 				let offset =
 					view.rows.iter().map(|(_, height)| height).sum::<f32>() - 600.0 - distance;
@@ -2433,20 +3094,12 @@ mod tests {
 				view.jump = false;
 				view.anchor = Some((view.rows[index].0, offset - top));
 				view.revision = u64::MAX;
-				labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+				banner_frame(&ctx, &mut view, &mut state, vec![], false);
 			}
-			assert_eq!(
-				labels.iter().any(|(text, _)| text == "Jump to present"),
-				expected
-			);
+			assert_eq!(view.present_control.is_some(), expected);
 		}
-		let labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
-		let pos = labels
-			.iter()
-			.find(|(text, _)| text == "Jump to present")
-			.unwrap()
-			.1
-			.center();
+		banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		let pos = view.present_control.unwrap().center();
 		for pressed in [true, false] {
 			banner_frame(
 				&ctx,
@@ -2465,9 +3118,14 @@ mod tests {
 			);
 		}
 		assert!(
-			view.following && view.jump,
+			view.present_scroll.is_some(),
 			"Jump to present lost its click when sibling widget IDs changed"
 		);
+		// The glide back to the live edge resumes following without a teleport.
+		for _ in 0..30 {
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		}
+		assert!(view.present_scroll.is_none() && view.following);
 	}
 	#[test]
 	fn pending_rows_share_scroll_and_only_measure_near_viewport() {
@@ -2568,6 +3226,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			},
 			content: "Synthetic text with enough words to wrap in a narrow viewport.".into(),
 			edited: false,
@@ -2580,6 +3239,10 @@ mod tests {
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
+			flags: 0,
 			embeds: vec![],
 			attachments: vec![],
 			author_nick: None,
@@ -2730,10 +3393,11 @@ mod tests {
 							egui::Popup::menu(&menu),
 							(&message, &[], &mut None),
 							(own, true, true, can_delete),
-							(None, &mut reply),
+							(None, None, &mut reply),
 							(&mut editing, &mut edit_started),
 							&mut deleting,
 							(false, false, &mut None),
+							None,
 						)
 					},
 				);
@@ -3291,7 +3955,7 @@ mod tests {
 				);
 			}
 			assert_eq!(
-				view.opening,
+				view.browser_opening,
 				if allowed {
 					discord_url(&channel, Some(Id(42)))
 				} else {
@@ -3455,8 +4119,11 @@ mod tests {
 						],
 					);
 				}
-				assert_eq!(view.opening, discord_url(&channel, Some(message.id)));
-				view.opening = None;
+				assert_eq!(
+					view.browser_opening,
+					discord_url(&channel, Some(message.id))
+				);
+				view.browser_opening = None;
 			}
 			if !extra.any() {
 				assert!(
@@ -3573,13 +4240,17 @@ mod tests {
 					],
 				);
 			}
-			assert_eq!(state.reply.take(), Some(Id(60_000 << 22)));
+			assert_eq!(
+				state.reply.take(),
+				Some(client_core::Reply::to(Id(60_000 << 22)))
+			);
 			// Both entry points share the same menu, including on selectable text,
 			// row whitespace, and Shift+right-click (which must not quick-delete).
 			let menu_labels = [
 				"Copy message",
 				"Reply",
 				"Mark read through here",
+				"Mark Unread",
 				"Pin message",
 				"Edit message",
 				"Delete message\u{2026}",
@@ -3650,7 +4321,10 @@ mod tests {
 						],
 					);
 				}
-				assert_eq!(state.reply.take(), Some(Id(60_000 << 22)));
+				assert_eq!(
+					state.reply.take(),
+					Some(client_core::Reply::to(Id(60_000 << 22)))
+				);
 				assert!(!egui::Popup::is_any_open(&ctx));
 				assert!(view.quick_delete.is_none());
 				assert_eq!(view.heights, heights);
@@ -3691,6 +4365,109 @@ mod tests {
 				"Keyboard navigation must reach Reply"
 			);
 		}
+	}
+	#[test]
+	fn right_clicking_a_reaction_opens_its_details_without_the_message_menu() {
+		fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+			match shape {
+				egui::Shape::Text(text) => out.push((
+					text.galley.job.text.clone(),
+					text.galley.rect.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						texts(shape, out);
+					}
+				}
+				_ => {}
+			}
+		}
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = test_support::demo_state();
+		state.timeline.clear();
+		state.read_state.reset();
+		let mut message = text_message(1);
+		message.reactions = Some(vec![model::Reaction {
+			emoji: model::ReactionEmoji {
+				id: None,
+				name: Some("\u{1f44d}".into()),
+			},
+			count: 3,
+			me: false,
+			me_burst: false,
+		}]);
+		state.timeline.insert(message, false, false).unwrap();
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut editing = None;
+		let mut render = |view: &mut TimelineView, state: &mut State, events: Vec<egui::Event>| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.show(
+						ui,
+						state,
+						&mut editing,
+						&mut None,
+						(&mut avatars, &mut None),
+						None,
+					)
+				},
+			);
+			let mut painted = vec![];
+			for shape in &output.shapes {
+				texts(&shape.shape, &mut painted);
+			}
+			output.drop_without_applying_deltas();
+			painted
+		};
+		for _ in 0..4 {
+			render(&mut view, &mut state, vec![]);
+		}
+		let painted = render(&mut view, &mut state, vec![]);
+		let reaction = painted
+			.iter()
+			.find(|(label, _)| label.starts_with('\u{1f44d}'))
+			.unwrap_or_else(|| panic!("Missing reaction: {painted:?}"))
+			.1
+			.center();
+		view.reaction_users = None;
+		for pressed in [true, false] {
+			render(
+				&mut view,
+				&mut state,
+				vec![
+					egui::Event::PointerMoved(reaction),
+					egui::Event::PointerButton {
+						pos: reaction,
+						button: egui::PointerButton::Secondary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			);
+		}
+		assert!(
+			matches!(view.reaction_users, Some((Id(1), _, true))),
+			"The right click must open the reaction details"
+		);
+		render(&mut view, &mut state, vec![]);
+		let labels = render(&mut view, &mut state, vec![]);
+		for menu in ["Copy message", "Reply", "Pin message"] {
+			assert!(
+				!labels.iter().any(|(label, _)| label == menu),
+				"Reaction right click also opened the message menu: {labels:?}"
+			);
+		}
+		assert!(!egui::Popup::is_any_open(&ctx));
 	}
 	#[test]
 	fn reply_target_browsing_waits_for_success_and_explicit_latest_before_acknowledging() {
@@ -3805,12 +4582,10 @@ mod tests {
 				assert!(state.status.starts_with("Message was not returned"));
 			}
 			// The whole page fits onscreen, but only an explicit latest action resumes auto-read.
-			let labels = frame(&mut view, &mut state, vec![]);
-			let pos = labels
-				.iter()
-				.find(|(text, _)| text.contains("Jump to present"))
-				.unwrap()
-				.1
+			frame(&mut view, &mut state, vec![]);
+			let pos = view
+				.present_control
+				.expect("jump to present control")
 				.center();
 			for pressed in [true, false] {
 				frame(
@@ -3834,7 +4609,7 @@ mod tests {
 	}
 
 	#[test]
-	fn initial_unread_gap_stays_unacknowledged_and_keyboard_jump_is_explicit() {
+	fn initial_unread_join_waits_for_a_downward_reach() {
 		for (marker, width, dark) in [
 			(Some(Id(10)), 320.0, false),
 			(None, 900.0, true),
@@ -3905,55 +4680,16 @@ mod tests {
 					},
 				);
 				assert!(output.platform_output.commands.is_empty());
-				let unread_focused = output.platform_output.events.iter().any(|event| {
-					matches!(event, egui::output::OutputEvent::FocusGained(info)
-						if info.typ == egui::WidgetType::Button
-							&& info.enabled
-							&& info.label.as_deref() == Some("Jump to unread"))
-				});
 				output.drop_without_applying_deltas();
-				unread_focused
 			};
 			for _ in 0..3 {
 				frame(&mut view, &mut state, vec![]);
 			}
-			if marker == Some(Id(19)) {
-				assert_eq!(
-					view.mark_read.take(),
-					Some(Id(20)),
-					"Loaded read boundary preserves ordinary auto-read"
-				);
-				continue;
-			}
 			assert!(view.target_browsing && !view.following);
-			assert!(view.mark_read.is_none());
-			let key = |key| egui::Event::Key {
-				key,
-				physical_key: None,
-				pressed: true,
-				repeat: false,
-				modifiers: egui::Modifiers::NONE,
-			};
-			let mut unread_focused = false;
-			// The overlay follows the keyboard-accessible message rows in widget order.
-			for _ in 0..32 {
-				unread_focused = frame(&mut view, &mut state, vec![key(egui::Key::Tab)]);
-				assert!(view.mark_read.is_none() && !view.unread_jump);
-				if unread_focused {
-					break;
-				}
-			}
 			assert!(
-				unread_focused,
-				"Keyboard navigation must reach Jump to unread"
+				view.mark_read.is_none(),
+				"Opening an unread channel must not acknowledge until the user reaches the bottom"
 			);
-			frame(&mut view, &mut state, vec![key(egui::Key::Enter)]);
-			assert!(view.unread_jump);
-			assert!(view.mark_read.is_none());
-			assert_eq!(state.read_marker(Id(20)), Some(marker));
-
-			// Scrolling to the live edge also resumes reading without clicking a banner.
-			view.unread_jump = false;
 			frame(
 				&mut view,
 				&mut state,
@@ -3961,14 +4697,18 @@ mod tests {
 					egui::Event::PointerMoved(egui::pos2(width / 2.0, 300.0)),
 					egui::Event::MouseWheel {
 						unit: egui::MouseWheelUnit::Point,
-						delta: egui::vec2(0.0, -600.0),
+						delta: egui::vec2(0.0, -80.0),
 						modifiers: egui::Modifiers::NONE,
 						phase: egui::TouchPhase::Move,
 					},
 				],
 			);
-			assert!(view.following && !view.target_browsing);
-			assert_eq!(view.mark_read.take(), Some(Id(20)));
+			assert!(!view.target_browsing && view.following);
+			assert_eq!(
+				view.mark_read.take(),
+				Some(Id(20)),
+				"A downward reach at the live edge acknowledges the unread join"
+			);
 		}
 	}
 
@@ -4660,6 +5400,166 @@ mod tests {
 		assert_eq!(anchor_offset(&[], Id(2), 25.0), 0.0);
 	}
 
+	fn overscan_frame(
+		ctx: &egui::Context,
+		view: &mut TimelineView,
+		state: &mut State,
+		avatars: &mut crate::avatars::Avatars,
+		width: f32,
+		events: Vec<egui::Event>,
+	) {
+		ctx.run_ui(
+			egui::RawInput {
+				focused: true,
+				events,
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(width, 600.0),
+				)),
+				..Default::default()
+			},
+			|ui| view.show(ui, state, &mut None, &mut None, (avatars, &mut None), None),
+		)
+		.drop_without_applying_deltas();
+	}
+
+	fn overscan_state() -> State {
+		let mut state = State {
+			selected: Some(Id(20)),
+			revision: 1,
+			demo: true,
+			..Default::default()
+		};
+		for id in 1..=500 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		state
+	}
+
+	#[test]
+	#[ignore = "release performance workload"]
+	fn leading_overscan_benchmark() {
+		for width in [900.0, 360.0] {
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let mut state = overscan_state();
+			let mut view = TimelineView::default();
+			let mut avatars = crate::avatars::Avatars::default();
+			for _ in 0..10 {
+				overscan_frame(&ctx, &mut view, &mut state, &mut avatars, width, vec![]);
+			}
+			view.following = false;
+			view.anchor = Some((Id(250), 5.0));
+			view.revision = u64::MAX;
+			for _ in 0..10 {
+				overscan_frame(&ctx, &mut view, &mut state, &mut avatars, width, vec![]);
+			}
+			for sample in 0..6 {
+				let started = std::time::Instant::now();
+				let mut rendered = 0;
+				for _ in 0..1000 {
+					overscan_frame(&ctx, &mut view, &mut state, &mut avatars, width, vec![]);
+					rendered += view.leading_rendered;
+				}
+				println!(
+					"width={width} sample={sample} elapsed_ms={} leading_rendered={rendered}",
+					started.elapsed().as_secs_f64() * 1000.0
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn leading_overscan_reuses_only_current_uninteracted_text_measurements() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = overscan_state();
+		let mut view = TimelineView::default();
+		let mut avatars = crate::avatars::Avatars::default();
+		for _ in 0..10 {
+			overscan_frame(&ctx, &mut view, &mut state, &mut avatars, 900.0, vec![]);
+		}
+		view.following = false;
+		view.anchor = Some((Id(250), 5.0));
+		view.revision = u64::MAX;
+		for width in [900.0, 360.0] {
+			overscan_frame(&ctx, &mut view, &mut state, &mut avatars, width, vec![]);
+			assert!(
+				view.leading_rendered > 0,
+				"New dimensions require measurement"
+			);
+			for _ in 0..10 {
+				overscan_frame(&ctx, &mut view, &mut state, &mut avatars, width, vec![]);
+			}
+			assert_eq!(
+				view.leading_rendered, 0,
+				"Settled hidden text needs no layout"
+			);
+		}
+		// Pointer selection must retain the complete label registration path.
+		for pressed in [true, false] {
+			overscan_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				&mut avatars,
+				360.0,
+				vec![egui::Event::PointerButton {
+					pos: egui::pos2(10.0, 10.0),
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				}],
+			);
+			assert!(view.leading_rendered > 0);
+		}
+		overscan_frame(&ctx, &mut view, &mut state, &mut avatars, 360.0, vec![]);
+		assert!(
+			view.leading_rendered > 0,
+			"Retained selection or focus still needs registration"
+		);
+		ctx.plugin::<egui::text_selection::LabelSelectionState>()
+			.lock()
+			.clear_selection();
+		ctx.memory_mut(|memory| {
+			if let Some(id) = memory.focused() {
+				memory.surrender_focus(id);
+			}
+		});
+		let (anchor, _, _) =
+			visible_range(&view.rows, view.scroll_offset, view.scroll_offset + 600.0);
+		let id = view.rows[anchor - 1].0;
+		let mut message = state.timeline.get(id).unwrap().clone();
+		message.content = "A relative timestamp: <t:0:R>".into();
+		state.timeline.insert(message, false, false).unwrap();
+		state.revision += 1;
+		overscan_frame(&ctx, &mut view, &mut state, &mut avatars, 360.0, vec![]);
+		assert!(
+			view.leading_rendered > 0,
+			"State changes invalidate settled heights"
+		);
+		for _ in 0..10 {
+			overscan_frame(&ctx, &mut view, &mut state, &mut avatars, 360.0, vec![]);
+		}
+		assert_eq!(
+			view.leading_rendered, 1,
+			"Only the dynamic leading row needs layout"
+		);
+		let (anchor, _, _) =
+			visible_range(&view.rows, view.scroll_offset, view.scroll_offset + 600.0);
+		for (id, height) in &view.rows[anchor..] {
+			if view.measured_rows.contains(id) {
+				assert_eq!(
+					*height, view.heights[id].1,
+					"Mixed reuse must preserve row alignment"
+				);
+			}
+		}
+	}
+
 	#[test]
 	fn deleted_only_timeline_discards_content_and_has_no_message_actions() {
 		fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
@@ -4772,6 +5672,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			},
 			content: "<#4> ".repeat(12),
 			author_nick: None,
@@ -4791,6 +5692,10 @@ mod tests {
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
+			flags: 0,
 			embeds: vec![],
 			embeds_suppressed: false,
 			attachments: vec![],
@@ -4924,6 +5829,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			},
 			content: "||old revealed content||".into(),
 			edited: false,
@@ -4936,6 +5842,10 @@ mod tests {
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
+			flags: 0,
 			embeds: vec![],
 			attachments: vec![],
 			author_nick: None,
@@ -5014,6 +5924,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			},
 			content: "Ordinary text".into(),
 			edited: false,
@@ -5026,6 +5937,10 @@ mod tests {
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
+			flags: 0,
 			attachments: vec![],
 			author_nick: None,
 			author_roles: vec![],

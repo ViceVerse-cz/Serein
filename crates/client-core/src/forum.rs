@@ -3,10 +3,15 @@ use crate::{Command, MAX_CONTENT, MAX_NAV, State, auth::AuthState, auth::Failure
 use model::{Channel, Id, permissions as p};
 
 pub const MAX_TITLE: usize = 100;
+pub const SUMMARY_BATCH: usize = 4;
 
 /// The on-demand active-post list of one forum; the gateway only delivers joined posts.
 #[derive(Default)]
 pub struct Posts {
+	// At most 200 summaries of at most 4 KiB each across the current session.
+	summaries: std::collections::BTreeMap<Id, (Option<Id>, Option<model::forum::Summary>)>,
+	summary_request: u64,
+	summary_pending: Option<u64>,
 	pub parent: Option<Id>,
 	pub request: u64,
 	pub loading: bool,
@@ -14,6 +19,13 @@ pub struct Posts {
 	pub loaded: usize,
 	pub more: bool,
 	pub error: Option<&'static str>,
+}
+
+impl Posts {
+	pub(crate) fn clear_summaries(&mut self) {
+		self.summaries.clear();
+		self.summary_pending = None;
+	}
 }
 
 #[derive(Default)]
@@ -26,6 +38,109 @@ pub struct Posting {
 }
 
 impl State {
+	pub(crate) fn prune_post_summaries(&mut self) {
+		let mut summaries = std::mem::take(&mut self.posts.summaries);
+		summaries.retain(|channel, _| self.can_read_history(*channel));
+		self.posts.summaries = summaries;
+	}
+
+	pub fn post_summary(&self, channel: Id) -> Option<&model::forum::Summary> {
+		if !self.gateway_connected || !self.can_read_history(channel) {
+			return None;
+		}
+		let (latest, summary) = self.posts.summaries.get(&channel)?;
+		(*latest == self.channel(channel)?.last_message)
+			.then_some(summary.as_ref())
+			.flatten()
+	}
+
+	pub fn needs_post_summary(&self, channel: Id) -> bool {
+		!self.demo
+			&& self.auth == AuthState::Authenticated
+			&& self.gateway_connected
+			&& (self.posts.summaries.contains_key(&channel)
+				|| self.posts.summaries.len() < model::forum::MAX_POSTS)
+			&& self.can_read_history(channel)
+			&& self.channel(channel).is_some_and(|post| {
+				post.parent_id == self.posts.parent
+					&& self.selected == self.posts.parent
+					&& matches!(post.kind, 11 | 12)
+					&& self
+						.posts
+						.summaries
+						.get(&channel)
+						.is_none_or(|(latest, _)| *latest != post.last_message)
+			})
+	}
+
+	pub fn request_post_summaries(&mut self, channels: Vec<Id>) -> Option<Command> {
+		if self.posts.summary_pending.is_some()
+			|| channels.is_empty()
+			|| channels.len() > SUMMARY_BATCH
+			|| channels.iter().enumerate().any(|(i, channel)| {
+				channels[..i].contains(channel) || !self.needs_post_summary(*channel)
+			}) {
+			return None;
+		}
+		self.posts.summary_request = self.posts.summary_request.wrapping_add(1);
+		let request = self.posts.summary_request;
+		self.posts.summary_pending = Some(request);
+		for channel in &channels {
+			let latest = self.channel(*channel).and_then(|post| post.last_message);
+			// A failure stays unavailable until Refresh or new activity, without a retry loop.
+			self.posts.summaries.insert(*channel, (latest, None));
+		}
+		Some(Command::ForumSummaries { channels, request })
+	}
+
+	pub fn apply_forum_summaries(
+		&mut self,
+		request: u64,
+		results: Vec<(Id, Result<model::forum::Summary, Failure>)>,
+	) {
+		if self.posts.summary_pending != Some(request) {
+			return;
+		}
+		self.posts.summary_pending = None;
+		for (channel, result) in results {
+			let current = self.channel(channel).and_then(|post| post.last_message);
+			match result {
+				Ok(summary)
+					if summary.valid(channel)
+						&& self.can_read_history(channel)
+						&& self.gateway_connected =>
+				{
+					if let Some((latest, value)) = self.posts.summaries.get_mut(&channel)
+						&& *latest == current
+					{
+						*value = Some(summary);
+					}
+				}
+				Err(failure) if failure.ends_session() && failure != Failure::Capacity => {
+					self.fail(failure);
+					break;
+				}
+				_ => {}
+			}
+		}
+	}
+
+	pub fn post_new_count(&self, post: &Channel) -> Option<(usize, bool)> {
+		if !self.post_unread(post) {
+			return Some((0, true));
+		}
+		let marker = self.read_marker(post.id)?;
+		let summary = self.post_summary(post.id)?;
+		let count = summary
+			.messages
+			.iter()
+			.filter(|id| marker.is_none_or(|read| **id > read))
+			.count();
+		let exact = summary.complete
+			|| marker.is_some_and(|read| summary.messages.last().is_some_and(|id| *id <= read));
+		Some((count, exact))
+	}
+
 	pub fn is_forum(&self, channel: Id) -> bool {
 		self.channels
 			.iter()
@@ -41,6 +156,50 @@ impl State {
 			.collect();
 		posts.sort_by_key(|c| std::cmp::Reverse(c.last_message.unwrap_or(c.id)));
 		posts
+	}
+
+	/// Is one post unread? Posts arrive through the on-demand list as well as the gateway, so
+	/// a post the service never sent a read row for counts as unread once the snapshot is
+	/// complete and the service reports a message in it.
+	pub fn post_unread(&self, post: &Channel) -> bool {
+		if let Some(unread) = self.channel_unread(post) {
+			return unread || self.unread_count(post.id) > 0;
+		}
+		self.gateway_connected
+			&& self.read_state.known()
+			&& self.can_view(post.id)
+			&& post.last_message.is_some()
+	}
+
+	/// Forum containers carry no messages themselves; Discord marks them unread when one of
+	/// their posts is, so the sidebar row needs the same aggregate.
+	pub fn forum_unread(&self, forum: Id) -> bool {
+		self.is_forum(forum)
+			&& self
+				.channels
+				.iter()
+				.any(|post| self.is_post_of(post, forum) && self.post_unread(post))
+	}
+
+	/// Loaded posts whose starter has not been read; replies do not make a post new again.
+	pub fn forum_new_count(&self, forum: Id) -> u32 {
+		if !self.is_forum(forum) {
+			return 0;
+		}
+		self.channels
+			.iter()
+			.filter(|post| {
+				self.is_post_of(post, forum)
+					&& self.post_unread(post)
+					&& self
+						.read_marker(post.id)
+						.is_some_and(|read| read.is_none_or(|id| id < post.id))
+			})
+			.count() as u32
+	}
+
+	fn is_post_of(&self, post: &Channel, forum: Id) -> bool {
+		post.parent_id == Some(forum) && matches!(post.kind, 11 | 12)
 	}
 
 	pub fn can_load_posts(&self, parent: Id) -> bool {
@@ -92,6 +251,7 @@ impl State {
 			// Keep the request counter monotonic so a late reply cannot match a fresh load.
 			self.posts = Posts {
 				request: self.posts.request,
+				summary_request: self.posts.summary_request,
 				..Posts::default()
 			};
 		}
@@ -176,15 +336,47 @@ impl State {
 			&& self.permission(parent, p::SEND_MESSAGES) == Some(true)
 	}
 
+	/// A forum container is not a text channel, so `can_attach` never covers it; the starter
+	/// message still needs the container's own attachment permission.
+	pub fn can_attach_post(&self, parent: Id) -> bool {
+		self.can_create_post(parent) && self.permission(parent, p::ATTACH_FILES) == Some(true)
+	}
+
 	pub fn create_post(&mut self, parent: Id, title: &str, content: &str) -> Option<Command> {
+		self.create_post_with_attachments(parent, title, content, &[])
+	}
+
+	/// Create one post, optionally with files staged for its starter message.
+	pub fn create_post_with_attachments(
+		&mut self,
+		parent: Id,
+		title: &str,
+		content: &str,
+		filenames: &[&str],
+	) -> Option<Command> {
 		let title = title.trim();
 		let content = content.trim();
 		if !self.can_create_post(parent)
 			|| title.is_empty()
 			|| title.chars().count() > MAX_TITLE
-			|| content.is_empty()
+			|| (content.is_empty() && filenames.is_empty())
 			|| content.chars().count() > MAX_CONTENT
 		{
+			return None;
+		}
+		if !filenames.is_empty() && !self.can_attach_post(parent) {
+			return None;
+		}
+		if filenames.len() > crate::MAX_ATTACHMENTS
+			|| filenames.iter().any(|name| {
+				name.trim().is_empty()
+					|| name.len() > 256
+					|| matches!(*name, "." | "..")
+					|| name
+						.chars()
+						.any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+			}) {
+			self.posting.error = Some("Attachment filename is invalid or too long");
 			return None;
 		}
 		let guild = self.channel(parent)?.guild?;
@@ -196,6 +388,7 @@ impl State {
 			guild,
 			title: title.to_owned(),
 			content: content.to_owned(),
+			attachments: filenames.iter().map(|name| (*name).to_owned()).collect(),
 			request: self.posting.request,
 		})
 	}
@@ -278,6 +471,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(model::User {
+				primary_guild: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -449,6 +643,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],

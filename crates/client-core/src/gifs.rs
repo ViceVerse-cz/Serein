@@ -4,6 +4,25 @@ use crate::{
 	auth::{AuthState, Failure},
 };
 use model::{Gif, GifPage, MAX_GIF_FAVORITES};
+use std::{
+	collections::VecDeque,
+	time::{Duration, Instant},
+};
+
+const GIF_CACHE_PAGES: usize = 8;
+const GIF_CACHE_BYTES: usize = 768 * 1024;
+const GIF_CACHE_TTL: Duration = Duration::from_secs(10 * 60);
+
+struct CachedPage {
+	query: Option<String>,
+	page: GifPage,
+	loaded: Instant,
+}
+impl CachedPage {
+	fn bytes(&self) -> usize {
+		size_of::<Self>() + self.query.as_ref().map_or(0, String::capacity) + self.page.bytes()
+	}
+}
 
 pub struct View {
 	/// `None` loads trending GIFs and categories.
@@ -20,6 +39,8 @@ pub struct Gifs {
 	pub favorites: Vec<Gif>,
 	/// Set when favorites changed locally; the host persists them and clears it.
 	pub favorites_changed: bool,
+	cache: VecDeque<CachedPage>,
+	cache_bytes: usize,
 }
 impl Gifs {
 	pub fn bytes(&self) -> usize {
@@ -34,6 +55,37 @@ impl Gifs {
 				.as_ref()
 				.and_then(|view| view.page.as_ref())
 				.map_or(0, GifPage::bytes)
+			+ self.cache_bytes
+	}
+	fn take_cached(&mut self, query: &Option<String>) -> Option<(GifPage, bool)> {
+		let index = self.cache.iter().position(|entry| &entry.query == query)?;
+		let entry = self.cache.remove(index)?;
+		self.cache_bytes = self.cache_bytes.saturating_sub(entry.bytes());
+		let fresh = entry.loaded.elapsed() < GIF_CACHE_TTL;
+		let page = entry.page.clone();
+		self.cache_bytes += entry.bytes();
+		self.cache.push_back(entry);
+		Some((page, fresh))
+	}
+	fn cache_page(&mut self, query: Option<String>, page: GifPage) {
+		if let Some(index) = self.cache.iter().position(|entry| entry.query == query)
+			&& let Some(entry) = self.cache.remove(index)
+		{
+			self.cache_bytes = self.cache_bytes.saturating_sub(entry.bytes());
+		}
+		let entry = CachedPage {
+			query,
+			page,
+			loaded: Instant::now(),
+		};
+		self.cache_bytes += entry.bytes();
+		self.cache.push_back(entry);
+		while self.cache.len() > GIF_CACHE_PAGES || self.cache_bytes > GIF_CACHE_BYTES {
+			let Some(entry) = self.cache.pop_front() else {
+				break;
+			};
+			self.cache_bytes = self.cache_bytes.saturating_sub(entry.bytes());
+		}
 	}
 }
 impl State {
@@ -63,14 +115,19 @@ impl State {
 		{
 			return None;
 		}
+		let cached = self.gifs.take_cached(&query);
+		let fresh = cached.as_ref().is_some_and(|(_, fresh)| *fresh);
 		self.gifs.request = self.gifs.request.wrapping_add(1);
 		self.gifs.view = Some(View {
 			query: query.clone(),
 			request: self.gifs.request,
-			loading: true,
+			loading: !fresh,
 			error: None,
-			page: None,
+			page: cached.map(|(page, _)| page),
 		});
+		if fresh {
+			return None;
+		}
 		Some(Command::Gifs {
 			query,
 			request: self.gifs.request,
@@ -89,33 +146,40 @@ impl State {
 			self.fail(*failure);
 			return;
 		}
-		let Some(view) = self
-			.gifs
-			.view
-			.as_mut()
-			.filter(|view| view.request == request && view.loading)
-		else {
-			return;
-		};
-		view.loading = false;
-		match result {
-			Ok(page) if page.valid() => {
-				view.page = Some(page);
-				view.error = None;
+		let mut accepted = None;
+		{
+			let Some(view) = self
+				.gifs
+				.view
+				.as_mut()
+				.filter(|view| view.request == request && view.loading)
+			else {
+				return;
+			};
+			view.loading = false;
+			match result {
+				Ok(page) if page.valid() => {
+					accepted = Some((view.query.clone(), page.clone()));
+					view.page = Some(page);
+					view.error = None;
+				}
+				Ok(_) | Err(Failure::Protocol | Failure::ProtocolAt(_)) => {
+					view.error = Some("GIF results were rejected or incompatible");
+				}
+				Err(Failure::RateLimited) => {
+					view.error = Some("GIF search is rate limited; wait a moment and retry");
+				}
+				Err(Failure::Forbidden) => {
+					view.error = Some("GIF search is unavailable for this account");
+				}
+				Err(Failure::Capacity) => {
+					view.error = Some("GIF results exceeded the safe size limit");
+				}
+				Err(_) => view.error = Some("GIF search failed; check the connection and retry"),
 			}
-			Ok(_) | Err(Failure::Protocol | Failure::ProtocolAt(_)) => {
-				view.error = Some("GIF results were rejected or incompatible");
-			}
-			Err(Failure::RateLimited) => {
-				view.error = Some("GIF search is rate limited; wait a moment and retry");
-			}
-			Err(Failure::Forbidden) => {
-				view.error = Some("GIF search is unavailable for this account");
-			}
-			Err(Failure::Capacity) => {
-				view.error = Some("GIF results exceeded the safe size limit");
-			}
-			Err(_) => view.error = Some("GIF search failed; check the connection and retry"),
+		}
+		if let Some((query, page)) = accepted {
+			self.gifs.cache_page(query, page);
 		}
 	}
 	pub fn is_gif_favorite(&self, gif: &Gif) -> bool {
@@ -202,6 +266,10 @@ mod tests {
 		assert!(!view.loading && view.error.is_none());
 		assert_eq!(view.page.as_ref().unwrap().gifs.len(), 1);
 		assert!(state.request_gifs(Some("wave")).is_none());
+		assert!(state.clear_gifs().is_none());
+		assert!(state.request_gifs(Some("wave")).is_none());
+		let cached = state.gifs.view.as_ref().unwrap();
+		assert!(!cached.loading && cached.page.is_some());
 		assert!(matches!(
 			state.request_gifs(None),
 			Some(Command::Gifs { query: None, .. })
@@ -259,6 +327,34 @@ mod tests {
 		assert!(!state.toggle_gif_favorite(&invalid));
 		state.restore_gif_favorites(vec![gif("late")]);
 		assert!(!state.is_gif_favorite(&gif("late")));
+	}
+
+	#[test]
+	fn gif_result_cache_is_bounded_and_cleared_with_the_session() {
+		let mut state = test_state();
+		for index in 0..(GIF_CACHE_PAGES + 3) {
+			let query = format!("query{index}");
+			let Some(Command::Gifs { request, .. }) = state.request_gifs(Some(&query)) else {
+				panic!("uncached query");
+			};
+			state.apply_gifs(
+				request,
+				Ok(GifPage {
+					gifs: vec![gif(&format!("g{index}"))],
+					categories: vec![],
+				}),
+			);
+			state.clear_gifs();
+		}
+		assert_eq!(state.gifs.cache.len(), GIF_CACHE_PAGES);
+		assert!(state.gifs.cache_bytes <= GIF_CACHE_BYTES);
+		assert!(matches!(
+			state.request_gifs(Some("query0")),
+			Some(Command::Gifs { .. })
+		));
+		state.logout();
+		assert!(state.gifs.cache.is_empty());
+		assert_eq!(state.gifs.cache_bytes, 0);
 	}
 
 	fn test_state() -> State {

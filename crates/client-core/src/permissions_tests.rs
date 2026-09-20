@@ -1,4 +1,4 @@
-use crate::{Command, Envelope, Event, State, permissions::Event as PermissionEvent};
+use crate::{Command, Envelope, Event, Reply, State, permissions::Event as PermissionEvent};
 use model::{
 	Channel, ChannelPatch, Freshness, Guild, Id, Message, MessagePatch, Patch, User,
 	permissions as p,
@@ -243,6 +243,7 @@ fn startup_rejects_duplicate_navigation_and_unused_capacity_before_publication()
 
 fn user() -> User {
 	User {
+		primary_guild: None,
 		id: Id(2),
 		name: "Synthetic member".into(),
 		avatar: None,
@@ -282,6 +283,10 @@ fn message(id: u64, channel: Id) -> Message {
 		reply_deleted: false,
 		forwarded: false,
 		unsupported: false,
+		components: vec![],
+		application_id: None,
+		flags: 0,
+		ephemeral: false,
 		extra_content: Default::default(),
 		embeds: vec![],
 		attachments: vec![],
@@ -956,6 +961,9 @@ fn revoked_view_cannot_return_through_stale_gateway_content_or_old_history() {
 		apply(
 			&mut state,
 			Event::Patch(MessagePatch {
+				components: model::Patch::Absent,
+				flags: model::Patch::Absent,
+				application_id: model::Patch::Absent,
 				extra_content: Default::default(),
 				id: Id(203),
 				channel: Id(20),
@@ -1083,7 +1091,7 @@ fn thread_target_changes_revoke_content_for_patches_creates_and_snapshots() {
 				panic!()
 			};
 			history(&mut state, Id(30), request, 300);
-			state.reply = Some(Id(300));
+			state.reply = Some(Reply::to(Id(300)));
 			state.drafts.insert(Id(30), "Keep thread draft".into());
 			let Command::History { request, .. } = state.history(None) else {
 				panic!()
@@ -1359,8 +1367,24 @@ fn member_role_display_tracks_live_role_metadata_and_membership() {
 	});
 	assert_eq!(
 		state.message_author_color(&chat),
-		None,
-		"live membership overrides the message snapshot"
+		Some(0x112233),
+		"empty live membership keeps the message snapshot"
+	);
+	state.members = Some(crate::MemberList {
+		guild: Some(Id(10)),
+		channel: Id(20),
+		request: 1,
+		total: 1,
+		rows: vec![Some(model::Member {
+			roles: vec![Id(12)],
+			..member.clone()
+		})],
+		freshness: Freshness::Fresh,
+	});
+	assert_eq!(
+		state.message_author_color(&chat),
+		Some(0x445566),
+		"populated live membership refreshes the name color"
 	);
 	state.members = None;
 

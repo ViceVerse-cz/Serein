@@ -2,8 +2,10 @@
 mod activity;
 mod channel_events;
 mod compression;
+mod interactions;
 #[cfg(test)]
 mod login_tests;
+mod member_search;
 mod presence;
 mod thread_events;
 mod voice;
@@ -148,11 +150,11 @@ impl Heartbeat {
 	}
 }
 fn next_attempt(attempt: u32, ready_for: Option<Duration>) -> u32 {
-	// A stable connection earns a fresh retry budget; READY/reconnect flapping does not.
+	// Reset backoff only after a stable connection; cap it during prolonged outages.
 	if ready_for.is_some_and(|duration| duration >= Duration::from_secs(60)) {
 		1
 	} else {
-		attempt + 1
+		attempt.saturating_add(1).min(6)
 	}
 }
 fn jitter_ms(max: u64) -> u64 {
@@ -224,7 +226,7 @@ fn subscription_packet(guild: Id, channel: Option<Id>, thread: bool) -> Frame {
 		.into_iter()
 		.map(|id| id.to_string())
 		.collect();
-	Frame::Text(serde_json::json!({"op":37,"d":{"subscriptions":{guild.to_string():{"typing":channel.is_some(),"threads":false,"activities":false,"members":[],"channels":channels,"thread_member_lists":threads}}}}).to_string().into())
+	Frame::Text(serde_json::json!({"op":37,"d":{"subscriptions":{guild.to_string():{"typing":channel.is_some(),"threads":false,"activities":true,"members":[],"channels":channels,"thread_member_lists":threads}}}}).to_string().into())
 }
 struct ActiveMembers {
 	subscription: MemberSubscription,
@@ -585,6 +587,7 @@ pub async fn run_with_voice(
 }
 /// Publishes the latest bounded game activity and session presence after READY/RESUMED.
 /// The documented wire shape does not establish normal-user compatibility.
+#[allow(clippy::type_complexity)]
 pub async fn run_with_activity(
 	secret: Arc<SessionSecret>,
 	initial_url: String,
@@ -593,6 +596,7 @@ pub async fn run_with_activity(
 	activity: (
 		watch::Receiver<Option<discord_protocol::rpc::Activity>>,
 		watch::Receiver<model::OwnPresence>,
+		watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
 	),
 	observe: impl Fn(ActivityObservation) -> Result<(), Failure> + Sync,
 	emit: impl Fn(Event) -> Result<(), Failure>,
@@ -605,6 +609,7 @@ pub async fn run_with_activity(
 		Some(ActivityInput {
 			receiver: activity.0,
 			own_presence: activity.1,
+			member_queries: activity.2,
 			observe: &observe,
 		}),
 		emit,
@@ -614,6 +619,7 @@ pub async fn run_with_activity(
 	.await
 }
 struct ActivityInput<'a> {
+	member_queries: watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
 	receiver: watch::Receiver<Option<discord_protocol::rpc::Activity>>,
 	own_presence: watch::Receiver<model::OwnPresence>,
 	observe: &'a (dyn Fn(ActivityObservation) -> Result<(), Failure> + Sync),
@@ -634,10 +640,12 @@ async fn run_inner(
 	let ignore_observation = |_| Ok(());
 	let ActivityInput {
 		receiver: mut activity,
+		mut member_queries,
 		mut own_presence,
 		observe,
 	} = activity.unwrap_or_else(|| ActivityInput {
 		receiver: watch::channel(None).1,
+		member_queries: watch::channel(Default::default()).1,
 		own_presence: watch::channel(model::OwnPresence::default()).1,
 		observe: &ignore_observation,
 	});
@@ -662,7 +670,8 @@ async fn run_inner(
 	let mut inbox = channel_events::Inbox::default();
 	let mut known_guilds = std::collections::BTreeSet::new();
 	let mut voice_open = true;
-	while attempt < 6 {
+	// Initial login is bounded, but an established session must survive long outages.
+	while was_ready || attempt < 6 {
 		if attempt > 0 {
 			calls.disconnected();
 			while voice_controls.try_recv().is_ok() {}
@@ -687,7 +696,7 @@ async fn run_inner(
 		)
 		.await;
 		let Ok(Ok((mut socket, _))) = connection else {
-			attempt += 1;
+			attempt = next_attempt(attempt, None);
 			continue;
 		};
 		let mut compression = compression::Decoder::default();
@@ -710,7 +719,7 @@ async fn run_inner(
 			return Err(failure);
 		}
 		let Ok(Ok(Frame::Text(text))) = hello else {
-			attempt += 1;
+			attempt = next_attempt(attempt, None);
 			continue;
 		};
 		let packet: GatewayPacket =
@@ -742,7 +751,7 @@ async fn run_inner(
 			.await,
 			Ok(Ok(()))
 		) {
-			attempt += 1;
+			attempt = next_attempt(attempt, None);
 			continue;
 		}
 		let mut heartbeat = Heartbeat::default();
@@ -759,6 +768,8 @@ async fn run_inner(
 		let mut sent_members = false;
 		let mut members_deadline: Option<Instant> = None;
 		let mut subscriptions_open = true;
+		let mut queries_open = true;
+		let mut queries = member_search::Search::default();
 		outgoing_activity.reconnect();
 		loop {
 			if activity_enabled && last_observation != Some(outgoing_activity.observation) {
@@ -861,6 +872,14 @@ async fn run_inner(
 
 				_=tokio::time::sleep_until(calls.departure_deadline.unwrap_or(ready_deadline)), if calls.departure_deadline.is_some() => {
 					if let Some(event)=calls.departure_expired() {emit(event)?;}
+				}
+				changed = member_queries.changed(), if queries_open && ready_at.is_some() => {
+					queries_open = changed.is_ok();
+					queries.update(&member_queries.borrow_and_update());
+				}
+				_ = tokio::time::sleep_until(queries.deadline().unwrap_or(ready_deadline)), if queries.deadline().is_some() && ready_at.is_some() => {
+					if let Some(packet) = queries.tick(&emit)?
+						&& !matches!(timeout(Duration::from_secs(5), socket.send(packet)).await, Ok(Ok(()))) { break; }
 				}
 				changed=subscriptions.changed(), if subscriptions_open && ready_at.is_some() => {
 					subscriptions_open=changed.is_ok();
@@ -982,6 +1001,7 @@ async fn run_inner(
 										direct_presence.bootstrap_users=friends.as_ref().into_iter().flatten().map(|(u,_)|u.id).chain(channels.iter().filter(|c|c.guild.is_none() && matches!(c.kind,1|3)).flat_map(|c|c.recipients.iter().map(|u|u.id))).take(client_core::presence::MAX_DIRECT_PRESENCES).collect();
 										calls.allowed=channels.iter().filter(|c|(c.guild.is_none() && channel_events::private_call(c.kind,c.recipients.len())) || (c.guild.is_some() && c.kind==2)).map(|c|(c.id,c.guild)).collect();
 										if was_ready { emit(Event::Resync)?; }
+										emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?;
 										let notifications = ready.user_guild_settings.take().map(|snapshot| {
 											let (entries, replace) = snapshot.entries();
 											notification_preferences(entries, replace)
@@ -1006,6 +1026,9 @@ async fn run_inner(
 										}
 										if !participants.is_empty() { emit(Event::Voice(client_core::voice::Event::Snapshot { partial: false, guild: None, participants }))?; }
 										ready_at = Some(Instant::now());
+									}
+									"GUILD_MEMBERS_CHUNK" => {
+										if let Some(event) = queries.chunk(packet.d.get().as_bytes()) { emit(event)?; }
 									}
 									"READY_SUPPLEMENTAL" => {
 										let (mut extra, warnings) = ready::supplemental(packet.d.get().as_bytes()).map_err(|_|Failure::ProtocolAt("Gateway login: invalid supplemental guild or voice metadata"))?;
@@ -1034,7 +1057,7 @@ async fn run_inner(
 										if !participants.is_empty() { emit(Event::Voice(client_core::voice::Event::Snapshot { partial: true, guild: None, participants }))?; }
 										calls.users.clear();
 									}
-									"RESUMED" => { emit(Event::Resumed)?; ready_at = Some(Instant::now()); },
+									"RESUMED" => { emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?; emit(Event::Resumed)?; ready_at = Some(Instant::now()); },
 									"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" | "VOICE_STATE_UPDATE" | "VOICE_SERVER_UPDATE" | "STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_DELETE" => calls.dispatch(packet.t.as_deref().unwrap_or(""),packet.d.get().as_bytes(),owner_id,&emit)?,
 									"THREAD_MEMBER_LIST_UPDATE" => {
 										if let Some(active) = &mut active_members {
@@ -1112,7 +1135,12 @@ async fn run_inner(
 										emit(Event::NotificationPreferences(client_core::notifications::Event::Presence(sessions.dnd())))?;
 									}
 									"USER_SETTINGS_PROTO_UPDATE" => emit(Event::NotificationPreferences(client_core::notifications::Event::Invalidate))?,
-									"MESSAGE_CREATE" => emit(Event::Message(decode::<MessageDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model()))?,
+									"INTERACTION_SUCCESS" | "INTERACTION_FAILURE" | "INTERACTION_MODAL_CREATE" => { if let Some(event) = interactions::event(packet.t.as_deref().unwrap_or_default(),packet.d.get().as_bytes())? { emit(event)?; } },
+									"MESSAGE_CREATE" => {
+										let message = decode::<MessageDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model();
+										if message.ephemeral { emit(Event::Interaction(client_core::interactions::Event::Ephemeral(Box::new(message))))?; }
+										else { emit(Event::Message(message))?; }
+									},
 									"MESSAGE_ACK" => {
 										let ack=decode::<read_state::Ack>(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;
 										emit(Event::ReadState(client_core::read_state::Event::Ack{channel:ack.channel_id,message:ack.message_id,manual:ack.manual,mention_count:ack.mention_count,version:ack.version}))?;
@@ -1126,9 +1154,6 @@ async fn run_inner(
 										let latest = std::mem::take(&mut update.updated_channels);
 										calls.passive(update,owner_id,&emit)?;
 										emit(Event::ReadState(client_core::read_state::Event::Latest(latest.into_iter().map(|c|(c.id,c.last_message_id)).collect())))?;
-									}
-									"NOTIFICATION_CENTER_ITEM_CREATE" => {
-										if let Ok(Some(item))=notification_settings::social_notification(packet.d.get().as_bytes()){emit(Event::SocialNotification(item))?;}
 									}
 									"MESSAGE_UPDATE" => emit(Event::Patch(decode::<PatchDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model()))?,
 									"MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI" => {
@@ -1539,7 +1564,7 @@ mod tests {
                 let result = run_inner(
                     Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
                     "wss://gateway.discord.gg/".into(), watch::channel(None).1,
-                    mpsc::channel(1).1, Some(ActivityInput { receiver, own_presence: presence_receiver, observe: &|value| { observations.send_replace(value); Ok(()) } }), |_| Ok(()), Some(&endpoint),
+                    mpsc::channel(1).1, Some(ActivityInput { member_queries: watch::channel(Default::default()).1, receiver, own_presence: presence_receiver, observe: &|value| { observations.send_replace(value); Ok(()) } }), |_| Ok(()), Some(&endpoint),
                 ).await;
                 finished.send(()).unwrap();
                 result
@@ -1895,6 +1920,7 @@ mod tests {
 				}
 			};
 			let events = std::sync::Mutex::new(Vec::new());
+			let sessions = std::sync::Mutex::new(Vec::new());
 			let secret = Arc::new(
 				SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap(),
 			);
@@ -1916,6 +1942,10 @@ mod tests {
 				None,
 				|event| {
 					let label = match event {
+						Event::Interaction(client_core::interactions::Event::Session(session)) => {
+							sessions.lock().unwrap().push(session.to_string());
+							return Ok(());
+						}
 						Event::Startup(_) => "ready",
 						Event::Resumed => "resumed",
 						Event::DirectPresence(_) => "presence",
@@ -1969,6 +1999,14 @@ mod tests {
 			};
 			let (result, ()) = tokio::join!(client, server);
 			assert_eq!(result, Err(Failure::Expired));
+			assert_eq!(
+				sessions.into_inner().unwrap(),
+				[
+					"synthetic-first-session",
+					"synthetic-first-session",
+					"synthetic-new-session"
+				]
+			);
 			let events = events.into_inner().unwrap();
 			assert!(
 				events
@@ -2081,7 +2119,7 @@ mod tests {
             };
             let client=run_inner(Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),"wss://gateway.discord.gg/".into(),watch::channel(None).1,receive,None,|event| {
                 match event {
-                    Event::Startup(_)=>controls.try_send(V::Join{channel:Id(2),request:7,ring:false}).unwrap(),
+                    Event::Startup(_)=>controls.try_send(V::Join{channel:Id(2),request:7,ring:false,mute:false,deaf:false}).unwrap(),
                     Event::Voice(E::State{request,session,..})=>{assert_eq!(request,Some(7));assert_eq!(session.unwrap().expose(),"synthetic-call-session");},
                     Event::Voice(E::Server{request,token,..})=>{assert_eq!(request,7);assert_eq!(token.unwrap().expose(),"synthetic-call-token");controls.try_send(V::Leave{channel:Id(2),request}).unwrap();},
                     _=>{},
@@ -2109,6 +2147,8 @@ mod tests {
 		assert_eq!(next_attempt(5, Some(Duration::from_secs(1))), 6);
 		assert_eq!(next_attempt(5, Some(Duration::from_secs(60))), 1);
 		assert_eq!(next_attempt(5, None), 6);
+		assert_eq!(next_attempt(6, None), 6);
+		assert_eq!(next_attempt(u32::MAX, None), 6);
 		assert_eq!(close_action(4004), Reconnect::Stop);
 		assert_eq!(close_action(4007), Reconnect::Identify);
 		assert_eq!(close_action(1006), Reconnect::Resume);
@@ -2571,7 +2611,7 @@ mod member_tests {
                     assert_eq!(packet["d"]["subscriptions"].as_object().unwrap().len(),1);
                     let subscription=&packet["d"]["subscriptions"]["1"];
                     assert_eq!(subscription["threads"],false);
-                    assert_eq!(subscription["activities"],false);
+                    assert_eq!(subscription["activities"],true);
                     assert_eq!(subscription["members"],json!([]));
                     if !subscribed {
                         assert_eq!(subscription["typing"],true);assert_eq!(subscription["channels"],json!({"2":[[0,99]]}));subscribed=true;
@@ -2610,3 +2650,6 @@ mod member_tests {
         }).await.unwrap();
 	}
 }
+
+#[cfg(debug_assertions)]
+pub use member_search::debug_check as debug_member_search_check;

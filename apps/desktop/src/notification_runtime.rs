@@ -7,7 +7,6 @@ use model::{
 use std::time::{Duration, Instant};
 
 pub enum Alert {
-	Generic(platform::notifications::Kind),
 	Message {
 		title: String,
 		body: String,
@@ -80,32 +79,6 @@ impl Runtime {
 				}
 				if options.allows(cue) {
 					sound = Some(cue);
-				}
-			}
-		}
-		while let Some(notification) = state.take_social_notification() {
-			if audible {
-				if ui.notifications_enabled {
-					alert = Some(Alert::Generic(match notification.kind {
-						model::notification_settings::SocialKind::Streaming => {
-							platform::notifications::Kind::Streaming
-						}
-						model::notification_settings::SocialKind::UpcomingEvent => {
-							platform::notifications::Kind::UpcomingEvent
-						}
-						model::notification_settings::SocialKind::Reaction => {
-							platform::notifications::Kind::Reaction
-						}
-						model::notification_settings::SocialKind::FriendsOnline => {
-							platform::notifications::Kind::FriendsOnline
-						}
-						model::notification_settings::SocialKind::ProfileUpdates => {
-							platform::notifications::Kind::ProfileUpdates
-						}
-					}));
-				}
-				if options.allows(Sound::Message) {
-					sound = Some(Sound::Message);
 				}
 			}
 		}

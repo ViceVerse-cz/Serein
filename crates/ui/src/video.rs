@@ -33,12 +33,18 @@ pub struct VideoUi {
 	pub seen: bool,
 	pub volume: f32,
 	texture: Option<egui::TextureHandle>,
+	/// Staging pixels for the current frame. The renderer drops its reference after the
+	/// upload, so the same allocation is refilled each frame instead of reallocating up to
+	/// 8 MB per frame (1080p at 60 fps churned ~500 MB/s through the allocator).
+	frame: Option<std::sync::Arc<egui::ColorImage>>,
 	/// Vertical transparent-to-black ramp behind the overlay controls.
 	shade: Option<egui::TextureHandle>,
 	/// Keyboard focus rested on an overlay control last frame, so keep the overlay visible.
 	controls_focused: bool,
 	/// Keep the viewport's previous mode so leaving playback restores the window.
 	fullscreen: Option<(egui::Context, bool, egui::Id)>,
+	/// Native window transition for the desktop to apply after this UI frame.
+	fullscreen_request: Option<bool>,
 }
 impl Default for VideoUi {
 	fn default() -> Self {
@@ -51,9 +57,11 @@ impl Default for VideoUi {
 			seen: false,
 			volume: 1.0,
 			texture: None,
+			frame: None,
 			shade: None,
 			controls_focused: false,
 			fullscreen: None,
+			fullscreen_request: None,
 		}
 	}
 }
@@ -62,6 +70,7 @@ impl VideoUi {
 		self.exit_fullscreen();
 		self.active = None;
 		self.texture = None;
+		self.frame = None;
 		self.state = VideoState::Idle;
 		self.position = 0.0;
 		self.duration = 0.0;
@@ -70,9 +79,13 @@ impl VideoUi {
 	}
 	fn exit_fullscreen(&mut self) {
 		if let Some((ctx, previous, focus)) = self.fullscreen.take() {
-			ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(previous));
+			self.fullscreen_request = Some(previous);
 			ctx.memory_mut(|memory| memory.request_focus(focus));
+			ctx.request_repaint();
 		}
+	}
+	pub fn take_fullscreen_request(&mut self) -> Option<bool> {
+		self.fullscreen_request.take()
 	}
 	pub(super) fn is_fullscreen(&self) -> bool {
 		self.fullscreen.is_some()
@@ -86,18 +99,23 @@ impl VideoUi {
 		opening: &mut Option<String>,
 		demo: bool,
 	) {
+		// A modal sizing pass is invisible; it must not stop the active decoder.
+		self.seen = true;
 		let screen = ctx.content_rect();
 		let id = egui::Id::unique("video-fullscreen");
 		let overlay = egui::Modal::new(id)
 			.area(
-				egui::Modal::default_area(id).anchor(egui::Align2::LEFT_TOP, screen.min.to_vec2()),
+				egui::Modal::default_area(id)
+					.anchor(egui::Align2::LEFT_TOP, egui::Vec2::ZERO)
+					.fade_in(false),
 			)
 			.backdrop_color(egui::Color32::BLACK)
 			.frame(egui::Frame::NONE)
 			.show(ctx, |ui| {
 				ui.set_min_size(screen.size());
 				ui.set_max_size(screen.size());
-				let response = self.show_player(ui, message, attachment, true);
+				let response =
+					self.show_player(ui, message, attachment, true, download, opening, demo);
 				crate::attachments::media_context_menu(
 					&response, attachment, download, opening, demo,
 				);
@@ -126,7 +144,25 @@ impl VideoUi {
 		{
 			return false;
 		}
-		let image = egui::ColorImage::from_rgba_unmultiplied([width, height], rgba);
+		let frame = self.frame.get_or_insert_with(|| {
+			std::sync::Arc::new(egui::ColorImage::filled(
+				[width, height],
+				egui::Color32::BLACK,
+			))
+		});
+		// Reuses the buffer once the previous upload released it; clones only if the
+		// renderer still holds the last frame.
+		let image = std::sync::Arc::make_mut(frame);
+		image.size = [width, height];
+		image.source_size = egui::vec2(width as f32, height as f32);
+		image.pixels.clear();
+		image.pixels.extend(
+			rgba.as_chunks::<4>()
+				.0
+				.iter()
+				.map(|&[r, g, b, a]| egui::Color32::from_rgba_unmultiplied(r, g, b, a)),
+		);
+		let image = std::sync::Arc::clone(frame);
 		if let Some(texture) = &mut self.texture {
 			texture.set(image, egui::TextureOptions::LINEAR);
 		} else {
@@ -146,6 +182,7 @@ impl VideoUi {
 			_ => {
 				self.active = Some((message.channel, message.id, attachment.clone()));
 				self.texture = None;
+				self.frame = None;
 				self.state = VideoState::Loading;
 				self.position = 0.0;
 				self.duration = 0.0;
@@ -176,15 +213,22 @@ impl VideoUi {
 		ui: &mut egui::Ui,
 		message: &Message,
 		attachment: &Attachment,
+		download: &mut crate::DownloadUi,
+		opening: &mut Option<String>,
+		demo: bool,
 	) -> egui::Response {
-		self.show_player(ui, message, attachment, false)
+		self.show_player(ui, message, attachment, false, download, opening, demo)
 	}
+	#[allow(clippy::too_many_arguments)]
 	fn show_player(
 		&mut self,
 		ui: &mut egui::Ui,
 		message: &Message,
 		attachment: &Attachment,
 		fullscreen: bool,
+		download: &mut crate::DownloadUi,
+		opening: &mut Option<String>,
+		demo: bool,
 	) -> egui::Response {
 		let colors = crate::design::palette(ui);
 		let active = self.active.as_ref().is_some_and(|(channel, id, file)| {
@@ -197,7 +241,7 @@ impl VideoUi {
 		} else {
 			stage_size(attachment, width)
 		};
-		let (stage, mut response) = ui.allocate_exact_size(size, egui::Sense::click());
+		let (stage, mut response) = ui.allocate_exact_size(size, egui::Sense::hover());
 		if active && self.is_fullscreen() && !fullscreen {
 			return response;
 		}
@@ -209,13 +253,6 @@ impl VideoUi {
 			VideoState::Failed(_) => "Retry",
 			VideoState::Idle => "Play",
 		};
-		response.widget_info(|| {
-			egui::WidgetInfo::labeled(
-				egui::WidgetType::Button,
-				ui.is_enabled(),
-				format!("{label} video {}", attachment.filename),
-			)
-		});
 		let painter = ui.painter().with_clip_rect(stage);
 		painter.rect_filled(stage, CORNER, egui::Color32::BLACK);
 		if let Some(texture) = self.texture.as_ref().filter(|_| active) {
@@ -233,6 +270,26 @@ impl VideoUi {
 		let show_controls = active
 			&& state != VideoState::Idle
 			&& (hovered || state != VideoState::Playing || self.controls_focused);
+		// The controls are painted over the stage. Keep playback interaction out of both
+		// overlay bands so a control click cannot also become a play/pause click.
+		let action_top = (stage.top() + 44.0).min(stage.bottom());
+		let action_bottom =
+			(stage.bottom() - if show_controls { BAR_HEIGHT } else { 0.0 }).max(action_top);
+		let action = ui.interact(
+			egui::Rect::from_min_max(
+				egui::pos2(stage.left(), action_top),
+				egui::pos2(stage.right(), action_bottom),
+			),
+			response.id.with("playback"),
+			egui::Sense::click(),
+		);
+		action.widget_info(|| {
+			egui::WidgetInfo::labeled(
+				egui::WidgetType::Button,
+				ui.is_enabled(),
+				format!("{label} video {}", attachment.filename),
+			)
+		});
 		let center = if show_controls {
 			stage.center() - egui::vec2(0.0, BAR_HEIGHT * 0.25)
 		} else {
@@ -340,9 +397,10 @@ impl VideoUi {
 			painter.rect_filled(badge, 4, egui::Color32::from_black_alpha(150));
 			painter.galley(badge.min + egui::vec2(6.0, 3.0), galley, white);
 		}
-		if response.clicked() {
+		if action.clicked() {
 			self.toggle(message, attachment, state);
 		}
+		response = action | response;
 		let mut controls_focused = false;
 		let context_click = ui.input(|i| {
 			i.pointer.button_down(egui::PointerButton::Secondary)
@@ -525,8 +583,7 @@ impl VideoUi {
 									let previous =
 										ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
 									self.fullscreen = Some((ui.ctx().clone(), previous, button_id));
-									ui.ctx()
-										.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+									self.fullscreen_request = Some(true);
 								}
 							}
 							ui.spacing_mut().slider_width =
@@ -562,6 +619,55 @@ impl VideoUi {
 			);
 		}
 		self.controls_focused = controls_focused;
+		// Download/open controls stay visible regardless of load state, unlike the bottom bar.
+		// Added last so Tab order still reaches the playback controls first.
+		let overlay = egui::Rect::from_min_size(
+			egui::pos2(stage.left() + 8.0, stage.top() + 8.0),
+			egui::vec2((stage.width() - 16.0).max(0.0), 28.0),
+		);
+		ui.scope_builder(
+			egui::UiBuilder::new()
+				.max_rect(overlay)
+				.layout(egui::Layout::right_to_left(egui::Align::Min)),
+			|ui| {
+				ui.spacing_mut().item_spacing.x = 6.0;
+				let idle = !demo && !download.busy();
+				if ui
+					.add_enabled_ui(idle, |ui| {
+						crate::attachments::glass_button(
+							ui,
+							crate::icons::Icon::Download,
+							28.0,
+							"Download",
+						)
+					})
+					.inner
+					.on_disabled_hover_text(if demo {
+						"Downloads are disabled for synthetic attachments"
+					} else {
+						"A download is already active"
+					})
+					.clicked()
+				{
+					download.request = Some(attachment.clone());
+				}
+				if let Some(url) = attachment
+					.media
+					.url
+					.as_deref()
+					.and_then(crate::markdown::external_url)
+					&& crate::attachments::glass_button(
+						ui,
+						crate::icons::Icon::External,
+						28.0,
+						"Open original…",
+					)
+					.clicked()
+				{
+					*opening = Some(url);
+				}
+			},
+		);
 		if response.has_focus() {
 			ui.painter().rect_stroke(
 				stage,
@@ -659,6 +765,7 @@ mod tests {
 							&mut crate::AudioUi::default(),
 							video,
 							false,
+							&mut crate::select::Surface::new(ui, "attachment-test"),
 						);
 						assert!(ui.min_rect().width() <= width + 2.0);
 						// Only the stage and attachment spacing drive the layout estimate;

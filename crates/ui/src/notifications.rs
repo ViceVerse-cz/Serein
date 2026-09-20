@@ -4,7 +4,7 @@ use egui::{Align2, Color32, FontId};
 use model::Id;
 
 /// Fixed width of the server rail column.
-pub(super) const RAIL_WIDTH: f32 = 72.0;
+pub(super) const RAIL_WIDTH: f32 = 68.0;
 
 #[derive(Default)]
 pub(super) struct RailCache {
@@ -30,8 +30,7 @@ impl RailCache {
 		for channel in state.channels.iter().take(client_core::MAX_NAV) {
 			if let Some(guild) = channel.guild {
 				let entry = badges.entry(guild).or_default();
-				entry.0 |= state.channel_unread(channel) == Some(true)
-					|| state.unread_count(channel.id) > 0;
+				entry.0 |= state.lights_guild_rail(channel);
 				entry.1 = entry.1.saturating_add(state.mention_count(channel.id));
 			}
 		}
@@ -175,28 +174,28 @@ impl MessagingUi {
 						design::ImageSection::ServerList,
 					))
 					.inner_margin(egui::Margin {
-						left: 12,
-						right: 12,
+						left: 11,
+						right: 11,
 						top: 4,
 						bottom: 8,
 					}),
 			)
 			.show(ui, |ui| {
-				ui.spacing_mut().item_spacing.y = 12.0;
+				ui.spacing_mut().item_spacing.y = 11.0;
 				let home = self.guild.is_none();
 				let (rect, response) =
-					ui.allocate_exact_size(egui::Vec2::splat(48.0), egui::Sense::click());
+					ui.allocate_exact_size(egui::Vec2::splat(46.0), egui::Sense::click());
 				let hovered = response.hovered() || response.has_focus();
 				let fill = if home || hovered {
 					colors.accent
 				} else {
 					colors.raised
 				};
-				ui.painter().rect_filled(rect, 14, fill);
+				ui.painter().rect_filled(rect, 13, fill);
 				crate::icons::paint(
 					ui.painter(),
 					crate::icons::Icon::Serein,
-					rect.shrink(11.0),
+					rect.shrink(10.5),
 					if home || hovered {
 						colors.accent_text
 					} else {
@@ -226,6 +225,8 @@ impl MessagingUi {
 				design::rail_name(&response, &label);
 				if response.clicked() {
 					self.guild = None;
+					state.selected = None;
+					self.search.open = false;
 				}
 				self.scroll
 					.attach(
@@ -362,10 +363,58 @@ mod tests {
 	}
 
 	#[test]
+	fn home_rail_opens_friends_from_a_guild_channel() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut view = MessagingUi {
+			guild: state
+				.selected
+				.and_then(|id| state.channel(id))
+				.and_then(|channel| channel.guild),
+			..Default::default()
+		};
+		view.search.open = true;
+		let mut frame = |events| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| view.notification_rail(ui, &mut state, &mut vec![]),
+			);
+			output.drop_without_applying_deltas();
+		};
+		frame(vec![]);
+		for pressed in [true, false] {
+			frame(vec![
+				egui::Event::PointerMoved(egui::pos2(34.0, 27.0)),
+				egui::Event::PointerButton {
+					pos: egui::pos2(34.0, 27.0),
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]);
+		}
+		assert_eq!(view.guild, None);
+		assert_eq!(state.selected, None);
+		assert!(!view.search.open);
+	}
+
+	#[test]
 	fn rail_cache_reuses_idle_rows_and_tracks_unread_ack_permissions_and_removal() {
 		let mut state = test_support::notification_demo_state();
 		let mut cache = RailCache::default();
 		assert!(cache.sync(&state));
+		assert_eq!(
+			state.channel_unread(state.channel(Id(27)).unwrap()),
+			None,
+			"Threads omitted from read-state stay unknown, not unread"
+		);
 		assert_eq!(&*cache.direct, &[Id(22)]);
 		assert!(!cache.direct.contains(&Id(43)));
 		assert_eq!(state.home_request_count(), 3);
@@ -479,6 +528,18 @@ mod tests {
 				}),
 			);
 		}
+		apply(
+			&mut state,
+			Event::ReadState(read_state::Event::Snapshot {
+				partial: false,
+				entries: Some(
+					std::iter::once((Id(20), Some(Id(495)), 0))
+						.chain((100..=115).map(|id| (Id(id), Some(Id(1)), 0)))
+						.collect(),
+				),
+				version: Some(1),
+			}),
+		);
 		let mut cache = RailCache::default();
 		assert!(cache.sync(&state));
 		assert!(!cache.direct.contains(&Id(43)));

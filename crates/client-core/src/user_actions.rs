@@ -55,10 +55,31 @@ pub enum Action {
 	Mute { channel: Id, muted: bool },
 }
 impl std::fmt::Debug for Action {
+	/// Redacted debug output; never prints note, nickname or username text.
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		f.debug_struct("UserAction")
 			.field("kind", &std::mem::discriminant(self))
 			.finish_non_exhaustive()
+	}
+}
+
+/// Friendship-establishing writes can require a user-solved captcha; removals do not.
+pub fn establishes_friendship(action: &Action) -> bool {
+	matches!(action, Action::AddFriend { .. })
+		|| matches!(action, Action::ResolveFriend { accept: true, .. })
+		|| matches!(action, Action::ProfileFriend { friend: true, .. })
+}
+/// The challenge identity for a friendship write, if it can require one.
+pub fn challenge_target(action: &Action) -> Option<crate::captcha::Target> {
+	match action {
+		Action::AddFriend { username } => Some(crate::captcha::Target::Username {
+			username: username.clone(),
+		}),
+		Action::ResolveFriend { user, accept: true }
+		| Action::ProfileFriend { user, friend: true } => {
+			Some(crate::captcha::Target::Friend { user: *user })
+		}
+		_ => None,
 	}
 }
 
@@ -120,6 +141,11 @@ pub enum Event {
 		request: u64,
 		result: Result<(), Failure>,
 	},
+	Challenge {
+		action: Action,
+		request: u64,
+		challenge: Box<crate::captcha::Challenge>,
+	},
 }
 #[derive(Default)]
 pub struct Actions {
@@ -138,6 +164,7 @@ pub struct Actions {
 	view: u64,
 	sequence: u64,
 	pending: Option<(Action, u64, bool)>,
+	challenge: Option<(std::time::Instant, crate::captcha::Challenge)>,
 	dm_origin: Option<(Option<Id>, u64)>,
 	opened_dm: Option<(Id, Id)>,
 	status: Option<&'static str>,
@@ -190,7 +217,9 @@ impl State {
 						.flatten()
 						.find(|m| m.user.id == message.author.id)
 				});
-			let nick = member.map_or(message.author_nick.as_deref(), |m| m.nick.as_deref());
+			let nick = member
+				.and_then(|m| m.nick.as_deref().filter(|nick| !nick.is_empty()))
+				.or(message.author_nick.as_deref());
 			if let Some(nick) = nick.filter(|nick| !nick.is_empty()) {
 				return nick;
 			}
@@ -395,6 +424,7 @@ impl State {
 			&& self.friend_requests_known()
 			&& self.user_blocked(user) == Some(false)
 	}
+	/// Accepts or declines one incoming friend request.
 	pub fn resolve_friend_request(&mut self, user: Id, accept: bool) -> Option<Command> {
 		let (_, _, incoming) = self.user_actions.requests.get(&user)?;
 		if (accept && !incoming) || self.user_blocked(user) != Some(false) {
@@ -402,6 +432,81 @@ impl State {
 		}
 		self.request_user_action(Action::ResolveFriend { user, accept })
 	}
+	/// The one pending friendship write that is waiting on a user-solved challenge.
+	pub fn friend_challenge(&self) -> Option<(u64, &crate::captcha::Challenge)> {
+		let (action, request, _) = self.user_actions.pending.as_ref()?;
+		if !establishes_friendship(action) {
+			return None;
+		}
+		let (at, challenge) = self.user_actions.challenge.as_ref()?;
+		(at.elapsed() < crate::captcha::LIFETIME).then_some((*request, challenge))
+	}
+	/// Builds the one explicit retry that resumes a solved friendship challenge.
+	pub fn resume_friend_challenge(
+		&mut self,
+		request: u64,
+		solution: crate::captcha::Solution,
+	) -> Option<Command> {
+		if self.demo || !self.gateway_connected || self.auth != AuthState::Authenticated {
+			return None;
+		}
+		if self.friend_challenge()?.0 != request {
+			return None;
+		}
+		let action = match self.user_actions.pending.as_ref() {
+			Some((action, _, _)) => action.clone(),
+			_ => return None,
+		};
+		let target = challenge_target(&action)?;
+		let (at, challenge) = self.user_actions.challenge.take()?;
+		// The new identity makes a duplicated response to the first attempt stale.
+		self.user_actions.sequence = self.user_actions.sequence.wrapping_add(1);
+		let request = self.user_actions.sequence;
+		self.user_actions.pending = Some((action.clone(), request, false));
+		Some(Command::UserAction {
+			action,
+			request,
+			captcha: Some(Box::new(crate::captcha::Retry {
+				target,
+				request,
+				challenge,
+				solution,
+				expires: at + crate::captcha::LIFETIME,
+			})),
+		})
+	}
+	/// Cancels the pending friendship challenge and releases its write.
+	pub fn cancel_friend_challenge(&mut self, request: u64) {
+		if self
+			.friend_challenge()
+			.is_some_and(|(pending, _)| pending == request)
+		{
+			self.user_actions.challenge = None;
+			if let Some((action, _, _)) = self.user_actions.pending.take()
+				&& matches!(action, Action::Block { .. })
+			{
+				self.user_actions.bump_view();
+			}
+			self.user_actions.status =
+				Some("Verification cancelled; the friend request was not sent.");
+			self.status = self.user_actions.status.unwrap();
+		}
+	}
+	/// Releases a friendship challenge that outlived its five-minute lifetime.
+	pub(crate) fn expire_friend_challenge(&mut self) {
+		if self
+			.user_actions
+			.challenge
+			.as_ref()
+			.is_some_and(|(at, _)| at.elapsed() >= crate::captcha::LIFETIME)
+		{
+			self.user_actions.challenge = None;
+			self.user_actions.pending = None;
+			self.user_actions.status = Some("Verification expired; send the friend request again.");
+			self.status = self.user_actions.status.unwrap();
+		}
+	}
+	/// Visible friends, filtered by the current relationship snapshot.
 	pub fn friends(&self) -> impl Iterator<Item = &model::User> {
 		self.user_actions
 			.friends
@@ -537,6 +642,7 @@ impl State {
 		self.channel(channel)
 			.is_some_and(|c| c.guild.is_none() && c.kind == 1 && c.recipients.len() == 1)
 	}
+	/// Queues one account write; only one may be pending at a time.
 	fn request_user_action(&mut self, action: Action) -> Option<Command> {
 		if self.user_action_pending() {
 			return None;
@@ -553,11 +659,17 @@ impl State {
 			self.user_actions.bump_view();
 		}
 		self.user_actions.status = None;
-		Some(Command::UserAction { action, request })
+		Some(Command::UserAction {
+			action,
+			request,
+			captcha: None,
+		})
 	}
+	/// Aborts the pending account write and reports an unknown outcome.
 	pub(crate) fn cancel_user_action(&mut self) {
 		self.user_actions.dm_origin = None;
 		self.user_actions.opened_dm = None;
+		self.user_actions.challenge = None;
 		if let Some((action, _, _)) = self.user_actions.pending.take() {
 			if matches!(action, Action::Block { .. }) {
 				self.user_actions.bump_view();
@@ -584,6 +696,7 @@ impl State {
 			};
 		}
 	}
+	/// Applies one account-action event to relationship and challenge state.
 	pub(crate) fn apply_user_action(&mut self, event: Event) -> Result<(), &'static str> {
 		// Bump before applying: invalid full snapshots can clear previously visible entries.
 		if matches!(
@@ -795,6 +908,7 @@ impl State {
 									name: "Unknown user".into(),
 									avatar: None,
 									discriminator: 0,
+									primary_guild: None,
 									webhook: false,
 									kind: Default::default(),
 								},
@@ -840,24 +954,11 @@ impl State {
 			Event::FriendProfile(profile) => {
 				if self.user_actions.friends.contains_key(&profile.0.id) {
 					let user = profile.0.id;
-					let changed = self
-						.user_actions
-						.friends
-						.get(&user)
-						.is_some_and(|(old, _)| {
-							old.name != profile.0.name || old.avatar != profile.0.avatar
-						});
 					self.apply_user_action(Event::Friend {
 						user,
 						friend: true,
 						profile: Some(profile),
 					})?;
-					if changed {
-						self.notify_friend_change(
-							user,
-							model::notification_settings::SocialKind::ProfileUpdates,
-						);
-					}
 					return Ok(());
 				}
 			}
@@ -1022,6 +1123,20 @@ impl State {
 					*observed = true;
 				}
 			}
+			Event::Challenge {
+				action,
+				request,
+				challenge,
+			} => {
+				let Some((pending, sequence, _)) = &self.user_actions.pending else {
+					return Ok(());
+				};
+				if *pending != action || *sequence != request || !establishes_friendship(&action) {
+					return Ok(());
+				}
+				self.user_actions.status = None;
+				self.user_actions.challenge = Some((std::time::Instant::now(), *challenge));
+			}
 			Event::Written {
 				action,
 				request,
@@ -1035,14 +1150,22 @@ impl State {
 				}
 				let observed = *observed;
 				self.user_actions.pending = None;
+				self.user_actions.challenge = None;
 				if matches!(action, Action::OpenDm(_)) {
 					self.user_actions.dm_origin = None;
 				}
 				if matches!(action, Action::Block { .. }) {
 					self.user_actions.bump_view();
 				}
+				let sends_friend_request = matches!(
+					&action,
+					Action::AddFriend { .. } | Action::ProfileFriend { friend: true, .. }
+				);
+				let removes_friend_request =
+					matches!(&action, Action::ResolveFriend { accept: false, .. });
+				let uses_toast = sends_friend_request || removes_friend_request;
 				if let Err(failure) = result {
-					self.user_actions.status = Some(failure.label());
+					self.user_actions.status = (!uses_toast).then_some(failure.label());
 					self.status = failure.label();
 					if failure.ends_session() {
 						self.fail(failure);
@@ -1124,7 +1247,7 @@ impl State {
 					}
 					Action::Mute { muted: false, .. } => "Conversation notifications unmuted",
 				};
-				self.user_actions.status = (!observed).then_some(label);
+				self.user_actions.status = (!observed && !uses_toast).then_some(label);
 				self.status = label;
 			}
 		}
@@ -1417,12 +1540,16 @@ mod tests {
 		assert!(state.add_friend("new_friend").is_none());
 		assert!(state.resolve_friend_request(user.id, true).is_none());
 		finish(&mut state, send, Ok(()));
+		assert_eq!(state.user_action_status(), None);
 		assert!(state.add_friend("new_friend").is_none());
 		assert_eq!(
 			state.pending_friends().count(),
 			1,
 			"no invented outgoing identity"
 		);
+		let rejected = state.add_friend("other_friend").unwrap();
+		finish(&mut state, rejected, Err(Failure::Protocol));
+		assert_eq!(state.user_action_status(), None);
 		let accept = state.resolve_friend_request(user.id, true).unwrap();
 		finish(&mut state, accept, Err(Failure::Forbidden));
 		assert_eq!(state.pending_friends().count(), 1);
@@ -1450,6 +1577,7 @@ mod tests {
 		assert!(state.resolve_friend_request(user.id, true).is_none());
 		let cancel = state.resolve_friend_request(user.id, false).unwrap();
 		finish(&mut state, cancel, Ok(()));
+		assert_eq!(state.user_action_status(), None);
 		assert_eq!(state.pending_friends().count(), 0);
 		state
 			.apply_user_action(Event::Request {
@@ -1588,8 +1716,10 @@ mod tests {
 		state.gateway_connected = false;
 		assert!(state.add_profile_friend(Id(3)).is_none());
 	}
+	/// Synthetic authenticated state for user-action tests.
 	fn state() -> State {
 		let user = |id| model::User {
+			primary_guild: None,
 			id: Id(id),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -1618,8 +1748,12 @@ mod tests {
 			..State::default()
 		}
 	}
+	/// Completes a pending write with the given result.
 	fn finish(state: &mut State, command: Command, result: Result<(), Failure>) {
-		let Command::UserAction { action, request } = command else {
+		let Command::UserAction {
+			action, request, ..
+		} = command
+		else {
 			panic!("wrong command")
 		};
 		state.apply(Envelope {
@@ -1755,6 +1889,7 @@ mod tests {
 		finish(&mut state, new, Ok(()));
 		assert_eq!(state.user_blocked(Id(2)), Some(true));
 	}
+	/// Regression: gateway updates win over late writes and settings stay bounded.
 	#[test]
 	fn gateway_updates_win_over_late_writes_and_settings_stay_bounded() {
 		let mut state = state();
@@ -1845,5 +1980,119 @@ mod tests {
 		state.logout();
 		assert_eq!(state.dm_muted(Id(10)), None);
 		assert_eq!(state.user_blocked(Id(2)), None);
+	}
+
+	/// Regression: a friendship challenge is scoped, single-use and resumes its write.
+	#[test]
+	fn friend_captcha_is_scoped_single_use_and_resumes_the_same_write() {
+		use crate::captcha::{Challenge, Solution};
+		let mut state = state();
+		let Some(Command::UserAction {
+			action,
+			request,
+			captcha: None,
+		}) = state.add_friend("synthetic_friend")
+		else {
+			panic!("friend request")
+		};
+		assert!(matches!(action, Action::AddFriend { .. }));
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::UserAction(Event::Challenge {
+				action: action.clone(),
+				request,
+				challenge: Box::new(
+					Challenge::new("synthetic-key".into(), None, None, None, false).unwrap(),
+				),
+			}),
+		});
+		assert_eq!(
+			state.friend_challenge().map(|(request, _)| request),
+			Some(request)
+		);
+		// A solution cannot resume a different request.
+		assert!(
+			state
+				.resume_friend_challenge(
+					request.wrapping_add(1),
+					Solution::new("synthetic-solution".into()).unwrap()
+				)
+				.is_none()
+		);
+		let Some(Command::UserAction {
+			action: resumed,
+			request: resumed_request,
+			captcha: Some(retry),
+		}) = state
+			.resume_friend_challenge(request, Solution::new("synthetic-solution".into()).unwrap())
+		else {
+			panic!("resume")
+		};
+		assert!(matches!(resumed, Action::AddFriend { .. }));
+		assert_ne!(resumed_request, request);
+		assert!(retry.matches_target(&challenge_target(&resumed).unwrap()));
+		// The challenge is consumed once.
+		assert!(state.friend_challenge().is_none());
+		assert!(
+			state
+				.resume_friend_challenge(
+					resumed_request,
+					Solution::new("synthetic-solution".into()).unwrap()
+				)
+				.is_none()
+		);
+		finish(
+			&mut state,
+			Command::UserAction {
+				action: resumed,
+				request: resumed_request,
+				captcha: None,
+			},
+			Ok(()),
+		);
+		assert!(!state.user_action_pending());
+	}
+
+	/// Regression: cancel and expiry release the pending friendship write.
+	#[test]
+	fn friend_captcha_cancel_and_expiry_release_the_pending_write() {
+		use crate::captcha::Challenge;
+		let challenge = || Challenge::new("synthetic-key".into(), None, None, None, false).unwrap();
+		let mut state = state();
+		let Some(Command::UserAction {
+			action, request, ..
+		}) = state.add_friend("synthetic_friend")
+		else {
+			panic!("friend request")
+		};
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::UserAction(Event::Challenge {
+				action: action.clone(),
+				request,
+				challenge: Box::new(challenge()),
+			}),
+		});
+		state.cancel_friend_challenge(request);
+		assert!(state.friend_challenge().is_none() && !state.user_action_pending());
+		// Expiry releases the pending write so the user can send it again.
+		let Some(Command::UserAction {
+			action, request, ..
+		}) = state.add_friend("synthetic_friend")
+		else {
+			panic!("friend request")
+		};
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::UserAction(Event::Challenge {
+				action: action.clone(),
+				request,
+				challenge: Box::new(challenge()),
+			}),
+		});
+		state.user_actions.challenge.as_mut().unwrap().0 =
+			std::time::Instant::now() - crate::captcha::LIFETIME;
+		state.expire_friend_challenge();
+		assert!(state.friend_challenge().is_none() && !state.user_action_pending());
 	}
 }

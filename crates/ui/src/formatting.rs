@@ -27,23 +27,21 @@ impl Style {
 
 	/// Consumes the first matching shortcut this frame. Shift combinations are checked first
 	/// because a plain `Cmd+letter` match would otherwise also swallow them.
-	pub fn consume(ctx: &egui::Context) -> Option<Self> {
-		use egui::{Key, Modifiers};
-		const SHIFT: Modifiers = Modifiers::COMMAND.plus(Modifiers::SHIFT);
-		const SHORTCUTS: [(Modifiers, Key, Style); 7] = [
-			(SHIFT, Key::X, Style::Strikethrough),
-			(SHIFT, Key::C, Style::CodeBlock),
-			(SHIFT, Key::P, Style::Spoiler),
-			(Modifiers::COMMAND, Key::B, Style::Bold),
-			(Modifiers::COMMAND, Key::I, Style::Italic),
-			(Modifiers::COMMAND, Key::U, Style::Underline),
-			(Modifiers::COMMAND, Key::E, Style::Code),
+	pub fn consume(ctx: &egui::Context, bindings: &model::Keybinds) -> Option<Self> {
+		const SHORTCUTS: [(model::KeybindAction, Style); 7] = [
+			(model::KeybindAction::Strikethrough, Style::Strikethrough),
+			(model::KeybindAction::CodeBlock, Style::CodeBlock),
+			(model::KeybindAction::Spoiler, Style::Spoiler),
+			(model::KeybindAction::Bold, Style::Bold),
+			(model::KeybindAction::Italic, Style::Italic),
+			(model::KeybindAction::Underline, Style::Underline),
+			(model::KeybindAction::InlineCode, Style::Code),
 		];
 		ctx.input_mut(|input| {
 			SHORTCUTS
 				.iter()
-				.find(|(modifiers, key, _)| input.consume_key(*modifiers, *key))
-				.map(|(_, _, style)| *style)
+				.find(|(action, _)| crate::keybinds::pressed(input, bindings.chord(*action)))
+				.map(|(_, style)| *style)
 		})
 	}
 }

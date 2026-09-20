@@ -19,7 +19,7 @@ mod install;
 const RELEASES: &str = "https://api.github.com/repos/ViceVerse-cz/Serein/releases";
 const MAX_METADATA: usize = 2 * 1024 * 1024;
 const MAX_DOWNLOAD: u64 = 512 * 1024 * 1024;
-const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+const CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Clone, Deserialize)]
 struct Asset {
@@ -148,8 +148,12 @@ impl Updater {
 			view.available = false;
 			view.ready = false;
 			view.progress = None;
-			view.status =
-				"Load update preferences or choose your update settings to enable checking.".into();
+			view.status = if cfg!(debug_assertions) {
+				"Update checks are disabled in debug builds."
+			} else {
+				"Load update preferences or choose your update settings to enable checking."
+			}
+			.into();
 			return false;
 		}
 		if self.channel != Some(view.nightly) {

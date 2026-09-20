@@ -52,6 +52,49 @@ pub(crate) fn insert(
 	Some(start + inserted)
 }
 
+/// Replace an exact completed Unicode shortcode immediately before the caret.
+pub(crate) fn complete_shortcode(
+	draft: &mut String,
+	cursor: usize,
+	remaining: usize,
+) -> Option<usize> {
+	let end = draft
+		.char_indices()
+		.nth(cursor)
+		.map_or(draft.len(), |(index, _)| index);
+	let prefix = draft[..end].strip_suffix(':')?;
+	let start = prefix.rfind(':')?;
+	if prefix[..start]
+		.chars()
+		.next_back()
+		.is_some_and(|c| !c.is_whitespace() && !matches!(c, '(' | '[' | '{'))
+	{
+		return None;
+	}
+	let name = &prefix[start + 1..];
+	if !(2..=64).contains(&name.chars().count()) {
+		return None;
+	}
+	let emoji = standard()
+		.iter()
+		.zip(shortcodes())
+		.find_map(|((emoji, _), code)| {
+			code[1..code.len() - 1]
+				.eq_ignore_ascii_case(name)
+				.then_some(*emoji)
+		})?;
+	let start = draft[..start].chars().count();
+	insert(
+		draft,
+		emoji,
+		Some(egui::text::CCursorRange::two(
+			egui::text::CCursor::new(start),
+			egui::text::CCursor::new(cursor),
+		)),
+		remaining,
+	)
+}
+
 pub(crate) fn standard() -> &'static [(&'static str, &'static str)] {
 	static ENTRIES: OnceLock<Vec<(&'static str, &'static str)>> = OnceLock::new();
 	ENTRIES.get_or_init(|| {
@@ -110,6 +153,20 @@ impl GifMode {
 
 const CUSTOM_LIMIT: usize = model::MAX_GUILD_EMOJIS;
 
+/// Case-insensitive substring test against an already lowercased `needle`. Runs for every
+/// custom emoji on every frame the picker is open, so ASCII names (Discord permits only
+/// `[A-Za-z0-9_]`) compare in place; only non-ASCII server names allocate.
+fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
+	if haystack.is_ascii() && needle.is_ascii() {
+		haystack
+			.as_bytes()
+			.windows(needle.len())
+			.any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
+	} else {
+		haystack.to_lowercase().contains(needle)
+	}
+}
+
 /// Borrow catalog entries only; cap search results independently of the joined-server count.
 fn custom_matches<'a>(
 	state: &'a State,
@@ -123,13 +180,10 @@ fn custom_matches<'a>(
 		.filter(|guild| !query.is_empty() || server == Some(guild.id))
 		.flat_map(|guild| {
 			let query = &query;
-			let source_matches =
-				!query.is_empty() && guild.name.to_lowercase().contains(query.as_str());
+			let source_matches = !query.is_empty() && contains_ignore_case(&guild.name, query);
 			guild.emojis.iter().flatten().filter_map(move |emoji| {
-				(source_matches
-					|| query.is_empty()
-					|| emoji.name.to_lowercase().contains(query.as_str()))
-				.then_some((guild, emoji))
+				(source_matches || query.is_empty() || contains_ignore_case(&emoji.name, query))
+					.then_some((guild, emoji))
 			})
 		})
 		.take(CUSTOM_LIMIT)
@@ -184,6 +238,15 @@ const GIF_DEBOUNCE: f64 = 0.3;
 impl Picker {
 	/// The same bundled Unicode catalog and cells, without composer or network actions.
 	pub(crate) fn unicode_button(&mut self, ui: &mut egui::Ui, selected: &mut Option<String>) {
+		self.unicode_button_with(ui, selected, true);
+	}
+	/// `removable` offers clearing the choice; insertion targets have nothing to clear.
+	pub(crate) fn unicode_button_with(
+		&mut self,
+		ui: &mut egui::Ui,
+		selected: &mut Option<String>,
+		removable: bool,
+	) {
 		let button = if let Some(image) = selected
 			.as_deref()
 			.and_then(|emoji| crate::emoji::image(ui.ctx(), emoji, 22.0))
@@ -225,7 +288,7 @@ impl Picker {
 				{
 					self.filter();
 				}
-				if ui.button("Remove emoji").clicked() {
+				if removable && ui.button("Remove emoji").clicked() {
 					*selected = None;
 					ui.close();
 				}
@@ -375,6 +438,12 @@ impl Picker {
 			return;
 		}
 		let trigger = ui.interact(anchor, trigger_id, egui::Sense::hover());
+		// The real trigger is the hover-toolbar button, which is not registered while the
+		// popout covers the message row. Keep a node for the id focus is returned to, or
+		// AccessKit's tree validation panics on a focused id missing from the node list.
+		trigger.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Add reaction")
+		});
 		if let Some(Pick::React(message, emoji)) =
 			self.popup(ui, state, channel, avatars, commands, &trigger, None)
 			&& let Some(command) = state.prepare_reaction(message, emoji)
@@ -725,7 +794,7 @@ impl Picker {
 											};
 											let search = ui.add(
 												egui::TextEdit::singleline(text)
-													.id(ui.id().with("picker-search"))
+													.id(ui.scope_id().with("picker-search"))
 													.char_limit(64)
 													.frame(egui::Frame::NONE)
 													.hint_text(hint)
@@ -1413,7 +1482,7 @@ fn tile(
 ) -> egui::Response {
 	let response = ui.interact(
 		rect,
-		ui.id().with(("gif-tile", label)),
+		ui.scope_id().with(("gif-tile", label)),
 		egui::Sense::click(),
 	);
 	let lifted = response.hovered() || response.has_focus();
@@ -1607,7 +1676,7 @@ fn gif_grid(
 				if !ui.is_rect_visible(rect) {
 					continue;
 				}
-				let id = ui.id().with(("gif", &gif.id));
+				let id = ui.scope_id().with(("gif", &gif.id));
 				let response = ui.interact(rect, id, egui::Sense::click());
 				let star_rect = egui::Rect::from_min_size(
 					egui::pos2(rect.right() - 32.0, rect.top() + 6.0),
@@ -1892,6 +1961,88 @@ mod tests {
 	}
 
 	#[test]
+	fn reaction_selection_never_focuses_a_missing_accesskit_node() {
+		// AccessKit's consumer panics when a tree update focuses an id that is not in the
+		// node list, so every frame must keep the focused widget registered as a node.
+		let ctx = egui::Context::default();
+		ctx.enable_accesskit();
+		crate::emoji::install(&ctx).unwrap();
+		let mut state = test_support::demo_state();
+		let message = Id(500);
+		let mut picker = Picker::default();
+		let mut avatars = Avatars::default();
+		let anchor = egui::Rect::from_min_size(egui::pos2(700.0, 600.0), egui::vec2(28.0, 28.0));
+		let key = |key| egui::Event::Key {
+			key,
+			physical_key: None,
+			pressed: true,
+			repeat: false,
+			modifiers: egui::Modifiers::NONE,
+		};
+		let frame = |picker: &mut Picker, state: &mut State, avatars: &mut Avatars, events| {
+			let mut commands = Vec::new();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| picker.show_reaction(ui, state, avatars, &mut commands),
+			);
+			if let Some(update) = &output.platform_output.accesskit_update {
+				assert!(
+					update.nodes.iter().any(|(id, _)| *id == update.focus),
+					"focused id {:?} is missing from the AccessKit node list",
+					update.focus
+				);
+			}
+			output.drop_without_applying_deltas();
+			commands
+		};
+		// The real trigger is the hover-toolbar button, which is not rendered while the
+		// popout covers it; a synthetic id reproduces that absent node.
+		picker.open_reaction(&state, message, anchor, egui::Id::unique("synthetic-react"));
+		for _ in 0..3 {
+			assert!(frame(&mut picker, &mut state, &mut avatars, vec![]).is_empty());
+		}
+		frame(
+			&mut picker,
+			&mut state,
+			&mut avatars,
+			vec![egui::Event::Text("rocket".into())],
+		);
+		let mut selected = false;
+		for _ in 0..12 {
+			frame(
+				&mut picker,
+				&mut state,
+				&mut avatars,
+				vec![key(egui::Key::Tab)],
+			);
+			if ctx
+				.memory(|m| m.focused())
+				.and_then(|id| ctx.read_response(id))
+				.is_some_and(|r| r.rect.size() == egui::Vec2::splat(CELL))
+			{
+				// Selecting hands focus back to the trigger, which must stay valid.
+				let commands = frame(
+					&mut picker,
+					&mut state,
+					&mut avatars,
+					vec![key(egui::Key::Enter)],
+				);
+				assert_eq!(commands.len(), 1);
+				selected = true;
+				break;
+			}
+		}
+		assert!(selected && !picker.open);
+	}
+
+	#[test]
 	fn gif_search_keeps_focus_when_the_back_button_appears() {
 		let ctx = egui::Context::default();
 		crate::emoji::install(&ctx).unwrap();
@@ -1990,6 +2141,20 @@ mod tests {
 		assert_eq!(insert(&mut draft, "👍", selection, 0), Some(1));
 		assert_eq!(draft, "👍");
 		assert_eq!(draft.capacity(), 4);
+	}
+
+	#[test]
+	fn completed_shortcode_becomes_unicode_at_the_caret() {
+		let mut draft = "look :eyes: here :eyes:".to_owned();
+		assert_eq!(complete_shortcode(&mut draft, 11, 0), Some(6));
+		assert_eq!(draft, "look 👀 here :eyes:");
+		assert_eq!(complete_shortcode(&mut draft, 18, 0), Some(13));
+		assert_eq!(draft, "look 👀 here 👀");
+		for literal in ["word:eyes:", "https:", "<:eyes:", ":unknown:"] {
+			let mut draft = literal.to_owned();
+			let cursor = draft.chars().count();
+			assert_eq!(complete_shortcode(&mut draft, cursor, 0), None);
+		}
 	}
 
 	#[test]

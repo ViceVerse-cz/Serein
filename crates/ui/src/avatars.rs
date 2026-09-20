@@ -612,15 +612,6 @@ impl Avatars {
 			response
 		}
 	}
-	pub fn show_guild(
-		&mut self,
-		ui: &mut egui::Ui,
-		guild: &model::Guild,
-		selected: bool,
-		demo: bool,
-	) -> egui::Response {
-		self.guild_avatar(ui, guild, selected, demo, 48.0, true)
-	}
 	pub fn show_guild_rail(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -628,7 +619,7 @@ impl Avatars {
 		selected: bool,
 		demo: bool,
 	) -> egui::Response {
-		self.guild_avatar(ui, guild, selected, demo, 48.0, false)
+		self.guild_avatar(ui, guild, selected, demo, 46.0, false)
 	}
 	pub fn paint_guild(
 		&mut self,
@@ -1352,6 +1343,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		};
 		let mut response_rect = egui::Rect::NOTHING;
 		let output = ctx.run_ui(Default::default(), |ui| {
@@ -1557,7 +1549,7 @@ mod tests {
 			icon: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()),
 		};
 		let mut output = ctx.run_ui(Default::default(), |ui| {
-			preview.show_guild(ui, &guild, true, true);
+			preview.show_guild_sized(ui, &guild, true, true, 48.0);
 		});
 		output.textures_delta.clear();
 		assert!(preview.take_requests().is_empty());

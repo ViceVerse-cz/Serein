@@ -58,18 +58,21 @@ if (plan && channel === 'production') {
     }],
   );
 }
-const result = await semanticRelease({
-  branches: ['main'],
-  tagFormat: 'v${version}',
-  plugins,
-  dryRun: mode === 'plan' || channel === 'nightly',
-  verifyRelease: async (_config, { nextRelease }) => {
-    if (plan) {
-      assert.equal(nextRelease.version, plan.stableVersion, 'Release changed while packages were building');
-      assert.equal(nextRelease.gitHead, plan.gitHead, 'Release commit changed while packages were building');
-    }
-  },
-});
+// Nightly assets are published from the immutable plan commit; no branch mutation needs semantic-release.
+const result = mode === 'publish' && channel === 'nightly'
+  ? { nextRelease: { version: plan.stableVersion, gitHead: plan.gitHead } }
+  : await semanticRelease({
+    branches: ['main'],
+    tagFormat: 'v${version}',
+    plugins,
+    dryRun: mode === 'plan' || channel === 'nightly',
+    verifyRelease: async (_config, { nextRelease }) => {
+      if (plan) {
+        assert.equal(nextRelease.version, plan.stableVersion, 'Release changed while packages were building');
+        assert.equal(nextRelease.gitHead, plan.gitHead, 'Release commit changed while packages were building');
+      }
+    },
+  });
 if (mode === 'plan') {
   appendFileSync(process.env.GITHUB_OUTPUT, `release=${Boolean(result)}\n`);
   if (result) {

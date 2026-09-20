@@ -1,4 +1,5 @@
-//! Opt-in Discord-compatible local IPC transports. No process scanning or Discord connection.
+//! Opt-in Discord-compatible local IPC transport. No Discord connection; process detection
+//! for games without RPC lives in `platform::processes`.
 //! The caller owns framing, timeouts, client limits and activity publication.
 
 #[cfg(any(windows, unix))]

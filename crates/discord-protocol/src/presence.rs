@@ -92,6 +92,13 @@ struct Activity {
 	application_id: Option<Text<128>>,
 	#[serde(default)]
 	assets: Option<Object<Assets>>,
+	#[serde(default)]
+	timestamps: Option<Object<Timestamps>>,
+}
+#[derive(Deserialize)]
+struct Timestamps {
+	#[serde(default)]
+	start: Option<u64>,
 }
 #[derive(Deserialize)]
 struct Assets {
@@ -108,31 +115,38 @@ struct Emoji {
 	id: Option<Id>,
 }
 impl Activity {
-	fn image(&self) -> Option<ActivityImage> {
+	fn images(&self) -> (Option<ActivityImage>, Option<ActivityImage>) {
 		let application = self
 			.application_id
 			.as_ref()
 			.and_then(|id| id.0.parse::<Id>().ok());
-		let asset = self.assets.as_ref().and_then(|assets| {
-			assets
-				.0
-				.large_image
-				.as_ref()
-				.or(assets.0.small_image.as_ref())
-		});
-		let image = asset.and_then(|asset| {
-			if let Some(path) = asset.0.strip_prefix("mp:") {
+		let image = |asset: &Text<4096>| {
+			let image = if let Some(path) = asset.0.strip_prefix("mp:") {
 				Some(ActivityImage::Proxy(path.into()))
 			} else {
 				Some(ActivityImage::Asset {
 					application: application?,
 					asset: asset.0.parse().ok()?,
 				})
+			};
+			image.filter(ActivityImage::valid)
+		};
+		let assets = self.assets.as_ref().map(|assets| &assets.0);
+		// A small image is a corner badge. When no large image resolves, Discord falls back
+		// to the application icon rather than blowing the badge up into the artwork.
+		let primary = assets
+			.and_then(|assets| assets.large_image.as_ref())
+			.and_then(image)
+			.or_else(|| application.map(ActivityImage::Application));
+		let small = assets.and_then(|assets| match &assets.small_image {
+			Some(asset) => image(asset),
+			None if assets.large_image.as_ref().and_then(image).is_some() => {
+				application.map(ActivityImage::Application)
 			}
+			None => None,
 		});
-		image
-			.filter(ActivityImage::valid)
-			.or_else(|| application.map(ActivityImage::Application))
+		let small = small.filter(|small| primary.as_ref() != Some(small));
+		(primary, small)
 	}
 	fn rich_activity(&self) -> Option<RichActivity> {
 		if !matches!(self.kind, 0..=3 | 5) {
@@ -149,12 +163,19 @@ impl Activity {
 			let text = text.trim();
 			(!text.is_empty()).then(|| text.to_owned())
 		};
+		let (image, small_image) = self.images();
 		Some(RichActivity {
 			kind: self.kind,
 			name: self.name.as_ref().and_then(normalize)?,
 			details: self.details.as_ref().and_then(normalize),
 			state: self.state.as_ref().and_then(normalize),
-			image: self.image(),
+			image,
+			small_image,
+			started_at: self
+				.timestamps
+				.as_ref()
+				.and_then(|timestamps| timestamps.0.start)
+				.filter(|at| *at <= model::MAX_ACTIVITY_TIMESTAMP),
 		})
 	}
 	fn custom_status(&self) -> Option<String> {
@@ -198,6 +219,12 @@ impl<'de> Deserialize<'de> for Activities {
 							Some(ActivityImage::Application(_)) => 1,
 							None => 0,
 						},
+						match &activity.small_image {
+							Some(ActivityImage::Asset { .. } | ActivityImage::Proxy(_)) => 2,
+							Some(ActivityImage::Application(_)) => 1,
+							None => 0,
+						},
+						activity.started_at.is_some(),
 					)
 				};
 				let mut found = false;
@@ -305,12 +332,10 @@ mod tests {
 					asset: Id(20),
 				}),
 			),
+			// A badge alone must not become the artwork; the application icon does.
 			(
 				r#""application_id":"10","assets":{"small_image":"30"}"#,
-				Some(ActivityImage::Asset {
-					application: Id(10),
-					asset: Id(30),
-				}),
+				Some(ActivityImage::Application(Id(10))),
 			),
 			(
 				r#""application_id":"10""#,
@@ -351,6 +376,77 @@ mod tests {
 				crate::decode(format!(r#"{{"status":"online","activities":{wire}}}"#).as_bytes())
 					.unwrap();
 			assert_eq!(snapshot.activities.1, activities);
+		}
+	}
+
+	#[test]
+	fn activity_badges_and_start_timestamps_are_retained_and_bounded() {
+		for (assets, small_image) in [
+			(
+				serde_json::json!({"large_image":"20","small_image":"30"}),
+				Some(ActivityImage::Asset {
+					application: Id(10),
+					asset: Id(30),
+				}),
+			),
+			(
+				serde_json::json!({"large_image":"20"}),
+				Some(ActivityImage::Application(Id(10))),
+			),
+			(
+				serde_json::json!({"small_image":"30"}),
+				Some(ActivityImage::Asset {
+					application: Id(10),
+					asset: Id(30),
+				}),
+			),
+			(
+				serde_json::json!({"large_image":"20","small_image":"20"}),
+				None,
+			),
+			(
+				serde_json::json!({"large_image":"20","small_image":"mp:external/small/https/example.com/icon.png"}),
+				Some(ActivityImage::Proxy(
+					"external/small/https/example.com/icon.png".into(),
+				)),
+			),
+			(
+				serde_json::json!({"large_image":"20","small_image":"mp:external/../secret"}),
+				None,
+			),
+			(serde_json::json!({"large_image":"invalid"}), None),
+		] {
+			let wire = serde_json::json!([{"type":0,"name":"Synthetic","application_id":"10","assets":assets,"timestamps":{"start":1_700_000_000_000_u64}}]).to_string();
+			let Patch::Value(activities) = update(&wire).unwrap().activities else {
+				panic!()
+			};
+			assert_eq!(activities[0].small_image, small_image, "{assets}");
+			assert_eq!(activities[0].started_at, Some(1_700_000_000_000));
+			assert!(activities[0].valid());
+		}
+		for (start, expected) in [
+			(0, Some(0)),
+			(
+				model::MAX_ACTIVITY_TIMESTAMP,
+				Some(model::MAX_ACTIVITY_TIMESTAMP),
+			),
+			(model::MAX_ACTIVITY_TIMESTAMP + 1, None),
+		] {
+			let wire =
+				serde_json::json!([{"type":0,"name":"Synthetic","timestamps":{"start":start}}])
+					.to_string();
+			let Patch::Value(activities) = update(&wire).unwrap().activities else {
+				panic!()
+			};
+			assert_eq!(activities[0].started_at, expected);
+		}
+		for timestamps in [r#"{"start":-1}"#, r#"{"start":"1"}"#, "[]"] {
+			assert!(
+				update(&format!(
+					r#"[{{"type":0,"name":"Synthetic","timestamps":{timestamps}}}]"#
+				))
+				.is_err()
+			);
 		}
 	}
 
@@ -422,6 +518,8 @@ mod tests {
 					details: Some("Level 2".into()),
 					state: None,
 					image: None,
+					small_image: None,
+					started_at: None,
 				}]
 			);
 			assert!(activities[0].valid());
@@ -485,6 +583,29 @@ mod tests {
 			activities[0].image,
 			Some(ActivityImage::Asset { .. })
 		));
+	}
+
+	#[test]
+	fn matching_games_prefer_explicit_badges_then_start_timestamps() {
+		let basic = serde_json::json!({"type":0,"name":"Synthetic","application_id":"10","assets":{"large_image":"20"}});
+		let mut badge = basic.clone();
+		badge["assets"]["small_image"] = "30".into();
+		let mut timed = badge.clone();
+		timed["timestamps"] = serde_json::json!({"start":1_700_000_000_000_u64});
+		for (less, more) in [(basic, badge.clone()), (badge, timed)] {
+			for pair in [[&less, &more], [&more, &less]] {
+				let Patch::Value(actual) = update(&serde_json::json!(pair).to_string())
+					.unwrap()
+					.activities
+				else {
+					panic!()
+				};
+				let expected = update(&serde_json::json!([more]).to_string())
+					.unwrap()
+					.activities;
+				assert_eq!(Patch::Value(actual), expected);
+			}
+		}
 	}
 
 	#[test]

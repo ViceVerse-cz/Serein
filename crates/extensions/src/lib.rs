@@ -175,6 +175,14 @@ pub struct Theme {
 #[serde(default, deny_unknown_fields)]
 pub struct ThemeStyle {
 	#[serde(skip_serializing_if = "Option::is_none")]
+	pub transparency_blur: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub transparency: Option<u8>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub blur: Option<u8>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub transparent_all: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub body_size: Option<u8>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub heading_size: Option<u8>,
@@ -461,6 +469,13 @@ impl Theme {
 			}
 		}
 		self.style.body_size = other.style.body_size.or(self.style.body_size);
+		self.style.transparency_blur = other
+			.style
+			.transparency_blur
+			.or(self.style.transparency_blur);
+		self.style.transparency = other.style.transparency.or(self.style.transparency);
+		self.style.blur = other.style.blur.or(self.style.blur);
+		self.style.transparent_all = other.style.transparent_all.or(self.style.transparent_all);
 		self.style.heading_size = other.style.heading_size.or(self.style.heading_size);
 		self.style.button_size = other.style.button_size.or(self.style.button_size);
 		self.style.small_size = other.style.small_size.or(self.style.small_size);
@@ -475,15 +490,19 @@ impl Theme {
 
 	pub fn validate(&self) -> Result<(), Error> {
 		let style = self.style;
-		if ![
-			style.body_size,
-			style.button_size,
-			style.small_size,
-			style.monospace_size,
-		]
-		.into_iter()
-		.flatten()
-		.all(|size| (10..=28).contains(&size))
+		if [style.transparency, style.blur]
+			.into_iter()
+			.flatten()
+			.any(|value| value > 100)
+			|| ![
+				style.body_size,
+				style.button_size,
+				style.small_size,
+				style.monospace_size,
+			]
+			.into_iter()
+			.flatten()
+			.all(|size| (10..=28).contains(&size))
 			|| style
 				.heading_size
 				.is_some_and(|size| !(12..=40).contains(&size))

@@ -108,10 +108,14 @@ pub fn projected_row_bytes(row: &model::Member, update: &MemberPresence) -> usiz
 				a.name.len()
 					+ a.details.as_ref().map_or(0, String::len)
 					+ a.state.as_ref().map_or(0, String::len)
-					+ a.image.as_ref().map_or(0, |image| match image {
-						model::ActivityImage::Proxy(path) => path.len(),
-						_ => 0,
-					})
+					+ [&a.image, &a.small_image]
+						.into_iter()
+						.flatten()
+						.map(|image| match image {
+							model::ActivityImage::Proxy(path) => path.len(),
+							_ => 0,
+						})
+						.sum::<usize>()
 			})
 			.sum::<usize>()
 }
@@ -202,14 +206,6 @@ impl State {
 			}
 			membership_changed |=
 				index.is_some_and(|i| online(&self.direct_presences[i])) != online(&resolved);
-			if index.is_some_and(|i| self.direct_presences[i].status.as_deref() == Some("offline"))
-				&& matches!(resolved.status.as_deref(), Some("online" | "idle" | "dnd"))
-			{
-				self.notify_friend_change(
-					update.user,
-					model::notification_settings::SocialKind::FriendsOnline,
-				);
-			}
 			if let Some(index) = index {
 				retained_bytes -= self.direct_presences.remove(index).heap_bytes();
 			}
@@ -356,6 +352,7 @@ mod tests {
 
 	fn state() -> State {
 		let user = User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -449,6 +446,8 @@ mod tests {
 			details: Some("Playing a map".into()),
 			state: None,
 			image: None,
+			small_image: None,
+			started_at: None,
 		};
 		let mut state = state();
 		let revision = state.revision;
@@ -497,6 +496,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					primary_guild: None,
 					id: Id(999),
 					name: "Different account".into(),
 					avatar: None,
@@ -822,6 +822,8 @@ mod tests {
 			details: Some("In a match".into()),
 			state: None,
 			image: None,
+			small_image: None,
+			started_at: None,
 		}
 	}
 	#[test]
@@ -832,6 +834,9 @@ mod tests {
 		let mut path = String::from("external/synthetic-hash-01/https/example.com/art.png");
 		path.reserve(2048);
 		activity.image = Some(model::ActivityImage::Proxy(path));
+		let mut small_path = String::from("external/synthetic-small/https/example.com/badge.png");
+		small_path.reserve(1024);
+		activity.small_image = Some(model::ActivityImage::Proxy(small_path));
 		let update = MemberPresence {
 			user: row.user.id,
 			status: row.status.clone(),

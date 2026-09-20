@@ -1,5 +1,15 @@
 # Voice dependency license provenance
 
+September 15, 2026 stream-audio exclusion addition: `libpulse-sys 1.23.0`,
+registry archive SHA-256 `d74371848b22e989f829cc1621d2ebd74960711557d8b45cfe740f60d0a05e61`.
+`libpulse-sys-1.23.0-LICENSE-MIT` is copied unmodified from the release's
+[`LICENSE-MIT`](https://docs.rs/crate/libpulse-sys/1.23.0/source/LICENSE-MIT),
+SHA-256 `20278f4e2697210305f0a25ef5f3b73fecce789096c0ae55287684ea9282cfcb`.
+The library is dynamically linked against the system's libpulse; no PulseAudio server
+or native library is bundled. The resolved WinAPI 0.3.9 and architecture support crates
+are Windows-only declarations of libpulse-sys and are not selected by Serein's Linux
+runtime or macOS development use of these bindings.
+
 Collected September 10, 2026. Except for the separately identified canonical MPL text below, files are unmodified source license/notices, copied from the exact resolved crates.io releases or fetched from the commit recorded in the release's `.cargo_vcs_info.json`. Registry source links identify the shipped source archive; SHA-256 values below verify the copied text. All files are flat for distribution staging.
 
 Davey 0.1.4 and OpenMLS 0.8.1 omit their root license files from their registry archives. Their MIT texts were retrieved from the pinned upstream commits linked below (Davey package path `davey`, OpenMLS package path `openmls`). `libopus_sys` 0.3.3 bundles the codec under `opus/`; the registry archive is authoritative because its VCS metadata records a dirty working tree. Both its binding licenses and the bundled codec's COPYING and LICENSE_PLEASE_READ.txt are retained, including the upstream IETF patent-statement references.
@@ -107,3 +117,16 @@ Safe_arch 1.2.0 archive verified against Cargo.lock SHA-256 before reading its u
 | safe_arch-LICENSE-APACHE.md | [registry source](https://docs.rs/crate/safe_arch/1.2.0/source/LICENSE-APACHE.md) | `e3ba223bb1423f0aad8c3dfce0fe3148db48926d41e6fbc3afbbf5ff9e1c89cb` |
 | safe_arch-LICENSE-MIT.md | [registry source](https://docs.rs/crate/safe_arch/1.2.0/source/LICENSE-MIT.md) | `e57011537d230b14e790f6666dc00816f7b371ebbd7da8a12491e51086fec278` |
 | safe_arch-LICENSE-ZLIB.md | [registry source](https://docs.rs/crate/safe_arch/1.2.0/source/LICENSE-ZLIB.md) | `c43b9a9b1387ed53d2c49263838261129a010e280e3a174a792242c3e2c98db9` |
+
+## Linux desktop audio — September 17, 2026
+
+CPAL’s PulseAudio feature adds these unmodified registry license texts.
+They cover the Rust PulseAudio client and its newly resolved helper crates;
+no PulseAudio server is bundled.
+
+| File | Exact source | SHA-256 |
+|---|---|---|
+| pulseaudio-0.3.1-LICENSE.md | [registry source](https://docs.rs/crate/pulseaudio/0.3.1/source/LICENSE.md) | `fb9e808c9dd52f9d00f1168713933087b8fed4b7ecbbc694fc4b1d08c0c82352` |
+| enum-primitive-derive-0.3.0-LICENSE | [registry source](https://docs.rs/crate/enum-primitive-derive/0.3.0/source/LICENSE) | `819e0555b295079201b0670bb3302855303bdbbcc739f3819b13e1b3d2ec03bb` |
+| futures-0.3.34-LICENSE-MIT | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-MIT) | `6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd` |
+| futures-0.3.34-LICENSE-APACHE | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-APACHE) | `275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427` |

@@ -54,6 +54,13 @@ impl State {
 		}
 	}
 
+	/// Remove one session-retained deleted row from the active timeline.
+	pub fn discard_preserved_deleted(&mut self, id: Id) {
+		if self.timeline.discard_preserved(id) {
+			self.revision += 1;
+		}
+	}
+
 	/// Drop dormant previews when disk history is cleared; preserve the visible conversation.
 	pub fn clear_cached_history(&mut self) {
 		self.resident = Windows::default();
@@ -233,7 +240,7 @@ impl State {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{Command, Envelope, auth};
+	use crate::{Command, Envelope, Reply, auth};
 	use model::{Message, MessagePatch, Patch, User};
 
 	fn message(channel: u64, id: u64) -> Message {
@@ -242,6 +249,7 @@ mod tests {
 			channel: Id(channel),
 			kind: 0,
 			author: User {
+				primary_guild: None,
 				id: Id(9),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -265,6 +273,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
@@ -328,6 +340,9 @@ mod tests {
 			channel: Id(channel),
 			id: Id(channel * 1000 + 1),
 			content: Patch::Value("Updated".into()),
+			components: model::Patch::Absent,
+			flags: model::Patch::Absent,
+			application_id: model::Patch::Absent,
 			extra_content: Default::default(),
 			reactions: Patch::Absent,
 			mentions: Patch::Absent,
@@ -343,7 +358,7 @@ mod tests {
 		let mut state = state();
 		load(&mut state, 1);
 		state.drafts.insert(Id(1), "Unsent draft".into());
-		state.reply = Some(Id(1001));
+		state.reply = Some(Reply::to(Id(1001)));
 		let content = state.timeline.get(Id(1001)).unwrap().content.as_ptr();
 		for loading in [false, true] {
 			if loading {
@@ -355,7 +370,7 @@ mod tests {
 			assert_eq!((state.request, state.revision, state.freshness), before);
 			assert_eq!(state.history_pending, loading);
 			assert_eq!(state.search_target, Some(Id(1001)));
-			assert_eq!(state.reply, Some(Id(1001)));
+			assert_eq!(state.reply_target(), Some(Id(1001)));
 			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
 			assert_eq!(
 				state.timeline.get(Id(1001)).unwrap().content.as_ptr(),

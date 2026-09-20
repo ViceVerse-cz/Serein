@@ -63,6 +63,7 @@ impl CaptchaView {
 		wake: impl Fn() + Send + Sync + 'static,
 	) -> Result<Self, &'static str> {
 		gtk4::init().map_err(|_| "Linux verification window unavailable.")?;
+		crate::ensure_gtk_application_id();
 		let (capability, captcha_script, html) = page(challenge, dark)?;
 		let script = include_str!("captcha-linux-bridge.js")
 			.replace("__SEREIN_CAPTCHA_CAPABILITY__", &capability)

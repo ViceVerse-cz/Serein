@@ -20,12 +20,32 @@ impl Dialog {
 #[derive(Default)]
 pub(super) struct ServerMenu {
 	pub settings_requested: Option<Id>,
+	pub mark_read_requested: Option<Id>,
 	dialog: Option<Dialog>,
 	generation: u64,
 	invite: InviteDialog,
 }
 
 impl ServerMenu {
+	pub fn read_item(&mut self, ui: &mut egui::Ui, state: &State, guild: Id) -> bool {
+		if ui
+			.add_enabled_ui(state.can_mark_guild_read(guild), |ui| {
+				menu_row(
+					ui,
+					icons::Icon::Check,
+					"Mark As Read",
+					design::palette(ui).text,
+				)
+			})
+			.inner
+			.clicked()
+		{
+			self.mark_read_requested = Some(guild);
+			ui.close();
+			return true;
+		}
+		false
+	}
 	pub fn settings_item(&mut self, ui: &mut egui::Ui, state: &State, guild: Id) -> bool {
 		if (state.can_manage_guild(guild)
 			|| state.can_open_role_settings(guild)
@@ -135,6 +155,8 @@ impl ServerMenu {
 					let available = !state.server_action_pending()
 						&& !state.server_invite_pending()
 						&& (state.demo || state.gateway_connected);
+					self.read_item(ui, state, guild);
+					ui.separator();
 					self.settings_item(ui, state, guild);
 					if ui
 						.add_enabled_ui(available, |ui| {

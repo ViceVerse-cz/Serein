@@ -27,6 +27,8 @@ pub struct Connection {
 	pub share_activity: watch::Sender<bool>,
 	pub own_presence: watch::Sender<model::OwnPresence>,
 	pub game_activity: watch::Receiver<crate::game_activity::Detection>,
+	/// A local Rich Presence client asked the client to show an invite: counter and code.
+	pub rpc_invite: watch::Receiver<Option<(u64, String)>>,
 	pub activity_observation: watch::Receiver<discord_gateway::ActivityObservation>,
 	pub activity_sharing: watch::Receiver<Result<Option<bool>, Failure>>,
 	pub activity_sharing_request: mpsc::Sender<bool>,
@@ -64,6 +66,7 @@ impl Connection {
 		let (share_activity, share_receive) = watch::channel(false);
 		let (own_presence, presence_receive) = watch::channel(model::OwnPresence::default());
 		let (game_report, game_activity) = watch::channel(Ok(None));
+		let (invite_send, rpc_invite) = watch::channel(None);
 		let (activity_observed, activity_observation) =
 			watch::channel(discord_gateway::ActivityObservation::Unconfirmed);
 		let (sharing_report, activity_sharing) = watch::channel(Ok(None));
@@ -90,8 +93,9 @@ impl Connection {
                 let (member_send,member_receive)=watch::channel(None);
                 let (voice_send,voice_receive)=mpsc::channel(8);
 				let (activity_send,activity_receive)=watch::channel(None);
+				let (member_query_send, member_query_receive) = watch::channel([None, None]);
 				let _sharing_task=AbortTask(tokio::spawn(run_activity_sharing(api.clone(),share_receive.clone(),sharing_requests,sharing_report,finished.clone(),wake.clone())));
-				let _activity_task=AbortTask(tokio::spawn(crate::game_activity::run(share_receive,activity_send,game_report,wake.clone(),user.clone())));
+				let _activity_task=AbortTask(tokio::spawn(crate::game_activity::run(share_receive,activity_send,game_report,invite_send,wake.clone(),user.clone(),api.clone())));
                 let dm_channels=Arc::new(Mutex::new(BTreeSet::new()));
                 let gateway_channels=dm_channels.clone();
                 let (voice_online,mut voice_availability)=watch::channel(false);
@@ -99,10 +103,12 @@ impl Connection {
                 let gateway_wake=wake.clone();
                 let activity_wake=wake.clone();
                 let mut gateway_task=AbortTask(tokio::spawn(async move {
-                    let error=discord_gateway::run_with_activity(secret,gateway,member_receive,voice_receive,(activity_receive,presence_receive),move |observation| {
+                    let error=discord_gateway::run_with_activity(secret,gateway,member_receive,voice_receive,(activity_receive,presence_receive,member_query_receive),move |observation| {
                         if activity_observed.send_if_modified(|current| { if *current == observation { false } else { *current = observation; true } }) { activity_wake.request_repaint(); }
                         Ok(())
                     },|event|{
+                        if let Event::Interaction(client_core::interactions::Event::Session(session)) = event { return gateway_api.interaction_session(Some(session)); }
+                        if matches!(&event,Event::Disconnected|Event::Resync) { gateway_api.interaction_session(None)?; }
                         if let Some((ready_user,_,channels))=event.ready_navigation() {
                             if ready_user.id!=user.id {return Err(Failure::InvalidCredential);}
                             *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|private_call(c)).map(|c|c.id).collect();
@@ -128,7 +134,7 @@ impl Connection {
                 let mut writes=AbortTask(tokio::spawn(async move {
                     while let Some(command)=write_receive.recv().await {
                         let event=write_api.execute(command).await;
-                        let failure=match &event {Event::MessagingPermissions{result:Err(f),..}=>Some(*f),Event::ChannelAction(client_core::channel_actions::Event::Finished{result:Err(f),..})=>Some(*f),Event::ServerAdmin(client_core::server_admin::Event{result:Err(f),..})=>Some(*f),Event::ServerSettings(client_core::server_settings::Event{result:Err(f),..})=>Some(*f),Event::Failure(f)=>Some(*f),Event::ProfileEdited{result:Err(f),..} if *f != Failure::Capacity =>Some(*f),Event::Edited{result:Err(f),..}|Event::Pinned{result:Err(f),..}=>Some(*f),Event::GuildFolders(Err(f))=>Some(*f),Event::JoinInvite{result:Err(f),..}=>Some(*f),Event::SendResult{result:Err(f),..}=>Some(*f),Event::UserAction(client_core::user_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::UserAction(client_core::user_actions::Event::DmOpened{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::InviteSent{result:Err(f),..})=>Some(*f),Event::GroupAction(client_core::group_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::Reactions(client_core::reactions::Event::Written{result:Err(f),..})=>Some(*f),Event::ReadState(client_core::read_state::Event::Result{result:Err(f),..})=>Some(*f),_=>None};
+                        let failure=match &event {Event::Interaction(client_core::interactions::Event::Submitted{result:Err(f),..})=>Some(*f),Event::MessagingPermissions{result:Err(f),..}=>Some(*f),Event::ChannelAction(client_core::channel_actions::Event::Finished{result:Err(f),..})=>Some(*f),Event::ServerAdmin(client_core::server_admin::Event{result:Err(f),..})=>Some(*f),Event::ServerSettings(client_core::server_settings::Event{result:Err(f),..})=>Some(*f),Event::Failure(f)=>Some(*f),Event::ProfileEdited{result:Err(f),..} if *f != Failure::Capacity =>Some(*f),Event::Edited{result:Err(f),..}|Event::Pinned{result:Err(f),..}=>Some(*f),Event::GuildFolders(Err(f))=>Some(*f),Event::JoinInvite{result:Err(f),..}=>Some(*f),Event::SendResult{result:Err(f),..}=>Some(*f),Event::UserAction(client_core::user_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::UserAction(client_core::user_actions::Event::DmOpened{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::InviteSent{result:Err(f),..})=>Some(*f),Event::GroupAction(client_core::group_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::Reactions(client_core::reactions::Event::Written{result:Err(f),..})=>Some(*f),Event::ReadState(client_core::read_state::Event::Result{result:Err(f),..})=>Some(*f),_=>None};
                         let error=write_emit(event).err().or(failure.filter(|f|f.ends_session()));
                         if let Some(error)=error {write_api.stop();let _=write_finished.send(Some(error));write_wake.request_repaint();break;}
                     }
@@ -154,8 +160,11 @@ impl Connection {
                         request=upload_receive.recv()=>{
                             let Some(request)=request else {break;};
                             if !*voice_availability.borrow() || upload.as_ref().is_some_and(|job|!job.0.is_finished()) {
-                                if let Command::Send{nonce,..}=request.command {
-                                    emit(Event::SendResult{nonce,result:Err(Failure::ProtocolAt("Upload unavailable; reselect the file to retry"))})?;
+                                match request.command {
+                                    Command::Interaction(request)=>emit(Event::Interaction(client_core::interactions::Event::Submitted{nonce:request.nonce,result:Err(Failure::ProtocolAt("Upload unavailable; reselect the file to retry"))}))?,
+                                    Command::Send{nonce,..}=>emit(Event::SendResult{nonce,result:Err(Failure::ProtocolAt("Upload unavailable; reselect the file to retry"))})?,
+                                    Command::CreatePost{parent,request,..}=>emit(Event::PostCreated{parent,request,result:Err(Failure::ProtocolAt("Upload unavailable; reselect the file to retry"))})?,
+                                    _=>{}
                                 }
                                 request.progress.send_replace(discord_api::upload::Status::Failed("Upload unavailable; reselect the file to retry"));
                                 continue;
@@ -173,7 +182,7 @@ impl Connection {
                                         changed=updates.changed(), if observing=>{observing=changed.is_ok();wake.request_repaint();}
                                     }
                                 };
-                                let failure=match &event {Event::SendResult{result:Err(f),..} if f.ends_session()=>Some(*f),_=>None};
+                                let failure=match &event {Event::Interaction(client_core::interactions::Event::Submitted{result:Err(f),..}) | Event::SendResult{result:Err(f),..} if f.ends_session()=>Some(*f),_=>None};
                                 let error=emit(event).err().or(failure);
                                 if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
                                 wake.request_repaint();
@@ -310,6 +319,12 @@ impl Connection {
                                 })));
                                 continue;
                             }
+                            if let Command::MemberSearch(request) = command {
+                                if request.valid() {
+                                    member_query_send.send_modify(|queries| { let slot=request.slot; queries[slot]=Some(request); });
+                                }
+                                continue;
+                            }
                             if let Command::Members {guild,channel,request,list_id,thread} = command {
                                 let subscription=match (guild,channel,list_id) {
                                     (Some(guild),Some(channel),list_id) if thread || list_id.is_some() => Some(discord_gateway::MemberSubscription {guild,channel,request,thread,list_id:list_id.unwrap_or_default()}),
@@ -349,6 +364,7 @@ impl Connection {
 			share_activity,
 			own_presence,
 			game_activity,
+			rpc_invite,
 			activity_observation,
 			activity_sharing,
 			activity_sharing_request,
@@ -594,6 +610,7 @@ fn ring_action(
 			channel,
 			request,
 			ring,
+			..
 		} => {
 			*active = Some((channel, request, !ring));
 			Ok(None)
@@ -994,7 +1011,9 @@ mod tests {
 				V::Join {
 					channel,
 					request: 7,
-					ring: true
+					ring: true,
+					mute: false,
+					deaf: false,
 				},
 				owner,
 				&mut active,
@@ -1067,7 +1086,9 @@ mod tests {
 				V::Join {
 					channel,
 					request: 8,
-					ring: false
+					ring: false,
+					mute: false,
+					deaf: false,
 				},
 				owner,
 				&mut active,
@@ -1112,6 +1133,8 @@ mod tests {
 				channel,
 				request: 1,
 				ring: false,
+				mute: false,
+				deaf: false,
 			},
 			V::SetMute {
 				channel,

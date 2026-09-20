@@ -1,6 +1,27 @@
 # Platform support and packaging
 
-Target platforms are Windows, macOS and Linux. **macOS arm64, Windows x64 and Linux x64 have local build evidence.** macOS has native visual checks; Windows has offline tests and a process/window startup smoke check only. Minimum OS versions, other architectures, real screen-reader support and native login-method support are not certified.
+Target platforms are Windows, macOS and Linux. **macOS arm64, Windows x64 and Linux x64 have local build evidence.** The release workflow also targets Windows arm64 on a native GitHub Actions runner; build and runtime validation remain pending. macOS has native visual checks; Windows has offline tests and a process/window startup smoke check only. Minimum OS versions, other architectures, real screen-reader support and native login-method support are not certified.
+
+Windows defaults to DirectX 12 to avoid reported startup access violations in Intel's
+Vulkan driver (`igvk64.dll`). The existing `WGPU_BACKEND` environment override remains
+available (for example, `dx12` or `vulkan`). Affected users confirmed that forcing
+DX12 launches successfully; the new default still needs native Windows validation.
+macOS and Linux retain their existing backend defaults.
+
+Windows turns off winit's undecorated drop-shadow hack after the window exists, including
+after title-bar changes. egui-winit enables that hack for custom chrome. While restored it
+adds one pixel to `WM_NCCALCSIZE` top and bottom. Maximizing skips the shift, which is why
+only that state looked sharp. `ViewportBuilder::with_has_shadow` is macOS-only and does not
+disable the Windows hack. Native DPI and eframe's physical surface sizing remain unchanged.
+macOS/Linux window creation is unchanged.
+For offline inspection, run `cargo run --locked -p serein --features demo -- --demo --demo-rendering`.
+The diagnostic shows the physical client size, logical viewport, native/egui scale and WGPU
+surface dimensions sampled by a render callback, plus alternating one-pixel stripes.
+The surface sample is from the previous paint: compare at rest after resizing, maximizing,
+restoring, toggling the title bar and moving between monitors (including mixed DPI).
+Surface/client dimensions should match and stripes/text/images should stay sharp. If dimensions
+match but blur persists, the surface-resolution hypothesis is not established; investigate
+driver/DWM presentation on that machine. Windows visual acceptance remains unverified.
 
 The custom title strip requests a native window move on the initial primary-button press,
 including over its nonselectable context title. It does not wait for egui's text/drag threshold.
@@ -44,11 +65,18 @@ The webview lives only during login: WKWebView on macOS, WebView2 on Windows, GT
 
 ## Built-in voice
 
+Linux device discovery and call streams prefer CPAL's PulseAudio backend, including
+PipeWire through `pipewire-pulse`. This lists the server's sources and sinks, including
+connected Bluetooth devices and virtual filter-chain endpoints exposed by that server,
+instead of ALSA hardware modes. ALSA remains the fallback when the desktop audio server
+is unavailable. Native Linux device discovery and physical playback/capture still need
+verification on the affected system.
+
 `cargo run --locked` includes native DM and guild audio. Source builds require CMake and a C/C++ toolchain for statically bundled libopus; Linux also needs ALSA development headers (`libasound2-dev` on Debian/Ubuntu). CPAL uses native system audio. See [the voice adapter](../crates/discord-voice/README.md) for codec/protocol dependencies and limitations.
 
 `cargo xtask package` stages the standard release including voice under `dist` (`dist/Serein.app` on macOS). The macOS bundle includes its microphone-use description; actual microphone permission, capture/playback, device switching and sleep/resume have not been exercised. Windows x64 voice release packaging and synthetic protocol/audio tests pass; physical audio and live calls remain unverified on Windows. Linux x64 text/voice release builds and Debian package smoke passed on Ubuntu 26.04 under WSL2; native Linux desktop/audio runtime remains unverified. CMake is a source-build dependency, not a runtime voice service.
 
-Device choices and push-to-talk settings last only for the current session. Focused V push-to-talk has no global-key guarantee; use headphones because there is no acoustic echo cancellation. No signing, desktop integration, physical audio or live-compatibility claim follows from compilation alone.
+Device choices, voice keybinds and the owner's mute/deafen intent are device-local. Mute and deafen can be changed while idle, survive restart and apply to the first voice-state packet when the next call is joined. Voice bindings use native global registration on supported Windows/macOS/Linux X11 setups and the desktop GlobalShortcuts portal on Wayland when they include a modifier. Unmodified focused Push to Talk (V by default) observes key state without consuming typed text and is never registered as an OS-global shortcut. Missing/denied portal access and unavailable/conflicting registrations fall back to focused input. Use headphones because there is no acoustic echo cancellation. No signing, desktop integration, physical audio or live-compatibility claim follows from compilation alone.
 
 Native emoji use eframe system-font fallback and installed OS color fonts. macOS
 Apple Color Emoji was visually checked with a synthetic moon status on September
@@ -83,17 +111,44 @@ provider rejection and missing native webview runtimes fail visibly. macOS/Linux
 live CAPTCHA acceptance remains unverified. Widget
 loading and synthetic checks do not establish live Discord challenge acceptance.
 
-## Opt-in tray icon (September 13, 2026)
+## Opt-out tray icon (September 13, 2026)
 
-Windows General settings offer Show Serein in System Tray, off by default. Minimizing
+Windows General settings offer Show Serein in System Tray, on by default; turning it off
+falls back to ordinary window minimize/close. Minimizing
 keeps the window in the taskbar, including taskbar clicks and automatic startup. The icon supports
 keyboard/mouse restore and a Show Serein / Quit menu. Quit uses the normal unsaved
-work/download exit checks; the window Close button retains normal exit behavior.
-Disabling removes the tray icon without changing the window's minimized state.
+work/download exit checks; while the icon is live, the window Close button hides the
+window instead of exiting, and Serein keeps running with its logic ticking so
+notifications and calls continue. Show restores the window. Disabling the setting,
+or a tray that reports itself unavailable, restores a hidden window immediately, so
+Close can never strand the application without a way back.
 The adapter uses existing user32/Shell APIs and dependencies, with no background
 polling. A synthetic native Windows test verifies registration,
-minimize/restore, own-window taskbar recovery, Quit event and cleanup. macOS uses a native menu bar icon with Show Serein / Quit actions; minimized windows
-remain in the Dock. Linux retains an explicitly disabled control.
+minimize/restore, own-window taskbar recovery, Quit event and cleanup. macOS uses a native menu bar icon with Show Serein / Quit actions; it draws Serein's own
+mark (`assets/brand/serein-tray.png`, rendered from the brand SVG) as an 18-point template
+image, so the system tints it for light, dark and highlighted menu bars. Minimized windows
+remain in the Dock.
+
+Linux now uses ksni's StatusNotifierItem on the session bus with Show Serein,
+Minimize Serein and Quit actions. Enable a StatusNotifier host (for example a panel's
+tray module). Until registration succeeds, or after host loss, Close retains normal
+exit behavior. Start/restart the host and toggle the tray off/on to retry registration.
+The existing on-by-default tray preference is reused; demo changes are session-only.
+
+**Hyprland / native Wayland:** winit cannot hide, unhide, focus or unminimize a native
+Wayland window. Close requests minimization and keeps Serein running; the compositor
+may ignore this request. Show requests restoration, but native Wayland users may need
+the compositor's own window controls. A still-visible window is no longer marked hidden
+inside Serein. Native Wayland remains the default on Wayland sessions, with no
+application-level XWayland fallback or backend override.
+Quit remains explicit and runs the existing unsaved-work/download/extension checks;
+cancelling Quit restores close-to-tray behavior.
+
+Offline lifecycle check: `cargo run --locked -p tray-debug`. On Linux, use
+`dbus-run-session -- cargo run --locked -p tray-debug` to additionally exercise
+registration, missing/lost host, icon activation and all three menu actions on a private
+synthetic bus. These checks do not establish compositor behavior. This refresh was
+prepared on macOS; NixOS/Hyprland and Flatpak desktop validation remain pending.
 
 ## Opt-in automatic startup
 
@@ -104,7 +159,7 @@ Windows Startup Apps can override this registration. Disable startup before dele
 a portable installation, or re-enable it after moving the executable.
 Minimized launches stay in the taskbar even when the saved tray preference is enabled;
 the tray can attach safely after a minimized launch. Tray failures leave the window
-recoverable. The Close button still exits, and the tray Quit action retains unsaved
+recoverable. Without a tray icon the Close button still exits, and the tray Quit action retains unsaved
 work checks. macOS registers a per-user `~/Library/LaunchAgents/cz.viceverse.serein.startup.plist`
 for the next graphical login, with the same launch flags. Turning it off removes only
 that file. It does not launch a second client when enabled or restart after Quit.
@@ -120,7 +175,7 @@ Settings → Updates provides automatic checking/downloading, Production and Nig
 release channels, a manual check and an explicit restart action. The title strip
 shows an available or downloaded update on macOS, Windows and Linux. Update controls are
 also accessible from the signed-out screen. Automatic checking runs at startup
-once saved preferences are available, then every six hours while running; turning
+once saved preferences are available, then every hour while running; turning
 it off disables automatic downloads while background checks and title-bar notices
 remain active. Nightly is the default channel and automatic downloads are off by
 default. Switching channels never installs an
@@ -155,3 +210,40 @@ automatically updates the Windows uninstall `DisplayVersion` registry key upon
 successful upgrade. Native helpers wait for the old process to exit, retain a rollback
 copy during replacement, and relaunch Serein. A failed recovery leaves its backup
 available with a visible recovery path on the next update attempt.
+
+## Linux screen sharing
+
+The system screen-sharing picker requires PipeWire, a ScreenCast-capable portal backend for the current
+desktop (GNOME, KDE or the compositor-specific backend), and GStreamer Base/Good plus
+the PipeWire source plugin. GStreamer 1.24+ is recommended; GPU scaling/encoding also
+needs the applicable VA, NVCodec and OpenGL plugins and working driver support.
+Native packages declare the PipeWire and Base runtime plugins; hardware codec availability
+still depends on distribution packaging and drivers. The software fallback reuses bundled
+OpenH264. Flatpak needs compatible plugins/GPU access inside its runtime; no extra sandbox
+permission or host socket access is added. Native Linux validation remains pending.
+
+Native X11 sessions can instead explicitly select “Entire X11 desktop · all monitors ·
+no portal”. This uses `ximagesrc` from GStreamer Good, already a native package
+dependency, and shares the whole desktop. No direct capture starts after a failed or
+cancelled portal request. X11 capture and live delivery remain unverified.
+
+Optional Linux stream audio uses native `libpulse` per-application monitoring on
+PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse development
+package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
+The existing Flatpak PulseAudio socket permission covers this access; the ScreenCast
+portal's PipeWire remote grants video only. Windows uses native process loopback on
+build 20348+ (Windows 11 / Server 2022), with a visible audio error on older systems.
+Both exclude Serein's playback and capture other applications even when sharing one
+window. There is no whole-output fallback. Hardware exclusion and receiving sound in
+an official client remain unverified.
+
+## Additional macOS attachment codecs
+
+WebM and MOV codecs unavailable in the native inline decoder can use an installed
+FFmpeg from `/opt/homebrew/bin`, `/usr/local/bin`, or `/usr/bin`. Nothing is installed
+automatically. The helper must include H.264 (`libx264`) and AAC encoding; converted
+video plays through the existing native controls. Conversion may take up to two
+minutes before playback and is limited to 100 MiB input/output, 1080p and two hours.
+Missing FFmpeg or conversion failures appear in the video card. Linux and Windows
+continue to use their installed native codecs. This optional fallback is not bundled
+in release packages; actual codec coverage depends on the local FFmpeg build.

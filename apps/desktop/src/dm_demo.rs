@@ -74,6 +74,7 @@ fn key(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
 	}
 }
 
+/// Offline fixture check for the demo friend and username-search flow.
 pub fn check() {
 	let ctx = egui::Context::default();
 	let mut view = ui::MessagingUi::default();
@@ -112,6 +113,7 @@ pub fn check() {
 			Command::UserAction {
 				action: user_actions::Action::OpenDm(user),
 				request,
+				..
 			} if user == friend => Some(request),
 			_ => None,
 		})

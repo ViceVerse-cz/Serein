@@ -5,6 +5,7 @@ use std::{
 	collections::HashMap,
 	sync::{
 		Arc, Mutex,
+		atomic::{AtomicU64, Ordering},
 		mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
 	},
 };
@@ -33,8 +34,17 @@ pub struct RemoteFrame<'a> {
 pub type VideoSink = Arc<dyn Fn(RemoteFrame<'_>) + Send + Sync>;
 
 pub(crate) struct DecoderQueue {
-	send: SyncSender<(Encoded, tokio::sync::OwnedSemaphorePermit)>,
+	send: SyncSender<Decode>,
 	bytes: Arc<tokio::sync::Semaphore>,
+	removals: Arc<Mutex<Vec<u64>>>,
+	/// Decoded pictures delivered to the sink and decoder failures, for diagnostics only.
+	pub counters: Arc<DecoderCounters>,
+}
+
+#[derive(Default)]
+pub(crate) struct DecoderCounters {
+	pub pictures: AtomicU64,
+	pub errors: AtomicU64,
 }
 
 /// A cleartext Annex-B access unit handed to the decoder thread.
@@ -42,6 +52,35 @@ pub(crate) struct Encoded {
 	pub user: u64,
 	pub data: Vec<u8>,
 	pub keyframe: bool,
+}
+
+enum Decode {
+	Frame(Encoded, tokio::sync::OwnedSemaphorePermit),
+	Remove(u64),
+}
+
+/// True when the cleartext Annex-B access unit carries both an SPS and a PPS, so a freshly
+/// created decoder can start from it.
+pub(crate) fn has_parameter_sets(frame: &[u8]) -> bool {
+	let (mut sps, mut pps) = (false, false);
+	let mut at = 0;
+	while at + 4 <= frame.len() {
+		let size = if frame[at..].starts_with(&[0, 0, 0, 1]) {
+			4
+		} else if frame[at..].starts_with(&[0, 0, 1]) {
+			3
+		} else {
+			at += 1;
+			continue;
+		};
+		match frame.get(at + size).map(|nal| nal & 0x1f) {
+			Some(7) => sps = true,
+			Some(8) => pps = true,
+			_ => {}
+		}
+		at += size;
+	}
+	sps && pps
 }
 
 /// True when the cleartext Annex-B access unit carries an IDR slice.
@@ -73,6 +112,8 @@ pub(crate) struct Assembler {
 	fragmenting: bool,
 	broken: bool,
 	started: bool,
+	// Preserve loss across frame resets until Receivers schedules recovery.
+	lost: bool,
 }
 impl Assembler {
 	/// Feed one packet; returns a complete access unit when the marker closes an intact frame.
@@ -85,6 +126,7 @@ impl Assembler {
 	) -> Option<Vec<u8>> {
 		if self.started && timestamp != self.timestamp {
 			// A new picture started before the previous marker arrived: drop the partial one.
+			self.lost = true;
 			self.reset_frame();
 			self.timestamp = timestamp;
 		}
@@ -102,11 +144,13 @@ impl Assembler {
 		if !self.broken && self.append(payload).is_err() {
 			self.broken = true;
 		}
+		self.lost |= self.broken;
 		if !marker {
 			return None;
 		}
 		let complete = (!self.broken && !self.fragmenting && !self.frame.is_empty())
 			.then(|| std::mem::take(&mut self.frame));
+		self.lost |= complete.is_none();
 		self.reset_frame();
 		self.started = false;
 		complete
@@ -194,6 +238,15 @@ pub(crate) struct Receivers {
 	sources: Vec<(u32, u64, Assembler)>,
 	/// Users whose decoder lost a reference picture; only a keyframe restarts their video.
 	awaiting_keyframe: Vec<u64>,
+	/// Depacketizer outcomes since the last `take_stats`, for diagnostics.
+	stats: ReceiveStats,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ReceiveStats {
+	pub unknown_ssrc: u64,
+	pub incomplete: u64,
+	pub complete: u64,
 }
 impl Receivers {
 	/// Bind an announced video SSRC to a user; zero clears that user's sources.
@@ -243,6 +296,25 @@ impl Receivers {
 				.map(|(ssrc, _, _)| *ssrc)
 		})
 	}
+	/// Whether any sender still owes this receiver a keyframe.
+	pub fn awaiting(&self) -> bool {
+		!self.awaiting_keyframe.is_empty()
+	}
+	/// Whether any video source has been announced for this connection.
+	pub fn has_sources(&self) -> bool {
+		!self.sources.is_empty()
+	}
+	/// Ask every announced sender for a keyframe. Used when video stops without the
+	/// depacketizer seeing loss, which no per-picture signal would ever reveal.
+	pub fn require_all_keyframes(&mut self) {
+		for index in 0..self.sources.len() {
+			self.require_keyframe(self.sources[index].1);
+		}
+	}
+	/// Drains the depacketizer counters.
+	pub fn take_stats(&mut self) -> ReceiveStats {
+		std::mem::take(&mut self.stats)
+	}
 	/// Whether a decoded access unit may be decoded: keyframes always, predictions only
 	/// while the reference chain is intact.
 	pub fn accept(&mut self, user: u64, keyframe: bool) -> bool {
@@ -261,9 +333,20 @@ impl Receivers {
 		marker: bool,
 		payload: &[u8],
 	) -> Option<(u64, Vec<u8>)> {
-		let (_, user, assembler) = self.sources.iter_mut().find(|(s, _, _)| *s == ssrc)?;
-		let frame = assembler.push(sequence, timestamp, marker, payload)?;
-		Some((*user, frame))
+		let Some((_, user, assembler)) = self.sources.iter_mut().find(|(s, _, _)| *s == ssrc)
+		else {
+			self.stats.unknown_ssrc += 1;
+			return None;
+		};
+		let user = *user;
+		let frame = assembler.push(sequence, timestamp, marker, payload);
+		let lost = std::mem::take(&mut assembler.lost);
+		self.stats.incomplete += u64::from(lost);
+		self.stats.complete += u64::from(frame.is_some());
+		if lost {
+			self.require_keyframe(user);
+		}
+		frame.map(|frame| (user, frame))
 	}
 }
 
@@ -274,14 +357,20 @@ pub(crate) fn spawn_decoder(sink: VideoSink) -> Result<(DecoderQueue, Lost), &'s
 	let (send, receive) = sync_channel(64);
 	let lost: Lost = Arc::new(Mutex::new(Vec::new()));
 	let report = lost.clone();
+	let removals = Arc::new(Mutex::new(Vec::new()));
+	let thread_removals = removals.clone();
+	let counters = Arc::new(DecoderCounters::default());
+	let thread_counters = counters.clone();
 	std::thread::Builder::new()
 		.name("remote-video".into())
-		.spawn(move || decode_loop(receive, sink, report))
+		.spawn(move || decode_loop(receive, sink, report, thread_removals, thread_counters))
 		.map_err(|_| "Could not start the video decoder thread")?;
 	Ok((
 		DecoderQueue {
 			send,
 			bytes: Arc::new(tokio::sync::Semaphore::new(QUEUE_BYTES)),
+			removals,
+			counters,
 		},
 		lost,
 	))
@@ -307,10 +396,22 @@ pub(crate) fn offer(sender: &DecoderQueue, frame: Encoded) -> Result<bool, &'sta
 	else {
 		return Ok(false);
 	};
-	match sender.send.try_send((frame, permit)) {
+	match sender.send.try_send(Decode::Frame(frame, permit)) {
 		Ok(()) => Ok(true),
 		Err(TrySendError::Full(_)) => Ok(false),
 		Err(TrySendError::Disconnected(_)) => Err("Video decoder stopped"),
+	}
+}
+
+/// Release one participant's decoder without blocking the media transport.
+pub(crate) fn remove(sender: &DecoderQueue, user: u64) {
+	if let Err(TrySendError::Full(Decode::Remove(user))) =
+		sender.send.try_send(Decode::Remove(user))
+		&& let Ok(mut removals) = sender.removals.lock()
+		&& removals.len() < MAX_SOURCES
+		&& !removals.contains(&user)
+	{
+		removals.push(user);
 	}
 }
 
@@ -321,11 +422,18 @@ enum Backend {
 	Software(openh264::decoder::Decoder),
 }
 impl Backend {
-	fn new(prefer_hardware: bool, user: u64, sink: &VideoSink) -> Option<Self> {
+	fn new(
+		prefer_hardware: bool,
+		user: u64,
+		sink: &VideoSink,
+		counters: &Arc<DecoderCounters>,
+	) -> Option<Self> {
 		if prefer_hardware {
 			let sink = sink.clone();
+			let counters = counters.clone();
 			let deliver: platform::video::LiveSink = Box::new(move |frame| {
 				if bounded(frame.width as usize, frame.height as usize).is_ok() {
+					counters.pictures.fetch_add(1, Ordering::Relaxed);
 					sink(RemoteFrame {
 						user,
 						width: frame.width,
@@ -354,10 +462,12 @@ impl Backend {
 				let (width, height) = openh264::formats::YUVSource::dimensions(&decoded);
 				let (width, height) = bounded(width, height)?;
 				let bytes = width as usize * height as usize * 4;
-				if scratch.len() != bytes {
-					*scratch = vec![0; bytes];
+				// Shared across participants: retain initialized bytes when resolutions alternate.
+				if scratch.len() < bytes {
+					scratch.reserve_exact(bytes - scratch.len());
+					scratch.resize(bytes, 0);
 				}
-				decoded.write_rgba8(scratch);
+				decoded.write_rgba8(&mut scratch[..bytes]);
 				Ok(Some((width, height)))
 			}
 		}
@@ -371,9 +481,11 @@ impl Backend {
 }
 
 fn decode_loop(
-	receive: Receiver<(Encoded, tokio::sync::OwnedSemaphorePermit)>,
+	receive: Receiver<Decode>,
 	sink: VideoSink,
 	lost: Lost,
+	removals: Arc<Mutex<Vec<u64>>>,
+	counters: Arc<DecoderCounters>,
 ) {
 	let mut decoders: HashMap<u64, Backend> = HashMap::new();
 	// Users whose hardware decoder rejected the stream fall back to software.
@@ -381,7 +493,23 @@ fn decode_loop(
 	// After a decode error, predictions are skipped until a keyframe rebuilds the references.
 	let mut broken: Vec<u64> = Vec::new();
 	let mut scratch = Vec::new();
-	while let Ok((frame, _permit)) = receive.recv() {
+	while let Ok(message) = receive.recv() {
+		if let Ok(mut removals) = removals.lock() {
+			for user in removals.drain(..) {
+				decoders.remove(&user);
+				software_only.retain(|known| *known != user);
+				broken.retain(|known| *known != user);
+			}
+		}
+		let (frame, _permit) = match message {
+			Decode::Frame(frame, permit) => (frame, permit),
+			Decode::Remove(user) => {
+				decoders.remove(&user);
+				software_only.retain(|known| *known != user);
+				broken.retain(|known| *known != user);
+				continue;
+			}
+		};
 		if frame.data.len() > MAX_FRAME_BYTES {
 			continue;
 		}
@@ -394,9 +522,13 @@ fn decode_loop(
 			if decoders.len() >= MAX_DECODERS {
 				continue;
 			}
-			let Some(decoder) =
-				Backend::new(!software_only.contains(&frame.user), frame.user, &sink)
-			else {
+			let Some(decoder) = Backend::new(
+				!software_only.contains(&frame.user),
+				frame.user,
+				&sink,
+				&counters,
+			) else {
+				counters.errors.fetch_add(1, Ordering::Relaxed);
 				continue;
 			};
 			decoders.insert(frame.user, decoder);
@@ -409,6 +541,7 @@ fn decode_loop(
 			Err(()) => {
 				// Corrupt or lost data: a fresh decoder waits for the next keyframe. A
 				// hardware decoder that fails on a keyframe is replaced by software.
+				counters.errors.fetch_add(1, Ordering::Relaxed);
 				decoders.remove(&frame.user);
 				if hardware && frame.keyframe && !software_only.contains(&frame.user) {
 					software_only.push(frame.user);
@@ -423,11 +556,12 @@ fn decode_loop(
 			}
 		};
 		let (width, height) = decoded;
+		counters.pictures.fetch_add(1, Ordering::Relaxed);
 		sink(RemoteFrame {
 			user: frame.user,
 			width,
 			height,
-			rgba: &scratch,
+			rgba: &scratch[..width as usize * height as usize * 4],
 		});
 	}
 	// Hardware pictures still in flight must land before the sink goes away.
@@ -457,6 +591,77 @@ fn bounded(width: usize, height: usize) -> Result<(u32, u32), ()> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn optimization_decoder_removal_survives_a_full_frame_queue() {
+		let (send, receive) = sync_channel(1);
+		let removals = Arc::new(Mutex::new(Vec::new()));
+		let queue = DecoderQueue {
+			send,
+			bytes: Arc::new(tokio::sync::Semaphore::new(QUEUE_BYTES)),
+			removals: removals.clone(),
+			counters: Arc::new(DecoderCounters::default()),
+		};
+		assert!(queue.send.try_send(Decode::Remove(1)).is_ok());
+		remove(&queue, 7);
+		assert_eq!(*removals.lock().unwrap(), vec![7]);
+		assert!(matches!(receive.recv().unwrap(), Decode::Remove(1)));
+	}
+
+	#[test]
+	fn a_silent_stall_can_request_keyframes_without_observed_loss() {
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		receivers.announce(8, 800).unwrap();
+		// A clean keyframe from each sender leaves nothing owed.
+		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+		assert!(receivers.accept(7, true));
+		assert!(receivers.push(800, 1, 900, true, &[0x65, 1]).is_some());
+		assert!(receivers.accept(8, true));
+		assert!(!receivers.awaiting());
+		assert_eq!(receivers.take_stats().incomplete, 0);
+		// Video simply stops: no loss is observed, so only the stall path recovers it.
+		assert!(receivers.has_sources());
+		receivers.require_all_keyframes();
+		assert!(receivers.awaiting());
+		assert_eq!(
+			receivers.keyframe_requests().collect::<Vec<_>>(),
+			vec![700, 800]
+		);
+	}
+
+	#[test]
+	fn parameter_set_detection_needs_both_sps_and_pps() {
+		assert!(has_parameter_sets(&[
+			0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x68, 2, 0, 0, 0, 1, 0x65, 3
+		]));
+		assert!(!has_parameter_sets(&[
+			0, 0, 0, 1, 0x67, 1, 0, 0, 0, 1, 0x65, 3
+		]));
+		assert!(!has_parameter_sets(&[0, 0, 0, 1, 0x65, 3]));
+		assert!(!has_parameter_sets(&[]));
+	}
+
+	#[test]
+	fn receiver_stats_count_unknown_incomplete_and_complete_pictures() {
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		assert!(receivers.push(999, 1, 900, true, &[0x65, 1]).is_none());
+		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+		assert!(receivers.push(700, 3, 1800, true, &[0x41, 1]).is_none());
+		let stats = receivers.take_stats();
+		assert_eq!(
+			(stats.unknown_ssrc, stats.incomplete, stats.complete),
+			(1, 1, 1)
+		);
+		assert!(receivers.awaiting());
+		let stats = receivers.take_stats();
+		assert_eq!(
+			(stats.unknown_ssrc, stats.incomplete, stats.complete),
+			(0, 0, 0)
+		);
+	}
+
 	#[test]
 	fn single_stap_and_fragmented_nal_units_rebuild_annex_b() {
 		let mut assembler = Assembler::default();
@@ -493,6 +698,31 @@ mod tests {
 		assert!(huge.push(sequence, 1, true, &chunk).is_none());
 	}
 	#[test]
+	fn packet_loss_requests_a_keyframe_before_accepting_predictions() {
+		for missing_marker in [false, true] {
+			let mut receivers = Receivers::default();
+			receivers.announce(7, 700).unwrap();
+			assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+			assert!(receivers.accept(7, true));
+			assert!(receivers.keyframe_requests().next().is_none());
+			if missing_marker {
+				assert!(receivers.push(700, 2, 1800, false, &[0x41, 1]).is_none());
+				// A new timestamp exposes an unfinished prior picture even without a sequence gap.
+				assert!(receivers.push(700, 3, 2700, true, &[0x41, 2]).is_some());
+			} else {
+				assert!(receivers.push(700, 3, 1800, true, &[0x41, 1]).is_none());
+			}
+			assert_eq!(receivers.keyframe_requests().collect::<Vec<_>>(), vec![700]);
+			assert!(!receivers.accept(7, false));
+			assert!(receivers.push(700, 4, 3600, true, &[0x41, 3]).is_some());
+			assert!(!receivers.accept(7, false));
+			assert!(receivers.push(700, 5, 4500, true, &[0x65, 4]).is_some());
+			assert!(receivers.accept(7, true));
+			assert!(receivers.keyframe_requests().next().is_none());
+			assert!(receivers.accept(7, false));
+		}
+	}
+	#[test]
 	fn receivers_bind_ssrcs_to_users_within_the_source_limit() {
 		let mut receivers = Receivers::default();
 		receivers.announce(5, 100).unwrap();
@@ -522,6 +752,96 @@ mod tests {
 		assert!(bounded(1920, 1081).is_err());
 		assert!(bounded(0, 4).is_err());
 	}
+	#[test]
+	fn software_decoders_reuse_scratch_across_alternating_resolutions() {
+		use openh264::{
+			OpenH264API,
+			encoder::{Encoder, EncoderConfig},
+			formats::YUVBuffer,
+		};
+		let mut streams: Vec<_> = [(64, 64), (32, 32)]
+			.into_iter()
+			.map(|(width, height)| {
+				let mut encoder =
+					Encoder::with_api_config(OpenH264API::from_source(), EncoderConfig::new())
+						.unwrap();
+				let mut data = Vec::new();
+				encoder
+					.encode(&YUVBuffer::new(width, height))
+					.unwrap()
+					.write_vec(&mut data);
+				let decoder = Backend::Software(openh264::decoder::Decoder::new().unwrap());
+				(decoder, data, (width as u32, height as u32))
+			})
+			.collect();
+		let mut scratch = Vec::new();
+		let mut allocation = None;
+		for _ in 0..4 {
+			for (decoder, data, dimensions) in &mut streams {
+				assert_eq!(decoder.decode(data, &mut scratch), Ok(Some(*dimensions)));
+				let bytes = dimensions.0 as usize * dimensions.1 as usize * 4;
+				assert!(
+					scratch[..bytes]
+						.as_chunks::<4>()
+						.0
+						.iter()
+						.all(|px| px[3] == 255)
+				);
+				assert_eq!(scratch.len(), 64 * 64 * 4);
+				let current = (scratch.as_ptr(), scratch.capacity());
+				assert_eq!(*allocation.get_or_insert(current), current);
+			}
+		}
+	}
+
+	/// `cargo test --release -p discord-voice compare_alternating_software_decode -- --ignored --nocapture`
+	#[test]
+	#[ignore]
+	fn compare_alternating_software_decode() {
+		use openh264::{
+			OpenH264API,
+			encoder::{Encoder, EncoderConfig},
+			formats::YUVBuffer,
+		};
+		let streams: Vec<_> = [(1920, 1080), (1280, 720)]
+			.into_iter()
+			.map(|(width, height)| {
+				let mut encoder =
+					Encoder::with_api_config(OpenH264API::from_source(), EncoderConfig::new())
+						.unwrap();
+				let mut data = Vec::new();
+				encoder
+					.encode(&YUVBuffer::new(width, height))
+					.unwrap()
+					.write_vec(&mut data);
+				data
+			})
+			.collect();
+		for run in 0..6 {
+			let mut decoders = streams
+				.iter()
+				.map(|_| Backend::Software(openh264::decoder::Decoder::new().unwrap()))
+				.collect::<Vec<_>>();
+			let mut scratch = Vec::new();
+			let mut length_changes = 0;
+			let mut peak_capacity = 0;
+			let start = std::time::Instant::now();
+			for _ in 0..60 {
+				for (decoder, data) in decoders.iter_mut().zip(&streams) {
+					let previous = scratch.len();
+					let (width, height) = decoder.decode(data, &mut scratch).unwrap().unwrap();
+					std::hint::black_box(&scratch[..width as usize * height as usize * 4]);
+					length_changes += usize::from(previous != scratch.len());
+					peak_capacity = peak_capacity.max(scratch.capacity());
+				}
+			}
+			println!(
+				"alternating software run={run} (0=warmup) frames=120 ms={:.3} scratch_length_changes={length_changes} peak_scratch_capacity={peak_capacity}",
+				start.elapsed().as_secs_f64() * 1000.0
+			);
+		}
+	}
+
 	#[cfg(target_os = "macos")]
 	#[test]
 	fn hardware_decoder_round_trips_an_openh264_keyframe() {
@@ -540,7 +860,7 @@ mod tests {
 				.unwrap()
 				.push((frame.user, frame.width, frame.height, frame.rgba.to_vec()));
 		});
-		let mut decoder = Backend::new(true, 9, &sink).expect("hardware backend");
+		let mut decoder = Backend::new(true, 9, &sink, &Arc::default()).expect("hardware backend");
 		assert!(matches!(decoder, Backend::Hardware(_)));
 		let mut scratch = Vec::new();
 		for _ in 0..3 {
@@ -594,7 +914,7 @@ mod tests {
 			let sink: VideoSink = Arc::new(move |_| {
 				seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 			});
-			let mut decoder = Backend::new(hardware, 1, &sink).unwrap();
+			let mut decoder = Backend::new(hardware, 1, &sink, &Arc::default()).unwrap();
 			let mut scratch = Vec::new();
 			// Session start-up (IOSurface, Metal) is a one-time cost; time steady state only.
 			let _ = decoder.decode(&frames[0], &mut scratch);

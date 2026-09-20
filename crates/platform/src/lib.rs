@@ -1,8 +1,12 @@
 //! Credential persistence and temporary owner-operated login/verification surfaces.
 pub mod badge;
 pub mod captcha;
+pub mod compositor;
 pub mod game_activity;
+pub mod hotkeys;
 pub mod notifications;
+pub mod pointer;
+pub mod processes;
 pub mod save;
 pub mod startup;
 pub mod tray;
@@ -10,6 +14,7 @@ pub mod video;
 #[cfg(target_os = "macos")]
 pub mod window;
 use client_core::auth::{Failure, SessionSecret};
+pub use pointer::cursor_position;
 #[cfg(not(target_os = "linux"))]
 use std::{
 	sync::{
@@ -35,8 +40,48 @@ pub enum CredentialError {
 	Invalid,
 	TimedOut,
 }
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ensure_gtk_application_id() {
+	static INIT: std::sync::Once = std::sync::Once::new();
+	INIT.call_once(|| {
+		use gtk4::gio::prelude::ApplicationExt;
+		let app = gtk4::gio::Application::new(Some(SERVICE), gtk4::gio::ApplicationFlags::empty());
+		if let Err(error) = app.register(gtk4::gio::Cancellable::NONE) {
+			eprintln!("Linux login/verification: GApplication registration failed: {error}");
+		}
+		std::mem::forget(app);
+	});
+}
+
+/// The entry restored on launch. Switching accounts rewrites it from the per-account entry.
 pub fn load_session() -> Result<Option<SessionSecret>, CredentialError> {
-	let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|_| CredentialError::Unavailable)?;
+	load_entry(ACCOUNT)
+}
+pub fn save_session(secret: &SessionSecret) -> Result<(), CredentialError> {
+	save_entry(ACCOUNT, secret)
+}
+pub fn forget_session() -> Result<(), CredentialError> {
+	forget_entry(ACCOUNT)
+}
+/// One entry per remembered account, so the switcher never keeps a second copy in memory.
+fn account_entry(account: model::Id) -> String {
+	format!("{ACCOUNT}.{account}")
+}
+pub fn load_account_session(account: model::Id) -> Result<Option<SessionSecret>, CredentialError> {
+	load_entry(&account_entry(account))
+}
+pub fn save_account_session(
+	account: model::Id,
+	secret: &SessionSecret,
+) -> Result<(), CredentialError> {
+	save_entry(&account_entry(account), secret)
+}
+pub fn forget_account_session(account: model::Id) -> Result<(), CredentialError> {
+	forget_entry(&account_entry(account))
+}
+fn load_entry(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
+	let entry = keyring::Entry::new(SERVICE, name).map_err(|_| CredentialError::Unavailable)?;
 	match entry.get_password() {
 		Ok(value) => SessionSecret::from_owner_input(value)
 			.map(Some)
@@ -45,13 +90,13 @@ pub fn load_session() -> Result<Option<SessionSecret>, CredentialError> {
 		Err(_) => Err(CredentialError::Unavailable),
 	}
 }
-pub fn save_session(secret: &SessionSecret) -> Result<(), CredentialError> {
-	keyring::Entry::new(SERVICE, ACCOUNT)
+fn save_entry(name: &str, secret: &SessionSecret) -> Result<(), CredentialError> {
+	keyring::Entry::new(SERVICE, name)
 		.and_then(|entry| entry.set_password(secret.expose()))
 		.map_err(|_| CredentialError::Unavailable)
 }
-pub fn forget_session() -> Result<(), CredentialError> {
-	match keyring::Entry::new(SERVICE, ACCOUNT).and_then(|entry| entry.delete_credential()) {
+fn forget_entry(name: &str) -> Result<(), CredentialError> {
+	match keyring::Entry::new(SERVICE, name).and_then(|entry| entry.delete_credential()) {
 		Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
 		Err(_) => Err(CredentialError::Unavailable),
 	}

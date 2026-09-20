@@ -26,4 +26,7 @@ pub struct ServerUpdate {
 #[derive(Deserialize)]
 pub struct Deleted {
 	pub stream_key: String,
+	/// Why Discord ended the stream, for example `user_requested` or `stream_ended`.
+	#[serde(default)]
+	pub reason: Option<String>,
 }

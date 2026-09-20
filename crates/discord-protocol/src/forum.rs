@@ -82,6 +82,50 @@ impl GuildActive {
 	}
 }
 
+/// The existing history route, reduced before entering the UI event queue.
+#[derive(Deserialize)]
+pub struct Recent(
+	#[serde(deserialize_with = "crate::search::list::<_,_,50>")] Vec<crate::MessageDto>,
+);
+impl Recent {
+	pub fn into_summary(self, channel: Id) -> Result<model::forum::Summary, &'static str> {
+		let mut messages: Vec<_> = self
+			.0
+			.into_iter()
+			.map(crate::MessageDto::into_model)
+			.collect();
+		if messages.iter().any(|message| message.channel != channel) {
+			return Err("Invalid forum preview");
+		}
+		messages.sort_unstable_by_key(|message| std::cmp::Reverse(message.id));
+		let latest = messages.first().map(|message| model::forum::Latest {
+			id: message.id,
+			channel: message.channel,
+			author_id: message.author.id,
+			author: message
+				.author_nick
+				.clone()
+				.unwrap_or_else(|| message.author.name.clone()),
+			roles: message.author_roles.clone(),
+			webhook: message.author.webhook,
+			excerpt: if message.content.contains("||") {
+				"Spoiler content - open message to reveal".into()
+			} else {
+				message.content.chars().take(256).collect()
+			},
+		});
+		let summary = model::forum::Summary {
+			complete: messages.len() < 50,
+			messages: messages.iter().map(|message| message.id).collect(),
+			latest,
+		};
+		if !summary.valid(channel) {
+			return Err("Invalid forum preview");
+		}
+		Ok(summary)
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

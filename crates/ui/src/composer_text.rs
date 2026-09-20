@@ -32,6 +32,8 @@ impl Layout {
 		text: &str,
 		width: f32,
 		users: &[User],
+		roles: &[model::permissions::Role],
+		channels: &[model::Channel],
 		mass_mentions: bool,
 		avatars: &mut Avatars,
 		demo: bool,
@@ -65,6 +67,19 @@ impl Layout {
 			user.id.hash(&mut key);
 			user.name.hash(&mut key);
 		}
+		for role in roles {
+			role.id.hash(&mut key);
+			role.name.hash(&mut key);
+		}
+		for (start, _) in text.match_indices("<#") {
+			if let Some((id, _)) = model::channel_mention_prefix(&text[start..]) {
+				channels
+					.iter()
+					.find(|c| c.id == id)
+					.map(|c| &c.name)
+					.hash(&mut key);
+			}
+		}
 		mass_mentions.hash(&mut key);
 		let key = key.finish();
 		if let Some((cached, galley)) = &self.cache
@@ -97,6 +112,22 @@ impl Layout {
 					.find(|u| u.id == id)
 					.map_or_else(|| id.to_string(), |user| user.name.clone());
 				label = Some((format!("@{name}"), colors.mention_text));
+				background = colors.mention_bg;
+				len
+			} else if let Some((id, len)) = model::role_mention_prefix(tail) {
+				let name = roles
+					.iter()
+					.find(|role| role.id == id)
+					.map_or_else(|| format!("unknown-role ({id})"), |role| role.name.clone());
+				label = Some((format!("@{name}"), colors.mention_text));
+				background = colors.mention_bg;
+				len
+			} else if let Some((id, len)) = model::channel_mention_prefix(tail) {
+				let name = channels
+					.iter()
+					.find(|c| c.id == id && c.guild.is_some())
+					.map_or_else(|| format!("unknown-channel ({id})"), |c| c.name.clone());
+				label = Some((format!("#{name}"), colors.mention_text));
 				background = colors.mention_bg;
 				len
 			} else if mass_mentions && let Some(len) = model::mass_mention_prefix(tail) {
@@ -133,17 +164,9 @@ impl Layout {
 			let count = raw.chars().count();
 			if label.is_some() || image.is_some() || artwork {
 				let slot = label.as_ref().map_or(size, |g| g.size().x + 6.0);
-				// One zero-width glyph plus leading space forms an unbroken inline object.
+				// One blank glyph forms an unbroken inline object, even at a row break.
 				// Expand its character slots below, so native selection/copy/undo use wire text.
-				job.append(
-					"\u{200b}",
-					slot,
-					TextFormat {
-						color: Color32::TRANSPARENT,
-						line_height: Some(size),
-						..format.clone()
-					},
-				);
+				job.append(" ", 0.0, emoji::inline_format(ui, slot, size));
 				self.inlines.push(Inline {
 					source: source..source + count,
 					projected,
@@ -179,8 +202,7 @@ impl Layout {
 					for (index, chr) in chars[inline.source.clone()].iter().enumerate() {
 						let mut slot = *glyph;
 						slot.chr = *chr;
-						slot.pos.x =
-							glyph.pos.x - inline.width + inline.width * index as f32 / count as f32;
+						slot.pos.x = glyph.pos.x + inline.width * index as f32 / count as f32;
 						slot.advance_width = inline.width / count as f32;
 						glyphs.push(slot);
 					}
@@ -334,6 +356,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}]
 	}
 
@@ -358,6 +381,8 @@ mod tests {
 							buffer.as_str(),
 							width,
 							&users(),
+							&[],
+							&[],
 							true,
 							&mut avatars,
 							false,
@@ -424,7 +449,8 @@ mod tests {
 				emoji::install(&ctx).unwrap();
 			}
 			let output = ctx.run_ui(Default::default(), |ui| {
-				let galley = layout.galley(ui, text, 65.0, &[], false, &mut avatars, true);
+				let galley =
+					layout.galley(ui, text, 65.0, &[], &[], &[], false, &mut avatars, true);
 				assert_eq!(galley.job.text, text);
 				assert_eq!(layout.inlines.len(), 4);
 				for inline in &layout.inlines {
@@ -473,7 +499,17 @@ mod tests {
 				},
 				|ui| {
 					let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
-						layout.galley(ui, buffer.as_str(), width, &[], false, &mut avatars, true)
+						layout.galley(
+							ui,
+							buffer.as_str(),
+							width,
+							&[],
+							&[],
+							&[],
+							false,
+							&mut avatars,
+							true,
+						)
 					};
 					let edit = egui::TextEdit::multiline(&mut text)
 						.id(id)
@@ -526,7 +562,17 @@ mod tests {
 				);
 				message.show_with_images(ui, &mut None, &[], &mut None, (&mut avatars, false, &[]));
 				let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
-					layout.galley(ui, buffer.as_str(), width, &[], false, &mut avatars, true)
+					layout.galley(
+						ui,
+						buffer.as_str(),
+						width,
+						&[],
+						&[],
+						&[],
+						false,
+						&mut avatars,
+						true,
+					)
 				};
 				let edit = egui::TextEdit::multiline(&mut text)
 					.layouter(&mut layouter)
@@ -566,7 +612,17 @@ mod tests {
 		let mut avatars = Avatars::default();
 		let mut layout = Layout::default();
 		let output = ctx.run_ui(Default::default(), |ui| {
-			let galley = layout.galley(ui, text, 130.0, &users(), false, &mut avatars, true);
+			let galley = layout.galley(
+				ui,
+				text,
+				130.0,
+				&users(),
+				&[],
+				&[],
+				false,
+				&mut avatars,
+				true,
+			);
 			assert_eq!(galley.job.text, text);
 			let mut reconstructed = String::new();
 			for row in &galley.rows {
@@ -632,7 +688,17 @@ mod tests {
 					..Default::default()
 				},
 				|ui| {
-					layout.galley(ui, &text, 300.0, &users(), false, &mut avatars, true);
+					layout.galley(
+						ui,
+						&text,
+						300.0,
+						&users(),
+						&[],
+						&[],
+						false,
+						&mut avatars,
+						true,
+					);
 					layout.select_deleted_inline(&ctx, id);
 					let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
 						layout.galley(
@@ -640,6 +706,8 @@ mod tests {
 							buffer.as_str(),
 							width,
 							&users(),
+							&[],
+							&[],
 							false,
 							&mut avatars,
 							true,

@@ -1,0 +1,8 @@
+[advisories]
+ignore = [
+    # ttf-parser is unmaintained (informational, not a vulnerability). It arrives transitively
+    # through owned_ttf_parser -> ab_glyph, pulled in by the pinned egui revision; this
+    # workspace has no direct dependency on it and no path to update it independently.
+    # Re-check when the egui pin moves.
+    "RUSTSEC-2026-0192",
+]

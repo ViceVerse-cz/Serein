@@ -58,8 +58,12 @@ flatpak uninstall --user cz.viceverse.serein
 
 ### Sandbox Permissions
 
-The sandbox grants network, graphics, Wayland with X11 fallback, audio and
-specific Secret Service/notification D-Bus names. Files are selected through
+The sandbox grants network, graphics, Wayland and X11 access, audio and
+specific Secret Service/notification D-Bus names and `org.kde.StatusNotifierWatcher`
+for the tray. A StatusNotifier host must be running; no additional bus-name ownership
+or blanket session-bus permission is required. X11 access is required as an
+automatic clipboard fallback on Wayland compositors without the data-control
+protocol. Files are selected through
 the existing desktop portal; home and session-bus access are not granted.
 Caches/preferences use Flatpak's isolated XDG directories under
 `~/.var/app/cz.viceverse.serein`; a native installation's data is not imported.
@@ -69,7 +73,10 @@ credential isolation guarantee. Audio access permits microphone use, but Serein'
 existing explicit call/device-testing gates still apply.
 
 Sandboxed login, keyring, file chooser, notifications and physical audio require
-owner-controlled Linux desktop validation. Linux screen sharing is not implemented.
+owner-controlled Linux desktop validation. Screen sharing uses the ScreenCast portal
+and PipeWire; optional system audio monitors individual applications through native
+libpulse and the existing PulseAudio socket. Serein's playback and applications without
+a usable identity are excluded. No additional sandbox permissions are needed.
 The camera adapter uses direct V4L2, with no camera portal; camera capture is
 unavailable under these permissions. Host game IPC is also isolated. Do not grant
 blanket devices/home access to hide these limitations.

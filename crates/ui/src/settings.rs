@@ -9,7 +9,7 @@ pub(super) struct Settings {
 	pub open: bool,
 	page: Page,
 	query: String,
-	editor: crate::profile_edit::Editor,
+	pub(super) editor: crate::profile_edit::Editor,
 	pub(super) notifications: crate::notification_settings::Navigation,
 	pub(super) messaging_permissions: crate::messaging_permissions::Navigation,
 }
@@ -82,7 +82,7 @@ impl Page {
 		match self {
 			Self::Account => "The Discord account signed in on this device.",
 			Self::Profile => "Choose how you appear across Discord.",
-			Self::General => "Startup and window behavior on this device.",
+			Self::General => "Startup, window and graphics behavior on this device.",
 			Self::Appearance => "Theme, colour preset, zoom and layout.",
 			Self::MessagingPermissions => {
 				"Control who can contact you and how messages are filtered."
@@ -102,16 +102,16 @@ impl Page {
 			Self::Account => "my account profile logout",
 			Self::Profile => "profile edit display name about me bio pronouns color colour",
 			Self::General => {
-				"general windows macos login menu bar startup autostart automatically open minimized minimize tray background"
+				"general windows macos login menu bar startup autostart automatically open minimized minimize close tray background graphics gpu adapter render discrete integrated hardware acceleration performance battery"
 			}
 			Self::Appearance => {
-				"appearance customization primary accent hex window title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
+				"appearance customization primary accent hex window transparency blur title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
 			}
 			Self::Notifications => {
-				"notifications desktop system alerts overview sounds badges email streaming friends reactions"
+				"notifications desktop system alerts overview sounds badges message ring"
 			}
 			Self::Activity => "game activity playing osu status presence sharing",
 			Self::Voice => {
@@ -162,13 +162,20 @@ impl MessagingUi {
 						.events
 						.iter()
 						.any(|event| matches!(event, egui::Event::Ime(_)))
-			}) && ctx
-			.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Slash))
-		{
+			}) && ctx.input_mut(|input| {
+			crate::keybinds::pressed(
+				input,
+				self.keybinds.chord(model::KeybindAction::ShowShortcuts),
+			)
+		}) {
 			self.settings.open = true;
 			self.settings.page = Page::Keybinds;
 			self.settings.query.clear();
 		}
+	}
+
+	pub fn voice_settings_open(&self) -> bool {
+		self.settings.open && self.settings.page == Page::Voice
 	}
 
 	pub(super) fn open_voice_settings(&mut self) {
@@ -177,6 +184,12 @@ impl MessagingUi {
 		self.settings.query.clear();
 	}
 
+	/// Fixture-only entry point: opens the theme maker on the requested editor tab.
+	#[cfg(feature = "demo")]
+	pub fn preview_theme_maker(&mut self, tab: &str) {
+		self.preview_settings("themes");
+		self.extensions.preview_theme_maker(tab);
+	}
 	/// Fixture-only entry point for the native offline settings preview.
 	pub fn preview_settings(&mut self, page: &str) {
 		self.settings.open = true;
@@ -338,7 +351,7 @@ impl MessagingUi {
 										self.messaging_permissions_settings(ui, state, commands)
 									}
 									Page::Notifications => {
-										self.notification_settings(ui, state, commands)
+										self.notification_settings(ui, state.demo)
 									}
 									Page::Activity => self.activity_settings(ui, state),
 									Page::Voice => self.voice_settings_content(
@@ -349,18 +362,39 @@ impl MessagingUi {
 									),
 									Page::Storage => self.storage_page(ui, state),
 									Page::Updates => self.update_settings(ui, state.demo),
-									Page::Keybinds => crate::keybinds::show(ui),
+									Page::Keybinds => crate::keybinds::show(
+										ui,
+										&mut self.keybinds,
+										&mut self.keybind_capture,
+										self.global_keybind_status,
+									),
 									Page::Extensions | Page::Themes => {
 										self.extensions
 											.select_themes(self.settings.page == Page::Themes);
 										self.extensions.settings(ui, state);
 									}
 								}
+								if state.demo {
+									ui.add_space(20.0);
+									design::hint(
+										ui,
+										"Offline preview · changes stay in this session and are never sent.",
+									);
+								}
 								ui.add_space(24.0);
 							});
 					});
 			});
 		if modal.should_close() {
+			self.settings.open = false;
+		}
+		if self.keybind_capture.is_none()
+			&& ctx.input_mut(|input| {
+				crate::keybinds::pressed_exact(
+					input,
+					self.keybinds.chord(model::KeybindAction::CloseOverlay),
+				)
+			}) {
 			self.settings.open = false;
 		}
 		if !self.settings.open {
@@ -449,27 +483,6 @@ impl MessagingUi {
 						.size(11.0)
 						.color(colors.muted),
 				);
-				ui.add_space(2.0);
-				let copied = self
-					.updates
-					.copied_diagnostics
-					.is_some_and(|until| ui.input(|i| i.time) < until);
-				let link_text = if copied {
-					RichText::new("✓ Copied issue info")
-						.size(11.0)
-						.color(colors.positive)
-				} else {
-					RichText::new("Copy issue info")
-						.size(11.0)
-						.color(colors.muted)
-				};
-				if ui
-					.link(link_text)
-					.on_hover_text("Copy environment information formatted for GitHub issues")
-					.clicked()
-				{
-					self.copy_diagnostic_info(ui.ctx());
-				}
 			});
 	}
 
@@ -610,9 +623,23 @@ impl MessagingUi {
 									"Managed in Discord",
 								);
 							});
-						if ui.button("Edit profile").clicked() {
-							self.settings.page = Page::Profile;
-						}
+						ui.add_space(12.0);
+						ui.horizontal(|ui| {
+							ui.with_layout(
+								egui::Layout::right_to_left(egui::Align::Center),
+								|ui| {
+									if design::button(
+										ui,
+										"Edit profile",
+										design::ButtonKind::Outline,
+									)
+									.clicked()
+									{
+										self.settings.page = Page::Profile;
+									}
+								},
+							);
+						});
 					});
 				// Avatar overlapping the banner edge, ringed by the card surface.
 				let avatar = egui::Rect::from_min_size(
@@ -629,131 +656,105 @@ impl MessagingUi {
 					}
 				});
 			});
-		ui.add_space(8.0);
-		ui.label(design::eyebrow(ui, "Session", colors.muted));
-		design::card(ui, |ui| {
-			ui.horizontal(|ui| {
-				ui.vertical(|ui| {
-					ui.set_width((ui.available_width() - 140.0).max(120.0));
-					ui.spacing_mut().item_spacing.y = 2.0;
-					ui.label(
-						design::medium(
-							ui,
-							if state.demo {
-								"Exit preview"
-							} else {
-								"Log out"
-							},
-							15.0,
-						)
-						.color(colors.text_strong),
-					);
-					ui.label(
-						RichText::new(if state.demo {
-							"Closes the offline fixture. Nothing is stored for the preview."
-						} else {
-							"Removes the saved login and clears this account's local cache and drafts."
-						})
-						.size(13.0)
-						.color(colors.muted),
-					);
-				});
-				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-					if ui
-						.add(
-							egui::Button::new(
-								design::medium(
-									ui,
-									if state.demo {
-										"Exit preview"
-									} else {
-										"Log out"
-									},
-									14.0,
-								)
-								.color(egui::Color32::WHITE),
-							)
-							.fill(colors.danger)
-							.corner_radius(6),
-						)
-						.clicked()
-					{
-						self.logout_requested = true;
-						self.settings.open = false;
-					}
-				});
-			});
+		let label = if state.demo {
+			"Exit preview"
+		} else {
+			"Log out"
+		};
+		design::group(ui, "Session", |ui| {
+			if design::row(
+				ui,
+				label,
+				Some(if state.demo {
+					"Closes the offline fixture. Nothing is stored for the preview."
+				} else {
+					"Removes the saved login and clears this account's local cache and drafts."
+				}),
+				|ui| design::button(ui, label, design::ButtonKind::Danger),
+			)
+			.clicked()
+			{
+				self.logout_requested = true;
+				self.settings.open = false;
+			}
 		});
 	}
 
-	fn general_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
-		let colors = design::palette(ui);
-		ui.add_enabled_ui(self.startup_available && !self.startup_busy, |ui| {
-			design::switch(
-				ui,
-				"Automatically open Serein when your computer starts up",
-				None,
-				&mut self.startup_enabled,
-			);
-			ui.add_space(12.0);
-			ui.add_enabled_ui(self.startup_enabled, |ui| {
+	fn general_settings(&mut self, ui: &mut egui::Ui, _demo: bool) {
+		design::group(ui, "Startup", |ui| {
+			ui.add_enabled_ui(self.startup_available && !self.startup_busy, |ui| {
 				design::switch(
 					ui,
-					"Start Serein minimized",
-					Some("Start Serein in the background, out of your way."),
-					&mut self.startup_minimized,
+					"Open Serein when your computer starts",
+					Some("Serein signs in and connects in the background."),
+					&mut self.startup_enabled,
+				);
+				design::card_divider(ui);
+				ui.add_enabled_ui(self.startup_enabled, |ui| {
+					design::switch(
+						ui,
+						"Start minimized",
+						Some("Start in the background, out of your way."),
+						&mut self.startup_minimized,
+					);
+				});
+			});
+			if !self.startup_available {
+				design::hint(ui, "Automatic startup is available on Windows and macOS.");
+			} else if !self.startup_status.is_empty() {
+				design::hint(ui, self.startup_status);
+			}
+		});
+		design::group(ui, "Window", |ui| {
+			ui.add_enabled_ui(self.tray_available, |ui| {
+				design::switch(
+					ui,
+					if cfg!(target_os = "macos") {
+						"Keep Serein in the menu bar"
+					} else {
+						"Keep Serein in the system tray"
+					},
+					Some(if cfg!(target_os = "macos") {
+						"Closing the window keeps Serein in the menu bar. Quit from its menu to exit."
+					} else if cfg!(target_os = "linux") {
+						"Closing keeps Serein running. Use the tray to show, minimize or quit."
+					} else {
+						"Closing the window keeps Serein in the notification area. Quit from its menu to exit."
+					}),
+					&mut self.minimize_to_tray,
 				);
 			});
-		});
-		if !self.startup_status.is_empty() {
-			ui.label(
-				RichText::new(self.startup_status)
-					.size(12.0)
-					.color(colors.muted),
-			);
-			if self.startup_available
-				&& !self.startup_busy
-				&& ui.button("Turn off startup").clicked()
-			{
-				self.startup_disable_requested = true;
+			if !self.tray_available {
+				design::hint(ui, "The tray is unavailable on this platform.");
+			} else if !self.tray_status.is_empty() {
+				design::hint(ui, self.tray_status);
 			}
-		}
-		if !self.startup_available {
-			ui.label("Automatic startup is currently available on Windows and macOS only.");
-		}
-		ui.add_space(12.0);
-		ui.add_enabled_ui(self.tray_available, |ui| {
-			design::switch(
-				ui,
-				if cfg!(target_os = "macos") {
-					"Show Serein in the menu bar"
-				} else {
-					"Show Serein in System Tray"
-				},
-				Some(if cfg!(target_os = "macos") {
-					"Show a menu bar icon. Minimized windows stay in the Dock."
-				} else {
-					"Show a notification-area icon. Minimized windows stay in the taskbar."
-				}),
-				&mut self.minimize_to_tray,
-			);
 		});
-		let status = if self.tray_available {
-			self.tray_status
-		} else {
-			"Tray is unavailable on this platform."
-		};
-		if !status.is_empty() {
-			ui.label(RichText::new(status).size(12.0).color(colors.muted));
-		}
-		if demo {
-			ui.add_space(12.0);
-			ui.label(
-				RichText::new("Offline preview. Startup settings are not saved.")
-					.size(12.0)
-					.color(colors.muted),
-			);
-		}
+		design::group(ui, "Graphics", |ui| {
+			let detail = if self.gpu_adapter.is_empty() {
+				"Takes effect the next time Serein starts.".to_owned()
+			} else {
+				format!(
+					"Currently drawing with {}. Takes effect the next time Serein starts.",
+					self.gpu_adapter
+				)
+			};
+			design::row(ui, "Render with", Some(&detail), |ui| {
+				egui::ComboBox::from_id_salt("gpu-preference")
+					.selected_text(self.gpu_preference.label())
+					.width(ui.available_width().min(220.0))
+					.show_ui(ui, |ui| {
+						for preference in model::GpuPreference::ALL {
+							ui.selectable_value(
+								&mut self.gpu_preference,
+								preference,
+								preference.label(),
+							)
+							.on_hover_text(preference.description());
+						}
+					});
+			});
+		});
 	}
 
 	/// Compact appearance popup for the signed-out header: mode, colour preset and zoom.
@@ -791,48 +792,74 @@ impl MessagingUi {
 	}
 
 	fn appearance_settings(&mut self, ui: &mut egui::Ui) {
-		self.extensions.reset_theme_button(ui);
 		let colors = design::palette(ui);
-		ui.add_space(8.0);
+		ui.add_space(4.0);
 		ui.label(design::eyebrow(ui, "Theme", colors.muted));
 		theme_preference_cards(ui);
 		#[cfg(any(target_os = "windows", target_os = "macos"))]
-		{
-			ui.add_space(8.0);
-			ui.label(design::eyebrow(ui, "Window", colors.muted));
-			design::card(ui, |ui| {
+		design::group(ui, "Window", |ui| {
+			design::switch(
+				ui,
+				"Hide Serein title bar",
+				Some("Use the system title bar and window buttons instead."),
+				&mut self.hide_title_bar,
+			);
+		});
+		design::group(ui, "Customization", |ui| {
+			design::switch(
+				ui,
+				"Transparency & blur",
+				Some(
+					"Restart Serein after changing this. Themes can customize effects while enabled.",
+				),
+				&mut self.transparency_blur,
+			);
+			if self.transparency_blur {
+				design::card_divider(ui);
+				design::slider_row(
+					ui,
+					"Transparency",
+					None,
+					&mut self.transparency,
+					0..=100,
+					"%",
+				);
+				ui.add_space(8.0);
+				design::slider_row(
+					ui,
+					"Blur",
+					Some("Zero disables blur; the native compositor controls its exact strength."),
+					&mut self.blur,
+					0..=100,
+					"%",
+				);
+				ui.add_space(4.0);
 				design::switch(
 					ui,
-					"Hide Serein title bar",
-					Some("Use the system title bar and window buttons instead."),
-					&mut self.hide_title_bar,
+					"Apply to all surfaces",
+					Some("Include sidebars, server rail, headers, and composer."),
+					&mut self.transparent_all,
 				);
-			});
-		}
-		ui.add_space(8.0);
-		ui.label(design::eyebrow(ui, "Customization", colors.muted));
-		design::card(ui, |ui| {
-			ui.horizontal(|ui| {
-				let label = ui.label("Primary color");
-				let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
-				if design::color_edit(ui, &mut color)
-					.labelled_by(label.id)
-					.on_hover_text("Choose primary color")
-					.changed()
-				{
-					self.primary_color = Some(color);
-				}
-				if ui
-					.add_enabled(self.primary_color.is_some(), egui::Button::new("Reset"))
-					.clicked()
-				{
-					self.primary_color = None;
-				}
-			});
-			ui.weak("Used for buttons, selection and message highlights.");
+			}
+			design::card_divider(ui);
+			design::row(
+				ui,
+				"Primary color",
+				Some("Used for buttons, selection and message highlights."),
+				|ui| {
+					if self.primary_color.is_some() && design::text_action(ui, "Reset").clicked() {
+						self.primary_color = None;
+					}
+					let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
+					if design::color_edit(ui, &mut color)
+						.on_hover_text("Choose primary color")
+						.changed()
+					{
+						self.primary_color = Some(color);
+					}
+				},
+			);
 		});
-		ui.add_space(8.0);
-		ui.label(design::eyebrow(ui, "Colour preset", colors.muted));
 		let current = design::variant();
 		let mut presets: Vec<_> = design::Variant::ALL
 			.into_iter()
@@ -867,7 +894,7 @@ impl MessagingUi {
 			})
 			.map_or(current.label(), |(_, _, label, _)| label.as_str())
 			.to_owned();
-		design::card(ui, |ui| {
+		design::group(ui, "Colour preset", |ui| {
 			ui.horizontal_wrapped(|ui| {
 				ui.spacing_mut().item_spacing = egui::vec2(12.0, 10.0);
 				for (variant, id, label, swatch) in presets {
@@ -891,18 +918,29 @@ impl MessagingUi {
 				}
 			});
 			ui.add_space(4.0);
-			ui.label(
-				RichText::new(format!(
-					"{} · saved with your appearance. Gradient presets always use dark text.",
-					active_label
-				))
-				.size(12.0)
-				.color(colors.muted),
-			);
+			ui.horizontal(|ui| {
+				ui.label(
+					RichText::new(format!(
+						"{active_label} · saved with your appearance. Gradient presets always use dark text."
+					))
+					.size(12.0)
+					.color(colors.muted),
+				);
+				if self.extensions.community_theme_active() {
+					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+						if design::text_action(ui, "Use built-in appearance")
+							.on_hover_text(
+								"Return to the built-in look without removing installed themes. Also Ctrl+Shift+F12.",
+							)
+							.clicked()
+						{
+							self.extensions.reset_theme(ui.ctx());
+						}
+					});
+				}
+			});
 		});
-		ui.add_space(8.0);
-		ui.label(design::eyebrow(ui, "Channel list", colors.muted));
-		design::card(ui, |ui| {
+		design::group(ui, "Channel list", |ui| {
 			design::switch(
 				ui,
 				"Show hidden channels",
@@ -913,116 +951,83 @@ impl MessagingUi {
 	}
 
 	fn activity_settings(&mut self, ui: &mut egui::Ui, state: &State) {
-		let colors = design::palette(ui);
 		design::card(ui, |ui| {
 			design::switch(
 				ui,
 				"Share game activity",
-				Some("Display your current game as activity on Discord."),
+				Some("Detect running games and ask Discord to share them as activity."),
 				&mut self.share_game_activity,
 			);
-			ui.separator();
+			design::card_divider(ui);
 			let game = self
 				.own_game
 				.as_deref()
 				.filter(|_| self.share_game_activity);
-			ui.label(
-				design::medium(
-					ui,
-					game.map_or_else(
-						|| {
-							if self.share_game_activity {
-								"Waiting for a game to connect".into()
-							} else {
-								"Activity sharing is off".into()
-							}
-						},
-						str::to_owned,
-					),
-					16.0,
-				)
-				.color(colors.text_strong),
-			);
-			ui.label(
-				egui::RichText::new(if state.demo {
-					"Offline preview: synthetic activity, never shared or saved."
-				} else {
-					self.game_activity_status
-				})
-				.size(12.0)
-				.color(colors.muted),
-			);
-			if self.share_game_activity && state.gateway_connected && !state.demo {
-				let action = if self.discord_activity_sharing == Some(false) {
+			let action = if self.share_game_activity && state.gateway_connected && !state.demo {
+				if self.discord_activity_sharing == Some(false) {
 					Some(("Enable on Discord", true))
 				} else if self.discord_activity_sharing_retry {
-					Some(("Check Discord setting again", false))
+					Some(("Check again", false))
 				} else {
 					None
-				};
-				if let Some((label, enable)) = action
-					&& ui
-						.add_enabled(
-							!self.discord_activity_sharing_busy,
-							egui::Button::new(label),
-						)
-						.clicked()
-				{
-					self.discord_activity_sharing_request = Some(enable);
 				}
-			}
+			} else {
+				None
+			};
+			let title = game.map_or_else(
+				|| {
+					if self.share_game_activity {
+						"Looking for a running game"
+					} else {
+						"Activity sharing is off"
+					}
+				},
+				|game| game,
+			);
+			let detail = if state.demo {
+				"Synthetic activity, never shared or saved."
+			} else {
+				self.game_activity_status
+			};
+			design::row(ui, title, (!detail.is_empty()).then_some(detail), |ui| {
+				if let Some((label, enable)) = action {
+					ui.add_enabled_ui(!self.discord_activity_sharing_busy, |ui| {
+						if design::button(ui, label, design::ButtonKind::Outline).clicked() {
+							self.discord_activity_sharing_request = Some(enable);
+						}
+					});
+				}
+			});
 		});
 	}
 
 	fn storage_page(&mut self, ui: &mut egui::Ui, state: &State) {
-		let colors = design::palette(ui);
-		ui.label(design::eyebrow(ui, "Local storage", colors.muted));
-		design::card(ui, |ui| {
-			ui.label(
-				"Messages and drafts are cached on this device inside bounded, account-isolated files. Local cache data is not encrypted by Serein; saved login tokens use the OS credential store.",
+		design::group(ui, "Local storage", |ui| {
+			design::row(
+				ui,
+				"Clear cache",
+				Some("Removes cached messages and media. Drafts and your login stay."),
+				|ui| {
+					ui.add_enabled_ui(!state.demo, |ui| {
+						if design::button(ui, "Clear cache", design::ButtonKind::Outline).clicked()
+						{
+							self.clear_cache_requested = true;
+						}
+					});
+				},
 			);
-			ui.label(
-				RichText::new(if state.demo {
-					"Preview uses session memory only."
-				} else {
-					self.storage_status
-				})
-				.size(12.0)
-				.color(colors.muted),
+			if !state.demo && !self.storage_status.is_empty() {
+				design::hint(ui, self.storage_status);
+			}
+			design::card_divider(ui);
+			design::hint(
+				ui,
+				"Messages and drafts are cached on this device inside bounded, account-isolated files. Cache data is not encrypted by Serein; saved login tokens use the OS credential store.",
 			);
-			ui.separator();
-			ui.horizontal(|ui| {
-				ui.vertical(|ui| {
-					ui.set_width((ui.available_width() - 140.0).max(120.0));
-					ui.spacing_mut().item_spacing.y = 2.0;
-					ui.label(design::medium(ui, "Clear cache", 15.0).color(colors.text_strong));
-					ui.label(
-						RichText::new(
-							"Removes cached messages and media. Drafts and your login stay.",
-						)
-						.size(13.0)
-						.color(colors.muted),
-					);
-				});
-				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-					if ui
-						.add_enabled(
-							!state.demo,
-							egui::Button::new(design::medium(ui, "Clear cache", 14.0))
-								.stroke(egui::Stroke::new(1.0, colors.border))
-								.corner_radius(6),
-						)
-						.clicked()
-					{
-						self.clear_cache_requested = true;
-					}
-				});
-			});
 		});
-		ui.add_space(8.0);
-		ui.label(design::eyebrow(ui, "Your privacy", colors.muted));
-		design::card(ui, |ui| {
-			ui.label(
+		design::group(ui, "Your privacy", |ui| {
+			design::hint(
+				ui,
 				"Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.",
 			);
 		});

@@ -90,10 +90,26 @@ pub enum Action {
 	PostPin(bool),
 	PostMute(Mute),
 	PostNotifications(u8),
-	Edit { before: Edit, after: Edit },
-	Duplicate { name: String },
-	Create { name: String, kind: CreateKind },
-	CreateCategory { name: String },
+	Edit {
+		before: Edit,
+		after: Edit,
+	},
+	Duplicate {
+		name: String,
+	},
+	Create {
+		name: String,
+		kind: CreateKind,
+	},
+	CreateCategory {
+		name: String,
+	},
+	Move {
+		parent: Option<Id>,
+		position: i32,
+		lock_permissions: bool,
+		shifts: Vec<(Id, i32)>,
+	},
 	Delete,
 	Mute(Mute),
 	Notifications(u8),
@@ -102,6 +118,18 @@ impl Action {
 	pub fn valid(&self) -> bool {
 		match self {
 			Self::Edit { before, after } => before.valid() && after.valid(),
+			Self::Move {
+				parent,
+				position,
+				shifts,
+				..
+			} => {
+				*position >= 0
+					&& parent.is_none_or(|id| id.0 != 0)
+					&& shifts.len() <= 100
+					&& shifts.capacity() <= 128
+					&& shifts.iter().all(|(id, pos)| id.0 != 0 && *pos >= 0)
+			}
 			Self::PostRename(name)
 			| Self::Duplicate { name }
 			| Self::Create { name, .. }
@@ -125,6 +153,7 @@ pub enum Outcome {
 		permissions: Option<model::permissions::Channel>,
 	},
 	Deleted,
+	Moved,
 	Preferences {
 		muted: Option<bool>,
 		level: Option<u8>,
@@ -215,6 +244,43 @@ impl State {
 	}
 	pub fn can_open_channel_settings(&self, channel: Id) -> bool {
 		self.can_manage_channel(channel)
+	}
+	fn channel_move_allowed(
+		&self,
+		channel: Id,
+		parent: Option<Id>,
+		lock_permissions: bool,
+		shifts: &[(Id, i32)],
+	) -> bool {
+		let Some(source) = self.channel(channel) else {
+			return false;
+		};
+		if !self.can_manage_channel(channel) {
+			return false;
+		}
+		if source.kind == 4 {
+			if parent.is_some() || lock_permissions {
+				return false;
+			}
+			return shifts.iter().all(|(id, _)| {
+				self.channel(*id).is_some_and(|target| {
+					target.kind == 4 && target.guild == source.guild && self.can_manage_channel(*id)
+				})
+			});
+		}
+		let valid_parent = parent.is_none_or(|id| {
+			id != channel
+				&& self.channel(id).is_some_and(|target| {
+					target.kind == 4 && target.guild == source.guild && self.can_manage_channel(id)
+				})
+		});
+		if !valid_parent || lock_permissions != (source.parent_id != parent && parent.is_some()) {
+			return false;
+		}
+		shifts.iter().all(|(id, _)| {
+			self.channel(*id)
+				.is_some_and(|c| c.guild == source.guild && self.can_manage_channel(*id))
+		})
 	}
 	pub fn can_edit_channel_permission(&self, channel: Id, bits: u128) -> bool {
 		if !self.can_manage_channel_permissions(channel) {
@@ -381,6 +447,12 @@ impl State {
 					Action::Edit { before, after } => {
 						self.channel_edit_allowed(channel, before, after)
 					}
+					Action::Move {
+						parent,
+						lock_permissions,
+						shifts,
+						..
+					} => self.channel_move_allowed(channel, *parent, *lock_permissions, shifts),
 					_ => self.can_manage_channel(channel),
 				}) {
 			self.channel_actions.status =
@@ -611,6 +683,7 @@ impl State {
 							}
 					}
 					(Action::Delete, Outcome::Deleted) => true,
+					(Action::Move { .. }, Outcome::Moved) => true,
 					(Action::Mute(mute), Outcome::Preferences { muted, .. }) => {
 						*muted == Some(*mute != Mute::Unmute)
 					}
@@ -680,17 +753,24 @@ impl State {
 							}
 						}
 					}
-					self.confirm_channel_preferences(
-						guild,
-						channel,
-						Some(details.muted),
-						Some(details.level),
-					)?;
-					self.confirm_channel_mute_timer(
-						channel,
-						Some(details.muted),
-						details.mute_until,
-					)?;
+					if let Err(status) = self
+						.confirm_channel_preferences(
+							guild,
+							channel,
+							Some(details.muted),
+							Some(details.level),
+						)
+						.and_then(|_| {
+							self.confirm_channel_mute_timer(
+								channel,
+								Some(details.muted),
+								details.mute_until,
+							)
+						}) {
+						self.channel_actions.status = Some((channel, status, false));
+						self.status = status;
+						return Ok(());
+					}
 					self.channel_actions.post = Some((channel, details));
 				} else {
 					self.channel_actions.status =
@@ -788,16 +868,59 @@ impl State {
 				}
 				"Channel deleted"
 			}
+			Ok(Outcome::Moved) => {
+				if !observed
+					&& let Action::Move {
+						parent,
+						position,
+						shifts,
+						..
+					} = action
+				{
+					self.apply(crate::Envelope {
+						generation: self.generation,
+						event: crate::Event::ChannelChanged(model::ChannelPatch {
+							id: channel,
+							name: Patch::Absent,
+							icon: Patch::Absent,
+							last_message: Patch::Absent,
+							parent_id: parent.map_or(Patch::Null, Patch::Value),
+							position: Patch::Value(position),
+							kind: Patch::Absent,
+							message_count: Patch::Absent,
+						}),
+					});
+					for (shift_id, shift_pos) in shifts {
+						self.apply(crate::Envelope {
+							generation: self.generation,
+							event: crate::Event::ChannelChanged(model::ChannelPatch {
+								id: shift_id,
+								name: Patch::Absent,
+								icon: Patch::Absent,
+								last_message: Patch::Absent,
+								parent_id: Patch::Absent,
+								position: Patch::Value(shift_pos),
+								kind: Patch::Absent,
+								message_count: Patch::Absent,
+							}),
+						});
+					}
+				}
+				"Channel moved"
+			}
 			Ok(Outcome::Preferences {
 				muted,
 				level,
 				mute_until,
 			}) => {
-				if self.can_view(channel) && !observed {
-					self.confirm_channel_preferences(guild, channel, muted, level)?;
-				}
-				if self.can_view(channel) && !observed {
-					self.confirm_channel_mute_timer(channel, muted, mute_until)?;
+				if self.can_view(channel)
+					&& !observed && let Err(status) = self
+					.confirm_channel_preferences(guild, channel, muted, level)
+					.and_then(|_| self.confirm_channel_mute_timer(channel, muted, mute_until))
+				{
+					self.channel_actions.status = Some((channel, status, false));
+					self.status = status;
+					return Ok(());
 				}
 				"Notification settings updated"
 			}
@@ -816,6 +939,7 @@ mod tests {
 			demo: true,
 			gateway_connected: true,
 			user: Some(model::User {
+				primary_guild: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -1181,6 +1305,35 @@ mod tests {
 				.request_channel_action(Id(3), Action::Delete)
 				.is_none()
 		);
+	}
+	#[test]
+	fn channel_moves_require_a_manageable_category_and_apply_the_confirmed_position() {
+		let mut state = state();
+		let mut category = state.channels[0].clone();
+		category.id = Id(4);
+		category.kind = 4;
+		category.name = "projects".into();
+		state.channels.push(category);
+		state.permissions.channels.insert(
+			Id(4),
+			model::permissions::Channel {
+				id: Id(4),
+				guild: Id(2),
+				overwrites: Some(vec![]),
+			},
+		);
+		state.permissions.clear_cache();
+		let action = Action::Move {
+			parent: Some(Id(4)),
+			position: 2,
+			lock_permissions: true,
+			shifts: vec![(Id(4), 1)],
+		};
+		let command = state.request_channel_action(Id(3), action).unwrap();
+		finish(&mut state, command, Ok(Outcome::Moved));
+		assert_eq!(state.channel(Id(3)).unwrap().parent_id, Some(Id(4)));
+		assert_eq!(state.channel(Id(3)).unwrap().position, 2);
+		assert_eq!(state.channel(Id(4)).unwrap().position, 1);
 	}
 	#[test]
 	fn delete_ack_after_rename_removes_channel_but_late_edit_does_not_resurrect_it() {

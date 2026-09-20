@@ -6,10 +6,12 @@ license.workspace = true
 
 [dependencies]
 client-core.workspace = true
+model.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 notify-rust = { version = "=4.18.0", features = ["preview-macos-un"] }
 winit.workspace = true
+global-hotkey.workspace = true
 keyring.workspace = true
 url.workspace = true
 zeroize.workspace = true
@@ -20,6 +22,11 @@ rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal",
 symphonia = { version = "=0.6.1", default-features = false, features = ["aac"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+ksni = "=0.3.6"
+zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+ashpd = { version = "=0.13.13", default-features = false, features = ["tokio", "global_shortcuts"] }
+futures-util.workspace = true
 gtk4 = { version = "=0.11.4", features = ["v4_10"] }
 webkit6 = "=0.6.1"
 
@@ -35,7 +42,7 @@ windows = { version = "=0.61.3", features = ["UI_Notifications", "Win32_Security
 [target.'cfg(target_os = "macos")'.dependencies]
 dirs.workspace = true
 objc2 = "=0.6.4"
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSObject", "NSString"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSObject", "NSString", "NSData", "NSGeometry", "objc2-core-foundation"] }
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSWindow", "NSApplication", "NSResponder", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSImage"] }
 futures-lite = "=2.6.1"
 objc2-video-toolbox = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-media", "objc2-core-video", "VTBase", "VTErrors", "VTSession", "VTDecompressionSession"] }

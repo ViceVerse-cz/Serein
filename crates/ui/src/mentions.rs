@@ -1,4 +1,5 @@
-//! Suggestions use only bounded people, guild text channels and emoji already loaded in this session.
+#![allow(clippy::items_after_test_module)]
+//! Bounded local suggestions plus on-demand guild member search results.
 use crate::avatars::Avatars;
 use client_core::State;
 use model::{Id, User};
@@ -36,6 +37,10 @@ enum Kind {
 }
 #[derive(Clone, PartialEq, Eq)]
 enum Candidate {
+	Role {
+		id: Id,
+		name: String,
+	},
 	User {
 		user: User,
 	},
@@ -62,12 +67,15 @@ impl Candidate {
 	fn id(&self) -> Id {
 		match self {
 			Candidate::User { user } => user.id,
-			Candidate::Channel { id, .. } | Candidate::Custom { id, .. } => *id,
+			Candidate::Role { id, .. }
+			| Candidate::Channel { id, .. }
+			| Candidate::Custom { id, .. } => *id,
 			Candidate::Mass { .. } | Candidate::Unicode { .. } => Id(0),
 		}
 	}
 	fn token(&self) -> String {
 		match self {
+			Candidate::Role { id, .. } => format!("<@&{id}> "),
 			Candidate::User { user } => format!("<@{}> ", user.id),
 			Candidate::Mass { name } => format!("@{name} "),
 			Candidate::Channel { id, .. } => format!("<#{id}> "),
@@ -80,6 +88,13 @@ impl Candidate {
 		}
 	}
 }
+pub fn known_roles(state: &State, channel: Id) -> &[model::permissions::Role] {
+	state
+		.channel(channel)
+		.and_then(|c| c.guild)
+		.and_then(|guild| state.guild_roles(guild))
+		.unwrap_or(&[])
+}
 pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 	let mut users = Vec::new();
 	let mut add = |user: &User| {
@@ -87,6 +102,14 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 			users.push(user.clone());
 		}
 	};
+	if let Some(request) = &state.member_search[0].request
+		&& request.channel == channel
+		&& state.can_view(channel)
+	{
+		for member in &state.member_search[0].rows {
+			add(&member.user);
+		}
+	}
 	if let Some(owner) = &state.user {
 		add(owner);
 	}
@@ -141,7 +164,7 @@ fn query(draft: &str, cursor: usize) -> Option<(Range<usize>, &str, Kind)> {
 		}
 		Kind::User | Kind::Channel => {
 			if query.chars().any(|c| {
-				c.is_whitespace()
+				(c.is_whitespace() && !(kind == Kind::Channel && c == ' '))
 					|| matches!(c, '<' | '>' | '@' | '`')
 					|| (kind == Kind::Channel && c == '#')
 			}) {
@@ -198,6 +221,30 @@ fn push_emoji(out: &mut Vec<Ranked>, key: (u8, u8, u64), candidate: impl FnOnce(
 	}
 }
 impl Menu {
+	pub fn pointer_interacting(&self, ctx: &egui::Context, channel: Id) -> bool {
+		if self.channel != Some(channel) || self.dismissed || self.candidates.is_empty() {
+			return false;
+		}
+		let layer = egui::LayerId::new(
+			egui::Order::Foreground,
+			egui::Id::unique(("composer-autocomplete", self.channel)),
+		);
+		let pointer = ctx.input(|input| {
+			(input.pointer.primary_down() || input.pointer.primary_released())
+				.then(|| input.pointer.interact_pos())
+				.flatten()
+		});
+		pointer.is_some_and(|pos| ctx.layer_id_at(pos) == Some(layer))
+	}
+
+	pub fn member_query(&self) -> &str {
+		if self.kind == Some(Kind::User) && !self.dismissed {
+			&self.query
+		} else {
+			""
+		}
+	}
+
 	pub fn refresh(
 		&mut self,
 		state: &State,
@@ -237,9 +284,30 @@ impl Menu {
 					.iter()
 					.filter_map(|user| {
 						rank(&query, &user.name, user.id)
+							.or_else(|| {
+								let search = &state.member_search[0];
+								(search.request.as_ref().is_some_and(|r| {
+									r.channel == channel && r.query.to_lowercase() == query
+								}) && search.rows.iter().any(|m| m.user.id == user.id))
+								.then_some(0)
+							})
 							.map(|r| ((r, 0, 0), Candidate::User { user: user.clone() }))
 					})
 					.collect::<Vec<_>>();
+				for role in known_roles(state, channel)
+					.iter()
+					.filter(|role| Some(role.id) != guild)
+				{
+					if let Some(rank) = rank(&query, &role.name, role.id) {
+						ranked.push((
+							(rank, 1, role.id.0),
+							Candidate::Role {
+								id: role.id,
+								name: role.name.chars().take(120).collect(),
+							},
+						));
+					}
+				}
 				if state.permission(channel, model::permissions::MENTION_EVERYONE) == Some(true) {
 					for name in ["everyone", "here"] {
 						if let Some(rank) = rank(&query, name, Id(0)) {
@@ -253,7 +321,9 @@ impl Menu {
 				.channels
 				.iter()
 				.filter(|c| {
-					guild.is_some() && c.guild == guild && matches!(c.kind, 0 | 5 | 10..=12)
+					guild.is_some()
+						&& c.guild == guild
+						&& matches!(c.kind, 0 | 5 | 10..=12 | 15 | 16)
 				})
 				.filter_map(|c| {
 					rank(&query, &c.name, c.id).map(|r| {
@@ -301,6 +371,20 @@ impl Menu {
 				out
 			}
 		};
+		// An explicit snowflake can be referenced before its thread metadata is loaded.
+		if kind == Kind::Channel
+			&& guild.is_some()
+			&& let Ok(id) = query.parse::<Id>()
+			&& !state.channels.iter().any(|c| c.id == id)
+		{
+			ranked.push((
+				(0, 0, 0),
+				Candidate::Channel {
+					id,
+					name: format!("Unknown channel ({id})"),
+				},
+			));
+		}
 		ranked.sort_by_key(|(r, _)| *r);
 		let limit = if kind == Kind::Emoji {
 			EMOJI_LIMIT
@@ -478,6 +562,7 @@ fn row(
 	let text_left = icon.right() + 10.0;
 	let source = match candidate {
 		Candidate::Custom { server, .. } => Some(server.as_str()),
+		Candidate::Role { .. } => Some("Role"),
 		_ => None,
 	};
 	let primary = match candidate {
@@ -486,7 +571,12 @@ fn row(
 			avatars.show(&mut child, user, 24.0, demo);
 			user.name.clone()
 		}
-		Candidate::Mass { name } => {
+		Candidate::Mass { .. } | Candidate::Role { .. } => {
+			let name = match candidate {
+				Candidate::Mass { name } => *name,
+				Candidate::Role { name, .. } => name.as_str(),
+				_ => unreachable!(),
+			};
 			ui.painter()
 				.circle_filled(icon.center(), 12.0, colors.accent);
 			ui.painter().text(
@@ -576,6 +666,7 @@ fn row(
 			match candidate {
 				Candidate::User { user } => user.name.clone(),
 				Candidate::Mass { name } => format!("@{name}"),
+				Candidate::Role { name, .. } => format!("@{name}, role"),
 				Candidate::Channel { name, .. } => name.clone(),
 				Candidate::Unicode { code, .. } => (*code).to_owned(),
 				Candidate::Custom { name, server, .. } => format!("{name} from {server}"),
@@ -632,6 +723,7 @@ mod tests {
 		for guild in &mut state.guilds {
 			guild.emojis.as_mut().unwrap().reverse();
 		}
+		state.invalidate_navigation();
 		menu.refresh(&state, Id(1), ":same", Some(5), &[]);
 		assert_eq!(
 			menu.candidates
@@ -773,6 +865,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}
 	}
 	#[test]
@@ -863,7 +956,7 @@ mod tests {
 		menu.refresh(&state, Id(1), "čau #Žl", Some(7), &[]);
 		assert_eq!(
 			menu.candidates.iter().map(|c| c.id()).collect::<Vec<_>>(),
-			[Id(6), Id(7)]
+			[Id(6), Id(7), Id(8)]
 		);
 		let ctx = egui::Context::default();
 		let mut pick = None;
@@ -965,5 +1058,275 @@ mod tests {
 		let mut draft = "hi :he".to_owned();
 		insert(&mut draft, menu.pick(unicode).unwrap()).unwrap();
 		assert_eq!(draft, "hi ❤️ ");
+	}
+}
+
+#[cfg(debug_assertions)]
+pub(crate) fn debug_member_search_check(state: &State, channel: Id) {
+	let mut menu = Menu::default();
+	let users = known_users(state, channel);
+	menu.refresh(state, channel, "@Outside", Some(8), &users);
+	let pick = menu
+		.pick(0)
+		.expect("remote nickname must appear in mentions");
+	let mut draft = "@Outside".to_owned();
+	insert(&mut draft, pick).unwrap();
+	assert_eq!(draft, "<@987654321> ");
+}
+
+#[cfg(debug_assertions)]
+pub(crate) fn debug_pointer_check(state: &mut State, channel: Id) {
+	for draft in ["@You", ":he", "#"] {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = crate::MessagingUi::default();
+		state.drafts.insert(channel, draft.into());
+		let mut initialized = false;
+		let mut frame = |view: &mut crate::MessagingUi, state: &mut State, events| {
+			let mut commands = Vec::new();
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.add_space(500.0);
+					let editor = ui.make_persistent_id("message-input");
+					if !initialized {
+						ctx.memory_mut(|memory| memory.request_focus(editor));
+					}
+					let mut edit =
+						egui::text_edit::TextEditState::load(&ctx, editor).unwrap_or_default();
+					// Initialize once, then leave focus and cursor handling to the real composer.
+					if !initialized {
+						initialized = true;
+						edit.cursor
+							.set_char_range(Some(egui::text::CCursorRange::one(
+								egui::text::CCursor::new(draft.chars().count()),
+							)));
+						edit.store(&ctx, editor);
+					}
+					view.composer(ui, state, channel, &ctx, &mut commands);
+				},
+			)
+			.drop_without_applying_deltas();
+			assert!(
+				!commands
+					.iter()
+					.any(|command| matches!(command, client_core::Command::Send { .. }))
+			);
+		};
+		for _ in 0..3 {
+			frame(&mut view, state, vec![]);
+		}
+		let expected = view
+			.mention_menu
+			.pick(0)
+			.expect("synthetic suggestion")
+			.candidate
+			.token();
+		let area = ctx
+			.memory(|memory| {
+				memory.area_rect(egui::Id::unique(("composer-autocomplete", Some(channel))))
+			})
+			.unwrap();
+		let point = egui::pos2(area.center().x, area.top() + 34.0 + ROW / 2.0 + 1.0);
+		frame(&mut view, state, vec![egui::Event::PointerMoved(point)]);
+		for pressed in [true, false] {
+			frame(
+				&mut view,
+				state,
+				vec![egui::Event::PointerButton {
+					pos: point,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				}],
+			);
+		}
+		assert_eq!(
+			state.drafts[&channel], expected,
+			"clicking {draft} must insert a suggestion"
+		);
+	}
+}
+
+#[cfg(debug_assertions)]
+pub fn debug_role_mentions_check(state: &mut State) {
+	let channel = state
+		.channels
+		.iter()
+		.find(|c| c.guild.is_some() && c.kind == 0)
+		.unwrap()
+		.id;
+	let guild = state.channel(channel).unwrap().guild.unwrap();
+	let roles = state
+		.permissions
+		.guilds
+		.get_mut(&guild)
+		.unwrap()
+		.roles
+		.as_mut()
+		.unwrap();
+	roles.push(model::permissions::Role {
+		id: Id(1548470397144666162),
+		name: "Role check".into(),
+		bits: 0,
+		color: 0,
+		position: 1,
+		hoist: false,
+	});
+	let mut menu = Menu::default();
+	let mut draft = "@Role".to_owned();
+	menu.refresh(state, channel, &draft, Some(5), &[]);
+	let ctx = egui::Context::default();
+	ctx.run_ui(
+		egui::RawInput {
+			events: vec![egui::Event::Key {
+				key: egui::Key::Tab,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+			..Default::default()
+		},
+		|_| {
+			insert(&mut draft, menu.keys(&ctx).expect("role completion")).unwrap();
+		},
+	)
+	.drop_without_applying_deltas();
+	assert_eq!(draft, "<@&1548470397144666162> ");
+	assert_eq!(model::mentioned_role_ids(&draft), [Id(1548470397144666162)]);
+	assert!(model::mentioned_user_ids(&draft).is_empty());
+	for invalid in [
+		"<@&0>",
+		"<@&+2>",
+		"<@&18446744073709551616>",
+		"<@&2",
+		"<@2>",
+	] {
+		assert!(model::role_mention_prefix(invalid).is_none());
+	}
+	let mut thread = state.channel(channel).unwrap().clone();
+	thread.id = Id(1549042875830898709);
+	thread.name = "Thread with spaces".into();
+	thread.kind = 11;
+	thread.parent_id = Some(channel);
+	state.channels.push(thread);
+	state.invalidate_navigation();
+	let mut thread_draft = "#Thread with".to_owned();
+	menu.refresh(
+		state,
+		channel,
+		&thread_draft,
+		Some(thread_draft.chars().count()),
+		&[],
+	);
+	insert(&mut thread_draft, menu.pick(0).expect("thread with spaces")).unwrap();
+	assert_eq!(thread_draft, "<#1549042875830898709> ");
+	menu.refresh(state, channel, "#1549042875830898710", Some(20), &[]);
+	assert_eq!(
+		menu.pick(0).expect("unloaded exact ID").candidate.token(),
+		"<#1549042875830898710> "
+	);
+	let mut forum = state.channel(channel).unwrap().clone();
+	forum.id = Id(1549042875830898711);
+	forum.name = "Forum check".into();
+	forum.kind = 15;
+	state.channels.push(forum);
+	state.invalidate_navigation();
+	menu.refresh(state, channel, "#Forum", Some(6), &[]);
+	assert_eq!(
+		menu.pick(0).expect("forum completion").candidate.token(),
+		"<#1549042875830898711> "
+	);
+	let source = format!(
+		"<#1549042875830898711> {thread_draft}{draft}Hey guys 🙂 hope you are well. `<@&1548470397144666162>` ||<@&1548470397144666162>||"
+	);
+	let parsed = crate::markdown::Formatted::parse(&source);
+	crate::fonts::install(&ctx);
+	crate::design::apply(&ctx);
+	let mut avatars = Avatars::default();
+	let mut composer = crate::composer_text::Layout::default();
+	for dark in [true, false] {
+		ctx.set_visuals(if dark {
+			egui::Visuals::dark()
+		} else {
+			egui::Visuals::light()
+		});
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let roles = known_roles(state, channel);
+			let mut profile = None;
+			let mut surface = crate::select::Surface::new(ui, "mention-test");
+			parsed.show_references(
+				ui,
+				&mut None,
+				&[],
+				&mut profile,
+				(&state.channels, &mut None, &state.guilds, roles),
+				(&mut avatars, true, &mut 0),
+				&mut surface,
+			);
+			surface.finish(ui);
+			assert!(profile.is_none());
+			let galley = composer.galley(
+				ui,
+				&thread_draft,
+				120.0,
+				&[],
+				roles,
+				&state.channels,
+				false,
+				&mut avatars,
+				true,
+			);
+			assert_eq!(galley.job.text, thread_draft);
+		});
+		fn count(shape: &egui::Shape) -> usize {
+			match shape {
+				egui::Shape::Text(text) => {
+					let value = &text.galley.job.text;
+					if value.contains("@Role check") {
+						assert!(
+							value.contains("Hey guys"),
+							"role and body must share a galley"
+						);
+						let row = &text.galley.rows[0];
+						let baseline = row.glyphs.iter().find(|g| g.chr == '@').unwrap().pos.y;
+						let body = row.glyphs.iter().find(|g| g.chr == 'H').unwrap().pos.y;
+						assert!(
+							(baseline - body).abs() <= 1.0,
+							"role and body baselines must match"
+						);
+						return 1;
+					}
+					usize::from(matches!(
+						value.as_str(),
+						"#Thread with spaces" | "#Forum check"
+					))
+				}
+				egui::Shape::Vec(shapes) => shapes.iter().map(count).sum(),
+				_ => 0,
+			}
+		}
+		assert_eq!(
+			output
+				.shapes
+				.iter()
+				.map(|shape| count(&shape.shape))
+				.sum::<usize>(),
+			3,
+			"only the plain role mention should resolve; code stays literal and spoilers stay hidden"
+		);
+		output.drop_without_applying_deltas();
+	}
+	if let Some(dm) = state.channels.iter().find(|c| c.guild.is_none()) {
+		menu.refresh(state, dm.id, "@Role", Some(5), &[]);
+		assert!(menu.candidates.is_empty(), "roles must not leak into DMs");
 	}
 }

@@ -54,15 +54,11 @@ channel names and uppercase 12px eyebrows. Body is 15px, small 12px. Until `font
 marks a context, the weight families resolve to the default face so headless tests never
 reference an unknown family.
 
-Text is rasterized by egui on the CPU, not by DirectWrite or Core Text, so sharpness at 1x
-scale depends on the font carrying its own hints. The bundled Inter faces are therefore
-upstream's hinted TrueType builds rather than the CFF originals, which rendered effectively
-unhinted and looked soft on 1x Windows and Linux displays. Everything else is left at egui's
-defaults — hinting on, symmetric rendering, sub-pixel binning — which is DirectWrite's split:
-the hints sharpen baselines and x-heights vertically while horizontal positions stay
-fractional, so spacing stays even. Letting the hints grid-fit horizontally as well (binning
-off, symmetric rendering off) snapped stems per glyph and read as wobbly. See
-[#200](https://github.com/ViceVerse-cz/Serein/issues/200) and `assets/README.md`.
+Text is rasterized by egui on the CPU as grayscale coverage, not by DirectWrite or Core Text.
+That cannot reproduce ClearType. `design::apply` turns TrueType hinting off and sub-pixel
+binning on. Dark mode remaps coverage with `FontColorTransferFunction::Gamma(0.5)`. Light
+mode leaves the transfer function off. Inter faces set `FontTweak.hinting` to `Some(false)`.
+The bundled faces remain upstream's hinted TrueType builds. See `assets/README.md`.
 
 ## Layout
 

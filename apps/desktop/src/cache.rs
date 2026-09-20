@@ -50,9 +50,10 @@ fn message_bytes(messages: &Vec<Message>) -> usize {
 	messages.iter().map(Message::bytes).sum::<usize>()
 		+ messages.capacity().saturating_sub(messages.len()) * size_of::<Message>()
 }
+#[allow(clippy::large_enum_variant)]
 pub enum Operation {
 	LoadAppPreferences,
-	SaveAppPreferences(local_store::AppPreferences),
+	SaveAppPreferences(Box<local_store::AppPreferences>),
 	LoadAppearance,
 	SaveAppearance(Appearance),
 	SaveThemeVariant(Option<String>),
@@ -67,6 +68,12 @@ pub enum Operation {
 	SaveGifFavorites(Vec<model::Gif>),
 	LoadChannelPreferences,
 	SaveChannelPreferences(model::ChannelPreferences),
+	LoadAccounts,
+	SaveAccount(model::SavedAccount),
+	SetAccountToken {
+		account: Id,
+		has_token: bool,
+	},
 	LoadChannel {
 		channel: Id,
 		request: u64,
@@ -91,8 +98,9 @@ pub enum Operation {
 	ClearHistory,
 	Forget,
 }
+#[allow(clippy::large_enum_variant)]
 pub enum Outcome {
-	AppPreferences(Result<local_store::AppPreferences, StoreError>),
+	AppPreferences(Result<Box<local_store::AppPreferences>, StoreError>),
 	AppPreferencesSaved(Result<(), StoreError>),
 	/// Saved appearance plus the saved theme preset key, if any.
 	Appearance(Appearance, Option<String>),
@@ -106,6 +114,13 @@ pub enum Outcome {
 	GifFavorites(Vec<model::Gif>),
 	ChannelPreferences(Result<model::ChannelPreferences, StoreError>),
 	ChannelPreferencesSaved(Result<(), StoreError>),
+	/// The whole switcher roster, plus any accounts pruned to keep it bounded. Pruning is
+	/// already committed when this is produced, so the IDs travel outside the roster result:
+	/// a failed re-read must not strand their saved secrets and cached data.
+	Accounts {
+		roster: Result<Vec<model::SavedAccount>, StoreError>,
+		pruned: Vec<Id>,
+	},
 	Channel {
 		channel: Id,
 		request: u64,
@@ -242,8 +257,18 @@ impl Cache {
 				value.voice_input.as_ref().map_or(0, String::capacity)
 					+ value.voice_output.as_ref().map_or(0, String::capacity)
 					+ value.expanded_folders.capacity() * size_of::<u64>()
+					+ model::KeybindAction::ALL
+						.into_iter()
+						.map(|action| value.keybinds.chord(action).key.capacity())
+						.sum::<usize>()
 			}
 			Operation::SaveThemeVariant(value) => value.as_ref().map_or(0, String::capacity),
+			Operation::SaveAccount(account) => {
+				if !account.is_valid() {
+					return false;
+				}
+				account.heap_bytes()
+			}
 			_ => 0,
 		};
 		let ids = match &operation {
@@ -301,6 +326,14 @@ impl Cache {
 						favorites.iter().map(model::Gif::bytes).sum::<usize>()
 							+ favorites.capacity() * size_of::<model::Gif>()
 					}
+					Outcome::Accounts { roster, pruned } => {
+						roster.as_ref().map_or(0, |accounts| {
+							accounts
+								.iter()
+								.map(model::SavedAccount::heap_bytes)
+								.sum::<usize>() + accounts.capacity() * size_of::<model::SavedAccount>()
+						}) + pruned.capacity() * size_of::<Id>()
+					}
 					_ => 0,
 				};
 				let reservation = results
@@ -342,9 +375,43 @@ fn execute(
 				Err(error) => Err(*error),
 			});
 		}
+		Operation::LoadAccounts => {
+			return Outcome::Accounts {
+				roster: match store {
+					Ok(store) => store.accounts(),
+					Err(error) => Err(*error),
+				},
+				pruned: Vec::new(),
+			};
+		}
+		Operation::SaveAccount(account) => {
+			let (roster, pruned) = match store {
+				Ok(store) => match store.save_account(account) {
+					// Report the committed pruning even when the re-read fails.
+					Ok(pruned) => (store.accounts(), pruned),
+					Err(error) => (Err(error), Vec::new()),
+				},
+				Err(error) => (Err(*error), Vec::new()),
+			};
+			return Outcome::Accounts { roster, pruned };
+		}
+		Operation::SetAccountToken {
+			account: id,
+			has_token,
+		} => {
+			return Outcome::Accounts {
+				roster: match store {
+					Ok(store) => store
+						.set_account_token(*id, *has_token)
+						.and(store.accounts()),
+					Err(error) => Err(*error),
+				},
+				pruned: Vec::new(),
+			};
+		}
 		Operation::LoadAppPreferences => {
 			return Outcome::AppPreferences(match store {
-				Ok(store) => store.app_preferences(),
+				Ok(store) => store.app_preferences().map(Box::new),
 				Err(error) => Err(*error),
 			});
 		}
@@ -434,6 +501,9 @@ fn execute(
 		}
 		Operation::LoadChannel { .. } => "Could not read cached history",
 		Operation::LoadAppPreferences
+		| Operation::LoadAccounts
+		| Operation::SaveAccount(_)
+		| Operation::SetAccountToken { .. }
 		| Operation::LoadChannelPreferences
 		| Operation::SaveChannelPreferences(_)
 		| Operation::SaveAppPreferences(_)
@@ -447,6 +517,9 @@ fn execute(
 	let result = match store {
 		Ok(store) => match operation {
 			Operation::LoadAppPreferences
+			| Operation::LoadAccounts
+			| Operation::SaveAccount(_)
+			| Operation::SetAccountToken { .. }
 			| Operation::LoadChannelPreferences
 			| Operation::SaveChannelPreferences(_)
 			| Operation::SaveAppPreferences(_)
@@ -622,7 +695,12 @@ mod tests {
 			budget: Arc::new(Budget::default()),
 			history: Arc::new(HistorySafety::default()),
 		};
-		for enabled in [true, false] {
+		let initial = LocalStore::open(&path)
+			.unwrap()
+			.app_preferences()
+			.unwrap()
+			.notifications_enabled;
+		for enabled in [!initial, initial] {
 			let mut store = Ok(LocalStore::open(&path).unwrap());
 			let mut settings = crate::app_settings::Settings {
 				current: store.as_ref().unwrap().app_preferences().unwrap(),
@@ -670,7 +748,7 @@ mod tests {
 		let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
 		assert!(matches!(
 			execute(&mut store, &safety, Id(0), 0, Operation::LoadMinimizeToTray),
-			Outcome::MinimizeToTray(Ok(false))
+			Outcome::MinimizeToTray(Ok(true))
 		));
 		assert!(matches!(
 			execute(
@@ -678,13 +756,13 @@ mod tests {
 				&safety,
 				Id(0),
 				0,
-				Operation::SaveMinimizeToTray(true)
+				Operation::SaveMinimizeToTray(false)
 			),
 			Outcome::MinimizeToTraySaved(Ok(()))
 		));
 		assert!(matches!(
 			execute(&mut store, &safety, Id(9), 0, Operation::LoadMinimizeToTray),
-			Outcome::MinimizeToTray(Ok(true))
+			Outcome::MinimizeToTray(Ok(false))
 		));
 		let mut unavailable = Err(StoreError::Unavailable);
 		assert!(matches!(

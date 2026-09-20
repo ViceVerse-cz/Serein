@@ -2,11 +2,92 @@ use crate::{Command, State, auth::AuthState};
 use model::{Freshness, Id, Message};
 use session_cache::Timeline;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Reply {
+	target: Id,
+	pub mention: bool,
+}
+
+impl Reply {
+	pub fn to(target: Id) -> Self {
+		Self {
+			target,
+			mention: true,
+		}
+	}
+
+	pub fn target(self) -> Id {
+		self.target
+	}
+}
+
 /// Accepted known-deleted reply targets from the last applied event (at most 50).
 #[derive(Default)]
 pub struct ReplyDeletions(pub(crate) Vec<(Id, Id)>);
 
 impl State {
+	pub fn reply_target(&self) -> Option<Id> {
+		self.reply.map(Reply::target)
+	}
+
+	/// Navigate a Discord chat link without sending messages or joining voice.
+	pub fn open_chat_link(
+		&mut self,
+		guild: Option<Id>,
+		channel: Id,
+		message: Option<Id>,
+	) -> Result<Option<Command>, &'static str> {
+		if channel.0 == 0 || guild.is_some_and(|id| id.0 == 0) {
+			return Err("This chat link is invalid");
+		}
+		let target = self.channel(channel).ok_or("This chat is unavailable")?;
+		if target.guild != guild {
+			return Err("This chat does not belong to the linked server");
+		}
+		if !crate::navigable(target) {
+			return Err("This channel kind is unsupported");
+		}
+		if !self.can_view(channel) {
+			return Err("Channel permissions are unavailable or access was revoked");
+		}
+		let Some(message) = message else {
+			return Ok(self.select(channel));
+		};
+		if message.0 == 0 || message.0.checked_add(1).is_none() {
+			return Err("This message link is invalid");
+		}
+		if !target.supports_text() || !self.can_read_history(channel) {
+			return Err("Message history is unavailable with the current permissions");
+		}
+		if self.auth != AuthState::Authenticated || !self.gateway_connected {
+			return Err("Message links are unavailable while disconnected");
+		}
+		if self.selected == Some(channel) {
+			if self.timeline.is_deleted(message) {
+				return Err("This message was deleted");
+			}
+			if self.freshness == Freshness::Fresh
+				&& !self.history_pending
+				&& self
+					.timeline
+					.get(message)
+					.is_some_and(|m| m.channel == channel)
+			{
+				self.search_target = Some(message);
+				self.revision += 1;
+				return Ok(None);
+			}
+		}
+		// The targeted request supersedes selection's recent-history request.
+		let recent = self.select(channel);
+		if self.timeline.is_deleted(message) {
+			// A restored resident window can reveal a deletion after selection.
+			self.status = "This message was deleted";
+			return Ok(recent);
+		}
+		Ok(self.open_target_window(message))
+	}
+
 	/// All effects belong to one channel, with at most 50 distinct targets.
 	pub fn take_reply_deletions(&mut self) -> Vec<(Id, Id)> {
 		std::mem::take(&mut self.reply_deletions.0)
@@ -49,7 +130,7 @@ impl State {
 		}
 		if self.selected == Some(message.channel) {
 			self.clear_search();
-			if self.reply == Some(target) {
+			if self.reply_target() == Some(target) {
 				self.reply = None;
 			}
 		}
@@ -78,7 +159,7 @@ impl State {
 				.timeline
 				.get(target)
 				.is_none_or(|message| message.channel == channel)
-			&& (self.reply == Some(target)
+			&& (self.reply_target() == Some(target)
 				|| self
 					.timeline
 					.iter()
@@ -127,6 +208,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				primary_guild: None,
 				id: Id(9),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -151,6 +233,10 @@ mod tests {
 			forwarded: false,
 			kind: 0,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
@@ -199,6 +285,157 @@ mod tests {
 		source.reply_to = Some(Id(target));
 		source.reply_deleted = true;
 		source
+	}
+	fn chat_link_state() -> State {
+		let mut state = state();
+		let mut dm = state.channels[0].clone();
+		dm.id = Id(4);
+		for channel in &mut state.channels {
+			channel.guild = Some(Id(if channel.id == Id(3) { 20 } else { 10 }));
+			channel.kind = 0;
+		}
+		state.channels.push(dm);
+		state.guilds = [10, 20]
+			.into_iter()
+			.map(|id| model::Guild {
+				id: Id(id),
+				name: "Synthetic guild".into(),
+				icon: None,
+				emojis: None,
+			})
+			.collect();
+		state
+			.permissions
+			.replace(model::permissions::Snapshot {
+				guilds: [10, 20]
+					.into_iter()
+					.map(|id| model::permissions::Guild {
+						id: Id(id),
+						owner: Some(Id(9)),
+						roles: None,
+						member: None,
+					})
+					.collect(),
+				channels: vec![],
+			})
+			.unwrap();
+		state.drafts.insert(Id(1), "Unsent draft".into());
+		state
+	}
+
+	#[test]
+	fn chat_links_select_same_server_other_server_and_dm_without_joining_voice() {
+		for (guild, channel, kind) in [
+			(Some(Id(10)), Id(2), 0),
+			(Some(Id(20)), Id(3), 0),
+			(None, Id(4), 1),
+			(Some(Id(20)), Id(3), 15),
+			(Some(Id(20)), Id(3), 2),
+		] {
+			let mut state = chat_link_state();
+			state
+				.channels
+				.iter_mut()
+				.find(|c| c.id == channel)
+				.unwrap()
+				.kind = kind;
+			let command = state.open_chat_link(guild, channel, None).unwrap();
+			assert_eq!(state.selected, Some(channel));
+			assert!(command.is_none_or(
+				|command| matches!(command, Command::History { channel: id, .. } if id == channel)
+			));
+			assert!(state.voice.active.is_none());
+			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+		}
+	}
+
+	#[test]
+	fn chat_links_scroll_loaded_messages_or_fetch_one_targeted_page() {
+		let mut state = chat_link_state();
+		let request = state.request;
+		assert!(
+			state
+				.open_chat_link(Some(Id(10)), Id(1), Some(Id(100)))
+				.unwrap()
+				.is_none()
+		);
+		assert_eq!(state.search_target, Some(Id(100)));
+		assert_eq!(state.request, request);
+		assert!(state.timeline.get(Id(100)).is_some());
+		for (guild, channel) in [(Some(Id(10)), Id(1)), (Some(Id(20)), Id(3)), (None, Id(4))] {
+			let mut state = chat_link_state();
+			let command = state
+				.open_chat_link(guild, channel, Some(Id(50)))
+				.unwrap()
+				.unwrap();
+			assert!(
+				matches!(command, Command::History { channel: id, before: Some(Id(51)), after: None, request } if id == channel && request == state.request)
+			);
+			assert_eq!(state.selected, Some(channel));
+			assert_eq!(state.search_target, Some(Id(50)));
+			assert!(state.history_targeted && state.history_pending);
+			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+		}
+	}
+
+	#[test]
+	fn chat_links_keep_recent_history_when_a_restored_window_knows_the_target_was_deleted() {
+		let mut state = chat_link_state();
+		state.timeline.delete(Id(50)).unwrap();
+		state.select(Id(2));
+		assert_eq!(state.resident_window_count(), 1);
+		let command = state
+			.open_chat_link(Some(Id(10)), Id(1), Some(Id(50)))
+			.unwrap();
+		assert!(matches!(
+			command,
+			Some(Command::History {
+				channel: Id(1),
+				before: None,
+				..
+			})
+		));
+		assert_eq!(state.status, "This message was deleted");
+		assert!(state.search_target.is_none());
+	}
+
+	#[test]
+	fn chat_links_reject_invalid_unavailable_and_forbidden_targets_before_navigation() {
+		for blocked in 0..11 {
+			let mut state = chat_link_state();
+			let mut guild = Some(Id(20));
+			let mut channel = Id(3);
+			let mut message = Some(Id(50));
+			match blocked {
+				0 => channel = Id(0),
+				1 => channel = Id(999),
+				2 => guild = None,
+				3 => message = Some(Id(0)),
+				4 => message = Some(Id(u64::MAX)),
+				5 => state.channels[2].kind = 4,
+				6 => state.user = None,
+				7 => state.gateway_connected = false,
+				8 => state.auth = AuthState::Unauthenticated,
+				9 => state.channels[2].kind = 15,
+				_ => {
+					guild = Some(Id(10));
+					channel = Id(1);
+					state.timeline.delete(Id(50)).unwrap();
+				}
+			}
+			let revision = state.revision;
+			let request = state.request;
+			assert!(
+				state.open_chat_link(guild, channel, message).is_err(),
+				"case {blocked}"
+			);
+			assert_eq!(state.selected, Some(Id(1)));
+			assert_eq!(state.revision, revision);
+			assert_eq!(state.request, request);
+			assert!(state.search_target.is_none());
+			assert!(state.timeline.get(Id(100)).is_some());
+			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+		}
 	}
 
 	#[test]
@@ -378,7 +615,7 @@ mod tests {
 	fn loaded_reply_target_only_scrolls_and_preserves_composer_work() {
 		let mut state = state();
 		state.timeline.insert(message(50), false, false).unwrap();
-		state.reply = Some(Id(100));
+		state.reply = Some(Reply::to(Id(100)));
 		state.drafts.insert(Id(1), "Unsent draft".into());
 		state.pending.push(Pending {
 			channel: Id(1),
@@ -402,7 +639,7 @@ mod tests {
 			state.timeline.get(Id(50)).unwrap().content.as_ptr(),
 			content
 		);
-		assert_eq!(state.reply, Some(Id(100)));
+		assert_eq!(state.reply_target(), Some(Id(100)));
 		assert_eq!(state.drafts[&Id(1)], "Unsent draft");
 		assert_eq!(state.pending[0].delivery, Delivery::Ambiguous);
 		assert!(state.can_open_reply_target(Id(100))); // Composer context is also a source.
@@ -411,7 +648,7 @@ mod tests {
 	#[test]
 	fn unloaded_reply_uses_one_scoped_page_and_preserves_deletion_guards() {
 		let mut state = state();
-		state.reply = Some(Id(50));
+		state.reply = Some(Reply::to(Id(50)));
 		state.drafts.insert(Id(1), "Unsent draft".into());
 		apply(
 			&mut state,
@@ -435,7 +672,7 @@ mod tests {
 		assert_eq!(state.timeline.row_count(), 0);
 		assert!(state.timeline.is_deleted(Id(40)));
 		assert_eq!(state.freshness, Freshness::Loading);
-		assert_eq!(state.reply, Some(Id(50)));
+		assert_eq!(state.reply_target(), Some(Id(50)));
 		assert_eq!(state.drafts[&Id(1)], "Unsent draft");
 		assert!(state.open_reply_target(Id(50)).is_none());
 		assert_eq!(state.request, request);
@@ -470,7 +707,7 @@ mod tests {
 		assert!(!state.can_open_reply_target(Id(100))); // Loaded alone is not a reference.
 		for target in [Id(0), Id(u64::MAX)] {
 			let mut invalid = self::state();
-			invalid.reply = Some(target);
+			invalid.reply = Some(Reply::to(target));
 			assert!(!invalid.can_open_reply_target(target));
 			assert!(invalid.open_reply_target(target).is_none());
 		}
@@ -539,7 +776,7 @@ mod tests {
 		for history in [false, true] {
 			let mut state = state();
 			state.timeline.insert(message(50), false, false).unwrap();
-			state.reply = Some(Id(50));
+			state.reply = Some(Reply::to(Id(50)));
 			let mut source = message(101);
 			source.reply_to = Some(Id(50));
 			source.kind = 19;

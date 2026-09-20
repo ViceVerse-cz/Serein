@@ -28,6 +28,7 @@ pub(super) struct PostMenu {
 	opened: Option<egui::Id>,
 	editor: Option<Editor>,
 	feedback: Option<Id>,
+	failure: Option<Id>,
 	generation: u64,
 }
 
@@ -261,9 +262,17 @@ impl PostMenu {
 					}
 				}
 				Intent::Write(action) => {
-					self.feedback = Some(id);
+					let on_fail =
+						matches!(action, Action::PostMute(_) | Action::PostNotifications(_));
 					if let Some(command) = state.request_channel_action(id, action) {
 						commands.push(command);
+						if on_fail {
+							self.failure = Some(id);
+						} else {
+							self.feedback = Some(id);
+						}
+					} else {
+						self.feedback = Some(id);
 					}
 				}
 				Intent::Edit | Intent::Delete => {
@@ -275,6 +284,15 @@ impl PostMenu {
 					});
 					state.clear_channel_action_result(id);
 				}
+			}
+		}
+		if let Some(id) = self.failure.take() {
+			if state.channel_action_pending() {
+				self.failure = Some(id);
+			} else if !state.channel_action_succeeded(id)
+				&& state.channel_action_status(id).is_some()
+			{
+				self.feedback = Some(id);
 			}
 		}
 		if let Some(id) = self.feedback {

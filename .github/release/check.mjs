@@ -54,6 +54,7 @@ assert(!nightlyNotes.includes('notification sounds'));
 
 const workflow = load(readFileSync('.github/workflows/release.yml', 'utf8'));
 assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
+assert(workflow.jobs.build.strategy.matrix.os.includes('windows-11-arm'));
 for (const job of Object.values(workflow.jobs)) {
   for (const step of job.steps ?? []) {
     if (step.run && step.shell !== 'pwsh') execFileSync('bash', ['-n'], { input: step.run });

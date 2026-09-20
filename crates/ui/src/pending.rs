@@ -114,17 +114,31 @@ pub fn show(
 								model::Id(egui::Id::unique(&pending.nonce).value()),
 								&pending.content,
 							);
-							let id = ui.id().with("spoilers");
+							let id = ui.scope_id().with("spoilers");
 							let mut revealed =
 								ui.data_mut(|data| data.get_temp::<u32>(id).unwrap_or(0));
-							formatted.show_references(
-								ui,
-								opening,
-								&crate::mentions::known_users(state, pending.channel),
-								profile,
-								(&state.channels, channel, &state.guilds),
-								(avatars, state.demo, &mut revealed),
-							);
+							let mut surface = crate::select::Surface::new(ui, "pending-body");
+							let jumbo = formatted.jumbo();
+							ui.scope(|ui| {
+								if jumbo {
+									crate::design::jumbo_emoji(ui);
+								}
+								formatted.show_references(
+									ui,
+									opening,
+									&crate::mentions::known_users(state, pending.channel),
+									profile,
+									(
+										&state.channels,
+										channel,
+										&state.guilds,
+										crate::mentions::known_roles(state, pending.channel),
+									),
+									(avatars, state.demo, &mut revealed),
+									&mut surface,
+								);
+							});
+							surface.finish(ui);
 							if revealed != 0 {
 								ui.data_mut(|data| data.insert_temp(id, revealed));
 							}

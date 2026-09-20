@@ -11,7 +11,6 @@ pub mod group_actions;
 pub mod guild_folders;
 pub mod invites;
 pub mod messaging_permissions;
-pub mod notification_settings;
 pub mod notifications;
 pub mod permissions;
 pub mod pins;
@@ -86,9 +85,43 @@ pub struct UserDto {
 	pub avatar: Option<String>,
 	#[serde(default)]
 	pub discriminator: String,
+	#[serde(default)]
+	pub primary_guild: Option<PrimaryGuildDto>,
+	/// Older normal-session payloads duplicated `primary_guild` under this name.
+	#[serde(default)]
+	pub clan: Option<PrimaryGuildDto>,
+}
+#[derive(Clone, Deserialize)]
+pub struct PrimaryGuildDto {
+	pub identity_guild_id: Option<Id>,
+	pub identity_enabled: Option<bool>,
+	pub tag: Option<String>,
+	pub badge: Option<String>,
+}
+impl PrimaryGuildDto {
+	fn into_model(self) -> Option<model::ClanTag> {
+		let tag = self.tag?;
+		if self.identity_enabled == Some(false)
+			|| tag.trim().is_empty()
+			|| tag.chars().count() > 4
+			|| tag.len() > 16
+		{
+			return None;
+		}
+		Some(model::ClanTag {
+			guild: self.identity_guild_id?,
+			tag,
+			badge: self.badge.filter(|hash| model::valid_avatar_hash(hash)),
+		})
+	}
 }
 impl UserDto {
 	pub fn into_model(self) -> User {
+		let primary_guild = self
+			.primary_guild
+			.and_then(PrimaryGuildDto::into_model)
+			.or_else(|| self.clan.and_then(PrimaryGuildDto::into_model))
+			.map(Box::new);
 		User {
 			kind: if self.bot {
 				model::AccountKind::Bot
@@ -110,6 +143,7 @@ impl UserDto {
 				.ok()
 				.filter(|n| *n <= 9999)
 				.unwrap_or(0),
+			primary_guild,
 		}
 	}
 }
@@ -616,7 +650,7 @@ pub struct MessageDto {
 	#[serde(default)]
 	pub stickers: Option<extra_content::Array>,
 	#[serde(default)]
-	pub components: Option<extra_content::Array>,
+	pub components: Option<model::ComponentList>,
 	#[serde(default)]
 	pub reactions: reactions::ReactionList,
 	pub id: Id,
@@ -722,7 +756,7 @@ struct SnapshotBody {
 	#[serde(default)]
 	stickers: Option<extra_content::Array>,
 	#[serde(default)]
-	components: Option<extra_content::Array>,
+	components: Option<model::ComponentList>,
 }
 impl MessageDto {
 	pub fn into_model(mut self) -> Message {
@@ -769,13 +803,17 @@ impl MessageDto {
 			author.kind = model::AccountKind::App;
 		}
 		Message {
+			flags: self.flags,
+			ephemeral: self.flags & (1 << 6) != 0,
 			extra_content: model::ExtraContent {
 				poll: self.poll.is_some(),
 				sticker_items: self.sticker_items.is_some_and(|a| a.0),
 				stickers: self.stickers.is_some_and(|a| a.0),
-				components: self.components.is_some_and(|a| a.0),
+				components: self.components.as_ref().is_some_and(|a| !a.0.is_empty()),
 				components_v2: snapshot_flags.unwrap_or(self.flags) & (1 << 15) != 0,
 			},
+			components: self.components.map_or_else(Vec::new, |a| a.0),
+			application_id: self.application_id,
 			reactions: Some(self.reactions.0),
 			id: self.id,
 			channel: self.channel_id,
@@ -818,13 +856,15 @@ impl MessageDto {
 #[derive(Deserialize)]
 pub struct PatchDto {
 	#[serde(default)]
+	pub application_id: Patch<Id>,
+	#[serde(default)]
 	pub poll: Patch<extra_content::Object>,
 	#[serde(default)]
 	pub sticker_items: Patch<extra_content::Array>,
 	#[serde(default)]
 	pub stickers: Patch<extra_content::Array>,
 	#[serde(default)]
-	pub components: Patch<extra_content::Array>,
+	pub components: Patch<model::ComponentList>,
 	#[serde(default)]
 	pub reactions: Patch<reactions::ReactionList>,
 	pub id: Id,
@@ -845,16 +885,27 @@ pub struct PatchDto {
 impl PatchDto {
 	pub fn into_model(self) -> MessagePatch {
 		MessagePatch {
+			flags: self.flags.clone(),
+			application_id: self.application_id,
 			extra_content: model::ExtraContentPatch {
 				poll: extra_content::object_patch(self.poll),
 				sticker_items: extra_content::array_patch(self.sticker_items),
 				stickers: extra_content::array_patch(self.stickers),
-				components: extra_content::array_patch(self.components),
+				components: match &self.components {
+					Patch::Absent => Patch::Absent,
+					Patch::Null => Patch::Null,
+					Patch::Value(c) => Patch::Value(!c.0.is_empty()),
+				},
 				components_v2: match &self.flags {
 					Patch::Absent => Patch::Absent,
 					Patch::Null => Patch::Null,
 					Patch::Value(flags) => Patch::Value(flags & (1 << 15) != 0),
 				},
+			},
+			components: match self.components {
+				Patch::Absent => Patch::Absent,
+				Patch::Null => Patch::Null,
+				Patch::Value(c) => Patch::Value(c.0),
 			},
 			reactions: match self.reactions {
 				Patch::Absent => Patch::Absent,
@@ -982,7 +1033,7 @@ mod tests {
 	}
 	#[test]
 	fn message_nickname_is_bounded_and_keeps_global_identity() {
-		let message = decode::<MessageDto>(
+		let mut message = decode::<MessageDto>(
 			&serde_json::to_vec(&serde_json::json!({
 				"id":"100", "channel_id":"20", "author":{"id":"3","username":"Global"},
 				"member":{"nick":"界".repeat(200)}
@@ -996,12 +1047,9 @@ mod tests {
 			message.author_nick.as_deref(),
 			Some("界".repeat(128).as_str())
 		);
-		let mut plain = message.clone();
-		plain.author_nick = None;
-		assert_eq!(
-			message.bytes() - plain.bytes(),
-			message.author_nick.unwrap().capacity()
-		);
+		let bytes = message.bytes();
+		let nick = message.author_nick.take().unwrap();
+		assert_eq!(bytes - message.bytes(), nick.capacity());
 	}
 	#[test]
 	fn message_author_roles_are_bounded_and_session_only() {
@@ -1011,12 +1059,11 @@ mod tests {
 		});
 		let read =
 			|value: &serde_json::Value| decode::<MessageDto>(&serde_json::to_vec(value).unwrap());
-		let message = read(&wire).unwrap().into_model();
+		let mut message = read(&wire).unwrap().into_model();
 		assert_eq!(message.author_roles, vec![Id(11), Id(12)]);
-		let mut plain = message.clone();
-		plain.author_roles.clear();
-		plain.author_roles.shrink_to_fit();
-		assert_eq!(message.bytes() - plain.bytes(), 2 * size_of::<Id>());
+		let bytes = message.bytes();
+		let roles = std::mem::take(&mut message.author_roles);
+		assert_eq!(bytes - message.bytes(), roles.capacity() * size_of::<Id>());
 		for roles in [
 			serde_json::json!(["0"]),
 			serde_json::json!(["11", "11"]),
@@ -1462,11 +1509,27 @@ mod member_tests {
 		.unwrap();
 		let user = user.into_model();
 		assert!(user.avatar.is_none());
+		assert!(user.primary_guild.is_none());
 		assert_eq!(user.avatar_key(), "default-1");
 		assert_eq!(
 			user.avatar_url(),
 			"https://cdn.discordapp.com/embed/avatars/1.png"
 		);
+		let tagged: UserDto = decode(br#"{"id":"7","username":"Tagged","primary_guild":{"identity_guild_id":"9","identity_enabled":true,"tag":"SPDY","badge":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}"#).unwrap();
+		let tag = tagged.into_model().primary_guild.unwrap();
+		assert_eq!((tag.guild, tag.tag.as_str()), (Id(9), "SPDY"));
+		assert_eq!(
+			tag.badge.as_deref(),
+			Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		);
+		let legacy: UserDto = decode(br#"{"id":"7","username":"Legacy","primary_guild":{"identity_enabled":false,"tag":"OFF"},"clan":{"identity_guild_id":"10","identity_enabled":true,"tag":"OLD","badge":"../invalid"}}"#).unwrap();
+		let tag = legacy.into_model().primary_guild.unwrap();
+		assert_eq!(
+			(tag.guild, tag.tag.as_str(), tag.badge),
+			(Id(10), "OLD", None)
+		);
+		let oversized: UserDto = decode(br#"{"id":"7","username":"Oversized","primary_guild":{"identity_guild_id":"9","identity_enabled":true,"tag":"ABCDE"}}"#).unwrap();
+		assert!(oversized.into_model().primary_guild.is_none());
 		let member: MemberItem = decode(br#"{"member":{"user":{"id":"5","username":"Presence"},"presence":{"status":"idle","activities":[{"type":0,"name":"Game","state":"ignored"},{"type":4,"name":"Custom Status","state":" semifluent in computerspeak ","emoji":{"name":"\ud83c\udf19","id":null}}]}}}"#).unwrap();
 		let member = member.into_model().unwrap();
 		assert_eq!(member.status.as_deref(), Some("idle"));

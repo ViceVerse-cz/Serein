@@ -321,8 +321,11 @@ pub fn show(
 						response.rect.right_top() + egui::vec2(-34.0, 4.0),
 						egui::Vec2::splat(30.0),
 					);
-					let star =
-						ui.interact(star_rect, ui.id().with("favorite"), egui::Sense::click());
+					let star = ui.interact(
+						star_rect,
+						ui.scope_id().with("favorite"),
+						egui::Sense::click(),
+					);
 					ui.painter()
 						.rect_filled(star_rect, 6, egui::Color32::from_black_alpha(190));
 					crate::icons::paint(
@@ -483,20 +486,27 @@ pub fn show(
 								ui.columns(count, |columns| {
 									for (offset, column) in columns.iter_mut().enumerate() {
 										let f = &embed.fields[field + offset];
-										column.add(
-											egui::Label::new(RichText::new(&f.name).strong())
-												.wrap()
-												.selectable(true),
-										);
-										text(
-											column,
-											message,
-											(part + 1 + (field + offset) as u16, &f.value),
-											cache,
-											opening,
-											profile,
-											(images, demo, &state.guilds),
-										);
+										// Each field gets its own id namespace: unlike the cache
+										// key above, egui's auto-assigned widget ids aren't
+										// namespaced by field index, so adjacent fields can
+										// otherwise collide and clash (visible as egui's debug
+										// "used the same ID" warning in debug builds).
+										column.push_id(field + offset, |column| {
+											column.add(
+												egui::Label::new(RichText::new(&f.name).strong())
+													.wrap()
+													.selectable(true),
+											);
+											text(
+												column,
+												message,
+												(part + 1 + (field + offset) as u16, &f.value),
+												cache,
+												opening,
+												profile,
+												(images, demo, &state.guilds),
+											);
+										});
 									}
 								});
 								field += count;
@@ -1043,5 +1053,72 @@ mod tests {
 			assert!(has_media_spoilers(&guarded), "media safety field {field}");
 			assert!(has_spoilers(&guarded), "reply safety field {field}");
 		}
+	}
+
+	/// Adjacent fields render through the same field-column code path with no explicit
+	/// id_salt of their own, so egui's auto-assigned widget ids can land on the same value
+	/// for two different fields (data-dependent on their wrapped line counts) unless each
+	/// field is given its own id namespace. Regression for that: egui paints a "used the
+	/// same ID" debug warning (gated on `debug_assertions`, which test builds have on) when
+	/// two same-frame widgets collide, so its absence here confirms the fields stay isolated.
+	#[test]
+	fn adjacent_fields_do_not_share_widget_ids() {
+		let mut message = test_support::message(1, model::Id(2));
+		message.embeds = vec![Embed {
+			kind: "rich".into(),
+			description: Some(
+				"For tutorials & guides, please check out our [Help Center](https://example.org/help)"
+					.into(),
+			),
+			fields: vec![
+				model::EmbedField {
+					name: "No Staff Applications".into(),
+					value: "We are currently **not looking** for staff, please do not open tickets asking to join the team.".into(),
+					inline: false,
+				},
+				model::EmbedField {
+					name: "Second field".into(),
+					value: "Some other body text that also wraps to more than one line at this width.".into(),
+					inline: false,
+				},
+			],
+			..Default::default()
+		}];
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		let mut cache = FormatCache::default();
+		let mut opening = None;
+		let mut download = DownloadUi::default();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(640.0, 700.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				show(
+					ui,
+					&message,
+					&mut cache,
+					&mut images,
+					&mut opening,
+					&mut download,
+					&mut None,
+					&client_core::State::default(),
+				);
+			},
+		);
+		for shape in &output.shapes {
+			if let egui::epaint::Shape::Text(text) = &shape.shape {
+				assert!(
+					!text.galley.job.text.contains("widget ID"),
+					"egui reported a widget id clash: {:?}",
+					text.galley.job.text
+				);
+			}
+		}
+		output.drop_without_applying_deltas();
 	}
 }

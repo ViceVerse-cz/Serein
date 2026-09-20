@@ -136,6 +136,74 @@ pub fn attachment_destination(
 	}
 }
 
+/// Publish a completed sibling file without replacing a concurrently created destination.
+/// Native exclusive rename also works on volumes that do not support hard links.
+#[allow(unsafe_code)]
+pub fn publish_new(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+	#[cfg(any(target_os = "macos", target_os = "linux"))]
+	{
+		use std::{ffi::CString, os::unix::ffi::OsStrExt};
+		let source = CString::new(source.as_os_str().as_bytes())?;
+		let destination = CString::new(destination.as_os_str().as_bytes())?;
+		#[cfg(target_os = "macos")]
+		unsafe extern "C" {
+			fn renamex_np(
+				from: *const std::ffi::c_char,
+				to: *const std::ffi::c_char,
+				flags: u32,
+			) -> i32;
+		}
+		#[cfg(target_os = "linux")]
+		unsafe extern "C" {
+			fn renameat2(
+				from_fd: i32,
+				from: *const std::ffi::c_char,
+				to_fd: i32,
+				to: *const std::ffi::c_char,
+				flags: u32,
+			) -> i32;
+		}
+		// SAFETY: both pointers are valid NUL-terminated paths for the call.
+		#[cfg(target_os = "macos")]
+		let result = unsafe { renamex_np(source.as_ptr(), destination.as_ptr(), 4) }; // RENAME_EXCL
+		#[cfg(target_os = "linux")]
+		let result = unsafe { renameat2(-100, source.as_ptr(), -100, destination.as_ptr(), 1) }; // AT_FDCWD, RENAME_NOREPLACE
+		if result == 0 {
+			Ok(())
+		} else {
+			Err(std::io::Error::last_os_error())
+		}
+	}
+	#[cfg(target_os = "windows")]
+	{
+		use std::os::windows::ffi::OsStrExt;
+		let path = |path: &std::path::Path| -> std::io::Result<Vec<u16>> {
+			let mut value: Vec<_> = path.as_os_str().encode_wide().collect();
+			if value.contains(&0) {
+				return Err(std::io::ErrorKind::InvalidInput.into());
+			}
+			value.push(0);
+			Ok(value)
+		};
+		let source = path(source)?;
+		let destination = path(destination)?;
+		#[link(name = "kernel32")]
+		unsafe extern "system" {
+			fn MoveFileW(from: *const u16, to: *const u16) -> i32;
+		}
+		// SAFETY: both paths are valid NUL-terminated UTF-16 buffers. MoveFileW refuses replacement.
+		if unsafe { MoveFileW(source.as_ptr(), destination.as_ptr()) } != 0 {
+			Ok(())
+		} else {
+			Err(std::io::Error::last_os_error())
+		}
+	}
+	#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+	{
+		std::fs::hard_link(source, destination)
+	}
+}
+
 pub fn safe_filename(filename: &str) -> String {
 	let name: String = filename
 		.chars()
@@ -163,6 +231,22 @@ pub fn safe_filename(filename: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn completed_files_publish_without_clobbering() {
+		let mut random = [0_u8; 16];
+		getrandom::fill(&mut random).unwrap();
+		let root = std::env::temp_dir().join(format!("serein-save-{random:02x?}"));
+		std::fs::create_dir(&root).unwrap();
+		let source = root.join("partial");
+		let destination = root.join("attachment");
+		std::fs::write(&source, b"complete").unwrap();
+		super::publish_new(&source, &destination).unwrap();
+		assert_eq!(std::fs::read(&destination).unwrap(), b"complete");
+		std::fs::write(&source, b"replacement").unwrap();
+		assert!(super::publish_new(&source, &destination).is_err());
+		assert_eq!(std::fs::read(&destination).unwrap(), b"complete");
+		std::fs::remove_dir_all(root).unwrap();
+	}
 	#[test]
 	fn suggested_names_are_single_safe_components() {
 		for name in [

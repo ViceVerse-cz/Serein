@@ -267,6 +267,46 @@ impl DiscordApi {
 				.channel_notification_action(guild, channel, action)
 				.await;
 		}
+		if let Action::Move {
+			parent,
+			position,
+			lock_permissions,
+			shifts,
+		} = action
+		{
+			let mut entries = Vec::with_capacity(1 + shifts.len());
+			let mut main_entry = json!({
+				"id": channel.to_string(),
+				"position": position,
+			});
+			if let Some(parent) = parent {
+				main_entry["parent_id"] = parent.to_string().into();
+				main_entry["lock_permissions"] = (*lock_permissions).into();
+			} else {
+				main_entry["parent_id"] = Value::Null;
+			}
+			entries.push(main_entry);
+			for (shift_id, shift_pos) in shifts {
+				entries.push(json!({
+					"id": shift_id.to_string(),
+					"position": shift_pos,
+				}));
+			}
+			let bytes = self
+				.request_limited(
+					Method::PATCH,
+					&format!("/guilds/{guild}/channels"),
+					Some(Value::Array(entries)),
+					64,
+				)
+				.await
+				.map_err(write_failure)?;
+			return if bytes.is_empty() {
+				Ok(Outcome::Moved)
+			} else {
+				Err(Failure::Ambiguous)
+			};
+		}
 		let path = format!("/channels/{channel}");
 		let bytes = self
 			.request_limited(Method::GET, &path, None, MAX_CHANNEL_BYTES)
@@ -964,6 +1004,39 @@ mod tests {
 				.await
 				.is_err()
 		);
+	}
+	#[tokio::test]
+	async fn channel_move_uses_the_guild_position_route() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_CHANNEL_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = async {
+			let body = reply(
+				&listener,
+				"PATCH /guilds/2/channels HTTP/1.1",
+				204,
+				Value::Null,
+			)
+			.await;
+			assert_eq!(
+				body,
+				json!([
+					{"id":"3","position":2,"parent_id":"4","lock_permissions":true},
+					{"id":"5","position":1}
+				])
+			);
+		};
+		let action = Action::Move {
+			parent: Some(Id(4)),
+			position: 2,
+			lock_permissions: true,
+			shifts: vec![(Id(5), 1)],
+		};
+		let (result, ()) = tokio::join!(api.channel_action(Id(2), Id(3), &action), server);
+		assert!(matches!(result, Ok(Outcome::Moved)));
 	}
 	#[test]
 	fn duplication_keeps_voice_and_forum_fields_and_rejects_missing_overwrites() {

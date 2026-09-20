@@ -41,9 +41,14 @@ pub(super) struct JoinDialog {
 
 impl JoinDialog {
 	pub fn open(&mut self, generation: u64) {
+		self.open_with(generation, String::new());
+	}
+	/// Prefills the field only. The invite is still looked up and joined on confirmation.
+	pub fn open_with(&mut self, generation: u64, input: String) {
 		*self = Self {
 			generation: Some(generation),
 			focus: true,
+			input,
 			..Self::default()
 		};
 	}

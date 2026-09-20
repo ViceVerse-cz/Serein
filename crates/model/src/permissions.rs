@@ -95,6 +95,31 @@ pub fn member_list_id(everyone: u128, overwrites: &[Overwrite]) -> Option<String
 	entries.sort();
 	Some(murmur3(entries.join(",").as_bytes()).to_string())
 }
+
+pub fn everyone_can_view(everyone: u128, guild: Id, overwrites: &[Overwrite]) -> Option<bool> {
+	if overwrites.len() > MAX_OVERWRITES {
+		return None;
+	}
+	if everyone & ADMINISTRATOR != 0 {
+		return Some(true);
+	}
+	let mut seen = BTreeSet::new();
+	let mut selected = None;
+	for overwrite in overwrites {
+		if overwrite.id.0 == 0 || overwrite.kind > 1 || !seen.insert((overwrite.kind, overwrite.id))
+		{
+			return None;
+		}
+		if overwrite.kind == 0 && overwrite.id == guild {
+			selected = Some(overwrite);
+		}
+	}
+	let mut bits = everyone;
+	if let Some(overwrite) = selected {
+		bits = (bits & !overwrite.deny) | overwrite.allow;
+	}
+	Some(bits & VIEW_CHANNEL != 0)
+}
 fn murmur3(bytes: &[u8]) -> u32 {
 	let mix = |n: u32| {
 		n.wrapping_mul(0xcc9e2d51)

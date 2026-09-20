@@ -10,6 +10,10 @@ mod mixer;
 pub mod screen;
 mod transport;
 mod video;
+// Linux has no shared hardware encoder, but the camera's GStreamer encoder still takes the
+// same configuration, so the facade is compiled on every supported platform.
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+mod video_encode;
 mod video_receive;
 pub use crypto::Identity;
 pub use transport::{run, run_stream, run_with_identity, watch_stream};
@@ -20,6 +24,8 @@ pub type Frame = [f32; 960];
 #[derive(Clone, Copy)]
 pub struct Controls {
 	pub muted: bool,
+	/// Local indicator threshold; independent of received participants.
+	pub activity_threshold_db: i16,
 	/// Zero means off; a new value invalidates frames from the previous camera instance.
 	pub camera: u64,
 	pub deafened: bool,
@@ -30,6 +36,7 @@ impl Default for Controls {
 	fn default() -> Self {
 		Self {
 			muted: false,
+			activity_threshold_db: -45,
 			camera: 0,
 			deafened: false,
 			user_volumes: [(0, 100); 64],

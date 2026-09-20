@@ -8,20 +8,22 @@ pub mod forum;
 pub mod gifs;
 pub mod guild_folders;
 pub mod permissions;
+pub use permissions::ChannelAccess;
 #[cfg(test)]
 mod permissions_tests;
 
+pub mod interactions;
 pub mod invites;
+pub mod member_search;
 pub mod message_actions;
 pub mod messaging_permissions;
-pub mod notification_settings;
 pub mod notifications;
 pub mod presence;
 pub mod profile;
 pub mod reactions;
 pub mod read_state;
 mod replies;
-pub use replies::ReplyDeletions;
+pub use replies::{Reply, ReplyDeletions};
 pub mod group_actions;
 pub mod resident;
 pub mod screen;
@@ -35,6 +37,7 @@ pub mod server_settings;
 mod threads;
 pub mod typing;
 pub mod user_actions;
+mod verification;
 pub mod voice;
 use model::*;
 use session_cache::Timeline;
@@ -52,14 +55,11 @@ pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 
 pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM settings <=33 KiB; channel edit <=128 KiB; group icon <=350 KiB
 
 pub enum Command {
+	Interaction(interactions::Request),
+	MemberSearch(member_search::Request),
 	MessagingPermissions {
 		request: u64,
 		change: Option<model::messaging_permissions::Change>,
-	},
-	AccountNotificationSettings {
-		request: u64,
-		section: model::notification_settings::Section,
-		change: Option<model::notification_settings::Change>,
 	},
 	ChannelAction {
 		guild: Id,
@@ -97,6 +97,7 @@ pub enum Command {
 	UserAction {
 		action: user_actions::Action,
 		request: u64,
+		captcha: Option<Box<captcha::Retry>>,
 	},
 	JoinInvite {
 		code: String,
@@ -111,6 +112,12 @@ pub enum Command {
 		guild: Id,
 		title: String,
 		content: String,
+		/// Filenames staged for the starter message, in selection order; empty sends text only.
+		attachments: Vec<String>,
+		request: u64,
+	},
+	ForumSummaries {
+		channels: Vec<Id>,
 		request: u64,
 	},
 	ForumPosts {
@@ -148,6 +155,11 @@ pub enum Command {
 		channel: Id,
 		message: Id,
 		request: u64,
+		manual: bool,
+	},
+	MarkGuildRead {
+		guild: Id,
+		request: u64,
 	},
 	Reactions(reactions::Command),
 	Profile {
@@ -180,7 +192,7 @@ pub enum Command {
 		channel: Id,
 		content: String,
 		nonce: String,
-		reply: Option<Id>,
+		reply: Option<Reply>,
 	},
 	Edit {
 		request: u64,
@@ -239,6 +251,7 @@ impl Startup {
 			bytes,
 		})
 	}
+	/// Bytes retained by this event for the bounded capacity budget.
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.user.heap_bytes()
@@ -323,16 +336,16 @@ fn prepare_navigation(
 	Ok(permission_state)
 }
 pub enum Event {
+	Interaction(interactions::Event),
+	MemberSearch {
+		request: member_search::Request,
+		result: Result<Vec<Member>, auth::Failure>,
+	},
 	Startup(Box<PreparedStartup>),
 	StartupWarnings(model::account::Warnings),
 	MessagingPermissions {
 		request: u64,
 		result: Result<model::messaging_permissions::Snapshot, auth::Failure>,
-	},
-	SocialNotification(model::notification_settings::SocialNotification),
-	AccountNotificationSettings {
-		request: u64,
-		result: Result<model::notification_settings::Snapshot, auth::Failure>,
 	},
 	InviteChallenge {
 		request: u64,
@@ -364,6 +377,10 @@ pub enum Event {
 		parent: Id,
 		request: u64,
 		result: Result<model::archives::Page, auth::Failure>,
+	},
+	ForumSummaries {
+		request: u64,
+		results: Vec<(Id, Result<model::forum::Summary, auth::Failure>)>,
 	},
 	ForumPosts {
 		parent: Id,
@@ -504,11 +521,12 @@ pub struct NavigationIndex {
 	channels: std::cell::RefCell<BTreeMap<Id, usize>>,
 	channel_stamp: std::cell::Cell<Option<(usize, usize)>>,
 	guilds: std::cell::RefCell<BTreeMap<Id, usize>>,
+	guild_stamp: std::cell::Cell<Option<(usize, usize)>>,
 }
 
 pub struct State {
+	pub interactions: interactions::Interactions,
 	pub messaging_permissions: messaging_permissions::Settings,
-	pub notification_settings: notification_settings::Settings,
 	pub guild_folders: Option<model::guild_folders::Settings>,
 	pub folders_pending: bool,
 	pub folders_error: Option<&'static str>,
@@ -550,6 +568,8 @@ pub struct State {
 	pub auth: auth::AuthState,
 	pub user: Option<User>,
 	pub members: Option<MemberList>,
+	pub member_search: [member_search::View; 2],
+	pub member_search_nonce: u64,
 	pub direct_presences: Vec<MemberPresence>,
 	pub local_game_activity: Option<model::RichActivity>,
 	#[doc(hidden)]
@@ -572,7 +592,7 @@ pub struct State {
 	pub status: &'static str,
 	pub drafts: BTreeMap<Id, String>,
 	pub pending: Vec<Pending>,
-	pub reply: Option<Id>,
+	pub reply: Option<Reply>,
 	pub send_sequence: u64,
 	pub request: u64,
 	pub history_before: Option<Id>,
@@ -588,8 +608,8 @@ pub struct State {
 impl Default for State {
 	fn default() -> Self {
 		Self {
+			interactions: Default::default(),
 			messaging_permissions: Default::default(),
-			notification_settings: Default::default(),
 			guild_folders: None,
 			folders_pending: false,
 			folders_error: None,
@@ -629,6 +649,8 @@ impl Default for State {
 			auth: auth::AuthState::Unauthenticated,
 			user: None,
 			members: None,
+			member_search: Default::default(),
+			member_search_nonce: 0,
 			direct_presences: vec![],
 			local_game_activity: Default::default(),
 			direct_presence_bytes: None,
@@ -721,17 +743,19 @@ impl State {
 	/// Call after replacing IDs or payloads directly in synthetic navigation vectors.
 	pub fn invalidate_navigation(&self) {
 		self.navigation_index.channel_stamp.set(None);
+		self.navigation_index.guild_stamp.set(None);
 		self.navigation_index.guilds.borrow_mut().clear();
 		self.navigation_index.bytes.set(None);
 	}
 
 	pub fn guild(&self, id: Id) -> Option<&Guild> {
-		let cached = self.navigation_index.guilds.borrow().get(&id).copied();
-		if let Some(guild) = cached
-			.and_then(|index| self.guilds.get(index))
-			.filter(|guild| guild.id == id)
-		{
-			return Some(guild);
+		let stamp = (self.guilds.as_ptr() as usize, self.guilds.len());
+		if self.navigation_index.guild_stamp.get() == Some(stamp) {
+			let cached = self.navigation_index.guilds.borrow().get(&id).copied();
+			if cached.is_none_or(|index| self.guilds.get(index).is_some_and(|guild| guild.id == id))
+			{
+				return cached.and_then(|index| self.guilds.get(index));
+			}
 		}
 		let mut index = self.navigation_index.guilds.borrow_mut();
 		*index = self
@@ -741,6 +765,7 @@ impl State {
 			.enumerate()
 			.map(|(index, guild)| (guild.id, index))
 			.collect();
+		self.navigation_index.guild_stamp.set(Some(stamp));
 		index.get(&id).and_then(|index| self.guilds.get(*index))
 	}
 
@@ -830,10 +855,12 @@ impl State {
 		self.select_resident(channel);
 		self.history_targeted = false;
 		self.members = None;
+		self.member_search = Default::default();
 		self.selected = Some(channel);
 		self.clear_search();
 		self.search_target = None;
 		self.reactions.reset();
+		self.interactions.reset();
 		self.older_exhausted = false;
 		self.reply = None;
 		self.revision += 1;
@@ -970,7 +997,11 @@ impl State {
 		self.history_after = after;
 		self.history_pending = true;
 		self.freshness = Freshness::Loading;
-		self.timeline.begin_page(before.is_some());
+		if before.is_none() && after.is_some() {
+			self.timeline.begin_append();
+		} else {
+			self.timeline.begin_page(before.is_some());
+		}
 		Command::History {
 			channel,
 			before,
@@ -1054,6 +1085,7 @@ impl State {
 			confirmed: None,
 		});
 		self.drafts.remove(&channel);
+		self.search_target = None;
 		Some(Command::Send {
 			channel,
 			content,
@@ -1061,21 +1093,27 @@ impl State {
 			reply: self.reply.take(),
 		})
 	}
+	/// Reports a command the transport could not accept as a bounded outcome error.
 	pub fn command_rejected(&mut self, command: Command) {
+		if let Command::Interaction(request) = command {
+			let _ = self.apply_interaction(interactions::Event::Submitted {
+				nonce: request.nonce,
+				result: Err(auth::Failure::Network),
+			});
+			return;
+		}
+		if let Command::MemberSearch(request) = command {
+			self.searched_members(
+				request,
+				Err(auth::Failure::ProtocolAt("Member lookup was not queued")),
+			);
+			return;
+		}
 		if let Command::MessagingPermissions { request, .. } = command {
 			self.apply_messaging_permissions(
 				request,
 				Err(auth::Failure::ProtocolAt(
 					"Messaging permissions were not queued; try again",
-				)),
-			);
-			return;
-		}
-		if let Command::AccountNotificationSettings { request, .. } = command {
-			self.apply_account_notification_settings(
-				request,
-				Err(auth::Failure::ProtocolAt(
-					"Notification settings were not queued; try again",
 				)),
 			);
 			return;
@@ -1165,7 +1203,10 @@ impl State {
 			});
 			return;
 		}
-		if let Command::UserAction { action, request } = command {
+		if let Command::UserAction {
+			action, request, ..
+		} = command
+		{
 			let _ = self.apply_user_action(user_actions::Event::Written {
 				action,
 				request,
@@ -1187,6 +1228,16 @@ impl State {
 		} = command
 		{
 			self.apply_archives(parent, request, Err(auth::Failure::Capacity));
+			return;
+		}
+		if let Command::ForumSummaries { channels, request } = command {
+			self.apply_forum_summaries(
+				request,
+				channels
+					.into_iter()
+					.map(|channel| (channel, Err(auth::Failure::Capacity)))
+					.collect(),
+			);
 			return;
 		}
 		if let Command::ForumPosts {
@@ -1246,6 +1297,7 @@ impl State {
 			channel,
 			message,
 			request,
+			..
 		} = command
 		{
 			let _ = self.apply_read_state(read_state::Event::Result {
@@ -1255,6 +1307,14 @@ impl State {
 				result: Err(auth::Failure::RateLimited),
 			});
 			self.read_state.status = Some((channel, "Work queue full; read marker was not sent"));
+			return;
+		}
+		if let Command::MarkGuildRead { guild, request } = command {
+			let _ = self.apply_read_state(read_state::Event::GuildAck {
+				guild,
+				request,
+				result: Err(auth::Failure::RateLimited),
+			});
 			return;
 		}
 		if let Command::Reactions(command) = command {
@@ -1277,6 +1337,19 @@ impl State {
 				} => reactions::Event::Written {
 					channel,
 					message,
+					request,
+					result: Err(auth::Failure::RateLimited),
+				},
+				reactions::Command::Users {
+					channel,
+					message,
+					emoji,
+					request,
+					..
+				} => reactions::Event::Users {
+					channel,
+					message,
+					emoji,
 					request,
 					result: Err(auth::Failure::RateLimited),
 				},
@@ -1373,6 +1446,9 @@ impl State {
 		if envelope.generation != self.generation {
 			return;
 		}
+		if self.handle_private_message_event(&envelope.event) {
+			return;
+		}
 		if let Event::Startup(startup) = envelope.event {
 			if startup.bytes() > model::account::MAX_BYTES {
 				self.auth = auth::AuthState::Failed;
@@ -1432,6 +1508,8 @@ impl State {
 			envelope.event,
 			Event::Ready { .. } | Event::Disconnected | Event::Resync
 		) {
+			self.posts.clear_summaries();
+			self.interactions.reset();
 			self.local_game_activity = Default::default();
 			self.invalidate_messaging_permissions(None);
 			self.interrupt_own_profile();
@@ -1508,17 +1586,15 @@ impl State {
 		}
 		if let Event::ThreadChanged { guild, patch } = &envelope.event
 			&& !self
-				.channels
-				.iter()
-				.any(|c| c.id == patch.id && c.guild == Some(*guild) && matches!(c.kind, 10..=12))
+				.channel(patch.id)
+				.is_some_and(|c| c.guild == Some(*guild) && matches!(c.kind, 10..=12))
 		{
 			return;
 		}
 		if let Event::ThreadRemoved { guild, id } = &envelope.event
 			&& !self
-				.channels
-				.iter()
-				.any(|c| c.id == *id && c.guild == Some(*guild) && matches!(c.kind, 10..=12))
+				.channel(*id)
+				.is_some_and(|c| c.guild == Some(*guild) && matches!(c.kind, 10..=12))
 		{
 			return;
 		}
@@ -1616,10 +1692,6 @@ impl State {
 						*guild = actual;
 					}
 				}
-				// Typed updates replace the old PermissionsChanged fallback too.
-				// Retire both snapshots and in-flight profiles before applying them.
-				self.clear_profile();
-				self.profile_cache.clear();
 				self.server_admin.permissions_changed(&event);
 				self.update_permissions(event)
 			}
@@ -1629,6 +1701,10 @@ impl State {
 				result,
 			} => {
 				self.apply_archives(parent, request, result);
+				Ok(())
+			}
+			Event::ForumSummaries { request, results } => {
+				self.apply_forum_summaries(request, results);
 				Ok(())
 			}
 			Event::ForumPosts {
@@ -1661,16 +1737,8 @@ impl State {
 			}
 			Event::ReadState(event) => self.apply_read_state(event),
 			Event::NotificationPreferences(event) => self.apply_notification_preferences(event),
-			Event::SocialNotification(item) => {
-				self.receive_social_notification(item);
-				Ok(())
-			}
 			Event::MessagingPermissions { request, result } => {
 				self.apply_messaging_permissions(request, result);
-				Ok(())
-			}
-			Event::AccountNotificationSettings { request, result } => {
-				self.apply_account_notification_settings(request, result);
 				Ok(())
 			}
 			Event::UserAction(event) => self.apply_user_action(event),
@@ -1685,6 +1753,7 @@ impl State {
 				threads,
 				removed,
 			} => self.apply_threads_sync(guild, parents, threads, removed),
+			Event::Interaction(event) => self.apply_interaction(event),
 			Event::Reactions(event) => self.apply_reactions(event),
 			Event::InviteChallenge { request, challenge } => {
 				self.apply_invite_challenge(request, *challenge);
@@ -1707,10 +1776,10 @@ impl State {
 						self.fail(auth::Failure::Capacity);
 						return;
 					}
-					self.guilds.push(guild);
+					self.guilds.insert(0, guild);
 					bytes += (self.guilds.capacity() - capacity) * size_of::<Guild>();
 					if bytes + self.permissions.bytes() > model::account::MAX_BYTES {
-						self.guilds.pop();
+						self.guilds.remove(0);
 						self.guilds.shrink_to_fit();
 						self.invalidate_navigation();
 						self.fail(auth::Failure::Capacity);
@@ -1795,7 +1864,7 @@ impl State {
 			}
 			Event::ChannelCreated(channel) | Event::ChannelRestored(channel) => {
 				if self.archived_thread == Some(channel.id)
-					&& self.channels.iter().any(|old| {
+					&& self.channel(channel.id).is_some_and(|old| {
 						old.id == channel.id
 							&& (old.guild != channel.guild
 								|| old.parent_id != channel.parent_id
@@ -1807,7 +1876,7 @@ impl State {
 					&& (!channel
 						.guild
 						.is_some_and(|guild| self.guild(guild).is_some())
-						|| self.channels.iter().any(|old| {
+						|| self.channel(channel.id).is_some_and(|old| {
 							old.id == channel.id
 								&& (old.guild != channel.guild || !matches!(old.kind, 10..=12))
 						})) {
@@ -1879,7 +1948,7 @@ impl State {
 				{
 					self.clear_archives();
 				}
-				if let Some(index) = self.channels.iter().position(|c| c.id == patch.id) {
+				if let Some(index) = self.channel_index(patch.id) {
 					let previous = self.channels[index].clone();
 					let channel = &mut self.channels[index];
 					if let Some(latest) = channel.last_message {
@@ -1942,9 +2011,8 @@ impl State {
 			}
 			Event::RecipientAdded { channel, user } => {
 				if let Some(index) = self
-					.channels
-					.iter()
-					.position(|c| c.id == channel && c.guild.is_none())
+					.channel_index(channel)
+					.filter(|&index| self.channels[index].guild.is_none())
 				{
 					let previous = self.channels[index].clone();
 					let c = &mut self.channels[index];
@@ -1986,11 +2054,11 @@ impl State {
 					}
 					return;
 				}
-				if let Some(c) = self
-					.channels
-					.iter_mut()
-					.find(|c| c.id == channel && c.guild.is_none())
+				if let Some(index) = self
+					.channel_index(channel)
+					.filter(|&index| self.channels[index].guild.is_none())
 				{
+					let c = &mut self.channels[index];
 					c.recipients.retain(|u| u.id != user);
 					for (id, participants) in &mut self.voice.dm_participants {
 						if *id == channel {
@@ -2013,6 +2081,10 @@ impl State {
 			}
 			Event::MemberPresence { .. } | Event::DirectPresence(_) => {
 				unreachable!("presence handled before timeline revision")
+			}
+			Event::MemberSearch { request, result } => {
+				self.searched_members(request, result);
+				Ok(())
 			}
 			Event::Members(list) => {
 				if !self.gateway_connected
@@ -2037,6 +2109,13 @@ impl State {
 				{
 					self.members.as_mut().unwrap().freshness = Freshness::Unavailable;
 				} else {
+					for member in list.rows.iter().flatten() {
+						self.timeline.apply_author_membership(
+							member.user.id,
+							&member.roles,
+							member.nick.as_deref(),
+						);
+					}
 					self.members = Some(list);
 				}
 				Ok(())
@@ -2102,6 +2181,7 @@ impl State {
 				self.voice.dm_calls.clear();
 				self.voice.dm_participants.clear();
 				self.members = None;
+				self.member_search = Default::default();
 				self.clear_profile();
 				self.profile_cache.clear();
 				self.read_state.reset();
@@ -2152,6 +2232,7 @@ impl State {
 				{
 					return;
 				}
+				messages.retain(|message| !message.ephemeral);
 				let mut ids = BTreeSet::new();
 				let has_deleted_reference = messages.iter().any(|message| message.reply_deleted);
 				if older != self.history_before.is_some()
@@ -2197,8 +2278,9 @@ impl State {
 					self.newer_cursor = messages.iter().map(|m| m.id).max();
 					self.newer_may_have_more = messages.len() == 50;
 				}
+				let jump = self.history_after.is_some() && self.timeline.is_empty();
 				let r = self.timeline.finish_page(messages, older);
-				if r.is_ok() && self.history_after.is_some() {
+				if r.is_ok() && jump {
 					self.search_target = self.timeline.iter().next().map(|m| m.id);
 					if self.search_target.is_none() {
 						self.status = "No messages returned after this boundary; use Jump to present to reload";
@@ -2321,7 +2403,7 @@ impl State {
 					channel.last_message = None;
 				}
 				if self.selected == Some(channel) {
-					if self.reply == Some(id) {
+					if self.reply_target() == Some(id) {
 						self.reply = None;
 					}
 					self.timeline.delete(id)
@@ -2365,7 +2447,7 @@ impl State {
 				if ids.len() > 100 {
 					Err("Bulk deletion exceeds safe capacity")
 				} else if self.selected == Some(channel) {
-					if self.reply.is_some_and(|id| ids.contains(&id)) {
+					if self.reply_target().is_some_and(|id| ids.contains(&id)) {
 						self.reply = None;
 					}
 					ids.into_iter().try_for_each(|id| self.timeline.delete(id))
@@ -2444,9 +2526,7 @@ impl State {
 				Ok(())
 			}
 			Event::Disconnected => {
-				self.interrupt_notification_settings(auth::Failure::ProtocolAt(
-					"Disconnected; reload notification settings",
-				));
+				self.member_search = Default::default();
 				self.cancel_message_actions();
 				self.cancel_user_action();
 				self.cancel_server_action();
@@ -2469,6 +2549,7 @@ impl State {
 			}
 			Event::Resumed => {
 				self.members = None;
+				self.member_search = Default::default();
 				self.gateway_connected = true;
 				self.cancel_history();
 				self.freshness = Freshness::Stale;
@@ -2520,7 +2601,7 @@ impl State {
 			self.cancel_history();
 		}
 		if self
-			.reply
+			.reply_target()
 			.is_some_and(|target| self.timeline.is_deleted(target))
 		{
 			self.reply = None;
@@ -2539,6 +2620,7 @@ impl State {
 			}
 			self.reconcile_notifications();
 			self.prune_resident();
+			self.prune_post_summaries();
 		}
 		if self.search.is_some() && !self.can_search() {
 			self.clear_search();
@@ -2594,6 +2676,7 @@ impl State {
 		self.enforce_resident_budget();
 	}
 	fn invalidate_members(&mut self) {
+		self.member_search = Default::default();
 		self.member_request = self.member_request.wrapping_add(1);
 		if let Some(list) = &mut self.members {
 			list.request = self.member_request;
@@ -2660,7 +2743,6 @@ impl State {
 		}
 		if failure.ends_session() {
 			self.invalidate_messaging_permissions(Some(failure));
-			self.interrupt_notification_settings(failure);
 			self.interrupt_own_profile();
 			self.local_game_activity = Default::default();
 			self.cancel_message_actions();
@@ -2692,6 +2774,7 @@ impl State {
 	fn cancel_history(&mut self) {
 		self.typing.clear();
 		self.reactions.reset();
+		self.interactions.reset();
 		self.search_target = None;
 		self.request += 1;
 		self.history_pending = false;
@@ -2761,6 +2844,7 @@ impl Event {
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ match self {
+				Self::Interaction(event) => event.bytes(),
 				Self::Startup(startup) => startup.bytes(),
 				Self::MessagingPermissions { result, .. } => result
 					.as_ref()
@@ -2791,7 +2875,6 @@ impl Event {
 					.result
 					.as_ref()
 					.map_or(0, model::server_admin::Result::bytes),
-				Self::SocialNotification(item) => item.body.capacity(),
 				Self::GuildFolders(result) => result
 					.as_ref()
 					.map_or(0, model::guild_folders::Settings::heap_bytes),
@@ -2853,6 +2936,9 @@ impl Event {
 				Self::UserAction(user_actions::Event::FriendProfile((u, n))) => {
 					u.heap_bytes() + n.capacity()
 				}
+				Self::UserAction(user_actions::Event::Challenge { challenge, .. }) => {
+					challenge.bytes()
+				}
 				Self::UserAction(user_actions::Event::Relationships(entries)) => entries
 					.as_ref()
 					.map_or(0, |e| e.capacity() * size_of::<(Id, bool)>()),
@@ -2870,6 +2956,16 @@ impl Event {
 				Self::UserAction(user_actions::Event::RequestSpam { .. }) => size_of::<Id>(),
 				Self::Archives { result, .. } => {
 					result.as_ref().map_or(0, model::archives::Page::bytes)
+				}
+				Self::ForumSummaries { results, .. } => {
+					results.capacity()
+						* size_of::<(Id, Result<model::forum::Summary, auth::Failure>)>()
+						+ results
+							.iter()
+							.map(|(_, result)| {
+								result.as_ref().map_or(0, model::forum::Summary::bytes)
+							})
+							.sum::<usize>()
 				}
 				Self::ForumPosts { result, .. } => {
 					result.as_ref().map_or(0, model::forum::Page::bytes)
@@ -2963,6 +3059,14 @@ impl Event {
 							.map(presence::Update::heap_bytes)
 							.sum::<usize>()
 				}
+				Self::MemberSearch { request, result } => {
+					request.query.capacity()
+						+ request.users.capacity() * size_of::<Id>()
+						+ result.as_ref().map_or(0, |rows| {
+							rows.capacity() * size_of::<Member>()
+								+ rows.iter().map(Member::bytes).sum::<usize>()
+						})
+				}
 				Self::Members(list) => {
 					list.rows.capacity() * size_of::<Option<Member>>()
 						+ list.rows.iter().flatten().map(Member::bytes).sum::<usize>()
@@ -3001,6 +3105,67 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn guild_lookup_caches_misses_and_tracks_navigation_changes() {
+		let guild = |id| Guild {
+			id: Id(id),
+			name: "Synthetic".into(),
+			icon: None,
+			emojis: None,
+		};
+		let mut state = State {
+			guilds: vec![guild(1)],
+			..State::default()
+		};
+		assert!(state.guild(Id(2)).is_none());
+		{
+			// A cached miss must not rebuild (and mutably borrow) the index.
+			let _index = state.navigation_index.guilds.borrow();
+			for _ in 0..3 {
+				assert!(state.guild(Id(2)).is_none());
+				assert_eq!(state.guild(Id(1)).unwrap().id, Id(1));
+			}
+		}
+		apply(&mut state, Event::GuildJoined(guild(2)));
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+		assert_eq!(state.guild(Id(1)).unwrap().id, Id(1));
+		state.guilds.swap(0, 1);
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+		state.guilds[0] = guild(3);
+		state.invalidate_navigation();
+		assert!(state.guild(Id(1)).is_none());
+		assert_eq!(state.guild(Id(3)).unwrap().id, Id(3));
+		state.guilds.retain(|guild| guild.id != Id(3));
+		assert!(state.guild(Id(3)).is_none());
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+	}
+
+	#[test]
+	#[ignore = "manual release timing; run with --release --ignored --nocapture"]
+	fn guild_lookup_benchmark() {
+		let state = State {
+			guilds: (1..=1_000)
+				.map(|id| Guild {
+					id: Id(id),
+					name: "Synthetic".into(),
+					icon: None,
+					emojis: None,
+				})
+				.collect(),
+			..State::default()
+		};
+		for run in 0..6 {
+			let start = std::time::Instant::now();
+			for _ in 0..10_000 {
+				assert!(std::hint::black_box(state.guild(std::hint::black_box(Id(500)))).is_some());
+				assert!(
+					std::hint::black_box(state.guild(std::hint::black_box(Id(1_001)))).is_none()
+				);
+			}
+			println!("guild lookup run {run} (0 = warmup): {:?}", start.elapsed());
+		}
+	}
+
 	pub(crate) fn grant_permissions(state: &mut State) {
 		let Some(user) = &state.user else {
 			return;
@@ -3141,7 +3306,7 @@ mod tests {
 		assert_eq!(state.pending[0].attachments, ["a.png", "b.png", "c.pdf"]);
 		state.command_rejected(batch);
 		state.pending.clear();
-		state.reply = Some(Id(4));
+		state.reply = Some(Reply::to(Id(4)));
 		let Command::Send {
 			content,
 			nonce,
@@ -3154,7 +3319,7 @@ mod tests {
 			panic!()
 		};
 		assert!(content.is_empty());
-		assert_eq!(reply, Some(Id(4)));
+		assert_eq!(reply, Some(Reply::to(Id(4))));
 		assert_eq!(state.pending[0].attachments, ["résumé.txt"]);
 		assert!(state.draft_bytes() >= "résumé.txt".len() + nonce.len() + size_of::<Pending>());
 		apply(
@@ -3698,6 +3863,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					primary_guild: None,
 					id: Id(1),
 					name: "Synthetic".into(),
 					avatar: None,
@@ -3883,6 +4049,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				primary_guild: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -3900,6 +4067,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
@@ -3947,7 +4118,7 @@ mod tests {
 			},
 		);
 		let positions = state.timeline.row_ids().collect::<Vec<_>>();
-		state.reply = Some(Id(100));
+		state.reply = Some(Reply::to(Id(100)));
 		apply(
 			&mut state,
 			Event::Delete {
@@ -3955,7 +4126,7 @@ mod tests {
 				id: Id(100),
 			},
 		);
-		assert_eq!(state.reply, Some(Id(100)));
+		assert_eq!(state.reply_target(), Some(Id(100)));
 		assert!(state.timeline.get(Id(100)).is_some());
 		apply(
 			&mut state,
@@ -3965,7 +4136,7 @@ mod tests {
 			},
 		);
 		assert_eq!(state.reply, None);
-		state.reply = Some(Id(101));
+		state.reply = Some(Reply::to(Id(101)));
 		let mut ids: Vec<_> = (101..150).map(Id).collect();
 		ids.extend([Id(101), Id(999)]); // Duplicate and unknown IDs create no extra rows.
 		apply(
@@ -4092,6 +4263,7 @@ mod tests {
 			Event::RecipientAdded {
 				channel: Id(1),
 				user: User {
+					primary_guild: None,
 					id: Id(3),
 					name: "Other".into(),
 					avatar: None,
@@ -4355,6 +4527,7 @@ mod tests {
 			message_count: None,
 		};
 		let user = || User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -4374,7 +4547,7 @@ mod tests {
 			};
 			state.timeline.insert(message(80), true, false).unwrap();
 			state.drafts.insert(Id(1), "Preserve this draft".into());
-			state.reply = Some(Id(80));
+			state.reply = Some(Reply::to(Id(80)));
 			assert!(matches!(state.history(None), Command::History { .. }));
 			let request = state.request;
 			apply(
@@ -4486,6 +4659,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					primary_guild: None,
 					id: Id(2),
 					name: "Synthetic".into(),
 					avatar: None,

@@ -275,6 +275,12 @@ impl Downloads {
 				&& self.clipboard_thread.is_some()
 				&& !self.clipboard_done.load(Ordering::Acquire))
 	}
+	pub fn dismiss(&mut self) {
+		self.poll();
+		if !self.is_active() {
+			self.status = Status::Idle;
+		}
+	}
 	pub fn cancel(&mut self) {
 		self.clipboard_owner.take();
 		if let Some(job) = &self.job {
@@ -471,8 +477,13 @@ impl<'a> Partial<'a> {
 			fs::rename(&self.path, destination).map_err(|_| "Could not replace selected file")?;
 		} else {
 			// Atomic no-clobber publication: a file created meanwhile must survive.
-			fs::hard_link(&self.path, destination)
-				.map_err(|_| "Destination already exists or cannot be saved atomically")?;
+			platform::save::publish_new(&self.path, destination).map_err(|error| {
+				if error.kind() == std::io::ErrorKind::AlreadyExists {
+					"A file appeared at the destination; choose another name or confirm replacement"
+				} else {
+					"Could not finish saving attachment; check folder permissions and disk space"
+				}
+			})?;
 		}
 		Ok(())
 	}

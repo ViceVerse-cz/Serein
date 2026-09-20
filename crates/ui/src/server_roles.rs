@@ -770,7 +770,7 @@ impl RolesUi {
 							});
 						ui.interact(
 							frame.response.rect,
-							ui.id().with(("role-style", choice)),
+							ui.scope_id().with(("role-style", choice)),
 							egui::Sense::click(),
 						)
 					})

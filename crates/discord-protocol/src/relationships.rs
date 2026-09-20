@@ -54,6 +54,7 @@ impl Snapshot {
 							name: "Unknown user".into(),
 							avatar: None,
 							discriminator: 0,
+							primary_guild: None,
 							webhook: false,
 							kind: Default::default(),
 						},

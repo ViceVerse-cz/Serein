@@ -10,6 +10,10 @@
   <strong>A lightweight, native Discord desktop client written in Rust, powered by egui and wgpu.</strong>
 </p>
 
+<h3 align="center">
+  <a href="https://discord.gg/UqTDGCENaN">💬 Join our Discord server for updates</a>
+</h3>
+
 <p align="center">
   <a href="#downloads--installation"><strong>📦 Downloads</strong></a> &nbsp;•&nbsp;
   <a href="#highlights"><strong>⚡ Highlights</strong></a> &nbsp;•&nbsp;
@@ -21,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/UqTDGCENaN"><img src="https://img.shields.io/badge/Discord-Join%20our%20community-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://discord.gg/UqTDGCENaN"><img src="https://img.shields.io/badge/Discord-Join%20our%20Discord%20server%20for%20updates-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="https://github.com/ViceVerse-cz/rustcord/releases"><img src="https://img.shields.io/github/v/release/ViceVerse-cz/rustcord?label=release&color=blue" alt="GitHub Release" /></a>
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/rust-1.98.1_pinned-blue.svg?logo=rust" alt="Rust 1.98.1 Pinned" /></a>
   <a href="crates/ui"><img src="https://img.shields.io/badge/ui-egui%20%2F%20wgpu-orange.svg" alt="UI egui/wgpu" /></a>
@@ -43,14 +47,14 @@ Pre-compiled releases for macOS, Linux, and Windows are published on GitHub [Rel
 
 | Platform | Format | Architectures | Details |
 |---|---|---|---|
-| **Windows** | `-Setup.exe`, `.zip` | `x86_64` | Per-user NSIS installer (recommended) or standalone portable archive |
+| **Windows** | `-Setup.exe`, `.zip` | `x86_64`, `aarch64` | Per-user NSIS installer (recommended) or standalone portable archive |
 | **macOS** | Homebrew Cask, `.zip` | Apple Silicon (`aarch64`) | Signed and notarized `.app` bundle |
-| **Linux** | Flatpak (recommended), Repositories (`apt`, `dnf`, `zypper`, `pacman`), `.AppImage` | `x86_64` | Flatpak with automatic updates; signed package repositories; portable AppImage |
+| **Linux** | Flatpak (recommended), Repositories (`apt`, `dnf`, `zypper`, `pacman`), Gentoo ebuild, `.AppImage` | `x86_64` | Flatpak with automatic updates; signed package repositories; portable AppImage |
 
 ---
 
 <details open>
-<summary><h3>🐧 Linux (Flatpak, Repositories, AppImage)</h3></summary>
+<summary><h3>🐧 Linux (Flatpak, Repositories, Gentoo, AppImage)</h3></summary>
 
 #### 1. Flatpak (Recommended)
 
@@ -88,7 +92,20 @@ After setup, manage Serein with your native package manager:
 ```
 Your normal system updates (`apt upgrade`, `dnf upgrade`, `zypper update`, `pacman -Syu`) will keep Serein updated. See [Signed package repositories](packaging/repositories/README.md) for manual GPG verification steps.
 
-#### 3. Standalone AppImage (Portable)
+#### 3. Gentoo (source or binary)
+
+Gentoo users can install Serein from the [vitaly-zdanevich-overlay](https://github.com/vitaly-zdanevich/gentoo-overlay) overlay. It provides a source ebuild ([net-im/serein](https://github.com/vitaly-zdanevich/gentoo-overlay/tree/main/net-im/serein)) and a prebuilt amd64 ebuild ([net-im/serein-bin](https://github.com/vitaly-zdanevich/gentoo-overlay/tree/main/net-im/serein-bin)).
+
+```sh
+sudo eselect repository add vitaly-zdanevich-overlay git https://github.com/vitaly-zdanevich/gentoo-overlay.git
+sudo emaint sync -r vitaly-zdanevich-overlay
+echo 'net-im/serein ~amd64' | sudo tee /etc/portage/package.accept_keywords/serein
+sudo emerge --ask net-im/serein
+```
+
+Use `net-im/serein-bin` in the keyword file and emerge command to install the prebuilt binary instead. The source ebuild requires Rust 1.98.1 or newer. The binary ebuild targets amd64 systems with glibc 2.43 or newer. The two ebuilds install the same files, so choose one.
+
+#### 4. Standalone AppImage (Portable)
 
 Download `serein-<version>-Linux-X64.AppImage` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases), make it executable, and run:
 ```sh
@@ -103,14 +120,14 @@ Keep the AppImage in a writable directory to receive in-app updates via **Settin
 <summary><h3>🪟 Windows (Installer, PowerShell, Portable)</h3></summary>
 
 #### 1. Setup Installer (Recommended)
-Download `serein-<version>-Windows-X64-Setup.exe` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases) and run it:
+Download the `Windows-X64-Setup.exe` or `Windows-ARM64-Setup.exe` asset for your system from [Releases](https://github.com/ViceVerse-cz/rustcord/releases) and run it:
 - Installs per-user to `%LOCALAPPDATA%\Programs\Serein` without requiring administrator/UAC elevation.
 - Automatically registers Start Menu shortcuts and configures AppUserModelID (`cz.viceverse.serein`) for native Windows toast notifications.
 - Registers in Windows Settings (Installed Apps / Add or Remove Programs) with full uninstall support.
 - Fully compatible with in-app self-updates: updates automatically synchronize the registered version.
 
 #### 2. Standalone PowerShell Setup
-Extract `serein-<version>-Windows-X64.zip` and run:
+Extract the `Windows-X64.zip` or `Windows-ARM64.zip` asset for your system and run:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
@@ -120,7 +137,7 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Uninstall
 ```
 
 #### 3. Portable Archive
-Extract `serein-<version>-Windows-X64.zip` anywhere and launch `serein.exe`. To enable native desktop notifications:
+Extract the `Windows-X64.zip` or `Windows-ARM64.zip` asset for your system anywhere and launch `serein.exe`. To enable native desktop notifications:
 ```powershell
 powershell -File .\install-notifications.ps1
 ```
@@ -152,7 +169,7 @@ Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/V
 - 🔒 **Secure OS Credential Storage:** Session tokens are stored exclusively in your operating system's secure vault (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Never saved in plaintext.
 - 🛡️ **Ephemeral Authentication Webview:** Sign-in uses Discord's official hosted login page inside a temporary native webview (WKWebView, WebView2, or WebKitGTK) supporting email/password, QR login, and MFA. An origin-checked handoff secures the session credential and immediately terminates the webview.
 - 💾 **Bounded Local Persistence:** Recent chat history, drafts, image previews, settings, and diagnostics are stored in an account-isolated, bounded local SQLite database. All local data is strictly cleared upon explicit logout.
-- 🎙️ **Voice Calls, Video & Screen Sharing:** Complete native voice engine with 1-to-1 and group DM calls, server voice channels, push-to-talk, Sonora AEC3 acoustic echo cancellation, RNNoise noise suppression, Opus codec, and DAVE v1 end-to-end encryption. Includes native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture) and incoming stream & camera video playback with hardware-accelerated decoding (VideoToolbox, VA-API, DirectX).
+- 🎙️ **Voice Calls, Video & Screen Sharing:** Complete native voice engine with 1-to-1 and group DM calls, server voice channels, push-to-talk, Sonora AEC3 acoustic echo cancellation, RNNoise noise suppression, Opus codec, and DAVE v1 end-to-end encryption. Includes native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture, Linux portal/PipeWire with VA-API/NVENC hardware encoding and software fallback; Linux native capture remains unverified) and incoming stream & camera video playback with hardware-accelerated decoding (VideoToolbox, VA-API, DirectX).
 - 🧵 **Forum Channels & Active Threads:** Browse forum channels, view posts sorted by recent activity, read message threads with unread indicators, and create new forum posts directly in-app.
 - ⚙️ **Server Administration Suite:** Full server management interface including Server Profiles (banners, icons, traits, descriptions), role editor with fine-grained permission matrix, paginated audit logs with action filters, invite manager with revocation, integrations and webhooks, and member moderation.
 - ✨ **GIF & Twemoji Picker:** Instant KLIPY GIF search with favorites and one-click sending, full Twemoji picker with search and quick-reactions, plus custom guild emojis.
@@ -161,7 +178,7 @@ Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/V
 - 🎨 **Extensions & Theme Shop:** Git-backed plugin engine and community theme shop with preview cards, color preset toggles, permission verification, and a built-in deleted-message retention protector.
 - 🎬 **Rich Media & Video Player:** Inline video playback for MOV and MP4 attachments, interactive seekable voice message waveforms, right-click media save/copy context menus, and full-resolution image viewer modals.
 - ⌨️ **Keybinds & Shortcuts:** Built-in keybind reference sheet styled with raised keycaps, quick edit (`Up`), quick delete (`Backspace`), and intuitive keyboard navigation.
-- 🎮 **Local Game IPC & Rich Presence:** Built-in Discord IPC socket server detecting local games, showing live game activities in member rosters, DM lists, and user profiles, with opt-in system tray integration.
+- 🎮 **Rich Presence & Game Detection:** Built-in Discord IPC and WebSocket RPC servers, plus executable-based detection of running games, showing live game activities in member rosters, DM lists, and user profiles, with opt-in system tray integration.
 
 ---
 
@@ -245,13 +262,13 @@ cargo xtask package
 | **File & Attachment Uploads** | Implemented | Multi-attachment batch staging with file-type badges (PDF, ZIP, STL, images), thumbnail previews, individual file removal, upload progress bar, and drag-and-drop |
 | **Voice Engine & Calls** | Implemented | 1-to-1/group DM calls & server channels, Opus codec, DAVE v1 E2EE, Sonora AEC3 acoustic echo cancellation, RNNoise suppression, push-to-talk (`V`), audio device selector |
 | **Voice Messages** | Implemented | Inline voice message playback with interactive waveforms and bounded streaming audio buffering |
-| **Screen Sharing & Video** | Implemented | Native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture), quality presets (720p/1080p, up to 60fps), and local camera/screen previews |
+| **Screen Sharing & Video** | Implemented | Native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture, Linux portal/PipeWire with VA-API/NVENC hardware encoding and software fallback; Linux native capture remains unverified), quality presets (720p/1080p, up to 60fps), and local camera/screen previews |
 | **Camera Video & Stream Viewing** | Implemented | Hardware-accelerated decoding (macOS VideoToolbox, Linux VA-API, Windows DXVA/D3D11) for incoming screen streams and camera video feeds |
 | **Threads & Forum Channels** | Implemented | Forum post listing, recent activity sorting, active thread browsing, and new forum post / thread creation |
 | **Server Administration** | Implemented | Server profile editor (banners, icons, traits), role management with permissions matrix, audit log viewer, invite tracking and revocation, integrations/webhooks, and member moderation |
 | **Extensions & Theme Shop** | Implemented | Git-backed plugins, community theme catalog with preview cards and color presets, permission prompt modals, and deleted-message protector |
 | **Keybinds & Shortcuts** | Implemented | In-app keybind cheat sheet with raised keycaps, quick edit (`Up`), quick delete (`Backspace`), and keyboard navigation hotkeys |
-| **Rich Presence & Game IPC** | Implemented | Discord IPC socket server detecting active games; displays activities in member rosters, DMs, and user profiles; opt-in system tray |
+| **Rich Presence & Game IPC** | Implemented | Discord IPC and WebSocket RPC servers plus running-game detection; displays activities in member rosters, DMs, and user profiles; opt-in system tray |
 | **Profile Cards & Editing** | Implemented | On-demand profile popouts with banners, bios, badges, connections; native in-app editor for display name, bio, pronouns, and custom accent color with live preview |
 | **Server & Group Actions** | Implemented | Server dropdown with friend invites and leave server; group DM actions (edit name/icon preview, mute, leave) |
 | **Context Menus & Shortcuts** | Implemented | Right-click context menus for messages, media (save/copy), server channels, and members |

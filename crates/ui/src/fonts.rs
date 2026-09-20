@@ -1,8 +1,13 @@
 //! Bundled OFL fallback faces. No runtime download, system-font scan, or disk I/O.
 use egui::{Context, FontData, FontDefinitions, FontFamily};
 
-const CJK: &[u8] = include_bytes!("../../../assets/fonts/NotoSansCJKjp-Regular.otf");
+/// Noto Sans CJK JP is a quarter of the executable uncompressed (16.4 MB). It ships as a
+/// `zstd -19` archive (12.0 MB) and is inflated in memory the first time CJK text is
+/// drawn; Latin-only sessions never pay for the decode.
+const CJK_ZSTD: &[u8] = include_bytes!("../../../assets/fonts/NotoSansCJKjp-Regular.otf.zst");
+const CJK_BYTES: usize = 16_467_736;
 const ARABIC: &[u8] = include_bytes!("../../../assets/fonts/NotoSansArabic.ttf");
+const MATH: &[u8] = include_bytes!("../../../assets/fonts/NotoSansMath-Regular.otf");
 const INTER: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const INTER_MEDIUM: &[u8] = include_bytes!("../../../assets/fonts/Inter-Medium.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
@@ -17,6 +22,7 @@ pub fn install(ctx: &Context) {
 	ctx.set_fonts(latin);
 	let installed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 	ctx.on_end_pass("CJK fallback", std::sync::Arc::new(move |ui| {
+		// Also true while the decode thread runs, so the scan stops after the first hit.
 		if installed.load(std::sync::atomic::Ordering::Relaxed) { return; }
 		fn needs_cjk(shape: &egui::Shape) -> bool {
 			match shape {
@@ -30,22 +36,40 @@ pub fn install(ctx: &Context) {
 		let needed = ctx.graphics(|graphics| layers.iter().any(|layer| graphics.get(*layer).is_some_and(|list| list.all_entries().any(|entry| needs_cjk(&entry.shape)))));
 		if needed {
 			installed.store(true, std::sync::atomic::Ordering::Relaxed);
-			ctx.set_fonts(definitions());
-			ctx.request_discard("CJK fallback loaded");
-			ctx.request_repaint();
+			// Inflating 16 MB and reparsing the font set takes tens of milliseconds; keep
+			// it off the UI thread and accept one pass of fallback glyphs.
+			let worker = ctx.clone();
+			let spawned = std::thread::Builder::new()
+				.name("cjk-font".into())
+				.spawn(move || {
+					worker.set_fonts(definitions());
+					worker.request_repaint();
+				});
+			if spawned.is_err() {
+				ctx.set_fonts(definitions());
+				ctx.request_repaint();
+			}
 		}
 	}));
 	crate::design::weights_installed(ctx);
 }
 
-/// The bundled Inter faces are the "hinted for Windows" TrueType builds, so the
-/// TrueType interpreter — not the auto-hinter — grid-fits their stems. They keep
-/// egui's default rasterizer settings: symmetric rendering, which restricts those
-/// instructions to the vertical direction, and sub-pixel binning (see
-/// `design::apply`), which positions glyphs horizontally at fractional offsets.
-/// That split is what DirectWrite does — baselines and x-heights land on whole
-/// pixels while spacing stays even. Letting the hints grid-fit horizontally instead
-/// snaps stems per glyph and reads as uneven, "wobbly" text at 1x.
+fn latin(data: &'static [u8]) -> FontData {
+	let mut font = FontData::from_static(data);
+	font.tweak.hinting = Some(false);
+	font.tweak.subpixel_binning = Some(true);
+	font
+}
+
+/// The bundled archive always inflates; a corrupt asset is a build defect, not a runtime path.
+fn cjk() -> Vec<u8> {
+	let mut font = Vec::with_capacity(CJK_BYTES);
+	ruzstd::decoding::FrameDecoder::new()
+		.decode_all_to_vec(CJK_ZSTD, &mut font)
+		.expect("bundled CJK font archive");
+	font
+}
+
 fn definitions() -> FontDefinitions {
 	let mut definitions = FontDefinitions::default();
 	// Inter leads proportional text; two heavier faces provide Discord-style emphasis
@@ -67,16 +91,18 @@ fn definitions() -> FontDefinitions {
 	for (family, name, data) in weights {
 		definitions
 			.font_data
-			.insert(name.into(), FontData::from_static(data).into());
+			.insert(name.into(), latin(data).into());
 		let list = definitions.families.entry(family).or_default();
 		list.retain(|existing| !defaults.contains(existing));
 		list.insert(0, name.into());
 		list.extend(defaults.iter().cloned());
 	}
-	for (name, data) in [("Noto Sans CJK JP", CJK), ("Noto Sans Arabic", ARABIC)] {
-		definitions
-			.font_data
-			.insert(name.into(), FontData::from_static(data).into());
+	for (name, data) in [
+		("Noto Sans CJK JP", FontData::from_owned(cjk())),
+		("Noto Sans Arabic", FontData::from_static(ARABIC)),
+		("Noto Sans Math", FontData::from_static(MATH)),
+	] {
+		definitions.font_data.insert(name.into(), data.into());
 		for family in [
 			FontFamily::Proportional,
 			FontFamily::Monospace,
@@ -103,12 +129,16 @@ mod tests {
 
 	#[test]
 	fn bundled_fallbacks_cover_multilingual_text_with_a_fixed_asset_budget() {
-		// The Inter faces are the hinted TrueType builds: their instructions cost
-		// ~1.3 MB more than the CFF originals, which is the price of sharp text at 1x.
+		// The CJK face counts at its embedded (compressed) size.
 		assert!(
-			CJK.len() + ARABIC.len() + INTER.len() + INTER_MEDIUM.len() + INTER_SEMIBOLD.len()
-				<= 20 * 1024 * 1024
+			CJK_ZSTD.len()
+				+ ARABIC.len()
+				+ MATH.len() + INTER.len()
+				+ INTER_MEDIUM.len()
+				+ INTER_SEMIBOLD.len()
+				<= 16 * 1024 * 1024
 		);
+		assert_eq!(cjk().len(), CJK_BYTES);
 		let definitions = definitions();
 		for family in [FontFamily::Proportional, FontFamily::Monospace] {
 			let faces: Vec<_> = definitions.families[&family]
@@ -119,7 +149,8 @@ mod tests {
 						.expect("valid bundled font")
 				})
 				.collect();
-			for c in "Hello, 日本語かなカナ 中文汉字繁體 한국어 العربية مَرْحَبًا é e\u{301}".chars()
+			for c in
+				"Hello, 日本語かなカナ 中文汉字繁體 한국어 العربية مَرْحَبًا 𝖘𝖓𝖎𝖎𝖝. é e\u{301}".chars()
 			{
 				assert!(
 					faces.iter().any(|face| {
@@ -140,7 +171,7 @@ mod tests {
 					// egui 0.36.2 has_glyph incorrectly returns false for all
 					// primary-face glyphs. Check every scalar through its font
 					// parser above, then check the actual fallback path here.
-					for c in "日本語かなカナ中文汉字繁體한국어العربية".chars()
+					for c in "日本語かなカナ中文汉字繁體한국어العربية𝖘𝖓𝖎𝖎𝖝".chars()
 					{
 						assert!(fonts.has_glyph(&font, c), "missing glyph: {c} ({c:?})");
 					}
@@ -150,22 +181,15 @@ mod tests {
 		output.drop_without_applying_deltas();
 	}
 
-	/// Issue #200: text read as blurry at 1x on Windows. Sharpness needs the hinted
-	/// TrueType Inter builds — CFF outlines are effectively unhinted by skrifa — and
-	/// hinting enabled. The hints must stay vertical-only (symmetric rendering) and
-	/// glyphs must keep sub-pixel horizontal positions, as DirectWrite does; grid-fitting
-	/// stems horizontally instead made spacing uneven.
 	#[test]
-	fn latin_faces_are_rasterized_for_sharp_text_at_low_scale() {
+	fn latin_faces_are_rasterized_without_truetype_hinting() {
 		for data in [INTER, INTER_MEDIUM, INTER_SEMIBOLD] {
 			let font = skrifa::FontRef::new(data).expect("valid bundled font");
-			// `glyf` means TrueType outlines rather than CFF; `fpgm`/`prep` are the
-			// instructions skrifa's TrueType interpreter needs to grid-fit stems.
 			for table in ["glyf", "fpgm", "prep"] {
 				let tag = skrifa::Tag::new(table.as_bytes().try_into().unwrap());
 				assert!(
 					font.table_data(tag).is_some(),
-					"Inter must be the hinted TrueType build, missing `{table}`",
+					"Inter must be the TrueType build, missing `{table}`",
 				);
 			}
 		}
@@ -173,18 +197,23 @@ mod tests {
 		install(&ctx);
 		crate::design::apply(&ctx);
 		for theme in [egui::Theme::Dark, egui::Theme::Light] {
-			assert!(ctx.style_of(theme).visuals.text_options.subpixel_binning);
-			assert!(ctx.style_of(theme).visuals.text_options.font_hinting);
+			let options = &ctx.style_of(theme).visuals.text_options;
+			assert!(options.subpixel_binning);
+			assert!(!options.font_hinting);
 		}
-		let symmetric = definitions()
+		assert_eq!(
+			ctx.style_of(egui::Theme::Dark)
+				.visuals
+				.text_options
+				.color_transfer_function,
+			egui::epaint::FontColorTransferFunction::Gamma(0.5)
+		);
+		let tweaks = definitions()
 			.font_data
 			.iter()
 			.filter(|(name, _)| name.starts_with("Inter"))
-			.map(|(_, data)| match data.tweak.hinting_target {
-				egui::epaint::text::HintingTarget::Smooth(smooth) => smooth.symmetric_rendering,
-				egui::epaint::text::HintingTarget::Mono => false,
-			})
+			.map(|(_, data)| (data.tweak.hinting, data.tweak.subpixel_binning))
 			.collect::<Vec<_>>();
-		assert_eq!(symmetric, vec![true; 3]);
+		assert_eq!(tweaks, vec![(Some(false), Some(true)); 3]);
 	}
 }

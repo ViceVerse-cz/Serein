@@ -2,11 +2,13 @@
 mod activity_sharing;
 mod archives;
 mod channel_actions;
+pub mod detectable;
+pub mod external_assets;
 mod forum;
 mod group_actions;
 mod guild_folders;
+mod interactions;
 mod messaging_permissions;
-mod notification_settings;
 mod profile_edit;
 pub mod rpc;
 mod server_actions;
@@ -19,7 +21,7 @@ mod server_settings;
 pub mod upload;
 mod user_actions;
 use client_core::{
-	Command, Event,
+	Command, Event, Reply,
 	auth::{AuthProvider, Failure, SessionSecret},
 };
 use discord_protocol::*;
@@ -41,6 +43,7 @@ use tokio::{
 };
 
 pub struct DiscordApi {
+	interaction_session: std::sync::Mutex<Option<zeroize::Zeroizing<String>>>,
 	ack_token: Mutex<zeroize::Zeroizing<Option<String>>>,
 	client: Client,
 	upload_client: tokio::sync::OnceCell<Client>,
@@ -137,6 +140,7 @@ impl DiscordApi {
 			.build()
 			.map_err(|_| Failure::Network)?;
 		Ok(Self {
+			interaction_session: std::sync::Mutex::new(None),
 			upload_client: tokio::sync::OnceCell::new(),
 			ack_token: Mutex::new(zeroize::Zeroizing::new(None)),
 			client,
@@ -174,6 +178,7 @@ impl DiscordApi {
 		self.request_with_captcha(method, path, body, max_bytes, None, None)
 			.await
 	}
+	/// One typed request with an optional captcha retry and challenge output slot.
 	async fn request_with_captcha(
 		&self,
 		method: Method,
@@ -222,7 +227,9 @@ impl DiscordApi {
 			.header(AUTHORIZATION, authorization);
 		if let Some(retry) = retry {
 			if retry.expired() {
-				return Err(Failure::ProtocolAt("Verification expired; join again"));
+				return Err(Failure::ProtocolAt(
+					"Verification expired; start the check again",
+				));
 			}
 			for (name, value) in [
 				("x-captcha-key", Some(retry.passcode())),
@@ -294,9 +301,10 @@ impl DiscordApi {
 		if !status.is_success() {
 			let error = decode::<ErrorBody>(&bytes).unwrap_or_default();
 			if error.captcha_key.is_some() || matches!(error.code, Some(60003 | 50014)) {
-				if matches!(status, StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN)
+				let auth_challenge = matches!(error.code, Some(60003 | 50014));
+				if !auth_challenge
 					&& error.captcha_key.is_some()
-					&& !matches!(error.code, Some(60003 | 50014))
+					&& matches!(status, StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN)
 					&& let Some(output) = challenge.as_mut()
 				{
 					if let Some(parsed) = invite_captcha(&bytes) {
@@ -304,7 +312,15 @@ impl DiscordApi {
 						return Err(Failure::Challenged);
 					}
 					return Err(Failure::ProtocolAt(
-						"This invite's verification is unavailable; try joining in Discord",
+						"This verification is unavailable; complete the action in the official client",
+					));
+				}
+				if !auth_challenge && write && challenge.is_none() {
+					// The service can require a captcha for one write (for example a friend
+					// request). No solver is wired for this action, but it is not a session
+					// challenge: keep the connection and report a bounded local reason.
+					return Err(Failure::ProtocolAt(
+						"Discord requires verification for this action; complete it in the official client",
 					));
 				}
 
@@ -392,6 +408,7 @@ impl DiscordApi {
 	}
 	// Unofficial user endpoint; observed in discord.py-self/http.py accept_invite (2026-09-11).
 	// One explicit human solution may resume this specific write; never loop/retry automatically.
+	/// Accepts one invite, optionally resuming a single user-solved challenge.
 	async fn join_invite(
 		&self,
 		code: &str,
@@ -400,8 +417,14 @@ impl DiscordApi {
 	) -> Event {
 		let mut challenge = None;
 		let result = if client_core::invites::valid_code(code)
-			&& captcha.as_ref().is_none_or(|c| c.matches(code, request))
-		{
+			&& captcha.as_ref().is_none_or(|c| {
+				c.matches(
+					&client_core::captcha::Target::Invite {
+						code: code.to_owned(),
+					},
+					request,
+				)
+			}) {
 			self.request_with_captcha(
 				Method::POST,
 				&format!("/invites/{code}"),
@@ -435,19 +458,18 @@ impl DiscordApi {
 			}
 		}
 	}
+	/// Runs one typed command and returns its typed event.
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
+			Command::Interaction(request) => {
+				Event::Interaction(client_core::interactions::Event::Submitted {
+					result: self.interaction(&request, None).await,
+					nonce: request.nonce,
+				})
+			}
 			Command::MessagingPermissions { request, change } => Event::MessagingPermissions {
 				request,
 				result: self.account_messaging_permissions(change).await,
-			},
-			Command::AccountNotificationSettings {
-				request,
-				section,
-				change,
-			} => Event::AccountNotificationSettings {
-				request,
-				result: self.account_notification_settings(section, change).await,
 			},
 			Command::ServerAdmin {
 				guild,
@@ -508,7 +530,11 @@ impl DiscordApi {
 					result: self.server_action(action).await,
 				})
 			}
-			Command::UserAction { action, request } => {
+			Command::UserAction {
+				action,
+				request,
+				captcha,
+			} => {
 				if let client_core::user_actions::Action::OpenDm(user) = action {
 					return Event::UserAction(client_core::user_actions::Event::DmOpened {
 						user,
@@ -523,7 +549,17 @@ impl DiscordApi {
 						result: self.user_note(user).await,
 					});
 				}
-				let result = self.user_action(&action).await;
+				let mut challenge = None;
+				let slot = client_core::user_actions::establishes_friendship(&action)
+					.then_some(&mut challenge);
+				let result = self.user_action(&action, captcha.as_deref(), slot).await;
+				if let Some(challenge) = challenge {
+					return Event::UserAction(client_core::user_actions::Event::Challenge {
+						action,
+						request,
+						challenge: Box::new(challenge),
+					});
+				}
 				Event::UserAction(client_core::user_actions::Event::Written {
 					action,
 					request,
@@ -539,13 +575,31 @@ impl DiscordApi {
 				guild,
 				title,
 				content,
+				attachments,
 				request,
 			} => {
-				let result = self.create_post(parent, guild, &title, &content).await;
+				// Files are staged by the upload worker, which owns the whole post request.
+				let result = if attachments.is_empty() {
+					self.create_post(parent, guild, &title, &content, None)
+						.await
+				} else {
+					Err(Failure::ProtocolAt(
+						"Upload unavailable; reselect the file to retry",
+					))
+				};
 				Event::PostCreated {
 					parent,
 					request,
 					result,
+				}
+			}
+			Command::ForumSummaries { channels, request } => {
+				Event::ForumSummaries {
+					request,
+					results: futures_util::future::join_all(channels.into_iter().map(
+						|channel| async move { (channel, self.forum_summary(channel).await) },
+					))
+					.await,
 				}
 			}
 			Command::ForumPosts {
@@ -611,11 +665,20 @@ impl DiscordApi {
 				channel,
 				message,
 				request,
+				manual,
 			} => {
-				let result = self.mark_read(channel, message).await;
+				let result = self.mark_read(channel, message, manual).await;
 				Event::ReadState(client_core::read_state::Event::Result {
 					channel,
 					message,
+					request,
+					result,
+				})
+			}
+			Command::MarkGuildRead { guild, request } => {
+				let result = self.mark_guild_read(guild).await;
+				Event::ReadState(client_core::read_state::Event::GuildAck {
+					guild,
 					request,
 					result,
 				})
@@ -677,6 +740,37 @@ impl DiscordApi {
 							result,
 						}
 					}
+					R::Users {
+						channel,
+						message,
+						emoji,
+						after,
+						request,
+					} => {
+						let result = match reaction_users_path(channel, message, &emoji, after) {
+							Some(path) => {
+								self.request(Method::GET, &path, None)
+									.await
+									.and_then(|bytes| {
+										let users = decode::<Vec<UserDto>>(&bytes)
+											.map_err(|_| Failure::Protocol)?;
+										if users.len() > client_core::reactions::REACTION_USER_PAGE
+										{
+											return Err(Failure::Protocol);
+										}
+										Ok(users.into_iter().map(UserDto::into_model).collect())
+									})
+							}
+							None => Err(Failure::Protocol),
+						};
+						E::Users {
+							channel,
+							message,
+							emoji,
+							request,
+							result,
+						}
+					}
 				})
 			}
 			Command::Profile {
@@ -718,7 +812,9 @@ impl DiscordApi {
 				result: self.edit_profile(user, changes).await,
 			},
 			Command::CancelProfile => Event::Failure(Failure::Protocol),
-			Command::Voice(_) | Command::Members { .. } => Event::Failure(Failure::Protocol),
+			Command::MemberSearch(_) | Command::Voice(_) | Command::Members { .. } => {
+				Event::Failure(Failure::Protocol)
+			}
 			Command::History {
 				channel,
 				before,
@@ -777,7 +873,7 @@ impl DiscordApi {
 						result: Err(Failure::Capacity),
 					};
 				}
-				let body = serde_json::json!({"content": content, "allowed_mentions": allowed_mentions(&content)});
+				let body = serde_json::json!({"content": content, "allowed_mentions": allowed_mentions(&content, None)});
 				let result = self
 					.request(
 						Method::PATCH,
@@ -841,15 +937,25 @@ impl DiscordApi {
 	}
 }
 impl DiscordApi {
-	async fn mark_read(&self, channel: model::Id, message: model::Id) -> Result<(), Failure> {
+	async fn mark_read(
+		&self,
+		channel: model::Id,
+		message: model::Id,
+		manual: bool,
+	) -> Result<(), Failure> {
 		#[derive(serde::Deserialize)]
 		struct Reply {
 			#[serde(default)]
 			token: Option<String>,
 		}
 		// Legacy acknowledgement tokens are session-only, redacted by ownership, and never cached.
+		// Manual mark-unread omits the token, matching the unofficial normal-user ack body.
 		let mut token = self.ack_token.lock().await;
-		let body = serde_json::json!({"token":token.as_deref(),"manual":false});
+		let body = if manual {
+			serde_json::json!({"manual": true})
+		} else {
+			serde_json::json!({"token":token.as_deref(),"manual":false})
+		};
 		let bytes = zeroize::Zeroizing::new(
 			self.request_limited(
 				Method::POST,
@@ -874,6 +980,11 @@ impl DiscordApi {
 		}
 		*token = next;
 		Ok(())
+	}
+	async fn mark_guild_read(&self, guild: model::Id) -> Result<(), Failure> {
+		self.request_limited(Method::POST, &format!("/guilds/{guild}/ack"), None, 4096)
+			.await
+			.map(|_| ())
 	}
 }
 impl DiscordApi {
@@ -997,7 +1108,7 @@ impl DiscordApi {
 		channel: model::Id,
 		content: &str,
 		nonce: &str,
-		reply: Option<model::Id>,
+		reply: Option<Reply>,
 		attachment: Option<Vec<serde_json::Value>>,
 	) -> Result<model::Message, Failure> {
 		if (content.trim().is_empty() && attachment.is_none())
@@ -1005,10 +1116,10 @@ impl DiscordApi {
 		{
 			return Err(Failure::Capacity);
 		}
-		let mut body = serde_json::json!({"content":content,"nonce":nonce,"allowed_mentions":allowed_mentions(content)});
+		let mut body = serde_json::json!({"content":content,"nonce":nonce,"allowed_mentions":allowed_mentions(content, reply)});
 		if let Some(reply) = reply {
 			body["message_reference"] =
-				serde_json::json!({"message_id":reply,"channel_id":channel});
+				serde_json::json!({"message_id":reply.target(),"channel_id":channel});
 		}
 		if let Some(attachment) = attachment {
 			body["attachments"] = serde_json::json!(attachment);
@@ -1031,25 +1142,33 @@ impl DiscordApi {
 }
 impl DiscordApi {
 	/// Documented forum post creation: one thread with its starter message. Never auto-retried.
-	async fn create_post(
+	pub(crate) async fn create_post(
 		&self,
 		parent: model::Id,
 		guild: model::Id,
 		title: &str,
 		content: &str,
+		attachments: Option<Vec<serde_json::Value>>,
 	) -> Result<model::Channel, Failure> {
 		let title = title.trim();
 		if title.is_empty()
 			|| title.chars().count() > client_core::forum::MAX_TITLE
-			|| content.trim().is_empty()
+			|| (content.trim().is_empty() && attachments.is_none())
 			|| content.chars().count() > client_core::MAX_CONTENT
 		{
 			return Err(Failure::Capacity);
 		}
+		let mut message = serde_json::json!({
+			"content": content,
+			"allowed_mentions": allowed_mentions(content, None),
+		});
+		if let Some(attachments) = attachments {
+			message["attachments"] = serde_json::json!(attachments);
+		}
 		let body = serde_json::json!({
 			"name": title,
 			"auto_archive_duration": 4320,
-			"message": {"content": content, "allowed_mentions": allowed_mentions(content)},
+			"message": message,
 		});
 		self.request(
 			Method::POST,
@@ -1092,6 +1211,20 @@ fn reaction_path(
 		"/channels/{channel}/messages/{message}/reactions/{encoded}/@me"
 	))
 }
+fn reaction_users_path(
+	channel: model::Id,
+	message: model::Id,
+	emoji: &model::ReactionEmoji,
+	after: Option<model::Id>,
+) -> Option<String> {
+	let mut path = reaction_path(channel, message, emoji)?;
+	path.truncate(path.len() - "/@me".len());
+	path.push_str("?limit=100");
+	if let Some(after) = after {
+		path.push_str(&format!("&after={after}"));
+	}
+	Some(path)
+}
 fn safe_delay(seconds: Option<f64>) -> Result<Duration, Failure> {
 	let seconds = seconds.unwrap_or(1.0);
 	if !seconds.is_finite() || !(0.0..=86400.0).contains(&seconds) {
@@ -1103,6 +1236,22 @@ fn safe_delay(seconds: Option<f64>) -> Result<Duration, Failure> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn reaction_user_routes_keep_emoji_in_one_component_and_bound_pages() {
+		assert_eq!(
+			reaction_users_path(
+				model::Id(1),
+				model::Id(2),
+				&model::ReactionEmoji {
+					id: Some(model::Id(3)),
+					name: Some("a/b".into()),
+				},
+				Some(model::Id(4)),
+			)
+			.as_deref(),
+			Some("/channels/1/messages/2/reactions/%61%2F%62%3A%33?limit=100&after=4")
+		);
+	}
 	#[tokio::test]
 	async fn invite_captcha_preserves_fatal_auth_and_malformed_challenges() {
 		assert_eq!(invite_captcha(br#"{"captcha_service":"hcaptcha","captcha_sitekey":"synthetic-sitekey","captcha_rqdata":"escaped\/data"}"#).unwrap().rqdata(), Some("escaped/data"));
@@ -1571,6 +1720,7 @@ mod tests {
 					channel: Id(1),
 					message: Id(2),
 					request,
+					manual: false,
 				})
 				.await
 				else {
@@ -1775,7 +1925,7 @@ mod tests {
 						channel: model::Id(2),
 						content: "Synthetic reply".into(),
 						nonce: "local".into(),
-						reply: Some(model::Id(50)),
+						reply: Some(Reply::to(model::Id(50))),
 					})
 					.await
 				else {
@@ -2018,29 +2168,29 @@ mod tests {
 	}
 }
 
-fn allowed_mentions(content: &str) -> serde_json::Value {
+fn allowed_mentions(content: &str, reply: Option<client_core::Reply>) -> serde_json::Value {
 	let everyone: &[&str] = if model::has_mass_mention(content) {
 		&["everyone"]
 	} else {
 		&[]
 	};
-	serde_json::json!({"parse":everyone,"users":model::mentioned_user_ids(content),"replied_user":false})
+	serde_json::json!({"parse":everyone,"users":model::mentioned_user_ids(content),"roles":model::mentioned_role_ids(content),"replied_user":reply.is_some_and(|r| r.mention)})
 }
 #[cfg(test)]
 mod mention_tests {
 	#[test]
 	fn mass_mentions_and_explicit_users_are_allowed() {
 		assert_eq!(
-			super::allowed_mentions("hello test"),
-			serde_json::json!({"parse":[],"users":[],"replied_user":false})
+			super::allowed_mentions("hello test", None),
+			serde_json::json!({"parse":[],"users":[],"roles":[],"replied_user":false})
 		);
 		assert_eq!(
-			super::allowed_mentions("@everyone <@&4> <@7> <@!7> <@9>"),
-			serde_json::json!({"parse":["everyone"],"users":["7","9"],"replied_user":false})
+			super::allowed_mentions("@everyone <@&4> <@7> <@!7> <@9>", None),
+			serde_json::json!({"parse":["everyone"],"users":["7","9"],"roles":["4"],"replied_user":false})
 		);
 		assert_eq!(
-			super::allowed_mentions("@here"),
-			serde_json::json!({"parse":["everyone"],"users":[],"replied_user":false})
+			super::allowed_mentions("@here", None),
+			serde_json::json!({"parse":["everyone"],"users":[],"roles":[],"replied_user":false})
 		);
 	}
 }

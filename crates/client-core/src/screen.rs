@@ -7,6 +7,10 @@ pub const MAX_SOURCE_NAME_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceId {
+	/// The Linux desktop chooses the source after an explicit Share action.
+	Portal,
+	/// Explicit whole-desktop capture on a native X11 session, without a portal.
+	X11Desktop,
 	Display(u64),
 	Window(u64),
 }
@@ -24,7 +28,7 @@ pub struct Settings {
 	pub height: u32,
 	pub fps: u32,
 	pub cursor: bool,
-	/// Share system audio with the screen (macOS only); the microphone is unaffected.
+	/// Share system audio with the screen; call microphone settings are independent.
 	pub audio: bool,
 }
 impl Settings {
@@ -54,7 +58,10 @@ pub enum Event {
 		token: Option<voice::Secret>,
 		endpoint: Option<String>,
 	},
-	Deleted,
+	/// The stream is gone. `reason` names Discord's cause when it sent one we recognise.
+	Deleted {
+		reason: Option<&'static str>,
+	},
 	Failed(&'static str),
 }
 impl Event {

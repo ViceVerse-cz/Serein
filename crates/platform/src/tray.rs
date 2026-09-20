@@ -1,4 +1,5 @@
-//! Opt-in native tray icon. Minimizing and closing keep their normal window behavior.
+//! Opt-out native tray icon. Minimizing keeps its normal window behavior; the application
+//! decides what closing does: hide when supported, otherwise ask the compositor to minimize.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -6,10 +7,16 @@ pub enum Event {
 	Show = 1,
 	Unavailable = 2,
 	Quit = 4,
+	#[cfg(target_os = "linux")]
+	Minimize = 8,
 }
 
 pub const fn supported() -> bool {
-	cfg!(any(target_os = "windows", target_os = "macos"))
+	cfg!(any(
+		target_os = "windows",
+		target_os = "macos",
+		target_os = "linux"
+	))
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
@@ -30,25 +37,32 @@ impl Events {
 	}
 }
 
+#[cfg(target_os = "linux")]
+#[path = "tray/linux.rs"]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::Tray;
+
 #[cfg(target_os = "windows")]
 pub use native::Tray;
 
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
+#[path = "tray/macos.rs"]
 mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::Tray;
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub struct Tray;
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 impl Tray {
 	pub fn new(
 		_window: std::sync::Arc<winit::window::Window>,
 		_wake: impl Fn() + 'static,
 	) -> Result<Self, &'static str> {
-		Err("The tray icon is currently available on Windows and macOS only.")
+		Err("The tray icon is unavailable on this platform.")
 	}
 	pub fn take_event(&self) -> Option<Event> {
 		None

@@ -447,6 +447,7 @@ mod tests {
 							audio,
 							&mut crate::video::VideoUi::default(),
 							false,
+							&mut crate::select::Surface::new(ui, "attachment-test"),
 						);
 						assert!(ui.min_rect().width() <= width + 2.0);
 					},

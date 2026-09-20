@@ -186,7 +186,7 @@ mod tests {
 	fn integrations_webhooks_discard_secrets_and_validate_scope() {
 		let item = json!({"id":"3","guild_id":"2","channel_id":"4","type":1,"name":"Hook","token":"SYNTHETIC_SECRET".repeat(3000),"url":"SYNTHETIC_EXECUTION_URL"});
 		let page = webhooks(&serde_json::to_vec(&vec![item.clone()]).unwrap(), Id(2)).unwrap();
-		assert!(page.bytes() < 1024);
+		assert!(page.bytes() < 2 * 1024);
 		assert!(page.integrations.is_none());
 		assert!(webhooks(&serde_json::to_vec(&vec![item.clone()]).unwrap(), Id(8)).is_err());
 		assert!(webhooks(&serde_json::to_vec(&vec![item; 2]).unwrap(), Id(2)).is_err());

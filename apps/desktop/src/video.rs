@@ -1,4 +1,6 @@
 //! One explicit inline player; native decoding and network reads stay on one lazy worker.
+#[cfg(target_os = "macos")]
+mod fallback;
 mod output;
 mod source;
 use std::sync::{
@@ -185,7 +187,21 @@ fn play(
 		session.cancelled.clone(),
 		runtime.clone(),
 	)?;
-	let decoder = Decoder::open(source)?;
+	let decoder = Decoder::open(source);
+	#[cfg(target_os = "macos")]
+	let decoder = match decoder {
+		Err(platform::video::UNSUPPORTED | platform::video::INVALID) => {
+			let source = source::source(
+				request.url.clone(),
+				request.size,
+				session.cancelled.clone(),
+				runtime.clone(),
+			)?;
+			fallback::open(source, &session.cancelled)
+		}
+		result => result,
+	};
+	let decoder = decoder?;
 	let result = play_decoded(decoder, session, ctx);
 	// Cancellation aborts in-flight source reads; that is a clean stop, not a decode failure.
 	if session.cancelled.load(Ordering::Acquire) {

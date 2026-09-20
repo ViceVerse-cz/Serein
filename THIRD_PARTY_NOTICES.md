@@ -1,5 +1,21 @@
 # Third-party notices
 
+Linux tray integration uses **ksni 0.3.6** (Unlicense), reusing zbus, Tokio and image.
+The unmodified license is retained in `assets/licenses/files/ksni-0.3.6-UNLICENSE`;
+`Cargo.lock` records the archive checksum.
+
+Linux call audio enables CPAL’s PulseAudio backend with **pulseaudio 0.3.1**
+(MIT), **enum-primitive-derive 0.3.0** (MIT), and **futures 0.3.34**
+(MIT OR Apache-2.0). Their unmodified license texts and provenance are bundled
+under `assets/licenses/voice`. The backend connects to PulseAudio or PipeWire-Pulse;
+it does not bundle an audio server.
+
+Linux stream audio uses **libpulse-sys 1.23.0** (MIT OR Apache-2.0) to capture individual
+application playback streams. Its unmodified MIT text and provenance are under
+`assets/licenses/voice` and ship with packages.
+The external system `libpulse` library retains its own license; it is dynamically linked,
+not bundled here. macOS uses the bindings only for offline Linux development checks.
+
 Packaging copies the repository's bundled notices, license texts and corresponding component
 source without scanning dependencies or checking license coverage. Declared-license checks run
 separately in the dedicated license CI job (`cargo xtask licenses`); its failure does not block
@@ -26,6 +42,11 @@ already-resolved **flate2 1.1.10**. Rusqlite statement caching adds **hashlink 0
 All five declare **MIT OR Apache-2.0** in their corresponding registry release
 manifests; their versions and archive checksums are recorded in `Cargo.lock`.
 
+The bundled Noto Sans CJK JP face is embedded as a zstd archive and inflated in memory by
+**ruzstd 0.9.0** (MIT), a pure-Rust decoder with no further dependencies. Its license is
+copied unmodified from the registry release to `assets/licenses/files/ruzstd-0.9.0-LICENSE`;
+`Cargo.lock` records the archive checksum.
+
 External browser opening enables eframe's `links` feature and adds **webbrowser 1.2.4**
 (MIT OR Apache-2.0). Its MIT license is copied unmodified from the registry release
 to `assets/licenses/files/webbrowser-1.2.4-LICENSE-MIT`; `Cargo.lock` records the archive checksum.
@@ -47,7 +68,7 @@ The native attachment video adapter also uses **symphonia-codec-aac 0.6.1**
 the other Symphonia codecs, and ship through the same package copy step.
 
 The egui main experiment pins the egui/eframe ecosystem to upstream commit
-`65e7db3c06d779c60ac56647bdd3011ed8ba1cbd` (version 0.36.2, MIT OR Apache-2.0).
+`8fb03c9ae9a6bf1ffa602dfba51ed575f2655975` (version 0.36.2, MIT OR Apache-2.0).
 It adds unicode-properties 0.1.4 (MIT/Apache-2.0) and updates glifo to 0.3.0 and
 vello_common/vello_cpu to 0.2.0 (Apache-2.0 OR MIT). Epaint bundled fonts and
 their separate license obligations are unchanged. Native font fallback uses
@@ -91,7 +112,7 @@ The direct voice library/codec license and notice texts are collected in [assets
 
 The voice dependency tree also contains the locally patched **hpke-rs 0.6.1**, licensed **MPL-2.0** according to its [release-pinned Cargo manifest](https://github.com/cryspen/hpke-rs/blob/f3463e7530771d7f7116635335c25e7d2d11e861/Cargo.toml). The vendored component is under `vendor/hpke-rs/`; `SEREIN-PATCH.md` describes its SHAKE dependency replacement, small standard-XOF adapter and removal of the unused optional libcrux backend. Its original source remains under MPL-2.0, separately from Serein's MIT/Apache code. Upstream's registry archive and pinned Git tree omit a standalone license file, so an unmodified [canonical Mozilla MPL-2.0 text](https://www.mozilla.org/media/MPL/2.0/index.txt) is provided as `vendor/hpke-rs/LICENSE-MPL-2.0.txt` and `assets/licenses/voice/hpke-rs-LICENSE-MPL-2.0.txt`. This text was supplied from Mozilla, not recovered from a nonexistent upstream file. Voice packages include this corresponding component source under `source/hpke-rs` (inside macOS bundle Resources). Binary distributors must provide recipients access to the corresponding hpke-rs source, including modifications, and retain its notices as required by MPL-2.0; distributing only this license text is insufficient.
 
-Bundled fonts are unmodified and licensed under SIL OFL 1.1: **Inter 3.19** (Regular, Medium, SemiBold; the "hinted for Windows" TrueType builds), Copyright (c) 2016-2020 The Inter Project Authors, "Inter" is a trademark of Rasmus Andersson (https://github.com/rsms/inter); **Noto Sans CJK JP Regular 2.004**, © 2014–2021 Adobe (http://www.adobe.com/); and **Noto Sans Arabic 2.012**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic). The complete license texts are `assets/fonts/Inter-OFL.txt`, `assets/fonts/NotoSansCJK-LICENSE.txt` and `assets/fonts/NotoSansArabic-OFL.txt` in source, and are staged alongside distribution notices. Provenance, hashes, sizes and coverage limitations are in [assets/README.md](assets/README.md). Their font licenses remain separate from Serein's source-code license.
+Bundled fonts are unmodified and licensed under SIL OFL 1.1: **Inter 3.19** (Regular, Medium, SemiBold; the "hinted for Windows" TrueType builds), Copyright (c) 2016-2020 The Inter Project Authors, "Inter" is a trademark of Rasmus Andersson (https://github.com/rsms/inter); **Noto Sans CJK JP Regular 2.004**, © 2014–2021 Adobe (http://www.adobe.com/), stored zstd-compressed and inflated unchanged at runtime; **Noto Sans Arabic 2.012**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic); and **Noto Sans Math 3.000**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/math). The complete license texts are `assets/fonts/Inter-OFL.txt`, `assets/fonts/NotoSansCJK-LICENSE.txt`, `assets/fonts/NotoSansArabic-OFL.txt` and `assets/fonts/NotoSansMath-OFL.txt` in source, and are staged alongside distribution notices. Provenance, hashes, sizes and coverage limitations are in [assets/README.md](assets/README.md). Their font licenses remain separate from Serein's source-code license.
 
 The initial packaging command stages original licenses and this inventory notice. Complete per-artifact transitive license-text assembly and platform redistribution review remain a release-hardening gate; do not treat a development package as a completed legal/distribution review.
 
@@ -117,7 +138,7 @@ AEC3, and its sonora-aec3/agc2/common-audio/fft/ns/simd 0.2.0 components
 dignifiedquire). The unmodified workspace license is
 `assets/licenses/voice/sonora-LICENSE.txt`, staged by existing voice packaging.
 Krisp is not bundled. No extra native SDK or model download is required.
-Sonora noise suppression and AGC are not enabled by this integration.
+Custom microphone profiles can enable Sonora noise suppression and digital AGC2.
 
 The macOS voice permission adapter additionally uses **objc2-av-foundation
 0.3.2** (Zlib OR Apache-2.0 OR MIT) and existing objc2 0.6.4 / block2 0.6.2.
@@ -206,3 +227,14 @@ with ab_glyph 0.2.32 / ab_glyph_rasterizer 0.1.10 / owned_ttf_parser 0.25.1
 Their notices and license texts are retained in
 [the Adwaita dependency notices](assets/licenses/dependencies/wayland-adwaita-LICENSES.txt)
 and copied by the existing dependency-notice packaging step.
+
+Linux screen sharing reuses the already locked **gstreamer 0.25.3**,
+**gstreamer-app 0.25.2**, **gstreamer-video 0.25.3** Rust bindings
+(MIT OR Apache-2.0) and **zbus 5.19.0** (MIT, Tokio backend).
+GStreamer/PipeWire, VA-API/NVENC/OpenGL plugins and GPU drivers are native runtime
+components supplied by the distribution/Flatpak runtime, not new bundled codec source.
+Their upstream licenses and distribution packaging terms still apply. Software encoding
+uses the existing bundled OpenH264 notices above.
+
+Wayland global voice keybinds use **ashpd 0.13.13** (MIT) to access the desktop
+GlobalShortcuts portal. Its license is bundled under `assets/licenses/dependencies`.

@@ -4,7 +4,10 @@
 import argparse
 import hashlib
 import io
+import sys
 from pathlib import Path
+import shutil
+import subprocess
 import tarfile
 import urllib.request
 
@@ -49,6 +52,11 @@ def main():
             index.append((text.replace("\ufe0f", ""), cell))
         assert len({text for text, _ in index}) == COUNT
         atlas.save(destination / "atlas.png", optimize=True)
+        # Lossless; ~13% smaller than Pillow's best zlib output. Install with `cargo install oxipng`.
+        if shutil.which("oxipng"):
+            subprocess.run(["oxipng", "-o", "max", "--strip", "all", "-q", destination / "atlas.png"], check=True)
+        else:
+            print("oxipng not found; atlas.png left at Pillow compression", file=sys.stderr)
         (destination / "index.tsv").write_text(
             "".join(f"{text}\t{cell}\n" for text, cell in sorted(index)), encoding="utf-8"
         )

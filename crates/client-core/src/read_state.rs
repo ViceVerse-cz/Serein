@@ -2,7 +2,7 @@ use crate::{
 	State,
 	auth::{AuthState, Failure},
 };
-use model::{Channel, Freshness, Id, Patch};
+use model::{Freshness, Id, Patch};
 use std::collections::BTreeMap;
 
 pub enum Event {
@@ -25,6 +25,11 @@ pub enum Event {
 		request: u64,
 		result: Result<(), Failure>,
 	},
+	GuildAck {
+		guild: Id,
+		request: u64,
+		result: Result<(), Failure>,
+	},
 }
 impl Event {
 	pub fn bytes(&self) -> usize {
@@ -38,6 +43,21 @@ impl Event {
 			}
 	}
 }
+enum Pending {
+	Channel {
+		channel: Id,
+		message: Id,
+		request: u64,
+		epoch: u64,
+		manual: bool,
+	},
+	Guild {
+		guild: Id,
+		request: u64,
+		channels: Vec<(Id, u64, Id)>,
+	},
+}
+
 #[derive(Default)]
 pub struct ReadState {
 	pub(crate) activity: crate::notifications::Activity,
@@ -45,10 +65,14 @@ pub struct ReadState {
 	known: bool,
 	version: Option<u64>,
 	revision: u64,
-	pending: Option<(Id, Id, u64, u64)>,
+	pending: Option<Pending>,
 	pub(crate) status: Option<(Id, &'static str)>,
 }
 impl ReadState {
+	/// True once a complete service snapshot arrived, so a channel without a row was never read.
+	pub(crate) fn known(&self) -> bool {
+		self.known
+	}
 	pub fn status(&self, channel: Id) -> Option<&'static str> {
 		self.status
 			.filter(|(id, _)| *id == channel)
@@ -71,7 +95,17 @@ impl ReadState {
 		if self.status(channel).is_some() {
 			self.status = None;
 		}
-		if self.pending.is_some_and(|(id, ..)| id == channel) {
+		let cancel = match self.pending.as_mut() {
+			Some(Pending::Channel {
+				channel: pending, ..
+			}) => *pending == channel,
+			Some(Pending::Guild { channels, .. }) => {
+				channels.retain(|(id, ..)| *id != channel);
+				channels.is_empty()
+			}
+			None => false,
+		};
+		if cancel {
 			self.cancel();
 		}
 	}
@@ -99,20 +133,30 @@ impl State {
 	}
 	/// Shared unread visibility for sidebar rows and notification badges.
 	pub fn channel_unread(&self, channel: &model::Channel) -> Option<bool> {
-		if !self.gateway_connected
-			|| !self.can_view(channel.id)
-			|| !channel.supports_text()
-			|| !(self.read_state.known || self.read_state.entries.contains_key(&channel.id))
-		{
+		if !self.gateway_connected || !self.can_view(channel.id) || !channel.supports_text() {
 			return None;
 		}
-		let read = self
-			.read_state
-			.entries
-			.get(&channel.id)
-			.and_then(|(id, _)| *id);
+		let read = match self.read_state.entries.get(&channel.id) {
+			Some((id, _)) => *id,
+			None if self.read_state.known && matches!(channel.kind, 10..=12) => None,
+			None => return None,
+		};
 		let latest = channel.last_message?;
-		Some(read.is_none_or(|read| latest > read))
+		let unread = read.is_none_or(|read| latest > read);
+		if unread
+			&& let Some(marker) = read
+			&& self.selected == Some(channel.id)
+			&& self.freshness == Freshness::Fresh
+			&& !self.history_targeted
+			&& self.history_before.is_none()
+			&& self.history_after.is_none()
+			&& !self.history_pending
+			&& !self.timeline.is_empty()
+			&& self.timeline.iter().all(|message| message.id <= marker)
+		{
+			return Some(false);
+		}
+		Some(unread)
 	}
 	pub fn can_jump_unread(&self) -> bool {
 		self.auth == AuthState::Authenticated
@@ -172,7 +216,12 @@ impl State {
 						&& channel.last_message.map_or(
 							self.newer_may_have_more
 								|| (self.history_targeted && self.history_after.is_none()),
-							|latest| latest > last,
+							|latest| {
+								latest > last
+									&& (self.newer_may_have_more
+										|| self.newer_cursor.is_some()
+										|| self.history_after.is_none())
+							},
 						)
 				})
 			})
@@ -181,7 +230,7 @@ impl State {
 		if !self.can_load_newer() {
 			return None;
 		}
-		Some(self.open_after_window(self.forward_cursor()?))
+		Some(self.history_range(None, Some(self.forward_cursor()?)))
 	}
 	fn forward_cursor(&self) -> Option<Id> {
 		self.timeline
@@ -221,7 +270,7 @@ impl State {
 			return None;
 		}
 		let channel = self.selected?;
-		Some(self.mark_read_command(channel, message))
+		Some(self.mark_read_command(channel, message, false))
 	}
 	/// Explicit sidebar acknowledgement uses known channel metadata without navigating.
 	pub fn can_mark_channel_read(&self, channel: Id) -> bool {
@@ -235,9 +284,85 @@ impl State {
 			return None;
 		}
 		let message = self.channel(channel)?.last_message?;
-		Some(self.mark_read_command(channel, message))
+		Some(self.mark_read_command(channel, message, false))
 	}
-	fn mark_read_command(&mut self, channel: Id, message: Id) -> crate::Command {
+	pub fn can_mark_unread(&self, message: Id) -> bool {
+		self.auth == AuthState::Authenticated
+			&& self.gateway_connected
+			&& self.freshness == Freshness::Fresh
+			&& self.read_state.pending.is_none()
+			&& message.0 > 0
+			&& self
+				.timeline
+				.get(message)
+				.is_some_and(|m| Some(m.channel) == self.selected)
+			&& self.selected.is_some_and(|channel| {
+				self.can_view(channel)
+					&& self
+						.read_marker(channel)
+						.flatten()
+						.is_some_and(|read| message <= read)
+			})
+	}
+	pub fn prepare_mark_unread(&mut self, message: Id) -> Option<crate::Command> {
+		if !self.can_mark_unread(message) {
+			return None;
+		}
+		let channel = self.selected?;
+		Some(self.mark_read_command(channel, Id(message.0 - 1), true))
+	}
+	pub fn can_mark_guild_read(&self, guild: Id) -> bool {
+		self.auth == AuthState::Authenticated
+			&& self.gateway_connected
+			&& self.read_state.pending.is_none()
+			&& self.guilds.iter().any(|g| g.id == guild)
+			&& self.channels.iter().any(|channel| {
+				channel.guild == Some(guild) && self.unread(channel.id) == Some(true)
+			})
+	}
+	pub fn prepare_mark_guild_read(&mut self, guild: Id) -> Option<crate::Command> {
+		if !self.can_mark_guild_read(guild) {
+			return None;
+		}
+		let channels = self
+			.channels
+			.iter()
+			.filter(|channel| channel.guild == Some(guild) && self.unread(channel.id) == Some(true))
+			.filter_map(|channel| {
+				let message = channel.last_message?;
+				let epoch = self
+					.read_state
+					.entries
+					.get(&channel.id)
+					.map_or(0, |(_, epoch)| *epoch);
+				Some((channel.id, epoch, message))
+			})
+			.take(crate::MAX_NAV)
+			.collect::<Vec<_>>();
+		if channels.is_empty() {
+			return None;
+		}
+		self.read_state.revision = self.read_state.revision.wrapping_add(1);
+		let request = self.read_state.revision;
+		self.read_state.pending = Some(Pending::Guild {
+			guild,
+			request,
+			channels,
+		});
+		self.read_state.status = None;
+		Some(crate::Command::MarkGuildRead { guild, request })
+	}
+	pub fn pending_guild_ack(&self, guild: Id, request: u64) -> bool {
+		matches!(
+			&self.read_state.pending,
+			Some(Pending::Guild {
+				guild: pending_guild,
+				request: pending_request,
+				..
+			}) if *pending_guild == guild && *pending_request == request
+		)
+	}
+	fn mark_read_command(&mut self, channel: Id, message: Id, manual: bool) -> crate::Command {
 		self.read_state.revision = self.read_state.revision.wrapping_add(1);
 		let request = self.read_state.revision;
 		let epoch = self
@@ -245,13 +370,19 @@ impl State {
 			.entries
 			.get(&channel)
 			.map_or(0, |(_, epoch)| *epoch);
-		self.read_state.pending = Some((channel, message, request, epoch));
-		// Routine acknowledgements must not resize the timeline on every incoming message.
+		self.read_state.pending = Some(Pending::Channel {
+			channel,
+			message,
+			request,
+			epoch,
+			manual,
+		});
 		self.read_state.status = None;
 		crate::Command::MarkRead {
 			channel,
 			message,
 			request,
+			manual,
 		}
 	}
 	pub fn observe_last_message(&mut self, channel: Id, message: Id) {
@@ -263,6 +394,16 @@ impl State {
 		}
 	}
 	pub fn apply_read_state(&mut self, event: Event) -> Result<(), &'static str> {
+		let new_channel = match &event {
+			Event::Ack { channel, .. } | Event::Result { channel, .. } => Some(*channel),
+			_ => None,
+		};
+		if new_channel.is_some_and(|id| !self.read_state.entries.contains_key(&id))
+			&& self.read_state.entries.len() >= crate::MAX_NAV
+		{
+			self.read_state.cancel();
+			return Err("Read-state capacity exceeded");
+		}
 		match event {
 			Event::Snapshot {
 				entries,
@@ -288,7 +429,8 @@ impl State {
 					}
 				}
 				for (channel, message, count) in entries.unwrap_or_default() {
-					if !self.channel(channel).is_some_and(Channel::supports_text) {
+					// Unjoined forum posts load after READY; keep their service cursors.
+					if self.channel(channel).is_some_and(|c| !c.supports_text()) {
 						continue;
 					}
 					self.read_state.activity.set_count(channel, count);
@@ -369,8 +511,13 @@ impl State {
 				request,
 				result,
 			} => {
-				let Some((pending_channel, pending_message, pending_request, epoch)) =
-					self.read_state.pending
+				let Some(Pending::Channel {
+					channel: pending_channel,
+					message: pending_message,
+					request: pending_request,
+					epoch,
+					manual,
+				}) = self.read_state.pending
 				else {
 					return Ok(());
 				};
@@ -386,7 +533,6 @@ impl State {
 				}
 				match result {
 					Ok(()) => {
-						// A newer service ACK (including manual mark-unread) wins over this HTTP completion.
 						if self.channels.iter().any(|c| c.id == channel)
 							&& self
 								.read_state
@@ -401,15 +547,16 @@ impl State {
 								.entries
 								.get(&channel)
 								.and_then(|(id, _)| *id);
+							let next = if manual {
+								Some(message)
+							} else {
+								Some(message).max(current)
+							};
+							self.read_state.activity.ack(channel, next, None);
 							self.read_state
-								.activity
-								.ack(channel, Some(message).max(current), None);
-							self.read_state.entries.insert(
-								channel,
-								(Some(message).max(current), self.read_state.revision),
-							);
+								.entries
+								.insert(channel, (next, self.read_state.revision));
 						}
-						// Success is silent; only failures deserve a notice line.
 						self.read_state.status = None;
 					}
 					Err(failure) => {
@@ -437,6 +584,72 @@ impl State {
 					}
 				}
 			}
+			Event::GuildAck {
+				guild,
+				request,
+				result,
+			} => {
+				let Some(Pending::Guild {
+					guild: pending_guild,
+					request: pending_request,
+					..
+				}) = &self.read_state.pending
+				else {
+					return Ok(());
+				};
+				if (*pending_guild, *pending_request) != (guild, request) {
+					return Ok(());
+				}
+				let Some(Pending::Guild { channels, .. }) = self.read_state.pending.take() else {
+					return Ok(());
+				};
+				match result {
+					Ok(()) => {
+						self.read_state.revision = self.read_state.revision.wrapping_add(1);
+						let revision = self.read_state.revision;
+						for (channel, epoch, message) in channels {
+							if !self.read_state.entries.contains_key(&channel)
+								&& self.read_state.entries.len() >= crate::MAX_NAV
+							{
+								continue;
+							}
+							if self
+								.read_state
+								.entries
+								.get(&channel)
+								.map_or(0, |(_, current)| *current)
+								!= epoch
+							{
+								continue;
+							}
+							self.read_state
+								.activity
+								.ack(channel, Some(message), Some(0));
+							self.read_state
+								.entries
+								.insert(channel, (Some(message), revision));
+						}
+						self.read_state.status = None;
+					}
+					Err(failure) => {
+						if failure.ends_session() {
+							self.fail(failure);
+						} else if let Some((channel, ..)) = channels.first() {
+							self.read_state.status = Some((
+								*channel,
+								match failure {
+									Failure::Ambiguous => {
+										"Read status could not be confirmed · unread markers may be out of date"
+									}
+									_ => {
+										"Read status could not sync · unread markers may be out of date"
+									}
+								},
+							));
+						}
+					}
+				}
+			}
 		}
 		Ok(())
 	}
@@ -445,13 +658,14 @@ impl State {
 #[cfg(test)]
 mod navigation_tests {
 	use super::*;
-	use crate::{Command, Envelope, Event as CoreEvent};
+	use crate::{Command, Envelope, Event as CoreEvent, Reply};
 	use model::{Channel, Message, User};
 	fn message(id: u64) -> Message {
 		Message {
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				primary_guild: None,
 				id: Id(9),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -476,6 +690,10 @@ mod navigation_tests {
 			forwarded: false,
 			kind: 0,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
@@ -513,7 +731,7 @@ mod navigation_tests {
 			.unwrap();
 		state.timeline.insert(message(500), false, false).unwrap();
 		state.drafts.insert(Id(1), "Preserve draft".into());
-		state.reply = Some(Id(500));
+		state.reply = Some(Reply::to(Id(500)));
 		state
 	}
 	fn apply(state: &mut State, event: CoreEvent) {
@@ -533,6 +751,7 @@ mod navigation_tests {
 				channel,
 				message,
 				request,
+				manual: false,
 			} = state.prepare_mark_read(Id(500)).unwrap()
 			else {
 				panic!("expected read acknowledgement");
@@ -600,6 +819,7 @@ mod navigation_tests {
 			channel,
 			message,
 			request,
+			manual: false,
 		}) = state.prepare_mark_channel_read(Id(1))
 		else {
 			panic!("sidebar acknowledgement")
@@ -652,7 +872,7 @@ mod navigation_tests {
 			assert_eq!(state.timeline.iter().count(), 49);
 			assert_eq!(state.read_marker(Id(1)), Some(marker));
 			assert_eq!(state.drafts[&Id(1)], "Preserve draft");
-			assert_eq!(state.reply, Some(Id(500)));
+			assert_eq!(state.reply_target(), Some(Id(500)));
 			assert!(state.read_state.pending.is_none());
 			assert!(
 				matches!(state.newer_history(),Some(Command::History {before:None,after:Some(after),..}) if after.0==start+50)
@@ -661,8 +881,16 @@ mod navigation_tests {
 				&mut state,
 				(start + 51..=start + 100).map(message).collect(),
 			);
-			assert_eq!(state.search_target, Some(Id(start + 51)));
-			assert_eq!(state.timeline.row_count(), 50);
+			assert!(state.search_target.is_none());
+			assert_eq!(state.timeline.iter().count(), 99);
+			assert_eq!(
+				state.timeline.iter().next().map(|m| m.id),
+				Some(Id(start + 2))
+			);
+			assert_eq!(
+				state.timeline.iter().last().map(|m| m.id),
+				Some(Id(start + 100))
+			);
 			assert!(!state.older_exhausted);
 			assert!(state.can_load_older());
 			assert_eq!(state.read_marker(Id(1)), Some(marker));
