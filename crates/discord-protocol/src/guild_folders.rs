@@ -8,7 +8,8 @@ use model::{
 };
 use serde::Deserialize;
 
-pub const MAX_SETTINGS_RESPONSE: usize = 1024 * 1024;
+// Discord accepts a 5 MiB base64 settings value; leave bounded room for its JSON envelope.
+pub const MAX_SETTINGS_RESPONSE: usize = 6 * 1024 * 1024;
 const MAX_FOLDER_WIRE: usize = 128 * 1024;
 
 pub struct Decoded {
@@ -329,5 +330,16 @@ mod tests {
 			.is_err()
 		);
 		assert!(varint(&mut &[255; 10][..]).is_err());
+	}
+
+	#[test]
+	fn large_account_settings_reach_the_folder_decoder() {
+		let mut wire = vec![10, 0]; // Present version message; data version defaults to zero.
+		message(99, &vec![0; 800 * 1024], &mut wire);
+		let response = serde_json::json!({"settings": STANDARD.encode(wire)})
+			.to_string()
+			.into_bytes();
+		assert!(response.len() > 1024 * 1024);
+		assert!(decode_response(&response).is_ok());
 	}
 }

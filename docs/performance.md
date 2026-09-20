@@ -996,3 +996,23 @@ noise, not an improvement. The deterministic cost is the 479,308-byte bundled
 Noto Sans Math face plus its notice and small integration changes. Native screenshot
 capture was unavailable because the Windows computer-use helper failed to initialize
 with OS error 3; no visual, frame-time, startup, or live Discord claim is made.
+
+## Large settings-proto responses — September 20, 2026
+
+Baseline: `0ffd9b3`. After: this branch. Both used the standard voice-enabled
+`cargo xtask package` profile with Rust 1.98.1 on Windows. One 195-file package
+was built per revision; ZIPs use PowerShell `Compress-Archive` Optimal.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 68,147,200 | 68,147,200 | 0 |
+| Full portable package, bytes | 72,243,085 | 72,243,085 | 0 |
+| ZIP, `Compress-Archive` Optimal, bytes | 41,352,545 | 41,352,563 | +18 bytes (noise) |
+
+The response cap grows from 1 MiB to 6 MiB so Discord's documented 5 MiB encoded
+settings value fits with its JSON envelope. Responses below the old cap follow the
+same path; there is no dependency, worker, persistent allocation or retained-layout
+change. A maximum-size accepted response can transiently use up to 5 MiB more input
+storage than before. CPU/RSS and live-account latency are unmeasured because no
+authenticated account was used. The OpenH264 LNK4255 warning remained nonfatal;
+`makensis` was unavailable, so both are unsigned portable packages.

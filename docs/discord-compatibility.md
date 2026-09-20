@@ -991,7 +991,8 @@ refresh; Gateway settings updates are not consumed in this slice.
 Primary implementation evidence checked: [settings schema](https://github.com/discord-userdoccers/discord-protos)
 and [discord.py-self HTTP adapter](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py).
 Limits: 200 servers, 200 folder entries, 100 characters/400 bytes per name, 16 KiB
-retained layout, 1 MiB settings response. Oversized settings disable organization
+retained layout, and a 6 MiB response cap for Discord's 5 MiB encoded settings value
+plus its JSON envelope. Oversized settings disable organization
 without hiding normal server navigation. Demo edits stay in memory; live edits persist
 through Discord. No live account actions were performed in fast local validation.
 
