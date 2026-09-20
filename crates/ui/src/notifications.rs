@@ -225,6 +225,8 @@ impl MessagingUi {
 				design::rail_name(&response, &label);
 				if response.clicked() {
 					self.guild = None;
+					state.selected = None;
+					self.search.open = false;
 				}
 				self.scroll
 					.attach(
@@ -358,6 +360,49 @@ mod tests {
 			generation: state.generation,
 			event,
 		});
+	}
+
+	#[test]
+	fn home_rail_opens_friends_from_a_guild_channel() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut view = MessagingUi {
+			guild: state
+				.selected
+				.and_then(|id| state.channel(id))
+				.and_then(|channel| channel.guild),
+			..Default::default()
+		};
+		view.search.open = true;
+		let mut frame = |events| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| view.notification_rail(ui, &mut state, &mut vec![]),
+			);
+			output.drop_without_applying_deltas();
+		};
+		frame(vec![]);
+		for pressed in [true, false] {
+			frame(vec![
+				egui::Event::PointerMoved(egui::pos2(34.0, 27.0)),
+				egui::Event::PointerButton {
+					pos: egui::pos2(34.0, 27.0),
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]);
+		}
+		assert_eq!(view.guild, None);
+		assert_eq!(state.selected, None);
+		assert!(!view.search.open);
 	}
 
 	#[test]
