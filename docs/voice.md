@@ -371,6 +371,24 @@ The native demo (`cargo run --locked -p serein -- --demo --demo-voice`) exposes 
 
 ## Camera in calls (macOS, Windows and Linux)
 
+### Windows hardware encoder contracts
+
+Camera and screen sharing use the same Media Foundation hardware encoder. Forced
+keyframes use an unsigned `VT_UI4` value, as required by
+[`CODECAPI_AVEncVideoForceKeyFrame`](https://learn.microsoft.com/en-us/windows/win32/medfound/codecapi-avencvideoforcekeyframe).
+An encoder that rejects a differently typed control causes software fallback.
+
+The MFT's [`cbSize`](https://learn.microsoft.com/en-us/windows/win32/api/mftransform/ns-mftransform-mft_output_stream_info)
+is its minimum output-buffer capacity, not the compressed sample length. Caller-owned
+output allocations may use up to the larger of one bounded 32-bit raw picture and
+the existing encoded-frame cap. The actual sample length is still checked against
+the original camera/screen-share encoded-frame limit before it is copied or sent.
+Encoders that provide their own samples do not require a caller-owned output allocation.
+Synthetic native-buffer tests cover these contracts without opening an encoder or
+capture device; hardware acceptance and live Discord delivery remain unverified.
+
+### Camera capture and delivery
+
 The voice build can send a native camera after an explicit camera-on click in a
 connected DM or guild call. The camera button remains available in narrow call controls.
 A local preview replaces your avatar in both DM and guild call tiles, including when
