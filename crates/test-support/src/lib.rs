@@ -134,6 +134,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 		forwarded: false,
 		unsupported: false,
 		components: vec![],
+		sticker_items: vec![],
 		application_id: None,
 		flags: 0,
 		ephemeral: false,
@@ -266,6 +267,7 @@ pub fn demo_state() -> State {
 				name: "You (synthetic)".into(),
 			},
 			guilds: vec![Guild {
+				stickers: None,
 				emojis: Some(vec![
 					model::CustomEmoji {
 						id: Id(9001),
@@ -942,6 +944,7 @@ pub fn seed_demo_folder_mosaic(state: &mut State) {
 	];
 	for (id, name, hash) in EXTRA {
 		state.guilds.push(Guild {
+			stickers: None,
 			emojis: None,
 			id: Id(id),
 			name: name.into(),
@@ -1303,6 +1306,52 @@ pub fn friends_demo_state() -> State {
 		),
 	});
 	state
+}
+
+/// Original offline sticker catalog and one received message, used only by the sticker preview.
+pub fn seed_stickers(state: &mut State) {
+	let sticker = |id, name: &str, guild_id, pack_id| model::Sticker {
+		id: Id(id),
+		name: name.into(),
+		description: "Original synthetic sticker artwork".into(),
+		tags: "hello,wave,smile".into(),
+		format_type: 1,
+		guild_id,
+		pack_id,
+		available: true,
+	};
+	let guild_stickers = vec![
+		sticker(9101, "Wave", Some(Id(10)), None),
+		sticker(9102, "Smile", Some(Id(10)), None),
+		sticker(9103, "Celebrate", Some(Id(10)), None),
+	];
+	if let Some(guild) = state.guilds.iter_mut().find(|guild| guild.id == Id(10)) {
+		guild.stickers = Some(guild_stickers.clone());
+	}
+	state.stickers.recent = vec![guild_stickers[0].clone()];
+	state.stickers.packs = vec![model::StickerPack {
+		id: Id(9200),
+		name: "Serein Friends (synthetic)".into(),
+		stickers: vec![
+			sticker(9201, "Sleep", None, Some(Id(9200))),
+			sticker(9202, "Hello", None, Some(Id(9200))),
+			sticker(9203, "Party", None, Some(Id(9200))),
+		],
+	}];
+	state.stickers.loaded = true;
+	if let Some(channel) = state.selected {
+		state.timeline.clear();
+		let mut message = message(501, channel);
+		message.content.clear();
+		message.embeds.clear();
+		message.attachments.clear();
+		message.sticker_items = vec![state.stickers.packs[0].stickers[0].clone()];
+		message.extra_content.sticker_items = true;
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Message(message),
+		});
+	}
 }
 
 #[cfg(test)]

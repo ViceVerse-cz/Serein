@@ -245,6 +245,7 @@ mod tests {
 
 	fn message(channel: u64, id: u64) -> Message {
 		Message {
+			sticker_items: Vec::new(),
 			id: Id(id),
 			channel: Id(channel),
 			kind: 0,
@@ -337,6 +338,7 @@ mod tests {
 	}
 	fn patch(channel: u64) -> MessagePatch {
 		MessagePatch {
+			sticker_items: model::Patch::Absent,
 			channel: Id(channel),
 			id: Id(channel * 1000 + 1),
 			content: Patch::Value("Updated".into()),
@@ -631,6 +633,7 @@ mod tests {
 		use model::permissions as p;
 		let mut state = state();
 		state.guilds.push(model::Guild {
+			stickers: None,
 			id: Id(10),
 			name: "Synthetic guild".into(),
 			icon: None,

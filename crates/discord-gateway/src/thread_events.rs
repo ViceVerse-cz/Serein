@@ -100,6 +100,7 @@ mod tests {
 				id: Id(1),
 				name: "Synthetic".into(),
 				icon: None,
+				stickers: None,
 				emojis: None,
 			}],
 			channels: vec![parent, thread],

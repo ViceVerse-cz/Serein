@@ -760,6 +760,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			guilds: vec![model::Guild {
+				stickers: None,
 				emojis: None,
 				id: Id(9),
 				name: "Synthetic".into(),

@@ -146,6 +146,13 @@ pub fn show(
 						.response
 						.on_hover_text(status);
 					}
+					if let Some(sticker) = &pending.sticker {
+						ui.scope(|ui| {
+							ui.set_opacity(if sending { 0.55 } else { 1.0 });
+							let edge = ui.available_width().min(160.0);
+							avatars.sticker_image(ui, sticker, egui::Vec2::splat(edge), state.demo);
+						});
+					}
 					if !pending.attachments.is_empty() {
 						ui.scope(|ui| {
 							ui.set_max_width(ui.available_width().min(MAX_WIDTH));
@@ -170,7 +177,14 @@ pub fn show(
 									.color(colors.muted),
 							);
 						}
-						if ui.button("Restore to composer").clicked() {
+						if ui
+							.button(if pending.sticker.is_some() {
+								"Dismiss"
+							} else {
+								"Restore to composer"
+							})
+							.clicked()
+						{
 							*restore = Some(pending.nonce.clone());
 						}
 					}
@@ -366,6 +380,7 @@ mod tests {
 			..Default::default()
 		};
 		let mut pending = Pending {
+			sticker: None,
 			channel: model::Id(1),
 			content: format!("{} FULL END", "Full message text ".repeat(10)),
 			attachments: vec!["notes.txt".into(), "photo.png".into()],

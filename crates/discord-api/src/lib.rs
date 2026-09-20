@@ -848,14 +848,39 @@ impl DiscordApi {
 					Err(f) => Event::Failure(f),
 				}
 			}
+			Command::StickerPacks => Event::StickerPacks(
+				self.request_limited(
+					Method::GET,
+					"/sticker-packs",
+					None,
+					client_core::stickers::MAX_PACK_BYTES,
+				)
+				.await
+				.and_then(|b| {
+					discord_protocol::stickers::sticker_packs(&b).map_err(|_| Failure::Protocol)
+				}),
+			),
+			Command::Sticker(id) => Event::Sticker {
+				id,
+				result: if id.0 == 0 {
+					Err(Failure::Protocol)
+				} else {
+					self.request_limited(Method::GET, &format!("/stickers/{id}"), None, 16 * 1024)
+						.await
+						.and_then(|b| {
+							discord_protocol::stickers::sticker(&b).map_err(|_| Failure::Protocol)
+						})
+				},
+			},
 			Command::Send {
+				sticker,
 				channel,
 				content,
 				nonce,
 				reply,
 			} => {
 				let result = self
-					.send_message(channel, &content, &nonce, reply, None)
+					.send_message(channel, &content, &nonce, reply, None, sticker)
 					.await;
 				Event::SendResult { nonce, result }
 			}
@@ -1110,13 +1135,20 @@ impl DiscordApi {
 		nonce: &str,
 		reply: Option<Reply>,
 		attachment: Option<Vec<serde_json::Value>>,
+		sticker: Option<model::Id>,
 	) -> Result<model::Message, Failure> {
-		if (content.trim().is_empty() && attachment.is_none())
+		if (content.trim().is_empty() && attachment.is_none() && sticker.is_none())
 			|| content.chars().count() > client_core::MAX_CONTENT
 		{
 			return Err(Failure::Capacity);
 		}
+		if sticker.is_some_and(|id| id.0 == 0) {
+			return Err(Failure::Protocol);
+		}
 		let mut body = serde_json::json!({"content":content,"nonce":nonce,"allowed_mentions":allowed_mentions(content, reply)});
+		if let Some(sticker) = sticker {
+			body["sticker_ids"] = serde_json::json!([sticker]);
+		}
 		if let Some(reply) = reply {
 			body["message_reference"] =
 				serde_json::json!({"message_id":reply.target(),"channel_id":channel});
@@ -1875,6 +1907,36 @@ mod tests {
 			.is_none()
 		);
 	}
+
+	#[tokio::test]
+	async fn sticker_send_writes_one_id_and_preserves_reply() {
+		tokio::time::timeout(Duration::from_secs(5), async {
+            let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let mut api=DiscordApi::new(Arc::new(SessionSecret::from_owner_input("SYNTHETIC_STICKER_TOKEN".into()).unwrap())).unwrap();
+            api.base=format!("http://{}",listener.local_addr().unwrap());
+            let server=tokio::spawn(async move {
+                let (mut socket,_)=listener.accept().await.unwrap();
+                let mut request=Vec::new();
+                loop {
+                    let mut bytes=[0;1024];let n=socket.read(&mut bytes).await.unwrap();assert!(n>0);request.extend_from_slice(&bytes[..n]);assert!(request.len()<4096);
+                    if let Some(end)=request.windows(4).position(|w|w==b"\r\n\r\n") {
+                        let headers=String::from_utf8_lossy(&request[..end]);
+                        let length:usize=headers.lines().find_map(|line|line.to_ascii_lowercase().strip_prefix("content-length: ").map(str::to_owned)).unwrap().parse().unwrap();
+                        if request.len()>=end+4+length {
+                            assert!(headers.starts_with("POST /channels/2/messages HTTP/1.1"));
+                            let body:serde_json::Value=serde_json::from_slice(&request[end+4..]).unwrap();
+                            assert_eq!(body["sticker_ids"],serde_json::json!(["9"]));assert_eq!(body["content"],"");assert_eq!(body["message_reference"]["message_id"],"50");break;
+                        }
+                    }
+                }
+                let body=r#"{"id":"100","channel_id":"2","author":{"id":"1","username":"Synthetic"},"content":"","nonce":"local","sticker_items":[{"id":"9","name":"Wave","format_type":1}]}"#;
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+            });
+            let result=api.execute(Command::Send{channel:model::Id(2),content:String::new(),nonce:"local".into(),reply:Some(Reply::to(model::Id(50))),sticker:Some(model::Id(9))}).await;
+            assert!(matches!(result,Event::SendResult{result:Ok(message),..} if message.sticker_items.len()==1));
+            server.await.unwrap();
+        }).await.unwrap();
+	}
 	#[tokio::test]
 	async fn send_response_must_belong_to_the_requested_channel() {
 		tokio::time::timeout(Duration::from_secs(5), async {
@@ -1922,6 +1984,7 @@ mod tests {
 			for accepted in [true, false] {
 				let Event::SendResult { nonce, result } = api
 					.execute(Command::Send {
+						sticker: None,
 						channel: model::Id(2),
 						content: "Synthetic reply".into(),
 						nonce: "local".into(),
@@ -2032,6 +2095,7 @@ mod tests {
 		let sent = tokio::time::timeout(
 			Duration::from_secs(2),
 			api.execute(Command::Send {
+				sticker: None,
 				channel: model::Id(2),
 				content: "Synthetic local test".into(),
 				nonce: "local".into(),

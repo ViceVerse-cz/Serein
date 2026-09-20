@@ -273,6 +273,7 @@ mod tests {
 				webhook: false,
 			}),
 			guilds: vec![model::Guild {
+				stickers: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				icon: None,

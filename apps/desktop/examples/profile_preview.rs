@@ -316,13 +316,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo --output=PATH.png [--page=profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
+		return Err("Usage: profile_preview --demo --output=PATH.png [--page=stickers|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
 	}
 	let output = PathBuf::from(value("--output=").ok_or("Missing --output=PATH.png")?);
 	let page = value("--page=").unwrap_or("profile").to_owned();
 	if !matches!(
 		page.as_str(),
 		"profile"
+			| "stickers"
 			| "profile-card"
 			| "member-tags"
 			| "dm-tags"
@@ -397,6 +398,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			messaging.startup_minimized = args.iter().any(|arg| arg == "--startup-minimized");
 			if matches!(page.as_str(), "member-tags" | "dm-tags") {
 				// State is primed above; the normal offline messaging surface renders the list.
+			} else if page == "stickers" {
+				test_support::seed_stickers(&mut state);
+				messaging.preview_sticker_picker();
 			} else if page == "profile-card" {
 				state.demo = false;
 				messaging.preview_profile(test_support::message(1, model::Id(20)).author);

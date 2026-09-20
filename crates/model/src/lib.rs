@@ -36,6 +36,8 @@ mod extra_content;
 pub use extra_content::{ExtraContent, ExtraContentPatch};
 mod mentions;
 pub use mentions::*;
+mod stickers;
+pub use stickers::*;
 mod reactions;
 pub use reactions::*;
 mod search;
@@ -225,6 +227,7 @@ impl InvitePreview {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Guild {
+	pub stickers: Option<Vec<Sticker>>,
 	pub emojis: Option<Vec<CustomEmoji>>,
 	pub id: Id,
 	pub name: String,
@@ -236,6 +239,7 @@ impl Guild {
 			+ self.name.capacity()
 			+ self.icon.as_ref().map_or(0, String::capacity)
 			+ self.emojis.as_ref().map_or(0, custom_emoji_bytes)
+			+ self.stickers.as_ref().map_or(0, sticker_bytes)
 	}
 	pub fn icon_key(&self) -> Option<String> {
 		self.icon
@@ -293,6 +297,7 @@ pub struct ChannelPatch {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Message {
+	pub sticker_items: Vec<Sticker>,
 	/// Original outer message flags, retained for interaction submissions.
 	pub flags: u64,
 	pub ephemeral: bool,
@@ -373,6 +378,7 @@ impl Message {
 				.capacity()
 				.saturating_sub(self.attachments.len())
 				* size_of::<Attachment>()
+			+ sticker_bytes(&self.sticker_items)
 			+ component_bytes(&self.components)
 			+ embed_bytes(&self.embeds)
 			+ self.embeds.capacity().saturating_sub(self.embeds.len()) * size_of::<Embed>()
@@ -402,6 +408,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Patch<T> {
 }
 #[derive(Clone)]
 pub struct MessagePatch {
+	pub sticker_items: Patch<Vec<Sticker>>,
 	pub flags: Patch<u64>,
 	pub components: Patch<Vec<Component>>,
 	pub application_id: Patch<Id>,

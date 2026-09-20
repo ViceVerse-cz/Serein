@@ -193,6 +193,7 @@ async fn optional_metadata_faults_do_not_abort_large_login() {
 			"sessions":[{"status":false}], "presences":false
 		}),
 		Warnings {
+			stickers: false,
 			read_state: true,
 			notifications: true,
 			sessions: true,

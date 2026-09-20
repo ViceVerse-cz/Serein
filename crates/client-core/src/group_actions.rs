@@ -392,6 +392,7 @@ mod tests {
 	fn group_leave_guards_rejoined_channel_pending_messages_and_session_reset() {
 		let mut state = state();
 		state.pending.push(crate::Pending {
+			sticker: None,
 			channel: Id(10),
 			nonce: "pending".into(),
 			content: "pending".into(),

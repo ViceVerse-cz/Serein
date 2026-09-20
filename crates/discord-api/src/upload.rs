@@ -230,6 +230,7 @@ impl DiscordApi {
 				content,
 				nonce,
 				reply,
+				sticker: None,
 			} => (channel, content, Destination::Send { nonce, reply }),
 			// A forum post is one request: its files are staged before the thread exists.
 			Command::CreatePost {
@@ -323,7 +324,7 @@ impl DiscordApi {
 				let result = tokio::select! {
 					biased;
 					_ = cancelled(&mut cancel) => Err(Failure::Ambiguous),
-					result = self.send_message(channel, &content, &nonce, reply, Some(attachment)) => result,
+					result = self.send_message(channel, &content, &nonce, reply, Some(attachment), None) => result,
 				};
 				progress.send_replace(status(&result));
 				Event::SendResult { nonce, result }
@@ -625,6 +626,7 @@ mod tests {
 	}
 	fn command() -> Command {
 		Command::Send {
+			sticker: None,
 			channel: model::Id(1),
 			content: String::new(),
 			nonce: "synthetic-upload".into(),

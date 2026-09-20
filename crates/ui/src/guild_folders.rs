@@ -865,6 +865,7 @@ mod tests {
 			demo: true,
 			guilds: (1..=3)
 				.map(|id| model::Guild {
+					stickers: None,
 					id: Id(id),
 					name: "Synthetic server".into(),
 					icon: None,

@@ -236,6 +236,7 @@ mod tests {
 				auth: client_core::auth::AuthState::Authenticated,
 				gateway_connected: true,
 				guilds: vec![model::Guild {
+					stickers: None,
 					id: Id(100),
 					name: "Synthetic".into(),
 					icon: None,

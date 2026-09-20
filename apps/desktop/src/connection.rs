@@ -144,6 +144,8 @@ impl Connection {
                 let mut invite:Option<AbortTask>=None;
                 let mut search:Option<AbortTask>=None;
                 let mut gifs:Option<AbortTask>=None;
+                let mut sticker_packs:Option<AbortTask>=None;
+                let mut sticker_detail:Option<AbortTask>=None;
                 let mut reaction_read:Option<AbortTask>=None;
                 let mut ringing:Option<AbortTask>=None;
                 let mut upload:Option<AbortTask>=None;
@@ -192,6 +194,19 @@ impl Connection {
                             let Some(command)=command else {break;};
                             if matches!(command,Command::CancelSearch) {drop(search.take());continue;}
                             if matches!(command,Command::CancelGifs) {drop(gifs.take());continue;}
+                            if matches!(command,Command::StickerPacks|Command::Sticker(_)) {
+                                let task=if matches!(command,Command::StickerPacks) {&mut sticker_packs} else {&mut sticker_detail};
+                                drop(task.take());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                *task=Some(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(command).await;
+                                    let failure=match &event {Event::StickerPacks(Err(f))|Event::Sticker{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
+                                    let error=emit(event).err().or(failure);
+                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
+                                continue;
+                            }
                             if matches!(command,Command::Gifs{..}) {
                                 drop(gifs.take());
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();

@@ -244,6 +244,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![Guild {
+				stickers: None,
 				emojis: None,
 				id: Id(1),
 				name: "Synthetic".into(),

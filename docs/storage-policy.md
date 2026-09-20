@@ -977,3 +977,24 @@ bounded map metadata, in RAM and reuses them across forum switches. Refresh,
 disconnect and account reset release them; permission loss prunes inaccessible entries.
 No new disk cache is introduced. Startup read cursors
 for not-yet-loaded threads remain in the existing item/byte-bounded read-state map.
+
+### Stickers (schema 21)
+
+Cached messages retain at most three bounded sticker records in `sticker_items`
+JSON, with a 32 KiB row limit and the existing account-isolated timeline/disk
+budgets. Schema 20 migrates transactionally with empty legacy rows; older clients
+cannot open schema 21. Modern absent/null patches and legacy sticker fallback
+preserve their distinction.
+
+Each guild catalog admits at most 500 records / 512 KiB within the existing
+account navigation budget. Catalog provenance binds each sticker to its parent
+guild. Standard packs are session-only, at most 128 packs / 1 MiB; their HTTP body
+is capped at 1 MiB. One 16 KiB metadata response and at most 24 recent stickers /
+64 KiB are retained. Names, descriptions and tags are capped at 120, 4096 and 1024
+UTF-8 bytes respectively. Recents are updated only by confirmed sends, released
+on logout, and are not persisted or synchronized.
+
+Images reuse the account-isolated credential-free cache, fixed Discord CDN hosts,
+existing download/decoder queues, four-animation / 16 MiB UI budget and the
+80-frame / 8 MiB / 160px animation decoder limit. No new runtime dependency,
+external image origin, log or background catalog polling is introduced.

@@ -480,6 +480,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![model::Guild {
+				stickers: None,
 				emojis: None,
 				id: Id(1),
 				name: "Synthetic".into(),
@@ -629,6 +630,7 @@ mod tests {
 		let posts: Vec<_> = state.forum_posts(Id(20)).iter().map(|c| c.id).collect();
 		assert_eq!(posts, vec![Id(22), Id(21)]);
 		let message = model::Message {
+			sticker_items: Vec::new(),
 			reactions: Some(vec![]),
 			id: Id(600),
 			channel: Id(21),

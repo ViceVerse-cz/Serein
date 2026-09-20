@@ -948,6 +948,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![model::Guild {
+				stickers: None,
 				id: Id(2),
 				name: "Synthetic guild".into(),
 				icon: None,

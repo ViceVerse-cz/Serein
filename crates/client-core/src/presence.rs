@@ -367,6 +367,7 @@ mod tests {
 			freshness: Freshness::Fresh,
 			selected: Some(Id(1)),
 			guilds: vec![Guild {
+				stickers: None,
 				id: Id(10),
 				name: "Synthetic".into(),
 				icon: None,

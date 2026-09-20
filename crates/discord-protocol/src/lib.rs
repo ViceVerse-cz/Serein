@@ -28,6 +28,7 @@ pub mod server_integrations;
 pub mod server_invites;
 pub mod server_roles;
 pub mod server_settings;
+pub mod stickers;
 pub mod stream;
 pub mod thread_members;
 pub mod threads;
@@ -430,6 +431,8 @@ mod channel_tests {
 #[derive(Deserialize)]
 pub struct GuildDto {
 	#[serde(default)]
+	pub stickers: Option<stickers::Catalog>,
+	#[serde(default)]
 	pub emojis: Option<reactions::CustomEmojiList>,
 	pub id: Id,
 	#[serde(default)]
@@ -596,6 +599,10 @@ impl Ready {
 				}
 				Ok(Guild {
 					emojis: g.emojis.map(|emojis| emojis.0),
+					stickers: g
+						.stickers
+						.map(|list| stickers::guild_catalog(list.0, g.id))
+						.transpose()?,
 					id: g.id,
 					name: g.name.chars().take(128).collect(),
 					icon: g.icon.filter(|hash| model::valid_avatar_hash(hash)),
@@ -646,9 +653,9 @@ pub struct MessageDto {
 	#[serde(default)]
 	pub poll: Option<extra_content::Object>,
 	#[serde(default)]
-	pub sticker_items: Option<extra_content::Array>,
+	pub sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
-	pub stickers: Option<extra_content::Array>,
+	pub stickers: Patch<stickers::MessageStickers>,
 	#[serde(default)]
 	pub components: Option<model::ComponentList>,
 	#[serde(default)]
@@ -752,9 +759,9 @@ struct SnapshotBody {
 	#[serde(default)]
 	poll: Option<extra_content::Object>,
 	#[serde(default)]
-	sticker_items: Option<extra_content::Array>,
+	sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
-	stickers: Option<extra_content::Array>,
+	stickers: Patch<stickers::MessageStickers>,
 	#[serde(default)]
 	components: Option<model::ComponentList>,
 }
@@ -807,10 +814,14 @@ impl MessageDto {
 			ephemeral: self.flags & (1 << 6) != 0,
 			extra_content: model::ExtraContent {
 				poll: self.poll.is_some(),
-				sticker_items: self.sticker_items.is_some_and(|a| a.0),
-				stickers: self.stickers.is_some_and(|a| a.0),
+				sticker_items: matches!(&self.sticker_items, Patch::Value(a) if a.1),
+				stickers: matches!(&self.stickers, Patch::Value(a) if a.1),
 				components: self.components.as_ref().is_some_and(|a| !a.0.is_empty()),
 				components_v2: snapshot_flags.unwrap_or(self.flags) & (1 << 15) != 0,
+			},
+			sticker_items: match stickers::preferred(self.sticker_items, self.stickers) {
+				Patch::Value(a) => a.0,
+				_ => Vec::new(),
 			},
 			components: self.components.map_or_else(Vec::new, |a| a.0),
 			application_id: self.application_id,
@@ -860,9 +871,9 @@ pub struct PatchDto {
 	#[serde(default)]
 	pub poll: Patch<extra_content::Object>,
 	#[serde(default)]
-	pub sticker_items: Patch<extra_content::Array>,
+	pub sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
-	pub stickers: Patch<extra_content::Array>,
+	pub stickers: Patch<stickers::MessageStickers>,
 	#[serde(default)]
 	pub components: Patch<model::ComponentList>,
 	#[serde(default)]
@@ -885,12 +896,21 @@ pub struct PatchDto {
 impl PatchDto {
 	pub fn into_model(self) -> MessagePatch {
 		MessagePatch {
+			sticker_items: stickers::items_patch(&self.sticker_items, &self.stickers),
 			flags: self.flags.clone(),
 			application_id: self.application_id,
 			extra_content: model::ExtraContentPatch {
 				poll: extra_content::object_patch(self.poll),
-				sticker_items: extra_content::array_patch(self.sticker_items),
-				stickers: extra_content::array_patch(self.stickers),
+				sticker_items: match &self.sticker_items {
+					Patch::Absent => Patch::Absent,
+					Patch::Null => Patch::Null,
+					Patch::Value(s) => Patch::Value(s.1),
+				},
+				stickers: match &self.stickers {
+					Patch::Absent => Patch::Absent,
+					Patch::Null => Patch::Null,
+					Patch::Value(s) => Patch::Value(s.1),
+				},
 				components: match &self.components {
 					Patch::Absent => Patch::Absent,
 					Patch::Null => Patch::Null,

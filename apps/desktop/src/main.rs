@@ -1536,6 +1536,12 @@ impl Desktop {
 			state.status = "Offline fixture · account popout opened at startup";
 		}
 		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-stickers") {
+			test_support::seed_stickers(&mut state);
+			messaging.preview_sticker_picker();
+			state.status = "Offline fixture: sticker picker";
+		}
+		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-emoji") {
 			messaging.preview_emoji_picker();
 			state.status = "Offline fixture · emoji popout opened at startup";
@@ -3253,7 +3259,28 @@ impl Desktop {
 					test_support::load_page_with_cursors(&mut self.state, before, after);
 					return;
 				}
+				Command::StickerPacks => Event::StickerPacks(Ok(self.state.stickers.packs.clone())),
+				Command::Sticker(id) => Event::Sticker {
+					id,
+					result: self
+						.state
+						.guilds
+						.iter()
+						.filter_map(|g| g.stickers.as_ref())
+						.flatten()
+						.chain(
+							self.state
+								.stickers
+								.packs
+								.iter()
+								.flat_map(|p| p.stickers.iter()),
+						)
+						.find(|s| s.id == id)
+						.cloned()
+						.ok_or(Failure::Protocol),
+				},
 				Command::Send {
+					sticker,
 					channel,
 					content,
 					nonce,
@@ -3263,6 +3290,15 @@ impl Desktop {
 					let mut message = test_support::message(self.synthetic_id, channel);
 					message.author = self.state.user.clone().unwrap();
 					message.content = content;
+					message.sticker_items = sticker
+						.and_then(|id| {
+							self.state
+								.pending
+								.iter()
+								.find_map(|p| p.sticker.as_ref().filter(|s| s.id == id).cloned())
+						})
+						.into_iter()
+						.collect();
 					message.nonce = Some(nonce.clone());
 					message.reply_to = reply.map(client_core::Reply::target);
 					Event::SendResult {

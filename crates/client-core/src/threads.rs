@@ -154,12 +154,14 @@ mod tests {
 			}),
 			guilds: vec![
 				Guild {
+					stickers: None,
 					emojis: None,
 					id: Id(1),
 					name: "One".into(),
 					icon: None,
 				},
 				Guild {
+					stickers: None,
 					emojis: None,
 					id: Id(2),
 					name: "Two".into(),
@@ -255,6 +257,7 @@ mod tests {
 			assert_eq!(state.freshness, Freshness::Fresh);
 		}
 		let mut message = Message {
+			sticker_items: Vec::new(),
 			id: Id(500),
 			channel: Id(100),
 			author: User {
@@ -426,6 +429,7 @@ mod tests {
 		] {
 			let mut state = State {
 				guilds: vec![Guild {
+					stickers: None,
 					emojis: None,
 					id: Id(1),
 					name: "One".into(),
@@ -475,6 +479,7 @@ mod tests {
 				guilds: [1, 2]
 					.into_iter()
 					.map(|id| Guild {
+						stickers: None,
 						id: Id(id),
 						name: "Synthetic".into(),
 						icon: None,

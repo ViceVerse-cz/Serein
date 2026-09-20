@@ -46,6 +46,7 @@ mod notifications;
 mod pending;
 mod post_menu;
 mod profiles;
+mod stickers;
 /// Synthetic global profile used exclusively by the desktop's offline command adapter.
 #[cfg(any(test, feature = "demo"))]
 pub fn synthetic_own_profile(user: &model::User) -> model::UserProfile {
@@ -666,6 +667,10 @@ impl MessagingUi {
 	pub fn preview_custom_status(&mut self, generation: u64) {
 		let draft = self.own_presence.custom_status.clone();
 		self.account_menu.preview_editor(generation, draft);
+	}
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_sticker_picker(&mut self) {
+		self.emoji_picker.open_stickers(None);
 	}
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_emoji_picker(&mut self) {
@@ -2425,6 +2430,12 @@ impl MessagingUi {
                                 Some(text)
                             },
                             Some(emoji_picker::Pick::React(_, _)) => None,
+                            Some(emoji_picker::Pick::Sticker(sticker)) => {
+                                if editing_here { state.status = "Finish or cancel the edit before sending a sticker."; }
+                                else if self.upload_busy { state.status = "Wait for the upload before sending a sticker."; }
+                                else if let Some(command) = state.prepare_sticker_send(&sticker) { self.timeline.follow_latest(); commands.push(command); }
+                                None
+                            },
                             Some(emoji_picker::Pick::Send(url)) => {
                                 if editing_here {
                                     state.status = "Finish or cancel the edit before sending a GIF.";
@@ -3130,6 +3141,7 @@ impl MessagingUi {
 					(warnings.sessions, "session status"),
 					(warnings.presence, "friend presence"),
 					(warnings.emojis, "some server emoji"),
+					(warnings.stickers, "some server stickers"),
 				]
 				.into_iter()
 				.filter_map(|(unavailable, label)| unavailable.then_some(label))
@@ -3334,6 +3346,17 @@ impl MessagingUi {
 							self.pending_upload.as_ref(),
 							&mut self.scroll,
 						);
+						if let Some(id) = self.timeline.sticker_request.take() {
+							if let Some(command) = state.request_sticker(id) {
+								commands.push(command);
+							}
+							if let Some(command) = state.request_sticker_packs() {
+								commands.push(command);
+							}
+						}
+						if let Some(sticker) = self.timeline.browse_sticker.take() {
+							self.emoji_picker.open_stickers(Some(&sticker));
+						}
 						if let Some(command) =
 							state.request_author_members(&self.timeline.visible_authors)
 						{
@@ -3377,7 +3400,15 @@ impl MessagingUi {
 							state.discard_preserved_deleted(id);
 						}
 						if let Some(nonce) = self.timeline.restore_pending.take() {
-							self.restore_pending(state, channel, &nonce);
+							if state
+								.pending
+								.iter()
+								.any(|p| p.nonce == nonce && p.sticker.is_some())
+							{
+								state.discard_pending_sticker(&nonce);
+							} else {
+								self.restore_pending(state, channel, &nonce);
+							}
 						}
 						self.cancel_upload_requested |=
 							std::mem::take(&mut self.timeline.cancel_upload);
@@ -4062,6 +4093,7 @@ mod composer_tests {
 			.timeline
 			.insert(
 				model::Message {
+					sticker_items: vec![],
 					id: Id(20),
 					channel: Id(10),
 					author: user,
@@ -4276,6 +4308,7 @@ mod composer_tests {
 		let mut state = edit_state();
 		state.demo = false;
 		state.guilds.push(model::Guild {
+			stickers: None,
 			id: Id(100),
 			name: "Synthetic invited server".into(),
 			icon: None,
@@ -4411,6 +4444,7 @@ mod composer_tests {
 			target.kind = 0;
 			state.channels.push(target);
 			state.guilds.push(model::Guild {
+				stickers: None,
 				id: Id(100),
 				name: "Linked server".into(),
 				icon: None,

@@ -1198,6 +1198,10 @@ async fn run_inner(
 									"THREAD_CREATE" | "THREAD_UPDATE" | "THREAD_DELETE" | "THREAD_LIST_SYNC" | "THREAD_MEMBERS_UPDATE" => {
 										if let Some(event) = thread_events::decode_event(packet.t.as_deref().unwrap_or(""), packet.d.get().as_bytes(), owner_id)? { emit(event)?; }
 									}
+									"GUILD_STICKERS_UPDATE" => {
+										let update: discord_protocol::stickers::GuildStickersUpdate = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
+										emit(Event::GuildStickers { guild: update.guild_id, stickers: discord_protocol::stickers::guild_catalog(update.stickers.0, update.guild_id).map_err(|_| Failure::Protocol)? })?;
+									}
 									"GUILD_EMOJIS_UPDATE" => {
 										let update: GuildEmojisUpdate = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
 										emit(Event::GuildEmojis { guild: update.guild_id, emojis: update.emojis.0 })?;
@@ -1212,7 +1216,7 @@ async fn run_inner(
 											known_guilds.insert(guild.id);
 											let name = guild.properties.as_ref().and_then(|p| match &p.name { model::Patch::Value(name) => Some(name), _ => None }).unwrap_or(&guild.name).chars().take(128).collect();
 											let icon = guild.properties.as_ref().and_then(|p| match &p.icon { model::Patch::Value(icon) => Some(icon.clone()), _ => None }).or_else(|| guild.icon.clone()).filter(|h| model::valid_avatar_hash(h));
-											emit(Event::GuildJoined(model::Guild { id: guild.id, name, icon, emojis: None }))?;
+											emit(Event::GuildJoined(model::Guild { id: guild.id, name, icon, stickers: None, emojis: None }))?;
 										}
 
 										if let Some(permissions)=permissions {emit(Event::Permissions(client_core::permissions::Event::Snapshot(permissions)))?;}
@@ -1228,6 +1232,7 @@ async fn run_inner(
 											emit(event)?;
 										}
 										emit(calls.snapshot(&mut guild, false)?)?;
+										if let Some(stickers) = guild.stickers { emit(Event::GuildStickers { guild: guild.id, stickers: discord_protocol::stickers::guild_catalog(stickers.0, guild.id).map_err(|_| Failure::Protocol)? })?; }
 										if let Some(emojis) = guild.emojis { emit(Event::GuildEmojis { guild: guild.id, emojis: emojis.0 })?; }
 									}
 									"GUILD_UPDATE" => {
@@ -1244,6 +1249,7 @@ async fn run_inner(
 										let guild: GuildDto = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
 										let removed: Vec<_> = calls.allowed.iter().filter_map(|(channel, id)| (*id == Some(guild.id)).then_some(*channel)).collect();
 										for channel in removed { calls.invalidate(channel); emit(Event::Unavailable(channel))?; }
+										emit(Event::GuildStickers { guild: guild.id, stickers: Vec::new() })?;
 										emit(Event::GuildEmojis { guild: guild.id, emojis: Vec::new() })?;
 										emit(Event::Permissions(client_core::permissions::Event::UnavailableGuild(guild.id)))?;
 									}

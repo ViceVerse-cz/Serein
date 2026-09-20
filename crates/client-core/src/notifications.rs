@@ -826,6 +826,7 @@ mod tests {
 			gateway_connected: true,
 			auth: crate::auth::AuthState::Authenticated,
 			guilds: vec![Guild {
+				stickers: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				icon: None,
@@ -982,6 +983,7 @@ mod tests {
 			discriminator: 0,
 		};
 		Message {
+			sticker_items: Vec::new(),
 			kind: 0,
 			id: Id(id),
 			channel: Id(channel),

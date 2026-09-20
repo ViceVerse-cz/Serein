@@ -205,6 +205,7 @@ mod tests {
 
 	fn message(id: u64) -> Message {
 		Message {
+			sticker_items: Vec::new(),
 			id: Id(id),
 			channel: Id(1),
 			author: User {
@@ -298,6 +299,7 @@ mod tests {
 		state.guilds = [10, 20]
 			.into_iter()
 			.map(|id| model::Guild {
+				stickers: None,
 				id: Id(id),
 				name: "Synthetic guild".into(),
 				icon: None,
@@ -516,6 +518,7 @@ mod tests {
 			state.timeline.insert(message(50), false, false).unwrap();
 			if invalid != 0 {
 				state.pending.push(Pending {
+					sticker: None,
 					channel: Id(if invalid == 1 { 2 } else { 1 }),
 					content: "Pending".into(),
 					attachments: vec![],
@@ -541,6 +544,7 @@ mod tests {
 		let mut state = state();
 		state.timeline.insert(message(50), false, false).unwrap();
 		state.pending.push(Pending {
+			sticker: None,
 			channel: Id(1),
 			content: "Pending".into(),
 			attachments: vec![],
@@ -568,6 +572,7 @@ mod tests {
 		assert_eq!(source.content, "Newer Gateway body");
 		assert!(source.reply_deleted);
 		state.pending.push(Pending {
+			sticker: None,
 			channel: Id(2),
 			content: "Pending".into(),
 			attachments: vec![],
@@ -618,6 +623,7 @@ mod tests {
 		state.reply = Some(Reply::to(Id(100)));
 		state.drafts.insert(Id(1), "Unsent draft".into());
 		state.pending.push(Pending {
+			sticker: None,
 			channel: Id(1),
 			content: "Pending".into(),
 			attachments: vec![],

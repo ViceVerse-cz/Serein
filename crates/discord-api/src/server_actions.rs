@@ -19,7 +19,7 @@ impl DiscordApi {
 		let channel = self.open_dm(user).await?;
 		let content = format!("https://discord.gg/{code}");
 		let message = self
-			.send_message(channel.id, &content, nonce, None, None)
+			.send_message(channel.id, &content, nonce, None, None, None)
 			.await
 			.map_err(write_failure)?;
 		if message.content != content || message.nonce.as_deref() != Some(nonce) {

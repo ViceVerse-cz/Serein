@@ -662,6 +662,7 @@ mod navigation_tests {
 	use model::{Channel, Message, User};
 	fn message(id: u64) -> Message {
 		Message {
+			sticker_items: Vec::new(),
 			id: Id(id),
 			channel: Id(1),
 			author: User {
