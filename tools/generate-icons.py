@@ -115,6 +115,9 @@ ICONS = [
     ("shopping-cart-simple", "fill/shopping-cart-simple-fill.svg", "679456c02afec984a2ab635443724baca8b891a1bc4f245469f9bcbbf6a13fdb"),
     ("lock-simple", "fill/lock-simple-fill.svg", "54b137caf94b8082e63a2831e5b726bbc9cd32ad40938bf5656ff4d44b442d95"),
     ("eye-slash", "fill/eye-slash-fill.svg", "fc34ad807da63ae5f99a235618cddc1b2bef8d98d7c95004d38b61312540b90d"),
+    ("monitor", "fill/monitor-fill.svg", "0261a47b5f08e4c58f657ddb0596b64e59cc397f93085aecd2e05d8220249c20"),
+    ("virtual-reality", "fill/virtual-reality-fill.svg", "73e299ea3452d46f41147cc84e978fe9405225a5b02eb23c46bb3e5fbc77947d"),
+    ("device-mobile", "fill/device-mobile-fill.svg", "cec802e8cbe698b5bdf604770c770e4431f24ad879d441937fc6120b8b29ff28"),
 ]
 LICENSE_SHA256 = "ddbe6082ec3cf979db47e5af549d2849c5d6182b3e005ef91ce1dbb9eb122f11"
 

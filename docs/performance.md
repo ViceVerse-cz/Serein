@@ -967,3 +967,22 @@ The disabled path performs no compositor calls, repaint scheduling, allocations,
 or extra draw passes; it exits window-effect synchronization before theme lookup.
 No helper processes were present. Frame callback timing is unmeasured because an
 idle event-driven window did not produce enough callbacks for a useful comparison.
+
+## 2026-09-20: client platform presence
+
+| Metric / method | Baseline `f0cb74d` | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable bytes | 67,472,896 | 67,506,688 | +33,792 (+0.0501%) |
+| Full portable package bytes | 71,564,158 | 71,597,920 | +33,762 (+0.0472%) |
+| ZIP bytes, Optimal | 40,930,098 | 40,947,261 | +17,163 (+0.0419%) |
+
+Standard voice-enabled `cargo xtask package` on Windows 11 Home build 26200,
+AMD Ryzen 7 7800X3D, 33,410,678,784 bytes RAM, pinned Rust 1.98.1 MSVC.
+One unsigned portable package per revision, 194 files each; ZIP uses PowerShell
+`Compress-Archive -CompressionLevel Optimal`. Both package builds succeeded.
+OpenH264 LNK4255 warnings were nonfatal, and missing `makensis` skipped the NSIS
+installer. No dependency was added.
+
+The presence path adds four fixed booleans per retained member/presence and no
+unbounded collection. Native frame timing, CPU and RSS remain unmeasured because
+native desktop inspection is unavailable in this session; no speed claim is made.

@@ -1,5 +1,5 @@
 use crate::{Freshness, Id, State};
-use model::{MemberPresence, Patch, RichActivity};
+use model::{ClientPlatforms, MemberPresence, Patch, RichActivity};
 
 pub const MAX_DIRECT_PRESENCES: usize = 256;
 pub const MAX_DIRECT_PRESENCE_BYTES: usize = 512 * 1024;
@@ -12,6 +12,7 @@ pub struct Update {
 	pub status: Patch<String>,
 	pub custom_status: Patch<String>,
 	pub activities: Patch<Vec<RichActivity>>,
+	pub clients: Patch<ClientPlatforms>,
 }
 impl Update {
 	pub fn heap_bytes(&self) -> usize {
@@ -32,6 +33,7 @@ impl Update {
 		{
 			newer.activities = Patch::Null;
 			newer.custom_status = Patch::Null;
+			newer.clients = Patch::Null;
 		}
 		if !matches!(newer.status, Patch::Absent) {
 			self.status = newer.status;
@@ -41,6 +43,9 @@ impl Update {
 		}
 		if !matches!(newer.activities, Patch::Absent) {
 			self.activities = newer.activities;
+		}
+		if !matches!(newer.clients, Patch::Absent) {
+			self.clients = newer.clients;
 		}
 	}
 	pub fn resolve(&self, previous: Option<&MemberPresence>) -> MemberPresence {
@@ -70,6 +75,15 @@ impl Update {
 					Patch::Value(activities) => activities.clone(),
 				}
 			},
+			clients: if offline {
+				ClientPlatforms::default()
+			} else {
+				match self.clients {
+					Patch::Absent => previous.map_or_default(|p| p.clients),
+					Patch::Null => ClientPlatforms::default(),
+					Patch::Value(clients) => clients,
+				}
+			},
 			status,
 		}
 	}
@@ -91,6 +105,7 @@ pub fn projected_row_bytes(row: &model::Member, update: &MemberPresence) -> usiz
 	if row.status == update.status
 		&& row.custom_status == update.custom_status
 		&& row.activities == update.activities
+		&& row.clients == update.clients
 	{
 		return row.bytes();
 	}
@@ -244,6 +259,7 @@ impl State {
 					if row.status == presence.status
 						&& row.custom_status == presence.custom_status
 						&& row.activities == presence.activities
+						&& row.clients == presence.clients
 					{
 						continue;
 					}
@@ -260,6 +276,7 @@ impl State {
 				row.status = presence.and_then(|p| p.status.clone());
 				row.custom_status = presence.and_then(|p| p.custom_status.clone());
 				row.activities = presence.map_or_else(Vec::new, |p| p.activities.clone());
+				row.clients = presence.map_or_default(|p| p.clients);
 			}
 		}
 	}
@@ -397,6 +414,7 @@ mod tests {
 						status: Some("online".into()),
 						custom_status: None,
 						activities: vec![],
+						clients: ClientPlatforms::default(),
 					}),
 					None,
 				],
@@ -431,6 +449,7 @@ mod tests {
 			status: status.map(str::to_owned),
 			custom_status: custom.map(str::to_owned),
 			activities: vec![],
+			clients: ClientPlatforms::default(),
 		}
 	}
 
@@ -603,6 +622,7 @@ mod tests {
 					status: Some(status),
 					custom_status: None,
 					activities: vec![],
+					clients: ClientPlatforms::default(),
 				}]
 			},
 			{
@@ -613,6 +633,7 @@ mod tests {
 					status: None,
 					custom_status: Some(custom),
 					activities: vec![],
+					clients: ClientPlatforms::default(),
 				}]
 			},
 			{
@@ -813,7 +834,45 @@ mod tests {
 			status,
 			activities,
 			custom_status: Patch::Absent,
+			clients: Patch::Absent,
 		}
+	}
+	#[test]
+	fn client_platform_patches_preserve_replace_and_clear_offline() {
+		let mut state = direct_state();
+		let clients = ClientPlatforms {
+			mobile: true,
+			..Default::default()
+		};
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![Update {
+				user: Id(2),
+				status: Patch::Value("online".into()),
+				custom_status: Patch::Absent,
+				activities: Patch::Absent,
+				clients: Patch::Value(clients),
+			}]),
+		);
+		assert_eq!(state.presence_for(Id(2)).unwrap().clients, clients);
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![direct_update(
+				2,
+				Patch::Value("idle".into()),
+				Patch::Absent,
+			)]),
+		);
+		assert_eq!(state.presence_for(Id(2)).unwrap().clients, clients);
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![direct_update(
+				2,
+				Patch::Value("offline".into()),
+				Patch::Absent,
+			)]),
+		);
+		assert!(!state.presence_for(Id(2)).unwrap().clients.any());
 	}
 	fn activity() -> RichActivity {
 		RichActivity {
@@ -842,6 +901,7 @@ mod tests {
 			status: row.status.clone(),
 			custom_status: row.custom_status.clone(),
 			activities: vec![activity],
+			clients: row.clients,
 		};
 		let projected = projected_row_bytes(row, &update);
 		row.activities = update.activities.clone();

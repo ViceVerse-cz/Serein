@@ -1387,11 +1387,16 @@ pub struct PresenceDto {
 	pub status: String,
 	#[serde(default)]
 	pub activities: presence::Activities,
+	#[serde(default)]
+	client_status: presence::ClientStatus,
 }
 impl PresenceDto {
 	/// The same bounded custom-status normalization is used for snapshots and updates.
 	pub fn custom_status(&self) -> Option<String> {
 		self.activities.0.clone()
+	}
+	pub fn clients(&self) -> model::ClientPlatforms {
+		self.client_status.platforms()
 	}
 }
 #[derive(Deserialize)]
@@ -1422,6 +1427,11 @@ impl MemberItem {
 					.as_mut()
 					.filter(|p| p.status != "offline")
 					.map_or_else(Vec::new, |p| std::mem::take(&mut p.activities.1)),
+				clients: m
+					.presence
+					.as_ref()
+					.filter(|p| p.status != "offline")
+					.map_or_default(PresenceDto::clients),
 				status: m.presence.and_then(|p| match p.status.as_str() {
 					"online" | "idle" | "dnd" | "offline" => Some(p.status),
 					_ => None,

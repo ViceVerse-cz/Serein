@@ -716,7 +716,7 @@ live limits. Blocked relationships and complete protobuf notification preference
 unsupported.
 
 
-### Loaded People presence (September 10, 2026)
+### Loaded People presence (updated September 20, 2026)
 
 The open guild People pane consumes standalone PRESENCE_UPDATE for users in its current
 100-row subscription mirror. [Discord's presence event](https://docs.discord.com/developers/events/gateway-events#presence-update)
@@ -732,8 +732,12 @@ Offline does not distinguish an invisible user. Custom activity type 4 is normal
 same parser as member snapshots: at most 128 characters / 512 UTF-8 bytes, with optional Unicode
 emoji and no controls. Omitted activities preserve known custom text; null, empty or no custom
 activity clears it. These absent/null choices are defensive client policy, not a documented
-normal-user delivery guarantee. Other activities, partial profiles and device status are
-discarded; the guild subscription sends activities=true to receive member presence and rich text. Bursts coalesce within a fixed 100-ms window; stale request/session/access
+normal-user delivery guarantee. The documented `client_status` desktop, mobile, web and VR
+keys are retained as four fixed booleans; absent updates preserve them and offline/invalid
+statuses clear them. A single known platform replaces the avatar presence dot with its device
+glyph, while the profile lists every active platform. Unknown keys and values are discarded.
+Other activities and partial profiles remain discarded; the guild subscription sends
+activities=true to receive member presence and rich text. Bursts coalesce within a fixed 100-ms window; stale request/session/access
 updates cannot modify the pane. Self-session DND notification suppression keeps its separate
 existing path. Synthetic localhost Gateway, reducer and headless UI tests supply local evidence;
 normal-account delivery and native screenshots remain owner-controlled validation gates.

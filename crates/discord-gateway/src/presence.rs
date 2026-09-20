@@ -22,6 +22,7 @@ impl Pending {
 			status: update.status,
 			custom_status: update.custom_status,
 			activities: update.activities,
+			clients: update.clients,
 		};
 		let mut merged = self
 			.updates

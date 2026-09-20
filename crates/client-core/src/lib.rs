@@ -886,6 +886,7 @@ impl State {
 						status: None,
 						custom_status: None,
 						activities: vec![],
+						clients: model::ClientPlatforms::default(),
 						user,
 					})
 				})

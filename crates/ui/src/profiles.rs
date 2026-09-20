@@ -424,12 +424,70 @@ pub(crate) fn presence_color(status: &str) -> Color32 {
 		_ => Color32::from_rgb(128, 132, 142),
 	}
 }
+fn client_platforms(clients: model::ClientPlatforms) -> impl Iterator<Item = (Icon, &'static str)> {
+	[
+		(clients.desktop, Icon::Desktop, "Desktop"),
+		(clients.mobile, Icon::DeviceMobile, "Mobile"),
+		(clients.web, Icon::Globe, "Web"),
+		(clients.vr, Icon::VirtualReality, "VR"),
+	]
+	.into_iter()
+	.filter_map(|(active, icon, label)| active.then_some((icon, label)))
+}
+fn presence_description(status: &str, clients: model::ClientPlatforms) -> String {
+	let platforms = client_platforms(clients)
+		.map(|(_, label)| label)
+		.collect::<Vec<_>>()
+		.join(", ");
+	if platforms.is_empty() {
+		presence_label(status).into()
+	} else {
+		format!("{} on {platforms}", presence_label(status))
+	}
+}
+pub(crate) fn presence_badge(
+	ui: &mut egui::Ui,
+	rect: Rect,
+	status: &str,
+	clients: model::ClientPlatforms,
+	ring: Color32,
+) {
+	let mut platforms = client_platforms(clients);
+	let first = platforms.next();
+	if let (Some((icon, _)), None) = (first, platforms.next()) {
+		let radius = (rect.width() * 0.2).clamp(6.0, 10.0);
+		let center = rect.right_bottom() - Vec2::splat(radius + 0.5);
+		ui.painter().circle_filled(center, radius + 2.0, ring);
+		ui.painter()
+			.circle_filled(center, radius, presence_color(status));
+		icons::paint(
+			ui.painter(),
+			icon,
+			Rect::from_center_size(center, Vec2::splat(radius * 1.35)),
+			Color32::WHITE,
+		);
+	} else {
+		design::presence_dot(ui, rect, presence_color(status), ring);
+	}
+	let radius = (rect.width() * 0.2).clamp(6.0, 10.0);
+	let center = rect.right_bottom() - Vec2::splat(radius + 0.5);
+	ui.allocate_rect(
+		Rect::from_center_size(center, Vec2::splat((radius + 2.0) * 2.0)),
+		egui::Sense::hover(),
+	)
+	.on_hover_text(presence_description(status, clients));
+}
 /// Prefer the fresh visible member snapshot; DMs use the bounded session presence cache.
 pub(crate) fn presence(
 	state: &State,
 	user: Id,
 	guild: Option<Id>,
-) -> (Option<&str>, Option<&str>, &[model::RichActivity]) {
+) -> (
+	Option<&str>,
+	Option<&str>,
+	&[model::RichActivity],
+	model::ClientPlatforms,
+) {
 	let remote = if let Some(member) = state
 		.members
 		.as_ref()
@@ -448,17 +506,20 @@ pub(crate) fn presence(
 			member.status.as_deref(),
 			member.custom_status.as_deref(),
 			member.activities.as_slice(),
+			member.clients,
 		)
 	} else {
-		state
-			.presence_for(user)
-			.map_or((None, None, &[][..]), |presence| {
+		state.presence_for(user).map_or(
+			(None, None, &[][..], model::ClientPlatforms::default()),
+			|presence| {
 				(
 					presence.status.as_deref(),
 					presence.custom_status.as_deref(),
 					presence.activities.as_slice(),
+					presence.clients,
 				)
-			})
+			},
+		)
 	};
 	with_local_activity(state, user, remote)
 }
@@ -467,7 +528,12 @@ pub(crate) fn member_presence<'a>(
 	state: &'a State,
 	member: &'a model::Member,
 	guild: Option<Id>,
-) -> (Option<&'a str>, Option<&'a str>, &'a [model::RichActivity]) {
+) -> (
+	Option<&'a str>,
+	Option<&'a str>,
+	&'a [model::RichActivity],
+	model::ClientPlatforms,
+) {
 	let remote =
 		if guild.is_some()
 			&& state.members.as_ref().is_some_and(|list| {
@@ -478,17 +544,20 @@ pub(crate) fn member_presence<'a>(
 				member.status.as_deref(),
 				member.custom_status.as_deref(),
 				member.activities.as_slice(),
+				member.clients,
 			)
 		} else {
-			state
-				.presence_for(member.user.id)
-				.map_or((None, None, &[][..]), |p| {
+			state.presence_for(member.user.id).map_or(
+				(None, None, &[][..], model::ClientPlatforms::default()),
+				|p| {
 					(
 						p.status.as_deref(),
 						p.custom_status.as_deref(),
 						p.activities.as_slice(),
+						p.clients,
 					)
-				})
+				},
+			)
 		};
 	with_local_activity(state, member.user.id, remote)
 }
@@ -496,12 +565,22 @@ pub(crate) fn member_presence<'a>(
 fn with_local_activity<'a>(
 	state: &'a State,
 	user: Id,
-	remote: (Option<&'a str>, Option<&'a str>, &'a [model::RichActivity]),
-) -> (Option<&'a str>, Option<&'a str>, &'a [model::RichActivity]) {
+	remote: (
+		Option<&'a str>,
+		Option<&'a str>,
+		&'a [model::RichActivity],
+		model::ClientPlatforms,
+	),
+) -> (
+	Option<&'a str>,
+	Option<&'a str>,
+	&'a [model::RichActivity],
+	model::ClientPlatforms,
+) {
 	if state.user.as_ref().is_some_and(|own| own.id == user)
 		&& let Some(activity) = state.local_game_activity()
 	{
-		(remote.0, remote.1, std::slice::from_ref(activity))
+		(remote.0, remote.1, std::slice::from_ref(activity), remote.3)
 	} else {
 		remote
 	}
@@ -822,8 +901,8 @@ pub fn show(
 		.selected
 		.and_then(|id| state.channels.iter().find(|c| c.id == id))
 		.and_then(|c| c.guild);
-	let (status, custom, activities) = if user.webhook {
-		(None, None, [].as_slice())
+	let (status, custom, activities, clients) = if user.webhook {
+		(None, None, [].as_slice(), model::ClientPlatforms::default())
 	} else {
 		presence(state, user.id, guild)
 	};
@@ -930,15 +1009,7 @@ pub fn show(
 				}
 			});
 			if let Some(status) = status {
-				let center = avatar_rect.right_bottom() - vec2(12.0, 12.0);
-				ui.painter().circle_filled(center, 13.0, theme.card);
-				ui.painter()
-					.circle_filled(center, 9.0, presence_color(status));
-				ui.allocate_rect(
-					Rect::from_center_size(center, Vec2::splat(20.0)),
-					egui::Sense::hover(),
-				)
-				.on_hover_text(presence_label(status));
+				presence_badge(ui, avatar_rect, status, clients, theme.card);
 			}
 			let mut header_bottom = avatar_rect.bottom();
 			let (icon_badges, text_badges): (Vec<_>, Vec<_>) = data
@@ -1125,6 +1196,24 @@ pub fn show(
 							if let Some(custom) = custom {
 								ui.add_space(4.0);
 								ui.add(egui::Label::new(RichText::new(custom).size(13.0)).wrap());
+							}
+							if clients.any() {
+								ui.add_space(4.0);
+								ui.horizontal_wrapped(|ui| {
+									ui.spacing_mut().item_spacing.x = 5.0;
+									ui.label(
+										RichText::new("Active on").size(12.0).color(theme.muted),
+									);
+									for (icon, label) in client_platforms(clients) {
+										icons::inline(
+											ui,
+											icon,
+											14.0,
+											presence_color(status.unwrap_or("online")),
+										);
+										ui.label(RichText::new(label).size(12.0));
+									}
+								});
 							}
 							if !user.webhook && view.is_none_or(|v| v.loading) {
 								ui.add_space(4.0);
@@ -1819,6 +1908,7 @@ mod tests {
 				status: Some("idle".into()),
 				custom_status: Some("Server status".into()),
 				activities: vec![],
+				clients: model::ClientPlatforms::default(),
 			})],
 		});
 		state.direct_presences.push(model::MemberPresence {
@@ -1826,6 +1916,7 @@ mod tests {
 			status: Some("online".into()),
 			custom_status: Some("Direct status".into()),
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 		});
 		assert_eq!(
 			presence(&state, user.id, Some(Id(10))).1,
@@ -1834,10 +1925,13 @@ mod tests {
 		assert_eq!(presence(&state, user.id, None).1, Some("Direct status"));
 		state.gateway_connected = false;
 		state.demo = false;
-		assert_eq!(presence(&state, user.id, None), (None, None, [].as_slice()));
+		assert_eq!(
+			presence(&state, user.id, None),
+			(None, None, [].as_slice(), model::ClientPlatforms::default())
+		);
 		assert_eq!(
 			presence(&state, user.id, Some(Id(10))),
-			(None, None, [].as_slice())
+			(None, None, [].as_slice(), model::ClientPlatforms::default())
 		);
 	}
 

@@ -576,6 +576,21 @@ fn valid_presence_text(text: &str) -> bool {
 		&& !text.chars().any(char::is_control)
 }
 
+/// Fixed-size client session flags for an already-loaded user.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClientPlatforms {
+	pub desktop: bool,
+	pub mobile: bool,
+	pub web: bool,
+	pub vr: bool,
+}
+
+impl ClientPlatforms {
+	pub fn any(self) -> bool {
+		self.desktop || self.mobile || self.web || self.vr
+	}
+}
+
 /// Complete, bounded presence values for an already-loaded user.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberPresence {
@@ -583,6 +598,7 @@ pub struct MemberPresence {
 	pub status: Option<String>,
 	pub custom_status: Option<String>,
 	pub activities: Vec<RichActivity>,
+	pub clients: ClientPlatforms,
 }
 
 impl MemberPresence {
@@ -621,6 +637,7 @@ pub struct Member {
 	/// Custom status text with any unicode emoji; bounded, never a rich activity.
 	pub custom_status: Option<String>,
 	pub activities: Vec<RichActivity>,
+	pub clients: ClientPlatforms,
 }
 impl Member {
 	pub fn valid(&self) -> bool {
@@ -707,6 +724,7 @@ mod presence_tests {
 			status: None,
 			custom_status: None,
 			activities: vec![activity.clone(); MAX_RICH_ACTIVITIES],
+			clients: ClientPlatforms::default(),
 		};
 		assert!(presence.valid());
 		assert_eq!(

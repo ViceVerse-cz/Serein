@@ -141,6 +141,7 @@ impl Calls {
 			status: None,
 			custom_status: None,
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 		})
 	}
 	pub(super) fn snapshot(&self, guild: &mut GuildDto, partial: bool) -> Result<Event, Failure> {

@@ -472,6 +472,11 @@ impl ActiveMembers {
 			model::Patch::Null => vec![],
 			model::Patch::Value(activities) => activities,
 		};
+		let clients = match update.clients {
+			model::Patch::Absent => previous.clients,
+			model::Patch::Null => model::ClientPlatforms::default(),
+			model::Patch::Value(clients) => clients,
+		};
 		let mut custom_status = match update.custom_status {
 			model::Patch::Absent => previous.custom_status.clone(),
 			model::Patch::Null => None,
@@ -486,6 +491,11 @@ impl ActiveMembers {
 				vec![]
 			} else {
 				activities
+			},
+			clients: if explicit_unknown || status.as_deref() == Some("offline") {
+				model::ClientPlatforms::default()
+			} else {
+				clients
 			},
 			status,
 			custom_status,
@@ -521,10 +531,12 @@ impl ActiveMembers {
 			if row.status != resolved.status
 				|| row.custom_status != resolved.custom_status
 				|| row.activities != resolved.activities
+				|| row.clients != resolved.clients
 			{
 				row.status = resolved.status.clone();
 				row.custom_status = resolved.custom_status.clone();
 				row.activities = resolved.activities.clone();
+				row.clients = resolved.clients;
 				changed = true;
 			}
 		}
@@ -2212,6 +2224,7 @@ mod member_tests {
 			status: status.map(str::to_owned),
 			custom_status: custom.map(str::to_owned),
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 		}
 	}
 	#[test]
@@ -2356,6 +2369,7 @@ mod member_tests {
 			status,
 			custom_status: model::Patch::Absent,
 			activities: model::Patch::Absent,
+			clients: model::Patch::Absent,
 		};
 		list.presence(
 			presence(Some(Id(1)), Id(3), model::Patch::Value("online".into())),
@@ -2472,6 +2486,7 @@ mod member_tests {
 					status: model::Patch::Value("online".into()),
 					custom_status: model::Patch::Value("\u{1f680}".repeat(128)),
 					activities: model::Patch::Absent,
+					clients: model::Patch::Absent,
 				},
 				now,
 			);
@@ -2514,6 +2529,7 @@ mod member_tests {
 			status: model::Patch::Value(status.into()),
 			custom_status: model::Patch::Absent,
 			activities: model::Patch::Absent,
+			clients: model::Patch::Absent,
 		};
 		list.presence(update("idle"), now);
 		assert!(list.rows[0].as_ref().unwrap().status.is_none());
@@ -2540,6 +2556,7 @@ mod member_tests {
 				status: model::Patch::Null,
 				custom_status: model::Patch::Absent,
 				activities: model::Patch::Absent,
+				clients: model::Patch::Absent,
 			},
 			now,
 		);

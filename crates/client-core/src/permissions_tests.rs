@@ -1227,6 +1227,7 @@ fn member_requests_survive_guild_hydration_and_follow_current_permissions() {
 		total: 1,
 		rows: vec![Some(model::Member {
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 			roles: vec![],
 			user: user(),
 			nick: None,
@@ -1316,6 +1317,7 @@ fn member_role_display_tracks_live_role_metadata_and_membership() {
 	let mut state = state();
 	let mut member = model::Member {
 		activities: vec![],
+		clients: model::ClientPlatforms::default(),
 		roles: vec![Id(13), Id(12), Id(11), Id(10)],
 		user: user(),
 		nick: None,
