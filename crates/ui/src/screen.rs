@@ -296,7 +296,7 @@ impl ScreenUi {
 					egui::StrokeKind::Inside,
 				);
 			}
-			let display = matches!(source.id, SourceId::Display(_));
+			let display = matches!(source.id, SourceId::Display(_) | SourceId::X11Desktop);
 			crate::icons::paint(
 				ui.painter(),
 				if display {
@@ -324,7 +324,7 @@ impl ScreenUi {
 			);
 			let kind = ui.painter().layout_no_wrap(
 				match source.id {
-					SourceId::Display(_) => "Screen",
+					SourceId::Display(_) | SourceId::X11Desktop => "Screen",
 					SourceId::Window(_) => "Window",
 					#[allow(unreachable_patterns)] // Portal may be absent outside Linux.
 					_ => "System permission dialog",

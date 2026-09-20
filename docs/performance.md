@@ -1,3 +1,107 @@
+# Reviewed performance findings — September 19, 2026
+
+Baseline: `9fca898`, with the new benchmark-only test harness applied before runtime
+edits. After: guild miss caching, ASCII BiDi bypass, indexed/cached SQLite channel
+loads, and shared software-video scratch reuse. macOS 27.0 (26A428), Apple M1 Pro,
+16 GiB RAM, pinned Rust 1.98.1, locked dependencies, standard release profile.
+Baseline executables were preserved separately; final component measurements ran
+serially without task builds, using the same harness and one warmup plus five
+measured runs per revision. Earlier runs during background compilation were excluded.
+
+| Component workload / median elapsed time | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| 10,000 hit/miss pairs, 1,000 guilds | 45.113 ms | 0.565 ms | -44.548 ms (-98.75%) |
+| 100,000 ASCII BiDi calls, 292-byte text | 667.910 ms | 2.863 ms | -665.047 ms (-99.57%) |
+| 100,000 styled ASCII BiDi calls, 296-byte text | 643.010 ms | 2.324 ms | -640.686 ms (-99.64%) |
+| 200 SQLite loads, one row | 4.987 ms | 0.614 ms | -4.374 ms (-87.70%) |
+| 200 SQLite loads, 50 rows | 13.967 ms | 9.211 ms | -4.755 ms (-34.05%) |
+| 200 SQLite loads, 500 rows | 123.235 ms | 74.909 ms | -48.326 ms (-39.21%) |
+| 1,000 settled timeline frames, 900px synthetic text | 228.1 ms | 211.4 ms | -16.7 ms (-7.3%) |
+| 1,000 settled timeline frames, 360px synthetic text | 157.3 ms | 141.6 ms | -15.7 ms (-10.0%) |
+| 120 alternating 1080p/720p software decodes | 491.037 ms | 475.301 ms | -15.736 ms (-3.20%) |
+| Scratch length changes in that decode workload | 120 | 1 | -119 |
+| Peak requested scratch capacity | 8,294,400 bytes | 8,294,400 bytes | 0 |
+| 100,000-event reducer replay | 45.733 ms | 45.269 ms | -0.464 ms (-1.02%, noise) |
+| Replay retained timeline | 284,992–285,477 bytes / 500 records | Same | 0 |
+
+The lookup workload models repeated unknown-guild invite previews. SQLite uses
+synthetic in-memory databases and includes row decoding/destruction; it measures
+neither disk latency nor channel switching. Its normal channel window is bounded
+to 500 rows. `EXPLAIN QUERY PLAN` confirms the expression index removes the temporary
+ordering B-tree. The index adds disk/write overhead within the existing page ceiling;
+write throughput was not measured. Unsigned IDs remain text, and secure deletion stays on.
+
+Timeline measurements use 500 synthetic ordinary text rows, ten warmup frames and six
+measured batches of 1,000 frames in the release UI test binary. The settled viewport
+reuses current-dimension heights for clipped leading rows, while resize, state changes,
+dynamic content and active selection retain the full measurement path. Hidden-row renders
+fell from 4,000 to 0 across the 1,000-frame samples at both widths. Media, embeds, replies,
+components, spoilers, timestamps, invite-like links and non-empty reactions are excluded
+from reuse; the result is not a whole-app frame-time claim.
+
+The BiDi numbers measure only direction analysis, not parsing, complete message
+layout or native frame latency. Mixed RTL initially measured 700.684 → 723.470 ms;
+a reversed-order repeat measured 699.148 → 699.886 ms (+0.11%). The plain ASCII repeat
+was 668.086 → 1.346 ms. There is no consistent material RTL regression in these runs.
+The five-sample ranges for the primary 500-row SQLite comparison were
+122.296–126.581 → 74.313–76.612 ms. Video ranges were 478.539–504.481 →
+473.184–476.857 ms: the small elapsed-time difference is not a live playback claim.
+That workload repeatedly decodes two synthetic OpenH264 keyframes, without devices
+or network. Buffer reuse is verified separately with alternating real software decodes;
+its high-water allocation remains until the decoder worker exits.
+
+Reproduce the component workloads with the following ignored tests. Each performs
+its own warmup and five samples; for the old revision, apply only the benchmark
+harness additions. Build once before measuring, then run the produced executables
+without concurrent builds. `cargo replay` builds the reducer; run its binary once
+to warm up and five more times for the reported median.
+
+```sh
+cargo test --release --locked -p client-core guild_lookup_benchmark -- --ignored --nocapture
+cargo test --release --locked -p ui bidi_ascii_benchmark -- --ignored --nocapture
+cargo test --release --locked -p local-store benchmark_channel_load -- --ignored --nocapture
+cargo test --release --locked -p discord-voice compare_alternating_software_decode -- --ignored --nocapture
+cargo test --release --locked -p ui leading_overscan_benchmark -- --ignored --nocapture
+cargo replay
+```
+
+| Standard macOS package / bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 53,624,384 | 53,624,384 | 0 |
+| Installed app, sum of 197 files | 59,558,087 | 59,558,087 | 0 |
+| App ZIP, `ditto -c -k --keepParent` | 39,702,953 | 39,704,308 | +1,355 (+0.0034%) |
+
+Both `cargo xtask package` commands completed with voice and without demo/developer
+features. The preserved baseline bundle subsequently failed resource-seal verification:
+its icon files differed from the completed packaging resources. For a matched comparison,
+the baseline bundle was reconstructed with its preserved baseline executable and the
+after package's unchanged resources, then ad-hoc signed again. Both compared bundles
+pass `codesign --verify --strict`; both have the same file set. These are locally
+ad-hoc-signed, unnotarized packages. ZIP differences include compression/metadata noise;
+there is no package-size improvement claim.
+
+| Offline native idle sample | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Process CPU, cumulative CPU-time delta / elapsed time | 0.05% | 0.00% | -0.05 percentage points |
+| Peak / settled sampled RSS, KiB | 205,280 / 205,280 | 203,728 / 203,728 | -1,552 KiB (-0.76%) |
+| Child processes | 0 | 0 | 0 |
+
+Separate release builds with `--features demo` launched explicitly with `--demo`,
+using the default initial scene and no interaction on both revisions. Each had
+30 seconds of warmup, followed by 21 `ps -p PID -o time=,rss=` observations at
+one-second intervals (20 intervals). Renderer logs identify Apple M1 Pro / Metal;
+the built-in display is 3024×1964 Retina (2×), with the default requested 1120×760
+window and demo zoom. No builds ran during sampling. RSS excludes driver/GPU
+allocations and its peak covers only the sample window, not startup. These single
+idle samples and the CPU clock's coarse resolution do not establish a CPU or memory
+improvement. Interactive frame percentiles, startup latency and live media latency
+remain unmeasured. No accounts, microphone, calls or network media were used.
+
+The overscan follow-up repeated the same idle sample with the settled current binary:
+CPU was 0.00% and sampled peak/settled RSS was 203,952 KiB, versus the prior matched
+sample's 0.00% and 196,944 KiB. An earlier run reached 16.86% while loading local demo
+content, so neither run is treated as a whole-app CPU or memory claim.
+
 # Reaction tooltip loading - September 17, 2026
 
 Baseline: `ef0c61a`. After: the reaction-tooltip follow-up on that baseline.
@@ -839,6 +943,30 @@ after discovery (1.6 bytes/s, excluding network headers), with no queue, extra
 thread or dependency. The localhost test verifies repeated idle-viewer pings and
 subsequent encrypted audio/video delivery. Live freeze recovery, CPU/RSS and
 end-to-end latency remain unmeasured; no playback improvement is claimed yet.
+
+# Theme transparency and blur — September 19, 2026
+
+Baseline: `9fca8980`. After: this rebased transparency branch. Standard
+voice-enabled macOS packages and release demo builds used Rust 1.98.1 on macOS
+27.0, Apple M1 Pro, 16 GiB RAM, Metal, 2x display scale. Disabled transparency
+uses the same opaque native window and GPU surface selection as baseline.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 53,624,384 | 53,640,848 | +16,464 (+0.031%) |
+| Installed app bundle, bytes | 59,558,087 | 59,574,551 | +16,464 (+0.028%) |
+| ZIP, `ditto --keepParent`, bytes | 39,702,949 | 39,711,200 | +8,251 (+0.021%) |
+| Disabled idle CPU, median of 3 × 30 s after 10 s warmup | 0.067% | 0.100% | +0.033 percentage points |
+| Disabled settled RSS, median | 199,248 KiB | 199,088 KiB | -160 KiB (-0.08%) |
+| Disabled physical footprint, median | 158,090,320 B | 158,925,856 B | +835,536 B (+0.53%) |
+
+The CPU samples are quantized by the short process-time interval, and unrelated
+Cargo builds ran elsewhere on the host during sampling. The small CPU and memory
+differences are therefore treated as noise, not an improvement or regression.
+The disabled path performs no compositor calls, repaint scheduling, allocations,
+or extra draw passes; it exits window-effect synchronization before theme lookup.
+No helper processes were present. Frame callback timing is unmeasured because an
+idle event-driven window did not produce enough callbacks for a useful comparison.
 
 
 ## Linux sign-in window teardown, September 19, 2026

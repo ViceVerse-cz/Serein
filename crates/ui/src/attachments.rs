@@ -280,10 +280,36 @@ pub fn show(
 	demo: bool,
 	surface: &mut crate::select::Surface,
 ) {
-	for group in message
-		.attachments
-		.chunk_by(|a, b| a.is_image() == b.is_image())
-	{
+	show_subset(
+		ui,
+		message,
+		&message.attachments,
+		images,
+		viewing,
+		opening,
+		download,
+		audio,
+		video,
+		demo,
+		surface,
+	);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn show_subset(
+	ui: &mut egui::Ui,
+	message: &Message,
+	attachments: &[Attachment],
+	images: &mut Avatars,
+	viewing: &mut Option<(Id, Id)>,
+	opening: &mut Option<String>,
+	download: &mut DownloadUi,
+	audio: &mut crate::audio::AudioUi,
+	video: &mut crate::video::VideoUi,
+	demo: bool,
+	surface: &mut crate::select::Surface,
+) {
+	for group in attachments.chunk_by(|a, b| a.is_image() == b.is_image()) {
 		if group[0].is_image() {
 			let (columns, size) = image_layout(group.len(), ui.available_width());
 			ui.scope(|ui| {
@@ -595,6 +621,15 @@ pub fn viewer(
 	let index = gallery.iter().position(|a| a.id == current)?;
 	let attachment = gallery[index];
 	let count = gallery.len();
+	let zoom_id = egui::Id::unique("attachment-viewer-zoom");
+	let (previous, mut zoom, mut pan) = ui.ctx().data_mut(|data| {
+		data.get_temp::<(Id, f32, egui::Vec2)>(zoom_id)
+			.unwrap_or((current, 1.0, egui::Vec2::ZERO))
+	});
+	if previous != current {
+		zoom = 1.0;
+		pan = egui::Vec2::ZERO;
+	}
 	let size = ui.ctx().content_rect().size().max(egui::vec2(1.0, 1.0));
 	let mut close = false;
 	// Modal input capture prevents clicks and keys reaching the conversation. No dialog frame.
@@ -633,23 +668,52 @@ pub fn viewer(
 			let scale = (stage.width() / original.x).min(stage.height() / original.y);
 			let fitted = (original * scale).max(egui::vec2(1.0, 1.0));
 			let image_rect = Rect::from_center_size(stage.center(), fitted);
-			ui.scope_builder(
-				egui::UiBuilder::new().max_rect(image_rect).layout(
+			if let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
+				&& stage.contains(pointer)
+			{
+				let factor = ui.input_mut(|i| {
+					let factor = (i.smooth_scroll_delta.y * 0.005).exp() * i.zoom_delta();
+					i.smooth_scroll_delta = egui::Vec2::ZERO;
+					factor
+				});
+				let next = (zoom * factor).clamp(1.0, (4096.0 / fitted.max_elem()).clamp(1.0, 8.0));
+				pan = (pointer - stage.center()) - (pointer - stage.center() - pan) * (next / zoom);
+				zoom = next;
+			}
+			let limit = ((fitted * zoom - stage.size()) * 0.5).max(egui::Vec2::ZERO);
+			pan = pan.clamp(-limit, limit);
+			let zoomed = Rect::from_center_size(stage.center() + pan, fitted * zoom);
+			{
+				// Zoomed geometry must not enlarge and recenter the modal or its controls.
+				let mut image_ui = ui.new_child(egui::UiBuilder::new().max_rect(zoomed).layout(
 					egui::Layout::centered_and_justified(egui::Direction::TopDown),
-				),
-				|ui| {
-					let image = images.show_large(ui, &attachment.media, fitted, demo);
-					let response = ui
-						.interact(image.rect, image.id.with("media"), Sense::click())
-						.on_hover_text(
-							attachment
-								.description
-								.as_deref()
-								.unwrap_or(&attachment.filename),
-						);
-					media_context_menu(&response, attachment, download, opening, demo);
-				},
-			);
+				));
+				let ui = &mut image_ui;
+				ui.set_clip_rect(stage.intersect(ui.clip_rect()));
+				let image = images.show_large(ui, &attachment.media, fitted * zoom, demo);
+				let response = ui
+					.interact(image.rect, image.id.with("media"), Sense::click_and_drag())
+					.on_hover_cursor(if zoom > 1.0 {
+						egui::CursorIcon::Grab
+					} else {
+						egui::CursorIcon::ZoomIn
+					})
+					.on_hover_text("Scroll to zoom · Drag to pan · Double-click to reset")
+					.on_hover_text(
+						attachment
+							.description
+							.as_deref()
+							.unwrap_or(&attachment.filename),
+					);
+				if response.dragged_by(egui::PointerButton::Primary) {
+					pan = (pan + response.drag_delta()).clamp(-limit, limit);
+				}
+				if response.double_clicked() {
+					zoom = 1.0;
+					pan = egui::Vec2::ZERO;
+				}
+				media_context_menu(&response, attachment, download, opening, demo);
+			}
 			// Top bar: position counter on the left, actions on the right.
 			let bar = Rect::from_min_size(full.min, egui::vec2(full.width(), TOP));
 			if count > 1 {
@@ -846,7 +910,15 @@ pub fn viewer(
 				close = true;
 			}
 		});
-	(!close && !overlay.should_close()).then_some(current)
+	let result = (!close && !overlay.should_close()).then_some(current);
+	ui.ctx().data_mut(|data| {
+		if result == Some(attachment.id) {
+			data.insert_temp(zoom_id, (current, zoom, pan));
+		} else {
+			data.remove::<(Id, f32, egui::Vec2)>(zoom_id);
+		}
+	});
+	result
 }
 pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 	attachments
@@ -1156,6 +1228,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			},
 			content: String::new(),
 			author_nick: None,
@@ -1174,6 +1247,10 @@ mod tests {
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
+			flags: 0,
 			embeds: vec![],
 			embeds_suppressed: false,
 			reactions: None,

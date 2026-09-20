@@ -17,6 +17,7 @@ mod channel_menu;
 mod channel_permissions;
 #[cfg(test)]
 mod channel_welcome_tests;
+mod components;
 mod composer_text;
 pub mod design;
 mod embeds;
@@ -114,11 +115,17 @@ enum MemberRow {
 
 #[derive(Default)]
 pub struct MessagingUi {
+	pub interaction_file_request: Option<String>,
+	interaction_components: components::Components,
 	pub verification: VerificationUi,
 	pub extensions: ExtensionUi,
 	friends: friends::Friends,
 	account_menu: account_menu::AccountMenu,
 	pub own_presence: model::OwnPresence,
+	/// When the custom status clears itself, in milliseconds since the Unix epoch. The
+	/// deadline is local: Discord carries it in account settings, which this client does
+	/// not write, so the host enforces it and republishes the cleared presence.
+	pub own_presence_expires: Option<u64>,
 	pub own_presence_changed: bool,
 	pub own_presence_status: &'static str,
 	group_menu: group_menu::GroupMenu,
@@ -168,6 +175,10 @@ pub struct MessagingUi {
 	pub reading_preferences: model::ReadingPreferences,
 	pub show_hidden_channels: bool,
 	pub hide_title_bar: bool,
+	/// Which GPU renders the window; the running adapter only changes on restart.
+	pub gpu_preference: model::GpuPreference,
+	/// Adapter currently in use, shown next to the preference for bug reports.
+	pub gpu_adapter: String,
 	pub reading_status: &'static str,
 	pub reading_save_requested: bool,
 	pub minimize_to_tray: bool,
@@ -203,6 +214,14 @@ pub struct MessagingUi {
 	collapsed_categories: std::collections::BTreeSet<Id>,
 	navigation_channel: Option<Id>,
 	pub logout_requested: bool,
+	/// Accounts remembered on this device, most recently used first.
+	pub accounts: Vec<model::SavedAccount>,
+	/// Switch to this saved account; the host ends the session and reads its saved token.
+	pub switch_account_requested: Option<Id>,
+	/// End the session and return to the sign-in screen to remember one more account.
+	pub add_account_requested: bool,
+	/// Drop one saved account: its token, cached history and drafts.
+	pub forget_account_requested: Option<Id>,
 	pub reconnect_requested: bool,
 	pub draft_changes: Vec<Id>,
 	pub draft_restore_pending: bool,
@@ -300,6 +319,10 @@ pub struct MessagingUi {
 	/// Set when the user picks a theme preset; the host persists it.
 	pub theme_variant_changed: Option<design::Variant>,
 	pub primary_color: Option<[u8; 3]>,
+	pub transparency_blur: bool,
+	pub transparency: u8,
+	pub blur: u8,
+	pub transparent_all: bool,
 }
 
 /// Context strip (reply/edit) drawn as the rounded top of the composer block.
@@ -367,6 +390,13 @@ fn mention_switch(ui: &mut egui::Ui, colors: &design::Palette, on: &mut bool) {
 }
 
 impl MessagingUi {
+	pub fn interaction_modal_id(&self) -> Option<Id> {
+		self.interaction_components.modal_id()
+	}
+	pub fn set_interaction_files(&mut self, custom_id: &str, files: Vec<(usize, String)>) {
+		self.interaction_components.set_files(custom_id, files);
+	}
+
 	/// Feed the frame's middle button before `show`. Never fed means never pressed.
 	pub fn middle_button(&mut self, middle: scroll::Middle) {
 		self.scroll.middle(middle);
@@ -615,6 +645,11 @@ impl MessagingUi {
 		self.account_menu.preview(generation);
 	}
 	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_custom_status(&mut self, generation: u64) {
+		let draft = self.own_presence.custom_status.clone();
+		self.account_menu.preview_editor(generation, draft);
+	}
+	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_emoji_picker(&mut self) {
 		self.emoji_picker.preview();
 	}
@@ -663,6 +698,8 @@ impl MessagingUi {
 		// Window preferences belong to the application, not the account being cleared.
 		*self = Self {
 			build: self.build,
+			// The switcher roster belongs to the device, not to the account being cleared.
+			accounts: std::mem::take(&mut self.accounts),
 			updates: std::mem::take(&mut self.updates),
 			minimize_to_tray: self.minimize_to_tray,
 			tray_available: self.tray_available,
@@ -1085,13 +1122,17 @@ impl MessagingUi {
 								} else {
 									colors.muted
 								};
-								let show_name = |ui: &mut egui::Ui| {
+								let mut show_name = |ui: &mut egui::Ui| {
 									// A text line must not inherit the 32-point interactive-row height.
 									ui.allocate_ui_with_layout(
 										egui::vec2(ui.available_width(), 18.0),
 										egui::Layout::left_to_right(egui::Align::Center),
 										|ui| {
 											ui.spacing_mut().item_spacing.x = 5.0;
+											let server_tag = member.user.primary_guild.as_deref();
+											let trailing =
+												profiles::server_tag_width(ui, server_tag)
+													+ if server_tag.is_some() { 5.0 } else { 0.0 };
 											account_badge::name(
 												ui,
 												&member.user,
@@ -1099,8 +1140,16 @@ impl MessagingUi {
 												15.0,
 												text_color,
 												egui::Sense::hover(),
-												0.0,
+												trailing,
 											);
+											if let Some(tag) = server_tag {
+												profiles::server_tag(
+													ui,
+													tag,
+													&mut self.avatars,
+													state.demo,
+												);
+											}
 										},
 									);
 								};
@@ -1975,7 +2024,7 @@ impl MessagingUi {
 					ui.add_space(6.0);
 					ui.label(
 						egui::RichText::new(if available {
-							"Up to 10 files · 20 MB total · Review before sending"
+							"Up to 10 files · 500 MB max · Account limit applies"
 						} else {
 							"Return to an available conversation after the current operation finishes"
 						})
@@ -2316,7 +2365,7 @@ impl MessagingUi {
                             icons::button(ui, icons::Icon::Attach, 28.0, "Attach files")
                         })
                         .inner
-                        .on_hover_text("Choose, drop, or paste files (Ctrl/Cmd/Option+V). Up to 10 files and 20 MB total. Send starts the upload.");
+						.on_hover_text("Choose, drop, or paste files (Ctrl/Cmd/Option+V). Up to 10 files and 500 MB total; account limits may be lower. Send starts the upload.");
                     if !editing_here { self.extensions.composer_menu(ui, state); }
                     if attach.clicked() {
                         self.attach_requested = true;
@@ -2702,6 +2751,12 @@ impl MessagingUi {
 		}
 		self.timeline.audio.seen = false;
 		self.timeline.video.seen = false;
+		// Fullscreen playback owns the whole client surface, including during native resizing.
+		if self.timeline.show_fullscreen_video(ui.ctx(), state) {
+			ui.painter()
+				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
+			return Vec::new();
+		}
 		self.profile_trigger = None;
 		let mut commands = Vec::new();
 		let ctx = ui.ctx().clone();
@@ -3458,6 +3513,120 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
+
+		if let Some((message, custom_id, values)) = self.timeline.component_action.take()
+			&& let Some(command) = state.prepare_component(message, &custom_id, values)
+		{
+			commands.push(command);
+		}
+		if let Some(channel) = state.selected {
+			if state.interactions.modal.is_none()
+				&& self.timeline.components.remote_search
+				&& !self.timeline.components.search.text.is_empty()
+			{
+				self.timeline
+					.components
+					.search
+					.sync(&ctx, state, channel, 0, &mut commands);
+			}
+			if self.interaction_components.remote_search
+				&& !self.interaction_components.search.text.is_empty()
+			{
+				self.interaction_components
+					.search
+					.sync(&ctx, state, channel, 0, &mut commands);
+			}
+		}
+		self.interaction_components.dialogs(
+			&ctx,
+			state,
+			&mut commands,
+			&mut self.avatars,
+			&mut self.timeline.opening,
+		);
+		self.interaction_file_request = self.interaction_components.file_request.take();
+		if !state.interactions.ephemeral.is_empty() {
+			let messages = state.interactions.ephemeral.clone();
+			egui::Window::new("Only you can see these responses")
+				.id(egui::Id::unique("interaction-responses"))
+				.show(&ctx, |ui| {
+					egui::ScrollArea::vertical()
+						.max_height(400.0)
+						.show(ui, |ui| {
+							for message in &messages {
+								ui.strong(&message.author.name);
+								self.interaction_components.show_text(
+									ui,
+									message,
+									state,
+									&mut self.avatars,
+									&mut self.timeline.opening,
+								);
+								if !message.extra_content.components_v2
+									&& self.interaction_components.media_visible(
+										ui,
+										message,
+										state.generation,
+									) {
+									if embeds::has_media_spoilers(message) {
+										self.timeline.reveal_private_media(message);
+									}
+									if let Some(gif) = embeds::show(
+										ui,
+										message,
+										&mut self.profile_formatted,
+										&mut self.avatars,
+										&mut self.timeline.opening,
+										&mut self.timeline.download,
+										&mut self.profile,
+										state,
+									) {
+										self.timeline.gif_favorite = Some(gif);
+									}
+									let mut surface =
+										select::Surface::new(ui, ("ephemeral-media", message.id));
+									attachments::show(
+										ui,
+										message,
+										&mut self.avatars,
+										&mut self.timeline.viewing,
+										&mut self.timeline.opening,
+										&mut self.timeline.download,
+										&mut self.timeline.audio,
+										&mut self.timeline.video,
+										state.demo,
+										&mut surface,
+									);
+									surface.finish(ui);
+								}
+								if let Some((id, custom_id, values)) =
+									self.interaction_components.show(
+										ui,
+										message,
+										state,
+										&mut self.avatars,
+										&mut self.timeline.opening,
+										&mut components::MediaUi {
+											component_viewing: &mut self.timeline.component_viewing,
+											viewing: &mut self.timeline.viewing,
+											download: &mut self.timeline.download,
+											audio: &mut self.timeline.audio,
+											video: &mut self.timeline.video,
+										},
+									) && let Some(command) =
+									state.prepare_component(id, &custom_id, values)
+								{
+									commands.push(command);
+								}
+								if ui.small_button("Dismiss").clicked() {
+									state.dismiss_ephemeral(message.id);
+									self.interaction_components.forget_message(message.id);
+								}
+								ui.separator();
+							}
+						});
+				});
+		}
 		if let Some((message, emoji)) = self.timeline.reaction.take() {
 			if let Some(emoji) = emoji {
 				if let Some(command) = state.prepare_reaction(message, emoji) {
@@ -3846,6 +4015,7 @@ mod composer_tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		};
 		let mut state = State {
 			selected: Some(Id(10)),
@@ -3887,6 +4057,10 @@ mod composer_tests {
 					forwarded: false,
 					unsupported: false,
 					extra_content: Default::default(),
+					components: vec![],
+					application_id: None,
+					ephemeral: false,
+					flags: 0,
 					embeds: vec![],
 					attachments: vec![],
 					author_nick: None,
@@ -5548,6 +5722,13 @@ mod composer_tests {
 										kind: model::AccountKind::Bot,
 										webhook: false,
 										discriminator: 0,
+										primary_guild: (id == 1).then(|| {
+											Box::new(model::ClanTag {
+												guild: Id(9),
+												tag: "SPDY".into(),
+												badge: None,
+											})
+										}),
 									},
 									nick: None,
 									roles: vec![],
@@ -5587,7 +5768,11 @@ mod composer_tests {
 							origin + egui::vec2(0.0, id as f32 * 42.0),
 							egui::vec2(width, 42.0),
 						);
-						for label in [format!("Member {id}"), format!("Activity {id}")] {
+						let mut labels = vec![format!("Member {id}"), format!("Activity {id}")];
+						if id == 1 {
+							labels.push("SPDY".into());
+						}
+						for label in labels {
 							let text = output
 								.shapes
 								.iter()
@@ -5656,6 +5841,7 @@ mod composer_tests {
 								webhook: false,
 								kind: Default::default(),
 								discriminator: 0,
+								primary_guild: None,
 							},
 							nick: None,
 							roles: vec![],
@@ -6174,6 +6360,7 @@ mod composer_tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			};
 			let mut state = State {
 				demo: true,

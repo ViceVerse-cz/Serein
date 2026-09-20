@@ -648,6 +648,7 @@ mod tests {
 			panic!()
 		};
 		let user = |id| User {
+			primary_guild: None,
 			id: Id(id),
 			name: format!("User {id}"),
 			avatar: None,
@@ -1091,6 +1092,9 @@ mod tests {
 					embeds: model::Patch::Absent,
 					embeds_suppressed: model::Patch::Absent,
 					attachments: model::Patch::Absent,
+					components: model::Patch::Absent,
+					flags: model::Patch::Absent,
+					application_id: model::Patch::Absent,
 					extra_content: Default::default(),
 				}),
 			});
@@ -1233,6 +1237,7 @@ mod tests {
 	#[test]
 	fn reaction_permissions_distinguish_existing_emoji_and_late_reads() {
 		let user = User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -1321,6 +1326,10 @@ mod tests {
 					reply_deleted: false,
 					forwarded: false,
 					unsupported: false,
+					components: vec![],
+					application_id: None,
+					flags: 0,
+					ephemeral: false,
 					extra_content: Default::default(),
 					embeds: vec![],
 					embeds_suppressed: false,

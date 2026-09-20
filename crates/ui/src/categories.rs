@@ -345,12 +345,15 @@ fn category_header(
 		),
 		color,
 	);
-	let label = ui.painter().layout(
+	let mut job = egui::text::LayoutJob::simple_singleline(
 		name.to_uppercase(),
 		egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
 		color,
-		(rect.width() - 24.0).max(10.0),
 	);
+	job.wrap.max_width = (rect.width() - 24.0).max(10.0);
+	job.wrap.max_rows = 1;
+	job.wrap.break_anywhere = true;
+	let label = ui.painter().layout_job(job);
 	let label_rect = egui::Rect::from_min_size(
 		egui::pos2(rect.left() + 16.0, rect.bottom() - 6.0 - label.size().y),
 		egui::vec2(rect.width() - 24.0, label.size().y),
@@ -859,15 +862,55 @@ impl MessagingUi {
 								(dm_list && channel.kind == 3)
 									.then(|| format!("{} Members", channel.recipients.len().max(1)))
 							};
-							let name =
-								egui::Label::new(design::medium(ui, label, 15.0).color(name_color))
-									.truncate()
-									.selectable(false);
+							let direct_user = (dm_list && channel.kind == 1)
+								.then(|| channel.recipients.first())
+								.flatten();
+							let mut show_name = |ui: &mut egui::Ui| {
+								ui.allocate_ui_with_layout(
+									egui::vec2(ui.available_width(), 18.0),
+									egui::Layout::left_to_right(egui::Align::Center),
+									|ui| {
+										ui.spacing_mut().item_spacing.x = 5.0;
+										if let Some(user) = direct_user {
+											let server_tag = user.primary_guild.as_deref();
+											let trailing =
+												crate::profiles::server_tag_width(ui, server_tag)
+													+ if server_tag.is_some() { 5.0 } else { 0.0 };
+											crate::account_badge::name(
+												ui,
+												user,
+												&label,
+												15.0,
+												name_color,
+												egui::Sense::hover(),
+												trailing,
+											);
+											if let Some(tag) = server_tag {
+												crate::profiles::server_tag(
+													ui,
+													tag,
+													&mut self.avatars,
+													state.demo,
+												);
+											}
+										} else {
+											ui.add(
+												egui::Label::new(
+													design::medium(ui, &label, 15.0)
+														.color(name_color),
+												)
+												.truncate()
+												.selectable(false),
+											);
+										}
+									},
+								);
+							};
 							if let Some(subtitle) = subtitle {
 								inner.vertical(|ui| {
 									ui.spacing_mut().item_spacing.y = 0.0;
 									ui.add_space(((row.height() - 34.0) * 0.5).max(0.0));
-									ui.add(name);
+									show_name(ui);
 									ui.add(
 										egui::Label::new(
 											RichText::new(subtitle).size(12.0).color(colors.muted),
@@ -877,7 +920,7 @@ impl MessagingUi {
 									);
 								});
 							} else {
-								inner.add(name);
+								show_name(&mut inner);
 							}
 							let lane = channel_marks::trailing(access);
 							if let Some(url) = &external {
@@ -1096,6 +1139,70 @@ impl MessagingUi {
 mod tests {
 	use super::*;
 	#[test]
+	fn direct_message_rows_show_the_recipient_server_tag() {
+		fn text(shape: &egui::Shape, found: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => found.push(text.galley.job.text.clone()),
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| text(shape, found)),
+				_ => {}
+			}
+		}
+		let mut dm = channel(1, 1, 0, None);
+		dm.guild = None;
+		dm.name = "Tagged person".into();
+		dm.recipients = vec![model::User {
+			id: Id(2),
+			name: "Tagged person".into(),
+			avatar: None,
+			discriminator: 0,
+			primary_guild: Some(Box::new(model::ClanTag {
+				guild: Id(9),
+				tag: "SPDY".into(),
+				badge: None,
+			})),
+			kind: Default::default(),
+			webhook: false,
+		}];
+		let mut state = State {
+			channels: vec![dm],
+			demo: true,
+			..Default::default()
+		};
+		let mut view = MessagingUi::default();
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut painted = Vec::new();
+		for _ in 0..2 {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(240.0, 180.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.channel_list(ui, &mut state);
+				},
+			);
+			painted.clear();
+			for shape in &output.shapes {
+				text(&shape.shape, &mut painted);
+			}
+			output.drop_without_applying_deltas();
+		}
+		assert!(
+			painted.iter().any(|text| text == "Tagged person"),
+			"painted text: {painted:?}"
+		);
+		assert!(
+			painted.iter().any(|text| text == "SPDY"),
+			"painted text: {painted:?}"
+		);
+		assert!(view.take_avatar_requests().is_empty());
+	}
+
+	#[test]
 	fn shortcuts_survive_collapsed_categories_without_duplicates_or_orphan_threads() {
 		let mut state = test_support::demo_state();
 		state.guilds[0].id = Id(100);
@@ -1105,6 +1212,7 @@ mod tests {
 			channel(8, 11, 0, Some(Id(7))),
 			channel(9, 0, 1, Some(Id(4))),
 		];
+		state.invalidate_navigation();
 		state
 			.permissions
 			.replace(test_support::permission_snapshot(&state))
@@ -1333,6 +1441,7 @@ mod tests {
 		let mut state = test_support::demo_state();
 		state.guilds[0].id = Id(100);
 		state.channels = vec![channel(4, 4, 0, None), channel(7, 0, 0, Some(Id(4)))];
+		state.invalidate_navigation();
 		let mut permissions = test_support::permission_snapshot(&state);
 		permissions.channels.retain(|c| c.id != Id(7));
 		state.permissions.replace(permissions).unwrap();
@@ -1690,6 +1799,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
 				id: Id(100),
@@ -1830,6 +1940,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
 				id: Id(100),

@@ -12,6 +12,7 @@ pub use permissions::ChannelAccess;
 #[cfg(test)]
 mod permissions_tests;
 
+pub mod interactions;
 pub mod invites;
 pub mod member_search;
 pub mod message_actions;
@@ -53,6 +54,7 @@ pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 
 pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM settings <=33 KiB; channel edit <=128 KiB; group icon <=350 KiB
 
 pub enum Command {
+	Interaction(interactions::Request),
 	MemberSearch(member_search::Request),
 	MessagingPermissions {
 		request: u64,
@@ -327,6 +329,7 @@ fn prepare_navigation(
 	Ok(permission_state)
 }
 pub enum Event {
+	Interaction(interactions::Event),
 	MemberSearch {
 		request: member_search::Request,
 		result: Result<Vec<Member>, auth::Failure>,
@@ -507,9 +510,11 @@ pub struct NavigationIndex {
 	channels: std::cell::RefCell<BTreeMap<Id, usize>>,
 	channel_stamp: std::cell::Cell<Option<(usize, usize)>>,
 	guilds: std::cell::RefCell<BTreeMap<Id, usize>>,
+	guild_stamp: std::cell::Cell<Option<(usize, usize)>>,
 }
 
 pub struct State {
+	pub interactions: interactions::Interactions,
 	pub messaging_permissions: messaging_permissions::Settings,
 	pub guild_folders: Option<model::guild_folders::Settings>,
 	pub folders_pending: bool,
@@ -592,6 +597,7 @@ pub struct State {
 impl Default for State {
 	fn default() -> Self {
 		Self {
+			interactions: Default::default(),
 			messaging_permissions: Default::default(),
 			guild_folders: None,
 			folders_pending: false,
@@ -726,17 +732,19 @@ impl State {
 	/// Call after replacing IDs or payloads directly in synthetic navigation vectors.
 	pub fn invalidate_navigation(&self) {
 		self.navigation_index.channel_stamp.set(None);
+		self.navigation_index.guild_stamp.set(None);
 		self.navigation_index.guilds.borrow_mut().clear();
 		self.navigation_index.bytes.set(None);
 	}
 
 	pub fn guild(&self, id: Id) -> Option<&Guild> {
-		let cached = self.navigation_index.guilds.borrow().get(&id).copied();
-		if let Some(guild) = cached
-			.and_then(|index| self.guilds.get(index))
-			.filter(|guild| guild.id == id)
-		{
-			return Some(guild);
+		let stamp = (self.guilds.as_ptr() as usize, self.guilds.len());
+		if self.navigation_index.guild_stamp.get() == Some(stamp) {
+			let cached = self.navigation_index.guilds.borrow().get(&id).copied();
+			if cached.is_none_or(|index| self.guilds.get(index).is_some_and(|guild| guild.id == id))
+			{
+				return cached.and_then(|index| self.guilds.get(index));
+			}
 		}
 		let mut index = self.navigation_index.guilds.borrow_mut();
 		*index = self
@@ -746,6 +754,7 @@ impl State {
 			.enumerate()
 			.map(|(index, guild)| (guild.id, index))
 			.collect();
+		self.navigation_index.guild_stamp.set(Some(stamp));
 		index.get(&id).and_then(|index| self.guilds.get(*index))
 	}
 
@@ -840,6 +849,7 @@ impl State {
 		self.clear_search();
 		self.search_target = None;
 		self.reactions.reset();
+		self.interactions.reset();
 		self.older_exhausted = false;
 		self.reply = None;
 		self.revision += 1;
@@ -1073,6 +1083,13 @@ impl State {
 		})
 	}
 	pub fn command_rejected(&mut self, command: Command) {
+		if let Command::Interaction(request) = command {
+			let _ = self.apply_interaction(interactions::Event::Submitted {
+				nonce: request.nonce,
+				result: Err(auth::Failure::Network),
+			});
+			return;
+		}
 		if let Command::MemberSearch(request) = command {
 			self.searched_members(
 				request,
@@ -1404,6 +1421,9 @@ impl State {
 		if envelope.generation != self.generation {
 			return;
 		}
+		if self.handle_private_message_event(&envelope.event) {
+			return;
+		}
 		if let Event::Startup(startup) = envelope.event {
 			if startup.bytes() > model::account::MAX_BYTES {
 				self.auth = auth::AuthState::Failed;
@@ -1463,6 +1483,7 @@ impl State {
 			envelope.event,
 			Event::Ready { .. } | Event::Disconnected | Event::Resync
 		) {
+			self.interactions.reset();
 			self.local_game_activity = Default::default();
 			self.invalidate_messaging_permissions(None);
 			self.interrupt_own_profile();
@@ -1702,6 +1723,7 @@ impl State {
 				threads,
 				removed,
 			} => self.apply_threads_sync(guild, parents, threads, removed),
+			Event::Interaction(event) => self.apply_interaction(event),
 			Event::Reactions(event) => self.apply_reactions(event),
 			Event::InviteChallenge { request, challenge } => {
 				self.apply_invite_challenge(request, *challenge);
@@ -2180,6 +2202,7 @@ impl State {
 				{
 					return;
 				}
+				messages.retain(|message| !message.ephemeral);
 				let mut ids = BTreeSet::new();
 				let has_deleted_reference = messages.iter().any(|message| message.reply_deleted);
 				if older != self.history_before.is_some()
@@ -2720,6 +2743,7 @@ impl State {
 	fn cancel_history(&mut self) {
 		self.typing.clear();
 		self.reactions.reset();
+		self.interactions.reset();
 		self.search_target = None;
 		self.request += 1;
 		self.history_pending = false;
@@ -2789,6 +2813,7 @@ impl Event {
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ match self {
+				Self::Interaction(event) => event.bytes(),
 				Self::Startup(startup) => startup.bytes(),
 				Self::MessagingPermissions { result, .. } => result
 					.as_ref()
@@ -3036,6 +3061,67 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn guild_lookup_caches_misses_and_tracks_navigation_changes() {
+		let guild = |id| Guild {
+			id: Id(id),
+			name: "Synthetic".into(),
+			icon: None,
+			emojis: None,
+		};
+		let mut state = State {
+			guilds: vec![guild(1)],
+			..State::default()
+		};
+		assert!(state.guild(Id(2)).is_none());
+		{
+			// A cached miss must not rebuild (and mutably borrow) the index.
+			let _index = state.navigation_index.guilds.borrow();
+			for _ in 0..3 {
+				assert!(state.guild(Id(2)).is_none());
+				assert_eq!(state.guild(Id(1)).unwrap().id, Id(1));
+			}
+		}
+		apply(&mut state, Event::GuildJoined(guild(2)));
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+		assert_eq!(state.guild(Id(1)).unwrap().id, Id(1));
+		state.guilds.swap(0, 1);
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+		state.guilds[0] = guild(3);
+		state.invalidate_navigation();
+		assert!(state.guild(Id(1)).is_none());
+		assert_eq!(state.guild(Id(3)).unwrap().id, Id(3));
+		state.guilds.retain(|guild| guild.id != Id(3));
+		assert!(state.guild(Id(3)).is_none());
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+	}
+
+	#[test]
+	#[ignore = "manual release timing; run with --release --ignored --nocapture"]
+	fn guild_lookup_benchmark() {
+		let state = State {
+			guilds: (1..=1_000)
+				.map(|id| Guild {
+					id: Id(id),
+					name: "Synthetic".into(),
+					icon: None,
+					emojis: None,
+				})
+				.collect(),
+			..State::default()
+		};
+		for run in 0..6 {
+			let start = std::time::Instant::now();
+			for _ in 0..10_000 {
+				assert!(std::hint::black_box(state.guild(std::hint::black_box(Id(500)))).is_some());
+				assert!(
+					std::hint::black_box(state.guild(std::hint::black_box(Id(1_001)))).is_none()
+				);
+			}
+			println!("guild lookup run {run} (0 = warmup): {:?}", start.elapsed());
+		}
+	}
+
 	pub(crate) fn grant_permissions(state: &mut State) {
 		let Some(user) = &state.user else {
 			return;
@@ -3733,6 +3819,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					primary_guild: None,
 					id: Id(1),
 					name: "Synthetic".into(),
 					avatar: None,
@@ -3918,6 +4005,7 @@ mod tests {
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				primary_guild: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -3935,6 +4023,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
@@ -4127,6 +4219,7 @@ mod tests {
 			Event::RecipientAdded {
 				channel: Id(1),
 				user: User {
+					primary_guild: None,
 					id: Id(3),
 					name: "Other".into(),
 					avatar: None,
@@ -4390,6 +4483,7 @@ mod tests {
 			message_count: None,
 		};
 		let user = || User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -4521,6 +4615,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					primary_guild: None,
 					id: Id(2),
 					name: "Synthetic".into(),
 					avatar: None,

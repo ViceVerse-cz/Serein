@@ -87,10 +87,19 @@ pub fn supported() -> bool {
 
 pub fn sources() -> Result<Vec<Source>, &'static str> {
 	#[cfg(target_os = "linux")]
-	return Ok(vec![Source {
-		id: SourceId::Portal,
-		name: "Choose in the system picker".into(),
-	}]);
+	{
+		let mut sources = vec![Source {
+			id: SourceId::Portal,
+			name: "Choose in the system picker".into(),
+		}];
+		if linux::x11_session() {
+			sources.push(Source {
+				id: SourceId::X11Desktop,
+				name: "Entire X11 desktop · all monitors · no portal".into(),
+			});
+		}
+		return Ok(sources);
+	}
 	#[cfg(not(target_os = "linux"))]
 	capture::sources()
 }

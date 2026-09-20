@@ -824,6 +824,7 @@ mod tests {
 
 	fn user() -> User {
 		User {
+			primary_guild: None,
 			id: model::Id(1),
 			name: "Synthetic user".into(),
 			avatar: None,

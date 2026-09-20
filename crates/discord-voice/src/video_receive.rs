@@ -462,10 +462,12 @@ impl Backend {
 				let (width, height) = openh264::formats::YUVSource::dimensions(&decoded);
 				let (width, height) = bounded(width, height)?;
 				let bytes = width as usize * height as usize * 4;
-				if scratch.len() != bytes {
-					*scratch = vec![0; bytes];
+				// Shared across participants: retain initialized bytes when resolutions alternate.
+				if scratch.len() < bytes {
+					scratch.reserve_exact(bytes - scratch.len());
+					scratch.resize(bytes, 0);
 				}
-				decoded.write_rgba8(scratch);
+				decoded.write_rgba8(&mut scratch[..bytes]);
 				Ok(Some((width, height)))
 			}
 		}
@@ -559,7 +561,7 @@ fn decode_loop(
 			user: frame.user,
 			width,
 			height,
-			rgba: &scratch,
+			rgba: &scratch[..width as usize * height as usize * 4],
 		});
 	}
 	// Hardware pictures still in flight must land before the sink goes away.
@@ -750,6 +752,96 @@ mod tests {
 		assert!(bounded(1920, 1081).is_err());
 		assert!(bounded(0, 4).is_err());
 	}
+	#[test]
+	fn software_decoders_reuse_scratch_across_alternating_resolutions() {
+		use openh264::{
+			OpenH264API,
+			encoder::{Encoder, EncoderConfig},
+			formats::YUVBuffer,
+		};
+		let mut streams: Vec<_> = [(64, 64), (32, 32)]
+			.into_iter()
+			.map(|(width, height)| {
+				let mut encoder =
+					Encoder::with_api_config(OpenH264API::from_source(), EncoderConfig::new())
+						.unwrap();
+				let mut data = Vec::new();
+				encoder
+					.encode(&YUVBuffer::new(width, height))
+					.unwrap()
+					.write_vec(&mut data);
+				let decoder = Backend::Software(openh264::decoder::Decoder::new().unwrap());
+				(decoder, data, (width as u32, height as u32))
+			})
+			.collect();
+		let mut scratch = Vec::new();
+		let mut allocation = None;
+		for _ in 0..4 {
+			for (decoder, data, dimensions) in &mut streams {
+				assert_eq!(decoder.decode(data, &mut scratch), Ok(Some(*dimensions)));
+				let bytes = dimensions.0 as usize * dimensions.1 as usize * 4;
+				assert!(
+					scratch[..bytes]
+						.as_chunks::<4>()
+						.0
+						.iter()
+						.all(|px| px[3] == 255)
+				);
+				assert_eq!(scratch.len(), 64 * 64 * 4);
+				let current = (scratch.as_ptr(), scratch.capacity());
+				assert_eq!(*allocation.get_or_insert(current), current);
+			}
+		}
+	}
+
+	/// `cargo test --release -p discord-voice compare_alternating_software_decode -- --ignored --nocapture`
+	#[test]
+	#[ignore]
+	fn compare_alternating_software_decode() {
+		use openh264::{
+			OpenH264API,
+			encoder::{Encoder, EncoderConfig},
+			formats::YUVBuffer,
+		};
+		let streams: Vec<_> = [(1920, 1080), (1280, 720)]
+			.into_iter()
+			.map(|(width, height)| {
+				let mut encoder =
+					Encoder::with_api_config(OpenH264API::from_source(), EncoderConfig::new())
+						.unwrap();
+				let mut data = Vec::new();
+				encoder
+					.encode(&YUVBuffer::new(width, height))
+					.unwrap()
+					.write_vec(&mut data);
+				data
+			})
+			.collect();
+		for run in 0..6 {
+			let mut decoders = streams
+				.iter()
+				.map(|_| Backend::Software(openh264::decoder::Decoder::new().unwrap()))
+				.collect::<Vec<_>>();
+			let mut scratch = Vec::new();
+			let mut length_changes = 0;
+			let mut peak_capacity = 0;
+			let start = std::time::Instant::now();
+			for _ in 0..60 {
+				for (decoder, data) in decoders.iter_mut().zip(&streams) {
+					let previous = scratch.len();
+					let (width, height) = decoder.decode(data, &mut scratch).unwrap().unwrap();
+					std::hint::black_box(&scratch[..width as usize * height as usize * 4]);
+					length_changes += usize::from(previous != scratch.len());
+					peak_capacity = peak_capacity.max(scratch.capacity());
+				}
+			}
+			println!(
+				"alternating software run={run} (0=warmup) frames=120 ms={:.3} scratch_length_changes={length_changes} peak_scratch_capacity={peak_capacity}",
+				start.elapsed().as_secs_f64() * 1000.0
+			);
+		}
+	}
+
 	#[cfg(target_os = "macos")]
 	#[test]
 	fn hardware_decoder_round_trips_an_openh264_keyframe() {

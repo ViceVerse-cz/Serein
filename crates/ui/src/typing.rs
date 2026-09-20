@@ -228,6 +228,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}),
 			channels: vec![Channel {
 				id: Id(10),
@@ -248,6 +249,7 @@ mod tests {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					},
 					User {
 						id: Id(2),
@@ -256,6 +258,7 @@ mod tests {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					},
 					User {
 						id: Id(3),
@@ -264,6 +267,7 @@ mod tests {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					},
 				],
 			}],

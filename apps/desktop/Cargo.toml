@@ -37,7 +37,7 @@ getrandom.workspace = true
 url.workspace = true
 sha2 = "=0.10.9"
 semver = "=1.0.28"
-zip = { version = "=4.6.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "=4.6.1", default-features = false, features = ["deflate-flate2"] }
 cpal = { version = "=0.18.2", default-features = false }
 rtrb = "=0.4.0"
 symphonia = { version = "=0.6.1", default-features = false, features = ["mp3", "pcm", "wav", "ogg", "vorbis"] }

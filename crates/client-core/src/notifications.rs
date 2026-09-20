@@ -755,6 +755,7 @@ mod tests {
 	use model::{Channel, Guild, Patch, User, permissions as p};
 	fn notification_state() -> State {
 		let owner = User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -914,6 +915,7 @@ mod tests {
 	}
 	fn message(id: u64, channel: u64) -> Message {
 		let owner = User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -945,6 +947,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			embeds_suppressed: false,

@@ -123,10 +123,19 @@ impl DiscordApi {
 				.request(
 					if *friend { Method::PUT } else { Method::DELETE },
 					&format!("/users/@me/relationships/{user}"),
-					friend.then(|| json!({"type": 1})),
+					friend.then(|| json!({})),
 				)
 				.await
-				.map(|_| ()),
+				.map(|_| ())
+				.map_err(|failure| {
+					if *friend {
+						failure.protocol_at(
+							"Friend request rejected · check the recipient's privacy settings",
+						)
+					} else {
+						failure
+					}
+				}),
 			Action::CloseDm(channel) => self
 				.request(Method::DELETE, &format!("/channels/{channel}"), None)
 				.await
@@ -230,7 +239,7 @@ mod tests {
 		}
 	}
 	#[tokio::test]
-	async fn account_actions_use_scoped_routes_and_confirm_remote_outcomes() {
+	async fn account_and_friend_request_actions_use_scoped_routes_and_confirm_remote_outcomes() {
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let mut api = DiscordApi::new(Arc::new(
 			SessionSecret::from_owner_input("SYNTHETIC_USER_ACTION_TOKEN".into()).unwrap(),
@@ -320,7 +329,7 @@ mod tests {
 					friend: true,
 				},
 				"PUT /users/@me/relationships/2",
-				Some(json!({"type":1})),
+				Some(json!({})),
 				204,
 				"",
 				Ok(()),
@@ -335,6 +344,19 @@ mod tests {
 				204,
 				"",
 				Ok(()),
+			),
+			(
+				Action::ProfileFriend {
+					user: Id(2),
+					friend: true,
+				},
+				"PUT /users/@me/relationships/2",
+				Some(json!({})),
+				400,
+				"{}",
+				Err(Failure::ProtocolAt(
+					"Friend request rejected · check the recipient's privacy settings",
+				)),
 			),
 			(
 				Action::CloseDm(Id(10)),

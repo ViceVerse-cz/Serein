@@ -109,6 +109,13 @@ pub fn message(id: u64, channel: Id) -> Message {
 			kind: Default::default(),
 			discriminator: 0,
 			id: Id(if id.is_multiple_of(2) { 1 } else { 2 }),
+			primary_guild: (!id.is_multiple_of(2)).then(|| {
+				Box::new(model::ClanTag {
+					guild: Id(10),
+					tag: "SPDY".into(),
+					badge: Some("f".repeat(32)),
+				})
+			}),
 			name: if id.is_multiple_of(2) {
 				"You (synthetic)"
 			} else {
@@ -126,6 +133,10 @@ pub fn message(id: u64, channel: Id) -> Message {
 		reply_deleted: false,
 		forwarded: false,
 		unsupported: false,
+		components: vec![],
+		application_id: None,
+		flags: 0,
+		ephemeral: false,
 		extra_content: Default::default(),
 		embeds: demo_embeds(id),
 		attachments: if id == 500 {
@@ -201,6 +212,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}]
 		} else {
 			Vec::new()
@@ -249,6 +261,7 @@ pub fn demo_state() -> State {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 				id: Id(1),
 				name: "You (synthetic)".into(),
 			},
@@ -342,6 +355,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					}],
 					last_message: None,
 					icon: None,
@@ -362,6 +376,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					}],
 					last_message: Some(Id(900)),
 					icon: None,
@@ -384,6 +399,7 @@ pub fn demo_state() -> State {
 							webhook: false,
 							kind: Default::default(),
 							discriminator: 0,
+							primary_guild: None,
 						},
 					],
 					last_message: None,
@@ -522,6 +538,7 @@ pub fn demo_state() -> State {
 					name: "Avery".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -534,6 +551,7 @@ pub fn demo_state() -> State {
 					name: "Rowan".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -572,6 +590,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					},
 					format!("{}.synthetic", name.to_lowercase()),
 				)
@@ -659,6 +678,7 @@ pub fn voice_demo_state() -> State {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			},
 			nick: None,
 			status: None,
@@ -795,6 +815,36 @@ pub fn empty_channel_demo_state(long_name: bool) -> State {
 		},
 	});
 	state
+}
+
+/// Synthetic switcher roster for offline captures; these accounts never exist on Discord.
+pub fn demo_accounts(current: &model::User) -> Vec<model::SavedAccount> {
+	vec![
+		model::SavedAccount {
+			id: current.id,
+			name: current.name.clone(),
+			display: Some("Riley Quinn".into()),
+			avatar: current.avatar.clone(),
+			discriminator: current.discriminator,
+			has_token: true,
+		},
+		model::SavedAccount {
+			id: Id(4242),
+			name: "riley.alt".into(),
+			display: Some("Riley (alt)".into()),
+			avatar: None,
+			discriminator: 0,
+			has_token: true,
+		},
+		model::SavedAccount {
+			id: Id(4243),
+			name: "serein.testing".into(),
+			display: None,
+			avatar: None,
+			discriminator: 0,
+			has_token: true,
+		},
+	]
 }
 
 pub fn seed_access_marks(state: &mut State) {
@@ -962,6 +1012,7 @@ pub fn chat_demo_state() -> State {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}];
 		}
 		if i == 8 {
@@ -1137,6 +1188,7 @@ pub fn system_demo_state() -> State {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		state.timeline.insert(m, false, false).unwrap();
 	}
@@ -1210,6 +1262,7 @@ pub fn friends_demo_state() -> State {
 					name: "Avery".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -1222,6 +1275,7 @@ pub fn friends_demo_state() -> State {
 					name: "Morgan".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},

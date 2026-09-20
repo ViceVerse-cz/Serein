@@ -1,5 +1,9 @@
 # Third-party notices
 
+Linux tray integration uses **ksni 0.3.6** (Unlicense), reusing zbus, Tokio and image.
+The unmodified license is retained in `assets/licenses/files/ksni-0.3.6-UNLICENSE`;
+`Cargo.lock` records the archive checksum.
+
 Linux call audio enables CPAL’s PulseAudio backend with **pulseaudio 0.3.1**
 (MIT), **enum-primitive-derive 0.3.0** (MIT), and **futures 0.3.34**
 (MIT OR Apache-2.0). Their unmodified license texts and provenance are bundled
@@ -64,7 +68,7 @@ The native attachment video adapter also uses **symphonia-codec-aac 0.6.1**
 the other Symphonia codecs, and ship through the same package copy step.
 
 The egui main experiment pins the egui/eframe ecosystem to upstream commit
-`65e7db3c06d779c60ac56647bdd3011ed8ba1cbd` (version 0.36.2, MIT OR Apache-2.0).
+`8fb03c9ae9a6bf1ffa602dfba51ed575f2655975` (version 0.36.2, MIT OR Apache-2.0).
 It adds unicode-properties 0.1.4 (MIT/Apache-2.0) and updates glifo to 0.3.0 and
 vello_common/vello_cpu to 0.2.0 (Apache-2.0 OR MIT). Epaint bundled fonts and
 their separate license obligations are unchanged. Native font fallback uses

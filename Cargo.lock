@@ -1723,7 +1723,7 @@ dependencies = [
 [[package]]
 name = "ecolor"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=5931e21d1f3676c49b89c9b3202bcb6d48330b47#5931e21d1f3676c49b89c9b3202bcb6d48330b47"
+source = "git+https://github.com/emilk/egui?rev=8fb03c9ae9a6bf1ffa602dfba51ed575f2655975#8fb03c9ae9a6bf1ffa602dfba51ed575f2655975"
 dependencies = [
  "bytemuck",
  "emath",
@@ -1757,7 +1757,7 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=5931e21d1f3676c49b89c9b3202bcb6d48330b47#5931e21d1f3676c49b89c9b3202bcb6d48330b47"
+source = "git+https://github.com/emilk/egui?rev=8fb03c9ae9a6bf1ffa602dfba51ed575f2655975#8fb03c9ae9a6bf1ffa602dfba51ed575f2655975"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1792,7 +1792,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=5931e21d1f3676c49b89c9b3202bcb6d48330b47#5931e21d1f3676c49b89c9b3202bcb6d48330b47"
+source = "git+https://github.com/emilk/egui?rev=8fb03c9ae9a6bf1ffa602dfba51ed575f2655975#8fb03c9ae9a6bf1ffa602dfba51ed575f2655975"
 dependencies = [
  "accesskit",
  "ahash",
@@ -1811,7 +1811,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=5931e21d1f3676c49b89c9b3202bcb6d48330b47#5931e21d1f3676c49b89c9b3202bcb6d48330b47"
+source = "git+https://github.com/emilk/egui?rev=8fb03c9ae9a6bf1ffa602dfba51ed575f2655975#8fb03c9ae9a6bf1ffa602dfba51ed575f2655975"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1830,7 +1830,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=5931e21d1f3676c49b89c9b3202bcb6d48330b47#5931e21d1f3676c49b89c9b3202bcb6d48330b47"
+source = "git+https://github.com/emilk/egui?rev=8fb03c9ae9a6bf1ffa602dfba51ed575f2655975#8fb03c9ae9a6bf1ffa602dfba51ed575f2655975"
 dependencies = [
  "accesskit_winit",
  "arboard",
@@ -1851,7 +1851,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=5931e21d1f3676c49b89c9b3202bcb6d48330b47#5931e21d1f3676c49b89c9b3202bcb6d48330b47"
+source = "git+https://github.com/emilk/egui?rev=8fb03c9ae9a6bf1ffa602dfba51ed575f2655975#8fb03c9ae9a6bf1ffa602dfba51ed575f2655975"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1864,7 +1864,7 @@ dependencies = [
 [[package]]
 name = "egui_system_fonts"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=5931e21d1f3676c49b89c9b3202bcb6d48330b47#5931e21d1f3676c49b89c9b3202bcb6d48330b47"
+source = "git+https://github.com/emilk/egui?rev=8fb03c9ae9a6bf1ffa602dfba51ed575f2655975#8fb03c9ae9a6bf1ffa602dfba51ed575f2655975"
 dependencies = [
  "epaint",
  "fontique",
@@ -1905,7 +1905,7 @@ dependencies = [
 [[package]]
 name = "emath"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=5931e21d1f3676c49b89c9b3202bcb6d48330b47#5931e21d1f3676c49b89c9b3202bcb6d48330b47"
+source = "git+https://github.com/emilk/egui?rev=8fb03c9ae9a6bf1ffa602dfba51ed575f2655975#8fb03c9ae9a6bf1ffa602dfba51ed575f2655975"
 dependencies = [
  "bytemuck",
 ]
@@ -1951,7 +1951,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=5931e21d1f3676c49b89c9b3202bcb6d48330b47#5931e21d1f3676c49b89c9b3202bcb6d48330b47"
+source = "git+https://github.com/emilk/egui?rev=8fb03c9ae9a6bf1ffa602dfba51ed575f2655975#8fb03c9ae9a6bf1ffa602dfba51ed575f2655975"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1976,7 +1976,7 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=5931e21d1f3676c49b89c9b3202bcb6d48330b47#5931e21d1f3676c49b89c9b3202bcb6d48330b47"
+source = "git+https://github.com/emilk/egui?rev=8fb03c9ae9a6bf1ffa602dfba51ed575f2655975#8fb03c9ae9a6bf1ffa602dfba51ed575f2655975"
 
 [[package]]
 name = "equivalent"
@@ -3598,6 +3598,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
+name = "ksni"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "814b44c24cd2cb236c3b8a41c7f08237b452a8e76ecaa81f1cec40b5b678215b"
+dependencies = [
+ "futures-util",
+ "pastey",
+ "serde",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
 name = "kstring"
 version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5052,7 +5065,9 @@ dependencies = [
  "gstreamer-app",
  "gstreamer-video",
  "gtk4",
+ "image",
  "keyring",
+ "ksni",
  "model",
  "notify-rust",
  "objc2 0.6.4",
@@ -5073,6 +5088,7 @@ dependencies = [
  "windows-core 0.61.2",
  "winit",
  "wry",
+ "zbus",
  "zeroize",
 ]
 
@@ -7177,6 +7193,19 @@ checksum = "1ad61aed86bc3faea4300c7aee358b4c6d0c8d6ccc36524c96e4c92ccf26e77e"
 dependencies = [
  "num-integer",
  "strength_reduce",
+]
+
+[[package]]
+name = "tray-debug"
+version = "0.1.0"
+dependencies = [
+ "egui",
+ "image",
+ "ksni",
+ "platform",
+ "tokio",
+ "winit",
+ "zbus",
 ]
 
 [[package]]

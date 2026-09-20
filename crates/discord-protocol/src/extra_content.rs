@@ -184,11 +184,11 @@ mod tests {
 			assert!(decode::<MessageDto>(bytes.as_bytes()).is_err());
 			assert!(decode::<PatchDto>(bytes.as_bytes()).is_err());
 		}
-		for count in [100, 101] {
+		for count in [40, 41] {
 			let fields = format!(r#", "components":[{}]"#, vec!["{}"; count].join(","));
 			let bytes = wire(&fields);
-			assert_eq!(decode::<MessageDto>(bytes.as_bytes()).is_ok(), count == 100);
-			assert_eq!(decode::<PatchDto>(bytes.as_bytes()).is_ok(), count == 100);
+			assert_eq!(decode::<MessageDto>(bytes.as_bytes()).is_ok(), count == 40);
+			assert_eq!(decode::<PatchDto>(bytes.as_bytes()).is_ok(), count == 40);
 		}
 		for count in [64, 65] {
 			let fields = (0..count)
@@ -205,5 +205,26 @@ mod tests {
 		));
 		assert!(decode::<MessageDto>(bytes.as_bytes()).is_err());
 		assert!(decode::<PatchDto>(bytes.as_bytes()).is_err());
+	}
+}
+
+#[cfg(test)]
+mod component_bounds {
+	#[test]
+	fn preserves_defaults_unknown_types_and_bounds_each_subtree() {
+		let parsed: model::ComponentList = crate::decode(br#"[{"type":18,"component":{"type":4,"custom_id":"text"}},{"type":23,"default":true},{"type":250}]"#).unwrap();
+		assert!(parsed.0[0].component.as_ref().unwrap().required);
+		assert!(parsed.0[1].default);
+		assert_eq!(parsed.0[2].kind, 250);
+		let mut component = serde_json::json!({"type":2});
+		for _ in 0..model::MAX_COMPONENT_DEPTH {
+			component = serde_json::json!({"type":17,"components":[component]});
+		}
+		assert!(
+			crate::decode::<model::ComponentList>(
+				serde_json::to_string(&vec![component]).unwrap().as_bytes()
+			)
+			.is_err()
+		);
 	}
 }

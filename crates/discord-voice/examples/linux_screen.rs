@@ -42,6 +42,7 @@ mod diagnostics;
 #[cfg(target_os = "linux")]
 fn main() {
 	use ::gstreamer as gst;
+	use gst::prelude::*;
 	use gstreamer::{Capture, Mode};
 	use std::{
 		sync::{
@@ -57,6 +58,12 @@ fn main() {
 	runtime.block_on(async {
 		assert_eq!(portal_linux::Portal::open(true, &AtomicBool::new(true)).await.err(), Some("Screen sharing was cancelled."));
 		gst::init().unwrap();
+		// Construct only: never transition this source out of Null or capture a desktop.
+		let x11 = linux::x11_source(false).expect("install GStreamer Good for X11 capture");
+		assert!(!x11.property::<bool>("show-pointer"));
+		assert!(!x11.property::<bool>("use-damage"));
+		assert_eq!(x11.property::<u64>("xid"), 0, "explicit whole-desktop source");
+		drop(x11);
 		let settings = Settings { source: SourceId::Display(1), width: 1280, height: 720, fps: 30, cursor: true, audio: false };
 		let stop = Arc::new(AtomicBool::new(false));
 		let ready = Arc::new(AtomicBool::new(false));

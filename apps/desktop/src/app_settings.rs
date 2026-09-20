@@ -32,7 +32,12 @@ impl Settings {
 			notification_options: ui.notification_options,
 			show_hidden_channels: ui.show_hidden_channels,
 			hide_title_bar: ui.hide_title_bar,
+			gpu_preference: ui.gpu_preference,
 			primary_color: ui.primary_color,
+			transparency_blur: ui.transparency_blur,
+			transparency: ui.transparency,
+			blur: ui.blur,
+			transparent_all: ui.transparent_all,
 			voice_noise_suppression: ui.voice_noise_suppression,
 			voice_push_to_talk: ui.voice_push_to_talk,
 			voice_muted: ui.voice_muted,
@@ -63,7 +68,12 @@ impl Settings {
 		ui.notification_options = value.notification_options;
 		ui.show_hidden_channels = value.show_hidden_channels;
 		ui.hide_title_bar = value.hide_title_bar;
+		ui.gpu_preference = value.gpu_preference;
 		ui.primary_color = value.primary_color;
+		ui.transparency_blur = value.transparency_blur;
+		ui.transparency = value.transparency;
+		ui.blur = value.blur;
+		ui.transparent_all = value.transparent_all;
 		ui.voice_noise_suppression = value.voice_noise_suppression;
 		ui.voice_push_to_talk = value.voice_push_to_talk;
 		ui.voice_muted = value.voice_muted;

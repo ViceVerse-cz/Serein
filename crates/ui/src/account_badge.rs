@@ -76,6 +76,7 @@ mod tests {
 						name: "A very long synthetic nickname".repeat(4),
 						avatar: None,
 						discriminator: 0,
+						primary_guild: None,
 						kind,
 						webhook,
 					};

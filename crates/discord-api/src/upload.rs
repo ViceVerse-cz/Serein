@@ -9,7 +9,7 @@ use std::{
 };
 use tokio::{fs::File, io::AsyncReadExt, sync::watch};
 
-pub const MAX_BYTES: u64 = 20_000_000;
+pub const MAX_BYTES: u64 = 500_000_000;
 pub const MAX_FILES: usize = 10;
 pub const MAX_TOTAL_BYTES: u64 = MAX_BYTES;
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -51,7 +51,7 @@ impl Source {
 			return Err("Choose a regular file");
 		}
 		if metadata.len() == 0 || metadata.len() > MAX_BYTES {
-			return Err("Choose a nonempty file up to 20 MB");
+			return Err("Choose a nonempty file up to Discord's 500 MB maximum");
 		}
 		Ok(Self {
 			bytes: None,
@@ -66,7 +66,7 @@ impl Source {
 	/// A pasted PNG stays in bounded session memory, never in a temporary file.
 	pub fn pasted_png(bytes: Vec<u8>) -> Result<Self, &'static str> {
 		if bytes.is_empty() || bytes.len() as u64 > MAX_BYTES {
-			return Err("Choose a nonempty image up to 20 MB");
+			return Err("Choose a nonempty image up to Discord's 500 MB maximum");
 		}
 		Ok(Self {
 			path: PathBuf::new(),
@@ -143,6 +143,7 @@ struct Target {
 
 /// What the staged files belong to: a message in an existing channel, or a new forum post.
 enum Destination {
+	Interaction(client_core::interactions::Request),
 	Send {
 		nonce: String,
 		reply: Option<client_core::Reply>,
@@ -157,6 +158,12 @@ impl Destination {
 	/// Report a failure as the event the caller's flow expects; no write was accepted.
 	fn failed(self, channel: model::Id, failure: Failure) -> Event {
 		match self {
+			Self::Interaction(request) => {
+				Event::Interaction(client_core::interactions::Event::Submitted {
+					nonce: request.nonce,
+					result: Err(failure),
+				})
+			}
 			Self::Send { nonce, .. } => Event::SendResult {
 				nonce,
 				result: Err(failure),
@@ -197,6 +204,27 @@ impl DiscordApi {
 		mut cancel: watch::Receiver<bool>,
 	) -> Event {
 		let (channel, content, target) = match command {
+			Command::Interaction(request) => {
+				if !request.valid()
+					|| !crate::interactions::valid_uploads(&request, sources.len())
+					|| !crate::interactions::valid_file_types(&request, &sources)
+					|| !matches!(&request.data, client_core::interactions::Data::Modal { .. })
+				{
+					progress
+						.send_replace(Status::Failed("Invalid modal upload; reselect the files"));
+					return Event::Interaction(client_core::interactions::Event::Submitted {
+						nonce: request.nonce,
+						result: Err(Failure::ProtocolAt(
+							"Invalid modal upload; reselect the files",
+						)),
+					});
+				}
+				(
+					request.channel_id,
+					String::new(),
+					Destination::Interaction(request),
+				)
+			}
 			Command::Send {
 				channel,
 				content,
@@ -234,7 +262,9 @@ impl DiscordApi {
 			|| sources.len() > MAX_FILES
 			|| sources.iter().map(Source::size).sum::<u64>() > MAX_TOTAL_BYTES
 		{
-			let failure = Failure::ProtocolAt("Choose up to 10 files totaling at most 20 MB");
+			let failure = Failure::ProtocolAt(
+				"Choose up to 10 files totaling at most 500 MB; account limits may be lower",
+			);
 			progress.send_replace(Status::Failed(failure.label()));
 			return target.failed(channel, failure);
 		}
@@ -277,6 +307,18 @@ impl DiscordApi {
 		};
 		progress.send_replace(Status::Sending);
 		match target {
+			Destination::Interaction(request) => {
+				let result = tokio::select! {
+					biased;
+					_ = cancelled(&mut cancel) => Err(Failure::Ambiguous),
+					result = self.interaction(&request,Some(attachment)) => result,
+				};
+				progress.send_replace(status(&result));
+				Event::Interaction(client_core::interactions::Event::Submitted {
+					nonce: request.nonce,
+					result,
+				})
+			}
 			Destination::Send { nonce, reply } => {
 				let result = tokio::select! {
 					biased;
@@ -707,6 +749,8 @@ mod tests {
 			.open(&empty.0)
 			.await
 			.unwrap();
+		large.set_len(20_000_001).await.unwrap();
+		assert!(Source::inspect(empty.0.clone()).await.is_ok());
 		large.set_len(MAX_BYTES + 1).await.unwrap();
 		assert!(Source::inspect(empty.0.clone()).await.is_err());
 		drop(large);

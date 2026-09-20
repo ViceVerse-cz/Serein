@@ -9,8 +9,8 @@ use std::{
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
-const NATIVE_SCHEMA: u32 = 18;
-const READABLE_SCHEMA: u32 = 19;
+const NATIVE_SCHEMA: u32 = 20;
+const READABLE_SCHEMA: u32 = 20;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
 fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
@@ -41,6 +41,10 @@ pub struct AppPreferences {
 	pub show_hidden_channels: bool,
 	pub hide_title_bar: bool,
 	pub primary_color: Option<[u8; 3]>,
+	pub transparency_blur: bool,
+	pub transparency: u8,
+	pub blur: u8,
+	pub transparent_all: bool,
 	pub voice_noise_suppression: bool,
 	pub voice_push_to_talk: bool,
 	pub voice_muted: bool,
@@ -49,6 +53,8 @@ pub struct AppPreferences {
 	pub voice_output: Option<String>,
 	pub input_percent: u16,
 	pub output_percent: u16,
+	/// Which GPU renders the window; applied on the next start.
+	pub gpu_preference: model::GpuPreference,
 	/// Device-local, account-independent keyboard bindings.
 	pub keybinds: model::Keybinds,
 	/// Expanded server folders, bounded so one device preference stays small.
@@ -68,6 +74,10 @@ impl Default for AppPreferences {
 			show_hidden_channels: false,
 			hide_title_bar: false,
 			primary_color: None,
+			transparency_blur: false,
+			transparency: 15,
+			blur: 50,
+			transparent_all: false,
 			voice_noise_suppression: false,
 			voice_push_to_talk: false,
 			voice_muted: false,
@@ -76,6 +86,7 @@ impl Default for AppPreferences {
 			voice_output: None,
 			input_percent: 100,
 			output_percent: 100,
+			gpu_preference: Default::default(),
 			keybinds: Default::default(),
 			expanded_folders: Vec::new(),
 			user_volumes: Vec::new(),
@@ -85,7 +96,9 @@ impl Default for AppPreferences {
 }
 impl AppPreferences {
 	pub fn is_valid(&self) -> bool {
-		self.input_percent <= 200
+		self.transparency <= 100
+			&& self.blur <= 100
+			&& self.input_percent <= 200
 			&& self.output_percent <= 200
 			&& self.expanded_folders.len() <= 256
 			&& self.user_volumes.len() <= 64
@@ -174,6 +187,7 @@ impl LocalStore {
 		}
 		connection.execute_batch("PRAGMA page_size=4096; PRAGMA max_page_count=16384; PRAGMA cache_size=-2048; PRAGMA temp_store=MEMORY; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=8388608; PRAGMA secure_delete=ON; PRAGMA auto_vacuum=INCREMENTAL;
             CREATE TABLE IF NOT EXISTS messages(account TEXT NOT NULL,channel TEXT NOT NULL,id TEXT NOT NULL,author TEXT NOT NULL,name TEXT NOT NULL,content TEXT NOT NULL,edited INTEGER NOT NULL,reply TEXT,unsupported INTEGER NOT NULL,PRIMARY KEY(account,channel,id));
+            CREATE INDEX IF NOT EXISTS messages_channel_order ON messages(account,channel,length(id),id);
             CREATE TABLE IF NOT EXISTS channels(account TEXT NOT NULL,channel TEXT NOT NULL,touched INTEGER NOT NULL,PRIMARY KEY(account,channel));
             CREATE TABLE IF NOT EXISTS drafts(account TEXT NOT NULL,channel TEXT NOT NULL,content TEXT NOT NULL,PRIMARY KEY(account,channel));
             CREATE TABLE IF NOT EXISTS appearance(singleton INTEGER PRIMARY KEY CHECK(singleton=1),theme TEXT NOT NULL CHECK(theme IN ('light','dark')));
@@ -248,7 +262,33 @@ impl LocalStore {
 			[],
 			|row| row.get(0),
 		)?;
+		let has_components: bool = connection.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='components')",
+			[],
+			|row| row.get(0),
+		)?;
+		let has_application_id: bool = connection.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='application_id')",
+			[],
+			|row| row.get(0),
+		)?;
+		let has_original_flags: bool = connection.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='original_flags')",
+			[],
+			|row| row.get(0),
+		)?;
 		let transaction = connection.transaction()?;
+		if !has_original_flags {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN original_flags TEXT NOT NULL DEFAULT '0' CHECK(typeof(original_flags)='text' AND length(CAST(original_flags AS BLOB)) BETWEEN 1 AND 20);")?;
+		}
+
+		if !has_application_id {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN application_id TEXT;")?;
+		}
+		if !has_components {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN components TEXT NOT NULL DEFAULT '[]' CHECK(length(CAST(components AS BLOB))<=262144);")?;
+		}
+
 		if !has_forwarded {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN forwarded INTEGER NOT NULL DEFAULT 0 CHECK(typeof(forwarded)='integer' AND forwarded IN (0,1));")?;
 		}
@@ -287,7 +327,28 @@ impl LocalStore {
             CREATE TABLE IF NOT EXISTS channel_preferences(
                 account TEXT PRIMARY KEY NOT NULL,
                 value TEXT NOT NULL CHECK(typeof(value)='text' AND length(CAST(value AS BLOB))<=8192)
+            );
+            CREATE TABLE IF NOT EXISTS accounts(
+                account TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL CHECK(typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 64),
+                display TEXT CHECK(display IS NULL OR (typeof(display)='text' AND length(CAST(display AS BLOB)) BETWEEN 1 AND 64)),
+                avatar TEXT CHECK(avatar IS NULL OR (typeof(avatar)='text' AND length(avatar) BETWEEN 1 AND 34)),
+                discriminator INTEGER NOT NULL CHECK(typeof(discriminator)='integer' AND discriminator BETWEEN 0 AND 9999),
+                touched INTEGER NOT NULL CHECK(typeof(touched)='integer'),
+                has_token INTEGER NOT NULL DEFAULT 0 CHECK(typeof(has_token)='integer' AND has_token IN (0,1))
             );")?;
+		let has_token_column: bool = transaction.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('accounts') WHERE name='has_token')",
+			[],
+			|row| row.get(0),
+		)?;
+		if !has_token_column {
+			// Rows predating the flag came from a build that wrote a per-account entry on every
+			// connect, so their entries exist. Claiming otherwise would rewrite each one, which
+			// on macOS is an access-controlled keychain operation; a wrong claim self-heals on
+			// the next switch instead.
+			transaction.execute_batch("ALTER TABLE accounts ADD COLUMN has_token INTEGER NOT NULL DEFAULT 0 CHECK(typeof(has_token)='integer' AND has_token IN (0,1)); UPDATE accounts SET has_token=1;")?;
+		}
 		transaction.pragma_update(None, "user_version", version.max(NATIVE_SCHEMA))?;
 		let has_animate_gifs: bool = transaction.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='animate_gifs')",
@@ -593,6 +654,9 @@ impl LocalStore {
 						&& (!matches!(m.kind, 19 | 23)
 							|| !m.reply_to.is_some_and(|id| id.0 > 0 && id < m.id)))
 					|| !model::valid_mentions(&m.mentions)
+					|| m.ephemeral || m.flags & 64 != 0
+					|| m.application_id.is_some_and(|id| id.0 == 0)
+					|| !model::valid_components(&m.components)
 					|| !model::valid_embeds(&m.embeds)
 					|| !model::valid_attachments(&m.attachments)
 			}) {
@@ -616,7 +680,7 @@ impl LocalStore {
 			}
 		}
 		let mut insert = transaction.prepare_cached(
-            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)")?;
+            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)")?;
 		for message in messages {
 			if previous
 				.get(&message.id)
@@ -658,6 +722,11 @@ impl LocalStore {
 			{
 				return Err(StoreError::Capacity);
 			}
+			let components =
+				serde_json::to_string(&message.components).map_err(|_| StoreError::Incompatible)?;
+			if components.len() > MAX_MEDIA_JSON {
+				return Err(StoreError::Capacity);
+			}
 			let embeds =
 				serde_json::to_string(&message.embeds).map_err(|_| StoreError::Incompatible)?;
 			let attachments = serde_json::to_string(&message.attachments)
@@ -689,6 +758,9 @@ impl LocalStore {
 				message.forwarded,
 				author_roles,
 				message.author_nick.as_deref(),
+				components,
+				message.application_id.map(|id| id.to_string()),
+				message.flags.to_string(),
 			])?;
 		}
 		drop(insert);
@@ -706,7 +778,7 @@ impl LocalStore {
 			let bytes = if (page_count - free_pages) * page_size <= 48 * 1024 * 1024 {
 				0
 			} else {
-				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
+				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(original_flags AS BLOB))+length(CAST(components AS BLOB))+coalesce(length(CAST(application_id AS BLOB)),0)+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
 			};
 			if channels <= 20 && bytes <= 48 * 1024 * 1024 {
 				break;
@@ -733,7 +805,7 @@ impl LocalStore {
 		Ok(())
 	}
 	pub fn load_channel(&self, account: Id, channel: Id) -> Result<Vec<Message>> {
-		let mut query = self.0.prepare("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
+		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
 		let mut rows = query.query(params![account.to_string(), channel.to_string()])?;
 		let mut messages = Vec::new();
 		let mut bytes = 0;
@@ -771,6 +843,8 @@ impl LocalStore {
 				(11, MAX_MEDIA_JSON),
 				(12, 128 * 1024),
 				(19, 16 * 1024),
+				(21, MAX_MEDIA_JSON),
+				(23, 20),
 			] {
 				if row
 					.get_ref(column)?
@@ -781,7 +855,7 @@ impl LocalStore {
 					return Err(StoreError::Capacity);
 				}
 			}
-			for (column, maximum) in [(5, 20), (7, 34), (20, 512)] {
+			for (column, maximum) in [(5, 20), (7, 34), (20, 512), (22, 20)] {
 				if !matches!(row.get_ref(column)?, rusqlite::types::ValueRef::Null)
 					&& row
 						.get_ref(column)?
@@ -837,11 +911,35 @@ impl LocalStore {
 				}
 				_ => return Err(StoreError::Incompatible),
 			};
+			let flags_text = row
+				.get_ref(23)?
+				.as_str()
+				.map_err(|_| StoreError::Incompatible)?;
+			if flags_text.is_empty() || !flags_text.bytes().all(|b| b.is_ascii_digit()) {
+				return Err(StoreError::Incompatible);
+			}
+			let flags = flags_text
+				.parse::<u64>()
+				.map_err(|_| StoreError::Incompatible)?;
+			if flags & 64 != 0 {
+				return Err(StoreError::Incompatible);
+			}
 			let message = Message {
+				flags,
+				ephemeral: false,
+				application_id: row.get::<_, Option<String>>(22)?.map(parse).transpose()?,
+				components: serde_json::from_str::<model::ComponentList>(
+					row.get_ref(21)?
+						.as_str()
+						.map_err(|_| StoreError::Incompatible)?,
+				)
+				.map_err(|_| StoreError::Incompatible)?
+				.0,
 				reactions: None,
 				id: parse(row.get(0)?)?,
 				channel,
 				author: User {
+					primary_guild: None,
 					id: parse(row.get(1)?)?,
 					name: row.get(2)?,
 					avatar: row.get(7)?,
@@ -1023,6 +1121,95 @@ impl LocalStore {
 		transaction.commit()?;
 		Ok(())
 	}
+	/// Switcher roster, most recently used first. Damaged rows are skipped, never fatal.
+	pub fn accounts(&self) -> Result<Vec<model::SavedAccount>> {
+		Ok(self.ordered_accounts()?.0)
+	}
+	/// Valid rows newest first, bounded, plus the IDs of every row that cannot produce a
+	/// usable account. Filtering happens before the bound, so a row the switcher could never
+	/// offer — a damaged ID or avatar written outside this client — cannot hide a real one.
+	fn ordered_accounts(&self) -> Result<(Vec<model::SavedAccount>, Vec<String>)> {
+		let mut query = self.0.prepare(
+			"SELECT account,name,display,avatar,discriminator,has_token FROM accounts ORDER BY touched DESC,account",
+		)?;
+		let mut rows = query.query([])?;
+		let mut accounts = Vec::new();
+		let mut damaged = Vec::new();
+		while let Some(row) = rows.next()? {
+			let stored: String = row.get(0)?;
+			let account = row.get::<_, String>(0)?.parse::<Id>().ok().map(|id| {
+				Ok::<_, rusqlite::Error>(model::SavedAccount {
+					id,
+					name: row.get(1)?,
+					display: row.get(2)?,
+					avatar: row.get(3)?,
+					discriminator: row.get::<_, i64>(4)?.clamp(0, 9999) as u16,
+					has_token: row.get::<_, i64>(5)? == 1,
+				})
+			});
+			match account {
+				Some(account) if account.as_ref().is_ok_and(model::SavedAccount::is_valid) => {
+					accounts.push(account?);
+				}
+				_ => damaged.push(stored),
+			}
+		}
+		accounts.truncate(model::MAX_SAVED_ACCOUNTS);
+		Ok((accounts, damaged))
+	}
+	/// Records whether the credential store holds this account's own entry. Separate from
+	/// `save_account` so an identity refresh can never claim a token that was never written.
+	pub fn set_account_token(&self, account: Id, has_token: bool) -> Result<()> {
+		self.0.execute(
+			"UPDATE accounts SET has_token=?2 WHERE account=?1",
+			params![account.to_string(), i64::from(has_token)],
+		)?;
+		Ok(())
+	}
+	/// Remembers one account and returns the IDs pruned to keep the roster bounded.
+	/// Callers own removing the pruned accounts' credential-store entries.
+	pub fn save_account(&mut self, account: &model::SavedAccount) -> Result<Vec<Id>> {
+		if !account.is_valid() {
+			return Err(StoreError::Capacity);
+		}
+		let transaction = self.0.transaction()?;
+		transaction.execute(
+			"INSERT INTO accounts(account,name,display,avatar,discriminator,touched) VALUES(?1,?2,?3,?4,?5,
+             MAX(unixepoch('subsec')*1000,(SELECT IFNULL(MAX(touched),0)+1 FROM accounts)))
+             ON CONFLICT(account) DO UPDATE SET name=excluded.name,display=excluded.display,avatar=excluded.avatar,discriminator=excluded.discriminator,touched=excluded.touched",
+			params![
+				account.id.to_string(),
+				account.name,
+				account.display,
+				account.avatar,
+				account.discriminator
+			],
+		)?;
+		transaction.commit()?;
+		// Keep the newest valid rows and drop everything else, damaged rows included, so a row
+		// that cannot be offered never costs a real account its place.
+		let (keep, damaged) = self.ordered_accounts()?;
+		let keep: std::collections::BTreeSet<Id> = keep.into_iter().map(|a| a.id).collect();
+		let transaction = self.0.transaction()?;
+		let mut pruned = Vec::new();
+		{
+			let mut query = transaction.prepare("SELECT account FROM accounts")?;
+			let mut rows = query.query([])?;
+			while let Some(row) = rows.next()? {
+				let stored: String = row.get(0)?;
+				match stored.parse::<Id>() {
+					Ok(id) if keep.contains(&id) => {}
+					Ok(id) => pruned.push(id),
+					Err(_) => {}
+				}
+			}
+		}
+		for id in pruned.iter().map(Id::to_string).chain(damaged) {
+			transaction.execute("DELETE FROM accounts WHERE account=?1", [id])?;
+		}
+		transaction.commit()?;
+		Ok(pruned)
+	}
 	pub fn forget_account(&mut self, account: Id) -> Result<()> {
 		let transaction = self.0.transaction()?;
 		for table in [
@@ -1031,6 +1218,7 @@ impl LocalStore {
 			"drafts",
 			"gif_favorites",
 			"channel_preferences",
+			"accounts",
 		] {
 			transaction.execute(
 				&format!("DELETE FROM {table} WHERE account=?1"),
@@ -1045,6 +1233,215 @@ impl LocalStore {
 }
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn channel_order_index_upgrades_existing_cache_and_preserves_unsigned_ids() {
+		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		let ids = [9, 10, 99, 100, i64::MAX as u64 + 1, u64::MAX];
+		for id in ids.into_iter().rev() {
+			store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES('1','2',?1,'4','Synthetic','body',0,0)", [id.to_string()]).unwrap();
+		}
+		store
+			.0
+			.execute_batch("DROP INDEX messages_channel_order")
+			.unwrap();
+		let store = LocalStore::initialize(store.0).unwrap();
+		for _ in 0..2 {
+			assert_eq!(
+				store
+					.load_channel(Id(1), Id(2))
+					.unwrap()
+					.iter()
+					.map(|m| m.id.0)
+					.collect::<Vec<_>>(),
+				ids
+			);
+			assert!(store.load_channel(Id(2), Id(2)).unwrap().is_empty());
+		}
+		let mut query = store.0.prepare("EXPLAIN QUERY PLAN SELECT id,content FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500").unwrap();
+		let plan = query
+			.query_map(["1", "2"], |row| row.get::<_, String>(3))
+			.unwrap()
+			.collect::<rusqlite::Result<Vec<_>>>()
+			.unwrap();
+		assert!(
+			plan.iter()
+				.any(|step| step.contains("messages_channel_order")),
+			"{plan:?}"
+		);
+		assert!(
+			!plan.iter().any(|step| step.contains("TEMP B-TREE")),
+			"{plan:?}"
+		);
+	}
+
+	#[test]
+	#[ignore = "manual release benchmark; synthetic in-memory SQLite, not disk or UI latency"]
+	fn benchmark_channel_load() {
+		use std::{hint::black_box, time::Instant};
+		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		for count in [1, 50, 500] {
+			for id in 1..=count {
+				store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES('1',?1,?2,'4','Synthetic','synthetic benchmark message',0,0)", rusqlite::params![count.to_string(), id.to_string()]).unwrap();
+			}
+			let mut samples = Vec::new();
+			for run in 0..6 {
+				let start = Instant::now();
+				for _ in 0..200 {
+					let loaded = store
+						.load_channel(black_box(Id(1)), black_box(Id(count)))
+						.unwrap();
+					assert_eq!(loaded.len(), count as usize);
+					black_box(loaded);
+				}
+				if run != 0 {
+					samples.push(start.elapsed());
+				}
+			}
+			samples.sort_unstable();
+			println!(
+				"200 channel loads, {count} rows: median {:?}, samples {:?}",
+				samples[2], samples
+			);
+		}
+	}
+
+	#[test]
+	fn switcher_roster_orders_by_last_use_prunes_and_clears_with_the_account() {
+		use super::{Id, LocalStore};
+		let path =
+			std::env::temp_dir().join(format!("serein-accounts-{}.sqlite", std::process::id()));
+		let _ = std::fs::remove_file(&path);
+		let mut store = LocalStore::open(&path).unwrap();
+		let entry = |id: u64| model::SavedAccount {
+			id: Id(id),
+			name: format!("synthetic{id}"),
+			display: Some(format!("Synthetic {id}")),
+			avatar: None,
+			discriminator: 0,
+			has_token: false,
+		};
+		assert!(store.accounts().unwrap().is_empty());
+		// One extra account beyond the bound: the least recently used entry is pruned.
+		let mut pruned = Vec::new();
+		for id in 1..=(model::MAX_SAVED_ACCOUNTS as u64 + 1) {
+			pruned.extend(store.save_account(&entry(id)).unwrap());
+		}
+		assert_eq!(pruned, vec![Id(1)]);
+		let accounts = store.accounts().unwrap();
+		assert_eq!(accounts.len(), model::MAX_SAVED_ACCOUNTS);
+		assert_eq!(accounts[0].id, Id(model::MAX_SAVED_ACCOUNTS as u64 + 1));
+		assert!(!accounts.iter().any(|account| account.id == Id(1)));
+		// Re-saving moves an account back to the front and updates its identity.
+		let mut renamed = entry(2);
+		renamed.display = Some("Renamed".into());
+		assert!(store.save_account(&renamed).unwrap().is_empty());
+		let accounts = store.accounts().unwrap();
+		assert_eq!(accounts[0], renamed);
+		// The token flag is owned by set_account_token: an identity refresh never claims one,
+		// so the client cannot be tricked into skipping the write that backs the switcher.
+		assert!(!store.accounts().unwrap()[0].has_token);
+		store.set_account_token(Id(2), true).unwrap();
+		assert!(
+			store
+				.accounts()
+				.unwrap()
+				.iter()
+				.find(|account| account.id == Id(2))
+				.unwrap()
+				.has_token
+		);
+		let mut renamed_again = renamed.clone();
+		renamed_again.display = Some("Renamed twice".into());
+		assert!(store.save_account(&renamed_again).unwrap().is_empty());
+		let refreshed = store.accounts().unwrap();
+		let refreshed = refreshed
+			.iter()
+			.find(|account| account.id == Id(2))
+			.unwrap();
+		assert_eq!(refreshed.display.as_deref(), Some("Renamed twice"));
+		assert!(refreshed.has_token);
+		store.set_account_token(Id(2), false).unwrap();
+		assert!(
+			!store
+				.accounts()
+				.unwrap()
+				.iter()
+				.find(|account| account.id == Id(2))
+				.unwrap()
+				.has_token
+		);
+		store.set_account_token(Id(2), true).unwrap();
+		// A row that could never be offered — written outside this client — neither occupies a
+		// slot in the bounded roster nor survives the next write.
+		store
+			.0
+			.execute(
+				"INSERT INTO accounts(account,name,display,avatar,discriminator,touched,has_token)
+                 VALUES('0','damaged',NULL,NULL,0,unixepoch('subsec')*1000+5000,0)",
+				[],
+			)
+			.unwrap();
+		let listed = store.accounts().unwrap();
+		// The damaged row is newest, so an unfiltered LIMIT would have dropped a real account.
+		assert_eq!(listed.len(), model::MAX_SAVED_ACCOUNTS);
+		assert!(listed.iter().all(|account| account.id != Id(0)));
+		for id in 2..=(model::MAX_SAVED_ACCOUNTS as u64 + 1) {
+			assert!(listed.iter().any(|account| account.id == Id(id)), "{id}");
+		}
+		assert!(store.save_account(&entry(2)).unwrap().is_empty());
+		let damaged: i64 = store
+			.0
+			.query_row(
+				"SELECT COUNT(*) FROM accounts WHERE account='0'",
+				[],
+				|row| row.get(0),
+			)
+			.unwrap();
+		assert_eq!(damaged, 0, "a damaged row is dropped, not counted");
+		// Oversized identities never reach the table, and forgetting an account drops its row.
+		let mut invalid = entry(3);
+		invalid.name = "n".repeat(65);
+		assert!(store.save_account(&invalid).is_err());
+		store.forget_account(Id(2)).unwrap();
+		let accounts = store.accounts().unwrap();
+		assert!(!accounts.iter().any(|account| account.id == Id(2)));
+		assert_eq!(accounts.len(), model::MAX_SAVED_ACCOUNTS - 1);
+		drop(store);
+		let _ = std::fs::remove_file(&path);
+	}
+	#[test]
+	fn roster_upgrade_keeps_existing_accounts_switchable_without_rewriting_their_entries() {
+		use super::{Id, LocalStore};
+		let path = std::env::temp_dir().join(format!(
+			"serein-roster-upgrade-{}.sqlite",
+			std::process::id()
+		));
+		let _ = std::fs::remove_file(&path);
+		let mut store = LocalStore::open(&path).unwrap();
+		store
+			.save_account(&model::SavedAccount {
+				id: Id(7),
+				name: "synthetic".into(),
+				display: None,
+				avatar: None,
+				discriminator: 0,
+				has_token: false,
+			})
+			.unwrap();
+		// Reopen as a build that predates the flag, then upgrade again.
+		store
+			.0
+			.execute_batch("ALTER TABLE accounts DROP COLUMN has_token;")
+			.unwrap();
+		drop(store);
+		let store = LocalStore::open(&path).unwrap();
+		let accounts = store.accounts().unwrap();
+		assert_eq!(accounts.len(), 1);
+		assert!(accounts[0].has_token, "upgraded rows keep their entry");
+		drop(store);
+		let _ = std::fs::remove_file(&path);
+	}
+
 	#[test]
 	fn forwarded_snapshot_survives_cache_reopen_and_upgrade() {
 		let path =
@@ -1158,6 +1555,10 @@ mod tests {
 			notifications_enabled: true,
 			hide_title_bar: true,
 			primary_color: Some([80, 120, 220]),
+			transparency_blur: true,
+			transparency: 30,
+			blur: 60,
+			transparent_all: true,
 			notification_options: model::notification_preferences::Device {
 				current_channel: true,
 				disable_sounds: true,
@@ -1169,10 +1570,14 @@ mod tests {
 			voice_deafened: true,
 			voice_input: Some("synthetic microphone".into()),
 			output_percent: 75,
+			gpu_preference: model::GpuPreference::PowerSaving,
 			..Default::default()
 		};
 		store.save_app_preferences(&value).unwrap();
 		assert_eq!(store.app_preferences().unwrap(), value);
+		value.transparency = 101;
+		assert!(store.save_app_preferences(&value).is_err());
+		value.transparency = 30;
 		value.input_percent = 201;
 		assert!(store.save_app_preferences(&value).is_err());
 		assert_eq!(store.app_preferences().unwrap().input_percent, 100);
@@ -1182,6 +1587,25 @@ mod tests {
 		assert_eq!(
 			store.app_preferences().unwrap().voice_input.as_deref(),
 			Some("synthetic microphone")
+		);
+		assert_eq!(
+			store.app_preferences().unwrap().gpu_preference,
+			model::GpuPreference::PowerSaving
+		);
+	}
+	#[test]
+	fn app_preferences_tolerate_an_unknown_gpu_preference() {
+		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		store
+			.0
+			.execute(
+				"INSERT INTO app_preferences VALUES(1,?1)",
+				[r#"{"gpu_preference":"quantum-gpu"}"#],
+			)
+			.unwrap();
+		assert_eq!(
+			store.app_preferences().unwrap().gpu_preference,
+			model::GpuPreference::Automatic
 		);
 	}
 	use super::*;
@@ -1233,7 +1657,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		for invalid in ["-1", "2", "1.5", "'bad'"] {
 			assert!(
 				store
@@ -1316,7 +1740,7 @@ mod tests {
 				.0
 				.pragma_query_value(None, "user_version", |row| row.get(0))
 				.unwrap();
-			assert_eq!(version, 18);
+			assert_eq!(version, NATIVE_SCHEMA);
 			let mut messages = store.load_channel(Id(1), Id(2)).unwrap();
 			assert_eq!(messages[0].kind, expected_kind);
 			assert_eq!(messages[0].extra_content.bits(), expected_markers);
@@ -1589,7 +2013,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		assert_eq!(
 			store.reading_preferences().unwrap(),
 			ReadingPreferences::default()
@@ -1906,7 +2330,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		let messages: Vec<_> = (0..32_u8)
 			.map(|bits| {
 				let mut message = legacy[0].clone();
@@ -1988,6 +2412,7 @@ mod tests {
 		assert!(messages[0].mentions.is_empty());
 		assert_eq!(store.load_drafts(Id(1)).unwrap()[&Id(2)], "kept draft");
 		messages[0].mentions = vec![User {
+			primary_guild: None,
 			id: Id(5),
 			name: "Mentioned user".into(),
 			avatar: None,
@@ -2098,7 +2523,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |r| r.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		for (json, error) in [
 			("broken JSON".to_owned(), StoreError::Incompatible),
 			(
@@ -2182,10 +2607,15 @@ mod tests {
 		);
 		for channel in 1..=30 {
 			let mut message = Message {
+				flags: 0,
+				components: vec![],
+				application_id: None,
+				ephemeral: false,
 				reactions: Some(vec![]),
 				id: Id(100),
 				channel: Id(channel),
 				author: User {
+					primary_guild: None,
 					id: Id(1),
 					name: "Synthetic".into(),
 					avatar: Some("0123456789abcdef0123456789abcdef".into()),
@@ -2276,5 +2706,48 @@ mod tests {
 		assert_eq!(store.appearance().unwrap(), Appearance::System);
 		drop(store);
 		std::fs::remove_dir_all(root).unwrap();
+	}
+}
+
+#[cfg(test)]
+mod component_storage_tests {
+	use super::*;
+
+	#[test]
+	fn components_migrate_round_trip_and_never_persist_private_replies() {
+		let mut store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES('1','2','3','4','Synthetic','kept',0,0)", []).unwrap();
+		for column in ["components", "application_id", "original_flags"] {
+			store
+				.0
+				.execute_batch(&format!(
+					"ALTER TABLE messages DROP COLUMN {column}; PRAGMA user_version=18;"
+				))
+				.unwrap();
+			store = LocalStore::initialize(store.0).unwrap();
+		}
+		let mut messages = store.load_channel(Id(1), Id(2)).unwrap();
+		messages[0].flags = !64;
+		messages[0].application_id = Some(Id(4));
+		messages[0].components = vec![model::Component {
+			kind: 2,
+			custom_id: Some("synthetic".into()),
+			label: Some("Press".into()),
+			style: Some(1),
+			..Default::default()
+		}];
+		store.save_channel(Id(1), Id(2), &messages).unwrap();
+		store = LocalStore::initialize(store.0).unwrap();
+		let loaded = store.load_channel(Id(1), Id(2)).unwrap();
+		assert_eq!(loaded[0].components, messages[0].components);
+		assert_eq!(loaded[0].application_id, Some(Id(4)));
+		assert_eq!(loaded[0].flags, !64);
+		messages[0].ephemeral = true;
+		messages[0].content = "private synthetic reply".into();
+		assert_eq!(
+			store.save_channel(Id(1), Id(2), &messages),
+			Err(StoreError::Capacity)
+		);
+		assert_eq!(store.load_channel(Id(1), Id(2)).unwrap()[0].content, "kept");
 	}
 }

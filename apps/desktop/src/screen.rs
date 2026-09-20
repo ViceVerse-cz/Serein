@@ -284,7 +284,7 @@ impl Screen {
 					self.status = if ui.screen.sources.is_empty() {
 						"No shareable screens or windows were found"
 					} else if cfg!(target_os = "linux") {
-						"Share Screen opens your desktop’s screen/window picker"
+						"Choose the system picker or, on X11, explicitly share the entire desktop"
 					} else {
 						"Choose a screen or window"
 					};

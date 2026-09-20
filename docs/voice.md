@@ -317,8 +317,12 @@ scaling, then the existing OpenH264 software encoder. The call stage identifies 
 active encoder and software fallback. GPU buffers stay native where driver/plugin
 negotiation permits; zero-copy is not guaranteed, especially across GPUs. Local preview
 is capped at 640×360/10 fps and suspended when minimized or viewing another channel.
-ScreenCast-capable portal backends are required on both Wayland and X11; there is no
-separate X11 capture fallback. AV1/H.265 sending is not included.
+The system picker requires a ScreenCast-capable portal backend. Native X11 sessions
+also offer an explicit “Entire X11 desktop · all monitors · no portal” source using
+GStreamer's `ximagesrc` (Good plugins). This shares the whole desktop, not an individual
+window; cancelling or failing the portal never selects it automatically. The existing
+7680×4320 source caps and bounded encoding/preview queues apply. Native X11 capture
+remains unverified. AV1/H.265 sending is not included.
 
 System audio defaults off on Linux and Windows. It shares other applications' playback,
 even when sharing one window, and excludes Serein's own audio, including call playback

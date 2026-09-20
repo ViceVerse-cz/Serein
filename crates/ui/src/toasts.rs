@@ -13,7 +13,7 @@ use egui::{Align2, RichText, Stroke};
 /// How long a toast rests on screen once drawn. Problems outlast pleasantries.
 fn lifetime(level: design::Level) -> f64 {
 	match level {
-		design::Level::Info => 4.0,
+		design::Level::Info | design::Level::Success => 4.0,
 		design::Level::Warning => 6.0,
 		design::Level::Error => 7.5,
 	}
@@ -82,6 +82,7 @@ impl Toasts {
 			}
 			let (tint, icon) = match toast.level {
 				design::Level::Info => (colors.accent, icons::Icon::Help),
+				design::Level::Success => (colors.positive, icons::Icon::Check),
 				design::Level::Warning => (colors.warning, icons::Icon::ShieldWarning),
 				design::Level::Error => (colors.danger, icons::Icon::ShieldWarning),
 			};

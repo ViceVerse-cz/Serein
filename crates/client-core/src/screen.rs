@@ -9,6 +9,8 @@ pub const MAX_SOURCE_NAME_BYTES: usize = 256;
 pub enum SourceId {
 	/// The Linux desktop chooses the source after an explicit Share action.
 	Portal,
+	/// Explicit whole-desktop capture on a native X11 session, without a portal.
+	X11Desktop,
 	Display(u64),
 	Window(u64),
 }

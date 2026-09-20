@@ -144,6 +144,7 @@ mod tests {
 		};
 		let mut state = State {
 			user: Some(User {
+				primary_guild: None,
 				id: Id(9),
 				name: "Synthetic member".into(),
 				avatar: None,
@@ -257,6 +258,7 @@ mod tests {
 			id: Id(500),
 			channel: Id(100),
 			author: User {
+				primary_guild: None,
 				id: Id(9),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -281,6 +283,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			embeds_suppressed: false,

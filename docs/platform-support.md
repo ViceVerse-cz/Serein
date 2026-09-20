@@ -127,7 +127,28 @@ polling. A synthetic native Windows test verifies registration,
 minimize/restore, own-window taskbar recovery, Quit event and cleanup. macOS uses a native menu bar icon with Show Serein / Quit actions; it draws Serein's own
 mark (`assets/brand/serein-tray.png`, rendered from the brand SVG) as an 18-point template
 image, so the system tints it for light, dark and highlighted menu bars. Minimized windows
-remain in the Dock. Linux retains an explicitly disabled control.
+remain in the Dock.
+
+Linux now uses ksni's StatusNotifierItem on the session bus with Show Serein,
+Minimize Serein and Quit actions. Enable a StatusNotifier host (for example a panel's
+tray module). Until registration succeeds, or after host loss, Close retains normal
+exit behavior. Start/restart the host and toggle the tray off/on to retry registration.
+The existing on-by-default tray preference is reused; demo changes are session-only.
+
+**Hyprland / native Wayland:** winit cannot hide, unhide, focus or unminimize a native
+Wayland window. Close requests minimization and keeps Serein running; the compositor
+may ignore this request. Show requests restoration, but native Wayland users may need
+the compositor's own window controls. A still-visible window is no longer marked hidden
+inside Serein. Native Wayland remains the default on Wayland sessions, with no
+application-level XWayland fallback or backend override.
+Quit remains explicit and runs the existing unsaved-work/download/extension checks;
+cancelling Quit restores close-to-tray behavior.
+
+Offline lifecycle check: `cargo run --locked -p tray-debug`. On Linux, use
+`dbus-run-session -- cargo run --locked -p tray-debug` to additionally exercise
+registration, missing/lost host, icon activation and all three menu actions on a private
+synthetic bus. These checks do not establish compositor behavior. This refresh was
+prepared on macOS; NixOS/Hyprland and Flatpak desktop validation remain pending.
 
 ## Opt-in automatic startup
 
@@ -192,7 +213,7 @@ available with a visible recovery path on the next update attempt.
 
 ## Linux screen sharing
 
-Screen sharing requires PipeWire, a ScreenCast-capable portal backend for the current
+The system screen-sharing picker requires PipeWire, a ScreenCast-capable portal backend for the current
 desktop (GNOME, KDE or the compositor-specific backend), and GStreamer Base/Good plus
 the PipeWire source plugin. GStreamer 1.24+ is recommended; GPU scaling/encoding also
 needs the applicable VA, NVCodec and OpenGL plugins and working driver support.
@@ -200,6 +221,11 @@ Native packages declare the PipeWire and Base runtime plugins; hardware codec av
 still depends on distribution packaging and drivers. The software fallback reuses bundled
 OpenH264. Flatpak needs compatible plugins/GPU access inside its runtime; no extra sandbox
 permission or host socket access is added. Native Linux validation remains pending.
+
+Native X11 sessions can instead explicitly select “Entire X11 desktop · all monitors ·
+no portal”. This uses `ximagesrc` from GStreamer Good, already a native package
+dependency, and shares the whole desktop. No direct capture starts after a failed or
+cancelled portal request. X11 capture and live delivery remain unverified.
 
 Optional Linux stream audio uses native `libpulse` per-application monitoring on
 PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse development

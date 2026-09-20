@@ -1833,34 +1833,40 @@ impl ExtensionUi {
 		self.stop_theme_preview(ctx);
 		self.theme_editor = None;
 		design::set_background_image(ctx, None);
-		let ids: Vec<_> = self
+		let disable: Vec<_> = self
 			.entries
 			.iter()
 			.filter(|entry| {
 				(entry.enabled || entry.cleanup_pending)
-					&& (entry.manifest.kind == ExtensionKind::Theme
-						|| entry
-							.manifest
-							.capabilities
-							.contains(&Capability::Appearance))
+					&& (entry.cleanup_pending
+						|| (entry.manifest.kind == ExtensionKind::Plugin
+							&& entry
+								.manifest
+								.capabilities
+								.contains(&Capability::Appearance)))
 			})
 			.map(|entry| entry.manifest.id.clone())
 			.collect();
 		design::set_extension_theme(None);
 		design::apply(ctx);
-		for id in ids {
+		if self.active_theme.is_some() {
+			self.queue(ctx, ExtensionRequest::SelectTheme { id: None });
+		}
+		for id in disable {
 			self.queue(ctx, ExtensionRequest::Disable { id });
 		}
 	}
 	pub(crate) fn reset_theme_button(&mut self, ui: &mut egui::Ui) {
-		if !self.entries.iter().any(|entry| {
-			(entry.enabled || entry.cleanup_pending)
-				&& (entry.manifest.kind == ExtensionKind::Theme
-					|| entry
-						.manifest
-						.capabilities
-						.contains(&Capability::Appearance))
-		}) {
+		if self.active_theme.is_none()
+			&& !self.entries.iter().any(|entry| {
+				(entry.enabled || entry.cleanup_pending)
+					&& (entry.cleanup_pending
+						|| (entry.manifest.kind == ExtensionKind::Plugin
+							&& entry
+								.manifest
+								.capabilities
+								.contains(&Capability::Appearance)))
+			}) {
 			return;
 		}
 		let colors = design::palette(ui);
@@ -1876,7 +1882,9 @@ impl ExtensionUi {
 				.corner_radius(8)
 				.min_size(egui::vec2(0.0, 32.0)),
 			)
-			.on_hover_text("Reset anytime with Ctrl+Shift+F12, even if a theme is unreadable.")
+			.on_hover_text(
+				"Return to the built-in appearance without removing installed themes. Also available with Ctrl+Shift+F12.",
+			)
 			.clicked()
 		{
 			self.reset_theme(ui.ctx());
@@ -2548,6 +2556,18 @@ mod tests {
 			let menu = frame(&ctx, &mut shop, width, vec![]);
 			assert!(menu.iter().any(|(text, _)| text == "Import theme…"));
 			assert!(menu.iter().any(|(text, _)| text == "Reset community theme"));
+			click(&ctx, &mut shop, width, &menu, "Reset community theme");
+			assert!(matches!(
+				shop.requests.pop(),
+				Some(ExtensionRequest::SelectTheme { id: None })
+			));
+			assert!(
+				shop.requests.is_empty(),
+				"reset must keep the local theme installed"
+			);
+			let labels = frame(&ctx, &mut shop, width, vec![]);
+			click(&ctx, &mut shop, width, &labels, "More");
+			let menu = frame(&ctx, &mut shop, width, vec![]);
 			click(&ctx, &mut shop, width, &menu, "Refresh catalog");
 			assert!(matches!(
 				shop.requests.as_slice(),

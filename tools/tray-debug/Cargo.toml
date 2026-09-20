@@ -1,0 +1,17 @@
+[package]
+name = "tray-debug"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+egui.workspace = true
+platform.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio.workspace = true
+winit = { workspace = true, features = ["x11", "wayland"] }
+ksni = "=0.3.6"
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }

@@ -39,7 +39,9 @@ impl Paste {
 							Ok(source) => {
 								total += source.size();
 								if total > discord_api::upload::MAX_TOTAL_BYTES {
-									error = Some("Attachments must total at most 20 MB");
+									error = Some(
+										"Attachments must total at most 500 MB; account limits may be lower",
+									);
 									break;
 								}
 								sources.push(source);

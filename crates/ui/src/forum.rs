@@ -448,7 +448,7 @@ impl ForumUi {
 									*staged.choose = true;
 								}
 								response.on_hover_text(if files_allowed {
-									"Add images or files. Up to 10 files and 20 MB total."
+									"Add images or files. Up to 10 files and 500 MB total; account limits may be lower."
 								} else {
 									"Attaching files is unavailable in this forum."
 								});

@@ -148,8 +148,12 @@ impl Updater {
 			view.available = false;
 			view.ready = false;
 			view.progress = None;
-			view.status =
-				"Load update preferences or choose your update settings to enable checking.".into();
+			view.status = if cfg!(debug_assertions) {
+				"Update checks are disabled in debug builds."
+			} else {
+				"Load update preferences or choose your update settings to enable checking."
+			}
+			.into();
 			return false;
 		}
 		if self.channel != Some(view.nightly) {

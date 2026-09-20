@@ -201,7 +201,9 @@ impl Uploads {
 					let source = Source::inspect(path).await?;
 					total += source.size();
 					if total > discord_api::upload::MAX_TOTAL_BYTES {
-						return Err("Attachments must total at most 20 MB");
+						return Err(
+							"Attachments must total at most 500 MB; account limits may be lower",
+						);
 					}
 					let thumbnail = preview(&source).await;
 					selected.push((source, thumbnail));
@@ -335,7 +337,7 @@ impl Uploads {
 			.sum::<u64>()
 			> discord_api::upload::MAX_TOTAL_BYTES
 		{
-			return Err("Attachments must total at most 20 MB");
+			return Err("Attachments must total at most 500 MB; account limits may be lower");
 		}
 		Ok(())
 	}
