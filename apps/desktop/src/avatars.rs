@@ -162,9 +162,9 @@ fn cdn_url(key: &str) -> Option<String> {
 			"1" | "2" => Some(format!("https://cdn.discordapp.com/stickers/{id}.png")),
 			"4" => Some(format!("https://media.discordapp.net/stickers/{id}.gif")),
 			// Unofficial static rendition: Lottie itself is never decoded or executed.
-			"3" if key.starts_with("embed:") => {
-				Some(format!("https://media.discordapp.net/stickers/{id}.png"))
-			}
+			"3" if key.starts_with("embed:") => Some(format!(
+				"https://media.discordapp.net/stickers/{id}.png?size=160&passthrough=false"
+			)),
 			_ => None,
 		};
 	}
@@ -866,7 +866,7 @@ mod tests {
 		}
 		assert_eq!(
 			super::cdn_url("embed:sticker-7-3").as_deref(),
-			Some("https://media.discordapp.net/stickers/7.png")
+			Some("https://media.discordapp.net/stickers/7.png?size=160&passthrough=false")
 		);
 		for key in [
 			"anim:sticker-7-3",

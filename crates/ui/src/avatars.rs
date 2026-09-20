@@ -291,16 +291,38 @@ impl Avatars {
 			self.accept(ui.ctx(), key.clone(), Some(image));
 		}
 		if !self.paint(ui, &key, rect, 0) {
+			let failed = self.attempts.get(&key).is_some_and(|(_, failed)| *failed);
+			let supported = sticker.id.0 != 0 && matches!(sticker.format_type, 1..=4);
+			let colors = crate::design::palette(ui);
+			let placeholder = rect.shrink(8.0);
+			ui.painter().rect_filled(placeholder, 8, colors.raised);
+			let label = if failed || !supported {
+				"Image unavailable"
+			} else {
+				"Loading image..."
+			};
 			ui.painter()
-				.with_clip_rect(rect.intersect(ui.clip_rect()))
+				.with_clip_rect(placeholder.intersect(ui.clip_rect()))
 				.text(
 					rect.center(),
 					egui::Align2::CENTER_CENTER,
-					&sticker.name,
+					if size.x < 70.0 {
+						"...".to_owned()
+					} else {
+						format!("{}\n{label}", sticker.name)
+					},
 					egui::FontId::proportional(12.0),
-					crate::design::palette(ui).muted,
+					colors.muted,
 				);
-			if !demo && sticker.id.0 != 0 && matches!(sticker.format_type, 1..=4) {
+			if !demo && supported {
+				// Retry uses the shared bounded cooldown, including when the pointer is idle.
+				if let Some((attempted, _)) = self.attempts.get(&key) {
+					ui.ctx().request_repaint_after(
+						RETRY
+							.saturating_sub(attempted.elapsed())
+							.max(Duration::from_secs(1)),
+					);
+				}
 				self.request(key);
 			}
 		}
@@ -1243,6 +1265,15 @@ mod tests {
 				images.take_requests(),
 				vec![format!("{prefix}:sticker-7-2")]
 			);
+			images.accept(&ctx, format!("{prefix}:sticker-7-2"), None);
+			let output = ctx.run_ui(Default::default(), |ui| {
+				images.sticker_image(ui, &sticker, egui::Vec2::splat(160.0), false);
+			});
+			assert!(output.shapes.iter().any(|shape| matches!(
+				&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("Image unavailable")
+			)));
+			output.drop_without_applying_deltas();
+			assert!(images.take_requests().is_empty());
 		}
 		let mut demo = super::Avatars::default();
 		ctx.run_ui(Default::default(), |ui| {

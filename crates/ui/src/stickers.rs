@@ -237,10 +237,22 @@ pub(crate) fn message(
 	if response.clicked() {
 		*request = Some(sticker.id);
 	}
-	egui::Popup::menu(&response)
+	let colors = design::palette(ui);
+	let width = 340.0_f32.min((ui.ctx().content_rect().width() - 40.0).max(160.0));
+	egui::Popup::from_toggle_button_response(&response)
+		.id(response.id.with("sticker-details"))
 		.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+		.gap(6.0)
+		.width(width)
+		.frame(
+			egui::Frame::popup(ui.style())
+				.fill(colors.raised)
+				.inner_margin(16)
+				.corner_radius(10),
+		)
 		.show(|ui| {
-			ui.set_width(320.0_f32.min(ui.ctx().content_rect().width() - 40.0));
+			ui.set_width(width - 32.0);
+			ui.spacing_mut().item_spacing.y = 8.0;
 			let detail = state
 				.stickers
 				.detail
@@ -261,7 +273,12 @@ pub(crate) fn message(
 							&& section.stickers.iter().any(|s| s.id == sticker.id)
 					})
 				});
-			ui.label(design::semibold(ui, &detail.name, 18.0));
+			ui.add(
+				egui::Label::new(
+					design::semibold(ui, &detail.name, 16.0).color(colors.text_strong),
+				)
+				.wrap(),
+			);
 			if let Some(section) = section {
 				ui.label(format!("This is a {} sticker.", section.name));
 			} else if state.stickers.detail_loading == Some(sticker.id) {
@@ -281,7 +298,11 @@ pub(crate) fn message(
 				egui::ScrollArea::vertical()
 					.max_height(120.0)
 					.show(ui, |ui| {
-						ui.label(&detail.description);
+						ui.label(
+							egui::RichText::new(&detail.description)
+								.size(14.0)
+								.color(colors.muted),
+						);
 					});
 			}
 			if let Some(section) = section {
@@ -297,7 +318,8 @@ pub(crate) fn message(
 					}
 				});
 			}
-			if ui.button("View More Stickers").clicked() {
+			ui.separator();
+			if design::secondary_button(ui, "View More Stickers").clicked() {
 				*browse = Some(detail.clone());
 				ui.close();
 			}
