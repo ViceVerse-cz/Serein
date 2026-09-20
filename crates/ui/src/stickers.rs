@@ -31,10 +31,13 @@ fn sections(state: &State) -> Vec<Section<'_>> {
 			stickers: &state.stickers.recent,
 		});
 	}
-	sections.extend(state.guilds.iter().map(|guild| Section {
-		id: Group::Guild(guild.id),
-		name: &guild.name,
-		stickers: guild.stickers.as_deref().unwrap_or_default(),
+	sections.extend(state.guilds.iter().filter_map(|guild| {
+		let stickers = guild.stickers.as_deref().filter(|items| !items.is_empty())?;
+		Some(Section {
+			id: Group::Guild(guild.id),
+			name: &guild.name,
+			stickers,
+		})
 	}));
 	sections.extend(state.stickers.packs.iter().map(|pack| Section {
 		id: Group::Pack(pack.id),
