@@ -75,7 +75,7 @@ pub fn search_terms(query: &str) -> Result<SearchTerms, &'static str> {
 pub struct SearchHit {
 	pub id: Id,
 	pub channel: Id,
-	pub author: String,
+	pub author: crate::User,
 	pub excerpt: String,
 }
 pub struct SearchPage {
@@ -91,7 +91,7 @@ impl SearchPage {
 			+ self
 				.hits
 				.iter()
-				.map(|h| h.author.capacity() + h.excerpt.capacity())
+				.map(|h| h.author.heap_bytes() + h.excerpt.capacity())
 				.sum::<usize>()
 	}
 	pub fn valid(&self, channel: Id, before: Option<Id>) -> bool {
@@ -107,7 +107,7 @@ impl SearchPage {
 			&& self.hits.iter().all(|h| {
 				h.id.0 > 0
 					&& h.channel == channel
-					&& h.author.len() <= 512
+					&& h.author.name.len() <= 512
 					&& h.excerpt.len() <= 8192
 			}) && self
 			.hits

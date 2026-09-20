@@ -71,7 +71,7 @@ impl Reply {
 			let mut result = SearchHit {
 				id: hit.id,
 				channel: hit.channel_id,
-				author: hit.author.into_model().name,
+				author: hit.author.into_model(),
 				excerpt: hit.content,
 			};
 			if result.excerpt.len() > 8192 {
@@ -104,7 +104,7 @@ impl Hit {
 		SearchHit {
 			id: self.id,
 			channel: self.channel_id,
-			author: self.author.into_model().name,
+			author: self.author.into_model(),
 			excerpt,
 		}
 	}

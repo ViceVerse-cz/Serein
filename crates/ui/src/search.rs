@@ -653,7 +653,9 @@ impl SearchUi {
 			.show(ui, |ui| {
 				ui.set_width(ui.available_width());
 				ui.horizontal(|ui| {
-					ui.label(design::semibold(ui, &hit.author, 14.0).color(colors.text_strong));
+					ui.label(
+						design::semibold(ui, &hit.author.name, 14.0).color(colors.text_strong),
+					);
 					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 						if ui
 							.add_enabled(
@@ -688,126 +690,133 @@ impl SearchUi {
 		let mut older = None;
 		let mut target = None;
 		ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
-		ui.horizontal(|ui| {
-			let title = if self.pins {
-				"Pinned Messages".to_owned()
-			} else {
-				match state.search.as_ref().and_then(|view| view.page.as_ref()) {
-					Some(page) if !state.search.as_ref().is_some_and(|v| v.loading) => {
-						format!(
-							"{} Result{}",
-							page.total,
-							if page.total == 1 { "" } else { "s" }
-						)
+		if self.pins {
+			ui.horizontal(|ui| {
+				ui.label(design::semibold(ui, "Pinned Messages", 16.0).color(colors.text_strong));
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					if icons::button(ui, icons::Icon::Close, 28.0, "Close").clicked() {
+						self.open = false;
 					}
-					_ => "Search".to_owned(),
-				}
-			};
-			ui.label(design::semibold(ui, title, 16.0).color(colors.text_strong));
-			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-				if !self.pins {
-					ui.menu_button("⚙", |ui| {
-						ui.checkbox(&mut self.hide_highlight, "Hide matching-text highlight");
-					})
-					.response
-					.on_hover_text("Search settings");
-					ui.menu_button("↕ Sort", |ui| {
-						ui.label("Order on this results page");
-						ui.radio_value(&mut self.oldest_first, false, "Newest first");
-						ui.radio_value(&mut self.oldest_first, true, "Oldest first");
-					});
-					if ui.button("Filters").clicked() {
-						self.open_filters();
-					}
-				}
-				if self.pins && icons::button(ui, icons::Icon::Close, 28.0, "Close").clicked() {
-					self.open = false;
-				}
-				if self.pins {
 					let reload = ui.add_enabled(allowed, egui::Button::new("Reload pins"));
 					if self.focus {
 						reload.request_focus();
 						self.focus = false;
 					}
 					submit = reload.clicked();
-				}
+				});
 			});
-		});
-		ui.separator();
-		if !self.pins {
-			ui.horizontal(|ui| {
-				if let Some(view) = &state.search
-					&& let Some(page) = &view.page
-				{
-					if let Some(last) = page.hits.last()
-						&& (page.total > page.hits.len() as u64 || page.partial)
-						&& ui
-							.add_enabled(allowed && !view.loading, egui::Button::new("Older"))
-							.clicked()
-					{
-						older = Some((view.query.clone(), Some(last.id)));
-					}
-					if view.before.is_some()
-						&& ui
-							.add_enabled(allowed && !view.loading, egui::Button::new("Newest"))
-							.clicked()
-					{
-						older = Some((view.query.clone(), None));
-					}
-				}
-			});
-		}
-		if self.pins {
+			ui.separator();
 			if submit && let Some(command) = state.request_pins() {
 				commands.push(command);
 			}
 			self.pins_content(ui, state, commands);
 			return;
 		}
+		if submit && let Some(command) = state.request_search(self.query.trim().into(), None) {
+			commands.push(command);
+		}
+		let loading = state.search.as_ref().is_some_and(|view| view.loading);
+		let title = match state.search.as_ref().and_then(|view| view.page.as_ref()) {
+			Some(page) if !loading => format!(
+				"{} Result{}",
+				page.total,
+				if page.total == 1 { "" } else { "s" }
+			),
+			_ if loading => "Searching…".to_owned(),
+			_ => "Search".to_owned(),
+		};
+		let active_query = state
+			.search
+			.as_ref()
+			.map_or(self.query.as_str(), |view| view.query.as_str());
+		let filter_count =
+			model::search_terms(active_query).map_or(0, |(_, filters)| filters.len());
+		ui.allocate_ui_with_layout(
+			egui::vec2(ui.available_width(), CHIP_HEIGHT),
+			egui::Layout::left_to_right(egui::Align::Center),
+			|ui| {
+				ui.label(design::semibold(ui, title, 16.0).color(colors.text_strong));
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					ui.spacing_mut().item_spacing.x = 8.0;
+					let settings = chip(ui, Chip::icon(icons::Icon::Gear, "Search settings"));
+					egui::Popup::menu(&settings).show(|ui| {
+						ui.checkbox(&mut self.hide_highlight, "Hide matching-text highlight");
+					});
+					let sort = chip(ui, Chip::new(icons::Icon::SortArrows, "Sort"));
+					egui::Popup::menu(&sort).show(|ui| {
+						ui.label(RichText::new("Order on this page").color(colors.muted));
+						ui.radio_value(&mut self.oldest_first, false, "Newest first");
+						ui.radio_value(&mut self.oldest_first, true, "Oldest first");
+					});
+					let label = if filter_count > 0 {
+						format!("Filters ({filter_count})")
+					} else {
+						"Filters".to_owned()
+					};
+					if chip(ui, Chip::new(icons::Icon::Sliders, &label)).clicked() {
+						self.open_filters();
+					}
+				});
+			},
+		);
+		hairline(ui);
 		if !allowed {
-			ui.label(
-				RichText::new(
-					"Messages are unavailable while disconnected or without channel access.",
-				)
-				.small()
-				.color(colors.muted),
+			design::notice(
+				ui,
+				design::Level::Warning,
+				"Messages are unavailable while disconnected or without channel access.",
 			);
 		}
-		if state.search.is_none() {
-			ui.label(
-				RichText::new("Type a query above and press Enter.")
-					.small()
-					.color(colors.muted),
+		let Some(view) = &state.search else {
+			empty_state(
+				ui,
+				icons::Icon::Search,
+				"Search this conversation",
+				"Type a query above and press Enter.",
 			);
+			return;
+		};
+		if let Some(error) = view.error {
+			design::notice(ui, design::Level::Error, error);
 		}
-		if let Some(view) = &state.search {
-			if view.loading {
-				ui.label(RichText::new("Searching…").small().color(colors.muted));
+		match &view.page {
+			None if view.loading => {
+				empty_state(
+					ui,
+					icons::Icon::Search,
+					"Searching…",
+					"Looking for matching messages.",
+				);
 			}
-			if let Some(error) = view.error {
-				ui.label(RichText::new(error).color(colors.danger));
-			}
-			if let Some(page) = &view.page {
-				if page.partial {
-					ui.label(
-						RichText::new("Indexing is incomplete; results may be missing.")
-							.small()
-							.color(colors.muted),
-					);
-				}
-				if page.hits.is_empty() {
-					ui.label(
-						RichText::new("No matching messages in this page.").color(colors.muted),
-					);
-				}
+			None => {}
+			Some(page) => {
+				let more = page.total > page.hits.len() as u64 || page.partial;
+				let footer = (more && page.hits.last().is_some()) || view.before.is_some();
 				let content_query = model::search_terms(&view.query)
 					.map(|(content, _)| content)
 					.unwrap_or_default();
+				let footer_height = if footer { CHIP_HEIGHT + 20.0 } else { 0.0 };
 				egui::ScrollArea::vertical()
 					.id_salt(("search-results", view.request))
 					.auto_shrink([false, false])
+					.max_height((ui.available_height() - footer_height).max(1.0))
 					.show(ui, |ui| {
-						ui.spacing_mut().item_spacing.y = 8.0;
+						ui.spacing_mut().item_spacing.y = 16.0;
+						if page.partial {
+							ui.label(
+								RichText::new("Indexing is incomplete; results may be missing.")
+									.small()
+									.color(colors.muted),
+							);
+						}
+						if page.hits.is_empty() {
+							empty_state(
+								ui,
+								icons::Icon::Search,
+								"No results",
+								"Nothing on this page matches the query.",
+							);
+						}
 						for index in 0..page.hits.len() {
 							let hit = &page.hits[if self.oldest_first {
 								page.hits.len() - 1 - index
@@ -829,11 +838,55 @@ impl SearchUi {
 								);
 							});
 						}
+						ui.add_space(4.0);
 					});
+				if footer {
+					hairline(ui);
+					ui.allocate_ui_with_layout(
+						egui::vec2(ui.available_width(), CHIP_HEIGHT),
+						egui::Layout::left_to_right(egui::Align::Center),
+						|ui| {
+							let enabled = allowed && !view.loading;
+							ui.add_enabled_ui(enabled && view.before.is_some(), |ui| {
+								if chip(ui, Chip::new(icons::Icon::CaretLeft, "Newest")).clicked() {
+									older = Some((view.query.clone(), None));
+								}
+							});
+							ui.with_layout(
+								egui::Layout::right_to_left(egui::Align::Center),
+								|ui| {
+									ui.add_enabled_ui(enabled && more, |ui| {
+										let mut older_chip =
+											Chip::new(icons::Icon::ChevronRight, "Older");
+										older_chip.trailing = true;
+										if chip(ui, older_chip).clicked()
+											&& let Some(last) = page.hits.last()
+										{
+											older = Some((view.query.clone(), Some(last.id)));
+										}
+									});
+									ui.with_layout(
+										egui::Layout::centered_and_justified(
+											egui::Direction::LeftToRight,
+										),
+										|ui| {
+											ui.label(
+												RichText::new(format!(
+													"{} of {}",
+													page.hits.len(),
+													page.total
+												))
+												.size(12.0)
+												.color(colors.muted),
+											);
+										},
+									);
+								},
+							);
+						},
+					);
+				}
 			}
-		}
-		if submit && let Some(command) = state.request_search(self.query.trim().into(), None) {
-			commands.push(command);
 		}
 		if let Some((query, before)) = older
 			&& let Some(command) = state.request_search(query, before)
@@ -857,73 +910,110 @@ impl SearchUi {
 		target: &mut Option<Id>,
 	) {
 		let colors = design::palette(ui);
-		if let Some(channel) = state.channels.iter().find(|c| c.id == hit.channel) {
-			ui.label(
-				design::semibold(
-					ui,
-					format!(
-						"{} {}",
-						if channel.guild.is_none() { "@" } else { "#" },
-						channel.name
-					),
-					14.0,
-				)
-				.color(colors.text_strong),
-			);
+		ui.spacing_mut().item_spacing.y = 6.0;
+		if let Some(channel) = state.channel(hit.channel) {
+			channel_heading(ui, state, channel);
 		}
-		egui::Frame::new()
-			.fill(colors.base)
-			.stroke(egui::Stroke::new(1.0, colors.border))
-			.corner_radius(10)
-			.inner_margin(12)
+		// The card senses clicks on its previous-frame rect so child widgets keep priority.
+		let card_id = ui.scope_id().with("card");
+		let previous = ui.data(|data| data.get_temp::<egui::Rect>(card_id));
+		let background = previous.map(|rect| ui.interact(rect, card_id, egui::Sense::click()));
+		let jumpable = state.can_search() && hit.id.0 < u64::MAX;
+		let hot = background
+			.as_ref()
+			.is_some_and(|response| response.hovered() || response.has_focus());
+		if let Some(response) = &background {
+			response.widget_info(|| {
+				egui::WidgetInfo::labeled(
+					egui::WidgetType::Button,
+					jumpable,
+					format!("Jump to message from {}", hit.author.name),
+				)
+			});
+			if response.clicked() && jumpable {
+				*target = Some(hit.id);
+			}
+		}
+		let frame = egui::Frame::new()
+			.fill(if hot { colors.raised } else { colors.base })
+			.stroke(egui::Stroke::new(
+				1.0,
+				if background.as_ref().is_some_and(egui::Response::has_focus) {
+					colors.accent
+				} else {
+					colors.border
+				},
+			))
+			.corner_radius(8)
+			.inner_margin(egui::Margin::symmetric(12, 10))
 			.show(ui, |ui| {
 				ui.set_width(ui.available_width());
 				ui.horizontal_top(|ui| {
-					let (avatar, _) =
-						ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::hover());
-					ui.painter()
-						.circle_filled(avatar.center(), 18.0, colors.accent);
-					ui.painter().text(
-						avatar.center(),
-						egui::Align2::CENTER_CENTER,
-						hit.author.chars().next().unwrap_or('?'),
-						egui::FontId::proportional(16.0),
-						egui::Color32::WHITE,
-					);
+					ui.spacing_mut().item_spacing.x = 12.0;
+					avatars.show_plain(ui, &hit.author, 40.0, state.demo);
 					ui.vertical(|ui| {
 						ui.set_width(ui.available_width());
-						ui.horizontal_wrapped(|ui| {
-							ui.label(
-								design::semibold(ui, &hit.author, 15.0).color(colors.text_strong),
-							);
-							if ui
-								.add_enabled(
-									state.can_search() && hit.id.0 < u64::MAX,
-									egui::Button::new("Jump"),
-								)
-								.clicked()
-							{
-								*target = Some(hit.id);
-							}
-							// Fixture IDs do not encode a real creation timestamp.
-							if hit.id.0 >= (1 << 22) {
-								let seconds = ((hit.id.0 >> 22) + 1_420_070_400_000) / 1000;
-								if let Ok(utc) =
-									time::OffsetDateTime::from_unix_timestamp(seconds as i64)
-								{
-									let local = crate::local_time::local(utc);
-									ui.label(
-										RichText::new(format!(
-											"{:02}:{:02}",
-											local.hour(),
-											local.minute()
-										))
-										.size(11.0)
-										.color(colors.muted),
+						ui.spacing_mut().item_spacing.y = 2.0;
+						ui.allocate_ui_with_layout(
+							egui::vec2(ui.available_width(), 24.0),
+							egui::Layout::left_to_right(egui::Align::Center),
+							|ui| {
+								ui.spacing_mut().item_spacing.x = 8.0;
+								let name_color = state
+									.forum_author_color(
+										hit.channel,
+										hit.author.id,
+										hit.author.webhook,
+										&[],
+									)
+									.map_or(colors.text_strong, |rgb| {
+										design::role_name_color(
+											rgb,
+											colors.base,
+											colors.text_strong,
+										)
+									});
+								crate::account_badge::name(
+									ui,
+									&hit.author,
+									state.user_display_name(&hit.author),
+									15.0,
+									name_color,
+									egui::Sense::hover(),
+									88.0,
+								);
+								// Fixture IDs do not encode a real creation timestamp.
+								if hit.id.0 >= (1 << 22) {
+									let seconds = ((hit.id.0 >> 22) + 1_420_070_400_000) / 1000;
+									if let Ok(utc) =
+										time::OffsetDateTime::from_unix_timestamp(seconds as i64)
+									{
+										let local = crate::local_time::local(utc);
+										ui.label(
+											RichText::new(format!(
+												"{:02}:{:02}",
+												local.hour(),
+												local.minute()
+											))
+											.size(12.0)
+											.color(colors.muted),
+										);
+									}
+								}
+								if hot && jumpable {
+									ui.with_layout(
+										egui::Layout::right_to_left(egui::Align::Center),
+										|ui| {
+											let mut jump = Chip::text("Jump");
+											jump.height = 24.0;
+											if chip(ui, jump).clicked() {
+												*target = Some(hit.id);
+											}
+										},
 									);
 								}
-							}
-						});
+							},
+						);
 						let id = ui.scope_id().with(("search-spoilers", &hit.excerpt));
 						let mut revealed = ui.data(|data| data.get_temp::<u32>(id).unwrap_or(0));
 						let mut surface = crate::select::Surface::new(ui, "search-result");
@@ -949,7 +1039,231 @@ impl SearchUi {
 					});
 				});
 			});
+		ui.data_mut(|data| data.insert_temp(card_id, frame.response.rect));
 	}
+}
+
+const CHIP_HEIGHT: f32 = 32.0;
+
+/// Compact raised control used by the results header, pager and hover "Jump" action.
+struct Chip<'a> {
+	icon: Option<icons::Icon>,
+	label: Option<&'a str>,
+	/// Accessible name when there is no visible label.
+	tooltip: &'a str,
+	/// Paint the icon after the label instead of before it.
+	trailing: bool,
+	height: f32,
+}
+impl<'a> Chip<'a> {
+	fn new(icon: icons::Icon, label: &'a str) -> Self {
+		Self {
+			icon: Some(icon),
+			label: Some(label),
+			tooltip: label,
+			trailing: false,
+			height: CHIP_HEIGHT,
+		}
+	}
+	fn icon(icon: icons::Icon, tooltip: &'a str) -> Self {
+		Self {
+			icon: Some(icon),
+			label: None,
+			tooltip,
+			trailing: false,
+			height: CHIP_HEIGHT,
+		}
+	}
+	fn text(label: &'a str) -> Self {
+		Self {
+			icon: None,
+			label: Some(label),
+			tooltip: label,
+			trailing: false,
+			height: CHIP_HEIGHT,
+		}
+	}
+}
+fn chip(ui: &mut egui::Ui, chip: Chip<'_>) -> egui::Response {
+	let colors = design::palette(ui);
+	let icon_size = (chip.height * 0.5).round();
+	let padding = (chip.height * 0.3).round();
+	let font = egui::FontId::new(
+		if chip.height < CHIP_HEIGHT {
+			12.0
+		} else {
+			14.0
+		},
+		design::medium_family(ui.ctx()),
+	);
+	let galley = chip.label.map(|label| {
+		ui.painter()
+			.layout_no_wrap(label.to_owned(), font, egui::Color32::WHITE)
+	});
+	let mut width = padding * 2.0;
+	if chip.icon.is_some() {
+		width += icon_size;
+	}
+	if let Some(galley) = &galley {
+		width += galley.size().x;
+		if chip.icon.is_some() {
+			width += 6.0;
+		}
+	}
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(width, chip.height), egui::Sense::click());
+	let enabled = ui.is_enabled();
+	response
+		.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, chip.tooltip));
+	let hot = response.hovered() || response.has_focus();
+	let fill = if !enabled {
+		colors.raised.gamma_multiply(0.5)
+	} else if response.is_pointer_button_down_on() {
+		colors.selected
+	} else if hot {
+		colors.hover
+	} else {
+		colors.raised
+	};
+	let text = if enabled {
+		colors.text_strong
+	} else {
+		colors.text_strong.gamma_multiply(0.45)
+	};
+	let painter = ui.painter();
+	painter.rect(
+		rect,
+		8,
+		fill,
+		egui::Stroke::new(1.0, colors.border),
+		egui::StrokeKind::Inside,
+	);
+	if response.has_focus() {
+		painter.rect_stroke(
+			rect.expand(2.0),
+			10,
+			egui::Stroke::new(2.0, colors.accent),
+			egui::StrokeKind::Outside,
+		);
+	}
+	let mut x = rect.left() + padding;
+	let icon_rect = |x: f32| {
+		egui::Rect::from_center_size(
+			egui::pos2(x + icon_size * 0.5, rect.center().y),
+			egui::Vec2::splat(icon_size),
+		)
+	};
+	if let Some(icon) = chip.icon.filter(|_| !chip.trailing) {
+		icons::paint(painter, icon, icon_rect(x), text);
+		x += icon_size + 6.0;
+	}
+	if let Some(galley) = galley {
+		painter.galley_with_override_text_color(
+			egui::pos2(x, rect.center().y - galley.size().y * 0.5),
+			galley.clone(),
+			text,
+		);
+		x += galley.size().x + 6.0;
+	}
+	if let Some(icon) = chip.icon.filter(|_| chip.trailing) {
+		icons::paint(painter, icon, icon_rect(x), text);
+	}
+	if chip.label.is_none() {
+		response.on_hover_text(chip.tooltip)
+	} else {
+		response
+	}
+}
+/// One-pixel separator without the default spacing.
+fn hairline(ui: &mut egui::Ui) {
+	let colors = design::palette(ui);
+	let (rect, _) =
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+	ui.painter().hline(
+		rect.x_range(),
+		rect.center().y,
+		egui::Stroke::new(1.0, colors.border),
+	);
+}
+/// Centered icon-and-text placeholder for empty, idle and loading states.
+fn empty_state(ui: &mut egui::Ui, icon: icons::Icon, title: &str, detail: &str) {
+	let colors = design::palette(ui);
+	egui::Frame::new()
+		.inner_margin(egui::Margin::symmetric(24, 40))
+		.show(ui, |ui| {
+			ui.set_width(ui.available_width());
+			ui.vertical_centered(|ui| {
+				ui.spacing_mut().item_spacing.y = 6.0;
+				let (rect, _) =
+					ui.allocate_exact_size(egui::Vec2::splat(56.0), egui::Sense::hover());
+				ui.painter()
+					.circle_filled(rect.center(), 28.0, colors.muted.gamma_multiply(0.3));
+				icons::paint(ui.painter(), icon, rect.shrink(16.0), colors.text);
+				ui.add_space(8.0);
+				ui.label(design::semibold(ui, title, 15.0).color(colors.text_strong));
+				ui.label(RichText::new(detail).size(13.0).color(colors.muted));
+			});
+		});
+}
+/// Glyph for a channel row: threads, forums, voice, announcements and direct messages.
+fn channel_icon(channel: &model::Channel) -> icons::Icon {
+	match channel.kind {
+		1 => icons::Icon::Profile,
+		3 => icons::Icon::People,
+		2 | 13 => icons::Icon::Speaker,
+		5 => icons::Icon::Megaphone,
+		10..=12 => icons::Icon::Threads,
+		15 | 16 => icons::Icon::Forum,
+		_ => icons::Icon::Hash,
+	}
+}
+/// Section heading above a result: where the message lives, and its thread parent or category.
+fn channel_heading(ui: &mut egui::Ui, state: &State, channel: &model::Channel) {
+	let colors = design::palette(ui);
+	let context = channel
+		.parent_id
+		.and_then(|parent| state.channel(parent))
+		.map(|parent| {
+			(
+				if parent.kind == 4 {
+					icons::Icon::Folder
+				} else {
+					channel_icon(parent)
+				},
+				parent.name.as_str(),
+			)
+		});
+	ui.allocate_ui_with_layout(
+		egui::vec2(ui.available_width(), 22.0),
+		egui::Layout::left_to_right(egui::Align::Center),
+		|ui| {
+			ui.spacing_mut().item_spacing.x = 6.0;
+			let total = ui.available_width();
+			icons::inline(ui, channel_icon(channel), 18.0, colors.text);
+			ui.scope(|ui| {
+				ui.set_max_width(if context.is_some() {
+					total * 0.58
+				} else {
+					total - 24.0
+				});
+				ui.add(
+					egui::Label::new(
+						design::semibold(ui, channel.name.as_str(), 15.0).color(colors.text_strong),
+					)
+					.truncate(),
+				);
+			});
+			if let Some((icon, name)) = context {
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					ui.add(
+						egui::Label::new(RichText::new(name).size(13.0).color(colors.muted))
+							.truncate(),
+					);
+					icons::inline(ui, icon, 14.0, colors.muted);
+				});
+			}
+		},
+	);
 }
 
 #[cfg(test)]
@@ -1070,7 +1384,15 @@ mod tests {
 					hits: vec![model::SearchHit {
 						id: Id(10),
 						channel: Id(1),
-						author: "Synthetic".into(),
+						author: model::User {
+							kind: model::AccountKind::Human,
+							webhook: false,
+							id: Id(7),
+							name: "Synthetic".into(),
+							avatar: None,
+							discriminator: 0,
+							primary_guild: None,
+						},
 						excerpt: "Synthetic pinned message".into(),
 					}],
 					total: 1,

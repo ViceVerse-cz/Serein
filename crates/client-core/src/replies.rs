@@ -864,7 +864,15 @@ mod tests {
 					hits: vec![model::SearchHit {
 						id: Id(50),
 						channel: Id(1),
-						author: "Synthetic".into(),
+						author: model::User {
+							kind: model::AccountKind::Human,
+							webhook: false,
+							id: Id(7),
+							name: "Synthetic".into(),
+							avatar: None,
+							discriminator: 0,
+							primary_guild: None,
+						},
 						excerpt: "Synthetic".into(),
 					}],
 					total: 1,
