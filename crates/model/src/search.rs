@@ -1,7 +1,7 @@
 use crate::Id;
 
 pub const SEARCH_PAGE_SIZE: usize = 25;
-pub const MAX_SEARCH_BYTES: usize = 64 * 1024;
+pub const MAX_SEARCH_BYTES: usize = 256 * 1024;
 pub fn valid_search_query(query: &str) -> bool {
 	!query.trim().is_empty()
 		&& query.len() <= 1024
@@ -75,8 +75,11 @@ pub fn search_terms(query: &str) -> Result<SearchTerms, &'static str> {
 pub struct SearchHit {
 	pub id: Id,
 	pub channel: Id,
-	pub author: String,
+	pub author: crate::User,
 	pub excerpt: String,
+	/// Media shown under the excerpt, bounded like message attachments.
+	pub attachments: Vec<crate::Attachment>,
+	pub embeds: Vec<crate::Embed>,
 }
 pub struct SearchPage {
 	pub hits: Vec<SearchHit>,
@@ -91,7 +94,16 @@ impl SearchPage {
 			+ self
 				.hits
 				.iter()
-				.map(|h| h.author.capacity() + h.excerpt.capacity())
+				.map(|h| {
+					h.author.heap_bytes()
+						+ h.excerpt.capacity()
+						+ h.attachments.capacity() * size_of::<crate::Attachment>()
+						+ h.attachments
+							.iter()
+							.map(crate::Attachment::bytes)
+							.sum::<usize>() + h.embeds.capacity() * size_of::<crate::Embed>()
+						+ h.embeds.iter().map(crate::Embed::bytes).sum::<usize>()
+				})
 				.sum::<usize>()
 	}
 	pub fn valid(&self, channel: Id, before: Option<Id>) -> bool {
@@ -107,8 +119,10 @@ impl SearchPage {
 			&& self.hits.iter().all(|h| {
 				h.id.0 > 0
 					&& h.channel == channel
-					&& h.author.len() <= 512
-					&& h.excerpt.len() <= 1024
+					&& h.author.name.len() <= 512
+					&& h.attachments.len() <= crate::MAX_ATTACHMENTS
+					&& h.embeds.len() <= crate::MAX_EMBEDS
+					&& h.excerpt.len() <= 8192
 			}) && self
 			.hits
 			.iter()

@@ -31,6 +31,10 @@ pub(crate) struct Hit {
 	#[serde(default)]
 	content: String,
 	#[serde(default)]
+	attachments: crate::attachments::AttachmentList,
+	#[serde(default)]
+	embeds: crate::embeds::EmbedList,
+	#[serde(default)]
 	hit: Option<bool>,
 }
 pub(crate) fn list<'de, D: Deserializer<'de>, T: Deserialize<'de>, const N: usize>(
@@ -68,7 +72,18 @@ impl Reply {
 			if matches.next().is_some() {
 				return Err("Ambiguous search hit");
 			}
-			hits.push(hit.into_hit());
+			let mut result = SearchHit {
+				id: hit.id,
+				channel: hit.channel_id,
+				author: hit.author.into_model(),
+				excerpt: hit.content,
+				attachments: hit.attachments.0,
+				embeds: crate::embeds::bounded(hit.embeds.0),
+			};
+			if result.excerpt.len() > 8192 {
+				result.excerpt = "Message exceeds preview limit - open message to read".into();
+			}
+			hits.push(result);
 		}
 		hits.sort_unstable_by_key(|h| std::cmp::Reverse(h.id));
 		let page = SearchPage {
@@ -95,8 +110,10 @@ impl Hit {
 		SearchHit {
 			id: self.id,
 			channel: self.channel_id,
-			author: self.author.into_model().name,
+			author: self.author.into_model(),
 			excerpt,
+			attachments: self.attachments.0,
+			embeds: crate::embeds::bounded(self.embeds.0),
 		}
 	}
 }
@@ -106,7 +123,7 @@ mod tests {
 	use super::*;
 	use serde_json::json;
 	#[test]
-	fn search_hits_are_scoped_bounded_and_spoilers_never_leak_into_snippets() {
+	fn search_hits_are_scoped_bounded_and_preserve_rich_text() {
 		let hit = |id: u64, channel: u64, content: &str| json!({"id":id.to_string(),"channel_id":channel.to_string(),"author":{"id":"7","username":"Synthetic"},"content":content});
 		let decode =
 			|value: serde_json::Value| crate::decode::<Reply>(&serde_json::to_vec(&value).unwrap());
@@ -123,7 +140,7 @@ mod tests {
 		assert_eq!(page.hits.len(), 1);
 		assert_eq!(page.hits[0].id, Id(3));
 		assert!(page.partial);
-		assert!(!page.hits[0].excerpt.contains("synthetic spoiler"));
+		assert_eq!(page.hits[0].excerpt, "hidden ||synthetic spoiler||");
 		for value in [
 			json!({"total_results":1}),
 			json!({"total_results":1,"messages":[[hit(3,2,"wrong channel")]]}),
@@ -145,7 +162,7 @@ mod tests {
 			.unwrap()
 			.into_page(Id(1), None)
 			.unwrap();
-		assert_eq!(page.hits[0].excerpt.len(), 256);
+		assert!(page.hits[0].excerpt.contains("exceeds preview limit"));
 		assert!(page.bytes() < model::MAX_SEARCH_BYTES);
 		assert!(model::valid_search_query("synthetic & ? 日本語"));
 		assert!(!model::valid_search_query("\n"));

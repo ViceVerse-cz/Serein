@@ -5,7 +5,9 @@ use crate::{
 };
 use model::{
 	Id, Patch,
-	permissions::{MANAGE_CHANNELS, MANAGE_ROLES, MANAGE_THREADS, VIEW_CHANNEL},
+	permissions::{
+		CREATE_PUBLIC_THREADS, MANAGE_CHANNELS, MANAGE_ROLES, MANAGE_THREADS, VIEW_CHANNEL,
+	},
 };
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -101,6 +103,11 @@ pub enum Action {
 		name: String,
 		kind: CreateKind,
 	},
+	/// Start a thread in this channel, optionally from one of its messages.
+	CreateThread {
+		name: String,
+		message: Option<Id>,
+	},
 	CreateCategory {
 		name: String,
 	},
@@ -134,6 +141,9 @@ impl Action {
 			| Self::Duplicate { name }
 			| Self::Create { name, .. }
 			| Self::CreateCategory { name } => valid_name(name) && name.capacity() <= 400,
+			Self::CreateThread { name, message } => {
+				valid_name(name) && name.capacity() <= 400 && message.is_none_or(|id| id.0 != 0)
+			}
 			Self::Mute(Mute::For(seconds)) | Self::PostMute(Mute::For(seconds)) => {
 				matches!(seconds, 900 | 3600 | 10800 | 28800 | 86400)
 			}
@@ -215,17 +225,27 @@ impl State {
 					.is_some_and(|p| p.guild == c.guild && matches!(p.kind, 15 | 16))
 		})
 	}
+	/// Any thread the session can act on: a forum post or a thread under a text channel.
+	pub fn is_thread_channel(&self, channel: Id) -> bool {
+		self.channel(channel).is_some_and(|c| {
+			matches!(c.kind, 10..=12)
+				&& c.guild.is_some()
+				&& c.parent_id
+					.and_then(|id| self.channel(id))
+					.is_some_and(|p| p.guild == c.guild && matches!(p.kind, 0 | 5 | 15 | 16))
+		})
+	}
 	pub fn post_details(&self, channel: Id) -> Option<&PostDetails> {
 		self.channel_actions
 			.post
 			.as_ref()
 			.filter(|(id, _)| {
-				*id == channel && self.is_forum_post(channel) && self.can_view(channel)
+				*id == channel && self.is_thread_channel(channel) && self.can_view(channel)
 			})
 			.map(|(_, p)| p)
 	}
 	pub fn can_manage_post(&self, channel: Id) -> bool {
-		self.is_forum_post(channel)
+		self.is_thread_channel(channel)
 			&& self.permission(channel, VIEW_CHANNEL | MANAGE_THREADS) == Some(true)
 	}
 	pub fn can_edit_post(&self, channel: Id) -> bool {
@@ -233,6 +253,12 @@ impl State {
 			|| self
 				.post_details(channel)
 				.is_some_and(|p| p.owner.is_some() && p.owner == self.user.as_ref().map(|u| u.id))
+	}
+	/// Whether a thread may be started in `channel`; the service stays authoritative.
+	pub fn can_create_thread(&self, channel: Id) -> bool {
+		self.channel(channel)
+			.is_some_and(|c| c.guild.is_some() && matches!(c.kind, 0 | 5))
+			&& self.permission(channel, VIEW_CHANNEL | CREATE_PUBLIC_THREADS) == Some(true)
 	}
 	pub fn can_manage_channel(&self, channel: Id) -> bool {
 		self.channel(channel)
@@ -428,7 +454,7 @@ impl State {
 				&& !match &action {
 					Action::Reference => false,
 					Action::Load => self.can_open_channel_settings(channel),
-					Action::PostLoad => self.is_forum_post(channel),
+					Action::PostLoad => self.is_thread_channel(channel),
 					Action::PostFollow(_) => {
 						self.post_details(channel).is_some_and(|p| !p.archived)
 					}
@@ -439,11 +465,19 @@ impl State {
 							})
 					}
 					Action::PostRename(_) => self.can_edit_post(channel),
+					Action::CreateThread { message, .. } => {
+						self.can_create_thread(channel)
+							&& message.is_none_or(|id| {
+								self.timeline.get(id).is_some_and(|m| m.channel == channel)
+							})
+					}
 					Action::PostPin(_) | Action::PostLock(_) => self.can_manage_post(channel),
 					Action::PostMute(_) | Action::PostNotifications(_) => {
 						self.post_details(channel).is_some_and(|p| p.followed)
 					}
-					Action::Delete if self.is_forum_post(channel) => self.can_manage_post(channel),
+					Action::Delete if self.is_thread_channel(channel) => {
+						self.can_manage_post(channel)
+					}
 					Action::Edit { before, after } => {
 						self.channel_edit_allowed(channel, before, after)
 					}
@@ -615,45 +649,46 @@ impl State {
 		}
 		let (_, _, _, action, observed) = self.channel_actions.pending.take().unwrap();
 		let result = result.and_then(|outcome| {
-			let valid =
-				match (&action, &outcome) {
-					(
-						Action::Reference,
-						Outcome::Channel {
-							channel: target, ..
-						},
-					) => {
-						target.id == channel
-							&& target.guild == Some(guild)
-							&& matches!(target.kind, 10..=12)
-							&& target.parent_id.is_some_and(|parent| {
-								self.channel(parent).is_some_and(|source| {
-									source.guild == Some(guild) && self.can_view(parent)
-								})
+			let valid = match (&action, &outcome) {
+				(
+					Action::Reference,
+					Outcome::Channel {
+						channel: target, ..
+					},
+				) => {
+					target.id == channel
+						&& target.guild == Some(guild)
+						&& matches!(target.kind, 10..=12)
+						&& target.parent_id.is_some_and(|parent| {
+							self.channel(parent).is_some_and(|source| {
+								source.guild == Some(guild) && self.can_view(parent)
 							})
-					}
-					(
-						Action::PostLoad
-						| Action::PostFollow(_)
-						| Action::PostArchive(_)
-						| Action::PostLock(_)
-						| Action::PostRename(_)
-						| Action::PostPin(_)
-						| Action::PostMute(_)
-						| Action::PostNotifications(_),
-						Outcome::Post {
-							channel: target,
-							details,
-						},
-					) => {
-						target.id == channel
-							&& target.guild == Some(guild)
-							&& target.kind == 11 && self
+						})
+				}
+				(
+					Action::PostLoad
+					| Action::PostFollow(_)
+					| Action::PostArchive(_)
+					| Action::PostLock(_)
+					| Action::PostRename(_)
+					| Action::PostPin(_)
+					| Action::PostMute(_)
+					| Action::PostNotifications(_),
+					Outcome::Post {
+						channel: target,
+						details,
+					},
+				) => {
+					target.id == channel
+						&& target.guild == Some(guild)
+						&& matches!(target.kind, 10..=12)
+						&& self
 							.channel(channel)
 							.is_some_and(|c| c.parent_id == target.parent_id)
-							&& valid_name(&target.name)
-							&& details.owner.is_none_or(|id| id.0 != 0)
-							&& details.level <= 3 && match &action {
+						&& valid_name(&target.name)
+						&& details.owner.is_none_or(|id| id.0 != 0)
+						&& details.level <= 3
+						&& match &action {
 							Action::PostFollow(value) => details.followed == *value,
 							Action::PostArchive(value) => details.archived == *value,
 							Action::PostLock(value) => details.locked == *value,
@@ -663,35 +698,41 @@ impl State {
 							Action::PostNotifications(value) => details.level == *value,
 							_ => true,
 						}
-					}
-					(Action::Load, Outcome::Details(edit)) => edit.valid(),
-					(Action::Edit { .. }, Outcome::Channel { channel: c, .. }) => {
-						c.id == channel && c.guild == Some(guild)
-					}
-					(
-						Action::Duplicate { .. }
-						| Action::Create { .. }
-						| Action::CreateCategory { .. },
-						Outcome::Channel { channel: c, .. },
-					) => {
-						c.id.0 != 0
-							&& c.id != channel && c.guild == Some(guild)
-							&& match &action {
-								Action::Create { kind, .. } => c.kind == kind.wire_kind(),
-								Action::CreateCategory { .. } => c.kind == 4,
-								_ => true,
+				}
+				(Action::Load, Outcome::Details(edit)) => edit.valid(),
+				(Action::Edit { .. }, Outcome::Channel { channel: c, .. }) => {
+					c.id == channel && c.guild == Some(guild)
+				}
+				(
+					Action::Duplicate { .. }
+					| Action::Create { .. }
+					| Action::CreateCategory { .. }
+					| Action::CreateThread { .. },
+					Outcome::Channel { channel: c, .. },
+				) => {
+					c.id.0 != 0
+						&& c.id != channel && c.guild == Some(guild)
+						&& match &action {
+							Action::Create { kind, .. } => c.kind == kind.wire_kind(),
+							Action::CreateCategory { .. } => c.kind == 4,
+							Action::CreateThread { name, .. } => {
+								matches!(c.kind, 10..=12)
+									&& c.parent_id == Some(channel)
+									&& c.name.trim() == name.trim()
 							}
-					}
-					(Action::Delete, Outcome::Deleted) => true,
-					(Action::Move { .. }, Outcome::Moved) => true,
-					(Action::Mute(mute), Outcome::Preferences { muted, .. }) => {
-						*muted == Some(*mute != Mute::Unmute)
-					}
-					(Action::Notifications(wanted), Outcome::Preferences { level, .. }) => {
-						*level == Some(*wanted)
-					}
-					_ => false,
-				};
+							_ => true,
+						}
+				}
+				(Action::Delete, Outcome::Deleted) => true,
+				(Action::Move { .. }, Outcome::Moved) => true,
+				(Action::Mute(mute), Outcome::Preferences { muted, .. }) => {
+					*muted == Some(*mute != Mute::Unmute)
+				}
+				(Action::Notifications(wanted), Outcome::Preferences { level, .. }) => {
+					*level == Some(*wanted)
+				}
+				_ => false,
+			};
 			if valid && outcome.bytes() <= 64 * 1024 {
 				Ok(outcome)
 			} else {
@@ -711,7 +752,7 @@ impl State {
 				channel: updated,
 				details,
 			}) => {
-				if self.is_forum_post(channel) && self.can_view(channel) && !observed {
+				if self.is_thread_channel(channel) && self.can_view(channel) && !observed {
 					if self
 						.channel(channel)
 						.is_some_and(|c| c.name != updated.name)
@@ -801,10 +842,13 @@ impl State {
 					Action::Duplicate { .. }
 						| Action::Create { .. }
 						| Action::CreateCategory { .. }
+						| Action::CreateThread { .. }
 				);
 				if self.guild(guild).is_some()
 					&& (if reference {
 						true
+					} else if matches!(action, Action::CreateThread { .. }) {
+						self.can_create_thread(channel)
 					} else if creating {
 						self.can_manage_channel(channel)
 					} else {

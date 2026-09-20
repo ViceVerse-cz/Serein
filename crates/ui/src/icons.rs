@@ -117,10 +117,13 @@ pub enum Icon {
 	ShoppingCart,
 	Lock,
 	EyeSlash,
+	Sliders,
+	SortArrows,
+	Thread,
 }
 
 impl Icon {
-	pub const ALL: [Icon; 101] = [
+	pub const ALL: [Icon; 104] = [
 		Icon::ChevronDown,
 		Icon::ChevronRight,
 		Icon::Gear,
@@ -222,6 +225,9 @@ impl Icon {
 		Icon::ShoppingCart,
 		Icon::Lock,
 		Icon::EyeSlash,
+		Icon::Sliders,
+		Icon::SortArrows,
+		Icon::Thread,
 	];
 	/// Upstream icon name recorded in `index.tsv`.
 	fn asset(self) -> &'static str {
@@ -258,6 +264,7 @@ impl Icon {
 			Icon::Help => "question",
 			Icon::Reload => "arrow-clockwise",
 			Icon::Threads => "chats",
+			Icon::Thread => "thread",
 			Icon::Speaker => "speaker-high",
 			Icon::Hash => "hash",
 			Icon::Forum => "chat-centered-text",
@@ -327,6 +334,8 @@ impl Icon {
 			Icon::ShoppingCart => "shopping-cart-simple",
 			Icon::Lock => "lock-simple",
 			Icon::EyeSlash => "eye-slash",
+			Icon::Sliders => "sliders-horizontal",
+			Icon::SortArrows => "arrows-down-up",
 		}
 	}
 	fn cell(self) -> usize {

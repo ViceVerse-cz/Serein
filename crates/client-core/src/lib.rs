@@ -35,6 +35,7 @@ pub mod server_audit_log;
 pub mod server_integrations;
 pub mod server_roles;
 pub mod server_settings;
+mod thread_starter;
 mod threads;
 pub mod typing;
 pub mod user_actions;
@@ -149,6 +150,12 @@ pub enum Command {
 		request: u64,
 	},
 	CancelSearch,
+	/// The message the selected thread hangs off, read from its parent channel.
+	ThreadStarter {
+		thread: Id,
+		parent: Id,
+		request: u64,
+	},
 	Gifs {
 		query: Option<String>,
 		request: u64,
@@ -401,6 +408,11 @@ pub enum Event {
 		request: u64,
 		result: Result<model::archives::Page, auth::Failure>,
 	},
+	ThreadStarter {
+		thread: Id,
+		request: u64,
+		result: Result<Message, auth::Failure>,
+	},
 	ForumSummaries {
 		request: u64,
 		results: Vec<(Id, Result<model::forum::Summary, auth::Failure>)>,
@@ -568,6 +580,7 @@ pub struct State {
 	pub posting: forum::Posting,
 	pub posts: forum::Posts,
 	pub archived_thread: Option<Id>,
+	pub thread_starter: thread_starter::Starter,
 	pub search: Option<search::SearchView>,
 	pub search_request: u64,
 	pub gifs: gifs::Gifs,
@@ -652,6 +665,7 @@ impl Default for State {
 			posting: forum::Posting::default(),
 			posts: forum::Posts::default(),
 			archived_thread: None,
+			thread_starter: Default::default(),
 			search: None,
 			search_request: 0,
 			gifs: gifs::Gifs::default(),
@@ -885,6 +899,7 @@ impl State {
 		self.member_search = Default::default();
 		self.selected = Some(channel);
 		self.clear_search();
+		self.reset_thread_starter();
 		self.search_target = None;
 		self.reactions.reset();
 		self.interactions.reset();
@@ -1284,6 +1299,13 @@ impl State {
 		} = command
 		{
 			self.apply_archives(parent, request, Err(auth::Failure::Capacity));
+			return;
+		}
+		if let Command::ThreadStarter {
+			thread, request, ..
+		} = command
+		{
+			self.apply_thread_starter(thread, request, Err(auth::Failure::Capacity));
 			return;
 		}
 		if let Command::ForumSummaries { channels, request } = command {
@@ -1764,6 +1786,14 @@ impl State {
 				result,
 			} => {
 				self.apply_archives(parent, request, result);
+				Ok(())
+			}
+			Event::ThreadStarter {
+				thread,
+				request,
+				result,
+			} => {
+				self.apply_thread_starter(thread, request, result);
 				Ok(())
 			}
 			Event::ForumSummaries { request, results } => {
@@ -3076,6 +3106,7 @@ impl Event {
 				Self::Archives { result, .. } => {
 					result.as_ref().map_or(0, model::archives::Page::bytes)
 				}
+				Self::ThreadStarter { result, .. } => result.as_ref().map_or(0, Message::bytes),
 				Self::ForumSummaries { results, .. } => {
 					results.capacity()
 						* size_of::<(Id, Result<model::forum::Summary, auth::Failure>)>()

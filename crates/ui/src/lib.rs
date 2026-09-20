@@ -23,6 +23,7 @@ pub mod design;
 mod embeds;
 mod extensions_ui;
 mod theme_editor;
+mod thread_create;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
 pub mod emoji;
 mod emoji_details;
@@ -161,6 +162,7 @@ pub struct MessagingUi {
 	switcher_frame: bool,
 	archives: archives::ArchivesUi,
 	archive_parent: Option<Id>,
+	thread_create: thread_create::ThreadCreateUi,
 	forum: forum::ForumUi,
 	scroll: scroll::Session,
 	timeline: timeline::TimelineView,
@@ -479,6 +481,11 @@ impl MessagingUi {
 			self.timeline.reflow_frames,
 			self.timeline.consecutive_reflows,
 		)
+	}
+	/// Fixture-only: open the Threads dialog for `parent` at startup, as the header control would.
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_threads(&mut self, parent: Id) {
+		self.archive_parent = Some(parent);
 	}
 	/// Fixture-only entry point: opens People and the profile card for `user` as if clicked.
 	#[cfg(any(test, feature = "demo"))]
@@ -1633,7 +1640,7 @@ impl MessagingUi {
 								2 | 13 => icons::Icon::Speaker,
 								5 => icons::Icon::Megaphone,
 								15 | 16 => icons::Icon::Forum,
-								10..=12 => icons::Icon::Threads,
+								10..=12 => icons::Icon::Thread,
 								_ => icons::Icon::Hash,
 							};
 							icons::inline(ui, icon, 22.0, colors.muted);
@@ -1773,7 +1780,7 @@ impl MessagingUi {
 									state.can_archive(c.id, model::archives::Kind::Public);
 								let archive = ui
 									.add_enabled_ui(allowed, |ui| {
-										icons::button(ui, icons::Icon::Threads, 32.0, "Threads")
+										icons::button(ui, icons::Icon::Thread, 32.0, "Threads")
 									})
 									.inner;
 								if archive.clicked() {
@@ -3062,7 +3069,26 @@ impl MessagingUi {
 						.inner_margin(egui::Margin::same(12)),
 				)
 				.show(ui, |ui| {
-					self.search.pane(ui, state, &mut commands);
+					self.search.pane(
+						ui,
+						state,
+						&mut commands,
+						&mut self.avatars,
+						search::MediaUi {
+							download: &mut self.timeline.download,
+							audio: &mut self.timeline.audio,
+							video: &mut self.timeline.video,
+						},
+					);
+					if let Some(link) = self.search.opening.take() {
+						self.timeline.opening = Some(link);
+					}
+					if let Some(profile) = self.search.profile.take() {
+						self.profile = Some(profile);
+					}
+					if let Some(channel) = self.search.channel_reference.take() {
+						self.timeline.channel_reference = Some(channel);
+					}
 				});
 		}
 		if show_members {
@@ -3518,8 +3544,33 @@ impl MessagingUi {
 				.as_ref()
 				.is_some_and(|view| Some(view.parent) == state.selected))
 		{
-			self.archives.show(&ctx, state, &mut commands);
+			self.archives
+				.show(&ctx, state, &mut commands, &mut self.avatars);
 		}
+		if let Some(parent) = self.timeline.threads_request.take() {
+			self.archive_parent = Some(parent);
+		}
+		if let Some((channel, message)) = self.timeline.thread_request.take() {
+			state.clear_channel_action_result(channel);
+			// Discord seeds the name from the starter's first line; the user can still edit it.
+			let name = state
+				.timeline
+				.get(message)
+				.map(|m| thread_create::suggested_name(&m.display_text()))
+				.unwrap_or_default();
+			self.thread_create.open(channel, Some(message), name);
+		}
+		// A thread shows the message it hangs off; read it lazily like other per-channel data.
+		if let Some(command) = state.request_thread_starter() {
+			commands.push(command);
+		}
+		if let Some(channel) = self.archives.create_requested.take() {
+			// The editor replaces the Threads dialog instead of stacking on it.
+			commands.push(state.clear_archives());
+			state.clear_channel_action_result(channel);
+			self.thread_create.open(channel, None, String::new());
+		}
+		self.thread_create.show(&ctx, state, &mut commands);
 		self.screen.show(&ctx, state);
 		if let Some(id) = self.timeline.channel_reference.take() {
 			state.clear_channel_action_result(id);

@@ -286,7 +286,7 @@ This is a preview cache, not saved historical scroll position. It avoids a SQLit
 Unknown/deleted-only row handling retains the same guards as the active window.
 
 Active plus dormant timelines share 1,475 rows and 16 MiB minus 66 KiB of estimated allocations,
-reserving 25 rows and 66 KiB for the single search/pins page and query/view metadata. Estimation
+reserving 25 rows and 258 KiB for the single search/pins page and query/view metadata. Estimation
 includes retained payloads, pending patches, mutation/deletion sets, container storage and a
 B-tree slack allowance; it is not an allocator or RSS measurement. Each individual timeline keeps
 its existing 500-row / 4 MiB payload limit. Oldest whole dormant windows are evicted when needed,
@@ -417,7 +417,7 @@ Image attachment metadata remains bounded by 10 attachments / 64 KiB retained me
 
 Explicit Download creates an original attachment file only at the user-selected location. Suggested filenames are sanitized; downloads never reinterpret message filenames as destination paths, follow redirects, or send credentials to the CDN. Existing regular files are replaced only after native Save confirmation and a complete, flushed transfer. A new destination is published without overwriting a file created meanwhile. The one worker closes/removes its sibling partial on cancellation or failure; cleanup failures are visible. Forced termination or a filesystem error can leave a `.serein-*.partial` sibling, and macOS, Linux and Windows publish new files with exclusive native moves so hard-link support is not required. Normal close waits for the active worker; a cancelled native dialog must still be dismissed. Downloads are explicit user files, not account cache entries, and survive logout/cache clearing. Limits and transfer bounds are strictly enforced.
 
-Conversation search queries and result snippets are session-only, limited to one 25-result / 64 KiB page and a 256-character query. Neither is written to SQLite or diagnostics. Opening a result uses normal bounded history retrieval, whose revalidated messages can enter the existing account cache.
+Conversation search queries and result snippets are session-only, limited to one 25-result / 256 KiB page and a 256-character query. Neither is written to SQLite or diagnostics. Opening a result uses normal bounded history retrieval, whose revalidated messages can enter the existing account cache.
 
 Archived-thread pages share the same exclusive read/result slot with search and pins. At most 25 channel summaries / 64 KiB are retained from a response capped at 512 KiB; member payloads are ignored. Request/next cursors are fixed-size timestamps or IDs. Pages and cursors are not persisted. Opening admits one transient channel within existing account item/byte navigation limits, then uses ordinary bounded history caching. Leaving retires transient navigation, not saved drafts or cached history; explicit revocation still invalidates inaccessible content. No archive directory cache, background paging or added worker queue exists.
 
@@ -998,3 +998,12 @@ Images reuse the account-isolated credential-free cache, fixed Discord CDN hosts
 existing download/decoder queues, four-animation / 16 MiB UI budget and the
 80-frame / 8 MiB / 160px animation decoder limit. No new runtime dependency,
 external image origin, log or background catalog polling is introduced.
+
+### Search rich-text previews
+
+Search rich-text previews retain at most 25 messages / 256 KiB per page, with
+8 KiB of source per message; oversized messages show an explicit preview-limit notice.
+Formatting reuses the 512-entry / 1 MiB bounded parser cache, pruned to the current
+page and cleared when search closes. Spoilers remain concealed until revealed;
+custom emoji reuse the existing visible-only image requests. No search persistence
+or background pagination is added.

@@ -487,6 +487,7 @@ struct Render<'a> {
 	demo: bool,
 	revealed: &'a mut u32,
 	surface: &'a mut crate::select::Surface,
+	query: &'a str,
 	/// Row height reserved for artwork, so emoji and text share one baseline.
 	line: Option<f32>,
 }
@@ -1057,6 +1058,25 @@ impl Formatted {
 		media: (&mut crate::avatars::Avatars, bool, &mut u32),
 		surface: &mut crate::select::Surface,
 	) {
+		self.show_search(ui, opening, users, profile, references, media, surface, "");
+	}
+	#[allow(clippy::too_many_arguments)]
+	pub fn show_search(
+		&self,
+		ui: &mut egui::Ui,
+		opening: &mut Option<String>,
+		users: &[model::User],
+		profile: &mut Option<model::User>,
+		references: (
+			&[model::Channel],
+			&mut Option<Id>,
+			&[model::Guild],
+			&[model::permissions::Role],
+		),
+		media: (&mut crate::avatars::Avatars, bool, &mut u32),
+		surface: &mut crate::select::Surface,
+		query: &str,
+	) {
 		let (channels, channel, guilds, roles) = references;
 		let (images, demo, revealed) = media;
 		// Relative timestamps age without input; a coarse tick keeps them honest without a timer.
@@ -1085,6 +1105,7 @@ impl Formatted {
 			demo,
 			revealed,
 			surface,
+			query,
 			line,
 		};
 		self.show_run(ui, &self.spans, &mut render, false);
@@ -1370,6 +1391,7 @@ impl Formatted {
 							render.demo,
 							render.guilds,
 							render.surface,
+							render.query,
 						)
 						.on_hover_text(url);
 						response.widget_info(|| {
@@ -1391,6 +1413,7 @@ impl Formatted {
 							render.demo,
 							render.guilds,
 							render.surface,
+							render.query,
 						);
 					}
 					start += count;
@@ -1559,6 +1582,7 @@ impl Formatted {
 	/// One galley per run: emoji occupy fixed-width slots inside the text layout, so rows
 	/// holding artwork grow before any text on them is positioned. Separate widgets would
 	/// leave text placed earlier on the row misaligned with text placed after the emoji.
+	#[allow(clippy::too_many_arguments)]
 	fn show_emoji(
 		spans: &[(String, Style)],
 		ui: &mut egui::Ui,
@@ -1567,6 +1591,7 @@ impl Formatted {
 		demo: bool,
 		guilds: &[model::Guild],
 		surface: &mut crate::select::Surface,
+		query: &str,
 	) -> egui::Response {
 		struct Inline {
 			text: String,
@@ -1639,6 +1664,31 @@ impl Formatted {
 			if start < text.len() {
 				job.append(&text[start..], 0.0, format);
 			}
+		}
+		if !query.is_empty() {
+			let mut sections = Vec::new();
+			for section in &job.sections {
+				let mut start = section.byte_range.start;
+				for (offset, matched) in job.text
+					[section.byte_range.start.0..section.byte_range.end.0]
+					.match_indices(query)
+				{
+					let from = section.byte_range.start + offset;
+					let mut normal = section.clone();
+					normal.byte_range = start..from;
+					sections.push(normal);
+					let mut highlighted = section.clone();
+					highlighted.byte_range = from..from + matched.len();
+					highlighted.format.background =
+						egui::Color32::from_rgba_unmultiplied(200, 160, 30, 85);
+					sections.push(highlighted);
+					start = from + matched.len();
+				}
+				let mut tail = section.clone();
+				tail.byte_range = start..section.byte_range.end;
+				sections.push(tail);
+			}
+			job.sections = sections;
 		}
 		let label = egui::Label::new(job)
 			.wrap()

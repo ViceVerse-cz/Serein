@@ -1472,6 +1472,41 @@ impl Desktop {
 			messaging.preview_theme_maker(&tab);
 		}
 		#[cfg(feature = "demo")]
+		if demo
+			&& std::env::args().any(|arg| arg == "--demo-threads")
+			&& let Some(selected) = state.selected
+		{
+			// Threads dialog for the fixture channel, for screenshots.
+			messaging.preview_threads(selected);
+		}
+		#[cfg(feature = "demo")]
+		if demo
+			&& std::env::args().any(|arg| arg == "--demo-thread-view")
+			&& let Some(thread) = state
+				.channels
+				.iter()
+				.find(|c| {
+					c.guild.is_some()
+						&& matches!(c.kind, 10..=12)
+						&& c.parent_id
+							.and_then(|id| state.channels.iter().find(|p| p.id == id))
+							.is_some_and(|p| matches!(p.kind, 0 | 5))
+				})
+				.map(|c| c.id)
+		{
+			// Open the fixture thread itself, so its starter message renders for screenshots.
+			let _ = state.select(thread);
+			// A short synthetic thread: its whole history fits, so the starter sits at the top.
+			for id in [thread.0 + 10, thread.0 + 20, thread.0 + 30] {
+				let _ = state
+					.timeline
+					.insert(test_support::message(id, thread), false, false);
+			}
+			state.history_pending = false;
+			state.freshness = model::Freshness::Fresh;
+			state.older_exhausted = true;
+		}
+		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-profile") {
 			// Presence for the fixture card comes from the same synthetic People rows.
 			let _ = state.request_members();
@@ -2955,6 +2990,21 @@ impl Desktop {
 					})
 				}
 				Command::Voice(_) | Command::CancelProfile | Command::CancelSearch => return,
+				Command::ThreadStarter {
+					thread,
+					parent,
+					request,
+				} => {
+					// The fixture thread hangs off a synthetic parent message with its own id.
+					let mut message = test_support::message(thread.0, parent);
+					message.content =
+						"This synthetic message started the thread; replies continue below.".into();
+					Event::ThreadStarter {
+						thread,
+						request,
+						result: Ok(message),
+					}
+				}
 				Command::CreatePost {
 					parent,
 					guild,
@@ -3060,11 +3110,13 @@ impl Desktop {
 						model::SearchHit {
 							id: message.id,
 							channel,
-							author: message.author.name,
 							excerpt: format!(
 								"Synthetic pinned message: {}",
 								message.content.chars().take(200).collect::<String>()
 							),
+							author: message.author,
+							attachments: message.attachments,
+							embeds: message.embeds,
 						}
 					})
 					.collect();
@@ -3153,8 +3205,10 @@ impl Desktop {
 								hits.push(model::SearchHit {
 									id: message.id,
 									channel,
-									author: message.author.name,
-									excerpt: message.content.chars().take(256).collect(),
+									author: message.author,
+									excerpt: message.content.clone(),
+									attachments: message.attachments,
+									embeds: message.embeds,
 								});
 							}
 						}

@@ -62,6 +62,10 @@ pub fn discord_timestamp(seconds: i64, style: u8) -> Option<String> {
 		_ => format!("{} {}, {} {clock}", date.month(), date.day(), date.year()),
 	})
 }
+/// "… ago" for a past instant, measured against the current clock.
+pub(crate) fn ago(instant: time::OffsetDateTime) -> String {
+	relative(instant - time::OffsetDateTime::now_utc())
+}
 /// Coarse "in …"/"… ago" phrasing with the same thresholds the web client's relative times use.
 fn relative(delta: time::Duration) -> String {
 	let seconds = delta.whole_seconds();
