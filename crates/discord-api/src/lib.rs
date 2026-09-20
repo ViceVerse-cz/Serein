@@ -629,6 +629,37 @@ impl DiscordApi {
 					result,
 				}
 			}
+			Command::ThreadStarter {
+				thread,
+				parent,
+				request,
+			} => {
+				// Documented single-message read; a thread shares its id with its starter.
+				let result = self
+					.request(
+						Method::GET,
+						&format!("/channels/{parent}/messages/{thread}"),
+						None,
+					)
+					.await
+					.and_then(|bytes| {
+						decode::<MessageDto>(&bytes)
+							.map(MessageDto::into_model)
+							.map_err(|_| Failure::Protocol)
+					})
+					.and_then(|message| {
+						if message.id == thread && message.channel == parent {
+							Ok(message)
+						} else {
+							Err(Failure::Protocol)
+						}
+					});
+				Event::ThreadStarter {
+					thread,
+					request,
+					result,
+				}
+			}
 			Command::Pins {
 				channel,
 				before,

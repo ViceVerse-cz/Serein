@@ -235,11 +235,14 @@ impl State {
 		if message.kind == 18 {
 			let name = message.content.trim();
 			if !name.is_empty() {
-				return self
+				// A system row only carries the name, so an ambiguous match resolves to nothing.
+				let mut matches = self
 					.channels
 					.iter()
 					.filter(is_thread)
-					.find(|c| c.name.trim() == name);
+					.filter(|c| c.name.trim() == name);
+				let thread = matches.next()?;
+				return matches.next().is_none().then_some(thread);
 			}
 		}
 		None
@@ -828,6 +831,21 @@ mod tests {
 		assert!(
 			state.thread_of(&other_channel).is_none(),
 			"A same-named thread under a different parent channel must not match"
+		);
+
+		let mut duplicate = channel(32, Some(Id(10)), 11);
+		duplicate.name = "Introductions".into();
+		state.channels.push(duplicate);
+		assert!(
+			state.thread_of(&started).is_none(),
+			"Two threads share the name, so the system row stays unresolved"
+		);
+		let mut flagged_duplicate = message(32, Id(10));
+		flagged_duplicate.flags = 1 << 5;
+		assert_eq!(
+			state.thread_of(&flagged_duplicate).map(|c| c.id),
+			Some(Id(32)),
+			"A flagged starter still resolves by id, whatever the thread is called"
 		);
 	}
 }

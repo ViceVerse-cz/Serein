@@ -60,6 +60,7 @@ pub struct Dialog {
 	title: String,
 	subtitle: Option<String>,
 	tone: Tone,
+	icon: Option<icons::Icon>,
 	width: f32,
 	dismissable: bool,
 }
@@ -79,6 +80,7 @@ impl Dialog {
 			title: title.into(),
 			subtitle: None,
 			tone: Tone::Neutral,
+			icon: None,
 			width: 440.0,
 			dismissable: true,
 		}
@@ -86,6 +88,11 @@ impl Dialog {
 	/// Supporting line under the title. Keep it to one sentence.
 	pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
 		self.subtitle = Some(subtitle.into());
+		self
+	}
+	/// Muted glyph shown before the title, naming what the dialog is about.
+	pub fn icon(mut self, icon: icons::Icon) -> Self {
+		self.icon = Some(icon);
 		self
 	}
 	/// Marks the dialog destructive: the header gains a tinted warning glyph.
@@ -104,6 +111,7 @@ impl Dialog {
 			title,
 			subtitle,
 			tone,
+			icon,
 			width,
 			dismissable,
 		} = self;
@@ -117,7 +125,7 @@ impl Dialog {
 				ui.set_width(width);
 				ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
 				ui.spacing_mut().item_spacing.y = 8.0;
-				close |= header(ui, &title, subtitle.as_deref(), tone, dismissable);
+				close |= header(ui, &title, subtitle.as_deref(), tone, icon, dismissable);
 				let mut body = Body {
 					ui,
 					available_height: available.y,
@@ -226,6 +234,7 @@ fn header(
 	title: &str,
 	subtitle: Option<&str>,
 	tone: Tone,
+	icon: Option<icons::Icon>,
 	dismissable: bool,
 ) -> bool {
 	let colors = design::palette(ui);
@@ -252,6 +261,12 @@ fn header(
 						colors.danger,
 					);
 					ui.add_space(4.0);
+				}
+				if let Some(icon) = icon.filter(|_| tone != Tone::Danger) {
+					let (rect, _) =
+						ui.allocate_exact_size(egui::Vec2::splat(30.0), egui::Sense::hover());
+					icons::paint(ui.painter(), icon, rect.shrink(3.0), colors.muted);
+					ui.add_space(6.0);
 				}
 				let text_width = (ui.available_width() - 34.0).max(1.0);
 				ui.allocate_ui_with_layout(

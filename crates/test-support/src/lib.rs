@@ -1111,6 +1111,7 @@ pub fn permission_snapshot(state: &State) -> model::permissions::Snapshot {
 		| p::SPEAK
 		| p::USE_VAD
 		| p::MANAGE_THREADS
+		| p::CREATE_PUBLIC_THREADS
 		| p::MANAGE_CHANNELS;
 	p::Snapshot {
 		guilds: state

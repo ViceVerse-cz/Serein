@@ -23,10 +23,13 @@ to match Phosphor's visual weight. Brand marks remain trademarks of their owners
 legal disclaimer applies. The license file is staged in both packages as
 `licenses/Simple-Icons-CC0.txt`.
 
-- `atlas.png`: 512×832 RGBA, 113,193 bytes; decoded 1,703,936 bytes.
-  SHA-256 `0e53c48bfaf86ee73b8464886ef52af9e1c118f92a32284ef1f4826edcc8ba43`.
+One repository-drawn glyph, `thread.svg` (four slanted round-capped bars on the same 256-unit
+grid), marks threads; it is rasterized with the Phosphor set and carries no upstream license.
+
+- `atlas.png`: 512×832 RGBA, 114,614 bytes.
+  SHA-256 `1afd60fcba9cacf16576332911d88ea50f561e1f0e32408c84ff00b64d5a0d81`.
 - `index.tsv`: icon name, tab, zero-based cell; SHA-256
-  `9780a53bfc9fd21040adc3f4baac6930779c8d6d53369f22a644af8a55f09775`.
+  `a150ba05027f284a49b8a93da4ae626f3019226019da1425ba0a72adf8f12a45`.
 
 Every upstream SVG's SHA-256 is pinned in `tools/generate-icons.py`, which refuses to build
 from mismatching files. Regenerate from the repository root:

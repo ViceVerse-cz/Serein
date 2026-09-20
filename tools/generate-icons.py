@@ -20,6 +20,7 @@ COLUMNS, CELL, PAD = 8, 64, 4
 GLYPH = CELL - 2 * PAD
 
 # Repository-local artwork, rasterized from the repository instead of an upstream package.
+# `assets/icons/thread.svg` is the thread glyph; it is listed inline below.
 BRAND_MARK = "repo:assets/brand/serein-mark.svg"
 
 # name, upstream asset, SHA-256 of the unmodified SVG file.
@@ -117,6 +118,7 @@ ICONS = [
     ("eye-slash", "fill/eye-slash-fill.svg", "fc34ad807da63ae5f99a235618cddc1b2bef8d98d7c95004d38b61312540b90d"),
     ("sliders-horizontal", "bold/sliders-horizontal-bold.svg", "e409a5fb3c2c134e46d51e48ac395e392223e04535c5ec664253f3e7e78cd7a9"),
     ("arrows-down-up", "bold/arrows-down-up-bold.svg", "174464c54af7273e46a6fc204ebd0fc1da75906573880687836b314e3fbdb85e"),
+    ("thread", "repo:assets/icons/thread.svg", "dfd7daf80375504a5af37b95bee1773af55a9eabe7c802e7f4152905f123c72c"),
 ]
 LICENSE_SHA256 = "ddbe6082ec3cf979db47e5af549d2849c5d6182b3e005ef91ce1dbb9eb122f11"
 

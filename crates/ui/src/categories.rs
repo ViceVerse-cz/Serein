@@ -854,7 +854,7 @@ impl MessagingUi {
 									13 => crate::icons::Icon::Speaker,
 									5 => crate::icons::Icon::Megaphone,
 									15 | 16 => crate::icons::Icon::Forum,
-									10..=12 => crate::icons::Icon::Threads,
+									10..=12 => crate::icons::Icon::Thread,
 									_ => crate::icons::Icon::Hash,
 								};
 								glyph = Some(crate::icons::inline(

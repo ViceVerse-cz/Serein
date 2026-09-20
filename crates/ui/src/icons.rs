@@ -119,10 +119,11 @@ pub enum Icon {
 	EyeSlash,
 	Sliders,
 	SortArrows,
+	Thread,
 }
 
 impl Icon {
-	pub const ALL: [Icon; 103] = [
+	pub const ALL: [Icon; 104] = [
 		Icon::ChevronDown,
 		Icon::ChevronRight,
 		Icon::Gear,
@@ -226,6 +227,7 @@ impl Icon {
 		Icon::EyeSlash,
 		Icon::Sliders,
 		Icon::SortArrows,
+		Icon::Thread,
 	];
 	/// Upstream icon name recorded in `index.tsv`.
 	fn asset(self) -> &'static str {
@@ -262,6 +264,7 @@ impl Icon {
 			Icon::Help => "question",
 			Icon::Reload => "arrow-clockwise",
 			Icon::Threads => "chats",
+			Icon::Thread => "thread",
 			Icon::Speaker => "speaker-high",
 			Icon::Hash => "hash",
 			Icon::Forum => "chat-centered-text",
