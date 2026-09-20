@@ -1007,7 +1007,7 @@ pub fn chat_demo_state() -> State {
 		if i == 6 {
 			m.mentions = vec![User {
 				id: Id(2),
-				name: "Robin (synthetic)".into(),
+				name: "𝖘𝖓𝖎𝖎𝖝. (synthetic)".into(),
 				avatar: None,
 				webhook: false,
 				kind: Default::default(),

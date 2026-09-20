@@ -7,6 +7,7 @@ use egui::{Context, FontData, FontDefinitions, FontFamily};
 const CJK_ZSTD: &[u8] = include_bytes!("../../../assets/fonts/NotoSansCJKjp-Regular.otf.zst");
 const CJK_BYTES: usize = 16_467_736;
 const ARABIC: &[u8] = include_bytes!("../../../assets/fonts/NotoSansArabic.ttf");
+const MATH: &[u8] = include_bytes!("../../../assets/fonts/NotoSansMath-Regular.otf");
 const INTER: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const INTER_MEDIUM: &[u8] = include_bytes!("../../../assets/fonts/Inter-Medium.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
@@ -99,6 +100,7 @@ fn definitions() -> FontDefinitions {
 	for (name, data) in [
 		("Noto Sans CJK JP", FontData::from_owned(cjk())),
 		("Noto Sans Arabic", FontData::from_static(ARABIC)),
+		("Noto Sans Math", FontData::from_static(MATH)),
 	] {
 		definitions.font_data.insert(name.into(), data.into());
 		for family in [
@@ -129,7 +131,11 @@ mod tests {
 	fn bundled_fallbacks_cover_multilingual_text_with_a_fixed_asset_budget() {
 		// The CJK face counts at its embedded (compressed) size.
 		assert!(
-			CJK_ZSTD.len() + ARABIC.len() + INTER.len() + INTER_MEDIUM.len() + INTER_SEMIBOLD.len()
+			CJK_ZSTD.len()
+				+ ARABIC.len()
+				+ MATH.len() + INTER.len()
+				+ INTER_MEDIUM.len()
+				+ INTER_SEMIBOLD.len()
 				<= 16 * 1024 * 1024
 		);
 		assert_eq!(cjk().len(), CJK_BYTES);
@@ -143,7 +149,8 @@ mod tests {
 						.expect("valid bundled font")
 				})
 				.collect();
-			for c in "Hello, 日本語かなカナ 中文汉字繁體 한국어 العربية مَرْحَبًا é e\u{301}".chars()
+			for c in
+				"Hello, 日本語かなカナ 中文汉字繁體 한국어 العربية مَرْحَبًا 𝖘𝖓𝖎𝖎𝖝. é e\u{301}".chars()
 			{
 				assert!(
 					faces.iter().any(|face| {
@@ -164,7 +171,7 @@ mod tests {
 					// egui 0.36.2 has_glyph incorrectly returns false for all
 					// primary-face glyphs. Check every scalar through its font
 					// parser above, then check the actual fallback path here.
-					for c in "日本語かなカナ中文汉字繁體한국어العربية".chars()
+					for c in "日本語かなカナ中文汉字繁體한국어العربية𝖘𝖓𝖎𝖎𝖝".chars()
 					{
 						assert!(fonts.has_glyph(&font, c), "missing glyph: {c} ({c:?})");
 					}

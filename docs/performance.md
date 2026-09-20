@@ -967,3 +967,32 @@ The disabled path performs no compositor calls, repaint scheduling, allocations,
 or extra draw passes; it exits window-effect synchronization before theme lookup.
 No helper processes were present. Frame callback timing is unmeasured because an
 idle event-driven window did not produce enough callbacks for a useful comparison.
+
+## Unicode mathematical-letter fallback — September 20, 2026
+
+Package baseline: `4c3c53a`. After: this branch. The idle sample compared
+`f0cb74d` with the same font patch before its clean rebase. Both comparisons used
+Rust 1.98.1 on Windows 11 Home build 26200, AMD Ryzen 7 7800X3D,
+33,410,678,784 bytes RAM, WGPU/DX12, the same `--demo --demo-chat` fixture,
+default viewport, and the standard voice-enabled `cargo xtask package` profile.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 67,598,848 | 68,078,080 | +479,232 (+0.709%) |
+| Full portable package, bytes | 71,690,121 | 72,173,873 | +483,752 (+0.675%) |
+| ZIP, `Compress-Archive` Optimal, bytes | 40,980,135 | 41,329,028 | +348,893 (+0.851%) |
+| Idle CPU, one 10 s window after 15 s warmup | 0.155% | 0.010% | -0.145 percentage points |
+| Peak working set, 11 samples at 1 s | 318,853,120 | 314,937,344 | -3,915,776 (-1.23%) |
+| Settled working set | 318,853,120 | 314,929,152 | -3,923,968 (-1.23%) |
+
+One package was built per revision. The preserved baseline executable and base
+notice set were combined with the otherwise unchanged final staging tree to compare
+the complete 194-file baseline package with the 195-file package that adds the OFL
+notice. `makensis` was unavailable, so neither measurement includes an NSIS installer.
+The OpenH264 LNK4255 warning was nonfatal in both package builds.
+
+The CPU and memory differences come from one short idle sample and are treated as
+noise, not an improvement. The deterministic cost is the 479,308-byte bundled
+Noto Sans Math face plus its notice and small integration changes. Native screenshot
+capture was unavailable because the Windows computer-use helper failed to initialize
+with OS error 3; no visual, frame-time, startup, or live Discord claim is made.
