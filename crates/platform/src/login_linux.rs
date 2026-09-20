@@ -73,6 +73,7 @@ pub struct LoginView {
 }
 
 impl LoginView {
+	/// Opens an ephemeral login window and retains its display for event pumping and teardown.
 	pub fn open(
 		parent: Arc<winit::window::Window>,
 		wake: impl Fn() + Send + Sync + 'static,
