@@ -39,6 +39,8 @@ login challenges.
 Close/drop invalidates pending results, clears the secret/scripts/handler, cancels evaluation,
 stops loading, terminates the ephemeral web process and destroys the GTK window. GLib pumping
 checks a 2-ms deadline between at most 16 callbacks; one native callback may exceed that time.
+The login view retains its GDK display while the window is live, so flushing does not
+look up a display through a window already destroyed by a close event.
 The nonblocking pump explicitly flushes GDK window requests. Teardown also flushes after
 destroying the window, since successful handoff and cancellation stop the login pump.
 Offline native Wayland validation reproduced the stuck window after a synthetic
