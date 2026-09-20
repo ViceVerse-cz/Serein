@@ -32,7 +32,10 @@ fn sections(state: &State) -> Vec<Section<'_>> {
 		});
 	}
 	sections.extend(state.guilds.iter().filter_map(|guild| {
-		let stickers = guild.stickers.as_deref().filter(|items| !items.is_empty())?;
+		let stickers = guild
+			.stickers
+			.as_deref()
+			.filter(|items| !items.is_empty())?;
 		Some(Section {
 			id: Group::Guild(guild.id),
 			name: &guild.name,
@@ -140,15 +143,38 @@ impl Browser {
 							}
 							results += matching.len();
 							let target = self.target == Some(section.id);
-							let header = egui::CollapsingHeader::new(design::semibold(
-								ui,
-								section.name,
-								14.0,
-							))
-							.id_salt(section.id)
-							.default_open(true)
-							.open(target.then_some(true))
-							.show(ui, |ui| {
+							let mut collapse =
+								egui::collapsing_header::CollapsingState::load_with_default_open(
+									ui.ctx(),
+									ui.make_persistent_id(section.id),
+									true,
+								);
+							if target {
+								collapse.set_open(true);
+							}
+							let mut toggle = false;
+							let mut header = collapse.show_header(ui, |ui| {
+								if let Group::Guild(id) = section.id
+									&& let Some(guild) = state.guild(id)
+								{
+									let (rect, response) = ui.allocate_exact_size(
+										egui::Vec2::splat(20.0),
+										egui::Sense::click(),
+									);
+									avatars.paint_guild(ui, guild, rect, state.demo, 6);
+									toggle |= response.clicked();
+								}
+								toggle |= ui
+									.add(
+										egui::Label::new(design::semibold(ui, section.name, 14.0))
+											.sense(egui::Sense::click()),
+									)
+									.clicked();
+							});
+							if toggle {
+								header.toggle();
+							}
+							let (_, header, _) = header.body(|ui| {
 								if matching.is_empty() {
 									ui.label(
 										egui::RichText::new("This server has no stickers yet.")
@@ -203,7 +229,7 @@ impl Browser {
 								}
 							});
 							if target {
-								header.header_response.scroll_to_me(Some(egui::Align::Min));
+								header.response.scroll_to_me(Some(egui::Align::Min));
 								self.target = None;
 							}
 							if !query.is_empty() && results >= 500 {
