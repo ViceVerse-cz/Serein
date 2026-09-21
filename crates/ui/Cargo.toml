@@ -10,7 +10,7 @@ demo = []
 
 [dependencies]
 extensions.workspace = true
-egui.workspace = true
+egui = { workspace = true, features = ["bytemuck"] }
 model.workspace = true
 client-core.workspace = true
 pulldown-cmark = { version = "=0.13.4", default-features = false }

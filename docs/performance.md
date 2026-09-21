@@ -1,3 +1,78 @@
+# Reviewed RAM findings — September 21, 2026
+
+Baseline: `b3130c37`; after: this PR. macOS 27.0 (26A428), Apple M1 Pro,
+16 GiB RAM, Rust 1.98.1, locked dependencies and the standard release profile.
+The same benchmark-only `crates/ui/tests/startup_memory.rs` was added to the
+baseline before runtime edits. Baseline executables and the signed package were
+preserved separately. Measurements ran serially without task builds.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Font-set installation median, ms | 96.035 | 0.009 | -96.026 (-99.99%) |
+| Font-set installation process peak RSS, bytes | 67,584,000 | 2,932,736 | -64,651,264 (-95.66%) |
+| Atlas installation median, ms | 26.613 | 30.072 | +3.459 (+13.00%) |
+| Atlas installation process peak RSS, bytes | 41,844,736 | 25,395,200 | -16,449,536 (-39.31%) |
+| 100,000-event reducer median, ms | 50.672 | 50.298 | -0.374 (-0.74%) |
+| Standard release executable, bytes | 54,528,000 | 54,528,000 | +0 (+0.00%) |
+| Installed app, bytes | 60,466,497 | 60,466,497 | +0 (+0.00%) |
+| App ZIP, bytes | 40,237,564 | 40,236,598 | -966 (-0.00%) |
+
+Each component test creates a fresh egui context per installation, with one
+warmup and five measured calls in a separate process. Elapsed time excludes
+context construction/destruction; `/usr/bin/time -l` reports maximum process RSS
+across all six installations. Font timing covers definition installation, not
+first glyph rasterization. Atlas timing includes PNG decoding, premultiplication
+and queuing the texture; no GPU upload or native window runs in this harness.
+These are isolated component process peaks, not whole-app RAM or additive savings.
+The atlas trades about 3.46 ms of worker initialization (+13%) for about 15.69 MiB
+less peak component RSS. A reversed-order repeat confirmed the tradeoff: baseline
+27.765 ms / 41,877,504 bytes versus after 30.399 ms / 25,378,816 bytes. This one-time
+cost per atlas load is retained for the memory saving; no rendering-speed claim is made.
+
+Font samples (ms): [98.126, 99.103, 93.948, 93.158, 96.035] →
+[0.034, 0.01, 0.009, 0.009, 0.008].
+Atlas samples (ms): [27.168, 26.817, 26.613, 26.527, 26.341] →
+[31.357, 30.002, 30.008, 30.147, 30.072].
+Reducer samples (ms): [50.660667, 50.672459, 51.051333, 50.243792, 50.794125] →
+[49.542625, 49.921333, 50.384125, 50.29825, 50.565542]. The reducer is unchanged;
+its small timing difference is treated as noise. Retained timeline remains
+323,992–324,477 estimated bytes / 500 records. It does not exercise compressed
+Gateway input.
+
+The deterministic changes remove the unnecessary 16,467,736-byte CJK decode at
+startup and one 16,515,072-byte atlas conversion buffer. The Gateway regression
+check sends a fragmented synthetic 512-KiB payload followed by dictionary-dependent
+text: oversized pending capacity is released after completion, small packets
+reuse capacity and the inflater continues decoding. Its 64-MiB wire/output
+limits stay unchanged. Repeated large packets may allocate more often.
+
+Both standard `cargo xtask package` builds include voice without demo/developer
+features. The installed total sums all 198 bundle files; ZIP uses
+`ditto -c -k --keepParent` on `Serein.app` for each revision. Both bundles pass
+`codesign --verify --strict`; signatures are local ad-hoc, not notarized.
+Small package-size differences include code layout and compression noise.
+
+Reproduce the component benchmark by building once, then running each ignored
+test separately in the produced executable:
+
+```sh
+cargo test --release --locked -p ui --test startup_memory --no-run
+/usr/bin/time -l target/release/deps/startup_memory-<hash> font_install --ignored --nocapture
+/usr/bin/time -l target/release/deps/startup_memory-<hash> emoji_install --ignored --nocapture
+cargo replay
+# Run target/release/replay-bench once to warm up, then five more times.
+```
+
+Native idle CPU/RSS, startup and frame latency remain unmeasured. The untouched
+baseline fails `cargo build --release --locked -p serein --features demo` because
+`apps/desktop/src/post_menu_demo.rs:166` calls `debug_member_search_check`, which
+is exported only under `debug_assertions`. That pre-existing demo-only compile
+error is left unchanged. No live account, microphone or media-device tests ran.
+No visible UI change: atlas pixels match exactly and font fallback ordering stays
+unchanged. Partial media texture updates were deferred because occluded video
+continues polling without rendering; partial deltas would accumulate instead
+of replacing the single pending frame.
+
 # Reviewed performance findings — September 19, 2026
 
 Baseline: `9fca898`, with the new benchmark-only test harness applied before runtime

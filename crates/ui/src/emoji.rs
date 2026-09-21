@@ -1,5 +1,6 @@
 //! Bundled Twemoji. One fixed atlas, no runtime requests or per-message image cache.
 use egui::{Context, Image, TextureHandle};
+use image::ImageDecoder;
 use std::sync::OnceLock;
 
 const ATLAS: &[u8] = include_bytes!("../../../assets/twemoji/atlas.png");
@@ -18,13 +19,34 @@ fn entries() -> &'static [(&'static str, usize)] {
 	})
 }
 
+// The bundled RGBA8 PNG decodes directly into its final pixel allocation. Color32's
+// safe byte view is converted from straight alpha before the image reaches egui.
+fn decode_atlas() -> Result<egui::ColorImage, image::ImageError> {
+	let decoder = image::codecs::png::PngDecoder::new(std::io::Cursor::new(ATLAS))?;
+	assert_eq!(
+		decoder.color_type(),
+		image::ColorType::Rgba8,
+		"bundled atlas format"
+	);
+	let (width, height) = decoder.dimensions();
+	assert!(u64::from(width) * u64::from(height) * 4 <= 16 * 1024 * 1024);
+	let mut image = egui::ColorImage::filled(
+		[width as usize, height as usize],
+		egui::Color32::TRANSPARENT,
+	);
+	decoder.read_image(image.as_raw_mut())?;
+	for pixel in &mut image.pixels {
+		let [r, g, b, a] = pixel.to_array();
+		*pixel = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
+	}
+	Ok(image)
+}
+
 /// Decode once during application creation, outside the render callback.
 pub fn install(ctx: &Context) -> Result<(), image::ImageError> {
-	let image = image::load_from_memory_with_format(ATLAS, image::ImageFormat::Png)?.into_rgba8();
-	let size = [image.width() as usize, image.height() as usize];
 	let texture = ctx.load_texture(
 		"Twemoji 17.0.3",
-		egui::ColorImage::from_rgba_unmultiplied(size, &image),
+		decode_atlas()?,
 		egui::TextureOptions::LINEAR,
 	);
 	ctx.data_mut(|data| data.insert_temp(egui::Id::unique("twemoji"), texture));
@@ -178,6 +200,18 @@ mod tests {
 			assert!(custom_prefix(token).is_none(), "{token}");
 		}
 	}
+	#[test]
+	fn direct_decode_preserves_every_premultiplied_pixel() {
+		let rgba = image::load_from_memory_with_format(ATLAS, image::ImageFormat::Png)
+			.unwrap()
+			.into_rgba8();
+		let expected = egui::ColorImage::from_rgba_unmultiplied(
+			[rgba.width() as usize, rgba.height() as usize],
+			&rgba,
+		);
+		assert_eq!(decode_atlas().unwrap(), expected);
+	}
+
 	#[test]
 	fn atlas_is_bounded_and_matches_complete_sequences() {
 		let image = image::load_from_memory(ATLAS).unwrap();

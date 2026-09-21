@@ -14,12 +14,7 @@ const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBo
 
 /// Install once during application creation, before the first UI pass.
 pub fn install(ctx: &Context) {
-	let mut latin = definitions();
-	latin.font_data.remove("Noto Sans CJK JP");
-	for family in latin.families.values_mut() {
-		family.retain(|name| name != "Noto Sans CJK JP");
-	}
-	ctx.set_fonts(latin);
+	ctx.set_fonts(definitions(false));
 	let installed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 	ctx.on_end_pass("CJK fallback", std::sync::Arc::new(move |ui| {
 		// Also true while the decode thread runs, so the scan stops after the first hit.
@@ -42,11 +37,11 @@ pub fn install(ctx: &Context) {
 			let spawned = std::thread::Builder::new()
 				.name("cjk-font".into())
 				.spawn(move || {
-					worker.set_fonts(definitions());
+					worker.set_fonts(definitions(true));
 					worker.request_repaint();
 				});
 			if spawned.is_err() {
-				ctx.set_fonts(definitions());
+				ctx.set_fonts(definitions(true));
 				ctx.request_repaint();
 			}
 		}
@@ -61,8 +56,15 @@ fn latin(data: &'static [u8]) -> FontData {
 	font
 }
 
+#[cfg(test)]
+std::thread_local! {
+	static CJK_DECODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// The bundled archive always inflates; a corrupt asset is a build defect, not a runtime path.
 fn cjk() -> Vec<u8> {
+	#[cfg(test)]
+	CJK_DECODES.with(|count| count.set(count.get() + 1));
 	let mut font = Vec::with_capacity(CJK_BYTES);
 	ruzstd::decoding::FrameDecoder::new()
 		.decode_all_to_vec(CJK_ZSTD, &mut font)
@@ -70,7 +72,7 @@ fn cjk() -> Vec<u8> {
 	font
 }
 
-fn definitions() -> FontDefinitions {
+fn definitions(with_cjk: bool) -> FontDefinitions {
 	let mut definitions = FontDefinitions::default();
 	// Inter leads proportional text; two heavier faces provide Discord-style emphasis
 	// (egui has no synthetic bold). Each weight family falls back to egui's defaults.
@@ -97,11 +99,13 @@ fn definitions() -> FontDefinitions {
 		list.insert(0, name.into());
 		list.extend(defaults.iter().cloned());
 	}
-	for (name, data) in [
-		("Noto Sans CJK JP", FontData::from_owned(cjk())),
-		("Noto Sans Arabic", FontData::from_static(ARABIC)),
-		("Noto Sans Math", FontData::from_static(MATH)),
-	] {
+	for (name, data) in with_cjk
+		.then(|| ("Noto Sans CJK JP", FontData::from_owned(cjk())))
+		.into_iter()
+		.chain([
+			("Noto Sans Arabic", FontData::from_static(ARABIC)),
+			("Noto Sans Math", FontData::from_static(MATH)),
+		]) {
 		definitions.font_data.insert(name.into(), data.into());
 		for family in [
 			FontFamily::Proportional,
@@ -128,6 +132,28 @@ mod tests {
 	use skrifa::MetadataProvider;
 
 	#[test]
+	fn startup_does_not_decode_cjk_but_on_demand_definitions_do() {
+		let before = CJK_DECODES.get();
+		install(&Context::default());
+		assert_eq!(CJK_DECODES.get(), before);
+		let base = definitions(false);
+		assert!(!base.font_data.contains_key("Noto Sans CJK JP"));
+		let full = definitions(true);
+		assert_eq!(CJK_DECODES.get(), before + 1);
+		assert_eq!(full.font_data.len(), base.font_data.len() + 1);
+		assert_eq!(full.font_data["Noto Sans CJK JP"].bytes().len(), CJK_BYTES);
+		for (family, names) in &base.families {
+			assert!(!names.iter().any(|name| name == "Noto Sans CJK JP"));
+			let without_cjk: Vec<_> = full.families[family]
+				.iter()
+				.filter(|name| *name != "Noto Sans CJK JP")
+				.cloned()
+				.collect();
+			assert_eq!(*names, without_cjk);
+		}
+	}
+
+	#[test]
 	fn bundled_fallbacks_cover_multilingual_text_with_a_fixed_asset_budget() {
 		// The CJK face counts at its embedded (compressed) size.
 		assert!(
@@ -139,7 +165,7 @@ mod tests {
 				<= 16 * 1024 * 1024
 		);
 		assert_eq!(cjk().len(), CJK_BYTES);
-		let definitions = definitions();
+		let definitions = definitions(true);
 		for family in [FontFamily::Proportional, FontFamily::Monospace] {
 			let faces: Vec<_> = definitions.families[&family]
 				.iter()
@@ -208,7 +234,7 @@ mod tests {
 				.color_transfer_function,
 			egui::epaint::FontColorTransferFunction::Gamma(0.5)
 		);
-		let tweaks = definitions()
+		let tweaks = definitions(false)
 			.font_data
 			.iter()
 			.filter(|(name, _)| name.starts_with("Inter"))
