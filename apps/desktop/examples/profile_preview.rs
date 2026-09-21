@@ -196,6 +196,13 @@ fn extension_fixture(
 		"serein-rose" => include_bytes!("../../../extensions/rose.serein-extension"),
 		"serein-forest" => include_bytes!("../../../extensions/forest.serein-extension"),
 		"serein-latte" => include_bytes!("../../../extensions/latte.serein-extension"),
+		"golden-theme" => include_bytes!("../../../extensions/golden.serein-extension"),
+		"black-theme" => include_bytes!("../../../extensions/katana.serein-extension"),
+		"obsidian-theme" => include_bytes!("../../../extensions/obsidian.serein-extension"),
+		"teal-theme" => include_bytes!("../../../extensions/teal.serein-extension"),
+		"emoji-sticker-images" => include_bytes!(
+			"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
+		),
 		_ => return Err("Unknown fixture extension".into()),
 	};
 	let package = extensions::parse_package(bytes)?;
@@ -411,15 +418,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					ui::design::apply(&cc.egui_ctx);
 				}
 				if let Some(output) = result {
+					messaging.image_sharing_enabled = output.image_sharing;
+					if output.image_sharing {
+						test_support::seed_stickers(&mut state);
+						messaging.preview_sticker_picker();
+					}
 					state.set_preserve_deleted_messages(output.preserve_deleted_messages);
-					let channel = state.selected.unwrap();
-					state.apply(client_core::Envelope {
-						generation: state.generation,
-						event: client_core::Event::Delete {
-							channel,
-							id: model::Id(601),
-						},
-					});
+					if output.preserve_deleted_messages {
+						let channel = state.selected.unwrap();
+						state.apply(client_core::Envelope {
+							generation: state.generation,
+							event: client_core::Event::Delete {
+								channel,
+								id: model::Id(601),
+							},
+						});
+					}
 				}
 			} else if page.starts_with("server") {
 				server_settings_demo::open(&mut state, &mut messaging);
