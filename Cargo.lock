@@ -6149,6 +6149,7 @@ dependencies = [
  "model",
  "opus2",
  "platform",
+ "png",
  "reqwest",
  "rtrb",
  "semver",
