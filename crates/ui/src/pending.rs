@@ -45,6 +45,8 @@ pub fn show(
 	let (avatars, opening, profile, channel, formats) = media;
 	let upload = upload.filter(|upload| upload.nonce == pending.nonce);
 	let sending = pending.delivery == Delivery::Sending;
+	let artwork = pending.attachments.len() == 1
+		&& attachments::artwork_edge(&pending.attachments[0]).is_some();
 	let status = match pending.delivery {
 		Delivery::Sending => "Sending…",
 		Delivery::Ambiguous => "Delivery unknown",
@@ -161,7 +163,7 @@ pub fn show(
 							files(ui, pending, upload);
 						});
 					}
-					if sending {
+					if sending && !artwork {
 						if !pending.attachments.is_empty() {
 							ui.add_space(2.0);
 							ui.scope(|ui| {
@@ -288,13 +290,7 @@ fn files(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>) {
 fn upload_strip(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>, cancel: &mut bool) {
 	let colors = design::palette(ui);
 	let count = pending.attachments.len();
-	let title = if count == 1 && attachments::artwork_edge(&pending.attachments[0]).is_some() {
-		if pending.attachments[0].starts_with("emoji-") {
-			"Sending emoji…".into()
-		} else {
-			"Sending sticker…".into()
-		}
-	} else if count == 1 {
+	let title = if count == 1 {
 		format!("Uploading {}", pending.attachments[0])
 	} else {
 		format!("Uploading {count} files")
