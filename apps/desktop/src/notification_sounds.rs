@@ -126,12 +126,15 @@ fn samples(
 			Sound::IncomingRing => {
 				include_bytes!("../../../assets/sounds/discord/incoming-ring.mp3")
 			}
+			Sound::Mute => include_bytes!("../../../assets/sounds/discord/mute.mp3"),
+			Sound::Unmute => include_bytes!("../../../assets/sounds/discord/unmute.mp3"),
 		}
 	} else {
 		match sound {
 			Sound::Message => include_bytes!("../../../assets/sounds/message.mp3"),
 			Sound::CurrentChannel => include_bytes!("../../../assets/sounds/current-channel.mp3"),
 			Sound::IncomingRing => include_bytes!("../../../assets/sounds/incoming-ring.mp3"),
+			Sound::Mute | Sound::Unmute => return Err(()),
 		}
 	};
 	if bytes.len() > 128 * 1024 || !(8000..=192000).contains(&rate) {
@@ -331,36 +334,44 @@ mod tests {
 	#[test]
 	fn bundled_cues_decode_in_full_at_supported_rates_and_cancel() {
 		for rate in [8000, 44100, 48000, 192000] {
-			for discord in [false, true] {
-				let cues = [Sound::Message, Sound::CurrentChannel, Sound::IncomingRing]
-					.map(|s| samples(s, discord, rate, &|| true).unwrap());
-				if discord {
-					assert_eq!(cues[0], cues[1]);
-				} else {
-					assert_ne!(cues[0], cues[1]);
-				}
-				let expectations = if discord {
-					[(0.2, 0.5), (0.2, 0.5), (5.0, 5.6)]
-				} else {
-					[(0.2, 0.5), (0.1, 0.4), (3.9, 4.3)]
-				};
-				for (cue, (min, max)) in cues.iter().zip(expectations) {
-					let seconds = cue.len() as f64 / f64::from(rate);
-					assert!(
-						(min..max).contains(&seconds),
-						"unexpected cue duration {seconds}"
-					);
-					assert!(cue.len() <= rate as usize * 6);
-					assert!(
-						cue.iter()
-							.flatten()
-							.all(|s| s.is_finite() && s.abs() <= 1.0)
-					);
-					assert!(cue.iter().flatten().any(|s| s.abs() > 0.01));
-					assert!(
-						Duration::from_secs_f64(seconds) + Duration::from_millis(100) < RING_INTERVAL
-					);
-				}
+			let default_cues = [Sound::Message, Sound::CurrentChannel, Sound::IncomingRing]
+				.map(|s| samples(s, false, rate, &|| true).unwrap());
+			assert_ne!(default_cues[0], default_cues[1]);
+			for (cue, (min, max)) in default_cues.iter().zip([(0.2, 0.5), (0.1, 0.4), (3.9, 4.3)]) {
+				let seconds = cue.len() as f64 / f64::from(rate);
+				assert!((min..max).contains(&seconds), "unexpected cue duration {seconds}");
+				assert!(cue.len() <= rate as usize * 6);
+				assert!(cue.iter().flatten().all(|s| s.is_finite() && s.abs() <= 1.0));
+				assert!(cue.iter().flatten().any(|s| s.abs() > 0.01));
+				assert!(Duration::from_secs_f64(seconds) + Duration::from_millis(100) < RING_INTERVAL);
+			}
+			assert!(samples(Sound::Mute, false, rate, &|| true).is_err());
+			assert!(samples(Sound::Unmute, false, rate, &|| true).is_err());
+
+			let discord_cues = [
+				Sound::Message,
+				Sound::CurrentChannel,
+				Sound::IncomingRing,
+				Sound::Mute,
+				Sound::Unmute,
+			]
+			.map(|s| samples(s, true, rate, &|| true).unwrap());
+			assert_eq!(discord_cues[0], discord_cues[1]);
+			assert_ne!(discord_cues[3], discord_cues[4]);
+			let discord_expectations = [
+				(0.2, 0.5),
+				(0.2, 0.5),
+				(5.0, 5.6),
+				(0.3, 0.6),
+				(0.3, 0.6),
+			];
+			for (cue, (min, max)) in discord_cues.iter().zip(discord_expectations) {
+				let seconds = cue.len() as f64 / f64::from(rate);
+				assert!((min..max).contains(&seconds), "unexpected cue duration {seconds}");
+				assert!(cue.len() <= rate as usize * 6);
+				assert!(cue.iter().flatten().all(|s| s.is_finite() && s.abs() <= 1.0));
+				assert!(cue.iter().flatten().any(|s| s.abs() > 0.01));
+				assert!(Duration::from_secs_f64(seconds) + Duration::from_millis(100) < RING_INTERVAL);
 			}
 		}
 		assert!(samples(Sound::Message, false, 48000, &|| false).is_err());

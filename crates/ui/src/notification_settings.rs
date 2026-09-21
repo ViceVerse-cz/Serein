@@ -79,6 +79,13 @@ mod tests {
 			for label in ["Email", "Advanced", "Friends come online"] {
 				assert!(!labels.iter().any(|(s, _)| s == label), "stale {label}");
 			}
+			assert!(!labels.iter().any(|(s, _)| s == "Microphone Muted"));
+			assert!(!labels.iter().any(|(s, _)| s == "Microphone Unmuted"));
+			view.notification_options.discord_sounds = true;
+			let discord_labels = render(&mut view, vec![]);
+			assert!(discord_labels.iter().any(|(s, _)| s == "Microphone Muted"));
+			assert!(discord_labels.iter().any(|(s, _)| s == "Microphone Unmuted"));
+			view.notification_options.discord_sounds = false;
 			let labels = render(&mut view, vec![]);
 			let point = labels
 				.iter()
@@ -173,7 +180,7 @@ impl MessagingUi {
 				&mut self.notification_options.discord_sounds,
 			);
 			design::card_divider(ui);
-			for (index, (label, value, sound)) in [
+			let mut sounds = vec![
 				(
 					"New Message",
 					&mut self.notification_options.new_message,
@@ -189,10 +196,20 @@ impl MessagingUi {
 					&mut self.notification_options.incoming_ring,
 					Sound::IncomingRing,
 				),
-			]
-			.into_iter()
-			.enumerate()
-			{
+			];
+			if self.notification_options.discord_sounds {
+				sounds.push((
+					"Microphone Muted",
+					&mut self.notification_options.mute,
+					Sound::Mute,
+				));
+				sounds.push((
+					"Microphone Unmuted",
+					&mut self.notification_options.unmute,
+					Sound::Unmute,
+				));
+			}
+			for (index, (label, value, sound)) in sounds.into_iter().enumerate() {
 				if index > 0 {
 					design::card_divider(ui);
 				}

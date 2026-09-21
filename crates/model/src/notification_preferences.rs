@@ -8,6 +8,8 @@ pub struct Device {
 	pub disable_sounds: bool,
 	pub unread_badge: bool,
 	pub discord_sounds: bool,
+	pub mute: bool,
+	pub unmute: bool,
 }
 impl Default for Device {
 	fn default() -> Self {
@@ -18,6 +20,8 @@ impl Default for Device {
 			disable_sounds: false,
 			unread_badge: true,
 			discord_sounds: false,
+			mute: true,
+			unmute: true,
 		}
 	}
 }
@@ -26,6 +30,8 @@ pub enum Sound {
 	Message,
 	CurrentChannel,
 	IncomingRing,
+	Mute,
+	Unmute,
 }
 impl Device {
 	pub fn allows(self, sound: Sound) -> bool {
@@ -34,6 +40,8 @@ impl Device {
 				Sound::Message => self.new_message,
 				Sound::CurrentChannel => self.current_channel,
 				Sound::IncomingRing => self.incoming_ring,
+				Sound::Mute => self.discord_sounds && self.mute,
+				Sound::Unmute => self.discord_sounds && self.unmute,
 			}
 	}
 }
@@ -45,11 +53,25 @@ mod tests {
 		let mut settings = Device::default();
 		assert!(settings.allows(Sound::Message));
 		assert!(!settings.allows(Sound::CurrentChannel));
+		assert!(!settings.allows(Sound::Mute));
+		assert!(!settings.allows(Sound::Unmute));
+		settings.discord_sounds = true;
+		assert!(settings.allows(Sound::Mute));
+		assert!(settings.allows(Sound::Unmute));
+		settings.mute = false;
+		assert!(!settings.allows(Sound::Mute));
+		assert!(settings.allows(Sound::Unmute));
 		settings.current_channel = true;
 		settings.new_message = false;
 		assert!(settings.allows(Sound::CurrentChannel));
 		settings.disable_sounds = true;
-		for sound in [Sound::Message, Sound::CurrentChannel, Sound::IncomingRing] {
+		for sound in [
+			Sound::Message,
+			Sound::CurrentChannel,
+			Sound::IncomingRing,
+			Sound::Mute,
+			Sound::Unmute,
+		] {
 			assert!(!settings.allows(sound));
 		}
 		settings.disable_sounds = false;

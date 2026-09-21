@@ -1833,6 +1833,14 @@ impl MessagingUi {
 					self.voice_deafened = !active;
 				} else {
 					self.voice_muted = !active;
+					let cue = if !active {
+						model::notification_preferences::Sound::Mute
+					} else {
+						model::notification_preferences::Sound::Unmute
+					};
+					if self.notification_options.allows(cue) {
+						self.notification_preview = Some(cue);
+					}
 				}
 			}
 			return response.on_hover_text(format!("{label}; applies to your next call."));
@@ -1890,6 +1898,14 @@ impl MessagingUi {
 				deafened = !deafened;
 			} else {
 				muted = !muted;
+				let cue = if muted {
+					model::notification_preferences::Sound::Mute
+				} else {
+					model::notification_preferences::Sound::Unmute
+				};
+				if self.notification_options.allows(cue) {
+					self.notification_preview = Some(cue);
+				}
 			}
 			self.voice_muted = muted;
 			self.voice_deafened = deafened;
