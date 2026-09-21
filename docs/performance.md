@@ -402,7 +402,13 @@ and 20 ms process time. The final run, after three seconds warmup, delivered
 the game-only bounds when Serein playback appeared. Rekey, application removal,
 Serein-only idle and stop also passed. This verifies the Pulse API with synthetic
 signals; it is not Linux/PipeWire hardware, Discord interoperability or a latency benchmark.
+
 # Indexed message channel lookups - September 15, 2026
+
+Historical measurements from the original PR revision, before its September 21
+rebase onto `81b472d5`. A fresh release replay on macOS failed while compiling
+`client-core` with `No space left on device`; these figures do not measure the
+rebased revision.
 
 Baseline: fetched `origin/main` at `490be9c`; after: that revision plus the
 message-path channel-index substitutions on `perf/message-channel-index`.
