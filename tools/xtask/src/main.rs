@@ -325,6 +325,11 @@ fn package() -> Result<(), String> {
 		}
 	}
 	std::fs::create_dir_all(resources.join("licenses")).map_err(|e| e.to_string())?;
+	std::fs::copy(
+		"assets/sounds/README.md",
+		resources.join("licenses/notification-sounds.md"),
+	)
+	.map_err(|e| e.to_string())?;
 	for file in [
 		"NotoSansCJK-LICENSE.txt",
 		"NotoSansArabic-OFL.txt",
