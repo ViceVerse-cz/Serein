@@ -605,7 +605,9 @@ impl ChannelMenu {
 		}
 		let mut message = String::new();
 		if self.preference_error {
-			message.push_str("Your favorites and pins are full. Remove one before adding another.");
+			message.push_str(
+				"Saved channel preferences are full. Remove a favorite or pin, or expand a category.",
+			);
 		}
 		if let Some(id) = self.feedback {
 			if !message.is_empty() {

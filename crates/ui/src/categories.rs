@@ -455,28 +455,32 @@ impl MessagingUi {
 			hide_muted,
 		};
 		if self.channel_cache.key != Some(key) {
-			// Session-only keys are pruned on navigation updates, never accumulated in egui memory.
 			let categories: BTreeSet<_> = state
 				.channels
 				.iter()
 				.filter(|c| c.kind == 4)
 				.map(|c| c.id)
 				.collect();
-			self.collapsed_categories
+			let before = self.channel_preferences.collapsed_categories.len();
+			self.channel_preferences
+				.collapsed_categories
 				.retain(|id| categories.contains(id));
+			self.channel_preferences_changed |=
+				before != self.channel_preferences.collapsed_categories.len();
 			let roster = Roster::build(
 				state,
 				&self.channel_preferences,
 				scope,
 				self.show_hidden_channels,
 			);
-			let mut channel_rows = rows(
-				state,
-				scope,
-				&roster,
-				&self.collapsed_categories,
-				self.show_hidden_channels,
-			);
+			let collapsed: BTreeSet<_> = self
+				.channel_preferences
+				.collapsed_categories
+				.iter()
+				.copied()
+				.collect();
+			let mut channel_rows =
+				rows(state, scope, &roster, &collapsed, self.show_hidden_channels);
 			if hide_muted {
 				channel_rows.retain(|row| {
 					!matches!(row, Row::Channel(channel, ..) if Some(channel.id) != state.selected && state.guild_channel_muted(channel.id) == Some(true))
@@ -585,7 +589,8 @@ impl MessagingUi {
 							let category = &state.channels[category];
 							let draggable = !state.channel_action_pending()
 								&& state.can_manage_channel(category.id);
-							let collapsed = self.collapsed_categories.contains(&category.id);
+							let collapsed =
+								self.channel_preferences.category_collapsed(category.id);
 							let response = category_header(
 								ui,
 								category.id,
@@ -608,10 +613,17 @@ impl MessagingUi {
 							}
 							if response.clicked() {
 								self.channel_cache.key = None;
-								if collapsed {
-									self.collapsed_categories.remove(&category.id);
-								} else {
-									self.collapsed_categories.insert(category.id);
+								match self
+									.channel_preferences
+									.set_category_collapsed(category.id, !collapsed)
+								{
+									model::PreferenceEdit::Changed => {
+										self.channel_preferences_changed = true;
+									}
+									model::PreferenceEdit::CapacityReached => {
+										self.channel_menu.report_capacity(state.generation)
+									}
+									model::PreferenceEdit::Unchanged => {}
 								}
 							}
 							self.channel_menu.context(
@@ -1242,6 +1254,7 @@ mod tests {
 		let preferences = model::ChannelPreferences {
 			pinned: vec![Id(7)],
 			favorites: vec![Id(7), Id(9)],
+			..Default::default()
 		};
 		let scope = Scope::Guild(Id(100));
 		let ids = |rows: &[Row<'_>]| {
@@ -1885,7 +1898,7 @@ mod tests {
 	}
 
 	#[test]
-	fn service_order_orphans_collapsed_selection_and_category_buttons() {
+	fn collapsed_categories_follow_service_order_selection_and_buttons() {
 		let channels = vec![
 			channel(8, 0, 2, Some(Id(4))),
 			channel(4, 4, 1, None),
@@ -1985,14 +1998,17 @@ mod tests {
 		let ctx = egui::Context::default();
 		let mut view = MessagingUi {
 			guild: Some(Id(100)),
-			collapsed_categories: BTreeSet::from([Id(999)]),
+			channel_preferences: model::ChannelPreferences {
+				collapsed_categories: vec![Id(999)],
+				..Default::default()
+			},
 			..MessagingUi::default()
 		};
 		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
 			assert!(view.channel_list(ui, &mut state).is_none());
 		});
 		output.textures_delta.clear();
-		assert!(view.collapsed_categories.is_empty());
+		assert!(view.channel_preferences.collapsed_categories.is_empty());
 		assert!(state.selected.is_none());
 		// A category is a keyboard-operable button, never a history-selection command.
 		state.channels = vec![channel(4, 4, 0, None), channel(8, 0, 0, Some(Id(4)))];
@@ -2017,7 +2033,7 @@ mod tests {
 			});
 			output.textures_delta.clear();
 		}
-		assert!(view.collapsed_categories.contains(&Id(4)));
+		assert!(view.channel_preferences.category_collapsed(Id(4)));
 		assert_eq!(state.selected, Some(Id(8)));
 		ctx.run_ui(egui::RawInput::default(), |ui| {
 			assert!(view.channel_list(ui, &mut state).is_none());

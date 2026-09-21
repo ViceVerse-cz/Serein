@@ -848,7 +848,7 @@ fn queue_channel_preferences(
 	let Some(cache) = cache else {
 		messaging.channel_preferences_reload = false;
 		messaging.channel_preferences_status =
-			"Local storage is unavailable; channel shortcuts could not be restored.";
+			"Local storage is unavailable; channel preferences could not be restored.";
 		return false;
 	};
 	let accepted = cache.queue(
@@ -4287,7 +4287,7 @@ impl Desktop {
 						{
 							self.messaging.channel_preferences_reload = false;
 							self.messaging.channel_preferences_load_pending = false;
-							self.messaging.channel_preferences_status = "Local storage worker stopped; restart Serein to restore shortcuts.";
+							self.messaging.channel_preferences_status = "Local storage worker stopped; restart Serein to restore channel preferences.";
 						}
 						break;
 					}
@@ -4442,9 +4442,9 @@ impl Desktop {
 						Err(error) => {
 							self.messaging.channel_preferences_status = match error {
 								local_store::StoreError::Incompatible => {
-									"Saved channel shortcuts are damaged or incompatible with this build."
+									"Saved channel preferences are damaged or incompatible with this build."
 								}
-								_ => "Could not read channel shortcuts from local storage.",
+								_ => "Could not read channel preferences from local storage.",
 							};
 						}
 					}
@@ -4454,7 +4454,7 @@ impl Desktop {
 					self.messaging.channel_preferences_status = if result.is_ok() {
 						""
 					} else {
-						"Could not save channel shortcuts."
+						"Could not save channel preferences."
 					};
 				}
 				cache::Outcome::GifFavorites(favorites) => {
@@ -5908,7 +5908,7 @@ impl eframe::App for Desktop {
 					if self.messaging.channel_preferences_save_pending {
 						""
 					} else {
-						"Could not save channel shortcuts."
+						"Could not save channel preferences."
 					};
 			}
 		}

@@ -648,6 +648,7 @@ mod tests {
 		let preferences = model::ChannelPreferences {
 			favorites: vec![Id(19)],
 			pinned: vec![Id(20)],
+			collapsed_categories: vec![Id(21)],
 		};
 		store
 			.as_ref()

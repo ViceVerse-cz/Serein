@@ -169,10 +169,10 @@ message storage; source channels/messages are never fetched. Existing rows retai
 their content and default to ordinary messages until refreshed. Schema-15 binaries
 cannot reopen this upgraded cache.
 
-Channel shortcuts (September 12, schema 15): favorites and pins are device-local,
-account-isolated SQLite preferences. Pins cover home DMs. Favorites cover guild
-channels. Both lists together contain at most 256 IDs,
-with at most 4 KiB retained vector storage and an 8 KiB serialized record. Loading
+Channel preferences (September 21, schema 15): favorites, pins and collapsed categories are
+device-local, account-isolated SQLite preferences. Pins cover home DMs. Favorites cover guild
+channels. All three lists together contain at most 256 IDs,
+with at most 6 KiB retained vector storage and an 8 KiB serialized record. Loading
 and saving run on the existing bounded cache worker; corrupt/oversized records and
 save failures are shown. Shortcuts survive restart and are removed on account
 logout. They do not sync to Discord. Channel edit drafts, authoritative settings,
@@ -266,7 +266,7 @@ Interactive changes coalesce for 300 ms into at most one queued write and one fi
 value. A full or failed worker reports an unsaved change without an automatic retry loop;
 Retry saving is deliberate. Closing with pending/failed writes prompts before discarding.
 In-app preview edits are not saved; a write already requested outside preview still completes.
-The standalone --demo does not start the SQLite worker. Category collapse, narrow People overlays and outer window geometry remain session-local.
+The standalone --demo does not start the SQLite worker. Narrow People overlays and outer window geometry remain session-local.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
 input profile/custom processing, push-to-talk and gain are saved in the device-wide `app_preferences`
 SQLite singleton (16 KiB maximum), using the existing background worker. These survive
@@ -381,8 +381,9 @@ source timing preserved by skipping frames; unfocused windows do not advance cli
 These are component ceilings, not measured whole-process RSS. Disk eviction retains only
 32 candidate paths at a time. Worker completion fences replacement and deletion, so
 logout/clear cannot race an older worker's writes. Picture-cache failures appear in
-local-storage status. Disk cache contents are unencrypted. Category collapse remains
-session-local.
+local-storage status. Disk cache contents are unencrypted. Category collapse is retained in the
+account-isolated channel preferences record. Narrow People overlays and outer window geometry
+remain session-local.
 
 Storage commands and results each retain their 16-item limit and have separate 16 MiB
 estimated allocation budgets. Reservations include vector/string capacity and metadata

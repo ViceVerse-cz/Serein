@@ -215,7 +215,6 @@ pub struct MessagingUi {
 	members_narrow_open: bool,
 	member_reload_requested: bool,
 	guild: Option<Id>,
-	collapsed_categories: std::collections::BTreeSet<Id>,
 	navigation_channel: Option<Id>,
 	pub logout_requested: bool,
 	/// Accounts remembered on this device, most recently used first.
