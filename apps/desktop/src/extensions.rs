@@ -1676,13 +1676,13 @@ mod tests {
 			account: "account".into(),
 			invocation: Invocation {
 				action: "message-event".into(),
-				message_event: Some(extensions::MessageEvent {
+				message_event: Some(Box::new(extensions::MessageEvent {
 					kind: extensions::MessageEventKind::Create,
 					channel_id: "1".into(),
 					message_id: "2".into(),
 					author_id: Some("3".into()),
 					content: Some("Synthetic message".into()),
-				}),
+				})),
 				..Default::default()
 			},
 		}

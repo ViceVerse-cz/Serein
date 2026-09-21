@@ -389,7 +389,7 @@ fn message_events_require_a_unique_granted_surface_without_other_context() {
 	let mut package = event_package("{}");
 	let input = Invocation {
 		action: "run".into(),
-		message_event: Some(message_event()),
+		message_event: Some(Box::new(message_event())),
 		..Default::default()
 	};
 	package.validate().unwrap();
@@ -443,7 +443,7 @@ fn message_events_require_a_unique_granted_surface_without_other_context() {
 fn event_effects_allow_granted_storage_and_appearance_without_unsolicited_ui() {
 	let input = Invocation {
 		action: "run".into(),
-		message_event: Some(message_event()),
+		message_event: Some(Box::new(message_event())),
 		..Default::default()
 	};
 	for response in [r#"{"storage":"1"}"#, r#"{"appearance":{}}"#] {

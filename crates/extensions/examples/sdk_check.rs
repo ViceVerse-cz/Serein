@@ -65,13 +65,13 @@ fn check_message_counter(package: &Package) {
 		(MessageEventKind::Update, [1, 1, 0]),
 		(MessageEventKind::Delete, [1, 1, 1]),
 	] {
-		input.message_event = Some(MessageEvent {
+		input.message_event = Some(Box::new(MessageEvent {
 			kind,
 			channel_id: "100".into(),
 			message_id: "200".into(),
 			author_id: (kind == MessageEventKind::Create).then(|| "300".into()),
 			content: (kind != MessageEventKind::Delete).then(|| "Synthetic message".into()),
-		});
+		}));
 		let output = invoke(package, &input).expect("counter event succeeds");
 		// The only effect is numeric storage; event IDs/content are never retained or displayed.
 		assert_eq!(
@@ -102,13 +102,13 @@ fn check_message_counter(package: &Package) {
 		matches!(&shown.panel[1], Element::Text { text } if text == "Saved counts are invalid. Reset counts to start again.")
 	);
 	input.action = "message-event".into();
-	input.message_event = Some(MessageEvent {
+	input.message_event = Some(Box::new(MessageEvent {
 		kind: MessageEventKind::Delete,
 		channel_id: "100".into(),
 		message_id: "200".into(),
 		author_id: None,
 		content: None,
-	});
+	}));
 	let output = invoke(package, &input).expect("event preserves invalid storage");
 	assert_eq!(
 		serde_json::to_value(output).unwrap(),
@@ -130,16 +130,16 @@ fn check_message_counter(package: &Package) {
 	);
 	input.action = "message-event".into();
 	input.storage = reset.storage;
-	input.message_event = Some(MessageEvent {
+	input.message_event = Some(Box::new(MessageEvent {
 		kind: MessageEventKind::Create,
 		channel_id: "100".into(),
 		message_id: "200".into(),
 		author_id: Some("300".into()),
 		content: Some("Synthetic message".into()),
-	});
+	}));
 	input.message_event.as_mut().unwrap().content =
-		Some("\u{0000}".repeat(extensions::MAX_EVENT_CONTENT_BYTES));
-	invoke(package, &input).expect("maximum escaped event content fits the sandbox");
+		Some("\u{1F980}".repeat(extensions::MAX_EVENT_CONTENT_BYTES / 4));
+	invoke(package, &input).expect("maximum UTF-8 event content fits the sandbox");
 	input.message_event.as_mut().unwrap().content = Some("Synthetic message".into());
 	let _ = invoke(package, &input).unwrap();
 	let mut samples = [0_u128; 5];

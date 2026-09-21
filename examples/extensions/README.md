@@ -148,6 +148,10 @@ The host queues at most 32 pending invocations totaling 64 KiB and starts at mos
 10 event invocations per second. Overload drops events. Conversation/account
 changes, permission loss and disabling a plugin discard pending work and stale
 results. Each call still uses the ordinary Wasm fuel, memory and I/O limits.
+Byte limits are upper bounds, not a guarantee that every handler/input fits the
+fuel budget. For example, 16 KiB of NUL characters expands to roughly 98 KiB of
+JSON escapes and exhausts the counter example's sandbox budget. Such execution
+errors disable the failing plugin; the host does not increase its budget.
 
 Event input has no selected-message context, composer text or panel values.
 Events may return `storage` or `appearance` only with those separate grants.

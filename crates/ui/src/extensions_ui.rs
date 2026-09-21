@@ -2055,7 +2055,8 @@ fn request_bytes(request: &ExtensionRequest) -> usize {
 				id.len()
 					+ invocation.action.len()
 					+ invocation.message_event.as_ref().map_or(0, |event| {
-						event.channel_id.len()
+						std::mem::size_of::<extensions::MessageEvent>()
+							+ event.channel_id.len()
 							+ event.message_id.len()
 							+ event.author_id.as_ref().map_or(0, String::len)
 							+ event.content.as_ref().map_or(0, String::len)

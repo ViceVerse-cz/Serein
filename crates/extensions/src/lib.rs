@@ -281,7 +281,7 @@ pub struct Invocation {
 	#[serde(default)]
 	pub values: BTreeMap<String, String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub message_event: Option<MessageEvent>,
+	pub message_event: Option<Box<MessageEvent>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

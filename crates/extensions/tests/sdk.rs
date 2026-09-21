@@ -116,13 +116,13 @@ fn typed_event_handlers_preserve_old_inputs_and_match_host_events() {
 	] {
 		let input = Invocation {
 			action: "event".into(),
-			message_event: Some(extensions::MessageEvent {
+			message_event: Some(Box::new(extensions::MessageEvent {
 				kind,
 				channel_id: "18446744073709551615".into(),
 				message_id: "2".into(),
 				author_id: (kind == extensions::MessageEventKind::Create).then(|| "3".into()),
 				content: (kind == extensions::MessageEventKind::Create).then(|| "hello".into()),
-			}),
+			})),
 			..Default::default()
 		};
 		let manifest = manifest("event", Surface::MessageEvent);

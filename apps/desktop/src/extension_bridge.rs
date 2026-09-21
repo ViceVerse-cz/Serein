@@ -835,7 +835,7 @@ impl Bridge {
 				if let Some(account) = account {
 					let invocation = Invocation {
 						action: queued.action,
-						message_event: Some(queued.event),
+						message_event: Some(Box::new(queued.event)),
 						..Default::default()
 					};
 					let pending = Some((queued.id.clone(), invocation.clone(), queued.context));
