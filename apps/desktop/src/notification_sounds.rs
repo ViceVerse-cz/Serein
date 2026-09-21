@@ -120,9 +120,8 @@ fn samples(
 ) -> Result<Vec<[f32; 2]>, ()> {
 	let bytes: &[u8] = if discord {
 		match sound {
-			Sound::Message => include_bytes!("../../../assets/sounds/discord/message.mp3"),
-			Sound::CurrentChannel => {
-				include_bytes!("../../../assets/sounds/discord/current-channel.mp3")
+			Sound::Message | Sound::CurrentChannel => {
+				include_bytes!("../../../assets/sounds/discord/message.mp3")
 			}
 			Sound::IncomingRing => {
 				include_bytes!("../../../assets/sounds/discord/incoming-ring.mp3")
@@ -335,9 +334,13 @@ mod tests {
 			for discord in [false, true] {
 				let cues = [Sound::Message, Sound::CurrentChannel, Sound::IncomingRing]
 					.map(|s| samples(s, discord, rate, &|| true).unwrap());
-				assert_ne!(cues[0], cues[1]);
+				if discord {
+					assert_eq!(cues[0], cues[1]);
+				} else {
+					assert_ne!(cues[0], cues[1]);
+				}
 				let expectations = if discord {
-					[(0.2, 0.5), (0.6, 1.0), (5.0, 5.6)]
+					[(0.2, 0.5), (0.2, 0.5), (5.0, 5.6)]
 				} else {
 					[(0.2, 0.5), (0.1, 0.4), (3.9, 4.3)]
 				};
