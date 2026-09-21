@@ -1,4 +1,4 @@
-use crate::{design, icons};
+use crate::{avatars::Avatars, design, icons};
 use client_core::State;
 use model::{Channel, Id};
 use std::collections::HashSet;
@@ -37,6 +37,7 @@ struct Candidate {
 	name: String,
 	scope: String,
 	current: bool,
+	user: Option<model::User>,
 }
 
 impl Candidate {
@@ -168,6 +169,11 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 				name: bounded(name),
 				scope: bounded(scope),
 				current: Some(channel.id) == state.selected,
+				user: if kind == Kind::Direct {
+					channel.recipients.first().cloned()
+				} else {
+					None
+				},
 			}
 		})
 		.collect();
@@ -201,6 +207,7 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 				name: bounded(state.user_display_name(user)),
 				scope: bounded(state.friend_username(user.id).unwrap_or("Friend")),
 				current: false,
+				user: Some(user.clone()),
 			});
 			if choices.len() == RESULTS {
 				break;
@@ -233,6 +240,8 @@ fn result_row(
 	choice: &Candidate,
 	selected: bool,
 	enabled: bool,
+	avatars: &mut Avatars,
+	demo: bool,
 ) -> egui::Response {
 	let colors = design::palette(ui);
 	let height = 46.0;
@@ -256,20 +265,22 @@ fn result_row(
 	if !ui.is_rect_visible(rect) {
 		return response;
 	}
-	let painter = ui.painter();
-	let hovered = enabled && (response.hovered() || response.has_focus());
-	if selected {
-		painter.rect_filled(rect, 8, colors.selected);
-	} else if hovered {
-		painter.rect_filled(rect, 8, colors.hover);
-	}
-	if response.has_focus() {
-		painter.rect_stroke(
-			rect.shrink(1.0),
-			8,
-			egui::Stroke::new(1.5, colors.accent),
-			egui::StrokeKind::Inside,
-		);
+	{
+		let painter = ui.painter();
+		let hovered = enabled && (response.hovered() || response.has_focus());
+		if selected {
+			painter.rect_filled(rect, 8, colors.selected);
+		} else if hovered {
+			painter.rect_filled(rect, 8, colors.hover);
+		}
+		if response.has_focus() {
+			painter.rect_stroke(
+				rect.shrink(1.0),
+				8,
+				egui::Stroke::new(1.5, colors.accent),
+				egui::StrokeKind::Inside,
+			);
+		}
 	}
 	let text = if enabled {
 		colors.text_strong
@@ -287,8 +298,15 @@ fn result_row(
 		egui::Vec2::splat(icon_size),
 	);
 	match choice.kind {
-		Kind::Direct => design::paint_avatar(ui, &choice.name, icon_size, icon_rect),
+		Kind::Direct => {
+			if let Some(user) = &choice.user {
+				avatars.paint_user(ui, user, icon_size, icon_rect, demo);
+			} else {
+				design::paint_avatar(ui, &choice.name, icon_size, icon_rect);
+			}
+		}
 		Kind::Group => {
+			let painter = ui.painter();
 			painter.circle_filled(icon_rect.center(), icon_size / 2.0, colors.accent);
 			icons::paint(
 				painter,
@@ -298,6 +316,7 @@ fn result_row(
 			);
 		}
 		Kind::Text | Kind::Voice => {
+			let painter = ui.painter();
 			painter.rect_filled(icon_rect, 8, colors.raised);
 			let icon = if choice.kind == Kind::Voice {
 				icons::Icon::Speaker
@@ -312,6 +331,7 @@ fn result_row(
 			);
 		}
 	}
+	let painter = ui.painter();
 	let mut right = rect.right() - 10.0;
 	if choice.current {
 		let font = egui::FontId::new(10.0, design::semibold_family(ui.ctx()));
@@ -383,7 +403,12 @@ impl Switcher {
 		ctx.request_repaint();
 	}
 
-	pub(super) fn show(&mut self, ctx: &egui::Context, state: &State) -> Option<Target> {
+	pub(super) fn show(
+		&mut self,
+		ctx: &egui::Context,
+		state: &State,
+		avatars: &mut Avatars,
+	) -> Option<Target> {
 		if !self.open {
 			let modal = ctx.memory(|memory| memory.top_modal_layer());
 			if modal.is_none() {
@@ -564,7 +589,7 @@ impl Switcher {
 						let selected = self.selected == index;
 						let row = ui
 							.push_id(choice.target, |ui| {
-								result_row(ui, choice, selected, !blocked)
+								result_row(ui, choice, selected, !blocked, avatars, state.demo)
 							})
 							.inner;
 						if selected && (up || down || changed) {
@@ -719,6 +744,7 @@ mod tests {
 			});
 			let state = state();
 			let mut switcher = Switcher::default();
+			let mut avatars = Avatars::default();
 			let prior = egui::Id::unique("previous-input");
 			ctx.memory_mut(|memory| memory.request_focus(prior));
 			switcher.open(&ctx);
@@ -735,7 +761,7 @@ mod tests {
 						..Default::default()
 					},
 					|ui| {
-						result = switcher.show(&ctx, &state);
+						result = switcher.show(&ctx, &state, &mut avatars);
 						ui.add(egui::TextEdit::singleline(&mut previous_text).id(prior));
 					},
 				);
@@ -867,5 +893,32 @@ mod tests {
 			frame(&mut switcher, vec![key(egui::Key::Escape)]);
 			assert!(!switcher.is_open());
 		}
+	}
+
+	#[test]
+	fn switcher_requests_real_direct_user_avatars() {
+		let ctx = egui::Context::default();
+		let mut state = state();
+		state.demo = false;
+		let user = &mut state.channels[24].recipients[0];
+		user.avatar = Some("a".repeat(32));
+		let expected = user.avatar_key();
+		let choices = candidates(&state, "");
+		let mut avatars = Avatars::default();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(640.0, 760.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				ui.set_width(560.0);
+				result_row(ui, &choices[0], true, true, &mut avatars, false);
+			},
+		);
+		output.drop_without_applying_deltas();
+		assert_eq!(avatars.take_requests(), vec![expected]);
 	}
 }

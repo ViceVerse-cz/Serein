@@ -524,7 +524,9 @@ history or invalidate timeline layout. These are component bounds, not process R
 
 The conversation switcher retains only its open-state flags, focused control ID and a query of
 at most 128 characters / 512 UTF-8 bytes. Each open frame builds at most 20 labels from bounded
-channel/guild and retained friend names; each field is limited to 128 characters. Matching
+channel/guild and retained friend names; each field is limited to 128 characters. Those 20 rows
+may temporarily clone their already-retained direct/friend profile so the shared bounded avatar
+cache can render it; no separate image cache or request queue is added. Matching
 normalizes one eligible channel's bounded names and at most 64 known DM recipients' names,
 nicknames and usernames at a time, then drops them. Friend matching reuses the bounded relationship
 map; a temporary set of at most 4,000 fixed-size friend IDs prevents duplicate one-to-one results.
@@ -777,11 +779,12 @@ and are released with the player. No file cache or media URL/byte diagnostics ar
 
 The friends page reuses the bounded relationship store (4,000 friends / 2 MiB)
 and the existing presence cache (256 records / 512 KiB), now admitting known
-unblocked friends as well as DM recipients. Startup presence admission keeps its
-256-user bound. Presence outside retained/received data stays unavailable.
-The UI retains only a 128-character search and Online/All selection, renders visible
-64-point rows, and reuses the avatar cache and existing user actions. No new storage,
-network endpoint or friend-management writes are added.
+unblocked friends as well as DM recipients. Blocked and ignored relationship profiles
+have a separate 4,000-item / 2 MiB session-only bound and are cleared on logout.
+Startup presence admission keeps its 256-user bound. Presence outside retained/received
+data stays unavailable. The UI retains only a 128-character search and bounded derived
+ID lists, renders visible 64-point rows, and reuses the avatar cache and existing user
+actions. No disk storage, network endpoint or friend-management write is added.
 
 ### Opt-in Windows startup
 

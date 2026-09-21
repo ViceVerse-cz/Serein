@@ -1039,7 +1039,7 @@ impl Avatars {
 		});
 		response
 	}
-	fn paint_user(
+	pub(crate) fn paint_user(
 		&mut self,
 		ui: &mut egui::Ui,
 		user: &User,

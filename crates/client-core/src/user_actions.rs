@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const MAX_RELATIONSHIPS: usize = 4000;
 pub const MAX_RELATIONSHIP_BYTES: usize = 128 * 1024;
 pub const MAX_FRIEND_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_RESTRICTED_BYTES: usize = 2 * 1024 * 1024;
 
 fn replace_id_set(
 	dest: &mut BTreeSet<Id>,
@@ -116,6 +117,12 @@ pub enum Event {
 		friend: bool,
 		profile: Option<(model::User, String)>,
 	},
+	Restrictions(Option<Vec<(model::User, String, bool)>>),
+	Restriction {
+		user: Id,
+		ignored: Option<bool>,
+		profile: Option<(model::User, String)>,
+	},
 	Relationships(Option<Vec<(Id, bool)>>),
 	Relationship {
 		user: Id,
@@ -156,6 +163,8 @@ pub struct Actions {
 	last_requested: Option<String>,
 	friends: BTreeMap<Id, (model::User, String)>,
 	friends_known: bool,
+	restricted: BTreeMap<Id, (model::User, String, bool)>,
+	restricted_known: bool,
 	relationships: BTreeMap<Id, bool>,
 	message_requests: BTreeSet<Id>,
 	spam_directs: BTreeSet<Id>,
@@ -524,6 +533,15 @@ impl State {
 	pub fn friends_known(&self) -> bool {
 		self.user_actions.friends_known
 	}
+	pub fn restricted_users(&self) -> impl Iterator<Item = &(model::User, String, bool)> {
+		self.user_actions.restricted.values()
+	}
+	pub fn restricted_user(&self, user: Id) -> Option<&(model::User, String, bool)> {
+		self.user_actions.restricted.get(&user)
+	}
+	pub fn restricted_users_known(&self) -> bool {
+		self.user_actions.restricted_known
+	}
 	pub fn friend_username(&self, user: Id) -> Option<&str> {
 		self.user_actions
 			.friends
@@ -705,6 +723,8 @@ impl State {
 				| Event::Nickname { .. }
 				| Event::Friends(_)
 				| Event::Friend { .. }
+				| Event::Restrictions(_)
+				| Event::Restriction { .. }
 				| Event::Relationships(_)
 		) {
 			self.user_actions.bump_view();
@@ -952,6 +972,15 @@ impl State {
 				}
 			}
 			Event::FriendProfile(profile) => {
+				if let Some((_, _, ignored)) = self.user_actions.restricted.get(&profile.0.id) {
+					let ignored = *ignored;
+					let user = profile.0.id;
+					self.apply_user_action(Event::Restriction {
+						user,
+						ignored: Some(ignored),
+						profile: Some(profile.clone()),
+					})?;
+				}
 				if self.user_actions.friends.contains_key(&profile.0.id) {
 					let user = profile.0.id;
 					self.apply_user_action(Event::Friend {
@@ -1046,6 +1075,74 @@ impl State {
 						return Err("Friends exceed safe capacity");
 					}
 					entries.insert(user, (record, name));
+				}
+			}
+			Event::Restrictions(entries) => {
+				self.user_actions.restricted.clear();
+				self.user_actions.restricted_known = false;
+				if let Some(entries) = entries {
+					if entries.len() > MAX_RELATIONSHIPS
+						|| entries.capacity() * size_of::<(model::User, String, bool)>()
+							+ entries
+								.iter()
+								.map(|(u, n, _)| u.heap_bytes() + n.capacity() + 64)
+								.sum::<usize>() > MAX_RESTRICTED_BYTES
+					{
+						return Err("Restricted users exceed safe capacity");
+					}
+					for (user, name, ignored) in entries {
+						if !valid_friend(&user, &name)
+							|| self
+								.user_actions
+								.restricted
+								.insert(user.id, (user, name, ignored))
+								.is_some()
+						{
+							self.user_actions.restricted.clear();
+							return Err("Restricted users contain invalid or duplicate profiles");
+						}
+					}
+					self.user_actions.restricted_known = true;
+				}
+			}
+			Event::Restriction {
+				user,
+				ignored,
+				profile,
+			} => {
+				let Some(ignored) = ignored else {
+					self.user_actions.restricted.remove(&user);
+					return Ok(());
+				};
+				if let Some((record, name)) = profile {
+					if user != record.id || !valid_friend(&record, &name) {
+						return Err("Invalid restricted user update");
+					}
+					let entries = &mut self.user_actions.restricted;
+					let old = entries.get(&user).map_or(0, |(u, n, _)| {
+						u.heap_bytes()
+							+ n.capacity() + size_of::<(Id, model::User, String, bool)>()
+							+ 64
+					});
+					let bytes: usize = entries
+						.values()
+						.map(|(u, n, _)| {
+							u.heap_bytes()
+								+ n.capacity() + size_of::<(Id, model::User, String, bool)>()
+								+ 64
+						})
+						.sum();
+					if (!entries.contains_key(&user) && entries.len() >= MAX_RELATIONSHIPS)
+						|| bytes - old
+							+ record.heap_bytes() + name.capacity()
+							+ size_of::<(Id, model::User, String, bool)>()
+							+ 64 > MAX_RESTRICTED_BYTES
+					{
+						return Err("Restricted users exceed safe capacity");
+					}
+					entries.insert(user, (record, name, ignored));
+				} else if let Some(entry) = self.user_actions.restricted.get_mut(&user) {
+					entry.2 = ignored;
 				}
 			}
 			Event::Relationships(entries) => {
@@ -1824,6 +1921,48 @@ mod tests {
 		assert!(!state.friends_known());
 		state.logout();
 		assert_eq!(state.friends().count(), 0);
+	}
+	#[test]
+	fn restricted_profiles_replace_update_and_clear_with_the_session() {
+		let mut state = state();
+		let user = state.channels[0].recipients[0].clone();
+		state
+			.apply_user_action(Event::Restrictions(Some(vec![(
+				user.clone(),
+				"synthetic_user".into(),
+				false,
+			)])))
+			.unwrap();
+		assert!(state.restricted_users_known());
+		assert_eq!(state.restricted_users().count(), 1);
+		assert!(!state.restricted_user(user.id).unwrap().2);
+		state
+			.apply_user_action(Event::Restriction {
+				user: user.id,
+				ignored: Some(true),
+				profile: None,
+			})
+			.unwrap();
+		assert!(state.restricted_user(user.id).unwrap().2);
+		let mut changed = user.clone();
+		changed.name = "Updated display".into();
+		state
+			.apply_user_action(Event::FriendProfile((changed, "updated_username".into())))
+			.unwrap();
+		assert_eq!(
+			state.restricted_user(user.id).unwrap().0.name,
+			"Updated display"
+		);
+		state
+			.apply_user_action(Event::Restriction {
+				user: user.id,
+				ignored: None,
+				profile: None,
+			})
+			.unwrap();
+		assert_eq!(state.restricted_users().count(), 0);
+		state.logout();
+		assert!(!state.restricted_users_known());
 	}
 	#[test]
 	fn user_actions_update_immediately_rollback_and_reject_stale_results() {

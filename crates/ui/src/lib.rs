@@ -2912,7 +2912,7 @@ impl MessagingUi {
 		if let Some(command) = state.select_opened_dm() {
 			commands.push(command);
 		}
-		if let Some(target) = self.switcher.show(&ctx, state) {
+		if let Some(target) = self.switcher.show(&ctx, state, &mut self.avatars) {
 			match target {
 				switcher::Target::Channel(channel) => {
 					if state.selected != Some(channel)

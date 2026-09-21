@@ -799,7 +799,9 @@ normal-account delivery and native screenshots remain owner-controlled validatio
 
 Find conversation / Ctrl+K (Command+K) searches loaded navigation and retained friends by display
 name, nickname and username, respecting current VIEW decisions for channels. Friends with an open
-one-to-one DM appear once; group membership does not hide a friend. Selecting a friend without
+one-to-one DM appear once; group membership does not hide a friend. Direct and friend results use
+their retained Discord avatar through the existing bounded avatar worker, with initials only while
+the image is loading or unavailable. Selecting a friend without
 an open DM reuses the bounded [Create DM](https://docs.discord.com/developers/resources/user#create-dm)
 request already used by server invites, then opens its confirmed channel through ordinary history
 loading. It sends no message and adds no subscription or relationship lookup. Requests are never
@@ -1310,6 +1312,18 @@ Acknowledged ID requests retain a bounded outgoing row with unknown profile meta
 Gateway data arrives. Failed writes preserve friendship; newer Gateway updates win over
 late acknowledgements. Cancellation and account changes discard pending UI confirmations.
 These paths have offline UI/reducer/HTTP coverage, not live-account verification.
+
+### Blocked and ignored users (September 21, 2026)
+
+Friends includes a searchable Blocked & Ignored tab populated from READY relationship
+profiles and subsequent relationship add/update/remove events. Relationship type 2 is
+shown as Blocked; the separate unofficial `user_ignored` relationship flag is shown as
+Ignored, following the public
+[relationship object documentation](https://docs.discord.food/resources/relationships#relationship-object).
+Profiles are session-only and bounded separately from friends. Existing block/unblock
+actions remain available; changing Discord's distinct ignored state is not included.
+Synthetic protocol, reducer and UI tests cover loading and updates. Normal-user payload
+availability, cross-device changes and service behavior remain live-unverified.
 
 ### Additional system message display (September 12, 2026)
 
