@@ -110,6 +110,9 @@ fn discord_origin(value: &str) -> bool {
 			&& url.password().is_none()
 	})
 }
+fn login_navigation(value: &str) -> bool {
+	discord_origin(value) || captcha::hcaptcha_origin(value)
+}
 /// Receives only the account token used by THIS ephemeral, owner-operated login page.
 /// No browser-profile reads, password interception, console instructions, or QR exchange implementation.
 #[cfg(not(target_os = "linux"))]
@@ -139,7 +142,7 @@ impl LoginView {
 			.with_incognito(true)
 			.with_devtools(false)
 			.with_initialization_script_for_main_only(script, true)
-			.with_navigation_handler(|url| discord_origin(&url))
+			.with_navigation_handler(|url| login_navigation(&url))
 			.with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
 			.with_download_started_handler(|_, _| false)
 			.with_ipc_handler(move |request| {
@@ -206,5 +209,11 @@ mod tests {
 		let script = include_str!("login-handoff.js");
 		assert!(!script.contains("localStorage"));
 		assert!(!script.contains("password"));
+	}
+	#[test]
+	fn login_allows_hcaptcha_frames_only_over_https() {
+		assert!(login_navigation("https://newassets.hcaptcha.com/captcha/"));
+		assert!(!login_navigation("http://hcaptcha.com/"));
+		assert!(!login_navigation("https://hcaptcha.com.evil.test/"));
 	}
 }

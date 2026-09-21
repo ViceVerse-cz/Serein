@@ -1,6 +1,8 @@
 //! Credential-free, viewport-driven static avatars. No tokens enter this worker.
 use eframe::egui;
+use image::ImageEncoder;
 use model::Id;
+use rasterlottie::{Animation as Lottie, RenderConfig, Renderer, Rgba8};
 use sha2::{Digest, Sha256};
 use std::{
 	collections::BinaryHeap,
@@ -28,6 +30,9 @@ fn encoded_limit(key: &str) -> usize {
 		MAX_ENCODED
 	}
 }
+fn lottie_key(key: &str) -> bool {
+	key.starts_with("embed:sticker-") && key.ends_with("-3")
+}
 /// Decode budget for one key: the longest edge kept in memory.
 fn decode_edge(key: &str) -> u32 {
 	if key.starts_with("large:") {
@@ -44,6 +49,7 @@ fn decode_edge(key: &str) -> u32 {
 	}
 }
 const MAX_AVATAR_ENCODED: usize = 512 * 1024;
+const MAX_LOTTIE_ENCODED: usize = 512 * 1024;
 const MAX_APPLICATION_METADATA: usize = 64 * 1024;
 const MAX_DISK: u64 = 1024 * 1024 * 1024;
 const MAX_FILES: usize = 4096;
@@ -161,10 +167,9 @@ fn cdn_url(key: &str) -> Option<String> {
 		return match format {
 			"1" | "2" => Some(format!("https://cdn.discordapp.com/stickers/{id}.png")),
 			"4" => Some(format!("https://media.discordapp.net/stickers/{id}.gif")),
-			// Unofficial static rendition: Lottie itself is never decoded or executed.
-			"3" if key.starts_with("embed:") => Some(format!(
-				"https://media.discordapp.net/stickers/{id}.png?size=160&passthrough=false"
-			)),
+			"3" if key.starts_with("embed:") => {
+				Some(format!("https://cdn.discordapp.com/stickers/{id}.json"))
+			}
 			_ => None,
 		};
 	}
@@ -460,11 +465,25 @@ async fn run(
 						let mut until = cooldown;
 						let bytes = async {
 							let url = if key.starts_with("app-icon-") {
-								let metadata = download(&client, &url, &mut until, MAX_APPLICATION_METADATA).await?;
+								let metadata = download(
+									&client,
+									&url,
+									&mut until,
+									MAX_APPLICATION_METADATA,
+								)
+								.await?;
 								application_icon_url(&key, &metadata)?
-							} else { url };
-							download(&client, &url, &mut until, encoded_limit(&key)).await
-						}.await;
+							} else {
+								url
+							};
+							let limit = if lottie_key(&key) {
+								MAX_LOTTIE_ENCODED
+							} else {
+								encoded_limit(&key)
+							};
+							download(&client, &url, &mut until, limit).await
+						}
+						.await;
 						(key, bytes, until)
 					});
 					continue;
@@ -475,6 +494,11 @@ async fn run(
 		if *cancelled.borrow() {
 			break;
 		}
+		let bytes = if fetched && lottie_key(&key) {
+			bytes.as_deref().and_then(render_lottie)
+		} else {
+			bytes
+		};
 		let edge = decode_edge(&key);
 		let frames = if !cached_frames.is_empty() {
 			cached_frames
@@ -512,6 +536,51 @@ async fn run(
 		ctx.request_repaint();
 	}
 	downloads.abort_all();
+}
+
+/// Render one bounded static preview; the resulting PNG is what enters the disk cache.
+fn render_lottie(bytes: &[u8]) -> Option<Vec<u8>> {
+	if bytes.len() > MAX_LOTTIE_ENCODED {
+		return None;
+	}
+	let source = std::str::from_utf8(bytes).ok()?;
+	let animation = Lottie::from_json_str(source).ok()?;
+	if animation.width == 0
+		|| animation.height == 0
+		|| animation.width > 1024
+		|| animation.height > 1024
+	{
+		return None;
+	}
+	let scale = 160.0 / animation.width.max(animation.height) as f32;
+	let frame = Renderer::default()
+		.render_frame(
+			&animation,
+			animation.in_point,
+			RenderConfig::new(Rgba8::TRANSPARENT, scale),
+		)
+		.ok()?;
+	let mut pixels = frame.pixels;
+	for pixel in pixels.as_chunks_mut::<4>().0 {
+		let alpha = u16::from(pixel[3]);
+		if alpha == 0 {
+			pixel[..3].fill(0);
+		} else if alpha < 255 {
+			for channel in &mut pixel[..3] {
+				*channel = ((u16::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8;
+			}
+		}
+	}
+	let mut png = Vec::new();
+	image::codecs::png::PngEncoder::new(&mut png)
+		.write_image(
+			&pixels,
+			frame.width,
+			frame.height,
+			image::ExtendedColorType::Rgba8,
+		)
+		.ok()?;
+	(png.len() <= MAX_ENCODED).then_some(png)
 }
 
 async fn download(
@@ -866,7 +935,7 @@ mod tests {
 		}
 		assert_eq!(
 			super::cdn_url("embed:sticker-7-3").as_deref(),
-			Some("https://media.discordapp.net/stickers/7.png?size=160&passthrough=false")
+			Some("https://cdn.discordapp.com/stickers/7.json")
 		);
 		for key in [
 			"anim:sticker-7-3",
@@ -879,6 +948,18 @@ mod tests {
 			assert!(super::cdn_url(key).is_none(), "{key}");
 		}
 		assert!(super::decode_animation(&vec![0; super::MAX_ANIMATED_ENCODED + 1]).is_none());
+	}
+
+	#[test]
+	fn lottie_sticker_renders_to_a_bounded_cached_png() {
+		let source = br#"{"v":"5.7.6","fr":30,"ip":0,"op":30,"w":320,"h":320,"layers":[{"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[160,160]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"el","p":{"a":0,"k":[0,0]},"s":{"a":0,"k":[200,200]}},{"ty":"fl","c":{"a":0,"k":[0.2,0.6,1,1]},"o":{"a":0,"k":100},"r":1}]}]}"#;
+		let png = super::render_lottie(source).expect("supported Lottie preview");
+		assert!(png.len() <= super::MAX_ENCODED);
+		assert_eq!(
+			super::decode(&png, ui::EMBED_EDGE).unwrap().size,
+			[160, 160]
+		);
+		assert!(super::render_lottie(&vec![b' '; super::MAX_LOTTIE_ENCODED + 1]).is_none());
 	}
 	#[test]
 	fn role_icon_urls_are_confined_to_the_role_cdn_path() {
@@ -1161,6 +1242,7 @@ mod tests {
 		let mut disk = Disk::open(account_a.clone()).unwrap();
 		disk.write("default-0", &bytes).unwrap();
 		disk.write(embed_key, &bytes).unwrap();
+		disk.write("embed:sticker-7-3", &bytes).unwrap();
 		disk.write("app-icon-7", &bytes).unwrap();
 		assert!(fs::read_dir(&account_a).unwrap().all(|entry| {
 			!entry
@@ -1173,6 +1255,7 @@ mod tests {
 		let mut disk = Disk::open(account_a.clone()).unwrap();
 		assert_eq!(disk.read("default-0").unwrap().unwrap(), bytes);
 		assert_eq!(disk.read(embed_key).unwrap().unwrap(), bytes);
+		assert_eq!(disk.read("embed:sticker-7-3").unwrap().unwrap(), bytes);
 		assert_eq!(disk.read("app-icon-7").unwrap().unwrap(), bytes);
 		assert!(
 			Disk::open(account_b.clone())
@@ -1199,6 +1282,8 @@ mod tests {
 		disk.prune(0, 0).unwrap();
 		assert!(disk.read("default-0").unwrap().is_none());
 		fs::remove_file(account_a.join(format!("{}.png", disk_key(embed_key).unwrap()))).unwrap();
+		fs::remove_file(account_a.join(format!("{}.png", disk_key("embed:sticker-7-3").unwrap())))
+			.unwrap();
 		fs::remove_file(account_a.join("app-icon-7.png")).unwrap();
 		drop(disk);
 		// Eviction and full directory deletion are disk workloads, not a worker-cancellation

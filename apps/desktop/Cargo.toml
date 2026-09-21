@@ -32,6 +32,7 @@ platform.workspace = true
 local-store.workspace = true
 winit.workspace = true
 reqwest.workspace = true
+rasterlottie.workspace = true
 dirs.workspace = true
 getrandom.workspace = true
 url.workspace = true

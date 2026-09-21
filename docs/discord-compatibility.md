@@ -27,9 +27,12 @@ and live-unverified.
 PNG, APNG and GIF use the existing bounded image worker and animation preference.
 GIF uses the media host specified by Discord's
 [CDN reference](https://github.com/discord/discord-api-docs/blob/main/developers/reference.mdx).
-Lottie has only an unofficial, unverified static PNG proxy rendition, with the
-sticker name retained when unavailable. Long animations share the existing
-frame/pixel limits and may remain static. Sticker upload/edit/delete administration
+Lottie JSON is fetched from Discord's documented CDN endpoint, capped at 512 KiB,
+and rasterized off the UI thread to one 160px static PNG preview. The rendered PNG
+shares the account-isolated image disk cache, so reopening a received sticker or
+picker entry does not parse or render it again. Unsupported Lottie features retain
+the sticker name and an unavailable placeholder. Long APNG/GIF animations share the
+existing frame/pixel limits and may remain static. Sticker upload/edit/delete administration
 and synchronized cross-device favorites are not included.
 
 `--features demo -- --demo --demo-stickers` seeds an original offline catalog,
