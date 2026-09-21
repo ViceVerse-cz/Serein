@@ -392,7 +392,7 @@ pub(crate) fn artwork_edge(filename: &str) -> Option<f32> {
 		return None;
 	}
 	let (id, edge) = if let Some(id) = stem.strip_prefix("emoji-") {
-		(id, 48.0_f32)
+		(id, 32.0_f32)
 	} else {
 		(stem.strip_prefix("sticker-")?, 160.0_f32)
 	};
@@ -1002,7 +1002,7 @@ mod tests {
 			waveform: vec![],
 		};
 		let gallery = image_layout(1, 500.0).1;
-		for (name, edge) in [("emoji-7.gif", 48.0), ("sticker-8.png", 160.0)] {
+		for (name, edge) in [("emoji-7.gif", 32.0), ("sticker-8.png", 160.0)] {
 			attachment.filename = name.into();
 			attachment.content_type = Some("image/png".into());
 			assert_eq!(artwork_size(&attachment, gallery), egui::Vec2::splat(edge));

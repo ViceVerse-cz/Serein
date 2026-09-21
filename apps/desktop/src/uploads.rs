@@ -42,7 +42,7 @@ fn image_share_source(asset: model::ImageShare) -> Option<(String, String, image
 			"emoji",
 			"cdn.discordapp.com",
 			if animated { "gif" } else { "png" },
-			"",
+			"?size=32",
 		),
 		ImageShare::Sticker {
 			id,
@@ -660,7 +660,7 @@ mod tests {
 			})
 			.unwrap()
 			.0,
-			"https://cdn.discordapp.com/emojis/7.gif"
+			"https://cdn.discordapp.com/emojis/7.gif?size=32"
 		);
 		for invalid in [
 			model::ImageShare::Emoji {
