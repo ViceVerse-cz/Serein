@@ -154,16 +154,22 @@ network endpoint, persistent metadata, background job, or storage migration is i
 Emoji information cards resolve names and source servers on demand from the loaded catalogs;
 unknown/deleted source metadata remains explicitly unknown.
 
-Notification sounds (September 13): three owner-supplied MP3 tracks are embedded
-in the executable (106,608 bytes total), with no runtime files or downloads.
+Notification sounds (September 21): three owner-supplied MP3 tracks (106,608 bytes)
+and the optional classic Discord pack are embedded, with no runtime files or downloads.
+The classic files total 494,197 bytes on disk, including a duplicate message cue;
+source attribution and redistribution limitations are in `assets/sounds/README.md`.
 The existing single lazy worker and one-slot fixed-size request queue decode one
 track at a time outside rendering/audio callbacks. Each asset is capped at
-128 KiB encoded, 48 kHz stereo and five seconds decoded (PCM vector capacity
-less than 4 MiB). Conversion retains at most five seconds of stereo f32 at the output
-device rate, capped at 192 kHz / 7,680,000 bytes, alongside source PCM during
+128 KiB encoded, 44.1 or 48 kHz stereo and six seconds decoded (at most 576,000
+source samples / 2,304,000 bytes, excluding vector capacity). Conversion retains
+at most six seconds of stereo f32 at the output
+device rate, capped at 192 kHz / 9,216,000 bytes, alongside source PCM during
 conversion. Decoder/device allocations are separate. Playback buffers are
 released after each cue; cancellation silences the callback and is checked by
 the worker every 20 ms. No notification-audio cache or storage migration is added.
+Outgoing ringback retains one fixed-size channel/request/confirmation slot for
+the active explicit call only. Ringing metadata and the repeat timer remain
+session-only and are cleared when the attempt ends; no call history is saved.
 
 Explicit media clipboard copies (September 13) reuse the bounded attachment
 download worker. One original video, at most 100 MiB, remains in a randomized

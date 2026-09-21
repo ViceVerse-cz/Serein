@@ -1,3 +1,20 @@
+# Original Discord sound assets — September 21, 2026
+
+Baseline: `932dc60`; after: this change. Windows x64, Rust 1.98.1.
+The classic pack now preserves original 44.1 kHz MP3 bytes and adds outgoing-ring,
+camera-on and screen-share-start cues. Asset sizes are exact file measurements, not CPU/RSS or
+installed-package measurements.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Classic MP3 files, bytes (`git ls-tree -lr` / file lengths) | 140,928 | 494,197 | +353,269 |
+| Unique classic MP3 bytes embedded (message/current-channel share a cue) | 134,400 | 476,275 | +341,875 |
+
+The existing lazy worker, one-slot queue, 128 KiB per-asset cap, six-second
+decoded ceiling and 192 kHz output ceiling are unchanged. No extra background
+worker or network fetch is added. Native frame timing, CPU/RSS and matched
+before/after release-package sizes were not measured; no runtime speedup is claimed.
+
 # Reviewed RAM findings — September 21, 2026
 
 Baseline: `b3130c37`; after: this PR. macOS 27.0 (26A428), Apple M1 Pro,

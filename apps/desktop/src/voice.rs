@@ -948,6 +948,11 @@ impl Voice {
 			} else {
 				ui.voice_camera_preview =
 					Some(ctx.load_texture("local-camera", image, egui::TextureOptions::LINEAR));
+				let cue = model::notification_preferences::Sound::CameraOn;
+				if ui.notification_options.allows(cue) {
+					ui.notification_preview = Some(cue);
+					ctx.request_repaint();
+				}
 			}
 			ui.voice_camera_status = "Camera on · local preview";
 		}

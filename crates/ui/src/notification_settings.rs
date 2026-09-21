@@ -83,6 +83,9 @@ mod tests {
 			assert!(!labels.iter().any(|(s, _)| s == "Microphone Unmuted"));
 			assert!(!labels.iter().any(|(s, _)| s == "Deafen"));
 			assert!(!labels.iter().any(|(s, _)| s == "Undeafen"));
+			assert!(!labels.iter().any(|(s, _)| s == "Outgoing Ring"));
+			assert!(!labels.iter().any(|(s, _)| s == "Camera On"));
+			assert!(!labels.iter().any(|(s, _)| s == "Screen Share Started"));
 			view.notification_options.discord_sounds = true;
 			let discord_labels = render(&mut view, vec![]);
 			assert!(discord_labels.iter().any(|(s, _)| s == "Microphone Muted"));
@@ -93,6 +96,34 @@ mod tests {
 			);
 			assert!(discord_labels.iter().any(|(s, _)| s == "Deafen"));
 			assert!(discord_labels.iter().any(|(s, _)| s == "Undeafen"));
+			for (label, sound) in [
+				("Outgoing Ring", Sound::OutgoingRing),
+				("Camera On", Sound::CameraOn),
+				("Screen Share Started", Sound::ScreenShareOn),
+			] {
+				let point = discord_labels
+					.iter()
+					.skip_while(|(text, _)| text != label)
+					.find(|(text, _)| text == "Preview Sound")
+					.unwrap_or_else(|| panic!("missing preview for {label}"))
+					.1
+					.center();
+				for pressed in [true, false] {
+					render(
+						&mut view,
+						vec![
+							egui::Event::PointerMoved(point),
+							egui::Event::PointerButton {
+								pos: point,
+								button: egui::PointerButton::Primary,
+								pressed,
+								modifiers: egui::Modifiers::NONE,
+							},
+						],
+					);
+				}
+				assert_eq!(view.notification_preview.take(), Some(sound));
+			}
 			view.notification_options.discord_sounds = false;
 			let labels = render(&mut view, vec![]);
 			let point = labels
@@ -207,6 +238,11 @@ impl MessagingUi {
 			];
 			if self.notification_options.discord_sounds {
 				sounds.push((
+					"Outgoing Ring",
+					&mut self.notification_options.outgoing_ring,
+					Sound::OutgoingRing,
+				));
+				sounds.push((
 					"Microphone Muted",
 					&mut self.notification_options.mute,
 					Sound::Mute,
@@ -225,6 +261,16 @@ impl MessagingUi {
 					"Undeafen",
 					&mut self.notification_options.undeafen,
 					Sound::Undeafen,
+				));
+				sounds.push((
+					"Camera On",
+					&mut self.notification_options.camera_on,
+					Sound::CameraOn,
+				));
+				sounds.push((
+					"Screen Share Started",
+					&mut self.notification_options.screen_share_on,
+					Sound::ScreenShareOn,
 				));
 			}
 			for (index, (label, value, sound)) in sounds.into_iter().enumerate() {

@@ -11,8 +11,9 @@ use std::{
 	time::{Duration, Instant},
 };
 
-// Five seconds of audio plus a gap; shared with the automatic incoming-call timer.
+// Each complete ringtone plus a short gap; shared with the automatic call timers.
 pub const RING_INTERVAL: Duration = Duration::from_secs(6);
+pub const OUTGOING_RING_INTERVAL: Duration = Duration::from_secs(3);
 
 #[derive(Default)]
 pub struct Sounds {
@@ -126,30 +127,49 @@ fn samples(
 			Sound::IncomingRing => {
 				include_bytes!("../../../assets/sounds/discord/incoming-ring.mp3")
 			}
+			Sound::OutgoingRing => {
+				include_bytes!("../../../assets/sounds/discord/outgoing-ring.mp3")
+			}
 			Sound::Mute => include_bytes!("../../../assets/sounds/discord/mute.mp3"),
 			Sound::Unmute => include_bytes!("../../../assets/sounds/discord/unmute.mp3"),
 			Sound::Deafen => include_bytes!("../../../assets/sounds/discord/deafen.mp3"),
 			Sound::Undeafen => include_bytes!("../../../assets/sounds/discord/undeafen.mp3"),
+			Sound::CameraOn => include_bytes!("../../../assets/sounds/discord/camera-on.mp3"),
+			Sound::ScreenShareOn => {
+				include_bytes!("../../../assets/sounds/discord/screen-share-on.mp3")
+			}
 		}
 	} else {
 		match sound {
 			Sound::Message => include_bytes!("../../../assets/sounds/message.mp3"),
 			Sound::CurrentChannel => include_bytes!("../../../assets/sounds/current-channel.mp3"),
 			Sound::IncomingRing => include_bytes!("../../../assets/sounds/incoming-ring.mp3"),
-			Sound::Mute | Sound::Unmute | Sound::Deafen | Sound::Undeafen => return Err(()),
+			Sound::OutgoingRing
+			| Sound::Mute
+			| Sound::Unmute
+			| Sound::Deafen
+			| Sound::Undeafen
+			| Sound::CameraOn
+			| Sound::ScreenShareOn => return Err(()),
 		}
 	};
 	if bytes.len() > 128 * 1024 || !(8000..=192000).contains(&rate) {
 		return Err(());
 	}
 	let mut pcm = Vec::new();
+	let mut source_rate = 0;
 	crate::audio::decode_stream(
 		Box::new(Cursor::new(bytes)),
 		current,
-		&mut |chunk, channels, source_rate, _| {
-			if channels != 2 || source_rate != 48000 || pcm.len() + chunk.len() > 48000 * 2 * 6 {
+		&mut |chunk, channels, rate, _| {
+			if channels != 2
+				|| !matches!(rate, 44100 | 48000)
+				|| (source_rate != 0 && source_rate != rate)
+				|| pcm.len() + chunk.len() > rate as usize * 2 * 6
+			{
 				return Err("Invalid bundled notification sound");
 			}
+			source_rate = rate;
 			pcm.extend(chunk.iter().map(|sample| {
 				if sample.is_finite() {
 					sample.clamp(-1.0, 1.0)
@@ -166,9 +186,9 @@ fn samples(
 	}
 	let frames = pcm.len() / 2;
 	// ponytail: linear rate conversion; use a band-limited resampler if quality measurements require it.
-	Ok((0..(frames * rate as usize).div_ceil(48000))
+	Ok((0..(frames * rate as usize).div_ceil(source_rate as usize))
 		.map(|frame| {
-			let position = frame as f64 * 48000.0 / f64::from(rate);
+			let position = frame as f64 * f64::from(source_rate) / f64::from(rate);
 			let index = (position as usize).min(frames - 1);
 			let next = (index + 1).min(frames - 1);
 			std::array::from_fn(|channel| {
@@ -363,6 +383,9 @@ mod tests {
 			assert!(samples(Sound::Unmute, false, rate, &|| true).is_err());
 			assert!(samples(Sound::Deafen, false, rate, &|| true).is_err());
 			assert!(samples(Sound::Undeafen, false, rate, &|| true).is_err());
+			assert!(samples(Sound::CameraOn, false, rate, &|| true).is_err());
+			assert!(samples(Sound::ScreenShareOn, false, rate, &|| true).is_err());
+			assert!(samples(Sound::OutgoingRing, false, rate, &|| true).is_err());
 
 			let discord_cues = [
 				Sound::Message,
@@ -372,6 +395,9 @@ mod tests {
 				Sound::Unmute,
 				Sound::Deafen,
 				Sound::Undeafen,
+				Sound::CameraOn,
+				Sound::ScreenShareOn,
+				Sound::OutgoingRing,
 			]
 			.map(|s| samples(s, true, rate, &|| true).unwrap());
 			assert_eq!(discord_cues[0], discord_cues[1]);
@@ -385,7 +411,15 @@ mod tests {
 				(0.3, 0.6),
 				(0.6, 0.9),
 				(0.6, 1.0),
+				(0.9, 1.1),
+				(1.6, 1.9),
+				(2.3, 2.6),
 			];
+			assert!(
+				Duration::from_secs_f64(discord_cues[9].len() as f64 / f64::from(rate))
+					+ Duration::from_millis(100)
+					< OUTGOING_RING_INTERVAL
+			);
 			for (cue, (min, max)) in discord_cues.iter().zip(discord_expectations) {
 				let seconds = cue.len() as f64 / f64::from(rate);
 				assert!(
