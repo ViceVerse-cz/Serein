@@ -16,7 +16,7 @@ pub const RING_INTERVAL: Duration = Duration::from_secs(6);
 
 #[derive(Default)]
 pub struct Sounds {
-	send: Option<SyncSender<(u64, Sound)>>,
+	send: Option<SyncSender<(u64, Sound, bool)>>,
 	generation: Arc<AtomicU64>,
 	status: Arc<AtomicU8>,
 }
@@ -32,22 +32,23 @@ impl Sounds {
 		self.generation.fetch_add(1, Ordering::AcqRel);
 		self.status.store(0, Ordering::Release);
 	}
-	pub fn play(&mut self, sound: Sound, ctx: &eframe::egui::Context) {
+	pub fn play(&mut self, sound: Sound, discord: bool, ctx: &eframe::egui::Context) {
 		if self.send.is_none() {
-			let (send, receive) = mpsc::sync_channel::<(u64, Sound)>(1);
+			let (send, receive) = mpsc::sync_channel::<(u64, Sound, bool)>(1);
 			let generation = self.generation.clone();
 			let status = self.status.clone();
 			let context = ctx.clone();
 			if std::thread::Builder::new()
 				.name("serein-notification-audio".into())
 				.spawn(move || {
-					while let Ok((request, sound)) = receive.recv() {
+					while let Ok((request, sound, discord)) = receive.recv() {
 						if generation.load(Ordering::Acquire) != request {
 							continue;
 						}
 						let finished = Arc::new(AtomicBool::new(false));
 						match open(
 							sound,
+							discord,
 							generation.clone(),
 							request,
 							status.clone(),
@@ -98,7 +99,7 @@ impl Sounds {
 			.send
 			.as_ref()
 			.expect("worker started")
-			.try_send((request, sound))
+			.try_send((request, sound, discord))
 			.is_err()
 		{
 			self.status.store(0, Ordering::Release);
@@ -111,11 +112,28 @@ impl Drop for Sounds {
 	}
 }
 
-fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[f32; 2]>, ()> {
-	let bytes: &[u8] = match sound {
-		Sound::Message => include_bytes!("../../../assets/sounds/message.mp3"),
-		Sound::CurrentChannel => include_bytes!("../../../assets/sounds/current-channel.mp3"),
-		Sound::IncomingRing => include_bytes!("../../../assets/sounds/incoming-ring.mp3"),
+fn samples(
+	sound: Sound,
+	discord: bool,
+	rate: u32,
+	current: &impl Fn() -> bool,
+) -> Result<Vec<[f32; 2]>, ()> {
+	let bytes: &[u8] = if discord {
+		match sound {
+			Sound::Message => include_bytes!("../../../assets/sounds/discord/message.mp3"),
+			Sound::CurrentChannel => {
+				include_bytes!("../../../assets/sounds/discord/current-channel.mp3")
+			}
+			Sound::IncomingRing => {
+				include_bytes!("../../../assets/sounds/discord/incoming-ring.mp3")
+			}
+		}
+	} else {
+		match sound {
+			Sound::Message => include_bytes!("../../../assets/sounds/message.mp3"),
+			Sound::CurrentChannel => include_bytes!("../../../assets/sounds/current-channel.mp3"),
+			Sound::IncomingRing => include_bytes!("../../../assets/sounds/incoming-ring.mp3"),
+		}
 	};
 	if bytes.len() > 128 * 1024 || !(8000..=192000).contains(&rate) {
 		return Err(());
@@ -125,7 +143,7 @@ fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[
 		Box::new(Cursor::new(bytes)),
 		current,
 		&mut |chunk, channels, source_rate, _| {
-			if channels != 2 || source_rate != 48000 || pcm.len() + chunk.len() > 48000 * 2 * 5 {
+			if channels != 2 || source_rate != 48000 || pcm.len() + chunk.len() > 48000 * 2 * 6 {
 				return Err("Invalid bundled notification sound");
 			}
 			pcm.extend(chunk.iter().map(|sample| {
@@ -159,6 +177,7 @@ fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[
 }
 fn open(
 	sound: Sound,
+	discord: bool,
 	generation: Arc<AtomicU64>,
 	request: u64,
 	status: Arc<AtomicU8>,
@@ -170,7 +189,7 @@ fn open(
 	if !(8000..=192000).contains(&config.sample_rate) || !(1..=8).contains(&config.channels) {
 		return Err(());
 	}
-	let samples = samples(sound, config.sample_rate, &|| {
+	let samples = samples(sound, discord, config.sample_rate, &|| {
 		generation.load(Ordering::Acquire) == request
 	})?;
 	let duration = Duration::from_secs_f64(samples.len() as f64 / f64::from(config.sample_rate));
@@ -313,28 +332,37 @@ mod tests {
 	#[test]
 	fn bundled_cues_decode_in_full_at_supported_rates_and_cancel() {
 		for rate in [8000, 44100, 48000, 192000] {
-			let cues = [Sound::Message, Sound::CurrentChannel, Sound::IncomingRing]
-				.map(|s| samples(s, rate, &|| true).unwrap());
-			assert_ne!(cues[0], cues[1]);
-			for (cue, (min, max)) in cues.iter().zip([(0.2, 0.5), (0.1, 0.4), (3.9, 4.3)]) {
-				let seconds = cue.len() as f64 / f64::from(rate);
-				assert!(
-					(min..max).contains(&seconds),
-					"unexpected cue duration {seconds}"
-				);
-				assert!(cue.len() <= rate as usize * 5);
-				assert!(
-					cue.iter()
-						.flatten()
-						.all(|s| s.is_finite() && s.abs() <= 1.0)
-				);
-				assert!(cue.iter().flatten().any(|s| s.abs() > 0.01));
-				assert!(
-					Duration::from_secs_f64(seconds) + Duration::from_millis(100) < RING_INTERVAL
-				);
+			for discord in [false, true] {
+				let cues = [Sound::Message, Sound::CurrentChannel, Sound::IncomingRing]
+					.map(|s| samples(s, discord, rate, &|| true).unwrap());
+				assert_ne!(cues[0], cues[1]);
+				let expectations = if discord {
+					[(0.2, 0.5), (0.6, 1.0), (5.0, 5.6)]
+				} else {
+					[(0.2, 0.5), (0.1, 0.4), (3.9, 4.3)]
+				};
+				for (cue, (min, max)) in cues.iter().zip(expectations) {
+					let seconds = cue.len() as f64 / f64::from(rate);
+					assert!(
+						(min..max).contains(&seconds),
+						"unexpected cue duration {seconds}"
+					);
+					assert!(cue.len() <= rate as usize * 6);
+					assert!(
+						cue.iter()
+							.flatten()
+							.all(|s| s.is_finite() && s.abs() <= 1.0)
+					);
+					assert!(cue.iter().flatten().any(|s| s.abs() > 0.01));
+					assert!(
+						Duration::from_secs_f64(seconds) + Duration::from_millis(100) < RING_INTERVAL
+					);
+				}
 			}
 		}
-		assert!(samples(Sound::Message, 48000, &|| false).is_err());
-		assert!(samples(Sound::Message, 0, &|| true).is_err());
+		assert!(samples(Sound::Message, false, 48000, &|| false).is_err());
+		assert!(samples(Sound::Message, true, 48000, &|| false).is_err());
+		assert!(samples(Sound::Message, false, 0, &|| true).is_err());
+		assert!(samples(Sound::Message, true, 0, &|| true).is_err());
 	}
 }

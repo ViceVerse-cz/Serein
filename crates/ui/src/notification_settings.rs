@@ -69,6 +69,7 @@ mod tests {
 				"Badges",
 				"Enable Unread Message Badge",
 				"Incoming Ring",
+				"Classic Discord Sounds",
 			] {
 				assert!(
 					labels.iter().any(|(s, _)| s.eq_ignore_ascii_case(label)),
@@ -191,6 +192,15 @@ impl MessagingUi {
 					self.notification_preview = Some(sound);
 				}
 			}
+			design::card_divider(ui);
+			design::switch(
+				ui,
+				"Classic Discord Sounds",
+				Some(
+					"Use classic Discord notification sounds and ringtones instead of Serein defaults.",
+				),
+				&mut self.notification_options.discord_sounds,
+			);
 			design::card_divider(ui);
 			design::switch(
 				ui,

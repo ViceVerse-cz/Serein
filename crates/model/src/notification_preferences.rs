@@ -7,6 +7,7 @@ pub struct Device {
 	pub incoming_ring: bool,
 	pub disable_sounds: bool,
 	pub unread_badge: bool,
+	pub discord_sounds: bool,
 }
 impl Default for Device {
 	fn default() -> Self {
@@ -16,6 +17,7 @@ impl Default for Device {
 			incoming_ring: true,
 			disable_sounds: false,
 			unread_badge: true,
+			discord_sounds: false,
 		}
 	}
 }
