@@ -2041,6 +2041,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "serein-extension-sdk",
  "thiserror 2.0.20",
  "url",
  "wasmi",
@@ -6190,6 +6191,14 @@ dependencies = [
  "winit",
  "zeroize",
  "zip",
+]
+
+[[package]]
+name = "serein-extension-sdk"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

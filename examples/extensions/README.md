@@ -3,7 +3,9 @@
 This is a complete offline example and a small Rust SDK. Copy a plugin directory and the
 SDK into your own repository, edit its manifest and action, and publish the resulting
 `.serein-extension` file. Any language producing compatible WebAssembly can use this ABI;
-Rust authors can call `serein_extension_sdk::export!(handler)`.
+Rust authors can call `serein_extension_sdk::export!(handler)`. Keep the workspace
+`Cargo.toml` and `Cargo.lock` alongside `sdk/` and the plugin directories; their
+dependencies inherit from that workspace. Remove unused plugin members when copying.
 
 Build and package from this directory (Python 3 is used only by the author):
 
@@ -30,7 +32,65 @@ remain intact. Disable/logout revoke the option.
 Ocean, Midnight, Rose, Forest and Latte are declarative themes under `extensions/`.
 The author packages compiled bytes; Serein never runs a repository's build scripts.
 
+## Test and develop locally
+
+Handlers remain ordinary `fn(Invocation) -> Output` functions. `Invocation`, `Output`
+and `Element` implement `Clone`, `Debug`, `PartialEq`, `Eq`, `Serialize` and `Deserialize`
+so tests can construct, inspect and compare actual values. For example:
+
+```rust
+use serein_extension_sdk::{dispatch, Invocation, Output, serde_json};
+
+fn handle(input: Invocation) -> Output {
+    Output { replacement: input.composer.map(|text| text.to_uppercase()), ..Default::default() }
+}
+
+#[test]
+fn uppercase_draft() {
+    let bytes = dispatch(br#"{"action":"upper","composer":"hello"}"#, handle).unwrap();
+    let output: Output = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(output.replacement.as_deref(), Some("HELLO"));
+}
+```
+
+`dispatch` uses the same decoding and encoding as `export!`, without raw pointers.
+It reports `InputTooLarge`, `InvalidInput`, `OutputTooLarge` or `InvalidOutput`.
+Serialization stops at `MAX_IO_BYTES` (256 KiB), including escaped JSON bytes,
+instead of allocating the entire oversized response first. The handler's own data
+allocations still consume sandbox memory. Host checks for capability grants, action
+surfaces, panel structure, theme values and execution fuel remain separate.
+
+Use `input.value("name")` for a borrowed string and
+`input.parse_value::<bool>("enabled")` / `input.parse_value::<i32>("size")` for
+checkboxes and sliders. Parsing returns `Ok(None)` for an absent input and `Err`
+for a malformed one; range checks remain the handler's responsibility.
+`input.storage_json::<YourSettings>()` similarly distinguishes missing storage from
+invalid JSON. `output.set_storage_json(&settings)` encodes into the existing opaque
+storage field and preserves its previous value on failure. The final response must
+still fit the I/O limit after escaping that stored JSON. These helpers do not grant
+storage access or change its format; existing raw string storage remains supported.
+
+From the repository root:
+
+```powershell
+cargo test --manifest-path examples/extensions/Cargo.toml --workspace --locked
+cargo clippy --manifest-path examples/extensions/Cargo.toml --workspace --all-targets --locked -- -D warnings
+cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
+cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+```
+
+The last command tests the original packaged examples and rebuilt modules through
+the real offline host sandbox, including validation, and prints module/package sizes
+and invocation timings. The dedicated SDK CI job runs these checks. Generate local
+API documentation with `cargo doc --manifest-path examples/extensions/Cargo.toml -p serein-extension-sdk --no-deps`.
+
 ## ABI version 1
+
+The SDK preserves public fields, `fn(Invocation) -> Output`, `export!(handler)` and
+the version 1 buffer ABI. Existing plugins need no source or manifest changes and
+rebuilding is optional. False activation flags are now omitted from JSON, keeping
+their default behavior while avoiding unknown-field failures on hosts that predate
+an unused capability. Enabling a capability still requires a supporting host.
 
 Export a 32-bit linear `memory`, `serein_alloc(i32 length) -> i32 pointer`, and
 `serein_invoke(i32 pointer, i32 length) -> i64 output`. The host writes UTF-8 JSON into the

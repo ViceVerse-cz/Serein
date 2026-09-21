@@ -12,6 +12,7 @@ url.workspace = true
 wasmi = { version = "=2.0.0", default-features = false, features = ["std", "validate", "stable", "portable-dispatch"] }
 
 [dev-dependencies]
+serein-extension-sdk = { path = "../../examples/extensions/sdk" }
 wat = "=1.245.1"
 
 [lints]

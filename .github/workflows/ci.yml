@@ -48,6 +48,26 @@ jobs:
         with:
           name: serein-${{ runner.os }}-${{ runner.arch }}-unsigned
           path: dist/
+  extension-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          cache-on-failure: true
+          workspaces: |
+            . -> target
+            examples/extensions -> target
+      - run: cargo fmt --manifest-path examples/extensions/Cargo.toml --all -- --check
+      - run: cargo test --manifest-path examples/extensions/Cargo.toml --workspace --locked
+      - run: cargo clippy --manifest-path examples/extensions/Cargo.toml --workspace --all-targets --locked -- -D warnings
+      - run: cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
+      - name: Check existing and rebuilt plugins in the host sandbox (offline)
+        run: cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
   security:
     if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest

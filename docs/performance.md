@@ -1,3 +1,44 @@
+# Extension SDK bounded serialization - September 22, 2026
+
+Compared SDK sources at `d231e90` with the bounded serializer and unchanged example
+plugin sources, on Windows x64, Ryzen 7 7800X3D, 32 GB RAM and Rust 1.98.1.
+Both builds used the standalone extension workspace's locked dependencies and
+`--release --target wasm32-unknown-unknown` (size optimization, LTO, one codegen
+unit). Baseline modules were saved separately before editing the SDK.
+
+The release `extensions` example `sdk_check` loaded each module into the unchanged
+host sandbox. Each measurement has one warmup and five batches of 20 invocations;
+the table reports the median batch duration per call. Each call creates a new
+runtime, including module compilation; package construction/parsing and process
+startup are excluded. Baseline and changed modules were run sequentially using
+the same executable, with no concurrent Cargo build.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Protector Wasm bytes | 70,629 | 78,746 | +8,117 / +11.49% |
+| Protector JSON package bytes | 205,650 | 227,360 | +21,710 / +10.55% |
+| Protector invocation median | 1,014.520 us | 1,160.400 us | +145.880 us / +14.38% |
+| Image sharing Wasm bytes | 70,629 | 78,738 | +8,109 / +11.48% |
+| Image sharing JSON package bytes | 205,642 | 227,312 | +21,670 / +10.54% |
+| Image sharing invocation median | 989.660 us | 1,119.255 us | +129.595 us / +13.09% |
+
+These are small local activation workloads, not UI latency, RSS or live Discord
+measurements. Unchanged committed modules varied between runs, so the timing
+deltas are observations, not a stable slowdown estimate. The extra code provides
+bounded serialization and native SDK diagnostics. Serialized response buffers stop
+at 256 KiB, including JSON escaping; plugin-owned output values still consume the
+existing 16 MiB sandbox memory budget.
+
+The distributed desktop runtime and committed plugin packages are unchanged. The
+SDK is a host dev-dependency only; desktop executable, installed package and ZIP
+sizes were not remeasured. Plugin packages above are the uncompressed portable
+JSON artifact, with no separate compressed SDK distribution. Reproduce after a
+standalone Wasm build with:
+
+```powershell
+cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+```
+
 # Shared extension repository - September 21, 2026
 
 Baseline: `1a5b30d`; after: this change. Windows x64, Rust 1.98.1.

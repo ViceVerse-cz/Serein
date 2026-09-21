@@ -40,6 +40,9 @@ preference. There is no periodic background polling or automatic package update.
 
 1. Keep source and license in a public Git repository. Use the standalone Rust
    example under `examples/extensions/message-delete-protector` and its small SDK.
+   The [SDK authoring guide](../examples/extensions/README.md#test-and-develop-locally)
+   covers native handler tests, typed panel values and JSON storage helpers; the v1
+   exports and existing plugin source remain compatible.
 2. Build a Wasm module implementing the version 1 ABI documented by the starter.
    No native binary, installer, Git hook or build script runs on an end user's
    computer. Other languages can implement the same Wasm buffer/JSON contract.
