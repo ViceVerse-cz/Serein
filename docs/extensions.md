@@ -7,8 +7,19 @@ send a message, read credentials, open files or make network requests.
 
 ## Install and remove
 
-Open Extensions to browse bundled starters offline; Refresh explicitly checks the
-remote free catalog. Bundled packages use the same capability review before enabling.
+Themes and plugins are published together in
+[Serein-extensions](https://github.com/ViceVerse-cz/Serein-extensions).
+Opening Settings > Themes or Extensions checks that repository's shared catalog
+on the existing worker. Normal builds embed no package payloads; bundled examples
+remain available only in offline demo/test builds.
+The last valid catalog and installed packages remain available offline. Refresh
+retries immediately. Catalog changes add/remove available choices and mark
+installed updates; they never install, update or delete packages automatically.
+A refresh shows a spinner without disabling local controls; choosing a local action
+cancels a pending catalog/thumbnail request.
+Updating an inactive theme preserves the current selection. Locally created or
+imported packages are never replaced by catalog updates.
+
 Enable downloads the selected, hash-pinned package after its capabilities have
 been accepted. Updates are manual and require renewed capability consent.
 Import selects a local `.serein-extension` JSON package. An import is unreviewed;
@@ -23,7 +34,7 @@ exported theme/image source.
 
 Plugin grants and data belong to the signed-in account. Logout invalidates
 plugin results, drains bounded in-flight work and clears that account's extension data. Theme selection is a device
-preference. There are no background catalog refreshes or automatic updates.
+preference. There is no periodic background polling or automatic package update.
 
 ## Creator workflow
 
@@ -34,15 +45,16 @@ preference. There are no background catalog refreshes or automatic updates.
    computer. Other languages can implement the same Wasm buffer/JSON contract.
 3. Package the manifest and Wasm bytes (or declarative theme) as a single JSON
    file. Test through Import with an offline `--demo` build first.
-4. Publish the package as a versioned release artifact. Submit a pull request
-   changing `extensions/catalog.json`, with the source commit, build procedure,
-   license, artifact URL, byte size and SHA-256 digest.
+4. Add the package and reproducible source/build instructions to `Serein-extensions`.
+   Commit the package first, then regenerate that repository's `catalog.json` with
+   the package commit. Its publishing script records immutable package URLs,
+   byte lengths and SHA-256 hashes. See the repository README for exact commands.
 5. Maintainers review each listed version, its capabilities and the source to
    artifact relationship. A catalog checksum identifies reviewed bytes; it is
    not a signature or a guarantee that code is harmless. Updates need review too.
 
-The in-app catalog reads the default branch. A new catalog entry is not publicly
-available through that endpoint until its pull request is merged. Empty catalogs
+The in-app catalog reads `Serein-extensions/main/catalog.json`. A new catalog entry
+is not available through that endpoint until it reaches that repository's main branch. Empty catalogs
 are valid; imports allow development before a release is listed.
 
 ## Shop previews
@@ -61,10 +73,12 @@ Catalog entries may include a short `description` (at most 256 characters and
 Use an original or licensed PNG/JPEG screenshot showing the theme or plugin in
 use. Pin its URL to an immutable release or source commit, then record the exact
 file size and digest. Prefer a 16:9 image; the shop preserves its aspect ratio.
-Bundled themes show palette thumbnails using their actual colors. Clicking a bundled
+Offline demo theme fixtures show palette thumbnails using their actual colors. Clicking a demo
 or installed theme thumbnail previews its full appearance in the normal app, with
-Back to themes and Customize actions. Bundled themes can be customized without installing
+Back to themes and Customize actions. Demo themes can be customized without installing
 them first; saving creates an editable local copy and preserves the original package.
+Remote themes download only when installed; installed themes can be previewed or
+customized through the existing flow. Normal builds embed no extension or theme packages.
 Editor-created themes may embed a separate local card cover; it replaces the palette
 illustration and is center-cropped to 16:9. It is not a catalog preview URL and does
 not change the conversation background.
@@ -109,7 +123,7 @@ panel actions are available from the composer Tools menu as well as the shop. Co
 the ordinary Send action and are discarded when their originating context is
 stale. Account/session changes invalidate outstanding results.
 
-The bundled **Emoji & Sticker Images** plugin requests `image_sharing`. Its
+The **Emoji & Sticker Images** catalog plugin requests `image_sharing`. Its
 activation output makes custom emoji and sticker selections stage artwork as ordinary
 image attachments. Selecting artwork authorizes one send after host download and
 validation, without another composer confirmation. Text drafts stay intact. Existing

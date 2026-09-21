@@ -250,12 +250,17 @@ reported and retried. Logout removes the account's plugin data. Imported
 original files and source repositories are never deleted. No credentials belong
 in plugin storage; it is not encrypted. Only bounded metadata may remain after
 successful disable. Shop descriptions and optional preview URLs/hashes belong to
-bounded catalog metadata (1 MiB / 256 entries). Visible cards may fetch a PNG/JPEG
+bounded catalog metadata (1 MiB / 256 entries). The validated, shared plugin/theme
+catalog is atomically saved to `extensions/catalog.json` within that same byte/item
+budget. A failed fetch/validation preserves the last valid catalog; malformed or
+oversized disk caches are ignored while installed themes still load. Opening
+Themes or Extensions refreshes metadata only, never installed packages or local edits.
+Visible cards may fetch a PNG/JPEG
 preview using credential-free validated public HTTPS; bytes are hash/size checked,
 limited to 256 KiB compressed, decoded off-thread within 4,194,304 source pixels,
 and reduced to at most 640 x 360. Eight UI thumbnails cost at most 7,372,800 RGBA
 bytes plus GPU/framework overhead. Images stay in memory only; no preview disk
-cache or background refresh is added. Existing single-worker/four-job bounds and
+cache or periodic background polling is added. Existing single-worker/four-job bounds and
 session cancellation apply. See `extensions.md` for the creator and permission model.
 
 Schema 13 adds a constrained webhook boolean to cached message authors. It comes

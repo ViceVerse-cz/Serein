@@ -1,3 +1,21 @@
+# Shared extension repository - September 21, 2026
+
+Baseline: `1a5b30d`; after: this change. Windows x64, Rust 1.98.1.
+Normal builds fetch the shared theme/plugin catalog when either shop page opens.
+The existing worker handles downloads and parsing; local actions cancel metadata
+refreshes instead of waiting for the network.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Package bytes embedded in normal builds, exact source file lengths | 556,980 | 0 | -556,980 |
+| Persistent public catalog budget | 0 | 1 MiB / 256 entries | +1 MiB maximum |
+
+These are payload sizes and limits, not executable-size, process-memory or latency
+measurements. Test/demo builds retain the existing offline package fixtures.
+Native screenshot/interaction evidence is unavailable because the computer-use
+native pipe cannot connect (`os error 2`); matched native CPU/RSS/frame timings
+and baseline package-size comparisons were not measured. No speedup is claimed.
+
 # Original Discord sound assets — September 21, 2026
 
 Baseline: `932dc60`; after: this change. Windows x64, Rust 1.98.1.

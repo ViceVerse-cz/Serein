@@ -174,6 +174,17 @@ impl MessagingUi {
 		}
 	}
 
+	pub fn extension_settings_page(&self) -> Option<extensions::ExtensionKind> {
+		if !self.settings.open {
+			return None;
+		}
+		match self.settings.page {
+			Page::Themes => Some(extensions::ExtensionKind::Theme),
+			Page::Extensions => Some(extensions::ExtensionKind::Plugin),
+			_ => None,
+		}
+	}
+
 	pub fn voice_settings_open(&self) -> bool {
 		self.settings.open && self.settings.page == Page::Voice
 	}

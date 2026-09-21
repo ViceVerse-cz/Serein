@@ -144,6 +144,7 @@ pub struct ExtensionUi {
 	pub entries: Vec<ExtensionEntry>,
 	pub status: String,
 	pub busy: bool,
+	pub catalog_refreshing: bool,
 	pub requests: Vec<ExtensionRequest>,
 	consent: Option<Consent>,
 	result: Option<ResultPanel>,
@@ -389,7 +390,19 @@ impl ExtensionUi {
 		}
 	}
 	pub fn set_entries(&mut self, entries: Vec<ExtensionEntry>) {
-		self.consent = None;
+		if self.consent.as_ref().is_some_and(|consent| {
+			consent.entry.reviewed
+				&& !entries.iter().any(|entry| {
+					entry.reviewed
+						&& !entry.cleanup_pending
+						&& entry.sha256 == consent.entry.sha256
+						&& entry.download_bytes == consent.entry.download_bytes
+						&& entry.update_manifest.as_ref().unwrap_or(&entry.manifest)
+							== &consent.entry.manifest
+				})
+		}) {
+			self.consent = None;
+		}
 		self.previews.retain(|id, _| {
 			let old = self.entries.iter().find(|entry| &entry.manifest.id == id);
 			let new = entries.iter().find(|entry| &entry.manifest.id == id);
@@ -727,6 +740,7 @@ impl ExtensionUi {
 		};
 	}
 	pub fn reset_runtime(&mut self) {
+		self.catalog_refreshing = false;
 		self.theme_editor = None;
 		self.gallery_preview = None;
 		self.error = None;
@@ -925,6 +939,10 @@ impl ExtensionUi {
 						}
 					});
 				});
+			if self.catalog_refreshing {
+				ui.spinner()
+					.on_hover_text("Checking for packages and updates");
+			}
 			if self.themes {
 				if ui
 					.add_enabled(
@@ -2426,6 +2444,48 @@ mod tests {
 			update_manifest: None,
 		}
 	}
+	#[test]
+	fn catalog_refresh_preserves_only_unchanged_reviewed_consent() {
+		let mut shop = ExtensionUi::default();
+		let mut available = entry();
+		available.reviewed = true;
+		let mut updated = available.manifest.clone();
+		updated.version = "2.0.0".into();
+		available.update_manifest = Some(updated.clone());
+		let mut proposed = available.clone();
+		proposed.manifest = updated;
+		shop.offer_import(proposed.clone());
+		shop.consent.as_mut().unwrap().grants = vec![Capability::Composer];
+		shop.set_entries(vec![available.clone()]);
+		assert_eq!(
+			shop.consent.as_ref().unwrap().grants,
+			vec![Capability::Composer]
+		);
+		for change in 0..4 {
+			shop.offer_import(proposed.clone());
+			let mut changed = available.clone();
+			match change {
+				0 => changed.sha256 = "b".repeat(64),
+				1 => changed
+					.update_manifest
+					.as_mut()
+					.unwrap()
+					.capabilities
+					.clear(),
+				2 => changed.cleanup_pending = true,
+				_ => {}
+			}
+			shop.set_entries(if change == 3 { vec![] } else { vec![changed] });
+			assert!(shop.consent.is_none());
+		}
+		shop.offer_import(entry());
+		shop.set_entries(vec![]);
+		assert!(
+			shop.consent.is_some(),
+			"unrelated refresh preserves a local import"
+		);
+	}
+
 	#[test]
 	fn original_theme_customization_and_gallery_preview_return() {
 		for action in ["Back to themes", "Customize"] {
