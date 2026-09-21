@@ -1,5 +1,6 @@
-//! Bundled OFL fallback faces. No runtime download, system-font scan, or disk I/O.
+//! Bundled OFL fallback faces. Eframe separately provides native system-font fallback.
 use egui::{Context, FontData, FontDefinitions, FontFamily};
+use std::sync::{Arc, Mutex, Weak};
 
 /// Noto Sans CJK JP is a quarter of the executable uncompressed (16.4 MB). It ships as a
 /// `zstd -19` archive (12.0 MB) and is inflated in memory the first time CJK text is
@@ -12,40 +13,98 @@ const INTER: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const INTER_MEDIUM: &[u8] = include_bytes!("../../../assets/fonts/Inter-Medium.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
 
+const CHECKED_JOBS: usize = 512;
+const CHECKED_BYTES: usize = 128 * 1024;
+// Weak references retain only the fixed-size Arc allocation, never text or meshes.
+const _: () = assert!(
+	CHECKED_JOBS * (size_of::<egui::text::LayoutJob>() + 3 * size_of::<usize>()) <= CHECKED_BYTES
+);
+
+#[derive(Default)]
+struct CjkScan {
+	checked: Vec<Weak<egui::text::LayoutJob>>,
+}
+
+impl CjkScan {
+	fn text(&mut self, job: &Arc<egui::text::LayoutJob>) -> bool {
+		let index = match self
+			.checked
+			.binary_search_by_key(&(Arc::as_ptr(job) as usize), |entry| {
+				entry.as_ptr() as usize
+			}) {
+			Ok(_) => return false,
+			Err(index) => index,
+		};
+		if !job.text.is_ascii() && job.text.chars().any(|c| matches!(c as u32, 0x1100..=0x11ff | 0x2e80..=0xa4cf | 0xa960..=0xa97f | 0xac00..=0xd7af | 0xd7b0..=0xd7ff | 0xf900..=0xfaff | 0xfe30..=0xffef | 0x20000..=0x323af)) {
+			return true;
+		}
+		// Keep allocation identities alive so allocator address reuse cannot hide new text.
+		// Arc::make_mut also dissociates these weak references before editing a job.
+		if self.checked.capacity() == 0 {
+			self.checked.reserve_exact(CHECKED_JOBS);
+		}
+		// ponytail: clear the fixed cache at capacity; unusually busy views rescan text.
+		let index = if self.checked.len() == CHECKED_JOBS {
+			self.checked.clear();
+			0
+		} else {
+			index
+		};
+		self.checked.insert(index, Arc::downgrade(job));
+		false
+	}
+
+	fn shape(&mut self, shape: &egui::Shape) -> bool {
+		match shape {
+			egui::Shape::Text(text) => self.text(&text.galley.job),
+			egui::Shape::Vec(shapes) => shapes.iter().any(|shape| self.shape(shape)),
+			_ => false,
+		}
+	}
+}
+
 /// Install once during application creation, before the first UI pass.
 pub fn install(ctx: &Context) {
 	ctx.set_fonts(definitions(false));
-	let installed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-	ctx.on_end_pass("CJK fallback", std::sync::Arc::new(move |ui| {
-		// Also true while the decode thread runs, so the scan stops after the first hit.
-		if installed.load(std::sync::atomic::Ordering::Relaxed) { return; }
-		fn needs_cjk(shape: &egui::Shape) -> bool {
-			match shape {
-				egui::Shape::Text(text) => text.galley.job.text.chars().any(|c| matches!(c as u32, 0x1100..=0x11ff | 0x2e80..=0xa4cf | 0xa960..=0xa97f | 0xd7b0..=0xd7ff | 0xac00..=0xd7af | 0xf900..=0xfaff | 0xfe30..=0xffef | 0x20000..=0x323af)),
-				egui::Shape::Vec(shapes) => shapes.iter().any(needs_cjk),
-				_ => false,
+	let installed = std::sync::atomic::AtomicBool::new(false);
+	let scan = Mutex::new(CjkScan::default());
+	ctx.on_end_pass(
+		"CJK fallback",
+		std::sync::Arc::new(move |ui| {
+			// Also true while the decode thread runs, so the scan stops after the first hit.
+			if installed.load(std::sync::atomic::Ordering::Relaxed) {
+				return;
 			}
-		}
-		let ctx = ui.ctx();
-		let layers: Vec<_> = ctx.memory(|memory| memory.layer_ids().collect());
-		let needed = ctx.graphics(|graphics| layers.iter().any(|layer| graphics.get(*layer).is_some_and(|list| list.all_entries().any(|entry| needs_cjk(&entry.shape)))));
-		if needed {
-			installed.store(true, std::sync::atomic::Ordering::Relaxed);
-			// Inflating 16 MB and reparsing the font set takes tens of milliseconds; keep
-			// it off the UI thread and accept one pass of fallback glyphs.
-			let worker = ctx.clone();
-			let spawned = std::thread::Builder::new()
-				.name("cjk-font".into())
-				.spawn(move || {
-					worker.set_fonts(definitions(true));
-					worker.request_repaint();
-				});
-			if spawned.is_err() {
-				ctx.set_fonts(definitions(true));
-				ctx.request_repaint();
+			let mut scan = scan.lock().expect("CJK scan");
+			let ctx = ui.ctx();
+			let layers: Vec<_> = ctx.memory(|memory| memory.layer_ids().collect());
+			let needed = ctx.graphics(|graphics| {
+				layers.iter().any(|layer| {
+					graphics.get(*layer).is_some_and(|list| {
+						list.all_entries().any(|entry| scan.shape(&entry.shape))
+					})
+				})
+			});
+			if needed {
+				*scan = CjkScan::default();
+				installed.store(true, std::sync::atomic::Ordering::Relaxed);
+				// Inflating 16 MB and reparsing the font set takes tens of milliseconds; keep
+				// it off the UI thread and accept one pass of fallback glyphs.
+				let worker = ctx.clone();
+				let spawned =
+					std::thread::Builder::new()
+						.name("cjk-font".into())
+						.spawn(move || {
+							worker.set_fonts(definitions(true));
+							worker.request_repaint();
+						});
+				if spawned.is_err() {
+					ctx.set_fonts(definitions(true));
+					ctx.request_repaint();
+				}
 			}
-		}
-	}));
+		}),
+	);
 	crate::design::weights_installed(ctx);
 }
 
@@ -130,6 +189,83 @@ mod tests {
 	use super::*;
 	use egui::FontId;
 	use skrifa::MetadataProvider;
+
+	#[test]
+	fn cjk_scan_reuses_immutable_jobs_without_retaining_their_text() {
+		let mut scan = CjkScan::default();
+		let mut job = Arc::new(egui::text::LayoutJob {
+			text: "Latin — čeština العربية".into(),
+			..Default::default()
+		});
+		assert!(!scan.text(&job));
+		assert!(!scan.text(&job));
+		assert_eq!(scan.checked.len(), 1);
+		assert_eq!(Arc::strong_count(&job), 1);
+		Arc::make_mut(&mut job).text = "日本語 中文 한국어".into();
+		assert!(
+			scan.text(&job),
+			"editing an already checked job must detect CJK"
+		);
+		assert!(scan.checked[0].upgrade().is_none());
+		for index in 0..CHECKED_JOBS * 2 {
+			let job = Arc::new(egui::text::LayoutJob {
+				text: format!("Synthetic {index}"),
+				..Default::default()
+			});
+			assert!(!scan.text(&job));
+			assert!(scan.checked.len() <= CHECKED_JOBS);
+			assert!(
+				scan.checked.capacity()
+					* (size_of::<egui::text::LayoutJob>() + 3 * size_of::<usize>())
+					<= CHECKED_BYTES
+			);
+		}
+		assert!(scan.checked.iter().all(|entry| entry.upgrade().is_none()));
+		assert!(
+			scan.text(&job),
+			"cache rollover must not suppress new CJK text"
+		);
+	}
+
+	#[test]
+	fn cjk_arriving_after_settled_latin_frames_installs_the_fallback() {
+		let ctx = Context::default();
+		install(&ctx);
+		for _ in 0..3 {
+			ctx.run_ui(Default::default(), |ui| {
+				ui.label("Synthetic Latin text");
+				assert!(!ui.fonts(|fonts| {
+					fonts
+						.definitions()
+						.font_data
+						.contains_key("Noto Sans CJK JP")
+				}));
+			})
+			.drop_without_applying_deltas();
+		}
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+		loop {
+			let mut installed = false;
+			ctx.run_ui(Default::default(), |ui| {
+				ui.label("日本語");
+				installed = ui.fonts(|fonts| {
+					fonts
+						.definitions()
+						.font_data
+						.contains_key("Noto Sans CJK JP")
+				});
+			})
+			.drop_without_applying_deltas();
+			if installed {
+				break;
+			}
+			assert!(
+				std::time::Instant::now() < deadline,
+				"CJK worker did not install its fallback"
+			);
+			std::thread::sleep(std::time::Duration::from_millis(5));
+		}
+	}
 
 	#[test]
 	fn startup_does_not_decode_cjk_but_on_demand_definitions_do() {

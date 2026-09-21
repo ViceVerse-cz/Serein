@@ -156,9 +156,8 @@ impl GifMode {
 
 const CUSTOM_LIMIT: usize = model::MAX_GUILD_EMOJIS;
 
-/// Case-insensitive substring test against an already lowercased `needle`. Runs for every
-/// custom emoji on every frame the picker is open, so ASCII names (Discord permits only
-/// `[A-Za-z0-9_]`) compare in place; only non-ASCII server names allocate.
+/// Case-insensitive substring test against an already lowercased `needle`. ASCII names
+/// (Discord permits only `[A-Za-z0-9_]`) compare in place; only non-ASCII server names allocate.
 fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
 	if haystack.is_ascii() && needle.is_ascii() {
 		haystack
@@ -170,29 +169,84 @@ fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
 	}
 }
 
-/// Borrow catalog entries only; cap search results independently of the joined-server count.
-fn custom_matches<'a>(
-	state: &'a State,
-	server: Option<Id>,
-	query: &str,
-) -> Vec<(&'a model::Guild, &'a model::CustomEmoji)> {
+/// Retain indices only; cap search results independently of the joined-server count.
+fn custom_matches(state: &State, server: Option<Id>, query: &str) -> Vec<(usize, usize)> {
 	let query = query.trim().to_lowercase();
 	let mut matching: Vec<_> = state
 		.guilds
 		.iter()
-		.filter(|guild| !query.is_empty() || server == Some(guild.id))
-		.flat_map(|guild| {
+		.enumerate()
+		.filter(|(_, guild)| !query.is_empty() || server == Some(guild.id))
+		.flat_map(|(guild_index, guild)| {
 			let query = &query;
 			let source_matches = !query.is_empty() && contains_ignore_case(&guild.name, query);
-			guild.emojis.iter().flatten().filter_map(move |emoji| {
-				(source_matches || query.is_empty() || contains_ignore_case(&emoji.name, query))
-					.then_some((guild, emoji))
-			})
+			guild
+				.emojis
+				.iter()
+				.flatten()
+				.enumerate()
+				.filter_map(move |(emoji_index, emoji)| {
+					(source_matches || query.is_empty() || contains_ignore_case(&emoji.name, query))
+						.then_some((guild_index, emoji_index))
+				})
 		})
 		.take(CUSTOM_LIMIT)
 		.collect();
-	matching.sort_unstable_by_key(|(guild, emoji)| (guild.id, emoji.id));
+	matching.sort_unstable_by_key(|&(guild, emoji)| {
+		let guild = &state.guilds[guild];
+		(
+			guild.id,
+			guild.emojis.as_ref().expect("matched catalog")[emoji].id,
+		)
+	});
 	matching
+}
+
+#[derive(Default)]
+struct CustomMatches {
+	key: Option<(u64, u64, Option<Id>, Option<Id>)>,
+	query: Box<str>,
+	// At most CUSTOM_LIMIT index pairs (16 KiB on 64-bit), with no catalog clones/references.
+	entries: Box<[(usize, usize)]>,
+}
+
+impl CustomMatches {
+	fn update(&mut self, state: &State, server: Option<Id>, query: &str) -> bool {
+		let key = (
+			state.generation,
+			state.revision,
+			state.user.as_ref().map(|user| user.id),
+			server,
+		);
+		if self.key == Some(key) && self.query.as_ref() == query {
+			return false;
+		}
+		// All production catalog/name/membership mutations advance State::revision.
+		// ponytail: unrelated events also invalidate; add a catalog epoch only if churn matters.
+		self.entries = custom_matches(state, server, query).into_boxed_slice();
+		// The UI admits 64 Unicode scalars. Oversized internal queries are never retained.
+		self.key = (query.len() <= 64 * 4).then_some(key);
+		self.query = if self.key.is_some() {
+			query.into()
+		} else {
+			Box::default()
+		};
+		true
+	}
+
+	fn len(&self) -> usize {
+		self.entries.len()
+	}
+
+	fn get<'a>(
+		&self,
+		state: &'a State,
+		index: usize,
+	) -> Option<(&'a model::Guild, &'a model::CustomEmoji)> {
+		let &(guild, emoji) = self.entries.get(index)?;
+		let guild = state.guilds.get(guild)?;
+		Some((guild, guild.emojis.as_ref()?.get(emoji)?))
+	}
 }
 
 pub(crate) struct Picker {
@@ -209,6 +263,7 @@ pub(crate) struct Picker {
 	server: Option<Id>,
 	query: String,
 	matches: Vec<usize>,
+	custom: CustomMatches,
 	tab: Tab,
 	gif_section: GifSection,
 	gif_query: String,
@@ -232,6 +287,7 @@ impl Default for Picker {
 			server: None,
 			query: String::new(),
 			matches: (0..standard().len()).collect(),
+			custom: CustomMatches::default(),
 			tab: Tab::Emoji,
 			gif_section: GifSection::Home,
 			gif_query: String::new(),
@@ -391,6 +447,7 @@ impl Picker {
 
 	pub(crate) fn sync(&mut self, state: &State, channel: Option<Id>) {
 		if self.channel != channel || self.generation != state.generation {
+			self.custom = CustomMatches::default();
 			if self.generation != state.generation {
 				self.frequent.clear();
 			}
@@ -1072,7 +1129,8 @@ impl Picker {
 									let columns = ((ui.available_width() - 12.0) / CELL)
 										.floor()
 										.clamp(1.0, 12.0) as usize;
-									let custom = custom_matches(state, self.server, &self.query);
+									self.custom.update(state, self.server, &self.query);
+									let custom = &self.custom;
 									let unicode = if searching || self.server.is_none() {
 										self.matches.as_slice()
 									} else {
@@ -1119,8 +1177,8 @@ impl Picker {
 																source,
 																emoji,
 																text,
-															) = if let Some(&(guild, emoji)) =
-																custom.get(index)
+															) = if let Some((guild, emoji)) =
+																custom.get(state, index)
 															{
 																(
 																	avatars.custom_image(
@@ -1160,7 +1218,7 @@ impl Picker {
 																)
 															};
 															let unavailable = custom
-																.get(index)
+																.get(state, index)
 																.and_then(|(guild, custom)| {
 																	state
 																		.custom_emoji_unavailable_reason(
@@ -1965,6 +2023,253 @@ mod tests {
 	use super::*;
 
 	#[test]
+	#[ignore = "release picker frame benchmark; ten warmup frames and one warmup/five measured batches"]
+	fn custom_picker_frame_benchmark() {
+		const FRAMES: usize = 200;
+		for (label, guild_count, query, selected_server, churn) in [
+			("server", 1, "", true, false),
+			("search-hit", 100, "needle", false, false),
+			("search-miss", 100, "missing_emoji", false, false),
+			("search-many", 100, "emoji", false, false),
+			("search-hit-churn", 100, "needle", false, true),
+		] {
+			let mut state = test_support::demo_state();
+			let template = state.guilds[0].clone();
+			let emoji = template.emojis.as_ref().unwrap()[0].clone();
+			state.guilds = (0..guild_count)
+				.map(|guild| model::Guild {
+					id: Id(template.id.0 + guild),
+					name: format!("Synthetic server {guild}"),
+					icon: None,
+					stickers: None,
+					emojis: Some(
+						(0..500)
+							.rev()
+							.map(|index| model::CustomEmoji {
+								id: Id(100_000 + guild * 500 + index),
+								name: if guild + 1 == guild_count && index == 499 {
+									"needle".into()
+								} else {
+									format!("emoji_{guild}_{index}")
+								},
+								..emoji.clone()
+							})
+							.collect(),
+					),
+				})
+				.collect();
+			state.invalidate_navigation();
+			let channel = state.selected.unwrap();
+			let mut picker = Picker {
+				open: true,
+				channel: Some(channel),
+				generation: state.generation,
+				server: selected_server.then_some(template.id),
+				query: query.into(),
+				..Picker::default()
+			};
+			picker.filter();
+			let ctx = egui::Context::default();
+			let mut avatars = Avatars::default();
+			let mut commands = Vec::new();
+			let mut frame_number = 0;
+			let mut frame = || {
+				// Model accepted-event invalidation without timing the reducer itself.
+				if churn {
+					state.revision += 1;
+				}
+				frame_number += 1;
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 700.0),
+						)),
+						time: Some(frame_number as f64 / 60.0),
+						..Default::default()
+					},
+					|ui| {
+						std::hint::black_box(picker.show(
+							ui,
+							&mut state,
+							channel,
+							&mut avatars,
+							&mut commands,
+						));
+					},
+				);
+				std::hint::black_box(output.shapes.len());
+				output.drop_without_applying_deltas();
+				commands.clear();
+			};
+			for _ in 0..10 {
+				frame();
+			}
+			let mut samples = Vec::with_capacity(5);
+			for batch in 0..6 {
+				let start = std::time::Instant::now();
+				for _ in 0..FRAMES {
+					frame();
+				}
+				let elapsed = start.elapsed().as_secs_f64() * 1_000.0;
+				if batch != 0 {
+					samples.push(elapsed);
+				}
+			}
+			assert!(picker.open);
+			assert_eq!(picker.query, query);
+			println!(
+				"custom_picker {label}: guilds={guild_count}, emojis_per_guild=500, frames={FRAMES}, samples_ms={samples:?}"
+			);
+		}
+	}
+
+	#[test]
+	fn custom_match_cache_tracks_catalog_scope_and_reuses_unchanged_results() {
+		use client_core::{Envelope, Event};
+		fn apply(state: &mut State, event: Event) {
+			state.apply(Envelope {
+				generation: state.generation,
+				event,
+			});
+		}
+		let mut state = test_support::demo_state();
+		let guild = state.guilds[0].id;
+		let mut cache = CustomMatches::default();
+		assert!(cache.update(&state, Some(guild), ""));
+		assert_eq!(cache.len(), state.guilds[0].emojis.as_ref().unwrap().len());
+		let allocation = cache.entries.as_ptr();
+		assert!(!cache.update(&state, Some(guild), ""));
+		assert_eq!(cache.entries.as_ptr(), allocation);
+		assert!(cache.update(&state, None, ""));
+		assert_eq!(cache.len(), 0);
+		assert!(cache.update(&state, None, "  NEEDLE  "));
+		assert_eq!(cache.len(), 0);
+		apply(
+			&mut state,
+			Event::GuildChanged(model::GuildPatch {
+				id: guild,
+				name: model::Patch::Value("Needle server".into()),
+				icon: model::Patch::Absent,
+			}),
+		);
+		assert!(cache.update(&state, None, "  NEEDLE  "));
+		assert!(
+			cache.len() > 0,
+			"renaming a guild must invalidate cached misses"
+		);
+		let mut emoji = state.guilds[0].emojis.as_ref().unwrap()[0].clone();
+		emoji.id = Id(99);
+		emoji.name = "brand_new".into();
+		emoji.animated = true;
+		emoji.available = false;
+		let mut other = emoji.clone();
+		other.id = Id(100);
+		apply(
+			&mut state,
+			Event::GuildEmojis {
+				guild,
+				emojis: vec![other, emoji.clone()],
+			},
+		);
+		assert!(cache.update(&state, None, "  NEEDLE  "));
+		assert_eq!(cache.len(), 2);
+		assert_eq!(cache.get(&state, 0).unwrap().1, &emoji);
+		assert_eq!(cache.get(&state, 1).unwrap().1.id, Id(100));
+		assert!(cache.update(&state, None, "brand_new"));
+		assert_eq!(cache.len(), 2);
+		apply(
+			&mut state,
+			Event::GuildEmojis {
+				guild,
+				emojis: vec![],
+			},
+		);
+		assert!(cache.update(&state, None, "brand_new"));
+		assert_eq!(cache.len(), 0, "removed emoji must not remain selectable");
+		let mut joined = state.guilds[0].clone();
+		joined.id = Id(555);
+		joined.stickers = None;
+		joined.emojis = Some(vec![emoji.clone()]);
+		apply(&mut state, Event::GuildJoined(joined));
+		assert!(cache.update(&state, None, "brand_new"));
+		assert_eq!(cache.get(&state, 0).unwrap().0.id, Id(555));
+		let mut guilds = state.guilds.clone();
+		guilds.reverse();
+		let user = state.user.clone().unwrap();
+		let channels = state.channels.clone();
+		let generation = state.generation;
+		apply(
+			&mut state,
+			Event::Ready {
+				user,
+				guilds,
+				channels,
+				permissions: Default::default(),
+			},
+		);
+		assert_eq!(state.generation, generation);
+		assert!(cache.update(&state, None, "brand_new"));
+		assert_eq!(cache.get(&state, 0).unwrap().0.id, Id(555));
+		assert_eq!(cache.get(&state, 0).unwrap().1, &emoji);
+		state.apply(Envelope {
+			generation: generation.wrapping_sub(1),
+			event: Event::GuildEmojis {
+				guild: Id(555),
+				emojis: vec![],
+			},
+		});
+		assert!(!cache.update(&state, None, "brand_new"));
+		// Independent account/session identities must invalidate even if revisions coincide.
+		state.user.as_mut().unwrap().id = Id(777);
+		assert!(cache.update(&state, None, "brand_new"));
+		state.generation += 1;
+		assert!(cache.update(&state, None, "brand_new"));
+		state.logout();
+		assert!(cache.update(&state, None, "brand_new"));
+		assert_eq!(cache.len(), 0);
+	}
+
+	#[test]
+	fn custom_match_cache_bounds_results_and_retained_query_bytes() {
+		let mut state = test_support::demo_state();
+		let emoji = state.guilds[0].emojis.as_ref().unwrap()[0].clone();
+		let mut guild = state.guilds[0].clone();
+		guild.emojis = Some(
+			(1..=CUSTOM_LIMIT)
+				.rev()
+				.map(|id| model::CustomEmoji {
+					id: Id(id as u64),
+					name: format!("emoji_{id}"),
+					..emoji.clone()
+				})
+				.collect(),
+		);
+		let mut second = guild.clone();
+		second.id = Id(guild.id.0 + 1);
+		state.guilds = vec![guild, second];
+		let mut cache = CustomMatches::default();
+		cache.update(&state, None, "emoji");
+		assert_eq!(cache.len(), CUSTOM_LIMIT);
+		assert_eq!(
+			std::mem::size_of_val(cache.entries.as_ref()),
+			CUSTOM_LIMIT * size_of::<(usize, usize)>()
+		);
+		assert_eq!(cache.get(&state, 0).unwrap().1.id, Id(1));
+		assert_eq!(
+			cache.get(&state, CUSTOM_LIMIT - 1).unwrap().1.id,
+			Id(CUSTOM_LIMIT as u64)
+		);
+		let query = "😀".repeat(64);
+		assert!(cache.update(&state, None, &query));
+		assert_eq!(cache.query.len(), 256);
+		assert!(!cache.update(&state, None, &query));
+		assert!(cache.update(&state, None, &"😀".repeat(65)));
+		assert!(cache.query.is_empty());
+		assert!(cache.key.is_none());
+	}
+
+	#[test]
 	fn image_sharing_requires_enabled_plugin_and_never_changes_reactions() {
 		let state = test_support::demo_state();
 		let mut picker = Picker {
@@ -2461,11 +2766,14 @@ mod tests {
 			}],
 			..State::default()
 		};
-		assert!(custom_matches(&state, None, "").is_empty());
-		let source_hits = custom_matches(&state, None, "SYNTHETIC SERVER");
-		assert_eq!(source_hits.len(), CUSTOM_LIMIT);
-		assert_eq!(source_hits[0].1.id, Id(1));
-		assert_eq!(custom_matches(&state, None, "emoji_999")[0].1.id, Id(999));
+		let mut custom = CustomMatches::default();
+		custom.update(&state, None, "");
+		assert_eq!(custom.len(), 0);
+		custom.update(&state, None, "SYNTHETIC SERVER");
+		assert_eq!(custom.len(), CUSTOM_LIMIT);
+		assert_eq!(custom.get(&state, 0).unwrap().1.id, Id(1));
+		custom.update(&state, None, "emoji_999");
+		assert_eq!(custom.get(&state, 0).unwrap().1.id, Id(999));
 		let mut picker = Picker {
 			open: true,
 			server: Some(Id(1)),
@@ -2520,5 +2828,6 @@ mod tests {
 		);
 		output.textures_delta.clear();
 		assert!(!picker.open && picker.server.is_none() && picker.query.is_empty());
+		assert_eq!(picker.custom.len(), 0);
 	}
 }

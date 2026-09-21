@@ -163,13 +163,25 @@ pub fn check() {
 	else {
 		panic!("forum author lookup")
 	};
-	let mut author_event = discord_gateway::debug_member_search_check(author_request);
-	if let client_core::Event::MemberSearch {
-		result: Ok(rows), ..
-	} = &mut author_event
-	{
-		rows[0].roles = vec![Id(101)];
-	}
+	let author_event = client_core::Event::MemberSearch {
+		request: author_request,
+		result: Ok(vec![model::Member {
+			user: model::User {
+				id: author_id,
+				name: "Synthetic forum author".into(),
+				kind: model::AccountKind::Human,
+				webhook: false,
+				avatar: None,
+				discriminator: 0,
+				primary_guild: None,
+			},
+			roles: vec![Id(101)],
+			nick: None,
+			status: None,
+			custom_status: None,
+			activities: Vec::new(),
+		}]),
+	};
 	state.apply(Envelope {
 		generation: state.generation,
 		event: author_event,

@@ -1,5 +1,21 @@
 # Local storage policy and audit
 
+## Remote video lifetime cleanup (September 21, 2026)
+
+A completed camera/stream announcement cancels a decoder only after its user's
+final announced video source disappears. Queued frames carry a small cancellable
+lifetime token, so camera-off and rapid off/on cannot recreate a stopped decoder
+from old queued frames. Cancellation survives a full queue; unchanged announcements
+do not wake the decoder. Hardware callbacks also check their original lifetime.
+
+The active-token table is capped at the existing 16 source users. Old fixed-size
+tokens can survive only in the 16-item / 16-MiB frame queue, the worker's current
+frame, and the existing at-most-eight decoders; they contain no media or account
+strings. The 1080p picture limit remains unchanged. Stopping the final video
+lifetime also frees the shared RGBA scratch allocation (up to 8,294,400 initialized
+bytes); codec/driver resources are released by dropping their decoders. Allocator
+and driver retention mean this is not an equivalent process-RSS guarantee.
+
 ## Startup and Gateway allocation reuse (September 21, 2026)
 
 Startup builds the bundled base font set without inflating the 16,467,736-byte
@@ -8,6 +24,12 @@ encountered. The Twemoji PNG decodes into one 16,515,072-byte egui pixel buffer
 and premultiplies alpha in place, removing the separate full-size RGBA conversion
 buffer. Decoder and GPU staging allocations remain additional; these are not
 whole-process RSS guarantees. No assets, image quality or cache limits change.
+
+The CJK detector remembers at most 512 immutable layout-job identities through weak
+references, within a 128 KiB fixed-allocation budget. It never retains text, style
+sections, glyph meshes or a strong job reference. Reused jobs skip Unicode scanning;
+new/edited jobs are checked, capacity rollover clears the cache, and the first CJK
+match releases it. Render shapes still need traversal until that first match.
 
 The streaming Gateway decoder releases compressed-input allocations larger than
 128 KiB after completing a payload. Smaller buffers remain reusable; incomplete
@@ -470,6 +492,12 @@ image-cache policy. Synthetic IDs 9001/9002 only get local generated images in `
 The standard picker palette has 3,953 fixed named entries and renders only viewport rows;
 search input is capped at 64 characters. Picker insertion honors character and total draft
 capacity limits and never sends a message on selection.
+
+Custom emoji search retains at most 1,000 guild/emoji index pairs (16,000 bytes on
+64-bit targets), plus at most 256 UTF-8 query bytes and fixed scope metadata. It
+borrows current catalog entries only while rendering. State revision, session,
+account, selected server and query changes invalidate results; navigation/session
+reset releases the cache. No catalog strings or image pixels are duplicated.
 
 
 Channel obfuscation and accepted READY removals invalidate inaccessible history using the existing

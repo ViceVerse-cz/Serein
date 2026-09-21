@@ -35,7 +35,9 @@ single-attempt policy; REST bodies reserve bounded capacity from a validated Con
 
 The native message renderer uses pulldown-cmark without its HTML or command-line features. Parsing is capped at 8192 UTF-8 bytes / 128 lines, 512 parser events and 16 nesting levels; complexity overflow falls back to bounded literal text. A 512-entry / 1 MiB estimated source-and-span MRU serves visible messages. HTML remains inert text and Markdown images are placeholders. HTTP(S) links require an explicit destination confirmation; nothing fetches them for previews. Up to 32 inline spoiler regions use a fixed reveal mask; concealed spans never enter text selection, accessibility labels, link/reference actions or emoji rendering. Spoiler media has a separate explicit reveal. Consent is invalidated when the original text or media changes. Complexity fallback conservatively conceals bounded source containing spoiler markers. Spoiler consent copies are bounded by the active message window. Native height caches include message content/metadata, width, body font size and display scale.
 
-Bundled OFL Noto CJK/Arabic fallbacks add 16.51 MiB raw font data; there is no runtime download or system-font scan. See assets/README.md for provenance, regional forms and shaping limitations.
+Bundled OFL Noto CJK/Arabic fallbacks add 16.51 MiB raw font data, without runtime downloads.
+Eframe separately enumerates installed system fonts on a background thread for missing glyphs,
+including native color emoji. See assets/README.md for provenance, regional forms and shaping limitations.
 
 History responses/errors must match the active request and connection state. Recent reload replaces the retained view while preserving mutations observed during the request; back-pagination validates page channel, ID boundary, duplicates and cardinality. At capacity, an older window retains its reading position instead of evicting its anchor for new messages; Reload returns to latest. Successful Resume triggers active-page revalidation. Bulk deletions occupy one bounded event instead of flooding the UI queue.
 

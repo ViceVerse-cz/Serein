@@ -4,7 +4,7 @@ use crate::{
 	diagnostics::{Signal, Video},
 	video_receive::{
 		DecoderQueue, Encoded, Receivers, VideoSink, has_parameter_sets, is_keyframe, offer, pli,
-		remove as remove_decoder, spawn_decoder,
+		remove as remove_decoder, retain_sources, spawn_decoder,
 	},
 };
 use client_core::voice::VoiceConnection;
@@ -138,7 +138,12 @@ fn h264_negotiated(data: &Value) -> bool {
 		.is_some_and(|codec| codec.eq_ignore_ascii_case("H264"))
 }
 /// Bind every video SSRC of a client announcement (opcode 12) to its user; zero clears them.
-fn announce_video(receivers: &mut Receivers, user: u64, data: &Value) -> Result<(), &'static str> {
+pub(super) fn announce_video(
+	receivers: &mut Receivers,
+	decoder: &DecoderQueue,
+	user: u64,
+	data: &Value,
+) -> Result<(), &'static str> {
 	let ssrc = |value: &Value| value.as_u64().and_then(|v| u32::try_from(v).ok());
 	receivers.announce(user, ssrc(&data["video_ssrc"]).unwrap_or(0))?;
 	receivers.announce_rtx(
@@ -153,6 +158,7 @@ fn announce_video(receivers: &mut Receivers, user: u64, data: &Value) -> Result<
 			receivers.announce_rtx(value, ssrc(&stream["rtx_ssrc"]).unwrap_or(0))?;
 		}
 	}
+	retain_sources(decoder, receivers);
 	Ok(())
 }
 fn discovery(packet: &[u8], ssrc: u32) -> Result<(IpAddr, u16), &'static str> {
@@ -629,7 +635,7 @@ async fn run_inner(
 								let user=id(data,"user_id")?;
 								if user!=credentials.user.0 && dave.contains(user) {
 									if let Some(value)=data["audio_ssrc"].as_u64().and_then(|v|u32::try_from(v).ok()) {mixer.announce(user,value)?;}
-									if decoder.is_some() {announce_video(&mut receivers,user,data)?;}
+									if let Some(decoder) = decoder.as_ref() {announce_video(&mut receivers,decoder,user,data)?;}
 								}
 							},
 							14..=20=>{},
@@ -1237,7 +1243,7 @@ async fn run_stream_inner(
 							12=>{
 								let user=id(data,"user_id")?;
 								if user!=credentials.user.0 && dave.contains(user) {
-									if decoder.is_some() {announce_video(&mut receivers,user,data)?;}
+									if let Some(decoder) = decoder.as_ref() {announce_video(&mut receivers,decoder,user,data)?;}
 									if audio.is_some() && let Some(value)=data["audio_ssrc"].as_u64().and_then(|v|u32::try_from(v).ok()).filter(|v|*v!=0) {mixer.announce(user,value)?;}
 								}
 							},
@@ -1265,6 +1271,48 @@ mod tests {
 	use crate::diagnostics::Signal;
 	use crate::video_receive::Receivers;
 	use opus2::Decoder;
+
+	#[test]
+	fn decoder_cleanup_announcement_preserves_streams_and_partial_updates() {
+		let (decoder, _) = spawn_decoder(Arc::new(|_| {})).unwrap();
+		let mut receivers = Receivers::default();
+		let streams = json!({"video_ssrc": 0, "streams": [
+			{"type": "video", "ssrc": 700, "rtx_ssrc": 701},
+			{"type": "video", "ssrc": 710, "rtx_ssrc": 711}
+		]});
+		announce_video(&mut receivers, &decoder, 7, &streams).unwrap();
+		assert!(receivers.has_sources());
+		assert_eq!(
+			receivers.push(700, 1, 90, true, &[0x65, 1]),
+			Some((7, vec![0, 0, 0, 1, 0x65, 1]))
+		);
+		// Preserve the existing additive semantics of nonzero announcements.
+		announce_video(
+			&mut receivers,
+			&decoder,
+			7,
+			&json!({"video_ssrc": 710, "rtx_ssrc": 711, "streams": []}),
+		)
+		.unwrap();
+		assert!(receivers.push(700, 2, 180, true, &[0x65, 3]).is_some());
+		assert_eq!(
+			receivers.restore_rtx(711, &mut vec![0, 4, 0x65]),
+			Some((710, 4))
+		);
+		assert_eq!(
+			receivers.restore_rtx(701, &mut vec![0, 4, 0x65]),
+			Some((700, 4))
+		);
+		announce_video(
+			&mut receivers,
+			&decoder,
+			7,
+			&json!({"video_ssrc": 0, "streams": []}),
+		)
+		.unwrap();
+		assert!(!receivers.has_sources());
+		assert!(receivers.push(710, 5, 270, true, &[0x65, 4]).is_none());
+	}
 
 	#[test]
 	fn a_stall_asks_every_announced_sender_for_a_keyframe() {
