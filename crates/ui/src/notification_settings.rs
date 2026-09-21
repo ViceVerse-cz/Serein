@@ -86,7 +86,11 @@ mod tests {
 			view.notification_options.discord_sounds = true;
 			let discord_labels = render(&mut view, vec![]);
 			assert!(discord_labels.iter().any(|(s, _)| s == "Microphone Muted"));
-			assert!(discord_labels.iter().any(|(s, _)| s == "Microphone Unmuted"));
+			assert!(
+				discord_labels
+					.iter()
+					.any(|(s, _)| s == "Microphone Unmuted")
+			);
 			assert!(discord_labels.iter().any(|(s, _)| s == "Deafen"));
 			assert!(discord_labels.iter().any(|(s, _)| s == "Undeafen"));
 			view.notification_options.discord_sounds = false;

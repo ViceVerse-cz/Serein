@@ -339,13 +339,25 @@ mod tests {
 			let default_cues = [Sound::Message, Sound::CurrentChannel, Sound::IncomingRing]
 				.map(|s| samples(s, false, rate, &|| true).unwrap());
 			assert_ne!(default_cues[0], default_cues[1]);
-			for (cue, (min, max)) in default_cues.iter().zip([(0.2, 0.5), (0.1, 0.4), (3.9, 4.3)]) {
+			for (cue, (min, max)) in default_cues
+				.iter()
+				.zip([(0.2, 0.5), (0.1, 0.4), (3.9, 4.3)])
+			{
 				let seconds = cue.len() as f64 / f64::from(rate);
-				assert!((min..max).contains(&seconds), "unexpected cue duration {seconds}");
+				assert!(
+					(min..max).contains(&seconds),
+					"unexpected cue duration {seconds}"
+				);
 				assert!(cue.len() <= rate as usize * 6);
-				assert!(cue.iter().flatten().all(|s| s.is_finite() && s.abs() <= 1.0));
+				assert!(
+					cue.iter()
+						.flatten()
+						.all(|s| s.is_finite() && s.abs() <= 1.0)
+				);
 				assert!(cue.iter().flatten().any(|s| s.abs() > 0.01));
-				assert!(Duration::from_secs_f64(seconds) + Duration::from_millis(100) < RING_INTERVAL);
+				assert!(
+					Duration::from_secs_f64(seconds) + Duration::from_millis(100) < RING_INTERVAL
+				);
 			}
 			assert!(samples(Sound::Mute, false, rate, &|| true).is_err());
 			assert!(samples(Sound::Unmute, false, rate, &|| true).is_err());
@@ -376,11 +388,20 @@ mod tests {
 			];
 			for (cue, (min, max)) in discord_cues.iter().zip(discord_expectations) {
 				let seconds = cue.len() as f64 / f64::from(rate);
-				assert!((min..max).contains(&seconds), "unexpected cue duration {seconds}");
+				assert!(
+					(min..max).contains(&seconds),
+					"unexpected cue duration {seconds}"
+				);
 				assert!(cue.len() <= rate as usize * 6);
-				assert!(cue.iter().flatten().all(|s| s.is_finite() && s.abs() <= 1.0));
+				assert!(
+					cue.iter()
+						.flatten()
+						.all(|s| s.is_finite() && s.abs() <= 1.0)
+				);
 				assert!(cue.iter().flatten().any(|s| s.abs() > 0.01));
-				assert!(Duration::from_secs_f64(seconds) + Duration::from_millis(100) < RING_INTERVAL);
+				assert!(
+					Duration::from_secs_f64(seconds) + Duration::from_millis(100) < RING_INTERVAL
+				);
 			}
 		}
 		assert!(samples(Sound::Message, false, 48000, &|| false).is_err());
