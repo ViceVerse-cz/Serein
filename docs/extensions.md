@@ -2,7 +2,7 @@
 
 Serein extensions are local, opt-in tools for the native client. The Extensions
 and Themes pages in Settings contain packages, links to their source, their
-requested capabilities and their review status. A plugin cannot call Discord,
+requested capabilities and their review status. A plugin cannot directly call Discord,
 send a message, read credentials, open files or make network requests.
 
 ## Install and remove
@@ -45,6 +45,8 @@ preference. There is no periodic background polling or automatic package update.
    exports and existing plugin source remain compatible. For reactive plugins,
    use [Message Counter](../examples/extensions/message-counter/src/lib.rs) and the
    [message-event guide](../examples/extensions/README.md#reactive-message-plugins).
+   [App Toolbox](../examples/extensions/app-toolbox/src/lib.rs) demonstrates app
+   snapshots and user-confirmed host actions.
 2. Build a Wasm module implementing the version 1 ABI documented by the starter.
    No native binary, installer, Git hook or build script runs on an end user's
    computer. Other languages can implement the same Wasm buffer/JSON contract.
@@ -68,10 +70,12 @@ Catalog entries may include a short `description` (at most 256 characters and
 1,024 UTF-8 bytes, without control characters) and a `preview` object:
 
 ```json
-"preview": {
-  "url": "https://example.org/releases/v1/preview.png",
-  "sha256": "<64 hexadecimal SHA-256 digits>",
-  "download_bytes": 12345
+{
+  "preview": {
+    "url": "https://example.org/releases/v1/preview.png",
+    "sha256": "<64 hexadecimal SHA-256 digits>",
+    "download_bytes": 12345
+  }
 }
 ```
 
@@ -110,6 +114,87 @@ The `extensions` crate defines the versioned manifest, capability, action,
 invocation, result and theme types. These serialized types are the compatibility
 boundary; internal `client-core` structures and egui objects are not an SDK.
 Unknown API versions and invalid packages are rejected before installation.
+
+### Capability reference
+
+Each capability is independent and requires user consent. An update requests
+renewed consent; adding a read grant does not grant commands. The SDK currently
+supports 20 capabilities, with at most 32 distinct declarations per manifest.
+
+| Capability | Granted behavior | Scope / confirmation |
+| --- | --- | --- |
+| `selected_message` | Read selected message text | A user-invoked `message` action only |
+| `composer` | Read the current draft and propose replacement | A `composer` action; replacement requires Apply |
+| `storage` | Read/replace one opaque local UTF-8 value | Per-account/plugin; 1 MiB disk limit and 256 KiB invocation budget |
+| `deleted_messages` | Enable host retention of already-loaded deleted messages | Activation only; bounded session memory, no deleted text sent to Wasm |
+| `image_sharing` | Enable host emoji/sticker image attachment mode | Activation only; picker selection authorizes sending, Wasm receives no image bytes |
+| `appearance` | Return a bounded declarative theme overlay | Native colors/control metrics; no arbitrary drawing |
+| `message_events` | Observe live create/update/delete events | Active accessible conversation; bounded best-effort delivery |
+| `app_context` | Read connection, current user and selected channel | Current session, optional fields |
+| `channel_directory` | Read accessible cached channels | At most 100; partial directory, no fetch |
+| `timeline` | Read ordinary loaded messages in the active conversation | Fresh readable timeline, at most 50; no deleted/ephemeral text |
+| `members` | Read loaded members or DM recipients | Active channel, at most 100; no fetch |
+| `presence` | Read cached status strings for that context | At most 100; no activity/private device payloads |
+| `voice_state` | Read current call state and participant IDs | At most 64 participants; no raw media |
+| `read_state` | Read current channel unread/mention summary | Unknown unread remains distinct from false |
+| `local_settings` | Read and propose changing five local preferences | Zoom/sidebar/member list/GIFs/media links; changes require Apply |
+| `navigation` | Propose channel, Home, view, profile, message or search navigation | Existing native paths; each command requires Apply |
+| `local_notices` | Propose an in-app toast | At most 1,024 text bytes; requires Apply |
+| `clipboard_write` | Propose replacing clipboard text | At most 4,096 bytes; requires Apply; no clipboard read |
+| `voice_control` | Propose mute/deafen or leave for the current call | Each command requires Apply; cannot join calls or start media |
+| `app_events` | Observe ready/navigation/context/connection/voice/settings changes | Other grants control accompanying data; no background commands |
+
+### App snapshots and confirmed commands
+
+The [app authoring guide](../examples/extensions/README.md#app-snapshots-and-host-actions)
+documents every field, command and bound. SDK authors use
+`fn(AppInvocation) -> AppOutput` with the unchanged `export!` macro and
+`dispatch_typed` for offline checks. These wrappers retain the original
+`Invocation`, `EventInvocation` and `Output` APIs and flatten into ABI v1 JSON.
+Unsupported capabilities/actions are rejected by older hosts; declaring v1 alone
+does not make new capabilities available in an old build.
+
+`app` contains separately granted optional `context`, `channels`, `timeline`,
+`members`, `presence`, `voice`, `read_state` and `settings` groups. A missing group
+is unavailable or ungranted, not an empty dataset. Snapshot construction reads
+already-loaded state without network or disk IO. The complete serialized snapshot
+is capped at 64 KiB. Per-group budgets are 12 KiB for channels, 24 KiB for timeline,
+and 8 KiB each for members and presence, including item overhead. The timeline
+skips messages larger than 4 KiB and reports partial data. Bounded list responses
+expose `truncated`; voice participant IDs are capped without a completeness flag.
+No snapshot includes tokens, deleted/ephemeral text, attachment bytes/URLs, raw
+voice/video/screen media or the unbounded client state.
+An active DM or private channel is eligible when accessible: granting timeline,
+members or presence can expose that conversation's corresponding loaded data.
+
+Foreground `message`, `composer` and `panel` actions may return one `effects`
+proposal, at most 8 KiB serialized. The native result shows its exact action and
+values and waits for **Apply**. Closing it does nothing. Apply rechecks the plugin,
+grants, account/conversation, permissions and the specific voice call before using
+the existing UI path. Navigation/search may then load ordinary service data, but
+the plugin never receives a generic Discord command API. Clipboard writes never
+read the clipboard; local notices are in-app toasts, not OS notifications.
+
+Supported local preference patches are zoom 80–150%, sidebar width 190–360 logical
+pixels, member-list visibility, GIF animation and hiding media links. At least
+one field must be supplied; all omitted preferences remain unchanged. Voice
+commands affect only the existing call; they cannot join a call or enable camera,
+screen sharing or recording.
+
+One `app_event` action may observe `ready`, `navigation`, `context`, `connection`,
+`voice` and `settings`. Context events report loaded-data/freshness changes after
+navigation; use `message_events` for individual message changes. Pending app
+changes are coalesced per plugin and share the message-event queue/rate bounds.
+The host captures a fresh, separately granted snapshot at dispatch. There are no
+timers or persistent plugin instances, and delivery is best effort. App/message
+events and activation cannot return host command proposals; background events
+cannot open panels. Granted `storage` and `appearance` outputs remain available.
+
+The [App Toolbox example](../examples/extensions/app-toolbox/src/lib.rs) provides
+a dashboard and explicit controls for all 11 command types. Its `app_event`
+observer returns an empty output, and it saves no conversation data.
+
+### Existing tools and message events
 
 Actions are invoked by a message context-menu item, composer tool or panel
 button. A plugin may also declare one `activation` action that runs in the worker
@@ -174,7 +259,7 @@ See the complete [theme API](theme-api.md) for fields, bounds and inheritance.
 
 Plugins can request the `appearance` capability to return an `appearance` object
 using that same theme schema. Creators can build native appearance settings panels
-with dropdowns and sliders. Activation and separately granted message-event actions
+with dropdowns and sliders. Activation and separately granted event actions
 can also return appearance values.
 An action replaces that plugin's previous appearance object; omit it to leave the
 current appearance unchanged, or return `{}` to remove its overrides. A plugin can

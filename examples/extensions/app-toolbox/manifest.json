@@ -1,0 +1,29 @@
+{
+  "api_version": 1,
+  "id": "app-toolbox",
+  "name": "App Toolbox",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/examples/extensions/app-toolbox",
+  "kind": "plugin",
+  "capabilities": [
+    "app_context", "channel_directory", "timeline", "members", "presence",
+    "voice_state", "read_state", "local_settings", "navigation", "local_notices",
+    "clipboard_write", "voice_control", "app_events"
+  ],
+  "actions": [
+    {"id": "show", "label": "Open app toolbox", "surface": "panel"},
+    {"id": "on-app", "label": "Observe app changes", "surface": "app_event"},
+    {"id": "open-channel", "label": "Open chosen channel", "surface": "panel"},
+    {"id": "open-view", "label": "Open chosen view", "surface": "panel"},
+    {"id": "search", "label": "Search messages", "surface": "panel"},
+    {"id": "jump", "label": "Jump to message", "surface": "panel"},
+    {"id": "profile", "label": "Open profile", "surface": "panel"},
+    {"id": "copy", "label": "Copy current context", "surface": "panel"},
+    {"id": "notice", "label": "Show local notice", "surface": "panel"},
+    {"id": "voice", "label": "Apply voice controls", "surface": "panel"},
+    {"id": "leave", "label": "Leave current voice", "surface": "panel"},
+    {"id": "settings", "label": "Apply local preferences", "surface": "panel"}
+  ]
+}

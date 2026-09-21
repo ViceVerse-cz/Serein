@@ -51,6 +51,18 @@ pub struct SearchUi {
 }
 
 impl SearchUi {
+	pub(super) fn open_extension(&mut self, channel: Id, pins: bool, query: Option<String>) {
+		self.channel = Some(channel);
+		self.open = true;
+		self.pins = pins;
+		self.query = query.unwrap_or_default();
+		self.focus = !pins;
+		self.filters_open = false;
+		self.filter_draft = None;
+		self.pending_submit = false;
+		self.viewing = None;
+	}
+
 	pub fn toggle(&mut self, pins: bool) -> bool {
 		self.open = !self.open || self.pins != pins;
 		self.pins = pins;

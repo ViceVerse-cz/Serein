@@ -1,5 +1,33 @@
 # Local storage policy and audit
 
+## App extension snapshots and proposals (September 22, 2026)
+
+Independently granted app snapshots contain only already-loaded, accessible data.
+Each is bounded to 64 KiB of serialized JSON; the directory has at most 100 channels,
+the timeline 50 ordinary loaded messages, members/presence 100 entries each, and voice 64
+participant IDs. Snapshot construction also budgets list metadata and escaped text:
+12 KiB for channels, 24 KiB for timeline records, and 8 KiB each for members/presence.
+Names are sanitized to 128 UTF-8 bytes; timeline rows above 4 KiB of content are
+omitted. Partial lists declare `truncated`; none is a history export. Deleted and
+ephemeral bodies, credentials, raw media, device paths and unrelated profiles are excluded.
+The active conversation can be a DM or private channel; these grants can expose
+its ordinary message text and loaded members to the plugin.
+
+App lifecycle events coalesce to one pending descriptor per plugin within the existing
+32-item / 64-KiB shared reactive queue and ten-starts-per-second limit. Descriptors
+hold no snapshot; the host collects current granted data only when dispatching.
+Invocation and pending-result copies each have the 64-KiB snapshot bound. The UI
+discards the copied input snapshot when presenting a result. Permission changes,
+disconnect, account changes and disable retire affected proposals and queued work.
+There is no event journal, timer worker, schema migration or new cache.
+
+A result can propose one bounded host action (at most 8 KiB of serialized effects).
+Navigation, clipboard, local notices, reading-setting patches and existing-call
+mute/deafen/leave require a visible user confirmation. Voice confirmation binds the
+original call request; stale requests cannot affect a replacement call. Background
+events cannot produce these actions. Reading patches use existing preference
+validation/persistence; plugin data still requires the separate `storage` grant.
+
 ## Remote video lifetime cleanup (September 21, 2026)
 
 A completed camera/stream announcement cancels a decoder only after its user's

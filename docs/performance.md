@@ -1,3 +1,50 @@
+# App extension capabilities - September 22, 2026
+
+Compared the preserved host/package at `e46351a` (runtime unchanged from
+`5e31f5d`) with this PR's app-capability implementation. Windows x64, Ryzen 7
+7800X3D, 32 GB RAM, Rust 1.98.1; standard voice-enabled `cargo xtask package`,
+without demo/developer features. Complete distribution ZIPs use .NET `ZipFile`
+with `CompressionLevel.Optimal`. One package was built per revision.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable bytes | 70,147,584 | 70,361,600 | +214,016 / +0.3051% |
+| Installed package bytes | 74,249,727 | 74,463,894 | +214,167 / +0.2884% |
+| Portable ZIP bytes | 42,390,190 | 42,471,534 | +81,344 / +0.1919% |
+| Protector rebuilt-module invocation median | 1,165.175 us | 1,237.120 us | +71.945 us / +6.17% |
+| Image sharing rebuilt-module invocation median | 1,129.040 us | 1,119.350 us | -9.690 us / -0.86% |
+| Counter create-event invocation median | 1,664.060 us | 1,692.555 us | +28.495 us / +1.71% |
+| App Toolbox dashboard, 18,296-byte snapshot | Unavailable | 4,044.970 us | New capability |
+
+The installed-package delta includes 151 added bytes in the bundled README.
+NSIS was skipped because `makensis` is unavailable; these are unsigned portable
+packages. The existing OpenH264 LNK4255 warning was nonfatal.
+
+Timings use the release `sdk_check` runners with identical rebuilt legacy Wasm
+modules: one warmup and five batches of 20 calls, median batch time per call.
+Each call includes a fresh sandbox and module compilation, excluding package
+parsing, process startup, snapshot construction, worker scheduling and storage IO.
+Measurements ran sequentially after compilation finished. A reverse-order repeat
+changed the protector comparison to 1,383.285 us baseline / 1,217.845 us after;
+the unchanged committed image control varied by 25.2% between baseline runs.
+These short local samples do not establish a stable speed change. The repeated
+App Toolbox median was 3,970.445 us.
+
+App Toolbox is an optional 173,786-byte Wasm / 503,584-byte JSON example, not
+embedded in production. The real sandbox checks all 11 proposed action types,
+six app event kinds, a 50-message UTF-8 snapshot, and the actual synthetic desktop
+demo snapshot. The 5-million-fuel and 16-MiB Wasm limits remain unchanged.
+Snapshots are capped at 64 KiB; coalesced app events share the existing 32-item /
+64-KiB reactive queue and ten-starts-per-second budget. No new worker, timer,
+runtime dependency or persistent cache is added. Native CPU/RSS/frame timing and
+live Discord behavior remain unmeasured; native UI capture is unavailable.
+
+Reproduce after building the standalone Wasm workspace:
+
+```powershell
+cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+```
+
 # Reactive extension events - September 22, 2026
 
 Compared the host at `8b1c798` in an isolated worktree with the event implementation

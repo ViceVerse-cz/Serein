@@ -11,6 +11,7 @@ fn manifest(action: &str, surface: Surface) -> Manifest {
 			capabilities.extend([Capability::DeletedMessages, Capability::ImageSharing])
 		}
 		Surface::MessageEvent => capabilities.push(Capability::MessageEvents),
+		Surface::AppEvent => capabilities.push(Capability::AppEvents),
 	}
 	let manifest = Manifest {
 		api_version: extensions::API_VERSION,

@@ -23,6 +23,7 @@ mod components;
 mod composer_text;
 pub mod design;
 mod embeds;
+mod extension_app;
 mod extensions_ui;
 mod theme_editor;
 mod thread_create;
@@ -2925,8 +2926,15 @@ impl MessagingUi {
 		if self.extensions.has_result() {
 			self.settings.open = false;
 		}
-		self.extensions
-			.show_result(&ctx, state, &mut self.draft_changes, self.editing.is_some());
+		if let Some(effect) = self.extensions.show_result(
+			&ctx,
+			state,
+			&mut self.draft_changes,
+			self.editing.is_some(),
+		) && let Err(error) = self.apply_extension_effect(&ctx, state, effect, &mut commands)
+		{
+			self.extensions.report_error(error);
+		}
 		self.keybinds_shortcut(&ctx);
 		self.theme_preview_navigation(ui);
 		let settings_open = self.settings.open || self.server_settings.is_open();

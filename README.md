@@ -327,6 +327,8 @@ For full details, review the [Storage Policy](docs/storage-policy.md) and [Threa
 - [Voice Architecture & Procedure](docs/voice.md)
 - [Design Tokens & UI Styling](docs/design.md)
 - [Extensions & Plugin Architecture](docs/extensions.md)
+- [Extension SDK Creator Wiki](https://github.com/ViceVerse-cz/Serein/wiki)
+- [SDK Examples and Offline Authoring Guide](examples/extensions/README.md)
 - [Theme API Specification](docs/theme-api.md)
 - [Threat Model & Security](docs/threat-model.md)
 - [Third-Party Licenses & Notices](THIRD_PARTY_NOTICES.md)

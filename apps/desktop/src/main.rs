@@ -17,6 +17,7 @@ mod credentials;
 mod dm_demo;
 mod downloads;
 mod emoji_upload;
+mod extension_app;
 mod extension_bridge;
 mod extension_events;
 mod extensions;
@@ -4866,6 +4867,14 @@ impl Desktop {
 			} else {
 				Vec::new()
 			};
+			if event.generation == self.state.generation
+				&& (event.event.changes_access()
+					|| matches!(event.event, Event::Disconnected)
+					|| matches!(&event.event, Event::HistoryFailed { channel, request, failure: Failure::Forbidden }
+						if Some(*channel) == self.state.selected && *request == self.state.request && self.state.history_pending))
+			{
+				self.extensions.access_changed(&mut self.messaging);
+			}
 			self.state.apply(event);
 			self.extensions.cancel_stale_message_events(&self.state);
 			for candidate in extension_events {

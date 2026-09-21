@@ -595,6 +595,12 @@ fn validate_job(job: &Job) -> Result<(), String> {
 					.saturating_add(event_bytes)
 					.saturating_add(
 						invocation
+							.app
+							.as_ref()
+							.map_or(0, |app| app.bytes().unwrap_or(usize::MAX)),
+					)
+					.saturating_add(
+						invocation
 							.values
 							.iter()
 							.map(|(key, value)| key.len().saturating_add(value.len()))
@@ -622,7 +628,7 @@ fn validate_job(job: &Job) -> Result<(), String> {
 				return Err("Export path is too long".into());
 			}
 		}
-		Job::Enable { grants, .. } if grants.len() > 4 => {
+		Job::Enable { grants, .. } if grants.len() > extensions::MAX_CAPABILITIES => {
 			return Err("Invalid plugin grants".into());
 		}
 		Job::InspectImport { path } if path.as_os_str().len() > 4096 => {
@@ -790,8 +796,14 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 				|| invocation.composer.is_some() && !stored.grants.contains(&Capability::Composer)
 				|| invocation.message_event.is_some()
 					&& !stored.grants.contains(&Capability::MessageEvents)
+				|| invocation.app_event.is_some() && !stored.grants.contains(&Capability::AppEvents)
 			{
 				return Err("Plugin access was not granted".into());
+			}
+			if let Some(app) = &invocation.app {
+				let mut granted = stored.package.manifest.clone();
+				granted.capabilities.clone_from(&stored.grants);
+				app.validate(&granted).map_err(|error| error.to_string())?;
 			}
 			invocation.storage = if stored.grants.contains(&Capability::Storage)
 				&& directory.join("data.json").exists()

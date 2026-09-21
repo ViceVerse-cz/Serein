@@ -4,7 +4,14 @@ Community extensions add an untrusted-code boundary. Wasmi runs without imports,
 WASI or native handles, with compilation, fuel, stack, linear-memory and output
 limits. Only explicitly granted, user-selected context crosses that boundary.
 The host renders validated descriptions and requires Apply for composer changes;
-plugins cannot dispatch Discord commands. Catalog downloads use a separate
+plugins cannot dispatch arbitrary Discord commands. Optional app snapshots have
+separate grants for account/conversation context, channel directory, ordinary loaded
+timeline rows, members, presence, voice state, read state and local reading settings.
+The host exposes bounded data only, never credentials or raw media. Typed navigation,
+clipboard, notice, existing-call and reading-setting proposals require explicit user
+confirmation and revalidation in the ordinary host control path. Background handlers
+cannot emit proposals. Permission/account changes invalidate copied app context;
+voice actions also bind the original call request. Catalog downloads use a separate
 credential-free client with bounded bodies, validated/pinned public DNS results,
 redirect checks and expected hashes/lengths. Consent binds the reviewed flag and
 exact artifact hash, so a cancelled local import cannot substitute for a catalog

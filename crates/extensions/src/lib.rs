@@ -5,6 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod runtime;
 pub use runtime::invoke;
+mod app;
+pub use app::*;
 
 pub const API_VERSION: u32 = 1;
 pub const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -17,6 +19,7 @@ pub const MAX_EVENT_CONTENT_BYTES: usize = 16 * 1024;
 pub const MAX_STORAGE_BYTES: usize = 1024 * 1024;
 pub const MAX_PLUGINS: usize = 8;
 pub const MAX_PANEL_ELEMENTS: usize = 64;
+pub const MAX_CAPABILITIES: usize = 32;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -53,6 +56,19 @@ pub enum Capability {
 	ImageSharing,
 	Appearance,
 	MessageEvents,
+	AppContext,
+	ChannelDirectory,
+	Timeline,
+	Members,
+	Presence,
+	VoiceState,
+	ReadState,
+	LocalSettings,
+	Navigation,
+	LocalNotices,
+	ClipboardWrite,
+	VoiceControl,
+	AppEvents,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +79,7 @@ pub enum Surface {
 	Panel,
 	Activation,
 	MessageEvent,
+	AppEvent,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -282,6 +299,10 @@ pub struct Invocation {
 	pub values: BTreeMap<String, String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub message_event: Option<Box<MessageEvent>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub app: Option<Box<AppSnapshot>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub app_event: Option<AppEventKind>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -310,12 +331,7 @@ impl MessageEvent {
 			.into_iter()
 			.chain(self.author_id.iter())
 		{
-			if id.len() > 20
-				|| !id.bytes().all(|byte| byte.is_ascii_digit())
-				|| !id.parse::<u64>().is_ok_and(|value| value != 0)
-			{
-				return Err(Error::Invalid);
-			}
+			app::entity_id(id)?;
 		}
 		if self
 			.content
@@ -351,6 +367,8 @@ pub struct Output {
 	pub panel: Vec<Element>,
 	#[serde(default)]
 	pub storage: Option<String>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub effects: Vec<HostEffect>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -446,14 +464,18 @@ impl Manifest {
 				return Err(Error::Invalid);
 			}
 		}
-		if self.capabilities.len() > 4 || self.actions.len() > 16 {
+		if self.capabilities.len() > MAX_CAPABILITIES || self.actions.len() > 16 {
 			return Err(Error::Limit);
 		}
 		let mut capabilities = BTreeSet::new();
 		if self.capabilities.iter().any(|c| !capabilities.insert(*c)) {
 			return Err(Error::Invalid);
 		}
-		for surface in [Surface::Activation, Surface::MessageEvent] {
+		for surface in [
+			Surface::Activation,
+			Surface::MessageEvent,
+			Surface::AppEvent,
+		] {
 			if self
 				.actions
 				.iter()
@@ -479,6 +501,7 @@ impl Manifest {
 				Surface::Panel => None,
 				Surface::Activation => None,
 				Surface::MessageEvent => Some(Capability::MessageEvents),
+				Surface::AppEvent => Some(Capability::AppEvents),
 			};
 			if required.is_some_and(|c| !capabilities.contains(&c)) {
 				return Err(Error::Capability);
@@ -734,6 +757,21 @@ impl Invocation {
 			.iter()
 			.find(|a| a.id == self.action)
 			.ok_or(Error::Invalid)?;
+		if let Some(snapshot) = &self.app {
+			snapshot.validate(manifest)?;
+		}
+		if action.surface == Surface::AppEvent {
+			if !manifest.capabilities.contains(&Capability::AppEvents)
+				|| self.selected_message.is_some()
+				|| self.composer.is_some()
+				|| !self.values.is_empty()
+			{
+				return Err(Error::Capability);
+			}
+			self.app_event.ok_or(Error::Invalid)?;
+		} else if self.app_event.is_some() {
+			return Err(Error::Capability);
+		}
 		if action.surface == Surface::MessageEvent {
 			if !manifest.capabilities.contains(&Capability::MessageEvents)
 				|| self.selected_message.is_some()
@@ -782,13 +820,24 @@ impl Invocation {
 
 impl Output {
 	pub fn validate(&self, manifest: &Manifest, input: &Invocation) -> Result<(), Error> {
-		if !self.panel.is_empty()
-			&& manifest
-				.actions
-				.iter()
-				.any(|action| action.id == input.action && action.surface == Surface::MessageEvent)
-		{
+		let surface = manifest
+			.actions
+			.iter()
+			.find(|action| action.id == input.action)
+			.ok_or(Error::Invalid)?
+			.surface;
+		if !self.panel.is_empty() && matches!(surface, Surface::MessageEvent | Surface::AppEvent) {
 			return Err(Error::Capability);
+		}
+		if !self.effects.is_empty() {
+			if self.replacement.is_some()
+				|| matches!(
+					surface,
+					Surface::Activation | Surface::MessageEvent | Surface::AppEvent
+				) {
+				return Err(Error::Capability);
+			}
+			app::validate_effects(&self.effects, manifest)?;
 		}
 		if let Some(appearance) = &self.appearance {
 			if !manifest.capabilities.contains(&Capability::Appearance) {
