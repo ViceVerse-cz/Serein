@@ -16,15 +16,23 @@ const MAX_SOURCE_BYTES: usize = 7680 * 4320 * 4;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Mode {
 	Va,
+	VaLegacy,
 	Nvidia,
 	NvidiaCopy,
 	Software,
 }
 impl Mode {
-	pub(super) const ALL: [Self; 4] = [Self::Va, Self::Nvidia, Self::NvidiaCopy, Self::Software];
+	pub(super) const ALL: [Self; 5] = [
+		Self::Va,
+		Self::VaLegacy,
+		Self::Nvidia,
+		Self::NvidiaCopy,
+		Self::Software,
+	];
 	pub(super) fn label(self) -> &'static str {
 		match self {
 			Self::Va => "H.264 · VA-API hardware encoding",
+			Self::VaLegacy => "H.264 · VA-API hardware encoding · CPU scaling",
 			Self::Nvidia => "H.264 · NVENC hardware encoding",
 			Self::NvidiaCopy => "H.264 · NVENC hardware encoding · CPU scaling",
 			Self::Software => "H.264 · software encoding (higher CPU use)",
@@ -79,6 +87,12 @@ impl Capture {
 				),
 				"glcolorscale ! video/x-raw(memory:GLMemory),format=RGBA,width=640,height=360 ! gldownload ! videoconvert ! video/x-raw,format=BGRA",
 			),
+			// ponytail: CPU scaling avoids mixing VAMemory and legacy VASurface buffers;
+			// add legacy GPU postprocessing only if measured scaling cost warrants it.
+			Mode::VaLegacy => (
+				format!("videoconvertscale add-borders=true ! video/x-raw,format=NV12,{size}"),
+				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+			),
 			Mode::NvidiaCopy | Mode::Software => (
 				format!("videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{size}"),
 				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
@@ -87,6 +101,11 @@ impl Capture {
 		let encoder = match mode {
 			Mode::Va => format!(
 				"vah264enc name=encoder rate-control=cbr bitrate={} key-int-max={} b-frames=0",
+				settings.bit_rate() / 1000,
+				settings.fps * 2
+			),
+			Mode::VaLegacy => format!(
+				"vaapih264enc name=encoder rate-control=cbr bitrate={} keyframe-period={} max-bframes=0 cabac=false dct8x8=false",
 				settings.bit_rate() / 1000,
 				settings.fps * 2
 			),

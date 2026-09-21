@@ -81,6 +81,10 @@ impl Calls {
 			self.camera = false;
 		}
 	}
+	pub(super) fn has_call(&self) -> bool {
+		self.active.is_some() || self.departing.is_some()
+	}
+
 	pub(super) fn departure_expired(&mut self) -> Option<Event> {
 		self.departure_deadline = None;
 		self.departing.map(|(channel, request)| {
@@ -683,8 +687,9 @@ impl Calls {
 		let own = owner == Some(state.user_id);
 		if own && self.departing.is_some() {
 			if state.guild_id == self.departing_guild && state.channel_id.is_none() {
-				self.departing = None;
+				let (channel, request) = self.departing.take().expect("departing call");
 				self.departure_deadline = None;
+				emit(Event::Voice(voice::Event::Departed { channel, request }))?;
 			}
 			// Roster departure still applies, but this old ack must never be retagged to the next call.
 			if state.guild_id.is_none() {
@@ -759,8 +764,9 @@ impl Calls {
 						.departing
 						.is_some_and(|(channel, _)| channel == call.channel_id)
 					{
-						self.departing = None;
+						let (channel, request) = self.departing.take().expect("departing call");
 						self.departure_deadline = None;
+						emit(Event::Voice(voice::Event::Departed { channel, request }))?;
 					}
 					if self
 						.active
@@ -1434,7 +1440,14 @@ mod tests {
 			)
 			.unwrap();
 		assert!(calls.departing.is_none());
-		assert_eq!(events.lock().unwrap().len(), 3); // old null event is consumed, never retagged to request8
+		assert_eq!(events.lock().unwrap().len(), 4);
+		assert!(matches!(
+			events.lock().unwrap().last(),
+			Some(Event::Voice(voice::Event::Departed {
+				channel: Id(2),
+				request: 7
+			}))
+		)); // never retagged to request 8
 		calls
 			.packet(Command::Join {
 				channel: Id(2),

@@ -911,45 +911,48 @@ impl Avatars {
 			});
 			let source = original_gif
 				.or(media.proxy_url.as_deref())
-				.or(media.url.as_deref());
+				.or(media.url.as_deref())
+				.filter(|source| source.len() <= 2048);
 			let animated = source.is_some_and(|source| {
 				self.animate_gifs
-					&& source.split('?').next().is_some_and(|path| {
-						[".gif", ".webp"]
-							.iter()
-							.any(|ext| path.to_ascii_lowercase().ends_with(ext))
-					})
+					&& source
+						.split('?')
+						.next()
+						.and_then(|path| path.rsplit_once('.'))
+						.is_some_and(|(_, ext)| {
+							ext.eq_ignore_ascii_case("gif") || ext.eq_ignore_ascii_case("webp")
+						})
 			});
-			let source = source.filter(|source| source.len() <= 2048);
-			let sized = |edge: u32| {
+			// Parse once for both renditions; borrow query pairs so signatures and their order
+			// keep the same URL encoding without an owned string/vector for every parameter.
+			let parsed = source
+				.filter(|_| original_gif.is_none() && media.width > 0 && media.height > 0)
+				.and_then(|source| url::Url::parse(source).ok());
+			let sized = |edge: u32, prefix: &str| {
 				source.map(|source| {
-					let mut source = source.to_owned();
-					if original_gif.is_none()
-						&& media.width > 0 && media.height > 0
-						&& let Ok(mut url) = url::Url::parse(&source)
-					{
-						let query: Vec<_> = url
-							.query_pairs()
-							.filter(|(key, _)| key != "width" && key != "height")
-							.map(|(key, value)| (key.into_owned(), value.into_owned()))
-							.collect();
+					if let Some(parsed) = &parsed {
+						let mut url = parsed.clone();
 						let (width, height) = fit_edge(media.width, media.height, edge);
 						url.set_query(None);
 						url.query_pairs_mut()
-							.extend_pairs(query)
+							.extend_pairs(
+								parsed
+									.query_pairs()
+									.filter(|(key, _)| key != "width" && key != "height"),
+							)
 							.append_pair("width", &width.to_string())
 							.append_pair("height", &height.to_string());
-						source = url.into();
+						format!("{prefix}:{url}")
+					} else {
+						format!("{prefix}:{source}")
 					}
-					source
 				})
 			};
-			let key = sized(EMBED_EDGE)
-				.map(|source| format!("{}:{source}", if animated { "anim" } else { "embed" }));
+			let key = sized(EMBED_EDGE, if animated { "anim" } else { "embed" });
 			// The viewer wants real pixels: request a larger rendition and show the thumbnail
 			// already in memory until it arrives. Animated media keeps its animated key.
 			let large = (large && !animated)
-				.then(|| sized(LARGE_EDGE).map(|source| format!("large:{source}")))
+				.then(|| sized(LARGE_EDGE, "large"))
 				.flatten();
 			#[cfg(any(test, feature = "demo"))]
 			if demo
@@ -1039,7 +1042,7 @@ impl Avatars {
 		});
 		response
 	}
-	fn paint_user(
+	pub(crate) fn paint_user(
 		&mut self,
 		ui: &mut egui::Ui,
 		user: &User,
@@ -1514,6 +1517,257 @@ mod tests {
 		assert_eq!(artwork.center(), fallback);
 		assert_eq!(artwork.size(), egui::Vec2::splat(36.0));
 		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn media_keys_preserve_signed_queries_and_rendition_dimensions() {
+		let source = "https://cdn.discordapp.com/attachments/1/2/a.png?ex=abc&is=def&hm=a%2fb%2Bc+d&width=99&%68eight=88&width=1&tag=x&tag=y&empty=&quality=lossless";
+		let media = model::EmbedMedia {
+			url: Some(source.into()),
+			width: 4096,
+			height: 1024,
+			..Default::default()
+		};
+		let canonical = "https://cdn.discordapp.com/attachments/1/2/a.png?ex=abc&is=def&hm=a%2Fb%2Bc+d&tag=x&tag=y&empty=&quality=lossless";
+		let keys = media_requests(&media, false, true);
+		assert_eq!(
+			keys,
+			[
+				format!("large:{canonical}&width=2048&height=512"),
+				format!("embed:{canonical}&width=512&height=128"),
+			]
+		);
+		let renewed = model::EmbedMedia {
+			url: Some(source.replace("ex=abc", "ex=renewed")),
+			..media.clone()
+		};
+		assert_ne!(keys, media_requests(&renewed, false, true));
+		// Unknown dimensions preserve the exact source, including its existing sizing.
+		for (width, height) in [(0, 1024), (4096, 0)] {
+			let unknown = model::EmbedMedia {
+				width,
+				height,
+				..media.clone()
+			};
+			assert_eq!(
+				media_requests(&unknown, false, true),
+				[format!("large:{source}"), format!("embed:{source}"),]
+			);
+		}
+		let small = model::EmbedMedia {
+			width: 64,
+			height: 32,
+			..media
+		};
+		assert_eq!(
+			media_requests(&small, false, true),
+			[
+				format!("large:{canonical}&width=64&height=32"),
+				format!("embed:{canonical}&width=64&height=32"),
+			]
+		);
+	}
+
+	fn media_requests(media: &model::EmbedMedia, animate: bool, large: bool) -> Vec<String> {
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		images.set_animation(animate);
+		let mut frame = || {
+			ctx.run_ui(Default::default(), |ui| {
+				images.show_media(ui, media, egui::vec2(100.0, 80.0), false, large, false);
+			})
+			.drop_without_applying_deltas();
+			images.take_requests()
+		};
+		let requests = frame();
+		assert!(
+			frame().is_empty(),
+			"Pending media must not be requested again"
+		);
+		requests
+	}
+
+	#[test]
+	fn media_keys_keep_source_selection_animation_and_url_boundaries() {
+		let original = "https://media.tenor.com/synthetic/clip.gif";
+		let proxy = "https://media.discordapp.net/attachments/1/2/clip.WeBp?hm=signed";
+		let mut media = model::EmbedMedia {
+			url: Some(original.into()),
+			proxy_url: Some(proxy.into()),
+			width: 1024,
+			height: 512,
+			..Default::default()
+		};
+		assert_eq!(
+			media_requests(&media, true, true),
+			[format!("anim:{original}")]
+		);
+		assert_eq!(
+			media_requests(&media, false, true),
+			[
+				format!("large:{proxy}&width=1024&height=512"),
+				format!("embed:{proxy}&width=512&height=256"),
+			]
+		);
+		// A non-provider original never overrides the service proxy.
+		media.url = Some("https://example.test/clip.gif".into());
+		assert_eq!(
+			media_requests(&media, true, true),
+			[format!("anim:{proxy}&width=512&height=256"),]
+		);
+		media.proxy_url = Some(proxy.replace(".WeBp", ".GIF"));
+		assert_eq!(
+			media_requests(&media, true, true),
+			[format!(
+				"anim:{}&width=512&height=256",
+				media.proxy_url.as_deref().unwrap()
+			),]
+		);
+		// Preserve fragments/credentials/ports for the download worker's rejection.
+		for source in [
+			"https://user:pass@media.discordapp.net:444/attachments/1/2/a.png?hm=signed#fragment",
+			"http://media.discordapp.net.evil.test/attachments/1/2/a.png?hm=signed#fragment",
+		] {
+			media.proxy_url = Some(source.into());
+			assert_eq!(
+				media_requests(&media, false, false),
+				[format!(
+					"embed:{}&width=512&height=256#fragment",
+					source.strip_suffix("#fragment").unwrap()
+				),]
+			);
+		}
+		media.proxy_url = Some("not a URL".into());
+		assert_eq!(media_requests(&media, false, false), ["embed:not a URL"]);
+		media.proxy_url = Some(format!("https://example.test/{}", "a".repeat(2027)));
+		assert_eq!(media.proxy_url.as_ref().unwrap().len(), 2048);
+		media.width = 0;
+		assert_eq!(media_requests(&media, false, false)[0].len(), 2054);
+		media.width = 1024;
+		assert!(
+			media_requests(&media, false, false).is_empty(),
+			"Expanded keys keep the request length bound"
+		);
+		media.proxy_url.as_mut().unwrap().push('a');
+		assert!(
+			media_requests(&media, false, true).is_empty(),
+			"An oversized proxy must not fall back to the original"
+		);
+		media.url = None;
+		media.proxy_url = None;
+		assert!(media_requests(&media, true, true).is_empty());
+	}
+
+	#[test]
+	fn media_viewer_uses_cached_thumbnail_until_large_pixels_arrive() {
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		let media = model::EmbedMedia {
+			url: Some("https://cdn.discordapp.com/attachments/1/2/a.png?hm=signed".into()),
+			width: 4096,
+			height: 2048,
+			..Default::default()
+		};
+		ctx.run_ui(Default::default(), |ui| {
+			images.show_large(ui, &media, egui::vec2(100.0, 80.0), false);
+		})
+		.drop_without_applying_deltas();
+		let keys = images.take_requests();
+		assert_eq!(keys.len(), 2);
+		for (key, size) in [(&keys[1], [2, 1]), (&keys[0], [4, 2])] {
+			images.accept(
+				&ctx,
+				key.clone(),
+				Some(ColorImage::filled(size, egui::Color32::WHITE)),
+			);
+			let texture = images.texture_id(key).unwrap();
+			let output = ctx.run_ui(Default::default(), |ui| {
+				images.show_large(ui, &media, egui::vec2(100.0, 80.0), false);
+			});
+			assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
+				egui::Shape::Rect(rect) if rect.fill_texture_id() == texture)));
+			output.drop_without_applying_deltas();
+			assert!(images.take_requests().is_empty());
+		}
+		assert_eq!(images.textures.len(), 2);
+		assert_eq!(images.bytes, (2 + 8) * 4);
+	}
+
+	/// Offline settled media frames; no window, GPU, network, or account access.
+	#[test]
+	#[ignore = "release media workload; one warmup and five measured batches"]
+	fn media_frame_benchmark() {
+		for (scenario, large, animate) in [
+			("thumbnail", false, false),
+			("viewer", true, false),
+			("animated", true, true),
+		] {
+			let ctx = egui::Context::default();
+			let mut images = Avatars::default();
+			images.set_animation(animate);
+			let media: Vec<_> = (0..12)
+				.map(|id| model::EmbedMedia {
+					url: Some(format!(
+						"https://cdn.discordapp.com/attachments/1/{}/image.{}?ex=abc&is=def&hm=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef&format=webp&width=4096&height=2048&quality=lossless",
+						id + 1,
+						if animate { "WeBp" } else { "png" }
+					)),
+					width: 4096,
+					height: 2048,
+					..Default::default()
+				})
+				.collect();
+			let frame = |images: &mut Avatars| {
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(1200.0, 300.0),
+						)),
+						..Default::default()
+					},
+					|ui| {
+						ui.horizontal(|ui| {
+							for media in &media {
+								std::hint::black_box(images.show_media(
+									ui,
+									media,
+									egui::vec2(48.0, 32.0),
+									false,
+									large,
+									false,
+								));
+							}
+						});
+					},
+				)
+				.drop_without_applying_deltas();
+			};
+			frame(&mut images);
+			let requests = images.take_requests();
+			assert_eq!(requests.len(), if large && !animate { 24 } else { 12 });
+			for key in requests {
+				images.accept(
+					&ctx,
+					key,
+					Some(ColorImage::filled([4, 2], egui::Color32::WHITE)),
+				);
+			}
+			for sample in 0..6 {
+				let started = Instant::now();
+				for _ in 0..1000 {
+					frame(&mut images);
+				}
+				let elapsed = started.elapsed();
+				assert!(images.take_requests().is_empty());
+				if sample > 0 {
+					println!(
+						"media scenario={scenario} frames=1000 images=12 sample={sample} elapsed_ms={:.3}",
+						elapsed.as_secs_f64() * 1000.0
+					);
+				}
+			}
+		}
 	}
 
 	#[test]

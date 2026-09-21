@@ -48,8 +48,8 @@ Start calls the selected existing DM; incoming calls require Answer or Decline. 
 Opening a one-to-one or group DM also requests its existing call state. An ongoing call shows a
 **Call in progress** banner and **Join call**, even after ringing stops or this device leaves.
 Join uses the existing connection flow without ringing again; browsing never joins or opens
-audio devices. Incoming ringing retains Answer/Decline. Join is disabled while offline, in a
-voice-unavailable session, or while another local call still exists. Ended/unavailable calls disappear.
+audio devices. Incoming ringing retains Answer/Decline. Join is disabled while offline or in a voice-unavailable session. Joining or answering another
+call asks **Switch calls?** before leaving the current call. Ended/unavailable calls disappear.
 This uses the existing unofficial Gateway opcode 13 and CALL_CREATE/UPDATE/DELETE contract,
 checked against [discord.py-self's Gateway implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py)
 and [call dispatch handling](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py)
@@ -115,7 +115,7 @@ Until actual two-way official-client audio and the relevant encryption/teardown 
 
 ## Server channel workflow and live gate
 
-Select an existing server voice channel to inspect its roster, then explicitly Join. Browsing alone never opens media devices. Participant rows show names/avatars and separate mute/deafen states; the connected channel shows elapsed local connection time. Mute/deafen, audio settings and Leave remain available while reading other channels. Server-enforced mute/deafen cannot be overridden locally. To switch rooms, leave the current room and join the next after departure is acknowledged. A rejected/full/inaccessible room fails visibly after the bounded allocation deadline.
+Select an existing server voice channel to inspect its roster, then explicitly Join. Browsing alone never opens media devices. Participant rows show names/avatars and separate mute/deafen states; the connected channel shows elapsed local connection time. Mute/deafen, audio settings and Leave remain available while reading other channels. Server-enforced mute/deafen cannot be overridden locally. To switch rooms, select the next room and Join, then confirm **Switch call**. The current call closes immediately; the new call waits for the matching service departure acknowledgment and local audio teardown. Cancelling keeps the current call. The pending switch expires after 12 seconds and is cancelled on disconnect, account change or lost target access; it never retries automatically. A rejected/full/inaccessible room fails visibly after the bounded allocation deadline.
 
 An authenticated empty room displays “Connected · waiting for others”; audio devices open for local microphone detection, respecting mute, deafen, push-to-talk and SPEAK permission. Captured audio is consumed locally while alone; transmission waits until another participant joins and DAVE is secured. The client does not transmit unencrypted microphone audio to make an empty room appear connected. A server move, changed voice endpoint/session or main Gateway failure requires an explicit rejoin. The roster is session-only, bounded to 4,096 entries and 1 MiB, and is cleared on fresh login/resync and relevant access invalidation; during a resumable disconnect it is labeled last-known until missed events replay. Missing user details use a fallback identity rather than fetching a whole guild directory.
 
@@ -194,6 +194,12 @@ failure and checks that subsequent cleanup/progress events retain its original r
 
 Set `SEREIN_VOICE_DIAGNOSTICS=1` before launching Serein to get aggregate voice
 timings on stderr every five seconds and a best-effort final summary on teardown.
+`StreamSend` reports the active screen encoder; `Transport` reports camera encoding
+and call video decoding; `StreamReceive` reports its own video decoding. Values are
+`hardware`, `software`, `mixed` for simultaneously active backends, or `unknown`
+when no backend is active. A fallback replaces the hardware indication with software.
+On macOS, live VideoToolbox sessions require hardware acceleration; failures use
+the software fallback after keyframe recovery.
 For example, launch an already-built macOS app from a terminal:
 
 ```sh
@@ -290,7 +296,7 @@ lifecycle gates hide ineligible activity, including while alone.
 
 ## Input profiles and noise suppression
 
-Voice & Audio settings offers three saved profiles:
+Voice & Video settings offers three saved profiles:
 
 - **Voice Isolation:** RNNoise suppression, AEC3 echo cancellation, digital automatic gain
   control (maximum 20 dB), and −55 dBFS input sensitivity.
@@ -318,15 +324,18 @@ not establish production readiness or superiority over Discord's processing.
 
 ## Screen sharing
 
-In a connected call, select **Share your screen**, choose a display/window, 720p or 1080p, 15/30/60 fps, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
+In a connected call, select **Share your screen**, choose a display/window, 480p, 720p or 1080p, 15/30/60 fps, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
+
+480p uses 854×480 pixels and a target video bitrate of 2 Mbps at 15/30 fps or 4 Mbps at 60 fps.
 
 Capture uses macOS 14+ ScreenCaptureKit (screen-recording permission in System Settings) or Windows Graphics Capture. Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
 Linux uses the desktop ScreenCast portal and PipeWire. Share Screen opens the system
 screen/window picker after the quality dialog; source discovery never opens that picker.
-The default is 720p30. The worker tries VA-API, NVENC with GPU scaling, NVENC with CPU
-scaling, then the existing OpenH264 software encoder. The call stage identifies the
-active encoder and software fallback. GPU buffers stay native where driver/plugin
+The default is 720p30. The worker tries modern VA-API, legacy VA-API with CPU scaling,
+NVENC with GPU scaling, NVENC with CPU scaling, then the existing OpenH264 software
+encoder. The call stage identifies the active encoder and software fallback.
+GPU buffers stay native where driver/plugin
 negotiation permits; zero-copy is not guaranteed, especially across GPUs. Local preview
 is capped at 640×360/10 fps and suspended when minimized or viewing another channel.
 The system picker requires a ScreenCast-capable portal backend. Native X11 sessions
@@ -335,6 +344,17 @@ GStreamer's `ximagesrc` (Good plugins). This shares the whole desktop, not an in
 window; cancelling or failing the portal never selects it automatically. The existing
 7680×4320 source caps and bounded encoding/preview queues apply. Native X11 capture
 remains unverified. AV1/H.265 sending is not included.
+
+The legacy fallback requires an available `vaapih264enc` from GStreamer VAAPI;
+`vapostproc` alone does not supply it. It uploads CPU-scaled NV12 frames to the
+hardware encoder, so some CPU use remains expected. No legacy plugin or driver is
+installed automatically. Missing or failing encoders continue through the existing
+fallback sequence. Haswell/i965 encoding and live Discord delivery remain unverified.
+On a Linux machine with that encoder, run
+`cargo run --locked -p discord-voice --example linux_screen -- --legacy-vaapi`
+to check synthetic preview, readiness gating and a decodable H.264 keyframe with
+inline parameter sets, without joining a call or capturing a screen or microphone.
+The check fails if the legacy encoder cannot start; it does not silently use software.
 
 System audio defaults off on Linux and Windows. It shares other applications' playback,
 even when sharing one window, and excludes Serein's own audio, including call playback
@@ -448,12 +468,19 @@ bitrate or RTP retransmission. Physical
 permission/device behavior, delivery to the official client and network-loss performance
 require the owner-controlled live gate; an offline launch does not establish those results.
 
-Windows exposes a camera picker in Voice & Audio settings and beside both call
-camera controls. Discovery runs on a worker without activating a camera. Up to
+Windows, macOS and Linux expose a camera picker in Voice & Video settings and beside both call
+camera controls. Discovery runs on a worker without starting capture. macOS uses AVFoundation device discovery; Linux queries up to 64 V4L2 nodes without configuring or streaming them. Up to
 32 device IDs (4 KiB each) and names (256 bytes each) are retained. The selected
 ID is session-local. Refresh discovers added/removed devices; a missing selected
 device is reported rather than silently opening another camera. Changing selection
 stops active capture and requires another camera-on click.
+
+Voice & Video also offers an explicit **Preview camera / Stop preview** control outside
+calls. It reuses the bounded camera worker and latest-frame texture; frames have no
+network sender and are never recorded. Closing the voice settings page, changing
+camera, joining a call, logout, or an error stops the preview. During a camera-enabled
+call, settings show the existing call preview. Demo mode never opens a camera.
+Physical capture and native permission behavior still require owner verification.
 
 Media Foundation devices use a native 640×480 mode convertible to RGB32.
 DirectShow discovery/capture additionally covers virtual cameras such as OBS and
@@ -526,9 +553,9 @@ lines from different scopes can be ordered. `Transport` (call camera video) and
 remote video counter is non-zero. Each counter names one place a picture can be lost
 between the UDP socket and the display, so a frozen viewer is diagnosed from one line:
 
-- `packets` / `rtx`: video RTP packets (payload 101) accepted by the transport cipher,
-  and retransmission packets (payload 102), which Serein does not yet use. Many `rtx`
-  packets mean the media server sees loss on the path.
+- `packets` / `rtx`: accepted video RTP packets (including restored retransmissions),
+  and received retransmission packets (payload 102). Announced RTX sources can repair
+  gaps in the current picture; Serein does not yet send NACK requests.
 - `open_failed`: packets of any payload rejected by the transport AEAD.
 - `not_ready`: video packets received before the DAVE session was ready or from a
   user outside the group; expected briefly after joining or an epoch change.
@@ -538,6 +565,9 @@ between the UDP socket and the display, so a frozen viewer is diagnosed from one
 - `decrypt_failed`: access units that failed DAVE decryption.
 - `gated`: predicted pictures rejected because a keyframe is still owed after loss.
 - `queue_full`: frames dropped because the decoder thread was behind.
+- `decode_queue_ms` / `stale_frames`: maximum decoder queue wait and pictures discarded
+  after waiting over 150 ms. Discarding requests a fresh keyframe instead of replaying
+  stale video. The native macOS pipeline drains every three submissions.
 - `keyframes` / `keyframes_without_params`: keyframes handed to the decoder, and how
   many lacked inline SPS/PPS. A rebuilt decoder cannot start from those.
 - `pli_sent`: Picture Loss Indications sent (at most one per owed sender per 500 ms).
@@ -650,7 +680,7 @@ Keep these local logs out of commits.
 
 ## Local microphone preview
 
-Voice & Audio settings has an explicit Start testing / Stop testing control, a live RMS
+Voice & Video settings has an explicit Start testing / Stop testing control, a live RMS
 input meter and local playback through the selected speaker. Use headphones to avoid feedback.
 The preview shares native device selection, microphone gain, speaker volume and the
 selected processing profile with calls. It opens no Discord transport and records nothing. Opening settings

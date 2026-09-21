@@ -93,8 +93,10 @@ server negotiates H264; capture starts only after an explicit click in a connect
 call. All adapters send 640×480 video at most 15 encoded frames/s.
 Windows needs desktop camera permission; Linux needs an accessible streaming
 `/dev/videoN` node supporting progressive YUYV or MJPEG. Linux portal-only camera
-access is not implemented. Windows has a device picker in settings and call controls,
-including DirectShow virtual cameras; macOS/Linux still use their default selection.
+access is not implemented. All three platforms have a device picker in settings and call controls,
+including DirectShow virtual cameras on Windows, AVFoundation discovery on macOS,
+and single-plane streaming V4L2 devices on Linux. Settings also provide an explicit
+local camera preview outside calls. Physical selection/preview remains unverified.
 See [camera limits and validation](voice.md#camera-in-calls-macos-windows-and-linux).
 Windows compilation and isolated Linux adapter tests do not establish working
 physical capture or delivery to an official Discord client; these remain unverified.
@@ -231,6 +233,13 @@ Native packages declare the PipeWire and Base runtime plugins; hardware codec av
 still depends on distribution packaging and drivers. The software fallback reuses bundled
 OpenH264. Flatpak needs compatible plugins/GPU access inside its runtime; no extra sandbox
 permission or host socket access is added. Native Linux validation remains pending.
+
+Screen sharing also tries the legacy `vaapih264enc` element when modern VA encoding
+fails. This optional system plugin uses CPU scaling and hardware H.264 encoding;
+it does not require `vaapipostproc`. Check availability with
+`gst-inspect-1.0 vaapih264enc` in the same runtime as Serein. Installing the modern
+`va` plugin alone does not provide this legacy element. Driver compatibility still
+requires an actual encode test; `vainfo` only advertises capabilities.
 
 Native X11 sessions can instead explicitly select “Entire X11 desktop · all monitors ·
 no portal”. This uses `ximagesrc` from GStreamer Good, already a native package

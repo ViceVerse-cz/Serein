@@ -1259,6 +1259,37 @@ pub fn friends_demo_state() -> State {
 	let mut state = demo_state();
 	state.apply(Envelope {
 		generation: state.generation,
+		event: Event::UserAction(client_core::user_actions::Event::Restrictions(Some(vec![
+			(
+				User {
+					id: Id(8101),
+					name: "Blocked Example".into(),
+					avatar: None,
+					webhook: false,
+					kind: Default::default(),
+					discriminator: 0,
+					primary_guild: None,
+				},
+				"blocked.synthetic".into(),
+				false,
+			),
+			(
+				User {
+					id: Id(8102),
+					name: "Ignored Example".into(),
+					avatar: None,
+					webhook: false,
+					kind: Default::default(),
+					discriminator: 0,
+					primary_guild: None,
+				},
+				"ignored.synthetic".into(),
+				true,
+			),
+		]))),
+	});
+	state.apply(Envelope {
+		generation: state.generation,
 		event: Event::UserAction(client_core::user_actions::Event::Requests(Some(vec![
 			(
 				model::User {

@@ -15,7 +15,24 @@ use model::{
 /// Local mutes share the 64 per-user volume slots sent to the mixer.
 const MAX_USER_MUTES: usize = 64;
 
+pub(super) struct CallSwitch {
+	from: (Id, u64),
+	channel: Id,
+	ring: bool,
+	generation: u64,
+	confirmed_at: Option<std::time::Instant>,
+}
+
 impl MessagingUi {
+	/// Effective screen-share audio level, independent of participant voice levels.
+	pub fn voice_stream_volume(&self) -> u16 {
+		if self.voice_stream_muted {
+			0
+		} else {
+			self.voice_stream_volume.unwrap_or(100).min(200)
+		}
+	}
+
 	/// Fixed session overrides; zero IDs are unused slots. A locally muted speaker is mixed at
 	/// zero gain, so unmuting restores the volume chosen for them.
 	pub fn voice_user_volumes(&self) -> [(u64, u16); 64] {
@@ -711,6 +728,9 @@ impl MessagingUi {
 			}
 			Tile::Stream(streamer) => {
 				self.stream_tile(ui, state, rect, channel, *streamer, compact);
+				egui::Popup::context_menu(&response)
+					.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+					.show(|ui| self.stream_audio_controls(ui));
 				"Screen share you are watching"
 			}
 			Tile::Participant(entry) => {
@@ -806,6 +826,27 @@ impl MessagingUi {
 				rect
 			}
 		};
+		let audio = ui.put(
+			egui::Rect::from_min_size(
+				rect.left_top() + egui::vec2(8.0, 8.0),
+				egui::vec2(110.0_f32.min((rect.width() - 16.0).max(0.0)), 26.0),
+			),
+			egui::Button::new(
+				RichText::new(if self.voice_stream_volume() == 0 {
+					"Stream muted"
+				} else {
+					"Stream audio"
+				})
+				.size(12.0)
+				.color(egui::Color32::WHITE),
+			)
+			.truncate()
+			.fill(egui::Color32::from_black_alpha(170))
+			.corner_radius(6),
+		);
+		egui::Popup::menu(&audio)
+			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+			.show(|ui| self.stream_audio_controls(ui));
 		if compact {
 			return;
 		}
@@ -822,6 +863,16 @@ impl MessagingUi {
 		{
 			self.watch_request = Some(None);
 		}
+	}
+
+	fn stream_audio_controls(&mut self, ui: &mut egui::Ui) {
+		ui.set_width(220.0);
+		ui.checkbox(&mut self.voice_stream_muted, "Mute stream audio");
+		gain_slider(
+			ui,
+			self.voice_stream_volume.get_or_insert(100),
+			"Stream volume",
+		);
 	}
 
 	/// Apply a tile's watch click once the stage has mutable state again.
@@ -1074,12 +1125,173 @@ impl MessagingUi {
 			Some("Voice is unavailable in this session.")
 		} else if state.auth != AuthState::Authenticated || !state.gateway_connected {
 			Some("Reconnect to Discord before calling.")
-		} else if state.voice.active.is_some() {
-			Some("Leave your current call before starting another.")
+		} else if self
+			.voice_switch
+			.as_ref()
+			.is_some_and(|switch| switch.confirmed_at.is_some())
+		{
+			Some("Waiting for the previous call to disconnect.")
+		} else if state
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.channel == channel)
+		{
+			Some("You are already in this call.")
 		} else if !state.can_call(channel) {
 			Some("Joining this channel is unavailable with current permission information.")
 		} else {
 			None
+		}
+	}
+
+	/// Device-free check; the caller supplies an offline synthetic call fixture.
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	pub fn debug_call_switch_check(mut state: State) {
+		state.demo = false;
+		state.gateway_connected = true;
+		assert!(state.start_call(Id(25), false).is_some());
+		let mut view = Self {
+			voice_available: true,
+			..Default::default()
+		};
+		let mut commands = Vec::new();
+		view.request_call(&mut state, Id(22), false, &mut commands);
+		assert!(commands.is_empty());
+		let from = view
+			.voice_switch
+			.as_ref()
+			.expect("switch requires confirmation")
+			.from;
+		assert_eq!(state.voice.active.as_ref().unwrap().channel, from.0);
+		assert!(state.leave_call().is_some());
+		view.voice_switch.as_mut().unwrap().confirmed_at = Some(std::time::Instant::now());
+		let ctx = egui::Context::default();
+		state.apply_voice(client_core::voice::Event::Departed {
+			channel: from.0,
+			request: from.1 + 1,
+		});
+		view.show_call_switch(&ctx, &mut state, &mut commands);
+		assert!(commands.is_empty());
+		state.apply_voice(client_core::voice::Event::Departed {
+			channel: from.0,
+			request: from.1,
+		});
+		view.show_call_switch(&ctx, &mut state, &mut commands);
+		assert!(commands.is_empty(), "audio teardown must complete too");
+		view.voice_switch_ready = true;
+		view.show_call_switch(&ctx, &mut state, &mut commands);
+		assert!(matches!(
+			commands.as_slice(),
+			[Command::Voice(client_core::voice::Command::Join {
+				channel: Id(22),
+				ring: false,
+				..
+			})]
+		));
+		assert!(view.voice_switch.is_none());
+		view.request_call(&mut state, Id(25), false, &mut commands);
+		assert!(view.voice_switch.is_some());
+		state.gateway_connected = false;
+		view.show_call_switch(&ctx, &mut state, &mut commands);
+		assert!(view.voice_switch.is_none());
+	}
+
+	fn request_call(
+		&mut self,
+		state: &mut State,
+		channel: Id,
+		ring: bool,
+		commands: &mut Vec<Command>,
+	) {
+		if self.call_unavailable(state, channel).is_some() {
+			return;
+		}
+		if let Some(call) = &state.voice.active {
+			self.voice_switch = Some(CallSwitch {
+				from: (call.channel, call.request),
+				channel,
+				ring,
+				generation: state.generation,
+				confirmed_at: None,
+			});
+		} else if let Some(command) =
+			state.start_call_with_mute(channel, ring, self.voice_muted, self.voice_deafened)
+		{
+			commands.push(command);
+		}
+	}
+
+	pub(super) fn show_call_switch(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		let Some(switch) = &self.voice_switch else {
+			return;
+		};
+		if switch.generation != state.generation
+			|| !self.voice_available
+			|| !state.can_call(switch.channel)
+		{
+			self.voice_switch = None;
+			return;
+		}
+		if let Some(started) = switch.confirmed_at {
+			if state.voice.active.is_some() {
+				self.voice_switch = None;
+			} else if state.voice.departed == Some(switch.from) && self.voice_switch_ready {
+				let switch = self.voice_switch.take().expect("pending switch");
+				if let Some(command) = state.start_call_with_mute(
+					switch.channel,
+					switch.ring,
+					self.voice_muted,
+					self.voice_deafened,
+				) {
+					commands.push(command);
+				}
+			} else if started.elapsed() >= std::time::Duration::from_secs(12) {
+				self.voice_switch = None;
+				state.status = "Call switch cancelled: previous call did not finish disconnecting. Reconnect before calling again.";
+			} else {
+				ctx.request_repaint_after(std::time::Duration::from_millis(100));
+			}
+			return;
+		}
+		if state
+			.voice
+			.active
+			.as_ref()
+			.map(|call| (call.channel, call.request))
+			!= Some(switch.from)
+		{
+			self.voice_switch = None;
+			return;
+		}
+		let name = state
+			.channel(switch.channel)
+			.map_or("the selected channel", |channel| channel.name.as_str());
+		match crate::dialog::Confirm::new(
+			"switch-call",
+			"Switch calls?",
+			format!("You are already in another call. Leave it and join {name}?"),
+		)
+		.confirm_label("Switch call")
+		.cancel_label("Stay in call")
+		.show(ctx)
+		{
+			Some(crate::dialog::Choice::Confirmed) => {
+				if let Some(command) = state.leave_call() {
+					self.voice_switch
+						.as_mut()
+						.expect("pending switch")
+						.confirmed_at = Some(std::time::Instant::now());
+					commands.push(command);
+				}
+			}
+			Some(crate::dialog::Choice::Cancelled) => self.voice_switch = None,
+			None => {}
 		}
 	}
 
@@ -1129,14 +1341,8 @@ impl MessagingUi {
 		}
 		.on_hover_text(hint)
 		.on_disabled_hover_text(hint);
-		if response.clicked()
-			&& let Some(command) = state.start_call_with_mute(
-				channel,
-				!guild && !incoming,
-				self.voice_muted,
-				self.voice_deafened,
-			) {
-			commands.push(command);
+		if response.clicked() {
+			self.request_call(state, channel, !guild && !incoming, commands);
 		}
 		response
 	}
@@ -1477,8 +1683,12 @@ impl MessagingUi {
 	fn camera_settings_content(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
 		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-		if !demo && !cfg!(target_os = "windows") {
-			ui.label("Camera selection is currently available on Windows. Other supported platforms use the default camera.");
+		if !cfg!(any(
+			target_os = "windows",
+			target_os = "macos",
+			target_os = "linux"
+		)) {
+			ui.label("Camera capture is unavailable on this platform.");
 			return;
 		}
 		if demo && self.voice_cameras.is_empty() {
@@ -1526,6 +1736,59 @@ impl MessagingUi {
 				ui,
 				"Changing devices stops your camera and takes effect the next time you turn it on.",
 			);
+		}
+		if self.voice_settings_open() {
+			design::card_divider(ui);
+			let width = ui.available_width();
+			let (rect, _) = ui.allocate_exact_size(
+				egui::vec2(width, (width * 9.0 / 16.0).clamp(160.0, 300.0)),
+				egui::Sense::hover(),
+			);
+			ui.painter().rect_filled(rect, 12, colors.base);
+			let texture = self
+				.camera_test_texture
+				.as_ref()
+				.or(self.voice_camera_preview.as_ref());
+			let has_picture = texture.is_some();
+			if let Some(texture) = texture {
+				let size = texture.size_vec2();
+				let scale = (rect.width() / size.x).min(rect.height() / size.y);
+				egui::Image::new(texture)
+					.uv(egui::Rect::from_min_max(
+						egui::pos2(1.0, 0.0),
+						egui::pos2(0.0, 1.0),
+					))
+					.corner_radius(12)
+					.paint_at(
+						ui,
+						egui::Rect::from_center_size(rect.center(), size * scale),
+					);
+			}
+			if !has_picture || self.camera_test_requested {
+				let center = if has_picture {
+					egui::pos2(rect.center().x, rect.bottom() - 34.0)
+				} else {
+					rect.center()
+				};
+				let button_rect =
+					egui::Rect::from_center_size(center, egui::vec2(184.0_f32.min(width), 44.0));
+				ui.scope_builder(egui::UiBuilder::new().max_rect(button_rect), |ui| {
+					ui.add_enabled_ui(!demo && self.camera_test_available, |ui| {
+						let (icon, label) = if self.camera_test_requested {
+							(crate::icons::Icon::VideoSlash, "Stop preview")
+						} else {
+							(crate::icons::Icon::Video, "Preview camera")
+						};
+						if design::primary_icon_button(ui, icon, label).clicked() {
+							self.camera_test_requested = !self.camera_test_requested;
+							self.camera_test_status = "";
+						}
+					});
+				});
+			}
+			if !self.camera_test_status.is_empty() {
+				design::hint(ui, self.camera_test_status);
+			}
 		}
 	}
 
@@ -2317,14 +2580,8 @@ impl MessagingUi {
 								)
 							}
 							.on_disabled_hover_text(unavailable.unwrap_or(""));
-							if answer.clicked()
-								&& let Some(command) = state.start_call_with_mute(
-									channel,
-									false,
-									self.voice_muted,
-									self.voice_deafened,
-								) {
-								commands.push(command);
+							if answer.clicked() {
+								self.request_call(state, channel, false, commands);
 							}
 							ui.with_layout(
 								egui::Layout::left_to_right(egui::Align::Center),

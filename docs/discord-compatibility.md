@@ -27,9 +27,12 @@ and live-unverified.
 PNG, APNG and GIF use the existing bounded image worker and animation preference.
 GIF uses the media host specified by Discord's
 [CDN reference](https://github.com/discord/discord-api-docs/blob/main/developers/reference.mdx).
-Lottie has only an unofficial, unverified static PNG proxy rendition, with the
-sticker name retained when unavailable. Long animations share the existing
-frame/pixel limits and may remain static. Sticker upload/edit/delete administration
+Lottie JSON is fetched from Discord's documented CDN endpoint, capped at 512 KiB,
+and rasterized off the UI thread to one 160px static PNG preview. The rendered PNG
+shares the account-isolated image disk cache, so reopening a received sticker or
+picker entry does not parse or render it again. Unsupported Lottie features retain
+the sticker name and an unavailable placeholder. Long APNG/GIF animations share the
+existing frame/pixel limits and may remain static. Sticker upload/edit/delete administration
 and synchronized cross-device favorites are not included.
 
 `--features demo -- --demo --demo-stickers` seeds an original offline catalog,
@@ -280,6 +283,16 @@ statements in the historical voice/screen-sharing notes below.
 
 ## Outgoing screen sharing — September 11, 2026
 
+September 21 interoperability correction: camera and screen-share H.264 SPS metadata
+is normalized before DAVE encryption to specify no frame reordering and bounded
+decoder buffering. The [WebRTC receiver rewrites unsuitable SPS metadata](https://github.com/webrtc-mirror/webrtc/blob/main/modules/rtp_rtcp/source/video_rtp_depacketizer_h264.cc)
+before frame decryption; that changes DAVE-authenticated bytes, while Serein's
+receiver preserves them. The offline debug command
+`cargo run --locked -p discord-voice --example video_interop` exercises this
+authentication failure and normalized encryption/decryption/decoding with synthetic
+video. Official Discord Android/desktop playback and resolution of issue #345
+remain subject to an owner-operated live retest.
+
 September 15 transport follow-up: screen audio keeps stereo 48 kHz Opus, 20 ms
 frames, the stream connection's audio SSRC, and opcode 5 Soundshare. It now also
 marks each audio packet with the native speaking RTP extension (ID 9, value 4).
@@ -297,8 +310,16 @@ SSRC, coalescing requests to at most twice per second. Windows/macOS can freshly
 one retained current snapshot on an idle keyframe request, without waiting for screen
 movement. The additional snapshot is bounded to 33,177,600 bytes, normally reduced to
 the chosen output resolution. Ordinary idle time does not encode extra frames. Linux
-already requests periodic PipeWire keepalive frames. RTX/NACK repair and adaptive bitrate
-remain unsupported; native/live video quality is not established by these changes.
+already requests periodic PipeWire keepalive frames. Sender RTX repair, receiver NACK
+requests and adaptive bitrate remain unsupported. The viewer accepts announced RTX
+packets and bounded packet reordering within the current picture; native/live video
+quality is not established by these changes.
+
+Watched streams have a session-only 0–200% audio volume and mute control, independent
+of participant voice levels. Audio playout retains at most two queued 20 ms frames
+and clears delayed mixer output after a stall. Decoder input is bounded to 16 pictures
+and 16 MiB, with a 150 ms age limit and keyframe recovery. These bounds reduce backlog;
+they do not implement sender-clock audio/video synchronization or establish live sync.
 
 A device-free localhost test runs the actual sender and viewer through an MLS exchange,
 stereo Opus and H.264, encrypted UDP forwarding, decoded audio and video. It verifies the
@@ -781,7 +802,9 @@ normal-account delivery and native screenshots remain owner-controlled validatio
 
 Find conversation / Ctrl+K (Command+K) searches loaded navigation and retained friends by display
 name, nickname and username, respecting current VIEW decisions for channels. Friends with an open
-one-to-one DM appear once; group membership does not hide a friend. Selecting a friend without
+one-to-one DM appear once; group membership does not hide a friend. Direct and friend results use
+their retained Discord avatar through the existing bounded avatar worker, with initials only while
+the image is loading or unavailable. Selecting a friend without
 an open DM reuses the bounded [Create DM](https://docs.discord.com/developers/resources/user#create-dm)
 request already used by server invites, then opens its confirmed channel through ordinary history
 loading. It sends no message and adds no subscription or relationship lookup. Requests are never
@@ -1292,6 +1315,18 @@ Acknowledged ID requests retain a bounded outgoing row with unknown profile meta
 Gateway data arrives. Failed writes preserve friendship; newer Gateway updates win over
 late acknowledgements. Cancellation and account changes discard pending UI confirmations.
 These paths have offline UI/reducer/HTTP coverage, not live-account verification.
+
+### Blocked and ignored users (September 21, 2026)
+
+Friends includes a searchable Blocked & Ignored tab populated from READY relationship
+profiles and subsequent relationship add/update/remove events. Relationship type 2 is
+shown as Blocked; the separate unofficial `user_ignored` relationship flag is shown as
+Ignored, following the public
+[relationship object documentation](https://docs.discord.food/resources/relationships#relationship-object).
+Profiles are session-only and bounded separately from friends. Existing block/unblock
+actions remain available; changing Discord's distinct ignored state is not included.
+Synthetic protocol, reducer and UI tests cover loading and updates. Normal-user payload
+availability, cross-device changes and service behavior remain live-unverified.
 
 ### Additional system message display (September 12, 2026)
 

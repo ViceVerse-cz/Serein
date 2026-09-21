@@ -51,6 +51,11 @@ fn main() {
 		},
 		time::{Duration, Instant},
 	};
+	let mode = if std::env::args().any(|arg| arg == "--legacy-vaapi") {
+		Mode::VaLegacy
+	} else {
+		Mode::Software
+	};
 	let runtime = tokio::runtime::Builder::new_current_thread()
 		.enable_all()
 		.build()
@@ -69,7 +74,7 @@ fn main() {
 		let ready = Arc::new(AtomicBool::new(false));
 		let keyframe = Arc::new(AtomicBool::new(true));
 		let source = gst::ElementFactory::make("videotestsrc").property("is-live", true).build().unwrap();
-		let pipeline = Capture::new(settings, Mode::Software, source, stop.clone(), ready.clone(), keyframe.clone(), || true).unwrap();
+		let pipeline = Capture::new(settings, mode, source, stop.clone(), ready.clone(), keyframe.clone(), || true).unwrap();
 		let deadline = Instant::now() + Duration::from_secs(5);
 		let mut saw_preview = false;
 		while Instant::now() < deadline && !saw_preview {
@@ -90,6 +95,20 @@ fn main() {
 		while Instant::now() < deadline && !encoded {
 			assert!(!pipeline.failed());
 			if let Some(sample) = pipeline.frames.try_pull_sample(gst::ClockTime::ZERO) {
+				if mode == Mode::VaLegacy {
+					let buffer = sample.buffer().unwrap();
+					let data = buffer.map_readable().unwrap();
+					video::validate_source(&data).unwrap();
+					assert!(!buffer.flags().contains(gst::BufferFlags::DELTA_UNIT));
+					assert!(video_receive::is_keyframe(&data));
+					assert!(video_receive::has_parameter_sets(&data));
+					let mut decoder = openh264::decoder::Decoder::new().unwrap();
+					let picture = decoder.decode(&data).unwrap().expect("decodable legacy H.264");
+					use openh264::formats::YUVSource;
+					assert_eq!(picture.dimensions(), (1280, 720));
+					encoded = true;
+					continue;
+				}
 				let raw = gstreamer::raw(&sample).unwrap();
 				assert_eq!((raw.width, raw.height), (1280, 720));
 				let mut encoder = encoder(settings).unwrap();
@@ -115,7 +134,7 @@ fn main() {
 			assert!(Instant::now() < deadline, "cancelled audio worker must retire without opening a device");
 			tokio::time::sleep(Duration::from_millis(10)).await;
 		}
-		println!("Linux screen pipeline: synthetic preview, secure-readiness gates, application audio exclusion/bounded stereo mixing, software H.264 and portal pre-cancellation passed. Native Linux capture/GPU encoding remains unverified.");
+		println!("Linux screen pipeline: synthetic preview, secure-readiness gates, application audio exclusion/bounded stereo mixing, {} and portal pre-cancellation passed. Native screen capture and Discord delivery remain unverified.", mode.label());
 	});
 }
 #[cfg(not(target_os = "linux"))]

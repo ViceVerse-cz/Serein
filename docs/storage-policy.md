@@ -1,5 +1,21 @@
 # Local storage policy and audit
 
+## Remote video lifetime cleanup (September 21, 2026)
+
+A completed camera/stream announcement cancels a decoder only after its user's
+final announced video source disappears. Queued frames carry a small cancellable
+lifetime token, so camera-off and rapid off/on cannot recreate a stopped decoder
+from old queued frames. Cancellation survives a full queue; unchanged announcements
+do not wake the decoder. Hardware callbacks also check their original lifetime.
+
+The active-token table is capped at the existing 16 source users. Old fixed-size
+tokens can survive only in the 16-item / 16-MiB frame queue, the worker's current
+frame, and the existing at-most-eight decoders; they contain no media or account
+strings. The 1080p picture limit remains unchanged. Stopping the final video
+lifetime also frees the shared RGBA scratch allocation (up to 8,294,400 initialized
+bytes); codec/driver resources are released by dropping their decoders. Allocator
+and driver retention mean this is not an equivalent process-RSS guarantee.
+
 ## Startup and Gateway allocation reuse (September 21, 2026)
 
 Startup builds the bundled base font set without inflating the 16,467,736-byte
@@ -8,6 +24,12 @@ encountered. The Twemoji PNG decodes into one 16,515,072-byte egui pixel buffer
 and premultiplies alpha in place, removing the separate full-size RGBA conversion
 buffer. Decoder and GPU staging allocations remain additional; these are not
 whole-process RSS guarantees. No assets, image quality or cache limits change.
+
+The CJK detector remembers at most 512 immutable layout-job identities through weak
+references, within a 128 KiB fixed-allocation budget. It never retains text, style
+sections, glyph meshes or a strong job reference. Reused jobs skip Unicode scanning;
+new/edited jobs are checked, capacity rollover clears the cache, and the first CJK
+match releases it. Render shapes still need traversal until that first match.
 
 The streaming Gateway decoder releases compressed-input allocations larger than
 128 KiB after completing a payload. Smaller buffers remain reusable; incomplete
@@ -479,6 +501,12 @@ The standard picker palette has 3,953 fixed named entries and renders only viewp
 search input is capped at 64 characters. Picker insertion honors character and total draft
 capacity limits and never sends a message on selection.
 
+Custom emoji search retains at most 1,000 guild/emoji index pairs (16,000 bytes on
+64-bit targets), plus at most 256 UTF-8 query bytes and fixed scope metadata. It
+borrows current catalog entries only while rendering. State revision, session,
+account, selected server and query changes invalidate results; navigation/session
+reset releases the cache. No catalog strings or image pixels are duplicated.
+
 
 Channel obfuscation and accepted READY removals invalidate inaccessible history using the existing
 account-wide ClearHistory operation; readable-to-unsupported channel changes count as removal.
@@ -532,7 +560,9 @@ history or invalidate timeline layout. These are component bounds, not process R
 
 The conversation switcher retains only its open-state flags, focused control ID and a query of
 at most 128 characters / 512 UTF-8 bytes. Each open frame builds at most 20 labels from bounded
-channel/guild and retained friend names; each field is limited to 128 characters. Matching
+channel/guild and retained friend names; each field is limited to 128 characters. Those 20 rows
+may temporarily clone their already-retained direct/friend profile so the shared bounded avatar
+cache can render it; no separate image cache or request queue is added. Matching
 normalizes one eligible channel's bounded names and at most 64 known DM recipients' names,
 nicknames and usernames at a time, then drops them. Friend matching reuses the bounded relationship
 map; a temporary set of at most 4,000 fixed-size friend IDs prevents duplicate one-to-one results.
@@ -785,11 +815,12 @@ and are released with the player. No file cache or media URL/byte diagnostics ar
 
 The friends page reuses the bounded relationship store (4,000 friends / 2 MiB)
 and the existing presence cache (256 records / 512 KiB), now admitting known
-unblocked friends as well as DM recipients. Startup presence admission keeps its
-256-user bound. Presence outside retained/received data stays unavailable.
-The UI retains only a 128-character search and Online/All selection, renders visible
-64-point rows, and reuses the avatar cache and existing user actions. No new storage,
-network endpoint or friend-management writes are added.
+unblocked friends as well as DM recipients. Blocked and ignored relationship profiles
+have a separate 4,000-item / 2 MiB session-only bound and are cleared on logout.
+Startup presence admission keeps its 256-user bound. Presence outside retained/received
+data stays unavailable. The UI retains only a 128-character search and bounded derived
+ID lists, renders visible 64-point rows, and reuses the avatar cache and existing user
+actions. No disk storage, network endpoint or friend-management write is added.
 
 ### Opt-in Windows startup
 
@@ -1033,8 +1064,10 @@ on logout, and are not persisted or synchronized.
 
 Images reuse the account-isolated credential-free cache, fixed Discord CDN hosts,
 existing download/decoder queues, four-animation / 16 MiB UI budget and the
-80-frame / 8 MiB / 160px animation decoder limit. No new runtime dependency,
-external image origin, log or background catalog polling is introduced.
+80-frame / 8 MiB / 160px animation decoder limit. Lottie input is capped at
+512 KiB and a 1024px source canvas; one 160px static PNG is rendered off-thread
+and cached instead of the JSON. No external image origin, log or background
+catalog polling is introduced.
 
 ### Search rich-text previews
 
@@ -1055,3 +1088,14 @@ Up to ten selected images remain in session RAM (80 MiB encoded artwork maximum)
 with no temporary files or recovery cache. Navigation/logout cancel pending preparation;
 The picker selection authorizes one send after validation; ordinary upload permissions
 and cleanup apply. Existing selected files are never included in that send.
+
+
+### Local camera settings preview
+
+The explicit settings preview shares the process-wide single camera-worker limit with
+calls. It retains one 640×480 RGBA picture (1,228,800 bytes), one UI texture and its
+upload copy, alongside the existing bounded native capture/encoding buffers. It has
+no network sender, recording or persistent storage. Device choices stay session-local;
+discovery retains at most 32 IDs/names (136 KiB). Closing Voice & Audio, changing the
+camera, joining a call or logout releases the preview; asynchronous native teardown
+keeps the worker slot reserved until it finishes.

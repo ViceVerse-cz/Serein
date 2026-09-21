@@ -1874,6 +1874,8 @@ impl Desktop {
 			"Connecting with the supplied session; saved login unchanged"
 		};
 		self.voice.stop();
+		self.messaging.camera_test_requested = false;
+		self.messaging.camera_test_texture = None;
 		self.state
 			.disconnect_voice("Discord login session changed; start a new call");
 		self.uploads.cancel();
@@ -1934,6 +1936,8 @@ impl Desktop {
 		self.audio.stop();
 		self.video.stop();
 		self.voice.stop();
+		self.messaging.camera_test_requested = false;
+		self.messaging.camera_test_texture = None;
 		let was_demo = self.state.demo;
 		self.clear_avatars(ctx);
 		self.login = None;
@@ -2733,6 +2737,8 @@ impl Desktop {
 			}
 			if matches!(control, client_core::voice::Command::Leave { .. }) {
 				self.voice.stop();
+				self.messaging.camera_test_requested = false;
+				self.messaging.camera_test_texture = None;
 			}
 		}
 		if let Command::History {

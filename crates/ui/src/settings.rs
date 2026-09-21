@@ -70,7 +70,7 @@ impl Page {
 			Self::MessagingPermissions => "Messaging Permissions",
 			Self::Notifications => "Notifications",
 			Self::Activity => "Game Activity",
-			Self::Voice => "Voice & Audio",
+			Self::Voice => "Voice & Video",
 			Self::Keybinds => "Keybinds",
 			Self::Storage => "Data & Privacy",
 			Self::Updates => "Updates",
@@ -89,7 +89,7 @@ impl Page {
 			}
 			Self::Notifications => "Choose which notifications you receive and how they appear.",
 			Self::Activity => "Show others what you are playing.",
-			Self::Voice => "Microphone, speakers and voice processing.",
+			Self::Voice => "Microphone, speakers, camera and voice processing.",
 			Self::Keybinds => "Keyboard shortcuts for Serein.",
 			Self::Storage => "What Serein keeps on this device.",
 			Self::Updates => "Keep Serein up to date on this device.",
@@ -115,7 +115,7 @@ impl Page {
 			}
 			Self::Activity => "game activity playing osu status presence sharing",
 			Self::Voice => {
-				"voice audio microphone speakers devices volume gain noise suppression push to talk"
+				"voice video camera preview audio microphone speakers devices volume gain noise suppression push to talk"
 			}
 			Self::Storage => "data privacy local storage clear cache drafts credentials",
 			Self::Updates => {

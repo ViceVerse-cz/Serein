@@ -865,6 +865,10 @@ async fn run_inner(
 							continue;
 						}
 					};
+					if let client_core::voice::Command::Leave { channel, request } = command
+						&& packet.is_none() && !calls.has_call() {
+						emit(Event::Voice(client_core::voice::Event::Departed { channel, request }))?;
+					}
 					if let Some(channel)=connect && let Some(packet)=calls.packet(client_core::voice::Command::Sync { channel })?
 						&& !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
 					if let Some(packet)=packet && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
@@ -967,6 +971,7 @@ async fn run_inner(
 										state.session = Some(Zeroizing::new(std::mem::take(&mut ready.session_id)));
 										let friends = ready.relationships.as_ref().map(|s| s.friends(&ready.users)).transpose().map_err(|_| Failure::ProtocolAt("Invalid friend metadata"))?;
 										let requests = ready.relationships.as_ref().map(|s| s.requests(&ready.users)).transpose().map_err(|_| Failure::ProtocolAt("Invalid friend request metadata"))?;
+										let restricted = ready.relationships.as_ref().map(|s| s.restricted(&ready.users)).transpose().map_err(|_| Failure::ProtocolAt("Invalid blocked or ignored user metadata"))?;
 										calls.session_reset();
 										calls.remember_users(std::mem::take(&mut ready.users));
 										known_guilds=channel_events::ready_calls(&ready,&mut calls)?;
@@ -1017,6 +1022,7 @@ async fn run_inner(
 										let spam_requests = ready.relationships.as_ref().map(|s| s.spam_incoming_ids());
 										emit(Event::UserAction(client_core::user_actions::Event::Relationships(ready.relationships.take().map(|s| s.entries()))))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Friends(friends)))?;
+										emit(Event::UserAction(client_core::user_actions::Event::Restrictions(restricted)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Requests(requests)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::RequestSpams(spam_requests)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::MessageRequests(Some(message_requests))))?;
@@ -1111,8 +1117,10 @@ async fn run_inner(
 										emit(Event::UserAction(client_core::user_actions::Event::Relationship { user: relationship.id, blocked: packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 2 }))?;
 										let friend = packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 1;
 										let profile = relationship.user.map(discord_protocol::relationships::friend).transpose().map_err(|_| Failure::ProtocolAt("Invalid friend metadata"))?;
+										let ignored = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && (relationship.kind == 2 || relationship.user_ignored)).then_some(relationship.user_ignored && relationship.kind != 2);
 										let incoming = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && matches!(relationship.kind,3|4)).then_some(relationship.kind==3);
 										emit(Event::UserAction(client_core::user_actions::Event::Friend { user: relationship.id, friend, profile: profile.clone() }))?;
+										emit(Event::UserAction(client_core::user_actions::Event::Restriction { user: relationship.id, ignored, profile: profile.clone() }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Request { user: relationship.id, incoming, profile }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::RequestSpam { user: relationship.id, spam: packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 3 && relationship.is_spam_request }))?;
 										if friend { match relationship.nickname {
@@ -1966,6 +1974,7 @@ mod tests {
 							client_core::user_actions::Event::Relationships(None)
 							| client_core::user_actions::Event::Requests(None)
 							| client_core::user_actions::Event::Friends(None)
+							| client_core::user_actions::Event::Restrictions(None)
 							| client_core::user_actions::Event::MessageRequests(_)
 							| client_core::user_actions::Event::MessageSpams(_)
 							| client_core::user_actions::Event::RequestSpams(_),

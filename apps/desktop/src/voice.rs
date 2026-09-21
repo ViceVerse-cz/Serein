@@ -203,8 +203,15 @@ struct MicPreview {
 	started: Instant,
 }
 
+struct CameraTest {
+	camera: discord_voice::camera::Camera,
+	device: Option<String>,
+	picture: Arc<std::sync::Mutex<CameraPicture>>,
+}
+
 #[derive(Default)]
 pub struct Voice {
+	camera_test: Option<CameraTest>,
 	mic_preview: Option<MicPreview>,
 	screen: crate::screen::Screen,
 	watch: crate::watch::Watch,
@@ -220,6 +227,7 @@ pub struct Voice {
 }
 impl Voice {
 	pub fn stop(&mut self) {
+		self.camera_test = None;
 		self.mic_preview = None;
 		self.screen.stop();
 		self.watch.stop();
@@ -259,6 +267,7 @@ impl Voice {
 		}
 	}
 	pub fn begin(&mut self, state: &State, ring: bool) -> Result<(), &'static str> {
+		self.camera_test = None;
 		self.mic_preview = None;
 		self.reap();
 		if self.retiring.is_some() {
@@ -403,7 +412,10 @@ impl Voice {
 		ctx: &egui::Context,
 	) -> Option<Command> {
 		self.reap();
+		ui.voice_switch_ready =
+			self.pending.is_none() && self.live.is_none() && self.retiring.is_none();
 		self.poll_mic_preview(state, ui, ctx);
+		self.poll_camera_test(state, ui, ctx);
 		ui.voice_speaking.clear();
 		ui.voice_microphone_unavailable = false;
 		self.poll_camera_devices(state.demo, ui, ctx);
@@ -526,6 +538,7 @@ impl Voice {
 			live.audio
 				.set_gain(ui.voice_gain.input_percent, ui.voice_gain.output_percent);
 			let user_volumes = ui.voice_user_volumes();
+			let stream_volume = ui.voice_stream_volume();
 			let activity_threshold_db = ui
 				.voice_processing
 				.effective()
@@ -535,6 +548,7 @@ impl Voice {
 				if control.muted == muted
 					&& control.deafened == deafened
 					&& control.user_volumes == user_volumes
+					&& control.stream_volume == stream_volume
 					&& control.activity_threshold_db == activity_threshold_db
 				{
 					false
@@ -542,6 +556,7 @@ impl Voice {
 					control.muted = muted;
 					control.deafened = deafened;
 					control.user_volumes = user_volumes;
+					control.stream_volume = stream_volume;
 					control.activity_threshold_db = activity_threshold_db;
 					true
 				}
@@ -865,6 +880,80 @@ impl Voice {
 		ctx.request_repaint_after(Duration::from_millis(50));
 	}
 
+	fn poll_camera_test(&mut self, state: &State, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
+		ui.camera_test_available = !state.demo
+			&& ui.voice_available
+			&& discord_voice::camera::SUPPORTED
+			&& state.voice.active.is_none()
+			&& self.pending.is_none()
+			&& self.live.is_none();
+		if !ui.camera_test_available || !ui.voice_settings_open() {
+			ui.camera_test_requested = false;
+			ui.camera_test_status = "";
+		}
+		if let Some(preview) = &self.camera_test {
+			if preview.device != ui.voice_camera_device {
+				ui.camera_test_requested = false;
+				ui.camera_test_status = "Camera changed. Click Preview camera to use it.";
+			} else if let Some(error) = preview.camera.error() {
+				ui.camera_test_requested = false;
+				ui.camera_test_status = error;
+			}
+		}
+		if !ui.camera_test_requested {
+			self.camera_test = None;
+			ui.camera_test_texture = None;
+			return;
+		}
+		if self.camera_test.is_none() {
+			let picture = Arc::new(std::sync::Mutex::new(None));
+			let frames = picture.clone();
+			let wake = ctx.clone();
+			// No transport sender is captured: these frames can only reach the settings texture.
+			let on_frame = Arc::new(move |frame: discord_voice::camera::Frame| {
+				if let Ok(mut slot) = frames.try_lock()
+					&& store_camera_frame(&mut slot, &frame.rgb)
+				{
+					wake.request_repaint();
+				}
+			});
+			let wake = ctx.clone();
+			match discord_voice::camera::Camera::start(
+				ui.voice_camera_device.clone(),
+				on_frame,
+				Arc::new(move || wake.request_repaint()),
+			) {
+				Ok(camera) => {
+					self.camera_test = Some(CameraTest {
+						camera,
+						device: ui.voice_camera_device.clone(),
+						picture,
+					});
+					ui.camera_test_status = "Opening camera…";
+				}
+				Err(error) => {
+					ui.camera_test_requested = false;
+					ui.camera_test_status = error;
+					return;
+				}
+			}
+		}
+		let image = self.camera_test.as_ref().and_then(|preview| {
+			let mut slot = preview.picture.try_lock().ok()?;
+			let (image, dirty) = slot.as_mut()?;
+			std::mem::take(dirty).then(|| image.clone())
+		});
+		if let Some(image) = image {
+			if let Some(texture) = &mut ui.camera_test_texture {
+				texture.set(image, egui::TextureOptions::LINEAR);
+			} else {
+				ui.camera_test_texture =
+					Some(ctx.load_texture("settings-camera", image, egui::TextureOptions::LINEAR));
+			}
+			ui.camera_test_status = "Local camera preview · not shared";
+		}
+	}
+
 	fn poll_camera_devices(&mut self, demo: bool, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
 		if demo {
 			ui.voice_refresh_cameras = false;
@@ -1068,6 +1157,7 @@ impl Voice {
 			camera: 0,
 			deafened: false,
 			user_volumes: ui.voice_user_volumes(),
+			stream_volume: ui.voice_stream_volume(),
 		});
 		let remote_video: Arc<std::sync::Mutex<RemotePictures>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1196,6 +1286,7 @@ fn camera_preview_allowed(state: &State) -> bool {
 /// Device-free check of preview rendering and the guards that prevent automatic capture.
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub fn debug_mic_preview_check() {
+	ui::MessagingUi::debug_call_switch_check(test_support::existing_call_demo_state());
 	discord_voice::audio::debug_processing_check();
 	let ctx = egui::Context::default();
 	ui::design::apply(&ctx);
@@ -1227,6 +1318,18 @@ pub fn debug_mic_preview_check() {
 		}
 	}
 	assert!(!view.voice_preview_requested);
+	assert!(!view.camera_test_requested);
+	let mut camera_host = Voice::default();
+	view.camera_test_requested = true;
+	camera_host.poll_camera_test(&state, &mut view, &ctx);
+	assert!(!view.camera_test_requested && camera_host.camera_test.is_none());
+	state.demo = false;
+	view.preview_settings("appearance");
+	view.camera_test_requested = true;
+	camera_host.poll_camera_test(&state, &mut view, &ctx);
+	assert!(!view.camera_test_requested && camera_host.camera_test.is_none());
+	state.demo = true;
+	view.preview_settings("voice");
 	let legacy: local_store::AppPreferences =
 		serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 	let mut preferences = crate::app_settings::Settings {
@@ -1254,7 +1357,7 @@ pub fn debug_mic_preview_check() {
 	voice.poll_mic_preview(&state, &mut view, &ctx);
 	assert!(!view.voice_preview_requested && voice.mic_preview.is_none());
 	println!(
-		"Mic preview debug check passed: settings render, opening settings never starts capture, demo and closed-page guards stop requests. No audio devices opened."
+		"Mic/camera preview debug check passed: settings render, opening settings never starts capture, demo and closed-page guards stop requests. No audio devices opened."
 	);
 }
 

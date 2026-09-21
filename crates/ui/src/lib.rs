@@ -250,6 +250,8 @@ pub struct MessagingUi {
 	pending_upload: Option<pending::Upload>,
 	pub clear_cache_requested: bool,
 	pub voice_available: bool,
+	pub voice_switch_ready: bool,
+	voice_switch: Option<voice::CallSwitch>,
 	pub screen: screen::ScreenUi,
 	pub voice_camera_available: bool,
 	pub voice_camera_status: &'static str,
@@ -259,11 +261,18 @@ pub struct MessagingUi {
 	pub voice_camera_device_status: &'static str,
 	pub voice_camera_devices_loading: bool,
 	pub voice_camera_preview: Option<egui::TextureHandle>,
+	pub camera_test_requested: bool,
+	pub camera_test_available: bool,
+	pub camera_test_status: &'static str,
+	pub camera_test_texture: Option<egui::TextureHandle>,
 	/// Decoded remote cameras by user; the desktop bounds and replaces them.
 	pub voice_remote_video: Vec<(Id, egui::TextureHandle)>,
 	/// Latest picture of the screen share this device chose to watch.
 	pub voice_stream_view: Option<egui::TextureHandle>,
 	pub voice_stream_status: &'static str,
+	/// Session-only stream playback level; unset is 100%. Mute preserves the level.
+	voice_stream_volume: Option<u16>,
+	voice_stream_muted: bool,
 	/// Enlarged stage tile; cleared when it stops showing video or on Escape.
 	pub voice_focus: Option<voice::StageFocus>,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.
@@ -2909,7 +2918,7 @@ impl MessagingUi {
 		if let Some(command) = state.select_opened_dm() {
 			commands.push(command);
 		}
-		if let Some(target) = self.switcher.show(&ctx, state) {
+		if let Some(target) = self.switcher.show(&ctx, state, &mut self.avatars) {
 			match target {
 				switcher::Target::Channel(channel) => {
 					if state.selected != Some(channel)
@@ -3960,6 +3969,7 @@ impl MessagingUi {
 				None => {}
 			}
 		}
+		self.show_call_switch(&ctx, state, &mut commands);
 		self.verification.show(&ctx, state);
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);

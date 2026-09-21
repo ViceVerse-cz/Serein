@@ -313,7 +313,7 @@ impl MessagingUi {
 		design::card(ui, |ui| {
 			if design::row(
 				ui,
-				"Voice & Audio",
+				"Voice & Video",
 				Some("Ringtones, call devices and microphone processing."),
 				|ui| design::button(ui, "Open", design::ButtonKind::Outline),
 			)

@@ -5,9 +5,10 @@ use std::{
 	collections::HashMap,
 	sync::{
 		Arc, Mutex,
-		atomic::{AtomicU64, Ordering},
+		atomic::{AtomicBool, AtomicU64, Ordering},
 		mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
 	},
+	time::{Duration, Instant},
 };
 
 /// Users whose decoder hit undecodable data; the transport turns these into keyframe requests.
@@ -23,6 +24,7 @@ const QUEUE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_WIDTH: u32 = 1920;
 const MAX_PIXELS: u64 = 1920 * 1080;
 const START_CODE: [u8; 4] = [0, 0, 0, 1];
+const MAX_DECODE_AGE: Duration = Duration::from_millis(150);
 
 /// One decoded remote picture, packed RGBA.
 pub struct RemoteFrame<'a> {
@@ -36,7 +38,10 @@ pub type VideoSink = Arc<dyn Fn(RemoteFrame<'_>) + Send + Sync>;
 pub(crate) struct DecoderQueue {
 	send: SyncSender<Decode>,
 	bytes: Arc<tokio::sync::Semaphore>,
-	removals: Arc<Mutex<Vec<u64>>>,
+	// One cancellable lifetime per user; queued frames keep the old lifetime on restart.
+	// This table has at most MAX_SOURCES entries. Old tokens survive only in the
+	// bounded frame queue/worker and decoder callbacks, never an accumulating tombstone list.
+	active: Mutex<HashMap<u64, Arc<AtomicBool>>>,
 	/// Decoded pictures delivered to the sink and decoder failures, for diagnostics only.
 	pub counters: Arc<DecoderCounters>,
 }
@@ -45,6 +50,10 @@ pub(crate) struct DecoderQueue {
 pub(crate) struct DecoderCounters {
 	pub pictures: AtomicU64,
 	pub errors: AtomicU64,
+	pub hardware: AtomicU64,
+	pub software: AtomicU64,
+	pub queue_ms: AtomicU64,
+	pub stale: AtomicU64,
 }
 
 /// A cleartext Annex-B access unit handed to the decoder thread.
@@ -55,8 +64,15 @@ pub(crate) struct Encoded {
 }
 
 enum Decode {
-	Frame(Encoded, tokio::sync::OwnedSemaphorePermit),
-	Remove(u64),
+	Frame(
+		Encoded,
+		tokio::sync::OwnedSemaphorePermit,
+		Instant,
+		Arc<AtomicBool>,
+	),
+	Wake,
+	#[cfg(test)]
+	Barrier(SyncSender<usize>),
 }
 
 /// True when the cleartext Annex-B access unit carries both an SPS and a PPS, so a freshly
@@ -114,10 +130,61 @@ pub(crate) struct Assembler {
 	started: bool,
 	// Preserve loss across frame resets until Receivers schedules recovery.
 	lost: bool,
+	// Only packets of the current picture; the next timestamp expires missing fragments.
+	pending: Vec<(u16, bool, Vec<u8>)>,
+	pending_bytes: usize,
 }
 impl Assembler {
 	/// Feed one packet; returns a complete access unit when the marker closes an intact frame.
 	pub fn push(
+		&mut self,
+		sequence: u16,
+		timestamp: u32,
+		marker: bool,
+		payload: &[u8],
+	) -> Option<Vec<u8>> {
+		if let Some(expected) = self.next_sequence {
+			let distance = sequence.wrapping_sub(expected);
+			if distance >= 32768 {
+				return None;
+			} // Duplicate or late retransmission.
+			if distance != 0 && self.started && timestamp == self.timestamp {
+				if self.pending.iter().any(|(seq, _, _)| *seq == sequence) {
+					return None;
+				}
+				if distance < 128
+					&& self.pending.len() < 128
+					&& payload.len() <= 4096
+					&& self.pending_bytes + payload.len() <= 256 * 1024
+				{
+					self.pending_bytes += payload.len();
+					self.pending.push((sequence, marker, payload.to_vec()));
+					return None;
+				}
+				self.pending.clear();
+				self.pending_bytes = 0;
+			}
+		}
+		if timestamp != self.timestamp {
+			self.pending.clear();
+			self.pending_bytes = 0;
+		}
+		let mut complete = self.push_ordered(sequence, timestamp, marker, payload);
+		while complete.is_none() {
+			let Some(index) = self
+				.pending
+				.iter()
+				.position(|(seq, _, _)| Some(*seq) == self.next_sequence)
+			else {
+				break;
+			};
+			let (seq, marker, payload) = self.pending.swap_remove(index);
+			self.pending_bytes -= payload.len();
+			complete = self.push_ordered(seq, timestamp, marker, &payload);
+		}
+		complete
+	}
+	fn push_ordered(
 		&mut self,
 		sequence: u16,
 		timestamp: u32,
@@ -236,6 +303,7 @@ impl Assembler {
 #[derive(Default)]
 pub(crate) struct Receivers {
 	sources: Vec<(u32, u64, Assembler)>,
+	rtx: Vec<(u32, u32)>,
 	/// Users whose decoder lost a reference picture; only a keyframe restarts their video.
 	awaiting_keyframe: Vec<u64>,
 	/// Depacketizer outcomes since the last `take_stats`, for diagnostics.
@@ -259,6 +327,7 @@ impl Receivers {
 			if entry.1 != user {
 				entry.1 = user;
 				entry.2 = Assembler::default();
+				self.rtx.retain(|(_, media)| *media != ssrc);
 			}
 			return Ok(());
 		}
@@ -271,7 +340,40 @@ impl Receivers {
 	}
 	pub fn remove(&mut self, user: u64) {
 		self.sources.retain(|(_, u, _)| *u != user);
+		self.rtx
+			.retain(|(_, media)| self.sources.iter().any(|(ssrc, _, _)| ssrc == media));
 		self.awaiting_keyframe.retain(|u| *u != user);
+	}
+	pub fn announce_rtx(&mut self, media: u32, rtx: u32) -> Result<(), &'static str> {
+		if media == 0 || rtx == 0 {
+			self.rtx.retain(|(_, source)| *source != media);
+			return Ok(());
+		}
+		if !self.sources.iter().any(|(ssrc, _, _)| *ssrc == media)
+			|| self.sources.iter().any(|(ssrc, _, _)| *ssrc == rtx)
+			|| self
+				.rtx
+				.iter()
+				.any(|(known, source)| *known == rtx && *source != media)
+		{
+			return Err("Invalid video retransmission SSRC");
+		}
+		self.rtx.retain(|(_, source)| *source != media);
+		if self.rtx.len() >= MAX_SOURCES {
+			return Err("Too many video retransmission sources");
+		}
+		self.rtx.push((rtx, media));
+		Ok(())
+	}
+	/// RFC 4588: RTX payload starts with the original sequence number.
+	pub fn restore_rtx(&self, ssrc: u32, payload: &mut Vec<u8>) -> Option<(u32, u16)> {
+		let (_, media) = self.rtx.iter().find(|(rtx, _)| *rtx == ssrc)?;
+		if payload.len() < 3 {
+			return None;
+		}
+		let sequence = u16::from_be_bytes([payload[0], payload[1]]);
+		payload.drain(..2);
+		Some((*media, sequence))
 	}
 	/// A dropped or undecodable picture invalidates every later prediction until an IDR.
 	pub fn require_keyframe(&mut self, user: u64) {
@@ -353,23 +455,21 @@ impl Receivers {
 /// Decoder thread: cleartext access units in, bounded RGBA frames out through the sink.
 /// Dropping the returned sender ends the thread and releases every decoder.
 pub(crate) fn spawn_decoder(sink: VideoSink) -> Result<(DecoderQueue, Lost), &'static str> {
-	// Predictions are small; queueing a second of them beats dropping and waiting for an IDR.
-	let (send, receive) = sync_channel(64);
+	// Keep short bursts, but recover from a fresh keyframe instead of replaying stale video.
+	let (send, receive) = sync_channel(16);
 	let lost: Lost = Arc::new(Mutex::new(Vec::new()));
 	let report = lost.clone();
-	let removals = Arc::new(Mutex::new(Vec::new()));
-	let thread_removals = removals.clone();
 	let counters = Arc::new(DecoderCounters::default());
 	let thread_counters = counters.clone();
 	std::thread::Builder::new()
 		.name("remote-video".into())
-		.spawn(move || decode_loop(receive, sink, report, thread_removals, thread_counters))
+		.spawn(move || decode_loop(receive, sink, report, thread_counters, true))
 		.map_err(|_| "Could not start the video decoder thread")?;
 	Ok((
 		DecoderQueue {
 			send,
 			bytes: Arc::new(tokio::sync::Semaphore::new(QUEUE_BYTES)),
-			removals,
+			active: Mutex::new(HashMap::new()),
 			counters,
 		},
 		lost,
@@ -396,7 +496,23 @@ pub(crate) fn offer(sender: &DecoderQueue, frame: Encoded) -> Result<bool, &'sta
 	else {
 		return Ok(false);
 	};
-	match sender.send.try_send(Decode::Frame(frame, permit)) {
+	let active = {
+		let mut users = sender
+			.active
+			.lock()
+			.map_err(|_| "Video decoder state unavailable")?;
+		if !users.contains_key(&frame.user) && users.len() >= MAX_SOURCES {
+			return Ok(false);
+		}
+		users
+			.entry(frame.user)
+			.or_insert_with(|| Arc::new(AtomicBool::new(true)))
+			.clone()
+	};
+	match sender
+		.send
+		.try_send(Decode::Frame(frame, permit, Instant::now(), active))
+	{
 		Ok(()) => Ok(true),
 		Err(TrySendError::Full(_)) => Ok(false),
 		Err(TrySendError::Disconnected(_)) => Err("Video decoder stopped"),
@@ -405,13 +521,30 @@ pub(crate) fn offer(sender: &DecoderQueue, frame: Encoded) -> Result<bool, &'sta
 
 /// Release one participant's decoder without blocking the media transport.
 pub(crate) fn remove(sender: &DecoderQueue, user: u64) {
-	if let Err(TrySendError::Full(Decode::Remove(user))) =
-		sender.send.try_send(Decode::Remove(user))
-		&& let Ok(mut removals) = sender.removals.lock()
-		&& removals.len() < MAX_SOURCES
-		&& !removals.contains(&user)
+	if let Ok(mut users) = sender.active.lock()
+		&& let Some(active) = users.remove(&user)
 	{
-		removals.push(user);
+		active.store(false, Ordering::Release);
+	}
+	// A full queue already wakes the worker; cancellation lives outside that queue.
+	let _ = sender.send.try_send(Decode::Wake);
+}
+
+/// Drop decoders whose final SSRC disappeared, including SSRCs reassigned to another user.
+pub(crate) fn retain_sources(sender: &DecoderQueue, receivers: &Receivers) {
+	let mut cancelled = false;
+	if let Ok(mut users) = sender.active.lock() {
+		users.retain(|user, active| {
+			let retained = receivers.sources.iter().any(|(_, owner, _)| owner == user);
+			if !retained {
+				active.store(false, Ordering::Release);
+				cancelled = true;
+			}
+			retained
+		});
+	}
+	if cancelled {
+		let _ = sender.send.try_send(Decode::Wake);
 	}
 }
 
@@ -427,12 +560,16 @@ impl Backend {
 		user: u64,
 		sink: &VideoSink,
 		counters: &Arc<DecoderCounters>,
+		lifetime: &Arc<AtomicBool>,
 	) -> Option<Self> {
 		if prefer_hardware {
 			let sink = sink.clone();
 			let counters = counters.clone();
+			let lifetime = lifetime.clone();
 			let deliver: platform::video::LiveSink = Box::new(move |frame| {
-				if bounded(frame.width as usize, frame.height as usize).is_ok() {
+				if lifetime.load(Ordering::Acquire)
+					&& bounded(frame.width as usize, frame.height as usize).is_ok()
+				{
 					counters.pictures.fetch_add(1, Ordering::Relaxed);
 					sink(RemoteFrame {
 						user,
@@ -484,33 +621,63 @@ fn decode_loop(
 	receive: Receiver<Decode>,
 	sink: VideoSink,
 	lost: Lost,
-	removals: Arc<Mutex<Vec<u64>>>,
 	counters: Arc<DecoderCounters>,
+	prefer_hardware: bool,
 ) {
 	let mut decoders: HashMap<u64, Backend> = HashMap::new();
+	let mut active: HashMap<u64, Arc<AtomicBool>> = HashMap::new();
 	// Users whose hardware decoder rejected the stream fall back to software.
 	let mut software_only: Vec<u64> = Vec::new();
 	// After a decode error, predictions are skipped until a keyframe rebuilds the references.
 	let mut broken: Vec<u64> = Vec::new();
 	let mut scratch = Vec::new();
 	while let Ok(message) = receive.recv() {
-		if let Ok(mut removals) = removals.lock() {
-			for user in removals.drain(..) {
-				decoders.remove(&user);
-				software_only.retain(|known| *known != user);
-				broken.retain(|known| *known != user);
+		let had_active = !active.is_empty();
+		active.retain(|user, lifetime| {
+			let retained = lifetime.load(Ordering::Acquire);
+			if !retained {
+				decoders.remove(user);
+				software_only.retain(|known| known != user);
+				broken.retain(|known| known != user);
 			}
+			retained
+		});
+		// Only cancellation of the final lifetime releases scratch; decode errors keep reuse.
+		if had_active && active.is_empty() {
+			scratch = Vec::new();
 		}
-		let (frame, _permit) = match message {
-			Decode::Frame(frame, permit) => (frame, permit),
-			Decode::Remove(user) => {
-				decoders.remove(&user);
-				software_only.retain(|known| *known != user);
-				broken.retain(|known| *known != user);
+		decoder_counts(&decoders, &counters);
+		let (frame, _permit, queued, lifetime) = match message {
+			Decode::Frame(frame, permit, queued, lifetime) => (frame, permit, queued, lifetime),
+			Decode::Wake => continue,
+			#[cfg(test)]
+			Decode::Barrier(done) => {
+				let _ = done.send(scratch.capacity());
 				continue;
 			}
 		};
-		if frame.data.len() > MAX_FRAME_BYTES {
+		if !lifetime.load(Ordering::Acquire) || frame.data.len() > MAX_FRAME_BYTES {
+			continue;
+		}
+		active.insert(frame.user, lifetime.clone());
+		let age = queued.elapsed();
+		counters.queue_ms.fetch_max(
+			age.as_millis().min(u128::from(u64::MAX)) as u64,
+			Ordering::Relaxed,
+		);
+		if age > MAX_DECODE_AGE {
+			counters.stale.fetch_add(1, Ordering::Relaxed);
+			decoders.remove(&frame.user);
+			decoder_counts(&decoders, &counters);
+			if !broken.contains(&frame.user) && broken.len() < MAX_SOURCES {
+				broken.push(frame.user);
+			}
+			if let Ok(mut lost) = lost.lock()
+				&& !lost.contains(&frame.user)
+				&& lost.len() < MAX_SOURCES
+			{
+				lost.push(frame.user);
+			}
 			continue;
 		}
 		if frame.keyframe {
@@ -523,10 +690,11 @@ fn decode_loop(
 				continue;
 			}
 			let Some(decoder) = Backend::new(
-				!software_only.contains(&frame.user),
+				prefer_hardware && !software_only.contains(&frame.user),
 				frame.user,
 				&sink,
 				&counters,
+				&lifetime,
 			) else {
 				counters.errors.fetch_add(1, Ordering::Relaxed);
 				continue;
@@ -537,12 +705,16 @@ fn decode_loop(
 		let hardware = !matches!(decoder, Backend::Software(_));
 		let decoded = match decoder.decode(&frame.data, &mut scratch) {
 			Ok(Some(picture)) => picture,
-			Ok(None) => continue,
+			Ok(None) => {
+				decoder_counts(&decoders, &counters);
+				continue;
+			}
 			Err(()) => {
 				// Corrupt or lost data: a fresh decoder waits for the next keyframe. A
 				// hardware decoder that fails on a keyframe is replaced by software.
 				counters.errors.fetch_add(1, Ordering::Relaxed);
 				decoders.remove(&frame.user);
+				decoder_counts(&decoders, &counters);
 				if hardware && frame.keyframe && !software_only.contains(&frame.user) {
 					software_only.push(frame.user);
 				}
@@ -555,7 +727,11 @@ fn decode_loop(
 				continue;
 			}
 		};
+		decoder_counts(&decoders, &counters);
 		let (width, height) = decoded;
+		if !lifetime.load(Ordering::Acquire) {
+			continue;
+		}
 		counters.pictures.fetch_add(1, Ordering::Relaxed);
 		sink(RemoteFrame {
 			user: frame.user,
@@ -570,6 +746,17 @@ fn decode_loop(
 			decoder.flush();
 		}
 	}
+}
+
+fn decoder_counts(decoders: &HashMap<u64, Backend>, counters: &DecoderCounters) {
+	let hardware = decoders
+		.values()
+		.filter(|decoder| matches!(decoder, Backend::Hardware(_)))
+		.count();
+	counters.hardware.store(hardware as u64, Ordering::Relaxed);
+	counters
+		.software
+		.store((decoders.len() - hardware) as u64, Ordering::Relaxed);
 }
 
 fn bounded(width: usize, height: usize) -> Result<(u32, u32), ()> {
@@ -592,20 +779,342 @@ fn bounded(width: usize, height: usize) -> Result<(u32, u32), ()> {
 mod tests {
 	use super::*;
 
-	#[test]
-	fn optimization_decoder_removal_survives_a_full_frame_queue() {
-		let (send, receive) = sync_channel(1);
-		let removals = Arc::new(Mutex::new(Vec::new()));
-		let queue = DecoderQueue {
-			send,
-			bytes: Arc::new(tokio::sync::Semaphore::new(QUEUE_BYTES)),
-			removals: removals.clone(),
-			counters: Arc::new(DecoderCounters::default()),
+	fn decoder_cleanup_queue(capacity: usize) -> (DecoderQueue, Receiver<Decode>) {
+		let (send, receive) = sync_channel(capacity);
+		(
+			DecoderQueue {
+				send,
+				bytes: Arc::new(tokio::sync::Semaphore::new(QUEUE_BYTES)),
+				active: Mutex::new(HashMap::new()),
+				counters: Arc::default(),
+			},
+			receive,
+		)
+	}
+
+	fn decoder_cleanup_keyframe(width: usize, height: usize) -> Vec<u8> {
+		use openh264::{
+			OpenH264API,
+			encoder::{Encoder, EncoderConfig},
+			formats::YUVBuffer,
 		};
-		assert!(queue.send.try_send(Decode::Remove(1)).is_ok());
+		let mut encoder =
+			Encoder::with_api_config(OpenH264API::from_source(), EncoderConfig::new()).unwrap();
+		let mut data = Vec::new();
+		encoder
+			.encode(&YUVBuffer::new(width, height))
+			.unwrap()
+			.write_vec(&mut data);
+		data
+	}
+
+	fn decoder_cleanup_sync(queue: &DecoderQueue) -> usize {
+		let (send, receive) = sync_channel(1);
+		assert!(queue.send.send(Decode::Barrier(send)).is_ok());
+		receive.recv_timeout(Duration::from_secs(10)).unwrap()
+	}
+
+	#[test]
+	fn decoder_cleanup_invalidates_full_queue_and_allows_restart() {
+		let data = decoder_cleanup_keyframe(32, 32);
+		for full in [true, false] {
+			let (queue, receive) = decoder_cleanup_queue(3);
+			for _ in 0..if full { 3 } else { 1 } {
+				assert!(
+					offer(
+						&queue,
+						Encoded {
+							user: 7,
+							data: data.clone(),
+							keyframe: true
+						}
+					)
+					.unwrap()
+				);
+			}
+			remove(&queue, 7);
+			if !full {
+				assert!(
+					offer(
+						&queue,
+						Encoded {
+							user: 7,
+							data: data.clone(),
+							keyframe: true
+						}
+					)
+					.unwrap()
+				);
+			}
+			let bytes = queue.bytes.clone();
+			let counters = queue.counters.clone();
+			drop(queue);
+			let seen = Arc::new(Mutex::new(Vec::new()));
+			let pictures = seen.clone();
+			decode_loop(
+				receive,
+				Arc::new(move |frame| pictures.lock().unwrap().push(frame.user)),
+				Arc::default(),
+				counters.clone(),
+				false,
+			);
+			assert_eq!(*seen.lock().unwrap(), if full { vec![] } else { vec![7] });
+			assert_eq!(counters.errors.load(Ordering::Relaxed), 0);
+			assert_eq!(counters.software.load(Ordering::Relaxed), u64::from(!full));
+			assert_eq!(bytes.available_permits(), QUEUE_BYTES);
+		}
+	}
+
+	#[test]
+	fn decoder_cleanup_full_queue_rapid_off_on_keeps_only_the_new_lifetime() {
+		let data = decoder_cleanup_keyframe(32, 32);
+		let (queue, receive) = decoder_cleanup_queue(3);
+		let (seen, pictures) = sync_channel(8);
+		let (resume, paused) = sync_channel(1);
+		let paused = Mutex::new(paused);
+		let counters = queue.counters.clone();
+		let worker = std::thread::spawn(move || {
+			decode_loop(
+				receive,
+				Arc::new(move |frame| {
+					seen.send(frame.user).unwrap();
+					if frame.user == 1 {
+						paused
+							.lock()
+							.unwrap()
+							.recv_timeout(Duration::from_secs(10))
+							.unwrap();
+					}
+				}),
+				Arc::default(),
+				counters,
+				false,
+			)
+		});
+		assert!(
+			offer(
+				&queue,
+				Encoded {
+					user: 1,
+					data: data.clone(),
+					keyframe: true
+				}
+			)
+			.unwrap()
+		);
+		assert_eq!(pictures.recv_timeout(Duration::from_secs(10)).unwrap(), 1);
+		// The first sink is paused, so all three old frames and the failed wake are deterministic.
+		for _ in 0..3 {
+			assert!(
+				offer(
+					&queue,
+					Encoded {
+						user: 7,
+						data: data.clone(),
+						keyframe: true
+					}
+				)
+				.unwrap()
+			);
+		}
 		remove(&queue, 7);
-		assert_eq!(*removals.lock().unwrap(), vec![7]);
-		assert!(matches!(receive.recv().unwrap(), Decode::Remove(1)));
+		// Restart before the old queue drains; the first offer creates a fresh lifetime.
+		assert!(
+			!offer(
+				&queue,
+				Encoded {
+					user: 7,
+					data: data.clone(),
+					keyframe: true
+				}
+			)
+			.unwrap()
+		);
+		resume.send(()).unwrap();
+		let deadline = Instant::now() + Duration::from_secs(10);
+		while !offer(
+			&queue,
+			Encoded {
+				user: 7,
+				data: data.clone(),
+				keyframe: true,
+			},
+		)
+		.unwrap()
+		{
+			assert!(Instant::now() < deadline, "decoder did not drain its queue");
+			std::thread::yield_now();
+		}
+		decoder_cleanup_sync(&queue);
+		assert_eq!(pictures.try_iter().collect::<Vec<_>>(), vec![7]);
+		assert_eq!(queue.counters.software.load(Ordering::Relaxed), 2);
+		drop(queue);
+		worker.join().unwrap();
+	}
+
+	#[test]
+	fn decoder_cleanup_tracks_all_sources_and_reassigned_owners() {
+		let (queue, receive) = decoder_cleanup_queue(16);
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		receivers.announce(7, 710).unwrap();
+		assert!(
+			offer(
+				&queue,
+				Encoded {
+					user: 7,
+					data: vec![0],
+					keyframe: true
+				}
+			)
+			.unwrap()
+		);
+		let original = queue.active.lock().unwrap()[&7].clone();
+		assert!(matches!(receive.try_recv(), Ok(Decode::Frame(..))));
+		retain_sources(&queue, &receivers);
+		assert!(matches!(
+			receive.try_recv(),
+			Err(std::sync::mpsc::TryRecvError::Empty)
+		));
+		// Reassigning one of a user's sources must not cancel their remaining source.
+		receivers.announce(8, 700).unwrap();
+		retain_sources(&queue, &receivers);
+		assert!(original.load(Ordering::Acquire));
+		assert!(matches!(
+			receive.try_recv(),
+			Err(std::sync::mpsc::TryRecvError::Empty)
+		));
+		// Reassigning the final SSRC must also release its previous owner's decoder.
+		receivers.announce(8, 710).unwrap();
+		retain_sources(&queue, &receivers);
+		assert!(!original.load(Ordering::Acquire));
+		assert!(!queue.active.lock().unwrap().contains_key(&7));
+		assert!(matches!(receive.try_recv(), Ok(Decode::Wake)));
+		assert!(
+			offer(
+				&queue,
+				Encoded {
+					user: 8,
+					data: vec![0],
+					keyframe: true
+				}
+			)
+			.unwrap()
+		);
+		let current = queue.active.lock().unwrap()[&8].clone();
+		receivers.announce(8, 0).unwrap();
+		retain_sources(&queue, &receivers);
+		assert!(!current.load(Ordering::Acquire));
+	}
+
+	#[test]
+	fn decoder_cleanup_releases_slots_for_another_participant() {
+		let data = decoder_cleanup_keyframe(32, 32);
+		let (queue, receive) = decoder_cleanup_queue(16);
+		let counters = queue.counters.clone();
+		let seen = Arc::new(Mutex::new(Vec::new()));
+		let pictures = seen.clone();
+		let worker = std::thread::spawn(move || {
+			decode_loop(
+				receive,
+				Arc::new(move |frame| pictures.lock().unwrap().push(frame.user)),
+				Arc::default(),
+				counters,
+				false,
+			)
+		});
+		let mut receivers = Receivers::default();
+		for user in 1..=MAX_DECODERS as u64 {
+			crate::transport::announce_video(
+				&mut receivers,
+				&queue,
+				user,
+				&serde_json::json!({"video_ssrc": user}),
+			)
+			.unwrap();
+			assert!(
+				offer(
+					&queue,
+					Encoded {
+						user,
+						data: data.clone(),
+						keyframe: true
+					}
+				)
+				.unwrap()
+			);
+			decoder_cleanup_sync(&queue);
+		}
+		assert_eq!(
+			queue.counters.software.load(Ordering::Relaxed),
+			MAX_DECODERS as u64
+		);
+		crate::transport::announce_video(
+			&mut receivers,
+			&queue,
+			1,
+			&serde_json::json!({"video_ssrc": 0, "streams": [{"type": "video", "ssrc": 1}]}),
+		)
+		.unwrap();
+		decoder_cleanup_sync(&queue);
+		assert_eq!(
+			queue.counters.software.load(Ordering::Relaxed),
+			MAX_DECODERS as u64
+		);
+		crate::transport::announce_video(
+			&mut receivers,
+			&queue,
+			1,
+			&serde_json::json!({"video_ssrc": 0, "streams": []}),
+		)
+		.unwrap();
+		decoder_cleanup_sync(&queue);
+		assert_eq!(
+			queue.counters.software.load(Ordering::Relaxed),
+			MAX_DECODERS as u64 - 1
+		);
+		crate::transport::announce_video(
+			&mut receivers,
+			&queue,
+			9,
+			&serde_json::json!({"video_ssrc": 9}),
+		)
+		.unwrap();
+		assert!(
+			offer(
+				&queue,
+				Encoded {
+					user: 9,
+					data,
+					keyframe: true
+				}
+			)
+			.unwrap()
+		);
+		decoder_cleanup_sync(&queue);
+		assert_eq!(seen.lock().unwrap().last(), Some(&9));
+		assert_eq!(
+			queue.counters.software.load(Ordering::Relaxed),
+			MAX_DECODERS as u64
+		);
+		assert!(decoder_cleanup_sync(&queue) > 0);
+		for user in 2..=9 {
+			crate::transport::announce_video(
+				&mut receivers,
+				&queue,
+				user,
+				&serde_json::json!({"video_ssrc": 0, "streams": []}),
+			)
+			.unwrap();
+		}
+		assert_eq!(
+			decoder_cleanup_sync(&queue),
+			0,
+			"final camera-off releases scratch"
+		);
+		assert_eq!(queue.counters.software.load(Ordering::Relaxed), 0);
+		drop(queue);
+		worker.join().unwrap();
 	}
 
 	#[test]
@@ -860,7 +1369,10 @@ mod tests {
 				.unwrap()
 				.push((frame.user, frame.width, frame.height, frame.rgba.to_vec()));
 		});
-		let mut decoder = Backend::new(true, 9, &sink, &Arc::default()).expect("hardware backend");
+		let counters = Arc::new(DecoderCounters::default());
+		let lifetime = Arc::new(AtomicBool::new(true));
+		let mut decoder =
+			Backend::new(true, 9, &sink, &counters, &lifetime).expect("hardware backend");
 		assert!(matches!(decoder, Backend::Hardware(_)));
 		let mut scratch = Vec::new();
 		for _ in 0..3 {
@@ -871,12 +1383,27 @@ mod tests {
 			assert!(decoder.decode(&data, &mut scratch).unwrap().is_none());
 		}
 		decoder.flush();
-		let pictures = pictures.lock().unwrap();
-		assert!(!pictures.is_empty(), "VideoToolbox produced pictures");
-		let frame = &pictures[0];
-		assert_eq!((frame.0, frame.1, frame.2), (9, 320, 240));
-		assert_eq!(frame.3.len(), 320 * 240 * 4);
-		assert!(frame.3.as_chunks::<4>().0.iter().all(|px| px[3] == 255));
+		let delivered = {
+			let pictures = pictures.lock().unwrap();
+			assert!(!pictures.is_empty(), "VideoToolbox produced pictures");
+			let frame = &pictures[0];
+			assert_eq!((frame.0, frame.1, frame.2), (9, 320, 240));
+			assert_eq!(frame.3.len(), 320 * 240 * 4);
+			assert!(frame.3.as_chunks::<4>().0.iter().all(|px| px[3] == 255));
+			pictures.len() as u64
+		};
+		assert_eq!(counters.pictures.load(Ordering::Relaxed), delivered);
+		lifetime.store(false, Ordering::Release);
+		let mut data = Vec::new();
+		encoder.encode(&yuv).unwrap().write_vec(&mut data);
+		decoder.decode(&data, &mut scratch).unwrap();
+		decoder.flush();
+		assert_eq!(pictures.lock().unwrap().len() as u64, delivered);
+		assert_eq!(
+			counters.pictures.load(Ordering::Relaxed),
+			delivered,
+			"cancelled hardware callbacks must not reset the stall detector"
+		);
 	}
 	/// `cargo test -p discord-voice compare_decoder_backends -- --ignored --nocapture`
 	#[cfg(target_os = "macos")]
@@ -914,7 +1441,14 @@ mod tests {
 			let sink: VideoSink = Arc::new(move |_| {
 				seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 			});
-			let mut decoder = Backend::new(hardware, 1, &sink, &Arc::default()).unwrap();
+			let mut decoder = Backend::new(
+				hardware,
+				1,
+				&sink,
+				&Arc::default(),
+				&Arc::new(AtomicBool::new(true)),
+			)
+			.unwrap();
 			let mut scratch = Vec::new();
 			// Session start-up (IOSurface, Metal) is a one-time cost; time steady state only.
 			let _ = decoder.decode(&frames[0], &mut scratch);
