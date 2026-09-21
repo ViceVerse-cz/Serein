@@ -81,10 +81,14 @@ mod tests {
 			}
 			assert!(!labels.iter().any(|(s, _)| s == "Microphone Muted"));
 			assert!(!labels.iter().any(|(s, _)| s == "Microphone Unmuted"));
+			assert!(!labels.iter().any(|(s, _)| s == "Deafen"));
+			assert!(!labels.iter().any(|(s, _)| s == "Undeafen"));
 			view.notification_options.discord_sounds = true;
 			let discord_labels = render(&mut view, vec![]);
 			assert!(discord_labels.iter().any(|(s, _)| s == "Microphone Muted"));
 			assert!(discord_labels.iter().any(|(s, _)| s == "Microphone Unmuted"));
+			assert!(discord_labels.iter().any(|(s, _)| s == "Deafen"));
+			assert!(discord_labels.iter().any(|(s, _)| s == "Undeafen"));
 			view.notification_options.discord_sounds = false;
 			let labels = render(&mut view, vec![]);
 			let point = labels
@@ -207,6 +211,16 @@ impl MessagingUi {
 					"Microphone Unmuted",
 					&mut self.notification_options.unmute,
 					Sound::Unmute,
+				));
+				sounds.push((
+					"Deafen",
+					&mut self.notification_options.deafen,
+					Sound::Deafen,
+				));
+				sounds.push((
+					"Undeafen",
+					&mut self.notification_options.undeafen,
+					Sound::Undeafen,
 				));
 			}
 			for (index, (label, value, sound)) in sounds.into_iter().enumerate() {

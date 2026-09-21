@@ -5049,16 +5049,27 @@ impl eframe::App for Desktop {
 			let mut muted = self.messaging.voice_muted;
 			let mut deafened = self.messaging.voice_deafened;
 			let mut mic_toggled = false;
+			let mut deaf_toggled = false;
 			if voice_toggles & 1 != 0 {
 				muted = !muted;
 				mic_toggled = true;
 			}
 			if voice_toggles & 2 != 0 {
 				deafened = !deafened;
+				deaf_toggled = true;
 			}
 			self.messaging.voice_muted = muted;
 			self.messaging.voice_deafened = deafened;
-			if mic_toggled {
+			if deaf_toggled {
+				let cue = if deafened {
+					model::notification_preferences::Sound::Deafen
+				} else {
+					model::notification_preferences::Sound::Undeafen
+				};
+				if self.messaging.notification_options.allows(cue) {
+					self.messaging.notification_preview = Some(cue);
+				}
+			} else if mic_toggled {
 				let cue = if muted {
 					model::notification_preferences::Sound::Mute
 				} else {

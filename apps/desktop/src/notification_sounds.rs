@@ -128,13 +128,15 @@ fn samples(
 			}
 			Sound::Mute => include_bytes!("../../../assets/sounds/discord/mute.mp3"),
 			Sound::Unmute => include_bytes!("../../../assets/sounds/discord/unmute.mp3"),
+			Sound::Deafen => include_bytes!("../../../assets/sounds/discord/deafen.mp3"),
+			Sound::Undeafen => include_bytes!("../../../assets/sounds/discord/undeafen.mp3"),
 		}
 	} else {
 		match sound {
 			Sound::Message => include_bytes!("../../../assets/sounds/message.mp3"),
 			Sound::CurrentChannel => include_bytes!("../../../assets/sounds/current-channel.mp3"),
 			Sound::IncomingRing => include_bytes!("../../../assets/sounds/incoming-ring.mp3"),
-			Sound::Mute | Sound::Unmute => return Err(()),
+			Sound::Mute | Sound::Unmute | Sound::Deafen | Sound::Undeafen => return Err(()),
 		}
 	};
 	if bytes.len() > 128 * 1024 || !(8000..=192000).contains(&rate) {
@@ -347,6 +349,8 @@ mod tests {
 			}
 			assert!(samples(Sound::Mute, false, rate, &|| true).is_err());
 			assert!(samples(Sound::Unmute, false, rate, &|| true).is_err());
+			assert!(samples(Sound::Deafen, false, rate, &|| true).is_err());
+			assert!(samples(Sound::Undeafen, false, rate, &|| true).is_err());
 
 			let discord_cues = [
 				Sound::Message,
@@ -354,16 +358,21 @@ mod tests {
 				Sound::IncomingRing,
 				Sound::Mute,
 				Sound::Unmute,
+				Sound::Deafen,
+				Sound::Undeafen,
 			]
 			.map(|s| samples(s, true, rate, &|| true).unwrap());
 			assert_eq!(discord_cues[0], discord_cues[1]);
 			assert_ne!(discord_cues[3], discord_cues[4]);
+			assert_ne!(discord_cues[5], discord_cues[6]);
 			let discord_expectations = [
 				(0.2, 0.5),
 				(0.2, 0.5),
 				(5.0, 5.6),
 				(0.3, 0.6),
 				(0.3, 0.6),
+				(0.6, 0.9),
+				(0.6, 1.0),
 			];
 			for (cue, (min, max)) in discord_cues.iter().zip(discord_expectations) {
 				let seconds = cue.len() as f64 / f64::from(rate);

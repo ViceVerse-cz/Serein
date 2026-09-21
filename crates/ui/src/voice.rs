@@ -1831,6 +1831,14 @@ impl MessagingUi {
 			if response.clicked() {
 				if deafen {
 					self.voice_deafened = !active;
+					let cue = if !active {
+						model::notification_preferences::Sound::Deafen
+					} else {
+						model::notification_preferences::Sound::Undeafen
+					};
+					if self.notification_options.allows(cue) {
+						self.notification_preview = Some(cue);
+					}
 				} else {
 					self.voice_muted = !active;
 					let cue = if !active {
@@ -1896,6 +1904,14 @@ impl MessagingUi {
 		if response.clicked() {
 			if deafen {
 				deafened = !deafened;
+				let cue = if deafened {
+					model::notification_preferences::Sound::Deafen
+				} else {
+					model::notification_preferences::Sound::Undeafen
+				};
+				if self.notification_options.allows(cue) {
+					self.notification_preview = Some(cue);
+				}
 			} else {
 				muted = !muted;
 				let cue = if muted {

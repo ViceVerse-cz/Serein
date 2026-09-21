@@ -10,6 +10,8 @@ pub struct Device {
 	pub discord_sounds: bool,
 	pub mute: bool,
 	pub unmute: bool,
+	pub deafen: bool,
+	pub undeafen: bool,
 }
 impl Default for Device {
 	fn default() -> Self {
@@ -22,6 +24,8 @@ impl Default for Device {
 			discord_sounds: false,
 			mute: true,
 			unmute: true,
+			deafen: true,
+			undeafen: true,
 		}
 	}
 }
@@ -32,6 +36,8 @@ pub enum Sound {
 	IncomingRing,
 	Mute,
 	Unmute,
+	Deafen,
+	Undeafen,
 }
 impl Device {
 	pub fn allows(self, sound: Sound) -> bool {
@@ -42,6 +48,8 @@ impl Device {
 				Sound::IncomingRing => self.incoming_ring,
 				Sound::Mute => self.discord_sounds && self.mute,
 				Sound::Unmute => self.discord_sounds && self.unmute,
+				Sound::Deafen => self.discord_sounds && self.deafen,
+				Sound::Undeafen => self.discord_sounds && self.undeafen,
 			}
 	}
 }
@@ -55,12 +63,19 @@ mod tests {
 		assert!(!settings.allows(Sound::CurrentChannel));
 		assert!(!settings.allows(Sound::Mute));
 		assert!(!settings.allows(Sound::Unmute));
+		assert!(!settings.allows(Sound::Deafen));
+		assert!(!settings.allows(Sound::Undeafen));
 		settings.discord_sounds = true;
 		assert!(settings.allows(Sound::Mute));
 		assert!(settings.allows(Sound::Unmute));
+		assert!(settings.allows(Sound::Deafen));
+		assert!(settings.allows(Sound::Undeafen));
 		settings.mute = false;
 		assert!(!settings.allows(Sound::Mute));
 		assert!(settings.allows(Sound::Unmute));
+		settings.deafen = false;
+		assert!(!settings.allows(Sound::Deafen));
+		assert!(settings.allows(Sound::Undeafen));
 		settings.current_channel = true;
 		settings.new_message = false;
 		assert!(settings.allows(Sound::CurrentChannel));
@@ -71,6 +86,8 @@ mod tests {
 			Sound::IncomingRing,
 			Sound::Mute,
 			Sound::Unmute,
+			Sound::Deafen,
+			Sound::Undeafen,
 		] {
 			assert!(!settings.allows(sound));
 		}
