@@ -1,5 +1,11 @@
 # Third-party notices
 
+Discord Lottie sticker previews use **rasterlottie 0.2.2** (MIT OR Apache-2.0)
+with default features disabled. Serein uses the MIT option; its unmodified MIT
+license is retained in `assets/licenses/files/rasterlottie-0.2.2-LICENSE-MIT`.
+The pure-Rust renderer reuses the existing serde stack and adds tiny-skia 0.12.0;
+exact archive checksums are recorded in `Cargo.lock`.
+
 Linux tray integration uses **ksni 0.3.6** (Unlicense), reusing zbus, Tokio and image.
 The unmodified license is retained in `assets/licenses/files/ksni-0.3.6-UNLICENSE`;
 `Cargo.lock` records the archive checksum.
