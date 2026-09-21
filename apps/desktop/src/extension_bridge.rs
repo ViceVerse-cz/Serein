@@ -2,11 +2,12 @@
 use crate::extensions::{Event, ExtensionHost, InstallSource, InstalledExtension, Job, Starter};
 use client_core::State;
 use eframe::egui;
-use extensions::{CatalogEntry, ExtensionKind, Invocation};
+use extensions::{CatalogEntry, ExtensionKind, Invocation, Surface};
 use std::{
 	collections::{BTreeMap, BTreeSet},
 	path::PathBuf,
 	sync::{Arc, mpsc},
+	time::{Duration, Instant},
 };
 use ui::{ExtensionContext, ExtensionEntry, ExtensionRequest};
 
@@ -17,7 +18,117 @@ struct Pending {
 	reconcile: bool,
 	preview: Option<(String, String)>,
 	invocation: Option<(String, Invocation, ExtensionContext)>,
+	/// `Some(plugin_id)` only for a host-scheduled `tick` action invocation
+	/// (see `Bridge::schedule_ticks`), never for a user-triggered one.
+	/// Ticks apply an appearance overlay directly and skip
+	/// `present_output`, since they have no panel UI or status message to
+	/// show. Carrying the id (rather than just a bool) lets both a
+	/// successful and a failed completion clear that plugin's in-flight
+	/// flag, even though a tick's `invocation` field above is always
+	/// `None` (there is no panel/message context to resume).
+	tick: Option<String>,
 }
+
+/// How often a plugin's `tick` action has been called and is next due,
+/// tracked per plugin id for as long as it stays enabled this session.
+/// Scheduling is paced by completion, not just by wall-clock elapsed time:
+/// `in_flight` stops a second tick from being queued while the first is
+/// still running, so a slow invocation can never make ticks pile up
+/// faster than the single-worker queue can drain them -- that queue is
+/// only 4 deep and shared with every other extension action, including
+/// this same plugin's own settings panel.
+struct TickSchedule {
+	enabled_at: Instant,
+	next_due: Instant,
+	in_flight: bool,
+}
+
+/// Host-side, Wasm-free color easing between two successive `tick`
+/// outputs. Invocations stay slow and cheap (`TICK_MIN_INTERVAL_MS`); this
+/// is what keeps the *displayed* color moving smoothly in between them --
+/// pure arithmetic over hex strings, recomputed each repaint, no plugin
+/// involved. `to` becomes the next `from` when a new tick lands, so
+/// transitions chain into one continuous motion rather than restarting.
+struct Transition {
+	from: extensions::Theme,
+	to: extensions::Theme,
+	start: Instant,
+	duration: Duration,
+}
+/// How often to repaint *while easing* a color transition -- independent
+/// of, and much faster than, `extensions::TICK_MIN_INTERVAL_MS`. This
+/// costs a repaint and some hex-string arithmetic, not a Wasm call, so it
+/// stays cheap at a much higher rate than tick invocations ever should.
+const TRANSITION_REPAINT_MS: u64 = 33;
+
+fn blend_theme(from: &extensions::Theme, to: &extensions::Theme, t: f64) -> extensions::Theme {
+	extensions::Theme {
+		light: blend_palette(&from.light, &to.light, t),
+		dark: blend_palette(&from.dark, &to.dark, t),
+		style: to.style,
+	}
+}
+
+fn blend_palette(
+	from: &extensions::ThemePalette,
+	to: &extensions::ThemePalette,
+	t: f64,
+) -> extensions::ThemePalette {
+	// Every key in `to` wins outright by default; a key also present in
+	// `from` gets eased instead. A key that only exists on one side (a
+	// setting toggled on/off mid-flight, say) has nothing sensible to ease
+	// between, so it snaps -- that's a rare, one-off event, not part of
+	// the continuous animation this exists for.
+	let mut colors = to.colors.clone();
+	for (key, to_value) in &to.colors {
+		if let Some(from_value) = from.colors.get(key)
+			&& let Some(blended) = lerp_hex(from_value, to_value, t)
+		{
+			colors.insert(key.clone(), blended);
+		}
+	}
+	let backdrop = match (&from.backdrop, &to.backdrop) {
+		(Some(from_stops), Some(to_stops)) => Some([
+			lerp_hex(&from_stops[0], &to_stops[0], t).unwrap_or_else(|| to_stops[0].clone()),
+			lerp_hex(&from_stops[1], &to_stops[1], t).unwrap_or_else(|| to_stops[1].clone()),
+		]),
+		_ => to.backdrop.clone(),
+	};
+	extensions::ThemePalette {
+		background: to.background,
+		colors,
+		backdrop,
+	}
+}
+
+/// Linear per-channel blend between two `#rrggbb` strings. `None` if
+/// either side isn't valid 6-digit hex (the caller then just snaps to
+/// `to` instead of failing the whole theme).
+fn lerp_hex(from: &str, to: &str, t: f64) -> Option<String> {
+	let from = parse_rgb_hex(from)?;
+	let to = parse_rgb_hex(to)?;
+	let channel = |a: u8, b: u8| {
+		(f64::from(a) + (f64::from(b) - f64::from(a)) * t)
+			.round()
+			.clamp(0.0, 255.0) as u8
+	};
+	Some(format!(
+		"#{:02x}{:02x}{:02x}",
+		channel(from[0], to[0]),
+		channel(from[1], to[1]),
+		channel(from[2], to[2]),
+	))
+}
+
+fn parse_rgb_hex(text: &str) -> Option<[u8; 3]> {
+	let text = text.trim().strip_prefix('#').unwrap_or(text.trim());
+	if text.len() != 6 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+		return None;
+	}
+	let byte = |i: usize| u8::from_str_radix(&text[i..i + 2], 16).ok();
+	Some([byte(0)?, byte(2)?, byte(4)?])
+}
+
 type PickedBackground = (Vec<u8>, Arc<egui::ColorImage>);
 
 enum ThemePickerResult {
@@ -38,6 +149,8 @@ pub struct Bridge {
 	picker: Option<mpsc::Receiver<Option<PathBuf>>>,
 	theme_picker: Option<mpsc::Receiver<ThemePickerResult>>,
 	theme_preview: Option<(Box<extensions::Theme>, Option<Arc<egui::ColorImage>>)>,
+	ticks: BTreeMap<String, TickSchedule>,
+	transitions: BTreeMap<String, Transition>,
 }
 impl Bridge {
 	pub fn cleanup_pending(&self) -> bool {
@@ -69,6 +182,7 @@ impl Bridge {
 						reconcile: false,
 						preview: None,
 						invocation: None,
+						tick: None,
 					},
 				);
 			}
@@ -186,6 +300,14 @@ impl Bridge {
 			}
 			match outcome {
 				Err(error) => {
+					if let Some(plugin_id) = pending.as_ref().and_then(|p| p.tick.clone()) {
+						// A missed or failed tick is not user-visible; just
+						// clear in-flight so the next due tick can go out.
+						if let Some(schedule) = self.ticks.get_mut(&plugin_id) {
+							schedule.in_flight = false;
+						}
+						continue;
+					}
 					if let Some((id, _, _)) = pending.as_ref().and_then(|p| p.invocation.as_ref()) {
 						self.disabled.insert(id.clone());
 						self.apply_theme(ctx);
@@ -306,6 +428,39 @@ impl Bridge {
 					self.entries(messaging);
 					messaging.extensions.status =
 						"Disabled. Downloaded code and extension data were removed.".into();
+				}
+				Ok(Event::Invoked { id, output }) if pending.as_ref().is_some_and(|p| p.tick.is_some()) => {
+					// Host-scheduled tick: clear in-flight so the next due
+					// tick can be scheduled, then start easing from the
+					// current color toward the new one rather than
+					// snapping to it -- see `Transition`. No panel/status
+					// UI to update either way.
+					if let Some(schedule) = self.ticks.get_mut(&id) {
+						schedule.in_flight = false;
+					}
+					if !self.disabled.contains(&id)
+						&& let Some(appearance) = &output.appearance
+						&& let Some(installed) =
+							self.installed.iter_mut().find(|entry| entry.manifest.id == id)
+					{
+						let from = self
+							.transitions
+							.get(&id)
+							.map(|t| t.to.clone())
+							.or_else(|| installed.theme.clone())
+							.unwrap_or_else(|| appearance.clone());
+						self.transitions.insert(
+							id.clone(),
+							Transition {
+								from,
+								to: appearance.clone(),
+								start: Instant::now(),
+								duration: Duration::from_millis(extensions::TICK_MIN_INTERVAL_MS),
+							},
+						);
+						installed.theme = Some(appearance.clone());
+						self.apply_theme(ctx);
+					}
 				}
 				Ok(Event::Invoked { id, output }) => {
 					if let Some((requested, invocation, context)) =
@@ -625,6 +780,7 @@ impl Bridge {
 				}
 			}
 		}
+		self.schedule_ticks(&account, state.generation, ctx);
 		state.set_preserve_deleted_messages(
 			account.is_some()
 				&& self.installed.iter().any(|entry| {
@@ -649,7 +805,11 @@ impl Bridge {
 			|| self
 				.pending
 				.values()
-				.any(|pending| pending.preview.is_none());
+				// A tick job is never a one-shot user action waiting to
+				// resolve -- it's a perpetual background heartbeat as long
+				// as a Tick-capable plugin stays enabled, so it must never
+				// count toward "an action is in flight, disable input."
+				.any(|pending| pending.preview.is_none() && pending.tick.is_none());
 		if !self.host.as_ref().unwrap().busy() {
 			self.pending.retain(|_, pending| pending.cleanup);
 		}
@@ -690,6 +850,7 @@ impl Bridge {
 						preview,
 						generation,
 						invocation,
+						tick: None,
 					},
 				);
 			}
@@ -698,6 +859,132 @@ impl Bridge {
 					messaging.extensions.receive_preview(id, None);
 				} else {
 					messaging.extensions.report_error(error);
+				}
+			}
+		}
+	}
+	/// Re-invokes every enabled plugin's `tick` action, at most one in
+	/// flight per plugin at a time, on a bounded cadence
+	/// (`extensions::TICK_MIN_INTERVAL_MS`) for as long as it stays
+	/// enabled and an account is active. Each call is an ordinary, fresh,
+	/// fuel-limited Wasm invocation submitted through the same
+	/// single-worker, 4-deep queue as every other extension job -- Import,
+	/// Refresh, and this plugin's own settings panel included. Never
+	/// submitting a second tick before the first resolves is what keeps
+	/// that queue from filling up and starving everything else, no matter
+	/// how long one invocation happens to take. A plugin with no `tick`
+	/// action is untouched and costs nothing here.
+	fn schedule_ticks(&mut self, account: &Option<String>, generation: u64, ctx: &egui::Context) {
+		let Some(account) = account else {
+			self.ticks.clear();
+			return;
+		};
+		let now = Instant::now();
+		let active: BTreeSet<String> = self
+			.installed
+			.iter()
+			.filter(|entry| {
+				entry.error.is_none()
+					&& !self.disabled.contains(&entry.manifest.id)
+					&& entry
+						.manifest
+						.actions
+						.iter()
+						.any(|action| action.surface == Surface::Tick)
+			})
+			.map(|entry| entry.manifest.id.clone())
+			.collect();
+		self.ticks.retain(|id, _| active.contains(id));
+		self.transitions.retain(|id, _| active.contains(id));
+		let mut due = Vec::new();
+		for id in &active {
+			let schedule = self.ticks.entry(id.clone()).or_insert(TickSchedule {
+				enabled_at: now,
+				next_due: now,
+				in_flight: false,
+			});
+			if !schedule.in_flight && now >= schedule.next_due {
+				due.push((id.clone(), now.saturating_duration_since(schedule.enabled_at)));
+				schedule.in_flight = true;
+				schedule.next_due = now + Duration::from_millis(extensions::TICK_MIN_INTERVAL_MS);
+			}
+		}
+		for (id, elapsed) in due {
+			let Some(action_id) = self
+				.installed
+				.iter()
+				.find(|entry| entry.manifest.id == id)
+				.and_then(|entry| {
+					entry
+						.manifest
+						.actions
+						.iter()
+						.find(|action| action.surface == Surface::Tick)
+				})
+				.map(|action| action.id.clone())
+			else {
+				continue;
+			};
+			self.submit_tick(
+				id.clone(),
+				Job::Invoke {
+					id,
+					account: account.clone(),
+					invocation: Invocation {
+						action: action_id,
+						tick_ms: Some(elapsed.as_millis() as u64),
+						..Default::default()
+					},
+				},
+				generation,
+				ctx,
+			);
+		}
+		let now = Instant::now();
+		let easing = self
+			.transitions
+			.values()
+			.any(|transition| now < transition.start + transition.duration);
+		if easing {
+			// Nothing new was invoked this frame, necessarily, but the
+			// displayed color still needs to keep moving between the last
+			// two tick outputs -- recompute and repaint at a much faster,
+			// Wasm-free cadence than invocations themselves ever run at.
+			self.apply_theme(ctx);
+			ctx.request_repaint_after(Duration::from_millis(TRANSITION_REPAINT_MS));
+		} else if !active.is_empty() {
+			// Keep the frame loop alive even if nothing else is animating,
+			// so the next tick is actually due when we ask for it.
+			ctx.request_repaint_after(Duration::from_millis(extensions::TICK_MIN_INTERVAL_MS));
+		}
+	}
+	/// Like `submit`, but for a host-scheduled tick: no UI context to
+	/// resume, no status message on failure (the next tick just retries),
+	/// and the resulting `Pending` is flagged with the plugin id so
+	/// `Event::Invoked` can both clear `TickSchedule.in_flight` and apply
+	/// only the appearance overlay, skipping panel/status UI.
+	fn submit_tick(&mut self, plugin_id: String, job: Job, generation: u64, ctx: &egui::Context) {
+		match self.host.as_mut().unwrap().submit(job, ctx) {
+			Ok(token) => {
+				self.pending.insert(
+					token,
+					Pending {
+						theme_save: false,
+						cleanup: false,
+						reconcile: false,
+						preview: None,
+						generation,
+						invocation: None,
+						tick: Some(plugin_id),
+					},
+				);
+			}
+			Err(_) => {
+				// Didn't even make it into the queue (e.g. briefly full) --
+				// clear in-flight so the next due cycle can retry, rather
+				// than leaving this plugin stuck thinking one is pending.
+				if let Some(schedule) = self.ticks.get_mut(&plugin_id) {
+					schedule.in_flight = false;
 				}
 			}
 		}
@@ -809,6 +1096,23 @@ impl Bridge {
 			.extensions
 			.set_entries(entries.into_values().collect());
 	}
+	/// The color a plugin's `tick` output should currently show, midway
+	/// between its last two values if a transition is still easing, or
+	/// `None` if there's no transition to blend (not a tick plugin, or it
+	/// only just started and hasn't produced a second value yet -- see
+	/// `apply_theme`, which falls back to the entry's raw theme then).
+	fn blended_theme(&self, id: &str) -> Option<extensions::Theme> {
+		let transition = self.transitions.get(id)?;
+		let t = if transition.duration.is_zero() {
+			1.0
+		} else {
+			(Instant::now()
+				.saturating_duration_since(transition.start)
+				.as_secs_f64() / transition.duration.as_secs_f64())
+			.clamp(0.0, 1.0)
+		};
+		Some(blend_theme(&transition.from, &transition.to, t))
+	}
 	fn apply_theme(&self, ctx: &egui::Context) {
 		// Explicit theme first, then enabled plugin appearances in stable ID order.
 		let mut entries: Vec<_> = self
@@ -833,7 +1137,8 @@ impl Bridge {
 			.as_ref()
 			.map_or_else(extensions::Theme::default, |(theme, _)| (**theme).clone());
 		for entry in &entries {
-			appearance.overlay(entry.theme.as_ref().unwrap());
+			let blended = self.blended_theme(&entry.manifest.id);
+			appearance.overlay(blended.as_ref().unwrap_or_else(|| entry.theme.as_ref().unwrap()));
 		}
 		ui::design::set_extension_theme(
 			(!entries.is_empty() || self.theme_preview.is_some()).then_some(&appearance),

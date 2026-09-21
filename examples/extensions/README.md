@@ -14,7 +14,18 @@ python pack.py message-delete-protector/manifest.json target/wasm32-unknown-unkn
 ```
 
 Import the package in Settings > Extensions, review the capabilities, and enable it.
-Message delete protector is the sole example plugin. Its `activation` action returns
+Build `rgb-cycle` the same way; its packaged output goes to
+`packages/rgb-cycle.serein-extension`. It has a `tick` action with the
+`appearance` capability, which the host re-invokes on its own schedule (see
+"Tick" below) to sweep enabled theme tokens through the color wheel, and a
+`settings` panel action (`storage` capability) letting you check or uncheck
+every individual token - surfaces, text, accent, status colors, mentions,
+and the background gradient - from Settings > Extensions > RGB Cycle >
+Open tool. Choices persist across restarts via plugin storage.
+`positive`/`warning`/`danger` default off, since a rotating hue can make a
+destructive action briefly read as safe; every other token defaults on.
+
+Message delete protector is the sole example message-context plugin. Its `activation` action returns
 `preserve_deleted_messages: true` after the user grants `deleted_messages`. The host
 keeps already-loaded messages in bounded session memory and displays deleted text in red
 by default. Hover and a local context menu can toggle that highlight or remove the
@@ -46,6 +57,32 @@ to customize app colors and native controls. With `storage`, activation receives
 the previously saved value so appearance settings can be restored.
 This added capability requires a host version that supports it.
 Storage is one opaque UTF-8 value, replacing the previous value when present.
+
+### Tick
+
+A plugin may declare at most one action with `"surface": "tick"`, and it
+requires the `appearance` capability (enforced at manifest validation, not
+just at runtime). Unlike every other surface, the host invokes a `tick`
+action itself, repeatedly, for as long as the plugin stays enabled and the
+app is in the foreground - the user never clicks anything to trigger it.
+Each call still runs in its own fresh, fuel-bounded Wasm instance, exactly
+like every other invocation; nothing is retained between calls, no WASI or
+host imports are added, and execution never happens inside the UI's render
+or audio callback. `extensions::TICK_MIN_INTERVAL_MS` (~250ms) is a floor,
+not a target: the host also never lets a second `tick` invocation for a
+plugin queue up before the first one resolves, so a slow invocation still
+can't flood the shared, single-worker extension queue that every other
+action -- Import, Refresh, a plugin's own settings panel -- goes through
+too. The invocation carries
+`tick_ms`, milliseconds elapsed since the plugin was enabled this session,
+and the plugin must derive its output solely from that value - there is no
+selected message, composer, or stored state on a tick call, and any output
+field other than `appearance` (and, implicitly, an empty `panel`) is
+rejected the same as it would be from any other capability mismatch. This
+is how `rgb-cycle` animates a theme: it returns a new `appearance` overlay
+each call, and the host swaps straight to it (there's no cross-fade), so
+pick a rotation slow enough relative to the tick interval that each step
+reads as gradual motion rather than a visible jump.
 
 Panel elements use the `type` tag: `text` (`text`), `row` (`children`), `button` (`id`, `label`),
 `text_input` (`id`, `label`, `value`), `checkbox` (`id`, `label`, `checked`),
