@@ -164,6 +164,15 @@ impl MessagingUi {
 		});
 		self.settings.notifications.heading(ui, Tab::Sounds);
 		design::card(ui, |ui| {
+			design::switch(
+				ui,
+				"Classic Discord Sounds",
+				Some(
+					"Use classic Discord notification sounds and ringtones instead of Serein defaults.",
+				),
+				&mut self.notification_options.discord_sounds,
+			);
+			design::card_divider(ui);
 			for (index, (label, value, sound)) in [
 				(
 					"New Message",
@@ -192,15 +201,6 @@ impl MessagingUi {
 					self.notification_preview = Some(sound);
 				}
 			}
-			design::card_divider(ui);
-			design::switch(
-				ui,
-				"Classic Discord Sounds",
-				Some(
-					"Use classic Discord notification sounds and ringtones instead of Serein defaults.",
-				),
-				&mut self.notification_options.discord_sounds,
-			);
 			design::card_divider(ui);
 			design::switch(
 				ui,
