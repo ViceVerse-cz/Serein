@@ -51,6 +51,7 @@ fn decode_edge(key: &str) -> u32 {
 const MAX_AVATAR_ENCODED: usize = 512 * 1024;
 const MAX_LOTTIE_ENCODED: usize = 512 * 1024;
 const MAX_APPLICATION_METADATA: usize = 64 * 1024;
+#[cfg(test)]
 const MAX_DISK: u64 = 1024 * 1024 * 1024;
 const MAX_FILES: usize = 4096;
 const RETENTION: Duration = Duration::from_secs(90 * 24 * 60 * 60);
@@ -70,25 +71,29 @@ pub struct AvatarWorker {
 	cancel: watch::Sender<bool>,
 	clear: Arc<AtomicBool>,
 	cleanup: Option<Cleanup>,
+	limit: watch::Sender<u64>,
 }
 impl AvatarWorker {
 	pub fn start(
 		runtime: &tokio::runtime::Runtime,
 		account: Id,
 		ctx: egui::Context,
+		size: model::CachePreferences,
 	) -> Result<Self, &'static str> {
 		let root = dirs::data_local_dir().map(|root| {
 			root.join("serein")
 				.join("avatars")
 				.join(account.to_string())
 		});
-		Self::start_at(runtime, root, ctx)
+		Self::start_at(runtime, root, ctx, size)
 	}
 	fn start_at(
 		runtime: &tokio::runtime::Runtime,
 		root: Option<PathBuf>,
 		ctx: egui::Context,
+		size: model::CachePreferences,
 	) -> Result<Self, &'static str> {
+		let (limit, limits) = watch::channel(size.media_bytes());
 		let (requests, receive) = async_mpsc::channel(128);
 		let (send, results) = async_mpsc::channel(2);
 		let (cancel, cancelled) = watch::channel(false);
@@ -99,7 +104,7 @@ impl AvatarWorker {
 		std::thread::Builder::new()
 			.name("avatar-cache".into())
 			.spawn(move || {
-				handle.block_on(run(root.as_deref(), receive, send, cancelled, &ctx));
+				handle.block_on(run(root.as_deref(), receive, send, cancelled, &ctx, limits));
 				let result = if cleanup_flag.load(Ordering::Acquire) {
 					clear_directory(root.as_deref())
 				} else {
@@ -115,7 +120,17 @@ impl AvatarWorker {
 			cancel,
 			clear,
 			cleanup: Some(cleanup),
+			limit,
 		})
+	}
+	pub fn set_cache_preferences(&self, size: model::CachePreferences) {
+		self.limit.send_if_modified(|limit| {
+			if *limit == size.media_bytes() {
+				return false;
+			}
+			*limit = size.media_bytes();
+			true
+		});
 	}
 	pub fn request(&self, key: String) -> bool {
 		cdn_url(&key).is_some() && self.requests.try_send(key).is_ok()
@@ -418,8 +433,10 @@ async fn run(
 	results: async_mpsc::Sender<AvatarResult>,
 	mut cancelled: watch::Receiver<bool>,
 	ctx: &egui::Context,
+	mut limits: watch::Receiver<u64>,
 ) {
-	let mut disk = root.and_then(|root| Disk::open(root.to_owned()).ok());
+	let mut disk =
+		root.and_then(|root| Disk::open(root.to_owned(), *limits.borrow_and_update()).ok());
 	let client = reqwest::Client::builder()
 		.https_only(true)
 		.no_proxy()
@@ -436,6 +453,16 @@ async fn run(
 		let (key, bytes, mut error, fetched, cached_image, cached_frames) = tokio::select! {
 			biased;
 			_ = cancelled.changed() => break,
+			result = limits.changed() => {
+				if result.is_err() { break; }
+				if let Some(cache) = disk.as_mut() {
+					cache.limit = *limits.borrow_and_update();
+					if cache.prune(0, 0).is_err() {
+						disk = None;
+					}
+				}
+				continue;
+			},
 			completed = downloads.join_next(), if !downloads.is_empty() => {
 				let Some(Ok((key, bytes, until))) = completed else { break };
 				cooldown = cooldown.max(until);
@@ -750,13 +777,14 @@ fn decode_animation(bytes: &[u8]) -> Option<ui::GifFrames> {
 }
 
 struct Disk {
+	limit: u64,
 	root: PathBuf,
 	bytes: u64,
 	files: usize,
 	last_prune: Instant,
 }
 impl Disk {
-	fn open(root: PathBuf) -> io::Result<Self> {
+	fn open(root: PathBuf, limit: u64) -> io::Result<Self> {
 		fs::create_dir_all(&root)?;
 		#[cfg(unix)]
 		{
@@ -764,6 +792,7 @@ impl Disk {
 			fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
 		}
 		let mut disk = Self {
+			limit,
 			root,
 			bytes: 0,
 			files: 0,
@@ -805,7 +834,7 @@ impl Disk {
 		}
 		let name = disk_key(key).ok_or(io::ErrorKind::InvalidInput)?;
 		let path = self.root.join(format!("{name}.png"));
-		if self.bytes + bytes.len() as u64 > MAX_DISK
+		if self.bytes + bytes.len() as u64 > self.limit
 			|| self.files + 1 > MAX_FILES
 			|| self.last_prune.elapsed() >= Duration::from_secs(24 * 60 * 60)
 		{
@@ -875,14 +904,15 @@ impl Disk {
 					oldest.pop();
 				}
 			}
-			if self.bytes + reserve_bytes <= MAX_DISK && self.files + reserve_files <= MAX_FILES {
+			if self.bytes + reserve_bytes <= self.limit && self.files + reserve_files <= MAX_FILES {
 				break;
 			}
 			for (_, path, bytes) in oldest.into_sorted_vec() {
 				fs::remove_file(path)?;
 				self.bytes = self.bytes.saturating_sub(bytes);
 				self.files -= 1;
-				if self.bytes + reserve_bytes <= MAX_DISK && self.files + reserve_files <= MAX_FILES
+				if self.bytes + reserve_bytes <= self.limit
+					&& self.files + reserve_files <= MAX_FILES
 				{
 					break;
 				}
@@ -895,6 +925,37 @@ impl Disk {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn media_budget_shrinks_and_survives_reopen() {
+		let large = model::CachePreferences {
+			media_mb: 5120,
+			..Default::default()
+		};
+		let small = model::CachePreferences {
+			media_mb: 512,
+			..Default::default()
+		};
+		assert_eq!(large.history_bytes(), small.history_bytes());
+		let root = std::env::temp_dir().join(format!("serein-media-limit-{}", std::process::id()));
+		let mut disk = super::Disk::open(root.clone(), large.media_bytes()).unwrap();
+		let file = std::fs::File::create(root.join("synthetic.png")).unwrap();
+		file.set_len(model::CachePreferences::default().media_bytes())
+			.unwrap();
+		drop(file);
+		disk.prune(0, 0).unwrap();
+		assert_eq!(disk.files, 1);
+		disk.limit = small.media_bytes();
+		disk.prune(0, 0).unwrap();
+		assert_eq!(disk.files, 0);
+		drop(disk);
+		assert_eq!(
+			super::Disk::open(root.clone(), small.media_bytes())
+				.unwrap()
+				.bytes,
+			0
+		);
+		std::fs::remove_dir_all(root).unwrap();
+	}
 	#[test]
 	fn apng_sticker_frames_preserve_pixels_and_delays() {
 		// Synthetic 1x1 APNG: opaque red for 100 ms, then opaque green for 200 ms.
@@ -1239,7 +1300,7 @@ mod tests {
 		));
 		let account_a = root.join("1");
 		let account_b = root.join("2");
-		let mut disk = Disk::open(account_a.clone()).unwrap();
+		let mut disk = Disk::open(account_a.clone(), MAX_DISK).unwrap();
 		disk.write("default-0", &bytes).unwrap();
 		disk.write(embed_key, &bytes).unwrap();
 		disk.write("embed:sticker-7-3", &bytes).unwrap();
@@ -1252,13 +1313,13 @@ mod tests {
 				.contains("synthetic")
 		}));
 		drop(disk);
-		let mut disk = Disk::open(account_a.clone()).unwrap();
+		let mut disk = Disk::open(account_a.clone(), MAX_DISK).unwrap();
 		assert_eq!(disk.read("default-0").unwrap().unwrap(), bytes);
 		assert_eq!(disk.read(embed_key).unwrap().unwrap(), bytes);
 		assert_eq!(disk.read("embed:sticker-7-3").unwrap().unwrap(), bytes);
 		assert_eq!(disk.read("app-icon-7").unwrap().unwrap(), bytes);
 		assert!(
-			Disk::open(account_b.clone())
+			Disk::open(account_b.clone(), MAX_DISK)
 				.unwrap()
 				.read("default-0")
 				.unwrap()
@@ -1271,7 +1332,7 @@ mod tests {
 			.unwrap();
 		sparse.set_len(MAX_DISK + 1).unwrap();
 		drop(sparse);
-		assert_eq!(Disk::open(account_b.clone()).unwrap().bytes, 0);
+		assert_eq!(Disk::open(account_b.clone(), MAX_DISK).unwrap().bytes, 0);
 		let old = account_a.join("default-0.png");
 		OpenOptions::new()
 			.write(true)
@@ -1289,7 +1350,7 @@ mod tests {
 		// Eviction and full directory deletion are disk workloads, not a worker-cancellation
 		// deadline: deleting 4096 files can exceed five seconds on a Windows CI filesystem.
 		let eviction = root.join("eviction");
-		let mut disk = Disk::open(eviction.clone()).unwrap();
+		let mut disk = Disk::open(eviction.clone(), MAX_DISK).unwrap();
 		for index in 0..MAX_FILES + 1 {
 			fs::write(eviction.join(format!("synthetic-{index}.png")), []).unwrap();
 		}
@@ -1301,14 +1362,18 @@ mod tests {
 		clear_directory(Some(&eviction)).unwrap();
 		assert!(!eviction.exists());
 		// A valid cached image keeps the shutdown fixture entirely offline and tiny.
-		let mut disk = Disk::open(account_a.clone()).unwrap();
+		let mut disk = Disk::open(account_a.clone(), MAX_DISK).unwrap();
 		disk.write("default-0", &bytes).unwrap();
 		assert_eq!(disk.files, 1);
 		drop(disk);
 		let runtime = tokio::runtime::Runtime::new().unwrap();
-		let mut worker =
-			AvatarWorker::start_at(&runtime, Some(account_a.clone()), egui::Context::default())
-				.unwrap();
+		let mut worker = AvatarWorker::start_at(
+			&runtime,
+			Some(account_a.clone()),
+			egui::Context::default(),
+			model::CachePreferences::default(),
+		)
+		.unwrap();
 		assert!(worker.request("default-0".into()));
 		let result = runtime.block_on(async {
 			tokio::time::timeout(Duration::from_secs(5), worker.results.recv())

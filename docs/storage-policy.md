@@ -1,5 +1,33 @@
 # Local storage policy and audit
 
+## Independent cache settings (September 21, 2026)
+
+Data & Privacy retains separate history and media caches. The basic presets set
+both independent limits: Less storage is 10,000 messages / 512 MiB media;
+Balanced (default) is 20,000 messages / 1 GiB; More storage is 100,000 messages /
+5 GiB. Advanced adjusts history (1,000–100,000 messages) and media (512–5120 MiB,
+displayed as MB) independently. Toggling Advanced preserves custom values.
+
+The default history capacity doubles the original 20 windows / 10,000 messages
+to 40 windows / 20,000 messages. Each window still holds at most 500 messages /
+4 MiB. The global window cap is the message limit divided by 500, rounded up;
+both actual message count and window count are enforced by evicting oldest
+conversations. The SQLite page ceiling scales only with history capacity:
+64 MiB per 10,000 requested messages, with a 64 MiB minimum (128 MiB default).
+Occupied pages trigger eviction 16 MiB below that ceiling. Large messages can
+reach the byte cap first. Reducing history prunes on the storage worker and
+compacts the database if its file exceeds the new ceiling.
+
+The independent media limit applies to each account directory, including
+downloaded stickers, custom emoji, avatars, server icons, banners, GIFs and image
+previews. The 4,096-file and 90-day limits remain. Media changes are coalesced
+onto the existing worker; inactive accounts apply the limit when opened.
+There is no universal disk ceiling. SQLite journals, temporary writes and
+compaction can need additional disk space. Drafts/settings are never evicted.
+RAM caches, bundled emoji artwork, installed themes/plugins, explicit downloads
+and transient streaming buffers remain separate; this does not persist new kinds
+of session data or prefetch content.
+
 ## Remote video lifetime cleanup (September 21, 2026)
 
 A completed camera/stream announcement cancels a decoder only after its user's
@@ -51,7 +79,7 @@ records or additional history windows are retained.
 The message cache creates an additive index on account, channel, decimal ID length
 and ID. This avoids sorting channel reads while preserving unsigned 64-bit IDs as
 text. Existing schema-20 caches gain the index on open; stored payloads and schema
-compatibility are unchanged. Index pages count toward the existing 64 MiB database
+compatibility are unchanged. Index pages count toward the configured database
 ceiling. Channel loads reuse the connection's bounded prepared-statement cache.
 Full message comparisons and secure deletion remain enabled.
 
@@ -383,8 +411,8 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Discord token | OS credential store, service `cz.viceverse.serein`, account `discord-session` for the session restored on launch and `discord-session.<account id>` for each remembered account; at most 2048 bytes each. A per-account entry is written once, when the roster records none, and rewritten only for a token the owner just supplied: on macOS every access to an existing entry is governed by that item's keychain ACL | Explicit logout / Forget saved login removes both entries for that account; forgetting or pruning a saved account removes its per-account entry; invalid-token expiry also requests deletion |
 | Remembered accounts (switcher) | `accounts` table in `client.sqlite3`: at most 8 rows of account ID, username, display name (64 bytes each), avatar hash, last-use timestamp and a flag recording whether the credential store holds that account's entry; no token | Logging out of, or forgetting, that account; the least recently used row is pruned past 8, taking its token and cached data with it |
 | History and drafts | `dirs::data_local_dir()/serein/client.sqlite3` | Clear cached history also clears service images and keeps drafts; logout clears the authenticated account’s history and drafts |
-| Messages | 500 per window, at most 20 stored channel windows globally, 48 MiB estimated text/metadata; SQLite main database capped at 64 MiB | Oldest touched channel evicted transactionally |
-| Avatar, server-icon, profile-banner and message-preview PNGs | Account subdirectory beneath `dirs::data_local_dir()/serein/avatars`; 1 GiB / 4096 files per account, 90 days since last use, at most 2 MiB per preview (512 KiB for icons/avatars) | Clear cache or account logout; versioned avatar/icon/banner keys and hashed media-source keys separate changed images |
+| Messages | 500 per window; configurable 1,000–100,000 messages / 2–200 windows globally (default 20,000 / 40); independent 64–640 MiB SQLite ceiling (default 128 MiB) | Oldest touched channel evicted transactionally |
+| Avatar, server-icon, profile-banner and message-preview PNGs | Account subdirectory beneath `dirs::data_local_dir()/serein/avatars`; independent 512 MiB–5 GiB (default 1 GiB) / 4096 files per account, 90 days since last use, at most 2 MiB per preview (512 KiB for icons/avatars) | Clear cache or account logout; versioned avatar/icon/banner keys and hashed media-source keys separate changed images |
 | Selected profile metadata | One session-memory record, at most 64 KiB; profile response body at most 256 KiB | Closing/changing the profile, session reset or logout; no SQLite profile table |
 | Explicit attachment downloads | User-selected destination, 1 byte through 100 MiB per original file; one active dialog/transfer; randomized sibling partial while writing | Cancel/error removes the partial when possible; completed downloads remain user-owned outside cache cleanup |
 | Selected upload source | Up to ten session-only paths (4096 encoded bytes each), filenames (256 UTF-8 bytes each) and size/modified metadata; 500,000,000 bytes total, read in 64 KiB chunks | Removal, send completion/failure, cancellation or session teardown; sources are never copied to recovery/cache files or deleted |
@@ -989,7 +1017,7 @@ adding a queue. Values are clamped to 0–200 before mixing. A full UI table rep
 retained entry; reset releases a slot. Logout/preview reset clears the table. No SQLite,
 credential-store, network setting write, or diagnostics payload is added.
 Chat author role IDs travel with the cached message window (at most 512 IDs per
-message, 16 KiB JSON). They count toward the existing timeline and 48 MiB history
+message, 16 KiB JSON). They count toward the existing timeline and configured history
 budgets. Names use the current guild role catalog. Live member rows refresh the
 color only when they carry role IDs; an empty live row keeps the message snapshot
 so cached history can paint colors with the conversation.
@@ -999,7 +1027,7 @@ characters / 512 UTF-8 bytes. Live member rows win only when they carry a
 nickname. Missing membership keeps the stored nick or the usual name.
 
 Custom emoji artwork shares the existing account-isolated image disk cache
-(4,096 files / 1 GiB, 90-day inactivity retention). Its GPU working set is separate
+(4,096 files / configured media budget, 90-day inactivity retention). Its GPU working set is separate
 from avatars and media, bounded to 1,024 textures / 16 MiB with least-recently-used
 eviction. Evicted textures reload from disk when available.
 

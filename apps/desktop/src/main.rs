@@ -2196,6 +2196,9 @@ impl Desktop {
 			return;
 		}
 		self.app_settings.observe(&self.messaging);
+		if let Some(avatars) = &self.avatars {
+			avatars.set_cache_preferences(self.messaging.cache_preferences);
+		}
 		self.cache_pending += usize::from(
 			self.app_settings
 				.save(self.cache.as_ref(), self.state.generation),
@@ -4283,7 +4286,12 @@ impl Desktop {
 			&& !self.state.demo
 			&& let Some(user) = &self.state.user
 		{
-			match avatars::AvatarWorker::start(&self.runtime, user.id, ctx.clone()) {
+			match avatars::AvatarWorker::start(
+				&self.runtime,
+				user.id,
+				ctx.clone(),
+				self.messaging.cache_preferences,
+			) {
 				Ok(worker) => self.avatars = Some(worker),
 				Err(error) => {
 					self.cache_error = true;
@@ -4318,7 +4326,12 @@ impl Desktop {
 		if self.avatar_cleanup.is_none()
 			&& let Some(account) = self.avatar_clear_account.take()
 		{
-			match avatars::AvatarWorker::start(&self.runtime, account, ctx.clone()) {
+			match avatars::AvatarWorker::start(
+				&self.runtime,
+				account,
+				ctx.clone(),
+				self.messaging.cache_preferences,
+			) {
 				Ok(worker) => self.avatar_cleanup = Some(worker.shutdown_and_clear()),
 				Err(error) => {
 					self.cache_error = true;
@@ -4337,7 +4350,12 @@ impl Desktop {
 			&& self.avatar_cleanup.is_none()
 			&& let Some(user) = &self.state.user
 		{
-			match avatars::AvatarWorker::start(&self.runtime, user.id, ctx.clone()) {
+			match avatars::AvatarWorker::start(
+				&self.runtime,
+				user.id,
+				ctx.clone(),
+				self.messaging.cache_preferences,
+			) {
 				Ok(worker) => {
 					self.messaging.clear_avatars();
 					self.avatars = Some(worker);

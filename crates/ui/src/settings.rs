@@ -1005,6 +1005,90 @@ impl MessagingUi {
 		design::group(ui, "Local storage", |ui| {
 			design::row(
 				ui,
+				"Cache preset",
+				Some(
+					"Choose how much to keep on this device. Message history and media have independent limits. Drafts are kept.",
+				),
+				|ui| {
+					let presets = [
+						model::CachePreferences {
+							messages: 10_000,
+							media_mb: 512,
+						},
+						model::CachePreferences::default(),
+						model::CachePreferences {
+							messages: 100_000,
+							media_mb: 5120,
+						},
+					];
+					let selected = presets
+						.iter()
+						.position(|value| *value == self.cache_preferences);
+					let mut preset = selected.unwrap_or(1);
+					ui.add_enabled_ui(!self.advanced_cache_settings, |ui| {
+						ui.vertical(|ui| {
+							if ui
+								.add(
+									egui::Slider::new(&mut preset, 0..=2)
+										.show_value(false)
+										.text("Cache preset"),
+								)
+								.changed()
+							{
+								self.cache_preferences = presets[preset];
+							}
+							ui.weak("Less storage · Balanced · More storage");
+							if selected.is_none() {
+								ui.weak("Custom limits");
+							}
+						});
+					});
+				},
+			);
+			design::hint(
+				ui,
+				&format!(
+					"Up to {} messages · {} MB media",
+					self.cache_preferences.messages, self.cache_preferences.media_mb
+				),
+			);
+			design::switch(
+				ui,
+				"Advanced cache settings",
+				Some("Adjust message history and media separately."),
+				&mut self.advanced_cache_settings,
+			);
+			if self.advanced_cache_settings {
+				design::row(
+					ui,
+					"Messages to keep",
+					Some(
+						"Across cached conversations. Up to 500 messages per conversation; older conversations are evicted first. Large messages may reach the disk limit sooner.",
+					),
+					|ui| {
+						ui.add(
+							egui::Slider::new(&mut self.cache_preferences.messages, 1000..=100_000)
+								.step_by(500.0),
+						);
+					},
+				);
+				design::row(
+					ui,
+					"Media cache size",
+					Some(
+						"Per account: stickers, custom emoji, avatars, GIFs and image previews. Up to 4,096 files, retained for 90 days since last use.",
+					),
+					|ui| {
+						ui.add(
+							egui::Slider::new(&mut self.cache_preferences.media_mb, 512..=5120)
+								.suffix(" MB"),
+						);
+					},
+				);
+			}
+			design::card_divider(ui);
+			design::row(
+				ui,
 				"Clear cache",
 				Some("Removes cached messages and media. Drafts and your login stay."),
 				|ui| {

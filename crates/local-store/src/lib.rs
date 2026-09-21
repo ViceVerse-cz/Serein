@@ -30,7 +30,7 @@ fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
 	}
 	Ok(roles)
 }
-pub struct LocalStore(Connection);
+pub struct LocalStore(Connection, std::cell::Cell<model::CachePreferences>);
 /// Device-local controls, bounded independently of account caches.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -41,6 +41,7 @@ pub struct AppPreferences {
 	pub notification_options: model::notification_preferences::Device,
 	pub show_hidden_channels: bool,
 	pub hide_title_bar: bool,
+	pub cache_preferences: model::CachePreferences,
 	pub primary_color: Option<[u8; 3]>,
 	pub transparency_blur: bool,
 	pub transparency: u8,
@@ -78,6 +79,7 @@ impl Default for AppPreferences {
 			notification_options: Default::default(),
 			show_hidden_channels: false,
 			hide_title_bar: false,
+			cache_preferences: Default::default(),
 			primary_color: None,
 			transparency_blur: false,
 			transparency: 15,
@@ -102,7 +104,8 @@ impl Default for AppPreferences {
 }
 impl AppPreferences {
 	pub fn is_valid(&self) -> bool {
-		self.transparency <= 100
+		self.cache_preferences.is_valid()
+			&& self.transparency <= 100
 			&& self.blur <= 100
 			&& self.input_percent <= 200
 			&& self.output_percent <= 200
@@ -194,7 +197,7 @@ impl LocalStore {
 		if version > READABLE_SCHEMA {
 			return Err(StoreError::Incompatible);
 		}
-		connection.execute_batch("PRAGMA page_size=4096; PRAGMA max_page_count=16384; PRAGMA cache_size=-2048; PRAGMA temp_store=MEMORY; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=8388608; PRAGMA secure_delete=ON; PRAGMA auto_vacuum=INCREMENTAL;
+		connection.execute_batch("PRAGMA page_size=4096; PRAGMA cache_size=-2048; PRAGMA temp_store=MEMORY; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=8388608; PRAGMA secure_delete=ON; PRAGMA auto_vacuum=INCREMENTAL;
             CREATE TABLE IF NOT EXISTS messages(account TEXT NOT NULL,channel TEXT NOT NULL,id TEXT NOT NULL,author TEXT NOT NULL,name TEXT NOT NULL,content TEXT NOT NULL,edited INTEGER NOT NULL,reply TEXT,unsupported INTEGER NOT NULL,PRIMARY KEY(account,channel,id));
             CREATE INDEX IF NOT EXISTS messages_channel_order ON messages(account,channel,length(id),id);
             CREATE TABLE IF NOT EXISTS channels(account TEXT NOT NULL,channel TEXT NOT NULL,touched INTEGER NOT NULL,PRIMARY KEY(account,channel));
@@ -412,8 +415,86 @@ impl LocalStore {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN author_nick TEXT;")?;
 		}
 		transaction.commit()?;
-		Ok(Self(connection))
+		let store = Self(
+			connection,
+			std::cell::Cell::new(model::CachePreferences::default()),
+		);
+		let size = store
+			.app_preferences()
+			.unwrap_or_default()
+			.cache_preferences;
+		store.apply_cache_preferences(size)?;
+		Ok(store)
 	}
+	fn prune_history(connection: &Connection, size: model::CachePreferences) -> Result<bool> {
+		let mut deleted = false;
+		loop {
+			let channels: i64 =
+				connection.query_row("SELECT count(*) FROM channels", [], |row| row.get(0))?;
+			let messages: i64 =
+				connection.query_row("SELECT count(*) FROM messages", [], |row| row.get(0))?;
+			let page_count: i64 =
+				connection.pragma_query_value(None, "page_count", |row| row.get(0))?;
+			let free_pages: i64 =
+				connection.pragma_query_value(None, "freelist_count", |row| row.get(0))?;
+			let page_size: i64 =
+				connection.pragma_query_value(None, "page_size", |row| row.get(0))?;
+			if channels == 0
+				|| (channels as u64 <= size.history_channels()
+					&& messages <= i64::from(size.messages)
+					&& (page_count - free_pages) * page_size
+						<= size.history_bytes() as i64 - 16 * 1024 * 1024)
+			{
+				break;
+			}
+			let (a, c): (String, String) = connection.query_row(
+				"SELECT account,channel FROM channels ORDER BY touched,account,channel LIMIT 1",
+				[],
+				|r| Ok((r.get(0)?, r.get(1)?)),
+			)?;
+			connection.execute(
+				"DELETE FROM messages WHERE account=?1 AND channel=?2",
+				params![a, c],
+			)?;
+			connection.execute(
+				"DELETE FROM channels WHERE account=?1 AND channel=?2",
+				params![a, c],
+			)?;
+			deleted = true;
+		}
+		Ok(deleted)
+	}
+	fn apply_cache_preferences(&self, size: model::CachePreferences) -> Result<()> {
+		let transaction = self.0.unchecked_transaction()?;
+		Self::prune_history(&transaction, size)?;
+		transaction.commit()?;
+		let pages: i64 = self
+			.0
+			.pragma_query_value(None, "page_count", |row| row.get(0))?;
+		let page_size: i64 = self
+			.0
+			.pragma_query_value(None, "page_size", |row| row.get(0))?;
+		if pages * page_size > size.history_bytes() as i64 {
+			// Reclaim free pages after lowering the budget, on the storage worker only.
+			self.0.execute_batch(
+				"PRAGMA wal_checkpoint(TRUNCATE); VACUUM; PRAGMA wal_checkpoint(TRUNCATE);",
+			)?;
+		}
+		let maximum: i64 = self.0.query_row(
+			&format!(
+				"PRAGMA max_page_count={}",
+				size.history_bytes() as i64 / page_size
+			),
+			[],
+			|row| row.get(0),
+		)?;
+		if maximum * page_size > size.history_bytes() as i64 {
+			return Err(StoreError::Capacity);
+		}
+		self.1.set(size);
+		Ok(())
+	}
+
 	pub fn app_preferences(&self) -> Result<AppPreferences> {
 		let value: Option<String> = self.0.query_row(
             "SELECT CASE WHEN length(CAST(value AS BLOB))<=16384 THEN value ELSE NULL END FROM app_preferences WHERE singleton=1",
@@ -430,6 +511,9 @@ impl LocalStore {
 	pub fn save_app_preferences(&self, value: &AppPreferences) -> Result<()> {
 		if !value.is_valid() {
 			return Err(StoreError::Incompatible);
+		}
+		if value.cache_preferences.messages != self.1.get().messages {
+			self.apply_cache_preferences(value.cache_preferences)?;
 		}
 		let value = serde_json::to_string(value).map_err(|_| StoreError::Incompatible)?;
 		self.0.execute(
@@ -795,39 +879,7 @@ impl LocalStore {
 		}
 		drop(insert);
 		transaction.execute("INSERT INTO channels VALUES(?1,?2,unixepoch('subsec')*1000) ON CONFLICT(account,channel) DO UPDATE SET touched=excluded.touched",params![account,channel])?;
-		// Global limit: 20 channel windows, 10000 messages AND 48 MiB content, below the 64 MiB database page ceiling.
-		loop {
-			let channels: i64 =
-				transaction.query_row("SELECT count(*) FROM channels", [], |row| row.get(0))?;
-			let page_count: i64 =
-				transaction.pragma_query_value(None, "page_count", |row| row.get(0))?;
-			let free_pages: i64 =
-				transaction.pragma_query_value(None, "freelist_count", |row| row.get(0))?;
-			let page_size: i64 =
-				transaction.pragma_query_value(None, "page_size", |row| row.get(0))?;
-			let bytes = if (page_count - free_pages) * page_size <= 48 * 1024 * 1024 {
-				0
-			} else {
-				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(original_flags AS BLOB))+length(CAST(components AS BLOB))+length(CAST(sticker_items AS BLOB))+coalesce(length(CAST(application_id AS BLOB)),0)+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
-			};
-			if channels <= 20 && bytes <= 48 * 1024 * 1024 {
-				break;
-			}
-			let (a, c): (String, String) = transaction.query_row(
-				"SELECT account,channel FROM channels ORDER BY touched,account,channel LIMIT 1",
-				[],
-				|r| Ok((r.get(0)?, r.get(1)?)),
-			)?;
-			transaction.execute(
-				"DELETE FROM messages WHERE account=?1 AND channel=?2",
-				params![a, c],
-			)?;
-			transaction.execute(
-				"DELETE FROM channels WHERE account=?1 AND channel=?2",
-				params![a, c],
-			)?;
-			deleted = true;
-		}
+		deleted |= Self::prune_history(&transaction, self.1.get())?;
 		transaction.commit()?;
 		if deleted {
 			self.0.execute_batch("PRAGMA incremental_vacuum(64);")?;
@@ -1592,6 +1644,29 @@ mod tests {
 	fn app_preferences_round_trip_and_reject_invalid_replacement() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
 		assert_eq!(store.app_preferences().unwrap(), AppPreferences::default());
+		assert_eq!(
+			store.app_preferences().unwrap().cache_preferences.messages,
+			20_000
+		);
+		for cache_preferences in [
+			model::CachePreferences {
+				messages: 999,
+				..Default::default()
+			},
+			model::CachePreferences {
+				media_mb: 5121,
+				..Default::default()
+			},
+		] {
+			assert!(
+				store
+					.save_app_preferences(&AppPreferences {
+						cache_preferences,
+						..Default::default()
+					})
+					.is_err()
+			);
+		}
 		let legacy: AppPreferences =
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());
@@ -2677,7 +2752,7 @@ mod tests {
 			store.load_drafts(Id(1)).unwrap()[&Id(20)],
 			"synthetic draft"
 		);
-		for channel in 1..=30 {
+		for channel in 1..=40 {
 			let mut message = Message {
 				flags: 0,
 				sticker_items: vec![],
@@ -2726,6 +2801,19 @@ mod tests {
 			message.suppress_notifications = true;
 			store.save_channel(Id(1), Id(channel), &[message]).unwrap();
 		}
+		let preferences = AppPreferences {
+			cache_preferences: model::CachePreferences {
+				messages: 10_000,
+				..Default::default()
+			},
+			..Default::default()
+		};
+		store.save_app_preferences(&preferences).unwrap();
+		assert!(store.load_channel(Id(1), Id(1)).unwrap().is_empty());
+		assert_eq!(
+			store.load_drafts(Id(1)).unwrap()[&Id(20)],
+			"synthetic draft"
+		);
 		let count: i64 = store
 			.0
 			.query_row("SELECT count(*) FROM channels", [], |r| r.get(0))
@@ -2734,6 +2822,10 @@ mod tests {
 		assert!(store.load_channel(Id(2), Id(30)).unwrap().is_empty());
 		drop(store);
 		let mut store = LocalStore::open(&path).unwrap();
+		assert_eq!(
+			store.app_preferences().unwrap().cache_preferences,
+			preferences.cache_preferences
+		);
 		let cached = store.load_channel(Id(1), Id(30)).unwrap();
 		assert_eq!(
 			cached[0].embeds[0].title.as_deref(),

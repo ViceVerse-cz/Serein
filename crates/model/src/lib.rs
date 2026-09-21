@@ -838,3 +838,34 @@ mod notification_metadata_tests {
 		assert!(!valid_mention_roles(&Vec::with_capacity(101)));
 	}
 }
+
+/// Independent device-local history and media cache limits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct CachePreferences {
+	pub messages: u32,
+	pub media_mb: u16,
+}
+impl Default for CachePreferences {
+	fn default() -> Self {
+		Self {
+			messages: 20_000,
+			media_mb: 1024,
+		}
+	}
+}
+impl CachePreferences {
+	pub fn is_valid(self) -> bool {
+		(1000..=100_000).contains(&self.messages) && (512..=5120).contains(&self.media_mb)
+	}
+	/// Scale the independent database ceiling with history capacity, not media size.
+	pub fn history_bytes(self) -> u64 {
+		(u64::from(self.messages) * 64 * 1024 * 1024 / 10_000).max(64 * 1024 * 1024)
+	}
+	pub fn media_bytes(self) -> u64 {
+		u64::from(self.media_mb) * 1024 * 1024
+	}
+	pub fn history_channels(self) -> u64 {
+		u64::from(self.messages).div_ceil(500)
+	}
+}

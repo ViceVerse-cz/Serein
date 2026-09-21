@@ -33,6 +33,7 @@ impl Settings {
 			notification_options: ui.notification_options,
 			show_hidden_channels: ui.show_hidden_channels,
 			hide_title_bar: ui.hide_title_bar,
+			cache_preferences: ui.cache_preferences,
 			gpu_preference: ui.gpu_preference,
 			primary_color: ui.primary_color,
 			transparency_blur: ui.transparency_blur,
@@ -71,6 +72,7 @@ impl Settings {
 		ui.notification_options = value.notification_options;
 		ui.show_hidden_channels = value.show_hidden_channels;
 		ui.hide_title_bar = value.hide_title_bar;
+		ui.cache_preferences = value.cache_preferences;
 		ui.gpu_preference = value.gpu_preference;
 		ui.primary_color = value.primary_color;
 		ui.transparency_blur = value.transparency_blur;

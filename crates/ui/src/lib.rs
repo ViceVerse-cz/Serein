@@ -183,6 +183,8 @@ pub struct MessagingUi {
 	pub reading_preferences: model::ReadingPreferences,
 	pub show_hidden_channels: bool,
 	pub hide_title_bar: bool,
+	pub cache_preferences: model::CachePreferences,
+	pub advanced_cache_settings: bool,
 	/// Which GPU renders the window; the running adapter only changes on restart.
 	pub gpu_preference: model::GpuPreference,
 	/// Adapter currently in use, shown next to the preference for bug reports.
