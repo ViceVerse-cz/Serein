@@ -263,6 +263,19 @@ bytes plus GPU/framework overhead. Images stay in memory only; no preview disk
 cache or periodic background polling is added. Existing single-worker/four-job bounds and
 session cancellation apply. See `extensions.md` for the creator and permission model.
 
+The optional `message_events` grant delivers accepted live events from the active,
+accessible conversation. It excludes history replay, search, cached pages and
+ephemeral interaction replies. Text snapshots are limited to 16 KiB per event;
+delete events contain IDs only. A transient queue holds at most 32 deliveries /
+64 KiB of owned event data and metadata, shared across plugins. One event runs
+at a time on the existing worker, at most ten starts per second; its invocation
+and pending-result copy are each bounded by the event limit. Excess events are
+dropped with a status notice. Navigation, lost access, disconnect, session changes
+and disable retire queued events and cancel in-flight work. There is no event
+journal or retry. Plugins may persist data only with the separate bounded
+`storage` grant; the counter example stores numeric totals without message text
+or identifiers.
+
 Schema 13 adds a constrained webhook boolean to cached message authors. It comes
 from the service message webhook_id and follows the existing bounded author data
 through message, reply, and profile views. Legacy rows default to unknown (false)

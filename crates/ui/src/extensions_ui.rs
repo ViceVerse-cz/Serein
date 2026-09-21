@@ -2054,16 +2054,21 @@ fn request_bytes(request: &ExtensionRequest) -> usize {
 			} => {
 				id.len()
 					+ invocation.action.len()
-					+ [
-						&invocation.selected_message,
-						&invocation.composer,
-						&invocation.storage,
-						&context.draft,
-					]
-					.into_iter()
-					.flatten()
-					.map(String::len)
-					.sum::<usize>() + invocation
+					+ invocation.message_event.as_ref().map_or(0, |event| {
+						event.channel_id.len()
+							+ event.message_id.len()
+							+ event.author_id.as_ref().map_or(0, String::len)
+							+ event.content.as_ref().map_or(0, String::len)
+					}) + [
+					&invocation.selected_message,
+					&invocation.composer,
+					&invocation.storage,
+					&context.draft,
+				]
+				.into_iter()
+				.flatten()
+				.map(String::len)
+				.sum::<usize>() + invocation
 					.values
 					.iter()
 					.map(|(key, value)| key.len() + value.len())
@@ -2288,6 +2293,7 @@ fn capability_label(capability: Capability) -> &'static str {
 	match capability {
 		Capability::ImageSharing => "Enable explicit emoji and sticker image attachment selection",
 		Capability::Appearance => "Customize app colors, typography and control styling",
+		Capability::MessageEvents => "Read live message events and text in the active conversation",
 		Capability::SelectedMessage => "Read the message I choose for an action",
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",

@@ -29,7 +29,8 @@ bounded serialization and native SDK diagnostics. Serialized response buffers st
 at 256 KiB, including JSON escaping; plugin-owned output values still consume the
 existing 16 MiB sandbox memory budget.
 
-The distributed desktop runtime and committed plugin packages are unchanged. The
+For the initial SDK-only step at `8b1c798`, the distributed desktop runtime and
+committed plugin packages were unchanged. The
 SDK is a host dev-dependency only; desktop executable, installed package and ZIP
 sizes were not remeasured. Plugin packages above are the uncompressed portable
 JSON artifact, with no separate compressed SDK distribution. Reproduce after a

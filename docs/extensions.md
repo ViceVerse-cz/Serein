@@ -42,7 +42,9 @@ preference. There is no periodic background polling or automatic package update.
    example under `examples/extensions/message-delete-protector` and its small SDK.
    The [SDK authoring guide](../examples/extensions/README.md#test-and-develop-locally)
    covers native handler tests, typed panel values and JSON storage helpers; the v1
-   exports and existing plugin source remain compatible.
+   exports and existing plugin source remain compatible. For reactive plugins,
+   use [Message Counter](../examples/extensions/message-counter/src/lib.rs) and the
+   [message-event guide](../examples/extensions/README.md#reactive-message-plugins).
 2. Build a Wasm module implementing the version 1 ABI documented by the starter.
    No native binary, installer, Git hook or build script runs on an end user's
    computer. Other languages can implement the same Wasm buffer/JSON contract.
@@ -126,6 +128,34 @@ panel actions are available from the composer Tools menu as well as the shop. Co
 the ordinary Send action and are discarded when their originating context is
 stale. Account/session changes invalidate outstanding results.
 
+The `message_events` capability allows one `message_event` action to receive
+read-only create, update and delete snapshots for the active, accessible
+conversation. The user must explicitly grant this access. Only accepted live
+timeline events are eligible; history, search, cache loads, ephemeral messages
+and other conversations are excluded. Create supplies channel/message/author IDs
+and text; updates may contain partial fields; delete supplies channel and message
+IDs only. Text is bounded to 16 KiB of UTF-8. The payload excludes attachments,
+embeds and raw Gateway data. It can contain private conversation text when that
+conversation is active, so grant access only to plugins you trust.
+
+Event handlers run on the existing worker and may save `storage` or change
+`appearance` with those separately granted capabilities. They cannot send messages,
+replace the composer, open panels in the background or enable activation-only
+features. Use a separate user-invoked panel to show results. The Message Counter
+example stores only three saturating numeric counts, preserves malformed storage
+until the user explicitly resets it, and never stores message text or identifiers.
+
+Delivery is best effort, not exactly once or a complete audit stream. The host
+requires a loaded message for updates/deletes; duplicate creates, including sends
+already reconciled from a send result, may be skipped. The host
+queues at most 32 pending invocations totaling 64 KiB and starts at most 10 event
+invocations per second; overload drops events. Scope/account changes, lost
+permissions and disabling discard pending work and reject stale results.
+Reactive SDK handlers use `EventInvocation` and `dispatch_typed`; existing
+`Invocation` handlers and their struct literals remain unchanged under ABI v1.
+Older hosts reject the new capability/action in the manifest. They do not load
+a message-event plugin merely because its manifest declares API version 1.
+
 The **Emoji & Sticker Images** catalog plugin requests `image_sharing`. Its
 activation output makes custom emoji and sticker selections stage artwork as ordinary
 image attachments. Selecting artwork authorizes one send after host download and
@@ -143,8 +173,9 @@ Settings > Themes > Create theme provides a native editor and portable export.
 See the complete [theme API](theme-api.md) for fields, bounds and inheritance.
 
 Plugins can request the `appearance` capability to return an `appearance` object
-using that same theme schema. This works from activation or a user-invoked action,
-so creators can build native appearance settings panels with dropdowns and sliders.
+using that same theme schema. Creators can build native appearance settings panels
+with dropdowns and sliders. Activation and separately granted message-event actions
+can also return appearance values.
 An action replaces that plugin's previous appearance object; omit it to leave the
 current appearance unchanged, or return `{}` to remove its overrides. A plugin can
 use granted `storage` to save choices and read them during activation on the next

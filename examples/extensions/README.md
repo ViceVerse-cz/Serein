@@ -14,6 +14,7 @@ rustup target add wasm32-unknown-unknown
 cargo build --locked --release --target wasm32-unknown-unknown
 python pack.py message-delete-protector/manifest.json target/wasm32-unknown-unknown/release/message_delete_protector.wasm packages/message-delete-protector.serein-extension
 python pack.py emoji-sticker-images/manifest.json target/wasm32-unknown-unknown/release/emoji_sticker_images.wasm packages/emoji-sticker-images.serein-extension
+python pack.py message-counter/manifest.json target/wasm32-unknown-unknown/release/message_counter.wasm packages/message-counter.serein-extension
 ```
 
 Import the package in Settings > Extensions, review the capabilities, and enable it.
@@ -29,6 +30,9 @@ Emoji & Sticker Images requests `image_sharing` and returns `image_sharing: true
 from activation. While enabled, custom emoji and sticker selections stage image attachments. Wasm receives no conversation text or image bytes and cannot fetch
 or send anything. Selecting artwork authorizes an immediate image send after validation; text drafts
 remain intact. Disable/logout revoke the option.
+Message Counter is a reactive example: it requests `message_events` and `storage`,
+counts delivered create/update/delete events without storing message text or IDs,
+and shows its counters only when the user opens its panel. Reset clears the counts.
 Ocean, Midnight, Rose, Forest and Latte are declarative themes under `extensions/`.
 The author packages compiled bytes; Serein never runs a repository's build scripts.
 
@@ -81,13 +85,86 @@ cargo run --locked --release -p extensions --example sdk_check -- examples/exten
 
 The last command tests the original packaged examples and rebuilt modules through
 the real offline host sandbox, including validation, and prints module/package sizes
-and invocation timings. The dedicated SDK CI job runs these checks. Generate local
-API documentation with `cargo doc --manifest-path examples/extensions/Cargo.toml -p serein-extension-sdk --no-deps`.
+and invocation timings. It also exercises Message Counter's event, panel and reset
+actions, including malformed stored data. The dedicated SDK CI job runs these checks.
+Generate local API documentation with
+`cargo doc --manifest-path examples/extensions/Cargo.toml --locked -p serein-extension-sdk --no-deps`.
+
+## Reactive message plugins
+
+Declare `message_events` in `capabilities` and one action with
+`"surface": "message_event"`. The host invokes that action automatically after
+the user grants access and enables the plugin. There can be at most one such
+action per plugin. For example, the [Message Counter manifest](message-counter/manifest.json)
+contains:
+
+```json
+"capabilities": ["message_events", "storage"],
+"actions": [
+  {"id": "message-event", "label": "Count message events", "surface": "message_event"},
+  {"id": "show", "label": "Show message counts", "surface": "panel"},
+  {"id": "reset", "label": "Reset message counts", "surface": "panel"}
+]
+```
+
+Use `fn handle(input: EventInvocation) -> Output` with `export!(handle)`.
+`EventInvocation` wraps the existing `Invocation`: read action and storage through
+`input.invocation`, and the optional typed event through `input.message_event`.
+Call `dispatch_typed(json, handle)` for offline handler tests. See the complete
+[Message Counter handler and lifecycle test](message-counter/src/lib.rs).
+It stores three saturating `u64` counters, leaves malformed storage untouched,
+and offers an explicit reset in its ordinary panel. It does not store event content.
+
+The JSON remains flat; a create event looks like this:
+
+```json
+{
+  "action": "message-event",
+  "message_event": {
+    "kind": "create",
+    "channel_id": "100",
+    "message_id": "200",
+    "author_id": "300",
+    "content": "Synthetic message"
+  }
+}
+```
+
+`kind` is `create`, `update` or `delete` (`MessageEventKind` in Rust). Channel,
+message and author IDs are decimal strings containing nonzero `u64` values.
+Create includes `author_id` and `content`. Updates may omit either field;
+absent content means no text patch, while `""` is an empty text patch.
+Delete contains only kind, channel ID and message ID, never deleted text.
+Content is at most 16 KiB of UTF-8; larger events are dropped, not truncated.
+Attachments, embeds, raw Gateway JSON, credentials and native objects are not exposed.
+
+Delivery covers only accepted live timeline events in the active, accessible
+conversation. History loads, search results, cached messages, ephemeral messages
+and other conversations do not generate events. Delivery is best effort, not
+exactly once: do not use counters as an audit log or assume a complete history.
+Updates/deletes require a loaded message. Duplicate creates, including sends
+already reconciled from a send result, may be skipped.
+The host queues at most 32 pending invocations totaling 64 KiB and starts at most
+10 event invocations per second. Overload drops events. Conversation/account
+changes, permission loss and disabling a plugin discard pending work and stale
+results. Each call still uses the ordinary Wasm fuel, memory and I/O limits.
+
+Event input has no selected-message context, composer text or panel values.
+Events may return `storage` or `appearance` only with those separate grants.
+They cannot send messages, propose composer replacements, open panels in the
+background or enable activation-only features. Return an empty `panel`; use a
+separate user-invoked `panel` action to display results.
+
+This capability requires a supporting host. An older host rejects a manifest
+containing `message_events` or `message_event`; API version 1 does not imply
+support for every capability. There is no runtime capability-probe API.
 
 ## ABI version 1
 
 The SDK preserves public fields, `fn(Invocation) -> Output`, `export!(handler)` and
-the version 1 buffer ABI. Existing plugins need no source or manifest changes and
+the version 1 buffer ABI. Existing SDK `Invocation` and `Output` struct literal
+shapes are unchanged; reactive handlers opt into the separate `EventInvocation` type.
+Existing plugins need no source or manifest changes and
 rebuilding is optional. False activation flags are now omitted from JSON, keeping
 their default behavior while avoiding unknown-field failures on hosts that predate
 an unused capability. Enabling a capability still requires a supporting host.
@@ -100,7 +177,8 @@ memory and leaked ABI buffers are destroyed afterward. Do not import WASI or any
 
 Input fields are `action`, optional `selected_message`, optional `composer`, optional
 `storage`, and `values` (input IDs mapped to strings; checkbox values are `true`/`false`).
-Only the explicitly selected action's context is included and only after capability consent.
+Reactive actions additionally receive `message_event` as described above; ordinary
+invocations omit it. Only the invoked action's context is included, after capability consent.
 Output fields are optional `replacement`, optional `storage`, optional `appearance`, `panel` (array), and
 `preserve_deleted_messages` and `image_sharing` (booleans, default false).
 Only activation with `image_sharing` capability may enable image attachment mode. Only an `activation` action

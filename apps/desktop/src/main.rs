@@ -18,6 +18,7 @@ mod dm_demo;
 mod downloads;
 mod emoji_upload;
 mod extension_bridge;
+mod extension_events;
 mod extensions;
 mod game_activity;
 mod gpu;
@@ -4860,7 +4861,18 @@ impl Desktop {
 				)) {
 				self.notifications.dismiss();
 			}
+			let extension_events = if self.extensions.has_message_events(&self.state) {
+				extension_events::capture(&self.state, &event.event)
+			} else {
+				Vec::new()
+			};
 			self.state.apply(event);
+			self.extensions.cancel_stale_message_events(&self.state);
+			for candidate in extension_events {
+				if let Some(event) = candidate.admit(&self.state) {
+					self.extensions.message_event(&self.state, event);
+				}
+			}
 			if friend_request_was_pending
 				&& !self.state.user_action_pending()
 				&& let Some((level, text)) = friend_request_notice
@@ -5687,6 +5699,7 @@ impl eframe::App for Desktop {
 				self.messaging.notification_sound_status = "Could not save device notification settings. Changes apply only until restart.";
 			}
 			let mut commands = self.messaging.show(ui, &mut self.state);
+			self.extensions.cancel_stale_message_events(&self.state);
 			self.choose_interaction_files(&ctx);
 			if let Some(command) = self.captcha.sync(
 				&mut self.state,

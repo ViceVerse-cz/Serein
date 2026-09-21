@@ -13,6 +13,7 @@ pub const MAX_BACKGROUND_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_PREVIEW_BYTES: usize = 256 * 1024;
 pub const MAX_CATALOG_BYTES: usize = 1024 * 1024;
 pub const MAX_IO_BYTES: usize = 256 * 1024;
+pub const MAX_EVENT_CONTENT_BYTES: usize = 16 * 1024;
 pub const MAX_STORAGE_BYTES: usize = 1024 * 1024;
 pub const MAX_PLUGINS: usize = 8;
 pub const MAX_PANEL_ELEMENTS: usize = 64;
@@ -51,6 +52,7 @@ pub enum Capability {
 	DeletedMessages,
 	ImageSharing,
 	Appearance,
+	MessageEvents,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +62,7 @@ pub enum Surface {
 	Composer,
 	Panel,
 	Activation,
+	MessageEvent,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -277,6 +280,60 @@ pub struct Invocation {
 	pub storage: Option<String>,
 	#[serde(default)]
 	pub values: BTreeMap<String, String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_event: Option<MessageEvent>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageEventKind {
+	Create,
+	Update,
+	Delete,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageEvent {
+	pub kind: MessageEventKind,
+	pub channel_id: String,
+	pub message_id: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub author_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub content: Option<String>,
+}
+
+impl MessageEvent {
+	pub fn validate(&self) -> Result<(), Error> {
+		for id in [&self.channel_id, &self.message_id]
+			.into_iter()
+			.chain(self.author_id.iter())
+		{
+			if id.len() > 20
+				|| !id.bytes().all(|byte| byte.is_ascii_digit())
+				|| !id.parse::<u64>().is_ok_and(|value| value != 0)
+			{
+				return Err(Error::Invalid);
+			}
+		}
+		if self
+			.content
+			.as_ref()
+			.is_some_and(|content| content.len() > MAX_EVENT_CONTENT_BYTES)
+		{
+			return Err(Error::Limit);
+		}
+		match self.kind {
+			MessageEventKind::Create if self.author_id.is_none() || self.content.is_none() => {
+				Err(Error::Invalid)
+			}
+			MessageEventKind::Delete if self.author_id.is_some() || self.content.is_some() => {
+				Err(Error::Invalid)
+			}
+			_ => Ok(()),
+		}
+	}
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -396,13 +453,15 @@ impl Manifest {
 		if self.capabilities.iter().any(|c| !capabilities.insert(*c)) {
 			return Err(Error::Invalid);
 		}
-		if self
-			.actions
-			.iter()
-			.filter(|a| a.surface == Surface::Activation)
-			.count() > 1
-		{
-			return Err(Error::Invalid);
+		for surface in [Surface::Activation, Surface::MessageEvent] {
+			if self
+				.actions
+				.iter()
+				.filter(|action| action.surface == surface)
+				.count() > 1
+			{
+				return Err(Error::Invalid);
+			}
 		}
 		let mut ids = BTreeSet::new();
 		for action in &self.actions {
@@ -419,6 +478,7 @@ impl Manifest {
 				Surface::Composer => Some(Capability::Composer),
 				Surface::Panel => None,
 				Surface::Activation => None,
+				Surface::MessageEvent => Some(Capability::MessageEvents),
 			};
 			if required.is_some_and(|c| !capabilities.contains(&c)) {
 				return Err(Error::Capability);
@@ -674,6 +734,21 @@ impl Invocation {
 			.iter()
 			.find(|a| a.id == self.action)
 			.ok_or(Error::Invalid)?;
+		if action.surface == Surface::MessageEvent {
+			if !manifest.capabilities.contains(&Capability::MessageEvents)
+				|| self.selected_message.is_some()
+				|| self.composer.is_some()
+				|| !self.values.is_empty()
+			{
+				return Err(Error::Capability);
+			}
+			self.message_event
+				.as_ref()
+				.ok_or(Error::Invalid)?
+				.validate()?;
+		} else if self.message_event.is_some() {
+			return Err(Error::Capability);
+		}
 		for (data, capability) in [
 			(&self.selected_message, Capability::SelectedMessage),
 			(&self.composer, Capability::Composer),
@@ -707,6 +782,14 @@ impl Invocation {
 
 impl Output {
 	pub fn validate(&self, manifest: &Manifest, input: &Invocation) -> Result<(), Error> {
+		if !self.panel.is_empty()
+			&& manifest
+				.actions
+				.iter()
+				.any(|action| action.id == input.action && action.surface == Surface::MessageEvent)
+		{
+			return Err(Error::Capability);
+		}
 		if let Some(appearance) = &self.appearance {
 			if !manifest.capabilities.contains(&Capability::Appearance) {
 				return Err(Error::Capability);

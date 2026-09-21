@@ -146,3 +146,46 @@ fn typed_values_and_storage_distinguish_missing_from_invalid() {
 	));
 	assert_eq!(output, previous);
 }
+
+#[test]
+fn typed_event_dispatch_keeps_bounds_and_rejects_bad_json_before_the_handler() {
+	use serein_extension_sdk::{EventInvocation, MessageEventKind, dispatch_typed};
+	let bytes = dispatch_typed(
+		br#"{"action":"event","message_event":{"kind":"delete","channel_id":"1","message_id":"2"}}"#,
+		|input: EventInvocation| {
+			assert_eq!(input.invocation.action, "event");
+			let event = input.message_event.unwrap();
+			assert_eq!(event.kind, MessageEventKind::Delete);
+			assert!(event.author_id.is_none() && event.content.is_none());
+			Output::default()
+		},
+	).unwrap();
+	assert_eq!(
+		serde_json::from_slice::<Output>(&bytes).unwrap(),
+		Output::default()
+	);
+	for input in [
+		br#"{"action":3}"#.as_slice(),
+		br#"{"action":"event","message_event":{"kind":"unknown"}}"#,
+	] {
+		assert!(matches!(
+			dispatch_typed(input, |_: EventInvocation| -> Output {
+				panic!("invalid input reached handler")
+			}),
+			Err(Error::InvalidInput(_))
+		));
+	}
+	assert!(matches!(
+		dispatch_typed(&vec![b' '; MAX_IO_BYTES + 1], |_: EventInvocation| {
+			Output::default()
+		}),
+		Err(Error::InputTooLarge)
+	));
+	assert!(matches!(
+		dispatch_typed(br#"{"action":"event"}"#, |_: EventInvocation| Output {
+			storage: Some("x".repeat(MAX_IO_BYTES)),
+			..Default::default()
+		}),
+		Err(Error::OutputTooLarge)
+	));
+}

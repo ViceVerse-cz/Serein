@@ -17,6 +17,8 @@ use std::{collections::BTreeMap, fmt, io, str::FromStr};
 
 /// Maximum serialized size of either ABI buffer, in UTF-8 bytes.
 pub const MAX_IO_BYTES: usize = 256 * 1024;
+/// Maximum message-event content size, in UTF-8 bytes.
+pub const MAX_EVENT_CONTENT_BYTES: usize = 16 * 1024;
 /// Version of the unchanged Wasm buffer and JSON contract.
 pub const API_VERSION: u32 = 1;
 
@@ -31,6 +33,36 @@ pub struct Invocation {
 	pub storage: Option<String>,
 	#[serde(default)]
 	pub values: BTreeMap<String, String>,
+}
+
+/// Opt-in message-event context, preserving the original `Invocation` struct literal API.
+/// Use this input type with `export!(handler)` and `dispatch_typed`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventInvocation {
+	#[serde(flatten)]
+	pub invocation: Invocation,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_event: Option<MessageEvent>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageEventKind {
+	Create,
+	Update,
+	Delete,
+}
+
+/// Bounded, live message metadata. Delete events contain IDs only; updates may be partial.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageEvent {
+	pub kind: MessageEventKind,
+	pub channel_id: String,
+	pub message_id: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub author_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub content: Option<String>,
 }
 
 impl Invocation {
@@ -161,6 +193,15 @@ pub fn dispatch(
 	input: &[u8],
 	handler: impl FnOnce(Invocation) -> Output,
 ) -> Result<Vec<u8>, Error> {
+	dispatch_typed(input, handler)
+}
+
+/// Bounded JSON dispatch for additive context types such as `EventInvocation`.
+/// The host validates event capabilities, payloads and allowed effects before/after execution.
+pub fn dispatch_typed<I: serde::de::DeserializeOwned, O: Serialize>(
+	input: &[u8],
+	handler: impl FnOnce(I) -> O,
+) -> Result<Vec<u8>, Error> {
 	if input.len() > MAX_IO_BYTES {
 		return Err(Error::InputTooLarge);
 	}
@@ -199,7 +240,7 @@ fn encode<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, Error> {
 	Ok(buffer.0)
 }
 
-/// Export a plain `fn(Invocation) -> Output` as Serein ABI version 1.
+/// Export a typed handler as Serein ABI version 1, including `fn(Invocation) -> Output`.
 /// Each invocation gets a fresh instance, so buffers are reclaimed when it finishes.
 #[macro_export]
 macro_rules! export {
@@ -223,7 +264,7 @@ macro_rules! export {
 			// SAFETY: the host ABI owns this allocation and writes exactly `length` bytes.
 			let input =
 				unsafe { ::std::slice::from_raw_parts(pointer as *const u8, length as usize) };
-			let Ok(output) = $crate::dispatch(input, $handler) else {
+			let Ok(output) = $crate::dispatch_typed(input, $handler) else {
 				return 0;
 			};
 			let length = output.len() as u64;
