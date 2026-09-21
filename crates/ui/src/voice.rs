@@ -3528,7 +3528,12 @@ mod tests {
 						);
 						assert_eq!(
 							messaging.voice_refresh_cameras,
-							!demo && cfg!(target_os = "windows") && width == 240.0 && frame == 0
+							!demo
+								&& cfg!(any(
+									target_os = "windows",
+									target_os = "macos",
+									target_os = "linux"
+								)) && width == 240.0 && frame == 0
 						);
 						assert!(messaging.voice_camera_preview.is_none());
 						messaging.voice_refresh_cameras = false;
