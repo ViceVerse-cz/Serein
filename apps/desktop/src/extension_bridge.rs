@@ -776,7 +776,7 @@ impl Bridge {
 					description: starter.description.into(),
 					preview: None,
 					theme_preview: starter.theme.clone(),
-					cover_image: None,
+					cover_image: starter.cover_image.clone(),
 					local_theme: false,
 					sha256: sha256.clone(),
 					reviewed: true,

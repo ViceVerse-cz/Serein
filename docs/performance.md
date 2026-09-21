@@ -1,3 +1,20 @@
+# Bundled desktop image themes - September 21, 2026
+
+Baseline: `80321b3`; after: this change. Windows x64, Rust 1.98.1.
+Forest Piano and Soft White retain their supplied background and cover bytes.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| These two embedded JSON packages, exact file lengths | 0 | 12,313,176 bytes | +12,313,176 bytes |
+| Decoded bundled cover pixels, 640 x 360 RGBA each | 0 | 1,843,200 bytes | +1,843,200 bytes |
+
+Cover decoding runs on the existing extension worker and retains bounded thumbnails.
+Backgrounds use the existing bounded decode and selection path. No dependency,
+network fetch or render-loop decode is added. Native screenshots and matched
+CPU/RSS/frame measurements are unavailable because the computer-use native pipe
+cannot connect (`os error 2`). File sizes and pixel storage are not process RSS
+or performance timings; no speedup is claimed.
+
 # Original Discord sound assets — September 21, 2026
 
 Baseline: `932dc60`; after: this change. Windows x64, Rust 1.98.1.

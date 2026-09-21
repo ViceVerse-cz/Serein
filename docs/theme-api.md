@@ -20,6 +20,13 @@ Themes remain opt-in and use the existing preview, install, selection and reset 
 The existing limit of eight installed themes is unchanged; remove an installed theme
 before adding another if that limit is reached.
 
+Forest Piano by **Atsukoro** and Soft White Theme by **a1.lol** are also bundled.
+Their supplied packages declare `CC0-1.0`; palettes, control metrics, background
+images and card covers are preserved. Bundled IDs are `forest-piano` and
+`soft-white`, separate from the original editor-created local IDs. Forest Piano
+retains its supplied artwork source link; Soft White's empty source points to
+this repository. Both use the same opt-in preview, install and reset flow.
+
 The `light` and `dark` objects each accept `colors`, an optional `backdrop`,
 and optional `background` image settings.
 Color values are `#RRGGBB` or `#RRGGBBAA`. Supported color names are:

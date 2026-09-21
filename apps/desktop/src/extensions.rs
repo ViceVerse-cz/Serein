@@ -98,12 +98,13 @@ pub enum Job {
 pub struct Starter {
 	pub source: InstallSource,
 	pub theme: Option<Theme>,
+	pub cover_image: Option<Arc<eframe::egui::ColorImage>>,
 	pub description: &'static str,
 	pub download_bytes: u64,
 }
 
 pub(crate) fn starters() -> Result<Vec<Starter>, String> {
-	let packages: [(&'static [u8], &'static str); 11] = [
+	let packages: [(&'static [u8], &'static str); 13] = [
 		(
 			include_bytes!(
 				"../../../examples/extensions/packages/message-delete-protector.serein-extension"
@@ -152,12 +153,21 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 			include_bytes!("../../../extensions/teal.serein-extension"),
 			"Cool blue-green surfaces with fresh teal accents.",
 		),
+		(
+			include_bytes!("../../../extensions/forest-piano.serein-extension"),
+			"Forest piano artwork with leafy green accents by Atsukoro.",
+		),
+		(
+			include_bytes!("../../../extensions/soft-white.serein-extension"),
+			"Soft white artwork and cool blue accents by a1.lol.",
+		),
 	];
 	packages
 		.into_iter()
 		.map(|(bytes, description)| {
 			let package = extensions::parse_package(bytes).map_err(|error| error.to_string())?;
 			Ok(Starter {
+				cover_image: package_cover(&package)?,
 				source: InstallSource::Bundled {
 					bytes,
 					sha256: digest(bytes),
@@ -175,13 +185,13 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 #[cfg(feature = "demo")]
 pub fn demo_check_examples() -> Result<bool, String> {
 	let starters = starters()?;
-	if starters.len() != 11
+	if starters.len() != 13
 		|| starters
 			.iter()
 			.filter(|entry| entry.theme.is_some())
-			.count() != 9
+			.count() != 11
 	{
-		return Err("Expected two starter plugins and nine themes".into());
+		return Err("Expected two starter plugins and eleven themes".into());
 	}
 	let gate = Gate {
 		epoch: 0,
@@ -1672,6 +1682,28 @@ mod tests {
 	}
 
 	#[test]
+	fn bundled_image_themes_install_with_backgrounds_and_covers() {
+		let profile = Profile::new();
+		for id in ["forest-piano", "soft-white"] {
+			let starter = starters()
+				.unwrap()
+				.into_iter()
+				.find(|starter| matches!(&starter.source, InstallSource::Bundled { manifest, .. } if manifest.id == id))
+				.unwrap();
+			assert!(starter.cover_image.is_some());
+			let installed = enable(&profile.0, starter.source, Vec::new(), None, &gate()).unwrap();
+			assert_eq!(installed.manifest.id, id);
+			assert!(!installed.local_theme);
+			assert!(installed.error.is_none());
+			assert!(installed.background_image.is_some() && installed.cover_image.is_some());
+			let reloaded = load(&profile.0, None, &gate()).unwrap();
+			let active = reloaded.iter().find(|theme| theme.active_theme).unwrap();
+			assert_eq!(active.manifest.id, id);
+			assert!(active.background_image.is_some() && active.cover_image.is_some());
+		}
+	}
+
+	#[test]
 	fn theme_install_select_disable_restart_and_checksum() {
 		let profile = Profile::new();
 		let root = profile.0.join("extensions");
@@ -1795,7 +1827,7 @@ mod tests {
 	#[test]
 	fn shop_preview_demo_catalog_and_images_are_local_and_hash_pinned() {
 		let starters = starters().unwrap();
-		assert_eq!(starters.len(), 11);
+		assert_eq!(starters.len(), 13);
 		let mut ids = std::collections::BTreeSet::new();
 		for starter in starters {
 			let InstallSource::Bundled {
