@@ -1,3 +1,48 @@
+# Reactive extension events - September 22, 2026
+
+Compared the host at `8b1c798` in an isolated worktree with the event implementation
+at `5e31f5d`, on Windows x64, Ryzen 7 7800X3D, 32 GB RAM and Rust 1.98.1.
+Both standard `cargo xtask package` builds include voice, without demo or developer
+features. Package directories were kept separate. ZIPs contain each complete
+`dist` directory, using .NET `ZipFile` with `CompressionLevel.Optimal`.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable bytes | 70,119,936 | 70,147,584 | +27,648 / +0.0394% |
+| Installed package bytes | 74,222,109 | 74,249,727 | +27,618 / +0.0372% |
+| Portable ZIP bytes | 42,378,074 | 42,390,190 | +12,116 / +0.0286% |
+| Protector rebuilt-module invocation median | 1,128.045 us | 1,156.705 us | +28.660 us / +2.54% |
+| Image sharing rebuilt-module invocation median | 1,143.920 us | 1,126.040 us | -17.880 us / -1.56% |
+| Counter create-event invocation median | Unavailable | 1,646.860 us | New capability |
+
+The installed-package comparison includes a 30-byte LF/CRLF difference in the
+otherwise identical bundled Simple Icons license between checkouts. Both builds
+produced a portable package; NSIS installer creation was skipped because
+`makensis` is unavailable. The existing OpenH264 LNK4255 warning was nonfatal.
+
+Each release `sdk_check` runner used one warmup and five batches of 20 calls,
+reporting the median batch time per call. The same rebuilt legacy modules were
+used with both hosts; their Wasm/package sizes remain those listed below. Each
+call includes a fresh sandbox and module compilation, excluding package parsing,
+process startup, worker scheduling and storage IO. No Cargo build ran during the
+measurements. Unchanged committed-module controls varied by up to 7.5%, so no
+stable speed improvement or regression is inferred from the small timing deltas.
+
+The optional counter example is 122,576 Wasm bytes / 354,453 JSON-package bytes;
+it is not embedded in the production desktop. Its create/update/delete, panel,
+reset and corrupt-storage behavior passed in the real sandbox, including a
+16 KiB UTF-8 text input. Pathological JSON escaping can still exhaust the fixed
+execution budget before reaching byte limits; limits were not increased.
+Delivery queues at most 32 calls / 64 KiB and starts at most ten event invocations
+per second. Native frame timing, process RSS and live Discord behavior were not
+measured; native capture is unavailable in this session.
+
+Reproduce the invocation workload after building the standalone Wasm examples:
+
+```powershell
+cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+```
+
 # Extension SDK bounded serialization - September 22, 2026
 
 Compared SDK sources at `d231e90` with the bounded serializer and unchanged example
