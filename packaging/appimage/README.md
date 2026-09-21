@@ -51,12 +51,28 @@ Btrfs; FAT/exFAT require manual replacement). An extracted
 `squashfs-root/AppRun` and native/Flatpak installations use manual or package-manager
 updates. Keep the outer AppImage file in place while Serein is running.
 
+New AppImages embed the standard `gh-releases-zsync` update information and ship
+with a matching `.AppImage.zsync` release asset. Compatible tools such as
+[AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) can reuse
+unchanged blocks from your existing image, reducing update downloads. Production
+images track `latest`; prerelease images track `latest-pre`. This follows the
+[AppImage update specification](https://github.com/AppImage/AppImageSpec/blob/master/draft.md#github-releases).
+Serein's Settings → Updates also reuses local blocks when the selected release has
+a verified `.zsync` asset. It uses the selected Production/Nightly channel and
+checks the reconstructed image against the release SHA-256 before staging it.
+Missing or incompatible metadata, unsupported HTTP ranges, or failed reconstruction
+automatically fall back to a full download. No external updater needs to be installed.
+Its channel setting does not change the channel embedded for external update tools.
+Older images without update information need a full download once to gain external
+update support.
+
 ## Build and pipeline
 
 On the Ubuntu 24.04 x86_64 build host, first install the existing
 [native build dependencies](../linux/README.md), then:
 
 ```sh
+sudo apt install zsync
 bash packaging/appimage/install-tools.sh
 cargo xtask package --format appimage
 ```
@@ -78,11 +94,12 @@ source/relink information; this fast pass does not certify redistribution licens
 coverage. License review remains in the dedicated license CI workflow.
 
 The Ubuntu 24.04 job in `linux-packages.yml` builds the AppImage separately from
-the Ubuntu 26.04 `.deb`, then uploads the exact release name above. The release
-workflow gathers it, writes `SHA256SUMS.txt`, and publishes both through the existing
-release flow. Local artifacts use the workspace version; release filenames use the
-release tag, including its `v` prefix and any prerelease suffix. Release publication
-is not performed by local packaging.
+the Ubuntu 26.04 `.deb`, then uploads the image and its `.zsync` sidecar. Both are
+included in release checksums. The packager verifies the embedded update information
+and requires a nonempty sidecar. Local artifacts use the workspace version; CI sets
+`SEREIN_RELEASE_TAG=v<version>` so both artifacts use their final published names
+before zsync generation. The sidecar points to the absolute, versioned GitHub asset
+URL. Release publication is not performed by local packaging.
 
 AppImage packaging, Linux desktop startup, live authentication/audio and an actual
 release-to-release AppImage upgrade remain unverified by the initial fast local pass.

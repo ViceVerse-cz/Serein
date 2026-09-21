@@ -141,11 +141,16 @@ fn h264_negotiated(data: &Value) -> bool {
 fn announce_video(receivers: &mut Receivers, user: u64, data: &Value) -> Result<(), &'static str> {
 	let ssrc = |value: &Value| value.as_u64().and_then(|v| u32::try_from(v).ok());
 	receivers.announce(user, ssrc(&data["video_ssrc"]).unwrap_or(0))?;
+	receivers.announce_rtx(
+		ssrc(&data["video_ssrc"]).unwrap_or(0),
+		ssrc(&data["rtx_ssrc"]).unwrap_or(0),
+	)?;
 	for stream in data["streams"].as_array().into_iter().flatten().take(4) {
 		if stream["type"] == "video"
 			&& let Some(value) = ssrc(&stream["ssrc"]).filter(|v| *v != 0)
 		{
 			receivers.announce(user, value)?;
+			receivers.announce_rtx(value, ssrc(&stream["rtx_ssrc"]).unwrap_or(0))?;
 		}
 	}
 	Ok(())
@@ -282,6 +287,7 @@ async fn run_inner(
 	let mut video_tick = tokio::time::interval(Duration::from_millis(2));
 	video_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 	let mut mixer = crate::mixer::Mixer::default();
+	let mut stream_playout = crate::stream_playout::Playout::default();
 	let mut seq_ack: i64 = -1;
 	let mut heartbeat_ms: Option<u64> = None;
 	let mut heartbeat_at = Instant::now();
@@ -377,7 +383,8 @@ async fn run_inner(
 						json_send(&mut ws,video.announcement(ssrc,true)).await?;
 						video.announced=true;
 					}
-					let encrypted=dave.session.encrypt(davey::MediaType::VIDEO,davey::Codec::H264,&frame.data).map_err(|_|"DAVE camera encryption failed")?;
+					let normalized=crate::video_sps::normalize(&frame.data)?;
+					let encrypted=dave.session.encrypt(davey::MediaType::VIDEO,davey::Codec::H264,&normalized).map_err(|_|"DAVE camera encryption failed")?;
 					video.packetize(&encrypted,frame.timestamp,encryption.as_mut().ok_or("Missing camera transport key")?)?;
 				}
 				// Preserve ordinary callback batches. Only a real stall (four packet
@@ -420,8 +427,8 @@ async fn run_inner(
 				if enabled && !control.deafened {
 					let start = metrics.start();
 					let (mut frame,remote_audio)=mixer.pop_with_volumes(&control.user_volumes);
-					// A watched stream's decoded audio joins the same output; one 20ms frame per tick.
-					if let Some(aux)=&stream_audio && let Ok(extra)=aux.try_recv() {
+					// Keep the auxiliary stream close to live even if this clock misses a tick.
+					if let Some(aux)=&stream_audio && let Some(extra)=stream_playout.next(aux,control.stream_volume,true,stalled) {
 						match &mut frame {
 							Some(mixed)=>for (out,sample) in mixed.iter_mut().zip(extra.iter()) {*out=(*out+sample).clamp(-1.0,1.0);},
 							None=>frame=Some(extra),
@@ -430,7 +437,7 @@ async fn run_inner(
 					metrics.finish(crate::diagnostics::Stage::Mix, start);
 					if let Some(frame)=frame {drops = u64::from(playback.try_send(frame).is_err());}
 					if !heard && remote_audio {heard=true;emit(Status::RemoteAudio).map_err(|_|"Call interface closed")?;}
-				} else {mixer.clear();if let Some(aux)=&stream_audio {while aux.try_recv().is_ok() {}}}
+				} else {mixer.clear();if let Some(aux)=&stream_audio {let _=stream_playout.next(aux,0,false,false);}}
 				metrics.poll(false, drops, stalled, 0);
 				if now >= speakers_at {
 					let mut users=[0;64];
@@ -453,8 +460,8 @@ async fn run_inner(
 				}
 				let Some(crypto)=&encryption else{continue;};
 				let start = metrics.start();
-				let Some(rtp)=crypto.open(&packet[..length]) else{metrics.video(Video::OpenFailed,1);continue;};
-				if rtp.payload_type==102 {metrics.video(Video::Rtx,1);continue;}
+				let Some(mut rtp)=crypto.open(&packet[..length]) else{metrics.video(Video::OpenFailed,1);continue;};
+				if rtp.payload_type==102 {metrics.video(Video::Rtx,1);let Some((media,sequence))=receivers.restore_rtx(rtp.ssrc,&mut rtp.payload) else{continue;};rtp.ssrc=media;rtp.sequence=sequence;rtp.payload_type=101;}
 				if rtp.payload_type==101 {
 					metrics.video(Video::Packets,1);
 					let Some(decoder)=&decoder else{continue;};
@@ -777,6 +784,7 @@ struct VideoWatch {
 	last_picture_at: Instant,
 	pictures: u64,
 	errors: u64,
+	stale: u64,
 }
 
 impl VideoWatch {
@@ -785,6 +793,7 @@ impl VideoWatch {
 			last_picture_at: Instant::now(),
 			pictures: 0,
 			errors: 0,
+			stale: 0,
 		}
 	}
 
@@ -803,6 +812,17 @@ impl VideoWatch {
 		metrics.video(Video::Complete, stats.complete);
 		metrics.video(Video::AwaitingTicks, u64::from(receivers.awaiting()));
 		let Some(decoder) = decoder else { return false };
+		metrics.decoder_counts(
+			decoder.counters.hardware.load(Ordering::Relaxed),
+			decoder.counters.software.load(Ordering::Relaxed),
+		);
+		metrics.video_max(
+			Video::DecodeQueueMs,
+			decoder.counters.queue_ms.swap(0, Ordering::Relaxed),
+		);
+		let stale = decoder.counters.stale.load(Ordering::Relaxed);
+		metrics.video(Video::StaleFrames, stale.wrapping_sub(self.stale));
+		self.stale = stale;
 		let pictures = decoder
 			.counters
 			.pictures
@@ -926,6 +946,7 @@ async fn run_stream_inner(
 	let mut next_pli = Instant::now();
 	let mut next_sink_wants = Instant::now();
 	let mut watch = VideoWatch::new();
+	let mut receive_tick = Instant::now();
 	// Shared system audio: 20 ms stereo Opus frames on the stream's own audio SSRC.
 	let mut share_audio = match video.as_ref().and_then(|video| video.audio.as_ref()) {
 		Some(_) => {
@@ -1063,6 +1084,8 @@ async fn run_stream_inner(
 					share_audio.is_some() || audio.is_some(),
 				], video.as_ref().and_then(|video|video.audio.as_ref()).map_or(0,|source|source.len()));
 				if let Some(audio)=&audio {
+					if now.saturating_duration_since(receive_tick)>=Duration::from_millis(80) {mixer.clear();}
+					receive_tick=now;
 					if secure {
 						let start=metrics.start();
 						if let (Some(frame),_)=mixer.pop() {
@@ -1116,8 +1139,8 @@ async fn run_stream_inner(
 				if !secure {awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);continue;}
 				if awaiting_keyframe && !frame.keyframe {continue;}
 				let start=metrics.start();
-				crate::video::validate_source(&frame.data)?;
-				let encrypted=dave.session.encrypt(davey::MediaType::VIDEO,davey::Codec::H264,&frame.data).map_err(|_|"DAVE H264 encryption failed")?;
+				let normalized=crate::video_sps::normalize(&frame.data)?;
+				let encrypted=dave.session.encrypt(davey::MediaType::VIDEO,davey::Codec::H264,&normalized).map_err(|_|"DAVE H264 encryption failed")?;
 				let packets=crate::video::packetize(&encrypted,&mut sequence,frame.timestamp,video_ssrc)?;
 				let crypto=encryption.as_mut().ok_or("Missing stream transport key")?;
 				let socket=udp.as_ref().ok_or("Missing stream UDP socket")?;
@@ -1146,8 +1169,8 @@ async fn run_stream_inner(
 					next_keyframe=Instant::now()+Duration::from_millis(500);
 					continue;
 				}
-				let Some(rtp)=crypto.open(&packet[..length]) else {metrics.video(Video::OpenFailed,1);continue;};
-				if rtp.payload_type==102 {metrics.video(Video::Rtx,1);continue;}
+				let Some(mut rtp)=crypto.open(&packet[..length]) else {metrics.video(Video::OpenFailed,1);continue;};
+				if rtp.payload_type==102 {metrics.video(Video::Rtx,1);let Some((media,sequence))=receivers.restore_rtx(rtp.ssrc,&mut rtp.payload) else{continue;};rtp.ssrc=media;rtp.sequence=sequence;rtp.payload_type=101;}
 				if rtp.payload_type==101 {metrics.video(Video::Packets,1);}
 				if !dave.ready {if rtp.payload_type==101 {metrics.video(Video::NotReady,1);}continue;}
 				if rtp.payload_type==120 {

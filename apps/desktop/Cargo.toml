@@ -37,6 +37,7 @@ dirs.workspace = true
 getrandom.workspace = true
 url.workspace = true
 sha2 = "=0.10.9"
+md4 = "=0.10.2"
 semver = "=1.0.28"
 zip = { version = "=4.6.1", default-features = false, features = ["deflate-flate2"] }
 cpal = { version = "=0.18.2", default-features = false }

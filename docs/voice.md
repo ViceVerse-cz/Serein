@@ -194,6 +194,12 @@ failure and checks that subsequent cleanup/progress events retain its original r
 
 Set `SEREIN_VOICE_DIAGNOSTICS=1` before launching Serein to get aggregate voice
 timings on stderr every five seconds and a best-effort final summary on teardown.
+`StreamSend` reports the active screen encoder; `Transport` reports camera encoding
+and call video decoding; `StreamReceive` reports its own video decoding. Values are
+`hardware`, `software`, `mixed` for simultaneously active backends, or `unknown`
+when no backend is active. A fallback replaces the hardware indication with software.
+On macOS, live VideoToolbox sessions require hardware acceleration; failures use
+the software fallback after keyframe recovery.
 For example, launch an already-built macOS app from a terminal:
 
 ```sh
@@ -318,15 +324,18 @@ not establish production readiness or superiority over Discord's processing.
 
 ## Screen sharing
 
-In a connected call, select **Share your screen**, choose a display/window, 720p or 1080p, 15/30/60 fps, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
+In a connected call, select **Share your screen**, choose a display/window, 480p, 720p or 1080p, 15/30/60 fps, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
+
+480p uses 854×480 pixels and a target video bitrate of 2 Mbps at 15/30 fps or 4 Mbps at 60 fps.
 
 Capture uses macOS 14+ ScreenCaptureKit (screen-recording permission in System Settings) or Windows Graphics Capture. Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
 Linux uses the desktop ScreenCast portal and PipeWire. Share Screen opens the system
 screen/window picker after the quality dialog; source discovery never opens that picker.
-The default is 720p30. The worker tries VA-API, NVENC with GPU scaling, NVENC with CPU
-scaling, then the existing OpenH264 software encoder. The call stage identifies the
-active encoder and software fallback. GPU buffers stay native where driver/plugin
+The default is 720p30. The worker tries modern VA-API, legacy VA-API with CPU scaling,
+NVENC with GPU scaling, NVENC with CPU scaling, then the existing OpenH264 software
+encoder. The call stage identifies the active encoder and software fallback.
+GPU buffers stay native where driver/plugin
 negotiation permits; zero-copy is not guaranteed, especially across GPUs. Local preview
 is capped at 640×360/10 fps and suspended when minimized or viewing another channel.
 The system picker requires a ScreenCast-capable portal backend. Native X11 sessions
@@ -335,6 +344,17 @@ GStreamer's `ximagesrc` (Good plugins). This shares the whole desktop, not an in
 window; cancelling or failing the portal never selects it automatically. The existing
 7680×4320 source caps and bounded encoding/preview queues apply. Native X11 capture
 remains unverified. AV1/H.265 sending is not included.
+
+The legacy fallback requires an available `vaapih264enc` from GStreamer VAAPI;
+`vapostproc` alone does not supply it. It uploads CPU-scaled NV12 frames to the
+hardware encoder, so some CPU use remains expected. No legacy plugin or driver is
+installed automatically. Missing or failing encoders continue through the existing
+fallback sequence. Haswell/i965 encoding and live Discord delivery remain unverified.
+On a Linux machine with that encoder, run
+`cargo run --locked -p discord-voice --example linux_screen -- --legacy-vaapi`
+to check synthetic preview, readiness gating and a decodable H.264 keyframe with
+inline parameter sets, without joining a call or capturing a screen or microphone.
+The check fails if the legacy encoder cannot start; it does not silently use software.
 
 System audio defaults off on Linux and Windows. It shares other applications' playback,
 even when sharing one window, and excludes Serein's own audio, including call playback
@@ -526,9 +546,9 @@ lines from different scopes can be ordered. `Transport` (call camera video) and
 remote video counter is non-zero. Each counter names one place a picture can be lost
 between the UDP socket and the display, so a frozen viewer is diagnosed from one line:
 
-- `packets` / `rtx`: video RTP packets (payload 101) accepted by the transport cipher,
-  and retransmission packets (payload 102), which Serein does not yet use. Many `rtx`
-  packets mean the media server sees loss on the path.
+- `packets` / `rtx`: accepted video RTP packets (including restored retransmissions),
+  and received retransmission packets (payload 102). Announced RTX sources can repair
+  gaps in the current picture; Serein does not yet send NACK requests.
 - `open_failed`: packets of any payload rejected by the transport AEAD.
 - `not_ready`: video packets received before the DAVE session was ready or from a
   user outside the group; expected briefly after joining or an epoch change.
@@ -538,6 +558,9 @@ between the UDP socket and the display, so a frozen viewer is diagnosed from one
 - `decrypt_failed`: access units that failed DAVE decryption.
 - `gated`: predicted pictures rejected because a keyframe is still owed after loss.
 - `queue_full`: frames dropped because the decoder thread was behind.
+- `decode_queue_ms` / `stale_frames`: maximum decoder queue wait and pictures discarded
+  after waiting over 150 ms. Discarding requests a fresh keyframe instead of replaying
+  stale video. The native macOS pipeline drains every three submissions.
 - `keyframes` / `keyframes_without_params`: keyframes handed to the decoder, and how
   many lacked inline SPS/PPS. A rebuilt decoder cannot start from those.
 - `pli_sent`: Picture Loss Indications sent (at most one per owed sender per 500 ms).

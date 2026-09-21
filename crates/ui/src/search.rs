@@ -978,9 +978,9 @@ impl SearchUi {
 		let previous = ui.data(|data| data.get_temp::<egui::Rect>(card_id));
 		let background = previous.map(|rect| ui.interact(rect, card_id, egui::Sense::click()));
 		let jumpable = state.can_search() && hit.id.0 < u64::MAX;
-		let hot = background
-			.as_ref()
-			.is_some_and(|response| response.hovered() || response.has_focus());
+		let hot = background.as_ref().is_some_and(|response| {
+			ui.rect_contains_pointer(response.rect) || response.has_focus()
+		});
 		if let Some(response) = &background {
 			response.widget_info(|| {
 				egui::WidgetInfo::labeled(

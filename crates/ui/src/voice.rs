@@ -16,6 +16,15 @@ use model::{
 const MAX_USER_MUTES: usize = 64;
 
 impl MessagingUi {
+	/// Effective screen-share audio level, independent of participant voice levels.
+	pub fn voice_stream_volume(&self) -> u16 {
+		if self.voice_stream_muted {
+			0
+		} else {
+			self.voice_stream_volume.unwrap_or(100).min(200)
+		}
+	}
+
 	/// Fixed session overrides; zero IDs are unused slots. A locally muted speaker is mixed at
 	/// zero gain, so unmuting restores the volume chosen for them.
 	pub fn voice_user_volumes(&self) -> [(u64, u16); 64] {
@@ -711,6 +720,9 @@ impl MessagingUi {
 			}
 			Tile::Stream(streamer) => {
 				self.stream_tile(ui, state, rect, channel, *streamer, compact);
+				egui::Popup::context_menu(&response)
+					.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+					.show(|ui| self.stream_audio_controls(ui));
 				"Screen share you are watching"
 			}
 			Tile::Participant(entry) => {
@@ -806,6 +818,27 @@ impl MessagingUi {
 				rect
 			}
 		};
+		let audio = ui.put(
+			egui::Rect::from_min_size(
+				rect.left_top() + egui::vec2(8.0, 8.0),
+				egui::vec2(110.0_f32.min((rect.width() - 16.0).max(0.0)), 26.0),
+			),
+			egui::Button::new(
+				RichText::new(if self.voice_stream_volume() == 0 {
+					"Stream muted"
+				} else {
+					"Stream audio"
+				})
+				.size(12.0)
+				.color(egui::Color32::WHITE),
+			)
+			.truncate()
+			.fill(egui::Color32::from_black_alpha(170))
+			.corner_radius(6),
+		);
+		egui::Popup::menu(&audio)
+			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+			.show(|ui| self.stream_audio_controls(ui));
 		if compact {
 			return;
 		}
@@ -822,6 +855,16 @@ impl MessagingUi {
 		{
 			self.watch_request = Some(None);
 		}
+	}
+
+	fn stream_audio_controls(&mut self, ui: &mut egui::Ui) {
+		ui.set_width(220.0);
+		ui.checkbox(&mut self.voice_stream_muted, "Mute stream audio");
+		gain_slider(
+			ui,
+			self.voice_stream_volume.get_or_insert(100),
+			"Stream volume",
+		);
 	}
 
 	/// Apply a tile's watch click once the stage has mutable state again.

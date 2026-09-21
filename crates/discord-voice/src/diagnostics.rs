@@ -1,7 +1,11 @@
 // Opt-in fixed-size aggregates. No strings or media enter the reporter queue.
 use std::{
 	io::Write,
-	sync::{OnceLock, mpsc},
+	sync::{
+		OnceLock,
+		atomic::{AtomicU64, Ordering},
+		mpsc,
+	},
 	time::{Duration, Instant},
 };
 
@@ -78,8 +82,12 @@ pub(crate) enum Video {
 	PictureGapMs,
 	/// Ticks where video stalled: sources announced but no recent picture.
 	StallTicks,
+	/// Longest wait in the decoder queue, in milliseconds.
+	DecodeQueueMs,
+	/// Queued frames discarded after exceeding the latency budget.
+	StaleFrames,
 }
-const VIDEO_SLOTS: usize = 18;
+const VIDEO_SLOTS: usize = 20;
 
 /// Voice signaling messages, so a handshake that never completes names its own missing step.
 /// Opcodes only; no signaling contents are recorded.
@@ -121,6 +129,54 @@ pub(crate) enum Signal {
 	SinkWantsSent,
 }
 const SIGNAL_SLOTS: usize = 17;
+static SCREEN_ENCODERS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+static CAMERA_ENCODERS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+
+/// Counts only currently live encoders, separately for screen sharing and camera video.
+pub(crate) struct EncoderRegistration {
+	counts: &'static [AtomicU64; 2],
+	hardware: Option<bool>,
+}
+
+impl EncoderRegistration {
+	pub(crate) fn new(screen: bool, hardware: bool) -> Self {
+		let mut registration = Self {
+			counts: if screen {
+				&SCREEN_ENCODERS
+			} else {
+				&CAMERA_ENCODERS
+			},
+			hardware: None,
+		};
+		registration.set(Some(hardware));
+		registration
+	}
+
+	pub(crate) fn set(&mut self, hardware: Option<bool>) {
+		if let Some(previous) = self.hardware {
+			self.counts[usize::from(!previous)].fetch_sub(1, Ordering::Relaxed);
+		}
+		if let Some(current) = hardware {
+			self.counts[usize::from(!current)].fetch_add(1, Ordering::Relaxed);
+		}
+		self.hardware = hardware;
+	}
+}
+
+impl Drop for EncoderRegistration {
+	fn drop(&mut self) {
+		self.set(None);
+	}
+}
+
+fn codec_label([hardware, software]: [u64; 2]) -> &'static str {
+	match (hardware > 0, software > 0) {
+		(true, false) => "hardware",
+		(false, true) => "software",
+		(true, true) => "mixed",
+		(false, false) => "unknown",
+	}
+}
 
 /// Linux application-audio capture counters, reported under `Scope::ScreenAudio`.
 #[derive(Clone, Copy)]
@@ -143,6 +199,8 @@ pub(crate) enum Capture {
 #[derive(Clone, Copy)]
 struct Report {
 	scope: Scope,
+	encoder_counts: [u64; 2],
+	decoder_counts: [u64; 2],
 	at_ms: u64,
 	window_ms: u64,
 	video: [u64; VIDEO_SLOTS],
@@ -203,6 +261,8 @@ impl Metrics {
 			since: Instant::now(),
 			report: Report {
 				scope,
+				encoder_counts: [0; 2],
+				decoder_counts: [0; 2],
 				at_ms: 0,
 				window_ms: 0,
 				video: [0; VIDEO_SLOTS],
@@ -222,6 +282,11 @@ impl Metrics {
 
 	pub fn start(&self) -> Option<Instant> {
 		self.send.map(|_| Instant::now())
+	}
+
+	/// Snapshot live decoder counts owned by this transport, never process-wide history.
+	pub fn decoder_counts(&mut self, hardware: u64, software: u64) {
+		self.report.decoder_counts = [hardware, software];
 	}
 
 	pub fn finish(&mut self, stage: Stage, start: Option<Instant>) {
@@ -317,6 +382,14 @@ impl Metrics {
 
 	fn flush(&mut self) {
 		let Some(send) = self.send else { return };
+		self.report.encoder_counts = match self.report.scope {
+			Scope::StreamSend | Scope::ScreenVideo => Some(&SCREEN_ENCODERS),
+			Scope::Transport => Some(&CAMERA_ENCODERS),
+			_ => None,
+		}
+		.map_or([0; 2], |counts| {
+			counts.each_ref().map(|count| count.load(Ordering::Relaxed))
+		});
 		self.report.at_ms = started().elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
 		self.report.window_ms = self.since.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
 		if let Err(mpsc::TrySendError::Disconnected(_)) = send.try_send(self.report) {
@@ -362,6 +435,15 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 		report.stages[4],
 		report.stages[5],
 	);
+	if matches!(
+		report.scope,
+		Scope::Transport | Scope::StreamSend | Scope::ScreenVideo
+	) {
+		line.push_str(&format!(" encoder={}", codec_label(report.encoder_counts)));
+	}
+	if matches!(report.scope, Scope::Transport | Scope::StreamReceive) {
+		line.push_str(&format!(" decoder={}", codec_label(report.decoder_counts)));
+	}
 	if matches!(report.scope, Scope::StreamSend | Scope::StreamReceive) {
 		let [
 			transport_key,
@@ -398,9 +480,11 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 			pictures,
 			picture_gap_ms,
 			stall_ticks,
+			decode_queue_ms,
+			stale_frames,
 		] = report.video;
 		line.push_str(&format!(
-			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms} stall_ticks={stall_ticks}"
+			" video: packets={packets} rtx={rtx} open_failed={open_failed} not_ready={not_ready} unknown_ssrc={unknown_ssrc} incomplete={incomplete} complete={complete} decrypt_failed={decrypt_failed} gated={gated} queue_full={queue_full} keyframes={keyframes} keyframes_without_params={keyframes_without_params} pli_sent={pli_sent} awaiting_ticks={awaiting_ticks} decoder_errors={decoder_errors} pictures={pictures} picture_gap_ms={picture_gap_ms} stall_ticks={stall_ticks} decode_queue_ms={decode_queue_ms} stale_frames={stale_frames}"
 		));
 	}
 	if report.signal.iter().any(|count| *count != 0) {
@@ -451,6 +535,8 @@ mod tests {
 	fn video_counters_are_written_only_when_present() {
 		let mut report = Report {
 			scope: Scope::StreamReceive,
+			encoder_counts: [0; 2],
+			decoder_counts: [0; 2],
 			at_ms: 1234,
 			window_ms: 5000,
 			video: [0; VIDEO_SLOTS],
@@ -480,7 +566,7 @@ mod tests {
 		let line = String::from_utf8(out).unwrap();
 		assert!(line.contains("video: packets=150"));
 		assert!(line.contains("gated=40"));
-		assert!(line.ends_with("stall_ticks=0\n"));
+		assert!(line.ends_with("stall_ticks=0 decode_queue_ms=0 stale_frames=0\n"));
 
 		report.signal[Signal::ExecuteTransition as usize] = 2;
 		let mut out = Vec::new();

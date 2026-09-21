@@ -190,6 +190,15 @@ GitHub HTTPS and repository access are the update trust boundary; release checks
 alone are not an independent publisher signature. Linux AppImages use this same
 trust boundary; other Linux installations use their package manager.
 
+AppImage downloads first try the selected release's `.zsync` sidecar, verified
+against the same checksum list. The updater scans the installed image for reusable
+blocks and downloads missing HTTPS ranges, then verifies the entire result with
+SHA-256. Missing/incompatible delta metadata or reconstruction failure falls back
+to a full download. The built-in implementation supports the zsync 0.6.2/MD4 format
+produced by the Ubuntu packaging job; it does not run an external updater. Offline
+debug checks cover shifted-block reuse and integrity rejection; real release-to-release
+bandwidth savings and Linux upgrade behavior remain unverified.
+
 The local `--features demo -- --demo --demo-check-updates` debug path exercises
 synthetic update states, preference compatibility and settings rendering without
 network access or replacing an installation. It is not evidence of a successful
@@ -222,6 +231,13 @@ Native packages declare the PipeWire and Base runtime plugins; hardware codec av
 still depends on distribution packaging and drivers. The software fallback reuses bundled
 OpenH264. Flatpak needs compatible plugins/GPU access inside its runtime; no extra sandbox
 permission or host socket access is added. Native Linux validation remains pending.
+
+Screen sharing also tries the legacy `vaapih264enc` element when modern VA encoding
+fails. This optional system plugin uses CPU scaling and hardware H.264 encoding;
+it does not require `vaapipostproc`. Check availability with
+`gst-inspect-1.0 vaapih264enc` in the same runtime as Serein. Installing the modern
+`va` plugin alone does not provide this legacy element. Driver compatibility still
+requires an actual encode test; `vainfo` only advertises capabilities.
 
 Native X11 sessions can instead explicitly select “Entire X11 desktop · all monitors ·
 no portal”. This uses `ximagesrc` from GStreamer Good, already a native package

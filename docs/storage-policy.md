@@ -901,6 +901,18 @@ survives its initial two-second launch check. This detects immediate launch fail
 not application health or a successful login. Interrupted backups block subsequent
 updates for manual recovery. Native Linux packages remain package-manager managed.
 
+AppImage delta updates optionally read a SHA-256-verified `.zsync` control file
+capped at 16 MiB (4 KiB headers), with at most 262,144 block records. The local seed
+and reconstructed image each retain the 512 MiB limit. A streaming scan uses a
+1 MiB buffer plus at most 64 KiB overlap, bounded checksum indexes, a 15-second
+scan limit and at most 1 GiB of block hashing. Up to 128 coalesced ranges use the
+existing credential-free HTTPS client with a 120-second transfer deadline.
+Metadata URLs and filenames never control requests or filesystem paths. MD4 only
+matches legacy zsync blocks; release SHA-256 verifies both metadata and the final
+image. Failed delta staging is removed before the full-download fallback; user
+cancellation does not start a fallback. No account data or new persistent cache
+is involved. Progress includes locally reused bytes.
+
 ### Thread participant snapshots — September 15, 2026
 
 The People pane shares its existing 100-member / 128-KiB metadata limit with

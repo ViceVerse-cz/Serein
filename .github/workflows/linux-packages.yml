@@ -113,7 +113,9 @@ jobs:
           name: release-manifests
           path: .
       - name: Install build tools
-        run: bash packaging/linux/install-build-deps.sh
+        run: |
+          bash packaging/linux/install-build-deps.sh
+          apt-get install -y --no-install-recommends zsync
       - name: Create unprivileged builder
         run: |
           useradd --create-home builder
@@ -126,6 +128,8 @@ jobs:
             target
           key: linux-appimage-ubuntu-24.04-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
       - name: Build AppImage including voice
+        env:
+          SEREIN_RELEASE_TAG: ${{ inputs.release && inputs.tag || '' }}
         run: |
           chown -R builder:builder /home/builder "$GITHUB_WORKSPACE"
           runuser -u builder -- env HOME=/home/builder bash <<'BUILD'
@@ -137,14 +141,13 @@ jobs:
             cargo xtask package --format appimage
           BUILD
       - name: Collect AppImage
-        env:
-          TAG: ${{ inputs.tag || 'development' }}
         run: |
           mkdir release-assets
           set -- dist/serein-*-Linux-X64.AppImage
           test "$#" -eq 1
           test -f "$1"
-          cp "$1" "release-assets/serein-$TAG-Linux-X64.AppImage"
+          test -s "$1.zsync"
+          cp "$1" "$1.zsync" release-assets/
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: serein-linux-appimage

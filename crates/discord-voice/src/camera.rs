@@ -153,6 +153,7 @@ impl Camera {
 /// to openh264 when it is unavailable or fails mid-stream. Baseline profile and one IDR per
 /// picture either way, so the wire format does not change.
 struct CameraEncoder {
+	diagnostics: crate::diagnostics::EncoderRegistration,
 	software: Option<Encoder>,
 	yuv: YUVBuffer,
 	#[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -183,13 +184,15 @@ impl CameraEncoder {
 		#[cfg(target_os = "linux")]
 		let hardware = encode_linux::Encoder::new(config).ok();
 		#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-		let software = match hardware {
-			Some(_) => None,
-			None => Some(encoder()?),
+		let software = if hardware.is_some() {
+			None
+		} else {
+			Some(encoder()?)
 		};
 		#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 		let software = Some(encoder()?);
 		Ok(Self {
+			diagnostics: crate::diagnostics::EncoderRegistration::new(false, software.is_none()),
 			software,
 			yuv: YUVBuffer::new(WIDTH, HEIGHT),
 			#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -217,7 +220,9 @@ impl CameraEncoder {
 				Ok(None) => return Ok(None),
 				Err(_) => {
 					self.hardware = None;
+					self.diagnostics.set(None);
 					self.software = Some(encoder()?);
+					self.diagnostics.set(Some(false));
 				}
 			}
 		}
@@ -243,7 +248,9 @@ impl CameraEncoder {
 				}
 				Err(_) => {
 					self.hardware = None;
+					self.diagnostics.set(None);
 					self.software = Some(encoder()?);
+					self.diagnostics.set(Some(false));
 				}
 			}
 		}

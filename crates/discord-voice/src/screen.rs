@@ -427,6 +427,7 @@ fn retain_screen_frame(
 /// fails mid-stream.
 #[cfg(not(target_os = "linux"))]
 struct ScreenEncoder {
+	diagnostics: crate::diagnostics::EncoderRegistration,
 	software: Option<Encoder>,
 	yuv: YUVBuffer,
 	hardware: Option<crate::video_encode::hardware::Encoder>,
@@ -458,6 +459,7 @@ impl ScreenEncoder {
 			None
 		};
 		Ok(Self {
+			diagnostics: crate::diagnostics::EncoderRegistration::new(true, hardware.is_some()),
 			software,
 			yuv: YUVBuffer::new(settings.width as usize, settings.height as usize),
 			hardware,
@@ -486,7 +488,9 @@ impl ScreenEncoder {
 			}
 			// The viewer must restart from a keyframe once the software encoder takes over.
 			self.hardware = None;
+			self.diagnostics.set(None);
 			self.software = Some(encoder(self.settings)?);
+			self.diagnostics.set(Some(false));
 			software_force = true;
 		}
 		self.yuv.read_bgra8(BgraSliceU8::new(pixels, dimensions));

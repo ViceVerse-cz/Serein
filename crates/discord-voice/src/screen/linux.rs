@@ -142,6 +142,7 @@ pub(super) fn run(
 				}
 				wake();
 				let mut software = None;
+				let mut encoder_diagnostics = None;
 				let mut second = Instant::now();
 				let mut pictures_second = 0u32;
 				let mut withheld_second = 0u64;
@@ -202,6 +203,7 @@ pub(super) fn run(
 							wake();
 						}
 						software = None;
+						encoder_diagnostics = None;
 						slow = None;
 						waiting_keyframe = true;
 						first_frame = None;
@@ -264,6 +266,12 @@ pub(super) fn run(
 									!buffer.flags().contains(gst::BufferFlags::DELTA_UNIT),
 								)
 							};
+							encoder_diagnostics.get_or_insert_with(|| {
+								crate::diagnostics::EncoderRegistration::new(
+									true,
+									mode != Mode::Software,
+								)
+							});
 							if !data.is_empty() && (!waiting_keyframe || is_keyframe) {
 								let frame = EncodedFrame {
 									data,

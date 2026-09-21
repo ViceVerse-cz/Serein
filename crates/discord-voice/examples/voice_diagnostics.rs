@@ -3,6 +3,20 @@
 include!("../src/diagnostics.rs");
 
 fn main() {
+	// Registration follows current lifetime and fallback state, independently per source.
+	let mut screen = EncoderRegistration::new(true, true);
+	let camera = EncoderRegistration::new(false, false);
+	let counts = |values: &[AtomicU64; 2]| values.each_ref().map(|v| v.load(Ordering::Relaxed));
+	assert_eq!(codec_label(counts(&SCREEN_ENCODERS)), "hardware");
+	assert_eq!(codec_label(counts(&CAMERA_ENCODERS)), "software");
+	screen.set(None);
+	assert_eq!(codec_label(counts(&SCREEN_ENCODERS)), "unknown");
+	screen.set(Some(false));
+	assert_eq!(codec_label(counts(&SCREEN_ENCODERS)), "software");
+	drop(screen);
+	drop(camera);
+	assert_eq!(counts(&SCREEN_ENCODERS), [0, 0]);
+	assert_eq!(counts(&CAMERA_ENCODERS), [0, 0]);
 	let (send, receive) = mpsc::sync_channel(8);
 	let mut metrics = Metrics::new(Scope::Audio);
 	metrics.send = None;
@@ -18,6 +32,7 @@ fn main() {
 	assert_eq!(metrics.report.queued_audio, 0);
 	// Keep the synthetic sender alive for this short-lived debug process.
 	metrics.send = Some(Box::leak(Box::new(send)));
+	metrics.decoder_counts(1, 0);
 	for stage in [
 		Stage::EchoRender,
 		Stage::EchoCapture,
@@ -71,6 +86,14 @@ fn main() {
 	metrics.since -= Duration::from_secs(5);
 	metrics.poll(false, 0, false, 0);
 	let report = receive.try_recv().unwrap();
+	assert_eq!(codec_label(report.decoder_counts), "hardware");
+	metrics.decoder_counts(0, 1);
+	assert_eq!(
+		codec_label(report.decoder_counts),
+		"hardware",
+		"queued reports retain their snapshot"
+	);
+	assert_eq!(codec_label(metrics.report.decoder_counts), "software");
 	assert!(report.window_ms >= 5000);
 	assert_eq!(report.stream_ticks, [2, 1, 1, 0, 0, 2, 1, 2]);
 	assert_eq!(report.queued_audio, 6);
@@ -193,6 +216,8 @@ fn main() {
 		Video::Pictures,
 		Video::PictureGapMs,
 		Video::StallTicks,
+		Video::DecodeQueueMs,
+		Video::StaleFrames,
 	];
 	assert_eq!(video.len(), VIDEO_SLOTS);
 	for (index, slot) in video.into_iter().enumerate() {

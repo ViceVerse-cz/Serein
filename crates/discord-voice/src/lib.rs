@@ -8,6 +8,7 @@ mod diagnostics;
 mod jitter;
 mod mixer;
 pub mod screen;
+mod stream_playout;
 mod transport;
 mod video;
 // Linux has no shared hardware encoder, but the camera's GStreamer encoder still takes the
@@ -15,6 +16,7 @@ mod video;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod video_encode;
 mod video_receive;
+mod video_sps;
 pub use crypto::Identity;
 pub use transport::{run, run_stream, run_with_identity, watch_stream};
 pub use video_receive::{RemoteFrame, VideoSink};
@@ -31,6 +33,8 @@ pub struct Controls {
 	pub deafened: bool,
 	/// Session-only playback percentages (0–200); zero user IDs are unused.
 	pub user_volumes: [(u64, u16); 64],
+	/// Watched stream playback percentage, independently muted with zero.
+	pub stream_volume: u16,
 }
 impl Default for Controls {
 	fn default() -> Self {
@@ -40,6 +44,7 @@ impl Default for Controls {
 			camera: 0,
 			deafened: false,
 			user_volumes: [(0, 100); 64],
+			stream_volume: 100,
 		}
 	}
 }

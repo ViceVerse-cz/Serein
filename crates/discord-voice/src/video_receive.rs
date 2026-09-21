@@ -8,6 +8,7 @@ use std::{
 		atomic::{AtomicU64, Ordering},
 		mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
 	},
+	time::{Duration, Instant},
 };
 
 /// Users whose decoder hit undecodable data; the transport turns these into keyframe requests.
@@ -23,6 +24,7 @@ const QUEUE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_WIDTH: u32 = 1920;
 const MAX_PIXELS: u64 = 1920 * 1080;
 const START_CODE: [u8; 4] = [0, 0, 0, 1];
+const MAX_DECODE_AGE: Duration = Duration::from_millis(150);
 
 /// One decoded remote picture, packed RGBA.
 pub struct RemoteFrame<'a> {
@@ -45,6 +47,10 @@ pub(crate) struct DecoderQueue {
 pub(crate) struct DecoderCounters {
 	pub pictures: AtomicU64,
 	pub errors: AtomicU64,
+	pub hardware: AtomicU64,
+	pub software: AtomicU64,
+	pub queue_ms: AtomicU64,
+	pub stale: AtomicU64,
 }
 
 /// A cleartext Annex-B access unit handed to the decoder thread.
@@ -55,7 +61,7 @@ pub(crate) struct Encoded {
 }
 
 enum Decode {
-	Frame(Encoded, tokio::sync::OwnedSemaphorePermit),
+	Frame(Encoded, tokio::sync::OwnedSemaphorePermit, Instant),
 	Remove(u64),
 }
 
@@ -114,10 +120,61 @@ pub(crate) struct Assembler {
 	started: bool,
 	// Preserve loss across frame resets until Receivers schedules recovery.
 	lost: bool,
+	// Only packets of the current picture; the next timestamp expires missing fragments.
+	pending: Vec<(u16, bool, Vec<u8>)>,
+	pending_bytes: usize,
 }
 impl Assembler {
 	/// Feed one packet; returns a complete access unit when the marker closes an intact frame.
 	pub fn push(
+		&mut self,
+		sequence: u16,
+		timestamp: u32,
+		marker: bool,
+		payload: &[u8],
+	) -> Option<Vec<u8>> {
+		if let Some(expected) = self.next_sequence {
+			let distance = sequence.wrapping_sub(expected);
+			if distance >= 32768 {
+				return None;
+			} // Duplicate or late retransmission.
+			if distance != 0 && self.started && timestamp == self.timestamp {
+				if self.pending.iter().any(|(seq, _, _)| *seq == sequence) {
+					return None;
+				}
+				if distance < 128
+					&& self.pending.len() < 128
+					&& payload.len() <= 4096
+					&& self.pending_bytes + payload.len() <= 256 * 1024
+				{
+					self.pending_bytes += payload.len();
+					self.pending.push((sequence, marker, payload.to_vec()));
+					return None;
+				}
+				self.pending.clear();
+				self.pending_bytes = 0;
+			}
+		}
+		if timestamp != self.timestamp {
+			self.pending.clear();
+			self.pending_bytes = 0;
+		}
+		let mut complete = self.push_ordered(sequence, timestamp, marker, payload);
+		while complete.is_none() {
+			let Some(index) = self
+				.pending
+				.iter()
+				.position(|(seq, _, _)| Some(*seq) == self.next_sequence)
+			else {
+				break;
+			};
+			let (seq, marker, payload) = self.pending.swap_remove(index);
+			self.pending_bytes -= payload.len();
+			complete = self.push_ordered(seq, timestamp, marker, &payload);
+		}
+		complete
+	}
+	fn push_ordered(
 		&mut self,
 		sequence: u16,
 		timestamp: u32,
@@ -236,6 +293,7 @@ impl Assembler {
 #[derive(Default)]
 pub(crate) struct Receivers {
 	sources: Vec<(u32, u64, Assembler)>,
+	rtx: Vec<(u32, u32)>,
 	/// Users whose decoder lost a reference picture; only a keyframe restarts their video.
 	awaiting_keyframe: Vec<u64>,
 	/// Depacketizer outcomes since the last `take_stats`, for diagnostics.
@@ -259,6 +317,7 @@ impl Receivers {
 			if entry.1 != user {
 				entry.1 = user;
 				entry.2 = Assembler::default();
+				self.rtx.retain(|(_, media)| *media != ssrc);
 			}
 			return Ok(());
 		}
@@ -271,7 +330,40 @@ impl Receivers {
 	}
 	pub fn remove(&mut self, user: u64) {
 		self.sources.retain(|(_, u, _)| *u != user);
+		self.rtx
+			.retain(|(_, media)| self.sources.iter().any(|(ssrc, _, _)| ssrc == media));
 		self.awaiting_keyframe.retain(|u| *u != user);
+	}
+	pub fn announce_rtx(&mut self, media: u32, rtx: u32) -> Result<(), &'static str> {
+		if media == 0 || rtx == 0 {
+			self.rtx.retain(|(_, source)| *source != media);
+			return Ok(());
+		}
+		if !self.sources.iter().any(|(ssrc, _, _)| *ssrc == media)
+			|| self.sources.iter().any(|(ssrc, _, _)| *ssrc == rtx)
+			|| self
+				.rtx
+				.iter()
+				.any(|(known, source)| *known == rtx && *source != media)
+		{
+			return Err("Invalid video retransmission SSRC");
+		}
+		self.rtx.retain(|(_, source)| *source != media);
+		if self.rtx.len() >= MAX_SOURCES {
+			return Err("Too many video retransmission sources");
+		}
+		self.rtx.push((rtx, media));
+		Ok(())
+	}
+	/// RFC 4588: RTX payload starts with the original sequence number.
+	pub fn restore_rtx(&self, ssrc: u32, payload: &mut Vec<u8>) -> Option<(u32, u16)> {
+		let (_, media) = self.rtx.iter().find(|(rtx, _)| *rtx == ssrc)?;
+		if payload.len() < 3 {
+			return None;
+		}
+		let sequence = u16::from_be_bytes([payload[0], payload[1]]);
+		payload.drain(..2);
+		Some((*media, sequence))
 	}
 	/// A dropped or undecodable picture invalidates every later prediction until an IDR.
 	pub fn require_keyframe(&mut self, user: u64) {
@@ -353,8 +445,8 @@ impl Receivers {
 /// Decoder thread: cleartext access units in, bounded RGBA frames out through the sink.
 /// Dropping the returned sender ends the thread and releases every decoder.
 pub(crate) fn spawn_decoder(sink: VideoSink) -> Result<(DecoderQueue, Lost), &'static str> {
-	// Predictions are small; queueing a second of them beats dropping and waiting for an IDR.
-	let (send, receive) = sync_channel(64);
+	// Keep short bursts, but recover from a fresh keyframe instead of replaying stale video.
+	let (send, receive) = sync_channel(16);
 	let lost: Lost = Arc::new(Mutex::new(Vec::new()));
 	let report = lost.clone();
 	let removals = Arc::new(Mutex::new(Vec::new()));
@@ -396,7 +488,10 @@ pub(crate) fn offer(sender: &DecoderQueue, frame: Encoded) -> Result<bool, &'sta
 	else {
 		return Ok(false);
 	};
-	match sender.send.try_send(Decode::Frame(frame, permit)) {
+	match sender
+		.send
+		.try_send(Decode::Frame(frame, permit, Instant::now()))
+	{
 		Ok(()) => Ok(true),
 		Err(TrySendError::Full(_)) => Ok(false),
 		Err(TrySendError::Disconnected(_)) => Err("Video decoder stopped"),
@@ -500,17 +595,39 @@ fn decode_loop(
 				software_only.retain(|known| *known != user);
 				broken.retain(|known| *known != user);
 			}
+			decoder_counts(&decoders, &counters);
 		}
-		let (frame, _permit) = match message {
-			Decode::Frame(frame, permit) => (frame, permit),
+		let (frame, _permit, queued) = match message {
+			Decode::Frame(frame, permit, queued) => (frame, permit, queued),
 			Decode::Remove(user) => {
 				decoders.remove(&user);
 				software_only.retain(|known| *known != user);
 				broken.retain(|known| *known != user);
+				decoder_counts(&decoders, &counters);
 				continue;
 			}
 		};
 		if frame.data.len() > MAX_FRAME_BYTES {
+			continue;
+		}
+		let age = queued.elapsed();
+		counters.queue_ms.fetch_max(
+			age.as_millis().min(u128::from(u64::MAX)) as u64,
+			Ordering::Relaxed,
+		);
+		if age > MAX_DECODE_AGE {
+			counters.stale.fetch_add(1, Ordering::Relaxed);
+			decoders.remove(&frame.user);
+			decoder_counts(&decoders, &counters);
+			if !broken.contains(&frame.user) && broken.len() < MAX_SOURCES {
+				broken.push(frame.user);
+			}
+			if let Ok(mut lost) = lost.lock()
+				&& !lost.contains(&frame.user)
+				&& lost.len() < MAX_SOURCES
+			{
+				lost.push(frame.user);
+			}
 			continue;
 		}
 		if frame.keyframe {
@@ -537,12 +654,16 @@ fn decode_loop(
 		let hardware = !matches!(decoder, Backend::Software(_));
 		let decoded = match decoder.decode(&frame.data, &mut scratch) {
 			Ok(Some(picture)) => picture,
-			Ok(None) => continue,
+			Ok(None) => {
+				decoder_counts(&decoders, &counters);
+				continue;
+			}
 			Err(()) => {
 				// Corrupt or lost data: a fresh decoder waits for the next keyframe. A
 				// hardware decoder that fails on a keyframe is replaced by software.
 				counters.errors.fetch_add(1, Ordering::Relaxed);
 				decoders.remove(&frame.user);
+				decoder_counts(&decoders, &counters);
 				if hardware && frame.keyframe && !software_only.contains(&frame.user) {
 					software_only.push(frame.user);
 				}
@@ -555,6 +676,7 @@ fn decode_loop(
 				continue;
 			}
 		};
+		decoder_counts(&decoders, &counters);
 		let (width, height) = decoded;
 		counters.pictures.fetch_add(1, Ordering::Relaxed);
 		sink(RemoteFrame {
@@ -570,6 +692,17 @@ fn decode_loop(
 			decoder.flush();
 		}
 	}
+}
+
+fn decoder_counts(decoders: &HashMap<u64, Backend>, counters: &DecoderCounters) {
+	let hardware = decoders
+		.values()
+		.filter(|decoder| matches!(decoder, Backend::Hardware(_)))
+		.count();
+	counters.hardware.store(hardware as u64, Ordering::Relaxed);
+	counters
+		.software
+		.store((decoders.len() - hardware) as u64, Ordering::Relaxed);
 }
 
 fn bounded(width: usize, height: usize) -> Result<(u32, u32), ()> {

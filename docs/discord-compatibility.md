@@ -283,6 +283,16 @@ statements in the historical voice/screen-sharing notes below.
 
 ## Outgoing screen sharing — September 11, 2026
 
+September 21 interoperability correction: camera and screen-share H.264 SPS metadata
+is normalized before DAVE encryption to specify no frame reordering and bounded
+decoder buffering. The [WebRTC receiver rewrites unsuitable SPS metadata](https://github.com/webrtc-mirror/webrtc/blob/main/modules/rtp_rtcp/source/video_rtp_depacketizer_h264.cc)
+before frame decryption; that changes DAVE-authenticated bytes, while Serein's
+receiver preserves them. The offline debug command
+`cargo run --locked -p discord-voice --example video_interop` exercises this
+authentication failure and normalized encryption/decryption/decoding with synthetic
+video. Official Discord Android/desktop playback and resolution of issue #345
+remain subject to an owner-operated live retest.
+
 September 15 transport follow-up: screen audio keeps stereo 48 kHz Opus, 20 ms
 frames, the stream connection's audio SSRC, and opcode 5 Soundshare. It now also
 marks each audio packet with the native speaking RTP extension (ID 9, value 4).
@@ -300,8 +310,16 @@ SSRC, coalescing requests to at most twice per second. Windows/macOS can freshly
 one retained current snapshot on an idle keyframe request, without waiting for screen
 movement. The additional snapshot is bounded to 33,177,600 bytes, normally reduced to
 the chosen output resolution. Ordinary idle time does not encode extra frames. Linux
-already requests periodic PipeWire keepalive frames. RTX/NACK repair and adaptive bitrate
-remain unsupported; native/live video quality is not established by these changes.
+already requests periodic PipeWire keepalive frames. Sender RTX repair, receiver NACK
+requests and adaptive bitrate remain unsupported. The viewer accepts announced RTX
+packets and bounded packet reordering within the current picture; native/live video
+quality is not established by these changes.
+
+Watched streams have a session-only 0–200% audio volume and mute control, independent
+of participant voice levels. Audio playout retains at most two queued 20 ms frames
+and clears delayed mixer output after a stall. Decoder input is bounded to 16 pictures
+and 16 MiB, with a 150 ms age limit and keyframe recovery. These bounds reduce backlog;
+they do not implement sender-clock audio/video synchronization or establish live sync.
 
 A device-free localhost test runs the actual sender and viewer through an MLS exchange,
 stereo Opus and H.264, encrypted UDP forwarding, decoded audio and video. It verifies the

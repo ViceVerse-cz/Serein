@@ -264,6 +264,9 @@ pub struct MessagingUi {
 	/// Latest picture of the screen share this device chose to watch.
 	pub voice_stream_view: Option<egui::TextureHandle>,
 	pub voice_stream_status: &'static str,
+	/// Session-only stream playback level; unset is 100%. Mute preserves the level.
+	voice_stream_volume: Option<u16>,
+	voice_stream_muted: bool,
 	/// Enlarged stage tile; cleared when it stops showing video or on Escape.
 	pub voice_focus: Option<voice::StageFocus>,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.

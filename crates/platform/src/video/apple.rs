@@ -105,6 +105,7 @@ impl Decoder {
 			Arc::as_ptr(&output).cast_mut().cast::<c_void>(),
 			output_frame,
 			kCVPixelFormatType_32BGRA,
+			None,
 		)?;
 		let audio = match &movie.audio {
 			Some(track) => Some(Audio {
@@ -428,6 +429,7 @@ pub(super) fn create_session(
 		CMTime,
 	),
 	pixel_format: u32,
+	decoder_specification: Option<&CFDictionary>,
 ) -> Result<Session, &'static str> {
 	let pixel_format = CFNumber::new_i32(pixel_format as i32);
 	// SAFETY: The static key is a valid CFString; the dictionary is a plain attribute map.
@@ -445,7 +447,7 @@ pub(super) fn create_session(
 		VTDecompressionSession::create(
 			None,
 			format,
-			None,
+			decoder_specification,
 			Some(attributes.as_opaque()),
 			&record,
 			NonNull::from(&mut session),
