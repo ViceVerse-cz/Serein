@@ -156,7 +156,7 @@ unknown/deleted source metadata remains explicitly unknown.
 
 Notification sounds (September 21): three owner-supplied MP3 tracks (106,608 bytes)
 and the optional classic Discord pack are embedded, with no runtime files or downloads.
-The classic files total 494,197 bytes on disk, including a duplicate message cue;
+The classic files total 583,331 bytes on disk, including a duplicate message cue;
 source attribution and redistribution limitations are in `assets/sounds/README.md`.
 The existing single lazy worker and one-slot fixed-size request queue decode one
 track at a time outside rendering/audio callbacks. Each asset is capped at
@@ -170,6 +170,8 @@ the worker every 20 ms. No notification-audio cache or storage migration is adde
 Outgoing ringback retains one fixed-size channel/request/confirmation slot for
 the active explicit call only. Ringing metadata and the repeat timer remain
 session-only and are cleared when the attempt ends; no call history is saved.
+Join/leave feedback retains at most 64 remote user IDs (512 bytes plus fixed flags)
+for the one live call, with no allocation or persisted membership history.
 
 Explicit media clipboard copies (September 13) reuse the bounded attachment
 download worker. One original video, at most 100 MiB, remains in a randomized

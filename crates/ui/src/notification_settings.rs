@@ -86,6 +86,8 @@ mod tests {
 			assert!(!labels.iter().any(|(s, _)| s == "Outgoing Ring"));
 			assert!(!labels.iter().any(|(s, _)| s == "Camera On"));
 			assert!(!labels.iter().any(|(s, _)| s == "Screen Share Started"));
+			assert!(!labels.iter().any(|(s, _)| s == "Call Joined"));
+			assert!(!labels.iter().any(|(s, _)| s == "User Left Call"));
 			view.notification_options.discord_sounds = true;
 			let discord_labels = render(&mut view, vec![]);
 			assert!(discord_labels.iter().any(|(s, _)| s == "Microphone Muted"));
@@ -100,6 +102,8 @@ mod tests {
 				("Outgoing Ring", Sound::OutgoingRing),
 				("Camera On", Sound::CameraOn),
 				("Screen Share Started", Sound::ScreenShareOn),
+				("Call Joined", Sound::UserJoin),
+				("User Left Call", Sound::UserLeave),
 			] {
 				let point = discord_labels
 					.iter()
@@ -271,6 +275,16 @@ impl MessagingUi {
 					"Screen Share Started",
 					&mut self.notification_options.screen_share_on,
 					Sound::ScreenShareOn,
+				));
+				sounds.push((
+					"Call Joined",
+					&mut self.notification_options.user_join,
+					Sound::UserJoin,
+				));
+				sounds.push((
+					"User Left Call",
+					&mut self.notification_options.user_leave,
+					Sound::UserLeave,
 				));
 			}
 			for (index, (label, value, sound)) in sounds.into_iter().enumerate() {

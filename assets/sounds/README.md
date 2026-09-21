@@ -39,8 +39,10 @@ from the source sample rate; no re-encoding, metadata stripping or trimming is a
 | `undeafen.mp3` | [undeafen](https://discord.com/assets/b150f03c89944403.mp3) | `690b64977594baa41c7978d76259224f67799ba337df2d1045dce970ef82b243` |
 | `camera-on.mp3` | [camera_on](https://discord.com/assets/855607d0932ea396.mp3) | `faeb721a072575c96d1e140aaecd469bf3f7278347596968dddf22fdb65005bf` |
 | `screen-share-on.mp3` | [stream_started](https://discord.com/assets/abe52a3c92953edb.mp3) | `b5cb29d5d5cc0e8e22fa014bac4a1c2d601f6890ae6db1c18d4b6310283a3271` |
+| `user-join.mp3` | [user_join](https://discord.com/assets/b135ff6c8e091b43.mp3) | `d30746caf3e4675ae0d822d51461a9ad24832afa1e20179c3c2fc7b50b911a26` |
+| `user-leave.mp3` | [user_leave](https://discord.com/assets/7b9a183742515fc2.mp3) | `9fd71c2d8112c82a7fb316602bb1645bc65f5edfa260110bbaae80090fbe9df0` |
 
-The ten files total 494,197 bytes; the current-channel copy shares the message
+The twelve files total 583,331 bytes; the current-channel copy shares the message
 cue at runtime. No network fetch or user-file access occurs during playback.
 Incoming and outgoing rings repeat every six and three seconds respectively,
 leaving enough time for each complete clip before its next playback.

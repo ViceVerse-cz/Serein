@@ -2,13 +2,13 @@
 
 Baseline: `932dc60`; after: this change. Windows x64, Rust 1.98.1.
 The classic pack now preserves original 44.1 kHz MP3 bytes and adds outgoing-ring,
-camera-on and screen-share-start cues. Asset sizes are exact file measurements, not CPU/RSS or
-installed-package measurements.
+camera-on, screen-share-start, call-join and participant-leave cues. Asset sizes
+are exact file measurements, not CPU/RSS or installed-package measurements.
 
 | Metric / method | Baseline | After | Delta |
 | --- | ---: | ---: | ---: |
-| Classic MP3 files, bytes (`git ls-tree -lr` / file lengths) | 140,928 | 494,197 | +353,269 |
-| Unique classic MP3 bytes embedded (message/current-channel share a cue) | 134,400 | 476,275 | +341,875 |
+| Classic MP3 files, bytes (`git ls-tree -lr` / file lengths) | 140,928 | 583,331 | +442,403 |
+| Unique classic MP3 bytes embedded (message/current-channel share a cue) | 134,400 | 565,409 | +431,009 |
 
 The existing lazy worker, one-slot queue, 128 KiB per-asset cap, six-second
 decoded ceiling and 192 kHz output ceiling are unchanged. No extra background

@@ -138,6 +138,8 @@ fn samples(
 			Sound::ScreenShareOn => {
 				include_bytes!("../../../assets/sounds/discord/screen-share-on.mp3")
 			}
+			Sound::UserJoin => include_bytes!("../../../assets/sounds/discord/user-join.mp3"),
+			Sound::UserLeave => include_bytes!("../../../assets/sounds/discord/user-leave.mp3"),
 		}
 	} else {
 		match sound {
@@ -150,7 +152,9 @@ fn samples(
 			| Sound::Deafen
 			| Sound::Undeafen
 			| Sound::CameraOn
-			| Sound::ScreenShareOn => return Err(()),
+			| Sound::ScreenShareOn
+			| Sound::UserJoin
+			| Sound::UserLeave => return Err(()),
 		}
 	};
 	if bytes.len() > 128 * 1024 || !(8000..=192000).contains(&rate) {
@@ -386,6 +390,8 @@ mod tests {
 			assert!(samples(Sound::CameraOn, false, rate, &|| true).is_err());
 			assert!(samples(Sound::ScreenShareOn, false, rate, &|| true).is_err());
 			assert!(samples(Sound::OutgoingRing, false, rate, &|| true).is_err());
+			assert!(samples(Sound::UserJoin, false, rate, &|| true).is_err());
+			assert!(samples(Sound::UserLeave, false, rate, &|| true).is_err());
 
 			let discord_cues = [
 				Sound::Message,
@@ -398,6 +404,8 @@ mod tests {
 				Sound::CameraOn,
 				Sound::ScreenShareOn,
 				Sound::OutgoingRing,
+				Sound::UserJoin,
+				Sound::UserLeave,
 			]
 			.map(|s| samples(s, true, rate, &|| true).unwrap());
 			assert_eq!(discord_cues[0], discord_cues[1]);
@@ -414,6 +422,8 @@ mod tests {
 				(0.9, 1.1),
 				(1.6, 1.9),
 				(2.3, 2.6),
+				(1.0, 1.2),
+				(0.9, 1.1),
 			];
 			assert!(
 				Duration::from_secs_f64(discord_cues[9].len() as f64 / f64::from(rate))

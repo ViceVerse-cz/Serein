@@ -8,7 +8,7 @@ use discord_voice::{
 	audio::{Audio, Devices},
 };
 use eframe::egui;
-use model::Id;
+use model::{Id, notification_preferences::Sound};
 use std::{
 	sync::{Arc, OnceLock, mpsc},
 	time::{Duration, Instant},
@@ -76,6 +76,7 @@ struct Live {
 	user: Id,
 	peer: Option<Id>,
 	ring_pending: bool,
+	cues: CallCues,
 	session: Zeroizing<String>,
 	identity: Arc<discord_voice::Identity>,
 	audio: Audio,
@@ -94,6 +95,47 @@ struct Live {
 	remote_video: Arc<std::sync::Mutex<RemotePictures>>,
 	/// Decoded audio of a watched stream, mixed into this call's playback.
 	stream_audio: mpsc::SyncSender<discord_voice::Frame>,
+}
+
+#[derive(Default)]
+struct CallCues {
+	joined: bool,
+	peers: Option<[u64; voice::MAX_PARTICIPANTS]>,
+}
+impl CallCues {
+	fn poll(
+		&mut self,
+		ready: bool,
+		gateway_connected: bool,
+		owner: Id,
+		participants: &[voice::Participant],
+	) -> Option<Sound> {
+		let joined = !self.joined && ready;
+		self.joined |= ready;
+		if !self.joined {
+			return None;
+		}
+		let cue = joined.then_some(Sound::UserJoin);
+		if !gateway_connected {
+			self.peers = None;
+			return cue;
+		}
+		let mut peers = [0; voice::MAX_PARTICIPANTS];
+		for (slot, participant) in peers.iter_mut().zip(
+			participants
+				.iter()
+				.filter(|participant| participant.user != owner),
+		) {
+			*slot = participant.user.0;
+		}
+		// ponytail: membership scans are capped at 64 IDs; no per-frame set allocation.
+		let departed = self.peers.replace(peers).is_some_and(|previous| {
+			previous
+				.iter()
+				.any(|user| *user != 0 && !peers.contains(user))
+		});
+		cue.or(departed.then_some(Sound::UserLeave))
+	}
 }
 /// Remote cameras kept as textures at once; matches the transport's source limit.
 const MAX_REMOTE_VIDEO: usize = 16;
@@ -603,6 +645,25 @@ impl Voice {
 			}
 			// A worker can finish between draining notices and checking its lifecycle.
 			failure = live.failure.get().copied().or(failure);
+			if failure.is_none()
+				&& !state.demo
+				&& state.auth == client_core::auth::AuthState::Authenticated
+				&& let Some(call) = &state.voice.active
+			{
+				// Waiting alone still joins voice, but its audio devices may not be open yet.
+				let ready =
+					devices_ready && matches!(call.phase, Phase::Connected | Phase::Waiting);
+				if let Some(cue) = live.cues.poll(
+					ready,
+					state.gateway_connected,
+					live.user,
+					&call.participants,
+				) && ui.notification_options.allows(cue)
+				{
+					ui.notification_preview = Some(cue);
+					ctx.request_repaint();
+				}
+			}
 			let pictures = live
 				.remote_video
 				.try_lock()
@@ -1098,6 +1159,7 @@ impl Voice {
 			session: session_copy,
 			identity,
 			ring_pending: pending.ring,
+			cues: CallCues::default(),
 			audio,
 			controls,
 			events,
@@ -1199,6 +1261,60 @@ pub fn debug_mic_preview_check() {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn call_cues_join_once_and_track_remote_departures_without_reconnect_noise() {
+		let participant = |id| voice::Participant {
+			user: Id(id),
+			muted: false,
+			deafened: false,
+			server_muted: false,
+			server_deafened: false,
+			video: false,
+			streaming: false,
+		};
+		let owner = participant(1);
+		let peer = participant(2);
+		let mut cues = CallCues::default();
+		assert_eq!(cues.poll(false, true, owner.user, &[owner, peer]), None);
+		assert_eq!(
+			cues.poll(true, true, owner.user, &[owner, peer]),
+			Some(Sound::UserJoin)
+		);
+		let mut muted_peer = peer;
+		muted_peer.muted = true;
+		assert_eq!(
+			cues.poll(true, true, owner.user, &[muted_peer, owner]),
+			None
+		);
+		// Device reopening and rekeying do not announce this same call again.
+		assert_eq!(cues.poll(false, true, owner.user, &[owner, peer]), None);
+		assert_eq!(cues.poll(true, true, owner.user, &[owner, peer]), None);
+		// Compare identities rather than counts; departures can themselves trigger rekeying.
+		let replacement = participant(3);
+		assert_eq!(
+			cues.poll(false, true, owner.user, &[owner, replacement]),
+			Some(Sound::UserLeave)
+		);
+		assert_eq!(
+			cues.poll(true, true, owner.user, &[owner, replacement]),
+			None
+		);
+		assert_eq!(cues.poll(false, false, owner.user, &[]), None);
+		assert_eq!(cues.poll(true, true, owner.user, &[owner]), None);
+		// Remote joins only update the baseline; the requested join cue is for this device.
+		assert_eq!(cues.poll(true, true, owner.user, &[owner, peer]), None);
+		assert_eq!(
+			cues.poll(true, true, owner.user, &[owner]),
+			Some(Sound::UserLeave)
+		);
+		assert_eq!(cues.poll(true, true, owner.user, &[owner]), None);
+		assert_eq!(
+			CallCues::default().poll(true, true, owner.user, &[owner]),
+			Some(Sound::UserJoin),
+			"a new explicitly started call has its own join cue"
+		);
+	}
 
 	#[test]
 	fn optimization_remote_video_reuses_the_latest_frame_buffer() {
