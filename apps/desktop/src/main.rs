@@ -5284,6 +5284,10 @@ impl eframe::App for Desktop {
 			.image_send(&mut self.state, self.messaging.image_sharing_enabled)
 			&& !self.state.demo
 		{
+			// Auto-send bypasses the composer, so retain its prepared thumbnail explicitly.
+			self.messaging.attachment_previews = self.uploads.previews();
+			self.messaging.attachment_files = self.uploads.files();
+			self.messaging.stage_pending_upload(&ctx, &command);
 			self.command(command);
 		}
 		// Move native handles once; never load dropped bytes on the rendering thread.

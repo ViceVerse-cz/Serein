@@ -197,28 +197,37 @@ pub fn show(
 fn files(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>) {
 	let colors = design::palette(ui);
 	let file = |index: usize| upload.and_then(|upload| upload.files.get(index));
-	let images: Vec<&egui::TextureHandle> = pending
+	let images: Vec<(&str, &egui::TextureHandle)> = pending
 		.attachments
 		.iter()
 		.enumerate()
-		.filter_map(|(index, _)| file(index).and_then(|file| file.preview.as_ref()))
+		.filter_map(|(index, filename)| {
+			file(index)
+				.and_then(|file| file.preview.as_ref())
+				.map(|preview| (filename.as_str(), preview))
+		})
 		.collect();
 	if !images.is_empty() {
 		let (columns, size) = attachments::image_layout(images.len(), ui.available_width());
 		ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
 		for row in images.chunks(columns) {
 			ui.horizontal_top(|ui| {
-				for texture in row {
+				for (filename, texture) in row {
 					let source = texture.size_vec2();
 					let scale = (size.x / source.x).min(size.y / source.y);
-					let fitted = if images.len() > 1 {
+					let artwork = attachments::artwork_edge(filename);
+					let fitted = if let Some(edge) = artwork {
+						egui::Vec2::splat(edge.min(size.x).min(size.y))
+					} else if images.len() > 1 {
 						// Grid tiles share one height so rows stay aligned, like Discord.
 						egui::vec2(size.x, size.y)
 					} else {
 						source * scale.clamp(f32::EPSILON, 1.0)
 					};
 					let (rect, _) = ui.allocate_exact_size(fitted, egui::Sense::hover());
-					ui.painter().rect_filled(rect, 8, colors.raised);
+					if artwork.is_none() {
+						ui.painter().rect_filled(rect, 8, colors.raised);
+					}
 					let shown = if images.len() > 1 {
 						egui::Rect::from_center_size(rect.center(), source * scale).intersect(rect)
 					} else {
@@ -279,7 +288,13 @@ fn files(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>) {
 fn upload_strip(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>, cancel: &mut bool) {
 	let colors = design::palette(ui);
 	let count = pending.attachments.len();
-	let title = if count == 1 {
+	let title = if count == 1 && attachments::artwork_edge(&pending.attachments[0]).is_some() {
+		if pending.attachments[0].starts_with("emoji-") {
+			"Sending emoji…".into()
+		} else {
+			"Sending sticker…".into()
+		}
+	} else if count == 1 {
 		format!("Uploading {}", pending.attachments[0])
 	} else {
 		format!("Uploading {count} files")

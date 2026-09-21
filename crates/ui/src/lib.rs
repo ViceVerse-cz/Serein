@@ -550,7 +550,8 @@ impl MessagingUi {
 			})
 			.collect()
 	}
-	fn stage_pending_upload(&mut self, ctx: &egui::Context, command: &Command) {
+	/// Moves staged files and thumbnails into the optimistic row for `command`.
+	pub fn stage_pending_upload(&mut self, ctx: &egui::Context, command: &Command) {
 		let files = self.selected_files();
 		if let Command::Send { nonce, .. } = command
 			&& !files.is_empty()

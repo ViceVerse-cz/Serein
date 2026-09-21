@@ -386,26 +386,26 @@ pub(crate) fn show_subset(
 	}
 }
 // Shared with height estimation so compact artwork does not leave a gallery-sized gap.
-fn artwork_size(attachment: &Attachment, gallery: egui::Vec2) -> egui::Vec2 {
-	let Some((stem, extension)) = attachment.filename.rsplit_once('.') else {
-		return gallery;
-	};
+pub(crate) fn artwork_edge(filename: &str) -> Option<f32> {
+	let (stem, extension) = filename.rsplit_once('.')?;
 	if !matches!(extension, "png" | "gif") {
-		return gallery;
+		return None;
 	}
 	let (id, edge) = if let Some(id) = stem.strip_prefix("emoji-") {
 		(id, 32.0_f32)
-	} else if let Some(id) = stem.strip_prefix("sticker-") {
-		(id, 160.0_f32)
 	} else {
+		(stem.strip_prefix("sticker-")?, 160.0_f32)
+	};
+	(!id.is_empty()
+		&& id.bytes().all(|b| b.is_ascii_digit())
+		&& id.parse::<Id>().is_ok_and(|id| id.0 != 0))
+	.then_some(edge)
+}
+
+fn artwork_size(attachment: &Attachment, gallery: egui::Vec2) -> egui::Vec2 {
+	let Some(edge) = artwork_edge(&attachment.filename) else {
 		return gallery;
 	};
-	if id.is_empty()
-		|| !id.bytes().all(|b| b.is_ascii_digit())
-		|| !id.parse::<Id>().is_ok_and(|id| id.0 != 0)
-	{
-		return gallery;
-	}
 	egui::Vec2::splat(edge.min(gallery.x).min(gallery.y))
 }
 
