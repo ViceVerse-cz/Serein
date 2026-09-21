@@ -6,6 +6,7 @@ pub struct Settings {
 	pub loaded: bool,
 	pub state: crate::toggle_setting::Settings,
 }
+
 impl Settings {
 	pub fn save(&mut self, cache: Option<&crate::cache::Cache>, generation: u64) -> bool {
 		if !self.state.dirty || self.state.saving {
@@ -90,5 +91,51 @@ impl Settings {
 		ui.expanded_folders.clone_from(&value.expanded_folders);
 		ui.set_voice_user_volume_overrides(&value.user_volumes);
 		ui.set_voice_user_mutes(&value.muted_users);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn startup_defaults_do_not_overwrite_pending_saved_preferences() {
+		let mut settings = Settings::default();
+		let defaults = AppPreferences::default();
+		let mut ui = ui::MessagingUi::default();
+		ui.notifications_enabled = defaults.notifications_enabled;
+		ui.transparency = defaults.transparency;
+		ui.blur = defaults.blur;
+		settings.observe(&ui);
+		assert!(
+			!settings.state.touched,
+			"startup defaults must not count as a user edit"
+		);
+		assert!(!settings.state.dirty);
+
+		settings.current.notification_options.discord_sounds = true;
+		settings.loaded = true;
+		settings.apply(&mut ui);
+		settings.observe(&ui);
+		assert!(ui.notification_options.discord_sounds);
+		assert!(!settings.state.touched);
+		assert!(!settings.state.dirty);
+	}
+
+	#[test]
+	fn legacy_preferences_without_voice_settings_keep_suppression_disabled() {
+		let current: AppPreferences = serde_json::from_str("{}").unwrap();
+		assert!(!current.voice_noise_suppression);
+		assert!(current.voice_processing.is_none());
+		let settings = Settings {
+			current,
+			..Default::default()
+		};
+		let mut ui = ui::MessagingUi::default();
+		settings.apply(&mut ui);
+		assert_eq!(
+			ui.voice_processing.effective().suppression,
+			model::voice_settings::NoiseSuppression::Off
+		);
 	}
 }
