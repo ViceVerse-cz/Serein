@@ -683,6 +683,25 @@ impl Member {
 			&& self.activities.len() <= MAX_RICH_ACTIVITIES
 			&& self.activities.iter().all(RichActivity::valid)
 	}
+	/// Drops presence details this client cannot show, keeping the member row itself.
+	pub fn sanitize_presence(&mut self) {
+		if self
+			.status
+			.as_deref()
+			.is_some_and(|status| !matches!(status, "online" | "idle" | "dnd" | "offline"))
+		{
+			self.status = None;
+		}
+		if self
+			.custom_status
+			.as_deref()
+			.is_some_and(|text| !valid_presence_text(text))
+		{
+			self.custom_status = None;
+		}
+		self.activities.retain(RichActivity::valid);
+		self.activities.truncate(MAX_RICH_ACTIVITIES);
+	}
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.roles.capacity() * size_of::<Id>()

@@ -1318,3 +1318,9 @@ valid list; that copy is released before the next packet. The existing 1 MiB cor
 chunk cache is unchanged. Cached guild presence survives loading/reconnect while access
 remains available; session reset, permission loss and explicit offline/clear retain their
 existing invalidation behavior. No new persistence, directory fetch or background worker.
+
+Member-list resilience (September 23): the 200-slot / 256 KiB mirror budget is now enforced
+by shedding rich-activity details (far rows first), then far rows, instead of rejecting the
+packet. Each decoded row is captured once as raw JSON for per-row isolation and released with
+the packet. A connection remembers at most 8 recently left list IDs (up to 32 bytes each, no
+row data) so late replies are not mistaken for the open list. No new persistence.

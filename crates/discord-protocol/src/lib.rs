@@ -1474,6 +1474,44 @@ pub struct MemberDto {
 	#[serde(default)]
 	pub presence: Patch<PresenceDto>,
 }
+/// Re-parse shape for a member row whose strict decode failed: its presence can no longer
+/// fail the row, only be dropped.
+#[derive(Deserialize)]
+struct LenientMemberDto {
+	#[serde(default, deserialize_with = "permissions::member_roles")]
+	roles: Vec<Id>,
+	user: UserDto,
+	#[serde(default)]
+	nick: Option<String>,
+	#[serde(default, deserialize_with = "lenient_presence")]
+	presence: Patch<PresenceDto>,
+}
+/// Unrepresentable activities cost the presence its details; an unreadable status drops it.
+pub(crate) fn lenient_presence<'de, D: serde::Deserializer<'de>>(
+	d: D,
+) -> Result<Patch<PresenceDto>, D::Error> {
+	#[derive(Deserialize)]
+	struct Status {
+		status: String,
+		#[serde(default, deserialize_with = "lenient_activities")]
+		activities: presence::Activities,
+	}
+	let raw = Box::<RawValue>::deserialize(d)?;
+	if raw.get() == "null" {
+		return Ok(Patch::Null);
+	}
+	Ok(
+		serde_json::from_str(raw.get()).map_or(Patch::Absent, |Status { status, activities }| {
+			Patch::Value(PresenceDto { status, activities })
+		}),
+	)
+}
+fn lenient_activities<'de, D: serde::Deserializer<'de>>(
+	d: D,
+) -> Result<presence::Activities, D::Error> {
+	let raw = Box::<RawValue>::deserialize(d)?;
+	Ok(serde_json::from_str(raw.get()).unwrap_or_default())
+}
 #[derive(Deserialize)]
 pub struct PresenceDto {
 	pub status: String,
@@ -1486,17 +1524,55 @@ impl PresenceDto {
 		self.activities.0.clone()
 	}
 }
-#[derive(Deserialize)]
-#[serde(untagged)]
 pub enum MemberItem {
 	Member {
 		member: Box<MemberDto>,
-		#[serde(default)]
 		presence: Patch<PresenceDto>,
 	},
 	Group {
 		group: MemberGroup,
 	},
+	/// A row this client cannot decode. It still occupies its list position so later
+	/// indexed operations stay aligned; one unusual member must not reject the whole list.
+	Unreadable,
+}
+impl<'de> Deserialize<'de> for MemberItem {
+	fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+		#[derive(Deserialize)]
+		struct Row {
+			member: Box<MemberDto>,
+			#[serde(default)]
+			presence: Patch<PresenceDto>,
+		}
+		#[derive(Deserialize)]
+		struct Header {
+			group: MemberGroup,
+		}
+		#[derive(Deserialize)]
+		struct LenientRow {
+			member: LenientMemberDto,
+			#[serde(default, deserialize_with = "lenient_presence")]
+			presence: Patch<PresenceDto>,
+		}
+		let raw = Box::<RawValue>::deserialize(d)?;
+		// Rows are almost always well formed; only a failed row pays for the lenient re-parse.
+		if let Ok(Row { member, presence }) = serde_json::from_str(raw.get()) {
+			return Ok(Self::Member { member, presence });
+		}
+		if let Ok(Header { group }) = serde_json::from_str(raw.get()) {
+			return Ok(Self::Group { group });
+		}
+		let Ok(LenientRow { member, presence }) = serde_json::from_str(raw.get()) else {
+			return Ok(Self::Unreadable);
+		};
+		let member = Box::new(MemberDto {
+			roles: member.roles,
+			user: member.user,
+			nick: member.nick,
+			presence: member.presence,
+		});
+		Ok(Self::Member { member, presence })
+	}
 }
 #[derive(Deserialize)]
 pub struct MemberGroup {
@@ -1527,6 +1603,7 @@ impl MemberItem {
 	}
 	pub fn into_slot(self) -> Option<model::MemberSlot> {
 		match self {
+			Self::Unreadable => None,
 			Self::Group { group } => {
 				if group.id.is_empty() || group.id.len() > 32 {
 					return None;
@@ -1545,7 +1622,7 @@ impl MemberItem {
 					Patch::Value(value) => Some(value),
 					_ => None,
 				};
-				Some(model::MemberSlot::Person(model::Member {
+				let mut member = model::Member {
 					roles: m.roles,
 					user: m.user.into_model(),
 					nick: m.nick.map(|n| n.chars().take(128).collect()),
@@ -1561,27 +1638,75 @@ impl MemberItem {
 						"online" | "idle" | "dnd" | "offline" => Some(p.status),
 						_ => None,
 					}),
-				}))
+				};
+				member.sanitize_presence();
+				Some(model::MemberSlot::Person(member))
 			}
 		}
 	}
 }
-#[derive(Deserialize)]
-#[serde(tag = "op")]
 pub enum MemberOp {
-	#[serde(rename = "SYNC")]
 	Sync {
 		range: [usize; 2],
 		items: Vec<MemberItem>,
 	},
-	#[serde(rename = "INVALIDATE")]
-	Invalidate { range: [usize; 2] },
-	#[serde(rename = "UPDATE")]
-	Update { index: usize, item: MemberItem },
-	#[serde(rename = "INSERT")]
-	Insert { index: usize, item: MemberItem },
-	#[serde(rename = "DELETE")]
-	Delete { index: usize },
+	Invalidate {
+		range: [usize; 2],
+	},
+	Update {
+		index: usize,
+		item: MemberItem,
+	},
+	Insert {
+		index: usize,
+		item: MemberItem,
+	},
+	Delete {
+		index: usize,
+	},
+	/// An operation name this client does not know; it carries no position change.
+	Unknown,
+}
+impl<'de> Deserialize<'de> for MemberOp {
+	fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+		// Flat rather than internally tagged: serde's buffered tag dispatch cannot carry
+		// the raw rows that keep member decoding isolated per item.
+		#[derive(Deserialize)]
+		struct Wire {
+			op: String,
+			#[serde(default)]
+			range: Option<[usize; 2]>,
+			#[serde(default)]
+			index: Option<usize>,
+			#[serde(default)]
+			items: Option<Vec<MemberItem>>,
+			#[serde(default)]
+			item: Option<MemberItem>,
+		}
+		let wire = Wire::deserialize(d)?;
+		let missing = || serde::de::Error::custom("Incomplete member-list operation");
+		Ok(match wire.op.as_str() {
+			"SYNC" => Self::Sync {
+				range: wire.range.ok_or_else(missing)?,
+				items: wire.items.unwrap_or_default(),
+			},
+			"INVALIDATE" => Self::Invalidate {
+				range: wire.range.ok_or_else(missing)?,
+			},
+			"UPDATE" => Self::Update {
+				index: wire.index.ok_or_else(missing)?,
+				item: wire.item.unwrap_or(MemberItem::Unreadable),
+			},
+			"INSERT" => Self::Insert {
+				index: wire.index.ok_or_else(missing)?,
+				item: wire.item.unwrap_or(MemberItem::Unreadable),
+			},
+			"DELETE" => Self::Delete {
+				index: wire.index.ok_or_else(missing)?,
+			},
+			_ => Self::Unknown,
+		})
+	}
 }
 #[derive(Deserialize)]
 pub struct MemberGroupCount {
@@ -1618,8 +1743,59 @@ mod member_tests {
 			serde_json::json!((1..=513).map(|id| id.to_string()).collect::<Vec<_>>()),
 		] {
 			let value = serde_json::json!({"member":{"user":{"id":"5","username":"Synthetic"},"roles":roles}});
-			assert!(decode::<MemberItem>(&serde_json::to_vec(&value).unwrap()).is_err());
+			// The row is rejected alone; its list position survives as a placeholder.
+			let item = decode::<MemberItem>(&serde_json::to_vec(&value).unwrap()).unwrap();
+			assert!(matches!(item, MemberItem::Unreadable));
 		}
+	}
+
+	#[test]
+	fn member_list_rows_fail_individually() {
+		let update: MemberUpdate = decode(
+			serde_json::json!({"guild_id":"1","id":"everyone","ops":[
+				{"op":"SYNC","range":[0,99],"items":[
+					{"group":{"id":"online","count":3}},
+					{"member":{"user":{"id":"2","username":"Readable"}},"presence":{"status":"online","activities":[{"type":0,"name":"Game","timestamps":{"start":"not a number"}}]}},
+					{"member":{"user":{"id":"0","username":"Bad identity"}}},
+					{"member":{"user":{"id":"4","username":"Kept"},"presence":{"status":"idle","activities":[]}}}
+				]},
+				{"op":"FUTURE_OPERATION","index":1},
+				{"op":"UPDATE","index":3}
+			]})
+			.to_string()
+			.as_bytes(),
+		)
+		.unwrap();
+		let [
+			MemberOp::Sync { items, .. },
+			MemberOp::Unknown,
+			MemberOp::Update {
+				item: MemberItem::Unreadable,
+				..
+			},
+		] = <[MemberOp; 3]>::try_from(update.ops).ok().unwrap()
+		else {
+			panic!("operations keep their order and shape");
+		};
+		let slots: Vec<_> = items.into_iter().map(MemberItem::into_slot).collect();
+		assert!(matches!(&slots[0], Some(model::MemberSlot::Group(id)) if id == "online"));
+		// An unrepresentable activity is dropped, never the member or its status.
+		let Some(model::MemberSlot::Person(readable)) = &slots[1] else {
+			panic!("readable member stays");
+		};
+		assert_eq!(readable.user.id, Id(2));
+		assert_eq!(readable.status.as_deref(), Some("online"));
+		assert!(readable.activities.is_empty());
+		assert!(slots[2].is_none(), "an unreadable row keeps its position");
+		let Some(model::MemberSlot::Person(kept)) = &slots[3] else {
+			panic!("later rows keep their index");
+		};
+		assert_eq!(kept.status.as_deref(), Some("idle"));
+		assert!(
+			decode::<MemberUpdate>(br#"{"guild_id":"1","id":"everyone","ops":[{"op":"DELETE"}]}"#)
+				.is_err(),
+			"a position change without a position cannot be applied"
+		);
 	}
 
 	#[test]

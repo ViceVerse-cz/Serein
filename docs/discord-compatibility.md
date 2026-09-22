@@ -1724,3 +1724,28 @@ Offline examples `discord-gateway --example member_lists` and `ui --example memb
 exercise decoding, partial presence, failed-update rollback, recovery state and retained
 activity rendering. No live server verification or performance measurement was performed
 in this fast pass; external client source is wire evidence, not proof of compatibility.
+
+### Member list resilience — September 23, 2026
+
+A stuck "Loading people…" pane traced to all-or-nothing handling: one member row, presence or
+activity this client could not represent (for example a non-integer activity timestamp) failed
+the whole `GUILD_MEMBER_LIST_UPDATE`. Every 15-second resubscribe then received and rejected the
+same SYNC, so the list for that server stayed empty until the member changed or the app restarted.
+
+Rows now fail individually. An unrepresentable activity is dropped while status stays; an
+unreadable presence is treated as omitted; an unreadable row becomes a placeholder at its index
+so later INSERT/DELETE/UPDATE positions stay aligned. An unreadable UPDATE keeps the previous
+row, and unknown operation names are skipped. Only structurally impossible packets (inverted
+ranges, missing indices) are still rejected, with the last valid snapshot retained. Up to 1,024
+operations per packet are accepted, and a heavy page sheds activity details instead of failing
+the 256 KiB budget. Thread participants use the same presence handling.
+
+The member-list ID is computed from cached permissions using the unofficial algorithm
+documented by discord.py-self (`_is_everyone_member_list` and `member_list_id`). If the service
+replies for the open channel's viewport with a different ID before the first SYNC, and the ID
+is not a list this connection recently left, the mirror follows the service's ID for that
+subscription. Stalled-subscription resets back off from 15 to 30, 60, then 120 seconds.
+
+SakuraCord's member decoder uses the same wire shapes (optional counts and groups, presence
+beside or inside a member). Offline unit tests cover each case. This was not verified against
+a live server; the original failing payload was not captured.

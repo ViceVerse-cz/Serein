@@ -219,6 +219,13 @@ pub struct MemberSubscription {
 }
 
 const MEMBER_LIST_BYTES: usize = 256 * 1024;
+/// Busy lists batch many row moves into one dispatch; each costs at most one 200-slot shift.
+const MAX_MEMBER_OPS: usize = 1024;
+/// Lists this connection recently left: late replies are never adopted, and reopening one
+/// restores the identity the service used for it.
+const RETIRED_LISTS: usize = 8;
+/// Server, computed list identity, and the service identity when it differed.
+type RetiredList = (Id, String, Option<String>);
 
 fn validate_member_ranges(ranges: &[[usize; 2]]) -> bool {
 	if !(1..=2).contains(&ranges.len()) {
@@ -273,6 +280,10 @@ struct ActiveMembers {
 	lazy: bool,
 	synced: bool,
 	awaiting_sync: bool,
+	/// Consecutive stalled-subscription resets; spaces out further resets.
+	retries: u32,
+	/// Identity Discord actually replied with when it differs from the computed one.
+	wire_list: Option<String>,
 	total: u64,
 	groups: Vec<(String, u64)>,
 	pending_presence: BTreeMap<Id, model::MemberPresence>,
@@ -443,10 +454,72 @@ impl ActiveMembers {
 			lazy,
 			synced: false,
 			awaiting_sync: true,
+			retries: 0,
+			wire_list: None,
 			total: 0,
 			groups: vec![],
 			pending_presence: BTreeMap::new(),
 			presence_deadline: None,
+		}
+	}
+	fn list_id(&self) -> &str {
+		self.wire_list
+			.as_deref()
+			.unwrap_or(&self.subscription.list_id)
+	}
+	/// Waits 15, 30, 60, then 120 seconds between resets of a subscription that never syncs.
+	fn retry_delay(&self) -> Duration {
+		Duration::from_secs(15 << self.retries.min(3))
+	}
+	/// The computed list identity is unofficial and built from locally cached permissions.
+	/// Until this subscription first synchronizes, a populated SYNC over its viewport in the
+	/// same server, from no list this connection recently left, is the list Discord chose.
+	fn adopt_list(&mut self, update: &MemberUpdate, retired: &[RetiredList]) -> bool {
+		if self.subscription.thread
+			|| self.synced
+			|| update.guild_id != self.subscription.guild
+			|| update.id == self.list_id()
+			|| update.id.is_empty()
+			|| update.id.len() > 32
+			|| retired.iter().any(|(guild, id, wire)| {
+				*guild == update.guild_id
+					&& (*id == update.id || wire.as_deref() == Some(update.id.as_str()))
+			}) {
+			return false;
+		}
+		let (start, end) = (self.start, self.span_end());
+		let covers = update.ops.iter().any(|op| {
+			matches!(op, MemberOp::Sync { range: [from, to], items }
+				if !items.is_empty() && *from <= end && *to >= start)
+		});
+		if covers {
+			self.wire_list = Some(update.id.clone());
+		}
+		covers
+	}
+	/// Sheds rich activity details from the far end first, then far rows, so an unusually
+	/// heavy page still shows its people instead of failing the byte budget.
+	fn fit_budget(&mut self) {
+		let mut bytes = self.slot_bytes();
+		for slot in self.slots.iter_mut().rev() {
+			if bytes <= MEMBER_LIST_BYTES {
+				return;
+			}
+			if let Some(model::MemberSlot::Person(member)) = slot
+				&& !member.activities.is_empty()
+			{
+				let before = member.bytes();
+				member.activities = Vec::new();
+				bytes -= before - member.bytes();
+			}
+		}
+		for slot in self.slots.iter_mut().rev() {
+			if bytes <= MEMBER_LIST_BYTES {
+				return;
+			}
+			if let Some(slot) = slot.take() {
+				bytes -= slot.bytes();
+			}
 		}
 	}
 	fn span_end(&self) -> usize {
@@ -509,18 +582,11 @@ impl ActiveMembers {
 		}
 		Ok(out)
 	}
-	fn write_slot(
-		&mut self,
-		absolute: usize,
-		item: discord_protocol::MemberItem,
-	) -> Result<(), Failure> {
-		let Some(slot) = item.into_slot() else {
-			return Err(Failure::Protocol);
-		};
+	/// Unreadable rows become holes at their position, keeping later indices aligned.
+	fn write_slot(&mut self, absolute: usize, item: discord_protocol::MemberItem) {
 		if absolute >= self.start && absolute <= self.span_end() {
-			self.slots[absolute - self.start] = Some(slot);
+			self.slots[absolute - self.start] = item.into_slot();
 		}
-		Ok(())
 	}
 	fn snapshot(&self, freshness: Freshness) -> MemberList {
 		MemberList {
@@ -539,7 +605,7 @@ impl ActiveMembers {
 	fn update(&mut self, update: MemberUpdate) -> Result<bool, Failure> {
 		if self.subscription.thread
 			|| update.guild_id != self.subscription.guild
-			|| update.id != self.subscription.list_id
+			|| update.id != self.list_id()
 		{
 			return Ok(false);
 		}
@@ -553,7 +619,7 @@ impl ActiveMembers {
 		// The emitted full snapshot includes the mirror's latest statuses, so a
 		// separate queued delta must not race it or reference a removed row.
 		self.clear_presence();
-		if update.ops.len() > 200 {
+		if update.ops.len() > MAX_MEMBER_OPS {
 			return Err(Failure::Capacity);
 		}
 		if let Some(groups) = update.groups {
@@ -594,10 +660,11 @@ impl ActiveMembers {
 						self.slots[absolute - span_start] = None;
 					}
 					for (index, item) in items.into_iter().enumerate() {
-						self.write_slot(start + index, item)?;
+						self.write_slot(start + index, item);
 					}
 					self.synced = true;
 					self.awaiting_sync = false;
+					self.retries = 0;
 				}
 				MemberOp::Invalidate {
 					range: [start, end],
@@ -611,6 +678,12 @@ impl ActiveMembers {
 					// The range is stale, not permission to blank the sidebar. The next SYNC
 					// replaces these slots. Clearing them here is what made the pane go empty.
 				}
+				// An unreadable replacement keeps the previous row rather than blanking it.
+				MemberOp::Update {
+					item: discord_protocol::MemberItem::Unreadable,
+					..
+				}
+				| MemberOp::Unknown => {}
 				MemberOp::Update { index, mut item } => {
 					if self.synced && index >= span_start && index <= span_end {
 						if let Some(model::MemberSlot::Person(previous)) =
@@ -618,7 +691,7 @@ impl ActiveMembers {
 						{
 							item.preserve_presence(previous);
 						}
-						self.write_slot(index, item)?;
+						self.write_slot(index, item);
 					}
 				}
 				MemberOp::Insert { index, item } => {
@@ -634,10 +707,7 @@ impl ActiveMembers {
 						continue;
 					}
 					let relative = index - span_start;
-					let Some(slot) = item.into_slot() else {
-						return Err(Failure::Protocol);
-					};
-					self.slots.insert(relative, Some(slot));
+					self.slots.insert(relative, item.into_slot());
 					if self.slots.len() > span_end - span_start + 1 {
 						self.slots.pop();
 					}
@@ -660,12 +730,10 @@ impl ActiveMembers {
 				}
 			}
 		}
-		if self.slots.len() > 200 || self.slot_bytes() > MEMBER_LIST_BYTES {
+		if self.slots.len() > 200 {
 			return Err(Failure::Capacity);
 		}
-		if self.people().any(|member| !member.valid()) {
-			return Err(Failure::Protocol);
-		}
+		self.fit_budget();
 		Ok(())
 	}
 	fn thread_update(&mut self, bytes: &[u8]) -> Result<bool, Failure> {
@@ -923,6 +991,8 @@ async fn run_inner(
 	let mut owner_id = None;
 	let mut attempt = 0;
 	let mut calls = voice::Calls::default();
+	// Survives RESUME: the service keeps delivering to lists subscribed before the drop.
+	let mut retired_lists: Vec<RetiredList> = Vec::new();
 	let mut inbox = channel_events::Inbox::default();
 	let mut known_guilds = std::collections::BTreeSet::new();
 	let mut voice_open = true;
@@ -1092,7 +1162,15 @@ async fn run_inner(
 						}
 						emit(Event::Members(active.snapshot(freshness)))?;
 					} else {
-						active_members = Some(ActiveMembers::new(subscription));
+						let mut active = ActiveMembers::new(subscription);
+						if !active.subscription.thread
+							&& let Some(index) = retired_lists.iter().position(|(guild, id, _)| {
+								*guild == active.subscription.guild
+									&& *id == active.subscription.list_id
+							}) {
+							active.wire_list = retired_lists.remove(index).2;
+						}
+						active_members = Some(active);
 						members_deadline = Some(Instant::now() + Duration::from_secs(15));
 					}
 				}
@@ -1202,7 +1280,14 @@ async fn run_inner(
 						}
 					}
 					if !same_list {
-						if let Some(old)=active_members.take() && !matches!(timeout(Duration::from_secs(5),socket.send(subscription_packet(old.subscription.guild,false,None,old.subscription.thread))).await,Ok(Ok(()))) {break;}
+						if let Some(old)=active_members.take() {
+							if !old.subscription.thread {
+								retired_lists.retain(|(guild, id, _)| *guild != old.subscription.guild || *id != old.subscription.list_id);
+								if retired_lists.len() == RETIRED_LISTS { retired_lists.remove(0); }
+								retired_lists.push((old.subscription.guild, old.subscription.list_id.clone(), old.wire_list.clone()));
+							}
+							if !matches!(timeout(Duration::from_secs(5),socket.send(subscription_packet(old.subscription.guild,false,None,old.subscription.thread))).await,Ok(Ok(()))) {break;}
+						}
 						members_deadline=None;
 					}
 					if !range_only {
@@ -1214,9 +1299,13 @@ async fn run_inner(
 					member_diagnostics.record("timeout: resetting stalled member subscription");
 					if let Some(active) = &active_members
 						&& !matches!(timeout(Duration::from_secs(5), socket.send(subscription_packet(active.subscription.guild, true, None, active.subscription.thread))).await, Ok(Ok(()))) { break; }
-					if let Some(active) = &mut active_members { active.awaiting_sync = true; }
+					let delay = active_members.as_mut().map_or(Duration::from_secs(15), |active| {
+						active.awaiting_sync = true;
+						active.retries = active.retries.saturating_add(1);
+						active.retry_delay()
+					});
 					sent_members = false;
-					members_deadline=Some(Instant::now()+Duration::from_secs(15));
+					members_deadline=Some(Instant::now()+delay);
 				}
 				_=tokio::time::sleep_until(presence_deadline.unwrap_or(ready_deadline)), if presence_deadline.is_some() => {
 					if let Some(active)=&mut active_members {
@@ -1396,11 +1485,21 @@ async fn run_inner(
 												#[derive(serde::Deserialize)]
 												struct Scope { guild_id: Id, id: String }
 												if let Ok(scope) = decode::<Scope>(packet.d.get().as_bytes())
-													&& (scope.guild_id != active.subscription.guild || scope.id != active.subscription.list_id) { continue; }
+													&& (scope.guild_id != active.subscription.guild || scope.id != active.list_id()) { continue; }
+											}
+											if let Ok(update) = &decoded && active.adopt_list(update, &retired_lists) {
+												member_diagnostics.record("reply list identity differs from the computed one; following the service");
+											}
+											if let Ok(update) = &decoded && update.ops.iter().any(|op| match op {
+												MemberOp::Sync { items, .. } => items.iter().any(|item| matches!(item, discord_protocol::MemberItem::Unreadable)),
+												MemberOp::Update { item, .. } | MemberOp::Insert { item, .. } => matches!(item, discord_protocol::MemberItem::Unreadable),
+												_ => false,
+											}) {
+												member_diagnostics.record("reply contained unreadable member rows; kept their positions");
 											}
 											match &decoded {
 												Err(_) => member_diagnostics.record("reply decode failed: unsupported member payload"),
-												Ok(update) if update.guild_id != active.subscription.guild || update.id != active.subscription.list_id => member_diagnostics.record("reply ignored: different guild or list identity"),
+												Ok(update) if update.guild_id != active.subscription.guild || update.id != active.list_id() => member_diagnostics.record("reply ignored: different guild or list identity"),
 												Ok(update) if update.ops.iter().any(|op| matches!(op, MemberOp::Sync {items, ..} if !items.is_empty())) => member_diagnostics.record("reply: populated SYNC received"),
 												Ok(update) if update.ops.iter().any(|op| matches!(op, MemberOp::Sync {items, ..} if items.is_empty())) => member_diagnostics.record("reply: empty SYNC received"),
 												Ok(_) => member_diagnostics.record("reply: incremental operations only; no SYNC"),
@@ -2962,6 +3061,125 @@ mod member_tests {
 		assert!(list.synced);
 		assert_eq!(person(&list, 0).user.id, Id(9));
 		assert_eq!(list.subscription.ranges, vec![[100, 199]]);
+	}
+	#[test]
+	fn one_unusual_member_does_not_stall_the_list() {
+		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
+			guild: Id(1),
+			channel: Id(2),
+			request: 3,
+			list_id: "everyone".into(),
+			ranges: vec![[0, 99]],
+		});
+		let apply = |list: &mut ActiveMembers, value: serde_json::Value| {
+			list.update(decode::<MemberUpdate>(value.to_string().as_bytes()).unwrap())
+		};
+		// Before, one undecodable row rejected every SYNC and the pane loaded forever.
+		assert!(
+			apply(
+				&mut list,
+				json!({"guild_id":"1","id":"everyone","ops":[{"op":"SYNC","range":[0,99],"items":[
+					{"member":{"user":{"id":"4","username":"First"}}},
+					{"member":{"user":{"id":"5"}}},
+					{"member":{"user":{"id":"6","username":"Third"}}}
+				]}]})
+			)
+			.unwrap()
+		);
+		assert!(
+			apply(
+				&mut list,
+				json!({"guild_id":"1","id":"everyone","ops":[
+					{"op":"INSERT","index":0,"item":{"member":{"user":{"id":"0","username":"Unreadable"}}}},
+					{"op":"UPDATE","index":1,"item":{"group":{}}}
+				]})
+			)
+			.unwrap()
+		);
+		assert!(list.synced && !list.awaiting_sync);
+		assert!(
+			list.slots[0].is_none(),
+			"inserted placeholder keeps later indices"
+		);
+		assert_eq!(
+			person(&list, 1).user.id,
+			Id(4),
+			"unreadable UPDATE keeps the row"
+		);
+		assert!(list.slots[2].is_none());
+		assert_eq!(person(&list, 3).user.id, Id(6));
+		// A heavy page sheds activity details, far rows first, instead of failing.
+		let activity = |n: usize| json!({"type":0,"name":format!("Game {n}"),"details":"\u{1d54f}".repeat(128),"state":"\u{1d54f}".repeat(128)});
+		let items: Vec<_> = (1..=100).map(|id| json!({"member":{"user":{"id":id.to_string(),"username":"u".repeat(32),"global_name":"g".repeat(32)},"nick":"n".repeat(32)},"presence":{"status":"online","activities":(0..4).map(activity).collect::<Vec<_>>()}})).collect();
+		let ops: Vec<_> = std::iter::once(json!({"op":"SYNC","range":[0,99],"items":items}))
+			.chain(
+				(0..300)
+					.map(|_| json!({"op":"UPDATE","index":200,"item":{"group":{"id":"online"}}})),
+			)
+			.collect();
+		assert!(apply(&mut list, json!({"guild_id":"1","id":"everyone","ops":ops})).unwrap());
+		assert!(list.slot_bytes() <= MEMBER_LIST_BYTES);
+		assert!(list.people().count() == 100);
+		assert_eq!(person(&list, 0).activities.len(), 4);
+		assert!(person(&list, 99).activities.is_empty());
+		assert_eq!(person(&list, 99).status.as_deref(), Some("online"));
+	}
+	#[test]
+	fn replies_follow_the_service_list_identity_until_synchronized() {
+		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
+			guild: Id(1),
+			channel: Id(2),
+			request: 3,
+			list_id: "computed".into(),
+			ranges: vec![[0, 99]],
+		});
+		let sync = |id: &str| {
+			decode::<MemberUpdate>(json!({"guild_id":"1","id":id,"ops":[{"op":"SYNC","range":[0,99],"items":[{"member":{"user":{"id":"4","username":"First"}}}]}]}).to_string().as_bytes()).unwrap()
+		};
+		let retired = [
+			(Id(1), "left".to_owned(), None),
+			(Id(1), "other".to_owned(), Some("other-service".to_owned())),
+		];
+		assert!(
+			!list.adopt_list(&sync("left"), &retired),
+			"a late reply from a left list"
+		);
+		assert!(!list.adopt_list(&sync("other-service"), &retired));
+		let other_guild = decode::<MemberUpdate>(json!({"guild_id":"9","id":"service","ops":[{"op":"SYNC","range":[0,99],"items":[{"member":{"user":{"id":"4","username":"First"}}}]}]}).to_string().as_bytes()).unwrap();
+		assert!(!list.adopt_list(&other_guild, &retired));
+		let incremental = decode::<MemberUpdate>(
+			br#"{"guild_id":"1","id":"service","ops":[{"op":"DELETE","index":0}]}"#,
+		)
+		.unwrap();
+		assert!(!list.adopt_list(&incremental, &retired));
+		assert!(list.adopt_list(&sync("service"), &retired));
+		assert!(list.update(sync("service")).unwrap());
+		assert!(list.synced && list.list_id() == "service");
+		assert!(
+			!list.adopt_list(&sync("another"), &retired),
+			"never re-pointed once synced"
+		);
+		assert!(!list.update(sync("computed")).unwrap());
+	}
+	#[test]
+	fn stalled_subscription_resets_back_off() {
+		let mut list = ActiveMembers::new(MemberSubscription {
+			thread: false,
+			guild: Id(1),
+			channel: Id(2),
+			request: 3,
+			list_id: "everyone".into(),
+			ranges: vec![[0, 99]],
+		});
+		let delays: Vec<_> = (0..6)
+			.map(|retries| {
+				list.retries = retries;
+				list.retry_delay().as_secs()
+			})
+			.collect();
+		assert_eq!(delays, [15, 30, 60, 120, 120, 120]);
 	}
 	#[tokio::test]
 	async fn visible_member_subscription_uses_local_socket_and_unsubscribes() {
