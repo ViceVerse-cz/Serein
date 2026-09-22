@@ -2551,6 +2551,19 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::ThreadsControl => {
 			"Propose creating and managing threads or forum posts for approval"
 		}
+		Capability::ChannelControl => {
+			"Propose channel, category, group conversation and mute changes for approval"
+		}
+		Capability::ServerControl => {
+			"Propose server settings, invites, emoji and membership changes for approval"
+		}
+		Capability::RoleControl => "Propose server role changes for approval",
+		Capability::ModerationControl => {
+			"Propose member role, nickname, kick and prune actions for approval"
+		}
+		Capability::MediaControl => {
+			"Propose camera, screen-share and local media-device changes for approval"
+		}
 		Capability::RelationshipControl => {
 			"Propose friend, block, nickname and note changes for approval"
 		}

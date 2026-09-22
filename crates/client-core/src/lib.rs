@@ -1542,7 +1542,24 @@ impl State {
 	}
 	/// Queue explicit text without consuming the composer draft or reply target.
 	pub fn prepare_text_send(&mut self, content: &str) -> Option<Command> {
-		self.prepare_message_content(&[], None, true, Some(content))
+		self.prepare_message_content(&[], None, true, Some(content), None)
+	}
+	/// Queue an explicit reply without consuming the composer draft or its reply target.
+	pub fn prepare_reply_send(
+		&mut self,
+		target: Id,
+		content: &str,
+		mention: bool,
+	) -> Option<Command> {
+		let channel = self.selected?;
+		let message = self.timeline.get(target)?;
+		if message.channel != channel || message.ephemeral || !self.accepts_reply_source(message) {
+			self.status = "This message is unavailable for replies";
+			return None;
+		}
+		let mut reply = Reply::to(target);
+		reply.mention = mention;
+		self.prepare_message_content(&[], None, true, Some(content), Some(reply))
 	}
 	pub fn prepare_send_with_attachment(&mut self, filename: Option<&str>) -> Option<Command> {
 		self.prepare_send_with_attachments(filename.as_slice())
@@ -1561,7 +1578,7 @@ impl State {
 		sticker: Option<&Sticker>,
 		preserve_draft: bool,
 	) -> Option<Command> {
-		self.prepare_message_content(filenames, sticker, preserve_draft, None)
+		self.prepare_message_content(filenames, sticker, preserve_draft, None, None)
 	}
 	fn prepare_message_content(
 		&mut self,
@@ -1569,6 +1586,7 @@ impl State {
 		sticker: Option<&Sticker>,
 		preserve_draft: bool,
 		explicit_content: Option<&str>,
+		explicit_reply: Option<Reply>,
 	) -> Option<Command> {
 		let channel = self.selected?;
 		if !self.can_send(channel) || (!filenames.is_empty() && !self.can_attach(channel)) {
@@ -1638,10 +1656,10 @@ impl State {
 			channel,
 			content,
 			nonce,
-			reply: if explicit_content.is_some() {
-				None
-			} else {
-				self.reply.take()
+			reply: match (explicit_reply, explicit_content) {
+				(Some(reply), _) => Some(reply),
+				(None, None) => self.reply.take(),
+				(None, Some(_)) => None,
 			},
 		})
 	}

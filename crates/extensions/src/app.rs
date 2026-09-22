@@ -505,6 +505,71 @@ pub struct AudioSettingsPatch {
 	pub open_microphone: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PermissionOverwriteInput {
+	pub id: String,
+	pub kind: u8,
+	pub allow: String,
+	pub deny: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChannelEditInput {
+	pub name: String,
+	pub topic: String,
+	pub slowmode: u32,
+	pub nsfw: bool,
+	pub overwrites: Vec<PermissionOverwriteInput>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChannelPositionInput {
+	pub channel_id: String,
+	pub position: i32,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ServerTraitInput {
+	pub label: String,
+	pub emoji: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ServerSettingsPatch {
+	pub name: Option<String>,
+	pub banner_color: Option<u32>,
+	pub traits: Option<Vec<ServerTraitInput>>,
+	pub description: Option<String>,
+	pub system_channel_id: Option<String>,
+	pub clear_system_channel: bool,
+	pub system_channel_flags: Option<u64>,
+	pub activity_feed: Option<bool>,
+	pub default_message_notifications: Option<u8>,
+	pub afk_channel_id: Option<String>,
+	pub clear_afk_channel: bool,
+	pub afk_timeout: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RolePatch {
+	pub name: Option<String>,
+	pub primary_color: Option<u32>,
+	pub secondary_color: Option<u32>,
+	pub tertiary_color: Option<u32>,
+	pub permissions: Option<String>,
+	pub permission_mask: Option<String>,
+	pub hoist: Option<bool>,
+	pub mentionable: Option<bool>,
+	pub unicode_emoji: Option<String>,
+	pub clear_unicode_emoji: bool,
+}
+
 /// App operation proposed by a foreground action; the host revalidates it at Apply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -571,10 +636,39 @@ pub enum AppAction {
 	SetCamera {
 		enabled: bool,
 	},
+	OpenAttachmentPicker {
+		channel_id: String,
+	},
+	SelectAudioDevices {
+		input_id: Option<String>,
+		output_id: Option<String>,
+	},
+	RefreshMediaDevices,
+	SelectCameraDevice {
+		device_id: Option<String>,
+	},
+	OpenScreenSharePicker,
+	StopScreenShare,
 
 	SendMessage {
 		channel_id: String,
 		content: String,
+	},
+	SendReply {
+		channel_id: String,
+		message_id: String,
+		content: String,
+		mention: bool,
+	},
+	SendSticker {
+		channel_id: String,
+		sticker_id: String,
+	},
+	ForwardMessage {
+		channel_id: String,
+		message_id: String,
+		target_channel_ids: Vec<String>,
+		note: String,
 	},
 	EditMessage {
 		channel_id: String,
@@ -640,6 +734,125 @@ pub enum AppAction {
 	RenameThread {
 		channel_id: String,
 		name: String,
+	},
+	SetChannelMute {
+		channel_id: String,
+		duration_seconds: Option<u32>,
+	},
+	SetChannelNotifications {
+		channel_id: String,
+		level: u8,
+	},
+	SetGuildHideMuted {
+		guild_id: String,
+		hide: bool,
+	},
+	CreateChannel {
+		guild_id: String,
+		name: String,
+		kind: String,
+	},
+	CreateCategory {
+		guild_id: String,
+		name: String,
+	},
+	DuplicateChannel {
+		channel_id: String,
+		name: String,
+	},
+	EditChannel {
+		channel_id: String,
+		before: ChannelEditInput,
+		after: ChannelEditInput,
+	},
+	DeleteChannel {
+		channel_id: String,
+	},
+	MoveChannel {
+		channel_id: String,
+		parent_id: Option<String>,
+		position: i32,
+		lock_permissions: bool,
+		shifts: Vec<ChannelPositionInput>,
+	},
+	CreateServerInvite {
+		guild_id: String,
+		channel_id: Option<String>,
+		max_age: u32,
+		max_uses: u16,
+		temporary: bool,
+	},
+	LeaveServer {
+		guild_id: String,
+	},
+	UpdateServerSettings {
+		guild_id: String,
+		settings: ServerSettingsPatch,
+	},
+	CreateRole {
+		guild_id: String,
+		role: RolePatch,
+	},
+	EditRole {
+		guild_id: String,
+		role_id: String,
+		role: RolePatch,
+	},
+	DeleteRole {
+		guild_id: String,
+		role_id: String,
+	},
+	MoveRole {
+		guild_id: String,
+		role_id: String,
+		position: i32,
+	},
+	SetMemberRole {
+		guild_id: String,
+		user_id: String,
+		role_id: String,
+		assigned: bool,
+	},
+	SetMemberNickname {
+		guild_id: String,
+		user_id: String,
+		nickname: String,
+	},
+	KickMember {
+		guild_id: String,
+		user_id: String,
+	},
+	PruneMembers {
+		guild_id: String,
+		days: u8,
+		execute: bool,
+	},
+	SetMemberListVisible {
+		guild_id: String,
+		enabled: bool,
+	},
+	RenameServerEmoji {
+		guild_id: String,
+		emoji_id: String,
+		name: String,
+	},
+	DeleteServerEmoji {
+		guild_id: String,
+		emoji_id: String,
+	},
+	LeaveGroup {
+		channel_id: String,
+	},
+	RenameGroup {
+		channel_id: String,
+		name: String,
+	},
+	CloseDm {
+		channel_id: String,
+	},
+	SetConversationMuted {
+		channel_id: String,
+		muted: bool,
 	},
 }
 
@@ -1230,10 +1443,109 @@ fn audio_patch(volume: Option<u16>, muted: Option<bool>) -> Result<(), Error> {
 	}
 	Ok(())
 }
+fn server_settings_patch(value: &ServerSettingsPatch) -> Result<(), Error> {
+	if value.name.is_none()
+		&& value.banner_color.is_none()
+		&& value.traits.is_none()
+		&& value.description.is_none()
+		&& value.system_channel_id.is_none()
+		&& !value.clear_system_channel
+		&& value.system_channel_flags.is_none()
+		&& value.activity_feed.is_none()
+		&& value.default_message_notifications.is_none()
+		&& value.afk_channel_id.is_none()
+		&& !value.clear_afk_channel
+		&& value.afk_timeout.is_none()
+	{
+		return Err(Error::Invalid);
+	}
+	if value.clear_system_channel && value.system_channel_id.is_some()
+		|| value.clear_afk_channel && value.afk_channel_id.is_some()
+		|| value.banner_color.is_some_and(|color| color > 0xff_ffff)
+		|| value
+			.default_message_notifications
+			.is_some_and(|level| level > 1)
+		|| value
+			.afk_timeout
+			.is_some_and(|seconds| !matches!(seconds, 60 | 300 | 900 | 1800 | 3600))
+	{
+		return Err(Error::Invalid);
+	}
+	if let Some(name) = &value.name {
+		action_text(name, 100, false, false)?;
+	}
+	if let Some(description) = &value.description {
+		action_text(description, 300, true, true)?;
+	}
+	for id in [&value.system_channel_id, &value.afk_channel_id]
+		.into_iter()
+		.flatten()
+	{
+		entity_id(id)?;
+	}
+	if let Some(traits) = &value.traits {
+		if traits.len() > 5 {
+			return Err(Error::Invalid);
+		}
+		for item in traits {
+			action_text(&item.label, 100, false, false)?;
+			if let Some(emoji) = &item.emoji {
+				action_text(emoji, 32, false, false)?;
+			}
+		}
+	}
+	Ok(())
+}
+fn role_patch(value: &RolePatch) -> Result<(), Error> {
+	if value.name.is_none()
+		&& value.primary_color.is_none()
+		&& value.secondary_color.is_none()
+		&& value.tertiary_color.is_none()
+		&& value.permissions.is_none()
+		&& value.permission_mask.is_none()
+		&& value.hoist.is_none()
+		&& value.mentionable.is_none()
+		&& value.unicode_emoji.is_none()
+		&& !value.clear_unicode_emoji
+	{
+		return Err(Error::Invalid);
+	}
+	if value.clear_unicode_emoji && value.unicode_emoji.is_some()
+		|| value.primary_color.is_none()
+			&& (value.secondary_color.is_some() || value.tertiary_color.is_some())
+		|| value.permissions.is_none() && value.permission_mask.is_some()
+		|| [
+			value.primary_color,
+			value.secondary_color,
+			value.tertiary_color,
+		]
+		.into_iter()
+		.flatten()
+		.any(|color| color > 0xff_ffff)
+	{
+		return Err(Error::Invalid);
+	}
+	if let Some(name) = &value.name {
+		action_text(name, 100, false, false)?;
+	}
+	if let Some(emoji) = &value.unicode_emoji {
+		action_text(emoji, 32, false, false)?;
+	}
+	for bits in [&value.permissions, &value.permission_mask]
+		.into_iter()
+		.flatten()
+	{
+		bits.parse::<u128>().map_err(|_| Error::Invalid)?;
+	}
+	Ok(())
+}
 impl AppAction {
 	pub fn required_capability(&self) -> Capability {
 		match self {
-			Self::SendMessage { .. } => Capability::MessageSend,
+			Self::SendMessage { .. }
+			| Self::SendReply { .. }
+			| Self::SendSticker { .. }
+			| Self::ForwardMessage { .. } => Capability::MessageSend,
 			Self::EditMessage { .. }
 			| Self::DeleteMessage { .. }
 			| Self::SetMessagePinned { .. } => Capability::MessageManage,
@@ -1266,6 +1578,39 @@ impl AppAction {
 			Self::WatchStream { .. } | Self::StopWatching => Capability::VoiceControl,
 			Self::JoinVoice { .. } | Self::DeclineCall { .. } => Capability::VoiceConnect,
 			Self::SetCamera { .. } => Capability::CameraControl,
+			Self::OpenAttachmentPicker { .. } => Capability::MessageSend,
+			Self::SelectAudioDevices { .. } | Self::RefreshMediaDevices => {
+				Capability::AudioSettings
+			}
+			Self::SelectCameraDevice { .. } => Capability::CameraControl,
+			Self::OpenScreenSharePicker | Self::StopScreenShare => Capability::MediaControl,
+			Self::SetChannelMute { .. }
+			| Self::SetChannelNotifications { .. }
+			| Self::SetGuildHideMuted { .. }
+			| Self::CreateChannel { .. }
+			| Self::CreateCategory { .. }
+			| Self::DuplicateChannel { .. }
+			| Self::EditChannel { .. }
+			| Self::DeleteChannel { .. }
+			| Self::MoveChannel { .. }
+			| Self::LeaveGroup { .. }
+			| Self::RenameGroup { .. }
+			| Self::CloseDm { .. }
+			| Self::SetConversationMuted { .. } => Capability::ChannelControl,
+			Self::CreateServerInvite { .. }
+			| Self::LeaveServer { .. }
+			| Self::UpdateServerSettings { .. }
+			| Self::RenameServerEmoji { .. }
+			| Self::DeleteServerEmoji { .. } => Capability::ServerControl,
+			Self::CreateRole { .. }
+			| Self::EditRole { .. }
+			| Self::DeleteRole { .. }
+			| Self::MoveRole { .. } => Capability::RoleControl,
+			Self::SetMemberRole { .. }
+			| Self::SetMemberNickname { .. }
+			| Self::KickMember { .. }
+			| Self::PruneMembers { .. }
+			| Self::SetMemberListVisible { .. } => Capability::ModerationControl,
 		}
 	}
 	pub fn validate(&self) -> Result<(), Error> {
@@ -1276,6 +1621,43 @@ impl AppAction {
 			} => {
 				entity_id(channel_id)?;
 				action_text(content, 2000, true, false)?;
+			}
+			Self::SendReply {
+				channel_id,
+				message_id,
+				content,
+				..
+			} => {
+				entity_id(channel_id)?;
+				entity_id(message_id)?;
+				action_text(content, 2000, true, false)?;
+			}
+			Self::SendSticker {
+				channel_id,
+				sticker_id,
+			} => {
+				entity_id(channel_id)?;
+				entity_id(sticker_id)?;
+			}
+			Self::ForwardMessage {
+				channel_id,
+				message_id,
+				target_channel_ids,
+				note,
+			} => {
+				entity_id(channel_id)?;
+				entity_id(message_id)?;
+				if target_channel_ids.is_empty() || target_channel_ids.len() > 5 {
+					return Err(Error::Invalid);
+				}
+				let mut targets = std::collections::BTreeSet::new();
+				for target in target_channel_ids {
+					entity_id(target)?;
+					if !targets.insert(target) {
+						return Err(Error::Invalid);
+					}
+				}
+				action_text(note, 2000, true, true)?;
 			}
 			Self::EditMessage {
 				channel_id,
@@ -1400,8 +1782,211 @@ impl AppAction {
 				volume_percent,
 				muted,
 			} => audio_patch(*volume_percent, *muted)?,
+			Self::OpenAttachmentPicker { channel_id } => entity_id(channel_id)?,
+			Self::SelectAudioDevices {
+				input_id,
+				output_id,
+			} => {
+				if input_id.is_none() && output_id.is_none() {
+					return Err(Error::Invalid);
+				}
+				for value in [input_id, output_id].into_iter().flatten() {
+					label(value, 256)?;
+				}
+			}
+			Self::SelectCameraDevice { device_id } => {
+				if let Some(value) = device_id {
+					label(value, 256)?;
+				}
+			}
+			Self::SetChannelMute {
+				channel_id,
+				duration_seconds,
+			} => {
+				entity_id(channel_id)?;
+				if duration_seconds
+					.is_some_and(|value| !matches!(value, 0 | 900 | 3600 | 10800 | 28800 | 86400))
+				{
+					return Err(Error::Invalid);
+				}
+			}
+			Self::SetChannelNotifications { channel_id, level } => {
+				entity_id(channel_id)?;
+				if *level > 3 {
+					return Err(Error::Invalid);
+				}
+			}
+			Self::SetGuildHideMuted { guild_id, .. } | Self::LeaveServer { guild_id } => {
+				entity_id(guild_id)?
+			}
+			Self::CreateChannel {
+				guild_id,
+				name,
+				kind,
+			} => {
+				entity_id(guild_id)?;
+				action_text(name, 100, false, false)?;
+				if !matches!(kind.as_str(), "text" | "voice" | "forum") {
+					return Err(Error::Invalid);
+				}
+			}
+			Self::CreateCategory { guild_id, name } => {
+				entity_id(guild_id)?;
+				action_text(name, 100, false, false)?;
+			}
+			Self::DuplicateChannel { channel_id, name }
+			| Self::RenameGroup { channel_id, name } => {
+				entity_id(channel_id)?;
+				action_text(name, 100, false, false)?;
+			}
+			Self::EditChannel {
+				channel_id,
+				before,
+				after,
+			} => {
+				entity_id(channel_id)?;
+				for edit in [before, after] {
+					action_text(&edit.name, 100, false, false)?;
+					action_text(&edit.topic, 4096, true, true)?;
+					if edit.slowmode > 21_600 || edit.overwrites.len() > 100 {
+						return Err(Error::Invalid);
+					}
+					let mut ids = std::collections::BTreeSet::new();
+					for overwrite in &edit.overwrites {
+						entity_id(&overwrite.id)?;
+						if overwrite.kind > 1
+							|| overwrite.allow.parse::<u128>().is_err()
+							|| overwrite.deny.parse::<u128>().is_err()
+							|| !ids.insert((&overwrite.id, overwrite.kind))
+						{
+							return Err(Error::Invalid);
+						}
+					}
+				}
+			}
+			Self::DeleteChannel { channel_id }
+			| Self::LeaveGroup { channel_id }
+			| Self::CloseDm { channel_id }
+			| Self::SetConversationMuted { channel_id, .. } => entity_id(channel_id)?,
+			Self::MoveChannel {
+				channel_id,
+				parent_id,
+				position,
+				shifts,
+				..
+			} => {
+				entity_id(channel_id)?;
+				if let Some(parent) = parent_id {
+					entity_id(parent)?;
+				}
+				if *position < 0 || shifts.len() > 100 {
+					return Err(Error::Invalid);
+				}
+				let mut ids = std::collections::BTreeSet::new();
+				for shift in shifts {
+					entity_id(&shift.channel_id)?;
+					if shift.position < 0 || !ids.insert(&shift.channel_id) {
+						return Err(Error::Invalid);
+					}
+				}
+			}
+			Self::CreateServerInvite {
+				guild_id,
+				channel_id,
+				max_age,
+				max_uses,
+				..
+			} => {
+				entity_id(guild_id)?;
+				if let Some(channel) = channel_id {
+					entity_id(channel)?;
+				}
+				if *max_age > 2_592_000 || *max_uses > 100 {
+					return Err(Error::Invalid);
+				}
+			}
+			Self::UpdateServerSettings { guild_id, settings } => {
+				entity_id(guild_id)?;
+				server_settings_patch(settings)?;
+			}
+			Self::CreateRole { guild_id, role } => {
+				entity_id(guild_id)?;
+				role_patch(role)?;
+			}
+			Self::EditRole {
+				guild_id,
+				role_id,
+				role,
+			} => {
+				entity_id(guild_id)?;
+				entity_id(role_id)?;
+				role_patch(role)?;
+			}
+			Self::DeleteRole { guild_id, role_id }
+			| Self::MoveRole {
+				guild_id, role_id, ..
+			} => {
+				entity_id(guild_id)?;
+				entity_id(role_id)?;
+				if matches!(self, Self::MoveRole { position, .. } if !(1..=4096).contains(position))
+				{
+					return Err(Error::Invalid);
+				}
+			}
+			Self::SetMemberRole {
+				guild_id,
+				user_id,
+				role_id,
+				..
+			} => {
+				entity_id(guild_id)?;
+				entity_id(user_id)?;
+				entity_id(role_id)?;
+			}
+			Self::SetMemberNickname {
+				guild_id,
+				user_id,
+				nickname,
+			} => {
+				entity_id(guild_id)?;
+				entity_id(user_id)?;
+				action_text(nickname, 32, false, true)?;
+			}
+			Self::KickMember { guild_id, user_id } => {
+				entity_id(guild_id)?;
+				entity_id(user_id)?;
+			}
+			Self::PruneMembers { guild_id, days, .. } => {
+				entity_id(guild_id)?;
+				if !matches!(days, 1 | 7 | 30) {
+					return Err(Error::Invalid);
+				}
+			}
+			Self::SetMemberListVisible { guild_id, .. } => entity_id(guild_id)?,
+			Self::RenameServerEmoji {
+				guild_id,
+				emoji_id,
+				name,
+			} => {
+				entity_id(guild_id)?;
+				entity_id(emoji_id)?;
+				if !(2..=32).contains(&name.len())
+					|| !name
+						.bytes()
+						.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+				{
+					return Err(Error::Invalid);
+				}
+			}
+			Self::DeleteServerEmoji { guild_id, emoji_id } => {
+				entity_id(guild_id)?;
+				entity_id(emoji_id)?;
+			}
 			Self::JumpToUnread
 			| Self::StopWatching
+			| Self::RefreshMediaDevices
+			| Self::OpenScreenSharePicker
+			| Self::StopScreenShare
 			| Self::SetActivitySharing { .. }
 			| Self::SetCamera { .. } => {}
 		}

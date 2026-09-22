@@ -42,6 +42,11 @@ pub fn uses_app(capabilities: &[Capability]) -> bool {
 				| Capability::ReactionsControl
 				| Capability::ReadStateControl
 				| Capability::ThreadsControl
+				| Capability::ChannelControl
+				| Capability::ServerControl
+				| Capability::RoleControl
+				| Capability::ModerationControl
+				| Capability::MediaControl
 				| Capability::RelationshipControl
 				| Capability::AccountControl
 				| Capability::AudioSettings

@@ -280,6 +280,50 @@ mod tests {
 			event,
 		});
 	}
+
+	#[test]
+	fn explicit_reply_send_preserves_composer_state_and_requires_a_loaded_safe_target() {
+		let mut state = state();
+		state.drafts.insert(Id(1), "Keep draft".into());
+		state.reply = Some(Reply::to(Id(50)));
+		let Command::Send {
+			channel,
+			content,
+			reply,
+			sticker,
+			..
+		} = state
+			.prepare_reply_send(Id(100), "Approved reply", false)
+			.unwrap()
+		else {
+			panic!("expected reply send")
+		};
+		assert_eq!(channel, Id(1));
+		assert_eq!(content, "Approved reply");
+		assert_eq!(sticker, None);
+		assert!(reply.is_some_and(|reply| reply.target() == Id(100) && !reply.mention));
+		assert_eq!(state.drafts[&Id(1)], "Keep draft");
+		assert_eq!(state.reply, Some(Reply::to(Id(50))));
+
+		assert!(state.prepare_reply_send(Id(999), "Unknown", true).is_none());
+		let mut ephemeral = self::state();
+		ephemeral.timeline.clear();
+		let mut message = message(100);
+		message.ephemeral = true;
+		ephemeral.timeline.insert(message, false, false).unwrap();
+		assert!(
+			ephemeral
+				.prepare_reply_send(Id(100), "Ephemeral", true)
+				.is_none()
+		);
+		state.selected = Some(Id(2));
+		assert!(
+			state
+				.prepare_reply_send(Id(100), "Wrong channel", true)
+				.is_none()
+		);
+		assert_eq!(state.pending.len(), 1);
+	}
 	fn deleted_source(id: u64, target: u64, channel: u64) -> Message {
 		let mut source = message(id);
 		source.kind = 19;

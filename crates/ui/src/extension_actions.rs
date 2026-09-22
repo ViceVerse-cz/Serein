@@ -60,6 +60,48 @@ impl MessagingUi {
 				self.timeline.follow_latest(state);
 				Some(command)
 			}
+			AppAction::SendReply {
+				channel_id,
+				message_id,
+				content,
+				mention,
+			} => {
+				selected_channel(state, &channel_id)?;
+				let command = state
+					.prepare_reply_send(id(&message_id)?, &content, mention)
+					.ok_or("Replying is unavailable or exceeds the input budget")?;
+				self.timeline.follow_latest(state);
+				Some(command)
+			}
+			AppAction::SendSticker {
+				channel_id,
+				sticker_id,
+			} => {
+				selected_channel(state, &channel_id)?;
+				let command = state
+					.prepare_sticker_id_send(id(&sticker_id)?)
+					.ok_or("This sticker is unavailable in the current conversation")?;
+				self.timeline.follow_latest(state);
+				Some(command)
+			}
+			AppAction::ForwardMessage {
+				channel_id,
+				message_id,
+				target_channel_ids,
+				note,
+			} => {
+				selected_channel(state, &channel_id)?;
+				let targets = target_channel_ids
+					.iter()
+					.map(|target| id(target))
+					.collect::<Result<Vec<_>, _>>()?;
+				let outgoing = state.prepare_forward(id(&message_id)?, &targets, &note);
+				if outgoing.is_empty() {
+					return Err(state.status.into());
+				}
+				commands.extend(outgoing);
+				return Ok(());
+			}
 			AppAction::EditMessage {
 				channel_id,
 				message_id,
@@ -174,7 +216,7 @@ impl MessagingUi {
 mod tests {
 	use super::*;
 
-	fn state() -> State {
+	fn test_state() -> State {
 		let mut state = test_support::demo_state();
 		state.selected = Some(Id(22));
 		state.freshness = model::Freshness::Fresh;
@@ -190,7 +232,7 @@ mod tests {
 
 	#[test]
 	fn explicit_send_preserves_composition_and_rejects_stale_scope_and_limits() {
-		let mut state = state();
+		let mut state = test_state();
 		let mut view = MessagingUi {
 			attachment_files: vec![("unsent.png".into(), 12)],
 			..Default::default()
@@ -233,8 +275,95 @@ mod tests {
 	}
 
 	#[test]
+	fn reply_sticker_and_forward_reuse_native_bounded_send_paths() {
+		let mut view = MessagingUi::default();
+		let mut commands = Vec::new();
+		let mut state = test_state();
+		state.drafts.insert(Id(22), "Keep draft".into());
+		state.reply = Some(client_core::Reply::to(Id(700)));
+		view.apply_extension_app_action(
+			&mut state,
+			AppAction::SendReply {
+				channel_id: "22".into(),
+				message_id: "700".into(),
+				content: "Approved reply".into(),
+				mention: false,
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert!(matches!(
+			&commands[0],
+			Command::Send { channel: Id(22), content, reply: Some(reply), sticker: None, .. }
+				if content == "Approved reply" && reply.target() == Id(700) && !reply.mention
+		));
+		assert_eq!(state.drafts[&Id(22)], "Keep draft");
+		assert_eq!(state.reply, Some(client_core::Reply::to(Id(700))));
+
+		let mut state = test_state();
+		test_support::seed_stickers(&mut state);
+		state.drafts.insert(Id(22), "Keep draft".into());
+		commands.clear();
+		view.apply_extension_app_action(
+			&mut state,
+			AppAction::SendSticker {
+				channel_id: "22".into(),
+				sticker_id: "9201".into(),
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert!(matches!(
+			commands[0],
+			Command::Send { channel: Id(22), sticker: Some(Id(9201)), ref content, .. }
+				if content.is_empty()
+		));
+		assert_eq!(state.drafts[&Id(22)], "Keep draft");
+		assert!(
+			view.apply_extension_app_action(
+				&mut state,
+				AppAction::SendSticker {
+					channel_id: "22".into(),
+					sticker_id: "999999".into(),
+				},
+				&mut commands,
+			)
+			.is_err()
+		);
+
+		let mut state = test_state();
+		let target = state
+			.channels
+			.iter()
+			.map(|channel| channel.id)
+			.find(|channel| *channel != Id(22) && state.can_compose(*channel))
+			.unwrap();
+		commands.clear();
+		view.apply_extension_app_action(
+			&mut state,
+			AppAction::ForwardMessage {
+				channel_id: "22".into(),
+				message_id: "700".into(),
+				target_channel_ids: vec![target.to_string()],
+				note: "Approved note".into(),
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert!(matches!(
+			commands[0],
+			Command::Forward { message: Id(700), channel, .. } if channel == target
+		));
+		assert!(matches!(
+			&commands[1],
+			Command::Send { channel, content, reply: None, sticker: None, .. }
+				if *channel == target && content == "Approved note"
+		));
+	}
+
+	#[test]
 	fn desired_reaction_does_not_toggle_and_revalidates_pending_and_access() {
-		let mut state = state();
+		let mut state = test_state();
 		let emoji = reaction("??").unwrap();
 		assert!(
 			state
@@ -272,7 +401,7 @@ mod tests {
 
 	#[test]
 	fn message_mutations_use_native_ownership_and_pending_guards() {
-		let mut state = state();
+		let mut state = test_state();
 		let mut view = MessagingUi::default();
 		let mut commands = Vec::new();
 		view.apply_extension_app_action(
@@ -367,7 +496,7 @@ mod tests {
 	#[test]
 	fn unread_actions_preserve_native_cursor_and_loaded_jump_behavior() {
 		use client_core::read_state::Event;
-		let mut state = state();
+		let mut state = test_state();
 		state
 			.channels
 			.iter_mut()
@@ -434,7 +563,7 @@ mod tests {
 
 	#[test]
 	fn thread_and_forum_creation_reuse_bounded_native_requests() {
-		let mut state = state();
+		let mut state = test_state();
 		state.selected = Some(Id(20));
 		let mut view = MessagingUi::default();
 		let mut commands = Vec::new();
@@ -453,7 +582,7 @@ mod tests {
 				.is_err()
 		);
 		assert_eq!(commands.len(), 1);
-		let mut state = self::state();
+		let mut state = test_state();
 		view.apply_extension_app_action(
 			&mut state,
 			AppAction::CreateForumPost {

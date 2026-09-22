@@ -94,7 +94,7 @@ can be inspected without decoding a newer capability/event enum.
 | --- | --- | --- | --- |
 | `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
-| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (42 currently), not this plugin's granted capabilities. | `host.supports("forum_data")` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (47 currently), not this plugin's granted capabilities. | `host.supports("forum_data")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
 
 A supported capability still needs to be declared and explicitly granted. Older
@@ -113,6 +113,21 @@ account snapshot or grant-dependent data:
     "api_version": 1,
     "sdk_revision": 1,
     "capabilities": [
+      "relationship_control",
+      "account_control",
+      "audio_settings",
+      "voice_connect",
+      "camera_control",
+      "message_send",
+      "message_manage",
+      "reactions_control",
+      "read_state_control",
+      "threads_control",
+      "channel_control",
+      "server_control",
+      "role_control",
+      "moderation_control",
+      "media_control",
       "message_content",
       "forum_data",
       "conversation_activity",
@@ -144,10 +159,7 @@ account snapshot or grant-dependent data:
       "channel_details",
       "data_events",
       "message_details",
-      "relationships",
-      "message_send", "message_manage", "reactions_control", "read_state_control",
-      "threads_control", "relationship_control", "account_control", "audio_settings",
-      "voice_connect", "camera_control"
+      "relationships"
     ],
     "app_events": [
       "ready",

@@ -24,6 +24,29 @@ fn app_action_description(action: &AppAction) -> String {
 			channel_id,
 			content,
 		} => format!("Send a message to channel {channel_id}:\n{content}"),
+		AppAction::SendReply {
+			channel_id,
+			message_id,
+			content,
+			mention,
+		} => format!(
+			"Reply to message {message_id} in channel {channel_id} (mention author: {mention}):\n{content}"
+		),
+		AppAction::SendSticker {
+			channel_id,
+			sticker_id,
+		} => {
+			format!("Send sticker {sticker_id} to channel {channel_id}")
+		}
+		AppAction::ForwardMessage {
+			channel_id,
+			message_id,
+			target_channel_ids,
+			note,
+		} => format!(
+			"Forward message {message_id} from channel {channel_id} to: {}\nNote: {note}",
+			target_channel_ids.join(", ")
+		),
 		AppAction::EditMessage {
 			channel_id,
 			message_id,
@@ -234,6 +257,168 @@ fn app_action_description(action: &AppAction) -> String {
 				"Disable your camera in the current call".into()
 			}
 		}
+		AppAction::OpenAttachmentPicker { channel_id } => {
+			format!("Open the system file picker to attach files in channel {channel_id}")
+		}
+		AppAction::SelectAudioDevices {
+			input_id,
+			output_id,
+		} => format!(
+			"Select local audio devices\nMicrophone: {}\nSpeakers: {}",
+			input_id.as_deref().unwrap_or("unchanged"),
+			output_id.as_deref().unwrap_or("unchanged")
+		),
+		AppAction::RefreshMediaDevices => "Refresh local microphones, speakers and cameras".into(),
+		AppAction::SelectCameraDevice { device_id } => format!(
+			"Select local camera: {}",
+			device_id.as_deref().unwrap_or("system default")
+		),
+		AppAction::OpenScreenSharePicker => {
+			"Open the native screen-share picker for the current call".into()
+		}
+		AppAction::StopScreenShare => "Stop sharing your screen in the current call".into(),
+		AppAction::SetChannelMute {
+			channel_id,
+			duration_seconds,
+		} => format!(
+			"Change mute for channel {channel_id} to {}",
+			duration_seconds.map_or_else(
+				|| "off".into(),
+				|seconds| if seconds == 0 {
+					"forever".into()
+				} else {
+					format!("{seconds} seconds")
+				}
+			)
+		),
+		AppAction::SetChannelNotifications { channel_id, level } => {
+			format!("Set notification level {level} for channel {channel_id}")
+		}
+		AppAction::SetGuildHideMuted { guild_id, hide } => format!(
+			"{} muted channels in server {guild_id}",
+			if *hide { "Hide" } else { "Show" }
+		),
+		AppAction::CreateChannel {
+			guild_id,
+			name,
+			kind,
+		} => {
+			format!("Create {kind} channel in server {guild_id}:\n{name}")
+		}
+		AppAction::CreateCategory { guild_id, name } => {
+			format!("Create category in server {guild_id}:\n{name}")
+		}
+		AppAction::DuplicateChannel { channel_id, name } => {
+			format!("Duplicate channel {channel_id} as:\n{name}")
+		}
+		AppAction::EditChannel {
+			channel_id, after, ..
+		} => {
+			format!(
+				"Edit channel {channel_id}:\nName: {}\nTopic: {}",
+				after.name, after.topic
+			)
+		}
+		AppAction::DeleteChannel { channel_id } => {
+			format!("Permanently delete channel {channel_id}. This cannot be undone.")
+		}
+		AppAction::MoveChannel {
+			channel_id,
+			parent_id,
+			position,
+			..
+		} => format!(
+			"Move channel {channel_id} to parent {} at position {position}",
+			parent_id.as_deref().unwrap_or("none")
+		),
+		AppAction::CreateServerInvite {
+			guild_id,
+			channel_id,
+			max_age,
+			max_uses,
+			temporary,
+		} => format!(
+			"Create invite for server {guild_id}\nChannel: {}\nExpires after: {max_age} seconds\nMaximum uses: {max_uses}\nTemporary membership: {temporary}",
+			channel_id.as_deref().unwrap_or("automatic")
+		),
+		AppAction::LeaveServer { guild_id } => {
+			format!("Leave server {guild_id}. This removes it from your account.")
+		}
+		AppAction::UpdateServerSettings { guild_id, .. } => {
+			format!("Change settings for server {guild_id}")
+		}
+		AppAction::CreateRole { guild_id, role } => format!(
+			"Create role in server {guild_id}: {}",
+			role.name.as_deref().unwrap_or("new role")
+		),
+		AppAction::EditRole {
+			guild_id, role_id, ..
+		} => {
+			format!("Edit role {role_id} in server {guild_id}")
+		}
+		AppAction::DeleteRole { guild_id, role_id } => format!(
+			"Permanently delete role {role_id} from server {guild_id}. This cannot be undone."
+		),
+		AppAction::MoveRole {
+			guild_id,
+			role_id,
+			position,
+		} => {
+			format!("Move role {role_id} in server {guild_id} to position {position}")
+		}
+		AppAction::SetMemberRole {
+			guild_id,
+			user_id,
+			role_id,
+			assigned,
+		} => format!(
+			"{} role {role_id} {} member {user_id} in server {guild_id}",
+			if *assigned { "Assign" } else { "Remove" },
+			if *assigned { "to" } else { "from" }
+		),
+		AppAction::SetMemberNickname {
+			guild_id,
+			user_id,
+			nickname,
+		} => {
+			format!("Set member {user_id}'s nickname in server {guild_id}:\n{nickname}")
+		}
+		AppAction::KickMember { guild_id, user_id } => format!(
+			"Kick member {user_id} from server {guild_id}. They will lose access immediately."
+		),
+		AppAction::PruneMembers {
+			guild_id,
+			days,
+			execute,
+		} => format!(
+			"{} members inactive for {days} days in server {guild_id}",
+			if *execute { "Prune" } else { "Preview pruning" }
+		),
+		AppAction::SetMemberListVisible { guild_id, enabled } => format!(
+			"{} the member list in server {guild_id}",
+			if *enabled { "Show" } else { "Hide" }
+		),
+		AppAction::RenameServerEmoji {
+			guild_id,
+			emoji_id,
+			name,
+		} => {
+			format!("Rename emoji {emoji_id} in server {guild_id} to {name}")
+		}
+		AppAction::DeleteServerEmoji { guild_id, emoji_id } => format!(
+			"Permanently delete emoji {emoji_id} from server {guild_id}. This cannot be undone."
+		),
+		AppAction::LeaveGroup { channel_id } => {
+			format!("Leave group conversation {channel_id}")
+		}
+		AppAction::RenameGroup { channel_id, name } => {
+			format!("Rename group conversation {channel_id}:\n{name}")
+		}
+		AppAction::CloseDm { channel_id } => format!("Close direct conversation {channel_id}"),
+		AppAction::SetConversationMuted { channel_id, muted } => format!(
+			"{} conversation {channel_id}",
+			if *muted { "Mute" } else { "Unmute" }
+		),
 	}
 }
 

@@ -1,5 +1,9 @@
 # Build your first Serein plugin
 
+> **Preview SDK — PR #405, not yet released.** The branch adds approved reply,
+> sticker, forward, channel, server, role, moderation and host-mediated media
+> actions. Install a matching host build before using those grants or variants.
+
 A plugin is a function: Serein passes it JSON, it returns JSON, and the host renders
 native controls or presents an action for the user to apply. Each call gets a fresh
 Wasm instance. Save persistent choices through `storage`, not global variables.
@@ -377,6 +381,10 @@ settings, and the original 12 host-effect types.
 [Conversation Actions](app-actions/src/lib.rs) demonstrates explicit message,
 reaction, pin, read-state and thread proposals using `AppAction`. Its separate
 write grants never authorize background actions; each proposal needs Apply.
+Preview reply, loaded-sticker, forward, channel, group/DM, server, role,
+moderation and host-mediated media operations
+are listed with complete JSON fields in the
+[action reference](../../docs/extension-sdk-actions.md#app-actions).
 App Toolbox's passive observer requests `data_events` along
 with `app_events` and the relevant read grants; it stores no event counts or
 conversation data. Detailed events are coalesced invalidation hints, not a full

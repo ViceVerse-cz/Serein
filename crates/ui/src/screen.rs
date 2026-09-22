@@ -50,7 +50,7 @@ impl Default for ScreenUi {
 	}
 }
 impl ScreenUi {
-	pub(super) fn launch(&mut self, state: &State) {
+	pub(crate) fn launch(&mut self, state: &State) {
 		let Some(call) = &state.voice.active else {
 			return;
 		};

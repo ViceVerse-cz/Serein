@@ -120,7 +120,12 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 42 capabilities, with at most 64 distinct declarations per manifest.
+supports 47 capabilities, with at most 64 distinct declarations per manifest.
+
+> **Preview SDK — PR #405, not yet released.** `channel_control`,
+> `server_control`, `role_control`, `moderation_control` and `media_control`, plus
+> the reply, sticker and forward operations under `message_send`, require a host
+> built from this branch.
 
 | Capability | Granted behavior | Scope / confirmation |
 | --- | --- | --- |
@@ -156,16 +161,21 @@ supports 42 capabilities, with at most 64 distinct declarations per manifest.
 | `clipboard_write` | Propose replacing clipboard text | At most 4,096 bytes; requires Apply; no clipboard read |
 | `voice_control` | Propose mute/deafen, leaving or watching/stopping a participant stream | Each command requires Apply and the same current call |
 | `app_events` | Observe ready/navigation/context/connection/voice/settings changes | Other grants control accompanying data; no background commands |
-| `message_send` | Propose sending explicit message text | Apply; selected accessible channel; preserves existing composition |
+| `message_send` | Propose sending text, replies, loaded stickers, a loaded-message forward, or opening the native attachment picker | Apply; selected accessible targets; picker discloses no file path/bytes to Wasm; preserves existing composition |
 | `message_manage` | Propose editing, deleting or pinning a loaded message | Apply; native ownership/moderation checks |
 | `reactions_control` | Propose adding/removing your reaction | Apply; known message and current reaction state |
 | `read_state_control` | Propose channel/server read markers | Apply; existing read-state checks |
 | `threads_control` | Propose creating, renaming or changing threads/forum posts | Apply; native channel/thread permissions |
 | `relationship_control` | Propose friend requests, relationship changes, nicknames and user notes; open a friend DM | Apply; existing relationship and loaded-note checks |
 | `account_control` | Read own status/activity preferences and propose profile, status and activity-sharing changes | Apply; profile readiness and native validation |
-| `audio_settings` | Read audio preferences and propose processing, gain and local participant/stream volume changes | Apply; bounded device preferences and current-call checks |
+| `audio_settings` | Read audio preferences and propose processing, gain, local playback, device selection or a device refresh | Apply; selected IDs must remain in the host's private device lists |
 | `voice_connect` | Propose joining/ringing or declining a call | Apply; connection/access checks; native call-switch confirmation |
-| `camera_control` | Propose enabling/disabling your camera | Apply; same current call, capture availability and native permissions |
+| `camera_control` | Propose enabling/disabling your camera or selecting a host-known camera | Apply; same current call, capture availability and native permissions |
+| `channel_control` | Propose channel creation/editing/deletion/reordering, channel notification settings, and DM/group controls | Apply; loaded targets and native permissions; destructive operations are identified before approval |
+| `server_control` | Propose server-settings/emoji changes, creating an invite or leaving a server | Apply; loaded server/settings and native permission checks |
+| `role_control` | Propose creating, editing, moving or deleting roles | Apply; native role hierarchy and permission checks |
+| `moderation_control` | Propose role assignment, nicknames, kicks, prune preview/execution and member-list visibility | Apply; native hierarchy/permission checks; destructive actions are identified |
+| `media_control` | Propose opening the native screen-share picker or stopping screen share | Apply; current-call checks; no source list or captured media reaches Wasm |
 
 ### App snapshots and confirmed commands
 

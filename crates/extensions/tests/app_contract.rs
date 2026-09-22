@@ -14,6 +14,11 @@ fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validatio
 		Capability::ReactionsControl,
 		Capability::ReadStateControl,
 		Capability::ThreadsControl,
+		Capability::ChannelControl,
+		Capability::ServerControl,
+		Capability::RoleControl,
+		Capability::ModerationControl,
+		Capability::MediaControl,
 		Capability::MessageContent,
 		Capability::ForumData,
 		Capability::ConversationActivity,
@@ -882,9 +887,9 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 	assert!(old.host.is_none());
 	let caps = HostInfo::current().capabilities.to_vec();
 	test_manifest(caps.clone()).validate().unwrap();
-	assert_eq!(caps.len(), 42);
+	assert_eq!(caps.len(), 47);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 42);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 47);
 }
 
 #[test]
@@ -993,6 +998,9 @@ fn scrolling_settings_are_optional_on_older_hosts_and_validate_speed_bounds() {
 fn app_actions_round_trip_and_require_foreground_granted_confirmation() {
 	let actions = [
 		r#"{"type":"send_message","channel_id":"2","content":"hello"}"#,
+		r#"{"type":"send_reply","channel_id":"2","message_id":"3","content":"hello","mention":true}"#,
+		r#"{"type":"send_sticker","channel_id":"2","sticker_id":"5"}"#,
+		r#"{"type":"forward_message","channel_id":"2","message_id":"3","target_channel_ids":["6","7"],"note":"FYI"}"#,
 		r#"{"type":"edit_message","channel_id":"2","message_id":"3","content":"edited"}"#,
 		r#"{"type":"delete_message","channel_id":"2","message_id":"3"}"#,
 		r#"{"type":"set_reaction","channel_id":"2","message_id":"3","emoji":"wave:4","add":true}"#,
@@ -1009,6 +1017,21 @@ fn app_actions_round_trip_and_require_foreground_granted_confirmation() {
 		r#"{"type":"set_thread_followed","channel_id":"2","followed":true}"#,
 		r#"{"type":"set_thread_pinned","channel_id":"2","pinned":false}"#,
 		r#"{"type":"rename_thread","channel_id":"2","name":"Renamed"}"#,
+		r#"{"type":"set_channel_mute","channel_id":"2","duration_seconds":3600}"#,
+		r#"{"type":"set_channel_notifications","channel_id":"2","level":2}"#,
+		r#"{"type":"set_guild_hide_muted","guild_id":"4","hide":true}"#,
+		r#"{"type":"create_channel","guild_id":"4","name":"general","kind":"text"}"#,
+		r#"{"type":"create_category","guild_id":"4","name":"Topics"}"#,
+		r#"{"type":"duplicate_channel","channel_id":"2","name":"general-copy"}"#,
+		r#"{"type":"edit_channel","channel_id":"2","before":{"name":"general","topic":"Old","slowmode":0,"nsfw":false,"overwrites":[]},"after":{"name":"general-chat","topic":"New","slowmode":5,"nsfw":false,"overwrites":[{"id":"4","kind":0,"allow":"1024","deny":"0"}]}}"#,
+		r#"{"type":"delete_channel","channel_id":"2"}"#,
+		r#"{"type":"move_channel","channel_id":"2","parent_id":"8","position":1,"lock_permissions":true,"shifts":[{"channel_id":"9","position":2}]}"#,
+		r#"{"type":"create_server_invite","guild_id":"4","channel_id":"2","max_age":3600,"max_uses":10,"temporary":false}"#,
+		r#"{"type":"leave_server","guild_id":"4"}"#,
+		r#"{"type":"leave_group","channel_id":"2"}"#,
+		r#"{"type":"rename_group","channel_id":"2","name":"Friends"}"#,
+		r#"{"type":"close_dm","channel_id":"2"}"#,
+		r#"{"type":"set_conversation_muted","channel_id":"2","muted":true}"#,
 		r#"{"type":"open_friend_dm","user_id":"4"}"#,
 		r#"{"type":"set_friend_nickname","user_id":"4","text":"Friend"}"#,
 		r#"{"type":"set_user_note","user_id":"4","text":"Note"}"#,
@@ -1086,6 +1109,10 @@ fn app_action_patches_reject_invalid_ranges_conflicts_and_unbounded_text() {
 	for wire in [
 		r#"{"type":"send_message","channel_id":"0","content":"hello"}"#,
 		r#"{"type":"send_message","channel_id":"2","content":" "}"#,
+		r#"{"type":"send_reply","channel_id":"2","message_id":"0","content":"hello","mention":false}"#,
+		r#"{"type":"send_sticker","channel_id":"2","sticker_id":"0"}"#,
+		r#"{"type":"forward_message","channel_id":"2","message_id":"3","target_channel_ids":[],"note":""}"#,
+		r#"{"type":"forward_message","channel_id":"2","message_id":"3","target_channel_ids":["6","6"],"note":""}"#,
 		r#"{"type":"set_reaction","channel_id":"2","message_id":"3","emoji":"wave:0","add":true}"#,
 		r#"{"type":"set_reaction","channel_id":"2","message_id":"3","emoji":"x:4","add":true}"#,
 		r#"{"type":"set_own_profile","profile":{}}"#,
@@ -1105,6 +1132,16 @@ fn app_action_patches_reject_invalid_ranges_conflicts_and_unbounded_text() {
 		r#"{"type":"set_stream_audio"}"#,
 		r#"{"type":"set_participant_audio","user_id":"4","volume_percent":201}"#,
 		r#"{"type":"add_friend","username":"invalid..name"}"#,
+		r#"{"type":"set_channel_mute","channel_id":"2","duration_seconds":60}"#,
+		r#"{"type":"set_channel_notifications","channel_id":"2","level":4}"#,
+		r#"{"type":"create_channel","guild_id":"4","name":"general","kind":"stage"}"#,
+		r#"{"type":"edit_channel","channel_id":"2","before":{"name":"general","topic":"","slowmode":0,"nsfw":false,"overwrites":[]},"after":{"name":"general","topic":"","slowmode":21601,"nsfw":false,"overwrites":[]}}"#,
+		r#"{"type":"edit_channel","channel_id":"2","before":{"name":"general","topic":"","slowmode":0,"nsfw":false,"overwrites":[]},"after":{"name":"general","topic":"","slowmode":0,"nsfw":false,"overwrites":[{"id":"4","kind":2,"allow":"0","deny":"0"}]}}"#,
+		r#"{"type":"move_channel","channel_id":"2","parent_id":null,"position":-1,"lock_permissions":false,"shifts":[]}"#,
+		r#"{"type":"move_channel","channel_id":"2","parent_id":null,"position":0,"lock_permissions":false,"shifts":[{"channel_id":"9","position":1},{"channel_id":"9","position":2}]}"#,
+		r#"{"type":"create_server_invite","guild_id":"4","channel_id":"2","max_age":2592001,"max_uses":0,"temporary":false}"#,
+		r#"{"type":"create_server_invite","guild_id":"4","channel_id":"2","max_age":0,"max_uses":101,"temporary":false}"#,
+		r#"{"type":"rename_group","channel_id":"2","name":" "}"#,
 	] {
 		let action: AppAction = serde_json::from_str(wire).unwrap();
 		assert!(action.validate().is_err(), "{wire}");

@@ -276,6 +276,59 @@ impl MessagingUi {
 					self.voice_stream_muted = muted;
 				}
 			}
+			AppAction::OpenAttachmentPicker { channel_id } => {
+				let channel = id(&channel_id)?;
+				if state.selected != Some(channel)
+					|| !state.can_view(channel)
+					|| state
+						.channel(channel)
+						.is_none_or(|value| !value.supports_text())
+				{
+					return Err("The selected conversation is no longer available".into());
+				}
+				self.attach_requested = true;
+			}
+			AppAction::SelectAudioDevices {
+				input_id,
+				output_id,
+			} => {
+				if let Some(value) = input_id {
+					if !self.voice_inputs.iter().any(|(id, _)| id == &value) {
+						return Err("The microphone is no longer available".into());
+					}
+					self.voice_input = Some(value);
+				}
+				if let Some(value) = output_id {
+					if !self.voice_outputs.iter().any(|(id, _)| id == &value) {
+						return Err("The speaker device is no longer available".into());
+					}
+					self.voice_output = Some(value);
+				}
+			}
+			AppAction::RefreshMediaDevices => {
+				self.voice_refresh_devices = true;
+				self.voice_refresh_cameras = true;
+			}
+			AppAction::SelectCameraDevice { device_id } => {
+				if let Some(value) = device_id.as_ref()
+					&& !self.voice_cameras.iter().any(|(id, _)| id == value)
+				{
+					return Err("The camera is no longer available".into());
+				}
+				self.voice_camera_device = device_id;
+			}
+			AppAction::OpenScreenSharePicker => {
+				if state.voice.active.is_none() || self.screen.busy {
+					return Err("Screen sharing is unavailable in the current call".into());
+				}
+				self.screen.launch(state);
+			}
+			AppAction::StopScreenShare => {
+				if !self.screen.busy {
+					return Err("There is no active screen share".into());
+				}
+				self.screen.request = Some(crate::screen::Request::Stop);
+			}
 			AppAction::WatchStream { user_id } => {
 				state
 					.watch_stream(id(&user_id)?)
@@ -298,7 +351,7 @@ impl MessagingUi {
 				}
 				queue(state.decline_call(), commands)?;
 			}
-			_ => return Err("This action is not an account or audio operation".into()),
+			other => return self.apply_extension_admin_action(state, other, commands),
 		}
 		Ok(())
 	}
@@ -507,5 +560,39 @@ mod tests {
 			.is_err()
 		);
 		assert_eq!(commands.len(), 1);
+	}
+
+	#[test]
+	fn media_actions_only_select_current_host_devices() {
+		let mut state = test_support::demo_state();
+		let mut view = MessagingUi {
+			voice_inputs: vec![("mic-1".into(), "Synthetic microphone".into())],
+			voice_outputs: vec![("out-1".into(), "Synthetic speakers".into())],
+			voice_cameras: vec![("cam-1".into(), "Synthetic camera".into())],
+			..Default::default()
+		};
+		let mut commands = Vec::new();
+		view.apply_extension_account_action(
+			&mut state,
+			AppAction::SelectAudioDevices {
+				input_id: Some("mic-1".into()),
+				output_id: Some("out-1".into()),
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert_eq!(view.voice_input.as_deref(), Some("mic-1"));
+		assert_eq!(view.voice_output.as_deref(), Some("out-1"));
+		assert!(
+			view.apply_extension_account_action(
+				&mut state,
+				AppAction::SelectCameraDevice {
+					device_id: Some("missing".into()),
+				},
+				&mut commands,
+			)
+			.is_err()
+		);
+		assert!(commands.is_empty());
 	}
 }

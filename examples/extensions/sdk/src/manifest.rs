@@ -41,6 +41,11 @@ pub enum Capability {
 	ReactionsControl,
 	ReadStateControl,
 	ThreadsControl,
+	ChannelControl,
+	ServerControl,
+	RoleControl,
+	ModerationControl,
+	MediaControl,
 
 	MessageContent,
 	ForumData,

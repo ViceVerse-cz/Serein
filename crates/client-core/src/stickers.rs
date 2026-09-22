@@ -114,6 +114,23 @@ impl State {
 		}
 		self.prepare_message(&[], Some(sticker), false)
 	}
+	/// Resolve an SDK sticker id only from the bounded catalog already known to this session.
+	pub fn prepare_sticker_id_send(&mut self, id: Id) -> Option<Command> {
+		let sticker = self
+			.stickers
+			.detail
+			.iter()
+			.chain(&self.stickers.recent)
+			.chain(self.stickers.packs.iter().flat_map(|pack| &pack.stickers))
+			.chain(
+				self.guilds
+					.iter()
+					.flat_map(|guild| guild.stickers.iter().flatten()),
+			)
+			.find(|sticker| sticker.id == id)
+			.cloned()?;
+		self.prepare_sticker_send(&sticker)
+	}
 	pub fn discard_pending_sticker(&mut self, nonce: &str) {
 		self.pending.retain(|p| {
 			p.nonce != nonce

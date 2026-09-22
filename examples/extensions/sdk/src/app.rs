@@ -479,6 +479,68 @@ pub struct AudioSettingsPatch {
 	pub open_microphone: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionOverwriteInput {
+	pub id: String,
+	pub kind: u8,
+	pub allow: String,
+	pub deny: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChannelEditInput {
+	pub name: String,
+	pub topic: String,
+	pub slowmode: u32,
+	pub nsfw: bool,
+	pub overwrites: Vec<PermissionOverwriteInput>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChannelPositionInput {
+	pub channel_id: String,
+	pub position: i32,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ServerTraitInput {
+	pub label: String,
+	pub emoji: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ServerSettingsPatch {
+	pub name: Option<String>,
+	pub banner_color: Option<u32>,
+	pub traits: Option<Vec<ServerTraitInput>>,
+	pub description: Option<String>,
+	pub system_channel_id: Option<String>,
+	pub clear_system_channel: bool,
+	pub system_channel_flags: Option<u64>,
+	pub activity_feed: Option<bool>,
+	pub default_message_notifications: Option<u8>,
+	pub afk_channel_id: Option<String>,
+	pub clear_afk_channel: bool,
+	pub afk_timeout: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RolePatch {
+	pub name: Option<String>,
+	pub primary_color: Option<u32>,
+	pub secondary_color: Option<u32>,
+	pub tertiary_color: Option<u32>,
+	pub permissions: Option<String>,
+	pub permission_mask: Option<String>,
+	pub hoist: Option<bool>,
+	pub mentionable: Option<bool>,
+	pub unicode_emoji: Option<String>,
+	pub clear_unicode_emoji: bool,
+}
+
 /// App operation proposed by a foreground action; the host revalidates it at Apply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -545,10 +607,39 @@ pub enum AppAction {
 	SetCamera {
 		enabled: bool,
 	},
+	OpenAttachmentPicker {
+		channel_id: String,
+	},
+	SelectAudioDevices {
+		input_id: Option<String>,
+		output_id: Option<String>,
+	},
+	RefreshMediaDevices,
+	SelectCameraDevice {
+		device_id: Option<String>,
+	},
+	OpenScreenSharePicker,
+	StopScreenShare,
 
 	SendMessage {
 		channel_id: String,
 		content: String,
+	},
+	SendReply {
+		channel_id: String,
+		message_id: String,
+		content: String,
+		mention: bool,
+	},
+	SendSticker {
+		channel_id: String,
+		sticker_id: String,
+	},
+	ForwardMessage {
+		channel_id: String,
+		message_id: String,
+		target_channel_ids: Vec<String>,
+		note: String,
 	},
 	EditMessage {
 		channel_id: String,
@@ -614,6 +705,125 @@ pub enum AppAction {
 	RenameThread {
 		channel_id: String,
 		name: String,
+	},
+	SetChannelMute {
+		channel_id: String,
+		duration_seconds: Option<u32>,
+	},
+	SetChannelNotifications {
+		channel_id: String,
+		level: u8,
+	},
+	SetGuildHideMuted {
+		guild_id: String,
+		hide: bool,
+	},
+	CreateChannel {
+		guild_id: String,
+		name: String,
+		kind: String,
+	},
+	CreateCategory {
+		guild_id: String,
+		name: String,
+	},
+	DuplicateChannel {
+		channel_id: String,
+		name: String,
+	},
+	EditChannel {
+		channel_id: String,
+		before: ChannelEditInput,
+		after: ChannelEditInput,
+	},
+	DeleteChannel {
+		channel_id: String,
+	},
+	MoveChannel {
+		channel_id: String,
+		parent_id: Option<String>,
+		position: i32,
+		lock_permissions: bool,
+		shifts: Vec<ChannelPositionInput>,
+	},
+	CreateServerInvite {
+		guild_id: String,
+		channel_id: Option<String>,
+		max_age: u32,
+		max_uses: u16,
+		temporary: bool,
+	},
+	LeaveServer {
+		guild_id: String,
+	},
+	UpdateServerSettings {
+		guild_id: String,
+		settings: ServerSettingsPatch,
+	},
+	CreateRole {
+		guild_id: String,
+		role: RolePatch,
+	},
+	EditRole {
+		guild_id: String,
+		role_id: String,
+		role: RolePatch,
+	},
+	DeleteRole {
+		guild_id: String,
+		role_id: String,
+	},
+	MoveRole {
+		guild_id: String,
+		role_id: String,
+		position: i32,
+	},
+	SetMemberRole {
+		guild_id: String,
+		user_id: String,
+		role_id: String,
+		assigned: bool,
+	},
+	SetMemberNickname {
+		guild_id: String,
+		user_id: String,
+		nickname: String,
+	},
+	KickMember {
+		guild_id: String,
+		user_id: String,
+	},
+	PruneMembers {
+		guild_id: String,
+		days: u8,
+		execute: bool,
+	},
+	SetMemberListVisible {
+		guild_id: String,
+		enabled: bool,
+	},
+	RenameServerEmoji {
+		guild_id: String,
+		emoji_id: String,
+		name: String,
+	},
+	DeleteServerEmoji {
+		guild_id: String,
+		emoji_id: String,
+	},
+	LeaveGroup {
+		channel_id: String,
+	},
+	RenameGroup {
+		channel_id: String,
+		name: String,
+	},
+	CloseDm {
+		channel_id: String,
+	},
+	SetConversationMuted {
+		channel_id: String,
+		muted: bool,
 	},
 }
 

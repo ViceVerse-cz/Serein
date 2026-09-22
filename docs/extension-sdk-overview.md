@@ -1,5 +1,9 @@
 # SDK overview
 
+> **Preview SDK — PR #405, not yet released.** This branch adds approved reply,
+> sticker, forward, channel, server, role, moderation and host-mediated media
+> operations.
+
 Build tools that run inside Serein: inspect loaded app data, show native panels,
 format a draft, or propose an app action for the user to approve. Plugins are
 Rust code compiled to WebAssembly. Themes are declarative packages and do not
@@ -42,8 +46,9 @@ for state that survives invocations.
 | Open a conversation or native settings page | [Navigation actions](extension-sdk-actions.md#open-conversations-profiles-and-search) | `navigation`; read grants remain separate |
 | Change scrolling or sound preferences | [Reading settings](extension-sdk-actions.md#change-local-reading-settings) and [notification settings](extension-sdk-actions.md#change-device-local-notification-settings) | `local_settings` or `notification_settings`; each change requires Apply |
 | Send/edit messages, react, or manage threads | [App actions](extension-sdk-actions.md#app-actions) | Separate write grants; native permissions and Apply |
+| Manage channels, server settings, roles or members | [Channel/server actions](extension-sdk-actions.md#channels-conversations-and-servers) and [roles/moderation](extension-sdk-actions.md#roles-and-moderation) | `channel_control`, `server_control`, `role_control` or `moderation_control`; native permissions and Apply |
 | Change your profile, status, relationships or audio | [App actions](extension-sdk-actions.md#app-actions) | `account_control`, `relationship_control` or `audio_settings` |
-| Join a call or control your camera | [App actions](extension-sdk-actions.md#app-actions) | `voice_connect` or `camera_control`; explicit Apply |
+| Join a call or control host-mediated devices/screen share | [App actions](extension-sdk-actions.md#app-actions) | `voice_connect`, `camera_control`, `audio_settings` or `media_control`; explicit Apply |
 | React to app changes | [App events](extension-sdk-reference.md#appeventkind-why-an-app-observer-ran) | `app_events`, the relevant data grants, and `data_events` for the event kinds that require it |
 | Save plugin preferences | [Panels and storage](extension-sdk-actions.md#panels-and-storage) | `storage` |
 | Change the app's visual appearance | [Theme guide](theme-api.md) and [appearance output](extension-sdk-actions.md#every-output-field) | A declarative theme, or `appearance` for a plugin overlay |
@@ -146,15 +151,19 @@ when you rebuild.
 The SDK exposes loaded conversation/server/member data, panels, themes, storage,
 foreground navigation, messaging, reactions, read markers, thread/forum actions,
 relationships, text profile edits, presence, reading/notification preferences,
-audio processing/mixing and call controls. It uses the same permission checks,
-queues and failure handling as native app actions.
+audio processing/mixing and call controls. The preview adds message replies,
+loaded stickers and forwards, a host attachment picker, channel administration,
+channel/DM notification state, group/DM controls, server settings and emoji,
+invites, roles, member moderation, host device selection and native screen-share
+controls. These operations use the same permission checks, queues and failure
+handling as native app actions.
 
-It is not a complete Discord API. Server administration, role editing, channel
-creation, invites, moderation tools, poll voting, slash-command execution,
-file uploads, device enumeration and screen-source capture are not generic SDK
-operations in this revision. Snapshot reads do not fetch missing data, and
-writes return no private service response to Wasm. These limits are explicit;
-opening a settings page does not count as exposing its controls.
+It is not a complete Discord API. Poll voting and slash-command execution are
+not generic SDK operations in this revision. File/device/screen choices stay in
+native host UI: plugins cannot read arbitrary file paths or bytes, enumerate
+private devices or capture frames. Snapshot reads do not fetch missing data, and
+writes return no private service response to Wasm. Opening a settings page does
+not expose unrelated controls.
 
 ## Next steps
 
