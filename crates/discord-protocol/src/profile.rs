@@ -135,7 +135,14 @@ impl<'de, T: Deserialize<'de>, const N: usize> Deserialize<'de> for Small<T, N> 
 		impl<'de, T: Deserialize<'de>, const N: usize> Visitor<'de> for Items<T, N> {
 			type Value = Small<T, N>;
 			fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-				f.write_str("bounded profile list")
+				f.write_str("bounded profile list or null")
+			}
+			fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+				// Restricted profiles can retain identity while withholding these lists.
+				Ok(Small {
+					limited: true,
+					..Small::default()
+				})
 			}
 			fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
 				let mut list = Small::default();
@@ -155,7 +162,7 @@ impl<'de, T: Deserialize<'de>, const N: usize> Deserialize<'de> for Small<T, N> 
 				Ok(list)
 			}
 		}
-		deserializer.deserialize_seq(Items::<T, N>(std::marker::PhantomData))
+		deserializer.deserialize_any(Items::<T, N>(std::marker::PhantomData))
 	}
 }
 fn text(value: String, chars: usize, limited: &mut bool) -> String {
@@ -319,6 +326,37 @@ pub fn decode_profile(bytes: &[u8], guild: Option<Id>) -> Result<UserProfile, De
 mod tests {
 	use super::*;
 	use serde_json::json;
+	#[test]
+	fn partial_profiles_preserve_identity_and_reject_malformed_lists() {
+		let base = json!({"user":{"id":"1","username":"synthetic","global_name":"Display","avatar":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"user_profile":{},"badges":[],"guild_badges":[],"connected_accounts":[],"mutual_guilds":[]});
+		assert!(
+			!decode_profile(base.to_string().as_bytes(), None)
+				.unwrap()
+				.limited
+		);
+		for field in [
+			"badges",
+			"guild_badges",
+			"connected_accounts",
+			"mutual_guilds",
+		] {
+			let mut value = base.clone();
+			value[field] = serde_json::Value::Null;
+			let profile = decode_profile(value.to_string().as_bytes(), None).unwrap();
+			assert_eq!(profile.username, "synthetic");
+			assert_eq!(profile.user.name, "Display");
+			assert_eq!(
+				profile.user.avatar.as_deref(),
+				Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+			);
+			assert!(profile.limited);
+			assert!(profile.valid());
+			for invalid in [json!({}), json!(false), json!(1), json!(""), json!([null])] {
+				value[field] = invalid;
+				assert!(decode_profile(value.to_string().as_bytes(), None).is_err());
+			}
+		}
+	}
 	#[test]
 	fn profile_metadata_is_bounded_and_guild_identity_is_checked() {
 		let value = json!({"user":{"id":"1","username":"name","global_name":"Display","avatar":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","bio":"global bio","primary_guild":{"identity_guild_id":"2","identity_enabled":true,"tag":"SRN","badge":"ffffffffffffffffffffffffffffffff"}},

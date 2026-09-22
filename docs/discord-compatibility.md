@@ -313,6 +313,18 @@ or local media; CALL_DELETE/unavailability removes it. Join never rings an alrea
 call. [Primary implementation evidence and owner-controlled live checks](voice.md) distinguish
 the passing local WebSocket/reducer/UI tests from still-unverified Discord discovery and audio.
 
+## Partial user profiles — September 22, 2026
+
+The extended-profile decoder accepts explicit null summary lists as unavailable,
+retains the returned user identity, and keeps the existing byte/item limits and
+malformed-data rejection. Empty mutual-server lists alone do not indicate failure.
+Missing profile metadata already marks the result as limited, consistent with the
+[public profile implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/profile.py).
+Limited results and failed requests show “Unable to load parts of profile” above
+the identity; failed requests retain Retry with the fixed error category on hover.
+This does not infer whether someone blocked the account or bypass service access
+restrictions. Synthetic parser/UI checks are not live normal-account verification.
+
 ## Own profile editing — September 11, 2026
 
 The native editor updates global display name, bio, pronouns and accent color through

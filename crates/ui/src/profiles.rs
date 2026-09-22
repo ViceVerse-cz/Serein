@@ -1215,6 +1215,16 @@ pub fn show(
 						.show(ui, |ui| {
 							ui.set_width(ui.available_width());
 							ui.spacing_mut().item_spacing = vec2(6.0, 3.0);
+							if view.is_some_and(|v| v.error.is_some())
+								|| data.is_some_and(|data| data.limited)
+							{
+								design::notice(
+									ui,
+									design::Level::Warning,
+									"Unable to load parts of profile",
+								);
+								ui.add_space(6.0);
+							}
 							let display = data
 								.and_then(|p| {
 									p.guild
@@ -1347,8 +1357,11 @@ pub fn show(
 							}
 							if let Some(error) = view.and_then(|v| v.error) {
 								ui.add_space(4.0);
-								ui.label(RichText::new(error).size(12.0).color(theme.muted));
-								if ui.small_button("Retry profile").clicked() {
+								if ui
+									.small_button("Retry profile")
+									.on_hover_text(error)
+									.clicked()
+								{
 									action = Some(Action::Retry);
 								}
 							}
@@ -1496,16 +1509,6 @@ pub fn show(
 												})
 												.response
 												.on_hover_text(names.join("\n"));
-											}
-											if data.limited {
-												ui.add_space(6.0);
-												ui.label(
-													RichText::new(
-														"Some profile details were limited",
-													)
-													.size(11.0)
-													.color(theme.muted),
-												);
 											}
 										}
 									});
@@ -1880,60 +1883,78 @@ mod tests {
 		}
 	}
 	#[test]
-	fn webhook_card_does_not_show_user_errors_or_retry() {
+	fn partial_profile_warning_preserves_identity_and_webhook_behavior() {
 		for webhook in [false, true] {
 			for dark in [false, true] {
-				let mut user = test_support::message(1, Id(22)).author;
-				user.webhook = webhook;
-				let view = ProfileView {
-					user: user.id,
-					guild: None,
-					request: 1,
-					loading: false,
-					error: Some("Unsupported service response"),
-					data: None,
-				};
-				let state = State {
-					demo: true,
-					..Default::default()
-				};
-				let ctx = egui::Context::default();
-				ctx.set_visuals(if dark {
-					egui::Visuals::dark()
-				} else {
-					egui::Visuals::light()
-				});
-				let mut images = Avatars::default();
-				let mut opening = None;
-				let mut painted = String::new();
-				for _ in 0..3 {
-					let output = ctx.run_ui(input(vec2(400.0, 700.0), vec![]), |ui| {
-						show(
-							ui,
-							&user,
-							Some(&view),
-							&state,
-							&mut images,
-							&mut opening,
-							&mut FormatCache::default(),
-							true,
-							pos2(20.0, 70.0),
-						);
+				for (error, limited) in [
+					(Some("Unsupported service response"), false),
+					(None, true),
+					(None, false),
+				] {
+					let mut user = test_support::message(1, Id(22)).author;
+					user.webhook = webhook;
+					let view = ProfileView {
+						user: user.id,
+						guild: None,
+						request: 1,
+						loading: false,
+						error,
+						data: error.is_none().then(|| {
+							let mut data = synthetic(&user, None);
+							data.limited = limited;
+							data
+						}),
+					};
+					let state = State {
+						demo: true,
+						..Default::default()
+					};
+					let ctx = egui::Context::default();
+					ctx.set_visuals(if dark {
+						egui::Visuals::dark()
+					} else {
+						egui::Visuals::light()
 					});
-					for shape in &output.shapes {
-						text(&shape.shape, &mut painted);
+					let mut images = Avatars::default();
+					let mut opening = None;
+					let mut painted = String::new();
+					for _ in 0..3 {
+						let output = ctx.run_ui(input(vec2(400.0, 700.0), vec![]), |ui| {
+							show(
+								ui,
+								&user,
+								Some(&view),
+								&state,
+								&mut images,
+								&mut opening,
+								&mut FormatCache::default(),
+								true,
+								pos2(20.0, 70.0),
+							);
+						});
+						for shape in &output.shapes {
+							text(&shape.shape, &mut painted);
+						}
+						output.drop_without_applying_deltas();
 					}
-					output.drop_without_applying_deltas();
+					assert_eq!(painted.contains("Webhook"), webhook);
+					assert_eq!(painted.contains("Copy webhook ID"), webhook);
+					assert!(!painted.contains("Copy user ID"));
+					// No open DM in this fixture, so non-webhook profiles have no footer action.
+					assert!(!painted.contains("Message"));
+					assert!(!painted.contains("Unsupported service response"));
+					assert_eq!(
+						painted.contains("Unable to load parts of profile"),
+						!webhook && (error.is_some() || limited)
+					);
+					assert_eq!(
+						painted.contains("Retry profile"),
+						!webhook && error.is_some()
+					);
+					assert!(!painted.contains("Loading profile"));
+					assert!(painted.contains(&user.name));
+					assert!(images.take_requests().is_empty());
 				}
-				assert_eq!(painted.contains("Webhook"), webhook);
-				assert_eq!(painted.contains("Copy webhook ID"), webhook);
-				assert!(!painted.contains("Copy user ID"));
-				// No open DM in this fixture, so non-webhook profiles have no footer action.
-				assert!(!painted.contains("Message"));
-				assert_eq!(painted.contains("Unsupported service response"), !webhook);
-				assert_eq!(painted.contains("Retry profile"), !webhook);
-				assert!(!painted.contains("Loading profile"));
-				assert!(images.take_requests().is_empty());
 			}
 		}
 	}
