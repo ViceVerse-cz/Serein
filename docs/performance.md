@@ -1710,7 +1710,11 @@ package was measured; no NSIS installer was produced.
 ## SDK discovery and rich data - September 22, 2026
 
 Baseline: `7d3def0` (production runtime identical to `ac48e1c`). After: the
-host-discovery/rich-data follow-up on PR #373. Windows x64, Ryzen 7 7800X3D,
+host-discovery/rich-data follow-up on PR #373. The final branch also integrates
+main through `f3a165f`; the package comparison includes those intervening UI/core
+changes and must not be attributed solely to SDK code. The invocation timings
+below isolate the unchanged extension host inputs/modules across the SDK change.
+Windows x64, Ryzen 7 7800X3D,
 32 GB RAM, Rust 1.98.1, serialized shared-target Cargo builds. The previous
 verified package was copied before edits; its executable SHA-256 was
 `bcc962c1ea5c936e22ce32b5eed785faba5f9f4b5e55a38a3974a5293c1d1151`.

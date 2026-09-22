@@ -223,8 +223,7 @@ impl MessagingUi {
 						})
 					})
 					.ok_or("This user is not available in the current session")?;
-				self.profile = Some(user);
-				self.profile_anchor = None;
+				self.profile.navigate(user);
 			}
 			HostEffect::Search { query } => {
 				let channel = active_channel(state)?;
@@ -647,6 +646,16 @@ mod tests {
 			commands.as_slice(),
 			[Command::Archives { parent: Id(20), .. }]
 		));
+		let user = state.user.as_ref().unwrap().clone();
+		let effect = proposal(
+			&state,
+			HostEffect::OpenProfile {
+				user_id: user.id.0.to_string(),
+			},
+		);
+		view.apply_extension_effect(&ctx, &mut state, effect, &mut commands)
+			.unwrap();
+		assert_eq!(view.profile.open_user().map(|user| user.id), Some(user.id));
 	}
 
 	#[test]
