@@ -1587,3 +1587,55 @@ from each worktree to avoid stale shared-target artifacts.
 
 The OpenH264 LNK4255 warning was nonfatal in both builds. `makensis` is unavailable,
 so these are unsigned portable packages, with no NSIS installer measurement.
+
+## SDK message metadata and relationships - September 22, 2026
+
+Baseline: `bf66cf4` (runtime identical to `3d94c76`). After: `20e47b2`.
+Both contain main through `14e72bf`. Windows x64, Ryzen 7 7800X3D, 32 GB RAM,
+Rust 1.98.1, serialized Cargo builds. The verified baseline package was preserved
+before editing; changed extensions, UI and desktop crates rebuilt from this worktree.
+
+Release `sdk_check` invocation medians use one warmup and five batches of 20 calls,
+each with a fresh sandbox/module compilation. Package parsing, process startup,
+snapshot collection and worker IO are excluded. No concurrent Cargo build ran
+during timed calls. The same legacy input shapes are compared at both revisions;
+new metadata/relationship groups and all 13 app events passed separate sandbox
+checks, including the desktop collector's all-grants fixture.
+
+| Committed-module workload | Before, us | After, us | Delta |
+| --- | ---: | ---: | ---: |
+| Protector activation | 1,102.360 | 1,119.970 | +17.610 / +1.60% |
+| Image-sharing activation | 982.155 | 1,043.825 | +61.670 / +6.28% |
+| Counter create event | 1,629.025 | 1,644.250 | +15.225 / +0.93% |
+| Toolbox dashboard, 18,296-byte snapshot | 4,236.245 | 4,241.240 | +4.995 / +0.12% |
+
+The first three committed modules are unchanged. Toolbox grows from 198,370 to
+231,762 Wasm bytes; its optional JSON package is 671,753 bytes, not embedded in
+production. Its identical rebuilt-module repeat measured 4,163.915 us. These
+single-session variations do not establish a stable timing change.
+
+New message details have an 8-KiB/20-record ceiling, nested rows share 4 KiB per
+message, and relationships have a 4-KiB/100-record ceiling. Both consume the
+remaining shared 64-KiB snapshot budget. When message details are also granted,
+the text timeline uses 20 rows instead of 50; its 20-KiB byte budget is unchanged.
+This lets the all-grants fixture fit the unchanged 5,000,000-fuel sandbox budget;
+valid wire size alone still cannot guarantee arbitrary plugin execution. Existing
+timeline-only grants retain their 50-row ceiling. Queue limits remain 32 items /
+64 KiB, with ten starts per second and no new worker or timer.
+
+Native screenshot/CPU/RSS/frame evidence remains unavailable: native automation
+is disabled, `orca` is absent, and browser CUA initialization fails with OS error 3.
+These are synthetic sandbox measurements, not live Discord or native UI evidence.
+
+Standard voice-enabled `cargo xtask package` passed at both revisions, without
+demo/developer-session features. One package per revision, .NET ZipFile Optimal
+compression over the complete `dist` tree:
+
+| Artifact, bytes | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 71,060,992 | 71,107,072 | +46,080 / +0.0648% |
+| Installed package | 75,163,319 | 75,209,399 | +46,080 / +0.0613% |
+| Portable ZIP | 42,708,512 | 42,731,126 | +22,614 / +0.0530% |
+
+OpenH264 LNK4255 was nonfatal. `makensis` is unavailable, so no NSIS installer
+was produced; the unsigned portable distribution was measured.
