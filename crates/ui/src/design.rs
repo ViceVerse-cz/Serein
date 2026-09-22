@@ -2620,13 +2620,11 @@ pub fn slider<T: egui::emath::Numeric>(
 	let parse_suffix = fmt_suffix.clone();
 	let editor = ui
 		.scope_builder(
-			egui::UiBuilder::new()
-				.max_rect(pill)
-				.layout(
-					egui::Layout::top_down(egui::Align::Max)
-						.with_main_justify(true)
-						.with_cross_justify(true),
-				),
+			egui::UiBuilder::new().max_rect(pill).layout(
+				egui::Layout::top_down(egui::Align::Max)
+					.with_main_justify(true)
+					.with_cross_justify(true),
+			),
 			|ui| {
 				ui.spacing_mut().interact_size.y = 20.0;
 				ui.spacing_mut().button_padding.y = 0.0;

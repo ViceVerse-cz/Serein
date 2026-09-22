@@ -330,8 +330,14 @@ mod tests {
 			next_finished.clone(),
 		);
 		generation.store(2, Ordering::Release);
-		let mut cancelled =
-			callback(config, vec![[1.0, 1.0]; 2], 100, generation.clone(), 1, finished);
+		let mut cancelled = callback(
+			config,
+			vec![[1.0, 1.0]; 2],
+			100,
+			generation.clone(),
+			1,
+			finished,
+		);
 		cancelled(&mut data, &info(2000, 3000));
 		assert_eq!(data, [0.0; 8]);
 		assert!(!next_finished.load(Ordering::Acquire));

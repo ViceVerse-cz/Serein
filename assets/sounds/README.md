@@ -25,6 +25,12 @@ The twelve files total 595,870 bytes; each distinct cue is bundled independently
 Incoming and outgoing rings repeat every six and three seconds respectively,
 leaving enough time for each complete clip before its next playback.
 
+## Attribution
+
+All bundled notification sounds are credited to Discord, Inc. The source links
+and SHA-256 hashes above identify each original asset. Serein is an unofficial
+client and is not affiliated with or endorsed by Discord.
+
 These sound assets belong to Discord, Inc. and are not covered by Serein's
 MIT/Apache licenses. No redistribution grant is documented in this repository;
 review the [Discord terms](https://discord.com/terms) and obtain appropriate

@@ -73,7 +73,9 @@ fn is_animated_profile_or_avatar_key(key: &str) -> bool {
 		}
 	}
 	if let Some(value) = key.strip_prefix("banner-") {
-		return value.split_once('-').is_some_and(|(_, hash)| hash.starts_with("a_"));
+		return value
+			.split_once('-')
+			.is_some_and(|(_, hash)| hash.starts_with("a_"));
 	}
 	if let Some(value) = key.strip_prefix("member-banner-") {
 		let mut parts = value.split('-');
@@ -180,18 +182,9 @@ impl Avatars {
 	fn request(&mut self, key: String) {
 		let now = Instant::now();
 		self.attempts
-			.retain(|_, at| now.duration_since(at.0) < RETRY);
-		if self.attempts.len() >= 2048 {
-			if let Some(oldest) = self
-				.attempts
-				.iter()
-				.min_by_key(|(_, at)| at.0)
-				.map(|(k, _)| k.clone())
-			{
-				self.attempts.remove(&oldest);
-			}
-		}
+			.retain(|_, (at, failed)| !*failed || now.duration_since(*at) < RETRY);
 		if key.len() <= 2054
+			&& self.attempts.len() < 2048
 			&& self.requests.len() < REQUESTS
 			&& self
 				.attempts
@@ -227,7 +220,7 @@ impl Avatars {
 				&& image.pixels.len() == image.size[0] * image.size[1]
 		}) else {
 			if let Some(attempt) = self.attempts.get_mut(&key) {
-				attempt.1 = true;
+				*attempt = (Instant::now(), true);
 			}
 			if self.no_animations.len() >= 2048 {
 				self.no_animations.clear();
@@ -428,7 +421,11 @@ impl Avatars {
 			&& let Some(key) = profile.banner_key()
 		{
 			let is_animated = is_animated_profile_or_avatar_key(&key);
-			if is_animated && !self.animations.contains_key(&key) && !self.no_animations.contains(&key) && !demo {
+			if is_animated
+				&& !self.animations.contains_key(&key)
+				&& !self.no_animations.contains(&key)
+				&& !demo
+			{
 				self.request(key.clone());
 			}
 			self.advance_animation(ui.ctx(), &key);
@@ -1804,7 +1801,9 @@ mod tests {
 		let keys = images.take_requests();
 		assert_eq!(
 			keys,
-			vec!["anim:https://cdn.discordapp.com/avatars/123/a_0123456789abcdef0123456789abcdef.gif?size=2048"]
+			vec![
+				"anim:https://cdn.discordapp.com/avatars/123/a_0123456789abcdef0123456789abcdef.gif?size=2048"
+			]
 		);
 		let key = keys[0].clone();
 		let first = ColorImage::filled([2, 2], egui::Color32::RED);
@@ -1970,6 +1969,35 @@ mod tests {
 				}
 			}
 		}
+	}
+
+	#[test]
+	fn pending_requests_survive_retry_and_capacity_until_resolved() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		let expired = Instant::now() - RETRY - Duration::from_secs(1);
+		for i in 0..2048 {
+			avatars.attempts.insert(i.to_string(), (expired, false));
+		}
+		avatars.request("0".into());
+		avatars.request("new".into());
+		assert!(avatars.take_requests().is_empty());
+		assert_eq!(avatars.attempts.len(), 2048);
+		avatars.accept(&ctx, "0".into(), None);
+		assert!(avatars.attempts["0"].0 > expired);
+		avatars.request("0".into());
+		assert!(avatars.take_requests().is_empty());
+		avatars.attempts.get_mut("0").unwrap().0 = expired;
+		avatars.request("0".into());
+		assert_eq!(avatars.take_requests(), vec!["0"]);
+		avatars.accept(
+			&ctx,
+			"1".into(),
+			Some(ColorImage::filled([1, 1], egui::Color32::WHITE)),
+		);
+		assert!(avatars.texture_id("1").is_some());
+		avatars.request("new".into());
+		assert_eq!(avatars.take_requests(), vec!["new"]);
 	}
 
 	#[test]

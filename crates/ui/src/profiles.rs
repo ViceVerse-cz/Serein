@@ -986,9 +986,9 @@ pub fn show(
 			);
 			if has_banner {
 				let pointer_in_subwidgets = ui.input(|i| {
-					i.pointer.hover_pos().is_some_and(|pos| {
-						circles.contains(pos) || avatar_rect.contains(pos)
-					})
+					i.pointer
+						.hover_pos()
+						.is_some_and(|pos| circles.contains(pos) || avatar_rect.contains(pos))
 				});
 				let banner_response = if !pointer_in_subwidgets {
 					banner_response
@@ -1001,9 +1001,9 @@ pub fn show(
 					egui::WidgetInfo::labeled(egui::Role::Button, true, "View banner")
 				});
 				let pointer_interact_in_subwidgets = ui.input(|i| {
-					i.pointer.interact_pos().is_some_and(|pos| {
-						circles.contains(pos) || avatar_rect.contains(pos)
-					})
+					i.pointer
+						.interact_pos()
+						.is_some_and(|pos| circles.contains(pos) || avatar_rect.contains(pos))
 				});
 				if banner_response.clicked() && !pointer_interact_in_subwidgets {
 					if let Some(data) = data

@@ -308,7 +308,10 @@ impl UserProfile {
 			.filter(|h| valid_avatar_hash(h))
 			.map(|h| {
 				let ext = if h.starts_with("a_") { "gif" } else { "png" };
-				format!("https://cdn.discordapp.com/banners/{}/{h}.{ext}?size=2048", self.user.id)
+				format!(
+					"https://cdn.discordapp.com/banners/{}/{h}.{ext}?size=2048",
+					self.user.id
+				)
 			})
 	}
 	pub fn avatar_key(&self) -> String {

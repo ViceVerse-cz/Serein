@@ -26,7 +26,9 @@ fn is_animated_key(key: &str) -> bool {
 		return true;
 	}
 	if let Some(value) = key.strip_prefix("banner-") {
-		return value.split_once('-').is_some_and(|(_, hash)| hash.starts_with("a_"));
+		return value
+			.split_once('-')
+			.is_some_and(|(_, hash)| hash.starts_with("a_"));
 	}
 	if let Some(value) = key.strip_prefix("member-banner-") {
 		let mut parts = value.split('-');
@@ -818,7 +820,8 @@ fn decode_animation(bytes: &[u8], edge: u32) -> Option<ui::GifFrames> {
 			continue;
 		}
 		let buffer = frame.into_buffer();
-		let (width, height) = ui::fit_edge(buffer.width(), buffer.height(), edge.min(ui::EMBED_EDGE));
+		let (width, height) =
+			ui::fit_edge(buffer.width(), buffer.height(), edge.min(ui::EMBED_EDGE));
 		let image = image::DynamicImage::ImageRgba8(buffer)
 			.thumbnail(width, height)
 			.into_rgba8();
@@ -1158,30 +1161,54 @@ mod tests {
 
 	#[test]
 	fn animated_banner_and_avatar_urls_and_keys() {
-		assert!(super::is_animated_key("banner-123-a_abcdef0123456789abcdef0123456789"));
-		assert!(super::is_animated_key("member-banner-999-123-a_abcdef0123456789abcdef0123456789"));
-		assert!(super::is_animated_key("member-avatar-999-123-a_abcdef0123456789abcdef0123456789"));
-		assert!(super::is_animated_key("123-a_abcdef0123456789abcdef0123456789"));
-		assert!(!super::is_animated_key("banner-123-abcdef0123456789abcdef0123456789"));
-		assert!(!super::is_animated_key("member-banner-999-123-abcdef0123456789abcdef0123456789"));
-		assert!(!super::is_animated_key("member-avatar-999-123-abcdef0123456789abcdef0123456789"));
-		assert!(!super::is_animated_key("123-abcdef0123456789abcdef0123456789"));
+		assert!(super::is_animated_key(
+			"banner-123-a_abcdef0123456789abcdef0123456789"
+		));
+		assert!(super::is_animated_key(
+			"member-banner-999-123-a_abcdef0123456789abcdef0123456789"
+		));
+		assert!(super::is_animated_key(
+			"member-avatar-999-123-a_abcdef0123456789abcdef0123456789"
+		));
+		assert!(super::is_animated_key(
+			"123-a_abcdef0123456789abcdef0123456789"
+		));
+		assert!(!super::is_animated_key(
+			"banner-123-abcdef0123456789abcdef0123456789"
+		));
+		assert!(!super::is_animated_key(
+			"member-banner-999-123-abcdef0123456789abcdef0123456789"
+		));
+		assert!(!super::is_animated_key(
+			"member-avatar-999-123-abcdef0123456789abcdef0123456789"
+		));
+		assert!(!super::is_animated_key(
+			"123-abcdef0123456789abcdef0123456789"
+		));
 
 		assert_eq!(
 			super::cdn_url("banner-123-a_abcdef0123456789abcdef0123456789").as_deref(),
-			Some("https://cdn.discordapp.com/banners/123/a_abcdef0123456789abcdef0123456789.gif?size=512")
+			Some(
+				"https://cdn.discordapp.com/banners/123/a_abcdef0123456789abcdef0123456789.gif?size=512"
+			)
 		);
 		assert_eq!(
 			super::cdn_url("member-banner-999-123-a_abcdef0123456789abcdef0123456789").as_deref(),
-			Some("https://cdn.discordapp.com/guilds/999/users/123/banners/a_abcdef0123456789abcdef0123456789.gif?size=512")
+			Some(
+				"https://cdn.discordapp.com/guilds/999/users/123/banners/a_abcdef0123456789abcdef0123456789.gif?size=512"
+			)
 		);
 		assert_eq!(
 			super::cdn_url("123-a_abcdef0123456789abcdef0123456789").as_deref(),
-			Some("https://cdn.discordapp.com/avatars/123/a_abcdef0123456789abcdef0123456789.gif?size=128")
+			Some(
+				"https://cdn.discordapp.com/avatars/123/a_abcdef0123456789abcdef0123456789.gif?size=128"
+			)
 		);
 		assert_eq!(
 			super::cdn_url("123-abcdef0123456789abcdef0123456789").as_deref(),
-			Some("https://cdn.discordapp.com/avatars/123/abcdef0123456789abcdef0123456789.png?size=128")
+			Some(
+				"https://cdn.discordapp.com/avatars/123/abcdef0123456789abcdef0123456789.png?size=128"
+			)
 		);
 	}
 	#[test]

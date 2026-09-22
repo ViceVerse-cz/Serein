@@ -423,6 +423,11 @@ Offline SQLite tests exercise real temporary-file reopen, schema upgrade, appear
 
 A process-write trace was attempted with `sudo -n fs_usage -w -f filesys -t 3 <synthetic-app-pid>`; the OS returned “a password is required.” No trace was obtained. The account/cache code and synthetic SQLite files were tested, but actual process-write behavior is not certified.
 
+Avatar request tracking retains at most 2,048 keys of at most 2,054 bytes each
+(4,206,592 key bytes, plus bounded map metadata). Pending entries remain tracked
+until completion; capacity defers new requests rather than evicting pending work.
+Failed entries expire five seconds after failure, permitting an on-demand retry.
+
 Current image limits include the GIF and larger-viewer features added after September 10.
 One worker decodes serially while up to four credential-free downloads overlap, with
 128 bounded keys waiting and two decoded results queued. Ordinary encoded bodies are
