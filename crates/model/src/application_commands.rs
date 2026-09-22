@@ -36,6 +36,8 @@ pub struct Command {
 	pub integration_types: Option<Vec<u8>>,
 	#[serde(skip)]
 	pub application_name: String,
+	#[serde(skip)]
+	pub application_icon: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -299,6 +301,7 @@ impl Command {
 			+ self.name.capacity()
 			+ self.description.capacity()
 			+ self.application_name.capacity()
+			+ self.application_icon.as_ref().map_or(0, String::capacity)
 			+ self.options.capacity() * size_of::<CommandOption>()
 			+ self
 				.options
@@ -327,6 +330,10 @@ impl Command {
 			&& description(&self.description)
 			&& self.application_name.len() <= 400
 			&& !self.application_name.chars().any(char::is_control)
+			&& self
+				.application_icon
+				.as_deref()
+				.is_none_or(crate::valid_avatar_hash)
 			&& metadata(&self.contexts, 2)
 			&& metadata(&self.integration_types, 1)
 			&& valid_options(&self.options, 0, &mut 0)

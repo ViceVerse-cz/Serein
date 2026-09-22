@@ -1062,6 +1062,10 @@ discards raw JSON after projection and removes spare outer-vector capacity befor
 Each schema is capped at 128 KiB, 1,024 option nodes, 25 options/choices per level and the
 root/group/subcommand/value hierarchy. Catalogs, application labels and argument-form values
 remain session-only; no SQLite schema, disk cache, recents or background index polling is added.
+Optional application icon hashes use the existing 32-hexadecimal-character validation
+(with an optional `a_` prefix), count toward schema bytes and never enter submissions.
+Visible artwork uses fixed Discord CDN URLs through the existing credential-free image
+worker and bounded image disk/texture caches; no separate icon cache or metadata fetch is added.
 
 Catalog reads run in one replaceable worker using the existing REST admission and bounded
 event queue. Channel, account generation and request ID reject stale results. Navigation,

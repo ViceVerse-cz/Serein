@@ -13,6 +13,8 @@ use std::collections::BTreeMap;
 struct Application {
 	id: Id,
 	name: String,
+	#[serde(default)]
+	icon: Option<String>,
 }
 #[derive(Deserialize)]
 struct Index {
@@ -39,7 +41,15 @@ pub fn decode(bytes: &[u8], guild: Option<Id>) -> Result<Vec<Command>, DecodeErr
 		if application.name.is_empty()
 			|| application.name.chars().count() > 100
 			|| applications
-				.insert(application.id, application.name)
+				.insert(
+					application.id,
+					(
+						application.name,
+						application
+							.icon
+							.filter(|hash| model::valid_avatar_hash(hash)),
+					),
+				)
 				.is_some()
 		{
 			return Err(DecodeError);
@@ -59,10 +69,12 @@ pub fn decode(bytes: &[u8], guild: Option<Id>) -> Result<Vec<Command>, DecodeErr
 			continue;
 		}
 		let mut command: Command = serde_json::from_str(raw.get()).map_err(|_| DecodeError)?;
-		command.application_name = applications
-			.get(&command.application_id)
-			.cloned()
-			.unwrap_or_else(|| command.application_id.to_string());
+		if let Some((name, icon)) = applications.get(&command.application_id) {
+			command.application_name = name.clone();
+			command.application_icon = icon.clone();
+		} else {
+			command.application_name = command.application_id.to_string();
+		}
 		commands.push(command);
 	}
 	if !valid_catalog(&commands) {

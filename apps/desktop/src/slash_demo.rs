@@ -36,6 +36,8 @@ pub fn catalog(guild: Option<Id>) -> Vec<schema::Command> {
 	])).expect("valid synthetic command schema");
 	for command in &mut commands {
 		command.guild_id = guild;
+		// Original generated fixture artwork; never fetch third-party app icons in demo.
+		command.application_icon = Some(format!("{:032x}", command.application_id.0));
 		command.application_name = if command.application_id == Id(99000) {
 			"Atlas (synthetic)"
 		} else {

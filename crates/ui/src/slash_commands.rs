@@ -1,5 +1,5 @@
 //! Composer command discovery and one session-only application command form.
-use crate::{design, mentions, slash_builtin};
+use crate::{avatars::Avatars, design, icons, mentions, slash_builtin};
 use client_core::{Command, State};
 use model::{
 	Id,
@@ -7,7 +7,8 @@ use model::{
 };
 
 const RESULTS: usize = 64;
-const ROW: f32 = 52.0;
+const ROW: f32 = 58.0;
+const RAIL: f32 = 56.0;
 
 #[derive(Clone)]
 pub(super) struct Pick {
@@ -16,6 +17,8 @@ pub(super) struct Pick {
 	name: String,
 	description: String,
 	application: String,
+	application_id: Option<Id>,
+	icon: Option<String>,
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -109,6 +112,7 @@ impl Menu {
 		if self.query != query {
 			self.dismissed = false;
 			self.selected = 0;
+			self.follow = true;
 		}
 		self.query = query;
 		self.stamp = stamp;
@@ -126,8 +130,10 @@ impl Menu {
 						id: None,
 						path: Vec::new(),
 						name: entry.name.into(),
-						description: format!("{}  {}", entry.description, entry.usage),
+						description: entry.description.into(),
 						application: "Built-In".into(),
+						application_id: None,
+						icon: None,
 					});
 				}
 			}
@@ -174,6 +180,8 @@ impl Menu {
 							name,
 							description: description.into(),
 							application: command.application_name.clone(),
+							application_id: Some(command.application_id),
+							icon: command.application_icon.clone(),
 						});
 						if self.items.len() >= RESULTS {
 							break;
@@ -185,6 +193,20 @@ impl Menu {
 				}
 			}
 		}
+		self.items.sort_by(|a, b| {
+			(
+				a.application_id.is_none(),
+				&a.application,
+				a.application_id,
+				&a.name,
+			)
+				.cmp(&(
+					b.application_id.is_none(),
+					&b.application,
+					b.application_id,
+					&b.name,
+				))
+		});
 		self.selected = self.selected.min(self.items.len().saturating_sub(1));
 	}
 	pub fn visible(&self) -> bool {
@@ -210,9 +232,8 @@ impl Menu {
 				return None;
 			}
 			if self.active.is_some() {
-				if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) {
-					self.run = true;
-				}
+				// Field controls own Enter (for example opening a choice dropdown).
+				// Composer Enter and the Run button are the explicit submit paths.
 				return None;
 			}
 			if self.items.is_empty() {
@@ -257,6 +278,7 @@ impl Menu {
 		anchor: egui::Rect,
 		state: &State,
 		channel: Id,
+		avatars: &mut Avatars,
 	) -> Option<Pick> {
 		self.rect = None;
 		if !self.visible() {
@@ -265,10 +287,17 @@ impl Menu {
 		let colors = design::palette(ui);
 		let bounds = ui.ctx().content_rect().shrink(8.0);
 		let width = anchor.width().min(bounds.width());
+		let groups = self
+			.items
+			.iter()
+			.map(|item| item.application_id)
+			.collect::<std::collections::BTreeSet<_>>()
+			.len();
 		let height = if self.active.is_some() {
 			310.0
 		} else {
-			(self.items.len().clamp(2, 5) as f32) * ROW + 68.0
+			((self.items.len().clamp(2, 6) as f32) * ROW + groups.min(3) as f32 * 32.0 + 16.0)
+				.min(420.0)
 		};
 		let height = height
 			.min((anchor.top() - bounds.top() - 8.0).max(96.0))
@@ -286,151 +315,200 @@ impl Menu {
 			.fixed_pos(position)
 			.constrain_to(bounds)
 			.show(ui.ctx(), |ui| {
-				egui::Frame::new()
-					.fill(colors.sidebar)
-					.stroke(egui::Stroke::new(1.0, colors.border))
-					.corner_radius(8)
-					.inner_margin(8)
-					.show(ui, |ui| {
-						ui.set_width((width - 18.0).max(80.0));
-						ui.horizontal(|ui| {
-							if self.active.is_some() && ui.small_button("← Commands").clicked() {
-								self.active = None;
-								self.error = None;
+				let (rect, _) =
+					ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+				ui.painter().rect_filled(rect, 8, colors.sidebar);
+				ui.painter().rect_stroke(
+					rect,
+					8,
+					egui::Stroke::new(1.0, colors.border),
+					egui::StrokeKind::Inside,
+				);
+				if self.active.is_some() {
+					let mut body = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(12.0)));
+					body.set_clip_rect(rect.shrink(1.0));
+					if body.small_button("← Commands").clicked() {
+						self.active = None;
+						self.error = None;
+					}
+					self.form(&mut body, state, channel, height - 60.0);
+					return;
+				}
+				let rail_rect = egui::Rect::from_min_size(rect.min, egui::vec2(RAIL, height));
+				ui.painter().rect_filled(
+					rail_rect.shrink(1.0),
+					egui::CornerRadius {
+						nw: 7,
+						sw: 7,
+						..Default::default()
+					},
+					colors.base,
+				);
+				let mut rail = ui.new_child(
+					egui::UiBuilder::new()
+						.id_salt("command-rail")
+						.max_rect(rail_rect.shrink2(egui::vec2(8.0, 8.0))),
+				);
+				rail.set_clip_rect(rail_rect.shrink(1.0));
+				rail.spacing_mut().item_spacing.y = 6.0;
+				let mut filter = self.filter;
+				if rail_button(
+					&mut rail,
+					Filter::All,
+					filter,
+					None,
+					"All commands",
+					avatars,
+					state.demo,
+				)
+				.clicked()
+				{
+					filter = Filter::All;
+				}
+				egui::ScrollArea::vertical()
+					.id_salt("command-apps")
+					.max_height((height - 62.0).max(24.0))
+					.auto_shrink([false, true])
+					.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+					.show(&mut rail, |ui| {
+						let mut seen = std::collections::BTreeSet::new();
+						for command in &state.application_commands.commands {
+							if !seen.insert(command.application_id) {
+								continue;
 							}
-							ui.label(design::semibold(ui, "Commands", 14.0));
-							ui.with_layout(
-								egui::Layout::right_to_left(egui::Align::Center),
-								|ui| {
-									if ui
-										.add_enabled(
-											state.can_request_application_commands(channel)
-												&& !state.application_commands.loading,
-											egui::Button::new("Refresh apps").small(),
-										)
-										.clicked()
-									{
-										self.retry = true;
-									}
-									if width > 600.0 {
-										ui.label(
-											egui::RichText::new(if self.active.is_some() {
-												"Tab next field · Enter run · Esc close"
-											} else {
-												"↑↓ choose · Tab / Enter select · Esc close"
-											})
-											.size(11.0)
-											.color(colors.muted),
-										);
-									}
-								},
-							);
-						});
+							let target = Filter::Application(command.application_id);
+							if rail_button(
+								ui,
+								target,
+								filter,
+								command.application_icon.as_deref(),
+								&command.application_name,
+								avatars,
+								state.demo,
+							)
+							.clicked()
+							{
+								filter = target;
+							}
+						}
 						ui.separator();
-						if self.active.is_some() {
-							self.form(ui, state, channel, height - 68.0);
-						} else {
-							ui.horizontal_top(|ui| {
-								ui.vertical(|ui| {
-									ui.set_width(38.0);
-									let mut filter = self.filter;
-									if ui
-										.add_sized(
-											[34.0, 30.0],
-											egui::Button::new("All")
-												.selected(filter == Filter::All),
-										)
-										.clicked()
-									{
-										filter = Filter::All;
-									}
-									if ui
-										.add_sized(
-											[34.0, 30.0],
-											egui::Button::new("/")
-												.selected(filter == Filter::Builtins),
-										)
-										.on_hover_text("Built-In")
-										.clicked()
-									{
-										filter = Filter::Builtins;
-									}
-									egui::ScrollArea::vertical()
-										.id_salt("command-apps")
-										.max_height((height - 146.0).max(32.0))
-										.show(ui, |ui| {
-											let mut seen = std::collections::BTreeSet::new();
-											for command in &state.application_commands.commands {
-												if !seen.insert(command.application_id) {
-													continue;
-												}
-												let label = command
-													.application_name
-													.chars()
-													.next()
-													.unwrap_or('A')
-													.to_string();
-												if ui
-													.add_sized(
-														[34.0, 30.0],
-														egui::Button::new(label).selected(
-															filter
-																== Filter::Application(
-																	command.application_id,
-																),
-														),
-													)
-													.on_hover_text(&command.application_name)
-													.clicked()
-												{
-													filter =
-														Filter::Application(command.application_id);
-												}
-											}
-										});
-									if filter != self.filter {
-										self.filter = filter;
-										self.selected = 0;
-										self.rebuild(state);
-									}
-								});
-								ui.separator();
-								ui.vertical(|ui| {
-									let follow = std::mem::take(&mut self.follow);
-									egui::ScrollArea::vertical()
-										.id_salt("command-results")
-										.max_height((height - 100.0).max(ROW))
-										.auto_shrink([false, true])
-										.show(ui, |ui| {
-											for (index, item) in self.items.iter().enumerate() {
-												let response =
-													command_row(ui, item, index == self.selected);
-												if follow && index == self.selected {
-													response.scroll_to_me(None);
-												}
-												if response.clicked() {
-													picked = Some(item.clone());
-												}
-											}
-											if self.items.is_empty() {
-												ui.weak(
-													"No commands match. Try another name or application.",
-												);
-											}
-										});
-									if state.application_commands.loading {
-										ui.weak("Loading application commands…");
-									} else if let Some(error) =
-										self.error.or(state.application_commands.error)
-									{
-										ui.colored_label(colors.danger, error);
-									} else if self.items.len() == RESULTS {
-										ui.weak("Keep typing to narrow the results.");
-									}
-								});
-							});
+						if rail_button(
+							ui,
+							Filter::Builtins,
+							filter,
+							None,
+							"Built-In",
+							avatars,
+							state.demo,
+						)
+						.clicked()
+						{
+							filter = Filter::Builtins;
 						}
 					});
+				if filter != self.filter {
+					self.filter = filter;
+					self.selected = 0;
+					self.follow = true;
+					self.rebuild(state);
+				}
+				let content_rect = egui::Rect::from_min_max(
+					rect.min + egui::vec2(RAIL + 12.0, 8.0),
+					rect.max - egui::vec2(8.0, 8.0),
+				);
+				let mut body = ui.new_child(
+					egui::UiBuilder::new()
+						.id_salt("command-content")
+						.max_rect(content_rect),
+				);
+				body.set_clip_rect(content_rect);
+				body.spacing_mut().item_spacing.y = 0.0;
+				let follow = std::mem::take(&mut self.follow);
+				egui::ScrollArea::vertical()
+					.id_salt("command-results")
+					.max_height(content_rect.height() - 24.0)
+					.auto_shrink([false, false])
+					.show(&mut body, |ui| {
+						let mut previous = None;
+						for (index, item) in self.items.iter().enumerate() {
+							if previous != Some(item.application_id) {
+								if index > 0 {
+									ui.add_space(12.0);
+								}
+								let (heading, _) = ui.allocate_exact_size(
+									egui::vec2(ui.available_width(), 32.0),
+									egui::Sense::hover(),
+								);
+								let icon_rect = egui::Rect::from_min_size(
+									heading.min + egui::vec2(8.0, 6.0),
+									egui::Vec2::splat(18.0),
+								);
+								command_icon(
+									ui,
+									icon_rect,
+									item.application_id
+										.map_or(Filter::Builtins, Filter::Application),
+									item.icon.as_deref(),
+									avatars,
+									state.demo,
+									&item.application,
+								);
+								let mut label = ui.new_child(egui::UiBuilder::new().max_rect(
+									egui::Rect::from_min_max(
+										heading.min + egui::vec2(32.0, 6.0),
+										heading.max,
+									),
+								));
+								label.add(
+									egui::Label::new(design::semibold(ui, &item.application, 13.0))
+										.truncate(),
+								);
+								previous = Some(item.application_id);
+							}
+							let response = command_row(ui, item, index == self.selected);
+							if follow && index == self.selected {
+								response.scroll_to_me(None);
+							}
+							if response.clicked() {
+								picked = Some(item.clone());
+							}
+						}
+						if self.items.is_empty() {
+							ui.weak("No commands match. Try another name or application.");
+						}
+					});
+				body.horizontal(|ui| {
+					ui.add_enabled_ui(
+						state.can_request_application_commands(channel)
+							&& !state.application_commands.loading,
+						|ui| {
+							if icons::button(
+								ui,
+								icons::Icon::Reload,
+								18.0,
+								"Refresh application commands",
+							)
+							.clicked()
+							{
+								self.retry = true;
+							}
+						},
+					);
+					let (hint, color) = if state.application_commands.loading {
+						("Loading application commands…", colors.muted)
+					} else if let Some(error) = self.error.or(state.application_commands.error) {
+						(error, colors.danger)
+					} else if self.items.len() == RESULTS {
+						("Keep typing to narrow the results.", colors.muted)
+					} else {
+						("↑↓ choose · Tab / Enter select · Esc close", colors.muted)
+					};
+					ui.add(
+						egui::Label::new(egui::RichText::new(hint).size(11.0).color(color))
+							.truncate(),
+					)
+					.on_hover_text(hint);
+				});
 			});
 		self.rect = Some(response.response.rect);
 		picked
@@ -516,6 +594,90 @@ impl Menu {
 	}
 }
 
+fn rail_button(
+	ui: &mut egui::Ui,
+	target: Filter,
+	selected: Filter,
+	icon: Option<&str>,
+	label: &str,
+	avatars: &mut Avatars,
+	demo: bool,
+) -> egui::Response {
+	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(40.0), egui::Sense::click());
+	let colors = design::palette(ui);
+	if target == selected || response.hovered() {
+		ui.painter().rect_filled(rect, 10, colors.hover);
+	}
+	if target == selected {
+		ui.painter().rect_filled(
+			egui::Rect::from_min_size(rect.min - egui::vec2(7.0, -10.0), egui::vec2(3.0, 20.0)),
+			2,
+			colors.text_strong,
+		);
+	}
+	command_icon(ui, rect.shrink(5.0), target, icon, avatars, demo, label);
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+	response.on_hover_text(label)
+}
+
+fn command_icon(
+	ui: &mut egui::Ui,
+	rect: egui::Rect,
+	source: Filter,
+	icon: Option<&str>,
+	avatars: &mut Avatars,
+	demo: bool,
+	label: &str,
+) {
+	let colors = design::palette(ui);
+	match source {
+		Filter::All => {
+			for y in 0..2 {
+				for x in 0..2 {
+					let size = rect.width() * 0.32;
+					let min = rect.min
+						+ rect.size() * 0.1
+						+ egui::vec2(x as f32, y as f32) * rect.width() * 0.48;
+					ui.painter().rect_filled(
+						egui::Rect::from_min_size(min, egui::Vec2::splat(size)),
+						2,
+						colors.text,
+					);
+				}
+			}
+		}
+		Filter::Builtins => {
+			ui.painter().rect_filled(rect.shrink(2.0), 3, colors.text);
+			ui.painter().line_segment(
+				[
+					rect.min + rect.size() * egui::vec2(0.65, 0.22),
+					rect.min + rect.size() * egui::vec2(0.35, 0.78),
+				],
+				egui::Stroke::new(rect.width() * 0.14, colors.base),
+			);
+		}
+		Filter::Application(id) => {
+			if let Some(hash) = icon {
+				let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+				avatars.show_icon(
+					&mut child,
+					Some(format!("application-icon-{id}-{hash}")),
+					rect.width(),
+					demo,
+					label,
+				);
+			} else {
+				icons::paint(
+					ui.painter(),
+					icons::Icon::GameController,
+					rect.shrink(2.0),
+					colors.text,
+				);
+			}
+		}
+	}
+}
+
 fn command_row(ui: &mut egui::Ui, item: &Pick, selected: bool) -> egui::Response {
 	let colors = design::palette(ui);
 	let (rect, response) =
@@ -594,7 +756,14 @@ fn command_row(ui: &mut egui::Ui, item: &Pick, selected: bool) -> egui::Response
 			),
 		)
 	});
-	response.on_hover_text(&item.description)
+	let tooltip = slash_builtin::ALL
+		.iter()
+		.find(|entry| item.id.is_none() && entry.name == item.name)
+		.map_or_else(
+			|| item.description.clone(),
+			|entry| format!("{}\n{}", item.description, entry.usage),
+		);
+	response.on_hover_text(tooltip)
 }
 
 fn value_text(value: &Value) -> String {
@@ -845,7 +1014,7 @@ mod tests {
 			let rect = view.slash_commands.rect.unwrap();
 			assert!(
 				rect.width() <= width
-					&& rect.height() <= 340.0
+					&& rect.height() <= 420.0
 					&& rect.left() >= 0.0
 					&& rect.right() <= width + 1.0,
 				"bounded popup: {rect:?}"
@@ -886,6 +1055,7 @@ mod tests {
 				contexts: None,
 				integration_types: None,
 				application_name: "Synthetic app".into(),
+				application_icon: None,
 			};
 			let Some(Command::ApplicationCommands { request, .. }) =
 				state.request_application_commands(channel, true)
@@ -900,6 +1070,25 @@ mod tests {
 			assert!(frame(&mut view, &mut state, Some((egui::Key::Enter, false))).is_empty());
 			assert_eq!(state.drafts[&channel], "/ask ");
 			assert!(view.slash_commands.active.is_some());
+			ctx.run_ui(
+				egui::RawInput {
+					events: vec![egui::Event::Key {
+						key: egui::Key::Enter,
+						physical_key: None,
+						pressed: true,
+						repeat: false,
+						modifiers: egui::Modifiers::NONE,
+					}],
+					..Default::default()
+				},
+				|_| {
+					assert!(view.slash_commands.keys(&ctx).is_none());
+					assert!(!view.slash_commands.run, "field controls must retain Enter");
+					assert!(ctx.input(|input| input.key_pressed(egui::Key::Enter)));
+				},
+			)
+			.drop_without_applying_deltas();
+			ctx.input_mut(|input| input.keys_down.clear());
 			assert!(frame(&mut view, &mut state, Some((egui::Key::Enter, true))).is_empty());
 			assert!(
 				!state.interactions.busy(),
@@ -907,7 +1096,7 @@ mod tests {
 			);
 			let rect = view.slash_commands.rect.unwrap();
 			assert!(
-				rect.right() <= width + 1.0 && rect.height() <= 340.0,
+				rect.right() <= width + 1.0 && rect.height() <= 420.0,
 				"bounded form: {rect:?}"
 			);
 			assert!(frame(&mut view, &mut state, Some((egui::Key::Enter, false))).is_empty());

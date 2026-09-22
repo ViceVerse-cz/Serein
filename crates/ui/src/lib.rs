@@ -166,6 +166,8 @@ pub struct MessagingUi {
 	server_role_icon_sequence: u64,
 	switcher: switcher::Switcher,
 	focus_switched_composer: bool,
+	#[cfg(feature = "demo")]
+	preview_slash_commands: bool,
 	switcher_frame: bool,
 	archives: archives::ArchivesUi,
 	archive_parent: Option<Id>,
@@ -518,6 +520,11 @@ impl MessagingUi {
 			self.timeline.reflow_frames,
 			self.timeline.consecutive_reflows,
 		)
+	}
+	/// Fixture-only: keep the synthetic slash picker visible without window focus.
+	#[cfg(feature = "demo")]
+	pub fn preview_slash_commands(&mut self) {
+		self.preview_slash_commands = true;
 	}
 	/// Fixture-only: open the Threads dialog for `parent` at startup, as the header control would.
 	#[cfg(any(test, feature = "demo"))]
@@ -2743,10 +2750,14 @@ impl MessagingUi {
                             output.response.request_focus();
                             mention_changed = true;
                         }
+                        #[cfg(not(feature = "demo"))]
+                        let slash_preview = false;
+                        #[cfg(feature = "demo")]
+                        let slash_preview = state.demo && self.preview_slash_commands;
                         self.slash_commands.refresh(state, channel, draft,
                             !editing_here && keyboard_enabled && !self.ime_active && !ime_this_frame
-                                && (output.response.has_focus() || suggestion_pointer || self.slash_commands.active.is_some()));
-                        if let Some(pick) = self.slash_commands.show(ui, composer_anchor, state, channel)
+                                && (output.response.has_focus() || suggestion_pointer || self.slash_commands.active.is_some() || slash_preview));
+                        if let Some(pick) = self.slash_commands.show(ui, composer_anchor, state, channel, &mut self.avatars)
                             && let Some(cursor) = self.slash_commands.accept(pick, draft, remaining) {
                             output.state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(cursor))));
                             output.state.clone().store(ctx, composer_id);

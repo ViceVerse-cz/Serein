@@ -241,7 +241,7 @@ mod tests {
 						{"type":6,"name":"user","description":"User"}]}]}]});
 			let index = json!({"application_commands":[definition,{"type":2},
 				{"type":1,"contexts":[1]}, {"type":1,"guild_id":"99"}],
-				"applications":[{"id":"12","name":"Synthetic App"}]})
+				"applications":[{"id":"12","name":"Synthetic App","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]})
 			.to_string();
 			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 			let mut api = DiscordApi::new(Arc::new(
@@ -322,6 +322,11 @@ mod tests {
 									.get("application_name")
 									.is_none()
 							);
+							assert!(
+								body["data"]["application_command"]
+									.get("application_icon")
+									.is_none()
+							);
 							assert_eq!(body["data"]["attachments"], json!([]));
 							assert_eq!(
 								body["data"]["options"],
@@ -359,6 +364,10 @@ mod tests {
 			assert_eq!(commands.len(), 1);
 			let command = commands.remove(0);
 			assert_eq!(command.application_name, "Synthetic App");
+			assert_eq!(
+				command.application_icon.as_deref(),
+				Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+			);
 			let value = |kind, name: &str, value| Argument {
 				kind,
 				name: name.into(),
@@ -404,6 +413,16 @@ mod tests {
 			));
 			assert!(!api.stopped());
 			server.await.unwrap();
+			let invalid_icon = serde_json::to_vec(&json!({"application_commands":[{
+				"id":"10","version":"11","application_id":"12","type":1,"name":"ping","description":"Ping"}],
+				"applications":[{"id":"12","name":"Synthetic App","icon":"../other"}]}))
+			.unwrap();
+			assert!(
+				discord_protocol::application_commands::decode(&invalid_icon, Some(Id(20)))
+					.unwrap()[0]
+					.application_icon
+					.is_none()
+			);
 			assert!(
 				discord_protocol::application_commands::decode(
 					&vec![b' '; discord_protocol::MAX_WIRE + 1],

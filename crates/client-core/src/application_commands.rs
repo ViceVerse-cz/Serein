@@ -218,6 +218,7 @@ mod tests {
 			name: "sample".into(),
 			description: "Synthetic command".into(),
 			application_name: "Synthetic app".into(),
+			application_icon: None,
 			contexts: Some(vec![1]),
 			integration_types: None,
 			options: vec![schema::CommandOption {
