@@ -27,7 +27,7 @@ may not be available in a released build.
 | --- | --- |
 | [App Toolbox](app-toolbox/src/lib.rs) | App snapshots and all supported host actions |
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
-| [Message Delete Protector](message-delete-protector/src/lib.rs) | Activation enabling host-managed message retention |
+| [Message Delete Protector](message-delete-protector/src/lib.rs) | Compatibility activation plugin; retention is built in |
 | [Emoji & Sticker Images](emoji-sticker-images/src/lib.rs) | Activation enabling image attachment mode |
 
 For this tutorial, use `app-toolbox/` in a development copy. Keep its `Cargo.toml`,

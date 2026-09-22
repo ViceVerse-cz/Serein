@@ -183,8 +183,8 @@ does not grant the current user's identity, conversation text or settings.
 The five detailed reasons are opt-in: `data_events` requires `app_events`,
 and each reason also needs its corresponding read grant. Existing observers
 without `data_events` receive only the original six reasons. These are
-invalidation hints from accepted app updates, not raw service events or payload
-patches. Permission changes may invalidate data without supplying a replacement.
+invalidation hints from observed app updates, not raw service events or payload
+patches. Rejected or no-op updates may also produce a hint. Permission changes may invalidate data without supplying a replacement.
 
 Treat the event as a reason to inspect the supplied snapshot, not as a complete
 change log. Pending detailed changes of the same kind are coalesced per plugin.

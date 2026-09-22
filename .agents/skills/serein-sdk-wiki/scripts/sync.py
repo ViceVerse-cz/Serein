@@ -24,6 +24,7 @@ GUIDES = {
     SOURCES[3]: {
         "invocation-and-events": "SDK-Inputs-and-Events",
         "message-event-fields": "SDK-Inputs-and-Events",
+        "appeventkind-why-an-app-observer-ran": "SDK-Inputs-and-Events",
         "app-data": "SDK-App-Data",
     },
     SOURCES[4]: {
