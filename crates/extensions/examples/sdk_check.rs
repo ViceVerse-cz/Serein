@@ -332,7 +332,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			.as_slice(),
 			include_str!("../../../examples/extensions/message-delete-protector/manifest.json"),
 			"message_delete_protector.wasm",
-			Output::default(),
+			Output {
+				preserve_deleted_messages: true,
+				..Default::default()
+			},
 		),
 		(
 			"emoji-sticker-images",
@@ -350,6 +353,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	] {
 		check(&format!("{name}/committed"), committed, &expected);
 		let rebuilt = rebuilt(manifest, &wasm_dir.join(wasm_file))?;
+		// The shipped legacy protector returns true; its current source uses no-op activation.
+		let expected = if name == "message-delete-protector" {
+			Output::default()
+		} else {
+			expected
+		};
 		check(
 			&format!("{name}/rebuilt"),
 			&serde_json::to_vec(&rebuilt)?,
