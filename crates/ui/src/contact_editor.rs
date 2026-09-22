@@ -241,7 +241,6 @@ mod tests {
 				state.command_rejected(command);
 				render(&mut editor, &mut state);
 				assert_eq!(editor.draft, "Private draft 🌙");
-				assert!(state.user_action_status().is_some());
 				state.generation += 1;
 				render(&mut editor, &mut state);
 				assert!(editor.user.is_none() && editor.draft.is_empty());

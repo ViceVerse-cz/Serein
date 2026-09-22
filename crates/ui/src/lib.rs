@@ -6147,7 +6147,7 @@ mod composer_tests {
 					output.textures_delta.clear();
 					for id in 1..=3 {
 						let row = egui::Rect::from_min_size(
-							origin + egui::vec2(0.0, id as f32 * 42.0),
+							origin + egui::vec2(0.0, (id - 1) as f32 * 42.0),
 							egui::vec2(width, 42.0),
 						);
 						let mut labels = vec![format!("Member {id}"), format!("Activity {id}")];
@@ -6787,6 +6787,11 @@ mod composer_tests {
 		}
 		let ctx = egui::Context::default();
 		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Message(test_support::message(501, channel)),
+		});
 		let mut messaging = MessagingUi::default();
 		let frame = |messaging: &mut MessagingUi, state: &mut State, events: Vec<egui::Event>| {
 			let mut output = ctx.run_ui(
