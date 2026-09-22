@@ -3,16 +3,18 @@ use client_core::{Envelope, Event, State};
 use extensions::{AppEventKind, Capability};
 use model::Id;
 
-const KINDS: [AppEventKind; 5] = [
+const KINDS: [AppEventKind; 7] = [
 	AppEventKind::Account,
 	AppEventKind::Channels,
 	AppEventKind::Members,
 	AppEventKind::Presence,
 	AppEventKind::ReadState,
+	AppEventKind::MessageDetails,
+	AppEventKind::Relationships,
 ];
 
 #[derive(Default, Clone, Copy)]
-pub struct Changes([bool; 5]);
+pub struct Changes([bool; 7]);
 impl Changes {
 	pub fn capture(state: &State, envelope: &Envelope) -> Self {
 		let mut changes = Self::default();
@@ -27,7 +29,7 @@ impl Changes {
 				&& state.freshness != model::Freshness::Unavailable
 		};
 		match &envelope.event {
-			Event::Startup(_) | Event::Ready { .. } => changes.0 = [true; 5],
+			Event::Startup(_) | Event::Ready { .. } => changes.0 = [true; 7],
 			Event::ProfileEdited { user, .. } | Event::Profile { user, .. }
 				if state.user.as_ref().is_some_and(|own| own.id == *user) =>
 			{
@@ -106,6 +108,28 @@ impl Changes {
 			}
 			_ => {}
 		}
+		changes.0[5] |= message_details_changed(state, &envelope.event);
+		if let Event::UserAction(event) = &envelope.event {
+			use client_core::user_actions::Event::*;
+			changes.0[6] |=
+				matches!(
+					event,
+					Requests(_)
+						| Request { .. } | FriendProfile(_)
+						| Friends(_) | Friend { .. }
+						| Restrictions(_) | Restriction { .. }
+						| Relationships(_) | Relationship { .. }
+						| Nicknames(_) | Nickname { .. }
+						| Written {
+							action: client_core::user_actions::Action::AddFriend { .. }
+								| client_core::user_actions::Action::ResolveFriend { .. }
+								| client_core::user_actions::Action::ProfileFriend { .. }
+								| client_core::user_actions::Action::Nickname { .. }
+								| client_core::user_actions::Action::Block { .. },
+							..
+						}
+				);
+		}
 		changes
 	}
 	pub fn merge(&mut self, other: Self) {
@@ -123,6 +147,89 @@ impl Changes {
 	}
 }
 
+fn message_details_changed(state: &State, event: &Event) -> bool {
+	let readable = |channel| {
+		state.selected == Some(channel)
+			&& state.gateway_connected
+			&& state.can_view(channel)
+			&& state.can_read_history(channel)
+			&& state
+				.channel(channel)
+				.is_some_and(|channel| channel.supports_text())
+	};
+	let ordinary = |message: &model::Message| {
+		!message.ephemeral
+			&& message.flags & 64 == 0
+			&& message.author.id.0 != 0
+			&& !state.timeline.is_deleted(message.id)
+	};
+	// History may be completing a loading state. Dispatch still collects only fresh data.
+	if let Event::History {
+		channel,
+		request,
+		messages,
+		..
+	} = event
+	{
+		return readable(*channel)
+			&& *request == state.request
+			&& state.history_pending
+			&& (messages.is_empty() || messages.iter().any(ordinary));
+	}
+	if state.freshness != model::Freshness::Fresh {
+		return false;
+	}
+	let loaded = |channel, id| {
+		readable(channel)
+			&& state
+				.timeline
+				.get(id)
+				.is_some_and(|message| message.channel == channel && ordinary(message))
+	};
+	match event {
+		Event::Message(message)
+		| Event::SendResult {
+			result: Ok(message),
+			..
+		} => readable(message.channel) && ordinary(message),
+		Event::Patch(patch) => loaded(patch.channel, patch.id),
+		Event::Edited {
+			channel,
+			message,
+			result: Ok(_),
+			..
+		}
+		| Event::Pinned {
+			channel,
+			message,
+			result: Ok(()),
+			..
+		} => loaded(*channel, *message),
+		Event::Delete { channel, id } => loaded(*channel, *id),
+		Event::DeleteBulk { channel, ids } => ids.iter().any(|id| loaded(*channel, *id)),
+		Event::Reactions(event) => {
+			use client_core::reactions::Event::*;
+			match event {
+				Delta {
+					channel, message, ..
+				}
+				| Cleared {
+					channel, message, ..
+				}
+				| Changed { channel, message }
+				| Read {
+					channel, message, ..
+				}
+				| Written {
+					channel, message, ..
+				} => loaded(*channel, *message),
+				Users { .. } => false,
+			}
+		}
+		_ => false,
+	}
+}
+
 /// Fixed scalar keys catch local loading/navigation mutations outside the event drain.
 #[derive(PartialEq, Eq)]
 pub struct DataKey {
@@ -130,6 +237,8 @@ pub struct DataKey {
 	profile: (u64, bool, bool, bool, bool),
 	channel: Option<(Id, Option<Id>, Option<u32>)>,
 	directory: (usize, usize),
+	messages: Option<(Id, u64)>,
+	relationships: (u64, bool, bool, bool),
 }
 impl DataKey {
 	pub fn capture(state: &State) -> Self {
@@ -164,6 +273,21 @@ impl DataKey {
 					)
 				}),
 			directory: (state.channels.len(), state.guilds.len()),
+			messages: selected
+				.filter(|id| {
+					state.freshness == model::Freshness::Fresh
+						&& state.can_read_history(*id)
+						&& state
+							.channel(*id)
+							.is_some_and(|channel| channel.supports_text())
+				})
+				.map(|id| (id, state.request)),
+			relationships: (
+				state.relationship_view(),
+				state.friends_known(),
+				state.friend_requests_known(),
+				state.restricted_users_known(),
+			),
 		}
 	}
 	pub fn changed(&self, old: &Self) -> Changes {
@@ -173,6 +297,8 @@ impl DataKey {
 			false,
 			false,
 			self.read != old.read,
+			self.messages != old.messages,
+			self.relationships != old.relationships,
 		])
 	}
 }
@@ -286,5 +412,159 @@ mod tests {
 				.kinds(&[Capability::GuildDirectory])
 				.any(|kind| kind == AppEventKind::Channels)
 		);
+	}
+	#[test]
+	fn message_details_hints_require_the_new_grant_and_loaded_readable_context() {
+		let mut state = test_support::demo_state();
+		let selected = state.selected.unwrap();
+		let id = state.timeline.iter().next().unwrap().id;
+		let patch = |channel| {
+			Event::Patch(model::MessagePatch {
+				id,
+				channel,
+				content: model::Patch::Absent,
+				edited: model::Patch::Absent,
+				sticker_items: model::Patch::Absent,
+				flags: model::Patch::Absent,
+				components: model::Patch::Absent,
+				application_id: model::Patch::Absent,
+				extra_content: Default::default(),
+				reactions: model::Patch::Value(Vec::new()),
+				mentions: model::Patch::Absent,
+				embeds: model::Patch::Absent,
+				embeds_suppressed: model::Patch::Absent,
+				attachments: model::Patch::Absent,
+			})
+		};
+		let capture = |state: &State, event| {
+			Changes::capture(
+				state,
+				&Envelope {
+					generation: state.generation,
+					event,
+				},
+			)
+		};
+		for event in [
+			patch(selected),
+			Event::Reactions(client_core::reactions::Event::Changed {
+				channel: selected,
+				message: id,
+			}),
+		] {
+			let changes = capture(&state, event);
+			assert_eq!(
+				changes
+					.kinds(&[Capability::DataEvents, Capability::Timeline])
+					.count(),
+				0
+			);
+			assert_eq!(
+				changes
+					.kinds(&[Capability::MessageDetails])
+					.collect::<Vec<_>>(),
+				vec![AppEventKind::MessageDetails]
+			);
+		}
+		for event in [
+			patch(Id(999)),
+			Event::Reactions(client_core::reactions::Event::Changed {
+				channel: Id(999),
+				message: id,
+			}),
+			Event::Reactions(client_core::reactions::Event::Changed {
+				channel: selected,
+				message: Id(99999),
+			}),
+		] {
+			assert_eq!(
+				capture(&state, event)
+					.kinds(&[Capability::MessageDetails])
+					.count(),
+				0
+			);
+		}
+		state.freshness = model::Freshness::Loading;
+		assert_eq!(
+			capture(&state, patch(selected))
+				.kinds(&[Capability::MessageDetails])
+				.count(),
+			0
+		);
+		state.freshness = model::Freshness::Fresh;
+		let mut private = test_support::message(99999, selected);
+		private.ephemeral = true;
+		assert_eq!(
+			capture(&state, Event::Message(private))
+				.kinds(&[Capability::MessageDetails])
+				.count(),
+			0
+		);
+		state.set_preserve_deleted_messages(true);
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Delete {
+				channel: selected,
+				id,
+			},
+		});
+		assert_eq!(
+			capture(&state, patch(selected))
+				.kinds(&[Capability::MessageDetails])
+				.count(),
+			0
+		);
+		let stale = Envelope {
+			generation: state.generation.wrapping_add(1),
+			event: patch(selected),
+		};
+		assert_eq!(
+			Changes::capture(&state, &stale)
+				.kinds(&[Capability::MessageDetails])
+				.count(),
+			0
+		);
+	}
+
+	#[test]
+	fn relationship_events_and_local_revision_require_the_relationship_grant() {
+		let mut state = test_support::demo_state();
+		let old = DataKey::capture(&state);
+		let envelope = Envelope {
+			generation: state.generation,
+			event: Event::UserAction(client_core::user_actions::Event::Friends(Some(Vec::new()))),
+		};
+		let changes = Changes::capture(&state, &envelope);
+		assert_eq!(
+			changes
+				.kinds(&[Capability::DataEvents, Capability::AccountProfile])
+				.count(),
+			0
+		);
+		assert_eq!(
+			changes
+				.kinds(&[Capability::Relationships])
+				.collect::<Vec<_>>(),
+			vec![AppEventKind::Relationships]
+		);
+		state.apply(envelope);
+		assert_eq!(
+			DataKey::capture(&state)
+				.changed(&old)
+				.kinds(&[Capability::Relationships])
+				.collect::<Vec<_>>(),
+			vec![AppEventKind::Relationships]
+		);
+		let changes = Changes::capture(
+			&state,
+			&Envelope {
+				generation: state.generation,
+				event: Event::UserAction(client_core::user_actions::Event::NoteChanged {
+					user: Id(99),
+					text: "Private note is outside relationship snapshots".into(),
+				}),
+			},
+		);
+		assert_eq!(changes.kinds(&[Capability::Relationships]).count(), 0);
 	}
 }

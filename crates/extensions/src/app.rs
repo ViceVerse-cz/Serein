@@ -5,6 +5,11 @@ pub const MAX_APP_CHANNELS: usize = 100;
 pub const MAX_APP_GUILDS: usize = 100;
 pub const MAX_CHANNEL_RECIPIENTS: usize = 32;
 pub const MAX_APP_MESSAGES: usize = 50;
+pub const MAX_MESSAGE_DETAILS: usize = 20;
+pub const MAX_MESSAGE_MENTIONS: usize = 32;
+pub const MAX_MESSAGE_ATTACHMENTS: usize = 10;
+pub const MAX_MESSAGE_REACTIONS: usize = 16;
+pub const MAX_RELATIONSHIPS: usize = 100;
 pub const MAX_APP_MEMBERS: usize = 100;
 pub const MAX_APP_PRESENCES: usize = 100;
 pub const MAX_VOICE_PARTICIPANTS: usize = 64;
@@ -15,6 +20,10 @@ pub const MAX_HOST_EFFECT_BYTES: usize = 8 * 1024;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppSnapshot {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub message_details: Option<MessageDetailsSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub relationships: Option<RelationshipsSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub account_profile: Option<AccountProfileSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -37,6 +46,81 @@ pub struct AppSnapshot {
 	pub read_state: Option<ReadSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub settings: Option<LocalSettingsSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageDetailsSnapshot {
+	pub channel_id: String,
+	pub items: Vec<MessageDetailSnapshot>,
+	pub truncated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageDetailSnapshot {
+	pub id: String,
+	pub kind: u8,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reply_to: Option<String>,
+	pub mention_ids: Vec<String>,
+	pub mentions_truncated: bool,
+	pub mention_everyone: bool,
+	pub attachments: Vec<AttachmentSnapshot>,
+	pub attachments_truncated: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reactions: Option<Vec<ReactionSnapshot>>,
+	pub reactions_truncated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttachmentSnapshot {
+	pub id: String,
+	pub filename: String,
+	pub size: u64,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub content_type: Option<String>,
+	pub spoiler: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReactionSnapshot {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub emoji_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub emoji_name: Option<String>,
+	pub count: u32,
+	pub me: bool,
+	pub me_burst: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationshipsSnapshot {
+	pub items: Vec<RelationshipSnapshot>,
+	pub truncated: bool,
+	pub friends_known: bool,
+	pub requests_known: bool,
+	pub restricted_known: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationshipSnapshot {
+	pub user: UserSnapshot,
+	pub kind: RelationshipKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationshipKind {
+	Friend,
+	IncomingRequest,
+	OutgoingRequest,
+	Blocked,
+	Ignored,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -216,6 +300,8 @@ pub struct LocalSettingsPatch {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppEventKind {
+	MessageDetails,
+	Relationships,
 	Account,
 	Channels,
 	Members,
@@ -379,6 +465,8 @@ impl AppEventKind {
 	/// Whether the manifest can read the data represented by this notification.
 	pub fn data_granted(self, capabilities: &[Capability]) -> bool {
 		let required: &[Capability] = match self {
+			Self::MessageDetails => &[Capability::MessageDetails],
+			Self::Relationships => &[Capability::Relationships],
 			Self::Account => &[Capability::AccountProfile],
 			Self::Channels => &[
 				Capability::ChannelDirectory,
@@ -399,7 +487,13 @@ impl AppEventKind {
 		grant(manifest, Capability::AppEvents)?;
 		if matches!(
 			self,
-			Self::Account | Self::Channels | Self::Members | Self::Presence | Self::ReadState
+			Self::Account
+				| Self::Channels
+				| Self::Members
+				| Self::Presence
+				| Self::ReadState
+				| Self::MessageDetails
+				| Self::Relationships
 		) {
 			grant(manifest, Capability::DataEvents)?;
 			if !self.data_granted(&manifest.capabilities) {
@@ -442,6 +536,8 @@ impl AppSnapshot {
 
 	pub fn validate(&self, manifest: &Manifest) -> Result<(), Error> {
 		for (present, capability) in [
+			(self.message_details.is_some(), Capability::MessageDetails),
+			(self.relationships.is_some(), Capability::Relationships),
 			(self.account_profile.is_some(), Capability::AccountProfile),
 			(self.guilds.is_some(), Capability::GuildDirectory),
 			(self.channel_details.is_some(), Capability::ChannelDetails),
@@ -456,6 +552,59 @@ impl AppSnapshot {
 		] {
 			if present {
 				grant(manifest, capability)?;
+			}
+		}
+		if let Some(details) = &self.message_details {
+			entity_id(&details.channel_id)?;
+			ids(
+				details.items.iter().map(|item| item.id.as_str()),
+				MAX_MESSAGE_DETAILS,
+			)?;
+			for item in &details.items {
+				if let Some(reply) = &item.reply_to {
+					entity_id(reply)?;
+				}
+				ids(
+					item.mention_ids.iter().map(String::as_str),
+					MAX_MESSAGE_MENTIONS,
+				)?;
+				ids(
+					item.attachments
+						.iter()
+						.map(|attachment| attachment.id.as_str()),
+					MAX_MESSAGE_ATTACHMENTS,
+				)?;
+				for attachment in &item.attachments {
+					label(&attachment.filename, 256)?;
+					if let Some(content_type) = &attachment.content_type {
+						label(content_type, 128)?;
+					}
+				}
+				if let Some(reactions) = &item.reactions {
+					if reactions.len() > MAX_MESSAGE_REACTIONS {
+						return Err(Error::Limit);
+					}
+					for reaction in reactions {
+						if reaction.emoji_id.is_none() && reaction.emoji_name.is_none() {
+							return Err(Error::Invalid);
+						}
+						if let Some(id) = &reaction.emoji_id {
+							entity_id(id)?;
+						}
+						if let Some(name) = &reaction.emoji_name {
+							label(name, 128)?;
+						}
+					}
+				}
+			}
+		}
+		if let Some(relationships) = &self.relationships {
+			ids(
+				relationships.items.iter().map(|item| item.user.id.as_str()),
+				MAX_RELATIONSHIPS,
+			)?;
+			for item in &relationships.items {
+				user(&item.user)?;
 			}
 		}
 		if let Some(account) = &self.account_profile {

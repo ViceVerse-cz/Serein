@@ -5,6 +5,11 @@ pub const MAX_APP_CHANNELS: usize = 100;
 pub const MAX_APP_GUILDS: usize = 100;
 pub const MAX_CHANNEL_RECIPIENTS: usize = 32;
 pub const MAX_APP_MESSAGES: usize = 50;
+pub const MAX_MESSAGE_DETAILS: usize = 20;
+pub const MAX_MESSAGE_MENTIONS: usize = 32;
+pub const MAX_MESSAGE_ATTACHMENTS: usize = 10;
+pub const MAX_MESSAGE_REACTIONS: usize = 16;
+pub const MAX_RELATIONSHIPS: usize = 100;
 pub const MAX_APP_MEMBERS: usize = 100;
 pub const MAX_APP_PRESENCES: usize = 100;
 pub const MAX_VOICE_PARTICIPANTS: usize = 64;
@@ -15,6 +20,10 @@ pub const MAX_HOST_EFFECT_BYTES: usize = 8 * 1024;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSnapshot {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub message_details: Option<MessageDetailsSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub relationships: Option<RelationshipsSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub account_profile: Option<AccountProfileSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -37,6 +46,75 @@ pub struct AppSnapshot {
 	pub read_state: Option<ReadSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub settings: Option<LocalSettingsSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageDetailsSnapshot {
+	pub channel_id: String,
+	pub items: Vec<MessageDetailSnapshot>,
+	pub truncated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageDetailSnapshot {
+	pub id: String,
+	pub kind: u8,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reply_to: Option<String>,
+	pub mention_ids: Vec<String>,
+	pub mentions_truncated: bool,
+	pub mention_everyone: bool,
+	pub attachments: Vec<AttachmentSnapshot>,
+	pub attachments_truncated: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reactions: Option<Vec<ReactionSnapshot>>,
+	pub reactions_truncated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachmentSnapshot {
+	pub id: String,
+	pub filename: String,
+	pub size: u64,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub content_type: Option<String>,
+	pub spoiler: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReactionSnapshot {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub emoji_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub emoji_name: Option<String>,
+	pub count: u32,
+	pub me: bool,
+	pub me_burst: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationshipsSnapshot {
+	pub items: Vec<RelationshipSnapshot>,
+	pub truncated: bool,
+	pub friends_known: bool,
+	pub requests_known: bool,
+	pub restricted_known: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationshipSnapshot {
+	pub user: UserSnapshot,
+	pub kind: RelationshipKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationshipKind {
+	Friend,
+	IncomingRequest,
+	OutgoingRequest,
+	Blocked,
+	Ignored,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -199,6 +277,8 @@ pub struct LocalSettingsPatch {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppEventKind {
+	MessageDetails,
+	Relationships,
 	Account,
 	Channels,
 	Members,

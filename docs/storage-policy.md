@@ -6,10 +6,20 @@ Independently granted app snapshots contain only already-loaded, accessible data
 The serialized snapshot remains capped at 64 KiB. Directories hold at most 100
 channels and 100 joined guilds; the selected channel has at most 32 loaded
 recipients. Timeline, members/presence and voice limits remain 50 ordinary loaded
-messages, 100 entries each and 64 participant IDs respectively. Collector budgets
+messages, 100 entries each and 64 participant IDs respectively. A simultaneous
+`message_details` grant lowers the timeline row limit to 20, retaining its 20-KiB
+byte budget and the unchanged Wasm fuel limit; valid wire size alone does not
+guarantee execution fits the fuel budget. Collector budgets
 include item overhead and escaped text: 10 KiB channels, 20 KiB timeline, 6 KiB
 each members/presence/channel-detail recipients, and 8 KiB guilds. Names are
 sanitized to 128 UTF-8 bytes; timeline rows above 4 KiB of content are omitted.
+Message details add up to 20 fresh readable timeline records in an 8-KiB group,
+with at most 32 mention IDs, 10 attachment labels and 16 reaction summaries per
+record, sharing a 4-KiB nested-record budget. Relationships add up to 100 loaded user/kind records in a 4-KiB group;
+separate known flags distinguish unloaded friend/request/restricted lists.
+Both groups consume the remaining shared 64-KiB snapshot budget and can truncate
+earlier. Message details contain no message text, attachment URLs/bytes or deleted/
+ephemeral records; relationships contain no notes, nicknames or status payloads.
 Partial lists declare truncation; none is a history export.
 
 The account-profile grant supplies only the current account label/avatar hash

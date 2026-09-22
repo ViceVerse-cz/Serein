@@ -73,6 +73,8 @@ pub enum Capability {
 	GuildDirectory,
 	ChannelDetails,
 	DataEvents,
+	MessageDetails,
+	Relationships,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

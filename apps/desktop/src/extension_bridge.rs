@@ -180,7 +180,7 @@ impl Bridge {
 				.manifest
 				.capabilities
 				.contains(&Capability::DataEvents);
-			let mut kinds = [None; 6];
+			let mut kinds = [None; 8];
 			kinds[0] = event;
 			for (index, kind) in changes.kinds(&entry.manifest.capabilities).enumerate() {
 				if detailed {

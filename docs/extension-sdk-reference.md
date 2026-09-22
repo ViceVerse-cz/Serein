@@ -179,8 +179,10 @@ does not grant the current user's identity, conversation text or settings.
 | `members` | `AppEventKind::Members` | Loaded selected-channel members may have changed; additionally requires `data_events` and `members`. |
 | `presence` | `AppEventKind::Presence` | Known selected-context statuses may have changed; additionally requires `data_events` and `presence`. |
 | `read_state` | `AppEventKind::ReadState` | Selected-channel read/mention state may have changed; additionally requires `data_events` and `read_state`. |
+| `message_details` | `AppEventKind::MessageDetails` | Loaded selected-message metadata may have changed; additionally requires `data_events` and `message_details`. |
+| `relationships` | `AppEventKind::Relationships` | Loaded friends, requests or restricted-account lists may have changed; additionally requires `data_events` and `relationships`. |
 
-The five detailed reasons are opt-in: `data_events` requires `app_events`,
+The seven detailed reasons are opt-in: `data_events` requires `app_events`,
 and each reason also needs its corresponding read grant. Existing observers
 without `data_events` receive only the original six reasons. These are
 invalidation hints from observed app updates, not raw service events or payload
@@ -230,7 +232,10 @@ exception: unknown unread state is serialized as `null`.
 The complete app snapshot is at most 64 KiB serialized. The collector also has
 budgets including item overhead: 10 KiB for channels, 20 KiB for timeline,
 6 KiB each for members, presence and channel-detail recipients, and 8 KiB for
-guilds. A list may reach its byte budget before its item limit. These limits do not guarantee that every handler fits the sandbox's
+guilds. Message details and relationships have 8-KiB and 4-KiB group limits
+and also consume the remaining shared 64-KiB snapshot budget. They can truncate
+earlier when other groups are present. A list may reach its byte budget before
+its item limit. These limits do not guarantee that every handler fits the sandbox's
 fuel budget; parsing and your own processing also consume fuel.
 
 ### AppSnapshot: choose the group you need
@@ -240,6 +245,8 @@ For the examples below, `app` is a borrowed `AppSnapshot`. Each field is an
 
 | Wire field | SDK Rust type | Required capability and availability | Reading it |
 | --- | --- | --- | --- |
+| `message_details` | `Option<MessageDetailsSnapshot>` | `message_details`; connected, fresh, readable selected timeline, without message text. | `app.message_details.as_ref()` |
+| `relationships` | `Option<RelationshipsSnapshot>` | `relationships`; connected, already-loaded friend/request/restricted lists. | `app.relationships.as_ref()` |
 | `account_profile` | `Option<AccountProfileSnapshot>` | `account_profile`; connected current account, with optional already-loaded own profile. | `app.account_profile.as_ref()` |
 | `guilds` | `Option<GuildDirectorySnapshot>` | `guild_directory`; connected, already-loaded joined servers. | `app.guilds.as_ref().map(\|group\| group.items.len())` |
 | `channel_details` | `Option<ChannelDetailsSnapshot>` | `channel_details`; connected, accessible, fresh selected channel. | `app.channel_details.as_ref()` |
@@ -253,7 +260,7 @@ For the examples below, `app` is a borrowed `AppSnapshot`. Each field is an
 | `settings` | `Option<LocalSettingsSnapshot>` | `local_settings`; the five current local reading/layout preferences. | `app.settings.as_ref()` |
 
 On disconnect, the collector omits account profile, guilds, channel details,
-channel directory, timeline, members and presence. It also removes the selected
+channel directory, timeline, message details, relationships, members and presence. It also removes the selected
 channel from context and read state. The account label in context,
 settings and independently available voice state may remain. A known inaccessible
 channel is not exposed through the selected-channel groups. Active private
@@ -430,14 +437,18 @@ Discord. In the examples, `directory` is the borrowed group.
 
 Requires `timeline`. Messages belong to the selected, fresh, readable
 conversation. The host takes up to 50 eligible recent rows from the loaded
-window and returns them in timeline order. This may be a window around an old
+window and returns them in timeline order. When the same plugin also has
+`message_details`, the timeline row limit is 20; its 20-KiB byte budget stays
+unchanged. The combined limit reduces text/metadata parsing work under the
+unchanged execution budget; valid wire size alone still does not
+guarantee that a handler fits its fuel budget. This may be a window around an old
 message rather than the latest service history. Deleted and ephemeral text is
 excluded even when a separate host feature retains deleted rows.
 
 | Timeline wire field | SDK Rust / JSON type | Meaning | Reading from `timeline: &TimelineSnapshot` |
 | --- | --- | --- | --- |
 | `channel_id` | `String` / string | Conversation shared by every message in this group. | `timeline.channel_id.as_str()` |
-| `messages` | `Vec<MessageSnapshot>` / array | Up to 50 loaded, eligible messages. An empty array is valid. | `timeline.messages.last()` |
+| `messages` | `Vec<MessageSnapshot>` / array | Up to 50 loaded, eligible messages, or 20 when `message_details` is also granted. An empty array is valid. | `timeline.messages.last()` |
 | `truncated` | `bool` / boolean | More history may exist, the loaded window has boundaries, or rows were omitted by size/item limits. | `timeline.truncated` |
 
 | Message wire field | SDK Rust / JSON type | Meaning | Reading from `message: &MessageSnapshot` |
@@ -452,6 +463,134 @@ The current collector skips a whole message when its content exceeds 4 KiB of
 UTF-8 and sets `truncated`; it does not shorten the message. The wire validator
 allows up to 16 KiB per message, matching the separate message-event content
 ceiling. Do not assume all valid wire-sized messages appear in desktop snapshots.
+
+### MessageDetailsSnapshot: loaded replies, mentions, attachments and reactions
+
+Requires `message_details`, independently of `timeline`. The group is absent
+without a connected, accessible selected text conversation and fresh readable
+history. It copies only loaded nondeleted, nonephemeral rows; no text, embeds,
+attachment URLs/bytes or network fetch is included. Its window need not match
+`timeline`, since the two groups have different item and byte limits. Nested
+mentions, attachments and reactions share a 4-KiB per-message budget, including
+item overhead, so their individual limits may be reached earlier.
+
+| Wire field | SDK Rust / JSON type | Meaning | Reading from `details: &MessageDetailsSnapshot` |
+| --- | --- | --- | --- |
+| `channel_id` | `String` / string | Selected conversation shared by all records. | `details.channel_id.as_str()` |
+| `items` | `Vec<MessageDetailSnapshot>` / array | Up to 20 loaded records in timeline order, further limited by the 8-KiB group and remaining snapshot budget. | `details.items.last()` |
+| `truncated` | `bool` / boolean | The loaded window or resource limits leave the list partial. An empty partial list is valid. | `details.truncated` |
+
+| Record wire field | SDK Rust / JSON type | Meaning | Reading from `message: &MessageDetailSnapshot` |
+| --- | --- | --- | --- |
+| `id` | `String` / string | Message ID. | `message.id.as_str()` |
+| `kind` | `u8` / integer | Loaded service message-type number; preserve an unknown-type fallback. | `message.kind` |
+| `reply_to` | `Option<String>` / string or absent | Loaded referenced message ID when supplied. No referenced text is exposed. | `message.reply_to.as_deref()` |
+| `mention_ids` | `Vec<String>` / array of strings | Up to 32 explicitly mentioned user IDs; not role IDs or a membership expansion. | `message.mention_ids.len()` |
+| `mentions_truncated` | `bool` / boolean | Mention IDs were omitted by limits. | `message.mentions_truncated` |
+| `mention_everyone` | `bool` / boolean | Loaded everyone/here mention flag. | `message.mention_everyone` |
+| `attachments` | `Vec<AttachmentSnapshot>` / array | Up to 10 loaded attachment labels with distinct valid IDs. Invalid/duplicate IDs are skipped and mark the list partial. No downloads occur. | `message.attachments.first()` |
+| `attachments_truncated` | `bool` / boolean | Attachment records were omitted by limits or invalid/duplicate IDs. | `message.attachments_truncated` |
+| `reactions` | `Option<Vec<ReactionSnapshot>>` / array or absent | Up to 16 loaded reaction summaries. Absent means unknown; `[]` means known empty. | `message.reactions.as_ref().map(\|items\| items.len())` |
+| `reactions_truncated` | `bool` / boolean | Reaction summaries were omitted by limits. | `message.reactions_truncated` |
+
+| Attachment wire field | SDK Rust / JSON type | Meaning | Reading from `attachment: &AttachmentSnapshot` |
+| --- | --- | --- | --- |
+| `id` | `String` / string | Attachment ID. | `attachment.id.as_str()` |
+| `filename` | `String` / string | Filename label capped at 256 UTF-8 bytes, with controls removed and `Attachment` substituted if empty. No local filesystem path or download URL is supplied. | `attachment.filename.as_str()` |
+| `size` | `u64` / nonnegative integer | Loaded byte size; not a downloaded size measurement. | `attachment.size` |
+| `content_type` | `Option<String>` / string or absent | Loaded content-type label capped at 128 UTF-8 bytes, with controls removed; omitted if empty. Not a file-content guarantee. | `attachment.content_type.as_deref()` |
+| `spoiler` | `bool` / boolean | Loaded attachment spoiler flag. | `attachment.spoiler` |
+
+| Reaction wire field | SDK Rust / JSON type | Meaning | Reading from `reaction: &ReactionSnapshot` |
+| --- | --- | --- | --- |
+| `emoji_id` | `Option<String>` / string or absent | Custom emoji ID; absent for Unicode emoji. | `reaction.emoji_id.as_deref()` |
+| `emoji_name` | `Option<String>` / string or absent | Loaded Unicode emoji or custom emoji label, at most 128 UTF-8 bytes. | `reaction.emoji_name.as_deref()` |
+| `count` | `u32` / nonnegative integer | Loaded positive reaction count; invalid/zero-count summaries are skipped and marked partial. No reacting-user roster. | `reaction.count` |
+| `me` | `bool` / boolean | Current account has an ordinary reaction of this kind. | `reaction.me` |
+| `me_burst` | `bool` / boolean | Current account has a burst reaction of this kind. | `reaction.me_burst` |
+
+### RelationshipsSnapshot: loaded account relationships
+
+Requires `relationships`. The connected account's already-loaded lists are
+projected without fetching missing rows. The group is absent if none of the
+three lists is known. Names and IDs use `UserSnapshot`; no
+notes, nicknames, presence, credentials or account connections are supplied.
+An absent group is unavailable/ungranted. An empty list alone does not mean the
+account has no friends, requests or restricted accounts: inspect the known flags
+and `truncated` before drawing a conclusion.
+
+| Wire field | SDK Rust / JSON type | Meaning | Reading from `relationships: &RelationshipsSnapshot` |
+| --- | --- | --- | --- |
+| `items` | `Vec<RelationshipSnapshot>` / array | Up to 100 loaded records, further limited by 4 KiB and the remaining snapshot budget. | `relationships.items.len()` |
+| `truncated` | `bool` / boolean | Item/byte limits omitted records. Unloaded categories are reported separately by the known flags, not this flag. | `relationships.truncated` |
+| `friends_known` | `bool` / boolean | The host knows the friend list; `false` means unavailable/unloaded. | `relationships.friends_known` |
+| `requests_known` | `bool` / boolean | The host knows incoming/outgoing request lists. | `relationships.requests_known` |
+| `restricted_known` | `bool` / boolean | The host knows blocked/ignored lists. | `relationships.restricted_known` |
+
+| Record wire field | SDK Rust / JSON type | Meaning | Reading from `relationship: &RelationshipSnapshot` |
+| --- | --- | --- | --- |
+| `user` | `UserSnapshot` / object | Related account's ID and bounded label. | `relationship.user.name.as_str()` |
+| `kind` | `RelationshipKind` / string | `friend`, `incoming_request`, `outgoing_request`, `blocked`, or `ignored`; Rust variants `Friend`, `IncomingRequest`, `OutgoingRequest`, `Blocked`, `Ignored`. | `relationship.kind == RelationshipKind::Friend` |
+
+This complete synthetic input contains a known friend list and unavailable
+request/restricted lists. No event observer grant is needed for a foreground
+panel that reads these groups:
+
+```json
+{
+  "action": "show",
+  "values": {},
+  "app": {
+    "message_details": {
+      "channel_id": "100",
+      "items": [{
+        "id": "200", "kind": 0, "mention_ids": [], "mentions_truncated": false,
+        "mention_everyone": false, "attachments": [], "attachments_truncated": false,
+        "reactions": [], "reactions_truncated": false
+      }],
+      "truncated": false
+    },
+    "relationships": {
+      "items": [{"user": {"id": "300", "name": "Example"}, "kind": "friend"}],
+      "truncated": false, "friends_known": true,
+      "requests_known": false, "restricted_known": false
+    }
+  }
+}
+```
+
+Declare `show` as `panel` and request `message_details` and `relationships`.
+This complete handler displays available row counts immediately, without storage
+or a host command requiring Apply. To observe invalidations separately, add an
+`app_event` action plus `app_events` and `data_events`; keep its output passive.
+
+```rust
+use serein_extension_sdk::{AppInvocation, AppOutput, Element, Output};
+
+fn handle(input: AppInvocation) -> AppOutput {
+    if input.app_event.is_some() || input.message_event.is_some()
+        || input.invocation.action != "show"
+    {
+        return AppOutput::default();
+    }
+    let mut panel = Vec::new();
+    if let Some(app) = input.app {
+        if let Some(details) = app.message_details {
+            panel.push(Element::Text { text: format!("Loaded message details: {}{}",
+                details.items.len(), if details.truncated { " (partial)" } else { "" }) });
+        }
+        if let Some(relationships) = app.relationships {
+            panel.push(Element::Text { text: format!("Loaded relationships: {}{}",
+                relationships.items.len(), if relationships.truncated { " (partial)" } else { "" }) });
+        }
+    }
+    if panel.is_empty() {
+        panel.push(Element::Text { text: "Requested data is unavailable.".into() });
+    }
+    AppOutput { output: Output { panel, ..Default::default() }, ..Default::default() }
+}
+serein_extension_sdk::export!(handle);
+```
 
 ### MembersSnapshot: loaded people in this conversation
 

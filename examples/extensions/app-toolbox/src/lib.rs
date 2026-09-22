@@ -119,6 +119,35 @@ fn dashboard(app: &AppSnapshot) -> Vec<Element> {
 			}
 		)));
 	}
+	if let Some(details) = &app.message_details {
+		let (attachments, reactions) = details.items.iter().fold((0, 0), |counts, message| {
+			(
+				counts.0 + message.attachments.len(),
+				counts.1 + message.reactions.as_ref().map_or(0, Vec::len),
+			)
+		});
+		panel.push(text(format!(
+			"Message details: {}{}; loaded attachment labels: {}; reaction summaries: {}",
+			details.items.len(),
+			if details.truncated { " (partial)" } else { "" },
+			attachments,
+			reactions
+		)));
+	}
+	if let Some(relationships) = &app.relationships {
+		panel.push(text(format!(
+			"Relationships: {}{}\nKnown lists: friends {}; requests {}; restricted {}",
+			relationships.items.len(),
+			if relationships.truncated {
+				" (partial)"
+			} else {
+				""
+			},
+			relationships.friends_known,
+			relationships.requests_known,
+			relationships.restricted_known
+		)));
+	}
 	for (label, count) in [
 		(
 			"Joined servers",
@@ -435,7 +464,15 @@ mod tests {
 		};
 		input.app = Some(
 			serde_json::from_value(serde_json::json!({
-				"account_profile": {
+				"message_details": {
+				"channel_id": "3", "items": [{"id": "4", "kind": 0, "mention_ids": [],
+				"mentions_truncated": false, "mention_everyone": false,
+				"attachments": [{"id": "5", "filename": "example.txt", "size": 12, "spoiler": false}],
+				"attachments_truncated": false, "reactions_truncated": false}], "truncated": true
+			},
+			"relationships": {"items": [], "truncated": true, "friends_known": true,
+				"requests_known": false, "restricted_known": false},
+			"account_profile": {
 					"user": {"id": "1", "name": "Example"},
 					"profile": {"display_name": "Display", "bio": "Synthetic profile", "pronouns": "they/them"}
 				},
@@ -460,6 +497,9 @@ mod tests {
 			.collect::<Vec<_>>()
 			.join("\n");
 		assert!(text.contains("Synthetic profile"));
+		assert!(text.contains("Message details: 1 (partial); loaded attachment labels: 1"));
+		assert!(text.contains("Known lists: friends true; requests false; restricted false"));
+		assert!(shown.output.panel.len() <= 64);
 		assert!(text.contains("Joined servers: 1 (partial)"));
 		assert!(text.contains("Can send: true; can read history: false"));
 		assert!(!shown.output.panel.is_empty());
@@ -524,6 +564,8 @@ mod tests {
 			AppEventKind::Members,
 			AppEventKind::Presence,
 			AppEventKind::ReadState,
+			AppEventKind::MessageDetails,
+			AppEventKind::Relationships,
 		] {
 			input.app_event = Some(kind);
 			assert_eq!(run(&input), AppOutput::default());

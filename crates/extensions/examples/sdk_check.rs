@@ -193,13 +193,20 @@ fn check_app_toolbox(name: &str, package: &Package) {
 	extended["app"]["guilds"] =
 		json!({"items":[{"id":"400","name":"Synthetic server"}],"truncated":false});
 	extended["app"]["channel_details"] = json!({"channel":{"id":"100","name":"demo","kind":0},"position":0,"recipients":[],"recipients_truncated":false,"can_send":true,"can_read_history":true});
+	extended["app"]["message_details"] = json!({"channel_id":"100","items":[{"id":"200","kind":0,"reply_to":"199","mention_ids":["300"],"mentions_truncated":false,"mention_everyone":false,"attachments":[{"id":"500","filename":"report.txt","size":123,"content_type":"text/plain","spoiler":false}],"attachments_truncated":false,"reactions":[{"emoji_name":"ok","count":2,"me":true,"me_burst":false}],"reactions_truncated":false}],"truncated":false});
+	extended["app"]["relationships"] = json!({"items":[{"user":{"id":"300","name":"Synthetic user"},"kind":"friend"}],"truncated":false,"friends_known":true,"requests_known":false,"restricted_known":false});
 	let extended = serde_json::from_value(extended).unwrap();
-	let output =
-		invoke(package, &extended).expect("new account/guild/channel groups fit the sandbox");
+	let output = invoke(package, &extended).expect("new snapshot groups fit the sandbox");
 	assert!(output.panel.iter().any(
 		|item| matches!(item, Element::Text { text } if text.contains("Offline profile fixture"))
 	));
 
+	assert!(output.panel.iter().any(
+		|item| matches!(item, Element::Text { text } if text.starts_with("Message details: 1"))
+	));
+	assert!(output.panel.iter().any(
+		|item| matches!(item, Element::Text { text } if text.starts_with("Relationships: 1"))
+	));
 	let mut larger = input.clone();
 	let app = larger.app.as_mut().unwrap();
 	app.timeline.as_mut().unwrap().messages = (0..50)
@@ -293,6 +300,8 @@ fn check_app_toolbox(name: &str, package: &Package) {
 	input.action = "on-app".into();
 	input.values.clear();
 	for kind in [
+		extensions::AppEventKind::MessageDetails,
+		extensions::AppEventKind::Relationships,
 		extensions::AppEventKind::Account,
 		extensions::AppEventKind::Channels,
 		extensions::AppEventKind::Members,

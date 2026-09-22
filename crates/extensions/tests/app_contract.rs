@@ -32,6 +32,44 @@ fn snapshot() -> AppSnapshot {
 		kind: 0,
 	};
 	AppSnapshot {
+		message_details: Some(MessageDetailsSnapshot {
+			channel_id: "2".into(),
+			truncated: false,
+			items: vec![MessageDetailSnapshot {
+				id: "3".into(),
+				kind: 19,
+				reply_to: Some("5".into()),
+				mention_ids: vec!["1".into()],
+				mentions_truncated: false,
+				mention_everyone: false,
+				attachments: vec![AttachmentSnapshot {
+					id: "6".into(),
+					filename: "file.txt".into(),
+					size: 42,
+					content_type: Some("text/plain".into()),
+					spoiler: false,
+				}],
+				attachments_truncated: false,
+				reactions: Some(vec![ReactionSnapshot {
+					emoji_id: None,
+					emoji_name: Some("??".into()),
+					count: 1,
+					me: true,
+					me_burst: false,
+				}]),
+				reactions_truncated: false,
+			}],
+		}),
+		relationships: Some(RelationshipsSnapshot {
+			items: vec![RelationshipSnapshot {
+				user: user.clone(),
+				kind: RelationshipKind::Friend,
+			}],
+			truncated: false,
+			friends_known: true,
+			requests_known: false,
+			restricted_known: true,
+		}),
 		account_profile: Some(AccountProfileSnapshot {
 			user: user.clone(),
 			avatar: Some("a_abc123".into()),
@@ -118,6 +156,8 @@ fn snapshot() -> AppSnapshot {
 
 fn read_grants() -> Vec<Capability> {
 	vec![
+		Capability::MessageDetails,
+		Capability::Relationships,
 		Capability::AccountProfile,
 		Capability::GuildDirectory,
 		Capability::ChannelDetails,
@@ -429,6 +469,8 @@ fn snapshot_and_proposal_limits_include_escaped_wire_bytes() {
 #[test]
 fn data_events_require_opt_in_and_the_matching_data_grant() {
 	for (kind, grant) in [
+		(AppEventKind::MessageDetails, Capability::MessageDetails),
+		(AppEventKind::Relationships, Capability::Relationships),
 		(AppEventKind::Account, Capability::AccountProfile),
 		(AppEventKind::Channels, Capability::ChannelDirectory),
 		(AppEventKind::Channels, Capability::GuildDirectory),
@@ -538,4 +580,92 @@ fn expanded_snapshots_bound_profile_hashes_and_collections() {
 	assert!(matches!(value.validate(&manifest), Err(Error::Invalid)));
 	assert_eq!(sdk::MAX_APP_GUILDS, MAX_APP_GUILDS);
 	assert_eq!(sdk::MAX_CHANNEL_RECIPIENTS, MAX_CHANNEL_RECIPIENTS);
+}
+
+#[test]
+fn message_details_and_relationships_bound_nested_data() {
+	let manifest = test_manifest(read_grants());
+	let original = snapshot();
+	let mut value = original.clone();
+	let detail = value.message_details.as_mut().unwrap();
+	let item = detail.items[0].clone();
+	detail.items = (1..=MAX_MESSAGE_DETAILS + 1)
+		.map(|id| MessageDetailSnapshot {
+			id: id.to_string(),
+			..item.clone()
+		})
+		.collect();
+	assert!(matches!(value.validate(&manifest), Err(Error::Limit)));
+	value.message_details.as_mut().unwrap().items.pop();
+	value.validate(&manifest).unwrap();
+	let mut value = original.clone();
+	value.message_details.as_mut().unwrap().items[0].mention_ids = (1..=MAX_MESSAGE_MENTIONS + 1)
+		.map(|id| id.to_string())
+		.collect();
+	assert!(matches!(value.validate(&manifest), Err(Error::Limit)));
+	let mut value = original.clone();
+	let detail = &mut value.message_details.as_mut().unwrap().items[0];
+	let attachment = detail.attachments[0].clone();
+	detail.attachments = (1..=MAX_MESSAGE_ATTACHMENTS + 1)
+		.map(|id| AttachmentSnapshot {
+			id: id.to_string(),
+			..attachment.clone()
+		})
+		.collect();
+	assert!(matches!(value.validate(&manifest), Err(Error::Limit)));
+	for (filename, content_type) in [
+		("x".repeat(257), None),
+		("ok".into(), Some("x".repeat(129))),
+	] {
+		let mut value = original.clone();
+		let attachment = &mut value.message_details.as_mut().unwrap().items[0].attachments[0];
+		attachment.filename = filename;
+		attachment.content_type = content_type;
+		assert!(matches!(value.validate(&manifest), Err(Error::Limit)));
+	}
+	let mut value = original.clone();
+	let reactions = value.message_details.as_mut().unwrap().items[0]
+		.reactions
+		.as_mut()
+		.unwrap();
+	reactions.resize(MAX_MESSAGE_REACTIONS + 1, reactions[0].clone());
+	assert!(matches!(value.validate(&manifest), Err(Error::Limit)));
+	for name in [None, Some("bad\nname".into())] {
+		let mut value = original.clone();
+		value.message_details.as_mut().unwrap().items[0]
+			.reactions
+			.as_mut()
+			.unwrap()[0]
+			.emoji_name = name;
+		assert!(matches!(value.validate(&manifest), Err(Error::Invalid)));
+	}
+	let mut value = original;
+	value.relationships.as_mut().unwrap().items = (1..=MAX_RELATIONSHIPS + 1)
+		.map(|id| RelationshipSnapshot {
+			user: UserSnapshot {
+				id: id.to_string(),
+				name: "User".into(),
+			},
+			kind: RelationshipKind::Ignored,
+		})
+		.collect();
+	assert!(matches!(value.validate(&manifest), Err(Error::Limit)));
+	value.relationships.as_mut().unwrap().items.pop();
+	value.validate(&manifest).unwrap();
+	for kind in [
+		RelationshipKind::Friend,
+		RelationshipKind::IncomingRequest,
+		RelationshipKind::OutgoingRequest,
+		RelationshipKind::Blocked,
+		RelationshipKind::Ignored,
+	] {
+		let wire = serde_json::to_value(kind).unwrap();
+		let sdk: sdk::RelationshipKind = serde_json::from_value(wire.clone()).unwrap();
+		assert_eq!(serde_json::to_value(sdk).unwrap(), wire);
+	}
+	assert_eq!(sdk::MAX_MESSAGE_DETAILS, MAX_MESSAGE_DETAILS);
+	assert_eq!(sdk::MAX_MESSAGE_MENTIONS, MAX_MESSAGE_MENTIONS);
+	assert_eq!(sdk::MAX_MESSAGE_ATTACHMENTS, MAX_MESSAGE_ATTACHMENTS);
+	assert_eq!(sdk::MAX_MESSAGE_REACTIONS, MAX_MESSAGE_REACTIONS);
+	assert_eq!(sdk::MAX_RELATIONSHIPS, MAX_RELATIONSHIPS);
 }

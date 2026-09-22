@@ -11,7 +11,7 @@
     "app_context", "channel_directory", "timeline", "members", "presence",
     "voice_state", "read_state", "local_settings", "navigation", "local_notices",
     "clipboard_write", "voice_control", "app_events", "data_events",
-    "account_profile", "guild_directory", "channel_details"
+    "account_profile", "guild_directory", "channel_details", "message_details", "relationships"
   ],
   "actions": [
     {"id": "show", "label": "Open app toolbox", "surface": "panel"},

@@ -2518,6 +2518,10 @@ fn capability_label(capability: Capability) -> &'static str {
 			"Receive changes to separately granted account and conversation data"
 		}
 		Capability::ChannelDirectory => "Read the list of loaded, readable conversations",
+		Capability::MessageDetails => {
+			"Read loaded message replies, mentions, attachment metadata and reactions"
+		}
+		Capability::Relationships => "Read my loaded friends, requests, blocked and ignored users",
 		Capability::Timeline => "Read loaded messages in the active conversation",
 		Capability::Members => "Read loaded members of the active conversation",
 		Capability::Presence => "Read loaded user presence status",

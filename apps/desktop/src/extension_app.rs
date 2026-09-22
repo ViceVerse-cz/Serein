@@ -17,6 +17,8 @@ pub fn uses_app(capabilities: &[Capability]) -> bool {
 				| Capability::GuildDirectory
 				| Capability::ChannelDetails
 				| Capability::DataEvents
+				| Capability::MessageDetails
+				| Capability::Relationships
 				| Capability::ChannelDirectory
 				| Capability::Timeline
 				| Capability::Members
@@ -92,6 +94,108 @@ fn push<T: serde::Serialize>(items: &mut Vec<T>, item: T, left: &mut usize, max:
 	*left -= bytes;
 	items.push(item);
 	true
+}
+
+fn message_detail(message: &model::Message) -> MessageDetailSnapshot {
+	let mut detail = MessageDetailSnapshot {
+		id: message.id.0.to_string(),
+		kind: message.kind,
+		reply_to: message
+			.reply_to
+			.filter(|id| id.0 != 0)
+			.map(|id| id.0.to_string()),
+		mention_ids: Vec::new(),
+		mentions_truncated: false,
+		mention_everyone: message.mention_everyone,
+		attachments: Vec::new(),
+		attachments_truncated: false,
+		reactions: message.reactions.as_ref().map(|_| Vec::new()),
+		reactions_truncated: false,
+	};
+	// Bound nested rows before allocating/serializing the complete candidate.
+	let mut budget = 4 * 1024;
+	for mentioned in message.mentions.iter().filter(|u| u.id.0 != 0) {
+		let id = mentioned.id.0.to_string();
+		if detail.mention_ids.contains(&id) {
+			continue;
+		}
+		if !push(
+			&mut detail.mention_ids,
+			id,
+			&mut budget,
+			MAX_MESSAGE_MENTIONS,
+		) {
+			detail.mentions_truncated = true;
+			break;
+		}
+	}
+	for attachment in &message.attachments {
+		let id = attachment.id.0.to_string();
+		if attachment.id.0 == 0 || detail.attachments.iter().any(|a| a.id == id) {
+			detail.attachments_truncated = true;
+			continue;
+		}
+		let filename: String = text(&attachment.filename, 256)
+			.chars()
+			.filter(|c| !c.is_control())
+			.collect();
+		let content_type = attachment
+			.content_type
+			.as_deref()
+			.map(|s| {
+				text(s, 128)
+					.chars()
+					.filter(|c| !c.is_control())
+					.collect::<String>()
+			})
+			.filter(|s| !s.is_empty());
+		if !push(
+			&mut detail.attachments,
+			AttachmentSnapshot {
+				id,
+				filename: if filename.is_empty() {
+					"Attachment".into()
+				} else {
+					filename
+				},
+				size: attachment.size,
+				content_type,
+				spoiler: attachment.spoiler,
+			},
+			&mut budget,
+			MAX_MESSAGE_ATTACHMENTS,
+		) {
+			detail.attachments_truncated = true;
+			break;
+		}
+	}
+	if let (Some(source), Some(reactions)) = (&message.reactions, &mut detail.reactions) {
+		for reaction in source {
+			if reaction.count == 0
+				|| !reaction.emoji.valid()
+				|| reaction.emoji.id.is_some_and(|id| id.0 == 0)
+			{
+				detail.reactions_truncated = true;
+				continue;
+			}
+			if !push(
+				reactions,
+				ReactionSnapshot {
+					emoji_id: reaction.emoji.id.map(|id| id.0.to_string()),
+					emoji_name: reaction.emoji.name.clone(),
+					count: reaction.count,
+					me: reaction.me,
+					me_burst: reaction.me_burst,
+				},
+				&mut budget,
+				MAX_MESSAGE_REACTIONS,
+			) {
+				detail.reactions_truncated = true;
+				break;
+			}
+		}
+	}
+	detail
 }
 
 pub fn snapshot(
@@ -245,6 +349,12 @@ pub fn snapshot(
 				|| state.history_after.is_some()
 				|| !state.older_exhausted,
 		};
+		// Rich rows cost more to decode: align the text window with the metadata row bound.
+		let max_messages = if granted(Capability::MessageDetails) {
+			MAX_MESSAGE_DETAILS
+		} else {
+			MAX_APP_MESSAGES
+		};
 		let mut budget = 20 * 1024;
 		for message in
 			state.timeline.iter().rev().filter(|m| {
@@ -264,7 +374,7 @@ pub fn snapshot(
 					edited: message.edited,
 				},
 				&mut budget,
-				MAX_APP_MESSAGES,
+				max_messages,
 			) {
 				timeline.truncated = true;
 				break;
@@ -397,6 +507,113 @@ pub fn snapshot(
 	if granted(Capability::LocalSettings) {
 		app.settings = Some(messaging.extension_local_settings());
 	}
+	if granted(Capability::MessageDetails)
+		&& let Some(id) = readable
+	{
+		let mut group = MessageDetailsSnapshot {
+			channel_id: id.0.to_string(),
+			items: Vec::new(),
+			truncated: state.history_before.is_some()
+				|| state.history_after.is_some()
+				|| !state.older_exhausted,
+		};
+		// Leave room for group keys/scalars; item budgets include serialized bytes and storage.
+		let mut budget = (MAX_APP_SNAPSHOT_BYTES
+			.saturating_sub(app.bytes().ok()?)
+			.saturating_sub(512))
+		.min(8 * 1024);
+		for message in state.timeline.iter().rev().filter(|m| {
+			m.channel == id
+				&& m.id.0 != 0
+				&& !m.ephemeral
+				&& m.flags & 64 == 0
+				&& m.author.id.0 != 0
+		}) {
+			if !push(
+				&mut group.items,
+				message_detail(message),
+				&mut budget,
+				MAX_MESSAGE_DETAILS,
+			) {
+				group.truncated = true;
+				break;
+			}
+		}
+		group.items.reverse();
+		app.message_details = Some(group);
+	}
+	if connected
+		&& granted(Capability::Relationships)
+		&& (state.friends_known()
+			|| state.friend_requests_known()
+			|| state.restricted_users_known())
+	{
+		let mut group = RelationshipsSnapshot {
+			items: Vec::new(),
+			truncated: false,
+			friends_known: state.friends_known(),
+			requests_known: state.friend_requests_known(),
+			restricted_known: state.restricted_users_known(),
+		};
+		let mut budget = (MAX_APP_SNAPSHOT_BYTES
+			.saturating_sub(app.bytes().ok()?)
+			.saturating_sub(512))
+		.min(4 * 1024);
+		let entries = state
+			.friends()
+			.filter(|_| group.friends_known)
+			.map(|u| (u, RelationshipKind::Friend))
+			.chain(
+				state
+					.pending_friends()
+					.filter(|_| group.requests_known)
+					.map(|(u, _, incoming)| {
+						(
+							u,
+							if *incoming {
+								RelationshipKind::IncomingRequest
+							} else {
+								RelationshipKind::OutgoingRequest
+							},
+						)
+					}),
+			)
+			.chain(
+				state
+					.restricted_users()
+					.filter(|_| group.restricted_known)
+					.map(|(u, _, ignored)| {
+						(
+							u,
+							if *ignored {
+								RelationshipKind::Ignored
+							} else {
+								RelationshipKind::Blocked
+							},
+						)
+					}),
+			);
+		for (value, kind) in entries.filter(|(u, _)| u.id.0 != 0) {
+			let value = user(value);
+			if group
+				.items
+				.iter()
+				.any(|row: &RelationshipSnapshot| row.user.id == value.id)
+			{
+				continue;
+			}
+			if !push(
+				&mut group.items,
+				RelationshipSnapshot { user: value, kind },
+				&mut budget,
+				MAX_RELATIONSHIPS,
+			) {
+				group.truncated = true;
+				break;
+			}
+		}
+		app.relationships = Some(group);
+	}
 	// Keep the boundary authoritative if model data or serialization changes later.
 	app.validate(manifest).ok()?;
 	Some(Box::new(app))
@@ -510,6 +727,155 @@ mod tests {
 		}
 	}
 	#[test]
+	fn extension_app_message_metadata_and_relationships_are_scoped_and_bounded() {
+		let mut state = test_support::demo_state();
+		let messaging = ui::MessagingUi::default();
+		let caps = manifest(vec![Capability::MessageDetails, Capability::Relationships]);
+		let mut message = test_support::message(9000, Id(20));
+		message.reply_to = Some(Id(8999));
+		message.mentions = (1..=40)
+			.map(|id| model::User {
+				id: Id(id),
+				..state.user.clone().unwrap()
+			})
+			.collect();
+		message.attachments = vec![model::Attachment {
+			id: Id(70),
+			filename: "report.txt".into(),
+			description: Some("PRIVATE_DESCRIPTION".into()),
+			content_type: Some("text/plain".into()),
+			size: 123,
+			media: model::EmbedMedia {
+				url: Some("https://example.org/PRIVATE_URL".into()),
+				..Default::default()
+			},
+			spoiler: true,
+			duration_ms: None,
+			waveform: vec![],
+		}];
+		message.reactions = Some(
+			(0..20)
+				.map(|id| model::Reaction {
+					emoji: model::ReactionEmoji {
+						id: Some(Id(100 + id)),
+						name: Some("test".into()),
+					},
+					count: 2,
+					me: true,
+					me_burst: false,
+				})
+				.collect(),
+		);
+		let detail = message_detail(&message);
+		assert_eq!(detail.mention_ids.len(), MAX_MESSAGE_MENTIONS);
+		assert!(detail.mentions_truncated && detail.reactions_truncated);
+		assert!(detail.reactions.as_ref().unwrap().len() <= MAX_MESSAGE_REACTIONS);
+		assert_eq!(detail.attachments[0].filename, "report.txt");
+		assert_eq!(detail.reply_to.as_deref(), Some("8999"));
+		let wire = serde_json::to_string(&detail).unwrap();
+		assert!(!wire.contains("PRIVATE_") && !wire.contains(&message.content));
+		let mut malformed = message.clone();
+		malformed.attachments[0].filename = "\n\t".into();
+		malformed.attachments[0].content_type = Some("\n".into());
+		malformed.attachments.push(malformed.attachments[0].clone());
+		let sanitized = message_detail(&malformed);
+		assert_eq!(sanitized.attachments.len(), 1);
+		assert_eq!(sanitized.attachments[0].filename, "Attachment");
+		assert!(sanitized.attachments[0].content_type.is_none() && sanitized.attachments_truncated);
+		AppSnapshot {
+			message_details: Some(MessageDetailsSnapshot {
+				channel_id: "20".into(),
+				items: vec![sanitized],
+				truncated: false,
+			}),
+			..Default::default()
+		}
+		.validate(&caps)
+		.unwrap();
+		message.mentions.clear();
+		state
+			.timeline
+			.insert(message.clone(), false, false)
+			.unwrap();
+		let mut private = message.clone();
+		private.id = Id(9001);
+		private.ephemeral = true;
+		private.flags |= 64;
+		state.timeline.insert(private, false, false).unwrap();
+		state.set_preserve_deleted_messages(true);
+		let mut deleted = message;
+		deleted.id = Id(9002);
+		state.timeline.insert(deleted, false, false).unwrap();
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Delete {
+				channel: Id(20),
+				id: Id(9002),
+			},
+		});
+		let person = |id| model::User {
+			id: Id(id),
+			..state.user.clone().unwrap()
+		};
+		let people: Vec<_> = (800..805).map(person).collect();
+		use client_core::user_actions::Event as U;
+		for event in [
+			U::Relationships(Some(vec![
+				(Id(800), false),
+				(Id(801), false),
+				(Id(802), false),
+				(Id(803), true),
+				(Id(804), false),
+			])),
+			U::Friends(Some(vec![(people[0].clone(), "friend".into())])),
+			U::Requests(Some(vec![
+				(people[1].clone(), "incoming".into(), true),
+				(people[2].clone(), "outgoing".into(), false),
+			])),
+			U::Restrictions(Some(vec![
+				(people[3].clone(), "blocked".into(), false),
+				(people[4].clone(), "ignored".into(), true),
+			])),
+		] {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::UserAction(event),
+			});
+		}
+		let app = snapshot(&state, &messaging, &caps).unwrap();
+		assert!(app.bytes().unwrap() <= MAX_APP_SNAPSHOT_BYTES);
+		let details = app.message_details.as_ref().unwrap();
+		assert!(details.items.iter().any(|m| m.id == "9000"));
+		assert!(
+			!details
+				.items
+				.iter()
+				.any(|m| matches!(m.id.as_str(), "9001" | "9002"))
+		);
+		let relationships = app.relationships.as_ref().unwrap();
+		assert!(
+			relationships.friends_known
+				&& relationships.requests_known
+				&& relationships.restricted_known
+		);
+		assert_eq!(relationships.items.len(), 5);
+		assert_eq!(relationships.items[0].kind, RelationshipKind::Friend);
+		assert_eq!(relationships.items[4].kind, RelationshipKind::Ignored);
+		let no_grants =
+			snapshot(&state, &messaging, &manifest(vec![Capability::AppContext])).unwrap();
+		assert!(no_grants.message_details.is_none() && no_grants.relationships.is_none());
+		state.freshness = Freshness::Stale;
+		assert!(
+			snapshot(&state, &messaging, &caps)
+				.unwrap()
+				.message_details
+				.is_none()
+		);
+		state.gateway_connected = false;
+		let disconnected = snapshot(&state, &messaging, &caps).unwrap();
+		assert!(disconnected.message_details.is_none() && disconnected.relationships.is_none());
+	}
+	#[test]
 	fn extension_app_new_data_requires_grants_and_stays_bounded_and_current() {
 		let mut state = test_support::demo_state();
 		let messaging = ui::MessagingUi::default();
@@ -536,6 +902,28 @@ mod tests {
 			name: "Synthetic server ".repeat(20),
 			..guild.clone()
 		}));
+		let friends = (1000..1150)
+			.map(|id| {
+				(
+					model::User {
+						id: Id(id),
+						..current.clone()
+					},
+					format!("friend{id}"),
+				)
+			})
+			.collect();
+		for event in [
+			client_core::user_actions::Event::Relationships(Some(
+				(1000..1150).map(|id| (Id(id), false)).collect(),
+			)),
+			client_core::user_actions::Event::Friends(Some(friends)),
+		] {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::UserAction(event),
+			});
+		}
 		let selected = state.selected.unwrap();
 		state
 			.channels
@@ -551,6 +939,8 @@ mod tests {
 			.collect();
 		let caps = manifest(vec![
 			Capability::AccountProfile,
+			Capability::MessageDetails,
+			Capability::Relationships,
 			Capability::GuildDirectory,
 			Capability::ChannelDetails,
 			Capability::AppContext,
@@ -563,6 +953,9 @@ mod tests {
 			Capability::LocalSettings,
 		]);
 		let app = snapshot(&state, &messaging, &caps).unwrap();
+		assert!(app.relationships.as_ref().unwrap().truncated);
+		assert!(app.message_details.is_some());
+
 		let account = app.account_profile.as_ref().unwrap();
 		assert_eq!(account.user.id, current.id.0.to_string());
 		assert_eq!(account.profile.as_ref().unwrap().bio.len(), 2048);
@@ -609,6 +1002,8 @@ mod tests {
 		assert!(snapshot(&state, &messaging, &manifest(vec![Capability::Storage])).is_none());
 		let caps = manifest(vec![
 			Capability::AccountProfile,
+			Capability::MessageDetails,
+			Capability::Relationships,
 			Capability::GuildDirectory,
 			Capability::ChannelDetails,
 			Capability::AppContext,
@@ -626,7 +1021,7 @@ mod tests {
 			"20"
 		);
 		assert!(app.bytes().unwrap() <= MAX_APP_SNAPSHOT_BYTES);
-		assert!(app.timeline.as_ref().unwrap().messages.len() <= MAX_APP_MESSAGES);
+		assert!(app.timeline.as_ref().unwrap().messages.len() <= MAX_MESSAGE_DETAILS);
 		assert!(app.timeline.as_ref().unwrap().truncated);
 		let toolbox = parse_package(include_bytes!(
 			"../../../examples/extensions/packages/app-toolbox.serein-extension"
