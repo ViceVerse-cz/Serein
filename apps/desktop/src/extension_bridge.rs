@@ -95,8 +95,13 @@ pub struct Bridge {
 	message_events_dropped: bool,
 	app_key: Option<crate::extension_app::ChangeKey>,
 	app_context_changed: bool,
+	data_changes: crate::extension_data_events::Changes,
+	read_key: Option<crate::extension_data_events::ReadKey>,
 }
 impl Bridge {
+	pub fn data_changed(&mut self, changes: crate::extension_data_events::Changes) {
+		self.data_changes.merge(changes);
+	}
 	/// Permission changes retire copied app data and proposals before any further delivery.
 	pub fn access_changed(&mut self, messaging: &mut ui::MessagingUi) {
 		self.app_context_changed = true;
@@ -136,8 +141,16 @@ impl Bridge {
 					&& entry.manifest.capabilities.contains(&Capability::AppEvents)
 			}) {
 			self.app_key = None;
+			self.data_changes = Default::default();
+			self.read_key = None;
 			return;
 		}
+		let read_key = crate::extension_data_events::ReadKey::capture(state);
+		if self.read_key.as_ref().is_some_and(|old| old != &read_key) {
+			self.data_changes.read_changed();
+		}
+		self.read_key = Some(read_key);
+		let changes = std::mem::take(&mut self.data_changes);
 		let key = crate::extension_app::ChangeKey::capture(state, messaging);
 		let invalidated = std::mem::take(&mut self.app_context_changed);
 		let event = self
@@ -148,9 +161,6 @@ impl Bridge {
 					.or_else(|| invalidated.then_some(AppEventKind::Context))
 			});
 		self.app_key = Some(key);
-		let Some(kind) = event else {
-			return;
-		};
 		for entry in &self.installed {
 			if entry.error.is_some()
 				|| self.disabled.contains(&entry.manifest.id)
@@ -166,27 +176,44 @@ impl Bridge {
 			else {
 				continue;
 			};
-			// One latest-state event per plugin; no copied app data waits in this queue.
-			self.message_events.retain(|event| {
-				event.id != entry.manifest.id || !matches!(event.event, ReactiveEvent::App(_))
-			});
-			let queued = QueuedEvent {
-				id: entry.manifest.id.clone(),
-				action: action.id.clone(),
-				context: ExtensionContext::capture(state, false),
-				event: ReactiveEvent::App(kind),
-			};
-			if self.message_events.len() >= MAX_MESSAGE_EVENTS
-				|| self
-					.message_events
-					.iter()
-					.map(QueuedEvent::bytes)
-					.sum::<usize>() + queued.bytes()
-					> MAX_MESSAGE_EVENT_BYTES
-			{
-				self.message_events_dropped = true;
-			} else {
-				self.message_events.push_back(queued);
+			let detailed = entry
+				.manifest
+				.capabilities
+				.contains(&Capability::DataEvents);
+			let mut kinds = [None; 6];
+			kinds[0] = event;
+			for (index, kind) in changes.kinds(&entry.manifest.capabilities).enumerate() {
+				if detailed {
+					kinds[index + 1] = Some(kind);
+				} else {
+					kinds[0] = kinds[0].or(Some(AppEventKind::Context));
+					break;
+				}
+			}
+			for kind in kinds.into_iter().flatten() {
+				// Coalesce invalidation hints, never copied data. Old observers retain one latest event.
+				self.message_events.retain(|event| {
+					event.id != entry.manifest.id
+						|| !matches!(event.event, ReactiveEvent::App(old) if !detailed || old == kind)
+				});
+				let queued = QueuedEvent {
+					id: entry.manifest.id.clone(),
+					action: action.id.clone(),
+					context: ExtensionContext::capture(state, false),
+					event: ReactiveEvent::App(kind),
+				};
+				if self.message_events.len() >= MAX_MESSAGE_EVENTS
+					|| self
+						.message_events
+						.iter()
+						.map(QueuedEvent::bytes)
+						.sum::<usize>() + queued.bytes()
+						> MAX_MESSAGE_EVENT_BYTES
+				{
+					self.message_events_dropped = true;
+				} else {
+					self.message_events.push_back(queued);
+				}
 			}
 		}
 	}
@@ -271,6 +298,8 @@ impl Bridge {
 		self.message_events.clear();
 		self.app_key = None;
 		self.app_context_changed = false;
+		self.data_changes = Default::default();
+		self.read_key = None;
 		for entry in &mut self.installed {
 			entry.preserve_deleted_messages = false;
 			entry.image_sharing = false;
@@ -336,6 +365,8 @@ impl Bridge {
 			self.message_events.clear();
 			self.app_key = None;
 			self.app_context_changed = false;
+			self.data_changes = Default::default();
+			self.read_key = None;
 			self.message_events_dropped = false;
 			state.set_preserve_deleted_messages(false);
 			self.cancel_previews(messaging);
@@ -1343,6 +1374,119 @@ mod tests {
 		bridge.app_events(&state, &messaging);
 		assert!(bridge.app_key.is_none());
 		bridge.access_changed(&mut messaging);
+		assert!(bridge.message_events.is_empty());
+	}
+
+	#[test]
+	fn data_events_are_opt_in_granted_and_coalesce_per_kind() {
+		let (mut bridge, state, _) = message_events_fixture();
+		let messaging = ui::MessagingUi::default();
+		let manifest = &mut bridge.installed[0].manifest;
+		manifest.capabilities.extend([
+			Capability::AppEvents,
+			Capability::Members,
+			Capability::Presence,
+		]);
+		manifest.actions.push(extensions::Action {
+			id: "data-event".into(),
+			label: "Observe".into(),
+			surface: Surface::AppEvent,
+		});
+		bridge.app_events(&state, &messaging);
+		bridge.message_events.clear();
+		let envelope = client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Members(model::MemberList {
+				guild: Some(model::Id(10)),
+				channel: state.selected.unwrap(),
+				request: state.member_request,
+				rows: Vec::new(),
+				total: 0,
+				freshness: model::Freshness::Fresh,
+			}),
+		};
+		let changes = crate::extension_data_events::Changes::capture(&state, &envelope);
+		bridge.data_changed(changes);
+		bridge.app_events(&state, &messaging);
+		assert_eq!(bridge.message_events.len(), 1);
+		assert!(matches!(
+			bridge.message_events[0].event,
+			ReactiveEvent::App(AppEventKind::Context)
+		));
+		bridge.message_events.clear();
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.push(Capability::DataEvents);
+		for _ in 0..3 {
+			bridge.data_changed(changes);
+			bridge.app_events(&state, &messaging);
+		}
+		assert_eq!(bridge.message_events.len(), 2);
+		assert!(matches!(
+			bridge.message_events[0].event,
+			ReactiveEvent::App(AppEventKind::Members)
+		));
+		assert!(matches!(
+			bridge.message_events[1].event,
+			ReactiveEvent::App(AppEventKind::Presence)
+		));
+		bridge.message_events.clear();
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.retain(|cap| *cap != Capability::Members);
+		bridge.data_changed(changes);
+		bridge.app_events(&state, &messaging);
+		assert_eq!(bridge.message_events.len(), 1);
+		assert!(matches!(
+			bridge.message_events[0].event,
+			ReactiveEvent::App(AppEventKind::Presence)
+		));
+	}
+
+	#[test]
+	fn selected_read_changes_are_observed_without_an_envelope() {
+		let (mut bridge, mut state, _) = message_events_fixture();
+		let messaging = ui::MessagingUi::default();
+		let manifest = &mut bridge.installed[0].manifest;
+		manifest.capabilities.extend([
+			Capability::AppEvents,
+			Capability::DataEvents,
+			Capability::ReadState,
+		]);
+		manifest.actions.push(extensions::Action {
+			id: "data-event".into(),
+			label: "Observe".into(),
+			surface: Surface::AppEvent,
+		});
+		let channel = state.selected.unwrap();
+		state
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(vec![(channel, None, 3)]),
+				version: None,
+				partial: false,
+			})
+			.unwrap();
+		bridge.app_events(&state, &messaging);
+		bridge.message_events.clear();
+		state
+			.apply_read_state(client_core::read_state::Event::Ack {
+				channel,
+				message: Some(model::Id(99999)),
+				manual: false,
+				mention_count: Some(0),
+				version: None,
+			})
+			.unwrap();
+		bridge.app_events(&state, &messaging);
+		assert_eq!(bridge.message_events.len(), 1);
+		assert!(matches!(
+			bridge.message_events[0].event,
+			ReactiveEvent::App(AppEventKind::ReadState)
+		));
+		bridge.message_events.clear();
+		bridge.app_events(&state, &messaging);
 		assert!(bridge.message_events.is_empty());
 	}
 

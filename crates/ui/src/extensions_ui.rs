@@ -2333,6 +2333,12 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
 		Capability::AppContext => "Read my account and current conversation details",
+		Capability::AccountProfile => "Read my loaded profile, including biography and pronouns",
+		Capability::GuildDirectory => "Read my loaded server names and identifiers",
+		Capability::ChannelDetails => "Read current channel metadata, recipients and permissions",
+		Capability::DataEvents => {
+			"Receive changes to separately granted account and conversation data"
+		}
 		Capability::ChannelDirectory => "Read the list of loaded, readable conversations",
 		Capability::Timeline => "Read loaded messages in the active conversation",
 		Capability::Members => "Read loaded members of the active conversation",

@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_APP_SNAPSHOT_BYTES: usize = 64 * 1024;
 pub const MAX_APP_CHANNELS: usize = 100;
+pub const MAX_APP_GUILDS: usize = 100;
+pub const MAX_CHANNEL_RECIPIENTS: usize = 32;
 pub const MAX_APP_MESSAGES: usize = 50;
 pub const MAX_APP_MEMBERS: usize = 100;
 pub const MAX_APP_PRESENCES: usize = 100;
@@ -13,6 +15,12 @@ pub const MAX_HOST_EFFECT_BYTES: usize = 8 * 1024;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppSnapshot {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub account_profile: Option<AccountProfileSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub guilds: Option<GuildDirectorySnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub channel_details: Option<ChannelDetailsSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub context: Option<AppContextSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -29,6 +37,58 @@ pub struct AppSnapshot {
 	pub read_state: Option<ReadSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub settings: Option<LocalSettingsSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountProfileSnapshot {
+	pub user: UserSnapshot,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub avatar: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub profile: Option<OwnProfileSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnProfileSnapshot {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub display_name: Option<String>,
+	pub bio: String,
+	pub pronouns: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GuildSnapshot {
+	pub id: String,
+	pub name: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub icon: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GuildDirectorySnapshot {
+	pub items: Vec<GuildSnapshot>,
+	pub truncated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChannelDetailsSnapshot {
+	pub channel: ChannelSnapshot,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub parent_id: Option<String>,
+	pub position: i32,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub last_message_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_count: Option<u32>,
+	pub recipients: Vec<UserSnapshot>,
+	pub recipients_truncated: bool,
+	pub can_send: bool,
+	pub can_read_history: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,6 +216,11 @@ pub struct LocalSettingsPatch {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppEventKind {
+	Account,
+	Channels,
+	Members,
+	Presence,
+	ReadState,
 	Ready,
 	Navigation,
 	Connection,
@@ -310,6 +375,65 @@ fn bounded_bytes(value: &(impl Serialize + ?Sized), limit: usize) -> Result<usiz
 	Ok(counter.used)
 }
 
+impl AppEventKind {
+	/// Whether the manifest can read the data represented by this notification.
+	pub fn data_granted(self, capabilities: &[Capability]) -> bool {
+		let required: &[Capability] = match self {
+			Self::Account => &[Capability::AccountProfile],
+			Self::Channels => &[
+				Capability::ChannelDirectory,
+				Capability::GuildDirectory,
+				Capability::ChannelDetails,
+			],
+			Self::Members => &[Capability::Members],
+			Self::Presence => &[Capability::Presence],
+			Self::ReadState => &[Capability::ReadState],
+			_ => return false,
+		};
+		required
+			.iter()
+			.any(|capability| capabilities.contains(capability))
+	}
+
+	pub(crate) fn validate(self, manifest: &Manifest) -> Result<(), Error> {
+		grant(manifest, Capability::AppEvents)?;
+		if matches!(
+			self,
+			Self::Account | Self::Channels | Self::Members | Self::Presence | Self::ReadState
+		) {
+			grant(manifest, Capability::DataEvents)?;
+			if !self.data_granted(&manifest.capabilities) {
+				return Err(Error::Capability);
+			}
+		}
+		Ok(())
+	}
+}
+
+fn image_hash(value: &str) -> Result<(), Error> {
+	if value.len() > 128 {
+		return Err(Error::Limit);
+	}
+	if value.is_empty()
+		|| !value
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+	{
+		return Err(Error::Invalid);
+	}
+	Ok(())
+}
+
+fn profile_text(value: &str, limit: usize, multiline: bool) -> Result<(), Error> {
+	if value.len() > limit {
+		return Err(Error::Limit);
+	}
+	if value.contains('\0') || (!multiline && value.chars().any(char::is_control)) {
+		return Err(Error::Invalid);
+	}
+	Ok(())
+}
+
 impl AppSnapshot {
 	/// Exact serialized size, rejecting snapshots above the 64 KiB wire budget.
 	pub fn bytes(&self) -> Result<usize, Error> {
@@ -318,6 +442,9 @@ impl AppSnapshot {
 
 	pub fn validate(&self, manifest: &Manifest) -> Result<(), Error> {
 		for (present, capability) in [
+			(self.account_profile.is_some(), Capability::AccountProfile),
+			(self.guilds.is_some(), Capability::GuildDirectory),
+			(self.channel_details.is_some(), Capability::ChannelDetails),
 			(self.context.is_some(), Capability::AppContext),
 			(self.channels.is_some(), Capability::ChannelDirectory),
 			(self.timeline.is_some(), Capability::Timeline),
@@ -329,6 +456,50 @@ impl AppSnapshot {
 		] {
 			if present {
 				grant(manifest, capability)?;
+			}
+		}
+		if let Some(account) = &self.account_profile {
+			user(&account.user)?;
+			if let Some(avatar) = &account.avatar {
+				image_hash(avatar)?;
+			}
+			if let Some(profile) = &account.profile {
+				if let Some(name) = &profile.display_name {
+					profile_text(name, 256, false)?;
+				}
+				profile_text(&profile.bio, 2048, true)?;
+				profile_text(&profile.pronouns, 256, false)?;
+			}
+		}
+		if let Some(guilds) = &self.guilds {
+			ids(
+				guilds.items.iter().map(|guild| guild.id.as_str()),
+				MAX_APP_GUILDS,
+			)?;
+			for guild in &guilds.items {
+				label(&guild.name, 256)?;
+				if let Some(icon) = &guild.icon {
+					image_hash(icon)?;
+				}
+			}
+		}
+		if let Some(details) = &self.channel_details {
+			channel(&details.channel)?;
+			for id in [&details.parent_id, &details.last_message_id]
+				.into_iter()
+				.flatten()
+			{
+				entity_id(id)?;
+			}
+			ids(
+				details
+					.recipients
+					.iter()
+					.map(|recipient| recipient.id.as_str()),
+				MAX_CHANNEL_RECIPIENTS,
+			)?;
+			for recipient in &details.recipients {
+				user(recipient)?;
 			}
 		}
 		if let Some(context) = &self.context {

@@ -69,6 +69,10 @@ pub enum Capability {
 	ClipboardWrite,
 	VoiceControl,
 	AppEvents,
+	AccountProfile,
+	GuildDirectory,
+	ChannelDetails,
+	DataEvents,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -471,6 +475,11 @@ impl Manifest {
 		if self.capabilities.iter().any(|c| !capabilities.insert(*c)) {
 			return Err(Error::Invalid);
 		}
+		if capabilities.contains(&Capability::DataEvents)
+			&& !capabilities.contains(&Capability::AppEvents)
+		{
+			return Err(Error::Capability);
+		}
 		for surface in [
 			Surface::Activation,
 			Surface::MessageEvent,
@@ -768,7 +777,7 @@ impl Invocation {
 			{
 				return Err(Error::Capability);
 			}
-			self.app_event.ok_or(Error::Invalid)?;
+			self.app_event.ok_or(Error::Invalid)?.validate(manifest)?;
 		} else if self.app_event.is_some() {
 			return Err(Error::Capability);
 		}

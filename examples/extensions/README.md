@@ -227,7 +227,11 @@ The [app data reference](../../docs/extension-sdk-reference.md#app-data) explain
 every snapshot field, including unavailable and partial data.
 [Outputs and actions](../../docs/extension-sdk-actions.md#outputs-and-host-actions)
 explains proposals and their grants. [App Toolbox](app-toolbox/src/lib.rs)
-demonstrates all 11 host action types.
+demonstrates loaded account profiles, joined servers, selected-channel details
+and all 11 host action types. Its passive observer requests `data_events` along
+with `app_events` and the relevant read grants; it stores no event counts or
+conversation data. Detailed events are coalesced invalidation hints, not a full
+change log. See [event grants and reasons](../../docs/extension-sdk-reference.md#appeventkind-why-an-app-observer-ran).
 
 Inputs are read-only copies. Returning `effects` proposes a change needing
 **Apply**. Storage and appearance have different timing; see the output reference

@@ -174,10 +174,21 @@ does not grant the current user's identity, conversation text or settings.
 | `context` | `AppEventKind::Context` | Loaded-data readiness, history/member freshness or access changed. This is not a notification for every message edit, member change or read-state change. |
 | `voice` | `AppEventKind::Voice` | The current call identity, phase, local controls, screen-share state or tracked participants changed. |
 | `settings` | `AppEventKind::Settings` | One of the five exposed local reading preferences changed. |
+| `account` | `AppEventKind::Account` | Account identity or loaded own profile may have changed; additionally requires `data_events` and `account_profile`. |
+| `channels` | `AppEventKind::Channels` | Joined guilds, visible channels or selected-channel details may have changed; additionally requires `data_events` and at least one of `guild_directory`, `channel_directory`, `channel_details`. |
+| `members` | `AppEventKind::Members` | Loaded selected-channel members may have changed; additionally requires `data_events` and `members`. |
+| `presence` | `AppEventKind::Presence` | Known selected-context statuses may have changed; additionally requires `data_events` and `presence`. |
+| `read_state` | `AppEventKind::ReadState` | Selected-channel read/mention state may have changed; additionally requires `data_events` and `read_state`. |
+
+The five detailed reasons are opt-in: `data_events` requires `app_events`,
+and each reason also needs its corresponding read grant. Existing observers
+without `data_events` receive only the original six reasons. These are
+invalidation hints from accepted app updates, not raw service events or payload
+patches. Permission changes may invalidate data without supplying a replacement.
 
 Treat the event as a reason to inspect the supplied snapshot, not as a complete
-change log. Pending app changes are coalesced per plugin; the snapshot is taken
-when the call is dispatched, so it can reflect several changes. There is no
+change log. Pending detailed changes of the same kind are coalesced per plugin.
+The snapshot is taken when the call is dispatched, so it can reflect several changes. There is no
 periodic timer or persistent plugin process. The [app-data example](extension-sdk-reference.md#app-data) safely
 distinguishes app events from its foreground display action.
 
@@ -217,9 +228,9 @@ Most new optional fields are omitted by the host. `ReadSnapshot.unread` is the
 exception: unknown unread state is serialized as `null`.
 
 The complete app snapshot is at most 64 KiB serialized. The collector also has
-budgets including item overhead: 12 KiB for channels, 24 KiB for timeline, and
-8 KiB each for members and presence. A list may reach its byte budget before its
-item limit. These limits do not guarantee that every handler fits the sandbox's
+budgets including item overhead: 10 KiB for channels, 20 KiB for timeline,
+6 KiB each for members, presence and channel-detail recipients, and 8 KiB for
+guilds. A list may reach its byte budget before its item limit. These limits do not guarantee that every handler fits the sandbox's
 fuel budget; parsing and your own processing also consume fuel.
 
 ### AppSnapshot: choose the group you need
@@ -229,6 +240,9 @@ For the examples below, `app` is a borrowed `AppSnapshot`. Each field is an
 
 | Wire field | SDK Rust type | Required capability and availability | Reading it |
 | --- | --- | --- | --- |
+| `account_profile` | `Option<AccountProfileSnapshot>` | `account_profile`; connected current account, with optional already-loaded own profile. | `app.account_profile.as_ref()` |
+| `guilds` | `Option<GuildDirectorySnapshot>` | `guild_directory`; connected, already-loaded joined servers. | `app.guilds.as_ref().map(\|group\| group.items.len())` |
+| `channel_details` | `Option<ChannelDetailsSnapshot>` | `channel_details`; connected, accessible, fresh selected channel. | `app.channel_details.as_ref()` |
 | `context` | `Option<AppContextSnapshot>` | `app_context`; current account and connection summary. Can remain available while disconnected. | `app.context.as_ref()` |
 | `channels` | `Option<ChannelDirectorySnapshot>` | `channel_directory`; Gateway connected. Only loaded channels the user can view; a selected channel known to be unavailable is excluded. | `app.channels.as_ref().map(\|group\| group.items.len())` |
 | `timeline` | `Option<TimelineSnapshot>` | `timeline`; selected text-capable conversation, connected, readable history and fresh timeline. | `app.timeline.as_ref()` |
@@ -238,8 +252,9 @@ For the examples below, `app` is a borrowed `AppSnapshot`. Each field is an
 | `read_state` | `Option<ReadSnapshot>` | `read_state`; selected-channel summary. The group can exist with no channel and unknown unread state. | `app.read_state.as_ref()` |
 | `settings` | `Option<LocalSettingsSnapshot>` | `local_settings`; the five current local reading/layout preferences. | `app.settings.as_ref()` |
 
-On disconnect, the collector omits the directory, timeline, members and presence.
-It also removes the selected channel from context and read state. Account,
+On disconnect, the collector omits account profile, guilds, channel details,
+channel directory, timeline, members and presence. It also removes the selected
+channel from context and read state. The account label in context,
 settings and independently available voice state may remain. A known inaccessible
 channel is not exposed through the selected-channel groups. Active private
 conversations remain eligible when the user has access and grants the relevant
@@ -295,6 +310,110 @@ the snapshot contract does not reject an otherwise valid unknown kind.
 | `14` | Directory channel; shown as unimplemented by the native channel list |
 | `15` | Forum container |
 | `16` | Media container |
+
+### AccountProfileSnapshot: the current account's loaded profile
+
+Requires `account_profile`, separately from `app_context`. The group is absent
+while disconnected or when the current account is unavailable. It never fetches
+a profile, and never contains email, phone, credentials, connections or billing.
+
+| Wire field | SDK Rust / JSON type | Meaning and presence | Reading from `account: &AccountProfileSnapshot` |
+| --- | --- | --- | --- |
+| `user` | `UserSnapshot` / object | Current account ID and label. | `account.user.name.as_str()` |
+| `avatar` | `Option<String>` / string or absent | Loaded avatar hash, at most 128 bytes; not image bytes or a URL. Absent when no avatar is known. | `account.avatar.as_deref()` |
+| `profile` | `Option<OwnProfileSnapshot>` / object or absent | Loaded own-profile data matching this account; absent while unavailable, limited, loading, awaiting reload or failed. Absence does not mean a blank profile. | `account.profile.as_ref()` |
+
+The nested `OwnProfileSnapshot` uses the same grant:
+
+| Wire field | SDK Rust / JSON type | Meaning and presence | Reading from `profile: &OwnProfileSnapshot` |
+| --- | --- | --- | --- |
+| `display_name` | `Option<String>` / string or absent | Optional global display name, using shared identity-label sanitization (128 bytes in the collector; 256-byte wire limit). | `profile.display_name.as_deref()` |
+| `bio` | `String` / string | Loaded biography, trimmed to 2,048 UTF-8 bytes; controls other than newline/tab removed. Empty means known empty. | `profile.bio.as_str()` |
+| `pronouns` | `String` / string | Loaded pronouns, at most 256 UTF-8 bytes; empty means known empty. | `profile.pronouns.as_str()` |
+
+### GuildDirectorySnapshot: loaded joined servers
+
+Requires `guild_directory`. This is a bounded view of already-loaded joined
+servers while connected, not server discovery or a permission/member directory.
+
+| Wire field | SDK Rust / JSON type | Meaning | Reading from `guilds: &GuildDirectorySnapshot` |
+| --- | --- | --- | --- |
+| `items` | `Vec<GuildSnapshot>` / array | Up to 100 distinct loaded joined servers, limited further by bytes. Empty means no eligible loaded rows. | `guilds.items.iter().find(\|guild\| guild.id == "100")` |
+| `truncated` | `bool` / boolean | Item or byte limits omitted entries. No stable ordering is promised. | `guilds.truncated` |
+
+| Guild wire field | SDK Rust / JSON type | Meaning | Reading from `guild: &GuildSnapshot` |
+| --- | --- | --- | --- |
+| `id` | `String` / string | Joined server ID. | `guild.id.as_str()` |
+| `name` | `String` / string | Bounded server label, using the shared identity-label rules. | `guild.name.as_str()` |
+| `icon` | `Option<String>` / string or absent | Loaded server icon hash, at most 128 bytes; absent when none is known. Not a URL or image bytes. | `guild.icon.as_deref()` |
+
+### ChannelDetailsSnapshot: selected-channel metadata and permissions
+
+Requires `channel_details`, independently of `channel_directory` and `members`.
+Only the connected, accessible, fresh selected channel is eligible. Home,
+disconnect, stale metadata or access loss omit the group. Permissions describe
+the current snapshot; they do not authorize a future action or guarantee success.
+
+| Wire field | SDK Rust / JSON type | Meaning and presence | Reading from `details: &ChannelDetailsSnapshot` |
+| --- | --- | --- | --- |
+| `channel` | `ChannelSnapshot` / object | Selected channel identity. | `details.channel.name.as_str()` |
+| `parent_id` | `Option<String>` / string or absent | Loaded category or parent channel ID, when present and viewable. | `details.parent_id.as_deref()` |
+| `position` | `i32` / integer | Loaded channel ordering value; not an index into a complete directory. | `details.position` |
+| `last_message_id` | `Option<String>` / string or absent | Loaded last-message ID, supplied only with readable history; absent when unknown or unauthorized. No message content is included. | `details.last_message_id.as_deref()` |
+| `message_count` | `Option<u32>` / nonnegative integer or absent | Service-supplied loaded count when available and history is readable; not a computed full-history count. | `details.message_count` |
+| `recipients` | `Vec<UserSnapshot>` / array | Up to 32 loaded DM/group-DM recipients; empty for channels without loaded recipients. No member fetch occurs. | `details.recipients.len()` |
+| `recipients_truncated` | `bool` / boolean | Known recipient rows were omitted by item/byte limits. | `details.recipients_truncated` |
+| `can_send` | `bool` / boolean | Current host permission to send in this channel. | `details.can_send` |
+| `can_read_history` | `bool` / boolean | Current host permission to read this channel's message history. | `details.can_read_history` |
+
+For example, a detailed channel invalidation may carry this complete synthetic
+input. It is not a message event; the empty recipient list belongs to a guild
+channel, and no last-message ID is disclosed without history access:
+
+```json
+{
+  "action": "on-app",
+  "values": {},
+  "app_event": "channels",
+  "app": {
+    "channel_details": {
+      "channel": {"id": "100", "guild_id": "200", "name": "general", "kind": 0},
+      "position": 0,
+      "recipients": [],
+      "recipients_truncated": false,
+      "can_send": true,
+      "can_read_history": false
+    }
+  }
+}
+```
+
+Declare `on-app` as `app_event`, `show` as `panel`, and request `app_events`,
+`data_events`, `channel_details`. This complete handler reads fresh details for
+its foreground panel and leaves background output empty. A returned panel is
+shown immediately; there is no host command requiring Apply.
+
+```rust
+use serein_extension_sdk::{AppInvocation, AppOutput, Element, Output};
+
+fn handle(input: AppInvocation) -> AppOutput {
+    if input.app_event.is_some() || input.message_event.is_some()
+        || input.invocation.action != "show"
+    {
+        return AppOutput::default();
+    }
+    let text = input.app.as_ref()
+        .and_then(|app| app.channel_details.as_ref())
+        .map_or_else(|| "Channel details unavailable".into(), |details| {
+            format!("{}: sending allowed = {}", details.channel.name, details.can_send)
+        });
+    AppOutput {
+        output: Output { panel: vec![Element::Text { text }], ..Default::default() },
+        ..Default::default()
+    }
+}
+serein_extension_sdk::export!(handle);
+```
 
 ### ChannelDirectorySnapshot: loaded channel list
 

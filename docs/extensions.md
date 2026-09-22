@@ -119,7 +119,7 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 20 capabilities, with at most 32 distinct declarations per manifest.
+supports 24 capabilities, with at most 32 distinct declarations per manifest.
 
 | Capability | Granted behavior | Scope / confirmation |
 | --- | --- | --- |
@@ -131,6 +131,10 @@ supports 20 capabilities, with at most 32 distinct declarations per manifest.
 | `appearance` | Return a bounded declarative theme overlay | Native colors/control metrics; no arbitrary drawing |
 | `message_events` | Observe live create/update/delete events | Active accessible conversation; bounded best-effort delivery |
 | `app_context` | Read connection, current user and selected channel | Current session, optional fields |
+| `account_profile` | Read the current account's loaded avatar hash and own profile | Connected; optional display name, bio and pronouns; no credentials/connections |
+| `guild_directory` | Read loaded joined servers | At most 100 names/IDs/icon hashes; no fetch |
+| `channel_details` | Read selected-channel metadata, recipients and permission summary | Fresh accessible channel; at most 32 recipients; last-message ID/count require history access |
+| `data_events` | Opt into account/channel/member/presence/read-state invalidation hints | Requires `app_events` plus each reason's read grant |
 | `channel_directory` | Read accessible cached channels | At most 100; partial directory, no fetch |
 | `timeline` | Read ordinary loaded messages in the active conversation | Fresh readable timeline, at most 50; no deleted/ephemeral text |
 | `members` | Read loaded members or DM recipients | Active channel, at most 100; no fetch |
@@ -155,12 +159,14 @@ explain every field, command and bound, with examples. SDK authors use
 Unsupported capabilities/actions are rejected by older hosts; declaring v1 alone
 does not make new capabilities available in an old build.
 
-`app` contains separately granted optional `context`, `channels`, `timeline`,
-`members`, `presence`, `voice`, `read_state` and `settings` groups. A missing group
+`app` contains separately granted optional `context`, `account_profile`, `guilds`,
+`channel_details`, `channels`, `timeline`, `members`, `presence`, `voice`,
+`read_state` and `settings` groups. A missing group
 is unavailable or ungranted, not an empty dataset. Snapshot construction reads
 already-loaded state without network or disk IO. The complete serialized snapshot
-is capped at 64 KiB. Per-group budgets are 12 KiB for channels, 24 KiB for timeline,
-and 8 KiB each for members and presence, including item overhead. The timeline
+is capped at 64 KiB. Per-group budgets are 10 KiB for channels, 20 KiB for timeline,
+6 KiB each for members, presence and channel-detail recipients, and 8 KiB for guilds,
+including item overhead. The timeline
 skips messages larger than 4 KiB and reports partial data. Bounded list responses
 expose `truncated`; voice participant IDs are capped without a completeness flag.
 No snapshot includes tokens, deleted/ephemeral text, attachment bytes/URLs, raw
@@ -184,7 +190,12 @@ screen sharing or recording.
 
 One `app_event` action may observe `ready`, `navigation`, `context`, `connection`,
 `voice` and `settings`. Context events report loaded-data/freshness changes after
-navigation; use `message_events` for individual message changes. Pending app
+navigation; use `message_events` for individual message changes. The additional
+`data_events` grant opts into `account`, `channels`, `members`, `presence` and
+`read_state` invalidation hints, each requiring the corresponding data grant
+(`channels` accepts any of the three directory/details grants). Without this
+opt-in, existing observers receive only the original six variants. Repeated
+pending detailed reasons coalesce by kind for each plugin. Pending app
 changes are coalesced per plugin and share the message-event queue/rate bounds.
 The host captures a fresh, separately granted snapshot at dispatch. There are no
 timers or persistent plugin instances, and delivery is best effort. App/message
@@ -192,7 +203,7 @@ events and activation cannot return host command proposals; background events
 cannot open panels. Granted `storage` and `appearance` outputs remain available.
 
 The [App Toolbox example](../examples/extensions/app-toolbox/src/lib.rs) provides
-a dashboard and explicit controls for all 11 command types. Its `app_event`
+an account/channel dashboard and explicit controls for all 11 command types. Its `app_event`
 observer returns an empty output, and it saves no conversation data.
 
 ### Existing tools and message events
@@ -292,7 +303,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 5,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 32 distinct | Only the 20 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 32 distinct | Only the 24 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |

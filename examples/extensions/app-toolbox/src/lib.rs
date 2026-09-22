@@ -88,7 +88,42 @@ fn dashboard(app: &AppSnapshot) -> Vec<Element> {
 		),
 		text(context(app)),
 	];
+	if let Some(account) = &app.account_profile {
+		panel.push(text(match &account.profile {
+			Some(profile) => format!(
+				"Account profile: {}\nPronouns: {}\nBio: {}",
+				profile
+					.display_name
+					.as_deref()
+					.unwrap_or(&account.user.name),
+				profile.pronouns,
+				profile.bio
+			),
+			None => format!(
+				"Account profile: {} (details unavailable)",
+				account.user.name
+			),
+		}));
+	}
+	if let Some(details) = &app.channel_details {
+		panel.push(text(format!(
+			"Channel: {}\nCan send: {}; can read history: {}\nLoaded recipients: {}{}",
+			details.channel.name,
+			details.can_send,
+			details.can_read_history,
+			details.recipients.len(),
+			if details.recipients_truncated {
+				" (partial)"
+			} else {
+				""
+			}
+		)));
+	}
 	for (label, count) in [
+		(
+			"Joined servers",
+			app.guilds.as_ref().map(|v| (v.items.len(), v.truncated)),
+		),
 		(
 			"Channels",
 			app.channels.as_ref().map(|v| (v.items.len(), v.truncated)),
@@ -398,7 +433,35 @@ mod tests {
 			)
 			.unwrap()
 		};
+		input.app = Some(
+			serde_json::from_value(serde_json::json!({
+				"account_profile": {
+					"user": {"id": "1", "name": "Example"},
+					"profile": {"display_name": "Display", "bio": "Synthetic profile", "pronouns": "they/them"}
+				},
+				"guilds": {"items": [{"id": "2", "name": "Example server"}], "truncated": true},
+				"channel_details": {
+					"channel": {"id": "3", "guild_id": "2", "name": "general", "kind": 0},
+					"position": 0, "recipients": [], "recipients_truncated": false,
+					"can_send": true, "can_read_history": false
+				}
+			}))
+			.unwrap(),
+		);
 		let shown = run(&input);
+		let text = shown
+			.output
+			.panel
+			.iter()
+			.filter_map(|element| match element {
+				Element::Text { text } => Some(text.as_str()),
+				_ => None,
+			})
+			.collect::<Vec<_>>()
+			.join("\n");
+		assert!(text.contains("Synthetic profile"));
+		assert!(text.contains("Joined servers: 1 (partial)"));
+		assert!(text.contains("Can send: true; can read history: false"));
 		assert!(!shown.output.panel.is_empty());
 		assert!(shown.effects.is_empty());
 		input.invocation.action = "open-view".into();
@@ -456,6 +519,11 @@ mod tests {
 			AppEventKind::Connection,
 			AppEventKind::Voice,
 			AppEventKind::Settings,
+			AppEventKind::Account,
+			AppEventKind::Channels,
+			AppEventKind::Members,
+			AppEventKind::Presence,
+			AppEventKind::ReadState,
 		] {
 			input.app_event = Some(kind);
 			assert_eq!(run(&input), AppOutput::default());

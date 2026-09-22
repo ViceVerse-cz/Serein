@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_APP_SNAPSHOT_BYTES: usize = 64 * 1024;
 pub const MAX_APP_CHANNELS: usize = 100;
+pub const MAX_APP_GUILDS: usize = 100;
+pub const MAX_CHANNEL_RECIPIENTS: usize = 32;
 pub const MAX_APP_MESSAGES: usize = 50;
 pub const MAX_APP_MEMBERS: usize = 100;
 pub const MAX_APP_PRESENCES: usize = 100;
@@ -13,6 +15,12 @@ pub const MAX_HOST_EFFECT_BYTES: usize = 8 * 1024;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSnapshot {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub account_profile: Option<AccountProfileSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub guilds: Option<GuildDirectorySnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub channel_details: Option<ChannelDetailsSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub context: Option<AppContextSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -29,6 +37,53 @@ pub struct AppSnapshot {
 	pub read_state: Option<ReadSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub settings: Option<LocalSettingsSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountProfileSnapshot {
+	pub user: UserSnapshot,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub avatar: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub profile: Option<OwnProfileSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnProfileSnapshot {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub display_name: Option<String>,
+	pub bio: String,
+	pub pronouns: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuildSnapshot {
+	pub id: String,
+	pub name: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub icon: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuildDirectorySnapshot {
+	pub items: Vec<GuildSnapshot>,
+	pub truncated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChannelDetailsSnapshot {
+	pub channel: ChannelSnapshot,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub parent_id: Option<String>,
+	pub position: i32,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub last_message_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_count: Option<u32>,
+	pub recipients: Vec<UserSnapshot>,
+	pub recipients_truncated: bool,
+	pub can_send: bool,
+	pub can_read_history: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +199,11 @@ pub struct LocalSettingsPatch {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppEventKind {
+	Account,
+	Channels,
+	Members,
+	Presence,
+	ReadState,
 	Ready,
 	Navigation,
 	Connection,

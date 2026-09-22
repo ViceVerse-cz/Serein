@@ -13,6 +13,10 @@ pub fn uses_app(capabilities: &[Capability]) -> bool {
 		matches!(
 			capability,
 			Capability::AppContext
+				| Capability::AccountProfile
+				| Capability::GuildDirectory
+				| Capability::ChannelDetails
+				| Capability::DataEvents
 				| Capability::ChannelDirectory
 				| Capability::Timeline
 				| Capability::Members
@@ -58,6 +62,24 @@ fn channel(value: &model::Channel) -> ChannelSnapshot {
 	}
 }
 
+fn text(value: &str, limit: usize) -> String {
+	let mut end = value.len().min(limit);
+	while !value.is_char_boundary(end) {
+		end -= 1;
+	}
+	value[..end]
+		.chars()
+		.filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+		.collect()
+}
+
+fn asset_hash(value: &Option<String>) -> Option<String> {
+	value
+		.as_ref()
+		.filter(|hash| hash.len() <= 128 && model::valid_avatar_hash(hash))
+		.cloned()
+}
+
 // Each candidate is already scalar-bounded before serialization. Account for JSON and
 // fixed list storage; these per-group budgets also leave room below the 64 KiB ABI cap.
 fn push<T: serde::Serialize>(items: &mut Vec<T>, item: T, left: &mut usize, max: usize) -> bool {
@@ -98,12 +120,105 @@ pub fn snapshot(
 			channel: selected.and_then(|id| state.channel(id)).map(channel),
 		});
 	}
+	if connected && granted(Capability::AccountProfile) {
+		let current = state.user.as_ref()?;
+		let profile = state
+			.own_profile
+			.data
+			.as_ref()
+			.filter(|profile| {
+				profile.user.id == current.id
+					&& !profile.limited
+					&& !state.own_profile.loading
+					&& !state.own_profile.reload_required
+					&& state.own_profile.error.is_none()
+			})
+			.map(|profile| OwnProfileSnapshot {
+				display_name: profile.global_name.as_deref().map(name),
+				bio: text(&profile.bio, 2048),
+				pronouns: text(&profile.pronouns, 256)
+					.chars()
+					.filter(|c| !c.is_control())
+					.collect(),
+			});
+		app.account_profile = Some(AccountProfileSnapshot {
+			user: user(current),
+			avatar: asset_hash(&current.avatar),
+			profile,
+		});
+	}
+	if connected && granted(Capability::GuildDirectory) {
+		let mut directory = GuildDirectorySnapshot {
+			items: Vec::new(),
+			truncated: false,
+		};
+		let mut budget = 8 * 1024;
+		for guild in state.guilds.iter().filter(|guild| guild.id.0 != 0) {
+			if !push(
+				&mut directory.items,
+				GuildSnapshot {
+					id: guild.id.0.to_string(),
+					name: name(&guild.name),
+					icon: asset_hash(&guild.icon),
+				},
+				&mut budget,
+				MAX_APP_GUILDS,
+			) {
+				directory.truncated = true;
+				break;
+			}
+		}
+		app.guilds = Some(directory);
+	}
+	if granted(Capability::ChannelDetails)
+		&& state.freshness == Freshness::Fresh
+		&& let Some(value) = selected.and_then(|id| state.channel(id))
+	{
+		let mut recipients = Vec::new();
+		let mut recipients_truncated = false;
+		let mut budget = 6 * 1024;
+		for recipient in value.recipients.iter().filter(|user| user.id.0 != 0) {
+			if recipients
+				.iter()
+				.any(|item: &UserSnapshot| item.id == recipient.id.0.to_string())
+			{
+				continue;
+			}
+			if !push(
+				&mut recipients,
+				user(recipient),
+				&mut budget,
+				MAX_CHANNEL_RECIPIENTS,
+			) {
+				recipients_truncated = true;
+				break;
+			}
+		}
+		let can_read_history = state.can_read_history(value.id);
+		app.channel_details = Some(ChannelDetailsSnapshot {
+			channel: channel(value),
+			parent_id: value
+				.parent_id
+				.filter(|id| state.can_view(*id))
+				.map(|id| id.0.to_string()),
+			position: value.position,
+			last_message_id: value
+				.last_message
+				.filter(|id| id.0 != 0 && can_read_history)
+				.map(|id| id.0.to_string()),
+			message_count: can_read_history.then_some(value.message_count).flatten(),
+			recipients,
+			recipients_truncated,
+			can_send: state.can_send(value.id),
+			can_read_history,
+		});
+	}
 	if connected && granted(Capability::ChannelDirectory) {
 		let mut directory = ChannelDirectorySnapshot {
 			items: Vec::new(),
 			truncated: false,
 		};
-		let mut budget = 12 * 1024;
+		let mut budget = 10 * 1024;
 		for value in state.channels.iter().filter(|c| {
 			state.can_view(c.id)
 				&& !(state.selected == Some(c.id) && state.freshness == Freshness::Unavailable)
@@ -130,7 +245,7 @@ pub fn snapshot(
 				|| state.history_after.is_some()
 				|| !state.older_exhausted,
 		};
-		let mut budget = 24 * 1024;
+		let mut budget = 20 * 1024;
 		for message in
 			state.timeline.iter().rev().filter(|m| {
 				m.channel == id && !m.ephemeral && m.flags & 64 == 0 && m.author.id.0 != 0
@@ -170,7 +285,7 @@ pub fn snapshot(
 				items: Vec::new(),
 				truncated: false,
 			};
-			let mut budget = 8 * 1024;
+			let mut budget = 6 * 1024;
 			let users = members
 				.into_iter()
 				.flat_map(|m| m.rows.iter().flatten().map(|m| &m.user))
@@ -198,7 +313,7 @@ pub fn snapshot(
 				items: Vec::new(),
 				truncated: false,
 			};
-			let mut budget = 8 * 1024;
+			let mut budget = 6 * 1024;
 			let statuses = members
 				.into_iter()
 				.flat_map(|m| {
@@ -386,11 +501,109 @@ mod tests {
 		}
 	}
 	#[test]
+	fn extension_app_new_data_requires_grants_and_stays_bounded_and_current() {
+		let mut state = test_support::demo_state();
+		let messaging = ui::MessagingUi::default();
+		let current = state.user.clone().unwrap();
+		state.own_profile.data = Some(model::UserProfile {
+			user: current.clone(),
+			username: current.name.clone(),
+			global_name: Some("Synthetic display".into()),
+			banner: None,
+			accent_color: None,
+			bio: "\\".repeat(4096),
+			pronouns: "they/them".into(),
+			badges: vec![],
+			connections: vec![],
+			mutual_guilds: vec![],
+			guild: None,
+			theme_colors: None,
+			clan: None,
+			limited: false,
+		});
+		let guild = state.guilds[0].clone();
+		state.guilds = (1..=150)
+			.map(|id| model::Guild {
+				id: Id(10000 + id),
+				name: "Synthetic server ".repeat(20),
+				..guild.clone()
+			})
+			.collect();
+		let selected = state.selected.unwrap();
+		state
+			.channels
+			.iter_mut()
+			.find(|c| c.id == selected)
+			.unwrap()
+			.recipients = (1..=50)
+			.map(|id| model::User {
+				id: Id(20000 + id),
+				name: "Synthetic recipient ".repeat(20),
+				..current.clone()
+			})
+			.collect();
+		let caps = manifest(vec![
+			Capability::AccountProfile,
+			Capability::GuildDirectory,
+			Capability::ChannelDetails,
+			Capability::AppContext,
+			Capability::ChannelDirectory,
+			Capability::Timeline,
+			Capability::Members,
+			Capability::Presence,
+			Capability::VoiceState,
+			Capability::ReadState,
+			Capability::LocalSettings,
+		]);
+		let app = snapshot(&state, &messaging, &caps).unwrap();
+		let account = app.account_profile.as_ref().unwrap();
+		assert_eq!(account.user.id, current.id.0.to_string());
+		assert_eq!(account.profile.as_ref().unwrap().bio.len(), 2048);
+		assert!(app.guilds.as_ref().unwrap().truncated);
+		assert!(app.guilds.as_ref().unwrap().items.len() <= MAX_APP_GUILDS);
+		let details = app.channel_details.as_ref().unwrap();
+		assert!(details.recipients_truncated && details.recipients.len() <= MAX_CHANNEL_RECIPIENTS);
+		assert!(app.bytes().unwrap() <= MAX_APP_SNAPSHOT_BYTES);
+		let ungranted =
+			snapshot(&state, &messaging, &manifest(vec![Capability::AppContext])).unwrap();
+		assert!(
+			ungranted.account_profile.is_none()
+				&& ungranted.guilds.is_none()
+				&& ungranted.channel_details.is_none()
+		);
+		state.own_profile.data.as_mut().unwrap().user.id = Id(999);
+		assert!(
+			snapshot(&state, &messaging, &caps)
+				.unwrap()
+				.account_profile
+				.as_ref()
+				.unwrap()
+				.profile
+				.is_none()
+		);
+		state.freshness = Freshness::Unavailable;
+		assert!(
+			snapshot(&state, &messaging, &caps)
+				.unwrap()
+				.channel_details
+				.is_none()
+		);
+		state.gateway_connected = false;
+		let app = snapshot(&state, &messaging, &caps).unwrap();
+		assert!(
+			app.account_profile.is_none() && app.guilds.is_none() && app.channel_details.is_none()
+		);
+	}
+
+	#[test]
 	fn extension_app_snapshot_is_granted_current_and_byte_bounded() {
 		let mut state = test_support::demo_state();
 		let messaging = ui::MessagingUi::default();
 		assert!(snapshot(&state, &messaging, &manifest(vec![Capability::Storage])).is_none());
 		let caps = manifest(vec![
+			Capability::AccountProfile,
+			Capability::GuildDirectory,
+			Capability::ChannelDetails,
 			Capability::AppContext,
 			Capability::Timeline,
 			Capability::ChannelDirectory,

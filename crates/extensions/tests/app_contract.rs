@@ -32,13 +32,41 @@ fn snapshot() -> AppSnapshot {
 		kind: 0,
 	};
 	AppSnapshot {
+		account_profile: Some(AccountProfileSnapshot {
+			user: user.clone(),
+			avatar: Some("a_abc123".into()),
+			profile: Some(OwnProfileSnapshot {
+				display_name: Some("Synthetic".into()),
+				bio: "First line\nSecond line".into(),
+				pronouns: "they/them".into(),
+			}),
+		}),
+		guilds: Some(GuildDirectorySnapshot {
+			items: vec![GuildSnapshot {
+				id: "4".into(),
+				name: "Synthetic guild".into(),
+				icon: Some("abc123".into()),
+			}],
+			truncated: false,
+		}),
+		channel_details: Some(ChannelDetailsSnapshot {
+			channel: channel.clone(),
+			parent_id: Some("6".into()),
+			position: 0,
+			last_message_id: Some("3".into()),
+			message_count: Some(1),
+			recipients: vec![user.clone()],
+			recipients_truncated: false,
+			can_send: true,
+			can_read_history: true,
+		}),
 		context: Some(AppContextSnapshot {
 			connected: true,
 			user: Some(user.clone()),
 			channel: Some(channel.clone()),
 		}),
 		channels: Some(ChannelDirectorySnapshot {
-			items: vec![channel],
+			items: vec![channel.clone()],
 			truncated: false,
 		}),
 		timeline: Some(TimelineSnapshot {
@@ -54,7 +82,7 @@ fn snapshot() -> AppSnapshot {
 		}),
 		members: Some(MembersSnapshot {
 			channel_id: "2".into(),
-			items: vec![user],
+			items: vec![user.clone()],
 			truncated: false,
 		}),
 		presence: Some(PresenceSnapshot {
@@ -90,6 +118,9 @@ fn snapshot() -> AppSnapshot {
 
 fn read_grants() -> Vec<Capability> {
 	vec![
+		Capability::AccountProfile,
+		Capability::GuildDirectory,
+		Capability::ChannelDetails,
 		Capability::AppContext,
 		Capability::ChannelDirectory,
 		Capability::Timeline,
@@ -393,4 +424,118 @@ fn snapshot_and_proposal_limits_include_escaped_wire_bytes() {
 		.validate(&manifest, &input),
 		Err(Error::Limit)
 	));
+}
+
+#[test]
+fn data_events_require_opt_in_and_the_matching_data_grant() {
+	for (kind, grant) in [
+		(AppEventKind::Account, Capability::AccountProfile),
+		(AppEventKind::Channels, Capability::ChannelDirectory),
+		(AppEventKind::Channels, Capability::GuildDirectory),
+		(AppEventKind::Channels, Capability::ChannelDetails),
+		(AppEventKind::Members, Capability::Members),
+		(AppEventKind::Presence, Capability::Presence),
+		(AppEventKind::ReadState, Capability::ReadState),
+	] {
+		let mut manifest =
+			test_manifest(vec![Capability::AppEvents, Capability::DataEvents, grant]);
+		manifest.actions[0].surface = Surface::AppEvent;
+		manifest.validate().unwrap();
+		let input = Invocation {
+			action: "run".into(),
+			app_event: Some(kind),
+			..Default::default()
+		};
+		input.validate(&manifest).unwrap();
+		let sdk: sdk::AppInvocation =
+			serde_json::from_value(serde_json::to_value(&input).unwrap()).unwrap();
+		assert_eq!(
+			serde_json::to_value(sdk.app_event).unwrap(),
+			serde_json::to_value(kind).unwrap()
+		);
+		for denied in [Capability::AppEvents, Capability::DataEvents, grant] {
+			let mut missing = manifest.clone();
+			missing
+				.capabilities
+				.retain(|capability| *capability != denied);
+			assert!(matches!(input.validate(&missing), Err(Error::Capability)));
+		}
+	}
+	assert!(matches!(
+		test_manifest(vec![Capability::DataEvents]).validate(),
+		Err(Error::Capability)
+	));
+}
+
+#[test]
+fn expanded_snapshots_bound_profile_hashes_and_collections() {
+	let manifest = test_manifest(read_grants());
+	let mut value = snapshot();
+	value
+		.account_profile
+		.as_mut()
+		.unwrap()
+		.profile
+		.as_mut()
+		.unwrap()
+		.bio = "x".repeat(2049);
+	assert!(matches!(value.validate(&manifest), Err(Error::Limit)));
+	value
+		.account_profile
+		.as_mut()
+		.unwrap()
+		.profile
+		.as_mut()
+		.unwrap()
+		.bio = "hidden\0text".into();
+	assert!(matches!(value.validate(&manifest), Err(Error::Invalid)));
+	let mut value = snapshot();
+	value.account_profile.as_mut().unwrap().avatar = Some("../secret".into());
+	assert!(matches!(value.validate(&manifest), Err(Error::Invalid)));
+	let mut value = snapshot();
+	value.guilds.as_mut().unwrap().items = (1..=MAX_APP_GUILDS + 1)
+		.map(|id| GuildSnapshot {
+			id: id.to_string(),
+			name: "Guild".into(),
+			icon: None,
+		})
+		.collect();
+	assert!(matches!(value.validate(&manifest), Err(Error::Limit)));
+	let mut value = snapshot();
+	value.channel_details.as_mut().unwrap().recipients = (1..=MAX_CHANNEL_RECIPIENTS + 1)
+		.map(|id| UserSnapshot {
+			id: id.to_string(),
+			name: "User".into(),
+		})
+		.collect();
+	assert!(matches!(value.validate(&manifest), Err(Error::Limit)));
+	value.channel_details.as_mut().unwrap().recipients.pop();
+	value.validate(&manifest).unwrap();
+	let mut value = snapshot();
+	let profile = value
+		.account_profile
+		.as_mut()
+		.unwrap()
+		.profile
+		.as_mut()
+		.unwrap();
+	profile.display_name = Some("x".repeat(256));
+	profile.bio = "x".repeat(2048);
+	profile.pronouns = "x".repeat(256);
+	value.validate(&manifest).unwrap();
+	value
+		.account_profile
+		.as_mut()
+		.unwrap()
+		.profile
+		.as_mut()
+		.unwrap()
+		.pronouns
+		.push('x');
+	assert!(matches!(value.validate(&manifest), Err(Error::Limit)));
+	let mut value = snapshot();
+	value.channel_details.as_mut().unwrap().parent_id = Some("0".into());
+	assert!(matches!(value.validate(&manifest), Err(Error::Invalid)));
+	assert_eq!(sdk::MAX_APP_GUILDS, MAX_APP_GUILDS);
+	assert_eq!(sdk::MAX_CHANNEL_RECIPIENTS, MAX_CHANNEL_RECIPIENTS);
 }

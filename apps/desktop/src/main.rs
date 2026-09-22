@@ -19,6 +19,7 @@ mod downloads;
 mod emoji_upload;
 mod extension_app;
 mod extension_bridge;
+mod extension_data_events;
 mod extension_events;
 mod extensions;
 mod game_activity;
@@ -4862,6 +4863,7 @@ impl Desktop {
 				)) {
 				self.notifications.dismiss();
 			}
+			let data_changes = extension_data_events::Changes::capture(&self.state, &event);
 			let extension_events = if self.extensions.has_message_events(&self.state) {
 				extension_events::capture(&self.state, &event.event)
 			} else {
@@ -4876,6 +4878,7 @@ impl Desktop {
 				self.extensions.access_changed(&mut self.messaging);
 			}
 			self.state.apply(event);
+			self.extensions.data_changed(data_changes);
 			self.extensions.cancel_stale_message_events(&self.state);
 			for candidate in extension_events {
 				if let Some(event) = candidate.admit(&self.state) {
