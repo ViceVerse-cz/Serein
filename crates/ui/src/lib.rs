@@ -313,6 +313,7 @@ pub struct MessagingUi {
 	/// Server folders the owner left open; restored from device preferences at startup.
 	pub expanded_folders: Vec<u64>,
 	pub voice_ptt_active: bool,
+	pub voice_ptm_active: bool,
 	pub voice_privacy_code: Option<String>,
 	/// Latest media activity, capped at 64 IDs (512 bytes) by the voice host.
 	pub voice_speaking: Vec<Id>,
@@ -450,34 +451,45 @@ impl MessagingUi {
 	/// Returns whether the configured push-to-talk chord is held in the focused window.
 	pub fn push_to_talk_down(&self, ctx: &egui::Context) -> bool {
 		ctx.input(|input| {
+			let chord = self.keybinds.chord(model::KeybindAction::PushToTalk);
+			let is_mouse = crate::keybinds::is_mouse_button(&chord.key);
 			input.focused
-				&& !ctx.egui_wants_keyboard_input()
-				&& crate::keybinds::down(
-					input,
-					self.keybinds.chord(model::KeybindAction::PushToTalk),
-				)
+				&& (is_mouse || !ctx.egui_wants_keyboard_input())
+				&& crate::keybinds::down(input, chord)
+		})
+	}
+
+	/// Returns whether the configured push-to-mute chord is held in the focused window.
+	pub fn push_to_mute_down(&self, ctx: &egui::Context) -> bool {
+		ctx.input(|input| {
+			let chord = self.keybinds.chord(model::KeybindAction::PushToMute);
+			let is_mouse = crate::keybinds::is_mouse_button(&chord.key);
+			input.focused
+				&& (is_mouse || !ctx.egui_wants_keyboard_input())
+				&& crate::keybinds::down(input, chord)
 		})
 	}
 
 	/// Returns focused-window mute/deafen presses that were not claimed by a native global hotkey.
 	pub fn voice_toggle_pressed(&self, ctx: &egui::Context, global_mask: u8) -> u8 {
-		if !ctx.input(|input| input.focused) || ctx.egui_wants_keyboard_input() {
+		if !ctx.input(|input| input.focused) {
 			return 0;
 		}
+		let wants_kb = ctx.egui_wants_keyboard_input();
 		ctx.input_mut(|input| {
 			let mut toggles = 0;
+			let mute_chord = self.keybinds.chord(model::KeybindAction::ToggleMute);
 			if global_mask & 1 == 0
-				&& crate::keybinds::pressed(
-					input,
-					self.keybinds.chord(model::KeybindAction::ToggleMute),
-				) {
+				&& (!wants_kb || crate::keybinds::is_mouse_button(&mute_chord.key))
+				&& crate::keybinds::pressed(input, mute_chord)
+			{
 				toggles |= 1;
 			}
+			let deafen_chord = self.keybinds.chord(model::KeybindAction::ToggleDeafen);
 			if global_mask & 2 == 0
-				&& crate::keybinds::pressed(
-					input,
-					self.keybinds.chord(model::KeybindAction::ToggleDeafen),
-				) {
+				&& (!wants_kb || crate::keybinds::is_mouse_button(&deafen_chord.key))
+				&& crate::keybinds::pressed(input, deafen_chord)
+			{
 				toggles |= 2;
 			}
 			toggles
@@ -2896,17 +2908,26 @@ impl MessagingUi {
 		self.timeline.video.seen = false;
 		let side = self.drain_side_press();
 		let mut commands = Vec::new();
-		if (side.back || side.forward) && !self.timeline.video.is_fullscreen() {
+		let capturing = self.keybind_capture.is_some();
+		let extra1_bound = model::KeybindAction::ALL
+			.into_iter()
+			.any(|action| self.keybinds.chord(action).key == "MouseExtra1");
+		let extra2_bound = model::KeybindAction::ALL
+			.into_iter()
+			.any(|action| self.keybinds.chord(action).key == "MouseExtra2");
+		let can_back = side.back && !capturing && !extra1_bound;
+		let can_forward = side.forward && !capturing && !extra2_bound;
+		if (can_back || can_forward) && !self.timeline.video.is_fullscreen() {
 			if self.settings.open {
-				if side.back {
+				if can_back {
 					self.settings.open = false;
 				}
 			} else if self.server_settings.is_open() {
-				if side.back {
+				if can_back {
 					let _ = self.server_settings.navigate_away(state);
 				}
 			} else {
-				let step = if side.back {
+				let step = if can_back {
 					state.navigate_back()
 				} else {
 					state.navigate_forward()

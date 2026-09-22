@@ -5426,6 +5426,8 @@ impl eframe::App for Desktop {
 		self.messaging.voice_ptt_active = self.messaging.voice_push_to_talk
 			&& self.state.voice.active.is_some()
 			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
+		self.messaging.voice_ptm_active = self.state.voice.active.is_some()
+			&& (self.messaging.push_to_mute_down(ctx) || self.hotkeys.push_to_mute_down());
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();

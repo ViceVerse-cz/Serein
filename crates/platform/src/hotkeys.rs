@@ -1,6 +1,6 @@
 //! Native global voice bindings, using the desktop portal on Wayland.
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::HotKey};
-use model::{KeyChord, KeybindAction, Keybinds};
+use model::{KeyChord, KeybindAction, Keybinds, keybinds::is_mouse_button};
 #[cfg(target_os = "linux")]
 use std::sync::{
 	Arc,
@@ -20,12 +20,15 @@ const MODIFIER_REQUIRED: &str = "Add Ctrl, Alt, Shift, or Command to use a voice
 const PUSH_TO_TALK: usize = 0;
 const TOGGLE_MUTE: usize = 1;
 const TOGGLE_DEAFEN: usize = 2;
+const PUSH_TO_MUTE: usize = 3;
 
 pub struct Hotkeys {
 	manager: Option<GlobalHotKeyManager>,
-	registered: [Option<HotKey>; 3],
-	bindings: Option<[KeyChord; 3]>,
+	registered: [Option<HotKey>; 4],
+	bindings: Option<[KeyChord; 4]>,
 	ptt_down: bool,
+	ptm_down: bool,
+	mouse_prev_down: [bool; 4],
 	pending_toggles: u8,
 	status: &'static str,
 	#[cfg(target_os = "linux")]
@@ -36,6 +39,8 @@ pub struct Hotkeys {
 	portal_registered: Arc<AtomicU8>,
 	#[cfg(target_os = "linux")]
 	portal_ptt_down: Arc<AtomicBool>,
+	#[cfg(target_os = "linux")]
+	portal_ptm_down: Arc<AtomicBool>,
 	#[cfg(target_os = "linux")]
 	portal_status: Arc<AtomicU8>,
 	#[cfg(target_os = "linux")]
@@ -59,9 +64,11 @@ impl Hotkeys {
 		};
 		Self {
 			manager,
-			registered: [None; 3],
+			registered: [None; 4],
 			bindings: None,
 			ptt_down: false,
+			ptm_down: false,
+			mouse_prev_down: [false; 4],
 			pending_toggles: 0,
 			status,
 			#[cfg(target_os = "linux")]
@@ -72,6 +79,8 @@ impl Hotkeys {
 			portal_registered: Arc::new(AtomicU8::new(0)),
 			#[cfg(target_os = "linux")]
 			portal_ptt_down: Arc::new(AtomicBool::new(false)),
+			#[cfg(target_os = "linux")]
+			portal_ptm_down: Arc::new(AtomicBool::new(false)),
 			#[cfg(target_os = "linux")]
 			portal_status: Arc::new(AtomicU8::new(0)),
 			#[cfg(target_os = "linux")]
@@ -84,6 +93,7 @@ impl Hotkeys {
 			keybinds.chord(KeybindAction::PushToTalk).clone(),
 			keybinds.chord(KeybindAction::ToggleMute).clone(),
 			keybinds.chord(KeybindAction::ToggleDeafen).clone(),
+			keybinds.chord(KeybindAction::PushToMute).clone(),
 		];
 		if self.bindings.as_ref() == Some(&next) {
 			return;
@@ -91,6 +101,8 @@ impl Hotkeys {
 		self.bindings = Some(next.clone());
 		self.unregister_all();
 		self.ptt_down = false;
+		self.ptm_down = false;
+		self.mouse_prev_down = [false; 4];
 		self.pending_toggles = 0;
 
 		#[cfg(target_os = "linux")]
@@ -101,10 +113,12 @@ impl Hotkeys {
 			self.portal_pending.store(0, Ordering::Relaxed);
 			self.portal_registered.store(0, Ordering::Relaxed);
 			self.portal_ptt_down.store(false, Ordering::Relaxed);
+			self.portal_ptm_down.store(false, Ordering::Relaxed);
 			self.portal_status.store(1, Ordering::Relaxed);
 			let pending = self.portal_pending.clone();
 			let registered = self.portal_registered.clone();
 			let ptt_down = self.portal_ptt_down.clone();
+			let ptm_down = self.portal_ptm_down.clone();
 			let status = self.portal_status.clone();
 			let wake = self.wake.clone();
 			self.portal = Some(_runtime.spawn(async move {
@@ -114,6 +128,7 @@ impl Hotkeys {
 						pending,
 						registered.clone(),
 						ptt_down.clone(),
+						ptm_down.clone(),
 						status.clone(),
 						wake.clone(),
 					)
@@ -122,6 +137,7 @@ impl Hotkeys {
 				);
 				registered.store(0, Ordering::Relaxed);
 				ptt_down.store(false, Ordering::Relaxed);
+				ptm_down.store(false, Ordering::Relaxed);
 				if !no_shortcuts {
 					status.store(3, Ordering::Relaxed);
 				}
@@ -140,8 +156,14 @@ impl Hotkeys {
 				failed = true;
 				continue;
 			}
+			if chord.key == "None" {
+				continue;
+			}
+			if is_mouse_button(&chord.key) {
+				continue;
+			}
 			if chord.modifiers == 0 && !is_standalone_global_key(&chord.key) {
-				modifier_required |= index != PUSH_TO_TALK;
+				modifier_required |= index != PUSH_TO_TALK && index != PUSH_TO_MUTE;
 				continue;
 			}
 			let Some(hotkey) = native_hotkey(chord) else {
@@ -170,7 +192,7 @@ impl Hotkeys {
 				}
 			}
 		} else {
-			self.registered = [None; 3];
+			self.registered = [None; 4];
 		}
 	}
 
@@ -181,12 +203,35 @@ impl Hotkeys {
 					match (index, event.state()) {
 						(PUSH_TO_TALK, HotKeyState::Pressed) => self.ptt_down = true,
 						(PUSH_TO_TALK, HotKeyState::Released) => self.ptt_down = false,
+						(PUSH_TO_MUTE, HotKeyState::Pressed) => self.ptm_down = true,
+						(PUSH_TO_MUTE, HotKeyState::Released) => self.ptm_down = false,
 						(TOGGLE_MUTE, HotKeyState::Pressed) => self.pending_toggles ^= 1,
 						(TOGGLE_DEAFEN, HotKeyState::Pressed) => self.pending_toggles ^= 2,
 						_ => {}
 					}
 				}
 			}
+		}
+
+		#[cfg(target_os = "windows")]
+		if let Some(bindings) = &self.bindings {
+			if is_mouse_button(&bindings[PUSH_TO_TALK].key) {
+				self.ptt_down = check_mouse_chord(&bindings[PUSH_TO_TALK]);
+			}
+			if is_mouse_button(&bindings[PUSH_TO_MUTE].key) {
+				self.ptm_down = check_mouse_chord(&bindings[PUSH_TO_MUTE]);
+			}
+			let mute_down = check_mouse_chord(&bindings[TOGGLE_MUTE]);
+			if mute_down && !self.mouse_prev_down[TOGGLE_MUTE] {
+				self.pending_toggles ^= 1;
+			}
+			self.mouse_prev_down[TOGGLE_MUTE] = mute_down;
+
+			let deafen_down = check_mouse_chord(&bindings[TOGGLE_DEAFEN]);
+			if deafen_down && !self.mouse_prev_down[TOGGLE_DEAFEN] {
+				self.pending_toggles ^= 2;
+			}
+			self.mouse_prev_down[TOGGLE_DEAFEN] = deafen_down;
 		}
 	}
 
@@ -200,8 +245,17 @@ impl Hotkeys {
 
 	/// Bits for mute/deafen bindings currently owned by the native global registrar.
 	pub fn global_toggle_mask(&self) -> u8 {
-		let mask = (self.registered[TOGGLE_MUTE].is_some() as u8)
+		let mut mask = (self.registered[TOGGLE_MUTE].is_some() as u8)
 			| ((self.registered[TOGGLE_DEAFEN].is_some() as u8) << 1);
+		#[cfg(target_os = "windows")]
+		if let Some(bindings) = &self.bindings {
+			if is_mouse_button(&bindings[TOGGLE_MUTE].key) {
+				mask |= 1;
+			}
+			if is_mouse_button(&bindings[TOGGLE_DEAFEN].key) {
+				mask |= 2;
+			}
+		}
 		#[cfg(target_os = "linux")]
 		return mask | (self.portal_registered.load(Ordering::Relaxed) >> 1);
 		#[cfg(not(target_os = "linux"))]
@@ -213,6 +267,13 @@ impl Hotkeys {
 		return self.ptt_down || self.portal_ptt_down.load(Ordering::Relaxed);
 		#[cfg(not(target_os = "linux"))]
 		self.ptt_down
+	}
+
+	pub fn push_to_mute_down(&self) -> bool {
+		#[cfg(target_os = "linux")]
+		return self.ptm_down || self.portal_ptm_down.load(Ordering::Relaxed);
+		#[cfg(not(target_os = "linux"))]
+		self.ptm_down
 	}
 
 	pub fn status(&self) -> &'static str {
@@ -347,22 +408,27 @@ fn portal_trigger(chord: &KeyChord) -> Option<String> {
 }
 
 fn is_standalone_global_key(name: &str) -> bool {
-	matches!(
-		name,
-		"PageDown"
-			| "PageUp"
-			| "Insert"
-			| "F1" | "F2"
-			| "F3" | "F4"
-			| "F5" | "F6"
-			| "F7" | "F8"
-			| "F9" | "F10"
-			| "F11" | "F12"
-	)
+	is_mouse_button(name)
+		|| matches!(
+			name,
+			"PageDown"
+				| "PageUp"
+				| "Insert"
+				| "F1" | "F2"
+				| "F3" | "F4"
+				| "F5" | "F6"
+				| "F7" | "F8"
+				| "F9" | "F10"
+				| "F11" | "F12"
+		)
 }
 
 fn native_hotkey(chord: &KeyChord) -> Option<HotKey> {
-	if !chord.is_valid() || (chord.modifiers == 0 && !is_standalone_global_key(&chord.key)) {
+	if !chord.is_valid()
+		|| chord.key == "None"
+		|| is_mouse_button(&chord.key)
+		|| (chord.modifiers == 0 && !is_standalone_global_key(&chord.key))
+	{
 		return None;
 	}
 	let mut value = String::new();
@@ -461,6 +527,49 @@ fn code_name(name: &str) -> Option<&'static str> {
 	}
 }
 
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+unsafe extern "system" {
+	fn GetAsyncKeyState(v_key: i32) -> i16;
+}
+
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn is_mouse_down_global(name: &str) -> bool {
+	let vk = match name {
+		"MousePrimary" => 0x01,
+		"MouseSecondary" => 0x02,
+		"MouseMiddle" => 0x04,
+		"MouseExtra1" => 0x05,
+		"MouseExtra2" => 0x06,
+		_ => return false,
+	};
+	unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
+}
+
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn is_vk_pressed(vk: i32) -> bool {
+	unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
+}
+
+#[cfg(target_os = "windows")]
+fn check_mouse_chord(chord: &KeyChord) -> bool {
+	if !is_mouse_button(&chord.key) {
+		return false;
+	}
+	if !is_mouse_down_global(&chord.key) {
+		return false;
+	}
+	let shift_down = is_vk_pressed(0x10);
+	let ctrl_down = is_vk_pressed(0x11);
+	let alt_down = is_vk_pressed(0x12);
+	let need_shift = (chord.modifiers & model::keybinds::SHIFT) != 0;
+	let need_ctrl = (chord.modifiers & (model::keybinds::CTRL | model::keybinds::PRIMARY)) != 0;
+	let need_alt = (chord.modifiers & model::keybinds::ALT) != 0;
+	shift_down == need_shift && ctrl_down == need_ctrl && alt_down == need_alt
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -483,5 +592,18 @@ mod tests {
 		assert!(native_hotkey(&KeyChord::new("PageUp", 0)).is_some());
 		assert!(native_hotkey(&KeyChord::new("Insert", 0)).is_some());
 		assert!(native_hotkey(&KeyChord::new("F12", 0)).is_some());
+	}
+
+	#[test]
+	fn mouse_buttons_and_push_to_mute() {
+		assert!(is_standalone_global_key("MouseExtra1"));
+		assert!(is_standalone_global_key("MouseExtra2"));
+		assert!(is_standalone_global_key("MouseMiddle"));
+		assert!(native_hotkey(&KeyChord::new("MouseExtra1", 0)).is_none());
+		assert!(native_hotkey(&KeyChord::new("None", 0)).is_none());
+
+		let hotkeys = Hotkeys::new(|| {});
+		assert!(!hotkeys.push_to_mute_down());
+		assert!(!hotkeys.push_to_talk_down());
 	}
 }

@@ -26,6 +26,7 @@ const VOICE: &[KeybindAction] = &[
 	KeybindAction::ToggleMute,
 	KeybindAction::ToggleDeafen,
 	KeybindAction::PushToTalk,
+	KeybindAction::PushToMute,
 ];
 
 pub(super) fn show(
@@ -113,33 +114,79 @@ impl Default for ConflictNotice {
 	}
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct CaptureGuard {
+	action: KeybindAction,
+}
+
+impl Default for CaptureGuard {
+	fn default() -> Self {
+		Self {
+			action: KeybindAction::ShowShortcuts,
+		}
+	}
+}
+
 fn capture(ui: &mut egui::Ui, bindings: &mut Keybinds, capturing: &mut Option<KeybindAction>) {
 	if let Some(action) = *capturing {
+		let just_started = ui.data_mut(|data| {
+			data.remove_temp::<CaptureGuard>(egui::Id::unique("keybind_capture_just_started"))
+		});
+		if just_started.map(|g| g.action) == Some(action) {
+			return;
+		}
 		let mut captured = None;
 		let mut cancelled = false;
 		for event in ui.input(|input| input.events.clone()) {
-			if let Event::Key {
-				key,
-				pressed: true,
-				repeat: false,
-				modifiers,
-				..
-			} = event
-			{
-				if key == Key::Escape {
-					cancelled = true;
-				} else if let Some(name) = key_name(key) {
-					captured = Some(KeyChord::new(name, modifier_bits(modifiers)));
+			match event {
+				Event::Key {
+					key,
+					pressed: true,
+					repeat: false,
+					modifiers,
+					..
+				} => {
+					if key == Key::Escape {
+						cancelled = true;
+					} else if let Some(name) = key_name(key) {
+						captured = Some(KeyChord::new(name, modifier_bits(modifiers)));
+					}
+					break;
 				}
-				break;
+				Event::PointerButton {
+					button,
+					pressed: true,
+					modifiers,
+					..
+				} => {
+					let mod_bits = modifier_bits(modifiers);
+					if button == egui::PointerButton::Primary && mod_bits == 0 {
+						cancelled = true;
+					} else {
+						let name = pointer_button_name(button);
+						captured = Some(KeyChord::new(name, mod_bits));
+					}
+					break;
+				}
+				_ => {}
 			}
 		}
 		if cancelled {
+			ui.input_mut(|input| {
+				input
+					.events
+					.retain(|event| !matches!(event, Event::PointerButton { pressed: true, .. }));
+			});
 			*capturing = None;
 		} else if let Some(chord) = captured {
+			ui.input_mut(|input| {
+				input
+					.events
+					.retain(|event| !matches!(event, Event::PointerButton { pressed: true, .. }));
+			});
 			if let Some(other) = KeybindAction::ALL
 				.into_iter()
-				.find(|other| *other != action && bindings.chord(*other) == &chord)
+				.find(|other| *other != action && chord.key != "None" && bindings.chord(*other) == &chord)
 			{
 				let now = ui.input(|input| input.time);
 				ui.data_mut(|data| {
@@ -254,6 +301,7 @@ fn row(
 				*capturing = Some(action);
 				ui.data_mut(|data| {
 					data.remove_temp::<ConflictNotice>(egui::Id::unique("keybind_conflict"));
+					data.insert_temp(egui::Id::unique("keybind_capture_just_started"), CaptureGuard { action });
 				});
 			}
 		});
@@ -288,31 +336,76 @@ fn egui_modifiers(bits: u8) -> Modifiers {
 }
 
 pub(crate) fn pressed(input: &mut InputState, chord: &KeyChord) -> bool {
-	key_name_to_egui(&chord.key)
-		.is_some_and(|key| input.consume_key(egui_modifiers(chord.modifiers), key))
+	if chord.key == "None" {
+		return false;
+	}
+	if let Some(btn) = pointer_button_from_name(&chord.key) {
+		let matched = input.events.iter().any(|event| {
+			matches!(event, Event::PointerButton { button: event_btn, pressed: true, modifiers, .. }
+				if *event_btn == btn && modifiers.matches_logically(egui_modifiers(chord.modifiers)))
+		});
+		if matched {
+			input.events.retain(|event| {
+				!matches!(event, Event::PointerButton { button: event_btn, pressed: true, .. } if *event_btn == btn)
+			});
+		}
+		matched
+	} else if let Some(key) = key_name_to_egui(&chord.key) {
+		input.consume_key(egui_modifiers(chord.modifiers), key)
+	} else {
+		false
+	}
 }
 
 pub(crate) fn pressed_exact(input: &mut InputState, chord: &KeyChord) -> bool {
-	let Some(key) = key_name_to_egui(&chord.key) else {
+	if chord.key == "None" {
 		return false;
-	};
-	let matched = input.events.iter().any(|event| {
-		matches!(event, Event::Key { key: event_key, pressed: true, repeat: false, modifiers, .. }
-			if *event_key == key && modifier_bits(*modifiers) == chord.modifiers)
-	});
-	matched && input.consume_key(egui_modifiers(chord.modifiers), key)
+	}
+	if let Some(btn) = pointer_button_from_name(&chord.key) {
+		let matched = input.events.iter().any(|event| {
+			matches!(event, Event::PointerButton { button: event_btn, pressed: true, modifiers, .. }
+				if *event_btn == btn && modifier_bits(*modifiers) == chord.modifiers)
+		});
+		if matched {
+			input.events.retain(|event| {
+				!matches!(event, Event::PointerButton { button: event_btn, pressed: true, .. } if *event_btn == btn)
+			});
+		}
+		matched
+	} else if let Some(key) = key_name_to_egui(&chord.key) {
+		let matched = input.events.iter().any(|event| {
+			matches!(event, Event::Key { key: event_key, pressed: true, repeat: false, modifiers, .. }
+				if *event_key == key && modifier_bits(*modifiers) == chord.modifiers)
+		});
+		matched && input.consume_key(egui_modifiers(chord.modifiers), key)
+	} else {
+		false
+	}
 }
 
 pub(crate) fn down(input: &InputState, chord: &KeyChord) -> bool {
-	key_name_to_egui(&chord.key).is_some_and(|key| {
+	if chord.key == "None" {
+		return false;
+	}
+	if let Some(btn) = pointer_button_from_name(&chord.key) {
+		input.pointer.button_down(btn)
+			&& input
+				.modifiers
+				.matches_logically(egui_modifiers(chord.modifiers))
+	} else if let Some(key) = key_name_to_egui(&chord.key) {
 		input.key_down(key)
 			&& input
 				.modifiers
 				.matches_logically(egui_modifiers(chord.modifiers))
-	})
+	} else {
+		false
+	}
 }
 
 fn chord_parts(chord: &KeyChord) -> Vec<String> {
+	if chord.key == "None" {
+		return vec!["None".into()];
+	}
 	let mut parts: Vec<String> = Vec::new();
 	if chord.modifiers & model::keybinds::PRIMARY != 0 {
 		parts.push(
@@ -446,6 +539,12 @@ fn display_key(name: &str) -> String {
 		"PageDown" => "PgDn".into(),
 		"PageUp" => "PgUp".into(),
 		"Insert" => "Ins".into(),
+		"None" => "None".into(),
+		"MouseMiddle" => "Mouse 3".into(),
+		"MouseExtra1" => "Mouse 4".into(),
+		"MouseExtra2" => "Mouse 5".into(),
+		"MouseSecondary" => "Right Click".into(),
+		"MousePrimary" => "Left Click".into(),
 		name if name
 			.strip_prefix("Num")
 			.is_some_and(|digit| digit.len() == 1) =>
@@ -453,6 +552,31 @@ fn display_key(name: &str) -> String {
 			name[3..].into()
 		}
 		other => other.to_uppercase(),
+	}
+}
+
+pub fn is_mouse_button(name: &str) -> bool {
+	model::keybinds::is_mouse_button(name)
+}
+
+fn pointer_button_name(button: egui::PointerButton) -> &'static str {
+	match button {
+		egui::PointerButton::Primary => "MousePrimary",
+		egui::PointerButton::Secondary => "MouseSecondary",
+		egui::PointerButton::Middle => "MouseMiddle",
+		egui::PointerButton::Extra1 => "MouseExtra1",
+		egui::PointerButton::Extra2 => "MouseExtra2",
+	}
+}
+
+fn pointer_button_from_name(name: &str) -> Option<egui::PointerButton> {
+	match name {
+		"MousePrimary" => Some(egui::PointerButton::Primary),
+		"MouseSecondary" => Some(egui::PointerButton::Secondary),
+		"MouseMiddle" => Some(egui::PointerButton::Middle),
+		"MouseExtra1" => Some(egui::PointerButton::Extra1),
+		"MouseExtra2" => Some(egui::PointerButton::Extra2),
+		_ => None,
 	}
 }
 
@@ -627,5 +751,127 @@ mod tests {
 
 		assert_eq!(capturing, None);
 		assert_eq!(bindings.chord(KeybindAction::ToggleDeafen), &deafen_before);
+	}
+
+	#[test]
+	fn mouse_buttons_display_and_mapping() {
+		assert_eq!(display_key("None"), "None");
+		assert_eq!(display_key("MouseMiddle"), "Mouse 3");
+		assert_eq!(display_key("MouseExtra1"), "Mouse 4");
+		assert_eq!(display_key("MouseExtra2"), "Mouse 5");
+		assert_eq!(display_key("MouseSecondary"), "Right Click");
+		assert_eq!(display_key("MousePrimary"), "Left Click");
+
+		assert!(is_mouse_button("MouseExtra1"));
+		assert!(is_mouse_button("MouseExtra2"));
+		assert!(is_mouse_button("MouseMiddle"));
+		assert!(!is_mouse_button("None"));
+		assert!(!is_mouse_button("KeyA"));
+
+		assert_eq!(
+			pointer_button_from_name("MouseExtra1"),
+			Some(egui::PointerButton::Extra1)
+		);
+		assert_eq!(
+			pointer_button_from_name("MouseExtra2"),
+			Some(egui::PointerButton::Extra2)
+		);
+		assert_eq!(
+			pointer_button_from_name("MouseMiddle"),
+			Some(egui::PointerButton::Middle)
+		);
+		assert_eq!(
+			pointer_button_from_name("MouseSecondary"),
+			Some(egui::PointerButton::Secondary)
+		);
+		assert_eq!(
+			pointer_button_from_name("MousePrimary"),
+			Some(egui::PointerButton::Primary)
+		);
+	}
+
+	#[test]
+	fn mouse_button_capture_and_down() {
+		let mut bindings = Keybinds::default();
+		let mut capturing = Some(KeybindAction::PushToTalk);
+
+		let ctx = egui::Context::default();
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				events: vec![Event::PointerButton {
+					pos: egui::pos2(100.0, 100.0),
+					button: egui::PointerButton::Extra1,
+					pressed: true,
+					modifiers: Modifiers::NONE,
+				}],
+				..Default::default()
+			},
+			|ui| {
+				capture(ui, &mut bindings, &mut capturing);
+			},
+		);
+		output.textures_delta.clear();
+
+		assert_eq!(capturing, None);
+		assert_eq!(
+			bindings.chord(KeybindAction::PushToTalk),
+			&KeyChord::new("MouseExtra1", 0)
+		);
+
+		// Test down
+		let mut down_detected = false;
+		let mut output2 = ctx.run_ui(
+			egui::RawInput {
+				events: vec![Event::PointerButton {
+					pos: egui::pos2(100.0, 100.0),
+					button: egui::PointerButton::Extra1,
+					pressed: true,
+					modifiers: Modifiers::NONE,
+				}],
+				..Default::default()
+			},
+			|ui| {
+				down_detected = ui.input(|input| {
+					down(input, bindings.chord(KeybindAction::PushToTalk))
+				});
+			},
+		);
+		output2.textures_delta.clear();
+		assert!(down_detected);
+	}
+
+	#[test]
+	fn push_to_mute_default_none_and_capture() {
+		let mut bindings = Keybinds::default();
+		assert_eq!(
+			bindings.chord(KeybindAction::PushToMute),
+			&KeyChord::new("None", 0)
+		);
+		assert_eq!(chord_parts(bindings.chord(KeybindAction::PushToMute)), vec!["None"]);
+
+		let mut capturing = Some(KeybindAction::PushToMute);
+		let ctx = egui::Context::default();
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				events: vec![Event::PointerButton {
+					pos: egui::pos2(50.0, 50.0),
+					button: egui::PointerButton::Extra2,
+					pressed: true,
+					modifiers: Modifiers::NONE,
+				}],
+				..Default::default()
+			},
+			|ui| {
+				capture(ui, &mut bindings, &mut capturing);
+			},
+		);
+		output.textures_delta.clear();
+
+		assert_eq!(capturing, None);
+		assert_eq!(
+			bindings.chord(KeybindAction::PushToMute),
+			&KeyChord::new("MouseExtra2", 0)
+		);
+		assert_eq!(chord_parts(bindings.chord(KeybindAction::PushToMute)), vec!["Mouse 5"]);
 	}
 }

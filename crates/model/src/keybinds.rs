@@ -41,6 +41,13 @@ impl KeyChord {
 	}
 }
 
+pub fn is_mouse_button(name: &str) -> bool {
+	matches!(
+		name,
+		"MousePrimary" | "MouseSecondary" | "MouseMiddle" | "MouseExtra1" | "MouseExtra2"
+	)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeybindAction {
 	ShowShortcuts,
@@ -57,12 +64,13 @@ pub enum KeybindAction {
 	CodeBlock,
 	Spoiler,
 	PushToTalk,
+	PushToMute,
 	ToggleMute,
 	ToggleDeafen,
 }
 
 impl KeybindAction {
-	pub const ALL: [Self; 16] = [
+	pub const ALL: [Self; 17] = [
 		Self::ShowShortcuts,
 		Self::SwitchConversation,
 		Self::CloseOverlay,
@@ -77,6 +85,7 @@ impl KeybindAction {
 		Self::CodeBlock,
 		Self::Spoiler,
 		Self::PushToTalk,
+		Self::PushToMute,
 		Self::ToggleMute,
 		Self::ToggleDeafen,
 	];
@@ -97,6 +106,7 @@ impl KeybindAction {
 			Self::CodeBlock => "Code Block",
 			Self::Spoiler => "Spoiler",
 			Self::PushToTalk => "Push to Talk",
+			Self::PushToMute => "Push to Mute",
 			Self::ToggleMute => "Toggle Mute",
 			Self::ToggleDeafen => "Toggle Deafen",
 		}
@@ -105,7 +115,7 @@ impl KeybindAction {
 	pub const fn is_global(self) -> bool {
 		matches!(
 			self,
-			Self::PushToTalk | Self::ToggleMute | Self::ToggleDeafen
+			Self::PushToTalk | Self::PushToMute | Self::ToggleMute | Self::ToggleDeafen
 		)
 	}
 }
@@ -127,6 +137,7 @@ pub struct Keybinds {
 	pub code_block: KeyChord,
 	pub spoiler: KeyChord,
 	pub push_to_talk: KeyChord,
+	pub push_to_mute: KeyChord,
 	pub toggle_mute: KeyChord,
 	pub toggle_deafen: KeyChord,
 }
@@ -148,6 +159,7 @@ impl Default for Keybinds {
 			code_block: KeyChord::new("C", PRIMARY | SHIFT),
 			spoiler: KeyChord::new("P", PRIMARY | SHIFT),
 			push_to_talk: KeyChord::new("V", 0),
+			push_to_mute: KeyChord::new("None", 0),
 			toggle_mute: KeyChord::new("M", PRIMARY | SHIFT),
 			toggle_deafen: KeyChord::new("D", PRIMARY | SHIFT),
 		}
@@ -171,6 +183,7 @@ impl Keybinds {
 			KeybindAction::CodeBlock => &self.code_block,
 			KeybindAction::Spoiler => &self.spoiler,
 			KeybindAction::PushToTalk => &self.push_to_talk,
+			KeybindAction::PushToMute => &self.push_to_mute,
 			KeybindAction::ToggleMute => &self.toggle_mute,
 			KeybindAction::ToggleDeafen => &self.toggle_deafen,
 		}
@@ -192,6 +205,7 @@ impl Keybinds {
 			KeybindAction::CodeBlock => &mut self.code_block,
 			KeybindAction::Spoiler => &mut self.spoiler,
 			KeybindAction::PushToTalk => &mut self.push_to_talk,
+			KeybindAction::PushToMute => &mut self.push_to_mute,
 			KeybindAction::ToggleMute => &mut self.toggle_mute,
 			KeybindAction::ToggleDeafen => &mut self.toggle_deafen,
 		}

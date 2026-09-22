@@ -511,7 +511,7 @@ impl Voice {
 				pending.channel,
 				ui.voice_push_to_talk,
 				ui.voice_ptt_active,
-			);
+			) || ui.voice_ptm_active;
 			let input_enabled = state.can_speak(pending.channel);
 			if let Err(error) =
 				self.start_media(runtime, pending, ui, ctx, listen_only, input_enabled)
@@ -531,7 +531,8 @@ impl Voice {
 					ui.voice_push_to_talk,
 					ui.voice_ptt_active,
 				) || call.server_muted
-				|| deafened || (ui.voice_push_to_talk && !ui.voice_ptt_active);
+				|| deafened || (ui.voice_push_to_talk && !ui.voice_ptt_active)
+				|| ui.voice_ptm_active;
 			live.audio.set_controls(muted, deafened);
 			live.audio.set_processing(ui.voice_processing.effective());
 			live.audio.set_input_enabled(state.can_speak(call.channel));

@@ -42,7 +42,7 @@ impl Pointer {
 					middle.pressed.get_or_insert(*pos);
 				}
 				self.down = *pressed;
-				false
+				true
 			}
 			Event::PointerButton {
 				button: PointerButton::Extra1,
@@ -52,7 +52,7 @@ impl Pointer {
 				if *pressed {
 					side.back = true;
 				}
-				false
+				true
 			}
 			Event::PointerButton {
 				button: PointerButton::Extra2,
@@ -62,7 +62,7 @@ impl Pointer {
 				if *pressed {
 					side.forward = true;
 				}
-				false
+				true
 			}
 			Event::PointerMoved(pos) => {
 				self.last = Some(*pos);
