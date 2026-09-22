@@ -29,7 +29,7 @@ use openh264::{
 };
 use std::sync::{
 	Arc, Mutex,
-	atomic::{AtomicBool, AtomicU64, Ordering},
+	atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 	mpsc,
 };
 
@@ -67,6 +67,8 @@ pub struct Video {
 	pub frames: tokio::sync::mpsc::Receiver<EncodedFrame>,
 	pub ready: Arc<AtomicBool>,
 	pub keyframe: Arc<AtomicBool>,
+	/// Transport feedback target in bits per second, bounded by the selected quality.
+	pub bitrate: Arc<AtomicU32>,
 	/// Interleaved 48 kHz stereo system audio, present only when the share requested it.
 	pub audio: Option<tokio::sync::mpsc::Receiver<AudioChunk>>,
 	pub audio_epoch: Arc<AtomicU64>,
@@ -128,6 +130,8 @@ impl Worker {
 		let audio_epoch = Arc::new(AtomicU64::new(0));
 		let worker_audio_epoch = audio_epoch.clone();
 		let keyframe = Arc::new(AtomicBool::new(true));
+		let bitrate = Arc::new(AtomicU32::new(settings.bit_rate()));
+		let worker_bitrate = bitrate.clone();
 		let preview = Arc::new(Mutex::new(None));
 		let worker_preview = preview.clone();
 		#[cfg(target_os = "linux")]
@@ -159,6 +163,7 @@ impl Worker {
 					worker_stop,
 					worker_ready,
 					worker_keyframe,
+					worker_bitrate,
 					send,
 					audio_send,
 					worker_audio_epoch,
@@ -173,6 +178,7 @@ impl Worker {
 					worker_stop,
 					worker_ready,
 					worker_keyframe,
+					worker_bitrate,
 					send,
 					audio_send,
 					worker_audio_epoch,
@@ -208,6 +214,7 @@ impl Worker {
 				frames,
 				ready,
 				keyframe,
+				bitrate,
 				audio,
 				audio_epoch,
 			},
@@ -254,6 +261,7 @@ fn encode_loop(
 	stop: Arc<AtomicBool>,
 	ready: Arc<AtomicBool>,
 	keyframe: Arc<AtomicBool>,
+	bitrate: Arc<AtomicU32>,
 	send: tokio::sync::mpsc::Sender<EncodedFrame>,
 	audio: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
 	audio_epoch: Arc<AtomicU64>,
@@ -363,8 +371,18 @@ fn encode_loop(
 		if send.capacity() == 0 {
 			continue;
 		}
+		let target = bitrate
+			.load(Ordering::Acquire)
+			.clamp(250_000, settings.bit_rate());
 		if encoding.is_none() {
-			encoding = Some(ScreenEncoder::new(settings)?);
+			encoding = Some(ScreenEncoder::new(settings, target)?);
+		}
+		if encoding
+			.as_mut()
+			.expect("secure screen encoder")
+			.set_bitrate(target)?
+		{
+			keyframe.store(true, Ordering::Release);
 		}
 		let pixels = fit_frame(
 			latest_frame.take().expect("latest screen frame"),
@@ -432,16 +450,17 @@ struct ScreenEncoder {
 	yuv: YUVBuffer,
 	hardware: Option<crate::video_encode::hardware::Encoder>,
 	settings: Settings,
+	bitrate: u32,
 }
 
 #[cfg(not(target_os = "linux"))]
 impl ScreenEncoder {
-	fn new(settings: Settings) -> Result<Self, &'static str> {
+	fn new(settings: Settings, bitrate: u32) -> Result<Self, &'static str> {
 		let config = crate::video_encode::Config {
 			width: settings.width,
 			height: settings.height,
 			fps: settings.fps,
-			bit_rate: settings.bit_rate(),
+			bit_rate: bitrate,
 			max_bytes: MAX_ENCODED_BYTES,
 			profile: crate::video_encode::Profile::Main,
 		};
@@ -454,7 +473,7 @@ impl ScreenEncoder {
 		#[cfg(target_os = "windows")]
 		let hardware = crate::video_encode::hardware::Encoder::new(config).ok();
 		let software = if hardware.is_none() {
-			Some(encoder(settings)?)
+			Some(encoder(settings, bitrate)?)
 		} else {
 			None
 		};
@@ -464,7 +483,33 @@ impl ScreenEncoder {
 			yuv: YUVBuffer::new(settings.width as usize, settings.height as usize),
 			hardware,
 			settings,
+			bitrate,
 		})
+	}
+
+	fn set_bitrate(&mut self, bitrate: u32) -> Result<bool, &'static str> {
+		if self.bitrate == bitrate {
+			return Ok(false);
+		}
+		if self
+			.hardware
+			.as_mut()
+			.is_some_and(|encoder| encoder.set_bitrate(bitrate).is_ok())
+		{
+			self.bitrate = bitrate;
+			return Ok(false);
+		}
+		if self.hardware.is_none() {
+			// OpenH264 exposes no safe runtime bitrate setter; restart with an IDR.
+			self.software = Some(encoder(self.settings, bitrate)?);
+			self.bitrate = bitrate;
+		} else {
+			// Reopen native encoders that refuse a live rate change at the target rate.
+			// Release scarce hardware sessions before requesting their replacement.
+			self.hardware = None;
+			*self = Self::new(self.settings, bitrate)?;
+		}
+		Ok(true)
 	}
 
 	fn encode(
@@ -489,7 +534,7 @@ impl ScreenEncoder {
 			// The viewer must restart from a keyframe once the software encoder takes over.
 			self.hardware = None;
 			self.diagnostics.set(None);
-			self.software = Some(encoder(self.settings)?);
+			self.software = Some(encoder(self.settings, self.bitrate)?);
 			self.diagnostics.set(Some(false));
 			software_force = true;
 		}
@@ -524,9 +569,11 @@ pub(crate) fn i420_to_nv12(
 	Ok(())
 }
 
-pub(super) fn encoder(settings: Settings) -> Result<Encoder, &'static str> {
+pub(super) fn encoder(settings: Settings, bitrate: u32) -> Result<Encoder, &'static str> {
 	let config = EncoderConfig::new()
-		.bitrate(BitRate::from_bps(settings.bit_rate()))
+		.bitrate(BitRate::from_bps(
+			bitrate.clamp(250_000, settings.bit_rate()),
+		))
 		.max_frame_rate(FrameRate::from_hz(settings.fps as f32))
 		.usage_type(UsageType::ScreenContentRealTime)
 		.rate_control_mode(RateControlMode::Bitrate)
@@ -769,7 +816,7 @@ mod tests {
 			cursor: true,
 			audio: false,
 		};
-		let mut encoder = encoder(settings).unwrap();
+		let mut encoder = encoder(settings, settings.bit_rate()).unwrap();
 		let mut yuv = YUVBuffer::new(1280, 720);
 		let (encoded, keyframe) =
 			encode_pixels(&mut encoder, &mut yuv, &pixels, (1280, 720), true).unwrap();

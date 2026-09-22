@@ -174,6 +174,20 @@ impl Encoder {
 		Ok(())
 	}
 
+	pub(crate) fn set_bitrate(&mut self, bitrate: u32) -> Result<(), &'static str> {
+		let target = CFNumber::new_i32(i32::try_from(bitrate).map_err(|_| FAILED)?);
+		let bytes = CFNumber::new_i32(i32::try_from(bitrate / 8 * 3 / 2).map_err(|_| FAILED)?);
+		let second = CFNumber::new_f64(1.0);
+		let limits = CFArray::from_objects(&[&*bytes, &*second]);
+		// SAFETY: Exported property keys; values use the same types as initial setup.
+		unsafe {
+			self.set(kVTCompressionPropertyKey_AverageBitRate, &target)?;
+			let _ = self.set(kVTCompressionPropertyKey_DataRateLimits, limits.as_opaque());
+		}
+		self.config.bit_rate = bitrate;
+		Ok(())
+	}
+
 	fn set(&self, key: &CFString, value: &CFType) -> Result<(), &'static str> {
 		// SAFETY: A compression session is a VTSession; the key and value are valid CF objects
 		// of the documented types for each property.

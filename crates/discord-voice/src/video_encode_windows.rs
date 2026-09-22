@@ -171,6 +171,15 @@ impl Encoder {
 		}
 	}
 
+	pub(crate) fn set_bitrate(&mut self, bitrate: u32) -> Result<(), &'static str> {
+		// SAFETY: Dynamic codec control stays on the encoder's owning worker.
+		unsafe {
+			self.codec
+				.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bitrate))
+				.map_err(|_| FAILED)
+		}
+	}
+
 	pub(crate) fn encode(
 		&mut self,
 		y: &[u8],

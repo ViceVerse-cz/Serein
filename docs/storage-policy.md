@@ -851,6 +851,18 @@ stream/buffers on cancellation. Pausing retains the current bounded decoded clip
 
 Screen/window labels, selected source identifiers, settings, raw pixels and encoded video exist only in session memory. They are not written to SQLite, diagnostics, previews or video files. Sources and video queues use the limits in [screen-sharing compatibility](discord-compatibility.md#outgoing-screen-sharing--september-11-2026). Stream credentials and DAVE identities are ephemeral and redacted; the signing key is shared with the active voice call and zeroized when its final owner drops. Native OS/driver capture surfaces are distinct from application-owned frame buffers. Synthetic PR screenshots are development evidence, excluded from runtime assets.
 
+Outgoing packet pacing retains the already packetized access unit across transport turns,
+at most 2,048 packets of 1,200 wire bytes each, instead of sending it in one uninterrupted
+loop. It does not admit another access unit until the pending one drains; DAVE transitions
+discard the pending packets. The existing three-frame capture queue remains unchanged.
+
+Outgoing RTX separately retains at most 2,048 original DAVE-encrypted packets for one
+second, with a 2 MiB cap accounting for payload capacities and occupied entry metadata.
+The bounded deque's spare metadata slots are additional, as are 128 pending u16 sequence
+numbers (256 bytes). Rekeys and teardown clear both. No plaintext-frame copy, persistent
+cache or recording is added. Feedback holds at most 128 NACK numbers per authenticated
+4 KiB datagram; rate control retains fixed-size counters and one atomic encoder target.
+
 
 ### Own game activity (September 11, 2026)
 

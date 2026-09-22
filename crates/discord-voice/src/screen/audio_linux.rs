@@ -70,8 +70,9 @@ impl Worker {
 
 impl Drop for Worker {
 	fn drop(&mut self) {
-		self.stop.store(true, Ordering::Release);
 		if let Some(thread) = self.thread.take() {
+			// `result` already joined a finished worker; retiring it must not stop video.
+			self.stop.store(true, Ordering::Release);
 			let _ = thread.join();
 		}
 	}
@@ -766,22 +767,25 @@ fn run(
 			last_tick + TICK
 		};
 		let mut mixed = [0.0; FRAME_SAMPLES];
-		for capture in &mut captures {
+		captures.retain_mut(|capture| {
 			if !capture.verified || capture.state() != pulse::PA_STREAM_READY {
-				continue;
+				return true;
 			}
 			let start = metrics.start();
-			// A read that fails leaves the stream unusable; the pass above collects it.
+			// Validation failures need not change Pulse's READY state. Retire the attachment
+			// explicitly so the next listing can reconnect it without retaining stale PCM.
 			if capture.read().is_err() {
+				metrics.capture(crate::diagnostics::Capture::Dropped, 1);
 				next_listing = Instant::now();
-				continue;
+				return false;
 			}
 			metrics.finish(crate::diagnostics::Stage::CaptureRead, start);
 			if stalled {
 				capture.pending.samples.clear();
 			}
 			capture.pending.mix(&mut mixed, active_epoch);
-		}
+			true
+		});
 		if ready.load(Ordering::Acquire)
 			&& epoch.load(Ordering::Acquire) == active_epoch
 			&& !stop.load(Ordering::Acquire)

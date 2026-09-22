@@ -31,7 +31,7 @@ use std::{
 	os::fd::AsRawFd,
 	sync::{
 		Arc, Mutex,
-		atomic::{AtomicBool, AtomicU64, Ordering},
+		atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 	},
 	time::{Duration, Instant},
 };
@@ -52,6 +52,7 @@ pub(super) fn run(
 	stop: Arc<AtomicBool>,
 	ready: Arc<AtomicBool>,
 	keyframe: Arc<AtomicBool>,
+	bitrate: Arc<AtomicU32>,
 	send: tokio::sync::mpsc::Sender<EncodedFrame>,
 	audio_send: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
 	audio_epoch: Arc<AtomicU64>,
@@ -90,7 +91,9 @@ pub(super) fn run(
 					audio_linux::Worker::start(send, stop.clone(), ready.clone(), audio_epoch)
 				})
 				.transpose()?;
-			for mode in Mode::ALL {
+			let mut mode_index = 0;
+			while let Some(&mode) = Mode::ALL.get(mode_index) {
+				mode_index += 1;
 				if stop.load(Ordering::Acquire) || send.is_closed() {
 					return Ok(());
 				}
@@ -126,9 +129,13 @@ pub(super) fn run(
 				};
 				let capacity = send.clone();
 				keyframe.store(true, Ordering::Release);
+				let mut active_bitrate = bitrate
+					.load(Ordering::Acquire)
+					.clamp(250_000, settings.bit_rate());
 				let Ok(pipeline) = Capture::new(
 					settings,
 					mode,
+					active_bitrate,
 					source,
 					stop.clone(),
 					ready.clone(),
@@ -169,6 +176,25 @@ pub(super) fn run(
 					}
 					if pipeline.failed() {
 						break;
+					}
+					let target = bitrate
+						.load(Ordering::Acquire)
+						.clamp(250_000, settings.bit_rate());
+					// Let startup/recovery reach its existing deadline: changing targets must
+					// not repeatedly restart a failing encoder before fallback can run.
+					if target != active_bitrate && !waiting_keyframe {
+						if mode != Mode::Software && !pipeline.set_bitrate(target) {
+							// Older plugins cannot change rate while playing: reopen the same
+							// mode with a fresh PipeWire remote, keeping the approved portal.
+							mode_index -= 1;
+							break;
+						}
+						if mode == Mode::Software {
+							software = None;
+							waiting_keyframe = true;
+							keyframe.store(true, Ordering::Release);
+						}
+						active_bitrate = target;
 					}
 					// Counted per pass: whether a picture was taken, and whether one was left
 					// in the pipeline because the transport had not drained the last.
@@ -216,7 +242,7 @@ pub(super) fn run(
 						// pressure reaches the encoder instead of breaking its reference chain,
 						// and this iteration still reaches the await below. Skipping the await
 						// here would spin the worker and starve the portal on this runtime.
-						let room = mode != Mode::Software || send.capacity() > 0;
+						let room = send.capacity() > 0;
 						withheld = u64::from(!room);
 						if room
 							&& let Some(sample) =
@@ -232,7 +258,7 @@ pub(super) fn run(
 								}
 								if software.is_none() {
 									software = Some((
-										encoder(settings)?,
+										encoder(settings, active_bitrate)?,
 										YUVBuffer::new(
 											settings.width as usize,
 											settings.height as usize,
@@ -326,9 +352,19 @@ pub(super) fn run(
 						pictures_second = 0;
 						withheld_second = 0;
 					}
-					pipeline.changed().await;
+					if withheld > 0 {
+						// Draining the transport does not notify the appsink. Wake on capacity,
+						// retaining changed()'s 100 ms bound for cancellation and portal checks.
+						tokio::select! {
+							_ = send.reserve() => {},
+							_ = pipeline.changed() => {},
+						}
+					} else {
+						pipeline.changed().await;
+					}
 				}
-				// One bounded pass through alternatives, always destroying the old pipeline first.
+				// Failed encoders advance through the bounded alternatives; rate changes retry
+				// the current encoder. Always destroy the old pipeline before opening another.
 				drop(pipeline);
 				drop(remote);
 			}

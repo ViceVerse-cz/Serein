@@ -364,6 +364,42 @@ authentication failure and normalized encryption/decryption/decoding with synthe
 video. Official Discord Android/desktop playback and resolution of issue #345
 remain subject to an owner-operated live retest.
 
+September 22 streaming follow-up: outgoing H.264 packets are paced in two-millisecond
+batches within a byte budget, allowing audio, feedback and DAVE signaling between batches.
+Only one packetized access unit is pending (the existing 2,048-fragment / 1,200-byte packet
+limits); encryption transitions discard its remainder. Linux hardware
+capture now retains encoded reference pictures while the transport queue is full and wakes
+when capacity returns. Failed application-audio monitors are retired for rediscovery;
+retiring a finished audio worker no longer stops video. Viewer stream snapshots retire old
+SSRC/RTX mappings without resetting unchanged pictures, and failed video authentication
+requests a fresh keyframe. No encryption fallback or additional codec is introduced.
+
+Authenticated RTCP receiver/sender reports and matching REMB estimates now adjust the
+encoder target once per second, between 250 kbps and the selected preset. At least 5%
+reported loss reduces the target by 20%; fresh low-loss feedback permits gradual 5%
+recovery after two seconds without congestion. Missing feedback does not increase the
+rate. REMB reserves wire overhead and expires after five seconds. Native encoder rates
+update in place where supported; software encoders and older Linux plugins restart with
+an IDR. Linux restarts retain the approved portal session and application audio.
+
+Matching authenticated NACKs use RFC 4588 RTX (PT 102) on the server-assigned RTX SSRC,
+retaining the original DAVE ciphertext with a fresh transport nonce. History is bounded
+to 2,048 entries / 2 MiB of accounted packet storage / one second, with 128 pending
+sequence numbers, two retries per packet and a 50 ms retry cooldown. Repair traffic is
+capped at 20% of the encoder target within the combined 125% wire budget, with a small
+bounded token burst. Missing or exhausted history requests an IDR instead. A 500 ms lack
+of sending progress discards the pending frame and requests recovery; slowly draining
+large keyframes are not repeatedly truncated. Rekeys clear history and pending repairs.
+
+The offline `video_interop` example exercises authenticated feedback, rate changes,
+loss/RTX recovery, paced packetization, transport/DAVE round trips, source replacement
+and the existing playback debug checks. Native Linux/Windows rate changes, real network
+behavior and official-client error 2012 still require an owner-operated retest. This is
+a bounded loss/REMB controller, not WebRTC's full congestion-control algorithm;
+RTCP sender-clock synchronization remains absent. The
+[Discord-RE sender](https://github.com/Discord-RE/Discord-video-stream/blob/master/src/client/voice/WebRtcWrapper.ts)
+provides the comparison for pacing, feedback and retransmission behavior.
+
 September 15 transport follow-up: screen audio keeps stereo 48 kHz Opus, 20 ms
 frames, the stream connection's audio SSRC, and opcode 5 Soundshare. It now also
 marks each audio packet with the native speaking RTP extension (ID 9, value 4).

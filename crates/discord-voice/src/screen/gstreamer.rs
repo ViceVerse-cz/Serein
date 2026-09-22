@@ -59,6 +59,7 @@ impl Capture {
 	pub(super) fn new(
 		settings: Settings,
 		mode: Mode,
+		bitrate: u32,
 		source: gst::Element,
 		stop: Arc<AtomicBool>,
 		ready: Arc<AtomicBool>,
@@ -68,6 +69,7 @@ impl Capture {
 		if !settings.valid() {
 			return Err(INVALID);
 		}
+		let bitrate = bitrate.clamp(250_000, settings.bit_rate());
 		let size = format!(
 			"width={},height={},pixel-aspect-ratio=1/1",
 			settings.width, settings.height
@@ -101,17 +103,17 @@ impl Capture {
 		let encoder = match mode {
 			Mode::Va => format!(
 				"vah264enc name=encoder rate-control=cbr bitrate={} key-int-max={} b-frames=0",
-				settings.bit_rate() / 1000,
+				bitrate / 1000,
 				settings.fps * 2
 			),
 			Mode::VaLegacy => format!(
 				"vaapih264enc name=encoder rate-control=cbr bitrate={} keyframe-period={} max-bframes=0 cabac=false dct8x8=false",
-				settings.bit_rate() / 1000,
+				bitrate / 1000,
 				settings.fps * 2
 			),
 			Mode::Nvidia | Mode::NvidiaCopy => format!(
 				"nvh264enc name=encoder rc-mode=cbr bitrate={} gop-size={} bframes=0 rc-lookahead=0 zerolatency=true",
-				settings.bit_rate() / 1000,
+				bitrate / 1000,
 				settings.fps * 2
 			),
 			Mode::Software => String::new(),
@@ -229,6 +231,20 @@ impl Capture {
 			.map_err(|_| UNAVAILABLE)?;
 		Ok(capture)
 	}
+	pub(super) fn set_bitrate(&self, bitrate: u32) -> bool {
+		let Some(encoder) = self.pipeline.by_name("encoder") else {
+			return false;
+		};
+		if !encoder
+			.find_property("bitrate")
+			.is_some_and(|property| property.flags().contains(gst::PARAM_FLAG_MUTABLE_PLAYING))
+		{
+			return false;
+		}
+		encoder.set_property("bitrate", bitrate / 1000);
+		true
+	}
+
 	pub(super) fn set_preview_visible(&self, visible: bool) {
 		self.preview_gate.set_property("drop", !visible);
 	}

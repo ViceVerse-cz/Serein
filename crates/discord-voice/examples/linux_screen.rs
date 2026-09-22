@@ -74,7 +74,7 @@ fn main() {
 		let ready = Arc::new(AtomicBool::new(false));
 		let keyframe = Arc::new(AtomicBool::new(true));
 		let source = gst::ElementFactory::make("videotestsrc").property("is-live", true).build().unwrap();
-		let pipeline = Capture::new(settings, mode, source, stop.clone(), ready.clone(), keyframe.clone(), || true).unwrap();
+		let pipeline = Capture::new(settings, mode, settings.bit_rate(), source, stop.clone(), ready.clone(), keyframe.clone(), || true).unwrap();
 		let deadline = Instant::now() + Duration::from_secs(5);
 		let mut saw_preview = false;
 		while Instant::now() < deadline && !saw_preview {
@@ -111,7 +111,7 @@ fn main() {
 				}
 				let raw = gstreamer::raw(&sample).unwrap();
 				assert_eq!((raw.width, raw.height), (1280, 720));
-				let mut encoder = encoder(settings).unwrap();
+				let mut encoder = encoder(settings, settings.bit_rate()).unwrap();
 				let mut yuv = openh264::formats::YUVBuffer::new(1280, 720);
 				let (data, keyframe) = encode_pixels(&mut encoder, &mut yuv, &raw.data, (1280, 720), true).unwrap();
 				assert!(keyframe);

@@ -339,10 +339,17 @@ impl Receivers {
 		Ok(())
 	}
 	pub fn remove(&mut self, user: u64) {
-		self.sources.retain(|(_, u, _)| *u != user);
+		self.retain_user_sources(user, &[]);
+	}
+	/// Reconcile a complete stream announcement without resetting unchanged assemblers.
+	pub fn retain_user_sources(&mut self, user: u64, keep: &[u32]) {
+		self.sources
+			.retain(|(ssrc, owner, _)| *owner != user || keep.contains(ssrc));
 		self.rtx
 			.retain(|(_, media)| self.sources.iter().any(|(ssrc, _, _)| ssrc == media));
-		self.awaiting_keyframe.retain(|u| *u != user);
+		if !self.sources.iter().any(|(_, owner, _)| *owner == user) {
+			self.awaiting_keyframe.retain(|u| *u != user);
+		}
 	}
 	pub fn announce_rtx(&mut self, media: u32, rtx: u32) -> Result<(), &'static str> {
 		if media == 0 || rtx == 0 {
