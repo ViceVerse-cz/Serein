@@ -31,6 +31,24 @@ include only a matching already-loaded successful server profile. Server bio,
 pronouns and join-time text cap at 1,024/256/64 UTF-8 bytes. No member lookup,
 profile load or settings fetch occurs. Combined snapshot pressure trims member
 rows first and may omit either group; no cache or queue ceiling is enlarged.
+Rich message content adds at most 10 loaded nondeleted/nonephemeral summaries /
+8 KiB. Each has at most three embed summaries, four fields per embed and three
+sticker labels; nested message rows share 2 KiB and each embed's fields share
+768 bytes. Only bounded embed text, labels, media-presence booleans and reference
+markers are copied, never media URL fields/bytes or referenced text. A poll is
+only an absent/unsupported marker; questions, options and results are not retained.
+Forum data adds ten resident readable child threads / 6 KiB, with optional loaded
+post flags and no tags or archive discovery. Conversation activity adds up to
+eight current typing IDs and twenty IDs from a loaded successful pin page / 2 KiB.
+Unknown pins stay absent. These groups share the unchanged 64-KiB snapshot cap;
+rows may be trimmed or entire groups omitted. No fetching or persistence is added.
+
+Public host discovery adds only fixed API/SDK revision and supported capability/
+event names on every invocation, without a grant or account information. It counts
+toward the unchanged 256-KiB invocation limit. Runtime failure classification uses
+fixed messages for fuel, allocation, stack, traps and invalid/oversized inputs or
+responses. Raw interpreter errors and private payloads are never retained in
+these messages; no new diagnostic cache, log, telemetry or lifecycle worker exists.
 Partial lists declare truncation; none is a history export.
 
 The account-profile grant supplies only the current account label/avatar hash

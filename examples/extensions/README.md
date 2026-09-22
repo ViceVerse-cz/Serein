@@ -27,6 +27,7 @@ may not be available in a released build.
 | --- | --- |
 | [App Toolbox](app-toolbox/src/lib.rs) | App snapshots and all supported host actions |
 | [Guild Inspector](guild-inspector/src/lib.rs) | Loaded channel/thread permissions, member nicknames, roles and server profiles |
+| [Conversation Inspector](conversation-inspector/src/lib.rs) | Rich summaries, forum flags, typing/pins and host discovery |
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
 | [Message Delete Protector](message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
 | [Emoji & Sticker Images](emoji-sticker-images/src/lib.rs) | Activation enabling image attachment mode |
@@ -75,7 +76,7 @@ Replace the example author and source URL before publishing.
 | `license` | string | License label; include the actual license in your source too. |
 | `source` | string | Public HTTPS source link, at most 2,048 UTF-8 bytes, without embedded credentials. It is metadata, not code to execute. |
 | `kind` | string | `plugin` for Wasm; declarative themes use `theme`. |
-| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 32 declarations, with 28 supported today. |
+| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 32 declarations, with 31 supported today. |
 | `actions` | object array | Entry points invoked by users or the host. Plugins need 1–16 actions with unique IDs. |
 
 `name`, `version`, `author` and `license` must be nonempty, at most 128 UTF-8 bytes,
@@ -214,7 +215,7 @@ the selected synthetic channel, or the unavailable-context message. Import alone
 does not grant permissions or execute the plugin.
 
 For an unchanged example, use its own manifest and matching compiled filename:
-`app_toolbox.wasm`, `guild_inspector.wasm`, `message_counter.wasm`, `message_delete_protector.wasm`, or
+`app_toolbox.wasm`, `guild_inspector.wasm`, `conversation_inspector.wasm`, `message_counter.wasm`, `message_delete_protector.wasm`, or
 `emoji_sticker_images.wasm`.
 
 ## Test and develop locally
@@ -307,6 +308,16 @@ eight role labels, and fetches nothing. Its observer adds `app_events` and
 `data_events` and remains passive. Build/package it with the same commands using
 `-p guild-inspector`, `guild_inspector.wasm`, and its own manifest.
 
+[Conversation Inspector](conversation-inspector/src/lib.rs) demonstrates
+`message_content`, `forum_data`, `conversation_activity` and public `host`
+discovery, including unknown pins and unsupported polls. It uses reusable offline
+fixtures and stays passive for events. Build it with `-p conversation-inspector`
+and package `conversation_inspector.wasm` with its own manifest.
+
+For failures, the host reports [sanitized execution categories](../../docs/extensions.md#safe-execution-diagnostics)
+with practical next checks. Native dispatch tests do not substitute for real Wasm
+fuel/memory validation; private input/output is never echoed in these errors.
+
 Inputs are read-only copies. Returning `effects` proposes a change needing
 **Apply**. Storage and appearance have different timing; see the output reference
 and [Panels and storage](../../docs/extension-sdk-actions.md#panels-and-storage).
@@ -341,7 +352,11 @@ shapes remain supported. Opt into events with `EventInvocation`, or app data and
 actions with `AppInvocation` / `AppOutput`. Existing plugins need no rebuild.
 
 Older hosts reject unsupported capabilities/surfaces. `api_version: 1` is not a
-capability probe; there is no runtime capability-probe API.
+capability probe. Current hosts inject a public support catalog available as
+`AppInvocation.host`; missing means an older host. Its string-based
+`supports("message_content")` and `supports_event("typing")` helpers report host
+support, never grants. Unsupported required manifest capabilities still prevent
+installation before your handler runs. See [HostInfo](../../docs/extension-sdk-reference.md#hostinfo-discover-supported-names).
 
 Rust authors use `export!`. Other languages must export:
 

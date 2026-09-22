@@ -1,4 +1,7 @@
-use crate::{ChannelMetadataSnapshot, MemberDetailsSnapshot};
+use crate::{
+	ChannelMetadataSnapshot, ConversationActivitySnapshot, ForumDataSnapshot,
+	MemberDetailsSnapshot, MessageContentSnapshot,
+};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_APP_SNAPSHOT_BYTES: usize = 64 * 1024;
@@ -21,6 +24,12 @@ pub const MAX_HOST_EFFECT_BYTES: usize = 8 * 1024;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppSnapshot {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub message_content: Option<MessageContentSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub forum_data: Option<ForumDataSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub conversation_activity: Option<ConversationActivitySnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub channel_metadata: Option<ChannelMetadataSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -305,6 +314,10 @@ pub struct LocalSettingsPatch {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppEventKind {
+	Reactions,
+	Pins,
+	Typing,
+	Polls,
 	Threads,
 	Roles,
 	Permissions,
@@ -477,12 +490,18 @@ impl AppEventKind {
 	/// Whether the manifest can read the data represented by this notification.
 	pub fn data_granted(self, capabilities: &[Capability]) -> bool {
 		let required: &[Capability] = match self {
-			Self::Threads => &[Capability::ChannelMetadata],
+			Self::Reactions | Self::Pins | Self::Typing => &[Capability::ConversationActivity],
+			Self::Polls => &[Capability::MessageContent],
+			Self::Threads => &[Capability::ChannelMetadata, Capability::ForumData],
 			Self::Roles => &[Capability::MemberDetails],
-			Self::Permissions | Self::Recovered => {
-				&[Capability::ChannelMetadata, Capability::MemberDetails]
-			}
-			Self::MessageDetails => &[Capability::MessageDetails],
+			Self::Permissions | Self::Recovered => &[
+				Capability::ChannelMetadata,
+				Capability::MemberDetails,
+				Capability::ForumData,
+				Capability::ConversationActivity,
+				Capability::MessageContent,
+			],
+			Self::MessageDetails => &[Capability::MessageDetails, Capability::MessageContent],
 			Self::Relationships => &[Capability::Relationships],
 			Self::Account => &[Capability::AccountProfile],
 			Self::Channels => &[
@@ -490,6 +509,7 @@ impl AppEventKind {
 				Capability::GuildDirectory,
 				Capability::ChannelDetails,
 				Capability::ChannelMetadata,
+				Capability::ForumData,
 			],
 			Self::Members => &[Capability::Members, Capability::MemberDetails],
 			Self::Presence => &[Capability::Presence],
@@ -516,6 +536,9 @@ impl AppEventKind {
 				| Self::Roles
 				| Self::Permissions
 				| Self::Recovered
+				| Self::Reactions
+				| Self::Pins | Self::Typing
+				| Self::Polls
 		) {
 			grant(manifest, Capability::DataEvents)?;
 			if !self.data_granted(&manifest.capabilities) {
@@ -558,6 +581,12 @@ impl AppSnapshot {
 
 	pub fn validate(&self, manifest: &Manifest) -> Result<(), Error> {
 		for (present, capability) in [
+			(self.message_content.is_some(), Capability::MessageContent),
+			(self.forum_data.is_some(), Capability::ForumData),
+			(
+				self.conversation_activity.is_some(),
+				Capability::ConversationActivity,
+			),
 			(self.channel_metadata.is_some(), Capability::ChannelMetadata),
 			(self.member_details.is_some(), Capability::MemberDetails),
 			(self.message_details.is_some(), Capability::MessageDetails),
@@ -577,6 +606,15 @@ impl AppSnapshot {
 			if present {
 				grant(manifest, capability)?;
 			}
+		}
+		if let Some(group) = &self.message_content {
+			group.validate()?;
+		}
+		if let Some(group) = &self.forum_data {
+			group.validate()?;
+		}
+		if let Some(group) = &self.conversation_activity {
+			group.validate()?;
 		}
 		if let Some(group) = &self.channel_metadata {
 			group.validate()?;

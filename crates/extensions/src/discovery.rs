@@ -1,0 +1,74 @@
+use crate::{AppEventKind, Capability};
+use serde::Serialize;
+/// Public host contract metadata; contains no account or installation information.
+#[derive(Serialize)]
+pub struct HostInfo {
+	pub api_version: u32,
+	pub sdk_revision: u32,
+	pub capabilities: &'static [Capability],
+	pub app_events: &'static [AppEventKind],
+}
+impl HostInfo {
+	pub fn current() -> Self {
+		Self {
+			api_version: crate::API_VERSION,
+			sdk_revision: 1,
+			capabilities: &[
+				Capability::MessageContent,
+				Capability::ForumData,
+				Capability::ConversationActivity,
+				Capability::ChannelMetadata,
+				Capability::MemberDetails,
+				Capability::SelectedMessage,
+				Capability::Composer,
+				Capability::Storage,
+				Capability::DeletedMessages,
+				Capability::ImageSharing,
+				Capability::Appearance,
+				Capability::MessageEvents,
+				Capability::AppContext,
+				Capability::ChannelDirectory,
+				Capability::Timeline,
+				Capability::Members,
+				Capability::Presence,
+				Capability::VoiceState,
+				Capability::ReadState,
+				Capability::LocalSettings,
+				Capability::Navigation,
+				Capability::LocalNotices,
+				Capability::ClipboardWrite,
+				Capability::VoiceControl,
+				Capability::AppEvents,
+				Capability::AccountProfile,
+				Capability::GuildDirectory,
+				Capability::ChannelDetails,
+				Capability::DataEvents,
+				Capability::MessageDetails,
+				Capability::Relationships,
+			],
+			app_events: &[
+				AppEventKind::Ready,
+				AppEventKind::Navigation,
+				AppEventKind::Context,
+				AppEventKind::Connection,
+				AppEventKind::Voice,
+				AppEventKind::Settings,
+				AppEventKind::Account,
+				AppEventKind::Channels,
+				AppEventKind::Members,
+				AppEventKind::Presence,
+				AppEventKind::ReadState,
+				AppEventKind::MessageDetails,
+				AppEventKind::Relationships,
+				AppEventKind::Threads,
+				AppEventKind::Roles,
+				AppEventKind::Permissions,
+				AppEventKind::Recovered,
+				AppEventKind::Reactions,
+				AppEventKind::Pins,
+				AppEventKind::Typing,
+				AppEventKind::Polls,
+			],
+		}
+	}
+}

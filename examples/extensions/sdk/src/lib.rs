@@ -14,6 +14,14 @@
 use serde::{Deserialize, Serialize};
 pub use serde_json;
 use std::{collections::BTreeMap, fmt, io, str::FromStr};
+mod discovery;
+pub use discovery::*;
+mod conversation_activity;
+pub use conversation_activity::*;
+mod message_content;
+pub use message_content::*;
+mod forum_data;
+pub use forum_data::*;
 mod channel_metadata;
 pub use channel_metadata::*;
 mod member_details;

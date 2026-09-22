@@ -3,7 +3,7 @@ use client_core::{Envelope, Event, State};
 use extensions::{AppEventKind, Capability};
 use model::Id;
 
-const KINDS: [AppEventKind; 11] = [
+const KINDS: [AppEventKind; 15] = [
 	AppEventKind::Account,
 	AppEventKind::Channels,
 	AppEventKind::Members,
@@ -15,10 +15,14 @@ const KINDS: [AppEventKind; 11] = [
 	AppEventKind::Roles,
 	AppEventKind::Permissions,
 	AppEventKind::Recovered,
+	AppEventKind::Reactions,
+	AppEventKind::Pins,
+	AppEventKind::Typing,
+	AppEventKind::Polls,
 ];
 
 #[derive(Default, Clone, Copy)]
-pub struct Changes([bool; 11], Option<bool>);
+pub struct Changes([bool; 15], Option<bool>);
 impl Changes {
 	pub fn capture(state: &State, envelope: &Envelope) -> Self {
 		let mut changes = Self::default();
@@ -201,6 +205,50 @@ impl Changes {
 			changes.0[2] = true;
 		}
 		changes.0[5] |= message_details_changed(state, &envelope.event);
+		if changes.0[5] {
+			let ordinary = |m: &model::Message| {
+				state.selected == Some(m.channel)
+					&& !m.ephemeral && m.flags & 64 == 0
+					&& m.author.id.0 != 0
+					&& !state.timeline.is_deleted(m.id)
+			};
+			let has_reactions = |id| {
+				state
+					.timeline
+					.get(id)
+					.is_some_and(|m| ordinary(m) && m.reactions.is_some())
+			};
+			let has_poll = |id| {
+				state
+					.timeline
+					.get(id)
+					.is_some_and(|m| ordinary(m) && m.extra_content.poll)
+			};
+			changes.0[11] |= match &envelope.event {
+				Event::Reactions(_) => true,
+				Event::Patch(patch) => !matches!(patch.reactions, model::Patch::Absent),
+				Event::Message(m) | Event::SendResult { result: Ok(m), .. } => {
+					m.reactions.is_some()
+				}
+				Event::History { messages, .. } => messages
+					.iter()
+					.any(|m| ordinary(m) && m.reactions.is_some()),
+				Event::Delete { id, .. } => has_reactions(*id),
+				Event::DeleteBulk { ids, .. } => ids.iter().any(|id| has_reactions(*id)),
+				_ => false,
+			};
+			changes.0[12] |= matches!(&envelope.event, Event::Pinned { result: Ok(()), .. });
+			changes.0[14] |= match &envelope.event {
+				Event::Patch(patch) => !matches!(patch.extra_content.poll, model::Patch::Absent),
+				Event::Message(m) | Event::SendResult { result: Ok(m), .. } => m.extra_content.poll,
+				Event::History { messages, .. } => {
+					messages.iter().any(|m| ordinary(m) && m.extra_content.poll)
+				}
+				Event::Delete { id, .. } => has_poll(*id),
+				Event::DeleteBulk { ids, .. } => ids.iter().any(|id| has_poll(*id)),
+				_ => false,
+			};
+		}
 		if let Event::UserAction(event) = &envelope.event {
 			use client_core::user_actions::Event::*;
 			changes.0[6] |=
@@ -340,6 +388,10 @@ pub struct DataKey {
 	permissions: Option<(Id, bool, bool, bool)>,
 	member_profile: Option<(Id, u64, bool, bool, bool)>,
 	channel_metadata: Option<(Id, bool, bool)>,
+	typing: [Option<Id>; 8],
+	pins: Option<(Id, u64, bool, bool, bool)>,
+	forum_posts: Option<(Id, u64, bool, bool, bool)>,
+	forum_archive: Option<(Id, u64, bool, bool, bool)>,
 }
 impl DataKey {
 	pub fn capture(state: &State) -> Self {
@@ -348,11 +400,71 @@ impl DataKey {
 				&& state.can_view(*id)
 				&& state.freshness != model::Freshness::Unavailable
 		});
+		let mut typing = [None; 8];
+		for (slot, user) in typing
+			.iter_mut()
+			.zip(state.typing_users(std::time::Instant::now()))
+		{
+			*slot = Some(user);
+		}
+		typing.sort_unstable();
 		let profile = &state.own_profile;
 		let guild = selected
 			.and_then(|id| state.channel(id))
 			.and_then(|channel| channel.guild);
+		let parent = selected
+			.and_then(|id| state.channel(id))
+			.and_then(|channel| match channel.kind {
+				0 | 5 | 15 | 16 => Some(channel.id),
+				10..=12 => channel.parent_id,
+				_ => None,
+			});
 		Self {
+			pins: state
+				.search
+				.as_ref()
+				.filter(|view| {
+					view.pins
+						&& Some(view.channel) == selected
+						&& state.freshness == model::Freshness::Fresh
+						&& state.can_read_history(view.channel)
+				})
+				.map(|view| {
+					(
+						view.channel,
+						view.request,
+						view.loading,
+						view.error.is_some(),
+						view.page.is_some(),
+					)
+				}),
+			forum_posts: state
+				.posts
+				.parent
+				.filter(|id| Some(*id) == parent)
+				.map(|id| {
+					(
+						id,
+						state.posts.request,
+						state.posts.loading,
+						state.posts.more,
+						state.posts.error.is_some(),
+					)
+				}),
+			forum_archive: state
+				.archives
+				.as_ref()
+				.filter(|view| Some(view.parent) == parent)
+				.map(|view| {
+					(
+						view.parent,
+						view.request,
+						view.loading,
+						view.error.is_some(),
+						view.page.is_some(),
+					)
+				}),
+			typing,
 			read: (
 				selected,
 				selected.and_then(|id| state.unread(id)),
@@ -438,13 +550,20 @@ impl DataKey {
 				self.read != old.read,
 				self.messages != old.messages,
 				self.relationships != old.relationships,
-				self.channel_metadata
-					.and_then(|(id, _, post)| post.then_some(id))
-					!= old
+				self.forum_posts != old.forum_posts
+					|| self.forum_archive != old.forum_archive
+					|| self
 						.channel_metadata
-						.and_then(|(id, _, post)| post.then_some(id)),
+						.and_then(|(id, _, post)| post.then_some(id))
+						!= old
+							.channel_metadata
+							.and_then(|(id, _, post)| post.then_some(id)),
 				false,
 				self.permissions != old.permissions,
+				false,
+				false,
+				self.pins != old.pins,
+				self.typing != old.typing,
 				false,
 			],
 			None,
@@ -615,6 +734,43 @@ mod tests {
 				vec![AppEventKind::MessageDetails]
 			);
 		}
+		let activity = capture(&state, patch(selected));
+		assert_eq!(
+			activity
+				.kinds(&[Capability::ConversationActivity])
+				.collect::<Vec<_>>(),
+			vec![AppEventKind::Reactions]
+		);
+		for (channel, expected) in [(selected, 1), (Id(999), 0)] {
+			let changes = capture(
+				&state,
+				Event::Pinned {
+					request: 1,
+					channel,
+					message: id,
+					pinned: true,
+					result: Ok(()),
+				},
+			);
+			assert_eq!(
+				changes
+					.kinds(&[Capability::ConversationActivity])
+					.filter(|kind| *kind == AppEventKind::Pins)
+					.count(),
+				expected
+			);
+		}
+		let mut poll = patch(selected);
+		if let Event::Patch(value) = &mut poll {
+			value.extra_content.poll = model::Patch::Value(true);
+		}
+		let changes = capture(&state, poll);
+		assert_eq!(
+			changes
+				.kinds(&[Capability::MessageContent])
+				.collect::<Vec<_>>(),
+			vec![AppEventKind::MessageDetails, AppEventKind::Polls]
+		);
 		for event in [
 			patch(Id(999)),
 			Event::Reactions(client_core::reactions::Event::Changed {

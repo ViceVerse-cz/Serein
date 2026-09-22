@@ -119,7 +119,7 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 28 capabilities, with at most 32 distinct declarations per manifest.
+supports 31 capabilities, with at most 32 distinct declarations per manifest.
 
 | Capability | Granted behavior | Scope / confirmation |
 | --- | --- | --- |
@@ -134,8 +134,11 @@ supports 28 capabilities, with at most 32 distinct declarations per manifest.
 | `account_profile` | Read the current account's loaded avatar hash and own profile | Connected; optional display name, bio and pronouns; no credentials/connections |
 | `guild_directory` | Read loaded joined servers | At most 100 names/IDs/icon hashes; no fetch |
 | `channel_details` | Read selected-channel metadata, recipients and permission summary | Fresh accessible channel; at most 32 recipients; last-message ID/count require history access |
-| `data_events` | Opt into eleven granted app-data invalidation reasons | Requires `app_events` plus each reason's read grant |
+| `data_events` | Opt into fifteen granted app-data invalidation reasons | Requires `app_events` plus each reason's read grant |
 | `channel_directory` | Read accessible cached channels | At most 100; partial directory, no fetch |
+| `message_content` | Read loaded embed text, sticker labels, reply/forward markers and poll availability | Fresh readable selected timeline; 10 messages/8 KiB; no media URLs/bytes or poll details |
+| `forum_data` | Read resident accessible child threads/posts and known flags | Selected readable parent/thread; 10 posts/6 KiB; no archive fetch or tags |
+| `conversation_activity` | Read current typing IDs and a loaded pin page | Selected readable conversation; 8 typing IDs/20 pin IDs/2 KiB; no fetch |
 | `channel_metadata` | Read loaded guild channel topic/category/thread metadata and permission decisions | Fresh readable selected guild channel; unknown remains optional; 6 KiB; no settings fetch |
 | `member_details` | Read loaded guild member nicknames, role labels and matching server profile | Fresh selected member pane; 20 members/32 role IDs each/32 catalog roles; 6 KiB; no fetch |
 | `message_details` | Read loaded message metadata: replies, mentions, attachment labels and reaction counts | Fresh readable selected timeline; at most 20 messages; no text or URLs |
@@ -161,12 +164,16 @@ explain every field, command and bound, with examples. SDK authors use
 `dispatch_typed` for offline checks. These wrappers retain the original
 `Invocation`, `EventInvocation` and `Output` APIs and flatten into ABI v1 JSON.
 Unsupported capabilities/actions are rejected by older hosts; declaring v1 alone
-does not make new capabilities available in an old build.
+does not make new capabilities available in an old build. Current hosts also
+inject public `host` discovery into every invocation: API version 1, SDK revision
+1 and supported capability/event names. `AppInvocation.host` is optional for
+older hosts, and its SDK lists use strings to tolerate future names. Support is
+not consent; discovery never bypasses required manifest validation or grants.
 
 `app` contains separately granted optional `context`, `account_profile`, `guilds`,
 `channel_details`, `channels`, `timeline`, `members`, `presence`, `voice`,
 `read_state`, `settings`, `message_details`, `relationships`, `channel_metadata`
-and `member_details` groups. A missing group
+`member_details`, `message_content`, `forum_data` and `conversation_activity` groups. A missing group
 is unavailable or ungranted, not an empty dataset. Snapshot construction reads
 already-loaded state without network or disk IO. The complete serialized snapshot
 is capped at 64 KiB. Per-group budgets are 10 KiB for channels, 20 KiB for timeline,
@@ -175,7 +182,9 @@ including item overhead. Message details and relationships use at most 8 KiB and
 4 KiB respectively, and share the remaining 64-KiB snapshot budget; they may
 truncate earlier when other groups are present. Channel metadata and member
 details each have a 6-KiB ceiling within that same global budget; member rows
-are trimmed first, and groups can be omitted when no space remains. The timeline
+are trimmed first, and groups can be omitted when no space remains. Rich-message
+content (8 KiB), forum data (6 KiB) and conversation activity (2 KiB) also share
+that ceiling; no new total snapshot allocation is authorized. The timeline
 skips messages larger than 4 KiB and reports partial data. Granting
 `message_details` also caps timeline rows at 20 instead of 50, while preserving
 the 20-KiB timeline byte budget and unchanged Wasm fuel limit. Valid wire-sized
@@ -205,10 +214,14 @@ One `app_event` action may observe `ready`, `navigation`, `context`, `connection
 navigation; use `message_events` for individual message changes. The additional
 `data_events` grant opts into `account`, `channels`, `members`, `presence`,
 `read_state`, `message_details`, `relationships`, `threads`, `roles`, `permissions`
-and `recovered` invalidation hints (17 event kinds total), each requiring the corresponding data grant
+`recovered`, `reactions`, `pins`, `typing` and `polls` invalidation hints (21 event kinds total), each requiring the corresponding data grant
 (`channels` accepts `channel_directory`, `guild_directory`, `channel_details` or `channel_metadata`; `members`
-accepts `members` or `member_details`). `threads` requires `channel_metadata`,
-`roles` requires `member_details`, and `permissions`/`recovered` require either.
+accepts `members` or `member_details`). `threads` requires `channel_metadata` or `forum_data`,
+`roles` requires `member_details`, and `permissions`/`recovered` accept any of
+`channel_metadata`, `member_details`, `forum_data`, `conversation_activity` or
+`message_content`. `reactions`/`pins`/`typing` require `conversation_activity`,
+`polls` requires `message_content`, and `message_details` accepts either its
+namesake grant or `message_content`.
 Recovery is an invalidation hint, not event replay or a promise all data is fresh. Without this
 opt-in, existing observers receive only the original six variants. Repeated
 pending detailed reasons coalesce by kind for each plugin. Pending app
@@ -226,6 +239,10 @@ shows optional channel settings/thread permissions and the first five loaded
 member details, with only its two read grants plus event grants. It does not
 fetch settings, profiles or role catalogs. Unknown decisions remain distinct
 from denial, and native actions still recheck permissions.
+[Conversation Inspector](../examples/extensions/conversation-inspector/src/lib.rs)
+shows rich summaries, loaded forum flags, typing/pin state and public discovery.
+Polls have only an absent/unsupported marker; no questions/results are retained.
+Forum tags remain unavailable. All three inspector/toolbox observers stay passive.
 
 ### Existing tools and message events
 
@@ -311,6 +328,30 @@ arbitrary code injection into egui, replacement of the app layout, custom fonts,
 network access, or automatic Discord actions. Fixed-size custom-painted components
 keep their existing geometry. Missing fields inherit the underlying theme.
 
+## Safe execution diagnostics
+
+Execution errors use fixed host messages and existing native error status. They
+never include plugin output, message text, saved storage, raw Wasm error strings
+or private invocation values. No diagnostic log or upload is added. Categories
+identify a useful next check, not a complete crash trace:
+
+| Host error category | Author action |
+| --- | --- |
+| `Fuel` | Reduce handler loops, JSON work or requested data; the 5-million-fuel limit is unchanged. |
+| `Memory` | Reduce memory/table allocation; linear memory remains capped at 16 MiB. This category also covers engine allocation failure, not only hitting that exact cap. |
+| `Stack` | Reduce recursion and stack allocations. |
+| `Trap` | Check for panic, invalid memory access or arithmetic traps. No panic text is exposed. |
+| `Input` / `InputLimit` | Check the action/input schema or reduce data, form values and storage. Public discovery counts toward the existing 256-KiB serialized invocation limit. |
+| `Handler` | The ABI returned no response. Check SDK input decoding and output serialization; the host cannot infer which failed from an empty response. |
+| `Output` / `OutputLimit` | Check output JSON/ABI buffer or reduce panel elements, text and storage. Existing output limits still apply. |
+| `Capability` | Check the manifest, user grants and permitted action surface; an execution retry cannot grant access. |
+| `Module` / `Execution` | Check required exports, import restrictions and runtime requirements. |
+| `Invalid` / `Version` / `Limit` | Check document schema, supported API version or the relevant package/data bounds before execution. |
+
+Native SDK `dispatch_typed` checks remain useful for decoding and serialization;
+real sandbox checks exercise fuel, memory, exports and output enforcement. Neither
+proves live Discord compatibility. No lifecycle tests are implied by these diagnostics.
+
 ## Resource and privacy limits
 
 Wasm executes on an on-demand background worker with fuel, stack and memory
@@ -327,7 +368,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 5,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 32 distinct | Only the 28 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 32 distinct | Only the 31 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |

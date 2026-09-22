@@ -381,6 +381,43 @@ fn check_guild_inspector(name: &str, package: &Package) {
 	println!("{name}: bounded guild data and four new event kinds passed");
 }
 
+fn check_conversation_inspector(name: &str, package: &Package) {
+	let mut fixture: serde_json::Value = serde_json::from_str(include_str!(
+		"../../../examples/extensions/conversation-inspector/fixtures/loaded.json"
+	))
+	.unwrap();
+	fixture.as_object_mut().unwrap().remove("host");
+	let mut input: Invocation = serde_json::from_value(fixture).unwrap();
+	let output = invoke(package, &input)
+		.expect("conversation fixture and host discovery fit the real sandbox");
+	for expected in [
+		"Host revision 1: message_content support true",
+		"Synthetic release note",
+		"questions, options and results unavailable",
+	] {
+		assert!(
+			output
+				.panel
+				.iter()
+				.any(|element| matches!(element,Element::Text{text} if text.contains(expected))),
+			"{name}: {expected}"
+		);
+	}
+	assert!(output.effects.is_empty() && output.storage.is_none());
+	input.action = "on-app".into();
+	for kind in [
+		extensions::AppEventKind::Reactions,
+		extensions::AppEventKind::Pins,
+		extensions::AppEventKind::Typing,
+		extensions::AppEventKind::Polls,
+	] {
+		input.app_event = Some(kind);
+		let output = invoke(package, &input).expect("new activity reasons validate in Wasm");
+		assert!(output.panel.is_empty() && output.effects.is_empty() && output.storage.is_none());
+	}
+	println!("{name}: rich data, host discovery and four focused events passed");
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut args = std::env::args_os().skip(1);
 	let wasm_dir = PathBuf::from(args.next().expect("usage: sdk_check <wasm-directory>"));
@@ -464,6 +501,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		&rebuilt(
 			include_str!("../../../examples/extensions/guild-inspector/manifest.json"),
 			&wasm_dir.join("guild_inspector.wasm"),
+		)?,
+	);
+	check_conversation_inspector(
+		"conversation-inspector/committed",
+		&parse_package(include_bytes!(
+			"../../../examples/extensions/packages/conversation-inspector.serein-extension"
+		))?,
+	);
+	check_conversation_inspector(
+		"conversation-inspector/rebuilt",
+		&rebuilt(
+			include_str!("../../../examples/extensions/conversation-inspector/manifest.json"),
+			&wasm_dir.join("conversation_inspector.wasm"),
 		)?,
 	);
 	Ok(())

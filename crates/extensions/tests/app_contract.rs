@@ -4,6 +4,9 @@ use serein_extension_sdk as sdk;
 #[test]
 fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validation() {
 	let mut manifest = test_manifest(vec![
+		Capability::MessageContent,
+		Capability::ForumData,
+		Capability::ConversationActivity,
 		Capability::ChannelMetadata,
 		Capability::MemberDetails,
 		Capability::SelectedMessage,
@@ -111,6 +114,24 @@ fn snapshot() -> AppSnapshot {
 		kind: 0,
 	};
 	AppSnapshot {
+		message_content: Some(MessageContentSnapshot {
+			channel_id: "2".into(),
+			items: vec![],
+			truncated: false,
+		}),
+		forum_data: Some(ForumDataSnapshot {
+			channel_id: "2".into(),
+			guild_id: "4".into(),
+			parent_id: "2".into(),
+			posts: vec![],
+			truncated: false,
+		}),
+		conversation_activity: Some(ConversationActivitySnapshot {
+			channel_id: "2".into(),
+			typing_user_ids: vec!["1".into()],
+			pinned_message_ids: None,
+			pins_truncated: false,
+		}),
 		channel_metadata: Some(ChannelMetadataSnapshot {
 			channel_id: "2".into(),
 			guild_id: "4".into(),
@@ -259,6 +280,9 @@ fn snapshot() -> AppSnapshot {
 
 fn read_grants() -> Vec<Capability> {
 	vec![
+		Capability::MessageContent,
+		Capability::ForumData,
+		Capability::ConversationActivity,
 		Capability::ChannelMetadata,
 		Capability::MemberDetails,
 		Capability::MessageDetails,
@@ -574,6 +598,10 @@ fn snapshot_and_proposal_limits_include_escaped_wire_bytes() {
 #[test]
 fn data_events_require_opt_in_and_the_matching_data_grant() {
 	for (kind, grant) in [
+		(AppEventKind::Reactions, Capability::ConversationActivity),
+		(AppEventKind::Pins, Capability::ConversationActivity),
+		(AppEventKind::Typing, Capability::ConversationActivity),
+		(AppEventKind::Polls, Capability::MessageContent),
 		(AppEventKind::Threads, Capability::ChannelMetadata),
 		(AppEventKind::Roles, Capability::MemberDetails),
 		(AppEventKind::Permissions, Capability::ChannelMetadata),
@@ -777,4 +805,28 @@ fn message_details_and_relationships_bound_nested_data() {
 	assert_eq!(sdk::MAX_MESSAGE_ATTACHMENTS, MAX_MESSAGE_ATTACHMENTS);
 	assert_eq!(sdk::MAX_MESSAGE_REACTIONS, MAX_MESSAGE_REACTIONS);
 	assert_eq!(sdk::MAX_RELATIONSHIPS, MAX_RELATIONSHIPS);
+}
+
+#[test]
+fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
+	let wire = serde_json::to_value(HostInfo::current()).unwrap();
+	let host: sdk::HostInfo = serde_json::from_value(wire.clone()).unwrap();
+	assert_eq!(host.api_version, API_VERSION);
+	assert!(host.supports("message_content") && host.supports_event("typing"));
+	assert!(!host.supports("forum_tags"));
+	let mut future = wire;
+	future["capabilities"]
+		.as_array_mut()
+		.unwrap()
+		.push(serde_json::json!("future_capability"));
+	let host: sdk::HostInfo = serde_json::from_value(future).unwrap();
+	assert!(host.supports("future_capability"));
+	let old: sdk::AppInvocation =
+		serde_json::from_value(serde_json::json!({"action":"run"})).unwrap();
+	assert!(old.host.is_none());
+	let caps = HostInfo::current().capabilities.to_vec();
+	test_manifest(caps.clone()).validate().unwrap();
+	assert_eq!(caps.len(), 31);
+	assert_eq!(HostInfo::current().app_events.len(), 21);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 31);
 }

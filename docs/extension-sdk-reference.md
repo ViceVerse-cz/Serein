@@ -77,9 +77,100 @@ common optional fields above may instead be serialized as `null`.
 
 | Wire field | SDK Rust / JSON type | Meaning and when supplied | Reading it |
 | --- | --- | --- | --- |
+| `host` | `Option<HostInfo>` / object or absent | Public host support information, injected on every current-host invocation without a grant. Available through `AppInvocation`; absent on older hosts. It contains supported names, not user grants. | `input.host.as_ref().is_some_and(\|host\| host.supports("message_content"))` |
 | `message_event` | `Option<MessageEvent>` / object or absent | Live message change. Available in `EventInvocation` and `AppInvocation`; requires `message_events` and the `message_event` surface. | `input.message_event.as_ref()` |
 | `app` | `Option<AppSnapshot>` / object or absent | Independently granted [app data](extension-sdk-reference.md#app-data). Available in `AppInvocation`. The desktop supplies snapshots to foreground actions and app events; activation and message events do not currently receive them. | `input.app.as_ref().and_then(\|app\| app.timeline.as_ref())` |
 | `app_event` | `Option<AppEventKind>` / string or absent | Why the host scheduled an app observer. Requires `app_events` and the `app_event` surface. Available in `AppInvocation`. | `input.app_event == Some(AppEventKind::Connection)` |
+
+### HostInfo: discover supported names
+
+Current hosts inject this public, fixed support catalog into every Wasm call;
+no capability is required and no account data is present. `AppInvocation.host`
+is `None` on older hosts. `Invocation`/`EventInvocation` handlers continue to
+ignore this additional wire field. SDK support names are strings so future names
+can be inspected without decoding a newer capability/event enum.
+
+| Wire field | SDK Rust / JSON type | Meaning | Reading from `host: &HostInfo` |
+| --- | --- | --- | --- |
+| `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
+| `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (31 currently), not this plugin's granted capabilities. | `host.supports("forum_data")` |
+| `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
+
+A supported capability still needs to be declared and explicitly granted. Older
+hosts reject unknown required manifest capabilities **before** a handler can run;
+discovery cannot bypass installation validation. Use a compatible manifest to
+inspect support, and handle missing `host` without assuming support.
+
+This complete synthetic input shows the current support catalog without any
+account snapshot or grant-dependent data:
+
+```json
+{
+  "action": "show",
+  "values": {},
+  "host": {
+    "api_version": 1,
+    "sdk_revision": 1,
+    "capabilities": [
+      "message_content",
+      "forum_data",
+      "conversation_activity",
+      "channel_metadata",
+      "member_details",
+      "selected_message",
+      "composer",
+      "storage",
+      "deleted_messages",
+      "image_sharing",
+      "appearance",
+      "message_events",
+      "app_context",
+      "channel_directory",
+      "timeline",
+      "members",
+      "presence",
+      "voice_state",
+      "read_state",
+      "local_settings",
+      "navigation",
+      "local_notices",
+      "clipboard_write",
+      "voice_control",
+      "app_events",
+      "account_profile",
+      "guild_directory",
+      "channel_details",
+      "data_events",
+      "message_details",
+      "relationships"
+    ],
+    "app_events": [
+      "ready",
+      "navigation",
+      "context",
+      "connection",
+      "voice",
+      "settings",
+      "account",
+      "channels",
+      "members",
+      "presence",
+      "read_state",
+      "message_details",
+      "relationships",
+      "threads",
+      "roles",
+      "permissions",
+      "recovered",
+      "reactions",
+      "pins",
+      "typing",
+      "polls"
+    ]
+  }
+}
+```
 
 ### Message event fields
 
@@ -179,14 +270,18 @@ does not grant the current user's identity, conversation text or settings.
 | `members` | `AppEventKind::Members` | Loaded selected-channel members may have changed; additionally requires `data_events` and either `members` or `member_details`. |
 | `presence` | `AppEventKind::Presence` | Known selected-context statuses may have changed; additionally requires `data_events` and `presence`. |
 | `read_state` | `AppEventKind::ReadState` | Selected-channel read/mention state may have changed; additionally requires `data_events` and `read_state`. |
-| `message_details` | `AppEventKind::MessageDetails` | Loaded selected-message metadata may have changed; additionally requires `data_events` and `message_details`. |
+| `message_details` | `AppEventKind::MessageDetails` | Loaded selected-message metadata may have changed; additionally requires `data_events` and either `message_details` or `message_content`. |
 | `relationships` | `AppEventKind::Relationships` | Loaded friends, requests or restricted-account lists may have changed; additionally requires `data_events` and `relationships`. |
-| `threads` | `AppEventKind::Threads` | Loaded selected-context thread/post metadata may have changed; additionally requires `data_events` and `channel_metadata`. |
+| `threads` | `AppEventKind::Threads` | Loaded selected-context thread/post metadata may have changed; additionally requires `data_events` and either `channel_metadata` or `forum_data`. |
 | `roles` | `AppEventKind::Roles` | Loaded member role/catalog data may have changed; additionally requires `data_events` and `member_details`. |
-| `permissions` | `AppEventKind::Permissions` | Selected-context permissions may have changed, including loss of data access; additionally requires `data_events` and either `channel_metadata` or `member_details`. |
-| `recovered` | `AppEventKind::Recovered` | The host observed accepted recovery/resynchronization; reread current groups, which may still be absent or partial. Additionally requires `data_events` and either `channel_metadata` or `member_details`; this is not replay of missed events. |
+| `permissions` | `AppEventKind::Permissions` | Selected-context permissions may have changed, including loss of data access; additionally requires `data_events` and at least one of `channel_metadata`, `member_details`, `forum_data`, `conversation_activity`, `message_content`. |
+| `recovered` | `AppEventKind::Recovered` | The host observed accepted recovery/resynchronization; reread current groups, which may still be absent or partial. Additionally requires `data_events` and at least one of `channel_metadata`, `member_details`, `forum_data`, `conversation_activity`, `message_content`; this is not replay of missed events. |
+| `reactions` | `AppEventKind::Reactions` | An accepted selected-message reaction change may affect loaded data; requires `data_events` and `conversation_activity`. Reaction summaries still need `message_details`. |
+| `pins` | `AppEventKind::Pins` | Selected-channel loaded pin data may have changed; requires `data_events` and `conversation_activity`. |
+| `typing` | `AppEventKind::Typing` | Selected-channel typing indicators may have changed or expired; requires `data_events` and `conversation_activity`. |
+| `polls` | `AppEventKind::Polls` | A loaded message's poll-presence marker may have changed; requires `data_events` and `message_content`. This is not a poll vote/results stream. |
 
-The eleven detailed reasons are opt-in: `data_events` requires `app_events`,
+The fifteen detailed reasons are opt-in: `data_events` requires `app_events`,
 and each reason also needs its corresponding read grant. Existing observers
 without `data_events` receive only the original six reasons. These are
 invalidation hints from observed app updates, not raw service events or payload
@@ -252,6 +347,9 @@ For the examples below, `app` is a borrowed `AppSnapshot`. Each field is an
 
 | Wire field | SDK Rust type | Required capability and availability | Reading it |
 | --- | --- | --- | --- |
+| `message_content` | `Option<MessageContentSnapshot>` | `message_content`; fresh readable selected timeline; rich summaries only, no media URLs or referenced text. | `app.message_content.as_ref()` |
+| `forum_data` | `Option<ForumDataSnapshot>` | `forum_data`; fresh readable selected guild text/forum/media parent or thread with an accessible readable parent. | `app.forum_data.as_ref()` |
+| `conversation_activity` | `Option<ConversationActivitySnapshot>` | `conversation_activity`; fresh readable selected conversation; loaded pins and current typing IDs only. | `app.conversation_activity.as_ref()` |
 | `channel_metadata` | `Option<ChannelMetadataSnapshot>` | `channel_metadata`; connected, fresh, viewable and readable selected guild channel; optional settings/post fields may remain unknown. | `app.channel_metadata.as_ref()` |
 | `member_details` | `Option<MemberDetailsSnapshot>` | `member_details`; connected, fresh readable selected guild channel with a matching fresh loaded member pane. | `app.member_details.as_ref()` |
 | `message_details` | `Option<MessageDetailsSnapshot>` | `message_details`; connected, fresh, readable selected timeline, without message text. | `app.message_details.as_ref()` |
@@ -270,7 +368,7 @@ For the examples below, `app` is a borrowed `AppSnapshot`. Each field is an
 
 On disconnect, the collector omits account profile, guilds, channel details,
 channel directory, timeline, message details, relationships, channel metadata,
-member details, members and presence. It also removes the selected
+member details, message content, forum data, conversation activity, members and presence. It also removes the selected
 channel from context and read state. The account label in context,
 settings and independently available voice state may remain. A known inaccessible
 channel is not exposed through the selected-channel groups. Active private
@@ -598,6 +696,147 @@ The current collector skips a whole message when its content exceeds 4 KiB of
 UTF-8 and sets `truncated`; it does not shorten the message. The wire validator
 allows up to 16 KiB per message, matching the separate message-event content
 ceiling. Do not assume all valid wire-sized messages appear in desktop snapshots.
+
+### MessageContentSnapshot: bounded rich-message summaries
+
+Requires `message_content`, independently of `timeline`/`message_details`. Only
+the connected, fresh, viewable/readable selected text conversation is eligible.
+Deleted and ephemeral rows are excluded. No embed/media URLs, bytes, referenced
+message text, or poll questions/options/results are exposed. Embed text itself
+can contain private conversation content: this is a read grant, not public data.
+
+The group holds at most 10 messages / 8 KiB including collector overhead, then
+shares the remaining 64-KiB snapshot budget. Nested stickers/embeds share 2 KiB
+per message; embed fields share 768 bytes per embed. Rows can be trimmed and
+the group omitted when global space is exhausted. Nothing fetches content.
+
+| Group field | SDK Rust / JSON type | Meaning | Reading from `content: &MessageContentSnapshot` |
+| --- | --- | --- | --- |
+| `channel_id` | `String` / string | Selected conversation. | `content.channel_id.as_str()` |
+| `items` | `Vec<RichMessageSnapshot>` / array | Up to 10 loaded summaries in timeline order, possibly fewer by bytes. | `content.items.last()` |
+| `truncated` | `bool` / boolean | Loaded history/window or limits leave this list partial. | `content.truncated` |
+
+| Message field | SDK Rust / JSON type | Meaning | Reading from `message: &RichMessageSnapshot` |
+| --- | --- | --- | --- |
+| `id` | `String` / string | Message ID. | `message.id.as_str()` |
+| `embeds` | `Vec<EmbedSummarySnapshot>` / array | At most 3 loaded embed summaries. | `message.embeds.first()` |
+| `embeds_truncated` | `bool` / boolean | Embed records omitted by limits. | `message.embeds_truncated` |
+| `embeds_suppressed` | `bool` / boolean | Loaded message's suppressed-embed flag. | `message.embeds_suppressed` |
+| `stickers` | `Vec<MessageStickerSnapshot>` / array | At most 3 loaded sticker labels. | `message.stickers.len()` |
+| `stickers_truncated` | `bool` / boolean | Sticker records were unavailable in the retained payload or omitted by limits/invalid IDs. | `message.stickers_truncated` |
+| `reference` | `Option<MessageReferenceSnapshot>` / object or absent | Loaded reply/deleted-reference/forward marker, absent if none is known. No referenced body is supplied. | `message.reference.as_ref()` |
+| `poll` | `PollAvailability` / string | `absent` (`Absent`): no retained poll marker; `unsupported` (`Unsupported`): marker present, structured poll data not retained. Neither supplies votes or results. | `message.poll == PollAvailability::Unsupported` |
+
+Embed strings are capped in UTF-8 and stripped of controls except newline/tab.
+Optional absent text is unknown/unsupplied; `Some("")` is known empty.
+
+| Embed field | SDK Rust / JSON type | Meaning / limit | Reading from `embed: &EmbedSummarySnapshot` |
+| --- | --- | --- | --- |
+| `kind` | `String` / string | Loaded embed kind, at most 32 bytes. | `embed.kind.as_str()` |
+| `title` | `Option<String>` / string or absent | Title, at most 256 bytes. | `embed.title.as_deref()` |
+| `description` | `Option<String>` / string or absent | Description, at most 512 bytes. | `embed.description.as_deref()` |
+| `author` | `Option<String>` / string or absent | Author label only, at most 128 bytes. | `embed.author.as_deref()` |
+| `footer` | `Option<String>` / string or absent | Footer text only, at most 256 bytes. | `embed.footer.as_deref()` |
+| `color` | `Option<u32>` / integer or absent | RGB color, 0 through `0xffffff`. | `embed.color` |
+| `fields` | `Vec<EmbedFieldSnapshot>` / array | At most 4 fields, further limited by their 768-byte shared budget. | `embed.fields.len()` |
+| `fields_truncated` | `bool` / boolean | Fields omitted by limits. | `embed.fields_truncated` |
+| `has_image` | `bool` / boolean | Loaded image metadata exists; no URL/bytes. | `embed.has_image` |
+| `has_thumbnail` | `bool` / boolean | Loaded thumbnail metadata exists. | `embed.has_thumbnail` |
+| `has_video` | `bool` / boolean | Loaded video metadata exists. | `embed.has_video` |
+| `limited` | `bool` / boolean | The retained embed was limited or text exceeded summary bounds. Check `fields_truncated` separately too. | `embed.limited` |
+
+| Nested object | Field | SDK Rust / JSON type | Meaning / limit |
+| --- | --- | --- | --- |
+| `EmbedFieldSnapshot` | `name` | `String` / string | Field label, at most 128 UTF-8 bytes. |
+| `EmbedFieldSnapshot` | `value` | `String` / string | Field text, at most 256 UTF-8 bytes. |
+| `EmbedFieldSnapshot` | `inline` | `bool` / boolean | Loaded inline-layout hint. |
+| `MessageStickerSnapshot` | `id` | `String` / string | Sticker ID. |
+| `MessageStickerSnapshot` | `name` | `String` / string | Shared sanitized sticker label, at most 128 collector bytes. |
+| `MessageStickerSnapshot` | `format_type` | `u8` / integer | Loaded service format number; retain an unknown-value fallback. |
+| `MessageReferenceSnapshot` | `message_id` | `Option<String>` / string or absent | Referenced message ID when known; may be absent for a forward marker. |
+| `MessageReferenceSnapshot` | `deleted` | `bool` / boolean | Loaded reference-deleted flag, not deleted content. |
+| `MessageReferenceSnapshot` | `forwarded` | `bool` / boolean | Loaded forward marker, not the forwarded body. |
+
+### ForumDataSnapshot: loaded sibling posts and threads
+
+Requires `forum_data`. A fresh, readable selected guild text/announcement/forum/
+media parent (kind 0/5/15/16), or a thread under such a parent, is eligible only
+when both selected channel and parent are viewable/readable in the same guild.
+No directory/archive fetch occurs. Only accessible, readable child threads
+already resident in the channel list are supplied; archive-only rows are not
+loaded on behalf of the plugin. At most 10 posts / 6 KiB, further reduced by
+remaining global snapshot space. Unsupported selected kinds or access loss omit
+the group. Forum tags are not retained by this API and have no fabricated fields.
+
+| Group field | SDK Rust / JSON type | Meaning | Reading from `forum: &ForumDataSnapshot` |
+| --- | --- | --- | --- |
+| `channel_id` | `String` / string | Selected parent or thread ID. | `forum.channel_id.as_str()` |
+| `guild_id` | `String` / string | Matching guild. | `forum.guild_id.as_str()` |
+| `parent_id` | `String` / string | Parent whose loaded children are summarized. | `forum.parent_id.as_str()` |
+| `posts` | `Vec<ForumPostSnapshot>` / array | At most 10 resident readable child threads, not all service posts. | `forum.posts.len()` |
+| `truncated` | `bool` / boolean | Loading/paging state or limits leave the list partial. | `forum.truncated` |
+
+| Post field | SDK Rust / JSON type | Meaning | Reading from `post: &ForumPostSnapshot` |
+| --- | --- | --- | --- |
+| `id` | `String` / string | Thread/post ID. | `post.id.as_str()` |
+| `name` | `String` / string | Shared sanitized label, at most 128 bytes. | `post.name.as_str()` |
+| `kind` | `u8` / integer | Thread kind 10, 11 or 12. | `post.kind` |
+| `message_count` | `Option<u32>` / integer or null | Loaded count, unknown when null. | `post.message_count` |
+| `owner_id` | `Option<String>` / string or absent | Loaded post owner when known. | `post.owner_id.as_deref()` |
+| `archived` | `Option<bool>` / boolean or null | Loaded post flag, or true when present in an accessible loaded archive page. Unknown differs from false. | `post.archived` |
+| `locked` | `Option<bool>` / boolean or null | Loaded post flag, otherwise unknown. | `post.locked` |
+| `pinned` | `Option<bool>` / boolean or null | Loaded post flag, otherwise unknown. | `post.pinned` |
+| `followed` | `Option<bool>` / boolean or null | Loaded follow state; not proof of private-thread membership. | `post.followed` |
+
+### ConversationActivitySnapshot: loaded pins and typing indicators
+
+Requires `conversation_activity`. The selected connected, fresh, viewable and
+readable conversation is eligible; no pin/history fetch is started. This 2-KiB
+group may be omitted when the remaining shared snapshot budget is insufficient.
+A reaction event is only an invalidation reason; actual reaction summaries still
+use the separate `message_details` grant.
+
+| Wire field | SDK Rust / JSON type | Meaning and absence | Reading from `activity: &ConversationActivitySnapshot` |
+| --- | --- | --- | --- |
+| `channel_id` | `String` / string | Selected conversation. | `activity.channel_id.as_str()` |
+| `typing_user_ids` | `Vec<String>` / array | Up to 8 current, unexpired typing user IDs; empty means no currently retained indicator, not proof nobody is composing. No completeness flag. | `activity.typing_user_ids.len()` |
+| `pinned_message_ids` | `Option<Vec<String>>` / array or absent | Up to 20 IDs from the current successfully loaded pin page for this channel. Absent when pins are not loaded, loading or failed; `[]` means known empty page. | `activity.pinned_message_ids.as_ref()` |
+| `pins_truncated` | `bool` / boolean | The loaded pin page is partial, has another cursor, or exceeds the ID cap. Even false does not promise a full service inventory. | `activity.pins_truncated` |
+
+This complete synthetic input combines a rich summary with unsupported poll data,
+loaded forum flags, typing and unknown pin state. It has no media URLs or poll
+results. Public host discovery is omitted from this focused offline fixture:
+
+```json
+{
+  "action": "show", "values": {},
+  "app": {
+    "message_content": {"channel_id": "100", "items": [{
+      "id": "300", "embeds": [{"kind": "rich", "title": "Synthetic title",
+        "fields": [{"name": "Label", "value": "Value", "inline": false}],
+        "fields_truncated": false, "has_image": true, "has_thumbnail": false,
+        "has_video": false, "limited": false}],
+      "embeds_truncated": false, "embeds_suppressed": false,
+      "stickers": [], "stickers_truncated": false,
+      "reference": {"message_id": "299", "deleted": false, "forwarded": false},
+      "poll": "unsupported"
+    }], "truncated": false},
+    "forum_data": {"channel_id": "100", "guild_id": "200", "parent_id": "100",
+      "posts": [{"id": "400", "name": "Loaded post", "kind": 11,
+        "message_count": null, "archived": null, "locked": false,
+        "pinned": null, "followed": null}], "truncated": true},
+    "conversation_activity": {"channel_id": "100", "typing_user_ids": ["500"],
+      "pins_truncated": false}
+  }
+}
+```
+
+The complete [Conversation Inspector handler](../examples/extensions/conversation-inspector/src/lib.rs)
+and [manifest](../examples/extensions/conversation-inspector/manifest.json) show
+these groups and public host support without storage or effects. Its foreground
+panel is immediate; its observer returns empty output. Missing groups remain
+unavailable instead of being labeled empty. Its synthetic fixtures exercise
+loaded and partial states without contacting Discord.
 
 ### MessageDetailsSnapshot: loaded replies, mentions, attachments and reactions
 

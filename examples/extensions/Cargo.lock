@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "conversation-inspector"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "emoji-sticker-images"
 version = "1.0.0"
 dependencies = [

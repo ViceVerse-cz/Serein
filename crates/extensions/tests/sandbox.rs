@@ -114,15 +114,75 @@ fn rejects_imports_start_and_excessive_memory() {
 
 #[test]
 fn fuel_interrupts_infinite_loop_and_memory_growth_traps() {
-	for body in [
-		"(loop $spin (br $spin)) (i64.const 0)",
-		"(drop (memory.grow (i32.const 256))) (i64.const 0)",
+	for (body, expected) in [
+		("(loop $spin (br $spin)) (i64.const 0)", Error::Fuel),
+		(
+			"(drop (memory.grow (i32.const 256))) (i64.const 0)",
+			Error::Memory,
+		),
 	] {
 		let package = plugin(&format!(
 			r#"(module (memory (export "memory") 1) (func (export "serein_alloc") (param i32) (result i32) i32.const 0) (func (export "serein_invoke") (param i32 i32) (result i64) {body}))"#
 		));
-		assert!(matches!(invoke(&package, &input()), Err(Error::Execution)));
+		let error = invoke(&package, &input()).unwrap_err();
+		assert_eq!(
+			std::mem::discriminant(&error),
+			std::mem::discriminant(&expected)
+		);
 	}
+}
+
+#[test]
+fn diagnostics_distinguish_safe_runtime_input_and_output_failures() {
+	let trap = plugin(
+		r#"(module (memory (export "memory") 1)
+        (func (export "serein_alloc") (param i32) (result i32) i32.const 0)
+        (func (export "serein_invoke") (param i32 i32) (result i64) unreachable))"#,
+	);
+	assert!(matches!(invoke(&trap, &input()), Err(Error::Trap)));
+	let recursive = plugin(
+		r#"(module (memory (export "memory") 1)
+        (func (export "serein_alloc") (param i32) (result i32) i32.const 0)
+        (func $recurse (result i64) call $recurse i64.const 1 i64.add)
+        (func (export "serein_invoke") (param i32 i32) (result i64) call $recurse))"#,
+	);
+	assert!(matches!(invoke(&recursive, &input()), Err(Error::Stack)));
+	assert!(matches!(
+		invoke(&returning(""), &input()),
+		Err(Error::Handler)
+	));
+	let private = "private fixture must never appear in diagnostics";
+	let malformed = invoke(&returning(private), &input()).unwrap_err();
+	assert!(matches!(malformed, Error::Output));
+	assert!(!malformed.to_string().contains(private));
+	assert!(!format!("{malformed:?}").contains(private));
+
+	let mut request = input();
+	request.action = private.into();
+	let error = invoke(&returning("{}"), &request).unwrap_err();
+	assert!(matches!(error, Error::Input));
+	assert!(!error.to_string().contains(private));
+	request = input();
+	request.composer = Some("x".repeat(MAX_IO_BYTES + 1));
+	assert!(matches!(
+		invoke(&returning("{}"), &request),
+		Err(Error::InputLimit)
+	));
+	let oversized = plugin(&format!(
+		r#"(module (memory (export "memory") 1)
+        (func (export "serein_alloc") (param i32) (result i32) i32.const 0)
+        (func (export "serein_invoke") (param i32 i32) (result i64) i64.const {}))"#,
+		MAX_IO_BYTES + 1
+	));
+	assert!(matches!(
+		invoke(&oversized, &input()),
+		Err(Error::OutputLimit)
+	));
+	let panel = serde_json::json!({"panel": vec![serde_json::json!({"type":"text","text":"x"}); MAX_PANEL_ELEMENTS + 1]});
+	assert!(matches!(
+		invoke(&returning(&panel.to_string()), &input()),
+		Err(Error::OutputLimit)
+	));
 }
 
 #[test]

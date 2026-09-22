@@ -58,6 +58,10 @@ fn main() {
 		"roles",
 		"permissions",
 		"recovered",
+		"reactions",
+		"pins",
+		"typing",
+		"polls",
 	] {
 		input.app_event =
 			Some(serde_json::from_value(json!(kind)).expect("current host recognizes new event"));
@@ -67,6 +71,6 @@ fn main() {
 		);
 	}
 	println!(
-		"immutable legacy App Toolbox: foreground snapshot, 5 old data events and 6 new-event grant rejections passed"
+		"immutable legacy App Toolbox: foreground snapshot, 5 old data events and 10 new-event grant rejections passed"
 	);
 }

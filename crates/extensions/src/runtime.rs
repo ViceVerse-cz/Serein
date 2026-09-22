@@ -1,7 +1,7 @@
 use crate::{Error, ExtensionKind, Invocation, MAX_IO_BYTES, MAX_MODULE_BYTES, Output, Package};
 use wasmi::{
 	Config, EnforcedLimits, Engine, ExternType, FuncType, Instance, Linker, Module, Store,
-	StoreLimits, StoreLimitsBuilder, ValType,
+	StoreLimits, StoreLimitsBuilder, TrapCode, ValType,
 };
 
 const MEMORY_BYTES: usize = 16 * 1024 * 1024;
@@ -44,6 +44,22 @@ pub(crate) fn validate_module(bytes: &[u8]) -> Result<(), Error> {
 	instantiate(&engine, &module).map(|_| ())
 }
 
+// Classify only engine-owned codes: never surface Wasm-provided text or input/output bytes.
+fn execution_error(error: wasmi::Error) -> Error {
+	match error.as_trap_code() {
+		Some(TrapCode::OutOfFuel) => Error::Fuel,
+		Some(TrapCode::GrowthOperationLimited | TrapCode::OutOfSystemMemory) => Error::Memory,
+		Some(TrapCode::StackOverflow) => Error::Stack,
+		Some(_) => Error::Trap,
+		None => match error.kind() {
+			wasmi::errors::ErrorKind::Memory(_) | wasmi::errors::ErrorKind::Table(_) => {
+				Error::Memory
+			}
+			_ => Error::Execution,
+		},
+	}
+}
+
 fn instantiate(engine: &Engine, module: &Module) -> Result<(Store<StoreLimits>, Instance), Error> {
 	let limits = StoreLimitsBuilder::new()
 		.memory_size(MEMORY_BYTES)
@@ -58,7 +74,7 @@ fn instantiate(engine: &Engine, module: &Module) -> Result<(Store<StoreLimits>, 
 	store.set_fuel(FUEL).map_err(|_| Error::Execution)?;
 	let instance = Linker::new(engine)
 		.instantiate_and_start(&mut store, module)
-		.map_err(|_| Error::Execution)?;
+		.map_err(execution_error)?;
 	Ok((store, instance))
 }
 
@@ -70,10 +86,26 @@ pub fn invoke(package: &Package, input: &Invocation) -> Result<Output, Error> {
 		return Err(Error::Invalid);
 	}
 	package.manifest.validate()?;
-	input.validate(&package.manifest)?;
-	let bytes = serde_json::to_vec(input).map_err(|_| Error::Invalid)?;
+	input
+		.validate(&package.manifest)
+		.map_err(|error| match error {
+			Error::Invalid => Error::Input,
+			Error::Limit => Error::InputLimit,
+			other => other,
+		})?;
+	#[derive(serde::Serialize)]
+	struct HostInvocation<'a> {
+		#[serde(flatten)]
+		input: &'a Invocation,
+		host: crate::HostInfo,
+	}
+	let bytes = serde_json::to_vec(&HostInvocation {
+		input,
+		host: crate::HostInfo::current(),
+	})
+	.map_err(|_| Error::Input)?;
 	if bytes.len() > MAX_IO_BYTES {
-		return Err(Error::Limit);
+		return Err(Error::InputLimit);
 	}
 	let engine = engine();
 	let module = module(&engine, &package.wasm)?;
@@ -87,22 +119,31 @@ pub fn invoke(package: &Package, input: &Invocation) -> Result<Output, Error> {
 		.map_err(|_| Error::Module)?;
 	let pointer = alloc
 		.call(&mut store, bytes.len() as i32)
-		.map_err(|_| Error::Execution)?;
+		.map_err(execution_error)?;
 	memory
 		.write(&mut store, pointer as u32 as usize, &bytes)
-		.map_err(|_| Error::Execution)?;
+		.map_err(|_| Error::Trap)?;
 	let packed = run
 		.call(&mut store, (pointer, bytes.len() as i32))
-		.map_err(|_| Error::Execution)? as u64;
+		.map_err(execution_error)? as u64;
 	let length = packed as u32 as usize;
+	if length == 0 {
+		return Err(Error::Handler);
+	}
 	if length > MAX_IO_BYTES {
-		return Err(Error::Limit);
+		return Err(Error::OutputLimit);
 	}
 	let mut bytes = vec![0; length];
 	memory
 		.read(&store, (packed >> 32) as usize, &mut bytes)
 		.map_err(|_| Error::Output)?;
 	let output: Output = serde_json::from_slice(&bytes).map_err(|_| Error::Output)?;
-	output.validate(&package.manifest, input)?;
+	output
+		.validate(&package.manifest, input)
+		.map_err(|error| match error {
+			Error::Limit => Error::OutputLimit,
+			Error::Invalid => Error::Output,
+			other => other,
+		})?;
 	Ok(output)
 }

@@ -1705,3 +1705,43 @@ The changed executable SHA-256 is
 `bcc962c1ea5c936e22ce32b5eed785faba5f9f4b5e55a38a3974a5293c1d1151`.
 OpenH264 LNK4255 was nonfatal. `makensis` is absent, so the unsigned portable
 package was measured; no NSIS installer was produced.
+
+
+## SDK discovery and rich data - September 22, 2026
+
+Baseline: `7d3def0` (production runtime identical to `ac48e1c`). After: the
+host-discovery/rich-data follow-up on PR #373. Windows x64, Ryzen 7 7800X3D,
+32 GB RAM, Rust 1.98.1, serialized shared-target Cargo builds. The previous
+verified package was copied before edits; its executable SHA-256 was
+`bcc962c1ea5c936e22ce32b5eed785faba5f9f4b5e55a38a3974a5293c1d1151`.
+
+Release `sdk_check` medians use one warmup and five batches of 20 calls, each
+with a fresh sandbox/module compilation. Package parsing, process startup,
+snapshot collection and worker IO are excluded. No other Cargo build ran during
+timed calls. Committed modules and their app inputs are unchanged; the current
+host additionally injects its public support catalog into each invocation.
+
+| Committed-module workload | Before, us | After, us | Delta |
+| --- | ---: | ---: | ---: |
+| Protector activation | 1,138.095 | 1,136.195 | -1.900 / -0.17% |
+| Image-sharing activation | 1,002.415 | 1,066.020 | +63.605 / +6.35% |
+| Counter create event | 1,650.570 | 1,893.125 | +242.555 / +14.70% |
+| Toolbox dashboard, 18,296-byte app snapshot | 4,210.395 | 4,212.230 | +1.835 / +0.04% |
+
+The counter median increased about 0.24 ms in this session; the committed
+Toolbox dashboard was nearly unchanged. These are observed overheads, not a
+stable cross-machine regression estimate. Rebuilt Toolbox measured 4,731.850 us
+(previously 4,225.275 us); its expanded SDK module grew from 274,763 to 322,343
+Wasm bytes. Existing committed packages remain unchanged. Conversation Inspector
+is a new optional 312,941-byte Wasm / 905,809-byte JSON package, not embedded in
+production. All six committed/rebuilt plugin pairs and the immutable legacy
+App Toolbox passed real sandbox checks, including new data/discovery/events.
+
+Rich content is bounded to 10 rows / 8 KiB, forum data to 10 threads / 6 KiB,
+and activity to eight typing IDs plus twenty pin IDs / 2 KiB. They share the
+64-KiB app snapshot cap. Discovery counts against the existing 256-KiB invocation
+cap, slightly reducing space for other input fields. Queue/rate/fuel limits
+are unchanged; no new dependency, cache, worker or timer. Poll detail and forum
+tag data remain unsupported by core state. No lifecycle tests were added.
+Native screenshot/CPU/RSS/frame evidence remains unavailable; synthetic sandbox
+measurements do not establish live Discord compatibility.

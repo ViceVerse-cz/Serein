@@ -1,4 +1,7 @@
-use crate::{ChannelMetadataSnapshot, MemberDetailsSnapshot};
+use crate::{
+	ChannelMetadataSnapshot, ConversationActivitySnapshot, ForumDataSnapshot,
+	MemberDetailsSnapshot, MessageContentSnapshot,
+};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_APP_SNAPSHOT_BYTES: usize = 64 * 1024;
@@ -21,6 +24,12 @@ pub const MAX_HOST_EFFECT_BYTES: usize = 8 * 1024;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSnapshot {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub message_content: Option<MessageContentSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub forum_data: Option<ForumDataSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub conversation_activity: Option<ConversationActivitySnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub channel_metadata: Option<ChannelMetadataSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -282,6 +291,10 @@ pub struct LocalSettingsPatch {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppEventKind {
+	Reactions,
+	Pins,
+	Typing,
+	Polls,
 	Threads,
 	Roles,
 	Permissions,
@@ -366,6 +379,8 @@ use crate::{Invocation, MessageEvent, Output};
 /// Optional app data is capability-scoped; the original invocation types stay unchanged.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppInvocation {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub host: Option<crate::HostInfo>,
 	#[serde(flatten)]
 	pub invocation: Invocation,
 	#[serde(default, skip_serializing_if = "Option::is_none")]

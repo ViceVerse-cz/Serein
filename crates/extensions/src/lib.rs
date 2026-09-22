@@ -5,6 +5,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod runtime;
 pub use runtime::invoke;
+mod discovery;
+pub use discovery::*;
+mod conversation_activity;
+pub use conversation_activity::*;
+mod message_content;
+pub use message_content::*;
+mod forum_data;
+pub use forum_data::*;
 mod channel_metadata;
 pub use channel_metadata::*;
 mod member_details;
@@ -37,9 +45,31 @@ pub enum Error {
 	Capability,
 	#[error("Invalid or unsupported WebAssembly module")]
 	Module,
-	#[error("Extension execution failed or exhausted its budget")]
+	#[error("Extension execution could not start; check its Wasm exports and runtime requirements")]
 	Execution,
-	#[error("Extension returned an invalid response")]
+	#[error("Extension exhausted its execution fuel; reduce handler work or requested data")]
+	Fuel,
+	#[error(
+		"Extension memory or table allocation failed; reduce allocations within the sandbox limits"
+	)]
+	Memory,
+	#[error("Extension exhausted its call stack; reduce recursion and stack allocations")]
+	Stack,
+	#[error(
+		"Extension handler trapped; check for panics, invalid memory access or arithmetic errors"
+	)]
+	Trap,
+	#[error("Extension input is invalid; check the action and input field schema")]
+	Input,
+	#[error(
+		"Extension input exceeds its limits; reduce requested data, form values or saved storage"
+	)]
+	InputLimit,
+	#[error("Extension response exceeds its limits; reduce panel elements, text or saved storage")]
+	OutputLimit,
+	#[error("Extension returned no response; check SDK input decoding and output serialization")]
+	Handler,
+	#[error("Extension returned an invalid response; check the output JSON schema and ABI buffer")]
 	Output,
 }
 
@@ -53,6 +83,9 @@ pub enum ExtensionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+	MessageContent,
+	ForumData,
+	ConversationActivity,
 	ChannelMetadata,
 	MemberDetails,
 	SelectedMessage,

@@ -13,6 +13,9 @@ pub fn uses_app(capabilities: &[Capability]) -> bool {
 		matches!(
 			capability,
 			Capability::AppContext
+				| Capability::MessageContent
+				| Capability::ForumData
+				| Capability::ConversationActivity
 				| Capability::AccountProfile
 				| Capability::GuildDirectory
 				| Capability::ChannelDetails
@@ -743,9 +746,80 @@ pub fn snapshot(
 			}
 		}
 	}
+	if granted(Capability::MessageContent) {
+		app.message_content = crate::extension_message_content::snapshot(state);
+		while matches!(app.bytes(), Err(Error::Limit)) {
+			let group = app.message_content.as_mut()?;
+			if group.items.pop().is_some() {
+				group.truncated = true;
+			} else {
+				app.message_content = None;
+				break;
+			}
+		}
+	}
+	if granted(Capability::ForumData) {
+		app.forum_data = crate::extension_forum_data::snapshot(state);
+		while matches!(app.bytes(), Err(Error::Limit)) {
+			let group = app.forum_data.as_mut()?;
+			if group.posts.pop().is_some() {
+				group.truncated = true;
+			} else {
+				app.forum_data = None;
+				break;
+			}
+		}
+	}
+	if granted(Capability::ConversationActivity) {
+		app.conversation_activity = conversation_activity(state);
+		if matches!(app.bytes(), Err(Error::Limit)) {
+			app.conversation_activity = None;
+		}
+	}
 	// Keep the boundary authoritative if model data or serialization changes later.
 	app.validate(manifest).ok()?;
 	Some(Box::new(app))
+}
+
+fn conversation_activity(state: &State) -> Option<ConversationActivitySnapshot> {
+	if !available(state) || !state.gateway_connected || state.freshness != Freshness::Fresh {
+		return None;
+	}
+	let id = state.selected?;
+	if !state.can_view(id) || !state.can_read_history(id) {
+		return None;
+	}
+	let pins = state
+		.search
+		.as_ref()
+		.filter(|view| view.pins && view.channel == id && !view.loading && view.error.is_none())
+		.and_then(|view| view.page.as_ref());
+	let pinned_message_ids = pins.map(|page| {
+		page.hits
+			.iter()
+			.filter(|hit| hit.channel == id && hit.id.0 != 0)
+			.take(20)
+			.map(|hit| hit.id.0.to_string())
+			.collect()
+	});
+	let group = ConversationActivitySnapshot {
+		channel_id: id.0.to_string(),
+		typing_user_ids: state
+			.typing_users(std::time::Instant::now())
+			.take(8)
+			.filter(|id| id.0 != 0)
+			.map(|id| id.0.to_string())
+			.collect(),
+		pinned_message_ids,
+		pins_truncated: pins.is_some_and(|page| {
+			page.partial
+				|| page.pin_cursor.is_some()
+				|| page.hits.len() > 20
+				|| page.total > page.hits.len() as u64
+		}),
+	};
+	group.validate().ok()?;
+	Some(group)
 }
 
 fn phase(phase: client_core::voice::Phase) -> &'static str {
@@ -1121,6 +1195,103 @@ mod tests {
 		let app = snapshot(&state, &messaging, &caps).unwrap();
 		assert!(
 			app.account_profile.is_none() && app.guilds.is_none() && app.channel_details.is_none()
+		);
+	}
+
+	#[test]
+	fn extension_activity_distinguishes_unloaded_pins_and_live_typing() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.auth = AuthState::Authenticated;
+		state.history_pending = false;
+		let channel = state.selected.unwrap();
+		let now = std::time::Instant::now();
+		let wall = std::time::SystemTime::now();
+		state.observe_typing_at(
+			client_core::typing::Signal {
+				channel,
+				user: Id(9876),
+				timestamp: wall
+					.duration_since(std::time::UNIX_EPOCH)
+					.unwrap()
+					.as_secs(),
+			},
+			wall,
+			now,
+		);
+		let activity = conversation_activity(&state).unwrap();
+		assert_eq!(activity.typing_user_ids, vec!["9876"]);
+		assert!(activity.pinned_message_ids.is_none());
+		let before_pins = crate::extension_data_events::DataKey::capture(&state);
+		state.search = Some(client_core::search::SearchView {
+			pins: true,
+			channel,
+			query: String::new(),
+			before: None,
+			pin_before: None,
+			request: 0,
+			loading: false,
+			error: None,
+			page: Some(model::SearchPage {
+				hits: vec![],
+				total: 0,
+				partial: false,
+				pin_cursor: None,
+			}),
+		});
+		assert!(
+			crate::extension_data_events::DataKey::capture(&state)
+				.changed(&before_pins)
+				.kinds(&[Capability::ConversationActivity])
+				.any(|kind| kind == AppEventKind::Pins)
+		);
+		assert_eq!(
+			conversation_activity(&state).unwrap().pinned_message_ids,
+			Some(vec![])
+		);
+		state.search.as_mut().unwrap().loading = true;
+		assert!(
+			conversation_activity(&state)
+				.unwrap()
+				.pinned_message_ids
+				.is_none()
+		);
+		let inspector = parse_package(include_bytes!(
+			"../../../examples/extensions/packages/conversation-inspector.serein-extension"
+		))
+		.unwrap();
+		let app = snapshot(&state, &ui::MessagingUi::default(), &inspector.manifest).unwrap();
+		assert!(
+			app.message_content.is_some()
+				&& app.forum_data.is_some()
+				&& app.conversation_activity.is_some()
+		);
+		let output = invoke(
+			&inspector,
+			&Invocation {
+				action: "show".into(),
+				app: Some(app),
+				..Default::default()
+			},
+		)
+		.expect("real loaded state fits Conversation Inspector sandbox");
+		assert!(!output.panel.is_empty() && output.effects.is_empty());
+		let granted = snapshot(
+			&state,
+			&ui::MessagingUi::default(),
+			&manifest(vec![Capability::ConversationActivity]),
+		)
+		.unwrap();
+		assert!(granted.conversation_activity.is_some());
+		assert!(
+			snapshot(
+				&state,
+				&ui::MessagingUi::default(),
+				&manifest(vec![Capability::AppContext])
+			)
+			.unwrap()
+			.conversation_activity
+			.is_none()
 		);
 	}
 
