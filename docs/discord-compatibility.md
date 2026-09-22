@@ -1463,6 +1463,13 @@ Live normal-user interoperability remains unverified. Offline demo changes stay 
 Notification settings are device-local only: desktop alerts, message and ring
 sounds, and the Windows unread badge. Per-channel and per-server mute preferences
 still come from the account through the existing Gateway user settings events.
+The user guild settings decoder accepts string and integer `guild_id` values,
+including in legacy and versioned READY snapshots. Missing, null, and zero IDs
+identify private-channel settings; [legacy zero IDs have been observed in READY](https://github.com/bwmarrin/discordgo/issues/624#issuecomment-456934135).
+These entries must not discard the account's saved mutes. Numeric IDs stay exact
+64-bit integers; invalid IDs remain rejected. This compatibility case is covered by the offline
+`cargo run --locked -p discord-protocol --example notification_settings` check;
+live normal-account restart behavior remains unverified.
 The client no longer reads or writes Discord's account notification overview
 (`/users/@me/settings-proto/1` notification subtree) or email categories
 (`/users/@me/email-settings`), and it ignores `NOTIFICATION_CENTER_ITEM_CREATE`;
