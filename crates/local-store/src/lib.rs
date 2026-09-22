@@ -10,8 +10,8 @@ use std::{
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
-const NATIVE_SCHEMA: u32 = 22;
-const READABLE_SCHEMA: u32 = 22;
+const NATIVE_SCHEMA: u32 = 24;
+const READABLE_SCHEMA: u32 = 24;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
 fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
@@ -276,6 +276,11 @@ impl LocalStore {
 			[],
 			|row| row.get(0),
 		)?;
+		let has_reactions: bool = connection.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='reactions')",
+			[],
+			|row| row.get(0),
+		)?;
 		let has_components: bool = connection.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='components')",
 			[],
@@ -309,6 +314,9 @@ impl LocalStore {
 		}
 		if !has_stickers {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN sticker_items TEXT NOT NULL DEFAULT '[]' CHECK(length(CAST(sticker_items AS BLOB))<=32768);")?;
+		}
+		if !has_reactions {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN reactions TEXT CHECK(reactions IS NULL OR (typeof(reactions)='text' AND length(CAST(reactions AS BLOB))<=16384));")?;
 		}
 		if !has_components {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN components TEXT NOT NULL DEFAULT '[]' CHECK(length(CAST(components AS BLOB))<=262144);")?;
@@ -406,6 +414,12 @@ impl LocalStore {
 		)?;
 		if !has_smooth_scrolling {
 			transaction.execute_batch("ALTER TABLE reading_preferences ADD COLUMN smooth_scrolling INTEGER NOT NULL DEFAULT 1 CHECK(typeof(smooth_scrolling)='integer' AND smooth_scrolling IN (0,1));")?;
+		}
+		let has_scroll_speed: bool = transaction.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='scroll_speed_percent')", [], |row| row.get(0),
+		)?;
+		if !has_scroll_speed {
+			transaction.execute_batch("ALTER TABLE reading_preferences ADD COLUMN scroll_speed_percent INTEGER NOT NULL DEFAULT 100 CHECK(typeof(scroll_speed_percent)='integer' AND scroll_speed_percent BETWEEN 25 AND 300);")?;
 		}
 		let has_author_roles: bool = transaction.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='author_roles')",
@@ -527,7 +541,7 @@ impl LocalStore {
 		let stored = self
 			.0
 			.query_row(
-				"SELECT zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling FROM reading_preferences WHERE singleton=1",
+				"SELECT zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent FROM reading_preferences WHERE singleton=1",
 				[],
 				|row| {
 					Ok(match (
@@ -538,6 +552,7 @@ impl LocalStore {
 						row.get_ref(4)?,
 						row.get_ref(5)?,
 						row.get_ref(6)?,
+						row.get_ref(7)?,
 					) {
 						(
 							ValueRef::Integer(zoom @ 80..=150),
@@ -547,6 +562,7 @@ impl LocalStore {
 							ValueRef::Integer(hide_media_links @ 0..=1),
 							ValueRef::Integer(confirm_external_links @ 0..=1),
 							ValueRef::Integer(smooth_scrolling @ 0..=1),
+							ValueRef::Integer(scroll_speed_percent @ 25..=300),
 						) => Some(ReadingPreferences {
 							zoom_percent: zoom as u16,
 							sidebar_width: width as u16,
@@ -555,6 +571,7 @@ impl LocalStore {
 							hide_media_links: hide_media_links == 1,
 							confirm_external_links: confirm_external_links == 1,
 							smooth_scrolling: smooth_scrolling == 1,
+							scroll_speed_percent: scroll_speed_percent as u16,
 						}),
 						_ => None,
 					})
@@ -576,10 +593,10 @@ impl LocalStore {
 			self.0
 				.execute("DELETE FROM reading_preferences WHERE singleton=1", [])?;
 		} else {
-			self.0.execute("INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling)
-				VALUES(1,?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(singleton) DO UPDATE SET
-				zoom_percent=excluded.zoom_percent,sidebar_width=excluded.sidebar_width,show_members=excluded.show_members,animate_gifs=excluded.animate_gifs,hide_media_links=excluded.hide_media_links,confirm_external_links=excluded.confirm_external_links,smooth_scrolling=excluded.smooth_scrolling",
-				params![preferences.zoom_percent, preferences.sidebar_width, preferences.show_members, preferences.animate_gifs, preferences.hide_media_links, preferences.confirm_external_links, preferences.smooth_scrolling])?;
+			self.0.execute("INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent)
+				VALUES(1,?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT(singleton) DO UPDATE SET
+				zoom_percent=excluded.zoom_percent,sidebar_width=excluded.sidebar_width,show_members=excluded.show_members,animate_gifs=excluded.animate_gifs,hide_media_links=excluded.hide_media_links,confirm_external_links=excluded.confirm_external_links,smooth_scrolling=excluded.smooth_scrolling,scroll_speed_percent=excluded.scroll_speed_percent",
+				params![preferences.zoom_percent, preferences.sidebar_width, preferences.show_members, preferences.animate_gifs, preferences.hide_media_links, preferences.confirm_external_links, preferences.smooth_scrolling, preferences.scroll_speed_percent])?;
 		}
 		Ok(())
 	}
@@ -700,6 +717,9 @@ impl LocalStore {
 					|| !model::valid_components(&m.components)
 					|| !model::valid_embeds(&m.embeds)
 					|| !model::valid_attachments(&m.attachments)
+					|| m.reactions
+						.as_ref()
+						.is_some_and(|reactions| !model::valid_reactions(reactions))
 			}) {
 			return Err(StoreError::Capacity);
 		}
@@ -721,7 +741,7 @@ impl LocalStore {
 			}
 		}
 		let mut insert = transaction.prepare_cached(
-            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)")?;
+            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)")?;
 		for message in messages {
 			if previous
 				.get(&message.id)
@@ -777,6 +797,15 @@ impl LocalStore {
 			if interaction.as_ref().is_some_and(|json| json.len() > 4096) {
 				return Err(StoreError::Capacity);
 			}
+			let reactions = message
+				.reactions
+				.as_ref()
+				.map(serde_json::to_string)
+				.transpose()
+				.map_err(|_| StoreError::Incompatible)?;
+			if reactions.as_ref().is_some_and(|json| json.len() > 16384) {
+				return Err(StoreError::Capacity);
+			}
 			let components =
 				serde_json::to_string(&message.components).map_err(|_| StoreError::Incompatible)?;
 			if components.len() > MAX_MEDIA_JSON {
@@ -818,6 +847,7 @@ impl LocalStore {
 				message.flags.to_string(),
 				sticker_items,
 				interaction,
+				reactions,
 			])?;
 		}
 		drop(insert);
@@ -835,7 +865,7 @@ impl LocalStore {
 			let bytes = if (page_count - free_pages) * page_size <= 48 * 1024 * 1024 {
 				0
 			} else {
-				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(original_flags AS BLOB))+length(CAST(components AS BLOB))+length(CAST(sticker_items AS BLOB))+coalesce(length(CAST(application_id AS BLOB)),0)+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+coalesce(length(CAST(interaction AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
+				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(original_flags AS BLOB))+length(CAST(components AS BLOB))+length(CAST(sticker_items AS BLOB))+coalesce(length(CAST(application_id AS BLOB)),0)+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+coalesce(length(CAST(interaction AS BLOB)),0)+coalesce(length(CAST(reactions AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
 			};
 			if channels <= 20 && bytes <= 48 * 1024 * 1024 {
 				break;
@@ -862,7 +892,7 @@ impl LocalStore {
 		Ok(())
 	}
 	pub fn load_channel(&self, account: Id, channel: Id) -> Result<Vec<Message>> {
-		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
+		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
 		let mut rows = query.query(params![account.to_string(), channel.to_string()])?;
 		let mut messages = Vec::new();
 		let mut bytes = 0;
@@ -994,6 +1024,22 @@ impl LocalStore {
 				}
 				_ => return Err(StoreError::Incompatible),
 			};
+			let reactions = match row.get_ref(26)? {
+				rusqlite::types::ValueRef::Null => None,
+				rusqlite::types::ValueRef::Text(bytes) => {
+					let text = std::str::from_utf8(bytes).map_err(|_| StoreError::Incompatible)?;
+					if text.len() > 16384 {
+						return Err(StoreError::Capacity);
+					}
+					let reactions = serde_json::from_str::<Vec<model::Reaction>>(text)
+						.map_err(|_| StoreError::Incompatible)?;
+					if !model::valid_reactions(&reactions) {
+						return Err(StoreError::Incompatible);
+					}
+					Some(reactions)
+				}
+				_ => return Err(StoreError::Incompatible),
+			};
 			let message = Message {
 				sticker_items: serde_json::from_str::<
 					model::StickerList<{ model::MAX_MESSAGE_STICKERS }>,
@@ -1014,7 +1060,7 @@ impl LocalStore {
 				)
 				.map_err(|_| StoreError::Incompatible)?
 				.0,
-				reactions: None,
+				reactions,
 				id: parse(row.get(0)?)?,
 				channel,
 				author: User {
@@ -1814,6 +1860,7 @@ mod tests {
 			show_members: false,
 			animate_gifs: false,
 			smooth_scrolling: true,
+			scroll_speed_percent: 100,
 			hide_media_links: true,
 			confirm_external_links: true,
 		};
@@ -2138,6 +2185,7 @@ mod tests {
 			show_members: false,
 			animate_gifs: false,
 			smooth_scrolling: true,
+			scroll_speed_percent: 100,
 			hide_media_links: true,
 			confirm_external_links: true,
 		};
@@ -2155,6 +2203,7 @@ mod tests {
 				show_members: true,
 				animate_gifs: false,
 				smooth_scrolling: true,
+				scroll_speed_percent: 100,
 				hide_media_links: true,
 				confirm_external_links: true,
 			},
@@ -2256,6 +2305,7 @@ mod tests {
 		store
 			.save_reading_preferences(ReadingPreferences {
 				smooth_scrolling: false,
+				scroll_speed_percent: 100,
 				..Default::default()
 			})
 			.unwrap();
@@ -2309,6 +2359,7 @@ mod tests {
 					show_members,
 					animate_gifs: false,
 					smooth_scrolling: true,
+					scroll_speed_percent: 100,
 					hide_media_links: true,
 					confirm_external_links: true,
 				};
@@ -2333,6 +2384,7 @@ mod tests {
 					show_members: false,
 					animate_gifs: false,
 					smooth_scrolling: true,
+					scroll_speed_percent: 100,
 					hide_media_links: true,
 					confirm_external_links: true,
 				}),
@@ -2348,6 +2400,7 @@ mod tests {
 				show_members: false,
 				animate_gifs: false,
 				smooth_scrolling: true,
+				scroll_speed_percent: 100,
 				hide_media_links: true,
 				confirm_external_links: true,
 			}),
@@ -2551,7 +2604,7 @@ mod tests {
 		store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES('1','2','3','4','Synthetic','<@5>',0,0)",[]).unwrap();
 		let mut store = LocalStore::initialize(store.0).unwrap();
 		let mut messages = store.load_channel(Id(1), Id(2)).unwrap();
-		assert!(messages[0].reactions.is_none()); // Session-only counts must be revalidated.
+		assert!(messages[0].reactions.is_none());
 		assert!(messages[0].mentions.is_empty());
 		assert_eq!(store.load_drafts(Id(1)).unwrap()[&Id(2)], "kept draft");
 		messages[0].mentions = vec![User {

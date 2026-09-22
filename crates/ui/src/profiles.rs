@@ -864,17 +864,123 @@ pub(crate) fn profile_opener_id() -> egui::Id {
 	egui::Id::unique("serein-profile-opener")
 }
 
-pub(crate) fn arm_profile_opener(ui: &egui::Ui, response: &egui::Response) {
-	if response.contains_pointer() {
-		ui.data_mut(|data| data.insert_temp(profile_opener_id(), response.rect));
-	}
+#[derive(Default)]
+pub struct ProfileSession {
+	open: Option<User>,
+	anchor: Option<(Id, Pos2)>,
+	trigger: Option<Rect>,
+	pending: Vec<ProfileEffect>,
 }
 
-pub(crate) fn toggle_profile(profile: &mut Option<User>, user: &User) {
-	if profile.as_ref().is_some_and(|open| open.id == user.id) {
-		*profile = None;
-	} else {
-		*profile = Some(user.clone());
+pub enum ProfileEffect {
+	ClearCore,
+}
+
+impl ProfileSession {
+	pub fn open_user(&self) -> Option<&User> {
+		self.open.as_ref()
+	}
+
+	pub fn anchor_or_place(&mut self, ctx: &egui::Context, user_id: Id) -> Pos2 {
+		match self.anchor {
+			Some((id, pos)) if id == user_id => pos,
+			_ => {
+				let pos = ctx
+					.input(|i| i.pointer.interact_pos().or(i.pointer.latest_pos()))
+					.unwrap_or_else(|| ctx.content_rect().center());
+				self.anchor = Some((user_id, pos));
+				pos
+			}
+		}
+	}
+
+	pub fn disarm(&mut self) {
+		self.trigger = None;
+	}
+
+	pub fn person_click(
+		&mut self,
+		ui: &egui::Ui,
+		primary: &egui::Response,
+		nested: Option<&egui::Response>,
+		user: &User,
+	) {
+		let arm = match nested {
+			Some(nested) if nested.contains_pointer() => Some(nested),
+			_ if primary.contains_pointer() => Some(primary),
+			_ => None,
+		};
+		if let Some(response) = arm {
+			ui.data_mut(|data| data.insert_temp(profile_opener_id(), response.rect));
+		}
+		let clicked = match nested {
+			Some(nested) if nested.clicked() => true,
+			_ if primary.clicked() => true,
+			_ => false,
+		};
+		if !clicked {
+			return;
+		}
+		if self.open.as_ref().is_some_and(|open| open.id == user.id) {
+			self.hide();
+			return;
+		}
+		if self.open.as_ref().is_some_and(|open| open.id != user.id) {
+			self.pending.push(ProfileEffect::ClearCore);
+		}
+		self.open = Some(user.clone());
+	}
+
+	pub fn command_open(&mut self, user: User) {
+		if self.open.as_ref().is_some_and(|open| open.id != user.id) {
+			self.pending.push(ProfileEffect::ClearCore);
+		}
+		self.open = Some(user);
+	}
+
+	pub fn navigate(&mut self, user: User) {
+		self.pending.push(ProfileEffect::ClearCore);
+		self.open = Some(user);
+		self.anchor = None;
+	}
+
+	/// Drops the card and keeps the loaded profile.
+	pub fn hide(&mut self) {
+		self.open = None;
+		self.anchor = None;
+		self.trigger = None;
+	}
+
+	pub fn close(&mut self) {
+		if self.open.is_some() {
+			self.pending.push(ProfileEffect::ClearCore);
+		}
+		self.hide();
+	}
+
+	pub fn close_unless_armed(&mut self, ctx: &egui::Context) {
+		let keep = self.trigger.is_some_and(|rect| {
+			ctx.input(|input| {
+				input.pointer.any_pressed()
+					&& input
+						.pointer
+						.interact_pos()
+						.is_some_and(|pos| rect.contains(pos))
+			})
+		});
+		if !keep {
+			self.close();
+		}
+	}
+
+	pub fn ingest_opener_rect(&mut self, ctx: &egui::Context) {
+		if let Some(rect) = ctx.data(|data| data.get_temp::<Rect>(profile_opener_id())) {
+			self.trigger = Some(rect);
+		}
+	}
+
+	pub fn drain_effects(&mut self) -> Vec<ProfileEffect> {
+		std::mem::take(&mut self.pending)
 	}
 }
 
@@ -1281,16 +1387,16 @@ pub fn show(
 												.unwrap_or(&data.bio);
 											if !bio.is_empty() {
 												section(ui, &theme, &mut sections, "ABOUT ME");
-												let mut linked_user = None;
+												let mut linked = ProfileSession::default();
 												formatted.get(user.id, bio).show_with_images(
 													ui,
 													opening,
 													&[],
 													None,
-													&mut linked_user,
+													&mut linked,
 													(avatars, state.demo, &state.guilds),
 												);
-												if let Some(user) = linked_user {
+												if let Some(user) = linked.open_user().cloned() {
 													action = Some(Action::Profile(user));
 												}
 											}

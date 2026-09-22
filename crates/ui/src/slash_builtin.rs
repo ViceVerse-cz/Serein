@@ -16,11 +16,7 @@ pub(super) enum Builtin {
 
 impl Builtin {
 	pub fn available(self, state: &State, channel: Id) -> bool {
-		if self == Self::Msg {
-			state.can_view(channel)
-		} else {
-			state.can_compose(channel)
-		}
+		state.can_compose(channel)
 	}
 }
 

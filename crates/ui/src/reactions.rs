@@ -42,6 +42,37 @@ fn reaction_button(
 	}
 }
 
+/// Height of the pill strip, using the same row size as [`show`].
+/// Empty and still-loading counts reserve nothing.
+pub fn estimated_height(ui: &egui::Ui, reactions: Option<&[Reaction]>, width: f32) -> f32 {
+	let Some(reactions) = reactions.filter(|reactions| !reactions.is_empty()) else {
+		return 0.0;
+	};
+	let width = width.max(40.0);
+	let font = egui::TextStyle::Button.resolve(ui.style());
+	let mut rows = 1u32;
+	let mut used = 0.0_f32;
+	for reaction in reactions {
+		let text_width = ui
+			.painter()
+			.layout_no_wrap(
+				reaction.count.to_string(),
+				font.clone(),
+				egui::Color32::WHITE,
+			)
+			.size()
+			.x;
+		let pill = 34.0 + text_width;
+		if used > 0.0 && used + 4.0 + pill > width {
+			rows += 1;
+			used = pill;
+		} else {
+			used = if used == 0.0 { pill } else { used + 4.0 + pill };
+		}
+	}
+	6.0 + rows as f32 * 30.0
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn show(
 	ui: &mut egui::Ui,

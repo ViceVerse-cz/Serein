@@ -220,7 +220,9 @@ impl MessagingUi {
 				design::rail_name(&response, &label);
 				if response.clicked() {
 					self.guild = None;
-					state.open_home();
+					if let Some(command) = state.open_messages() {
+						commands.push(command);
+					}
 					self.search.open = false;
 				}
 				self.scroll

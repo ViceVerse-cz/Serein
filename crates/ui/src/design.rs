@@ -917,6 +917,12 @@ impl egui::Plugin for ClickableCursor {
 }
 
 pub fn apply(ctx: &egui::Context) {
+	ctx.options_mut(|options| {
+		let settle = std::num::NonZeroUsize::new(3).unwrap();
+		if options.max_passes < settle {
+			options.max_passes = settle;
+		}
+	});
 	ctx.add_plugin(ClickableCursor);
 	crate::select::install(ctx);
 	let variant = variant();

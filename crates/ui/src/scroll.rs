@@ -1,6 +1,59 @@
 use crate::design;
 use egui::{AsIdSalt, IdSalt, Pos2, Rect, ScrollArea, Shape, Stroke, pos2};
 
+/// Apply once before rendering the app's scroll areas. Zoom gestures remain unchanged.
+pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPreferences) {
+	if !preferences.is_valid() {
+		return;
+	}
+	let options = ctx.options(|options| options.input_options);
+	ctx.input_mut(|input| {
+		let delta = if preferences.smooth_scrolling {
+			input.smooth_scroll_delta()
+		} else {
+			instant_wheel_delta(&input.raw.events, options, input.viewport_rect().height())
+		};
+		input.smooth_scroll_delta = delta * (f32::from(preferences.scroll_speed_percent) / 100.0);
+	});
+}
+
+pub(super) fn instant_wheel_delta(
+	events: &[egui::Event],
+	options: egui::InputOptions,
+	page_height: f32,
+) -> egui::Vec2 {
+	events
+		.iter()
+		.filter_map(|event| {
+			let egui::Event::MouseWheel {
+				unit,
+				delta,
+				phase,
+				modifiers,
+			} = event
+			else {
+				return None;
+			};
+			if *phase != egui::TouchPhase::Move || modifiers.matches_any(options.zoom_modifier) {
+				return None;
+			}
+			let mut delta = match unit {
+				egui::MouseWheelUnit::Point => *delta,
+				egui::MouseWheelUnit::Line => options.line_scroll_speed * *delta,
+				egui::MouseWheelUnit::Page => page_height * *delta,
+			};
+			let horizontal = modifiers.matches_any(options.horizontal_scroll_modifier);
+			let vertical = modifiers.matches_any(options.vertical_scroll_modifier);
+			if horizontal && !vertical {
+				delta = egui::vec2(delta.x + delta.y, 0.0);
+			}
+			if !horizontal && vertical {
+				delta = egui::vec2(0.0, delta.x + delta.y);
+			}
+			Some(delta)
+		})
+		.fold(egui::Vec2::ZERO, |total, delta| total + delta)
+}
 /// Chromium / Discord default: 3 wheel lines times 40 px. winit reports one notch as `LineDelta` 1.0.
 pub const DISCORD_LINE_SCROLL_SPEED: f32 = 120.0;
 

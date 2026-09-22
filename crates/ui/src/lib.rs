@@ -117,6 +117,55 @@ pub struct AttachmentPaste {
 	pub image: Option<std::sync::Arc<egui::ColorImage>>,
 }
 
+fn thread_member_rows<'a>(
+	state: &'a State,
+	list: &'a model::MemberList,
+) -> Vec<(std::borrow::Cow<'a, model::MemberSlot>, Option<u64>)> {
+	use std::borrow::Cow;
+	let mut members: Vec<_> = list
+		.slots
+		.iter()
+		.flatten()
+		.filter_map(|slot| {
+			let model::MemberSlot::Person(member) = slot else {
+				return None;
+			};
+			let offline = !profiles::member_presence(state, member, list.guild)
+				.0
+				.is_some_and(|status| matches!(status, "online" | "idle" | "dnd"));
+			let role = list
+				.guild
+				.and_then(|guild| state.member_roles(guild, member).0)
+				.filter(|_| !offline);
+			Some((slot, offline, role))
+		})
+		.collect();
+	members.sort_by(|a, b| {
+		a.1.cmp(&b.1).then_with(|| match (a.2, b.2) {
+			(Some(a), Some(b)) => b.cmp_hierarchy(a),
+			(Some(_), None) => std::cmp::Ordering::Less,
+			(None, Some(_)) => std::cmp::Ordering::Greater,
+			_ => std::cmp::Ordering::Equal,
+		})
+	});
+	let mut rows = Vec::with_capacity(members.len() * 2);
+	for group in members.chunk_by(|a, b| a.1 == b.1 && a.2.map(|r| r.id) == b.2.map(|r| r.id)) {
+		let id = if group[0].1 {
+			"offline".into()
+		} else {
+			group[0]
+				.2
+				.map_or_else(|| "online".into(), |role| role.id.to_string())
+		};
+		rows.push((
+			Cow::Owned(model::MemberSlot::Group(id)),
+			Some(group.len() as u64),
+		));
+		rows.extend(group.iter().map(|row| (Cow::Borrowed(row.0), None)));
+	}
+	rows
+}
+
 #[derive(Default)]
 pub struct MessagingUi {
 	forwarding: forwarding::ForwardDialog,
@@ -174,7 +223,7 @@ pub struct MessagingUi {
 	edit_widget_id: Option<egui::Id>,
 	edit_closed_channel: Option<Id>,
 	avatars: avatars::Avatars,
-	profile: Option<model::User>,
+	profile: profiles::ProfileSession,
 	profile_image: Option<(u64, model::Attachment)>,
 	user_action: Option<user_menu::Action>,
 	pending_mention: Option<Id>,
@@ -213,9 +262,6 @@ pub struct MessagingUi {
 	/// Slider value while the pointer is still down; zoom is applied on release so the
 	/// slider does not rescale under the cursor mid-drag.
 	reading_zoom_draft: Option<u16>,
-	/// Where the open profile was requested from; the popout is placed beside it.
-	profile_anchor: Option<(Id, egui::Pos2)>,
-	profile_trigger: Option<egui::Rect>,
 	friend_removal: Option<(u64, model::User)>,
 	members_narrow_open: bool,
 	/// Only the open member request's revealed prefix; member data stays in the bounded core cache.
@@ -529,7 +575,7 @@ impl MessagingUi {
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_profile(&mut self, user: model::User) {
 		self.members_narrow_open = true;
-		self.profile = Some(user);
+		self.profile.command_open(user);
 	}
 	/// Fixture-only entry point: opens the emoji popout as if the composer button was clicked.
 	/// Fixture-only entry point: stage a synthetic attachment as if it had been selected.
@@ -1006,11 +1052,18 @@ impl MessagingUi {
 				);
 			}
 		}
+		// Thread snapshots contain people only; paged channel lists supply their own headers.
+		let thread_rows = (!list.lazy
+			&& state
+				.channel(list.channel)
+				.is_some_and(|channel| matches!(channel.kind, 10..=12)))
+		.then(|| thread_member_rows(state, list));
 		let channel = list.channel;
 		let lazy = list.lazy;
 		let start = list.start;
 		let guild = list.guild;
-		let member_key = (state.generation, channel, list.request);
+		let guild_or_channel = guild.unwrap_or(channel);
+		let member_key = (state.generation, guild_or_channel, list.request);
 		let reset_scroll = self.member_extent.is_none_or(|(key, _)| key != member_key);
 		if reset_scroll {
 			self.member_extent = Some((member_key, 100));
@@ -1019,7 +1072,7 @@ impl MessagingUi {
 		let row_count = if lazy {
 			self.member_extent.unwrap().1.min(total)
 		} else {
-			list.slots.len()
+			thread_rows.as_ref().map_or(list.slots.len(), Vec::len)
 		};
 		let row_spacing = ui.spacing().item_spacing.y;
 		ui.spacing_mut().item_spacing.y = 0.0;
@@ -1028,11 +1081,10 @@ impl MessagingUi {
 		if reset_scroll {
 			area = area.vertical_scroll_offset(0.0);
 		}
-		let output = self.scroll.attach(ui, ("people", channel), area).show_rows(
-			ui,
-			42.0,
-			row_count,
-			|ui, range| {
+		let output = self
+			.scroll
+			.attach(ui, ("people", guild_or_channel, list.request), area)
+			.show_rows(ui, 42.0, row_count, |ui, range| {
 				visible = range.clone();
 				for index in range {
 					let slot = if lazy {
@@ -1043,6 +1095,8 @@ impl MessagingUi {
 								None
 							}
 						})
+					} else if let Some(rows) = &thread_rows {
+						rows.get(index).map(|row| row.0.as_ref())
 					} else {
 						list.slots.get(index).and_then(|s| s.as_ref())
 					};
@@ -1069,7 +1123,9 @@ impl MessagingUi {
 								.groups
 								.iter()
 								.find(|(group_id, _)| group_id == id)
-								.map(|(_, count)| format!("{name} - {count}"))
+								.map(|(_, count)| *count)
+								.or_else(|| thread_rows.as_ref().and_then(|rows| rows[index].1))
+								.map(|count| format!("{name} - {count}"))
 								.unwrap_or(name);
 							let (rect, _) = ui.allocate_exact_size(
 								egui::vec2(ui.available_width(), 42.0),
@@ -1141,9 +1197,6 @@ impl MessagingUi {
 									&mut self.profile,
 									&mut self.user_action,
 								);
-								if avatar.clicked() {
-									self.profile = Some(member.user.clone());
-								}
 								if let Some(status) = status {
 									design::presence_dot(
 										ui,
@@ -1214,17 +1267,20 @@ impl MessagingUi {
 								} else {
 									show_name(ui);
 								}
+								user_menu::show(
+									&response,
+									state,
+									&member.user,
+									&mut self.profile,
+									&mut self.user_action,
+								);
+								self.profile.person_click(
+									ui,
+									&response,
+									Some(&avatar),
+									&member.user,
+								);
 							});
-							user_menu::show(
-								&response,
-								state,
-								&member.user,
-								&mut self.profile,
-								&mut self.user_action,
-							);
-							if response.clicked() {
-								self.profile = Some(member.user.clone());
-							}
 						}
 						None => {
 							ui.allocate_exact_size(
@@ -1234,8 +1290,7 @@ impl MessagingUi {
 						}
 					}
 				}
-			},
-		);
+			});
 		ui.spacing_mut().item_spacing.y = row_spacing;
 		if lazy && !visible.is_empty() {
 			let first = visible.start;
@@ -2030,10 +2085,7 @@ impl MessagingUi {
 				self.edit_undo_cleared = true;
 			}
 		}
-		if !editing_here
-			&& !state.can_compose(channel)
-			&& !state.can_request_application_commands(channel)
-		{
+		if !editing_here && !state.can_compose(channel) {
 			if self.pending_mention.take().is_some() {
 				state.status = "You don't have permission to mention anyone in this channel.";
 			}
@@ -2952,7 +3004,69 @@ impl MessagingUi {
 		edit_state.store(ctx, composer_id);
 		Some(MentionWrite::Inserted)
 	}
+	fn drain_profile(&mut self, state: &mut State, commands: &mut Vec<Command>) -> bool {
+		let mut cleared = false;
+		for effect in self.profile.drain_effects() {
+			match effect {
+				profiles::ProfileEffect::ClearCore => {
+					commands.push(state.clear_profile());
+					self.profile_link = None;
+					cleared = true;
+				}
+			}
+		}
+		cleared
+	}
+
+	fn sync_profile(
+		&mut self,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		user: &model::User,
+		profile_guild: Option<model::Id>,
+	) {
+		if user.webhook {
+			if state.profile.is_some() {
+				commands.push(state.clear_profile());
+			}
+			return;
+		}
+		if state
+			.profile
+			.as_ref()
+			.is_some_and(|view| view.user == user.id && view.guild == profile_guild)
+		{
+			return;
+		}
+		self.profile_link = None;
+		#[cfg(any(test, feature = "demo"))]
+		if state.demo {
+			state.profile = Some(client_core::profile::ProfileView {
+				user: user.id,
+				guild: profile_guild,
+				request: 0,
+				loading: false,
+				error: None,
+				data: Some(
+					state
+						.own_profile
+						.data
+						.as_ref()
+						.filter(|data| data.user.id == user.id)
+						.cloned()
+						.unwrap_or_else(|| profiles::synthetic(user, profile_guild)),
+				),
+			});
+		}
+		if !state.demo
+			&& let Some(command) = state.request_profile(user.id, profile_guild)
+		{
+			commands.push(command);
+		}
+	}
+
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		crate::scroll::apply_preferences(ui.ctx(), self.reading_preferences);
 		if let Some(status) = state.take_user_action_status() {
 			self.toasts.push(design::Level::Error, status);
 		}
@@ -3023,7 +3137,7 @@ impl MessagingUi {
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
 		}
-		self.profile_trigger = None;
+		self.profile.disarm();
 		ui.ctx().data_mut(|data| {
 			data.remove::<egui::Rect>(profiles::profile_opener_id());
 		});
@@ -3055,19 +3169,20 @@ impl MessagingUi {
 		}
 		if self.server_settings.is_open() {
 			self.extensions.stop_theme_preview(&ctx);
-			if self.profile.is_some()
+			if self.profile.open_user().is_some()
 				&& ctx
 					.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
 			{
-				self.profile = None;
-				commands.push(state.clear_profile());
+				self.profile.close();
 			}
-			self.server_settings
-				.show(&ctx, state, &mut self.avatars, &mut commands);
-			if let Some(user) = self.server_settings.admin.profile.take() {
-				self.profile = Some(user);
-			}
-			if self.profile.is_some() {
+			self.server_settings.show(
+				&ctx,
+				state,
+				&mut self.avatars,
+				&mut self.profile,
+				&mut commands,
+			);
+			if self.profile.open_user().is_some() {
 				ctx.set_sublayer(
 					egui::LayerId::new(
 						egui::Order::Foreground,
@@ -3319,6 +3434,7 @@ impl MessagingUi {
 							audio: &mut self.timeline.audio,
 							video: &mut self.timeline.video,
 						},
+						&mut self.profile,
 					);
 				});
 		}
@@ -3777,6 +3893,7 @@ impl MessagingUi {
 					audio: &mut self.timeline.audio,
 					video: &mut self.timeline.video,
 				},
+				&mut self.profile,
 			);
 			if !(self.search.open && self.search.pins()) {
 				self.pins_anchor = None;
@@ -3784,9 +3901,6 @@ impl MessagingUi {
 		}
 		if let Some(link) = self.search.opening.take() {
 			self.timeline.opening = Some(link);
-		}
-		if let Some(profile) = self.search.profile.take() {
-			self.profile = Some(profile);
 		}
 		if let Some(channel) = self.search.channel_reference.take() {
 			self.timeline.channel_reference = Some(channel);
@@ -3933,11 +4047,11 @@ impl MessagingUi {
 		if let Some(action) = self.user_action.take().or(self.timeline.user_action.take()) {
 			let command = match action {
 				user_menu::Action::Note(user) => {
-					self.profile = None;
+					self.profile.hide();
 					self.contact_editor.open(user, false, state)
 				}
 				user_menu::Action::Nickname(user) => {
-					self.profile = None;
+					self.profile.hide();
 					self.contact_editor.open(user, true, state)
 				}
 				user_menu::Action::Shortcut(intent) => {
@@ -3958,7 +4072,8 @@ impl MessagingUi {
 			}
 		}
 		self.contact_editor.show(&ctx, state, &mut commands);
-		if let Some(user) = &self.profile {
+		self.drain_profile(state, &mut commands);
+		if let Some(user) = self.profile.open_user().cloned() {
 			let profile_guild = self.server_settings.guild().or_else(|| {
 				state
 					.channels
@@ -3966,59 +4081,12 @@ impl MessagingUi {
 					.find(|channel| Some(channel.id) == state.selected)
 					.and_then(|channel| channel.guild)
 			});
-			if user.webhook {
-				if state.profile.is_some() {
-					commands.push(state.clear_profile());
-				}
-			} else if state
-				.profile
-				.as_ref()
-				.is_none_or(|p| p.user != user.id || p.guild != profile_guild)
-			{
-				self.profile_link = None;
-				#[cfg(any(test, feature = "demo"))]
-				if state.demo {
-					state.profile = Some(client_core::profile::ProfileView {
-						user: user.id,
-						guild: profile_guild,
-						request: 0,
-						loading: false,
-						error: None,
-						data: Some(
-							state
-								.own_profile
-								.data
-								.as_ref()
-								.filter(|data| data.user.id == user.id)
-								.cloned()
-								.unwrap_or_else(|| profiles::synthetic(user, profile_guild)),
-						),
-					});
-				}
-				if !state.demo
-					&& let Some(command) = state.request_profile(user.id, profile_guild)
-				{
-					commands.push(command);
-				}
-			}
-			let anchor = match self.profile_anchor {
-				Some((id, pos)) if id == user.id => pos,
-				_ => {
-					let pos = ctx
-						.input(|i| i.pointer.interact_pos().or(i.pointer.latest_pos()))
-						.unwrap_or_else(|| ctx.content_rect().center());
-					self.profile_anchor = Some((user.id, pos));
-					pos
-				}
-			};
-			if let Some(rect) =
-				ctx.data(|data| data.get_temp::<egui::Rect>(profiles::profile_opener_id()))
-			{
-				self.profile_trigger = Some(rect);
-			}
+			self.sync_profile(state, &mut commands, &user, profile_guild);
+			let anchor = self.profile.anchor_or_place(&ctx, user.id);
+			self.profile.ingest_opener_rect(&ctx);
 			match profiles::show(
 				ui,
-				user,
+				&user,
 				state.profile.as_ref(),
 				state,
 				&mut self.avatars,
@@ -4042,10 +4110,7 @@ impl MessagingUi {
 							waveform: Vec::new(),
 						},
 					));
-					self.profile = None;
-					self.profile_link = None;
-					self.profile_anchor = None;
-					commands.push(state.clear_profile());
+					self.profile.close();
 				}
 				Some(profiles::Action::AddFriend(id)) => {
 					if let Some(command) = state.add_profile_friend(id) {
@@ -4065,33 +4130,14 @@ impl MessagingUi {
 					self.user_action = Some(action);
 				}
 				Some(profiles::Action::Edit) => {
-					self.profile = None;
-					self.profile_link = None;
-					self.profile_anchor = None;
-					commands.push(state.clear_profile());
+					self.profile.close();
 					self.preview_settings("profile");
 				}
-				Some(profiles::Action::Profile(user)) => {
-					self.profile = Some(user);
-					self.profile_link = None;
-					commands.push(state.clear_profile());
+				Some(profiles::Action::Profile(next)) => {
+					self.profile.navigate(next);
 				}
 				Some(profiles::Action::Close) => {
-					let keep = self.profile_trigger.is_some_and(|rect| {
-						ctx.input(|input| {
-							input.pointer.any_pressed()
-								&& input
-									.pointer
-									.interact_pos()
-									.is_some_and(|pos| rect.contains(pos))
-						})
-					});
-					if !keep {
-						self.profile = None;
-						self.profile_link = None;
-						self.profile_anchor = None;
-						commands.push(state.clear_profile());
-					}
+					self.profile.close_unless_armed(&ctx);
 				}
 				Some(profiles::Action::Retry) => {
 					if let Some(command) = state.request_profile(user.id, profile_guild) {
@@ -4099,10 +4145,7 @@ impl MessagingUi {
 					}
 				}
 				Some(profiles::Action::Message(channel)) => {
-					self.profile = None;
-					self.profile_link = None;
-					self.profile_anchor = None;
-					commands.push(state.clear_profile());
+					self.profile.close();
 					if self.server_settings.navigate_away(state)
 						&& let Some(command) = state.select(channel)
 					{
@@ -4111,8 +4154,12 @@ impl MessagingUi {
 				}
 				None => {}
 			}
+			if self.drain_profile(state, &mut commands)
+				&& let Some(user) = self.profile.open_user().cloned()
+			{
+				self.sync_profile(state, &mut commands, &user, profile_guild);
+			}
 		} else {
-			self.profile_anchor = None;
 			self.profile_link = None;
 		}
 
@@ -6108,7 +6155,7 @@ mod composer_tests {
 					output.textures_delta.clear();
 					for id in 1..=3 {
 						let row = egui::Rect::from_min_size(
-							origin + egui::vec2(0.0, id as f32 * 42.0),
+							origin + egui::vec2(0.0, (id - 1) as f32 * 42.0),
 							egui::vec2(width, 42.0),
 						);
 						let mut labels = vec![format!("Member {id}"), format!("Activity {id}")];
@@ -6379,8 +6426,11 @@ mod composer_tests {
 		let mut messaging = MessagingUi {
 			navigation_channel: Some(channel),
 			guild: Some(guild),
-			profile: Some(user.clone()),
-			profile_anchor: Some((user.id, egui::pos2(420.0, 150.0))),
+			profile: {
+				let mut profile = profiles::ProfileSession::default();
+				profile.command_open(user.clone());
+				profile
+			},
 			..Default::default()
 		};
 		let ctx = egui::Context::default();
@@ -6450,7 +6500,7 @@ mod composer_tests {
 				if custom_status.is_some() { 2 } else { 0 }
 			);
 			assert_eq!(state.profile.as_ref().unwrap().request, 314);
-			assert_eq!(messaging.profile.as_ref().unwrap().id, user.id);
+			assert_eq!(messaging.profile.open_user().unwrap().id, user.id);
 			assert_eq!(state.drafts[&channel], "Keep this unsent draft");
 			assert!(messaging.draft_changes.is_empty());
 		}
@@ -6508,8 +6558,11 @@ mod composer_tests {
 			let mut messaging = MessagingUi {
 				navigation_channel: Some(channel),
 				guild,
-				profile: Some(user.clone()),
-				profile_anchor: Some((user.id, egui::pos2(420.0, 150.0))),
+				profile: {
+					let mut profile = profiles::ProfileSession::default();
+					profile.command_open(user.clone());
+					profile
+				},
 				..Default::default()
 			};
 			let ctx = egui::Context::default();
@@ -6699,7 +6752,11 @@ mod composer_tests {
 				..Default::default()
 			};
 			let mut messaging = MessagingUi {
-				profile: Some(user),
+				profile: {
+					let mut profile = profiles::ProfileSession::default();
+					profile.command_open(user);
+					profile
+				},
 				..Default::default()
 			};
 			let mut commands = vec![];
@@ -6738,6 +6795,11 @@ mod composer_tests {
 		}
 		let ctx = egui::Context::default();
 		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Message(test_support::message(501, channel)),
+		});
 		let mut messaging = MessagingUi::default();
 		let frame = |messaging: &mut MessagingUi, state: &mut State, events: Vec<egui::Event>| {
 			let mut output = ctx.run_ui(
@@ -6785,9 +6847,12 @@ mod composer_tests {
 			.expect("message author");
 		let pos = author.center();
 		click(&mut messaging, &mut state, pos);
-		assert_eq!(messaging.profile.as_ref().map(|user| user.id), Some(Id(2)));
+		assert_eq!(
+			messaging.profile.open_user().map(|user| user.id),
+			Some(Id(2))
+		);
 		click(&mut messaging, &mut state, pos);
-		assert!(messaging.profile.is_none());
+		assert!(messaging.profile.open_user().is_none());
 		assert!(
 			state
 				.profile
@@ -6829,7 +6894,11 @@ mod composer_tests {
 			let mut messaging = MessagingUi {
 				navigation_channel: state.selected,
 				guild: Some(Id(99)),
-				profile: Some(user),
+				profile: {
+					let mut profile = profiles::ProfileSession::default();
+					profile.command_open(user);
+					profile
+				},
 				..Default::default()
 			};
 			let output = egui::Context::default().run_ui(

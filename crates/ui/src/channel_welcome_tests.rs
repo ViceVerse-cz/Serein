@@ -41,7 +41,10 @@ fn frame(
 					state,
 					&mut None,
 					&mut None,
-					(&mut crate::avatars::Avatars::default(), &mut None),
+					(
+						&mut crate::avatars::Avatars::default(),
+						&mut crate::profiles::ProfileSession::default(),
+					),
 					None,
 				);
 				assert!(ui.min_rect().right() <= ui.max_rect().right() + 1.0);
@@ -66,6 +69,7 @@ fn welcomes(painted: &[(String, Rect)]) -> bool {
 #[test]
 fn welcome_tracks_confirmed_empty_history_messages_and_pending_delivery() {
 	let mut state = test_support::empty_channel_demo_state(false);
+	state.set_preserve_deleted_messages(true);
 	let channel = state.selected.unwrap();
 	let ctx = Context::default();
 	let mut view = TimelineView::default();

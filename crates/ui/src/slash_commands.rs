@@ -1526,6 +1526,27 @@ mod tests {
 			}
 			state.permissions.replace(permissions).unwrap();
 			assert!(!state.can_compose(channel));
+			assert!(!state.can_request_application_commands(channel));
+			for source in [
+				"/ask",
+				"/msg @user hi",
+				"/gif cats",
+				"/sticker cats",
+				"/shrug hello",
+			] {
+				state.drafts.insert(channel, source.into());
+				assert!(frame(&mut view, &mut state, Some((egui::Key::Enter, false))).is_empty());
+				assert_eq!(state.drafts[&channel], source);
+				assert!(!view.slash_commands.visible());
+			}
+			let mut permissions = test_support::permission_snapshot(&state);
+			for guild in &mut permissions.guilds {
+				for role in guild.roles.iter_mut().flatten() {
+					role.bits |= model::permissions::USE_APPLICATION_COMMANDS
+						| model::permissions::SEND_MESSAGES;
+				}
+			}
+			state.permissions.replace(permissions).unwrap();
 			assert!(state.can_request_application_commands(channel));
 			let app = model::application_commands::Command {
 				id: Id(987),
@@ -1569,10 +1590,11 @@ mod tests {
 				view.slash_commands
 					.items
 					.iter()
+					.filter(|item| item.application_id.is_some())
 					.map(|item| item.name.as_str())
 					.collect::<Vec<_>>(),
-				vec!["ask", "msg"],
-				"hide denied apps and builtins that require Send Messages"
+				vec!["ask"],
+				"hide denied apps"
 			);
 			assert_eq!(
 				view.slash_commands
@@ -1582,14 +1604,12 @@ mod tests {
 					.collect::<Vec<_>>(),
 				vec![Id(986)]
 			);
-			for source in ["/restricted", "/gif cats", "/sticker cats", "/shrug hello"] {
-				state.drafts.insert(channel, source.into());
-				frame(&mut view, &mut state, None);
-				assert!(frame(&mut view, &mut state, Some((egui::Key::Enter, false))).is_empty());
-				assert_eq!(state.drafts[&channel], source);
-				assert_eq!(state.status, NO_PERMISSION);
-				assert!(!view.emoji_picker.is_open());
-			}
+			state.drafts.insert(channel, "/restricted".into());
+			frame(&mut view, &mut state, None);
+			assert!(frame(&mut view, &mut state, Some((egui::Key::Enter, false))).is_empty());
+			assert_eq!(state.drafts[&channel], "/restricted");
+			assert_eq!(state.status, NO_PERMISSION);
+			assert!(!view.emoji_picker.is_open());
 			state.drafts.insert(channel, "/ask".into());
 			for _ in 0..3 {
 				frame(&mut view, &mut state, None);
@@ -1599,7 +1619,7 @@ mod tests {
 			assert!(view.slash_commands.active.is_some());
 			assert!(
 				view.slash_commands.can_submit(&state, channel),
-				"application-only permission must enable the normal Send action"
+				"message and application permissions enable the normal Send action"
 			);
 			ctx.run_ui(
 				egui::RawInput {

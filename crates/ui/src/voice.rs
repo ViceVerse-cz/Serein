@@ -304,20 +304,6 @@ impl MessagingUi {
 		})
 	}
 
-	fn remember_profile_trigger(&mut self, rect: egui::Rect, pointer_inside: bool) {
-		if pointer_inside {
-			self.profile_trigger = Some(rect);
-		}
-	}
-
-	fn toggle_profile(&mut self, user: &model::User) {
-		crate::profiles::toggle_profile(&mut self.profile, user);
-		if self.profile.is_none() {
-			self.profile_link = None;
-			self.profile_anchor = None;
-		}
-	}
-
 	pub(super) fn voice_participant(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -420,10 +406,7 @@ impl MessagingUi {
 				});
 				self.voice_participant_menu(&row, state, entry);
 				if let Some(user) = user {
-					self.remember_profile_trigger(row.rect, row.contains_pointer());
-					if row.clicked() {
-						self.toggle_profile(user);
-					}
+					self.profile.person_click(ui, &row, None, user);
 				}
 			},
 		);
@@ -994,10 +977,7 @@ impl MessagingUi {
 		}
 		self.voice_participant_menu(&avatar, state, entry);
 		if let Some(user) = user {
-			self.remember_profile_trigger(avatar.rect, avatar.contains_pointer());
-			if avatar.clicked() {
-				self.toggle_profile(user);
-			}
+			self.profile.person_click(ui, &avatar, None, user);
 		}
 		// Discord's LIVE pill marks a streamer on every tile size; strip tiles get a small one
 		// so it never covers the avatar.

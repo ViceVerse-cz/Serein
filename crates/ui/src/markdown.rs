@@ -480,7 +480,7 @@ struct Render<'a> {
 	opening: &'a mut Option<String>,
 	users: &'a [model::User],
 	source: Option<&'a crate::mentions::MentionSource<'a>>,
-	profile: &'a mut Option<model::User>,
+	profile: &'a mut crate::profiles::ProfileSession,
 	channels: &'a [model::Channel],
 	channel: &'a mut Option<Id>,
 	guilds: &'a [model::Guild],
@@ -1004,7 +1004,8 @@ impl Formatted {
 	}
 	#[cfg(test)]
 	pub fn show(&self, ui: &mut egui::Ui, opening: &mut Option<String>) {
-		self.show_mentions(ui, opening, &[], &mut None);
+		let mut profile = crate::profiles::ProfileSession::default();
+		self.show_mentions(ui, opening, &[], &mut profile);
 	}
 	#[cfg(test)]
 	pub fn show_mentions(
@@ -1012,7 +1013,7 @@ impl Formatted {
 		ui: &mut egui::Ui,
 		opening: &mut Option<String>,
 		users: &[model::User],
-		profile: &mut Option<model::User>,
+		profile: &mut crate::profiles::ProfileSession,
 	) {
 		self.show_with_images(
 			ui,
@@ -1029,7 +1030,7 @@ impl Formatted {
 		opening: &mut Option<String>,
 		users: &[model::User],
 		source: Option<&crate::mentions::MentionSource<'_>>,
-		profile: &mut Option<model::User>,
+		profile: &mut crate::profiles::ProfileSession,
 		media: (&mut crate::avatars::Avatars, bool, &[model::Guild]),
 	) {
 		let (images, demo, guilds) = media;
@@ -1054,7 +1055,7 @@ impl Formatted {
 		opening: &mut Option<String>,
 		users: &[model::User],
 		source: Option<&crate::mentions::MentionSource<'_>>,
-		profile: &mut Option<model::User>,
+		profile: &mut crate::profiles::ProfileSession,
 		references: (
 			&[model::Channel],
 			&mut Option<Id>,
@@ -1075,7 +1076,7 @@ impl Formatted {
 		opening: &mut Option<String>,
 		users: &[model::User],
 		source: Option<&crate::mentions::MentionSource<'_>>,
-		profile: &mut Option<model::User>,
+		profile: &mut crate::profiles::ProfileSession,
 		references: (
 			&[model::Channel],
 			&mut Option<Id>,
@@ -1299,8 +1300,7 @@ impl Formatted {
 								format!("{label}, user profile"),
 							)
 						});
-						crate::profiles::arm_profile_opener(ui, &response);
-						if response.clicked() {
+						if response.clicked() || response.contains_pointer() {
 							let opened = user.cloned().unwrap_or(model::User {
 								id,
 								name: format!("User {id}"),
@@ -1310,7 +1310,7 @@ impl Formatted {
 								discriminator: 0,
 								primary_guild: None,
 							});
-							crate::profiles::toggle_profile(render.profile, &opened);
+							render.profile.person_click(ui, &response, None, &opened);
 						}
 						start += 1;
 						continue;
@@ -2802,7 +2802,7 @@ mod tests {
 			});
 			let mut images = crate::avatars::Avatars::default();
 			let mut opening = None;
-			let mut profile = None;
+			let mut profile = crate::profiles::ProfileSession::default();
 			let mut channel = None;
 			let mut mask = 0;
 			let mut render = |mask: &mut u32, events| {
@@ -2831,7 +2831,7 @@ mod tests {
 					},
 				);
 				assert!(output.platform_output.commands.is_empty());
-				assert!(opening.is_none() && profile.is_none() && channel.is_none());
+				assert!(opening.is_none() && profile.open_user().is_none() && channel.is_none());
 				let requests = images.take_requests();
 				if *mask == 0 {
 					assert!(requests.is_empty());
@@ -2918,12 +2918,13 @@ mod tests {
 				},
 				|ui| {
 					let mut surface = crate::select::Surface::new(ui, "body");
+					let mut profile = crate::profiles::ProfileSession::default();
 					parsed.show_references(
 						ui,
 						&mut None,
 						&[],
 						None,
-						&mut None,
+						&mut profile,
 						(&[], &mut None, &[], &[]),
 						(&mut images, false, &mut mask),
 						&mut surface,
@@ -3064,7 +3065,7 @@ mod tests {
 			let parsed = Formatted::parse(&format!("<#{}>", id));
 			let ctx = egui::Context::default();
 			let mut opening = None;
-			let mut profile = None;
+			let mut profile = crate::profiles::ProfileSession::default();
 			let mut channel = None;
 			let mut revealed = u32::MAX;
 			for key in [egui::Key::Tab, egui::Key::Enter] {
@@ -3098,7 +3099,7 @@ mod tests {
 				output.textures_delta.clear();
 			}
 			assert_eq!(channel, matches!(id, 4 | 5).then_some(Id(id)));
-			assert!(opening.is_none() && profile.is_none());
+			assert!(opening.is_none() && profile.open_user().is_none());
 		}
 	}
 	#[test]
@@ -3122,12 +3123,13 @@ mod tests {
 					..Default::default()
 				},
 				|ui| {
+					let mut profile = crate::profiles::ProfileSession::default();
 					parsed.show_with_images(
 						ui,
 						&mut None,
 						&[],
 						None,
-						&mut None,
+						&mut profile,
 						(&mut avatars, true, &[]),
 					)
 				},
@@ -3286,12 +3288,13 @@ mod tests {
 							..Default::default()
 						},
 						|ui| {
+							let mut profile = crate::profiles::ProfileSession::default();
 							parsed.show_with_images(
 								ui,
 								&mut None,
 								&[],
 								None,
-								&mut None,
+								&mut profile,
 								(&mut images, true, &state.guilds),
 							)
 						},
@@ -3863,7 +3866,8 @@ mod tests {
 			for width in [80.0, 300.0] {
 				let mut output = ctx.run_ui(Default::default(), |ui| {
 					ui.set_width(width);
-					parsed.show_mentions(ui, &mut None, &users, &mut None);
+					let mut profile = crate::profiles::ProfileSession::default();
+					parsed.show_mentions(ui, &mut None, &users, &mut profile);
 				});
 				output.textures_delta.clear();
 				let colors = crate::design::colors(dark, crate::design::variant());
@@ -3910,7 +3914,7 @@ mod tests {
 		] {
 			let parsed = Formatted::parse(source);
 			assert!(parsed.artwork, "{source}");
-			let mut profile = None;
+			let mut profile = crate::profiles::ProfileSession::default();
 			let mut opening = None;
 			let output = ctx.run_ui(Default::default(), |ui| {
 				ui.set_width(400.0);
@@ -3980,7 +3984,7 @@ mod tests {
 		);
 		let parsed = Formatted::parse("<@42>");
 		let ctx = egui::Context::default();
-		let mut profile = None;
+		let mut profile = crate::profiles::ProfileSession::default();
 		let mut opening = None;
 		let users = vec![model::User {
 			id: Id(42),
@@ -4008,7 +4012,7 @@ mod tests {
 			assert!(output.platform_output.commands.is_empty());
 			output.textures_delta.clear();
 		}
-		assert_eq!(profile.unwrap().name, "Synthetic Robin");
+		assert_eq!(profile.open_user().unwrap().name, "Synthetic Robin");
 		assert!(opening.is_none());
 	}
 	#[test]

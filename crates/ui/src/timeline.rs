@@ -67,8 +67,6 @@ pub struct TimelineView {
 	initial_read_checked: bool,
 	pub(super) unread_jump: bool,
 	pub(super) load_newer: bool,
-	channel_labels: u64,
-	channel_labels_key: Option<(u64, u64, Option<Id>)>,
 	pub(super) mark_read: Option<Id>,
 	pub(super) mark_unread: Option<Id>,
 	auto_read_attempt: Option<Id>,
@@ -260,43 +258,6 @@ fn centered_offset(rows: &[(Id, f32)], id: Id, viewport_h: f32, packed: f32) -> 
 		.map_or(0.0, |(_, height)| *height);
 	(row_top - (viewport_h - row_h) * 0.5).clamp(0.0, (packed - viewport_h).max(0.0))
 }
-fn instant_wheel_delta(
-	events: &[egui::Event],
-	options: egui::InputOptions,
-	page_height: f32,
-) -> egui::Vec2 {
-	events
-		.iter()
-		.filter_map(|event| {
-			let egui::Event::MouseWheel {
-				unit,
-				delta,
-				phase,
-				modifiers,
-			} = event
-			else {
-				return None;
-			};
-			if *phase != egui::TouchPhase::Move || modifiers.matches_any(options.zoom_modifier) {
-				return None;
-			}
-			let mut delta = match unit {
-				egui::MouseWheelUnit::Point => *delta,
-				egui::MouseWheelUnit::Line => options.line_scroll_speed * *delta,
-				egui::MouseWheelUnit::Page => page_height * *delta,
-			};
-			let horizontal = modifiers.matches_any(options.horizontal_scroll_modifier);
-			let vertical = modifiers.matches_any(options.vertical_scroll_modifier);
-			if horizontal && !vertical {
-				delta = egui::vec2(delta.x + delta.y, 0.0);
-			}
-			if !horizontal && vertical {
-				delta = egui::vec2(0.0, delta.x + delta.y);
-			}
-			Some(delta)
-		})
-		.fold(egui::Vec2::ZERO, |total, delta| total + delta)
-}
 fn anchor_offset(rows: &[(Id, f32)], id: Id, inset: f32) -> f32 {
 	if rows.is_empty() {
 		return 0.0;
@@ -314,7 +275,6 @@ fn anchor_offset(rows: &[(Id, f32)], id: Id, inset: f32) -> f32 {
 }
 fn layout_key(message: &Message) -> u64 {
 	// A layout fingerprint only; spoiler visibility uses exact text instead.
-	// Reaction counts are excluded so a +1/-1 does not drop measured heights.
 	let mut key = DefaultHasher::new();
 	message.content.hash(&mut key);
 	for prior in message.prior_contents.as_slice() {
@@ -344,10 +304,30 @@ fn layout_key(message: &Message) -> u64 {
 	message.attachments.hash(&mut key);
 	message.embeds.hash(&mut key);
 	message.embeds_suppressed.hash(&mut key);
+	match message.reactions.as_deref() {
+		Some(reactions) => {
+			true.hash(&mut key);
+			for reaction in reactions {
+				reaction.emoji.hash(&mut key);
+			}
+		}
+		None => false.hash(&mut key),
+	}
 	key.finish()
 }
 pub(crate) const MESSAGE_LINE: f32 = 22.0;
 const GROUPED_ROW_SAVINGS: f32 = 52.0;
+
+fn reserved_chrome(ui: &egui::Ui, message: &Message, width: f32) -> f32 {
+	let reactions = crate::reactions::estimated_height(
+		ui,
+		message.reactions.as_deref(),
+		(width - 88.0).max(40.0),
+	);
+	let components = 40.0 * (message.components.len().min(5) as f32);
+	let stickers = 160.0 * (message.sticker_items.len().min(4) as f32);
+	reactions + components + stickers
+}
 
 pub(crate) fn fill_header_line(ui: &mut egui::Ui, compact: bool, text_line: egui::Rect) {
 	let slack = MESSAGE_LINE - text_line.height();
@@ -1071,7 +1051,7 @@ fn show_system(
 	system: &model::SystemMessage,
 	time: time::OffsetDateTime,
 	state: &State,
-	profile: &mut Option<model::User>,
+	profile: &mut crate::profiles::ProfileSession,
 	user_action: &mut Option<crate::user_menu::Action>,
 	surface: &mut crate::select::Surface,
 	// A "started a thread" row: the known thread, its channel, and where clicks go.
@@ -1119,10 +1099,7 @@ fn show_system(
 					.on_hover_cursor(egui::CursorIcon::PointingHand);
 				surface.keep(&response);
 				crate::user_menu::show(&response, state, user, profile, user_action);
-				crate::profiles::arm_profile_opener(ui, &response);
-				if response.clicked() {
-					crate::profiles::toggle_profile(profile, user);
-				}
+				profile.person_click(ui, &response, None, user);
 			}
 			if let Some((_, parent)) = thread {
 				let (pos, galley, response) =
@@ -1258,7 +1235,10 @@ impl TimelineView {
 		state: &mut State,
 		editing: &mut Option<(Id, Id, String)>,
 		deleting: &mut Option<(Id, Id)>,
-		(avatars, profile): (&mut crate::avatars::Avatars, &mut Option<model::User>),
+		(avatars, profile): (
+			&mut crate::avatars::Avatars,
+			&mut crate::profiles::ProfileSession,
+		),
 		upload: Option<&crate::pending::Upload>,
 	) {
 		let mut scroll = crate::scroll::Session::default();
@@ -1280,7 +1260,10 @@ impl TimelineView {
 		state: &mut State,
 		editing: &mut Option<(Id, Id, String)>,
 		deleting: &mut Option<(Id, Id)>,
-		(avatars, profile): (&mut crate::avatars::Avatars, &mut Option<model::User>),
+		(avatars, profile): (
+			&mut crate::avatars::Avatars,
+			&mut crate::profiles::ProfileSession,
+		),
 		upload: Option<&crate::pending::Upload>,
 		session: &mut crate::scroll::Session,
 	) {
@@ -1330,11 +1313,12 @@ impl TimelineView {
 			self.initial_read_checked = true;
 			if unread {
 				self.mark_read = None;
-				let first_text_open = state
-					.channel(channel)
-					.is_some_and(|channel| channel.supports_text())
-					&& state.reading(channel).is_none();
-				if first_text_open && state.timeline.iter().next().is_some() {
+				let arrived_on_live_edge = self.following
+					&& state
+						.channel(channel)
+						.is_some_and(|channel| channel.supports_text())
+					&& state.timeline.iter().next().is_some();
+				if arrived_on_live_edge {
 					self.hold_read_ack = true;
 				}
 			}
@@ -1368,36 +1352,9 @@ impl TimelineView {
 		}
 		let text_size = egui::TextStyle::Body.resolve(ui.style()).size;
 		let scale = ui.ctx().pixels_per_point();
-		let mut labels_changed = false;
-		let labels_key = (
-			state.generation,
-			state.channel_labels_revision(),
-			state.selected,
-		);
-		if self.channel_labels_key != Some(labels_key) {
-			let mut labels = DefaultHasher::new();
-			for channel in state
-				.channels
-				.iter()
-				.filter(|c| c.guild.is_some() && (c.supports_text() || matches!(c.kind, 15 | 16)))
-			{
-				channel.id.hash(&mut labels);
-				channel.guild.hash(&mut labels);
-				channel.name.hash(&mut labels);
-			}
-			for role in crate::mentions::known_roles(state, state.selected.unwrap_or(Id(0))) {
-				role.id.hash(&mut labels);
-				role.name.hash(&mut labels);
-			}
-			let labels = labels.finish();
-			labels_changed = self.channel_labels != labels;
-			self.channel_labels = labels;
-			self.channel_labels_key = Some(labels_key);
-		}
 		let width_changed = (self.width - width).abs() > 1.0;
 		let content_dimensions_changed = self.text_size != text_size
 			|| self.scale != scale
-			|| labels_changed
 			|| self.hide_media_links != self.applied_hide_media_links;
 		let dimensions_changed = width_changed || content_dimensions_changed;
 		self.applied_hide_media_links = self.hide_media_links;
@@ -1468,6 +1425,7 @@ impl TimelineView {
 				.retain(|(id, _), _| row_ids.binary_search(id).is_ok());
 			let mut previous = None;
 			let mut lead_basis = 0.0;
+			let mut stale_heights = Vec::new();
 			self.rows = starter
 				.into_iter()
 				.chain(display_rows(state))
@@ -1497,11 +1455,15 @@ impl TimelineView {
 					if grouped(prior, m, self.unread_boundary) && !deleted {
 						estimate = (estimate - GROUPED_ROW_SAVINGS).max(24.0);
 					}
-					let height = self
-						.heights
-						.get(&m.id)
-						.filter(|(old_key, _)| *old_key == key)
-						.map_or(estimate, |(_, height)| *height);
+					estimate += reserved_chrome(ui, m, width);
+					let height = match self.heights.get(&m.id) {
+						Some((old_key, height)) if *old_key == key => *height,
+						Some(_) => {
+							stale_heights.push(m.id);
+							estimate
+						}
+						None => estimate,
+					};
 					lead_basis += if height * 8.0 < estimate {
 						estimate
 					} else {
@@ -1510,6 +1472,9 @@ impl TimelineView {
 					(m.id, height)
 				})
 				.collect();
+			for id in stale_heights {
+				self.heights.remove(&id);
+			}
 			lead_rows = Some(lead_basis);
 			if !self.following
 				&& let Some((id, inset)) = self.anchor
@@ -1572,7 +1537,7 @@ impl TimelineView {
 		let total: f32 = self.rows.iter().map(|(_, height)| height).sum();
 		// The typing indicator floats in the reserved strip above the composer; the gap keeps
 		// it from covering the last message, and stays there when nobody is typing.
-		let end_padding = 16.0 + crate::typing::OVERLAY_HEIGHT;
+		let end_padding = 8.0 + crate::typing::OVERLAY_HEIGHT;
 		self.pending_heights.retain(|nonce, _| {
 			state
 				.pending
@@ -1690,26 +1655,14 @@ impl TimelineView {
 			(total + end_padding + pending_rows.iter().map(|(_, height)| height).sum::<f32>()
 				- ui.available_height())
 			.max(0.0);
+		let mut jumped_to = None;
 		if std::mem::take(&mut self.jump) && self.following {
 			self.reveal_scroll = None;
 			self.present_scroll = None;
 			offset = Some(live_edge_offset);
+			jumped_to = Some(live_edge_offset);
 		}
-		let input_options = ui.ctx().options(|options| options.input_options);
-		let wheel = ui.input(|input| {
-			if !self.instant_scrolling {
-				input.smooth_scroll_delta()
-			} else {
-				instant_wheel_delta(
-					&input.raw.events,
-					input_options,
-					input.viewport_rect().height(),
-				)
-			}
-		});
-		if self.instant_scrolling {
-			ui.input_mut(|input| input.smooth_scroll_delta = wheel);
-		}
+		let wheel = ui.input(|input| input.smooth_scroll_delta());
 		let user_scroll = wheel.y + autoscroll_delta;
 		if user_scroll != 0.0 && self.reveal_scroll.take().is_some() {
 			offset = None;
@@ -2148,10 +2101,7 @@ impl TimelineView {
 										profile,
 										&mut self.user_action,
 									);
-									crate::profiles::arm_profile_opener(ui, &avatar);
-									if avatar.clicked() {
-										crate::profiles::toggle_profile(profile, &message.author);
-									}
+									profile.person_click(ui, &avatar, None, &message.author);
 									surface.keep(&avatar);
 								}
 								ui.vertical(|ui| {
@@ -2188,13 +2138,12 @@ impl TimelineView {
 													profile,
 													&mut self.user_action,
 												);
-												crate::profiles::arm_profile_opener(ui, &author);
-												if author.clicked() {
-													crate::profiles::toggle_profile(
-														profile,
-														&message.author,
-													);
-												}
+												profile.person_click(
+													ui,
+													&author,
+													None,
+													&message.author,
+												);
 												surface.keep(&author);
 												let time = timestamp(id);
 												let time = ui
@@ -3103,6 +3052,10 @@ impl TimelineView {
 			viewport.min.y
 		});
 		self.scroll_offset = output.state.offset.y;
+		if jumped_to.is_some_and(|target| (self.scroll_offset - target).abs() > 1.0) {
+			self.jump = false;
+			ui.ctx().request_discard("Timeline live edge settled");
+		}
 		// ScrollArea applies wheel input after laying out its contents. Preserve that
 		// movement when new row measurements rebuild the timeline on the next pass.
 		let spare = if welcome {
@@ -3166,6 +3119,7 @@ impl TimelineView {
 				}
 			}
 		}
+		let was_following = self.following;
 		self.following = at_bottom && !self.target_browsing;
 		if self.following
 			&& !self.hold_read_ack
@@ -3199,13 +3153,13 @@ impl TimelineView {
 			self.reflow_frames = self.reflow_frames.saturating_add(1);
 			self.consecutive_reflows = self.consecutive_reflows.saturating_add(1);
 			self.revision = u64::MAX;
-			if self.following {
+			let user_scrolling = scroll_delta != 0.0 || session.holding();
+			if was_following && !user_scrolling {
+				self.following = true;
 				self.jump = true;
-				// Settle a newly selected chat before presenting estimated row positions.
-				// Keep resize and active scrolling on their existing anchored path.
-				if !dimensions_changed
-					|| (channel_changed && scroll_delta == 0.0 && !session.holding())
-				{
+				// An anchored reader keeps this frame's places. The next frame
+				// applies the new leading height through the scroll anchor.
+				if !dimensions_changed || channel_changed {
 					ui.ctx().request_discard("Timeline message heights settled");
 				}
 			}
@@ -3511,7 +3465,10 @@ mod tests {
 					state,
 					&mut None,
 					&mut None,
-					(&mut crate::avatars::Avatars::default(), &mut None),
+					(
+						&mut crate::avatars::Avatars::default(),
+						&mut crate::profiles::ProfileSession::default(),
+					),
 					None,
 				);
 			},
@@ -3894,7 +3851,10 @@ mod tests {
 						state,
 						&mut None,
 						&mut None,
-						(&mut crate::avatars::Avatars::default(), &mut None),
+						(
+							&mut crate::avatars::Avatars::default(),
+							&mut crate::profiles::ProfileSession::default(),
+						),
 						None,
 					);
 				},
@@ -4054,7 +4014,10 @@ mod tests {
 							&mut state,
 							&mut None,
 							&mut None,
-							(&mut avatars, &mut None),
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
 							None,
 						);
 						assert!(
@@ -4267,7 +4230,7 @@ mod tests {
 							state,
 							&mut None,
 							&mut None,
-							(&mut images, &mut None),
+							(&mut images, &mut crate::profiles::ProfileSession::default()),
 							None,
 						)
 					},
@@ -4462,7 +4425,10 @@ mod tests {
 						&mut state,
 						&mut None,
 						&mut None,
-						(&mut avatars, &mut None),
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
 						None,
 					);
 				},
@@ -4547,7 +4513,10 @@ mod tests {
 							&mut state,
 							&mut None,
 							&mut None,
-							(&mut avatars, &mut None),
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
 							None,
 						);
 						assert!(ui.min_rect().width() <= width, "system rows overflow");
@@ -4658,7 +4627,10 @@ mod tests {
 					&mut state,
 					&mut None,
 					&mut None,
-					(&mut avatars, &mut None),
+					(
+						&mut avatars,
+						&mut crate::profiles::ProfileSession::default(),
+					),
 					None,
 				);
 			})
@@ -4670,7 +4642,10 @@ mod tests {
 				&mut state,
 				&mut None,
 				&mut None,
-				(&mut avatars, &mut None),
+				(
+					&mut avatars,
+					&mut crate::profiles::ProfileSession::default(),
+				),
 				None,
 			);
 		});
@@ -4719,7 +4694,7 @@ mod tests {
 							&mut state,
 							&mut None,
 							&mut None,
-							(&mut images, &mut None),
+							(&mut images, &mut crate::profiles::ProfileSession::default()),
 							None,
 						)
 					},
@@ -4780,7 +4755,10 @@ mod tests {
 							&mut state,
 							&mut None,
 							&mut None,
-							(&mut avatars, &mut None),
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
 							None,
 						)
 					},
@@ -4869,7 +4847,10 @@ mod tests {
 						state,
 						&mut None,
 						&mut None,
-						(&mut avatars, &mut None),
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
 						None,
 					)
 				},
@@ -5045,7 +5026,10 @@ mod tests {
 								state,
 								&mut editing,
 								&mut None,
-								(&mut avatars, &mut None),
+								(
+									&mut avatars,
+									&mut crate::profiles::ProfileSession::default(),
+								),
 								None,
 							)
 						},
@@ -5274,7 +5258,10 @@ mod tests {
 						state,
 						&mut editing,
 						&mut None,
-						(&mut avatars, &mut None),
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
 						None,
 					)
 				},
@@ -5395,7 +5382,10 @@ mod tests {
 							state,
 							&mut None,
 							&mut None,
-							(&mut avatars, &mut None),
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
 							None,
 						)
 					},
@@ -5465,6 +5455,218 @@ mod tests {
 		}
 	}
 
+	fn unread_servers() -> State {
+		use model::permissions as p;
+		let channels = [(10, 1), (11, 1), (20, 2)]
+			.into_iter()
+			.map(|(id, guild)| model::Channel {
+				id: Id(id),
+				guild: Some(Id(guild)),
+				parent_id: None,
+				position: id as i32,
+				name: format!("synthetic-{id}"),
+				kind: 0,
+				recipients: vec![],
+				member_list_id: None,
+				message_count: None,
+				icon: None,
+				last_message: None,
+			})
+			.collect::<Vec<_>>();
+		let permission_channels = channels
+			.iter()
+			.filter_map(|channel| {
+				channel.guild.map(|guild| p::Channel {
+					id: channel.id,
+					guild,
+					overwrites: Some(vec![]),
+				})
+			})
+			.collect();
+		let mut state = State {
+			auth: client_core::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			user: Some(model::User {
+				id: Id(999),
+				name: "Synthetic".into(),
+				avatar: None,
+				webhook: false,
+				kind: Default::default(),
+				discriminator: 0,
+				primary_guild: None,
+			}),
+			guilds: [1, 2]
+				.into_iter()
+				.map(|id| model::Guild {
+					stickers: None,
+					emojis: None,
+					id: Id(id),
+					name: format!("Server {id}"),
+					icon: None,
+				})
+				.collect(),
+			channels,
+			..State::default()
+		};
+		state
+			.permissions
+			.replace(p::Snapshot {
+				guilds: (1..=2)
+					.map(|id| p::Guild {
+						id: Id(id),
+						owner: Some(Id(999)),
+						member: Some(p::Member {
+							roles: vec![],
+							timeout_until: None,
+						}),
+						roles: Some(vec![p::Role {
+							id: Id(id),
+							name: String::new(),
+							color: 0,
+							position: 0,
+							hoist: false,
+							bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,
+						}]),
+					})
+					.collect(),
+				channels: permission_channels,
+			})
+			.unwrap();
+		state
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(vec![
+					(Id(10), Some(Id(1)), 0),
+					(Id(11), Some(Id(1)), 0),
+					(Id(20), Some(Id(1)), 0),
+				]),
+				version: Some(1),
+				partial: false,
+			})
+			.unwrap();
+		state
+	}
+
+	fn deliver_unread(state: &mut State, channel: Id, latest: u64) {
+		assert_eq!(state.selected, Some(channel));
+		assert!(state.history_pending);
+		let messages = [latest - 1, latest]
+			.into_iter()
+			.map(|id| {
+				let mut message = test_support::message(id, channel);
+				message.content = "Synthetic tall unread row\n\n".repeat(40);
+				message
+			})
+			.collect();
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::History {
+				channel,
+				request: state.request,
+				older: false,
+				messages,
+			},
+		});
+		assert_eq!(state.freshness, model::Freshness::Fresh);
+		assert_eq!(state.unread(channel), Some(true));
+	}
+
+	fn settle_banner(
+		ctx: &egui::Context,
+		view: &mut TimelineView,
+		state: &mut State,
+	) -> Vec<(String, egui::Rect)> {
+		let mut labels = vec![];
+		for _ in 0..4 {
+			labels = banner_frame(ctx, view, state, vec![], false);
+		}
+		labels
+	}
+
+	fn expect_unread_held(view: &TimelineView, labels: &[(String, egui::Rect)], step: &str) {
+		assert!(
+			view.hold_read_ack && view.mark_read.is_none() && view.following,
+			"{step}: hold={} following={} mark_read={:?}",
+			view.hold_read_ack,
+			view.following,
+			view.mark_read
+		);
+		assert!(
+			labels.iter().any(|(text, _)| text == "Unread messages"),
+			"{step} removed the unread banner: {labels:?}"
+		);
+	}
+
+	#[test]
+	fn server_switch_keeps_the_unread_banner_until_a_downward_scroll() {
+		let ctx = egui::Context::default();
+		let mut state = unread_servers();
+		let mut view = TimelineView::default();
+
+		assert!(matches!(
+			state.select(Id(10)),
+			Some(client_core::Command::History { .. })
+		));
+		deliver_unread(&mut state, Id(10), 101);
+		let labels = settle_banner(&ctx, &mut view, &mut state);
+		expect_unread_held(&view, &labels, "channel open");
+
+		assert!(matches!(
+			state.select(Id(11)),
+			Some(client_core::Command::History { .. })
+		));
+		deliver_unread(&mut state, Id(11), 201);
+		let labels = settle_banner(&ctx, &mut view, &mut state);
+		expect_unread_held(&view, &labels, "channel switch");
+
+		assert!(matches!(
+			state.select(Id(10)),
+			Some(client_core::Command::History { .. })
+		));
+		deliver_unread(&mut state, Id(10), 101);
+		let labels = settle_banner(&ctx, &mut view, &mut state);
+		expect_unread_held(&view, &labels, "channel return");
+
+		assert!(matches!(
+			state.select_guild(Id(2)),
+			Some(client_core::Command::History {
+				channel: Id(20),
+				..
+			})
+		));
+		deliver_unread(&mut state, Id(20), 301);
+		let labels = settle_banner(&ctx, &mut view, &mut state);
+		expect_unread_held(&view, &labels, "server open");
+
+		assert!(matches!(
+			state.select_guild(Id(1)),
+			Some(client_core::Command::History {
+				channel: Id(10),
+				..
+			})
+		));
+		deliver_unread(&mut state, Id(10), 101);
+		let labels = settle_banner(&ctx, &mut view, &mut state);
+		expect_unread_held(&view, &labels, "server return");
+
+		banner_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![
+				egui::Event::PointerMoved(egui::pos2(450.0, 300.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					delta: egui::vec2(0.0, -80.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+				},
+			],
+			false,
+		);
+		assert_eq!(view.mark_read, Some(Id(101)));
+		assert!(!view.hold_read_ack);
+	}
+
 	#[test]
 	fn initial_unread_join_waits_for_a_downward_reach() {
 		for (marker, width, dark) in [
@@ -5530,7 +5732,10 @@ mod tests {
 							state,
 							&mut None,
 							&mut None,
-							(&mut avatars, &mut None),
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
 							None,
 						);
 						assert!(ui.min_rect().right() <= ui.max_rect().right() + 1.0);
@@ -5610,7 +5815,10 @@ mod tests {
 						state,
 						&mut None,
 						&mut None,
-						(&mut avatars, &mut None),
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
 						None,
 					);
 				},
@@ -5690,7 +5898,10 @@ mod tests {
 						state,
 						&mut None,
 						&mut None,
-						(&mut avatars, &mut None),
+						(
+							&mut avatars,
+							&mut crate::profiles::ProfileSession::default(),
+						),
 						None,
 					)
 				},
@@ -5787,7 +5998,7 @@ mod tests {
 			},
 		];
 		assert_eq!(
-			instant_wheel_delta(&events, options, 600.0),
+			crate::scroll::instant_wheel_delta(&events, options, 600.0),
 			egui::vec2(4.0, 227.0)
 		);
 	}
@@ -5854,12 +6065,22 @@ mod tests {
 						..Default::default()
 					},
 					|ui| {
+						crate::scroll::apply_preferences(
+							ui.ctx(),
+							model::ReadingPreferences {
+								smooth_scrolling: false,
+								..Default::default()
+							},
+						);
 						view.show(
 							ui,
 							&mut state,
 							&mut None,
 							&mut None,
-							(&mut avatars, &mut None),
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
 							None,
 						)
 					},
@@ -5953,7 +6174,10 @@ mod tests {
 							state,
 							&mut None,
 							&mut None,
-							(&mut avatars, &mut None),
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
 							None,
 						);
 					},
@@ -6067,7 +6291,10 @@ mod tests {
 							state,
 							&mut None,
 							&mut None,
-							(&mut avatars, &mut None),
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
 							None,
 						)
 					},
@@ -6307,7 +6534,10 @@ mod tests {
 								state,
 								&mut None,
 								&mut None,
-								(&mut avatars, &mut None),
+								(
+									&mut avatars,
+									&mut crate::profiles::ProfileSession::default(),
+								),
 								None,
 							);
 							assert!(ui.min_rect().right() <= ui.max_rect().right() + 1.0);
@@ -6433,7 +6663,16 @@ mod tests {
 				)),
 				..Default::default()
 			},
-			|ui| view.show(ui, state, &mut None, &mut None, (avatars, &mut None), None),
+			|ui| {
+				view.show(
+					ui,
+					state,
+					&mut None,
+					&mut None,
+					(avatars, &mut crate::profiles::ProfileSession::default()),
+					None,
+				)
+			},
 		)
 		.drop_without_applying_deltas();
 	}
@@ -6623,7 +6862,10 @@ mod tests {
 							state,
 							&mut None,
 							&mut None,
-							(&mut avatars, &mut None),
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
 							None,
 						);
 						assert!(ui.min_rect().right() <= ui.max_rect().right() + 1.0);
@@ -6679,7 +6921,13 @@ mod tests {
 	}
 	#[test]
 	fn channel_rename_invalidates_offscreen_reference_heights() {
-		let message = Message {
+		for prior in [false, true] {
+			check_channel_rename_heights(prior);
+		}
+	}
+
+	fn check_channel_rename_heights(prior: bool) {
+		let mut message = Message {
 			sticker_items: vec![],
 			id: Id(1),
 			channel: Id(2),
@@ -6720,6 +6968,11 @@ mod tests {
 			embeds_suppressed: false,
 			attachments: vec![],
 		};
+		if prior {
+			message
+				.prior_contents
+				.push_line(std::mem::take(&mut message.content));
+		}
 		let message_key = layout_key(&message);
 		let mut tail = message.clone();
 		tail.id = Id(2);
@@ -6763,7 +7016,16 @@ mod tests {
 							)),
 							..Default::default()
 						},
-						|ui| view.show(ui, state, &mut None, &mut None, (images, &mut None), None),
+						|ui| {
+							view.show(
+								ui,
+								state,
+								&mut None,
+								&mut None,
+								(images, &mut crate::profiles::ProfileSession::default()),
+								None,
+							)
+						},
 					)
 					.drop_without_applying_deltas();
 			};
@@ -6771,13 +7033,11 @@ mod tests {
 			render(&mut view, &mut state, &mut images);
 		}
 		let short_height = view.heights[&Id(1)].1;
-		let labels_key = view.channel_labels_key;
 		state.apply(client_core::Envelope {
 			generation: state.generation,
 			event: client_core::Event::Message(test_support::message(1_000_000, Id(4))),
 		});
 		render(&mut view, &mut state, &mut images);
-		assert_eq!(view.channel_labels_key, labels_key);
 		assert_eq!(view.heights[&Id(1)].1, short_height);
 		view.following = false;
 		view.anchor = Some((Id(2), 400.0));
@@ -6802,7 +7062,6 @@ mod tests {
 		});
 		assert_eq!(layout_key(state.timeline.get(Id(1)).unwrap()), message_key);
 		render(&mut view, &mut state, &mut images);
-		assert_ne!(view.channel_labels_key, labels_key);
 		assert!(
 			!view.heights.contains_key(&Id(1)),
 			"An offscreen row must lose its old label-dependent height even though its message did not change"
@@ -6819,6 +7078,7 @@ mod tests {
 		);
 		assert!(images.take_requests().is_empty());
 	}
+
 	#[test]
 	fn navigation_preserves_active_download_controls() {
 		let mut view = TimelineView::default();
@@ -6836,7 +7096,10 @@ mod tests {
 						&mut state,
 						&mut None,
 						&mut None,
-						(&mut crate::avatars::Avatars::default(), &mut None),
+						(
+							&mut crate::avatars::Avatars::default(),
+							&mut crate::profiles::ProfileSession::default(),
+						),
 						None,
 					);
 				})
@@ -6916,7 +7179,10 @@ mod tests {
 				&mut state,
 				&mut None,
 				&mut None,
-				(&mut crate::avatars::Avatars::default(), &mut None),
+				(
+					&mut crate::avatars::Avatars::default(),
+					&mut crate::profiles::ProfileSession::default(),
+				),
 				None,
 			);
 		});
@@ -7008,6 +7274,7 @@ mod tests {
 				..Default::default()
 			},
 			|ui| {
+				let mut profile = crate::profiles::ProfileSession::default();
 				let _ = super::super::embeds::show(
 					ui,
 					&message,
@@ -7015,7 +7282,7 @@ mod tests {
 					&mut crate::avatars::Avatars::default(),
 					&mut None,
 					&mut crate::attachments::DownloadUi::default(),
-					&mut None,
+					&mut profile,
 					&State {
 						demo: true,
 						..Default::default()
@@ -7053,7 +7320,16 @@ mod tests {
 						)),
 						..Default::default()
 					},
-					|ui| view.show(ui, state, &mut None, &mut None, (images, &mut None), None),
+					|ui| {
+						view.show(
+							ui,
+							state,
+							&mut None,
+							&mut None,
+							(images, &mut crate::profiles::ProfileSession::default()),
+							None,
+						)
+					},
 				);
 				assert!(
 					output.platform_output.commands.is_empty(),
@@ -7226,7 +7502,10 @@ mod tests {
 							&mut state,
 							&mut None,
 							&mut None,
-							(&mut avatars, &mut None),
+							(
+								&mut avatars,
+								&mut crate::profiles::ProfileSession::default(),
+							),
 							None,
 						);
 					},
@@ -7342,7 +7621,10 @@ mod tests {
 					state,
 					&mut None,
 					&mut None,
-					(&mut avatars, &mut None),
+					(
+						&mut avatars,
+						&mut crate::profiles::ProfileSession::default(),
+					),
 					None,
 				);
 			},

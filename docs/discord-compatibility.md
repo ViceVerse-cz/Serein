@@ -31,12 +31,13 @@ typed arguments. Root commands, subcommands and one subcommand-group level suppo
 integers, numbers, booleans, static choices and user/channel/role/mentionable IDs.
 Entity pickers use already loaded account data; they do not fetch a complete directory.
 Required fields, declared limits, choices, command context and channel access are checked
-before sending. Guild commands require Use Application Commands permission. The picker and
+before sending. Serein requires Send Messages (Send Messages in Threads for threads) for
+all slash commands, plus Use Application Commands for guild application commands. The picker and
 submission path also check default member permission bits and received application/command
 overrides for the current user, roles and channel. User overrides precede role overrides;
 role allows win among matching roles, and threads inherit the parent channel's rules.
 Owners/administrators bypass command restrictions. Apps with no available commands are
-hidden from the rail, and channel-send built-ins are hidden without Send Messages permission.
+hidden from the rail, and read-only channels disable the composer and all slash commands.
 Permission changes that invalidate the catalog cause it to reload; changes made solely to
 server command overrides may require the picker's Refresh action. These index fields are
 [unofficial account metadata](https://github.com/dolfies/discord.py-self/blob/master/discord/types/command.py#L141-L171).

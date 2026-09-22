@@ -315,6 +315,11 @@ Chat author membership (schema 18): `author_roles` JSON (at most 512 IDs, 16 KiB
 and optional `author_nick` (512 UTF-8 bytes / 128 characters) travel with each
 cached message row. Schema-17 and older binaries cannot reopen this upgraded cache.
 
+Reaction pills (schema 23): nullable `reactions` JSON, at most 16 KiB, stores the last
+known emoji set and counts so a reopened channel can place the strip before history
+returns. NULL means unknown and paints no strip. History replaces the row. Schema-22
+and older binaries cannot reopen this upgraded cache.
+
 Reading motion (schema 19): one checked application-wide boolean stores whether wheel,
 message-target and jump-to-present scrolling animate. Existing databases migrate to enabled;
 disabling changes only local rendering and adds no account data or timeline storage.
@@ -432,7 +437,9 @@ reopen the upgraded cache. No unpublished reply-navigation metadata is included.
 
 Reading/layout settings use one application-wide SQLite singleton: integer display
 scale 80..150 percent, sidebar width 190..360 logical points, wide-layout People visibility,
-GIF animation, media-link hiding, external-link confirmation and smooth scrolling.
+GIF animation, media-link hiding, external-link confirmation and smooth scrolling, plus
+scrolling speed (25–300 percent, default 100). Schema 24 adds the checked speed column
+transactionally; existing settings keep their prior speed.
 Missing row means 100 percent / 236 points with People, media-link hiding, link confirmation and
 smooth scrolling enabled while GIF animation is disabled. Reset removes just this override in an
 atomic statement; neither theme nor account drafts/history are reset. Logout retains these
@@ -518,7 +525,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Selected upload source | Up to ten session-only paths (4096 encoded bytes each), filenames (256 UTF-8 bytes each) and size/modified metadata; 500,000,000 bytes total, read in 64 KiB chunks | Removal, send completion/failure, cancellation or session teardown; sources are never copied to recovery/cache files or deleted |
 | Drafts | 64 globally, at most 2 MiB content; each draft at most 8192 UTF-8 bytes | Clear draft, confirmed send, or account logout |
 | Appearance | One application-wide SQLite row: Light or Dark; absent means System | Select System to remove the override; retained across account logout |
-| Reading/layout | One application-wide SQLite row with seven bounded scalar fields | Reset reading and layout removes only this override; retained across account logout |
+| Reading/layout | One application-wide SQLite row with eight bounded scalar fields | Reset reading and layout removes only this override; retained across account logout |
 | Theme preset | One application-wide SQLite row (`theme_variant`, ≤32-byte key such as `onyx`); absent means Default | Select Default to remove it; unknown keys are ignored; retained across account logout |
 | SQLite working files | DELETE journal mode, in-memory temporary tables, 2 MiB page cache; transaction journal may temporarily add disk usage | SQLite transaction completion; normal SQLite crash recovery |
 | Voice credentials, DAVE identities/keys and PCM/Opus audio | Session memory only; one call, bounded media queues; no recording or audio cache | Hangup, failure, logout and application teardown; no forensic-erasure claim |

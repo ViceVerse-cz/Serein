@@ -120,7 +120,7 @@ impl State {
 			&& self.gateway_connected
 			&& self.freshness != Freshness::Unavailable
 			&& self.selected == Some(channel)
-			&& self.can_view(channel)
+			&& self.can_compose(channel)
 			&& self.channel(channel).is_some_and(|c| {
 				c.supports_text()
 					&& if c.guild.is_some() {
@@ -395,11 +395,20 @@ mod tests {
 			.unwrap();
 		let mut command = command();
 		command.contexts = None;
+		assert!(!state.can_use_application_command(Id(2), &command));
+		assert!(!state.can_compose(Id(2)));
+		state
+			.update_permissions(crate::permissions::Event::Role {
+				guild: Id(10),
+				role: role(
+					10,
+					p::VIEW_CHANNEL
+						| p::USE_APPLICATION_COMMANDS
+						| p::SEND_MESSAGES | p::SEND_MESSAGES_IN_THREADS,
+				),
+			})
+			.unwrap();
 		assert!(state.can_use_application_command(Id(2), &command));
-		assert!(
-			!state.can_compose(Id(2)),
-			"application permission does not require ordinary message permission"
-		);
 		command.default_member_permissions = Some(p::KICK_MEMBERS);
 		assert!(!state.can_use_application_command(Id(2), &command));
 		command.default_member_permissions = Some(p::VIEW_CHANNEL | p::USE_APPLICATION_COMMANDS);
@@ -653,7 +662,7 @@ mod tests {
 					owner: Some(Id(99)),
 					roles: Some(vec![p::Role {
 						id: Id(10),
-						bits: p::VIEW_CHANNEL | p::USE_APPLICATION_COMMANDS,
+						bits: p::VIEW_CHANNEL | p::USE_APPLICATION_COMMANDS | p::SEND_MESSAGES,
 						name: "Synthetic role".into(),
 						color: 0,
 						position: 0,

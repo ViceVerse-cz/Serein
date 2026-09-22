@@ -65,7 +65,7 @@ fn text(
 	part: (u16, &str),
 	cache: &mut FormatCache,
 	opening: &mut Option<String>,
-	profile: &mut Option<model::User>,
+	profile: &mut crate::profiles::ProfileSession,
 	media: (
 		&mut Avatars,
 		bool,
@@ -291,7 +291,7 @@ pub fn show(
 	images: &mut Avatars,
 	opening: &mut Option<String>,
 	download: &mut DownloadUi,
-	profile: &mut Option<model::User>,
+	profile: &mut crate::profiles::ProfileSession,
 	state: &client_core::State,
 ) -> Option<Gif> {
 	if message.embeds_suppressed {
@@ -622,7 +622,38 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 		height += if inline_image(e).is_some() {
 			if count > 1 { image_height + 6.0 } else { 206.0 }
 		} else {
-			(100.0 + e.fields.len() as f32 * 44.0 + image_height).min(664.0)
+			let mut lines = 0.0;
+			if e.provider
+				.as_ref()
+				.is_some_and(|provider| !provider.name.is_empty())
+			{
+				lines += 1.0;
+			}
+			if e.author.is_some() {
+				lines += 1.0;
+			}
+			if e.title.is_some() {
+				lines += 1.0;
+			}
+			if let Some(description) = e.description.as_deref().filter(|text| !text.is_empty()) {
+				lines += description
+					.lines()
+					.map(|line| (line.chars().count() as f32 / 48.0).ceil().max(1.0))
+					.sum::<f32>();
+			}
+			if e.footer
+				.as_ref()
+				.is_some_and(|footer| !footer.text.is_empty())
+				|| e.timestamp.is_some()
+			{
+				lines += 1.0;
+			}
+			if lines == 0.0 {
+				lines = 1.0;
+			}
+			let text = 24.0 + lines * 20.0 + 6.0;
+			let thumb = if e.thumbnail.is_some() { 114.0 } else { 0.0 };
+			(text.max(thumb) + e.fields.len() as f32 * 44.0 + image_height).min(664.0)
 		};
 		index += count;
 	}
@@ -677,6 +708,7 @@ mod tests {
 							..Default::default()
 						},
 						|ui| {
+							let mut profile = crate::profiles::ProfileSession::default();
 							assert!(
 								show(
 									ui,
@@ -685,7 +717,7 @@ mod tests {
 									&mut images,
 									&mut opening,
 									&mut download,
-									&mut None,
+									&mut profile,
 									&client_core::State::default()
 								)
 								.is_none()
@@ -831,6 +863,7 @@ mod tests {
 						..Default::default()
 					},
 					|ui| {
+						let mut profile = crate::profiles::ProfileSession::default();
 						show(
 							ui,
 							&message,
@@ -838,7 +871,7 @@ mod tests {
 							&mut images,
 							&mut None,
 							&mut DownloadUi::default(),
-							&mut None,
+							&mut profile,
 							&client_core::State::default(),
 						);
 					},
@@ -1110,6 +1143,7 @@ mod tests {
 				..Default::default()
 			},
 			|ui| {
+				let mut profile = crate::profiles::ProfileSession::default();
 				show(
 					ui,
 					&message,
@@ -1117,7 +1151,7 @@ mod tests {
 					&mut images,
 					&mut opening,
 					&mut download,
-					&mut None,
+					&mut profile,
 					&client_core::State::default(),
 				);
 			},

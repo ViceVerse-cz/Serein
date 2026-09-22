@@ -348,7 +348,7 @@ pub struct Message {
 	pub ephemeral: bool,
 	pub components: Vec<Component>,
 	pub application_id: Option<Id>,
-	/// Session-only counts; None means a service refresh is needed.
+	/// Last known counts. None means they have not been loaded yet.
 	pub reactions: Option<Vec<Reaction>>,
 	pub id: Id,
 	pub channel: Id,

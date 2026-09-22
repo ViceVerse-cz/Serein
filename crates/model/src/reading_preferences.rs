@@ -6,6 +6,7 @@ pub struct ReadingPreferences {
 	pub show_members: bool,
 	pub animate_gifs: bool,
 	pub smooth_scrolling: bool,
+	pub scroll_speed_percent: u16,
 	pub hide_media_links: bool,
 	pub confirm_external_links: bool,
 }
@@ -17,6 +18,7 @@ impl Default for ReadingPreferences {
 			show_members: true,
 			animate_gifs: false,
 			smooth_scrolling: true,
+			scroll_speed_percent: 100,
 			hide_media_links: true,
 			confirm_external_links: true,
 		}
@@ -24,7 +26,9 @@ impl Default for ReadingPreferences {
 }
 impl ReadingPreferences {
 	pub fn is_valid(self) -> bool {
-		(80..=150).contains(&self.zoom_percent) && (190..=360).contains(&self.sidebar_width)
+		(80..=150).contains(&self.zoom_percent)
+			&& (190..=360).contains(&self.sidebar_width)
+			&& (25..=300).contains(&self.scroll_speed_percent)
 	}
 }
 
@@ -47,6 +51,7 @@ mod tests {
 						show_members,
 						animate_gifs: false,
 						smooth_scrolling: true,
+						scroll_speed_percent: 100,
 						hide_media_links: true,
 						confirm_external_links: true,
 					};

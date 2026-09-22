@@ -663,6 +663,9 @@ pub struct State {
 	#[doc(hidden)]
 	pub navigation_index: NavigationIndex,
 	pub selected: Option<Id>,
+	/// Session-local last opened direct or group message.
+	#[doc(hidden)]
+	pub last_viewed_dm: Option<Id>,
 	/// Session-local guild/channel ID pairs, oldest visit first; at most 16 KiB.
 	#[doc(hidden)]
 	pub last_viewed_channels: Vec<(Id, Id)>,
@@ -861,6 +864,7 @@ impl Default for State {
 			channels: vec![],
 			navigation_index: NavigationIndex::default(),
 			selected: None,
+			last_viewed_dm: None,
 			last_viewed_channels: Vec::new(),
 			last_viewed_threads: Vec::new(),
 			timeline: Timeline::default(),
@@ -1006,6 +1010,13 @@ impl State {
 				.sum::<usize>()
 	}
 	fn remember_channel(&mut self, channel: Id) {
+		if self
+			.channel(channel)
+			.is_some_and(|c| c.guild.is_none() && matches!(c.kind, 1 | 3))
+		{
+			self.last_viewed_dm = Some(channel);
+			return;
+		}
 		let Some(guild) = self.channel(channel).and_then(|c| c.guild) else {
 			return;
 		};
@@ -1092,7 +1103,9 @@ impl State {
 		self.typing.clear();
 		self.select_resident(channel);
 		self.history_targeted = false;
-		self.members = None;
+		if self.shared_member_list_id(channel).is_none() {
+			self.members = None;
+		}
 		self.member_search = Default::default();
 		self.selected = Some(channel);
 		self.clear_search();
@@ -1131,8 +1144,22 @@ impl State {
 		Apply::Opened(Some(self.history(None)))
 	}
 
+	/// Return to the last available direct message, or Friends when none remains.
+	pub fn open_messages(&mut self) -> Option<Command> {
+		if let Some(channel) = self.last_viewed_dm.filter(|id| {
+			self.channel(*id)
+				.is_some_and(|c| c.guild.is_none() && matches!(c.kind, 1 | 3))
+				&& self.can_view(*id)
+		}) {
+			return self.select(channel);
+		}
+		self.open_home();
+		None
+	}
+
 	/// Open Friends / Home. Does not clear the timeline or emit a command.
 	pub fn open_home(&mut self) {
+		self.last_viewed_dm = None;
 		self.application_commands.clear();
 		self.selected = None;
 		self.record(Place::Home);
@@ -1207,8 +1234,42 @@ impl State {
 		}
 	}
 
+	fn shared_member_list_id(&self, next: Id) -> Option<String> {
+		if self.freshness == Freshness::Unavailable {
+			return None;
+		}
+		let list = self.members.as_ref()?;
+		if list.channel == next || !list.lazy || list.freshness == Freshness::Unavailable {
+			return None;
+		}
+		let next_channel = self.channel(next)?.clone();
+		if next_channel.guild != list.guild || matches!(next_channel.kind, 10..=12) {
+			return None;
+		}
+		let next_id = self.member_list_id(&next_channel)?;
+		let current = self.channel(list.channel)?.clone();
+		self.member_list_id(&current)
+			.filter(|current| current == &next_id)
+	}
+
 	pub fn request_members(&mut self) -> Option<Command> {
 		let index = self.channel_index(self.selected?)?;
+		let channel_id = self.channels[index].id;
+		if let Some(list_id) = self.shared_member_list_id(channel_id) {
+			let (request, ranges, guild) = {
+				let list = self.members.as_mut()?;
+				list.channel = channel_id;
+				(list.request, list.ranges.clone(), list.guild)
+			};
+			return Some(Command::Members {
+				thread: false,
+				guild,
+				channel: Some(channel_id),
+				request,
+				list_id: Some(list_id),
+				ranges,
+			});
+		}
 		let channel = &self.channels[index];
 		self.member_request = self.member_request.wrapping_add(1);
 		self.member_chunks.clear();

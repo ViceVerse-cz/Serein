@@ -319,6 +319,7 @@ impl Editor {
 		ctx: &egui::Context,
 		state: &mut State,
 		avatars: &mut Avatars,
+		profile: &mut crate::profiles::ProfileSession,
 		commands: &mut Vec<Command>,
 	) {
 		let Some((generation, guild)) = self.scope else {
@@ -567,14 +568,14 @@ impl Editor {
 						// wrapping them again would nest two scroll areas over one list.
 						if self.scrolling_page() {
 							ui.set_width(ui.available_width());
-							self.page_body(ui, state, guild, avatars, commands);
+							self.page_body(ui, state, guild, avatars, profile, commands);
 						} else {
 							egui::ScrollArea::vertical()
 								.id_salt(("server-settings-content", self.page as u8))
 								.auto_shrink([false, false])
 								.show(ui, |ui| {
 									ui.set_width(ui.available_width());
-									self.page_body(ui, state, guild, avatars, commands);
+									self.page_body(ui, state, guild, avatars, profile, commands);
 									ui.add_space(24.0);
 								});
 						}
@@ -652,6 +653,7 @@ impl Editor {
 		state: &mut State,
 		guild: Id,
 		avatars: &mut Avatars,
+		profile: &mut crate::profiles::ProfileSession,
 		commands: &mut Vec<Command>,
 	) {
 		match self.page {
@@ -678,6 +680,7 @@ impl Editor {
 					guild,
 					self.page == Page::Members,
 					avatars,
+					profile,
 					commands,
 				);
 				return;

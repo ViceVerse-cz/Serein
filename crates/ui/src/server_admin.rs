@@ -3,7 +3,7 @@ use crate::{avatars::Avatars, design, icons, user_menu};
 use client_core::{Command, State};
 use egui::RichText;
 use model::{
-	Id, User,
+	Id,
 	server_admin::{Action, Member, Query},
 };
 
@@ -34,7 +34,6 @@ pub(super) struct Admin {
 	query: Query,
 	query_initialized: bool,
 	query_changed: Option<f64>,
-	pub profile: Option<User>,
 	pub user_action: Option<user_menu::Action>,
 	pub message: Option<Id>,
 }
@@ -135,6 +134,7 @@ impl Admin {
 			},
 		)
 	}
+	#[allow(clippy::too_many_arguments)]
 	pub fn show(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -142,6 +142,7 @@ impl Admin {
 		guild: Id,
 		members: bool,
 		avatars: &mut Avatars,
+		profile: &mut crate::profiles::ProfileSession,
 		commands: &mut Vec<Command>,
 	) {
 		ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
@@ -218,14 +219,21 @@ impl Admin {
 		}
 		ui.add_enabled_ui(!state.server_admin.needs_refresh, |ui| {
 			if members {
-				self.members(ui, state, guild, avatars, commands);
+				self.members(ui, state, guild, avatars, profile, commands);
 			} else {
-				self.emojis(ui, state, guild, avatars);
+				self.emojis(ui, state, guild, avatars, profile);
 			}
 		});
 		self.dialog(ui.ctx(), state, guild, commands);
 	}
-	fn emojis(&mut self, ui: &mut egui::Ui, state: &mut State, guild: Id, avatars: &mut Avatars) {
+	fn emojis(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		guild: Id,
+		avatars: &mut Avatars,
+		profile: &mut crate::profiles::ProfileSession,
+	) {
 		let colors = design::palette(ui);
 		ui.label(design::semibold(ui, "Emoji", 22.0));
 		ui.label("Add custom emoji that anyone can use in this server. Animated GIF emoji may be used by members with Discord Nitro.");
@@ -396,12 +404,9 @@ impl Admin {
 										|ui| {
 											ui.set_max_width(by_width);
 											if let Some(user) = &row.uploader {
-												if avatars
-													.show(ui, user, 24.0, state.demo)
-													.clicked()
-												{
-													self.profile = Some(user.clone());
-												}
+												let avatar =
+													avatars.show(ui, user, 24.0, state.demo);
+												profile.person_click(ui, &avatar, None, user);
 												ui.add(egui::Label::new(&user.name).truncate());
 											} else {
 												ui.weak("Unknown");
@@ -452,6 +457,7 @@ impl Admin {
 		state: &mut State,
 		guild: Id,
 		avatars: &mut Avatars,
+		profile: &mut crate::profiles::ProfileSession,
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
@@ -565,6 +571,7 @@ impl Admin {
 							member,
 							&members.roles,
 							avatars,
+							profile,
 							&mut action,
 						);
 					});
@@ -601,12 +608,9 @@ impl Admin {
 										|ui| {
 											ui.set_width(names);
 											ui.set_min_height(44.0);
-											if avatars
-												.show(ui, &member.user, 30.0, state.demo)
-												.clicked()
-											{
-												self.profile = Some(member.user.clone());
-											}
+											let avatar =
+												avatars.show(ui, &member.user, 30.0, state.demo);
+											profile.person_click(ui, &avatar, None, &member.user);
 											ui.vertical(|ui| {
 												ui.set_width((names - 40.0).max(40.0));
 												ui.add(
@@ -640,6 +644,7 @@ impl Admin {
 											guild,
 											member,
 											&members.roles,
+											profile,
 											&mut action,
 										)
 									},
@@ -730,6 +735,7 @@ impl Admin {
 										guild,
 										member,
 										&members.roles,
+										profile,
 										&mut action,
 									)
 								});
@@ -781,29 +787,26 @@ impl Admin {
 		member: &Member,
 		roles: &[model::server_admin::Role],
 		avatars: &mut Avatars,
+		profile: &mut crate::profiles::ProfileSession,
 		action: &mut Option<Action>,
 	) {
 		let colors = design::palette(ui);
 		design::card(ui, |ui| {
 			let row = ui
 				.horizontal(|ui| {
-					if avatars.show(ui, &member.user, 32.0, state.demo).clicked() {
-						self.profile = Some(member.user.clone());
-					}
+					let avatar = avatars.show(ui, &member.user, 32.0, state.demo);
+					profile.person_click(ui, &avatar, None, &member.user);
 					ui.vertical(|ui| {
 						ui.set_width((ui.available_width() - 40.0).max(40.0));
 						let name = member.nick.as_deref().unwrap_or(&member.user.name);
-						if ui
+						let name_response = ui
 							.add(
 								egui::Label::new(design::medium(ui, name, 14.0))
 									.truncate()
 									.sense(egui::Sense::click()),
 							)
-							.on_hover_text(name)
-							.clicked()
-						{
-							self.profile = Some(member.user.clone());
-						}
+							.on_hover_text(name);
+						profile.person_click(ui, &name_response, None, &member.user);
 						if member
 							.nick
 							.as_ref()
@@ -819,12 +822,13 @@ impl Admin {
 						}
 					});
 					let button = icons::button(ui, icons::Icon::More, 28.0, "Member actions");
-					egui::Popup::menu(&button)
-						.show(|ui| self.member_menu(ui, state, guild, member, roles, action));
+					egui::Popup::menu(&button).show(|ui| {
+						self.member_menu(ui, state, guild, member, roles, profile, action)
+					});
 				})
 				.response;
 			user_menu::popup(&row, row.id.with("member-menu"))
-				.show(|ui| self.member_menu(ui, state, guild, member, roles, action));
+				.show(|ui| self.member_menu(ui, state, guild, member, roles, profile, action));
 			ui.label(
 				RichText::new(format!(
 					"Member since {}",
@@ -859,6 +863,7 @@ impl Admin {
 			});
 		});
 	}
+	#[allow(clippy::too_many_arguments)]
 	fn member_menu(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -866,12 +871,13 @@ impl Admin {
 		guild: Id,
 		member: &Member,
 		roles: &[model::server_admin::Role],
+		profile: &mut crate::profiles::ProfileSession,
 		action: &mut Option<Action>,
 	) {
 		ui.set_width(190.0);
 		let colors = design::palette(ui);
 		if ui.button("Profile").clicked() {
-			self.profile = Some(member.user.clone());
+			profile.command_open(member.user.clone());
 			ui.close();
 		}
 		if let Some(dm) = state.channels.iter().find(|channel| {
@@ -1293,6 +1299,7 @@ mod tests {
 						&mut state,
 						guild,
 						&mut Avatars::default(),
+						&mut crate::profiles::ProfileSession::default(),
 						&mut vec![],
 					);
 					assert!(

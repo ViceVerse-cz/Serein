@@ -864,6 +864,7 @@ mod tests {
 			show_members: false,
 			animate_gifs: false,
 			smooth_scrolling: true,
+			scroll_speed_percent: 100,
 			hide_media_links: true,
 			confirm_external_links: true,
 		};
