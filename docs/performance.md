@@ -1689,3 +1689,19 @@ space in the existing 64-KiB snapshot. New event kinds share the existing 32-ite
 64-KiB queue and ten starts/second. No new cache, dependency, worker or timer.
 No lifecycle tests were added. Native screenshots, CPU/RSS and frame timings remain
 unavailable; these synthetic checks do not establish live Discord compatibility.
+
+
+The standard voice-enabled `cargo xtask package` passed at coverage source
+`ac48e1c`, without demo/developer-session features. One package per revision;
+.NET ZipFile Optimal compression of the full `dist` directory:
+
+| Artifact, bytes | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 71,107,072 | 71,197,184 | +90,112 / +0.1267% |
+| Installed package | 75,209,399 | 75,299,511 | +90,112 / +0.1198% |
+| Portable ZIP | 42,731,126 | 42,757,192 | +26,066 / +0.0610% |
+
+The changed executable SHA-256 is
+`bcc962c1ea5c936e22ce32b5eed785faba5f9f4b5e55a38a3974a5293c1d1151`.
+OpenH264 LNK4255 was nonfatal. `makensis` is absent, so the unsigned portable
+package was measured; no NSIS installer was produced.
