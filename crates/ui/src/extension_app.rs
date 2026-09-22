@@ -1,7 +1,9 @@
 //! Explicitly confirmed extension proposals reuse the ordinary native UI paths.
 use crate::{ExtensionContext, MessagingUi, design};
 use client_core::{Command, State};
-use extensions::{AppView, HostEffect, LocalSettingsSnapshot, NotificationSettingsSnapshot};
+use extensions::{
+	AppAction, AppView, HostEffect, LocalSettingsSnapshot, NotificationSettingsSnapshot,
+};
 use model::Id;
 
 pub(crate) struct ConfirmedEffect {
@@ -10,8 +12,234 @@ pub(crate) struct ConfirmedEffect {
 	pub effect: HostEffect,
 }
 
+fn setting(lines: &mut Vec<String>, label: &str, value: Option<impl std::fmt::Display>) {
+	if let Some(value) = value {
+		lines.push(format!("{label}: {value}"));
+	}
+}
+
+fn app_action_description(action: &AppAction) -> String {
+	match action {
+		AppAction::SendMessage {
+			channel_id,
+			content,
+		} => format!("Send a message to channel {channel_id}:\n{content}"),
+		AppAction::EditMessage {
+			channel_id,
+			message_id,
+			content,
+		} => format!("Replace message {message_id} in channel {channel_id} with:\n{content}"),
+		AppAction::DeleteMessage {
+			channel_id,
+			message_id,
+		} => format!(
+			"Permanently delete message {message_id} in channel {channel_id}. This cannot be undone."
+		),
+		AppAction::SetReaction {
+			channel_id,
+			message_id,
+			emoji,
+			add,
+		} => format!(
+			"{} reaction {emoji} on message {message_id} in channel {channel_id}",
+			if *add { "Add your" } else { "Remove your" }
+		),
+		AppAction::SetMessagePinned {
+			channel_id,
+			message_id,
+			pinned,
+		} => format!(
+			"{} message {message_id} in channel {channel_id}",
+			if *pinned { "Pin" } else { "Unpin" }
+		),
+		AppAction::MarkRead {
+			channel_id,
+			message_id,
+		} => format!("Mark channel {channel_id} read through message {message_id}"),
+		AppAction::MarkUnread {
+			channel_id,
+			message_id,
+		} => format!("Mark channel {channel_id} unread from message {message_id}"),
+		AppAction::MarkChannelRead { channel_id } => format!("Mark channel {channel_id} read"),
+		AppAction::MarkGuildRead { guild_id } => format!("Mark server {guild_id} read"),
+		AppAction::JumpToUnread => "Open the current conversation's unread messages".into(),
+		AppAction::CreateThread {
+			channel_id,
+			name,
+			message_id,
+		} => format!(
+			"Create thread in channel {channel_id}:\n{name}\nStarter message: {}",
+			message_id.as_deref().unwrap_or("none")
+		),
+		AppAction::CreateForumPost {
+			parent_id,
+			title,
+			content,
+		} => format!("Publish post in channel {parent_id}:\n{title}\n\n{content}"),
+		AppAction::SetThreadArchived {
+			channel_id,
+			archived,
+		} => format!(
+			"{} thread {channel_id}",
+			if *archived { "Archive" } else { "Unarchive" }
+		),
+		AppAction::SetThreadLocked { channel_id, locked } => format!(
+			"{} thread {channel_id}",
+			if *locked { "Lock" } else { "Unlock" }
+		),
+		AppAction::SetThreadFollowed {
+			channel_id,
+			followed,
+		} => format!(
+			"{} thread {channel_id}",
+			if *followed { "Follow" } else { "Unfollow" }
+		),
+		AppAction::SetThreadPinned { channel_id, pinned } => format!(
+			"{} forum post {channel_id}",
+			if *pinned { "Pin" } else { "Unpin" }
+		),
+		AppAction::RenameThread { channel_id, name } => {
+			format!("Rename thread {channel_id}:\n{name}")
+		}
+		AppAction::OpenFriendDm { user_id } => {
+			format!("Open direct messages with friend {user_id}")
+		}
+		AppAction::SetFriendNickname { user_id, text } => {
+			format!("Set nickname for friend {user_id} (empty clears it):\n{text}")
+		}
+		AppAction::SetUserNote { user_id, text } => {
+			format!("Replace your note for user {user_id} (empty clears it):\n{text}")
+		}
+		AppAction::AddFriend { username } => format!("Send a friend request to:\n{username}"),
+		AppAction::RemoveFriend { user_id } => format!("Remove user {user_id} from your friends"),
+		AppAction::ResolveFriendRequest { user_id, accept } => format!(
+			"{} friend request from user {user_id}",
+			if *accept { "Accept" } else { "Reject" }
+		),
+		AppAction::SetUserBlocked { user_id, blocked } => format!(
+			"{} user {user_id}",
+			if *blocked { "Block" } else { "Unblock" }
+		),
+		AppAction::SetActivitySharing { enabled } => format!(
+			"{} sharing detected game activity",
+			if *enabled { "Enable" } else { "Disable" }
+		),
+		AppAction::SetOwnProfile { profile } => {
+			let mut lines = vec!["Change your Discord profile:".into()];
+			setting(&mut lines, "Display name", profile.global_name.as_deref());
+			setting(&mut lines, "Bio (empty clears it)", profile.bio.as_deref());
+			setting(
+				&mut lines,
+				"Pronouns (empty clears them)",
+				profile.pronouns.as_deref(),
+			);
+			setting(
+				&mut lines,
+				"Accent color",
+				profile.accent_color.map(|color| format!("#{color:06X}")),
+			);
+			if profile.clear_global_name {
+				lines.push("Clear display name".into());
+			}
+			if profile.clear_accent_color {
+				lines.push("Clear accent color".into());
+			}
+			lines.join("\n")
+		}
+		AppAction::SetOwnPresence { presence } => {
+			let mut lines = vec!["Change your status:".into()];
+			setting(&mut lines, "Status", presence.status.as_deref());
+			setting(
+				&mut lines,
+				"Custom status (empty clears it)",
+				presence.custom_status.as_deref(),
+			);
+			setting(
+				&mut lines,
+				"Clear after seconds (0 means never)",
+				presence.clear_after_seconds,
+			);
+			lines.join("\n")
+		}
+		AppAction::SetAudioSettings { settings } => {
+			let mut lines = vec!["Change device audio settings:".into()];
+			setting(&mut lines, "Input gain (%)", settings.input_percent);
+			setting(&mut lines, "Output gain (%)", settings.output_percent);
+			setting(&mut lines, "Push to talk", settings.push_to_talk);
+			setting(
+				&mut lines,
+				"Input profile",
+				settings.input_profile.as_deref(),
+			);
+			setting(
+				&mut lines,
+				"Noise suppression",
+				settings.suppression.as_deref(),
+			);
+			setting(
+				&mut lines,
+				"Suppression strength",
+				settings.suppression_level,
+			);
+			setting(&mut lines, "Echo cancellation", settings.echo_cancellation);
+			setting(&mut lines, "Automatic gain", settings.automatic_gain);
+			setting(
+				&mut lines,
+				"Microphone sensitivity (dBFS)",
+				settings.sensitivity_db,
+			);
+			if settings.open_microphone {
+				lines.push("Microphone sensitivity: always open".into());
+			}
+			lines.join("\n")
+		}
+		AppAction::SetParticipantAudio {
+			user_id,
+			volume_percent,
+			muted,
+		} => {
+			let mut lines = vec![format!("Change local audio for participant {user_id}:")];
+			setting(&mut lines, "Volume (%)", *volume_percent);
+			setting(&mut lines, "Locally muted", *muted);
+			lines.join("\n")
+		}
+		AppAction::SetStreamAudio {
+			volume_percent,
+			muted,
+		} => {
+			let mut lines = vec!["Change local screen-share audio:".into()];
+			setting(&mut lines, "Volume (%)", *volume_percent);
+			setting(&mut lines, "Muted", *muted);
+			lines.join("\n")
+		}
+		AppAction::WatchStream { user_id } => {
+			format!("Watch the current stream from participant {user_id}")
+		}
+		AppAction::StopWatching => "Stop watching the current stream".into(),
+		AppAction::DeclineCall { channel_id } => {
+			format!("Decline the incoming call in channel {channel_id}")
+		}
+		AppAction::JoinVoice {
+			channel_id,
+			ring,
+			muted,
+			deafened,
+		} => format!(
+			"Join voice in channel {channel_id}\nRing recipients: {ring}\nMicrophone muted: {muted}\nDeafened: {deafened}\nJoining with an unmuted microphone can transmit your audio. Switching calls also requires the native switch confirmation."
+		),
+		AppAction::SetCamera { enabled } => {
+			if *enabled {
+				"Enable your camera in the current call. Your video will be shared with call participants.".into()
+			} else {
+				"Disable your camera in the current call".into()
+			}
+		}
+	}
+}
+
 pub(crate) fn effect_description(effect: &HostEffect) -> String {
 	match effect {
+		HostEffect::AppAction { action } => app_action_description(action),
 		HostEffect::Navigate { channel_id } => format!("Open channel {channel_id}"),
 		HostEffect::Home => "Open Friends / Home".into(),
 		HostEffect::OpenView { view } => format!("Open {}", view_label(*view)),
@@ -86,6 +314,19 @@ pub(crate) fn effect_description(effect: &HostEffect) -> String {
 
 pub(crate) fn effect_button(effect: &HostEffect) -> &'static str {
 	match effect {
+		HostEffect::AppAction {
+			action: AppAction::DeleteMessage { .. },
+		} => "Apply: Delete message",
+		HostEffect::AppAction {
+			action: AppAction::SendMessage { .. },
+		} => "Apply: Send message",
+		HostEffect::AppAction {
+			action: AppAction::JoinVoice { .. },
+		} => "Apply: Join call",
+		HostEffect::AppAction {
+			action: AppAction::SetCamera { enabled: true },
+		} => "Apply: Enable camera",
+		HostEffect::AppAction { .. } => "Apply: Confirm action",
 		HostEffect::CopyText { .. } => "Apply: Copy text",
 		HostEffect::Notice { .. } => "Apply: Show notice",
 		HostEffect::SetVoice { .. } => "Apply: Change call audio",
@@ -200,6 +441,63 @@ impl MessagingUi {
 			.map_err(|error| error.to_string())?;
 		let plugin_name = entry.manifest.name.clone();
 		match confirmed.effect {
+			HostEffect::AppAction { action } => {
+				if matches!(
+					action,
+					AppAction::SetStreamAudio { .. } | AppAction::StopWatching
+				) && state.voice.active.as_ref().and_then(|call| call.watching)
+					!= confirmed.context.watched_stream
+				{
+					return Err("The watched stream changed; run the extension again.".into());
+				}
+				if matches!(
+					action,
+					AppAction::SetParticipantAudio { .. }
+						| AppAction::SetStreamAudio { .. }
+						| AppAction::WatchStream { .. }
+						| AppAction::StopWatching
+						| AppAction::SetCamera { .. }
+				) {
+					self.extension_voice_current(state, confirmed.context.voice_request)?;
+				}
+				match action {
+					AppAction::JoinVoice {
+						channel_id,
+						ring,
+						muted,
+						deafened,
+					} => {
+						let current = state
+							.voice
+							.active
+							.as_ref()
+							.map(|call| (call.channel, call.request));
+						if current != confirmed.context.voice_request {
+							return Err("The call changed; run the extension again.".into());
+						}
+						let channel = Id(channel_id
+							.parse()
+							.map_err(|_| "Invalid channel identifier")?);
+						self.request_call_with_audio(
+							state, channel, ring, muted, deafened, commands,
+						)?;
+					}
+					AppAction::SetCamera { enabled } => {
+						if enabled && !self.voice_camera_available {
+							return Err("Camera capture is unavailable".into());
+						}
+						let call = state.voice.active.as_ref().ok_or("No active call")?;
+						if call.camera != enabled {
+							commands.push(
+								state
+									.set_call_camera(enabled)
+									.ok_or("Camera controls are unavailable")?,
+							);
+						}
+					}
+					action => self.apply_extension_app_action(state, action, commands)?,
+				}
+			}
 			HostEffect::Navigate { channel_id } => {
 				self.extension_navigate(state, &channel_id, None, commands)?
 			}
@@ -821,6 +1119,64 @@ mod tests {
 			assert_eq!(view.reading_preferences, applied);
 		}
 	}
+	#[test]
+	fn app_actions_recheck_grants_and_replacement_streams_before_mutating() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::call_demo_state();
+		let mut view = view(Capability::AudioSettings);
+		state.voice.active.as_mut().unwrap().watching = Some(Id(301));
+		let effect = proposal(
+			&state,
+			HostEffect::AppAction {
+				action: AppAction::SetStreamAudio {
+					volume_percent: Some(25),
+					muted: None,
+				},
+			},
+		);
+		state.voice.active.as_mut().unwrap().watching = Some(Id(302));
+		assert!(
+			view.apply_extension_effect(&ctx, &mut state, effect, &mut Vec::new())
+				.is_err()
+		);
+		assert_eq!(view.voice_stream_volume(), 100);
+		let effect = proposal(
+			&state,
+			HostEffect::AppAction {
+				action: AppAction::SetAudioSettings {
+					settings: extensions::AudioSettingsPatch {
+						input_percent: Some(25),
+						..Default::default()
+					},
+				},
+			},
+		);
+		let before = view.voice_gain.input_percent;
+		view.extensions.entries[0].manifest.capabilities.clear();
+		assert!(
+			view.apply_extension_effect(&ctx, &mut state, effect, &mut Vec::new())
+				.is_err()
+		);
+		assert_eq!(view.voice_gain.input_percent, before);
+	}
+
+	#[test]
+	fn destructive_and_media_proposals_describe_the_actual_operation() {
+		let deletion = HostEffect::AppAction {
+			action: AppAction::DeleteMessage {
+				channel_id: "20".into(),
+				message_id: "200".into(),
+			},
+		};
+		assert_eq!(effect_button(&deletion), "Apply: Delete message");
+		assert!(effect_description(&deletion).contains("cannot be undone"));
+		let camera = HostEffect::AppAction {
+			action: AppAction::SetCamera { enabled: true },
+		};
+		assert_eq!(effect_button(&camera), "Apply: Enable camera");
+		assert!(effect_description(&camera).contains("shared with call participants"));
+	}
+
 	#[test]
 	fn notification_patch_revalidates_grant_and_preserves_apply_time_values() {
 		use extensions::NotificationSettingsPatch;

@@ -1540,6 +1540,10 @@ impl State {
 	pub fn prepare_send(&mut self) -> Option<Command> {
 		self.prepare_send_with_attachment(None)
 	}
+	/// Queue explicit text without consuming the composer draft or reply target.
+	pub fn prepare_text_send(&mut self, content: &str) -> Option<Command> {
+		self.prepare_message_content(&[], None, true, Some(content))
+	}
 	pub fn prepare_send_with_attachment(&mut self, filename: Option<&str>) -> Option<Command> {
 		self.prepare_send_with_attachments(filename.as_slice())
 	}
@@ -1556,6 +1560,15 @@ impl State {
 		filenames: &[&str],
 		sticker: Option<&Sticker>,
 		preserve_draft: bool,
+	) -> Option<Command> {
+		self.prepare_message_content(filenames, sticker, preserve_draft, None)
+	}
+	fn prepare_message_content(
+		&mut self,
+		filenames: &[&str],
+		sticker: Option<&Sticker>,
+		preserve_draft: bool,
+		explicit_content: Option<&str>,
 	) -> Option<Command> {
 		let channel = self.selected?;
 		if !self.can_send(channel) || (!filenames.is_empty() && !self.can_attach(channel)) {
@@ -1577,7 +1590,9 @@ impl State {
 			self.status = "Attachment filename is invalid or too long";
 			return None;
 		}
-		let content = if sticker.is_some() || preserve_draft {
+		let content = if let Some(content) = explicit_content {
+			content
+		} else if sticker.is_some() || preserve_draft {
 			""
 		} else {
 			self.drafts.get(&channel).map_or("", String::as_str)
@@ -1623,7 +1638,11 @@ impl State {
 			channel,
 			content,
 			nonce,
-			reply: self.reply.take(),
+			reply: if explicit_content.is_some() {
+				None
+			} else {
+				self.reply.take()
+			},
 		})
 	}
 	/// Reports a command the transport could not accept as a bounded outcome error.

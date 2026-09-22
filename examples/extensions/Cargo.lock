@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "app-actions"
+version = "1.0.0"
+dependencies = [
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "app-toolbox"
 version = "1.0.0"
 dependencies = [

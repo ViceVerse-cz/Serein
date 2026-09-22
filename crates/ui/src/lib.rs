@@ -26,6 +26,8 @@ mod components;
 mod composer_text;
 pub mod design;
 mod embeds;
+mod extension_account_actions;
+mod extension_actions;
 mod extension_app;
 mod extensions_ui;
 mod theme_editor;

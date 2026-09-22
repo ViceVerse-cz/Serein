@@ -30,6 +30,7 @@ pub struct ExtensionContext {
 	pub draft: Option<String>,
 	/// The call at invocation time; only voice proposals use this guard.
 	pub voice_request: Option<(Id, u64)>,
+	pub watched_stream: Option<Id>,
 }
 impl ExtensionContext {
 	pub fn capture(state: &State, composer: bool) -> Self {
@@ -37,6 +38,7 @@ impl ExtensionContext {
 			app_wide: false,
 			generation: state.generation,
 			channel: state.selected,
+			watched_stream: state.voice.active.as_ref().and_then(|call| call.watching),
 			voice_request: state
 				.voice
 				.active
@@ -2542,6 +2544,24 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::NotificationSettings => {
 			"Read local sound and notification settings and propose changes for approval"
 		}
+		Capability::MessageSend => "Propose sending messages for approval",
+		Capability::MessageManage => "Propose editing, deleting or pinning messages for approval",
+		Capability::ReactionsControl => "Propose adding or removing my reactions for approval",
+		Capability::ReadStateControl => "Propose marking conversations read or unread for approval",
+		Capability::ThreadsControl => {
+			"Propose creating and managing threads or forum posts for approval"
+		}
+		Capability::RelationshipControl => {
+			"Propose friend, block, nickname and note changes for approval"
+		}
+		Capability::AccountControl => {
+			"Read own presence and activity-sharing preferences; propose account changes for approval"
+		}
+		Capability::AudioSettings => {
+			"Read audio preferences; propose audio settings, participant and stream volume changes for approval"
+		}
+		Capability::VoiceConnect => "Propose joining, ringing or declining calls for approval",
+		Capability::CameraControl => "Propose enabling or disabling my camera for approval",
 		Capability::Navigation => "Propose opening conversations, profiles, search and app views",
 		Capability::LocalNotices => "Propose local notices for approval",
 		Capability::ClipboardWrite => "Propose clipboard text for approval",

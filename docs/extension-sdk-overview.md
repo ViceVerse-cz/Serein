@@ -1,7 +1,7 @@
 # SDK overview
 
 Build tools that run inside Serein: inspect loaded app data, show native panels,
-format a draft, or propose a local action for the user to approve. Plugins are
+format a draft, or propose an app action for the user to approve. Plugins are
 Rust code compiled to WebAssembly. Themes are declarative packages and do not
 need a handler.
 
@@ -41,14 +41,19 @@ for state that survives invocations.
 | Format the current draft | [Composer input](extension-sdk-reference.md#common-input-fields) and [replacement output](extension-sdk-actions.md#every-output-field) | `composer` and a `composer` action |
 | Open a conversation or native settings page | [Navigation actions](extension-sdk-actions.md#open-conversations-profiles-and-search) | `navigation`; read grants remain separate |
 | Change scrolling or sound preferences | [Reading settings](extension-sdk-actions.md#change-local-reading-settings) and [notification settings](extension-sdk-actions.md#change-device-local-notification-settings) | `local_settings` or `notification_settings`; each change requires Apply |
+| Send/edit messages, react, or manage threads | [App actions](extension-sdk-actions.md#app-actions) | Separate write grants; native permissions and Apply |
+| Change your profile, status, relationships or audio | [App actions](extension-sdk-actions.md#app-actions) | `account_control`, `relationship_control` or `audio_settings` |
+| Join a call or control your camera | [App actions](extension-sdk-actions.md#app-actions) | `voice_connect` or `camera_control`; explicit Apply |
 | React to app changes | [App events](extension-sdk-reference.md#appeventkind-why-an-app-observer-ran) | `app_events`, the relevant data grants, and `data_events` for the event kinds that require it |
 | Save plugin preferences | [Panels and storage](extension-sdk-actions.md#panels-and-storage) | `storage` |
 | Change the app's visual appearance | [Theme guide](theme-api.md) and [appearance output](extension-sdk-actions.md#every-output-field) | A declarative theme, or `appearance` for a plugin overlay |
 
 For all names and consent rules, see the [capability reference](extensions.md#capability-reference).
 No SDK capability gives a plugin credentials, unrestricted files, a network API,
-or the ability to send Discord messages. Host actions expose only the operations
-listed in the action reference.
+or automatic Discord actions. Separately granted actions can propose sending
+messages, editing profiles, managing threads and more; every operation requires
+the user's Apply confirmation. Host actions expose only the operations listed
+in the action reference.
 
 ## Read one interaction
 
@@ -135,6 +140,21 @@ Treat optional fields as optional, and test against the host revision you plan
 to support. Existing compiled plugins and rebuilding Rust source are different
 compatibility questions: new struct fields can require updates to Rust literals
 when you rebuild.
+
+## Coverage and boundaries
+
+The SDK exposes loaded conversation/server/member data, panels, themes, storage,
+foreground navigation, messaging, reactions, read markers, thread/forum actions,
+relationships, text profile edits, presence, reading/notification preferences,
+audio processing/mixing and call controls. It uses the same permission checks,
+queues and failure handling as native app actions.
+
+It is not a complete Discord API. Server administration, role editing, channel
+creation, invites, moderation tools, poll voting, slash-command execution,
+file uploads, device enumeration and screen-source capture are not generic SDK
+operations in this revision. Snapshot reads do not fetch missing data, and
+writes return no private service response to Wasm. These limits are explicit;
+opening a settings page does not count as exposing its controls.
 
 ## Next steps
 

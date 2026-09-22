@@ -142,6 +142,231 @@ Follow an operation for its fields, example and additional checks.
 | `leave_voice` | `voice_control` | [Leave the current call](extension-sdk-actions.md#control-the-current-call) |
 | `set_local_settings` | `local_settings` | [Change reading preferences](extension-sdk-actions.md#change-local-reading-settings) |
 | `set_notification_settings` | `notification_settings` | [Change device notifications](extension-sdk-actions.md#change-device-local-notification-settings) |
+| `app_action` | Depends on nested action | [Messages, threads, accounts and media](extension-sdk-actions.md#app-actions) |
+
+### App actions
+
+`HostEffect::AppAction { action: AppAction }` proposes a typed operation through
+Serein's existing app controls. The outer `type` is `app_action`; the nested
+`action.type` selects the operation. Each operation has a separate write grant.
+Read-only grants never authorize writes. Most action grants do not disclose data;
+`account_control` also exposes own presence/activity preferences, and
+`audio_settings` also exposes current audio preferences. Other snapshot groups
+still require their respective read grants.
+All operations retain the one-proposal, foreground-only, 8 KiB limit and **Apply**.
+
+For example, a handler with `message_send` can propose:
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"send_message","channel_id":"20","content":"Hello from my tool"}}]}
+```
+
+Serein displays the destination and exact text. Nothing is sent until Apply.
+Apply rechecks the account, selected channel, access and normal sending limits.
+This sends the proposed text only: the user's existing draft, reply and selected
+attachments remain intact. It does not attach files or automatically mention a
+reply target. Normal service failures remain visible in Serein's pending-message UI.
+
+#### Messages and read markers
+
+All IDs below are nonzero decimal strings. Operations targeting an existing
+message require it to be loaded and accessible in the selected channel, plus
+the ordinary operation's permissions. Sending requires an eligible selected
+channel, not an existing message. Content must be nonblank, at most 2,000 characters and 8,000 UTF-8
+bytes, and still fit the complete 8 KiB escaped effect. Use existing snapshots
+to find IDs; these actions do not offer arbitrary message lookup.
+
+| Nested `type` / Rust variant | Fields | Grant and effect |
+| --- | --- | --- |
+| `send_message` / `SendMessage` | `channel_id`, `content`: strings | `message_send`; send explicit text in the selected conversation. |
+| `edit_message` / `EditMessage` | `channel_id`, `message_id`, `content`: strings | `message_manage`; edit a loaded message authored by the current user. |
+| `delete_message` / `DeleteMessage` | `channel_id`, `message_id`: IDs | `message_manage`; delete an eligible loaded message. Requires ownership or native moderation permission. **Deletion cannot be undone.** |
+| `set_message_pinned` / `SetMessagePinned` | `channel_id`, `message_id`: IDs; `pinned`: boolean | `message_manage`; set the desired pin state using native permissions. |
+| `set_reaction` / `SetReaction` | `channel_id`, `message_id`: IDs; `emoji`: string; `add`: boolean | `reactions_control`; ensure your reaction is present or absent. Already matching state does nothing; this never blindly toggles. |
+| `mark_read` / `MarkRead` | `channel_id`, `message_id`: IDs | `read_state_control`; acknowledge a loaded boundary in the selected conversation. |
+| `mark_channel_read` / `MarkChannelRead` | `channel_id`: ID | `read_state_control`; acknowledge a known accessible channel using its current latest-message metadata. |
+| `mark_unread` / `MarkUnread` | `channel_id`, `message_id`: IDs | `read_state_control`; mark the loaded message boundary unread through the native marker path. |
+| `mark_guild_read` / `MarkGuildRead` | `guild_id`: ID | `read_state_control`; mark an eligible known server read. |
+| `jump_to_unread` / `JumpToUnread` | None | `navigation`; jump to the selected conversation's unread boundary. May load ordinary history. |
+
+`emoji` is a Unicode emoji or the custom-emoji wire form `name:id`. Custom IDs
+must be nonzero. Custom names use 2-32 ASCII letters, digits or underscores;
+the whole emoji string is at most 128 UTF-8 bytes with no controls. The host's
+ordinary reaction validation also applies. Unknown or
+pending reaction state may be unavailable; rerun after it loads.
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_reaction","channel_id":"20","message_id":"200","emoji":"👍","add":true}}]}
+```
+
+#### Threads and forum posts
+
+These actions require `threads_control`. Names and titles are nonblank strings
+of at most 100 characters and 400 UTF-8 bytes, without control characters.
+Forum content follows the message-text limits above. Creating a thread/post is
+a Discord write, not a local preview. Normal channel access, ownership, thread
+permissions, loaded details and pending-operation checks apply again at Apply.
+
+| Nested `type` / Rust variant | Fields | Operation |
+| --- | --- | --- |
+| `create_thread` / `CreateThread` | `channel_id`, `name`; optional `message_id` | Create a thread, optionally from an eligible loaded starter message. Omit/null `message_id` for no starter. |
+| `create_forum_post` / `CreateForumPost` | `parent_id`, `title`, `content` | Create a text-only forum/media post in an eligible parent. |
+| `set_thread_archived` / `SetThreadArchived` | `channel_id`; `archived`: boolean | Set archived state. |
+| `set_thread_locked` / `SetThreadLocked` | `channel_id`; `locked`: boolean | Set locked state. |
+| `set_thread_followed` / `SetThreadFollowed` | `channel_id`; `followed`: boolean | Join/follow or leave/unfollow a thread. |
+| `set_thread_pinned` / `SetThreadPinned` | `channel_id`; `pinned`: boolean | Set a forum post's pin state. |
+| `rename_thread` / `RenameThread` | `channel_id`, `name` | Rename an eligible loaded thread/post. |
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"create_thread","channel_id":"20","name":"Release discussion","message_id":"200"}}]}
+```
+
+The [Conversation Actions example](../examples/extensions/app-actions/src/lib.rs)
+provides a complete native form, handler and manifest for these operations.
+It checks that its form's conversation still matches the current snapshot;
+Serein independently validates the resulting proposal.
+
+#### Friends, notes and blocks
+
+These seven operations require `relationship_control`. IDs are `String` /
+nonzero decimal strings. They reuse native pending-operation and account checks;
+missing loaded data is an error, not permission to fetch or guess a target.
+
+| Nested `type` / Rust variant | Fields | Apply behavior |
+| --- | --- | --- |
+| `open_friend_dm` / `OpenFriendDm` | `user_id`: ID | Open a loaded friend's direct conversation, creating/loading it through the ordinary native path if needed. Unfinished server-settings edits can block navigation. |
+| `set_friend_nickname` / `SetFriendNickname` | `user_id`: ID; `text`: `String` | Set a loaded friend's nickname. At most 32 characters / 128 UTF-8 bytes; no controls. Empty clears it. |
+| `set_user_note` / `SetUserNote` | `user_id`: ID; `text`: `String` | Replace an already-loaded user note. At most 256 characters / 1,024 UTF-8 bytes; newline and tab are allowed. Empty clears it. This action does not load a missing note. |
+| `add_friend` / `AddFriend` | `username`: `String` | Send a friend request. Use 2-32 lowercase ASCII letters, digits, underscores or periods, with no consecutive periods. No leading `@`. Existing/pending requests can make it unavailable. |
+| `remove_friend` / `RemoveFriend` | `user_id`: ID | Remove an eligible loaded friend; native relationship/request/block readiness still applies. |
+| `resolve_friend_request` / `ResolveFriendRequest` | `user_id`: ID; `accept`: `bool` | Accept an incoming request, or decline/cancel an eligible existing request with `false`. |
+| `set_user_blocked` / `SetUserBlocked` | `user_id`: ID; `blocked`: `bool` | Set block state for a user known through loaded friends, restrictions, requests or the readable selected conversation. |
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_friend_nickname","user_id":"40","text":"Project partner"}}]}
+```
+
+These account writes are not plugin storage. Service errors and any required
+user-solved verification use Serein's ordinary native flow. A plugin receives no
+credentials or verification bypass.
+
+#### Own profile and presence
+
+`set_own_profile`, `set_own_presence` and `set_activity_sharing` require
+`account_control`. Profile/presence patches require at least one meaningful field;
+empty or all-null patches are rejected. Optional fields omitted or set to `null`
+mean unchanged. Clear flags are `bool`, default to `false` when omitted, and do
+not accept `null`. Invalid patches are rejected before changes are applied.
+
+`set_own_profile` / `SetOwnProfile` has one required `profile: OwnProfilePatch`
+object. The own profile must already be loaded and ready to save; the action does
+not fetch missing profile data or modify an avatar.
+
+| Patch field | Rust / JSON type | Meaning and bound |
+| --- | --- | --- |
+| `global_name` | `Option<String>` / string or null | Nonblank display name, at most 32 characters / 128 UTF-8 bytes, no controls. |
+| `clear_global_name` | `bool` / boolean | Explicitly clear the display name. Cannot accompany a `global_name` value. |
+| `bio` | `Option<String>` / string or null | Biography, at most 190 characters / 760 UTF-8 bytes. Newline, carriage return and tab allowed; empty clears it. |
+| `pronouns` | `Option<String>` / string or null | At most 40 characters / 160 UTF-8 bytes, no controls; empty clears it. |
+| `accent_color` | `Option<u32>` / integer or null | RGB integer from 0 through 16,777,215 (`0xffffff`). |
+| `clear_accent_color` | `bool` / boolean | Clear the custom accent. Cannot accompany an `accent_color` value. |
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_own_profile","profile":{"bio":"Building something small.","clear_accent_color":true}}}]}
+```
+
+`set_own_presence` / `SetOwnPresence` has one required
+`presence: OwnPresencePatch` object. Apply starts from current account presence
+preferences and uses the ordinary native update/persistence path.
+
+| Patch field | Rust / JSON type | Meaning and bound |
+| --- | --- | --- |
+| `status` | `Option<String>` / string or null | `online`, `idle`, `dnd` or `invisible`. |
+| `custom_status` | `Option<String>` / string or null | At most 128 characters / 512 UTF-8 bytes, no controls or surrounding whitespace. Empty clears the text and its expiry. |
+| `clear_after_seconds` | `Option<u32>` / integer or null | 0 through 86,400. Zero removes expiry; positive values start from Apply time. Omitted/null preserves existing expiry unless text is cleared. |
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_own_presence","presence":{"status":"dnd","custom_status":"Focusing","clear_after_seconds":3600}}}]}
+```
+
+`set_activity_sharing` / `SetActivitySharing` requires `enabled: bool`. It changes
+the native game-activity sharing preference; it does not submit an arbitrary
+activity payload. An accepted preference change is not proof that another
+Discord client displays public Rich Presence.
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_activity_sharing","enabled":false}}]}
+```
+
+#### Audio settings and local playback
+
+These operations require `audio_settings`. `set_audio_settings` /
+`SetAudioSettings` has a required `settings: AudioSettingsPatch` object. Optional
+fields omitted/null preserve current values at Apply time. The patch must contain
+at least one value or `open_microphone: true`; `{}` and all-null/default patches
+are invalid. `open_microphone` is a boolean defaulting to false, not an optional
+field, so JSON `null` is invalid.
+
+| Patch field | Rust / JSON type | Meaning and bound |
+| --- | --- | --- |
+| `input_percent` | `Option<u16>` / integer or null | Microphone gain, 0-200 percent. |
+| `output_percent` | `Option<u16>` / integer or null | Output gain, 0-200 percent. |
+| `push_to_talk` | `Option<bool>` / boolean or null | Set the native push-to-talk preference. |
+| `input_profile` | `Option<String>` / string or null | `voice_isolation`, `studio` or `custom`. |
+| `suppression` | `Option<String>` / string or null | `off`, `rnnoise` or `webrtc`. |
+| `suppression_level` | `Option<u8>` / integer or null | Suppression level, 0-3. |
+| `echo_cancellation` | `Option<bool>` / boolean or null | Enable/disable echo cancellation. |
+| `automatic_gain` | `Option<bool>` / boolean or null | Enable/disable automatic gain. |
+| `sensitivity_db` | `Option<i16>` / integer or null | Microphone gate threshold, -80 through 0 dB. |
+| `open_microphone` | `bool` / boolean | `true` clears the gate threshold. Cannot accompany a `sensitivity_db` value. This does not join a call, unmute it or start a microphone preview. |
+
+Changing a processing field switches to `custom`, starting from the visible
+values of the selected preset. If a patch supplies both `input_profile` and a
+processing field, the selected profile supplies those starting values and the
+result becomes custom. Gain/push-to-talk-only changes do not change the profile.
+Settings use native runtime/persistence handling; hardware support and the
+existing call's mute controls still apply.
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_audio_settings","settings":{"output_percent":80,"input_profile":"studio","sensitivity_db":-50}}}]}
+```
+
+| Nested `type` / Rust variant | Fields | Apply behavior |
+| --- | --- | --- |
+| `set_participant_audio` / `SetParticipantAudio` | `user_id`: ID; `volume_percent: Option<u16>`; `muted: Option<bool>` | Change local playback of a remote participant still in the current call. Volume is 0-200; mute preserves its configured gain for later unmute. Cannot target yourself. |
+| `set_stream_audio` / `SetStreamAudio` | `volume_percent: Option<u16>`; `muted: Option<bool>` | Change local playback of the currently watched stream. Volume is 0-200. Unavailable without a watched stream. |
+
+In these two variants, optional values use JSON integer/boolean/null, and at least
+one must be supplied. Omitted/null fields preserve current values. They do not
+server-mute another person. The host rejects a changed/replaced call and a new
+participant mute when the 64-person local mute bound is full. A stream-volume
+proposal also fails if the watched stream changed before Apply.
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_participant_audio","user_id":"40","volume_percent":75,"muted":false}}]}
+```
+
+#### Calls, streams and camera
+
+| Nested `type` / Rust variant | Fields | Required grant and Apply behavior |
+| --- | --- | --- |
+| `join_voice` / `JoinVoice` | `channel_id`: ID; `ring`, `muted`, `deafened`: `bool` | `voice_connect`; request joining/calling a native eligible channel with explicit ring and audio choices. Joining with an unmuted microphone can transmit audio. |
+| `decline_call` / `DeclineCall` | `channel_id`: ID | `voice_connect`; decline the currently incoming call only if it still targets this channel. |
+| `watch_stream` / `WatchStream` | `user_id`: ID | `voice_control`; watch an available remote participant stream in the current call. |
+| `stop_watching` / `StopWatching` | None | `voice_control`; stop watching the current stream. Unavailable when none is watched. |
+| `set_camera` / `SetCamera` | `enabled`: `bool` | `camera_control`; enable/disable camera transmission in the current call. Enabling requires available camera capture and shares video with participants. Already matching state does nothing. |
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"join_voice","channel_id":"20","ring":false,"muted":true,"deafened":false}}]}
+```
+
+Apply rechecks native call availability and the captured call identity. Switching
+away from an existing call still requires the native switch confirmation; the
+plugin cannot bypass it. Participant playback, stream watching and camera
+proposals are rejected if the original call has ended or been replaced. Stop-watching
+proposals also require the originally watched stream. Normal
+permission/device checks may reject otherwise well-formed proposals. These
+operations do not expose raw media to Wasm or add screen-share capture controls.
 
 ### Open conversations, profiles and search
 

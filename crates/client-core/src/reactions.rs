@@ -303,6 +303,40 @@ impl State {
 			request,
 		}))
 	}
+	/// Set the desired membership without toggling a state that changed since approval.
+	pub fn prepare_set_reaction(
+		&mut self,
+		message: Id,
+		emoji: ReactionEmoji,
+		add: bool,
+	) -> Result<Option<crate::Command>, &'static str> {
+		const UNAVAILABLE: &str =
+			"This reaction is unavailable with the current access or pending action";
+		if !emoji.valid()
+			|| emoji.name.is_none()
+			|| self.reactions.writing.is_some()
+			|| self.reactions.preview.is_some()
+			|| self.timeline.is_deleted(message)
+			|| !self.can_react(message, Some(&emoji), add)
+		{
+			return Err(UNAVAILABLE);
+		}
+		let reactions = self
+			.timeline
+			.get(message)
+			.and_then(|message| message.reactions.as_ref())
+			.ok_or(UNAVAILABLE)?;
+		if reactions
+			.iter()
+			.any(|reaction| reaction.emoji.same(&emoji) && reaction.me)
+			== add
+		{
+			return Ok(None);
+		}
+		self.prepare_reaction(message, emoji)
+			.map(Some)
+			.ok_or(UNAVAILABLE)
+	}
 	pub fn prepare_reaction(
 		&mut self,
 		message: Id,

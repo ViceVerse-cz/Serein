@@ -1,5 +1,5 @@
 [workspace]
-members = ["sdk", "message-delete-protector", "emoji-sticker-images", "message-counter", "app-toolbox", "guild-inspector", "conversation-inspector"]
+members = ["sdk", "message-delete-protector", "emoji-sticker-images", "message-counter", "app-toolbox", "guild-inspector", "conversation-inspector", "app-actions"]
 resolver = "3"
 
 [workspace.dependencies]

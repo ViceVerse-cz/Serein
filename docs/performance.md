@@ -1825,3 +1825,34 @@ exercise profile decoding or UI rendering.
 Native before/after interaction, CPU/RSS and frame timing remain unmeasured:
 Computer Use could not connect to its native pipe (`os error 2`). Headless
 profile UI tests passed but do not establish native or live Discord behavior.
+
+
+## SDK app actions - September 22, 2026
+
+Compared the SDK host at `e761bf0` with the app-action expansion on Windows,
+Rust 1.98.1, release `sdk_check`: one warmup followed by five samples of twenty
+fresh-runtime invocations, reporting the median. Both use the same 18,296-byte
+synthetic Toolbox snapshot. The task also incorporates main through `6367d3d`;
+that intervening hover change does not affect the extension host crate.
+
+| Metric | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Committed Toolbox invocation | 5,597.285 us | 6,007.710 us | +410.425 us / +7.33% |
+| Rebuilt Toolbox invocation | 5,555.735 us | 5,981.995 us | +426.260 us / +7.67% |
+| Rebuilt Toolbox Wasm | 334,225 bytes | 359,380 bytes | +25,155 bytes / +7.53% |
+
+The host now advertises ten additional capabilities; rebuilt SDK code includes
+35 typed actions and two optional preference snapshots. This is measurable
+invocation overhead, not a claimed performance improvement. Timing is a single
+local comparison under ordinary development load, not a cross-machine guarantee,
+UI latency or snapshot-construction measurement. Existing committed plugins and
+all rebuilt examples pass the real sandbox check at unchanged fuel/memory limits.
+
+Conversation Actions is a new optional example: 346,486 Wasm bytes and a
+1,003,107-byte JSON package. It is not added to the production bundle or catalog.
+One foreground proposal remains capped at 8 KiB, snapshots at 64 KiB, ABI buffers
+at 256 KiB, and local participant overrides at 64 slots. There is no new dependency,
+worker, timer, network API or cache. Native screenshots/CPU/RSS/frame measurements
+are unavailable because Computer Use cannot connect to its native pipe (`os error 2`).
+Standard package size comparison remains pending; the measurements above do not
+substitute for voice-enabled application packaging or live Discord validation.

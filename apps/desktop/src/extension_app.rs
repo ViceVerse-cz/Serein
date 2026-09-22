@@ -37,6 +37,16 @@ pub fn uses_app(capabilities: &[Capability]) -> bool {
 				| Capability::ClipboardWrite
 				| Capability::VoiceControl
 				| Capability::AppEvents
+				| Capability::MessageSend
+				| Capability::MessageManage
+				| Capability::ReactionsControl
+				| Capability::ReadStateControl
+				| Capability::ThreadsControl
+				| Capability::RelationshipControl
+				| Capability::AccountControl
+				| Capability::AudioSettings
+				| Capability::VoiceConnect
+				| Capability::CameraControl
 		)
 	})
 }
@@ -619,6 +629,18 @@ pub fn snapshot(
 	if granted(Capability::NotificationSettings) {
 		app.notification_settings = Some(messaging.extension_notification_settings());
 	}
+	if granted(Capability::AudioSettings) {
+		let settings = messaging.extension_audio_settings();
+		if settings.validate().is_ok() {
+			app.audio_settings = Some(settings);
+		}
+	}
+	if granted(Capability::AccountControl) {
+		let presence = messaging.extension_own_presence();
+		if presence.validate().is_ok() {
+			app.own_presence = Some(presence);
+		}
+	}
 	if granted(Capability::MessageDetails)
 		&& let Some(id) = readable
 	{
@@ -850,6 +872,8 @@ pub struct ChangeKey {
 	voice: Option<VoiceKey>,
 	settings: LocalSettingsSnapshot,
 	notification_settings: NotificationSettingsSnapshot,
+	audio_settings: (ui::VoiceGain, model::voice_settings::VoiceProcessing, bool),
+	own_presence: u64,
 }
 #[derive(PartialEq, Eq)]
 struct VoiceKey {
@@ -895,6 +919,22 @@ impl ChangeKey {
 			}),
 			settings: messaging.extension_local_settings(),
 			notification_settings: messaging.extension_notification_settings(),
+			audio_settings: (
+				messaging.voice_gain,
+				messaging.voice_processing,
+				messaging.voice_push_to_talk,
+			),
+			own_presence: {
+				let mut hash = std::collections::hash_map::DefaultHasher::new();
+				(
+					messaging.own_presence.status.wire(),
+					messaging.own_presence.custom_status.as_str(),
+					messaging.own_presence_expires,
+					messaging.share_game_activity,
+				)
+					.hash(&mut hash);
+				hash.finish()
+			},
 		}
 	}
 	pub fn changed(&self, old: &Self) -> Option<AppEventKind> {
@@ -908,6 +948,8 @@ impl ChangeKey {
 			Some(AppEventKind::Voice)
 		} else if self.settings != old.settings
 			|| self.notification_settings != old.notification_settings
+			|| self.audio_settings != old.audio_settings
+			|| self.own_presence != old.own_presence
 		{
 			Some(AppEventKind::Settings)
 		} else {
@@ -937,6 +979,55 @@ mod tests {
 			}],
 		}
 	}
+	#[test]
+	fn extension_app_account_audio_snapshots_are_granted_and_track_preference_changes() {
+		let state = test_support::demo_state();
+		let mut messaging = ui::MessagingUi::default();
+		messaging.voice_processing.profile = model::voice_settings::InputProfile::Studio;
+		messaging.own_presence.custom_status = "Synthetic status".into();
+		let ungranted =
+			snapshot(&state, &messaging, &manifest(vec![Capability::AppContext])).unwrap();
+		assert!(ungranted.audio_settings.is_none() && ungranted.own_presence.is_none());
+		let audio = manifest(vec![Capability::AudioSettings]);
+		assert!(uses_app(&audio.capabilities));
+		let app = snapshot(&state, &messaging, &audio).unwrap();
+		assert!(app.own_presence.is_none());
+		let settings = app.audio_settings.unwrap();
+		assert_eq!(settings.input_profile, "studio");
+		assert_eq!(settings.suppression, "off");
+		assert_eq!(settings.sensitivity_db, None);
+		let account = manifest(vec![Capability::AccountControl]);
+		assert!(uses_app(&account.capabilities));
+		let app = snapshot(&state, &messaging, &account).unwrap();
+		assert!(app.audio_settings.is_none());
+		assert_eq!(app.own_presence.unwrap().custom_status, "Synthetic status");
+		let before = ChangeKey::capture(&state, &messaging);
+		messaging.voice_gain.output_percent = 75;
+		assert_eq!(
+			ChangeKey::capture(&state, &messaging).changed(&before),
+			Some(AppEventKind::Settings)
+		);
+		let before = ChangeKey::capture(&state, &messaging);
+		messaging.own_presence.custom_status.clear();
+		assert_eq!(
+			ChangeKey::capture(&state, &messaging).changed(&before),
+			Some(AppEventKind::Settings)
+		);
+		let before = ChangeKey::capture(&state, &messaging);
+		messaging.share_game_activity = !messaging.share_game_activity;
+		assert_eq!(
+			ChangeKey::capture(&state, &messaging).changed(&before),
+			Some(AppEventKind::Settings)
+		);
+		messaging.own_presence.custom_status = "x".repeat(129);
+		assert!(
+			snapshot(&state, &messaging, &account)
+				.unwrap()
+				.own_presence
+				.is_none()
+		);
+	}
+
 	#[test]
 	fn extension_app_notification_grant_and_settings_events_use_local_preferences() {
 		let state = test_support::demo_state();

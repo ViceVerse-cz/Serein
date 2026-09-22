@@ -442,10 +442,59 @@ fn check_conversation_inspector(name: &str, package: &Package) {
 	println!("{name}: rich data, host discovery and four focused events passed");
 }
 
+fn check_app_actions(package: &Package) {
+	package.validate().expect("action example package is valid");
+	let mut input: Invocation = serde_json::from_str(r#"{"action":"show","app":{"context":{"connected":true,"channel":{"id":"20","name":"general","kind":0}}}}"#).unwrap();
+	let panel = invoke(package, &input).expect("action form runs within sandbox bounds");
+	assert!(panel.effects.is_empty());
+	assert!(
+		panel
+			.panel
+			.iter()
+			.any(|element| matches!(element, Element::Button { id, .. } if id == "propose"))
+	);
+	input.action = "propose".into();
+	input.values.extend([
+		("channel".into(), "20".into()),
+		("message".into(), "200".into()),
+		("text".into(), "Synthetic proposal".into()),
+		("emoji".into(), "👍".into()),
+	]);
+	for (operation, kind) in [
+		("Send message", "send_message"),
+		("Edit message", "edit_message"),
+		("Delete message", "delete_message"),
+		("Add reaction", "set_reaction"),
+		("Remove reaction", "set_reaction"),
+		("Pin message", "set_message_pinned"),
+		("Unpin message", "set_message_pinned"),
+		("Mark channel read", "mark_channel_read"),
+		("Mark message unread", "mark_unread"),
+		("Create thread", "create_thread"),
+	] {
+		input.values.insert("operation".into(), operation.into());
+		let output = invoke(package, &input).expect("foreground proposal validates in real Wasm");
+		assert_eq!(output.effects.len(), 1);
+		let wire = serde_json::to_value(&output.effects[0]).unwrap();
+		assert_eq!(wire["type"], "app_action");
+		assert_eq!(wire["action"]["type"], kind);
+	}
+	input.values.insert("channel".into(), "21".into());
+	assert!(invoke(package, &input).unwrap().effects.is_empty());
+	println!(
+		"app-actions: wasm_bytes={}, form, ten foreground proposals and changed-channel rejection passed",
+		package.wasm.len()
+	);
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut args = std::env::args_os().skip(1);
 	let wasm_dir = PathBuf::from(args.next().expect("usage: sdk_check <wasm-directory>"));
 	assert!(args.next().is_none(), "usage: sdk_check <wasm-directory>");
+	check_app_actions(&rebuilt(
+		include_str!("../../../examples/extensions/app-actions/manifest.json"),
+		&wasm_dir.join("app_actions.wasm"),
+	)?);
 	for (name, committed, manifest, wasm_file, expected) in [
 		(
 			"message-delete-protector",

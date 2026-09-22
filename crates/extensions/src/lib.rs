@@ -31,7 +31,7 @@ pub const MAX_EVENT_CONTENT_BYTES: usize = 16 * 1024;
 pub const MAX_STORAGE_BYTES: usize = 1024 * 1024;
 pub const MAX_PLUGINS: usize = 8;
 pub const MAX_PANEL_ELEMENTS: usize = 64;
-pub const MAX_CAPABILITIES: usize = 32;
+pub const MAX_CAPABILITIES: usize = 64;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -83,6 +83,18 @@ pub enum ExtensionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+	RelationshipControl,
+	AccountControl,
+	AudioSettings,
+	VoiceConnect,
+	CameraControl,
+
+	MessageSend,
+	MessageManage,
+	ReactionsControl,
+	ReadStateControl,
+	ThreadsControl,
+
 	MessageContent,
 	ForumData,
 	ConversationActivity,

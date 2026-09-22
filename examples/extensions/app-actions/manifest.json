@@ -1,0 +1,15 @@
+{
+  "api_version": 1,
+  "id": "app-actions",
+  "name": "Conversation Actions",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/examples/extensions/app-actions",
+  "kind": "plugin",
+  "capabilities": ["app_context", "timeline", "message_send", "message_manage", "reactions_control", "read_state_control", "threads_control"],
+  "actions": [
+    {"id": "show", "label": "Open conversation actions", "surface": "panel"},
+    {"id": "propose", "label": "Review conversation action", "surface": "panel"}
+  ]
+}

@@ -21,6 +21,7 @@ pub(super) struct CallSwitch {
 	ring: bool,
 	generation: u64,
 	confirmed_at: Option<std::time::Instant>,
+	audio: Option<(bool, bool)>,
 }
 
 impl MessagingUi {
@@ -44,8 +45,12 @@ impl MessagingUi {
 		for user in self.voice_user_muted.iter().copied() {
 			if let Some(slot) = values.iter_mut().find(|(id, _)| *id == user) {
 				slot.1 = 0;
-			} else if let Some(slot) = values.iter_mut().find(|(id, _)| *id == 0) {
-				*slot = (user, 0);
+			} else if let Some(index) = values.iter().position(|(id, _)| *id == 0).or_else(|| {
+				values
+					.iter()
+					.rposition(|(id, _)| !self.voice_user_muted.contains(id))
+			}) {
+				values[index] = (user, 0);
 			}
 		}
 		values
@@ -70,7 +75,7 @@ impl MessagingUi {
 		self.voice_user_muted.contains(&user.0)
 	}
 
-	fn set_voice_user_locally_muted(&mut self, user: Id, muted: bool) {
+	pub(super) fn set_voice_user_locally_muted(&mut self, user: Id, muted: bool) {
 		self.voice_user_muted.retain(|id| *id != user.0);
 		if muted && self.voice_user_muted.len() < MAX_USER_MUTES {
 			self.voice_user_muted.push(user.0);
@@ -99,6 +104,31 @@ impl MessagingUi {
 			*slot = *value;
 		}
 		self.voice_user_volumes = Some(Box::new(array));
+	}
+
+	pub(super) fn set_voice_user_volume(&mut self, user: Id, volume: u16) {
+		if volume == 100 {
+			if let Some(slot) = self
+				.voice_user_volumes
+				.as_deref_mut()
+				.and_then(|values| values.iter_mut().find(|(id, _)| *id == user.0))
+			{
+				*slot = (0, 100);
+			}
+			return;
+		}
+		let values = self
+			.voice_user_volumes
+			.get_or_insert_with(|| Box::new([(0, 100); 64]));
+		let index = values
+			.iter()
+			.position(|(id, _)| *id == user.0)
+			.or_else(|| values.iter().position(|(id, _)| *id == 0))
+			.unwrap_or_else(|| {
+				values.rotate_left(1);
+				63
+			});
+		values[index] = (user.0, volume);
 	}
 
 	fn voice_participant_menu(
@@ -133,22 +163,10 @@ impl MessagingUi {
 						.add_enabled(volume != 100, egui::Button::new("Reset volume"))
 						.clicked();
 					if changed || reset {
-						let values = self
-							.voice_user_volumes
-							.get_or_insert_with(|| Box::new([(0, 100); 64]));
-						let index = values
-							.iter()
-							.position(|(user, _)| *user == id)
-							.or_else(|| values.iter().position(|(user, _)| *user == 0))
-							.unwrap_or_else(|| {
-								values.rotate_left(1);
-								63
-							});
-						values[index] = if reset || volume == 100 {
-							(0, 100)
-						} else {
-							(id, volume)
-						};
+						self.set_voice_user_volume(
+							entry.participant.user,
+							if reset { 100 } else { volume },
+						);
 					}
 					ui.separator();
 				}
@@ -296,10 +314,10 @@ impl MessagingUi {
 		});
 		response.on_hover_text_with(|| {
 			format!(
-				"{} · View voice channel{}{}",
+				"{} Â· View voice channel{}{}",
 				channel.name,
 				channel_marks::label(access),
-				if connected { " · Connected" } else { "" }
+				if connected { " Â· Connected" } else { "" }
 			)
 		})
 	}
@@ -477,7 +495,7 @@ impl MessagingUi {
 			} else {
 				if !state.demo && !state.gateway_connected {
 					body_ui.label(
-						RichText::new("Last known participants · reconnect to refresh")
+						RichText::new("Last known participants Â· reconnect to refresh")
 							.small()
 							.color(STAGE_MUTED),
 					);
@@ -705,7 +723,7 @@ impl MessagingUi {
 				self.screen_tile(ui, rect, compact);
 				self.screen
 					.capture_status
-					.unwrap_or("Your screen · local preview")
+					.unwrap_or("Your screen Â· local preview")
 			}
 			Tile::Stream(streamer) => {
 				self.stream_tile(ui, state, rect, channel, *streamer, compact);
@@ -730,7 +748,7 @@ impl MessagingUi {
 			let hover = if hint.is_empty() {
 				label.to_owned()
 			} else {
-				format!("{hint} · {label}")
+				format!("{hint} Â· {label}")
 			};
 			if response.clicked() {
 				return Some(tile.focus());
@@ -786,7 +804,7 @@ impl MessagingUi {
 				ui.painter().rect_filled(rect, 8, TILE_FILL);
 				if !compact {
 					let status = if self.voice_stream_status.is_empty() {
-						"Connecting to the stream…"
+						"Connecting to the streamâ€¦"
 					} else {
 						self.voice_stream_status
 					};
@@ -1085,7 +1103,7 @@ impl MessagingUi {
 		} else if !connected {
 			if state.demo {
 				notices.push((
-					"Synthetic participants · microphone and speakers are off.".into(),
+					"Synthetic participants Â· microphone and speakers are off.".into(),
 					false,
 				));
 			} else if let Some(reason) = self.call_unavailable(state, channel) {
@@ -1095,7 +1113,7 @@ impl MessagingUi {
 		notices
 	}
 
-	fn call_unavailable(&self, state: &State, channel: Id) -> Option<&'static str> {
+	pub(crate) fn call_unavailable(&self, state: &State, channel: Id) -> Option<&'static str> {
 		if state.demo {
 			Some("Calls are unavailable in the offline preview. No microphone is accessed.")
 		} else if !self.voice_available {
@@ -1174,15 +1192,38 @@ impl MessagingUi {
 		assert!(view.voice_switch.is_none());
 	}
 
-	fn request_call(
+	pub(crate) fn request_call(
 		&mut self,
 		state: &mut State,
 		channel: Id,
 		ring: bool,
 		commands: &mut Vec<Command>,
 	) {
-		if self.call_unavailable(state, channel).is_some() {
-			return;
+		let _ = self.request_call_audio(state, channel, ring, None, commands);
+	}
+
+	pub(crate) fn request_call_with_audio(
+		&mut self,
+		state: &mut State,
+		channel: Id,
+		ring: bool,
+		muted: bool,
+		deafened: bool,
+		commands: &mut Vec<Command>,
+	) -> Result<(), String> {
+		self.request_call_audio(state, channel, ring, Some((muted, deafened)), commands)
+	}
+
+	fn request_call_audio(
+		&mut self,
+		state: &mut State,
+		channel: Id,
+		ring: bool,
+		audio: Option<(bool, bool)>,
+		commands: &mut Vec<Command>,
+	) -> Result<(), String> {
+		if let Some(reason) = self.call_unavailable(state, channel) {
+			return Err(reason.into());
 		}
 		if let Some(call) = &state.voice.active {
 			self.voice_switch = Some(CallSwitch {
@@ -1191,12 +1232,20 @@ impl MessagingUi {
 				ring,
 				generation: state.generation,
 				confirmed_at: None,
+				audio,
 			});
-		} else if let Some(command) =
-			state.start_call_with_mute(channel, ring, self.voice_muted, self.voice_deafened)
-		{
+		} else {
+			let (muted, deafened) = audio.unwrap_or((self.voice_muted, self.voice_deafened));
+			let command = state
+				.start_call_with_mute(channel, ring, muted, deafened)
+				.ok_or("Joining this call is no longer available")?;
+			if audio.is_some() {
+				self.voice_muted = muted;
+				self.voice_deafened = deafened;
+			}
 			commands.push(command);
 		}
+		Ok(())
 	}
 
 	pub(super) fn show_call_switch(
@@ -1220,12 +1269,16 @@ impl MessagingUi {
 				self.voice_switch = None;
 			} else if state.voice.departed == Some(switch.from) && self.voice_switch_ready {
 				let switch = self.voice_switch.take().expect("pending switch");
-				if let Some(command) = state.start_call_with_mute(
-					switch.channel,
-					switch.ring,
-					self.voice_muted,
-					self.voice_deafened,
-				) {
+				let (muted, deafened) = switch
+					.audio
+					.unwrap_or((self.voice_muted, self.voice_deafened));
+				if let Some(command) =
+					state.start_call_with_mute(switch.channel, switch.ring, muted, deafened)
+				{
+					if switch.audio.is_some() {
+						self.voice_muted = muted;
+						self.voice_deafened = deafened;
+					}
 					commands.push(command);
 				}
 			} else if started.elapsed() >= std::time::Duration::from_secs(12) {
@@ -1484,7 +1537,7 @@ impl MessagingUi {
 		if self.voice_microphone_unavailable {
 			ui.label(
 				RichText::new(
-					"Microphone unavailable · choose another input. You are still connected.",
+					"Microphone unavailable Â· choose another input. You are still connected.",
 				)
 				.size(12.0)
 				.color(colors.warning),
@@ -1864,7 +1917,7 @@ impl MessagingUi {
 			design::notice(
 				ui,
 				design::Level::Warning,
-				"Microphone unavailable · choose another input. You are still connected.",
+				"Microphone unavailable Â· choose another input. You are still connected.",
 			);
 		}
 	}
@@ -2573,7 +2626,7 @@ impl MessagingUi {
 										);
 										ui.label(
 											RichText::new(if incoming {
-												unavailable.unwrap_or("Incoming call…")
+												unavailable.unwrap_or("Incoming callâ€¦")
 											} else if !state.gateway_connected {
 												"Reconnect to refresh call"
 											} else {
@@ -2627,7 +2680,7 @@ impl MessagingUi {
 		} else if connected {
 			"Voice Connected"
 		} else {
-			"Connecting…"
+			"Connectingâ€¦"
 		};
 		let color = if phase == Phase::Failed {
 			colors.danger
@@ -2649,7 +2702,7 @@ impl MessagingUi {
 				if self.voice_microphone_unavailable {
 					ui.label(
 						RichText::new(
-							"Microphone unavailable · still connected. Choose another input in Audio settings.",
+							"Microphone unavailable Â· still connected. Choose another input in Audio settings.",
 						)
 						.size(12.0)
 						.color(colors.warning),
@@ -3071,7 +3124,7 @@ fn speaking_avatar(ui: &egui::Ui, avatar: &egui::Response, name: &str) {
 		avatar.rect.width() * 0.5 + 2.0,
 		egui::Stroke::new(2.0, colors.positive),
 	);
-	let label = format!("{name} · Speaking");
+	let label = format!("{name} Â· Speaking");
 	avatar.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &label));
 	avatar.clone().on_hover_text(label);
 }
@@ -3418,6 +3471,74 @@ fn device_combo(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn explicit_join_audio_waits_for_call_switch_and_survives_teardown() {
+		let mut state = test_support::call_demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		let mut view = MessagingUi {
+			voice_available: true,
+			..Default::default()
+		};
+		let before = (view.voice_muted, view.voice_deafened);
+		let mut commands = Vec::new();
+		view.request_call_with_audio(&mut state, Id(25), false, true, true, &mut commands)
+			.unwrap();
+		assert_eq!((view.voice_muted, view.voice_deafened), before);
+		assert!(commands.is_empty());
+		let origin = view.voice_switch.as_ref().unwrap().from;
+		assert!(state.leave_call().is_some());
+		view.voice_switch.as_mut().unwrap().confirmed_at = Some(std::time::Instant::now());
+		state.apply_voice(client_core::voice::Event::Departed {
+			channel: origin.0,
+			request: origin.1,
+		});
+		let ctx = egui::Context::default();
+		view.show_call_switch(&ctx, &mut state, &mut commands);
+		assert!(commands.is_empty());
+		assert_eq!((view.voice_muted, view.voice_deafened), before);
+		view.voice_switch_ready = true;
+		view.show_call_switch(&ctx, &mut state, &mut commands);
+		assert!(matches!(
+			&commands[..],
+			[Command::Voice(client_core::voice::Command::Join {
+				channel: Id(25),
+				mute: true,
+				deaf: true,
+				..
+			})]
+		));
+		assert_eq!((view.voice_muted, view.voice_deafened), (true, true));
+		commands.clear();
+		assert!(
+			view.request_call_with_audio(
+				&mut state,
+				Id(999999),
+				false,
+				false,
+				false,
+				&mut commands
+			)
+			.is_err()
+		);
+		assert_eq!((view.voice_muted, view.voice_deafened), (true, true));
+		assert!(commands.is_empty());
+	}
+
+	#[test]
+	fn local_mute_still_applies_with_full_volume_overrides() {
+		let mut view = MessagingUi::default();
+		let volumes: Vec<_> = (100..164).map(|user| (user, 150)).collect();
+		view.set_voice_user_volume_overrides(&volumes);
+		view.set_voice_user_volume(Id(9), 100);
+		assert_eq!(view.voice_user_volume_overrides(), volumes);
+		view.set_voice_user_locally_muted(Id(9), true);
+		assert!(view.voice_user_volumes().contains(&(9, 0)));
+		assert_eq!(view.voice_user_volume_overrides(), volumes);
+		view.set_voice_user_locally_muted(Id(9), false);
+		assert_eq!(view.voice_user_volumes().to_vec(), volumes);
+	}
 
 	#[test]
 	fn local_mutes_zero_one_speaker_and_keep_their_stored_volume() {

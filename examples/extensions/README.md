@@ -102,7 +102,7 @@ Replace the example author and source URL before publishing.
 | `license` | string | License label; include the actual license in your source too. |
 | `source` | string | Public HTTPS source link, at most 2,048 UTF-8 bytes, without embedded credentials. It is metadata, not code to execute. |
 | `kind` | string | `plugin` for Wasm; declarative themes use `theme`. |
-| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 32 declarations, with 32 supported today. |
+| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 64 declarations, with 42 supported today. |
 | `actions` | object array | Entry points invoked by users or the host. Plugins need 1–16 actions with unique IDs. |
 
 `name`, `version`, `author` and `license` must be nonempty, at most 128 UTF-8 bytes,
@@ -332,6 +332,27 @@ cargo doc --manifest-path examples/extensions/Cargo.toml --locked -p serein-exte
 Keep the first plugin working before adding more permissions. The sections below
 explain existing examples and the ABI; they are references, not extra tutorial steps.
 
+## Try the conversation actions example
+
+[Conversation Actions](app-actions/src/lib.rs) provides a compact form for sending,
+editing/deleting, reactions, pins, read markers and thread creation. It requests
+separate write grants and produces one proposal per click. Inspect the destination
+and text in the native confirmation before choosing Apply. Importing or opening
+the form never sends a message.
+
+From `examples/extensions`, build and package it:
+
+```powershell
+cargo test --locked -p app-actions
+cargo build --locked --release --target wasm32-unknown-unknown -p app-actions
+python pack.py app-actions/manifest.json target/wasm32-unknown-unknown/release/app_actions.wasm packages/app-actions.serein-extension
+```
+
+Use synthetic `--demo` data to check rendering and proposal validation. A demo
+build does not establish service compatibility and does not authorize live
+Discord messages or calls. The host's sandbox check exercises all ten form
+operations offline through real Wasm.
+
 ## Reactive message plugins
 
 Start with [Message Counter's manifest](message-counter/manifest.json) and
@@ -352,7 +373,11 @@ every snapshot field, including unavailable and partial data.
 explains proposals and their grants. [App Toolbox](app-toolbox/src/lib.rs)
 demonstrates loaded account profiles, joined servers, selected-channel details,
 message metadata, relationships, scrolling preferences and device-local notification
-settings, and all 12 host action types. Its passive observer requests `data_events` along
+settings, and the original 12 host-effect types.
+[Conversation Actions](app-actions/src/lib.rs) demonstrates explicit message,
+reaction, pin, read-state and thread proposals using `AppAction`. Its separate
+write grants never authorize background actions; each proposal needs Apply.
+App Toolbox's passive observer requests `data_events` along
 with `app_events` and the relevant read grants; it stores no event counts or
 conversation data. Detailed events are coalesced invalidation hints, not a full
 change log. See [event grants and reasons](../../docs/extension-sdk-reference.md#appeventkind-why-an-app-observer-ran).

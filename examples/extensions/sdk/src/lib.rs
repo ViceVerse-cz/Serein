@@ -36,7 +36,7 @@ pub const MAX_IO_BYTES: usize = 256 * 1024;
 /// Maximum message-event content size, in UTF-8 bytes.
 pub const MAX_EVENT_CONTENT_BYTES: usize = 16 * 1024;
 /// Maximum distinct capabilities requested by one manifest.
-pub const MAX_CAPABILITIES: usize = 32;
+pub const MAX_CAPABILITIES: usize = 64;
 /// Version of the unchanged Wasm buffer and JSON contract.
 pub const API_VERSION: u32 = 1;
 

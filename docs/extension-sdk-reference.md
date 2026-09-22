@@ -94,7 +94,7 @@ can be inspected without decoding a newer capability/event enum.
 | --- | --- | --- | --- |
 | `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
-| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (32 currently), not this plugin's granted capabilities. | `host.supports("forum_data")` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (42 currently), not this plugin's granted capabilities. | `host.supports("forum_data")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
 
 A supported capability still needs to be declared and explicitly granted. Older
@@ -144,7 +144,10 @@ account snapshot or grant-dependent data:
       "channel_details",
       "data_events",
       "message_details",
-      "relationships"
+      "relationships",
+      "message_send", "message_manage", "reactions_control", "read_state_control",
+      "threads_control", "relationship_control", "account_control", "audio_settings",
+      "voice_connect", "camera_control"
     ],
     "app_events": [
       "ready",
@@ -367,6 +370,8 @@ For the examples below, `app` is a borrowed `AppSnapshot`. Each field is an
 | `read_state` | [`Option<ReadSnapshot>`](extension-sdk-reference.md#readsnapshot-unread-and-mentions) | `read_state`; selected-channel summary. The group can exist with no channel and unknown unread state. | `app.read_state.as_ref()` |
 | `settings` | [`Option<LocalSettingsSnapshot>`](extension-sdk-reference.md#localsettingssnapshot-reading-preferences) | `local_settings`; current local reading/layout preferences. | `app.settings.as_ref()` |
 | `notification_settings` | [`Option<NotificationSettingsSnapshot>`](extension-sdk-reference.md#notificationsettingssnapshot-device-local-notifications) | `notification_settings`; device-local notification preferences, absent without the grant or on older hosts. | `app.notification_settings.as_ref()` |
+| `audio_settings` | [`Option<AudioSettingsSnapshot>`](extension-sdk-reference.md#audiosettingssnapshot-device-audio) | `audio_settings`; local gain and effective input processing. Absent without the grant or on older hosts. | `app.audio_settings.as_ref()` |
+| `own_presence` | [`Option<OwnPresenceSnapshot>`](extension-sdk-reference.md#ownpresencesnapshot-your-status-and-activity-preference) | `account_control`; your local status and activity-sharing preference. Absent without the grant or on older hosts. | `app.own_presence.as_ref()` |
 
 On disconnect, the collector omits account profile, guilds, channel details,
 channel directory, timeline, message details, relationships, channel metadata,
@@ -1057,6 +1062,66 @@ Current hosts supply both scrolling fields. The SDK can decode older JSON
 snapshots without them; use `None` to show unavailable controls. Adding fields
 is not Rust struct-literal source compatibility: use the current fields when
 constructing a snapshot. See [reading patches](extension-sdk-actions.md#change-local-reading-settings).
+
+### AudioSettingsSnapshot: device audio
+
+The `audio_settings` grant allows reading these device preferences and proposing
+changes through `AppAction::SetAudioSettings`. No device enumeration, microphone
+test or raw audio is exposed. Fields describe the **effective** processing preset;
+editing a processing field switches to Custom through the native settings path.
+
+| Wire field | Rust / JSON type | Meaning |
+| --- | --- | --- |
+| `input_percent`, `output_percent` | `u16` / integer | Input/output gain, 0 through 200. |
+| `push_to_talk` | `bool` / boolean | Whether push to talk is enabled. |
+| `input_profile` | `String` / string | `voice_isolation`, `studio`, or `custom`. |
+| `suppression` | `String` / string | `off`, `rnnoise`, or `webrtc`. |
+| `suppression_level` | `u8` / integer | Suppression strength, 0 through 3. |
+| `echo_cancellation`, `automatic_gain` | `bool` / boolean | Effective processing options. |
+| `sensitivity_db` | `Option<i16>` / integer or null | Threshold from -80 through 0 dBFS; null means open microphone. |
+
+Read `input.app.as_ref().and_then(|app| app.audio_settings.as_ref())` before
+accessing the fields. The group is absent on an older host or without its grant;
+an absent group does not imply default audio settings. Changes invalidate the
+existing `settings` app event when subscribed with `app_events`.
+
+### OwnPresenceSnapshot: your status and activity preference
+
+The `account_control` grant allows reading this group and proposing own-account
+changes. This is the current local choice, not proof that Discord has accepted
+or publicly displayed it. It contains no detected process names or activity list.
+
+| Wire field | Rust / JSON type | Meaning |
+| --- | --- | --- |
+| `status` | `String` / string | `online`, `idle`, `dnd`, or `invisible`. |
+| `custom_status` | `String` / string | Your status text, at most 128 characters/512 UTF-8 bytes; empty means none. |
+| `expires_at_ms` | `Option<u64>` / integer or absent | Local Unix expiry in milliseconds; absent means no expiry. |
+| `share_game_activity` | `bool` / boolean | Whether local detected-game activity sharing is enabled. This is separate from the server-side account setting. |
+
+Read `input.app.as_ref().and_then(|app| app.own_presence.as_ref())`. As with
+audio settings, this optional group is absent without its grant or on older
+hosts. Local changes invalidate the existing `settings` event; no new background
+write surface is introduced.
+
+This complete synthetic input shows both groups:
+
+```json
+{
+  "action": "show",
+  "app": {
+    "audio_settings": {
+      "input_percent": 100, "output_percent": 100, "push_to_talk": false,
+      "input_profile": "voice_isolation", "suppression": "rnnoise",
+      "suppression_level": 2, "echo_cancellation": true,
+      "automatic_gain": true, "sensitivity_db": -55
+    },
+    "own_presence": {
+      "status": "online", "custom_status": "Reviewing a release",
+      "share_game_activity": false
+    }
+  }
+}
+```
 
 ### NotificationSettingsSnapshot: device-local notifications
 

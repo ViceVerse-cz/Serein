@@ -62,6 +62,10 @@ pub struct AppSnapshot {
 	pub settings: Option<LocalSettingsSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub notification_settings: Option<NotificationSettingsSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub audio_settings: Option<AudioSettingsSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub own_presence: Option<OwnPresenceSnapshot>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -427,10 +431,225 @@ pub enum AppView {
 	VoiceSettings,
 }
 
-/// One local host proposal per response, applied only after explicit user confirmation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AudioSettingsSnapshot {
+	pub input_percent: u16,
+	pub output_percent: u16,
+	pub push_to_talk: bool,
+	pub input_profile: String,
+	pub suppression: String,
+	pub suppression_level: u8,
+	pub echo_cancellation: bool,
+	pub automatic_gain: bool,
+	pub sensitivity_db: Option<i16>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnPresenceSnapshot {
+	pub status: String,
+	pub custom_status: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub expires_at_ms: Option<u64>,
+	pub share_game_activity: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OwnProfilePatch {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub global_name: Option<String>,
+	pub clear_global_name: bool,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub bio: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub pronouns: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub accent_color: Option<u32>,
+	pub clear_accent_color: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OwnPresencePatch {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub status: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub custom_status: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub clear_after_seconds: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AudioSettingsPatch {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub input_percent: Option<u16>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub output_percent: Option<u16>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub push_to_talk: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub input_profile: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub suppression: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub suppression_level: Option<u8>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub echo_cancellation: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub automatic_gain: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub sensitivity_db: Option<i16>,
+	pub open_microphone: bool,
+}
+
+/// App operation proposed by a foreground action; the host revalidates it at Apply.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AppAction {
+	OpenFriendDm {
+		user_id: String,
+	},
+	SetFriendNickname {
+		user_id: String,
+		text: String,
+	},
+	SetUserNote {
+		user_id: String,
+		text: String,
+	},
+	AddFriend {
+		username: String,
+	},
+	RemoveFriend {
+		user_id: String,
+	},
+	ResolveFriendRequest {
+		user_id: String,
+		accept: bool,
+	},
+	SetUserBlocked {
+		user_id: String,
+		blocked: bool,
+	},
+	SetOwnProfile {
+		profile: OwnProfilePatch,
+	},
+	SetOwnPresence {
+		presence: OwnPresencePatch,
+	},
+	SetActivitySharing {
+		enabled: bool,
+	},
+	SetAudioSettings {
+		settings: AudioSettingsPatch,
+	},
+	SetParticipantAudio {
+		user_id: String,
+		volume_percent: Option<u16>,
+		muted: Option<bool>,
+	},
+	SetStreamAudio {
+		volume_percent: Option<u16>,
+		muted: Option<bool>,
+	},
+	WatchStream {
+		user_id: String,
+	},
+	StopWatching,
+	DeclineCall {
+		channel_id: String,
+	},
+	JoinVoice {
+		channel_id: String,
+		ring: bool,
+		muted: bool,
+		deafened: bool,
+	},
+	SetCamera {
+		enabled: bool,
+	},
+
+	SendMessage {
+		channel_id: String,
+		content: String,
+	},
+	EditMessage {
+		channel_id: String,
+		message_id: String,
+		content: String,
+	},
+	DeleteMessage {
+		channel_id: String,
+		message_id: String,
+	},
+	SetReaction {
+		channel_id: String,
+		message_id: String,
+		emoji: String,
+		add: bool,
+	},
+	SetMessagePinned {
+		channel_id: String,
+		message_id: String,
+		pinned: bool,
+	},
+	MarkRead {
+		channel_id: String,
+		message_id: String,
+	},
+	MarkChannelRead {
+		channel_id: String,
+	},
+	MarkUnread {
+		channel_id: String,
+		message_id: String,
+	},
+	MarkGuildRead {
+		guild_id: String,
+	},
+	JumpToUnread,
+	CreateThread {
+		channel_id: String,
+		name: String,
+		message_id: Option<String>,
+	},
+	CreateForumPost {
+		parent_id: String,
+		title: String,
+		content: String,
+	},
+	SetThreadArchived {
+		channel_id: String,
+		archived: bool,
+	},
+	SetThreadLocked {
+		channel_id: String,
+		locked: bool,
+	},
+	SetThreadFollowed {
+		channel_id: String,
+		followed: bool,
+	},
+	SetThreadPinned {
+		channel_id: String,
+		pinned: bool,
+	},
+	RenameThread {
+		channel_id: String,
+		name: String,
+	},
+}
+
+/// One host proposal per response, applied only after explicit user confirmation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum HostEffect {
+	AppAction {
+		action: AppAction,
+	},
 	Navigate {
 		channel_id: String,
 	},
@@ -672,6 +891,8 @@ impl AppSnapshot {
 			(self.voice.is_some(), Capability::VoiceState),
 			(self.read_state.is_some(), Capability::ReadState),
 			(self.settings.is_some(), Capability::LocalSettings),
+			(self.audio_settings.is_some(), Capability::AudioSettings),
+			(self.own_presence.is_some(), Capability::AccountControl),
 			(
 				self.notification_settings.is_some(),
 				Capability::NotificationSettings,
@@ -863,6 +1084,12 @@ impl AppSnapshot {
 		if let Some(settings) = &self.notification_settings {
 			settings.validate()?;
 		}
+		if let Some(settings) = &self.audio_settings {
+			settings.validate()?;
+		}
+		if let Some(presence) = &self.own_presence {
+			presence.validate()?;
+		}
 		self.bytes().map(|_| ())
 	}
 }
@@ -918,9 +1145,274 @@ impl NotificationSettingsPatch {
 	}
 }
 
+fn action_text(value: &str, chars: usize, multiline: bool, empty: bool) -> Result<(), Error> {
+	if value.len() > chars * 4 || value.chars().count() > chars {
+		return Err(Error::Limit);
+	}
+	if (!empty && value.trim().is_empty())
+		|| value
+			.chars()
+			.any(|ch| ch.is_control() && !(multiline && matches!(ch, '\n' | '\r' | '\t')))
+	{
+		return Err(Error::Invalid);
+	}
+	Ok(())
+}
+
+impl OwnProfilePatch {
+	pub fn validate(&self) -> Result<(), Error> {
+		if self == &Self::default()
+			|| (self.clear_global_name && self.global_name.is_some())
+			|| (self.clear_accent_color && self.accent_color.is_some())
+			|| self.accent_color.is_some_and(|color| color > 0xffffff)
+		{
+			return Err(Error::Invalid);
+		}
+		if let Some(value) = &self.global_name {
+			action_text(value, 32, false, false)?;
+		}
+		if let Some(value) = &self.bio {
+			action_text(value, 190, true, true)?;
+		}
+		if let Some(value) = &self.pronouns {
+			action_text(value, 40, false, true)?;
+		}
+		Ok(())
+	}
+}
+impl OwnPresencePatch {
+	pub fn validate(&self) -> Result<(), Error> {
+		if self == &Self::default()
+			|| self
+				.status
+				.as_deref()
+				.is_some_and(|value| !matches!(value, "online" | "idle" | "dnd" | "invisible"))
+			|| self.clear_after_seconds.is_some_and(|value| value > 86400)
+		{
+			return Err(Error::Invalid);
+		}
+		if let Some(value) = &self.custom_status {
+			if value.trim() != value {
+				return Err(Error::Invalid);
+			}
+			action_text(value, 128, false, true)?;
+		}
+		Ok(())
+	}
+}
+impl AudioSettingsPatch {
+	pub fn validate(&self) -> Result<(), Error> {
+		if self == &Self::default()
+			|| self.input_percent.is_some_and(|value| value > 200)
+			|| self.output_percent.is_some_and(|value| value > 200)
+			|| self
+				.input_profile
+				.as_deref()
+				.is_some_and(|value| !matches!(value, "voice_isolation" | "studio" | "custom"))
+			|| self
+				.suppression
+				.as_deref()
+				.is_some_and(|value| !matches!(value, "off" | "rnnoise" | "webrtc"))
+			|| self.suppression_level.is_some_and(|value| value > 3)
+			|| self
+				.sensitivity_db
+				.is_some_and(|value| !(-80..=0).contains(&value))
+			|| (self.open_microphone && self.sensitivity_db.is_some())
+		{
+			return Err(Error::Invalid);
+		}
+		Ok(())
+	}
+}
+fn audio_patch(volume: Option<u16>, muted: Option<bool>) -> Result<(), Error> {
+	if (volume.is_none() && muted.is_none()) || volume.is_some_and(|value| value > 200) {
+		return Err(Error::Invalid);
+	}
+	Ok(())
+}
+impl AppAction {
+	pub fn required_capability(&self) -> Capability {
+		match self {
+			Self::SendMessage { .. } => Capability::MessageSend,
+			Self::EditMessage { .. }
+			| Self::DeleteMessage { .. }
+			| Self::SetMessagePinned { .. } => Capability::MessageManage,
+			Self::SetReaction { .. } => Capability::ReactionsControl,
+			Self::MarkRead { .. }
+			| Self::MarkChannelRead { .. }
+			| Self::MarkUnread { .. }
+			| Self::MarkGuildRead { .. } => Capability::ReadStateControl,
+			Self::JumpToUnread => Capability::Navigation,
+			Self::CreateThread { .. }
+			| Self::CreateForumPost { .. }
+			| Self::SetThreadArchived { .. }
+			| Self::SetThreadLocked { .. }
+			| Self::SetThreadFollowed { .. }
+			| Self::SetThreadPinned { .. }
+			| Self::RenameThread { .. } => Capability::ThreadsControl,
+			Self::OpenFriendDm { .. }
+			| Self::SetFriendNickname { .. }
+			| Self::SetUserNote { .. }
+			| Self::AddFriend { .. }
+			| Self::RemoveFriend { .. }
+			| Self::ResolveFriendRequest { .. }
+			| Self::SetUserBlocked { .. } => Capability::RelationshipControl,
+			Self::SetOwnProfile { .. }
+			| Self::SetOwnPresence { .. }
+			| Self::SetActivitySharing { .. } => Capability::AccountControl,
+			Self::SetAudioSettings { .. }
+			| Self::SetParticipantAudio { .. }
+			| Self::SetStreamAudio { .. } => Capability::AudioSettings,
+			Self::WatchStream { .. } | Self::StopWatching => Capability::VoiceControl,
+			Self::JoinVoice { .. } | Self::DeclineCall { .. } => Capability::VoiceConnect,
+			Self::SetCamera { .. } => Capability::CameraControl,
+		}
+	}
+	pub fn validate(&self) -> Result<(), Error> {
+		match self {
+			Self::SendMessage {
+				channel_id,
+				content,
+			} => {
+				entity_id(channel_id)?;
+				action_text(content, 2000, true, false)?;
+			}
+			Self::EditMessage {
+				channel_id,
+				message_id,
+				content,
+			} => {
+				entity_id(channel_id)?;
+				entity_id(message_id)?;
+				action_text(content, 2000, true, false)?;
+			}
+			Self::DeleteMessage {
+				channel_id,
+				message_id,
+			}
+			| Self::SetMessagePinned {
+				channel_id,
+				message_id,
+				..
+			}
+			| Self::MarkRead {
+				channel_id,
+				message_id,
+			}
+			| Self::MarkUnread {
+				channel_id,
+				message_id,
+			} => {
+				entity_id(channel_id)?;
+				entity_id(message_id)?;
+			}
+			Self::SetReaction {
+				channel_id,
+				message_id,
+				emoji,
+				..
+			} => {
+				entity_id(channel_id)?;
+				entity_id(message_id)?;
+				label(emoji, 128)?;
+				if let Some((name, id)) = emoji.split_once(':') {
+					if !(2..=32).contains(&name.len())
+						|| !name
+							.bytes()
+							.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+					{
+						return Err(Error::Invalid);
+					}
+					entity_id(id)?;
+				}
+			}
+			Self::MarkChannelRead { channel_id }
+			| Self::SetThreadArchived { channel_id, .. }
+			| Self::SetThreadLocked { channel_id, .. }
+			| Self::SetThreadFollowed { channel_id, .. }
+			| Self::SetThreadPinned { channel_id, .. }
+			| Self::DeclineCall { channel_id }
+			| Self::JoinVoice { channel_id, .. } => entity_id(channel_id)?,
+			Self::MarkGuildRead { guild_id } => entity_id(guild_id)?,
+			Self::CreateThread {
+				channel_id,
+				name,
+				message_id,
+			} => {
+				entity_id(channel_id)?;
+				if let Some(message) = message_id {
+					entity_id(message)?;
+				}
+				action_text(name, 100, false, false)?;
+			}
+			Self::RenameThread { channel_id, name } => {
+				entity_id(channel_id)?;
+				action_text(name, 100, false, false)?;
+			}
+			Self::CreateForumPost {
+				parent_id,
+				title,
+				content,
+			} => {
+				entity_id(parent_id)?;
+				action_text(title, 100, false, false)?;
+				action_text(content, 2000, true, false)?;
+			}
+			Self::OpenFriendDm { user_id }
+			| Self::RemoveFriend { user_id }
+			| Self::ResolveFriendRequest { user_id, .. }
+			| Self::SetUserBlocked { user_id, .. }
+			| Self::WatchStream { user_id } => entity_id(user_id)?,
+			Self::SetFriendNickname { user_id, text } => {
+				entity_id(user_id)?;
+				action_text(text, 32, false, true)?;
+			}
+			Self::SetUserNote { user_id, text } => {
+				entity_id(user_id)?;
+				action_text(text, 256, true, true)?;
+				if text.contains('\r') {
+					return Err(Error::Invalid);
+				}
+			}
+			Self::AddFriend { username } => {
+				if !(2..=32).contains(&username.len())
+					|| username.contains("..")
+					|| !username.bytes().all(|byte| {
+						byte.is_ascii_lowercase()
+							|| byte.is_ascii_digit()
+							|| matches!(byte, b'_' | b'.')
+					}) {
+					return Err(Error::Invalid);
+				}
+			}
+			Self::SetOwnProfile { profile } => profile.validate()?,
+			Self::SetOwnPresence { presence } => presence.validate()?,
+			Self::SetAudioSettings { settings } => settings.validate()?,
+			Self::SetParticipantAudio {
+				user_id,
+				volume_percent,
+				muted,
+			} => {
+				entity_id(user_id)?;
+				audio_patch(*volume_percent, *muted)?;
+			}
+			Self::SetStreamAudio {
+				volume_percent,
+				muted,
+			} => audio_patch(*volume_percent, *muted)?,
+			Self::JumpToUnread
+			| Self::StopWatching
+			| Self::SetActivitySharing { .. }
+			| Self::SetCamera { .. } => {}
+		}
+		bounded_bytes(self, MAX_HOST_EFFECT_BYTES).map(|_| ())
+	}
+}
+
 impl HostEffect {
 	pub fn required_capability(&self) -> Capability {
 		match self {
+			Self::AppAction { action } => action.required_capability(),
 			Self::Navigate { .. }
 			| Self::Home
 			| Self::OpenView { .. }
@@ -938,6 +1430,7 @@ impl HostEffect {
 	pub fn validate(&self, manifest: &Manifest) -> Result<(), Error> {
 		grant(manifest, self.required_capability())?;
 		match self {
+			Self::AppAction { action } => action.validate()?,
 			Self::Navigate { channel_id } => entity_id(channel_id)?,
 			Self::OpenProfile { user_id } => entity_id(user_id)?,
 			Self::JumpToMessage {
@@ -977,4 +1470,32 @@ pub(crate) fn validate_effects(effects: &[HostEffect], manifest: &Manifest) -> R
 		effect.validate(manifest)?;
 	}
 	bounded_bytes(effects, MAX_HOST_EFFECT_BYTES).map(|_| ())
+}
+
+impl AudioSettingsSnapshot {
+	pub fn validate(&self) -> Result<(), Error> {
+		AudioSettingsPatch {
+			input_percent: Some(self.input_percent),
+			output_percent: Some(self.output_percent),
+			push_to_talk: Some(self.push_to_talk),
+			input_profile: Some(self.input_profile.clone()),
+			suppression: Some(self.suppression.clone()),
+			suppression_level: Some(self.suppression_level),
+			echo_cancellation: Some(self.echo_cancellation),
+			automatic_gain: Some(self.automatic_gain),
+			sensitivity_db: self.sensitivity_db,
+			open_microphone: self.sensitivity_db.is_none(),
+		}
+		.validate()
+	}
+}
+impl OwnPresenceSnapshot {
+	pub fn validate(&self) -> Result<(), Error> {
+		OwnPresencePatch {
+			status: Some(self.status.clone()),
+			custom_status: Some(self.custom_status.clone()),
+			clear_after_seconds: None,
+		}
+		.validate()
+	}
 }
