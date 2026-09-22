@@ -8,7 +8,8 @@ description: Keep Serein's creator wiki synchronized with reviewed extension SDK
 The creator wiki is `https://github.com/ViceVerse-cz/Serein/wiki`; its separate Git
 remote is `https://github.com/ViceVerse-cz/Serein.wiki.git`. The authoritative sources
 are `examples/extensions/README.md`, `docs/extension-sdk-reference.md`,
-`docs/extension-sdk-actions.md`, `docs/extensions.md`, and `docs/theme-api.md`.
+`docs/extension-sdk-actions.md`, `docs/extension-sdk-overview.md`,
+`docs/extension-sdk-troubleshooting.md`, `docs/extensions.md`, and `docs/theme-api.md`.
 Update those alongside the code. Do not maintain a second copy of the API contract.
 
 Apply this skill when changes affect extension manifests, capabilities, action
@@ -53,7 +54,10 @@ git -C target/<wiki-clone> diff --stat
 git -C target/<wiki-clone> diff
 ```
 
-The helper generates eleven creator-page files. Guide links stay inside the wiki;
+The helper generates nineteen creator-page files. App data is split into resource pages;
+the app-data index preserves earlier section anchors as links. Long references receive
+contents derived from their actual headings, excluding fenced examples. Generation
+checks internal page names and heading anchors offline. Guide links stay inside the wiki;
 source-code links point to the immutable commit. Other wiki files are preserved. `--check`
 compares generated output without writing. It never fetches, commits or pushes.
 Review the pages as documentation, including navigation, examples, capability
@@ -71,7 +75,10 @@ confirmation or a separate wiki publication request.
 Stage only `Home.md`, `_Sidebar.md`, `Creating-a-Plugin.md`, `Creating-a-Theme.md`,
 `API-and-Security-Reference.md`, `Testing-and-Packaging.md`,
 `Publishing-to-the-Community-Catalog.md`, `SDK-Inputs-and-Events.md`,
-`SDK-App-Data.md`, `SDK-Outputs-and-Actions.md`, and `SDK-Panels-and-Storage.md`
+`SDK-App-Data.md`, `SDK-Outputs-and-Actions.md`, `SDK-Panels-and-Storage.md`,
+`SDK-Overview.md`, `SDK-Troubleshooting.md`, `SDK-Users-and-Relationships.md`,
+`SDK-Channels-and-Guilds.md`, `SDK-Messages.md`, `SDK-Members-and-Roles.md`,
+`SDK-Voice-and-Read-State.md`, and `SDK-Settings.md`
 in the wiki clone. Inspect the staged diff,
 commit with the source revision in the message, and push normally to its existing
 origin/default branch. Do not force-push or change repository permissions,
