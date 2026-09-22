@@ -1,3 +1,29 @@
+# Animated profile review fixes - September 22, 2026
+
+Compared the PR head `ffa38ae` with `dda91ab` on Windows x64, Ryzen 7 7800X3D,
+32 GB RAM, Rust 1.98.1. One standard voice-enabled `cargo xtask package` build
+per revision, without demo/developer features. ZIPs use .NET `ZipFile` with
+`CompressionLevel.Optimal`; baseline and updated distributions are separate.
+The updated revision also merges main through `1451b45`, so these deltas cannot
+be attributed to the review fixes alone. A stale shared release-cache extension
+artifact was cleared with `cargo clean --release -p extensions` before the
+successful updated package. NSIS was unavailable; installer executables were
+not generated.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable bytes | 70,249,472 | 71,376,384 | +1,126,912 / +1.60% |
+| Installed package bytes | 74,351,763 | 75,479,068 | +1,127,305 / +1.52% |
+| Portable ZIP bytes | 42,442,802 | 42,839,294 | +396,492 / +0.93% |
+
+Pending-request and full-size/partial-frame GIF regressions passed, as did the
+full local check (1,063 tests passed, 20 ignored). These are behavioral checks,
+not latency or throughput measurements. Animation decoding retains a bounded
+48 MiB allocation budget for its three possible 2048-square RGBA buffers.
+Native CPU/RSS/frame timing and screenshots were unavailable: the Windows
+computer-use plugin could not connect to its native pipe (`os error 2`). No
+native performance or live Discord interoperability improvement is claimed.
+
 # App extension capabilities - September 22, 2026
 
 Compared the preserved host/package at `e46351a` (runtime unchanged from
