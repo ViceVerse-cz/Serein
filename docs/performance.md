@@ -1854,8 +1854,23 @@ One foreground proposal remains capped at 8 KiB, snapshots at 64 KiB, ABI buffer
 at 256 KiB, and local participant overrides at 64 slots. There is no new dependency,
 worker, timer, network API or cache. Native screenshots/CPU/RSS/frame measurements
 are unavailable because Computer Use cannot connect to its native pipe (`os error 2`).
-Standard package size comparison remains pending; the measurements above do not
-substitute for voice-enabled application packaging or live Discord validation.
+Both standard voice-enabled Windows packages built successfully with
+`cargo xtask package`, using one build job and the same shared dependency cache.
+The changed crates were cleaned before each build to prevent stale cross-worktree
+artifacts. Baseline `7a64a4611067a11308f8e99f300631b760573608` and implementation
+`a0dbc87ccf9875f5b34ada0433a3992c7816444e` outputs were retained separately.
+
+| Package metric | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 71,403,008 bytes | 71,844,864 bytes | +441,856 / +0.62% |
+| Installed directory | 75,505,692 bytes | 75,947,548 bytes | +441,856 / +0.59% |
+| Portable ZIP | 42,842,855 bytes | 42,970,627 bytes | +127,772 / +0.30% |
+
+Installed size sums all files in each fresh `dist` directory. ZIPs use .NET
+`ZipFile.CreateFromDirectory` with Optimal compression and no enclosing directory.
+Both builds reported the existing OpenH264 LNK4255 debug-information warning;
+NSIS was unavailable, so no Windows installer was produced. Packaging does not
+establish live Discord interoperability.
 
 
 The real native demo snapshot also exposed a pre-existing App Toolbox fuel
