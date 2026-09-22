@@ -562,6 +562,9 @@ allocations and 128×128 output. Previews/banners use 1024×1024 source, 8 MiB d
 allocations and a 512-pixel output edge. Larger-viewer images allow 4096×4096 source,
 96 MiB decoder allocations and a 2048-pixel output edge (16 MiB RGBA per image).
 GIF/WebP animations retain at most 80 frames with a 160-pixel edge, about 8 MiB per clip.
+Animation source dimensions are capped at 2048×2048, with a 48 MiB decoder allocation
+budget for the persistent RGBA canvas, current frame and composited output canvas.
+Resized retained frames, encoded input and library overhead are additional.
 Two queued large stills can retain 32 MiB of decoded pixels; active decoding, image
 conversion and framework/driver allocations are additional. Shared textures are bounded
 by 256 entries / 64 MiB, with a separate four-animation / 16 MiB retained-pixel budget.

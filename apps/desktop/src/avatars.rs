@@ -791,7 +791,8 @@ fn decode_animation(bytes: &[u8], edge: u32) -> Option<ui::GifFrames> {
 	let mut limits = image::Limits::default();
 	limits.max_image_width = Some(2048);
 	limits.max_image_height = Some(2048);
-	limits.max_alloc = Some(16 * 1024 * 1024);
+	// GIF decoding can hold a persistent canvas, a frame and a composited canvas.
+	limits.max_alloc = Some(3 * 2048 * 2048 * 4);
 	let decoded = match image::guess_format(bytes).ok()? {
 		image::ImageFormat::Gif => {
 			let mut decoder = image::codecs::gif::GifDecoder::new(Cursor::new(bytes)).ok()?;
@@ -1119,6 +1120,30 @@ mod tests {
 			assert!(super::cdn_url(key).is_none());
 		}
 	}
+	#[test]
+	fn gif_animation_decodes_full_size_and_partial_frames() {
+		let mut bytes = Vec::new();
+		{
+			let mut encoder = image::codecs::gif::GifEncoder::new(&mut bytes);
+			for (width, color) in [(2048, [255, 0, 0, 255]), (2047, [0, 255, 0, 255])] {
+				encoder
+					.encode_frame(image::Frame::from_parts(
+						image::RgbaImage::from_pixel(width, 2048, image::Rgba(color)),
+						0,
+						0,
+						image::Delay::from_numer_denom_ms(100, 1),
+					))
+					.unwrap();
+			}
+		}
+		let frames = super::decode_animation(&bytes, 128).unwrap();
+		assert_eq!(frames.len(), 2);
+		assert!(frames.iter().all(|(delay, image)| {
+			*delay == Duration::from_millis(100) && image.size == [128, 128]
+		}));
+		assert_ne!(frames[0].1.pixels[0], frames[1].1.pixels[0]);
+	}
+
 	#[test]
 	fn gif_animation_preserves_long_loop_with_bounded_frames() {
 		let mut bytes = Vec::new();
