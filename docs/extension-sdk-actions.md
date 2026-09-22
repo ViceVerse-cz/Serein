@@ -123,6 +123,26 @@ optional. IDs such as `"20"` are illustrative: use real IDs from granted input.
 Channel, message and user IDs are strings of decimal digits representing nonzero
 `u64` values, at most 20 bytes, not JSON numbers or names.
 
+### HostEffect index
+
+Each operation requires the listed capability and the shared Apply checks above.
+Follow an operation for its fields, example and additional checks.
+
+| JSON `type` | Required capability | Operation |
+| --- | --- | --- |
+| `navigate` | `navigation` | [Open a known channel](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `home` | `navigation` | [Return to Friends/Home](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `open_view` | `navigation` | [Open a native view](extension-sdk-actions.md#all-18-appview-values) |
+| `open_profile` | `navigation` | [Open a known user's profile](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `jump_to_message` | `navigation` | [Jump to a message](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `search` | `navigation` | [Search the current conversation](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `notice` | `local_notices` | [Show a local notice](extension-sdk-actions.md#show-a-local-notice-or-copy-text) |
+| `copy_text` | `clipboard_write` | [Copy text to the clipboard](extension-sdk-actions.md#show-a-local-notice-or-copy-text) |
+| `set_voice` | `voice_control` | [Set mute and deafen](extension-sdk-actions.md#control-the-current-call) |
+| `leave_voice` | `voice_control` | [Leave the current call](extension-sdk-actions.md#control-the-current-call) |
+| `set_local_settings` | `local_settings` | [Change reading preferences](extension-sdk-actions.md#change-local-reading-settings) |
+| `set_notification_settings` | `notification_settings` | [Change device notifications](extension-sdk-actions.md#change-device-local-notification-settings) |
+
 ### Open conversations, profiles and search
 
 These six action types require `navigation`. Read capabilities remain separate:
