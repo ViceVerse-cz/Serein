@@ -160,11 +160,13 @@ copies of installed themes, can be edited and saved with their existing ID. Impo
 and catalog themes must be duplicated before saving, so their package is preserved.
 
 ```json
-"background": {
-  "opacity": 100, "fit": "cover", "target": "window",
-  "sections": {
-    "top_bar": 85, "server_list": 85, "channel_list": 85,
-    "message_list": 75, "member_list": 85, "composer": 90
+{
+  "background": {
+    "opacity": 100, "fit": "cover", "target": "window",
+    "sections": {
+      "top_bar": 85, "server_list": 85, "channel_list": 85,
+      "message_list": 75, "member_list": 85, "composer": 90
+    }
   }
 }
 ```

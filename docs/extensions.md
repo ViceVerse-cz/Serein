@@ -146,8 +146,9 @@ supports 20 capabilities, with at most 32 distinct declarations per manifest.
 
 ### App snapshots and confirmed commands
 
-The [app authoring guide](../examples/extensions/README.md#app-snapshots-and-host-actions)
-documents every field, command and bound. SDK authors use
+The [app data reference](extension-sdk-reference.md#app-data) and
+[output/action reference](extension-sdk-actions.md#outputs-and-host-actions)
+explain every field, command and bound, with examples. SDK authors use
 `fn(AppInvocation) -> AppOutput` with the unchanged `export!` macro and
 `dispatch_typed` for offline checks. These wrappers retain the original
 `Invocation`, `EventInvocation` and `Output` APIs and flatten into ABI v1 JSON.
@@ -283,6 +284,25 @@ dropped when the call completes. Plugin execution never happens in a render or
 audio callback. The application bounds package sizes, installed plugin count,
 invocation input/output, panel complexity, queues and plugin storage.
 
+| Resource | Limit | What it means for an author |
+| --- | --- | --- |
+| Compiled Wasm | 4 MiB | Keep the module small; the host validates imports and compilation limits too. |
+| JSON package | 16 MiB | Includes the manifest and encoded payload. |
+| Linear memory | 16 MiB | Includes decoding, handler allocations and output buffers. |
+| Execution fuel | 5,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
+| Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
+| Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
+| Manifest actions / capabilities | 16 / 32 distinct | Only the 20 supported capability names are currently accepted. |
+| Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
+| Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
+| App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |
+| Host proposals | 1 / 8 KiB serialized | A foreground action proposes one operation for Apply. |
+| Reactive queue / rate | 32 pending calls / 64 KiB / 10 starts per second | Shared message/app events are best effort; excess work is dropped. |
+
+Invalid output or exhausted Wasm budgets produce an execution error and can
+disable the failing plugin. Snapshot collectors may instead return explicitly
+partial lists, and reactive overload may drop events; handle both in your code.
+
 Disabled plugins have no retained instance, worker, package or plugin data once
 cleanup succeeds. Shared host code and bounded catalog metadata still cost some
 application space. Freed allocations may remain in the process allocator; an
@@ -293,8 +313,8 @@ for credentials. No extension diagnostics or private invocation data are
 uploaded. Sandboxing and review reduce exposure but cannot prove absence of
 bugs in the runtime or host; keep Serein updated.
 
-The complete ABI and numeric limits are documented in
-[`examples/extensions/README.md`](../examples/extensions/README.md). The demo uses
+The buffer ABI is documented in the
+[authoring guide](../examples/extensions/README.md#abi-version-1). The demo uses
 a separate bounded temporary `serein-extension-demo` profile; it can import local
 fixtures and browse the embedded starter catalog/previews but cannot download a
 catalog, preview or package. `Ctrl+Shift+F12` resets a

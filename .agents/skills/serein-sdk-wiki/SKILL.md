@@ -7,7 +7,8 @@ description: Keep Serein's creator wiki synchronized with reviewed extension SDK
 
 The creator wiki is `https://github.com/ViceVerse-cz/Serein/wiki`; its separate Git
 remote is `https://github.com/ViceVerse-cz/Serein.wiki.git`. The authoritative sources
-are `examples/extensions/README.md`, `docs/extensions.md`, and `docs/theme-api.md`.
+are `examples/extensions/README.md`, `docs/extension-sdk-reference.md`,
+`docs/extension-sdk-actions.md`, `docs/extensions.md`, and `docs/theme-api.md`.
 Update those alongside the code. Do not maintain a second copy of the API contract.
 
 Apply this skill when changes affect extension manifests, capabilities, action
@@ -21,6 +22,14 @@ Read the affected host validation, worker/UI behavior and SDK/example code befor
 changing claims. Describe capability consent, data scope, resource bounds and
 failure behavior. Preserve ABI/source compatibility claims only where checked;
 offline fixtures and Wasm checks do not prove live Discord compatibility.
+
+Keep the first-plugin tutorial separate from the field reference. For every new
+field, explain its Rust/JSON type, meaning, required grant, when it is absent or
+empty, and how to read or return it. Show the full interaction: input, handler,
+output, then whether the host applies it immediately or waits for Apply. Use
+complete JSON objects and compilable Rust examples; validate them against the
+current SDK. Add new fields to the appropriate input, data, output or panel page,
+and keep cross-page links and the Home/sidebar navigation working.
 
 Finish canonical docs and source checks, commit and push the task branch using
 the ordinary delivery workflow. Fetch `origin` and record the full pushed commit.
@@ -44,8 +53,8 @@ git -C target/<wiki-clone> diff --stat
 git -C target/<wiki-clone> diff
 ```
 
-The helper generates seven existing creator-page names, rewrites repository links
-to the immutable source commit, and preserves every other wiki file. `--check`
+The helper generates eleven creator-page files. Guide links stay inside the wiki;
+source-code links point to the immutable commit. Other wiki files are preserved. `--check`
 compares generated output without writing. It never fetches, commits or pushes.
 Review the pages as documentation, including navigation, examples, capability
 restrictions and preview status; generation alone does not establish accuracy.
@@ -60,8 +69,10 @@ prompt. `!fast` remains local: defer wiki publication until explicit push
 confirmation or a separate wiki publication request.
 
 Stage only `Home.md`, `_Sidebar.md`, `Creating-a-Plugin.md`, `Creating-a-Theme.md`,
-`API-and-Security-Reference.md`, `Testing-and-Packaging.md`, and
-`Publishing-to-the-Community-Catalog.md` in the wiki clone. Inspect the staged diff,
+`API-and-Security-Reference.md`, `Testing-and-Packaging.md`,
+`Publishing-to-the-Community-Catalog.md`, `SDK-Inputs-and-Events.md`,
+`SDK-App-Data.md`, `SDK-Outputs-and-Actions.md`, and `SDK-Panels-and-Storage.md`
+in the wiki clone. Inspect the staged diff,
 commit with the source revision in the message, and push normally to its existing
 origin/default branch. Do not force-push or change repository permissions,
 workflows, credentials, or secrets. If a normal push races, fetch and inspect the

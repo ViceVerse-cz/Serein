@@ -9,7 +9,28 @@ from urllib.parse import quote, urlsplit
 REPOSITORY = Path(__file__).resolve().parents[4]
 GITHUB = "https://github.com/ViceVerse-cz/Serein"
 WIKI_ORIGINS = {GITHUB + ".wiki.git", "git@github.com:ViceVerse-cz/Serein.wiki.git"}
-SOURCES = ("examples/extensions/README.md", "docs/extensions.md", "docs/theme-api.md")
+SOURCES = (
+    "examples/extensions/README.md", "docs/extensions.md", "docs/theme-api.md",
+    "docs/extension-sdk-reference.md", "docs/extension-sdk-actions.md",
+)
+# Each section becomes its own wiki page. Source-code links stay commit-pinned.
+GUIDES = {
+    SOURCES[0]: {"": "Creating-a-Plugin"},
+    SOURCES[1]: {
+        "capability-reference": "API-and-Security-Reference",
+        "resource-and-privacy-limits": "API-and-Security-Reference",
+    },
+    SOURCES[2]: {"": "Creating-a-Theme"},
+    SOURCES[3]: {
+        "invocation-and-events": "SDK-Inputs-and-Events",
+        "message-event-fields": "SDK-Inputs-and-Events",
+        "app-data": "SDK-App-Data",
+    },
+    SOURCES[4]: {
+        "outputs-and-host-actions": "SDK-Outputs-and-Actions",
+        "panels-and-storage": "SDK-Panels-and-Storage",
+    },
+}
 
 
 def git(directory, *arguments):
@@ -20,11 +41,12 @@ def git(directory, *arguments):
     return result.stdout.strip()
 
 
-def section(text, heading):
-    marker = "## " + heading + "\n"
+def section(text, heading, level=2):
+    marker = "#" * level + " " + heading + "\n"
     start = text.index(marker)
-    end = text.find("\n## ", start + len(marker))
-    return text[start:end if end >= 0 else len(text)].strip()
+    following = re.search(r"\n#{1," + str(level) + r"} ", text[start + len(marker):])
+    end = start + len(marker) + following.start() if following else len(text)
+    return text[start:end].strip()
 
 
 def repository_links(text, source, revision, tracked):
@@ -43,6 +65,10 @@ def repository_links(text, source, revision, tracked):
         else:
             raise ValueError(f"missing link target at {revision}: {source} -> {target}")
         suffix = ("?" + url.query if url.query else "") + ("#" + url.fragment if url.fragment else "")
+        guide = GUIDES.get(path, {})
+        page = guide.get(url.fragment, guide.get(""))
+        if page and not url.query:
+            return match[1] + page + suffix + match[3]
         return match[1] + f"{GITHUB}/{kind}/{revision}/{quote(path)}{suffix}" + match[3]
 
     # Canonical guides use inline links; do not rewrite illustrative code blocks.
@@ -68,34 +94,61 @@ def pages(revision, status):
         source: repository_links(git(REPOSITORY, "show", f"{revision}:{source}"), source, revision, tracked)
         for source in SOURCES
     }
-    sdk, extensions, theme = (sources[source] for source in SOURCES)
+    sdk, extensions, theme, inputs, outputs = (sources[source] for source in SOURCES)
     notice = f"> **{status}**\n> Source: [Serein `{revision[:12]}`]({GITHUB}/tree/{revision}).\n\n"
-    navigation = (
-        "- [Create a plugin](Creating-a-Plugin)\n"
+    tutorials = (
+        "- [Build your first plugin](Creating-a-Plugin)\n"
         "- [Create a theme](Creating-a-Theme)\n"
         "- [Test and package](Testing-and-Packaging)\n"
         "- [Publish to the community catalog](Publishing-to-the-Community-Catalog)\n"
-        "- [API and security reference](API-and-Security-Reference)\n"
-        "- [Capability reference](API-and-Security-Reference#capability-reference)\n"
+    )
+    references = (
+        "- [Inputs and events](SDK-Inputs-and-Events)\n"
+        "- [App data fields](SDK-App-Data)\n"
+        "- [Outputs and host actions](SDK-Outputs-and-Actions)\n"
+        "- [Panels and storage](SDK-Panels-and-Storage)\n"
+        "- [Capabilities, ABI and limits](API-and-Security-Reference)\n"
     )
     return {
         "Home.md": notice + "# Serein extension SDK\n\n"
-        "Build local, opt-in Wasm plugins and declarative themes for the native client. "
-        "Start with an offline example and request only the capabilities your plugin needs.\n\n"
-        "## Creator guides\n\n" + navigation + "\n## Examples and source\n\n"
+        "Build a local Wasm plugin or declarative theme for Serein. "
+        "A plugin receives a snapshot, returns native controls or proposes an action, "
+        "and stops until its next invocation.\n\n"
+        "**New here?** [Build your first plugin](Creating-a-Plugin): "
+        "a complete manifest, handler, build command and offline test.\n\n"
+        "## Find the field or interaction you need\n\n"
+        "| Task | Guide |\n| --- | --- |\n"
+        "| Read an action, form value or message event | [Inputs and events](SDK-Inputs-and-Events) |\n"
+        "| Read channels, messages, members, voice or settings | [App data fields](SDK-App-Data) |\n"
+        "| Navigate, copy text or change app settings | [Outputs and host actions](SDK-Outputs-and-Actions) |\n"
+        "| Build a form, handle Save and remember preferences | [Panels and storage](SDK-Panels-and-Storage) |\n"
+        "| Pick permissions or check bounds | [Capabilities, ABI and limits](API-and-Security-Reference) |\n\n"
+        "Each reference explains the field's type, meaning, availability and how to use it.\n\n"
+        "## Build and share\n\n" + tutorials + "\n## Examples and source\n\n"
         f"- [Rust SDK and complete example plugins]({GITHUB}/tree/{revision}/examples/extensions)\n"
         f"- [Versioned SDK authoring guide]({GITHUB}/blob/{revision}/examples/extensions/README.md)\n"
         f"- [Extension host contract]({GITHUB}/blob/{revision}/docs/extensions.md)\n"
         f"- [Theme schema]({GITHUB}/blob/{revision}/docs/theme-api.md)\n\n"
         "Plugins cannot call Discord, send messages, access credentials, open files or use the network. "
         "A supporting host and explicit user grants are required for each capability.\n",
-        "_Sidebar.md": "## Creator guides\n\n- [Home](Home)\n" + navigation + f"\n[Serein source]({GITHUB}/tree/{revision})\n",
+        "_Sidebar.md": "- [Home](Home)\n\n## Build and share\n\n" + tutorials
+        + "\n## Field reference\n\n" + references + f"\n[Serein source]({GITHUB}/tree/{revision})\n",
         "Creating-a-Plugin.md": notice + sdk + "\n",
         "Creating-a-Theme.md": notice + theme + "\n",
+        "SDK-Inputs-and-Events.md": notice + "# Invocation and events\n\n"
+        + section(inputs, "Invocation and events").split("\n", 1)[1].strip() + "\n",
+        "SDK-App-Data.md": notice + "# App data\n\n"
+        + section(inputs, "App data").split("\n", 1)[1].strip() + "\n",
+        "SDK-Outputs-and-Actions.md": notice + "# Outputs and host actions\n\n"
+        + section(outputs, "Outputs and host actions").split("\n", 1)[1].strip() + "\n",
+        "SDK-Panels-and-Storage.md": notice + "# Panels and storage\n\n"
+        + section(outputs, "Panels and storage").split("\n", 1)[1].strip() + "\n",
         "API-and-Security-Reference.md": notice + "# API and security reference\n\n"
-        + section(extensions, "Host contract") + "\n\n" + section(extensions, "Resource and privacy limits") + "\n",
+        + section(extensions, "Capability reference", level=3).replace("### ", "## ", 1) + "\n\n"
+        + section(sdk, "ABI version 1") + "\n\n" + section(extensions, "Resource and privacy limits") + "\n",
         "Testing-and-Packaging.md": notice + "# Test and package an extension\n\n"
-        + sdk.split("\n## ", 1)[0].split("\n", 1)[1].strip() + "\n\n"
+        + "These commands use the [first-plugin tutorial](Creating-a-Plugin).\n\n"
+        + section(sdk, "Build and package") + "\n\n"
         + section(sdk, "Test and develop locally") + "\n\n" + section(extensions, "Install and remove") + "\n",
         "Publishing-to-the-Community-Catalog.md": notice + "# Publish to the community catalog\n\n"
         + section(extensions, "Creator workflow") + "\n\n" + section(extensions, "Shop previews") + "\n",
