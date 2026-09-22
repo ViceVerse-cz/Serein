@@ -1471,7 +1471,7 @@ move to another permitted channel, and confirmed delete reuse the existing worke
 Moving a webhook refreshes the original channel and removes it from that list.
 Guild-wide app integrations remain under Server Settings. Scope and permissions
 are rechecked for responses and writes; existing item/byte limits still apply.
-Webhook URL copying and avatar uploads remain unsupported by the shared editor.
+The shared editor supports explicit Copy Webhook URL for incoming webhooks; avatar uploads remain unsupported.
 Synthetic checks do not establish live normal-account interoperability.
 
 ### Server integrations (September 12, 2026)
@@ -1498,9 +1498,12 @@ Integration reads retain at most 50 integrations and 1,000 webhooks within a
 combined 1 MiB metadata budget; HTTP responses are capped at 2 MiB. The service's
 50-integration endpoint limit is not presented as a complete count for larger
 guilds. Missing metadata stays absent; last synchronization is not represented as
-an installation date. Webhook execution tokens and URLs are discarded by decoding
-and are never exposed, copied, logged or persisted by this view. OAuth command
-permission editing, webhook execution URL copying, avatar uploads, and creator
+an installation date. List decoding discards webhook execution tokens and URLs.
+Copy Webhook URL performs an authenticated read, capped at 64 KiB, validates the
+webhook identity and current channel permission, and hands a zeroizing URL to the
+clipboard once. Tokens are bounded to 256 URL-safe bytes; neither tokens nor URLs
+are logged or persisted. OAuth command
+permission editing, avatar uploads, and creator
 subscription settings are not part of this slice.
 
 ### Server audit log (September 12, 2026)

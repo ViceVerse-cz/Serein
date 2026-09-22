@@ -153,6 +153,7 @@ impl Action {
 	}
 }
 pub enum Result {
+	WebhookUrl(crate::server_integrations::WebhookUrl),
 	AuditLog(crate::server_audit_log::Page),
 	Integrations(crate::server_integrations::Snapshot),
 	Invites(crate::server_invites::Snapshot),
@@ -199,6 +200,7 @@ impl Result {
 		size_of::<Self>()
 			+ match self {
 				Self::AuditLog(page) => page.bytes(),
+				Self::WebhookUrl(url) => url.bytes(),
 				Self::Integrations(snapshot) => snapshot.bytes(),
 				Self::Roles(result) => result.bytes(),
 				Self::Invites(snapshot) => snapshot.bytes(),

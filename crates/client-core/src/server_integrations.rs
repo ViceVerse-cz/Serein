@@ -49,6 +49,9 @@ impl State {
 			}
 			Action::EditWebhook {
 				webhook, channel, ..
+			}
+			| Action::CopyWebhookUrl {
+				webhook, channel, ..
 			} => {
 				webhook_access
 					&& self.can_manage_webhook_channel(guild, *channel)
@@ -56,6 +59,8 @@ impl State {
 						.integration_webhook(guild, action.scope(), *webhook)
 						.is_some_and(|hook| {
 							hook.kind == 1
+								&& (!matches!(action, Action::CopyWebhookUrl { .. })
+									|| hook.channel == Some(*channel))
 								&& hook.channel.is_some_and(|channel| {
 									self.can_manage_webhook_channel(guild, channel)
 								})
@@ -132,6 +137,7 @@ pub(crate) fn expected(action: &Action, page: &Snapshot) -> bool {
 		return false;
 	}
 	match action {
+		Action::CopyWebhookUrl { .. } => false,
 		Action::Load {
 			integrations,
 			webhooks,
@@ -279,6 +285,60 @@ mod tests {
 			}),
 		});
 	}
+	#[test]
+	fn webhook_url_copy_is_one_shot_and_fenced_on_close_permissions_and_disconnect() {
+		for scope in [None, Some(Id(3))] {
+			for cancelled in 0..6 {
+				let mut state = state(p::VIEW_CHANNEL | p::MANAGE_WEBHOOKS);
+				state.server_admin.guild = Some(Id(2));
+				let mut snapshot = page();
+				snapshot.channel = scope;
+				state.server_admin.integrations = Some(snapshot);
+				let action = AdminAction::Integrations(Action::CopyWebhookUrl {
+					scope,
+					webhook: Id(4),
+					channel: Id(3),
+				});
+				assert!(!action.write());
+				let Command::ServerAdmin { request, .. } =
+					state.request_server_admin(Id(2), action).unwrap()
+				else {
+					panic!()
+				};
+				match cancelled {
+					1 => state.clear_webhook_url(),
+					2 => state.close_server_admin(),
+					3 => state.cancel_server_admin(),
+					4 => {
+						state
+							.server_admin
+							.permissions_changed(&crate::permissions::Event::Owner {
+								guild: Id(2),
+								owner: model::Patch::Value(Id(99)),
+							})
+					}
+					5 => {
+						state.permissions.guilds.clear();
+					}
+					_ => {}
+				}
+				let url = model::server_integrations::WebhookUrl::new(
+					Id(2),
+					Id(4),
+					Id(3),
+					"SYNTHETIC_TOKEN",
+				)
+				.unwrap();
+				deliver(&mut state, request, Ok(Outcome::WebhookUrl(url)));
+				assert_eq!(
+					state.take_webhook_url(Id(2), scope).is_some(),
+					cancelled == 0
+				);
+				assert!(state.take_webhook_url(Id(2), scope).is_none());
+			}
+		}
+	}
+
 	#[test]
 	fn channel_integrations_keep_permission_and_response_scope() {
 		let mut state = state(p::VIEW_CHANNEL);

@@ -60,6 +60,14 @@ impl DiscordApi {
 				.server_audit_log(guild, query)
 				.await
 				.map(Outcome::AuditLog),
+			Action::Integrations(model::server_integrations::Action::CopyWebhookUrl {
+				webhook,
+				channel,
+				..
+			}) => self
+				.copy_webhook_url(guild, *webhook, *channel)
+				.await
+				.map(Outcome::WebhookUrl),
 			Action::Integrations(action) => self
 				.server_integration_action(guild, action)
 				.await

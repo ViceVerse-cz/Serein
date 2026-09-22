@@ -905,8 +905,12 @@ Server and channel integration settings share one on-demand metadata snapshot in
 session RAM, scoped either to one guild or to one channel in that guild:
 at most 50 integrations and 1,000 webhooks, further bounded by 1 MiB combined.
 The HTTP decoder caps each list response at 2 MiB and write responses at 64 KiB
-(4 KiB for empty delete responses). Webhook execution tokens and URLs have no
-model fields and are skipped during decoding. The editor retains one bounded
+(4 KiB for empty delete responses). List decoding skips webhook execution tokens
+and URLs. Explicit URL copying uses one 64 KiB authenticated response and a
+256-byte URL-safe token in a zeroizing, redacted, one-shot clipboard handoff.
+Navigation, disconnect, permission changes and settings closure discard that
+handoff; the OS clipboard receives it only after the explicit copy request.
+The editor retains one bounded
 80-character/320-byte webhook name draft; no integration data or draft is written
 to SQLite. Closing settings, changing guild/session, and permission revocation
 release the applicable metadata. Existing bounded avatar caches remain shared.

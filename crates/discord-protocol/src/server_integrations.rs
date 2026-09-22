@@ -154,6 +154,37 @@ pub fn channel_scope(bytes: &[u8], guild: Id, channel: Id) -> Result<(), DecodeE
 	}
 	Ok(())
 }
+/// Only the explicit copy request decodes a token. Borrowing prevents extra secret allocations.
+pub fn webhook_url(
+	bytes: &[u8],
+	guild: Id,
+	webhook: Id,
+	channel: Id,
+) -> Result<m::WebhookUrl, DecodeError> {
+	#[derive(Deserialize)]
+	struct CopyResponse<'a> {
+		id: Id,
+		guild_id: Id,
+		channel_id: Id,
+		#[serde(rename = "type")]
+		kind: u8,
+		#[serde(borrow)]
+		token: &'a str,
+	}
+	if bytes.len() > 64 * 1024 {
+		return Err(DecodeError);
+	}
+	let value: CopyResponse<'_> = serde_json::from_slice(bytes).map_err(|_| DecodeError)?;
+	if value.id != webhook
+		|| value.guild_id != guild
+		|| value.channel_id != channel
+		|| value.kind != 1
+	{
+		return Err(DecodeError);
+	}
+	m::WebhookUrl::new(guild, webhook, channel, value.token).ok_or(DecodeError)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -203,5 +234,46 @@ mod tests {
 		assert!(!m::valid_webhook_name("DisCord updates"));
 		assert!(!m::valid_webhook_name("\n"));
 		assert!(m::valid_webhook_name("Build updates"));
+	}
+}
+
+#[cfg(test)]
+mod copy_tests {
+	use super::*;
+	#[test]
+	fn webhook_url_is_scoped_bounded_and_redacted() {
+		let mut value = serde_json::json!({"id":"4", "guild_id":"2", "channel_id":"3", "type":1, "token":"synthetic_Token-123", "url":"https://untrusted.invalid"});
+		let parse = |value: &serde_json::Value| {
+			webhook_url(value.to_string().as_bytes(), Id(2), Id(4), Id(3))
+		};
+		let url = parse(&value).unwrap();
+		assert_eq!(
+			url.expose(),
+			"https://discord.com/api/webhooks/4/synthetic_Token-123"
+		);
+		assert_eq!(format!("{url:?}"), "WebhookUrl([REDACTED])");
+		for field in ["id", "guild_id", "channel_id"] {
+			let mut wrong = value.clone();
+			wrong[field] = "99".into();
+			assert!(parse(&wrong).is_err());
+		}
+		value["type"] = 2.into();
+		assert!(parse(&value).is_err());
+		value["type"] = 1.into();
+		for token in [
+			"".to_owned(),
+			"x".repeat(257),
+			"secret/path".into(),
+			"secret?query".into(),
+			"secret#fragment".into(),
+			"secret\n".into(),
+			"?".into(),
+		] {
+			value["token"] = token.into();
+			assert!(parse(&value).is_err());
+		}
+		value.as_object_mut().unwrap().remove("token");
+		assert!(parse(&value).is_err());
+		assert!(webhook_url(&vec![b' '; 65537], Id(2), Id(4), Id(3)).is_err());
 	}
 }

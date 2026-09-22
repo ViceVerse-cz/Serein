@@ -694,6 +694,19 @@ fn execute_integrations(
 		);
 	}
 	match action {
+		Action::CopyWebhookUrl {
+			webhook, channel, ..
+		} => {
+			return model::server_admin::Result::WebhookUrl(
+				model::server_integrations::WebhookUrl::new(
+					guild,
+					webhook,
+					channel,
+					"SYNTHETIC_DEMO_WEBHOOK_TOKEN",
+				)
+				.expect("valid synthetic URL"),
+			);
+		}
 		Action::Load {
 			channel,
 			integrations,
