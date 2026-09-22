@@ -678,7 +678,7 @@ Discord. In the examples, `directory` is the borrowed group.
 Requires `timeline`. Messages belong to the selected, fresh, readable
 conversation. The host takes up to 50 eligible recent rows from the loaded
 window and returns them in timeline order. When the same plugin also has
-`message_details`, the timeline row limit is 20; its 20-KiB byte budget stays
+`message_details`, both text and metadata row limits are 12; its 20-KiB byte budget stays
 unchanged. The combined limit reduces text/metadata parsing work under the
 unchanged execution budget; valid wire size alone still does not
 guarantee that a handler fits its fuel budget. This may be a window around an old
@@ -688,7 +688,7 @@ excluded even when a separate host feature retains deleted rows.
 | Timeline wire field | SDK Rust / JSON type | Meaning | Reading from `timeline: &TimelineSnapshot` |
 | --- | --- | --- | --- |
 | `channel_id` | `String` / string | Conversation shared by every message in this group. | `timeline.channel_id.as_str()` |
-| `messages` | `Vec<MessageSnapshot>` / array | Up to 50 loaded, eligible messages, or 20 when `message_details` is also granted. An empty array is valid. | `timeline.messages.last()` |
+| `messages` | `Vec<MessageSnapshot>` / array | Up to 50 loaded, eligible messages, or 12 when `message_details` is also granted. An empty array is valid. | `timeline.messages.last()` |
 | `truncated` | `bool` / boolean | More history may exist, the loaded window has boundaries, or rows were omitted by size/item limits. | `timeline.truncated` |
 
 | Message wire field | SDK Rust / JSON type | Meaning | Reading from `message: &MessageSnapshot` |
@@ -858,7 +858,7 @@ item overhead, so their individual limits may be reached earlier.
 | Wire field | SDK Rust / JSON type | Meaning | Reading from `details: &MessageDetailsSnapshot` |
 | --- | --- | --- | --- |
 | `channel_id` | `String` / string | Selected conversation shared by all records. | `details.channel_id.as_str()` |
-| `items` | `Vec<MessageDetailSnapshot>` / array | Up to 20 loaded records in timeline order, further limited by the 8-KiB group and remaining snapshot budget. | `details.items.last()` |
+| `items` | `Vec<MessageDetailSnapshot>` / array | Up to 20 loaded records (12 when `timeline` is also granted) in timeline order, further limited by the 8-KiB group and remaining snapshot budget. | `details.items.last()` |
 | `truncated` | `bool` / boolean | The loaded window or resource limits leave the list partial. An empty partial list is valid. | `details.truncated` |
 
 | Record wire field | SDK Rust / JSON type | Meaning | Reading from `message: &MessageDetailSnapshot` |

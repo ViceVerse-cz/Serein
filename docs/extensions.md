@@ -142,9 +142,9 @@ supports 42 capabilities, with at most 64 distinct declarations per manifest.
 | `conversation_activity` | Read current typing IDs and a loaded pin page | Selected readable conversation; 8 typing IDs/20 pin IDs/2 KiB; no fetch |
 | `channel_metadata` | Read loaded guild channel topic/category/thread metadata and permission decisions | Fresh readable selected guild channel; unknown remains optional; 6 KiB; no settings fetch |
 | `member_details` | Read loaded guild member nicknames, role labels and matching server profile | Fresh selected member pane; 20 members/32 role IDs each/32 catalog roles; 6 KiB; no fetch |
-| `message_details` | Read loaded message metadata: replies, mentions, attachment labels and reaction counts | Fresh readable selected timeline; at most 20 messages; no text or URLs |
+| `message_details` | Read loaded message metadata: replies, mentions, attachment labels and reaction counts | Fresh readable selected timeline; at most 20 messages (12 with `timeline`); no text or URLs |
 | `relationships` | Read loaded friends, requests and restricted-account labels | Connected; at most 100; known flags distinguish unloaded lists; no fetch |
-| `timeline` | Read ordinary loaded messages in the active conversation | Fresh readable timeline, at most 50 (20 with `message_details`); no deleted/ephemeral text |
+| `timeline` | Read ordinary loaded messages in the active conversation | Fresh readable timeline, at most 50 (12 with `message_details`); no deleted/ephemeral text |
 | `members` | Read loaded members or DM recipients | Active channel, at most 100; no fetch |
 | `presence` | Read cached status strings for that context | At most 100; no activity/private device payloads |
 | `voice_state` | Read current call state and participant IDs | At most 64 participants; no raw media |
@@ -199,7 +199,7 @@ are trimmed first, and groups can be omitted when no space remains. Rich-message
 content (8 KiB), forum data (6 KiB) and conversation activity (2 KiB) also share
 that ceiling; no new total snapshot allocation is authorized. The timeline
 skips messages larger than 4 KiB and reports partial data. Granting
-`message_details` also caps timeline rows at 20 instead of 50, while preserving
+`message_details` also caps both timeline text and metadata rows at 12 when requested together, while preserving
 the 20-KiB timeline byte budget and unchanged Wasm fuel limit. Valid wire-sized
 inputs can still exceed execution fuel. Bounded list responses
 expose `truncated`; voice participant IDs are capped without a completeness flag.

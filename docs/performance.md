@@ -1856,3 +1856,12 @@ worker, timer, network API or cache. Native screenshots/CPU/RSS/frame measuremen
 are unavailable because Computer Use cannot connect to its native pipe (`os error 2`).
 Standard package size comparison remains pending; the measurements above do not
 substitute for voice-enabled application packaging or live Discord validation.
+
+
+The real native demo snapshot also exposed a pre-existing App Toolbox fuel
+failure, reproduced on clean `7a64a46`. The collector now limits combined
+`timeline` plus `message_details` to 12 rows each and reports truncation.
+Timeline-only reads retain 50 rows, metadata-only reads retain 20. The unchanged
+real-Wasm demo regression test and all ten desktop SDK integration tests pass
+with the same 5,000,000-fuel limit. The timing table above uses its original fixed
+synthetic snapshot; it does not measure this collector reduction.

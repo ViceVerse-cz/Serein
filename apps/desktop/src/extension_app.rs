@@ -317,6 +317,8 @@ fn channel_metadata(state: &State) -> Option<ChannelMetadataSnapshot> {
 	})
 }
 
+const PAIRED_MESSAGE_ROWS: usize = 12;
+
 pub fn snapshot(
 	state: &State,
 	messaging: &ui::MessagingUi,
@@ -468,9 +470,10 @@ pub fn snapshot(
 				|| state.history_after.is_some()
 				|| !state.older_exhausted,
 		};
-		// Rich rows cost more to decode: align the text window with the metadata row bound.
+		// Paired text/metadata rows cost more to decode. Leave App Toolbox fuel headroom
+		// for host discovery and other granted groups without changing the sandbox budget.
 		let max_messages = if granted(Capability::MessageDetails) {
-			MAX_MESSAGE_DETAILS
+			PAIRED_MESSAGE_ROWS
 		} else {
 			MAX_APP_MESSAGES
 		};
@@ -667,7 +670,11 @@ pub fn snapshot(
 				&mut group.items,
 				message_detail(message),
 				&mut budget,
-				MAX_MESSAGE_DETAILS,
+				if granted(Capability::Timeline) {
+					PAIRED_MESSAGE_ROWS
+				} else {
+					MAX_MESSAGE_DETAILS
+				},
 			) {
 				group.truncated = true;
 				break;
@@ -1581,7 +1588,15 @@ mod tests {
 			"20"
 		);
 		assert!(app.bytes().unwrap() <= MAX_APP_SNAPSHOT_BYTES);
-		assert!(app.timeline.as_ref().unwrap().messages.len() <= MAX_MESSAGE_DETAILS);
+		assert_eq!(
+			app.timeline.as_ref().unwrap().messages.len(),
+			PAIRED_MESSAGE_ROWS
+		);
+		assert_eq!(
+			app.message_details.as_ref().unwrap().items.len(),
+			PAIRED_MESSAGE_ROWS
+		);
+		assert!(app.message_details.as_ref().unwrap().truncated);
 		assert!(app.timeline.as_ref().unwrap().truncated);
 		let toolbox = parse_package(include_bytes!(
 			"../../../examples/extensions/packages/app-toolbox.serein-extension"

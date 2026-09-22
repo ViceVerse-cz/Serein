@@ -2565,7 +2565,9 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::Navigation => "Propose opening conversations, profiles, search and app views",
 		Capability::LocalNotices => "Propose local notices for approval",
 		Capability::ClipboardWrite => "Propose clipboard text for approval",
-		Capability::VoiceControl => "Propose muting, deafening or leaving my call for approval",
+		Capability::VoiceControl => {
+			"Propose call mute/deafen, leaving or watching a stream for approval"
+		}
 		Capability::AppEvents => "Receive app lifecycle and navigation events while enabled",
 		Capability::DeletedMessages => {
 			"Keep loaded deleted messages in session memory while enabled"
