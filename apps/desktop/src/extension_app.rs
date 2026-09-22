@@ -531,13 +531,11 @@ mod tests {
 			limited: false,
 		});
 		let guild = state.guilds[0].clone();
-		state.guilds = (1..=150)
-			.map(|id| model::Guild {
-				id: Id(10000 + id),
-				name: "Synthetic server ".repeat(20),
-				..guild.clone()
-			})
-			.collect();
+		state.guilds.extend((1..=150).map(|id| model::Guild {
+			id: Id(10000 + id),
+			name: "Synthetic server ".repeat(20),
+			..guild.clone()
+		}));
 		let selected = state.selected.unwrap();
 		state
 			.channels

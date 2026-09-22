@@ -332,10 +332,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			.as_slice(),
 			include_str!("../../../examples/extensions/message-delete-protector/manifest.json"),
 			"message_delete_protector.wasm",
-			Output {
-				preserve_deleted_messages: true,
-				..Default::default()
-			},
+			Output::default(),
 		),
 		(
 			"emoji-sticker-images",
