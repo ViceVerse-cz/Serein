@@ -193,6 +193,73 @@ fn bounds(parent: &winit::window::Window) -> wry::Rect {
 		size: wry::dpi::PhysicalSize::new(size.width, size.height.saturating_sub(header)).into(),
 	}
 }
+
+/// Checks whether Microsoft Edge WebView2 Runtime is installed on Windows.
+/// On non-Windows platforms, this always returns true.
+pub fn is_webview2_installed() -> bool {
+	#[cfg(target_os = "windows")]
+	{
+		windows_webview2::is_installed()
+	}
+	#[cfg(not(target_os = "windows"))]
+	{
+		true
+	}
+}
+
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+mod windows_webview2 {
+	use windows::{
+		Win32::{
+			Foundation::ERROR_SUCCESS,
+			System::Registry::{
+				HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW,
+			},
+		},
+		core::{PCWSTR, w},
+	};
+
+	const CLIENTS_WOW64: PCWSTR = w!(
+		"SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+	);
+	const CLIENTS_NATIVE: PCWSTR =
+		w!("SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}");
+	const PV: PCWSTR = w!("pv");
+
+	pub fn is_installed() -> bool {
+		check_key(HKEY_LOCAL_MACHINE, CLIENTS_WOW64)
+			|| check_key(HKEY_LOCAL_MACHINE, CLIENTS_NATIVE)
+			|| check_key(HKEY_CURRENT_USER, CLIENTS_NATIVE)
+	}
+
+	fn check_key(root: HKEY, subkey: PCWSTR) -> bool {
+		let mut data = [0_u16; 64];
+		let mut bytes = std::mem::size_of_val(&data) as u32;
+		// SAFETY: Subkey and value names are static wide strings; data buffer has known length.
+		let status = unsafe {
+			RegGetValueW(
+				root,
+				subkey,
+				PV,
+				RRF_RT_REG_SZ,
+				None,
+				Some(data.as_mut_ptr().cast()),
+				Some(&mut bytes),
+			)
+		};
+		if status != ERROR_SUCCESS {
+			return false;
+		}
+		let len = (bytes as usize) / std::mem::size_of::<u16>();
+		let slice = &data[..len];
+		let end = slice.iter().position(|&c| c == 0).unwrap_or(slice.len());
+		let version = String::from_utf16_lossy(&slice[..end]);
+		let trimmed = version.trim();
+		!trimmed.is_empty() && trimmed != "0.0.0.0"
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -217,5 +284,9 @@ mod tests {
 		assert!(login_navigation("https://newassets.hcaptcha.com/captcha/"));
 		assert!(!login_navigation("http://hcaptcha.com/"));
 		assert!(!login_navigation("https://hcaptcha.com.evil.test/"));
+	}
+	#[test]
+	fn webview2_detection_runs_without_panicking() {
+		let _ = is_webview2_installed();
 	}
 }
