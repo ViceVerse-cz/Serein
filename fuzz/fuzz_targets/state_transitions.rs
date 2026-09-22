@@ -99,6 +99,7 @@ fn message(id: Id, channel: Id, content: String) -> Message {
 		revision: 0,
 		nonce: None,
 		reply_to: None,
+		interaction: None,
 		reply_deleted: false,
 		forwarded: false,
 		unsupported: false,
