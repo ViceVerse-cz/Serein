@@ -54,7 +54,7 @@ fn rebuilt(manifest: &str, path: &Path) -> Result<Package, Box<dyn std::error::E
 	})
 }
 
-fn check_message_counter(package: &Package) {
+fn check_message_counter(name: &str, package: &Package) {
 	package.validate().expect("counter package is valid");
 	let mut input = Invocation {
 		action: "message-event".into(),
@@ -125,7 +125,7 @@ fn check_message_counter(package: &Package) {
 		matches!(&reset.panel[1], Element::Text { text } if text == "Created: 0\nUpdated: 0\nDeleted: 0")
 	);
 	println!(
-		"message-counter/rebuilt: wasm_bytes={}, create/update/delete, panel, invalid storage and reset passed",
+		"{name}: wasm_bytes={}, create/update/delete, panel, invalid storage and reset passed",
 		package.wasm.len()
 	);
 	input.action = "message-event".into();
@@ -152,12 +152,12 @@ fn check_message_counter(package: &Package) {
 	}
 	samples.sort_unstable();
 	println!(
-		"message-counter/create: invoke_median_us={:.3} (5 samples x 20 calls; one warmup; new runtime per call; excludes worker IO)",
+		"{name}/create: invoke_median_us={:.3} (5 samples x 20 calls; one warmup; new runtime per call; excludes worker IO)",
 		samples[2] as f64 / 1000.0
 	);
 }
 
-fn check_app_toolbox(package: &Package) {
+fn check_app_toolbox(name: &str, package: &Package) {
 	use serde_json::json;
 	package.validate().expect("toolbox package is valid");
 	let mut input: Invocation = serde_json::from_value(json!({
@@ -215,7 +215,7 @@ fn check_app_toolbox(package: &Package) {
 	}
 	samples.sort_unstable();
 	println!(
-		"app-toolbox/dashboard: snapshot_bytes={}, invoke_median_us={:.3} (5 samples x 20 calls; one warmup; new runtime per call; excludes snapshot construction and worker IO)",
+		"{name}/dashboard: snapshot_bytes={}, invoke_median_us={:.3} (5 samples x 20 calls; one warmup; new runtime per call; excludes snapshot construction and worker IO)",
 		snapshot_bytes,
 		samples[2] as f64 / 1000.0
 	);
@@ -296,7 +296,7 @@ fn check_app_toolbox(package: &Package) {
 		);
 	}
 	println!(
-		"app-toolbox/rebuilt: wasm_bytes={}, snapshot_bytes={}, dashboard, all 11 host effects and passive app events passed",
+		"{name}: wasm_bytes={}, snapshot_bytes={}, dashboard, all 11 host effects and passive app events passed",
 		package.wasm.len(),
 		snapshot_bytes
 	);
@@ -342,13 +342,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&expected,
 		);
 	}
-	check_message_counter(&rebuilt(
-		include_str!("../../../examples/extensions/message-counter/manifest.json"),
-		&wasm_dir.join("message_counter.wasm"),
-	)?);
-	check_app_toolbox(&rebuilt(
-		include_str!("../../../examples/extensions/app-toolbox/manifest.json"),
-		&wasm_dir.join("app_toolbox.wasm"),
-	)?);
+	check_message_counter(
+		"message-counter/committed",
+		&parse_package(include_bytes!(
+			"../../../examples/extensions/packages/message-counter.serein-extension"
+		))?,
+	);
+	check_message_counter(
+		"message-counter/rebuilt",
+		&rebuilt(
+			include_str!("../../../examples/extensions/message-counter/manifest.json"),
+			&wasm_dir.join("message_counter.wasm"),
+		)?,
+	);
+	check_app_toolbox(
+		"app-toolbox/committed",
+		&parse_package(include_bytes!(
+			"../../../examples/extensions/packages/app-toolbox.serein-extension"
+		))?,
+	);
+	check_app_toolbox(
+		"app-toolbox/rebuilt",
+		&rebuilt(
+			include_str!("../../../examples/extensions/app-toolbox/manifest.json"),
+			&wasm_dir.join("app_toolbox.wasm"),
+		)?,
+	);
 	Ok(())
 }
