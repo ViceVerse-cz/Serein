@@ -1767,3 +1767,35 @@ The changed executable SHA-256 is `36f3d1c8329246f19ba33253576efdba6d38e421b13f3
 This comparison includes the intervening main changes described above.
 OpenH264 LNK4255 was nonfatal. `makensis` is absent, so no NSIS installer
 was produced; measurements describe the unsigned portable package.
+
+
+## Partial user profiles ? September 22, 2026
+
+Compared clean baseline `fa10fec` with runtime change `d025e84` on Windows 11
+Home 10.0.26200, Ryzen 7 7800X3D, 31.1 GiB RAM, Rust 1.98.1. One standard
+`cargo xtask package` per revision, voice included, no demo/developer-session
+features; full portable directory compressed with .NET ZipFile Optimal.
+
+| Artifact, bytes | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 71,307,264 | 71,311,360 | +4,096 / +0.0057% |
+| Installed package | 75,409,561 | 75,413,657 | +4,096 / +0.0054% |
+| Portable ZIP | 42,799,281 | 42,801,211 | +1,930 / +0.0045% |
+
+Changed executable SHA-256:
+`159a23116d5d9bce5a1f7d22d1189439df6cda6c9a8de603b2d9cceb57df4ccb`.
+Both packages passed; OpenH264 LNK4255 was nonfatal. NSIS is unavailable,
+so these are unsigned portable packages, not installer measurements.
+
+`cargo replay`, one warmup then five direct executable runs per phase:
+before 56.7939, 56.5201, 57.8881, 67.8447, 62.4075 ms; after 60.0030,
+61.8068, 61.2891, 59.8946, 60.7432 ms. Median 57.8881 ? 60.7432 ms
+(+2.8551 ms / +4.93%). Both retain 339,992?340,477 estimated bytes / 500
+records after 100,000 events. The reducer dependencies are unchanged, so the
+same reducer binary was reused. Variation under concurrent build load is not
+evidence of a profile performance regression or improvement; replay does not
+exercise profile decoding or UI rendering.
+
+Native before/after interaction, CPU/RSS and frame timing remain unmeasured:
+Computer Use could not connect to its native pipe (`os error 2`). Headless
+profile UI tests passed but do not establish native or live Discord behavior.
