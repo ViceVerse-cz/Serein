@@ -1242,7 +1242,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		for invalid in ["-1", "2", "1.5", "'bad'"] {
 			assert!(
 				store
@@ -1326,7 +1326,7 @@ mod tests {
 				.0
 				.pragma_query_value(None, "user_version", |row| row.get(0))
 				.unwrap();
-			assert_eq!(version, 18);
+			assert_eq!(version, NATIVE_SCHEMA);
 			let mut messages = store.load_channel(Id(1), Id(2)).unwrap();
 			assert_eq!(messages[0].kind, expected_kind);
 			assert_eq!(messages[0].extra_content.bits(), expected_markers);
@@ -1599,7 +1599,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		assert_eq!(
 			store.reading_preferences().unwrap(),
 			ReadingPreferences::default()
@@ -1945,7 +1945,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |row| row.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		let messages: Vec<_> = (0..32_u8)
 			.map(|bits| {
 				let mut message = legacy[0].clone();
@@ -2137,7 +2137,7 @@ mod tests {
 			.0
 			.pragma_query_value(None, "user_version", |r| r.get(0))
 			.unwrap();
-		assert_eq!(version, 18);
+		assert_eq!(version, NATIVE_SCHEMA);
 		for (json, error) in [
 			("broken JSON".to_owned(), StoreError::Incompatible),
 			(

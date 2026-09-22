@@ -777,6 +777,7 @@ impl TimelineView {
 			*self = Self {
 				extension_actions: self.extension_actions.clone(),
 				hide_media_links: self.hide_media_links,
+				instant_scrolling: self.instant_scrolling,
 				suppressed_deleted_highlight: std::mem::take(
 					&mut self.suppressed_deleted_highlight,
 				),
@@ -4812,6 +4813,7 @@ mod tests {
 			for _ in 0..8 {
 				frame(&mut view, 0.0);
 			}
+			assert!(view.instant_scrolling);
 			view.following = false;
 			view.anchor = Some((Id(200), 5.0));
 			view.revision = u64::MAX;
