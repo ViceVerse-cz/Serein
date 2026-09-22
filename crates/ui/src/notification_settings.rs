@@ -73,6 +73,8 @@ mod tests {
 				"Microphone Unmuted",
 				"Deafen",
 				"Undeafen",
+				"Sound Volume",
+				"Disable All Notification Sounds",
 			] {
 				assert!(
 					labels.iter().any(|(s, _)| s.eq_ignore_ascii_case(label)),
@@ -197,6 +199,24 @@ impl MessagingUi {
 		});
 		self.settings.notifications.heading(ui, Tab::Sounds);
 		design::card(ui, |ui| {
+			design::slider_row(
+				ui,
+				"Sound Volume",
+				Some("Adjusts the volume of all notification sounds and ringtones."),
+				&mut self.notification_options.volume,
+				0..=100,
+				"%",
+			);
+			design::card_divider(ui);
+			design::switch(
+				ui,
+				"Disable All Notification Sounds",
+				Some(
+					"Disables notification sounds. Your individual sound preferences are saved and restored when you turn this off.",
+				),
+				&mut self.notification_options.disable_sounds,
+			);
+			design::card_divider(ui);
 			let sounds = vec![
 				(
 					"New Message",
@@ -268,16 +288,8 @@ impl MessagingUi {
 					self.notification_preview = Some(sound);
 				}
 			}
-			design::card_divider(ui);
-			design::switch(
-				ui,
-				"Disable All Notification Sounds",
-				Some(
-					"Disables notification sounds. Your individual sound preferences are saved and restored when you turn this off.",
-				),
-				&mut self.notification_options.disable_sounds,
-			);
 			if !self.notification_sound_status.is_empty() {
+				design::card_divider(ui);
 				design::notice(ui, design::Level::Warning, self.notification_sound_status);
 			}
 		});

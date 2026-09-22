@@ -17,7 +17,7 @@ pub const OUTGOING_RING_INTERVAL: Duration = Duration::from_secs(3);
 
 #[derive(Default)]
 pub struct Sounds {
-	send: Option<SyncSender<(u64, Sound)>>,
+	send: Option<SyncSender<(u64, Sound, u8)>>,
 	generation: Arc<AtomicU64>,
 	status: Arc<AtomicU8>,
 }
@@ -33,22 +33,23 @@ impl Sounds {
 		self.generation.fetch_add(1, Ordering::AcqRel);
 		self.status.store(0, Ordering::Release);
 	}
-	pub fn play(&mut self, sound: Sound, ctx: &eframe::egui::Context) {
+	pub fn play(&mut self, sound: Sound, volume: u8, ctx: &eframe::egui::Context) {
 		if self.send.is_none() {
-			let (send, receive) = mpsc::sync_channel::<(u64, Sound)>(1);
+			let (send, receive) = mpsc::sync_channel::<(u64, Sound, u8)>(1);
 			let generation = self.generation.clone();
 			let status = self.status.clone();
 			let context = ctx.clone();
 			if std::thread::Builder::new()
 				.name("serein-notification-audio".into())
 				.spawn(move || {
-					while let Ok((request, sound)) = receive.recv() {
+					while let Ok((request, sound, volume)) = receive.recv() {
 						if generation.load(Ordering::Acquire) != request {
 							continue;
 						}
 						let finished = Arc::new(AtomicBool::new(false));
 						match open(
 							sound,
+							volume,
 							generation.clone(),
 							request,
 							status.clone(),
@@ -99,7 +100,7 @@ impl Sounds {
 			.send
 			.as_ref()
 			.expect("worker started")
-			.try_send((request, sound))
+			.try_send((request, sound, volume))
 			.is_err()
 		{
 			self.status.store(0, Ordering::Release);
@@ -114,8 +115,9 @@ impl Drop for Sounds {
 
 fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[f32; 2]>, ()> {
 	let bytes: &[u8] = match sound {
-		Sound::Message | Sound::CurrentChannel => {
-			include_bytes!("../../../assets/sounds/discord/message.mp3")
+		Sound::Message => include_bytes!("../../../assets/sounds/discord/message.mp3"),
+		Sound::CurrentChannel => {
+			include_bytes!("../../../assets/sounds/discord/current-channel.mp3")
 		}
 		Sound::IncomingRing => include_bytes!("../../../assets/sounds/discord/incoming-ring.mp3"),
 		Sound::OutgoingRing => include_bytes!("../../../assets/sounds/discord/outgoing-ring.mp3"),
@@ -178,6 +180,7 @@ fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[
 }
 fn open(
 	sound: Sound,
+	volume: u8,
 	generation: Arc<AtomicU64>,
 	request: u64,
 	status: Arc<AtomicU8>,
@@ -195,16 +198,16 @@ fn open(
 	let duration = Duration::from_secs_f64(samples.len() as f64 / f64::from(config.sample_rate));
 	let stream = match supported.sample_format() {
 		cpal::SampleFormat::F32 => output::<f32>(
-			&device, config, samples, generation, request, status, finished,
+			&device, config, samples, volume, generation, request, status, finished,
 		),
 		cpal::SampleFormat::I16 => output::<i16>(
-			&device, config, samples, generation, request, status, finished,
+			&device, config, samples, volume, generation, request, status, finished,
 		),
 		cpal::SampleFormat::I32 => output::<i32>(
-			&device, config, samples, generation, request, status, finished,
+			&device, config, samples, volume, generation, request, status, finished,
 		),
 		cpal::SampleFormat::U16 => output::<u16>(
-			&device, config, samples, generation, request, status, finished,
+			&device, config, samples, volume, generation, request, status, finished,
 		),
 		_ => return Err(()),
 	}
@@ -216,6 +219,7 @@ fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
 	device: &cpal::Device,
 	config: cpal::StreamConfig,
 	samples: Vec<[f32; 2]>,
+	volume: u8,
 	generation: Arc<AtomicU64>,
 	request: u64,
 	status: Arc<AtomicU8>,
@@ -225,7 +229,7 @@ fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
 	let failed = finished.clone();
 	device.build_output_stream(
 		config,
-		callback::<T>(config, samples, generation, request, finished),
+		callback::<T>(config, samples, volume, generation, request, finished),
 		move |_| {
 			failed.store(true, Ordering::Release);
 			if errors.load(Ordering::Acquire) == request {
@@ -238,12 +242,14 @@ fn output<T: cpal::SizedSample + cpal::FromSample<f32>>(
 fn callback<T: cpal::SizedSample + cpal::FromSample<f32>>(
 	config: cpal::StreamConfig,
 	samples: Vec<[f32; 2]>,
+	volume: u8,
 	generation: Arc<AtomicU64>,
 	request: u64,
 	finished: Arc<AtomicBool>,
 ) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) + Send + 'static {
 	let mut position = 0;
 	let mut end = None;
+	let gain = (f32::from(volume) / 100.0).clamp(0.0, 1.0);
 	move |data: &mut [T], info| {
 		data.fill(T::from_sample(0.0));
 		if generation.load(Ordering::Acquire) != request {
@@ -259,10 +265,10 @@ fn callback<T: cpal::SizedSample + cpal::FromSample<f32>>(
 				break;
 			};
 			if frame.len() == 1 {
-				frame[0] = T::from_sample((sample[0] + sample[1]) * 0.5);
+				frame[0] = T::from_sample((sample[0] + sample[1]) * 0.5 * gain);
 			} else {
 				for (target, value) in frame.iter_mut().zip(sample) {
-					*target = T::from_sample(*value);
+					*target = T::from_sample(*value * gain);
 				}
 			}
 			position += 1;
@@ -291,6 +297,7 @@ mod tests {
 		let mut render = callback(
 			config,
 			vec![[0.2, 0.4]; 2],
+			100,
 			generation.clone(),
 			1,
 			finished.clone(),
@@ -317,17 +324,45 @@ mod tests {
 				..config
 			},
 			vec![[0.2, 0.4]; 2],
+			100,
 			generation.clone(),
 			2,
 			next_finished.clone(),
 		);
 		generation.store(2, Ordering::Release);
-		let mut cancelled = callback(config, vec![[1.0, 1.0]; 2], generation.clone(), 1, finished);
+		let mut cancelled =
+			callback(config, vec![[1.0, 1.0]; 2], 100, generation.clone(), 1, finished);
 		cancelled(&mut data, &info(2000, 3000));
 		assert_eq!(data, [0.0; 8]);
 		assert!(!next_finished.load(Ordering::Acquire));
 		next(&mut data[..2], &info(2000, 3000));
 		assert_eq!(&data[..2], &[0.3, 0.3]);
+	}
+	#[test]
+	fn callback_applies_volume_gain() {
+		let config = cpal::StreamConfig {
+			channels: 2,
+			sample_rate: 8000,
+			buffer_size: cpal::BufferSize::Default,
+		};
+		let generation = Arc::new(AtomicU64::new(1));
+		let finished = Arc::new(AtomicBool::new(false));
+		let mut render = callback::<f32>(
+			config,
+			vec![[0.4, 0.8]],
+			50,
+			generation.clone(),
+			1,
+			finished.clone(),
+		);
+		let mut data = [0.0_f32; 2];
+		let info = cpal::OutputCallbackInfo::new(cpal::OutputStreamTimestamp {
+			callback: cpal::StreamInstant::from_millis(0),
+			playback: cpal::StreamInstant::from_millis(10),
+		});
+		render(&mut data, &info);
+		assert!((data[0] - 0.2).abs() < 1e-4);
+		assert!((data[1] - 0.4).abs() < 1e-4);
 	}
 	#[test]
 	fn bundled_cues_decode_in_full_at_supported_rates_and_cancel() {
@@ -347,12 +382,12 @@ mod tests {
 				Sound::UserLeave,
 			]
 			.map(|s| samples(s, rate, &|| true).unwrap());
-			assert_eq!(cues[0], cues[1]);
+			assert_ne!(cues[0], cues[1]);
 			assert_ne!(cues[3], cues[4]);
 			assert_ne!(cues[5], cues[6]);
 			let expectations = [
 				(0.2, 0.5),
-				(0.2, 0.5),
+				(0.5, 0.9),
 				(5.0, 5.6),
 				(0.3, 0.6),
 				(0.3, 0.6),

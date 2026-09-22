@@ -3992,13 +3992,43 @@ impl MessagingUi {
 				anchor,
 			) {
 				Some(profiles::Action::Avatar(media)) => {
+					let ext = media
+						.url
+						.as_deref()
+						.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
+						.unwrap_or("png");
 					self.profile_image = Some((
 						state.generation,
 						model::Attachment {
 							id: Id(0),
-							filename: "avatar.png".into(),
+							filename: format!("avatar.{ext}"),
 							description: Some(format!("{}’s profile picture", user.name)),
-							content_type: Some("image/png".into()),
+							content_type: Some(format!("image/{ext}")),
+							size: 0,
+							media,
+							spoiler: false,
+							duration_ms: None,
+							waveform: Vec::new(),
+						},
+					));
+					self.profile = None;
+					self.profile_link = None;
+					self.profile_anchor = None;
+					commands.push(state.clear_profile());
+				}
+				Some(profiles::Action::Banner(media)) => {
+					let ext = media
+						.url
+						.as_deref()
+						.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
+						.unwrap_or("png");
+					self.profile_image = Some((
+						state.generation,
+						model::Attachment {
+							id: Id(0),
+							filename: format!("banner.{ext}"),
+							description: Some(format!("{}’s banner", user.name)),
+							content_type: Some(format!("image/{ext}")),
 							size: 0,
 							media,
 							spoiler: false,

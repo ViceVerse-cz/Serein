@@ -143,8 +143,9 @@ impl User {
 			format!("https://cdn.discordapp.com/embed/avatars/{index}.png")
 		} else {
 			let (_, hash) = key.split_once('-').expect("avatar key");
+			let ext = if hash.starts_with("a_") { "gif" } else { "png" };
 			format!(
-				"https://cdn.discordapp.com/avatars/{}/{hash}.png?size=128",
+				"https://cdn.discordapp.com/avatars/{}/{hash}.{ext}?size=128",
 				self.id
 			)
 		}

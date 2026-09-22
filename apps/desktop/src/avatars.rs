@@ -19,10 +19,32 @@ use std::{
 use tokio::sync::{mpsc as async_mpsc, watch};
 
 const MAX_ENCODED: usize = 2 * 1024 * 1024;
-const MAX_ANIMATED_ENCODED: usize = 8 * 1024 * 1024;
+const MAX_ANIMATED_ENCODED: usize = 16 * 1024 * 1024;
 const MAX_LARGE_ENCODED: usize = 16 * 1024 * 1024;
-fn encoded_limit(key: &str) -> usize {
+fn is_animated_key(key: &str) -> bool {
 	if key.starts_with("anim:") {
+		return true;
+	}
+	if let Some(value) = key.strip_prefix("banner-") {
+		return value.split_once('-').is_some_and(|(_, hash)| hash.starts_with("a_"));
+	}
+	if let Some(value) = key.strip_prefix("member-banner-") {
+		let mut parts = value.split('-');
+		return parts.nth(2).is_some_and(|hash| hash.starts_with("a_"));
+	}
+	if let Some(value) = key.strip_prefix("member-avatar-") {
+		let mut parts = value.split('-');
+		return parts.nth(2).is_some_and(|hash| hash.starts_with("a_"));
+	}
+	if let Some((id, hash)) = key.split_once('-') {
+		if id.parse::<Id>().is_ok() {
+			return hash.starts_with("a_");
+		}
+	}
+	false
+}
+fn encoded_limit(key: &str) -> usize {
+	if is_animated_key(key) {
 		MAX_ANIMATED_ENCODED
 	} else if key.starts_with("large:") {
 		MAX_LARGE_ENCODED
@@ -90,8 +112,8 @@ impl AvatarWorker {
 		root: Option<PathBuf>,
 		ctx: egui::Context,
 	) -> Result<Self, &'static str> {
-		let (requests, receive) = async_mpsc::channel(128);
-		let (send, results) = async_mpsc::channel(2);
+		let (requests, receive) = async_mpsc::channel(1024);
+		let (send, results) = async_mpsc::channel(128);
 		let (cancel, cancelled) = watch::channel(false);
 		let clear = Arc::new(AtomicBool::new(false));
 		let cleanup_flag = clear.clone();
@@ -154,6 +176,56 @@ fn clear_directory(root: Option<&Path>) -> Result<(), &'static str> {
 	}
 }
 
+fn is_direct_gif_url(url: &str) -> bool {
+	if model::valid_gif_url(url) && url.split('?').next().is_some_and(|p| p.ends_with(".gif")) {
+		return true;
+	}
+	let Ok(parsed) = url::Url::parse(url) else {
+		return false;
+	};
+	if parsed.scheme() != "https"
+		|| !parsed.username().is_empty()
+		|| parsed.password().is_some()
+		|| parsed.port().is_some()
+		|| parsed.fragment().is_some()
+	{
+		return false;
+	}
+	let Some(host) = parsed.host_str() else {
+		return false;
+	};
+	if !matches!(host, "cdn.discordapp.com" | "media.discordapp.net") {
+		return false;
+	}
+	let path = parsed.path();
+	if !path.ends_with(".gif") {
+		return false;
+	}
+	if path.starts_with("/attachments/") {
+		let mut parts = path.trim_start_matches('/').split('/');
+		parts.next();
+		parts.next().is_some_and(|id| id.parse::<Id>().is_ok())
+			&& parts.next().is_some_and(|id| id.parse::<Id>().is_ok())
+			&& parts.next().is_some_and(|name| !name.is_empty())
+			&& parts.next().is_none()
+	} else if path.starts_with("/stickers/") || path.starts_with("/emojis/") {
+		let mut parts = path.trim_start_matches('/').split('/');
+		parts.next();
+		parts
+			.next()
+			.and_then(|file| file.strip_suffix(".gif"))
+			.is_some_and(|id| id.parse::<Id>().is_ok())
+			&& parts.next().is_none()
+	} else {
+		let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
+		matches!(parts.as_slice(), ["avatars" | "icons" | "banners", id, hash]
+			if id.parse::<Id>().is_ok() && hash.strip_suffix(".gif").is_some_and(model::valid_avatar_hash))
+			|| matches!(parts.as_slice(), ["guilds", guild, "users", user, "avatars" | "banners", hash]
+				if guild.parse::<Id>().is_ok() && user.parse::<Id>().is_ok()
+					&& hash.strip_suffix(".gif").is_some_and(model::valid_avatar_hash))
+	}
+}
+
 // Build, rather than accept, URLs. Even malformed service metadata cannot choose a host/path.
 fn cdn_url(key: &str) -> Option<String> {
 	if let Some(value) = key
@@ -213,27 +285,36 @@ fn cdn_url(key: &str) -> Option<String> {
 	if let Some(value) = key.strip_prefix("banner-") {
 		let (id, hash) = value.split_once('-')?;
 		let id: Id = id.parse().ok()?;
+		let ext = if hash.starts_with("a_") { "gif" } else { "png" };
 		return model::valid_avatar_hash(hash)
-			.then(|| format!("https://cdn.discordapp.com/banners/{id}/{hash}.png?size=512"));
+			.then(|| format!("https://cdn.discordapp.com/banners/{id}/{hash}.{ext}?size=512"));
 	}
-	for (prefix, kind, size) in [
-		("member-avatar-", "avatars", 128),
-		("member-banner-", "banners", 512),
-	] {
-		if let Some(value) = key.strip_prefix(prefix) {
-			let (guild, value) = value.split_once('-')?;
-			let (user, hash) = value.split_once('-')?;
-			let guild: Id = guild.parse().ok()?;
-			let user: Id = user.parse().ok()?;
-			return model::valid_avatar_hash(hash).then(|| {
-				format!(
-					"https://cdn.discordapp.com/guilds/{guild}/users/{user}/{kind}/{hash}.png?size={size}"
-				)
-			});
-		}
+	if let Some(value) = key.strip_prefix("member-banner-") {
+		let (guild, value) = value.split_once('-')?;
+		let (user, hash) = value.split_once('-')?;
+		let guild: Id = guild.parse().ok()?;
+		let user: Id = user.parse().ok()?;
+		let ext = if hash.starts_with("a_") { "gif" } else { "png" };
+		return model::valid_avatar_hash(hash).then(|| {
+			format!(
+				"https://cdn.discordapp.com/guilds/{guild}/users/{user}/banners/{hash}.{ext}?size=512"
+			)
+		});
+	}
+	if let Some(value) = key.strip_prefix("member-avatar-") {
+		let (guild, value) = value.split_once('-')?;
+		let (user, hash) = value.split_once('-')?;
+		let guild: Id = guild.parse().ok()?;
+		let user: Id = user.parse().ok()?;
+		let ext = if hash.starts_with("a_") { "gif" } else { "png" };
+		return model::valid_avatar_hash(hash).then(|| {
+			format!(
+				"https://cdn.discordapp.com/guilds/{guild}/users/{user}/avatars/{hash}.{ext}?size=128"
+			)
+		});
 	}
 	if let Some(source) = key.strip_prefix("anim:") {
-		if model::valid_gif_url(source) && source.ends_with(".gif") {
+		if is_direct_gif_url(source) {
 			return Some(source.to_owned());
 		}
 		let mut url = url::Url::parse(&embed_url(source, ui::EMBED_EDGE)?).ok()?;
@@ -283,8 +364,9 @@ fn cdn_url(key: &str) -> Option<String> {
 	let (id, hash) = key.split_once('-')?;
 	let id: Id = id.parse().ok()?;
 	let digest = hash.strip_prefix("a_").unwrap_or(hash);
+	let ext = if hash.starts_with("a_") { "gif" } else { "png" };
 	(digest.len() == 32 && digest.bytes().all(|b| b.is_ascii_hexdigit()))
-		.then(|| format!("https://cdn.discordapp.com/avatars/{id}/{hash}.png?size=128"))
+		.then(|| format!("https://cdn.discordapp.com/avatars/{id}/{hash}.{ext}?size=128"))
 }
 
 // Only service-provided image objects reach this path. Never fetch an arbitrary embed source.
@@ -324,9 +406,9 @@ pub(crate) fn embed_url(source: &str, edge: u32) -> Option<String> {
 		let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
 		matches!(parts.as_slice(), ["avatars" | "icons" | "banners", id, hash]
             if id.parse::<Id>().is_ok() && hash.rsplit_once('.').is_some_and(|(hash, _)| model::valid_avatar_hash(hash)))
-			|| matches!(parts.as_slice(), ["guilds", guild, "users", user, "avatars", hash]
+			|| matches!(parts.as_slice(), ["guilds", guild, "users", user, "avatars" | "banners", hash]
                 if guild.parse::<Id>().is_ok() && user.parse::<Id>().is_ok()
-                    && hash.strip_suffix(".png").is_some_and(model::valid_avatar_hash))
+                    && hash.rsplit_once('.').is_some_and(|(hash, _)| model::valid_avatar_hash(hash)))
 			|| matches!(parts.as_slice(), ["embed", "avatars", index]
                 if matches!(*index, "0.png" | "1.png" | "2.png" | "3.png" | "4.png" | "5.png"))
 	};
@@ -455,16 +537,23 @@ async fn run(
 				if *cancelled.borrow() { break; }
 				let Some(url) = cdn_url(&key) else { continue };
 				let mut error = disk.is_none().then_some(CACHE_ERROR);
-				let cached = disk.as_mut().and_then(|disk| match disk.read(&key) {
+				let mut cached = disk.as_mut().and_then(|disk| match disk.read(&key) {
 					Ok(bytes) => bytes,
 					Err(_) => { error = Some(CACHE_ERROR); None }
 				});
 				let edge = decode_edge(&key);
-				let frames = key
-					.starts_with("anim:")
-					.then(|| cached.as_deref().and_then(decode_animation))
-					.flatten()
-					.unwrap_or_default();
+				let mut frames = if is_animated_key(&key) {
+					cached
+						.as_deref()
+						.and_then(|bytes| decode_animation(bytes, edge))
+						.unwrap_or_default()
+				} else {
+					Vec::new()
+				};
+				if is_animated_key(&key) && frames.len() < 2 {
+					cached = None;
+					frames.clear();
+				}
 				let image = frames.first().map(|(_, image)| image.as_ref().clone()).or_else(|| {
 					cached.as_deref().and_then(|bytes| decode(bytes, edge))
 				});
@@ -511,10 +600,10 @@ async fn run(
 		let edge = decode_edge(&key);
 		let frames = if !cached_frames.is_empty() {
 			cached_frames
-		} else if key.starts_with("anim:") {
+		} else if is_animated_key(&key) {
 			bytes
 				.as_deref()
-				.and_then(decode_animation)
+				.and_then(|bytes| decode_animation(bytes, edge))
 				.unwrap_or_default()
 		} else {
 			Vec::new()
@@ -685,15 +774,15 @@ fn decode(bytes: &[u8], edge: u32) -> Option<egui::ColorImage> {
 	))
 }
 
-fn decode_animation(bytes: &[u8]) -> Option<ui::GifFrames> {
+fn decode_animation(bytes: &[u8], edge: u32) -> Option<ui::GifFrames> {
 	use image::{AnimationDecoder, ImageDecoder};
 	if bytes.len() > MAX_ANIMATED_ENCODED {
 		return None;
 	}
 	let mut limits = image::Limits::default();
-	limits.max_image_width = Some(1024);
-	limits.max_image_height = Some(1024);
-	limits.max_alloc = Some(8 * 1024 * 1024);
+	limits.max_image_width = Some(2048);
+	limits.max_image_height = Some(2048);
+	limits.max_alloc = Some(16 * 1024 * 1024);
 	let decoded = match image::guess_format(bytes).ok()? {
 		image::ImageFormat::Gif => {
 			let mut decoder = image::codecs::gif::GifDecoder::new(Cursor::new(bytes)).ok()?;
@@ -728,9 +817,13 @@ fn decode_animation(bytes: &[u8]) -> Option<ui::GifFrames> {
 			frames.last_mut()?.0 += delay;
 			continue;
 		}
-		// Keep the whole loop: reduce temporal detail instead of rejecting ordinary long GIFs.
-		// ponytail: at most 80 160px frames (8 MiB); streaming decoding if full fidelity is needed.
-		if frames.len() == 80 {
+		let buffer = frame.into_buffer();
+		let (width, height) = ui::fit_edge(buffer.width(), buffer.height(), edge.min(ui::EMBED_EDGE));
+		let image = image::DynamicImage::ImageRgba8(buffer)
+			.thumbnail(width, height)
+			.into_rgba8();
+		let frame_bytes = (image.width() as usize) * (image.height() as usize) * 4;
+		if frames.len() >= 80 || frames.len() * frame_bytes >= 12 * 1024 * 1024 {
 			frames = frames
 				.chunks(2)
 				.map(|pair| {
@@ -742,11 +835,6 @@ fn decode_animation(bytes: &[u8]) -> Option<ui::GifFrames> {
 				.collect();
 			stride *= 2;
 		}
-		let buffer = frame.into_buffer();
-		let (width, height) = (buffer.width().min(160), buffer.height().min(160));
-		let image = image::DynamicImage::ImageRgba8(buffer)
-			.thumbnail(width, height)
-			.into_rgba8();
 		frames.push((
 			delay,
 			Arc::new(egui::ColorImage::from_rgba_unmultiplied(
@@ -918,14 +1006,14 @@ mod tests {
 			96, 248, 207, 240, 31, 0, 4, 1, 1, 255, 98, 231, 233, 156, 0, 0, 0, 0, 73, 69, 78, 68,
 			174, 66, 96, 130,
 		];
-		let frames = super::decode_animation(&bytes).unwrap();
+		let frames = super::decode_animation(&bytes, 160).unwrap();
 		assert_eq!(frames.len(), 2);
 		assert_eq!(frames[0].0, std::time::Duration::from_millis(100));
 		assert_eq!(frames[1].0, std::time::Duration::from_millis(200));
 		assert_eq!(frames[0].1.size, [1, 1]);
 		assert_eq!(frames[0].1.pixels[0], eframe::egui::Color32::RED);
 		assert_eq!(frames[1].1.pixels[0], eframe::egui::Color32::GREEN);
-		assert!(super::decode_animation(&bytes[..100]).is_none());
+		assert!(super::decode_animation(&bytes[..100], 160).is_none());
 	}
 	#[test]
 	fn sticker_urls_and_decode_budgets_are_scoped() {
@@ -956,7 +1044,7 @@ mod tests {
 		] {
 			assert!(super::cdn_url(key).is_none(), "{key}");
 		}
-		assert!(super::decode_animation(&vec![0; super::MAX_ANIMATED_ENCODED + 1]).is_none());
+		assert!(super::decode_animation(&vec![0; super::MAX_ANIMATED_ENCODED + 1], 160).is_none());
 	}
 
 	#[test]
@@ -1022,7 +1110,7 @@ mod tests {
 					.unwrap();
 			}
 		}
-		let frames = super::decode_animation(&bytes).unwrap();
+		let frames = super::decode_animation(&bytes, 160).unwrap();
 		assert!(frames.len() > 1 && frames.len() <= 80);
 		assert_eq!(
 			frames
@@ -1059,13 +1147,42 @@ mod tests {
 					.unwrap();
 			}
 		}
-		let frames = super::decode_animation(&bytes).unwrap();
+		let frames = super::decode_animation(&bytes, 160).unwrap();
 		assert_eq!(frames.len(), 2);
 		assert_eq!(frames[0].0, std::time::Duration::from_millis(100));
 		assert_eq!(frames[0].1.size, [160, 80]);
 		assert_ne!(frames[0].1.pixels[0], frames[1].1.pixels[0]);
-		assert!(super::decode_animation(b"not a GIF").is_none());
-		assert!(super::decode_animation(&vec![0; super::MAX_ENCODED + 1]).is_none());
+		assert!(super::decode_animation(b"not a GIF", 160).is_none());
+		assert!(super::decode_animation(&vec![0; super::MAX_ENCODED + 1], 160).is_none());
+	}
+
+	#[test]
+	fn animated_banner_and_avatar_urls_and_keys() {
+		assert!(super::is_animated_key("banner-123-a_abcdef0123456789abcdef0123456789"));
+		assert!(super::is_animated_key("member-banner-999-123-a_abcdef0123456789abcdef0123456789"));
+		assert!(super::is_animated_key("member-avatar-999-123-a_abcdef0123456789abcdef0123456789"));
+		assert!(super::is_animated_key("123-a_abcdef0123456789abcdef0123456789"));
+		assert!(!super::is_animated_key("banner-123-abcdef0123456789abcdef0123456789"));
+		assert!(!super::is_animated_key("member-banner-999-123-abcdef0123456789abcdef0123456789"));
+		assert!(!super::is_animated_key("member-avatar-999-123-abcdef0123456789abcdef0123456789"));
+		assert!(!super::is_animated_key("123-abcdef0123456789abcdef0123456789"));
+
+		assert_eq!(
+			super::cdn_url("banner-123-a_abcdef0123456789abcdef0123456789").as_deref(),
+			Some("https://cdn.discordapp.com/banners/123/a_abcdef0123456789abcdef0123456789.gif?size=512")
+		);
+		assert_eq!(
+			super::cdn_url("member-banner-999-123-a_abcdef0123456789abcdef0123456789").as_deref(),
+			Some("https://cdn.discordapp.com/guilds/999/users/123/banners/a_abcdef0123456789abcdef0123456789.gif?size=512")
+		);
+		assert_eq!(
+			super::cdn_url("123-a_abcdef0123456789abcdef0123456789").as_deref(),
+			Some("https://cdn.discordapp.com/avatars/123/a_abcdef0123456789abcdef0123456789.gif?size=128")
+		);
+		assert_eq!(
+			super::cdn_url("123-abcdef0123456789abcdef0123456789").as_deref(),
+			Some("https://cdn.discordapp.com/avatars/123/abcdef0123456789abcdef0123456789.png?size=128")
+		);
 	}
 	#[test]
 	fn activity_artwork_urls_and_application_metadata_are_scoped() {
@@ -1155,7 +1272,7 @@ mod tests {
 		);
 		assert_eq!(
 			cdn_url("member-banner-2-1-a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
-			"https://cdn.discordapp.com/guilds/2/users/1/banners/a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=512"
+			"https://cdn.discordapp.com/guilds/2/users/1/banners/a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.gif?size=512"
 		);
 		assert_eq!(
 			cdn_url("member-avatar-2-1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
@@ -1178,7 +1295,11 @@ mod tests {
 		assert!(cdn_url("1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/").is_none());
 		assert_eq!(
 			cdn_url("1-a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
-			"https://cdn.discordapp.com/avatars/1/a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=128"
+			"https://cdn.discordapp.com/avatars/1/a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.gif?size=128"
+		);
+		assert_eq!(
+			cdn_url("1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
+			"https://cdn.discordapp.com/avatars/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=128"
 		);
 		assert_eq!(
 			cdn_url("guild-1-a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),

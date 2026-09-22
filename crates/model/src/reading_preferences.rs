@@ -15,7 +15,7 @@ impl Default for ReadingPreferences {
 			zoom_percent: 100,
 			sidebar_width: 236,
 			show_members: true,
-			animate_gifs: false,
+			animate_gifs: true,
 			smooth_scrolling: true,
 			hide_media_links: true,
 			confirm_external_links: true,

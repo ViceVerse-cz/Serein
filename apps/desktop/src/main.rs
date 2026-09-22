@@ -4407,7 +4407,7 @@ impl Desktop {
 			}
 		}
 		if let Some(worker) = &mut self.avatars {
-			for _ in 0..8 {
+			for _ in 0..32 {
 				let Some(result) = worker.poll() else {
 					break;
 				};

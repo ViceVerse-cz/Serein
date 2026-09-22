@@ -293,6 +293,24 @@ impl UserProfile {
 			.filter(|h| valid_avatar_hash(h))
 			.map(|h| format!("banner-{}-{h}", self.user.id))
 	}
+	pub fn banner_url(&self) -> Option<String> {
+		if let Some(guild) = &self.guild
+			&& let Some(hash) = guild.banner.as_deref().filter(|h| valid_avatar_hash(h))
+		{
+			let ext = if hash.starts_with("a_") { "gif" } else { "png" };
+			return Some(format!(
+				"https://cdn.discordapp.com/guilds/{}/users/{}/banners/{hash}.{ext}?size=2048",
+				guild.guild, self.user.id
+			));
+		}
+		self.banner
+			.as_deref()
+			.filter(|h| valid_avatar_hash(h))
+			.map(|h| {
+				let ext = if h.starts_with("a_") { "gif" } else { "png" };
+				format!("https://cdn.discordapp.com/banners/{}/{h}.{ext}?size=2048", self.user.id)
+			})
+	}
 	pub fn avatar_key(&self) -> String {
 		if let Some(guild) = &self.guild
 			&& let Some(hash) = guild.avatar.as_deref().filter(|h| valid_avatar_hash(h))
@@ -300,5 +318,81 @@ impl UserProfile {
 			return format!("member-avatar-{}-{}-{hash}", guild.guild, self.user.id);
 		}
 		self.user.avatar_key()
+	}
+}
+
+#[cfg(test)]
+mod banner_tests {
+	use super::*;
+	use crate::AccountKind;
+
+	#[test]
+	fn banner_and_avatar_urls_resolve_static_and_animated() {
+		let user = User {
+			kind: AccountKind::Human,
+			webhook: false,
+			id: Id(12345),
+			name: "TestUser".into(),
+			avatar: Some("a_abcdef0123456789abcdef0123456789".into()),
+			discriminator: 0,
+			primary_guild: None,
+		};
+		assert_eq!(
+			user.avatar_url(),
+			"https://cdn.discordapp.com/avatars/12345/a_abcdef0123456789abcdef0123456789.gif?size=128"
+		);
+
+		let static_user = User {
+			kind: AccountKind::Human,
+			webhook: false,
+			id: Id(12345),
+			name: "StaticUser".into(),
+			avatar: Some("0123456789abcdef0123456789abcdef".into()),
+			discriminator: 0,
+			primary_guild: None,
+		};
+		assert_eq!(
+			static_user.avatar_url(),
+			"https://cdn.discordapp.com/avatars/12345/0123456789abcdef0123456789abcdef.png?size=128"
+		);
+
+		let profile = UserProfile {
+			user: user.clone(),
+			username: "testuser".into(),
+			global_name: None,
+			banner: Some("a_11112222333344445555666677778888".into()),
+			accent_color: None,
+			bio: "".into(),
+			pronouns: "".into(),
+			badges: vec![],
+			connections: vec![],
+			mutual_guilds: vec![],
+			guild: None,
+			theme_colors: None,
+			clan: None,
+			limited: false,
+		};
+		assert_eq!(
+			profile.banner_url(),
+			Some("https://cdn.discordapp.com/banners/12345/a_11112222333344445555666677778888.gif?size=2048".into())
+		);
+
+		let guild_profile = UserProfile {
+			guild: Some(GuildProfile {
+				guild: Id(999),
+				roles: vec![],
+				nick: None,
+				avatar: None,
+				banner: Some("a_99998888777766665555444433332222".into()),
+				bio: "".into(),
+				pronouns: "".into(),
+				joined_at: None,
+			}),
+			..profile
+		};
+		assert_eq!(
+			guild_profile.banner_url(),
+			Some("https://cdn.discordapp.com/guilds/999/users/12345/banners/a_99998888777766665555444433332222.gif?size=2048".into())
+		);
 	}
 }

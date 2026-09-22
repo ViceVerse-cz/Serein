@@ -53,6 +53,7 @@ pub enum Action {
 	AcceptFriend(Id),
 	Profile(User),
 	Avatar(model::EmbedMedia),
+	Banner(model::EmbedMedia),
 	/// Shared user action picked from the card's overflow menu.
 	Menu(crate::user_menu::Action),
 }
@@ -936,7 +937,13 @@ pub fn show(
 			}
 
 			// Header: banner, overlapping avatar with presence, badge pill.
-			let (banner, _) = ui.allocate_exact_size(vec2(WIDTH, 105.0), egui::Sense::hover());
+			let has_banner = data.as_ref().and_then(|d| d.banner_url()).is_some();
+			let sense = if has_banner {
+				egui::Sense::click()
+			} else {
+				egui::Sense::hover()
+			};
+			let (banner, banner_response) = ui.allocate_exact_size(vec2(WIDTH, 105.0), sense);
 			let top_corners = CornerRadius {
 				nw: RADIUS,
 				ne: RADIUS,
@@ -977,6 +984,40 @@ pub fn show(
 				banner.left_bottom() + vec2(PAD + 4.0, -AVATAR * 0.5 - 6.0),
 				Vec2::splat(AVATAR),
 			);
+			if has_banner {
+				let pointer_in_subwidgets = ui.input(|i| {
+					i.pointer.hover_pos().is_some_and(|pos| {
+						circles.contains(pos) || avatar_rect.contains(pos)
+					})
+				});
+				let banner_response = if !pointer_in_subwidgets {
+					banner_response
+						.on_hover_cursor(egui::CursorIcon::ZoomIn)
+						.on_hover_text("View banner")
+				} else {
+					banner_response
+				};
+				banner_response.widget_info(|| {
+					egui::WidgetInfo::labeled(egui::Role::Button, true, "View banner")
+				});
+				let pointer_interact_in_subwidgets = ui.input(|i| {
+					i.pointer.interact_pos().is_some_and(|pos| {
+						circles.contains(pos) || avatar_rect.contains(pos)
+					})
+				});
+				if banner_response.clicked() && !pointer_interact_in_subwidgets {
+					if let Some(data) = data
+						&& let Some(url) = data.banner_url()
+					{
+						action = Some(Action::Banner(model::EmbedMedia {
+							url: Some(url),
+							width: 2048,
+							height: 1024,
+							..Default::default()
+						}));
+					}
+				}
+			}
 			ui.painter()
 				.circle_filled(avatar_rect.center(), AVATAR * 0.5 + 6.0, theme.card);
 			ui.scope_builder(UiBuilder::new().max_rect(avatar_rect), |ui| {
@@ -1001,8 +1042,9 @@ pub fn show(
 							.as_deref()
 							.filter(|hash| model::valid_avatar_hash(hash))
 					{
+						let ext = if hash.starts_with("a_") { "gif" } else { "png" };
 						url = format!(
-							"https://cdn.discordapp.com/guilds/{}/users/{}/avatars/{hash}.png?size=128",
+							"https://cdn.discordapp.com/guilds/{}/users/{}/avatars/{hash}.{ext}?size=128",
 							member.guild, data.user.id
 						);
 					}

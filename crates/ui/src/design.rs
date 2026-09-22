@@ -2612,20 +2612,30 @@ pub fn slider<T: egui::emath::Numeric>(
 			Color32::from_black_alpha(if enabled { 40 } else { 15 }),
 		),
 	);
-	let pill = egui::Rect::from_min_max(
-		egui::pos2(rect.right() - readout_width, rect.top() + 2.0),
-		egui::pos2(rect.right(), rect.bottom() - 2.0),
+	let pill = egui::Rect::from_center_size(
+		egui::pos2(rect.right() - readout_width * 0.5, track.center().y),
+		egui::vec2(readout_width, 20.0),
 	);
-	let editor = ui.put(
-		pill,
-		egui::DragValue::new(value)
-			.clip_text(true)
-			.range(range)
-			.speed(if T::INTEGRAL { 1.0 } else { span / 100.0 })
-			.fixed_decimals(if T::INTEGRAL { 0 } else { 1 })
-			.suffix(suffix)
-			.update_while_editing(false),
-	);
+	let editor = ui
+		.scope_builder(
+			egui::UiBuilder::new()
+				.max_rect(pill)
+				.layout(egui::Layout::centered_and_justified(egui::Direction::TopDown)),
+			|ui| {
+				ui.spacing_mut().interact_size.y = 20.0;
+				ui.spacing_mut().button_padding.y = 0.0;
+				ui.add(
+					egui::DragValue::new(value)
+						.clip_text(true)
+						.range(range)
+						.speed(if T::INTEGRAL { 1.0 } else { span / 100.0 })
+						.fixed_decimals(if T::INTEGRAL { 0 } else { 1 })
+						.suffix(suffix)
+						.update_while_editing(false),
+				)
+			},
+		)
+		.inner;
 	if enabled && (response.hovered() || response.dragged()) {
 		ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
 	}
