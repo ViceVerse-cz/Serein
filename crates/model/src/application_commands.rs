@@ -1,11 +1,12 @@
 //! Bounded received slash-command schemas and values validated against those schemas.
 use crate::Id;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const MAX_COMMANDS: usize = 2000;
 pub const MAX_CATALOG_BYTES: usize = 4 * 1024 * 1024 - 1024;
 pub const MAX_SUBMISSION_BYTES: usize = 256 * 1024;
+pub const MAX_PERMISSION_OVERWRITES: usize = 100;
 const MAX_COMMAND_BYTES: usize = 128 * 1024;
 const MAX_OPTION_NODES: usize = 1024;
 const SAFE_INTEGER: i64 = 9_007_199_254_740_991;
@@ -38,6 +39,39 @@ pub struct Command {
 	pub application_name: String,
 	#[serde(skip)]
 	pub application_icon: Option<String>,
+	#[serde(skip)]
+	pub default_member_permissions: Option<u128>,
+	#[serde(skip)]
+	pub permissions: CommandPermissions,
+	#[serde(skip)]
+	pub application_permissions: CommandPermissions,
+}
+
+/// Account-index overrides; `user` applies only to the current account.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CommandPermissions {
+	pub user: Option<bool>,
+	pub roles: BTreeMap<Id, bool>,
+	pub channels: BTreeMap<Id, bool>,
+}
+impl CommandPermissions {
+	pub fn valid(&self) -> bool {
+		self.roles.len() + self.channels.len() + usize::from(self.user.is_some())
+			<= MAX_PERMISSION_OVERWRITES
+			&& self
+				.roles
+				.keys()
+				.chain(self.channels.keys())
+				.all(|id| id.0 != 0)
+	}
+	pub fn bytes(&self) -> usize {
+		// Include conservative B-tree node allocation allowances, not just entries.
+		size_of::<Self>()
+			+ [&self.roles, &self.channels]
+				.into_iter()
+				.map(|map| map.len() * 64 + usize::from(!map.is_empty()) * 512)
+				.sum::<usize>()
+	}
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -302,6 +336,10 @@ impl Command {
 			+ self.description.capacity()
 			+ self.application_name.capacity()
 			+ self.application_icon.as_ref().map_or(0, String::capacity)
+			+ self.permissions.bytes()
+			- size_of::<CommandPermissions>()
+			+ self.application_permissions.bytes()
+			- size_of::<CommandPermissions>()
 			+ self.options.capacity() * size_of::<CommandOption>()
 			+ self
 				.options
@@ -336,6 +374,8 @@ impl Command {
 				.is_none_or(crate::valid_avatar_hash)
 			&& metadata(&self.contexts, 2)
 			&& metadata(&self.integration_types, 1)
+			&& self.permissions.valid()
+			&& self.application_permissions.valid()
 			&& valid_options(&self.options, 0, &mut 0)
 			&& self.bytes() <= MAX_COMMAND_BYTES
 			&& self.wire_bytes() <= MAX_COMMAND_BYTES

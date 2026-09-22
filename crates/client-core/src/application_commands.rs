@@ -6,6 +6,34 @@ use crate::{
 };
 use model::{Freshness, Id, application_commands as schema};
 
+// The account command index supplies the current user's override, role overrides,
+// and channel overrides. Threads inherit the parent channel's command rules.
+// https://docs.discord.com/developers/interactions/application-commands#permissions
+fn overrides(
+	permissions: &schema::CommandPermissions,
+	roles: &[Id],
+	guild: Id,
+	channel: Id,
+) -> (Option<bool>, Option<bool>) {
+	let target = permissions.user.or_else(|| {
+		if permissions.roles.is_empty() {
+			return None;
+		}
+		roles
+			.iter()
+			.filter_map(|id| permissions.roles.get(id))
+			.copied()
+			.reduce(|allowed, next| allowed || next)
+			.or_else(|| permissions.roles.get(&guild).copied())
+	});
+	let location = permissions
+		.channels
+		.get(&channel)
+		.or_else(|| permissions.channels.get(&Id(guild.0 - 1)))
+		.copied();
+	(target, location)
+}
+
 #[derive(Default)]
 pub struct Catalog {
 	pub channel: Option<Id>,
@@ -25,6 +53,58 @@ impl Catalog {
 }
 
 impl State {
+	/// Shared by command discovery and submission; Discord remains authoritative.
+	pub fn can_use_application_command(&self, channel: Id, command: &schema::Command) -> bool {
+		if command.kind != 1 || !self.can_request_application_commands(channel) {
+			return false;
+		}
+		let Some(channel) = self.channel(channel) else {
+			return false;
+		};
+		let context = u8::from(channel.guild.is_none());
+		if command.guild_id.is_some() && command.guild_id != channel.guild
+			|| command
+				.contexts
+				.as_ref()
+				.is_some_and(|contexts| !contexts.contains(&context))
+		{
+			return false;
+		}
+		let Some(guild) = channel.guild else {
+			return true;
+		};
+		if self.guild_permission(guild, model::permissions::ADMINISTRATOR) {
+			return true;
+		}
+		let Some(member) = self
+			.permissions
+			.guilds
+			.get(&guild)
+			.and_then(|g| g.member.as_ref())
+		else {
+			return false;
+		};
+		let Some(target_channel) = self.overwrite_target(channel) else {
+			return false;
+		};
+		let mut allowed = command
+			.default_member_permissions
+			.is_none_or(|bits| bits != 0 && self.permission(channel.id, bits) == Some(true));
+		let (app_target, app_location) = overrides(
+			&command.application_permissions,
+			&member.roles,
+			guild,
+			target_channel,
+		);
+		// An application allow preserves the command's default member requirement;
+		// an explicit command overwrite can replace that requirement.
+		if app_target == Some(false) {
+			allowed = false;
+		}
+		let (command_target, command_location) =
+			overrides(&command.permissions, &member.roles, guild, target_channel);
+		command_target.unwrap_or(allowed) && command_location.or(app_location).unwrap_or(true)
+	}
 	pub fn can_request_application_commands(&self, channel: Id) -> bool {
 		self.auth == AuthState::Authenticated
 			&& self.gateway_connected
@@ -130,16 +210,10 @@ impl State {
 			.iter()
 			.find(|c| c.id == command_id)
 			.ok_or("This command is no longer available")?;
-		let guild = self.channel(channel).and_then(|c| c.guild);
-		let context = if guild.is_some() { 0 } else { 1 };
-		if command.guild_id.is_some() && command.guild_id != guild
-			|| command
-				.contexts
-				.as_ref()
-				.is_some_and(|contexts| !contexts.contains(&context))
-		{
-			return Err("This command is not available in the current context");
+		if !self.can_use_application_command(channel, command) {
+			return Err("You don't have permission to use this command here");
 		}
+		let guild = self.channel(channel).and_then(|c| c.guild);
 		let invocation = command.invocation(path, values)?;
 		for option in command.options_at(path)?.iter().filter(|o| o.kind == 7) {
 			if let Some((_, value)) = values
@@ -177,7 +251,7 @@ mod tests {
 	use super::*;
 	use crate::{Envelope, Event};
 	use model::{AccountKind, Channel, User};
-	fn state() -> State {
+	fn bot_state() -> State {
 		let bot = User {
 			id: Id(3),
 			name: "Synthetic app".into(),
@@ -219,6 +293,9 @@ mod tests {
 			description: "Synthetic command".into(),
 			application_name: "Synthetic app".into(),
 			application_icon: None,
+			default_member_permissions: None,
+			permissions: Default::default(),
+			application_permissions: Default::default(),
 			contexts: Some(vec![1]),
 			integration_types: None,
 			options: vec![schema::CommandOption {
@@ -251,8 +328,185 @@ mod tests {
 		}
 	}
 	#[test]
+	fn command_permissions_filter_defaults_overrides_threads_and_submission() {
+		use model::permissions as p;
+		let mut state = bot_state();
+		state.user = Some(state.channels[0].recipients[0].clone());
+		state.channels[0].guild = Some(Id(10));
+		state.channels[0].kind = 0;
+		state.guilds.push(model::Guild {
+			id: Id(10),
+			name: "Synthetic guild".into(),
+			icon: None,
+			emojis: None,
+			stickers: None,
+		});
+		let role = |id, bits| p::Role {
+			id: Id(id),
+			bits,
+			name: "Synthetic role".into(),
+			color: 0,
+			position: 0,
+			hoist: false,
+		};
+		state
+			.permissions
+			.replace(p::Snapshot {
+				guilds: vec![p::Guild {
+					id: Id(10),
+					owner: Some(Id(99)),
+					roles: Some(vec![
+						role(10, p::VIEW_CHANNEL | p::USE_APPLICATION_COMMANDS),
+						role(11, 0),
+						role(12, 0),
+					]),
+					member: Some(p::Member {
+						roles: vec![Id(11), Id(12)],
+						timeout_until: None,
+					}),
+				}],
+				channels: vec![p::Channel {
+					id: Id(2),
+					guild: Id(10),
+					overwrites: Some(vec![]),
+				}],
+			})
+			.unwrap();
+		let mut command = command();
+		command.contexts = None;
+		assert!(state.can_use_application_command(Id(2), &command));
+		assert!(
+			!state.can_compose(Id(2)),
+			"application permission does not require ordinary message permission"
+		);
+		command.default_member_permissions = Some(p::KICK_MEMBERS);
+		assert!(!state.can_use_application_command(Id(2), &command));
+		command.default_member_permissions = Some(p::VIEW_CHANNEL | p::USE_APPLICATION_COMMANDS);
+		assert!(state.can_use_application_command(Id(2), &command));
+		command.default_member_permissions = Some(0);
+		command.application_permissions.user = Some(true);
+		assert!(
+			!state.can_use_application_command(Id(2), &command),
+			"app-wide allow must preserve command defaults"
+		);
+		command.permissions.roles.insert(Id(10), true);
+		assert!(state.can_use_application_command(Id(2), &command));
+		command.permissions.roles.insert(Id(11), false);
+		assert!(
+			!state.can_use_application_command(Id(2), &command),
+			"member role overrides everyone"
+		);
+		command.permissions.roles.insert(Id(12), true);
+		assert!(
+			state.can_use_application_command(Id(2), &command),
+			"allow wins between matched roles"
+		);
+		command.permissions.user = Some(false);
+		assert!(
+			!state.can_use_application_command(Id(2), &command),
+			"current user overrides roles"
+		);
+		command.permissions.user = Some(true);
+		command.application_permissions.user = Some(false);
+		assert!(
+			state.can_use_application_command(Id(2), &command),
+			"command-specific allow overrides app denial"
+		);
+		command
+			.application_permissions
+			.channels
+			.insert(Id(9), false);
+		assert!(
+			!state.can_use_application_command(Id(2), &command),
+			"a user allow does not override a channel denial"
+		);
+		command.application_permissions.channels.insert(Id(2), true);
+		assert!(
+			state.can_use_application_command(Id(2), &command),
+			"specific channel overrides all channels"
+		);
+		command.permissions.channels.insert(Id(9), false);
+		assert!(
+			!state.can_use_application_command(Id(2), &command),
+			"command channel layer replaces app channel layer"
+		);
+		command.permissions.channels.insert(Id(2), true);
+		assert!(state.can_use_application_command(Id(2), &command));
+		let mut thread = state.channels[0].clone();
+		thread.id = Id(21);
+		thread.kind = 11;
+		thread.parent_id = Some(Id(2));
+		state.channels.push(thread);
+		state.selected = Some(Id(21));
+		command.permissions.channels.insert(Id(21), false);
+		assert!(
+			state.can_use_application_command(Id(21), &command),
+			"thread uses parent rules"
+		);
+		command.permissions.channels.insert(Id(2), false);
+		assert!(!state.can_use_application_command(Id(21), &command));
+		state.selected = Some(Id(2));
+		state.application_commands.channel = Some(Id(2));
+		state.application_commands.commands = vec![command.clone()];
+		assert!(
+			state
+				.prepare_application_command(
+					command.id,
+					&["run".into()],
+					&[("count".into(), "2".into())]
+				)
+				.is_err()
+		);
+		assert!(
+			!state.interactions.busy(),
+			"permission denial must not queue an interaction"
+		);
+		state
+			.update_permissions(crate::permissions::Event::Role {
+				guild: Id(10),
+				role: role(12, p::ADMINISTRATOR),
+			})
+			.unwrap();
+		assert!(
+			state.can_use_application_command(Id(2), &command),
+			"administrator bypasses command restrictions"
+		);
+		state
+			.update_permissions(crate::permissions::Event::Role {
+				guild: Id(10),
+				role: role(12, 0),
+			})
+			.unwrap();
+		state
+			.update_permissions(crate::permissions::Event::Member {
+				guild: Id(10),
+				roles: model::Patch::Null,
+				timeout_until: model::Patch::Absent,
+			})
+			.unwrap();
+		assert!(
+			!state.can_use_application_command(Id(2), &command),
+			"unknown member metadata is not a grant"
+		);
+		state
+			.update_permissions(crate::permissions::Event::Owner {
+				guild: Id(10),
+				owner: model::Patch::Value(Id(3)),
+			})
+			.unwrap();
+		assert!(
+			state.can_use_application_command(Id(2), &command),
+			"owner bypasses defaults and explicit denials"
+		);
+		let dm = bot_state();
+		assert!(
+			dm.can_use_application_command(Id(2), &command),
+			"guild restrictions do not restrict a supported bot DM"
+		);
+	}
+	#[test]
 	fn catalog_scope_and_schema_guard_explicit_interaction_submission() {
-		let mut state = state();
+		let mut state = bot_state();
 		let Some(Command::ApplicationCommands {
 			channel, request, ..
 		}) = state.request_application_commands(Id(2), false)

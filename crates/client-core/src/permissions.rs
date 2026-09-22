@@ -585,7 +585,7 @@ impl State {
 	pub fn can_view(&self, channel: Id) -> bool {
 		self.permission(channel, p::VIEW_CHANNEL) == Some(true)
 	}
-	fn overwrite_target(&self, channel: &model::Channel) -> Option<Id> {
+	pub(crate) fn overwrite_target(&self, channel: &model::Channel) -> Option<Id> {
 		if matches!(channel.kind, 10..=12) {
 			let parent = channel.parent_id?;
 			self.channel(parent)

@@ -14,6 +14,16 @@ pub(super) enum Builtin {
 	Unflip,
 }
 
+impl Builtin {
+	pub fn available(self, state: &State, channel: Id) -> bool {
+		if self == Self::Msg {
+			state.can_view(channel)
+		} else {
+			state.can_compose(channel)
+		}
+	}
+}
+
 pub(super) struct Descriptor {
 	pub command: Builtin,
 	pub name: &'static str,
@@ -228,7 +238,12 @@ impl crate::MessagingUi {
 			return false;
 		};
 		let source = source.clone();
-		let action = match parse(&source).expect("recognized builtin").action() {
+		let invocation = parse(&source).expect("recognized builtin");
+		if !invocation.command.available(state, channel) {
+			state.status = "You don't have permission to use this command in this channel.";
+			return true;
+		}
+		let action = match invocation.action() {
 			Ok(action) => action,
 			Err(error) => {
 				state.status = error;

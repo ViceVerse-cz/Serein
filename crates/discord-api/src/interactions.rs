@@ -234,15 +234,19 @@ mod tests {
 		tokio::time::timeout(Duration::from_secs(10), async {
 			let definition = json!({"type":1,"id":"10","version":"11","application_id":"12",
 				"name":"inspect","description":"Inspect a synthetic member","contexts":[0],
+				"default_member_permissions":"0",
+				"permissions":{"user":true,"roles":{"20":false,"55":true},"channels":{"19":false,"21":true}},
 				"options":[{"type":2,"name":"utility","description":"Tools","options":[
 					{"type":1,"name":"member","description":"Member","options":[
 						{"type":3,"name":"label","description":"Label","required":true,"max_length":20},
 						{"type":5,"name":"private","description":"Private"},
 						{"type":6,"name":"user","description":"User"}]}]}]});
-			let index = json!({"application_commands":[definition,{"type":2},
+			let index =
+				json!({"application_commands":[definition,{"type":2},{"type":1,"nsfw":true},
 				{"type":1,"contexts":[1]}, {"type":1,"guild_id":"99"}],
-				"applications":[{"id":"12","name":"Synthetic App","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]})
-			.to_string();
+				"applications":[{"id":"12","name":"Synthetic App","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"permissions":{"user":false,"roles":{"20":true},"channels":{"19":true}}}]})
+				.to_string();
 			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 			let mut api = DiscordApi::new(Arc::new(
 				SessionSecret::from_owner_input("SYNTHETIC_SLASH_TOKEN".into()).unwrap(),
@@ -327,6 +331,15 @@ mod tests {
 									.get("application_icon")
 									.is_none()
 							);
+							for metadata in [
+								"default_member_permissions",
+								"permissions",
+								"application_permissions",
+							] {
+								assert!(
+									body["data"]["application_command"].get(metadata).is_none()
+								);
+							}
 							assert_eq!(body["data"]["attachments"], json!([]));
 							assert_eq!(
 								body["data"]["options"],
@@ -368,6 +381,25 @@ mod tests {
 				command.application_icon.as_deref(),
 				Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 			);
+			assert_eq!(command.default_member_permissions, Some(0));
+			assert_eq!(command.permissions.user, Some(true));
+			assert_eq!(command.permissions.roles.get(&Id(20)), Some(&false));
+			assert_eq!(command.permissions.roles.get(&Id(55)), Some(&true));
+			assert_eq!(command.permissions.channels.get(&Id(19)), Some(&false));
+			assert_eq!(command.permissions.channels.get(&Id(21)), Some(&true));
+			assert_eq!(command.application_permissions.user, Some(false));
+			assert_eq!(
+				command.application_permissions.roles.get(&Id(20)),
+				Some(&true)
+			);
+			assert_eq!(
+				command.application_permissions.channels.get(&Id(19)),
+				Some(&true)
+			);
+			let mut no_permissions = command.clone();
+			no_permissions.permissions = Default::default();
+			no_permissions.application_permissions = Default::default();
+			assert!(command.bytes() > no_permissions.bytes());
 			let value = |kind, name: &str, value| Argument {
 				kind,
 				name: name.into(),
@@ -423,6 +455,72 @@ mod tests {
 					.application_icon
 					.is_none()
 			);
+			let mut permission_index: Value = serde_json::from_slice(&invalid_icon).unwrap();
+			let decode_permissions = |index: &Value| {
+				discord_protocol::application_commands::decode(
+					&serde_json::to_vec(index).unwrap(),
+					Some(Id(20)),
+				)
+			};
+			let bare = decode_permissions(&permission_index).unwrap().remove(0);
+			assert_eq!(bare.default_member_permissions, None);
+			assert_eq!(bare.permissions, Default::default());
+			assert_eq!(bare.application_permissions, Default::default());
+			for bits in [Value::Null, json!("0"), json!(u128::MAX.to_string())] {
+				permission_index["application_commands"][0]["default_member_permissions"] = bits;
+				assert!(decode_permissions(&permission_index).is_ok());
+			}
+			for bits in [
+				json!(0),
+				json!(""),
+				json!("-1"),
+				json!(format!("{}0", u128::MAX)),
+			] {
+				permission_index["application_commands"][0]["default_member_permissions"] = bits;
+				assert!(decode_permissions(&permission_index).is_err());
+			}
+			permission_index["application_commands"][0]["default_member_permissions"] = Value::Null;
+			let roles: serde_json::Map<_, _> =
+				(1..=100).map(|id| (id.to_string(), json!(true))).collect();
+			for application_layer in [false, true] {
+				let (rows, other) = if application_layer {
+					("applications", "application_commands")
+				} else {
+					("application_commands", "applications")
+				};
+				permission_index[other][0]["permissions"] = Value::Null;
+				permission_index[rows][0]["permissions"] = json!({"roles":roles});
+				assert!(decode_permissions(&permission_index).is_ok());
+				permission_index[rows][0]["permissions"]["roles"]["101"] = json!(true);
+				assert!(decode_permissions(&permission_index).is_err());
+				permission_index[rows][0]["permissions"] = json!({"roles":roles});
+				permission_index[rows][0]["permissions"]["user"] = json!(false);
+				assert!(decode_permissions(&permission_index).is_err());
+				permission_index[rows][0]["permissions"] = json!({"roles":{"0":true}});
+				assert!(decode_permissions(&permission_index).is_err());
+				permission_index[rows][0]["permissions"] = json!({"roles":{"20":true}});
+				let duplicate = serde_json::to_string(&permission_index)
+					.unwrap()
+					.replace("\"20\":true", "\"20\":true,\"20\":false");
+				assert!(
+					discord_protocol::application_commands::decode(
+						duplicate.as_bytes(),
+						Some(Id(20))
+					)
+					.is_err()
+				);
+			}
+			permission_index["applications"][0]["permissions"] = json!({"roles":roles});
+			permission_index["application_commands"][0]["permissions"] = Value::Null;
+			let repeated = (100..900)
+				.map(|id| {
+					let mut command = permission_index["application_commands"][0].clone();
+					command["id"] = json!(id.to_string());
+					command
+				})
+				.collect::<Vec<_>>();
+			permission_index["application_commands"] = json!(repeated);
+			assert!(decode_permissions(&permission_index).is_err());
 			assert!(
 				discord_protocol::application_commands::decode(
 					&vec![b' '; discord_protocol::MAX_WIRE + 1],

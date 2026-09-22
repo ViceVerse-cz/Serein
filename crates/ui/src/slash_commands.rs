@@ -9,6 +9,7 @@ use model::{
 const RESULTS: usize = 64;
 const ROW: f32 = 58.0;
 const RAIL: f32 = 56.0;
+const NO_PERMISSION: &str = "You don't have permission to use this command in this channel.";
 
 #[derive(Clone)]
 pub(super) struct Pick {
@@ -41,9 +42,10 @@ pub(super) struct Menu {
 	channel: Option<Id>,
 	generation: u64,
 	query: Option<String>,
-	stamp: (u64, bool, usize),
+	stamp: (u64, bool, usize, bool, bool, bool),
 	filter: Filter,
 	items: Vec<Pick>,
+	applications: std::collections::BTreeSet<Id>,
 	selected: usize,
 	dismissed: bool,
 	enabled: bool,
@@ -57,6 +59,15 @@ pub(super) struct Menu {
 }
 
 impl Menu {
+	pub fn suspend(&mut self, state: &State, channel: Id) {
+		if self.channel != Some(channel) || self.generation != state.generation {
+			*self = Self::default();
+		}
+		self.enabled = false;
+		self.rect = None;
+		self.run = false;
+		self.retry = false;
+	}
 	pub fn pointer_interacting(&self, ctx: &egui::Context, channel: Id) -> bool {
 		self.channel == Some(channel)
 			&& self.rect.is_some_and(|rect| {
@@ -105,7 +116,14 @@ impl Menu {
 			})
 			.map(|query| query.trim_end().to_lowercase());
 		let catalog = &state.application_commands;
-		let stamp = (catalog.request, catalog.loading, catalog.commands.len());
+		let stamp = (
+			catalog.request,
+			catalog.loading,
+			catalog.commands.len(),
+			state.can_compose(channel),
+			state.can_request_application_commands(channel),
+			state.can_view(channel),
+		);
 		if self.query == query && self.stamp == stamp {
 			return;
 		}
@@ -120,12 +138,19 @@ impl Menu {
 	}
 	fn rebuild(&mut self, state: &State) {
 		self.items.clear();
+		self.applications.clear();
 		let Some(query) = self.query.as_deref() else {
+			return;
+		};
+		let Some(channel) = self.channel else {
 			return;
 		};
 		if matches!(self.filter, Filter::All | Filter::Builtins) {
 			for entry in slash_builtin::ALL {
-				if entry.name.contains(query) || entry.description.to_lowercase().contains(query) {
+				if entry.command.available(state, channel)
+					&& (entry.name.contains(query)
+						|| entry.description.to_lowercase().contains(query))
+				{
 					self.items.push(Pick {
 						id: None,
 						path: Vec::new(),
@@ -138,9 +163,15 @@ impl Menu {
 				}
 			}
 		}
-		if self.filter != Filter::Builtins {
-			for command in &state.application_commands.commands {
-				if matches!(self.filter, Filter::Application(id) if id != command.application_id) {
+		for command in &state.application_commands.commands {
+			if !state.can_use_application_command(channel, command) {
+				continue;
+			}
+			self.applications.insert(command.application_id);
+			if self.filter != Filter::Builtins {
+				if self.items.len() >= RESULTS
+					|| matches!(self.filter, Filter::Application(id) if id != command.application_id)
+				{
 					continue;
 				}
 				let mut leaves = Vec::new();
@@ -187,9 +218,6 @@ impl Menu {
 							break;
 						}
 					}
-				}
-				if self.items.len() >= RESULTS {
-					break;
 				}
 			}
 		}
@@ -373,7 +401,9 @@ impl Menu {
 					.show(&mut rail, |ui| {
 						let mut seen = std::collections::BTreeSet::new();
 						for command in &state.application_commands.commands {
-							if !seen.insert(command.application_id) {
+							if !self.applications.contains(&command.application_id)
+								|| !seen.insert(command.application_id)
+							{
 								continue;
 							}
 							let target = Filter::Application(command.application_id);
@@ -526,6 +556,10 @@ impl Menu {
 			ui.weak("This command is no longer available. Refresh apps and choose it again.");
 			return;
 		};
+		if !state.can_use_application_command(channel, command) {
+			ui.colored_label(design::palette(ui).danger, NO_PERMISSION);
+			return;
+		}
 		ui.horizontal(|ui| {
 			ui.strong(format!("/{}", active.name));
 			ui.weak(&command.application_name);
@@ -926,6 +960,19 @@ impl crate::MessagingUi {
 				return false;
 			}
 			let name = draft[1..].split_whitespace().next().unwrap_or("");
+			let mut matching = state
+				.application_commands
+				.commands
+				.iter()
+				.filter(|command| command.name == name)
+				.peekable();
+			if matching.peek().is_some()
+				&& !matching.any(|command| state.can_use_application_command(channel, command))
+			{
+				state.status = NO_PERMISSION;
+				self.slash_commands.error = Some(NO_PERMISSION);
+				return true;
+			}
 			if state.application_commands.loading
 				|| self.slash_commands.visible()
 				|| state
@@ -1056,13 +1103,50 @@ mod tests {
 				integration_types: None,
 				application_name: "Synthetic app".into(),
 				application_icon: None,
+				default_member_permissions: None,
+				permissions: Default::default(),
+				application_permissions: Default::default(),
 			};
 			let Some(Command::ApplicationCommands { request, .. }) =
 				state.request_application_commands(channel, true)
 			else {
 				panic!("catalog request");
 			};
-			state.apply_application_commands(channel, request, Ok(vec![app]));
+			let mut denied = app.clone();
+			denied.id = Id(988);
+			denied.application_id = Id(989);
+			denied.name = "restricted".into();
+			denied.permissions.user = Some(false);
+			state.apply_application_commands(channel, request, Ok(vec![app, denied]));
+			state.drafts.insert(channel, "/".into());
+			for _ in 0..3 {
+				frame(&mut view, &mut state, None);
+			}
+			assert_eq!(
+				view.slash_commands
+					.items
+					.iter()
+					.map(|item| item.name.as_str())
+					.collect::<Vec<_>>(),
+				vec!["ask", "msg"],
+				"hide denied apps and builtins that require Send Messages"
+			);
+			assert_eq!(
+				view.slash_commands
+					.applications
+					.iter()
+					.copied()
+					.collect::<Vec<_>>(),
+				vec![Id(986)]
+			);
+			for source in ["/restricted", "/gif cats", "/sticker cats", "/shrug hello"] {
+				state.drafts.insert(channel, source.into());
+				frame(&mut view, &mut state, None);
+				assert!(frame(&mut view, &mut state, Some((egui::Key::Enter, false))).is_empty());
+				assert_eq!(state.drafts[&channel], source);
+				assert_eq!(state.status, NO_PERMISSION);
+				assert!(!view.emoji_picker.is_open());
+			}
 			state.drafts.insert(channel, "/ask".into());
 			for _ in 0..3 {
 				frame(&mut view, &mut state, None);
@@ -1105,6 +1189,34 @@ mod tests {
 				"required blank input is rejected"
 			);
 			view.slash_commands.active.as_mut().unwrap().values[0].1 = "Hello".into();
+			state.application_commands.commands[0].permissions.user = Some(false);
+			state.application_commands.request += 1;
+			frame(&mut view, &mut state, None);
+			assert!(view.slash_commands.items.is_empty());
+			assert!(view.slash_commands.applications.is_empty());
+			assert!(frame(&mut view, &mut state, Some((egui::Key::Enter, false))).is_empty());
+			assert_eq!(Some(state.status), view.slash_commands.error);
+			assert_eq!(state.drafts[&channel], "/ask ");
+			assert_eq!(
+				view.slash_commands.active.as_ref().unwrap().values[0].1,
+				"Hello"
+			);
+			view.slash_commands.suspend(&state, channel);
+			assert!(!view.slash_commands.visible());
+			assert_eq!(
+				view.slash_commands.active.as_ref().unwrap().values[0].1,
+				"Hello"
+			);
+			state.application_commands.commands[0].permissions.user = Some(true);
+			state.application_commands.request += 1;
+			frame(&mut view, &mut state, None);
+			assert!(
+				view.slash_commands
+					.items
+					.iter()
+					.any(|item| item.id == Some(Id(987)))
+			);
+			assert!(view.slash_commands.applications.contains(&Id(986)));
 			let commands = frame(&mut view, &mut state, Some((egui::Key::Enter, false)));
 			assert!(matches!(commands.as_slice(), [Command::Interaction(_)]));
 			assert!(
@@ -1129,7 +1241,7 @@ mod tests {
 				view.slash_commands.active.as_ref().unwrap().values[0].1,
 				"keep me"
 			);
-			view.slash_commands.refresh(&state, Id(9999), "", false);
+			view.slash_commands.suspend(&state, Id(9999));
 			assert!(view.slash_commands.active.is_none());
 		}
 	}

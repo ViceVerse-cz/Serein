@@ -1066,6 +1066,12 @@ Optional application icon hashes use the existing 32-hexadecimal-character valid
 (with an optional `a_` prefix), count toward schema bytes and never enter submissions.
 Visible artwork uses fixed Discord CDN URLs through the existing credential-free image
 worker and bounded image disk/texture caches; no separate icon cache or metadata fetch is added.
+Each application/command permission layer holds at most 100 combined current-user, role
+and channel overrides. IDs and values are validated, duplicate map keys are rejected, and
+conservative map allocation estimates count toward the schema/catalog budgets. Default
+permission bits and overrides remain session-only and are excluded from submissions. The
+picker retains at most 2,000 fixed-size available-application IDs alongside its bounded rows;
+permission filtering uses the received index and existing role state without extra REST calls.
 
 Catalog reads run in one replaceable worker using the existing REST admission and bounded
 event queue. Channel, account generation and request ID reject stale results. Navigation,

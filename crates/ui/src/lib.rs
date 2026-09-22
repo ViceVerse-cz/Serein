@@ -2048,7 +2048,7 @@ impl MessagingUi {
 			// Returning to an edit must restore its focus after visiting a read-only channel.
 			self.composer_edit = None;
 			self.mention_menu = mentions::Menu::default();
-			self.slash_commands = slash_commands::Menu::default();
+			self.slash_commands.suspend(state, channel);
 			self.emoji_picker = emoji_picker::Picker::default();
 			self.ime_active = false;
 			self.focus_switched_composer = false;

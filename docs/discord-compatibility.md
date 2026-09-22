@@ -28,8 +28,18 @@ typed arguments. Root commands, subcommands and one subcommand-group level suppo
 integers, numbers, booleans, static choices and user/channel/role/mentionable IDs.
 Entity pickers use already loaded account data; they do not fetch a complete directory.
 Required fields, declared limits, choices, command context and channel access are checked
-before sending. Guild commands also require Use Application Commands permission; Discord
-remains authoritative for application-specific permissions. The inner command guild ID is
+before sending. Guild commands require Use Application Commands permission. The picker and
+submission path also check default member permission bits and received application/command
+overrides for the current user, roles and channel. User overrides precede role overrides;
+role allows win among matching roles, and threads inherit the parent channel's rules.
+Owners/administrators bypass command restrictions. Apps with no available commands are
+hidden from the rail, and channel-send built-ins are hidden without Send Messages permission.
+Permission changes that invalidate the catalog cause it to reload; changes made solely to
+server command overrides may require the picker's Refresh action. These index fields are
+[unofficial account metadata](https://github.com/dolfies/discord.py-self/blob/master/discord/types/command.py#L141-L171).
+Discord remains authoritative, and bot-internal access checks cannot be predicted locally.
+Age-restricted commands are omitted until account/channel eligibility is supported.
+The inner command guild ID is
 included only for guild-scoped definitions, independently of the invocation channel's guild.
 See the [official command schema](https://docs.discord.com/developers/interactions/application-commands)
 and [maintained submission implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/commands.py#L931-L973).
