@@ -191,8 +191,10 @@ mod tests {
 	#[test]
 	fn explicit_send_preserves_composition_and_rejects_stale_scope_and_limits() {
 		let mut state = state();
-		let mut view = MessagingUi::default();
-		view.attachment_files = vec![("unsent.png".into(), 12)];
+		let mut view = MessagingUi {
+			attachment_files: vec![("unsent.png".into(), 12)],
+			..Default::default()
+		};
 		state.drafts.insert(Id(22), "Unrelated draft".into());
 		state.reply = Some(client_core::Reply::to(Id(700)));
 		let mut commands = Vec::new();
