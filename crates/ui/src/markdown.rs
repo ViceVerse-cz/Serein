@@ -174,6 +174,31 @@ fn only_emoji(spans: &[(String, Style)], blocks: &[CodeBlock], mentions: usize) 
 	}
 	(1..=MAX_JUMBO).contains(&count)
 }
+/// Frontend-neutral view of one parsed span; see [`Formatted::spans`].
+pub struct Span<'a> {
+	pub text: &'a str,
+	pub strong: bool,
+	pub italic: bool,
+	pub underline: bool,
+	pub code: bool,
+	pub strike: bool,
+	pub quote: bool,
+	/// Discord heading level 1–3; zero for body text.
+	pub heading: u8,
+	/// Discord `-# ` subtext.
+	pub small: bool,
+	/// Validated external target from [`Formatted::links`].
+	pub link: Option<&'a str>,
+	pub mention: Option<Id>,
+	pub role: Option<Id>,
+	pub mass_mention: bool,
+	pub channel: Option<Id>,
+	/// Discord `<t:seconds:style>` reference.
+	pub timestamp: Option<(i64, u8)>,
+	pub spoiler: bool,
+	/// Fenced block index for [`Formatted::code_block`]; the block replaces these spans.
+	pub block: Option<usize>,
+}
 /// One fenced block: its display text plus highlighting computed once at parse time.
 pub struct CodeBlock {
 	/// Sanitised fence info word, shown when no known language matches it.
@@ -1024,7 +1049,7 @@ impl Formatted {
 			(&mut crate::avatars::Avatars::default(), true, &[]),
 		);
 	}
-	pub fn show_with_images(
+	pub(crate) fn show_with_images(
 		&self,
 		ui: &mut egui::Ui,
 		opening: &mut Option<String>,
@@ -1049,7 +1074,7 @@ impl Formatted {
 		surface.finish(ui);
 	}
 	#[allow(clippy::too_many_arguments)]
-	pub fn show_references(
+	pub(crate) fn show_references(
 		&self,
 		ui: &mut egui::Ui,
 		opening: &mut Option<String>,
@@ -1070,7 +1095,7 @@ impl Formatted {
 		);
 	}
 	#[allow(clippy::too_many_arguments)]
-	pub fn show_search(
+	pub(crate) fn show_search(
 		&self,
 		ui: &mut egui::Ui,
 		opening: &mut Option<String>,
@@ -1990,6 +2015,41 @@ impl Formatted {
 				job.append(&take, 0.0, format);
 			}
 		}
+	}
+	/// Styled spans for renderers outside egui, in source order. Mention, role, channel and
+	/// timestamp spans keep their raw text; the caller resolves names from its own state.
+	pub fn spans(&self) -> impl Iterator<Item = Span<'_>> {
+		self.spans.iter().map(|(text, style)| Span {
+			text,
+			strong: style.strong,
+			italic: style.italic,
+			underline: style.underline,
+			code: style.code,
+			strike: style.strike,
+			quote: style.quote,
+			heading: style.heading,
+			small: style.small,
+			link: style
+				.link
+				.and_then(|index| self.links.get(index))
+				.map(String::as_str),
+			mention: style.mention,
+			role: style.role,
+			mass_mention: style.mass_mention,
+			channel: style.channel,
+			timestamp: style.timestamp,
+			spoiler: style.spoiler.is_some(),
+			block: style.block.map(usize::from),
+		})
+	}
+	/// Fence tag and tab-expanded text of one fenced code block.
+	pub fn code_block(&self, index: usize) -> Option<(&str, &str)> {
+		self.blocks.get(index).map(|block| {
+			(
+				block.tag.as_str(),
+				block.display.as_deref().unwrap_or(&block.code),
+			)
+		})
 	}
 	pub fn bytes(&self) -> usize {
 		self.spans.capacity() * size_of::<(String, Style)>()

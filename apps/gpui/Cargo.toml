@@ -5,8 +5,11 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-gpui = "=0.2.2"
+# Zed has not published the split GPUI crates; pin its latest main commit reproducibly.
+gpui = { git = "https://github.com/zed-industries/zed", rev = "96e95edac45b0e0696179b8139aa521cf48db392" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "96e95edac45b0e0696179b8139aa521cf48db392", features = ["font-kit"] }
 unicode-segmentation = "1"
+futures-util.workspace = true
 client-core.workspace = true
 model.workspace = true
 discord-api.workspace = true
@@ -16,6 +19,7 @@ platform.workspace = true
 ui.workspace = true
 egui.workspace = true
 test-support.workspace = true
+time.workspace = true
 tokio.workspace = true
 zeroize.workspace = true
 

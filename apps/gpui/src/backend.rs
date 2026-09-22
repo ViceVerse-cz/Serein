@@ -10,6 +10,8 @@ use std::{
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 
 static CREDENTIAL_GATE: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(1)));
+/// Wakes the UI when an event or status is ready; one stored permit coalesces bursts.
+pub static WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 pub struct Backend {
 	pub commands: mpsc::Sender<Command>,
@@ -83,13 +85,23 @@ impl Output {
 			.map_err(|error| match error {
 				mpsc::error::TrySendError::Full(_) => Failure::Capacity,
 				mpsc::error::TrySendError::Closed(_) => Failure::Network,
-			})
+			})?;
+		WAKE.notify_one();
+		Ok(())
 	}
 }
 
 impl Backend {
 	pub fn start(demo: bool) -> Self {
 		Self::launch(demo, None)
+	}
+
+	/// No connection: used while the hosted login page is open.
+	pub fn idle() -> Self {
+		let mut backend = Self::launch(true, None);
+		let (_, status) = watch::channel("");
+		backend.status = status;
+		backend
 	}
 
 	pub fn with_secret(secret: SessionSecret) -> Self {
@@ -102,10 +114,11 @@ impl Backend {
 		let (report, status) = watch::channel(if demo {
 			"Offline demo · synthetic data"
 		} else {
-			"Checking saved login…"
+			"Checking saved login · allow keychain access if macOS asks…"
 		});
 		let (cancel, mut cancelled) = watch::channel(false);
 		let (finished, terminal) = watch::channel(None);
+		let mut statuses = status.clone();
 		if !demo {
 			std::thread::spawn(move || {
 				let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
@@ -114,6 +127,7 @@ impl Backend {
 				else {
 					let _ = report.send("Could not start the connection worker");
 					let _ = finished.send(Some(Failure::Network));
+					WAKE.notify_one();
 					return;
 				};
 				let output = Output {
@@ -121,9 +135,16 @@ impl Backend {
 					bytes: Arc::new(Semaphore::new(EVENT_SLOTS * MAX_EVENT_BYTES)),
 					startup: Arc::new(Semaphore::new(1)),
 				};
+				let forward = async {
+					while statuses.changed().await.is_ok() {
+						WAKE.notify_one();
+					}
+					std::future::pending::<()>().await;
+				};
 				runtime.block_on(async {
 					tokio::select! {
 						_ = cancelled.changed() => {},
+						_ = forward => {},
 						result = connect(receive, &output, &report, secret) => {
 							if let Err(failure) = result {
 								let _ = report.send(failure.label());
@@ -132,6 +153,7 @@ impl Backend {
 						}
 					}
 				});
+				WAKE.notify_one();
 				// A blocked OS credential prompt must not keep app shutdown waiting.
 				runtime.shutdown_background();
 			});
@@ -169,14 +191,16 @@ async fn connect(
 			return Ok(());
 		};
 		let loaded = tokio::time::timeout(
-			Duration::from_secs(10),
+			// This executable is new to the keychain; leave time to answer the macOS access prompt.
+			Duration::from_secs(60),
 			tokio::task::spawn_blocking(move || {
 				let _permit = permit;
 				platform::load_session()
 			}),
 		)
 		.await;
-		let secret = match loaded {
+
+		match loaded {
 			Ok(Ok(Ok(Some(secret)))) => Arc::new(secret),
 			Ok(Ok(Ok(None))) => {
 				let _ = status.send("No saved login. Choose Sign in with Discord.");
@@ -193,22 +217,21 @@ async fn connect(
 					status.send("Saved login unavailable. Choose Sign in with Discord or retry.");
 				return Ok(());
 			}
-		};
-		secret
+		}
 	};
 	let _ = status.send("Authenticating · connecting…");
 	let mut api = discord_api::DiscordApi::new(secret.clone())?;
 	let user = api.authenticate().await?;
 	let gateway = api.gateway_url().await?;
-	let (_subscriptions, subscription) = watch::channel(None);
+	let (subscriptions, subscription) = watch::channel(None);
 	let (ready_send, ready_receive) = tokio::sync::oneshot::channel();
 	let ready_send = Mutex::new(Some(ready_send));
 	let save_secret = secret.clone();
 	let stream = discord_gateway::run(secret, gateway, subscription, |event| {
-		if let Some((owner, _, _)) = event.ready_navigation() {
-			if owner.id != user.id {
-				return Err(Failure::InvalidCredential);
-			}
+		if let Some((owner, _, _)) = event.ready_navigation()
+			&& owner.id != user.id
+		{
+			return Err(Failure::InvalidCredential);
 		}
 		if matches!(&event, Event::Disconnected | Event::Resync) {
 			let _ = status.send("Reconnecting…");
@@ -229,6 +252,32 @@ async fn connect(
 	let writes = async {
 		// ponytail: serialize REST work; split history from writes if switching latency matters.
 		while let Some(command) = commands.recv().await {
+			// Member lists are gateway subscriptions, not REST requests.
+			if let Command::Members {
+				guild,
+				channel,
+				request,
+				list_id,
+				thread,
+				ranges,
+			} = command
+			{
+				let member = match (guild, channel, list_id) {
+					(Some(guild), Some(channel), list_id) if thread || list_id.is_some() => {
+						Some(discord_gateway::MemberSubscription {
+							guild,
+							channel,
+							request,
+							thread,
+							list_id: list_id.unwrap_or_default(),
+							ranges,
+						})
+					}
+					_ => None,
+				};
+				subscriptions.send(member).map_err(|_| Failure::Network)?;
+				continue;
+			}
 			let history = match &command {
 				Command::History {
 					channel, request, ..

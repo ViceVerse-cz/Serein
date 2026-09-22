@@ -1053,77 +1053,6 @@ fn changes_active_history(state: &State, event: &Event) -> bool {
 	};
 	state.selected == Some(*channel)
 }
-/// Synthetic People rows with presence; never a Discord member directory.
-#[cfg(feature = "demo")]
-fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> model::MemberList {
-	let mut members = vec![
-		model::Member {
-			user: test_support::message(2, channel).author,
-			nick: None,
-			roles: if guild.is_some() {
-				vec![model::Id(9001)]
-			} else {
-				vec![]
-			},
-			status: Some("idle".into()),
-			custom_status: None,
-			activities: vec![],
-		},
-		model::Member {
-			user: test_support::message(1, channel).author,
-			nick: None,
-			roles: if guild.is_some() {
-				vec![model::Id(9002)]
-			} else {
-				vec![]
-			},
-			status: Some("online".into()),
-			custom_status: Some("🌙 semifluent in synthetic data".into()),
-			activities: vec![model::RichActivity {
-				kind: 0,
-				name: "Stardew Valley".into(),
-				details: Some("Tending the synthetic farm".into()),
-				state: Some("Spring - Day 12".into()),
-				image: Some(model::ActivityImage::Asset {
-					application: model::Id(9001),
-					asset: model::Id(9002),
-				}),
-				small_image: None,
-				ends_at: None,
-				started_at: None,
-			}],
-		},
-	];
-	if guild.is_some() {
-		for (id, name, status) in [
-			(9003, "Alex (synthetic)", "online"),
-			(9004, "Sam (synthetic)", "offline"),
-		] {
-			let mut member = members[0].clone();
-			member.user.id = model::Id(id);
-			member.user.name = name.into();
-			member.roles.clear();
-			member.status = Some(status.into());
-			members.push(member);
-		}
-	}
-	model::MemberList {
-		guild,
-		channel,
-		request,
-		total: members.len() as u64,
-		start: 0,
-		slots: members
-			.into_iter()
-			.map(|m| Some(model::MemberSlot::Person(m)))
-			.collect(),
-		lazy: false,
-		groups: vec![],
-		ranges: vec![],
-		freshness: model::Freshness::Fresh,
-	}
-}
-
 #[cfg(target_os = "windows")]
 fn align_undecorated_surface(window: &winit::window::Window) {
 	use winit::platform::windows::WindowExtWindows as _;
@@ -1264,7 +1193,7 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if demo {
 			if !std::env::args().any(|arg| arg == "--demo-friends") {
-				let fixture = demo_members(None, model::Id(22), 0);
+				let fixture = test_support::demo_members(None, model::Id(22), 0);
 				state.direct_presences = fixture
 					.slots
 					.into_iter()
@@ -1601,7 +1530,11 @@ impl Desktop {
 			// Presence for the fixture card comes from the same synthetic People rows.
 			let _ = state.request_members();
 			if let Some(list) = &state.members {
-				state.members = Some(demo_members(list.guild, list.channel, list.request));
+				state.members = Some(test_support::demo_members(
+					list.guild,
+					list.channel,
+					list.request,
+				));
 			}
 			let user = if messaging.share_game_activity {
 				state.user.clone().expect("demo has a current user")
@@ -2968,23 +2901,27 @@ impl Desktop {
 				}
 				Command::MemberSearch(request) => {
 					let query = request.query.to_lowercase();
-					let rows = demo_members(Some(request.guild), request.channel, request.nonce)
-						.slots
-						.into_iter()
-						.flatten()
-						.filter_map(|slot| match slot {
-							model::MemberSlot::Person(member) => Some(member),
-							_ => None,
-						})
-						.filter(|member| {
-							member.user.name.to_lowercase().contains(&query)
-								|| member
-									.nick
-									.as_ref()
-									.is_some_and(|name| name.to_lowercase().contains(&query))
-								|| member.user.id.to_string() == query
-						})
-						.collect();
+					let rows = test_support::demo_members(
+						Some(request.guild),
+						request.channel,
+						request.nonce,
+					)
+					.slots
+					.into_iter()
+					.flatten()
+					.filter_map(|slot| match slot {
+						model::MemberSlot::Person(member) => Some(member),
+						_ => None,
+					})
+					.filter(|member| {
+						member.user.name.to_lowercase().contains(&query)
+							|| member
+								.nick
+								.as_ref()
+								.is_some_and(|name| name.to_lowercase().contains(&query))
+							|| member.user.id.to_string() == query
+					})
+					.collect();
 					Event::MemberSearch {
 						request,
 						result: Ok(rows),
@@ -3512,7 +3449,7 @@ impl Desktop {
 					let Some(channel) = channel else {
 						return;
 					};
-					Event::Members(demo_members(guild, channel, request))
+					Event::Members(test_support::demo_members(guild, channel, request))
 				}
 				Command::ForumPosts { .. } | Command::ForumSummaries { .. } => return,
 				Command::History { before, after, .. } => {

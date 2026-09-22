@@ -977,6 +977,80 @@ pub fn seed_demo_folder_mosaic(state: &mut State) {
 }
 
 /// Additional native chat scenario: fixed dates, grouped authors and unread events.
+/// Synthetic People rows with presence for the offline previews; never a Discord member directory.
+pub fn demo_members(
+	guild: Option<model::Id>,
+	channel: model::Id,
+	request: u64,
+) -> model::MemberList {
+	let mut members = vec![
+		model::Member {
+			user: message(2, channel).author,
+			nick: None,
+			roles: if guild.is_some() {
+				vec![model::Id(9001)]
+			} else {
+				vec![]
+			},
+			status: Some("idle".into()),
+			custom_status: None,
+			activities: vec![],
+		},
+		model::Member {
+			user: message(1, channel).author,
+			nick: None,
+			roles: if guild.is_some() {
+				vec![model::Id(9002)]
+			} else {
+				vec![]
+			},
+			status: Some("online".into()),
+			custom_status: Some("🌙 semifluent in synthetic data".into()),
+			activities: vec![model::RichActivity {
+				kind: 0,
+				name: "Stardew Valley".into(),
+				details: Some("Tending the synthetic farm".into()),
+				state: Some("Spring - Day 12".into()),
+				image: Some(model::ActivityImage::Asset {
+					application: model::Id(9001),
+					asset: model::Id(9002),
+				}),
+				small_image: None,
+				ends_at: None,
+				started_at: None,
+			}],
+		},
+	];
+	if guild.is_some() {
+		for (id, name, status) in [
+			(9003, "Alex (synthetic)", "online"),
+			(9004, "Sam (synthetic)", "offline"),
+		] {
+			let mut member = members[0].clone();
+			member.user.id = model::Id(id);
+			member.user.name = name.into();
+			member.roles.clear();
+			member.status = Some(status.into());
+			members.push(member);
+		}
+	}
+	model::MemberList {
+		guild,
+		channel,
+		request,
+		total: members.len() as u64,
+		start: 0,
+		slots: members
+			.into_iter()
+			.map(|m| Some(model::MemberSlot::Person(m)))
+			.collect(),
+		lazy: false,
+		groups: vec![],
+		ranges: vec![],
+		freshness: model::Freshness::Fresh,
+	}
+}
+
 pub fn chat_demo_state() -> State {
 	let mut state = demo_state();
 	state.apply(Envelope {

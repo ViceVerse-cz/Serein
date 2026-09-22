@@ -1,4 +1,4 @@
-// Native editing adapted from GPUI 0.2.2 examples/input.rs (Apache-2.0).
+// Native editing adapted from GPUI examples/input.rs (Apache-2.0).
 use std::ops::Range;
 
 use gpui::{
@@ -57,6 +57,13 @@ impl Input {
 			marked_range: None,
 			last_layout: Vec::new(),
 			is_selecting: false,
+		}
+	}
+
+	pub fn set_placeholder(&mut self, placeholder: String, cx: &mut Context<Self>) {
+		if self.placeholder != placeholder {
+			self.placeholder = placeholder.into();
+			cx.notify();
 		}
 	}
 
@@ -200,7 +207,7 @@ impl Input {
 		window: &mut Window,
 		cx: &mut Context<Self>,
 	) {
-		window.focus(&self.focus_handle);
+		window.focus(&self.focus_handle, cx);
 		self.is_selecting = true;
 
 		if event.modifiers.shift {
@@ -685,12 +692,12 @@ impl Element for TextElement {
 			window.paint_quad(selection);
 		}
 		for (_, origin, line) in &state.lines {
-			let _ = line.paint(*origin, px(24.), window, cx);
+			let _ = line.paint(*origin, px(24.), gpui::TextAlign::Left, None, window, cx);
 		}
-		if focus.is_focused(window) {
-			if let Some(cursor) = state.cursor.take() {
-				window.paint_quad(cursor);
-			}
+		if focus.is_focused(window)
+			&& let Some(cursor) = state.cursor.take()
+		{
+			window.paint_quad(cursor);
 		}
 		self.input.update(cx, |input, _| {
 			input.last_layout = std::mem::take(&mut state.lines);
@@ -730,14 +737,13 @@ impl Render for Input {
 			.on_mouse_move(cx.listener(Self::on_mouse_move))
 			.w_full()
 			.overflow_hidden()
-			.bg(super::color(super::palette().raised))
 			.text_color(super::color(super::palette().text))
 			.line_height(px(24.))
-			.text_size(px(14.))
+			.text_size(px(15.))
 			.child(
 				div()
 					.w_full()
-					.p(px(4.))
+					.py(px(4.))
 					.child(TextElement { input: cx.entity() }),
 			)
 	}

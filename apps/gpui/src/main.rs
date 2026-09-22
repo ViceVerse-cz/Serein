@@ -1,43 +1,62 @@
 //! Experimental native GPUI frontend; transports and secrets remain in Serein's shared crates.
 mod backend;
+mod chat;
 mod input;
+mod members;
+mod sidebar;
+mod signin;
+mod theme;
 
 use client_core::{Command, Envelope, Event, State};
 use gpui::{prelude::*, *};
 use model::Id;
-use std::time::Duration;
+use std::{
+	collections::BTreeSet,
+	time::{Duration, Instant},
+};
+use theme::{Icon, color, icon, palette};
 
-fn color(value: egui::Color32) -> Rgba {
-	rgb((u32::from(value.r()) << 16) | (u32::from(value.g()) << 8) | u32::from(value.b()))
-}
-fn palette() -> ui::design::Palette {
-	ui::design::colors(true, ui::design::Variant::Standard)
-}
+actions!(serein, [Quit, Hide, HideOthers, ShowAll, Minimize]);
+
+const NOTICE_TIME: Duration = Duration::from_secs(5);
+/// Events applied per wakeup; a larger backlog re-arms the wakeup instead of starving input.
+const EVENTS_PER_TICK: usize = 256;
+const IDLE_TICK: Duration = Duration::from_millis(250);
 
 fn tab_navigation(event: &KeyDownEvent, window: &mut Window, cx: &mut App) {
 	if event.keystroke.key == "tab" {
 		if event.keystroke.modifiers.shift {
-			window.focus_prev();
+			window.focus_prev(cx);
 		} else {
-			window.focus_next();
+			window.focus_next(cx);
 		}
 		cx.stop_propagation();
 	}
 }
 
-struct GuildTooltip(SharedString);
-impl Render for GuildTooltip {
+struct Tooltip(SharedString);
+impl Render for Tooltip {
 	fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+		let p = palette();
 		div()
-			.p_2()
-			.rounded_md()
-			.bg(color(palette().raised))
-			.text_color(color(palette().text))
+			.font_family(theme::FONT)
+			.px_2()
+			.py_1()
+			.rounded(px(6.))
+			.bg(color(p.base))
+			.border_1()
+			.border_color(color(p.border))
+			.text_sm()
+			.text_color(color(p.text_strong))
 			.child(self.0.clone())
 	}
 }
+pub(crate) fn tooltip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView {
+	let text = text.into();
+	move |_, cx| cx.new(|_| Tooltip(text.clone())).into()
+}
 
-fn channel_label(channel: &model::Channel) -> String {
+pub(crate) fn channel_label(channel: &model::Channel) -> String {
 	if !channel.name.is_empty() {
 		channel.name.clone()
 	} else {
@@ -49,15 +68,32 @@ fn channel_label(channel: &model::Channel) -> String {
 			.join(", ")
 	}
 }
+/// Text conversations this frontend can open; voice and stage are listed but not joined.
+pub(crate) fn text_channel(channel: &model::Channel) -> bool {
+	channel.supports_text() && !matches!(channel.kind, 2 | 13)
+}
 
-struct Serein {
+pub(crate) struct Serein {
 	state: State,
 	backend: backend::Backend,
 	guild: Option<Id>,
 	composer: Entity<input::Input>,
 	rows: Vec<Id>,
-	channels: Vec<Id>,
+	nav: Vec<sidebar::NavRow>,
+	collapsed: BTreeSet<Id>,
+	members_open: bool,
+	member_rows: Vec<members::MemberRow>,
+	member_key: Option<members::MembersKey>,
 	messages: ListState,
+	format: ui::FormatCache,
+	hovered: Option<Id>,
+	/// Messages whose spoilers were revealed by a click; cleared on channel change.
+	revealed: BTreeSet<Id>,
+	/// First unread message when the channel opened; `None` until its history arrives.
+	boundary: Option<Option<Id>>,
+	notice: Option<(SharedString, Instant)>,
+	/// Last `State::status` shown, so each new value becomes one transient notice.
+	state_status: &'static str,
 	status: &'static str,
 	backend_status: &'static str,
 	authorized: bool,
@@ -70,10 +106,13 @@ impl Serein {
 		let composer = cx.new(input::Input::new);
 		cx.subscribe(&composer, |this, _, _: &input::Submit, cx| this.send(cx))
 			.detach();
-		// A single bounded poll drains at most 32 events; unchanged ticks do not redraw.
+		// Wake on backend events, or at a slow tick for notices and the login handoff.
+		// Unchanged wakeups neither redraw nor allocate; a backlog drains in bounded batches.
 		cx.spawn_in(window, async move |this, cx| {
 			loop {
-				Timer::after(Duration::from_millis(50)).await;
+				let timer = cx.background_executor().timer(IDLE_TICK);
+				let notified = std::pin::pin!(backend::WAKE.notified());
+				futures_util::future::select(notified, timer).await;
 				if this
 					.update_in(cx, |this, window, cx| this.poll(window, cx))
 					.is_err()
@@ -93,14 +132,35 @@ impl Serein {
 			.selected
 			.and_then(|id| state.channel(id))
 			.and_then(|c| c.guild);
+		let messages = ListState::new(rows.len(), ListAlignment::Bottom, px(600.));
+		let view = cx.entity().downgrade();
+		messages.set_scroll_handler(move |event, _, cx| {
+			// The list is borrowed while this runs; request older pages after it returns.
+			if event.visible_range.start < 3 && event.count > 0 {
+				let view = view.clone();
+				cx.defer(move |cx| {
+					let _ = view.update(cx, |this, cx| this.load_older(cx));
+				});
+			}
+		});
 		let mut this = Self {
-			messages: ListState::new(rows.len(), ListAlignment::Bottom, px(400.)),
+			messages,
 			state,
 			backend: backend::Backend::start(demo),
 			guild,
 			composer,
 			rows,
-			channels: Vec::new(),
+			nav: Vec::new(),
+			collapsed: BTreeSet::new(),
+			members_open: true,
+			member_rows: Vec::new(),
+			member_key: None,
+			format: ui::FormatCache::default(),
+			hovered: None,
+			revealed: BTreeSet::new(),
+			boundary: None,
+			notice: None,
+			state_status: "",
 			status: if demo {
 				"Offline preview · synthetic data"
 			} else {
@@ -111,11 +171,50 @@ impl Serein {
 			#[cfg(not(target_os = "linux"))]
 			login: None,
 		};
+		this.state_status = this.state.status;
 		this.sync_channels();
+		this.update_placeholder(cx);
+		if demo {
+			let command = this.state.request_members();
+			this.dispatch(command);
+		}
 		this
 	}
 
-	fn poll(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+	/// Offline screenshot states: `--demo-channel=ID`, `--demo-dm`, `--demo-reply`,
+	/// `--demo-hover` and `--demo-sign-in`. Synthetic fixtures only.
+	fn apply_demo_flags(&mut self, cx: &mut Context<Self>) {
+		let args = std::env::args().collect::<Vec<_>>();
+		let flag = |name: &str| args.iter().any(|arg| arg == name);
+		if let Some(id) = args
+			.iter()
+			.find_map(|arg| arg.strip_prefix("--demo-channel="))
+			.and_then(|id| id.parse().ok())
+		{
+			self.select(Id(id), cx);
+		}
+		if flag("--demo-dm") {
+			self.select_section(None, cx);
+		}
+		if flag("--demo-reply")
+			&& let Some(&last) = self.rows.last()
+		{
+			self.state.reply = Some(client_core::Reply::to(last));
+		}
+		if flag("--demo-hover") {
+			self.hovered = self.rows.iter().rev().nth(1).copied();
+		}
+		if flag("--demo-sign-in") {
+			self.state = State::default();
+			self.status = "No saved login. Choose Continue with Discord.";
+		}
+	}
+
+	fn notify_user(&mut self, text: impl Into<SharedString>) {
+		self.notice = Some((text.into(), Instant::now()));
+	}
+
+	fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
 		let was_signed_in = self.state.user.is_some();
 		let mut changed = false;
 		let mut navigation_changed = false;
@@ -126,21 +225,31 @@ impl Serein {
 				self.login = None;
 				self.state = State::default();
 				self.backend = backend::Backend::with_secret(secret);
+				self.backend_status = "";
 				self.status = "Verifying Discord login…";
 				changed = true;
 			} else if login.expired() {
 				self.login = None;
-				self.status = "Login expired. Try again.";
+				self.status = "Login timed out; no session was accepted. Try again.";
 				changed = true;
 			}
 		}
 		let backend_status = *self.backend.status.borrow_and_update();
 		if self.backend_status != backend_status {
 			self.backend_status = backend_status;
-			self.status = backend_status;
+			if !backend_status.is_empty() {
+				self.status = backend_status;
+				if self.state.user.is_some() && !self.state.demo && backend_status != "Connected" {
+					self.notify_user(backend_status);
+				}
+			}
 			changed = true;
 		}
-		for _ in 0..32 {
+		for applied in 0..=EVENTS_PER_TICK {
+			if applied == EVENTS_PER_TICK {
+				backend::WAKE.notify_one();
+				break;
+			}
 			let Ok(envelope) = self.backend.events.try_recv() else {
 				break;
 			};
@@ -170,6 +279,21 @@ impl Serein {
 			self.state.apply(envelope);
 			changed = true;
 		}
+		if self.state.status != self.state_status {
+			self.state_status = self.state.status;
+			if self.state.user.is_some() && !self.state_status.is_empty() {
+				self.notify_user(self.state_status);
+				changed = true;
+			}
+		}
+		if self
+			.notice
+			.as_ref()
+			.is_some_and(|(_, shown)| shown.elapsed() > NOTICE_TIME)
+		{
+			self.notice = None;
+			changed = true;
+		}
 		if navigation_changed {
 			self.sync_channels();
 		}
@@ -179,33 +303,30 @@ impl Serein {
 					.state
 					.channels
 					.iter()
-					.find(|c| {
-						c.supports_text() && !matches!(c.kind, 2 | 13) && self.state.can_view(c.id)
-					})
+					.find(|c| text_channel(c) && self.state.can_view(c.id))
 					.map(|c| c.id);
 				if let Some(id) = first {
 					self.select(id, cx);
 				}
 			}
 			self.sync_rows();
+			self.mark_read(window);
 			cx.notify();
 		}
 	}
 
-	fn sync_channels(&mut self) {
-		let mut channels = self
-			.state
-			.channels
-			.iter()
-			.filter(|c| {
-				c.guild == self.guild
-					&& c.supports_text()
-					&& !matches!(c.kind, 2 | 13)
-					&& self.state.can_view(c.id)
-			})
-			.collect::<Vec<_>>();
-		channels.sort_by_key(|c| (c.position, c.id));
-		self.channels = channels.into_iter().map(|c| c.id).collect();
+	/// Acknowledge the newest message only while it is on screen in the active window.
+	fn mark_read(&mut self, window: &Window) {
+		if !window.is_window_active() || self.messages.is_scrolled_to_end() != Some(true) {
+			return;
+		}
+		if let Some(&last) = self.rows.last()
+			&& self.state.search_target.is_none()
+			&& !self.state.history_targeted
+		{
+			let command = self.state.prepare_mark_read(last);
+			self.dispatch(command);
+		}
 	}
 
 	fn sync_rows(&mut self) {
@@ -225,12 +346,36 @@ impl Serein {
 		if rows == self.rows {
 			self.messages.splice(0..rows.len(), rows.len());
 		} else {
-			self.messages.splice(
-				prefix..self.rows.len() - suffix,
-				rows.len() - prefix - suffix,
-			);
+			// Dividers and grouping depend on the previous row: remeasure both neighbours.
+			let start = prefix.saturating_sub(1);
+			let suffix = suffix.saturating_sub(1);
+			self.messages
+				.splice(start..self.rows.len() - suffix, rows.len() - start - suffix);
 			self.rows = rows;
 		}
+		if self.boundary.is_none() && !self.state.history_pending && !self.rows.is_empty() {
+			self.boundary = Some(self.unread_boundary());
+		}
+		let members = self.members_key();
+		if self.member_key != members {
+			self.member_key = members;
+			self.sync_members();
+		}
+	}
+
+	/// The first message from someone else after the read marker, captured before it moves.
+	fn unread_boundary(&self) -> Option<Id> {
+		let channel = self.state.selected?;
+		let read = self.state.read_marker(channel)??;
+		let me = self.state.user.as_ref().map(|u| u.id);
+		self.rows.iter().copied().find(|id| {
+			*id > read
+				&& self
+					.state
+					.timeline
+					.get_display(*id)
+					.is_some_and(|m| Some(m.author.id) != me)
+		})
 	}
 
 	fn select_section(&mut self, guild: Option<Id>, cx: &mut Context<Self>) {
@@ -238,13 +383,8 @@ impl Serein {
 			.state
 			.channels
 			.iter()
-			.filter(|c| {
-				c.guild == guild
-					&& c.supports_text()
-					&& !matches!(c.kind, 2 | 13)
-					&& self.state.can_view(c.id)
-			})
-			.min_by_key(|c| (c.position, c.id))
+			.filter(|c| c.guild == guild && text_channel(c) && self.state.can_view(c.id))
+			.min_by_key(|c| (c.parent_id.is_some(), c.position, c.id))
 			.map(|c| c.id);
 		if let Some(channel) = channel {
 			self.select(channel, cx);
@@ -257,6 +397,7 @@ impl Serein {
 			self.composer
 				.update(cx, |input, cx| input.set_value(String::new(), cx));
 			self.sync_rows();
+			self.update_placeholder(cx);
 			cx.notify();
 		}
 	}
@@ -288,6 +429,7 @@ impl Serein {
 					channel,
 					content,
 					nonce,
+					reply,
 					..
 				} => {
 					let mut message =
@@ -295,11 +437,19 @@ impl Serein {
 					message.content = content;
 					message.author = self.state.user.clone().expect("demo user");
 					message.nonce = Some(nonce.clone());
+					message.reply_to = reply.map(client_core::Reply::target);
+					message.reactions = Some(vec![]);
 					Event::SendResult {
 						nonce,
 						result: Ok(message),
 					}
 				}
+				Command::Members {
+					guild,
+					channel: Some(channel),
+					request,
+					..
+				} => Event::Members(test_support::demo_members(guild, channel, request)),
 				_ => {
 					self.state.command_rejected(command);
 					return;
@@ -321,8 +471,9 @@ impl Serein {
 			if self.state.draft_bytes().saturating_sub(old) + value.len()
 				> client_core::MAX_DRAFT_BYTES
 			{
-				self.state.status =
-					"Draft storage is full; keep or send this draft before switching.";
+				self.notify_user(
+					"Draft storage is full; keep or send this draft before switching.",
+				);
 				cx.notify();
 				return false;
 			}
@@ -340,18 +491,52 @@ impl Serein {
 			return;
 		}
 		let changed = self.state.selected != Some(id);
+		if changed {
+			self.boundary = None;
+		}
 		let command = self.state.select(id);
 		self.guild = self.state.channel(id).and_then(|c| c.guild);
 		self.sync_channels();
 		self.dispatch(command);
+		if changed {
+			self.state.reply = None;
+			let members = self.state.request_members();
+			self.dispatch(members);
+		}
 		let draft = self.state.drafts.get(&id).cloned().unwrap_or_default();
 		self.composer
 			.update(cx, |input, cx| input.set_value(draft, cx));
+		self.update_placeholder(cx);
 		self.sync_rows();
 		if changed {
 			self.messages.reset(self.rows.len());
+			self.format.retain(|_| false);
+			self.revealed.clear();
+			self.hovered = None;
 		}
 		cx.notify();
+	}
+
+	fn update_placeholder(&self, cx: &mut Context<Self>) {
+		let placeholder = match self.state.selected.and_then(|id| self.state.channel(id)) {
+			Some(channel) if channel.guild.is_some() => format!("Message #{}", channel.name),
+			Some(channel) => format!("Message @{}", channel_label(channel)),
+			None => "Message".into(),
+		};
+		self.composer
+			.update(cx, |input, cx| input.set_placeholder(placeholder, cx));
+	}
+
+	fn load_older(&mut self, cx: &mut Context<Self>) {
+		if self.state.history_pending || self.state.older_exhausted {
+			return;
+		}
+		let command = self.state.older_history();
+		if command.is_some() {
+			self.dispatch(command);
+			self.sync_rows();
+			cx.notify();
+		}
 	}
 
 	fn send(&mut self, cx: &mut Context<Self>) {
@@ -361,527 +546,327 @@ impl Serein {
 		let command = self.state.prepare_send();
 		if command.is_some() {
 			self.dispatch(command);
+			self.state.reply = None;
 			self.composer
 				.update(cx, |input, cx| input.set_value(String::new(), cx));
 			self.sync_rows();
-			if !self.rows.is_empty() {
-				self.messages.scroll_to_reveal_item(self.rows.len() - 1);
-			}
+			self.messages.scroll_to_end();
 		}
 		cx.notify();
 	}
 
-	fn message(&self, ix: usize) -> AnyElement {
-		let p = palette();
-		let Some(message) = self
-			.rows
-			.get(ix)
-			.and_then(|id| self.state.timeline.get_display(*id))
-		else {
-			return div().into_any_element();
-		};
-		let name = message.author_nick.as_ref().unwrap_or(&message.author.name);
-		div()
-			.px_6()
-			.py_3()
-			.flex()
-			.gap_3()
-			.w_full()
-			.child(
-				div()
-					.size_9()
-					.flex_none()
-					.rounded_lg()
-					.bg(color(p.raised))
-					.flex()
-					.items_center()
-					.justify_center()
-					.text_color(color(p.accent))
-					.child(name.chars().take(2).collect::<String>()),
-			)
-			.child(
-				div()
-					.flex_1()
-					.min_w_0()
-					.flex()
-					.flex_col()
-					.gap_1()
-					.child(
-						div()
-							.text_color(color(p.text_strong))
-							.font_weight(FontWeight::SEMIBOLD)
-							.child(name.clone())
-							.when(message.edited, |d| {
-								d.child(div().text_xs().text_color(color(p.muted)).child("edited"))
-							}),
-					)
-					.child(
-						div()
-							.w_full()
-							.whitespace_normal()
-							.child(message.display_text().into_owned()),
-					)
-					.children(message.attachments.iter().map(|a| {
-						div()
-							.p_2()
-							.rounded_md()
-							.bg(color(p.raised))
-							.child(format!("Attachment · {}", a.filename))
-					}))
-					.when(!message.embeds.is_empty(), |d| {
-						d.child(
-							div()
-								.text_sm()
-								.text_color(color(p.muted))
-								.child("Embedded content · open in the main Serein app"),
-						)
-					}),
-			)
-			.into_any_element()
-	}
-
-	fn guild_row(&self, ix: usize, cx: &mut Context<Self>) -> Stateful<Div> {
-		let p = palette();
-		let g = &self.state.guilds[ix];
-		let id = g.id;
-		let name: SharedString = g.name.clone().into();
-		div()
-			.id(("guild", id.0))
-			.focusable()
-			.focus(|d| d.border_1().border_color(color(p.accent)))
-			.tab_stop(true)
-			.w_full()
-			.h(px(48.))
-			.px_1()
-			.py_3()
-			.mb_2()
-			.rounded_lg()
-			.cursor_pointer()
-			.bg(color(if self.guild == Some(id) {
-				p.selected
-			} else {
-				p.raised
-			}))
-			.hover(|d| d.bg(color(p.hover)))
-			.text_center()
-			.text_sm()
-			.tooltip(move |_, cx| cx.new(|_| GuildTooltip(name.clone())).into())
-			.child(g.name.chars().take(3).collect::<String>())
-			.on_click(cx.listener(move |this, _, _, cx| {
-				this.select_section(Some(id), cx);
-			}))
-	}
-
-	fn channel_row(&self, ix: usize, cx: &mut Context<Self>) -> Stateful<Div> {
-		let p = palette();
-		let id = self.channels[ix];
-		let name = self
-			.state
-			.channel(id)
-			.map(channel_label)
-			.unwrap_or_default();
-		div()
-			.id(("channel", id.0))
-			.focusable()
-			.focus(|d| d.border_1().border_color(color(p.accent)))
-			.tab_stop(true)
-			.px_3()
-			.h(px(36.))
-			.py_2()
-			.overflow_hidden()
-			.rounded_md()
-			.cursor_pointer()
-			.bg(color(if self.state.selected == Some(id) {
-				p.selected
-			} else {
-				p.sidebar
-			}))
-			.hover(|d| d.bg(color(p.hover)))
-			.child(format!("# {name}"))
-			.on_click(cx.listener(move |this, _, _, cx| this.select(id, cx)))
-	}
-
-	fn button(&self, id: &'static str, label: impl Into<SharedString>) -> Stateful<Div> {
+	fn button(
+		&self,
+		id: &'static str,
+		label: impl Into<SharedString>,
+		primary: bool,
+	) -> Stateful<Div> {
 		let p = palette();
 		div()
 			.id(id)
 			.focusable()
-			.focus(|d| d.border_1().border_color(color(p.accent)))
 			.tab_stop(true)
-			.px_3()
-			.py_2()
-			.rounded_md()
+			.focus(|d| d.border_color(color(p.text_strong)))
+			.h(px(38.))
+			.px_4()
+			.flex()
+			.items_center()
+			.rounded(px(8.))
+			.border_1()
+			.border_color(gpui::transparent_black())
 			.cursor_pointer()
-			.bg(color(p.raised))
-			.hover(|d| d.bg(color(p.hover)))
+			.font_weight(FontWeight::MEDIUM)
+			.text_size(px(14.))
+			.when(primary, |d| {
+				d.bg(color(p.accent))
+					.text_color(color(p.accent_text))
+					.hover(|d| d.opacity(0.9))
+			})
+			.when(!primary, |d| {
+				d.bg(color(p.raised))
+					.text_color(color(p.text_strong))
+					.hover(|d| d.bg(color(p.hover)))
+			})
 			.child(label.into())
 	}
+
+	pub(crate) fn icon_button(
+		&self,
+		id: impl Into<ElementId>,
+		glyph: Icon,
+		active: bool,
+		label: &'static str,
+	) -> Stateful<Div> {
+		let p = palette();
+		div()
+			.id(id)
+			.focusable()
+			.tab_stop(true)
+			.size(px(32.))
+			.flex_none()
+			.rounded(px(6.))
+			.flex()
+			.items_center()
+			.justify_center()
+			.cursor_pointer()
+			.hover(|d| d.bg(color(p.hover)))
+			.focus(|d| d.bg(color(p.hover)))
+			.tooltip(tooltip(label))
+			.child(icon(
+				glyph,
+				px(20.),
+				color(if active { p.text_strong } else { p.muted }),
+			))
+	}
+
+	fn title_bar(&self) -> impl IntoElement {
+		let p = palette();
+		let title = match self.guild {
+			Some(id) => self
+				.state
+				.guild(id)
+				.map_or_else(String::new, |g| g.name.clone()),
+			None => "Direct Messages".into(),
+		};
+		div()
+			.id("title-bar")
+			.h(px(36.))
+			.flex_none()
+			.relative()
+			.flex()
+			.items_center()
+			.justify_center()
+			.on_mouse_down(MouseButton::Left, |event, window, _| {
+				if event.click_count == 2 {
+					window.titlebar_double_click();
+				} else {
+					window.start_window_move();
+				}
+			})
+			.child(
+				div()
+					.text_size(px(14.))
+					.font_weight(FontWeight::SEMIBOLD)
+					.text_color(color(p.text_strong))
+					.child(title),
+			)
+			.when(self.state.demo, |d| {
+				d.child(
+					div()
+						.absolute()
+						.right(px(10.))
+						.top(px(5.))
+						.h(px(26.))
+						.px_3()
+						.flex()
+						.items_center()
+						.rounded(px(8.))
+						.border_1()
+						.border_color(color(p.border))
+						.text_size(px(11.))
+						.font_weight(FontWeight::SEMIBOLD)
+						.text_color(color(p.muted))
+						.child("OFFLINE PREVIEW"),
+				)
+			})
+			.when(!self.state.demo && !self.state.gateway_connected, |d| {
+				d.child(
+					div()
+						.absolute()
+						.right(px(10.))
+						.top(px(5.))
+						.h(px(26.))
+						.px_3()
+						.flex()
+						.items_center()
+						.rounded(px(8.))
+						.bg(ui_warning_tint())
+						.text_size(px(11.))
+						.font_weight(FontWeight::SEMIBOLD)
+						.text_color(color(p.warning))
+						.child("RECONNECTING"),
+				)
+			})
+	}
+
+	fn notice_layer(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+		let p = palette();
+		let (text, _) = self.notice.as_ref()?;
+		Some(
+			div()
+				.absolute()
+				.bottom(px(84.))
+				.right(px(20.))
+				.max_w(px(360.))
+				.child(
+					div()
+						.id("notice")
+						.px_4()
+						.py_3()
+						.rounded(px(12.))
+						.bg(color(p.base))
+						.border_1()
+						.border_color(color(p.border))
+						.shadow_lg()
+						.flex()
+						.gap_3()
+						.items_center()
+						.cursor_pointer()
+						.on_click(cx.listener(|this, _, _, cx| {
+							this.notice = None;
+							cx.notify();
+						}))
+						.child(
+							div()
+								.size(px(8.))
+								.flex_none()
+								.rounded_full()
+								.bg(color(p.warning)),
+						)
+						.child(
+							div()
+								.text_sm()
+								.text_color(color(p.text_strong))
+								.child(text.clone()),
+						),
+				),
+		)
+	}
+}
+
+fn ui_warning_tint() -> Rgba {
+	theme::tint(palette().warning, 0.14)
 }
 
 impl Render for Serein {
 	fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
 		let p = palette();
-		#[cfg(not(target_os = "linux"))]
-		if let Some(login) = &self.login {
-			let size = window.viewport_size();
-			login.resize_native(f32::from(size.width), f32::from(size.height));
-			return div()
-				.on_key_down(tab_navigation)
-				.size_full()
-				.bg(color(p.base))
-				.text_color(color(p.text))
-				.child(
-					div()
-						.h(px(56.))
-						.px_4()
-						.flex()
-						.items_center()
-						.justify_between()
-						.child("discord.com · temporary sign-in window")
-						.child(self.button("cancel-login", "Cancel").on_click(cx.listener(
-							|this, _, _, cx| {
-								this.login = None;
-								cx.notify();
-							},
-						))),
-				)
-				.into_any_element();
-		}
-		if self.state.user.is_none() {
-			return div()
-				.on_key_down(tab_navigation)
-				.size_full()
-				.bg(color(p.chat))
-				.text_color(color(p.text))
-				.flex()
-				.items_center()
-				.justify_center()
-				.child(
-					div()
-						.w(px(460.))
-						.p_8()
-						.flex()
-						.flex_col()
-						.gap_4()
-						.child(
-							div()
-								.text_3xl()
-								.text_color(color(p.text_strong))
-								.child("Serein"),
-						)
-						.child(div().text_lg().child("GPUI experiment"))
-						.child(self.status)
-						.child(
-							"Your existing Serein login is restored from the OS credential store.",
-						)
-						.child(
-							self.button("retry", "Retry saved login")
-								.on_click(cx.listener(|this, _, _, cx| {
-									this.backend = backend::Backend::start(false);
-									this.status = "Checking saved login…";
-									cx.notify();
-								})),
-						)
-						.child(
-							self.button(
-								"authorize",
-								if self.authorized {
-									"✓ I own this Discord account"
-								} else {
-									"□ I own this Discord account"
-								},
-							)
-							.on_click(cx.listener(|this, _, _, cx| {
-								this.authorized = !this.authorized;
-								cx.notify();
-							})),
-						)
-						.child(
-							self.button("login", "Sign in with Discord")
-								.on_click(cx.listener(|this, _, window, cx| {
-									if !this.authorized {
-										this.status =
-											"Confirm account ownership before signing in.";
-										cx.notify();
-										return;
-									}
-									#[cfg(not(target_os = "linux"))]
-									{
-										let size = window.viewport_size();
-										match platform::LoginView::open_native(
-											window,
-											f32::from(size.width),
-											f32::from(size.height),
-											|| {},
-										) {
-											Ok(login) => {
-												this.backend = backend::Backend::start(true);
-												this.login = Some(login);
-											}
-											Err(_) => {
-												this.status =
-													"The platform login window could not be opened."
-											}
-										}
-									}
-									#[cfg(target_os = "linux")]
-									{
-										let _ = window;
-										this.status = "Sign in using the main Serein app, then retry saved login.";
-									}
-									cx.notify();
-								})),
-						)
-						.child(
-							div()
-								.text_sm()
-								.text_color(color(p.muted))
-								.child("Unofficial Discord client · experimental renderer"),
-						),
-				)
-				.into_any_element();
-		}
-
-		let guild_name = self
-			.guild
-			.and_then(|id| self.state.guild(id))
-			.map_or("Direct messages".to_owned(), |g| g.name.clone());
-		let channel_name = self
-			.state
-			.selected
-			.and_then(|id| self.state.channel(id))
-			.map_or("Choose a text channel".to_owned(), |c| {
-				format!("# {}", channel_label(c))
-			});
-		div()
-			.on_key_down(tab_navigation)
-			.size_full()
-			.flex()
-			.flex_col()
-			.bg(color(p.base))
-			.text_color(color(p.text))
-			.text_size(px(14.))
-			.child(
-				div()
-					.h(px(36.))
-					.flex_none()
-					.px_4()
-					.flex()
-					.items_center()
-					.justify_between()
-					.text_xs()
-					.text_color(color(p.muted))
-					.child("SEREIN / GPUI")
-					.child(self.status),
-			)
-			.child(
+		let body = {
+			#[cfg(not(target_os = "linux"))]
+			if self.login.is_some() {
+				Some(self.render_login(window, cx))
+			} else {
+				None
+			}
+			#[cfg(target_os = "linux")]
+			None::<AnyElement>
+		};
+		let body = match body {
+			Some(body) => body,
+			None if self.state.user.is_none() => self.render_sign_in(cx),
+			None => {
+				let members = self.members_open && window.viewport_size().width >= px(900.);
 				div()
 					.flex_1()
 					.min_h_0()
 					.flex()
-					.child(
-						div()
-							.id("guilds")
-							.w(px(76.))
-							.h_full()
-							.flex_none()
-							.p_2()
-							.flex()
-							.flex_col()
-							.gap_2()
-							.child(self.button("dms", "DM").on_click(cx.listener(
-								|this, _, _, cx| {
-									this.select_section(None, cx);
-								},
-							)))
-							.child(
-								uniform_list(
-									"guild-list",
-									self.state.guilds.len(),
-									cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-										range.map(|ix| this.guild_row(ix, cx)).collect()
-									}),
-								)
-								.flex_1()
-								.min_h_0(),
-							),
-					)
-					.child(
-						div()
-							.w(px(236.))
-							.h_full()
-							.flex_none()
-							.bg(color(p.sidebar))
-							.flex()
-							.flex_col()
-							.child(
-								div()
-									.h(px(56.))
-									.px_4()
-									.flex_none()
-									.flex()
-									.items_center()
-									.font_weight(FontWeight::SEMIBOLD)
-									.text_color(color(p.text_strong))
-									.child(guild_name),
-							)
-							.child(
-								div()
-									.px_4()
-									.py_2()
-									.text_xs()
-									.text_color(color(p.muted))
-									.child("TEXT CHANNELS"),
-							)
-							.child(
-								uniform_list(
-									"channels",
-									self.channels.len(),
-									cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-										range.map(|ix| this.channel_row(ix, cx)).collect()
-									}),
-								)
-								.flex_1()
-								.min_h_0()
-								.px_2(),
-							)
-							.child(
-								div().p_4().text_sm().text_color(color(p.muted)).child(
-									self.state
-										.user
-										.as_ref()
-										.map_or(String::new(), |u| u.name.clone()),
-								),
-							),
-					)
-					.child(
-						div()
-							.flex_1()
-							.min_w_0()
-							.h_full()
-							.bg(color(p.chat))
-							.flex()
-							.flex_col()
-							.child(
-								div()
-									.h(px(56.))
-									.flex_none()
-									.px_6()
-									.border_b_1()
-									.border_color(color(p.border))
-									.flex()
-									.items_center()
-									.justify_between()
-									.child(
-										div()
-											.font_weight(FontWeight::SEMIBOLD)
-											.text_color(color(p.text_strong))
-											.child(channel_name),
-									)
-									.child(self.button("older", "Load older").on_click(
-										cx.listener(|this, _, _, cx| {
-											let command = this.state.older_history();
-											this.dispatch(command);
-											this.sync_rows();
-											cx.notify();
-										}),
-									)),
-							)
-							.child(
-								div()
-									.flex_1()
-									.min_h_0()
-									.when(self.rows.is_empty(), |d| {
-										d.child(div().p_6().text_color(color(p.muted)).child(
-											if self.state.history_pending {
-												"Loading messages…"
-											} else {
-												"No messages to display."
-											},
-										))
-									})
-									.child(
-										list(
-											self.messages.clone(),
-											cx.processor(|this, ix, _, _| this.message(ix)),
-										)
-										.size_full(),
-									),
-							)
-							.children(
-								self.state
-									.pending
-									.iter()
-									.filter(|pending| Some(pending.channel) == self.state.selected)
-									.map(|pending| {
-										div().px_6().py_1().text_color(color(p.muted)).child(
-											format!("{:?} · {}", pending.delivery, pending.content),
-										)
-									}),
-							)
-							.child(
-								div()
-									.px_6()
-									.pt_2()
-									.text_xs()
-									.text_color(color(p.muted))
-									.child(self.state.status),
-							)
-							.child(
-								div()
-									.p_4()
-									.flex()
-									.items_center()
-									.gap_3()
-									.child(div().flex_1().min_w_0().child(self.composer.clone()))
-									.child(
-										self.button("send", "Send")
-											.on_click(cx.listener(|this, _, _, cx| this.send(cx))),
-									),
-							)
-							.child(
-								div()
-									.px_6()
-									.pb_3()
-									.text_xs()
-									.text_color(color(p.muted))
-									.child(
-										"Enter to send · drafts stay in this experiment’s memory",
-									),
-							),
-					),
-			)
-			.into_any_element()
+					.child(self.render_navigation(cx))
+					.child(self.render_chat(cx))
+					.when(members, |d| d.child(self.render_members(cx)))
+					.into_any_element()
+			}
+		};
+		let signed_in = self.state.user.is_some();
+		#[cfg(not(target_os = "linux"))]
+		let signed_in = signed_in && self.login.is_none();
+		div()
+			.on_key_down(tab_navigation)
+			.size_full()
+			.relative()
+			.flex()
+			.flex_col()
+			.bg(color(p.base))
+			.font_family(theme::FONT)
+			.text_color(color(p.text))
+			.text_size(px(15.))
+			.when(signed_in, |d| d.child(self.title_bar()))
+			.when(!signed_in && cfg!(target_os = "macos"), |d| {
+				d.child(
+					div()
+						.h(px(28.))
+						.flex_none()
+						.on_mouse_down(MouseButton::Left, |_, window, _| {
+							window.start_window_move()
+						}),
+				)
+			})
+			.child(body)
+			.children(self.notice_layer(cx))
 	}
 }
 
 fn main() {
 	let demo = std::env::args().any(|arg| arg == "--demo");
-	Application::new().run(move |cx: &mut App| {
-		input::init(cx);
-		cx.on_window_closed(|cx| {
-			if cx.windows().is_empty() {
+	gpui_platform::application()
+		.with_assets(theme::Assets)
+		.run(move |cx: &mut App| {
+			theme::install_fonts(cx);
+			input::init(cx);
+			cx.on_action(|_: &Quit, cx| cx.quit());
+			cx.on_action(|_: &Hide, cx| cx.hide());
+			cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
+			cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
+			cx.on_action(|_: &Minimize, cx| {
+				if let Some(window) = cx.active_window() {
+					let _ = window.update(cx, |_, window, _| window.minimize_window());
+				}
+			});
+			cx.bind_keys([
+				KeyBinding::new("cmd-q", Quit, None),
+				KeyBinding::new("cmd-h", Hide, None),
+				KeyBinding::new("alt-cmd-h", HideOthers, None),
+				KeyBinding::new("cmd-m", Minimize, None),
+			]);
+			// macOS routes Cut/Copy/Paste/Select All for the hosted login page through this menu;
+			// without it WKWebView never receives those key equivalents.
+			cx.set_menus([
+				Menu::new("Serein").items([
+					MenuItem::action("Hide Serein", Hide),
+					MenuItem::action("Hide Others", HideOthers),
+					MenuItem::action("Show All", ShowAll),
+					MenuItem::separator(),
+					MenuItem::action("Quit Serein", Quit),
+				]),
+				Menu::new("Edit").items([
+					MenuItem::os_action("Cut", input::Cut, OsAction::Cut),
+					MenuItem::os_action("Copy", input::Copy, OsAction::Copy),
+					MenuItem::os_action("Paste", input::Paste, OsAction::Paste),
+					MenuItem::os_action("Select All", input::SelectAll, OsAction::SelectAll),
+				]),
+				Menu::new("Window").items([MenuItem::action("Minimize", Minimize)]),
+			]);
+			cx.on_window_closed(|cx, _| {
+				if cx.windows().is_empty() {
+					cx.quit();
+				}
+			})
+			.detach();
+			let bounds = Bounds::centered(None, size(px(1180.), px(780.)), cx);
+			let result = cx.open_window(
+				WindowOptions {
+					window_bounds: Some(WindowBounds::Windowed(bounds)),
+					window_min_size: Some(size(px(760.), px(480.))),
+					titlebar: Some(TitlebarOptions {
+						title: Some("Serein".into()),
+						appears_transparent: true,
+						traffic_light_position: Some(point(px(12.), px(11.))),
+					}),
+					..Default::default()
+				},
+				|window, cx| {
+					cx.new(|cx| {
+						let mut serein = Serein::new(demo, window, cx);
+						if demo {
+							serein.apply_demo_flags(cx);
+						}
+						serein
+					})
+				},
+			);
+			if result.is_err() {
+				eprintln!("Could not open the GPUI window.");
 				cx.quit();
 			}
-		})
-		.detach();
-		let bounds = Bounds::centered(None, size(px(1180.), px(780.)), cx);
-		let result = cx.open_window(
-			WindowOptions {
-				window_bounds: Some(WindowBounds::Windowed(bounds)),
-				window_min_size: Some(size(px(760.), px(480.))),
-				titlebar: Some(TitlebarOptions {
-					title: Some("Serein · GPUI experiment".into()),
-					..Default::default()
-				}),
-				..Default::default()
-			},
-			|window, cx| cx.new(|cx| Serein::new(demo, window, cx)),
-		);
-		if result.is_err() {
-			eprintln!("Could not open the GPUI window.");
-			cx.quit();
-		}
-		cx.activate(true);
-	});
+			cx.activate(true);
+		});
 }

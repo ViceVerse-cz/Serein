@@ -1,0 +1,10 @@
+[package]
+name = "gpui_web"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+description = "Empty native-only stand-in for Zed's WebAssembly GPUI backend"
+
+[lib]
+path = "src/lib.rs"

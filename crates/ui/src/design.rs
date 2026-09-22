@@ -1344,7 +1344,7 @@ fn wide_button(
 	response
 }
 /// Deterministic fallback avatar colours drawn from the Serein palette, keyed by the display name.
-fn fallback_avatar_color(name: &str) -> Color32 {
+pub fn fallback_avatar_color(name: &str) -> Color32 {
 	const COLORS: [u32; 5] = [DEFAULT_PRIMARY_RGB, 0x6b7a94, 0x2fb87a, 0xe8a33d, 0xef5561];
 	let hash = name
 		.bytes()

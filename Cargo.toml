@@ -197,3 +197,7 @@ opt-level = 3
 
 [profile.dev.package.sonora-agc2]
 opt-level = 3
+
+# GPUI's wasm-only backend pins a unicode-properties version egui cannot share; see vendor/gpui_web.
+[patch."https://github.com/zed-industries/zed"]
+gpui_web = { path = "vendor/gpui_web" }

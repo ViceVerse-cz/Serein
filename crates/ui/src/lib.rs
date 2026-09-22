@@ -31,6 +31,8 @@ mod extensions_ui;
 mod theme_editor;
 mod thread_create;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
+pub use local_time::{discord_timestamp, local as local_datetime};
+pub use markdown::{FormatCache, Formatted, Span as MarkdownSpan};
 pub mod emoji;
 mod emoji_details;
 mod emoji_picker;
