@@ -12,6 +12,7 @@ const ANIMATION_BYTES: usize = 128 * 1024 * 1024;
 const ANIMATION_INTERVAL: Duration = Duration::from_millis(16);
 struct Animation {
 	frames: GifFrames,
+	texture: Option<TextureHandle>,
 	total: Duration,
 	started: Instant,
 	next_upload: Instant,
@@ -41,6 +42,7 @@ struct AvatarKey {
 #[derive(Default)]
 pub(crate) struct Avatars {
 	pub animate_gifs: bool,
+	avatar_animation: bool,
 	animations: HashMap<String, Animation>,
 	no_animations: HashSet<String>,
 	textures: HashMap<String, (u64, TextureHandle)>,
@@ -94,6 +96,17 @@ fn is_animated_profile_or_avatar_key(key: &str) -> bool {
 }
 
 impl Avatars {
+	/// Expand playback to a hovered row or an open profile, still gated by settings and focus.
+	pub fn with_avatar_animation<R>(
+		&mut self,
+		active: bool,
+		draw: impl FnOnce(&mut Self) -> R,
+	) -> R {
+		let previous = std::mem::replace(&mut self.avatar_animation, active);
+		let result = draw(self);
+		self.avatar_animation = previous;
+		result
+	}
 	#[cfg(test)]
 	pub(crate) fn texture_id(&self, key: &str) -> Option<egui::TextureId> {
 		self.textures
@@ -108,8 +121,7 @@ impl Avatars {
 		self.animate_gifs = enabled;
 		self.no_animations.clear();
 		if !enabled {
-			self.animations
-				.retain(|key, _| is_animated_profile_or_avatar_key(key));
+			self.animations.clear();
 			self.textures.retain(|key, (_, texture)| {
 				if key.starts_with("anim:") {
 					self.bytes -= texture.byte_size();
@@ -123,8 +135,7 @@ impl Avatars {
 		}
 	}
 	pub fn accept_animation(&mut self, key: String, frames: GifFrames) {
-		let is_profile_or_avatar = is_animated_profile_or_avatar_key(&key);
-		if (!self.animate_gifs && !is_profile_or_avatar)
+		if !self.animate_gifs
 			|| !self.textures.contains_key(&key)
 			|| frames.len() < 2
 			|| frames.len() > 200
@@ -142,7 +153,9 @@ impl Avatars {
 		if total.is_zero() {
 			return;
 		}
-		let bytes: usize = frames.iter().map(|(_, image)| image.pixels.len() * 4).sum();
+		// Reserve the playback texture too; the shared still stays unchanged for other widgets.
+		let frame_bytes = || frames.iter().map(|(_, image)| image.pixels.len() * 4);
+		let bytes = frame_bytes().sum::<usize>() + frame_bytes().max().unwrap_or(0);
 		if bytes > ANIMATION_BYTES
 			|| frames.iter().any(|(delay, image)| {
 				*delay < Duration::from_millis(20)
@@ -168,6 +181,7 @@ impl Avatars {
 			key,
 			Animation {
 				frames,
+				texture: None,
 				total,
 				started: Instant::now(),
 				next_upload: Instant::now(),
@@ -384,7 +398,7 @@ impl Avatars {
 		} else {
 			format!("gif:{}", gif.preview)
 		};
-		self.advance_animation(ctx, &key);
+		let animated_texture = self.advance_animation(ctx, &key, false);
 		#[cfg(any(test, feature = "demo"))]
 		if demo && gif.preview.contains("/synthetic/") && !self.textures.contains_key(&key) {
 			self.attempts.insert(key.clone(), (Instant::now(), false));
@@ -393,7 +407,8 @@ impl Avatars {
 		if let Some(entry) = self.textures.get_mut(&key) {
 			self.clock += 1;
 			entry.0 = self.clock;
-			let texture = (entry.1.id(), entry.1.size());
+			let texture = animated_texture.as_ref().unwrap_or(&entry.1);
+			let texture = (texture.id(), texture.size());
 			Some(texture)
 		} else {
 			if !demo {
@@ -421,14 +436,15 @@ impl Avatars {
 			&& let Some(key) = profile.banner_key()
 		{
 			let is_animated = is_animated_profile_or_avatar_key(&key);
-			if is_animated
+			if self.animate_gifs
+				&& is_animated
 				&& !self.animations.contains_key(&key)
 				&& !self.no_animations.contains(&key)
 				&& !demo
 			{
 				self.request(key.clone());
 			}
-			self.advance_animation(ui.ctx(), &key);
+			let animated_texture = self.advance_animation(ui.ctx(), &key, true);
 			#[cfg(any(test, feature = "demo"))]
 			if demo && !self.textures.contains_key(&key) {
 				let mut image = ColorImage::filled([128, 48], color);
@@ -446,11 +462,12 @@ impl Avatars {
 			if let Some(entry) = self.textures.get_mut(&key) {
 				self.clock += 1;
 				entry.0 = self.clock;
-				let source = entry.1.size_vec2();
+				let texture = animated_texture.as_ref().unwrap_or(&entry.1);
+				let source = texture.size_vec2();
 				let scale = (rect.width() / source.x).max(rect.height() / source.y);
 				let uv_size = rect.size() / (source * scale);
 				let uv = egui::Rect::from_center_size(egui::pos2(0.5, 0.5), uv_size);
-				egui::Image::new(&entry.1)
+				egui::Image::new(texture)
 					.uv(uv)
 					.corner_radius(corner)
 					.paint_at(ui, rect);
@@ -556,18 +573,20 @@ impl Avatars {
 		});
 		response
 	}
-	fn advance_animation(&mut self, ctx: &egui::Context, key: &str) {
-		let Some(entry) = self.textures.get_mut(key) else {
-			return;
-		};
-		let is_profile_or_avatar = is_animated_profile_or_avatar_key(key);
-		if (self.animate_gifs || is_profile_or_avatar)
-			&& (ctx.input(|input| input.focused) || is_profile_or_avatar)
+	fn advance_animation(
+		&mut self,
+		ctx: &egui::Context,
+		key: &str,
+		hovered: bool,
+	) -> Option<TextureHandle> {
+		if self.animate_gifs
+			&& ctx.input(|input| input.focused)
+			&& (hovered || self.avatar_animation || !is_animated_profile_or_avatar_key(key))
 			&& let Some(animation) = self.animations.get_mut(key)
 		{
 			let total_nanos = animation.total.as_nanos();
 			if total_nanos == 0 {
-				return;
+				return None;
 			}
 			let now = Instant::now();
 			let elapsed_nanos = (animation.started.elapsed().as_nanos() % total_nanos) as u64;
@@ -586,18 +605,26 @@ impl Avatars {
 			if animation.frame != target_index {
 				if now < animation.next_upload {
 					ctx.request_repaint_after(animation.next_upload - now);
-					return;
+					return animation.texture.clone();
 				}
 				let image = &animation.frames[target_index].1;
-				self.bytes -= entry.1.byte_size();
-				entry.1.set(image.clone(), egui::TextureOptions::LINEAR);
-				self.bytes += entry.1.byte_size();
+				if let Some(texture) = &mut animation.texture {
+					texture.set(image.clone(), egui::TextureOptions::LINEAR);
+				} else {
+					animation.texture = Some(ctx.load_texture(
+						"service-animation",
+						image.clone(),
+						egui::TextureOptions::LINEAR,
+					));
+				}
 				animation.frame = target_index;
 				animation.next_upload = now + ANIMATION_INTERVAL;
 			}
 
 			ctx.request_repaint_after(frame_remaining.max(Duration::from_millis(1)));
+			return animation.texture.clone();
 		}
+		None
 	}
 	fn paint(&mut self, ui: &mut egui::Ui, key: &str, rect: egui::Rect, radius: u8) -> bool {
 		self.paint_fitted(ui, key, rect, radius, false)
@@ -637,16 +664,18 @@ impl Avatars {
 		radius: u8,
 		cover: bool,
 	) -> bool {
+		let mut animated_texture = None;
 		if ui.is_rect_visible(rect) {
 			let is_animated = key.starts_with("anim:") || is_animated_profile_or_avatar_key(key);
 			if is_animated
-				&& (self.animate_gifs || is_animated_profile_or_avatar_key(key))
+				&& self.animate_gifs
 				&& !self.animations.contains_key(key)
 				&& !self.no_animations.contains(key)
 			{
 				self.request(key.to_string());
 			}
-			self.advance_animation(ui.ctx(), key);
+			animated_texture =
+				self.advance_animation(ui.ctx(), key, ui.rect_contains_pointer(rect));
 		}
 		let Some(entry) = self.textures.get_mut(key) else {
 			return false;
@@ -654,11 +683,12 @@ impl Avatars {
 		self.clock += 1;
 		entry.0 = self.clock;
 		// paint_at stretches to its rectangle; fit actual pixels inside the stable layout slot.
-		let source = entry.1.size_vec2();
+		let texture = animated_texture.as_ref().unwrap_or(&entry.1);
+		let source = texture.size_vec2();
 		if cover {
 			let scale = (rect.width() / source.x).max(rect.height() / source.y);
 			let uv_size = rect.size() / (source * scale);
-			egui::Image::new(&entry.1)
+			egui::Image::new(texture)
 				.uv(egui::Rect::from_center_size(egui::pos2(0.5, 0.5), uv_size))
 				.corner_radius(egui::CornerRadius {
 					nw: radius,
@@ -670,7 +700,7 @@ impl Avatars {
 		} else {
 			let scale = (rect.width() / source.x).min(rect.height() / source.y);
 			let fitted = egui::Rect::from_center_size(rect.center(), source * scale);
-			egui::Image::new(&entry.1)
+			egui::Image::new(texture)
 				.corner_radius(radius)
 				.paint_at(ui, fitted);
 		}
@@ -983,38 +1013,30 @@ impl Avatars {
 		};
 		let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
 		if ui.is_rect_visible(rect) {
-			let is_animated_profile = media.url.as_deref().is_some_and(|url| {
-				let path = url.split('?').next().unwrap_or(url);
-				path.ends_with(".gif")
-					&& (path.contains("/avatars/") || path.contains("/banners/"))
-					&& path.contains("/a_")
-			});
 			let original_gif = media.url.as_deref().filter(|url| {
-				(self.animate_gifs
+				self.animate_gifs
 					&& (model::valid_gif_url(url)
 						|| url.starts_with("https://cdn.discordapp.com/")
 						|| url.starts_with("https://media.discordapp.net/"))
 					&& url
 						.split('?')
 						.next()
-						.is_some_and(|path| path.ends_with(".gif")))
-					|| is_animated_profile
+						.is_some_and(|path| path.ends_with(".gif"))
 			});
 			let source = original_gif
 				.or(media.proxy_url.as_deref())
 				.or(media.url.as_deref())
 				.filter(|source| source.len() <= 2048);
-			let animated = is_animated_profile
-				|| source.is_some_and(|source| {
-					self.animate_gifs
-						&& source
-							.split('?')
-							.next()
-							.and_then(|path| path.rsplit_once('.'))
-							.is_some_and(|(_, ext)| {
-								ext.eq_ignore_ascii_case("gif") || ext.eq_ignore_ascii_case("webp")
-							})
-				});
+			let animated = source.is_some_and(|source| {
+				self.animate_gifs
+					&& source
+						.split('?')
+						.next()
+						.and_then(|path| path.rsplit_once('.'))
+						.is_some_and(|(_, ext)| {
+							ext.eq_ignore_ascii_case("gif") || ext.eq_ignore_ascii_case("webp")
+						})
+			});
 			// Parse once for both renditions; borrow query pairs so signatures and their order
 			// keep the same URL encoding without an owned string/vector for every parameter.
 			let parsed = source
@@ -1793,15 +1815,18 @@ mod tests {
 	fn animated_profile_avatar_and_banner_viewer_requests_anim_and_plays() {
 		let ctx = egui::Context::default();
 		let mut images = Avatars::default();
-		images.set_animation(false);
+		images.set_animation(true);
 		let avatar_media = model::EmbedMedia {
 			url: Some("https://cdn.discordapp.com/avatars/123/a_0123456789abcdef0123456789abcdef.gif?size=2048".into()),
 			width: 2048,
 			height: 2048,
 			..Default::default()
 		};
+		let mut rect = egui::Rect::NOTHING;
 		ctx.run_ui(Default::default(), |ui| {
-			images.show_large(ui, &avatar_media, egui::vec2(100.0, 80.0), false);
+			rect = images
+				.show_large(ui, &avatar_media, egui::vec2(100.0, 80.0), false)
+				.rect;
 		})
 		.drop_without_applying_deltas();
 		let keys = images.take_requests();
@@ -1827,9 +1852,16 @@ mod tests {
 		assert!(images.animations.contains_key(&key));
 		images.animations.get_mut(&key).unwrap().started =
 			Instant::now() - Duration::from_millis(1500);
-		ctx.run_ui(Default::default(), |ui| {
-			images.show_large(ui, &avatar_media, egui::vec2(100.0, 80.0), false);
-		})
+		ctx.run_ui(
+			egui::RawInput {
+				focused: true,
+				events: vec![egui::Event::PointerMoved(rect.center())],
+				..Default::default()
+			},
+			|ui| {
+				images.show_large(ui, &avatar_media, egui::vec2(100.0, 80.0), false);
+			},
+		)
 		.drop_without_applying_deltas();
 		assert_eq!(images.animations[&key].frame, 1);
 	}

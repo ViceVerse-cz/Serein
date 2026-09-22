@@ -226,7 +226,9 @@ impl MessagingUi {
 			ui.painter()
 				.circle_filled(avatar.center(), 42.0, colors.raised);
 			ui.scope_builder(egui::UiBuilder::new().max_rect(avatar), |ui| {
-				self.avatars.show(ui, user, 72.0, state.demo);
+				self.avatars.with_avatar_animation(true, |avatars| {
+					avatars.show(ui, user, 72.0, state.demo)
+				});
 			});
 			let dot = avatar.right_bottom() - egui::Vec2::splat(11.0);
 			ui.painter().circle_filled(dot, 10.5, colors.raised);

@@ -1149,11 +1149,13 @@ pub fn show(
 			ui.painter()
 				.circle_filled(avatar_rect.center(), AVATAR * 0.5 + 6.0, theme.card);
 			ui.scope_builder(UiBuilder::new().max_rect(avatar_rect), |ui| {
-				let response = if let Some(data) = data {
-					avatars.show_profile_avatar(ui, data, AVATAR, state.demo)
-				} else {
-					avatars.show(ui, user, AVATAR, state.demo)
-				};
+				let response = avatars.with_avatar_animation(true, |avatars| {
+					if let Some(data) = data {
+						avatars.show_profile_avatar(ui, data, AVATAR, state.demo)
+					} else {
+						avatars.show(ui, user, AVATAR, state.demo)
+					}
+				});
 				response.widget_info(|| {
 					egui::WidgetInfo::labeled(egui::Role::Button, true, "View profile picture")
 				});

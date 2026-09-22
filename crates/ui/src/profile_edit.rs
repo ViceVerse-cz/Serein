@@ -556,7 +556,9 @@ fn preview(
 								.corner_radius(40.0),
 						),
 						Picture::Removed => design::avatar(ui, &profile.user.name, 80.0),
-						Picture::Remote => avatars.show_plain(ui, &profile.user, 80.0, demo),
+						Picture::Remote => avatars.with_avatar_animation(true, |avatars| {
+							avatars.show_plain(ui, &profile.user, 80.0, demo)
+						}),
 					},
 				);
 			if clickable {

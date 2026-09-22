@@ -688,7 +688,9 @@ impl MessagingUi {
 					.circle_filled(avatar.center(), 44.0, colors.raised);
 				ui.scope_builder(egui::UiBuilder::new().max_rect(avatar), |ui| {
 					if let Some(user) = &state.user {
-						self.avatars.show(ui, user, 80.0, state.demo);
+						self.avatars.with_avatar_animation(true, |avatars| {
+							avatars.show(ui, user, 80.0, state.demo)
+						});
 					} else {
 						design::avatar(ui, &name, 80.0);
 					}

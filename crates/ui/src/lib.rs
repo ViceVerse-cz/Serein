@@ -1190,8 +1190,13 @@ impl MessagingUi {
 									.layout(egui::Layout::left_to_right(egui::Align::Center)),
 							);
 							inner.spacing_mut().item_spacing.x = 12.0;
+							let animate_avatar = ui.rect_contains_pointer(rect);
 							inner.push_id(member.user.id.0, |ui| {
-								let avatar = self.avatars.show(ui, &member.user, 32.0, state.demo);
+								let avatar = self
+									.avatars
+									.with_avatar_animation(animate_avatar, |avatars| {
+										avatars.show(ui, &member.user, 32.0, state.demo)
+									});
 								user_menu::show(
 									&avatar,
 									state,
