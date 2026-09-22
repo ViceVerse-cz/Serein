@@ -1133,17 +1133,17 @@ pub fn show(
 						.interact_pos()
 						.is_some_and(|pos| circles.contains(pos) || avatar_rect.contains(pos))
 				});
-				if banner_response.clicked() && !pointer_interact_in_subwidgets {
-					if let Some(data) = data
-						&& let Some(url) = data.banner_url()
-					{
-						action = Some(Action::Banner(model::EmbedMedia {
-							url: Some(url),
-							width: 2048,
-							height: 1024,
-							..Default::default()
-						}));
-					}
+				if banner_response.clicked()
+					&& !pointer_interact_in_subwidgets
+					&& let Some(data) = data
+					&& let Some(url) = data.banner_url()
+				{
+					action = Some(Action::Banner(model::EmbedMedia {
+						url: Some(url),
+						width: 2048,
+						height: 1024,
+						..Default::default()
+					}));
 				}
 			}
 			ui.painter()

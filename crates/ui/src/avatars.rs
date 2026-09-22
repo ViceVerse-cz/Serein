@@ -85,10 +85,10 @@ fn is_animated_profile_or_avatar_key(key: &str) -> bool {
 		let mut parts = value.split('-');
 		return parts.nth(2).is_some_and(|hash| hash.starts_with("a_"));
 	}
-	if let Some((id, hash)) = key.split_once('-') {
-		if id.parse::<model::Id>().is_ok() {
-			return hash.starts_with("a_");
-		}
+	if let Some((id, hash)) = key.split_once('-')
+		&& id.parse::<model::Id>().is_ok()
+	{
+		return hash.starts_with("a_");
 	}
 	false
 }
@@ -639,10 +639,12 @@ impl Avatars {
 	) -> bool {
 		if ui.is_rect_visible(rect) {
 			let is_animated = key.starts_with("anim:") || is_animated_profile_or_avatar_key(key);
-			if is_animated && (self.animate_gifs || is_animated_profile_or_avatar_key(key)) {
-				if !self.animations.contains_key(key) && !self.no_animations.contains(key) {
-					self.request(key.to_string());
-				}
+			if is_animated
+				&& (self.animate_gifs || is_animated_profile_or_avatar_key(key))
+				&& !self.animations.contains_key(key)
+				&& !self.no_animations.contains(key)
+			{
+				self.request(key.to_string());
 			}
 			self.advance_animation(ui.ctx(), key);
 		}

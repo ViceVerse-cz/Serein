@@ -4115,10 +4115,7 @@ impl MessagingUi {
 							waveform: Vec::new(),
 						},
 					));
-					self.profile = None;
-					self.profile_link = None;
-					self.profile_anchor = None;
-					commands.push(state.clear_profile());
+					self.profile.close();
 				}
 				Some(profiles::Action::Banner(media)) => {
 					let ext = media

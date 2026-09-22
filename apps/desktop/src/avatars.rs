@@ -38,10 +38,10 @@ fn is_animated_key(key: &str) -> bool {
 		let mut parts = value.split('-');
 		return parts.nth(2).is_some_and(|hash| hash.starts_with("a_"));
 	}
-	if let Some((id, hash)) = key.split_once('-') {
-		if id.parse::<Id>().is_ok() {
-			return hash.starts_with("a_");
-		}
+	if let Some((id, hash)) = key.split_once('-')
+		&& id.parse::<Id>().is_ok()
+	{
+		return hash.starts_with("a_");
 	}
 	false
 }
