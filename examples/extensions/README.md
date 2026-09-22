@@ -27,7 +27,7 @@ may not be available in a released build.
 | --- | --- |
 | [App Toolbox](app-toolbox/src/lib.rs) | App snapshots and all supported host actions |
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
-| [Message Delete Protector](message-delete-protector/src/lib.rs) | Compatibility activation plugin; retention is built in |
+| [Message Delete Protector](message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
 | [Emoji & Sticker Images](emoji-sticker-images/src/lib.rs) | Activation enabling image attachment mode |
 
 For this tutorial, use `app-toolbox/` in a development copy. Keep its `Cargo.toml`,
@@ -239,13 +239,13 @@ and [Panels and storage](../../docs/extension-sdk-actions.md#panels-and-storage)
 
 ## Activation examples
 
-[Message delete protector](message-delete-protector/src/lib.rs) is an example
-activation plugin. Deleted loaded messages stay in bounded session memory
-without an extension. The host highlights deleted text and offers local controls
-without calling Discord. The compatibility output `preserve_deleted_messages`
-does not change retention. Deleted bodies are never supplied to this plugin,
-written to disk, or recovered from before they were loaded. Logout, permission
-revocation and timeline eviction release retained content.
+[Message delete protector](message-delete-protector/src/lib.rs) is an opt-in
+activation plugin. Successful activation with the `deleted_messages` grant keeps
+loaded deleted messages in bounded session memory while enabled. No-op activation
+works; `preserve_deleted_messages` is a compatibility field. The host highlights
+retained text and offers local controls without calling Discord. Deleted bodies
+are never supplied to this plugin, written to disk, or recovered from before they
+were loaded. Disable, logout, permission revocation and eviction release them.
 
 Emoji & Sticker Images requests `image_sharing` and returns `image_sharing: true`
 from activation. Selecting artwork authorizes an immediate image send after

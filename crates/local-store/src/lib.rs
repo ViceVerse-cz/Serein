@@ -291,7 +291,15 @@ impl LocalStore {
 			[],
 			|row| row.get(0),
 		)?;
+		let has_interaction: bool = connection.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='interaction')",
+			[],
+			|row| row.get(0),
+		)?;
 		let transaction = connection.transaction()?;
+		if !has_interaction {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN interaction TEXT CHECK(interaction IS NULL OR length(CAST(interaction AS BLOB))<=4096);")?;
+		}
 		if !has_original_flags {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN original_flags TEXT NOT NULL DEFAULT '0' CHECK(typeof(original_flags)='text' AND length(CAST(original_flags AS BLOB)) BETWEEN 1 AND 20);")?;
 		}
@@ -713,7 +721,7 @@ impl LocalStore {
 			}
 		}
 		let mut insert = transaction.prepare_cached(
-            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)")?;
+            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)")?;
 		for message in messages {
 			if previous
 				.get(&message.id)
@@ -760,6 +768,15 @@ impl LocalStore {
 			if sticker_items.len() > 32768 {
 				return Err(StoreError::Capacity);
 			}
+			let interaction = message
+				.interaction
+				.as_deref()
+				.map(serde_json::to_string)
+				.transpose()
+				.map_err(|_| StoreError::Incompatible)?;
+			if interaction.as_ref().is_some_and(|json| json.len() > 4096) {
+				return Err(StoreError::Capacity);
+			}
 			let components =
 				serde_json::to_string(&message.components).map_err(|_| StoreError::Incompatible)?;
 			if components.len() > MAX_MEDIA_JSON {
@@ -800,6 +817,7 @@ impl LocalStore {
 				message.application_id.map(|id| id.to_string()),
 				message.flags.to_string(),
 				sticker_items,
+				interaction,
 			])?;
 		}
 		drop(insert);
@@ -817,7 +835,7 @@ impl LocalStore {
 			let bytes = if (page_count - free_pages) * page_size <= 48 * 1024 * 1024 {
 				0
 			} else {
-				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(original_flags AS BLOB))+length(CAST(components AS BLOB))+length(CAST(sticker_items AS BLOB))+coalesce(length(CAST(application_id AS BLOB)),0)+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
+				transaction.query_row("SELECT coalesce(sum(length(CAST(content AS BLOB))+length(CAST(name AS BLOB))+length(CAST(original_flags AS BLOB))+length(CAST(components AS BLOB))+length(CAST(sticker_items AS BLOB))+coalesce(length(CAST(application_id AS BLOB)),0)+length(CAST(embeds AS BLOB))+length(CAST(attachments AS BLOB))+length(CAST(mentions AS BLOB))+length(CAST(author_roles AS BLOB))+coalesce(length(CAST(author_nick AS BLOB)),0)+coalesce(length(CAST(interaction AS BLOB)),0)+256),0) FROM messages",[],|row|row.get(0))?
 			};
 			if channels <= 20 && bytes <= 48 * 1024 * 1024 {
 				break;
@@ -844,7 +862,7 @@ impl LocalStore {
 		Ok(())
 	}
 	pub fn load_channel(&self, account: Id, channel: Id) -> Result<Vec<Message>> {
-		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
+		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
 		let mut rows = query.query(params![account.to_string(), channel.to_string()])?;
 		let mut messages = Vec::new();
 		let mut bytes = 0;
@@ -895,7 +913,7 @@ impl LocalStore {
 					return Err(StoreError::Capacity);
 				}
 			}
-			for (column, maximum) in [(5, 20), (7, 34), (20, 512), (22, 20)] {
+			for (column, maximum) in [(5, 20), (7, 34), (20, 512), (22, 20), (25, 4096)] {
 				if !matches!(row.get_ref(column)?, rusqlite::types::ValueRef::Null)
 					&& row
 						.get_ref(column)?
@@ -964,6 +982,18 @@ impl LocalStore {
 			if flags & 64 != 0 {
 				return Err(StoreError::Incompatible);
 			}
+			let interaction = match row.get_ref(25)? {
+				rusqlite::types::ValueRef::Null => None,
+				rusqlite::types::ValueRef::Text(bytes) => {
+					let interaction = serde_json::from_slice::<model::Interaction>(bytes)
+						.map_err(|_| StoreError::Incompatible)?;
+					if interaction.user.name.len() > 512 || interaction.command.len() > 256 {
+						return Err(StoreError::Capacity);
+					}
+					Some(Box::new(interaction))
+				}
+				_ => return Err(StoreError::Incompatible),
+			};
 			let message = Message {
 				sticker_items: serde_json::from_str::<
 					model::StickerList<{ model::MAX_MESSAGE_STICKERS }>,
@@ -1006,6 +1036,7 @@ impl LocalStore {
 				kind: row.get(14)?,
 				reply_deleted,
 				forwarded: row.get(18)?,
+				interaction,
 				nonce: None,
 				revision: 0,
 				embeds,
@@ -2745,6 +2776,7 @@ mod tests {
 				extra_content: model::ExtraContent::default(),
 				kind: 0,
 				reply_deleted: false,
+				interaction: None,
 				forwarded: false,
 				embeds: vec![model::Embed {
 					title: Some("Cached synthetic embed".into()),

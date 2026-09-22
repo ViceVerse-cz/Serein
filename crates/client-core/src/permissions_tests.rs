@@ -285,6 +285,7 @@ fn message(id: u64, channel: Id) -> Message {
 		nonce: None,
 		reply_to: None,
 		reply_deleted: false,
+		interaction: None,
 		forwarded: false,
 		unsupported: false,
 		components: vec![],

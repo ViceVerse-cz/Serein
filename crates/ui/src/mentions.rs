@@ -1331,6 +1331,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 			reply_to: None,
 			kind: 0,
 			reply_deleted: false,
+			interaction: None,
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),

@@ -670,6 +670,7 @@ pub struct State {
 	#[doc(hidden)]
 	pub last_viewed_threads: Vec<Id>,
 	pub timeline: Timeline,
+	pub preserve_deleted_messages: bool,
 	pub resident: resident::Windows,
 	pub freshness: Freshness,
 	pub status: &'static str,
@@ -863,6 +864,7 @@ impl Default for State {
 			last_viewed_channels: Vec::new(),
 			last_viewed_threads: Vec::new(),
 			timeline: Timeline::default(),
+			preserve_deleted_messages: false,
 			resident: resident::Windows::default(),
 			freshness: Freshness::Stale,
 			status: "Disconnected",
@@ -2114,6 +2116,8 @@ impl State {
 		{
 			return;
 		}
+		self.timeline
+			.set_preserve_deleted_messages(self.preserve_deleted_messages);
 		self.invalidate_resident_event(&envelope.event);
 		self.observe_channel_action(&envelope.event);
 		if let Event::ChannelCreated(channel) = &envelope.event {
@@ -4754,6 +4758,7 @@ mod tests {
 			reply_to: None,
 			kind: 0,
 			reply_deleted: false,
+			interaction: None,
 			forwarded: false,
 			unsupported: false,
 			components: vec![],
@@ -4838,8 +4843,8 @@ mod tests {
 		assert_eq!(state.reply, None);
 		assert_eq!(state.timeline.row_ids().collect::<Vec<_>>(), positions);
 		assert!(state.timeline.is_empty());
-		assert!(state.timeline.bytes() > 0);
-		assert!(state.timeline.get_display(Id(100)).is_some());
+		assert_eq!(state.timeline.bytes(), 0);
+		assert!(state.timeline.get_display(Id(100)).is_none());
 		assert!(state.can_load_older());
 		assert!(!state.can_edit(Id(1), Id(100)));
 		assert!(matches!(
@@ -4890,10 +4895,10 @@ mod tests {
 		);
 		assert_eq!(
 			state.timeline.row_ids().collect::<Vec<_>>(),
-			(99..=150).map(Id).collect::<Vec<_>>()
+			[Id(99), Id(150)]
 		);
 		assert!(state.timeline.get(Id(99)).is_none());
-		assert!(state.timeline.get_display(Id(99)).is_some());
+		assert!(state.timeline.get_display(Id(99)).is_none());
 		assert!(state.timeline.get(Id(150)).is_some());
 		state.history(None);
 		let request = state.request;

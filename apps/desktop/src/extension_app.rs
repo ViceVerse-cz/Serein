@@ -710,6 +710,7 @@ mod tests {
 	#[test]
 	fn extension_app_timeline_excludes_private_deleted_and_oversized_rows() {
 		let mut state = test_support::demo_state();
+		state.set_preserve_deleted_messages(true);
 		let caps = manifest(vec![Capability::Timeline]);
 		for (id, text, ephemeral) in [
 			(2001, "private".into(), true),

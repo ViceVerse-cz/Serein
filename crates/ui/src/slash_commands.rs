@@ -706,6 +706,7 @@ impl Menu {
 		send_chord: &model::KeyChord,
 	) -> bool {
 		self.argument_rect = None;
+		let submit_failed = self.error.is_some();
 		let Some(active) = self.active.as_mut() else {
 			return false;
 		};
@@ -734,7 +735,8 @@ impl Menu {
 			.auto_shrink([false, true])
 			.show(ui, |ui| {
 				ui.horizontal_wrapped(|ui| {
-					ui.spacing_mut().item_spacing = egui::vec2(6.0, 5.0);
+					// Discord separates the command token and its argument chips by 12px.
+					ui.spacing_mut().item_spacing = egui::vec2(12.0, 6.0);
 					let name_id = egui::Id::unique(("slash-command", channel, active.id));
 					let no_options = options.is_some_and(<[_]>::is_empty);
 					let name_submit = no_options
@@ -843,6 +845,10 @@ impl Menu {
 						let id =
 							egui::Id::unique(("slash-argument", channel, active.id, &option.name));
 						let had_focus = ui.memory(|memory| memory.has_focus(id));
+						// Discord rings the offending chip in red: a value outside its limits,
+						// or a required value still missing after a submission attempt.
+						let invalid = option.problem(value).is_some()
+							|| (value.is_empty() && option.required && submit_failed);
 						ui.allocate_ui_with_layout(
 							egui::vec2(chip_width, CHIP),
 							egui::Layout::left_to_right(egui::Align::Center),
@@ -871,11 +877,14 @@ impl Menu {
 									},
 									colors.hover,
 								);
-								if had_focus {
+								if invalid || had_focus {
 									painter.rect_stroke(
 										rect,
 										6,
-										egui::Stroke::new(1.0, colors.muted),
+										egui::Stroke::new(
+											1.0,
+											if invalid { colors.danger } else { colors.muted },
+										),
 										egui::StrokeKind::Inside,
 									);
 								}
@@ -961,7 +970,18 @@ impl Menu {
 			egui::Label::new(design::semibold(ui, title, 15.0).color(colors.text_strong))
 				.truncate(),
 		);
-		let (detail, color) = if let Some(error) = error {
+		// The focused argument's own problem beats the generic submission error.
+		let problem = option.and_then(|option| {
+			active
+				.values
+				.iter()
+				.find(|(name, _)| *name == option.name)
+				.and_then(|(_, value)| option.problem(value))
+		});
+		let error = error.filter(|_| problem.is_none());
+		let (detail, color) = if let Some(problem) = problem.as_deref() {
+			(problem, colors.danger)
+		} else if let Some(error) = error {
 			(error, colors.danger)
 		} else if state.interactions.busy() {
 			("Waiting for the application…", colors.muted)

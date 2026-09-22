@@ -231,7 +231,7 @@ pub fn demo_check_examples() -> Result<bool, String> {
 		}
 		if manifest.kind == ExtensionKind::Plugin {
 			let ok = match manifest.id.as_str() {
-				"message-delete-protector" => summary.error.is_none(),
+				"message-delete-protector" => summary.preserve_deleted_messages,
 				"emoji-sticker-images" => summary.image_sharing,
 				_ => false,
 			};
@@ -560,9 +560,10 @@ impl Stored {
 			sha256: self.sha256.clone(),
 			download_bytes: self.download_bytes,
 			image_sharing: result.as_ref().is_ok_and(|output| output.image_sharing),
-			preserve_deleted_messages: result
-				.as_ref()
-				.is_ok_and(|output| output.preserve_deleted_messages),
+			// Current protector packages have a no-op activation; consent still opts in.
+			preserve_deleted_messages: activation.is_some()
+				&& result.is_ok()
+				&& self.grants.contains(&Capability::DeletedMessages),
 			error: result.err(),
 		}
 	}

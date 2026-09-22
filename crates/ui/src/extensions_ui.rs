@@ -2530,7 +2530,7 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::VoiceControl => "Propose muting, deafening or leaving my call for approval",
 		Capability::AppEvents => "Receive app lifecycle and navigation events while enabled",
 		Capability::DeletedMessages => {
-			"Sample capability for the delete-protector example (retention is built-in)"
+			"Keep loaded deleted messages in session memory while enabled"
 		}
 	}
 }

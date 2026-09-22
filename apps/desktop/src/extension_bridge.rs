@@ -368,6 +368,7 @@ impl Bridge {
 			self.data_changes = Default::default();
 			self.data_key = None;
 			self.message_events_dropped = false;
+			state.set_preserve_deleted_messages(false);
 			self.cancel_previews(messaging);
 			self.host.as_mut().unwrap().cancel();
 			self.pending.retain(|_, pending| pending.cleanup);
@@ -939,6 +940,14 @@ impl Bridge {
 					&& !self.disabled.contains(&entry.manifest.id)
 					&& entry.image_sharing
 			});
+		state.set_preserve_deleted_messages(
+			account.is_some()
+				&& self.installed.iter().any(|entry| {
+					entry.error.is_none()
+						&& !self.disabled.contains(&entry.manifest.id)
+						&& entry.preserve_deleted_messages
+				}),
+		);
 		let max_texture = ctx.input(|input| input.max_texture_side);
 		if self
 			.installed

@@ -42,6 +42,18 @@ impl Windows {
 	}
 }
 impl State {
+	/// Session-only extension policy. Disabling releases every retained deleted payload.
+	pub fn set_preserve_deleted_messages(&mut self, enabled: bool) {
+		if self.preserve_deleted_messages != enabled {
+			self.preserve_deleted_messages = enabled;
+			self.revision += 1;
+		}
+		self.timeline.set_preserve_deleted_messages(enabled);
+		for entry in &mut self.resident.entries {
+			entry.timeline.set_preserve_deleted_messages(enabled);
+		}
+	}
+
 	/// Remove one session-retained deleted row from the active timeline.
 	pub fn discard_preserved_deleted(&mut self, id: Id) {
 		if self.timeline.discard_preserved(id) {
@@ -149,6 +161,8 @@ impl State {
 		if let Some(entry) = restored {
 			self.timeline = entry.timeline;
 		}
+		self.timeline
+			.set_preserve_deleted_messages(self.preserve_deleted_messages);
 		self.enforce_resident_budget();
 	}
 	pub(crate) fn invalidate_resident_event(&mut self, event: &Event) {
@@ -255,6 +269,7 @@ mod tests {
 			nonce: None,
 			reply_to: None,
 			reply_deleted: false,
+			interaction: None,
 			forwarded: false,
 			unsupported: false,
 			components: vec![],
@@ -455,6 +470,7 @@ mod tests {
 	fn dormant_deletions_survive_live_history_invalidation() {
 		for event in [Event::Message(message(1, 1099)), Event::Patch(patch(1))] {
 			let mut state = state();
+			state.set_preserve_deleted_messages(true);
 			load(&mut state, 1);
 			load(&mut state, 2);
 			apply(
@@ -568,7 +584,7 @@ mod tests {
 			if delete {
 				assert_eq!(state.resident_window_count(), 2);
 				state.select(Id(1)).unwrap();
-				assert!(state.timeline.get_display(Id(1001)).is_some());
+				assert!(state.timeline.get_display(Id(1001)).is_none());
 				assert!(state.timeline.get(Id(1001)).is_none());
 				assert_eq!(state.timeline.row_count(), 50);
 			} else {

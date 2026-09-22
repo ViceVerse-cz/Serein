@@ -239,6 +239,73 @@ impl CommandOption {
 						.is_some_and(|(a, b)| a == b)
 			}))
 	}
+	/// Why a typed composer value cannot be submitted, or `None` for an acceptable value.
+	/// An empty value is acceptable here; required-but-missing is a submission concern.
+	pub fn problem(&self, text: &str) -> Option<String> {
+		if text.is_empty() {
+			return None;
+		}
+		fn bound(n: f64) -> String {
+			if n.fract() == 0.0 && n.abs() < 1e15 {
+				format!("{}", n as i64)
+			} else {
+				format!("{n}")
+			}
+		}
+		let value = match self.kind {
+			3 | 6..=9 => Value::String(text.to_owned()),
+			4 => match text.parse::<i64>() {
+				Ok(n) => Value::Integer(n),
+				Err(_) => return Some("Enter a whole number".into()),
+			},
+			5 => match text.parse::<bool>() {
+				Ok(b) => Value::Boolean(b),
+				Err(_) => return Some("Choose true or false".into()),
+			},
+			10 => match text.parse::<f64>() {
+				Ok(n) if n.is_finite() => Value::Number(n),
+				_ => return Some("Enter a number".into()),
+			},
+			11 => return Some("Attachment options are not supported yet".into()),
+			_ => return Some("This option is unsupported".into()),
+		};
+		if matches!(self.kind, 6..=9) && text.parse::<Id>().is_err() {
+			return Some("Choose from the list or enter an ID".into());
+		}
+		if self.kind == 3 {
+			let count = text.chars().count();
+			let min = usize::from(self.min_length.unwrap_or(0));
+			let max = usize::from(self.max_length.unwrap_or(6000));
+			if count < min || count > max {
+				return Some(match (self.min_length, self.max_length) {
+					(Some(min), Some(max)) => format!("Use between {min} and {max} characters"),
+					(Some(min), None) => format!("Use at least {min} characters"),
+					_ => format!("Use at most {max} characters"),
+				});
+			}
+		}
+		if let Some(n) = value.number()
+			&& (self.min_value.is_some_and(|min| n < min)
+				|| self.max_value.is_some_and(|max| n > max))
+		{
+			return Some(match (self.min_value, self.max_value) {
+				(Some(min), Some(max)) => {
+					format!("Enter a value between {} and {}", bound(min), bound(max))
+				}
+				(Some(min), None) => format!("Enter at least {}", bound(min)),
+				(None, Some(max)) => format!("Enter at most {}", bound(max)),
+				(None, None) => unreachable!(),
+			});
+		}
+		if !self.value_valid(&value) {
+			return Some(if self.choices.is_empty() {
+				"Value does not match this option's limits".into()
+			} else {
+				"Choose one of the listed options".into()
+			});
+		}
+		None
+	}
 	fn parse(&self, text: &str) -> Result<Value, &'static str> {
 		if text.len() > 24_000 {
 			return Err("Command value exceeds its byte limit");

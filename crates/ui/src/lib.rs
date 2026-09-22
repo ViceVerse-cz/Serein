@@ -3906,87 +3906,9 @@ impl MessagingUi {
 			&mut self.timeline.opening,
 		);
 		self.interaction_file_request = self.interaction_components.file_request.take();
-		if !state.interactions.ephemeral.is_empty() {
-			let messages = state.interactions.ephemeral.clone();
-			egui::Window::new("Only you can see these responses")
-				.id(egui::Id::unique("interaction-responses"))
-				.show(&ctx, |ui| {
-					egui::ScrollArea::vertical()
-						.max_height(400.0)
-						.show(ui, |ui| {
-							for message in &messages {
-								ui.strong(&message.author.name);
-								self.interaction_components.show_text(
-									ui,
-									message,
-									state,
-									&mut self.avatars,
-									&mut self.timeline.opening,
-								);
-								if !message.extra_content.components_v2
-									&& self.interaction_components.media_visible(
-										ui,
-										message,
-										state.generation,
-									) {
-									if embeds::has_media_spoilers(message) {
-										self.timeline.reveal_private_media(message);
-									}
-									if let Some(gif) = embeds::show(
-										ui,
-										message,
-										&mut self.profile_formatted,
-										&mut self.avatars,
-										&mut self.timeline.opening,
-										&mut self.timeline.download,
-										&mut self.profile,
-										state,
-									) {
-										self.timeline.gif_favorite = Some(gif);
-									}
-									let mut surface =
-										select::Surface::new(ui, ("ephemeral-media", message.id));
-									attachments::show(
-										ui,
-										message,
-										&mut self.avatars,
-										&mut self.timeline.viewing,
-										&mut self.timeline.opening,
-										&mut self.timeline.download,
-										&mut self.timeline.audio,
-										&mut self.timeline.video,
-										state.demo,
-										&mut surface,
-									);
-									surface.finish(ui);
-								}
-								if let Some((id, custom_id, values)) =
-									self.interaction_components.show(
-										ui,
-										message,
-										state,
-										&mut self.avatars,
-										&mut self.timeline.opening,
-										&mut components::MediaUi {
-											component_viewing: &mut self.timeline.component_viewing,
-											viewing: &mut self.timeline.viewing,
-											download: &mut self.timeline.download,
-											audio: &mut self.timeline.audio,
-											video: &mut self.timeline.video,
-										},
-									) && let Some(command) =
-									state.prepare_component(id, &custom_id, values)
-								{
-									commands.push(command);
-								}
-								if ui.small_button("Dismiss").clicked() {
-									state.dismiss_ephemeral(message.id);
-									self.interaction_components.forget_message(message.id);
-								}
-								ui.separator();
-							}
-						});
-				});
+		if let Some(id) = self.timeline.dismiss_ephemeral.take() {
+			state.dismiss_ephemeral(id);
+			self.timeline.components.forget_message(id);
 		}
 		if let Some((message, emoji)) = self.timeline.reaction.take() {
 			if let Some(emoji) = emoji {
@@ -4467,6 +4389,7 @@ mod composer_tests {
 					reply_to: None,
 					kind: 0,
 					reply_deleted: false,
+					interaction: None,
 					forwarded: false,
 					unsupported: false,
 					extra_content: Default::default(),

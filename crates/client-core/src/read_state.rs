@@ -816,6 +816,7 @@ mod navigation_tests {
 			nonce: None,
 			reply_to: None,
 			reply_deleted: false,
+			interaction: None,
 			forwarded: false,
 			kind: 0,
 			unsupported: false,

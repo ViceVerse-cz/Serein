@@ -428,6 +428,7 @@ fn demo_check_updates() {
 fn demo_check_extensions() {
 	let _ = extensions::demo_check_examples().expect("starter packages activate with consent");
 	let mut state = test_support::demo_state();
+	state.set_preserve_deleted_messages(true);
 	let channel = state.selected.expect("demo conversation");
 	state.timeline.clear();
 	let mut message = test_support::message(600, channel);
@@ -526,6 +527,7 @@ fn demo_check_extensions() {
 		state.timeline.get_display(message.id).is_none(),
 		"local remove drops the retained payload"
 	);
+	state.set_preserve_deleted_messages(false);
 	let next = test_support::message(601, channel);
 	state.timeline.insert(next.clone(), true, false).unwrap();
 	state.apply(Envelope {
@@ -536,8 +538,8 @@ fn demo_check_extensions() {
 		},
 	});
 	assert!(
-		state.timeline.get_display(next.id).is_some(),
-		"loaded deletes stay in the window"
+		state.timeline.get_display(next.id).is_none(),
+		"loaded deletes disappear with the extension disabled"
 	);
 	assert!(state.timeline.get(next.id).is_none());
 	println!(

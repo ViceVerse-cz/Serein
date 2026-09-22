@@ -94,7 +94,12 @@ pub fn respond(state: &mut State, request: interactions::Request) {
 	let options =
 		serde_json::to_string(&invocation.options).expect("validated synthetic arguments");
 	let details: String = options.chars().take(1200).collect();
+	let invoker = state
+		.user
+		.as_ref()
+		.map(|user| serde_json::json!({"id":user.id.to_string(),"username":user.name}));
 	let payload = serde_json::json!({
+		"interaction":{"id":(99100 + request.request).to_string(),"type":2,"name":invocation.command.name,"user":invoker},
 		"id":(99200 + request.request).to_string(),
 		"channel_id":request.channel_id.to_string(),
 		"author":{"id":request.application_id.to_string(),"username":invocation.command.application_name,"bot":true},

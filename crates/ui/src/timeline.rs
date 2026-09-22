@@ -35,6 +35,8 @@ pub struct TimelineView {
 	pub(super) component_viewing: Option<(Id, u64)>,
 	pub(super) components: crate::components::Components,
 	pub(super) component_action: Option<crate::components::Action>,
+	/// A private command response the reader dismissed this frame.
+	pub(super) dismiss_ephemeral: Option<Id>,
 	pub(super) extension_actions: std::sync::Arc<Vec<crate::extensions_ui::MenuAction>>,
 	pub(super) extension_request: Option<(crate::extensions_ui::MenuAction, String)>,
 	pub(super) user_action: Option<crate::user_menu::Action>,
@@ -327,6 +329,11 @@ fn layout_key(message: &Message) -> u64 {
 	message.author.webhook.hash(&mut key);
 	message.edited.hash(&mut key);
 	message.reply_to.hash(&mut key);
+	if let Some(interaction) = &message.interaction {
+		interaction.user.id.hash(&mut key);
+		interaction.user.name.hash(&mut key);
+		interaction.command.hash(&mut key);
+	}
 	message.forwarded.hash(&mut key);
 	message.reply_deleted.hash(&mut key);
 	message.unsupported.hash(&mut key);
@@ -565,11 +572,69 @@ fn starter_row(
 			});
 		});
 }
+/// Loaded and private (ephemeral) messages of the selected conversation in id order.
+fn display_rows<'a>(state: &'a State) -> impl Iterator<Item = &'a Message> + 'a {
+	let mut private: Vec<&Message> = state
+		.interactions
+		.ephemeral
+		.iter()
+		.filter(|message| Some(message.channel) == state.selected)
+		.collect();
+	private.sort_by_key(|message| message.id);
+	let mut shared = state.timeline.display_iter().peekable();
+	let mut private = private.into_iter().peekable();
+	std::iter::from_fn(move || match (shared.peek(), private.peek()) {
+		(Some(shared_next), Some(private_next)) if private_next.id < shared_next.id => {
+			private.next()
+		}
+		(Some(_), _) => shared.next(),
+		(None, _) => private.next(),
+	})
+}
+/// A row payload, including retained deleted bodies and private command responses.
+fn display_message(state: &State, id: Id) -> Option<&Message> {
+	state.timeline.get_display(id).or_else(|| {
+		state
+			.interactions
+			.ephemeral
+			.iter()
+			.find(|message| message.id == id && Some(message.channel) == state.selected)
+	})
+}
+/// The curved gutter connector shared by reply and command-invocation headers.
+fn reference_spine(ui: &mut egui::Ui, colors: &crate::design::Palette) {
+	let (gutter, _) = ui.allocate_exact_size(egui::vec2(50.0, 18.0), egui::Sense::hover());
+	let x = gutter.left() + 20.0;
+	let y = gutter.center().y;
+	let stroke = egui::Stroke::new(2.0, colors.muted.gamma_multiply(0.5));
+	ui.painter().line_segment(
+		[egui::pos2(x, gutter.bottom() + 2.0), egui::pos2(x, y + 5.0)],
+		stroke,
+	);
+	ui.painter()
+		.add(egui::epaint::QuadraticBezierShape::from_points_stroke(
+			[
+				egui::pos2(x, y + 5.0),
+				egui::pos2(x, y),
+				egui::pos2(x + 5.0, y),
+			],
+			false,
+			egui::Color32::TRANSPARENT,
+			stroke,
+		));
+	ui.painter().line_segment(
+		[egui::pos2(x + 5.0, y), egui::pos2(gutter.right(), y)],
+		stroke,
+	);
+}
 fn grouped(previous: Option<&Message>, message: &Message, boundary: Option<Id>) -> bool {
 	previous.is_some_and(|previous| {
 		previous.author.id == message.author.id
 			&& previous.author.account_label() == message.author.account_label()
 			&& message.reply_to.is_none()
+			&& message.interaction.is_none()
+			&& !message.ephemeral
+			&& !previous.ephemeral
 			&& !message.unsupported
 			&& !previous.unsupported
 			&& !message.extra_content.any()
@@ -1099,14 +1164,6 @@ fn show_system(
 	}
 }
 impl TimelineView {
-	pub(super) fn reveal_private_media(&mut self, message: &Message) {
-		if self.revealed.len() >= 512 && !self.revealed.contains_key(&message.id) {
-			self.revealed.clear();
-		}
-		self.revealed
-			.insert(message.id, Revealed::new(message, 0, true));
-	}
-
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
 		if self.video.is_fullscreen() {
 			let current = self
@@ -1360,7 +1417,7 @@ impl TimelineView {
 			// anchor or reintroduce estimates for already settled message geometry.
 			let mut fingerprint = DefaultHasher::new();
 			let mut previous = None;
-			for message in starter.into_iter().chain(state.timeline.display_iter()) {
+			for message in starter.into_iter().chain(display_rows(state)) {
 				let deleted = state.timeline.is_deleted(message.id);
 				message.id.hash(&mut fingerprint);
 				row_key(message, previous, self.unread_boundary, state).hash(&mut fingerprint);
@@ -1393,22 +1450,19 @@ impl TimelineView {
 			self.scale = scale;
 			let row_ids: Vec<_> = starter_id
 				.into_iter()
-				.chain(state.timeline.display_iter().map(|message| message.id))
+				.chain(display_rows(state).map(|message| message.id))
 				.collect();
 			self.heights
 				.retain(|id, _| row_ids.binary_search(id).is_ok());
 			self.suppressed_deleted_highlight
 				.retain(|id| row_ids.binary_search(id).is_ok());
 			self.formatted
-				.retain(|id| state.timeline.get_display(id).is_some());
+				.retain(|id| display_message(state, id).is_some());
 			self.toolbar = self
 				.toolbar
-				.filter(|(id, _)| state.timeline.get_display(*id).is_some());
+				.filter(|(id, _)| display_message(state, *id).is_some());
 			self.revealed.retain(|id, content| {
-				state
-					.timeline
-					.get_display(*id)
-					.is_some_and(|m| content.matches(m))
+				display_message(state, *id).is_some_and(|m| content.matches(m))
 			});
 			self.prior_revealed
 				.retain(|(id, _), _| row_ids.binary_search(id).is_ok());
@@ -1416,7 +1470,7 @@ impl TimelineView {
 			let mut lead_basis = 0.0;
 			self.rows = starter
 				.into_iter()
-				.chain(state.timeline.display_iter())
+				.chain(display_rows(state))
 				.map(|m| {
 					let prior = previous;
 					let deleted = state.timeline.is_deleted(m.id);
@@ -1803,7 +1857,7 @@ impl TimelineView {
 				}
 				let can_mark_read = state.can_mark_read(id);
 				let can_mark_unread = state.can_mark_unread(id);
-				let Some(message) = state.timeline.get_display(id) else {
+				let Some(message) = display_message(state, id) else {
 					continue;
 				};
 				if !message.author.webhook
@@ -1814,7 +1868,8 @@ impl TimelineView {
 				}
 				let previous = index
 					.checked_sub(1)
-					.and_then(|i| state.timeline.get(self.rows[i].0));
+					.and_then(|i| display_message(state, self.rows[i].0))
+					.filter(|previous| !state.timeline.is_deleted(previous.id));
 				// ponytail: reuse only settled ordinary text; dynamic media, references,
 				// spoilers and reactions need explicit layout invalidation before caching.
 				if index < anchor
@@ -1824,6 +1879,7 @@ impl TimelineView {
 					&& !message.unsupported
 					&& !message.extra_content.any()
 					&& message.reply_to.is_none()
+					&& message.interaction.is_none()
 					&& message.attachments.is_empty()
 					&& message.embeds.is_empty()
 					&& message.components.is_empty()
@@ -1877,41 +1933,66 @@ impl TimelineView {
 						.show(ui, |ui| {
 							let mut surface = crate::select::Surface::new(ui, "row");
 							ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
+							if let Some(interaction) = message
+								.interaction
+								.as_deref()
+								.filter(|_| message.reply_to.is_none())
+							{
+								ui.horizontal(|ui| {
+									ui.spacing_mut().interact_size.y = 18.0;
+									ui.spacing_mut().item_spacing.x = 6.0;
+									reference_spine(ui, &colors);
+									let avatar =
+										avatars.show(ui, &interaction.user, 16.0, state.demo);
+									surface.keep(&avatar);
+									let name = ui.add(
+										egui::Label::new(
+											RichText::new(&interaction.user.name)
+												.size(13.0)
+												.family(crate::design::semibold_family(ui.ctx()))
+												.color(colors.text),
+										)
+										.truncate(),
+									);
+									surface.keep(&name);
+									let used = ui.add(
+										egui::Label::new(
+											RichText::new("used").size(13.0).color(colors.muted),
+										)
+										.truncate(),
+									);
+									surface.keep(&used);
+									let label = if interaction.command.is_empty() {
+										"a command".to_owned()
+									} else {
+										format!("/{}", interaction.command)
+									};
+									let command = egui::Frame::NONE
+										.fill(colors.mention_bg)
+										.corner_radius(3)
+										.inner_margin(egui::Margin::symmetric(4, 0))
+										.show(ui, |ui| {
+											ui.add(
+												egui::Label::new(
+													RichText::new(label)
+														.size(13.0)
+														.family(crate::design::semibold_family(
+															ui.ctx(),
+														))
+														.color(colors.mention_text),
+												)
+												.truncate(),
+											)
+										})
+										.inner;
+									surface.keep(&command);
+								});
+							}
 							if let Some(reply) = message.reply_to {
 								ui.horizontal(|ui| {
 									ui.spacing_mut().interact_size.y = 18.0;
 									ui.spacing_mut().item_spacing.x = 6.0;
-									let (gutter, _) = ui.allocate_exact_size(
-										egui::vec2(50.0, 18.0),
-										egui::Sense::hover(),
-									);
-									let x = gutter.left() + 20.0;
-									let y = gutter.center().y;
-									let stroke =
-										egui::Stroke::new(2.0, colors.muted.gamma_multiply(0.5));
-									ui.painter().line_segment(
-										[
-											egui::pos2(x, gutter.bottom() + 2.0),
-											egui::pos2(x, y + 5.0),
-										],
-										stroke,
-									);
-									ui.painter().add(
-										egui::epaint::QuadraticBezierShape::from_points_stroke(
-											[
-												egui::pos2(x, y + 5.0),
-												egui::pos2(x, y),
-												egui::pos2(x + 5.0, y),
-											],
-											false,
-											egui::Color32::TRANSPARENT,
-											stroke,
-										),
-									);
-									ui.painter().line_segment(
-										[egui::pos2(x + 5.0, y), egui::pos2(gutter.right(), y)],
-										stroke,
-									);
+									reference_spine(ui, &colors);
 									// Reuse only loaded content; never fetch a thread while painting.
 									if message.reply_deleted || state.timeline.is_deleted(reply) {
 										let deleted = ui.add(
@@ -2409,7 +2490,6 @@ impl TimelineView {
 														.color(colors.muted),
 												);
 											}
-
 											if !message.components.is_empty() {
 												let shown = ui.scope(|ui| {
 													self.components.show(
@@ -2443,6 +2523,43 @@ impl TimelineView {
 											{
 												ui.colored_label(colors.danger, error);
 											}
+											if message.ephemeral {
+												ui.horizontal(|ui| {
+													ui.spacing_mut().item_spacing.x = 4.0;
+													let (icon, _) = ui.allocate_exact_size(
+														egui::Vec2::splat(16.0),
+														egui::Sense::hover(),
+													);
+													crate::icons::paint(
+														ui.painter(),
+														crate::icons::Icon::EyeSlash,
+														icon,
+														colors.muted,
+													);
+													ui.label(
+														RichText::new("Only you can see this  •")
+															.size(13.0)
+															.color(colors.muted),
+													);
+													let dismiss = ui
+														.add(
+															egui::Button::new(
+																RichText::new("Dismiss message")
+																	.size(13.0)
+																	.color(colors.link),
+															)
+															.frame(false),
+														)
+														.on_hover_cursor(
+															egui::CursorIcon::PointingHand,
+														);
+													surface.keep(&dismiss);
+													if dismiss.clicked() {
+														self.dismiss_ephemeral = Some(id);
+													}
+												});
+											}
+
 											for sticker in &message.sticker_items {
 												let response = ui
 													.push_id(sticker.id, |ui| {
@@ -2591,19 +2708,28 @@ impl TimelineView {
 						});
 					let rect = row.response.rect;
 					let mentioned = mentions_viewer(message, state);
-					if mentioned {
+					// Mentions mark the row in the warning colour; a private command response in
+					// the house accent, as in the official client.
+					let marked = if mentioned {
+						Some(colors.warning)
+					} else if message.ephemeral {
+						Some(colors.accent)
+					} else {
+						None
+					};
+					if let Some(mark) = marked {
 						ui.painter().set(
 							background,
 							egui::Shape::rect_filled(
 								rect,
 								0.0,
-								crate::design::row_highlight(ui, colors.warning, 0.10),
+								crate::design::row_highlight(ui, mark, 0.10),
 							),
 						);
 						ui.painter().rect_filled(
 							egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height())),
 							0.0,
-							colors.warning,
+							mark,
 						);
 					}
 					let focus = ui.interact(
@@ -2656,8 +2782,8 @@ impl TimelineView {
 							egui::Shape::rect_filled(
 								rect,
 								0.0,
-								if mentioned {
-									crate::design::row_highlight(ui, colors.warning, 0.16)
+								if let Some(mark) = marked {
+									crate::design::row_highlight(ui, mark, 0.16)
 								} else {
 									crate::design::row_highlight(ui, colors.hover, 0.7)
 								},
@@ -2780,7 +2906,7 @@ impl TimelineView {
 							) {
 								self.reaction_picker = Some((id, anchor, trigger));
 							}
-							let can_reply = state.can_send(message.channel);
+							let can_reply = state.can_send(message.channel) && !message.ephemeral;
 							let can_edit =
 								!message.unsupported && state.can_edit(message.channel, id);
 							let can_delete = state.can_delete(message.channel, id);
@@ -3842,6 +3968,7 @@ mod tests {
 			reply_to: None,
 			kind: 0,
 			reply_deleted: false,
+			interaction: None,
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
@@ -5893,6 +6020,7 @@ mod tests {
 				render(&mut view, &mut state);
 			}
 			assert_eq!(view.anchor.unwrap().0, anchor.0);
+			state.set_preserve_deleted_messages(true);
 			state.timeline.delete(anchor.0).unwrap();
 			state.revision += 1;
 			for _ in 0..4 {
@@ -6144,6 +6272,7 @@ mod tests {
 					},
 				});
 				if deleted_only {
+					state.set_preserve_deleted_messages(true);
 					state.apply(client_core::Envelope {
 						generation: state.generation,
 						event: client_core::Event::DeleteBulk {
@@ -6515,6 +6644,7 @@ mod tests {
 				.insert(message.id, Revealed::new(&message, u32::MAX, true));
 			view.viewing = Some((message.id, Id(9)));
 			view.toolbar = Some((message.id, egui::Rect::EVERYTHING));
+			state.set_preserve_deleted_messages(true);
 			state.timeline.delete(message.id).unwrap();
 			state.revision += 1;
 			for _ in 0..3 {
@@ -6578,6 +6708,7 @@ mod tests {
 			reply_to: None,
 			kind: 0,
 			reply_deleted: false,
+			interaction: None,
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
@@ -6739,6 +6870,7 @@ mod tests {
 			reply_to: None,
 			kind: 0,
 			reply_deleted: false,
+			interaction: None,
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
@@ -6836,6 +6968,7 @@ mod tests {
 			reply_to: None,
 			kind: 0,
 			reply_deleted: false,
+			interaction: None,
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
@@ -7223,6 +7356,82 @@ mod tests {
 		labels.get(&format!("Row {count}")).copied()
 	}
 
+	#[test]
+	fn arriving_messages_keep_the_live_edge_in_view() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = channel_messages(21, 48);
+		let mut view = TimelineView::default();
+		let mut settled = None;
+		for frame in 0..8 {
+			settled = newest_y(&paint_timeline(&ctx, &mut view, &mut state, frame), 48);
+		}
+		let settled = settled.expect("settled tail");
+		assert!(view.following, "settled view follows the live edge");
+		let arrival = |id: u64| {
+			let mut message = text_message(id);
+			message.channel = Id(21);
+			message.author.id = Id(id);
+			message.content = format!("Row {id}\nsecond line\nthird line");
+			message
+		};
+		// Ordinary message: appended to the shared timeline.
+		state.timeline.insert(arrival(49), false, false).unwrap();
+		state.channels[0].last_message = Some(Id(49));
+		state.revision += 1;
+		let row_y = |labels: &BTreeMap<String, f32>, id: u64| {
+			let prefix = format!("Row {id}\n");
+			labels
+				.iter()
+				.find(|(text, _)| text.starts_with(&prefix))
+				.map(|(_, y)| *y)
+		};
+		let mut seen = Vec::new();
+		for frame in 0..8 {
+			seen.push(row_y(
+				&paint_timeline(&ctx, &mut view, &mut state, 20 + frame),
+				49,
+			));
+		}
+		// Three lines of text end where the single settled line ended.
+		assert!(
+			seen.last()
+				.is_some_and(|y| y.is_some_and(|y| y <= settled + 1.0 && y > settled - 80.0)),
+			"appended message did not take the live edge: {seen:?} settled={settled} offset={} following={}",
+			view.scroll_offset,
+			view.following
+		);
+		// Private command response: merged from the interaction list, with its own footer.
+		let mut private = arrival(50);
+		private.ephemeral = true;
+		private.flags = 64;
+		private.interaction = Some(Box::new(model::Interaction {
+			user: private.author.clone(),
+			command: "ping".into(),
+		}));
+		state.interactions.ephemeral.push(private);
+		state.revision += 1;
+		let mut seen = Vec::new();
+		for frame in 0..8 {
+			seen.push(row_y(
+				&paint_timeline(&ctx, &mut view, &mut state, 40 + frame),
+				50,
+			));
+		}
+		assert!(
+			seen.last()
+				.is_some_and(|y| y.is_some_and(|y| y < settled && y > settled - 120.0)),
+			"private response did not take the live edge: {seen:?} settled={settled} offset={} following={}",
+			view.scroll_offset,
+			view.following
+		);
+		assert!(
+			paint_timeline(&ctx, &mut view, &mut state, 60)
+				.keys()
+				.any(|text| text.starts_with("Only you can see this")),
+			"private footer missing"
+		);
+	}
 	#[test]
 	fn live_edge_snap_paints_the_tail_in_place() {
 		let ctx = egui::Context::default();

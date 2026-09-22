@@ -1331,6 +1331,7 @@ mod tests {
 					nonce: None,
 					reply_to: None,
 					reply_deleted: false,
+					interaction: None,
 					forwarded: false,
 					unsupported: false,
 					components: vec![],

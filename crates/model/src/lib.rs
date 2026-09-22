@@ -327,6 +327,19 @@ impl PriorContents {
 	}
 }
 
+/// The command invocation that produced an application response message.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Interaction {
+	pub user: User,
+	/// Bounded command name without the leading slash; empty when the service omitted it.
+	#[serde(default)]
+	pub command: String,
+}
+impl Interaction {
+	pub fn heap_bytes(&self) -> usize {
+		size_of::<Self>() + self.user.heap_bytes() + self.command.capacity()
+	}
+}
 #[derive(Clone, PartialEq, Eq)]
 pub struct Message {
 	pub sticker_items: Vec<Sticker>,
@@ -363,6 +376,8 @@ pub struct Message {
 	pub reply_deleted: bool,
 	/// Body is the immutable snapshot attached to a forwarded message.
 	pub forwarded: bool,
+	/// The application command invocation this message answers.
+	pub interaction: Option<Box<Interaction>>,
 	pub unsupported: bool,
 	pub extra_content: ExtraContent,
 	pub embeds: Vec<Embed>,
@@ -402,6 +417,7 @@ impl Message {
 			}) + self.content.capacity()
 			+ self.prior_contents.bytes()
 			+ self.author.heap_bytes()
+			+ self.interaction.as_ref().map_or(0, |i| i.heap_bytes())
 			+ self.author_nick.as_ref().map_or(0, String::capacity)
 			+ self.author_roles.capacity() * size_of::<Id>()
 			+ mention_bytes(&self.mentions)

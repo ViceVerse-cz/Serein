@@ -1336,22 +1336,22 @@ impl Formatted {
 						continue;
 					}
 					let target = spans[start].1.link;
-					let count =
-						spans[start..]
-							.iter()
-							.take_while(|(_, style)| {
-								style.link == target
-									&& style.spoiler == spoiler && style.mention.is_none()
-									&& style.channel.is_none() && style.block.is_none()
-							})
-							.count();
-					// The block widget already breaks the line: a paragraph's trailing newline
-					// before it would otherwise add an empty row.
+					let count = spans[start..]
+						.iter()
+						.take_while(|(_, style)| {
+							style.link == target
+								&& style.spoiler == spoiler
+								&& style.mention.is_none()
+								&& style.channel.is_none()
+								&& style.block.is_none() && (quoted || !style.quote)
+						})
+						.count();
+					// Block widgets (fenced code, a quote rail) already break the line: a
+					// paragraph's trailing newline before one would otherwise add an empty row.
 					let trimmed;
-					let spans = if self
-						.spans
+					let spans = if spans
 						.get(start + count)
-						.is_some_and(|(_, s)| s.block.is_some())
+						.is_some_and(|(_, s)| s.block.is_some() || (!quoted && s.quote))
 						&& spans[start + count - 1].0.ends_with('\n')
 					{
 						let mut copy = spans[start..start + count].to_vec();
@@ -2359,6 +2359,81 @@ mod tests {
 			rail.right() <= quote.left(),
 			"The rail sits left of the quoted text: {rail:?} against {quote:?}"
 		);
+	}
+
+	#[test]
+	fn quote_rails_follow_plain_paragraphs_and_wrap_mentions() {
+		fn shapes(
+			shape: &egui::Shape,
+			rails: &mut Vec<egui::Rect>,
+			texts: &mut Vec<(String, egui::Rect)>,
+		) {
+			match shape {
+				egui::Shape::Rect(rect) if rect.rect.width() == f32::from(QUOTE_RAIL) => {
+					rails.push(rect.rect);
+				}
+				egui::Shape::Text(text) => texts.push((
+					text.galley.job.text.clone(),
+					text.galley.rect.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(children) => {
+					for shape in children {
+						shapes(shape, rails, texts);
+					}
+				}
+				_ => {}
+			}
+		}
+		for source in [
+			"**Details**\n> **Prize:** one\n> **Winners:** 10",
+			"**Publishing**\n> **Channel:** <#123>\n> **Host:** <@456>\n> **Ping:** none",
+		] {
+			let parsed = Formatted::parse(source);
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(400.0, 300.0),
+					)),
+					..Default::default()
+				},
+				|ui| parsed.show(ui, &mut None),
+			);
+			let (mut rails, mut texts) = (vec![], vec![]);
+			for shape in &output.shapes {
+				shapes(&shape.shape, &mut rails, &mut texts);
+			}
+			output.drop_without_applying_deltas();
+			assert_eq!(
+				rails.len(),
+				1,
+				"{source}: one rail for the quoted block: {rails:?}"
+			);
+			let rail = rails[0];
+			let (title_text, _) = texts
+				.iter()
+				.find(|(text, _)| text.starts_with("Details") || text.starts_with("Publishing"))
+				.expect("title galley");
+			assert!(
+				!title_text.ends_with('\n'),
+				"{source}: the title keeps no blank line before the rail: {title_text:?}"
+			);
+			for (text, rect) in &texts {
+				if text.starts_with("Details") || text.starts_with("Publishing") {
+					assert!(
+						rect.bottom() <= rail.top() + 1.0,
+						"{source}: title above rail"
+					);
+				} else {
+					assert!(
+						rect.left() >= rail.right(),
+						"{source}: {text:?} at {rect:?} must sit inside the rail indent {rail:?}"
+					);
+				}
+			}
+		}
 	}
 
 	#[test]

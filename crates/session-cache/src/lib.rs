@@ -80,6 +80,7 @@ pub struct Timeline {
 	loading: bool,
 	retain_older: bool,
 	replace: bool,
+	preserve_deleted_messages: bool,
 }
 impl Timeline {
 	pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Message> {
@@ -144,10 +145,24 @@ impl Timeline {
 		}
 		any
 	}
+	pub fn set_preserve_deleted_messages(&mut self, enabled: bool) {
+		if self.preserve_deleted_messages == enabled {
+			return;
+		}
+		self.preserve_deleted_messages = enabled;
+		if !enabled {
+			for id in &self.deleted {
+				if let Some(old) = self.messages.get_mut(id).and_then(Option::take) {
+					self.bytes -= old.bytes();
+					self.payload_count -= 1;
+				}
+			}
+		}
+	}
 	pub fn drop_live_history(&mut self) {
 		self.cancel_page();
 		self.messages.retain(|id, message| {
-			let keep = self.deleted.contains(id);
+			let keep = self.preserve_deleted_messages && self.deleted.contains(id);
 			if !keep && let Some(message) = message {
 				self.bytes -= message.bytes();
 				self.payload_count -= 1;
@@ -394,7 +409,8 @@ impl Timeline {
 			.collect();
 		if self.replace {
 			self.messages.retain(|id, message| {
-				let keep = self.changed.contains(id) || self.deleted.contains(id);
+				let keep = self.changed.contains(id)
+					|| (self.preserve_deleted_messages && self.deleted.contains(id));
 				if !keep && let Some(message) = message {
 					self.bytes -= message.bytes();
 					self.payload_count -= 1;
@@ -566,6 +582,9 @@ impl Timeline {
 		}
 		self.remember(id)?;
 		self.deleted.insert(id);
+		if !self.preserve_deleted_messages {
+			self.discard_preserved(id);
+		}
 		if let Some(old) = self.patches.remove(&id) {
 			self.patch_bytes -= patch_bytes(&old);
 		}
@@ -580,6 +599,7 @@ impl Timeline {
 		let deleted = std::mem::take(&mut self.deleted);
 		*self = Self {
 			deleted,
+			preserve_deleted_messages: self.preserve_deleted_messages,
 			..Self::default()
 		};
 	}
@@ -920,6 +940,7 @@ mod tests {
 	#[test]
 	fn deleted_rows_keep_payloads_reject_late_content_and_hide_from_get() {
 		let mut timeline = Timeline::default();
+		timeline.set_preserve_deleted_messages(true);
 		let mut loaded = message(10);
 		loaded.content = "x".repeat(64 * 1024);
 		loaded.author.name = "Synthetic author".repeat(20);
@@ -1197,8 +1218,8 @@ mod tests {
 			.unwrap();
 		timeline.finish_page(vec![replacement], false).unwrap();
 		assert!(timeline.is_empty());
-		assert!(timeline.get_display(Id(1)).is_some());
-		assert!(timeline.bytes() > 0);
+		assert!(timeline.get_display(Id(1)).is_none());
+		assert_eq!(timeline.bytes(), 0);
 	}
 
 	#[test]
@@ -1261,6 +1282,7 @@ mod tests {
 			reply_to: None,
 			kind: 0,
 			reply_deleted: false,
+			interaction: None,
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
@@ -1377,7 +1399,7 @@ mod tests {
 			.unwrap();
 		timeline.finish_page(vec![message(1)], false).unwrap();
 		assert!(timeline.is_empty());
-		assert!(timeline.get_display(Id(1)).is_some());
+		assert!(timeline.get_display(Id(1)).is_none());
 		timeline.clear();
 		timeline.begin_page(false);
 		let mut large = attachment(10);
