@@ -1,5 +1,24 @@
 # Local storage policy and audit
 
+## Navigation and process-scan allocation reductions (September 22, 2026)
+
+Navigation UI caches filter frequent unrelated message, reaction and member events
+from their revision keys. Four fixed counters plus one explicit invalidation counter
+add 40 bytes per account state; unknown event kinds and local revision changes still
+invalidate conservatively. Cache item/byte ceilings and account isolation are unchanged.
+The channel sidebar reuses the core channel index instead of allocating another
+full-account tree on each rebuild, and grows temporary row buffers with the displayed
+scope instead of reserving space for every account channel. READY reconciliation uses a sorted vector of
+channel references, at most 1 MiB of element storage at 131,072 entries on 64-bit,
+and releases it before removing old channels. Old and replacement account snapshots
+still overlap during validation; this is not a whole-process memory bound.
+
+Linux game detection reads at most 513 bytes per command-line file to validate the
+existing 512-byte executable-path limit. Matching keeps at most eight path-component
+references on the stack and shares one normalized suffix allocation across lookups.
+The opt-in behavior, ten-second scan interval, process count and catalog limits are
+unchanged; no new worker, dependency, persistence or network request is introduced.
+
 ## Remote video lifetime cleanup (September 21, 2026)
 
 A completed camera/stream announcement cancels a decoder only after its user's

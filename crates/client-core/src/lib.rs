@@ -45,6 +45,7 @@ pub use trail::Trail;
 pub mod typing;
 pub mod user_actions;
 mod verification;
+mod view_revisions;
 pub mod voice;
 use model::*;
 use session_cache::Timeline;
@@ -579,6 +580,8 @@ pub struct Pending {
 }
 #[derive(Default)]
 pub struct NavigationIndex {
+	view_revisions: view_revisions::Revisions,
+	invalidations: std::cell::Cell<u64>,
 	bytes: std::cell::Cell<Option<(usize, usize, usize)>>,
 	channels: std::cell::RefCell<BTreeMap<Id, usize>>,
 	channel_stamp: std::cell::Cell<Option<(usize, usize)>>,
@@ -911,7 +914,8 @@ impl State {
 	fn channel_stamp(&self) -> (usize, usize) {
 		(self.channels.as_ptr() as usize, self.channels.len())
 	}
-	fn channel_index(&self, id: Id) -> Option<usize> {
+	/// Index into the current channel slice; invalid after a navigation mutation.
+	pub fn channel_index(&self, id: Id) -> Option<usize> {
 		let stamp = self.channel_stamp();
 		if self.navigation_index.channel_stamp.get() == Some(stamp) {
 			let cached = self.navigation_index.channels.borrow().get(&id).copied();
@@ -940,6 +944,9 @@ impl State {
 	}
 	/// Call after replacing IDs or payloads directly in synthetic navigation vectors.
 	pub fn invalidate_navigation(&self) {
+		self.navigation_index
+			.invalidations
+			.set(self.navigation_index.invalidations.get().wrapping_add(1));
 		self.navigation_index.channel_stamp.set(None);
 		self.navigation_index.guild_stamp.set(None);
 		self.navigation_index.guilds.borrow_mut().clear();
@@ -2115,6 +2122,7 @@ impl State {
 		{
 			self.observe_group_change(patch.id, false);
 		}
+		self.filter_view_revisions(&envelope.event);
 		self.revision += 1;
 		if matches!(
 			&envelope.event,
@@ -2734,27 +2742,32 @@ impl State {
 						return;
 					}
 				};
-				let current: BTreeMap<_, _> = channels
-					.iter()
-					.map(|channel| (channel.id, channel))
-					.collect();
+				let mut current: Vec<_> = channels.iter().collect();
+				current.sort_unstable_by_key(|channel| channel.id);
+				let current_channel = |id| {
+					current
+						.binary_search_by_key(&id, |channel| channel.id)
+						.ok()
+						.map(|index| current[index])
+				};
 				let mut removed: BTreeSet<_> = self
 					.channels
 					.iter()
 					.filter(|old| {
-						current.get(&old.id).is_none_or(|channel| {
+						current_channel(old.id).is_none_or(|channel| {
 							(navigable(old) && !navigable(channel))
 								|| (old.supports_text() != channel.supports_text())
 						})
 					})
 					.map(|channel| channel.id)
 					.collect();
-				let unavailable = self
-					.selected
-					.is_some_and(|id| current.get(&id).is_none_or(|channel| !navigable(channel)));
+				let unavailable = self.selected.is_some_and(|id| {
+					current_channel(id).is_none_or(|channel| !navigable(channel))
+				});
 				if unavailable && let Some(selected) = self.selected {
 					removed.insert(selected);
 				}
+				drop(current);
 				self.remove_channels(&removed);
 				self.cancel_history();
 				if unavailable {

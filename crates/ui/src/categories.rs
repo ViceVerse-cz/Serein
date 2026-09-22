@@ -44,6 +44,7 @@ enum CachedRow {
 struct CacheKey {
 	generation: u64,
 	revision: u64,
+	gateway_connected: bool,
 	guild: Option<Id>,
 	selected: Option<Id>,
 	show_hidden: bool,
@@ -282,14 +283,14 @@ fn rows<'a>(
 			})
 			.sum::<usize>()
 	};
-	let mut rows = Vec::with_capacity(channels.len());
+	let mut rows = Vec::new();
 	for section in roster.sections() {
 		rows.push(Row::Heading(section.heading));
 		for channel in &section.channels {
 			append(channel, Slot::Roster(section.kind), false, &mut rows);
 		}
 	}
-	let mut tree = Vec::with_capacity(channels.len());
+	let mut tree = Vec::new();
 	for channel in groups.remove(&None).unwrap_or_default() {
 		append(channel, Slot::Tree, false, &mut tree);
 	}
@@ -464,7 +465,8 @@ impl MessagingUi {
 		let shortcuts_available = self.shortcuts_available(state);
 		let key = CacheKey {
 			generation: state.generation,
-			revision: state.revision,
+			revision: state.channel_list_revision(),
+			gateway_connected: state.gateway_connected,
 			guild: self.guild,
 			selected: state.selected,
 			show_hidden: self.show_hidden_channels,
@@ -529,12 +531,6 @@ impl MessagingUi {
 					rows.extend(entries.into_iter().map(Row::Participant));
 				}
 			}
-			let indices: BTreeMap<_, _> = state
-				.channels
-				.iter()
-				.enumerate()
-				.map(|(i, c)| (c.id, i))
-				.collect();
 			let participants: BTreeMap<_, _> = state
 				.voice
 				.roster
@@ -546,10 +542,15 @@ impl MessagingUi {
 				.into_iter()
 				.map(|row| match row {
 					Row::Heading(heading) => CachedRow::Heading(heading),
-					Row::Category(c, n) => CachedRow::Category(indices[&c.id], n),
-					Row::Channel(c, slot, nested) => {
-						CachedRow::Channel(indices[&c.id], slot, nested)
-					}
+					Row::Category(c, n) => CachedRow::Category(
+						state.channel_index(c.id).expect("current channel row"),
+						n,
+					),
+					Row::Channel(c, slot, nested) => CachedRow::Channel(
+						state.channel_index(c.id).expect("current channel row"),
+						slot,
+						nested,
+					),
 					Row::Participant(p) => {
 						CachedRow::Participant(participants[&(p.channel, p.participant.user)])
 					}
@@ -1265,6 +1266,150 @@ pub fn debug_thread_navigation_check(state: &mut State) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	#[ignore = "release channel-list benchmark; ten warmup frames and one warmup/five measured batches"]
+	fn channel_list_frame_benchmark() {
+		const FRAMES: usize = 200;
+		for churn in [false, true] {
+			let mut state = test_support::demo_state();
+			let template = state.guilds[0].clone();
+			state.guilds = (0..100)
+				.map(|index| model::Guild {
+					id: Id(100 + index),
+					..template.clone()
+				})
+				.collect();
+			state.channels = (0..10_000)
+				.map(|index| Channel {
+					guild: Some(Id(100 + index / 100)),
+					..channel(10_000 + index, 0, (index % 100) as i32, None)
+				})
+				.collect();
+			state.invalidate_navigation();
+			state
+				.permissions
+				.replace(test_support::permission_snapshot(&state))
+				.unwrap();
+			state.select(Id(10_000));
+			let mut view = MessagingUi {
+				guild: Some(Id(100)),
+				..Default::default()
+			};
+			let ctx = egui::Context::default();
+			let mut frame_number = 0;
+			let mut frame = || {
+				if churn {
+					state.apply(client_core::Envelope {
+						generation: state.generation,
+						event: client_core::Event::Message(test_support::message(
+							1_000_000 + frame_number,
+							Id(10_000),
+						)),
+					});
+				}
+				frame_number += 1;
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(280.0, 700.0),
+						)),
+						time: Some(frame_number as f64 / 60.0),
+						..Default::default()
+					},
+					|ui| {
+						std::hint::black_box(view.channel_list(ui, &mut state));
+					},
+				)
+				.drop_without_applying_deltas();
+			};
+			for _ in 0..10 {
+				frame();
+			}
+			let mut samples = Vec::with_capacity(5);
+			for batch in 0..6 {
+				let start = std::time::Instant::now();
+				for _ in 0..FRAMES {
+					frame();
+				}
+				if batch != 0 {
+					samples.push(start.elapsed().as_secs_f64() * 1_000.0);
+				}
+			}
+			assert_eq!(view.channel_cache.rows.len(), 100);
+			println!(
+				"channel_list: channels=10000, guild_channels=100, churn={churn}, frames={FRAMES}, samples_ms={samples:?}"
+			);
+		}
+	}
+
+	#[test]
+	fn channel_rows_reuse_guild_messages_and_invalidate_on_navigation_changes() {
+		let mut state = test_support::demo_state();
+		let selected = state.selected.unwrap();
+		let mut view = MessagingUi {
+			guild: state.channel(selected).unwrap().guild,
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let frame = |view: &mut MessagingUi, state: &mut State| {
+			ctx.run_ui(egui::RawInput::default(), |ui| {
+				view.channel_list(ui, state);
+			})
+			.drop_without_applying_deltas();
+		};
+		frame(&mut view, &mut state);
+		let key = view.channel_cache.key;
+		let rows = view.channel_cache.rows.as_ptr();
+		assert!(!view.channel_cache.rows.is_empty());
+		for id in 1_000_000..1_000_010 {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::Message(test_support::message(id, selected)),
+			});
+			frame(&mut view, &mut state);
+			assert!(view.channel_cache.key == key);
+			assert_eq!(view.channel_cache.rows.as_ptr(), rows);
+		}
+		// Account navigation may be changed directly by local helpers or fixtures.
+		state.channels.reverse();
+		state.invalidate_navigation();
+		frame(&mut view, &mut state);
+		assert!(view.channel_cache.key != key);
+		for row in &view.channel_cache.rows {
+			if let CachedRow::Channel(index, ..) = row {
+				assert_eq!(state.channels[*index].guild, view.guild);
+			}
+		}
+		let key = view.channel_cache.key;
+		state.gateway_connected = !state.gateway_connected;
+		frame(&mut view, &mut state);
+		assert!(view.channel_cache.key != key);
+		let key = view.channel_cache.key;
+		state.revision += 1;
+		frame(&mut view, &mut state);
+		assert!(view.channel_cache.key != key);
+		let direct = state
+			.channels
+			.iter()
+			.find(|c| c.guild.is_none())
+			.unwrap()
+			.id;
+		view.guild = None;
+		frame(&mut view, &mut state);
+		let key = view.channel_cache.key;
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Message(test_support::message(2_000_000, direct)),
+		});
+		frame(&mut view, &mut state);
+		assert!(
+			view.channel_cache.key != key,
+			"DM activity changes row order"
+		);
+	}
+
 	#[test]
 	fn direct_message_rows_show_the_recipient_server_tag() {
 		fn text(shape: &egui::Shape, found: &mut Vec<String>) {

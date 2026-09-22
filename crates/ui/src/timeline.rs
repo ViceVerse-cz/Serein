@@ -66,6 +66,7 @@ pub struct TimelineView {
 	pub(super) unread_jump: bool,
 	pub(super) load_newer: bool,
 	channel_labels: u64,
+	channel_labels_key: Option<(u64, u64, Option<Id>)>,
 	pub(super) mark_read: Option<Id>,
 	pub(super) mark_unread: Option<Id>,
 	auto_read_attempt: Option<Id>,
@@ -1311,9 +1312,12 @@ impl TimelineView {
 		let text_size = egui::TextStyle::Body.resolve(ui.style()).size;
 		let scale = ui.ctx().pixels_per_point();
 		let mut labels_changed = false;
-		if self.revision != state.revision {
-			// ponytail: hash bounded channel labels per state update; use a dedicated
-			// navigation revision only if profiling shows this scan is significant.
+		let labels_key = (
+			state.generation,
+			state.channel_labels_revision(),
+			state.selected,
+		);
+		if self.channel_labels_key != Some(labels_key) {
 			let mut labels = DefaultHasher::new();
 			for channel in state
 				.channels
@@ -1331,6 +1335,7 @@ impl TimelineView {
 			let labels = labels.finish();
 			labels_changed = self.channel_labels != labels;
 			self.channel_labels = labels;
+			self.channel_labels_key = Some(labels_key);
 		}
 		let width_changed = (self.width - width).abs() > 1.0;
 		let content_dimensions_changed = self.text_size != text_size
@@ -6635,6 +6640,14 @@ mod tests {
 			render(&mut view, &mut state, &mut images);
 		}
 		let short_height = view.heights[&Id(1)].1;
+		let labels_key = view.channel_labels_key;
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Message(test_support::message(1_000_000, Id(4))),
+		});
+		render(&mut view, &mut state, &mut images);
+		assert_eq!(view.channel_labels_key, labels_key);
+		assert_eq!(view.heights[&Id(1)].1, short_height);
 		view.following = false;
 		view.anchor = Some((Id(2), 400.0));
 		view.revision = u64::MAX;
@@ -6658,6 +6671,7 @@ mod tests {
 		});
 		assert_eq!(layout_key(state.timeline.get(Id(1)).unwrap()), message_key);
 		render(&mut view, &mut state, &mut images);
+		assert_ne!(view.channel_labels_key, labels_key);
 		assert!(
 			!view.heights.contains_key(&Id(1)),
 			"An offscreen row must lose its old label-dependent height even though its message did not change"

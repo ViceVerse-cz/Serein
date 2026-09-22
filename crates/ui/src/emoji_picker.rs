@@ -214,15 +214,14 @@ impl CustomMatches {
 	fn update(&mut self, state: &State, server: Option<Id>, query: &str) -> bool {
 		let key = (
 			state.generation,
-			state.revision,
+			state.catalog_revision(),
 			state.user.as_ref().map(|user| user.id),
 			server,
 		);
 		if self.key == Some(key) && self.query.as_ref() == query {
 			return false;
 		}
-		// All production catalog/name/membership mutations advance State::revision.
-		// ponytail: unrelated events also invalidate; add a catalog epoch only if churn matters.
+		// Catalog/name/membership changes invalidate these indices; messages do not.
 		self.entries = custom_matches(state, server, query).into_boxed_slice();
 		// The UI admits 64 Unicode scalars. Oversized internal queries are never retained.
 		self.key = (query.len() <= 64 * 4).then_some(key);
@@ -2053,9 +2052,16 @@ mod tests {
 			let mut commands = Vec::new();
 			let mut frame_number = 0;
 			let mut frame = || {
-				// Model accepted-event invalidation without timing the reducer itself.
+				// Exercise accepted message events, including reducer work, so domain
+				// invalidation is measured rather than a synthetic global revision bump.
 				if churn {
-					state.revision += 1;
+					state.apply(client_core::Envelope {
+						generation: state.generation,
+						event: client_core::Event::Message(test_support::message(
+							1_000_000 + frame_number,
+							channel,
+						)),
+					});
 				}
 				frame_number += 1;
 				let output = ctx.run_ui(
@@ -2120,6 +2126,18 @@ mod tests {
 		let allocation = cache.entries.as_ptr();
 		assert!(!cache.update(&state, Some(guild), ""));
 		assert_eq!(cache.entries.as_ptr(), allocation);
+		let channel = state.selected.unwrap();
+		for id in 1_000_000..1_000_010 {
+			apply(
+				&mut state,
+				Event::Message(test_support::message(id, channel)),
+			);
+			assert!(!cache.update(&state, Some(guild), ""));
+			assert_eq!(cache.entries.as_ptr(), allocation);
+		}
+		// Direct fixture/local mutations still invalidate the domain caches.
+		state.revision += 1;
+		assert!(cache.update(&state, Some(guild), ""));
 		assert!(cache.update(&state, None, ""));
 		assert_eq!(cache.len(), 0);
 		assert!(cache.update(&state, None, "  NEEDLE  "));
