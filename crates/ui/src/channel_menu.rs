@@ -796,6 +796,7 @@ impl Dialog {
 		channel: &Channel,
 		can_delete: bool,
 		can_integrate: bool,
+		compact: bool,
 	) -> bool {
 		ui.add(
 			egui::Label::new(design::eyebrow(
@@ -806,18 +807,31 @@ impl Dialog {
 			.truncate(),
 		);
 		ui.add_space(12.0);
-		if crate::settings::nav_item(ui, "Overview", self.page == Page::Overview).clicked() {
-			self.page = Page::Overview;
+		let mut tabs = |ui: &mut egui::Ui| {
+			for (page, label) in [
+				(Page::Overview, "Overview"),
+				(Page::Permissions, "Permissions"),
+				(Page::Integrations, "Integrations"),
+			] {
+				if page == Page::Integrations && !can_integrate {
+					continue;
+				}
+				let response = if compact {
+					ui.selectable_label(self.page == page, label)
+				} else {
+					crate::settings::nav_item(ui, label, self.page == page)
+				};
+				if response.clicked() {
+					self.page = page;
+				}
+			}
+		};
+		if compact {
+			ui.horizontal_wrapped(tabs);
+		} else {
+			tabs(ui);
 		}
-		if crate::settings::nav_item(ui, "Permissions", self.page == Page::Permissions).clicked() {
-			self.page = Page::Permissions;
-		}
-		if can_integrate
-			&& crate::settings::nav_item(ui, "Integrations", self.page == Page::Integrations)
-				.clicked()
-		{
-			self.page = Page::Integrations;
-		}
+
 		ui.separator();
 		row(
 			ui,
@@ -868,14 +882,14 @@ impl Dialog {
 					egui::Layout::top_down(egui::Align::Min),
 					|ui| {
 						ui.set_width(180.0);
-						delete = self.navigation(ui, &channel, can_delete, can_integrate);
+						delete = self.navigation(ui, &channel, can_delete, can_integrate, false);
 					},
 				);
 				ui.add_space(20.0);
 				ui.vertical(|ui| content(self, ui));
 			});
 		} else {
-			delete = self.navigation(ui, &channel, can_delete, can_integrate);
+			delete = self.navigation(ui, &channel, can_delete, can_integrate, true);
 			content(self, ui);
 		}
 		delete
