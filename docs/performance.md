@@ -1749,3 +1749,21 @@ are unchanged; no new dependency, cache, worker or timer. Poll detail and forum
 tag data remain unsupported by core state. No lifecycle tests were added.
 Native screenshot/CPU/RSS/frame evidence remains unavailable; synthetic sandbox
 measurements do not establish live Discord compatibility.
+
+
+The standard voice-enabled `cargo xtask package` passed at runtime source
+`a248c79`, without demo/developer-session features. Full `cargo xtask check`
+passed after integrating main through `f3a165f`: 1,055 tests passed, 20 ignored,
+strict workspace Clippy, no-default desktop compilation and policy checks passed.
+One package per revision; .NET ZipFile Optimal compression of the full `dist`:
+
+| Artifact, bytes | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 71,197,184 | 71,307,264 | +110,080 / +0.1546% |
+| Installed package | 75,299,511 | 75,409,591 | +110,080 / +0.1462% |
+| Portable ZIP | 42,757,192 | 42,799,245 | +42,053 / +0.0984% |
+
+The changed executable SHA-256 is `36f3d1c8329246f19ba33253576efdba6d38e421b13f32911a623ca9222c8292`.
+This comparison includes the intervening main changes described above.
+OpenH264 LNK4255 was nonfatal. `makensis` is absent, so no NSIS installer
+was produced; measurements describe the unsigned portable package.
