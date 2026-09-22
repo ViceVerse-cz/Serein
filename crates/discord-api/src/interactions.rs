@@ -68,6 +68,36 @@ pub(crate) fn valid_uploads(request: &Request, count: usize) -> bool {
 }
 
 impl DiscordApi {
+	pub(crate) async fn application_commands(
+		&self,
+		channel: model::Id,
+		guild: Option<model::Id>,
+	) -> Result<Vec<model::application_commands::Command>, Failure> {
+		if channel.0 == 0 || guild.is_some_and(|id| id.0 == 0) {
+			return Err(Failure::Protocol);
+		}
+		let path = guild.map_or_else(
+			|| format!("/channels/{channel}/application-command-index"),
+			|guild| format!("/guilds/{guild}/application-command-index"),
+		);
+		let bytes = self
+			.request_limited(
+				reqwest::Method::GET,
+				&path,
+				None,
+				discord_protocol::MAX_WIRE,
+			)
+			.await
+			.map_err(|failure| match failure {
+				Failure::Capacity => {
+					Failure::ProtocolAt("Application commands exceed the catalog limit")
+				}
+				failure => failure,
+			})?;
+		discord_protocol::application_commands::decode(&bytes, guild).map_err(|_| {
+			Failure::ProtocolAt("Application commands are unsupported or exceed the catalog limit")
+		})
+	}
 	pub fn interaction_session(
 		&self,
 		session: Option<zeroize::Zeroizing<String>>,
@@ -95,6 +125,16 @@ impl DiscordApi {
 				"Interaction unavailable while reconnecting",
 			))?;
 		let (kind, mut data) = match &request.data {
+			Data::ApplicationCommand { invocation } => {
+				let command = &invocation.command;
+				let mut data = json!({"type":1,"id":command.id,"version":command.version,
+					"name":command.name,"application_command":command,"options":invocation.options,
+					"attachments":[]});
+				if let Some(guild) = command.guild_id {
+					data["guild_id"] = json!(guild);
+				}
+				(2, data)
+			}
 			Data::Component {
 				custom_id,
 				component_type,
@@ -179,6 +219,211 @@ pub(crate) fn valid_file_types(request: &Request, sources: &[crate::upload::Sour
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[tokio::test]
+	async fn slash_catalog_and_submission_use_typed_bounded_account_transport() {
+		use client_core::{Command, Event, auth::SessionSecret};
+		use model::{
+			Id,
+			application_commands::{Argument, Invocation, Value as ArgumentValue},
+		};
+		use std::{sync::Arc, time::Duration};
+		use tokio::{
+			io::{AsyncReadExt, AsyncWriteExt},
+			net::TcpListener,
+		};
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let definition = json!({"type":1,"id":"10","version":"11","application_id":"12",
+				"name":"inspect","description":"Inspect a synthetic member","contexts":[0],
+				"options":[{"type":2,"name":"utility","description":"Tools","options":[
+					{"type":1,"name":"member","description":"Member","options":[
+						{"type":3,"name":"label","description":"Label","required":true,"max_length":20},
+						{"type":5,"name":"private","description":"Private"},
+						{"type":6,"name":"user","description":"User"}]}]}]});
+			let index = json!({"application_commands":[definition,{"type":2},
+				{"type":1,"contexts":[1]}, {"type":1,"guild_id":"99"}],
+				"applications":[{"id":"12","name":"Synthetic App"}]})
+			.to_string();
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_SLASH_TOKEN".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			api.interaction_session(Some(zeroize::Zeroizing::new("synthetic-session".into())))
+				.unwrap();
+			let server =
+				tokio::spawn(async move {
+					for step in 0..3 {
+						let (mut socket, _) = listener.accept().await.unwrap();
+						let mut bytes = Vec::new();
+						let (header_end, length) = loop {
+							let mut chunk = [0; 1024];
+							let read = socket.read(&mut chunk).await.unwrap();
+							assert!(read > 0);
+							bytes.extend_from_slice(&chunk[..read]);
+							assert!(bytes.len() <= 16 * 1024);
+							if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+								let headers = std::str::from_utf8(&bytes[..end]).unwrap();
+								let length = headers
+									.lines()
+									.find_map(|line| {
+										let (key, value) = line.split_once(':')?;
+										key.eq_ignore_ascii_case("content-length")
+											.then(|| value.trim().parse::<usize>().unwrap())
+									})
+									.unwrap_or(0);
+								if bytes.len() >= end + 4 + length {
+									break (end + 4, length);
+								}
+							}
+						};
+						let headers = std::str::from_utf8(&bytes[..header_end]).unwrap();
+						assert!(headers.contains("SYNTHETIC_SLASH_TOKEN"));
+						if step == 2 {
+							assert!(headers.starts_with(
+								"GET /guilds/20/application-command-index HTTP/1.1\r\n"
+							));
+							socket
+								.write_all(
+									format!(
+										"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+										discord_protocol::MAX_WIRE + 1
+									)
+									.as_bytes(),
+								)
+								.await
+								.unwrap();
+							continue;
+						}
+						let (status, response) = if step == 0 {
+							assert!(headers.starts_with(
+								"GET /guilds/20/application-command-index HTTP/1.1\r\n"
+							));
+							("200 OK", index.as_str())
+						} else {
+							assert!(headers.starts_with("POST /interactions HTTP/1.1\r\n"));
+							let body: Value =
+								serde_json::from_slice(&bytes[header_end..header_end + length])
+									.unwrap();
+							assert_eq!(body["type"], 2);
+							assert_eq!(body["application_id"], "12");
+							assert_eq!(body["guild_id"], "20");
+							assert_eq!(body["channel_id"], "21");
+							assert_eq!(body["session_id"], "synthetic-session");
+							assert_eq!(body["nonce"], "123");
+							assert_eq!(body["data"]["type"], 1);
+							assert_eq!(body["data"]["id"], "10");
+							assert_eq!(body["data"]["version"], "11");
+							assert_eq!(body["data"]["name"], "inspect");
+							assert!(body["data"].get("guild_id").is_none());
+							assert!(body.get("message_id").is_none());
+							assert!(
+								body["data"]["application_command"]
+									.get("application_name")
+									.is_none()
+							);
+							assert_eq!(body["data"]["attachments"], json!([]));
+							assert_eq!(
+								body["data"]["options"],
+								json!([{"type":2,"name":"utility","options":[
+							{"type":1,"name":"member","options":[{"type":3,"name":"label","value":"Hello"},
+							{"type":5,"name":"private","value":false},{"type":6,"name":"user","value":"55"}]}]}])
+							);
+							("204 No Content", "")
+						};
+						socket
+							.write_all(
+								format!(
+									"HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+									response.len()
+								)
+								.as_bytes(),
+							)
+							.await
+							.unwrap();
+					}
+				});
+			let Event::ApplicationCommands {
+				channel: Id(21),
+				request: 7,
+				result: Ok(mut commands),
+			} = api.execute(Command::ApplicationCommands {
+				channel: Id(21),
+				guild: Some(Id(20)),
+				request: 7,
+			})
+			.await
+			else {
+				panic!("catalog failed")
+			};
+			assert_eq!(commands.len(), 1);
+			let command = commands.remove(0);
+			assert_eq!(command.application_name, "Synthetic App");
+			let value = |kind, name: &str, value| Argument {
+				kind,
+				name: name.into(),
+				value: Some(value),
+				options: vec![],
+			};
+			let invocation = Invocation {
+				command,
+				options: vec![Argument {
+					kind: 2,
+					name: "utility".into(),
+					value: None,
+					options: vec![Argument {
+						kind: 1,
+						name: "member".into(),
+						value: None,
+						options: vec![
+							value(3, "label", ArgumentValue::String("Hello".into())),
+							value(5, "private", ArgumentValue::Boolean(false)),
+							value(6, "user", ArgumentValue::String("55".into())),
+						],
+					}],
+				}],
+			};
+			let request = Request {
+				request: 8,
+				nonce: "123".into(),
+				application_id: Id(12),
+				channel_id: Id(21),
+				guild_id: Some(Id(20)),
+				message_id: None,
+				message_flags: 0,
+				data: Data::ApplicationCommand {
+					invocation: Box::new(invocation),
+				},
+			};
+			assert!(api.interaction(&request, None).await.is_ok());
+			assert!(matches!(
+				api.application_commands(Id(21), Some(Id(20))).await,
+				Err(Failure::ProtocolAt(
+					"Application commands exceed the catalog limit"
+				))
+			));
+			assert!(!api.stopped());
+			server.await.unwrap();
+			assert!(
+				discord_protocol::application_commands::decode(
+					&vec![b' '; discord_protocol::MAX_WIRE + 1],
+					Some(Id(20))
+				)
+				.is_err()
+			);
+			assert!(
+				discord_protocol::application_commands::decode(
+					&serde_json::to_vec(&json!({
+				"application_commands":vec![json!({"type":2});2001]}))
+					.unwrap(),
+					Some(Id(20))
+				)
+				.is_err()
+			);
+		})
+		.await
+		.unwrap();
+	}
 	#[test]
 	fn modal_submission_projects_input_values_without_schema_metadata() {
 		let input = model::Component {

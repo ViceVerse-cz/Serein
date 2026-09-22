@@ -50,6 +50,8 @@ mod notifications;
 mod pending;
 mod post_menu;
 mod profiles;
+mod slash_builtin;
+mod slash_commands;
 mod stickers;
 /// Synthetic global profile used exclusively by the desktop's offline command adapter.
 #[cfg(any(test, feature = "demo"))]
@@ -336,6 +338,8 @@ pub struct MessagingUi {
 	deleting: Option<(Id, Id)>,
 	ime_active: bool,
 	mention_menu: mentions::Menu,
+	slash_commands: slash_commands::Menu,
+	slash_direct: Option<slash_builtin::PendingMessage>,
 	mention_lookup: member_search::Search,
 	emoji_picker: emoji_picker::Picker,
 	reaction_picker: emoji_picker::Picker,
@@ -2027,13 +2031,17 @@ impl MessagingUi {
 				self.edit_undo_cleared = true;
 			}
 		}
-		if !editing_here && !state.can_compose(channel) {
+		if !editing_here
+			&& !state.can_compose(channel)
+			&& !state.can_request_application_commands(channel)
+		{
 			if self.pending_mention.take().is_some() {
 				state.status = "You don't have permission to mention anyone in this channel.";
 			}
 			// Returning to an edit must restore its focus after visiting a read-only channel.
 			self.composer_edit = None;
 			self.mention_menu = mentions::Menu::default();
+			self.slash_commands = slash_commands::Menu::default();
 			self.emoji_picker = emoji_picker::Picker::default();
 			self.ime_active = false;
 			self.focus_switched_composer = false;
@@ -2318,6 +2326,15 @@ impl MessagingUi {
 		if paste_key_released {
 			self.paste_key_handled = false;
 		}
+		if !editing_here
+			&& state
+				.drafts
+				.get(&channel)
+				.is_some_and(|draft| draft.starts_with('/'))
+			&& let Some(command) = state.request_application_commands(channel, false)
+		{
+			commands.push(command);
+		}
 		let composer_content = if editing_here {
 			self.editing
 				.as_ref()
@@ -2328,7 +2345,9 @@ impl MessagingUi {
 		let count_before = composer_content.chars().count();
 		// Suggestion rows can take focus on press; keep the editor alive until release
 		// so the shared member/channel/emoji popup can finish the click.
-		let suggestion_pointer = self.mention_menu.pointer_interacting(ctx, channel);
+		let suggestion_pointer = self.mention_menu.pointer_interacting(ctx, channel)
+			|| (self.slash_commands.active.is_none()
+				&& self.slash_commands.pointer_interacting(ctx, channel));
 		if keyboard_enabled && !self.ime_active && !ime_this_frame && suggestion_pointer {
 			ctx.memory_mut(|memory| memory.request_focus(composer_id));
 		}
@@ -2336,6 +2355,26 @@ impl MessagingUi {
 			&& !self.ime_active
 			&& !ime_this_frame
 			&& ctx.memory(|m| m.has_focus(composer_id));
+		self.slash_commands.refresh(
+			state,
+			channel,
+			composer_content,
+			!editing_here
+				&& keyboard_enabled
+				&& !self.ime_active
+				&& !ime_this_frame
+				&& (mention_enabled || self.slash_commands.active.is_some()),
+		);
+		let slash_pick = if !editing_here
+			&& keyboard_enabled
+			&& !self.ime_active
+			&& !ime_this_frame
+			&& (mention_enabled || self.slash_commands.form_has_focus(ctx))
+		{
+			self.slash_commands.keys(ctx)
+		} else {
+			None
+		};
 		let mention_users = if mention_enabled || composer_content.contains("<@") {
 			mentions::known_users(state, channel)
 		} else {
@@ -2568,6 +2607,13 @@ impl MessagingUi {
                                     "Emoji will not fit. Shorten this message or free draft space.";
                             }
                         }
+                        if let Some(pick) = slash_pick
+                            && let Some(cursor) = self.slash_commands.accept(pick, draft, remaining) {
+                            let mut edit_state = egui::text_edit::TextEditState::load(ctx, composer_id).unwrap_or_default();
+                            edit_state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(cursor))));
+                            edit_state.store(ctx, composer_id);
+                            mention_changed = true;
+                        }
                         if let Some(pick) = mention_pick
                             && let Some(cursor) = mentions::insert(draft, pick)
                         {
@@ -2693,7 +2739,17 @@ impl MessagingUi {
                                 .set_char_range(Some(egui::text::CCursorRange::one(
                                     egui::text::CCursor::new(cursor),
                                 )));
-                            output.state.store(ctx, composer_id);
+                            output.state.clone().store(ctx, composer_id);
+                            output.response.request_focus();
+                            mention_changed = true;
+                        }
+                        self.slash_commands.refresh(state, channel, draft,
+                            !editing_here && keyboard_enabled && !self.ime_active && !ime_this_frame
+                                && (output.response.has_focus() || suggestion_pointer || self.slash_commands.active.is_some()));
+                        if let Some(pick) = self.slash_commands.show(ui, composer_anchor, state, channel)
+                            && let Some(cursor) = self.slash_commands.accept(pick, draft, remaining) {
+                            output.state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(cursor))));
+                            output.state.clone().store(ctx, composer_id);
                             output.response.request_focus();
                             mention_changed = true;
                         }
@@ -2730,7 +2786,12 @@ impl MessagingUi {
                         edit
                             }).inner
                         }).inner;
-                        if send && !cancel_edit {
+                        if std::mem::take(&mut self.slash_commands.retry)
+                            && let Some(command) = state.request_application_commands(channel, true) {
+                            commands.push(command);
+                        }
+                        let slash_run = std::mem::take(&mut self.slash_commands.run);
+                        if (send || slash_run) && !cancel_edit {
                             if let Some((edit_channel, message, content)) = &editing {
                                 if state.freshness == Freshness::Fresh
                                     && let Some(command) = state.prepare_edit(*edit_channel, *message, content.clone())
@@ -2740,6 +2801,8 @@ impl MessagingUi {
                                 } else {
                                     state.status = "Edit kept. Wait for your current message and connection, and enter nonempty text.";
                                 }
+                            } else if self.send_application_command(state, channel, commands)
+                                || self.handle_builtin_slash(state, channel, ctx, commands) {
                             } else if !self.upload_busy && !(state.demo && self.attachment.is_some())
                                 && let Some(command) = state.prepare_send_with_attachments(&self.selected_files().iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>()) {
                                 // Consume the selection in this UI pass, before desktop dispatch.
@@ -2752,6 +2815,7 @@ impl MessagingUi {
                         }
                     });
                 });
+                if !editing_here { self.slash_status(ui, state, channel); }
                 if let Some((edit_channel, message)) = editing_key {
                     if state.freshness != Freshness::Fresh || !state.can_edit(edit_channel, message) { ui.weak("Editing this message is unavailable. Your text is kept until you cancel."); }
                 } else if !state.can_send(channel) {
@@ -3030,6 +3094,7 @@ impl MessagingUi {
 		if let Some(command) = state.select_opened_dm() {
 			commands.push(command);
 		}
+		self.finish_slash_direct(state);
 		if let Some(target) = self.switcher.show(&ctx, state, &mut self.avatars) {
 			match target {
 				switcher::Target::Channel(channel) => {

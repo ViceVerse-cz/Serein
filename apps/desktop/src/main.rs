@@ -34,6 +34,8 @@ mod rendering_demo;
 mod screen;
 #[cfg(feature = "demo")]
 mod server_settings_demo;
+#[cfg(feature = "demo")]
+mod slash_demo;
 mod startup;
 mod toggle_setting;
 mod tray_window;
@@ -245,6 +247,11 @@ fn main() -> eframe::Result {
 	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-switcher") {
 		dm_demo::check();
+		return Ok(());
+	}
+	#[cfg(feature = "demo")]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-slash-commands") {
+		slash_demo::check();
 		return Ok(());
 	}
 	#[cfg(feature = "demo")]
@@ -1130,7 +1137,9 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if demo {
 			state = {
-				if std::env::args().any(|arg| arg == "--demo-components") {
+				if std::env::args().any(|arg| arg == "--demo-slash-commands") {
+					slash_demo::preview()
+				} else if std::env::args().any(|arg| arg == "--demo-components") {
 					components_demo::preview()
 				} else if std::env::args().any(|arg| arg == "--demo-forwarded") {
 					test_support::forwarded_demo_state()
@@ -2874,7 +2883,23 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if self.state.demo {
 			let event = match command {
+				Command::ApplicationCommands {
+					channel,
+					guild,
+					request,
+				} => Event::ApplicationCommands {
+					channel,
+					request,
+					result: Ok(slash_demo::catalog(guild)),
+				},
 				Command::Interaction(request) => {
+					if matches!(
+						&request.data,
+						client_core::interactions::Data::ApplicationCommand { .. }
+					) {
+						slash_demo::respond(&mut self.state, request);
+						return;
+					}
 					if std::env::args().any(|arg| arg == "--demo-components") {
 						self.state.apply(Envelope {
 							generation: self.state.generation,

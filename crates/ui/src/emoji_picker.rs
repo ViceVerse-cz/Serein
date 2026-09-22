@@ -421,6 +421,19 @@ impl Picker {
 			self.stickers.focus(sticker);
 		}
 	}
+	pub(crate) fn open_gifs(&mut self, query: &str) {
+		self.pending_open = true;
+		self.tab = Tab::Gifs;
+		self.focus = true;
+		self.gif_section = GifSection::Home;
+		self.gif_query = query.chars().take(64).collect();
+		self.gif_changed_at = None;
+	}
+	pub(crate) fn search_stickers(&mut self, query: &str) {
+		self.open_stickers(None);
+		self.stickers.target = None;
+		self.stickers.query = query.chars().take(64).collect();
+	}
 
 	fn filter(&mut self) {
 		let query = self.query.trim().to_lowercase();

@@ -1,5 +1,47 @@
 # Discord compatibility — checked 2026-09-10
 
+## Slash commands - September 22, 2026
+
+Typing `/` opens a native, searchable command picker with built-in/application filters,
+keyboard selection and a bounded argument form. Local commands are `/gif`, `/sticker`,
+`/me`, `/msg`, `/shrug`, `/spoiler`, `/tableflip` and `/unflip`; they reuse existing
+message, DM and media flows. Scheduled sends (`/schedule`) are not implemented.
+Select with Up/Down and Tab/Enter, or click a row. Selection fills the composer;
+the next explicit send executes a built-in, while app commands open typed fields and a
+Run command button. `/msg @user [text]` opens an existing DM (or a new friend DM) and
+stages text for review without replacing an occupied destination draft. `/gif [query]`
+and `/sticker [query]` open the existing picker. Failed app submissions expose the
+error and retain fields behind Edit again; retries require another explicit submission.
+
+Application discovery uses the unofficial normal-account
+`GET /guilds/{guild}/application-command-index` route for guild conversations and
+`GET /channels/{channel}/application-command-index` for one-to-one bot/app DMs.
+The [maintained client implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/abc.py#L2403-L2457)
+establishes these routes and their rate-limit sensitivity. The active conversation's
+catalog loads on demand and is reused until navigation, invalidation or explicit refresh;
+typing filters locally. Account-installed commands from `/users/@me/application-command-index`,
+ordinary/group-DM app discovery, user/message context commands and Activities are excluded.
+
+Slash submissions use type `2` on the existing unofficial `POST /interactions` route,
+including the active Gateway session, nonce, received command ID/version and validated
+typed arguments. Root commands, subcommands and one subcommand-group level support strings,
+integers, numbers, booleans, static choices and user/channel/role/mentionable IDs.
+Entity pickers use already loaded account data; they do not fetch a complete directory.
+Required fields, declared limits, choices, command context and channel access are checked
+before sending. Guild commands also require Use Application Commands permission; Discord
+remains authoritative for application-specific permissions. The inner command guild ID is
+included only for guild-scoped definitions, independently of the invocation channel's guild.
+See the [official command schema](https://docs.discord.com/developers/interactions/application-commands)
+and [maintained submission implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/commands.py#L931-L973).
+
+Autocomplete requests and attachment arguments are not implemented. An autocomplete-enabled
+scalar accepts a manually entered value; required attachment arguments block submission with
+an explicit explanation, while optional attachments can remain omitted. Commands run only
+after an explicit submit and are never automatically replayed. Existing Gateway success,
+failure, modal and private-reply handling is reused; HTTP acceptance is not application
+completion. Offline fixtures and loopback HTTP checks cover the local contract; live
+normal-account discovery, execution and application responses remain unverified.
+
 ## Stickers - September 20, 2026
 
 The composer media picker has a Stickers tab with local name/tag/source search,

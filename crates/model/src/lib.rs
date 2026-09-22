@@ -1,5 +1,6 @@
 //! UI-neutral session entities. No filesystem or network dependencies.
 pub mod account;
+pub mod application_commands;
 mod image_sharing;
 pub use image_sharing::ImageShare;
 pub mod archives;

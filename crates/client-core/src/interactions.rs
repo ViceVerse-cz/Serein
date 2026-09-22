@@ -25,6 +25,16 @@ impl Request {
 			&& !self.nonce.is_empty()
 			&& self.nonce.bytes().all(|b| b.is_ascii_digit())
 			&& match &self.data {
+				Data::ApplicationCommand { invocation } => {
+					self.message_id.is_none()
+						&& self.message_flags == 0
+						&& self.application_id == invocation.command.application_id
+						&& invocation
+							.command
+							.guild_id
+							.is_none_or(|guild| Some(guild) == self.guild_id)
+						&& invocation.valid()
+				}
 				Data::Component {
 					custom_id,
 					component_type,
@@ -53,6 +63,9 @@ impl Request {
 	}
 }
 pub enum Data {
+	ApplicationCommand {
+		invocation: Box<model::application_commands::Invocation>,
+	},
 	Component {
 		custom_id: String,
 		component_type: u8,
@@ -209,7 +222,7 @@ pub fn valid_modal_values(source: &[Component], values: &[Component]) -> bool {
 		})
 }
 impl State {
-	fn interactions_allowed(&self) -> bool {
+	pub(crate) fn interactions_allowed(&self) -> bool {
 		self.auth == AuthState::Authenticated
 			&& self.gateway_connected
 			&& self.freshness == Freshness::Fresh
@@ -261,7 +274,7 @@ impl State {
 		};
 		self.begin_interaction(application, Some(message), flags, data)
 	}
-	fn begin_interaction(
+	pub(crate) fn begin_interaction(
 		&mut self,
 		application_id: Id,
 		message_id: Option<Id>,

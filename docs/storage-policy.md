@@ -1053,6 +1053,29 @@ with explicit selection and no automatic write retry. Each of at most five form
 file fields stages at most 10 files / 500 MB before the combined submission bound
 is enforced; paths and contents never enter diagnostics or model/UI form data.
 
+### Slash command catalogs and inputs
+
+One active conversation retains at most 2,000 typed application command definitions within
+4 MiB minus 1 KiB of estimated owned data, reserving space for the enclosing event. The HTTP
+index is capped at 4 MiB and both command/application arrays at 2,000 entries. The decoder
+discards raw JSON after projection and removes spare outer-vector capacity before queueing.
+Each schema is capped at 128 KiB, 1,024 option nodes, 25 options/choices per level and the
+root/group/subcommand/value hierarchy. Catalogs, application labels and argument-form values
+remain session-only; no SQLite schema, disk cache, recents or background index polling is added.
+
+Catalog reads run in one replaceable worker using the existing REST admission and bounded
+event queue. Channel, account generation and request ID reject stale results. Navigation,
+disconnect, account reset and relevant permission invalidation release the retained catalog.
+An oversized catalog is a local picker error, not a reason to discard the authenticated session.
+The picker filters a bounded catalog locally and retains at most 64 matching rows. One argument
+form holds at most 25 values, with strings limited to 6,000 Unicode characters / 24,000 UTF-8
+bytes each. One last submitted form is also retained for explicit editing after a failure;
+it never overwrites an occupied draft and is released on channel/account changes. The complete
+encoded interaction, including command schema, arguments and session
+metadata, must fit 256 KiB before submission; the existing single-interaction and no-replay
+rules apply. Inputs and private replies are not logged. Ordinary composer text and messages
+produced by built-in commands retain their existing draft/message storage policy.
+
 ### Forum card summaries
 
 Visible active forum posts request up to four recent history pages concurrently,

@@ -1,4 +1,5 @@
 //! Single UI-thread state owner. Adapters deliver generation-tagged typed events.
+pub mod application_commands;
 pub mod archives;
 pub mod auth;
 pub mod captcha;
@@ -65,6 +66,11 @@ pub enum Command {
 	StickerPacks,
 	Sticker(Id),
 	Interaction(interactions::Request),
+	ApplicationCommands {
+		channel: Id,
+		guild: Option<Id>,
+		request: u64,
+	},
 	MemberSearch(member_search::Request),
 	MessagingPermissions {
 		request: u64,
@@ -381,6 +387,11 @@ pub enum Event {
 		stickers: Vec<model::Sticker>,
 	},
 	Interaction(interactions::Event),
+	ApplicationCommands {
+		channel: Id,
+		request: u64,
+		result: Result<Vec<model::application_commands::Command>, auth::Failure>,
+	},
 	MemberSearch {
 		request: member_search::Request,
 		result: Result<Vec<Member>, auth::Failure>,
@@ -577,6 +588,7 @@ pub struct NavigationIndex {
 pub struct State {
 	pub stickers: stickers::Stickers,
 	pub interactions: interactions::Interactions,
+	pub application_commands: application_commands::Catalog,
 	pub messaging_permissions: messaging_permissions::Settings,
 	pub guild_folders: Option<model::guild_folders::Settings>,
 	pub folders_pending: bool,
@@ -679,6 +691,7 @@ impl Default for State {
 		Self {
 			stickers: Default::default(),
 			interactions: Default::default(),
+			application_commands: Default::default(),
 			messaging_permissions: Default::default(),
 			guild_folders: None,
 			folders_pending: false,
@@ -966,6 +979,7 @@ impl State {
 		self.search_target = None;
 		self.reactions.reset();
 		self.interactions.reset();
+		self.application_commands.clear();
 		self.older_exhausted = false;
 		self.reply = None;
 		self.revision += 1;
@@ -979,12 +993,14 @@ impl State {
 
 	/// Open Friends / Home. Does not clear the timeline or emit a command.
 	pub fn open_home(&mut self) {
+		self.application_commands.clear();
 		self.selected = None;
 		self.record(Place::Home);
 	}
 
 	/// Land on Home because the open channel is gone.
 	pub fn arrived_home(&mut self) {
+		self.application_commands.clear();
 		if let Some(Place::Channel(id)) = self.trail.current()
 			&& self.selected == Some(id)
 		{
@@ -1017,6 +1033,7 @@ impl State {
 			};
 			let apply = match place {
 				Place::Home => {
+					self.application_commands.clear();
 					self.selected = None;
 					Apply::Opened(None)
 				}
@@ -1295,6 +1312,18 @@ impl State {
 	/// Reports a command the transport could not accept as a bounded outcome error.
 	pub fn command_rejected(&mut self, command: Command) {
 		match &command {
+			Command::ApplicationCommands {
+				channel, request, ..
+			} => {
+				self.apply_application_commands(
+					*channel,
+					*request,
+					Err(auth::Failure::ProtocolAt(
+						"Application commands were not queued; try again",
+					)),
+				);
+				return;
+			}
 			Command::StickerPacks => {
 				self.stickers.loading = false;
 				self.stickers.error = Some("Sticker packs were not queued; try again");
@@ -1735,6 +1764,7 @@ impl State {
 			self.interrupt_stickers();
 			self.posts.clear_summaries();
 			self.interactions.reset();
+			self.application_commands.clear();
 			self.local_game_activity = Default::default();
 			self.invalidate_messaging_permissions(None);
 			self.interrupt_own_profile();
@@ -1773,6 +1803,9 @@ impl State {
 			self.navigation_index.bytes.set(None);
 		}
 		let access_changed = envelope.event.changes_access();
+		if access_changed {
+			self.application_commands.clear();
+		}
 		// Ephemeral names must not outlive navigation identity/permission replacement.
 		if access_changed {
 			self.typing.clear();
@@ -2027,6 +2060,14 @@ impl State {
 				removed,
 			} => self.apply_threads_sync(guild, parents, threads, removed),
 			Event::Interaction(event) => self.apply_interaction(event),
+			Event::ApplicationCommands {
+				channel,
+				request,
+				result,
+			} => {
+				self.apply_application_commands(channel, request, result);
+				Ok(())
+			}
 			Event::Reactions(event) => self.apply_reactions(event),
 			Event::InviteChallenge { request, challenge } => {
 				self.apply_invite_challenge(request, *challenge);
@@ -2577,6 +2618,7 @@ impl State {
 				}
 				self.cancel_history();
 				if failure == auth::Failure::Forbidden {
+					self.application_commands.clear();
 					self.invalidate_members();
 					self.timeline.clear();
 					self.freshness = Freshness::Unavailable;
@@ -3032,6 +3074,7 @@ impl State {
 			_ => {}
 		}
 		if failure.ends_session() {
+			self.application_commands.clear();
 			self.interrupt_stickers();
 			self.invalidate_messaging_permissions(Some(failure));
 			self.interrupt_own_profile();
@@ -3136,6 +3179,15 @@ impl Event {
 		size_of::<Self>()
 			+ match self {
 				Self::Interaction(event) => event.bytes(),
+				Self::ApplicationCommands { result, .. } => result.as_ref().map_or(0, |commands| {
+					commands.capacity() * size_of::<model::application_commands::Command>()
+						+ commands
+							.iter()
+							.map(|command| {
+								command.bytes() - size_of::<model::application_commands::Command>()
+							})
+							.sum::<usize>()
+				}),
 				Self::Startup(startup) => startup.bytes(),
 				Self::MessagingPermissions { result, .. } => result
 					.as_ref()
