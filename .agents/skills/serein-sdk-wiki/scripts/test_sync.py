@@ -66,6 +66,7 @@ def main():
     sources[SOURCES[3]] += "### Example: read a snapshot without confusing unknown with zero\nRead example.\n"
     generated = build_pages(sources, revision, "Preview SDK", set(sources))
     assert '<a id="localsettingssnapshot-five-reading-preferences"></a>' in generated["SDK-App-Data.md"]
+    assert all(text.endswith("\n") and not text.endswith("\n\n") for text in generated.values())
     assert len(generated) == 19
     assert "AppContextSnapshot body." in generated["SDK-Users-and-Relationships.md"]
     assert "AppContextSnapshot body." not in generated["SDK-App-Data.md"]
