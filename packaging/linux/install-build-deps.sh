@@ -3,7 +3,7 @@
 set -eu
 . /etc/os-release
 case "$ID:${VERSION_ID:-rolling}" in
-  ubuntu:26.04)
+  ubuntu:24.04|ubuntu:26.04)
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       build-essential cmake pkg-config curl ca-certificates git tar gzip xz-utils \

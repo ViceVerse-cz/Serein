@@ -1,6 +1,8 @@
 use crate::{Failure, Frame, MAX_GATEWAY_WIRE};
 use flate2::{Decompress, FlushDecompress, Status};
 
+const RETAINED_PENDING_BYTES: usize = 128 * 1024;
+
 pub(crate) struct Decoder {
 	inflater: Decompress,
 	pending: Vec<u8>,
@@ -61,6 +63,11 @@ impl Decoder {
 			}
 		}
 		self.pending.clear();
+		// Keep ordinary packet reuse without retaining a large READY allocation for
+		// the connection's lifetime. The streaming inflater dictionary stays intact.
+		if self.pending.capacity() > RETAINED_PENDING_BYTES {
+			self.pending = Vec::new();
+		}
 		let text = String::from_utf8(output).map_err(|_| Failure::Protocol)?;
 		Ok(Some(Frame::Text(text.into())))
 	}
@@ -70,6 +77,50 @@ impl Decoder {
 mod tests {
 	use super::*;
 	use std::io::Write;
+
+	#[test]
+	fn large_fragmented_payload_releases_capacity_but_keeps_stream_dictionary() {
+		let mut seed = 1_u64;
+		let large: String = (0..512 * 1024)
+			.map(|_| {
+				seed ^= seed << 13;
+				seed ^= seed >> 7;
+				seed ^= seed << 17;
+				char::from(b' ' + (seed % 95) as u8)
+			})
+			.collect();
+		let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+		let mut decoder = Decoder::default();
+		let mut offset = 0;
+		for text in [&large[..], &large[large.len() - 1024..]] {
+			encoder.write_all(text.as_bytes()).unwrap();
+			encoder.flush().unwrap();
+			let bytes = &encoder.get_ref()[offset..];
+			let split = bytes.len() - 2;
+			assert!(
+				decoder
+					.frame(Frame::Binary(bytes[..split].to_vec().into()))
+					.unwrap()
+					.is_none()
+			);
+			if offset == 0 {
+				assert!(decoder.pending.capacity() > RETAINED_PENDING_BYTES);
+			}
+			assert_eq!(
+				decoder
+					.frame(Frame::Binary(bytes[split..].to_vec().into()))
+					.unwrap(),
+				Some(Frame::Text(text.into()))
+			);
+			assert!(decoder.pending.is_empty());
+			assert!(decoder.pending.capacity() <= RETAINED_PENDING_BYTES);
+			offset = encoder.get_ref().len();
+		}
+		assert!(
+			decoder.pending.capacity() > 0,
+			"small packets still reuse capacity"
+		);
+	}
 
 	#[test]
 	fn split_payloads_share_the_dictionary_and_enforce_both_byte_limits() {

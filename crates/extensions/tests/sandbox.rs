@@ -299,3 +299,24 @@ fn catalog_preview_metadata_is_optional_and_bounded() {
 		assert!(parse_catalog(&serde_json::to_vec(&invalid).unwrap()).is_err());
 	}
 }
+
+#[test]
+fn image_sharing_plugin_requires_activation_and_capability() {
+	let mut package = parse_package(include_bytes!(
+		"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
+	))
+	.unwrap();
+	let input = Invocation {
+		action: "activate".into(),
+		..Default::default()
+	};
+	let output = invoke(&package, &input).unwrap();
+	assert!(output.image_sharing);
+	assert!(output.replacement.is_none() && output.panel.is_empty());
+	package.manifest.capabilities.clear();
+	assert!(output.validate(&package.manifest, &input).is_err());
+	package.manifest.capabilities.push(Capability::ImageSharing);
+	package.manifest.actions[0].surface = Surface::Panel;
+	assert!(output.validate(&package.manifest, &input).is_err());
+	assert!(!serde_json::from_str::<Output>("{}").unwrap().image_sharing);
+}

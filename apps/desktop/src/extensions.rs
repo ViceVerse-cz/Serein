@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const CATALOG_URL: &str =
-	"https://raw.githubusercontent.com/ViceVerse-cz/rustcord/main/extensions/catalog.json";
+	"https://raw.githubusercontent.com/ViceVerse-cz/Serein-extensions/main/catalog.json";
 const MAX_PACKAGE: usize = 16 * 1024 * 1024;
 const MAX_RECORD: usize = MAX_PACKAGE + 64 * 1024;
 const MAX_CATALOG: usize = 1024 * 1024;
@@ -103,52 +103,70 @@ pub struct Starter {
 }
 
 pub(crate) fn starters() -> Result<Vec<Starter>, String> {
-	let packages: [(&'static [u8], &'static str); 10] = [
+	let packages: &[(&'static [u8], &'static str)] = &[
+		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!(
 				"../../../examples/extensions/packages/message-delete-protector.serein-extension"
 			),
 			"Keep messages already seen in this session visible in red after deletion. Cleared when disabled or signed out.",
 		),
+		#[cfg(any(test, feature = "demo"))]
+		(
+			include_bytes!(
+				"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
+			),
+			"While enabled, selecting custom emoji or stickers sends an image attachment immediately.",
+		),
+		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!("../../../extensions/ocean.serein-extension"),
 			"Deep blue surfaces with a bright ocean accent.",
 		),
+		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!("../../../extensions/midnight.serein-extension"),
 			"Inky midnight surfaces with a vivid violet accent.",
 		),
+		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!("../../../extensions/rose.serein-extension"),
 			"Soft rose surfaces with a warm pink accent.",
 		),
+		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!("../../../extensions/forest.serein-extension"),
 			"Calm forest greens and fresh leafy accents.",
 		),
+		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!("../../../extensions/latte.serein-extension"),
 			"Warm coffee tones and a creamy caramel accent.",
 		),
+		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!("../../../extensions/golden.serein-extension"),
 			"Warm charcoal and gold, with rounded, roomy controls.",
 		),
+		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!("../../../extensions/katana.serein-extension"),
 			"Katana's dark charcoal surfaces and sharp red accents. Light mode uses built-in colors.",
 		),
+		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!("../../../extensions/obsidian.serein-extension"),
 			"Obsidian violet surfaces and lavender accents in light and dark.",
 		),
+		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!("../../../extensions/teal.serein-extension"),
 			"Cool blue-green surfaces with fresh teal accents.",
 		),
 	];
 	packages
-		.into_iter()
+		.iter()
+		.copied()
 		.map(|(bytes, description)| {
 			let package = extensions::parse_package(bytes).map_err(|error| error.to_string())?;
 			Ok(Starter {
@@ -169,13 +187,13 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 #[cfg(feature = "demo")]
 pub fn demo_check_examples() -> Result<bool, String> {
 	let starters = starters()?;
-	if starters.len() != 10
+	if starters.len() != 11
 		|| starters
 			.iter()
 			.filter(|entry| entry.theme.is_some())
 			.count() != 9
 	{
-		return Err("Expected one starter plugin and nine themes".into());
+		return Err("Expected two starter plugins and nine themes".into());
 	}
 	let gate = Gate {
 		epoch: 0,
@@ -212,16 +230,21 @@ pub fn demo_check_examples() -> Result<bool, String> {
 			return Err(error);
 		}
 		if manifest.kind == ExtensionKind::Plugin {
-			if manifest.id != "message-delete-protector" || !summary.preserve_deleted_messages {
-				return Err("Message Delete Protector did not activate".into());
+			if !(manifest.id == "message-delete-protector" && summary.preserve_deleted_messages
+				|| manifest.id == "emoji-sticker-images" && summary.image_sharing)
+			{
+				return Err("Bundled plugin did not activate".into());
 			}
 			activated = true;
 			stored.grants.clear();
 			let denied = stored.summary(&gate, None, true);
-			if denied.preserve_deleted_messages || denied.error.is_none() {
-				return Err("Message preservation must require explicit permission".into());
+			if denied.preserve_deleted_messages || denied.image_sharing || denied.error.is_none() {
+				return Err("Plugin activation must require explicit permission".into());
 			}
-		} else if summary.preserve_deleted_messages || summary.theme.is_none() {
+		} else if summary.preserve_deleted_messages
+			|| summary.image_sharing
+			|| summary.theme.is_none()
+		{
 			return Err("Theme starter must only supply a valid palette".into());
 		}
 	}
@@ -286,6 +309,7 @@ pub struct InstalledExtension {
 	pub download_bytes: u64,
 	pub error: Option<String>,
 	pub preserve_deleted_messages: bool,
+	pub image_sharing: bool,
 }
 
 pub enum Event {
@@ -302,6 +326,7 @@ pub enum Event {
 	},
 	ThemeExported,
 	Loaded {
+		catalog: Option<Catalog>,
 		installed: Vec<InstalledExtension>,
 		starters: Vec<Starter>,
 	},
@@ -493,6 +518,9 @@ impl Stored {
 			{
 				return Err("Deleted message access was not granted".into());
 			}
+			if output.image_sharing && !self.grants.contains(&Capability::ImageSharing) {
+				return Err("Image sharing access was not granted".into());
+			}
 			Ok(output)
 		});
 		let background_image = if active {
@@ -528,6 +556,7 @@ impl Stored {
 			reviewed: self.reviewed,
 			sha256: self.sha256.clone(),
 			download_bytes: self.download_bytes,
+			image_sharing: result.as_ref().is_ok_and(|output| output.image_sharing),
 			preserve_deleted_messages: result
 				.as_ref()
 				.is_ok_and(|output| output.preserve_deleted_messages),
@@ -684,18 +713,22 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			})
 		}
 		Job::Load { account } => Ok(Event::Loaded {
+			catalog: read_bounded(&root.join("catalog.json"), MAX_CATALOG)
+				.ok()
+				.and_then(|bytes| extensions::parse_catalog(&bytes).ok()),
 			starters: starters()?,
 			installed: load(root, account.as_deref(), gate)?,
 		}),
 		Job::RefreshCatalog { demo } => {
-			let bytes = if demo {
-				include_bytes!("../../../extensions/catalog.json").to_vec()
-			} else {
-				download(CATALOG_URL, MAX_CATALOG, gate, Duration::from_secs(60))?
-			};
-			extensions::parse_catalog(&bytes)
+			if demo {
+				return extensions::parse_catalog(include_bytes!(
+					"../../../extensions/catalog.json"
+				))
 				.map(Event::Catalog)
-				.map_err(|e| e.to_string())
+				.map_err(|error| error.to_string());
+			}
+			let bytes = download(CATALOG_URL, MAX_CATALOG, gate, Duration::from_secs(15))?;
+			cache_catalog(root, &bytes, gate).map(Event::Catalog)
 		}
 		Job::Preview { id, preview, demo } => {
 			let image = load_preview(&id, &preview, demo, gate);
@@ -781,6 +814,13 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 	}
 }
 
+fn cache_catalog(root: &Path, bytes: &[u8], gate: &Gate) -> Result<Catalog, String> {
+	let catalog = extensions::parse_catalog(bytes).map_err(|error| error.to_string())?;
+	fs::create_dir_all(root).map_err(|_| "Cannot create catalog directory")?;
+	atomic_write(&root.join("catalog.json"), bytes, gate)?;
+	Ok(catalog)
+}
+
 fn enable(
 	root: &Path,
 	source: InstallSource,
@@ -818,6 +858,17 @@ fn enable(
 	let package = extensions::parse_package(&bytes).map_err(|e| e.to_string())?;
 	if package.manifest != manifest {
 		return Err("Package does not match the reviewed manifest".into());
+	}
+	if reviewed {
+		let path = scope(root, package.manifest.kind, account)?
+			.join(&package.manifest.id)
+			.join("package.json");
+		if path.exists() {
+			let existing = read_stored(&path)?;
+			if existing.local_theme || !existing.reviewed {
+				return Err("A catalog update cannot replace a local or imported package".into());
+			}
+		}
 	}
 	let stored = Stored {
 		local_theme: false,
@@ -865,7 +916,17 @@ fn install_stored(
 	{
 		return Err("Extension storage is full; log out an old account first".into());
 	}
-	let summary = stored.summary(gate, activation_storage(&stored, &directory)?, true);
+	let updating_theme = stored.reviewed
+		&& stored.package.manifest.kind == ExtensionKind::Theme
+		&& directory.join("package.json").exists();
+	let activate = !updating_theme
+		|| read_bounded(&parent.join("active.json"), 64)
+			.is_ok_and(|id| id == stored.package.manifest.id.as_bytes());
+	let mut summary = stored.summary(gate, activation_storage(&stored, &directory)?, true);
+	summary.active_theme = stored.package.manifest.kind == ExtensionKind::Theme && activate;
+	if !activate {
+		summary.background_image = None;
+	}
 	if let Some(error) = &summary.error {
 		return Err(error.clone());
 	}
@@ -877,7 +938,7 @@ fn install_stored(
 	fs::create_dir_all(&directory).map_err(|_| "Cannot create extension directory")?;
 	atomic_write(&directory.join("package.json"), &record, gate)?;
 	remove_file(&directory.with_extension("disabled"))?;
-	if stored.package.manifest.kind == ExtensionKind::Theme {
+	if stored.package.manifest.kind == ExtensionKind::Theme && activate {
 		atomic_write(
 			&parent.join("active.json"),
 			stored.package.manifest.id.as_bytes(),
@@ -998,6 +1059,7 @@ fn load(
 							let mut summary = stored.summary(gate, None, false);
 							summary.theme = None;
 							summary.preserve_deleted_messages = false;
+							summary.image_sharing = false;
 							summary.error = Some(error);
 							summary
 						}
@@ -1025,6 +1087,7 @@ fn load(
 						download_bytes: 0,
 						error: Some(error),
 						preserve_deleted_messages: false,
+						image_sharing: false,
 					},
 				});
 			}
@@ -1233,6 +1296,8 @@ fn load_preview(
 	preview.validate().ok()?;
 	let bytes = if demo {
 		demo_preview(id)?.to_vec()
+	} else if let Some(bytes) = cached_preview(&preview.sha256) {
+		bytes
 	} else {
 		download(
 			&preview.url,
@@ -1245,7 +1310,45 @@ fn load_preview(
 	gate.check().ok()?;
 	let image = decode_preview(&bytes, preview)?;
 	gate.check().ok()?;
+	if !demo {
+		remember_preview(&preview.sha256, bytes);
+	}
 	Some(image)
+}
+
+// Verified thumbnail bytes from this session: at most 32 previews or 4 MiB, whichever
+// fills first. Scrolling the gallery re-decodes instead of re-downloading.
+const MAX_CACHED_PREVIEWS: usize = 32;
+const MAX_CACHED_PREVIEW_BYTES: usize = 4 * 1024 * 1024;
+static PREVIEW_CACHE: std::sync::Mutex<VecDeque<(String, Vec<u8>)>> =
+	std::sync::Mutex::new(VecDeque::new());
+
+fn cached_preview(sha256: &str) -> Option<Vec<u8>> {
+	let mut cache = PREVIEW_CACHE.lock().ok()?;
+	let index = cache
+		.iter()
+		.position(|(hash, _)| hash.eq_ignore_ascii_case(sha256))?;
+	// Most recently used previews move to the back so eviction drops stale ones first.
+	let entry = cache.remove(index)?;
+	let bytes = entry.1.clone();
+	cache.push_back(entry);
+	Some(bytes)
+}
+
+fn remember_preview(sha256: &str, bytes: Vec<u8>) {
+	if bytes.is_empty() || bytes.len() > extensions::MAX_PREVIEW_BYTES {
+		return;
+	}
+	let Ok(mut cache) = PREVIEW_CACHE.lock() else {
+		return;
+	};
+	cache.retain(|(hash, _)| !hash.eq_ignore_ascii_case(sha256));
+	cache.push_back((sha256.to_ascii_lowercase(), bytes));
+	while cache.len() > MAX_CACHED_PREVIEWS
+		|| cache.iter().map(|(_, bytes)| bytes.len()).sum::<usize>() > MAX_CACHED_PREVIEW_BYTES
+	{
+		cache.pop_front();
+	}
 }
 
 fn demo_preview(id: &str) -> Option<&'static [u8]> {
@@ -1654,6 +1757,179 @@ mod tests {
 	}
 
 	#[test]
+	#[ignore = "Downloads public GitHub catalog/packages; no Discord account or traffic"]
+	fn public_repository_catalog_and_packages_match_pins() {
+		let profile = Profile::new();
+		let Event::Catalog(catalog) =
+			run(&profile.0, Job::RefreshCatalog { demo: false }, &gate()).unwrap()
+		else {
+			panic!("expected catalog")
+		};
+		assert!(
+			catalog
+				.entries
+				.iter()
+				.any(|entry| entry.manifest.kind == ExtensionKind::Plugin)
+		);
+		assert!(
+			catalog
+				.entries
+				.iter()
+				.any(|entry| entry.manifest.id == "forest-piano")
+		);
+		assert!(
+			catalog
+				.entries
+				.iter()
+				.any(|entry| entry.manifest.id == "soft-white")
+		);
+		for entry in catalog.entries {
+			let bytes = download(
+				&entry.release_url,
+				MAX_PACKAGE,
+				&gate(),
+				Duration::from_secs(60),
+			)
+			.unwrap();
+			assert_eq!(bytes.len() as u64, entry.download_bytes);
+			assert_eq!(digest(&bytes), entry.sha256);
+			let package = extensions::parse_package(&bytes).unwrap();
+			assert_eq!(package.manifest, entry.manifest);
+			package_background(&package).unwrap();
+			package_cover(&package).unwrap();
+		}
+	}
+
+	#[test]
+	fn catalog_cache_is_bounded_and_does_not_change_installed_themes() {
+		let profile = Profile::new();
+		let bytes = include_bytes!("../../../extensions/catalog.json");
+		let catalog = cache_catalog(&profile.0, bytes, &gate()).unwrap();
+		assert_eq!(catalog.entries.len(), 1);
+		atomic_write(
+			&profile.0.join("catalog.json"),
+			&serde_json::to_vec(&catalog).unwrap(),
+			&gate(),
+		)
+		.unwrap();
+		let installed = enable(
+			&profile.0,
+			source(&profile, &theme("local")),
+			Vec::new(),
+			None,
+			&gate(),
+		)
+		.unwrap();
+		let Event::Loaded {
+			catalog,
+			installed: reloaded,
+			..
+		} = run(&profile.0, Job::Load { account: None }, &gate()).unwrap()
+		else {
+			panic!("expected load")
+		};
+		assert_eq!(catalog.unwrap().entries.len(), 1);
+		assert_eq!(reloaded[0].sha256, installed.sha256);
+		assert!(reloaded[0].active_theme);
+		cache_catalog(&profile.0, br#"{"api_version":1,"entries":[]}"#, &gate()).unwrap();
+		let Event::Loaded {
+			catalog, installed, ..
+		} = run(&profile.0, Job::Load { account: None }, &gate()).unwrap()
+		else {
+			panic!("expected load")
+		};
+		assert!(catalog.unwrap().entries.is_empty());
+		assert!(installed[0].active_theme);
+		for invalid in [b"invalid".to_vec(), vec![b' '; MAX_CATALOG + 1]] {
+			cache_catalog(&profile.0, bytes, &gate()).unwrap();
+			assert!(cache_catalog(&profile.0, &invalid, &gate()).is_err());
+			assert_eq!(fs::read(profile.0.join("catalog.json")).unwrap(), bytes);
+			fs::write(profile.0.join("catalog.json"), &invalid).unwrap();
+			let Event::Loaded {
+				catalog, installed, ..
+			} = run(&profile.0, Job::Load { account: None }, &gate()).unwrap()
+			else {
+				panic!("expected load")
+			};
+			assert!(catalog.is_none());
+			assert!(installed[0].active_theme);
+		}
+	}
+
+	#[test]
+	fn reviewed_theme_updates_preserve_selection_and_reject_local_collisions() {
+		let profile = Profile::new();
+		let themes: Vec<_> = starters()
+			.unwrap()
+			.into_iter()
+			.filter(|entry| entry.theme.is_some())
+			.take(2)
+			.collect();
+		let first = enable(
+			&profile.0,
+			themes[0].source.clone(),
+			Vec::new(),
+			None,
+			&gate(),
+		)
+		.unwrap();
+		let second = enable(
+			&profile.0,
+			themes[1].source.clone(),
+			Vec::new(),
+			None,
+			&gate(),
+		)
+		.unwrap();
+		let updated = enable(
+			&profile.0,
+			themes[0].source.clone(),
+			Vec::new(),
+			None,
+			&gate(),
+		)
+		.unwrap();
+		assert!(!updated.active_theme);
+		assert_eq!(
+			load(&profile.0, None, &gate())
+				.unwrap()
+				.iter()
+				.find(|entry| entry.active_theme)
+				.unwrap()
+				.manifest
+				.id,
+			second.manifest.id
+		);
+		run(&profile.0, Job::SelectTheme { id: None }, &gate()).unwrap();
+		enable(
+			&profile.0,
+			themes[0].source.clone(),
+			Vec::new(),
+			None,
+			&gate(),
+		)
+		.unwrap();
+		assert!(
+			load(&profile.0, None, &gate())
+				.unwrap()
+				.iter()
+				.all(|entry| !entry.active_theme)
+		);
+		let local = source(&profile, &theme(&first.manifest.id));
+		enable(&profile.0, local, Vec::new(), None, &gate()).unwrap();
+		assert!(
+			enable(
+				&profile.0,
+				themes[0].source.clone(),
+				Vec::new(),
+				None,
+				&gate()
+			)
+			.is_err()
+		);
+	}
+
+	#[test]
 	fn theme_install_select_disable_restart_and_checksum() {
 		let profile = Profile::new();
 		let root = profile.0.join("extensions");
@@ -1777,7 +2053,7 @@ mod tests {
 	#[test]
 	fn shop_preview_demo_catalog_and_images_are_local_and_hash_pinned() {
 		let starters = starters().unwrap();
-		assert_eq!(starters.len(), 10);
+		assert_eq!(starters.len(), 11);
 		let mut ids = std::collections::BTreeSet::new();
 		for starter in starters {
 			let InstallSource::Bundled {

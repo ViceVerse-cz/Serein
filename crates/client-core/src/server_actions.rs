@@ -446,7 +446,7 @@ impl State {
 			.collect();
 		self.remove_channels(&removed);
 		if self.selected.is_some_and(|id| removed.contains(&id)) {
-			self.selected = None;
+			self.arrived_home();
 		}
 		self.guilds.retain(|g| g.id != guild);
 		self.permissions.guilds.remove(&guild);
@@ -463,6 +463,7 @@ mod tests {
 	fn state() -> State {
 		let mut state = State {
 			user: Some(model::User {
+				primary_guild: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -471,6 +472,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![model::Guild {
+				stickers: None,
 				id: Id(2),
 				name: "Synthetic server".into(),
 				icon: None,
@@ -553,6 +555,7 @@ mod tests {
 	fn server_invites_options_friends_acknowledgement_and_cancellation() {
 		let mut state = state();
 		let friend = model::User {
+			primary_guild: None,
 			id: Id(8),
 			name: "Friend".into(),
 			avatar: None,

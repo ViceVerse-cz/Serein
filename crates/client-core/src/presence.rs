@@ -352,6 +352,7 @@ mod tests {
 
 	fn state() -> State {
 		let user = User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -366,6 +367,7 @@ mod tests {
 			freshness: Freshness::Fresh,
 			selected: Some(Id(1)),
 			guilds: vec![Guild {
+				stickers: None,
 				id: Id(10),
 				name: "Synthetic".into(),
 				icon: None,
@@ -495,6 +497,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					primary_guild: None,
 					id: Id(999),
 					name: "Different account".into(),
 					avatar: None,

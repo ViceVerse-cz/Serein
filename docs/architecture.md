@@ -35,7 +35,9 @@ single-attempt policy; REST bodies reserve bounded capacity from a validated Con
 
 The native message renderer uses pulldown-cmark without its HTML or command-line features. Parsing is capped at 8192 UTF-8 bytes / 128 lines, 512 parser events and 16 nesting levels; complexity overflow falls back to bounded literal text. A 512-entry / 1 MiB estimated source-and-span MRU serves visible messages. HTML remains inert text and Markdown images are placeholders. HTTP(S) links require an explicit destination confirmation; nothing fetches them for previews. Up to 32 inline spoiler regions use a fixed reveal mask; concealed spans never enter text selection, accessibility labels, link/reference actions or emoji rendering. Spoiler media has a separate explicit reveal. Consent is invalidated when the original text or media changes. Complexity fallback conservatively conceals bounded source containing spoiler markers. Spoiler consent copies are bounded by the active message window. Native height caches include message content/metadata, width, body font size and display scale.
 
-Bundled OFL Noto CJK/Arabic fallbacks add 16.51 MiB raw font data; there is no runtime download or system-font scan. See assets/README.md for provenance, regional forms and shaping limitations.
+Bundled OFL Noto CJK/Arabic fallbacks add 16.51 MiB raw font data, without runtime downloads.
+Eframe separately enumerates installed system fonts on a background thread for missing glyphs,
+including native color emoji. See assets/README.md for provenance, regional forms and shaping limitations.
 
 History responses/errors must match the active request and connection state. Recent reload replaces the retained view while preserving mutations observed during the request; back-pagination validates page channel, ID boundary, duplicates and cardinality. At capacity, an older window retains its reading position instead of evicting its anchor for new messages; Reload returns to latest. Successful Resume triggers active-page revalidation. Bulk deletions occupy one bounded event instead of flooding the UI queue.
 
@@ -58,3 +60,13 @@ The desktop consumes redacted, zeroizing voice credentials before core reduction
 Device choices, mute/deafen and focused V push-to-talk remain session-local. Voice WebSocket resumption is bounded and preserves the current call's cryptographic state; rejected resumption and main Gateway disconnect require deliberate rejoin. Group calls share the bounded media engine, AEC, camera and screen-sharing paths; recording is not included. Exact media limits and offline evidence are in [the adapter README](../crates/discord-voice/README.md); [the live gate](voice.md) is still blocked.
 
 Conversation search owns one page of at most 25 ID/author/excerpt records, capped at 64 KiB, alongside the existing 500-message / 4 MiB timeline. Queries are capped at 256 characters / 1024 UTF-8 bytes. The decoder caps the HTTP body at 512 KiB, 25 result groups and 5 context records per group; only the matching excerpt (256 characters) is retained. Snippets are plain, inert text with conservative whole-snippet spoiler concealment and no media loads. One cancellable read task shares the four REST permits. Opening a result replaces the active window with revalidated history rather than merging index snapshots into the message cache.
+
+
+Application components reuse bounded model/protocol records and the serial REST write
+worker. The connection adapter intercepts the zeroized Gateway session handoff; the
+UI never receives it. Core state authorizes explicit component selections, validates
+modal inputs against the received schema, correlates nonce-tagged outcomes and retires
+stale/session-changed forms. Private replies bypass persistent timeline state. Native
+file dialogs stage modal uploads separately from composer attachments, through the
+existing upload worker. No bot credentials, backend or embedded messaging webview is
+introduced. Normal-account interaction behavior remains unofficial and live-unverified.

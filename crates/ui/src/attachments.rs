@@ -280,10 +280,36 @@ pub fn show(
 	demo: bool,
 	surface: &mut crate::select::Surface,
 ) {
-	for group in message
-		.attachments
-		.chunk_by(|a, b| a.is_image() == b.is_image())
-	{
+	show_subset(
+		ui,
+		message,
+		&message.attachments,
+		images,
+		viewing,
+		opening,
+		download,
+		audio,
+		video,
+		demo,
+		surface,
+	);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn show_subset(
+	ui: &mut egui::Ui,
+	message: &Message,
+	attachments: &[Attachment],
+	images: &mut Avatars,
+	viewing: &mut Option<(Id, Id)>,
+	opening: &mut Option<String>,
+	download: &mut DownloadUi,
+	audio: &mut crate::audio::AudioUi,
+	video: &mut crate::video::VideoUi,
+	demo: bool,
+	surface: &mut crate::select::Surface,
+) {
+	for group in attachments.chunk_by(|a, b| a.is_image() == b.is_image()) {
 		if group[0].is_image() {
 			let (columns, size) = image_layout(group.len(), ui.available_width());
 			ui.scope(|ui| {
@@ -292,12 +318,17 @@ pub fn show(
 					ui.horizontal_top(|ui| {
 						for attachment in row {
 							ui.push_id(("attachment", attachment.id), |ui| {
-								let image = images.show_embed(ui, &attachment.media, size, demo);
+								let image = images.show_embed(
+									ui,
+									&attachment.media,
+									artwork_size(attachment, size),
+									demo,
+								);
 								let response =
 									ui.interact(image.rect, image.id.with("media"), Sense::click());
 								response.widget_info(|| {
 									egui::WidgetInfo::labeled(
-										egui::WidgetType::Button,
+										egui::Role::Button,
 										ui.is_enabled(),
 										format!("View image {}", attachment.filename),
 									)
@@ -354,6 +385,30 @@ pub fn show(
 		}
 	}
 }
+// Shared with height estimation so compact artwork does not leave a gallery-sized gap.
+pub(crate) fn artwork_edge(filename: &str) -> Option<f32> {
+	let (stem, extension) = filename.rsplit_once('.')?;
+	if !matches!(extension, "png" | "gif") {
+		return None;
+	}
+	let (id, edge) = if let Some(id) = stem.strip_prefix("emoji-") {
+		(id, 48.0_f32)
+	} else {
+		(stem.strip_prefix("sticker-")?, 160.0_f32)
+	};
+	(!id.is_empty()
+		&& id.bytes().all(|b| b.is_ascii_digit())
+		&& id.parse::<Id>().is_ok_and(|id| id.0 != 0))
+	.then_some(edge)
+}
+
+fn artwork_size(attachment: &Attachment, gallery: egui::Vec2) -> egui::Vec2 {
+	let Some(edge) = artwork_edge(&attachment.filename) else {
+		return gallery;
+	};
+	egui::Vec2::splat(edge.min(gallery.x).min(gallery.y))
+}
+
 pub(crate) fn image_layout(count: usize, width: f32) -> (usize, egui::Vec2) {
 	let columns = if count > 1 && width >= 280.0 { 2 } else { 1 };
 	let width = ((width.min(420.0) - (columns - 1) as f32 * 6.0) / columns as f32).max(1.0);
@@ -595,6 +650,15 @@ pub fn viewer(
 	let index = gallery.iter().position(|a| a.id == current)?;
 	let attachment = gallery[index];
 	let count = gallery.len();
+	let zoom_id = egui::Id::unique("attachment-viewer-zoom");
+	let (previous, mut zoom, mut pan) = ui.ctx().data_mut(|data| {
+		data.get_temp::<(Id, f32, egui::Vec2)>(zoom_id)
+			.unwrap_or((current, 1.0, egui::Vec2::ZERO))
+	});
+	if previous != current {
+		zoom = 1.0;
+		pan = egui::Vec2::ZERO;
+	}
 	let size = ui.ctx().content_rect().size().max(egui::vec2(1.0, 1.0));
 	let mut close = false;
 	// Modal input capture prevents clicks and keys reaching the conversation. No dialog frame.
@@ -633,23 +697,57 @@ pub fn viewer(
 			let scale = (stage.width() / original.x).min(stage.height() / original.y);
 			let fitted = (original * scale).max(egui::vec2(1.0, 1.0));
 			let image_rect = Rect::from_center_size(stage.center(), fitted);
-			ui.scope_builder(
-				egui::UiBuilder::new().max_rect(image_rect).layout(
+			if let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
+				&& stage.contains(pointer)
+			{
+				let factor = ui.input_mut(|i| {
+					let factor = (i.smooth_scroll_delta.y * 0.005).exp() * i.zoom_delta();
+					i.smooth_scroll_delta = egui::Vec2::ZERO;
+					factor
+				});
+				let next = (zoom * factor).clamp(1.0, (4096.0 / fitted.max_elem()).clamp(1.0, 8.0));
+				pan = (pointer - stage.center()) - (pointer - stage.center() - pan) * (next / zoom);
+				zoom = next;
+			}
+			let limit = ((fitted * zoom - stage.size()) * 0.5).max(egui::Vec2::ZERO);
+			pan = pan.clamp(-limit, limit);
+			let zoomed = Rect::from_center_size(stage.center() + pan, fitted * zoom);
+			{
+				// Zoomed geometry must not enlarge and recenter the modal or its controls.
+				let mut image_ui = ui.new_child(egui::UiBuilder::new().max_rect(zoomed).layout(
 					egui::Layout::centered_and_justified(egui::Direction::TopDown),
-				),
-				|ui| {
-					let image = images.show_large(ui, &attachment.media, fitted, demo);
-					let response = ui
-						.interact(image.rect, image.id.with("media"), Sense::click())
-						.on_hover_text(
-							attachment
-								.description
-								.as_deref()
-								.unwrap_or(&attachment.filename),
-						);
+				));
+				let ui = &mut image_ui;
+				ui.set_clip_rect(stage.intersect(ui.clip_rect()));
+				let image = images.show_large(ui, &attachment.media, fitted * zoom, demo);
+				let response = ui
+					.interact(image.rect, image.id.with("media"), Sense::click_and_drag())
+					.on_hover_cursor(if zoom > 1.0 {
+						egui::CursorIcon::Grab
+					} else {
+						egui::CursorIcon::ZoomIn
+					})
+					.on_hover_text("Scroll to zoom · Drag to pan · Double-click to reset")
+					.on_hover_text(
+						attachment
+							.description
+							.as_deref()
+							.unwrap_or(&attachment.filename),
+					);
+				if response.dragged_by(egui::PointerButton::Primary) {
+					pan = (pan + response.drag_delta()).clamp(-limit, limit);
+				}
+				if response.double_clicked() {
+					zoom = 1.0;
+					pan = egui::Vec2::ZERO;
+				}
+				// Zero-ID images are local viewer metadata, not service attachments.
+				if attachment.id == Id(0) {
+					embed_context_menu(&response, &attachment.media, download, demo);
+				} else {
 					media_context_menu(&response, attachment, download, opening, demo);
-				},
-			);
+				}
+			}
 			// Top bar: position counter on the left, actions on the right.
 			let bar = Rect::from_min_size(full.min, egui::vec2(full.width(), TOP));
 			if count > 1 {
@@ -687,7 +785,11 @@ pub fn viewer(
 						})
 						.clicked()
 					{
-						download.request = Some(attachment.clone());
+						if attachment.id == Id(0) {
+							download.embed_request = Some((attachment.media.clone(), false));
+						} else {
+							download.request = Some(attachment.clone());
+						}
 					}
 				},
 			);
@@ -846,7 +948,15 @@ pub fn viewer(
 				close = true;
 			}
 		});
-	(!close && !overlay.should_close()).then_some(current)
+	let result = (!close && !overlay.should_close()).then_some(current);
+	ui.ctx().data_mut(|data| {
+		if result == Some(attachment.id) {
+			data.insert_temp(zoom_id, (current, zoom, pan));
+		} else {
+			data.remove::<(Id, f32, egui::Vec2)>(zoom_id);
+		}
+	});
+	result
 }
 pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 	attachments
@@ -854,7 +964,15 @@ pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 		.map(|group| {
 			if group[0].is_image() {
 				let (columns, size) = image_layout(group.len(), width);
-				group.len().div_ceil(columns) as f32 * (size.y + 6.0)
+				group
+					.chunks(columns)
+					.map(|row| {
+						row.iter()
+							.map(|a| artwork_size(a, size).y)
+							.fold(0.0_f32, f32::max)
+							+ 6.0
+					})
+					.sum::<f32>()
 			} else {
 				group
 					.iter()
@@ -878,6 +996,41 @@ pub fn estimated_height(attachments: &[Attachment], width: f32) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn shared_artwork_keeps_compact_tiles_and_matching_row_heights() {
+		let mut attachment = Attachment {
+			id: Id(1),
+			filename: String::new(),
+			description: None,
+			content_type: Some("image/png".into()),
+			size: 1,
+			spoiler: false,
+			media: Default::default(),
+			duration_ms: None,
+			waveform: vec![],
+		};
+		let gallery = image_layout(1, 500.0).1;
+		for (name, edge) in [("emoji-7.gif", 48.0), ("sticker-8.png", 160.0)] {
+			attachment.filename = name.into();
+			attachment.content_type = Some("image/png".into());
+			assert_eq!(artwork_size(&attachment, gallery), egui::Vec2::splat(edge));
+			assert_eq!(estimated_height(&[attachment.clone()], 500.0), edge + 6.0);
+			assert_eq!(
+				artwork_size(&attachment, egui::Vec2::splat(20.0)),
+				egui::Vec2::splat(20.0)
+			);
+		}
+		for name in [
+			"photo.png",
+			"emoji-0.png",
+			"emoji-nope.png",
+			"sticker-8.txt",
+		] {
+			attachment.filename = name.into();
+			assert_eq!(artwork_size(&attachment, gallery), gallery);
+		}
+	}
 
 	#[test]
 	fn image_gallery_wraps_without_filenames_and_opens_each_attachment() {
@@ -1147,6 +1300,7 @@ mod tests {
 			},
 		};
 		let message = Message {
+			sticker_items: vec![],
 			id: Id(1),
 			channel: Id(2),
 			author: model::User {
@@ -1156,6 +1310,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			},
 			content: String::new(),
 			author_nick: None,
@@ -1174,6 +1329,10 @@ mod tests {
 			forwarded: false,
 			unsupported: false,
 			extra_content: Default::default(),
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
+			flags: 0,
 			embeds: vec![],
 			embeds_suppressed: false,
 			reactions: None,

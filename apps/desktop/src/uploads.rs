@@ -32,6 +32,240 @@ struct Chosen {
 /// Longest edge of the composer thumbnail; the full decode stays bounded by `image::Limits`.
 const PREVIEW_EDGE: u32 = 320;
 const PREVIEW_ALLOC: u64 = 64 * 1024 * 1024;
+const SHARE_BYTES: usize = 8 * 1024 * 1024;
+const EMOJI_EDGE: u32 = 48;
+const STICKER_EDGE: u32 = 160;
+const ARTWORK_FRAMES: usize = 240;
+
+fn apng_delay(delay: image::Delay) -> (u16, u16) {
+	let (numerator, denominator) = delay.numer_denom_ms();
+	let (mut numerator, mut denominator) = (u64::from(numerator), u64::from(denominator) * 1000);
+	let (mut a, mut b) = (numerator, denominator);
+	while b != 0 {
+		(a, b) = (b, a % b);
+	}
+	numerator /= a.max(1);
+	denominator /= a.max(1);
+	while numerator > u64::from(u16::MAX) || denominator > u64::from(u16::MAX) {
+		numerator = numerator.div_ceil(2);
+		denominator = denominator.div_ceil(2);
+	}
+	(numerator as u16, denominator.max(1) as u16)
+}
+
+fn image_share_source(asset: model::ImageShare) -> Option<(String, String, image::ImageFormat)> {
+	use model::ImageShare;
+	let (id, kind, host, extension, query) = match asset {
+		ImageShare::Emoji { id, animated } => (
+			id,
+			"emoji",
+			"cdn.discordapp.com",
+			if animated { "gif" } else { "png" },
+			"?size=64",
+		),
+		ImageShare::Sticker {
+			id,
+			format_type: 1 | 2,
+		} => (id, "sticker", "cdn.discordapp.com", "png", ""),
+		ImageShare::Sticker { id, format_type: 3 } => (
+			id,
+			"sticker",
+			"media.discordapp.net",
+			"png",
+			"?passthrough=false",
+		),
+		ImageShare::Sticker { id, format_type: 4 } => {
+			(id, "sticker", "media.discordapp.net", "gif", "")
+		}
+		_ => return None,
+	};
+	(id.0 != 0).then(|| {
+		(
+			format!("https://{host}/{kind}s/{id}.{extension}{query}"),
+			format!("{kind}-{id}.{extension}"),
+			if extension == "gif" {
+				image::ImageFormat::Gif
+			} else {
+				image::ImageFormat::Png
+			},
+		)
+	})
+}
+
+async fn download_image_share(url: &str, cancelled: &AtomicBool) -> Result<Vec<u8>, &'static str> {
+	let client = reqwest::Client::builder()
+		.https_only(true)
+		.no_proxy()
+		.redirect(reqwest::redirect::Policy::none())
+		.timeout(std::time::Duration::from_secs(15))
+		.connect_timeout(std::time::Duration::from_secs(5))
+		.build()
+		.map_err(|_| "Could not prepare image download")?;
+	if cancelled.load(Ordering::Acquire) {
+		return Err("Image selection cancelled");
+	}
+	let mut response = client
+		.get(url)
+		.send()
+		.await
+		.map_err(|_| "Could not download this image")?;
+	if !response.status().is_success()
+		|| response
+			.content_length()
+			.is_some_and(|size| size > SHARE_BYTES as u64)
+	{
+		return Err("Image unavailable or larger than 8 MiB");
+	}
+	let mut bytes = Vec::with_capacity(
+		response
+			.content_length()
+			.unwrap_or(4096)
+			.min(SHARE_BYTES as u64) as usize,
+	);
+	while let Some(chunk) = response
+		.chunk()
+		.await
+		.map_err(|_| "Image download interrupted")?
+	{
+		if cancelled.load(Ordering::Acquire) {
+			return Err("Image selection cancelled");
+		}
+		if chunk.len() > SHARE_BYTES - bytes.len() {
+			return Err("Image is larger than 8 MiB");
+		}
+		bytes.extend_from_slice(&chunk);
+	}
+	Ok(bytes)
+}
+
+fn synthetic_share(format: image::ImageFormat) -> Result<Vec<u8>, &'static str> {
+	#[cfg(any(test, feature = "demo"))]
+	{
+		let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+			32,
+			32,
+			image::Rgba([103, 192, 177, 255]),
+		));
+		let mut bytes = std::io::Cursor::new(Vec::new());
+		image
+			.write_to(&mut bytes, format)
+			.map_err(|_| "Could not prepare synthetic image")?;
+		Ok(bytes.into_inner())
+	}
+	#[cfg(not(any(test, feature = "demo")))]
+	{
+		let _ = format;
+		Err("Synthetic image sharing requires a demo build")
+	}
+}
+fn compact_artwork(
+	bytes: &[u8],
+	format: image::ImageFormat,
+	edge: u32,
+	cancelled: &AtomicBool,
+) -> Result<Vec<u8>, &'static str> {
+	use image::{AnimationDecoder, ImageDecoder};
+	let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes));
+	reader.set_format(format);
+	let mut limits = image::Limits::default();
+	limits.max_image_width = Some(4096);
+	limits.max_image_height = Some(4096);
+	limits.max_alloc = Some(PREVIEW_ALLOC);
+	reader.limits(limits.clone());
+	let (width, height) = reader
+		.into_dimensions()
+		.map_err(|_| "Could not inspect this artwork safely")?;
+	if width <= edge && height <= edge {
+		return Ok(bytes.to_vec());
+	}
+	let resize = |frames: image::Frames<'_>| -> Result<Vec<image::Frame>, &'static str> {
+		let started = std::time::Instant::now();
+		let mut resized = Vec::new();
+		for (index, frame) in frames.enumerate() {
+			if cancelled.load(Ordering::Acquire)
+				|| index == ARTWORK_FRAMES
+				|| started.elapsed() > std::time::Duration::from_secs(3)
+			{
+				return Err("Artwork animation is too large to prepare safely");
+			}
+			let frame = frame.map_err(|_| "Could not decode this artwork safely")?;
+			let delay = frame.delay();
+			let pixels = image::DynamicImage::ImageRgba8(frame.into_buffer())
+				.thumbnail(edge, edge)
+				.into_rgba8();
+			resized.push(image::Frame::from_parts(pixels, 0, 0, delay));
+		}
+		(!resized.is_empty())
+			.then_some(resized)
+			.ok_or("Artwork animation has no frames")
+	};
+	let mut output = Vec::new();
+	match format {
+		image::ImageFormat::Gif => {
+			let mut decoder = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(bytes))
+				.map_err(|_| "Could not decode this artwork safely")?;
+			decoder
+				.set_limits(limits)
+				.map_err(|_| "Artwork animation is too large to prepare safely")?;
+			let frames = resize(decoder.into_frames())?;
+			let mut encoder = image::codecs::gif::GifEncoder::new(&mut output);
+			encoder
+				.set_repeat(image::codecs::gif::Repeat::Infinite)
+				.and_then(|()| encoder.encode_frames(frames))
+				.map_err(|_| "Could not resize this artwork")?;
+		}
+		image::ImageFormat::Png => {
+			let mut decoder = image::codecs::png::PngDecoder::new(std::io::Cursor::new(bytes))
+				.map_err(|_| "Could not decode this artwork safely")?;
+			decoder
+				.set_limits(limits)
+				.map_err(|_| "Artwork animation is too large to prepare safely")?;
+			if decoder
+				.is_apng()
+				.map_err(|_| "Could not inspect this artwork safely")?
+			{
+				let frames = resize(
+					decoder
+						.apng()
+						.map_err(|_| "Could not decode this artwork safely")?
+						.into_frames(),
+				)?;
+				let (width, height) = frames[0].buffer().dimensions();
+				let mut encoder = png::Encoder::new(&mut output, width, height);
+				encoder.set_color(png::ColorType::Rgba);
+				encoder.set_depth(png::BitDepth::Eight);
+				encoder
+					.set_animated(frames.len() as u32, 0)
+					.map_err(|_| "Could not resize this artwork")?;
+				let mut writer = encoder
+					.write_header()
+					.map_err(|_| "Could not resize this artwork")?;
+				for frame in frames {
+					let (numerator, denominator) = apng_delay(frame.delay());
+					writer
+						.set_frame_delay(numerator, denominator)
+						.and_then(|()| writer.write_image_data(frame.buffer().as_raw()))
+						.map_err(|_| "Could not resize this artwork")?;
+				}
+				writer
+					.finish()
+					.map_err(|_| "Could not resize this artwork")?;
+			} else {
+				let image = image::DynamicImage::from_decoder(decoder)
+					.map_err(|_| "Could not decode this artwork safely")?
+					.thumbnail(edge, edge);
+				image
+					.write_to(&mut std::io::Cursor::new(&mut output), format)
+					.map_err(|_| "Could not resize this artwork")?;
+			}
+		}
+		_ => return Err("Unsupported artwork image format"),
+	}
+	if output.is_empty() || output.len() > SHARE_BYTES {
+		return Err("Resized artwork is larger than 8 MiB");
+	}
+	Ok(output)
+}
 fn previewable(filename: &str) -> bool {
 	filename.rsplit_once('.').is_some_and(|(_, extension)| {
 		matches!(
@@ -77,6 +311,7 @@ struct Uploading {
 }
 #[derive(Default)]
 pub struct Uploads {
+	auto_image: bool,
 	scope: Option<(u64, Id)>,
 	selected: Vec<Chosen>,
 	next_key: u64,
@@ -91,6 +326,91 @@ pub struct Uploads {
 	notice: Option<&'static str>,
 }
 impl Uploads {
+	/// A picker click authorizes one image send after preparation.
+	#[allow(clippy::too_many_arguments)]
+	pub fn start_image_share(
+		&mut self,
+		generation: u64,
+		channel: Id,
+		asset: model::ImageShare,
+		runtime: &tokio::runtime::Handle,
+		context: &egui::Context,
+		demo: bool,
+	) -> Result<(), &'static str> {
+		if self.busy() {
+			return Err("Wait for the current attachment operation to finish");
+		}
+		if !self.selected.is_empty() {
+			return Err("Send or remove existing attachments before selecting an image");
+		}
+		let (url, filename, format) =
+			image_share_source(asset).ok_or("Unsupported emoji or sticker artwork")?;
+		let cancelled = Arc::new(AtomicBool::new(false));
+		let flag = cancelled.clone();
+		let (send, result) = mpsc::sync_channel(1);
+		let context = context.clone();
+		runtime.spawn(async move {
+			let result = async {
+				let bytes = if demo {
+					synthetic_share(format)?
+				} else {
+					download_image_share(&url, &flag).await?
+				};
+				if flag.load(Ordering::Acquire) {
+					return Ok(None);
+				}
+				let prepare_flag = flag.clone();
+				let selected = tokio::task::spawn_blocking(move || {
+					if bytes.is_empty()
+						|| bytes.len() > SHARE_BYTES
+						|| image::guess_format(&bytes).ok() != Some(format)
+					{
+						return Err("Unsupported or invalid image data");
+					}
+					let edge = if filename.starts_with("emoji-") {
+						EMOJI_EDGE
+					} else {
+						STICKER_EDGE
+					};
+					let bytes = compact_artwork(&bytes, format, edge, &prepare_flag)?;
+					let thumbnail =
+						decode_preview(&bytes).ok_or("Could not decode this image safely")?;
+					let source = Source::image_bytes(filename, bytes)?;
+					Ok((source, Some(thumbnail)))
+				})
+				.await
+				.map_err(|_| "Image preparation interrupted")??;
+				Ok((!flag.load(Ordering::Acquire)).then(|| vec![selected]))
+			}
+			.await;
+			let _ = send.send(result);
+			context.request_repaint();
+		});
+		self.scope = Some((generation, channel));
+		self.last = None;
+		self.choosing = Some(Choosing { result, cancelled });
+		self.auto_image = true;
+		Ok(())
+	}
+	pub fn image_send(
+		&mut self,
+		state: &mut client_core::State,
+		enabled: bool,
+	) -> Option<client_core::Command> {
+		if !enabled {
+			self.auto_image = false;
+		}
+		if !self.auto_image || self.busy() {
+			return None;
+		}
+		self.auto_image = false;
+		if self.scope != state.selected.map(|channel| (state.generation, channel))
+			|| self.selected.len() != 1
+		{
+			return None;
+		}
+		state.prepare_image_send(self.selected[0].source.filename())
+	}
 	pub fn select_pasted(
 		&mut self,
 		generation: u64,
@@ -201,7 +521,9 @@ impl Uploads {
 					let source = Source::inspect(path).await?;
 					total += source.size();
 					if total > discord_api::upload::MAX_TOTAL_BYTES {
-						return Err("Attachments must total at most 20 MB");
+						return Err(
+							"Attachments must total at most 500 MB; account limits may be lower",
+						);
 					}
 					let thumbnail = preview(&source).await;
 					selected.push((source, thumbnail));
@@ -335,7 +657,7 @@ impl Uploads {
 			.sum::<u64>()
 			> discord_api::upload::MAX_TOTAL_BYTES
 		{
-			return Err("Attachments must total at most 20 MB");
+			return Err("Attachments must total at most 500 MB; account limits may be lower");
 		}
 		Ok(())
 	}
@@ -386,6 +708,7 @@ impl Uploads {
 		self.last = None;
 	}
 	pub fn cancel(&mut self) {
+		self.auto_image = false;
 		if let Some(choosing) = &self.choosing {
 			choosing.cancelled.store(true, Ordering::Release);
 		}
@@ -433,6 +756,206 @@ impl Drop for Uploads {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[tokio::test]
+	async fn image_sharing_stages_bounded_artwork_and_cancels_on_navigation() {
+		let context = egui::Context::default();
+		let runtime = tokio::runtime::Handle::current();
+		let mut uploads = Uploads::default();
+		let asset = model::ImageShare::Sticker {
+			id: Id(7),
+			format_type: 2,
+		};
+		assert_eq!(
+			image_share_source(asset).unwrap().0,
+			"https://cdn.discordapp.com/stickers/7.png"
+		);
+		assert_eq!(
+			image_share_source(model::ImageShare::Sticker {
+				id: Id(7),
+				format_type: 3
+			})
+			.unwrap()
+			.0,
+			"https://media.discordapp.net/stickers/7.png?passthrough=false"
+		);
+		assert_eq!(
+			image_share_source(model::ImageShare::Sticker {
+				id: Id(7),
+				format_type: 4
+			})
+			.unwrap()
+			.0,
+			"https://media.discordapp.net/stickers/7.gif"
+		);
+		assert_eq!(
+			image_share_source(model::ImageShare::Emoji {
+				id: Id(7),
+				animated: true
+			})
+			.unwrap()
+			.0,
+			"https://cdn.discordapp.com/emojis/7.gif?size=64"
+		);
+		for invalid in [
+			model::ImageShare::Emoji {
+				id: Id(0),
+				animated: false,
+			},
+			model::ImageShare::Sticker {
+				id: Id(7),
+				format_type: 5,
+			},
+		] {
+			assert!(
+				uploads
+					.start_image_share(1, Id(2), invalid, &runtime, &context, true)
+					.is_err()
+			);
+		}
+		async fn settle(uploads: &mut Uploads, context: &egui::Context, channel: Id) {
+			tokio::time::timeout(std::time::Duration::from_secs(5), async {
+				while uploads.busy() {
+					uploads.poll(1, Some(channel), true, context);
+					tokio::task::yield_now().await;
+				}
+			})
+			.await
+			.unwrap();
+		}
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		state.generation = 1;
+		state.drafts.insert(channel, "Keep typing".into());
+		for asset in [
+			asset,
+			model::ImageShare::Emoji {
+				id: Id(9),
+				animated: true,
+			},
+		] {
+			uploads
+				.start_image_share(1, channel, asset, &runtime, &context, true)
+				.unwrap();
+			assert!(uploads.image_send(&mut state, true).is_none());
+			settle(&mut uploads, &context, channel).await;
+			assert!(uploads.take_notice().is_none());
+			assert!(
+				matches!(uploads.image_send(&mut state, true), Some(client_core::Command::Send { content, .. }) if content.is_empty())
+			);
+			assert!(uploads.image_send(&mut state, true).is_none());
+			assert_eq!(state.drafts[&channel], "Keep typing");
+			assert!(uploads.previews().iter().all(Option::is_some));
+			assert_eq!(uploads.take_source(1, channel).unwrap().len(), 1);
+		}
+		uploads
+			.start_image_share(1, channel, asset, &runtime, &context, true)
+			.unwrap();
+		settle(&mut uploads, &context, channel).await;
+		assert!(uploads.image_send(&mut state, false).is_none());
+		assert!(uploads.image_send(&mut state, true).is_none());
+		uploads.remove();
+
+		uploads
+			.start_image_share(1, Id(2), asset, &runtime, &context, true)
+			.unwrap();
+		uploads.revalidate_scope(1, Some(Id(3)), true);
+		settle(&mut uploads, &context, Id(3)).await;
+		assert!(uploads.selection().is_none());
+		for _ in 0..discord_api::upload::MAX_FILES {
+			uploads.push(
+				Source::image_bytes("emoji-7.png".into(), vec![1]).unwrap(),
+				None,
+			);
+		}
+		assert!(
+			uploads
+				.start_image_share(1, Id(3), asset, &runtime, &context, true)
+				.is_err()
+		);
+	}
+	#[test]
+	fn artwork_uploads_are_resized_without_dropping_animation() {
+		use image::AnimationDecoder;
+		let cancelled = AtomicBool::new(false);
+		let mut still = std::io::Cursor::new(Vec::new());
+		image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+			320,
+			160,
+			image::Rgba([255, 0, 0, 255]),
+		))
+		.write_to(&mut still, image::ImageFormat::Png)
+		.unwrap();
+		let still = compact_artwork(
+			still.get_ref(),
+			image::ImageFormat::Png,
+			EMOJI_EDGE,
+			&cancelled,
+		)
+		.unwrap();
+		assert_eq!(
+			image::load_from_memory_with_format(&still, image::ImageFormat::Png)
+				.unwrap()
+				.into_rgba8()
+				.dimensions(),
+			(48, 24)
+		);
+
+		let mut animated_png = Vec::new();
+		{
+			let mut encoder = png::Encoder::new(&mut animated_png, 320, 160);
+			encoder.set_color(png::ColorType::Rgba);
+			encoder.set_depth(png::BitDepth::Eight);
+			encoder.set_animated(2, 0).unwrap();
+			let mut writer = encoder.write_header().unwrap();
+			for color in [[0, 255, 0, 255], [0, 0, 255, 255]] {
+				writer.set_frame_delay(1, 10).unwrap();
+				writer
+					.write_image_data(
+						image::RgbaImage::from_pixel(320, 160, image::Rgba(color)).as_raw(),
+					)
+					.unwrap();
+			}
+			writer.finish().unwrap();
+		}
+		let animated_png = compact_artwork(
+			&animated_png,
+			image::ImageFormat::Png,
+			STICKER_EDGE,
+			&cancelled,
+		)
+		.unwrap();
+		let decoder =
+			image::codecs::png::PngDecoder::new(std::io::Cursor::new(animated_png)).unwrap();
+		assert_eq!(decoder.apng().unwrap().into_frames().count(), 2);
+
+		let mut animated_gif = Vec::new();
+		{
+			let mut encoder = image::codecs::gif::GifEncoder::new(&mut animated_gif);
+			for color in [[255, 255, 0, 255], [255, 0, 255, 255]] {
+				encoder
+					.encode_frame(image::Frame::from_parts(
+						image::RgbaImage::from_pixel(320, 160, image::Rgba(color)),
+						0,
+						0,
+						image::Delay::from_numer_denom_ms(100, 1),
+					))
+					.unwrap();
+			}
+		}
+		let animated_gif = compact_artwork(
+			&animated_gif,
+			image::ImageFormat::Gif,
+			STICKER_EDGE,
+			&cancelled,
+		)
+		.unwrap();
+		let decoder =
+			image::codecs::gif::GifDecoder::new(std::io::Cursor::new(animated_gif)).unwrap();
+		let frames = decoder.into_frames().collect_frames().unwrap();
+		assert_eq!(frames.len(), 2);
+		assert_eq!(frames[0].buffer().dimensions(), (160, 80));
+	}
+
 	#[test]
 	fn progress_distinguishes_streamed_bytes_from_message_confirmation() {
 		let mut uploads = Uploads::default();
@@ -555,6 +1078,7 @@ mod tests {
 		let (send, result) = mpsc::sync_channel(1);
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let mut uploads = Uploads {
+			auto_image: false,
 			scope: Some((1, Id(2))),
 			choosing: Some(Choosing {
 				result,

@@ -20,12 +20,13 @@ discord-gateway = { path = "crates/discord-gateway" }
 session-cache = { path = "crates/session-cache" }
 ui = { path = "crates/ui" }
 test-support = { path = "crates/test-support" }
-eframe = { git = "https://github.com/emilk/egui", rev = "5931e21d1f3676c49b89c9b3202bcb6d48330b47", default-features = false, features = ["wgpu", "default_fonts", "system_fonts", "accesskit", "wayland", "x11", "links"] }
-egui = { git = "https://github.com/emilk/egui", rev = "5931e21d1f3676c49b89c9b3202bcb6d48330b47", default-features = false, features = ["default_fonts"] }
+eframe = { git = "https://github.com/emilk/egui", rev = "99df44a801749aee958295ed96fccad8dfecb289", default-features = false, features = ["wgpu", "default_fonts", "system_fonts", "accesskit", "wayland", "x11", "links"] }
+egui = { git = "https://github.com/emilk/egui", rev = "99df44a801749aee958295ed96fccad8dfecb289", default-features = false, features = ["default_fonts"] }
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "json", "stream", "gzip"] }
+rasterlottie = { version = "=0.2.2", default-features = false }
 tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 flate2 = "1"
@@ -167,3 +168,9 @@ davey = { path = "vendor/davey" }
 
 # Linux login uses GTK4/WebKit6; exclude obsolete GTK3 declarations from the lockfile.
 wry = { path = "vendor/wry" }
+
+[profile.dev.package.sonora-ns]
+opt-level = 3
+
+[profile.dev.package.sonora-agc2]
+opt-level = 3

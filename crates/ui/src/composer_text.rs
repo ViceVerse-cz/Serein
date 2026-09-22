@@ -356,6 +356,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}]
 	}
 
@@ -559,7 +560,14 @@ mod tests {
 					"emoji-9001".into(),
 					Some(egui::ColorImage::filled(dimensions, Color32::WHITE)),
 				);
-				message.show_with_images(ui, &mut None, &[], &mut None, (&mut avatars, false, &[]));
+				message.show_with_images(
+					ui,
+					&mut None,
+					&[],
+					None,
+					&mut None,
+					(&mut avatars, false, &[]),
+				);
 				let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
 					layout.galley(
 						ui,

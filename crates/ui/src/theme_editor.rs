@@ -1,5 +1,5 @@
 //! Native theme drafts. Package and image IO belongs to the desktop worker.
-use crate::{ExtensionRequest, design, dialog};
+use crate::{ExtensionRequest, design, dialog, icons};
 use extensions::{
 	Background, BackgroundFit, BackgroundTarget, ExtensionKind, Manifest, Package, SectionOpacity,
 	Theme,
@@ -86,6 +86,11 @@ pub(crate) struct ThemeEditor {
 	validation_error: Option<(EditorTab, &'static str)>,
 	reveal_advanced_colors: bool,
 	reveal_gradient: bool,
+	/// Open state of the Advanced disclosures, so they survive a repaint.
+	open_colors: bool,
+	open_gradient: bool,
+	open_effects: bool,
+	open_metrics: bool,
 	thumbnail: Option<egui::TextureHandle>,
 	cover_thumbnail: Option<egui::TextureHandle>,
 }
@@ -144,6 +149,10 @@ impl ThemeEditor {
 			validation_error: None,
 			reveal_advanced_colors: false,
 			reveal_gradient: false,
+			open_colors: false,
+			open_gradient: false,
+			open_effects: false,
+			open_metrics: false,
 			thumbnail: None,
 			cover_thumbnail: None,
 		}
@@ -337,7 +346,7 @@ impl ThemeEditor {
 					ui.label(
 						egui::RichText::new("Unsaved changes")
 							.size(12.0)
-							.color(design::palette(ui).muted),
+							.color(design::palette(ui).warning),
 					);
 				}
 				if ui.max_rect().width() >= 600.0 {
@@ -376,31 +385,35 @@ impl ThemeEditor {
 		});
 		if busy {
 			ui.horizontal(|ui| {
-				ui.spinner();
-				ui.weak("Working...");
+				ui.spacing_mut().item_spacing.x = 8.0;
+				ui.add(egui::Spinner::new().size(14.0));
+				ui.label(
+					egui::RichText::new("Working…")
+						.size(12.0)
+						.color(design::palette(ui).muted),
+				);
 			});
 		}
-		ui.add_space(12.0);
+		ui.add_space(8.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
-			for tab in EditorTab::ALL {
-				ui.selectable_value(&mut self.tab, tab, tab.label());
+			let labels: Vec<&str> = EditorTab::ALL.iter().map(|tab| tab.label()).collect();
+			let current = EditorTab::ALL
+				.iter()
+				.position(|tab| *tab == self.tab)
+				.unwrap_or_default();
+			if let Some(index) = design::segmented(ui, &labels, current) {
+				self.tab = EditorTab::ALL[index];
 			}
 			if self.tab != EditorTab::Basics {
-				if ui.available_size_before_wrap().x >= 220.0 {
-					ui.add_space((ui.available_size_before_wrap().x - 210.0).max(0.0));
+				if ui.available_size_before_wrap().x >= 230.0 {
+					ui.add_space((ui.available_size_before_wrap().x - 220.0).max(0.0));
 				}
-				ui.allocate_ui_with_layout(
-					egui::vec2(202.0, 32.0),
-					egui::Layout::left_to_right(egui::Align::Center),
-					|ui| {
-						appearance_switch(ui, &mut self.dark);
-					},
-				);
+				appearance_switch(ui, &mut self.dark);
 			}
 		});
-		ui.add_space(8.0);
-		ui.separator();
+		ui.add_space(4.0);
+		design::card_divider(ui);
 		close
 	}
 
@@ -414,9 +427,7 @@ impl ThemeEditor {
 		ui.add_enabled_ui(!busy, |ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 			if let Some((_, message)) = self.validation_error.filter(|(tab, _)| *tab == self.tab) {
-				design::card(ui, |ui| {
-					ui.colored_label(ui.visuals().error_fg_color, message)
-				});
+				design::notice(ui, design::Level::Error, message);
 				ui.add_space(12.0);
 			}
 			match self.tab {
@@ -431,18 +442,12 @@ impl ThemeEditor {
 						let manifest = &mut self.package.manifest;
 						changed |= text_field(ui, "Theme name", &mut manifest.name, 32, "My theme");
 						if show_errors && manifest.name.trim().is_empty() {
-							ui.colored_label(
-								ui.visuals().error_fg_color,
-								"Theme name is required.",
-							);
+							design::notice(ui, design::Level::Error, "Theme name is required.");
 						}
 						changed |=
 							text_field(ui, "Created by", &mut manifest.author, 32, "Your name");
 						if show_errors && manifest.author.trim().is_empty() {
-							ui.colored_label(
-								ui.visuals().error_fg_color,
-								"Creator name is required.",
-							);
+							design::notice(ui, design::Level::Error, "Creator name is required.");
 						}
 					});
 					ui.add_space(20.0);
@@ -490,13 +495,15 @@ impl ThemeEditor {
 								background.sections = Some(SectionOpacity::default());
 								changed = true;
 							} else {
-								changed |= row(ui, "Image opacity", |ui| {
-									ui.add(
-										egui::Slider::new(&mut background.opacity, 0..=100)
-											.suffix("%"),
-									)
-									.changed()
-								});
+								changed |= design::slider_row(
+									ui,
+									"Image opacity",
+									None,
+									&mut background.opacity,
+									0..=100,
+									"%",
+								)
+								.changed();
 							}
 						}
 						changed |= row(ui, "Image fit", |ui| {
@@ -606,10 +613,12 @@ impl ThemeEditor {
 							&mut theme.light
 						};
 						let base = design::builtin_colors(self.dark, design::variant());
-						let reveal_colors = std::mem::take(&mut self.reveal_advanced_colors);
-						egui::CollapsingHeader::new("More colors")
-							.open(reveal_colors.then_some(true))
-							.show(ui, |ui| {
+						self.open_colors |= std::mem::take(&mut self.reveal_advanced_colors);
+						if design::disclosure(ui, "More colors", self.open_colors).clicked() {
+							self.open_colors = !self.open_colors;
+						}
+						if self.open_colors {
+							design::card(ui, |ui| {
 								for (key, fallback) in colors(base) {
 									if !["chat", "accent", "text", "muted", "sidebar"]
 										.contains(&key)
@@ -619,11 +628,14 @@ impl ThemeEditor {
 									}
 								}
 							});
+						}
 						ui.add_space(12.0);
-						let reveal_gradient = std::mem::take(&mut self.reveal_gradient);
-						egui::CollapsingHeader::new("Window gradient")
-							.open(reveal_gradient.then_some(true))
-							.show(ui, |ui| {
+						self.open_gradient |= std::mem::take(&mut self.reveal_gradient);
+						if design::disclosure(ui, "Window gradient", self.open_gradient).clicked() {
+							self.open_gradient = !self.open_gradient;
+						}
+						if self.open_gradient {
+							design::card(ui, |ui| {
 								let mut enabled = palette.backdrop.is_some();
 								if design::switch(
 									ui,
@@ -649,44 +661,134 @@ impl ThemeEditor {
 											|ui| color_input(ui, stop),
 										);
 										if extensions::parse_color(stop).is_err() {
-											ui.colored_label(
-												ui.visuals().error_fg_color,
+											design::notice(
+												ui,
+												design::Level::Error,
 												"Use #RRGGBB or #RRGGBBAA.",
 											);
 										}
 									}
 								}
 							});
+						}
 						ui.add_space(12.0);
-						ui.collapsing("Text, spacing & corners", |ui| {
-							design::hint(ui, "These settings apply to dark and light appearances.");
-							let style = &mut theme.style;
-							for (label, value, default, min, max) in [
-								("Body text", &mut style.body_size, 15, 10, 28),
-								("Headings", &mut style.heading_size, 20, 12, 40),
-								("Buttons", &mut style.button_size, 14, 10, 28),
-								("Small text", &mut style.small_size, 12, 10, 28),
-								("Code", &mut style.monospace_size, 14, 10, 28),
-								("Control height", &mut style.control_height, 32, 24, 56),
-							] {
-								changed |= metric(ui, label, value, default, min..=max);
-							}
-							changed |=
-								pair_metric(ui, "Item spacing", &mut style.item_spacing, [8, 8]);
-							changed |= pair_metric(
-								ui,
-								"Button padding",
-								&mut style.button_padding,
-								[12, 6],
-							);
-							for (label, value, default) in [
-								("Control corners", &mut style.widget_radius, 8),
-								("Window corners", &mut style.window_radius, 12),
-								("Menu corners", &mut style.menu_radius, 12),
-							] {
-								changed |= metric(ui, label, value, default, 0..=24);
-							}
-						});
+						if design::disclosure(ui, "Window effects", self.open_effects).clicked() {
+							self.open_effects = !self.open_effects;
+						}
+						if self.open_effects {
+							design::card(ui, |ui| {
+								design::hint(
+									ui,
+									"Requires Transparency & blur in Appearance, then an app restart.",
+								);
+								let style = &mut theme.style;
+								let defaults = design::default_window_effects();
+								let mut transparency =
+									style.transparency_blur.unwrap_or(defaults.0);
+								if design::switch(
+									ui,
+									"Transparency & blur",
+									Some("Override the default Appearance setting for this theme."),
+									&mut transparency,
+								)
+								.changed()
+								{
+									style.transparency_blur = Some(transparency);
+									if transparency {
+										style.transparency.get_or_insert(defaults.1);
+										style.blur.get_or_insert(defaults.2);
+										style.transparent_all.get_or_insert(defaults.3);
+									}
+									changed = true;
+								}
+								if transparency {
+									let mut amount = style.transparency.unwrap_or(defaults.1);
+									let mut blur = style.blur.unwrap_or(defaults.2);
+									let mut all = style.transparent_all.unwrap_or(defaults.3);
+									let mut effects_changed = design::slider_row(
+										ui,
+										"Transparency",
+										None,
+										&mut amount,
+										0..=100,
+										"%",
+									)
+									.changed();
+									ui.add_space(8.0);
+									effects_changed |= design::slider_row(
+										ui,
+										"Blur",
+										Some(
+											"Zero disables blur; the native compositor controls its exact strength.",
+										),
+										&mut blur,
+										0..=100,
+										"%",
+									)
+									.changed();
+									ui.add_space(4.0);
+									effects_changed |= design::switch(
+										ui,
+										"Apply to all surfaces",
+										Some(
+											"Include sidebars, server rail, headers, and composer.",
+										),
+										&mut all,
+									)
+									.changed();
+									if effects_changed {
+										style.transparency = Some(amount);
+										style.blur = Some(blur);
+										style.transparent_all = Some(all);
+										changed = true;
+									}
+								}
+							});
+						}
+						ui.add_space(12.0);
+						if design::disclosure(ui, "Text, spacing & corners", self.open_metrics)
+							.clicked()
+						{
+							self.open_metrics = !self.open_metrics;
+						}
+						if self.open_metrics {
+							design::card(ui, |ui| {
+								design::hint(
+									ui,
+									"These settings apply to dark and light appearances.",
+								);
+								let style = &mut theme.style;
+								for (label, value, default, min, max) in [
+									("Body text", &mut style.body_size, 15, 10, 28),
+									("Headings", &mut style.heading_size, 20, 12, 40),
+									("Buttons", &mut style.button_size, 14, 10, 28),
+									("Small text", &mut style.small_size, 12, 10, 28),
+									("Code", &mut style.monospace_size, 14, 10, 28),
+									("Control height", &mut style.control_height, 32, 24, 56),
+								] {
+									changed |= metric(ui, label, value, default, min..=max);
+								}
+								changed |= pair_metric(
+									ui,
+									"Item spacing",
+									&mut style.item_spacing,
+									[8, 8],
+								);
+								changed |= pair_metric(
+									ui,
+									"Button padding",
+									&mut style.button_padding,
+									[12, 6],
+								);
+								for (label, value, default) in [
+									("Control corners", &mut style.widget_radius, 8),
+									("Window corners", &mut style.window_radius, 12),
+									("Menu corners", &mut style.menu_radius, 12),
+								] {
+									changed |= metric(ui, label, value, default, 0..=24);
+								}
+							});
+						}
 					}
 					ui.add_space(12.0);
 					design::section(
@@ -714,8 +816,9 @@ impl ThemeEditor {
 							.all(|value| !value.trim().is_empty())
 							&& manifest.validate().is_err()
 						{
-							ui.colored_label(
-								ui.visuals().error_fg_color,
+							design::notice(
+								ui,
+								design::Level::Error,
 								"Use a valid HTTPS source URL or leave this blank.",
 							);
 						}
@@ -723,8 +826,9 @@ impl ThemeEditor {
 							&& (manifest.license.trim().is_empty()
 								|| manifest.version.trim().is_empty())
 						{
-							ui.colored_label(
-								ui.visuals().error_fg_color,
+							design::notice(
+								ui,
+								design::Level::Error,
 								"License and version are required.",
 							);
 						}
@@ -928,7 +1032,7 @@ impl ThemeEditor {
 						14.0,
 					));
 					if let Some(image) = &self.image {
-						ui.weak(format!("{} x {} pixels", image.size[0], image.size[1]));
+						design::hint(ui, &format!("{} × {} pixels", image.size[0], image.size[1]));
 					}
 					ui.horizontal_wrapped(|ui| {
 						if dialog::action(
@@ -965,14 +1069,18 @@ impl ThemeEditor {
 }
 
 fn appearance_switch(ui: &mut egui::Ui, dark: &mut bool) {
-	ui.label(
-		egui::RichText::new("Editing")
-			.size(12.0)
-			.color(design::palette(ui).muted),
-	)
-	.on_hover_text("Colors and opacity are saved separately for dark and light appearance.");
-	ui.selectable_value(dark, true, "Dark");
-	ui.selectable_value(dark, false, "Light");
+	ui.horizontal(|ui| {
+		ui.spacing_mut().item_spacing.x = 8.0;
+		ui.label(
+			egui::RichText::new("Editing")
+				.size(12.0)
+				.color(design::palette(ui).muted),
+		)
+		.on_hover_text("Colors and opacity are saved separately for dark and light appearance.");
+		if let Some(index) = design::segmented(ui, &["Dark", "Light"], usize::from(!*dark)) {
+			*dark = index == 0;
+		}
+	});
 }
 
 fn map_palette(
@@ -1052,15 +1160,15 @@ fn section_controls(
 			});
 		design::hint(ui, selected.description());
 		ui.add_space(12.0);
-		ui.label("Surface opacity");
-		ui.spacing_mut().slider_width = (ui.available_width() - 60.0).max(80.0);
-		changed = ui
-			.add(
-				egui::Slider::new(selected.opacity(sections), 0..=100)
-					.suffix("%")
-					.trailing_fill(true),
-			)
-			.changed();
+		changed = design::slider_row(
+			ui,
+			"Surface opacity",
+			None,
+			selected.opacity(sections),
+			0..=100,
+			"%",
+		)
+		.changed();
 		design::hint(ui, "0% shows the image. 100% is a solid section color.");
 	});
 	changed
@@ -1151,9 +1259,8 @@ fn section_diagram(
 				egui::Sense::click(),
 			)
 			.on_hover_text(region.label());
-		response.widget_info(|| {
-			egui::WidgetInfo::labeled(egui::WidgetType::Button, true, region.label())
-		});
+		response
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, region.label()));
 		if response.clicked()
 			|| response.has_focus()
 				&& ui.input(|input| {
@@ -1262,8 +1369,15 @@ fn color_input(ui: &mut egui::Ui, value: &mut String) -> bool {
 				)
 				.inner;
 			if extensions::parse_color(value).is_err() {
-				ui.colored_label(ui.visuals().error_fg_color, "!")
-					.on_hover_text("Use #RRGGBB or #RRGGBBAA");
+				let (rect, response) =
+					ui.allocate_exact_size(egui::Vec2::splat(16.0), egui::Sense::hover());
+				icons::paint(
+					ui.painter(),
+					icons::Icon::ShieldWarning,
+					rect,
+					design::palette(ui).danger,
+				);
+				response.on_hover_text("Use #RRGGBB or #RRGGBBAA");
 			}
 			changed
 		},
@@ -1402,13 +1516,10 @@ fn color_override(
 		if changed {
 			map.insert(key.into(), value);
 		}
-		if ui
-			.add_enabled(
-				map.contains_key(key),
-				egui::Button::new("Reset").frame(false),
-			)
-			.on_hover_text("Use the default color for this appearance")
-			.clicked()
+		if map.contains_key(key)
+			&& design::text_action(ui, "Reset")
+				.on_hover_text("Use the default color for this appearance")
+				.clicked()
 		{
 			map.remove(key);
 			changed = true;
@@ -1419,7 +1530,7 @@ fn color_override(
 		.get(key)
 		.is_some_and(|value| extensions::parse_color(value).is_err())
 	{
-		ui.colored_label(ui.visuals().error_fg_color, "Use #RRGGBB or #RRGGBBAA.");
+		design::notice(ui, design::Level::Error, "Use #RRGGBB or #RRGGBBAA.");
 	}
 	changed
 }
@@ -1430,54 +1541,70 @@ fn metric(
 	default: u8,
 	range: std::ops::RangeInclusive<u8>,
 ) -> bool {
-	row(ui, label, |ui| {
+	let mut changed = false;
+	ui.push_id(label, |ui| {
 		let mut n = value.unwrap_or(default);
-		let mut changed = ui
-			.add(egui::Slider::new(&mut n, range).suffix(" px"))
-			.changed();
-		if changed {
-			*value = Some(n);
-		}
-		if ui
-			.add_enabled(value.is_some(), egui::Button::new("Reset"))
-			.clicked()
-		{
+		if metric_label(ui, label, value.is_some()) {
 			*value = None;
+			n = default;
 			changed = true;
 		}
-		changed
-	})
+		if design::slider(ui, &mut n, range, " px").changed() {
+			*value = Some(n);
+			changed = true;
+		}
+		ui.add_space(8.0);
+	});
+	changed
 }
+
+/// Metric title with a quiet Reset on the right; returns whether Reset was pressed.
+fn metric_label(ui: &mut egui::Ui, label: &str, overridden: bool) -> bool {
+	let mut reset = false;
+	ui.horizontal(|ui| {
+		ui.label(design::medium(ui, label, 14.0).color(design::palette(ui).text_strong));
+		if overridden {
+			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+				reset = design::text_action(ui, "Reset")
+					.on_hover_text("Use the built-in value")
+					.clicked();
+			});
+		}
+	});
+	reset
+}
+
 fn pair_metric(
 	ui: &mut egui::Ui,
 	label: &str,
 	value: &mut Option<[u8; 2]>,
 	default: [u8; 2],
 ) -> bool {
-	row(ui, label, |ui| {
+	let mut changed = false;
+	ui.push_id(label, |ui| {
 		let mut pair = value.unwrap_or(default);
-		let mut changed = false;
-		for (index, n) in pair.iter_mut().enumerate() {
-			changed |= ui
-				.add(egui::DragValue::new(n).range(0..=24).prefix(if index == 0 {
-					"X "
-				} else {
-					"Y "
-				}))
-				.changed();
-		}
-		if changed {
-			*value = Some(pair);
-		}
-		if ui
-			.add_enabled(value.is_some(), egui::Button::new("Reset"))
-			.clicked()
-		{
+		if metric_label(ui, label, value.is_some()) {
 			*value = None;
+			pair = default;
 			changed = true;
 		}
-		changed
-	})
+		let mut edited = false;
+		for (index, n) in pair.iter_mut().enumerate() {
+			let axis = if index == 0 { "Horizontal" } else { "Vertical" };
+			ui.label(
+				egui::RichText::new(axis)
+					.size(12.0)
+					.color(design::palette(ui).muted),
+			);
+			edited |= design::slider(ui, n, 0..=24, " px").changed();
+		}
+		if edited {
+			*value = Some(pair);
+			changed = true;
+		}
+		ui.add_space(8.0);
+	});
+	changed
 }
 
 #[cfg(test)]

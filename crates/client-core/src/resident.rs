@@ -245,10 +245,12 @@ mod tests {
 
 	fn message(channel: u64, id: u64) -> Message {
 		Message {
+			sticker_items: Vec::new(),
 			id: Id(id),
 			channel: Id(channel),
 			kind: 0,
 			author: User {
+				primary_guild: None,
 				id: Id(9),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -272,6 +274,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
@@ -332,9 +338,13 @@ mod tests {
 	}
 	fn patch(channel: u64) -> MessagePatch {
 		MessagePatch {
+			sticker_items: model::Patch::Absent,
 			channel: Id(channel),
 			id: Id(channel * 1000 + 1),
 			content: Patch::Value("Updated".into()),
+			components: model::Patch::Absent,
+			flags: model::Patch::Absent,
+			application_id: model::Patch::Absent,
 			extra_content: Default::default(),
 			reactions: Patch::Absent,
 			mentions: Patch::Absent,
@@ -623,6 +633,7 @@ mod tests {
 		use model::permissions as p;
 		let mut state = state();
 		state.guilds.push(model::Guild {
+			stickers: None,
 			id: Id(10),
 			name: "Synthetic guild".into(),
 			icon: None,

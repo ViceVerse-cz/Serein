@@ -797,8 +797,7 @@ fn summary_card(ui: &mut egui::Ui, glyph: icons::Icon, name: &str, subtitle: &st
 		[ui.available_width(), 88.0],
 		egui::Button::new(()).fill(colors.raised).corner_radius(8),
 	);
-	response
-		.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), name));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), name));
 	let rect = response.rect;
 	icons::paint(
 		ui.painter(),

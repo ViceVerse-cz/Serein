@@ -6,6 +6,8 @@ pub const MAX_PROFILE_NAME_CHARS: usize = 32;
 pub const MAX_PROFILE_BIO_CHARS: usize = 190;
 pub const MAX_PROFILE_PRONOUNS_CHARS: usize = 40;
 pub const MAX_PROFILE_EDIT_BYTES: usize = 4096;
+/// Largest PNG data URI accepted for a new profile picture (256 KiB of PNG, base64 encoded).
+pub const MAX_PROFILE_AVATAR_URI: usize = crate::server_settings::MAX_ICON_DATA_URI;
 
 /// Only explicitly changed fields are sent. Nested `None` clears a nullable field.
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -14,13 +16,18 @@ pub struct ProfileEdit {
 	pub bio: Option<String>,
 	pub pronouns: Option<String>,
 	pub accent_color: Option<Option<u32>>,
+	/// New picture as a PNG data URI; nested `None` removes the current picture.
+	pub avatar: Option<Option<String>>,
 }
 impl ProfileEdit {
-	pub fn bytes(&self) -> usize {
+	fn text_bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.global_name.as_ref().map_or(0, bytes)
 			+ bytes(&self.bio)
 			+ bytes(&self.pronouns)
+	}
+	pub fn bytes(&self) -> usize {
+		self.text_bytes() + self.avatar.as_ref().map_or(0, bytes)
 	}
 	pub fn valid(&self) -> bool {
 		fn text(value: &str, max: usize, multiline: bool) -> bool {
@@ -30,7 +37,11 @@ impl ProfileEdit {
 					.chars()
 					.all(|c| !c.is_control() || (multiline && matches!(c, '\n' | '\r' | '\t')))
 		}
-		self.bytes() <= MAX_PROFILE_EDIT_BYTES
+		self.text_bytes() <= MAX_PROFILE_EDIT_BYTES
+			&& self
+				.avatar
+				.as_ref()
+				.is_none_or(|avatar| avatar.as_deref().is_none_or(valid_avatar_uri))
 			&& self.global_name.as_ref().is_none_or(|name| {
 				name.as_ref().is_none_or(|name| {
 					!name.trim().is_empty() && text(name, MAX_PROFILE_NAME_CHARS, false)
@@ -50,6 +61,19 @@ impl ProfileEdit {
 	}
 }
 
+/// PNG data URI small enough to send as a profile picture.
+pub fn valid_avatar_uri(uri: &str) -> bool {
+	uri.len() <= MAX_PROFILE_AVATAR_URI
+		&& uri
+			.strip_prefix("data:image/png;base64,")
+			.is_some_and(|data| {
+				!data.is_empty()
+					&& data
+						.bytes()
+						.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
+			})
+}
+
 #[cfg(test)]
 mod edit_tests {
 	use super::*;
@@ -60,7 +84,17 @@ mod edit_tests {
 			bio: Some("🦀".repeat(MAX_PROFILE_BIO_CHARS)),
 			pronouns: Some("🦀".repeat(MAX_PROFILE_PRONOUNS_CHARS)),
 			accent_color: Some(Some(0xff_ffff)),
+			avatar: Some(Some("data:image/png;base64,iVBORw0KGgo=".into())),
 		};
+		assert!(edit.valid());
+		edit.avatar = Some(Some("data:image/jpeg;base64,/9j/".into()));
+		assert!(!edit.valid());
+		edit.avatar = Some(Some(format!(
+			"data:image/png;base64,{}",
+			"A".repeat(MAX_PROFILE_AVATAR_URI)
+		)));
+		assert!(!edit.valid());
+		edit.avatar = Some(None);
 		assert!(edit.valid());
 		edit.bio.as_mut().unwrap().push('x');
 		assert!(!edit.valid());
@@ -114,7 +148,7 @@ impl ProfileBadge {
 			.map(|hash| format!("badge-{hash}"))
 	}
 }
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ClanTag {
 	pub guild: Id,
 	pub tag: String,

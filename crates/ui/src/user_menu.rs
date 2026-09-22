@@ -7,6 +7,7 @@ use model::{Shortcut, User};
 pub enum Action {
 	Note(User),
 	Nickname(User),
+	Mention(User),
 	CloseDm(model::Id),
 	Block { user: model::Id, blocked: bool },
 	Mute { channel: model::Id, muted: bool },
@@ -20,7 +21,7 @@ impl std::fmt::Debug for Action {
 
 pub(super) fn prepare(action: Action, state: &mut State) -> Option<Command> {
 	match action {
-		Action::Note(_) | Action::Nickname(_) | Action::Shortcut(_) => None,
+		Action::Note(_) | Action::Nickname(_) | Action::Shortcut(_) | Action::Mention(_) => None,
 		Action::CloseDm(channel) => state.close_dm(channel),
 		Action::Block { user, blocked } => state.set_user_blocked(user, blocked),
 		Action::Mute { channel, muted } => state.set_dm_muted(channel, muted),
@@ -99,6 +100,16 @@ pub(super) fn contents(
 	ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
 	if ui.button("Profile").clicked() {
 		*profile = Some(user.clone());
+		ui.close();
+	}
+	if !user.webhook
+		&& state.selected.is_some_and(|id| {
+			state
+				.channel(id)
+				.is_some_and(|channel| channel.supports_text())
+		}) && ui.button("Mention").clicked()
+	{
+		*action = Some(Action::Mention(user.clone()));
 		ui.close();
 	}
 	if user.webhook || state.user.as_ref().is_some_and(|own| own.id == user.id) {
@@ -238,7 +249,7 @@ mod tests {
 		let mut response = None;
 		let mut output = ctx.run_ui(
 			egui::RawInput {
-				screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(320.0, 300.0))),
+				screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(320.0, 420.0))),
 				events,
 				..Default::default()
 			},
@@ -259,7 +270,13 @@ mod tests {
 	#[test]
 	fn user_menu_mouse_keyboard_and_actions_in_both_themes() {
 		for light in [false, true] {
-			for label in ["Profile", "Mute Conversation", "Close DM", "Block"] {
+			for label in [
+				"Profile",
+				"Mention",
+				"Mute Conversation",
+				"Close DM",
+				"Block",
+			] {
 				let ctx = egui::Context::default();
 				ctx.set_visuals(if light {
 					egui::Visuals::light()
@@ -303,6 +320,7 @@ mod tests {
 				assert!(profile.is_none() && action.is_none());
 				for expected in [
 					"Profile",
+					"Mention",
 					"Add Note",
 					"Add Friend Nickname",
 					"Mute Conversation",
@@ -315,7 +333,7 @@ mod tests {
 						.unwrap_or_else(|| panic!("Missing {expected}: {text:?}"))
 						.1;
 					assert!(
-						Rect::from_min_size(Pos2::ZERO, egui::vec2(320.0, 300.0))
+						Rect::from_min_size(Pos2::ZERO, egui::vec2(320.0, 420.0))
 							.contains_rect(rect)
 					);
 				}
@@ -332,6 +350,7 @@ mod tests {
 				}
 				match label {
 					"Profile" => assert_eq!(profile.unwrap().id, user.id),
+					"Mention" => assert_eq!(action, Some(Action::Mention(user.clone()))),
 					"Mute Conversation" => assert_eq!(
 						action,
 						Some(Action::Mute {

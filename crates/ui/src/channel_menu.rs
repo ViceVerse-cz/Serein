@@ -63,7 +63,8 @@ impl ChannelMenu {
 		view: ShortcutView<'_>,
 	) {
 		let Some(guild) = channel.guild else { return };
-		if channel.kind == 11 && channel.parent_id.is_some_and(|id| state.is_forum(id)) {
+		// Forum posts and text-channel threads both use the thread menu (close, rename, delete).
+		if matches!(channel.kind, 10..=12) && state.is_thread_channel(channel.id) {
 			self.posts.context(response, state, channel, view);
 			if let Some(intent) = self.posts.shortcut_requested.take() {
 				self.shortcut_requested = Some(intent);
@@ -604,7 +605,9 @@ impl ChannelMenu {
 		}
 		let mut message = String::new();
 		if self.preference_error {
-			message.push_str("Your favorites and pins are full. Remove one before adding another.");
+			message.push_str(
+				"Saved channel preferences are full. Remove a favorite or pin, or expand a category.",
+			);
 		}
 		if let Some(id) = self.feedback {
 			if !message.is_empty() {
@@ -702,6 +705,7 @@ impl Dialog {
 			dialog::label(ui, "Slowmode");
 			ui.add(
 				egui::DragValue::new(&mut self.draft.slowmode)
+					.clip_text(true)
 					.range(0..=21600)
 					.suffix(" seconds"),
 			);
@@ -790,9 +794,7 @@ fn toggle_row(ui: &mut egui::Ui, label: &str, value: &mut bool) -> egui::Respons
 		*value = !*value;
 		response.mark_changed();
 	}
-	response.widget_info(|| {
-		egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, *value, label)
-	});
+	response.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, *value, label));
 	let colors = design::palette(ui);
 	let mark = egui::Rect::from_center_size(
 		egui::pos2(response.rect.right() - 16.0, response.rect.center().y),

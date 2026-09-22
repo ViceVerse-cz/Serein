@@ -109,6 +109,13 @@ pub fn message(id: u64, channel: Id) -> Message {
 			kind: Default::default(),
 			discriminator: 0,
 			id: Id(if id.is_multiple_of(2) { 1 } else { 2 }),
+			primary_guild: (!id.is_multiple_of(2)).then(|| {
+				Box::new(model::ClanTag {
+					guild: Id(10),
+					tag: "SPDY".into(),
+					badge: Some("f".repeat(32)),
+				})
+			}),
 			name: if id.is_multiple_of(2) {
 				"You (synthetic)"
 			} else {
@@ -126,6 +133,11 @@ pub fn message(id: u64, channel: Id) -> Message {
 		reply_deleted: false,
 		forwarded: false,
 		unsupported: false,
+		components: vec![],
+		sticker_items: vec![],
+		application_id: None,
+		flags: 0,
+		ephemeral: false,
 		extra_content: Default::default(),
 		embeds: demo_embeds(id),
 		attachments: if id == 500 {
@@ -201,6 +213,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}]
 		} else {
 			Vec::new()
@@ -249,10 +262,12 @@ pub fn demo_state() -> State {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 				id: Id(1),
 				name: "You (synthetic)".into(),
 			},
 			guilds: vec![Guild {
+				stickers: None,
 				emojis: Some(vec![
 					model::CustomEmoji {
 						id: Id(9001),
@@ -342,6 +357,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					}],
 					last_message: None,
 					icon: None,
@@ -362,6 +378,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					}],
 					last_message: Some(Id(900)),
 					icon: None,
@@ -384,6 +401,7 @@ pub fn demo_state() -> State {
 							webhook: false,
 							kind: Default::default(),
 							discriminator: 0,
+							primary_guild: None,
 						},
 					],
 					last_message: None,
@@ -477,10 +495,10 @@ pub fn demo_state() -> State {
 					name: "Introductions thread".into(),
 					kind: 11,
 					recipients: vec![],
-					last_message: None,
+					last_message: Some(Id(1_547_722_335_191_040_000)),
 					icon: None,
 					member_list_id: None,
-					message_count: None,
+					message_count: Some(4),
 				},
 			],
 		},
@@ -497,6 +515,7 @@ pub fn demo_state() -> State {
 				level: Some(3),
 				suppress_everyone: Some(false),
 				suppress_roles: Some(false),
+				hide_muted_channels: None,
 				channels: vec![(Id(21), Some(true), Some(3))],
 				channel_mute_until: vec![],
 			}],
@@ -522,6 +541,7 @@ pub fn demo_state() -> State {
 					name: "Avery".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -534,6 +554,7 @@ pub fn demo_state() -> State {
 					name: "Rowan".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -572,6 +593,7 @@ pub fn demo_state() -> State {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					},
 					format!("{}.synthetic", name.to_lowercase()),
 				)
@@ -659,6 +681,7 @@ pub fn voice_demo_state() -> State {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			},
 			nick: None,
 			status: None,
@@ -797,6 +820,36 @@ pub fn empty_channel_demo_state(long_name: bool) -> State {
 	state
 }
 
+/// Synthetic switcher roster for offline captures; these accounts never exist on Discord.
+pub fn demo_accounts(current: &model::User) -> Vec<model::SavedAccount> {
+	vec![
+		model::SavedAccount {
+			id: current.id,
+			name: current.name.clone(),
+			display: Some("Riley Quinn".into()),
+			avatar: current.avatar.clone(),
+			discriminator: current.discriminator,
+			has_token: true,
+		},
+		model::SavedAccount {
+			id: Id(4242),
+			name: "riley.alt".into(),
+			display: Some("Riley (alt)".into()),
+			avatar: None,
+			discriminator: 0,
+			has_token: true,
+		},
+		model::SavedAccount {
+			id: Id(4243),
+			name: "serein.testing".into(),
+			display: None,
+			avatar: None,
+			discriminator: 0,
+			has_token: true,
+		},
+	]
+}
+
 pub fn seed_access_marks(state: &mut State) {
 	use model::permissions::{Overwrite, Role, VIEW_CHANNEL};
 	const GUILD: Id = Id(10);
@@ -875,6 +928,7 @@ pub fn seed_access_marks(state: &mut State) {
 				level: Some(3),
 				suppress_everyone: Some(false),
 				suppress_roles: Some(false),
+				hide_muted_channels: None,
 				channels: vec![(Id(21), Some(true), Some(3)), (Id(25), Some(true), Some(3))],
 				channel_mute_until: vec![],
 			}],
@@ -892,6 +946,7 @@ pub fn seed_demo_folder_mosaic(state: &mut State) {
 	];
 	for (id, name, hash) in EXTRA {
 		state.guilds.push(Guild {
+			stickers: None,
 			emojis: None,
 			id: Id(id),
 			name: name.into(),
@@ -957,11 +1012,12 @@ pub fn chat_demo_state() -> State {
 		if i == 6 {
 			m.mentions = vec![User {
 				id: Id(2),
-				name: "Robin (synthetic)".into(),
+				name: "𝖘𝖓𝖎𝖎𝖝. (synthetic)".into(),
 				avatar: None,
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}];
 		}
 		if i == 8 {
@@ -1060,6 +1116,7 @@ pub fn permission_snapshot(state: &State) -> model::permissions::Snapshot {
 		| p::SPEAK
 		| p::USE_VAD
 		| p::MANAGE_THREADS
+		| p::CREATE_PUBLIC_THREADS
 		| p::MANAGE_CHANNELS;
 	p::Snapshot {
 		guilds: state
@@ -1106,7 +1163,6 @@ pub fn system_demo_state() -> State {
 		(6, ""),
 		(9, ""),
 		(4, "welcome-and-updates"),
-		(18, "Introductions"),
 		(3, ""),
 		(67, ""),
 		(30, ""),
@@ -1117,6 +1173,7 @@ pub fn system_demo_state() -> State {
 		(61, ""),
 		(62, ""),
 		(65, ""),
+		(18, "Introductions thread"),
 		(222, ""),
 	]
 	.into_iter()
@@ -1137,6 +1194,7 @@ pub fn system_demo_state() -> State {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		state.timeline.insert(m, false, false).unwrap();
 	}
@@ -1203,6 +1261,37 @@ pub fn friends_demo_state() -> State {
 	let mut state = demo_state();
 	state.apply(Envelope {
 		generation: state.generation,
+		event: Event::UserAction(client_core::user_actions::Event::Restrictions(Some(vec![
+			(
+				User {
+					id: Id(8101),
+					name: "Blocked Example".into(),
+					avatar: None,
+					webhook: false,
+					kind: Default::default(),
+					discriminator: 0,
+					primary_guild: None,
+				},
+				"blocked.synthetic".into(),
+				false,
+			),
+			(
+				User {
+					id: Id(8102),
+					name: "Ignored Example".into(),
+					avatar: None,
+					webhook: false,
+					kind: Default::default(),
+					discriminator: 0,
+					primary_guild: None,
+				},
+				"ignored.synthetic".into(),
+				true,
+			),
+		]))),
+	});
+	state.apply(Envelope {
+		generation: state.generation,
 		event: Event::UserAction(client_core::user_actions::Event::Requests(Some(vec![
 			(
 				model::User {
@@ -1210,6 +1299,7 @@ pub fn friends_demo_state() -> State {
 					name: "Avery".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -1222,6 +1312,7 @@ pub fn friends_demo_state() -> State {
 					name: "Morgan".into(),
 					avatar: None,
 					discriminator: 0,
+					primary_guild: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -1249,6 +1340,52 @@ pub fn friends_demo_state() -> State {
 		),
 	});
 	state
+}
+
+/// Original offline sticker catalog and one received message, used only by the sticker preview.
+pub fn seed_stickers(state: &mut State) {
+	let sticker = |id, name: &str, guild_id, pack_id| model::Sticker {
+		id: Id(id),
+		name: name.into(),
+		description: "Original synthetic sticker artwork".into(),
+		tags: "hello,wave,smile".into(),
+		format_type: 1,
+		guild_id,
+		pack_id,
+		available: true,
+	};
+	let guild_stickers = vec![
+		sticker(9101, "Wave", Some(Id(10)), None),
+		sticker(9102, "Smile", Some(Id(10)), None),
+		sticker(9103, "Celebrate", Some(Id(10)), None),
+	];
+	if let Some(guild) = state.guilds.iter_mut().find(|guild| guild.id == Id(10)) {
+		guild.stickers = Some(guild_stickers.clone());
+	}
+	state.stickers.recent = vec![guild_stickers[0].clone()];
+	state.stickers.packs = vec![model::StickerPack {
+		id: Id(9200),
+		name: "Serein Friends (synthetic)".into(),
+		stickers: vec![
+			sticker(9201, "Sleep", None, Some(Id(9200))),
+			sticker(9202, "Hello", None, Some(Id(9200))),
+			sticker(9203, "Party", None, Some(Id(9200))),
+		],
+	}];
+	state.stickers.loaded = true;
+	if let Some(channel) = state.selected {
+		state.timeline.clear();
+		let mut message = message(501, channel);
+		message.content.clear();
+		message.embeds.clear();
+		message.attachments.clear();
+		message.sticker_items = vec![state.stickers.packs[0].stickers[0].clone()];
+		message.extra_content.sticker_items = true;
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Message(message),
+		});
+	}
 }
 
 #[cfg(test)]
@@ -1442,6 +1579,7 @@ mod tests {
 					muted: Some(false),
 					suppress_everyone: Some(false),
 					suppress_roles: Some(false),
+					hide_muted_channels: None,
 					level: Some(0),
 					channels: vec![],
 				}],
@@ -1556,6 +1694,7 @@ mod tests {
 			muted: Some(false),
 			suppress_everyone: Some(false),
 			suppress_roles: Some(false),
+			hide_muted_channels: None,
 			level: Some(1),
 			channels: vec![],
 		};
@@ -1637,6 +1776,7 @@ mod tests {
 					muted: Some(false),
 					suppress_everyone: Some(false),
 					suppress_roles: Some(false),
+					hide_muted_channels: None,
 					level: Some(0),
 					channels: vec![],
 				}],
@@ -1662,6 +1802,7 @@ mod tests {
 					muted: Some(false),
 					suppress_everyone: Some(false),
 					suppress_roles: Some(false),
+					hide_muted_channels: None,
 					level: Some(0),
 					channels: vec![(channel, Some(true), Some(0))],
 				}],
@@ -1681,6 +1822,7 @@ mod tests {
 					muted: Some(false),
 					suppress_everyone: Some(false),
 					suppress_roles: Some(false),
+					hide_muted_channels: None,
 					level: Some(0),
 					channels: vec![],
 				}],
@@ -1722,8 +1864,10 @@ mod tests {
 				.map(|id| SearchHit {
 					id: Id(id),
 					channel: Id(20),
-					author: "Synthetic".into(),
+					author: crate::message(1, Id(20)).author,
 					excerpt: "pin".into(),
+					attachments: vec![],
+					embeds: vec![],
 				})
 				.collect(),
 			total: 0,
@@ -1852,8 +1996,10 @@ mod tests {
 				hits: vec![SearchHit {
 					id: Id(499),
 					channel: Id(20),
-					author: "Synthetic".into(),
+					author: crate::message(1, Id(20)).author,
 					excerpt: "index text".into(),
+					attachments: vec![],
+					embeds: vec![],
 				}],
 				total: 50,
 				partial: false,

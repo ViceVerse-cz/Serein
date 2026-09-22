@@ -1,5 +1,46 @@
 # Discord compatibility — checked 2026-09-10
 
+## Stickers - September 20, 2026
+
+The composer media picker has a Stickers tab with local name/tag/source search,
+collapsible server and standard-pack groups, a section rail, session-only recent
+choices, and a hovered preview. Clicking a sticker sends it as a separate message
+and preserves the typed draft. Reply references, pending/failed delivery and the
+existing nonce reconciliation are reused; uncertain writes are never retried.
+Channel send and external-sticker permissions gate selection. Server stickers
+outside their source server (including DMs) also require a session-confirmed
+Nitro or Nitro Basic entitlement (`premium_type` 2 or 3), populated by READY and
+updated by the current user's USER_UPDATE. Missing, unknown, Classic, or expired
+entitlements do not unlock external stickers. Local selection and send checks
+share this gate; Discord remains authoritative. There is no purchase flow. See
+[Discord subscription benefits](https://support.discord.com/hc/en-us/articles/115000435108-What-are-Nitro-Nitro-Basic).
+
+Received `sticker_items` and legacy `stickers` render transparent artwork in chat.
+Clicking opens details and related previews; View More Stickers opens the source
+in the picker. Standard packs and missing metadata load only on demand. Guild
+catalogs hydrate from READY/GUILD_CREATE and GUILD_STICKERS_UPDATE. The official
+[sticker resource](https://docs.discord.com/developers/resources/sticker) and
+[Create Message](https://docs.discord.com/developers/resources/message#create-message)
+document the object/REST shapes; normal-account interoperability is unofficial
+and live-unverified.
+
+PNG, APNG and GIF use the existing bounded image worker and animation preference.
+GIF uses the media host specified by Discord's
+[CDN reference](https://github.com/discord/discord-api-docs/blob/main/developers/reference.mdx).
+Lottie JSON is fetched from Discord's documented CDN endpoint, capped at 512 KiB,
+and rasterized off the UI thread to one 160px static PNG preview. The rendered PNG
+shares the account-isolated image disk cache, so reopening a received sticker or
+picker entry does not parse or render it again. Unsupported Lottie features retain
+the sticker name and an unavailable placeholder. Long APNG/GIF animations share the
+existing frame/pixel limits and may remain static. Sticker upload/edit/delete administration
+and synchronized cross-device favorites are not included.
+
+`--features demo -- --demo --demo-stickers` seeds an original offline catalog,
+received message and picker. Tests use only synthetic data/local HTTP. Native
+computer-use capture is blocked in this environment by a missing native pipe;
+framebuffer previews do not verify OS input, accessibility or live compatibility.
+
+
 ## Server-wide member lookup (September 17, 2026)
 
 `@name` autocomplete requests matching members beyond the first 100 subscribed
@@ -101,8 +142,11 @@ favorites. Pinned DMs sit above the home list. Guild channels use the existing
 Favorites shelf. Neither uses an unverified settings-proto field.
 
 The empty channel-list area also has a server-scoped right-click menu. Hide Muted
-Channels is a bounded, session-only per-server view preference; the selected channel
-stays visible. Create Channel, Create Category and Invite to Server reuse the same
+Channels is Discord's per-server `hide_muted_channels` flag on user guild settings,
+the same account record as channel mute. READY and User Guild Settings Update
+restore it, and the toggle sends `PATCH /users/@me/guilds/{guild}/settings`.
+The selected channel stays visible. A preloaded user-settings proto update does
+not clear these mutes. Create Channel, Create Category and Invite to Server reuse the same
 permission checks, confirmation UI and request lanes as the existing channel and
 server menus.
 
@@ -242,6 +286,16 @@ statements in the historical voice/screen-sharing notes below.
 
 ## Outgoing screen sharing — September 11, 2026
 
+September 21 interoperability correction: camera and screen-share H.264 SPS metadata
+is normalized before DAVE encryption to specify no frame reordering and bounded
+decoder buffering. The [WebRTC receiver rewrites unsuitable SPS metadata](https://github.com/webrtc-mirror/webrtc/blob/main/modules/rtp_rtcp/source/video_rtp_depacketizer_h264.cc)
+before frame decryption; that changes DAVE-authenticated bytes, while Serein's
+receiver preserves them. The offline debug command
+`cargo run --locked -p discord-voice --example video_interop` exercises this
+authentication failure and normalized encryption/decryption/decoding with synthetic
+video. Official Discord Android/desktop playback and resolution of issue #345
+remain subject to an owner-operated live retest.
+
 September 15 transport follow-up: screen audio keeps stereo 48 kHz Opus, 20 ms
 frames, the stream connection's audio SSRC, and opcode 5 Soundshare. It now also
 marks each audio packet with the native speaking RTP extension (ID 9, value 4).
@@ -259,8 +313,16 @@ SSRC, coalescing requests to at most twice per second. Windows/macOS can freshly
 one retained current snapshot on an idle keyframe request, without waiting for screen
 movement. The additional snapshot is bounded to 33,177,600 bytes, normally reduced to
 the chosen output resolution. Ordinary idle time does not encode extra frames. Linux
-already requests periodic PipeWire keepalive frames. RTX/NACK repair and adaptive bitrate
-remain unsupported; native/live video quality is not established by these changes.
+already requests periodic PipeWire keepalive frames. Sender RTX repair, receiver NACK
+requests and adaptive bitrate remain unsupported. The viewer accepts announced RTX
+packets and bounded packet reordering within the current picture; native/live video
+quality is not established by these changes.
+
+Watched streams have a session-only 0–200% audio volume and mute control, independent
+of participant voice levels. Audio playout retains at most two queued 20 ms frames
+and clears delayed mixer output after a stall. Decoder input is bounded to 16 pictures
+and 16 MiB, with a 150 ms age limit and keyframe recovery. These bounds reduce backlog;
+they do not implement sender-clock audio/video synchronization or establish live sync.
 
 A device-free localhost test runs the actual sender and viewer through an MLS exchange,
 stereo Opus and H.264, encrypted UDP forwarding, decoded audio and video. It verifies the
@@ -293,7 +355,11 @@ Cancellation is checked during portal waits every 50 ms and media waits within 1
 native driver startup/shutdown can still block, retaining the existing retirement barrier.
 Each of at most four encoder attempts gets a fresh PipeWire remote under the same
 approved session. No source, restore token, pixel buffer or stream is persisted.
-Direct X11 fallback and AV1/H.265 sending remain unsupported.
+Native X11 now offers an explicitly selected whole-desktop source through GStreamer
+`ximagesrc`, reusing the bounded encoder/preview pipeline without a portal. It requires
+GStreamer Good and never activates after portal cancellation or failure. Individual
+X11 window selection and native/live validation remain outstanding. AV1/H.265 sending
+remains unsupported.
 The offline debug example does not establish native Linux capture, hardware acceleration,
 measured performance, packaging or live Discord interoperability.
 
@@ -389,17 +455,42 @@ to eight per two seconds. The UI schedules only the next visible expiry, with no
 Existing People typing subscriptions are unchanged; guild delivery may depend on that pane's
 subscription. Service availability and normal-account acceptance remain live-unverified.
 
-Unsupported ordinary-message content (September 10): the [Discord message resource](https://docs.discord.com/developers/resources/message)
-documents poll, sticker_items, deprecated stickers, components and IS_COMPONENTS_V2 (1 << 15).
-The decoder now preserves only independent presence markers for these sources through full
-messages, absent/null partial updates and bounded local cache reloads. It keeps no poll answer,
-sticker or component payload. Native static Poll/Sticker/Components placeholders accompany any
-supported text/media and share one confirmed Open in Discord action. This implements recognition
-and a fallback, not poll voting, sticker rendering or interactive components. Old cache rows
-cannot recover metadata previously discarded and gain markers during ordinary history refresh.
-The local decoder caps arrays at 100 objects, each direct object at 64 fields, within the existing
-4 MiB wire limit; these are application bounds, not Discord quotas. Native/live behavior remains
-unverified; the source documentation does not establish normal-account API acceptance.
+Message components (September 19, issue #313): native action rows, buttons, string/user/
+role/mentionable/channel selects, Components V2 sections, containers, text, thumbnails,
+media galleries, files and separators retain bounded typed service data. Modal controls
+include labels, text inputs, selects, radio groups, checkbox groups, checkboxes and
+explicit native file selection. User/mentionable selectors reuse on-demand member
+search; role/channel selectors use the loaded account catalog.
+Buttons and form submits use the unofficial normal-account `POST /interactions` path,
+with the active Gateway session, a unique nonce, and no automatic write replay. Gateway
+success/failure/modal events are correlated; an HTTP acceptance alone is not completion.
+Private replies are session-only and never saved with channel history. Premium purchase
+buttons are omitted; unknown component types retain a visible marker. Media links use
+the existing safe preview and destination-confirmation policy.
+
+Select menus show selected labels, option descriptions and emoji. Single selections
+submit directly; optional selections can be cleared. Form inputs have larger padding
+and multiline fields have room for longer answers. Link buttons keep their text on one
+line and display an external-link icon. Rendered components do not add an Open in
+Discord button. Channel category labels also stay on one line with truncation.
+
+The [official component reference](https://docs.discord.com/developers/components/reference)
+describes schemas; normal-account submission and modal Gateway events are unofficial
+([first-hand interaction reference](https://docs.discord.food/interactions/receiving-and-responding)).
+This is not full Discord component parity: premium purchases are unavailable, and
+synthetic checks do not verify live application responses, modal uploads or purchases.
+Normal-account interoperability and Windows/Linux visual equivalence remain unverified.
+Polls and stickers still retain presence markers and an Open in Discord fallback.
+Old cached component markers acquire controls only after normal history refresh.
+
+Run the offline native component preview with:
+
+```bash
+cargo run --locked -p serein --features demo -- --demo --demo-components
+```
+
+Choose a dropdown option or click **Open sample form** to inspect the synthetic controls.
+The separate `--demo --demo-check-components` mode checks the synthetic interaction flow.
 
 External fallback (September 10): unsupported channel rows and message placeholders offer
 Open in Discord through an explicit browser confirmation. URLs use the fixed Discord HTTPS
@@ -416,6 +507,8 @@ Loaded threads (September 10): READY guild thread arrays follow the original [di
 
 Serein is unofficial and not endorsed by Discord. No normal-user live session has been tested. Technical compatibility does not imply approval. Discord forbids normal-account automation outside its OAuth2/bot API and warns of account termination ([policy](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots)); its [terms](https://discord.com/terms) also apply.
 
+Server identity tags (September 19): Discord's documented [User object](https://docs.discord.com/developers/resources/user#user-object) may include `primary_guild` with an enabled identity, guild ID, tag and badge hash. Serein retains a valid identity from ordinary user payloads for profile cards, server-channel and thread member rows, and one-to-one DM rows. Profile cards can therefore show it before the unofficial extended-profile request completes or when that request fails; a completed extended profile remains authoritative, including removal of a stale tag. The older duplicated `clan` shape is accepted only as a bounded fallback. Normal-account delivery remains live-unverified.
+
 | Capability | Credential / evidence | Classification | Serein status / fallback |
 |---|---|---|---|
 | Supported sign-in | OAuth2 access token; [scopes](https://docs.discord.com/developers/topics/oauth2) | Documented for limited scopes; RPC/other scopes restricted | No full replacement-client grant established. No invented OAuth login |
@@ -430,7 +523,7 @@ Serein is unofficial and not endorsed by Discord. No normal-user live session ha
 | People / member pane | Normal session; [discord.py-self Gateway](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py), [member-list identity](https://github.com/dolfies/discord.py-self/blob/master/discord/abc.py), [wire types](https://github.com/dolfies/discord.py-self/blob/master/discord/types/gateway.py) | Unofficial and unstable | On-demand opcode 37 with the required guild typing subscription, first 100 list positions, typed incremental operations, identity/request filtering and 15-second timeout; list identity resolves from current bounded permission metadata rather than the initial channel snapshot; DM recipients from READY. Missing metadata or unsupported replies show unavailable; live-unverified |
 | Profile pictures | [Discord image formatting](https://docs.discord.com/developers/reference#image-formatting), [User resource](https://docs.discord.com/developers/resources/user#user-object) | Documented CDN paths and user metadata; normal-session acquisition unofficial | Static PNGs, credential-free requests, account-isolated disk cache, bounded decode/textures, fallback initials; offline transport/cache tests only |
 | User mentions | [Message formatting](https://docs.discord.com/developers/reference#message-formatting) | Documented syntax; normal-user notification behavior unverified | Local @ autocomplete, clickable names/profile cards, exact user allowlists, bounded SQLite metadata; tests and limits |
-| User profile cards | Normal session `/users/{id}/profile`; [public implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) | Unofficial route and payload; live-unverified | Anchored popout with banner/avatar/bio/pronouns/badge artwork/server tag/theme colors/connections/mutual servers and retained presence/custom status, cancellable requests and visible failures; badge and server-tag CDN paths are observed, not documented; evidence |
+| User profile cards | Normal session `/users/{id}/profile`; documented [User object](https://docs.discord.com/developers/resources/user#user-object); [public implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) | Base server identity shape documented; extended route and normal-session delivery unofficial/live-unverified | Anchored popout with banner/avatar/bio/pronouns/badge artwork/server tag/theme colors/connections/mutual servers and retained presence/custom status, cancellable requests and visible failures. Bounded base-user identity supplies compact badge/tag chips in profile, member and direct-message rows while the extended profile is unavailable; badge CDN paths are observed, not documented; evidence |
 | History, send, edit, delete, replies | Normal session; [message resource](https://docs.discord.com/developers/resources/message) and Abaddon | Documented bot-facing resource; user compatibility unofficial | Experimental text adapter; owner permissions remain server-authoritative |
 | Realtime, resume | Normal session; [Gateway](https://docs.discord.com/developers/events/gateway), Abaddon Identify/READY | Documented lifecycle; normal-user Identify and dispatch differences unofficial | Bounded JSON transport; no compression requested; incompatible snapshots fail |
 | Rate limits | Credential-specific response headers/body; [rate limits](https://docs.discord.com/developers/topics/rate-limits) | Documented; do not assume bot quotas | Conservative shared cooldown, no blind write retry |
@@ -439,7 +532,7 @@ Serein is unofficial and not endorsed by Discord. No normal-user live session ha
 | Read markers | Normal session; [discord.py-self HTTP](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) and [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py) | Unofficial and unstable | Explicit per-message acknowledgement, optional manual mark-unread (`ack_message(manual=True)` plus the previous snowflake), guild `POST /guilds/{id}/ack`, bounded READY read state, MESSAGE_ACK and PASSIVE_UPDATE_V2; synthetic checks only, actual cross-device behavior unverified |
 | Relationships | Normal session or restricted Social SDK scopes; OAuth scope table and Abaddon | Unofficial / restricted | Unsupported |
 | Reactions | Normal session; [message reaction resource](https://docs.discord.com/developers/resources/message#reaction-object) and [Gateway reaction events](https://docs.discord.com/developers/events/gateway-events#message-reaction-add), rechecked September 10 | Documented routes/shapes; normal-user acceptance live-unverified | Native counts, eight-emoji picker, existing Unicode/custom emoji toggles, normal own-reaction PUT/DELETE and bounded message readback. Synthetic HTTP/Gateway/keyboard tests pass; no live validation |
-| Upload / preview / save | Normal session + separate credential-free media transfer; [attachment reference](https://docs.discord.com/developers/resources/message#attachment-object) and [normal-user staged upload](https://github.com/dolfies/discord.py-self/blob/2ba64a9a997e151a9c259984e0a179b1fdf4aff4/discord/abc.py#L1551) | Documented attachment metadata; staged upload unofficial; service delivery/conversion live-unverified | One explicitly selected file up to 20,000,000 bytes, streamed upload/cancel and message confirmation; static previews, native viewer, image/video attachment context menus with native clipboard copy, and explicit image/file Save As (1 byte through 100 MiB). Upload limits below; preview/save limits |
+| Upload / preview / save | Normal session + separate credential-free media transfer; [attachment reference](https://docs.discord.com/developers/resources/message#attachment-object) and [normal-user staged upload](https://github.com/dolfies/discord.py-self/blob/2ba64a9a997e151a9c259984e0a179b1fdf4aff4/discord/abc.py#L1551) | Documented attachment metadata; staged upload unofficial; service delivery/conversion live-unverified | Up to ten explicitly selected files totaling 500,000,000 bytes, streamed upload/cancel and message confirmation; Discord enforces the account's lower entitlement limit. Static previews, native viewer, image/video attachment context menus with native clipboard copy, and explicit image/file Save As (1 byte through 100 MiB). Upload limits below; preview/save limits |
 | Conversation search | Normal session; [discord.py-self search flow](https://github.com/dolfies/discord.py-self/blob/master/discord/abc.py), [HTTP routes](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py), [response types](https://github.com/dolfies/discord.py-self/blob/master/discord/types/message.py) checked September 10 | Unofficial and unstable | Search current conversation, newest/older result pages, snapshot snippets, history revalidation on Open message; indexing/permission failures are visible. Live-unverified |
 | Pinned messages | Normal session; [Get Channel Pins](https://docs.discord.com/developers/resources/message#get-channel-pins) and [normal-user implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) | Documented route; normal-user acceptance live-unverified | Manual 25-pin pages, Older/Retry, Reload newest and history-validated Open message; pin/unpin mutations unsupported |
 | Threads / forums | Normal session; navigation and archive scope, archive sources below | Wire evidence checked September 10; normal-user behavior live-unverified | READY/thread-event reconciliation, parent/post hierarchy and manual public/private/joined-private archive pages implemented; complete active directory and create/join controls remain incomplete |
@@ -475,7 +568,7 @@ Discord's documented voice transport and [DAVE protocol](https://daveprotocol.co
 Image attachments: documented wire metadata and spoiler bit 3 are implemented; additional sensitive flags and proxy PNG conversion rely on unofficial implementation evidence. Native viewing and bounded cache/patch behavior have offline coverage; actual account image delivery remains unverified. Scope and sources.
 
 Read-state continuation (September 10): channel read cursors and latest-message IDs drive boolean unread badges; absent service read state remains unknown. The guild rail tick ignores muted guilds, muted categories, muted channels, and voice channels. Voice chat stays behind Show chat, so leftover text-in-voice cursors do not light the server icon. Mentions on those channels still add the red count. A live-edge page whose rows sit at or behind the cursor is not unread. The message menu sends one acknowledgement only after an explicit action on a loaded message in a fresh authenticated view. Incoming manual mark-unread updates are honored. A later Gateway update wins over an in-flight HTTP completion. Snapshot/update lists are capped at 4000 entries, retained cursors are limited to known navigation channels, and only one write is pending.
-Outgoing mark-unread and guild acknowledgement (September 16): Mark Unread ACKs the previous snowflake with `manual: true`, matching unofficial [discord.py-self `ack_message`](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py). Server Mark As Read uses `POST /guilds/{guild_id}/ack` from the same source. Neither mentions are rewritten on the wire. Live Discord acceptance is unverified. A legacy acknowledgement token, if supplied, is capped at 2048 bytes in zeroized session memory; the response body is capped at 4096 bytes. Neither cursors nor acknowledgement tokens are written to SQLite. The linked primary client implementation supplies unofficial wire evidence; local HTTP/WebSocket fixtures do not establish Discord acceptance.
+Outgoing mark-unread and guild acknowledgement (September 16): Mark Unread ACKs the previous snowflake with `manual: true`, matching unofficial [discord.py-self `ack_message`](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py). Server Mark As Read uses `POST /guilds/{guild_id}/ack` from the same source. A manual unread in a DM or group sends `mention_count` for the loaded messages now past the cursor, because Discord does not calculate that badge. Mark Unread in a guild channel sends `mention_count` for loaded pings in that range. Server Mark As Read still omits it. Live Discord acceptance is unverified. A legacy acknowledgement token, if supplied, is capped at 2048 bytes in zeroized session memory; the response body is capped at 4096 bytes. Neither cursors nor acknowledgement tokens are written to SQLite. The linked primary client implementation supplies unofficial wire evidence; local HTTP/WebSocket fixtures do not establish Discord acceptance.
 
 Search continuation (September 10): guild conversations use the guild search route with an exact channel filter; DMs use the channel route. Search content is percent-encoded, with timestamp-descending order and explicit max_id pagination. One replaceable task uses existing REST permits, deadlines and cooldowns. Indexing responses require another deliberate Search action after the service delay; no automatic polling, broad account search, advanced filters, NSFW override or search-result persistence is implemented. Service totals and partial-index status are displayed as supplied, not asserted complete. Opening a result fetches up to 50 history messages ending at that ID and positions the timeline there; unavailable results are reported. Existing reload returns to latest history. Search snapshots are cleared on relevant edits/deletes, navigation, disconnect, permission invalidation and logout. Original-client sources supply wire evidence only; no source-code blocks were copied and no authenticated service request was used as validation.
 
@@ -505,7 +598,7 @@ The selected file is uploaded only after Send. Serein requests a staging target 
 
 Only `https://discord-attachments-uploads-prd.storage.googleapis.com` on effective port 443 is accepted. This exact origin was independently observed in the public `Content-Security-Policy` returned by unauthenticated `curl.exe --silent --head https://discord.com/app` on September 10. Userinfo, fragments and redirects are rejected; signed path/query values remain opaque, bounded and unlogged. A separate HTTP client sends neither Discord authorization nor cookies to storage. Test-only loopback origins are absent from shipped builds.
 
-The local limit is **one nonempty regular file, at most 20,000,000 bytes**. This is Serein's conservative cap, not an inferred account entitlement. Discord's [File Attachments FAQ](https://support.discord.com/hc/en-us/articles/25444343291031-File-Attachments-FAQ), updated August 13, 2026, states a 20 MB free upload limit and larger paid limits; server permissions, experiments and rejections remain authoritative. Serein does not detect paid limits or compress/rewrite files.
+The local limit is **up to ten nonempty regular files totaling at most 500,000,000 bytes**, Discord's published Nitro maximum. Discord's [File Attachments FAQ](https://support.discord.com/hc/en-us/articles/25444343291031-File-Attachments-FAQ), updated August 13, 2026, states a 20 MB free limit, 50 MB Nitro Basic limit and 500 MB Nitro limit; server permissions, experiments and rejections remain authoritative. Serein does not infer the account tier or compress/rewrite files, so Discord may reject a selection below the local ceiling.
 
 Application chunks are at most 64 KiB; negotiation and storage responses at most 64 KiB, signed URLs 4096 bytes, server upload names 1024 bytes, local paths 4096 encoded bytes and filenames 256 UTF-8 bytes. One upload job uses latest-value progress, not an expanding event queue. The PUT has a 300-second overall deadline, 10-second connection timeout and 30-second read timeout. Filesystem work stays outside rendering.
 
@@ -712,7 +805,9 @@ normal-account delivery and native screenshots remain owner-controlled validatio
 
 Find conversation / Ctrl+K (Command+K) searches loaded navigation and retained friends by display
 name, nickname and username, respecting current VIEW decisions for channels. Friends with an open
-one-to-one DM appear once; group membership does not hide a friend. Selecting a friend without
+one-to-one DM appear once; group membership does not hide a friend. Direct and friend results use
+their retained Discord avatar through the existing bounded avatar worker, with initials only while
+the image is loading or unavailable. Selecting a friend without
 an open DM reuses the bounded [Create DM](https://docs.discord.com/developers/resources/user#create-dm)
 request already used by server invites, then opens its confirmed channel through ordinary history
 loading. It sends no message and adds no subscription or relationship lookup. Requests are never
@@ -960,7 +1055,8 @@ refresh; Gateway settings updates are not consumed in this slice.
 Primary implementation evidence checked: [settings schema](https://github.com/discord-userdoccers/discord-protos)
 and [discord.py-self HTTP adapter](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py).
 Limits: 200 servers, 200 folder entries, 100 characters/400 bytes per name, 16 KiB
-retained layout, 1 MiB settings response. Oversized settings disable organization
+retained layout, and a 6 MiB response cap for Discord's 5 MiB encoded settings value
+plus its JSON envelope. Oversized settings disable organization
 without hiding normal server navigation. Demo edits stay in memory; live edits persist
 through Discord. No live account actions were performed in fast local validation.
 
@@ -1112,9 +1208,11 @@ unavailable in the current agent environment.
 ### Session presence publication
 
 Click the footer avatar or account name to preview the global profile, select Online,
-Idle, Do Not Disturb or Invisible, and apply/clear a custom status. Presence choices
-last for this login session; they do not write Discord account settings or local storage.
-Profile loading reuses the existing bounded global-profile adapter.
+Idle, Do Not Disturb or Invisible, and apply/clear a custom status. Serein reads
+the account's Discord status from unofficial `settings-proto/1` before identify
+and writes that field when the owner changes it. A local `account_presence` row
+is only the fallback when that read fails. Profile loading reuses the existing
+bounded global-profile adapter.
 
 The existing Gateway opcode 3 publisher coalesces both game and custom activity into
 one update, with at least five seconds between attempts and publication after
@@ -1216,12 +1314,24 @@ Synthetic reducer, protocol and local HTTP tests cover this path; live requests,
 service challenges and recipient privacy restrictions remain unverified.
 
 Profile cards also expose confirmed friendship, incoming requests and outgoing requests.
-Adding from a card uses its user ID with PUT `/users/@me/relationships/{id}` and type 1;
+Adding from a card uses its user ID with PUT `/users/@me/relationships/{id}` and an empty object;
 removing a confirmed friend uses DELETE only after a named confirmation dialog.
 Acknowledged ID requests retain a bounded outgoing row with unknown profile metadata until
 Gateway data arrives. Failed writes preserve friendship; newer Gateway updates win over
 late acknowledgements. Cancellation and account changes discard pending UI confirmations.
 These paths have offline UI/reducer/HTTP coverage, not live-account verification.
+
+### Blocked and ignored users (September 21, 2026)
+
+Friends includes a searchable Blocked & Ignored tab populated from READY relationship
+profiles and subsequent relationship add/update/remove events. Relationship type 2 is
+shown as Blocked; the separate unofficial `user_ignored` relationship flag is shown as
+Ignored, following the public
+[relationship object documentation](https://docs.discord.food/resources/relationships#relationship-object).
+Profiles are session-only and bounded separately from friends. Existing block/unblock
+actions remain available; changing Discord's distinct ignored state is not included.
+Synthetic protocol, reducer and UI tests cover loading and updates. Normal-user payload
+availability, cross-device changes and service behavior remain live-unverified.
 
 ### Additional system message display (September 12, 2026)
 
@@ -1437,3 +1547,13 @@ Failed lookups keep the snapshot or the normal fallback color. Profile cards
 already request guild membership through the profile endpoint. Normal-account
 Gateway behavior remains unofficial and live compatibility is unverified by the
 synthetic check.
+
+Forum cards now load a bounded recent-message page for visible active posts through
+[Get Channel Messages](https://discord.com/developers/docs/resources/message#get-channel-messages).
+Up to four visible cards load concurrently under the existing REST permit bound.
+They show the latest plain preview with the author's known guild role color and count IDs newer than the service read cursor;
+`50+ New` indicates that the cursor precedes the retained 50-message window. Failed
+or unavailable summaries remain explicitly unavailable until refresh or new activity;
+successful summaries are reused when returning to a forum during the same session.
+Startup preserves cursors for threads loaded after READY. These changes have synthetic
+offline coverage; normal-account behavior remains unofficial and live-unverified.

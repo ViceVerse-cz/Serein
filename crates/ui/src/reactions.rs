@@ -93,7 +93,7 @@ pub fn show(
 			);
 			response.widget_info(|| {
 				egui::WidgetInfo::selected(
-					egui::WidgetType::Button,
+					egui::Role::Button,
 					response.enabled(),
 					reaction.me,
 					&label,

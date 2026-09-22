@@ -8,7 +8,8 @@ use model::{
 };
 use serde::Deserialize;
 
-pub const MAX_SETTINGS_RESPONSE: usize = 1024 * 1024;
+// Discord accepts a 5 MiB base64 settings value; leave bounded room for its JSON envelope.
+pub const MAX_SETTINGS_RESPONSE: usize = 6 * 1024 * 1024;
 const MAX_FOLDER_WIRE: usize = 128 * 1024;
 
 pub struct Decoded {
@@ -217,6 +218,14 @@ impl<'a> Field<'a> {
 		let mut value = self.value;
 		varint(&mut value)
 	}
+	pub(crate) fn fixed64(&self) -> Result<u64, DecodeError> {
+		if self.wire_type == 1 && self.value.len() == 8 {
+			let bytes: [u8; 8] = self.value.try_into().map_err(|_| DecodeError)?;
+			Ok(u64::from_le_bytes(bytes))
+		} else {
+			Err(DecodeError)
+		}
+	}
 }
 fn varint(input: &mut &[u8]) -> Result<u64, DecodeError> {
 	let mut value = 0;
@@ -290,6 +299,10 @@ pub(crate) fn integer_wrapper(number: u64, value: u64, output: &mut Vec<u8>) {
 	write_varint(value, &mut wrapper);
 	message(number, &wrapper, output);
 }
+pub(crate) fn fixed64_field(number: u64, value: u64, output: &mut Vec<u8>) {
+	write_varint(number << 3 | 1, output);
+	output.extend_from_slice(&value.to_le_bytes());
+}
 
 #[cfg(test)]
 mod tests {
@@ -329,5 +342,16 @@ mod tests {
 			.is_err()
 		);
 		assert!(varint(&mut &[255; 10][..]).is_err());
+	}
+
+	#[test]
+	fn large_account_settings_reach_the_folder_decoder() {
+		let mut wire = vec![10, 0]; // Present version message; data version defaults to zero.
+		message(99, &vec![0; 800 * 1024], &mut wire);
+		let response = serde_json::json!({"settings": STANDARD.encode(wire)})
+			.to_string()
+			.into_bytes();
+		assert!(response.len() > 1024 * 1024);
+		assert!(decode_response(&response).is_ok());
 	}
 }

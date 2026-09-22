@@ -5,7 +5,7 @@ use client_core::{
 use discord_api::DiscordApi;
 use eframe::egui;
 use std::{
-	collections::BTreeSet,
+	collections::{BTreeMap, BTreeSet},
 	sync::{
 		Arc, Mutex,
 		atomic::{AtomicU64, Ordering},
@@ -26,6 +26,11 @@ pub struct Connection {
 	pub terminal: watch::Receiver<Option<Failure>>,
 	pub share_activity: watch::Sender<bool>,
 	pub own_presence: watch::Sender<model::OwnPresence>,
+	/// Local edits only. Seeding from Discord does not publish through this watch.
+	pub presence_edits: watch::Sender<Option<model::OwnPresence>>,
+	/// The status chosen for this connection, once Discord or the local fallback is known.
+	pub account_presence: watch::Receiver<Option<model::OwnPresence>>,
+	pub presence_error: watch::Receiver<Option<&'static str>>,
 	pub game_activity: watch::Receiver<crate::game_activity::Detection>,
 	/// A local Rich Presence client asked the client to show an invite: counter and code.
 	pub rpc_invite: watch::Receiver<Option<(u64, String)>>,
@@ -56,6 +61,7 @@ impl Connection {
 		secret: Arc<SessionSecret>,
 		generation: u64,
 		expected_user: Option<model::Id>,
+		cached_presence: BTreeMap<model::Id, model::OwnPresence>,
 		ctx: egui::Context,
 	) -> Self {
 		let (commands, mut receive) = mpsc::channel(COMMAND_SLOTS);
@@ -65,6 +71,10 @@ impl Connection {
 		let (finished, terminal) = watch::channel(None);
 		let (share_activity, share_receive) = watch::channel(false);
 		let (own_presence, presence_receive) = watch::channel(model::OwnPresence::default());
+		let (presence_edits, presence_edit_events) = watch::channel(None);
+		let (account_presence_send, account_presence) = watch::channel(None);
+		let (presence_error_send, presence_error) = watch::channel(None);
+		let presence_send = own_presence.clone();
 		let (game_report, game_activity) = watch::channel(Ok(None));
 		let (invite_send, rpc_invite) = watch::channel(None);
 		let (activity_observed, activity_observation) =
@@ -89,6 +99,13 @@ impl Connection {
                 if expected_user.is_some_and(|id|id!=user.id){return Err(Failure::InvalidCredential);}
                 let gateway=api.gateway_url().await?;
                 let api=Arc::new(api);
+				let cached = cached_presence.get(&user.id).cloned().filter(|presence| presence.valid());
+				let _presence_edits = AbortTask(tokio::spawn(run_presence_edits(api.clone(), presence_edit_events, presence_error_send, finished.clone(), wake.clone())));
+				let chosen = resolve_account_presence(&api, &presence_send, cached).await;
+				if chosen.is_some() {
+					wake.request_repaint();
+				}
+				let _ = account_presence_send.send_replace(chosen);
                 let emit=Arc::new(emit);
                 let (member_send,member_receive)=watch::channel(None);
                 let (voice_send,voice_receive)=mpsc::channel(8);
@@ -107,6 +124,8 @@ impl Connection {
                         if activity_observed.send_if_modified(|current| { if *current == observation { false } else { *current = observation; true } }) { activity_wake.request_repaint(); }
                         Ok(())
                     },|event|{
+                        if let Event::Interaction(client_core::interactions::Event::Session(session)) = event { return gateway_api.interaction_session(Some(session)); }
+                        if matches!(&event,Event::Disconnected|Event::Resync) { gateway_api.interaction_session(None)?; }
                         if let Some((ready_user,_,channels))=event.ready_navigation() {
                             if ready_user.id!=user.id {return Err(Failure::InvalidCredential);}
                             *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|private_call(c)).map(|c|c.id).collect();
@@ -132,7 +151,7 @@ impl Connection {
                 let mut writes=AbortTask(tokio::spawn(async move {
                     while let Some(command)=write_receive.recv().await {
                         let event=write_api.execute(command).await;
-                        let failure=match &event {Event::MessagingPermissions{result:Err(f),..}=>Some(*f),Event::ChannelAction(client_core::channel_actions::Event::Finished{result:Err(f),..})=>Some(*f),Event::ServerAdmin(client_core::server_admin::Event{result:Err(f),..})=>Some(*f),Event::ServerSettings(client_core::server_settings::Event{result:Err(f),..})=>Some(*f),Event::Failure(f)=>Some(*f),Event::ProfileEdited{result:Err(f),..} if *f != Failure::Capacity =>Some(*f),Event::Edited{result:Err(f),..}|Event::Pinned{result:Err(f),..}=>Some(*f),Event::GuildFolders(Err(f))=>Some(*f),Event::JoinInvite{result:Err(f),..}=>Some(*f),Event::SendResult{result:Err(f),..}=>Some(*f),Event::UserAction(client_core::user_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::UserAction(client_core::user_actions::Event::DmOpened{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::InviteSent{result:Err(f),..})=>Some(*f),Event::GroupAction(client_core::group_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::Reactions(client_core::reactions::Event::Written{result:Err(f),..})=>Some(*f),Event::ReadState(client_core::read_state::Event::Result{result:Err(f),..})=>Some(*f),_=>None};
+                        let failure=match &event {Event::Interaction(client_core::interactions::Event::Submitted{result:Err(f),..})=>Some(*f),Event::MessagingPermissions{result:Err(f),..}=>Some(*f),Event::ChannelAction(client_core::channel_actions::Event::Finished{result:Err(f),..})=>Some(*f),Event::ServerAdmin(client_core::server_admin::Event{result:Err(f),..})=>Some(*f),Event::ServerSettings(client_core::server_settings::Event{result:Err(f),..})=>Some(*f),Event::Failure(f)=>Some(*f),Event::ProfileEdited{result:Err(f),..} if *f != Failure::Capacity =>Some(*f),Event::Edited{result:Err(f),..}|Event::Pinned{result:Err(f),..}=>Some(*f),Event::GuildFolders(Err(f))=>Some(*f),Event::JoinInvite{result:Err(f),..}=>Some(*f),Event::SendResult{result:Err(f),..}=>Some(*f),Event::UserAction(client_core::user_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::UserAction(client_core::user_actions::Event::DmOpened{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::InviteSent{result:Err(f),..})=>Some(*f),Event::GroupAction(client_core::group_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::Reactions(client_core::reactions::Event::Written{result:Err(f),..})=>Some(*f),Event::ReadState(client_core::read_state::Event::Result{result:Err(f),..})=>Some(*f),_=>None};
                         let error=write_emit(event).err().or(failure.filter(|f|f.ends_session()));
                         if let Some(error)=error {write_api.stop();let _=write_finished.send(Some(error));write_wake.request_repaint();break;}
                     }
@@ -142,6 +161,8 @@ impl Connection {
                 let mut invite:Option<AbortTask>=None;
                 let mut search:Option<AbortTask>=None;
                 let mut gifs:Option<AbortTask>=None;
+                let mut sticker_packs:Option<AbortTask>=None;
+                let mut sticker_detail:Option<AbortTask>=None;
                 let mut reaction_read:Option<AbortTask>=None;
                 let mut ringing:Option<AbortTask>=None;
                 let mut upload:Option<AbortTask>=None;
@@ -159,6 +180,7 @@ impl Connection {
                             let Some(request)=request else {break;};
                             if !*voice_availability.borrow() || upload.as_ref().is_some_and(|job|!job.0.is_finished()) {
                                 match request.command {
+                                    Command::Interaction(request)=>emit(Event::Interaction(client_core::interactions::Event::Submitted{nonce:request.nonce,result:Err(Failure::ProtocolAt("Upload unavailable; reselect the file to retry"))}))?,
                                     Command::Send{nonce,..}=>emit(Event::SendResult{nonce,result:Err(Failure::ProtocolAt("Upload unavailable; reselect the file to retry"))})?,
                                     Command::CreatePost{parent,request,..}=>emit(Event::PostCreated{parent,request,result:Err(Failure::ProtocolAt("Upload unavailable; reselect the file to retry"))})?,
                                     _=>{}
@@ -179,7 +201,7 @@ impl Connection {
                                         changed=updates.changed(), if observing=>{observing=changed.is_ok();wake.request_repaint();}
                                     }
                                 };
-                                let failure=match &event {Event::SendResult{result:Err(f),..} if f.ends_session()=>Some(*f),_=>None};
+                                let failure=match &event {Event::Interaction(client_core::interactions::Event::Submitted{result:Err(f),..}) | Event::SendResult{result:Err(f),..} if f.ends_session()=>Some(*f),_=>None};
                                 let error=emit(event).err().or(failure);
                                 if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
                                 wake.request_repaint();
@@ -189,6 +211,19 @@ impl Connection {
                             let Some(command)=command else {break;};
                             if matches!(command,Command::CancelSearch) {drop(search.take());continue;}
                             if matches!(command,Command::CancelGifs) {drop(gifs.take());continue;}
+                            if matches!(command,Command::StickerPacks|Command::Sticker(_)) {
+                                let task=if matches!(command,Command::StickerPacks) {&mut sticker_packs} else {&mut sticker_detail};
+                                drop(task.take());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                *task=Some(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(command).await;
+                                    let failure=match &event {Event::StickerPacks(Err(f))|Event::Sticker{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
+                                    let error=emit(event).err().or(failure);
+                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
+                                continue;
+                            }
                             if matches!(command,Command::Gifs{..}) {
                                 drop(gifs.take());
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
@@ -360,6 +395,9 @@ impl Connection {
 			terminal,
 			share_activity,
 			own_presence,
+			presence_edits,
+			account_presence,
+			presence_error,
 			game_activity,
 			rpc_invite,
 			activity_observation,
@@ -367,6 +405,73 @@ impl Connection {
 			activity_sharing_request,
 			typing_channel,
 			task,
+		}
+	}
+}
+
+async fn resolve_account_presence(
+	api: &DiscordApi,
+	presence: &watch::Sender<model::OwnPresence>,
+	cached: Option<model::OwnPresence>,
+) -> Option<model::OwnPresence> {
+	let baseline = presence.borrow().clone();
+	let remote = tokio::time::timeout(Duration::from_secs(8), api.account_presence())
+		.await
+		.ok()
+		.and_then(Result::ok);
+	let edited = presence.borrow().clone() != baseline;
+	if !edited && (remote.is_some() || cached.is_some()) {
+		let chosen = remote.clone().or(cached.clone()).unwrap_or_default();
+		let _ = presence.send_if_modified(|slot| {
+			if *slot == baseline {
+				*slot = chosen;
+				true
+			} else {
+				false
+			}
+		});
+	}
+	let current = presence.borrow().clone();
+	(remote.is_some() || cached.is_some() || current != baseline).then_some(current)
+}
+
+async fn run_presence_edits(
+	api: Arc<DiscordApi>,
+	mut edits: watch::Receiver<Option<model::OwnPresence>>,
+	note: watch::Sender<Option<&'static str>>,
+	finished: watch::Sender<Option<Failure>>,
+	wake: egui::Context,
+) {
+	let mut last = None;
+	loop {
+		if edits.changed().await.is_err() {
+			return;
+		}
+		let Some(next) = edits.borrow_and_update().clone() else {
+			continue;
+		};
+		if last.as_ref() == Some(&next) || !next.valid() {
+			continue;
+		}
+		match api.set_account_presence(&next).await {
+			Ok(()) => {
+				last = Some(next);
+				if note.send_replace(None).is_some() {
+					wake.request_repaint();
+				}
+			}
+			Err(failure) if failure.ends_session() => {
+				api.stop();
+				let _ = finished.send(Some(failure));
+				wake.request_repaint();
+				return;
+			}
+			Err(_) => {
+				let _ = note.send_replace(Some(
+					"Could not save status to Discord. It stays on this device until Discord accepts it.",
+				));
+				wake.request_repaint();
+			}
 		}
 	}
 }
@@ -730,6 +835,7 @@ mod tests {
 		let (mut ready, warnings) = envelope.navigation().unwrap();
 		let (guilds, channels) = ready.navigation().unwrap();
 		client_core::Startup {
+			external_stickers: false,
 			user: ready.user.into_model(),
 			guilds,
 			channels,

@@ -7,7 +7,16 @@ use egui::RichText;
 use model::{Channel, Id, Shortcut};
 use std::collections::{BTreeMap, BTreeSet};
 
-const MAX_VISIBLE_THREADS: usize = 3;
+const MAX_VISIBLE_THREADS: usize = 4;
+
+/// Voice and stage channels keep a separate position list, drawn below other channels.
+fn voice_lane(kind: u8) -> bool {
+	matches!(kind, 2 | 13)
+}
+
+fn sidebar_rank(channel: &Channel) -> (bool, i32, Id) {
+	(voice_lane(channel.kind), channel.position, channel.id)
+}
 
 /// Where a channel row came from. A mirrored guild channel differs from its tree copy by slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -107,10 +116,11 @@ fn drop_move(
 				.filter(|c| {
 					c.guild == source.guild
 						&& c.parent_id == Some(target.id)
+						&& voice_lane(c.kind) == voice_lane(source.kind)
 						&& !matches!(c.kind, 4 | 10..=12)
 				})
 				.collect();
-			siblings.sort_unstable_by_key(|c| (c.position, c.id));
+			siblings.sort_unstable_by_key(|c| sidebar_rank(c));
 			if let Some(pos) = siblings.iter().position(|c| c.id == source.id) {
 				siblings.remove(pos);
 			}
@@ -136,10 +146,11 @@ fn drop_move(
 				.filter(|c| {
 					c.guild == source.guild
 						&& c.parent_id.is_none()
+						&& voice_lane(c.kind) == voice_lane(source.kind)
 						&& !matches!(c.kind, 4 | 10..=12)
 				})
 				.collect();
-			siblings.sort_unstable_by_key(|c| (c.position, c.id));
+			siblings.sort_unstable_by_key(|c| sidebar_rank(c));
 			let new_idx = siblings.len() as i32;
 			return Some(ChannelMove {
 				parent: None,
@@ -159,10 +170,11 @@ fn drop_move(
 		.filter(|c| {
 			c.guild == source.guild
 				&& c.parent_id == target.parent
+				&& voice_lane(c.kind) == voice_lane(source.kind)
 				&& !matches!(c.kind, 4 | 10..=12)
 		})
 		.collect();
-	siblings.sort_unstable_by_key(|c| (c.position, c.id));
+	siblings.sort_unstable_by_key(|c| sidebar_rank(c));
 	if let Some(pos) = siblings.iter().position(|c| c.id == source.id) {
 		siblings.remove(pos);
 	}
@@ -207,12 +219,7 @@ fn rows<'a>(
 	let channels = &state.channels;
 	let mut categories: Vec<_> = channels
 		.iter()
-		.filter(|c| {
-			guild.is_some()
-				&& c.guild == guild
-				&& c.kind == 4
-				&& (show_hidden || state.can_view(c.id))
-		})
+		.filter(|c| guild.is_some() && c.guild == guild && c.kind == 4)
 		.collect();
 	categories.sort_unstable_by_key(|c| (c.position, c.id));
 	let category_ids: BTreeSet<_> = categories.iter().map(|c| c.id).collect();
@@ -226,6 +233,9 @@ fn rows<'a>(
 	for channel in channels.iter().filter(|c| {
 		scope.admits(c, state) && (show_hidden || state.can_view(c.id)) && !roster.lifted(c.id)
 	}) {
+		if matches!(channel.kind, 10..=12) && !state.last_viewed_threads.contains(&channel.id) {
+			continue;
+		}
 		if matches!(channel.kind, 10..=12)
 			&& let Some(parent) = channel.parent_id.and_then(|id| parents.get(&id))
 			&& parent.parent_id != Some(channel.id)
@@ -238,12 +248,15 @@ fn rows<'a>(
 			.filter(|id| !matches!(channel.kind, 10..=12) && category_ids.contains(id));
 		groups.entry(parent).or_default().push(channel);
 	}
-	for group in groups.values_mut().chain(threads.values_mut()) {
+	for group in groups.values_mut() {
 		if guild.is_some() {
-			group.sort_unstable_by_key(|c| (c.position, c.id));
+			group.sort_unstable_by_key(|c| sidebar_rank(c));
 		} else {
 			group.sort_unstable_by_key(|c| std::cmp::Reverse((state.channel_activity(c), c.id)));
 		}
+	}
+	for group in threads.values_mut() {
+		group.sort_unstable_by_key(|c| state.last_viewed_threads.iter().position(|id| *id == c.id));
 	}
 	let append = |channel: &'a Channel, slot: Slot, hidden: bool, rows: &mut Vec<Row<'a>>| {
 		if hidden {
@@ -345,12 +358,15 @@ fn category_header(
 		),
 		color,
 	);
-	let label = ui.painter().layout(
+	let mut job = egui::text::LayoutJob::simple_singleline(
 		name.to_uppercase(),
 		egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
 		color,
-		(rect.width() - 24.0).max(10.0),
 	);
+	job.wrap.max_width = (rect.width() - 24.0).max(10.0);
+	job.wrap.max_rows = 1;
+	job.wrap.break_anywhere = true;
+	let label = ui.painter().layout_job(job);
 	let label_rect = egui::Rect::from_min_size(
 		egui::pos2(rect.left() + 16.0, rect.bottom() - 6.0 - label.size().y),
 		egui::vec2(rect.width() - 24.0, label.size().y),
@@ -366,7 +382,7 @@ fn category_header(
 	});
 	response.widget_info(|| {
 		egui::WidgetInfo::labeled(
-			egui::WidgetType::Button,
+			egui::Role::Button,
 			true,
 			format!(
 				"{name} category, {}, {count} channels",
@@ -441,11 +457,9 @@ fn kind_label(kind: u8) -> &'static str {
 
 impl MessagingUi {
 	pub(super) fn channel_list(&mut self, ui: &mut egui::Ui, state: &mut State) -> Option<Id> {
-		self.hidden_muted_guilds
-			.retain(|guild| state.guild(*guild).is_some());
 		let hide_muted = self
 			.guild
-			.is_some_and(|guild| self.hidden_muted_guilds.contains(&guild));
+			.is_some_and(|guild| state.hides_muted_channels(guild) == Some(true));
 		let scope = Scope::of(self.guild);
 		let shortcuts_available = self.shortcuts_available(state);
 		let key = CacheKey {
@@ -457,28 +471,32 @@ impl MessagingUi {
 			hide_muted,
 		};
 		if self.channel_cache.key != Some(key) {
-			// Session-only keys are pruned on navigation updates, never accumulated in egui memory.
 			let categories: BTreeSet<_> = state
 				.channels
 				.iter()
 				.filter(|c| c.kind == 4)
 				.map(|c| c.id)
 				.collect();
-			self.collapsed_categories
+			let before = self.channel_preferences.collapsed_categories.len();
+			self.channel_preferences
+				.collapsed_categories
 				.retain(|id| categories.contains(id));
+			self.channel_preferences_changed |=
+				before != self.channel_preferences.collapsed_categories.len();
 			let roster = Roster::build(
 				state,
 				&self.channel_preferences,
 				scope,
 				self.show_hidden_channels,
 			);
-			let mut channel_rows = rows(
-				state,
-				scope,
-				&roster,
-				&self.collapsed_categories,
-				self.show_hidden_channels,
-			);
+			let collapsed: BTreeSet<_> = self
+				.channel_preferences
+				.collapsed_categories
+				.iter()
+				.copied()
+				.collect();
+			let mut channel_rows =
+				rows(state, scope, &roster, &collapsed, self.show_hidden_channels);
 			if hide_muted {
 				channel_rows.retain(|row| {
 					!matches!(row, Row::Channel(channel, ..) if Some(channel.id) != state.selected && state.guild_channel_muted(channel.id) == Some(true))
@@ -587,7 +605,8 @@ impl MessagingUi {
 							let category = &state.channels[category];
 							let draggable = !state.channel_action_pending()
 								&& state.can_manage_channel(category.id);
-							let collapsed = self.collapsed_categories.contains(&category.id);
+							let collapsed =
+								self.channel_preferences.category_collapsed(category.id);
 							let response = category_header(
 								ui,
 								category.id,
@@ -610,10 +629,17 @@ impl MessagingUi {
 							}
 							if response.clicked() {
 								self.channel_cache.key = None;
-								if collapsed {
-									self.collapsed_categories.remove(&category.id);
-								} else {
-									self.collapsed_categories.insert(category.id);
+								match self
+									.channel_preferences
+									.set_category_collapsed(category.id, !collapsed)
+								{
+									model::PreferenceEdit::Changed => {
+										self.channel_preferences_changed = true;
+									}
+									model::PreferenceEdit::CapacityReached => {
+										self.channel_menu.report_capacity(state.generation)
+									}
+									model::PreferenceEdit::Unchanged => {}
 								}
 							}
 							self.channel_menu.context(
@@ -679,10 +705,13 @@ impl MessagingUi {
 								&& (state.channel_unread(channel) == Some(true)
 									|| state.unread_count(channel.id) > 0
 									|| (forum && state.forum_unread(channel.id)));
-							let count = if !visible {
+							let new_posts = if visible && forum {
+								state.forum_new_count(channel.id)
+							} else {
 								0
-							} else if forum {
-								state.forum_mentions(channel.id)
+							};
+							let count = if !visible || forum {
+								0
 							} else if channel.guild.is_some() {
 								state.mention_count(channel.id)
 							} else {
@@ -755,7 +784,25 @@ impl MessagingUi {
 									Emphasis::Idle
 								},
 							);
-							let badge_width = if count > 0 { 34.0 } else { 0.0 };
+							let new_label = (new_posts > 0).then(|| {
+								ui.painter().layout_no_wrap(
+									format!(
+										"{} New",
+										if new_posts > 99 {
+											"99+".to_owned()
+										} else {
+											new_posts.to_string()
+										}
+									),
+									egui::FontId::proportional(12.0),
+									colors.muted,
+								)
+							});
+							let badge_width = new_label
+								.as_ref()
+								.map_or(if count > 0 { 34.0 } else { 0.0 }, |label| {
+									label.size().x + 12.0
+								});
 							let trailing = badge_width
 								+ if external.is_some() { 30.0 } else { 0.0 }
 								+ channel_marks::trailing(access);
@@ -828,8 +875,9 @@ impl MessagingUi {
 							} else {
 								let icon = match channel.kind {
 									13 => crate::icons::Icon::Speaker,
+									5 => crate::icons::Icon::Megaphone,
 									15 | 16 => crate::icons::Icon::Forum,
-									10..=12 => crate::icons::Icon::Threads,
+									10..=12 => crate::icons::Icon::Thread,
 									_ => crate::icons::Icon::Hash,
 								};
 								glyph = Some(crate::icons::inline(
@@ -859,15 +907,55 @@ impl MessagingUi {
 								(dm_list && channel.kind == 3)
 									.then(|| format!("{} Members", channel.recipients.len().max(1)))
 							};
-							let name =
-								egui::Label::new(design::medium(ui, label, 15.0).color(name_color))
-									.truncate()
-									.selectable(false);
+							let direct_user = (dm_list && channel.kind == 1)
+								.then(|| channel.recipients.first())
+								.flatten();
+							let mut show_name = |ui: &mut egui::Ui| {
+								ui.allocate_ui_with_layout(
+									egui::vec2(ui.available_width(), 18.0),
+									egui::Layout::left_to_right(egui::Align::Center),
+									|ui| {
+										ui.spacing_mut().item_spacing.x = 5.0;
+										if let Some(user) = direct_user {
+											let server_tag = user.primary_guild.as_deref();
+											let trailing =
+												crate::profiles::server_tag_width(ui, server_tag)
+													+ if server_tag.is_some() { 5.0 } else { 0.0 };
+											crate::account_badge::name(
+												ui,
+												user,
+												&label,
+												15.0,
+												name_color,
+												egui::Sense::hover(),
+												trailing,
+											);
+											if let Some(tag) = server_tag {
+												crate::profiles::server_tag(
+													ui,
+													tag,
+													&mut self.avatars,
+													state.demo,
+												);
+											}
+										} else {
+											ui.add(
+												egui::Label::new(
+													design::medium(ui, &label, 15.0)
+														.color(name_color),
+												)
+												.truncate()
+												.selectable(false),
+											);
+										}
+									},
+								);
+							};
 							if let Some(subtitle) = subtitle {
 								inner.vertical(|ui| {
 									ui.spacing_mut().item_spacing.y = 0.0;
 									ui.add_space(((row.height() - 34.0) * 0.5).max(0.0));
-									ui.add(name);
+									show_name(ui);
 									ui.add(
 										egui::Label::new(
 											RichText::new(subtitle).size(12.0).color(colors.muted),
@@ -877,7 +965,7 @@ impl MessagingUi {
 									);
 								});
 							} else {
-								inner.add(name);
+								show_name(&mut inner);
 							}
 							let lane = channel_marks::trailing(access);
 							if let Some(url) = &external {
@@ -899,6 +987,11 @@ impl MessagingUi {
 								{
 									self.timeline.browser_opening = Some(url.clone());
 								}
+							}
+							if let Some(label) = new_label {
+								let pos = row.right_center()
+									- egui::vec2(8.0 + lane + label.size().x, label.size().y * 0.5);
+								ui.painter().galley(pos, label, colors.muted);
 							}
 							if count > 0 {
 								crate::notifications::badge(
@@ -954,7 +1047,7 @@ impl MessagingUi {
 							});
 							response.widget_info(|| {
 								egui::WidgetInfo::labeled(
-									egui::WidgetType::Button,
+									egui::Role::Button,
 									enabled,
 									format!(
 										"{}{}{}; {} notifications",
@@ -1078,10 +1171,16 @@ impl MessagingUi {
 				self.channel_menu
 					.sidebar_context(&response, state, guild, &mut next);
 				if next != hide_muted {
-					if next {
-						self.hidden_muted_guilds.insert(guild);
-					} else {
-						self.hidden_muted_guilds.remove(&guild);
+					if let Some(channel) = state
+						.channels
+						.iter()
+						.find(|channel| channel.guild == Some(guild) && state.can_view(channel.id))
+						.map(|channel| channel.id)
+					{
+						self.channel_move = Some((
+							channel,
+							client_core::channel_actions::Action::HideMuted(next),
+						));
 					}
 					self.channel_cache.invalidate();
 				}
@@ -1092,9 +1191,144 @@ impl MessagingUi {
 	}
 }
 
+/// Offline regression check for attachment permission and opened-thread ordering.
+#[cfg(feature = "demo")]
+pub fn debug_thread_navigation_check(state: &mut State) {
+	let parent = Id(26);
+	state.auth = client_core::auth::AuthState::Authenticated;
+	state.gateway_connected = true;
+	state.select(parent);
+	let visible = |state: &State| {
+		rows(
+			state,
+			Scope::Guild(Id(10)),
+			&Roster::default(),
+			&BTreeSet::new(),
+			false,
+		)
+		.into_iter()
+		.filter_map(|row| match row {
+			Row::Channel(c, _, true) if c.parent_id == Some(parent) => Some(c.id),
+			_ => None,
+		})
+		.collect::<Vec<_>>()
+	};
+	assert!(visible(state).is_empty(), "Loaded threads are not visits");
+	let template = state.channel(Id(27)).unwrap().clone();
+	for id in 1000..1005 {
+		let client_core::Command::CreatePost {
+			request,
+			attachments,
+			..
+		} = state
+			.create_post_with_attachments(parent, "Image post", "", &["synthetic.png"])
+			.unwrap()
+		else {
+			panic!("Expected post command")
+		};
+		assert_eq!(attachments, ["synthetic.png"]);
+		assert!(
+			!state.can_create_post(parent),
+			"Duplicate submissions stay blocked"
+		);
+		assert!(
+			state.can_attach_post(parent),
+			"Pending post must allow its upload"
+		);
+		state.gateway_connected = false;
+		assert!(!state.can_attach_post(parent));
+		state.gateway_connected = true;
+		let mut post = template.clone();
+		post.id = Id(id);
+		state.apply_post(parent, request, Ok(post));
+		let created = state.posting.created.take().unwrap();
+		assert!(
+			state
+				.forum_posts(parent)
+				.iter()
+				.any(|post| post.id == created)
+		);
+		state.select(created);
+		assert_eq!(visible(state)[0], created);
+		state.select(parent);
+	}
+	assert_eq!(visible(state), [Id(1004), Id(1003), Id(1002), Id(1001)]);
+	state.select(Id(1002));
+	assert_eq!(visible(state), [Id(1002), Id(1004), Id(1003), Id(1001)]);
+	state.select(Id(1000));
+	assert_eq!(visible(state), [Id(1000), Id(1002), Id(1004), Id(1003)]);
+	println!(
+		"Thread debug check passed: image post dispatch permission, created posts, four opened threads, newest first."
+	);
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn direct_message_rows_show_the_recipient_server_tag() {
+		fn text(shape: &egui::Shape, found: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => found.push(text.galley.job.text.clone()),
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| text(shape, found)),
+				_ => {}
+			}
+		}
+		let mut dm = channel(1, 1, 0, None);
+		dm.guild = None;
+		dm.name = "Tagged person".into();
+		dm.recipients = vec![model::User {
+			id: Id(2),
+			name: "Tagged person".into(),
+			avatar: None,
+			discriminator: 0,
+			primary_guild: Some(Box::new(model::ClanTag {
+				guild: Id(9),
+				tag: "SPDY".into(),
+				badge: None,
+			})),
+			kind: Default::default(),
+			webhook: false,
+		}];
+		let mut state = State {
+			channels: vec![dm],
+			demo: true,
+			..Default::default()
+		};
+		let mut view = MessagingUi::default();
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut painted = Vec::new();
+		for _ in 0..2 {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(240.0, 180.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.channel_list(ui, &mut state);
+				},
+			);
+			painted.clear();
+			for shape in &output.shapes {
+				text(&shape.shape, &mut painted);
+			}
+			output.drop_without_applying_deltas();
+		}
+		assert!(
+			painted.iter().any(|text| text == "Tagged person"),
+			"painted text: {painted:?}"
+		);
+		assert!(
+			painted.iter().any(|text| text == "SPDY"),
+			"painted text: {painted:?}"
+		);
+		assert!(view.take_avatar_requests().is_empty());
+	}
+
 	#[test]
 	fn shortcuts_survive_collapsed_categories_without_duplicates_or_orphan_threads() {
 		let mut state = test_support::demo_state();
@@ -1105,13 +1339,16 @@ mod tests {
 			channel(8, 11, 0, Some(Id(7))),
 			channel(9, 0, 1, Some(Id(4))),
 		];
+		state.invalidate_navigation();
 		state
 			.permissions
 			.replace(test_support::permission_snapshot(&state))
 			.unwrap();
+		state.select(Id(8));
 		let preferences = model::ChannelPreferences {
 			pinned: vec![Id(7)],
 			favorites: vec![Id(7), Id(9)],
+			..Default::default()
 		};
 		let scope = Scope::Guild(Id(100));
 		let ids = |rows: &[Row<'_>]| {
@@ -1333,6 +1570,7 @@ mod tests {
 		let mut state = test_support::demo_state();
 		state.guilds[0].id = Id(100);
 		state.channels = vec![channel(4, 4, 0, None), channel(7, 0, 0, Some(Id(4)))];
+		state.invalidate_navigation();
 		let mut permissions = test_support::permission_snapshot(&state);
 		permissions.channels.retain(|c| c.id != Id(7));
 		state.permissions.replace(permissions).unwrap();
@@ -1492,12 +1730,13 @@ mod tests {
 				],
 			);
 		}
-		assert!(view.hidden_muted_guilds.contains(&Id(10)));
+		assert_eq!(state.hides_muted_channels(Id(10)), Some(true));
 	}
 	#[test]
 	fn channel_rows_scroll_continuously_past_voice_participants() {
 		let mut state = test_support::demo_state();
 		state.guilds = vec![model::Guild {
+			stickers: None,
 			id: Id(100),
 			name: "Synthetic".into(),
 			icon: None,
@@ -1690,8 +1929,10 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
+				stickers: None,
 				id: Id(100),
 				name: "Synthetic".into(),
 				icon: None,
@@ -1751,7 +1992,7 @@ mod tests {
 	}
 
 	#[test]
-	fn service_order_orphans_collapsed_selection_and_category_buttons() {
+	fn collapsed_categories_follow_service_order_selection_and_buttons() {
 		let channels = vec![
 			channel(8, 0, 2, Some(Id(4))),
 			channel(4, 4, 1, None),
@@ -1807,6 +2048,10 @@ mod tests {
 		hierarchy.iter_mut().find(|c| c.id == Id(26)).unwrap().guild = Some(Id(101));
 		let hierarchy_state = State {
 			channels: hierarchy.clone(),
+			last_viewed_threads: vec![9, 8, 11, 13, 20, 21, 22, 23, 24, 25, 27]
+				.into_iter()
+				.map(Id)
+				.collect(),
 			..State::default()
 		};
 		let expanded = tree(&hierarchy_state, BTreeSet::new());
@@ -1830,8 +2075,10 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
+				stickers: None,
 				id: Id(100),
 				name: "Synthetic guild".into(),
 				icon: None,
@@ -1849,14 +2096,17 @@ mod tests {
 		let ctx = egui::Context::default();
 		let mut view = MessagingUi {
 			guild: Some(Id(100)),
-			collapsed_categories: BTreeSet::from([Id(999)]),
+			channel_preferences: model::ChannelPreferences {
+				collapsed_categories: vec![Id(999)],
+				..Default::default()
+			},
 			..MessagingUi::default()
 		};
 		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
 			assert!(view.channel_list(ui, &mut state).is_none());
 		});
 		output.textures_delta.clear();
-		assert!(view.collapsed_categories.is_empty());
+		assert!(view.channel_preferences.collapsed_categories.is_empty());
 		assert!(state.selected.is_none());
 		// A category is a keyboard-operable button, never a history-selection command.
 		state.channels = vec![channel(4, 4, 0, None), channel(8, 0, 0, Some(Id(4)))];
@@ -1881,7 +2131,7 @@ mod tests {
 			});
 			output.textures_delta.clear();
 		}
-		assert!(view.collapsed_categories.contains(&Id(4)));
+		assert!(view.channel_preferences.category_collapsed(Id(4)));
 		assert_eq!(state.selected, Some(Id(8)));
 		ctx.run_ui(egui::RawInput::default(), |ui| {
 			assert!(view.channel_list(ui, &mut state).is_none());
@@ -1891,7 +2141,7 @@ mod tests {
 			view.channel_cache.rows.as_slice(),
 			[CachedRow::Category(_, 1)]
 		));
-		// Forum containers never request history; their loaded posts remain keyboard-selectable.
+		// Forum containers never request history; opened posts remain keyboard-selectable.
 		state.channels = vec![channel(7, 15, 0, None), channel(8, 11, 0, Some(Id(7)))];
 		state.revision += 1;
 		state.invalidate_navigation();
@@ -1899,6 +2149,8 @@ mod tests {
 			.permissions
 			.replace(test_support::permission_snapshot(&state))
 			.unwrap();
+		state.selected = None;
+		state.select(Id(8));
 		assert!(state.select(Id(7)).is_none());
 		let ctx = egui::Context::default();
 		let mut picked = None;
@@ -1923,5 +2175,66 @@ mod tests {
 		}
 		assert_eq!(picked, Some(Id(8)));
 		assert!(view.archive_parent.is_none());
+	}
+	#[test]
+	fn issue_341_visible_children_keep_category_heading() {
+		let mut state = test_support::chat_demo_state();
+		state
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(23))
+			.unwrap()
+			.name = "lowercase".into();
+		state.permissions.channels.remove(&Id(23));
+		state.permissions.clear_cache();
+		assert!(!state.can_view(Id(23)) && state.can_view(Id(20)));
+		let rows = rows(
+			&state,
+			Scope::Guild(Id(10)),
+			&Roster::default(),
+			&BTreeSet::new(),
+			false,
+		);
+		assert!(
+			rows.iter().any(
+				|row| matches!(row, Row::Category(category, _) if category.name == "lowercase")
+			)
+		);
+	}
+	#[test]
+	fn voice_channels_stay_below_text_like_channels_that_share_positions() {
+		let category = Id(1);
+		let mut channels = vec![channel(1, 4, 0, None)];
+		channels.push(channel(100, 15, 0, Some(category)));
+		for index in 0..7 {
+			channels.push(channel(200 + index, 0, index as i32 + 1, Some(category)));
+		}
+		for index in 0..8 {
+			channels.push(channel(50 + index, 2, index as i32, Some(category)));
+		}
+		let state = State {
+			channels,
+			..State::default()
+		};
+		let ids = rows(
+			&state,
+			Scope::Guild(Id(100)),
+			&Roster::default(),
+			&BTreeSet::new(),
+			true,
+		)
+		.into_iter()
+		.map(|row| match row {
+			Row::Channel(channel, ..) | Row::Category(channel, _) => channel.id.0,
+			Row::Participant(entry) => entry.participant.user.0,
+			Row::Heading(..) => 0,
+		})
+		.collect::<Vec<_>>();
+		assert_eq!(
+			ids,
+			[
+				1, 100, 200, 201, 202, 203, 204, 205, 206, 50, 51, 52, 53, 54, 55, 56, 57
+			]
+		);
 	}
 }

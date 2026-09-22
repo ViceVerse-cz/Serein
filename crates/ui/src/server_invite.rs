@@ -253,7 +253,7 @@ impl InviteDialog {
 										.inner;
 									button.widget_info(|| {
 										egui::WidgetInfo::labeled(
-											egui::WidgetType::Button,
+											egui::Role::Button,
 											can_send,
 											format!("{label} {}", user.name),
 										)

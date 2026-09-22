@@ -2,6 +2,7 @@
 mod activity;
 mod channel_events;
 mod compression;
+mod interactions;
 #[cfg(test)]
 mod login_tests;
 mod member_search;
@@ -864,6 +865,10 @@ async fn run_inner(
 							continue;
 						}
 					};
+					if let client_core::voice::Command::Leave { channel, request } = command
+						&& packet.is_none() && !calls.has_call() {
+						emit(Event::Voice(client_core::voice::Event::Departed { channel, request }))?;
+					}
 					if let Some(channel)=connect && let Some(packet)=calls.packet(client_core::voice::Command::Sync { channel })?
 						&& !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
 					if let Some(packet)=packet && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
@@ -966,6 +971,7 @@ async fn run_inner(
 										state.session = Some(Zeroizing::new(std::mem::take(&mut ready.session_id)));
 										let friends = ready.relationships.as_ref().map(|s| s.friends(&ready.users)).transpose().map_err(|_| Failure::ProtocolAt("Invalid friend metadata"))?;
 										let requests = ready.relationships.as_ref().map(|s| s.requests(&ready.users)).transpose().map_err(|_| Failure::ProtocolAt("Invalid friend request metadata"))?;
+										let restricted = ready.relationships.as_ref().map(|s| s.restricted(&ready.users)).transpose().map_err(|_| Failure::ProtocolAt("Invalid blocked or ignored user metadata"))?;
 										calls.session_reset();
 										calls.remember_users(std::mem::take(&mut ready.users));
 										known_guilds=channel_events::ready_calls(&ready,&mut calls)?;
@@ -1000,11 +1006,13 @@ async fn run_inner(
 										direct_presence.bootstrap_users=friends.as_ref().into_iter().flatten().map(|(u,_)|u.id).chain(channels.iter().filter(|c|c.guild.is_none() && matches!(c.kind,1|3)).flat_map(|c|c.recipients.iter().map(|u|u.id))).take(client_core::presence::MAX_DIRECT_PRESENCES).collect();
 										calls.allowed=channels.iter().filter(|c|(c.guild.is_none() && channel_events::private_call(c.kind,c.recipients.len())) || (c.guild.is_some() && c.kind==2)).map(|c|(c.id,c.guild)).collect();
 										if was_ready { emit(Event::Resync)?; }
+										emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?;
 										let notifications = ready.user_guild_settings.take().map(|snapshot| {
 											let (entries, replace) = snapshot.entries();
 											notification_preferences(entries, replace)
 										});
 										emit(Event::Startup(Box::new(client_core::Startup {
+											external_stickers: matches!(ready.user.premium_type, model::Patch::Value(2 | 3)),
 											user: ready.user.into_model(), guilds, channels, permissions,
 											read_state: client_core::read_state::Event::Snapshot {entries:read_entries,version:read_version,partial},
 											notifications, session_dnd: ready.sessions.as_ref().and_then(|s| s.dnd()), warnings,
@@ -1014,6 +1022,7 @@ async fn run_inner(
 										let spam_requests = ready.relationships.as_ref().map(|s| s.spam_incoming_ids());
 										emit(Event::UserAction(client_core::user_actions::Event::Relationships(ready.relationships.take().map(|s| s.entries()))))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Friends(friends)))?;
+										emit(Event::UserAction(client_core::user_actions::Event::Restrictions(restricted)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Requests(requests)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::RequestSpams(spam_requests)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::MessageRequests(Some(message_requests))))?;
@@ -1055,7 +1064,7 @@ async fn run_inner(
 										if !participants.is_empty() { emit(Event::Voice(client_core::voice::Event::Snapshot { partial: true, guild: None, participants }))?; }
 										calls.users.clear();
 									}
-									"RESUMED" => { emit(Event::Resumed)?; ready_at = Some(Instant::now()); },
+									"RESUMED" => { emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?; emit(Event::Resumed)?; ready_at = Some(Instant::now()); },
 									"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" | "VOICE_STATE_UPDATE" | "VOICE_SERVER_UPDATE" | "STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_DELETE" => calls.dispatch(packet.t.as_deref().unwrap_or(""),packet.d.get().as_bytes(),owner_id,&emit)?,
 									"THREAD_MEMBER_LIST_UPDATE" => {
 										if let Some(active) = &mut active_members {
@@ -1108,8 +1117,10 @@ async fn run_inner(
 										emit(Event::UserAction(client_core::user_actions::Event::Relationship { user: relationship.id, blocked: packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 2 }))?;
 										let friend = packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 1;
 										let profile = relationship.user.map(discord_protocol::relationships::friend).transpose().map_err(|_| Failure::ProtocolAt("Invalid friend metadata"))?;
+										let ignored = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && (relationship.kind == 2 || relationship.user_ignored)).then_some(relationship.user_ignored && relationship.kind != 2);
 										let incoming = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && matches!(relationship.kind,3|4)).then_some(relationship.kind==3);
 										emit(Event::UserAction(client_core::user_actions::Event::Friend { user: relationship.id, friend, profile: profile.clone() }))?;
+										emit(Event::UserAction(client_core::user_actions::Event::Restriction { user: relationship.id, ignored, profile: profile.clone() }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Request { user: relationship.id, incoming, profile }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::RequestSpam { user: relationship.id, spam: packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 3 && relationship.is_spam_request }))?;
 										if friend { match relationship.nickname {
@@ -1120,6 +1131,7 @@ async fn run_inner(
 									}
 									"USER_UPDATE" => {
 										let user: discord_protocol::UserDto = decode(packet.d.get().as_bytes()).map_err(|_| Failure::ProtocolAt("Invalid user update"))?;
+										emit(Event::StickerEntitlement { user: user.id, premium_type: user.premium_type.clone() })?;
 										let profile = discord_protocol::relationships::friend(user).map_err(|_| Failure::ProtocolAt("Invalid user update"))?;
 										emit(Event::UserAction(client_core::user_actions::Event::FriendProfile(profile)))?;
 									}
@@ -1132,8 +1144,15 @@ async fn run_inner(
 										let sessions=decode::<discord_protocol::notifications::Sessions>(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;
 										emit(Event::NotificationPreferences(client_core::notifications::Event::Presence(sessions.dnd())))?;
 									}
-									"USER_SETTINGS_PROTO_UPDATE" => emit(Event::NotificationPreferences(client_core::notifications::Event::Invalidate))?,
-									"MESSAGE_CREATE" => emit(Event::Message(decode::<MessageDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model()))?,
+									// Status and appearance live here. Channel and guild mutes live on
+									// user guild settings, so this event must not clear them.
+									"USER_SETTINGS_PROTO_UPDATE" => {}
+									"INTERACTION_SUCCESS" | "INTERACTION_FAILURE" | "INTERACTION_MODAL_CREATE" => { if let Some(event) = interactions::event(packet.t.as_deref().unwrap_or_default(),packet.d.get().as_bytes())? { emit(event)?; } },
+									"MESSAGE_CREATE" => {
+										let message = decode::<MessageDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model();
+										if message.ephemeral { emit(Event::Interaction(client_core::interactions::Event::Ephemeral(Box::new(message))))?; }
+										else { emit(Event::Message(message))?; }
+									},
 									"MESSAGE_ACK" => {
 										let ack=decode::<read_state::Ack>(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;
 										emit(Event::ReadState(client_core::read_state::Event::Ack{channel:ack.channel_id,message:ack.message_id,manual:ack.manual,mention_count:ack.mention_count,version:ack.version}))?;
@@ -1191,6 +1210,10 @@ async fn run_inner(
 									"THREAD_CREATE" | "THREAD_UPDATE" | "THREAD_DELETE" | "THREAD_LIST_SYNC" | "THREAD_MEMBERS_UPDATE" => {
 										if let Some(event) = thread_events::decode_event(packet.t.as_deref().unwrap_or(""), packet.d.get().as_bytes(), owner_id)? { emit(event)?; }
 									}
+									"GUILD_STICKERS_UPDATE" => {
+										let update: discord_protocol::stickers::GuildStickersUpdate = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
+										emit(Event::GuildStickers { guild: update.guild_id, stickers: discord_protocol::stickers::guild_catalog(update.stickers.0, update.guild_id).map_err(|_| Failure::Protocol)? })?;
+									}
 									"GUILD_EMOJIS_UPDATE" => {
 										let update: GuildEmojisUpdate = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
 										emit(Event::GuildEmojis { guild: update.guild_id, emojis: update.emojis.0 })?;
@@ -1205,7 +1228,7 @@ async fn run_inner(
 											known_guilds.insert(guild.id);
 											let name = guild.properties.as_ref().and_then(|p| match &p.name { model::Patch::Value(name) => Some(name), _ => None }).unwrap_or(&guild.name).chars().take(128).collect();
 											let icon = guild.properties.as_ref().and_then(|p| match &p.icon { model::Patch::Value(icon) => Some(icon.clone()), _ => None }).or_else(|| guild.icon.clone()).filter(|h| model::valid_avatar_hash(h));
-											emit(Event::GuildJoined(model::Guild { id: guild.id, name, icon, emojis: None }))?;
+											emit(Event::GuildJoined(model::Guild { id: guild.id, name, icon, stickers: None, emojis: None }))?;
 										}
 
 										if let Some(permissions)=permissions {emit(Event::Permissions(client_core::permissions::Event::Snapshot(permissions)))?;}
@@ -1221,6 +1244,7 @@ async fn run_inner(
 											emit(event)?;
 										}
 										emit(calls.snapshot(&mut guild, false)?)?;
+										if let Some(stickers) = guild.stickers { emit(Event::GuildStickers { guild: guild.id, stickers: discord_protocol::stickers::guild_catalog(stickers.0, guild.id).map_err(|_| Failure::Protocol)? })?; }
 										if let Some(emojis) = guild.emojis { emit(Event::GuildEmojis { guild: guild.id, emojis: emojis.0 })?; }
 									}
 									"GUILD_UPDATE" => {
@@ -1237,6 +1261,7 @@ async fn run_inner(
 										let guild: GuildDto = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
 										let removed: Vec<_> = calls.allowed.iter().filter_map(|(channel, id)| (*id == Some(guild.id)).then_some(*channel)).collect();
 										for channel in removed { calls.invalidate(channel); emit(Event::Unavailable(channel))?; }
+										emit(Event::GuildStickers { guild: guild.id, stickers: Vec::new() })?;
 										emit(Event::GuildEmojis { guild: guild.id, emojis: Vec::new() })?;
 										emit(Event::Permissions(client_core::permissions::Event::UnavailableGuild(guild.id)))?;
 									}
@@ -1292,6 +1317,7 @@ fn notification_preferences(
 				level: s.message_notifications,
 				suppress_everyone: s.suppress_everyone,
 				suppress_roles: s.suppress_roles,
+				hide_muted_channels: s.hide_muted_channels,
 				channel_mute_until: s.channel_overrides.as_ref().map_or_else(Vec::new, |c| {
 					c.0.iter()
 						.filter_map(|c| {
@@ -1468,7 +1494,7 @@ mod tests {
             let game = |name: &str| discord_protocol::rpc::ActivityFields::default().into_activity(Id(42), name.into()).unwrap();
             let (activity, receiver) = watch::channel(Some(game("osu!")));
 			let (own_presence, presence_receiver) = watch::channel(model::OwnPresence {
-				status: model::PresenceStatus::DoNotDisturb, custom_status: "Synthetic focus".into(),
+				status: model::PresenceStatus::DoNotDisturb, custom_status: "Synthetic focus".into(), expires_at_ms: None,
 			});
             let (observations, mut observed) = watch::channel(ActivityObservation::Unconfirmed);
             let (finished, done) = tokio::sync::oneshot::channel();
@@ -1528,7 +1554,7 @@ mod tests {
                                     observed.wait_for(|value| *value == expected).await.unwrap();
                                 }
                                 activity.send(Some(game("Skipped intermediate"))).unwrap();
-								own_presence.send_replace(model::OwnPresence {status:model::PresenceStatus::DoNotDisturb,custom_status:"On a break".into()});
+								own_presence.send_replace(model::OwnPresence {status:model::PresenceStatus::DoNotDisturb,custom_status:"On a break".into(),expires_at_ms:None});
                                 activity.send(Some(game("Minecraft"))).unwrap();
                                 observed.wait_for(|value| *value == ActivityObservation::Unconfirmed).await.unwrap();
                             }
@@ -1913,6 +1939,7 @@ mod tests {
 				}
 			};
 			let events = std::sync::Mutex::new(Vec::new());
+			let sessions = std::sync::Mutex::new(Vec::new());
 			let secret = Arc::new(
 				SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap(),
 			);
@@ -1934,6 +1961,10 @@ mod tests {
 				None,
 				|event| {
 					let label = match event {
+						Event::Interaction(client_core::interactions::Event::Session(session)) => {
+							sessions.lock().unwrap().push(session.to_string());
+							return Ok(());
+						}
 						Event::Startup(_) => "ready",
 						Event::Resumed => "resumed",
 						Event::DirectPresence(_) => "presence",
@@ -1946,6 +1977,7 @@ mod tests {
 							client_core::user_actions::Event::Relationships(None)
 							| client_core::user_actions::Event::Requests(None)
 							| client_core::user_actions::Event::Friends(None)
+							| client_core::user_actions::Event::Restrictions(None)
 							| client_core::user_actions::Event::MessageRequests(_)
 							| client_core::user_actions::Event::MessageSpams(_)
 							| client_core::user_actions::Event::RequestSpams(_),
@@ -1987,6 +2019,14 @@ mod tests {
 			};
 			let (result, ()) = tokio::join!(client, server);
 			assert_eq!(result, Err(Failure::Expired));
+			assert_eq!(
+				sessions.into_inner().unwrap(),
+				[
+					"synthetic-first-session",
+					"synthetic-first-session",
+					"synthetic-new-session"
+				]
+			);
 			let events = events.into_inner().unwrap();
 			assert!(
 				events
@@ -2009,7 +2049,7 @@ mod tests {
 	#[tokio::test]
 	async fn unjoined_dm_call_discovery_and_lifecycle_over_local_gateway() {
 		use client_core::voice::{Command as V, Event as E};
-		timeout(Duration::from_secs(10), async {
+		timeout(Duration::from_secs(25), async {
 			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 			let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
 			let (controls, receive) = mpsc::channel(8);

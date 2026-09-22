@@ -2,7 +2,7 @@ use crate::{
 	State,
 	auth::{AuthState, Failure},
 };
-use model::{Channel, Freshness, Id, Patch};
+use model::{Freshness, Id, Patch};
 use std::collections::BTreeMap;
 
 pub enum Event {
@@ -50,6 +50,7 @@ enum Pending {
 		request: u64,
 		epoch: u64,
 		manual: bool,
+		mention_count: Option<u32>,
 	},
 	Guild {
 		guild: Id,
@@ -136,11 +137,11 @@ impl State {
 		if !self.gateway_connected || !self.can_view(channel.id) || !channel.supports_text() {
 			return None;
 		}
-		let read = self
-			.read_state
-			.entries
-			.get(&channel.id)
-			.map(|(id, _)| *id)?;
+		let read = match self.read_state.entries.get(&channel.id) {
+			Some((id, _)) => *id,
+			None if self.read_state.known && matches!(channel.kind, 10..=12) => None,
+			None => return None,
+		};
 		let latest = channel.last_message?;
 		let unread = read.is_none_or(|read| latest > read);
 		if unread
@@ -159,10 +160,18 @@ impl State {
 		Some(unread)
 	}
 	pub fn can_jump_unread(&self) -> bool {
+		let history_ready = if self.freshness == Freshness::Fresh {
+			!self.history_pending
+		} else {
+			self.freshness == Freshness::Loading
+				&& self.history_pending
+				&& !self.history_targeted
+				&& self.history_before.is_none()
+				&& self.history_after.is_none()
+		};
 		self.auth == AuthState::Authenticated
 			&& self.gateway_connected
-			&& self.freshness == Freshness::Fresh
-			&& !self.history_pending
+			&& history_ready
 			&& self.selected.is_some_and(|channel| {
 				self.can_read_history(channel) && self.unread(channel) == Some(true)
 			})
@@ -270,7 +279,7 @@ impl State {
 			return None;
 		}
 		let channel = self.selected?;
-		Some(self.mark_read_command(channel, message, false))
+		Some(self.mark_read_command(channel, message, false, None))
 	}
 	/// Explicit sidebar acknowledgement uses known channel metadata without navigating.
 	pub fn can_mark_channel_read(&self, channel: Id) -> bool {
@@ -284,7 +293,7 @@ impl State {
 			return None;
 		}
 		let message = self.channel(channel)?.last_message?;
-		Some(self.mark_read_command(channel, message, false))
+		Some(self.mark_read_command(channel, message, false, None))
 	}
 	pub fn can_mark_unread(&self, message: Id) -> bool {
 		self.auth == AuthState::Authenticated
@@ -309,7 +318,91 @@ impl State {
 			return None;
 		}
 		let channel = self.selected?;
-		Some(self.mark_read_command(channel, Id(message.0 - 1), true))
+		let cursor = Id(message.0 - 1);
+		let mention_count = self
+			.private_loaded_unread_count(channel, cursor)
+			.or_else(|| self.loaded_guild_mentions(channel, cursor));
+		Some(self.mark_read_command(channel, cursor, true, mention_count))
+	}
+	fn private_loaded_unread_count(&self, channel: Id, after: Id) -> Option<u32> {
+		self.channel(channel)
+			.filter(|known| known.guild.is_none())
+			.map(|_| self.loaded_private_unreads(channel, Some(after)))
+	}
+	fn loaded_private_unreads(&self, channel: Id, after: Option<Id>) -> u32 {
+		const RECIPIENT_REMOVE: u8 = 8;
+		let count = self
+			.timeline
+			.iter()
+			.filter(|message| {
+				message.channel == channel
+					&& after.is_none_or(|cursor| message.id > cursor)
+					&& message.kind != RECIPIENT_REMOVE
+			})
+			.count();
+		u32::try_from(count).unwrap_or(u32::MAX)
+	}
+	fn loaded_guild_mentions(&self, channel: Id, after: Id) -> Option<u32> {
+		if self
+			.channel(channel)
+			.is_none_or(|known| known.guild.is_none())
+		{
+			return None;
+		}
+		let Some(previous) = self.read_marker(channel).flatten() else {
+			return Some(self.mention_count(channel));
+		};
+		if after >= previous {
+			return Some(self.mention_count(channel));
+		}
+		let added = self
+			.timeline
+			.iter()
+			.filter(|message| {
+				message.channel == channel
+					&& message.id > after
+					&& message.id <= previous
+					&& self.counts_toward_mention_badge(message)
+			})
+			.count();
+		Some(
+			self.mention_count(channel)
+				.saturating_add(u32::try_from(added).unwrap_or(u32::MAX)),
+		)
+	}
+	fn manual_private_count(
+		&self,
+		channel: Id,
+		after: Option<Id>,
+		echoed: Option<u32>,
+	) -> Option<u32> {
+		if echoed.is_some() {
+			return echoed;
+		}
+		if let Some(Pending::Channel {
+			channel: pending,
+			message,
+			manual: true,
+			mention_count,
+			..
+		}) = &self.read_state.pending
+			&& *pending == channel
+			&& after == Some(*message)
+		{
+			return *mention_count;
+		}
+		if self
+			.channel(channel)
+			.is_some_and(|known| known.guild.is_some())
+		{
+			return after.and_then(|cursor| self.loaded_guild_mentions(channel, cursor));
+		}
+		let loaded = self.loaded_private_unreads(channel, after);
+		if loaded > 0 {
+			Some(loaded)
+		} else {
+			Some(self.unread_count(channel))
+		}
 	}
 	pub fn can_mark_guild_read(&self, guild: Id) -> bool {
 		self.auth == AuthState::Authenticated
@@ -362,7 +455,13 @@ impl State {
 			}) if *pending_guild == guild && *pending_request == request
 		)
 	}
-	fn mark_read_command(&mut self, channel: Id, message: Id, manual: bool) -> crate::Command {
+	fn mark_read_command(
+		&mut self,
+		channel: Id,
+		message: Id,
+		manual: bool,
+		mention_count: Option<u32>,
+	) -> crate::Command {
 		self.read_state.revision = self.read_state.revision.wrapping_add(1);
 		let request = self.read_state.revision;
 		let epoch = self
@@ -376,6 +475,7 @@ impl State {
 			request,
 			epoch,
 			manual,
+			mention_count,
 		});
 		self.read_state.status = None;
 		crate::Command::MarkRead {
@@ -383,10 +483,12 @@ impl State {
 			message,
 			request,
 			manual,
+			mention_count,
 		}
 	}
 	pub fn observe_last_message(&mut self, channel: Id, message: Id) {
-		if let Some(channel) = self.channels.iter_mut().find(|c| c.id == channel) {
+		if let Some(index) = self.channel_index(channel) {
+			let channel = &mut self.channels[index];
 			self.read_state.activity.observe_latest(channel.id, message);
 			if channel.last_message.is_none_or(|id| message > id) {
 				channel.last_message = Some(message);
@@ -394,6 +496,16 @@ impl State {
 		}
 	}
 	pub fn apply_read_state(&mut self, event: Event) -> Result<(), &'static str> {
+		let new_channel = match &event {
+			Event::Ack { channel, .. } | Event::Result { channel, .. } => Some(*channel),
+			_ => None,
+		};
+		if new_channel.is_some_and(|id| !self.read_state.entries.contains_key(&id))
+			&& self.read_state.entries.len() >= crate::MAX_NAV
+		{
+			self.read_state.cancel();
+			return Err("Read-state capacity exceeded");
+		}
 		match event {
 			Event::Snapshot {
 				entries,
@@ -419,7 +531,8 @@ impl State {
 					}
 				}
 				for (channel, message, count) in entries.unwrap_or_default() {
-					if !self.channel(channel).is_some_and(Channel::supports_text) {
+					// Unjoined forum posts load after READY; keep their service cursors.
+					if self.channel(channel).is_some_and(|c| !c.supports_text()) {
 						continue;
 					}
 					self.read_state.activity.set_count(channel, count);
@@ -464,6 +577,11 @@ impl State {
 				} else {
 					message.max(current)
 				};
+				let mention_count = if manual {
+					self.manual_private_count(channel, message, mention_count)
+				} else {
+					mention_count
+				};
 				self.read_state
 					.activity
 					.ack(channel, message, mention_count);
@@ -506,6 +624,7 @@ impl State {
 					request: pending_request,
 					epoch,
 					manual,
+					mention_count,
 				}) = self.read_state.pending
 				else {
 					return Ok(());
@@ -541,7 +660,11 @@ impl State {
 							} else {
 								Some(message).max(current)
 							};
-							self.read_state.activity.ack(channel, next, None);
+							self.read_state.activity.ack(
+								channel,
+								next,
+								if manual { mention_count } else { None },
+							);
 							self.read_state
 								.entries
 								.insert(channel, (next, self.read_state.revision));
@@ -597,6 +720,11 @@ impl State {
 						self.read_state.revision = self.read_state.revision.wrapping_add(1);
 						let revision = self.read_state.revision;
 						for (channel, epoch, message) in channels {
+							if !self.read_state.entries.contains_key(&channel)
+								&& self.read_state.entries.len() >= crate::MAX_NAV
+							{
+								continue;
+							}
 							if self
 								.read_state
 								.entries
@@ -646,9 +774,11 @@ mod navigation_tests {
 	use model::{Channel, Message, User};
 	fn message(id: u64) -> Message {
 		Message {
+			sticker_items: Vec::new(),
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				primary_guild: None,
 				id: Id(9),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -673,6 +803,10 @@ mod navigation_tests {
 			forwarded: false,
 			kind: 0,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
@@ -713,6 +847,56 @@ mod navigation_tests {
 		state.reply = Some(Reply::to(Id(500)));
 		state
 	}
+	#[test]
+	fn marking_a_dm_or_group_unread_restores_the_badge_count() {
+		for kind in [1, 3] {
+			for ack_first in [false, true] {
+				let mut state = state(Some(Id(500)));
+				state.channels[0].kind = kind;
+				state.timeline.insert(message(498), false, false).unwrap();
+				state.timeline.insert(message(499), false, false).unwrap();
+				let mut removed = message(501);
+				removed.kind = 8;
+				state.timeline.insert(removed, false, false).unwrap();
+				assert_eq!(state.unread_count(Id(1)), 0);
+				let Command::MarkRead {
+					channel,
+					message,
+					request,
+					manual,
+					mention_count,
+				} = state.prepare_mark_unread(Id(498)).unwrap()
+				else {
+					panic!("mark unread");
+				};
+				assert!(manual);
+				assert_eq!((message, mention_count), (Id(497), Some(3)));
+				let ack = Event::Ack {
+					channel,
+					message: Some(message),
+					manual: true,
+					mention_count: None,
+					version: None,
+				};
+				let result = Event::Result {
+					channel,
+					message,
+					request,
+					result: Ok(()),
+				};
+				if ack_first {
+					state.apply_read_state(ack).unwrap();
+					state.apply_read_state(result).unwrap();
+				} else {
+					state.apply_read_state(result).unwrap();
+					state.apply_read_state(ack).unwrap();
+				}
+				assert_eq!(state.unread(Id(1)), Some(true));
+				assert_eq!(state.unread_directs(None), vec![Id(1)]);
+				assert_eq!(state.unread_count(Id(1)), 3);
+			}
+		}
+	}
 	fn apply(state: &mut State, event: CoreEvent) {
 		state.apply(Envelope {
 			generation: state.generation,
@@ -731,6 +915,7 @@ mod navigation_tests {
 				message,
 				request,
 				manual: false,
+				mention_count: None,
 			} = state.prepare_mark_read(Id(500)).unwrap()
 			else {
 				panic!("expected read acknowledgement");
@@ -799,6 +984,7 @@ mod navigation_tests {
 			message,
 			request,
 			manual: false,
+			mention_count: None,
 		}) = state.prepare_mark_channel_read(Id(1))
 		else {
 			panic!("sidebar acknowledgement")

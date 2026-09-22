@@ -2,7 +2,7 @@
 //! Schema: discord-userdoccers/discord-protos discord_users/v1/PreloadedUserSettings.proto.
 use crate::{
 	DecodeError,
-	guild_folders::{fields, integer_wrapper, message},
+	guild_folders::{fields, fixed64_field, integer_wrapper, message},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
@@ -116,6 +116,176 @@ pub fn encode_patch(current: &Settings, enabled: bool) -> Result<String, DecodeE
 	Ok(STANDARD.encode(patch))
 }
 
+/// Status and custom status from the same settings field activity sharing already preserves.
+pub fn account_presence(settings: &Settings) -> Result<model::OwnPresence, DecodeError> {
+	let mut status = None;
+	let mut custom = None;
+	for field in fields(&settings.status_wire)? {
+		match field.number {
+			1 => {
+				if status.is_some() {
+					return Err(DecodeError);
+				}
+				let wire = string_value(field.message()?)?;
+				status = Some(if wire.is_empty() {
+					model::PresenceStatus::Online
+				} else {
+					model::PresenceStatus::parse(&wire).ok_or(DecodeError)?
+				});
+			}
+			2 => {
+				if custom.is_some() {
+					return Err(DecodeError);
+				}
+				custom = Some(custom_status(field.message()?)?);
+			}
+			_ => {}
+		}
+	}
+	let (custom_status, mut expires_at_ms) = custom.unwrap_or_default();
+	if custom_status.is_empty() {
+		expires_at_ms = None;
+	}
+	let presence = model::OwnPresence {
+		status: status.unwrap_or_default(),
+		custom_status,
+		expires_at_ms,
+	};
+	if !presence.custom_status.is_empty() && !presence.valid() {
+		return Err(DecodeError);
+	}
+	Ok(presence)
+}
+
+/// Replace status and custom status. Game sharing and unknown status fields stay.
+pub fn encode_account_presence(
+	current: &Settings,
+	presence: &model::OwnPresence,
+) -> Result<String, DecodeError> {
+	if !presence.valid() {
+		return Err(DecodeError);
+	}
+	let mut status = Vec::new();
+	let mut previous_custom: Option<Vec<u8>> = None;
+	let mut previous_text = String::new();
+	let mut previous_expires = None;
+	let mut previous_status = String::new();
+	let mut status_expiry: Option<Vec<u8>> = None;
+	for field in fields(&current.status_wire)? {
+		match field.number {
+			1 => previous_status = string_value(field.message()?)?,
+			4 => {
+				if status_expiry.is_some() {
+					return Err(DecodeError);
+				}
+				status_expiry = Some(field.raw.to_vec());
+			}
+			2 => {
+				if previous_custom.is_some() {
+					return Err(DecodeError);
+				}
+				let (text, expires) = custom_status(field.message()?)?;
+				previous_text = text;
+				previous_expires = expires;
+				previous_custom = Some(field.raw.to_vec());
+			}
+			_ => status.extend_from_slice(field.raw),
+		}
+	}
+	string_field(1, presence.status.wire(), &mut status);
+	if previous_status == presence.status.wire()
+		&& let Some(raw) = status_expiry
+	{
+		status.extend_from_slice(&raw);
+	}
+	let text_same = previous_text == presence.custom_status;
+	let expires_same = previous_expires == presence.expires_at_ms;
+	if (text_same && expires_same)
+		|| (presence.custom_status.is_empty() && previous_text.is_empty())
+	{
+		if let Some(raw) = previous_custom {
+			status.extend_from_slice(&raw);
+		}
+	} else if !presence.custom_status.is_empty() {
+		let mut custom = Vec::new();
+		if let Some(raw) = &previous_custom {
+			for field in fields(message_body(raw)?)? {
+				if field.number != 1 && field.number != 4 {
+					custom.extend_from_slice(field.raw);
+				}
+			}
+		}
+		message(1, presence.custom_status.as_bytes(), &mut custom);
+		if let Some(expires) = presence.expires_at_ms {
+			fixed64_field(4, expires, &mut custom);
+		}
+		message(2, &custom, &mut status);
+	}
+	if status.len() > MAX_STATUS_BYTES {
+		return Err(DecodeError);
+	}
+	let mut patch = Vec::new();
+	message(11, &status, &mut patch);
+	Ok(STANDARD.encode(patch))
+}
+
+fn string_value(bytes: &[u8]) -> Result<String, DecodeError> {
+	let mut text = None;
+	for field in fields(bytes)? {
+		if field.number == 1 {
+			if text.is_some() {
+				return Err(DecodeError);
+			}
+			text = Some(
+				std::str::from_utf8(field.message()?)
+					.map_err(|_| DecodeError)?
+					.to_owned(),
+			);
+		}
+	}
+	Ok(text.unwrap_or_default())
+}
+
+fn custom_status(bytes: &[u8]) -> Result<(String, Option<u64>), DecodeError> {
+	let mut text = None;
+	let mut expires = None;
+	for field in fields(bytes)? {
+		match field.number {
+			1 => {
+				if text.is_some() {
+					return Err(DecodeError);
+				}
+				let value = std::str::from_utf8(field.message()?).map_err(|_| DecodeError)?;
+				if value.len() > 512 {
+					return Err(DecodeError);
+				}
+				text = Some(value.to_owned());
+			}
+			4 => {
+				if expires.is_some() {
+					return Err(DecodeError);
+				}
+				let value = field.fixed64()?;
+				expires = Some(value).filter(|value| *value != 0);
+			}
+			_ => {}
+		}
+	}
+	Ok((text.unwrap_or_default(), expires))
+}
+
+fn string_field(number: u64, text: &str, output: &mut Vec<u8>) {
+	let mut wrapper = Vec::new();
+	message(1, text.as_bytes(), &mut wrapper);
+	message(number, &wrapper, output);
+}
+
+/// `raw` is a length-delimited field, tag included. Return its message body.
+fn message_body(raw: &[u8]) -> Result<&[u8], DecodeError> {
+	let field = fields(raw)?.pop().ok_or(DecodeError)?;
+	field.message()
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -133,6 +303,28 @@ mod tests {
 		message(11, &status, &mut wire);
 		let current = decode_response(&response(&wire)).unwrap();
 		assert_eq!((current.version, current.enabled), (7, false));
+		let parsed = account_presence(&current).unwrap();
+		assert_eq!(
+			(
+				parsed.status,
+				parsed.custom_status.as_str(),
+				parsed.expires_at_ms
+			),
+			(model::PresenceStatus::DoNotDisturb, "Busy", None)
+		);
+		let edited = model::OwnPresence {
+			status: model::PresenceStatus::Idle,
+			custom_status: "Away".into(),
+			expires_at_ms: Some(1_700_000_000_000),
+		};
+		let patch = STANDARD
+			.decode(encode_account_presence(&current, &edited).unwrap())
+			.unwrap();
+		let mut roundtrip = vec![10, 2, 24, 7];
+		roundtrip.extend_from_slice(&patch);
+		let saved = decode_response(&response(&roundtrip)).unwrap();
+		assert!(!saved.enabled);
+		assert_eq!(account_presence(&saved).unwrap(), edited);
 		let patch = STANDARD
 			.decode(encode_patch(&current, true).unwrap())
 			.unwrap();

@@ -257,6 +257,7 @@ impl State {
 }
 fn content_patch(channel: Id, id: Id, content: String) -> MessagePatch {
 	MessagePatch {
+		sticker_items: Patch::Absent,
 		channel,
 		id,
 		content: Patch::Value(content),
@@ -266,6 +267,9 @@ fn content_patch(channel: Id, id: Id, content: String) -> MessagePatch {
 		embeds: Patch::Absent,
 		embeds_suppressed: Patch::Absent,
 		attachments: Patch::Absent,
+		components: model::Patch::Absent,
+		flags: model::Patch::Absent,
+		application_id: model::Patch::Absent,
 		extra_content: Default::default(),
 	}
 }

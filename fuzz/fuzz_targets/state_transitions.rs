@@ -13,6 +13,7 @@ fn user() -> User {
 		name: "Synthetic".into(),
 		avatar: None,
 		discriminator: 0,
+		primary_guild: None,
 	}
 }
 
@@ -20,6 +21,7 @@ fn ready() -> Event {
 	Event::Ready {
 		user: user(),
 		guilds: vec![Guild {
+			stickers: None,
 			id: Id(10),
 			name: "Synthetic".into(),
 			icon: None,
@@ -78,6 +80,11 @@ fn payload(selector: u8, remaining: &mut usize) -> String {
 
 fn message(id: Id, channel: Id, content: String) -> Message {
 	Message {
+		sticker_items: vec![],
+		flags: 0,
+		ephemeral: false,
+		components: vec![],
+		application_id: None,
 		id,
 		channel,
 		author: user(),
@@ -267,6 +274,10 @@ fuzz_target!(|data: &[u8]| {
 				apply(
 					&mut state,
 					Event::Patch(MessagePatch {
+						sticker_items: Patch::Absent,
+						flags: Patch::Absent,
+						components: Patch::Absent,
+						application_id: Patch::Absent,
 						channel,
 						id,
 						content,

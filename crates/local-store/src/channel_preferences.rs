@@ -41,7 +41,7 @@ mod tests {
 	use model::{PreferenceEdit, Shortcut};
 
 	#[test]
-	fn channel_shortcuts_round_trip_are_bounded_and_cleared_only_for_the_account() {
+	fn collapsed_categories_round_trip_are_bounded_and_cleared_only_for_the_account() {
 		let mut store =
 			LocalStore::initialize(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
 		let mut value = ChannelPreferences::default();
@@ -57,6 +57,10 @@ mod tests {
 			value.set(Shortcut::Pinned, Id(9), true),
 			PreferenceEdit::Changed
 		);
+		assert_eq!(
+			value.set_category_collapsed(Id(10), true),
+			PreferenceEdit::Changed
+		);
 		store.save_channel_preferences(Id(1), &value).unwrap();
 		store.save_channel_preferences(Id(2), &value).unwrap();
 		assert_eq!(store.channel_preferences(Id(1)).unwrap(), value);
@@ -66,6 +70,10 @@ mod tests {
 		);
 		assert_eq!(
 			value.set(Shortcut::Favorite, Id(9), false),
+			PreferenceEdit::Changed
+		);
+		assert_eq!(
+			value.set_category_collapsed(Id(10), false),
 			PreferenceEdit::Changed
 		);
 		for id in 1..ChannelPreferences::MAX_ENTRIES as u64 {
@@ -100,6 +108,12 @@ mod tests {
 		assert_eq!(
 			store.channel_preferences(Id(2)).unwrap().favorites,
 			vec![Id(9)]
+		);
+		assert!(
+			store
+				.channel_preferences(Id(2))
+				.unwrap()
+				.category_collapsed(Id(10))
 		);
 		store
 			.0

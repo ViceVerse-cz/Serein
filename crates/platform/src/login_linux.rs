@@ -63,6 +63,8 @@ impl Handoff {
 pub struct LoginView {
 	view: webkit6::WebView,
 	window: gtk4::Window,
+	// Keep the original display even after a close-request destroys the window.
+	display: gtk4::gdk::Display,
 	manager: webkit6::UserContentManager,
 	state: Rc<Handoff>,
 	cancel: gio::Cancellable,
@@ -71,6 +73,7 @@ pub struct LoginView {
 }
 
 impl LoginView {
+	/// Opens an ephemeral login window and retains its display for event pumping and teardown.
 	pub fn open(
 		parent: Arc<winit::window::Window>,
 		wake: impl Fn() + Send + Sync + 'static,
@@ -301,9 +304,11 @@ impl LoginView {
 		let _ = parent;
 		view.load_uri("https://discord.com/login");
 		window.present();
+		let display = gtk4::prelude::WidgetExt::display(&window);
 		Ok(Self {
 			view,
 			window,
+			display,
 			manager,
 			state,
 			cancel,
@@ -331,6 +336,7 @@ impl LoginView {
 
 	pub fn resize(&self, _parent: &winit::window::Window) {}
 
+	/// Dispatches a bounded batch of GTK events, flushes window requests, and polls handoff.
 	pub fn pump(&self) {
 		let context = glib::MainContext::default();
 		let started = Instant::now();
@@ -340,6 +346,10 @@ impl LoginView {
 			}
 			context.iteration(false);
 		}
+		// winit owns the blocking event loop on a separate display connection.
+		// Our nonblocking GLib iterations must flush GDK's queued window requests,
+		// including close replies, even when no token query is needed below.
+		self.display.flush();
 		if !self.state.active()
 			|| self.state.delivered.get()
 			|| !self.state.pending.get()
@@ -385,6 +395,7 @@ impl LoginView {
 }
 
 impl Drop for LoginView {
+	/// Cancels authentication and flushes destruction through the retained display.
 	fn drop(&mut self) {
 		self.state.close();
 		self.cancel.cancel();
@@ -395,6 +406,9 @@ impl Drop for LoginView {
 		self.view.terminate_web_process();
 		self.window.set_child(None::<&gtk4::Widget>);
 		self.window.destroy();
+		// No more login pumps run after drop. Send the native destroy request now
+		// so a successful handoff or cancellation cannot leave a frozen window.
+		self.display.flush();
 	}
 }
 

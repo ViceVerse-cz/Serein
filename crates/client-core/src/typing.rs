@@ -136,6 +136,7 @@ mod tests {
 	fn state() -> State {
 		State {
 			user: Some(User {
+				primary_guild: None,
 				id: Id(1),
 				name: "Owner".into(),
 				avatar: None,
@@ -175,9 +176,11 @@ mod tests {
 	}
 	fn message(user: u64, channel: u64) -> Message {
 		Message {
+			sticker_items: Vec::new(),
 			id: Id(100),
 			channel: Id(channel),
 			author: User {
+				primary_guild: None,
 				id: Id(user),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -202,6 +205,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],

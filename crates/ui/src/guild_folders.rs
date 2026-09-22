@@ -450,7 +450,7 @@ impl MessagingUi {
 							let name = folder.name.as_deref().unwrap_or("Server folder");
 							response.widget_info(|| {
 								egui::WidgetInfo::labeled(
-									egui::WidgetType::Button,
+									egui::Role::Button,
 									true,
 									format!(
 										"{name}, {} servers, {}",
@@ -865,6 +865,7 @@ mod tests {
 			demo: true,
 			guilds: (1..=3)
 				.map(|id| model::Guild {
+					stickers: None,
 					id: Id(id),
 					name: "Synthetic server".into(),
 					icon: None,

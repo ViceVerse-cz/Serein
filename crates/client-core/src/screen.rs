@@ -9,6 +9,8 @@ pub const MAX_SOURCE_NAME_BYTES: usize = 256;
 pub enum SourceId {
 	/// The Linux desktop chooses the source after an explicit Share action.
 	Portal,
+	/// Explicit whole-desktop capture on a native X11 session, without a portal.
+	X11Desktop,
 	Display(u64),
 	Window(u64),
 }
@@ -32,15 +34,17 @@ pub struct Settings {
 impl Settings {
 	pub fn valid(self) -> bool {
 		!matches!(self.source, SourceId::Display(0) | SourceId::Window(0))
-			&& matches!((self.width, self.height), (1280, 720) | (1920, 1080))
-			&& matches!(self.fps, 15 | 30 | 60)
+			&& matches!(
+				(self.width, self.height),
+				(854, 480) | (1280, 720) | (1920, 1080)
+			) && matches!(self.fps, 15 | 30 | 60)
 	}
 
 	pub fn bit_rate(self) -> u32 {
-		let base = if (self.width, self.height) == (1920, 1080) {
-			8_000_000
-		} else {
-			4_000_000
+		let base = match (self.width, self.height) {
+			(854, 480) => 2_000_000,
+			(1920, 1080) => 8_000_000,
+			_ => 4_000_000,
 		};
 		(base * if self.fps == 60 { 2 } else { 1 }).min(16_000_000)
 	}

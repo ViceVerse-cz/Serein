@@ -1,30 +1,14 @@
 //! Converts UTC instants to the user's local zone for display.
-//!
-//! `time::UtcOffset::current_local_offset` refuses to run in a multithreaded process on Unix, so
-//! the system zone is read once from `TZ` / `/etc/localtime` via `tz-rs`, which also yields the
-//! correct DST offset for historical timestamps.
-use std::sync::OnceLock;
-
-fn zone() -> &'static tz::TimeZone {
-	static ZONE: OnceLock<tz::TimeZone> = OnceLock::new();
-	// Tests pin UTC so date-boundary assertions hold on every machine.
-	ZONE.get_or_init(|| {
-		if cfg!(test) {
-			return tz::TimeZone::utc();
-		}
-		tz::TimeZone::local().unwrap_or_else(|_| tz::TimeZone::utc())
-	})
-}
 
 /// Shifts `instant` to the local offset in effect at that moment; falls back to UTC.
 pub fn local(instant: time::OffsetDateTime) -> time::OffsetDateTime {
-	let seconds = zone()
-		.find_local_time_type(instant.unix_timestamp())
-		.map(|kind| kind.ut_offset())
-		.unwrap_or(0);
-	time::UtcOffset::from_whole_seconds(seconds)
-		.map(|offset| instant.to_offset(offset))
-		.unwrap_or(instant)
+	// Tests pin UTC so date-boundary assertions hold on every machine.
+	let offset = if cfg!(test) {
+		time::UtcOffset::UTC
+	} else {
+		time::UtcOffset::local_offset_at(instant).unwrap_or(time::UtcOffset::UTC)
+	};
+	instant.to_offset(offset)
 }
 
 /// Current wall-clock time in the local zone.
@@ -61,6 +45,10 @@ pub fn discord_timestamp(seconds: i64, style: u8) -> Option<String> {
 		),
 		_ => format!("{} {}, {} {clock}", date.month(), date.day(), date.year()),
 	})
+}
+/// "… ago" for a past instant, measured against the current clock.
+pub(crate) fn ago(instant: time::OffsetDateTime) -> String {
+	relative(instant - time::OffsetDateTime::now_utc())
 }
 /// Coarse "in …"/"… ago" phrasing with the same thresholds the web client's relative times use.
 fn relative(delta: time::Duration) -> String {

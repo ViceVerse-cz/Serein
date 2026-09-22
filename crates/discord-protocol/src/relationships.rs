@@ -13,6 +13,8 @@ pub struct Relationship {
 	pub user: Option<crate::UserDto>,
 	#[serde(default)]
 	pub is_spam_request: bool,
+	#[serde(default)]
+	pub user_ignored: bool,
 }
 #[derive(Deserialize)]
 pub struct Snapshot(
@@ -54,6 +56,7 @@ impl Snapshot {
 							name: "Unknown user".into(),
 							avatar: None,
 							discriminator: 0,
+							primary_guild: None,
 							webhook: false,
 							kind: Default::default(),
 						},
@@ -66,6 +69,33 @@ impl Snapshot {
 	}
 	pub fn entries(&self) -> Vec<(Id, bool)> {
 		self.0.iter().map(|r| (r.id, r.kind == 2)).collect()
+	}
+	pub fn restricted(
+		&self,
+		users: &[crate::UserDto],
+	) -> Result<Vec<(model::User, String, bool)>, crate::DecodeError> {
+		let users: std::collections::BTreeMap<_, _> = users.iter().map(|u| (u.id, u)).collect();
+		self.0
+			.iter()
+			.filter(|r| r.kind == 2 || r.user_ignored)
+			.filter_map(|r| {
+				r.user
+					.as_ref()
+					.or_else(|| users.get(&r.id).copied())
+					.map(|user| (r, user))
+			})
+			.map(|(relationship, user)| {
+				if user.id != relationship.id {
+					return Err(crate::DecodeError);
+				}
+				let (user, username) = friend(user.clone())?;
+				Ok((
+					user,
+					username,
+					relationship.user_ignored && relationship.kind != 2,
+				))
+			})
+			.collect()
 	}
 	pub fn spam_incoming_ids(&self) -> Vec<Id> {
 		self.0
@@ -135,12 +165,16 @@ mod tests {
 		assert!(crate::decode::<Snapshot>(br#"[{"id":"1"}]"#).is_err());
 		let large = format!("[{}]", vec![r#"{"id":"1","type":2}"#; 4001].join(","));
 		assert!(crate::decode::<Snapshot>(large.as_bytes()).is_err());
-		let rows:Snapshot=crate::decode(br#"[{"id":"2","type":1},{"id":"3","type":2,"user":{"id":"3","username":"blocked"}},{"id":"4","type":3}]"#).unwrap();
+		let rows:Snapshot=crate::decode(br#"[{"id":"2","type":1},{"id":"3","type":2,"user":{"id":"3","username":"blocked"}},{"id":"4","type":3},{"id":"5","type":1,"user_ignored":true,"user":{"id":"5","username":"ignored"}}]"#).unwrap();
 		let users=crate::decode::<Vec<crate::UserDto>>(br#"[{"id":"2","username":"friend_name","global_name":"Friend display"},{"id":"4","username":"pending"}]"#).unwrap();
 		let friends = rows.friends(&users).unwrap();
-		assert_eq!(friends.len(), 1);
+		assert_eq!(friends.len(), 2);
 		assert_eq!(friends[0].0.name, "Friend display");
 		assert_eq!(friends[0].1, "friend_name");
+		let restricted = rows.restricted(&users).unwrap();
+		assert_eq!(restricted.len(), 2);
+		assert_eq!((restricted[0].0.id, restricted[0].2), (Id(3), false));
+		assert_eq!((restricted[1].0.id, restricted[1].2), (Id(5), true));
 		let requests = rows.requests(&users).unwrap();
 		assert_eq!(requests.len(), 1);
 		assert!(requests[0].2);

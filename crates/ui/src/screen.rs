@@ -86,7 +86,11 @@ impl ScreenUi {
 			.filter(|id| self.sources.iter().any(|s| s.id == *id))?;
 		let settings = Settings {
 			source,
-			width: if self.height == 1080 { 1920 } else { 1280 },
+			width: match self.height {
+				480 => 854,
+				1080 => 1920,
+				_ => 1280,
+			},
 			height: self.height,
 			fps: self.fps,
 			cursor: self.cursor,
@@ -181,7 +185,7 @@ impl ScreenUi {
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-			for height in [720, 1080] {
+			for height in [480, 720, 1080] {
 				if segment(ui, &format!("{height}p"), self.height == height).clicked() {
 					self.height = height;
 				}
@@ -296,7 +300,7 @@ impl ScreenUi {
 					egui::StrokeKind::Inside,
 				);
 			}
-			let display = matches!(source.id, SourceId::Display(_));
+			let display = matches!(source.id, SourceId::Display(_) | SourceId::X11Desktop);
 			crate::icons::paint(
 				ui.painter(),
 				if display {
@@ -324,7 +328,7 @@ impl ScreenUi {
 			);
 			let kind = ui.painter().layout_no_wrap(
 				match source.id {
-					SourceId::Display(_) => "Screen",
+					SourceId::Display(_) | SourceId::X11Desktop => "Screen",
 					SourceId::Window(_) => "Window",
 					#[allow(unreachable_patterns)] // Portal may be absent outside Linux.
 					_ => "System permission dialog",
@@ -352,12 +356,7 @@ impl ScreenUi {
 				);
 			}
 			response.widget_info(|| {
-				egui::WidgetInfo::selected(
-					egui::WidgetType::RadioButton,
-					true,
-					selected,
-					&source.name,
-				)
+				egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &source.name)
 			});
 			if response.clicked() {
 				self.selected = Some(source.id);
@@ -400,9 +399,8 @@ fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
 		galley,
 		color,
 	);
-	response.widget_info(|| {
-		egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, selected, label)
-	});
+	response
+		.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, label));
 	response
 }
 

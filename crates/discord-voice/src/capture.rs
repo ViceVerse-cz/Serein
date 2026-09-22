@@ -10,6 +10,19 @@ pub(crate) struct CapturePacer {
 }
 
 impl CapturePacer {
+	/// Local detection while alone: consume audio without retaining it for transmission.
+	pub fn preview(&mut self, input: &Receiver<Frame>) -> Option<Frame> {
+		self.pending = None;
+		let mut latest = None;
+		for _ in 0..8 {
+			let Ok(frame) = input.try_recv() else {
+				break;
+			};
+			latest = Some(frame);
+		}
+		latest
+	}
+
 	pub fn next(&mut self, input: &Receiver<Frame>, enabled: bool, stalled: bool) -> Option<Frame> {
 		if !enabled || stalled {
 			self.pending = None;

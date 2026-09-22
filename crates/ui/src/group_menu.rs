@@ -257,7 +257,7 @@ impl GroupMenu {
 							);
 							response.widget_info(|| {
 								egui::WidgetInfo::labeled(
-									egui::WidgetType::Button,
+									egui::Role::Button,
 									ui.is_enabled(),
 									"Change group icon",
 								)

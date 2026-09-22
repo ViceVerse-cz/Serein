@@ -176,6 +176,7 @@ pub fn color_edit(ui: &mut egui::Ui, color: &mut [u8; 3]) -> egui::Response {
 	let hex = ui
 		.add(
 			egui::DragValue::new(&mut value)
+				.clip_text(true)
 				.range(0..=0xFFFFFF)
 				.hexadecimal(6, false, true)
 				.prefix("#")
@@ -377,7 +378,30 @@ struct ExtensionPalette {
 thread_local! {
 	static EXTENSION_THEME: std::cell::Cell<Option<[ExtensionPalette; 2]>> = const { std::cell::Cell::new(None) };
 	static EXTENSION_STYLE: std::cell::Cell<extensions::ThemeStyle> = std::cell::Cell::new(extensions::ThemeStyle::default());
+	static WINDOW_EFFECTS: std::cell::Cell<(bool, u8, u8, bool)> = const { std::cell::Cell::new((false, 15, 50, false)) };
 	static BACKGROUND_IMAGE: std::cell::RefCell<Option<(std::sync::Arc<egui::ColorImage>, egui::TextureHandle)>> = const { std::cell::RefCell::new(None) };
+}
+
+pub fn set_window_effects(enabled: bool, transparency: u8, blur: u8, all: bool) {
+	WINDOW_EFFECTS.set((enabled, transparency.min(100), blur.min(100), all));
+}
+
+pub fn default_window_effects() -> (bool, u8, u8, bool) {
+	WINDOW_EFFECTS.get()
+}
+
+pub fn window_effects() -> (bool, u8, u8, bool) {
+	let defaults = default_window_effects();
+	if !defaults.0 {
+		return defaults;
+	}
+	let style = EXTENSION_STYLE.get();
+	(
+		defaults.0 && style.transparency_blur.unwrap_or(true),
+		style.transparency.unwrap_or(defaults.1),
+		style.blur.unwrap_or(defaults.2),
+		style.transparent_all.unwrap_or(defaults.3),
+	)
 }
 const THEME_FIELDS: [&str; 18] = [
 	"base",
@@ -489,7 +513,11 @@ pub enum ImageSection {
 }
 
 /// Cover one window image with a section surface. Only the surface changes opacity.
-pub fn section_surface(ui: &egui::Ui, color: Color32, section: ImageSection) -> Color32 {
+pub fn section_surface(ui: &egui::Ui, mut color: Color32, section: ImageSection) -> Color32 {
+	let (enabled, transparency, _, all) = window_effects();
+	if enabled && !all && !matches!(section, ImageSection::MessageList) {
+		color = color.to_opaque();
+	}
 	if !has_window_background(ui) {
 		return color;
 	}
@@ -500,7 +528,7 @@ pub fn section_surface(ui: &egui::Ui, color: Color32, section: ImageSection) -> 
 	}) else {
 		return color;
 	};
-	let opacity = match section {
+	let mut opacity = match section {
 		ImageSection::TopBar => sections.top_bar,
 		ImageSection::ServerList => sections.server_list,
 		ImageSection::ChannelList => sections.channel_list,
@@ -508,6 +536,9 @@ pub fn section_surface(ui: &egui::Ui, color: Color32, section: ImageSection) -> 
 		ImageSection::MemberList => sections.member_list,
 		ImageSection::Composer => sections.composer,
 	};
+	if enabled && (all || matches!(section, ImageSection::MessageList)) {
+		opacity = (u16::from(opacity) * u16::from(100 - transparency) / 100) as u8;
+	}
 	let [r, g, b, _] = color.to_srgba_unmultiplied();
 	Color32::from_rgba_unmultiplied(r, g, b, (u16::from(opacity) * 255 / 100) as u8)
 }
@@ -542,9 +573,24 @@ pub fn paint_chat_background(ui: &egui::Ui, rect: egui::Rect) {
 	}
 	BACKGROUND_IMAGE.with(|image| {
 		if let Some((_, texture)) = image.borrow().as_ref() {
-			paint_background_image(ui.painter(), rect, texture, background);
+			paint_background_image(
+				ui.painter(),
+				rect,
+				texture,
+				translucent_background(background),
+			);
 		}
 	});
+}
+
+// Only app backgrounds follow desktop transparency; editor thumbnails stay unchanged.
+fn translucent_background(mut background: extensions::Background) -> extensions::Background {
+	let (enabled, transparency, _, _) = window_effects();
+	if enabled {
+		background.opacity =
+			(u16::from(background.opacity) * u16::from(100 - transparency) / 100) as u8;
+	}
+	background
 }
 
 /// Draw a centered static image without changing its aspect ratio.
@@ -606,12 +652,53 @@ fn recolor(mut palette: Palette, theme: ExtensionPalette) -> Palette {
 	palette.surface = palette.sidebar;
 	palette
 }
+/// Index of `accent` in [`THEME_FIELDS`].
+const ACCENT_FIELD: usize = 11;
+/// Whether the active community theme brings its own accent for this mode. Such a theme
+/// replaces the user's primary colour instead of being tinted by it.
+pub fn theme_sets_accent(dark: bool) -> bool {
+	EXTENSION_THEME
+		.get()
+		.is_some_and(|palettes| palettes[usize::from(dark)].colors[ACCENT_FIELD].is_some())
+}
 pub fn colors(dark: bool, variant: Variant) -> Palette {
 	let mut palette = builtin_colors(dark, variant);
+	let mut themed_accent = false;
 	if let Some(palettes) = EXTENSION_THEME.get() {
-		palette = recolor(palette, palettes[usize::from(dark)]);
+		let theme = palettes[usize::from(dark)];
+		themed_accent = theme.colors[ACCENT_FIELD].is_some();
+		palette = recolor(palette, theme);
 	}
-	customize(palette, primary_color())
+	let mut palette = if themed_accent {
+		palette
+	} else {
+		customize(palette, primary_color())
+	};
+	let (enabled, transparency, _, all) = window_effects();
+	if enabled && transparency > 0 {
+		let alpha = 100 - u16::from(transparency);
+		for (surface, chrome) in [
+			(&mut palette.base, true),
+			(&mut palette.sidebar, true),
+			(&mut palette.chat, false),
+			(&mut palette.raised, true),
+			(&mut palette.canvas, false),
+			(&mut palette.surface, true),
+		] {
+			if chrome && !all {
+				continue;
+			}
+			let [r, g, b, a] = surface.to_srgba_unmultiplied();
+			*surface = Color32::from_rgba_unmultiplied(r, g, b, (u16::from(a) * alpha / 100) as u8);
+		}
+		palette.backdrop = palette.backdrop.map(|stops| {
+			stops.map(|color| {
+				let [r, g, b, a] = color.to_srgba_unmultiplied();
+				Color32::from_rgba_unmultiplied(r, g, b, (u16::from(a) * alpha / 100) as u8)
+			})
+		});
+	}
+	palette
 }
 
 fn customize(mut palette: Palette, primary: Option<[u8; 3]>) -> Palette {
@@ -645,8 +732,13 @@ pub(crate) fn theme_preview_palette(ui: &egui::Ui, theme: &extensions::Theme) ->
 	} else {
 		&theme.light
 	};
-	let colors = extension_palette(theme).map_or(base, |overrides| recolor(base, overrides));
-	opaque_surfaces(customize(colors, primary_color()))
+	match extension_palette(theme) {
+		Some(overrides) if overrides.colors[ACCENT_FIELD].is_some() => {
+			opaque_surfaces(recolor(base, overrides))
+		}
+		Some(overrides) => opaque_surfaces(customize(recolor(base, overrides), primary_color())),
+		None => opaque_surfaces(customize(base, primary_color())),
+	}
 }
 pub fn palette(ui: &egui::Ui) -> Palette {
 	opaque_surfaces(colors(ui.visuals().dark_mode, variant()))
@@ -662,7 +754,7 @@ fn opaque_surfaces(mut palette: Palette) -> Palette {
 	let backdrop = palette
 		.backdrop
 		.map_or(palette.chat.to_opaque(), |[top, bottom]| {
-			mix(top, bottom, 0.5)
+			mix(top, bottom, 0.5).to_opaque()
 		});
 	for surface in [
 		&mut palette.base,
@@ -684,7 +776,14 @@ pub fn paint_backdrop(ctx: &egui::Context) {
 	if palette.backdrop.is_none() && !has_image {
 		return;
 	}
-	let [top, bottom] = palette.backdrop.unwrap_or([palette.base.to_opaque(); 2]);
+	let [top, bottom] = palette.backdrop.unwrap_or_else(|| {
+		let (enabled, transparency, _, _) = window_effects();
+		let mut base = palette.base.to_opaque();
+		if enabled {
+			base = base.gamma_multiply(f32::from(100 - transparency) / 100.0);
+		}
+		[base; 2]
+	});
 	let rect = ctx.content_rect();
 	let mut mesh = egui::Mesh::default();
 	let mid = Color32::from_rgba_premultiplied(
@@ -714,7 +813,7 @@ pub fn paint_backdrop(ctx: &egui::Context) {
 				&ctx.layer_painter(egui::LayerId::background()),
 				rect,
 				texture,
-				background,
+				translucent_background(background),
 			);
 		}
 	});
@@ -1057,8 +1156,7 @@ pub fn window_controls(ui: &mut egui::Ui) {
 		|ui: &mut egui::Ui, label: &str, danger: bool| -> (egui::Response, egui::Rect, Color32) {
 			let (rect, response) =
 				ui.allocate_exact_size(egui::vec2(46.0, height), egui::Sense::click());
-			response
-				.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+			response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
 			let hovered = response.hovered() || response.has_focus();
 			if hovered {
 				ui.painter()
@@ -1148,6 +1246,22 @@ pub fn primary_icon_button(
 	wide_button(ui, label, Some(icon), p.accent, Stroke::NONE, p.accent_text)
 }
 /// Full-width neutral companion to [`primary_button`].
+/// Outlined companion to `primary_icon_button`, for the quieter of two full-width actions.
+pub fn secondary_icon_button(
+	ui: &mut egui::Ui,
+	icon: crate::icons::Icon,
+	label: &str,
+) -> egui::Response {
+	let p = palette(ui);
+	wide_button(
+		ui,
+		label,
+		Some(icon),
+		Color32::TRANSPARENT,
+		Stroke::new(1.0, p.border),
+		p.text_strong,
+	)
+}
 pub fn secondary_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
 	let p = palette(ui);
 	wide_button(
@@ -1170,9 +1284,7 @@ fn wide_button(
 	let p = palette(ui);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::click());
-	response.widget_info(|| {
-		egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
-	});
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
 	let enabled = ui.is_enabled();
 	let fill = if !enabled {
 		fill.gamma_multiply(0.5)
@@ -1256,6 +1368,158 @@ pub(crate) fn paint_avatar(ui: &egui::Ui, name: &str, size: f32, rect: egui::Rec
 		Color32::WHITE,
 	);
 }
+/// One selectable identity: initials avatar, name, handle and a trailing chevron.
+/// Painted from local data only, so the sign-in screen never fetches before a session exists.
+pub fn account_row(ui: &mut egui::Ui, name: &str, handle: &str) -> egui::Response {
+	account_row_with_remove(ui, name, handle, false).0
+}
+
+/// `account_row` with an optional trailing remove control in place of the chevron. The
+/// second response is that control; it is registered after the row so it wins the click.
+pub fn account_row_with_remove(
+	ui: &mut egui::Ui,
+	name: &str,
+	handle: &str,
+	removable: bool,
+) -> (egui::Response, Option<egui::Response>) {
+	let p = palette(ui);
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 54.0), egui::Sense::click());
+	let enabled = ui.is_enabled();
+	let hot = enabled && (response.hovered() || response.has_focus());
+	if ui.is_rect_visible(rect) {
+		let fill = if hot {
+			row_highlight(ui, p.raised, 1.0)
+		} else {
+			p.raised
+		};
+		let border = if hot {
+			p.accent.gamma_multiply(0.7)
+		} else {
+			p.border
+		};
+		ui.painter().rect(
+			rect,
+			12,
+			if enabled {
+				fill
+			} else {
+				fill.gamma_multiply(0.6)
+			},
+			Stroke::new(1.0, border),
+			egui::StrokeKind::Inside,
+		);
+		let avatar = egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 30.0, rect.center().y),
+			egui::Vec2::splat(34.0),
+		);
+		paint_avatar(ui, name, 34.0, avatar);
+		let text = egui::Rect::from_min_max(
+			egui::pos2(rect.left() + 58.0, rect.top() + 8.0),
+			egui::pos2(rect.right() - 34.0, rect.bottom() - 8.0),
+		);
+		ui.scope_builder(egui::UiBuilder::new().max_rect(text), |ui| {
+			ui.spacing_mut().item_spacing.y = 1.0;
+			ui.add(
+				egui::Label::new(medium(ui, name, 15.0).color(p.text_strong))
+					.truncate()
+					.selectable(false),
+			);
+			ui.add(
+				egui::Label::new(RichText::new(handle).size(12.5).color(p.muted))
+					.truncate()
+					.selectable(false),
+			);
+		});
+		if !removable {
+			crate::icons::paint(
+				ui.painter(),
+				crate::icons::Icon::ChevronRight,
+				egui::Rect::from_center_size(
+					egui::pos2(rect.right() - 22.0, rect.center().y),
+					egui::Vec2::splat(16.0),
+				),
+				if hot { p.text } else { p.muted },
+			);
+		}
+		if response.has_focus() {
+			ui.painter().rect_stroke(
+				rect.expand(2.0),
+				14,
+				Stroke::new(2.0, p.accent),
+				egui::StrokeKind::Outside,
+			);
+		}
+	}
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(egui::Role::Button, enabled, format!("{name} {handle}"))
+	});
+	let remove = removable.then(|| {
+		let bin = egui::Rect::from_center_size(
+			egui::pos2(rect.right() - 22.0, rect.center().y),
+			egui::Vec2::splat(28.0),
+		);
+		let remove = ui.interact(bin, response.id.with("remove"), egui::Sense::click());
+		if ui.is_rect_visible(rect) {
+			let over = enabled && (remove.hovered() || remove.has_focus());
+			if over {
+				ui.painter()
+					.circle_filled(bin.center(), 14.0, p.danger.gamma_multiply(0.16));
+			}
+			crate::icons::paint(
+				ui.painter(),
+				crate::icons::Icon::Close,
+				bin.shrink(8.0),
+				if over { p.danger } else { p.muted },
+			);
+		}
+		remove.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::Role::Button, enabled, format!("Forget {name}"))
+		});
+		remove.on_hover_text("Forget this account on this device")
+	});
+	(response, remove)
+}
+
+/// Quiet expander row: a chevron and a label, for secondary panels that stay folded away.
+pub fn disclosure(ui: &mut egui::Ui, label: &str, open: bool) -> egui::Response {
+	let p = palette(ui);
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click());
+	if ui.is_rect_visible(rect) {
+		if response.hovered() || response.has_focus() {
+			ui.painter().rect_filled(rect, 8, p.hover);
+		}
+		let icon = if open {
+			crate::icons::Icon::ChevronDown
+		} else {
+			crate::icons::Icon::ChevronRight
+		};
+		crate::icons::paint(
+			ui.painter(),
+			icon,
+			egui::Rect::from_center_size(
+				egui::pos2(rect.left() + 13.0, rect.center().y),
+				egui::Vec2::splat(14.0),
+			),
+			p.muted,
+		);
+		ui.painter().text(
+			egui::pos2(rect.left() + 30.0, rect.center().y),
+			egui::Align2::LEFT_CENTER,
+			label,
+			FontId::new(13.0, medium_family(ui.ctx())),
+			if response.hovered() {
+				p.text_strong
+			} else {
+				p.text
+			},
+		);
+	}
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+	response
+}
+
 /// Presence dot with a surface-coloured ring, bottom-right of an avatar `rect`.
 pub fn presence_dot(ui: &egui::Ui, rect: egui::Rect, color: Color32, ring: Color32) {
 	let radius = (rect.width() * 0.16).clamp(4.0, 8.0);
@@ -1703,7 +1967,7 @@ pub fn switch(
 		response.mark_changed();
 	}
 	response.widget_info(|| {
-		egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *enabled, label)
+		egui::WidgetInfo::selected(egui::Role::CheckBox, ui.is_enabled(), *enabled, label)
 	});
 	let painter = ui.painter();
 	let mut y = rect.top() + 8.0;
@@ -1788,9 +2052,7 @@ pub fn button(ui: &mut egui::Ui, label: &str, kind: ButtonKind) -> egui::Respons
 	});
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(width, BUTTON_HEIGHT), egui::Sense::click());
-	response.widget_info(|| {
-		egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
-	});
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
 	let enabled = ui.is_enabled();
 	let hot = response.hovered() || response.has_focus();
 	let fill = if !enabled {
@@ -1870,6 +2132,7 @@ pub fn input(ui: &mut egui::Ui, edit: egui::TextEdit<'_>) -> egui::Response {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Level {
 	Info,
+	Success,
 	Warning,
 	Error,
 }
@@ -1880,6 +2143,7 @@ pub fn notice(ui: &mut egui::Ui, level: Level, text: &str) {
 	let colors = palette(ui);
 	let (tint, icon) = match level {
 		Level::Info => (colors.accent, crate::icons::Icon::Help),
+		Level::Success => (colors.positive, crate::icons::Icon::Check),
 		Level::Warning => (colors.warning, crate::icons::Icon::ShieldWarning),
 		Level::Error => (colors.danger, crate::icons::Icon::ShieldWarning),
 	};
@@ -1937,6 +2201,464 @@ pub fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
 			add(ui)
 		})
 		.inner
+}
+
+/// Exclusive choice drawn as one connected group of segments on an inset track. For a small
+/// set of short labels: editor tabs, dark/light pickers. Returns the index clicked this frame.
+pub fn segmented(ui: &mut egui::Ui, labels: &[&str], selected: usize) -> Option<usize> {
+	if labels.is_empty() {
+		return None;
+	}
+	let p = palette(ui);
+	let font = FontId::new(13.0, medium_family(ui.ctx()));
+	let widths: Vec<f32> = labels
+		.iter()
+		.map(|label| {
+			ui.painter()
+				.layout_no_wrap((*label).to_owned(), font.clone(), p.text)
+				.size()
+				.x + 28.0
+		})
+		.collect();
+	let height = 32.0;
+	let total = widths.iter().sum::<f32>() + 8.0;
+	let (rect, base) = ui.allocate_exact_size(
+		egui::vec2(total.min(ui.available_width()), height + 8.0),
+		egui::Sense::hover(),
+	);
+	// Interact before painting so the whole group can be drawn in one pass.
+	let mut x = rect.left() + 4.0;
+	let segments: Vec<(egui::Rect, egui::Response)> = widths
+		.iter()
+		.enumerate()
+		.map(|(index, width)| {
+			let segment = egui::Rect::from_min_size(
+				egui::pos2(x, rect.top() + 4.0),
+				egui::vec2(*width, height),
+			);
+			x += width;
+			let response = ui.interact(segment, base.id.with(index), egui::Sense::click());
+			(segment, response)
+		})
+		.collect();
+	let enabled = ui.is_enabled();
+	let painter = ui.painter();
+	painter.rect_filled(
+		rect,
+		10,
+		p.base.gamma_multiply(if enabled { 1.0 } else { 0.5 }),
+	);
+	let mut clicked = None;
+	for (index, (segment, response)) in segments.iter().enumerate() {
+		let active = index == selected;
+		let hot = enabled && (response.hovered() || response.has_focus());
+		if active {
+			painter.rect_filled(*segment, 8, p.selected);
+		} else if hot {
+			painter.rect_filled(*segment, 8, p.hover);
+		}
+		if response.has_focus() {
+			painter.rect_stroke(
+				segment.shrink(1.0),
+				8,
+				Stroke::new(1.0, p.accent),
+				egui::StrokeKind::Inside,
+			);
+		}
+		let color = if !enabled {
+			p.muted.gamma_multiply(0.5)
+		} else if active {
+			p.text_strong
+		} else if hot {
+			p.text
+		} else {
+			p.muted
+		};
+		painter.text(
+			segment.center(),
+			egui::Align2::CENTER_CENTER,
+			labels[index],
+			font.clone(),
+			color,
+		);
+		let label = labels[index].to_owned();
+		response.widget_info(|| {
+			egui::WidgetInfo::selected(egui::Role::RadioButton, enabled, active, &label)
+		});
+		if response.clicked() && !active {
+			clicked = Some(index);
+		}
+	}
+	clicked
+}
+
+/// Settings row: title and optional detail on the left, `control` laid out right-to-left on
+/// the right. Combo boxes, colour wells and buttons all sit on the same baseline this way.
+pub fn row<R>(
+	ui: &mut egui::Ui,
+	title: &str,
+	detail: Option<&str>,
+	control: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+	let p = palette(ui);
+	let width = ui.available_width();
+	let text_width = (width * 0.55).max(120.0);
+	ui.horizontal(|ui| {
+		ui.spacing_mut().item_spacing.x = 12.0;
+		ui.allocate_ui_with_layout(
+			egui::vec2(text_width, 0.0),
+			egui::Layout::top_down(egui::Align::Min),
+			|ui| {
+				ui.spacing_mut().item_spacing.y = 2.0;
+				ui.add(egui::Label::new(medium(ui, title, 15.0).color(p.text_strong)).wrap());
+				if let Some(detail) = detail {
+					ui.add(
+						egui::Label::new(RichText::new(detail).size(13.0).color(p.muted)).wrap(),
+					);
+				}
+			},
+		);
+		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), control)
+			.inner
+	})
+	.inner
+}
+
+/// Quiet inline action for secondary verbs such as "Reset" or "Try again": muted text that
+/// brightens and underlines on hover instead of a full button.
+pub fn text_action(ui: &mut egui::Ui, label: &str) -> egui::Response {
+	let p = palette(ui);
+	let galley = ui.painter().layout_no_wrap(
+		label.to_owned(),
+		FontId::new(13.0, medium_family(ui.ctx())),
+		p.muted,
+	);
+	let (rect, response) =
+		ui.allocate_exact_size(galley.size() + egui::vec2(12.0, 12.0), egui::Sense::click());
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
+	let enabled = ui.is_enabled();
+	let hot = enabled && (response.hovered() || response.has_focus());
+	let color = if !enabled {
+		p.muted.gamma_multiply(0.5)
+	} else if hot {
+		p.text_strong
+	} else {
+		p.muted
+	};
+	let painter = ui.painter();
+	if hot {
+		painter.rect_filled(rect, 6, p.hover);
+	}
+	let pos = rect.center() - galley.size() * 0.5;
+	painter.galley_with_override_text_color(pos, galley.clone(), color);
+	if hot {
+		painter.line_segment(
+			[
+				egui::pos2(pos.x, rect.bottom() - 5.0),
+				egui::pos2(pos.x + galley.size().x, rect.bottom() - 5.0),
+			],
+			Stroke::new(1.0, color),
+		);
+	}
+	response
+}
+
+/// One choice in an exclusive group: the whole row toggles, with a radio marker at the left
+/// and an optional explanation under the label.
+pub fn radio_row(
+	ui: &mut egui::Ui,
+	selected: bool,
+	label: &str,
+	detail: Option<&str>,
+) -> egui::Response {
+	let p = palette(ui);
+	let width = ui.available_width();
+	let text_width = (width - 44.0).max(80.0);
+	let title = ui.painter().layout(
+		label.to_owned(),
+		FontId::new(15.0, medium_family(ui.ctx())),
+		p.text_strong,
+		text_width,
+	);
+	let detail = detail.map(|text| {
+		ui.painter().layout(
+			text.to_owned(),
+			FontId::proportional(13.0),
+			p.muted,
+			text_width,
+		)
+	});
+	let text_height = title.size().y + detail.as_ref().map_or(0.0, |d| d.size().y + 2.0);
+	let (rect, response) = ui.allocate_exact_size(
+		egui::vec2(width, text_height.max(20.0) + 16.0),
+		egui::Sense::click(),
+	);
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::Role::RadioButton, ui.is_enabled(), selected, label)
+	});
+	let enabled = ui.is_enabled();
+	let hot = enabled && (response.hovered() || response.has_focus());
+	let painter = ui.painter();
+	if hot {
+		painter.rect_filled(rect.expand2(egui::vec2(8.0, 0.0)), 8, p.hover);
+	}
+	let marker = egui::pos2(rect.left() + 10.0, rect.top() + 8.0 + title.size().y * 0.5);
+	let ring = if selected {
+		p.accent
+	} else if hot {
+		p.text
+	} else {
+		p.muted
+	};
+	painter.circle_stroke(
+		marker,
+		9.0,
+		Stroke::new(2.0, ring.gamma_multiply(if enabled { 1.0 } else { 0.4 })),
+	);
+	if selected {
+		painter.circle_filled(
+			marker,
+			4.5,
+			ring.gamma_multiply(if enabled { 1.0 } else { 0.4 }),
+		);
+	}
+	let text_color = if enabled {
+		p.text_strong
+	} else {
+		p.text_strong.gamma_multiply(0.5)
+	};
+	let mut y = rect.top() + 8.0;
+	painter.galley(egui::pos2(rect.left() + 32.0, y), title.clone(), text_color);
+	y += title.size().y + 2.0;
+	if let Some(detail) = detail {
+		painter.galley(egui::pos2(rect.left() + 32.0, y), detail, p.muted);
+	}
+	response
+}
+
+/// Continuous value with a thin track, accent fill and a round grab. Dragging anywhere on the
+/// track moves the value; arrow keys nudge it while focused. Click the value to type an exact
+/// number, committed on Enter or focus loss so intermediate digits do not change settings.
+pub fn slider<T: egui::emath::Numeric>(
+	ui: &mut egui::Ui,
+	value: &mut T,
+	range: std::ops::RangeInclusive<T>,
+	suffix: &str,
+) -> egui::Response {
+	let p = palette(ui);
+	let (min, max) = (range.start().to_f64(), range.end().to_f64());
+	let span = (max - min).max(f64::EPSILON);
+	let width = ui.available_width();
+	let readout_width = 64.0;
+	let (id, rect) = ui.allocate_space(egui::vec2(width, 28.0));
+	let mut response = ui.interact(
+		rect.with_max_x(rect.right() - readout_width),
+		id,
+		egui::Sense::click_and_drag(),
+	);
+	let track = egui::Rect::from_min_max(
+		egui::pos2(rect.left() + 9.0, rect.center().y - 3.0),
+		egui::pos2(rect.right() - readout_width - 9.0, rect.center().y + 3.0),
+	);
+	let enabled = ui.is_enabled();
+	let mut current = value.to_f64();
+	if enabled {
+		if (response.dragged() || response.clicked() || response.drag_started())
+			&& let Some(pointer) = response.interact_pointer_pos()
+		{
+			let t = ((pointer.x - track.left()) / track.width()).clamp(0.0, 1.0) as f64;
+			current = min + t * span;
+		}
+		if response.has_focus() {
+			let step = if T::INTEGRAL { 1.0 } else { span / 100.0 };
+			let mut delta = 0.0;
+			ui.input(|input| {
+				if input.key_pressed(egui::Key::ArrowLeft)
+					|| input.key_pressed(egui::Key::ArrowDown)
+				{
+					delta -= step;
+				}
+				if input.key_pressed(egui::Key::ArrowRight) || input.key_pressed(egui::Key::ArrowUp)
+				{
+					delta += step;
+				}
+			});
+			current += delta;
+		}
+	}
+	if T::INTEGRAL {
+		current = current.round();
+	}
+	current = current.clamp(min, max);
+	if current != value.to_f64() {
+		*value = T::from_f64(current);
+		response.mark_changed();
+	}
+	let readout = if T::INTEGRAL {
+		format!("{}{suffix}", current as i64)
+	} else {
+		format!("{current:.1}{suffix}")
+	};
+	response.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), current, readout.clone()));
+	let t = ((current - min) / span) as f32;
+	let knob = egui::pos2(track.left() + track.width() * t, track.center().y);
+	let hot = enabled && (response.hovered() || response.dragged() || response.has_focus());
+	let alpha = if enabled { 1.0 } else { 0.4 };
+	let painter = ui.painter();
+	painter.rect_filled(track, 3, p.border.gamma_multiply(alpha));
+	painter.rect_filled(
+		track.with_max_x(knob.x.max(track.left())),
+		3,
+		p.accent.gamma_multiply(alpha),
+	);
+	if hot {
+		painter.circle_filled(knob, 13.0, p.accent.gamma_multiply(0.18));
+	}
+	painter.circle(
+		knob,
+		if response.dragged() { 9.0 } else { 8.0 },
+		Color32::WHITE.gamma_multiply(alpha),
+		Stroke::new(
+			1.0,
+			Color32::from_black_alpha(if enabled { 40 } else { 15 }),
+		),
+	);
+	let pill = egui::Rect::from_min_max(
+		egui::pos2(rect.right() - readout_width, rect.top() + 2.0),
+		egui::pos2(rect.right(), rect.bottom() - 2.0),
+	);
+	let editor = ui.put(
+		pill,
+		egui::DragValue::new(value)
+			.clip_text(true)
+			.range(range)
+			.speed(if T::INTEGRAL { 1.0 } else { span / 100.0 })
+			.fixed_decimals(if T::INTEGRAL { 0 } else { 1 })
+			.suffix(suffix)
+			.update_while_editing(false),
+	);
+	if enabled && (response.hovered() || response.dragged()) {
+		ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+	}
+	response | editor
+}
+
+/// Offline pointer/keyboard check for the shared settings control.
+#[cfg(debug_assertions)]
+pub fn debug_slider_check() {
+	let ctx = egui::Context::default();
+	apply(&ctx);
+	let mut value = 94u16;
+	let mut frame = |events| {
+		let mut rect = egui::Rect::NOTHING;
+		let mut changed = false;
+		ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(500.0, 100.0),
+				)),
+				events,
+				..Default::default()
+			},
+			|ui| {
+				let response = slider(ui, &mut value, 80..=150, "%");
+				rect = response.rect;
+				changed = response.changed();
+			},
+		)
+		.drop_without_applying_deltas();
+		(value, changed, rect)
+	};
+	frame(vec![]);
+	let (_, _, rect) = frame(vec![]);
+	let pointer = |pos, pressed| {
+		vec![
+			egui::Event::PointerMoved(pos),
+			egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Primary,
+				pressed,
+				modifiers: egui::Modifiers::NONE,
+			},
+		]
+	};
+	let edit = rect.right_center() - egui::vec2(32.0, 0.0);
+	for input in ["110", "999", "invalid"] {
+		let before = frame(vec![]).0;
+		frame(pointer(edit, true));
+		assert_eq!(
+			frame(pointer(edit, false)).0,
+			before,
+			"clicking the value must not move the track"
+		);
+		frame(vec![]);
+		assert_eq!(
+			frame(vec![egui::Event::Text(input.into())]).0,
+			before,
+			"typing must wait for commit"
+		);
+		let (value, changed, _) = frame(vec![egui::Event::Key {
+			key: egui::Key::Enter,
+			physical_key: None,
+			pressed: true,
+			repeat: false,
+			modifiers: egui::Modifiers::NONE,
+		}]);
+		assert_eq!(
+			value,
+			match input {
+				"110" => 110,
+				"999" => 150,
+				_ => before,
+			}
+		);
+		assert_eq!(changed, value != before);
+		frame(vec![]);
+	}
+	let left = rect.left_center() + egui::vec2(9.0, 0.0);
+	frame(pointer(left, true));
+	assert_eq!(frame(pointer(left, false)).0, 80, "track clicks still work");
+	println!(
+		"Settings slider debug check passed: click to edit, deferred commit, range bounds, invalid input, and track clicks."
+	);
+}
+
+/// Titled [`slider`] with an optional explanation, for settings pages.
+pub fn slider_row<T: egui::emath::Numeric>(
+	ui: &mut egui::Ui,
+	title: &str,
+	detail: Option<&str>,
+	value: &mut T,
+	range: std::ops::RangeInclusive<T>,
+	suffix: &str,
+) -> egui::Response {
+	let p = palette(ui);
+	ui.spacing_mut().item_spacing.y = 4.0;
+	ui.add(egui::Label::new(medium(ui, title, 15.0).color(p.text_strong)).wrap());
+	if let Some(detail) = detail {
+		ui.add(egui::Label::new(RichText::new(detail).size(13.0).color(p.muted)).wrap());
+	}
+	slider(ui, value, range, suffix)
+}
+
+/// Hairline between rows inside a [`card`], with the card's vertical rhythm.
+pub fn card_divider(ui: &mut egui::Ui) {
+	let p = palette(ui);
+	ui.add_space(6.0);
+	let (rect, _) =
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+	ui.painter()
+		.hline(rect.x_range(), rect.center().y, Stroke::new(1.0, p.border));
+	ui.add_space(6.0);
+}
+
+/// Card body with a group title above it, the way every settings page introduces a group.
+pub fn group<R>(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+	let p = palette(ui);
+	ui.add_space(4.0);
+	ui.label(eyebrow(ui, title, p.muted));
+	card(ui, add)
 }
 
 /// Syntax colours for fenced code blocks: one dark and one light set, tuned to stay legible
@@ -2020,6 +2742,152 @@ pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
 		lerp(a.b(), b.b()),
 		lerp(a.a(), b.a()),
 	)
+}
+
+#[cfg(test)]
+mod sign_in_widget_tests {
+	use super::*;
+	#[test]
+	fn transparency_composes_with_background_images_and_section_opacity() {
+		let ctx = egui::Context::default();
+		ctx.set_theme(egui::ThemePreference::Dark);
+		for target in [
+			extensions::BackgroundTarget::Window,
+			extensions::BackgroundTarget::Chat,
+		] {
+			let mut theme = extensions::Theme::default();
+			theme.dark.background = Some(extensions::Background {
+				opacity: 100,
+				target,
+				sections: Some(extensions::SectionOpacity {
+					message_list: 80,
+					..Default::default()
+				}),
+				..Default::default()
+			});
+			set_extension_theme(Some(&theme));
+			set_background_image(
+				&ctx,
+				Some(std::sync::Arc::new(egui::ColorImage::filled(
+					[2, 2],
+					Color32::WHITE,
+				))),
+			);
+			for (enabled, transparency, expected_alpha) in
+				[(false, 100, 255), (true, 50, 128), (true, 100, 0)]
+			{
+				set_window_effects(enabled, transparency, 0, true);
+				let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+					paint_backdrop(&ctx);
+					paint_chat_background(ui, ui.max_rect());
+					if target == extensions::BackgroundTarget::Window {
+						let surface = section_surface(
+							ui,
+							colors(true, Variant::Standard).chat,
+							ImageSection::MessageList,
+						);
+						let expected = if !enabled {
+							204
+						} else if transparency == 50 {
+							102
+						} else {
+							0
+						};
+						assert_eq!(surface.a(), expected);
+					}
+				});
+				let mut vertices = 0;
+				for shape in &output.shapes {
+					if let egui::Shape::Mesh(mesh) = &shape.shape {
+						for vertex in &mesh.vertices {
+							assert!(vertex.color.a() <= expected_alpha);
+							assert!(vertex.color.a() >= expected_alpha.saturating_sub(1));
+							vertices += 1;
+						}
+					}
+				}
+				assert!(vertices > 0);
+				output.drop_without_applying_deltas();
+			}
+		}
+		set_extension_theme(None);
+		set_window_effects(false, 15, 50, false);
+	}
+
+	/// The sign-in screen depends on these two: a row that reports a click and shows both
+	/// identity lines, and an expander that reports a click without owning its own state.
+	#[test]
+	fn account_row_and_disclosure_click_and_label_themselves() {
+		for light in [false, true] {
+			let ctx = egui::Context::default();
+			ctx.set_theme(if light {
+				egui::ThemePreference::Light
+			} else {
+				egui::ThemePreference::Dark
+			});
+			apply(&ctx);
+			let area = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(320.0, 120.0));
+			let run = |events: Vec<egui::Event>| {
+				let mut clicks = (false, false);
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(area),
+						focused: true,
+						events,
+						..Default::default()
+					},
+					|ui| {
+						ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
+							ui.spacing_mut().item_spacing.y = 0.0;
+							clicks.0 = account_row(ui, "Riley Quinn", "@riley").clicked();
+							clicks.1 = disclosure(ui, "About Serein", false).clicked();
+						});
+					},
+				);
+				let mut text = Vec::new();
+				fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
+					match shape {
+						egui::Shape::Text(t) => out.push(t.galley.job.text.clone()),
+						egui::Shape::Vec(shapes) => {
+							for shape in shapes {
+								collect(shape, out);
+							}
+						}
+						_ => {}
+					}
+				}
+				for shape in &output.shapes {
+					collect(&shape.shape, &mut text);
+				}
+				output.drop_without_applying_deltas();
+				(text, clicks)
+			};
+			let (text, _) = run(vec![]);
+			for expected in ["Riley Quinn", "@riley", "About Serein", "RQ"] {
+				assert!(text.iter().any(|value| value == expected), "{expected}");
+			}
+			// The row owns the full width; the expander sits directly beneath it.
+			for (position, row) in [
+				(egui::pos2(160.0, 27.0), true),
+				(egui::pos2(160.0, 68.0), false),
+			] {
+				let mut clicks = (false, false);
+				for pressed in [true, false] {
+					clicks = run(vec![
+						egui::Event::PointerMoved(position),
+						egui::Event::PointerButton {
+							pos: position,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					])
+					.1;
+				}
+				assert_eq!(clicks, (row, !row));
+			}
+		}
+	}
 }
 
 #[cfg(test)]

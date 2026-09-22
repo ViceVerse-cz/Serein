@@ -196,6 +196,13 @@ fn extension_fixture(
 		"serein-rose" => include_bytes!("../../../extensions/rose.serein-extension"),
 		"serein-forest" => include_bytes!("../../../extensions/forest.serein-extension"),
 		"serein-latte" => include_bytes!("../../../extensions/latte.serein-extension"),
+		"golden-theme" => include_bytes!("../../../extensions/golden.serein-extension"),
+		"black-theme" => include_bytes!("../../../extensions/katana.serein-extension"),
+		"obsidian-theme" => include_bytes!("../../../extensions/obsidian.serein-extension"),
+		"teal-theme" => include_bytes!("../../../extensions/teal.serein-extension"),
+		"emoji-sticker-images" => include_bytes!(
+			"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
+		),
 		_ => return Err("Unknown fixture extension".into()),
 	};
 	let package = extensions::parse_package(bytes)?;
@@ -316,13 +323,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo --output=PATH.png [--page=profile|account|appearance|general|extensions] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
+		return Err("Usage: profile_preview --demo --output=PATH.png [--page=stickers|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
 	}
 	let output = PathBuf::from(value("--output=").ok_or("Missing --output=PATH.png")?);
 	let page = value("--page=").unwrap_or("profile").to_owned();
 	if !matches!(
 		page.as_str(),
 		"profile"
+			| "stickers"
+			| "profile-card"
+			| "member-tags"
+			| "dm-tags"
 			| "account"
 			| "appearance"
 			| "general"
@@ -330,7 +341,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "server"
 			| "server-engagement"
 	) {
-		return Err("Page must be profile, account, appearance, general, extensions, server or server-engagement".into());
+		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, extensions, server or server-engagement".into());
 	}
 	let width: f32 = value("--width=").unwrap_or("1120").parse()?;
 	let height: f32 = value("--height=").unwrap_or("760").parse()?;
@@ -367,27 +378,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			if page == "profile" {
 				prime_profile(&mut state);
 			}
+			if page == "member-tags" {
+				let user = test_support::message(1, model::Id(20)).author;
+				state.members = Some(model::MemberList {
+					channel: model::Id(20),
+					guild: Some(model::Id(10)),
+					request: 0,
+					total: 1,
+					freshness: model::Freshness::Fresh,
+					rows: vec![Some(model::Member {
+						user,
+						nick: None,
+						roles: vec![],
+						status: Some("online".into()),
+						custom_status: Some("Building a quieter place".into()),
+						activities: vec![],
+					})],
+				});
+			} else if page == "dm-tags" {
+				let _ = state.select(model::Id(22));
+			}
 			let mut messaging = ui::MessagingUi::default();
 			messaging.tray_available = platform::tray::supported();
 			messaging.startup_available = platform::startup::available();
 			messaging.startup_enabled = args.iter().any(|arg| arg == "--startup-enabled");
 			messaging.startup_minimized = args.iter().any(|arg| arg == "--startup-minimized");
-			if let Some((package, _invocation, result)) = fixture {
+			if matches!(page.as_str(), "member-tags" | "dm-tags") {
+				// State is primed above; the normal offline messaging surface renders the list.
+			} else if page == "stickers" {
+				test_support::seed_stickers(&mut state);
+				messaging.preview_sticker_picker();
+			} else if page == "profile-card" {
+				state.demo = false;
+				messaging.preview_profile(test_support::message(1, model::Id(20)).author);
+			} else if let Some((package, _invocation, result)) = fixture {
 				prime_extension_chat(&mut state);
 				if let Some(theme) = package.theme.as_ref() {
 					ui::design::set_extension_theme(Some(theme));
 					ui::design::apply(&cc.egui_ctx);
 				}
 				if let Some(output) = result {
+					messaging.image_sharing_enabled = output.image_sharing;
+					if output.image_sharing {
+						test_support::seed_stickers(&mut state);
+						messaging.preview_sticker_picker();
+					}
 					state.set_preserve_deleted_messages(output.preserve_deleted_messages);
-					let channel = state.selected.unwrap();
-					state.apply(client_core::Envelope {
-						generation: state.generation,
-						event: client_core::Event::Delete {
-							channel,
-							id: model::Id(601),
-						},
-					});
+					if output.preserve_deleted_messages {
+						let channel = state.selected.unwrap();
+						state.apply(client_core::Envelope {
+							generation: state.generation,
+							event: client_core::Event::Delete {
+								channel,
+								id: model::Id(601),
+							},
+						});
+					}
 				}
 			} else if page.starts_with("server") {
 				server_settings_demo::open(&mut state, &mut messaging);

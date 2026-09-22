@@ -24,6 +24,15 @@ pub struct Middle {
 	pub down: bool,
 }
 
+/// Mouse 4 / mouse 5 edge presses for this frame, delivered outside egui's pointer state.
+///
+/// Label selection uses `any_pressed()`, so these buttons must not enter egui.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub struct SidePress {
+	pub back: bool,
+	pub forward: bool,
+}
+
 #[derive(Clone, Copy, Default)]
 enum Drive {
 	#[default]

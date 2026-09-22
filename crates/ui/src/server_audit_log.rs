@@ -266,7 +266,7 @@ impl AuditLogUi {
 					let summary = summary(entry, page, state);
 					response.widget_info(|| {
 						egui::WidgetInfo::selected(
-							egui::WidgetType::CollapsingHeader,
+							egui::Role::Button,
 							ui.is_enabled(),
 							expanded,
 							&summary,
@@ -519,7 +519,7 @@ fn event_icon(action: u16) -> icons::Icon {
 		40..=42 => icons::Icon::Link,
 		50..=52 | 80..=82 => icons::Icon::Activities,
 		60..=62 => icons::Icon::Smile,
-		110..=112 => icons::Icon::Threads,
+		110..=112 => icons::Icon::Thread,
 		_ => icons::Icon::Gear,
 	}
 }

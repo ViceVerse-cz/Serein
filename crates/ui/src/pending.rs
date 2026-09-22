@@ -45,6 +45,8 @@ pub fn show(
 	let (avatars, opening, profile, channel, formats) = media;
 	let upload = upload.filter(|upload| upload.nonce == pending.nonce);
 	let sending = pending.delivery == Delivery::Sending;
+	let artwork = pending.attachments.len() == 1
+		&& attachments::artwork_edge(&pending.attachments[0]).is_some();
 	let status = match pending.delivery {
 		Delivery::Sending => "Sending…",
 		Delivery::Ambiguous => "Delivery unknown",
@@ -62,7 +64,10 @@ pub fn show(
 			ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
 			ui.horizontal_top(|ui| {
 				if compact {
-					ui.allocate_exact_size(egui::vec2(40.0, 22.0), egui::Sense::hover());
+					ui.allocate_exact_size(
+						egui::vec2(40.0, crate::timeline::MESSAGE_LINE),
+						egui::Sense::hover(),
+					);
 				} else {
 					ui.scope(|ui| {
 						ui.set_opacity(0.55);
@@ -75,6 +80,7 @@ pub fn show(
 				}
 				ui.vertical(|ui| {
 					ui.set_width(ui.available_width());
+					let mut text_line = egui::Rect::NOTHING;
 					if !compact
 						|| matches!(pending.delivery, Delivery::Rejected | Delivery::Ambiguous)
 					{
@@ -119,25 +125,33 @@ pub fn show(
 								ui.data_mut(|data| data.get_temp::<u32>(id).unwrap_or(0));
 							let mut surface = crate::select::Surface::new(ui, "pending-body");
 							let jumbo = formatted.jumbo();
-							ui.scope(|ui| {
-								if jumbo {
-									crate::design::jumbo_emoji(ui);
-								}
-								formatted.show_references(
-									ui,
-									opening,
-									&crate::mentions::known_users(state, pending.channel),
-									profile,
-									(
-										&state.channels,
-										channel,
-										&state.guilds,
-										crate::mentions::known_roles(state, pending.channel),
-									),
-									(avatars, state.demo, &mut revealed),
-									&mut surface,
-								);
-							});
+							text_line = ui
+								.scope(|ui| {
+									if jumbo {
+										crate::design::jumbo_emoji(ui);
+									}
+									let source = crate::mentions::MentionSource {
+										state,
+										channel: pending.channel,
+									};
+									formatted.show_references(
+										ui,
+										opening,
+										&crate::mentions::known_users(state, pending.channel),
+										Some(&source),
+										profile,
+										(
+											&state.channels,
+											channel,
+											&state.guilds,
+											crate::mentions::known_roles(state, pending.channel),
+										),
+										(avatars, state.demo, &mut revealed),
+										&mut surface,
+									);
+								})
+								.response
+								.rect;
 							surface.finish(ui);
 							if revealed != 0 {
 								ui.data_mut(|data| data.insert_temp(id, revealed));
@@ -145,6 +159,13 @@ pub fn show(
 						})
 						.response
 						.on_hover_text(status);
+					}
+					if let Some(sticker) = &pending.sticker {
+						ui.scope(|ui| {
+							ui.set_opacity(if sending { 0.55 } else { 1.0 });
+							let edge = ui.available_width().min(160.0);
+							avatars.sticker_image(ui, sticker, egui::Vec2::splat(edge), state.demo);
+						});
 					}
 					if !pending.attachments.is_empty() {
 						ui.scope(|ui| {
@@ -154,7 +175,7 @@ pub fn show(
 							files(ui, pending, upload);
 						});
 					}
-					if sending {
+					if sending && !artwork {
 						if !pending.attachments.is_empty() {
 							ui.add_space(2.0);
 							ui.scope(|ui| {
@@ -170,10 +191,18 @@ pub fn show(
 									.color(colors.muted),
 							);
 						}
-						if ui.button("Restore to composer").clicked() {
+						if ui
+							.button(if pending.sticker.is_some() {
+								"Dismiss"
+							} else {
+								"Restore to composer"
+							})
+							.clicked()
+						{
 							*restore = Some(pending.nonce.clone());
 						}
 					}
+					crate::timeline::fill_header_line(ui, compact, text_line);
 				});
 			});
 		});
@@ -183,28 +212,37 @@ pub fn show(
 fn files(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>) {
 	let colors = design::palette(ui);
 	let file = |index: usize| upload.and_then(|upload| upload.files.get(index));
-	let images: Vec<&egui::TextureHandle> = pending
+	let images: Vec<(&str, &egui::TextureHandle)> = pending
 		.attachments
 		.iter()
 		.enumerate()
-		.filter_map(|(index, _)| file(index).and_then(|file| file.preview.as_ref()))
+		.filter_map(|(index, filename)| {
+			file(index)
+				.and_then(|file| file.preview.as_ref())
+				.map(|preview| (filename.as_str(), preview))
+		})
 		.collect();
 	if !images.is_empty() {
 		let (columns, size) = attachments::image_layout(images.len(), ui.available_width());
 		ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
 		for row in images.chunks(columns) {
 			ui.horizontal_top(|ui| {
-				for texture in row {
+				for (filename, texture) in row {
 					let source = texture.size_vec2();
 					let scale = (size.x / source.x).min(size.y / source.y);
-					let fitted = if images.len() > 1 {
+					let artwork = attachments::artwork_edge(filename);
+					let fitted = if let Some(edge) = artwork {
+						egui::Vec2::splat(edge.min(size.x).min(size.y))
+					} else if images.len() > 1 {
 						// Grid tiles share one height so rows stay aligned, like Discord.
 						egui::vec2(size.x, size.y)
 					} else {
 						source * scale.clamp(f32::EPSILON, 1.0)
 					};
 					let (rect, _) = ui.allocate_exact_size(fitted, egui::Sense::hover());
-					ui.painter().rect_filled(rect, 8, colors.raised);
+					if artwork.is_none() {
+						ui.painter().rect_filled(rect, 8, colors.raised);
+					}
 					let shown = if images.len() > 1 {
 						egui::Rect::from_center_size(rect.center(), source * scale).intersect(rect)
 					} else {
@@ -366,6 +404,7 @@ mod tests {
 			..Default::default()
 		};
 		let mut pending = Pending {
+			sticker: None,
 			channel: model::Id(1),
 			content: format!("{} FULL END", "Full message text ".repeat(10)),
 			attachments: vec!["notes.txt".into(), "photo.png".into()],

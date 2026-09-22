@@ -92,27 +92,65 @@ jobs:
             # GitHub replaces ~ in asset names; normalize before generating checksums.
             cp "$package" "release-assets/serein-$TAG-Linux-$DISTRIBUTION-$(basename "$package" | tr '~' '.')"
           done
-      - name: Build AppImage including voice
-        if: matrix.format == 'deb'
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: serein-linux-${{ matrix.distribution }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  appimage:
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8.0.1
+        if: inputs.release == true
+        with:
+          name: release-manifests
+          path: .
+      - name: Install build tools
         run: |
+          bash packaging/linux/install-build-deps.sh
+          apt-get install -y --no-install-recommends zsync
+      - name: Create unprivileged builder
+        run: |
+          useradd --create-home builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+      - uses: actions/cache@v6.1.0
+        with:
+          path: |
+            /home/builder/.cargo/registry
+            /home/builder/.cargo/git
+            target
+          key: linux-appimage-ubuntu-24.04-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+      - name: Build AppImage including voice
+        env:
+          SEREIN_RELEASE_TAG: ${{ inputs.release && inputs.tag || '' }}
+        run: |
+          chown -R builder:builder /home/builder "$GITHUB_WORKSPACE"
           runuser -u builder -- env HOME=/home/builder bash <<'BUILD'
             set -eu
+            curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
             export PATH="$HOME/.cargo/bin:$PATH"
+            rustup show active-toolchain
             bash packaging/appimage/install-tools.sh
             cargo xtask package --format appimage
           BUILD
       - name: Collect AppImage
-        if: matrix.format == 'deb'
-        env:
-          TAG: ${{ inputs.tag || 'development' }}
         run: |
+          mkdir release-assets
           set -- dist/serein-*-Linux-X64.AppImage
           test "$#" -eq 1
           test -f "$1"
-          cp "$1" "release-assets/serein-$TAG-Linux-X64.AppImage"
+          test -s "$1.zsync"
+          cp "$1" "$1.zsync" release-assets/
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: serein-linux-${{ matrix.distribution }}
+          name: serein-linux-appimage
           path: release-assets/*
           if-no-files-found: error
           retention-days: 14

@@ -50,11 +50,12 @@ Linux packaging uses the target distribution's native tools: `dpkg-dev` for Debi
 dependencies, installation commands and supported distribution versions.
 
 `cargo xtask package --format appimage` creates a Linux x86_64 Type 2 AppImage
-including voice. The Ubuntu 26.04 release job publishes it alongside the native
-packages and release checksums. It uses host GTK4/WebKitGTK 6.0, audio and graphics
-libraries, rather than bundling a separate browser runtime. See [AppImage setup and
-builds](../packaging/appimage/README.md) for installation requirements, pinned tooling
-and package inspection. Native AppImage startup and upgrading remain unverified in
+including voice. A separate Ubuntu 24.04 (glibc 2.39) release job publishes it
+alongside the native packages and release checksums. It uses host GTK4/WebKitGTK 6.0,
+audio and graphics libraries, rather than bundling a separate browser runtime. See
+[AppImage setup and builds](../packaging/appimage/README.md) for installation
+requirements, pinned tooling and package inspection. Native AppImage startup and
+upgrading remain unverified in
 the initial fast local pass.
 
 `cargo xtask package` builds the locked default release configuration. macOS gets `dist/Serein.app`; Windows gets an executable plus license files; Debian/Ubuntu Linux additionally produces a `.deb` with desktop integration and dependency metadata. On macOS, packaging replaces the executable through a fresh sibling file and rename, then seals the completed bundle with `codesign --force --sign -` and runs `codesign --verify --strict`. This is a **local ad-hoc signature**, with no signing identity, Developer ID certificate, or notarization. It verifies the staged bundle's integrity and does not certify Gatekeeper acceptance or a trusted publisher. The distinction between signature validity and trust is described in [Apple's code-signing guidance](https://developer.apple.com/library/archive/technotes/tn2206/_index.html).
@@ -92,8 +93,10 @@ server negotiates H264; capture starts only after an explicit click in a connect
 call. All adapters send 640×480 video at most 15 encoded frames/s.
 Windows needs desktop camera permission; Linux needs an accessible streaming
 `/dev/videoN` node supporting progressive YUYV or MJPEG. Linux portal-only camera
-access is not implemented. Windows has a device picker in settings and call controls,
-including DirectShow virtual cameras; macOS/Linux still use their default selection.
+access is not implemented. All three platforms have a device picker in settings and call controls,
+including DirectShow virtual cameras on Windows, AVFoundation discovery on macOS,
+and single-plane streaming V4L2 devices on Linux. Settings also provide an explicit
+local camera preview outside calls. Physical selection/preview remains unverified.
 See [camera limits and validation](voice.md#camera-in-calls-macos-windows-and-linux).
 Windows compilation and isolated Linux adapter tests do not establish working
 physical capture or delivery to an official Discord client; these remain unverified.
@@ -127,7 +130,31 @@ polling. A synthetic native Windows test verifies registration,
 minimize/restore, own-window taskbar recovery, Quit event and cleanup. macOS uses a native menu bar icon with Show Serein / Quit actions; it draws Serein's own
 mark (`assets/brand/serein-tray.png`, rendered from the brand SVG) as an 18-point template
 image, so the system tints it for light, dark and highlighted menu bars. Minimized windows
-remain in the Dock. Linux retains an explicitly disabled control.
+remain in the Dock.
+
+Linux now uses ksni's StatusNotifierItem on the session bus with Show Serein,
+Minimize Serein and Quit actions. Enable a StatusNotifier host (for example a panel's
+tray module). Until registration succeeds, or after host loss, Close retains normal
+exit behavior. Start/restart the host and toggle the tray off/on to retry registration.
+The existing on-by-default tray preference is reused; demo changes are session-only.
+
+**Hyprland / native Wayland:** winit cannot hide, unhide, focus or unminimize a native
+Wayland window. On Hyprland, Close and tray Minimize instead park Serein on
+`special:serein-tray` through the compositor socket; Show moves it to the active
+workspace. This uses `hl.dsp.window.move` with `follow = false`, accepting the new
+workspace `address` or legacy numeric `id`. Older dispatchers fall back to
+`movetoworkspacesilent`. Workspace names are bounded and escaped before Lua dispatch.
+Other Wayland compositors receive minimize/restore requests and may require their
+own window controls; the KDE tray restoration report remains unresolved. Native Wayland remains the default on Wayland sessions, with no
+application-level XWayland fallback or backend override.
+Quit remains explicit and runs the existing unsaved-work/download/extension checks;
+cancelling Quit restores close-to-tray behavior.
+
+Offline lifecycle check: `cargo run --locked -p tray-debug`. On Linux, use
+`dbus-run-session -- cargo run --locked -p tray-debug` to additionally exercise
+registration, missing/lost host, icon activation and all three menu actions on a private
+synthetic bus. These checks do not establish compositor behavior. This refresh was
+prepared on macOS; NixOS/Hyprland and Flatpak desktop validation remain pending.
 
 ## Opt-in automatic startup
 
@@ -168,6 +195,15 @@ GitHub HTTPS and repository access are the update trust boundary; release checks
 alone are not an independent publisher signature. Linux AppImages use this same
 trust boundary; other Linux installations use their package manager.
 
+AppImage downloads first try the selected release's `.zsync` sidecar, verified
+against the same checksum list. The updater scans the installed image for reusable
+blocks and downloads missing HTTPS ranges, then verifies the entire result with
+SHA-256. Missing/incompatible delta metadata or reconstruction failure falls back
+to a full download. The built-in implementation supports the zsync 0.6.2/MD4 format
+produced by the Ubuntu packaging job; it does not run an external updater. Offline
+debug checks cover shifted-block reuse and integrity rejection; real release-to-release
+bandwidth savings and Linux upgrade behavior remain unverified.
+
 The local `--features demo -- --demo --demo-check-updates` debug path exercises
 synthetic update states, preference compatibility and settings rendering without
 network access or replacing an installation. It is not evidence of a successful
@@ -192,7 +228,7 @@ available with a visible recovery path on the next update attempt.
 
 ## Linux screen sharing
 
-Screen sharing requires PipeWire, a ScreenCast-capable portal backend for the current
+The system screen-sharing picker requires PipeWire, a ScreenCast-capable portal backend for the current
 desktop (GNOME, KDE or the compositor-specific backend), and GStreamer Base/Good plus
 the PipeWire source plugin. GStreamer 1.24+ is recommended; GPU scaling/encoding also
 needs the applicable VA, NVCodec and OpenGL plugins and working driver support.
@@ -200,6 +236,18 @@ Native packages declare the PipeWire and Base runtime plugins; hardware codec av
 still depends on distribution packaging and drivers. The software fallback reuses bundled
 OpenH264. Flatpak needs compatible plugins/GPU access inside its runtime; no extra sandbox
 permission or host socket access is added. Native Linux validation remains pending.
+
+Screen sharing also tries the legacy `vaapih264enc` element when modern VA encoding
+fails. This optional system plugin uses CPU scaling and hardware H.264 encoding;
+it does not require `vaapipostproc`. Check availability with
+`gst-inspect-1.0 vaapih264enc` in the same runtime as Serein. Installing the modern
+`va` plugin alone does not provide this legacy element. Driver compatibility still
+requires an actual encode test; `vainfo` only advertises capabilities.
+
+Native X11 sessions can instead explicitly select “Entire X11 desktop · all monitors ·
+no portal”. This uses `ximagesrc` from GStreamer Good, already a native package
+dependency, and shares the whole desktop. No direct capture starts after a failed or
+cancelled portal request. X11 capture and live delivery remain unverified.
 
 Optional Linux stream audio uses native `libpulse` per-application monitoring on
 PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse development

@@ -68,6 +68,14 @@ pub enum Operation {
 	SaveGifFavorites(Vec<model::Gif>),
 	LoadChannelPreferences,
 	SaveChannelPreferences(model::ChannelPreferences),
+	LoadAccountPresences,
+	SaveAccountPresence(model::OwnPresence),
+	LoadAccounts,
+	SaveAccount(model::SavedAccount),
+	SetAccountToken {
+		account: Id,
+		has_token: bool,
+	},
 	LoadChannel {
 		channel: Id,
 		request: u64,
@@ -108,6 +116,15 @@ pub enum Outcome {
 	GifFavorites(Vec<model::Gif>),
 	ChannelPreferences(Result<model::ChannelPreferences, StoreError>),
 	ChannelPreferencesSaved(Result<(), StoreError>),
+	AccountPresences(Result<std::collections::BTreeMap<model::Id, model::OwnPresence>, StoreError>),
+	AccountPresenceSaved(Result<(), StoreError>),
+	/// The whole switcher roster, plus any accounts pruned to keep it bounded. Pruning is
+	/// already committed when this is produced, so the IDs travel outside the roster result:
+	/// a failed re-read must not strand their saved secrets and cached data.
+	Accounts {
+		roster: Result<Vec<model::SavedAccount>, StoreError>,
+		pruned: Vec<Id>,
+	},
 	Channel {
 		channel: Id,
 		request: u64,
@@ -250,6 +267,12 @@ impl Cache {
 						.sum::<usize>()
 			}
 			Operation::SaveThemeVariant(value) => value.as_ref().map_or(0, String::capacity),
+			Operation::SaveAccount(account) => {
+				if !account.is_valid() {
+					return false;
+				}
+				account.heap_bytes()
+			}
 			_ => 0,
 		};
 		let ids = match &operation {
@@ -307,6 +330,14 @@ impl Cache {
 						favorites.iter().map(model::Gif::bytes).sum::<usize>()
 							+ favorites.capacity() * size_of::<model::Gif>()
 					}
+					Outcome::Accounts { roster, pruned } => {
+						roster.as_ref().map_or(0, |accounts| {
+							accounts
+								.iter()
+								.map(model::SavedAccount::heap_bytes)
+								.sum::<usize>() + accounts.capacity() * size_of::<model::SavedAccount>()
+						}) + pruned.capacity() * size_of::<Id>()
+					}
 					_ => 0,
 				};
 				let reservation = results
@@ -347,6 +378,52 @@ fn execute(
 				Ok(store) => store.save_channel_preferences(account, value),
 				Err(error) => Err(*error),
 			});
+		}
+		Operation::LoadAccountPresences => {
+			return Outcome::AccountPresences(match store {
+				Ok(store) => store.account_presences(),
+				Err(error) => Err(*error),
+			});
+		}
+		Operation::SaveAccountPresence(presence) => {
+			return Outcome::AccountPresenceSaved(match store {
+				Ok(store) => store.save_account_presence(account, presence),
+				Err(error) => Err(*error),
+			});
+		}
+		Operation::LoadAccounts => {
+			return Outcome::Accounts {
+				roster: match store {
+					Ok(store) => store.accounts(),
+					Err(error) => Err(*error),
+				},
+				pruned: Vec::new(),
+			};
+		}
+		Operation::SaveAccount(account) => {
+			let (roster, pruned) = match store {
+				Ok(store) => match store.save_account(account) {
+					// Report the committed pruning even when the re-read fails.
+					Ok(pruned) => (store.accounts(), pruned),
+					Err(error) => (Err(error), Vec::new()),
+				},
+				Err(error) => (Err(*error), Vec::new()),
+			};
+			return Outcome::Accounts { roster, pruned };
+		}
+		Operation::SetAccountToken {
+			account: id,
+			has_token,
+		} => {
+			return Outcome::Accounts {
+				roster: match store {
+					Ok(store) => store
+						.set_account_token(*id, *has_token)
+						.and(store.accounts()),
+					Err(error) => Err(*error),
+				},
+				pruned: Vec::new(),
+			};
 		}
 		Operation::LoadAppPreferences => {
 			return Outcome::AppPreferences(match store {
@@ -440,6 +517,9 @@ fn execute(
 		}
 		Operation::LoadChannel { .. } => "Could not read cached history",
 		Operation::LoadAppPreferences
+		| Operation::LoadAccounts
+		| Operation::SaveAccount(_)
+		| Operation::SetAccountToken { .. }
 		| Operation::LoadChannelPreferences
 		| Operation::SaveChannelPreferences(_)
 		| Operation::SaveAppPreferences(_)
@@ -448,11 +528,16 @@ fn execute(
 		| Operation::LoadGameActivity
 		| Operation::SaveGameActivity(_)
 		| Operation::LoadMinimizeToTray
-		| Operation::SaveMinimizeToTray(_) => unreachable!(),
+		| Operation::SaveMinimizeToTray(_)
+		| Operation::LoadAccountPresences
+		| Operation::SaveAccountPresence(_) => unreachable!(),
 	};
 	let result = match store {
 		Ok(store) => match operation {
 			Operation::LoadAppPreferences
+			| Operation::LoadAccounts
+			| Operation::SaveAccount(_)
+			| Operation::SetAccountToken { .. }
 			| Operation::LoadChannelPreferences
 			| Operation::SaveChannelPreferences(_)
 			| Operation::SaveAppPreferences(_)
@@ -461,7 +546,9 @@ fn execute(
 			| Operation::LoadGameActivity
 			| Operation::SaveGameActivity(_)
 			| Operation::LoadMinimizeToTray
-			| Operation::SaveMinimizeToTray(_) => {
+			| Operation::SaveMinimizeToTray(_)
+			| Operation::LoadAccountPresences
+			| Operation::SaveAccountPresence(_) => {
 				unreachable!()
 			}
 			Operation::LoadAppearance => store
@@ -581,6 +668,7 @@ mod tests {
 		let preferences = model::ChannelPreferences {
 			favorites: vec![Id(19)],
 			pinned: vec![Id(20)],
+			collapsed_categories: vec![Id(21)],
 		};
 		store
 			.as_ref()

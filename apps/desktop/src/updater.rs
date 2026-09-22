@@ -13,6 +13,8 @@ use std::{
 };
 use tokio::runtime::Runtime;
 
+#[path = "updater_delta.rs"]
+mod delta;
 #[path = "updater_install.rs"]
 mod install;
 
@@ -41,6 +43,7 @@ struct Package {
 	// but there is nothing here to download.
 	archive: Option<Asset>,
 	checksums: Option<Asset>,
+	zsync: Option<Asset>,
 }
 struct Staged {
 	directory: PathBuf,
@@ -148,8 +151,12 @@ impl Updater {
 			view.available = false;
 			view.ready = false;
 			view.progress = None;
-			view.status =
-				"Load update preferences or choose your update settings to enable checking.".into();
+			view.status = if cfg!(debug_assertions) {
+				"Update checks are disabled in debug builds."
+			} else {
+				"Load update preferences or choose your update settings to enable checking."
+			}
+			.into();
 			return false;
 		}
 		if self.channel != Some(view.nightly) {
@@ -556,6 +563,7 @@ fn select_release(
 			version: version.to_string(),
 			archive: None,
 			checksums: None,
+			zsync: None,
 		}));
 	};
 	let find = |name: &str| -> Result<Asset, String> {
@@ -581,6 +589,11 @@ fn select_release(
 	};
 	let archive = find(&wanted)?;
 	let checksums = find("SHA256SUMS.txt")?;
+	let zsync = wanted
+		.ends_with(".AppImage")
+		.then(|| find(&format!("{wanted}.zsync")).ok())
+		.flatten()
+		.filter(|asset| asset.size <= delta::MAX_CONTROL as u64);
 	if checksums.size > 64 * 1024 {
 		return Err("The checksum list exceeds its size limit.".into());
 	}
@@ -588,6 +601,7 @@ fn select_release(
 		version: version.to_string(),
 		archive: Some(archive),
 		checksums: Some(checksums),
+		zsync,
 	}))
 }
 async fn check_release(nightly: bool, cancel: Arc<AtomicBool>) -> Result<Option<Package>, String> {
@@ -654,60 +668,42 @@ async fn download_package(
 		.checksums
 		.ok_or("This platform cannot install updates in-app.")?;
 	let client = client()?;
-	let expected = checksum(
-		&bounded_body(&client, &checksums.browser_download_url, 64 * 1024, &cancel).await?,
-		&archive.name,
-	)?;
+	let checksum_body =
+		bounded_body(&client, &checksums.browser_download_url, 64 * 1024, &cancel).await?;
+	let expected = checksum(&checksum_body, &archive.name)?;
 	let stage = tokio::task::spawn_blocking(install::create_stage)
 		.await
 		.map_err(|_| "Could not prepare update storage.".to_owned())??;
 	let directory = stage.directory.clone();
 	let result = async {
-		use tokio::io::AsyncWriteExt;
-		let mut response = response(&client, &archive.browser_download_url).await?;
-		if response
-			.content_length()
-			.is_some_and(|size| size != archive.size)
-		{
-			return Err("The package size does not match its release metadata.".into());
+		let reused = if let Some(control) = package.zsync.filter(|_| install::appimage_session()) {
+			delta::download(
+				&client,
+				&archive,
+				&control,
+				&checksum_body,
+				&stage,
+				&cancel,
+				&progress,
+			)
+			.await
+			.is_ok()
+		} else {
+			false
+		};
+		if cancel.load(Ordering::Relaxed) {
+			return Err("Update cancelled.".into());
 		}
-		let mut file = tokio::fs::OpenOptions::new()
-			.write(true)
-			.create_new(true)
-			.open(directory.join("package.zip"))
-			.await
-			.map_err(|_| "Could not create the update download.".to_owned())?;
-		let mut hasher = Sha256::new();
-		let mut received = 0_u64;
-		while let Some(chunk) = response
-			.chunk()
-			.await
-			.map_err(|_| "The update download was interrupted.".to_owned())?
-		{
-			if cancel.load(Ordering::Relaxed) {
-				return Err("Update cancelled.".into());
+		if !reused {
+			let partial = directory.join("package.zip");
+			match tokio::fs::remove_file(&partial).await {
+				Ok(()) => {}
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+				Err(_) => return Err("Could not discard the partial update.".into()),
 			}
-			received = received
-				.checked_add(chunk.len() as u64)
-				.ok_or("Update size overflow.")?;
-			if received > archive.size || received > MAX_DOWNLOAD {
-				return Err("The downloaded package exceeds its size limit.".into());
-			}
-			file.write_all(&chunk).await.map_err(|_| {
-				"Could not write the update. Check available disk space.".to_owned()
-			})?;
-			hasher.update(&chunk);
-			progress.store(received, Ordering::Relaxed);
+			progress.store(0, Ordering::Relaxed);
+			download_full(&client, &archive, &directory, &expected, &cancel, &progress).await?;
 		}
-		if received != archive.size || hasher.finalize().as_slice() != expected {
-			return Err(
-				"The update checksum or length did not match. Nothing was installed.".into(),
-			);
-		}
-		file.sync_all()
-			.await
-			.map_err(|_| "Could not save the update package.".to_owned())?;
-		drop(file);
 		let path = directory.clone();
 		let installation = stage.installation.clone();
 		tokio::task::spawn_blocking(move || install::unpack(&path, &installation, &cancel))
@@ -727,9 +723,64 @@ async fn download_package(
 	}
 }
 
+async fn download_full(
+	client: &reqwest::Client,
+	archive: &Asset,
+	directory: &std::path::Path,
+	expected: &[u8; 32],
+	cancel: &AtomicBool,
+	progress: &AtomicU64,
+) -> Result<(), String> {
+	use tokio::io::AsyncWriteExt;
+	let mut response = response(client, &archive.browser_download_url).await?;
+	if response
+		.content_length()
+		.is_some_and(|size| size != archive.size)
+	{
+		return Err("The package size does not match its release metadata.".into());
+	}
+	let mut file = tokio::fs::OpenOptions::new()
+		.write(true)
+		.create_new(true)
+		.open(directory.join("package.zip"))
+		.await
+		.map_err(|_| "Could not create the update download.".to_owned())?;
+	let mut hasher = Sha256::new();
+	let mut received = 0_u64;
+	while let Some(chunk) = response
+		.chunk()
+		.await
+		.map_err(|_| "The update download was interrupted.".to_owned())?
+	{
+		if cancel.load(Ordering::Relaxed) {
+			return Err("Update cancelled.".into());
+		}
+		received = received
+			.checked_add(chunk.len() as u64)
+			.ok_or("Update size overflow.")?;
+		if received > archive.size || received > MAX_DOWNLOAD {
+			return Err("The downloaded package exceeds its size limit.".into());
+		}
+		file.write_all(&chunk)
+			.await
+			.map_err(|_| "Could not write the update. Check available disk space.".to_owned())?;
+		hasher.update(&chunk);
+		progress.store(received, Ordering::Relaxed);
+	}
+	if received != archive.size || hasher.finalize().as_slice() != expected.as_slice() {
+		return Err("The update checksum or length did not match. Nothing was installed.".into());
+	}
+	file.sync_all()
+		.await
+		.map_err(|_| "Could not save the update package.".to_owned())?;
+	drop(file);
+	Ok(())
+}
+
 /// Offline checks used by the explicit demo debug path, never by release startup.
 #[cfg(feature = "demo")]
 pub fn debug_check() -> Result<(), String> {
+	delta::debug_check()?;
 	let stable = release_version("v1.2.3").ok_or("stable version")?;
 	let nightly = release_version("v1.2.3-nightly.9.1").ok_or("nightly version")?;
 	if nightly >= stable || release_version("v1.2.3/../../bad").is_some() {

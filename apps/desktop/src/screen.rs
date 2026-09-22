@@ -284,7 +284,7 @@ impl Screen {
 					self.status = if ui.screen.sources.is_empty() {
 						"No shareable screens or windows were found"
 					} else if cfg!(target_os = "linux") {
-						"Share Screen opens your desktop’s screen/window picker"
+						"Choose the system picker or, on X11, explicitly share the entire desktop"
 					} else {
 						"Choose a screen or window"
 					};
@@ -419,8 +419,9 @@ impl Screen {
 		}
 		if let Some(live) = &self.live {
 			live.worker.set_preview_visible(
-				state.selected == Some(live.context.channel)
-					&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false)),
+				ui.screen.preview.is_none()
+					|| (state.selected == Some(live.context.channel)
+						&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false))),
 			);
 			if let Some(frame) = live.worker.take_preview() {
 				let image = egui::ColorImage::from_rgba_unmultiplied(
@@ -432,6 +433,11 @@ impl Screen {
 				} else {
 					ui.screen.preview =
 						Some(ctx.load_texture("local-screen", image, egui::TextureOptions::LINEAR));
+					let cue = model::notification_preferences::Sound::ScreenShareOn;
+					if ui.notification_options.allows(cue) {
+						ui.notification_preview = Some(cue);
+						ctx.request_repaint();
+					}
 				}
 			}
 		} else {

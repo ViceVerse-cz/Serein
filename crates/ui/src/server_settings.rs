@@ -903,7 +903,7 @@ impl Editor {
 					let name = format!("Banner color #{color:06X}");
 					response.widget_info(|| {
 						egui::WidgetInfo::selected(
-							egui::WidgetType::RadioButton,
+							egui::Role::RadioButton,
 							ui.is_enabled(),
 							draft.banner_color == Some(color),
 							&name,

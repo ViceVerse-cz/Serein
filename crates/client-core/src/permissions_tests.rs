@@ -16,6 +16,7 @@ const BITS: u128 = p::VIEW_CHANNEL
 
 fn large_startup() -> crate::Startup {
 	let mut startup = crate::Startup {
+		external_stickers: false,
 		user: user(),
 		guilds: vec![],
 		channels: vec![],
@@ -37,6 +38,7 @@ fn large_startup() -> crate::Startup {
 		permission_guild.roles.as_mut().unwrap()[0].id = Id(guild);
 		startup.permissions.guilds.push(permission_guild);
 		startup.guilds.push(Guild {
+			stickers: None,
 			id: Id(guild),
 			name: "Synthetic large account".into(),
 			icon: None,
@@ -243,6 +245,7 @@ fn startup_rejects_duplicate_navigation_and_unused_capacity_before_publication()
 
 fn user() -> User {
 	User {
+		primary_guild: None,
 		id: Id(2),
 		name: "Synthetic member".into(),
 		avatar: None,
@@ -268,6 +271,7 @@ fn channel(id: u64, kind: u8, parent: Option<Id>) -> Channel {
 }
 fn message(id: u64, channel: Id) -> Message {
 	Message {
+		sticker_items: Vec::new(),
 		id: Id(id),
 		channel,
 		kind: 0,
@@ -282,6 +286,10 @@ fn message(id: u64, channel: Id) -> Message {
 		reply_deleted: false,
 		forwarded: false,
 		unsupported: false,
+		components: vec![],
+		application_id: None,
+		flags: 0,
+		ephemeral: false,
 		extra_content: Default::default(),
 		embeds: vec![],
 		attachments: vec![],
@@ -393,6 +401,7 @@ fn state() -> State {
 		Event::Ready {
 			user: user(),
 			guilds: vec![Guild {
+				stickers: None,
 				id: Id(10),
 				name: "Synthetic guild".into(),
 				icon: None,
@@ -427,6 +436,7 @@ fn cross_server_emoji_checks_destination_and_known_source_roles() {
 		roles: Some(vec![]),
 	};
 	state.guilds.push(Guild {
+		stickers: None,
 		id: Id(40),
 		name: "Emoji source".into(),
 		icon: None,
@@ -570,6 +580,7 @@ fn new_custom_reactions_require_eligibility_but_existing_and_removal_stay_separa
 	assert!(!state.can_react(Id(100), Some(&emoji), true));
 	assert!(state.prepare_reaction(Id(100), emoji.clone()).is_none());
 	state.guilds.push(Guild {
+		stickers: None,
 		id: Id(40),
 		name: "Emoji source".into(),
 		icon: None,
@@ -956,6 +967,10 @@ fn revoked_view_cannot_return_through_stale_gateway_content_or_old_history() {
 		apply(
 			&mut state,
 			Event::Patch(MessagePatch {
+				sticker_items: model::Patch::Absent,
+				components: model::Patch::Absent,
+				flags: model::Patch::Absent,
+				application_id: model::Patch::Absent,
 				extra_content: Default::default(),
 				id: Id(203),
 				channel: Id(20),

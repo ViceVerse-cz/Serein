@@ -1,6 +1,8 @@
 //! Credential-free, viewport-driven static avatars. No tokens enter this worker.
 use eframe::egui;
+use image::ImageEncoder;
 use model::Id;
+use rasterlottie::{Animation as Lottie, RenderConfig, Renderer, Rgba8};
 use sha2::{Digest, Sha256};
 use std::{
 	collections::BinaryHeap,
@@ -28,6 +30,9 @@ fn encoded_limit(key: &str) -> usize {
 		MAX_ENCODED
 	}
 }
+fn lottie_key(key: &str) -> bool {
+	key.starts_with("embed:sticker-") && key.ends_with("-3")
+}
 /// Decode budget for one key: the longest edge kept in memory.
 fn decode_edge(key: &str) -> u32 {
 	if key.starts_with("large:") {
@@ -44,6 +49,7 @@ fn decode_edge(key: &str) -> u32 {
 	}
 }
 const MAX_AVATAR_ENCODED: usize = 512 * 1024;
+const MAX_LOTTIE_ENCODED: usize = 512 * 1024;
 const MAX_APPLICATION_METADATA: usize = 64 * 1024;
 const MAX_DISK: u64 = 1024 * 1024 * 1024;
 const MAX_FILES: usize = 4096;
@@ -149,6 +155,24 @@ fn clear_directory(root: Option<&Path>) -> Result<(), &'static str> {
 
 // Build, rather than accept, URLs. Even malformed service metadata cannot choose a host/path.
 fn cdn_url(key: &str) -> Option<String> {
+	if let Some(value) = key
+		.strip_prefix("anim:sticker-")
+		.or_else(|| key.strip_prefix("embed:sticker-"))
+	{
+		let (id, format) = value.split_once('-')?;
+		let id: Id = id.parse().ok()?;
+		if id.0 == 0 {
+			return None;
+		}
+		return match format {
+			"1" | "2" => Some(format!("https://cdn.discordapp.com/stickers/{id}.png")),
+			"4" => Some(format!("https://media.discordapp.net/stickers/{id}.gif")),
+			"3" if key.starts_with("embed:") => {
+				Some(format!("https://cdn.discordapp.com/stickers/{id}.json"))
+			}
+			_ => None,
+		};
+	}
 	if let Some(value) = key.strip_prefix("role-icon-") {
 		let (role, hash) = value.split_once('-')?;
 		let role: Id = role.parse().ok()?;
@@ -294,6 +318,9 @@ pub(crate) fn embed_url(source: &str, edge: u32) -> Option<String> {
 		let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
 		matches!(parts.as_slice(), ["avatars" | "icons" | "banners", id, hash]
             if id.parse::<Id>().is_ok() && hash.rsplit_once('.').is_some_and(|(hash, _)| model::valid_avatar_hash(hash)))
+			|| matches!(parts.as_slice(), ["guilds", guild, "users", user, "avatars", hash]
+                if guild.parse::<Id>().is_ok() && user.parse::<Id>().is_ok()
+                    && hash.strip_suffix(".png").is_some_and(model::valid_avatar_hash))
 			|| matches!(parts.as_slice(), ["embed", "avatars", index]
                 if matches!(*index, "0.png" | "1.png" | "2.png" | "3.png" | "4.png" | "5.png"))
 	};
@@ -441,11 +468,25 @@ async fn run(
 						let mut until = cooldown;
 						let bytes = async {
 							let url = if key.starts_with("app-icon-") {
-								let metadata = download(&client, &url, &mut until, MAX_APPLICATION_METADATA).await?;
+								let metadata = download(
+									&client,
+									&url,
+									&mut until,
+									MAX_APPLICATION_METADATA,
+								)
+								.await?;
 								application_icon_url(&key, &metadata)?
-							} else { url };
-							download(&client, &url, &mut until, encoded_limit(&key)).await
-						}.await;
+							} else {
+								url
+							};
+							let limit = if lottie_key(&key) {
+								MAX_LOTTIE_ENCODED
+							} else {
+								encoded_limit(&key)
+							};
+							download(&client, &url, &mut until, limit).await
+						}
+						.await;
 						(key, bytes, until)
 					});
 					continue;
@@ -456,6 +497,11 @@ async fn run(
 		if *cancelled.borrow() {
 			break;
 		}
+		let bytes = if fetched && lottie_key(&key) {
+			bytes.as_deref().and_then(render_lottie)
+		} else {
+			bytes
+		};
 		let edge = decode_edge(&key);
 		let frames = if !cached_frames.is_empty() {
 			cached_frames
@@ -493,6 +539,51 @@ async fn run(
 		ctx.request_repaint();
 	}
 	downloads.abort_all();
+}
+
+/// Render one bounded static preview; the resulting PNG is what enters the disk cache.
+fn render_lottie(bytes: &[u8]) -> Option<Vec<u8>> {
+	if bytes.len() > MAX_LOTTIE_ENCODED {
+		return None;
+	}
+	let source = std::str::from_utf8(bytes).ok()?;
+	let animation = Lottie::from_json_str(source).ok()?;
+	if animation.width == 0
+		|| animation.height == 0
+		|| animation.width > 1024
+		|| animation.height > 1024
+	{
+		return None;
+	}
+	let scale = 160.0 / animation.width.max(animation.height) as f32;
+	let frame = Renderer::default()
+		.render_frame(
+			&animation,
+			animation.in_point,
+			RenderConfig::new(Rgba8::TRANSPARENT, scale),
+		)
+		.ok()?;
+	let mut pixels = frame.pixels;
+	for pixel in pixels.as_chunks_mut::<4>().0 {
+		let alpha = u16::from(pixel[3]);
+		if alpha == 0 {
+			pixel[..3].fill(0);
+		} else if alpha < 255 {
+			for channel in &mut pixel[..3] {
+				*channel = ((u16::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8;
+			}
+		}
+	}
+	let mut png = Vec::new();
+	image::codecs::png::PngEncoder::new(&mut png)
+		.write_image(
+			&pixels,
+			frame.width,
+			frame.height,
+			image::ExtendedColorType::Rgba8,
+		)
+		.ok()?;
+	(png.len() <= MAX_ENCODED).then_some(png)
 }
 
 async fn download(
@@ -607,6 +698,11 @@ fn decode_animation(bytes: &[u8]) -> Option<ui::GifFrames> {
 			let mut decoder = image::codecs::webp::WebPDecoder::new(Cursor::new(bytes)).ok()?;
 			decoder.set_limits(limits).ok()?;
 			decoder.into_frames()
+		}
+		image::ImageFormat::Png => {
+			let mut decoder = image::codecs::png::PngDecoder::new(Cursor::new(bytes)).ok()?;
+			decoder.set_limits(limits).ok()?;
+			decoder.apng().ok()?.into_frames()
 		}
 		_ => return None,
 	};
@@ -802,6 +898,72 @@ impl Disk {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn apng_sticker_frames_preserve_pixels_and_delays() {
+		// Synthetic 1x1 APNG: opaque red for 100 ms, then opaque green for 200 ms.
+		let bytes = [
+			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1,
+			8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 8, 97, 99, 84, 76, 0, 0, 0, 2, 0, 0, 0, 0,
+			243, 141, 147, 112, 0, 0, 0, 26, 102, 99, 84, 76, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1,
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 10, 0, 0, 90, 127, 48, 208, 0, 0, 0, 13, 73, 68, 65,
+			84, 120, 156, 99, 248, 207, 192, 240, 31, 0, 5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0,
+			26, 102, 99, 84, 76, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+			0, 5, 0, 0, 202, 80, 157, 57, 0, 0, 0, 17, 102, 100, 65, 84, 0, 0, 0, 2, 120, 156, 99,
+			96, 248, 207, 240, 31, 0, 4, 1, 1, 255, 98, 231, 233, 156, 0, 0, 0, 0, 73, 69, 78, 68,
+			174, 66, 96, 130,
+		];
+		let frames = super::decode_animation(&bytes).unwrap();
+		assert_eq!(frames.len(), 2);
+		assert_eq!(frames[0].0, std::time::Duration::from_millis(100));
+		assert_eq!(frames[1].0, std::time::Duration::from_millis(200));
+		assert_eq!(frames[0].1.size, [1, 1]);
+		assert_eq!(frames[0].1.pixels[0], eframe::egui::Color32::RED);
+		assert_eq!(frames[1].1.pixels[0], eframe::egui::Color32::GREEN);
+		assert!(super::decode_animation(&bytes[..100]).is_none());
+	}
+	#[test]
+	fn sticker_urls_and_decode_budgets_are_scoped() {
+		for prefix in ["embed", "anim"] {
+			for format in [1, 2, 4] {
+				let key = format!("{prefix}:sticker-7-{format}");
+				let expected = if format == 4 {
+					"https://media.discordapp.net/stickers/7.gif"
+				} else {
+					"https://cdn.discordapp.com/stickers/7.png"
+				};
+				assert_eq!(super::cdn_url(&key).as_deref(), Some(expected));
+				assert_eq!(super::decode_edge(&key), ui::EMBED_EDGE);
+				assert!(super::disk_key(&key).unwrap().starts_with("embed-"));
+			}
+		}
+		assert_eq!(
+			super::cdn_url("embed:sticker-7-3").as_deref(),
+			Some("https://cdn.discordapp.com/stickers/7.json")
+		);
+		for key in [
+			"anim:sticker-7-3",
+			"embed:sticker-0-1",
+			"embed:sticker-7-5",
+			"embed:sticker-7-1?x=1",
+			"embed:sticker-../7-1",
+			"embed:sticker-https://example.com-1",
+		] {
+			assert!(super::cdn_url(key).is_none(), "{key}");
+		}
+		assert!(super::decode_animation(&vec![0; super::MAX_ANIMATED_ENCODED + 1]).is_none());
+	}
+
+	#[test]
+	fn lottie_sticker_renders_to_a_bounded_cached_png() {
+		let source = br#"{"v":"5.7.6","fr":30,"ip":0,"op":30,"w":320,"h":320,"layers":[{"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[160,160]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"el","p":{"a":0,"k":[0,0]},"s":{"a":0,"k":[200,200]}},{"ty":"fl","c":{"a":0,"k":[0.2,0.6,1,1]},"o":{"a":0,"k":100},"r":1}]}]}"#;
+		let png = super::render_lottie(source).expect("supported Lottie preview");
+		assert!(png.len() <= super::MAX_ENCODED);
+		assert_eq!(
+			super::decode(&png, ui::EMBED_EDGE).unwrap().size,
+			[160, 160]
+		);
+		assert!(super::render_lottie(&vec![b' '; super::MAX_LOTTIE_ENCODED + 1]).is_none());
+	}
 	#[test]
 	fn role_icon_urls_are_confined_to_the_role_cdn_path() {
 		assert_eq!(
@@ -1032,6 +1194,17 @@ mod tests {
 				"Unsafe or unsupported test URL was accepted"
 			);
 		}
+		assert!(embed_url(
+			"https://cdn.discordapp.com/guilds/1/users/2/avatars/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=2048",
+			ui::LARGE_EDGE,
+		).is_some());
+		assert!(
+			embed_url(
+				"https://cdn.discordapp.com/guilds/1/users/2/avatars/invalid.png",
+				ui::LARGE_EDGE,
+			)
+			.is_none()
+		);
 		let embed_key = "embed:https://cdn.discordapp.com/attachments/1/2/image.png?ex=abc&is=def&hm=synthetic&format=webp&width=4096&height=1024&fit=cover";
 		let transformed = cdn_url(embed_key).unwrap();
 		assert!(transformed.starts_with("https://media.discordapp.net/attachments/1/2/image.png?"));
@@ -1083,6 +1256,7 @@ mod tests {
 		let mut disk = Disk::open(account_a.clone()).unwrap();
 		disk.write("default-0", &bytes).unwrap();
 		disk.write(embed_key, &bytes).unwrap();
+		disk.write("embed:sticker-7-3", &bytes).unwrap();
 		disk.write("app-icon-7", &bytes).unwrap();
 		assert!(fs::read_dir(&account_a).unwrap().all(|entry| {
 			!entry
@@ -1095,6 +1269,7 @@ mod tests {
 		let mut disk = Disk::open(account_a.clone()).unwrap();
 		assert_eq!(disk.read("default-0").unwrap().unwrap(), bytes);
 		assert_eq!(disk.read(embed_key).unwrap().unwrap(), bytes);
+		assert_eq!(disk.read("embed:sticker-7-3").unwrap().unwrap(), bytes);
 		assert_eq!(disk.read("app-icon-7").unwrap().unwrap(), bytes);
 		assert!(
 			Disk::open(account_b.clone())
@@ -1121,6 +1296,8 @@ mod tests {
 		disk.prune(0, 0).unwrap();
 		assert!(disk.read("default-0").unwrap().is_none());
 		fs::remove_file(account_a.join(format!("{}.png", disk_key(embed_key).unwrap()))).unwrap();
+		fs::remove_file(account_a.join(format!("{}.png", disk_key("embed:sticker-7-3").unwrap())))
+			.unwrap();
 		fs::remove_file(account_a.join("app-icon-7.png")).unwrap();
 		drop(disk);
 		// Eviction and full directory deletion are disk workloads, not a worker-cancellation

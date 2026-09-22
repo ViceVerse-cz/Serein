@@ -49,7 +49,7 @@
       } catch (_) { fail(); }
     };
     const script = document.createElement("script");
-    script.src = "https://js.hcaptcha.com/1/api.js?onload=sereinCaptchaLoaded&render=explicit&recaptchacompat=off";
+    script.src = `https://js.hcaptcha.com/1/api.js?onload=sereinCaptchaLoaded&render=explicit&recaptchacompat=off&host=${config.sitekey}.react-native.hcaptcha.com`;
     script.async = true;
     script.onerror = fail;
     document.head.appendChild(script);

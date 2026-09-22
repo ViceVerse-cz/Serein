@@ -38,6 +38,8 @@ pub struct Setting {
 	#[serde(default)]
 	pub suppress_roles: Option<bool>,
 	#[serde(default)]
+	pub hide_muted_channels: Option<bool>,
+	#[serde(default)]
 	pub message_notifications: Option<u8>,
 	#[serde(default)]
 	pub channel_overrides: Option<Overrides>,

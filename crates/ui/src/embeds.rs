@@ -52,9 +52,8 @@ fn link(
 		egui::Sense::hover()
 	}));
 	if let Some(target) = target {
-		response.widget_info(|| {
-			egui::WidgetInfo::labeled(egui::WidgetType::Link, ui.is_enabled(), label)
-		});
+		response
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), label));
 		if response.on_hover_text("Open link…").clicked() {
 			*opening = Some(target);
 		}
@@ -67,10 +66,23 @@ fn text(
 	cache: &mut FormatCache,
 	opening: &mut Option<String>,
 	profile: &mut Option<model::User>,
-	media: (&mut Avatars, bool, &[model::Guild]),
+	media: (
+		&mut Avatars,
+		bool,
+		&[model::Guild],
+		&crate::mentions::MentionSource<'_>,
+	),
 ) {
+	let (images, demo, guilds, source) = media;
 	let formatted = cache.get_part(message.id, part.0, part.1);
-	formatted.show_with_images(ui, opening, &message.mentions, profile, media);
+	formatted.show_with_images(
+		ui,
+		opening,
+		&message.mentions,
+		Some(source),
+		profile,
+		(images, demo, guilds),
+	);
 	if formatted.limited {
 		ui.small("Text display limited");
 	}
@@ -178,9 +190,9 @@ fn gallery(
 				response.widget_info(|| {
 					egui::WidgetInfo::labeled(
 						if target.is_some() {
-							egui::WidgetType::Button
+							egui::Role::Button
 						} else {
-							egui::WidgetType::Image
+							egui::Role::Image
 						},
 						ui.is_enabled(),
 						format!("Open embed image {} of {}", index + 1, embeds.len()),
@@ -266,7 +278,7 @@ fn image_preview(
 	let painted = images.show_embed(ui, image, size, demo);
 	let response = ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
 	response.widget_info(|| {
-		egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Image actions")
+		egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Image actions")
 	});
 	embed_context_menu(&response, image, download, demo);
 }
@@ -285,6 +297,10 @@ pub fn show(
 	if message.embeds_suppressed {
 		return None;
 	}
+	let source = crate::mentions::MentionSource {
+		state,
+		channel: message.channel,
+	};
 	let demo = state.demo;
 	let mut favorite_action = None;
 	let mut index = 0;
@@ -308,11 +324,7 @@ pub fn show(
 				let response =
 					ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
 				response.widget_info(|| {
-					egui::WidgetInfo::labeled(
-						egui::WidgetType::Button,
-						ui.is_enabled(),
-						"Open image",
-					)
+					egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Open image")
 				});
 				embed_context_menu(&response, image, download, demo);
 				let star = gif.map(|gif| {
@@ -352,7 +364,7 @@ pub fn show(
 					}
 					star.widget_info(|| {
 						egui::WidgetInfo::selected(
-							egui::WidgetType::Checkbox,
+							egui::Role::CheckBox,
 							ui.is_enabled(),
 							favorite,
 							"Favorite GIF",
@@ -450,7 +462,7 @@ pub fn show(
 											cache,
 											opening,
 											profile,
-											(images, demo, &state.guilds),
+											(images, demo, &state.guilds, &source),
 										);
 									}
 								});
@@ -504,7 +516,7 @@ pub fn show(
 												cache,
 												opening,
 												profile,
-												(images, demo, &state.guilds),
+												(images, demo, &state.guilds, &source),
 											);
 										});
 									}

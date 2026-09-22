@@ -153,8 +153,14 @@ mod tests {
 
 	fn message(kind: u8) -> Message {
 		Message {
+			flags: 0,
+			sticker_items: vec![],
+			components: vec![],
+			application_id: None,
+			ephemeral: false,
 			kind,
 			author: User {
+				primary_guild: None,
 				id: Id(3),
 				name: "Robin".into(),
 				avatar: None,
@@ -163,6 +169,7 @@ mod tests {
 				discriminator: 0,
 			},
 			mentions: vec![User {
+				primary_guild: None,
 				id: Id(4),
 				name: "Casey".into(),
 				avatar: None,

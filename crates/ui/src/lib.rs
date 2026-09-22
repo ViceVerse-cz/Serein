@@ -12,16 +12,20 @@ pub use attachments::DownloadUi;
 mod avatars;
 pub use avatars::{EMBED_EDGE, GifFrames, LARGE_EDGE, fit_edge};
 mod categories;
+#[cfg(feature = "demo")]
+pub use categories::debug_thread_navigation_check;
 mod channel_marks;
 mod channel_menu;
 mod channel_permissions;
 #[cfg(test)]
 mod channel_welcome_tests;
+mod components;
 mod composer_text;
 pub mod design;
 mod embeds;
 mod extensions_ui;
 mod theme_editor;
+mod thread_create;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
 pub mod emoji;
 mod emoji_details;
@@ -45,6 +49,7 @@ mod notifications;
 mod pending;
 mod post_menu;
 mod profiles;
+mod stickers;
 /// Synthetic global profile used exclusively by the desktop's offline command adapter.
 #[cfg(any(test, feature = "demo"))]
 pub fn synthetic_own_profile(user: &model::User) -> model::UserProfile {
@@ -82,12 +87,13 @@ pub mod updates;
 mod user_menu;
 mod verification;
 mod voice;
-use client_core::{Command, MAX_CONTENT, MAX_DRAFT_BYTES, State};
+use client_core::{Command, MAX_CONTENT, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
 pub use voice::StageFocus;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct VoiceGain {
 	pub input_percent: u16,
 	pub output_percent: u16,
@@ -114,11 +120,19 @@ enum MemberRow {
 
 #[derive(Default)]
 pub struct MessagingUi {
+	pub image_sharing_enabled: bool,
+	pub image_share_requested: Option<model::ImageShare>,
+	pub interaction_file_request: Option<String>,
+	interaction_components: components::Components,
 	pub verification: VerificationUi,
 	pub extensions: ExtensionUi,
 	friends: friends::Friends,
 	account_menu: account_menu::AccountMenu,
 	pub own_presence: model::OwnPresence,
+	/// When the custom status clears itself, in milliseconds since the Unix epoch. The
+	/// deadline is local: Discord carries it in account settings, which this client does
+	/// not write, so the host enforces it and republishes the cleared presence.
+	pub own_presence_expires: Option<u64>,
 	pub own_presence_changed: bool,
 	pub own_presence_status: &'static str,
 	group_menu: group_menu::GroupMenu,
@@ -140,7 +154,6 @@ pub struct MessagingUi {
 	composer_layout: composer_text::Layout,
 	channel_cache: categories::Cache,
 	channel_move: Option<(Id, client_core::channel_actions::Action)>,
-	hidden_muted_guilds: std::collections::BTreeSet<Id>,
 	search: search::SearchUi,
 	settings: settings::Settings,
 	server_settings: server_settings::Editor,
@@ -152,8 +165,10 @@ pub struct MessagingUi {
 	switcher_frame: bool,
 	archives: archives::ArchivesUi,
 	archive_parent: Option<Id>,
+	thread_create: thread_create::ThreadCreateUi,
 	forum: forum::ForumUi,
 	scroll: scroll::Session,
+	side_press: scroll::SidePress,
 	timeline: timeline::TimelineView,
 	edit_modified: Option<(Id, Id, bool)>,
 	edit_undo_cleared: bool,
@@ -161,13 +176,19 @@ pub struct MessagingUi {
 	edit_closed_channel: Option<Id>,
 	avatars: avatars::Avatars,
 	profile: Option<model::User>,
+	profile_image: Option<(u64, model::Attachment)>,
 	user_action: Option<user_menu::Action>,
+	pending_mention: Option<Id>,
 	contact_editor: contact_editor::ContactEditor,
 	profile_link: Option<String>,
 	profile_formatted: markdown::FormatCache,
 	pub reading_preferences: model::ReadingPreferences,
 	pub show_hidden_channels: bool,
 	pub hide_title_bar: bool,
+	/// Which GPU renders the window; the running adapter only changes on restart.
+	pub gpu_preference: model::GpuPreference,
+	/// Adapter currently in use, shown next to the preference for bug reports.
+	pub gpu_adapter: String,
 	pub reading_status: &'static str,
 	pub reading_save_requested: bool,
 	pub minimize_to_tray: bool,
@@ -200,9 +221,16 @@ pub struct MessagingUi {
 	members_narrow_open: bool,
 	member_reload_requested: bool,
 	guild: Option<Id>,
-	collapsed_categories: std::collections::BTreeSet<Id>,
 	navigation_channel: Option<Id>,
 	pub logout_requested: bool,
+	/// Accounts remembered on this device, most recently used first.
+	pub accounts: Vec<model::SavedAccount>,
+	/// Switch to this saved account; the host ends the session and reads its saved token.
+	pub switch_account_requested: Option<Id>,
+	/// End the session and return to the sign-in screen to remember one more account.
+	pub add_account_requested: bool,
+	/// Drop one saved account: its token, cached history and drafts.
+	pub forget_account_requested: Option<Id>,
 	pub reconnect_requested: bool,
 	pub draft_changes: Vec<Id>,
 	pub draft_restore_pending: bool,
@@ -226,6 +254,8 @@ pub struct MessagingUi {
 	pending_upload: Option<pending::Upload>,
 	pub clear_cache_requested: bool,
 	pub voice_available: bool,
+	pub voice_switch_ready: bool,
+	voice_switch: Option<voice::CallSwitch>,
 	pub screen: screen::ScreenUi,
 	pub voice_camera_available: bool,
 	pub voice_camera_status: &'static str,
@@ -235,11 +265,18 @@ pub struct MessagingUi {
 	pub voice_camera_device_status: &'static str,
 	pub voice_camera_devices_loading: bool,
 	pub voice_camera_preview: Option<egui::TextureHandle>,
+	pub camera_test_requested: bool,
+	pub camera_test_available: bool,
+	pub camera_test_status: &'static str,
+	pub camera_test_texture: Option<egui::TextureHandle>,
 	/// Decoded remote cameras by user; the desktop bounds and replaces them.
 	pub voice_remote_video: Vec<(Id, egui::TextureHandle)>,
 	/// Latest picture of the screen share this device chose to watch.
 	pub voice_stream_view: Option<egui::TextureHandle>,
 	pub voice_stream_status: &'static str,
+	/// Session-only stream playback level; unset is 100%. Mute preserves the level.
+	voice_stream_volume: Option<u16>,
+	voice_stream_muted: bool,
 	/// Enlarged stage tile; cleared when it stops showing video or on Escape.
 	pub voice_focus: Option<voice::StageFocus>,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.
@@ -263,7 +300,10 @@ pub struct MessagingUi {
 	/// Device-local voice intent, retained between calls and restarts.
 	pub voice_muted: bool,
 	pub voice_deafened: bool,
-	pub voice_noise_suppression: bool,
+	pub voice_processing: model::voice_settings::VoiceProcessing,
+	pub voice_preview_requested: bool,
+	pub voice_preview_level: Option<f32>,
+	pub voice_preview_status: &'static str,
 	/// Device-local application shortcuts; the desktop host mirrors the global binding.
 	pub keybinds: model::Keybinds,
 	keybind_capture: Option<model::KeybindAction>,
@@ -300,6 +340,10 @@ pub struct MessagingUi {
 	/// Set when the user picks a theme preset; the host persists it.
 	pub theme_variant_changed: Option<design::Variant>,
 	pub primary_color: Option<[u8; 3]>,
+	pub transparency_blur: bool,
+	pub transparency: u8,
+	pub blur: u8,
+	pub transparent_all: bool,
 }
 
 /// Context strip (reply/edit) drawn as the rounded top of the composer block.
@@ -357,7 +401,7 @@ fn mention_switch(ui: &mut egui::Ui, colors: &design::Palette, on: &mut bool) {
 		.galley(rect.center() - galley.size() / 2.0, galley, color);
 	response.widget_info(|| {
 		egui::WidgetInfo::selected(
-			egui::WidgetType::Checkbox,
+			egui::Role::CheckBox,
 			ui.is_enabled(),
 			*on,
 			"Ping the original author",
@@ -366,10 +410,34 @@ fn mention_switch(ui: &mut egui::Ui, colors: &design::Palette, on: &mut bool) {
 	response.on_hover_text(hover);
 }
 
+enum MentionWrite {
+	Inserted,
+	DidNotFit,
+}
+
 impl MessagingUi {
+	pub fn interaction_modal_id(&self) -> Option<Id> {
+		self.interaction_components.modal_id()
+	}
+	pub fn set_interaction_files(&mut self, custom_id: &str, files: Vec<(usize, String)>) {
+		self.interaction_components.set_files(custom_id, files);
+	}
+
 	/// Feed the frame's middle button before `show`. Never fed means never pressed.
 	pub fn middle_button(&mut self, middle: scroll::Middle) {
 		self.scroll.middle(middle);
+	}
+
+	/// Feed mouse 4 / mouse 5 edge presses before `show`. Flags OR so a second feed cannot clear a press.
+	pub fn side_buttons(&mut self, side: scroll::SidePress) {
+		self.side_press.back |= side.back;
+		self.side_press.forward |= side.forward;
+	}
+
+	fn drain_side_press(&mut self) -> scroll::SidePress {
+		let press = self.side_press;
+		self.side_press = scroll::SidePress::default();
+		press
 	}
 
 	/// True while a drive needs the cursor position, including outside the window.
@@ -414,6 +482,20 @@ impl MessagingUi {
 		})
 	}
 
+	/// Pending profile picture selection: (generation, own user, editor revision).
+	pub fn take_profile_picture_request(&mut self) -> Option<(u64, Id, u64)> {
+		self.settings.editor.avatar_request.take()
+	}
+	pub fn accept_profile_picture(
+		&mut self,
+		ctx: &egui::Context,
+		request: (u64, Id, u64),
+		result: Result<Option<(String, egui::ColorImage)>, &'static str>,
+	) {
+		if let Err(error) = self.settings.editor.accept_avatar(ctx, request, result) {
+			self.toasts.push(design::Level::Error, error);
+		}
+	}
 	pub fn take_group_icon_request(&mut self) -> Option<(u64, Id, u64)> {
 		self.group_menu.icon_request.take()
 	}
@@ -430,6 +512,11 @@ impl MessagingUi {
 			self.timeline.reflow_frames,
 			self.timeline.consecutive_reflows,
 		)
+	}
+	/// Fixture-only: open the Threads dialog for `parent` at startup, as the header control would.
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_threads(&mut self, parent: Id) {
+		self.archive_parent = Some(parent);
 	}
 	/// Fixture-only entry point: opens People and the profile card for `user` as if clicked.
 	#[cfg(any(test, feature = "demo"))]
@@ -493,7 +580,8 @@ impl MessagingUi {
 			})
 			.collect()
 	}
-	fn stage_pending_upload(&mut self, ctx: &egui::Context, command: &Command) {
+	/// Moves staged files and thumbnails into the optimistic row for `command`.
+	pub fn stage_pending_upload(&mut self, ctx: &egui::Context, command: &Command) {
 		let files = self.selected_files();
 		if let Command::Send { nonce, .. } = command
 			&& !files.is_empty()
@@ -615,6 +703,15 @@ impl MessagingUi {
 		self.account_menu.preview(generation);
 	}
 	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_custom_status(&mut self, generation: u64) {
+		let draft = self.own_presence.custom_status.clone();
+		self.account_menu.preview_editor(generation, draft);
+	}
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_sticker_picker(&mut self) {
+		self.emoji_picker.open_stickers(None);
+	}
+	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_emoji_picker(&mut self) {
 		self.emoji_picker.preview();
 	}
@@ -663,6 +760,8 @@ impl MessagingUi {
 		// Window preferences belong to the application, not the account being cleared.
 		*self = Self {
 			build: self.build,
+			// The switcher roster belongs to the device, not to the account being cleared.
+			accounts: std::mem::take(&mut self.accounts),
 			updates: std::mem::take(&mut self.updates),
 			minimize_to_tray: self.minimize_to_tray,
 			tray_available: self.tray_available,
@@ -1027,7 +1126,7 @@ impl MessagingUi {
 							);
 							response.widget_info(|| {
 								egui::WidgetInfo::labeled(
-									egui::WidgetType::Button,
+									egui::Role::Button,
 									true,
 									format!(
 										"{name}, {}, {}",
@@ -1085,13 +1184,17 @@ impl MessagingUi {
 								} else {
 									colors.muted
 								};
-								let show_name = |ui: &mut egui::Ui| {
+								let mut show_name = |ui: &mut egui::Ui| {
 									// A text line must not inherit the 32-point interactive-row height.
 									ui.allocate_ui_with_layout(
 										egui::vec2(ui.available_width(), 18.0),
 										egui::Layout::left_to_right(egui::Align::Center),
 										|ui| {
 											ui.spacing_mut().item_spacing.x = 5.0;
+											let server_tag = member.user.primary_guild.as_deref();
+											let trailing =
+												profiles::server_tag_width(ui, server_tag)
+													+ if server_tag.is_some() { 5.0 } else { 0.0 };
 											account_badge::name(
 												ui,
 												&member.user,
@@ -1099,8 +1202,16 @@ impl MessagingUi {
 												15.0,
 												text_color,
 												egui::Sense::hover(),
-												0.0,
+												trailing,
 											);
+											if let Some(tag) = server_tag {
+												profiles::server_tag(
+													ui,
+													tag,
+													&mut self.avatars,
+													state.demo,
+												);
+											}
 										},
 									);
 								};
@@ -1208,7 +1319,7 @@ impl MessagingUi {
 							.on_hover_text("Search loaded conversations (Ctrl/Cmd+K)");
 						find.widget_info(|| {
 							egui::WidgetInfo::labeled(
-								egui::WidgetType::Button,
+								egui::Role::Button,
 								ui.is_enabled(),
 								"Find conversation, Ctrl or Command K",
 							)
@@ -1242,15 +1353,11 @@ impl MessagingUi {
 							},
 						);
 						response.widget_info(|| {
-							egui::WidgetInfo::selected(
-								egui::WidgetType::Button,
-								true,
-								friends,
-								"Friends",
-							)
+							egui::WidgetInfo::selected(egui::Role::Button, true, friends, "Friends")
 						});
 						if response.on_hover_text("Friends").clicked() {
-							state.selected = None;
+							state.open_home();
+							self.guild = None;
 							self.search.open = false;
 						}
 					});
@@ -1337,7 +1444,7 @@ impl MessagingUi {
 								let avatar = self.avatars.show(ui, user, 32.0, state.demo);
 								avatar.widget_info(|| {
 									egui::WidgetInfo::labeled(
-										egui::WidgetType::Button,
+										egui::Role::Button,
 										true,
 										"Profile and status",
 									)
@@ -1447,7 +1554,7 @@ impl MessagingUi {
 												.on_hover_text("Profile and status");
 											identity.widget_info(|| {
 												egui::WidgetInfo::labeled(
-													egui::WidgetType::Button,
+													egui::Role::Button,
 													true,
 													"Profile and status",
 												)
@@ -1559,8 +1666,9 @@ impl MessagingUi {
 						Some(c) => {
 							let icon = match c.kind {
 								2 | 13 => icons::Icon::Speaker,
+								5 => icons::Icon::Megaphone,
 								15 | 16 => icons::Icon::Forum,
-								10..=12 => icons::Icon::Threads,
+								10..=12 => icons::Icon::Thread,
 								_ => icons::Icon::Hash,
 							};
 							icons::inline(ui, icon, 22.0, colors.muted);
@@ -1618,11 +1726,7 @@ impl MessagingUi {
 								);
 								let enabled = state.can_search();
 								response.widget_info(|| {
-									egui::WidgetInfo::labeled(
-										egui::WidgetType::Button,
-										enabled,
-										"Search",
-									)
+									egui::WidgetInfo::labeled(egui::Role::Button, enabled, "Search")
 								});
 								ui.painter().rect_filled(pill, 6, colors.raised);
 								let pill_text = if enabled {
@@ -1700,7 +1804,7 @@ impl MessagingUi {
 									state.can_archive(c.id, model::archives::Kind::Public);
 								let archive = ui
 									.add_enabled_ui(allowed, |ui| {
-										icons::button(ui, icons::Icon::Threads, 32.0, "Threads")
+										icons::button(ui, icons::Icon::Thread, 32.0, "Threads")
 									})
 									.inner;
 								if archive.clicked() {
@@ -1918,6 +2022,9 @@ impl MessagingUi {
 			}
 		}
 		if !editing_here && !state.can_compose(channel) {
+			if self.pending_mention.take().is_some() {
+				state.status = "You don't have permission to mention anyone in this channel.";
+			}
 			// Returning to an edit must restore its focus after visiting a read-only channel.
 			self.composer_edit = None;
 			self.mention_menu = mentions::Menu::default();
@@ -1975,7 +2082,7 @@ impl MessagingUi {
 					ui.add_space(6.0);
 					ui.label(
 						egui::RichText::new(if available {
-							"Up to 10 files · 20 MB total · Review before sending"
+							"Up to 10 files · 500 MB max · Account limit applies"
 						} else {
 							"Return to an available conversation after the current operation finishes"
 						})
@@ -2316,7 +2423,7 @@ impl MessagingUi {
                             icons::button(ui, icons::Icon::Attach, 28.0, "Attach files")
                         })
                         .inner
-                        .on_hover_text("Choose, drop, or paste files (Ctrl/Cmd/Option+V). Up to 10 files and 20 MB total. Send starts the upload.");
+						.on_hover_text("Choose, drop, or paste files (Ctrl/Cmd/Option+V). Up to 10 files and 500 MB total; account limits may be lower. Send starts the upload.");
                     if !editing_here { self.extensions.composer_menu(ui, state); }
                     if attach.clicked() {
                         self.attach_requested = true;
@@ -2343,6 +2450,7 @@ impl MessagingUi {
                         }
                         let pick = ui
                             .add_enabled_ui(!self.ime_active && !ime_this_frame, |ui| {
+                                self.emoji_picker.image_sharing_enabled = self.image_sharing_enabled;
                                 self.emoji_picker
                                     .show(ui, state, channel, &mut self.avatars, commands)
                             })
@@ -2357,6 +2465,18 @@ impl MessagingUi {
                                 Some(text)
                             },
                             Some(emoji_picker::Pick::React(_, _)) => None,
+                            Some(emoji_picker::Pick::Image(asset)) => {
+                                if editing_here { state.status = "Finish or cancel the edit before attaching an image."; }
+                                else if self.upload_busy { state.status = "Wait for the upload before attaching an image."; }
+                                else if self.image_sharing_enabled && state.can_send(channel) && state.can_attach(channel) { self.image_share_requested = Some(asset); }
+                                None
+                            },
+                            Some(emoji_picker::Pick::Sticker(sticker)) => {
+                                if editing_here { state.status = "Finish or cancel the edit before sending a sticker."; }
+                                else if self.upload_busy { state.status = "Wait for the upload before sending a sticker."; }
+                                else if let Some(command) = state.prepare_sticker_send(&sticker) { self.timeline.follow_latest(); commands.push(command); }
+                                None
+                            },
                             Some(emoji_picker::Pick::Send(url)) => {
                                 if editing_here {
                                     state.status = "Finish or cancel the edit before sending a GIF.";
@@ -2417,8 +2537,15 @@ impl MessagingUi {
                         } else {
                             &mut new_draft
                         };
-                        let mut mention_changed = false;
-                        if let Some(pick) = pick {
+						let mut mention_changed = false;
+						match self.apply_pending_mention(ctx, composer_id, draft, remaining) {
+							None => {}
+							Some(MentionWrite::Inserted) => mention_changed = true,
+							Some(MentionWrite::DidNotFit) => {
+								state.status = "Mention will not fit. Shorten this message or free draft space.";
+							}
+						}
+						if let Some(pick) = pick {
                             let mut edit_state =
                                 egui::text_edit::TextEditState::load(ctx, composer_id).unwrap_or_default();
                             let range = edit_state.cursor.char_range();
@@ -2679,7 +2806,66 @@ impl MessagingUi {
 	fn shows_title_bar(&self) -> bool {
 		!cfg!(target_os = "linux") && !self.hide_title_bar
 	}
+	fn apply_pending_mention(
+		&mut self,
+		ctx: &egui::Context,
+		composer_id: egui::Id,
+		draft: &mut String,
+		remaining: usize,
+	) -> Option<MentionWrite> {
+		let user_id = self.pending_mention.take()?;
+		if user_id == Id(0) {
+			return None;
+		}
+		let loaded = egui::text_edit::TextEditState::load(ctx, composer_id);
+		let had_editor = loaded.is_some();
+		let mut edit_state = loaded.unwrap_or_default();
+		let range = edit_state
+			.cursor
+			.char_range()
+			.filter(|_| had_editor)
+			.or_else(|| {
+				Some(egui::text::CCursorRange::one(egui::text::CCursor::new(
+					draft.chars().count(),
+				)))
+			});
+		let start = range.map_or(draft.chars().count(), |range| {
+			range
+				.as_sorted_char_range()
+				.start
+				.0
+				.min(draft.chars().count())
+		});
+		let glue = start > 0
+			&& draft
+				.chars()
+				.nth(start - 1)
+				.is_some_and(|c| !c.is_whitespace());
+		let token = mentions::user_mention_token(user_id);
+		let token = if glue { format!(" {token}") } else { token };
+		let Some(cursor) = emoji_picker::insert(draft, &token, range, remaining) else {
+			return Some(MentionWrite::DidNotFit);
+		};
+		edit_state
+			.cursor
+			.set_char_range(Some(egui::text::CCursorRange::one(
+				egui::text::CCursor::new(cursor),
+			)));
+		edit_state.store(ctx, composer_id);
+		Some(MentionWrite::Inserted)
+	}
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		let mention_waiting = self.pending_mention.is_some();
+		let composer_open = self.editing.is_some()
+			|| state.selected.is_some_and(|id| {
+				state
+					.channel(id)
+					.is_some_and(|channel| channel.supports_text())
+			});
+		if mention_waiting && !composer_open {
+			self.pending_mention = None;
+			state.status = "This view has no message box, so the mention was not added.";
+		}
 		if self.editing.is_none()
 			&& let Some(index) = state
 				.message_actions
@@ -2702,8 +2888,38 @@ impl MessagingUi {
 		}
 		self.timeline.audio.seen = false;
 		self.timeline.video.seen = false;
-		self.profile_trigger = None;
+		let side = self.drain_side_press();
 		let mut commands = Vec::new();
+		if (side.back || side.forward) && !self.timeline.video.is_fullscreen() {
+			if self.settings.open {
+				if side.back {
+					self.settings.open = false;
+				}
+			} else if self.server_settings.is_open() {
+				if side.back {
+					let _ = self.server_settings.navigate_away(state);
+				}
+			} else {
+				let step = if side.back {
+					state.navigate_back()
+				} else {
+					state.navigate_forward()
+				};
+				if let Some(NavStep {
+					command: Some(command),
+				}) = step
+				{
+					commands.push(command);
+				}
+			}
+		}
+		// Fullscreen playback owns the whole client surface, including during native resizing.
+		if self.timeline.show_fullscreen_video(ui.ctx(), state) {
+			ui.painter()
+				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
+			return commands;
+		}
+		self.profile_trigger = None;
 		let ctx = ui.ctx().clone();
 		self.extensions.reset_theme_shortcut(&ctx);
 		if self.extensions.has_result() {
@@ -2808,7 +3024,7 @@ impl MessagingUi {
 		if let Some(command) = state.select_opened_dm() {
 			commands.push(command);
 		}
-		if let Some(target) = self.switcher.show(&ctx, state) {
+		if let Some(target) = self.switcher.show(&ctx, state, &mut self.avatars) {
 			match target {
 				switcher::Target::Channel(channel) => {
 					if state.selected != Some(channel)
@@ -2977,7 +3193,17 @@ impl MessagingUi {
 						.inner_margin(egui::Margin::same(12)),
 				)
 				.show(ui, |ui| {
-					self.search.pane(ui, state, &mut commands);
+					self.search.pane(
+						ui,
+						state,
+						&mut commands,
+						&mut self.avatars,
+						search::MediaUi {
+							download: &mut self.timeline.download,
+							audio: &mut self.timeline.audio,
+							video: &mut self.timeline.video,
+						},
+					);
 				});
 		}
 		if show_members {
@@ -3056,6 +3282,7 @@ impl MessagingUi {
 					(warnings.sessions, "session status"),
 					(warnings.presence, "friend presence"),
 					(warnings.emojis, "some server emoji"),
+					(warnings.stickers, "some server stickers"),
 				]
 				.into_iter()
 				.filter_map(|(unavailable, label)| unavailable.then_some(label))
@@ -3262,6 +3489,17 @@ impl MessagingUi {
 							self.pending_upload.as_ref(),
 							&mut self.scroll,
 						);
+						if let Some(id) = self.timeline.sticker_request.take() {
+							if let Some(command) = state.request_sticker(id) {
+								commands.push(command);
+							}
+							if let Some(command) = state.request_sticker_packs() {
+								commands.push(command);
+							}
+						}
+						if let Some(sticker) = self.timeline.browse_sticker.take() {
+							self.emoji_picker.open_stickers(Some(&sticker));
+						}
 						if let Some(command) =
 							state.request_author_members(&self.timeline.visible_authors)
 						{
@@ -3305,7 +3543,15 @@ impl MessagingUi {
 							state.discard_preserved_deleted(id);
 						}
 						if let Some(nonce) = self.timeline.restore_pending.take() {
-							self.restore_pending(state, channel, &nonce);
+							if state
+								.pending
+								.iter()
+								.any(|p| p.nonce == nonce && p.sticker.is_some())
+							{
+								state.discard_pending_sticker(&nonce);
+							} else {
+								self.restore_pending(state, channel, &nonce);
+							}
 						}
 						self.cancel_upload_requested |=
 							std::mem::take(&mut self.timeline.cancel_upload);
@@ -3402,11 +3648,31 @@ impl MessagingUi {
 				.channels
 				.iter()
 				.any(|c| Some(c.id) == state.selected && c.guild.is_none());
-			self.search
-				.pins_popout(&ctx, state, anchor, dm, &mut commands);
+			self.search.pins_popout(
+				ui,
+				state,
+				anchor,
+				dm,
+				&mut commands,
+				&mut self.avatars,
+				search::MediaUi {
+					download: &mut self.timeline.download,
+					audio: &mut self.timeline.audio,
+					video: &mut self.timeline.video,
+				},
+			);
 			if !(self.search.open && self.search.pins()) {
 				self.pins_anchor = None;
 			}
+		}
+		if let Some(link) = self.search.opening.take() {
+			self.timeline.opening = Some(link);
+		}
+		if let Some(profile) = self.search.profile.take() {
+			self.profile = Some(profile);
+		}
+		if let Some(channel) = self.search.channel_reference.take() {
+			self.timeline.channel_reference = Some(channel);
 		}
 		// A forum pane lists its own archived posts inline instead of the floating window.
 		if !(selected_forum
@@ -3415,8 +3681,33 @@ impl MessagingUi {
 				.as_ref()
 				.is_some_and(|view| Some(view.parent) == state.selected))
 		{
-			self.archives.show(&ctx, state, &mut commands);
+			self.archives
+				.show(&ctx, state, &mut commands, &mut self.avatars);
 		}
+		if let Some(parent) = self.timeline.threads_request.take() {
+			self.archive_parent = Some(parent);
+		}
+		if let Some((channel, message)) = self.timeline.thread_request.take() {
+			state.clear_channel_action_result(channel);
+			// Discord seeds the name from the starter's first line; the user can still edit it.
+			let name = state
+				.timeline
+				.get(message)
+				.map(|m| thread_create::suggested_name(&m.display_text()))
+				.unwrap_or_default();
+			self.thread_create.open(channel, Some(message), name);
+		}
+		// A thread shows the message it hangs off; read it lazily like other per-channel data.
+		if let Some(command) = state.request_thread_starter() {
+			commands.push(command);
+		}
+		if let Some(channel) = self.archives.create_requested.take() {
+			// The editor replaces the Threads dialog instead of stacking on it.
+			commands.push(state.clear_archives());
+			state.clear_channel_action_result(channel);
+			self.thread_create.open(channel, None, String::new());
+		}
+		self.thread_create.show(&ctx, state, &mut commands);
 		self.screen.show(&ctx, state);
 		if let Some(id) = self.timeline.channel_reference.take() {
 			state.clear_channel_action_result(id);
@@ -3460,6 +3751,120 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
+
+		if let Some((message, custom_id, values)) = self.timeline.component_action.take()
+			&& let Some(command) = state.prepare_component(message, &custom_id, values)
+		{
+			commands.push(command);
+		}
+		if let Some(channel) = state.selected {
+			if state.interactions.modal.is_none()
+				&& self.timeline.components.remote_search
+				&& !self.timeline.components.search.text.is_empty()
+			{
+				self.timeline
+					.components
+					.search
+					.sync(&ctx, state, channel, 0, &mut commands);
+			}
+			if self.interaction_components.remote_search
+				&& !self.interaction_components.search.text.is_empty()
+			{
+				self.interaction_components
+					.search
+					.sync(&ctx, state, channel, 0, &mut commands);
+			}
+		}
+		self.interaction_components.dialogs(
+			&ctx,
+			state,
+			&mut commands,
+			&mut self.avatars,
+			&mut self.timeline.opening,
+		);
+		self.interaction_file_request = self.interaction_components.file_request.take();
+		if !state.interactions.ephemeral.is_empty() {
+			let messages = state.interactions.ephemeral.clone();
+			egui::Window::new("Only you can see these responses")
+				.id(egui::Id::unique("interaction-responses"))
+				.show(&ctx, |ui| {
+					egui::ScrollArea::vertical()
+						.max_height(400.0)
+						.show(ui, |ui| {
+							for message in &messages {
+								ui.strong(&message.author.name);
+								self.interaction_components.show_text(
+									ui,
+									message,
+									state,
+									&mut self.avatars,
+									&mut self.timeline.opening,
+								);
+								if !message.extra_content.components_v2
+									&& self.interaction_components.media_visible(
+										ui,
+										message,
+										state.generation,
+									) {
+									if embeds::has_media_spoilers(message) {
+										self.timeline.reveal_private_media(message);
+									}
+									if let Some(gif) = embeds::show(
+										ui,
+										message,
+										&mut self.profile_formatted,
+										&mut self.avatars,
+										&mut self.timeline.opening,
+										&mut self.timeline.download,
+										&mut self.profile,
+										state,
+									) {
+										self.timeline.gif_favorite = Some(gif);
+									}
+									let mut surface =
+										select::Surface::new(ui, ("ephemeral-media", message.id));
+									attachments::show(
+										ui,
+										message,
+										&mut self.avatars,
+										&mut self.timeline.viewing,
+										&mut self.timeline.opening,
+										&mut self.timeline.download,
+										&mut self.timeline.audio,
+										&mut self.timeline.video,
+										state.demo,
+										&mut surface,
+									);
+									surface.finish(ui);
+								}
+								if let Some((id, custom_id, values)) =
+									self.interaction_components.show(
+										ui,
+										message,
+										state,
+										&mut self.avatars,
+										&mut self.timeline.opening,
+										&mut components::MediaUi {
+											component_viewing: &mut self.timeline.component_viewing,
+											viewing: &mut self.timeline.viewing,
+											download: &mut self.timeline.download,
+											audio: &mut self.timeline.audio,
+											video: &mut self.timeline.video,
+										},
+									) && let Some(command) =
+									state.prepare_component(id, &custom_id, values)
+								{
+									commands.push(command);
+								}
+								if ui.small_button("Dismiss").clicked() {
+									state.dismiss_ephemeral(message.id);
+									self.interaction_components.forget_message(message.id);
+								}
+								ui.separator();
+							}
+						});
+				});
+		}
 		if let Some((message, emoji)) = self.timeline.reaction.take() {
 			if let Some(emoji) = emoji {
 				if let Some(command) = state.prepare_reaction(message, emoji) {
@@ -3492,6 +3897,13 @@ impl MessagingUi {
 				}
 				user_menu::Action::Shortcut(intent) => {
 					self.apply_shortcut(state, intent);
+					None
+				}
+				user_menu::Action::Mention(user) => {
+					if user.id != Id(0) {
+						self.pending_mention = Some(user.id);
+						ctx.request_repaint();
+					}
 					None
 				}
 				action => user_menu::prepare(action, state),
@@ -3565,6 +3977,26 @@ impl MessagingUi {
 				self.reading_preferences.confirm_external_links,
 				anchor,
 			) {
+				Some(profiles::Action::Avatar(media)) => {
+					self.profile_image = Some((
+						state.generation,
+						model::Attachment {
+							id: Id(0),
+							filename: "avatar.png".into(),
+							description: Some(format!("{}’s profile picture", user.name)),
+							content_type: Some("image/png".into()),
+							size: 0,
+							media,
+							spoiler: false,
+							duration_ms: None,
+							waveform: Vec::new(),
+						},
+					));
+					self.profile = None;
+					self.profile_link = None;
+					self.profile_anchor = None;
+					commands.push(state.clear_profile());
+				}
 				Some(profiles::Action::AddFriend(id)) => {
 					if let Some(command) = state.add_profile_friend(id) {
 						commands.push(command);
@@ -3633,6 +4065,22 @@ impl MessagingUi {
 			self.profile_anchor = None;
 		}
 
+		if let Some((generation, image)) = &self.profile_image
+			&& (*generation != state.generation
+				|| attachments::viewer(
+					ui,
+					std::slice::from_ref(image),
+					image.id,
+					&mut self.avatars,
+					&mut self.timeline.download,
+					&mut self.timeline.opening,
+					state.demo,
+				)
+				.is_none())
+		{
+			self.profile_image = None;
+		}
+
 		self.reconcile_edit(state);
 		if self.deleting.is_some_and(|(channel, message)| {
 			state.selected != Some(channel) || state.timeline.get(message).is_none()
@@ -3672,6 +4120,7 @@ impl MessagingUi {
 				None => {}
 			}
 		}
+		self.show_call_switch(&ctx, state, &mut commands);
 		self.verification.show(&ctx, state);
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);
@@ -3848,6 +4297,7 @@ mod composer_tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		};
 		let mut state = State {
 			selected: Some(Id(10)),
@@ -3875,6 +4325,7 @@ mod composer_tests {
 			.timeline
 			.insert(
 				model::Message {
+					sticker_items: vec![],
 					id: Id(20),
 					channel: Id(10),
 					author: user,
@@ -3889,6 +4340,10 @@ mod composer_tests {
 					forwarded: false,
 					unsupported: false,
 					extra_content: Default::default(),
+					components: vec![],
+					application_id: None,
+					ephemeral: false,
+					flags: 0,
 					embeds: vec![],
 					attachments: vec![],
 					author_nick: None,
@@ -4085,6 +4540,7 @@ mod composer_tests {
 		let mut state = edit_state();
 		state.demo = false;
 		state.guilds.push(model::Guild {
+			stickers: None,
 			id: Id(100),
 			name: "Synthetic invited server".into(),
 			icon: None,
@@ -4220,6 +4676,7 @@ mod composer_tests {
 			target.kind = 0;
 			state.channels.push(target);
 			state.guilds.push(model::Guild {
+				stickers: None,
 				id: Id(100),
 				name: "Linked server".into(),
 				icon: None,
@@ -5550,6 +6007,13 @@ mod composer_tests {
 										kind: model::AccountKind::Bot,
 										webhook: false,
 										discriminator: 0,
+										primary_guild: (id == 1).then(|| {
+											Box::new(model::ClanTag {
+												guild: Id(9),
+												tag: "SPDY".into(),
+												badge: None,
+											})
+										}),
 									},
 									nick: None,
 									roles: vec![],
@@ -5589,7 +6053,11 @@ mod composer_tests {
 							origin + egui::vec2(0.0, id as f32 * 42.0),
 							egui::vec2(width, 42.0),
 						);
-						for label in [format!("Member {id}"), format!("Activity {id}")] {
+						let mut labels = vec![format!("Member {id}"), format!("Activity {id}")];
+						if id == 1 {
+							labels.push("SPDY".into());
+						}
+						for label in labels {
 							let text = output
 								.shapes
 								.iter()
@@ -5658,6 +6126,7 @@ mod composer_tests {
 								webhook: false,
 								kind: Default::default(),
 								discriminator: 0,
+								primary_guild: None,
 							},
 							nick: None,
 							roles: vec![],
@@ -6176,6 +6645,7 @@ mod composer_tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			};
 			let mut state = State {
 				demo: true,

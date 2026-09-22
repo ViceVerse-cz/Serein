@@ -648,6 +648,7 @@ mod tests {
 			panic!()
 		};
 		let user = |id| User {
+			primary_guild: None,
 			id: Id(id),
 			name: format!("User {id}"),
 			avatar: None,
@@ -1082,6 +1083,7 @@ mod tests {
 			state.apply(crate::Envelope {
 				generation: state.generation,
 				event: crate::Event::Patch(model::MessagePatch {
+					sticker_items: model::Patch::Absent,
 					id,
 					channel,
 					content: model::Patch::Value("New patch body".into()),
@@ -1091,6 +1093,9 @@ mod tests {
 					embeds: model::Patch::Absent,
 					embeds_suppressed: model::Patch::Absent,
 					attachments: model::Patch::Absent,
+					components: model::Patch::Absent,
+					flags: model::Patch::Absent,
+					application_id: model::Patch::Absent,
 					extra_content: Default::default(),
 				}),
 			});
@@ -1233,6 +1238,7 @@ mod tests {
 	#[test]
 	fn reaction_permissions_distinguish_existing_emoji_and_late_reads() {
 		let user = User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -1247,6 +1253,7 @@ mod tests {
 			selected: Some(Id(10)),
 			user: Some(user.clone()),
 			guilds: vec![model::Guild {
+				stickers: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				icon: None,
@@ -1301,6 +1308,7 @@ mod tests {
 			.timeline
 			.insert(
 				Message {
+					sticker_items: Vec::new(),
 					kind: 0,
 					id: Id(50),
 					channel: Id(10),
@@ -1321,6 +1329,10 @@ mod tests {
 					reply_deleted: false,
 					forwarded: false,
 					unsupported: false,
+					components: vec![],
+					application_id: None,
+					flags: 0,
+					ephemeral: false,
 					extra_content: Default::default(),
 					embeds: vec![],
 					embeds_suppressed: false,

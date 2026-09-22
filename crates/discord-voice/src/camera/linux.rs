@@ -1,7 +1,7 @@
 //! Native V4L2 single-plane streaming; no capture helper process or recording.
 #![allow(unsafe_code)]
 
-use super::{FRAME_INTERVAL, HEIGHT, Shared, WIDTH};
+use super::{DeviceList, FRAME_INTERVAL, HEIGHT, Shared, WIDTH};
 use image::{ImageDecoder, codecs::jpeg::JpegDecoder};
 use std::{
 	fs::{File, OpenOptions},
@@ -178,9 +178,9 @@ fn validate_format(pixels: Pixels) -> Result<Pixels, &'static str> {
 	Ok(pixels)
 }
 
-fn configure(file: File) -> Result<Capture, &'static str> {
+fn capabilities(file: &File) -> Result<Capability, &'static str> {
 	let mut capabilities = Capability::default();
-	control(&file, 0, &mut capabilities).map_err(|_| "Device is not a V4L2 camera")?;
+	control(file, 0, &mut capabilities).map_err(|_| "Device is not a V4L2 camera")?;
 	let caps = if capabilities.capabilities & 0x8000_0000 != 0 {
 		capabilities.device_caps
 	} else {
@@ -189,6 +189,11 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 	if caps & CAPTURE == 0 || caps & 0x0400_0000 == 0 {
 		return Err("Camera does not support V4L2 single-plane streaming");
 	}
+	Ok(capabilities)
+}
+
+fn configure(file: File) -> Result<Capture, &'static str> {
+	capabilities(&file)?;
 	let mut negotiated = Err("Camera does not support 640×480 YUYV or MJPEG capture");
 	for format in [YUYV, MJPEG] {
 		let mut request = Format {
@@ -265,37 +270,78 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 	Ok(capture)
 }
 
-fn open(shared: &Shared) -> Result<Option<Capture>, &'static str> {
-	let mut error = "No camera is available in /dev/video0 through /dev/video63";
-	// ponytail: first usable native camera; add a picker when device selection is requested.
-	for index in 0..64 {
-		if shared.stopped.load(Ordering::Acquire) {
-			return Ok(None);
-		}
-		let file = match OpenOptions::new()
-			.read(true)
-			.write(true)
-			.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
-			.open(format!("/dev/video{index}"))
-		{
-			Ok(file) => file,
-			Err(reason) if reason.kind() == io::ErrorKind::NotFound => continue,
-			Err(reason) if reason.kind() == io::ErrorKind::PermissionDenied => {
-				error = DENIED;
-				continue;
+fn device_file(path: &str) -> Result<File, &'static str> {
+	let file = OpenOptions::new()
+		.read(true)
+		.write(true)
+		.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
+		.open(path)
+		.map_err(|reason| {
+			if reason.kind() == io::ErrorKind::PermissionDenied {
+				DENIED
+			} else {
+				"Camera is disconnected, busy or unavailable"
 			}
-			Err(_) => {
-				error = "Camera is busy or unavailable";
+		})?;
+	if !file
+		.metadata()
+		.is_ok_and(|meta| meta.file_type().is_char_device())
+	{
+		return Err("Device is not a V4L2 camera");
+	}
+	Ok(file)
+}
+
+pub(super) fn devices() -> Result<DeviceList, &'static str> {
+	let mut devices = Vec::new();
+	let mut denied = false;
+	// ponytail: probe the existing 64-node range; widen it if larger device fleets need it.
+	for index in 0..64 {
+		let path = format!("/dev/video{index}");
+		let capability = match device_file(&path).and_then(|file| capabilities(&file)) {
+			Ok(capability) => capability,
+			Err(error) => {
+				denied |= error == DENIED;
 				continue;
 			}
 		};
-		if !file
-			.metadata()
-			.is_ok_and(|meta| meta.file_type().is_char_device())
-		{
-			continue;
+		let end = capability
+			.card
+			.iter()
+			.position(|byte| *byte == 0)
+			.unwrap_or(capability.card.len());
+		let name = String::from_utf8_lossy(&capability.card[..end]);
+		let label = format!("{name} ({path})");
+		devices.push((path, label));
+		if devices.len() == 32 {
+			break;
 		}
-		match configure(file) {
+	}
+	if devices.is_empty() && denied {
+		return Err(DENIED);
+	}
+	Ok(devices)
+}
+
+fn selected_index(device: &str) -> Option<u32> {
+	let index = device.strip_prefix("/dev/video")?.parse::<u32>().ok()?;
+	(index < 64 && device == format!("/dev/video{index}")).then_some(index)
+}
+
+fn open(shared: &Shared, selected: Option<&str>) -> Result<Option<Capture>, &'static str> {
+	let range = match selected {
+		Some(device) => {
+			let index = selected_index(device).ok_or("Invalid camera device selection")?;
+			index..index + 1
+		}
+		None => 0..64,
+	};
+	let mut error = "No camera is available in /dev/video0 through /dev/video63";
+	for index in range {
+		if shared.stopped.load(Ordering::Acquire) {
+			return Ok(None);
+		}
+		match device_file(&format!("/dev/video{index}")).and_then(configure) {
 			Ok(capture) => return Ok(Some(capture)),
 			Err(reason) if error != DENIED => error = reason,
 			Err(_) => {}
@@ -306,9 +352,10 @@ fn open(shared: &Shared) -> Result<Option<Capture>, &'static str> {
 
 pub(super) fn run(
 	shared: &Shared,
+	device: Option<&str>,
 	emit: &mut dyn FnMut(Vec<u8>) -> Result<(), &'static str>,
 ) -> Result<(), &'static str> {
-	let Some(capture) = open(shared)? else {
+	let Some(capture) = open(shared, device)? else {
 		return Ok(());
 	};
 	let mut last_frame = Instant::now();
@@ -445,10 +492,31 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn selected_camera_requires_a_canonical_bounded_device_path() {
+		assert_eq!(selected_index("/dev/video0"), Some(0));
+		assert_eq!(selected_index("/dev/video63"), Some(63));
+		for path in [
+			"/dev/video64",
+			"/dev/video00",
+			"/dev/video+1",
+			"/dev/video../0",
+			"/tmp/video0",
+			"",
+		] {
+			assert_eq!(selected_index(path), None);
+		}
+	}
+
+	#[test]
 	fn canceled_capture_does_not_open_a_device_or_emit() {
 		let shared = Shared::default();
 		shared.stopped.store(true, Ordering::Release);
-		assert!(run(&shared, &mut |_| panic!("Canceled camera emitted a frame")).is_ok());
+		assert!(
+			run(&shared, None, &mut |_| panic!(
+				"Canceled camera emitted a frame"
+			))
+			.is_ok()
+		);
 	}
 
 	#[test]

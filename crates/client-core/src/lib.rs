@@ -8,10 +8,12 @@ pub mod forum;
 pub mod gifs;
 pub mod guild_folders;
 pub mod permissions;
+pub mod stickers;
 pub use permissions::ChannelAccess;
 #[cfg(test)]
 mod permissions_tests;
 
+pub mod interactions;
 pub mod invites;
 pub mod member_search;
 pub mod message_actions;
@@ -33,13 +35,19 @@ pub mod server_audit_log;
 pub mod server_integrations;
 pub mod server_roles;
 pub mod server_settings;
+mod thread_starter;
 mod threads;
+mod trail;
+#[doc(hidden)]
+pub use trail::Trail;
 pub mod typing;
 pub mod user_actions;
+mod verification;
 pub mod voice;
 use model::*;
 use session_cache::Timeline;
 use std::collections::{BTreeMap, BTreeSet};
+use trail::Place;
 
 pub const MAX_DRAFT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_CONTENT: usize = 2000;
@@ -53,6 +61,9 @@ pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 
 pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM settings <=33 KiB; channel edit <=128 KiB; group icon <=350 KiB
 
 pub enum Command {
+	StickerPacks,
+	Sticker(Id),
+	Interaction(interactions::Request),
 	MemberSearch(member_search::Request),
 	MessagingPermissions {
 		request: u64,
@@ -94,6 +105,7 @@ pub enum Command {
 	UserAction {
 		action: user_actions::Action,
 		request: u64,
+		captcha: Option<Box<captcha::Retry>>,
 	},
 	JoinInvite {
 		code: String,
@@ -110,6 +122,10 @@ pub enum Command {
 		content: String,
 		/// Filenames staged for the starter message, in selection order; empty sends text only.
 		attachments: Vec<String>,
+		request: u64,
+	},
+	ForumSummaries {
+		channels: Vec<Id>,
 		request: u64,
 	},
 	ForumPosts {
@@ -138,6 +154,12 @@ pub enum Command {
 		request: u64,
 	},
 	CancelSearch,
+	/// The message the selected thread hangs off, read from its parent channel.
+	ThreadStarter {
+		thread: Id,
+		parent: Id,
+		request: u64,
+	},
 	Gifs {
 		query: Option<String>,
 		request: u64,
@@ -148,6 +170,8 @@ pub enum Command {
 		message: Id,
 		request: u64,
 		manual: bool,
+		/// Private mark-unread badge. `None` omits the field. Discord does not calculate it.
+		mention_count: Option<u32>,
 	},
 	MarkGuildRead {
 		guild: Id,
@@ -181,6 +205,7 @@ pub enum Command {
 		request: u64,
 	},
 	Send {
+		sticker: Option<Id>,
 		channel: Id,
 		content: String,
 		nonce: String,
@@ -204,6 +229,7 @@ pub enum Command {
 	},
 }
 pub struct Startup {
+	pub external_stickers: bool,
 	pub user: User,
 	pub guilds: Vec<Guild>,
 	pub channels: Vec<Channel>,
@@ -243,6 +269,7 @@ impl Startup {
 			bytes,
 		})
 	}
+	/// Bytes retained by this event for the bounded capacity budget.
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.user.heap_bytes()
@@ -292,11 +319,16 @@ fn prepare_navigation(
 		|| guilds
 			.iter()
 			.any(|g| g.emojis.as_ref().is_some_and(|e| !valid_custom_emojis(e)))
-		|| guilds.iter().map(Guild::bytes).sum::<usize>()
-			+ channels.iter().map(Channel::bytes).sum::<usize>()
-			+ permissions.bytes()
-			+ spare_bytes
-			> model::account::MAX_BYTES
+		|| guilds.iter().any(|g| {
+			g.stickers.as_ref().is_some_and(|s| {
+				!valid_stickers(s, MAX_GUILD_STICKERS)
+					|| s.iter().any(|sticker| sticker.guild_id != Some(g.id))
+			})
+		}) || guilds.iter().map(Guild::bytes).sum::<usize>()
+		+ channels.iter().map(Channel::bytes).sum::<usize>()
+		+ permissions.bytes()
+		+ spare_bytes
+		> model::account::MAX_BYTES
 	{
 		return Err("Account navigation exceeds safe capacity");
 	}
@@ -327,6 +359,20 @@ fn prepare_navigation(
 	Ok(permission_state)
 }
 pub enum Event {
+	StickerEntitlement {
+		user: Id,
+		premium_type: Patch<u8>,
+	},
+	StickerPacks(Result<Vec<model::StickerPack>, auth::Failure>),
+	Sticker {
+		id: Id,
+		result: Result<model::Sticker, auth::Failure>,
+	},
+	GuildStickers {
+		guild: Id,
+		stickers: Vec<model::Sticker>,
+	},
+	Interaction(interactions::Event),
 	MemberSearch {
 		request: member_search::Request,
 		result: Result<Vec<Member>, auth::Failure>,
@@ -367,6 +413,15 @@ pub enum Event {
 		parent: Id,
 		request: u64,
 		result: Result<model::archives::Page, auth::Failure>,
+	},
+	ThreadStarter {
+		thread: Id,
+		request: u64,
+		result: Result<Message, auth::Failure>,
+	},
+	ForumSummaries {
+		request: u64,
+		results: Vec<(Id, Result<model::forum::Summary, auth::Failure>)>,
 	},
 	ForumPosts {
 		parent: Id,
@@ -493,6 +548,7 @@ pub struct Envelope {
 	pub event: Event,
 }
 pub struct Pending {
+	pub sticker: Option<Sticker>,
 	pub channel: Id,
 	pub content: String,
 	/// Filenames of the files uploaded with this message, in send order.
@@ -507,9 +563,12 @@ pub struct NavigationIndex {
 	channels: std::cell::RefCell<BTreeMap<Id, usize>>,
 	channel_stamp: std::cell::Cell<Option<(usize, usize)>>,
 	guilds: std::cell::RefCell<BTreeMap<Id, usize>>,
+	guild_stamp: std::cell::Cell<Option<(usize, usize)>>,
 }
 
 pub struct State {
+	pub stickers: stickers::Stickers,
+	pub interactions: interactions::Interactions,
 	pub messaging_permissions: messaging_permissions::Settings,
 	pub guild_folders: Option<model::guild_folders::Settings>,
 	pub folders_pending: bool,
@@ -527,6 +586,7 @@ pub struct State {
 	pub posting: forum::Posting,
 	pub posts: forum::Posts,
 	pub archived_thread: Option<Id>,
+	pub thread_starter: thread_starter::Starter,
 	pub search: Option<search::SearchView>,
 	pub search_request: u64,
 	pub gifs: gifs::Gifs,
@@ -569,6 +629,9 @@ pub struct State {
 	/// Session-local guild/channel ID pairs, oldest visit first; at most 16 KiB.
 	#[doc(hidden)]
 	pub last_viewed_channels: Vec<(Id, Id)>,
+	/// Session-local opened threads, newest first; at most 1,024 IDs / 8 KiB.
+	#[doc(hidden)]
+	pub last_viewed_threads: Vec<Id>,
 	pub timeline: Timeline,
 	pub preserve_deleted_messages: bool,
 	pub resident: resident::Windows,
@@ -588,10 +651,26 @@ pub struct State {
 	pub gateway_connected: bool,
 	pub revision: u64,
 	pub demo: bool,
+	#[doc(hidden)]
+	pub trail: Trail,
 }
+
+/// Result of a back/forward step that landed. `command` is the optional history fetch.
+pub struct NavStep {
+	pub command: Option<Command>,
+}
+
+enum Apply {
+	Opened(Option<Command>),
+	AlreadyHere,
+	Rejected(&'static str),
+}
+
 impl Default for State {
 	fn default() -> Self {
 		Self {
+			stickers: Default::default(),
+			interactions: Default::default(),
 			messaging_permissions: Default::default(),
 			guild_folders: None,
 			folders_pending: false,
@@ -609,6 +688,7 @@ impl Default for State {
 			posting: forum::Posting::default(),
 			posts: forum::Posts::default(),
 			archived_thread: None,
+			thread_starter: Default::default(),
 			search: None,
 			search_request: 0,
 			gifs: gifs::Gifs::default(),
@@ -644,6 +724,7 @@ impl Default for State {
 			navigation_index: NavigationIndex::default(),
 			selected: None,
 			last_viewed_channels: Vec::new(),
+			last_viewed_threads: Vec::new(),
 			timeline: Timeline::default(),
 			preserve_deleted_messages: false,
 			resident: resident::Windows::default(),
@@ -663,6 +744,7 @@ impl Default for State {
 			gateway_connected: false,
 			revision: 0,
 			demo: false,
+			trail: Trail::default(),
 		}
 	}
 }
@@ -726,17 +808,19 @@ impl State {
 	/// Call after replacing IDs or payloads directly in synthetic navigation vectors.
 	pub fn invalidate_navigation(&self) {
 		self.navigation_index.channel_stamp.set(None);
+		self.navigation_index.guild_stamp.set(None);
 		self.navigation_index.guilds.borrow_mut().clear();
 		self.navigation_index.bytes.set(None);
 	}
 
 	pub fn guild(&self, id: Id) -> Option<&Guild> {
-		let cached = self.navigation_index.guilds.borrow().get(&id).copied();
-		if let Some(guild) = cached
-			.and_then(|index| self.guilds.get(index))
-			.filter(|guild| guild.id == id)
-		{
-			return Some(guild);
+		let stamp = (self.guilds.as_ptr() as usize, self.guilds.len());
+		if self.navigation_index.guild_stamp.get() == Some(stamp) {
+			let cached = self.navigation_index.guilds.borrow().get(&id).copied();
+			if cached.is_none_or(|index| self.guilds.get(index).is_some_and(|guild| guild.id == id))
+			{
+				return cached.and_then(|index| self.guilds.get(index));
+			}
 		}
 		let mut index = self.navigation_index.guilds.borrow_mut();
 		*index = self
@@ -746,6 +830,7 @@ impl State {
 			.enumerate()
 			.map(|(index, guild)| (guild.id, index))
 			.collect();
+		self.navigation_index.guild_stamp.set(Some(stamp));
 		index.get(&id).and_then(|index| self.guilds.get(*index))
 	}
 
@@ -771,6 +856,7 @@ impl State {
 				.map(|p| {
 					p.content.capacity()
 						+ p.nonce.capacity()
+						+ p.sticker.as_ref().map_or(0, Sticker::heap_bytes)
 						+ p.attachments.iter().map(String::capacity).sum::<usize>()
 						+ p.attachments.capacity() * size_of::<String>()
 						+ size_of::<Pending>()
@@ -818,18 +904,48 @@ impl State {
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
 			return None;
 		}
+		match self.apply_channel(channel) {
+			Apply::Opened(command) => {
+				self.record(Place::Channel(channel));
+				command
+			}
+			Apply::AlreadyHere => None,
+			Apply::Rejected(status) => {
+				self.status = status;
+				None
+			}
+		}
+	}
+
+	fn record(&mut self, place: Place) {
+		if self.trail.is_empty() && !matches!(place, Place::Home) {
+			self.trail.visit(Place::Home);
+		}
+		self.trail.visit(place);
+	}
+
+	fn apply_channel(&mut self, channel: Id) -> Apply {
+		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
+			return Apply::AlreadyHere;
+		}
 		if !self.channel(channel).is_some_and(navigable) {
-			self.status = "This channel kind is unsupported";
-			return None;
+			return Apply::Rejected("This channel kind is unsupported");
 		}
 		if !self.can_view(channel) {
-			self.status = "Channel permissions are unavailable or access was revoked";
-			return None;
+			return Apply::Rejected("Channel permissions are unavailable or access was revoked");
 		}
 		if let Some(previous) = self.selected {
 			self.remember_channel(previous);
 		}
 		self.remember_channel(channel);
+		if self
+			.channel(channel)
+			.is_some_and(|c| matches!(c.kind, 10..=12))
+		{
+			self.last_viewed_threads.retain(|id| *id != channel);
+			self.last_viewed_threads.truncate(1023);
+			self.last_viewed_threads.insert(0, channel);
+		}
 		self.retire_archived_thread(Some(channel));
 		self.typing.clear();
 		self.select_resident(channel);
@@ -838,19 +954,94 @@ impl State {
 		self.member_search = Default::default();
 		self.selected = Some(channel);
 		self.clear_search();
+		self.reset_thread_starter();
 		self.search_target = None;
 		self.reactions.reset();
+		self.interactions.reset();
 		self.older_exhausted = false;
 		self.reply = None;
 		self.revision += 1;
 		if self.channel(channel).is_some_and(|c| !c.supports_text()) {
 			self.cancel_history();
 			self.freshness = Freshness::Fresh;
-			return None;
+			return Apply::Opened(None);
 		}
-		let command = self.history(None);
-		Some(command)
+		Apply::Opened(Some(self.history(None)))
 	}
+
+	/// Open Friends / Home. Does not clear the timeline or emit a command.
+	pub fn open_home(&mut self) {
+		self.selected = None;
+		self.record(Place::Home);
+	}
+
+	/// Land on Home because the open channel is gone.
+	pub fn arrived_home(&mut self) {
+		if let Some(Place::Channel(id)) = self.trail.current()
+			&& self.selected == Some(id)
+		{
+			self.trail.drop_current();
+		}
+		self.selected = None;
+		self.record(Place::Home);
+	}
+
+	pub fn navigate_back(&mut self) -> Option<NavStep> {
+		self.navigate(true)
+	}
+
+	pub fn navigate_forward(&mut self) -> Option<NavStep> {
+		self.navigate(false)
+	}
+
+	fn navigate(&mut self, back: bool) -> Option<NavStep> {
+		let mut blocked = None;
+		loop {
+			let Some(place) = (if back {
+				self.trail.peek_back()
+			} else {
+				self.trail.peek_forward()
+			}) else {
+				if let Some(status) = blocked {
+					self.status = status;
+				}
+				return None;
+			};
+			let apply = match place {
+				Place::Home => {
+					self.selected = None;
+					Apply::Opened(None)
+				}
+				Place::Channel(channel) => self.apply_channel(channel),
+			};
+			match apply {
+				Apply::Opened(command) => {
+					self.commit_nav(back);
+					return Some(NavStep { command });
+				}
+				Apply::AlreadyHere => {
+					self.commit_nav(back);
+					return Some(NavStep { command: None });
+				}
+				Apply::Rejected(status) => {
+					blocked = Some(status);
+					if back {
+						self.trail.drop_back();
+					} else {
+						self.trail.drop_forward();
+					}
+				}
+			}
+		}
+	}
+	fn commit_nav(&mut self, back: bool) {
+		if back {
+			self.trail.commit_back();
+		} else {
+			self.trail.commit_forward();
+		}
+	}
+
 	pub fn request_members(&mut self) -> Option<Command> {
 		let index = self.channel_index(self.selected?)?;
 		let channel = &self.channels[index];
@@ -940,7 +1131,7 @@ impl State {
 				.iter()
 				.any(|channel| channel.id == *id && channel.supports_text())
 		}) else {
-			self.selected = None;
+			self.arrived_home();
 			self.search_target = None;
 			self.reply = None;
 			self.invalidate_members();
@@ -1012,6 +1203,18 @@ impl State {
 	}
 	/// Queue the draft with up to ten attachment filenames; an empty slice sends text only.
 	pub fn prepare_send_with_attachments(&mut self, filenames: &[&str]) -> Option<Command> {
+		self.prepare_message(filenames, None, false)
+	}
+	/// Send selected artwork without consuming the text draft.
+	pub fn prepare_image_send(&mut self, filename: &str) -> Option<Command> {
+		self.prepare_message(&[filename], None, true)
+	}
+	pub(crate) fn prepare_message(
+		&mut self,
+		filenames: &[&str],
+		sticker: Option<&Sticker>,
+		preserve_draft: bool,
+	) -> Option<Command> {
 		let channel = self.selected?;
 		if !self.can_send(channel) || (!filenames.is_empty() && !self.can_attach(channel)) {
 			self.status = "Sending is unavailable with the current connection or permissions";
@@ -1032,8 +1235,12 @@ impl State {
 			self.status = "Attachment filename is invalid or too long";
 			return None;
 		}
-		let content = self.drafts.get(&channel).map_or("", String::as_str);
-		if (content.trim().is_empty() && filenames.is_empty())
+		let content = if sticker.is_some() || preserve_draft {
+			""
+		} else {
+			self.drafts.get(&channel).map_or("", String::as_str)
+		};
+		if (content.trim().is_empty() && filenames.is_empty() && sticker.is_none())
 			|| content.chars().count() > MAX_CONTENT
 			|| self.pending.len() >= 64
 			|| self.draft_bytes()
@@ -1043,6 +1250,7 @@ impl State {
 					.map(|name| name.len() + size_of::<String>())
 					.sum::<usize>()
 				+ size_of::<Pending>()
+				+ sticker.map_or(0, Sticker::heap_bytes)
 				+ 32 > MAX_DRAFT_BYTES
 		{
 			self.status = "Send exceeds the session input budget";
@@ -1056,6 +1264,7 @@ impl State {
 			.as_millis();
 		let nonce = fingerprint::nonce(epoch, self.send_sequence);
 		self.pending.push(Pending {
+			sticker: sticker.cloned(),
 			channel,
 			content: content.clone(),
 			attachments: filenames.iter().map(|name| (*name).to_owned()).collect(),
@@ -1063,16 +1272,40 @@ impl State {
 			delivery: Delivery::Sending,
 			confirmed: None,
 		});
-		self.drafts.remove(&channel);
+		if sticker.is_none() && !preserve_draft {
+			self.drafts.remove(&channel);
+		}
 		self.search_target = None;
 		Some(Command::Send {
+			sticker: sticker.map(|s| s.id),
 			channel,
 			content,
 			nonce,
 			reply: self.reply.take(),
 		})
 	}
+	/// Reports a command the transport could not accept as a bounded outcome error.
 	pub fn command_rejected(&mut self, command: Command) {
+		match &command {
+			Command::StickerPacks => {
+				self.stickers.loading = false;
+				self.stickers.error = Some("Sticker packs were not queued; try again");
+				return;
+			}
+			Command::Sticker(_) => {
+				self.stickers.detail_loading = None;
+				self.stickers.detail_error = Some("Sticker details were not queued; try again");
+				return;
+			}
+			_ => {}
+		}
+		if let Command::Interaction(request) = command {
+			let _ = self.apply_interaction(interactions::Event::Submitted {
+				nonce: request.nonce,
+				result: Err(auth::Failure::Network),
+			});
+			return;
+		}
 		if let Command::MemberSearch(request) = command {
 			self.searched_members(
 				request,
@@ -1174,7 +1407,10 @@ impl State {
 			});
 			return;
 		}
-		if let Command::UserAction { action, request } = command {
+		if let Command::UserAction {
+			action, request, ..
+		} = command
+		{
 			let _ = self.apply_user_action(user_actions::Event::Written {
 				action,
 				request,
@@ -1196,6 +1432,23 @@ impl State {
 		} = command
 		{
 			self.apply_archives(parent, request, Err(auth::Failure::Capacity));
+			return;
+		}
+		if let Command::ThreadStarter {
+			thread, request, ..
+		} = command
+		{
+			self.apply_thread_starter(thread, request, Err(auth::Failure::Capacity));
+			return;
+		}
+		if let Command::ForumSummaries { channels, request } = command {
+			self.apply_forum_summaries(
+				request,
+				channels
+					.into_iter()
+					.map(|channel| (channel, Err(auth::Failure::Capacity)))
+					.collect(),
+			);
 			return;
 		}
 		if let Command::ForumPosts {
@@ -1404,6 +1657,9 @@ impl State {
 		if envelope.generation != self.generation {
 			return;
 		}
+		if self.handle_private_message_event(&envelope.event) {
+			return;
+		}
 		if let Event::Startup(startup) = envelope.event {
 			if startup.bytes() > model::account::MAX_BYTES {
 				self.auth = auth::AuthState::Failed;
@@ -1416,6 +1672,7 @@ impl State {
 				..
 			} = *startup;
 			let Startup {
+				external_stickers,
 				user,
 				guilds,
 				channels,
@@ -1440,6 +1697,7 @@ impl State {
 			if self.auth != auth::AuthState::Authenticated {
 				return;
 			}
+			self.stickers.external_allowed = external_stickers;
 			warnings.read_state |= self.apply_read_state(read_state).is_err();
 			if let Some(settings) = notifications {
 				warnings.notifications |= self.apply_notification_preferences(settings).is_err();
@@ -1463,6 +1721,12 @@ impl State {
 			envelope.event,
 			Event::Ready { .. } | Event::Disconnected | Event::Resync
 		) {
+			if matches!(envelope.event, Event::Ready { .. } | Event::Resync) {
+				self.stickers.external_allowed = false;
+			}
+			self.interrupt_stickers();
+			self.posts.clear_summaries();
+			self.interactions.reset();
 			self.local_game_activity = Default::default();
 			self.invalidate_messaging_permissions(None);
 			self.interrupt_own_profile();
@@ -1594,6 +1858,7 @@ impl State {
 				self.startup_warnings.sessions |= warnings.sessions;
 				self.startup_warnings.presence |= warnings.presence;
 				self.startup_warnings.emojis |= warnings.emojis;
+				self.startup_warnings.stickers |= warnings.stickers;
 				if warnings.read_state {
 					self.read_state.reset();
 				}
@@ -1656,6 +1921,18 @@ impl State {
 				self.apply_archives(parent, request, result);
 				Ok(())
 			}
+			Event::ThreadStarter {
+				thread,
+				request,
+				result,
+			} => {
+				self.apply_thread_starter(thread, request, result);
+				Ok(())
+			}
+			Event::ForumSummaries { request, results } => {
+				self.apply_forum_summaries(request, results);
+				Ok(())
+			}
 			Event::ForumPosts {
 				parent,
 				request,
@@ -1680,6 +1957,45 @@ impl State {
 				self.apply_search(channel, request, result);
 				Ok(())
 			}
+			Event::StickerEntitlement { user, premium_type } => {
+				if self.user.as_ref().is_some_and(|own| own.id == user)
+					&& !matches!(premium_type, Patch::Absent)
+				{
+					self.stickers.external_allowed = matches!(premium_type, Patch::Value(2 | 3));
+				}
+				Ok(())
+			}
+			Event::StickerPacks(result) => {
+				self.apply_sticker_packs(result);
+				Ok(())
+			}
+			Event::Sticker { id, result } => {
+				self.apply_sticker(id, result);
+				Ok(())
+			}
+			Event::GuildStickers { guild, stickers } => {
+				if let Some(index) = self.guilds.iter().position(|g| g.id == guild) {
+					let previous = self.guilds[index]
+						.stickers
+						.as_ref()
+						.map_or(0, sticker_bytes);
+					if !valid_stickers(&stickers, MAX_GUILD_STICKERS)
+						|| stickers.iter().any(|s| s.guild_id != Some(guild))
+						|| self.navigation_bytes().saturating_sub(previous)
+							+ sticker_bytes(&stickers)
+							+ self.permissions.bytes()
+							> model::account::MAX_BYTES
+					{
+						self.guilds[index].stickers = None;
+						self.navigation_index.bytes.set(None);
+						self.fail(auth::Failure::Capacity);
+						return;
+					}
+					self.guilds[index].stickers = Some(stickers);
+					self.navigation_index.bytes.set(None);
+				}
+				Ok(())
+			}
 			Event::Gifs { request, result } => {
 				self.apply_gifs(request, result);
 				Ok(())
@@ -1702,6 +2018,7 @@ impl State {
 				threads,
 				removed,
 			} => self.apply_threads_sync(guild, parents, threads, removed),
+			Event::Interaction(event) => self.apply_interaction(event),
 			Event::Reactions(event) => self.apply_reactions(event),
 			Event::InviteChallenge { request, challenge } => {
 				self.apply_invite_challenge(request, *challenge);
@@ -1944,7 +2261,7 @@ impl State {
 					if self.selected == Some(self.channels[index].id)
 						&& !navigable(&self.channels[index])
 					{
-						self.selected = None;
+						self.arrived_home();
 						self.invalidate_members();
 						self.timeline.clear();
 						self.cancel_history();
@@ -2120,7 +2437,7 @@ impl State {
 				self.remove_channels(&removed);
 				self.cancel_history();
 				if unavailable {
-					self.selected = None;
+					self.arrived_home();
 					self.freshness = Freshness::Unavailable;
 				} else {
 					self.freshness = Freshness::Stale;
@@ -2180,6 +2497,7 @@ impl State {
 				{
 					return;
 				}
+				messages.retain(|message| !message.ephemeral);
 				let mut ids = BTreeSet::new();
 				let has_deleted_reference = messages.iter().any(|message| message.reply_deleted);
 				if older != self.history_before.is_some()
@@ -2269,9 +2587,9 @@ impl State {
 				}
 				self.typing_message(&m);
 				if let Some(post) = self
-					.channels
-					.iter_mut()
-					.find(|c| c.id == m.channel && matches!(c.kind, 10..=12))
+					.channel_index(m.channel)
+					.and_then(|index| self.channels.get_mut(index))
+					.filter(|c| matches!(c.kind, 10..=12))
 				{
 					post.message_count = post.message_count.map(|n| n.saturating_add(1));
 				}
@@ -2418,6 +2736,14 @@ impl State {
 									&& known.nonce.as_deref() == Some(nonce.as_str())
 							}));
 						if correlated {
+							if let Some(sticker) = self
+								.pending
+								.iter()
+								.find(|p| p.nonce == nonce && p.channel == m.channel)
+								.and_then(|p| p.sticker.clone())
+							{
+								self.remember_sticker(sticker);
+							}
 							self.observe_last_message(m.channel, m.id);
 						}
 						let accepted_reference = correlated && self.accepts_reply_source(&m);
@@ -2567,6 +2893,7 @@ impl State {
 			}
 			self.reconcile_notifications();
 			self.prune_resident();
+			self.prune_post_summaries();
 		}
 		if self.search.is_some() && !self.can_search() {
 			self.clear_search();
@@ -2632,6 +2959,7 @@ impl State {
 	}
 	fn remove_channels(&mut self, removed: &BTreeSet<Id>) {
 		self.invalidate_navigation();
+		self.last_viewed_threads.retain(|id| !removed.contains(id));
 		for id in removed {
 			self.resident.remove(*id);
 		}
@@ -2675,6 +3003,14 @@ impl State {
 			return;
 		}
 		if let Some(nonce) = &message.nonce {
+			if let Some(sticker) = self
+				.pending
+				.iter()
+				.find(|p| p.nonce == *nonce && p.channel == message.channel)
+				.and_then(|p| p.sticker.clone())
+			{
+				self.remember_sticker(sticker);
+			}
 			self.pending
 				.retain(|p| !(p.nonce == *nonce && p.channel == message.channel));
 		}
@@ -2688,6 +3024,7 @@ impl State {
 			_ => {}
 		}
 		if failure.ends_session() {
+			self.interrupt_stickers();
 			self.invalidate_messaging_permissions(Some(failure));
 			self.interrupt_own_profile();
 			self.local_game_activity = Default::default();
@@ -2720,6 +3057,7 @@ impl State {
 	fn cancel_history(&mut self) {
 		self.typing.clear();
 		self.reactions.reset();
+		self.interactions.reset();
 		self.search_target = None;
 		self.request += 1;
 		self.history_pending = false;
@@ -2789,6 +3127,7 @@ impl Event {
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ match self {
+				Self::Interaction(event) => event.bytes(),
 				Self::Startup(startup) => startup.bytes(),
 				Self::MessagingPermissions { result, .. } => result
 					.as_ref()
@@ -2880,6 +3219,9 @@ impl Event {
 				Self::UserAction(user_actions::Event::FriendProfile((u, n))) => {
 					u.heap_bytes() + n.capacity()
 				}
+				Self::UserAction(user_actions::Event::Challenge { challenge, .. }) => {
+					challenge.bytes()
+				}
 				Self::UserAction(user_actions::Event::Relationships(entries)) => entries
 					.as_ref()
 					.map_or(0, |e| e.capacity() * size_of::<(Id, bool)>()),
@@ -2897,6 +3239,17 @@ impl Event {
 				Self::UserAction(user_actions::Event::RequestSpam { .. }) => size_of::<Id>(),
 				Self::Archives { result, .. } => {
 					result.as_ref().map_or(0, model::archives::Page::bytes)
+				}
+				Self::ThreadStarter { result, .. } => result.as_ref().map_or(0, Message::bytes),
+				Self::ForumSummaries { results, .. } => {
+					results.capacity()
+						* size_of::<(Id, Result<model::forum::Summary, auth::Failure>)>()
+						+ results
+							.iter()
+							.map(|(_, result)| {
+								result.as_ref().map_or(0, model::forum::Summary::bytes)
+							})
+							.sum::<usize>()
 				}
 				Self::ForumPosts { result, .. } => {
 					result.as_ref().map_or(0, model::forum::Page::bytes)
@@ -2935,6 +3288,9 @@ impl Event {
 				Self::Voice(event) => event.bytes(),
 				Self::Permissions(event) => event.bytes(),
 				Self::GuildEmojis { emojis, .. } => custom_emoji_bytes(emojis),
+				Self::GuildStickers { stickers, .. } => sticker_bytes(stickers),
+				Self::StickerPacks(result) => result.as_ref().map_or(0, stickers::pack_bytes),
+				Self::Sticker { result, .. } => result.as_ref().map_or(0, Sticker::heap_bytes),
 				Self::GuildChanged(patch) => [&patch.name, &patch.icon]
 					.into_iter()
 					.map(|value| match value {
@@ -3011,10 +3367,13 @@ impl Event {
 						_ => 0,
 					};
 					content
-						+ match &p.reactions {
-							Patch::Value(r) => model::reaction_bytes(r),
+						+ match &p.sticker_items {
+							Patch::Value(stickers) => model::sticker_bytes(stickers),
 							_ => 0,
-						} + match &p.mentions {
+						} + match &p.reactions {
+						Patch::Value(r) => model::reaction_bytes(r),
+						_ => 0,
+					} + match &p.mentions {
 						Patch::Value(users) => model::mention_bytes(users),
 						_ => 0,
 					} + match &p.attachments {
@@ -3036,6 +3395,69 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn guild_lookup_caches_misses_and_tracks_navigation_changes() {
+		let guild = |id| Guild {
+			stickers: None,
+			id: Id(id),
+			name: "Synthetic".into(),
+			icon: None,
+			emojis: None,
+		};
+		let mut state = State {
+			guilds: vec![guild(1)],
+			..State::default()
+		};
+		assert!(state.guild(Id(2)).is_none());
+		{
+			// A cached miss must not rebuild (and mutably borrow) the index.
+			let _index = state.navigation_index.guilds.borrow();
+			for _ in 0..3 {
+				assert!(state.guild(Id(2)).is_none());
+				assert_eq!(state.guild(Id(1)).unwrap().id, Id(1));
+			}
+		}
+		apply(&mut state, Event::GuildJoined(guild(2)));
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+		assert_eq!(state.guild(Id(1)).unwrap().id, Id(1));
+		state.guilds.swap(0, 1);
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+		state.guilds[0] = guild(3);
+		state.invalidate_navigation();
+		assert!(state.guild(Id(1)).is_none());
+		assert_eq!(state.guild(Id(3)).unwrap().id, Id(3));
+		state.guilds.retain(|guild| guild.id != Id(3));
+		assert!(state.guild(Id(3)).is_none());
+		assert_eq!(state.guild(Id(2)).unwrap().id, Id(2));
+	}
+
+	#[test]
+	#[ignore = "manual release timing; run with --release --ignored --nocapture"]
+	fn guild_lookup_benchmark() {
+		let state = State {
+			guilds: (1..=1_000)
+				.map(|id| Guild {
+					stickers: None,
+					id: Id(id),
+					name: "Synthetic".into(),
+					icon: None,
+					emojis: None,
+				})
+				.collect(),
+			..State::default()
+		};
+		for run in 0..6 {
+			let start = std::time::Instant::now();
+			for _ in 0..10_000 {
+				assert!(std::hint::black_box(state.guild(std::hint::black_box(Id(500)))).is_some());
+				assert!(
+					std::hint::black_box(state.guild(std::hint::black_box(Id(1_001)))).is_none()
+				);
+			}
+			println!("guild lookup run {run} (0 = warmup): {:?}", start.elapsed());
+		}
+	}
+
 	pub(crate) fn grant_permissions(state: &mut State) {
 		let Some(user) = &state.user else {
 			return;
@@ -3228,6 +3650,7 @@ mod tests {
 			user: Some(message(1).author),
 			guilds: (1..=2)
 				.map(|id| Guild {
+					stickers: None,
 					id: Id(id),
 					name: "Synthetic".into(),
 					icon: None,
@@ -3644,6 +4067,7 @@ mod tests {
 		};
 		let mut state = State {
 			guilds: vec![Guild {
+				stickers: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				icon: None,
@@ -3713,6 +4137,7 @@ mod tests {
 		let mut state = State::default();
 		let mut guilds: Vec<_> = (1..=700)
 			.map(|id| Guild {
+				stickers: None,
 				id: Id(id),
 				name: "Synthetic".into(),
 				icon: None,
@@ -3733,6 +4158,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					primary_guild: None,
 					id: Id(1),
 					name: "Synthetic".into(),
 					avatar: None,
@@ -3752,6 +4178,7 @@ mod tests {
 	fn guild_identity_patches_preserve_omitted_fields_and_change_icon_keys() {
 		let mut state = State {
 			guilds: vec![Guild {
+				stickers: None,
 				emojis: None,
 				id: Id(2),
 				name: "Synthetic server".into(),
@@ -3824,6 +4251,7 @@ mod tests {
 		let mut state = State {
 			user: Some(message(1).author),
 			guilds: vec![Guild {
+				stickers: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				icon: None,
@@ -3914,10 +4342,12 @@ mod tests {
 	}
 	pub(super) fn message(id: u64) -> Message {
 		Message {
+			sticker_items: Vec::new(),
 			reactions: Some(vec![]),
 			id: Id(id),
 			channel: Id(1),
 			author: User {
+				primary_guild: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -3935,6 +4365,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			attachments: vec![],
@@ -4127,6 +4561,7 @@ mod tests {
 			Event::RecipientAdded {
 				channel: Id(1),
 				user: User {
+					primary_guild: None,
 					id: Id(3),
 					name: "Other".into(),
 					avatar: None,
@@ -4165,6 +4600,7 @@ mod tests {
 			user: Some(message(1).author),
 			channels: vec![channel.clone()],
 			guilds: vec![Guild {
+				stickers: None,
 				id: Id(10),
 				name: "Synthetic".into(),
 				icon: None,
@@ -4301,6 +4737,7 @@ mod tests {
 			message_count: None,
 		};
 		let guild = Guild {
+			stickers: None,
 			id: Id(10),
 			name: "Synthetic".into(),
 			icon: None,
@@ -4390,6 +4827,7 @@ mod tests {
 			message_count: None,
 		};
 		let user = || User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -4521,6 +4959,7 @@ mod tests {
 			Event::Ready {
 				permissions: model::permissions::Snapshot::default(),
 				user: User {
+					primary_guild: None,
 					id: Id(2),
 					name: "Synthetic".into(),
 					avatar: None,

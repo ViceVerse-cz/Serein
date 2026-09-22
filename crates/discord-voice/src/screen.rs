@@ -87,10 +87,19 @@ pub fn supported() -> bool {
 
 pub fn sources() -> Result<Vec<Source>, &'static str> {
 	#[cfg(target_os = "linux")]
-	return Ok(vec![Source {
-		id: SourceId::Portal,
-		name: "Choose in the system picker".into(),
-	}]);
+	{
+		let mut sources = vec![Source {
+			id: SourceId::Portal,
+			name: "Choose in the system picker".into(),
+		}];
+		if linux::x11_session() {
+			sources.push(Source {
+				id: SourceId::X11Desktop,
+				name: "Entire X11 desktop · all monitors · no portal".into(),
+			});
+		}
+		Ok(sources)
+	}
 	#[cfg(not(target_os = "linux"))]
 	capture::sources()
 }
@@ -418,6 +427,7 @@ fn retain_screen_frame(
 /// fails mid-stream.
 #[cfg(not(target_os = "linux"))]
 struct ScreenEncoder {
+	diagnostics: crate::diagnostics::EncoderRegistration,
 	software: Option<Encoder>,
 	yuv: YUVBuffer,
 	hardware: Option<crate::video_encode::hardware::Encoder>,
@@ -449,6 +459,7 @@ impl ScreenEncoder {
 			None
 		};
 		Ok(Self {
+			diagnostics: crate::diagnostics::EncoderRegistration::new(true, hardware.is_some()),
 			software,
 			yuv: YUVBuffer::new(settings.width as usize, settings.height as usize),
 			hardware,
@@ -477,7 +488,9 @@ impl ScreenEncoder {
 			}
 			// The viewer must restart from a keyframe once the software encoder takes over.
 			self.hardware = None;
+			self.diagnostics.set(None);
 			self.software = Some(encoder(self.settings)?);
+			self.diagnostics.set(Some(false));
 			software_force = true;
 		}
 		self.yuv.read_bgra8(BgraSliceU8::new(pixels, dimensions));

@@ -80,6 +80,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			user: Some(model::User {
+				primary_guild: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -88,6 +89,7 @@ mod tests {
 				webhook: false,
 			}),
 			guilds: vec![model::Guild {
+				stickers: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				icon: None,

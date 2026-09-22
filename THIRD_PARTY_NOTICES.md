@@ -1,5 +1,21 @@
 # Third-party notices
 
+Discord Lottie sticker previews use **rasterlottie 0.2.2** (MIT OR Apache-2.0)
+with default features disabled. Serein uses the MIT option; its unmodified MIT
+license is retained in `assets/licenses/files/rasterlottie-0.2.2-LICENSE-MIT`.
+The pure-Rust renderer reuses the existing serde stack and adds tiny-skia 0.12.0;
+exact archive checksums are recorded in `Cargo.lock`.
+
+AppImage delta updates use **md4 0.10.2** (MIT OR Apache-2.0) for legacy zsync
+block matching only; SHA-256 remains the final update integrity check. The
+unmodified upstream MIT license is bundled at
+`assets/licenses/files/md4-0.10.2-LICENSE-MIT`; `Cargo.lock` records the registry
+archive checksum. Source: https://crates.io/crates/md4/0.10.2 (RustCrypto/hashes).
+
+Linux tray integration uses **ksni 0.3.6** (Unlicense), reusing zbus, Tokio and image.
+The unmodified license is retained in `assets/licenses/files/ksni-0.3.6-UNLICENSE`;
+`Cargo.lock` records the archive checksum.
+
 Linux call audio enables CPAL’s PulseAudio backend with **pulseaudio 0.3.1**
 (MIT), **enum-primitive-derive 0.3.0** (MIT), and **futures 0.3.34**
 (MIT OR Apache-2.0). Their unmodified license texts and provenance are bundled
@@ -64,7 +80,7 @@ The native attachment video adapter also uses **symphonia-codec-aac 0.6.1**
 the other Symphonia codecs, and ship through the same package copy step.
 
 The egui main experiment pins the egui/eframe ecosystem to upstream commit
-`65e7db3c06d779c60ac56647bdd3011ed8ba1cbd` (version 0.36.2, MIT OR Apache-2.0).
+`99df44a801749aee958295ed96fccad8dfecb289` (version 0.36.2, MIT OR Apache-2.0).
 It adds unicode-properties 0.1.4 (MIT/Apache-2.0) and updates glifo to 0.3.0 and
 vello_common/vello_cpu to 0.2.0 (Apache-2.0 OR MIT). Epaint bundled fonts and
 their separate license obligations are unchanged. Native font fallback uses
@@ -100,6 +116,8 @@ Core components include egui/eframe/wgpu (MIT OR Apache-2.0), Tokio (MIT), serde
 
 System frameworks and runtimes (Metal, WebKit/WKWebView, WebView2, GTK/WebKitGTK, OS credential stores) are supplied under their vendors’ terms and are not relicensed here. Text-mode packages contain no libdave, Opus, camera, or microphone implementation. No Discord logos, proprietary fonts, official client binaries/source, or emoji collection are redistributed. Abaddon and Discord Userdoccers were consulted as protocol evidence; no implementation source was copied.
 
+The notification sound pack embeds original audio assets belonging to **Discord, Inc.** These assets are not covered by this repository's MIT/Apache licenses. Sources, hashes and the outstanding redistribution-permission review are documented in [assets/sounds/README.md](assets/sounds/README.md), packaged as `licenses/notification-sounds.md`. A public asset URL does not establish redistribution permission; this must be resolved before distributing builds containing these sounds.
+
 The standard build additionally uses **Davey 0.1.4** (MIT, Snazzah; [upstream commit a1e2e741](https://github.com/Snazzah/davey/tree/a1e2e741bea06bc3b7167a5c3792844b8975993c)), **OpenMLS 0.8.1** (MIT, OpenMLS Authors; [upstream commit 47dbedec](https://github.com/openmls/openmls/tree/47dbedecad0c1fd8eb5368d582250ebfcc1e1ce6)), **CPAL 0.18.2** (Apache-2.0), **opus2 0.4.0** (MIT OR Apache-2.0), **rtrb 0.4.0** (MIT OR Apache-2.0), and **chacha20poly1305 0.10.1** (Apache-2.0 OR MIT). Davey implements DAVE with OpenMLS; this build does not link Discord's C++ libdave. The local `vendor/davey` manifest patch removes OpenMLS browser-only timer features from this native build; all Davey Rust sources are unchanged. Exact provenance and the MIT license are retained there. Its DAVE and transport cryptography dependencies retain their own licenses and are not covered merely by naming these direct components.
 
 The voice build statically links the bundled Opus source from **libopus_sys 0.3.3**. Binding notices include its current MIT license and preserved earlier ISC license. The codec's unmodified `COPYING` and `LICENSE_PLEASE_READ.txt` retain its contributor copyrights, BSD-style redistribution conditions and references to IETF patent statements. These notices are distinct from the binding license; no independent patent or licensing conclusion is claimed.
@@ -108,7 +126,7 @@ The direct voice library/codec license and notice texts are collected in [assets
 
 The voice dependency tree also contains the locally patched **hpke-rs 0.6.1**, licensed **MPL-2.0** according to its [release-pinned Cargo manifest](https://github.com/cryspen/hpke-rs/blob/f3463e7530771d7f7116635335c25e7d2d11e861/Cargo.toml). The vendored component is under `vendor/hpke-rs/`; `SEREIN-PATCH.md` describes its SHAKE dependency replacement, small standard-XOF adapter and removal of the unused optional libcrux backend. Its original source remains under MPL-2.0, separately from Serein's MIT/Apache code. Upstream's registry archive and pinned Git tree omit a standalone license file, so an unmodified [canonical Mozilla MPL-2.0 text](https://www.mozilla.org/media/MPL/2.0/index.txt) is provided as `vendor/hpke-rs/LICENSE-MPL-2.0.txt` and `assets/licenses/voice/hpke-rs-LICENSE-MPL-2.0.txt`. This text was supplied from Mozilla, not recovered from a nonexistent upstream file. Voice packages include this corresponding component source under `source/hpke-rs` (inside macOS bundle Resources). Binary distributors must provide recipients access to the corresponding hpke-rs source, including modifications, and retain its notices as required by MPL-2.0; distributing only this license text is insufficient.
 
-Bundled fonts are unmodified and licensed under SIL OFL 1.1: **Inter 3.19** (Regular, Medium, SemiBold; the "hinted for Windows" TrueType builds), Copyright (c) 2016-2020 The Inter Project Authors, "Inter" is a trademark of Rasmus Andersson (https://github.com/rsms/inter); **Noto Sans CJK JP Regular 2.004**, © 2014–2021 Adobe (http://www.adobe.com/), stored zstd-compressed and inflated unchanged at runtime; and **Noto Sans Arabic 2.012**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic). The complete license texts are `assets/fonts/Inter-OFL.txt`, `assets/fonts/NotoSansCJK-LICENSE.txt` and `assets/fonts/NotoSansArabic-OFL.txt` in source, and are staged alongside distribution notices. Provenance, hashes, sizes and coverage limitations are in [assets/README.md](assets/README.md). Their font licenses remain separate from Serein's source-code license.
+Bundled fonts are unmodified and licensed under SIL OFL 1.1: **Inter 3.19** (Regular, Medium, SemiBold; the "hinted for Windows" TrueType builds), Copyright (c) 2016-2020 The Inter Project Authors, "Inter" is a trademark of Rasmus Andersson (https://github.com/rsms/inter); **Noto Sans CJK JP Regular 2.004**, © 2014–2021 Adobe (http://www.adobe.com/), stored zstd-compressed and inflated unchanged at runtime; **Noto Sans Arabic 2.012**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic); and **Noto Sans Math 3.000**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/math). The complete license texts are `assets/fonts/Inter-OFL.txt`, `assets/fonts/NotoSansCJK-LICENSE.txt`, `assets/fonts/NotoSansArabic-OFL.txt` and `assets/fonts/NotoSansMath-OFL.txt` in source, and are staged alongside distribution notices. Provenance, hashes, sizes and coverage limitations are in [assets/README.md](assets/README.md). Their font licenses remain separate from Serein's source-code license.
 
 The initial packaging command stages original licenses and this inventory notice. Complete per-artifact transitive license-text assembly and platform redistribution review remain a release-hardening gate; do not treat a development package as a completed legal/distribution review.
 
@@ -134,7 +152,7 @@ AEC3, and its sonora-aec3/agc2/common-audio/fft/ns/simd 0.2.0 components
 dignifiedquire). The unmodified workspace license is
 `assets/licenses/voice/sonora-LICENSE.txt`, staged by existing voice packaging.
 Krisp is not bundled. No extra native SDK or model download is required.
-Sonora noise suppression and AGC are not enabled by this integration.
+Custom microphone profiles can enable Sonora noise suppression and digital AGC2.
 
 The macOS voice permission adapter additionally uses **objc2-av-foundation
 0.3.2** (Zlib OR Apache-2.0 OR MIT) and existing objc2 0.6.4 / block2 0.6.2.

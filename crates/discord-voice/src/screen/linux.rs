@@ -13,6 +13,12 @@ use ::gstreamer as gst;
 /// it, which separates a desktop that stopped drawing from a pipeline we held back.
 const SLOW_PICTURES: u32 = 2;
 
+pub(super) fn x11_session() -> bool {
+	std::env::var_os("XDG_SESSION_TYPE").is_some_and(|value| value == "x11")
+		&& std::env::var_os("WAYLAND_DISPLAY").is_none()
+		&& std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty())
+}
+
 fn note(event: &str, value: &str) {
 	if std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|set| set == "1") {
 		eprintln!("[Serein voice Screen] {event}={value}");
@@ -30,6 +36,16 @@ use std::{
 	time::{Duration, Instant},
 };
 
+pub(super) fn x11_source(cursor: bool) -> Result<gst::Element, &'static str> {
+	// winit initializes Xlib threading when opening the desktop's X11 connection,
+	// before this source is started by the capture worker.
+	gst::ElementFactory::make("ximagesrc")
+		.property("show-pointer", cursor)
+		.property("use-damage", false)
+		.build()
+		.map_err(|_| "X11 capture requires the GStreamer Good plugins (gst-plugins-good)")
+}
+
 #[allow(clippy::too_many_arguments)] // The existing worker's bounded media outputs.
 pub(super) fn run(
 	settings: Settings,
@@ -44,7 +60,8 @@ pub(super) fn run(
 	preview_visible: Arc<AtomicBool>,
 	wake: &impl Fn(),
 ) -> Result<(), &'static str> {
-	if settings.source != SourceId::Portal || !settings.valid() {
+	let direct = settings.source == SourceId::X11Desktop && x11_session();
+	if (!direct && settings.source != SourceId::Portal) || !settings.valid() {
 		return Err("Choose a source with the Linux screen picker");
 	}
 	gst::init().map_err(|_| "GStreamer is unavailable")?;
@@ -54,7 +71,11 @@ pub(super) fn run(
 		.build()
 		.map_err(|_| "Could not start the screen picker")?;
 	runtime.block_on(async {
-		let mut portal = Portal::open(settings.cursor, &stop).await?;
+		let mut portal = if direct {
+			None
+		} else {
+			Some(Portal::open(settings.cursor, &stop).await?)
+		};
 		let origin = Instant::now();
 		let mut metrics = crate::diagnostics::Metrics::new(crate::diagnostics::Scope::ScreenVideo);
 		let mut audio = None;
@@ -73,27 +94,36 @@ pub(super) fn run(
 				if stop.load(Ordering::Acquire) || send.is_closed() {
 					return Ok(());
 				}
-				if portal.is_closed() {
+				if portal.as_mut().is_some_and(Portal::is_closed) {
 					return Err("The desktop stopped screen sharing");
 				}
-				let source = gst::ElementFactory::make("pipewiresrc")
-					.build()
-					.map_err(|_| "Install the GStreamer PipeWire plugin to share your screen")?;
-				let remote = portal.open_remote(&stop).await?;
-				source.set_property("fd", remote.as_raw_fd());
-				if let Some(serial) = portal
-					.pipewire_serial
-					.filter(|_| source.find_property("target-object").is_some())
-				{
-					source.set_property("target-object", serial.to_string());
+				let mut remote = None;
+				let source = if let Some(portal) = &mut portal {
+					let source = gst::ElementFactory::make("pipewiresrc").build().map_err(
+						|_| "Install the GStreamer PipeWire plugin to share your screen",
+					)?;
+					remote = Some(portal.open_remote(&stop).await?);
+					source.set_property(
+						"fd",
+						remote.as_ref().expect("portal remote opened").as_raw_fd(),
+					);
+					if let Some(serial) = portal
+						.pipewire_serial
+						.filter(|_| source.find_property("target-object").is_some())
+					{
+						source.set_property("target-object", serial.to_string());
+					} else {
+						source.set_property("path", portal.node_id.to_string());
+					}
+					source.set_property("do-timestamp", true);
+					// Damage-driven desktops still need a fresh IDR when a viewer joins an idle screen.
+					source.set_property("keepalive-time", 1000i32);
+					source.set_property("min-buffers", 2i32);
+					source.set_property("max-buffers", 4i32);
+					source
 				} else {
-					source.set_property("path", portal.node_id.to_string());
-				}
-				source.set_property("do-timestamp", true);
-				// Damage-driven desktops still need a fresh IDR when a viewer joins an idle screen.
-				source.set_property("keepalive-time", 1000i32);
-				source.set_property("min-buffers", 2i32);
-				source.set_property("max-buffers", 4i32);
+					x11_source(settings.cursor)?
+				};
 				let capacity = send.clone();
 				keyframe.store(true, Ordering::Release);
 				let Ok(pipeline) = Capture::new(
@@ -112,6 +142,7 @@ pub(super) fn run(
 				}
 				wake();
 				let mut software = None;
+				let mut encoder_diagnostics = None;
 				let mut second = Instant::now();
 				let mut pictures_second = 0u32;
 				let mut withheld_second = 0u64;
@@ -124,7 +155,7 @@ pub(super) fn run(
 					if stop.load(Ordering::Acquire) || send.is_closed() {
 						return Ok(());
 					}
-					if portal.is_closed() {
+					if portal.as_mut().is_some_and(Portal::is_closed) {
 						return Err("The desktop stopped screen sharing");
 					}
 					// Application audio is an extra, not the share itself. If its worker stops,
@@ -172,6 +203,7 @@ pub(super) fn run(
 							wake();
 						}
 						software = None;
+						encoder_diagnostics = None;
 						slow = None;
 						waiting_keyframe = true;
 						first_frame = None;
@@ -234,6 +266,12 @@ pub(super) fn run(
 									!buffer.flags().contains(gst::BufferFlags::DELTA_UNIT),
 								)
 							};
+							encoder_diagnostics.get_or_insert_with(|| {
+								crate::diagnostics::EncoderRegistration::new(
+									true,
+									mode != Mode::Software,
+								)
+							});
 							if !data.is_empty() && (!waiting_keyframe || is_keyframe) {
 								let frame = EncodedFrame {
 									data,
@@ -292,6 +330,7 @@ pub(super) fn run(
 				}
 				// One bounded pass through alternatives, always destroying the old pipeline first.
 				drop(pipeline);
+				drop(remote);
 			}
 			Err("No screen encoder could start; check PipeWire, portal and GStreamer plugins")
 		}
@@ -299,7 +338,9 @@ pub(super) fn run(
 		ready.store(false, Ordering::Release);
 		stop.store(true, Ordering::Release);
 		drop(send);
-		portal.close().await;
+		if let Some(portal) = portal {
+			portal.close().await;
+		}
 		// Revoke the portal before waiting for a possibly blocked native audio driver.
 		drop(audio);
 		result

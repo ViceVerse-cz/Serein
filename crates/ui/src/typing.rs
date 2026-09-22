@@ -196,7 +196,7 @@ pub(super) fn overlay(
 	painter.galley(text_pos, galley, colors.muted);
 	response.widget_info(|| {
 		let text: String = segments.iter().map(|(text, _)| text.as_str()).collect();
-		egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text)
+		egui::WidgetInfo::labeled(egui::Role::Label, true, text)
 	});
 	if let Some(deadline) = state.typing_deadline(now) {
 		// Keep the dots moving until the earliest deadline, then go idle without repaints.
@@ -228,6 +228,7 @@ mod tests {
 				webhook: false,
 				kind: Default::default(),
 				discriminator: 0,
+				primary_guild: None,
 			}),
 			channels: vec![Channel {
 				id: Id(10),
@@ -248,6 +249,7 @@ mod tests {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					},
 					User {
 						id: Id(2),
@@ -256,6 +258,7 @@ mod tests {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					},
 					User {
 						id: Id(3),
@@ -264,6 +267,7 @@ mod tests {
 						webhook: false,
 						kind: Default::default(),
 						discriminator: 0,
+						primary_guild: None,
 					},
 				],
 			}],

@@ -10,15 +10,17 @@ Theme package IDs are normalized to ASCII lowercase when parsed, so an imported
 (including path separators, non-ASCII characters and reserved device names) still
 apply. Plugin IDs and reviewed catalog manifests remain strictly lowercase.
 
-The bundled Themes page also includes these MIT-licensed presets by **a1.lol**:
-Golden Theme, BlackTheme (the supplied Katana package), Obsidian Theme and Teal Theme.
-Their supplied palettes and control metrics are preserved. Package IDs are normalized
-to lowercase, and source links point to this repository, which contains the packages.
-BlackTheme supplies dark colors only; light mode inherits the built-in palette while
-keeping its shared control metrics. The other three supply both light and dark colors.
-Themes remain opt-in and use the existing preview, install, selection and reset flow.
-The existing limit of eight installed themes is unchanged; remove an installed theme
-before adding another if that limit is reached.
+The official theme catalog and packages live in
+[Serein-extensions](https://github.com/ViceVerse-cz/Serein-extensions), including Forest
+Piano and Soft White Theme. The catalog pins each package to a source commit,
+SHA-256 and exact byte length. See that repository's README for publishing.
+Normal builds fetch catalog metadata when Themes opens; installation and updates
+remain explicit. Installed themes and the last valid catalog work offline.
+Local edits/imports are preserved, and updating an inactive theme does not change
+the current selection. Removing a listing never uninstalls it from a device.
+The eight-installed-theme limit remains unchanged.
+The packages retained under this client's `extensions/` are offline test/demo
+fixtures and are not embedded in normal builds.
 
 The `light` and `dark` objects each accept `colors`, an optional `backdrop`,
 and optional `background` image settings.
@@ -42,6 +44,10 @@ font sizes are whole logical pixels, before the user's display scale.
 
 | Field | Default | Allowed range |
 | --- | --- | --- |
+| `transparency_blur` | `true` (requires Appearance opt-in) | `true` or `false` |
+| `transparency` | user Appearance setting | 0–100 |
+| `blur` | user Appearance setting | 0–100 |
+| `transparent_all` | user Appearance setting | `true` or `false` |
 | `body_size` | 15 | 10–28 |
 | `heading_size` | 20 | 12–40 |
 | `button_size` | 14 | 10–28 |
@@ -74,7 +80,25 @@ For example, this `theme` value provides a flatter, roomier appearance:
 Unknown fields and out-of-range metrics are rejected before installation.
 Existing color-only packages continue to work. Disabling or resetting a theme
 restores built-in control metrics as well as colors; `Ctrl+Shift+F12` is the
-emergency reset shortcut.
+emergency reset shortcut. Reset keeps installed themes available for re-selection;
+Disable removes the selected package and its local data.
+
+The Appearance **Transparency & blur** switch is the device-wide opt-in and requires
+restarting Serein after enabling or disabling it. Disabled launches use an opaque
+native window and GPU surface, with no blur or transparency compositor requests.
+Themes cannot enable window effects while this switch is off. Once enabled, the
+optional theme `transparency_blur` value can disable effects for that theme;
+omitting it permits effects. Theme percentages override the Appearance defaults.
+`transparency` controls how much desktop shows through the conversation;
+`transparent_all` extends it to sidebars, the server rail, headers and composer.
+These values and theme overrides update live within an enabled session.
+`blur` at zero disables native compositor blur; nonzero values request it, but the
+compositor chooses the exact radius. Systems without native blur keep translucency.
+Setting transparency to zero disables blur and restores the native opaque-window
+hint where supported; only restarting with the Appearance switch off releases the
+alpha-capable GPU surface. X11 cannot change its native hint after window creation.
+The synthetic native preview can opt in without saved settings using
+`cargo run --locked -p serein --features demo -- --demo --demo-transparency`.
 
 These metrics affect controls that inherit the shared native style. Custom
 painted elements, explicit text sizes, fixed-height rows and per-widget padding
@@ -98,13 +122,15 @@ Background shows a clickable synthetic app map: select a top bar, list or messag
 area to edit that section's opacity. The image is shared, while colors and surface
 opacity can differ between Dark and Light. Choosing Save opens the tab with the
 first invalid field and shows a nearby error.
-The selected image has its own thumbnail. Customize on a bundled or installed theme
-creates a new unreviewed identity; bundled originals do not require installation first.
+The selected image has its own thumbnail. Customize on an installed theme or
+offline demo fixture creates a new unreviewed identity; demo fixtures do not
+require installation first.
 Local themes retain their Edit theme action and save to the same identity.
 Installed inactive themes show Use theme, which switches and persists the active
 appearance without reinstalling. A filled Active badge identifies the current theme;
 Disable remains a separate action that removes the installed theme and its data.
-Clicking a bundled or installed theme thumbnail temporarily previews it on the normal app.
+Clicking an installed theme or demo fixture thumbnail temporarily previews its
+appearance in the app. Remote themes must be installed first.
 Back to themes restores the saved appearance and discards the temporary preview draft;
 Customize restores the saved appearance and opens that draft in the editor.
 Colors, alpha, gradients,
@@ -131,7 +157,7 @@ decode limits, and shrinks to at most 640 x 360 for the card. The card center-cr
 the image to 16:9; removing it restores the automatic palette preview. It has no
 effect on the conversation background. Local themes made in the editor, including
 copies of installed themes, can be edited and saved with their existing ID. Imported
-and bundled themes must be duplicated before saving, so their package is preserved.
+and catalog themes must be duplicated before saving, so their package is preserved.
 
 ```json
 "background": {

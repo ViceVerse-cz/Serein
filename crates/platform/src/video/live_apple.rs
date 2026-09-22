@@ -5,13 +5,16 @@
 
 use super::{INVALID, UNSUPPORTED, apple};
 pub use super::{LiveFrame as Frame, LiveSink as Sink, MAX_ACCESS_UNIT};
-use objc2_core_foundation::CFRetained;
+use objc2_core_foundation::{CFBoolean, CFDictionary, CFRetained};
 use objc2_core_media::{
 	CMBlockBuffer, CMFormatDescription, CMSampleBuffer, CMSampleTimingInfo, CMTime, CMTimeFlags,
 	CMVideoFormatDescriptionCreateFromH264ParameterSets, kCMBlockBufferAssureMemoryNowFlag,
 };
 use objc2_core_video::{CVImageBuffer, kCVPixelFormatType_32BGRA};
-use objc2_video_toolbox::{VTDecodeFrameFlags, VTDecodeInfoFlags, kVTVideoDecoderBadDataErr};
+use objc2_video_toolbox::{
+	VTDecodeFrameFlags, VTDecodeInfoFlags, kVTVideoDecoderBadDataErr,
+	kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
+};
 use std::{
 	ffi::c_void,
 	ptr::{NonNull, null, null_mut},
@@ -19,6 +22,9 @@ use std::{
 };
 
 const TIMESCALE: i32 = 90_000;
+// Drain every three submissions: at most three compressed units (3 * MAX_ACCESS_UNIT)
+// can outlive the caller's bounded queue inside VideoToolbox.
+const MAX_ASYNC_PICTURES: i64 = 3;
 
 struct Output {
 	sink: Sink,
@@ -84,8 +90,20 @@ impl H264Decoder {
 			let refcon = Arc::as_ptr(&self.output).cast_mut().cast::<c_void>();
 			// BGRA is the output every VideoToolbox decoder provides; RGBA sessions are created
 			// but fail on the first picture.
-			let session =
-				apple::create_session(&format, refcon, output_frame, kCVPixelFormatType_32BGRA)?;
+			// SAFETY: The static key is valid; the dictionary lives through session creation.
+			let specification = unsafe {
+				CFDictionary::from_slices(
+					&[kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder],
+					&[CFBoolean::new(true)],
+				)
+			};
+			let session = apple::create_session(
+				&format,
+				refcon,
+				output_frame,
+				kCVPixelFormatType_32BGRA,
+				Some(specification.as_opaque()),
+			)?;
 			self.active = Some(Active {
 				sps: sps.to_vec(),
 				pps: pps.to_vec(),
@@ -99,6 +117,11 @@ impl H264Decoder {
 		};
 		if avcc.is_empty() {
 			return Ok(());
+		}
+		// Keep a short hardware pipeline without accumulating seconds of native backlog.
+		// Waiting runs on the decoder worker, never on the media transport or UI thread.
+		if self.pictures % MAX_ASYNC_PICTURES == 0 {
+			self.flush();
 		}
 		if let Some(error) = self.output.lock().map_err(|_| INVALID)?.error.take() {
 			return Err(error);

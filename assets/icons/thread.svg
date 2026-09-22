@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <title>Thread mark</title>
+  <desc>Four slanted rounded bars stepping up to the right: a conversation branching off in a thread. Repository artwork, sized to the Phosphor 256-unit grid.</desc>
+  <g transform="rotate(-32 128 128)" stroke="#fff" stroke-width="30" stroke-linecap="round">
+    <line x1="62" y1="64" x2="62" y2="192"/>
+    <line x1="106" y1="82" x2="106" y2="174"/>
+    <line x1="150" y1="82" x2="150" y2="174"/>
+    <line x1="194" y1="64" x2="194" y2="192"/>
+  </g>
+</svg>

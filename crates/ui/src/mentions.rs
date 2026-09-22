@@ -3,7 +3,10 @@
 use crate::avatars::Avatars;
 use client_core::State;
 use model::{Id, User};
-use std::ops::Range;
+use std::{
+	hash::{Hash, Hasher},
+	ops::Range,
+};
 
 /// Rows shown for people and channels, like Discord's short member list.
 const SHORT_LIMIT: usize = 8;
@@ -62,6 +65,11 @@ enum Candidate {
 		server: String,
 	},
 }
+
+pub(crate) fn user_mention_token(user: Id) -> String {
+	format!("<@{user}> ")
+}
+
 impl Candidate {
 	#[cfg(test)]
 	fn id(&self) -> Id {
@@ -76,7 +84,7 @@ impl Candidate {
 	fn token(&self) -> String {
 		match self {
 			Candidate::Role { id, .. } => format!("<@&{id}> "),
-			Candidate::User { user } => format!("<@{}> ", user.id),
+			Candidate::User { user } => user_mention_token(user.id),
 			Candidate::Mass { name } => format!("@{name} "),
 			Candidate::Channel { id, .. } => format!("<#{id}> "),
 			Candidate::Unicode { text, .. } => format!("{text} "),
@@ -133,6 +141,124 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 	}
 	users
 }
+
+pub struct MentionSource<'a> {
+	pub state: &'a State,
+	pub channel: Id,
+}
+
+fn member(state: &State, channel: Id, id: Id) -> Option<&model::Member> {
+	state
+		.members
+		.as_ref()
+		.filter(|list| list.channel == channel)
+		.and_then(|list| {
+			list.rows
+				.iter()
+				.flatten()
+				.find(|member| member.user.id == id)
+		})
+}
+
+pub fn find_user<'a>(
+	id: Id,
+	mentions: &'a [User],
+	source: Option<&MentionSource<'a>>,
+) -> Option<&'a User> {
+	if let Some(user) = mentions.iter().find(|user| user.id == id) {
+		return Some(user);
+	}
+	let source = source?;
+	let state = source.state;
+	if state.user.as_ref().is_some_and(|user| user.id == id) {
+		return state.user.as_ref();
+	}
+	if let Some(user) = state.friend(id) {
+		return Some(user);
+	}
+	if let Some(channel) = state.channel(source.channel)
+		&& let Some(user) = channel.recipients.iter().find(|user| user.id == id)
+	{
+		return Some(user);
+	}
+	if let Some(member) = member(state, source.channel, id) {
+		return Some(&member.user);
+	}
+	if let Some(request) = &state.member_search[0].request
+		&& request.channel == source.channel
+		&& state.can_view(source.channel)
+		&& let Some(member) = state.member_search[0]
+			.rows
+			.iter()
+			.find(|member| member.user.id == id)
+	{
+		return Some(&member.user);
+	}
+	state.timeline.iter().find_map(|message| {
+		if message.channel != source.channel {
+			return None;
+		}
+		if message.author.id == id {
+			Some(&message.author)
+		} else {
+			message.mentions.iter().find(|user| user.id == id)
+		}
+	})
+}
+
+pub fn mention_label(id: Id, mentions: &[User], source: Option<&MentionSource<'_>>) -> String {
+	if let Some(source) = source
+		&& let Some(nick) = member(source.state, source.channel, id)
+			.and_then(|member| member.nick.as_deref())
+			.filter(|nick| !nick.is_empty())
+	{
+		return format!("@{nick}");
+	}
+	match find_user(id, mentions, source) {
+		Some(user) => format!("@{}", user.name),
+		None => format!("@{id}"),
+	}
+}
+
+pub fn directory_fingerprint(state: &State, channel: Id) -> u64 {
+	let mut hasher = std::collections::hash_map::DefaultHasher::new();
+	let hash_user = |hasher: &mut std::collections::hash_map::DefaultHasher, user: &User| {
+		user.id.hash(hasher);
+		user.name.hash(hasher);
+	};
+	if let Some(user) = &state.user {
+		hash_user(&mut hasher, user);
+	}
+	for user in state.friends() {
+		hash_user(&mut hasher, user);
+	}
+	if let Some(channel) = state.channel(channel) {
+		for user in &channel.recipients {
+			hash_user(&mut hasher, user);
+		}
+	}
+	if let Some(list) = state
+		.members
+		.as_ref()
+		.filter(|list| list.channel == channel)
+	{
+		for member in list.rows.iter().flatten() {
+			hash_user(&mut hasher, &member.user);
+			member.nick.hash(&mut hasher);
+		}
+	}
+	if let Some(request) = &state.member_search[0].request
+		&& request.channel == channel
+		&& state.can_view(channel)
+	{
+		for member in &state.member_search[0].rows {
+			hash_user(&mut hasher, &member.user);
+			member.nick.hash(&mut hasher);
+		}
+	}
+	hasher.finish()
+}
+
 fn query(draft: &str, cursor: usize) -> Option<(Range<usize>, &str, Kind)> {
 	let end = draft
 		.char_indices()
@@ -660,7 +786,7 @@ fn row(
 	}
 	response.widget_info(|| {
 		egui::WidgetInfo::selected(
-			egui::WidgetType::Button,
+			egui::Role::Button,
 			true,
 			selected,
 			match candidate {
@@ -688,6 +814,7 @@ mod tests {
 			guilds: [20, 10]
 				.into_iter()
 				.map(|id| model::Guild {
+					stickers: None,
 					id: Id(id),
 					name: format!("Source{id}"),
 					icon: None,
@@ -723,6 +850,7 @@ mod tests {
 		for guild in &mut state.guilds {
 			guild.emojis.as_mut().unwrap().reverse();
 		}
+		state.invalidate_navigation();
 		menu.refresh(&state, Id(1), ":same", Some(5), &[]);
 		assert_eq!(
 			menu.candidates
@@ -787,6 +915,7 @@ mod tests {
 				use model::permissions as p;
 				state.channels.push(channel(42, Some(guild), 0, "Zoe"));
 				state.guilds.push(model::Guild {
+					stickers: None,
 					id: guild,
 					name: "Synthetic guild".into(),
 					icon: None,
@@ -864,6 +993,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}
 	}
 	#[test]
@@ -999,6 +1129,7 @@ mod tests {
 		assert!(query("<:wave:9001>", 12).is_none());
 		assert_eq!(query("hi :he", 6), Some((3..6, "he", Kind::Emoji)));
 		let guilds = vec![model::Guild {
+			stickers: None,
 			id: Id(9),
 			name: "Guild".into(),
 			icon: None,
@@ -1265,6 +1396,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 				ui,
 				&mut None,
 				&[],
+				None,
 				&mut profile,
 				(&state.channels, &mut None, &state.guilds, roles),
 				(&mut avatars, true, &mut 0),

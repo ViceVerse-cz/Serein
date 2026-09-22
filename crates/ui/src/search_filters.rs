@@ -36,7 +36,7 @@ pub fn suggestion_row(ui: &mut egui::Ui, key: &str, title: &str, detail: &str) -
 	let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
 	response.widget_info(|| {
 		egui::WidgetInfo::labeled(
-			egui::WidgetType::Button,
+			egui::Role::Button,
 			ui.is_enabled(),
 			format!("{} {detail}", title.job.text),
 		)
@@ -178,7 +178,7 @@ pub fn user_row(
 			},
 		)
 		.inner;
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &user.name));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &user.name));
 	response.union(avatar)
 }
 

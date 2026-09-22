@@ -155,6 +155,7 @@ mod tests {
 		let mut own = OwnPresence {
 			status: PresenceStatus::Idle,
 			custom_status: "Taking a break".into(),
+			expires_at_ms: None,
 		};
 		pending.update_presence(&own).unwrap();
 		pending.update(&Some(game("osu!"))).unwrap();

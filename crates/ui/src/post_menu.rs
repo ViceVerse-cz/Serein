@@ -61,6 +61,8 @@ impl PostMenu {
 					self.load = Some(post.id);
 				}
 				ui.set_width(232.0);
+				// Forum posts and text-channel threads share this menu; only the noun differs.
+				let noun = noun(state, post.id);
 				let available =
 					(state.demo || state.gateway_connected) && !state.channel_action_pending();
 				let details = state.post_details(post.id);
@@ -97,11 +99,7 @@ impl PostMenu {
 				let followed = details.is_some_and(|d| d.followed);
 				if row(
 					ui,
-					if followed {
-						"Unfollow Post"
-					} else {
-						"Follow Post"
-					},
+					&format!("{} {noun}", if followed { "Unfollow" } else { "Follow" }),
 					ready && details.is_some_and(|d| !d.archived),
 					false,
 				)
@@ -114,7 +112,7 @@ impl PostMenu {
 				if state.can_edit_post(post.id)
 					&& row(
 						ui,
-						if archived { "Open Post" } else { "Close Post" },
+						&format!("{} {noun}", if archived { "Open" } else { "Close" }),
 						ready && (!archived || !locked || state.can_manage_post(post.id)),
 						false,
 					)
@@ -125,7 +123,7 @@ impl PostMenu {
 				if state.can_manage_post(post.id)
 					&& row(
 						ui,
-						if locked { "Unlock Post" } else { "Lock Post" },
+						&format!("{} {noun}", if locked { "Unlock" } else { "Lock" }),
 						ready,
 						false,
 					)
@@ -133,7 +131,9 @@ impl PostMenu {
 				{
 					intent = Some(Intent::Write(Action::PostLock(!locked)));
 				}
-				if state.can_edit_post(post.id) && row(ui, "Edit Post", ready, false).clicked() {
+				if state.can_edit_post(post.id)
+					&& row(ui, &format!("Edit {noun}"), ready, false).clicked()
+				{
 					intent = Some(Intent::Edit);
 				}
 				if row(ui, "Copy Link", true, false).clicked() {
@@ -146,11 +146,11 @@ impl PostMenu {
 				ui.separator();
 				ui.add_enabled_ui(ready && followed, |ui| {
 					if details.is_some_and(|d| d.muted)
-						&& row(ui, "Unmute Post", true, false).clicked()
+						&& row(ui, &format!("Unmute {noun}"), true, false).clicked()
 					{
 						intent = Some(Intent::Write(Action::PostMute(Mute::Unmute)));
 					}
-					ui.menu_button("Mute Post", |ui| {
+					ui.menu_button(format!("Mute {noun}"), |ui| {
 						for (label, mute) in [
 							("For 15 Minutes", Mute::For(900)),
 							("For 1 Hour", Mute::For(3600)),
@@ -181,13 +181,16 @@ impl PostMenu {
 					});
 				})
 				.response
-				.on_disabled_hover_text("Follow this post to change its notifications.");
+				.on_disabled_hover_text(format!(
+					"Follow this {} to change its notifications.",
+					noun.to_lowercase()
+				));
 				if state.can_manage_post(post.id) {
 					ui.separator();
 					let pinned = details.is_some_and(|d| d.pinned);
 					if row(
 						ui,
-						if pinned { "Unpin Post" } else { "Pin Post" },
+						&format!("{} {noun}", if pinned { "Unpin" } else { "Pin" }),
 						ready,
 						false,
 					)
@@ -195,7 +198,7 @@ impl PostMenu {
 					{
 						intent = Some(Intent::Write(Action::PostPin(!pinned)));
 					}
-					if row(ui, "Delete Post", ready, true).clicked() {
+					if row(ui, &format!("Delete {noun}"), ready, true).clicked() {
 						intent = Some(Intent::Delete);
 					}
 				}
@@ -205,7 +208,7 @@ impl PostMenu {
 					ui.close();
 				}
 				if self.load.is_some() || state.channel_action_pending() {
-					ui.label("Loading post settings…");
+					ui.label(format!("Loading {} settings…", noun.to_lowercase()));
 				} else if let Some(error) = state
 					.channel_action_status(post.id)
 					.filter(|_| !state.channel_action_succeeded(post.id))
@@ -301,7 +304,8 @@ impl PostMenu {
 			{
 				self.feedback = None;
 			} else if !state.channel_action_pending() {
-				let result = dialog::Dialog::new("post-action-error", "Post action")
+				let title = format!("{} action", noun(state, id));
+				let result = dialog::Dialog::new("post-action-error", &title)
 					.width(380.0)
 					.show(ctx, |d| {
 						d.content(|ui| {
@@ -310,7 +314,7 @@ impl PostMenu {
 								dialog::Level::Error,
 								state
 									.channel_action_status(id)
-									.unwrap_or("The post action could not be started."),
+									.unwrap_or("The action could not be started."),
 							)
 						});
 						let mut close = false;
@@ -342,18 +346,18 @@ impl PostMenu {
 			state.can_edit_post(editor.channel)
 		};
 		let mut close = false;
-		let mut builder = dialog::Dialog::new(
-			("post-editor", self.generation),
-			if editor.delete {
-				"Delete Post?"
-			} else {
-				"Edit Post"
-			},
-		)
-		.width(420.0);
+		let noun = noun(state, editor.channel);
+		let title = if editor.delete {
+			format!("Delete {noun}?")
+		} else {
+			format!("Edit {noun}")
+		};
+		let mut builder =
+			dialog::Dialog::new(("post-editor", self.generation), &title).width(420.0);
 		if editor.delete {
 			builder = builder.danger();
 		}
+		let delete_label = format!("Delete {noun}");
 		let result = builder.show(ctx, |d| {
 			d.content(|ui| {
 				if editor.delete {
@@ -362,7 +366,7 @@ impl PostMenu {
 						editor.name
 					));
 				} else {
-					let label = dialog::label(ui, "Post title");
+					let label = dialog::label(ui, &format!("{noun} title"));
 					dialog::input(
 						ui,
 						egui::TextEdit::singleline(&mut editor.name).char_limit(100),
@@ -374,7 +378,7 @@ impl PostMenu {
 					dialog::notice(
 						ui,
 						dialog::Level::Warning,
-						"You no longer have permission to change this post.",
+						"You no longer have permission to change this conversation.",
 					);
 				}
 				if let Some(error) = state
@@ -395,7 +399,7 @@ impl PostMenu {
 						if dialog::action(
 							ui,
 							if editor.delete {
-								"Delete Post"
+								delete_label.as_str()
 							} else {
 								"Save Changes"
 							},
@@ -430,5 +434,14 @@ impl PostMenu {
 			}
 			self.editor = None;
 		}
+	}
+}
+
+/// "Post" inside a forum, "Thread" anywhere else; both use the same bounded channel actions.
+fn noun(state: &State, channel: Id) -> &'static str {
+	if state.is_forum_post(channel) {
+		"Post"
+	} else {
+		"Thread"
 	}
 }

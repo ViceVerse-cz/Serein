@@ -19,6 +19,326 @@ memory and frame-time sampling was unavailable, so no speed claim is made. Both
 packages completed with the existing nonfatal OpenH264 LNK4255 warning. NSIS was
 unavailable, so installer binaries were not produced.
 
+# Shared extension repository - September 21, 2026
+
+Baseline: `1a5b30d`; after: this change. Windows x64, Rust 1.98.1.
+Normal builds fetch the shared theme/plugin catalog when either shop page opens.
+The existing worker handles downloads and parsing; local actions cancel metadata
+refreshes instead of waiting for the network.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Package bytes embedded in normal builds, exact source file lengths | 556,980 | 0 | -556,980 |
+| Persistent public catalog budget | 0 | 1 MiB / 256 entries | +1 MiB maximum |
+
+These are payload sizes and limits, not executable-size, process-memory or latency
+measurements. Test/demo builds retain the existing offline package fixtures.
+Native screenshot/interaction evidence is unavailable because the computer-use
+native pipe cannot connect (`os error 2`); matched native CPU/RSS/frame timings
+and baseline package-size comparisons were not measured. No speedup is claimed.
+
+# Original Discord sound assets — September 21, 2026
+
+Baseline: `932dc60`; after: this change. Windows x64, Rust 1.98.1.
+The classic pack now preserves original 44.1 kHz MP3 bytes and adds outgoing-ring,
+camera-on, screen-share-start, call-join and participant-leave cues. Asset sizes
+are exact file measurements, not CPU/RSS or installed-package measurements.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Classic MP3 files, bytes (`git ls-tree -lr` / file lengths) | 140,928 | 583,331 | +442,403 |
+| Unique classic MP3 bytes embedded (message/current-channel share a cue) | 134,400 | 565,409 | +431,009 |
+
+The existing lazy worker, one-slot queue, 128 KiB per-asset cap, six-second
+decoded ceiling and 192 kHz output ceiling are unchanged. No extra background
+worker or network fetch is added. Native frame timing, CPU/RSS and matched
+before/after release-package sizes were not measured; no runtime speedup is claimed.
+
+# UI frame work and stopped-video cleanup — September 21, 2026
+
+Baseline: `86027564`; after: this PR. macOS 27.0 (26A428), Apple M1 Pro,
+16 GiB RAM, pinned Rust 1.98.1, locked dependencies and the standard release
+profile. Identical benchmark-only additions were applied to the preserved baseline
+worktree. Each executable was built once and copied separately; samples ran
+serially without concurrent task builds. Medians use one warmup and five measured
+batches. A second run of both executables confirmed the substantial differences.
+
+| Release component workload / median elapsed time | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| 2,000 passes, 200 reused non-CJK text jobs | 288.646 ms | 16.879 ms | -271.767 ms (-94.15%) |
+| 200 picker frames, one server / 500 emoji | 20.426 ms | 19.919 ms | -0.507 ms (-2.48%, small) |
+| 200 picker frames, 50,000 emoji / one search hit | 104.914 ms | 11.467 ms | -93.447 ms (-89.07%) |
+| 200 picker frames, 50,000 emoji / search miss | 33.919 ms | 4.525 ms | -29.394 ms (-86.66%) |
+| 200 picker frames, 50,000 emoji / capped broad matches | 26.476 ms | 21.277 ms | -5.199 ms (-19.64%) |
+| One-hit picker search, state changes every frame | 103.895 ms | 103.816 ms | -0.079 ms (-0.08%, noise) |
+| 1,000 frames / 12 cached thumbnails | 25.063 ms | 20.347 ms | -4.716 ms (-18.82%) |
+| 1,000 frames / 12 cached viewer renditions | 41.758 ms | 28.383 ms | -13.375 ms (-32.03%) |
+| 1,000 frames / 12 cached media, animation enabled | 27.513 ms | 21.027 ms | -6.486 ms (-23.57%) |
+
+The font workload paints pre-laid-out galleys with Latin text, accented characters
+and punctuation, isolating repeated end-pass detection plus paint-list bookkeeping.
+It excludes text layout, tessellation and GPU presentation. The new bounded weak
+job cache avoids rescanning unchanged text; shapes are still traversed. First-use
+CJK decoding and font coverage are unchanged. Its isolated process peak RSS was
+29,163,520 → 29,097,984 bytes, a small noisy difference, not a RAM improvement claim.
+
+The picker uses its actual popup renderer at 900×700 with ten initial warmup frames,
+then six 200-frame batches. Cross-server cases contain 100 synthetic guilds with
+500 emoji each. Results refresh on state revision, generation, account, server or
+query changes. The churn case advances the state revision each frame and shows
+no material improvement or regression; unrelated accepted events still invalidate.
+The extra retained search data is at most 16,000 index bytes plus 256 query bytes
+and fixed metadata, without duplicating catalog strings.
+
+Media workloads render twelve cached 4×2 synthetic textures at 1200×300, with
+signed URL metadata describing 4096×2048 images. They exercise thumbnail, viewer
+and animation-key paths, not downloading, decoding, animated playback or GPU
+upload. URL parameter order/encoding, signatures, source selection, dimensions,
+request bounds and thumbnail fallback have behavioral coverage. No media cache
+or rendition limit changes.
+
+Repeat medians (baseline → after, ms): font 290.228 → 16.642; picker server
+20.588 → 20.388, hit 104.214 → 11.884, miss 33.809 → 4.671, broad matches
+26.059 → 21.553, churn 104.294 → 104.934; media thumbnail 23.542 → 20.155,
+viewer 40.381 → 28.413, animation-enabled 24.976 → 21.091. Small server/churn
+differences are noise; these component results are not whole-app frame percentiles.
+
+| Standard voice-enabled macOS package | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 55,547,584 | 55,547,600 | +16 (+0.00003%) |
+| Installed app, bytes | 61,489,380 | 61,489,396 | +16 (+0.00003%) |
+| App ZIP, bytes | 40,676,887 | 40,678,512 | +1,625 (+0.00400%) |
+
+Both revisions used `cargo xtask package`, without demo/developer features, and
+passed `codesign --verify --strict` (local ad-hoc signing, not notarization).
+Installed totals sum all 199 regular bundle files; the file set is unchanged.
+ZIPs use `ditto -c -k --keepParent` on separately preserved `Serein.app` bundles.
+Only the executable, compiled icon asset catalog and code-signature resources
+differ; the latter two are regenerated by packaging. Size is effectively unchanged,
+not a package-reduction claim. No dependencies, bundled fonts or emoji assets were removed.
+
+Native sampling used release `demo` builds and
+`--demo --demo-friends --demo-frame-sample=8,15`, configured WGPU rendering,
+1120×760 logical pixels and 2× display scale. `ps` sampled RSS and cumulative
+process CPU every 200 ms after the instrumented eight-second warmup. Child PIDs
+were checked separately. Both revisions include the same synthetic member fixture
+repair required to compile release demos; the standard packages do not enable it.
+This repairs the demo-build blocker recorded in the historical section below.
+
+The first baseline run completed 73 samples over 15.068 seconds: 0.929% of one CPU
+core, settled RSS 146,931,712 bytes, sampled peak RSS 147,062,784 bytes, no children.
+All 30 UI callbacks were inputless with the viewport and search focused; callback
+wall-time buckets contained 17 below 1 ms and 13 below 2 ms (maximum 1,661 µs).
+These callback timings exclude tessellation and presentation.
+
+**No valid native before/after idle comparison was obtained.** The first head run
+and a later baseline retry started sampling but failed to emit a completion frame
+within the 60-second watchdog. The instrumentation deliberately does not schedule
+repaints. A separately identified, ad-hoc-signed demo bundle rendered the synthetic
+Friends screen, but its completed head sample was input-disturbed (559 callbacks,
+only 266 inputless and none with search focused), so its CPU/RSS/timing results are
+excluded. No runtime changes were made merely to force benchmark callbacks. The
+release post-menu/forum synthetic checks passed on both executables. Whole-app
+idle improvement, startup latency and end-to-end frame percentiles remain unverified;
+native evidence is a draft-PR blocker, not a claim of zero regression.
+
+The video regression exercises the shared announcement path with eight real
+software decoders: stopping one source releases its decoder and lets a ninth
+participant decode. A zero top-level SSRC with an active `streams[]` source keeps
+the decoder. Full-queue and rapid off/on tests reject obsolete queued frames;
+stopping the final lifetime releases scratch capacity. The 16-source, eight-decoder,
+16-item / 16-MiB queue and 1080p limits remain unchanged. No downscaling or quality
+reduction is introduced; codec/driver or whole-process RAM savings are unmeasured.
+
+Reproduce the headless workloads by building once, then invoking the produced
+test executables individually with `--ignored --nocapture --test-threads=1`:
+
+```sh
+cargo test --release --locked -p ui --lib --test startup_memory --no-run
+# startup_memory-<hash>: settled_font_frames
+# ui-<hash>: custom_picker_frame_benchmark, media_frame_benchmark
+cargo test --locked -p discord-voice --lib decoder_cleanup
+```
+
+# Reviewed RAM findings — September 21, 2026
+
+Baseline: `b3130c37`; after: this PR. macOS 27.0 (26A428), Apple M1 Pro,
+16 GiB RAM, Rust 1.98.1, locked dependencies and the standard release profile.
+The same benchmark-only `crates/ui/tests/startup_memory.rs` was added to the
+baseline before runtime edits. Baseline executables and the signed package were
+preserved separately. Measurements ran serially without task builds.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Font-set installation median, ms | 96.035 | 0.009 | -96.026 (-99.99%) |
+| Font-set installation process peak RSS, bytes | 67,584,000 | 2,932,736 | -64,651,264 (-95.66%) |
+| Atlas installation median, ms | 26.613 | 30.072 | +3.459 (+13.00%) |
+| Atlas installation process peak RSS, bytes | 41,844,736 | 25,395,200 | -16,449,536 (-39.31%) |
+| 100,000-event reducer median, ms | 50.672 | 50.298 | -0.374 (-0.74%) |
+| Standard release executable, bytes | 54,528,000 | 54,528,000 | +0 (+0.00%) |
+| Installed app, bytes | 60,466,497 | 60,466,497 | +0 (+0.00%) |
+| App ZIP, bytes | 40,237,564 | 40,236,598 | -966 (-0.00%) |
+
+Each component test creates a fresh egui context per installation, with one
+warmup and five measured calls in a separate process. Elapsed time excludes
+context construction/destruction; `/usr/bin/time -l` reports maximum process RSS
+across all six installations. Font timing covers definition installation, not
+first glyph rasterization. Atlas timing includes PNG decoding, premultiplication
+and queuing the texture; no GPU upload or native window runs in this harness.
+These are isolated component process peaks, not whole-app RAM or additive savings.
+The atlas trades about 3.46 ms of worker initialization (+13%) for about 15.69 MiB
+less peak component RSS. A reversed-order repeat confirmed the tradeoff: baseline
+27.765 ms / 41,877,504 bytes versus after 30.399 ms / 25,378,816 bytes. This one-time
+cost per atlas load is retained for the memory saving; no rendering-speed claim is made.
+
+Font samples (ms): [98.126, 99.103, 93.948, 93.158, 96.035] →
+[0.034, 0.01, 0.009, 0.009, 0.008].
+Atlas samples (ms): [27.168, 26.817, 26.613, 26.527, 26.341] →
+[31.357, 30.002, 30.008, 30.147, 30.072].
+Reducer samples (ms): [50.660667, 50.672459, 51.051333, 50.243792, 50.794125] →
+[49.542625, 49.921333, 50.384125, 50.29825, 50.565542]. The reducer is unchanged;
+its small timing difference is treated as noise. Retained timeline remains
+323,992–324,477 estimated bytes / 500 records. It does not exercise compressed
+Gateway input.
+
+The deterministic changes remove the unnecessary 16,467,736-byte CJK decode at
+startup and one 16,515,072-byte atlas conversion buffer. The Gateway regression
+check sends a fragmented synthetic 512-KiB payload followed by dictionary-dependent
+text: oversized pending capacity is released after completion, small packets
+reuse capacity and the inflater continues decoding. Its 64-MiB wire/output
+limits stay unchanged. Repeated large packets may allocate more often.
+
+Both standard `cargo xtask package` builds include voice without demo/developer
+features. The installed total sums all 198 bundle files; ZIP uses
+`ditto -c -k --keepParent` on `Serein.app` for each revision. Both bundles pass
+`codesign --verify --strict`; signatures are local ad-hoc, not notarized.
+Small package-size differences include code layout and compression noise.
+
+Reproduce the component benchmark by building once, then running each ignored
+test separately in the produced executable:
+
+```sh
+cargo test --release --locked -p ui --test startup_memory --no-run
+/usr/bin/time -l target/release/deps/startup_memory-<hash> font_install --ignored --nocapture
+/usr/bin/time -l target/release/deps/startup_memory-<hash> emoji_install --ignored --nocapture
+cargo replay
+# Run target/release/replay-bench once to warm up, then five more times.
+```
+
+Native idle CPU/RSS, startup and frame latency remain unmeasured. The untouched
+baseline fails `cargo build --release --locked -p serein --features demo` because
+`apps/desktop/src/post_menu_demo.rs:166` calls `debug_member_search_check`, which
+is exported only under `debug_assertions`. That pre-existing demo-only compile
+error is left unchanged. No live account, microphone or media-device tests ran.
+No visible UI change: atlas pixels match exactly and font fallback ordering stays
+unchanged. Partial media texture updates were deferred because occluded video
+continues polling without rendering; partial deltas would accumulate instead
+of replacing the single pending frame.
+
+# Reviewed performance findings — September 19, 2026
+
+Baseline: `9fca898`, with the new benchmark-only test harness applied before runtime
+edits. After: guild miss caching, ASCII BiDi bypass, indexed/cached SQLite channel
+loads, and shared software-video scratch reuse. macOS 27.0 (26A428), Apple M1 Pro,
+16 GiB RAM, pinned Rust 1.98.1, locked dependencies, standard release profile.
+Baseline executables were preserved separately; final component measurements ran
+serially without task builds, using the same harness and one warmup plus five
+measured runs per revision. Earlier runs during background compilation were excluded.
+
+| Component workload / median elapsed time | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| 10,000 hit/miss pairs, 1,000 guilds | 45.113 ms | 0.565 ms | -44.548 ms (-98.75%) |
+| 100,000 ASCII BiDi calls, 292-byte text | 667.910 ms | 2.863 ms | -665.047 ms (-99.57%) |
+| 100,000 styled ASCII BiDi calls, 296-byte text | 643.010 ms | 2.324 ms | -640.686 ms (-99.64%) |
+| 200 SQLite loads, one row | 4.987 ms | 0.614 ms | -4.374 ms (-87.70%) |
+| 200 SQLite loads, 50 rows | 13.967 ms | 9.211 ms | -4.755 ms (-34.05%) |
+| 200 SQLite loads, 500 rows | 123.235 ms | 74.909 ms | -48.326 ms (-39.21%) |
+| 1,000 settled timeline frames, 900px synthetic text | 228.1 ms | 211.4 ms | -16.7 ms (-7.3%) |
+| 1,000 settled timeline frames, 360px synthetic text | 157.3 ms | 141.6 ms | -15.7 ms (-10.0%) |
+| 120 alternating 1080p/720p software decodes | 491.037 ms | 475.301 ms | -15.736 ms (-3.20%) |
+| Scratch length changes in that decode workload | 120 | 1 | -119 |
+| Peak requested scratch capacity | 8,294,400 bytes | 8,294,400 bytes | 0 |
+| 100,000-event reducer replay | 45.733 ms | 45.269 ms | -0.464 ms (-1.02%, noise) |
+| Replay retained timeline | 284,992–285,477 bytes / 500 records | Same | 0 |
+
+The lookup workload models repeated unknown-guild invite previews. SQLite uses
+synthetic in-memory databases and includes row decoding/destruction; it measures
+neither disk latency nor channel switching. Its normal channel window is bounded
+to 500 rows. `EXPLAIN QUERY PLAN` confirms the expression index removes the temporary
+ordering B-tree. The index adds disk/write overhead within the existing page ceiling;
+write throughput was not measured. Unsigned IDs remain text, and secure deletion stays on.
+
+Timeline measurements use 500 synthetic ordinary text rows, ten warmup frames and six
+measured batches of 1,000 frames in the release UI test binary. The settled viewport
+reuses current-dimension heights for clipped leading rows, while resize, state changes,
+dynamic content and active selection retain the full measurement path. Hidden-row renders
+fell from 4,000 to 0 across the 1,000-frame samples at both widths. Media, embeds, replies,
+components, spoilers, timestamps, invite-like links and non-empty reactions are excluded
+from reuse; the result is not a whole-app frame-time claim.
+
+The BiDi numbers measure only direction analysis, not parsing, complete message
+layout or native frame latency. Mixed RTL initially measured 700.684 → 723.470 ms;
+a reversed-order repeat measured 699.148 → 699.886 ms (+0.11%). The plain ASCII repeat
+was 668.086 → 1.346 ms. There is no consistent material RTL regression in these runs.
+The five-sample ranges for the primary 500-row SQLite comparison were
+122.296–126.581 → 74.313–76.612 ms. Video ranges were 478.539–504.481 →
+473.184–476.857 ms: the small elapsed-time difference is not a live playback claim.
+That workload repeatedly decodes two synthetic OpenH264 keyframes, without devices
+or network. Buffer reuse is verified separately with alternating real software decodes;
+its high-water allocation remains until the decoder worker exits.
+
+Reproduce the component workloads with the following ignored tests. Each performs
+its own warmup and five samples; for the old revision, apply only the benchmark
+harness additions. Build once before measuring, then run the produced executables
+without concurrent builds. `cargo replay` builds the reducer; run its binary once
+to warm up and five more times for the reported median.
+
+```sh
+cargo test --release --locked -p client-core guild_lookup_benchmark -- --ignored --nocapture
+cargo test --release --locked -p ui bidi_ascii_benchmark -- --ignored --nocapture
+cargo test --release --locked -p local-store benchmark_channel_load -- --ignored --nocapture
+cargo test --release --locked -p discord-voice compare_alternating_software_decode -- --ignored --nocapture
+cargo test --release --locked -p ui leading_overscan_benchmark -- --ignored --nocapture
+cargo replay
+```
+
+| Standard macOS package / bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 53,624,384 | 53,624,384 | 0 |
+| Installed app, sum of 197 files | 59,558,087 | 59,558,087 | 0 |
+| App ZIP, `ditto -c -k --keepParent` | 39,702,953 | 39,704,308 | +1,355 (+0.0034%) |
+
+Both `cargo xtask package` commands completed with voice and without demo/developer
+features. The preserved baseline bundle subsequently failed resource-seal verification:
+its icon files differed from the completed packaging resources. For a matched comparison,
+the baseline bundle was reconstructed with its preserved baseline executable and the
+after package's unchanged resources, then ad-hoc signed again. Both compared bundles
+pass `codesign --verify --strict`; both have the same file set. These are locally
+ad-hoc-signed, unnotarized packages. ZIP differences include compression/metadata noise;
+there is no package-size improvement claim.
+
+| Offline native idle sample | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Process CPU, cumulative CPU-time delta / elapsed time | 0.05% | 0.00% | -0.05 percentage points |
+| Peak / settled sampled RSS, KiB | 205,280 / 205,280 | 203,728 / 203,728 | -1,552 KiB (-0.76%) |
+| Child processes | 0 | 0 | 0 |
+
+Separate release builds with `--features demo` launched explicitly with `--demo`,
+using the default initial scene and no interaction on both revisions. Each had
+30 seconds of warmup, followed by 21 `ps -p PID -o time=,rss=` observations at
+one-second intervals (20 intervals). Renderer logs identify Apple M1 Pro / Metal;
+the built-in display is 3024×1964 Retina (2×), with the default requested 1120×760
+window and demo zoom. No builds ran during sampling. RSS excludes driver/GPU
+allocations and its peak covers only the sample window, not startup. These single
+idle samples and the CPU clock's coarse resolution do not establish a CPU or memory
+improvement. Interactive frame percentiles, startup latency and live media latency
+remain unmeasured. No accounts, microphone, calls or network media were used.
+
+The overscan follow-up repeated the same idle sample with the settled current binary:
+CPU was 0.00% and sampled peak/settled RSS was 203,952 KiB, versus the prior matched
+sample's 0.00% and 196,944 KiB. An earlier run reached 16.86% while loading local demo
+content, so neither run is treated as a whole-app CPU or memory claim.
+
 # Reaction tooltip loading - September 17, 2026
 
 Baseline: `ef0c61a`. After: the reaction-tooltip follow-up on that baseline.
@@ -121,6 +441,49 @@ and 20 ms process time. The final run, after three seconds warmup, delivered
 the game-only bounds when Serein playback appeared. Rekey, application removal,
 Serein-only idle and stop also passed. This verifies the Pulse API with synthetic
 signals; it is not Linux/PipeWire hardware, Discord interoperability or a latency benchmark.
+
+# Indexed message channel lookups - September 15, 2026
+
+Historical measurements from the original PR revision, before its September 21
+rebase onto `81b472d5`. A fresh release replay on macOS failed while compiling
+`client-core` with `No space left on device`; these figures do not measure the
+rebased revision.
+
+Baseline: fetched `origin/main` at `490be9c`; after: that revision plus the
+message-path channel-index substitutions on `perf/message-channel-index`.
+Windows 11 10.0.26200 x64, Ryzen 7 7800X3D (16 logical processors),
+33,410,678,784 bytes RAM, pinned Rust 1.98.1 MSVC, locked release profile.
+Both standard `cargo xtask package` builds included voice without demo or
+developer-session features. They ran serially in one isolated worktree with
+the same E: Cargo target; the baseline `dist` was copied aside before rebuilding.
+The portable packages each contain the same 186 file paths. `makensis` was
+unavailable, so no installer was measured. The OpenH264 LNK4255 warning was
+nonfatal in both builds.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Synthetic 10,000-message / 20,001-channel reducer, median | 711.2295 ms | 177.1066 ms | -534.1229 ms (-75.1%) |
+| Existing 100,000-message reducer, median | 45.1406 ms | 44.0192 ms | -1.1214 ms (-2.5%; noisy) |
+| Release executable bytes | 72,463,872 | 72,463,872 | 0 |
+| Full portable package bytes | 76,529,996 | 76,529,996 | 0 |
+| ZIP bytes, Compress-Archive Optimal | 43,259,755 | 43,260,003 | +248 (+0.0006%) |
+
+`cargo replay` built each release workload once. The existing `replay-bench`
+fixture gained `--wide-channels`: it clones synthetic navigation to 20,001
+channels and applies 10,000 messages to the last channel. One warmup per binary
+preceded five alternating baseline/after runs with no concurrent build.
+Wide baseline: 688.5916, 699.4779, 712.9667, 717.0727, 711.2295 ms.
+Wide after: 170.8742, 187.2572, 171.2247, 182.9038, 177.1066 ms.
+Both retained 500 records / 261,477 estimated bytes. The existing replay
+baseline: 55.4731, 47.1661, 42.6606, 45.1406, 43.8635 ms; after:
+51.7992, 43.3525, 44.0192, 43.2530, 45.6519 ms. Its ranges overlap, so
+no general reducer speedup is claimed. It retained 500 records and
+260,992..261,477 estimated bytes on both revisions.
+
+ZIPs compressed each copied package's contents with the same path layout.
+The wide case measures channel lookup work under a synthetic large navigation
+set; it does not measure actual account startup, native UI CPU/RSS/frame timing,
+network latency or live Discord compatibility.
 
 # Theme editor readability - September 15, 2026
 
@@ -860,3 +1223,111 @@ after discovery (1.6 bytes/s, excluding network headers), with no queue, extra
 thread or dependency. The localhost test verifies repeated idle-viewer pings and
 subsequent encrypted audio/video delivery. Live freeze recovery, CPU/RSS and
 end-to-end latency remain unmeasured; no playback improvement is claimed yet.
+
+# Theme transparency and blur — September 19, 2026
+
+Baseline: `9fca8980`. After: this rebased transparency branch. Standard
+voice-enabled macOS packages and release demo builds used Rust 1.98.1 on macOS
+27.0, Apple M1 Pro, 16 GiB RAM, Metal, 2x display scale. Disabled transparency
+uses the same opaque native window and GPU surface selection as baseline.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 53,624,384 | 53,640,848 | +16,464 (+0.031%) |
+| Installed app bundle, bytes | 59,558,087 | 59,574,551 | +16,464 (+0.028%) |
+| ZIP, `ditto --keepParent`, bytes | 39,702,949 | 39,711,200 | +8,251 (+0.021%) |
+| Disabled idle CPU, median of 3 × 30 s after 10 s warmup | 0.067% | 0.100% | +0.033 percentage points |
+| Disabled settled RSS, median | 199,248 KiB | 199,088 KiB | -160 KiB (-0.08%) |
+| Disabled physical footprint, median | 158,090,320 B | 158,925,856 B | +835,536 B (+0.53%) |
+
+The CPU samples are quantized by the short process-time interval, and unrelated
+Cargo builds ran elsewhere on the host during sampling. The small CPU and memory
+differences are therefore treated as noise, not an improvement or regression.
+The disabled path performs no compositor calls, repaint scheduling, allocations,
+or extra draw passes; it exits window-effect synchronization before theme lookup.
+No helper processes were present. Frame callback timing is unmeasured because an
+idle event-driven window did not produce enough callbacks for a useful comparison.
+
+## Unicode mathematical-letter fallback — September 20, 2026
+
+Package baseline: `4c3c53a`. After: this branch. The idle sample compared
+`f0cb74d` with the same font patch before its clean rebase. Both comparisons used
+Rust 1.98.1 on Windows 11 Home build 26200, AMD Ryzen 7 7800X3D,
+33,410,678,784 bytes RAM, WGPU/DX12, the same `--demo --demo-chat` fixture,
+default viewport, and the standard voice-enabled `cargo xtask package` profile.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 67,598,848 | 68,078,080 | +479,232 (+0.709%) |
+| Full portable package, bytes | 71,690,121 | 72,173,873 | +483,752 (+0.675%) |
+| ZIP, `Compress-Archive` Optimal, bytes | 40,980,135 | 41,329,028 | +348,893 (+0.851%) |
+| Idle CPU, one 10 s window after 15 s warmup | 0.155% | 0.010% | -0.145 percentage points |
+| Peak working set, 11 samples at 1 s | 318,853,120 | 314,937,344 | -3,915,776 (-1.23%) |
+| Settled working set | 318,853,120 | 314,929,152 | -3,923,968 (-1.23%) |
+
+One package was built per revision. The preserved baseline executable and base
+notice set were combined with the otherwise unchanged final staging tree to compare
+the complete 194-file baseline package with the 195-file package that adds the OFL
+notice. `makensis` was unavailable, so neither measurement includes an NSIS installer.
+The OpenH264 LNK4255 warning was nonfatal in both package builds.
+
+The CPU and memory differences come from one short idle sample and are treated as
+noise, not an improvement. The deterministic cost is the 479,308-byte bundled
+Noto Sans Math face plus its notice and small integration changes. Native screenshot
+capture was unavailable because the Windows computer-use helper failed to initialize
+with OS error 3; no visual, frame-time, startup, or live Discord claim is made.
+
+## Large settings-proto responses — September 20, 2026
+
+Baseline: `0ffd9b3`. After: this branch. Both used the standard voice-enabled
+`cargo xtask package` profile with Rust 1.98.1 on Windows. One 195-file package
+was built per revision; ZIPs use PowerShell `Compress-Archive` Optimal.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable, bytes | 68,147,200 | 68,147,200 | 0 |
+| Full portable package, bytes | 72,243,085 | 72,243,085 | 0 |
+| ZIP, `Compress-Archive` Optimal, bytes | 41,352,545 | 41,352,563 | +18 bytes (noise) |
+
+The response cap grows from 1 MiB to 6 MiB so Discord's documented 5 MiB encoded
+settings value fits with its JSON envelope. Responses below the old cap follow the
+same path; there is no dependency, worker, persistent allocation or retained-layout
+change. A maximum-size accepted response can transiently use up to 5 MiB more input
+storage than before. CPU/RSS and live-account latency are unmeasured because no
+authenticated account was used. The OpenH264 LNK4255 warning remained nonfatal;
+`makensis` was unavailable, so both are unsigned portable packages.
+
+
+## Linux sign-in window teardown, September 19, 2026
+
+Compared baseline `d160c3e` with `f6498ce` on CachyOS Linux 7.2.6-1-cachyos,
+AMD Ryzen 5 7600, 30 GiB reported RAM, Rust 1.98.1, GTK 4.22.5 and WebKitGTK
+2.52.6. Both used `cargo xtask package --format dir`, the standard release
+configuration including voice, without demo or developer-session features.
+Baseline output stayed in a detached worktree; the changed platform crate was
+cleaned before the final build to avoid reusing the baseline artifact from the
+shared target directory. One package was measured per revision.
+
+| Metric | Baseline bytes | After bytes | Delta |
+| --- | ---: | ---: | ---: |
+| Installed executable | 68,832,568 | 68,836,792 | +4,224 / +0.0061% |
+| Installed regular-file total | 73,267,947 | 73,272,171 | +4,224 / +0.0058% |
+| Compressed installation tree | 43,473,374 | 43,473,493 | +119 / +0.0003% |
+
+The installed total sums regular-file sizes under `dist/linux-root`, including
+notices. Compression used GNU tar with `--sort=name --mtime=@0 --owner=0
+--group=0 --numeric-owner -C dist/linux-root -czf <archive> .` for each tree.
+These are artifact sizes, not runtime performance or reproducible-build claims.
+The packaged executable's linked libraries all resolved with `ldd`.
+
+An isolated offline GTK/X11 diagnostic observed the test window from a second
+X11 connection after `gtk_window_destroy`, without another GLib iteration.
+The baseline window still existed; flushing GDK after destruction removed it.
+This verifies buffered native destruction, not live Discord login or Wayland.
+The login pump retains its 16-iteration / 2-ms callback budget and now flushes
+queued display requests. Login CPU, RSS and frame/teardown latency are unmeasured;
+separate offline Wayland validation confirmed teardown behavior without measuring
+latency. That check used debug demo builds, a local HTML page and a synthetic
+XHR-header handoff without sending the request, on Weston 15 inside an isolated
+1280×960 Xvfb display. The native window remained after handoff on the baseline
+and disappeared with the fix. This was not a live Discord login test.

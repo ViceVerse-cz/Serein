@@ -16,10 +16,7 @@ fn session_clear_preserves_device_startup_preferences_and_pending_status() {
 
 #[test]
 fn startup_switches_require_availability_and_dependency_and_disable_while_pending() {
-	const LABELS: [&str; 2] = [
-		"Automatically open Serein when your computer starts up",
-		"Start Serein minimized",
-	];
+	const LABELS: [&str; 2] = ["Open Serein when your computer starts", "Start minimized"];
 	for dark in [true, false] {
 		for width in [760.0, 1120.0] {
 			let ctx = egui::Context::default();

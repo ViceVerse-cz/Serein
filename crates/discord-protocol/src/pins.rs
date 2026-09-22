@@ -108,7 +108,7 @@ mod tests {
 		assert!(!exhausted.partial && exhausted.pin_cursor.is_none());
 		older["pinned_at"] = "not a timestamp".into();
 		assert!(decode(json!({"items":[older],"has_more":true})).is_err());
-		assert!(!page.hits[0].excerpt.contains("synthetic secret"));
+		assert_eq!(page.hits[0].excerpt, "hidden ||synthetic secret||");
 		for items in [vec![pin(2, 2)], vec![pin(2, 1), pin(2, 1)]] {
 			assert!(
 				decode(json!({"items":items,"has_more":false}))

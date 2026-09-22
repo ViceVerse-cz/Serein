@@ -15,12 +15,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "linux"))
 from package import native_elf, stage_payload
 
 
+def update_metadata(version, release_tag):
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", version):
+        raise ValueError("Expected a semantic application version")
+    if release_tag and release_tag != f"v{version}":
+        raise ValueError("AppImage release tag must match the application version")
+    name = f"serein-{release_tag or version}-Linux-X64.AppImage"
+    channel = "latest-pre" if "-" in version.split("+", 1)[0] else "latest"
+    information = f"gh-releases-zsync|ViceVerse-cz|Serein|{channel}|serein-*-Linux-X64.AppImage.zsync"
+    url = f"https://github.com/ViceVerse-cz/Serein/releases/download/v{version}/serein-v{version}-Linux-X64.AppImage"
+    return name, information, url
+
+
 def build(root, version):
     native_elf(root)
     if platform.machine() != "x86_64":
         raise ValueError("AppImage releases currently support Linux x86_64 only")
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", version):
-        raise ValueError("Expected a semantic application version")
+    name, information, url = update_metadata(version, os.environ.get("SEREIN_RELEASE_TAG", ""))
     tools = Path("target/appimage-tools").resolve()
     appimagetool = tools / "appimagetool"
     runtime = tools / "runtime-x86_64"
@@ -28,6 +39,8 @@ def build(root, version):
         raise ValueError("Run bash packaging/appimage/install-tools.sh first")
     if not shutil.which("file"):
         raise ValueError("The 'file' command is required by appimagetool but was not found in PATH")
+    if not shutil.which("zsyncmake"):
+        raise ValueError("Install zsync to generate AppImage delta-update metadata")
     libraries = subprocess.check_output(["ldd", str(root / "serein")], text=True)
     if "not found" in libraries:
         raise ValueError(f"Missing host runtime libraries:\n{libraries}")
@@ -44,9 +57,10 @@ def build(root, version):
         shutil.copyfile("packaging/appimage/RUNTIME-LICENSE", doc / "licenses/AppImage-runtime.txt")
         (doc / "AppImage-host-libraries.txt").write_text(libraries, encoding="utf-8")
         subprocess.run(["desktop-file-validate", str(appdir / "cz.viceverse.serein.desktop")], check=True)
-        candidate = temporary / f"serein-{version}-Linux-X64.AppImage"
+        candidate = temporary / name
         subprocess.run([str(appimagetool), "--runtime-file", str(runtime),
-                        "--no-appstream", str(appdir), str(candidate)], check=True,
+                        "--updateinformation", information, "--file-url", url,
+                        "--no-appstream", str(appdir), str(candidate)], check=True, cwd=temporary,
                        env={**os.environ, "ARCH": "x86_64", "VERSION": version,
                             "APPIMAGE_EXTRACT_AND_RUN": "1"})
         with candidate.open("rb") as stream:
@@ -56,6 +70,12 @@ def build(root, version):
         if candidate.stat().st_size > 512 * 1024 * 1024:
             raise ValueError("AppImage exceeds the in-app updater's 512 MiB limit")
         candidate.chmod(0o755)
+        embedded = subprocess.check_output([str(candidate), "--appimage-updateinformation"], text=True)
+        if embedded.strip() != information:
+            raise ValueError("AppImage update information did not survive packaging")
+        zsync = candidate.with_suffix(".AppImage.zsync")
+        if not zsync.is_file() or not 0 < zsync.stat().st_size <= 16 * 1024 * 1024:
+            raise ValueError("AppImage zsync metadata is missing, empty or oversized")
         # Execute only the pinned AppImage runtime's extraction command, not AppRun
         # or the application. Verify actual output rather than trusting staging.
         subprocess.run([str(candidate), "--appimage-extract"], cwd=temporary,
@@ -72,6 +92,7 @@ def build(root, version):
         destination = root / candidate.name
         shutil.copyfile(candidate, destination)
         destination.chmod(0o755)
+        shutil.copyfile(zsync, root / zsync.name)
         print(f"Unsigned AppImage: {destination}; host GTK4/WebKit6 runtime required")
 
 

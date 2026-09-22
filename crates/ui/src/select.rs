@@ -31,6 +31,15 @@ struct Hole {
 	clickable: bool,
 }
 
+/// A widget that brings its own galley (fenced code), selected in body order.
+struct Embed {
+	/// How many runs preceded it, so `finish` replays it between them.
+	after: usize,
+	response: Response,
+	galley_pos: Pos2,
+	galley: Arc<Galley>,
+}
+
 struct Overlay {
 	id: egui::Id,
 	rect: Rect,
@@ -40,6 +49,7 @@ struct Overlay {
 pub struct Surface {
 	base: egui::Id,
 	runs: Vec<Run>,
+	embeds: Vec<Embed>,
 	holes: Vec<Hole>,
 	overlays: Vec<Overlay>,
 	cover: Option<Rect>,
@@ -51,6 +61,7 @@ impl Surface {
 		Self {
 			base: ui.scope_id().with(salt),
 			runs: Vec::new(),
+			embeds: Vec::new(),
 			holes: Vec::new(),
 			overlays: Vec::new(),
 			cover: None,
@@ -123,9 +134,29 @@ impl Surface {
 		});
 	}
 
+	/// Record a widget that laid out its own galley (fenced code), so that `finish` registers
+	/// its selection between the runs around it.
+	///
+	/// egui pairs the two ends of a selection by the order labels are registered in, and
+	/// treats every label registered in between as fully selected. A code block registers
+	/// where it is drawn, in the middle of the body, while the surrounding runs only register
+	/// in `finish`: selecting into a block that way puts the whole message — and every earlier
+	/// run — "between" the two ends. Deferring the block to the same pass keeps both in
+	/// reading order.
+	pub fn embed(&mut self, response: &Response, galley_pos: Pos2, galley: Arc<Galley>) {
+		self.embeds.push(Embed {
+			after: self.runs.len(),
+			response: response.clone(),
+			galley_pos,
+			galley,
+		});
+	}
+
 	/// Tile the block and register selection on the remaining bands.
 	pub fn finish(self, ui: &mut egui::Ui) {
 		let block = block_rect(ui, &self.runs, self.cover);
+		let embeds = self.embeds;
+		let mut embedded = 0;
 		let mut runs = self.runs;
 		if runs.is_empty() && block.is_positive() {
 			runs.push(blank_run(ui, self.base, block));
@@ -143,7 +174,14 @@ impl Surface {
 			pointer.is_some_and(|pos| self.holes.iter().any(|hole| hole.rect.contains(pos)));
 		let menu_open = Popup::is_any_open(ui.ctx());
 		let holes: Vec<Rect> = self.holes.iter().map(|hole| hole.rect).collect();
-		for run in runs {
+		for (position, run) in runs.into_iter().enumerate() {
+			while embeds
+				.get(embedded)
+				.is_some_and(|embed| embed.after <= position)
+			{
+				show_embed(ui, &embeds[embedded], menu_open);
+				embedded += 1;
+			}
 			if !run.rect.is_positive() || !ui.is_rect_visible(run.rect) {
 				continue;
 			}
@@ -195,6 +233,9 @@ impl Surface {
 				color,
 				Stroke::NONE,
 			);
+		}
+		for embed in &embeds[embedded..] {
+			show_embed(ui, embed, menu_open);
 		}
 		for over in self.overlays {
 			ui.interact_opt(
@@ -339,6 +380,31 @@ pub fn request_copy(ctx: &egui::Context) {
 
 pub(crate) fn band_sense() -> Sense {
 	Sense::CLICK | Sense::DRAG
+}
+
+/// Paint a deferred widget galley, registering its selection unless a menu owns the pointer.
+fn show_embed(ui: &mut egui::Ui, embed: &Embed, menu_open: bool) {
+	if !embed.response.rect.is_positive() || !ui.is_rect_visible(embed.response.rect) {
+		return;
+	}
+	// The galley carries its own per-token colours; the fallback only covers unstyled glyphs.
+	let color = ui.visuals().text_color();
+	if menu_open {
+		ui.painter().add(TextShape::new(
+			embed.galley_pos,
+			embed.galley.clone(),
+			color,
+		));
+		return;
+	}
+	LabelSelectionState::label_text_selection(
+		ui,
+		&embed.response,
+		embed.galley_pos,
+		embed.galley.clone(),
+		color,
+		Stroke::NONE,
+	);
 }
 
 fn punch(rect: Rect, holes: &[Rect]) -> Vec<Rect> {

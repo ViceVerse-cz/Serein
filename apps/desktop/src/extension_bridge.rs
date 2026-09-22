@@ -11,6 +11,7 @@ use std::{
 use ui::{ExtensionContext, ExtensionEntry, ExtensionRequest};
 
 struct Pending {
+	catalog: bool,
 	theme_save: bool,
 	generation: u64,
 	cleanup: bool,
@@ -31,6 +32,8 @@ pub struct Bridge {
 	scope: Option<(u64, Option<String>)>,
 	pending: BTreeMap<u64, Pending>,
 	installed: Vec<InstalledExtension>,
+	catalog_page: Option<ExtensionKind>,
+	catalog_refresh_pending: bool,
 	starters: BTreeMap<String, Starter>,
 	disabled: BTreeSet<String>,
 	catalog: BTreeMap<String, CatalogEntry>,
@@ -46,6 +49,7 @@ impl Bridge {
 	pub fn logout(&mut self, ctx: &egui::Context) -> Result<(), String> {
 		for entry in &mut self.installed {
 			entry.preserve_deleted_messages = false;
+			entry.image_sharing = false;
 		}
 		self.picker = None;
 		self.theme_picker = None;
@@ -63,6 +67,7 @@ impl Bridge {
 				self.pending.insert(
 					token,
 					Pending {
+						catalog: false,
 						theme_save: false,
 						generation: *generation,
 						cleanup: true,
@@ -84,6 +89,7 @@ impl Bridge {
 		window: &Arc<winit::window::Window>,
 		demo: bool,
 	) {
+		messaging.image_sharing_enabled = false;
 		let account = state
 			.user
 			.as_ref()
@@ -191,7 +197,12 @@ impl Bridge {
 						self.apply_theme(ctx);
 						self.entries(messaging);
 					}
-					messaging.extensions.report_error(error);
+					if pending.as_ref().is_some_and(|pending| pending.catalog) {
+						messaging.extensions.status =
+							format!("Catalog refresh failed; keeping saved packages. {error}");
+					} else {
+						messaging.extensions.report_error(error);
+					}
 					if pending.is_some_and(|p| p.reconcile) {
 						self.submit(
 							Job::Load {
@@ -205,9 +216,17 @@ impl Bridge {
 					}
 				}
 				Ok(Event::Loaded {
+					catalog,
 					installed,
 					starters,
 				}) => {
+					if let Some(catalog) = catalog {
+						self.catalog = catalog
+							.entries
+							.into_iter()
+							.map(|entry| (entry.manifest.id.clone(), entry))
+							.collect();
+					}
 					self.starters = starters
 						.into_iter()
 						.map(|entry| (source_id(&entry.source).to_owned(), entry))
@@ -282,7 +301,7 @@ impl Bridge {
 						messaging.extensions.theme_saved(&installed.manifest.id);
 					}
 					messaging.extensions.remove_runtime(&installed.manifest.id);
-					let theme = installed.manifest.kind == ExtensionKind::Theme;
+					let theme = installed.active_theme;
 					if theme {
 						for old in &mut self.installed {
 							old.active_theme = false;
@@ -299,13 +318,22 @@ impl Bridge {
 					messaging.extensions.status = "Extension enabled.".into();
 				}
 				Ok(Event::Disabled(id)) => {
+					let theme = self.installed.iter().any(|entry| {
+						entry.manifest.id == id && entry.manifest.kind == ExtensionKind::Theme
+					});
 					self.installed.retain(|entry| entry.manifest.id != id);
 					self.disabled.remove(&id);
 					messaging.extensions.remove_runtime(&id);
 					self.apply_theme(ctx);
 					self.entries(messaging);
-					messaging.extensions.status =
-						"Disabled. Downloaded code and extension data were removed.".into();
+					// The gallery reports the outcome; an open theme editor is a different task.
+					if !messaging.extensions.editing_theme() {
+						messaging.extensions.status = if theme {
+							"Theme removed.".into()
+						} else {
+							"Disabled. Downloaded code and extension data were removed.".into()
+						};
+					}
 				}
 				Ok(Event::Invoked { id, output }) => {
 					if let Some((requested, invocation, context)) =
@@ -410,7 +438,7 @@ impl Bridge {
 				&& self
 					.pending
 					.values()
-					.all(|pending| pending.preview.is_some())
+					.all(|pending| pending.preview.is_some() || pending.catalog)
 			{
 				self.cancel_previews(messaging);
 				self.host.as_mut().unwrap().cancel();
@@ -625,6 +653,12 @@ impl Bridge {
 				}
 			}
 		}
+		messaging.image_sharing_enabled = account.is_some()
+			&& self.installed.iter().any(|entry| {
+				entry.error.is_none()
+					&& !self.disabled.contains(&entry.manifest.id)
+					&& entry.image_sharing
+			});
 		state.set_preserve_deleted_messages(
 			account.is_some()
 				&& self.installed.iter().any(|entry| {
@@ -649,11 +683,47 @@ impl Bridge {
 			|| self
 				.pending
 				.values()
-				.any(|pending| pending.preview.is_none());
+				.any(|pending| pending.preview.is_none() && !pending.catalog);
+		messaging.extensions.catalog_refreshing =
+			self.pending.values().any(|pending| pending.catalog);
+		if self.refresh_catalog_on_open(
+			messaging.extension_settings_page(),
+			demo,
+			messaging.extensions.busy || messaging.extensions.catalog_refreshing,
+		) {
+			self.submit(
+				Job::RefreshCatalog { demo },
+				None,
+				state.generation,
+				ctx,
+				messaging,
+			);
+			messaging.extensions.catalog_refreshing = true;
+		}
 		if !self.host.as_ref().unwrap().busy() {
 			self.pending.retain(|_, pending| pending.cleanup);
 		}
 	}
+	fn refresh_catalog_on_open(
+		&mut self,
+		page: Option<ExtensionKind>,
+		demo: bool,
+		busy: bool,
+	) -> bool {
+		if page != self.catalog_page {
+			self.catalog_refresh_pending = page.is_some();
+		}
+		self.catalog_page = page;
+		if demo {
+			self.catalog_refresh_pending = false;
+		}
+		if self.catalog_refresh_pending && !busy {
+			self.catalog_refresh_pending = false;
+			return true;
+		}
+		false
+	}
+
 	fn cancel_previews(&self, messaging: &mut ui::MessagingUi) {
 		for (id, _) in self
 			.pending
@@ -677,6 +747,7 @@ impl Bridge {
 		};
 		let cleanup = matches!(job, Job::Disable { .. } | Job::Logout { .. });
 		let theme_save = matches!(job, Job::SaveTheme { .. });
+		let catalog = matches!(job, Job::RefreshCatalog { .. });
 		let reconcile =
 			cleanup || theme_save || matches!(job, Job::Enable { .. } | Job::SelectTheme { .. });
 		match self.host.as_mut().unwrap().submit(job, ctx) {
@@ -684,6 +755,7 @@ impl Bridge {
 				self.pending.insert(
 					token,
 					Pending {
+						catalog,
 						theme_save,
 						cleanup,
 						reconcile,
@@ -755,6 +827,9 @@ impl Bridge {
 			})
 			.collect();
 		for (id, starter) in &self.starters {
+			if entries.contains_key(id) {
+				continue;
+			}
 			let InstallSource::Bundled {
 				manifest, sha256, ..
 			} = &starter.source
@@ -781,7 +856,11 @@ impl Bridge {
 			);
 		}
 		for installed in &self.installed {
-			let available = entries.get(&installed.manifest.id);
+			let available = entries.get(&installed.manifest.id).filter(|entry| {
+				!installed.local_theme
+					&& installed.reviewed
+					&& entry.manifest.kind == installed.manifest.kind
+			});
 			let update = available.filter(|entry| {
 				entry.manifest.version != installed.manifest.version
 					|| !entry.sha256.eq_ignore_ascii_case(&installed.sha256)
@@ -872,6 +951,19 @@ fn source_hash(source: &InstallSource) -> &str {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn catalog_refresh_is_once_per_open_delayed_when_busy_and_offline_in_demo() {
+		let mut bridge = Bridge::default();
+		for page in [ExtensionKind::Theme, ExtensionKind::Plugin] {
+			assert!(!bridge.refresh_catalog_on_open(Some(page), false, true));
+			assert!(bridge.refresh_catalog_on_open(Some(page), false, false));
+			assert!(!bridge.refresh_catalog_on_open(Some(page), false, false));
+			assert!(!bridge.refresh_catalog_on_open(None, false, false));
+			assert!(!bridge.refresh_catalog_on_open(Some(page), true, false));
+			assert!(!bridge.refresh_catalog_on_open(None, false, false));
+		}
+	}
+
 	#[test]
 	fn cancelled_import_cannot_replace_the_catalog_bytes_the_user_approved() {
 		let package =

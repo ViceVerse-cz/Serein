@@ -15,14 +15,15 @@ pub enum PreferenceEdit {
 	CapacityReached,
 }
 
-/// Device-local channel shortcuts, isolated by account; never synchronized to Discord.
-/// At most 256 IDs (2 KiB of ID payload) across both lists.
+/// Device-local channel navigation preferences, isolated by account; never synchronized to Discord.
+/// At most 256 IDs (2 KiB of ID payload) across all lists.
 /// Vec order is display order: index 0 is shown first, and a new entry goes to the front.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ChannelPreferences {
 	pub favorites: Vec<Id>,
 	pub pinned: Vec<Id>,
+	pub collapsed_categories: Vec<Id>,
 }
 
 impl ChannelPreferences {
@@ -31,17 +32,24 @@ impl ChannelPreferences {
 
 	pub fn is_valid(&self) -> bool {
 		// ponytail: duplicate scans are capped at 256 IDs; use a set if this limit grows.
-		self.favorites.len().saturating_add(self.pinned.len()) <= Self::MAX_ENTRIES
+		self.favorites
+			.len()
+			.saturating_add(self.pinned.len())
+			.saturating_add(self.collapsed_categories.len())
+			<= Self::MAX_ENTRIES
 			&& self
 				.favorites
 				.capacity()
 				.saturating_add(self.pinned.capacity())
-				<= Self::MAX_ENTRIES * 2
-			&& [&self.favorites, &self.pinned].into_iter().all(|ids| {
-				ids.iter()
-					.enumerate()
-					.all(|(index, id)| id.0 != 0 && !ids[..index].contains(id))
-			})
+				.saturating_add(self.collapsed_categories.capacity())
+				<= Self::MAX_ENTRIES * 3
+			&& [&self.favorites, &self.pinned, &self.collapsed_categories]
+				.into_iter()
+				.all(|ids| {
+					ids.iter()
+						.enumerate()
+						.all(|(index, id)| id.0 != 0 && !ids[..index].contains(id))
+				})
 	}
 
 	fn list(&self, kind: Shortcut) -> &Vec<Id> {
@@ -75,7 +83,8 @@ impl ChannelPreferences {
 		if channel.0 == 0 || !self.is_valid() || self.contains(kind, channel) == on {
 			return PreferenceEdit::Unchanged;
 		}
-		let full = self.favorites.len() + self.pinned.len() == Self::MAX_ENTRIES;
+		let full = self.favorites.len() + self.pinned.len() + self.collapsed_categories.len()
+			== Self::MAX_ENTRIES;
 		let ids = match kind {
 			Shortcut::Pinned => &mut self.pinned,
 			Shortcut::Favorite => &mut self.favorites,
@@ -91,11 +100,33 @@ impl ChannelPreferences {
 		PreferenceEdit::Changed
 	}
 
-	/// Drops a confirmed-deleted channel from both shortcut lists.
+	pub fn category_collapsed(&self, category: Id) -> bool {
+		self.collapsed_categories.contains(&category)
+	}
+
+	pub fn set_category_collapsed(&mut self, category: Id, collapsed: bool) -> PreferenceEdit {
+		if category.0 == 0 || !self.is_valid() || self.category_collapsed(category) == collapsed {
+			return PreferenceEdit::Unchanged;
+		}
+		if collapsed {
+			if self.favorites.len() + self.pinned.len() + self.collapsed_categories.len()
+				== Self::MAX_ENTRIES
+			{
+				return PreferenceEdit::CapacityReached;
+			}
+			self.collapsed_categories.push(category);
+		} else {
+			self.collapsed_categories.retain(|id| *id != category);
+		}
+		PreferenceEdit::Changed
+	}
+
+	/// Drops a confirmed-deleted channel from every local navigation list.
 	pub fn forget(&mut self, channel: Id) -> bool {
-		let before = self.favorites.len() + self.pinned.len();
+		let before = self.favorites.len() + self.pinned.len() + self.collapsed_categories.len();
 		self.favorites.retain(|id| *id != channel);
 		self.pinned.retain(|id| *id != channel);
-		before != self.favorites.len() + self.pinned.len()
+		self.collapsed_categories.retain(|id| *id != channel);
+		before != self.favorites.len() + self.pinned.len() + self.collapsed_categories.len()
 	}
 }

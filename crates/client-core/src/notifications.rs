@@ -132,6 +132,7 @@ pub struct Setting {
 	pub level: Option<u8>,
 	pub suppress_everyone: Option<bool>,
 	pub suppress_roles: Option<bool>,
+	pub hide_muted_channels: Option<bool>,
 	pub channels: Vec<(Id, Option<bool>, Option<u8>)>,
 	pub channel_mute_until: Vec<(Id, i64)>,
 }
@@ -322,6 +323,34 @@ impl State {
 			setting.channels.push((channel, muted, level));
 		}
 		self.read_state.activity.clear_notifications();
+		self.check_notification_capacity()
+	}
+
+	pub fn hides_muted_channels(&self, guild: Id) -> Option<bool> {
+		self.notification_preferences
+			.settings
+			.get(&Some(guild))
+			.and_then(|setting| setting.hide_muted_channels)
+	}
+
+	pub(crate) fn confirm_guild_hides_muted(
+		&mut self,
+		guild: Id,
+		hide: bool,
+	) -> Result<(), &'static str> {
+		let preferences = &mut self.notification_preferences;
+		if !preferences.settings.contains_key(&Some(guild)) && preferences.settings.len() >= MAX_NAV
+		{
+			return Err("Notification settings exceed safe capacity");
+		}
+		let setting = preferences
+			.settings
+			.entry(Some(guild))
+			.or_insert_with(|| Setting {
+				guild: Some(guild),
+				..Setting::default()
+			});
+		setting.hide_muted_channels = Some(hide);
 		self.check_notification_capacity()
 	}
 
@@ -597,6 +626,28 @@ impl State {
 		}
 		Ok(())
 	}
+	pub(crate) fn counts_toward_mention_badge(&self, message: &Message) -> bool {
+		// Private recipient-remove rows are not mentions. Discord message type 2.
+		if message.kind == 2
+			|| !model::valid_mention_roles(&message.mention_roles)
+			|| self
+				.user
+				.as_ref()
+				.is_some_and(|owner| message.author.id == owner.id)
+		{
+			return false;
+		}
+		let direct = self
+			.user
+			.as_ref()
+			.is_some_and(|owner| message.mentions.iter().any(|user| user.id == owner.id));
+		self.mention_matches(
+			message.channel,
+			direct,
+			message.mention_everyone,
+			&message.mention_roles,
+		)
+	}
 	fn mention_matches(&self, channel: Id, direct: bool, everyone: bool, roles: &[Id]) -> bool {
 		let Some(channel) = self.channel(channel) else {
 			return false;
@@ -619,14 +670,71 @@ impl State {
 					.and_then(|g| g.member.as_ref())
 					.is_some_and(|member| roles.iter().any(|role| member.roles.contains(role))))
 	}
+	fn alert_preview(&self, message: &Message, mut text: &str) -> String {
+		let guild = self
+			.channel(message.channel)
+			.and_then(|channel| channel.guild);
+		let mut output = String::new();
+		let mut count = 0;
+		while !text.is_empty() && count < 160 && output.len() < 512 {
+			let (prefix, name, len) = if let Some((id, len)) = model::user_mention_prefix(text) {
+				let member = self
+					.members
+					.as_ref()
+					.filter(|list| list.guild == guild)
+					.and_then(|list| {
+						list.rows
+							.iter()
+							.flatten()
+							.find(|member| member.user.id == id)
+					});
+				let user = message
+					.mentions
+					.iter()
+					.find(|user| user.id == id)
+					.or_else(|| self.user.as_ref().filter(|user| user.id == id))
+					.or_else(|| self.friend(id));
+				let name = member
+					.and_then(|member| member.nick.as_deref().filter(|nick| !nick.is_empty()))
+					.or_else(|| user.map(|user| self.user_display_name(user)))
+					.or_else(|| member.map(|member| member.user.name.as_str()))
+					.unwrap_or("Unknown user");
+				("@", name, len)
+			} else if let Some((id, len)) = model::role_mention_prefix(text) {
+				let name = guild
+					.and_then(|guild| self.guild_roles(guild))
+					.and_then(|roles| roles.iter().find(|role| role.id == id))
+					.map_or("Unknown role", |role| role.name.as_str());
+				("@", name, len)
+			} else if let Some((id, len)) = model::channel_mention_prefix(text) {
+				let name = self
+					.channel(id)
+					.filter(|_| self.can_view(id))
+					.map_or("Unknown channel", |channel| channel.name.as_str());
+				("#", name, len)
+			} else {
+				let len = text.chars().next().unwrap().len_utf8();
+				("", &text[..len], len)
+			};
+			for character in prefix.chars().chain(name.chars()) {
+				if count == 160 || output.len() + character.len_utf8() > 512 {
+					return alert_text(&output, 160, 512);
+				}
+				output.push(character);
+				count += 1;
+			}
+			text = &text[len..];
+		}
+		alert_text(&output, 160, 512)
+	}
+
 	pub(crate) fn observe_notification(&mut self, message: &Message) {
 		if !model::valid_mention_roles(&message.mention_roles) {
 			return;
 		}
 		if !self
-			.channels
-			.iter()
-			.any(|c| c.id == message.channel && c.supports_text())
+			.channel(message.channel)
+			.is_some_and(|channel| channel.supports_text())
 		{
 			return;
 		}
@@ -661,12 +769,7 @@ impl State {
 			return;
 		}
 		let direct = message.mentions.iter().any(|u| u.id == owner.id);
-		let mention = self.mention_matches(
-			message.channel,
-			direct,
-			message.mention_everyone,
-			&message.mention_roles,
-		);
+		let mention = self.counts_toward_mention_badge(message);
 		// Silent messages still contribute to badges, but never enqueue an OS alert.
 		let allowed = !message.suppress_notifications
 			&& self.user_blocked(message.author.id) != Some(true)
@@ -713,7 +816,7 @@ impl State {
 				"Sent a message".to_owned()
 			}
 		} else {
-			let text = alert_text(&display, 160, 512);
+			let text = self.alert_preview(message, &display);
 			if text.is_empty() {
 				"Sent a message".to_owned()
 			} else {
@@ -755,6 +858,7 @@ mod tests {
 	use model::{Channel, Guild, Patch, User, permissions as p};
 	fn notification_state() -> State {
 		let owner = User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -767,6 +871,7 @@ mod tests {
 			gateway_connected: true,
 			auth: crate::auth::AuthState::Authenticated,
 			guilds: vec![Guild {
+				stickers: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				icon: None,
@@ -852,6 +957,7 @@ mod tests {
 					level: Some(0),
 					suppress_everyone: Some(false),
 					suppress_roles: Some(false),
+					hide_muted_channels: None,
 					channel_mute_until: vec![],
 					channels: vec![],
 				}],
@@ -914,6 +1020,7 @@ mod tests {
 	}
 	fn message(id: u64, channel: u64) -> Message {
 		let owner = User {
+			primary_guild: None,
 			id: Id(2),
 			name: "Synthetic".into(),
 			avatar: None,
@@ -922,6 +1029,7 @@ mod tests {
 			discriminator: 0,
 		};
 		Message {
+			sticker_items: Vec::new(),
 			kind: 0,
 			id: Id(id),
 			channel: Id(channel),
@@ -945,6 +1053,10 @@ mod tests {
 			reply_deleted: false,
 			forwarded: false,
 			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
 			extra_content: Default::default(),
 			embeds: vec![],
 			embeds_suppressed: false,
@@ -1221,5 +1333,75 @@ mod tests {
 		activity.delete(Id(1), Id(2));
 		assert!(activity.observed_counts.is_empty());
 		assert!(activity.observed.is_empty());
+	}
+	#[test]
+	fn marking_unread_badges_guild_mentions_inside_the_new_range() {
+		let mut state = notification_state();
+		state.freshness = model::Freshness::Fresh;
+		state.selected = Some(Id(20));
+		state
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(20))
+			.unwrap()
+			.last_message = Some(Id(100));
+		state
+			.apply_read_state(crate::read_state::Event::Ack {
+				channel: Id(20),
+				message: Some(Id(100)),
+				manual: false,
+				mention_count: Some(0),
+				version: Some(2),
+			})
+			.unwrap();
+		let mut plain = message(96, 20);
+		plain.mentions.clear();
+		let ping = message(97, 20);
+		let mut mine = message(98, 20);
+		mine.author.id = Id(2);
+		mine.mentions.clear();
+		let mut everyone = message(99, 20);
+		everyone.mentions.clear();
+		everyone.mention_everyone = true;
+		let mut later = message(100, 20);
+		later.mentions.clear();
+		for row in [plain, ping, mine, everyone, later] {
+			state.timeline.insert(row, false, false).unwrap();
+		}
+		assert_eq!(state.mention_count(Id(20)), 0);
+		assert_eq!(state.unread(Id(20)), Some(false));
+		let crate::Command::MarkRead {
+			channel,
+			message,
+			request,
+			manual: true,
+			mention_count,
+		} = state.prepare_mark_unread(Id(96)).unwrap()
+		else {
+			panic!("mark unread");
+		};
+		assert_eq!(message, Id(95));
+		assert_eq!(mention_count, Some(2));
+		state
+			.apply_read_state(crate::read_state::Event::Result {
+				channel,
+				message,
+				request,
+				result: Ok(()),
+			})
+			.unwrap();
+		assert_eq!(state.unread(Id(20)), Some(true));
+		assert_eq!(state.mention_count(Id(20)), 2);
+		state
+			.apply_read_state(crate::read_state::Event::Ack {
+				channel,
+				message: Some(message),
+				manual: true,
+				mention_count: None,
+				version: Some(3),
+			})
+			.unwrap();
+		assert_eq!(state.mention_count(Id(20)), 2);
+		assert_eq!(state.unread(Id(20)), Some(true));
 	}
 }

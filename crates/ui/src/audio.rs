@@ -137,7 +137,7 @@ impl AudioUi {
 						},
 					);
 					play.widget_info(|| {
-						egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+						egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label)
 					});
 					let center = play.rect.center();
 					match state {

@@ -3,7 +3,7 @@ use crate::{design, dialog};
 
 #[derive(Default)]
 pub struct VerificationUi {
-	pub request: Option<u64>,
+	pub verification: Option<client_core::captcha::Verification>,
 	pub bounds: Option<egui::Rect>,
 	pub start_requested: bool,
 	pub active: bool,
@@ -12,96 +12,116 @@ pub struct VerificationUi {
 }
 
 impl VerificationUi {
+	/// Renders the one pending verification dialog for the active flow.
 	pub(super) fn show(&mut self, ctx: &egui::Context, state: &mut client_core::State) {
 		self.bounds = None;
-		let Some((request, _)) = state.invite_challenge() else {
+		let Some((verification, _)) = state.verification() else {
 			*self = Self::default();
 			return;
 		};
-		if self.request != Some(request) || self.generation != state.generation {
+		if self.verification != Some(verification) || self.generation != state.generation {
 			*self = Self {
-				request: Some(request),
+				verification: Some(verification),
 				generation: state.generation,
 				..Self::default()
 			};
 		}
-		let title = state
-			.invites
-			.get(&state.invite_join.code)
-			.and_then(|(_, preview)| preview.as_ref())
-			.and_then(|preview| preview.as_ref().ok())
-			.and_then(|preview| preview.embed.title.as_deref());
+		let friend = matches!(
+			verification,
+			client_core::captcha::Verification::Friend { .. }
+		);
+		let title = (!friend)
+			.then(|| {
+				state
+					.invites
+					.get(&state.invite_join.code)
+					.and_then(|(_, preview)| preview.as_ref())
+					.and_then(|preview| preview.as_ref().ok())
+					.and_then(|preview| preview.embed.title.as_deref())
+			})
+			.flatten();
 		let mut cancel = false;
-		let response = dialog::Dialog::new("invite-verification", "Verification required")
-			.subtitle("Complete the check to join this server.")
-			.width(520.0)
-			.show(ctx, |d| {
-				d.content(|ui| {
-					let colors = design::palette(ui);
-					if let Some(title) = title {
-						ui.add(egui::Label::new(design::semibold(ui, title, 16.0)).truncate())
-							.on_hover_text(title);
-						ui.add_space(12.0);
-					}
-					let height = if self.active {
-						(ctx.content_rect().height() - 260.0).clamp(160.0, 480.0)
-					} else {
-						148.0
-					};
-					let (rect, _) = ui.allocate_exact_size(
-						egui::vec2(ui.available_width(), height),
-						egui::Sense::hover(),
-					);
-					ui.painter().rect_filled(rect, 10, colors.base);
-					ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(16.0)), |ui| {
-						ui.vertical_centered(|ui| {
-							ui.add_space(if self.active { 28.0 } else { 12.0 });
-							ui.label(design::semibold(
-								ui,
-								if self.active {
-									"Loading verification…"
+		let response = dialog::Dialog::new(
+			if friend {
+				"friend-verification"
+			} else {
+				"invite-verification"
+			},
+			"Verification required",
+		)
+		.subtitle(if friend {
+			"Complete the check to send this friend request."
+		} else {
+			"Complete the check to join this server."
+		})
+		.width(520.0)
+		.show(ctx, |d| {
+			d.content(|ui| {
+				let colors = design::palette(ui);
+				if let Some(title) = title {
+					ui.add(egui::Label::new(design::semibold(ui, title, 16.0)).truncate())
+						.on_hover_text(title);
+					ui.add_space(12.0);
+				}
+				let height = if self.active {
+					(ctx.content_rect().height() - 260.0).clamp(160.0, 480.0)
+				} else {
+					148.0
+				};
+				let (rect, _) = ui.allocate_exact_size(
+					egui::vec2(ui.available_width(), height),
+					egui::Sense::hover(),
+				);
+				ui.painter().rect_filled(rect, 10, colors.base);
+				ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(16.0)), |ui| {
+					ui.vertical_centered(|ui| {
+						ui.add_space(if self.active { 28.0 } else { 12.0 });
+						ui.label(design::semibold(
+							ui,
+							if self.active {
+								"Loading verification…"
+							} else {
+								"One quick check"
+							},
+							18.0,
+						));
+						ui.add_space(8.0);
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(if state.demo {
+									"Offline preview · no verification service is contacted."
+								} else if friend {
+									"Discord requires a security check before you can add this person."
 								} else {
-									"One quick check"
-								},
-								18.0,
-							));
-							ui.add_space(8.0);
-							ui.add(
-								egui::Label::new(
-									egui::RichText::new(if state.demo {
-										"Offline preview · no verification service is contacted."
-									} else {
-										"Discord requires a security check before you can join."
-									})
-									.size(13.0)
-									.color(colors.muted),
-								)
-								.wrap(),
-							);
-						});
+									"Discord requires a security check before you can join."
+								})
+								.size(13.0)
+								.color(colors.muted),
+							)
+							.wrap(),
+						);
 					});
-					if self.active {
-						self.bounds = Some(rect);
-					}
-					if let Some(error) = self.error {
-						ui.add_space(12.0);
-						dialog::notice(ui, dialog::Level::Error, error);
-					}
-					ui.add_space(16.0);
 				});
-				d.footer(|ui| {
-					if !self.active
-						&& dialog::action(ui, "Verify", dialog::Action::Primary).clicked()
-					{
-						self.error = None;
-						self.active = true;
-						self.start_requested = !state.demo;
-					}
-					cancel |= dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
-				});
+				if self.active {
+					self.bounds = Some(rect);
+				}
+				if let Some(error) = self.error {
+					ui.add_space(12.0);
+					dialog::notice(ui, dialog::Level::Error, error);
+				}
+				ui.add_space(16.0);
 			});
+			d.footer(|ui| {
+				if !self.active && dialog::action(ui, "Verify", dialog::Action::Primary).clicked() {
+					self.error = None;
+					self.active = true;
+					self.start_requested = !state.demo;
+				}
+				cancel |= dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
+			});
+		});
 		if cancel || response.close {
-			state.cancel_invite_challenge(request);
+			state.cancel_verification(verification);
 			*self = Self::default();
 		}
 	}
@@ -110,6 +130,7 @@ impl VerificationUi {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	/// Synthetic state holding one pending invite challenge.
 	fn fixture() -> client_core::State {
 		let mut state = client_core::State {
 			auth: client_core::auth::AuthState::Authenticated,
@@ -154,6 +175,7 @@ mod tests {
 		});
 		state
 	}
+	/// Runs one frame and returns the rendered text labels with their rectangles.
 	fn frame(
 		ctx: &egui::Context,
 		view: &mut VerificationUi,
@@ -161,6 +183,7 @@ mod tests {
 		size: egui::Vec2,
 		events: Vec<egui::Event>,
 	) -> Vec<(String, egui::Rect)> {
+		/// Collects text labels from a shape tree.
 		fn labels(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
 			match shape {
 				egui::Shape::Text(text) => out.push((
@@ -190,6 +213,7 @@ mod tests {
 		output.drop_without_applying_deltas();
 		texts
 	}
+	/// Regression: verification needs a click, fits the viewport and cancels with Escape.
 	#[test]
 	fn verification_requires_a_click_fits_viewport_and_cancels_with_escape() {
 		for (light, size) in [
@@ -270,9 +294,74 @@ mod tests {
 						modifiers: egui::Modifiers::NONE,
 					}],
 				);
-				assert!(view.request.is_none() && view.bounds.is_none() && !view.active);
+				assert!(view.verification.is_none() && view.bounds.is_none() && !view.active);
 				assert!(state.invite_challenge().is_none());
 			}
 		}
+	}
+
+	/// Regression: friendship verification uses friend copy and cancels its write.
+	#[test]
+	fn friend_verification_uses_friend_copy_and_cancels_the_pending_write() {
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let mut state = client_core::State {
+			auth: client_core::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			..Default::default()
+		};
+		let Some(client_core::Command::UserAction {
+			action, request, ..
+		}) = state.add_friend("synthetic_friend")
+		else {
+			panic!("friend request")
+		};
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::Challenge {
+				action,
+				request,
+				challenge: Box::new(
+					client_core::captcha::Challenge::new(
+						"synthetic-key".into(),
+						None,
+						None,
+						None,
+						false,
+					)
+					.unwrap(),
+				),
+			}),
+		});
+		let mut view = VerificationUi::default();
+		let size = egui::vec2(960.0, 760.0);
+		let texts = frame(&ctx, &mut view, &mut state, size, vec![]);
+		assert!(
+			texts
+				.iter()
+				.any(|(text, _)| text == "Complete the check to send this friend request."),
+			"{texts:?}"
+		);
+		assert!(
+			texts.iter().any(|(text, _)| text
+				== "Discord requires a security check before you can add this person."),
+			"{texts:?}"
+		);
+		// Cancelling releases the pending friend write so the user can retry.
+		frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			size,
+			vec![egui::Event::Key {
+				key: egui::Key::Escape,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		);
+		assert!(state.verification().is_none());
+		assert!(!state.user_action_pending());
 	}
 }

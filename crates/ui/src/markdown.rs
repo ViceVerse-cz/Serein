@@ -50,6 +50,9 @@ struct Style {
 /// Split styled text into Unicode BiDi runs in visual order. The text inside each run stays in
 /// logical order so egui's shaper can still join Arabic-family scripts correctly.
 fn bidi_spans(spans: &[(String, Style)]) -> Option<(Vec<(String, Style)>, bool)> {
+	if spans.iter().all(|(text, _)| text.is_ascii()) {
+		return None;
+	}
 	let text: String = spans.iter().map(|(text, _)| text.as_str()).collect();
 	let bidi = unicode_bidi::BidiInfo::new(&text, None);
 	if !bidi.has_rtl() {
@@ -475,6 +478,7 @@ fn normalize_fences(input: &str) -> std::borrow::Cow<'_, str> {
 struct Render<'a> {
 	opening: &'a mut Option<String>,
 	users: &'a [model::User],
+	source: Option<&'a crate::mentions::MentionSource<'a>>,
 	profile: &'a mut Option<model::User>,
 	channels: &'a [model::Channel],
 	channel: &'a mut Option<Id>,
@@ -484,6 +488,7 @@ struct Render<'a> {
 	demo: bool,
 	revealed: &'a mut u32,
 	surface: &'a mut crate::select::Surface,
+	query: &'a str,
 	/// Row height reserved for artwork, so emoji and text share one baseline.
 	line: Option<f32>,
 }
@@ -1012,6 +1017,7 @@ impl Formatted {
 			ui,
 			opening,
 			users,
+			None,
 			profile,
 			(&mut crate::avatars::Avatars::default(), true, &[]),
 		);
@@ -1021,6 +1027,7 @@ impl Formatted {
 		ui: &mut egui::Ui,
 		opening: &mut Option<String>,
 		users: &[model::User],
+		source: Option<&crate::mentions::MentionSource<'_>>,
 		profile: &mut Option<model::User>,
 		media: (&mut crate::avatars::Avatars, bool, &[model::Guild]),
 	) {
@@ -1031,6 +1038,7 @@ impl Formatted {
 			ui,
 			opening,
 			users,
+			source,
 			profile,
 			(&[], &mut None, guilds, &[]),
 			(images, demo, &mut revealed),
@@ -1044,6 +1052,7 @@ impl Formatted {
 		ui: &mut egui::Ui,
 		opening: &mut Option<String>,
 		users: &[model::User],
+		source: Option<&crate::mentions::MentionSource<'_>>,
 		profile: &mut Option<model::User>,
 		references: (
 			&[model::Channel],
@@ -1053,6 +1062,28 @@ impl Formatted {
 		),
 		media: (&mut crate::avatars::Avatars, bool, &mut u32),
 		surface: &mut crate::select::Surface,
+	) {
+		self.show_search(
+			ui, opening, users, source, profile, references, media, surface, "",
+		);
+	}
+	#[allow(clippy::too_many_arguments)]
+	pub fn show_search(
+		&self,
+		ui: &mut egui::Ui,
+		opening: &mut Option<String>,
+		users: &[model::User],
+		source: Option<&crate::mentions::MentionSource<'_>>,
+		profile: &mut Option<model::User>,
+		references: (
+			&[model::Channel],
+			&mut Option<Id>,
+			&[model::Guild],
+			&[model::permissions::Role],
+		),
+		media: (&mut crate::avatars::Avatars, bool, &mut u32),
+		surface: &mut crate::select::Surface,
+		query: &str,
 	) {
 		let (channels, channel, guilds, roles) = references;
 		let (images, demo, revealed) = media;
@@ -1073,6 +1104,7 @@ impl Formatted {
 		let mut render = Render {
 			opening,
 			users,
+			source,
 			profile,
 			channels,
 			channel,
@@ -1082,6 +1114,7 @@ impl Formatted {
 			demo,
 			revealed,
 			surface,
+			query,
 			line,
 		};
 		self.show_run(ui, &self.spans, &mut render, false);
@@ -1182,6 +1215,7 @@ impl Formatted {
 					}
 					if let Some(id) = spans[start].1.channel {
 						reserve(ui);
+						let colors = crate::design::palette(ui);
 						if let Some(target) = render.channels.iter().find(|target| {
 							target.id == id
 								&& target.guild.is_some()
@@ -1189,12 +1223,17 @@ impl Formatted {
 						}) {
 							let label = format!("#{}", target.name);
 							let response = ui
-								.add(egui::Link::new(egui::RichText::new(&label).strong()))
+								.add(egui::Link::new(
+									egui::RichText::new(&label)
+										.strong()
+										.color(colors.mention_text)
+										.background_color(colors.mention_bg),
+								))
 								.on_hover_text("Open channel");
 							render.surface.keep(&response);
 							response.widget_info(|| {
 								egui::WidgetInfo::labeled(
-									egui::WidgetType::Link,
+									egui::Role::Link,
 									ui.is_enabled(),
 									format!("{label}, open channel"),
 								)
@@ -1205,12 +1244,17 @@ impl Formatted {
 						} else if render.channels.iter().all(|target| target.id != id) {
 							let label = "#unknown-channel";
 							let response = ui
-								.add(egui::Link::new(egui::RichText::new(label).strong()))
+								.add(egui::Link::new(
+									egui::RichText::new(label)
+										.strong()
+										.color(colors.mention_text)
+										.background_color(colors.mention_bg),
+								))
 								.on_hover_text("Load channel");
 							render.surface.keep(&response);
 							response.widget_info(|| {
 								egui::WidgetInfo::labeled(
-									egui::WidgetType::Link,
+									egui::Role::Link,
 									ui.is_enabled(),
 									"Unknown channel, load channel",
 								)
@@ -1219,12 +1263,16 @@ impl Formatted {
 								*render.channel = Some(id);
 							}
 						} else {
-							let response = ui
-								.add(egui::Label::new(&spans[start].0).selectable(true))
-								.on_hover_text(
-									"Channel unavailable or unsupported in this session",
-								);
+							// Like fenced code, this label brings its own galley: let the
+							// block register it in reading order.
+							let (galley_pos, galley, response) = egui::Label::new(&spans[start].0)
+								.selectable(true)
+								.layout_in_ui(ui);
+							let response = response.on_hover_text(
+								"Channel unavailable or unsupported in this session",
+							);
 							render.surface.keep(&response);
+							render.surface.embed(&response, galley_pos, galley);
 						}
 						start += 1;
 						continue;
@@ -1232,11 +1280,8 @@ impl Formatted {
 					if let Some(id) = spans[start].1.mention {
 						reserve(ui);
 						let colors = crate::design::palette(ui);
-						let user = render.users.iter().find(|user| user.id == id);
-						let label = format!(
-							"@{}",
-							user.map_or_else(|| id.to_string(), |u| u.name.clone())
-						);
+						let user = crate::mentions::find_user(id, render.users, render.source);
+						let label = crate::mentions::mention_label(id, render.users, render.source);
 						let response = ui
 							.add(egui::Link::new(
 								egui::RichText::new(&label)
@@ -1248,7 +1293,7 @@ impl Formatted {
 						render.surface.keep(&response);
 						response.widget_info(|| {
 							egui::WidgetInfo::labeled(
-								egui::WidgetType::Link,
+								egui::Role::Link,
 								ui.is_enabled(),
 								format!("{label}, user profile"),
 							)
@@ -1261,6 +1306,7 @@ impl Formatted {
 								webhook: false,
 								kind: Default::default(),
 								discriminator: 0,
+								primary_guild: None,
 							}));
 						}
 						start += 1;
@@ -1271,12 +1317,17 @@ impl Formatted {
 							.iter()
 							.take_while(|(_, style)| style.block == Some(block))
 							.count();
+						// Fenced code is a block element inside this wrapping horizontal flow.
+						// Explicit row boundaries make egui reserve its full painted height,
+						// rather than placing the following paragraph back on the same row.
+						ui.end_row();
 						let code_rect = Self::show_code_block(
 							ui,
 							&self.blocks[usize::from(block)],
 							block,
 							render.surface,
 						);
+						ui.end_row();
 						render.surface.exclude(code_rect);
 						start += count;
 						continue;
@@ -1357,14 +1408,11 @@ impl Formatted {
 							render.demo,
 							render.guilds,
 							render.surface,
+							render.query,
 						)
 						.on_hover_text(url);
 						response.widget_info(|| {
-							egui::WidgetInfo::labeled(
-								egui::WidgetType::Link,
-								ui.is_enabled(),
-								&label,
-							)
+							egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), &label)
 						});
 						if response.clicked() {
 							*render.opening = Some(url.clone());
@@ -1378,6 +1426,7 @@ impl Formatted {
 							render.demo,
 							render.guilds,
 							render.surface,
+							render.query,
 						);
 					}
 					start += count;
@@ -1465,10 +1514,16 @@ impl Formatted {
 					if display.is_empty() {
 						job.append(" ", 0.0, TextFormat::simple(mono.clone(), colors.muted));
 					}
-					let response = ui.add(egui::Label::new(job).wrap().selectable(true));
+					// Selection is registered by the surrounding block in `Surface::finish`,
+					// so a drag through the code selects only what the pointer crossed.
+					let (galley_pos, galley, response) = egui::Label::new(job)
+						.wrap()
+						.selectable(true)
+						.layout_in_ui(ui);
+					surface.embed(&response, galley_pos, galley);
 					response.widget_info(|| {
 						egui::WidgetInfo::labeled(
-							egui::WidgetType::Label,
+							egui::Role::Label,
 							ui.is_enabled(),
 							format!(
 								"Code block{}: {}",
@@ -1492,9 +1547,15 @@ impl Formatted {
 					);
 					let copied = Self::copied_recently(ui, id);
 					if ui.rect_contains_pointer(rect) || copied {
+						// The code text is painted later, with the block's selection, so the
+						// floating control needs a layer of its own to stay on top of it.
 						let mut child = ui.new_child(
 							egui::UiBuilder::new()
 								.max_rect(target)
+								.layer_id(egui::LayerId::new(
+									egui::Order::Middle,
+									id.with("copy-layer"),
+								))
 								.layout(egui::Layout::left_to_right(egui::Align::Center)),
 						);
 						child.painter().rect_filled(target, 6, colors.raised);
@@ -1534,6 +1595,7 @@ impl Formatted {
 	/// One galley per run: emoji occupy fixed-width slots inside the text layout, so rows
 	/// holding artwork grow before any text on them is positioned. Separate widgets would
 	/// leave text placed earlier on the row misaligned with text placed after the emoji.
+	#[allow(clippy::too_many_arguments)]
 	fn show_emoji(
 		spans: &[(String, Style)],
 		ui: &mut egui::Ui,
@@ -1542,6 +1604,7 @@ impl Formatted {
 		demo: bool,
 		guilds: &[model::Guild],
 		surface: &mut crate::select::Surface,
+		query: &str,
 	) -> egui::Response {
 		struct Inline {
 			text: String,
@@ -1615,6 +1678,31 @@ impl Formatted {
 				job.append(&text[start..], 0.0, format);
 			}
 		}
+		if !query.is_empty() {
+			let mut sections = Vec::new();
+			for section in &job.sections {
+				let mut start = section.byte_range.start;
+				for (offset, matched) in job.text
+					[section.byte_range.start.0..section.byte_range.end.0]
+					.match_indices(query)
+				{
+					let from = section.byte_range.start + offset;
+					let mut normal = section.clone();
+					normal.byte_range = start..from;
+					sections.push(normal);
+					let mut highlighted = section.clone();
+					highlighted.byte_range = from..from + matched.len();
+					highlighted.format.background =
+						egui::Color32::from_rgba_unmultiplied(200, 160, 30, 85);
+					sections.push(highlighted);
+					start = from + matched.len();
+				}
+				let mut tail = section.clone();
+				tail.byte_range = start..section.byte_range.end;
+				sections.push(tail);
+			}
+			job.sections = sections;
+		}
 		let label = egui::Label::new(job)
 			.wrap()
 			.halign(if right_aligned {
@@ -1624,9 +1712,8 @@ impl Formatted {
 			})
 			.selectable(false);
 		let (pos, mut galley, mut response) = label.layout_in_ui(ui);
-		response.widget_info(|| {
-			egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), &source)
-		});
+		response
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &source));
 		let mut slots: Vec<(usize, egui::Rect)> = Vec::new();
 		if !inlines.is_empty() {
 			let wrap = galley.job.wrap.max_width;
@@ -1723,7 +1810,7 @@ impl Formatted {
 						.on_hover_text(&inline.text);
 					hit.widget_info(|| {
 						egui::WidgetInfo::labeled(
-							egui::WidgetType::Button,
+							egui::Role::Button,
 							ui.is_enabled(),
 							format!("Show emoji details: {}", inline.text),
 						)
@@ -1816,6 +1903,7 @@ impl Formatted {
 		job: &mut LayoutJob,
 		ui: &egui::Ui,
 		users: &[model::User],
+		source: Option<&crate::mentions::MentionSource<'_>>,
 		roles: &[model::permissions::Role],
 		channels: &[model::Channel],
 	) {
@@ -1840,11 +1928,10 @@ impl Formatted {
 				continue;
 			}
 			let (display, format) = if let Some(id) = style.mention {
-				let name = users
-					.iter()
-					.find(|user| user.id == id)
-					.map_or_else(|| id.to_string(), |user| user.name.clone());
-				(format!("@{name}"), pill.clone())
+				(
+					crate::mentions::mention_label(id, users, source),
+					pill.clone(),
+				)
 			} else if let Some(id) = style.role {
 				let name = roles
 					.iter()
@@ -1984,6 +2071,62 @@ mod tests {
 			"English مرحبا!"
 		);
 		assert!(bidi_spans(&[("English only".into(), style)]).is_none());
+		assert!(bidi_spans(&[]).is_none());
+		let ascii: String = (0..=127).map(char::from).collect();
+		assert!(bidi_spans(&[(ascii, style), ("second span".into(), style)]).is_none());
+		for text in ["\u{202e}English\u{202c}", "English \u{2067}مرحبا\u{2069}"] {
+			assert!(bidi_spans(&[(text.into(), style)]).is_some());
+		}
+	}
+
+	#[test]
+	#[ignore = "release-only BiDi microbenchmark; run with --ignored --nocapture"]
+	fn bidi_ascii_benchmark() {
+		use std::{hint::black_box, time::Instant};
+		const ITERATIONS: usize = 100_000;
+		for (name, spans) in [
+			(
+				"ascii",
+				vec![(
+					"A typical message with plain English text and a link https://example.com."
+						.repeat(4),
+					Style::default(),
+				)],
+			),
+			(
+				"ascii_styled",
+				vec![
+					("A styled message ".repeat(8), Style::default()),
+					(
+						"with a bold section ".repeat(8),
+						Style {
+							strong: true,
+							..Default::default()
+						},
+					),
+				],
+			),
+			(
+				"mixed_rtl",
+				vec![("English مرحبا! ".repeat(8), Style::default())],
+			),
+		] {
+			let mut samples = Vec::with_capacity(5);
+			for run in 0..6 {
+				let start = Instant::now();
+				for _ in 0..ITERATIONS {
+					black_box(bidi_spans(black_box(&spans)));
+				}
+				if run > 0 {
+					samples.push(start.elapsed());
+				}
+			}
+			samples.sort_unstable();
+			println!(
+				"{name}: {ITERATIONS} calls, median {:?}, samples {samples:?}",
+				samples[2]
+			);
+		}
 	}
 
 	#[test]
@@ -2582,6 +2725,7 @@ mod tests {
 							ui,
 							&mut opening,
 							&[],
+							None,
 							&mut profile,
 							(&[], &mut channel, &[], &[]),
 							(&mut images, false, mask),
@@ -2682,6 +2826,7 @@ mod tests {
 						ui,
 						&mut None,
 						&[],
+						None,
 						&mut None,
 						(&[], &mut None, &[], &[]),
 						(&mut images, false, &mut mask),
@@ -2844,6 +2989,7 @@ mod tests {
 							ui,
 							&mut opening,
 							&[],
+							None,
 							&mut profile,
 							(&channels, &mut channel, &[], &[]),
 							(&mut crate::avatars::Avatars::default(), true, &mut revealed),
@@ -2884,6 +3030,7 @@ mod tests {
 						ui,
 						&mut None,
 						&[],
+						None,
 						&mut None,
 						(&mut avatars, true, &[]),
 					)
@@ -3047,6 +3194,7 @@ mod tests {
 								ui,
 								&mut None,
 								&[],
+								None,
 								&mut None,
 								(&mut images, true, &state.guilds),
 							)
@@ -3289,6 +3437,14 @@ mod tests {
 				.iter()
 				.find(|(text, ..)| *text == "fn main() {}")
 				.expect("code text");
+			let before = texts
+				.iter()
+				.find(|(text, ..)| *text == "before")
+				.expect("paragraph before code block");
+			let after = texts
+				.iter()
+				.find(|(text, ..)| *text == "after")
+				.expect("paragraph after code block");
 			assert_eq!(code.3, egui::FontFamily::Monospace);
 			assert!(
 				texts.iter().any(|(text, ..)| *text == "Rust"),
@@ -3307,6 +3463,14 @@ mod tests {
 				})
 				.expect("framed background");
 			assert!(bg.contains_rect(egui::Rect::from_min_size(code.1, code.2)));
+			assert!(
+				before.1.y + before.2.y <= bg.top(),
+				"paragraph before the block overlaps its frame: before={before:?}, block={bg:?}"
+			);
+			assert!(
+				after.1.y >= bg.bottom(),
+				"paragraph after the block overlaps its frame: after={after:?}, block={bg:?}"
+			);
 			let header = texts
 				.iter()
 				.find(|(text, ..)| *text == "Rust")
@@ -3344,6 +3508,173 @@ mod tests {
 			.collect();
 		output.drop_without_applying_deltas();
 		assert_eq!(copied, vec!["fn main() {}".to_owned()]);
+	}
+	#[test]
+	fn dragging_out_of_a_code_block_leaves_the_text_above_it_unselected() {
+		let ctx = egui::Context::default();
+		crate::icons::install(&ctx);
+		let parsed = Formatted::parse("before the block\n```\nalpha\nbravo\n```\nafter the block");
+		let frame = |events| {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(420.0, 300.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| parsed.show(ui, &mut None),
+			)
+		};
+		let press = |pos, pressed| {
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		// Locate the painted galleys, so the drag uses real glyph positions.
+		let mut code = None;
+		let mut after = None;
+		for _ in 0..2 {
+			let output = frame(Vec::new());
+			let mut shapes = Vec::new();
+			fn walk<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
+				match shape {
+					egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+					other => out.push(other),
+				}
+			}
+			output
+				.shapes
+				.iter()
+				.for_each(|s| walk(&s.shape, &mut shapes));
+			let galley = |wanted: &str| {
+				shapes.iter().find_map(|shape| match shape {
+					egui::Shape::Text(text) if text.galley.text() == wanted => {
+						Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+					}
+					_ => None,
+				})
+			};
+			code = galley("alpha\nbravo");
+			after = galley("after the block");
+			output.drop_without_applying_deltas();
+		}
+		let code = code.expect("painted code galley");
+		let after = after.expect("painted trailing paragraph");
+		// Out of the block's last line and into the paragraph under it: the paragraph above
+		// the block is registered with the rest of the body, and must stay unselected.
+		let from = egui::pos2(code.left() + 1.0, code.bottom() - 2.0);
+		let to = egui::pos2(after.right() - 1.0, after.center().y);
+		let mut copied = String::new();
+		for events in [
+			press(from, true),
+			vec![egui::Event::PointerMoved(to)],
+			press(to, false),
+			vec![egui::Event::Copy],
+		] {
+			let output = frame(events);
+			if let Some(text) =
+				output
+					.platform_output
+					.commands
+					.iter()
+					.find_map(|command| match command {
+						egui::OutputCommand::CopyText(text) => Some(text.clone()),
+						_ => None,
+					}) {
+				copied = text;
+			}
+			output.drop_without_applying_deltas();
+		}
+		assert_eq!(copied, "bravo\n\nafter the block");
+	}
+	#[test]
+	fn an_unlabelled_code_block_floats_a_copy_control_above_its_text() {
+		let ctx = egui::Context::default();
+		crate::icons::install(&ctx);
+		let parsed = Formatted::parse("```\nfirst line of code\nsecond line\nthird line\n```");
+		let frame = |events| {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(420.0, 300.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| parsed.show(ui, &mut None),
+			)
+		};
+		let mut block = None;
+		for _ in 0..2 {
+			let output = frame(Vec::new());
+			let code_bg = ctx.global_style().visuals.code_bg_color;
+			block = output.shapes.iter().find_map(|shape| match &shape.shape {
+				egui::Shape::Rect(rect) if rect.fill == code_bg => Some(rect.rect),
+				_ => None,
+			});
+			output.drop_without_applying_deltas();
+		}
+		// No language header, so the control floats in the block's top-right corner and
+		// only while the pointer is inside it.
+		let block = block.expect("framed background");
+		let pos = egui::pos2(block.right() - 17.0, block.top() + 17.0);
+		let hover = frame(vec![egui::Event::PointerMoved(pos)]);
+		let code = hover
+			.shapes
+			.iter()
+			.position(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text().starts_with("first line")))
+			.expect("painted code galley");
+		let control = hover
+			.shapes
+			.iter()
+			.position(|shape| {
+				let bounds = shape.shape.visual_bounding_rect();
+				bounds.contains(pos) && bounds.width() < 40.0
+			})
+			.expect("floating control");
+		hover.drop_without_applying_deltas();
+		assert!(
+			code < control,
+			"the block's deferred text must paint under the control, not over it"
+		);
+		let output = frame(vec![
+			egui::Event::PointerMoved(pos),
+			egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Primary,
+				pressed: true,
+				modifiers: egui::Modifiers::NONE,
+			},
+			egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			},
+		]);
+		let copied: Vec<String> = output
+			.platform_output
+			.commands
+			.iter()
+			.filter_map(|command| match command {
+				egui::OutputCommand::CopyText(text) => Some(text.clone()),
+				_ => None,
+			})
+			.collect();
+		output.drop_without_applying_deltas();
+		assert_eq!(
+			copied,
+			vec!["first line of code\nsecond line\nthird line".to_owned()]
+		);
 	}
 	#[test]
 	fn mass_mentions_render_as_pills_only_for_exact_plain_tokens() {
@@ -3402,7 +3733,7 @@ mod tests {
 		output.drop_without_applying_deltas();
 		let mut job = LayoutJob::default();
 		ctx.run_ui(Default::default(), |ui| {
-			parsed.append_inline_preview(&mut job, ui, &[], &[], &[]);
+			parsed.append_inline_preview(&mut job, ui, &[], None, &[], &[]);
 		})
 		.drop_without_applying_deltas();
 		assert!(job.text.contains("ago"), "relative style: {}", job.text);
@@ -3424,6 +3755,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		let parsed = Formatted::parse("<@42> <@!43> `<@44>` \\<@45>");
 		for dark in [true, false] {
@@ -3473,6 +3805,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		for source in [
 			"<@42> test \u{1f610} test <@42>",
@@ -3562,6 +3895,7 @@ mod tests {
 			webhook: false,
 			kind: Default::default(),
 			discriminator: 0,
+			primary_guild: None,
 		}];
 		for key in [egui::Key::Tab, egui::Key::Enter] {
 			let mut output = ctx.run_ui(

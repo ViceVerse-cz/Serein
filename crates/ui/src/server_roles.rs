@@ -302,7 +302,7 @@ impl RolesUi {
 						);
 						response.widget_info(|| {
 							egui::WidgetInfo::selected(
-								egui::WidgetType::Button,
+								egui::Role::Button,
 								true,
 								self.selected == Some(role.id),
 								&role.name,
@@ -472,7 +472,7 @@ impl RolesUi {
 						);
 						response.widget_info(|| {
 							egui::WidgetInfo::labeled(
-								egui::WidgetType::Button,
+								egui::Role::Button,
 								true,
 								format!("Edit role {}", role.name),
 							)
@@ -777,7 +777,7 @@ impl RolesUi {
 					.inner;
 				response.widget_info(|| {
 					egui::WidgetInfo::selected(
-						egui::WidgetType::RadioButton,
+						egui::Role::RadioButton,
 						choice == 0 || enhanced,
 						style == choice,
 						name,
@@ -1288,7 +1288,7 @@ fn tab_button(ui: &mut egui::Ui, tab: &mut Tab, value: Tab, label: &str) {
 	}
 	response.widget_info(|| {
 		egui::WidgetInfo::selected(
-			egui::WidgetType::RadioButton,
+			egui::Role::RadioButton,
 			ui.is_enabled(),
 			*tab == value,
 			label,
@@ -1302,9 +1302,7 @@ fn boxed_icon(ui: &mut egui::Ui, icon: icons::Icon, label: &str) -> egui::Respon
 		egui::Button::new(()).fill(colors.raised).corner_radius(8),
 	);
 	icons::paint(ui.painter(), icon, response.rect.shrink(9.0), colors.text);
-	response.widget_info(|| {
-		egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
-	});
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
 	response.on_hover_text(label)
 }
 fn colored_name(ui: &mut egui::Ui, text: &str, colors: Colors, size: f32) {

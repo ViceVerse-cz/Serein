@@ -75,6 +75,21 @@ pub fn execute(
 				}
 			}
 			Action::Delete => Outcome::Deleted,
+			Action::CreateThread { name, .. } => {
+				*next_id += 1;
+				let mut thread = source.clone();
+				thread.id = Id(*next_id);
+				thread.kind = 11;
+				thread.parent_id = Some(source.id);
+				thread.name = name;
+				thread.last_message = None;
+				thread.message_count = Some(0);
+				thread.icon = None;
+				Outcome::Channel {
+					channel: Box::new(thread),
+					permissions: None,
+				}
+			}
 			Action::Mute(mute) => Outcome::Preferences {
 				muted: Some(mute != Mute::Unmute),
 				level: None,
@@ -94,6 +109,7 @@ pub fn execute(
 				level: Some(level),
 				mute_until: None,
 			},
+			Action::HideMuted(hide) => Outcome::HideMuted(hide),
 			action => {
 				let mut updated = source.clone();
 				let permission_source = if matches!(action, Action::Create { .. }) {
@@ -237,5 +253,126 @@ mod tests {
 		let created = Id(next_id);
 		run(&mut state, created, Action::Delete, &mut next_id);
 		assert!(state.channel(created).is_none());
+	}
+
+	#[test]
+	fn offline_threads_are_started_from_a_message_and_closed_from_the_channel_list() {
+		let mut state = test_support::chat_demo_state();
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let mut next_id = 300_000;
+		let parent = Id(20);
+		assert!(state.can_create_thread(parent));
+		let starter = state
+			.timeline
+			.iter()
+			.find(|message| message.channel == parent)
+			.map(|message| message.id)
+			.expect("the fixture channel has messages");
+		let client_core::Command::ChannelAction {
+			guild,
+			channel,
+			request,
+			action,
+		} = state
+			.request_channel_action(
+				parent,
+				Action::CreateThread {
+					name: "Synthetic thread".into(),
+					message: Some(starter),
+				},
+			)
+			.expect("a thread may be started here")
+		else {
+			panic!("channel command")
+		};
+		let event = execute(&state, guild, channel, request, action, &mut next_id);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event,
+		});
+		let thread = Id(next_id);
+		let created = state.channel(thread).expect("the thread joined navigation");
+		assert_eq!(created.parent_id, Some(parent));
+		assert_eq!(created.kind, 11);
+		assert!(
+			state.is_thread_channel(thread) && state.can_manage_post(thread),
+			"a text-channel thread supports the same close/delete actions as a forum post"
+		);
+		let client_core::Command::ChannelAction {
+			guild,
+			channel,
+			request,
+			action,
+		} = state
+			.request_channel_action(thread, Action::Delete)
+			.expect("a managed thread can be deleted")
+		else {
+			panic!("channel command")
+		};
+		let event = execute(&state, guild, channel, request, action, &mut next_id);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event,
+		});
+		assert!(state.channel(thread).is_none());
+	}
+
+	#[test]
+	fn starter_loads_once_for_the_selected_text_channel_thread() {
+		use client_core::{Command, Envelope, Event};
+		let mut state = test_support::chat_demo_state();
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		let thread = state
+			.channels
+			.iter()
+			.find(|c| {
+				matches!(c.kind, 10..=12)
+					&& c.parent_id
+						.and_then(|id| state.channel(id))
+						.is_some_and(|p| matches!(p.kind, 0 | 5))
+			})
+			.map(|c| (c.id, c.parent_id.unwrap()))
+			.expect("fixture thread");
+		state.select(thread.0);
+		assert!(state.can_read_history(thread.1), "parent history readable");
+		assert!(state.demo || state.gateway_connected, "session usable");
+		let Some(Command::ThreadStarter {
+			thread: id,
+			parent,
+			request,
+		}) = state.request_thread_starter()
+		else {
+			panic!("a text-channel thread requests its starter");
+		};
+		assert_eq!((id, parent), thread);
+		assert!(
+			state.request_thread_starter().is_none(),
+			"one request at a time"
+		);
+		let message = test_support::message(id.0, parent);
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::ThreadStarter {
+				thread: id,
+				request,
+				result: Ok(message),
+			},
+		});
+		assert_eq!(state.thread_starter().map(|m| m.id), Some(id));
+		assert!(
+			state.request_thread_starter().is_none(),
+			"loaded starters are not refetched"
+		);
+		state.select(parent);
+		assert!(
+			state.thread_starter().is_none(),
+			"a text channel has no starter"
+		);
 	}
 }

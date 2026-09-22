@@ -9,7 +9,7 @@ use std::{
 };
 use tokio::{fs::File, io::AsyncReadExt, sync::watch};
 
-pub const MAX_BYTES: u64 = 20_000_000;
+pub const MAX_BYTES: u64 = 500_000_000;
 pub const MAX_FILES: usize = 10;
 pub const MAX_TOTAL_BYTES: u64 = MAX_BYTES;
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -51,7 +51,7 @@ impl Source {
 			return Err("Choose a regular file");
 		}
 		if metadata.len() == 0 || metadata.len() > MAX_BYTES {
-			return Err("Choose a nonempty file up to 20 MB");
+			return Err("Choose a nonempty file up to Discord's 500 MB maximum");
 		}
 		Ok(Self {
 			bytes: None,
@@ -66,11 +66,33 @@ impl Source {
 	/// A pasted PNG stays in bounded session memory, never in a temporary file.
 	pub fn pasted_png(bytes: Vec<u8>) -> Result<Self, &'static str> {
 		if bytes.is_empty() || bytes.len() as u64 > MAX_BYTES {
-			return Err("Choose a nonempty image up to 20 MB");
+			return Err("Choose a nonempty image up to Discord's 500 MB maximum");
 		}
 		Ok(Self {
 			path: PathBuf::new(),
 			filename: "pasted-image.png".into(),
+			size: bytes.len() as u64,
+			modified: SystemTime::UNIX_EPOCH,
+			bytes: Some(bytes.into()),
+		})
+	}
+	/// Public artwork already decoded and validated by the host image worker.
+	pub fn image_bytes(filename: String, bytes: Vec<u8>) -> Result<Self, &'static str> {
+		let valid_name = filename
+			.strip_prefix("emoji-")
+			.or_else(|| filename.strip_prefix("sticker-"))
+			.and_then(|name| name.rsplit_once('.'))
+			.is_some_and(|(id, extension)| {
+				matches!(extension, "png" | "gif")
+					&& id.bytes().all(|b| b.is_ascii_digit())
+					&& id.parse::<model::Id>().is_ok_and(|id| id.0 != 0)
+			});
+		if !valid_name || filename.len() > 40 || bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
+			return Err("Choose valid emoji or sticker artwork up to 8 MiB");
+		}
+		Ok(Self {
+			path: PathBuf::new(),
+			filename,
 			size: bytes.len() as u64,
 			modified: SystemTime::UNIX_EPOCH,
 			bytes: Some(bytes.into()),
@@ -143,6 +165,7 @@ struct Target {
 
 /// What the staged files belong to: a message in an existing channel, or a new forum post.
 enum Destination {
+	Interaction(client_core::interactions::Request),
 	Send {
 		nonce: String,
 		reply: Option<client_core::Reply>,
@@ -157,6 +180,12 @@ impl Destination {
 	/// Report a failure as the event the caller's flow expects; no write was accepted.
 	fn failed(self, channel: model::Id, failure: Failure) -> Event {
 		match self {
+			Self::Interaction(request) => {
+				Event::Interaction(client_core::interactions::Event::Submitted {
+					nonce: request.nonce,
+					result: Err(failure),
+				})
+			}
 			Self::Send { nonce, .. } => Event::SendResult {
 				nonce,
 				result: Err(failure),
@@ -197,11 +226,33 @@ impl DiscordApi {
 		mut cancel: watch::Receiver<bool>,
 	) -> Event {
 		let (channel, content, target) = match command {
+			Command::Interaction(request) => {
+				if !request.valid()
+					|| !crate::interactions::valid_uploads(&request, sources.len())
+					|| !crate::interactions::valid_file_types(&request, &sources)
+					|| !matches!(&request.data, client_core::interactions::Data::Modal { .. })
+				{
+					progress
+						.send_replace(Status::Failed("Invalid modal upload; reselect the files"));
+					return Event::Interaction(client_core::interactions::Event::Submitted {
+						nonce: request.nonce,
+						result: Err(Failure::ProtocolAt(
+							"Invalid modal upload; reselect the files",
+						)),
+					});
+				}
+				(
+					request.channel_id,
+					String::new(),
+					Destination::Interaction(request),
+				)
+			}
 			Command::Send {
 				channel,
 				content,
 				nonce,
 				reply,
+				sticker: None,
 			} => (channel, content, Destination::Send { nonce, reply }),
 			// A forum post is one request: its files are staged before the thread exists.
 			Command::CreatePost {
@@ -234,7 +285,9 @@ impl DiscordApi {
 			|| sources.len() > MAX_FILES
 			|| sources.iter().map(Source::size).sum::<u64>() > MAX_TOTAL_BYTES
 		{
-			let failure = Failure::ProtocolAt("Choose up to 10 files totaling at most 20 MB");
+			let failure = Failure::ProtocolAt(
+				"Choose up to 10 files totaling at most 500 MB; account limits may be lower",
+			);
 			progress.send_replace(Status::Failed(failure.label()));
 			return target.failed(channel, failure);
 		}
@@ -277,11 +330,23 @@ impl DiscordApi {
 		};
 		progress.send_replace(Status::Sending);
 		match target {
+			Destination::Interaction(request) => {
+				let result = tokio::select! {
+					biased;
+					_ = cancelled(&mut cancel) => Err(Failure::Ambiguous),
+					result = self.interaction(&request,Some(attachment)) => result,
+				};
+				progress.send_replace(status(&result));
+				Event::Interaction(client_core::interactions::Event::Submitted {
+					nonce: request.nonce,
+					result,
+				})
+			}
 			Destination::Send { nonce, reply } => {
 				let result = tokio::select! {
 					biased;
 					_ = cancelled(&mut cancel) => Err(Failure::Ambiguous),
-					result = self.send_message(channel, &content, &nonce, reply, Some(attachment)) => result,
+					result = self.send_message(channel, &content, &nonce, reply, Some(attachment), None) => result,
 				};
 				progress.send_replace(status(&result));
 				Event::SendResult { nonce, result }
@@ -535,6 +600,27 @@ async fn cancelled(cancel: &mut watch::Receiver<bool>) {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn image_sources_only_accept_bounded_generated_raster_names() {
+		for name in ["emoji-7.gif", "sticker-8.png"] {
+			let source = super::Source::image_bytes(name.into(), vec![1]).unwrap();
+			assert_eq!(source.filename(), name);
+			assert_eq!(source.size(), 1);
+		}
+		for name in [
+			"emoji-0.png",
+			"emoji-+7.png",
+			"sticker-7.json",
+			"../emoji-7.png",
+			"sticker-7.png?x=1",
+		] {
+			assert!(super::Source::image_bytes(name.into(), vec![1]).is_err());
+		}
+		assert!(super::Source::image_bytes("emoji-7.png".into(), vec![]).is_err());
+		assert!(
+			super::Source::image_bytes("emoji-7.png".into(), vec![0; 8 * 1024 * 1024 + 1]).is_err()
+		);
+	}
 	use super::*;
 	use client_core::{Reply, auth::SessionSecret};
 	use std::sync::{
@@ -583,6 +669,7 @@ mod tests {
 	}
 	fn command() -> Command {
 		Command::Send {
+			sticker: None,
 			channel: model::Id(1),
 			content: String::new(),
 			nonce: "synthetic-upload".into(),
@@ -707,6 +794,8 @@ mod tests {
 			.open(&empty.0)
 			.await
 			.unwrap();
+		large.set_len(20_000_001).await.unwrap();
+		assert!(Source::inspect(empty.0.clone()).await.is_ok());
 		large.set_len(MAX_BYTES + 1).await.unwrap();
 		assert!(Source::inspect(empty.0.clone()).await.is_err());
 		drop(large);

@@ -28,6 +28,7 @@ pub mod server_integrations;
 pub mod server_invites;
 pub mod server_roles;
 pub mod server_settings;
+pub mod stickers;
 pub mod stream;
 pub mod thread_members;
 pub mod threads;
@@ -75,6 +76,8 @@ fn decode_limited<T: serde::de::DeserializeOwned>(
 }
 #[derive(Clone, Deserialize)]
 pub struct UserDto {
+	#[serde(default)]
+	pub premium_type: model::Patch<u8>,
 	pub id: Id,
 	pub username: String,
 	#[serde(default)]
@@ -85,9 +88,43 @@ pub struct UserDto {
 	pub avatar: Option<String>,
 	#[serde(default)]
 	pub discriminator: String,
+	#[serde(default)]
+	pub primary_guild: Option<PrimaryGuildDto>,
+	/// Older normal-session payloads duplicated `primary_guild` under this name.
+	#[serde(default)]
+	pub clan: Option<PrimaryGuildDto>,
+}
+#[derive(Clone, Deserialize)]
+pub struct PrimaryGuildDto {
+	pub identity_guild_id: Option<Id>,
+	pub identity_enabled: Option<bool>,
+	pub tag: Option<String>,
+	pub badge: Option<String>,
+}
+impl PrimaryGuildDto {
+	fn into_model(self) -> Option<model::ClanTag> {
+		let tag = self.tag?;
+		if self.identity_enabled == Some(false)
+			|| tag.trim().is_empty()
+			|| tag.chars().count() > 4
+			|| tag.len() > 16
+		{
+			return None;
+		}
+		Some(model::ClanTag {
+			guild: self.identity_guild_id?,
+			tag,
+			badge: self.badge.filter(|hash| model::valid_avatar_hash(hash)),
+		})
+	}
 }
 impl UserDto {
 	pub fn into_model(self) -> User {
+		let primary_guild = self
+			.primary_guild
+			.and_then(PrimaryGuildDto::into_model)
+			.or_else(|| self.clan.and_then(PrimaryGuildDto::into_model))
+			.map(Box::new);
 		User {
 			kind: if self.bot {
 				model::AccountKind::Bot
@@ -109,6 +146,7 @@ impl UserDto {
 				.ok()
 				.filter(|n| *n <= 9999)
 				.unwrap_or(0),
+			primary_guild,
 		}
 	}
 }
@@ -395,6 +433,8 @@ mod channel_tests {
 #[derive(Deserialize)]
 pub struct GuildDto {
 	#[serde(default)]
+	pub stickers: Option<stickers::Catalog>,
+	#[serde(default)]
 	pub emojis: Option<reactions::CustomEmojiList>,
 	pub id: Id,
 	#[serde(default)]
@@ -561,6 +601,10 @@ impl Ready {
 				}
 				Ok(Guild {
 					emojis: g.emojis.map(|emojis| emojis.0),
+					stickers: g
+						.stickers
+						.map(|list| stickers::guild_catalog(list.0, g.id))
+						.transpose()?,
 					id: g.id,
 					name: g.name.chars().take(128).collect(),
 					icon: g.icon.filter(|hash| model::valid_avatar_hash(hash)),
@@ -611,11 +655,11 @@ pub struct MessageDto {
 	#[serde(default)]
 	pub poll: Option<extra_content::Object>,
 	#[serde(default)]
-	pub sticker_items: Option<extra_content::Array>,
+	pub sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
-	pub stickers: Option<extra_content::Array>,
+	pub stickers: Patch<stickers::MessageStickers>,
 	#[serde(default)]
-	pub components: Option<extra_content::Array>,
+	pub components: Option<model::ComponentList>,
 	#[serde(default)]
 	pub reactions: reactions::ReactionList,
 	pub id: Id,
@@ -717,11 +761,11 @@ struct SnapshotBody {
 	#[serde(default)]
 	poll: Option<extra_content::Object>,
 	#[serde(default)]
-	sticker_items: Option<extra_content::Array>,
+	sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
-	stickers: Option<extra_content::Array>,
+	stickers: Patch<stickers::MessageStickers>,
 	#[serde(default)]
-	components: Option<extra_content::Array>,
+	components: Option<model::ComponentList>,
 }
 impl MessageDto {
 	pub fn into_model(mut self) -> Message {
@@ -768,13 +812,21 @@ impl MessageDto {
 			author.kind = model::AccountKind::App;
 		}
 		Message {
+			flags: self.flags,
+			ephemeral: self.flags & (1 << 6) != 0,
 			extra_content: model::ExtraContent {
 				poll: self.poll.is_some(),
-				sticker_items: self.sticker_items.is_some_and(|a| a.0),
-				stickers: self.stickers.is_some_and(|a| a.0),
-				components: self.components.is_some_and(|a| a.0),
+				sticker_items: matches!(&self.sticker_items, Patch::Value(a) if a.1),
+				stickers: matches!(&self.stickers, Patch::Value(a) if a.1),
+				components: self.components.as_ref().is_some_and(|a| !a.0.is_empty()),
 				components_v2: snapshot_flags.unwrap_or(self.flags) & (1 << 15) != 0,
 			},
+			sticker_items: match stickers::preferred(self.sticker_items, self.stickers) {
+				Patch::Value(a) => a.0,
+				_ => Vec::new(),
+			},
+			components: self.components.map_or_else(Vec::new, |a| a.0),
+			application_id: self.application_id,
 			reactions: Some(self.reactions.0),
 			id: self.id,
 			channel: self.channel_id,
@@ -817,13 +869,15 @@ impl MessageDto {
 #[derive(Deserialize)]
 pub struct PatchDto {
 	#[serde(default)]
+	pub application_id: Patch<Id>,
+	#[serde(default)]
 	pub poll: Patch<extra_content::Object>,
 	#[serde(default)]
-	pub sticker_items: Patch<extra_content::Array>,
+	pub sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
-	pub stickers: Patch<extra_content::Array>,
+	pub stickers: Patch<stickers::MessageStickers>,
 	#[serde(default)]
-	pub components: Patch<extra_content::Array>,
+	pub components: Patch<model::ComponentList>,
 	#[serde(default)]
 	pub reactions: Patch<reactions::ReactionList>,
 	pub id: Id,
@@ -844,16 +898,36 @@ pub struct PatchDto {
 impl PatchDto {
 	pub fn into_model(self) -> MessagePatch {
 		MessagePatch {
+			sticker_items: stickers::items_patch(&self.sticker_items, &self.stickers),
+			flags: self.flags.clone(),
+			application_id: self.application_id,
 			extra_content: model::ExtraContentPatch {
 				poll: extra_content::object_patch(self.poll),
-				sticker_items: extra_content::array_patch(self.sticker_items),
-				stickers: extra_content::array_patch(self.stickers),
-				components: extra_content::array_patch(self.components),
+				sticker_items: match &self.sticker_items {
+					Patch::Absent => Patch::Absent,
+					Patch::Null => Patch::Null,
+					Patch::Value(s) => Patch::Value(s.1),
+				},
+				stickers: match &self.stickers {
+					Patch::Absent => Patch::Absent,
+					Patch::Null => Patch::Null,
+					Patch::Value(s) => Patch::Value(s.1),
+				},
+				components: match &self.components {
+					Patch::Absent => Patch::Absent,
+					Patch::Null => Patch::Null,
+					Patch::Value(c) => Patch::Value(!c.0.is_empty()),
+				},
 				components_v2: match &self.flags {
 					Patch::Absent => Patch::Absent,
 					Patch::Null => Patch::Null,
 					Patch::Value(flags) => Patch::Value(flags & (1 << 15) != 0),
 				},
+			},
+			components: match self.components {
+				Patch::Absent => Patch::Absent,
+				Patch::Null => Patch::Null,
+				Patch::Value(c) => Patch::Value(c.0),
 			},
 			reactions: match self.reactions {
 				Patch::Absent => Patch::Absent,
@@ -1457,11 +1531,27 @@ mod member_tests {
 		.unwrap();
 		let user = user.into_model();
 		assert!(user.avatar.is_none());
+		assert!(user.primary_guild.is_none());
 		assert_eq!(user.avatar_key(), "default-1");
 		assert_eq!(
 			user.avatar_url(),
 			"https://cdn.discordapp.com/embed/avatars/1.png"
 		);
+		let tagged: UserDto = decode(br#"{"id":"7","username":"Tagged","primary_guild":{"identity_guild_id":"9","identity_enabled":true,"tag":"SPDY","badge":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}"#).unwrap();
+		let tag = tagged.into_model().primary_guild.unwrap();
+		assert_eq!((tag.guild, tag.tag.as_str()), (Id(9), "SPDY"));
+		assert_eq!(
+			tag.badge.as_deref(),
+			Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		);
+		let legacy: UserDto = decode(br#"{"id":"7","username":"Legacy","primary_guild":{"identity_enabled":false,"tag":"OFF"},"clan":{"identity_guild_id":"10","identity_enabled":true,"tag":"OLD","badge":"../invalid"}}"#).unwrap();
+		let tag = legacy.into_model().primary_guild.unwrap();
+		assert_eq!(
+			(tag.guild, tag.tag.as_str(), tag.badge),
+			(Id(10), "OLD", None)
+		);
+		let oversized: UserDto = decode(br#"{"id":"7","username":"Oversized","primary_guild":{"identity_guild_id":"9","identity_enabled":true,"tag":"ABCDE"}}"#).unwrap();
+		assert!(oversized.into_model().primary_guild.is_none());
 		let member: MemberItem = decode(br#"{"member":{"user":{"id":"5","username":"Presence"},"presence":{"status":"idle","activities":[{"type":0,"name":"Game","state":"ignored"},{"type":4,"name":"Custom Status","state":" semifluent in computerspeak ","emoji":{"name":"\ud83c\udf19","id":null}}]}}}"#).unwrap();
 		let member = member.into_model().unwrap();
 		assert_eq!(member.status.as_deref(), Some("idle"));

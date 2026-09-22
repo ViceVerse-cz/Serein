@@ -32,22 +32,28 @@ enum Tab {
 	Online,
 	All,
 	Pending,
+	Restricted,
 	Add,
 }
 impl Friends {
 	fn matches(&self, state: &State, user: &model::User, query: &str) -> bool {
-		if self.tab != Tab::All {
+		if self.tab == Tab::Online {
 			let (status, _, _) = profiles::presence(state, user.id, None);
 			if !matches!(status, Some("online" | "idle" | "dnd")) {
 				return false;
 			}
 		}
+		let username = if self.tab == Tab::Restricted {
+			state
+				.restricted_user(user.id)
+				.map(|(_, name, _)| name.as_str())
+		} else {
+			state.friend_username(user.id)
+		};
 		query.is_empty()
 			|| user.name.to_lowercase().contains(query)
 			|| state.user_display_name(user).to_lowercase().contains(query)
-			|| state
-				.friend_username(user.id)
-				.is_some_and(|name| name.to_lowercase().contains(query))
+			|| username.is_some_and(|name| name.to_lowercase().contains(query))
 	}
 	fn sync_list(&mut self, state: &State) -> bool {
 		let key = ListKey {
@@ -62,10 +68,18 @@ impl Friends {
 		}
 		let query = self.query.trim().to_lowercase();
 		// ponytail: cold Online builds scan bounded presences; index only if rebuilds warrant it.
-		let mut friends: Vec<_> = state
-			.friends()
-			.filter(|user| self.matches(state, user, &query))
-			.collect();
+		let mut friends: Vec<_> = if self.tab == Tab::Restricted {
+			state
+				.restricted_users()
+				.map(|(user, _, _)| user)
+				.filter(|user| self.matches(state, user, &query))
+				.collect()
+		} else {
+			state
+				.friends()
+				.filter(|user| self.matches(state, user, &query))
+				.collect()
+		};
 		friends.sort_unstable_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
 		// At most MAX_RELATIONSHIPS fixed-size IDs (32,000 bytes); no profiles retained.
 		self.list = friends.into_iter().map(|user| user.id).collect();
@@ -334,6 +348,7 @@ impl MessagingUi {
 						(Tab::Online, "Online"),
 						(Tab::All, "All"),
 						(Tab::Pending, "Pending"),
+						(Tab::Restricted, "Blocked & Ignored"),
 						(Tab::Add, "Add Friend"),
 					] {
 						if ui
@@ -401,10 +416,10 @@ impl MessagingUi {
 				ui.label(
 					RichText::new(format!(
 						"{} \u{2014} {}",
-						if self.friends.tab == Tab::All {
-							"All friends"
-						} else {
-							"Online"
+						match self.friends.tab {
+							Tab::All => "All friends",
+							Tab::Restricted => "Blocked & ignored",
+							_ => "Online",
 						},
 						self.friends.list.len()
 					))
@@ -416,15 +431,28 @@ impl MessagingUi {
 				if self.friends.list.is_empty() {
 					ui.add_space(20.0);
 					ui.label(
-						RichText::new(if !state.friends_known() {
-							"Friends are not available yet."
-						} else if !self.friends.query.trim().is_empty() {
-							"No friends match your search."
-						} else if self.friends.tab == Tab::All {
-							"No friends yet."
-						} else {
-							"No friends are currently online."
-						})
+						RichText::new(
+							if self.friends.tab == Tab::Restricted
+								&& !state.restricted_users_known()
+							{
+								"Blocked and ignored users are not available yet."
+							} else if self.friends.tab != Tab::Restricted && !state.friends_known()
+							{
+								"Friends are not available yet."
+							} else if !self.friends.query.trim().is_empty() {
+								if self.friends.tab == Tab::Restricted {
+									"No blocked or ignored users match your search."
+								} else {
+									"No friends match your search."
+								}
+							} else if self.friends.tab == Tab::Restricted {
+								"No blocked or ignored users."
+							} else if self.friends.tab == Tab::All {
+								"No friends yet."
+							} else {
+								"No friends are currently online."
+							},
+						)
 						.color(colors.muted),
 					);
 					return;
@@ -432,17 +460,30 @@ impl MessagingUi {
 				self.scroll
 					.attach(
 						ui,
-						"friends-list",
+						if self.friends.tab == Tab::Restricted {
+							"restricted-users"
+						} else {
+							"friends-list"
+						},
 						egui::ScrollArea::vertical().auto_shrink([false, false]),
 					)
 					.show_rows(ui, 64.0, self.friends.list.len(), |ui, range| {
 						for index in range {
-							let Some(user) = state.friend(self.friends.list[index]) else {
+							let restricted = (self.friends.tab == Tab::Restricted)
+								.then(|| state.restricted_user(self.friends.list[index]))
+								.flatten();
+							let user = restricted
+								.map(|(user, _, _)| user)
+								.or_else(|| state.friend(self.friends.list[index]));
+							let Some(user) = user else {
 								continue;
 							};
 							ui.push_id(user.id.0, |ui| {
-								let (status, custom, activities) =
-									profiles::presence(state, user.id, None);
+								let (status, custom, activities) = if restricted.is_some() {
+									(None, None, &[][..])
+								} else {
+									profiles::presence(state, user.id, None)
+								};
 								let (rect, response) = ui.allocate_exact_size(
 									vec2(ui.available_width(), 64.0),
 									egui::Sense::click(),
@@ -460,11 +501,7 @@ impl MessagingUi {
 									);
 								}
 								response.widget_info(|| {
-									egui::WidgetInfo::labeled(
-										egui::WidgetType::Button,
-										true,
-										&user.name,
-									)
+									egui::WidgetInfo::labeled(egui::Role::Button, true, &user.name)
 								});
 								user_menu::show(
 									&response,
@@ -505,7 +542,11 @@ impl MessagingUi {
 									))
 									.truncate(),
 								);
-								let subtitle = profiles::subtitle(custom, activities)
+								let subtitle = restricted
+									.map(|(_, _, ignored)| {
+										if *ignored { "Ignored" } else { "Blocked" }.into()
+									})
+									.or_else(|| profiles::subtitle(custom, activities))
 									.unwrap_or_else(|| {
 										status
 											.map_or(
@@ -548,18 +589,20 @@ impl MessagingUi {
 										.layout(egui::Layout::left_to_right(egui::Align::Center)),
 								);
 								actions.spacing_mut().item_spacing.x = 8.0;
-								let message = actions
-									.add_enabled_ui(dm.is_some(), |ui| {
-										icons::button(ui, Icon::Threads, 36.0, "Message")
-									})
-									.inner;
-								if message
-									.on_disabled_hover_text(
-										"No open direct message with this friend",
-									)
-									.clicked()
-								{
-									selected = dm.map(|c| c.id);
+								if restricted.is_none() {
+									let message = actions
+										.add_enabled_ui(dm.is_some(), |ui| {
+											icons::button(ui, Icon::Threads, 36.0, "Message")
+										})
+										.inner;
+									if message
+										.on_disabled_hover_text(
+											"No open direct message with this friend",
+										)
+										.clicked()
+									{
+										selected = dm.map(|c| c.id);
+									}
 								}
 								let more = icons::button(&mut actions, Icon::More, 36.0, "More");
 								egui::Popup::menu(&more).show(|ui| {
@@ -600,20 +643,32 @@ mod tests {
 	// Keep the pre-cache selection algorithm as a behavioral oracle.
 	fn uncached(friends: &Friends, state: &State) -> Vec<Id> {
 		let query = friends.query.trim().to_lowercase();
-		let mut rows: Vec<_> = state
-			.friends()
-			.filter(|user| {
-				let (status, _, _) = profiles::presence(state, user.id, None);
-				(friends.tab == Tab::All || matches!(status, Some("online" | "idle" | "dnd")))
-					&& (user.name.to_lowercase().contains(&query)
-						|| state
-							.user_display_name(user)
-							.to_lowercase()
-							.contains(&query) || state
-						.friend_username(user.id)
-						.is_some_and(|name| name.to_lowercase().contains(&query)))
-			})
-			.collect();
+		let filter = |user: &&model::User| {
+			let (status, _, _) = profiles::presence(state, user.id, None);
+			(friends.tab != Tab::Online || matches!(status, Some("online" | "idle" | "dnd")))
+				&& (user.name.to_lowercase().contains(&query)
+					|| state
+						.user_display_name(user)
+						.to_lowercase()
+						.contains(&query)
+					|| if friends.tab == Tab::Restricted {
+						state
+							.restricted_user(user.id)
+							.map(|(_, name, _)| name.as_str())
+					} else {
+						state.friend_username(user.id)
+					}
+					.is_some_and(|name| name.to_lowercase().contains(&query)))
+		};
+		let mut rows: Vec<_> = if friends.tab == Tab::Restricted {
+			state
+				.restricted_users()
+				.map(|(user, _, _)| user)
+				.filter(filter)
+				.collect()
+		} else {
+			state.friends().filter(filter).collect()
+		};
 		rows.sort_unstable_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
 		rows.into_iter().map(|user| user.id).collect()
 	}
@@ -640,7 +695,7 @@ mod tests {
 			assert!(friends.sync_list(&state));
 			check_cache(&mut friends, &state);
 		}
-		for tab in [Tab::All, Tab::Online] {
+		for tab in [Tab::All, Tab::Online, Tab::Restricted] {
 			friends.tab = tab;
 			for query in ["", "robin.synthetic", " CASEY ", "no-match"] {
 				friends.query = query.into();
@@ -928,11 +983,22 @@ mod tests {
 			let text = render(&mut view, &mut state);
 			assert!(text.iter().any(|s| s == "Morgan"));
 			assert!(!text.iter().any(|s| s == "Avery"));
+			view.friends.tab = Tab::Restricted;
+			view.friends.query.clear();
+			let text = render(&mut view, &mut state);
+			assert!(text.iter().any(|s| s == "Blocked Example"));
+			assert!(text.iter().any(|s| s == "Blocked"));
+			assert!(text.iter().any(|s| s == "Ignored Example"));
+			assert!(text.iter().any(|s| s == "Ignored"));
+			view.friends.query = "ignored.synthetic".into();
+			let text = render(&mut view, &mut state);
+			assert!(!text.iter().any(|s| s == "Blocked Example"));
+			assert!(text.iter().any(|s| s == "Ignored Example"));
 			view.friends.query = "no-match".into();
 			assert!(
 				render(&mut view, &mut state)
 					.iter()
-					.any(|s| s == "No requests match your search.")
+					.any(|s| s == "No blocked or ignored users match your search.")
 			);
 			view.friends.tab = Tab::Add;
 			assert!(

@@ -429,6 +429,7 @@ mod tests {
 	fn own_data(name: &str) -> Box<UserProfile> {
 		Box::new(UserProfile {
 			user: model::User {
+				primary_guild: None,
 				id: Id(1),
 				name: name.into(),
 				avatar: None,
@@ -732,6 +733,7 @@ mod tests {
 		fn profile(user: Id) -> Box<UserProfile> {
 			Box::new(UserProfile {
 				user: model::User {
+					primary_guild: None,
 					id: user,
 					name: "Synthetic".into(),
 					avatar: None,
@@ -758,6 +760,7 @@ mod tests {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
 			guilds: vec![model::Guild {
+				stickers: None,
 				emojis: None,
 				id: Id(9),
 				name: "Synthetic".into(),

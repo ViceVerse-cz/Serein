@@ -10,16 +10,15 @@ demo = []
 
 [dependencies]
 extensions.workspace = true
-egui.workspace = true
+egui = { workspace = true, features = ["bytemuck"] }
 model.workspace = true
 client-core.workspace = true
 pulldown-cmark = { version = "=0.13.4", default-features = false }
 url.workspace = true
-time.workspace = true
+time = { workspace = true, features = ["local-offset"] }
 unicode-segmentation = "=1.13.3"
 unicode-bidi = "=0.3.18"
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
-tz-rs = "0.7.3"
 ruzstd = { version = "0.9.0", default-features = false, features = ["std"] }
 
 [dev-dependencies]
@@ -39,4 +38,8 @@ required-features = ["demo"]
 
 [[example]]
 name = "profile_layout"
+required-features = ["demo"]
+
+[[example]]
+name = "thread_navigation"
 required-features = ["demo"]

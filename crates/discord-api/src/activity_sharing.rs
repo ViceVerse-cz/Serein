@@ -51,6 +51,52 @@ impl DiscordApi {
 		}
 		Ok(saved.enabled)
 	}
+
+	pub async fn account_presence(&self) -> Result<model::OwnPresence, Failure> {
+		let settings = self.read_activity_sharing().await?;
+		activity_sharing::account_presence(&settings).map_err(|_| {
+			Failure::ProtocolAt("Discord status settings are unavailable or unsupported")
+		})
+	}
+
+	/// Writes the account status Discord restores on the next sign-in. Same value is not patched again.
+	pub async fn set_account_presence(&self, presence: &model::OwnPresence) -> Result<(), Failure> {
+		if !presence.valid() {
+			return Err(Failure::Protocol);
+		}
+		let current = self.read_activity_sharing().await?;
+		let existing =
+			activity_sharing::account_presence(&current).map_err(|_| Failure::Protocol)?;
+		if existing.status == presence.status
+			&& existing.custom_status == presence.custom_status
+			&& existing.expires_at_ms == presence.expires_at_ms
+		{
+			return Ok(());
+		}
+		let patch = activity_sharing::encode_account_presence(&current, presence)
+			.map_err(|_| Failure::Protocol)?;
+		let bytes = self
+			.request_limited(
+				Method::PATCH,
+				"/users/@me/settings-proto/1",
+				Some(serde_json::json!({"settings":patch,"required_data_version":current.version})),
+				MAX_SETTINGS_RESPONSE,
+			)
+			.await?;
+		let saved = activity_sharing::decode_response(&bytes).map_err(|_| {
+			Failure::ProtocolAt("Discord status was not confirmed; refresh before retrying")
+		})?;
+		let confirmed = activity_sharing::account_presence(&saved).map_err(|_| {
+			Failure::ProtocolAt("Discord status was not confirmed; refresh before retrying")
+		})?;
+		if confirmed.status != presence.status || confirmed.custom_status != presence.custom_status
+		{
+			return Err(Failure::ProtocolAt(
+				"Discord status was not confirmed; refresh before retrying",
+			));
+		}
+		Ok(())
+	}
 }
 
 #[cfg(test)]

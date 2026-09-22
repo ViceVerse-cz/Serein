@@ -434,7 +434,7 @@ impl PermissionsUi {
 								let accessible = format!("{name} {label}");
 								response.widget_info(|| {
 									egui::WidgetInfo::selected(
-										egui::WidgetType::RadioButton,
+										egui::Role::RadioButton,
 										ui.is_enabled(),
 										value == choice,
 										&accessible,
