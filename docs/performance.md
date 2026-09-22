@@ -1535,3 +1535,55 @@ latency. That check used debug demo builds, a local HTML page and a synthetic
 XHR-header handoff without sending the request, on Weston 15 inside an isolated
 1280×960 Xvfb display. The native window remained after handoff on the baseline
 and disappeared with the fix. This was not a live Discord login test.
+
+## SDK account/channel data and invalidation events - September 22, 2026
+
+Baseline: previous SDK head `e1a403b`. After: runtime source `3d94c76`.
+Windows x64, Ryzen 7 7800X3D, 32 GB RAM, Rust 1.98.1, serialized Cargo builds.
+The after revision also integrates main through `14e72bf`; this is a branch
+comparison, not an isolated attribution of size or timing to the four new grants.
+
+Release sandbox workload: `cargo run --locked --release -p extensions --example
+sdk_check -- <wasm-directory>`. One warmup, five batches of 20 calls, median per
+call. Each call creates a fresh sandbox and compiles its module; package parsing,
+process startup, snapshot construction and worker IO are excluded. No Cargo build
+ran during the timed calls. Baseline used the committed baseline modules extracted
+to a temporary directory; only its committed-module rows are compared below.
+
+| Committed-module workload | Before, us | After, us | Delta |
+| --- | ---: | ---: | ---: |
+| Protector activation | 1,066.635 | 1,171.655 | +105.020 / +9.85% |
+| Image-sharing activation | 1,007.975 | 1,061.295 | +53.320 / +5.29% |
+| Counter create event | 1,572.145 | 1,669.315 | +97.170 / +6.18% |
+| Toolbox dashboard, 18,296-byte snapshot | 3,772.155 | 4,312.075 | +539.920 / +14.31% |
+
+The first three committed modules are unchanged. Toolbox grew from 173,786 to
+198,370 Wasm bytes and now builds the additional data summaries; its JSON package
+is 574,992 bytes. It remains optional, not embedded in the production app.
+The after rebuilt Toolbox run measured 4,036.745 us for identical Wasm, illustrating
+run-order/host noise. These single-session samples show no established stable
+regression or improvement; the observed dashboard median rose about 0.54 ms.
+New account/server/channel groups and all 11 event kinds were separately checked
+in the real sandbox; the timed dashboard uses the same legacy snapshot shape.
+
+The collector retains its 64 KiB serialized snapshot limit, allocating from
+already-loaded data only at invocation. Per-group byte/item bounds and the shared
+32-item / 64 KiB event queue remain explicit. Detailed events coalesce per kind;
+no background timer or persistent plugin process was added. Native screenshots,
+CPU/RSS and frame latency are unavailable: native automation is disabled, `orca`
+is absent, and browser CUA initialization fails with OS error 3. No live-account
+or native UI performance claim is made.
+
+Both standard `cargo xtask package` builds passed, including voice and excluding
+demo/developer-session features. One package per revision; .NET ZipFile Optimal
+compression of the full `dist` directory. Affected release crates were rebuilt
+from each worktree to avoid stale shared-target artifacts.
+
+| Artifact, bytes | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 70,361,600 | 71,060,992 | +699,392 / +0.9940% |
+| Installed package | 74,463,927 | 75,163,319 | +699,392 / +0.9392% |
+| Portable ZIP | 42,471,539 | 42,708,512 | +236,973 / +0.5580% |
+
+The OpenH264 LNK4255 warning was nonfatal in both builds. `makensis` is unavailable,
+so these are unsigned portable packages, with no NSIS installer measurement.
