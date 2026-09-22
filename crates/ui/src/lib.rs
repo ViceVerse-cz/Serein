@@ -2261,6 +2261,7 @@ impl MessagingUi {
 		});
 		let paste_enabled = keyboard_enabled
 			&& !editing_here
+			&& self.slash_commands.active.is_none()
 			&& !self.ime_active
 			&& !ime_this_frame
 			&& ctx.memory(|m| m.has_focus(composer_id));
@@ -2432,13 +2433,17 @@ impl MessagingUi {
 			},
 		);
 		let can_attach = !editing_here
+			&& self.slash_commands.active.is_none()
 			&& state.can_attach(channel)
 			&& !self.upload_busy
 			&& self.attachment_files.len() < 10;
+		let application_command = !editing_here && self.slash_commands.active.is_some();
 		let can_send = if let Some((edit_channel, message)) = editing_key {
 			state.freshness == Freshness::Fresh
 				&& state.can_edit(edit_channel, message)
 				&& count_before > 0
+		} else if application_command {
+			self.slash_commands.can_submit(state, channel)
 		} else {
 			state.can_send(channel)
 				&& (self.attachment.is_none() || state.can_attach(channel))
@@ -2488,7 +2493,7 @@ impl MessagingUi {
                                     ui,
                                     icons::Icon::Send,
                                     28.0,
-                                    if editing_here { "Save edit" } else { "Send message" },
+                                    if editing_here { "Save edit" } else if application_command { "Send command" } else { "Send message" },
                                 )
                             })
                             .inner;
@@ -2501,7 +2506,7 @@ impl MessagingUi {
                             );
                         }
                         let pick = ui
-                            .add_enabled_ui(!self.ime_active && !ime_this_frame, |ui| {
+                            .add_enabled_ui(!application_command && !self.ime_active && !ime_this_frame, |ui| {
                                 self.emoji_picker.image_sharing_enabled = self.image_sharing_enabled;
                                 self.emoji_picker
                                     .show(ui, state, channel, &mut self.avatars, commands)
@@ -2557,6 +2562,17 @@ impl MessagingUi {
                         let edit = ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.vertical(|ui| {
                                 ui.set_width(ui.available_width());
+                        if application_command {
+                            return ui.scope(|ui| {
+                                ui.add_enabled_ui(keyboard_enabled, |ui| {
+                                    self.slash_commands.composer(ui, state, channel, self.keybinds.chord(model::KeybindAction::SendMessage));
+                                });
+                                if self.slash_commands.active.is_none() {
+                                    ctx.memory_mut(|memory| memory.request_focus(composer_id));
+                                }
+                                self.slash_commands.show(ui, composer_anchor, state, channel, &mut self.avatars);
+                            }).response;
+                        }
                         let composer_escape = keyboard_enabled
                             && !self.ime_active
                             && !ime_this_frame
@@ -2794,14 +2810,16 @@ impl MessagingUi {
                         if !editing_here && (!new_draft.is_empty() || restore_empty_draft) {
                             state.drafts.insert(channel, new_draft);
                         }
-                        edit
+                        edit.response
                             }).inner
                         }).inner;
                         if std::mem::take(&mut self.slash_commands.retry)
                             && let Some(command) = state.request_application_commands(channel, true) {
                             commands.push(command);
                         }
-                        let slash_run = std::mem::take(&mut self.slash_commands.run);
+                        let slash_run = std::mem::take(&mut self.slash_commands.run)
+                            && keyboard_enabled && !self.ime_active && !ime_this_frame
+                            && self.slash_commands.can_submit(state, channel);
                         if (send || slash_run) && !cancel_edit {
                             if let Some((edit_channel, message, content)) = &editing {
                                 if state.freshness == Freshness::Fresh
@@ -2822,14 +2840,17 @@ impl MessagingUi {
                                 self.timeline.follow_latest();
                                 commands.push(command);
                             }
-                            edit.request_focus();
+                            if !application_command { edit.request_focus(); }
+                            if application_command && self.slash_commands.active.is_none() {
+                                ctx.memory_mut(|memory| memory.request_focus(composer_id));
+                            }
                         }
                     });
                 });
                 if !editing_here { self.slash_status(ui, state, channel); }
                 if let Some((edit_channel, message)) = editing_key {
                     if state.freshness != Freshness::Fresh || !state.can_edit(edit_channel, message) { ui.weak("Editing this message is unavailable. Your text is kept until you cancel."); }
-                } else if !state.can_send(channel) {
+                } else if !state.can_send(channel) && !application_command {
                     ui.weak("Sending messages is unavailable in this conversation. Your draft is kept.");
                 } else if self.attachment.is_some() && !state.can_attach(channel) {
                     ui.weak("Attaching files is unavailable here. Remove the attachment to send only text.");

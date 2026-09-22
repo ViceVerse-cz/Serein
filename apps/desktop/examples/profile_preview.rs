@@ -339,7 +339,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo --output=PATH.png [--page=stickers|slash-commands|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
+		return Err("Usage: profile_preview --demo --output=PATH.png [--page=stickers|slash-commands|slash-command-options|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
 	}
 	let output = PathBuf::from(value("--output=").ok_or("Missing --output=PATH.png")?);
 	let page = value("--page=").unwrap_or("profile").to_owned();
@@ -348,6 +348,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		"profile"
 			| "stickers"
 			| "slash-commands"
+			| "slash-command-options"
 			| "profile-card"
 			| "member-tags"
 			| "dm-tags"
@@ -358,7 +359,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "server"
 			| "server-engagement"
 	) {
-		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, extensions, slash-commands, server or server-engagement".into());
+		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, extensions, slash-commands, slash-command-options, server or server-engagement".into());
+	}
+	let slash_command = value("--command=").unwrap_or("help").to_owned();
+	if !matches!(slash_command.as_str(), "help" | "weather") {
+		return Err("Command fixture must be help or weather".into());
 	}
 	let width: f32 = value("--width=").unwrap_or("1120").parse()?;
 	let height: f32 = value("--height=").unwrap_or("760").parse()?;
@@ -391,7 +396,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			} else {
 				egui::ThemePreference::Dark
 			});
-			let mut state = if page == "slash-commands" {
+			let mut state = if matches!(page.as_str(), "slash-commands" | "slash-command-options") {
 				slash_demo::preview()
 			} else {
 				test_support::demo_state()
@@ -428,6 +433,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				// State is primed above; the normal offline messaging surface renders the list.
 			} else if page == "slash-commands" {
 				messaging.preview_slash_commands();
+			} else if page == "slash-command-options" {
+				let channel = state.selected.expect("synthetic command conversation");
+				state.drafts.insert(channel, format!("/{slash_command}"));
+				messaging.preview_slash_command_options(&mut state);
 			} else if page == "stickers" {
 				test_support::seed_stickers(&mut state);
 				messaging.preview_sticker_picker();

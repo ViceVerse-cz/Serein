@@ -21,6 +21,13 @@ pub fn catalog(guild: Option<Id>) -> Vec<schema::Command> {
 			"description":"Check whether the app is responding.", "contexts":[0,1]
 		},
 		{
+			"id":"99104", "version":"1", "application_id":"99000", "name":"help",
+			"description":"Get help with the app's commands.", "contexts":[0,1],
+			"options":[
+				{"type":3,"name":"input","description":"The command or topic to learn about.","max_length":100}
+			]
+		},
+		{
 			"id":"99103", "version":"1", "application_id":"99010", "name":"canvas",
 			"description":"Create something with Studio.", "contexts":[0,1],
 			"options":[{"type":2,"name":"image","description":"Image tools.","options":[
@@ -114,7 +121,7 @@ pub fn respond(state: &mut State, request: interactions::Request) {
 pub fn check() {
 	let mut state = preview();
 	let channel = state.selected.unwrap();
-	assert_eq!(state.application_commands.commands.len(), 3);
+	assert_eq!(state.application_commands.commands.len(), 4);
 	assert_eq!(state.drafts[&channel], "/");
 	assert!(
 		state

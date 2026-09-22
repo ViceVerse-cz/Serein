@@ -7,8 +7,11 @@ keyboard selection and a bounded argument form. Local commands are `/gif`, `/sti
 `/me`, `/msg`, `/shrug`, `/spoiler`, `/tableflip` and `/unflip`; they reuse existing
 message, DM and media flows. Scheduled sends (`/schedule`) are not implemented.
 Select with Up/Down and Tab/Enter, or click a row. Selection fills the composer;
-the next explicit send executes a built-in, while app commands open typed fields and a
-Run command button. `/msg @user [text]` opens an existing DM (or a new friend DM) and
+the next explicit send executes a built-in. App command arguments appear as compact
+labeled fields inside the composer, with contextual help above it. Use the composer
+Send button or the configured Send Message shortcut (Enter by default) in a text
+argument to submit; Tab moves between fields. Click
+the command name to return to the picker. `/msg @user [text]` opens an existing DM (or a new friend DM) and
 stages text for review without replacing an occupied destination draft. `/gif [query]`
 and `/sticker [query]` open the existing picker. Failed app submissions expose the
 error and retain fields behind Edit again; retries require another explicit submission.

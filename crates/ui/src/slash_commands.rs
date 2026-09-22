@@ -1,4 +1,4 @@
-//! Composer command discovery and one session-only application command form.
+//! Composer command discovery and session-only inline application arguments.
 use crate::{avatars::Avatars, design, icons, mentions, slash_builtin};
 use client_core::{Command, State};
 use model::{
@@ -51,6 +51,9 @@ pub(super) struct Menu {
 	enabled: bool,
 	follow: bool,
 	rect: Option<egui::Rect>,
+	argument_rect: Option<egui::Rect>,
+	focus_argument: bool,
+	focused_option: usize,
 	pub active: Option<Active>,
 	pub error: Option<&'static str>,
 	pub run: bool,
@@ -65,6 +68,7 @@ impl Menu {
 		}
 		self.enabled = false;
 		self.rect = None;
+		self.argument_rect = None;
 		self.run = false;
 		self.retry = false;
 	}
@@ -86,6 +90,9 @@ impl Menu {
 				.is_some_and(|response| {
 					self.rect
 						.is_some_and(|rect| rect.contains(response.rect.center()))
+						|| self
+							.argument_rect
+							.is_some_and(|rect| rect.contains(response.rect.center()))
 				})
 	}
 	pub fn refresh(&mut self, state: &State, channel: Id, draft: &str, enabled: bool) {
@@ -260,8 +267,7 @@ impl Menu {
 				return None;
 			}
 			if self.active.is_some() {
-				// Field controls own Enter (for example opening a choice dropdown).
-				// Composer Enter and the Run button are the explicit submit paths.
+				// Inline fields own Enter; choice controls must open their dropdown first.
 				return None;
 			}
 			if self.items.is_empty() {
@@ -298,6 +304,8 @@ impl Menu {
 		});
 		self.error = None;
 		self.dismissed = false;
+		self.focus_argument = self.active.is_some();
+		self.focused_option = 0;
 		Some(draft.chars().count())
 	}
 	pub fn show(
@@ -322,7 +330,7 @@ impl Menu {
 			.collect::<std::collections::BTreeSet<_>>()
 			.len();
 		let height = if self.active.is_some() {
-			310.0
+			84.0
 		} else {
 			((self.items.len().clamp(2, 6) as f32) * ROW + groups.min(3) as f32 * 32.0 + 16.0)
 				.min(420.0)
@@ -353,13 +361,10 @@ impl Menu {
 					egui::StrokeKind::Inside,
 				);
 				if self.active.is_some() {
-					let mut body = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(12.0)));
+					let mut body = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(10.0)));
 					body.set_clip_rect(rect.shrink(1.0));
-					if body.small_button("← Commands").clicked() {
-						self.active = None;
-						self.error = None;
-					}
-					self.form(&mut body, state, channel, height - 60.0);
+					body.spacing_mut().item_spacing.y = 4.0;
+					self.help(&mut body, state, channel);
 					return;
 				}
 				let rail_rect = egui::Rect::from_min_size(rect.min, egui::vec2(RAIL, height));
@@ -543,89 +548,298 @@ impl Menu {
 		self.rect = Some(response.response.rect);
 		picked
 	}
-	fn form(&mut self, ui: &mut egui::Ui, state: &State, channel: Id, height: f32) {
+	pub fn can_submit(&self, state: &State, channel: Id) -> bool {
+		self.active.as_ref().is_some_and(|active| {
+			!state.interactions.busy()
+				&& state.interactions.modal.is_none()
+				&& state.application_commands.channel == Some(channel)
+				&& !state.application_commands.loading
+				&& state.application_commands.error.is_none()
+				&& state.application_commands.commands.iter().any(|command| {
+					command.id == active.id
+						&& state.can_use_application_command(channel, command)
+						&& command.options_at(&active.path).is_ok_and(|options| {
+							!options
+								.iter()
+								.any(|option| option.kind == 11 && option.required)
+						})
+				})
+		})
+	}
+	/// Replace the draft editor with a command token and compact, wrapping argument chips.
+	pub fn composer(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		channel: Id,
+		send_chord: &model::KeyChord,
+	) -> bool {
+		self.argument_rect = None;
 		let Some(active) = self.active.as_mut() else {
-			return;
+			return false;
 		};
-		let Some(command) = state
+		let command = state
 			.application_commands
 			.commands
 			.iter()
-			.find(|command| command.id == active.id)
-		else {
-			ui.weak("This command is no longer available. Refresh apps and choose it again.");
-			return;
-		};
-		if !state.can_use_application_command(channel, command) {
-			ui.colored_label(design::palette(ui).danger, NO_PERMISSION);
-			return;
+			.find(|command| command.id == active.id);
+		let allowed =
+			command.is_some_and(|command| state.can_use_application_command(channel, command));
+		let options = command.and_then(|command| command.options_at(&active.path).ok());
+		if allowed && let Some(options) = options {
+			active
+				.values
+				.retain(|(name, _)| options.iter().any(|option| option.name == *name));
 		}
-		ui.horizontal(|ui| {
-			ui.strong(format!("/{}", active.name));
-			ui.weak(&command.application_name);
-		});
-		let Ok(options) = command.options_at(&active.path) else {
-			ui.weak("Choose a subcommand.");
-			return;
-		};
-		active
-			.values
-			.retain(|(name, _)| options.iter().any(|option| option.name == *name));
-		egui::ScrollArea::vertical()
-			.id_salt(("slash-arguments", active.id))
-			.max_height((height - 85.0).max(36.0))
+		let colors = design::palette(ui);
+		let width = ui.available_width();
+		let focus_first = allowed && std::mem::take(&mut self.focus_argument);
+		let mut back = false;
+		let response = egui::ScrollArea::vertical()
+			.id_salt(("inline-arguments", channel, active.id))
+			.max_height(112.0)
+			// Request room from the bottom panel; auto-shrink keeps short commands compact.
+			.min_scrolled_height(112.0)
+			.auto_shrink([false, true])
 			.show(ui, |ui| {
-				if options.is_empty() {
-					ui.weak(&command.description);
-				}
-				egui::Grid::new(("slash-fields", active.id))
-					.num_columns(2)
-					.spacing([12.0, 8.0])
-					.show(ui, |ui| {
-						for option in options {
-							ui.label(format!(
-								"{}{}",
-								option.name,
-								if option.required { " *" } else { "" }
-							))
-							.on_hover_text(&option.description);
-							if !active.values.iter().any(|(name, _)| *name == option.name) {
-								active.values.push((option.name.clone(), String::new()));
-							}
-							let value = &mut active
-								.values
-								.iter_mut()
-								.find(|(name, _)| *name == option.name)
-								.unwrap()
-								.1;
-							argument(ui, option, value, state, channel);
-							ui.end_row();
+				ui.horizontal_wrapped(|ui| {
+					ui.spacing_mut().item_spacing = egui::vec2(6.0, 5.0);
+					let name_id = egui::Id::unique(("slash-command", channel, active.id));
+					let no_options = options.is_some_and(<[_]>::is_empty);
+					let name_submit = no_options
+						&& allowed && ui.memory(|memory| memory.has_focus(name_id))
+						&& inline_submit(ui, send_chord);
+					let mut name_job = egui::text::LayoutJob::simple_singleline(
+						format!("/{}", active.name),
+						egui::FontId::new(14.0, design::semibold_family(ui.ctx())),
+						colors.text_strong,
+					);
+					name_job.wrap.max_width = (width - 12.0).max(1.0);
+					name_job.wrap.max_rows = 1;
+					let galley = ui.fonts_mut(|fonts| fonts.layout_job(name_job));
+					let (rect, _) = ui.allocate_exact_size(
+						egui::vec2((galley.size().x + 12.0).min(width), 30.0),
+						egui::Sense::hover(),
+					);
+					let name = ui.interact(rect, name_id, egui::Sense::click());
+					ui.painter().galley(
+						rect.min + egui::vec2(6.0, (rect.height() - galley.size().y) * 0.5),
+						galley,
+						colors.text_strong,
+					);
+					if no_options && allowed {
+						if focus_first {
+							name.request_focus();
 						}
+						self.run |= name_submit;
+					}
+					back = name.clicked() && !name_submit;
+					name.widget_info(|| {
+						egui::WidgetInfo::labeled(
+							egui::Role::Button,
+							true,
+							format!("/{} · choose a different command", active.name),
+						)
 					});
+					name.on_hover_text(format!("/{} · choose a different command", active.name));
+					if !allowed {
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(if command.is_some() {
+									NO_PERMISSION
+								} else {
+									"Command unavailable. Your arguments are kept."
+								})
+								.color(colors.muted),
+							)
+							.truncate(),
+						);
+						return;
+					}
+					for (index, option) in options.unwrap_or_default().iter().enumerate() {
+						if !active.values.iter().any(|(name, _)| *name == option.name) {
+							active.values.push((option.name.clone(), String::new()));
+						}
+						let value = &mut active
+							.values
+							.iter_mut()
+							.find(|(name, _)| *name == option.name)
+							.unwrap()
+							.1;
+						let label =
+							format!("{}{}", option.name, if option.required { " *" } else { "" });
+						let label_width = ui
+							.fonts_mut(|fonts| {
+								fonts.layout_no_wrap(
+									label.clone(),
+									egui::FontId::proportional(12.0),
+									colors.muted,
+								)
+							})
+							.size()
+							.x
+							.min(140.0);
+						let value_width =
+							(value.chars().count() as f32 * 7.0 + 25.0).clamp(90.0, 200.0);
+						let chip_width = (label_width + value_width + 22.0).min(width);
+						ui.allocate_ui_with_layout(
+							egui::vec2(chip_width, 30.0),
+							egui::Layout::left_to_right(egui::Align::Center),
+							|ui| {
+								let frame = egui::Frame::new()
+									.fill(colors.hover)
+									.corner_radius(4)
+									.inner_margin(egui::Margin::symmetric(7, 3));
+								frame.show(ui, |ui| {
+									ui.set_width((chip_width - 14.0).max(1.0));
+									ui.spacing_mut().item_spacing.x = 6.0;
+									ui.add_sized(
+										egui::vec2(
+											label_width.min(ui.available_width() * 0.5),
+											22.0,
+										),
+										egui::Label::new(
+											egui::RichText::new(label)
+												.size(12.0)
+												.color(colors.muted),
+										)
+										.truncate(),
+									)
+									.on_hover_text(&option.description);
+									let id = egui::Id::unique((
+										"slash-argument",
+										channel,
+										active.id,
+										&option.name,
+									));
+									let had_focus = ui.memory(|memory| memory.has_focus(id));
+									if had_focus
+										&& option.choices.is_empty() && option.kind != 5
+										&& inline_submit(ui, send_chord)
+									{
+										self.run = true;
+									}
+									let response = argument(ui, option, value, state, channel, id);
+									if focus_first && index == 0 {
+										response.request_focus();
+									}
+									if response.gained_focus() || (focus_first && index == 0) {
+										response.scroll_to_me(None);
+									}
+									if response.has_focus() || response.hovered() {
+										self.focused_option = index;
+									}
+								});
+							},
+						);
+					}
+				})
 			});
-		if let Some(error) = self.error.or(state.interactions.error) {
-			ui.colored_label(design::palette(ui).danger, error);
+		self.argument_rect = Some(response.inner_rect);
+		if back {
+			self.active = None;
+			self.error = None;
+			self.dismissed = false;
+			self.focus_argument = false;
 		}
+		true
+	}
+	fn help(&mut self, ui: &mut egui::Ui, state: &State, channel: Id) {
+		let Some(active) = self.active.as_ref() else {
+			return;
+		};
+		let command = state
+			.application_commands
+			.commands
+			.iter()
+			.find(|command| command.id == active.id);
+		let option = command
+			.and_then(|command| command.options_at(&active.path).ok())
+			.and_then(|options| options.get(self.focused_option));
 		ui.horizontal(|ui| {
 			if ui
-				.add_enabled(
-					!state.interactions.busy()
-						&& !options
-							.iter()
-							.any(|option| option.kind == 11 && option.required),
-					egui::Button::new("Run command"),
-				)
+				.small_button("×")
+				.on_hover_text("Close help · keep arguments")
 				.clicked()
 			{
-				self.run = true;
+				self.dismissed = true;
 			}
-			if state.interactions.busy() {
-				ui.weak("Waiting for the application…");
-			} else {
-				ui.weak("* required");
+			ui.add(
+				egui::Label::new(design::semibold(
+					ui,
+					option.map_or(active.name.as_str(), |option| option.name.as_str()),
+					13.0,
+				))
+				.truncate(),
+			);
+			if let Some(option) = option {
+				ui.weak(if option.required {
+					"required"
+				} else {
+					"optional"
+				});
+			}
+			if let Some(command) = command {
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					ui.add(
+						egui::Label::new(
+							egui::RichText::new(&command.application_name)
+								.size(11.0)
+								.color(design::palette(ui).muted),
+						)
+						.truncate(),
+					)
+					.on_hover_text(&command.application_name);
+				});
 			}
 		});
+		let description = option
+			.map(|option| option.description.as_str())
+			.or_else(|| command.map(|command| command.description.as_str()))
+			.unwrap_or("This command is unavailable. Your arguments are kept.");
+		ui.add(egui::Label::new(egui::RichText::new(description).size(13.0)).truncate())
+			.on_hover_text(description);
+		let error = if command
+			.is_some_and(|command| !state.can_use_application_command(channel, command))
+		{
+			Some(NO_PERMISSION)
+		} else {
+			self.error.or(state.interactions.error)
+		};
+		let hint = if let Some(error) = error {
+			error
+		} else if state.interactions.busy() {
+			"Waiting for the application…"
+		} else if option.is_some_and(|option| option.kind == 11) {
+			"Attachment arguments are not supported yet."
+		} else {
+			"Tab to move between arguments · Send when ready · Esc to close help"
+		};
+		ui.add(
+			egui::Label::new(
+				egui::RichText::new(hint)
+					.size(11.0)
+					.color(if error.is_some() {
+						design::palette(ui).danger
+					} else {
+						design::palette(ui).muted
+					}),
+			)
+			.truncate(),
+		)
+		.on_hover_text(hint);
 	}
+}
+
+fn inline_submit(ui: &egui::Ui, chord: &model::KeyChord) -> bool {
+	!egui::Popup::is_any_open(ui.ctx())
+		&& ui.input_mut(|input| {
+			!input
+				.events
+				.iter()
+				.any(|event| matches!(event, egui::Event::Ime(_)))
+				&& crate::keybinds::pressed_exact(input, chord)
+		})
 }
 
 fn rail_button(
@@ -815,14 +1029,16 @@ fn argument(
 	value: &mut String,
 	state: &State,
 	channel: Id,
-) {
+	id: egui::Id,
+) -> egui::Response {
 	if !option.choices.is_empty() || option.kind == 5 {
 		let label = option
 			.choices
 			.iter()
 			.find(|choice| value_text(&choice.value) == *value)
 			.map_or(value.as_str(), |choice| choice.name.as_str());
-		egui::ComboBox::from_id_salt(("slash-choice", &option.name))
+		egui::ComboBox::from_id_salt(id)
+			.width(ui.available_width())
 			.selected_text(if label.is_empty() { "Choose…" } else { label })
 			.show_ui(ui, |ui| {
 				ui.selectable_value(value, String::new(), "Not set");
@@ -833,14 +1049,17 @@ fn argument(
 				for choice in &option.choices {
 					ui.selectable_value(value, value_text(&choice.value), &choice.name);
 				}
-			});
+			})
+			.response
 	} else if matches!(option.kind, 6..=9) {
 		ui.horizontal(|ui| {
-			ui.add(
+			let response = ui.add(
 				egui::TextEdit::singleline(value)
+					.id(id)
+					.frame(egui::Frame::NONE)
 					.hint_text("ID or choose…")
 					.char_limit(22)
-					.desired_width((ui.available_width() - 45.0).max(70.0)),
+					.desired_width((ui.available_width() - 25.0).max(24.0)),
 			);
 			ui.menu_button("▾", |ui| {
 				egui::ScrollArea::vertical()
@@ -885,20 +1104,54 @@ fn argument(
 						}
 					});
 			});
-		});
+			response
+		})
+		.inner
 	} else if option.kind == 11 {
-		ui.weak("Attachment arguments are not supported yet.");
+		ui.add(egui::Label::new("Unavailable").truncate())
+			.on_hover_text("Attachment arguments are not supported yet.")
 	} else {
 		ui.add(
 			egui::TextEdit::singleline(value)
-				.hint_text(&option.description)
+				.id(id)
+				.frame(egui::Frame::NONE)
+				.hint_text("value")
 				.char_limit(usize::from(option.max_length.unwrap_or(6000)).min(6000))
 				.desired_width(ui.available_width()),
-		);
+		)
 	}
 }
 
 impl crate::MessagingUi {
+	#[cfg(feature = "demo")]
+	pub fn preview_slash_command_options(&mut self, state: &mut State) {
+		if !state.demo || self.slash_commands.active.is_some() {
+			return;
+		}
+		let Some(channel) = state.selected else {
+			return;
+		};
+		let Some(draft) = state.drafts.get(&channel) else {
+			return;
+		};
+		self.slash_commands.refresh(state, channel, draft, true);
+		let Some(name) = draft.strip_prefix('/') else {
+			return;
+		};
+		let Some(pick) = self
+			.slash_commands
+			.items
+			.iter()
+			.find(|pick| pick.id.is_some() && pick.name == name.trim_end())
+			.cloned()
+		else {
+			return;
+		};
+		let remaining = client_core::MAX_DRAFT_BYTES.saturating_sub(state.draft_bytes());
+		self.slash_commands
+			.accept(pick, state.drafts.get_mut(&channel).unwrap(), remaining);
+		self.preview_slash_commands();
+	}
 	pub(super) fn slash_status(&mut self, ui: &mut egui::Ui, state: &mut State, channel: Id) {
 		if self.slash_commands.channel != Some(channel)
 			|| self.slash_commands.generation != state.generation
@@ -939,6 +1192,7 @@ impl crate::MessagingUi {
 				self.draft_changes.push(channel);
 				self.slash_commands.active = Some(active);
 				self.slash_commands.dismissed = false;
+				self.slash_commands.focus_argument = true;
 			}
 		});
 	}
@@ -1045,9 +1299,30 @@ mod tests {
 					},
 					|ui| {
 						ui.add_space(610.0);
-						ctx.memory_mut(|memory| {
-							memory.request_focus(ui.make_persistent_id("message-input"))
-						});
+						let editor = view.slash_commands.active.as_ref().map_or_else(
+							|| ui.make_persistent_id("message-input"),
+							|active| {
+								state
+									.application_commands
+									.commands
+									.iter()
+									.find(|command| command.id == active.id)
+									.and_then(|command| command.options_at(&active.path).ok())
+									.and_then(|options| options.first())
+									.map_or_else(
+										|| egui::Id::unique(("slash-command", channel, active.id)),
+										|option| {
+											egui::Id::unique((
+												"slash-argument",
+												channel,
+												active.id,
+												&option.name,
+											))
+										},
+									)
+							},
+						);
+						ctx.memory_mut(|memory| memory.request_focus(editor));
 						view.composer(ui, state, channel, &ctx, &mut commands);
 					},
 				);
@@ -1154,6 +1429,10 @@ mod tests {
 			assert!(frame(&mut view, &mut state, Some((egui::Key::Enter, false))).is_empty());
 			assert_eq!(state.drafts[&channel], "/ask ");
 			assert!(view.slash_commands.active.is_some());
+			assert!(
+				view.slash_commands.can_submit(&state, channel),
+				"application-only permission must enable the normal Send action"
+			);
 			ctx.run_ui(
 				egui::RawInput {
 					events: vec![egui::Event::Key {
@@ -1180,9 +1459,11 @@ mod tests {
 			);
 			let rect = view.slash_commands.rect.unwrap();
 			assert!(
-				rect.right() <= width + 1.0 && rect.height() <= 420.0,
-				"bounded form: {rect:?}"
+				rect.right() <= width + 1.0 && rect.height() <= 90.0,
+				"compact contextual help: {rect:?}"
 			);
+			let inline = view.slash_commands.argument_rect.unwrap();
+			assert!(inline.width() <= width && inline.height() <= 112.0);
 			assert!(frame(&mut view, &mut state, Some((egui::Key::Enter, false))).is_empty());
 			assert!(
 				view.slash_commands.error.is_some(),
@@ -1194,6 +1475,7 @@ mod tests {
 			frame(&mut view, &mut state, None);
 			assert!(view.slash_commands.items.is_empty());
 			assert!(view.slash_commands.applications.is_empty());
+			assert!(!view.slash_commands.can_submit(&state, channel));
 			assert!(frame(&mut view, &mut state, Some((egui::Key::Enter, false))).is_empty());
 			assert_eq!(Some(state.status), view.slash_commands.error);
 			assert_eq!(state.drafts[&channel], "/ask ");
@@ -1240,6 +1522,42 @@ mod tests {
 			assert_eq!(
 				view.slash_commands.active.as_ref().unwrap().values[0].1,
 				"keep me"
+			);
+			state.application_commands.loading = false;
+			state.interactions = Default::default();
+			state.application_commands.commands[0].options = (0..25)
+				.map(|index| CommandOption {
+					kind: 3,
+					name: format!("option_{index}"),
+					description: "Synthetic argument".into(),
+					..Default::default()
+				})
+				.collect();
+			state.drafts.insert(channel, "/ask ".into());
+			view.slash_commands.active = Some(Active {
+				id: Id(987),
+				name: "ask".into(),
+				path: vec![],
+				values: vec![],
+			});
+			for _ in 0..3 {
+				frame(&mut view, &mut state, None);
+			}
+			let inline = view.slash_commands.argument_rect.unwrap();
+			assert!(
+				inline.width() <= width && (100.0..=112.0).contains(&inline.height()),
+				"25 options stay inside the composer: {inline:?}"
+			);
+			state.application_commands.commands[0].options.clear();
+			view.slash_commands.focus_argument = true;
+			frame(&mut view, &mut state, None);
+			assert!(view.slash_commands.can_submit(&state, channel));
+			assert!(
+				matches!(
+					frame(&mut view, &mut state, Some((egui::Key::Enter, false))).as_slice(),
+					[Command::Interaction(_)]
+				),
+				"a command without options accepts Send from its focused token"
 			);
 			view.slash_commands.suspend(&state, Id(9999));
 			assert!(view.slash_commands.active.is_none());
