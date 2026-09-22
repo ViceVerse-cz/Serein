@@ -6,9 +6,8 @@ use serde::{
 };
 const MAX_ENTRIES: usize = model::account::MAX_ENTRIES;
 
-/// Discord sends cursors as snowflake strings, but some non-channel read-state kinds carry a
-/// bare integer `0`; either spelling of zero means "no cursor".
-fn cursor<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Id>, D::Error> {
+/// Read-state cursors and user guild settings can use integers; zero means no cursor/guild.
+pub(crate) fn optional_id<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Id>, D::Error> {
 	#[derive(Deserialize)]
 	#[serde(untagged)]
 	enum Cursor {
@@ -54,7 +53,7 @@ pub struct Entry {
 	pub id: Id,
 	#[serde(rename = "type", default)]
 	pub kind: u8,
-	#[serde(default, deserialize_with = "cursor")]
+	#[serde(default, deserialize_with = "optional_id")]
 	pub last_message_id: Option<Id>,
 	#[serde(default, alias = "badge_count")]
 	pub mention_count: u32,
@@ -104,7 +103,7 @@ impl<'de> Deserialize<'de> for Snapshot {
 #[derive(Deserialize)]
 pub struct Ack {
 	pub channel_id: Id,
-	#[serde(deserialize_with = "cursor")]
+	#[serde(deserialize_with = "optional_id")]
 	pub message_id: Option<Id>,
 	#[serde(default)]
 	pub manual: bool,

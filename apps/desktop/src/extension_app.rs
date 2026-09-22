@@ -288,7 +288,12 @@ pub fn snapshot(
 			let mut budget = 6 * 1024;
 			let users = members
 				.into_iter()
-				.flat_map(|m| m.rows.iter().flatten().map(|m| &m.user))
+				.flat_map(|m| {
+					m.slots.iter().flatten().filter_map(|slot| match slot {
+						model::MemberSlot::Person(member) => Some(&member.user),
+						_ => None,
+					})
+				})
 				.chain(
 					recipients
 						.filter(|_| members.is_none())
@@ -317,9 +322,13 @@ pub fn snapshot(
 			let statuses = members
 				.into_iter()
 				.flat_map(|m| {
-					m.rows
+					m.slots
 						.iter()
 						.flatten()
+						.filter_map(|slot| match slot {
+							model::MemberSlot::Person(member) => Some(member),
+							_ => None,
+						})
 						.filter_map(|m| m.status.as_deref().map(|status| (m.user.id, status)))
 				})
 				.chain(
@@ -655,7 +664,14 @@ mod tests {
 			guild: Some(Id(10)),
 			channel: Id(20),
 			request: state.member_request,
-			rows: vec![Some(member.clone()), Some(member)],
+			start: 0,
+			slots: vec![
+				Some(model::MemberSlot::Person(member.clone())),
+				Some(model::MemberSlot::Person(member)),
+			],
+			lazy: false,
+			groups: vec![],
+			ranges: vec![],
 			total: 2,
 			freshness: Freshness::Loading,
 		});
@@ -696,7 +712,6 @@ mod tests {
 	#[test]
 	fn extension_app_timeline_excludes_private_deleted_and_oversized_rows() {
 		let mut state = test_support::demo_state();
-		state.set_preserve_deleted_messages(true);
 		let caps = manifest(vec![Capability::Timeline]);
 		for (id, text, ephemeral) in [
 			(2001, "private".into(), true),

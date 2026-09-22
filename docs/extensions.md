@@ -210,15 +210,15 @@ observer returns an empty output, and it saves no conversation data.
 
 Actions are invoked by a message context-menu item, composer tool or panel
 button. A plugin may also declare one `activation` action that runs in the worker
-on enable/account load. With explicit `deleted_messages` consent, its boolean
-`preserve_deleted_messages` output enables session-only retention of loaded deleted
-messages. Deleted text is red by default. Hover and a local context menu can toggle
-that highlight or remove the retained row. They never call Discord. Live service
-actions stay unavailable. Default deletion, tombstone reconciliation and disk-cache
-removal remain unchanged. Disabling clears
-retained deleted content across active and dormant windows. Logout, lost channel
-access and ordinary timeline eviction also clear it. The same 500-row / 4 MiB
-per-window budget includes both live and retained deleted payloads. Input is restricted to the granted context and bounded form values.
+on enable/account load. Deleted messages that were already loaded stay in the
+session window without an extension. Deleted text is red by default. Hover and a
+local context menu can toggle that highlight or remove the retained row. They
+never call Discord. Live service actions stay unavailable. Tombstone
+reconciliation and disk-cache removal remain unchanged. Logout, lost channel
+access and ordinary timeline eviction also clear retained deleted content. The
+same 500-row / 4 MiB per-window budget includes both live and retained deleted
+payloads. The optional `preserve_deleted_messages` activation output is accepted
+for package compatibility and does not change retention. Input is restricted to the granted context and bounded form values.
 Results can propose a composer replacement or return native headings, text, rows,
 separators, buttons, text inputs, checkboxes, dropdowns and integer sliders. Standalone
 panel actions are available from the composer Tools menu as well as the shop. Composer proposals require Apply, retain

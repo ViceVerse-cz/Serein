@@ -84,13 +84,19 @@ fn welcome_tracks_confirmed_empty_history_messages_and_pending_delivery() {
 			id: Id(600),
 		},
 	});
-	assert!(state.timeline.display_iter().next().is_none());
+	assert!(state.timeline.get(Id(600)).is_none());
+	assert!(
+		state
+			.timeline
+			.display_iter()
+			.any(|message| message.id == Id(600))
+	);
 	assert_ne!(
 		state.timeline.row_count(),
 		0,
 		"Deletion retains a tombstone"
 	);
-	assert!(welcomes(&frame(&ctx, &mut view, &mut state, 700.0)));
+	assert!(!welcomes(&frame(&ctx, &mut view, &mut state, 700.0)));
 	state
 		.drafts
 		.insert(channel, "Synthetic first message".into());
@@ -100,7 +106,7 @@ fn welcome_tracks_confirmed_empty_history_messages_and_pending_delivery() {
 		assert!(!welcomes(&frame(&ctx, &mut view, &mut state, 700.0)));
 	}
 	state.pending[0].channel = Id(999);
-	assert!(welcomes(&frame(&ctx, &mut view, &mut state, 700.0)));
+	assert!(!welcomes(&frame(&ctx, &mut view, &mut state, 700.0)));
 }
 
 #[test]

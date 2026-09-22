@@ -277,7 +277,6 @@ mod tests {
 	#[test]
 	fn deletions_only_reveal_loaded_public_ids_and_bulk_is_bounded() {
 		let mut state = test_support::demo_state();
-		state.set_preserve_deleted_messages(true);
 		let events = apply(
 			&mut state,
 			Event::DeleteBulk {

@@ -237,6 +237,29 @@ Inputs are read-only copies. Returning `effects` proposes a change needing
 **Apply**. Storage and appearance have different timing; see the output reference
 and [Panels and storage](../../docs/extension-sdk-actions.md#panels-and-storage).
 
+## Activation examples
+
+[Message delete protector](message-delete-protector/src/lib.rs) is an example
+activation plugin. Deleted loaded messages stay in bounded session memory
+without an extension. The host highlights deleted text and offers local controls
+without calling Discord. The compatibility output `preserve_deleted_messages`
+does not change retention. Deleted bodies are never supplied to this plugin,
+written to disk, or recovered from before they were loaded. Logout, permission
+revocation and timeline eviction release retained content.
+
+Emoji & Sticker Images requests `image_sharing` and returns `image_sharing: true`
+from activation. Selecting artwork authorizes an immediate image send after
+validation, preserving text drafts. Wasm receives no image bytes and cannot fetch
+or send anything. Disable/logout revoke the option. Only an activation action
+with the grant may enable this mode.
+
+There is at most one activation action per plugin, run on enable/account load.
+Activation itself does not require deleted-message access. Granted `appearance`
+can return a [theme object](../../docs/theme-api.md); granted `storage` can restore
+saved choices. Storage is one opaque UTF-8 value, replaced when returned.
+Ocean, Midnight, Rose, Forest and Latte are declarative themes under `extensions/`.
+Authors package compiled bytes; Serein never runs their build scripts.
+
 ## ABI version 1
 
 Existing `Invocation`, `Output`, `dispatch` and `export!` APIs and struct literal

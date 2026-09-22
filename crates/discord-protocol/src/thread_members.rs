@@ -1,6 +1,6 @@
 //! Unofficial user-gateway thread-member snapshots, bounded to the first 100 members.
 use crate::{DecodeError, MemberDto, MemberItem, PresenceDto};
-use model::{Freshness, Id, MemberList};
+use model::{Freshness, Id, MemberList, MemberSlot};
 use serde::{
 	Deserialize, Deserializer,
 	de::{IgnoredAny, SeqAccess, Visitor},
@@ -25,7 +25,7 @@ struct Snapshot {
 }
 
 struct Rows {
-	rows: Vec<Option<model::Member>>,
+	slots: Vec<Option<MemberSlot>>,
 	total: u64,
 }
 
@@ -38,10 +38,10 @@ impl<'de> Deserialize<'de> for Rows {
 				f.write_str("a thread member list")
 			}
 			fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Rows, A::Error> {
-				let mut rows = Vec::with_capacity(100);
+				let mut slots = Vec::with_capacity(100);
 				let mut seen = BTreeSet::new();
-				let mut retained = rows.capacity() * size_of::<Option<model::Member>>();
-				while rows.len() < 100 {
+				let mut retained = slots.capacity() * size_of::<Option<MemberSlot>>();
+				while slots.len() < 100 {
 					let Some(mut entry) = seq.next_element::<ThreadMember>()? else {
 						break;
 					};
@@ -60,13 +60,13 @@ impl<'de> Deserialize<'de> for Rows {
 					if !member.valid() || retained > MAX_BYTES {
 						return Err(serde::de::Error::custom("Thread member capacity exceeded"));
 					}
-					rows.push(Some(member));
+					slots.push(Some(MemberSlot::Person(member)));
 				}
-				let mut total = rows.len() as u64;
+				let mut total = slots.len() as u64;
 				while seq.next_element::<IgnoredAny>()?.is_some() {
 					total += 1;
 				}
-				Ok(Rows { rows, total })
+				Ok(Rows { slots, total })
 			}
 		}
 		d.deserialize_seq(Bounded)
@@ -90,9 +90,13 @@ pub fn members(
 		guild: Some(guild),
 		channel,
 		request,
+		start: 0,
 		total: snapshot.members.total,
-		rows: snapshot.members.rows,
+		slots: snapshot.members.slots,
+		lazy: false,
 		freshness: Freshness::Fresh,
+		groups: vec![],
+		ranges: vec![],
 	})
 }
 
@@ -111,11 +115,13 @@ mod tests {
 			(list.guild, list.channel, list.request, list.total),
 			(Some(Id(1)), Id(2), 7, 1)
 		);
-		let member = list.rows[0].as_ref().unwrap();
+		let model::MemberSlot::Person(member) = list.slots[0].as_ref().unwrap() else {
+			panic!("expected person slot");
+		};
 		assert_eq!(member.roles, vec![Id(8), Id(9)]);
 		assert_eq!(member.nick.as_deref(), Some("Thread participant"));
 		assert_eq!(member.status.as_deref(), Some("online"));
-		assert!(parse(snapshot(json!([]))).unwrap().rows.is_empty());
+		assert!(parse(snapshot(json!([]))).unwrap().slots.is_empty());
 		for field in ["guild_id", "thread_id"] {
 			let mut invalid = snapshot(json!([entry]));
 			invalid[field] = json!("4");
@@ -135,7 +141,7 @@ mod tests {
 		);
 		let full: Vec<_> = (1..=101).map(|id| json!({"user_id":id.to_string(),"member":{"user":{"id":id.to_string(),"username":"Synthetic"}}})).collect();
 		let list = parse(snapshot(json!(full))).unwrap();
-		assert_eq!((list.rows.len(), list.total), (100, 101));
+		assert_eq!((list.slots.len(), list.total), (100, 101));
 		assert!(members(&vec![b' '; MAX_WIRE + 1], Id(1), Id(2), 7).is_err());
 		assert!(members(b"{}", Id(0), Id(2), 7).is_err());
 		let large: Vec<_> = (1..=100).map(|id| json!({"user_id":id.to_string(),"member":{"user":{"id":id.to_string(),"username":"Synthetic"},"roles":(1..=200).map(|role| role.to_string()).collect::<Vec<_>>()}})).collect();

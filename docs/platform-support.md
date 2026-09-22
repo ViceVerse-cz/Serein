@@ -64,6 +64,20 @@ Windows/Linux local staging artifacts remain unsigned. These are not certified i
 
 The webview lives only during login: WKWebView on macOS, WebView2 on Windows, GTK/WebKitGTK on Linux. Linux uses a separate GTK authentication window and pumps it only while login is active. Voice is built in. Audio devices open only for explicit playback, device testing, or a call reaching required encrypted readiness. Popup-dependent authentication and third-party embedded challenges may not work; do not claim all Discord login methods without live tests.
 
+## Window transparency and blur
+
+Enable Transparency & blur in Appearance and restart to create an alpha-capable
+rendering surface. Transparency works where the OS/compositor supports alpha windows.
+Blur is requested through macOS winit support, Windows 11 22H2+ desktop Acrylic,
+Wayland [`ext-background-effect-v1`](https://isaacfreund.com/docs/wayland/ext-background-effect-v1/)
+(including compatible Mutter/GNOME), with the
+existing KDE Wayland protocol as fallback, and the KDE blur property on X11.
+Unsupported compositors/older Windows retain transparency without native blur;
+system accessibility and appearance preferences can also suppress effects.
+The compositor determines blur strength; zero disables it. Standard Wayland blur
+capability changes are processed without blocking the rendering loop. Linux and
+Windows native appearance remains unverified in this macOS local pass.
+
 ## Built-in voice
 
 Linux device discovery and call streams prefer CPAL's PulseAudio backend, including

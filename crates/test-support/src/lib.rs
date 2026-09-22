@@ -124,6 +124,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 			.into(),
 		},
 		content,
+		prior_contents: Default::default(),
 		edited: false,
 		edited_at: None,
 		revision: 0,

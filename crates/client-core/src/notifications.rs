@@ -683,9 +683,13 @@ impl State {
 					.as_ref()
 					.filter(|list| list.guild == guild)
 					.and_then(|list| {
-						list.rows
+						list.slots
 							.iter()
 							.flatten()
+							.filter_map(|slot| match slot {
+								model::MemberSlot::Person(m) => Some(m),
+								_ => None,
+							})
 							.find(|member| member.user.id == id)
 					});
 				let user = message
@@ -1038,6 +1042,7 @@ mod tests {
 				..owner.clone()
 			},
 			content: "Synthetic".into(),
+			prior_contents: Default::default(),
 			mentions: vec![owner.clone()],
 			author_nick: None,
 			author_roles: vec![],

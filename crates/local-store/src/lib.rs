@@ -393,6 +393,12 @@ impl LocalStore {
 		if !has_confirm_external_links {
 			transaction.execute_batch("ALTER TABLE reading_preferences ADD COLUMN confirm_external_links INTEGER NOT NULL DEFAULT 1 CHECK(typeof(confirm_external_links)='integer' AND confirm_external_links IN (0,1));")?;
 		}
+		let has_smooth_scrolling: bool = transaction.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='smooth_scrolling')", [], |row| row.get(0),
+		)?;
+		if !has_smooth_scrolling {
+			transaction.execute_batch("ALTER TABLE reading_preferences ADD COLUMN smooth_scrolling INTEGER NOT NULL DEFAULT 1 CHECK(typeof(smooth_scrolling)='integer' AND smooth_scrolling IN (0,1));")?;
+		}
 		let has_author_roles: bool = transaction.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='author_roles')",
 			[],
@@ -513,7 +519,7 @@ impl LocalStore {
 		let stored = self
 			.0
 			.query_row(
-				"SELECT zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links FROM reading_preferences WHERE singleton=1",
+				"SELECT zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling FROM reading_preferences WHERE singleton=1",
 				[],
 				|row| {
 					Ok(match (
@@ -523,6 +529,7 @@ impl LocalStore {
 						row.get_ref(3)?,
 						row.get_ref(4)?,
 						row.get_ref(5)?,
+						row.get_ref(6)?,
 					) {
 						(
 							ValueRef::Integer(zoom @ 80..=150),
@@ -531,6 +538,7 @@ impl LocalStore {
 							ValueRef::Integer(animate_gifs @ 0..=1),
 							ValueRef::Integer(hide_media_links @ 0..=1),
 							ValueRef::Integer(confirm_external_links @ 0..=1),
+							ValueRef::Integer(smooth_scrolling @ 0..=1),
 						) => Some(ReadingPreferences {
 							zoom_percent: zoom as u16,
 							sidebar_width: width as u16,
@@ -538,6 +546,7 @@ impl LocalStore {
 							animate_gifs: animate_gifs == 1,
 							hide_media_links: hide_media_links == 1,
 							confirm_external_links: confirm_external_links == 1,
+							smooth_scrolling: smooth_scrolling == 1,
 						}),
 						_ => None,
 					})
@@ -559,10 +568,10 @@ impl LocalStore {
 			self.0
 				.execute("DELETE FROM reading_preferences WHERE singleton=1", [])?;
 		} else {
-			self.0.execute("INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links)
-                VALUES(1,?1,?2,?3,?4,?5,?6) ON CONFLICT(singleton) DO UPDATE SET
-                zoom_percent=excluded.zoom_percent,sidebar_width=excluded.sidebar_width,show_members=excluded.show_members,animate_gifs=excluded.animate_gifs,hide_media_links=excluded.hide_media_links,confirm_external_links=excluded.confirm_external_links",
-                params![preferences.zoom_percent, preferences.sidebar_width, preferences.show_members, preferences.animate_gifs, preferences.hide_media_links, preferences.confirm_external_links])?;
+			self.0.execute("INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling)
+				VALUES(1,?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(singleton) DO UPDATE SET
+				zoom_percent=excluded.zoom_percent,sidebar_width=excluded.sidebar_width,show_members=excluded.show_members,animate_gifs=excluded.animate_gifs,hide_media_links=excluded.hide_media_links,confirm_external_links=excluded.confirm_external_links,smooth_scrolling=excluded.smooth_scrolling",
+				params![preferences.zoom_percent, preferences.sidebar_width, preferences.show_members, preferences.animate_gifs, preferences.hide_media_links, preferences.confirm_external_links, preferences.smooth_scrolling])?;
 		}
 		Ok(())
 	}
@@ -988,6 +997,7 @@ impl LocalStore {
 					discriminator: row.get(8)?,
 				},
 				content: row.get(3)?,
+				prior_contents: Default::default(),
 				edited: row.get(4)?,
 				edited_at: None,
 				reply_to: row.get::<_, Option<String>>(5)?.map(parse).transpose()?,
@@ -1772,6 +1782,7 @@ mod tests {
 			sidebar_width: 300,
 			show_members: false,
 			animate_gifs: false,
+			smooth_scrolling: true,
 			hide_media_links: true,
 			confirm_external_links: true,
 		};
@@ -2095,6 +2106,7 @@ mod tests {
 			sidebar_width: 300,
 			show_members: false,
 			animate_gifs: false,
+			smooth_scrolling: true,
 			hide_media_links: true,
 			confirm_external_links: true,
 		};
@@ -2111,6 +2123,7 @@ mod tests {
 				sidebar_width: 360,
 				show_members: true,
 				animate_gifs: false,
+				smooth_scrolling: true,
 				hide_media_links: true,
 				confirm_external_links: true,
 			},
@@ -2207,6 +2220,30 @@ mod tests {
 	}
 
 	#[test]
+	fn smooth_scrolling_migrates_enabled_and_round_trips_disabled() {
+		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		store
+			.save_reading_preferences(ReadingPreferences {
+				smooth_scrolling: false,
+				..Default::default()
+			})
+			.unwrap();
+		store
+			.0
+			.execute_batch(
+				"ALTER TABLE reading_preferences DROP COLUMN smooth_scrolling; PRAGMA user_version=18;",
+			)
+			.unwrap();
+		let store = LocalStore::initialize(store.0).unwrap();
+		let mut preferences = store.reading_preferences().unwrap();
+		assert!(preferences.smooth_scrolling);
+		preferences.smooth_scrolling = false;
+		store.save_reading_preferences(preferences).unwrap();
+		let store = LocalStore::initialize(store.0).unwrap();
+		assert_eq!(store.reading_preferences().unwrap(), preferences);
+	}
+
+	#[test]
 	fn gif_animation_migrates_off_and_round_trips() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
 		store
@@ -2240,6 +2277,7 @@ mod tests {
 					sidebar_width,
 					show_members,
 					animate_gifs: false,
+					smooth_scrolling: true,
 					hide_media_links: true,
 					confirm_external_links: true,
 				};
@@ -2263,6 +2301,7 @@ mod tests {
 					sidebar_width,
 					show_members: false,
 					animate_gifs: false,
+					smooth_scrolling: true,
 					hide_media_links: true,
 					confirm_external_links: true,
 				}),
@@ -2277,6 +2316,7 @@ mod tests {
 				sidebar_width: 200,
 				show_members: false,
 				animate_gifs: false,
+				smooth_scrolling: true,
 				hide_media_links: true,
 				confirm_external_links: true,
 			}),
@@ -2697,6 +2737,7 @@ mod tests {
 					discriminator: 1234,
 				},
 				content: "synthetic".into(),
+				prior_contents: Default::default(),
 				edited: false,
 				edited_at: None,
 				reply_to: None,

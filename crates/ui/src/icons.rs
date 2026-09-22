@@ -120,9 +120,12 @@ pub enum Icon {
 	Sliders,
 	SortArrows,
 	Thread,
+	/// Horizontally mirrored reply glyph from the shared atlas.
+	Forward,
 }
 
 impl Icon {
+	/// Canonical atlas cells; Forward reuses the mirrored Reply cell.
 	pub const ALL: [Icon; 104] = [
 		Icon::ChevronDown,
 		Icon::ChevronRight,
@@ -257,7 +260,7 @@ impl Icon {
 			Icon::ScreenShare => "monitor-arrow-up",
 			Icon::Activities => "rocket-launch",
 			Icon::Soundboard => "waveform",
-			Icon::Reply => "arrow-bend-up-left",
+			Icon::Reply | Icon::Forward => "arrow-bend-up-left",
 			Icon::Pencil => "pencil-simple",
 			Icon::More => "dots-three",
 			Icon::Inbox => "tray",
@@ -339,6 +342,9 @@ impl Icon {
 		}
 	}
 	fn cell(self) -> usize {
+		if self == Self::Forward {
+			return Self::Reply.cell();
+		}
 		// Resolved once from the bundled index, then a plain array lookup per paint.
 		static CELLS: OnceLock<[usize; Icon::ALL.len()]> = OnceLock::new();
 		CELLS.get_or_init(|| {
@@ -401,10 +407,13 @@ pub fn paint(painter: &egui::Painter, icon: Icon, rect: Rect, color: Color32) {
 	let cell = icon.cell();
 	let x = (cell % COLUMNS) as f32 * CELL;
 	let y = (cell / COLUMNS) as f32 * CELL;
-	let uv = Rect::from_min_max(
+	let mut uv = Rect::from_min_max(
 		egui::pos2(x / width as f32, y / height as f32),
 		egui::pos2((x + CELL) / width as f32, (y + CELL) / height as f32),
 	);
+	if icon == Icon::Forward {
+		std::mem::swap(&mut uv.min.x, &mut uv.max.x);
+	}
 	// Glyphs occupy 56 of every 64 cell pixels; draw the cell slightly larger so the visible
 	// glyph fills `rect` like the previous painted icons did.
 	painter.image(texture.id(), rect.expand(size * 4.0 / 56.0), uv, color);

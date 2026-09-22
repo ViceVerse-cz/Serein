@@ -61,19 +61,6 @@ pub(crate) fn ready(ctx: &Context) -> bool {
 	})
 }
 
-/// Startup decoding uses a single bounded worker; the context is thread-safe.
-pub fn install_async(ctx: &Context) -> std::io::Result<()> {
-	let ctx = ctx.clone();
-	std::thread::Builder::new()
-		.name("emoji-atlas".into())
-		.spawn(move || {
-			if install(&ctx).is_ok() {
-				ctx.request_repaint();
-			}
-		})
-		.map(|_| ())
-}
-
 pub(crate) fn inline_size(ui: &egui::Ui) -> f32 {
 	egui::TextStyle::Body.resolve(ui.style()).size * 1.6
 }

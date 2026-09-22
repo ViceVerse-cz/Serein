@@ -13,6 +13,7 @@ pub mod tray;
 pub mod video;
 #[cfg(target_os = "macos")]
 pub mod window;
+pub mod window_effects;
 use client_core::auth::{Failure, SessionSecret};
 pub use pointer::cursor_position;
 #[cfg(not(target_os = "linux"))]
@@ -110,6 +111,7 @@ fn discord_origin(value: &str) -> bool {
 			&& url.password().is_none()
 	})
 }
+#[cfg(any(not(target_os = "linux"), test))]
 fn login_navigation(value: &str) -> bool {
 	discord_origin(value) || captcha::hcaptcha_origin(value)
 }

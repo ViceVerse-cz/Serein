@@ -2,6 +2,9 @@
 use eframe::egui;
 #[path = "../src/server_settings_demo.rs"]
 mod server_settings_demo;
+#[allow(dead_code)] // The shared fixture's CLI check is called by the desktop binary.
+#[path = "../src/slash_demo.rs"]
+mod slash_demo;
 use std::{
 	path::PathBuf,
 	sync::{
@@ -36,6 +39,19 @@ impl eframe::App for Preview {
 		// Only synthetic fixtures execute these commands; no service adapters exist here.
 		for command in self.messaging.show(ui, &mut self.state) {
 			let event = match command {
+				client_core::Command::ApplicationCommands {
+					channel,
+					guild,
+					request,
+				} => client_core::Event::ApplicationCommands {
+					channel,
+					request,
+					result: Ok(slash_demo::catalog(guild)),
+				},
+				client_core::Command::Interaction(request) => {
+					slash_demo::respond(&mut self.state, request);
+					continue;
+				}
 				client_core::Command::ServerAdmin {
 					guild,
 					request,
@@ -323,7 +339,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo --output=PATH.png [--page=stickers|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
+		return Err("Usage: profile_preview --demo --output=PATH.png [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
 	}
 	let output = PathBuf::from(value("--output=").ok_or("Missing --output=PATH.png")?);
 	let page = value("--page=").unwrap_or("profile").to_owned();
@@ -331,6 +347,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		page.as_str(),
 		"profile"
 			| "stickers"
+			| "slash-commands"
+			| "slash-command-search"
+			| "slash-command-options"
 			| "profile-card"
 			| "member-tags"
 			| "dm-tags"
@@ -341,7 +360,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "server"
 			| "server-engagement"
 	) {
-		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, extensions, server or server-engagement".into());
+		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, extensions, slash-commands, slash-command-search, slash-command-options, server or server-engagement".into());
+	}
+	let slash_command = value("--command=").unwrap_or("help").to_owned();
+	if !matches!(slash_command.as_str(), "help" | "weather") {
+		return Err("Command fixture must be help or weather".into());
 	}
 	let width: f32 = value("--width=").unwrap_or("1120").parse()?;
 	let height: f32 = value("--height=").unwrap_or("760").parse()?;
@@ -374,7 +397,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			} else {
 				egui::ThemePreference::Dark
 			});
-			let mut state = test_support::demo_state();
+			let mut state = if matches!(
+				page.as_str(),
+				"slash-commands" | "slash-command-search" | "slash-command-options"
+			) {
+				slash_demo::preview()
+			} else {
+				test_support::demo_state()
+			};
 			if page == "profile" {
 				prime_profile(&mut state);
 			}
@@ -385,15 +415,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					guild: Some(model::Id(10)),
 					request: 0,
 					total: 1,
+					lazy: false,
+					groups: vec![],
+					ranges: vec![],
 					freshness: model::Freshness::Fresh,
-					rows: vec![Some(model::Member {
+					start: 0,
+					slots: vec![Some(model::MemberSlot::Person(model::Member {
 						user,
 						nick: None,
 						roles: vec![],
 						status: Some("online".into()),
 						custom_status: Some("Building a quieter place".into()),
 						activities: vec![],
-					})],
+					}))],
 				});
 			} else if page == "dm-tags" {
 				let _ = state.select(model::Id(22));
@@ -405,6 +439,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			messaging.startup_minimized = args.iter().any(|arg| arg == "--startup-minimized");
 			if matches!(page.as_str(), "member-tags" | "dm-tags") {
 				// State is primed above; the normal offline messaging surface renders the list.
+			} else if page == "slash-commands" {
+				messaging.preview_slash_commands();
+			} else if page == "slash-command-search" {
+				// A partial name: the flat "commands matching" list with per-row icons.
+				let channel = state.selected.expect("synthetic command conversation");
+				state
+					.drafts
+					.insert(channel, format!("/{}", &slash_command[..2]));
+				messaging.preview_slash_commands();
+			} else if page == "slash-command-options" {
+				let channel = state.selected.expect("synthetic command conversation");
+				state.drafts.insert(channel, format!("/{slash_command}"));
+				messaging.preview_slash_command_options(&mut state);
 			} else if page == "stickers" {
 				test_support::seed_stickers(&mut state);
 				messaging.preview_sticker_picker();
@@ -423,7 +470,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						test_support::seed_stickers(&mut state);
 						messaging.preview_sticker_picker();
 					}
-					state.set_preserve_deleted_messages(output.preserve_deleted_messages);
 					if output.preserve_deleted_messages {
 						let channel = state.selected.unwrap();
 						state.apply(client_core::Envelope {

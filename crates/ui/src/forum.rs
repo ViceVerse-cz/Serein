@@ -589,18 +589,7 @@ fn card(
 				.sense(egui::Sense::click()),
 			|ui| {
 				let response = ui.response();
-				let hovered = response.hovered() || response.has_focus();
-				egui::Frame::new()
-					.fill(if hovered { colors.hover } else { colors.raised })
-					.stroke(egui::Stroke::new(
-						1.0,
-						if hovered {
-							colors.accent
-						} else {
-							colors.border
-						},
-					))
-					.corner_radius(8)
+				design::interactive_card_frame(ui, &response)
 					.inner_margin(egui::Margin::symmetric(16, 14))
 					.show(ui, |ui| {
 						ui.set_width(ui.available_width());

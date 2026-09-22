@@ -311,12 +311,10 @@ impl MessagingUi {
 	}
 
 	fn toggle_profile(&mut self, user: &model::User) {
-		if self.profile.as_ref().is_some_and(|open| open.id == user.id) {
-			self.profile = None;
+		crate::profiles::toggle_profile(&mut self.profile, user);
+		if self.profile.is_none() {
 			self.profile_link = None;
 			self.profile_anchor = None;
-		} else {
-			self.profile = Some(user.clone());
 		}
 	}
 
@@ -3297,9 +3295,13 @@ fn resolve_member<'a>(
 			.as_ref()
 			.filter(|list| list.guild == Some(entry.guild))
 			.and_then(|list| {
-				list.rows
+				list.slots
 					.iter()
 					.flatten()
+					.filter_map(|slot| match slot {
+						model::MemberSlot::Person(m) => Some(m),
+						_ => None,
+					})
 					.find(|m| m.user.id == entry.participant.user)
 			})
 	});

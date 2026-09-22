@@ -40,6 +40,7 @@ fn decode_edge(key: &str) -> u32 {
 	} else if key.starts_with("anim:")
 		|| key.starts_with("embed:")
 		|| key.starts_with("gif:")
+		|| key.starts_with("spotify-")
 		|| key.starts_with("banner-")
 		|| key.starts_with("member-banner-")
 	{
@@ -179,12 +180,24 @@ fn cdn_url(key: &str) -> Option<String> {
 		return (role.0 != 0 && model::valid_avatar_hash(hash))
 			.then(|| format!("https://cdn.discordapp.com/role-icons/{role}/{hash}.png?size=128"));
 	}
+	if let Some(value) = key.strip_prefix("application-icon-") {
+		let (application, hash) = value.split_once('-')?;
+		let application: Id = application.parse().ok()?;
+		return model::valid_avatar_hash(hash).then(|| {
+			format!("https://cdn.discordapp.com/app-icons/{application}/{hash}.png?size=128")
+		});
+	}
 	if let Some(value) = key.strip_prefix("group-icon-") {
 		let (channel, hash) = value.split_once('-')?;
 		let channel: Id = channel.parse().ok()?;
 		return model::valid_avatar_hash(hash).then(|| {
 			format!("https://cdn.discordapp.com/channel-icons/{channel}/{hash}.png?size=128")
 		});
+	}
+	if let Some(id) = key.strip_prefix("spotify-") {
+		return model::ActivityImage::Spotify(id.into())
+			.valid()
+			.then(|| format!("https://i.scdn.co/image/{id}"));
 	}
 	if let Some(id) = key.strip_prefix("app-icon-") {
 		let id: Id = id.parse().ok()?;
@@ -982,7 +995,18 @@ mod tests {
 		}
 	}
 	#[test]
-	fn group_icon_urls_accept_only_channel_ids_and_hashes() {
+	fn application_and_group_icon_urls_accept_only_ids_and_hashes() {
+		for hash in [
+			"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		] {
+			assert_eq!(
+				super::cdn_url(&format!("application-icon-7-{hash}")),
+				Some(format!(
+					"https://cdn.discordapp.com/app-icons/7/{hash}.png?size=128"
+				))
+			);
+		}
 		assert_eq!(
 			super::cdn_url("group-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").as_deref(),
 			Some(
@@ -990,6 +1014,11 @@ mod tests {
 			)
 		);
 		for key in [
+			"application-icon-0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"application-icon-7-../private",
+			"application-icon-7-a.png?token=secret",
+			"application-icon-7-https://example.com",
+			"application-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			"group-icon-0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			"group-icon-7-../private",
 			"group-icon-7-a.png?token=secret",

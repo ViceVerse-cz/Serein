@@ -28,7 +28,7 @@ type Row = (Item, Option<(u64, u32)>);
 
 impl FolderUi {
 	fn sync_rows(&mut self, state: &State) -> bool {
-		let key = (state.generation, state.revision);
+		let key = (state.generation, state.catalog_revision());
 		if self.key == Some(key) {
 			return false;
 		}
@@ -845,6 +845,29 @@ mod tests {
 				}
 			}
 		}
+	}
+
+	#[test]
+	fn folder_rows_reuse_the_catalog_during_message_churn() {
+		let mut state = test_support::demo_state();
+		let mut folders = FolderUi::default();
+		assert!(folders.sync_rows(&state));
+		let rows = folders.rows.as_ptr();
+		for id in 1_000_000..1_000_010 {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::Message(test_support::message(
+					id,
+					state.selected.unwrap(),
+				)),
+			});
+			assert!(!folders.sync_rows(&state));
+			assert_eq!(folders.rows.as_ptr(), rows);
+		}
+		state.revision += 1;
+		assert!(folders.sync_rows(&state));
+		state.invalidate_navigation();
+		assert!(folders.sync_rows(&state));
 	}
 
 	#[test]

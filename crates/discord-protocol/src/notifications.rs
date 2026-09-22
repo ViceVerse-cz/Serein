@@ -30,6 +30,8 @@ pub struct Overrides(
 );
 #[derive(Deserialize)]
 pub struct Setting {
+	// Legacy READY can use zero for private-channel settings, not just null.
+	#[serde(default, deserialize_with = "crate::read_state::optional_id")]
 	pub guild_id: Option<Id>,
 	#[serde(default)]
 	pub muted: Option<bool>,

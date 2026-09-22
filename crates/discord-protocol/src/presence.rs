@@ -99,6 +99,8 @@ struct Activity {
 struct Timestamps {
 	#[serde(default)]
 	start: Option<u64>,
+	#[serde(default)]
+	end: Option<u64>,
 }
 #[derive(Deserialize)]
 struct Assets {
@@ -123,6 +125,8 @@ impl Activity {
 		let image = |asset: &Text<4096>| {
 			let image = if let Some(path) = asset.0.strip_prefix("mp:") {
 				Some(ActivityImage::Proxy(path.into()))
+			} else if let Some(id) = asset.0.strip_prefix("spotify:") {
+				Some(ActivityImage::Spotify(id.into()))
 			} else {
 				Some(ActivityImage::Asset {
 					application: application?,
@@ -171,6 +175,13 @@ impl Activity {
 			state: self.state.as_ref().and_then(normalize),
 			image,
 			small_image,
+			ends_at: self.timestamps.as_ref().and_then(|timestamps| {
+				let start = timestamps.0.start?;
+				timestamps
+					.0
+					.end
+					.filter(|end| *end > start && *end <= model::MAX_ACTIVITY_TIMESTAMP)
+			}),
 			started_at: self
 				.timestamps
 				.as_ref()
@@ -215,12 +226,20 @@ impl<'de> Deserialize<'de> for Activities {
 					(
 						u8::from(activity.details.is_some()) + u8::from(activity.state.is_some()),
 						match &activity.image {
-							Some(ActivityImage::Asset { .. } | ActivityImage::Proxy(_)) => 2,
+							Some(
+								ActivityImage::Asset { .. }
+								| ActivityImage::Proxy(_)
+								| ActivityImage::Spotify(_),
+							) => 2,
 							Some(ActivityImage::Application(_)) => 1,
 							None => 0,
 						},
 						match &activity.small_image {
-							Some(ActivityImage::Asset { .. } | ActivityImage::Proxy(_)) => 2,
+							Some(
+								ActivityImage::Asset { .. }
+								| ActivityImage::Proxy(_)
+								| ActivityImage::Spotify(_),
+							) => 2,
 							Some(ActivityImage::Application(_)) => 1,
 							None => 0,
 						},
@@ -519,6 +538,7 @@ mod tests {
 					state: None,
 					image: None,
 					small_image: None,
+					ends_at: None,
 					started_at: None,
 				}]
 			);

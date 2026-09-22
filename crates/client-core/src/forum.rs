@@ -639,6 +639,7 @@ mod tests {
 			channel: Id(21),
 			author: state.user.clone().unwrap(),
 			content: "Synthetic reply".into(),
+			prior_contents: Default::default(),
 			edited: false,
 			edited_at: None,
 			revision: 0,

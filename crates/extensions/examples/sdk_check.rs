@@ -188,6 +188,18 @@ fn check_app_toolbox(name: &str, package: &Package) {
 	assert!(output.panel.iter().any(
 		|item| matches!(item, Element::Text { text } if text.contains("Offline toolbox fixture"))
 	));
+	let mut extended = serde_json::to_value(&input).unwrap();
+	extended["app"]["account_profile"] = json!({"user":{"id":"300","name":"Synthetic user"},"profile":{"display_name":"Synthetic display","bio":"Offline profile fixture","pronouns":"they/them"}});
+	extended["app"]["guilds"] =
+		json!({"items":[{"id":"400","name":"Synthetic server"}],"truncated":false});
+	extended["app"]["channel_details"] = json!({"channel":{"id":"100","name":"demo","kind":0},"position":0,"recipients":[],"recipients_truncated":false,"can_send":true,"can_read_history":true});
+	let extended = serde_json::from_value(extended).unwrap();
+	let output =
+		invoke(package, &extended).expect("new account/guild/channel groups fit the sandbox");
+	assert!(output.panel.iter().any(
+		|item| matches!(item, Element::Text { text } if text.contains("Offline profile fixture"))
+	));
+
 	let mut larger = input.clone();
 	let app = larger.app.as_mut().unwrap();
 	app.timeline.as_mut().unwrap().messages = (0..50)
@@ -281,6 +293,11 @@ fn check_app_toolbox(name: &str, package: &Package) {
 	input.action = "on-app".into();
 	input.values.clear();
 	for kind in [
+		extensions::AppEventKind::Account,
+		extensions::AppEventKind::Channels,
+		extensions::AppEventKind::Members,
+		extensions::AppEventKind::Presence,
+		extensions::AppEventKind::ReadState,
 		extensions::AppEventKind::Ready,
 		extensions::AppEventKind::Navigation,
 		extensions::AppEventKind::Context,

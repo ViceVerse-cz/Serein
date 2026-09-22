@@ -230,9 +230,12 @@ pub fn demo_check_examples() -> Result<bool, String> {
 			return Err(error);
 		}
 		if manifest.kind == ExtensionKind::Plugin {
-			if !(manifest.id == "message-delete-protector" && summary.preserve_deleted_messages
-				|| manifest.id == "emoji-sticker-images" && summary.image_sharing)
-			{
+			let ok = match manifest.id.as_str() {
+				"message-delete-protector" => summary.error.is_none(),
+				"emoji-sticker-images" => summary.image_sharing,
+				_ => false,
+			};
+			if !ok {
 				return Err("Bundled plugin did not activate".into());
 			}
 			activated = true;
@@ -1322,6 +1325,8 @@ fn load_preview(
 	preview.validate().ok()?;
 	let bytes = if demo {
 		demo_preview(id)?.to_vec()
+	} else if let Some(bytes) = cached_preview(&preview.sha256) {
+		bytes
 	} else {
 		download(
 			&preview.url,
@@ -1334,7 +1339,45 @@ fn load_preview(
 	gate.check().ok()?;
 	let image = decode_preview(&bytes, preview)?;
 	gate.check().ok()?;
+	if !demo {
+		remember_preview(&preview.sha256, bytes);
+	}
 	Some(image)
+}
+
+// Verified thumbnail bytes from this session: at most 32 previews or 4 MiB, whichever
+// fills first. Scrolling the gallery re-decodes instead of re-downloading.
+const MAX_CACHED_PREVIEWS: usize = 32;
+const MAX_CACHED_PREVIEW_BYTES: usize = 4 * 1024 * 1024;
+static PREVIEW_CACHE: std::sync::Mutex<VecDeque<(String, Vec<u8>)>> =
+	std::sync::Mutex::new(VecDeque::new());
+
+fn cached_preview(sha256: &str) -> Option<Vec<u8>> {
+	let mut cache = PREVIEW_CACHE.lock().ok()?;
+	let index = cache
+		.iter()
+		.position(|(hash, _)| hash.eq_ignore_ascii_case(sha256))?;
+	// Most recently used previews move to the back so eviction drops stale ones first.
+	let entry = cache.remove(index)?;
+	let bytes = entry.1.clone();
+	cache.push_back(entry);
+	Some(bytes)
+}
+
+fn remember_preview(sha256: &str, bytes: Vec<u8>) {
+	if bytes.is_empty() || bytes.len() > extensions::MAX_PREVIEW_BYTES {
+		return;
+	}
+	let Ok(mut cache) = PREVIEW_CACHE.lock() else {
+		return;
+	};
+	cache.retain(|(hash, _)| !hash.eq_ignore_ascii_case(sha256));
+	cache.push_back((sha256.to_ascii_lowercase(), bytes));
+	while cache.len() > MAX_CACHED_PREVIEWS
+		|| cache.iter().map(|(_, bytes)| bytes.len()).sum::<usize>() > MAX_CACHED_PREVIEW_BYTES
+	{
+		cache.pop_front();
+	}
 }
 
 fn demo_preview(id: &str) -> Option<&'static [u8]> {

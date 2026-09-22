@@ -151,6 +151,7 @@ impl Avatars {
 		} else if key.starts_with("anim:")
 			|| key.starts_with("embed:")
 			|| key.starts_with("gif:")
+			|| key.starts_with("spotify-")
 			|| key.starts_with("banner-")
 			|| key.starts_with("member-banner-")
 		{
@@ -945,8 +946,12 @@ impl Avatars {
 			};
 			let key = sized(EMBED_EDGE, if animated { "anim" } else { "embed" });
 			// The viewer wants real pixels: request a larger rendition and show the thumbnail
-			// already in memory until it arrives. Animated media keeps its animated key.
-			let large = (large && !animated)
+			// already in memory until it arrives. A GIF/WebP suffix alone does not mean the
+			// decoded image animates: single-frame files need the larger rendition too.
+			let still = key.as_ref().is_some_and(|key| {
+				self.textures.contains_key(key) && !self.animations.contains_key(key)
+			});
+			let large = (large && (!animated || still))
 				.then(|| sized(LARGE_EDGE, "large"))
 				.flatten();
 			#[cfg(any(test, feature = "demo"))]

@@ -159,8 +159,15 @@ impl State {
 		}
 		Some(unread)
 	}
-	pub fn can_jump_unread(&self) -> bool {
-		let history_ready = if self.freshness == Freshness::Fresh {
+	pub fn missed(&self, channel: Id) -> Option<bool> {
+		match self.unread(channel) {
+			Some(unread) => Some(unread),
+			None if self.unread_count(channel) > 0 => Some(true),
+			None => None,
+		}
+	}
+	fn history_window_ready(&self) -> bool {
+		if self.freshness == Freshness::Fresh {
 			!self.history_pending
 		} else {
 			self.freshness == Freshness::Loading
@@ -168,13 +175,21 @@ impl State {
 				&& !self.history_targeted
 				&& self.history_before.is_none()
 				&& self.history_after.is_none()
-		};
+		}
+	}
+	pub fn show_missed_banner(&self) -> bool {
 		self.auth == AuthState::Authenticated
 			&& self.gateway_connected
-			&& history_ready
+			&& self.history_window_ready()
 			&& self.selected.is_some_and(|channel| {
-				self.can_read_history(channel) && self.unread(channel) == Some(true)
+				self.can_read_history(channel) && self.missed(channel) == Some(true)
 			})
+	}
+	pub fn can_jump_unread(&self) -> bool {
+		self.show_missed_banner()
+			&& self
+				.selected
+				.is_some_and(|channel| self.read_marker(channel).is_some())
 	}
 	/// Request the first bounded page after the service read marker. Zero is only
 	/// a pagination cursor for a known empty marker, never a fabricated message ID.
@@ -787,6 +802,7 @@ mod navigation_tests {
 				discriminator: 0,
 			},
 			content: "Synthetic unread message".into(),
+			prior_contents: Default::default(),
 			reactions: Some(vec![]),
 			author_nick: None,
 			author_roles: vec![],

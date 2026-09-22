@@ -207,9 +207,6 @@ pub(super) fn contents(
 		});
 		ui.close();
 	}
-	if let Some(status) = state.user_action_status() {
-		ui.add(egui::Label::new(egui::RichText::new(status).small().color(colors.muted)).wrap());
-	}
 }
 
 #[cfg(test)]

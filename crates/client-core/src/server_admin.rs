@@ -16,6 +16,7 @@ pub struct Event {
 
 #[derive(Default)]
 pub struct View {
+	webhook_url: Option<model::server_integrations::WebhookUrl>,
 	pub audit_log: Option<model::server_audit_log::Page>,
 	pub audit_query: Option<model::server_audit_log::Query>,
 	pub audit_limit_reached: bool,
@@ -76,6 +77,7 @@ impl View {
 			}
 		};
 		if relevant {
+			self.webhook_url = None;
 			self.permission_revision = self.permission_revision.wrapping_add(1);
 		}
 	}
@@ -88,6 +90,17 @@ impl View {
 	}
 }
 impl State {
+	pub(crate) fn can_retain_channel_integrations(&self, guild: Id) -> bool {
+		let scope = match &self.server_admin.action {
+			Some(Action::Integrations(action)) => action.scope(),
+			_ => self
+				.server_admin
+				.integrations
+				.as_ref()
+				.and_then(|page| page.channel),
+		};
+		scope.is_some_and(|channel| self.can_manage_webhook_channel(guild, channel))
+	}
 	pub fn can_open_invite_settings(&self, guild: Id) -> bool {
 		self.can_manage_guild(guild)
 	}
@@ -365,6 +378,7 @@ impl State {
 			self.server_admin.query = query.clone();
 			self.server_admin.member_role_filter = *role;
 		}
+		self.server_admin.webhook_url = None;
 		self.server_admin.guild = Some(guild);
 		self.server_admin.sequence = self.server_admin.sequence.wrapping_add(1);
 		self.server_admin.pending = true;
@@ -394,12 +408,44 @@ impl State {
 			&& self.server_admin.pending
 			&& self.server_admin_action_allowed(guild, action)
 	}
+	/// Consume a ready URL only while the same permission-scoped settings remain open.
+	pub fn take_webhook_url(
+		&mut self,
+		guild: Id,
+		scope: Option<Id>,
+	) -> Option<model::server_integrations::WebhookUrl> {
+		let url = self.server_admin.webhook_url.take()?;
+		let action = model::server_integrations::Action::CopyWebhookUrl {
+			scope,
+			webhook: url.webhook,
+			channel: url.channel,
+		};
+		(url.guild == guild
+			&& (self.demo || (self.auth == AuthState::Authenticated && self.gateway_connected))
+			&& self.integration_action_allowed(guild, &action))
+		.then_some(url)
+	}
+	/// Fence an in-flight copy without discarding the integration metadata.
+	pub fn clear_webhook_url(&mut self) {
+		self.server_admin.webhook_url = None;
+		if matches!(
+			self.server_admin.action,
+			Some(Action::Integrations(
+				model::server_integrations::Action::CopyWebhookUrl { .. }
+			))
+		) {
+			self.server_admin.action = None;
+			self.server_admin.pending = false;
+			self.server_admin.sequence = self.server_admin.sequence.wrapping_add(1);
+		}
+	}
 	pub fn close_server_admin(&mut self) {
 		if !self.server_admin.saving {
 			self.server_admin.reset();
 		}
 	}
 	pub(crate) fn cancel_server_admin(&mut self) {
+		self.server_admin.webhook_url = None;
 		if self.server_admin.pending {
 			self.server_admin.needs_refresh |= self.server_admin.saving;
 			self.server_admin.error = Some(if self.server_admin.saving {
@@ -508,6 +554,14 @@ impl State {
 				| (Some(Action::Prune { .. }), Outcome::Pruned(_))
 				| (Some(Action::ShowMembers { .. }), Outcome::ChannelList(_))
 		) || match (&action, &result) {
+			(
+				Some(Action::Integrations(model::server_integrations::Action::CopyWebhookUrl {
+					webhook,
+					channel,
+					..
+				})),
+				Outcome::WebhookUrl(url),
+			) => url.guild == event.guild && url.webhook == *webhook && url.channel == *channel,
 			(Some(Action::AuditLog(query)), Outcome::AuditLog(page)) => {
 				page.guild == event.guild && page.matches_query(query)
 			}
@@ -565,6 +619,7 @@ impl State {
 			return Ok(());
 		}
 		match result {
+			Outcome::WebhookUrl(url) => self.server_admin.webhook_url = Some(url),
 			Outcome::AuditLog(page) => self.apply_audit_log(page),
 			Outcome::Integrations(snapshot) => {
 				if let Some(Action::Integrations(action)) = &action {

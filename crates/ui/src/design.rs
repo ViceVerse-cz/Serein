@@ -652,12 +652,28 @@ fn recolor(mut palette: Palette, theme: ExtensionPalette) -> Palette {
 	palette.surface = palette.sidebar;
 	palette
 }
+/// Index of `accent` in [`THEME_FIELDS`].
+const ACCENT_FIELD: usize = 11;
+/// Whether the active community theme brings its own accent for this mode. Such a theme
+/// replaces the user's primary colour instead of being tinted by it.
+pub fn theme_sets_accent(dark: bool) -> bool {
+	EXTENSION_THEME
+		.get()
+		.is_some_and(|palettes| palettes[usize::from(dark)].colors[ACCENT_FIELD].is_some())
+}
 pub fn colors(dark: bool, variant: Variant) -> Palette {
 	let mut palette = builtin_colors(dark, variant);
+	let mut themed_accent = false;
 	if let Some(palettes) = EXTENSION_THEME.get() {
-		palette = recolor(palette, palettes[usize::from(dark)]);
+		let theme = palettes[usize::from(dark)];
+		themed_accent = theme.colors[ACCENT_FIELD].is_some();
+		palette = recolor(palette, theme);
 	}
-	let mut palette = customize(palette, primary_color());
+	let mut palette = if themed_accent {
+		palette
+	} else {
+		customize(palette, primary_color())
+	};
 	let (enabled, transparency, _, all) = window_effects();
 	if enabled && transparency > 0 {
 		let alpha = 100 - u16::from(transparency);
@@ -716,8 +732,13 @@ pub(crate) fn theme_preview_palette(ui: &egui::Ui, theme: &extensions::Theme) ->
 	} else {
 		&theme.light
 	};
-	let colors = extension_palette(theme).map_or(base, |overrides| recolor(base, overrides));
-	opaque_surfaces(customize(colors, primary_color()))
+	match extension_palette(theme) {
+		Some(overrides) if overrides.colors[ACCENT_FIELD].is_some() => {
+			opaque_surfaces(recolor(base, overrides))
+		}
+		Some(overrides) => opaque_surfaces(customize(recolor(base, overrides), primary_color())),
+		None => opaque_surfaces(customize(base, primary_color())),
+	}
 }
 pub fn palette(ui: &egui::Ui) -> Palette {
 	opaque_surfaces(colors(ui.visuals().dark_mode, variant()))
@@ -2182,6 +2203,78 @@ pub fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
 		.inner
 }
 
+/// Shared chrome for clickable cards; callers retain their own layout and response.
+pub fn interactive_card_frame(ui: &egui::Ui, response: &egui::Response) -> egui::Frame {
+	let p = palette(ui);
+	let hot = ui.is_enabled() && (response.hovered() || response.has_focus());
+	egui::Frame::new()
+		.fill(if hot { p.hover } else { p.raised })
+		.stroke(Stroke::new(1.0, if hot { p.accent } else { p.border }))
+		.corner_radius(8)
+}
+
+/// Centered icon, title and explanation for empty, idle and loading views.
+pub fn empty_state(ui: &mut egui::Ui, icon: crate::icons::Icon, title: &str, detail: &str) {
+	let p = palette(ui);
+	egui::Frame::new()
+		.inner_margin(egui::Margin::symmetric(24, 40))
+		.show(ui, |ui| {
+			ui.set_width(ui.available_width());
+			ui.vertical_centered(|ui| {
+				ui.spacing_mut().item_spacing.y = 6.0;
+				let (rect, _) =
+					ui.allocate_exact_size(egui::Vec2::splat(56.0), egui::Sense::hover());
+				ui.painter()
+					.circle_filled(rect.center(), 28.0, p.muted.gamma_multiply(0.3));
+				crate::icons::paint(ui.painter(), icon, rect.shrink(16.0), p.text);
+				ui.add_space(8.0);
+				ui.add(egui::Label::new(semibold(ui, title, 15.0).color(p.text_strong)).wrap());
+				ui.add(egui::Label::new(RichText::new(detail).size(13.0).color(p.muted)).wrap());
+			});
+		});
+}
+
+/// Unsaved-change status and actions. Returns `(save_clicked, reset_clicked)`.
+pub fn save_bar(
+	ui: &mut egui::Ui,
+	saving: Option<&str>,
+	can_save: bool,
+	can_reset: bool,
+) -> (bool, bool) {
+	let p = palette(ui);
+	ui.horizontal(|ui| {
+		ui.spacing_mut().item_spacing.x = 8.0;
+		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+			let save = ui
+				.add_enabled_ui(can_save, |ui| {
+					button(ui, "Save Changes", ButtonKind::Primary)
+				})
+				.inner
+				.clicked();
+			let reset = ui
+				.add_enabled_ui(can_reset, |ui| button(ui, "Reset", ButtonKind::Neutral))
+				.inner
+				.clicked();
+			ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+				ui.add(
+					egui::Label::new(
+						medium(
+							ui,
+							saving.unwrap_or("Careful — you have unsaved changes!"),
+							14.0,
+						)
+						.color(p.text_strong),
+					)
+					.truncate(),
+				);
+			});
+			(save, reset)
+		})
+		.inner
+	})
+	.inner
+}
+
 /// Exclusive choice drawn as one connected group of segments on an inset track. For a small
 /// set of short labels: editor tabs, dark/light pickers. Returns the index clicked this frame.
 pub fn segmented(ui: &mut egui::Ui, labels: &[&str], selected: usize) -> Option<usize> {
@@ -2269,6 +2362,95 @@ pub fn segmented(ui: &mut egui::Ui, labels: &[&str], selected: usize) -> Option<
 		}
 	}
 	clicked
+}
+
+/// Compact multi-select row with a leading image, two text lines and an outlined checkbox.
+/// The entire row is one keyboard-accessible target; `leading` only paints inside its rect.
+pub fn selection_row(
+	ui: &mut egui::Ui,
+	selected: bool,
+	title: &str,
+	detail: &str,
+	leading: impl FnOnce(&mut egui::Ui, egui::Rect),
+) -> egui::Response {
+	let p = palette(ui);
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 56.0), egui::Sense::click());
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(
+			egui::Role::CheckBox,
+			ui.is_enabled(),
+			selected,
+			format!("{title}, {detail}"),
+		)
+	});
+	if !ui.is_rect_visible(rect) {
+		return response;
+	}
+	if selected || response.hovered() || response.has_focus() {
+		ui.painter()
+			.rect_filled(rect, 8, if selected { p.selected } else { p.hover });
+	}
+	if response.has_focus() {
+		ui.painter().rect_stroke(
+			rect.shrink(1.0),
+			8,
+			Stroke::new(1.0, p.accent),
+			egui::StrokeKind::Inside,
+		);
+	}
+	leading(
+		ui,
+		egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 26.0, rect.center().y),
+			egui::Vec2::splat(32.0),
+		),
+	);
+	let marker = egui::Rect::from_center_size(
+		egui::pos2(rect.right() - 20.0, rect.center().y),
+		egui::Vec2::splat(20.0),
+	);
+	ui.painter()
+		.rect_filled(marker, 5, if selected { p.accent } else { p.base });
+	ui.painter().rect_stroke(
+		marker,
+		5,
+		Stroke::new(1.5, if selected { p.accent } else { p.muted }),
+		egui::StrokeKind::Inside,
+	);
+	if selected {
+		crate::icons::paint(
+			ui.painter(),
+			crate::icons::Icon::Check,
+			marker.shrink(3.0),
+			p.accent_text,
+		);
+	}
+	let left = rect.left() + 52.0;
+	let right = marker.left() - 12.0;
+	let text_width = (right - left).max(40.0);
+	let title_color = if ui.is_enabled() {
+		p.text_strong
+	} else {
+		p.muted
+	};
+	let title = ui.painter().layout(
+		title.to_owned(),
+		FontId::new(15.0, semibold_family(ui.ctx())),
+		title_color,
+		text_width,
+	);
+	let detail = ui.painter().layout(
+		detail.to_owned(),
+		FontId::proportional(12.0),
+		p.muted,
+		text_width,
+	);
+	ui.painter()
+		.galley(egui::pos2(left, rect.top() + 9.0), title, title_color);
+	ui.painter()
+		.galley(egui::pos2(left, rect.top() + 30.0), detail, p.muted);
+	response
 }
 
 /// Settings row: title and optional detail on the left, `control` laid out right-to-left on

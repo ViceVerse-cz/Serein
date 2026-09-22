@@ -74,7 +74,7 @@ pub fn show(
 			}
 			return;
 		};
-		if writing {
+		if writing || refreshing {
 			ui.visuals_mut().disabled_alpha = 1.0;
 		}
 		for reaction in reactions {
@@ -83,7 +83,7 @@ pub fn show(
 				reaction_button(ui.ctx(), media.0, &reaction.emoji, reaction.count, media.1);
 			let response = ui.add_enabled(
 				!writing
-					&& reaction.emoji.name.is_some()
+					&& !refreshing && reaction.emoji.name.is_some()
 					&& can_react(&reaction.emoji, !reaction.me),
 				button
 					.gap(4.0)
@@ -171,6 +171,38 @@ pub fn show(
 		}
 	});
 	action
+}
+
+pub fn show_frozen(
+	ui: &mut egui::Ui,
+	reactions: Option<&[Reaction]>,
+	media: (&mut crate::avatars::Avatars, bool),
+) {
+	if reactions.is_none_or(<[Reaction]>::is_empty) {
+		return;
+	}
+	ui.horizontal_wrapped(|ui| {
+		ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+		ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
+		ui.spacing_mut().interact_size.y = 26.0;
+		ui.visuals_mut().disabled_alpha = 1.0;
+		for reaction in reactions.unwrap_or_default() {
+			let label = format!("{} {}", reaction.emoji.label(), reaction.count);
+			let button =
+				reaction_button(ui.ctx(), media.0, &reaction.emoji, reaction.count, media.1);
+			let response = ui.add_enabled(
+				false,
+				button
+					.gap(4.0)
+					.min_size(egui::vec2(0.0, 26.0))
+					.corner_radius(6)
+					.selected(reaction.me),
+			);
+			response.widget_info(|| {
+				egui::WidgetInfo::selected(egui::Role::Button, false, reaction.me, &label)
+			});
+		}
+	});
 }
 
 pub fn add_button(

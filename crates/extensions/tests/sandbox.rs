@@ -249,9 +249,8 @@ fn shipped_rust_examples_execute_through_the_real_abi() {
 		..Default::default()
 	};
 	assert!(
-		invoke(&protector, &input)
-			.unwrap()
-			.preserve_deleted_messages
+		invoke(&protector, &input).is_ok(),
+		"bundled protector package still executes through the ABI"
 	);
 }
 

@@ -9,6 +9,7 @@ use egui::{RichText, vec2};
 
 #[derive(Default)]
 pub(super) struct Friends {
+	pub(super) presence_warning_dismissed: Option<u64>,
 	tab: Tab,
 	query: String,
 	username: String,
@@ -160,9 +161,6 @@ impl MessagingUi {
 			{
 				commands.push(command);
 			}
-			if let Some(status) = state.user_action_status() {
-				ui.label(status);
-			}
 			if state.demo {
 				ui.colored_label(colors.muted, "Offline demo · actions are simulated.");
 			} else if !state.gateway_connected {
@@ -221,9 +219,6 @@ impl MessagingUi {
 					.char_limit(128)
 					.align(egui::Align2::LEFT_CENTER),
 			);
-			if let Some(status) = state.user_action_status() {
-				ui.label(status);
-			}
 			ui.add_space(16.0);
 			let query = self.friends.query.trim().to_lowercase();
 			let mut rows: Vec<_> = state
@@ -376,6 +371,29 @@ impl MessagingUi {
 				});
 			});
 		ui.separator();
+		if matches!(self.friends.tab, Tab::Online | Tab::All)
+			&& state.gateway_connected
+			&& state.startup_warnings.presence
+			&& self.friends.presence_warning_dismissed != Some(state.generation)
+		{
+			egui::Frame::new()
+				.inner_margin(egui::Margin::symmetric(24, 8))
+				.show(ui, |ui| {
+					ui.horizontal_top(|ui| {
+						icons::inline(ui, Icon::ShieldWarning, 18.0, colors.warning);
+						ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+							if icons::button(ui, Icon::Close, 22.0, "Dismiss friend status warning")
+								.clicked()
+							{
+								self.friends.presence_warning_dismissed = Some(state.generation);
+							}
+							ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+								ui.add(egui::Label::new("Some friends’ online status and activity couldn’t be loaded. The Online list may be incomplete.").wrap());
+							});
+						});
+					});
+				});
+		}
 		if self.friends.tab == Tab::Add {
 			self.add_friend_page(ui, state, commands);
 			return;
@@ -842,6 +860,7 @@ mod tests {
 						state: None,
 						image: None,
 						small_image: None,
+						ends_at: None,
 						started_at: None,
 					}]),
 				}]),
@@ -948,6 +967,7 @@ mod tests {
 						state: None,
 						image: None,
 						small_image: None,
+						ends_at: None,
 						started_at: None,
 					}]),
 				}]),

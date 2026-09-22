@@ -392,8 +392,7 @@ impl Permissions {
 impl State {
 	pub(crate) fn update_permissions(&mut self, event: Event) -> Result<(), &'static str> {
 		let update = self.permissions.update_changed(event);
-		// Repeated gateway snapshots must not restart an open profile request.
-		if !matches!(update, Ok(false)) {
+		if update.is_err() {
 			self.clear_profile();
 			self.profile_cache.clear();
 		}
@@ -457,9 +456,13 @@ impl State {
 			.as_ref()
 			.filter(|list| list.guild == Some(guild) && list.channel == channel)
 			.and_then(|list| {
-				list.rows
+				list.slots
 					.iter()
 					.flatten()
+					.filter_map(|slot| match slot {
+						model::MemberSlot::Person(m) => Some(m),
+						_ => None,
+					})
 					.find(|member| member.user.id == user)
 			})
 			.or_else(|| {
@@ -585,7 +588,7 @@ impl State {
 	pub fn can_view(&self, channel: Id) -> bool {
 		self.permission(channel, p::VIEW_CHANNEL) == Some(true)
 	}
-	fn overwrite_target(&self, channel: &model::Channel) -> Option<Id> {
+	pub(crate) fn overwrite_target(&self, channel: &model::Channel) -> Option<Id> {
 		if matches!(channel.kind, 10..=12) {
 			let parent = channel.parent_id?;
 			self.channel(parent)

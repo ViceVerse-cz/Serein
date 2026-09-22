@@ -96,7 +96,7 @@ pub struct Bridge {
 	app_key: Option<crate::extension_app::ChangeKey>,
 	app_context_changed: bool,
 	data_changes: crate::extension_data_events::Changes,
-	read_key: Option<crate::extension_data_events::ReadKey>,
+	data_key: Option<crate::extension_data_events::DataKey>,
 }
 impl Bridge {
 	pub fn data_changed(&mut self, changes: crate::extension_data_events::Changes) {
@@ -142,14 +142,14 @@ impl Bridge {
 			}) {
 			self.app_key = None;
 			self.data_changes = Default::default();
-			self.read_key = None;
+			self.data_key = None;
 			return;
 		}
-		let read_key = crate::extension_data_events::ReadKey::capture(state);
-		if self.read_key.as_ref().is_some_and(|old| old != &read_key) {
-			self.data_changes.read_changed();
+		let data_key = crate::extension_data_events::DataKey::capture(state);
+		if let Some(old) = &self.data_key {
+			self.data_changes.merge(data_key.changed(old));
 		}
-		self.read_key = Some(read_key);
+		self.data_key = Some(data_key);
 		let changes = std::mem::take(&mut self.data_changes);
 		let key = crate::extension_app::ChangeKey::capture(state, messaging);
 		let invalidated = std::mem::take(&mut self.app_context_changed);
@@ -299,7 +299,7 @@ impl Bridge {
 		self.app_key = None;
 		self.app_context_changed = false;
 		self.data_changes = Default::default();
-		self.read_key = None;
+		self.data_key = None;
 		for entry in &mut self.installed {
 			entry.preserve_deleted_messages = false;
 			entry.image_sharing = false;
@@ -366,9 +366,8 @@ impl Bridge {
 			self.app_key = None;
 			self.app_context_changed = false;
 			self.data_changes = Default::default();
-			self.read_key = None;
+			self.data_key = None;
 			self.message_events_dropped = false;
-			state.set_preserve_deleted_messages(false);
 			self.cancel_previews(messaging);
 			self.host.as_mut().unwrap().cancel();
 			self.pending.retain(|_, pending| pending.cleanup);
@@ -585,13 +584,22 @@ impl Bridge {
 					messaging.extensions.status = "Extension enabled.".into();
 				}
 				Ok(Event::Disabled(id)) => {
+					let theme = self.installed.iter().any(|entry| {
+						entry.manifest.id == id && entry.manifest.kind == ExtensionKind::Theme
+					});
 					self.installed.retain(|entry| entry.manifest.id != id);
 					self.disabled.remove(&id);
 					messaging.extensions.remove_runtime(&id);
 					self.apply_theme(ctx);
 					self.entries(messaging);
-					messaging.extensions.status =
-						"Disabled. Downloaded code and extension data were removed.".into();
+					// The gallery reports the outcome; an open theme editor is a different task.
+					if !messaging.extensions.editing_theme() {
+						messaging.extensions.status = if theme {
+							"Theme removed.".into()
+						} else {
+							"Disabled. Downloaded code and extension data were removed.".into()
+						};
+					}
 				}
 				Ok(Event::Invoked { id, output }) => {
 					if let Some((requested, invocation, context)) =
@@ -931,14 +939,6 @@ impl Bridge {
 					&& !self.disabled.contains(&entry.manifest.id)
 					&& entry.image_sharing
 			});
-		state.set_preserve_deleted_messages(
-			account.is_some()
-				&& self.installed.iter().any(|entry| {
-					entry.error.is_none()
-						&& !self.disabled.contains(&entry.manifest.id)
-						&& entry.preserve_deleted_messages
-				}),
-		);
 		let max_texture = ctx.input(|input| input.max_texture_side);
 		if self
 			.installed
@@ -1400,7 +1400,11 @@ mod tests {
 				guild: Some(model::Id(10)),
 				channel: state.selected.unwrap(),
 				request: state.member_request,
-				rows: Vec::new(),
+				slots: Vec::new(),
+				start: 0,
+				lazy: false,
+				groups: Vec::new(),
+				ranges: Vec::new(),
 				total: 0,
 				freshness: model::Freshness::Fresh,
 			}),

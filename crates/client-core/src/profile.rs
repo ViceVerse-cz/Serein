@@ -274,17 +274,25 @@ impl State {
 		self.invalidate_navigation();
 		if let Some(list) = &mut self.members {
 			for member in list
-				.rows
+				.slots
 				.iter_mut()
 				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				})
 				.filter(|member| member.user.id == user.id)
 			{
 				member.user = user.clone();
 			}
 			if list
-				.rows
+				.slots
 				.iter()
 				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				})
 				.map(model::Member::bytes)
 				.sum::<usize>()
 				> 128 * 1024
@@ -854,5 +862,132 @@ mod tests {
 			},
 		});
 		assert!(state.profile.is_none() && state.profile_cache.is_empty());
+	}
+
+	#[test]
+	fn open_profile_survives_role_edits_and_unrelated_channel_removal() {
+		let profile = |user| {
+			Box::new(UserProfile {
+				user: model::User {
+					primary_guild: None,
+					id: user,
+					name: "Synthetic".into(),
+					avatar: None,
+					webhook: false,
+					kind: Default::default(),
+					discriminator: 0,
+				},
+				username: "synthetic".into(),
+				global_name: None,
+				banner: None,
+				accent_color: None,
+				bio: "kept".into(),
+				pronouns: String::new(),
+				badges: vec![],
+				connections: vec![],
+				mutual_guilds: vec![],
+				guild: None,
+				theme_colors: None,
+				clan: None,
+				limited: false,
+			})
+		};
+		let channel = |id| model::Channel {
+			id: Id(id),
+			guild: Some(Id(9)),
+			parent_id: None,
+			kind: 0,
+			name: "Synthetic".into(),
+			position: 0,
+			recipients: vec![],
+			last_message: None,
+			icon: None,
+			member_list_id: None,
+			message_count: None,
+		};
+		let mut state = State {
+			auth: AuthState::Authenticated,
+			gateway_connected: true,
+			guilds: vec![model::Guild {
+				stickers: None,
+				emojis: None,
+				id: Id(9),
+				name: "Synthetic".into(),
+				icon: None,
+			}],
+			channels: vec![channel(2), channel(3)],
+			selected: Some(Id(2)),
+			..State::default()
+		};
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Permissions(crate::permissions::Event::Snapshot(
+				model::permissions::Snapshot {
+					guilds: vec![model::permissions::Guild {
+						id: Id(9),
+						owner: None,
+						roles: Some(vec![model::permissions::Role {
+							id: Id(30),
+							bits: 0,
+							name: "old".into(),
+							color: 0,
+							position: 1,
+							hoist: false,
+						}]),
+						member: None,
+					}],
+					channels: vec![],
+				},
+			)),
+		});
+		let Some(Command::Profile { request, .. }) = state.request_profile(Id(4), Some(Id(9)))
+		else {
+			panic!("profile request");
+		};
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Profile {
+				user: Id(4),
+				guild: Some(Id(9)),
+				request,
+				result: Ok(profile(Id(4))),
+			},
+		});
+		let before = state.profile.as_ref().unwrap().request;
+		assert_eq!(
+			state.profile.as_ref().unwrap().data.as_ref().unwrap().bio,
+			"kept"
+		);
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Permissions(crate::permissions::Event::Role {
+				guild: Id(9),
+				role: model::permissions::Role {
+					id: Id(30),
+					bits: 0,
+					name: "new".into(),
+					color: 0,
+					position: 1,
+					hoist: false,
+				},
+			}),
+		});
+		assert!(
+			state.profile.is_some(),
+			"role edit cleared the open profile"
+		);
+		state.apply(Envelope {
+			generation: state.generation,
+			event: Event::Unavailable(Id(3)),
+		});
+		assert!(
+			state.profile.is_some(),
+			"unrelated channel removal cleared the open profile"
+		);
+		let view = state.profile.as_ref().expect("profile stays open");
+		assert_eq!(view.request, before);
+		assert_eq!(view.data.as_ref().unwrap().bio, "kept");
+		assert_eq!(state.profile_cache.len(), 1);
+		assert!(state.channels.iter().all(|channel| channel.id != Id(3)));
 	}
 }

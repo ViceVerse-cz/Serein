@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const ADMINISTRATOR: u128 = 1 << 3;
 pub const KICK_MEMBERS: u128 = 1 << 1;
 pub const MANAGE_GUILD_EXPRESSIONS: u128 = 1 << 30;
+pub const USE_APPLICATION_COMMANDS: u128 = 1 << 31;
 pub const CREATE_GUILD_EXPRESSIONS: u128 = 1 << 43;
 pub const CHANGE_NICKNAME: u128 = 1 << 26;
 pub const MANAGE_NICKNAMES: u128 = 1 << 27;

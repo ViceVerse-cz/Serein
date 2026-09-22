@@ -342,6 +342,12 @@ fn display_activity(activity: &Activity) -> model::RichActivity {
 		state: text(&activity.state),
 		image: Some(primary),
 		small_image,
+		ends_at: activity.timestamps.as_ref().and_then(|timestamps| {
+			let start = timestamps.start?;
+			timestamps
+				.end
+				.filter(|end| *end > start && *end <= model::MAX_ACTIVITY_TIMESTAMP)
+		}),
 		started_at: activity
 			.timestamps
 			.as_ref()
@@ -358,6 +364,7 @@ pub fn demo_activity() -> model::RichActivity {
 		state: Some("Solo".into()),
 		image: None,
 		small_image: None,
+		ends_at: None,
 		started_at: None,
 	}
 }

@@ -22,6 +22,10 @@ rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal",
 symphonia = { version = "=0.6.1", default-features = false, features = ["aac"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+wayland-backend = { version = "=0.3.17", features = ["client_system", "dlopen"] }
+wayland-client = "=0.31.15"
+wayland-protocols = { version = "=0.32.13", features = ["client", "staging"] }
+x11-dl = "=2.21.0"
 ksni = "=0.3.6"
 zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }

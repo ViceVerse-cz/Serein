@@ -277,6 +277,7 @@ fn message(id: u64, channel: Id) -> Message {
 		kind: 0,
 		author: user(),
 		content: "Synthetic server content".into(),
+		prior_contents: Default::default(),
 		reactions: Some(vec![]),
 		edited: false,
 		edited_at: None,
@@ -1232,14 +1233,18 @@ fn member_requests_survive_guild_hydration_and_follow_current_permissions() {
 		channel: Id(20),
 		request: first,
 		total: 1,
-		rows: vec![Some(model::Member {
+		start: 0,
+		slots: vec![Some(model::MemberSlot::Person(model::Member {
 			activities: vec![],
 			roles: vec![],
 			user: user(),
 			nick: None,
 			status: None,
 			custom_status: None,
-		})],
+		}))],
+		lazy: false,
+		groups: vec![],
+		ranges: vec![],
 		freshness: Freshness::Fresh,
 	};
 	apply(&mut state, Event::Members(loaded.clone()));
@@ -1366,10 +1371,14 @@ fn member_role_display_tracks_live_role_metadata_and_membership() {
 		channel: Id(20),
 		request: 1,
 		total: 1,
-		rows: vec![Some(model::Member {
+		start: 0,
+		slots: vec![Some(model::MemberSlot::Person(model::Member {
 			roles: vec![],
 			..member.clone()
-		})],
+		}))],
+		lazy: false,
+		groups: vec![],
+		ranges: vec![],
 		freshness: Freshness::Fresh,
 	});
 	assert_eq!(
@@ -1382,10 +1391,14 @@ fn member_role_display_tracks_live_role_metadata_and_membership() {
 		channel: Id(20),
 		request: 1,
 		total: 1,
-		rows: vec![Some(model::Member {
+		start: 0,
+		slots: vec![Some(model::MemberSlot::Person(model::Member {
 			roles: vec![Id(12)],
 			..member.clone()
-		})],
+		}))],
+		lazy: false,
+		groups: vec![],
+		ranges: vec![],
 		freshness: Freshness::Fresh,
 	});
 	assert_eq!(
@@ -1570,6 +1583,7 @@ fn thread_members_load_without_parent_list_and_reject_retired_replies() {
 		channel: Some(Id(30)),
 		list_id: None,
 		request,
+		..
 	}) = state.request_members()
 	else {
 		panic!("Threads must request their own participants");

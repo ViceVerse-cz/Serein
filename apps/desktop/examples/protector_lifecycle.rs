@@ -32,7 +32,10 @@ fn main() {
 		panic!("enable failed")
 	};
 	assert!(installed.error.is_none());
-	assert!(installed.preserve_deleted_messages);
+	assert!(
+		!installed.preserve_deleted_messages,
+		"retention is built-in; activation output must not gate it"
+	);
 	let host::Event::Loaded { installed, .. } = job(
 		&mut host,
 		host::Job::Load {
@@ -43,9 +46,7 @@ fn main() {
 	};
 	assert_eq!(installed.len(), 1);
 	assert!(installed[0].error.is_none());
-	assert!(installed[0].preserve_deleted_messages);
 	let mut state = test_support::demo_state();
-	state.set_preserve_deleted_messages(installed[0].preserve_deleted_messages);
 	let channel = state.selected.unwrap();
 	let id = state.timeline.iter().next().unwrap().id;
 	state.apply(Envelope {
@@ -81,7 +82,7 @@ fn main() {
 	state.select(channel).unwrap();
 	assert!(
 		state.timeline.get_display(id).is_some(),
-		"new activity in a dormant channel must not erase protected messages"
+		"new activity in a dormant channel must not erase retained messages"
 	);
 	assert_eq!(
 		state.timeline.row_count(),
@@ -99,11 +100,15 @@ fn main() {
 		),
 		host::Event::Disabled(_)
 	));
-	state.set_preserve_deleted_messages(false);
+	assert!(
+		state.timeline.get_display(id).is_some(),
+		"disabling the example does not drop retained rows"
+	);
+	state.discard_preserved_deleted(id);
 	assert!(state.timeline.get_display(id).is_none());
 	drop(host);
 	std::fs::remove_dir_all(root).unwrap();
 	println!(
-		"Protector lifecycle passed: bundled worker enable, persisted activation reload, deletion, history refresh, dormant activity, disable."
+		"Protector lifecycle passed: bundled worker enable, reload, built-in retention, history refresh, dormant activity, disable leaves rows, local remove."
 	);
 }

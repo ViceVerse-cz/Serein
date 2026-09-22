@@ -771,7 +771,7 @@ impl SearchUi {
 			);
 		}
 		let Some(view) = &state.search else {
-			empty_state(
+			design::empty_state(
 				ui,
 				icons::Icon::Search,
 				"Search this conversation",
@@ -784,7 +784,7 @@ impl SearchUi {
 		}
 		match &view.page {
 			None if view.loading => {
-				empty_state(
+				design::empty_state(
 					ui,
 					icons::Icon::Search,
 					"Searching…",
@@ -813,7 +813,7 @@ impl SearchUi {
 							);
 						}
 						if page.hits.is_empty() {
-							empty_state(
+							design::empty_state(
 								ui,
 								icons::Icon::Search,
 								"No results",
@@ -944,6 +944,7 @@ impl SearchUi {
 				author_roles: vec![],
 				author_nick: None,
 				content: String::new(),
+				prior_contents: Default::default(),
 				mentions: vec![],
 				mention_roles: vec![],
 				mention_everyone: false,
@@ -1302,26 +1303,6 @@ fn hairline(ui: &mut egui::Ui) {
 		rect.center().y,
 		egui::Stroke::new(1.0, colors.border),
 	);
-}
-/// Centered icon-and-text placeholder for empty, idle and loading states.
-fn empty_state(ui: &mut egui::Ui, icon: icons::Icon, title: &str, detail: &str) {
-	let colors = design::palette(ui);
-	egui::Frame::new()
-		.inner_margin(egui::Margin::symmetric(24, 40))
-		.show(ui, |ui| {
-			ui.set_width(ui.available_width());
-			ui.vertical_centered(|ui| {
-				ui.spacing_mut().item_spacing.y = 6.0;
-				let (rect, _) =
-					ui.allocate_exact_size(egui::Vec2::splat(56.0), egui::Sense::hover());
-				ui.painter()
-					.circle_filled(rect.center(), 28.0, colors.muted.gamma_multiply(0.3));
-				icons::paint(ui.painter(), icon, rect.shrink(16.0), colors.text);
-				ui.add_space(8.0);
-				ui.label(design::semibold(ui, title, 15.0).color(colors.text_strong));
-				ui.label(RichText::new(detail).size(13.0).color(colors.muted));
-			});
-		});
 }
 /// Glyph for a channel row: threads, forums, voice, announcements and direct messages.
 fn channel_icon(channel: &model::Channel) -> icons::Icon {

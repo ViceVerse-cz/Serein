@@ -32,6 +32,7 @@ fn main() {
 				asset: model::Id(2),
 			}),
 			small_image: Some(model::ActivityImage::Application(model::Id(1))),
+			ends_at: None,
 			started_at: Some(started_at),
 		}));
 		let mut painted = String::new();

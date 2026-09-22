@@ -116,9 +116,6 @@ impl ContactEditor {
 						),
 					);
 				}
-				if let Some(status) = state.user_action_status() {
-					crate::dialog::notice(ui, crate::dialog::Level::Error, status);
-				}
 				if self.loaded && !ready {
 					crate::dialog::notice(
 						ui,

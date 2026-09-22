@@ -12,8 +12,6 @@ use std::sync::Arc;
 pub struct Artwork {
 	pub rect: Rect,
 	pub image: Option<egui::Image<'static>>,
-	/// Shown when the image is not resolved yet.
-	pub fallback: char,
 }
 
 struct Run {
@@ -608,14 +606,6 @@ fn paint_artwork(ui: &egui::Ui, art: &Artwork) {
 	if let Some(image) = &art.image {
 		let painted = image.calc_size(egui::Vec2::splat(size), image.size());
 		image.paint_at(ui, Rect::from_center_size(art.rect.center(), painted));
-	} else {
-		ui.painter().text(
-			art.rect.center(),
-			egui::Align2::CENTER_CENTER,
-			art.fallback,
-			egui::FontId::proportional(size),
-			ui.visuals().weak_text_color(),
-		);
 	}
 }
 

@@ -5,6 +5,7 @@ pub struct ReadingPreferences {
 	pub sidebar_width: u16,
 	pub show_members: bool,
 	pub animate_gifs: bool,
+	pub smooth_scrolling: bool,
 	pub hide_media_links: bool,
 	pub confirm_external_links: bool,
 }
@@ -15,6 +16,7 @@ impl Default for ReadingPreferences {
 			sidebar_width: 236,
 			show_members: true,
 			animate_gifs: false,
+			smooth_scrolling: true,
 			hide_media_links: true,
 			confirm_external_links: true,
 		}
@@ -35,7 +37,7 @@ mod tests {
 		let defaults = ReadingPreferences::default();
 		assert_eq!(defaults.zoom_percent, 100);
 		assert_eq!(defaults.sidebar_width, 236);
-		assert!(defaults.show_members && defaults.is_valid());
+		assert!(defaults.show_members && defaults.smooth_scrolling && defaults.is_valid());
 		for zoom_percent in [0, 79, 80, 150, 151, u16::MAX] {
 			for sidebar_width in [0, 189, 190, 360, 361, u16::MAX] {
 				for show_members in [false, true] {
@@ -44,6 +46,7 @@ mod tests {
 						sidebar_width,
 						show_members,
 						animate_gifs: false,
+						smooth_scrolling: true,
 						hide_media_links: true,
 						confirm_external_links: true,
 					};

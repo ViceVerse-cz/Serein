@@ -248,7 +248,7 @@ impl InviteDialog {
 										);
 									let button = ui
 										.add_enabled_ui(can_send, |ui| {
-											secondary(ui, label, egui::vec2(78.0, 40.0))
+											design::button(ui, label, design::ButtonKind::Outline)
 										})
 										.inner;
 									button.widget_info(|| {
@@ -381,7 +381,7 @@ impl InviteDialog {
 					};
 					if ui
 						.add_enabled_ui(!pending && channel.is_some(), |ui| {
-							primary(ui, label, egui::vec2(90.0, 38.0))
+							design::button(ui, label, design::ButtonKind::Primary)
 						})
 						.inner
 						.clicked()
@@ -430,22 +430,21 @@ impl InviteDialog {
 		ui.add_space(24.0);
 		let mut back = false;
 		ui.horizontal(|ui| {
-			let width = (ui.available_width() - ui.spacing().item_spacing.x) / 2.0;
-			if secondary(ui, "Cancel", egui::vec2(width, 48.0)).clicked() {
+			if design::button(ui, "Cancel", design::ButtonKind::Outline).clicked() {
 				back = true;
 			}
 			if ui
 				.add_enabled_ui(
 					!pending && !state.server_invite_pending() && channel.is_some(),
 					|ui| {
-						primary(
+						design::button(
 							ui,
 							if pending {
 								"Generating…"
 							} else {
 								"Generate a New Link"
 							},
-							egui::vec2(width, 48.0),
+							design::ButtonKind::Primary,
 						)
 					},
 				)
@@ -491,12 +490,6 @@ fn select(ui: &mut egui::Ui, id: &str, label: &str, content: impl FnOnce(&mut eg
 			.width(ui.available_width())
 			.show_ui(ui, content);
 	});
-}
-fn primary(ui: &mut egui::Ui, label: &str, _size: egui::Vec2) -> egui::Response {
-	design::button(ui, label, design::ButtonKind::Primary)
-}
-fn secondary(ui: &mut egui::Ui, label: &str, _size: egui::Vec2) -> egui::Response {
-	design::button(ui, label, design::ButtonKind::Outline)
 }
 
 #[cfg(test)]

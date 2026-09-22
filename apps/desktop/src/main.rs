@@ -37,6 +37,9 @@ mod rendering_demo;
 mod screen;
 #[cfg(feature = "demo")]
 mod server_settings_demo;
+#[cfg(feature = "demo")]
+mod slash_demo;
+mod spotify;
 mod startup;
 mod toggle_setting;
 mod tray_window;
@@ -62,6 +65,25 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 };
 
 fn main() -> eframe::Result {
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-spotify")
+	{
+		discord_api::spotify::debug_check();
+		discord_gateway::debug_spotify_check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-forward")
+	{
+		let mut state = test_support::demo_state();
+		ui::debug_forward_check(&mut state);
+		println!(
+			"Forward debug check passed: picker, bounded destinations, optional note, draft preservation and queue rejection."
+		);
+		return Ok(());
+	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-notification-click")
@@ -240,6 +262,11 @@ fn main() -> eframe::Result {
 		return Ok(());
 	}
 	#[cfg(feature = "demo")]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-slash-commands") {
+		slash_demo::check();
+		return Ok(());
+	}
+	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-post-menu") {
 		post_menu_demo::check();
 		return Ok(());
@@ -399,12 +426,10 @@ fn demo_check_updates() {
 /// One offline debug path through the shipped Wasm, reducer, and egui rows.
 #[cfg(feature = "demo")]
 fn demo_check_extensions() {
-	let enabled =
-		extensions::demo_check_examples().expect("starter packages activate with consent");
+	let _ = extensions::demo_check_examples().expect("starter packages activate with consent");
 	let mut state = test_support::demo_state();
 	let channel = state.selected.expect("demo conversation");
 	state.timeline.clear();
-	state.set_preserve_deleted_messages(enabled);
 	let mut message = test_support::message(600, channel);
 	message.content = "A useful message stays readable".into();
 	message.attachments.clear();
@@ -496,10 +521,10 @@ fn demo_check_extensions() {
 		saw_deleted && saw_author && saw_avatar,
 		"retained row renders red text ({saw_deleted}), author ({saw_author}), and a normal 40-pixel avatar ({saw_avatar})"
 	);
-	state.set_preserve_deleted_messages(false);
+	state.discard_preserved_deleted(message.id);
 	assert!(
 		state.timeline.get_display(message.id).is_none(),
-		"disabling releases preserved text"
+		"local remove drops the retained payload"
 	);
 	let next = test_support::message(601, channel);
 	state.timeline.insert(next.clone(), true, false).unwrap();
@@ -511,11 +536,12 @@ fn demo_check_extensions() {
 		},
 	});
 	assert!(
-		state.timeline.get_display(next.id).is_none(),
-		"default deletion still removes the payload"
+		state.timeline.get_display(next.id).is_some(),
+		"loaded deletes stay in the window"
 	);
+	assert!(state.timeline.get(next.id).is_none());
 	println!(
-		"Extension debug check passed: one Wasm protector, five themes, consent, red deleted row, stale-history rejection and disable cleanup."
+		"Extension debug check passed: starter packages, consent, retained deleted row, stale-history rejection and local remove."
 	);
 }
 
@@ -740,7 +766,7 @@ struct Desktop {
 	appearance: egui::ThemePreference,
 	appearance_changed: bool,
 	transparency_available: bool,
-	window_blur: bool,
+	window_blur: Option<platform::window_effects::Blur>,
 	window_transparent: bool,
 	reading: reading_settings::ReadingSettings,
 	app_settings: app_settings::Settings,
@@ -858,6 +884,19 @@ fn access_candidates(state: &State, event: &Event) -> Vec<model::Id> {
 		})
 		.map(|c| c.id)
 		.collect()
+}
+fn user_action_notice(event: &Event) -> Option<(ui::design::Level, &'static str)> {
+	let Event::UserAction(client_core::user_actions::Event::Written { action, result, .. }) = event
+	else {
+		return None;
+	};
+	Some(match result {
+		Ok(()) if matches!(action, client_core::user_actions::Action::OpenDm(_)) => {
+			(ui::design::Level::Error, action.completion_label())
+		}
+		Ok(()) => (ui::design::Level::Success, action.completion_label()),
+		Err(failure) => (ui::design::Level::Error, failure.label()),
+	})
 }
 fn queue_channel_preferences(
 	cache: Option<&cache::Cache>,
@@ -1044,6 +1083,7 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 					asset: model::Id(9002),
 				}),
 				small_image: None,
+				ends_at: None,
 				started_at: None,
 			}],
 		},
@@ -1066,7 +1106,14 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 		channel,
 		request,
 		total: members.len() as u64,
-		rows: members.into_iter().map(Some).collect(),
+		start: 0,
+		slots: members
+			.into_iter()
+			.map(|m| Some(model::MemberSlot::Person(m)))
+			.collect(),
+		lazy: false,
+		groups: vec![],
+		ranges: vec![],
 		freshness: model::Freshness::Fresh,
 	}
 }
@@ -1087,7 +1134,7 @@ impl Desktop {
 		transparency_available: bool,
 	) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
 		ui::fonts::install(&cc.egui_ctx);
-		ui::emoji::install_async(&cc.egui_ctx)?;
+		ui::emoji::install(&cc.egui_ctx)?;
 		ui::icons::install(&cc.egui_ctx);
 		#[cfg(feature = "demo")]
 		if demo {
@@ -1121,7 +1168,9 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if demo {
 			state = {
-				if std::env::args().any(|arg| arg == "--demo-components") {
+				if std::env::args().any(|arg| arg == "--demo-slash-commands") {
+					slash_demo::preview()
+				} else if std::env::args().any(|arg| arg == "--demo-components") {
 					components_demo::preview()
 				} else if std::env::args().any(|arg| arg == "--demo-forwarded") {
 					test_support::forwarded_demo_state()
@@ -1211,9 +1260,13 @@ impl Desktop {
 			if !std::env::args().any(|arg| arg == "--demo-friends") {
 				let fixture = demo_members(None, model::Id(22), 0);
 				state.direct_presences = fixture
-					.rows
+					.slots
 					.into_iter()
 					.flatten()
+					.filter_map(|slot| match slot {
+						model::MemberSlot::Person(member) => Some(member),
+						_ => None,
+					})
 					.filter(|member| member.user.id != model::Id(1))
 					.map(|member| model::MemberPresence {
 						user: member.user.id,
@@ -1823,6 +1876,8 @@ impl Desktop {
 			emoji_upload: emoji_upload::EmojiUpload::default(),
 			clipboard: None,
 			download_close_pending: false,
+			window_blur: transparency_available
+				.then(|| platform::window_effects::Blur::new(window.clone())),
 			window,
 			monitor_geometry: None,
 			monitor_period: None,
@@ -1845,7 +1900,6 @@ impl Desktop {
 			appearance: egui::ThemePreference::System,
 			appearance_changed: false,
 			transparency_available,
-			window_blur: false,
 			window_transparent: transparency_available,
 			reading,
 			app_settings,
@@ -2026,7 +2080,7 @@ impl Desktop {
 		self.app_settings.apply(&mut self.messaging);
 		self.messaging.share_game_activity = self.game_activity.enabled;
 		ctx.memory_mut(|m| *m = egui::Memory::default());
-		let _ = ui::emoji::install_async(ctx);
+		let _ = ui::emoji::install(ctx);
 		ui::design::apply(ctx);
 		ctx.set_theme(self.appearance);
 		self.messaging
@@ -2566,6 +2620,16 @@ impl Desktop {
 				}
 			}
 		}
+		// Keep the existing game preview; Spotify fills the activity card while no game is active.
+		if own_activity.is_none() && self.state.gateway_connected {
+			own_activity = self.connection.as_ref().and_then(|connection| {
+				connection
+					.spotify_activity
+					.borrow()
+					.as_ref()
+					.map(|activity| activity.display())
+			});
+		}
 		let changed = self.state.set_local_game_activity(own_activity);
 		if changed
 			|| previous_sharing
@@ -2865,7 +2929,23 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if self.state.demo {
 			let event = match command {
+				Command::ApplicationCommands {
+					channel,
+					guild,
+					request,
+				} => Event::ApplicationCommands {
+					channel,
+					request,
+					result: Ok(slash_demo::catalog(guild)),
+				},
 				Command::Interaction(request) => {
+					if matches!(
+						&request.data,
+						client_core::interactions::Data::ApplicationCommand { .. }
+					) {
+						slash_demo::respond(&mut self.state, request);
+						return;
+					}
 					if std::env::args().any(|arg| arg == "--demo-components") {
 						self.state.apply(Envelope {
 							generation: self.state.generation,
@@ -2883,9 +2963,13 @@ impl Desktop {
 				Command::MemberSearch(request) => {
 					let query = request.query.to_lowercase();
 					let rows = demo_members(Some(request.guild), request.channel, request.nonce)
-						.rows
+						.slots
 						.into_iter()
 						.flatten()
+						.filter_map(|slot| match slot {
+							model::MemberSlot::Person(member) => Some(member),
+							_ => None,
+						})
 						.filter(|member| {
 							member.user.name.to_lowercase().contains(&query)
 								|| member
@@ -3449,6 +3533,35 @@ impl Desktop {
 						.cloned()
 						.ok_or(Failure::Protocol),
 				},
+				Command::Forward {
+					message,
+					channel,
+					nonce,
+					..
+				} => {
+					self.synthetic_id += 1;
+					let result = self
+						.state
+						.timeline
+						.get(message)
+						.cloned()
+						.ok_or(Failure::Protocol)
+						.map(|mut m| {
+							m.id = model::Id(self.synthetic_id);
+							m.channel = channel;
+							m.author = self.state.user.clone().unwrap();
+							m.author_nick = None;
+							m.author_roles.clear();
+							m.nonce = Some(nonce.clone());
+							m.reply_to = None;
+							m.reply_deleted = false;
+							m.kind = 0;
+							m.forwarded = true;
+							m.reactions = None;
+							m
+						});
+					Event::SendResult { nonce, result }
+				}
 				Command::Send {
 					sticker,
 					channel,
@@ -4753,32 +4866,9 @@ impl Desktop {
 			if event.generation != self.state.generation {
 				continue;
 			}
-			let friend_request_notice =
-				if let Event::UserAction(client_core::user_actions::Event::Written {
-					action,
-					result,
-					..
-				}) = &event.event
-				{
-					let success = match action {
-						client_core::user_actions::Action::AddFriend { .. }
-						| client_core::user_actions::Action::ProfileFriend {
-							friend: true, ..
-						} => Some("Friend request sent"),
-						client_core::user_actions::Action::ResolveFriend {
-							accept: false, ..
-						} => Some("Friend request removed"),
-						_ => None,
-					};
-					success.map(|success| match result {
-						Ok(()) => (ui::design::Level::Success, success),
-						Err(failure) => (ui::design::Level::Error, failure.label()),
-					})
-				} else {
-					None
-				};
-			let friend_request_was_pending =
-				friend_request_notice.is_some() && self.state.user_action_pending();
+			let user_action_notice = user_action_notice(&event.event);
+			let user_action_was_pending =
+				user_action_notice.is_some() && self.state.user_action_pending();
 			self.delete_cached_messages(&event.event);
 			match &event.event {
 				Event::Delete { channel, id } => {
@@ -4885,9 +4975,9 @@ impl Desktop {
 					self.extensions.message_event(&self.state, event);
 				}
 			}
-			if friend_request_was_pending
+			if user_action_was_pending
 				&& !self.state.user_action_pending()
-				&& let Some((level, text)) = friend_request_notice
+				&& let Some((level, text)) = user_action_notice
 			{
 				self.messaging.toasts.push(level, text);
 			}
@@ -5113,9 +5203,8 @@ impl Desktop {
 			self.window_transparent = transparent;
 		}
 		let blur = transparent && effects.2 > 0;
-		if blur != self.window_blur {
-			self.window.set_blur(blur);
-			self.window_blur = blur;
+		if let Some(window_blur) = &mut self.window_blur {
+			window_blur.set_enabled(blur);
 		}
 	}
 	/// Frame period of the display the window is on; egui otherwise assumes 60 Hz.
@@ -5131,12 +5220,10 @@ impl Desktop {
 }
 impl eframe::App for Desktop {
 	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
-		if !self.transparency_available {
-			// Match eframe's default clear color on the ordinary opaque surface.
-			egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32()
-		} else if self.window_transparent {
+		if self.window_transparent {
 			egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
 		} else {
+			// Opaque windows need opaque pixels too, including uncovered panel corners.
 			visuals.panel_fill.to_opaque().to_normalized_gamma_f32()
 		}
 	}
@@ -6246,6 +6333,20 @@ impl eframe::App for Desktop {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn user_action_results_use_toasts() {
+		let success = Event::UserAction(client_core::user_actions::Event::Written {
+			action: client_core::user_actions::Action::Nickname {
+				user: model::Id(2),
+				text: "Synthetic".into(),
+			},
+			request: 1,
+			result: Ok(()),
+		});
+		let (level, text) = user_action_notice(&success).unwrap();
+		assert!(matches!(level, ui::design::Level::Success));
+		assert_eq!(text, "Nickname saved");
+	}
 	#[test]
 	fn frame_sample_is_bounded_demo_only_and_excludes_warmup() {
 		for (demo, value) in [

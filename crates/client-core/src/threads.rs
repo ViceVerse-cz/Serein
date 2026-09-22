@@ -270,6 +270,7 @@ mod tests {
 				discriminator: 0,
 			},
 			content: "Synthetic thread history".into(),
+			prior_contents: Default::default(),
 			author_nick: None,
 			author_roles: vec![],
 			mention_roles: vec![],

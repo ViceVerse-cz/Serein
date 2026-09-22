@@ -112,7 +112,8 @@ pub fn projected_row_bytes(row: &model::Member, update: &MemberPresence) -> usiz
 						.into_iter()
 						.flatten()
 						.map(|image| match image {
-							model::ActivityImage::Proxy(path) => path.len(),
+							model::ActivityImage::Proxy(path)
+							| model::ActivityImage::Spotify(path) => path.len(),
 							_ => 0,
 						})
 						.sum::<usize>()
@@ -233,12 +234,23 @@ impl State {
 			&& list.freshness == Freshness::Fresh
 		{
 			let mut bytes = list
-				.rows
+				.slots
 				.iter()
 				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				})
 				.map(model::Member::bytes)
 				.sum::<usize>();
-			for row in list.rows.iter_mut().flatten() {
+			for row in list
+				.slots
+				.iter_mut()
+				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				}) {
 				let presence = self.direct_presences.iter().find(|p| p.user == row.user.id);
 				if let Some(presence) = presence {
 					if row.status == presence.status
@@ -317,9 +329,13 @@ impl State {
 		};
 		// ponytail: at most 100 loaded rows and updates; index only if the pane cap grows.
 		let projected_bytes = list
-			.rows
+			.slots
 			.iter()
 			.flatten()
+			.filter_map(|slot| match slot {
+				model::MemberSlot::Person(m) => Some(m),
+				_ => None,
+			})
 			.map(|row| {
 				let Some(update) = updates.iter().find(|update| update.user == row.user.id) else {
 					return row.bytes();
@@ -330,7 +346,14 @@ impl State {
 		if projected_bytes > 128 * 1024 {
 			return;
 		}
-		for row in list.rows.iter_mut().flatten() {
+		for row in list
+			.slots
+			.iter_mut()
+			.flatten()
+			.filter_map(|slot| match slot {
+				model::MemberSlot::Person(m) => Some(m),
+				_ => None,
+			}) {
 			if let Some(update) = updates.iter().find(|update| update.user == row.user.id)
 				&& (row.status != update.status
 					|| row.custom_status != update.custom_status
@@ -348,7 +371,7 @@ impl State {
 mod tests {
 	use super::*;
 	use crate::{Envelope, Event, auth::AuthState};
-	use model::{Channel, Guild, Member, MemberList, MemberPresence, User};
+	use model::{Channel, Guild, Member, MemberList, MemberPresence, MemberSlot, User};
 
 	fn state() -> State {
 		let user = User {
@@ -390,18 +413,22 @@ mod tests {
 				guild: Some(Id(10)),
 				channel: Id(1),
 				request: 7,
-				rows: vec![
-					Some(Member {
+				start: 0,
+				slots: vec![
+					Some(MemberSlot::Person(Member {
 						roles: vec![],
 						user,
 						nick: None,
 						status: Some("online".into()),
 						custom_status: None,
 						activities: vec![],
-					}),
+					})),
 					None,
 				],
 				total: 200,
+				lazy: false,
+				groups: vec![],
+				ranges: vec![],
 				freshness: Freshness::Fresh,
 			}),
 			..State::default()
@@ -435,8 +462,22 @@ mod tests {
 		}
 	}
 
+	fn person(slot: &Option<MemberSlot>) -> &Member {
+		match slot.as_ref().unwrap() {
+			MemberSlot::Person(member) => member,
+			_ => panic!("expected person slot"),
+		}
+	}
+
+	fn person_mut(slot: &mut Option<MemberSlot>) -> &mut Member {
+		match slot.as_mut().unwrap() {
+			MemberSlot::Person(member) => member,
+			_ => panic!("expected person slot"),
+		}
+	}
+
 	fn row(state: &State) -> &Member {
-		state.members.as_ref().unwrap().rows[0].as_ref().unwrap()
+		person(&state.members.as_ref().unwrap().slots[0])
 	}
 
 	#[test]
@@ -448,6 +489,7 @@ mod tests {
 			state: None,
 			image: None,
 			small_image: None,
+			ends_at: None,
 			started_at: None,
 		};
 		let mut state = state();
@@ -519,10 +561,8 @@ mod tests {
 	#[test]
 	fn complete_presence_values_preserve_replace_and_clear_without_timeline_churn() {
 		let mut state = state();
-		state.members.as_mut().unwrap().rows[0]
-			.as_mut()
-			.unwrap()
-			.custom_status = Some("Old custom status".into());
+		person_mut(&mut state.members.as_mut().unwrap().slots[0]).custom_status =
+			Some("Old custom status".into());
 		let revision = state.revision;
 		let resident = (
 			state.resident_history_rows(),
@@ -564,8 +604,8 @@ mod tests {
 		);
 		let list = state.members.as_ref().unwrap();
 		assert_eq!(list.total, 200);
-		assert_eq!(list.rows.len(), 2);
-		assert!(list.rows[1].is_none());
+		assert_eq!(list.slots.len(), 2);
+		assert!(list.slots[1].is_none());
 		apply(
 			&mut state,
 			event(vec![update(2, None, Some("\u{1f642} Synthetic status"))]),
@@ -659,7 +699,7 @@ mod tests {
 	#[test]
 	fn projected_row_budget_counts_custom_text_and_retained_equal_allocations() {
 		let mut state = state();
-		let first = state.members.as_mut().unwrap().rows[0].as_mut().unwrap();
+		let first = person_mut(&mut state.members.as_mut().unwrap().slots[0]);
 		first.custom_status = Some(String::with_capacity(1024));
 		first.custom_status.as_mut().unwrap().push_str("Same text");
 		let mut second = first.clone();
@@ -667,15 +707,19 @@ mod tests {
 		second.custom_status = None;
 		let spare = 128 * 1024 - first.bytes() - second.bytes();
 		first.nick = Some("x".repeat(spare));
-		state.members.as_mut().unwrap().rows[1] = Some(second);
+		state.members.as_mut().unwrap().slots[1] = Some(MemberSlot::Person(second));
 		assert_eq!(
 			state
 				.members
 				.as_ref()
 				.unwrap()
-				.rows
+				.slots
 				.iter()
 				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				})
 				.map(Member::bytes)
 				.sum::<usize>(),
 			128 * 1024
@@ -689,9 +733,7 @@ mod tests {
 			]),
 		);
 		assert!(
-			state.members.as_ref().unwrap().rows[1]
-				.as_ref()
-				.unwrap()
+			person(&state.members.as_ref().unwrap().slots[1])
 				.custom_status
 				.is_none()
 		);
@@ -705,9 +747,7 @@ mod tests {
 		);
 		assert_eq!(row(&state).custom_status.as_deref(), Some("Replacement"));
 		assert_eq!(
-			state.members.as_ref().unwrap().rows[1]
-				.as_ref()
-				.unwrap()
+			person(&state.members.as_ref().unwrap().slots[1])
 				.custom_status
 				.as_deref(),
 			Some("x")
@@ -717,9 +757,13 @@ mod tests {
 				.members
 				.as_ref()
 				.unwrap()
-				.rows
+				.slots
 				.iter()
 				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				})
 				.map(Member::bytes)
 				.sum::<usize>()
 				<= 128 * 1024
@@ -824,13 +868,14 @@ mod tests {
 			state: None,
 			image: None,
 			small_image: None,
+			ends_at: None,
 			started_at: None,
 		}
 	}
 	#[test]
 	fn activity_artwork_is_included_in_projected_member_bytes() {
 		let mut state = state();
-		let row = state.members.as_mut().unwrap().rows[0].as_mut().unwrap();
+		let row = person_mut(&mut state.members.as_mut().unwrap().slots[0]);
 		let mut activity = activity();
 		let mut path = String::from("external/synthetic-hash-01/https/example.com/art.png");
 		path.reserve(2048);

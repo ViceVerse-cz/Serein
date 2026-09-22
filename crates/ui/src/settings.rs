@@ -105,7 +105,7 @@ impl Page {
 				"general windows macos login menu bar startup autostart automatically open minimized minimize close tray background graphics gpu adapter render discrete integrated hardware acceleration performance battery"
 			}
 			Self::Appearance => {
-				"appearance customization primary accent hex window transparency blur title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay hide image links confirm confirmation external browser"
+				"appearance customization primary accent hex window transparency blur title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay smooth scrolling motion hide image links confirm confirmation external browser"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
@@ -159,7 +159,14 @@ impl MessagingUi {
 		}
 		if self.settings.open {
 			self.extensions.stop_theme_preview(ui.ctx());
-		} else if self.extensions.theme_preview_bar(ui) {
+		} else if self.extensions.theme_preview_bar(
+			ui,
+			if self.shows_title_bar() {
+				design::TRAFFIC_LIGHT_INSET
+			} else {
+				0.0
+			},
+		) {
 			self.settings.open = true;
 			self.settings.page = Page::Themes;
 			self.settings.query.clear();
@@ -873,21 +880,30 @@ impl MessagingUi {
 				);
 			}
 			design::card_divider(ui);
+			let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
 			design::row(
 				ui,
 				"Primary color",
-				Some("Used for buttons, selection and message highlights."),
+				Some(if themed_accent {
+					"The active theme brings its own accent; it takes over while the theme is in use."
+				} else {
+					"Used for buttons, selection and message highlights."
+				}),
 				|ui| {
-					if self.primary_color.is_some() && design::text_action(ui, "Reset").clicked() {
-						self.primary_color = None;
-					}
-					let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
-					if design::color_edit(ui, &mut color)
-						.on_hover_text("Choose primary color")
-						.changed()
-					{
-						self.primary_color = Some(color);
-					}
+					ui.add_enabled_ui(!themed_accent, |ui| {
+						if self.primary_color.is_some()
+							&& design::text_action(ui, "Reset").clicked()
+						{
+							self.primary_color = None;
+						}
+						let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
+						if design::color_edit(ui, &mut color)
+							.on_hover_text("Choose primary color")
+							.changed()
+						{
+							self.primary_color = Some(color);
+						}
+					});
 				},
 			);
 		});
@@ -949,27 +965,13 @@ impl MessagingUi {
 				}
 			});
 			ui.add_space(4.0);
-			ui.horizontal(|ui| {
-				ui.label(
-					RichText::new(format!(
-						"{active_label} · saved with your appearance. Gradient presets always use dark text."
-					))
-					.size(12.0)
-					.color(colors.muted),
-				);
-				if self.extensions.community_theme_active() {
-					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-						if design::text_action(ui, "Use built-in appearance")
-							.on_hover_text(
-								"Return to the built-in look without removing installed themes. Also Ctrl+Shift+F12.",
-							)
-							.clicked()
-						{
-							self.extensions.reset_theme(ui.ctx());
-						}
-					});
-				}
-			});
+			ui.label(
+				RichText::new(format!(
+					"{active_label} · saved with your appearance. Gradient presets always use dark text."
+				))
+				.size(12.0)
+				.color(colors.muted),
+			);
 		});
 		design::group(ui, "Channel list", |ui| {
 			design::switch(

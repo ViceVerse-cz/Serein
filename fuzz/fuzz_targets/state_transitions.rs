@@ -91,6 +91,7 @@ fn message(id: Id, channel: Id, content: String) -> Message {
 		author_nick: None,
 		author_roles: vec![],
 		content,
+		prior_contents: Default::default(),
 		kind: 0,
 		reactions: Some(vec![]),
 		edited: false,

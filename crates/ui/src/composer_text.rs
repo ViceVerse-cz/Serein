@@ -150,7 +150,6 @@ impl Layout {
 			} else {
 				let grapheme = tail.graphemes(true).next().expect("nonempty tail");
 				image = emoji::image(ui.ctx(), grapheme, size);
-				// Recognition must not depend on the startup worker: never flash font emoji.
 				artwork = image.is_some() || emoji::lookup(grapheme).is_some();
 				grapheme.len()
 			};
@@ -261,14 +260,6 @@ impl Layout {
 						rect.center(),
 						image.calc_size(egui::Vec2::splat(inline.width), image.size()),
 					),
-				);
-			} else {
-				painter.text(
-					rect.center(),
-					egui::Align2::CENTER_CENTER,
-					"?",
-					egui::FontId::proportional(inline.width),
-					ui.visuals().weak_text_color(),
 				);
 			}
 		}

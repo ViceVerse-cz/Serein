@@ -37,6 +37,7 @@ struct Style {
 	link: Option<usize>,
 	mention: Option<Id>,
 	role: Option<Id>,
+	role_color: Option<u32>,
 	mass_mention: bool,
 	channel: Option<Id>,
 	/// Discord `<t:seconds[:style]>` reference: rendered fresh each frame, never at parse time.
@@ -1298,8 +1299,9 @@ impl Formatted {
 								format!("{label}, user profile"),
 							)
 						});
+						crate::profiles::arm_profile_opener(ui, &response);
 						if response.clicked() {
-							*render.profile = Some(user.cloned().unwrap_or(model::User {
+							let opened = user.cloned().unwrap_or(model::User {
 								id,
 								name: format!("User {id}"),
 								avatar: None,
@@ -1307,7 +1309,8 @@ impl Formatted {
 								kind: Default::default(),
 								discriminator: 0,
 								primary_guild: None,
-							}));
+							});
+							crate::profiles::toggle_profile(render.profile, &opened);
 						}
 						start += 1;
 						continue;
@@ -1378,6 +1381,12 @@ impl Formatted {
 										format!("@{name}"),
 										Style {
 											mass_mention: true,
+											role_color: render
+												.roles
+												.iter()
+												.find(|role| role.id == id)
+												.map(|role| role.color)
+												.filter(|color| *color != 0),
 											..*style
 										},
 									)
@@ -1776,7 +1785,6 @@ impl Formatted {
 						Some(id) => images.custom_image(ui.ctx(), id, size, demo),
 						None => inline.image.clone(),
 					},
-					fallback: '?',
 				}
 			})
 			.collect();
@@ -1937,7 +1945,18 @@ impl Formatted {
 					.iter()
 					.find(|role| role.id == id)
 					.map_or_else(|| format!("unknown-role ({id})"), |role| role.name.clone());
-				(format!("@{name}"), pill.clone())
+				let style = Style {
+					mass_mention: true,
+					role_color: roles
+						.iter()
+						.find(|role| role.id == id)
+						.map(|role| role.color)
+						.filter(|color| *color != 0),
+					..Default::default()
+				};
+				let mut format = Self::format(ui, &style);
+				format.font_id = pill.font_id.clone();
+				(format!("@{name}"), format)
 			} else if let Some(id) = style.channel {
 				match channels.iter().find(|channel| channel.id == id) {
 					Some(channel)
@@ -1994,7 +2013,9 @@ impl Formatted {
 		let colors = crate::design::palette(ui);
 		let body = egui::TextStyle::Body.resolve(ui.style());
 		let color = if style.mass_mention {
-			colors.mention_text
+			style.role_color.map_or(colors.mention_text, |rgb| {
+				crate::design::role_name_color(rgb, colors.mention_bg, colors.mention_text)
+			})
 		} else if style.link.is_some() {
 			visuals.hyperlink_color
 		} else if style.strong {
@@ -3281,7 +3302,7 @@ mod tests {
 			let mut images = 0;
 			for shape in &output.shapes {
 				match &shape.shape {
-					egui::Shape::Text(text) if text.galley.job.text != "?" => {
+					egui::Shape::Text(text) => {
 						assert!(
 							text.galley
 								.rows
@@ -3822,9 +3843,7 @@ mod tests {
 			});
 			fn walk(shape: &egui::Shape, rows: &mut Vec<(f32, f32, f32)>) {
 				match shape {
-					egui::Shape::Text(text) if text.galley.text() != "?" => {
-						// Artwork falls back to a "?" galley without the emoji atlas; it is
-						// centred on the row rather than sharing the text baseline.
+					egui::Shape::Text(text) => {
 						for placed in &text.galley.rows {
 							for glyph in &placed.row.glyphs {
 								rows.push((glyph.line_height, placed.row.size.y, glyph.pos.y));

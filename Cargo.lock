@@ -3894,6 +3894,7 @@ name = "model"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "zeroize",
 ]
 
 [[package]]
@@ -5103,11 +5104,15 @@ dependencies = [
  "tauri-winrt-notification",
  "tokio",
  "url",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
  "webkit6",
  "windows 0.61.3",
  "windows-core 0.61.2",
  "winit",
  "wry",
+ "x11-dl",
  "zbus",
  "zeroize",
 ]

@@ -217,7 +217,6 @@ fn file_card(
 	ui: &mut egui::Ui,
 	attachment: &Attachment,
 	download: &mut DownloadUi,
-	opening: &mut Option<String>,
 	demo: bool,
 	surface: &mut crate::select::Surface,
 ) {
@@ -236,7 +235,6 @@ fn file_card(
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
 					let download = download_button(ui, attachment, download, demo);
-					let open = open_original(ui, attachment, opening);
 					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 						ui.vertical(|ui| {
 							ui.spacing_mut().item_spacing.y = 0.0;
@@ -258,9 +256,6 @@ fn file_card(
 							);
 						});
 					});
-					if let Some(open) = &open {
-						surface.keep(open);
-					}
 					surface.keep(&download);
 				});
 			});
@@ -377,7 +372,7 @@ pub(crate) fn show_subset(
 							});
 						}
 					} else {
-						file_card(ui, attachment, download, opening, demo, surface);
+						file_card(ui, attachment, download, demo, surface);
 					}
 					ui.add_space(6.0);
 				});
@@ -1313,6 +1308,7 @@ mod tests {
 				primary_guild: None,
 			},
 			content: String::new(),
+			prior_contents: Default::default(),
 			author_nick: None,
 			author_roles: vec![],
 			mention_roles: vec![],

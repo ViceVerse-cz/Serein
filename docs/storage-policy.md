@@ -3,23 +3,38 @@
 ## App extension snapshots and proposals (September 22, 2026)
 
 Independently granted app snapshots contain only already-loaded, accessible data.
-Each is bounded to 64 KiB of serialized JSON; the directory has at most 100 channels,
-the timeline 50 ordinary loaded messages, members/presence 100 entries each, and voice 64
-participant IDs. Snapshot construction also budgets list metadata and escaped text:
-12 KiB for channels, 24 KiB for timeline records, and 8 KiB each for members/presence.
-Names are sanitized to 128 UTF-8 bytes; timeline rows above 4 KiB of content are
-omitted. Partial lists declare `truncated`; none is a history export. Deleted and
-ephemeral bodies, credentials, raw media, device paths and unrelated profiles are excluded.
-The active conversation can be a DM or private channel; these grants can expose
-its ordinary message text and loaded members to the plugin.
+The serialized snapshot remains capped at 64 KiB. Directories hold at most 100
+channels and 100 joined guilds; the selected channel has at most 32 loaded
+recipients. Timeline, members/presence and voice limits remain 50 ordinary loaded
+messages, 100 entries each and 64 participant IDs respectively. Collector budgets
+include item overhead and escaped text: 10 KiB channels, 20 KiB timeline, 6 KiB
+each members/presence/channel-detail recipients, and 8 KiB guilds. Names are
+sanitized to 128 UTF-8 bytes; timeline rows above 4 KiB of content are omitted.
+Partial lists declare truncation; none is a history export.
 
-App lifecycle events coalesce to one pending descriptor per plugin within the existing
-32-item / 64-KiB shared reactive queue and ten-starts-per-second limit. Descriptors
-hold no snapshot; the host collects current granted data only when dispatching.
+The account-profile grant supplies only the current account label/avatar hash
+and an optional matching, already-loaded own profile. Loading, limited, stale or
+failed profile data is omitted. Bio/pronouns are capped at 2,048/256 UTF-8 bytes;
+asset hashes at 128 bytes. Channel details omit hidden parent IDs and withhold
+last-message IDs/counts without history permission. Disconnect or unavailable
+selected-channel data removes the corresponding groups. No snapshot exposes
+email, credentials, account connections, deleted/ephemeral bodies, raw media,
+device paths or unrelated profiles. An active accessible DM/private channel can
+supply ordinary text and loaded recipients with the corresponding grants.
+
+App events share the unchanged 32-item / 64-KiB reactive queue and ten-starts-per-
+second limit. Fixed dirty flags classify current-session account/channel/member/presence/
+read-state invalidation hints without retaining raw event payloads; local profile,
+directory and read changes use bounded scalar observation. Hints can describe
+no-op or rejected updates and are not an audit stream. Detailed events require `data_events`, `app_events`
+and their corresponding read grant. Pending detailed descriptors coalesce by
+kind per plugin; legacy lifecycle observation retains its existing coalescing.
+Descriptors hold no snapshot: current granted data is collected only at dispatch.
 Invocation and pending-result copies each have the 64-KiB snapshot bound. The UI
-discards the copied input snapshot when presenting a result. Permission changes,
-disconnect, account changes and disable retire affected proposals and queued work.
-There is no event journal, timer worker, schema migration or new cache.
+discards copied input snapshots when presenting a result. Permission changes,
+disconnect, account changes and disabling retire affected proposals/queued work.
+There is no event journal, timer worker, schema migration or new cache. Snapshot
+construction performs no network or disk IO; no new private data is persisted.
 
 A result can propose one bounded host action (at most 8 KiB of serialized effects).
 Navigation, clipboard, local notices, reading-setting patches and existing-call
@@ -27,6 +42,25 @@ mute/deafen/leave require a visible user confirmation. Voice confirmation binds 
 original call request; stale requests cannot affect a replacement call. Background
 events cannot produce these actions. Reading patches use existing preference
 validation/persistence; plugin data still requires the separate `storage` grant.
+
+## Navigation and process-scan allocation reductions (September 22, 2026)
+
+Navigation UI caches filter frequent unrelated message, reaction and member events
+from their revision keys. Four fixed counters plus one explicit invalidation counter
+add 40 bytes per account state; unknown event kinds and local revision changes still
+invalidate conservatively. Cache item/byte ceilings and account isolation are unchanged.
+The channel sidebar reuses the core channel index instead of allocating another
+full-account tree on each rebuild, and grows temporary row buffers with the displayed
+scope instead of reserving space for every account channel. READY reconciliation uses a sorted vector of
+channel references, at most 1 MiB of element storage at 131,072 entries on 64-bit,
+and releases it before removing old channels. Old and replacement account snapshots
+still overlap during validation; this is not a whole-process memory bound.
+
+Linux game detection reads at most 513 bytes per command-line file to validate the
+existing 512-byte executable-path limit. Matching keeps at most eight path-component
+references on the stack and shares one normalized suffix allocation across lookups.
+The opt-in behavior, ten-second scan interval, process count and catalog limits are
+unchanged; no new worker, dependency, persistence or network request is introduced.
 
 ## Remote video lifetime cleanup (September 21, 2026)
 
@@ -240,6 +274,11 @@ Chat author membership (schema 18): `author_roles` JSON (at most 512 IDs, 16 KiB
 and optional `author_nick` (512 UTF-8 bytes / 128 characters) travel with each
 cached message row. Schema-17 and older binaries cannot reopen this upgraded cache.
 
+Reading motion (schema 19): one checked application-wide boolean stores whether wheel,
+message-target and jump-to-present scrolling animate. Existing databases migrate to enabled;
+disabling changes only local rendering and adds no account data or timeline storage.
+Schema-18 and older binaries cannot reopen this upgraded cache.
+
 Forwarded messages (schema 16): one checked, default-false `forwarded` column marks
 the immutable snapshot body. Text, embeds and attachments reuse existing bounded
 message storage; source channels/messages are never fetched. Existing rows retain
@@ -350,9 +389,11 @@ schema-7 layouts and schema 8 are migrated by detecting the actual message colum
 rows, drafts and settings are retained; older binaries with a lower schema ceiling cannot
 reopen the upgraded cache. No unpublished reply-navigation metadata is included.
 
-Reading/layout settings use one application-wide schema 8 SQLite singleton: integer display
-scale 80..150 percent, sidebar width 190..360 logical points, and wide-layout People visibility.
-Missing row means 100 percent / 236 points / visible. Reset removes just this override in an
+Reading/layout settings use one application-wide SQLite singleton: integer display
+scale 80..150 percent, sidebar width 190..360 logical points, wide-layout People visibility,
+GIF animation, media-link hiding, external-link confirmation and smooth scrolling.
+Missing row means 100 percent / 236 points with People, media-link hiding, link confirmation and
+smooth scrolling enabled while GIF animation is disabled. Reset removes just this override in an
 atomic statement; neither theme nor account drafts/history are reset. Logout retains these
 non-account settings. Startup reads them on the existing worker; delayed results never override
 an explicit user choice. No account identifiers or message content enter this record.
@@ -436,7 +477,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Selected upload source | Up to ten session-only paths (4096 encoded bytes each), filenames (256 UTF-8 bytes each) and size/modified metadata; 500,000,000 bytes total, read in 64 KiB chunks | Removal, send completion/failure, cancellation or session teardown; sources are never copied to recovery/cache files or deleted |
 | Drafts | 64 globally, at most 2 MiB content; each draft at most 8192 UTF-8 bytes | Clear draft, confirmed send, or account logout |
 | Appearance | One application-wide SQLite row: Light or Dark; absent means System | Select System to remove the override; retained across account logout |
-| Reading/layout | One application-wide SQLite row with three bounded scalar fields | Reset reading and layout removes only this override; retained across account logout |
+| Reading/layout | One application-wide SQLite row with seven bounded scalar fields | Reset reading and layout removes only this override; retained across account logout |
 | Theme preset | One application-wide SQLite row (`theme_variant`, ≤32-byte key such as `onyx`); absent means Default | Select Default to remove it; unknown keys are ignored; retained across account logout |
 | SQLite working files | DELETE journal mode, in-memory temporary tables, 2 MiB page cache; transaction journal may temporarily add disk usage | SQLite transaction completion; normal SQLite crash recovery |
 | Voice credentials, DAVE identities/keys and PCM/Opus audio | Session memory only; one call, bounded media queues; no recording or audio cache | Hangup, failure, logout and application teardown; no forensic-erasure claim |
@@ -764,6 +805,18 @@ Screen/window labels, selected source identifiers, settings, raw pixels and enco
 
 ### Own game activity (September 11, 2026)
 
+Linked Spotify playback is independent of this local game toggle. One cancellable worker
+reads the linked connection preference and playback on a 15-second interval while visible.
+Connection and playback responses are capped at 64 KiB, token responses at 16 KiB;
+at most 64 connections, 64 artists and eight album images are accepted. Only five artists
+contribute to the bounded display string. One track is retained in replaceable watch/Gateway
+slots, with title/artist/album text capped at 128 characters each, a 22-character track ID,
+40-hex artwork ID and fixed timestamps. There is no playback history or new disk cache.
+The Spotify bearer is private, zeroizing session RAM (8 KiB maximum), never serialized to disk
+or diagnostics, and sent only to fixed `https://api.spotify.com/v1/me/player` with a sensitive
+header. Redirects, proxies and automatic HTTP retries are disabled. Invisible/session teardown
+drops the bearer; unlinking clears it on the next poll. The existing album-image cache applies.
+
 Sharing is off by default. The application-wide `game_activity` SQLite singleton stores
 one constrained boolean; disabling deletes the override. The independent additive table
 is created even for existing schema-10/12 databases, requires no message migration, and survives
@@ -935,11 +988,16 @@ background collection or automatic write retry is added. Create Invite retains
 the existing bounded, session-only invite dialog behavior.
 
 
-Server integration settings retain one guild's on-demand metadata in session RAM:
+Server and channel integration settings share one on-demand metadata snapshot in
+session RAM, scoped either to one guild or to one channel in that guild:
 at most 50 integrations and 1,000 webhooks, further bounded by 1 MiB combined.
 The HTTP decoder caps each list response at 2 MiB and write responses at 64 KiB
-(4 KiB for empty delete responses). Webhook execution tokens and URLs have no
-model fields and are skipped during decoding. The editor retains one bounded
+(4 KiB for empty delete responses). List decoding skips webhook execution tokens
+and URLs. Explicit URL copying uses one 64 KiB authenticated response and a
+256-byte URL-safe token in a zeroizing, redacted, one-shot clipboard handoff.
+Navigation, disconnect, permission changes and settings closure discard that
+handoff; the OS clipboard receives it only after the explicit copy request.
+The editor retains one bounded
 80-character/320-byte webhook name draft; no integration data or draft is written
 to SQLite. Closing settings, changing guild/session, and permission revocation
 release the applicable metadata. Existing bounded avatar caches remain shared.
@@ -1087,6 +1145,39 @@ with explicit selection and no automatic write retry. Each of at most five form
 file fields stages at most 10 files / 500 MB before the combined submission bound
 is enforced; paths and contents never enter diagnostics or model/UI form data.
 
+### Slash command catalogs and inputs
+
+One active conversation retains at most 2,000 typed application command definitions within
+4 MiB minus 1 KiB of estimated owned data, reserving space for the enclosing event. The HTTP
+index is capped at 4 MiB and both command/application arrays at 2,000 entries. The decoder
+discards raw JSON after projection and removes spare outer-vector capacity before queueing.
+Each schema is capped at 128 KiB, 1,024 option nodes, 25 options/choices per level and the
+root/group/subcommand/value hierarchy. Catalogs, application labels and argument-form values
+remain session-only; no SQLite schema, disk cache, recents or background index polling is added.
+Optional application icon hashes use the existing 32-hexadecimal-character validation
+(with an optional `a_` prefix), count toward schema bytes and never enter submissions.
+Visible artwork uses fixed Discord CDN URLs through the existing credential-free image
+worker and bounded image disk/texture caches; no separate icon cache or metadata fetch is added.
+Each application/command permission layer holds at most 100 combined current-user, role
+and channel overrides. IDs and values are validated, duplicate map keys are rejected, and
+conservative map allocation estimates count toward the schema/catalog budgets. Default
+permission bits and overrides remain session-only and are excluded from submissions. The
+picker retains at most 2,000 fixed-size available-application IDs alongside its bounded rows;
+permission filtering uses the received index and existing role state without extra REST calls.
+
+Catalog reads run in one replaceable worker using the existing REST admission and bounded
+event queue. Channel, account generation and request ID reject stale results. Navigation,
+disconnect, account reset and relevant permission invalidation release the retained catalog.
+An oversized catalog is a local picker error, not a reason to discard the authenticated session.
+The picker filters a bounded catalog locally and retains at most 64 matching rows. One argument
+form holds at most 25 values, with strings limited to 6,000 Unicode characters / 24,000 UTF-8
+bytes each. One last submitted form is also retained for explicit editing after a failure;
+it never overwrites an occupied draft and is released on channel/account changes. The complete
+encoded interaction, including command schema, arguments and session
+metadata, must fit 256 KiB before submission; the existing single-interaction and no-replay
+rules apply. Inputs and private replies are not logged. Ordinary composer text and messages
+produced by built-in commands retain their existing draft/message storage policy.
+
 ### Forum card summaries
 
 Visible active forum posts request up to four recent history pages concurrently,
@@ -1152,3 +1243,13 @@ no network sender, recording or persistent storage. Device choices stay session-
 discovery retains at most 32 IDs/names (136 KiB). Closing Voice & Audio, changing the
 camera, joining a call or logout releases the preview; asynchronous native teardown
 keeps the worker slot reserved until it finishes.
+
+### Forward picker
+
+One session-bound picker retains source IDs, a search query (256 characters / 1024 UTF-8 bytes),
+an optional note (MAX_CONTENT characters), at most five destination IDs and ten send nonces.
+The source preview is limited to 240 characters and conceals spoiler-containing text. No source
+message or attachment is copied into a new cache. Forward and optional-note writes share the
+64-item / MAX_DRAFT_BYTES pending-send budget and existing serial write queue. Closing the picker
+releases its input; account generation and source navigation changes invalidate it. No new disk
+schema or persistence is introduced.

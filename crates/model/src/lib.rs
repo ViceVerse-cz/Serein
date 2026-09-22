@@ -1,5 +1,6 @@
 //! UI-neutral session entities. No filesystem or network dependencies.
 pub mod account;
+pub mod application_commands;
 mod image_sharing;
 pub use image_sharing::ImageShare;
 pub mod archives;
@@ -297,6 +298,35 @@ pub struct ChannelPatch {
 	pub kind: Patch<u8>,
 	pub message_count: Patch<u32>,
 }
+/// Session-only older wording, oldest first. Empty on wire parse and SQLite load.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PriorContents {
+	lines: Vec<String>,
+}
+
+impl PriorContents {
+	pub const MAX: usize = 8;
+
+	pub fn as_slice(&self) -> &[String] {
+		&self.lines
+	}
+
+	pub fn bytes(&self) -> usize {
+		self.lines.iter().map(String::capacity).sum::<usize>()
+			+ self.lines.capacity() * size_of::<String>()
+	}
+
+	pub fn push_line(&mut self, line: String) {
+		if self.lines.last().is_some_and(|last| *last == line) {
+			return;
+		}
+		self.lines.push(line);
+		while self.lines.len() > Self::MAX {
+			self.lines.remove(0);
+		}
+	}
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct Message {
 	pub sticker_items: Vec<Sticker>,
@@ -315,6 +345,8 @@ pub struct Message {
 	/// Guild nickname supplied with this message.
 	pub author_nick: Option<String>,
 	pub content: String,
+	/// Session-only prior wording; never serialized to Discord or SQLite.
+	pub prior_contents: PriorContents,
 	pub mentions: Vec<User>,
 	/// Session-only service notification metadata; never inferred from message text.
 	pub mention_roles: Vec<Id>,
@@ -368,6 +400,7 @@ impl Message {
 			+ self.reactions.as_ref().map_or(0, |r| {
 				reaction_bytes(r) + r.capacity().saturating_sub(r.len()) * size_of::<Reaction>()
 			}) + self.content.capacity()
+			+ self.prior_contents.bytes()
 			+ self.author.heap_bytes()
 			+ self.author_nick.as_ref().map_or(0, String::capacity)
 			+ self.author_roles.capacity() * size_of::<Id>()
@@ -503,6 +536,7 @@ impl OwnPresence {
 pub enum ActivityImage {
 	Asset { application: Id, asset: Id },
 	Proxy(String),
+	Spotify(String),
 	Application(Id),
 }
 impl ActivityImage {
@@ -510,6 +544,7 @@ impl ActivityImage {
 		match self {
 			Self::Asset { application, asset } => application.0 != 0 && asset.0 != 0,
 			Self::Application(id) => id.0 != 0,
+			Self::Spotify(id) => id.len() == 40 && id.bytes().all(|b| b.is_ascii_hexdigit()),
 			Self::Proxy(path) => {
 				!path.is_empty()
 					&& path.len() <= 1024
@@ -528,7 +563,7 @@ impl ActivityImage {
 	}
 	pub fn heap_bytes(&self) -> usize {
 		match self {
-			Self::Proxy(path) => path.capacity(),
+			Self::Proxy(path) | Self::Spotify(path) => path.capacity(),
 			_ => 0,
 		}
 	}
@@ -537,6 +572,7 @@ impl ActivityImage {
 			Self::Asset { application, asset } => format!("activity-{application}-{asset}"),
 			Self::Proxy(path) => format!("embed:https://media.discordapp.net/{path}"),
 			Self::Application(id) => format!("app-icon-{id}"),
+			Self::Spotify(id) => format!("spotify-{id}"),
 		}
 	}
 }
@@ -552,6 +588,8 @@ pub struct RichActivity {
 	pub small_image: Option<ActivityImage>,
 	/// Unix milliseconds, as supplied by the activity producer.
 	pub started_at: Option<u64>,
+	/// Track end in Unix milliseconds; absent when duration is unknown.
+	pub ends_at: Option<u64>,
 }
 pub const MAX_ACTIVITY_TIMESTAMP: u64 = 9_007_199_254_740_991;
 impl RichActivity {
@@ -565,6 +603,9 @@ impl RichActivity {
 			&& self
 				.started_at
 				.is_none_or(|at| at <= MAX_ACTIVITY_TIMESTAMP)
+			&& self.ends_at.is_none_or(|end| {
+				end <= MAX_ACTIVITY_TIMESTAMP && self.started_at.is_some_and(|start| end > start)
+			})
 	}
 	pub fn heap_bytes(&self) -> usize {
 		self.name.capacity()
@@ -673,13 +714,44 @@ impl Member {
 	}
 }
 #[derive(Clone)]
+pub enum MemberSlot {
+	Person(Member),
+	/// Gateway group id: role snowflake, "online", or "offline".
+	Group(String),
+}
+
+impl MemberSlot {
+	pub fn bytes(&self) -> usize {
+		match self {
+			Self::Person(member) => member.bytes(),
+			Self::Group(id) => id.capacity(),
+		}
+	}
+}
+
+#[derive(Clone)]
 pub struct MemberList {
 	pub guild: Option<Id>,
 	pub channel: Id,
 	pub request: u64,
-	pub rows: Vec<Option<Member>>,
+	/// Absolute index of `slots[0]`.
+	pub start: usize,
+	/// Contiguous window. None is a hole. At most 200 entries.
+	pub slots: Vec<Option<MemberSlot>>,
 	pub total: u64,
+	/// Guild channel lazy list. Scrollbar length is `total`. DMs and threads are false and scroll `slots.len()`.
+	pub lazy: bool,
 	pub freshness: Freshness,
+	/// id -> count from the update's top-level groups array. Display only. At most 64.
+	pub groups: Vec<(String, u64)>,
+	/// Ranges last requested for a lazy guild list.
+	pub ranges: Vec<[usize; 2]>,
+}
+
+impl MemberList {
+	pub fn slot_bytes(&self) -> usize {
+		self.slots.iter().flatten().map(MemberSlot::bytes).sum()
+	}
 }
 
 #[cfg(test)]
@@ -721,6 +793,7 @@ mod presence_tests {
 			state: Some("In a party".into()),
 			image: None,
 			small_image: None,
+			ends_at: None,
 			started_at: None,
 		};
 		let mut presence = MemberPresence {

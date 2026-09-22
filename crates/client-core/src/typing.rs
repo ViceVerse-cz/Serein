@@ -189,6 +189,7 @@ mod tests {
 				discriminator: 0,
 			},
 			content: "Synthetic".into(),
+			prior_contents: Default::default(),
 			reactions: None,
 			author_nick: None,
 			author_roles: vec![],

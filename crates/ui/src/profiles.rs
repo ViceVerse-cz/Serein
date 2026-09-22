@@ -65,6 +65,7 @@ pub(crate) fn activity_card(
 	demo: bool,
 	(fill, muted): (Color32, Color32),
 ) {
+	let spotify = activity.kind == 2 && activity.name.eq_ignore_ascii_case("Spotify");
 	egui::Frame::new()
 		.fill(fill)
 		.corner_radius(RADIUS)
@@ -74,12 +75,16 @@ pub(crate) fn activity_card(
 			ui.horizontal(|ui| {
 				let heading = match activity.kind {
 					1 => "Streaming",
+					2 if spotify => "Listening to Spotify",
 					2 => "Listening to",
 					3 => "Watching",
 					5 => "Competing in",
 					_ => "Playing",
 				};
 				ui.label(design::semibold(ui, heading, 12.0).color(muted));
+				if spotify {
+					icons::inline(ui, Icon::Spotify, 14.0, muted);
+				}
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					let more = icons::button(ui, Icon::More, 20.0, "Activity options");
 					egui::Popup::menu(&more).show(|ui| {
@@ -116,15 +121,25 @@ pub(crate) fn activity_card(
 							avatars.show_icon(ui, Some(badge.key()), 24.0, demo, "Activity badge");
 						});
 					}
+				} else if spotify {
+					icons::inline(ui, Icon::Spotify, 64.0, design::palette(ui).positive);
 				}
 				ui.vertical(|ui| {
 					ui.set_width(ui.available_width());
 					ui.spacing_mut().item_spacing.y = 2.0;
-					ui.add(egui::Label::new(design::semibold(ui, &activity.name, 14.0)).truncate())
-						.on_hover_text(&activity.name);
-					for text in [activity.details.as_deref(), activity.state.as_deref()]
-						.into_iter()
-						.flatten()
+					let title = if spotify {
+						activity.details.as_deref().unwrap_or(&activity.name)
+					} else {
+						&activity.name
+					};
+					ui.add(egui::Label::new(design::semibold(ui, title, 14.0)).truncate())
+						.on_hover_text(title);
+					for text in [
+						activity.details.as_deref().filter(|_| !spotify),
+						activity.state.as_deref(),
+					]
+					.into_iter()
+					.flatten()
 					{
 						ui.add(
 							egui::Label::new(RichText::new(text).size(12.0).color(muted))
@@ -136,14 +151,56 @@ pub(crate) fn activity_card(
 						.duration_since(std::time::UNIX_EPOCH)
 						.unwrap_or_default()
 						.as_millis() as u64;
-					if let Some(elapsed) = activity
+					let playback = activity
+						.started_at
+						.zip(activity.ends_at)
+						.filter(|(start, end)| spotify && end > start);
+					if let Some((start, end)) = playback {
+						let elapsed = now.saturating_sub(start).min(end - start);
+						ui.horizontal(|ui| {
+							ui.spacing_mut().item_spacing.x = 4.0;
+							ui.label(
+								RichText::new(activity_elapsed(0, elapsed).unwrap())
+									.monospace()
+									.size(12.0)
+									.color(muted),
+							);
+							let total = RichText::new(activity_elapsed(start, end).unwrap())
+								.monospace()
+								.size(12.0)
+								.color(muted);
+							ui.with_layout(
+								egui::Layout::right_to_left(egui::Align::Center),
+								|ui| {
+									ui.label(total);
+									ui.add(
+										egui::ProgressBar::new(
+											elapsed as f32 / (end - start) as f32,
+										)
+										.desired_width(ui.available_width())
+										.desired_height(4.0)
+										.fill(muted),
+									);
+								},
+							);
+						});
+					} else if let Some(elapsed) = activity
 						.started_at
 						.and_then(|start| activity_elapsed(start, now))
 					{
 						let color = design::palette(ui).positive;
 						ui.horizontal(|ui| {
 							ui.spacing_mut().item_spacing.x = 4.0;
-							icons::inline(ui, Icon::GameController, 14.0, color);
+							icons::inline(
+								ui,
+								if spotify {
+									Icon::Spotify
+								} else {
+									Icon::GameController
+								},
+								14.0,
+								color,
+							);
 							ui.label(RichText::new(elapsed).monospace().size(12.0).color(color));
 						});
 					}
@@ -438,9 +495,13 @@ pub(crate) fn presence(
 			guild.is_some() && list.guild == guild && list.freshness == model::Freshness::Fresh
 		})
 		.and_then(|list| {
-			list.rows
+			list.slots
 				.iter()
 				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				})
 				.find(|member| member.user.id == user)
 		})
 		.filter(|_| state.demo || state.gateway_connected)
@@ -799,6 +860,24 @@ fn role_chips(
 	});
 }
 
+pub(crate) fn profile_opener_id() -> egui::Id {
+	egui::Id::unique("serein-profile-opener")
+}
+
+pub(crate) fn arm_profile_opener(ui: &egui::Ui, response: &egui::Response) {
+	if response.contains_pointer() {
+		ui.data_mut(|data| data.insert_temp(profile_opener_id(), response.rect));
+	}
+}
+
+pub(crate) fn toggle_profile(profile: &mut Option<User>, user: &User) {
+	if profile.as_ref().is_some_and(|open| open.id == user.id) {
+		*profile = None;
+	} else {
+		*profile = Some(user.clone());
+	}
+}
+
 /// Shows the popout beside `anchor`; returns an action when the card wants to change or close.
 #[allow(clippy::too_many_arguments)]
 pub fn show(
@@ -1022,12 +1101,7 @@ pub fn show(
 					let has_action = state.user.as_ref().is_some_and(|own| own.id == user.id)
 						|| dm_channel.is_some()
 						|| user.webhook;
-					let footer = if has_action { 40.0 } else { 0.0 }
-						+ if state.user_action_status().is_some() {
-							24.0
-						} else {
-							0.0
-						};
+					let footer = if has_action { 40.0 } else { 0.0 };
 					egui::Frame::new()
 						.fill(theme.panel)
 						.corner_radius(RADIUS)
@@ -1377,12 +1451,6 @@ pub fn show(
 					{
 						ui.ctx().copy_text(user.id.to_string());
 					}
-					if let Some(status) = state.user_action_status() {
-						ui.add(
-							egui::Label::new(RichText::new(status).size(11.0).color(theme.muted))
-								.wrap(),
-						);
-					}
 					if state.demo {
 						ui.label(
 							RichText::new("Offline preview · synthetic")
@@ -1503,6 +1571,7 @@ mod tests {
 						asset: Id(2),
 					}),
 					small_image: Some(model::ActivityImage::Application(Id(1))),
+					ends_at: None,
 					started_at: Some(
 						std::time::SystemTime::now()
 							.duration_since(std::time::UNIX_EPOCH)
@@ -1845,15 +1914,19 @@ mod tests {
 			channel: Id(20),
 			request: 1,
 			total: 1,
+			lazy: false,
+			groups: vec![],
+			ranges: vec![],
 			freshness: model::Freshness::Fresh,
-			rows: vec![Some(model::Member {
+			start: 0,
+			slots: vec![Some(model::MemberSlot::Person(model::Member {
 				roles: vec![],
 				user: user.clone(),
 				nick: None,
 				status: Some("idle".into()),
 				custom_status: Some("Server status".into()),
 				activities: vec![],
-			})],
+			}))],
 		});
 		state.direct_presences.push(model::MemberPresence {
 			user: user.id,
