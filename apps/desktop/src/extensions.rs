@@ -1,4 +1,4 @@
-//! User-invoked, bounded extension work. No package IO or Wasm runs on the UI thread.
+//! Bounded extension work. No package IO or Wasm runs on the UI thread.
 use std::{
 	collections::VecDeque,
 	fs::{self, File, OpenOptions},
@@ -230,9 +230,12 @@ pub fn demo_check_examples() -> Result<bool, String> {
 			return Err(error);
 		}
 		if manifest.kind == ExtensionKind::Plugin {
-			if !(manifest.id == "message-delete-protector" && summary.preserve_deleted_messages
-				|| manifest.id == "emoji-sticker-images" && summary.image_sharing)
-			{
+			let ok = match manifest.id.as_str() {
+				"message-delete-protector" => summary.preserve_deleted_messages,
+				"emoji-sticker-images" => summary.image_sharing,
+				_ => false,
+			};
+			if !ok {
 				return Err("Bundled plugin did not activate".into());
 			}
 			activated = true;
@@ -557,9 +560,10 @@ impl Stored {
 			sha256: self.sha256.clone(),
 			download_bytes: self.download_bytes,
 			image_sharing: result.as_ref().is_ok_and(|output| output.image_sharing),
-			preserve_deleted_messages: result
-				.as_ref()
-				.is_ok_and(|output| output.preserve_deleted_messages),
+			// Current protector packages have a no-op activation; consent still opts in.
+			preserve_deleted_messages: activation.is_some()
+				&& result.is_ok()
+				&& self.grants.contains(&Capability::DeletedMessages),
 			error: result.err(),
 		}
 	}
@@ -574,6 +578,17 @@ fn validate_job(job: &Job) -> Result<(), String> {
 		} => {
 			valid_id(id)?;
 			account_key(account)?;
+			let event_bytes = if let Some(event) = &invocation.message_event {
+				event.validate().map_err(|error| error.to_string())?;
+				event
+					.channel_id
+					.len()
+					.saturating_add(event.message_id.len())
+					.saturating_add(event.author_id.as_ref().map_or(0, String::len))
+					.saturating_add(event.content.as_ref().map_or(0, String::len))
+			} else {
+				0
+			};
 			if invocation.values.len() > 64
 				|| invocation
 					.action
@@ -581,6 +596,13 @@ fn validate_job(job: &Job) -> Result<(), String> {
 					.saturating_add(invocation.selected_message.as_ref().map_or(0, String::len))
 					.saturating_add(invocation.composer.as_ref().map_or(0, String::len))
 					.saturating_add(invocation.storage.as_ref().map_or(0, String::len))
+					.saturating_add(event_bytes)
+					.saturating_add(
+						invocation
+							.app
+							.as_ref()
+							.map_or(0, |app| app.bytes().unwrap_or(usize::MAX)),
+					)
 					.saturating_add(
 						invocation
 							.values
@@ -610,7 +632,7 @@ fn validate_job(job: &Job) -> Result<(), String> {
 				return Err("Export path is too long".into());
 			}
 		}
-		Job::Enable { grants, .. } if grants.len() > 4 => {
+		Job::Enable { grants, .. } if grants.len() > extensions::MAX_CAPABILITIES => {
 			return Err("Invalid plugin grants".into());
 		}
 		Job::InspectImport { path } if path.as_os_str().len() > 4096 => {
@@ -776,8 +798,16 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			if invocation.selected_message.is_some()
 				&& !stored.grants.contains(&Capability::SelectedMessage)
 				|| invocation.composer.is_some() && !stored.grants.contains(&Capability::Composer)
+				|| invocation.message_event.is_some()
+					&& !stored.grants.contains(&Capability::MessageEvents)
+				|| invocation.app_event.is_some() && !stored.grants.contains(&Capability::AppEvents)
 			{
 				return Err("Plugin access was not granted".into());
+			}
+			if let Some(app) = &invocation.app {
+				let mut granted = stored.package.manifest.clone();
+				granted.capabilities.clone_from(&stored.grants);
+				app.validate(&granted).map_err(|error| error.to_string())?;
 			}
 			invocation.storage = if stored.grants.contains(&Capability::Storage)
 				&& directory.join("data.json").exists()
@@ -1695,6 +1725,113 @@ mod tests {
 			sha256: digest(&bytes),
 			manifest: package.manifest.clone(),
 		}
+	}
+	fn message_event_job() -> Job {
+		Job::Invoke {
+			id: "message-counter".into(),
+			account: "account".into(),
+			invocation: Invocation {
+				action: "message-event".into(),
+				message_event: Some(Box::new(extensions::MessageEvent {
+					kind: extensions::MessageEventKind::Create,
+					channel_id: "1".into(),
+					message_id: "2".into(),
+					author_id: Some("3".into()),
+					content: Some("Synthetic message".into()),
+				})),
+				..Default::default()
+			},
+		}
+	}
+
+	#[test]
+	fn message_event_jobs_validate_fields_and_count_payload_bytes_before_queueing() {
+		let profile = Profile::new();
+		let mut host = ExtensionHost::new(profile.0.join("extensions"));
+		for invalid_id in [true, false] {
+			let mut job = message_event_job();
+			let Job::Invoke { invocation, .. } = &mut job else {
+				unreachable!()
+			};
+			if invalid_id {
+				invocation.message_event.as_mut().unwrap().channel_id = "invalid".into();
+			} else {
+				invocation.storage =
+					Some("x".repeat(extensions::MAX_IO_BYTES - invocation.action.len()));
+			}
+			assert!(host.submit(job, &eframe::egui::Context::default()).is_err());
+			assert!(!host.busy());
+		}
+		assert!(!host.root.exists());
+	}
+
+	#[test]
+	fn message_event_worker_requires_grants_serializes_storage_and_rejects_cancelled_jobs() {
+		let profile = Profile::new();
+		let root = profile.0.join("extensions");
+		let package = extensions::parse_package(include_bytes!(
+			"../../../examples/extensions/packages/message-counter.serein-extension"
+		))
+		.unwrap();
+		enable(
+			&root,
+			source(&profile, &package),
+			package.manifest.capabilities.clone(),
+			Some("account"),
+			&gate(),
+		)
+		.unwrap();
+		let directory = scope(&root, ExtensionKind::Plugin, Some("account"))
+			.unwrap()
+			.join(&package.manifest.id);
+		let package_path = directory.join("package.json");
+		let mut stored = read_stored(&package_path).unwrap();
+		stored
+			.grants
+			.retain(|grant| *grant != Capability::MessageEvents);
+		fs::write(&package_path, serde_json::to_vec(&stored).unwrap()).unwrap();
+		assert!(run(&root, message_event_job(), &gate()).is_err());
+		assert!(!directory.join("data.json").exists());
+		stored.grants.push(Capability::MessageEvents);
+		fs::write(&package_path, serde_json::to_vec(&stored).unwrap()).unwrap();
+
+		let mut host = ExtensionHost::new(root.clone());
+		let context = eframe::egui::Context::default();
+		let first = host.submit(message_event_job(), &context).unwrap();
+		let mut second_job = message_event_job();
+		let Job::Invoke { invocation, .. } = &mut second_job else {
+			unreachable!()
+		};
+		// The worker must reload committed storage rather than use the queued snapshot.
+		invocation.storage = Some(r#"{"create":99,"update":0,"delete":0}"#.into());
+		let second = host.submit(second_job, &context).unwrap();
+		let deadline = std::time::Instant::now() + Duration::from_secs(10);
+		let mut completed = Vec::new();
+		while host.busy() {
+			if let Some((token, result)) = host.poll() {
+				let Event::Invoked { output, .. } = result.unwrap() else {
+					panic!("expected message event result")
+				};
+				assert!(output.storage.is_none() && output.panel.is_empty());
+				completed.push(token);
+			}
+			assert!(
+				std::time::Instant::now() < deadline,
+				"extension worker timed out"
+			);
+			std::thread::sleep(Duration::from_millis(1));
+		}
+		assert_eq!(completed, [first, second]);
+		let data = fs::read(directory.join("data.json")).unwrap();
+		assert_eq!(
+			serde_json::from_slice::<serde_json::Value>(&data).unwrap(),
+			serde_json::json!({ "create": 2, "update": 0, "delete": 0 })
+		);
+		let cancelled = gate();
+		cancelled.generation.fetch_add(1, Ordering::Release);
+		assert!(run(&root, message_event_job(), &cancelled).is_err());
+		assert_eq!(fs::read(directory.join("data.json")).unwrap(), data);
+		assert!(!directory.join("data.partial").exists());
 	}
 
 	#[test]

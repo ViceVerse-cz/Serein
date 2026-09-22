@@ -1,6 +1,7 @@
 //! Discord wire DTOs. JSON values never become application state.
 pub mod activity_sessions;
 pub mod activity_sharing;
+pub mod application_commands;
 pub mod archives;
 mod attachments;
 mod embeds;
@@ -28,6 +29,7 @@ pub mod server_integrations;
 pub mod server_invites;
 pub mod server_roles;
 pub mod server_settings;
+pub mod spotify;
 pub mod stickers;
 pub mod stream;
 pub mod thread_members;
@@ -681,6 +683,11 @@ pub struct MessageDto {
 	pub nonce: Option<Nonce>,
 	#[serde(default)]
 	pub message_reference: Option<Reference>,
+	/// Legacy invocation summary; still the only field carrying the command name.
+	#[serde(default)]
+	pub interaction: Option<InteractionDto>,
+	#[serde(default)]
+	pub interaction_metadata: Option<InteractionDto>,
 	#[serde(default)]
 	pub message_snapshots: Snapshots,
 	#[serde(default)]
@@ -706,6 +713,29 @@ pub struct MessageMemberDto {
 pub enum Nonce {
 	Text(String),
 	Number(u64),
+}
+#[derive(Deserialize)]
+pub struct InteractionDto {
+	#[serde(rename = "type", default)]
+	pub kind: u8,
+	#[serde(default)]
+	pub name: Option<String>,
+	#[serde(default)]
+	pub user: Option<UserDto>,
+}
+impl InteractionDto {
+	/// Application command invocations only (type 2); components and modals show no header.
+	fn into_model(self, name: Option<String>) -> Option<model::Interaction> {
+		if self.kind != 2 {
+			return None;
+		}
+		let user = self.user?.into_model();
+		let command = name
+			.or(self.name)
+			.map(|name| name.trim().chars().take(64).collect())
+			.unwrap_or_default();
+		Some(model::Interaction { user, command })
+	}
 }
 #[derive(Deserialize)]
 pub struct Reference {
@@ -804,6 +834,15 @@ impl MessageDto {
 			self.message_reference.is_some() && reply_to.is_none() && !forwarded;
 		let reply_deleted =
 			reply_to.is_some() && matches!(self.referenced_message, model::Patch::Null);
+		let interaction = match (self.interaction.take(), self.interaction_metadata.take()) {
+			(Some(legacy), Some(metadata)) if metadata.user.is_some() => {
+				metadata.into_model(legacy.name)
+			}
+			(Some(legacy), _) => legacy.into_model(None),
+			(None, Some(metadata)) => metadata.into_model(None),
+			(None, None) => None,
+		}
+		.map(Box::new);
 		let mut author = self.author.into_model();
 		author.webhook = self.webhook_id.is_some();
 		if self.application_id.is_some()
@@ -832,6 +871,7 @@ impl MessageDto {
 			channel: self.channel_id,
 			author,
 			content: self.content,
+			prior_contents: Default::default(),
 			author_nick: self.member.as_ref().and_then(|member| {
 				member
 					.nick
@@ -859,6 +899,7 @@ impl MessageDto {
 			reply_to,
 			reply_deleted,
 			forwarded,
+			interaction,
 			unsupported: !matches!(self.kind, 0 | 19 | 20 | 23) || unsupported_reference,
 			attachments: self.attachments.0,
 			embeds: embeds::bounded(self.embeds.0),
@@ -1184,6 +1225,36 @@ mod tests {
 		}
 	}
 	#[test]
+	fn command_responses_keep_bounded_invoker_and_command_name() {
+		let read = |value: serde_json::Value| {
+			decode::<MessageDto>(&serde_json::to_vec(&value).unwrap())
+				.unwrap()
+				.into_model()
+		};
+		let mut wire = serde_json::json!({
+			"id":"100", "channel_id":"2", "type":20, "application_id":"7",
+			"author":{"id":"3","username":"Synthetic bot","bot":true},
+			"interaction":{"id":"90","type":2,"name":"ping","user":{"id":"4","username":"Invoker"}},
+			"interaction_metadata":{"id":"90","type":2,"user":{"id":"4","username":"Invoker","avatar":"a1b2c3d4e5f60718293a4b5c6d7e8f90"}}
+		});
+		let message = read(wire.clone());
+		let interaction = message.interaction.as_deref().unwrap();
+		assert_eq!(interaction.command, "ping");
+		assert_eq!(interaction.user.id, Id(4));
+		assert_eq!(
+			interaction.user.avatar.as_deref(),
+			Some("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+		);
+		wire["interaction"]["name"] = "x".repeat(500).into();
+		assert_eq!(read(wire.clone()).interaction.unwrap().command.len(), 64);
+		wire.as_object_mut().unwrap().remove("interaction");
+		assert_eq!(read(wire.clone()).interaction.unwrap().command, "");
+		wire["interaction_metadata"]["type"] = 3.into();
+		assert!(read(wire.clone()).interaction.is_none());
+		wire.as_object_mut().unwrap().remove("interaction_metadata");
+		assert!(read(wire).interaction.is_none());
+	}
+	#[test]
 	fn reply_references_require_same_channel_and_distinguish_deleted_from_unknown() {
 		let wire = || {
 			serde_json::json!({
@@ -1428,9 +1499,20 @@ pub struct MemberGroup {
 }
 impl MemberItem {
 	pub fn into_model(self) -> Option<model::Member> {
+		match self.into_slot()? {
+			model::MemberSlot::Person(member) => Some(member),
+			model::MemberSlot::Group(_) => None,
+		}
+	}
+	pub fn into_slot(self) -> Option<model::MemberSlot> {
 		match self {
-			Self::Group { .. } => None,
-			Self::Member { member: mut m } => Some(model::Member {
+			Self::Group { group } => {
+				if group.id.is_empty() || group.id.len() > 32 {
+					return None;
+				}
+				Some(model::MemberSlot::Group(group.id))
+			}
+			Self::Member { member: mut m } => Some(model::MemberSlot::Person(model::Member {
 				roles: m.roles,
 				user: m.user.into_model(),
 				nick: m.nick.map(|n| n.chars().take(128).collect()),
@@ -1448,7 +1530,7 @@ impl MemberItem {
 					"online" | "idle" | "dnd" | "offline" => Some(p.status),
 					_ => None,
 				}),
-			}),
+			})),
 		}
 	}
 }
@@ -1470,11 +1552,20 @@ pub enum MemberOp {
 	Delete { index: usize },
 }
 #[derive(Deserialize)]
+pub struct MemberGroupCount {
+	pub id: String,
+	#[serde(default)]
+	pub count: u64,
+}
+
+#[derive(Deserialize)]
 pub struct MemberUpdate {
 	pub guild_id: Id,
 	pub id: String,
 	pub member_count: u64,
 	pub ops: Vec<MemberOp>,
+	#[serde(default)]
+	pub groups: Vec<MemberGroupCount>,
 }
 
 #[cfg(test)]

@@ -119,7 +119,12 @@ impl PermissionsUi {
 								.members
 								.iter()
 								.filter(|m| m.guild == Some(guild))
-								.flat_map(|m| m.rows.iter().flatten())
+								.flat_map(|m| {
+									m.slots.iter().flatten().filter_map(|slot| match slot {
+										model::MemberSlot::Person(m) => Some(m),
+										_ => None,
+									})
+								})
 								.map(|m| &m.user)
 								.chain(state.user.iter())
 							{
@@ -492,7 +497,12 @@ fn target_name(state: &State, guild: Id, key: (u8, Id)) -> String {
 		.members
 		.iter()
 		.filter(|m| m.guild == Some(guild))
-		.flat_map(|m| m.rows.iter().flatten())
+		.flat_map(|m| {
+			m.slots.iter().flatten().filter_map(|slot| match slot {
+				model::MemberSlot::Person(m) => Some(m),
+				_ => None,
+			})
+		})
 		.map(|m| &m.user)
 		.chain(state.user.iter())
 		.find(|u| u.id == key.1);

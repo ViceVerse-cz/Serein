@@ -68,7 +68,7 @@ pub(super) fn show(
 	response: &egui::Response,
 	state: &State,
 	user: &User,
-	profile: &mut Option<User>,
+	profile: &mut crate::profiles::ProfileSession,
 	action: &mut Option<Action>,
 ) {
 	show_with_pin(response, state, user, profile, action, None);
@@ -79,7 +79,7 @@ pub(super) fn show_with_pin(
 	response: &egui::Response,
 	state: &State,
 	user: &User,
-	profile: &mut Option<User>,
+	profile: &mut crate::profiles::ProfileSession,
 	action: &mut Option<Action>,
 	view: Option<ShortcutView<'_>>,
 ) {
@@ -91,7 +91,7 @@ pub(super) fn contents(
 	ui: &mut egui::Ui,
 	state: &State,
 	user: &User,
-	profile: &mut Option<User>,
+	profile: &mut crate::profiles::ProfileSession,
 	action: &mut Option<Action>,
 	view: Option<ShortcutView<'_>>,
 ) {
@@ -99,7 +99,7 @@ pub(super) fn contents(
 	ui.set_min_width(200.0);
 	ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
 	if ui.button("Profile").clicked() {
-		*profile = Some(user.clone());
+		profile.command_open(user.clone());
 		ui.close();
 	}
 	if !user.webhook
@@ -207,9 +207,6 @@ pub(super) fn contents(
 		});
 		ui.close();
 	}
-	if let Some(status) = state.user_action_status() {
-		ui.add(egui::Label::new(egui::RichText::new(status).small().color(colors.muted)).wrap());
-	}
 }
 
 #[cfg(test)]
@@ -243,7 +240,7 @@ mod tests {
 		state: &State,
 		user: &User,
 		events: Vec<Event>,
-		profile: &mut Option<User>,
+		profile: &mut crate::profiles::ProfileSession,
 		action: &mut Option<Action>,
 	) -> (egui::Response, Vec<(String, Rect)>) {
 		let mut response = None;
@@ -286,7 +283,7 @@ mod tests {
 				let state = test_support::demo_state();
 				let dm = state.channels.iter().find(|c| c.kind == 1).unwrap();
 				let user = &dm.recipients[0];
-				let (mut profile, mut action) = (None, None);
+				let (mut profile, mut action) = (crate::profiles::ProfileSession::default(), None);
 				let (row, _) = frame(&ctx, &state, user, vec![], &mut profile, &mut action);
 				if light {
 					row.request_focus();
@@ -317,7 +314,7 @@ mod tests {
 					}
 				}
 				let (_, text) = frame(&ctx, &state, user, vec![], &mut profile, &mut action);
-				assert!(profile.is_none() && action.is_none());
+				assert!(profile.open_user().is_none() && action.is_none());
 				for expected in [
 					"Profile",
 					"Mention",
@@ -349,7 +346,7 @@ mod tests {
 					);
 				}
 				match label {
-					"Profile" => assert_eq!(profile.unwrap().id, user.id),
+					"Profile" => assert_eq!(profile.open_user().unwrap().id, user.id),
 					"Mention" => assert_eq!(action, Some(Action::Mention(user.clone()))),
 					"Mute Conversation" => assert_eq!(
 						action,
@@ -428,7 +425,7 @@ mod tests {
 			}
 			let (_, text) = render(&mut view, &mut state, vec![]);
 			assert_eq!(state.selected, selected);
-			assert!(view.profile.is_none());
+			assert!(view.profile.open_user().is_none());
 			let pos = text
 				.iter()
 				.find(|(s, _)| s == "Close DM")

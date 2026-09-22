@@ -99,7 +99,16 @@ impl MessagingUi {
 				Some("Animate wheel movement and jumps between messages."),
 				&mut value.smooth_scrolling,
 			);
-			ui.separator();
+			ui.add_space(10.0);
+			design::slider_row(
+				ui,
+				"Scrolling speed",
+				Some("Mouse wheel and trackpad movement. 100% is the default."),
+				&mut value.scroll_speed_percent,
+				25..=300,
+				"%",
+			);
+			design::card_divider(ui);
 			design::switch(
 				ui,
 				"Hide image and GIF links",
@@ -216,6 +225,7 @@ mod tests {
 			show_members: false,
 			animate_gifs: false,
 			smooth_scrolling: true,
+			scroll_speed_percent: 100,
 			hide_media_links: true,
 			confirm_external_links: true,
 		};

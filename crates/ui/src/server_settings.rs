@@ -319,6 +319,7 @@ impl Editor {
 		ctx: &egui::Context,
 		state: &mut State,
 		avatars: &mut Avatars,
+		profile: &mut crate::profiles::ProfileSession,
 		commands: &mut Vec<Command>,
 	) {
 		let Some((generation, guild)) = self.scope else {
@@ -567,14 +568,14 @@ impl Editor {
 						// wrapping them again would nest two scroll areas over one list.
 						if self.scrolling_page() {
 							ui.set_width(ui.available_width());
-							self.page_body(ui, state, guild, avatars, commands);
+							self.page_body(ui, state, guild, avatars, profile, commands);
 						} else {
 							egui::ScrollArea::vertical()
 								.id_salt(("server-settings-content", self.page as u8))
 								.auto_shrink([false, false])
 								.show(ui, |ui| {
 									ui.set_width(ui.available_width());
-									self.page_body(ui, state, guild, avatars, commands);
+									self.page_body(ui, state, guild, avatars, profile, commands);
 									ui.add_space(24.0);
 								});
 						}
@@ -652,6 +653,7 @@ impl Editor {
 		state: &mut State,
 		guild: Id,
 		avatars: &mut Avatars,
+		profile: &mut crate::profiles::ProfileSession,
 		commands: &mut Vec<Command>,
 	) {
 		match self.page {
@@ -678,6 +680,7 @@ impl Editor {
 					guild,
 					self.page == Page::Members,
 					avatars,
+					profile,
 					commands,
 				);
 				return;
@@ -718,45 +721,18 @@ impl Editor {
 	}
 
 	fn save_bar(&mut self, ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
-		let colors = design::palette(ui);
-		let mut save = false;
-		ui.horizontal(|ui| {
-			ui.spacing_mut().item_spacing.x = 8.0;
-			let available = !state.server_settings.pending && !self.icon_pending;
-			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-				ui.add_enabled_ui(
-					available
-						&& !state.server_settings.needs_refresh
-						&& (state.demo || state.gateway_connected),
-					|ui| {
-						save =
-							dialog::action(ui, "Save Changes", dialog::Action::Primary).clicked();
-					},
-				);
-				ui.add_enabled_ui(available, |ui| {
-					if dialog::action(ui, "Reset", dialog::Action::Neutral).clicked() {
-						self.reset();
-					}
-				});
-				ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-					ui.add(
-						egui::Label::new(
-							design::medium(
-								ui,
-								if state.server_settings.saving {
-									"Saving changes…"
-								} else {
-									"Careful — you have unsaved changes!"
-								},
-								14.0,
-							)
-							.color(colors.text_strong),
-						)
-						.truncate(),
-					);
-				});
-			});
-		});
+		let available = !state.server_settings.pending && !self.icon_pending;
+		let (save, reset) = design::save_bar(
+			ui,
+			state.server_settings.saving.then_some("Saving changes…"),
+			available
+				&& !state.server_settings.needs_refresh
+				&& (state.demo || state.gateway_connected),
+			available,
+		);
+		if reset {
+			self.reset();
+		}
 		if save && let (Some(baseline), Some(draft)) = (&self.baseline, &self.draft) {
 			let mut edit = Edit::between(baseline, draft);
 			if let Some(traits) = &mut edit.traits {

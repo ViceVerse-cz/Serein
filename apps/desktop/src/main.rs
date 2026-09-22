@@ -17,7 +17,13 @@ mod credentials;
 mod dm_demo;
 mod downloads;
 mod emoji_upload;
+mod extension_app;
 mod extension_bridge;
+mod extension_data_events;
+mod extension_events;
+mod extension_forum_data;
+mod extension_member_details;
+mod extension_message_content;
 mod extensions;
 mod game_activity;
 mod gpu;
@@ -34,6 +40,9 @@ mod rendering_demo;
 mod screen;
 #[cfg(feature = "demo")]
 mod server_settings_demo;
+#[cfg(feature = "demo")]
+mod slash_demo;
+mod spotify;
 mod startup;
 mod toggle_setting;
 mod tray_window;
@@ -59,6 +68,14 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 };
 
 fn main() -> eframe::Result {
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-spotify")
+	{
+		discord_api::spotify::debug_check();
+		discord_gateway::debug_spotify_check();
+		return Ok(());
+	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-forward")
@@ -248,6 +265,11 @@ fn main() -> eframe::Result {
 		return Ok(());
 	}
 	#[cfg(feature = "demo")]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-slash-commands") {
+		slash_demo::check();
+		return Ok(());
+	}
+	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-post-menu") {
 		post_menu_demo::check();
 		return Ok(());
@@ -407,12 +429,11 @@ fn demo_check_updates() {
 /// One offline debug path through the shipped Wasm, reducer, and egui rows.
 #[cfg(feature = "demo")]
 fn demo_check_extensions() {
-	let enabled =
-		extensions::demo_check_examples().expect("starter packages activate with consent");
+	let _ = extensions::demo_check_examples().expect("starter packages activate with consent");
 	let mut state = test_support::demo_state();
+	state.set_preserve_deleted_messages(true);
 	let channel = state.selected.expect("demo conversation");
 	state.timeline.clear();
-	state.set_preserve_deleted_messages(enabled);
 	let mut message = test_support::message(600, channel);
 	message.content = "A useful message stays readable".into();
 	message.attachments.clear();
@@ -504,11 +525,12 @@ fn demo_check_extensions() {
 		saw_deleted && saw_author && saw_avatar,
 		"retained row renders red text ({saw_deleted}), author ({saw_author}), and a normal 40-pixel avatar ({saw_avatar})"
 	);
-	state.set_preserve_deleted_messages(false);
+	state.discard_preserved_deleted(message.id);
 	assert!(
 		state.timeline.get_display(message.id).is_none(),
-		"disabling releases preserved text"
+		"local remove drops the retained payload"
 	);
+	state.set_preserve_deleted_messages(false);
 	let next = test_support::message(601, channel);
 	state.timeline.insert(next.clone(), true, false).unwrap();
 	state.apply(Envelope {
@@ -520,10 +542,11 @@ fn demo_check_extensions() {
 	});
 	assert!(
 		state.timeline.get_display(next.id).is_none(),
-		"default deletion still removes the payload"
+		"loaded deletes disappear with the extension disabled"
 	);
+	assert!(state.timeline.get(next.id).is_none());
 	println!(
-		"Extension debug check passed: one Wasm protector, five themes, consent, red deleted row, stale-history rejection and disable cleanup."
+		"Extension debug check passed: starter packages, consent, retained deleted row, stale-history rejection and local remove."
 	);
 }
 
@@ -867,6 +890,19 @@ fn access_candidates(state: &State, event: &Event) -> Vec<model::Id> {
 		.map(|c| c.id)
 		.collect()
 }
+fn user_action_notice(event: &Event) -> Option<(ui::design::Level, &'static str)> {
+	let Event::UserAction(client_core::user_actions::Event::Written { action, result, .. }) = event
+	else {
+		return None;
+	};
+	Some(match result {
+		Ok(()) if matches!(action, client_core::user_actions::Action::OpenDm(_)) => {
+			(ui::design::Level::Error, action.completion_label())
+		}
+		Ok(()) => (ui::design::Level::Success, action.completion_label()),
+		Err(failure) => (ui::design::Level::Error, failure.label()),
+	})
+}
 fn queue_channel_preferences(
 	cache: Option<&cache::Cache>,
 	messaging: &mut ui::MessagingUi,
@@ -1075,7 +1111,14 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 		channel,
 		request,
 		total: members.len() as u64,
-		rows: members.into_iter().map(Some).collect(),
+		start: 0,
+		slots: members
+			.into_iter()
+			.map(|m| Some(model::MemberSlot::Person(m)))
+			.collect(),
+		lazy: false,
+		groups: vec![],
+		ranges: vec![],
 		freshness: model::Freshness::Fresh,
 	}
 }
@@ -1130,7 +1173,9 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if demo {
 			state = {
-				if std::env::args().any(|arg| arg == "--demo-components") {
+				if std::env::args().any(|arg| arg == "--demo-slash-commands") {
+					slash_demo::preview()
+				} else if std::env::args().any(|arg| arg == "--demo-components") {
 					components_demo::preview()
 				} else if std::env::args().any(|arg| arg == "--demo-forwarded") {
 					test_support::forwarded_demo_state()
@@ -1220,9 +1265,13 @@ impl Desktop {
 			if !std::env::args().any(|arg| arg == "--demo-friends") {
 				let fixture = demo_members(None, model::Id(22), 0);
 				state.direct_presences = fixture
-					.rows
+					.slots
 					.into_iter()
 					.flatten()
+					.filter_map(|slot| match slot {
+						model::MemberSlot::Person(member) => Some(member),
+						_ => None,
+					})
 					.filter(|member| member.user.id != model::Id(1))
 					.map(|member| model::MemberPresence {
 						user: member.user.id,
@@ -2576,6 +2625,16 @@ impl Desktop {
 				}
 			}
 		}
+		// Keep the existing game preview; Spotify fills the activity card while no game is active.
+		if own_activity.is_none() && self.state.gateway_connected {
+			own_activity = self.connection.as_ref().and_then(|connection| {
+				connection
+					.spotify_activity
+					.borrow()
+					.as_ref()
+					.map(|activity| activity.display())
+			});
+		}
 		let changed = self.state.set_local_game_activity(own_activity);
 		if changed
 			|| previous_sharing
@@ -2875,7 +2934,23 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if self.state.demo {
 			let event = match command {
+				Command::ApplicationCommands {
+					channel,
+					guild,
+					request,
+				} => Event::ApplicationCommands {
+					channel,
+					request,
+					result: Ok(slash_demo::catalog(guild)),
+				},
 				Command::Interaction(request) => {
+					if matches!(
+						&request.data,
+						client_core::interactions::Data::ApplicationCommand { .. }
+					) {
+						slash_demo::respond(&mut self.state, request);
+						return;
+					}
 					if std::env::args().any(|arg| arg == "--demo-components") {
 						self.state.apply(Envelope {
 							generation: self.state.generation,
@@ -2893,9 +2968,13 @@ impl Desktop {
 				Command::MemberSearch(request) => {
 					let query = request.query.to_lowercase();
 					let rows = demo_members(Some(request.guild), request.channel, request.nonce)
-						.rows
+						.slots
 						.into_iter()
 						.flatten()
+						.filter_map(|slot| match slot {
+							model::MemberSlot::Person(member) => Some(member),
+							_ => None,
+						})
 						.filter(|member| {
 							member.user.name.to_lowercase().contains(&query)
 								|| member
@@ -4792,32 +4871,9 @@ impl Desktop {
 			if event.generation != self.state.generation {
 				continue;
 			}
-			let friend_request_notice =
-				if let Event::UserAction(client_core::user_actions::Event::Written {
-					action,
-					result,
-					..
-				}) = &event.event
-				{
-					let success = match action {
-						client_core::user_actions::Action::AddFriend { .. }
-						| client_core::user_actions::Action::ProfileFriend {
-							friend: true, ..
-						} => Some("Friend request sent"),
-						client_core::user_actions::Action::ResolveFriend {
-							accept: false, ..
-						} => Some("Friend request removed"),
-						_ => None,
-					};
-					success.map(|success| match result {
-						Ok(()) => (ui::design::Level::Success, success),
-						Err(failure) => (ui::design::Level::Error, failure.label()),
-					})
-				} else {
-					None
-				};
-			let friend_request_was_pending =
-				friend_request_notice.is_some() && self.state.user_action_pending();
+			let user_action_notice = user_action_notice(&event.event);
+			let user_action_was_pending =
+				user_action_notice.is_some() && self.state.user_action_pending();
 			self.delete_cached_messages(&event.event);
 			match &event.event {
 				Event::Delete { channel, id } => {
@@ -4902,10 +4958,31 @@ impl Desktop {
 				)) {
 				self.notifications.dismiss();
 			}
+			let data_changes = extension_data_events::Changes::capture(&self.state, &event);
+			let extension_events = if self.extensions.has_message_events(&self.state) {
+				extension_events::capture(&self.state, &event.event)
+			} else {
+				Vec::new()
+			};
+			if event.generation == self.state.generation
+				&& (event.event.changes_access()
+					|| matches!(event.event, Event::Disconnected)
+					|| matches!(&event.event, Event::HistoryFailed { channel, request, failure: Failure::Forbidden }
+						if Some(*channel) == self.state.selected && *request == self.state.request && self.state.history_pending))
+			{
+				self.extensions.access_changed(&mut self.messaging);
+			}
 			self.state.apply(event);
-			if friend_request_was_pending
+			self.extensions.data_changed(data_changes);
+			self.extensions.cancel_stale_message_events(&self.state);
+			for candidate in extension_events {
+				if let Some(event) = candidate.admit(&self.state) {
+					self.extensions.message_event(&self.state, event);
+				}
+			}
+			if user_action_was_pending
 				&& !self.state.user_action_pending()
-				&& let Some((level, text)) = friend_request_notice
+				&& let Some((level, text)) = user_action_notice
 			{
 				self.messaging.toasts.push(level, text);
 			}
@@ -5148,12 +5225,10 @@ impl Desktop {
 }
 impl eframe::App for Desktop {
 	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
-		if !self.transparency_available {
-			// Match eframe's default clear color on the ordinary opaque surface.
-			egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32()
-		} else if self.window_transparent {
+		if self.window_transparent {
 			egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
 		} else {
+			// Opaque windows need opaque pixels too, including uncovered panel corners.
 			visuals.panel_fill.to_opaque().to_normalized_gamma_f32()
 		}
 	}
@@ -5728,6 +5803,7 @@ impl eframe::App for Desktop {
 				self.messaging.notification_sound_status = "Could not save device notification settings. Changes apply only until restart.";
 			}
 			let mut commands = self.messaging.show(ui, &mut self.state);
+			self.extensions.cancel_stale_message_events(&self.state);
 			self.choose_interaction_files(&ctx);
 			if let Some(command) = self.captcha.sync(
 				&mut self.state,
@@ -6262,6 +6338,20 @@ impl eframe::App for Desktop {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn user_action_results_use_toasts() {
+		let success = Event::UserAction(client_core::user_actions::Event::Written {
+			action: client_core::user_actions::Action::Nickname {
+				user: model::Id(2),
+				text: "Synthetic".into(),
+			},
+			request: 1,
+			result: Ok(()),
+		});
+		let (level, text) = user_action_notice(&success).unwrap();
+		assert!(matches!(level, ui::design::Level::Success));
+		assert_eq!(text, "Nickname saved");
+	}
 	#[test]
 	fn frame_sample_is_bounded_demo_only_and_excludes_warmup() {
 		for (demo, value) in [

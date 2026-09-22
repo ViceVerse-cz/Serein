@@ -42,6 +42,37 @@ fn reaction_button(
 	}
 }
 
+/// Height of the pill strip, using the same row size as [`show`].
+/// Empty and still-loading counts reserve nothing.
+pub fn estimated_height(ui: &egui::Ui, reactions: Option<&[Reaction]>, width: f32) -> f32 {
+	let Some(reactions) = reactions.filter(|reactions| !reactions.is_empty()) else {
+		return 0.0;
+	};
+	let width = width.max(40.0);
+	let font = egui::TextStyle::Button.resolve(ui.style());
+	let mut rows = 1u32;
+	let mut used = 0.0_f32;
+	for reaction in reactions {
+		let text_width = ui
+			.painter()
+			.layout_no_wrap(
+				reaction.count.to_string(),
+				font.clone(),
+				egui::Color32::WHITE,
+			)
+			.size()
+			.x;
+		let pill = 34.0 + text_width;
+		if used > 0.0 && used + 4.0 + pill > width {
+			rows += 1;
+			used = pill;
+		} else {
+			used = if used == 0.0 { pill } else { used + 4.0 + pill };
+		}
+	}
+	6.0 + rows as f32 * 30.0
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn show(
 	ui: &mut egui::Ui,
@@ -171,6 +202,38 @@ pub fn show(
 		}
 	});
 	action
+}
+
+pub fn show_frozen(
+	ui: &mut egui::Ui,
+	reactions: Option<&[Reaction]>,
+	media: (&mut crate::avatars::Avatars, bool),
+) {
+	if reactions.is_none_or(<[Reaction]>::is_empty) {
+		return;
+	}
+	ui.horizontal_wrapped(|ui| {
+		ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+		ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
+		ui.spacing_mut().interact_size.y = 26.0;
+		ui.visuals_mut().disabled_alpha = 1.0;
+		for reaction in reactions.unwrap_or_default() {
+			let label = format!("{} {}", reaction.emoji.label(), reaction.count);
+			let button =
+				reaction_button(ui.ctx(), media.0, &reaction.emoji, reaction.count, media.1);
+			let response = ui.add_enabled(
+				false,
+				button
+					.gap(4.0)
+					.min_size(egui::vec2(0.0, 26.0))
+					.corner_radius(6)
+					.selected(reaction.me),
+			);
+			response.widget_info(|| {
+				egui::WidgetInfo::selected(egui::Role::Button, false, reaction.me, &label)
+			});
+		}
+	});
 }
 
 pub fn add_button(

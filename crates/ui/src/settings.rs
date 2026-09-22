@@ -132,6 +132,27 @@ impl Page {
 }
 
 impl MessagingUi {
+	pub(super) fn open_extension_settings(&mut self, view: extensions::AppView) {
+		self.settings.page = match view {
+			extensions::AppView::Settings => Page::General,
+			extensions::AppView::Account => Page::Account,
+			extensions::AppView::ProfileSettings => Page::Profile,
+			extensions::AppView::Appearance => Page::Appearance,
+			extensions::AppView::MessagingPermissions => Page::MessagingPermissions,
+			extensions::AppView::Notifications => Page::Notifications,
+			extensions::AppView::Activity => Page::Activity,
+			extensions::AppView::Extensions => Page::Extensions,
+			extensions::AppView::Themes => Page::Themes,
+			extensions::AppView::VoiceSettings => Page::Voice,
+			extensions::AppView::Keybinds => Page::Keybinds,
+			extensions::AppView::Storage => Page::Storage,
+			extensions::AppView::Updates => Page::Updates,
+			_ => return,
+		};
+		self.settings.query.clear();
+		self.settings.open = true;
+	}
+
 	pub(super) fn theme_preview_navigation(&mut self, ui: &mut egui::Ui) {
 		if self.extensions.begin_gallery_preview(ui.ctx()) {
 			self.settings.open = false;

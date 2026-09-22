@@ -2,7 +2,7 @@
 
 Serein extensions are local, opt-in tools for the native client. The Extensions
 and Themes pages in Settings contain packages, links to their source, their
-requested capabilities and their review status. A plugin cannot call Discord,
+requested capabilities and their review status. A plugin cannot directly call Discord,
 send a message, read credentials, open files or make network requests.
 
 ## Install and remove
@@ -40,6 +40,13 @@ preference. There is no periodic background polling or automatic package update.
 
 1. Keep source and license in a public Git repository. Use the standalone Rust
    example under `examples/extensions/message-delete-protector` and its small SDK.
+   The [SDK authoring guide](../examples/extensions/README.md#test-and-develop-locally)
+   covers native handler tests, typed panel values and JSON storage helpers; the v1
+   exports and existing plugin source remain compatible. For reactive plugins,
+   use [Message Counter](../examples/extensions/message-counter/src/lib.rs) and the
+   [message-event guide](../examples/extensions/README.md#reactive-message-plugins).
+   [App Toolbox](../examples/extensions/app-toolbox/src/lib.rs) demonstrates app
+   snapshots and user-confirmed host actions.
 2. Build a Wasm module implementing the version 1 ABI documented by the starter.
    No native binary, installer, Git hook or build script runs on an end user's
    computer. Other languages can implement the same Wasm buffer/JSON contract.
@@ -63,10 +70,12 @@ Catalog entries may include a short `description` (at most 256 characters and
 1,024 UTF-8 bytes, without control characters) and a `preview` object:
 
 ```json
-"preview": {
-  "url": "https://example.org/releases/v1/preview.png",
-  "sha256": "<64 hexadecimal SHA-256 digits>",
-  "download_bytes": 12345
+{
+  "preview": {
+    "url": "https://example.org/releases/v1/preview.png",
+    "sha256": "<64 hexadecimal SHA-256 digits>",
+    "download_bytes": 12345
+  }
 }
 ```
 
@@ -106,22 +115,184 @@ invocation, result and theme types. These serialized types are the compatibility
 boundary; internal `client-core` structures and egui objects are not an SDK.
 Unknown API versions and invalid packages are rejected before installation.
 
+### Capability reference
+
+Each capability is independent and requires user consent. An update requests
+renewed consent; adding a read grant does not grant commands. The SDK currently
+supports 31 capabilities, with at most 32 distinct declarations per manifest.
+
+| Capability | Granted behavior | Scope / confirmation |
+| --- | --- | --- |
+| `selected_message` | Read selected message text | A user-invoked `message` action only |
+| `composer` | Read the current draft and propose replacement | A `composer` action; replacement requires Apply |
+| `storage` | Read/replace one opaque local UTF-8 value | Per-account/plugin; 1 MiB disk limit and 256 KiB invocation budget |
+| `deleted_messages` | Enable host retention of already-loaded deleted messages | Activation only; bounded session memory, no deleted text sent to Wasm |
+| `image_sharing` | Enable host emoji/sticker image attachment mode | Activation only; picker selection authorizes sending, Wasm receives no image bytes |
+| `appearance` | Return a bounded declarative theme overlay | Native colors/control metrics; no arbitrary drawing |
+| `message_events` | Observe live create/update/delete events | Active accessible conversation; bounded best-effort delivery |
+| `app_context` | Read connection, current user and selected channel | Current session, optional fields |
+| `account_profile` | Read the current account's loaded avatar hash and own profile | Connected; optional display name, bio and pronouns; no credentials/connections |
+| `guild_directory` | Read loaded joined servers | At most 100 names/IDs/icon hashes; no fetch |
+| `channel_details` | Read selected-channel metadata, recipients and permission summary | Fresh accessible channel; at most 32 recipients; last-message ID/count require history access |
+| `data_events` | Opt into fifteen granted app-data invalidation reasons | Requires `app_events` plus each reason's read grant |
+| `channel_directory` | Read accessible cached channels | At most 100; partial directory, no fetch |
+| `message_content` | Read loaded embed text, sticker labels, reply/forward markers and poll availability | Fresh readable selected timeline; 10 messages/8 KiB; no media URLs/bytes or poll details |
+| `forum_data` | Read resident accessible child threads/posts and known flags | Selected readable parent/thread; 10 posts/6 KiB; no archive fetch or tags |
+| `conversation_activity` | Read current typing IDs and a loaded pin page | Selected readable conversation; 8 typing IDs/20 pin IDs/2 KiB; no fetch |
+| `channel_metadata` | Read loaded guild channel topic/category/thread metadata and permission decisions | Fresh readable selected guild channel; unknown remains optional; 6 KiB; no settings fetch |
+| `member_details` | Read loaded guild member nicknames, role labels and matching server profile | Fresh selected member pane; 20 members/32 role IDs each/32 catalog roles; 6 KiB; no fetch |
+| `message_details` | Read loaded message metadata: replies, mentions, attachment labels and reaction counts | Fresh readable selected timeline; at most 20 messages; no text or URLs |
+| `relationships` | Read loaded friends, requests and restricted-account labels | Connected; at most 100; known flags distinguish unloaded lists; no fetch |
+| `timeline` | Read ordinary loaded messages in the active conversation | Fresh readable timeline, at most 50 (20 with `message_details`); no deleted/ephemeral text |
+| `members` | Read loaded members or DM recipients | Active channel, at most 100; no fetch |
+| `presence` | Read cached status strings for that context | At most 100; no activity/private device payloads |
+| `voice_state` | Read current call state and participant IDs | At most 64 participants; no raw media |
+| `read_state` | Read current channel unread/mention summary | Unknown unread remains distinct from false |
+| `local_settings` | Read and propose changing five local preferences | Zoom/sidebar/member list/GIFs/media links; changes require Apply |
+| `navigation` | Propose channel, Home, view, profile, message or search navigation | Existing native paths; each command requires Apply |
+| `local_notices` | Propose an in-app toast | At most 1,024 text bytes; requires Apply |
+| `clipboard_write` | Propose replacing clipboard text | At most 4,096 bytes; requires Apply; no clipboard read |
+| `voice_control` | Propose mute/deafen or leave for the current call | Each command requires Apply; cannot join calls or start media |
+| `app_events` | Observe ready/navigation/context/connection/voice/settings changes | Other grants control accompanying data; no background commands |
+
+### App snapshots and confirmed commands
+
+The [app data reference](extension-sdk-reference.md#app-data) and
+[output/action reference](extension-sdk-actions.md#outputs-and-host-actions)
+explain every field, command and bound, with examples. SDK authors use
+`fn(AppInvocation) -> AppOutput` with the unchanged `export!` macro and
+`dispatch_typed` for offline checks. These wrappers retain the original
+`Invocation`, `EventInvocation` and `Output` APIs and flatten into ABI v1 JSON.
+Unsupported capabilities/actions are rejected by older hosts; declaring v1 alone
+does not make new capabilities available in an old build. Current hosts also
+inject public `host` discovery into every invocation: API version 1, SDK revision
+1 and supported capability/event names. `AppInvocation.host` is optional for
+older hosts, and its SDK lists use strings to tolerate future names. Support is
+not consent; discovery never bypasses required manifest validation or grants.
+
+`app` contains separately granted optional `context`, `account_profile`, `guilds`,
+`channel_details`, `channels`, `timeline`, `members`, `presence`, `voice`,
+`read_state`, `settings`, `message_details`, `relationships`, `channel_metadata`
+`member_details`, `message_content`, `forum_data` and `conversation_activity` groups. A missing group
+is unavailable or ungranted, not an empty dataset. Snapshot construction reads
+already-loaded state without network or disk IO. The complete serialized snapshot
+is capped at 64 KiB. Per-group budgets are 10 KiB for channels, 20 KiB for timeline,
+6 KiB each for members, presence and channel-detail recipients, and 8 KiB for guilds,
+including item overhead. Message details and relationships use at most 8 KiB and
+4 KiB respectively, and share the remaining 64-KiB snapshot budget; they may
+truncate earlier when other groups are present. Channel metadata and member
+details each have a 6-KiB ceiling within that same global budget; member rows
+are trimmed first, and groups can be omitted when no space remains. Rich-message
+content (8 KiB), forum data (6 KiB) and conversation activity (2 KiB) also share
+that ceiling; no new total snapshot allocation is authorized. The timeline
+skips messages larger than 4 KiB and reports partial data. Granting
+`message_details` also caps timeline rows at 20 instead of 50, while preserving
+the 20-KiB timeline byte budget and unchanged Wasm fuel limit. Valid wire-sized
+inputs can still exceed execution fuel. Bounded list responses
+expose `truncated`; voice participant IDs are capped without a completeness flag.
+No snapshot includes tokens, deleted/ephemeral text, attachment bytes/URLs, raw
+voice/video/screen media or the unbounded client state.
+An active DM or private channel is eligible when accessible: granting timeline,
+members or presence can expose that conversation's corresponding loaded data.
+
+Foreground `message`, `composer` and `panel` actions may return one `effects`
+proposal, at most 8 KiB serialized. The native result shows its exact action and
+values and waits for **Apply**. Closing it does nothing. Apply rechecks the plugin,
+grants, account/conversation, permissions and the specific voice call before using
+the existing UI path. Navigation/search may then load ordinary service data, but
+the plugin never receives a generic Discord command API. Clipboard writes never
+read the clipboard; local notices are in-app toasts, not OS notifications.
+
+Supported local preference patches are zoom 80–150%, sidebar width 190–360 logical
+pixels, member-list visibility, GIF animation and hiding media links. At least
+one field must be supplied; all omitted preferences remain unchanged. Voice
+commands affect only the existing call; they cannot join a call or enable camera,
+screen sharing or recording.
+
+One `app_event` action may observe `ready`, `navigation`, `context`, `connection`,
+`voice` and `settings`. Context events report loaded-data/freshness changes after
+navigation; use `message_events` for individual message changes. The additional
+`data_events` grant opts into `account`, `channels`, `members`, `presence`,
+`read_state`, `message_details`, `relationships`, `threads`, `roles`, `permissions`
+`recovered`, `reactions`, `pins`, `typing` and `polls` invalidation hints (21 event kinds total), each requiring the corresponding data grant
+(`channels` accepts `channel_directory`, `guild_directory`, `channel_details` or `channel_metadata`; `members`
+accepts `members` or `member_details`). `threads` requires `channel_metadata` or `forum_data`,
+`roles` requires `member_details`, and `permissions`/`recovered` accept any of
+`channel_metadata`, `member_details`, `forum_data`, `conversation_activity` or
+`message_content`. `reactions`/`pins`/`typing` require `conversation_activity`,
+`polls` requires `message_content`, and `message_details` accepts either its
+namesake grant or `message_content`.
+Recovery is an invalidation hint, not event replay or a promise all data is fresh. Without this
+opt-in, existing observers receive only the original six variants. Repeated
+pending detailed reasons coalesce by kind for each plugin. Pending app
+changes are coalesced per plugin and share the message-event queue/rate bounds.
+The host captures a fresh, separately granted snapshot at dispatch. There are no
+timers or persistent plugin instances, and delivery is best effort. App/message
+events and activation cannot return host command proposals; background events
+cannot open panels. Granted `storage` and `appearance` outputs remain available.
+
+The [App Toolbox example](../examples/extensions/app-toolbox/src/lib.rs) provides
+an account/channel dashboard and explicit controls for all 11 command types. Its `app_event`
+observer returns an empty output, and it saves no conversation data.
+[Guild Inspector](../examples/extensions/guild-inspector/src/lib.rs) separately
+shows optional channel settings/thread permissions and the first five loaded
+member details, with only its two read grants plus event grants. It does not
+fetch settings, profiles or role catalogs. Unknown decisions remain distinct
+from denial, and native actions still recheck permissions.
+[Conversation Inspector](../examples/extensions/conversation-inspector/src/lib.rs)
+shows rich summaries, loaded forum flags, typing/pin state and public discovery.
+Polls have only an absent/unsupported marker; no questions/results are retained.
+Forum tags remain unavailable. All three inspector/toolbox observers stay passive.
+
+### Existing tools and message events
+
 Actions are invoked by a message context-menu item, composer tool or panel
 button. A plugin may also declare one `activation` action that runs in the worker
-on enable/account load. With explicit `deleted_messages` consent, its boolean
-`preserve_deleted_messages` output enables session-only retention of loaded deleted
-messages. Deleted text is red by default. Hover and a local context menu can toggle
-that highlight or remove the retained row. They never call Discord. Live service
-actions stay unavailable. Default deletion, tombstone reconciliation and disk-cache
-removal remain unchanged. Disabling clears
-retained deleted content across active and dormant windows. Logout, lost channel
-access and ordinary timeline eviction also clear it. The same 500-row / 4 MiB
-per-window budget includes both live and retained deleted payloads. Input is restricted to the granted context and bounded form values.
+on enable/account load. An enabled plugin with granted `deleted_messages` capability
+keeps already loaded deleted messages in the session window. Without that opt-in,
+deleted payloads are released. Deleted text is red by default. Hover and a
+local context menu can toggle that highlight or remove the retained row. They
+never call Discord. Live service actions stay unavailable. Tombstone
+reconciliation and disk-cache removal remain unchanged. Disabling the plugin, logout, lost channel
+access and ordinary timeline eviction also clear retained deleted content. The
+same 500-row / 4 MiB per-window budget includes both live and retained deleted
+payloads. The optional `preserve_deleted_messages` activation output is accepted
+for package compatibility; successful activation with the granted capability enables
+retention, including existing protector packages with no-op activation. Input is
+restricted to the granted context and bounded form values.
 Results can propose a composer replacement or return native headings, text, rows,
 separators, buttons, text inputs, checkboxes, dropdowns and integer sliders. Standalone
 panel actions are available from the composer Tools menu as well as the shop. Composer proposals require Apply, retain
 the ordinary Send action and are discarded when their originating context is
 stale. Account/session changes invalidate outstanding results.
+
+The `message_events` capability allows one `message_event` action to receive
+read-only create, update and delete snapshots for the active, accessible
+conversation. The user must explicitly grant this access. Only accepted live
+timeline events are eligible; history, search, cache loads, ephemeral messages
+and other conversations are excluded. Create supplies channel/message/author IDs
+and text; updates may contain partial fields; delete supplies channel and message
+IDs only. Text is bounded to 16 KiB of UTF-8. The payload excludes attachments,
+embeds and raw Gateway data. It can contain private conversation text when that
+conversation is active, so grant access only to plugins you trust.
+
+Event handlers run on the existing worker and may save `storage` or change
+`appearance` with those separately granted capabilities. They cannot send messages,
+replace the composer, open panels in the background or enable activation-only
+features. Use a separate user-invoked panel to show results. The Message Counter
+example stores only three saturating numeric counts, preserves malformed storage
+until the user explicitly resets it, and never stores message text or identifiers.
+
+Delivery is best effort, not exactly once or a complete audit stream. The host
+requires a loaded message for updates/deletes; duplicate creates, including sends
+already reconciled from a send result, may be skipped. The host
+queues at most 32 pending invocations totaling 64 KiB and starts at most 10 event
+invocations per second; overload drops events. Scope/account changes, lost
+permissions and disabling discard pending work and reject stale results.
+Reactive SDK handlers use `EventInvocation` and `dispatch_typed`; existing
+`Invocation` handlers and their struct literals remain unchanged under ABI v1.
+Older hosts reject the new capability/action in the manifest. They do not load
+a message-event plugin merely because its manifest declares API version 1.
 
 The **Emoji & Sticker Images** catalog plugin requests `image_sharing`. Its
 activation output makes custom emoji and sticker selections stage artwork as ordinary
@@ -140,8 +311,9 @@ Settings > Themes > Create theme provides a native editor and portable export.
 See the complete [theme API](theme-api.md) for fields, bounds and inheritance.
 
 Plugins can request the `appearance` capability to return an `appearance` object
-using that same theme schema. This works from activation or a user-invoked action,
-so creators can build native appearance settings panels with dropdowns and sliders.
+using that same theme schema. Creators can build native appearance settings panels
+with dropdowns and sliders. Activation and separately granted event actions
+can also return appearance values.
 An action replaces that plugin's previous appearance object; omit it to leave the
 current appearance unchanged, or return `{}` to remove its overrides. A plugin can
 use granted `storage` to save choices and read them during activation on the next
@@ -156,6 +328,30 @@ arbitrary code injection into egui, replacement of the app layout, custom fonts,
 network access, or automatic Discord actions. Fixed-size custom-painted components
 keep their existing geometry. Missing fields inherit the underlying theme.
 
+## Safe execution diagnostics
+
+Execution errors use fixed host messages and existing native error status. They
+never include plugin output, message text, saved storage, raw Wasm error strings
+or private invocation values. No diagnostic log or upload is added. Categories
+identify a useful next check, not a complete crash trace:
+
+| Host error category | Author action |
+| --- | --- |
+| `Fuel` | Reduce handler loops, JSON work or requested data; the 5-million-fuel limit is unchanged. |
+| `Memory` | Reduce memory/table allocation; linear memory remains capped at 16 MiB. This category also covers engine allocation failure, not only hitting that exact cap. |
+| `Stack` | Reduce recursion and stack allocations. |
+| `Trap` | Check for panic, invalid memory access or arithmetic traps. No panic text is exposed. |
+| `Input` / `InputLimit` | Check the action/input schema or reduce data, form values and storage. Public discovery counts toward the existing 256-KiB serialized invocation limit. |
+| `Handler` | The ABI returned no response. Check SDK input decoding and output serialization; the host cannot infer which failed from an empty response. |
+| `Output` / `OutputLimit` | Check output JSON/ABI buffer or reduce panel elements, text and storage. Existing output limits still apply. |
+| `Capability` | Check the manifest, user grants and permitted action surface; an execution retry cannot grant access. |
+| `Module` / `Execution` | Check required exports, import restrictions and runtime requirements. |
+| `Invalid` / `Version` / `Limit` | Check document schema, supported API version or the relevant package/data bounds before execution. |
+
+Native SDK `dispatch_typed` checks remain useful for decoding and serialization;
+real sandbox checks exercise fuel, memory, exports and output enforcement. Neither
+proves live Discord compatibility. No lifecycle tests are implied by these diagnostics.
+
 ## Resource and privacy limits
 
 Wasm executes on an on-demand background worker with fuel, stack and memory
@@ -163,6 +359,25 @@ limits and no WASI or host imports. Each invocation gets a new runtime; it is
 dropped when the call completes. Plugin execution never happens in a render or
 audio callback. The application bounds package sizes, installed plugin count,
 invocation input/output, panel complexity, queues and plugin storage.
+
+| Resource | Limit | What it means for an author |
+| --- | --- | --- |
+| Compiled Wasm | 4 MiB | Keep the module small; the host validates imports and compilation limits too. |
+| JSON package | 16 MiB | Includes the manifest and encoded payload. |
+| Linear memory | 16 MiB | Includes decoding, handler allocations and output buffers. |
+| Execution fuel | 5,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
+| Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
+| Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
+| Manifest actions / capabilities | 16 / 32 distinct | Only the 31 supported capability names are currently accepted. |
+| Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
+| Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
+| App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |
+| Host proposals | 1 / 8 KiB serialized | A foreground action proposes one operation for Apply. |
+| Reactive queue / rate | 32 pending calls / 64 KiB / 10 starts per second | Shared message/app events are best effort; excess work is dropped. |
+
+Invalid output or exhausted Wasm budgets produce an execution error and can
+disable the failing plugin. Snapshot collectors may instead return explicitly
+partial lists, and reactive overload may drop events; handle both in your code.
 
 Disabled plugins have no retained instance, worker, package or plugin data once
 cleanup succeeds. Shared host code and bounded catalog metadata still cost some
@@ -174,8 +389,8 @@ for credentials. No extension diagnostics or private invocation data are
 uploaded. Sandboxing and review reduce exposure but cannot prove absence of
 bugs in the runtime or host; keep Serein updated.
 
-The complete ABI and numeric limits are documented in
-[`examples/extensions/README.md`](../examples/extensions/README.md). The demo uses
+The buffer ABI is documented in the
+[authoring guide](../examples/extensions/README.md#abi-version-1). The demo uses
 a separate bounded temporary `serein-extension-demo` profile; it can import local
 fixtures and browse the embedded starter catalog/previews but cannot download a
 catalog, preview or package. `Ctrl+Shift+F12` resets a

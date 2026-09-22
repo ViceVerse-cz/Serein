@@ -32,18 +32,22 @@ fn own_profile_and_server_member_render_local_updates_and_clear_without_changing
 				channel: model::Id(20),
 				request: 1,
 				total: 2,
+				lazy: false,
+				groups: vec![],
+				ranges: vec![],
 				freshness: model::Freshness::Fresh,
-				rows: [(own.clone(), "Other session game"), (peer, "Peer game")]
+				start: 0,
+				slots: [(own.clone(), "Other session game"), (peer, "Peer game")]
 					.into_iter()
 					.map(|(user, name)| {
-						Some(model::Member {
+						Some(model::MemberSlot::Person(model::Member {
 							user,
 							roles: vec![],
 							nick: None,
 							status: Some("idle".into()),
 							custom_status: Some("Custom status".into()),
 							activities: vec![game(name)],
-						})
+						}))
 					})
 					.collect(),
 			});

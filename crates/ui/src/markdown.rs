@@ -480,7 +480,7 @@ struct Render<'a> {
 	opening: &'a mut Option<String>,
 	users: &'a [model::User],
 	source: Option<&'a crate::mentions::MentionSource<'a>>,
-	profile: &'a mut Option<model::User>,
+	profile: &'a mut crate::profiles::ProfileSession,
 	channels: &'a [model::Channel],
 	channel: &'a mut Option<Id>,
 	guilds: &'a [model::Guild],
@@ -1004,7 +1004,8 @@ impl Formatted {
 	}
 	#[cfg(test)]
 	pub fn show(&self, ui: &mut egui::Ui, opening: &mut Option<String>) {
-		self.show_mentions(ui, opening, &[], &mut None);
+		let mut profile = crate::profiles::ProfileSession::default();
+		self.show_mentions(ui, opening, &[], &mut profile);
 	}
 	#[cfg(test)]
 	pub fn show_mentions(
@@ -1012,7 +1013,7 @@ impl Formatted {
 		ui: &mut egui::Ui,
 		opening: &mut Option<String>,
 		users: &[model::User],
-		profile: &mut Option<model::User>,
+		profile: &mut crate::profiles::ProfileSession,
 	) {
 		self.show_with_images(
 			ui,
@@ -1029,7 +1030,7 @@ impl Formatted {
 		opening: &mut Option<String>,
 		users: &[model::User],
 		source: Option<&crate::mentions::MentionSource<'_>>,
-		profile: &mut Option<model::User>,
+		profile: &mut crate::profiles::ProfileSession,
 		media: (&mut crate::avatars::Avatars, bool, &[model::Guild]),
 	) {
 		let (images, demo, guilds) = media;
@@ -1054,7 +1055,7 @@ impl Formatted {
 		opening: &mut Option<String>,
 		users: &[model::User],
 		source: Option<&crate::mentions::MentionSource<'_>>,
-		profile: &mut Option<model::User>,
+		profile: &mut crate::profiles::ProfileSession,
 		references: (
 			&[model::Channel],
 			&mut Option<Id>,
@@ -1075,7 +1076,7 @@ impl Formatted {
 		opening: &mut Option<String>,
 		users: &[model::User],
 		source: Option<&crate::mentions::MentionSource<'_>>,
-		profile: &mut Option<model::User>,
+		profile: &mut crate::profiles::ProfileSession,
 		references: (
 			&[model::Channel],
 			&mut Option<Id>,
@@ -1299,8 +1300,8 @@ impl Formatted {
 								format!("{label}, user profile"),
 							)
 						});
-						if response.clicked() {
-							*render.profile = Some(user.cloned().unwrap_or(model::User {
+						if response.clicked() || response.contains_pointer() {
+							let opened = user.cloned().unwrap_or(model::User {
 								id,
 								name: format!("User {id}"),
 								avatar: None,
@@ -1308,7 +1309,8 @@ impl Formatted {
 								kind: Default::default(),
 								discriminator: 0,
 								primary_guild: None,
-							}));
+							});
+							render.profile.person_click(ui, &response, None, &opened);
 						}
 						start += 1;
 						continue;
@@ -1334,22 +1336,22 @@ impl Formatted {
 						continue;
 					}
 					let target = spans[start].1.link;
-					let count =
-						spans[start..]
-							.iter()
-							.take_while(|(_, style)| {
-								style.link == target
-									&& style.spoiler == spoiler && style.mention.is_none()
-									&& style.channel.is_none() && style.block.is_none()
-							})
-							.count();
-					// The block widget already breaks the line: a paragraph's trailing newline
-					// before it would otherwise add an empty row.
+					let count = spans[start..]
+						.iter()
+						.take_while(|(_, style)| {
+							style.link == target
+								&& style.spoiler == spoiler
+								&& style.mention.is_none()
+								&& style.channel.is_none()
+								&& style.block.is_none() && (quoted || !style.quote)
+						})
+						.count();
+					// Block widgets (fenced code, a quote rail) already break the line: a
+					// paragraph's trailing newline before one would otherwise add an empty row.
 					let trimmed;
-					let spans = if self
-						.spans
+					let spans = if spans
 						.get(start + count)
-						.is_some_and(|(_, s)| s.block.is_some())
+						.is_some_and(|(_, s)| s.block.is_some() || (!quoted && s.quote))
 						&& spans[start + count - 1].0.ends_with('\n')
 					{
 						let mut copy = spans[start..start + count].to_vec();
@@ -2360,6 +2362,81 @@ mod tests {
 	}
 
 	#[test]
+	fn quote_rails_follow_plain_paragraphs_and_wrap_mentions() {
+		fn shapes(
+			shape: &egui::Shape,
+			rails: &mut Vec<egui::Rect>,
+			texts: &mut Vec<(String, egui::Rect)>,
+		) {
+			match shape {
+				egui::Shape::Rect(rect) if rect.rect.width() == f32::from(QUOTE_RAIL) => {
+					rails.push(rect.rect);
+				}
+				egui::Shape::Text(text) => texts.push((
+					text.galley.job.text.clone(),
+					text.galley.rect.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(children) => {
+					for shape in children {
+						shapes(shape, rails, texts);
+					}
+				}
+				_ => {}
+			}
+		}
+		for source in [
+			"**Details**\n> **Prize:** one\n> **Winners:** 10",
+			"**Publishing**\n> **Channel:** <#123>\n> **Host:** <@456>\n> **Ping:** none",
+		] {
+			let parsed = Formatted::parse(source);
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(400.0, 300.0),
+					)),
+					..Default::default()
+				},
+				|ui| parsed.show(ui, &mut None),
+			);
+			let (mut rails, mut texts) = (vec![], vec![]);
+			for shape in &output.shapes {
+				shapes(&shape.shape, &mut rails, &mut texts);
+			}
+			output.drop_without_applying_deltas();
+			assert_eq!(
+				rails.len(),
+				1,
+				"{source}: one rail for the quoted block: {rails:?}"
+			);
+			let rail = rails[0];
+			let (title_text, _) = texts
+				.iter()
+				.find(|(text, _)| text.starts_with("Details") || text.starts_with("Publishing"))
+				.expect("title galley");
+			assert!(
+				!title_text.ends_with('\n'),
+				"{source}: the title keeps no blank line before the rail: {title_text:?}"
+			);
+			for (text, rect) in &texts {
+				if text.starts_with("Details") || text.starts_with("Publishing") {
+					assert!(
+						rect.bottom() <= rail.top() + 1.0,
+						"{source}: title above rail"
+					);
+				} else {
+					assert!(
+						rect.left() >= rail.right(),
+						"{source}: {text:?} at {rect:?} must sit inside the rail indent {rail:?}"
+					);
+				}
+			}
+		}
+	}
+
+	#[test]
 	fn block_endings_do_not_leave_a_blank_final_line() {
 		for (source, expected) in [
 			("Hello", "Hello"),
@@ -2725,7 +2802,7 @@ mod tests {
 			});
 			let mut images = crate::avatars::Avatars::default();
 			let mut opening = None;
-			let mut profile = None;
+			let mut profile = crate::profiles::ProfileSession::default();
 			let mut channel = None;
 			let mut mask = 0;
 			let mut render = |mask: &mut u32, events| {
@@ -2754,7 +2831,7 @@ mod tests {
 					},
 				);
 				assert!(output.platform_output.commands.is_empty());
-				assert!(opening.is_none() && profile.is_none() && channel.is_none());
+				assert!(opening.is_none() && profile.open_user().is_none() && channel.is_none());
 				let requests = images.take_requests();
 				if *mask == 0 {
 					assert!(requests.is_empty());
@@ -2841,12 +2918,13 @@ mod tests {
 				},
 				|ui| {
 					let mut surface = crate::select::Surface::new(ui, "body");
+					let mut profile = crate::profiles::ProfileSession::default();
 					parsed.show_references(
 						ui,
 						&mut None,
 						&[],
 						None,
-						&mut None,
+						&mut profile,
 						(&[], &mut None, &[], &[]),
 						(&mut images, false, &mut mask),
 						&mut surface,
@@ -2987,7 +3065,7 @@ mod tests {
 			let parsed = Formatted::parse(&format!("<#{}>", id));
 			let ctx = egui::Context::default();
 			let mut opening = None;
-			let mut profile = None;
+			let mut profile = crate::profiles::ProfileSession::default();
 			let mut channel = None;
 			let mut revealed = u32::MAX;
 			for key in [egui::Key::Tab, egui::Key::Enter] {
@@ -3021,7 +3099,7 @@ mod tests {
 				output.textures_delta.clear();
 			}
 			assert_eq!(channel, matches!(id, 4 | 5).then_some(Id(id)));
-			assert!(opening.is_none() && profile.is_none());
+			assert!(opening.is_none() && profile.open_user().is_none());
 		}
 	}
 	#[test]
@@ -3045,12 +3123,13 @@ mod tests {
 					..Default::default()
 				},
 				|ui| {
+					let mut profile = crate::profiles::ProfileSession::default();
 					parsed.show_with_images(
 						ui,
 						&mut None,
 						&[],
 						None,
-						&mut None,
+						&mut profile,
 						(&mut avatars, true, &[]),
 					)
 				},
@@ -3209,12 +3288,13 @@ mod tests {
 							..Default::default()
 						},
 						|ui| {
+							let mut profile = crate::profiles::ProfileSession::default();
 							parsed.show_with_images(
 								ui,
 								&mut None,
 								&[],
 								None,
-								&mut None,
+								&mut profile,
 								(&mut images, true, &state.guilds),
 							)
 						},
@@ -3786,7 +3866,8 @@ mod tests {
 			for width in [80.0, 300.0] {
 				let mut output = ctx.run_ui(Default::default(), |ui| {
 					ui.set_width(width);
-					parsed.show_mentions(ui, &mut None, &users, &mut None);
+					let mut profile = crate::profiles::ProfileSession::default();
+					parsed.show_mentions(ui, &mut None, &users, &mut profile);
 				});
 				output.textures_delta.clear();
 				let colors = crate::design::colors(dark, crate::design::variant());
@@ -3833,7 +3914,7 @@ mod tests {
 		] {
 			let parsed = Formatted::parse(source);
 			assert!(parsed.artwork, "{source}");
-			let mut profile = None;
+			let mut profile = crate::profiles::ProfileSession::default();
 			let mut opening = None;
 			let output = ctx.run_ui(Default::default(), |ui| {
 				ui.set_width(400.0);
@@ -3903,7 +3984,7 @@ mod tests {
 		);
 		let parsed = Formatted::parse("<@42>");
 		let ctx = egui::Context::default();
-		let mut profile = None;
+		let mut profile = crate::profiles::ProfileSession::default();
 		let mut opening = None;
 		let users = vec![model::User {
 			id: Id(42),
@@ -3931,7 +4012,7 @@ mod tests {
 			assert!(output.platform_output.commands.is_empty());
 			output.textures_delta.clear();
 		}
-		assert_eq!(profile.unwrap().name, "Synthetic Robin");
+		assert_eq!(profile.open_user().unwrap().name, "Synthetic Robin");
 		assert!(opening.is_none());
 	}
 	#[test]

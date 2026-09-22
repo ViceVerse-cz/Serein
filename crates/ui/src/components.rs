@@ -57,75 +57,6 @@ impl Components {
 			self.files.push((custom_id.to_owned(), files));
 		}
 	}
-	pub(crate) fn media_visible(
-		&mut self,
-		ui: &mut egui::Ui,
-		message: &Message,
-		generation: u64,
-	) -> bool {
-		if !crate::embeds::has_media_spoilers(message) {
-			return true;
-		}
-		let id =
-			egui::Id::unique(("private-media", generation, message.id, message.revision)).value();
-		if self.revealed.contains(&id) {
-			return true;
-		}
-		if ui.button("Reveal spoiler media").clicked() {
-			if self.revealed.len() >= 256 {
-				self.revealed.clear();
-			}
-			self.revealed.insert(id);
-			return true;
-		}
-		false
-	}
-	pub(crate) fn show_text(
-		&mut self,
-		ui: &mut egui::Ui,
-		message: &Message,
-		state: &State,
-		avatars: &mut Avatars,
-		opening: &mut Option<String>,
-	) {
-		let key = egui::Id::unique((
-			"private-body",
-			state.generation,
-			message.id,
-			message.revision,
-		))
-		.value();
-		if self.text_revealed.len() >= 256 && !self.text_revealed.contains_key(&key) {
-			self.text_revealed.clear();
-		}
-		let mut surface = crate::select::Surface::new(ui, "private-body");
-		let source = crate::mentions::MentionSource {
-			state,
-			channel: message.channel,
-		};
-		self.formatted
-			.get(message.id, &message.content)
-			.show_references(
-				ui,
-				opening,
-				&message.mentions,
-				Some(&source),
-				&mut None,
-				(
-					&state.channels,
-					&mut None,
-					&state.guilds,
-					crate::mentions::known_roles(state, message.channel),
-				),
-				(
-					avatars,
-					state.demo,
-					self.text_revealed.entry(key).or_default(),
-				),
-				&mut surface,
-			);
-		surface.finish(ui);
-	}
 	pub(crate) fn show(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -160,6 +91,8 @@ impl Components {
 			&& state.freshness == model::Freshness::Fresh
 			&& state.can_view(message.channel);
 		ui.push_id(identity, |ui| {
+			// Component trees keep Discord's message content width instead of the viewport.
+			ui.set_max_width(ui.available_width().min(COMPONENTS_MAX_WIDTH));
 			for (index, component) in message.components.iter().enumerate() {
 				self.show_component(
 					ui,
@@ -251,18 +184,37 @@ impl Components {
 								}
 							});
 						} else if c.kind == 9 {
-							ui.horizontal_top(|ui| {
+							// The accessory takes its natural width at the right edge first;
+							// the text column wraps in whatever remains.
+							ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
 								ui.spacing_mut().item_spacing.x = 16.0;
-								let thumbnail =
-									c.accessory.as_deref().is_some_and(|a| a.kind == 11);
-								let accessory_width =
-									if thumbnail { THUMBNAIL_SIZE } else { 110.0 }
-										.min(ui.available_width() * 0.4);
+								if let Some(accessory) = &c.accessory {
+									let thumbnail = accessory.kind == 11;
+									let accessory_width = if thumbnail {
+										THUMBNAIL_SIZE
+									} else {
+										(ui.available_width() * 0.45).max(40.0)
+									};
+									ui.scope(|ui| {
+										ui.set_max_width(accessory_width);
+										self.accessory = true;
+										self.show_component(
+											ui,
+											accessory,
+											id.with("accessory"),
+											message,
+											state,
+											avatars,
+											opening,
+											enabled,
+											action,
+											media_ui,
+										);
+										self.accessory = false;
+									});
+								}
 								ui.allocate_ui_with_layout(
-									egui::vec2(
-										(ui.available_width() - accessory_width - 16.0).max(40.0),
-										0.0,
-									),
+									egui::vec2(ui.available_width().max(40.0), 0.0),
 									egui::Layout::top_down(egui::Align::Min),
 									|ui| {
 										ui.spacing_mut().item_spacing.y = 8.0;
@@ -282,28 +234,6 @@ impl Components {
 										}
 									},
 								);
-								if let Some(accessory) = &c.accessory {
-									ui.allocate_ui_with_layout(
-										egui::vec2(accessory_width, 0.0),
-										egui::Layout::top_down(egui::Align::Min),
-										|ui| {
-											self.accessory = true;
-											self.show_component(
-												ui,
-												accessory,
-												id.with("accessory"),
-												message,
-												state,
-												avatars,
-												opening,
-												enabled,
-												action,
-												media_ui,
-											);
-											self.accessory = false;
-										},
-									);
-								}
 							});
 						} else {
 							for (index, child) in c.components.iter().enumerate() {
@@ -362,7 +292,11 @@ impl Components {
 					} else {
 						egui::Button::new(text)
 					}
-					.wrap_mode(egui::TextWrapMode::Extend)
+					.wrap_mode(if self.accessory {
+						egui::TextWrapMode::Truncate
+					} else {
+						egui::TextWrapMode::Extend
+					})
 					.min_size(egui::vec2(0.0, 32.0))
 					.corner_radius(6)
 					.stroke(egui::Stroke::new(1.0, colors.border));
@@ -452,7 +386,7 @@ impl Components {
 							opening,
 							&message.mentions,
 							Some(&source),
-							&mut None,
+							&mut crate::profiles::ProfileSession::default(),
 							(
 								&state.channels,
 								&mut None,
@@ -1055,7 +989,7 @@ fn field(
 						opening,
 						&[],
 						Some(&source),
-						&mut None,
+						&mut crate::profiles::ProfileSession::default(),
 						(&state.channels, &mut None, &state.guilds, &[]),
 						(avatars, state.demo, revealed.entry(key).or_default()),
 						&mut surface,
@@ -1096,6 +1030,8 @@ fn field(
 #[allow(clippy::too_many_arguments)]
 /// Square side of a section thumbnail accessory, matching Discord's compact card art.
 const THUMBNAIL_SIZE: f32 = 80.0;
+/// Discord lays component trees out in the message content column, not across the viewport.
+const COMPONENTS_MAX_WIDTH: f32 = 520.0;
 
 #[allow(clippy::too_many_arguments)]
 fn show_media(

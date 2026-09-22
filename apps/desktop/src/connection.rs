@@ -32,6 +32,7 @@ pub struct Connection {
 	pub account_presence: watch::Receiver<Option<model::OwnPresence>>,
 	pub presence_error: watch::Receiver<Option<&'static str>>,
 	pub game_activity: watch::Receiver<crate::game_activity::Detection>,
+	pub spotify_activity: watch::Receiver<Option<discord_protocol::spotify::Activity>>,
 	/// A local Rich Presence client asked the client to show an invite: counter and code.
 	pub rpc_invite: watch::Receiver<Option<(u64, String)>>,
 	pub activity_observation: watch::Receiver<discord_gateway::ActivityObservation>,
@@ -76,6 +77,8 @@ impl Connection {
 		let (presence_error_send, presence_error) = watch::channel(None);
 		let presence_send = own_presence.clone();
 		let (game_report, game_activity) = watch::channel(Ok(None));
+		let (spotify_send, spotify_activity) = watch::channel(None);
+		let spotify_receive = spotify_activity.clone();
 		let (invite_send, rpc_invite) = watch::channel(None);
 		let (activity_observed, activity_observation) =
 			watch::channel(discord_gateway::ActivityObservation::Unconfirmed);
@@ -113,6 +116,7 @@ impl Connection {
 				let (member_query_send, member_query_receive) = watch::channel([None, None]);
 				let _sharing_task=AbortTask(tokio::spawn(run_activity_sharing(api.clone(),share_receive.clone(),sharing_requests,sharing_report,finished.clone(),wake.clone())));
 				let _activity_task=AbortTask(tokio::spawn(crate::game_activity::run(share_receive,activity_send,game_report,invite_send,wake.clone(),user.clone(),api.clone())));
+				let _spotify_task=AbortTask(tokio::spawn(crate::spotify::run(api.clone(),user.id,presence_receive.clone(),spotify_send,wake.clone())));
                 let dm_channels=Arc::new(Mutex::new(BTreeSet::new()));
                 let gateway_channels=dm_channels.clone();
                 let (voice_online,mut voice_availability)=watch::channel(false);
@@ -120,7 +124,7 @@ impl Connection {
                 let gateway_wake=wake.clone();
                 let activity_wake=wake.clone();
                 let mut gateway_task=AbortTask(tokio::spawn(async move {
-                    let error=discord_gateway::run_with_activity(secret,gateway,member_receive,voice_receive,(activity_receive,presence_receive,member_query_receive),move |observation| {
+                    let error=discord_gateway::run_with_activity(secret,gateway,member_receive,voice_receive,(activity_receive,presence_receive,member_query_receive,spotify_receive),move |observation| {
                         if activity_observed.send_if_modified(|current| { if *current == observation { false } else { *current = observation; true } }) { activity_wake.request_repaint(); }
                         Ok(())
                     },|event|{
@@ -161,6 +165,7 @@ impl Connection {
                 let mut invite:Option<AbortTask>=None;
                 let mut search:Option<AbortTask>=None;
                 let mut gifs:Option<AbortTask>=None;
+                let mut application_commands:Option<AbortTask>=None;
                 let mut sticker_packs:Option<AbortTask>=None;
                 let mut sticker_detail:Option<AbortTask>=None;
                 let mut reaction_read:Option<AbortTask>=None;
@@ -211,6 +216,18 @@ impl Connection {
                             let Some(command)=command else {break;};
                             if matches!(command,Command::CancelSearch) {drop(search.take());continue;}
                             if matches!(command,Command::CancelGifs) {drop(gifs.take());continue;}
+                            if matches!(command,Command::ApplicationCommands{..}) {
+                                drop(application_commands.take());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                application_commands=Some(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(command).await;
+                                    let failure=match &event {Event::ApplicationCommands{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
+                                    let error=emit(event).err().or(failure);
+                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
+                                continue;
+                            }
                             if matches!(command,Command::StickerPacks|Command::Sticker(_)) {
                                 let task=if matches!(command,Command::StickerPacks) {&mut sticker_packs} else {&mut sticker_detail};
                                 drop(task.take());
@@ -357,9 +374,9 @@ impl Connection {
                                 }
                                 continue;
                             }
-                            if let Command::Members {guild,channel,request,list_id,thread} = command {
+                            if let Command::Members {guild,channel,request,list_id,thread,ranges} = command {
                                 let subscription=match (guild,channel,list_id) {
-                                    (Some(guild),Some(channel),list_id) if thread || list_id.is_some() => Some(discord_gateway::MemberSubscription {guild,channel,request,thread,list_id:list_id.unwrap_or_default()}),
+                                    (Some(guild),Some(channel),list_id) if thread || list_id.is_some() => Some(discord_gateway::MemberSubscription {guild,channel,request,thread,list_id:list_id.unwrap_or_default(),ranges}),
                                     _=>None
                                 };
                                 member_send.send(subscription).map_err(|_|Failure::Network)?;
@@ -399,6 +416,7 @@ impl Connection {
 			account_presence,
 			presence_error,
 			game_activity,
+			spotify_activity,
 			rpc_invite,
 			activity_observation,
 			activity_sharing,

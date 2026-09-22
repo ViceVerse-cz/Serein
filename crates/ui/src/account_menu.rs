@@ -146,7 +146,7 @@ impl MessagingUi {
 			self.account_menu.open = !self.account_menu.open;
 			if self.account_menu.open {
 				self.account_menu.draft = self.own_presence.custom_status.clone();
-				self.profile = None;
+				self.profile.hide();
 				if state.own_profile.data.is_none()
 					&& !state.own_profile.loading
 					&& let Some(command) = state.load_own_profile()

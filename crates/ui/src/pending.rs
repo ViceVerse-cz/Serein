@@ -34,7 +34,7 @@ pub fn show(
 	media: (
 		&mut crate::avatars::Avatars,
 		&mut Option<String>,
-		&mut Option<model::User>,
+		&mut crate::profiles::ProfileSession,
 		&mut Option<model::Id>,
 		&mut crate::markdown::FormatCache,
 	),
@@ -451,6 +451,7 @@ mod tests {
 			pending.delivery = delivery;
 			upload.progress = progress;
 			let mut painted = String::new();
+			let mut profile = crate::profiles::ProfileSession::default();
 			for _ in 0..2 {
 				let output = ctx.run_ui(
 					egui::RawInput {
@@ -469,7 +470,7 @@ mod tests {
 							(
 								&mut crate::avatars::Avatars::default(),
 								&mut None,
-								&mut None,
+								&mut profile,
 								&mut None,
 								&mut crate::markdown::FormatCache::default(),
 							),

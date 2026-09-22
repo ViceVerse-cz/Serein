@@ -265,14 +265,8 @@ fn thread_card(
 	);
 	let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
 	if ui.is_rect_visible(rect) {
-		let hovered = response.hovered() || response.has_focus();
-		ui.painter().rect(
-			rect,
-			8.0,
-			if hovered { colors.hover } else { colors.raised },
-			egui::Stroke::new(1.0, colors.border),
-			egui::StrokeKind::Inside,
-		);
+		let frame = crate::design::interactive_card_frame(ui, &response);
+		ui.painter().add(frame.paint(rect));
 		let inner = rect.shrink2(egui::vec2(16.0, 12.0));
 		ui.scope_builder(
 			egui::UiBuilder::new()

@@ -63,6 +63,28 @@ impl std::fmt::Debug for Action {
 			.finish_non_exhaustive()
 	}
 }
+impl Action {
+	pub fn completion_label(&self) -> &'static str {
+		match self {
+			Self::LoadNote(_) => "Note loaded",
+			Self::OpenDm(_) => "Direct message was not confirmed; try opening it again",
+			Self::Note { .. } => "Note saved",
+			Self::Nickname { .. } => "Nickname saved",
+			Self::AddFriend { .. } => "Friend request sent · waiting for service update",
+			Self::ProfileFriend { friend: true, .. } => "Friend request sent",
+			Self::ProfileFriend { friend: false, .. } => "Friend removed",
+			Self::ResolveFriend { accept: true, .. } => "Friend request accepted",
+			Self::ResolveFriend { accept: false, .. } => "Friend request removed",
+			Self::CloseDm(_) => "DM closed · messages and drafts were not deleted",
+			Self::Block { blocked: true, .. } => "User blocked",
+			Self::Block { blocked: false, .. } => "User unblocked",
+			Self::Mute { muted: true, .. } => {
+				"Conversation notifications muted until you turn them back on"
+			}
+			Self::Mute { muted: false, .. } => "Conversation notifications unmuted",
+		}
+	}
+}
 
 /// Friendship-establishing writes can require a user-solved captcha; removals do not.
 pub fn establishes_friendship(action: &Action) -> bool {
@@ -221,9 +243,13 @@ impl State {
 				.as_ref()
 				.filter(|list| list.guild == Some(guild))
 				.and_then(|list| {
-					list.rows
+					list.slots
 						.iter()
 						.flatten()
+						.filter_map(|slot| match slot {
+							model::MemberSlot::Person(m) => Some(m),
+							_ => None,
+						})
 						.find(|m| m.user.id == message.author.id)
 				});
 			let nick = member
@@ -585,6 +611,9 @@ impl State {
 	}
 	pub fn user_action_status(&self) -> Option<&'static str> {
 		self.user_actions.status
+	}
+	pub fn take_user_action_status(&mut self) -> Option<&'static str> {
+		self.user_actions.status.take()
 	}
 	pub fn open_friend_dm(&mut self, user: Id) -> Option<Command> {
 		if user.0 == 0 || self.user.as_ref().is_none_or(|owner| owner.id == user) {
@@ -1254,17 +1283,9 @@ impl State {
 				if matches!(action, Action::Block { .. }) {
 					self.user_actions.bump_view();
 				}
-				let sends_friend_request = matches!(
-					&action,
-					Action::AddFriend { .. } | Action::ProfileFriend { friend: true, .. }
-				);
-				let removes_friend_request =
-					matches!(&action, Action::ResolveFriend { accept: false, .. });
-				let uses_toast = sends_friend_request || removes_friend_request;
 				if let Err(failure) = result {
-					self.user_actions.status = (!uses_toast).then_some(failure.label());
-					self.status = failure.label();
 					if failure.ends_session() {
+						self.status = failure.label();
 						self.fail(failure);
 					}
 					return Ok(());
@@ -1325,27 +1346,6 @@ impl State {
 						Action::Mute { channel, muted } => self.confirm_dm_muted(channel, muted)?,
 					}
 				}
-				// A change the service already echoed needs no confirmation in the menu.
-				let label = match action {
-					Action::LoadNote(_) => "Note loaded",
-					Action::OpenDm(_) => "Direct message was not confirmed; try opening it again",
-					Action::Note { .. } => "Note saved",
-					Action::Nickname { .. } => "Nickname saved",
-					Action::AddFriend { .. } => "Friend request sent · waiting for service update",
-					Action::ProfileFriend { friend: true, .. } => "Friend request sent",
-					Action::ProfileFriend { friend: false, .. } => "Friend removed",
-					Action::ResolveFriend { accept: true, .. } => "Friend request accepted",
-					Action::ResolveFriend { accept: false, .. } => "Friend request removed",
-					Action::CloseDm(_) => "DM closed · messages and drafts were not deleted",
-					Action::Block { blocked: true, .. } => "User blocked",
-					Action::Block { blocked: false, .. } => "User unblocked",
-					Action::Mute { muted: true, .. } => {
-						"Conversation notifications muted until you turn them back on"
-					}
-					Action::Mute { muted: false, .. } => "Conversation notifications unmuted",
-				};
-				self.user_actions.status = (!observed && !uses_toast).then_some(label);
-				self.status = label;
 			}
 		}
 		Ok(())
@@ -1977,7 +1977,8 @@ mod tests {
 		finish(&mut state, block, Err(Failure::Forbidden));
 		assert!(!state.user_action_pending());
 		assert_eq!(state.user_blocked(Id(2)), None);
-		assert_eq!(state.status, Failure::Forbidden.label());
+		assert_eq!(state.status, "Disconnected");
+		assert_eq!(state.user_action_status(), None);
 		let block = state.set_user_blocked(Id(2), true).unwrap();
 		finish(&mut state, block, Ok(()));
 		assert_eq!(state.user_blocked(Id(2)), Some(true));
@@ -2069,8 +2070,8 @@ mod tests {
 			.unwrap();
 		finish(&mut state, unmute, Ok(()));
 		assert_eq!(state.dm_muted(Id(10)), Some(true));
-		// The service already answered, so menus show no completion note.
-		assert_eq!(state.status, "Conversation notifications unmuted");
+		// Completion feedback is transient UI state, never a shared menu status.
+		assert_eq!(state.status, "Disconnected");
 		assert_eq!(state.user_action_status(), None);
 		let unmute = state.set_dm_muted(Id(10), false).unwrap();
 		state

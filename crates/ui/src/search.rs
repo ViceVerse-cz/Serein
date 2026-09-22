@@ -46,11 +46,22 @@ pub struct SearchUi {
 	/// Attachment viewer open on a result: (message, attachment).
 	viewing: Option<(Id, Id)>,
 	pub opening: Option<String>,
-	pub profile: Option<model::User>,
 	pub channel_reference: Option<Id>,
 }
 
 impl SearchUi {
+	pub(super) fn open_extension(&mut self, channel: Id, pins: bool, query: Option<String>) {
+		self.channel = Some(channel);
+		self.open = true;
+		self.pins = pins;
+		self.query = query.unwrap_or_default();
+		self.focus = !pins;
+		self.filters_open = false;
+		self.filter_draft = None;
+		self.pending_submit = false;
+		self.viewing = None;
+	}
+
 	pub fn toggle(&mut self, pins: bool) -> bool {
 		self.open = !self.open || self.pins != pins;
 		self.pins = pins;
@@ -408,6 +419,7 @@ impl SearchUi {
 		commands: &mut Vec<Command>,
 		avatars: &mut crate::avatars::Avatars,
 		mut media: MediaUi<'_>,
+		profile: &mut crate::profiles::ProfileSession,
 	) {
 		if !(self.open && self.pins) {
 			return;
@@ -518,7 +530,9 @@ impl SearchUi {
 								.inner_margin(egui::Margin::symmetric(12, 12))
 								.show(ui, |ui| {
 									ui.set_width(ui.available_width());
-									self.pins_content(ui, state, commands, avatars, &mut media);
+									self.pins_content(
+										ui, state, commands, avatars, &mut media, profile,
+									);
 								});
 						}
 					});
@@ -577,6 +591,7 @@ impl SearchUi {
 		commands: &mut Vec<Command>,
 		avatars: &mut crate::avatars::Avatars,
 		media: &mut MediaUi<'_>,
+		profile: &mut crate::profiles::ProfileSession,
 	) {
 		let colors = design::palette(ui);
 		let allowed = state.can_search();
@@ -639,7 +654,16 @@ impl SearchUi {
 								continue;
 							}
 							ui.push_id(hit.id, |ui| {
-								self.result_card(ui, state, hit, "", avatars, media, &mut target);
+								self.result_card(
+									ui,
+									state,
+									hit,
+									"",
+									avatars,
+									media,
+									profile,
+									&mut target,
+								);
 							});
 						}
 					});
@@ -672,6 +696,7 @@ impl SearchUi {
 		commands: &mut Vec<Command>,
 		avatars: &mut crate::avatars::Avatars,
 		media: MediaUi<'_>,
+		profile: &mut crate::profiles::ProfileSession,
 	) {
 		let colors = design::palette(ui);
 		let allowed = state.can_search();
@@ -699,7 +724,7 @@ impl SearchUi {
 			if submit && let Some(command) = state.request_pins() {
 				commands.push(command);
 			}
-			self.pins_content(ui, state, commands, avatars, &mut media);
+			self.pins_content(ui, state, commands, avatars, &mut media, profile);
 			self.viewer(ui, state, avatars, media.download);
 			return;
 		}
@@ -759,7 +784,7 @@ impl SearchUi {
 			);
 		}
 		let Some(view) = &state.search else {
-			empty_state(
+			design::empty_state(
 				ui,
 				icons::Icon::Search,
 				"Search this conversation",
@@ -772,7 +797,7 @@ impl SearchUi {
 		}
 		match &view.page {
 			None if view.loading => {
-				empty_state(
+				design::empty_state(
 					ui,
 					icons::Icon::Search,
 					"Searching…",
@@ -801,7 +826,7 @@ impl SearchUi {
 							);
 						}
 						if page.hits.is_empty() {
-							empty_state(
+							design::empty_state(
 								ui,
 								icons::Icon::Search,
 								"No results",
@@ -826,6 +851,7 @@ impl SearchUi {
 									},
 									avatars,
 									&mut media,
+									profile,
 									&mut target,
 								);
 							});
@@ -932,6 +958,7 @@ impl SearchUi {
 				author_roles: vec![],
 				author_nick: None,
 				content: String::new(),
+				prior_contents: Default::default(),
 				mentions: vec![],
 				mention_roles: vec![],
 				mention_everyone: false,
@@ -943,6 +970,7 @@ impl SearchUi {
 				reply_to: None,
 				kind: 0,
 				reply_deleted: false,
+				interaction: None,
 				forwarded: false,
 				unsupported: false,
 				extra_content: Default::default(),
@@ -960,6 +988,7 @@ impl SearchUi {
 		query: &str,
 		avatars: &mut crate::avatars::Avatars,
 		media: &mut MediaUi<'_>,
+		profile: &mut crate::profiles::ProfileSession,
 		target: &mut Option<Id>,
 	) {
 		let colors = design::palette(ui);
@@ -1081,7 +1110,7 @@ impl SearchUi {
 							&mut self.opening,
 							&crate::mentions::known_users(state, hit.channel),
 							Some(&source),
-							&mut self.profile,
+							profile,
 							(
 								&state.channels,
 								&mut self.channel_reference,
@@ -1115,7 +1144,7 @@ impl SearchUi {
 										avatars,
 										&mut self.opening,
 										media.download,
-										&mut self.profile,
+										profile,
 										state,
 									);
 								}
@@ -1291,26 +1320,6 @@ fn hairline(ui: &mut egui::Ui) {
 		egui::Stroke::new(1.0, colors.border),
 	);
 }
-/// Centered icon-and-text placeholder for empty, idle and loading states.
-fn empty_state(ui: &mut egui::Ui, icon: icons::Icon, title: &str, detail: &str) {
-	let colors = design::palette(ui);
-	egui::Frame::new()
-		.inner_margin(egui::Margin::symmetric(24, 40))
-		.show(ui, |ui| {
-			ui.set_width(ui.available_width());
-			ui.vertical_centered(|ui| {
-				ui.spacing_mut().item_spacing.y = 6.0;
-				let (rect, _) =
-					ui.allocate_exact_size(egui::Vec2::splat(56.0), egui::Sense::hover());
-				ui.painter()
-					.circle_filled(rect.center(), 28.0, colors.muted.gamma_multiply(0.3));
-				icons::paint(ui.painter(), icon, rect.shrink(16.0), colors.text);
-				ui.add_space(8.0);
-				ui.label(design::semibold(ui, title, 15.0).color(colors.text_strong));
-				ui.label(RichText::new(detail).size(13.0).color(colors.muted));
-			});
-		});
-}
 /// Glyph for a channel row: threads, forums, voice, announcements and direct messages.
 fn channel_icon(channel: &model::Channel) -> icons::Icon {
 	match channel.kind {
@@ -1391,6 +1400,7 @@ mod tests {
 					audio: &mut crate::audio::AudioUi::default(),
 					video: &mut crate::video::VideoUi::default(),
 				},
+				&mut crate::profiles::ProfileSession::default(),
 			);
 		}
 	}

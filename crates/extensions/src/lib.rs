@@ -5,6 +5,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod runtime;
 pub use runtime::invoke;
+mod discovery;
+pub use discovery::*;
+mod conversation_activity;
+pub use conversation_activity::*;
+mod message_content;
+pub use message_content::*;
+mod forum_data;
+pub use forum_data::*;
+mod channel_metadata;
+pub use channel_metadata::*;
+mod member_details;
+pub use member_details::*;
+mod app;
+pub use app::*;
 
 pub const API_VERSION: u32 = 1;
 pub const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -13,9 +27,11 @@ pub const MAX_BACKGROUND_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_PREVIEW_BYTES: usize = 256 * 1024;
 pub const MAX_CATALOG_BYTES: usize = 1024 * 1024;
 pub const MAX_IO_BYTES: usize = 256 * 1024;
+pub const MAX_EVENT_CONTENT_BYTES: usize = 16 * 1024;
 pub const MAX_STORAGE_BYTES: usize = 1024 * 1024;
 pub const MAX_PLUGINS: usize = 8;
 pub const MAX_PANEL_ELEMENTS: usize = 64;
+pub const MAX_CAPABILITIES: usize = 32;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -29,9 +45,31 @@ pub enum Error {
 	Capability,
 	#[error("Invalid or unsupported WebAssembly module")]
 	Module,
-	#[error("Extension execution failed or exhausted its budget")]
+	#[error("Extension execution could not start; check its Wasm exports and runtime requirements")]
 	Execution,
-	#[error("Extension returned an invalid response")]
+	#[error("Extension exhausted its execution fuel; reduce handler work or requested data")]
+	Fuel,
+	#[error(
+		"Extension memory or table allocation failed; reduce allocations within the sandbox limits"
+	)]
+	Memory,
+	#[error("Extension exhausted its call stack; reduce recursion and stack allocations")]
+	Stack,
+	#[error(
+		"Extension handler trapped; check for panics, invalid memory access or arithmetic errors"
+	)]
+	Trap,
+	#[error("Extension input is invalid; check the action and input field schema")]
+	Input,
+	#[error(
+		"Extension input exceeds its limits; reduce requested data, form values or saved storage"
+	)]
+	InputLimit,
+	#[error("Extension response exceeds its limits; reduce panel elements, text or saved storage")]
+	OutputLimit,
+	#[error("Extension returned no response; check SDK input decoding and output serialization")]
+	Handler,
+	#[error("Extension returned an invalid response; check the output JSON schema and ABI buffer")]
 	Output,
 }
 
@@ -45,12 +83,37 @@ pub enum ExtensionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+	MessageContent,
+	ForumData,
+	ConversationActivity,
+	ChannelMetadata,
+	MemberDetails,
 	SelectedMessage,
 	Composer,
 	Storage,
 	DeletedMessages,
 	ImageSharing,
 	Appearance,
+	MessageEvents,
+	AppContext,
+	ChannelDirectory,
+	Timeline,
+	Members,
+	Presence,
+	VoiceState,
+	ReadState,
+	LocalSettings,
+	Navigation,
+	LocalNotices,
+	ClipboardWrite,
+	VoiceControl,
+	AppEvents,
+	AccountProfile,
+	GuildDirectory,
+	ChannelDetails,
+	DataEvents,
+	MessageDetails,
+	Relationships,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +123,8 @@ pub enum Surface {
 	Composer,
 	Panel,
 	Activation,
+	MessageEvent,
+	AppEvent,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -277,6 +342,59 @@ pub struct Invocation {
 	pub storage: Option<String>,
 	#[serde(default)]
 	pub values: BTreeMap<String, String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_event: Option<Box<MessageEvent>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub app: Option<Box<AppSnapshot>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub app_event: Option<AppEventKind>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageEventKind {
+	Create,
+	Update,
+	Delete,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageEvent {
+	pub kind: MessageEventKind,
+	pub channel_id: String,
+	pub message_id: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub author_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub content: Option<String>,
+}
+
+impl MessageEvent {
+	pub fn validate(&self) -> Result<(), Error> {
+		for id in [&self.channel_id, &self.message_id]
+			.into_iter()
+			.chain(self.author_id.iter())
+		{
+			app::entity_id(id)?;
+		}
+		if self
+			.content
+			.as_ref()
+			.is_some_and(|content| content.len() > MAX_EVENT_CONTENT_BYTES)
+		{
+			return Err(Error::Limit);
+		}
+		match self.kind {
+			MessageEventKind::Create if self.author_id.is_none() || self.content.is_none() => {
+				Err(Error::Invalid)
+			}
+			MessageEventKind::Delete if self.author_id.is_some() || self.content.is_some() => {
+				Err(Error::Invalid)
+			}
+			_ => Ok(()),
+		}
+	}
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -294,6 +412,8 @@ pub struct Output {
 	pub panel: Vec<Element>,
 	#[serde(default)]
 	pub storage: Option<String>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub effects: Vec<HostEffect>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -389,20 +509,31 @@ impl Manifest {
 				return Err(Error::Invalid);
 			}
 		}
-		if self.capabilities.len() > 4 || self.actions.len() > 16 {
+		if self.capabilities.len() > MAX_CAPABILITIES || self.actions.len() > 16 {
 			return Err(Error::Limit);
 		}
 		let mut capabilities = BTreeSet::new();
 		if self.capabilities.iter().any(|c| !capabilities.insert(*c)) {
 			return Err(Error::Invalid);
 		}
-		if self
-			.actions
-			.iter()
-			.filter(|a| a.surface == Surface::Activation)
-			.count() > 1
+		if capabilities.contains(&Capability::DataEvents)
+			&& !capabilities.contains(&Capability::AppEvents)
 		{
-			return Err(Error::Invalid);
+			return Err(Error::Capability);
+		}
+		for surface in [
+			Surface::Activation,
+			Surface::MessageEvent,
+			Surface::AppEvent,
+		] {
+			if self
+				.actions
+				.iter()
+				.filter(|action| action.surface == surface)
+				.count() > 1
+			{
+				return Err(Error::Invalid);
+			}
 		}
 		let mut ids = BTreeSet::new();
 		for action in &self.actions {
@@ -419,6 +550,8 @@ impl Manifest {
 				Surface::Composer => Some(Capability::Composer),
 				Surface::Panel => None,
 				Surface::Activation => None,
+				Surface::MessageEvent => Some(Capability::MessageEvents),
+				Surface::AppEvent => Some(Capability::AppEvents),
 			};
 			if required.is_some_and(|c| !capabilities.contains(&c)) {
 				return Err(Error::Capability);
@@ -674,6 +807,36 @@ impl Invocation {
 			.iter()
 			.find(|a| a.id == self.action)
 			.ok_or(Error::Invalid)?;
+		if let Some(snapshot) = &self.app {
+			snapshot.validate(manifest)?;
+		}
+		if action.surface == Surface::AppEvent {
+			if !manifest.capabilities.contains(&Capability::AppEvents)
+				|| self.selected_message.is_some()
+				|| self.composer.is_some()
+				|| !self.values.is_empty()
+			{
+				return Err(Error::Capability);
+			}
+			self.app_event.ok_or(Error::Invalid)?.validate(manifest)?;
+		} else if self.app_event.is_some() {
+			return Err(Error::Capability);
+		}
+		if action.surface == Surface::MessageEvent {
+			if !manifest.capabilities.contains(&Capability::MessageEvents)
+				|| self.selected_message.is_some()
+				|| self.composer.is_some()
+				|| !self.values.is_empty()
+			{
+				return Err(Error::Capability);
+			}
+			self.message_event
+				.as_ref()
+				.ok_or(Error::Invalid)?
+				.validate()?;
+		} else if self.message_event.is_some() {
+			return Err(Error::Capability);
+		}
 		for (data, capability) in [
 			(&self.selected_message, Capability::SelectedMessage),
 			(&self.composer, Capability::Composer),
@@ -707,6 +870,25 @@ impl Invocation {
 
 impl Output {
 	pub fn validate(&self, manifest: &Manifest, input: &Invocation) -> Result<(), Error> {
+		let surface = manifest
+			.actions
+			.iter()
+			.find(|action| action.id == input.action)
+			.ok_or(Error::Invalid)?
+			.surface;
+		if !self.panel.is_empty() && matches!(surface, Surface::MessageEvent | Surface::AppEvent) {
+			return Err(Error::Capability);
+		}
+		if !self.effects.is_empty() {
+			if self.replacement.is_some()
+				|| matches!(
+					surface,
+					Surface::Activation | Surface::MessageEvent | Surface::AppEvent
+				) {
+				return Err(Error::Capability);
+			}
+			app::validate_effects(&self.effects, manifest)?;
+		}
 		if let Some(appearance) = &self.appearance {
 			if !manifest.capabilities.contains(&Capability::Appearance) {
 				return Err(Error::Capability);

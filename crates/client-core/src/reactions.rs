@@ -319,6 +319,9 @@ impl State {
 			return None;
 		}
 		let channel = self.selected?;
+		if self.timeline.is_deleted(message) {
+			return None;
+		}
 		let reactions = self.timeline.get(message)?.reactions.as_ref()?;
 		let existing = reactions.iter().find(|r| r.emoji.same(&emoji));
 		if existing.is_none() && reactions.len() >= model::MAX_REACTIONS {
@@ -1314,6 +1317,7 @@ mod tests {
 					channel: Id(10),
 					author: user,
 					content: "Synthetic".into(),
+					prior_contents: Default::default(),
 					reactions: Some(vec![]),
 					author_nick: None,
 					author_roles: vec![],
@@ -1327,6 +1331,7 @@ mod tests {
 					nonce: None,
 					reply_to: None,
 					reply_deleted: false,
+					interaction: None,
 					forwarded: false,
 					unsupported: false,
 					components: vec![],

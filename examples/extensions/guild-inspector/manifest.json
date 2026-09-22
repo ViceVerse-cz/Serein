@@ -1,0 +1,28 @@
+{
+  "api_version": 1,
+  "id": "guild-inspector",
+  "name": "Guild Inspector",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/examples/extensions/guild-inspector",
+  "kind": "plugin",
+  "capabilities": [
+    "channel_metadata",
+    "member_details",
+    "app_events",
+    "data_events"
+  ],
+  "actions": [
+    {
+      "id": "show",
+      "label": "Inspect loaded guild data",
+      "surface": "panel"
+    },
+    {
+      "id": "on-app",
+      "label": "Observe guild data changes",
+      "surface": "app_event"
+    }
+  ]
+}

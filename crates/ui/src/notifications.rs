@@ -19,7 +19,7 @@ impl RailCache {
 		let call = direct_call(state);
 		let key = (
 			state.generation,
-			state.revision,
+			state.rail_revision(),
 			state.gateway_connected,
 			call,
 		);
@@ -220,7 +220,9 @@ impl MessagingUi {
 				design::rail_name(&response, &label);
 				if response.clicked() {
 					self.guild = None;
-					state.open_home();
+					if let Some(command) = state.open_messages() {
+						commands.push(command);
+					}
 					self.search.open = false;
 				}
 				self.scroll
@@ -473,6 +475,19 @@ mod tests {
 		for _ in 0..10 {
 			assert!(!cache.sync(&state));
 		}
+		let badges = cache.guild_badges.as_ptr();
+		apply(
+			&mut state,
+			Event::Reactions(client_core::reactions::Event::Cleared {
+				channel: Id(22),
+				message: Id(1003),
+				emoji: None,
+			}),
+		);
+		assert!(!cache.sync(&state));
+		assert_eq!(cache.guild_badges.as_ptr(), badges);
+		state.revision += 1;
+		assert!(cache.sync(&state));
 		apply(
 			&mut state,
 			Event::ReadState(read_state::Event::Ack {

@@ -917,6 +917,12 @@ impl egui::Plugin for ClickableCursor {
 }
 
 pub fn apply(ctx: &egui::Context) {
+	ctx.options_mut(|options| {
+		let settle = std::num::NonZeroUsize::new(3).unwrap();
+		if options.max_passes < settle {
+			options.max_passes = settle;
+		}
+	});
 	ctx.add_plugin(ClickableCursor);
 	crate::select::install(ctx);
 	let variant = variant();
@@ -2201,6 +2207,78 @@ pub fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
 			add(ui)
 		})
 		.inner
+}
+
+/// Shared chrome for clickable cards; callers retain their own layout and response.
+pub fn interactive_card_frame(ui: &egui::Ui, response: &egui::Response) -> egui::Frame {
+	let p = palette(ui);
+	let hot = ui.is_enabled() && (response.hovered() || response.has_focus());
+	egui::Frame::new()
+		.fill(if hot { p.hover } else { p.raised })
+		.stroke(Stroke::new(1.0, if hot { p.accent } else { p.border }))
+		.corner_radius(8)
+}
+
+/// Centered icon, title and explanation for empty, idle and loading views.
+pub fn empty_state(ui: &mut egui::Ui, icon: crate::icons::Icon, title: &str, detail: &str) {
+	let p = palette(ui);
+	egui::Frame::new()
+		.inner_margin(egui::Margin::symmetric(24, 40))
+		.show(ui, |ui| {
+			ui.set_width(ui.available_width());
+			ui.vertical_centered(|ui| {
+				ui.spacing_mut().item_spacing.y = 6.0;
+				let (rect, _) =
+					ui.allocate_exact_size(egui::Vec2::splat(56.0), egui::Sense::hover());
+				ui.painter()
+					.circle_filled(rect.center(), 28.0, p.muted.gamma_multiply(0.3));
+				crate::icons::paint(ui.painter(), icon, rect.shrink(16.0), p.text);
+				ui.add_space(8.0);
+				ui.add(egui::Label::new(semibold(ui, title, 15.0).color(p.text_strong)).wrap());
+				ui.add(egui::Label::new(RichText::new(detail).size(13.0).color(p.muted)).wrap());
+			});
+		});
+}
+
+/// Unsaved-change status and actions. Returns `(save_clicked, reset_clicked)`.
+pub fn save_bar(
+	ui: &mut egui::Ui,
+	saving: Option<&str>,
+	can_save: bool,
+	can_reset: bool,
+) -> (bool, bool) {
+	let p = palette(ui);
+	ui.horizontal(|ui| {
+		ui.spacing_mut().item_spacing.x = 8.0;
+		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+			let save = ui
+				.add_enabled_ui(can_save, |ui| {
+					button(ui, "Save Changes", ButtonKind::Primary)
+				})
+				.inner
+				.clicked();
+			let reset = ui
+				.add_enabled_ui(can_reset, |ui| button(ui, "Reset", ButtonKind::Neutral))
+				.inner
+				.clicked();
+			ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+				ui.add(
+					egui::Label::new(
+						medium(
+							ui,
+							saving.unwrap_or("Careful — you have unsaved changes!"),
+							14.0,
+						)
+						.color(p.text_strong),
+					)
+					.truncate(),
+				);
+			});
+			(save, reset)
+		})
+		.inner
+	})
+	.inner
 }
 
 /// Exclusive choice drawn as one connected group of segments on an inset track. For a small

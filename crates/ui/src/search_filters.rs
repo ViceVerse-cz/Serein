@@ -115,12 +115,16 @@ pub fn users(state: &State) -> Vec<&User> {
 				.flat_map(|c| &c.recipients),
 		)
 		.chain(state.timeline.iter().map(|m| &m.author))
-		.chain(
-			state
-				.members
+		.chain(state.members.iter().flat_map(|list| {
+			list.slots
 				.iter()
-				.flat_map(|list| list.rows.iter().flatten().map(|member| &member.user)),
-		)
+				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				})
+				.map(|member| &member.user)
+		}))
 		.take(1500)
 	{
 		users.entry(user.id).or_insert(user);

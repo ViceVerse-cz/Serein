@@ -28,6 +28,8 @@ pub struct ExtensionContext {
 	pub generation: u64,
 	pub channel: Option<Id>,
 	pub draft: Option<String>,
+	/// The call at invocation time; only voice proposals use this guard.
+	pub voice_request: Option<(Id, u64)>,
 }
 impl ExtensionContext {
 	pub fn capture(state: &State, composer: bool) -> Self {
@@ -35,6 +37,11 @@ impl ExtensionContext {
 			app_wide: false,
 			generation: state.generation,
 			channel: state.selected,
+			voice_request: state
+				.voice
+				.active
+				.as_ref()
+				.map(|call| (call.channel, call.request)),
 			draft: composer.then(|| {
 				state
 					.selected
@@ -827,6 +834,7 @@ impl ExtensionUi {
 			return;
 		}
 		invocation.storage = None;
+		invocation.app = None;
 		output.storage = None;
 		self.result = Some(ResultPanel {
 			id,
@@ -2020,7 +2028,7 @@ impl ExtensionUi {
 		state: &mut State,
 		changes: &mut Vec<Id>,
 		editing: bool,
-	) {
+	) -> Option<crate::extension_app::ConfirmedEffect> {
 		if let Some(message) = self.error.take() {
 			let mut dismissed = false;
 			let response = crate::dialog::Dialog::new("extension-error", "Extension error")
@@ -2039,14 +2047,13 @@ impl ExtensionUi {
 				self.error = Some(message);
 			}
 		}
-		let Some(mut result) = self.result.take() else {
-			return;
-		};
+		let mut result = self.result.take()?;
 		if !result.context.is_current(state) {
 			self.status = "Result discarded because the conversation or draft changed.".into();
-			return;
+			return None;
 		}
 		let mut applied = false;
+		let mut confirmed = None;
 		let mut action = None;
 		let title = self
 			.entries
@@ -2056,7 +2063,7 @@ impl ExtensionUi {
 			.to_owned();
 		let mut close = false;
 		let response = crate::dialog::Dialog::new("extension-result", title)
-			.subtitle("Output from this extension. Nothing is applied until you choose to.")
+			.subtitle("Review the result. App actions and draft changes need your approval.")
 			.width(520.0)
 			.show(ctx, |d| {
 				d.scroll(240.0, |ui| {
@@ -2074,9 +2081,32 @@ impl ExtensionUi {
 							});
 						ui.add_space(10.0);
 					}
+					if let Some(effect) = result.output.effects.first() {
+						crate::dialog::label(ui, "Proposed app action");
+						ui.add(
+							egui::Label::new(crate::extension_app::effect_description(effect))
+								.wrap(),
+						);
+						ui.add_space(10.0);
+					}
 					render_elements(ui, &result.output.panel, &mut result.values, &mut action);
 				});
 				d.footer(|ui| {
+					if let Some(effect) = result.output.effects.first()
+						&& crate::dialog::action(
+							ui,
+							crate::extension_app::effect_button(effect),
+							crate::dialog::Action::Primary,
+						)
+						.clicked()
+					{
+						confirmed = Some(crate::extension_app::ConfirmedEffect {
+							plugin: result.id.clone(),
+							context: result.context.clone(),
+							effect: effect.clone(),
+						});
+						applied = true;
+					}
 					if let Some(replacement) = result.output.replacement.clone() {
 						ui.add_enabled_ui(!editing && result.context.draft.is_some(), |ui| {
 							if crate::dialog::action(
@@ -2121,6 +2151,7 @@ impl ExtensionUi {
 		if !close && !response.close && !applied {
 			self.result = Some(result);
 		}
+		confirmed
 	}
 }
 fn request_bytes(request: &ExtensionRequest) -> usize {
@@ -2152,16 +2183,25 @@ fn request_bytes(request: &ExtensionRequest) -> usize {
 			} => {
 				id.len()
 					+ invocation.action.len()
-					+ [
-						&invocation.selected_message,
-						&invocation.composer,
-						&invocation.storage,
-						&context.draft,
-					]
-					.into_iter()
-					.flatten()
-					.map(String::len)
-					.sum::<usize>() + invocation
+					+ invocation.app.as_ref().map_or(0, |app| {
+						std::mem::size_of::<extensions::AppSnapshot>()
+							+ app.bytes().unwrap_or(4 * extensions::MAX_IO_BYTES)
+					}) + invocation.message_event.as_ref().map_or(0, |event| {
+					std::mem::size_of::<extensions::MessageEvent>()
+						+ event.channel_id.len()
+						+ event.message_id.len()
+						+ event.author_id.as_ref().map_or(0, String::len)
+						+ event.content.as_ref().map_or(0, String::len)
+				}) + [
+					&invocation.selected_message,
+					&invocation.composer,
+					&invocation.storage,
+					&context.draft,
+				]
+				.into_iter()
+				.flatten()
+				.map(String::len)
+				.sum::<usize>() + invocation
 					.values
 					.iter()
 					.map(|(key, value)| key.len() + value.len())
@@ -2466,11 +2506,46 @@ fn capability_label(capability: Capability) -> &'static str {
 	match capability {
 		Capability::ImageSharing => "Enable explicit emoji and sticker image attachment selection",
 		Capability::Appearance => "Customize app colors, typography and control styling",
+		Capability::MessageEvents => "Read live message events and text in the active conversation",
 		Capability::SelectedMessage => "Read the message I choose for an action",
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
+		Capability::AppContext => "Read my account and current conversation details",
+		Capability::AccountProfile => "Read my loaded profile, including biography and pronouns",
+		Capability::GuildDirectory => "Read my loaded server names and identifiers",
+		Capability::ChannelDetails => "Read current channel metadata, recipients and permissions",
+		Capability::DataEvents => {
+			"Receive changes to separately granted account and conversation data"
+		}
+		Capability::MessageContent => {
+			"Read loaded embed text, stickers and message reference metadata"
+		}
+		Capability::ForumData => "Read loaded forum and thread summaries",
+		Capability::ConversationActivity => {
+			"Read current typing users and loaded pins; observe reactions"
+		}
+		Capability::ChannelMetadata => {
+			"Read loaded channel topics, categories, thread details and permissions"
+		}
+		Capability::MemberDetails => "Read loaded server members, roles and server profiles",
+		Capability::ChannelDirectory => "Read the list of loaded, readable conversations",
+		Capability::MessageDetails => {
+			"Read loaded message replies, mentions, attachment metadata and reactions"
+		}
+		Capability::Relationships => "Read my loaded friends, requests, blocked and ignored users",
+		Capability::Timeline => "Read loaded messages in the active conversation",
+		Capability::Members => "Read loaded members of the active conversation",
+		Capability::Presence => "Read loaded user presence status",
+		Capability::VoiceState => "Read current call state and participant identifiers",
+		Capability::ReadState => "Read unread and mention counts in the active conversation",
+		Capability::LocalSettings => "Read local reading settings and propose changes for approval",
+		Capability::Navigation => "Propose opening conversations, profiles, search and app views",
+		Capability::LocalNotices => "Propose local notices for approval",
+		Capability::ClipboardWrite => "Propose clipboard text for approval",
+		Capability::VoiceControl => "Propose muting, deafening or leaving my call for approval",
+		Capability::AppEvents => "Receive app lifecycle and navigation events while enabled",
 		Capability::DeletedMessages => {
-			"Keep already-loaded deleted messages in memory until disabled or evicted"
+			"Keep loaded deleted messages in session memory while enabled"
 		}
 	}
 }
@@ -2592,6 +2667,65 @@ fn apply_proposal(state: &mut State, context: &ExtensionContext, replacement: &s
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn app_snapshot_payloads_are_bounded_before_ui_queueing() {
+		let ctx = egui::Context::default();
+		let state = test_support::demo_state();
+		let mut shop = ExtensionUi::default();
+		let oversized = extensions::AppSnapshot {
+			context: Some(extensions::AppContextSnapshot {
+				connected: true,
+				user: Some(extensions::UserSnapshot {
+					id: "1".into(),
+					name: "x".repeat(extensions::MAX_APP_SNAPSHOT_BYTES),
+				}),
+				channel: None,
+			}),
+			..Default::default()
+		};
+		shop.queue(
+			&ctx,
+			ExtensionRequest::Invoke {
+				id: "synthetic.app".into(),
+				invocation: Invocation {
+					app: Some(Box::new(oversized)),
+					..Default::default()
+				},
+				context: ExtensionContext::capture(&state, false),
+			},
+		);
+		assert!(shop.requests.is_empty());
+	}
+
+	#[test]
+	fn result_drops_private_snapshot_but_keeps_invocation_call_identity() {
+		let mut state = test_support::call_demo_state();
+		let context = ExtensionContext::capture(&state, false);
+		let invocation = Invocation {
+			app: Some(Box::new(extensions::AppSnapshot::default())),
+			storage: Some("private local state".into()),
+			..Default::default()
+		};
+		state.voice.active.as_mut().unwrap().request += 1;
+		let mut shop = ExtensionUi::default();
+		shop.present_output(
+			"synthetic.app".into(),
+			invocation,
+			context.clone(),
+			Output::default(),
+			&state,
+		);
+		let result = shop.result.as_ref().unwrap();
+		assert!(result.invocation.app.is_none());
+		assert!(result.invocation.storage.is_none());
+		assert_eq!(result.context.voice_request, context.voice_request);
+		assert_ne!(
+			result.context.voice_request,
+			ExtensionContext::capture(&state, false).voice_request
+		);
+	}
+
 	fn entry() -> ExtensionEntry {
 		ExtensionEntry {
 			cover_image: None,

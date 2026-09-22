@@ -18,6 +18,7 @@ mod server_integrations;
 mod server_invites;
 mod server_roles;
 mod server_settings;
+pub mod spotify;
 pub mod upload;
 mod user_actions;
 use client_core::{
@@ -461,6 +462,15 @@ impl DiscordApi {
 	/// Runs one typed command and returns its typed event.
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
+			Command::ApplicationCommands {
+				channel,
+				guild,
+				request,
+			} => Event::ApplicationCommands {
+				channel,
+				request,
+				result: self.application_commands(channel, guild).await,
+			},
 			Command::Interaction(request) => {
 				Event::Interaction(client_core::interactions::Event::Submitted {
 					result: self.interaction(&request, None).await,

@@ -426,11 +426,10 @@ pub fn check() {
 			model::Freshness::Fresh
 		);
 		assert_eq!(
-			state.members.as_ref().unwrap().rows[0]
-				.as_ref()
-				.unwrap()
-				.user
-				.id,
+			match state.members.as_ref().unwrap().slots[0].as_ref().unwrap() {
+				model::MemberSlot::Person(member) => member.user.id,
+				_ => panic!("expected person"),
+			},
 			Id(987)
 		);
 		println!(

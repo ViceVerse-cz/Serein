@@ -1,0 +1,16 @@
+{
+  "api_version": 1,
+  "id": "message-counter",
+  "name": "Message Counter",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/examples/extensions/message-counter",
+  "kind": "plugin",
+  "capabilities": ["message_events", "storage"],
+  "actions": [
+    {"id": "message-event", "label": "Count message events", "surface": "message_event"},
+    {"id": "show", "label": "Show message counts", "surface": "panel"},
+    {"id": "reset", "label": "Reset message counts", "surface": "panel"}
+  ]
+}

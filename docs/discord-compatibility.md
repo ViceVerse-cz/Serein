@@ -1,5 +1,61 @@
 # Discord compatibility — checked 2026-09-10
 
+## Slash commands - September 22, 2026
+
+Typing `/` opens a native, searchable command picker with built-in/application filters,
+keyboard selection and a bounded argument form. Local commands are `/gif`, `/sticker`,
+`/me`, `/msg`, `/shrug`, `/spoiler`, `/tableflip` and `/unflip`; they reuse existing
+message, DM and media flows. Scheduled sends (`/schedule`) are not implemented.
+Select with Up/Down and Tab/Enter, or click a row. Selection fills the composer;
+the next explicit send executes a built-in. App command arguments appear as compact
+labeled fields inside the composer, with contextual help above it. Use the composer
+Send button or the configured Send Message shortcut (Enter by default) in a text
+argument to submit; Tab moves between fields. Click
+the command name to return to the picker. `/msg @user [text]` opens an existing DM (or a new friend DM) and
+stages text for review without replacing an occupied destination draft. `/gif [query]`
+and `/sticker [query]` open the existing picker. Failed app submissions expose the
+error and retain fields behind Edit again; retries require another explicit submission.
+
+Application discovery uses the unofficial normal-account
+`GET /guilds/{guild}/application-command-index` route for guild conversations and
+`GET /channels/{channel}/application-command-index` for one-to-one bot/app DMs.
+The [maintained client implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/abc.py#L2403-L2457)
+establishes these routes and their rate-limit sensitivity. The active conversation's
+catalog loads on demand and is reused until navigation, invalidation or explicit refresh;
+typing filters locally. Account-installed commands from `/users/@me/application-command-index`,
+ordinary/group-DM app discovery, user/message context commands and Activities are excluded.
+
+Slash submissions use type `2` on the existing unofficial `POST /interactions` route,
+including the active Gateway session, nonce, received command ID/version and validated
+typed arguments. Root commands, subcommands and one subcommand-group level support strings,
+integers, numbers, booleans, static choices and user/channel/role/mentionable IDs.
+Entity pickers use already loaded account data; they do not fetch a complete directory.
+Required fields, declared limits, choices, command context and channel access are checked
+before sending. Serein requires Send Messages (Send Messages in Threads for threads) for
+all slash commands, plus Use Application Commands for guild application commands. The picker and
+submission path also check default member permission bits and received application/command
+overrides for the current user, roles and channel. User overrides precede role overrides;
+role allows win among matching roles, and threads inherit the parent channel's rules.
+Owners/administrators bypass command restrictions. Apps with no available commands are
+hidden from the rail, and read-only channels disable the composer and all slash commands.
+Permission changes that invalidate the catalog cause it to reload; changes made solely to
+server command overrides may require the picker's Refresh action. These index fields are
+[unofficial account metadata](https://github.com/dolfies/discord.py-self/blob/master/discord/types/command.py#L141-L171).
+Discord remains authoritative, and bot-internal access checks cannot be predicted locally.
+Age-restricted commands are omitted until account/channel eligibility is supported.
+The inner command guild ID is
+included only for guild-scoped definitions, independently of the invocation channel's guild.
+See the [official command schema](https://docs.discord.com/developers/interactions/application-commands)
+and [maintained submission implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/commands.py#L931-L973).
+
+Autocomplete requests and attachment arguments are not implemented. An autocomplete-enabled
+scalar accepts a manually entered value; required attachment arguments block submission with
+an explicit explanation, while optional attachments can remain omitted. Commands run only
+after an explicit submit and are never automatically replayed. Existing Gateway success,
+failure, modal and private-reply handling is reused; HTTP acceptance is not application
+completion. Offline fixtures and loopback HTTP checks cover the local contract; live
+normal-account discovery, execution and application responses remain unverified.
+
 ## Stickers - September 20, 2026
 
 The composer media picker has a Stickers tab with local name/tag/source search,
@@ -256,6 +312,18 @@ Gateway opcode 13. CALL_CREATE/UPDATE keep an ongoing-call banner independently 
 or local media; CALL_DELETE/unavailability removes it. Join never rings an already known
 call. [Primary implementation evidence and owner-controlled live checks](voice.md) distinguish
 the passing local WebSocket/reducer/UI tests from still-unverified Discord discovery and audio.
+
+## Partial user profiles — September 22, 2026
+
+The extended-profile decoder accepts explicit null summary lists as unavailable,
+retains the returned user identity, and keeps the existing byte/item limits and
+malformed-data rejection. Empty mutual-server lists alone do not indicate failure.
+Missing profile metadata already marks the result as limited, consistent with the
+[public profile implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/profile.py).
+Limited results and failed requests show “Unable to load parts of profile” above
+the identity; failed requests retain Retry with the fixed error category on hover.
+This does not infer whether someone blocked the account or bypass service access
+restrictions. Synthetic parser/UI checks are not live normal-account verification.
 
 ## Own profile editing — September 11, 2026
 
@@ -843,8 +911,8 @@ is unperformed; offline regressions cover reference shape, missing/null data and
 
 A guild refresh triggered by subscribing can recreate channel navigation objects without
 the READY-only member-list ID. Member requests now compute that ID from the existing
-bounded role/overwrite mirror, so GUILD_CREATE, newly delivered/restored channels and
-Reload people use current metadata. A change in list identity retires the active request
+bounded role/overwrite mirror, so GUILD_CREATE and newly delivered/restored channels
+subscribe with current metadata. A change in list identity retires the active request
 and lets the visible pane request again; unchanged metadata preserves pending replies.
 Missing metadata still means unavailable for ordinary guild channels. Thread participants now
 use the separate Gateway snapshot described below.
@@ -879,12 +947,21 @@ or long-running capacity behavior.
 
 ### Member role display
 
-The active server member pane groups loaded online members by their highest hoisted role,
-then shows ungrouped Online and Offline sections. Heading counts cover loaded members, not
-the entire server; the existing partial-list hint remains. Highest nonzero role color sets
-online names independently of the hoisted role. Offline names remain muted. Unknown roles
-fall back to ordinary names/groups. Role changes/removals reuse the live permission mirror,
-and member list SYNC/UPDATE supplies role membership. No directory fetch was added.
+The active server member pane follows the gateway member-list index. It starts with at most
+100 positions and requests the next chunk only at the bottom, extending the scrollbar by up to
+100 positions once that chunk starts arriving, up to the reported total (capped at 250,000).
+Reopening the pane or changing conversation/session resets the prefix and scroll position.
+Only visible rows are rendered. The live subscription is the visible chunk, or two
+chunks when the pane spans a boundary or requests its next page. It does not clear
+the guild channel subscription. The chunk loaded when the channel opened stays in a 1 MiB cache
+and paints immediately on the way back. A loading snapshot does not erase it. A fresh snapshot
+for a range the user already left is still stored there. Group headers and person rows come from
+those slots.
+The pane does not regroup loaded members or show a partial-list hint. Highest nonzero role color
+sets online names independently of the hoisted role used for grouping on the gateway. Offline
+names remain muted. Unknown role group ids fall back to the label Role. Role changes/removals
+reuse the live permission mirror, and member list SYNC/UPDATE supplies role membership. No
+directory fetch was added.
 
 Role name, position, hoist and primary color are documented fields in
 [Discord's role object](https://docs.discord.com/developers/topics/permissions#role-object).
@@ -892,8 +969,8 @@ Modern `colors.primary_color` takes precedence over legacy `color`; role gradien
 rendered. Equal positions favor the lower role ID, consistent with
 [discord.py role comparison](https://github.com/Rapptz/discord.py/blob/master/discord/role.py).
 Names retain hue when readable; the theme adjusts insufficient contrast, including hover.
-Member list subscriptions remain unofficial. Synthetic role evidence does not establish
-live role behavior for every account.
+Member list subscriptions and lazy-range focus remain unofficial. Synthetic role evidence does
+not establish live role behavior for every account.
 
 
 ### Authorized message deletion - September 10, 2026
@@ -1396,6 +1473,20 @@ reducer and local HTTP tests cover bounds, scope, permissions and write reconcil
 normal-account compatibility and service-side concurrent edits remain live-unverified.
 
 
+### Channel integrations (September 22, 2026)
+
+Channel Settings > Integrations reuses the native webhook and followed-channel
+pages with a channel-scoped snapshot. Manage Webhooks plus View Channel on that
+channel permits entry without Manage Channels or server-wide Manage Webhooks.
+The [documented channel webhook endpoint](https://docs.discord.com/developers/resources/webhook#get-channel-webhooks)
+loads only that channel's metadata; create defaults to that channel, and rename,
+move to another permitted channel, and confirmed delete reuse the existing worker.
+Moving a webhook refreshes the original channel and removes it from that list.
+Guild-wide app integrations remain under Server Settings. Scope and permissions
+are rechecked for responses and writes; existing item/byte limits still apply.
+The shared editor supports explicit Copy Webhook URL for incoming webhooks; avatar uploads remain unsupported.
+Synthetic checks do not establish live normal-account interoperability.
+
 ### Server integrations (September 12, 2026)
 
 Server Settings > Integrations loads the guild integration list on demand with
@@ -1420,9 +1511,12 @@ Integration reads retain at most 50 integrations and 1,000 webhooks within a
 combined 1 MiB metadata budget; HTTP responses are capped at 2 MiB. The service's
 50-integration endpoint limit is not presented as a complete count for larger
 guilds. Missing metadata stays absent; last synchronization is not represented as
-an installation date. Webhook execution tokens and URLs are discarded by decoding
-and are never exposed, copied, logged or persisted by this view. OAuth command
-permission editing, webhook execution URL copying, avatar uploads, and creator
+an installation date. List decoding discards webhook execution tokens and URLs.
+Copy Webhook URL performs an authenticated read, capped at 64 KiB, validates the
+webhook identity and current channel permission, and hands a zeroizing URL to the
+clipboard once. Tokens are bounded to 256 URL-safe bytes; neither tokens nor URLs
+are logged or persisted. OAuth command
+permission editing, avatar uploads, and creator
 subscription settings are not part of this slice.
 
 ### Server audit log (September 12, 2026)
@@ -1576,6 +1670,20 @@ only a 40-character hexadecimal image ID can resolve to `https://i.scdn.co/image
 Artwork uses the existing credential-free, redirect-free bounded image worker and
 account-isolated image cache, with the existing 1024px decode limit for media previews.
 Normal-account behavior and live artwork delivery remain unverified.
+
+Serein also polls the linked Spotify account every 15 seconds while visible, independently
+of local game detection. It reads the connection's `show_activity` preference, obtains a
+session-only bearer through Discord's unofficial connection access-token endpoint, and reads
+Spotify's [`GET /v1/me/player`](https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback).
+The token route and outgoing activity fields follow
+[discord.py-self](https://github.com/dolfies/discord.py-self/blob/master/discord/connections.py).
+The linked token must grant `user-read-playback-state`; that scope and end-to-end publication
+remain live-unverified. No local Spotify IPC, playback control or extra Spotify login is used.
+Paused, private, local-file, ad, episode, unavailable or failed playback clears the activity;
+Invisible stops polling and clears publication. Spotify shares the existing rate-limited Gateway
+sender alongside games/custom status. The local profile previews Spotify when no game is active.
+Unlinking or disabling Spotify activity is detected on the next poll; service cooldowns apply.
+The offline debug command is `cargo run --locked -p serein --features demo -- --demo --demo-check-spotify`.
 
 ### Outgoing message forwarding
 

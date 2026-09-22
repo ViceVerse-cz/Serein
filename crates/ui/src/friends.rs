@@ -161,9 +161,6 @@ impl MessagingUi {
 			{
 				commands.push(command);
 			}
-			if let Some(status) = state.user_action_status() {
-				ui.label(status);
-			}
 			if state.demo {
 				ui.colored_label(colors.muted, "Offline demo · actions are simulated.");
 			} else if !state.gateway_connected {
@@ -222,9 +219,6 @@ impl MessagingUi {
 					.char_limit(128)
 					.align(egui::Align2::LEFT_CENTER),
 			);
-			if let Some(status) = state.user_action_status() {
-				ui.label(status);
-			}
 			ui.add_space(16.0);
 			let query = self.friends.query.trim().to_lowercase();
 			let mut rows: Vec<_> = state

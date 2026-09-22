@@ -16,6 +16,37 @@ fn job(host: &mut host::ExtensionHost, job: host::Job) -> host::Event {
 	}
 }
 fn main() {
+	let mut state = test_support::demo_state();
+	let channel = state.selected.unwrap();
+	let ids: Vec<_> = state.timeline.iter().take(3).map(|m| m.id).collect();
+	assert_eq!(ids.len(), 3);
+	for event in [
+		Event::Delete {
+			channel,
+			id: ids[0],
+		},
+		Event::DeleteBulk {
+			channel,
+			ids: ids[1..].to_vec(),
+		},
+	] {
+		state.apply(Envelope {
+			generation: state.generation,
+			event,
+		});
+	}
+	for id in ids {
+		assert!(state.timeline.is_deleted(id));
+		assert!(state.timeline.get_display(id).is_none());
+		state
+			.timeline
+			.insert(test_support::message(id.0, channel), false, false)
+			.unwrap();
+		assert!(
+			state.timeline.get_display(id).is_none(),
+			"late history cannot restore a deletion"
+		);
+	}
 	let root = std::env::temp_dir().join(format!("serein-protector-check-{}", std::process::id()));
 	assert!(!root.exists());
 	let mut host = host::ExtensionHost::new(root.clone());
@@ -32,7 +63,10 @@ fn main() {
 		panic!("enable failed")
 	};
 	assert!(installed.error.is_none());
-	assert!(installed.preserve_deleted_messages);
+	assert!(
+		installed.preserve_deleted_messages,
+		"enabled protector with explicit consent opts into retention"
+	);
 	let host::Event::Loaded { installed, .. } = job(
 		&mut host,
 		host::Job::Load {
@@ -45,8 +79,8 @@ fn main() {
 	assert!(installed[0].error.is_none());
 	assert!(installed[0].preserve_deleted_messages);
 	let mut state = test_support::demo_state();
-	state.set_preserve_deleted_messages(installed[0].preserve_deleted_messages);
 	let channel = state.selected.unwrap();
+	state.set_preserve_deleted_messages(installed[0].preserve_deleted_messages);
 	let id = state.timeline.iter().next().unwrap().id;
 	state.apply(Envelope {
 		generation: state.generation,
@@ -81,7 +115,7 @@ fn main() {
 	state.select(channel).unwrap();
 	assert!(
 		state.timeline.get_display(id).is_some(),
-		"new activity in a dormant channel must not erase protected messages"
+		"new activity in a dormant channel must not erase retained messages"
 	);
 	assert_eq!(
 		state.timeline.row_count(),
@@ -99,11 +133,23 @@ fn main() {
 		),
 		host::Event::Disabled(_)
 	));
+	state.apply(Envelope {
+		generation: state.generation,
+		event: Event::History {
+			channel,
+			request: state.request,
+			older: false,
+			messages: vec![],
+		},
+	});
+	state.select(other).unwrap();
 	state.set_preserve_deleted_messages(false);
+	state.select(channel).unwrap();
 	assert!(state.timeline.get_display(id).is_none());
+	assert!(state.timeline.is_deleted(id));
 	drop(host);
 	std::fs::remove_dir_all(root).unwrap();
 	println!(
-		"Protector lifecycle passed: bundled worker enable, persisted activation reload, deletion, history refresh, dormant activity, disable."
+		"Protector lifecycle passed: default single/bulk removal, stale-history rejection, bundled worker enable, reload, opt-in retention, history refresh, dormant activity, disable clears dormant content."
 	);
 }

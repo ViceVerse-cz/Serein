@@ -43,3 +43,7 @@ required-features = ["demo"]
 [[example]]
 name = "thread_navigation"
 required-features = ["demo"]
+
+[[example]]
+name = "image_resolution"
+required-features = ["demo"]

@@ -2,11 +2,14 @@
 use crate::extensions::{Event, ExtensionHost, InstallSource, InstalledExtension, Job, Starter};
 use client_core::State;
 use eframe::egui;
-use extensions::{CatalogEntry, ExtensionKind, Invocation};
+use extensions::{
+	AppEventKind, Capability, CatalogEntry, ExtensionKind, Invocation, MessageEvent, Surface,
+};
 use std::{
-	collections::{BTreeMap, BTreeSet},
+	collections::{BTreeMap, BTreeSet, VecDeque},
 	path::PathBuf,
 	sync::{Arc, mpsc},
+	time::{Duration, Instant},
 };
 use ui::{ExtensionContext, ExtensionEntry, ExtensionRequest};
 
@@ -18,6 +21,52 @@ struct Pending {
 	reconcile: bool,
 	preview: Option<(String, String)>,
 	invocation: Option<(String, Invocation, ExtensionContext)>,
+}
+impl Pending {
+	fn reactive(&self) -> bool {
+		self.invocation
+			.as_ref()
+			.is_some_and(|(_, input, _)| input.message_event.is_some() || input.app_event.is_some())
+	}
+}
+
+const MAX_MESSAGE_EVENTS: usize = 32;
+const MAX_MESSAGE_EVENT_BYTES: usize = 64 * 1024;
+const MESSAGE_EVENT_INTERVAL: Duration = Duration::from_millis(100);
+
+enum ReactiveEvent {
+	Message(MessageEvent),
+	App(AppEventKind),
+}
+impl ReactiveEvent {
+	fn available(&self, state: &State) -> bool {
+		match self {
+			Self::Message(_) => crate::extension_events::available(state),
+			Self::App(_) => crate::extension_app::available(state),
+		}
+	}
+}
+struct QueuedEvent {
+	id: String,
+	action: String,
+	context: ExtensionContext,
+	event: ReactiveEvent,
+}
+impl QueuedEvent {
+	fn bytes(&self) -> usize {
+		std::mem::size_of::<Self>()
+			+ self.id.len()
+			+ self.action.len()
+			+ match &self.event {
+				ReactiveEvent::App(_) => 0,
+				ReactiveEvent::Message(event) => {
+					event.channel_id.len()
+						+ event.message_id.len()
+						+ event.author_id.as_ref().map_or(0, String::len)
+						+ event.content.as_ref().map_or(0, String::len)
+				}
+			}
+	}
 }
 type PickedBackground = (Vec<u8>, Arc<egui::ColorImage>);
 
@@ -41,12 +90,243 @@ pub struct Bridge {
 	picker: Option<mpsc::Receiver<Option<PathBuf>>>,
 	theme_picker: Option<mpsc::Receiver<ThemePickerResult>>,
 	theme_preview: Option<(Box<extensions::Theme>, Option<Arc<egui::ColorImage>>)>,
+	message_events: VecDeque<QueuedEvent>,
+	message_event_at: Option<Instant>,
+	message_events_dropped: bool,
+	app_key: Option<crate::extension_app::ChangeKey>,
+	app_context_changed: bool,
+	data_changes: crate::extension_data_events::Changes,
+	data_key: Option<crate::extension_data_events::DataKey>,
+	connection_observed: bool,
+	connection_interrupted: bool,
 }
 impl Bridge {
+	pub fn data_changed(&mut self, mut changes: crate::extension_data_events::Changes) {
+		if let Some(connected) = changes.connection() {
+			self.observe_connection(connected, &mut changes);
+		}
+		self.data_changes.merge(changes);
+	}
+	fn observe_connection(
+		&mut self,
+		connected: bool,
+		changes: &mut crate::extension_data_events::Changes,
+	) {
+		if connected {
+			if self.connection_interrupted {
+				changes.recovered();
+			}
+			self.connection_observed = true;
+			self.connection_interrupted = false;
+		} else if self.connection_observed {
+			self.connection_interrupted = true;
+		}
+	}
+	/// Permission changes retire copied app data and proposals before any further delivery.
+	pub fn access_changed(&mut self, messaging: &mut ui::MessagingUi) {
+		self.app_context_changed = true;
+		self.message_events.clear();
+		let cancelling = self.pending.values().any(|pending| {
+			pending
+				.invocation
+				.as_ref()
+				.is_some_and(|(_, input, _)| input.app.is_some() || input.app_event.is_some())
+		});
+		if cancelling {
+			if let Some(host) = &mut self.host {
+				host.cancel();
+			}
+			self.pending.retain(|_, pending| pending.cleanup);
+		}
+		for entry in &self.installed {
+			if crate::extension_app::uses_app(&entry.manifest.capabilities) {
+				messaging.extensions.remove_runtime(&entry.manifest.id);
+			}
+		}
+	}
+	fn scope_current(&self, state: &State) -> bool {
+		self.scope.as_ref().is_some_and(|(generation, account)| {
+			*generation == state.generation
+				&& state.user.as_ref().is_some_and(|user| {
+					account.as_deref().and_then(|id| id.parse::<u64>().ok()) == Some(user.id.0)
+				})
+		})
+	}
+	fn app_events(&mut self, state: &State, messaging: &ui::MessagingUi) {
+		if self.scope_current(state) && crate::extension_app::available(state) {
+			let mut changes = Default::default();
+			self.observe_connection(state.gateway_connected, &mut changes);
+			self.data_changes.merge(changes);
+		}
+		if !self.scope_current(state)
+			|| !crate::extension_app::available(state)
+			|| !self.installed.iter().any(|entry| {
+				entry.error.is_none()
+					&& !self.disabled.contains(&entry.manifest.id)
+					&& entry.manifest.capabilities.contains(&Capability::AppEvents)
+			}) {
+			self.app_key = None;
+			self.data_changes = Default::default();
+			self.data_key = None;
+			return;
+		}
+		let data_key = crate::extension_data_events::DataKey::capture(state);
+		if let Some(old) = &self.data_key {
+			self.data_changes.merge(data_key.changed(old));
+		}
+		self.data_key = Some(data_key);
+		let changes = std::mem::take(&mut self.data_changes);
+		let key = crate::extension_app::ChangeKey::capture(state, messaging);
+		let invalidated = std::mem::take(&mut self.app_context_changed);
+		let event = self
+			.app_key
+			.as_ref()
+			.map_or(Some(AppEventKind::Ready), |old| {
+				key.changed(old)
+					.or_else(|| invalidated.then_some(AppEventKind::Context))
+			});
+		self.app_key = Some(key);
+		for entry in &self.installed {
+			if entry.error.is_some()
+				|| self.disabled.contains(&entry.manifest.id)
+				|| !entry.manifest.capabilities.contains(&Capability::AppEvents)
+			{
+				continue;
+			}
+			let Some(action) = entry
+				.manifest
+				.actions
+				.iter()
+				.find(|a| a.surface == Surface::AppEvent)
+			else {
+				continue;
+			};
+			let detailed = entry
+				.manifest
+				.capabilities
+				.contains(&Capability::DataEvents);
+			let mut kinds = [None; 16];
+			kinds[0] = event;
+			for (index, kind) in changes.kinds(&entry.manifest.capabilities).enumerate() {
+				if detailed {
+					kinds[index + 1] = Some(kind);
+				} else {
+					kinds[0] = kinds[0].or(Some(AppEventKind::Context));
+					break;
+				}
+			}
+			for kind in kinds.into_iter().flatten() {
+				// Coalesce invalidation hints, never copied data. Old observers retain one latest event.
+				self.message_events.retain(|event| {
+					event.id != entry.manifest.id
+						|| !matches!(event.event, ReactiveEvent::App(old) if !detailed || old == kind)
+				});
+				let queued = QueuedEvent {
+					id: entry.manifest.id.clone(),
+					action: action.id.clone(),
+					context: ExtensionContext::capture(state, false),
+					event: ReactiveEvent::App(kind),
+				};
+				if self.message_events.len() >= MAX_MESSAGE_EVENTS
+					|| self
+						.message_events
+						.iter()
+						.map(QueuedEvent::bytes)
+						.sum::<usize>() + queued.bytes()
+						> MAX_MESSAGE_EVENT_BYTES
+				{
+					self.message_events_dropped = true;
+				} else {
+					self.message_events.push_back(queued);
+				}
+			}
+		}
+	}
+	fn subscribes(&self, entry: &InstalledExtension) -> bool {
+		entry.error.is_none()
+			&& !self.disabled.contains(&entry.manifest.id)
+			&& entry
+				.manifest
+				.capabilities
+				.contains(&Capability::MessageEvents)
+			&& entry
+				.manifest
+				.actions
+				.iter()
+				.any(|action| action.surface == Surface::MessageEvent)
+	}
+	pub fn has_message_events(&self, state: &State) -> bool {
+		self.installed.iter().any(|entry| self.subscribes(entry))
+			&& crate::extension_events::available(state)
+			&& self.scope_current(state)
+	}
+	pub fn message_event(&mut self, state: &State, event: MessageEvent) {
+		if !self.has_message_events(state) || event.validate().is_err() {
+			return;
+		}
+		for entry in &self.installed {
+			if !self.subscribes(entry) {
+				continue;
+			}
+			let action = entry
+				.manifest
+				.actions
+				.iter()
+				.find(|action| action.surface == Surface::MessageEvent)
+				.unwrap();
+			let queued = QueuedEvent {
+				id: entry.manifest.id.clone(),
+				action: action.id.clone(),
+				context: ExtensionContext::capture(state, false),
+				event: ReactiveEvent::Message(event.clone()),
+			};
+			if self.message_events.len() >= MAX_MESSAGE_EVENTS
+				|| self
+					.message_events
+					.iter()
+					.map(QueuedEvent::bytes)
+					.sum::<usize>() + queued.bytes()
+					> MAX_MESSAGE_EVENT_BYTES
+			{
+				self.message_events_dropped = true;
+				continue;
+			}
+			self.message_events.push_back(queued);
+		}
+	}
+	pub fn cancel_stale_message_events(&mut self, state: &State) {
+		let available = self.scope_current(state);
+		self.message_events.retain(|event| {
+			available && event.event.available(state) && event.context.is_current(state)
+		});
+		if self.pending.values().any(|pending| {
+			pending.reactive()
+				&& pending
+					.invocation
+					.as_ref()
+					.is_some_and(|(_, input, context)| {
+						!available
+							|| !context.is_current(state)
+							|| input.message_event.is_some()
+								&& !crate::extension_events::available(state)
+							|| input.app_event.is_some() && !crate::extension_app::available(state)
+					})
+		}) && let Some(host) = &mut self.host
+		{
+			host.cancel();
+		}
+	}
 	pub fn cleanup_pending(&self) -> bool {
 		self.pending.values().any(|pending| pending.cleanup)
 	}
 	pub fn logout(&mut self, ctx: &egui::Context) -> Result<(), String> {
+		self.message_events.clear();
+		self.app_key = None;
+		self.app_context_changed = false;
+		self.data_changes = Default::default();
+		self.data_key = None;
+		self.connection_observed = false;
+		self.connection_interrupted = false;
 		for entry in &mut self.installed {
 			entry.preserve_deleted_messages = false;
 			entry.image_sharing = false;
@@ -109,6 +389,14 @@ impl Bridge {
 		}
 		let scope = (state.generation, account.clone());
 		if self.scope.as_ref() != Some(&scope) {
+			self.message_events.clear();
+			self.app_key = None;
+			self.app_context_changed = false;
+			self.data_changes = Default::default();
+			self.data_key = None;
+			self.connection_observed = false;
+			self.connection_interrupted = false;
+			self.message_events_dropped = false;
 			state.set_preserve_deleted_messages(false);
 			self.cancel_previews(messaging);
 			self.host.as_mut().unwrap().cancel();
@@ -136,11 +424,16 @@ impl Bridge {
 			pending
 				.invocation
 				.as_ref()
-				.is_some_and(|(_, _, context)| !context.is_current(state))
+				.is_some_and(|(_, input, context)| {
+					!context.is_current(state)
+						|| input.message_event.is_some()
+							&& !crate::extension_events::available(state)
+				})
 		}) {
 			self.cancel_previews(messaging);
 			self.host.as_mut().unwrap().cancel();
 			self.pending.retain(|_, pending| pending.cleanup);
+			self.message_events.clear();
 			self.submit(
 				Job::Load {
 					account: account.clone(),
@@ -296,6 +589,9 @@ impl Bridge {
 					self.entries(messaging);
 				}
 				Ok(Event::Enabled(installed)) => {
+					self.app_key = None;
+					self.message_events
+						.retain(|event| event.id != installed.manifest.id);
 					if pending.as_ref().is_some_and(|p| p.theme_save) {
 						self.theme_preview = None;
 						messaging.extensions.theme_saved(&installed.manifest.id);
@@ -353,9 +649,11 @@ impl Bridge {
 							}
 							self.apply_theme(ctx);
 						}
-						messaging
-							.extensions
-							.present_output(id, invocation, context, output, state);
+						if invocation.message_event.is_none() && invocation.app_event.is_none() {
+							messaging
+								.extensions
+								.present_output(id, invocation, context, output, state);
+						}
 					}
 				}
 				Ok(Event::EditTheme {
@@ -435,11 +733,9 @@ impl Bridge {
 		for request in std::mem::take(&mut messaging.extensions.requests) {
 			if !matches!(request, ExtensionRequest::Preview { .. })
 				&& !self.pending.is_empty()
-				&& self
-					.pending
-					.values()
-					.all(|pending| pending.preview.is_some() || pending.catalog)
-			{
+				&& self.pending.values().all(|pending| {
+					pending.preview.is_some() || pending.catalog || pending.reactive()
+				}) {
 				self.cancel_previews(messaging);
 				self.host.as_mut().unwrap().cancel();
 				self.pending.clear();
@@ -580,6 +876,7 @@ impl Bridge {
 					sha256,
 					reviewed,
 				} => {
+					self.message_events.retain(|event| event.id != id);
 					let source = self.source_for(&id, &sha256, reviewed);
 					if let Some(source) = source {
 						if demo && matches!(source, InstallSource::Catalog(_)) {
@@ -604,6 +901,7 @@ impl Bridge {
 					}
 				}
 				ExtensionRequest::Disable { id } => {
+					self.message_events.retain(|event| event.id != id);
 					if let Some(entry) = self.installed.iter().find(|e| e.manifest.id == id) {
 						let kind = entry.manifest.kind;
 						self.cancel_previews(messaging);
@@ -627,8 +925,8 @@ impl Bridge {
 				}
 				ExtensionRequest::Invoke {
 					id,
-					invocation,
-					context,
+					mut invocation,
+					mut context,
 				} => {
 					if !context.is_current(state)
 						|| self.disabled.contains(&id)
@@ -637,6 +935,18 @@ impl Bridge {
 						continue;
 					}
 					if let Some(account) = &account {
+						let manifest = &self
+							.installed
+							.iter()
+							.find(|e| e.manifest.id == id)
+							.unwrap()
+							.manifest;
+						invocation.app = crate::extension_app::snapshot(state, messaging, manifest);
+						if crate::extension_app::uses_app(&manifest.capabilities) {
+							// App snapshots and proposals belong to the conversation that produced them.
+							context.app_wide = false;
+							context.channel = state.selected;
+						}
 						let pending = Some((id.clone(), invocation.clone(), context));
 						self.submit(
 							Job::Invoke {
@@ -680,10 +990,9 @@ impl Bridge {
 		}
 		messaging.extensions.busy = self.picker.is_some()
 			|| self.theme_picker.is_some()
-			|| self
-				.pending
-				.values()
-				.any(|pending| pending.preview.is_none() && !pending.catalog);
+			|| self.pending.values().any(|pending| {
+				pending.preview.is_none() && !pending.catalog && !pending.reactive()
+			});
 		messaging.extensions.catalog_refreshing =
 			self.pending.values().any(|pending| pending.catalog);
 		if self.refresh_catalog_on_open(
@@ -702,6 +1011,68 @@ impl Bridge {
 		}
 		if !self.host.as_ref().unwrap().busy() {
 			self.pending.retain(|_, pending| pending.cleanup);
+		}
+		self.app_events(state, messaging);
+		let available = self.scope_current(state);
+		let installed = &self.installed;
+		let disabled = &self.disabled;
+		self.message_events.retain(|event| {
+			available
+				&& event.event.available(state)
+				&& event.context.is_current(state)
+				&& !disabled.contains(&event.id)
+				&& installed
+					.iter()
+					.any(|entry| entry.manifest.id == event.id && entry.error.is_none())
+		});
+		if std::mem::take(&mut self.message_events_dropped) {
+			messaging.extensions.status =
+				"Some plugin events were skipped because the event queue was full.".into();
+		}
+		if !self.message_events.is_empty() {
+			let wait = self.message_event_at.map_or(Duration::ZERO, |at| {
+				MESSAGE_EVENT_INTERVAL.saturating_sub(at.elapsed())
+			});
+			if wait.is_zero() && !self.host.as_ref().unwrap().busy() {
+				let queued = self.message_events.pop_front().unwrap();
+				if let Some(account) = account {
+					let mut invocation = Invocation {
+						action: queued.action,
+						..Default::default()
+					};
+					match queued.event {
+						ReactiveEvent::Message(event) => {
+							invocation.message_event = Some(Box::new(event))
+						}
+						ReactiveEvent::App(kind) => {
+							invocation.app_event = Some(kind);
+							let manifest = &self
+								.installed
+								.iter()
+								.find(|e| e.manifest.id == queued.id)
+								.unwrap()
+								.manifest;
+							invocation.app =
+								crate::extension_app::snapshot(state, messaging, manifest);
+						}
+					}
+					let pending = Some((queued.id.clone(), invocation.clone(), queued.context));
+					self.submit(
+						Job::Invoke {
+							id: queued.id,
+							account,
+							invocation,
+						},
+						pending,
+						state.generation,
+						ctx,
+						messaging,
+					);
+					self.message_event_at = Some(Instant::now());
+				}
+			} else if !wait.is_zero() {
+				ctx.request_repaint_after(wait);
+			}
 		}
 	}
 	fn refresh_catalog_on_open(
@@ -951,6 +1322,287 @@ fn source_hash(source: &InstallSource) -> &str {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	fn message_events_fixture() -> (Bridge, State, MessageEvent) {
+		let state = test_support::demo_state();
+		let manifest = serde_json::from_str(include_str!(
+			"../../../examples/extensions/message-counter/manifest.json"
+		))
+		.unwrap();
+		let installed = InstalledExtension {
+			background_image: None,
+			cover_image: None,
+			local_theme: false,
+			active_theme: false,
+			manifest,
+			theme: None,
+			reviewed: false,
+			sha256: "a".repeat(64),
+			download_bytes: 1,
+			error: None,
+			preserve_deleted_messages: false,
+			image_sharing: false,
+		};
+		let bridge = Bridge {
+			scope: Some((
+				state.generation,
+				Some(state.user.as_ref().unwrap().id.0.to_string()),
+			)),
+			installed: vec![installed],
+			..Default::default()
+		};
+		let event = MessageEvent {
+			kind: extensions::MessageEventKind::Create,
+			channel_id: state.selected.unwrap().0.to_string(),
+			message_id: "2".into(),
+			author_id: Some("3".into()),
+			content: Some("Synthetic message".into()),
+		};
+		assert!(bridge.has_message_events(&state));
+		(bridge, state, event)
+	}
+
+	#[test]
+	fn extension_app_events_coalesce_and_share_message_queue_limits() {
+		let (mut bridge, mut state, event) = message_events_fixture();
+		let mut messaging = ui::MessagingUi::default();
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.push(Capability::AppEvents);
+		bridge.installed[0]
+			.manifest
+			.actions
+			.push(extensions::Action {
+				id: "app-event".into(),
+				label: "Observe".into(),
+				surface: Surface::AppEvent,
+			});
+		bridge.app_events(&state, &messaging);
+		assert_eq!(bridge.message_events.len(), 1);
+		assert!(matches!(
+			bridge.message_events[0].event,
+			ReactiveEvent::App(AppEventKind::Ready)
+		));
+		bridge.app_events(&state, &messaging);
+		assert_eq!(bridge.message_events.len(), 1);
+		messaging.reading_preferences.zoom_percent = 110;
+		bridge.app_events(&state, &messaging);
+		assert_eq!(bridge.message_events.len(), 1);
+		assert!(matches!(
+			bridge.message_events[0].event,
+			ReactiveEvent::App(AppEventKind::Settings)
+		));
+		bridge.access_changed(&mut messaging);
+		state.gateway_connected = false;
+		bridge.app_events(&state, &messaging);
+		assert!(matches!(
+			bridge.message_events[0].event,
+			ReactiveEvent::App(AppEventKind::Connection)
+		));
+		state.gateway_connected = true;
+		bridge.app_events(&state, &messaging);
+		for _ in 0..MAX_MESSAGE_EVENTS {
+			bridge.message_event(&state, event.clone());
+		}
+		assert_eq!(bridge.message_events.len(), MAX_MESSAGE_EVENTS);
+		assert!(bridge.message_events_dropped);
+		bridge
+			.disabled
+			.insert(bridge.installed[0].manifest.id.clone());
+		bridge.app_events(&state, &messaging);
+		assert!(bridge.app_key.is_none());
+		bridge.access_changed(&mut messaging);
+		assert!(bridge.message_events.is_empty());
+	}
+
+	#[test]
+	fn data_events_are_opt_in_granted_and_coalesce_per_kind() {
+		let (mut bridge, state, _) = message_events_fixture();
+		let messaging = ui::MessagingUi::default();
+		let manifest = &mut bridge.installed[0].manifest;
+		manifest.capabilities.extend([
+			Capability::AppEvents,
+			Capability::Members,
+			Capability::Presence,
+		]);
+		manifest.actions.push(extensions::Action {
+			id: "data-event".into(),
+			label: "Observe".into(),
+			surface: Surface::AppEvent,
+		});
+		bridge.app_events(&state, &messaging);
+		bridge.message_events.clear();
+		let envelope = client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Members(model::MemberList {
+				guild: Some(model::Id(10)),
+				channel: state.selected.unwrap(),
+				request: state.member_request,
+				slots: Vec::new(),
+				start: 0,
+				lazy: false,
+				groups: Vec::new(),
+				ranges: Vec::new(),
+				total: 0,
+				freshness: model::Freshness::Fresh,
+			}),
+		};
+		let changes = crate::extension_data_events::Changes::capture(&state, &envelope);
+		bridge.data_changed(changes);
+		bridge.app_events(&state, &messaging);
+		assert_eq!(bridge.message_events.len(), 1);
+		assert!(matches!(
+			bridge.message_events[0].event,
+			ReactiveEvent::App(AppEventKind::Context)
+		));
+		bridge.message_events.clear();
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.push(Capability::DataEvents);
+		for _ in 0..3 {
+			bridge.data_changed(changes);
+			bridge.app_events(&state, &messaging);
+		}
+		assert_eq!(bridge.message_events.len(), 2);
+		assert!(matches!(
+			bridge.message_events[0].event,
+			ReactiveEvent::App(AppEventKind::Members)
+		));
+		assert!(matches!(
+			bridge.message_events[1].event,
+			ReactiveEvent::App(AppEventKind::Presence)
+		));
+		bridge.message_events.clear();
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.retain(|cap| *cap != Capability::Members);
+		bridge.data_changed(changes);
+		bridge.app_events(&state, &messaging);
+		assert_eq!(bridge.message_events.len(), 1);
+		assert!(matches!(
+			bridge.message_events[0].event,
+			ReactiveEvent::App(AppEventKind::Presence)
+		));
+	}
+
+	#[test]
+	fn selected_read_changes_are_observed_without_an_envelope() {
+		let (mut bridge, mut state, _) = message_events_fixture();
+		let messaging = ui::MessagingUi::default();
+		let manifest = &mut bridge.installed[0].manifest;
+		manifest.capabilities.extend([
+			Capability::AppEvents,
+			Capability::DataEvents,
+			Capability::ReadState,
+		]);
+		manifest.actions.push(extensions::Action {
+			id: "data-event".into(),
+			label: "Observe".into(),
+			surface: Surface::AppEvent,
+		});
+		let channel = state.selected.unwrap();
+		state
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(vec![(channel, None, 3)]),
+				version: None,
+				partial: false,
+			})
+			.unwrap();
+		bridge.app_events(&state, &messaging);
+		bridge.message_events.clear();
+		state
+			.apply_read_state(client_core::read_state::Event::Ack {
+				channel,
+				message: Some(model::Id(99999)),
+				manual: false,
+				mention_count: Some(0),
+				version: None,
+			})
+			.unwrap();
+		bridge.app_events(&state, &messaging);
+		assert_eq!(bridge.message_events.len(), 1);
+		assert!(matches!(
+			bridge.message_events[0].event,
+			ReactiveEvent::App(AppEventKind::ReadState)
+		));
+		bridge.message_events.clear();
+		bridge.app_events(&state, &messaging);
+		assert!(bridge.message_events.is_empty());
+	}
+
+	#[test]
+	fn message_event_queue_is_bounded_by_items_and_bytes() {
+		let (mut bridge, state, mut event) = message_events_fixture();
+		for _ in 0..MAX_MESSAGE_EVENTS + 1 {
+			bridge.message_event(&state, event.clone());
+		}
+		assert_eq!(bridge.message_events.len(), MAX_MESSAGE_EVENTS);
+		assert!(bridge.message_events_dropped);
+		bridge.message_events.clear();
+		bridge.message_events_dropped = false;
+		event.content = Some("x".repeat(extensions::MAX_EVENT_CONTENT_BYTES));
+		for _ in 0..4 {
+			bridge.message_event(&state, event.clone());
+		}
+		assert_eq!(bridge.message_events.len(), 3);
+		assert!(bridge.message_events_dropped);
+		assert!(
+			bridge
+				.message_events
+				.iter()
+				.map(QueuedEvent::bytes)
+				.sum::<usize>()
+				<= MAX_MESSAGE_EVENT_BYTES
+		);
+		assert!(
+			matches!(&bridge.message_events.front().unwrap().event, ReactiveEvent::Message(value) if *value == event)
+		);
+	}
+
+	#[test]
+	fn message_events_require_an_enabled_subscriber_in_the_current_scope() {
+		for refusal in 0..7 {
+			let (mut bridge, mut state, event) = message_events_fixture();
+			match refusal {
+				0 => bridge.installed.clear(),
+				1 => bridge.installed[0].manifest.capabilities.clear(),
+				2 => bridge.installed[0].manifest.actions.clear(),
+				3 => bridge.installed[0].error = Some("Invalid package".into()),
+				4 => {
+					bridge.disabled.insert("message-counter".into());
+				}
+				5 => state.generation += 1,
+				_ => bridge.scope.as_mut().unwrap().1 = Some("another-account".into()),
+			}
+			assert!(!bridge.has_message_events(&state));
+			bridge.message_event(&state, event);
+			assert!(bridge.message_events.is_empty());
+		}
+	}
+
+	#[test]
+	fn message_events_clear_when_conversation_session_or_access_changes() {
+		for change in 0..4 {
+			let (mut bridge, mut state, event) = message_events_fixture();
+			bridge.message_event(&state, event);
+			assert_eq!(bridge.message_events.len(), 1);
+			match change {
+				0 => state.selected = None,
+				1 => state.generation += 1,
+				2 => state.gateway_connected = false,
+				_ => state.freshness = model::Freshness::Unavailable,
+			}
+			bridge.cancel_stale_message_events(&state);
+			assert!(bridge.message_events.is_empty());
+		}
+		let (mut bridge, state, event) = message_events_fixture();
+		bridge.message_event(&state, event);
+		bridge.logout(&egui::Context::default()).unwrap();
+		assert!(bridge.message_events.is_empty());
+	}
+
 	#[test]
 	fn catalog_refresh_is_once_per_open_delayed_when_busy_and_offline_in_demo() {
 		let mut bridge = Bridge::default();

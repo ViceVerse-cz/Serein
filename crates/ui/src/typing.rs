@@ -17,9 +17,13 @@ fn name(state: &State, channel: Id, user: Id) -> Option<&str> {
 				.filter(|members| members.channel == channel)
 				.and_then(|members| {
 					members
-						.rows
+						.slots
 						.iter()
 						.flatten()
+						.filter_map(|slot| match slot {
+							model::MemberSlot::Person(m) => Some(m),
+							_ => None,
+						})
 						.find(|member| member.user.id == user)
 				})
 				.map(|member| member.nick.as_deref().unwrap_or(&member.user.name))

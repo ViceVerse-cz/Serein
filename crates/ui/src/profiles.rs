@@ -496,9 +496,13 @@ pub(crate) fn presence(
 			guild.is_some() && list.guild == guild && list.freshness == model::Freshness::Fresh
 		})
 		.and_then(|list| {
-			list.rows
+			list.slots
 				.iter()
 				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				})
 				.find(|member| member.user.id == user)
 		})
 		.filter(|_| state.demo || state.gateway_connected)
@@ -857,6 +861,130 @@ fn role_chips(
 	});
 }
 
+pub(crate) fn profile_opener_id() -> egui::Id {
+	egui::Id::unique("serein-profile-opener")
+}
+
+#[derive(Default)]
+pub struct ProfileSession {
+	open: Option<User>,
+	anchor: Option<(Id, Pos2)>,
+	trigger: Option<Rect>,
+	pending: Vec<ProfileEffect>,
+}
+
+pub enum ProfileEffect {
+	ClearCore,
+}
+
+impl ProfileSession {
+	pub fn open_user(&self) -> Option<&User> {
+		self.open.as_ref()
+	}
+
+	pub fn anchor_or_place(&mut self, ctx: &egui::Context, user_id: Id) -> Pos2 {
+		match self.anchor {
+			Some((id, pos)) if id == user_id => pos,
+			_ => {
+				let pos = ctx
+					.input(|i| i.pointer.interact_pos().or(i.pointer.latest_pos()))
+					.unwrap_or_else(|| ctx.content_rect().center());
+				self.anchor = Some((user_id, pos));
+				pos
+			}
+		}
+	}
+
+	pub fn disarm(&mut self) {
+		self.trigger = None;
+	}
+
+	pub fn person_click(
+		&mut self,
+		ui: &egui::Ui,
+		primary: &egui::Response,
+		nested: Option<&egui::Response>,
+		user: &User,
+	) {
+		let arm = match nested {
+			Some(nested) if nested.contains_pointer() => Some(nested),
+			_ if primary.contains_pointer() => Some(primary),
+			_ => None,
+		};
+		if let Some(response) = arm {
+			ui.data_mut(|data| data.insert_temp(profile_opener_id(), response.rect));
+		}
+		let clicked = match nested {
+			Some(nested) if nested.clicked() => true,
+			_ if primary.clicked() => true,
+			_ => false,
+		};
+		if !clicked {
+			return;
+		}
+		if self.open.as_ref().is_some_and(|open| open.id == user.id) {
+			self.hide();
+			return;
+		}
+		if self.open.as_ref().is_some_and(|open| open.id != user.id) {
+			self.pending.push(ProfileEffect::ClearCore);
+		}
+		self.open = Some(user.clone());
+	}
+
+	pub fn command_open(&mut self, user: User) {
+		if self.open.as_ref().is_some_and(|open| open.id != user.id) {
+			self.pending.push(ProfileEffect::ClearCore);
+		}
+		self.open = Some(user);
+	}
+
+	pub fn navigate(&mut self, user: User) {
+		self.pending.push(ProfileEffect::ClearCore);
+		self.open = Some(user);
+		self.anchor = None;
+	}
+
+	/// Drops the card and keeps the loaded profile.
+	pub fn hide(&mut self) {
+		self.open = None;
+		self.anchor = None;
+		self.trigger = None;
+	}
+
+	pub fn close(&mut self) {
+		if self.open.is_some() {
+			self.pending.push(ProfileEffect::ClearCore);
+		}
+		self.hide();
+	}
+
+	pub fn close_unless_armed(&mut self, ctx: &egui::Context) {
+		let keep = self.trigger.is_some_and(|rect| {
+			ctx.input(|input| {
+				input.pointer.any_pressed()
+					&& input
+						.pointer
+						.interact_pos()
+						.is_some_and(|pos| rect.contains(pos))
+			})
+		});
+		if !keep {
+			self.close();
+		}
+	}
+
+	pub fn ingest_opener_rect(&mut self, ctx: &egui::Context) {
+		if let Some(rect) = ctx.data(|data| data.get_temp::<Rect>(profile_opener_id())) {
+			self.trigger = Some(rect);
+		}
+	}
+
+	pub fn drain_effects(&mut self) -> Vec<ProfileEffect> {
+		std::mem::take(&mut self.pending)
+	}
+}
+
 /// Shows the popout beside `anchor`; returns an action when the card wants to change or close.
 #[allow(clippy::too_many_arguments)]
 pub fn show(
@@ -1121,12 +1249,7 @@ pub fn show(
 					let has_action = state.user.as_ref().is_some_and(|own| own.id == user.id)
 						|| dm_channel.is_some()
 						|| user.webhook;
-					let footer = if has_action { 40.0 } else { 0.0 }
-						+ if state.user_action_status().is_some() {
-							24.0
-						} else {
-							0.0
-						};
+					let footer = if has_action { 40.0 } else { 0.0 };
 					egui::Frame::new()
 						.fill(theme.panel)
 						.corner_radius(RADIUS)
@@ -1134,6 +1257,16 @@ pub fn show(
 						.show(ui, |ui| {
 							ui.set_width(ui.available_width());
 							ui.spacing_mut().item_spacing = vec2(6.0, 3.0);
+							if view.is_some_and(|v| v.error.is_some())
+								|| data.is_some_and(|data| data.limited)
+							{
+								design::notice(
+									ui,
+									design::Level::Warning,
+									"Unable to load parts of profile",
+								);
+								ui.add_space(6.0);
+							}
 							let display = data
 								.and_then(|p| {
 									p.guild
@@ -1266,8 +1399,11 @@ pub fn show(
 							}
 							if let Some(error) = view.and_then(|v| v.error) {
 								ui.add_space(4.0);
-								ui.label(RichText::new(error).size(12.0).color(theme.muted));
-								if ui.small_button("Retry profile").clicked() {
+								if ui
+									.small_button("Retry profile")
+									.on_hover_text(error)
+									.clicked()
+								{
 									action = Some(Action::Retry);
 								}
 							}
@@ -1306,16 +1442,16 @@ pub fn show(
 												.unwrap_or(&data.bio);
 											if !bio.is_empty() {
 												section(ui, &theme, &mut sections, "ABOUT ME");
-												let mut linked_user = None;
+												let mut linked = ProfileSession::default();
 												formatted.get(user.id, bio).show_with_images(
 													ui,
 													opening,
 													&[],
 													None,
-													&mut linked_user,
+													&mut linked,
 													(avatars, state.demo, &state.guilds),
 												);
-												if let Some(user) = linked_user {
+												if let Some(user) = linked.open_user().cloned() {
 													action = Some(Action::Profile(user));
 												}
 											}
@@ -1416,16 +1552,6 @@ pub fn show(
 												.response
 												.on_hover_text(names.join("\n"));
 											}
-											if data.limited {
-												ui.add_space(6.0);
-												ui.label(
-													RichText::new(
-														"Some profile details were limited",
-													)
-													.size(11.0)
-													.color(theme.muted),
-												);
-											}
 										}
 									});
 							}
@@ -1475,12 +1601,6 @@ pub fn show(
 							.clicked()
 					{
 						ui.ctx().copy_text(user.id.to_string());
-					}
-					if let Some(status) = state.user_action_status() {
-						ui.add(
-							egui::Label::new(RichText::new(status).size(11.0).color(theme.muted))
-								.wrap(),
-						);
 					}
 					if state.demo {
 						ui.label(
@@ -1805,60 +1925,78 @@ mod tests {
 		}
 	}
 	#[test]
-	fn webhook_card_does_not_show_user_errors_or_retry() {
+	fn partial_profile_warning_preserves_identity_and_webhook_behavior() {
 		for webhook in [false, true] {
 			for dark in [false, true] {
-				let mut user = test_support::message(1, Id(22)).author;
-				user.webhook = webhook;
-				let view = ProfileView {
-					user: user.id,
-					guild: None,
-					request: 1,
-					loading: false,
-					error: Some("Unsupported service response"),
-					data: None,
-				};
-				let state = State {
-					demo: true,
-					..Default::default()
-				};
-				let ctx = egui::Context::default();
-				ctx.set_visuals(if dark {
-					egui::Visuals::dark()
-				} else {
-					egui::Visuals::light()
-				});
-				let mut images = Avatars::default();
-				let mut opening = None;
-				let mut painted = String::new();
-				for _ in 0..3 {
-					let output = ctx.run_ui(input(vec2(400.0, 700.0), vec![]), |ui| {
-						show(
-							ui,
-							&user,
-							Some(&view),
-							&state,
-							&mut images,
-							&mut opening,
-							&mut FormatCache::default(),
-							true,
-							pos2(20.0, 70.0),
-						);
+				for (error, limited) in [
+					(Some("Unsupported service response"), false),
+					(None, true),
+					(None, false),
+				] {
+					let mut user = test_support::message(1, Id(22)).author;
+					user.webhook = webhook;
+					let view = ProfileView {
+						user: user.id,
+						guild: None,
+						request: 1,
+						loading: false,
+						error,
+						data: error.is_none().then(|| {
+							let mut data = synthetic(&user, None);
+							data.limited = limited;
+							data
+						}),
+					};
+					let state = State {
+						demo: true,
+						..Default::default()
+					};
+					let ctx = egui::Context::default();
+					ctx.set_visuals(if dark {
+						egui::Visuals::dark()
+					} else {
+						egui::Visuals::light()
 					});
-					for shape in &output.shapes {
-						text(&shape.shape, &mut painted);
+					let mut images = Avatars::default();
+					let mut opening = None;
+					let mut painted = String::new();
+					for _ in 0..3 {
+						let output = ctx.run_ui(input(vec2(400.0, 700.0), vec![]), |ui| {
+							show(
+								ui,
+								&user,
+								Some(&view),
+								&state,
+								&mut images,
+								&mut opening,
+								&mut FormatCache::default(),
+								true,
+								pos2(20.0, 70.0),
+							);
+						});
+						for shape in &output.shapes {
+							text(&shape.shape, &mut painted);
+						}
+						output.drop_without_applying_deltas();
 					}
-					output.drop_without_applying_deltas();
+					assert_eq!(painted.contains("Webhook"), webhook);
+					assert_eq!(painted.contains("Copy webhook ID"), webhook);
+					assert!(!painted.contains("Copy user ID"));
+					// No open DM in this fixture, so non-webhook profiles have no footer action.
+					assert!(!painted.contains("Message"));
+					assert!(!painted.contains("Unsupported service response"));
+					assert_eq!(
+						painted.contains("Unable to load parts of profile"),
+						!webhook && (error.is_some() || limited)
+					);
+					assert_eq!(
+						painted.contains("Retry profile"),
+						!webhook && error.is_some()
+					);
+					assert!(!painted.contains("Loading profile"));
+					assert!(painted.contains(&user.name));
+					assert!(images.take_requests().is_empty());
 				}
-				assert_eq!(painted.contains("Webhook"), webhook);
-				assert_eq!(painted.contains("Copy webhook ID"), webhook);
-				assert!(!painted.contains("Copy user ID"));
-				// No open DM in this fixture, so non-webhook profiles have no footer action.
-				assert!(!painted.contains("Message"));
-				assert_eq!(painted.contains("Unsupported service response"), !webhook);
-				assert_eq!(painted.contains("Retry profile"), !webhook);
-				assert!(!painted.contains("Loading profile"));
-				assert!(images.take_requests().is_empty());
 			}
 		}
 	}
@@ -1945,15 +2083,19 @@ mod tests {
 			channel: Id(20),
 			request: 1,
 			total: 1,
+			lazy: false,
+			groups: vec![],
+			ranges: vec![],
 			freshness: model::Freshness::Fresh,
-			rows: vec![Some(model::Member {
+			start: 0,
+			slots: vec![Some(model::MemberSlot::Person(model::Member {
 				roles: vec![],
 				user: user.clone(),
 				nick: None,
 				status: Some("idle".into()),
 				custom_status: Some("Server status".into()),
 				activities: vec![],
-			})],
+			}))],
 		});
 		state.direct_presences.push(model::MemberPresence {
 			user: user.id,

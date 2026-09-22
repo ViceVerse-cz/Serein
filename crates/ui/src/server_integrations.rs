@@ -34,14 +34,30 @@ struct Deletion {
 #[derive(Default)]
 pub(super) struct IntegrationsUi {
 	page: Page,
+	channel: Option<Id>,
 	draft: Option<Draft>,
 	baseline: Option<Draft>,
 	submitted: bool,
 	delete: Option<Deletion>,
 	deleting: bool,
 	error: Option<&'static str>,
+	copy_requested: Option<Id>,
+	copied: Option<Id>,
 }
 impl IntegrationsUi {
+	pub fn for_channel(channel: Id) -> Self {
+		Self {
+			channel: Some(channel),
+			..Default::default()
+		}
+	}
+	fn can_manage_webhooks(&self, state: &State, guild: Id) -> bool {
+		self.channel.map_or_else(
+			|| state.can_manage_guild_webhooks(guild),
+			|channel| state.can_manage_webhook_channel(guild, channel),
+		)
+	}
+
 	pub fn preview(&mut self, webhooks: bool) {
 		self.page = if webhooks {
 			Page::Webhooks
@@ -61,8 +77,14 @@ impl IntegrationsUi {
 		self.delete.is_some()
 	}
 	pub fn sync(&mut self, state: &State, guild: Id) {
-		if !state.can_open_integration_settings(guild) {
-			*self = Self::default();
+		if !self.channel.map_or_else(
+			|| state.can_open_integration_settings(guild),
+			|channel| state.can_manage_webhook_channel(guild, channel),
+		) {
+			*self = Self {
+				channel: self.channel,
+				..Default::default()
+			};
 			return;
 		}
 		if self.submitted && !state.server_admin.pending {
@@ -85,7 +107,7 @@ impl IntegrationsUi {
 				self.delete = None;
 			}
 		}
-		if (!state.can_manage_guild_webhooks(guild)
+		if (!self.can_manage_webhooks(state, guild)
 			&& matches!(self.page, Page::Webhooks | Page::Follows | Page::Editor))
 			|| self
 				.baseline
@@ -109,10 +131,11 @@ impl IntegrationsUi {
 			self.delete = None;
 		}
 	}
-	fn load_action(state: &State, guild: Id) -> Action {
+	fn load_action(&self, state: &State, guild: Id) -> Action {
 		Action::Load {
-			integrations: state.can_manage_guild(guild),
-			webhooks: state.can_manage_guild_webhooks(guild),
+			channel: self.channel,
+			integrations: self.channel.is_none() && state.can_manage_guild(guild),
+			webhooks: self.can_manage_webhooks(state, guild),
 		}
 	}
 	pub fn load(&mut self, state: &mut State, guild: Id) -> Option<Command> {
@@ -125,14 +148,17 @@ impl IntegrationsUi {
 				.integrations
 				.as_ref()
 				.is_some_and(|snapshot| {
-					(!state.can_manage_guild(guild) || snapshot.integrations.is_some())
-						&& (!state.can_manage_guild_webhooks(guild) || snapshot.webhooks.is_some())
+					snapshot.channel == self.channel
+						&& (self.channel.is_some()
+							|| !state.can_manage_guild(guild)
+							|| snapshot.integrations.is_some())
+						&& (!self.can_manage_webhooks(state, guild) || snapshot.webhooks.is_some())
 				}) {
 			return None;
 		}
 		state.request_server_admin(
 			guild,
-			server_admin::Action::Integrations(Self::load_action(state, guild)),
+			server_admin::Action::Integrations(self.load_action(state, guild)),
 		)
 	}
 	pub fn show(
@@ -143,7 +169,9 @@ impl IntegrationsUi {
 		avatars: &mut Avatars,
 		commands: &mut Vec<Command>,
 	) {
+		let previous_page = self.page;
 		let mut action = None;
+		ui.set_max_width(ui.available_width().min(720.0));
 		if self.page != Page::Overview {
 			ui.horizontal(|ui| {
 				if ui
@@ -186,7 +214,7 @@ impl IntegrationsUi {
 				.on_hover_text("Reload integrations")
 				.clicked()
 			{
-				action = Some(Self::load_action(state, guild));
+				action = Some(self.load_action(state, guild));
 			}
 		});
 		ui.add_space(12.0);
@@ -208,18 +236,46 @@ impl IntegrationsUi {
 		}
 		if self.page == Page::Editor {
 			ui.add_enabled_ui(!state.server_admin.pending, |ui| {
-				self.editor(ui, state, guild, &mut action);
+				self.editor(ui, state, guild, avatars, &mut action);
 			});
-		} else if let Some(snapshot) = &state.server_admin.integrations {
+		} else if let Some(snapshot) = &state.server_admin.integrations
+			&& snapshot.guild == guild
+			&& snapshot.channel == self.channel
+		{
 			match self.page {
 				Page::Overview => self.overview(ui, state, guild, snapshot, avatars),
-				Page::Webhooks | Page::Follows => self.webhooks(ui, state, guild, snapshot),
+				Page::Webhooks | Page::Follows => {
+					self.webhooks(ui, state, guild, snapshot, avatars)
+				}
 				Page::App(id) => self.app(ui, state, guild, snapshot, id, avatars),
 				Page::Editor => {}
 			}
 		}
+		if self.page != previous_page {
+			state.clear_webhook_url();
+			self.copied = None;
+		} else if let Some(url) = state.take_webhook_url(guild, self.channel) {
+			self.copied = Some(url.webhook);
+			ui.ctx().copy_text(url.expose().to_owned());
+		}
+		if let Some(webhook) = self.copy_requested.take()
+			&& let Some(channel) = state
+				.server_admin
+				.integrations
+				.as_ref()
+				.and_then(|s| s.webhooks.as_ref())
+				.and_then(|items| items.iter().find(|w| w.id == webhook))
+				.and_then(|w| w.channel)
+		{
+			self.copied = None;
+			action = Some(Action::CopyWebhookUrl {
+				scope: self.channel,
+				webhook,
+				channel,
+			});
+		}
 		if let Some(action) = action {
-			let saving = !matches!(action, Action::Load { .. });
+			let saving = action.write();
 			if let Some(command) =
 				state.request_server_admin(guild, server_admin::Action::Integrations(action))
 			{
@@ -241,10 +297,14 @@ impl IntegrationsUi {
 		snapshot: &Snapshot,
 		avatars: &mut Avatars,
 	) {
-		ui.label("Customize your server with integrations. Manage webhooks, followed channels, and apps connected to your server.");
+		ui.label(if self.channel.is_some() {
+			"Manage webhooks and followed channels posting to this channel."
+		} else {
+			"Customize your server with integrations. Manage webhooks, followed channels, and apps connected to your server."
+		});
 		ui.hyperlink_to("Learn more about managing integrations.", HELP);
 		design::divider(ui);
-		if state.can_manage_guild_webhooks(guild)
+		if self.can_manage_webhooks(state, guild)
 			&& let Some(webhooks) = &snapshot.webhooks
 		{
 			let followed = webhooks.iter().filter(|w| w.kind == 2).count();
@@ -267,7 +327,8 @@ impl IntegrationsUi {
 			}
 			design::divider(ui);
 		}
-		if state.can_manage_guild(guild)
+		if self.channel.is_none()
+			&& state.can_manage_guild(guild)
 			&& let Some(integrations) = &snapshot.integrations
 		{
 			ui.label(design::medium(ui, "Bots and Apps", 15.0));
@@ -363,16 +424,27 @@ impl IntegrationsUi {
 				});
 		}
 	}
-	fn webhooks(&mut self, ui: &mut egui::Ui, state: &State, guild: Id, snapshot: &Snapshot) {
+	fn webhooks(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		guild: Id,
+		snapshot: &Snapshot,
+		avatars: &mut Avatars,
+	) {
 		let follows = self.page == Page::Follows;
 		if follows {
 			ui.label("Posts from these followed channels are delivered to your server.");
 			ui.hyperlink_to("Learn more about following channels", FOLLOW_HELP);
 		} else {
 			ui.label("Send updates from your apps and services to a channel in this server.");
+			if let Some(channel) = self.channel.and_then(|id| state.channel(id)) {
+				ui.label(format!("Posting to #{}", channel.name));
+			}
 			ui.add_space(16.0);
 			if let Some(channel) = state.channels.iter().find(|c| {
 				c.guild == Some(guild)
+					&& self.channel.is_none_or(|id| c.id == id)
 					&& matches!(c.kind, 0 | 5 | 15 | 16)
 					&& state.can_manage_webhook_channel(guild, c.id)
 			}) && primary(ui, "New Webhook", writable(state)).clicked()
@@ -401,15 +473,21 @@ impl IntegrationsUi {
 				"No webhooks yet."
 			});
 		}
+		let row_height = if ui.available_width() < 360.0 {
+			148.0
+		} else {
+			120.0
+		};
 		egui::ScrollArea::vertical()
 			.id_salt(("integration-webhooks", follows))
 			.max_height(design::list_height(ui, 0.0))
 			.auto_shrink([false, true])
-			.show_rows(ui, 88.0, rows.len(), |ui, range| {
+			.show_rows(ui, row_height, rows.len(), |ui, range| {
 				for webhook in &rows[range] {
-					let width = ui.available_width();
-					let (rect, _) =
-						ui.allocate_exact_size(Vec2::new(width, 88.0), egui::Sense::hover());
+					let (rect, _) = ui.allocate_exact_size(
+						Vec2::new(ui.available_width(), row_height),
+						egui::Sense::hover(),
+					);
 					ui.painter().rect_filled(
 						rect.shrink2(Vec2::new(0.0, 4.0)),
 						8,
@@ -421,61 +499,15 @@ impl IntegrationsUi {
 							.id_salt(("integration-webhook", webhook.id))
 							.max_rect(rect.shrink2(Vec2::new(16.0, 16.0))),
 						|ui| {
-							ui.horizontal(|ui| {
-								icon(
-									ui,
-									if follows {
-										icons::Icon::Threads
-									} else {
-										icons::Icon::Link
-									},
-									32.0,
-								);
-								let text_width = (ui.available_width() - 90.0).max(48.0);
-								ui.allocate_ui_with_layout(
-									Vec2::new(text_width, 56.0),
-									egui::Layout::top_down(egui::Align::Min),
-									|ui| {
-										ui.set_width(text_width);
-										ui.add(
-											egui::Label::new(design::medium(
-												ui,
-												webhook_name(webhook),
-												15.0,
-											))
-											.truncate(),
-										)
-										.on_hover_text(webhook_name(webhook));
-										let destination = webhook
-											.channel
-											.and_then(|id| state.channel(id))
-											.map(|c| c.name.as_str())
-											.unwrap_or("Unknown channel");
-										ui.add(
-											egui::Label::new(
-												RichText::new(format!("#{destination}")).size(12.0),
-											)
-											.truncate(),
-										);
-										if follows
-											&& let Some(source) = &webhook.source_guild
-											&& let Some(name) = &source.name
-										{
-											ui.add(
-												egui::Label::new(RichText::new(name).size(12.0))
-													.truncate(),
-											);
-										}
-									},
-								);
+							webhook_identity(ui, state, webhook, avatars);
+							ui.add_space(10.0);
+							ui.horizontal_wrapped(|ui| {
+								self.copy_button(ui, state, guild, webhook);
 								if webhook.kind == 1
 									&& webhook.channel.is_some_and(|id| {
 										state.can_manage_webhook_channel(guild, id)
 									}) && ui
-									.add_enabled(
-										writable(state),
-										egui::Button::new("Edit").frame(false),
-									)
+									.add_enabled(writable(state), egui::Button::new("Edit"))
 									.clicked()
 								{
 									let draft = Draft {
@@ -488,23 +520,22 @@ impl IntegrationsUi {
 									self.page = Page::Editor;
 								}
 								let action = Action::DeleteWebhook {
+									scope: self.channel,
 									webhook: webhook.id,
 								};
 								if allowed(state, guild, &action)
 									&& ui
-										.add_enabled_ui(writable(state), |ui| {
-											icons::button(
-												ui,
-												icons::Icon::Trash,
-												24.0,
-												if follows {
-													"Unfollow channel"
+										.add_enabled(
+											writable(state),
+											egui::Button::new(
+												RichText::new(if follows {
+													"Unfollow"
 												} else {
-													"Delete webhook"
-												},
-											)
-										})
-										.inner
+													"Delete"
+												})
+												.color(design::palette(ui).danger),
+											),
+										)
 										.clicked()
 								{
 									self.delete = Some(Deletion {
@@ -518,6 +549,32 @@ impl IntegrationsUi {
 				}
 			});
 	}
+	fn copy_button(&mut self, ui: &mut egui::Ui, state: &State, guild: Id, webhook: &Webhook) {
+		let Some(channel) = webhook.channel else {
+			return;
+		};
+		let action = Action::CopyWebhookUrl {
+			scope: self.channel,
+			webhook: webhook.id,
+			channel,
+		};
+		if webhook.kind == 1
+			&& allowed(state, guild, &action)
+			&& ui
+				.add_enabled(
+					writable(state),
+					egui::Button::new(if self.copied == Some(webhook.id) {
+						"Copied!"
+					} else {
+						"Copy Webhook URL"
+					}),
+				)
+				.clicked()
+		{
+			self.copy_requested = Some(webhook.id);
+		}
+	}
+
 	fn app(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -594,7 +651,29 @@ impl IntegrationsUi {
 			}
 		}
 	}
-	fn editor(&mut self, ui: &mut egui::Ui, state: &State, guild: Id, action: &mut Option<Action>) {
+	fn editor(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		guild: Id,
+		avatars: &mut Avatars,
+		action: &mut Option<Action>,
+	) {
+		if let Some(webhook) = self.draft.as_ref().and_then(|d| d.id).and_then(|id| {
+			state
+				.server_admin
+				.integrations
+				.as_ref()?
+				.webhooks
+				.as_ref()?
+				.iter()
+				.find(|w| w.id == id)
+		}) {
+			webhook_identity(ui, state, webhook, avatars);
+			ui.add_space(12.0);
+			self.copy_button(ui, state, guild, webhook);
+			design::divider(ui);
+		}
 		let Some(draft) = &mut self.draft else {
 			return;
 		};
@@ -628,6 +707,7 @@ impl IntegrationsUi {
 				for channel in state.channels.iter().filter(|c| {
 					c.guild == Some(guild)
 						&& matches!(c.kind, 0 | 5 | 15 | 16)
+						&& (draft.id.is_some() || self.channel.is_none_or(|id| c.id == id))
 						&& state.can_manage_webhook_channel(guild, c.id)
 				}) {
 					ui.selectable_value(
@@ -640,11 +720,13 @@ impl IntegrationsUi {
 		ui.add_space(24.0);
 		let save = draft.channel.map(|channel| match draft.id {
 			Some(webhook) => Action::EditWebhook {
+				scope: self.channel,
 				webhook,
 				channel,
 				name: draft.name.clone(),
 			},
 			None => Action::CreateWebhook {
+				scope: self.channel,
 				channel,
 				name: draft.name.clone(),
 			},
@@ -754,15 +836,41 @@ fn webhook_name(webhook: &Webhook) -> &str {
 		.or(webhook.name.as_deref())
 		.unwrap_or("Webhook")
 }
+fn webhook_identity(ui: &mut egui::Ui, state: &State, webhook: &Webhook, avatars: &mut Avatars) {
+	ui.horizontal(|ui| {
+		let user = model::User {
+			kind: model::AccountKind::Bot,
+			webhook: true,
+			id: webhook.id,
+			name: webhook_name(webhook).to_owned(),
+			avatar: webhook.avatar.clone(),
+			discriminator: 0,
+			primary_guild: None,
+		};
+		avatars.show_plain(ui, &user, 40.0, state.demo);
+		ui.vertical(|ui| {
+			ui.add(egui::Label::new(design::semibold(ui, webhook_name(webhook), 15.0)).truncate())
+				.on_hover_text(webhook_name(webhook));
+			let destination = webhook
+				.channel
+				.and_then(|id| state.channel(id))
+				.map_or("Unknown channel", |c| c.name.as_str());
+			ui.add(
+				egui::Label::new(
+					RichText::new(format!("#{destination}"))
+						.size(12.0)
+						.color(design::palette(ui).muted),
+				)
+				.truncate(),
+			);
+		});
+	});
+}
 fn primary(ui: &mut egui::Ui, text: &str, enabled: bool) -> egui::Response {
 	ui.add_enabled_ui(enabled, |ui| {
 		design::button(ui, text, design::ButtonKind::Primary)
 	})
 	.inner
-}
-fn icon(ui: &mut egui::Ui, glyph: icons::Icon, size: f32) {
-	let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
-	icons::paint(ui.painter(), glyph, rect, design::palette(ui).muted);
 }
 fn app_avatar(ui: &mut egui::Ui, integration: &Integration, avatars: &mut Avatars, demo: bool) {
 	if let Some(bot) = integration
@@ -772,7 +880,7 @@ fn app_avatar(ui: &mut egui::Ui, integration: &Integration, avatars: &mut Avatar
 	{
 		avatars.show(ui, bot, 44.0, demo);
 	} else {
-		icon(ui, icons::Icon::Activities, 44.0);
+		icons::inline(ui, icons::Icon::Activities, 44.0, design::palette(ui).muted);
 	}
 }
 fn chip(ui: &mut egui::Ui, text: &str) {
@@ -793,12 +901,11 @@ fn card_contents(
 }
 fn summary_card(ui: &mut egui::Ui, glyph: icons::Icon, name: &str, subtitle: &str) -> bool {
 	let colors = design::palette(ui);
-	let response = ui.add_sized(
-		[ui.available_width(), 88.0],
-		egui::Button::new(()).fill(colors.raised).corner_radius(8),
-	);
+	let (rect, response) =
+		ui.allocate_exact_size(Vec2::new(ui.available_width(), 88.0), egui::Sense::click());
+	let frame = design::interactive_card_frame(ui, &response);
+	ui.painter().add(frame.paint(rect));
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), name));
-	let rect = response.rect;
 	icons::paint(
 		ui.painter(),
 		glyph,
@@ -818,8 +925,16 @@ fn summary_card(ui: &mut egui::Ui, glyph: icons::Icon, name: &str, subtitle: &st
 			.id_salt(("integration-summary", name))
 			.max_rect(text_rect),
 		|ui| {
-			ui.add(egui::Label::new(design::medium(ui, name, 15.0)).truncate());
-			ui.add(egui::Label::new(RichText::new(subtitle).size(12.0)).truncate());
+			ui.add(
+				egui::Label::new(design::medium(ui, name, 15.0))
+					.truncate()
+					.selectable(false),
+			);
+			ui.add(
+				egui::Label::new(RichText::new(subtitle).size(12.0))
+					.truncate()
+					.selectable(false),
+			);
 		},
 	);
 	icons::paint(
@@ -873,6 +988,145 @@ mod tests {
 		state
 	}
 	#[test]
+	fn webhook_cards_copy_once_in_both_settings_scopes_and_fit_small_widths() {
+		fn labels(shape: &egui::epaint::Shape, found: &mut Vec<(String, egui::Rect)>) {
+			match shape {
+				egui::epaint::Shape::Text(text) => found.push((
+					text.galley.text().to_owned(),
+					egui::Rect::from_min_size(text.pos, text.galley.size()),
+				)),
+				egui::epaint::Shape::Vec(shapes) => {
+					for shape in shapes {
+						labels(shape, found);
+					}
+				}
+				_ => {}
+			}
+		}
+		for width in [280.0, 360.0, 800.0] {
+			for scoped in [false, true] {
+				let ctx = egui::Context::default();
+				design::apply(&ctx);
+				let mut state = state();
+				let guild = state.guilds[0].id;
+				let channel = state
+					.channels
+					.iter()
+					.find(|c| c.guild == Some(guild) && c.kind == 0)
+					.unwrap()
+					.id;
+				let scope = scoped.then_some(channel);
+				state.server_admin.guild = Some(guild);
+				state.server_admin.integrations = Some(Snapshot {
+					guild,
+					channel: scope,
+					integrations: None,
+					webhooks: Some(vec![Webhook {
+						id: Id(900),
+						guild,
+						channel: Some(channel),
+						kind: 1,
+						name: Some("A long synthetic webhook name ".repeat(2)),
+						avatar: None,
+						application_id: None,
+						user: None,
+						source_guild: None,
+						source_channel: None,
+					}]),
+				});
+				let mut view = IntegrationsUi {
+					page: Page::Webhooks,
+					channel: scope,
+					..Default::default()
+				};
+				let mut commands = vec![];
+				let mut avatars = Avatars::default();
+				{
+					let mut render = |state: &mut State, events| {
+						ctx.run_ui(
+							egui::RawInput {
+								screen_rect: Some(egui::Rect::from_min_size(
+									egui::Pos2::ZERO,
+									Vec2::new(width, 900.0),
+								)),
+								events,
+								..Default::default()
+							},
+							|ui| {
+								view.show(ui, state, guild, &mut avatars, &mut commands);
+								assert!(
+									ui.min_rect().right() <= width + 1.0,
+									"overflow at {width}: {:?}",
+									ui.min_rect()
+								);
+							},
+						)
+					};
+					let output = render(&mut state, vec![]);
+					let mut text = vec![];
+					for shape in &output.shapes {
+						labels(&shape.shape, &mut text);
+					}
+					let copy = text
+						.iter()
+						.find(|(text, _)| text == "Copy Webhook URL")
+						.expect("visible copy button")
+						.1;
+					assert!(copy.right() <= width);
+					output.drop_without_applying_deltas();
+					for pressed in [true, false] {
+						render(
+							&mut state,
+							vec![
+								egui::Event::PointerMoved(copy.center()),
+								egui::Event::PointerButton {
+									pos: copy.center(),
+									button: egui::PointerButton::Primary,
+									pressed,
+									modifiers: egui::Modifiers::NONE,
+								},
+							],
+						)
+						.drop_without_applying_deltas();
+					}
+				}
+				let Some(Command::ServerAdmin {
+					request, action, ..
+				}) = commands.pop()
+				else {
+					panic!("copy command missing")
+				};
+				assert!(
+					matches!(*action, server_admin::Action::Integrations(Action::CopyWebhookUrl { scope: actual, .. }) if actual == scope)
+				);
+				state.apply(client_core::Envelope {
+					generation: state.generation,
+					event: client_core::Event::ServerAdmin(client_core::server_admin::Event {
+						guild,
+						request,
+						result: Ok(server_admin::Result::WebhookUrl(
+							model::server_integrations::WebhookUrl::new(
+								guild,
+								Id(900),
+								channel,
+								"SYNTHETIC_TOKEN",
+							)
+							.unwrap(),
+						)),
+					}),
+				});
+				for expected in [1, 0] {
+					let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+						view.show(ui, &mut state, guild, &mut avatars, &mut commands)
+					});
+					assert_eq!(output.platform_output.commands.iter().filter(|c| matches!(c, egui::OutputCommand::CopyText(text) if text == "https://discord.com/api/webhooks/900/SYNTHETIC_TOKEN")).count(), expected);
+					output.drop_without_applying_deltas();
+				}
+			}
+		}
+	}
+
+	#[test]
 	fn draft_survives_failed_save_and_refresh_but_is_cleared_on_permission_loss() {
 		let mut state = state();
 		let guild = state.guilds[0].id;
@@ -908,6 +1162,7 @@ mod tests {
 			let state = state();
 			let guild = state.guilds[0].id;
 			let snapshot = Snapshot {
+				channel: None,
 				guild,
 				webhooks: Some(vec![]),
 				integrations: Some(vec![Integration {

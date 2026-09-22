@@ -1,3 +1,207 @@
+# App extension capabilities - September 22, 2026
+
+Compared the preserved host/package at `e46351a` (runtime unchanged from
+`5e31f5d`) with this PR's app-capability implementation. Windows x64, Ryzen 7
+7800X3D, 32 GB RAM, Rust 1.98.1; standard voice-enabled `cargo xtask package`,
+without demo/developer features. Complete distribution ZIPs use .NET `ZipFile`
+with `CompressionLevel.Optimal`. One package was built per revision.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable bytes | 70,147,584 | 70,361,600 | +214,016 / +0.3051% |
+| Installed package bytes | 74,249,727 | 74,463,894 | +214,167 / +0.2884% |
+| Portable ZIP bytes | 42,390,190 | 42,471,534 | +81,344 / +0.1919% |
+| Protector rebuilt-module invocation median | 1,165.175 us | 1,237.120 us | +71.945 us / +6.17% |
+| Image sharing rebuilt-module invocation median | 1,129.040 us | 1,119.350 us | -9.690 us / -0.86% |
+| Counter create-event invocation median | 1,664.060 us | 1,692.555 us | +28.495 us / +1.71% |
+| App Toolbox dashboard, 18,296-byte snapshot | Unavailable | 4,044.970 us | New capability |
+
+The installed-package delta includes 151 added bytes in the bundled README.
+NSIS was skipped because `makensis` is unavailable; these are unsigned portable
+packages. The existing OpenH264 LNK4255 warning was nonfatal.
+
+Timings use the release `sdk_check` runners with identical rebuilt legacy Wasm
+modules: one warmup and five batches of 20 calls, median batch time per call.
+Each call includes a fresh sandbox and module compilation, excluding package
+parsing, process startup, snapshot construction, worker scheduling and storage IO.
+Measurements ran sequentially after compilation finished. A reverse-order repeat
+changed the protector comparison to 1,383.285 us baseline / 1,217.845 us after;
+the unchanged committed image control varied by 25.2% between baseline runs.
+These short local samples do not establish a stable speed change. The repeated
+App Toolbox median was 3,970.445 us.
+
+App Toolbox is an optional 173,786-byte Wasm / 503,584-byte JSON example, not
+embedded in production. The real sandbox checks all 11 proposed action types,
+six app event kinds, a 50-message UTF-8 snapshot, and the actual synthetic desktop
+demo snapshot. The 5-million-fuel and 16-MiB Wasm limits remain unchanged.
+Snapshots are capped at 64 KiB; coalesced app events share the existing 32-item /
+64-KiB reactive queue and ten-starts-per-second budget. No new worker, timer,
+runtime dependency or persistent cache is added. Native CPU/RSS/frame timing and
+live Discord behavior remain unmeasured; native UI capture is unavailable.
+
+Reproduce after building the standalone Wasm workspace:
+
+```powershell
+cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+```
+
+# Reactive extension events - September 22, 2026
+
+Compared the host at `8b1c798` in an isolated worktree with the event implementation
+at `5e31f5d`, on Windows x64, Ryzen 7 7800X3D, 32 GB RAM and Rust 1.98.1.
+Both standard `cargo xtask package` builds include voice, without demo or developer
+features. Package directories were kept separate. ZIPs contain each complete
+`dist` directory, using .NET `ZipFile` with `CompressionLevel.Optimal`.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable bytes | 70,119,936 | 70,147,584 | +27,648 / +0.0394% |
+| Installed package bytes | 74,222,109 | 74,249,727 | +27,618 / +0.0372% |
+| Portable ZIP bytes | 42,378,074 | 42,390,190 | +12,116 / +0.0286% |
+| Protector rebuilt-module invocation median | 1,128.045 us | 1,156.705 us | +28.660 us / +2.54% |
+| Image sharing rebuilt-module invocation median | 1,143.920 us | 1,126.040 us | -17.880 us / -1.56% |
+| Counter create-event invocation median | Unavailable | 1,646.860 us | New capability |
+
+The installed-package comparison includes a 30-byte LF/CRLF difference in the
+otherwise identical bundled Simple Icons license between checkouts. Both builds
+produced a portable package; NSIS installer creation was skipped because
+`makensis` is unavailable. The existing OpenH264 LNK4255 warning was nonfatal.
+
+Each release `sdk_check` runner used one warmup and five batches of 20 calls,
+reporting the median batch time per call. The same rebuilt legacy modules were
+used with both hosts; their Wasm/package sizes remain those listed below. Each
+call includes a fresh sandbox and module compilation, excluding package parsing,
+process startup, worker scheduling and storage IO. No Cargo build ran during the
+measurements. Unchanged committed-module controls varied by up to 7.5%, so no
+stable speed improvement or regression is inferred from the small timing deltas.
+
+The optional counter example is 122,576 Wasm bytes / 354,453 JSON-package bytes;
+it is not embedded in the production desktop. Its create/update/delete, panel,
+reset and corrupt-storage behavior passed in the real sandbox, including a
+16 KiB UTF-8 text input. Pathological JSON escaping can still exhaust the fixed
+execution budget before reaching byte limits; limits were not increased.
+Delivery queues at most 32 calls / 64 KiB and starts at most ten event invocations
+per second. Native frame timing, process RSS and live Discord behavior were not
+measured; native capture is unavailable in this session.
+
+Reproduce the invocation workload after building the standalone Wasm examples:
+
+```powershell
+cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+```
+
+# Extension SDK bounded serialization - September 22, 2026
+
+Compared SDK sources at `d231e90` with the bounded serializer and unchanged example
+plugin sources, on Windows x64, Ryzen 7 7800X3D, 32 GB RAM and Rust 1.98.1.
+Both builds used the standalone extension workspace's locked dependencies and
+`--release --target wasm32-unknown-unknown` (size optimization, LTO, one codegen
+unit). Baseline modules were saved separately before editing the SDK.
+
+The release `extensions` example `sdk_check` loaded each module into the unchanged
+host sandbox. Each measurement has one warmup and five batches of 20 invocations;
+the table reports the median batch duration per call. Each call creates a new
+runtime, including module compilation; package construction/parsing and process
+startup are excluded. Baseline and changed modules were run sequentially using
+the same executable, with no concurrent Cargo build.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Protector Wasm bytes | 70,629 | 78,746 | +8,117 / +11.49% |
+| Protector JSON package bytes | 205,650 | 227,360 | +21,710 / +10.55% |
+| Protector invocation median | 1,014.520 us | 1,160.400 us | +145.880 us / +14.38% |
+| Image sharing Wasm bytes | 70,629 | 78,738 | +8,109 / +11.48% |
+| Image sharing JSON package bytes | 205,642 | 227,312 | +21,670 / +10.54% |
+| Image sharing invocation median | 989.660 us | 1,119.255 us | +129.595 us / +13.09% |
+
+These are small local activation workloads, not UI latency, RSS or live Discord
+measurements. Unchanged committed modules varied between runs, so the timing
+deltas are observations, not a stable slowdown estimate. The extra code provides
+bounded serialization and native SDK diagnostics. Serialized response buffers stop
+at 256 KiB, including JSON escaping; plugin-owned output values still consume the
+existing 16 MiB sandbox memory budget.
+
+For the initial SDK-only step at `8b1c798`, the distributed desktop runtime and
+committed plugin packages were unchanged. The
+SDK is a host dev-dependency only; desktop executable, installed package and ZIP
+sizes were not remeasured. Plugin packages above are the uncompressed portable
+JSON artifact, with no separate compressed SDK distribution. Reproduce after a
+standalone Wasm build with:
+
+```powershell
+cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+```
+
+# Navigation caches and process scanning — September 22, 2026
+
+Compared initial baseline `5fe88e52` with runtime commit `02e2acba` on macOS 27.0
+(26A428), Apple M1 Pro, 16 GiB RAM, pinned Rust 1.98.1 and locked dependencies.
+Both standard packages include voice and exclude demo/developer-session features.
+Baseline sources and package output stayed in a separate worktree. Benchmark-only
+test additions were identical on both revisions. Changed release crates were cleaned
+before building the final benchmark executables to avoid shared-target reuse of an
+older worktree artifact; the new regression-test names were verified in the executables.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| 200 picker frames, 50k emoji / one search hit, message churn | 104.630 ms | 11.910 ms | -92.720 ms (-88.62%) |
+| 200 sidebar frames, 10k account channels / 100 visible-guild rows, message churn | 32.105 ms | 11.500 ms | -20.605 ms (-64.18%) |
+| Same sidebar, unchanged state | 11.242 ms | 11.150 ms | -0.093 ms (-0.82%, small) |
+| 100 scans of 4,096 process paths, matching only | 231.388 ms | 116.444 ms | -114.945 ms (-49.68%) |
+| 100,000-event reducer replay | 53.495 ms | 54.204 ms | +0.709 ms (+1.33%) |
+| Retained timeline estimated bytes / records | 339,992–340,477 / 500 | 339,992–340,477 / 500 | Unchanged |
+| Standard release executable bytes | 55,992,336 | 55,992,336 | 0 |
+| Installed app bundle bytes | 61,937,873 | 61,937,873 | 0 |
+| Compressed app ZIP bytes | 41,206,777 | 41,208,325 | +1,548 (+0.004%, noise) |
+
+Component timings are medians of five measured batches after one warmup batch;
+UI workloads also run ten initial warmup frames. Picker and sidebar churn apply
+real synthetic message events and include reducer work, unlike the earlier manual
+revision-bump benchmark. They render at 900×700 and 280×700 respectively, excluding
+GPU presentation, network requests and whole-app frame latency. The matcher uses
+equal groups of misses, basename hits, longer suffix hits and macOS bundle hits;
+it excludes OS process enumeration. Replay binaries ran alternately, one warmup
+and five measured runs per revision. The small reducer-only increase is reported
+as a trade-off, not a speedup; its sample ranges overlapped (53.228–60.186 ms before,
+52.930–55.099 ms after). The large UI/matcher gains repeated in an earlier paired run,
+which had unrelated host builds active during part of the sample. Final timings
+were taken serially with no Cargo build observed running at their start.
+
+Reproduce the component workloads with:
+
+```sh
+cargo test --release --locked -p ui custom_picker_frame_benchmark -- --ignored --nocapture
+cargo test --release --locked -p ui channel_list_frame_benchmark -- --ignored --nocapture
+cargo test --release --locked -p discord-api process_matcher_benchmark -- --ignored --nocapture
+cargo replay
+# Then run target/release/replay-bench directly: one warmup and five measured runs.
+```
+
+One standard `cargo xtask package` output per revision was measured after local
+ad-hoc signing; neither is a notarized distribution. Bundle size sums regular-file
+lengths under `Serein.app`; compression uses `ditto -c -k --keepParent`. Executable
+hashes differ despite equal file sizes. Package contents and dependency notices are
+unchanged apart from the executable. The small ZIP difference is not a performance gain.
+
+Native checks used separate release builds with `--features demo`, launched with
+`--demo --demo-chat`, default viewport/appearance, wgpu on the same macOS display
+at 2× scale. Each of two launches per revision warmed up for ten seconds, then used
+30 main-process `ps` samples at one-second intervals (about 30.38 seconds elapsed).
+Settled RSS was 151,936 / 142,128 KiB before and 145,488 / 143,232 KiB after.
+CPU from process-time deltas was 0% / 0% before and 0.889% / 0% after; the first
+after increase did not repeat. These short samples do not establish an idle CPU
+or RAM improvement. GPU/driver and helper memory, startup latency and frame percentiles
+were not measured. The isolated sidebar process's peak RSS also changed direction
+between paired runs, so no process-RSS saving is claimed from that workload.
+
+The deterministic memory changes are smaller transient indexes/row buffers and a
+513-byte Linux command-line read limit. READY's temporary reference vector uses at
+most 1 MiB of element storage on 64-bit; old/new validated account snapshots still
+overlap. Cache ceilings, video resolution/buffer reuse, packet pacing and process-scan
+intervals are unchanged. Native Linux/Windows enumeration and live Discord/media
+performance were not tested. The separately landed Spotify feature is outside this
+comparison. There is no visible UI change, so before/after screenshots are not applicable.
+
 # Optional smooth scrolling - September 19, 2026
 
 Baseline: `d160c3e`. After: this change on that baseline. One standard Windows x64
@@ -1331,3 +1535,267 @@ latency. That check used debug demo builds, a local HTML page and a synthetic
 XHR-header handoff without sending the request, on Weston 15 inside an isolated
 1280×960 Xvfb display. The native window remained after handoff on the baseline
 and disappeared with the fix. This was not a live Discord login test.
+
+## SDK account/channel data and invalidation events - September 22, 2026
+
+Baseline: previous SDK head `e1a403b`. After: runtime source `3d94c76`.
+Windows x64, Ryzen 7 7800X3D, 32 GB RAM, Rust 1.98.1, serialized Cargo builds.
+The after revision also integrates main through `14e72bf`; this is a branch
+comparison, not an isolated attribution of size or timing to the four new grants.
+
+Release sandbox workload: `cargo run --locked --release -p extensions --example
+sdk_check -- <wasm-directory>`. One warmup, five batches of 20 calls, median per
+call. Each call creates a fresh sandbox and compiles its module; package parsing,
+process startup, snapshot construction and worker IO are excluded. No Cargo build
+ran during the timed calls. Baseline used the committed baseline modules extracted
+to a temporary directory; only its committed-module rows are compared below.
+
+| Committed-module workload | Before, us | After, us | Delta |
+| --- | ---: | ---: | ---: |
+| Protector activation | 1,066.635 | 1,171.655 | +105.020 / +9.85% |
+| Image-sharing activation | 1,007.975 | 1,061.295 | +53.320 / +5.29% |
+| Counter create event | 1,572.145 | 1,669.315 | +97.170 / +6.18% |
+| Toolbox dashboard, 18,296-byte snapshot | 3,772.155 | 4,312.075 | +539.920 / +14.31% |
+
+The first three committed modules are unchanged. Toolbox grew from 173,786 to
+198,370 Wasm bytes and now builds the additional data summaries; its JSON package
+is 574,992 bytes. It remains optional, not embedded in the production app.
+The after rebuilt Toolbox run measured 4,036.745 us for identical Wasm, illustrating
+run-order/host noise. These single-session samples show no established stable
+regression or improvement; the observed dashboard median rose about 0.54 ms.
+New account/server/channel groups and all 11 event kinds were separately checked
+in the real sandbox; the timed dashboard uses the same legacy snapshot shape.
+
+The collector retains its 64 KiB serialized snapshot limit, allocating from
+already-loaded data only at invocation. Per-group byte/item bounds and the shared
+32-item / 64 KiB event queue remain explicit. Detailed events coalesce per kind;
+no background timer or persistent plugin process was added. Native screenshots,
+CPU/RSS and frame latency are unavailable: native automation is disabled, `orca`
+is absent, and browser CUA initialization fails with OS error 3. No live-account
+or native UI performance claim is made.
+
+Both standard `cargo xtask package` builds passed, including voice and excluding
+demo/developer-session features. One package per revision; .NET ZipFile Optimal
+compression of the full `dist` directory. Affected release crates were rebuilt
+from each worktree to avoid stale shared-target artifacts.
+
+| Artifact, bytes | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 70,361,600 | 71,060,992 | +699,392 / +0.9940% |
+| Installed package | 74,463,927 | 75,163,319 | +699,392 / +0.9392% |
+| Portable ZIP | 42,471,539 | 42,708,512 | +236,973 / +0.5580% |
+
+The OpenH264 LNK4255 warning was nonfatal in both builds. `makensis` is unavailable,
+so these are unsigned portable packages, with no NSIS installer measurement.
+
+## SDK message metadata and relationships - September 22, 2026
+
+Baseline: `bf66cf4` (runtime identical to `3d94c76`). After: `20e47b2`.
+Both contain main through `14e72bf`. Windows x64, Ryzen 7 7800X3D, 32 GB RAM,
+Rust 1.98.1, serialized Cargo builds. The verified baseline package was preserved
+before editing; changed extensions, UI and desktop crates rebuilt from this worktree.
+
+Release `sdk_check` invocation medians use one warmup and five batches of 20 calls,
+each with a fresh sandbox/module compilation. Package parsing, process startup,
+snapshot collection and worker IO are excluded. No concurrent Cargo build ran
+during timed calls. The same legacy input shapes are compared at both revisions;
+new metadata/relationship groups and all 13 app events passed separate sandbox
+checks, including the desktop collector's all-grants fixture.
+
+| Committed-module workload | Before, us | After, us | Delta |
+| --- | ---: | ---: | ---: |
+| Protector activation | 1,102.360 | 1,119.970 | +17.610 / +1.60% |
+| Image-sharing activation | 982.155 | 1,043.825 | +61.670 / +6.28% |
+| Counter create event | 1,629.025 | 1,644.250 | +15.225 / +0.93% |
+| Toolbox dashboard, 18,296-byte snapshot | 4,236.245 | 4,241.240 | +4.995 / +0.12% |
+
+The first three committed modules are unchanged. Toolbox grows from 198,370 to
+231,762 Wasm bytes; its optional JSON package is 671,753 bytes, not embedded in
+production. Its identical rebuilt-module repeat measured 4,163.915 us. These
+single-session variations do not establish a stable timing change.
+
+New message details have an 8-KiB/20-record ceiling, nested rows share 4 KiB per
+message, and relationships have a 4-KiB/100-record ceiling. Both consume the
+remaining shared 64-KiB snapshot budget. When message details are also granted,
+the text timeline uses 20 rows instead of 50; its 20-KiB byte budget is unchanged.
+This lets the all-grants fixture fit the unchanged 5,000,000-fuel sandbox budget;
+valid wire size alone still cannot guarantee arbitrary plugin execution. Existing
+timeline-only grants retain their 50-row ceiling. Queue limits remain 32 items /
+64 KiB, with ten starts per second and no new worker or timer.
+
+Native screenshot/CPU/RSS/frame evidence remains unavailable: native automation
+is disabled, `orca` is absent, and browser CUA initialization fails with OS error 3.
+These are synthetic sandbox measurements, not live Discord or native UI evidence.
+
+Standard voice-enabled `cargo xtask package` passed at both revisions, without
+demo/developer-session features. One package per revision, .NET ZipFile Optimal
+compression over the complete `dist` tree:
+
+| Artifact, bytes | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 71,060,992 | 71,107,072 | +46,080 / +0.0648% |
+| Installed package | 75,163,319 | 75,209,399 | +46,080 / +0.0613% |
+| Portable ZIP | 42,708,512 | 42,731,126 | +22,614 / +0.0530% |
+
+OpenH264 LNK4255 was nonfatal. `makensis` is unavailable, so no NSIS installer
+was produced; the unsigned portable distribution was measured.
+
+### Typed-manifest authoring follow-up
+
+The follow-up to `44f46d2` adds SDK metadata types, an offline manifest checker,
+contract tests and docs only. The desktop uses this SDK as a development
+dependency; no production host code, dependency, invocation or UI behavior changes.
+The preceding native package measurements remain the runtime evidence; no new
+native package or UI performance claim is made for authoring-only changes.
+
+All four example plugins rebuilt and passed the existing release sandbox checks.
+Three Wasm modules were byte-identical to the pre-edit artifacts. Message Counter
+remained 122,576 bytes with a different hash; both its committed and rebuilt
+modules passed the event/storage checks. Shipped package files were unchanged.
+
+## SDK channel and member coverage - September 22, 2026
+
+Baseline: `8861300` (production runtime identical to `20e47b2`). After: the
+channel/member coverage follow-up on PR #373. Windows x64, Ryzen 7 7800X3D,
+32 GB RAM, Rust 1.98.1, serialized shared-target Cargo builds. The verified
+baseline package was copied before edits; its executable SHA-256 was
+`92dfb897c6ff8719b61029289cd24e50f8be5b3ebca2d08338af372dd45fc710`.
+
+The release `sdk_check` workload uses one warmup and five batches of 20 calls,
+a fresh sandbox/module compilation per call, and unchanged committed plugins
+and input shapes. Package parsing, startup, snapshot collection and worker IO
+are excluded; no concurrent Cargo build ran during these timed calls.
+
+| Committed-module workload | Before, us | After, us | Delta |
+| --- | ---: | ---: | ---: |
+| Protector activation | 1,178.240 | 1,097.925 | -80.315 / -6.82% |
+| Image-sharing activation | 1,042.590 | 989.220 | -53.370 / -5.12% |
+| Counter create event | 1,682.165 | 1,606.670 | -75.495 / -4.49% |
+| Toolbox dashboard, 18,296-byte snapshot | 4,268.025 | 4,131.795 | -136.230 / -3.19% |
+
+These single-session variations do not establish a stable speed improvement.
+The rebuilt Toolbox measured 4,291.690 us; its Wasm grew from 231,762 to
+274,763 bytes as the SDK gained optional types. The committed Toolbox stays
+unchanged. New Guild Inspector is a separate optional 267,510-byte Wasm module
+in a 773,922-byte JSON package, not embedded in the production executable.
+Both committed/rebuilt Inspector packages passed real sandbox invocation with
+new data and event kinds. An immutable older App Toolbox compiled at `3d94c76`
+also passed current-host invocation without rebuilding its Wasm.
+
+The two new data groups each have a 6-KiB wire ceiling. Member details additionally
+cap members at 20, role IDs per member at 32 and catalog roles at 32; the collector
+charges item/nested storage against its group budget. Groups consume remaining
+space in the existing 64-KiB snapshot. New event kinds share the existing 32-item /
+64-KiB queue and ten starts/second. No new cache, dependency, worker or timer.
+No lifecycle tests were added. Native screenshots, CPU/RSS and frame timings remain
+unavailable; these synthetic checks do not establish live Discord compatibility.
+
+
+The standard voice-enabled `cargo xtask package` passed at coverage source
+`ac48e1c`, without demo/developer-session features. One package per revision;
+.NET ZipFile Optimal compression of the full `dist` directory:
+
+| Artifact, bytes | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 71,107,072 | 71,197,184 | +90,112 / +0.1267% |
+| Installed package | 75,209,399 | 75,299,511 | +90,112 / +0.1198% |
+| Portable ZIP | 42,731,126 | 42,757,192 | +26,066 / +0.0610% |
+
+The changed executable SHA-256 is
+`bcc962c1ea5c936e22ce32b5eed785faba5f9f4b5e55a38a3974a5293c1d1151`.
+OpenH264 LNK4255 was nonfatal. `makensis` is absent, so the unsigned portable
+package was measured; no NSIS installer was produced.
+
+
+## SDK discovery and rich data - September 22, 2026
+
+Baseline: `7d3def0` (production runtime identical to `ac48e1c`). After: the
+host-discovery/rich-data follow-up on PR #373. The final branch also integrates
+main through `f3a165f`; the package comparison includes those intervening UI/core
+changes and must not be attributed solely to SDK code. The invocation timings
+below isolate the unchanged extension host inputs/modules across the SDK change.
+Windows x64, Ryzen 7 7800X3D,
+32 GB RAM, Rust 1.98.1, serialized shared-target Cargo builds. The previous
+verified package was copied before edits; its executable SHA-256 was
+`bcc962c1ea5c936e22ce32b5eed785faba5f9f4b5e55a38a3974a5293c1d1151`.
+
+Release `sdk_check` medians use one warmup and five batches of 20 calls, each
+with a fresh sandbox/module compilation. Package parsing, process startup,
+snapshot collection and worker IO are excluded. No other Cargo build ran during
+timed calls. Committed modules and their app inputs are unchanged; the current
+host additionally injects its public support catalog into each invocation.
+
+| Committed-module workload | Before, us | After, us | Delta |
+| --- | ---: | ---: | ---: |
+| Protector activation | 1,138.095 | 1,136.195 | -1.900 / -0.17% |
+| Image-sharing activation | 1,002.415 | 1,066.020 | +63.605 / +6.35% |
+| Counter create event | 1,650.570 | 1,893.125 | +242.555 / +14.70% |
+| Toolbox dashboard, 18,296-byte app snapshot | 4,210.395 | 4,212.230 | +1.835 / +0.04% |
+
+The counter median increased about 0.24 ms in this session; the committed
+Toolbox dashboard was nearly unchanged. These are observed overheads, not a
+stable cross-machine regression estimate. Rebuilt Toolbox measured 4,731.850 us
+(previously 4,225.275 us); its expanded SDK module grew from 274,763 to 322,343
+Wasm bytes. Existing committed packages remain unchanged. Conversation Inspector
+is a new optional 312,941-byte Wasm / 905,809-byte JSON package, not embedded in
+production. All six committed/rebuilt plugin pairs and the immutable legacy
+App Toolbox passed real sandbox checks, including new data/discovery/events.
+
+Rich content is bounded to 10 rows / 8 KiB, forum data to 10 threads / 6 KiB,
+and activity to eight typing IDs plus twenty pin IDs / 2 KiB. They share the
+64-KiB app snapshot cap. Discovery counts against the existing 256-KiB invocation
+cap, slightly reducing space for other input fields. Queue/rate/fuel limits
+are unchanged; no new dependency, cache, worker or timer. Poll detail and forum
+tag data remain unsupported by core state. No lifecycle tests were added.
+Native screenshot/CPU/RSS/frame evidence remains unavailable; synthetic sandbox
+measurements do not establish live Discord compatibility.
+
+
+The standard voice-enabled `cargo xtask package` passed at runtime source
+`a248c79`, without demo/developer-session features. Full `cargo xtask check`
+passed after integrating main through `f3a165f`: 1,055 tests passed, 20 ignored,
+strict workspace Clippy, no-default desktop compilation and policy checks passed.
+One package per revision; .NET ZipFile Optimal compression of the full `dist`:
+
+| Artifact, bytes | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 71,197,184 | 71,307,264 | +110,080 / +0.1546% |
+| Installed package | 75,299,511 | 75,409,591 | +110,080 / +0.1462% |
+| Portable ZIP | 42,757,192 | 42,799,245 | +42,053 / +0.0984% |
+
+The changed executable SHA-256 is `36f3d1c8329246f19ba33253576efdba6d38e421b13f32911a623ca9222c8292`.
+This comparison includes the intervening main changes described above.
+OpenH264 LNK4255 was nonfatal. `makensis` is absent, so no NSIS installer
+was produced; measurements describe the unsigned portable package.
+
+
+## Partial user profiles ? September 22, 2026
+
+Compared clean baseline `fa10fec` with runtime change `d025e84` on Windows 11
+Home 10.0.26200, Ryzen 7 7800X3D, 31.1 GiB RAM, Rust 1.98.1. One standard
+`cargo xtask package` per revision, voice included, no demo/developer-session
+features; full portable directory compressed with .NET ZipFile Optimal.
+
+| Artifact, bytes | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 71,307,264 | 71,311,360 | +4,096 / +0.0057% |
+| Installed package | 75,409,561 | 75,413,657 | +4,096 / +0.0054% |
+| Portable ZIP | 42,799,281 | 42,801,211 | +1,930 / +0.0045% |
+
+Changed executable SHA-256:
+`159a23116d5d9bce5a1f7d22d1189439df6cda6c9a8de603b2d9cceb57df4ccb`.
+Both packages passed; OpenH264 LNK4255 was nonfatal. NSIS is unavailable,
+so these are unsigned portable packages, not installer measurements.
+
+`cargo replay`, one warmup then five direct executable runs per phase:
+before 56.7939, 56.5201, 57.8881, 67.8447, 62.4075 ms; after 60.0030,
+61.8068, 61.2891, 59.8946, 60.7432 ms. Median 57.8881 ? 60.7432 ms
+(+2.8551 ms / +4.93%). Both retain 339,992?340,477 estimated bytes / 500
+records after 100,000 events. The reducer dependencies are unchanged, so the
+same reducer binary was reused. Variation under concurrent build load is not
+evidence of a profile performance regression or improvement; replay does not
+exercise profile decoding or UI rendering.
+
+Native before/after interaction, CPU/RSS and frame timing remain unmeasured:
+Computer Use could not connect to its native pipe (`os error 2`). Headless
+profile UI tests passed but do not establish native or live Discord behavior.

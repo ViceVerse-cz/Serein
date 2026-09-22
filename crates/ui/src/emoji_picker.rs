@@ -214,15 +214,14 @@ impl CustomMatches {
 	fn update(&mut self, state: &State, server: Option<Id>, query: &str) -> bool {
 		let key = (
 			state.generation,
-			state.revision,
+			state.catalog_revision(),
 			state.user.as_ref().map(|user| user.id),
 			server,
 		);
 		if self.key == Some(key) && self.query.as_ref() == query {
 			return false;
 		}
-		// All production catalog/name/membership mutations advance State::revision.
-		// ponytail: unrelated events also invalidate; add a catalog epoch only if churn matters.
+		// Catalog/name/membership changes invalidate these indices; messages do not.
 		self.entries = custom_matches(state, server, query).into_boxed_slice();
 		// The UI admits 64 Unicode scalars. Oversized internal queries are never retained.
 		self.key = (query.len() <= 64 * 4).then_some(key);
@@ -420,6 +419,19 @@ impl Picker {
 		if let Some(sticker) = sticker {
 			self.stickers.focus(sticker);
 		}
+	}
+	pub(crate) fn open_gifs(&mut self, query: &str) {
+		self.pending_open = true;
+		self.tab = Tab::Gifs;
+		self.focus = true;
+		self.gif_section = GifSection::Home;
+		self.gif_query = query.chars().take(64).collect();
+		self.gif_changed_at = None;
+	}
+	pub(crate) fn search_stickers(&mut self, query: &str) {
+		self.open_stickers(None);
+		self.stickers.target = None;
+		self.stickers.query = query.chars().take(64).collect();
 	}
 
 	fn filter(&mut self) {
@@ -1501,9 +1513,8 @@ impl Picker {
 					}
 					GifMode::Favorites => {
 						if state.gifs.favorites.is_empty() {
-							empty_state(
+							crate::design::empty_state(
 								ui,
-								colors,
 								crate::icons::Icon::Star,
 								"No favorites yet",
 								"Hover a GIF and press the star to keep it here.",
@@ -1540,9 +1551,8 @@ impl Picker {
 									.map(|page| page.gifs.as_slice())
 									.unwrap_or_default();
 								if gifs.is_empty() {
-									empty_state(
+									crate::design::empty_state(
 										ui,
-										colors,
 										crate::icons::Icon::Gif,
 										"No GIFs found",
 										"Try a different search term.",
@@ -1590,26 +1600,6 @@ fn status_row(ui: &mut egui::Ui, colors: &crate::design::Palette, spinner: bool,
 			ui.add_space(8.0);
 		}
 		ui.label(egui::RichText::new(text).color(colors.muted));
-	});
-}
-
-fn empty_state(
-	ui: &mut egui::Ui,
-	colors: &crate::design::Palette,
-	icon: crate::icons::Icon,
-	title: &str,
-	detail: &str,
-) {
-	ui.add_space(48.0);
-	ui.vertical_centered(|ui| {
-		let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(64.0), egui::Sense::hover());
-		ui.painter()
-			.circle_filled(rect.center(), 32.0, colors.raised);
-		crate::icons::paint(ui.painter(), icon, rect.shrink(18.0), colors.muted);
-		ui.add_space(12.0);
-		ui.label(crate::design::semibold(ui, title, 16.0).color(colors.text_strong));
-		ui.add_space(4.0);
-		ui.label(egui::RichText::new(detail).color(colors.muted));
 	});
 }
 
@@ -2062,9 +2052,16 @@ mod tests {
 			let mut commands = Vec::new();
 			let mut frame_number = 0;
 			let mut frame = || {
-				// Model accepted-event invalidation without timing the reducer itself.
+				// Exercise accepted message events, including reducer work, so domain
+				// invalidation is measured rather than a synthetic global revision bump.
 				if churn {
-					state.revision += 1;
+					state.apply(client_core::Envelope {
+						generation: state.generation,
+						event: client_core::Event::Message(test_support::message(
+							1_000_000 + frame_number,
+							channel,
+						)),
+					});
 				}
 				frame_number += 1;
 				let output = ctx.run_ui(
@@ -2129,6 +2126,18 @@ mod tests {
 		let allocation = cache.entries.as_ptr();
 		assert!(!cache.update(&state, Some(guild), ""));
 		assert_eq!(cache.entries.as_ptr(), allocation);
+		let channel = state.selected.unwrap();
+		for id in 1_000_000..1_000_010 {
+			apply(
+				&mut state,
+				Event::Message(test_support::message(id, channel)),
+			);
+			assert!(!cache.update(&state, Some(guild), ""));
+			assert_eq!(cache.entries.as_ptr(), allocation);
+		}
+		// Direct fixture/local mutations still invalidate the domain caches.
+		state.revision += 1;
+		assert!(cache.update(&state, Some(guild), ""));
 		assert!(cache.update(&state, None, ""));
 		assert_eq!(cache.len(), 0);
 		assert!(cache.update(&state, None, "  NEEDLE  "));

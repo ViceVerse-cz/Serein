@@ -161,35 +161,32 @@ impl State {
 		if let Some(entry) = restored {
 			self.timeline = entry.timeline;
 		}
+		self.timeline
+			.set_preserve_deleted_messages(self.preserve_deleted_messages);
 		self.enforce_resident_budget();
 	}
 	pub(crate) fn invalidate_resident_event(&mut self, event: &Event) {
-		if self.preserve_deleted_messages {
-			let deletion = match event {
-				Event::Delete { channel, id } => Some((*channel, std::slice::from_ref(id))),
-				Event::DeleteBulk { channel, ids } if ids.len() <= 100 => {
-					Some((*channel, ids.as_slice()))
-				}
-				_ => None,
-			};
-			if let Some((channel, ids)) = deletion {
-				if let Some(window) = self
-					.resident
-					.entries
-					.iter_mut()
-					.find(|w| w.identity.id == channel)
-				{
-					window.timeline.set_preserve_deleted_messages(true);
-					if ids
-						.iter()
-						.try_for_each(|id| window.timeline.delete(*id))
-						.is_err()
-					{
-						self.resident.remove(channel);
-					}
-				}
-				return;
+		let deletion = match event {
+			Event::Delete { channel, id } => Some((*channel, std::slice::from_ref(id))),
+			Event::DeleteBulk { channel, ids } if ids.len() <= 100 => {
+				Some((*channel, ids.as_slice()))
 			}
+			_ => None,
+		};
+		if let Some((channel, ids)) = deletion {
+			if let Some(window) = self
+				.resident
+				.entries
+				.iter_mut()
+				.find(|w| w.identity.id == channel)
+				&& ids
+					.iter()
+					.try_for_each(|id| window.timeline.delete(*id))
+					.is_err()
+			{
+				self.resident.remove(channel);
+			}
+			return;
 		}
 		let channel = match event {
 			Event::Message(message)
@@ -219,15 +216,14 @@ impl State {
 			_ => None,
 		};
 		if let Some(channel) = channel {
-			if self.preserve_deleted_messages
-				&& !matches!(event, Event::RecipientRemoved { .. })
+			if !matches!(event, Event::RecipientRemoved { .. })
 				&& let Some(window) = self
 					.resident
 					.entries
 					.iter_mut()
 					.find(|w| w.identity.id == channel)
 			{
-				window.timeline.retain_deleted_messages();
+				window.timeline.drop_live_history();
 				if window.timeline.display_iter().next().is_some() {
 					return;
 				}
@@ -259,6 +255,7 @@ mod tests {
 				discriminator: 0,
 			},
 			content: "Resident synthetic content".into(),
+			prior_contents: Default::default(),
 			reactions: Some(vec![]),
 			author_nick: None,
 			author_roles: vec![],
@@ -272,6 +269,7 @@ mod tests {
 			nonce: None,
 			reply_to: None,
 			reply_deleted: false,
+			interaction: None,
 			forwarded: false,
 			unsupported: false,
 			components: vec![],
@@ -469,11 +467,11 @@ mod tests {
 	}
 
 	#[test]
-	fn protected_dormant_deletions_survive_live_history_invalidation() {
+	fn dormant_deletions_survive_live_history_invalidation() {
 		for event in [Event::Message(message(1, 1099)), Event::Patch(patch(1))] {
 			let mut state = state();
-			load(&mut state, 1);
 			state.set_preserve_deleted_messages(true);
+			load(&mut state, 1);
 			load(&mut state, 2);
 			apply(
 				&mut state,
@@ -498,8 +496,9 @@ mod tests {
 				},
 			);
 			assert!(state.timeline.get_display(Id(1001)).is_some());
-			state.set_preserve_deleted_messages(false);
+			state.discard_preserved_deleted(Id(1001));
 			assert!(state.timeline.get_display(Id(1001)).is_none());
+			assert!(state.timeline.is_deleted(Id(1001)));
 		}
 	}
 
@@ -580,12 +579,21 @@ mod tests {
 					id: Id(2001),
 				},
 			});
+			let delete = matches!(&event, Event::Delete { .. } | Event::DeleteBulk { .. });
 			apply(&mut state, event);
-			assert_eq!(state.resident_window_count(), 1);
-			state.select(Id(2)).unwrap();
-			assert_eq!(state.timeline.row_count(), 50);
-			state.select(Id(1)).unwrap();
-			assert_eq!(state.timeline.row_count(), 0);
+			if delete {
+				assert_eq!(state.resident_window_count(), 2);
+				state.select(Id(1)).unwrap();
+				assert!(state.timeline.get_display(Id(1001)).is_none());
+				assert!(state.timeline.get(Id(1001)).is_none());
+				assert_eq!(state.timeline.row_count(), 50);
+			} else {
+				assert_eq!(state.resident_window_count(), 1);
+				state.select(Id(2)).unwrap();
+				assert_eq!(state.timeline.row_count(), 50);
+				state.select(Id(1)).unwrap();
+				assert_eq!(state.timeline.row_count(), 0);
+			}
 		}
 	}
 

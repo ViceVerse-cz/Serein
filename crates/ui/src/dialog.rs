@@ -166,6 +166,9 @@ pub struct Body<'a> {
 }
 
 impl Body<'_> {
+	pub fn available_height(&self) -> f32 {
+		self.available_height
+	}
 	/// Padded content block. Call once per logical section.
 	pub fn content<R>(&mut self, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
 		egui::Frame::new()

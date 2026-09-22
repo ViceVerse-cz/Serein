@@ -1009,49 +1009,20 @@ impl RolesUi {
 		guild: Id,
 		commands: &mut Vec<Command>,
 	) {
-		let colors = design::palette(ui);
-		let mut save = false;
-		ui.horizontal(|ui| {
-			ui.spacing_mut().item_spacing.x = 8.0;
-			let ready = !state.server_admin.pending
-				&& !state.server_admin.needs_refresh
-				&& !self.icon_pending;
-			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-				ui.add_enabled_ui(ready, |ui| {
-					save =
-						crate::dialog::action(ui, "Save Changes", crate::dialog::Action::Primary)
-							.clicked();
-				});
-				ui.add_enabled_ui(!state.server_admin.pending, |ui| {
-					if crate::dialog::action(ui, "Reset", crate::dialog::Action::Neutral).clicked()
-					{
-						self.draft.clone_from(&self.baseline);
-						self.icon = Patch::Absent;
-						self.icon_texture = None;
-						self.icon_pending = false;
-						self.icon_requested = false;
-						self.error = None;
-					}
-				});
-				ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-					ui.add(
-						egui::Label::new(
-							design::medium(
-								ui,
-								if self.submitted {
-									"Saving role…"
-								} else {
-									"Careful — you have unsaved changes!"
-								},
-								14.0,
-							)
-							.color(colors.text_strong),
-						)
-						.truncate(),
-					);
-				});
-			});
-		});
+		let (save, reset) = design::save_bar(
+			ui,
+			self.submitted.then_some("Saving role…"),
+			!state.server_admin.pending && !state.server_admin.needs_refresh && !self.icon_pending,
+			!state.server_admin.pending,
+		);
+		if reset {
+			self.draft.clone_from(&self.baseline);
+			self.icon = Patch::Absent;
+			self.icon_texture = None;
+			self.icon_pending = false;
+			self.icon_requested = false;
+			self.error = None;
+		}
 		if save && let (Some(before), Some(draft)) = (&self.baseline, &self.draft) {
 			let mut edit = Edit::between(before, draft);
 			if !matches!(self.icon, Patch::Absent) {

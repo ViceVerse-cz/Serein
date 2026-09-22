@@ -629,12 +629,13 @@ fn preview(
 								ui.separator();
 								ui.add_space(8.0);
 								ui.label(design::eyebrow(ui, "About Me", colors.text_strong));
+								let mut mentions = crate::profiles::ProfileSession::default();
 								crate::markdown::Formatted::parse(&draft.bio).show_with_images(
 									ui,
 									opening,
 									&[],
 									None,
-									&mut None,
+									&mut mentions,
 									(avatars, demo, guilds),
 								);
 							}

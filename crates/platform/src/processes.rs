@@ -23,9 +23,25 @@ fn accept(path: &str, into: &mut Vec<String>) {
 	into.push(path.to_owned());
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn accept_cmdline(reader: impl std::io::Read, into: &mut Vec<String>) -> std::io::Result<()> {
+	use std::io::Read;
+
+	// One extra byte distinguishes an overlong argv[0] from an exactly bounded path.
+	let mut bytes = Vec::with_capacity(MAX_PATH + 1);
+	reader.take((MAX_PATH + 1) as u64).read_to_end(&mut bytes)?;
+	if let Some(first) = bytes.split(|byte| *byte == 0).next()
+		&& first.len() <= MAX_PATH
+		&& let Ok(first) = std::str::from_utf8(first)
+	{
+		accept(first, into);
+	}
+	Ok(())
+}
+
 #[cfg(target_os = "linux")]
 mod native {
-	use super::{MAX_PATH, MAX_PROCESSES, accept};
+	use super::{MAX_PROCESSES, accept, accept_cmdline};
 	use std::fs;
 
 	/// `/proc/<pid>/exe` is the real image; `cmdline`'s first word covers interpreted
@@ -49,12 +65,8 @@ mod native {
 				accept(target, &mut paths);
 			}
 			// Bounded read: a command line may be megabytes, but only argv[0] is used.
-			if let Ok(cmdline) = fs::read(directory.join("cmdline"))
-				&& let Some(first) = cmdline.split(|byte| *byte == 0).next()
-				&& first.len() <= MAX_PATH
-				&& let Ok(first) = std::str::from_utf8(first)
-			{
-				accept(first, &mut paths);
+			if let Ok(cmdline) = fs::File::open(directory.join("cmdline")) {
+				let _ = accept_cmdline(cmdline, &mut paths);
 			}
 		}
 		Ok(paths)
@@ -120,6 +132,32 @@ mod native {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn cmdline_reads_are_bounded_and_only_accept_complete_first_paths() {
+		let mut command = b"/usr/bin/game\0".to_vec();
+		command.extend(vec![b'x'; 1024 * 1024]);
+		let mut reader = std::io::Cursor::new(command);
+		let mut paths = Vec::new();
+		accept_cmdline(&mut reader, &mut paths).unwrap();
+		assert_eq!(reader.position(), (MAX_PATH + 1) as u64);
+		assert_eq!(paths, ["/usr/bin/game"]);
+
+		let exact = vec![b'x'; MAX_PATH];
+		accept_cmdline(exact.as_slice(), &mut paths).unwrap();
+		let mut terminated = exact.clone();
+		terminated.push(0);
+		accept_cmdline(terminated.as_slice(), &mut paths).unwrap();
+		assert_eq!(paths.len(), 3);
+		assert_eq!(paths[1].len(), MAX_PATH);
+		assert_eq!(paths[1], paths[2]);
+
+		let overlong = vec![b'x'; MAX_PATH + 1];
+		for invalid in [overlong.as_slice(), b"\xff\0", b"\0", b""] {
+			accept_cmdline(invalid, &mut paths).unwrap();
+		}
+		assert_eq!(paths.len(), 3);
+	}
 
 	#[test]
 	fn own_process_is_listed_within_bounds() {

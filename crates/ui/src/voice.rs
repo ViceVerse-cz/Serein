@@ -304,22 +304,6 @@ impl MessagingUi {
 		})
 	}
 
-	fn remember_profile_trigger(&mut self, rect: egui::Rect, pointer_inside: bool) {
-		if pointer_inside {
-			self.profile_trigger = Some(rect);
-		}
-	}
-
-	fn toggle_profile(&mut self, user: &model::User) {
-		if self.profile.as_ref().is_some_and(|open| open.id == user.id) {
-			self.profile = None;
-			self.profile_link = None;
-			self.profile_anchor = None;
-		} else {
-			self.profile = Some(user.clone());
-		}
-	}
-
 	pub(super) fn voice_participant(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -422,10 +406,7 @@ impl MessagingUi {
 				});
 				self.voice_participant_menu(&row, state, entry);
 				if let Some(user) = user {
-					self.remember_profile_trigger(row.rect, row.contains_pointer());
-					if row.clicked() {
-						self.toggle_profile(user);
-					}
+					self.profile.person_click(ui, &row, None, user);
 				}
 			},
 		);
@@ -996,10 +977,7 @@ impl MessagingUi {
 		}
 		self.voice_participant_menu(&avatar, state, entry);
 		if let Some(user) = user {
-			self.remember_profile_trigger(avatar.rect, avatar.contains_pointer());
-			if avatar.clicked() {
-				self.toggle_profile(user);
-			}
+			self.profile.person_click(ui, &avatar, None, user);
 		}
 		// Discord's LIVE pill marks a streamer on every tile size; strip tiles get a small one
 		// so it never covers the avatar.
@@ -3297,9 +3275,13 @@ fn resolve_member<'a>(
 			.as_ref()
 			.filter(|list| list.guild == Some(entry.guild))
 			.and_then(|list| {
-				list.rows
+				list.slots
 					.iter()
 					.flatten()
+					.filter_map(|slot| match slot {
+						model::MemberSlot::Person(m) => Some(m),
+						_ => None,
+					})
 					.find(|m| m.user.id == entry.participant.user)
 			})
 	});

@@ -114,15 +114,75 @@ fn rejects_imports_start_and_excessive_memory() {
 
 #[test]
 fn fuel_interrupts_infinite_loop_and_memory_growth_traps() {
-	for body in [
-		"(loop $spin (br $spin)) (i64.const 0)",
-		"(drop (memory.grow (i32.const 256))) (i64.const 0)",
+	for (body, expected) in [
+		("(loop $spin (br $spin)) (i64.const 0)", Error::Fuel),
+		(
+			"(drop (memory.grow (i32.const 256))) (i64.const 0)",
+			Error::Memory,
+		),
 	] {
 		let package = plugin(&format!(
 			r#"(module (memory (export "memory") 1) (func (export "serein_alloc") (param i32) (result i32) i32.const 0) (func (export "serein_invoke") (param i32 i32) (result i64) {body}))"#
 		));
-		assert!(matches!(invoke(&package, &input()), Err(Error::Execution)));
+		let error = invoke(&package, &input()).unwrap_err();
+		assert_eq!(
+			std::mem::discriminant(&error),
+			std::mem::discriminant(&expected)
+		);
 	}
+}
+
+#[test]
+fn diagnostics_distinguish_safe_runtime_input_and_output_failures() {
+	let trap = plugin(
+		r#"(module (memory (export "memory") 1)
+        (func (export "serein_alloc") (param i32) (result i32) i32.const 0)
+        (func (export "serein_invoke") (param i32 i32) (result i64) unreachable))"#,
+	);
+	assert!(matches!(invoke(&trap, &input()), Err(Error::Trap)));
+	let recursive = plugin(
+		r#"(module (memory (export "memory") 1)
+        (func (export "serein_alloc") (param i32) (result i32) i32.const 0)
+        (func $recurse (result i64) call $recurse i64.const 1 i64.add)
+        (func (export "serein_invoke") (param i32 i32) (result i64) call $recurse))"#,
+	);
+	assert!(matches!(invoke(&recursive, &input()), Err(Error::Stack)));
+	assert!(matches!(
+		invoke(&returning(""), &input()),
+		Err(Error::Handler)
+	));
+	let private = "private fixture must never appear in diagnostics";
+	let malformed = invoke(&returning(private), &input()).unwrap_err();
+	assert!(matches!(malformed, Error::Output));
+	assert!(!malformed.to_string().contains(private));
+	assert!(!format!("{malformed:?}").contains(private));
+
+	let mut request = input();
+	request.action = private.into();
+	let error = invoke(&returning("{}"), &request).unwrap_err();
+	assert!(matches!(error, Error::Input));
+	assert!(!error.to_string().contains(private));
+	request = input();
+	request.composer = Some("x".repeat(MAX_IO_BYTES + 1));
+	assert!(matches!(
+		invoke(&returning("{}"), &request),
+		Err(Error::InputLimit)
+	));
+	let oversized = plugin(&format!(
+		r#"(module (memory (export "memory") 1)
+        (func (export "serein_alloc") (param i32) (result i32) i32.const 0)
+        (func (export "serein_invoke") (param i32 i32) (result i64) i64.const {}))"#,
+		MAX_IO_BYTES + 1
+	));
+	assert!(matches!(
+		invoke(&oversized, &input()),
+		Err(Error::OutputLimit)
+	));
+	let panel = serde_json::json!({"panel": vec![serde_json::json!({"type":"text","text":"x"}); MAX_PANEL_ELEMENTS + 1]});
+	assert!(matches!(
+		invoke(&returning(&panel.to_string()), &input()),
+		Err(Error::OutputLimit)
+	));
 }
 
 #[test]
@@ -249,9 +309,8 @@ fn shipped_rust_examples_execute_through_the_real_abi() {
 		..Default::default()
 	};
 	assert!(
-		invoke(&protector, &input)
-			.unwrap()
-			.preserve_deleted_messages
+		invoke(&protector, &input).is_ok(),
+		"bundled protector package still executes through the ABI"
 	);
 }
 
@@ -319,4 +378,154 @@ fn image_sharing_plugin_requires_activation_and_capability() {
 	package.manifest.actions[0].surface = Surface::Panel;
 	assert!(output.validate(&package.manifest, &input).is_err());
 	assert!(!serde_json::from_str::<Output>("{}").unwrap().image_sharing);
+}
+
+fn message_event() -> MessageEvent {
+	MessageEvent {
+		kind: MessageEventKind::Create,
+		channel_id: "1".into(),
+		message_id: "2".into(),
+		author_id: Some("3".into()),
+		content: Some("hello".into()),
+	}
+}
+
+fn event_package(response: &str) -> Package {
+	let mut package = returning(response);
+	package.manifest.capabilities = vec![Capability::MessageEvents];
+	package.manifest.actions[0].surface = Surface::MessageEvent;
+	package
+}
+
+#[test]
+fn message_event_payloads_bound_ids_content_and_partial_fields() {
+	let event = message_event();
+	event.validate().unwrap();
+	for invalid in [
+		"",
+		"0",
+		"000",
+		"+1",
+		"-1",
+		" 1",
+		"1.0",
+		"18446744073709551616",
+		"000000000000000000001",
+	] {
+		for field in 0..3 {
+			let mut invalid_event = event.clone();
+			match field {
+				0 => invalid_event.channel_id = invalid.into(),
+				1 => invalid_event.message_id = invalid.into(),
+				_ => invalid_event.author_id = Some(invalid.into()),
+			}
+			assert!(matches!(invalid_event.validate(), Err(Error::Invalid)));
+		}
+	}
+	let mut event = event;
+	event.message_id = u64::MAX.to_string();
+	event.content = Some("\u{1F980}".repeat(MAX_EVENT_CONTENT_BYTES / 4));
+	event.validate().unwrap();
+	event.content.as_mut().unwrap().push('x');
+	assert!(matches!(event.validate(), Err(Error::Limit)));
+	event.content = None;
+	assert!(matches!(event.validate(), Err(Error::Invalid)));
+	event.kind = MessageEventKind::Update;
+	event.validate().unwrap();
+	event.author_id = None;
+	event.validate().unwrap();
+	event.kind = MessageEventKind::Delete;
+	event.validate().unwrap();
+	for (author_id, content) in [(Some("3".into()), None), (None, Some(String::new()))] {
+		event.author_id = author_id;
+		event.content = content;
+		assert!(matches!(event.validate(), Err(Error::Invalid)));
+	}
+}
+
+#[test]
+fn message_events_require_a_unique_granted_surface_without_other_context() {
+	let mut package = event_package("{}");
+	let input = Invocation {
+		action: "run".into(),
+		message_event: Some(Box::new(message_event())),
+		..Default::default()
+	};
+	package.validate().unwrap();
+	invoke(&package, &input).unwrap();
+	package.manifest.capabilities.clear();
+	assert!(matches!(
+		package.manifest.validate(),
+		Err(Error::Capability)
+	));
+	assert!(matches!(
+		input.validate(&package.manifest),
+		Err(Error::Capability)
+	));
+	package.manifest.capabilities = vec![
+		Capability::MessageEvents,
+		Capability::SelectedMessage,
+		Capability::Composer,
+	];
+	package.manifest.actions.push(Action {
+		id: "second".into(),
+		label: "Second".into(),
+		surface: Surface::MessageEvent,
+	});
+	assert!(matches!(package.manifest.validate(), Err(Error::Invalid)));
+	package.manifest.actions.pop();
+	for surface in [
+		Surface::Panel,
+		Surface::Activation,
+		Surface::Message,
+		Surface::Composer,
+	] {
+		package.manifest.actions[0].surface = surface;
+		assert!(matches!(invoke(&package, &input), Err(Error::Capability)));
+	}
+	package.manifest.actions[0].surface = Surface::MessageEvent;
+	for field in 0..4 {
+		let mut invalid = input.clone();
+		match field {
+			0 => invalid.message_event = None,
+			1 => invalid.selected_message = Some("private".into()),
+			2 => invalid.composer = Some("draft".into()),
+			_ => {
+				invalid.values.insert("field".into(), "value".into());
+			}
+		}
+		assert!(invoke(&package, &invalid).is_err());
+	}
+}
+
+#[test]
+fn event_effects_allow_granted_storage_and_appearance_without_unsolicited_ui() {
+	let input = Invocation {
+		action: "run".into(),
+		message_event: Some(Box::new(message_event())),
+		..Default::default()
+	};
+	for response in [r#"{"storage":"1"}"#, r#"{"appearance":{}}"#] {
+		let mut package = event_package(response);
+		assert!(matches!(invoke(&package, &input), Err(Error::Capability)));
+		package
+			.manifest
+			.capabilities
+			.extend([Capability::Storage, Capability::Appearance]);
+		invoke(&package, &input).unwrap();
+	}
+	for response in [
+		r#"{"panel":[{"type":"text","text":"unsolicited"}]}"#,
+		r#"{"replacement":"unsolicited"}"#,
+		r#"{"image_sharing":true}"#,
+		r#"{"preserve_deleted_messages":true}"#,
+	] {
+		let mut package = event_package(response);
+		package.manifest.capabilities.extend([
+			Capability::Composer,
+			Capability::ImageSharing,
+			Capability::DeletedMessages,
+		]);
+		assert!(matches!(invoke(&package, &input), Err(Error::Capability)));
+	}
 }
