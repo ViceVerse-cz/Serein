@@ -1,3 +1,73 @@
+# Navigation caches and process scanning — September 22, 2026
+
+Compared initial baseline `5fe88e52` with runtime commit `02e2acba` on macOS 27.0
+(26A428), Apple M1 Pro, 16 GiB RAM, pinned Rust 1.98.1 and locked dependencies.
+Both standard packages include voice and exclude demo/developer-session features.
+Baseline sources and package output stayed in a separate worktree. Benchmark-only
+test additions were identical on both revisions. Changed release crates were cleaned
+before building the final benchmark executables to avoid shared-target reuse of an
+older worktree artifact; the new regression-test names were verified in the executables.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| 200 picker frames, 50k emoji / one search hit, message churn | 104.630 ms | 11.910 ms | -92.720 ms (-88.62%) |
+| 200 sidebar frames, 10k account channels / 100 visible-guild rows, message churn | 32.105 ms | 11.500 ms | -20.605 ms (-64.18%) |
+| Same sidebar, unchanged state | 11.242 ms | 11.150 ms | -0.093 ms (-0.82%, small) |
+| 100 scans of 4,096 process paths, matching only | 231.388 ms | 116.444 ms | -114.945 ms (-49.68%) |
+| 100,000-event reducer replay | 53.495 ms | 54.204 ms | +0.709 ms (+1.33%) |
+| Retained timeline estimated bytes / records | 339,992–340,477 / 500 | 339,992–340,477 / 500 | Unchanged |
+| Standard release executable bytes | 55,992,336 | 55,992,336 | 0 |
+| Installed app bundle bytes | 61,937,873 | 61,937,873 | 0 |
+| Compressed app ZIP bytes | 41,206,777 | 41,208,325 | +1,548 (+0.004%, noise) |
+
+Component timings are medians of five measured batches after one warmup batch;
+UI workloads also run ten initial warmup frames. Picker and sidebar churn apply
+real synthetic message events and include reducer work, unlike the earlier manual
+revision-bump benchmark. They render at 900×700 and 280×700 respectively, excluding
+GPU presentation, network requests and whole-app frame latency. The matcher uses
+equal groups of misses, basename hits, longer suffix hits and macOS bundle hits;
+it excludes OS process enumeration. Replay binaries ran alternately, one warmup
+and five measured runs per revision. The small reducer-only increase is reported
+as a trade-off, not a speedup; its sample ranges overlapped (53.228–60.186 ms before,
+52.930–55.099 ms after). The large UI/matcher gains repeated in an earlier paired run,
+which had unrelated host builds active during part of the sample. Final timings
+were taken serially with no Cargo build observed running at their start.
+
+Reproduce the component workloads with:
+
+```sh
+cargo test --release --locked -p ui custom_picker_frame_benchmark -- --ignored --nocapture
+cargo test --release --locked -p ui channel_list_frame_benchmark -- --ignored --nocapture
+cargo test --release --locked -p discord-api process_matcher_benchmark -- --ignored --nocapture
+cargo replay
+# Then run target/release/replay-bench directly: one warmup and five measured runs.
+```
+
+One standard `cargo xtask package` output per revision was measured after local
+ad-hoc signing; neither is a notarized distribution. Bundle size sums regular-file
+lengths under `Serein.app`; compression uses `ditto -c -k --keepParent`. Executable
+hashes differ despite equal file sizes. Package contents and dependency notices are
+unchanged apart from the executable. The small ZIP difference is not a performance gain.
+
+Native checks used separate release builds with `--features demo`, launched with
+`--demo --demo-chat`, default viewport/appearance, wgpu on the same macOS display
+at 2× scale. Each of two launches per revision warmed up for ten seconds, then used
+30 main-process `ps` samples at one-second intervals (about 30.38 seconds elapsed).
+Settled RSS was 151,936 / 142,128 KiB before and 145,488 / 143,232 KiB after.
+CPU from process-time deltas was 0% / 0% before and 0.889% / 0% after; the first
+after increase did not repeat. These short samples do not establish an idle CPU
+or RAM improvement. GPU/driver and helper memory, startup latency and frame percentiles
+were not measured. The isolated sidebar process's peak RSS also changed direction
+between paired runs, so no process-RSS saving is claimed from that workload.
+
+The deterministic memory changes are smaller transient indexes/row buffers and a
+513-byte Linux command-line read limit. READY's temporary reference vector uses at
+most 1 MiB of element storage on 64-bit; old/new validated account snapshots still
+overlap. Cache ceilings, video resolution/buffer reuse, packet pacing and process-scan
+intervals are unchanged. Native Linux/Windows enumeration and live Discord/media
+performance were not tested. The separately landed Spotify feature is outside this
+comparison. There is no visible UI change, so before/after screenshots are not applicable.
+
 # Optional smooth scrolling - September 19, 2026
 
 Baseline: `d160c3e`. After: this change on that baseline. One standard Windows x64
