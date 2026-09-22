@@ -253,6 +253,43 @@ fn centered_offset(rows: &[(Id, f32)], id: Id, viewport_h: f32, packed: f32) -> 
 		.map_or(0.0, |(_, height)| *height);
 	(row_top - (viewport_h - row_h) * 0.5).clamp(0.0, (packed - viewport_h).max(0.0))
 }
+fn instant_wheel_delta(
+	events: &[egui::Event],
+	options: egui::InputOptions,
+	page_height: f32,
+) -> egui::Vec2 {
+	events
+		.iter()
+		.filter_map(|event| {
+			let egui::Event::MouseWheel {
+				unit,
+				delta,
+				phase,
+				modifiers,
+			} = event
+			else {
+				return None;
+			};
+			if *phase != egui::TouchPhase::Move || modifiers.matches_any(options.zoom_modifier) {
+				return None;
+			}
+			let mut delta = match unit {
+				egui::MouseWheelUnit::Point => *delta,
+				egui::MouseWheelUnit::Line => options.line_scroll_speed * *delta,
+				egui::MouseWheelUnit::Page => page_height * *delta,
+			};
+			let horizontal = modifiers.matches_any(options.horizontal_scroll_modifier);
+			let vertical = modifiers.matches_any(options.vertical_scroll_modifier);
+			if horizontal && !vertical {
+				delta = egui::vec2(delta.x + delta.y, 0.0);
+			}
+			if !horizontal && vertical {
+				delta = egui::vec2(0.0, delta.x + delta.y);
+			}
+			Some(delta)
+		})
+		.fold(egui::Vec2::ZERO, |total, delta| total + delta)
+}
 fn anchor_offset(rows: &[(Id, f32)], id: Id, inset: f32) -> f32 {
 	if rows.is_empty() {
 		return 0.0;
@@ -1500,25 +1537,22 @@ impl TimelineView {
 			self.present_scroll = None;
 			offset = Some(live_edge_offset);
 		}
+		let input_options = ui.ctx().options(|options| options.input_options);
 		let wheel = ui.input(|input| {
 			if !self.instant_scrolling {
-				input.smooth_scroll_delta().y
+				input.smooth_scroll_delta()
 			} else {
-				input
-					.raw
-					.events
-					.iter()
-					.filter_map(|event| match event {
-						egui::Event::MouseWheel { delta, .. } => Some(delta.y),
-						_ => None,
-					})
-					.sum()
+				instant_wheel_delta(
+					&input.raw.events,
+					input_options,
+					input.viewport_rect().height(),
+				)
 			}
 		});
 		if self.instant_scrolling {
-			ui.input_mut(|input| input.smooth_scroll_delta.y = wheel);
+			ui.input_mut(|input| input.smooth_scroll_delta = wheel);
 		}
-		let user_scroll = wheel + autoscroll_delta;
+		let user_scroll = wheel.y + autoscroll_delta;
 		if user_scroll != 0.0 && self.reveal_scroll.take().is_some() {
 			offset = None;
 		}
@@ -1573,7 +1607,7 @@ impl TimelineView {
 		let mut measurements = Vec::new();
 		let mut selected_reply = None;
 		// ScrollArea consumes wheel input while applying it; retain the viewing gesture.
-		let scroll_delta = wheel + autoscroll_delta;
+		let scroll_delta = wheel.y + autoscroll_delta;
 		let allow_hover = !session.holding()
 			&& !ui.input(|input| input.is_scrolling())
 			&& ui.ctx().dragged_id().is_none();
@@ -5447,6 +5481,64 @@ mod tests {
 		assert!(
 			view.following,
 			"The compensated short content must reach its real bottom; hidden leading bounds must not create phantom scroll space"
+		);
+	}
+
+	#[test]
+	fn instant_wheel_preserves_units_axes_and_zoom_gestures() {
+		let options = egui::InputOptions::default();
+		let zoom = egui::Modifiers {
+			ctrl: true,
+			command: true,
+			..Default::default()
+		};
+		let events = [
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(1.0, 2.0),
+				phase: egui::TouchPhase::Move,
+				modifiers: egui::Modifiers::NONE,
+			},
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, -2.0),
+				phase: egui::TouchPhase::Move,
+				modifiers: egui::Modifiers::NONE,
+			},
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Page,
+				delta: egui::vec2(0.0, 0.5),
+				phase: egui::TouchPhase::Move,
+				modifiers: egui::Modifiers::NONE,
+			},
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, 3.0),
+				phase: egui::TouchPhase::Move,
+				modifiers: egui::Modifiers::SHIFT,
+			},
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(5.0, 0.0),
+				phase: egui::TouchPhase::Move,
+				modifiers: egui::Modifiers::ALT,
+			},
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, 100.0),
+				phase: egui::TouchPhase::Move,
+				modifiers: zoom,
+			},
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Page,
+				delta: egui::vec2(0.0, 100.0),
+				phase: egui::TouchPhase::Start,
+				modifiers: egui::Modifiers::NONE,
+			},
+		];
+		assert_eq!(
+			instant_wheel_delta(&events, options, 600.0),
+			egui::vec2(4.0, 227.0)
 		);
 	}
 
