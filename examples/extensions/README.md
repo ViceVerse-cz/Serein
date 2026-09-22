@@ -74,7 +74,7 @@ Replace the example author and source URL before publishing.
 | `license` | string | License label; include the actual license in your source too. |
 | `source` | string | Public HTTPS source link, at most 2,048 UTF-8 bytes, without embedded credentials. It is metadata, not code to execute. |
 | `kind` | string | `plugin` for Wasm; declarative themes use `theme`. |
-| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 32 declarations, with 20 supported today. |
+| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 32 declarations, with 26 supported today. |
 | `actions` | object array | Entry points invoked by users or the host. Plugins need 1–16 actions with unique IDs. |
 
 `name`, `version`, `author` and `license` must be nonempty, at most 128 UTF-8 bytes,
@@ -102,6 +102,58 @@ as `con` and `nul` are reserved. Themes declare no actions or capabilities.
 At most one action of **each** automatic surface is allowed: `activation`,
 `message_event` and `app_event`. A capability alone does not register a handler;
 declare its action too.
+
+### Generate and check a typed manifest
+
+The SDK also exports `Manifest`, `Action`, `Surface`, `ExtensionKind` and
+`Capability` for authoring tools. This complete native Rust program generates
+the same manifest as above:
+
+```rust
+use serein_extension_sdk::{
+    Action, Capability, ExtensionKind, Manifest, Surface, serde_json,
+};
+
+fn main() -> Result<(), serde_json::Error> {
+    let manifest = Manifest {
+        api_version: 1,
+        id: "hello-context".into(),
+        name: "Hello Context".into(),
+        version: "1.0.0".into(),
+        author: "Your name".into(),
+        license: "MIT".into(),
+        source: "https://example.org/hello-context".into(),
+        kind: ExtensionKind::Plugin,
+        capabilities: vec![Capability::AppContext],
+        actions: vec![Action {
+            id: "show".into(),
+            label: "Show current channel".into(),
+            surface: Surface::Panel,
+        }],
+    };
+    println!("{}", serde_json::to_string_pretty(&manifest)?);
+    Ok(())
+}
+```
+
+These types serialize and deserialize the host's manifest shape. Unknown fields
+and enum names are rejected; omitted `capabilities` and `actions` decode as empty
+vectors. Typed construction or successful JSON decoding does **not** validate
+IDs, limits, duplicate declarations or capability/surface combinations.
+
+From the repository root, check a standalone manifest with the host's authoritative
+`Manifest::validate` rules:
+
+```powershell
+cargo run --locked -p extensions --example manifest_check -- examples/extensions/app-toolbox/manifest.json
+```
+
+Replace the path to check your own file. The checker accepts a manifest JSON
+document of at most 16 KiB, not a packaged extension. It does not run Wasm,
+install a plugin or grant permissions. Passing checks only the manifest: package,
+Wasm imports, output validation, fuel and live compatibility remain separate.
+Import validates the manifest again using that installed host's supported rules;
+older hosts can reject capabilities accepted by a newer checker.
 
 ## Write the handler
 

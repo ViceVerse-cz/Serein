@@ -1,6 +1,83 @@
 use extensions::*;
 use serein_extension_sdk as sdk;
 
+#[test]
+fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validation() {
+	let mut manifest = test_manifest(vec![
+		Capability::SelectedMessage,
+		Capability::Composer,
+		Capability::Storage,
+		Capability::DeletedMessages,
+		Capability::ImageSharing,
+		Capability::Appearance,
+		Capability::MessageEvents,
+		Capability::AppContext,
+		Capability::ChannelDirectory,
+		Capability::Timeline,
+		Capability::Members,
+		Capability::Presence,
+		Capability::VoiceState,
+		Capability::ReadState,
+		Capability::LocalSettings,
+		Capability::Navigation,
+		Capability::LocalNotices,
+		Capability::ClipboardWrite,
+		Capability::VoiceControl,
+		Capability::AppEvents,
+		Capability::AccountProfile,
+		Capability::GuildDirectory,
+		Capability::ChannelDetails,
+		Capability::DataEvents,
+		Capability::MessageDetails,
+		Capability::Relationships,
+	]);
+	manifest.actions = [
+		Surface::Message,
+		Surface::Composer,
+		Surface::Panel,
+		Surface::Activation,
+		Surface::MessageEvent,
+		Surface::AppEvent,
+	]
+	.into_iter()
+	.enumerate()
+	.map(|(index, surface)| Action {
+		id: format!("action-{index}"),
+		label: "Example".into(),
+		surface,
+	})
+	.collect();
+	manifest.validate().unwrap();
+	let wire = serde_json::to_value(&manifest).unwrap();
+	let authored: sdk::Manifest = serde_json::from_value(wire.clone()).unwrap();
+	assert_eq!(serde_json::to_value(&authored).unwrap(), wire);
+	let imported: Manifest =
+		serde_json::from_value(serde_json::to_value(authored).unwrap()).unwrap();
+	imported.validate().unwrap();
+	assert_eq!(imported, manifest);
+	for invalid in [
+		serde_json::json!({"unexpected": true}),
+		serde_json::json!({"capabilities": ["typo"]}),
+		serde_json::json!({"kind": "unknown"}),
+		serde_json::json!({"actions": [{"id":"run", "label":"Run", "surface":"typo"}]}),
+	] {
+		let mut value = wire.clone();
+		value
+			.as_object_mut()
+			.unwrap()
+			.extend(invalid.as_object().unwrap().clone());
+		assert!(serde_json::from_value::<sdk::Manifest>(value).is_err());
+	}
+	let mut theme = wire;
+	theme["kind"] = serde_json::json!("theme");
+	theme.as_object_mut().unwrap().remove("capabilities");
+	theme.as_object_mut().unwrap().remove("actions");
+	let theme: sdk::Manifest = serde_json::from_value(theme).unwrap();
+	assert!(theme.capabilities.is_empty() && theme.actions.is_empty());
+	let imported: Manifest = serde_json::from_value(serde_json::to_value(theme).unwrap()).unwrap();
+	imported.validate().unwrap();
+}
+
 fn test_manifest(capabilities: Vec<Capability>) -> Manifest {
 	Manifest {
 		api_version: API_VERSION,

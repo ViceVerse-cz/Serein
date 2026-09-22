@@ -66,6 +66,7 @@ jobs:
             examples/extensions -> target
       - run: cargo fmt --manifest-path examples/extensions/Cargo.toml --all -- --check
       - run: cargo test --manifest-path examples/extensions/Cargo.toml --workspace --locked
+      - run: cargo test --locked -p extensions --test app_contract --example manifest_check
       - run: cargo clippy --manifest-path examples/extensions/Cargo.toml --workspace --all-targets --locked -- -D warnings
       - run: cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
       - name: Check existing and rebuilt plugins in the host sandbox (offline)

@@ -16,6 +16,8 @@ pub use serde_json;
 use std::{collections::BTreeMap, fmt, io, str::FromStr};
 mod app;
 pub use app::*;
+mod manifest;
+pub use manifest::*;
 
 /// Maximum serialized size of either ABI buffer, in UTF-8 bytes.
 pub const MAX_IO_BYTES: usize = 256 * 1024;

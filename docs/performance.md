@@ -1639,3 +1639,16 @@ compression over the complete `dist` tree:
 
 OpenH264 LNK4255 was nonfatal. `makensis` is unavailable, so no NSIS installer
 was produced; the unsigned portable distribution was measured.
+
+### Typed-manifest authoring follow-up
+
+The follow-up to `44f46d2` adds SDK metadata types, an offline manifest checker,
+contract tests and docs only. The desktop uses this SDK as a development
+dependency; no production host code, dependency, invocation or UI behavior changes.
+The preceding native package measurements remain the runtime evidence; no new
+native package or UI performance claim is made for authoring-only changes.
+
+All four example plugins rebuilt and passed the existing release sandbox checks.
+Three Wasm modules were byte-identical to the pre-edit artifacts. Message Counter
+remained 122,576 bytes with a different hash; both its committed and rebuilt
+modules passed the event/storage checks. Shipped package files were unchanged.
