@@ -34,6 +34,7 @@ impl HostInfo {
 				Capability::VoiceState,
 				Capability::ReadState,
 				Capability::LocalSettings,
+				Capability::NotificationSettings,
 				Capability::Navigation,
 				Capability::LocalNotices,
 				Capability::ClipboardWrite,

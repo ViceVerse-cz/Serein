@@ -195,6 +195,13 @@ fn check_app_toolbox(name: &str, package: &Package) {
 	extended["app"]["channel_details"] = json!({"channel":{"id":"100","name":"demo","kind":0},"position":0,"recipients":[],"recipients_truncated":false,"can_send":true,"can_read_history":true});
 	extended["app"]["message_details"] = json!({"channel_id":"100","items":[{"id":"200","kind":0,"reply_to":"199","mention_ids":["300"],"mentions_truncated":false,"mention_everyone":false,"attachments":[{"id":"500","filename":"report.txt","size":123,"content_type":"text/plain","spoiler":false}],"attachments_truncated":false,"reactions":[{"emoji_name":"ok","count":2,"me":true,"me_burst":false}],"reactions_truncated":false}],"truncated":false});
 	extended["app"]["relationships"] = json!({"items":[{"user":{"id":"300","name":"Synthetic user"},"kind":"friend"}],"truncated":false,"friends_known":true,"requests_known":false,"restricted_known":false});
+	extended["app"]["settings"]["smooth_scrolling"] = json!(true);
+	extended["app"]["settings"]["scroll_speed_percent"] = json!(100);
+	extended["app"]["notification_settings"] = json!({
+		"new_message":true,"current_channel":false,"incoming_ring":true,"outgoing_ring":true,
+		"disable_sounds":false,"unread_badge":true,"mute":true,"unmute":true,"deafen":true,
+		"undeafen":true,"camera_on":true,"screen_share_on":true,"user_join":true,"user_leave":true,"volume":75
+	});
 	let extended = serde_json::from_value(extended).unwrap();
 	let output = invoke(package, &extended).expect("new snapshot groups fit the sandbox");
 	assert!(output.panel.iter().any(
@@ -297,6 +304,23 @@ fn check_app_toolbox(name: &str, package: &Package) {
 		);
 		assert!(output.panel.is_empty());
 	}
+	input.action = "notifications".into();
+	input.values = serde_json::from_value(json!({"sound-volume":"35","disable-sounds":"false","unread-badge":"true","current-channel":"true"})).unwrap();
+	let output = invoke(package, &input).expect("notification proposal validates in Wasm");
+	assert_eq!(
+		serde_json::to_value(output.effects).unwrap(),
+		json!([{
+			"type":"set_notification_settings","settings":{"volume":35,"disable_sounds":false,"unread_badge":true,"current_channel":true}
+		}])
+	);
+	input.values.insert("sound-volume".into(), "101".into());
+	assert!(invoke(package, &input).unwrap().effects.is_empty());
+	input.action = "settings".into();
+	input.values = serde_json::from_value(json!({"zoom":"100","sidebar":"240","show-members":"true","animate-gifs":"true","hide-media-links":"true","smooth-scrolling":"false","scroll-speed":"200"})).unwrap();
+	let output = invoke(package, &input).expect("scrolling proposal validates in Wasm");
+	assert!(
+		matches!(&output.effects[..], [extensions::HostEffect::SetLocalSettings { settings }] if settings.smooth_scrolling == Some(false) && settings.scroll_speed_percent == Some(200))
+	);
 	input.action = "on-app".into();
 	input.values.clear();
 	for kind in [
@@ -322,7 +346,7 @@ fn check_app_toolbox(name: &str, package: &Package) {
 		);
 	}
 	println!(
-		"{name}: wasm_bytes={}, snapshot_bytes={}, dashboard, all 11 host effects and passive app events passed",
+		"{name}: wasm_bytes={}, snapshot_bytes={}, dashboard, all 12 host effects and passive app events passed",
 		package.wasm.len(),
 		snapshot_bytes
 	);

@@ -276,12 +276,14 @@ them.
 | `show_members` | Boolean. | Keep the People/member list open in wide windows. |
 | `animate_gifs` | Boolean. | Allow visible chat GIFs to animate automatically. |
 | `hide_media_links` | Boolean. | Hide standalone image/GIF links when their preview is shown. |
+| `smooth_scrolling` | Boolean. | Animate scrolling. |
+| `scroll_speed_percent` | Integer, 25 through 300 inclusive. | Scroll speed percentage; 100 is normal. |
 
 ```json
 {
   "effects": [{
     "type": "set_local_settings",
-    "settings": {"zoom_percent": 110, "animate_gifs": false}
+    "settings": {"zoom_percent": 110, "animate_gifs": false, "smooth_scrolling": true, "scroll_speed_percent": 125}
   }]
 }
 ```
@@ -291,6 +293,115 @@ a value: `{}` or an all-null patch is invalid. `false` is a real boolean change,
 not an omitted value. A value equal to the current preference is allowed.
 Unknown fields and out-of-range values are rejected. Other preferences, including
 external-link confirmation, are outside this patch.
+
+### Change device-local notification settings
+
+`set_notification_settings` / `HostEffect::SetNotificationSettings` requires the
+separate `notification_settings` capability. Its required `settings` object is a
+`NotificationSettingsPatch`. Every field in
+[`NotificationSettingsSnapshot`](extension-sdk-reference.md#notificationsettingssnapshot-device-local-notifications)
+has a matching optional patch field: `Option<bool>` for the fourteen toggles and
+`Option<u8>` for `volume` (0 through 100 inclusive). JSON uses booleans and an
+integer respectively. `disable_sounds` is the master switch; it does not overwrite
+individual cue toggles. Zero volume also silences sounds.
+
+These are local preferences saved through the app's ordinary device-preference
+path. This action does not update Discord account/server/channel notification
+settings, play a sound, start a call or change microphone/camera state.
+
+As with reading settings, omitted or `null` fields preserve their **Apply-time**
+values, and at least one field must have a value. Empty/all-null patches, unknown
+fields and out-of-range values are rejected without applying any part of the
+patch. Foreground `message`, `composer` and `panel` actions may propose one effect;
+background activation/message/app events cannot change settings. The result shows
+the proposed values and requires **Apply**, which rechecks the plugin, grant and
+account/conversation context. Closing the result makes no change.
+
+#### Complete notification interaction
+
+Declare a `panel` action named `quiet` and request `notification_settings` in the
+manifest. This synthetic input supplies all fields of the current snapshot:
+
+```json
+{
+  "action": "quiet",
+  "values": {},
+  "app": {
+    "notification_settings": {
+      "new_message": true,
+      "current_channel": false,
+      "incoming_ring": true,
+      "outgoing_ring": true,
+      "disable_sounds": false,
+      "unread_badge": true,
+      "mute": true,
+      "unmute": true,
+      "deafen": true,
+      "undeafen": true,
+      "camera_on": true,
+      "screen_share_on": true,
+      "user_join": true,
+      "user_leave": true,
+      "volume": 75
+    }
+  }
+}
+```
+
+This complete SDK handler proposes silencing sounds only when the snapshot is
+available and sounds are currently enabled. It preserves the volume and every
+individual cue choice.
+
+```rust
+use serein_extension_sdk::{
+    AppInvocation, AppOutput, HostEffect, NotificationSettingsPatch,
+};
+
+fn handle(input: AppInvocation) -> AppOutput {
+    if input.app_event.is_some() || input.message_event.is_some()
+        || input.invocation.action != "quiet"
+    {
+        return AppOutput::default();
+    }
+    let Some(settings) = input.app.as_ref()
+        .and_then(|app| app.notification_settings.as_ref())
+    else {
+        return AppOutput::default();
+    };
+    if settings.disable_sounds {
+        return AppOutput::default();
+    }
+    AppOutput {
+        effects: vec![HostEffect::SetNotificationSettings {
+            settings: NotificationSettingsPatch {
+                disable_sounds: Some(true),
+                ..Default::default()
+            },
+        }],
+        ..Default::default()
+    }
+}
+
+serein_extension_sdk::export!(handle);
+```
+
+For the input above, the effect is:
+
+```json
+{
+  "effects": [{
+    "type": "set_notification_settings",
+    "settings": {"disable_sounds": true}
+  }]
+}
+```
+
+The host displays the proposal; returning this JSON alone changes nothing.
+After Apply, the current local sound preferences use the master disable while
+other values remain unchanged. Plugins observing `settings` events receive a
+fresh notification snapshot only with the matching grant. An older host rejects
+a manifest requesting `notification_settings`; support discovery cannot bypass
+that install-time check.
 
 ## Panels and storage
 

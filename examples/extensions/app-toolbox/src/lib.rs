@@ -1,6 +1,6 @@
 use serein_extension_sdk::{
 	AppInvocation, AppOutput, AppSnapshot, AppView, ChannelSnapshot, Element, HostEffect,
-	Invocation, LocalSettingsPatch, Output,
+	Invocation, LocalSettingsPatch, NotificationSettingsPatch, Output,
 };
 use std::str::FromStr;
 
@@ -286,7 +286,41 @@ fn dashboard(app: &AppSnapshot) -> Vec<Element> {
 				"Hide media links",
 				settings.hide_media_links,
 			),
-			button("settings", "Apply preferences"),
+		]);
+		if let Some(smooth) = settings.smooth_scrolling {
+			panel.push(checkbox("smooth-scrolling", "Smooth scrolling", smooth));
+		}
+		if let Some(speed) = settings.scroll_speed_percent {
+			panel.push(Element::Slider {
+				id: "scroll-speed".into(),
+				label: "Scroll speed percent".into(),
+				min: 25,
+				max: 300,
+				value: speed.into(),
+			});
+		}
+		panel.push(button("settings", "Apply preferences"));
+	}
+	if let Some(settings) = &app.notification_settings {
+		panel.extend([
+			Element::Heading {
+				text: "Device notifications".into(),
+			},
+			Element::Slider {
+				id: "sound-volume".into(),
+				label: "Sound volume percent".into(),
+				min: 0,
+				max: 100,
+				value: settings.volume.into(),
+			},
+			checkbox("disable-sounds", "Disable sounds", settings.disable_sounds),
+			checkbox("unread-badge", "Show unread badge", settings.unread_badge),
+			checkbox(
+				"current-channel",
+				"Current channel message sound",
+				settings.current_channel,
+			),
+			button("notifications", "Apply notifications"),
 		]);
 	}
 	panel.extend([
@@ -391,6 +425,15 @@ fn proposal(input: &Invocation, app: &AppSnapshot) -> Result<HostEffect, &'stati
 		"settings" => {
 			let zoom = value(input, "zoom")?;
 			let sidebar = value(input, "sidebar")?;
+			let smooth_scrolling = input
+				.parse_value("smooth-scrolling")
+				.map_err(|_| "Smooth scrolling must be true or false.")?;
+			let scroll_speed_percent = input
+				.parse_value("scroll-speed")
+				.map_err(|_| "Scroll speed must be 25–300.")?;
+			if scroll_speed_percent.is_some_and(|speed| !(25..=300).contains(&speed)) {
+				return Err("Scroll speed must be 25–300.");
+			}
 			if !(80..=150).contains(&zoom) || !(190..=360).contains(&sidebar) {
 				return Err("Zoom must be 80–150 and sidebar width 190–360.");
 			}
@@ -401,6 +444,23 @@ fn proposal(input: &Invocation, app: &AppSnapshot) -> Result<HostEffect, &'stati
 					show_members: Some(value(input, "show-members")?),
 					animate_gifs: Some(value(input, "animate-gifs")?),
 					hide_media_links: Some(value(input, "hide-media-links")?),
+					smooth_scrolling,
+					scroll_speed_percent,
+				},
+			}
+		}
+		"notifications" => {
+			let volume = value(input, "sound-volume")?;
+			if volume > 100 {
+				return Err("Sound volume must be 0–100.");
+			}
+			HostEffect::SetNotificationSettings {
+				settings: NotificationSettingsPatch {
+					volume: Some(volume),
+					disable_sounds: Some(value(input, "disable-sounds")?),
+					unread_badge: Some(value(input, "unread-badge")?),
+					current_channel: Some(value(input, "current-channel")?),
+					..Default::default()
 				},
 			}
 		}
@@ -447,6 +507,18 @@ mod tests {
 	use super::*;
 	use serein_extension_sdk::{AppEventKind, dispatch_typed, serde_json};
 
+	fn element_count(panel: &[Element]) -> usize {
+		panel
+			.iter()
+			.map(|element| {
+				1 + match element {
+					Element::Row { children } => element_count(children),
+					_ => 0,
+				}
+			})
+			.sum()
+	}
+
 	#[test]
 	fn typed_actions_require_valid_values_and_events_remain_passive() {
 		let mut input = AppInvocation {
@@ -464,6 +536,17 @@ mod tests {
 		};
 		input.app = Some(
 			serde_json::from_value(serde_json::json!({
+				"settings": {"zoom_percent":100,"sidebar_width":236,"show_members":true,
+					"animate_gifs":true,"hide_media_links":true,"smooth_scrolling":true,"scroll_speed_percent":100},
+				"notification_settings": {"new_message":true,"current_channel":false,
+					"incoming_ring":true,"outgoing_ring":true,"disable_sounds":false,"unread_badge":true,
+					"mute":true,"unmute":true,"deafen":true,"undeafen":true,"camera_on":true,
+					"screen_share_on":true,"user_join":true,"user_leave":true,"volume":75},
+				"voice": {"phase":"idle","muted":false,"deafened":false,"camera":false,"streaming":false,"participants":[]},
+				"read_state": {"unread":true,"mentions":0},
+				"channels": {"items":[{"id":"3","name":"general","kind":0}],"truncated":false},
+				"timeline": {"channel_id":"3","messages":[{"id":"4","author":{"id":"1","name":"Example"},
+					"content":"Synthetic message","attachment_count":0,"edited":false}],"truncated":false},
 				"message_details": {
 				"channel_id": "3", "items": [{"id": "4", "kind": 0, "mention_ids": [],
 				"mentions_truncated": false, "mention_everyone": false,
@@ -499,7 +582,7 @@ mod tests {
 		assert!(text.contains("Synthetic profile"));
 		assert!(text.contains("Message details: 1 (partial); loaded attachment labels: 1"));
 		assert!(text.contains("Known lists: friends true; requests false; restricted false"));
-		assert!(shown.output.panel.len() <= 64);
+		assert!(element_count(&shown.output.panel) <= 64);
 		assert!(text.contains("Joined servers: 1 (partial)"));
 		assert!(text.contains("Can send: true; can read history: false"));
 		assert!(!shown.output.panel.is_empty());
@@ -550,8 +633,59 @@ mod tests {
 		assert!(
 			matches!(&run(&input).effects[..], [HostEffect::SetLocalSettings { settings }] if settings.zoom_percent == Some(120) && settings.animate_gifs == Some(false))
 		);
+		input.invocation.values.extend([
+			("smooth-scrolling".into(), "false".into()),
+			("scroll-speed".into(), "300".into()),
+		]);
+		assert!(
+			matches!(&run(&input).effects[..], [HostEffect::SetLocalSettings { settings }]
+			if settings.smooth_scrolling == Some(false) && settings.scroll_speed_percent == Some(300))
+		);
+		for speed in ["24", "301", "invalid"] {
+			input
+				.invocation
+				.values
+				.insert("scroll-speed".into(), speed.into());
+			assert!(run(&input).effects.is_empty());
+		}
+		input.invocation.values.remove("scroll-speed");
 		input.invocation.values.insert("zoom".into(), "151".into());
 		assert!(run(&input).effects.is_empty());
+		input.invocation.action = "notifications".into();
+		input.invocation.values.extend(
+			[
+				("sound-volume", "0"),
+				("disable-sounds", "true"),
+				("unread-badge", "false"),
+				("current-channel", "true"),
+			]
+			.map(|(k, v)| (k.into(), v.into())),
+		);
+		for volume in ["0", "100"] {
+			input
+				.invocation
+				.values
+				.insert("sound-volume".into(), volume.into());
+			assert_eq!(
+				run(&input).effects,
+				vec![HostEffect::SetNotificationSettings {
+					settings: NotificationSettingsPatch {
+						volume: Some(volume.parse().unwrap()),
+						disable_sounds: Some(true),
+						unread_badge: Some(false),
+						current_channel: Some(true),
+						..Default::default()
+					}
+				}]
+			);
+		}
+		for volume in ["101", "256", "-1", "invalid"] {
+			input
+				.invocation
+				.values
+				.insert("sound-volume".into(), volume.into());
+			assert!(run(&input).effects.is_empty());
+		}
 		for kind in [
 			AppEventKind::Ready,
 			AppEventKind::Navigation,

@@ -119,7 +119,7 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 31 capabilities, with at most 32 distinct declarations per manifest.
+supports 32 capabilities, with at most 32 distinct declarations per manifest.
 
 | Capability | Granted behavior | Scope / confirmation |
 | --- | --- | --- |
@@ -148,7 +148,8 @@ supports 31 capabilities, with at most 32 distinct declarations per manifest.
 | `presence` | Read cached status strings for that context | At most 100; no activity/private device payloads |
 | `voice_state` | Read current call state and participant IDs | At most 64 participants; no raw media |
 | `read_state` | Read current channel unread/mention summary | Unknown unread remains distinct from false |
-| `local_settings` | Read and propose changing five local preferences | Zoom/sidebar/member list/GIFs/media links; changes require Apply |
+| `local_settings` | Read and propose changing seven local reading preferences | Zoom/sidebar/member list/GIFs/media links/smooth scrolling/scroll speed; changes require Apply |
+| `notification_settings` | Read and propose changing device-local notification preferences | Sound volume, sound toggles and unread badge; changes require Apply; no Discord notification settings |
 | `navigation` | Propose channel, Home, view, profile, message or search navigation | Existing native paths; each command requires Apply |
 | `local_notices` | Propose an in-app toast | At most 1,024 text bytes; requires Apply |
 | `clipboard_write` | Propose replacing clipboard text | At most 4,096 bytes; requires Apply; no clipboard read |
@@ -172,7 +173,7 @@ not consent; discovery never bypasses required manifest validation or grants.
 
 `app` contains separately granted optional `context`, `account_profile`, `guilds`,
 `channel_details`, `channels`, `timeline`, `members`, `presence`, `voice`,
-`read_state`, `settings`, `message_details`, `relationships`, `channel_metadata`
+`read_state`, `settings`, `notification_settings`, `message_details`, `relationships`, `channel_metadata`
 `member_details`, `message_content`, `forum_data` and `conversation_activity` groups. A missing group
 is unavailable or ungranted, not an empty dataset. Snapshot construction reads
 already-loaded state without network or disk IO. The complete serialized snapshot
@@ -204,14 +205,19 @@ the plugin never receives a generic Discord command API. Clipboard writes never
 read the clipboard; local notices are in-app toasts, not OS notifications.
 
 Supported local preference patches are zoom 80–150%, sidebar width 190–360 logical
-pixels, member-list visibility, GIF animation and hiding media links. At least
-one field must be supplied; all omitted preferences remain unchanged. Voice
+pixels, member-list visibility, GIF animation, hiding media links, smooth scrolling
+and scroll speed 25 through 300%. The separate `notification_settings` grant exposes
+device-local notification toggles and sound volume 0 through 100%; it does not change
+Discord account/guild settings or play a cue. Both patches require at least one
+value, preserve omitted/null preferences at Apply time and reject invalid changes
+without applying any fields. Changes use the ordinary local persistence path. Voice
 commands affect only the existing call; they cannot join a call or enable camera,
 screen sharing or recording.
 
 One `app_event` action may observe `ready`, `navigation`, `context`, `connection`,
-`voice` and `settings`. Context events report loaded-data/freshness changes after
-navigation; use `message_events` for individual message changes. The additional
+`voice` and `settings`. Settings events cover both reading and device-local
+notification preferences; each snapshot still requires its own grant. Context
+events report loaded-data/freshness changes after navigation; use `message_events` for individual message changes. The additional
 `data_events` grant opts into `account`, `channels`, `members`, `presence`,
 `read_state`, `message_details`, `relationships`, `threads`, `roles`, `permissions`
 `recovered`, `reactions`, `pins`, `typing` and `polls` invalidation hints (21 event kinds total), each requiring the corresponding data grant
@@ -232,7 +238,7 @@ events and activation cannot return host command proposals; background events
 cannot open panels. Granted `storage` and `appearance` outputs remain available.
 
 The [App Toolbox example](../examples/extensions/app-toolbox/src/lib.rs) provides
-an account/channel dashboard and explicit controls for all 11 command types. Its `app_event`
+an account/channel dashboard and explicit controls for all 12 command types. Its `app_event`
 observer returns an empty output, and it saves no conversation data.
 [Guild Inspector](../examples/extensions/guild-inspector/src/lib.rs) separately
 shows optional channel settings/thread permissions and the first five loaded
@@ -368,7 +374,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 5,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 32 distinct | Only the 31 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 32 distinct | Only the 32 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |

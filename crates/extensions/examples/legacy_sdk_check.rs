@@ -10,6 +10,8 @@ fn main() {
 	let mut input: Invocation = serde_json::from_value(json!({
         "action": "show",
         "app": {
+            "settings": {"zoom_percent":100,"sidebar_width":236,"show_members":true,
+                "animate_gifs":true,"hide_media_links":true,"smooth_scrolling":true,"scroll_speed_percent":100},
             "context": {"connected": true, "user": {"id": "300", "name": "Legacy user"},
                 "channel": {"id": "100", "name": "legacy", "kind": 0}},
             "account_profile": {"user": {"id": "300", "name": "Legacy user"},

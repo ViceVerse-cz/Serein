@@ -50,6 +50,7 @@ pub enum Capability {
 	VoiceState,
 	ReadState,
 	LocalSettings,
+	NotificationSettings,
 	Navigation,
 	LocalNotices,
 	ClipboardWrite,

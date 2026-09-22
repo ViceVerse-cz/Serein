@@ -94,7 +94,7 @@ can be inspected without decoding a newer capability/event enum.
 | --- | --- | --- | --- |
 | `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
-| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (31 currently), not this plugin's granted capabilities. | `host.supports("forum_data")` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (32 currently), not this plugin's granted capabilities. | `host.supports("forum_data")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
 
 A supported capability still needs to be declared and explicitly granted. Older
@@ -133,6 +133,7 @@ account snapshot or grant-dependent data:
       "voice_state",
       "read_state",
       "local_settings",
+      "notification_settings",
       "navigation",
       "local_notices",
       "clipboard_write",
@@ -264,7 +265,7 @@ does not grant the current user's identity, conversation text or settings.
 | `connection` | `AppEventKind::Connection` | The app's Gateway connection state changed. It does not describe the voice transport. |
 | `context` | `AppEventKind::Context` | Loaded-data readiness, history/member freshness or access changed. This is not a notification for every message edit, member change or read-state change. |
 | `voice` | `AppEventKind::Voice` | The current call identity, phase, local controls, screen-share state or tracked participants changed. |
-| `settings` | `AppEventKind::Settings` | One of the five exposed local reading preferences changed. |
+| `settings` | `AppEventKind::Settings` | An exposed local reading or device-local notification preference changed; each snapshot requires its own grant. |
 | `account` | `AppEventKind::Account` | Account identity or loaded own profile may have changed; additionally requires `data_events` and `account_profile`. |
 | `channels` | `AppEventKind::Channels` | Joined guilds, visible channels or selected-channel details may have changed; additionally requires `data_events` and at least one of `guild_directory`, `channel_directory`, `channel_details`, `channel_metadata`. |
 | `members` | `AppEventKind::Members` | Loaded selected-channel members may have changed; additionally requires `data_events` and either `members` or `member_details`. |
@@ -364,7 +365,8 @@ For the examples below, `app` is a borrowed `AppSnapshot`. Each field is an
 | `presence` | `Option<PresenceSnapshot>` | `presence`; the same selected member/recipient scope, using only known status entries. | `app.presence.as_ref()` |
 | `voice` | `Option<VoiceSnapshot>` | `voice_state`; current call summary, or an idle summary when there is no accessible active call. The call may be in a different channel from the selected chat. | `app.voice.as_ref()` |
 | `read_state` | `Option<ReadSnapshot>` | `read_state`; selected-channel summary. The group can exist with no channel and unknown unread state. | `app.read_state.as_ref()` |
-| `settings` | `Option<LocalSettingsSnapshot>` | `local_settings`; the five current local reading/layout preferences. | `app.settings.as_ref()` |
+| `settings` | `Option<LocalSettingsSnapshot>` | `local_settings`; current local reading/layout preferences. | `app.settings.as_ref()` |
+| `notification_settings` | `Option<NotificationSettingsSnapshot>` | `notification_settings`; device-local notification preferences, absent without the grant or on older hosts. | `app.notification_settings.as_ref()` |
 
 On disconnect, the collector omits account profile, guilds, channel details,
 channel directory, timeline, message details, relationships, channel metadata,
@@ -1035,7 +1037,7 @@ displaying a conclusion. In particular, unknown does not mean caught up.
 | `unread` | `Option<bool>` / boolean or null | `Some(true)`: known unread; `Some(false)`: known read; `None`: unknown or unavailable. | `match read.unread { Some(true) => "Unread", Some(false) => "Read", None => "Unknown" }` |
 | `mentions` | `u32` / nonnegative integer | Host's current mention count for the selected channel. Zero when no channel is available; not a list of mentions or a count of all messages. | `read.mentions` |
 
-### LocalSettingsSnapshot: five reading preferences
+### LocalSettingsSnapshot: reading preferences
 
 Requires `local_settings`. These are current local values, not a general settings
 object or a guarantee that the latest change has been saved to disk. Changing
@@ -1048,6 +1050,46 @@ them requires a separate `set_local_settings` proposal and the user's Apply.
 | `show_members` | `bool` / boolean | Keep the People/member list visible when the window is wide enough. Does not force a panel into a narrow window. | `settings.show_members` |
 | `animate_gifs` | `bool` / boolean | Automatically animate visible GIFs. | `settings.animate_gifs` |
 | `hide_media_links` | `bool` / boolean | Hide standalone image/GIF links when their media preview is displayed. It does not hide the image itself. | `settings.hide_media_links` |
+| `smooth_scrolling` | `Option<bool>` / boolean or absent | Animate scrolling; absent on older hosts, distinct from disabled. | `settings.smooth_scrolling` |
+| `scroll_speed_percent` | `Option<u16>` / integer or absent | Scroll speed, 25 through 300 inclusive; `100` is normal speed. Absent on older hosts. | `settings.scroll_speed_percent` |
+
+Current hosts supply both scrolling fields. The SDK can decode older JSON
+snapshots without them; use `None` to show unavailable controls. Adding fields
+is not Rust struct-literal source compatibility: use the current fields when
+constructing a snapshot. See [reading patches](extension-sdk-actions.md#change-local-reading-settings).
+
+### NotificationSettingsSnapshot: device-local notifications
+
+Requires the separate `notification_settings` grant. Read
+`app.notification_settings.as_ref()` before inspecting fields: the whole group
+is absent without consent and on older hosts, not a set of disabled values.
+These are current device-local preferences, not Discord account, server or
+channel notification settings. They contain no cue audio or notification content.
+They share the overall 64-KiB snapshot limit and do not fetch data.
+
+| Wire field | SDK Rust / JSON type | Meaning | Reading from `settings: &NotificationSettingsSnapshot` |
+| --- | --- | --- | --- |
+| `new_message` | `bool` / boolean | Enable the new-message sound. | `settings.new_message` |
+| `current_channel` | `bool` / boolean | Enable the current-channel message sound. | `settings.current_channel` |
+| `incoming_ring` | `bool` / boolean | Enable incoming-call ringing. | `settings.incoming_ring` |
+| `outgoing_ring` | `bool` / boolean | Enable outgoing-call ringing. | `settings.outgoing_ring` |
+| `disable_sounds` | `bool` / boolean | Master sound disable; preserves individual cue choices. | `settings.disable_sounds` |
+| `unread_badge` | `bool` / boolean | Enable the unread badge. | `settings.unread_badge` |
+| `mute` | `bool` / boolean | Enable the mute cue. | `settings.mute` |
+| `unmute` | `bool` / boolean | Enable the unmute cue. | `settings.unmute` |
+| `deafen` | `bool` / boolean | Enable the deafen cue. | `settings.deafen` |
+| `undeafen` | `bool` / boolean | Enable the undeafen cue. | `settings.undeafen` |
+| `camera_on` | `bool` / boolean | Enable the camera-on cue. | `settings.camera_on` |
+| `screen_share_on` | `bool` / boolean | Enable the screen-share-on cue. | `settings.screen_share_on` |
+| `user_join` | `bool` / boolean | Enable the participant-join cue. | `settings.user_join` |
+| `user_leave` | `bool` / boolean | Enable the participant-leave cue. | `settings.user_leave` |
+| `volume` | `u8` / integer | Sound volume, 0 through 100 inclusive; zero silences sounds. | `settings.volume` |
+
+Changing values requires a [`set_notification_settings` proposal and Apply](extension-sdk-actions.md#change-device-local-notification-settings).
+A snapshot is not proof that the latest change has reached disk. The `settings`
+app event invalidates both reading and notification snapshots; declare `app_events`
+to observe it and retain the respective grant to receive each group. Older hosts
+reject manifests requesting the new capability before executing a handler.
 
 ### Example: read a snapshot without confusing unknown with zero
 

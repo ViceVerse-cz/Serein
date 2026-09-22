@@ -24,6 +24,7 @@ fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validatio
 		Capability::VoiceState,
 		Capability::ReadState,
 		Capability::LocalSettings,
+		Capability::NotificationSettings,
 		Capability::Navigation,
 		Capability::LocalNotices,
 		Capability::ClipboardWrite,
@@ -274,6 +275,25 @@ fn snapshot() -> AppSnapshot {
 			show_members: true,
 			animate_gifs: false,
 			hide_media_links: true,
+			smooth_scrolling: Some(true),
+			scroll_speed_percent: Some(125),
+		}),
+		notification_settings: Some(NotificationSettingsSnapshot {
+			new_message: true,
+			current_channel: false,
+			incoming_ring: true,
+			outgoing_ring: false,
+			disable_sounds: true,
+			unread_badge: false,
+			mute: true,
+			unmute: false,
+			deafen: true,
+			undeafen: false,
+			camera_on: true,
+			screen_share_on: false,
+			user_join: true,
+			user_leave: false,
+			volume: 75,
 		}),
 	}
 }
@@ -298,6 +318,7 @@ fn read_grants() -> Vec<Capability> {
 		Capability::VoiceState,
 		Capability::ReadState,
 		Capability::LocalSettings,
+		Capability::NotificationSettings,
 	]
 }
 
@@ -426,6 +447,12 @@ fn local_effects_require_matching_grants_and_cannot_run_in_background() {
 			deafened: false,
 		},
 		HostEffect::LeaveVoice,
+		HostEffect::SetNotificationSettings {
+			settings: NotificationSettingsPatch {
+				disable_sounds: Some(true),
+				..Default::default()
+			},
+		},
 		HostEffect::SetLocalSettings {
 			settings: LocalSettingsPatch {
 				zoom_percent: Some(110),
@@ -826,7 +853,109 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 	assert!(old.host.is_none());
 	let caps = HostInfo::current().capabilities.to_vec();
 	test_manifest(caps.clone()).validate().unwrap();
-	assert_eq!(caps.len(), 31);
+	assert_eq!(caps.len(), 32);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 31);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 32);
+}
+
+#[test]
+fn notification_preferences_validate_every_patch_field_and_volume_boundaries() {
+	let manifest = test_manifest(vec![Capability::NotificationSettings]);
+	let fields = [
+		"new_message",
+		"current_channel",
+		"incoming_ring",
+		"outgoing_ring",
+		"disable_sounds",
+		"unread_badge",
+		"mute",
+		"unmute",
+		"deafen",
+		"undeafen",
+		"camera_on",
+		"screen_share_on",
+		"user_join",
+		"user_leave",
+	];
+	for field in fields {
+		for value in [false, true] {
+			let wire = serde_json::json!({field: value});
+			let authored: sdk::NotificationSettingsPatch =
+				serde_json::from_value(wire.clone()).unwrap();
+			assert_eq!(serde_json::to_value(&authored).unwrap(), wire);
+			let patch: NotificationSettingsPatch =
+				serde_json::from_value(serde_json::to_value(authored).unwrap()).unwrap();
+			HostEffect::SetNotificationSettings { settings: patch }
+				.validate(&manifest)
+				.unwrap();
+		}
+	}
+	let mut nulls = serde_json::Map::new();
+	for field in fields.into_iter().chain(["volume"]) {
+		nulls.insert(field.into(), serde_json::Value::Null);
+	}
+	for wire in [serde_json::json!({}), serde_json::Value::Object(nulls)] {
+		let settings: NotificationSettingsPatch = serde_json::from_value(wire).unwrap();
+		assert!(matches!(
+			HostEffect::SetNotificationSettings { settings }.validate(&manifest),
+			Err(Error::Invalid)
+		));
+	}
+	for volume in [0, 100, 101, 255] {
+		let patch = NotificationSettingsPatch {
+			volume: Some(volume),
+			..Default::default()
+		};
+		assert_eq!(patch.validate().is_ok(), volume <= 100);
+		let mut data = snapshot();
+		data.notification_settings.as_mut().unwrap().volume = volume;
+		assert_eq!(
+			data.validate(&test_manifest(read_grants())).is_ok(),
+			volume <= 100
+		);
+	}
+	assert!(
+		serde_json::from_value::<NotificationSettingsPatch>(serde_json::json!({"volume": 256}))
+			.is_err()
+	);
+	assert!(
+		serde_json::from_value::<NotificationSettingsPatch>(serde_json::json!({"unknown": true}))
+			.is_err()
+	);
+}
+
+#[test]
+fn scrolling_settings_are_optional_on_older_hosts_and_validate_speed_bounds() {
+	let wire = serde_json::json!({
+		"zoom_percent": 100, "sidebar_width": 236, "show_members": true,
+		"animate_gifs": false, "hide_media_links": true
+	});
+	let old: sdk::LocalSettingsSnapshot = serde_json::from_value(wire.clone()).unwrap();
+	assert_eq!(old.smooth_scrolling, None);
+	assert_eq!(old.scroll_speed_percent, None);
+	assert_eq!(serde_json::to_value(old).unwrap(), wire);
+	let mut host: LocalSettingsSnapshot = serde_json::from_value(wire).unwrap();
+	host.validate().unwrap();
+	for speed in [0, 24, 25, 300, 301, u16::MAX] {
+		let patch = LocalSettingsPatch {
+			scroll_speed_percent: Some(speed),
+			..Default::default()
+		};
+		host.scroll_speed_percent = Some(speed);
+		assert_eq!(patch.validate().is_ok(), (25..=300).contains(&speed));
+		assert_eq!(host.validate().is_ok(), (25..=300).contains(&speed));
+	}
+	for enabled in [false, true] {
+		let authored = sdk::LocalSettingsPatch {
+			smooth_scrolling: Some(enabled),
+			..Default::default()
+		};
+		let patch: LocalSettingsPatch =
+			serde_json::from_value(serde_json::to_value(authored).unwrap()).unwrap();
+		patch.validate().unwrap();
+		assert_eq!(patch.smooth_scrolling, Some(enabled));
+		assert_eq!(patch.scroll_speed_percent, None);
+	}
+	let old_app: sdk::AppSnapshot = serde_json::from_str("{}").unwrap();
+	assert!(old_app.notification_settings.is_none());
 }

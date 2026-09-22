@@ -31,6 +31,7 @@ pub fn uses_app(capabilities: &[Capability]) -> bool {
 				| Capability::VoiceState
 				| Capability::ReadState
 				| Capability::LocalSettings
+				| Capability::NotificationSettings
 				| Capability::Navigation
 				| Capability::LocalNotices
 				| Capability::ClipboardWrite
@@ -615,6 +616,9 @@ pub fn snapshot(
 	if granted(Capability::LocalSettings) {
 		app.settings = Some(messaging.extension_local_settings());
 	}
+	if granted(Capability::NotificationSettings) {
+		app.notification_settings = Some(messaging.extension_notification_settings());
+	}
 	if granted(Capability::MessageDetails)
 		&& let Some(id) = readable
 	{
@@ -845,6 +849,7 @@ pub struct ChangeKey {
 	context: (Freshness, bool, Option<Freshness>),
 	voice: Option<VoiceKey>,
 	settings: LocalSettingsSnapshot,
+	notification_settings: NotificationSettingsSnapshot,
 }
 #[derive(PartialEq, Eq)]
 struct VoiceKey {
@@ -889,6 +894,7 @@ impl ChangeKey {
 				}
 			}),
 			settings: messaging.extension_local_settings(),
+			notification_settings: messaging.extension_notification_settings(),
 		}
 	}
 	pub fn changed(&self, old: &Self) -> Option<AppEventKind> {
@@ -900,7 +906,9 @@ impl ChangeKey {
 			Some(AppEventKind::Context)
 		} else if self.voice != old.voice {
 			Some(AppEventKind::Voice)
-		} else if self.settings != old.settings {
+		} else if self.settings != old.settings
+			|| self.notification_settings != old.notification_settings
+		{
 			Some(AppEventKind::Settings)
 		} else {
 			None
@@ -928,6 +936,48 @@ mod tests {
 				surface: Surface::Panel,
 			}],
 		}
+	}
+	#[test]
+	fn extension_app_notification_grant_and_settings_events_use_local_preferences() {
+		let state = test_support::demo_state();
+		let mut messaging = ui::MessagingUi::default();
+		let reading = snapshot(
+			&state,
+			&messaging,
+			&manifest(vec![Capability::LocalSettings]),
+		)
+		.unwrap();
+		assert!(reading.notification_settings.is_none());
+		assert_eq!(reading.settings.unwrap().scroll_speed_percent, Some(100));
+		let caps = manifest(vec![Capability::NotificationSettings]);
+		assert!(uses_app(&caps.capabilities));
+		let app = snapshot(&state, &messaging, &caps).unwrap();
+		assert!(app.settings.is_none() && app.context.is_none());
+		assert_eq!(
+			app.notification_settings.unwrap(),
+			messaging.extension_notification_settings()
+		);
+		let before = ChangeKey::capture(&state, &messaging);
+		messaging.notification_options.volume = 10;
+		assert_eq!(
+			ChangeKey::capture(&state, &messaging).changed(&before),
+			Some(AppEventKind::Settings)
+		);
+		let mut preferences = crate::app_settings::Settings::default();
+		preferences.observe(&messaging);
+		assert!(preferences.state.dirty);
+		let mut restored = ui::MessagingUi::default();
+		preferences.apply(&mut restored);
+		assert_eq!(
+			restored.notification_options,
+			messaging.notification_options
+		);
+		let before = ChangeKey::capture(&state, &messaging);
+		messaging.reading_preferences.scroll_speed_percent = 150;
+		assert_eq!(
+			ChangeKey::capture(&state, &messaging).changed(&before),
+			Some(AppEventKind::Settings)
+		);
 	}
 	#[test]
 	fn extension_app_message_metadata_and_relationships_are_scoped_and_bounded() {
@@ -1154,6 +1204,7 @@ mod tests {
 			Capability::VoiceState,
 			Capability::ReadState,
 			Capability::LocalSettings,
+			Capability::NotificationSettings,
 		]);
 		let app = snapshot(&state, &messaging, &caps).unwrap();
 		assert!(app.relationships.as_ref().unwrap().truncated);
@@ -1431,6 +1482,7 @@ mod tests {
 			Capability::VoiceState,
 			Capability::ReadState,
 			Capability::LocalSettings,
+			Capability::NotificationSettings,
 		]);
 		let app = snapshot(&state, &messaging, &caps).unwrap();
 		assert_eq!(

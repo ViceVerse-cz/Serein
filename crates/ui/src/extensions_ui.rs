@@ -2539,6 +2539,9 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::VoiceState => "Read current call state and participant identifiers",
 		Capability::ReadState => "Read unread and mention counts in the active conversation",
 		Capability::LocalSettings => "Read local reading settings and propose changes for approval",
+		Capability::NotificationSettings => {
+			"Read local sound and notification settings and propose changes for approval"
+		}
 		Capability::Navigation => "Propose opening conversations, profiles, search and app views",
 		Capability::LocalNotices => "Propose local notices for approval",
 		Capability::ClipboardWrite => "Propose clipboard text for approval",

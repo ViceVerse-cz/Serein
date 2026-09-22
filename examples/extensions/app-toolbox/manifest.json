@@ -9,7 +9,7 @@
   "kind": "plugin",
   "capabilities": [
     "app_context", "channel_directory", "timeline", "members", "presence",
-    "voice_state", "read_state", "local_settings", "navigation", "local_notices",
+    "voice_state", "read_state", "local_settings", "notification_settings", "navigation", "local_notices",
     "clipboard_write", "voice_control", "app_events", "data_events",
     "account_profile", "guild_directory", "channel_details", "message_details", "relationships"
   ],
@@ -25,6 +25,7 @@
     {"id": "notice", "label": "Show local notice", "surface": "panel"},
     {"id": "voice", "label": "Apply voice controls", "surface": "panel"},
     {"id": "leave", "label": "Leave current voice", "surface": "panel"},
-    {"id": "settings", "label": "Apply local preferences", "surface": "panel"}
+    {"id": "settings", "label": "Apply local preferences", "surface": "panel"},
+    {"id": "notifications", "label": "Apply device notifications", "surface": "panel"}
   ]
 }

@@ -60,6 +60,8 @@ pub struct AppSnapshot {
 	pub read_state: Option<ReadSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub settings: Option<LocalSettingsSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub notification_settings: Option<NotificationSettingsSnapshot>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -293,6 +295,10 @@ pub struct LocalSettingsSnapshot {
 	pub show_members: bool,
 	pub animate_gifs: bool,
 	pub hide_media_links: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub smooth_scrolling: Option<bool>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub scroll_speed_percent: Option<u16>,
 }
 
 /// Omitted preferences keep their current values when the user approves the proposal.
@@ -309,6 +315,67 @@ pub struct LocalSettingsPatch {
 	pub animate_gifs: Option<bool>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub hide_media_links: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub smooth_scrolling: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub scroll_speed_percent: Option<u16>,
+}
+
+/// Device-local notification preferences, available only with an explicit grant.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationSettingsSnapshot {
+	pub new_message: bool,
+	pub current_channel: bool,
+	pub incoming_ring: bool,
+	pub outgoing_ring: bool,
+	pub disable_sounds: bool,
+	pub unread_badge: bool,
+	pub mute: bool,
+	pub unmute: bool,
+	pub deafen: bool,
+	pub undeafen: bool,
+	pub camera_on: bool,
+	pub screen_share_on: bool,
+	pub user_join: bool,
+	pub user_leave: bool,
+	pub volume: u8,
+}
+
+/// Omitted preferences keep their current values when the user approves the proposal.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NotificationSettingsPatch {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub new_message: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub current_channel: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub incoming_ring: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub outgoing_ring: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub disable_sounds: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub unread_badge: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub mute: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub unmute: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub deafen: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub undeafen: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub camera_on: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub screen_share_on: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub user_join: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub user_leave: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub volume: Option<u8>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -394,6 +461,9 @@ pub enum HostEffect {
 	LeaveVoice,
 	SetLocalSettings {
 		settings: LocalSettingsPatch,
+	},
+	SetNotificationSettings {
+		settings: NotificationSettingsPatch,
 	},
 }
 use crate::{Capability, Error, MAX_EVENT_CONTENT_BYTES, Manifest};
@@ -602,6 +672,10 @@ impl AppSnapshot {
 			(self.voice.is_some(), Capability::VoiceState),
 			(self.read_state.is_some(), Capability::ReadState),
 			(self.settings.is_some(), Capability::LocalSettings),
+			(
+				self.notification_settings.is_some(),
+				Capability::NotificationSettings,
+			),
 		] {
 			if present {
 				grant(manifest, capability)?;
@@ -786,13 +860,21 @@ impl AppSnapshot {
 		if let Some(settings) = &self.settings {
 			settings.validate()?;
 		}
+		if let Some(settings) = &self.notification_settings {
+			settings.validate()?;
+		}
 		self.bytes().map(|_| ())
 	}
 }
 
 impl LocalSettingsSnapshot {
 	pub fn validate(&self) -> Result<(), Error> {
-		if !(80..=150).contains(&self.zoom_percent) || !(190..=360).contains(&self.sidebar_width) {
+		if !(80..=150).contains(&self.zoom_percent)
+			|| !(190..=360).contains(&self.sidebar_width)
+			|| self
+				.scroll_speed_percent
+				.is_some_and(|value| !(25..=300).contains(&value))
+		{
 			return Err(Error::Invalid);
 		}
 		Ok(())
@@ -808,7 +890,28 @@ impl LocalSettingsPatch {
 			|| self
 				.sidebar_width
 				.is_some_and(|value| !(190..=360).contains(&value))
+			|| self
+				.scroll_speed_percent
+				.is_some_and(|value| !(25..=300).contains(&value))
 		{
+			return Err(Error::Invalid);
+		}
+		Ok(())
+	}
+}
+
+impl NotificationSettingsSnapshot {
+	pub fn validate(&self) -> Result<(), Error> {
+		if self.volume > 100 {
+			return Err(Error::Invalid);
+		}
+		Ok(())
+	}
+}
+
+impl NotificationSettingsPatch {
+	pub fn validate(&self) -> Result<(), Error> {
+		if self == &Self::default() || self.volume.is_some_and(|value| value > 100) {
 			return Err(Error::Invalid);
 		}
 		Ok(())
@@ -828,6 +931,7 @@ impl HostEffect {
 			Self::CopyText { .. } => Capability::ClipboardWrite,
 			Self::SetVoice { .. } | Self::LeaveVoice => Capability::VoiceControl,
 			Self::SetLocalSettings { .. } => Capability::LocalSettings,
+			Self::SetNotificationSettings { .. } => Capability::NotificationSettings,
 		}
 	}
 
@@ -858,6 +962,7 @@ impl HostEffect {
 				}
 			}
 			Self::SetLocalSettings { settings } => settings.validate()?,
+			Self::SetNotificationSettings { settings } => settings.validate()?,
 			Self::Home | Self::OpenView { .. } | Self::SetVoice { .. } | Self::LeaveVoice => {}
 		}
 		bounded_bytes(self, MAX_HOST_EFFECT_BYTES).map(|_| ())

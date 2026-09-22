@@ -1,7 +1,7 @@
 //! Explicitly confirmed extension proposals reuse the ordinary native UI paths.
 use crate::{ExtensionContext, MessagingUi, design};
 use client_core::{Command, State};
-use extensions::{AppView, HostEffect, LocalSettingsSnapshot};
+use extensions::{AppView, HostEffect, LocalSettingsSnapshot, NotificationSettingsSnapshot};
 use model::Id;
 
 pub(crate) struct ConfirmedEffect {
@@ -42,7 +42,38 @@ pub(crate) fn effect_description(effect: &HostEffect) -> String {
 			for (label, value) in [
 				("Show members", settings.show_members),
 				("Animate GIFs", settings.animate_gifs),
+				("Smooth scrolling", settings.smooth_scrolling),
 				("Hide media links", settings.hide_media_links),
+			] {
+				if let Some(value) = value {
+					lines.push(format!("{label}: {}", if value { "on" } else { "off" }));
+				}
+			}
+			if let Some(value) = settings.scroll_speed_percent {
+				lines.push(format!("Scroll speed: {value}%"));
+			}
+			lines.join("\n")
+		}
+		HostEffect::SetNotificationSettings { settings } => {
+			let mut lines = vec!["Change local notification settings:".into()];
+			if let Some(value) = settings.volume {
+				lines.push(format!("Sound volume: {value}%"));
+			}
+			for (label, value) in [
+				("New message sound", settings.new_message),
+				("Current channel sound", settings.current_channel),
+				("Incoming ring", settings.incoming_ring),
+				("Outgoing ring", settings.outgoing_ring),
+				("Disable sounds", settings.disable_sounds),
+				("Unread badge", settings.unread_badge),
+				("Mute sound", settings.mute),
+				("Unmute sound", settings.unmute),
+				("Deafen sound", settings.deafen),
+				("Undeafen sound", settings.undeafen),
+				("Camera on sound", settings.camera_on),
+				("Screen share sound", settings.screen_share_on),
+				("User join sound", settings.user_join),
+				("User leave sound", settings.user_leave),
 			] {
 				if let Some(value) = value {
 					lines.push(format!("{label}: {}", if value { "on" } else { "off" }));
@@ -60,6 +91,7 @@ pub(crate) fn effect_button(effect: &HostEffect) -> &'static str {
 		HostEffect::SetVoice { .. } => "Apply: Change call audio",
 		HostEffect::LeaveVoice => "Apply: Leave call",
 		HostEffect::SetLocalSettings { .. } => "Apply: Change settings",
+		HostEffect::SetNotificationSettings { .. } => "Apply: Change notifications",
 		HostEffect::Search { .. } => "Apply: Search",
 		_ => "Apply: Open view",
 	}
@@ -110,6 +142,29 @@ impl MessagingUi {
 			show_members: settings.show_members,
 			animate_gifs: settings.animate_gifs,
 			hide_media_links: settings.hide_media_links,
+			smooth_scrolling: Some(settings.smooth_scrolling),
+			scroll_speed_percent: Some(settings.scroll_speed_percent),
+		}
+	}
+
+	pub fn extension_notification_settings(&self) -> NotificationSettingsSnapshot {
+		let settings = self.notification_options;
+		NotificationSettingsSnapshot {
+			new_message: settings.new_message,
+			current_channel: settings.current_channel,
+			incoming_ring: settings.incoming_ring,
+			outgoing_ring: settings.outgoing_ring,
+			disable_sounds: settings.disable_sounds,
+			unread_badge: settings.unread_badge,
+			mute: settings.mute,
+			unmute: settings.unmute,
+			deafen: settings.deafen,
+			undeafen: settings.undeafen,
+			camera_on: settings.camera_on,
+			screen_share_on: settings.screen_share_on,
+			user_join: settings.user_join,
+			user_leave: settings.user_leave,
+			volume: settings.volume,
 		}
 	}
 
@@ -266,7 +321,30 @@ impl MessagingUi {
 				value.animate_gifs = settings.animate_gifs.unwrap_or(value.animate_gifs);
 				value.hide_media_links =
 					settings.hide_media_links.unwrap_or(value.hide_media_links);
+				value.smooth_scrolling =
+					settings.smooth_scrolling.unwrap_or(value.smooth_scrolling);
+				value.scroll_speed_percent = settings
+					.scroll_speed_percent
+					.unwrap_or(value.scroll_speed_percent);
 				self.apply_reading_preferences(ctx, value);
+			}
+			HostEffect::SetNotificationSettings { settings } => {
+				let value = &mut self.notification_options;
+				value.new_message = settings.new_message.unwrap_or(value.new_message);
+				value.current_channel = settings.current_channel.unwrap_or(value.current_channel);
+				value.incoming_ring = settings.incoming_ring.unwrap_or(value.incoming_ring);
+				value.outgoing_ring = settings.outgoing_ring.unwrap_or(value.outgoing_ring);
+				value.disable_sounds = settings.disable_sounds.unwrap_or(value.disable_sounds);
+				value.unread_badge = settings.unread_badge.unwrap_or(value.unread_badge);
+				value.mute = settings.mute.unwrap_or(value.mute);
+				value.unmute = settings.unmute.unwrap_or(value.unmute);
+				value.deafen = settings.deafen.unwrap_or(value.deafen);
+				value.undeafen = settings.undeafen.unwrap_or(value.undeafen);
+				value.camera_on = settings.camera_on.unwrap_or(value.camera_on);
+				value.screen_share_on = settings.screen_share_on.unwrap_or(value.screen_share_on);
+				value.user_join = settings.user_join.unwrap_or(value.user_join);
+				value.user_leave = settings.user_leave.unwrap_or(value.user_leave);
+				value.volume = settings.volume.unwrap_or(value.volume);
 			}
 		}
 		ctx.request_repaint();
@@ -704,6 +782,8 @@ mod tests {
 				settings: LocalSettingsPatch {
 					zoom_percent: Some(120),
 					hide_media_links: Some(!before.hide_media_links),
+					smooth_scrolling: Some(false),
+					scroll_speed_percent: Some(250),
 					..Default::default()
 				},
 			},
@@ -715,6 +795,8 @@ mod tests {
 			model::ReadingPreferences {
 				zoom_percent: 120,
 				hide_media_links: !before.hide_media_links,
+				smooth_scrolling: false,
+				scroll_speed_percent: 250,
 				..before
 			}
 		);
@@ -723,6 +805,10 @@ mod tests {
 		for settings in [
 			LocalSettingsPatch {
 				zoom_percent: Some(151),
+				..Default::default()
+			},
+			LocalSettingsPatch {
+				scroll_speed_percent: Some(301),
 				..Default::default()
 			},
 			LocalSettingsPatch::default(),
@@ -734,5 +820,68 @@ mod tests {
 			);
 			assert_eq!(view.reading_preferences, applied);
 		}
+	}
+	#[test]
+	fn notification_patch_revalidates_grant_and_preserves_apply_time_values() {
+		use extensions::NotificationSettingsPatch;
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut view = view(Capability::NotificationSettings);
+		let effect = proposal(
+			&state,
+			HostEffect::SetNotificationSettings {
+				settings: NotificationSettingsPatch {
+					volume: Some(25),
+					current_channel: Some(true),
+					..Default::default()
+				},
+			},
+		);
+		view.notification_options.user_join = false;
+		let before = view.notification_options;
+		let mut commands = Vec::new();
+		view.apply_extension_effect(&ctx, &mut state, effect, &mut commands)
+			.unwrap();
+		assert_eq!(
+			view.notification_options,
+			model::notification_preferences::Device {
+				volume: 25,
+				current_channel: true,
+				..before
+			}
+		);
+		assert!(commands.is_empty());
+		assert_eq!(view.extension_notification_settings().volume, 25);
+		let applied = view.notification_options;
+		for settings in [
+			NotificationSettingsPatch {
+				volume: Some(101),
+				disable_sounds: Some(true),
+				..Default::default()
+			},
+			NotificationSettingsPatch::default(),
+		] {
+			let effect = proposal(&state, HostEffect::SetNotificationSettings { settings });
+			assert!(
+				view.apply_extension_effect(&ctx, &mut state, effect, &mut commands)
+					.is_err()
+			);
+			assert_eq!(view.notification_options, applied);
+		}
+		let effect = proposal(
+			&state,
+			HostEffect::SetNotificationSettings {
+				settings: NotificationSettingsPatch {
+					volume: Some(0),
+					..Default::default()
+				},
+			},
+		);
+		view.extensions.entries[0].manifest.capabilities.clear();
+		assert!(
+			view.apply_extension_effect(&ctx, &mut state, effect, &mut commands)
+				.is_err()
+		);
+		assert_eq!(view.notification_options, applied);
 	}
 }
