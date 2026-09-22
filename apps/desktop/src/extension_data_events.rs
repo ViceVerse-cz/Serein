@@ -3,7 +3,7 @@ use client_core::{Envelope, Event, State};
 use extensions::{AppEventKind, Capability};
 use model::Id;
 
-const KINDS: [AppEventKind; 7] = [
+const KINDS: [AppEventKind; 11] = [
 	AppEventKind::Account,
 	AppEventKind::Channels,
 	AppEventKind::Members,
@@ -11,10 +11,14 @@ const KINDS: [AppEventKind; 7] = [
 	AppEventKind::ReadState,
 	AppEventKind::MessageDetails,
 	AppEventKind::Relationships,
+	AppEventKind::Threads,
+	AppEventKind::Roles,
+	AppEventKind::Permissions,
+	AppEventKind::Recovered,
 ];
 
 #[derive(Default, Clone, Copy)]
-pub struct Changes([bool; 7]);
+pub struct Changes([bool; 11], Option<bool>);
 impl Changes {
 	pub fn capture(state: &State, envelope: &Envelope) -> Self {
 		let mut changes = Self::default();
@@ -29,7 +33,12 @@ impl Changes {
 				&& state.freshness != model::Freshness::Unavailable
 		};
 		match &envelope.event {
-			Event::Startup(_) | Event::Ready { .. } => changes.0 = [true; 7],
+			Event::Startup(_) | Event::Ready { .. } => {
+				changes.0[..10].fill(true);
+				changes.1 = Some(true);
+			}
+			Event::Resumed => changes.1 = Some(true),
+			Event::Disconnected => changes.1 = Some(false),
 			Event::ProfileEdited { user, .. } | Event::Profile { user, .. }
 				if state.user.as_ref().is_some_and(|own| own.id == *user) =>
 			{
@@ -108,6 +117,89 @@ impl Changes {
 			}
 			_ => {}
 		}
+		let channel = state.selected.and_then(|id| state.channel(id));
+		let guild = channel.and_then(|channel| channel.guild);
+		let in_guild = |id| guild == Some(id);
+		if let Event::Profile {
+			guild: profile_guild,
+			..
+		} = &envelope.event
+			&& guild.is_some()
+			&& *profile_guild == guild
+		{
+			changes.0[2] = true;
+		}
+		changes.0[7] |= match &envelope.event {
+			Event::ThreadChanged { guild, .. }
+			| Event::ThreadRemoved { guild, .. }
+			| Event::ThreadsSync { guild, .. } => in_guild(*guild),
+			Event::ChannelCreated(value)
+			| Event::ChannelRestored(value)
+			| Event::PostCreated {
+				result: Ok(value), ..
+			} => matches!(value.kind, 10..=12) && value.guild.is_some_and(in_guild),
+			Event::ChannelChanged(patch) => state.channel(patch.id).is_some_and(|value| {
+				matches!(value.kind, 10..=12) && value.guild.is_some_and(in_guild)
+			}),
+			Event::Unavailable(id) => state.channel(*id).is_some_and(|value| {
+				matches!(value.kind, 10..=12) && value.guild.is_some_and(in_guild)
+			}),
+			Event::ForumPosts {
+				parent,
+				result: Ok(_),
+				..
+			}
+			| Event::Archives {
+				parent,
+				result: Ok(_),
+				..
+			} => state
+				.channel(*parent)
+				.and_then(|value| value.guild)
+				.is_some_and(in_guild),
+			_ => false,
+		};
+		if let Event::Permissions(event) = &envelope.event {
+			use client_core::permissions::Event::*;
+			let (roles, permissions, members) = match event {
+				Snapshot(_) => (guild.is_some(), channel.is_some(), guild.is_some()),
+				Guild(value) if in_guild(value.id) => (true, true, true),
+				Role { guild, .. } | RoleRemoved { guild, .. } if in_guild(*guild) => {
+					(true, true, true)
+				}
+				Member { guild, .. } if in_guild(*guild) => (false, true, true),
+				Members(values) if values.iter().any(|(guild, _, _)| in_guild(*guild)) => {
+					(false, true, true)
+				}
+				Owner { guild, .. } if in_guild(*guild) => (false, true, false),
+				UnavailableGuild(guild) if in_guild(*guild) => (true, true, true),
+				Channel {
+					channel: target, ..
+				} if channel.is_some_and(|channel| {
+					channel.id == *target || channel.parent_id == Some(*target)
+				}) =>
+				{
+					(false, true, false)
+				}
+				_ => (false, false, false),
+			};
+			changes.0[8] |= roles;
+			changes.0[9] |= permissions;
+			changes.0[2] |= members;
+		}
+		if matches!(&envelope.event, Event::PermissionsChanged | Event::Resync) {
+			changes.0[8] |= guild.is_some();
+			changes.0[9] |= channel.is_some();
+			changes.0[2] |= guild.is_some();
+		}
+		if let Event::ServerAdmin(event) = &envelope.event
+			&& in_guild(event.guild)
+			&& matches!(&event.result, Ok(model::server_admin::Result::Roles(_)))
+		{
+			changes.0[8] = true;
+			changes.0[9] = true;
+			changes.0[2] = true;
+		}
 		changes.0[5] |= message_details_changed(state, &envelope.event);
 		if let Event::UserAction(event) = &envelope.event {
 			use client_core::user_actions::Event::*;
@@ -131,6 +223,12 @@ impl Changes {
 				);
 		}
 		changes
+	}
+	pub fn connection(&self) -> Option<bool> {
+		self.1
+	}
+	pub fn recovered(&mut self) {
+		self.0[10] = true;
 	}
 	pub fn merge(&mut self, other: Self) {
 		for (changed, next) in self.0.iter_mut().zip(other.0) {
@@ -239,6 +337,9 @@ pub struct DataKey {
 	directory: (usize, usize),
 	messages: Option<(Id, u64)>,
 	relationships: (u64, bool, bool, bool),
+	permissions: Option<(Id, bool, bool, bool)>,
+	member_profile: Option<(Id, u64, bool, bool, bool)>,
+	channel_metadata: Option<(Id, bool, bool)>,
 }
 impl DataKey {
 	pub fn capture(state: &State) -> Self {
@@ -248,6 +349,9 @@ impl DataKey {
 				&& state.freshness != model::Freshness::Unavailable
 		});
 		let profile = &state.own_profile;
+		let guild = selected
+			.and_then(|id| state.channel(id))
+			.and_then(|channel| channel.guild);
 		Self {
 			read: (
 				selected,
@@ -282,6 +386,38 @@ impl DataKey {
 							.is_some_and(|channel| channel.supports_text())
 				})
 				.map(|id| (id, state.request)),
+			channel_metadata: selected
+				.filter(|id| {
+					state.freshness == model::Freshness::Fresh && state.can_read_history(*id)
+				})
+				.map(|id| {
+					(
+						id,
+						state.channel_details(id).is_some(),
+						state.post_details(id).is_some(),
+					)
+				}),
+			member_profile: state
+				.profile
+				.as_ref()
+				.filter(|profile| guild.is_some() && profile.guild == guild)
+				.map(|profile| {
+					(
+						profile.user,
+						profile.request,
+						profile.loading,
+						profile.error.is_some(),
+						profile.data.is_some(),
+					)
+				}),
+			permissions: state.selected.map(|id| {
+				(
+					id,
+					state.can_view(id),
+					state.can_read_history(id),
+					state.can_send(id),
+				)
+			}),
 			relationships: (
 				state.relationship_view(),
 				state.friends_known(),
@@ -291,15 +427,28 @@ impl DataKey {
 		}
 	}
 	pub fn changed(&self, old: &Self) -> Changes {
-		Changes([
-			self.profile != old.profile,
-			self.channel != old.channel || self.directory != old.directory,
-			false,
-			false,
-			self.read != old.read,
-			self.messages != old.messages,
-			self.relationships != old.relationships,
-		])
+		Changes(
+			[
+				self.profile != old.profile,
+				self.channel != old.channel
+					|| self.directory != old.directory
+					|| self.channel_metadata != old.channel_metadata,
+				self.member_profile != old.member_profile,
+				false,
+				self.read != old.read,
+				self.messages != old.messages,
+				self.relationships != old.relationships,
+				self.channel_metadata
+					.and_then(|(id, _, post)| post.then_some(id))
+					!= old
+						.channel_metadata
+						.and_then(|(id, _, post)| post.then_some(id)),
+				false,
+				self.permissions != old.permissions,
+				false,
+			],
+			None,
+		)
 	}
 }
 
@@ -566,5 +715,81 @@ mod tests {
 			},
 		);
 		assert_eq!(changes.kinds(&[Capability::Relationships]).count(), 0);
+	}
+	#[test]
+	fn thread_role_and_permission_hints_are_scoped_and_require_new_grants() {
+		let state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let guild = state.channel(channel).unwrap().guild.unwrap();
+		let capture = |event| {
+			Changes::capture(
+				&state,
+				&Envelope {
+					generation: state.generation,
+					event,
+				},
+			)
+		};
+		let grants = [Capability::ChannelMetadata, Capability::MemberDetails];
+		let threads = capture(Event::ThreadRemoved { guild, id: Id(900) });
+		assert!(
+			threads
+				.kinds(&grants)
+				.any(|kind| kind == AppEventKind::Threads)
+		);
+		assert!(
+			!threads
+				.kinds(&[Capability::DataEvents, Capability::ChannelDirectory])
+				.any(|kind| kind == AppEventKind::Threads)
+		);
+		assert!(
+			!capture(Event::ThreadRemoved {
+				guild: Id(999),
+				id: Id(900)
+			})
+			.kinds(&grants)
+			.any(|kind| kind == AppEventKind::Threads)
+		);
+		let roles = capture(Event::Permissions(
+			client_core::permissions::Event::RoleRemoved { guild, id: Id(901) },
+		));
+		assert!(roles.kinds(&grants).any(|kind| kind == AppEventKind::Roles));
+		assert!(
+			roles
+				.kinds(&grants)
+				.any(|kind| kind == AppEventKind::Permissions)
+		);
+		assert!(
+			!roles
+				.kinds(&[Capability::DataEvents, Capability::Members])
+				.any(|kind| matches!(kind, AppEventKind::Roles | AppEventKind::Permissions))
+		);
+		assert!(
+			!capture(Event::Permissions(
+				client_core::permissions::Event::RoleRemoved {
+					guild: Id(999),
+					id: Id(901)
+				}
+			))
+			.kinds(&grants)
+			.any(|kind| kind == AppEventKind::Roles)
+		);
+		let overwrites = |target| {
+			Event::Permissions(client_core::permissions::Event::Channel {
+				channel: target,
+				guild: Some(guild),
+				overwrites: model::Patch::Value(Vec::new()),
+			})
+		};
+		assert!(
+			capture(overwrites(channel))
+				.kinds(&grants)
+				.any(|kind| kind == AppEventKind::Permissions)
+		);
+		assert!(
+			!capture(overwrites(Id(999)))
+				.kinds(&grants)
+				.any(|kind| kind == AppEventKind::Permissions)
+		);
 	}
 }

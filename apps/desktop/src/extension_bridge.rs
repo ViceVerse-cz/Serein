@@ -97,10 +97,30 @@ pub struct Bridge {
 	app_context_changed: bool,
 	data_changes: crate::extension_data_events::Changes,
 	data_key: Option<crate::extension_data_events::DataKey>,
+	connection_observed: bool,
+	connection_interrupted: bool,
 }
 impl Bridge {
-	pub fn data_changed(&mut self, changes: crate::extension_data_events::Changes) {
+	pub fn data_changed(&mut self, mut changes: crate::extension_data_events::Changes) {
+		if let Some(connected) = changes.connection() {
+			self.observe_connection(connected, &mut changes);
+		}
 		self.data_changes.merge(changes);
+	}
+	fn observe_connection(
+		&mut self,
+		connected: bool,
+		changes: &mut crate::extension_data_events::Changes,
+	) {
+		if connected {
+			if self.connection_interrupted {
+				changes.recovered();
+			}
+			self.connection_observed = true;
+			self.connection_interrupted = false;
+		} else if self.connection_observed {
+			self.connection_interrupted = true;
+		}
 	}
 	/// Permission changes retire copied app data and proposals before any further delivery.
 	pub fn access_changed(&mut self, messaging: &mut ui::MessagingUi) {
@@ -133,6 +153,11 @@ impl Bridge {
 		})
 	}
 	fn app_events(&mut self, state: &State, messaging: &ui::MessagingUi) {
+		if self.scope_current(state) && crate::extension_app::available(state) {
+			let mut changes = Default::default();
+			self.observe_connection(state.gateway_connected, &mut changes);
+			self.data_changes.merge(changes);
+		}
 		if !self.scope_current(state)
 			|| !crate::extension_app::available(state)
 			|| !self.installed.iter().any(|entry| {
@@ -180,7 +205,7 @@ impl Bridge {
 				.manifest
 				.capabilities
 				.contains(&Capability::DataEvents);
-			let mut kinds = [None; 8];
+			let mut kinds = [None; 12];
 			kinds[0] = event;
 			for (index, kind) in changes.kinds(&entry.manifest.capabilities).enumerate() {
 				if detailed {
@@ -300,6 +325,8 @@ impl Bridge {
 		self.app_context_changed = false;
 		self.data_changes = Default::default();
 		self.data_key = None;
+		self.connection_observed = false;
+		self.connection_interrupted = false;
 		for entry in &mut self.installed {
 			entry.preserve_deleted_messages = false;
 			entry.image_sharing = false;
@@ -367,6 +394,8 @@ impl Bridge {
 			self.app_context_changed = false;
 			self.data_changes = Default::default();
 			self.data_key = None;
+			self.connection_observed = false;
+			self.connection_interrupted = false;
 			self.message_events_dropped = false;
 			state.set_preserve_deleted_messages(false);
 			self.cancel_previews(messaging);

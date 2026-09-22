@@ -1652,3 +1652,40 @@ All four example plugins rebuilt and passed the existing release sandbox checks.
 Three Wasm modules were byte-identical to the pre-edit artifacts. Message Counter
 remained 122,576 bytes with a different hash; both its committed and rebuilt
 modules passed the event/storage checks. Shipped package files were unchanged.
+
+## SDK channel and member coverage - September 22, 2026
+
+Baseline: `8861300` (production runtime identical to `20e47b2`). After: the
+channel/member coverage follow-up on PR #373. Windows x64, Ryzen 7 7800X3D,
+32 GB RAM, Rust 1.98.1, serialized shared-target Cargo builds. The verified
+baseline package was copied before edits; its executable SHA-256 was
+`92dfb897c6ff8719b61029289cd24e50f8be5b3ebca2d08338af372dd45fc710`.
+
+The release `sdk_check` workload uses one warmup and five batches of 20 calls,
+a fresh sandbox/module compilation per call, and unchanged committed plugins
+and input shapes. Package parsing, startup, snapshot collection and worker IO
+are excluded; no concurrent Cargo build ran during these timed calls.
+
+| Committed-module workload | Before, us | After, us | Delta |
+| --- | ---: | ---: | ---: |
+| Protector activation | 1,178.240 | 1,097.925 | -80.315 / -6.82% |
+| Image-sharing activation | 1,042.590 | 989.220 | -53.370 / -5.12% |
+| Counter create event | 1,682.165 | 1,606.670 | -75.495 / -4.49% |
+| Toolbox dashboard, 18,296-byte snapshot | 4,268.025 | 4,131.795 | -136.230 / -3.19% |
+
+These single-session variations do not establish a stable speed improvement.
+The rebuilt Toolbox measured 4,291.690 us; its Wasm grew from 231,762 to
+274,763 bytes as the SDK gained optional types. The committed Toolbox stays
+unchanged. New Guild Inspector is a separate optional 267,510-byte Wasm module
+in a 773,922-byte JSON package, not embedded in the production executable.
+Both committed/rebuilt Inspector packages passed real sandbox invocation with
+new data and event kinds. An immutable older App Toolbox compiled at `3d94c76`
+also passed current-host invocation without rebuilding its Wasm.
+
+The two new data groups each have a 6-KiB wire ceiling. Member details additionally
+cap members at 20, role IDs per member at 32 and catalog roles at 32; the collector
+charges item/nested storage against its group budget. Groups consume remaining
+space in the existing 64-KiB snapshot. New event kinds share the existing 32-item /
+64-KiB queue and ten starts/second. No new cache, dependency, worker or timer.
+No lifecycle tests were added. Native screenshots, CPU/RSS and frame timings remain
+unavailable; these synthetic checks do not establish live Discord compatibility.

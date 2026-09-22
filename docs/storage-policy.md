@@ -20,6 +20,17 @@ separate known flags distinguish unloaded friend/request/restricted lists.
 Both groups consume the remaining shared 64-KiB snapshot budget and can truncate
 earlier. Message details contain no message text, attachment URLs/bytes or deleted/
 ephemeral records; relationships contain no notes, nicknames or status payloads.
+Channel metadata and member details each add a 6-KiB group within the same
+64-KiB snapshot ceiling. A settings topic is capped at 2,048 UTF-8 bytes and
+appears only from already-loaded channel settings with current access. Parent/
+category traversal follows at most two visible same-guild links; thread flags
+use the already-loaded post. Permission values remain optional decisions.
+Member details require a matching fresh guild member pane, cap at 20 members,
+32 role IDs each and 32 loaded catalog roles (2-KiB catalog sub-budget), and
+include only a matching already-loaded successful server profile. Server bio,
+pronouns and join-time text cap at 1,024/256/64 UTF-8 bytes. No member lookup,
+profile load or settings fetch occurs. Combined snapshot pressure trims member
+rows first and may omit either group; no cache or queue ceiling is enlarged.
 Partial lists declare truncation; none is a history export.
 
 The account-profile grant supplies only the current account label/avatar hash
@@ -29,7 +40,8 @@ asset hashes at 128 bytes. Channel details omit hidden parent IDs and withhold
 last-message IDs/counts without history permission. Disconnect or unavailable
 selected-channel data removes the corresponding groups. No snapshot exposes
 email, credentials, account connections, deleted/ephemeral bodies, raw media,
-device paths or unrelated profiles. An active accessible DM/private channel can
+device paths or unrelated profiles. Member server-profile data stays in the
+matching selected-guild scope. An active accessible DM/private channel can
 supply ordinary text and loaded recipients with the corresponding grants.
 
 App events share the unchanged 32-item / 64-KiB reactive queue and ten-starts-per-
@@ -37,7 +49,8 @@ second limit. Fixed dirty flags classify current-session account/channel/member/
 read-state invalidation hints without retaining raw event payloads; local profile,
 directory and read changes use bounded scalar observation. Hints can describe
 no-op or rejected updates and are not an audit stream. Detailed events require `data_events`, `app_events`
-and their corresponding read grant. Pending detailed descriptors coalesce by
+and their corresponding read grant. Recovery/resynchronization hints use these
+same bounds and do not replay missed events. Pending detailed descriptors coalesce by
 kind per plugin; legacy lifecycle observation retains its existing coalescing.
 Descriptors hold no snapshot: current granted data is collected only at dispatch.
 Invocation and pending-result copies each have the 64-KiB snapshot bound. The UI

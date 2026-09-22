@@ -328,6 +328,59 @@ fn check_app_toolbox(name: &str, package: &Package) {
 	);
 }
 
+fn check_guild_inspector(name: &str, package: &Package) {
+	use serde_json::json;
+	let members: Vec<_> = (1..=20)
+		.map(|id| {
+			json!({
+			 "user":{"id":id.to_string(),"name":"Loaded user"},"nick":"Nickname",
+			 "display_name":"Nickname","role_ids":["400"],"roles_truncated":false
+			})
+		})
+		.collect();
+	let mut input: Invocation = serde_json::from_value(json!({"action":"show","app":{
+	 "channel_metadata":{"channel_id":"100","guild_id":"200",
+	  "category":{"id":"300","guild_id":"200","name":"Category","kind":4},
+	  "topic":"Loaded topic", "topic_truncated":false, "slowmode_seconds":5,"nsfw":false,
+	  "permissions":{"view_channel":true,"send_messages":false,"manage_roles":null},
+	  "thread":{"message_count":7,"archived":null,"locked":null,"pinned":null}},
+	 "member_details":{"channel_id":"100","guild_id":"200","items":members,"truncated":true,
+	  "roles":[{"id":"400","name":"Role","color":123,"position":1}],"roles_truncated":false}
+	}}))
+	.unwrap();
+	let output = invoke(package, &input).expect("new guild snapshots fit the real sandbox");
+	for expected in [
+		"Loaded topic",
+		"Nickname",
+		"ManageRoles: unknown",
+		"Loaded members: 20",
+	] {
+		assert!(
+			output
+				.panel
+				.iter()
+				.any(|e| matches!(e, Element::Text {text} if text.contains(expected))),
+			"{name}: {expected}"
+		);
+	}
+	assert!(output.effects.is_empty() && output.storage.is_none());
+	input.action = "on-app".into();
+	for kind in [
+		extensions::AppEventKind::Threads,
+		extensions::AppEventKind::Roles,
+		extensions::AppEventKind::Permissions,
+		extensions::AppEventKind::Recovered,
+	] {
+		input.app_event = Some(kind);
+		let output = invoke(package, &input).expect("new event vocabulary fits the real sandbox");
+		assert_eq!(
+			serde_json::to_value(output).unwrap(),
+			serde_json::to_value(Output::default()).unwrap()
+		);
+	}
+	println!("{name}: bounded guild data and four new event kinds passed");
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut args = std::env::args_os().skip(1);
 	let wasm_dir = PathBuf::from(args.next().expect("usage: sdk_check <wasm-directory>"));
@@ -398,6 +451,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		&rebuilt(
 			include_str!("../../../examples/extensions/app-toolbox/manifest.json"),
 			&wasm_dir.join("app_toolbox.wasm"),
+		)?,
+	);
+	check_guild_inspector(
+		"guild-inspector/committed",
+		&parse_package(include_bytes!(
+			"../../../examples/extensions/packages/guild-inspector.serein-extension"
+		))?,
+	);
+	check_guild_inspector(
+		"guild-inspector/rebuilt",
+		&rebuilt(
+			include_str!("../../../examples/extensions/guild-inspector/manifest.json"),
+			&wasm_dir.join("guild_inspector.wasm"),
 		)?,
 	);
 	Ok(())

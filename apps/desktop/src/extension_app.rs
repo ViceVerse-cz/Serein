@@ -16,6 +16,8 @@ pub fn uses_app(capabilities: &[Capability]) -> bool {
 				| Capability::AccountProfile
 				| Capability::GuildDirectory
 				| Capability::ChannelDetails
+				| Capability::ChannelMetadata
+				| Capability::MemberDetails
 				| Capability::DataEvents
 				| Capability::MessageDetails
 				| Capability::Relationships
@@ -35,7 +37,7 @@ pub fn uses_app(capabilities: &[Capability]) -> bool {
 	})
 }
 
-fn name(value: &str) -> String {
+pub(crate) fn name(value: &str) -> String {
 	let mut end = value.len().min(128);
 	while !value.is_char_boundary(end) {
 		end -= 1;
@@ -64,7 +66,7 @@ fn channel(value: &model::Channel) -> ChannelSnapshot {
 	}
 }
 
-fn text(value: &str, limit: usize) -> String {
+pub(crate) fn text(value: &str, limit: usize) -> String {
 	let mut end = value.len().min(limit);
 	while !value.is_char_boundary(end) {
 		end -= 1;
@@ -84,7 +86,12 @@ fn asset_hash(value: &Option<String>) -> Option<String> {
 
 // Each candidate is already scalar-bounded before serialization. Account for JSON and
 // fixed list storage; these per-group budgets also leave room below the 64 KiB ABI cap.
-fn push<T: serde::Serialize>(items: &mut Vec<T>, item: T, left: &mut usize, max: usize) -> bool {
+pub(crate) fn push<T: serde::Serialize>(
+	items: &mut Vec<T>,
+	item: T,
+	left: &mut usize,
+	max: usize,
+) -> bool {
 	let bytes = serde_json::to_vec(&item).map_or(usize::MAX, |bytes| {
 		bytes.len().saturating_add(std::mem::size_of::<T>())
 	});
@@ -196,6 +203,104 @@ fn message_detail(message: &model::Message) -> MessageDetailSnapshot {
 		}
 	}
 	detail
+}
+
+fn channel_metadata(state: &State) -> Option<ChannelMetadataSnapshot> {
+	use model::permissions as p;
+	if !state.gateway_connected || state.freshness != Freshness::Fresh {
+		return None;
+	}
+	let id = state.selected?;
+	let current = state.channel(id)?;
+	let guild = current.guild?;
+	if !state.can_view(id) || !state.can_read_history(id) {
+		return None;
+	}
+	let related = |id| {
+		state
+			.channel(id)
+			.filter(|c| c.guild == Some(guild) && state.can_view(c.id))
+	};
+	let parent = current.parent_id.and_then(related);
+	let category = parent.and_then(|parent| {
+		if parent.kind == 4 {
+			Some(parent)
+		} else {
+			parent.parent_id.and_then(related).filter(|c| c.kind == 4)
+		}
+	});
+	let loaded = state.channel_details(id);
+	let post = state.post_details(id);
+	let mut permissions = std::collections::BTreeMap::new();
+	for (permission, bits) in [
+		(ChannelPermission::ViewChannel, p::VIEW_CHANNEL),
+		(
+			ChannelPermission::ReadMessageHistory,
+			p::READ_MESSAGE_HISTORY,
+		),
+		(ChannelPermission::SendMessages, p::SEND_MESSAGES),
+		(
+			ChannelPermission::SendMessagesInThreads,
+			p::SEND_MESSAGES_IN_THREADS,
+		),
+		(ChannelPermission::AttachFiles, p::ATTACH_FILES),
+		(ChannelPermission::EmbedLinks, p::EMBED_LINKS),
+		(ChannelPermission::AddReactions, p::ADD_REACTIONS),
+		(ChannelPermission::MentionEveryone, p::MENTION_EVERYONE),
+		(ChannelPermission::UseExternalEmojis, p::USE_EXTERNAL_EMOJIS),
+		(
+			ChannelPermission::UseExternalStickers,
+			p::USE_EXTERNAL_STICKERS,
+		),
+		(
+			ChannelPermission::UseApplicationCommands,
+			p::USE_APPLICATION_COMMANDS,
+		),
+		(ChannelPermission::ManageChannels, p::MANAGE_CHANNELS),
+		(ChannelPermission::ManageMessages, p::MANAGE_MESSAGES),
+		(ChannelPermission::ManageRoles, p::MANAGE_ROLES),
+		(ChannelPermission::ManageThreads, p::MANAGE_THREADS),
+		(
+			ChannelPermission::CreatePublicThreads,
+			p::CREATE_PUBLIC_THREADS,
+		),
+		(
+			ChannelPermission::CreatePrivateThreads,
+			p::CREATE_PRIVATE_THREADS,
+		),
+		(ChannelPermission::ManageWebhooks, p::MANAGE_WEBHOOKS),
+		(ChannelPermission::Connect, p::CONNECT),
+		(ChannelPermission::Speak, p::SPEAK),
+		(ChannelPermission::Stream, p::STREAM),
+		(ChannelPermission::MuteMembers, p::MUTE_MEMBERS),
+		(ChannelPermission::DeafenMembers, p::DEAFEN_MEMBERS),
+		(ChannelPermission::MoveMembers, p::MOVE_MEMBERS),
+		(ChannelPermission::UseVad, p::USE_VAD),
+		(ChannelPermission::PinMessages, p::PIN_MESSAGES),
+	] {
+		permissions.insert(permission, state.permission(id, p::VIEW_CHANNEL | bits));
+	}
+	Some(ChannelMetadataSnapshot {
+		channel_id: id.0.to_string(),
+		guild_id: guild.0.to_string(),
+		parent: parent.map(channel),
+		category: category.map(channel),
+		topic: loaded.map(|d| text(&d.topic, 2048)),
+		topic_truncated: loaded.is_some_and(|d| d.topic.len() > 2048),
+		slowmode_seconds: loaded.map(|d| d.slowmode),
+		nsfw: loaded.map(|d| d.nsfw),
+		thread: matches!(current.kind, 10..=12).then(|| ThreadMetadataSnapshot {
+			owner_id: post
+				.and_then(|p| p.owner)
+				.filter(|id| id.0 != 0)
+				.map(|id| id.0.to_string()),
+			message_count: current.message_count,
+			archived: post.map(|p| p.archived),
+			locked: post.map(|p| p.locked),
+			pinned: post.map(|p| p.pinned),
+		}),
+		permissions,
+	})
 }
 
 pub fn snapshot(
@@ -614,6 +719,30 @@ pub fn snapshot(
 		}
 		app.relationships = Some(group);
 	}
+	if granted(Capability::ChannelMetadata) {
+		app.channel_metadata = channel_metadata(state);
+		if matches!(app.bytes(), Err(Error::Limit)) {
+			app.channel_metadata = None;
+		}
+	}
+	if granted(Capability::MemberDetails) {
+		app.member_details = crate::extension_member_details::snapshot(state);
+		while matches!(app.bytes(), Err(Error::Limit)) {
+			let group = app.member_details.as_mut()?;
+			if group.items.pop().is_some() {
+				group.truncated = true;
+			} else if group
+				.roles
+				.as_mut()
+				.is_some_and(|roles| roles.pop().is_some())
+			{
+				group.roles_truncated = true;
+			} else {
+				app.member_details = None;
+				break;
+			}
+		}
+	}
 	// Keep the boundary authoritative if model data or serialization changes later.
 	app.validate(manifest).ok()?;
 	Some(Box::new(app))
@@ -993,6 +1122,123 @@ mod tests {
 		assert!(
 			app.account_profile.is_none() && app.guilds.is_none() && app.channel_details.is_none()
 		);
+	}
+
+	#[test]
+	fn extension_channel_metadata_exposes_only_loaded_topics_and_scoped_parents() {
+		use client_core::channel_actions::{Action, Edit, Event, Outcome};
+		let mut state = test_support::demo_state();
+		let id = state.selected.unwrap();
+		let original = state.channel(id).unwrap().clone();
+		let guild = original.guild.unwrap();
+		let mut category = original.clone();
+		category.id = Id(88001);
+		category.kind = 4;
+		category.name = "Category".into();
+		category.parent_id = None;
+		state.channels.push(category);
+		state.permissions.channels.insert(
+			Id(88001),
+			model::permissions::Channel {
+				id: Id(88001),
+				guild,
+				overwrites: Some(vec![]),
+			},
+		);
+		state.permissions.guilds.get_mut(&guild).unwrap().owner =
+			state.user.as_ref().map(|user| user.id);
+		state.permissions.clear_cache();
+		let index = state.channel_index(id).unwrap();
+		state.channels[index].parent_id = Some(Id(88001));
+		let unknown = channel_metadata(&state).unwrap();
+		assert!(unknown.topic.is_none() && unknown.thread.is_none());
+		assert_eq!(unknown.category.as_ref().unwrap().name, "Category");
+		let client_core::Command::ChannelAction { request, .. } =
+			state.request_channel_action(id, Action::Load).unwrap()
+		else {
+			panic!("expected synthetic load command")
+		};
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::ChannelAction(Event::Finished {
+				guild,
+				channel: id,
+				request,
+				result: Ok(Outcome::Details(Edit {
+					name: original.name,
+					topic: "\u{e9}".repeat(1200),
+					slowmode: 5,
+					nsfw: false,
+					overwrites: vec![],
+				})),
+			}),
+		});
+		let loaded = channel_metadata(&state).unwrap();
+		loaded.validate().unwrap();
+		assert_eq!(loaded.topic.as_ref().unwrap().len(), 2048);
+		assert!(loaded.topic_truncated);
+		assert_eq!(loaded.slowmode_seconds, Some(5));
+		let messaging = ui::MessagingUi::default();
+		let granted = snapshot(
+			&state,
+			&messaging,
+			&manifest(vec![Capability::ChannelMetadata]),
+		)
+		.unwrap();
+		assert!(granted.channel_metadata.is_some());
+		let inspector = parse_package(include_bytes!(
+			"../../../examples/extensions/packages/guild-inspector.serein-extension"
+		))
+		.unwrap();
+		let output = invoke(
+			&inspector,
+			&Invocation {
+				action: "show".into(),
+				app: Some(granted),
+				..Default::default()
+			},
+		)
+		.expect("loaded channel metadata fits the real Guild Inspector sandbox");
+		assert!(!output.panel.is_empty() && output.effects.is_empty());
+		let denied = snapshot(
+			&state,
+			&messaging,
+			&manifest(vec![Capability::ChannelDetails]),
+		)
+		.unwrap();
+		assert!(denied.channel_metadata.is_none());
+		state.demo = false;
+		state.auth = AuthState::Authenticated;
+		let before_reload = crate::extension_data_events::DataKey::capture(&state);
+		state.request_channel_action(id, Action::Load).unwrap();
+		assert!(channel_metadata(&state).unwrap().topic.is_none());
+		assert!(
+			crate::extension_data_events::DataKey::capture(&state)
+				.changed(&before_reload)
+				.kinds(&[Capability::ChannelMetadata])
+				.any(|kind| kind == AppEventKind::Channels)
+		);
+		let mut parent = state.channel(id).unwrap().clone();
+		parent.id = Id(88002);
+		state.channels.push(parent);
+		state.permissions.channels.insert(
+			Id(88002),
+			model::permissions::Channel {
+				id: Id(88002),
+				guild,
+				overwrites: Some(vec![]),
+			},
+		);
+		state.channels[index].kind = 11;
+		state.channels[index].parent_id = Some(Id(88002));
+		state.channels[index].message_count = Some(7);
+		let thread = channel_metadata(&state).unwrap();
+		assert_eq!(thread.category.as_ref().unwrap().id, "88001");
+		let thread = thread.thread.unwrap();
+		assert_eq!(thread.message_count, Some(7));
+		assert!(thread.archived.is_none() && thread.locked.is_none());
+		state.channels.last_mut().unwrap().guild = Some(Id(999));
+		assert!(channel_metadata(&state).is_none());
 	}
 
 	#[test]

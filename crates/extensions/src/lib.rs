@@ -5,6 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod runtime;
 pub use runtime::invoke;
+mod channel_metadata;
+pub use channel_metadata::*;
+mod member_details;
+pub use member_details::*;
 mod app;
 pub use app::*;
 
@@ -49,6 +53,8 @@ pub enum ExtensionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+	ChannelMetadata,
+	MemberDetails,
 	SelectedMessage,
 	Composer,
 	Storage,

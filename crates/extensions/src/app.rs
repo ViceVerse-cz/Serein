@@ -1,3 +1,4 @@
+use crate::{ChannelMetadataSnapshot, MemberDetailsSnapshot};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_APP_SNAPSHOT_BYTES: usize = 64 * 1024;
@@ -20,6 +21,10 @@ pub const MAX_HOST_EFFECT_BYTES: usize = 8 * 1024;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppSnapshot {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub channel_metadata: Option<ChannelMetadataSnapshot>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub member_details: Option<MemberDetailsSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub message_details: Option<MessageDetailsSnapshot>,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -300,6 +305,10 @@ pub struct LocalSettingsPatch {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppEventKind {
+	Threads,
+	Roles,
+	Permissions,
+	Recovered,
 	MessageDetails,
 	Relationships,
 	Account,
@@ -395,7 +404,7 @@ pub(crate) fn entity_id(id: &str) -> Result<(), Error> {
 	Ok(())
 }
 
-fn label(value: &str, limit: usize) -> Result<(), Error> {
+pub(crate) fn label(value: &str, limit: usize) -> Result<(), Error> {
 	if value.len() > limit {
 		return Err(Error::Limit);
 	}
@@ -405,12 +414,12 @@ fn label(value: &str, limit: usize) -> Result<(), Error> {
 	Ok(())
 }
 
-fn user(user: &UserSnapshot) -> Result<(), Error> {
+pub(crate) fn user(user: &UserSnapshot) -> Result<(), Error> {
 	entity_id(&user.id)?;
 	label(&user.name, 256)
 }
 
-fn channel(channel: &ChannelSnapshot) -> Result<(), Error> {
+pub(crate) fn channel(channel: &ChannelSnapshot) -> Result<(), Error> {
 	entity_id(&channel.id)?;
 	if let Some(guild) = &channel.guild_id {
 		entity_id(guild)?;
@@ -418,7 +427,7 @@ fn channel(channel: &ChannelSnapshot) -> Result<(), Error> {
 	label(&channel.name, 256)
 }
 
-fn ids<'a>(items: impl Iterator<Item = &'a str>, limit: usize) -> Result<(), Error> {
+pub(crate) fn ids<'a>(items: impl Iterator<Item = &'a str>, limit: usize) -> Result<(), Error> {
 	let mut seen = BTreeSet::new();
 	for id in items {
 		if seen.len() == limit {
@@ -433,7 +442,10 @@ fn ids<'a>(items: impl Iterator<Item = &'a str>, limit: usize) -> Result<(), Err
 }
 
 /// Counts serialized bytes without allocating an oversized JSON buffer.
-fn bounded_bytes(value: &(impl Serialize + ?Sized), limit: usize) -> Result<usize, Error> {
+pub(crate) fn bounded_bytes(
+	value: &(impl Serialize + ?Sized),
+	limit: usize,
+) -> Result<usize, Error> {
 	struct Counter {
 		used: usize,
 		limit: usize,
@@ -465,6 +477,11 @@ impl AppEventKind {
 	/// Whether the manifest can read the data represented by this notification.
 	pub fn data_granted(self, capabilities: &[Capability]) -> bool {
 		let required: &[Capability] = match self {
+			Self::Threads => &[Capability::ChannelMetadata],
+			Self::Roles => &[Capability::MemberDetails],
+			Self::Permissions | Self::Recovered => {
+				&[Capability::ChannelMetadata, Capability::MemberDetails]
+			}
 			Self::MessageDetails => &[Capability::MessageDetails],
 			Self::Relationships => &[Capability::Relationships],
 			Self::Account => &[Capability::AccountProfile],
@@ -472,8 +489,9 @@ impl AppEventKind {
 				Capability::ChannelDirectory,
 				Capability::GuildDirectory,
 				Capability::ChannelDetails,
+				Capability::ChannelMetadata,
 			],
-			Self::Members => &[Capability::Members],
+			Self::Members => &[Capability::Members, Capability::MemberDetails],
 			Self::Presence => &[Capability::Presence],
 			Self::ReadState => &[Capability::ReadState],
 			_ => return false,
@@ -494,6 +512,10 @@ impl AppEventKind {
 				| Self::ReadState
 				| Self::MessageDetails
 				| Self::Relationships
+				| Self::Threads
+				| Self::Roles
+				| Self::Permissions
+				| Self::Recovered
 		) {
 			grant(manifest, Capability::DataEvents)?;
 			if !self.data_granted(&manifest.capabilities) {
@@ -504,7 +526,7 @@ impl AppEventKind {
 	}
 }
 
-fn image_hash(value: &str) -> Result<(), Error> {
+pub(crate) fn image_hash(value: &str) -> Result<(), Error> {
 	if value.len() > 128 {
 		return Err(Error::Limit);
 	}
@@ -518,7 +540,7 @@ fn image_hash(value: &str) -> Result<(), Error> {
 	Ok(())
 }
 
-fn profile_text(value: &str, limit: usize, multiline: bool) -> Result<(), Error> {
+pub(crate) fn profile_text(value: &str, limit: usize, multiline: bool) -> Result<(), Error> {
 	if value.len() > limit {
 		return Err(Error::Limit);
 	}
@@ -536,6 +558,8 @@ impl AppSnapshot {
 
 	pub fn validate(&self, manifest: &Manifest) -> Result<(), Error> {
 		for (present, capability) in [
+			(self.channel_metadata.is_some(), Capability::ChannelMetadata),
+			(self.member_details.is_some(), Capability::MemberDetails),
 			(self.message_details.is_some(), Capability::MessageDetails),
 			(self.relationships.is_some(), Capability::Relationships),
 			(self.account_profile.is_some(), Capability::AccountProfile),
@@ -553,6 +577,12 @@ impl AppSnapshot {
 			if present {
 				grant(manifest, capability)?;
 			}
+		}
+		if let Some(group) = &self.channel_metadata {
+			group.validate()?;
+		}
+		if let Some(group) = &self.member_details {
+			group.validate()?;
 		}
 		if let Some(details) = &self.message_details {
 			entity_id(&details.channel_id)?;

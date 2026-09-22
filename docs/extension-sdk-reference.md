@@ -175,14 +175,18 @@ does not grant the current user's identity, conversation text or settings.
 | `voice` | `AppEventKind::Voice` | The current call identity, phase, local controls, screen-share state or tracked participants changed. |
 | `settings` | `AppEventKind::Settings` | One of the five exposed local reading preferences changed. |
 | `account` | `AppEventKind::Account` | Account identity or loaded own profile may have changed; additionally requires `data_events` and `account_profile`. |
-| `channels` | `AppEventKind::Channels` | Joined guilds, visible channels or selected-channel details may have changed; additionally requires `data_events` and at least one of `guild_directory`, `channel_directory`, `channel_details`. |
-| `members` | `AppEventKind::Members` | Loaded selected-channel members may have changed; additionally requires `data_events` and `members`. |
+| `channels` | `AppEventKind::Channels` | Joined guilds, visible channels or selected-channel details may have changed; additionally requires `data_events` and at least one of `guild_directory`, `channel_directory`, `channel_details`, `channel_metadata`. |
+| `members` | `AppEventKind::Members` | Loaded selected-channel members may have changed; additionally requires `data_events` and either `members` or `member_details`. |
 | `presence` | `AppEventKind::Presence` | Known selected-context statuses may have changed; additionally requires `data_events` and `presence`. |
 | `read_state` | `AppEventKind::ReadState` | Selected-channel read/mention state may have changed; additionally requires `data_events` and `read_state`. |
 | `message_details` | `AppEventKind::MessageDetails` | Loaded selected-message metadata may have changed; additionally requires `data_events` and `message_details`. |
 | `relationships` | `AppEventKind::Relationships` | Loaded friends, requests or restricted-account lists may have changed; additionally requires `data_events` and `relationships`. |
+| `threads` | `AppEventKind::Threads` | Loaded selected-context thread/post metadata may have changed; additionally requires `data_events` and `channel_metadata`. |
+| `roles` | `AppEventKind::Roles` | Loaded member role/catalog data may have changed; additionally requires `data_events` and `member_details`. |
+| `permissions` | `AppEventKind::Permissions` | Selected-context permissions may have changed, including loss of data access; additionally requires `data_events` and either `channel_metadata` or `member_details`. |
+| `recovered` | `AppEventKind::Recovered` | The host observed accepted recovery/resynchronization; reread current groups, which may still be absent or partial. Additionally requires `data_events` and either `channel_metadata` or `member_details`; this is not replay of missed events. |
 
-The seven detailed reasons are opt-in: `data_events` requires `app_events`,
+The eleven detailed reasons are opt-in: `data_events` requires `app_events`,
 and each reason also needs its corresponding read grant. Existing observers
 without `data_events` receive only the original six reasons. These are
 invalidation hints from observed app updates, not raw service events or payload
@@ -234,7 +238,10 @@ budgets including item overhead: 10 KiB for channels, 20 KiB for timeline,
 6 KiB each for members, presence and channel-detail recipients, and 8 KiB for
 guilds. Message details and relationships have 8-KiB and 4-KiB group limits
 and also consume the remaining shared 64-KiB snapshot budget. They can truncate
-earlier when other groups are present. A list may reach its byte budget before
+earlier when other groups are present. Channel metadata and member details each
+have a 6-KiB group ceiling and share that remaining global budget too. Member
+rows are trimmed first to fit; either new group may be omitted if insufficient
+space remains. A list may reach its byte budget before
 its item limit. These limits do not guarantee that every handler fits the sandbox's
 fuel budget; parsing and your own processing also consume fuel.
 
@@ -245,6 +252,8 @@ For the examples below, `app` is a borrowed `AppSnapshot`. Each field is an
 
 | Wire field | SDK Rust type | Required capability and availability | Reading it |
 | --- | --- | --- | --- |
+| `channel_metadata` | `Option<ChannelMetadataSnapshot>` | `channel_metadata`; connected, fresh, viewable and readable selected guild channel; optional settings/post fields may remain unknown. | `app.channel_metadata.as_ref()` |
+| `member_details` | `Option<MemberDetailsSnapshot>` | `member_details`; connected, fresh readable selected guild channel with a matching fresh loaded member pane. | `app.member_details.as_ref()` |
 | `message_details` | `Option<MessageDetailsSnapshot>` | `message_details`; connected, fresh, readable selected timeline, without message text. | `app.message_details.as_ref()` |
 | `relationships` | `Option<RelationshipsSnapshot>` | `relationships`; connected, already-loaded friend/request/restricted lists. | `app.relationships.as_ref()` |
 | `account_profile` | `Option<AccountProfileSnapshot>` | `account_profile`; connected current account, with optional already-loaded own profile. | `app.account_profile.as_ref()` |
@@ -260,7 +269,8 @@ For the examples below, `app` is a borrowed `AppSnapshot`. Each field is an
 | `settings` | `Option<LocalSettingsSnapshot>` | `local_settings`; the five current local reading/layout preferences. | `app.settings.as_ref()` |
 
 On disconnect, the collector omits account profile, guilds, channel details,
-channel directory, timeline, message details, relationships, members and presence. It also removes the selected
+channel directory, timeline, message details, relationships, channel metadata,
+member details, members and presence. It also removes the selected
 channel from context and read state. The account label in context,
 settings and independently available voice state may remain. A known inaccessible
 channel is not exposed through the selected-channel groups. Active private
@@ -421,6 +431,131 @@ fn handle(input: AppInvocation) -> AppOutput {
 }
 serein_extension_sdk::export!(handle);
 ```
+
+### ChannelMetadataSnapshot: loaded channel settings, threads and permissions
+
+Requires `channel_metadata`, independently of `channel_details`. Only a connected,
+fresh, viewable and readable selected **guild** channel is eligible. DMs, Home,
+access loss, stale state or insufficient snapshot space omit the group. Nothing
+fetches channel settings or post details automatically. In particular, ordinary
+channel selection often leaves topic, slowmode and NSFW unknown: they come from
+the already-loaded settings record, which also requires current permission to
+open that channel's settings.
+
+| Wire field | SDK Rust / JSON type | Meaning and absence | Reading from `metadata: &ChannelMetadataSnapshot` |
+| --- | --- | --- | --- |
+| `channel_id` | `String` / string | Selected guild channel ID. | `metadata.channel_id.as_str()` |
+| `guild_id` | `String` / string | Owning guild ID. | `metadata.guild_id.as_str()` |
+| `parent` | `Option<ChannelSnapshot>` / object or absent | Loaded, viewable parent in the same guild; absent when unknown or inaccessible. | `metadata.parent.as_ref()` |
+| `category` | `Option<ChannelSnapshot>` / object or absent | Loaded, viewable category in the same guild, found at most two parent links above the selected channel. | `metadata.category.as_ref()` |
+| `topic` | `Option<String>` / string or absent | Already-loaded settings topic, at most 2,048 UTF-8 bytes with controls removed except newline/tab. Empty means known empty; absent means unavailable. | `metadata.topic.as_deref()` |
+| `topic_truncated` | `bool` / boolean | The loaded topic exceeded the collector's byte limit. | `metadata.topic_truncated` |
+| `slowmode_seconds` | `Option<u32>` / nonnegative integer or absent | Loaded settings value, 0 through 21,600 seconds; zero means known disabled, absent means unknown. | `metadata.slowmode_seconds` |
+| `nsfw` | `Option<bool>` / boolean or absent | Loaded settings flag; absent differs from false. | `metadata.nsfw` |
+| `thread` | `Option<ThreadMetadataSnapshot>` / object or absent | Present for a selected thread kind (10 through 12); its fields may still be unknown. Absent for other channel kinds. | `metadata.thread.as_ref()` |
+| `permissions` | `BTreeMap<ChannelPermission, Option<bool>>` / object of boolean-or-null values | Loaded permission decisions, not raw permission bitfields or guarantees that an action can run. `true` allows, `false` denies, `null` or a missing key is unknown. | `metadata.permissions.get(&ChannelPermission::ManageThreads).copied().flatten()` |
+
+`ChannelPermission` keys are `view_channel`, `read_message_history`,
+`send_messages`, `send_messages_in_threads`, `attach_files`, `embed_links`,
+`add_reactions`, `mention_everyone`, `use_external_emojis`, `use_external_stickers`,
+`use_application_commands`, `manage_channels`, `manage_messages`, `manage_roles`,
+`manage_threads`, `create_public_threads`, `create_private_threads`, `manage_webhooks`,
+`connect`, `speak`, `stream`, `mute_members`, `deafen_members`, `move_members`,
+`use_vad`, and `pin_messages`. Rust variants use PascalCase, for example
+`SendMessagesInThreads` and `UseVad`. Check optional values before acting on them.
+
+| Thread wire field | SDK Rust / JSON type | Meaning and absence | Reading from `thread: &ThreadMetadataSnapshot` |
+| --- | --- | --- | --- |
+| `owner_id` | `Option<String>` / string or absent | Already-loaded post owner ID. | `thread.owner_id.as_deref()` |
+| `message_count` | `Option<u32>` / nonnegative integer or absent | Loaded channel count, not a full-history count. | `thread.message_count` |
+| `archived` | `Option<bool>` / boolean or null | Loaded post archival flag; null means no loaded post decision. | `thread.archived` |
+| `locked` | `Option<bool>` / boolean or null | Loaded post lock flag; null differs from false. | `thread.locked` |
+| `pinned` | `Option<bool>` / boolean or null | Loaded post pin flag; null differs from false. | `thread.pinned` |
+
+### MemberDetailsSnapshot: loaded guild members and role labels
+
+Requires `member_details`, independently of `members` and `presence`. It uses the
+fresh loaded member pane matching the selected fresh, readable guild channel.
+It is absent without that pane, on disconnect/access loss, in DMs, or when the
+remaining snapshot budget cannot hold it. It never searches members or loads
+profiles/roles. The 6-KiB group budget includes item and nested-vector overhead;
+the role catalog also has a 2-KiB collector sub-budget. Lists can reach byte limits
+before item limits. Other groups can force additional member-row truncation or
+omission of the whole group.
+
+| Wire field | SDK Rust / JSON type | Meaning and absence | Reading from `members: &MemberDetailsSnapshot` |
+| --- | --- | --- | --- |
+| `channel_id` | `String` / string | Selected channel whose member pane supplies the records. | `members.channel_id.as_str()` |
+| `guild_id` | `String` / string | Matching guild ID. | `members.guild_id.as_str()` |
+| `items` | `Vec<MemberDetailSnapshot>` / array | Up to 20 distinct loaded member records, further limited by bytes. | `members.items.first()` |
+| `truncated` | `bool` / boolean | The loaded pane or resource limits leave members partial. | `members.truncated` |
+| `roles` | `Option<Vec<MemberRoleSnapshot>>` / array or absent | Up to 32 distinct loaded guild role labels. Absent is unknown; `[]` is a known empty catalog. Not every member role ID must have a label in this partial catalog. | `members.roles.as_ref()` |
+| `roles_truncated` | `bool` / boolean | Role catalog records were omitted by limits. | `members.roles_truncated` |
+
+| Member wire field | SDK Rust / JSON type | Meaning and absence | Reading from `member: &MemberDetailSnapshot` |
+| --- | --- | --- | --- |
+| `user` | `UserSnapshot` / object | Loaded account ID and label. | `member.user.id.as_str()` |
+| `nick` | `Option<String>` / string or absent | Loaded guild nickname if supplied. | `member.nick.as_deref()` |
+| `display_name` | `String` / string | Nickname, else matching loaded profile's global name, else account label. Shared identity-label sanitization applies. | `member.display_name.as_str()` |
+| `role_ids` | `Vec<String>` / array of strings | Up to 32 distinct loaded role IDs; not permission bitfields. | `member.role_ids.len()` |
+| `roles_truncated` | `bool` / boolean | Member role IDs were omitted by limits. | `member.roles_truncated` |
+| `profile` | `Option<MemberProfileSnapshot>` / object or absent | Only the already-loaded, nonlimited, successful profile matching this user and guild, when not loading. Absence is unknown, not a blank profile. | `member.profile.as_ref()` |
+
+| Role wire field | SDK Rust / JSON type | Meaning | Reading from `role: &MemberRoleSnapshot` |
+| --- | --- | --- | --- |
+| `id` | `String` / string | Role ID. | `role.id.as_str()` |
+| `name` | `String` / string | Shared bounded identity label. | `role.name.as_str()` |
+| `color` | `u32` / nonnegative integer | RGB value, 0 through `0xffffff`; no alpha. | `role.color` |
+| `position` | `i32` / integer | Loaded role ordering value, not a complete hierarchy. | `role.position` |
+
+| Profile wire field | SDK Rust / JSON type | Meaning and absence | Reading from `profile: &MemberProfileSnapshot` |
+| --- | --- | --- | --- |
+| `nick` | `Option<String>` / string or absent | Loaded server-profile nickname, using shared label sanitization. | `profile.nick.as_deref()` |
+| `avatar` | `Option<String>` / string or absent | Valid loaded guild-avatar hash, at most 128 bytes; no image bytes or URL. | `profile.avatar.as_deref()` |
+| `bio` | `String` / string | Loaded guild biography, capped at 1,024 UTF-8 bytes; controls removed except newline/tab. Empty means known empty. | `profile.bio.as_str()` |
+| `pronouns` | `String` / string | Loaded pronouns, capped at 256 UTF-8 bytes with controls removed. | `profile.pronouns.as_str()` |
+| `joined_at` | `Option<String>` / string or absent | Loaded join-time text, capped at 64 UTF-8 bytes with controls removed; unknown is absent. | `profile.joined_at.as_deref()` |
+
+Nicknames and display/role labels use the collector's 128-byte sanitized label
+limit (256-byte wire ceiling). No member credentials, notes, presence payloads,
+connected accounts or global biography are included.
+
+This complete synthetic foreground input shows a thread with unknown settings
+and lock state plus one loaded member and role. No background observer grant is
+needed merely to read the two groups from a foreground panel:
+
+```json
+{
+  "action": "show",
+  "values": {},
+  "app": {
+    "channel_metadata": {
+      "channel_id": "100", "guild_id": "200", "topic_truncated": false,
+      "thread": {"owner_id": "300", "message_count": 4,
+        "archived": false, "locked": null, "pinned": true},
+      "permissions": {"send_messages_in_threads": true, "manage_threads": null}
+    },
+    "member_details": {
+      "channel_id": "100", "guild_id": "200", "items": [{
+        "user": {"id": "300", "name": "Example"}, "nick": "Guild nickname",
+        "display_name": "Guild nickname", "role_ids": ["400"], "roles_truncated": false,
+        "profile": {"bio": "Loaded server bio", "pronouns": "they/them"}
+      }],
+      "truncated": true,
+      "roles": [{"id": "400", "name": "Member", "color": 0, "position": 1}],
+      "roles_truncated": false
+    }
+  }
+}
+```
+
+The complete [Guild Inspector handler](../examples/extensions/guild-inspector/src/lib.rs)
+and [manifest](../examples/extensions/guild-inspector/manifest.json) read these
+objects, distinguish unknown from false, and return a bounded panel with the
+first five member rows. The panel appears immediately; no host effect or Apply
+is involved. Its separate `app_event` action requests `app_events`, `data_events`
+and the same read grants, and returns empty output. It stores nothing and does
+not fetch missing data.
 
 ### ChannelDirectorySnapshot: loaded channel list
 

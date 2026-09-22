@@ -2517,6 +2517,10 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::DataEvents => {
 			"Receive changes to separately granted account and conversation data"
 		}
+		Capability::ChannelMetadata => {
+			"Read loaded channel topics, categories, thread details and permissions"
+		}
+		Capability::MemberDetails => "Read loaded server members, roles and server profiles",
 		Capability::ChannelDirectory => "Read the list of loaded, readable conversations",
 		Capability::MessageDetails => {
 			"Read loaded message replies, mentions, attachment metadata and reactions"

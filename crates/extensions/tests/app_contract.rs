@@ -4,6 +4,8 @@ use serein_extension_sdk as sdk;
 #[test]
 fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validation() {
 	let mut manifest = test_manifest(vec![
+		Capability::ChannelMetadata,
+		Capability::MemberDetails,
 		Capability::SelectedMessage,
 		Capability::Composer,
 		Capability::Storage,
@@ -109,6 +111,30 @@ fn snapshot() -> AppSnapshot {
 		kind: 0,
 	};
 	AppSnapshot {
+		channel_metadata: Some(ChannelMetadataSnapshot {
+			channel_id: "2".into(),
+			guild_id: "4".into(),
+			parent: None,
+			category: None,
+			topic: Some("Loaded topic".into()),
+			topic_truncated: false,
+			slowmode_seconds: Some(5),
+			nsfw: Some(false),
+			thread: None,
+			permissions: [
+				(ChannelPermission::ViewChannel, Some(true)),
+				(ChannelPermission::ManageRoles, None),
+			]
+			.into(),
+		}),
+		member_details: Some(MemberDetailsSnapshot {
+			channel_id: "2".into(),
+			guild_id: "4".into(),
+			items: vec![],
+			truncated: false,
+			roles: None,
+			roles_truncated: false,
+		}),
 		message_details: Some(MessageDetailsSnapshot {
 			channel_id: "2".into(),
 			truncated: false,
@@ -233,6 +259,8 @@ fn snapshot() -> AppSnapshot {
 
 fn read_grants() -> Vec<Capability> {
 	vec![
+		Capability::ChannelMetadata,
+		Capability::MemberDetails,
 		Capability::MessageDetails,
 		Capability::Relationships,
 		Capability::AccountProfile,
@@ -546,6 +574,10 @@ fn snapshot_and_proposal_limits_include_escaped_wire_bytes() {
 #[test]
 fn data_events_require_opt_in_and_the_matching_data_grant() {
 	for (kind, grant) in [
+		(AppEventKind::Threads, Capability::ChannelMetadata),
+		(AppEventKind::Roles, Capability::MemberDetails),
+		(AppEventKind::Permissions, Capability::ChannelMetadata),
+		(AppEventKind::Recovered, Capability::MemberDetails),
 		(AppEventKind::MessageDetails, Capability::MessageDetails),
 		(AppEventKind::Relationships, Capability::Relationships),
 		(AppEventKind::Account, Capability::AccountProfile),

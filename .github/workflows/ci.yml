@@ -71,6 +71,7 @@ jobs:
       - run: cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
       - name: Check existing and rebuilt plugins in the host sandbox (offline)
         run: cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+      - run: cargo run --locked --release -p extensions --example legacy_sdk_check
   security:
     if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest

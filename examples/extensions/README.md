@@ -26,6 +26,7 @@ may not be available in a released build.
 | Example | What it demonstrates |
 | --- | --- |
 | [App Toolbox](app-toolbox/src/lib.rs) | App snapshots and all supported host actions |
+| [Guild Inspector](guild-inspector/src/lib.rs) | Loaded channel/thread permissions, member nicknames, roles and server profiles |
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
 | [Message Delete Protector](message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
 | [Emoji & Sticker Images](emoji-sticker-images/src/lib.rs) | Activation enabling image attachment mode |
@@ -74,7 +75,7 @@ Replace the example author and source URL before publishing.
 | `license` | string | License label; include the actual license in your source too. |
 | `source` | string | Public HTTPS source link, at most 2,048 UTF-8 bytes, without embedded credentials. It is metadata, not code to execute. |
 | `kind` | string | `plugin` for Wasm; declarative themes use `theme`. |
-| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 32 declarations, with 26 supported today. |
+| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 32 declarations, with 28 supported today. |
 | `actions` | object array | Entry points invoked by users or the host. Plugins need 1–16 actions with unique IDs. |
 
 `name`, `version`, `author` and `license` must be nonempty, at most 128 UTF-8 bytes,
@@ -213,7 +214,7 @@ the selected synthetic channel, or the unavailable-context message. Import alone
 does not grant permissions or execute the plugin.
 
 For an unchanged example, use its own manifest and matching compiled filename:
-`app_toolbox.wasm`, `message_counter.wasm`, `message_delete_protector.wasm`, or
+`app_toolbox.wasm`, `guild_inspector.wasm`, `message_counter.wasm`, `message_delete_protector.wasm`, or
 `emoji_sticker_images.wasm`.
 
 ## Test and develop locally
@@ -255,6 +256,19 @@ sandbox. It expects the original example behavior, so it is not a test runner fo
 the modified Hello Context plugin. It reports sizes/timings and validates proposals
 without touching an account, clipboard or call. SDK CI runs these checks.
 
+The separate compatibility check uses an immutable compiled App Toolbox package
+from source commit `3d94c76228d9f2918fa8d22e78f40233ae4f90dc`, rather than rebuilding
+it against today's SDK:
+
+```powershell
+cargo run --locked --release -p extensions --example legacy_sdk_check
+```
+
+It exercises old foreground snapshots and five old data-event variants in the
+real offline Wasm sandbox, and rejects newer event kinds against the original
+manifest before execution. See [fixture provenance](../../crates/extensions/tests/fixtures/sdk-legacy/README.md).
+This check does not test install/enable/disable/reload or account lifecycle.
+
 Generate Rust API docs with:
 
 ```powershell
@@ -285,6 +299,13 @@ and all 11 host action types. Its passive observer requests `data_events` along
 with `app_events` and the relevant read grants; it stores no event counts or
 conversation data. Detailed events are coalesced invalidation hints, not a full
 change log. See [event grants and reasons](../../docs/extension-sdk-reference.md#appeventkind-why-an-app-observer-ran).
+
+[Guild Inspector](guild-inspector/src/lib.rs) is a smaller, separate example for
+`channel_metadata` and `member_details`. It displays unknown topic/settings and
+permission values explicitly, caps its display to five loaded member rows and
+eight role labels, and fetches nothing. Its observer adds `app_events` and
+`data_events` and remains passive. Build/package it with the same commands using
+`-p guild-inspector`, `guild_inspector.wasm`, and its own manifest.
 
 Inputs are read-only copies. Returning `effects` proposes a change needing
 **Apply**. Storage and appearance have different timing; see the output reference

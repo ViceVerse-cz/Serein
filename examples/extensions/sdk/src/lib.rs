@@ -14,6 +14,10 @@
 use serde::{Deserialize, Serialize};
 pub use serde_json;
 use std::{collections::BTreeMap, fmt, io, str::FromStr};
+mod channel_metadata;
+pub use channel_metadata::*;
+mod member_details;
+pub use member_details::*;
 mod app;
 pub use app::*;
 mod manifest;
