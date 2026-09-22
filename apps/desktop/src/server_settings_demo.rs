@@ -627,6 +627,7 @@ fn execute_integrations(
 		.id;
 	let mut page = state.server_admin.integrations.clone().unwrap_or(Snapshot {
 		guild,
+		channel: None,
 		integrations: None,
 		webhooks: None,
 	});
@@ -694,9 +695,11 @@ fn execute_integrations(
 	}
 	match action {
 		Action::Load {
+			channel,
 			integrations,
 			webhooks,
 		} => {
+			page.channel = channel;
 			if !integrations {
 				page.integrations = None;
 			}
@@ -704,7 +707,12 @@ fn execute_integrations(
 				page.webhooks = None;
 			}
 		}
-		Action::CreateWebhook { channel, name } => {
+		Action::CreateWebhook {
+			channel,
+			name,
+			scope,
+		} => {
+			page.channel = scope;
 			let items = page.webhooks.as_mut().unwrap();
 			let id = Id(items.iter().map(|item| item.id.0).max().unwrap_or(9900) + 1);
 			items.push(Webhook {
@@ -722,10 +730,12 @@ fn execute_integrations(
 			page.integrations = None;
 		}
 		Action::EditWebhook {
+			scope,
 			webhook,
 			channel,
 			name,
 		} => {
+			page.channel = scope;
 			let hook = page
 				.webhooks
 				.as_mut()
@@ -737,7 +747,8 @@ fn execute_integrations(
 			hook.name = Some(name);
 			page.integrations = None;
 		}
-		Action::DeleteWebhook { webhook } => {
+		Action::DeleteWebhook { webhook, scope } => {
+			page.channel = scope;
 			page.webhooks
 				.as_mut()
 				.unwrap()
@@ -751,6 +762,11 @@ fn execute_integrations(
 				.retain(|item| item.id != integration);
 			page.webhooks = None;
 		}
+	}
+	if let Some(channel) = page.channel
+		&& let Some(hooks) = &mut page.webhooks
+	{
+		hooks.retain(|hook| hook.channel == Some(channel));
 	}
 	model::server_admin::Result::Integrations(page)
 }

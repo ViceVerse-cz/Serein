@@ -88,6 +88,17 @@ impl View {
 	}
 }
 impl State {
+	pub(crate) fn can_retain_channel_integrations(&self, guild: Id) -> bool {
+		let scope = match &self.server_admin.action {
+			Some(Action::Integrations(action)) => action.scope(),
+			_ => self
+				.server_admin
+				.integrations
+				.as_ref()
+				.and_then(|page| page.channel),
+		};
+		scope.is_some_and(|channel| self.can_manage_webhook_channel(guild, channel))
+	}
 	pub fn can_open_invite_settings(&self, guild: Id) -> bool {
 		self.can_manage_guild(guild)
 	}

@@ -43,6 +43,8 @@ pub struct Webhook {
 #[derive(Clone)]
 pub struct Snapshot {
 	pub guild: Id,
+	/// None is guild-wide; Some restricts webhooks to this channel.
+	pub channel: Option<Id>,
 	/// None means this permission-scoped resource was not requested.
 	pub integrations: Option<Vec<Integration>>,
 	pub webhooks: Option<Vec<Webhook>>,
@@ -120,11 +122,14 @@ impl Snapshot {
 			Action::Load {
 				integrations,
 				webhooks,
+				..
 			} => (*integrations, *webhooks),
 			Action::DeleteIntegration { .. } => (true, false),
 			_ => (false, true),
 		};
-		self.integrations.is_some() == integrations && self.webhooks.is_some() == webhooks
+		self.channel == action.scope()
+			&& self.integrations.is_some() == integrations
+			&& self.webhooks.is_some() == webhooks
 	}
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
@@ -140,6 +145,9 @@ impl Snapshot {
 		let mut integrations = std::collections::BTreeSet::new();
 		let mut webhooks = std::collections::BTreeSet::new();
 		self.guild.0 != 0
+			&& self
+				.channel
+				.is_none_or(|channel| channel.0 != 0 && self.integrations.is_none())
 			&& self.bytes() <= MAX_BYTES
 			&& self.integrations.as_ref().is_none_or(|items| {
 				items.len() <= MAX_INTEGRATIONS
@@ -149,7 +157,12 @@ impl Snapshot {
 			}) && self.webhooks.as_ref().is_none_or(|items| {
 			items.len() <= MAX_WEBHOOKS
 				&& items.iter().all(|item| {
-					item.valid() && item.guild == self.guild && webhooks.insert(item.id)
+					item.valid()
+						&& item.guild == self.guild
+						&& self
+							.channel
+							.is_none_or(|channel| item.channel == Some(channel))
+						&& webhooks.insert(item.id)
 				})
 		})
 	}
@@ -157,19 +170,23 @@ impl Snapshot {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
 	Load {
+		channel: Option<Id>,
 		integrations: bool,
 		webhooks: bool,
 	},
 	CreateWebhook {
+		scope: Option<Id>,
 		channel: Id,
 		name: String,
 	},
 	EditWebhook {
+		scope: Option<Id>,
 		webhook: Id,
 		channel: Id,
 		name: String,
 	},
 	DeleteWebhook {
+		scope: Option<Id>,
 		webhook: Id,
 	},
 	DeleteIntegration {
@@ -177,29 +194,51 @@ pub enum Action {
 	},
 }
 impl Action {
+	pub fn scope(&self) -> Option<Id> {
+		match self {
+			Self::Load { channel, .. } => *channel,
+			Self::CreateWebhook { scope, .. }
+			| Self::EditWebhook { scope, .. }
+			| Self::DeleteWebhook { scope, .. } => *scope,
+			Self::DeleteIntegration { .. } => None,
+		}
+	}
+
 	pub fn write(&self) -> bool {
 		!matches!(self, Self::Load { .. })
 	}
 	pub fn valid(&self) -> bool {
+		if self.scope().is_some_and(|id| id.0 == 0) {
+			return false;
+		}
 		match self {
 			Self::Load {
+				channel,
 				integrations,
 				webhooks,
-			} => *integrations || *webhooks,
-			Self::CreateWebhook { channel, name } => {
-				channel.0 != 0 && name.capacity() <= 320 && valid_webhook_name(name)
+			} => (*integrations || *webhooks) && (channel.is_none() || !integrations),
+			Self::CreateWebhook {
+				channel,
+				name,
+				scope,
+			} => {
+				scope.is_none_or(|scope| scope == *channel)
+					&& channel.0 != 0
+					&& name.capacity() <= 320
+					&& valid_webhook_name(name)
 			}
 			Self::EditWebhook {
 				webhook,
 				channel,
 				name,
+				..
 			} => {
 				webhook.0 != 0
 					&& channel.0 != 0
 					&& name.capacity() <= 320
 					&& valid_webhook_name(name)
 			}
-			Self::DeleteWebhook { webhook } => webhook.0 != 0,
+			Self::DeleteWebhook { webhook, .. } => webhook.0 != 0,
 			Self::DeleteIntegration { integration } => integration.0 != 0,
 		}
 	}

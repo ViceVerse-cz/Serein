@@ -18,37 +18,42 @@ impl State {
 		}) && self.permission(channel, p::VIEW_CHANNEL | p::MANAGE_WEBHOOKS) == Some(true)
 	}
 
-	fn integration_webhook(&self, guild: Id, id: Id) -> Option<&Webhook> {
+	fn integration_webhook(&self, guild: Id, scope: Option<Id>, id: Id) -> Option<&Webhook> {
 		(self.server_admin.guild == Some(guild)).then_some(())?;
 		self.server_admin
 			.integrations
-			.as_ref()?
+			.as_ref()
+			.filter(|page| page.channel == scope)?
 			.webhooks
 			.as_ref()?
 			.iter()
 			.find(|hook| hook.id == id && hook.guild == guild)
 	}
 	pub(crate) fn integration_action_allowed(&self, guild: Id, action: &Action) -> bool {
+		let webhook_access = action.scope().map_or_else(
+			|| self.can_manage_guild_webhooks(guild),
+			|channel| self.can_manage_webhook_channel(guild, channel),
+		);
 		match action {
 			Action::Load {
 				integrations,
 				webhooks,
+				..
 			} => {
 				(*integrations || *webhooks)
 					&& (!integrations || self.can_manage_guild(guild))
-					&& (!webhooks || self.can_manage_guild_webhooks(guild))
+					&& (!webhooks || webhook_access)
 			}
 			Action::CreateWebhook { channel, .. } => {
-				self.can_manage_guild_webhooks(guild)
-					&& self.can_manage_webhook_channel(guild, *channel)
+				webhook_access && self.can_manage_webhook_channel(guild, *channel)
 			}
 			Action::EditWebhook {
 				webhook, channel, ..
 			} => {
-				self.can_manage_guild_webhooks(guild)
+				webhook_access
 					&& self.can_manage_webhook_channel(guild, *channel)
 					&& self
-						.integration_webhook(guild, *webhook)
+						.integration_webhook(guild, action.scope(), *webhook)
 						.is_some_and(|hook| {
 							hook.kind == 1
 								&& hook.channel.is_some_and(|channel| {
@@ -56,10 +61,10 @@ impl State {
 								})
 						})
 			}
-			Action::DeleteWebhook { webhook } => {
-				self.can_manage_guild_webhooks(guild)
+			Action::DeleteWebhook { webhook, .. } => {
+				webhook_access
 					&& self
-						.integration_webhook(guild, *webhook)
+						.integration_webhook(guild, action.scope(), *webhook)
 						.is_some_and(|hook| {
 							(1..=3).contains(&hook.kind)
 								&& hook.channel.is_some_and(|channel| {
@@ -81,6 +86,7 @@ impl State {
 	}
 	pub(crate) fn apply_integrations(&mut self, mut page: Snapshot, action: &Action) {
 		if let Some(old) = &mut self.server_admin.integrations
+			&& old.channel == page.channel
 			&& !matches!(action, Action::Load { .. })
 		{
 			if page.integrations.is_none() {
@@ -101,7 +107,12 @@ impl State {
 	}
 	pub(crate) fn prune_integration_access(&mut self, guild: Id) {
 		let integrations = self.can_manage_guild(guild);
-		let webhooks = self.can_manage_guild_webhooks(guild);
+		let webhooks = self.server_admin.integrations.as_ref().is_some_and(|page| {
+			page.channel.map_or_else(
+				|| self.can_manage_guild_webhooks(guild),
+				|channel| self.can_manage_webhook_channel(guild, channel),
+			)
+		});
 		if let Some(page) = &mut self.server_admin.integrations {
 			if !integrations {
 				page.integrations = None;
@@ -124,6 +135,7 @@ pub(crate) fn expected(action: &Action, page: &Snapshot) -> bool {
 		Action::Load {
 			integrations,
 			webhooks,
+			..
 		} => page.integrations.is_some() == *integrations && page.webhooks.is_some() == *webhooks,
 		Action::DeleteIntegration { integration } => {
 			page.integrations
@@ -131,7 +143,7 @@ pub(crate) fn expected(action: &Action, page: &Snapshot) -> bool {
 				.is_some_and(|items| items.iter().all(|item| item.id != *integration))
 				&& page.webhooks.is_none()
 		}
-		Action::DeleteWebhook { webhook } => {
+		Action::DeleteWebhook { webhook, .. } => {
 			page.webhooks
 				.as_ref()
 				.is_some_and(|items| items.iter().all(|item| item.id != *webhook))
@@ -141,7 +153,14 @@ pub(crate) fn expected(action: &Action, page: &Snapshot) -> bool {
 			webhook,
 			channel,
 			name,
+			scope,
 		} => {
+			if scope.is_some_and(|scope| scope != *channel) {
+				return page
+					.webhooks
+					.as_ref()
+					.is_some_and(|items| items.iter().all(|item| item.id != *webhook));
+			}
 			page.webhooks.as_ref().is_some_and(|items| {
 				items.iter().any(|item| {
 					item.id == *webhook
@@ -150,7 +169,7 @@ pub(crate) fn expected(action: &Action, page: &Snapshot) -> bool {
 				})
 			}) && page.integrations.is_none()
 		}
-		Action::CreateWebhook { channel, name } => {
+		Action::CreateWebhook { channel, name, .. } => {
 			page.webhooks.as_ref().is_some_and(|items| {
 				items.iter().any(|item| {
 					item.kind == 1
@@ -233,6 +252,7 @@ mod tests {
 	}
 	fn page() -> Snapshot {
 		Snapshot {
+			channel: None,
 			guild: Id(2),
 			integrations: None,
 			webhooks: Some(vec![Webhook {
@@ -260,17 +280,143 @@ mod tests {
 		});
 	}
 	#[test]
+	fn channel_integrations_keep_permission_and_response_scope() {
+		let mut state = state(p::VIEW_CHANNEL);
+		state
+			.permissions
+			.channels
+			.get_mut(&Id(3))
+			.unwrap()
+			.overwrites = Some(vec![p::Overwrite {
+			id: Id(1),
+			kind: 1,
+			allow: p::MANAGE_WEBHOOKS,
+			deny: 0,
+		}]);
+		assert!(state.can_open_channel_settings(Id(3)));
+		assert!(!state.can_manage_channel(Id(3)));
+		assert!(
+			state
+				.request_channel_action(
+					Id(3),
+					crate::channel_actions::Action::Edit {
+						before: crate::channel_actions::Edit {
+							name: "chat".into(),
+							..Default::default()
+						},
+						after: crate::channel_actions::Edit::default()
+					}
+				)
+				.is_none()
+		);
+		assert!(!state.can_open_integration_settings(Id(2)));
+		let load = Action::Load {
+			channel: Some(Id(3)),
+			integrations: false,
+			webhooks: true,
+		};
+		let Command::ServerAdmin { request, .. } = state
+			.request_server_admin(Id(2), AdminAction::Integrations(load.clone()))
+			.unwrap()
+		else {
+			panic!()
+		};
+		let mut scoped = page();
+		scoped.channel = Some(Id(3));
+		assert!(scoped.valid());
+		assert!(!page().matches_action(&load));
+		let mut wrong = scoped.clone();
+		wrong.webhooks.as_mut().unwrap()[0].channel = Some(Id(9));
+		assert!(!wrong.valid());
+		deliver(
+			&mut state,
+			request,
+			Ok(Outcome::Integrations(scoped.clone())),
+		);
+		state.prune_integration_access(Id(2));
+		assert!(
+			state
+				.server_admin
+				.integrations
+				.as_ref()
+				.unwrap()
+				.webhooks
+				.is_some()
+		);
+		let edit = Action::EditWebhook {
+			scope: Some(Id(3)),
+			webhook: Id(4),
+			channel: Id(3),
+			name: "News".into(),
+		};
+		assert!(state.integration_action_allowed(Id(2), &edit));
+		assert!(state.integration_action_allowed(
+			Id(2),
+			&Action::DeleteWebhook {
+				scope: Some(Id(3)),
+				webhook: Id(4)
+			}
+		));
+		assert!(!state.integration_action_allowed(
+			Id(2),
+			&Action::DeleteWebhook {
+				scope: None,
+				webhook: Id(4)
+			}
+		));
+		assert!(!state.integration_action_allowed(
+			Id(2),
+			&Action::DeleteWebhook {
+				scope: Some(Id(9)),
+				webhook: Id(4)
+			}
+		));
+		let moved = Action::EditWebhook {
+			scope: Some(Id(3)),
+			webhook: Id(4),
+			channel: Id(9),
+			name: "News".into(),
+		};
+		assert!(!state.integration_action_allowed(Id(2), &moved));
+		assert!(!expected(&moved, &scoped));
+		scoped.webhooks.as_mut().unwrap().clear();
+		assert!(expected(&moved, &scoped));
+		let Command::ServerAdmin { request, .. } = state
+			.request_server_admin(Id(2), AdminAction::Integrations(load))
+			.unwrap()
+		else {
+			panic!()
+		};
+		deliver(&mut state, request, Ok(Outcome::Integrations(page())));
+		assert!(state.server_admin.needs_refresh);
+		assert_eq!(
+			state.server_admin.integrations.as_ref().unwrap().channel,
+			Some(Id(3))
+		);
+		state
+			.permissions
+			.channels
+			.get_mut(&Id(3))
+			.unwrap()
+			.overwrites = Some(vec![]);
+		state.permissions.clear_cache();
+		state.prune_integration_access(Id(2));
+		assert!(state.server_admin.integrations.is_none());
+	}
+	#[test]
 	fn integrations_permissions_scope_stale_responses_and_uncertain_writes() {
 		let mut state = state(p::MANAGE_WEBHOOKS | p::VIEW_CHANNEL);
 		assert!(state.can_open_integration_settings(Id(2)));
 		assert!(!state.integration_action_allowed(
 			Id(2),
 			&Action::Load {
+				channel: None,
 				integrations: true,
 				webhooks: true
 			}
 		));
 		let load = AdminAction::Integrations(Action::Load {
+			channel: None,
 			integrations: false,
 			webhooks: true,
 		});
@@ -284,17 +430,23 @@ mod tests {
 		deliver(&mut state, request, Ok(Outcome::Integrations(page())));
 		assert!(state.server_admin.integrations.is_some());
 		let edit = Action::EditWebhook {
+			scope: None,
 			webhook: Id(4),
 			channel: Id(3),
 			name: "News".into(),
 		};
 		assert!(state.integration_action_allowed(Id(2), &edit));
-		assert!(
-			!state.integration_action_allowed(Id(2), &Action::DeleteWebhook { webhook: Id(999) })
-		);
+		assert!(!state.integration_action_allowed(
+			Id(2),
+			&Action::DeleteWebhook {
+				scope: None,
+				webhook: Id(999)
+			}
+		));
 		assert!(!state.integration_action_allowed(
 			Id(2),
 			&Action::CreateWebhook {
+				scope: None,
 				channel: Id(999),
 				name: "News".into()
 			}

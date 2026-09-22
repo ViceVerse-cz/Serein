@@ -2986,7 +2986,10 @@ impl MessagingUi {
 		self.timeline.video.seen = false;
 		let side = self.drain_side_press();
 		let mut commands = Vec::new();
-		if (side.back || side.forward) && !self.timeline.video.is_fullscreen() {
+		if (side.back || side.forward)
+			&& !self.timeline.video.is_fullscreen()
+			&& !self.channel_menu.is_open()
+		{
 			if self.settings.open {
 				if side.back {
 					self.settings.open = false;
@@ -3028,7 +3031,8 @@ impl MessagingUi {
 			.show_result(&ctx, state, &mut self.draft_changes, self.editing.is_some());
 		self.keybinds_shortcut(&ctx);
 		self.theme_preview_navigation(ui);
-		let settings_open = self.settings.open || self.server_settings.is_open();
+		let settings_open =
+			self.settings.open || self.server_settings.is_open() || self.channel_menu.is_open();
 		self.extensions.begin_theme_editor_frame();
 		if self.settings.open {
 			self.show_settings(&ctx, state, &mut commands);
@@ -3227,7 +3231,7 @@ impl MessagingUi {
 			self.channel_cache.invalidate();
 		}
 		self.channel_menu
-			.show(&ctx, state, self.guild, &mut commands);
+			.show(&ctx, state, self.guild, &mut self.avatars, &mut commands);
 		if let Some((guild, channel)) = self.channel_menu.invite_requested.take() {
 			self.server_menu.open_invite(state, guild, channel);
 		}

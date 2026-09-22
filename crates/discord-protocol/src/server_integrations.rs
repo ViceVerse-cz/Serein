@@ -95,6 +95,7 @@ pub fn integrations(bytes: &[u8], guild: Id) -> Result<Snapshot, DecodeError> {
 	let values: List<WireIntegration, { m::MAX_INTEGRATIONS }> = crate::decode(bytes)?;
 	let page = Snapshot {
 		guild,
+		channel: None,
 		integrations: Some(
 			values
 				.0
@@ -116,6 +117,7 @@ pub fn webhooks(bytes: &[u8], guild: Id) -> Result<Snapshot, DecodeError> {
 	let values: List<WireWebhook, { m::MAX_WEBHOOKS }> = crate::decode(bytes)?;
 	let page = Snapshot {
 		guild,
+		channel: None,
 		integrations: None,
 		webhooks: Some(values.0.into_iter().map(WireWebhook::into_model).collect()),
 	};

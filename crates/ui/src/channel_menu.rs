@@ -22,6 +22,13 @@ enum Intent {
 	Write(Action),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Page {
+	Overview,
+	Permissions,
+	Integrations,
+}
+
 struct Dialog {
 	channel: Id,
 	guild: Id,
@@ -31,7 +38,10 @@ struct Dialog {
 	before: Edit,
 	loaded: bool,
 	submitted: bool,
-	permissions_page: bool,
+	page: Page,
+	integrations: crate::server_integrations::IntegrationsUi,
+	integrations_opened: bool,
+	discard: bool,
 	permissions: crate::channel_permissions::PermissionsUi,
 }
 
@@ -49,6 +59,10 @@ pub(super) struct ChannelMenu {
 }
 
 impl ChannelMenu {
+	pub fn is_open(&self) -> bool {
+		self.dialog.is_some()
+	}
+
 	/// Shows the shared "full" feedback so DM, group and guild pins report capacity alike.
 	pub fn report_capacity(&mut self, generation: u64) {
 		self.preference_error = true;
@@ -297,6 +311,7 @@ impl ChannelMenu {
 		ctx: &egui::Context,
 		state: &mut State,
 		active: Option<Id>,
+		avatars: &mut crate::avatars::Avatars,
 		commands: &mut Vec<Command>,
 	) {
 		if self.generation != state.generation {
@@ -347,7 +362,10 @@ impl ChannelMenu {
 						loaded: kind != Kind::Edit,
 						before: Edit::default(),
 						submitted: false,
-						permissions_page: false,
+						page: Page::Overview,
+						integrations: crate::server_integrations::IntegrationsUi::for_channel(id),
+						integrations_opened: false,
+						discard: false,
 						permissions: Default::default(),
 					});
 					state.clear_channel_action_result(id);
@@ -376,8 +394,21 @@ impl ChannelMenu {
 			|| state.channel(dialog.channel).is_none()
 			|| (dialog.submitted && state.channel_action_succeeded(dialog.channel))
 		{
+			if dialog.integrations_opened {
+				state.close_server_admin();
+			}
 			self.dialog = None;
 			return;
+		}
+		dialog.integrations.sync(state, dialog.guild);
+		if dialog.page == Page::Integrations {
+			if !dialog.integrations_opened {
+				state.close_server_admin();
+				dialog.integrations_opened = true;
+			}
+			if let Some(command) = dialog.integrations.load(state, dialog.guild) {
+				commands.push(command);
+			}
 		}
 		let pending = state.channel_action_pending();
 		if !dialog.loaded
@@ -490,7 +521,7 @@ impl ChannelMenu {
 					);
 				} else if dialog.kind == Kind::Edit {
 					ui.add_enabled_ui(allowed && !pending_now && current, |ui| {
-						delete_requested = dialog.editor(ui, state);
+						delete_requested = dialog.editor(ui, state, avatars, commands);
 					});
 				} else if let Some(channel) = state.channel(dialog.channel) {
 					ui.add_enabled_ui(allowed && !pending_now, |ui| dialog.overview(ui, channel));
@@ -540,40 +571,44 @@ impl ChannelMenu {
 				} else {
 					dialog::Action::Primary
 				};
-				ui.add_enabled_ui(
-					allowed
-						&& dialog.loaded && current
-						&& valid && !pending_now
-						&& (dialog.kind != Kind::Edit || dialog.draft != dialog.before)
-						&& (state.demo || state.gateway_connected),
-					|ui| {
-						if dialog::action(ui, label, kind).clicked() {
-							let action = match dialog.kind {
-								Kind::Edit => Action::Edit {
-									before: dialog.before.clone(),
-									after: dialog.draft.clone(),
-								},
-								Kind::Duplicate => Action::Duplicate {
-									name: dialog.draft.name.clone(),
-								},
-								Kind::Create => Action::Create {
-									name: dialog.draft.name.clone(),
-									kind: dialog.create_kind,
-								},
-								Kind::CreateCategory => Action::CreateCategory {
-									name: dialog.draft.name.clone(),
-								},
-								Kind::Delete => Action::Delete,
-							};
-							if let Some(command) =
-								state.request_channel_action(dialog.channel, action)
-							{
-								commands.push(command);
-								dialog.submitted = true;
+				if dialog.page != Page::Integrations {
+					ui.add_enabled_ui(
+						allowed
+							&& dialog.loaded && current
+							&& valid && !pending_now
+							&& !dialog.integrations.has_changes()
+							&& !(dialog.integrations_opened && state.server_admin.saving)
+							&& (dialog.kind != Kind::Edit || dialog.draft != dialog.before)
+							&& (state.demo || state.gateway_connected),
+						|ui| {
+							if dialog::action(ui, label, kind).clicked() {
+								let action = match dialog.kind {
+									Kind::Edit => Action::Edit {
+										before: dialog.before.clone(),
+										after: dialog.draft.clone(),
+									},
+									Kind::Duplicate => Action::Duplicate {
+										name: dialog.draft.name.clone(),
+									},
+									Kind::Create => Action::Create {
+										name: dialog.draft.name.clone(),
+										kind: dialog.create_kind,
+									},
+									Kind::CreateCategory => Action::CreateCategory {
+										name: dialog.draft.name.clone(),
+									},
+									Kind::Delete => Action::Delete,
+								};
+								if let Some(command) =
+									state.request_channel_action(dialog.channel, action)
+								{
+									commands.push(command);
+									dialog.submitted = true;
+								}
 							}
-						}
-					},
-				);
+						},
+					);
+				}
 				close |= dialog::action(
 					ui,
 					if pending_now { "Close" } else { "Cancel" },
@@ -582,10 +617,43 @@ impl ChannelMenu {
 				.clicked();
 			});
 		});
+		let overlay_was_open = dialog.integrations.overlay_open();
+		dialog
+			.integrations
+			.overlays(ctx, state, dialog.guild, commands);
+		let mut dismiss = (close || response.close) && !overlay_was_open;
+		if dismiss
+			&& (dialog.integrations.has_changes()
+				|| state.server_admin.saving && dialog.integrations_opened)
+		{
+			dialog.discard = true;
+			dismiss = false;
+		}
+		if dialog.discard {
+			match dialog::Confirm::new(
+				"discard-channel-webhook",
+				"Discard webhook changes?",
+				"Your unsaved webhook changes will be lost.",
+			)
+			.confirm_label("Discard")
+			.enabled(!state.server_admin.saving)
+			.show(ctx)
+			{
+				Some(dialog::Choice::Confirmed) => dismiss = true,
+				Some(dialog::Choice::Cancelled) => dialog.discard = false,
+				None => {}
+			}
+		}
 		if delete_requested {
 			self.requested = Some((dialog.channel, Intent::Dialog(Kind::Delete)));
+			if dialog.integrations_opened {
+				state.close_server_admin();
+			}
 			self.dialog = None;
-		} else if close || response.close {
+		} else if dismiss {
+			if dialog.integrations_opened {
+				state.close_server_admin();
+			}
 			if pending {
 				self.feedback = Some(dialog.channel);
 			}
@@ -722,7 +790,13 @@ impl Dialog {
 			);
 		}
 	}
-	fn navigation(&mut self, ui: &mut egui::Ui, channel: &Channel, can_delete: bool) -> bool {
+	fn navigation(
+		&mut self,
+		ui: &mut egui::Ui,
+		channel: &Channel,
+		can_delete: bool,
+		can_integrate: bool,
+	) -> bool {
 		ui.add(
 			egui::Label::new(design::eyebrow(
 				ui,
@@ -732,11 +806,17 @@ impl Dialog {
 			.truncate(),
 		);
 		ui.add_space(12.0);
-		if crate::settings::nav_item(ui, "Overview", !self.permissions_page).clicked() {
-			self.permissions_page = false;
+		if crate::settings::nav_item(ui, "Overview", self.page == Page::Overview).clicked() {
+			self.page = Page::Overview;
 		}
-		if crate::settings::nav_item(ui, "Permissions", self.permissions_page).clicked() {
-			self.permissions_page = true;
+		if crate::settings::nav_item(ui, "Permissions", self.page == Page::Permissions).clicked() {
+			self.page = Page::Permissions;
+		}
+		if can_integrate
+			&& crate::settings::nav_item(ui, "Integrations", self.page == Page::Integrations)
+				.clicked()
+		{
+			self.page = Page::Integrations;
 		}
 		ui.separator();
 		row(
@@ -746,25 +826,39 @@ impl Dialog {
 			} else {
 				"Delete Channel"
 			},
-			can_delete,
+			can_delete && !self.integrations.has_changes(),
 			true,
 		)
 		.clicked()
 	}
-	fn editor(&mut self, ui: &mut egui::Ui, state: &State) -> bool {
-		let Some(channel) = state.channel(self.channel) else {
+	fn editor(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		avatars: &mut crate::avatars::Avatars,
+		commands: &mut Vec<Command>,
+	) -> bool {
+		let Some(channel) = state.channel(self.channel).cloned() else {
 			return false;
 		};
+		let can_delete = state.can_manage_channel(channel.id)
+			&& !(self.integrations_opened && state.server_admin.saving);
+		let can_integrate = state.can_manage_webhook_channel(self.guild, channel.id);
+		if self.page == Page::Integrations && !can_integrate {
+			self.page = Page::Overview;
+		}
 		let mut delete = false;
-		let content = |this: &mut Self, ui: &mut egui::Ui| {
-			if this.permissions_page {
+		let mut content = |this: &mut Self, ui: &mut egui::Ui| match this.page {
+			Page::Permissions => {
 				this.permissions
-					.show(ui, state, channel, &mut this.draft.overwrites);
-			} else {
+					.show(ui, state, &channel, &mut this.draft.overwrites)
+			}
+			Page::Integrations => this
+				.integrations
+				.show(ui, state, this.guild, avatars, commands),
+			Page::Overview => {
 				design::section(ui, "Overview", None);
-				ui.add_enabled_ui(state.can_manage_channel(channel.id), |ui| {
-					this.overview(ui, channel)
-				});
+				ui.add_enabled_ui(can_delete, |ui| this.overview(ui, &channel));
 			}
 		};
 		if ui.available_width() >= 850.0 {
@@ -774,14 +868,14 @@ impl Dialog {
 					egui::Layout::top_down(egui::Align::Min),
 					|ui| {
 						ui.set_width(180.0);
-						delete = self.navigation(ui, channel, state.can_manage_channel(channel.id));
+						delete = self.navigation(ui, &channel, can_delete, can_integrate);
 					},
 				);
 				ui.add_space(20.0);
 				ui.vertical(|ui| content(self, ui));
 			});
 		} else {
-			delete = self.navigation(ui, channel, state.can_manage_channel(channel.id));
+			delete = self.navigation(ui, &channel, can_delete, can_integrate);
 			content(self, ui);
 		}
 		delete
@@ -894,8 +988,13 @@ mod tests {
 						ShortcutView::new(&self.prefs, true),
 					);
 					row = Some(response);
-					self.menu
-						.show(ui.ctx(), &mut self.state, Some(Id(10)), &mut self.commands);
+					self.menu.show(
+						ui.ctx(),
+						&mut self.state,
+						Some(Id(10)),
+						&mut crate::avatars::Avatars::default(),
+						&mut self.commands,
+					);
 				},
 			);
 			let mut text = vec![];
@@ -916,6 +1015,134 @@ mod tests {
 			}
 		}
 	}
+	#[test]
+	fn channel_integrations_load_and_create_in_the_selected_channel() {
+		use model::server_integrations::{Action as IntegrationAction, Snapshot};
+		for (width, light) in [(1120.0, false), (720.0, true)] {
+			let ctx = egui::Context::default();
+			design::apply(&ctx);
+			if light {
+				ctx.set_visuals(egui::Visuals::light());
+			}
+			let mut state = test_support::chat_demo_state();
+			let mut permissions = test_support::permission_snapshot(&state);
+			for guild in &mut permissions.guilds {
+				guild.owner = state.user.as_ref().map(|u| u.id);
+			}
+			state.permissions.replace(permissions).unwrap();
+			let mut h = Harness {
+				state,
+				menu: ChannelMenu::default(),
+				prefs: Default::default(),
+				commands: vec![],
+				copied: vec![],
+				width,
+			};
+			h.menu.generation = h.state.generation;
+			h.menu.requested = Some((Id(20), Intent::Dialog(Kind::Edit)));
+			h.frame(&ctx, vec![]);
+			let Command::ChannelAction {
+				guild,
+				channel,
+				request,
+				..
+			} = h.commands.pop().unwrap()
+			else {
+				panic!()
+			};
+			h.state.apply(client_core::Envelope {
+				generation: h.state.generation,
+				event: client_core::Event::ChannelAction(
+					client_core::channel_actions::Event::Finished {
+						guild,
+						channel,
+						request,
+						result: Ok(client_core::channel_actions::Outcome::Details(Edit {
+							name: "getting-started".into(),
+							..Default::default()
+						})),
+					},
+				),
+			});
+			let (_, text) = h.frame(&ctx, vec![]);
+			let nav = text.iter().find(|(s, _)| s == "Integrations").unwrap().1;
+			assert!(Rect::from_min_size(Pos2::ZERO, egui::vec2(width, 760.0)).contains_rect(nav));
+			h.click(&ctx, nav.center(), PointerButton::Primary);
+			h.frame(&ctx, vec![]);
+			let Command::ServerAdmin {
+				request, action, ..
+			} = h.commands.pop().unwrap()
+			else {
+				panic!()
+			};
+			assert!(matches!(
+				*action,
+				model::server_admin::Action::Integrations(IntegrationAction::Load {
+					channel: Some(Id(20)),
+					integrations: false,
+					webhooks: true
+				})
+			));
+			h.state.apply(client_core::Envelope {
+				generation: h.state.generation,
+				event: client_core::Event::ServerAdmin(client_core::server_admin::Event {
+					guild,
+					request,
+					result: Ok(model::server_admin::Result::Integrations(Snapshot {
+						guild,
+						channel: Some(channel),
+						integrations: None,
+						webhooks: Some(vec![]),
+					})),
+				}),
+			});
+			h.frame(&ctx, vec![]);
+			let (_, text) = h.frame(&ctx, vec![]);
+			h.click(
+				&ctx,
+				text.iter()
+					.find(|(s, _)| s == "Webhooks")
+					.unwrap()
+					.1
+					.center(),
+				PointerButton::Primary,
+			);
+			let (_, text) = h.frame(&ctx, vec![]);
+			assert!(
+				text.iter().any(|(s, _)| s == "No webhooks yet."),
+				"width {width}: {text:?}"
+			);
+			h.click(
+				&ctx,
+				text.iter()
+					.find(|(s, _)| s == "New Webhook")
+					.unwrap()
+					.1
+					.center(),
+				PointerButton::Primary,
+			);
+			if width < 850.0 {
+				h.frame(
+					&ctx,
+					vec![
+						Event::PointerMoved(egui::pos2(width / 2.0, 500.0)),
+						Event::MouseWheel {
+							phase: egui::TouchPhase::Move,
+							unit: egui::MouseWheelUnit::Point,
+							delta: egui::vec2(0.0, -260.0),
+							modifiers: Modifiers::NONE,
+						},
+					],
+				);
+			}
+			let (_, text) = h.frame(&ctx, vec![]);
+			let save = text.iter().find(|(s, _)| s == "Save Changes").unwrap().1;
+			assert!(Rect::from_min_size(Pos2::ZERO, egui::vec2(width, 760.0)).contains_rect(save));
+			h.click(&ctx, save.center(), PointerButton::Primary);
+			assert!(h.commands.iter().any(|c| matches!(c, Command::ServerAdmin { action, .. } if matches!(action.as_ref(), model::server_admin::Action::Integrations(IntegrationAction::CreateWebhook { scope: Some(Id(20)), channel: Id(20), .. })))), "width {width}; commands {}; text {text:?}; error {:?}", h.commands.len(), h.state.server_admin.error);
+		}
+	}
+
 	#[test]
 	fn create_channel_selects_type_before_submitting() {
 		for (kind, label, width, light) in [

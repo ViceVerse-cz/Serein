@@ -1460,6 +1460,20 @@ reducer and local HTTP tests cover bounds, scope, permissions and write reconcil
 normal-account compatibility and service-side concurrent edits remain live-unverified.
 
 
+### Channel integrations (September 22, 2026)
+
+Channel Settings > Integrations reuses the native webhook and followed-channel
+pages with a channel-scoped snapshot. Manage Webhooks plus View Channel on that
+channel permits entry without Manage Channels or server-wide Manage Webhooks.
+The [documented channel webhook endpoint](https://docs.discord.com/developers/resources/webhook#get-channel-webhooks)
+loads only that channel's metadata; create defaults to that channel, and rename,
+move to another permitted channel, and confirmed delete reuse the existing worker.
+Moving a webhook refreshes the original channel and removes it from that list.
+Guild-wide app integrations remain under Server Settings. Scope and permissions
+are rechecked for responses and writes; existing item/byte limits still apply.
+Webhook URL copying and avatar uploads remain unsupported by the shared editor.
+Synthetic checks do not establish live normal-account interoperability.
+
 ### Server integrations (September 12, 2026)
 
 Server Settings > Integrations loads the guild integration list on demand with

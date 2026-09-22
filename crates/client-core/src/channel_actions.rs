@@ -272,6 +272,10 @@ impl State {
 	}
 	pub fn can_open_channel_settings(&self, channel: Id) -> bool {
 		self.can_manage_channel(channel)
+			|| self
+				.channel(channel)
+				.and_then(|channel| channel.guild)
+				.is_some_and(|guild| self.can_manage_webhook_channel(guild, channel))
 	}
 	fn channel_move_allowed(
 		&self,
@@ -410,7 +414,7 @@ impl State {
 				}
 			}
 		}
-		self.can_open_channel_settings(channel)
+		self.can_manage_channel(channel)
 	}
 	pub fn channel_action_pending(&self) -> bool {
 		self.channel_actions.pending.is_some()

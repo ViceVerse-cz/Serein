@@ -901,7 +901,8 @@ background collection or automatic write retry is added. Create Invite retains
 the existing bounded, session-only invite dialog behavior.
 
 
-Server integration settings retain one guild's on-demand metadata in session RAM:
+Server and channel integration settings share one on-demand metadata snapshot in
+session RAM, scoped either to one guild or to one channel in that guild:
 at most 50 integrations and 1,000 webhooks, further bounded by 1 MiB combined.
 The HTTP decoder caps each list response at 2 MiB and write responses at 64 KiB
 (4 KiB for empty delete responses). Webhook execution tokens and URLs have no

@@ -3285,6 +3285,7 @@ impl State {
 				&& !self.can_open_member_settings(guild)
 				&& !self.can_open_role_settings(guild)
 				&& !self.can_open_integration_settings(guild)
+				&& !self.can_retain_channel_integrations(guild)
 				&& !self.can_open_audit_log_settings(guild)
 			{
 				self.server_admin.reset();
