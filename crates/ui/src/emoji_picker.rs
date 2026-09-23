@@ -380,7 +380,8 @@ impl Picker {
 							ui.horizontal(|ui| {
 								ui.spacing_mut().item_spacing.x = 4.0;
 								for &index in self.matches.iter().skip(row * 6).take(6) {
-									let (text, name) = standard()[index];
+									let (text, _) = standard()[index];
+									let name = shortcodes()[index].as_str();
 									let image = crate::emoji::image(ui.ctx(), text, 32.0);
 									if cell(ui, image, name, true, &colors)
 										.on_hover_text(name)

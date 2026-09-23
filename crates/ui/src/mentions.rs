@@ -306,7 +306,10 @@ fn query(draft: &str, cursor: usize) -> Option<(Range<usize>, &str, Kind)> {
 	match kind {
 		// Discord waits for two shortcode characters so `:)` and `10:30` never open a list.
 		Kind::Emoji => {
-			if query.chars().count() < 2 || !query.chars().all(|c| c.is_alphanumeric() || c == '_')
+			if query.chars().count() < 2
+				|| !query
+					.chars()
+					.all(|c| c.is_alphanumeric() || matches!(c, '_' | '+' | '-'))
 			{
 				return None;
 			}
@@ -1171,6 +1174,8 @@ mod tests {
 		assert!(query("10:30", 5).is_none());
 		assert!(query("<:wave:9001>", 12).is_none());
 		assert_eq!(query("hi :he", 6), Some((3..6, "he", Kind::Emoji)));
+		assert_eq!(query(":+1", 3), Some((0..3, "+1", Kind::Emoji)));
+		assert_eq!(query(":-1", 3), Some((0..3, "-1", Kind::Emoji)));
 		let guilds = vec![model::Guild {
 			stickers: None,
 			id: Id(9),
@@ -1230,6 +1235,14 @@ mod tests {
 		let mut draft = "hi :he".to_owned();
 		insert(&mut draft, menu.pick(unicode).unwrap()).unwrap();
 		assert_eq!(draft, "hi ❤️ ");
+		menu.refresh(&state, Id(1), ":+1", Some(3), &[]);
+		assert!(menu.candidates.iter().any(|candidate| matches!(
+			candidate,
+			Candidate::Unicode {
+				text: "👍",
+				code: ":thumbsup:"
+			}
+		)));
 	}
 }
 
