@@ -44,6 +44,7 @@ mod server_settings_demo;
 mod slash_demo;
 mod spotify;
 mod startup;
+mod sticker_upload;
 mod toggle_setting;
 mod tray_window;
 mod updater;
@@ -749,6 +750,7 @@ struct Desktop {
 	role_icon: group_icon::GroupIcon,
 	role_icon_scope: Option<(u64, model::Id, model::Id, u64)>,
 	emoji_upload: emoji_upload::EmojiUpload,
+	sticker_upload: sticker_upload::StickerUpload,
 	clipboard: Option<clipboard::Paste>,
 	download_close_pending: bool,
 	window: Arc<winit::window::Window>,
@@ -1884,6 +1886,7 @@ impl Desktop {
 			role_icon: group_icon::GroupIcon::default(),
 			role_icon_scope: None,
 			emoji_upload: emoji_upload::EmojiUpload::default(),
+			sticker_upload: sticker_upload::StickerUpload::default(),
 			clipboard: None,
 			download_close_pending: false,
 			window_blur: transparency_available
@@ -1970,6 +1973,7 @@ impl Desktop {
 		self.profile_avatar.cancel();
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
+		self.sticker_upload.cancel();
 		if let Some(store) = &mut self.store {
 			store.cancel_load();
 		}
@@ -2045,6 +2049,7 @@ impl Desktop {
 		self.profile_avatar.cancel();
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
+		self.sticker_upload.cancel();
 		self.notifications.clear();
 		self.uploads.cancel();
 		if let Some(store) = &mut self.store {
@@ -5707,6 +5712,12 @@ impl eframe::App for Desktop {
 		}) {
 			self.messaging.accept_server_emojis(&ctx, scope, result);
 		}
+		if let Some((scope, result)) = self.sticker_upload.poll(self.state.generation, |guild| {
+			self.state.server_admin.guild == Some(guild)
+				&& self.state.can_create_guild_sticker(guild)
+		}) {
+			self.messaging.accept_server_sticker(&ctx, scope, result);
+		}
 		self.messaging.voice_available = true;
 		if close_requested
 			&& !self.close_approved
@@ -6117,6 +6128,26 @@ impl eframe::App for Desktop {
 				};
 				if let Err(error) = result {
 					self.messaging.accept_server_emojis(&ctx, scope, Err(error));
+				}
+			}
+			if let Some((generation, guild, request)) = self.messaging.take_server_sticker_request()
+			{
+				let scope = (generation, guild, request);
+				let result = if generation != self.state.generation
+					|| !self.state.can_create_guild_sticker(guild)
+				{
+					Err("You can no longer upload stickers to this server")
+				} else {
+					self.sticker_upload.start(
+						scope,
+						self.runtime.handle(),
+						&ctx,
+						self.window.clone(),
+					)
+				};
+				if let Err(error) = result {
+					self.messaging
+						.accept_server_sticker(&ctx, scope, Err(error));
 				}
 			}
 			for key in self.messaging.take_avatar_requests() {

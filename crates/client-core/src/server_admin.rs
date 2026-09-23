@@ -5,7 +5,7 @@ use crate::{
 };
 use model::{
 	Id, permissions as p,
-	server_admin::{Action, Emojis, Members, Query, Result as Outcome},
+	server_admin::{Action, Emojis, Members, Query, Result as Outcome, Stickers},
 };
 
 pub struct Event {
@@ -27,6 +27,7 @@ pub struct View {
 	pub member_role_filter: Option<Id>,
 	pub guild: Option<Id>,
 	pub emojis: Option<Emojis>,
+	pub stickers: Option<Stickers>,
 	pub members: Option<Members>,
 	pub query: Query,
 	pub pending: bool,
@@ -170,6 +171,33 @@ impl State {
 						.as_ref()
 						.zip(self.user.as_ref())
 						.is_some_and(|(uploader, user)| uploader.id == user.id)))
+	}
+	pub fn can_open_sticker_settings(&self, guild: Id) -> bool {
+		self.guild_permission(guild, p::MANAGE_GUILD_EXPRESSIONS)
+			|| self.guild_permission(guild, p::CREATE_GUILD_EXPRESSIONS)
+	}
+	pub fn can_create_guild_sticker(&self, guild: Id) -> bool {
+		self.guild_permission(guild, p::CREATE_GUILD_EXPRESSIONS)
+	}
+	pub fn can_edit_guild_sticker(&self, guild: Id, id: Id) -> bool {
+		if self.server_admin.guild != Some(guild) {
+			return false;
+		}
+		let Some(row) = self
+			.server_admin
+			.stickers
+			.as_ref()
+			.and_then(|page| page.items.iter().find(|row| row.sticker.id == id))
+		else {
+			return false;
+		};
+		self.guild_permission(guild, p::MANAGE_GUILD_EXPRESSIONS)
+			|| (self.can_create_guild_sticker(guild)
+				&& row
+					.uploader
+					.as_ref()
+					.zip(self.user.as_ref())
+					.is_some_and(|(uploader, user)| uploader.id == user.id))
 	}
 	pub fn can_open_member_settings(&self, guild: Id) -> bool {
 		self.can_manage_guild(guild)
@@ -325,6 +353,11 @@ impl State {
 			Action::RenameEmoji { id, .. } | Action::DeleteEmoji { id } => {
 				self.can_edit_guild_emoji(guild, *id)
 			}
+			Action::LoadStickers => self.can_open_sticker_settings(guild),
+			Action::CreateSticker { .. } => self.can_create_guild_sticker(guild),
+			Action::EditSticker { id, .. } | Action::DeleteSticker { id } => {
+				self.can_edit_guild_sticker(guild, *id)
+			}
 			Action::LoadMembers(_) => self.can_open_member_settings(guild),
 			Action::SetRole { user, role, .. } => self.can_edit_member_role(guild, *user, *role),
 			Action::SetNickname { user, .. } => self.can_edit_guild_nickname(guild, *user),
@@ -350,6 +383,31 @@ impl State {
 				image.shrink_to_fit();
 			}
 			Action::RenameEmoji { name, .. } => name.shrink_to_fit(),
+			Action::CreateSticker {
+				name,
+				description,
+				tags,
+				filename,
+				content_type,
+				file,
+			} => {
+				name.shrink_to_fit();
+				description.shrink_to_fit();
+				tags.shrink_to_fit();
+				filename.shrink_to_fit();
+				content_type.shrink_to_fit();
+				file.shrink_to_fit();
+			}
+			Action::EditSticker {
+				name,
+				description,
+				tags,
+				..
+			} => {
+				name.shrink_to_fit();
+				description.shrink_to_fit();
+				tags.shrink_to_fit();
+			}
 			_ => {}
 		}
 		if self.server_admin.pending
@@ -388,6 +446,9 @@ impl State {
 		let mut retained = action.clone();
 		if let Action::CreateEmoji { image, .. } = &mut retained {
 			*image = String::new();
+		} else if let Action::CreateSticker { file, .. } = &mut retained {
+			file.clear();
+			file.shrink_to_fit();
 		} else if let Action::Roles(
 			model::server_roles::Action::Create(edit)
 			| model::server_roles::Action::Edit { edit, .. },
@@ -484,6 +545,15 @@ impl State {
 					) && !self.can_open_member_settings(event.guild)
 			} else if action.emoji() {
 				!self.can_open_emoji_settings(event.guild)
+			} else if action.sticker() {
+				!match action {
+					Action::LoadStickers => self.can_open_sticker_settings(event.guild),
+					Action::CreateSticker { .. } => self.can_create_guild_sticker(event.guild),
+					Action::EditSticker { id, .. } | Action::DeleteSticker { id } => {
+						self.can_edit_guild_sticker(event.guild, *id)
+					}
+					_ => false,
+				}
 			} else {
 				!self.can_open_member_settings(event.guild)
 			}
@@ -610,6 +680,39 @@ impl State {
 				Outcome::Member(member),
 			) => *user == member.user.id,
 			(Some(Action::Kick { user }), Outcome::Kicked(id)) => user == id,
+			(Some(action), Outcome::Stickers(page)) if action.sticker() => {
+				page.items
+					.iter()
+					.all(|row| row.sticker.guild_id == Some(event.guild))
+					&& match action {
+						Action::LoadStickers => true,
+						Action::CreateSticker {
+							name,
+							description,
+							tags,
+							..
+						} => page.items.iter().any(|row| {
+							row.sticker.name == *name
+								&& row.sticker.description == *description
+								&& row.sticker.tags == *tags
+						}),
+						Action::EditSticker {
+							id,
+							name,
+							description,
+							tags,
+						} => page.items.iter().any(|row| {
+							row.sticker.id == *id
+								&& row.sticker.name == *name
+								&& row.sticker.description == *description
+								&& row.sticker.tags == *tags
+						}),
+						Action::DeleteSticker { id } => {
+							page.items.iter().all(|row| row.sticker.id != *id)
+						}
+						_ => false,
+					}
+			}
 			_ => false,
 		};
 		if !expected {
@@ -645,6 +748,16 @@ impl State {
 					},
 				});
 				self.server_admin.emojis = Some(page);
+			}
+			Outcome::Stickers(page) => {
+				self.apply(crate::Envelope {
+					generation: self.generation,
+					event: crate::Event::GuildStickers {
+						guild: event.guild,
+						stickers: page.items.iter().map(|row| row.sticker.clone()).collect(),
+					},
+				});
+				self.server_admin.stickers = Some(page);
 			}
 			Outcome::Members(page) => {
 				if let Some(enabled) = page.show_in_channel_list {
@@ -739,6 +852,7 @@ impl State {
 			action,
 			Some(
 				Action::LoadEmojis
+					| Action::LoadStickers
 					| Action::Invites(model::server_invites::Action::Load)
 					| Action::Integrations(model::server_integrations::Action::Load { .. })
 					| Action::LoadMembers(_)
@@ -921,5 +1035,150 @@ mod invite_tests {
 		deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
 		assert!(state.server_admin.needs_refresh);
 		assert!(!state.server_admin.invites.as_ref().unwrap().paused());
+	}
+}
+
+#[cfg(test)]
+mod sticker_tests {
+	use super::*;
+
+	fn user(id: u64, name: &str) -> model::User {
+		model::User {
+			primary_guild: None,
+			id: Id(id),
+			name: name.into(),
+			avatar: None,
+			discriminator: 0,
+			kind: Default::default(),
+			webhook: false,
+		}
+	}
+	fn row(id: u64, name: &str, uploader: u64) -> model::server_admin::Sticker {
+		model::server_admin::Sticker {
+			sticker: model::Sticker {
+				id: Id(id),
+				name: name.into(),
+				description: "A friendly wave".into(),
+				tags: "wave".into(),
+				format_type: 1,
+				guild_id: Some(Id(2)),
+				pack_id: None,
+				available: true,
+			},
+			uploader: Some(user(uploader, "Uploader")),
+		}
+	}
+	fn state(bits: u128) -> State {
+		let mut state = State {
+			auth: AuthState::Authenticated,
+			gateway_connected: true,
+			user: Some(user(1, "Synthetic")),
+			guilds: vec![model::Guild {
+				id: Id(2),
+				name: "Synthetic".into(),
+				icon: None,
+				emojis: None,
+				stickers: None,
+			}],
+			..Default::default()
+		};
+		state.permissions.guilds.insert(
+			Id(2),
+			p::Guild {
+				id: Id(2),
+				owner: Some(Id(99)),
+				member: Some(p::Member {
+					roles: vec![],
+					timeout_until: None,
+				}),
+				roles: Some(vec![p::Role {
+					id: Id(2),
+					name: "@everyone".into(),
+					bits,
+					color: 0,
+					position: 0,
+					hoist: false,
+				}]),
+			},
+		);
+		state.server_admin.guild = Some(Id(2));
+		state.server_admin.stickers = Some(model::server_admin::Stickers {
+			items: vec![row(4, "Wave", 1), row(5, "Other", 7)],
+			limit: Some(5),
+		});
+		state
+	}
+
+	#[test]
+	fn sticker_permissions_follow_creator_and_manager_rules() {
+		let mut state = state(p::CREATE_GUILD_EXPRESSIONS);
+		assert!(state.can_open_sticker_settings(Id(2)));
+		assert!(state.can_create_guild_sticker(Id(2)));
+		assert!(state.can_edit_guild_sticker(Id(2), Id(4)));
+		assert!(!state.can_edit_guild_sticker(Id(2), Id(5)));
+
+		state
+			.permissions
+			.guilds
+			.get_mut(&Id(2))
+			.unwrap()
+			.roles
+			.as_mut()
+			.unwrap()[0]
+			.bits = p::MANAGE_GUILD_EXPRESSIONS;
+		state.permissions.clear_cache();
+		assert!(!state.can_create_guild_sticker(Id(2)));
+		assert!(state.can_edit_guild_sticker(Id(2), Id(5)));
+	}
+
+	#[test]
+	fn sticker_create_drops_retained_file_and_reconciles_guild_catalog() {
+		let mut state = state(p::CREATE_GUILD_EXPRESSIONS);
+		let action = Action::CreateSticker {
+			name: "New Sticker".into(),
+			description: "A friendly wave".into(),
+			tags: "wave".into(),
+			filename: "wave.png".into(),
+			content_type: "image/png".into(),
+			file: vec![1, 2, 3],
+		};
+		let Command::ServerAdmin {
+			request, action, ..
+		} = state.request_server_admin(Id(2), action).unwrap()
+		else {
+			panic!()
+		};
+		assert!(matches!(*action, Action::CreateSticker { ref file, .. } if file == &[1, 2, 3]));
+		assert!(
+			matches!(state.server_admin.action, Some(Action::CreateSticker { ref file, .. }) if file.is_empty())
+		);
+
+		let page = model::server_admin::Stickers {
+			items: vec![row(6, "New Sticker", 1)],
+			limit: Some(5),
+		};
+		state
+			.apply_server_admin(Event {
+				guild: Id(2),
+				request,
+				result: Ok(Outcome::Stickers(page)),
+			})
+			.unwrap();
+		assert!(
+			state.guild(Id(2)).unwrap().stickers.is_some(),
+			"status={} admin={:?}",
+			state.status,
+			state.server_admin.error
+		);
+		assert_eq!(
+			state.guild(Id(2)).unwrap().stickers.as_ref().unwrap()[0].id,
+			Id(6)
+		);
+		assert_eq!(
+			state.server_admin.stickers.as_ref().unwrap().items[0]
+				.sticker
+				.id,
+			Id(6)
+		);
 	}
 }

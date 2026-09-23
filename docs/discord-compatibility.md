@@ -274,7 +274,7 @@ Webhook label, with no user-profile request or retry. Ordinary bot/user profiles
 retain their existing behavior. Synthetic parser, cache, and UI checks cover this
 path; live webhook interoperability and native visual verification are unverified.
 
-## Server settings — September 12, 2026
+## Server settings — September 23, 2026
 
 Server Profile and Engagement are visible only when current guild permissions
 establish Manage Server (including the owner/administrator cases). The editor
@@ -285,6 +285,15 @@ mutually exclusive features described by the [unofficial guild reference](https:
 These routes are wired for normal-account use but live interoperability remains
 unverified. The offline server-settings preview changes synthetic RAM only.
 Selected icons are prepared off the render thread; only Save uploads them.
+
+The permission-gated Stickers page loads the guild sticker catalog and supports
+creating, editing and deleting stickers through Discord's documented
+[guild sticker routes](https://docs.discord.com/developers/resources/sticker#guild-sticker-resource).
+Static PNG, JPEG and WebP source artwork is decoded off the render thread, center-cropped
+and resized to a 320 × 320 PNG, then rejected if the prepared file exceeds 512 KiB.
+The picker reads at most 8 MiB and does not retain the selected path. Create and Manage
+Expressions permissions gate writes, including creator-only edits where applicable.
+Offline decoder, reducer and UI checks do not establish live normal-account interoperability.
 
 ## Group conversation actions — September 11, 2026
 

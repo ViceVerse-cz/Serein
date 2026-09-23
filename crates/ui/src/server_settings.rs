@@ -13,6 +13,7 @@ enum Page {
 	Profile,
 	Engagement,
 	Emoji,
+	Stickers,
 	Members,
 	Roles,
 	Invites,
@@ -24,6 +25,7 @@ impl Page {
 		match self {
 			Self::Profile | Self::Engagement => state.can_manage_guild(guild),
 			Self::Emoji => state.can_open_emoji_settings(guild),
+			Self::Stickers => state.can_open_sticker_settings(guild),
 			Self::Members => state.can_open_member_settings(guild),
 			Self::Roles => state.can_open_role_settings(guild),
 			Self::Invites => state.can_open_invite_settings(guild),
@@ -36,6 +38,7 @@ impl Page {
 			Self::Profile => "Server Profile",
 			Self::Engagement => "Engagement",
 			Self::Emoji => "Emoji",
+			Self::Stickers => "Stickers",
 			Self::Members => "Members",
 			Self::Roles => "Roles",
 			Self::Invites => "Invites",
@@ -63,6 +66,7 @@ pub(super) struct Editor {
 	form_error: Option<&'static str>,
 	emoji_picker: crate::emoji_picker::Picker,
 	pub(super) admin: crate::server_admin::Admin,
+	stickers: crate::server_stickers::StickersUi,
 	roles: crate::server_roles::RolesUi,
 	invites: crate::server_invites::InvitesUi,
 	integrations: crate::server_integrations::IntegrationsUi,
@@ -136,6 +140,8 @@ impl MessagingUi {
 			Page::Invites
 		} else if page == "members" {
 			Page::Members
+		} else if page == "stickers" {
+			Page::Stickers
 		} else {
 			Page::Emoji
 		};
@@ -156,6 +162,8 @@ impl MessagingUi {
 			self.server_settings.integrations.load(state, guild)
 		} else if page == Page::Invites {
 			self.server_settings.invites.load(state, guild)
+		} else if page == Page::Stickers {
+			self.server_settings.stickers.load(state, guild)
 		} else {
 			self.server_settings
 				.admin
@@ -164,6 +172,27 @@ impl MessagingUi {
 	}
 	pub fn accepts_server_emoji_drops(&self) -> bool {
 		self.server_settings.is_open() && self.server_settings.page == Page::Emoji
+	}
+	pub fn take_server_sticker_request(&mut self) -> Option<(u64, Id, u64)> {
+		let (generation, guild) = self.server_settings.scope?;
+		if !self.server_settings.stickers.take_request() {
+			return None;
+		}
+		self.server_sticker_sequence = self.server_sticker_sequence.wrapping_add(1);
+		self.server_settings.stickers.request = self.server_sticker_sequence;
+		Some((generation, guild, self.server_sticker_sequence))
+	}
+	pub fn accept_server_sticker(
+		&mut self,
+		ctx: &egui::Context,
+		scope: (u64, Id, u64),
+		result: Result<Option<crate::server_stickers::PreparedSticker>, &'static str>,
+	) {
+		if self.server_settings.scope == Some((scope.0, scope.1))
+			&& self.server_settings.stickers.request == scope.2
+		{
+			self.server_settings.stickers.accept(ctx, result);
+		}
 	}
 	pub fn queue_server_emoji_drop(&mut self, paths: Vec<std::path::PathBuf>) {
 		if self.accepts_server_emoji_drops() {
@@ -195,6 +224,7 @@ impl MessagingUi {
 				|| self.server_settings.submitted
 				|| self.server_settings.icon_pending)
 			|| self.server_settings.admin.has_changes()
+			|| self.server_settings.stickers.has_changes()
 			|| self.server_settings.roles.has_changes()
 			|| self.server_settings.invites.busy()
 			|| self.server_settings.integrations.has_changes()
@@ -207,6 +237,9 @@ impl MessagingUi {
 			}
 			if state.can_open_emoji_settings(guild) {
 				return self.preview_server_admin(state, guild, "emoji");
+			}
+			if state.can_open_sticker_settings(guild) {
+				return self.preview_server_admin(state, guild, "stickers");
 			}
 			if state.can_open_integration_settings(guild) {
 				return self.preview_server_admin(state, guild, "integrations");
@@ -328,6 +361,7 @@ impl Editor {
 		if generation != state.generation
 			|| !(state.can_manage_guild(guild)
 				|| state.can_open_emoji_settings(guild)
+				|| state.can_open_sticker_settings(guild)
 				|| state.can_open_member_settings(guild)
 				|| state.can_open_role_settings(guild)
 				|| state.can_open_integration_settings(guild)
@@ -354,6 +388,8 @@ impl Editor {
 				Page::Roles
 			} else if state.can_open_emoji_settings(guild) {
 				Page::Emoji
+			} else if state.can_open_sticker_settings(guild) {
+				Page::Stickers
 			} else if state.can_open_member_settings(guild) {
 				Page::Members
 			} else if state.can_open_integration_settings(guild) {
@@ -362,6 +398,7 @@ impl Editor {
 				Page::AuditLog
 			};
 			self.admin = crate::server_admin::Admin::default();
+			self.stickers = crate::server_stickers::StickersUi::default();
 			self.roles = crate::server_roles::RolesUi::default();
 			self.invites = crate::server_invites::InvitesUi::default();
 			self.integrations = crate::server_integrations::IntegrationsUi::default();
@@ -392,6 +429,11 @@ impl Editor {
 		}
 		if matches!(self.page, Page::Emoji | Page::Members)
 			&& let Some(command) = self.admin.load(state, guild, self.page == Page::Members)
+		{
+			commands.push(command);
+		}
+		if self.page == Page::Stickers
+			&& let Some(command) = self.stickers.load(state, guild)
 		{
 			commands.push(command);
 		}
@@ -472,6 +514,7 @@ impl Editor {
 								Page::Profile,
 								Page::Engagement,
 								Page::Emoji,
+								Page::Stickers,
 								Page::Members,
 								Page::Roles,
 								Page::Invites,
@@ -481,12 +524,13 @@ impl Editor {
 								if !page.allowed(state, guild) {
 									continue;
 								}
-								if matches!(
-									page,
-									Page::Emoji
-										| Page::Members | Page::Integrations
-										| Page::AuditLog
-								) || (page == Page::Roles
+								if page == Page::Emoji
+									|| (page == Page::Stickers
+										&& !Page::Emoji.allowed(state, guild))
+									|| matches!(
+										page,
+										Page::Members | Page::Integrations | Page::AuditLog
+									) || (page == Page::Roles
 									&& !Page::Members.allowed(state, guild))
 								{
 									ui.add_space(16.0);
@@ -498,7 +542,7 @@ impl Editor {
 											"MODERATION"
 										} else if page == Page::Integrations {
 											"APPS"
-										} else if page == Page::Emoji {
+										} else if matches!(page, Page::Emoji | Page::Stickers) {
 											"EXPRESSION"
 										} else {
 											"PEOPLE"
@@ -540,6 +584,7 @@ impl Editor {
 									Page::Profile,
 									Page::Engagement,
 									Page::Emoji,
+									Page::Stickers,
 									Page::Members,
 									Page::Roles,
 									Page::Invites,
@@ -591,6 +636,7 @@ impl Editor {
 			if self.dirty()
 				|| state.server_settings.saving
 				|| self.admin.has_changes()
+				|| self.stickers.has_changes()
 				|| self.roles.has_changes()
 				|| self.integrations.has_changes()
 				|| self.invites.busy()
@@ -600,6 +646,7 @@ impl Editor {
 			} else {
 				self.scope = None;
 				self.roles = crate::server_roles::RolesUi::default();
+				self.stickers = crate::server_stickers::StickersUi::default();
 				self.invites = crate::server_invites::InvitesUi::default();
 				self.integrations = crate::server_integrations::IntegrationsUi::default();
 				self.audit_log = crate::server_audit_log::AuditLogUi::default();
@@ -671,6 +718,10 @@ impl Editor {
 			}
 			Page::Roles => {
 				self.roles.show(ui, state, guild, avatars, commands);
+				return;
+			}
+			Page::Stickers => {
+				self.stickers.show(ui, state, guild, avatars, commands);
 				return;
 			}
 			Page::Emoji | Page::Members => {

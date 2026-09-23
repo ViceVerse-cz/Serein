@@ -73,7 +73,9 @@ pub fn execute_admin(
 	request: u64,
 	action: model::server_admin::Action,
 ) -> Event {
-	use model::server_admin::{Action, Emoji, Emojis, Member, Members, Result as Outcome, Role};
+	use model::server_admin::{
+		Action, Emoji, Emojis, Member, Members, Result as Outcome, Role, Sticker, Stickers,
+	};
 	assert!(
 		action.valid(),
 		"synthetic admin action must satisfy wire bounds"
@@ -132,6 +134,81 @@ pub fn execute_admin(
 				_ => {}
 			}
 			Outcome::Emojis(page)
+		}
+		Action::LoadStickers
+		| Action::CreateSticker { .. }
+		| Action::EditSticker { .. }
+		| Action::DeleteSticker { .. } => {
+			let mut page = state
+				.server_admin
+				.stickers
+				.clone()
+				.unwrap_or_else(|| Stickers {
+					items: [
+						(9101, "Wave", "hello,wave"),
+						(9102, "Smile", "smile,happy"),
+						(9103, "Celebrate", "party,celebrate"),
+					]
+					.into_iter()
+					.map(|(id, name, tags)| Sticker {
+						sticker: model::Sticker {
+							id: Id(id),
+							name: name.into(),
+							description: "Original synthetic sticker artwork".into(),
+							tags: tags.into(),
+							format_type: 1,
+							guild_id: Some(guild),
+							pack_id: None,
+							available: true,
+						},
+						uploader: Some(owner.clone()),
+					})
+					.collect(),
+					limit: Some(5),
+				});
+			match action {
+				Action::CreateSticker {
+					name,
+					description,
+					tags,
+					..
+				} => {
+					let id = Id(page
+						.items
+						.iter()
+						.map(|row| row.sticker.id.0)
+						.max()
+						.unwrap_or(9100) + 1);
+					page.items.push(Sticker {
+						sticker: model::Sticker {
+							id,
+							name,
+							description,
+							tags,
+							format_type: 1,
+							guild_id: Some(guild),
+							pack_id: None,
+							available: true,
+						},
+						uploader: Some(owner.clone()),
+					});
+				}
+				Action::EditSticker {
+					id,
+					name,
+					description,
+					tags,
+				} => {
+					if let Some(row) = page.items.iter_mut().find(|row| row.sticker.id == id) {
+						row.sticker.name = name;
+						row.sticker.description = description;
+						row.sticker.tags = tags;
+					}
+				}
+				Action::DeleteSticker { id } => page.items.retain(|row| row.sticker.id != id),
+				_ => {}
+			}
+			Outcome::Stickers(page)
 		}
 		Action::LoadMembers(query) => {
 			let mut page = {

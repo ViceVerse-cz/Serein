@@ -36,6 +36,19 @@ impl DiscordApi {
 			.map(Outcome::Emojis)
 			.map_err(|_| Failure::Protocol)
 	}
+	async fn admin_stickers(&self, guild: Id) -> Result<Outcome, Failure> {
+		let bytes = self
+			.request_limited(
+				Method::GET,
+				&format!("/guilds/{guild}/stickers"),
+				None,
+				MAX_WIRE,
+			)
+			.await?;
+		wire::stickers(&bytes, guild)
+			.map(Outcome::Stickers)
+			.map_err(|_| Failure::Protocol)
+	}
 	async fn admin_member(
 		&self,
 		guild: Id,
@@ -130,6 +143,78 @@ impl DiscordApi {
 					return Err(Failure::Ambiguous);
 				}
 				self.admin_emojis(guild).await.map_err(reconcile_failure)
+			}
+			Action::LoadStickers => self.admin_stickers(guild).await,
+			Action::CreateSticker {
+				name,
+				description,
+				tags,
+				filename,
+				content_type,
+				file,
+			} => {
+				if !wire::valid_sticker_file(filename, content_type, file) {
+					return Err(Failure::Protocol);
+				}
+				let (content_type_header, body) =
+					sticker_multipart(name, description, tags, filename, content_type, file)?;
+				let bytes = self
+					.request_multipart_limited(
+						&format!("/guilds/{guild}/stickers"),
+						content_type_header,
+						body,
+						64 * 1024,
+					)
+					.await
+					.map_err(write_failure)?;
+				let created = wire::sticker(&bytes, guild).map_err(|_| Failure::Ambiguous)?;
+				if created.sticker.name != *name
+					|| created.sticker.description != *description
+					|| created.sticker.tags != *tags
+				{
+					return Err(Failure::Ambiguous);
+				}
+				self.admin_stickers(guild).await.map_err(reconcile_failure)
+			}
+			Action::EditSticker {
+				id,
+				name,
+				description,
+				tags,
+			} => {
+				let bytes = self
+					.request_limited(
+						Method::PATCH,
+						&format!("/guilds/{guild}/stickers/{id}"),
+						Some(json!({"name":name,"description":description,"tags":tags})),
+						64 * 1024,
+					)
+					.await
+					.map_err(write_failure)?;
+				let edited = wire::sticker(&bytes, guild).map_err(|_| Failure::Ambiguous)?;
+				if edited.sticker.id != *id
+					|| edited.sticker.name != *name
+					|| edited.sticker.description != *description
+					|| edited.sticker.tags != *tags
+				{
+					return Err(Failure::Ambiguous);
+				}
+				self.admin_stickers(guild).await.map_err(reconcile_failure)
+			}
+			Action::DeleteSticker { id } => {
+				let bytes = self
+					.request_limited(
+						Method::DELETE,
+						&format!("/guilds/{guild}/stickers/{id}"),
+						None,
+						4096,
+					)
+					.await
+					.map_err(write_failure)?;
+				if !bytes.is_empty() {
+					return Err(Failure::Ambiguous);
+				}
+				self.admin_stickers(guild).await.map_err(reconcile_failure)
 			}
 			Action::LoadMembers(query) => {
 				let now = std::time::SystemTime::now()
@@ -288,6 +373,45 @@ impl DiscordApi {
 		}
 	}
 }
+fn sticker_multipart(
+	name: &str,
+	description: &str,
+	tags: &str,
+	filename: &str,
+	file_content_type: &str,
+	file: &[u8],
+) -> Result<(String, Vec<u8>), Failure> {
+	let mut suffix = 0u32;
+	let boundary = loop {
+		let candidate = format!("----------------serein-sticker-{suffix:x}");
+		if !file
+			.windows(candidate.len())
+			.any(|window| window == candidate.as_bytes())
+			&& [name, description, tags]
+				.into_iter()
+				.all(|value| !value.contains(&candidate))
+		{
+			break candidate;
+		}
+		suffix = suffix.checked_add(1).ok_or(Failure::Protocol)?;
+	};
+	let mut body = Vec::with_capacity(file.len().saturating_add(2048));
+	for (field, value) in [("name", name), ("description", description), ("tags", tags)] {
+		body.extend_from_slice(
+			format!(
+				"--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"\r\n\r\n{value}\r\n"
+			)
+			.as_bytes(),
+		);
+	}
+	body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\nContent-Type: {file_content_type}\r\n\r\n").as_bytes());
+	body.extend_from_slice(file);
+	body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+	if body.len() > model::server_admin::MAX_STICKER_FILE_BYTES + 4096 {
+		return Err(Failure::Capacity);
+	}
+	Ok((format!("multipart/form-data; boundary={boundary}"), body))
+}
 fn write_failure(failure: Failure) -> Failure {
 	if failure == Failure::Capacity {
 		Failure::Ambiguous
@@ -300,5 +424,36 @@ fn reconcile_failure(failure: Failure) -> Failure {
 		failure
 	} else {
 		Failure::Ambiguous
+	}
+}
+
+#[cfg(test)]
+mod sticker_tests {
+	use super::*;
+
+	#[test]
+	fn sticker_multipart_keeps_fields_file_and_collision_free_boundary() {
+		let file = b"----------------serein-sticker-0 image";
+		let (content_type, body) = sticker_multipart(
+			"Wave",
+			"A friendly wave",
+			"wave",
+			"wave.png",
+			"image/png",
+			file,
+		)
+		.unwrap();
+		assert!(content_type.ends_with("serein-sticker-1"));
+		let body = String::from_utf8_lossy(&body);
+		for expected in [
+			"name=\"name\"\r\n\r\nWave",
+			"name=\"description\"\r\n\r\nA friendly wave",
+			"name=\"tags\"\r\n\r\nwave",
+			"name=\"file\"; filename=\"wave.png\"",
+			"Content-Type: image/png",
+		] {
+			assert!(body.contains(expected));
+		}
+		assert!(body.ends_with("--\r\n"));
 	}
 }

@@ -104,6 +104,58 @@ pub fn emoji(bytes: &[u8]) -> Result<Emoji, DecodeError> {
 	Ok(row)
 }
 #[derive(Deserialize)]
+struct StickerWire {
+	#[serde(flatten)]
+	sticker: model::Sticker,
+	#[serde(rename = "type")]
+	kind: u8,
+	user: Option<UserDto>,
+}
+impl StickerWire {
+	fn checked(self, guild: Id) -> Result<m::Sticker, DecodeError> {
+		if self.kind != 2 || !matches!(self.sticker.format_type, 1..=4) {
+			return Err(DecodeError);
+		}
+		let sticker = crate::stickers::guild_catalog(vec![self.sticker], guild)?
+			.pop()
+			.ok_or(DecodeError)?;
+		let row = m::Sticker {
+			sticker,
+			uploader: self.user.map(UserDto::into_model),
+		};
+		if !m::Result::Stickers(m::Stickers {
+			items: vec![row.clone()],
+			limit: None,
+		})
+		.valid()
+		{
+			return Err(DecodeError);
+		}
+		Ok(row)
+	}
+}
+pub fn stickers(bytes: &[u8], guild: Id) -> Result<m::Stickers, DecodeError> {
+	let rows: List<StickerWire, { model::MAX_GUILD_STICKERS }> = crate::decode(bytes)?;
+	let result = m::Stickers {
+		items: rows
+			.0
+			.into_iter()
+			.map(|row| row.checked(guild))
+			.collect::<Result<_, _>>()?,
+		limit: None,
+	};
+	let mut ids = std::collections::BTreeSet::new();
+	if result.items.iter().any(|row| !ids.insert(row.sticker.id))
+		|| !m::Result::Stickers(result.clone()).valid()
+	{
+		return Err(DecodeError);
+	}
+	Ok(result)
+}
+pub fn sticker(bytes: &[u8], guild: Id) -> Result<m::Sticker, DecodeError> {
+	crate::decode::<StickerWire>(bytes)?.checked(guild)
+}
+#[derive(Deserialize)]
 struct MemberWire {
 	user: UserDto,
 	nick: Option<String>,
@@ -277,10 +329,124 @@ pub fn valid_emoji_data_uri(value: &str) -> bool {
 		.decode(data)
 		.is_ok_and(|bytes| valid_image(&bytes, animated))
 }
+pub fn valid_sticker_file(filename: &str, content_type: &str, bytes: &[u8]) -> bool {
+	if bytes.is_empty()
+		|| bytes.len() > m::MAX_STICKER_FILE_BYTES
+		|| filename.len() > 128
+		|| !filename
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+	{
+		return false;
+	}
+	match (content_type, filename.rsplit('.').next()) {
+		("image/png", Some("png")) => valid_sticker_png(bytes),
+		("image/gif", Some("gif")) => {
+			bytes.len() >= 14
+				&& (bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"))
+				&& u16::from_le_bytes([bytes[6], bytes[7]]) == 320
+				&& u16::from_le_bytes([bytes[8], bytes[9]]) == 320
+				&& bytes.last() == Some(&0x3b)
+		}
+		("application/json", Some("json")) => {
+			let Ok(value) = serde_json::from_slice::<Value>(bytes) else {
+				return false;
+			};
+			let number = |key| value.get(key).and_then(Value::as_f64);
+			matches!(number("w"), Some(320.0))
+				&& matches!(number("h"), Some(320.0))
+				&& number("fr").is_some_and(|value| value.is_finite() && value > 0.0)
+				&& number("ip").is_some_and(f64::is_finite)
+				&& number("op").is_some_and(f64::is_finite)
+				&& number("op")
+					.zip(number("ip"))
+					.zip(number("fr"))
+					.is_some_and(|((end, start), rate)| end >= start && end - start <= rate * 5.0)
+		}
+		_ => false,
+	}
+}
+fn valid_sticker_png(bytes: &[u8]) -> bool {
+	if bytes.len() < 45
+		|| !bytes.starts_with(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR")
+		|| u32::from_be_bytes(bytes[16..20].try_into().unwrap()) != 320
+		|| u32::from_be_bytes(bytes[20..24].try_into().unwrap()) != 320
+	{
+		return false;
+	}
+	let mut offset = 8usize;
+	while offset.checked_add(12).is_some_and(|end| end <= bytes.len()) {
+		let length = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+		let Some(end) = offset
+			.checked_add(12)
+			.and_then(|value| value.checked_add(length))
+		else {
+			return false;
+		};
+		if end > bytes.len() {
+			return false;
+		}
+		if &bytes[offset + 4..offset + 8] == b"IEND" {
+			return length == 0 && end == bytes.len();
+		}
+		offset = end;
+	}
+	false
+}
 pub fn pruned(bytes: &[u8]) -> Result<Option<u64>, DecodeError> {
 	#[derive(Deserialize)]
 	struct Response {
 		pruned: Option<u64>,
 	}
 	Ok(crate::decode::<Response>(bytes)?.pruned)
+}
+
+#[cfg(test)]
+mod sticker_tests {
+	use super::*;
+
+	fn png(width: u32, height: u32) -> Vec<u8> {
+		let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+		bytes.extend_from_slice(&width.to_be_bytes());
+		bytes.extend_from_slice(&height.to_be_bytes());
+		bytes.extend_from_slice(&[8, 6, 0, 0, 0]);
+		bytes.extend_from_slice(&[0; 4]);
+		bytes.extend_from_slice(b"\0\0\0\0IEND\0\0\0\0");
+		bytes
+	}
+
+	#[test]
+	fn guild_stickers_bind_scope_and_preserve_uploader() {
+		let bytes = br#"[{"id":"4","name":"Wave","description":"A wave","tags":"wave","type":2,"format_type":1,"user":{"id":"7","username":"Uploader"}}]"#;
+		let page = stickers(bytes, Id(2)).unwrap();
+		assert_eq!(page.items[0].sticker.guild_id, Some(Id(2)));
+		assert_eq!(page.items[0].uploader.as_ref().unwrap().id, Id(7));
+
+		let foreign = br#"[{"id":"4","name":"Wave","description":"A wave","tags":"wave","type":2,"format_type":1,"guild_id":"3"}]"#;
+		assert!(stickers(foreign, Id(2)).is_err());
+		let duplicate = format!(
+			"[{},{}]",
+			String::from_utf8_lossy(&bytes[1..bytes.len() - 1]),
+			String::from_utf8_lossy(&bytes[1..bytes.len() - 1])
+		);
+		assert!(stickers(duplicate.as_bytes(), Id(2)).is_err());
+	}
+
+	#[test]
+	fn sticker_files_require_declared_type_size_and_320_square_dimensions() {
+		assert!(valid_sticker_file("wave.png", "image/png", &png(320, 320)));
+		assert!(!valid_sticker_file("wave.png", "image/png", &png(319, 320)));
+		assert!(!valid_sticker_file("wave.gif", "image/png", &png(320, 320)));
+
+		let mut gif = b"GIF89a\x40\x01\x40\x01\0\0\0".to_vec();
+		gif.push(0x3b);
+		assert!(valid_sticker_file("wave.gif", "image/gif", &gif));
+		let lottie = br#"{"w":320,"h":320,"fr":60,"ip":0,"op":300}"#;
+		assert!(valid_sticker_file("wave.json", "application/json", lottie));
+		assert!(!valid_sticker_file(
+			"wave.json",
+			"application/json",
+			br#"{"w":320,"h":320,"fr":60,"ip":0,"op":301}"#
+		));
+	}
 }

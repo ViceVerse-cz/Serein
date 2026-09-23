@@ -29,7 +29,7 @@ use discord_protocol::*;
 use model::User;
 use reqwest::{
 	Client, Method, StatusCode,
-	header::{AUTHORIZATION, HeaderValue},
+	header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue},
 };
 use std::{
 	sync::{
@@ -56,6 +56,10 @@ pub struct DiscordApi {
 	base: String,
 	#[cfg(test)]
 	upload_origin: Option<std::net::SocketAddr>,
+}
+enum RequestContent {
+	Json(serde_json::Value),
+	Multipart { content_type: String, body: Vec<u8> },
 }
 // Unofficial wire fields: discord.py-self errors.py CaptchaRequired and http.py request.
 // Borrow ordinary fields; escaped JSON strings are bounded by the 64 KiB wire cap.
@@ -176,8 +180,32 @@ impl DiscordApi {
 		body: Option<serde_json::Value>,
 		max_bytes: usize,
 	) -> Result<Vec<u8>, Failure> {
-		self.request_with_captcha(method, path, body, max_bytes, None, None)
-			.await
+		self.request_with_content(
+			method,
+			path,
+			body.map(RequestContent::Json),
+			max_bytes,
+			None,
+			None,
+		)
+		.await
+	}
+	async fn request_multipart_limited(
+		&self,
+		path: &str,
+		content_type: String,
+		body: Vec<u8>,
+		max_bytes: usize,
+	) -> Result<Vec<u8>, Failure> {
+		self.request_with_content(
+			Method::POST,
+			path,
+			Some(RequestContent::Multipart { content_type, body }),
+			max_bytes,
+			None,
+			None,
+		)
+		.await
 	}
 	/// One typed request with an optional captcha retry and challenge output slot.
 	async fn request_with_captcha(
@@ -185,6 +213,25 @@ impl DiscordApi {
 		method: Method,
 		path: &str,
 		body: Option<serde_json::Value>,
+		max_bytes: usize,
+		retry: Option<&client_core::captcha::Retry>,
+		challenge: Option<&mut Option<client_core::captcha::Challenge>>,
+	) -> Result<Vec<u8>, Failure> {
+		self.request_with_content(
+			method,
+			path,
+			body.map(RequestContent::Json),
+			max_bytes,
+			retry,
+			challenge,
+		)
+		.await
+	}
+	async fn request_with_content(
+		&self,
+		method: Method,
+		path: &str,
+		body: Option<RequestContent>,
 		max_bytes: usize,
 		retry: Option<&client_core::captcha::Retry>,
 		mut challenge: Option<&mut Option<client_core::captcha::Challenge>>,
@@ -245,7 +292,15 @@ impl DiscordApi {
 			}
 		}
 		if let Some(body) = body {
-			request = request.json(&body);
+			request = match body {
+				RequestContent::Json(body) => request.json(&body),
+				RequestContent::Multipart { content_type, body } => request
+					.header(
+						CONTENT_TYPE,
+						HeaderValue::from_str(&content_type).map_err(|_| Failure::Protocol)?,
+					)
+					.body(body),
+			};
 		}
 		let mut response = request.send().await.map_err(|_| {
 			if write {

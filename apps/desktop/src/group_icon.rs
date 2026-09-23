@@ -137,6 +137,18 @@ pub(crate) fn decode_image(
 	output_edge: u32,
 	square: bool,
 ) -> Result<(String, egui::ColorImage), &'static str> {
+	let (png, preview) = decode_png(bytes, output_edge, square, 256 * 1024)?;
+	let uri = discord_protocol::group_actions::icon_data_uri(&png)
+		.ok_or("Prepared icon exceeds 256 KB; choose a simpler image")?;
+	Ok((uri, preview))
+}
+
+pub(crate) fn decode_png(
+	bytes: &[u8],
+	output_edge: u32,
+	square: bool,
+	max_output: usize,
+) -> Result<(Vec<u8>, egui::ColorImage), &'static str> {
 	if bytes.len() > MAX_INPUT {
 		return Err("Choose an image up to 8 MB");
 	}
@@ -171,14 +183,15 @@ pub(crate) fn decode_image(
 	image
 		.write_to(&mut png, image::ImageFormat::Png)
 		.map_err(|_| "Could not prepare the icon")?;
-	let uri = discord_protocol::group_actions::icon_data_uri(png.get_ref())
-		.ok_or("Prepared icon exceeds 256 KB; choose a simpler image")?;
+	if png.get_ref().len() > max_output {
+		return Err("Prepared image is too large; choose a simpler image");
+	}
 	let pixels = image.into_rgba8();
 	let preview = egui::ColorImage::from_rgba_unmultiplied(
 		[pixels.width() as usize, pixels.height() as usize],
 		pixels.as_raw(),
 	);
-	Ok((uri, preview))
+	Ok((png.into_inner(), preview))
 }
 
 #[cfg(test)]

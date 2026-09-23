@@ -5,6 +5,7 @@ pub const PAGE_SIZE: usize = 100;
 pub const MAX_BYTES: usize = 1024 * 1024;
 pub const MAX_IMAGE_BYTES: usize = 256 * 1024;
 pub const MAX_IMAGE_URI: usize = 24 + 4 * MAX_IMAGE_BYTES.div_ceil(3);
+pub const MAX_STICKER_FILE_BYTES: usize = 512 * 1024;
 pub const MEMBER_CHANNEL_FEATURE: &str = "ENABLED_MODERATION_EXPERIENCE_FOR_NON_COMMUNITY";
 #[derive(Clone)]
 pub struct Emoji {
@@ -16,6 +17,16 @@ pub struct Emojis {
 	pub items: Vec<Emoji>,
 	pub static_limit: Option<usize>,
 	pub animated_limit: Option<usize>,
+}
+#[derive(Clone)]
+pub struct Sticker {
+	pub sticker: crate::Sticker,
+	pub uploader: Option<User>,
+}
+#[derive(Clone, Default)]
+pub struct Stickers {
+	pub items: Vec<Sticker>,
+	pub limit: Option<usize>,
 }
 #[derive(Clone)]
 pub struct Member {
@@ -83,15 +94,55 @@ pub enum Action {
 	Invites(crate::server_invites::Action),
 	Roles(crate::server_roles::Action),
 	LoadEmojis,
-	CreateEmoji { name: String, image: String },
-	RenameEmoji { id: Id, name: String },
-	DeleteEmoji { id: Id },
+	CreateEmoji {
+		name: String,
+		image: String,
+	},
+	RenameEmoji {
+		id: Id,
+		name: String,
+	},
+	DeleteEmoji {
+		id: Id,
+	},
+	LoadStickers,
+	CreateSticker {
+		name: String,
+		description: String,
+		tags: String,
+		filename: String,
+		content_type: String,
+		file: Vec<u8>,
+	},
+	EditSticker {
+		id: Id,
+		name: String,
+		description: String,
+		tags: String,
+	},
+	DeleteSticker {
+		id: Id,
+	},
 	LoadMembers(Query),
-	SetRole { user: Id, role: Id, assigned: bool },
-	SetNickname { user: Id, nick: String },
-	Kick { user: Id },
-	Prune { days: u8, execute: bool },
-	ShowMembers { enabled: bool },
+	SetRole {
+		user: Id,
+		role: Id,
+		assigned: bool,
+	},
+	SetNickname {
+		user: Id,
+		nick: String,
+	},
+	Kick {
+		user: Id,
+	},
+	Prune {
+		days: u8,
+		execute: bool,
+	},
+	ShowMembers {
+		enabled: bool,
+	},
 }
 impl Action {
 	pub fn write(&self) -> bool {
@@ -108,8 +159,18 @@ impl Action {
 			self,
 			Self::AuditLog(_)
 				| Self::LoadEmojis
+				| Self::LoadStickers
 				| Self::LoadMembers(_)
 				| Self::Prune { execute: false, .. }
+		)
+	}
+	pub fn sticker(&self) -> bool {
+		matches!(
+			self,
+			Self::LoadStickers
+				| Self::CreateSticker { .. }
+				| Self::EditSticker { .. }
+				| Self::DeleteSticker { .. }
 		)
 	}
 	pub fn emoji(&self) -> bool {
@@ -138,6 +199,45 @@ impl Action {
 				id.0 != 0 && name.capacity() <= 128 && valid_emoji_name(name)
 			}
 			Self::DeleteEmoji { id } => id.0 != 0,
+			Self::CreateSticker {
+				name,
+				description,
+				tags,
+				filename,
+				content_type,
+				file,
+			} => {
+				name.capacity() <= 120
+					&& description.capacity() <= 400
+					&& tags.capacity() <= 800
+					&& valid_sticker_fields(name, description, tags)
+					&& filename.capacity() <= 128
+					&& (1..=128).contains(&filename.len())
+					&& filename.bytes().all(|byte| {
+						byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
+					}) && content_type.capacity() <= 32
+					&& matches!(
+						(content_type.as_str(), filename.rsplit('.').next()),
+						("image/png", Some("png"))
+							| ("image/gif", Some("gif"))
+							| ("application/json", Some("json"))
+					) && !file.is_empty()
+					&& file.len() <= MAX_STICKER_FILE_BYTES
+					&& file.capacity() <= MAX_STICKER_FILE_BYTES
+			}
+			Self::EditSticker {
+				id,
+				name,
+				description,
+				tags,
+			} => {
+				id.0 != 0
+					&& name.capacity() <= 120
+					&& description.capacity() <= 400
+					&& tags.capacity() <= 800
+					&& valid_sticker_fields(name, description, tags)
+			}
+			Self::DeleteSticker { id } => id.0 != 0,
 			Self::LoadMembers(query) => query.valid(),
 			Self::SetRole { user, role, .. } => user.0 != 0 && role.0 != 0,
 			Self::SetNickname { user, nick } => {
@@ -159,6 +259,7 @@ pub enum Result {
 	Invites(crate::server_invites::Snapshot),
 	Roles(crate::server_roles::Result),
 	Emojis(Emojis),
+	Stickers(Stickers),
 	Members(Members),
 	Member(Member),
 	Kicked(Id),
@@ -170,6 +271,14 @@ pub fn valid_emoji_name(name: &str) -> bool {
 		&& name
 			.bytes()
 			.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+pub fn valid_sticker_fields(name: &str, description: &str, tags: &str) -> bool {
+	(2..=30).contains(&name.chars().count())
+		&& !name.chars().any(char::is_control)
+		&& (description.is_empty() || (2..=100).contains(&description.chars().count()))
+		&& !description.chars().any(char::is_control)
+		&& (1..=200).contains(&tags.chars().count())
+		&& !tags.chars().any(char::is_control)
 }
 impl Member {
 	pub fn bytes(&self) -> usize {
@@ -215,6 +324,17 @@ impl Result {
 							})
 							.sum::<usize>()
 				}
+				Self::Stickers(page) => {
+					page.items.capacity() * size_of::<Sticker>()
+						+ page
+							.items
+							.iter()
+							.map(|row| {
+								row.sticker.heap_bytes()
+									+ row.uploader.as_ref().map_or(0, User::heap_bytes)
+							})
+							.sum::<usize>()
+				}
 				Self::Members(page) => page.bytes(),
 				Self::Member(member) => member.bytes(),
 				_ => 0,
@@ -237,6 +357,30 @@ impl Result {
 								.sum::<usize>() <= crate::MAX_GUILD_EMOJI_BYTES
 						&& page.items.iter().all(|row| {
 							row.emoji.valid()
+								&& row
+									.uploader
+									.as_ref()
+									.is_none_or(|user| user.id.0 != 0 && user.heap_bytes() <= 1024)
+						})
+				}
+				Self::Stickers(page) => {
+					page.items.len() <= crate::MAX_GUILD_STICKERS
+						&& page
+							.limit
+							.is_none_or(|limit| limit <= crate::MAX_GUILD_STICKERS)
+						&& page
+							.items
+							.iter()
+							.map(|row| row.sticker.heap_bytes() + size_of::<crate::Sticker>())
+							.sum::<usize>() <= crate::MAX_STICKER_BYTES
+						&& page.items.iter().enumerate().all(|(index, row)| {
+							row.sticker.valid()
+								&& row.sticker.guild_id.is_some()
+								&& row.sticker.pack_id.is_none()
+								&& matches!(row.sticker.format_type, 1..=4)
+								&& !page.items[..index]
+									.iter()
+									.any(|other| other.sticker.id == row.sticker.id)
 								&& row
 									.uploader
 									.as_ref()
