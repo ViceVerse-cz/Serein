@@ -54,6 +54,15 @@ pub fn install(ctx: &Context) -> Result<(), image::ImageError> {
 	Ok(())
 }
 
+/// Every bundled Unicode emoji with its Discord-style `:short_code:`, in CLDR palette order.
+/// Plain data, so other frontends can build pickers and autocomplete without egui.
+pub fn unicode() -> impl Iterator<Item = (&'static str, &'static str)> {
+	crate::emoji_picker::standard()
+		.iter()
+		.zip(crate::emoji_picker::shortcodes())
+		.map(|((text, _), code)| (*text, code.as_str()))
+}
+
 pub(crate) fn ready(ctx: &Context) -> bool {
 	ctx.data(|data| {
 		data.get_temp::<TextureHandle>(egui::Id::unique("twemoji"))
@@ -186,6 +195,13 @@ mod tests {
 		] {
 			assert!(custom_prefix(token).is_none(), "{token}");
 		}
+	}
+	#[test]
+	fn unicode_table_pairs_every_emoji_with_a_shortcode() {
+		assert!(unicode().any(|entry| entry == ("👍", ":thumbs_up:")));
+		assert!(unicode().all(|(text, code)| {
+			!text.is_empty() && code.len() > 2 && code.starts_with(':') && code.ends_with(':')
+		}));
 	}
 	#[test]
 	fn direct_decode_preserves_every_premultiplied_pixel() {

@@ -1,13 +1,95 @@
 //! Server rail, channel list with categories and threads, and the account panel.
+use crate::nav_menu::Target;
 use crate::theme::{Icon, color, icon, palette};
 use crate::{Serein, channel_label, text_channel, tooltip};
 use gpui::{prelude::*, *};
 use model::Id;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const RAIL_WIDTH: f32 = 68.;
 pub const LIST_WIDTH: f32 = 240.;
 /// Visible threads per parent channel, as in the main app.
 const THREADS_PER_CHANNEL: usize = 3;
+
+/// Navigation-only view state: the open right-click menu and expanded server folders.
+#[derive(Default)]
+pub struct NavState {
+	pub menu: Option<crate::nav_menu::Menu>,
+	pub expanded: BTreeSet<u64>,
+}
+
+/// One rail button; see [`Serein::rail_tile`].
+pub struct Tile {
+	pub id: ElementId,
+	pub name: SharedString,
+	pub selected: bool,
+	pub unread: bool,
+	/// Mention (or request) count for the red badge; zero hides it.
+	pub badge: u32,
+	pub size: f32,
+	/// Server-style tiles fill with the accent on hover; avatars keep their picture.
+	pub accent_hover: bool,
+	pub menu: Option<Target>,
+}
+
+/// Badge text and pill width, as egui's `notifications::badge`.
+pub fn badge_label(count: u32) -> (String, f32) {
+	if count > 99 {
+		("99+".into(), 30.)
+	} else if count > 9 {
+		(count.to_string(), 24.)
+	} else {
+		(count.to_string(), 19.)
+	}
+}
+
+/// Inline red count pill for list rows and tabs.
+pub fn count_pill(count: u32) -> Div {
+	let p = palette();
+	let (label, width) = badge_label(count);
+	div()
+		.h(px(19.))
+		.w(px(width))
+		.flex_none()
+		.rounded(px(10.))
+		.bg(color(p.danger))
+		.flex()
+		.items_center()
+		.justify_center()
+		.text_size(px(12.))
+		.font_weight(FontWeight::SEMIBOLD)
+		.text_color(white())
+		.child(label)
+}
+
+/// The count pill ringed in the rail colour, centred 8 px in from a tile's bottom-right corner.
+fn rail_badge(count: u32, size: f32, ring: Rgba) -> Div {
+	let (_, width) = badge_label(count);
+	div()
+		.absolute()
+		.left(px(size - 8. - width / 2. - 3.))
+		.top(px(size - 8. - 12.5))
+		.p(px(3.))
+		.rounded(px(12.5))
+		.bg(ring)
+		.child(count_pill(count))
+}
+
+/// Home tile name with pending requests, as egui's `home_request_label`.
+fn home_label(friends: u32, messages: u32) -> String {
+	let mut parts = vec!["Direct Messages".to_owned()];
+	for (count, one, many) in [
+		(friends, "friend request", "friend requests"),
+		(messages, "message request", "message requests"),
+	] {
+		match count {
+			0 => {}
+			1 => parts.push(format!("1 {one}")),
+			n => parts.push(format!("{n} {many}")),
+		}
+	}
+	parts.join(" · ")
+}
 
 pub enum NavRow {
 	Category { id: Id, name: String },
@@ -95,6 +177,17 @@ fn channel_icon(channel: &model::Channel) -> Icon {
 
 impl Serein {
 	pub(crate) fn sync_channels(&mut self) {
+		// Folder settings load once per session and again when Discord reports a change; the
+		// offline preview seeds its own (`--demo-folders`).
+		if !self.state.demo
+			&& self.state.gateway_connected
+			&& !self.state.folders_pending
+			&& (self.state.folders_stale
+				|| (self.state.guild_folders.is_none() && self.state.folders_error.is_none()))
+		{
+			let command = self.state.load_guild_folders();
+			self.dispatch(command);
+		}
 		let state = &self.state;
 		let visible = |c: &&model::Channel| {
 			c.guild == self.guild
@@ -181,59 +274,129 @@ impl Serein {
 		self.nav = rows;
 	}
 
+	/// Per-server rail state in one pass over the channels: lit pill and mention total.
+	fn guild_badges(&self) -> BTreeMap<Id, (bool, u32)> {
+		let mut badges = BTreeMap::<Id, (bool, u32)>::new();
+		for channel in self.state.channels.iter().take(client_core::MAX_NAV) {
+			if let Some(guild) = channel.guild {
+				let entry = badges.entry(guild).or_default();
+				entry.0 |= self.state.lights_guild_rail(channel);
+				entry.1 = entry.1.saturating_add(self.state.mention_count(channel.id));
+			}
+		}
+		badges
+	}
+
+	pub(crate) fn guild_tile(
+		&self,
+		id: Id,
+		badges: &BTreeMap<Id, (bool, u32)>,
+		cx: &mut Context<Self>,
+	) -> AnyElement {
+		let p = palette();
+		let Some(guild) = self.state.guild(id) else {
+			return div().into_any_element();
+		};
+		let (unread, mentions) = badges.get(&id).copied().unwrap_or_default();
+		let label = initials(&guild.name);
+		let size = if label.chars().count() > 1 { 16. } else { 18. };
+		let guild_icon = guild.icon_key().and_then(|key| crate::images::get(&key));
+		self.rail_tile(
+			Tile {
+				id: ("guild", id.0).into(),
+				name: guild.name.clone().into(),
+				selected: self.guild == Some(id),
+				unread,
+				badge: mentions,
+				size: 46.,
+				accent_hover: true,
+				menu: Some(Target::Guild(id)),
+			},
+			move |this, cx| this.select_section(Some(id), cx),
+			move |highlight| {
+				if let Some(image) = &guild_icon {
+					return div().size_full().child(
+						img(image.clone())
+							.size_full()
+							.rounded(px(13.))
+							.object_fit(ObjectFit::Cover),
+					);
+				}
+				div()
+					.size_full()
+					.rounded(px(13.))
+					.bg(color(if highlight { p.accent } else { p.raised }))
+					.flex()
+					.items_center()
+					.justify_center()
+					.text_size(px(size))
+					.font_weight(FontWeight::MEDIUM)
+					.text_color(color(if highlight {
+						p.accent_text
+					} else {
+						p.text_strong
+					}))
+					.child(label.clone())
+			},
+			cx,
+		)
+	}
+
+	/// Unread conversations as 48 px avatars under the home tile, newest first (at most 15).
+	fn rail_directs(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+		let call = self
+			.state
+			.voice
+			.active
+			.as_ref()
+			.filter(|call| call.guild.is_none())
+			.map(|call| call.channel);
+		let mut tiles = Vec::new();
+		for id in self.state.unread_directs(call) {
+			let Some(channel) = self.state.channel(id) else {
+				continue;
+			};
+			let name = channel_label(channel);
+			let user = channel
+				.recipients
+				.first()
+				.filter(|_| channel.recipients.len() == 1)
+				.cloned();
+			let count = self.state.unread_count(id);
+			let unread = self.state.channel_unread(channel) == Some(true) || count > 0;
+			tiles.push(self.rail_tile(
+				Tile {
+					id: ("rail-direct", id.0).into(),
+					name: name.clone().into(),
+					selected: false,
+					unread,
+					badge: count,
+					size: 48.,
+					accent_hover: false,
+					menu: Some(Target::Channel(id)),
+				},
+				move |this, cx| {
+					this.friends.open = false;
+					this.select(id, cx)
+				},
+				move |_| avatar(&name, 48., user.as_ref()),
+				cx,
+			));
+		}
+		tiles
+	}
+
 	fn rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
 		let p = palette();
 		let home = self.guild.is_none();
-		let unread_home = self
-			.state
-			.channels
-			.iter()
-			.any(|c| c.guild.is_none() && self.state.unread_count(c.id) > 0);
-		let mut guilds = Vec::with_capacity(self.state.guilds.len());
-		for guild in &self.state.guilds {
-			let id = guild.id;
-			let selected = self.guild == Some(id);
-			let unread = self
-				.state
-				.channels
-				.iter()
-				.any(|c| c.guild == Some(id) && self.state.unread_count(c.id) > 0);
-			let label = initials(&guild.name);
-			let size = if label.chars().count() > 1 { 16. } else { 18. };
-			let guild_icon = guild.icon_key().and_then(|key| crate::images::get(&key));
-			guilds.push(self.rail_tile(
-				("guild", id.0),
-				guild.name.clone(),
-				selected,
-				unread,
-				move |this, cx| this.select_section(Some(id), cx),
-				move |highlight| {
-					if let Some(image) = &guild_icon {
-						return div().size_full().child(
-							img(image.clone())
-								.size_full()
-								.rounded(px(13.))
-								.object_fit(ObjectFit::Cover),
-						);
-					}
-					div()
-						.size_full()
-						.rounded(px(13.))
-						.bg(color(if highlight { p.accent } else { p.raised }))
-						.flex()
-						.items_center()
-						.justify_center()
-						.text_size(px(size))
-						.font_weight(FontWeight::MEDIUM)
-						.text_color(color(if highlight {
-							p.accent_text
-						} else {
-							p.text_strong
-						}))
-						.child(label.clone())
-				},
-				cx,
-			));
+		let (friend_requests, message_requests) = self.state.home_request_parts();
+		let badges = self.guild_badges();
+		let mut servers = Vec::new();
+		for entry in crate::folders::entries(&self.state, &self.navigation.expanded) {
+			servers.push(match entry {
+				crate::folders::Entry::Server(id) => self.guild_tile(id, &badges, cx),
+				folder => self.folder_entry(&folder, &badges, cx),
+			});
 		}
 		div()
 			.id("rail")
@@ -248,12 +411,18 @@ impl Serein {
 			.items_center()
 			.gap(px(12.))
 			.child(self.rail_tile(
-				"home",
-				"Direct Messages",
-				home,
-				unread_home,
+				Tile {
+					id: "home".into(),
+					name: home_label(friend_requests, message_requests).into(),
+					selected: home,
+					unread: false,
+					badge: friend_requests.saturating_add(message_requests),
+					size: 46.,
+					accent_hover: true,
+					menu: None,
+				},
 				|this, cx| this.select_section(None, cx),
-				|highlight| {
+				move |highlight| {
 					div()
 						.size_full()
 						.rounded(px(13.))
@@ -273,6 +442,7 @@ impl Serein {
 				},
 				cx,
 			))
+			.children(self.rail_directs(cx))
 			.child(
 				div()
 					.w(px(32.))
@@ -281,80 +451,100 @@ impl Serein {
 					.rounded(px(1.))
 					.bg(color(p.raised)),
 			)
-			.children(guilds)
+			.children(servers)
 	}
 
-	#[allow(clippy::too_many_arguments)]
-	fn rail_tile(
+	/// A rail button with the edge pill (tall when selected, medium on hover, a dot for unread),
+	/// an optional mention badge bottom-right and an optional right-click menu.
+	pub(crate) fn rail_tile(
 		&self,
-		id: impl Into<ElementId>,
-		name: impl Into<SharedString>,
-		selected: bool,
-		unread: bool,
+		tile: Tile,
 		on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
-		tile: impl Fn(bool) -> Div,
+		content: impl Fn(bool) -> Div,
 		cx: &mut Context<Self>,
 	) -> AnyElement {
 		let p = palette();
-		let id = id.into();
-		let name: SharedString = name.into();
+		let Tile {
+			id,
+			name,
+			selected,
+			unread,
+			badge,
+			size,
+			accent_hover,
+			menu,
+		} = tile;
 		let group: SharedString = format!("rail-{id}").into();
+		let middle = size / 2.;
+		let (pill, hover) = (
+			if selected {
+				40.
+			} else if unread {
+				8.
+			} else {
+				0.
+			},
+			20.,
+		);
+		let radius = if accent_hover { 13. } else { middle };
 		div()
 			.relative()
 			.w_full()
 			.flex()
 			.justify_center()
 			.group(group.clone())
-			// White pill left of the tile: tall when selected, medium on hover, a dot for unread.
 			.child(
 				div()
 					.absolute()
 					.left(px(-4.))
-					.top(px(23.
-						- if selected {
-							20.
-						} else if unread {
-							4.
-						} else {
-							0.
-						}))
+					.top(px(middle - pill / 2.))
 					.w(px(8.))
-					.h(px(if selected {
-						40.
-					} else if unread {
-						8.
-					} else {
-						0.
-					}))
+					.h(px(pill))
 					.rounded(px(4.))
 					.bg(color(p.text_strong))
 					.when(!selected, |d| {
-						d.group_hover(group.clone(), |d| d.h(px(20.)).top(px(13.)))
+						d.group_hover(group.clone(), |d| {
+							d.h(px(hover)).top(px(middle - hover / 2.))
+						})
 					}),
 			)
 			.child(
 				div()
 					.id(id)
+					.relative()
 					.focusable()
 					.tab_stop(true)
-					.size(px(46.))
+					.size(px(size))
 					.flex_none()
 					.cursor_pointer()
-					.rounded(px(13.))
+					.rounded(px(radius))
 					.focus(|d| d.border_2().border_color(color(p.text_strong)))
 					.tooltip(tooltip(name))
 					.on_click(cx.listener(move |this, _, _, cx| on_click(this, cx)))
+					.when_some(menu, |d, target| {
+						d.on_mouse_down(
+							MouseButton::Right,
+							cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+								this.open_nav_menu(target, event.position, window, cx);
+								cx.stop_propagation();
+							}),
+						)
+					})
 					.child(
 						div()
 							.size_full()
-							.when(!selected, |d| {
+							.when(!selected && accent_hover, |d| {
 								d.child(
-									tile(false)
+									content(false)
 										.group_hover(group.clone(), |d| d.bg(color(p.accent))),
 								)
 							})
-							.when(selected, |d| d.child(tile(true))),
-					),
+							.when(!selected && !accent_hover, |d| d.child(content(false)))
+							.when(selected, |d| d.child(content(true))),
+					)
+					.when(badge > 0, |d| {
+						d.child(rail_badge(badge, size, color(p.base)))
+					}),
 			)
 			.into_any_element()
 	}
@@ -413,6 +603,7 @@ impl Serein {
 					.pb_2()
 					.flex()
 					.flex_col()
+					.when(self.guild.is_none(), |d| d.child(self.friends_row(cx)))
 					.when(self.nav.is_empty(), |d| {
 						d.child(div().p_2().text_sm().text_color(color(p.muted)).child(
 							if self.guild.is_some() {
@@ -514,8 +705,18 @@ impl Serein {
 					.focusable()
 					.tab_stop(true)
 					.focus(|d| d.bg(color(p.hover)))
-					.on_click(cx.listener(move |this, _, _, cx| this.select(id, cx)))
+					.on_click(cx.listener(move |this, _, _, cx| {
+						this.friends.open = false;
+						this.select(id, cx)
+					}))
 			})
+			.on_mouse_down(
+				MouseButton::Right,
+				cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+					this.open_nav_menu(Target::Channel(id), event.position, window, cx);
+					cx.stop_propagation();
+				}),
+			)
 			.when(!openable, |d| {
 				d.tooltip(tooltip(if matches!(channel.kind, 15 | 16) {
 					"Forum posts open in the main Serein app"
@@ -593,29 +794,58 @@ impl Serein {
 						.child(name),
 				)
 		};
-		row.when(mentions > 0, |d| {
-			let label = if mentions > 99 {
-				"99+".to_owned()
-			} else {
-				mentions.to_string()
-			};
-			d.child(
+		row.when(mentions > 0, |d| d.child(count_pill(mentions)))
+			.into_any_element()
+	}
+
+	/// "Friends" above the direct messages; opens the Friends page in the main area.
+	fn friends_row(&self, cx: &mut Context<Self>) -> AnyElement {
+		let p = palette();
+		let selected = self.friends_visible();
+		let requests = self
+			.state
+			.pending_friends()
+			.filter(|(_, _, incoming)| *incoming)
+			.count();
+		let text = color(if selected { p.text_strong } else { p.muted });
+		div()
+			.id("friends-row")
+			.flex_none()
+			.h(px(44.))
+			.mb(px(4.))
+			.px_2()
+			.rounded(px(8.))
+			.flex()
+			.items_center()
+			.gap(px(12.))
+			.cursor_pointer()
+			.focusable()
+			.tab_stop(true)
+			.text_color(text)
+			.when(selected, |d| d.bg(color(p.selected)))
+			.when(!selected, |d| {
+				d.hover(|d| d.bg(color(p.hover)).text_color(color(p.text_strong)))
+			})
+			.focus(|d| d.bg(color(p.hover)))
+			.on_click(cx.listener(|this, _, _, cx| this.open_friends(cx)))
+			.child(
 				div()
-					.h(px(19.))
-					.min_w(px(19.))
-					.px(px(5.))
-					.rounded(px(10.))
-					.bg(color(p.danger))
+					.size(px(32.))
+					.flex_none()
 					.flex()
 					.items_center()
 					.justify_center()
-					.text_size(px(12.))
-					.font_weight(FontWeight::SEMIBOLD)
-					.text_color(white())
-					.child(label),
+					.child(icon(Icon::Users, px(24.), text)),
 			)
-		})
-		.into_any_element()
+			.child(
+				div()
+					.flex_1()
+					.text_size(px(15.))
+					.font_weight(FontWeight::MEDIUM)
+					.child("Friends"),
+			)
+			.when(requests > 0, |d| d.child(count_pill(requests as u32)))
+			.into_any_element()
 	}
 
 	fn user_panel(&self) -> impl IntoElement {
@@ -700,5 +930,29 @@ impl Serein {
 					.child(self.channel_list(cx)),
 			)
 			.child(self.user_panel())
+			.children(self.render_nav_menu(cx))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{badge_label, home_label};
+
+	#[test]
+	fn badges_widen_with_digits_and_cap_at_99() {
+		assert_eq!(badge_label(1), ("1".into(), 19.));
+		assert_eq!(badge_label(42), ("42".into(), 24.));
+		assert_eq!(badge_label(99), ("99".into(), 24.));
+		assert_eq!(badge_label(100), ("99+".into(), 30.));
+		assert_eq!(badge_label(u32::MAX).0, "99+");
+	}
+
+	#[test]
+	fn home_label_lists_pending_requests() {
+		assert_eq!(home_label(0, 0), "Direct Messages");
+		assert_eq!(
+			home_label(2, 1),
+			"Direct Messages · 2 friend requests · 1 message request"
+		);
 	}
 }

@@ -2,10 +2,16 @@
 mod autocomplete;
 mod backend;
 mod chat;
+mod components;
+mod emoji;
+mod folders;
+mod friends;
 mod images;
 mod input;
 mod members;
+mod nav_menu;
 mod profile;
+mod search;
 mod settings;
 mod sidebar;
 mod signin;
@@ -82,6 +88,7 @@ pub(crate) struct Serein {
 	backend: backend::Backend,
 	guild: Option<Id>,
 	composer: Entity<input::Input>,
+	search_input: Entity<input::Input>,
 	rows: Vec<Id>,
 	nav: Vec<sidebar::NavRow>,
 	collapsed: BTreeSet<Id>,
@@ -89,10 +96,17 @@ pub(crate) struct Serein {
 	member_rows: Vec<members::MemberRow>,
 	member_key: Option<members::MembersKey>,
 	messages: ListState,
+	/// Lowest timeline row laid out in the previous frame, for the unread banner.
+	first_rendered: std::cell::Cell<usize>,
 	format: ui::FormatCache,
 	hovered: Option<Id>,
 	profile: Option<profile::Card>,
 	picker: Option<autocomplete::Picker>,
+	/// Emoji popover for the composer or a message reaction.
+	emoji_picker: Option<emoji::Picker>,
+	emoji_closed_at: Option<Instant>,
+	/// Open string select: message and component `custom_id`.
+	open_select: Option<(Id, String)>,
 	/// Inline editor for one of your messages.
 	editing: Option<(Id, Entity<input::Input>)>,
 	/// Messages whose spoilers were revealed by a click; cleared on channel change.
@@ -109,6 +123,10 @@ pub(crate) struct Serein {
 	authorized: bool,
 	/// Gear button and appearance popover in the user panel.
 	settings: Entity<settings::Menu>,
+	/// Friends page on the home view, shown instead of the chat.
+	friends: friends::Page,
+	/// Rail/channel right-click menu and expanded server folders.
+	navigation: sidebar::NavState,
 	#[cfg(not(target_os = "linux"))]
 	login: Option<platform::LoginView>,
 }
@@ -116,6 +134,16 @@ pub(crate) struct Serein {
 impl Serein {
 	fn new(demo: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
 		let composer = cx.new(input::Input::new);
+		let search_input = cx.new(input::Input::new);
+		search_input.update(cx, |input, cx| input.set_placeholder("Search".into(), cx));
+		cx.subscribe(&search_input, |this, _, _: &input::Submit, cx| {
+			this.run_search(cx)
+		})
+		.detach();
+		cx.subscribe(&search_input, |this, _, event: &input::Event, cx| {
+			this.search_input_event(event, cx)
+		})
+		.detach();
 		let settings = cx.new(|cx| settings::Menu::new(demo, window, cx));
 		cx.subscribe(&composer, |this, _, _: &input::Submit, cx| this.send(cx))
 			.detach();
@@ -172,7 +200,7 @@ impl Serein {
 			.selected
 			.and_then(|id| state.channel(id))
 			.and_then(|c| c.guild);
-		let messages = ListState::new(rows.len(), ListAlignment::Bottom, px(600.));
+		let messages = ListState::new(rows.len(), ListAlignment::Bottom, px(120.));
 		let view = cx.entity().downgrade();
 		messages.set_scroll_handler(move |event, _, cx| {
 			// The list is borrowed while this runs; request older pages after it returns.
@@ -185,10 +213,12 @@ impl Serein {
 		});
 		let mut this = Self {
 			messages,
+			first_rendered: std::cell::Cell::new(usize::MAX),
 			state,
 			backend: backend::Backend::start(demo),
 			guild,
 			composer,
+			search_input,
 			rows,
 			nav: Vec::new(),
 			collapsed: BTreeSet::new(),
@@ -200,6 +230,9 @@ impl Serein {
 			editing: None,
 			profile: None,
 			picker: None,
+			emoji_picker: None,
+			emoji_closed_at: None,
+			open_select: None,
 			revealed: BTreeSet::new(),
 			boundary: None,
 			notice: None,
@@ -213,6 +246,8 @@ impl Serein {
 			backend_status: "",
 			authorized: false,
 			settings,
+			friends: friends::Page::default(),
+			navigation: sidebar::NavState::default(),
 			#[cfg(not(target_os = "linux"))]
 			login: None,
 		};
@@ -227,7 +262,8 @@ impl Serein {
 	}
 
 	/// Offline screenshot states: `--demo-channel=ID`, `--demo-dm`, `--demo-reply`,
-	/// `--demo-hover`, `--demo-own-hover`, `--demo-edit`, `--demo-profile`, `--demo-mention`, `--demo-typing` and `--demo-sign-in`. Synthetic fixtures only.
+	/// `--demo-hover`, `--demo-own-hover`, `--demo-edit`, `--demo-profile`, `--demo-mention`, `--demo-emoji-picker`,
+	/// `--demo-emoji-react`, `--demo-emoji-suggest`, `--demo-typing` and `--demo-sign-in`. Synthetic fixtures only.
 	fn apply_demo_flags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
 		let args = std::env::args().collect::<Vec<_>>();
 		let flag = |name: &str| args.iter().any(|arg| arg == name);
@@ -294,10 +330,173 @@ impl Serein {
 			let (author, roles) = (message.author.clone(), message.author_roles.clone());
 			self.open_profile(author, guild, roles, point(px(560.), px(260.)), cx);
 		}
+		if flag("--demo-emoji-suggest") {
+			self.composer
+				.update(cx, |input, cx| input.set_value("Nice :th".into(), cx));
+			self.update_picker(cx);
+		}
+		let viewport = window.viewport_size();
+		if flag("--demo-emoji-picker") {
+			let position = point(viewport.width - px(64.), viewport.height - px(64.));
+			self.open_emoji_picker(emoji::Target::Composer, position, window, cx);
+		}
+		if flag("--demo-emoji-react")
+			&& let Some(&id) = self.rows.iter().rev().nth(1)
+		{
+			self.hovered = Some(id);
+			let position = point(viewport.width - px(280.), viewport.height - px(320.));
+			self.open_emoji_picker(emoji::Target::React(id), position, window, cx);
+		}
 		if flag("--demo-mention") {
 			self.composer
 				.update(cx, |input, cx| input.set_value("Thanks @".into(), cx));
 			self.update_picker(cx);
+		}
+		if let Some(query) = args
+			.iter()
+			.find_map(|arg| arg.strip_prefix("--demo-search="))
+		{
+			let query = query.to_owned();
+			self.search_input
+				.update(cx, |input, cx| input.set_value(query, cx));
+			self.run_search(cx);
+		}
+		if flag("--demo-pins") {
+			self.toggle_pins(cx);
+		}
+		if flag("--demo-components")
+			&& let Some(channel) = self.state.selected
+		{
+			let button = |id: u32, style: u8, label: &str| model::Component {
+				kind: 2,
+				id,
+				style: Some(style),
+				label: Some(label.into()),
+				custom_id: (style != 5).then(|| format!("button-{id}")),
+				url: (style == 5).then(|| "https://example.com".into()),
+				..Default::default()
+			};
+			let mut message = test_support::message(9000, channel);
+			message.author.name = "Synthetic support".into();
+			message.author.kind = model::AccountKind::Bot;
+			message.content = "Component preview — all interactions stay offline.".into();
+			message.components = vec![
+				model::Component {
+					kind: 17,
+					id: 1,
+					accent_color: Some(0x1a72e8),
+					components: vec![
+						model::Component {
+							kind: 10,
+							id: 2,
+							content: Some("## Support\nChoose a **topic** below.".into()),
+							..Default::default()
+						},
+						model::Component {
+							kind: 14,
+							id: 3,
+							divider: Some(true),
+							..Default::default()
+						},
+						model::Component {
+							kind: 1,
+							id: 4,
+							components: vec![model::Component {
+								kind: 3,
+								id: 5,
+								custom_id: Some("topic".into()),
+								placeholder: Some("Choose a support topic".into()),
+								options: vec![
+									model::ComponentOption {
+										label: "Support".into(),
+										value: "support".into(),
+										description: Some("General questions".into()),
+										..Default::default()
+									},
+									model::ComponentOption {
+										label: "Billing".into(),
+										value: "billing".into(),
+										description: Some("Purchases and invoices".into()),
+										..Default::default()
+									},
+								],
+								..Default::default()
+							}],
+							..Default::default()
+						},
+					],
+					..Default::default()
+				},
+				model::Component {
+					kind: 1,
+					id: 6,
+					components: vec![
+						button(7, 1, "Open form"),
+						button(8, 2, "Later"),
+						button(9, 4, "Close ticket"),
+						button(10, 5, "Documentation"),
+					],
+					..Default::default()
+				},
+			];
+			let _ = self.state.timeline.insert(message, false, false);
+			self.open_select = Some((Id(9000), "topic".into()));
+			self.sync_rows();
+		}
+		// Navigation: `--demo-rail` (mentions and unread DMs, as `notification_demo_state`),
+		// `--demo-folders`/`--demo-folder-open`, `--demo-friends[-all|-pending]`,
+		// `--demo-channel-menu` and `--demo-server-menu`.
+		if flag("--demo-rail")
+			&& let Some(me) = self.state.user.clone()
+		{
+			for (id, channel) in [(1001, Id(22)), (1003, Id(22)), (1005, Id(21))] {
+				let mut message = test_support::message(id, channel);
+				message.mentions = vec![me.clone()];
+				self.state.apply(Envelope {
+					generation: self.state.generation,
+					event: Event::Message(message),
+				});
+			}
+		}
+		if flag("--demo-folders") || flag("--demo-folder-open") {
+			test_support::seed_demo_folder_mosaic(&mut self.state);
+			if flag("--demo-folder-open") {
+				self.navigation.expanded.insert(1);
+			}
+		}
+		for (name, tab) in [
+			("--demo-friends", friends::Tab::Online),
+			("--demo-friends-all", friends::Tab::All),
+			("--demo-friends-pending", friends::Tab::Pending),
+		] {
+			if flag(name) {
+				// The same synthetic friend presences as `test_support::friends_demo_state`.
+				self.state.apply(Envelope {
+					generation: self.state.generation,
+					event: Event::DirectPresence(
+						(0..16)
+							.map(|i| client_core::presence::Update {
+								user: Id(1001 + i),
+								status: model::Patch::Value(
+									if i < 7 { "online" } else { "offline" }.into(),
+								),
+								custom_status: model::Patch::Null,
+								activities: model::Patch::Value(Vec::new()),
+							})
+							.collect(),
+					),
+				});
+				self.friends.tab = tab;
+				self.open_friends(cx);
+			}
+		}
+		if flag("--demo-channel-menu") {
+			let target = nav_menu::Target::Channel(self.state.selected.unwrap_or(Id(21)));
+			self.open_nav_menu(target, point(px(230.), px(150.)), window, cx);
+		}
+		if flag("--demo-server-menu") {
+			let target = nav_menu::Target::Guild(Id(10));
+			self.open_nav_menu(target, point(px(44.), px(130.)), window, cx);
 		}
 		if flag("--demo-sign-in") {
 			self.state = State::default();
@@ -520,7 +719,15 @@ impl Serein {
 			return;
 		};
 		if self.state.demo {
+			if let Some(event) = self.demo_search(&command) {
+				self.state.apply(Envelope {
+					generation: self.state.generation,
+					event,
+				});
+				return;
+			}
 			let event = match command {
+				Command::CancelSearch => return,
 				Command::History {
 					channel,
 					request,
@@ -605,6 +812,31 @@ impl Serein {
 					request,
 					..
 				} => Event::Members(test_support::demo_members(guild, channel, request)),
+				Command::MarkRead {
+					channel,
+					message,
+					request,
+					..
+				} => Event::ReadState(client_core::read_state::Event::Result {
+					channel,
+					message,
+					request,
+					result: Ok(()),
+				}),
+				Command::MarkGuildRead { guild, request } => {
+					Event::ReadState(client_core::read_state::Event::GuildAck {
+						guild,
+						request,
+						result: Ok(()),
+					})
+				}
+				Command::UserAction {
+					action, request, ..
+				} => Event::UserAction(client_core::user_actions::Event::Written {
+					action,
+					request,
+					result: Ok(()),
+				}),
 				_ => {
 					self.state.command_rejected(command);
 					return;
@@ -671,6 +903,7 @@ impl Serein {
 			self.editing = None;
 			self.profile = None;
 			self.picker = None;
+			self.emoji_picker = None;
 		}
 		cx.notify();
 	}
@@ -1027,8 +1260,18 @@ impl Render for Serein {
 					.min_h_0()
 					.flex()
 					.child(self.render_navigation(cx))
-					.child(self.render_chat(cx))
-					.when(members, |d| d.child(self.render_members(cx)))
+					.map(|d| {
+						if self.friends_visible() {
+							d.child(self.render_friends(cx))
+						} else {
+							d.child(self.render_chat(cx))
+						}
+					})
+					.when(self.search_open(), |d| d.child(self.render_search(cx)))
+					.when(
+						members && !self.search_open() && !self.friends_visible(),
+						|d| d.child(self.render_members(cx)),
+					)
 					.into_any_element()
 			}
 		};
@@ -1059,6 +1302,7 @@ impl Render for Serein {
 			.child(body)
 			.children(self.notice_layer(cx))
 			.children(self.render_profile(cx))
+			.children(self.render_emoji_picker(cx))
 	}
 }
 

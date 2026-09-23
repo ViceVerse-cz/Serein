@@ -1,4 +1,4 @@
-//! `@person` and `#channel` suggestions for the composer, from data already in memory.
+//! `@person`, `#channel` and `:emoji` suggestions for the composer, from data already in memory.
 use crate::sidebar::avatar;
 use crate::theme::{Icon, color, icon, palette};
 use crate::{Serein, channel_label, input, text_channel};
@@ -12,6 +12,7 @@ const MAX_ITEMS: usize = 8;
 pub enum Kind {
 	Person,
 	Channel,
+	Emoji,
 }
 
 pub struct Item {
@@ -20,18 +21,21 @@ pub struct Item {
 	/// Wire text that replaces the typed token.
 	pub insert: String,
 	pub user: Option<model::User>,
+	/// Unicode emoji shown in place of an avatar or icon.
+	pub glyph: Option<&'static str>,
 }
 
 pub struct Picker {
 	pub kind: Kind,
-	/// Byte offset of the `@`/`#` trigger in the composer text.
+	/// Byte offset of the `@`/`#`/`:` trigger in the composer text.
 	pub start: usize,
 	pub end: usize,
 	pub items: Vec<Item>,
 	pub selected: usize,
 }
 
-/// The trigger token ending at `cursor`: `@name` or `#channel` after whitespace or at the start.
+/// The trigger token ending at `cursor`: `@name`, `#channel` or `:emoji` (two or more name
+/// characters) after whitespace or at the start.
 pub fn token(text: &str, cursor: usize) -> Option<(Kind, usize, &str)> {
 	let before = text.get(..cursor)?;
 	let start = before
@@ -43,9 +47,18 @@ pub fn token(text: &str, cursor: usize) -> Option<(Kind, usize, &str)> {
 	let kind = match word.chars().next()? {
 		'@' => Kind::Person,
 		'#' => Kind::Channel,
+		':' => Kind::Emoji,
 		_ => return None,
 	};
 	let query = &word[1..];
+	if kind == Kind::Emoji
+		&& (query.chars().count() < 2
+			|| !query
+				.chars()
+				.all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '+')))
+	{
+		return None;
+	}
 	(query.chars().count() <= MAX_QUERY).then_some((kind, start, query))
 }
 
@@ -102,6 +115,7 @@ pub fn items(state: &State, kind: Kind, query: &str) -> Vec<Item> {
 						label: display,
 						insert: format!("<@{}>", user.id),
 						user: Some(user),
+						glyph: None,
 					},
 				));
 			}
@@ -123,11 +137,13 @@ pub fn items(state: &State, kind: Kind, query: &str) -> Vec<Item> {
 							detail: None,
 							insert: format!("<#{}>", channel.id),
 							user: None,
+							glyph: None,
 						},
 					));
 				}
 			}
 		}
+		Kind::Emoji => return emoji_items(state, &query),
 	}
 	ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.label.cmp(&b.1.label)));
 	ranked
@@ -135,6 +151,78 @@ pub fn items(state: &State, kind: Kind, query: &str) -> Vec<Item> {
 		.take(MAX_ITEMS)
 		.map(|(_, item)| item)
 		.collect()
+}
+
+/// Prefix hits first, then word starts, then substrings; `code` is already lowercase.
+pub(crate) fn emoji_rank(code: &str, query: &str) -> Option<u8> {
+	if code.starts_with(query) {
+		Some(0)
+	} else if code
+		.match_indices(query)
+		.any(|(index, _)| code[..index].ends_with('_'))
+	{
+		Some(1)
+	} else if code.contains(query) {
+		Some(2)
+	} else {
+		None
+	}
+}
+
+/// The current server's usable custom emoji first, then bundled Unicode emoji; skin-tone
+/// variants rank after base emoji. Only the best `MAX_ITEMS` are kept while scanning.
+fn emoji_items(state: &State, query: &str) -> Vec<Item> {
+	type Key = (u8, bool, u8, usize);
+	fn push(best: &mut Vec<(Key, Item)>, key: Key, item: impl FnOnce() -> Item) {
+		let index = best.partition_point(|(other, _)| *other <= key);
+		if index < MAX_ITEMS {
+			best.insert(index, (key, item()));
+			best.truncate(MAX_ITEMS);
+		}
+	}
+	let mut best = Vec::with_capacity(MAX_ITEMS + 1);
+	let channel = state.selected.and_then(|id| state.channel(id));
+	if let Some(channel) = channel
+		&& let Some(guild) = channel.guild.and_then(|id| state.guild(id))
+	{
+		for (index, emoji) in guild.emojis.iter().flatten().enumerate() {
+			if state
+				.custom_emoji_unavailable_reason(channel.id, guild.id, emoji)
+				.is_none() && let Some(score) = rank(&emoji.name, query)
+			{
+				push(&mut best, (score, false, 0, index), || Item {
+					label: format!(":{}:", emoji.name),
+					detail: Some(guild.name.clone()),
+					insert: custom_markup(emoji),
+					user: None,
+					glyph: None,
+				});
+			}
+		}
+	}
+	for (index, (text, code)) in ui::emoji::unicode().enumerate() {
+		let name = &code[1..code.len() - 1];
+		if let Some(score) = emoji_rank(name, query) {
+			push(
+				&mut best,
+				(score, name.contains("skin_tone"), 1, index),
+				|| Item {
+					label: code.to_owned(),
+					detail: None,
+					insert: text.to_owned(),
+					user: None,
+					glyph: Some(text),
+				},
+			);
+		}
+	}
+	best.into_iter().map(|(_, item)| item).collect()
+}
+
+/// Wire form of a server emoji: `<:name:id>`, or `<a:name:id>` when animated.
+pub fn custom_markup(emoji: &model::CustomEmoji) -> String {
+	let prefix = if emoji.animated { "a" } else { "" };
+	format!("<{prefix}:{}:{}>", emoji.name, emoji.id)
 }
 
 impl Serein {
@@ -227,6 +315,7 @@ impl Serein {
 						.child(match picker.kind {
 							Kind::Person => "MEMBERS",
 							Kind::Channel => "TEXT CHANNELS",
+							Kind::Emoji => "EMOJI MATCHING",
 						}),
 				)
 				.children(picker.items.iter().enumerate().map(|(index, item)| {
@@ -243,9 +332,27 @@ impl Serein {
 						.when(selected, |d| d.bg(color(p.selected)))
 						.hover(|d| d.bg(color(p.hover)))
 						.on_click(cx.listener(move |this, _, _, cx| this.accept_pick(index, cx)))
-						.child(match &item.user {
-							Some(user) => avatar(&item.label, 24., Some(user)).into_any_element(),
-							None => icon(Icon::Hash, px(20.), color(p.muted)).into_any_element(),
+						.child(match (&item.user, item.glyph) {
+							(Some(user), _) => {
+								avatar(&item.label, 24., Some(user)).into_any_element()
+							}
+							(None, Some(glyph)) => div()
+								.w(px(24.))
+								.flex()
+								.justify_center()
+								.text_size(px(20.))
+								.child(glyph)
+								.into_any_element(),
+							(None, None) => icon(
+								if picker.kind == Kind::Emoji {
+									Icon::Smiley
+								} else {
+									Icon::Hash
+								},
+								px(20.),
+								color(p.muted),
+							)
+							.into_any_element(),
 						})
 						.child(
 							div()
@@ -276,6 +383,40 @@ mod tests {
 		assert_eq!(token("mail@rob", 8), None);
 		assert_eq!(token("hi @rob there", 13), None);
 		assert_eq!(token(&format!("@{}", "a".repeat(33)), 34), None);
+	}
+
+	#[test]
+	fn emoji_tokens_need_two_name_characters() {
+		assert_eq!(token("nice :th", 8), Some((Kind::Emoji, 5, "th")));
+		assert_eq!(token(":+1", 3), Some((Kind::Emoji, 0, "+1")));
+		assert_eq!(token("nice :t", 7), None);
+		assert_eq!(token("at 10:30", 8), None);
+		assert_eq!(token(":smile:", 7), None);
+		assert_eq!(token(":a b", 4), None);
+	}
+
+	#[test]
+	fn emoji_suggestions_rank_prefixes_and_include_server_emoji() {
+		let state = test_support::chat_demo_state();
+		let thumbs = items(&state, Kind::Emoji, "thumbs");
+		assert_eq!(thumbs.len(), super::MAX_ITEMS);
+		assert_eq!(thumbs[0].insert, "👍");
+		assert_eq!(thumbs[0].label, ":thumbs_up:");
+		// Base emoji come before skin-tone variants.
+		assert_eq!(thumbs[1].insert, "👎");
+		assert!(thumbs.iter().all(|item| item.label.starts_with(":thumbs")));
+		let joy = items(&state, Kind::Emoji, "joy");
+		assert!(joy.iter().any(|item| item.insert == "😂"));
+		let server = items(&state, Kind::Emoji, "serein");
+		let inserts = server
+			.iter()
+			.map(|item| item.insert.as_str())
+			.collect::<Vec<_>>();
+		assert_eq!(
+			inserts[..2],
+			["<:serein_wave:9001>", "<a:serein_party:9002>"]
+		);
+		assert!(items(&state, Kind::Emoji, "zzzzqq").is_empty());
 	}
 
 	#[test]

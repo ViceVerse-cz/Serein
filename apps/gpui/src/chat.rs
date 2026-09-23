@@ -29,6 +29,20 @@ fn clock(id: Id) -> String {
 		format!("{:02}:{:02}", at.hour(), at.minute())
 	})
 }
+/// "Sep 10, 2026 14:03" for search results.
+pub(crate) fn short_date(id: Id) -> String {
+	created(id).map_or_else(String::new, |at| {
+		let month = format!("{}", at.month());
+		format!(
+			"{} {}, {} {:02}:{:02}",
+			&month[..3.min(month.len())],
+			at.day(),
+			at.year(),
+			at.hour(),
+			at.minute()
+		)
+	})
+}
 fn date_label(at: time::OffsetDateTime) -> String {
 	format!("{} {}, {}", at.month(), at.day(), at.year())
 }
@@ -81,6 +95,7 @@ struct Markdown<'a> {
 	message: &'a Message,
 	revealed: bool,
 	id: Id,
+	part: u16,
 	output: Vec<AnyElement>,
 	current: Paragraph,
 	blocks_done: usize,
@@ -119,7 +134,7 @@ impl Markdown<'_> {
 		let message = self.id;
 		let view = view.downgrade();
 		let text = InteractiveText::new(
-			ElementId::NamedInteger(format!("body-{index}").into(), message.0),
+			ElementId::NamedInteger(format!("body-{}-{index}", self.part).into(), message.0),
 			styled,
 		)
 		.on_click(ranges, move |ix, window, cx| {
@@ -434,6 +449,32 @@ fn code_run(start: usize, end: usize, tone: egui::Color32, italic: bool) -> Text
 	}
 }
 
+/// A cached embed image or thumbnail, sized from its metadata; nothing until it has loaded
+/// or when images are off (demo).
+fn embed_media(media: &model::EmbedMedia, bounds: (u32, u32)) -> Option<AnyElement> {
+	if !crate::images::enabled() {
+		return None;
+	}
+	let key = crate::images::media_key(media)?;
+	let image = crate::images::get(&key);
+	let (width, height) = crate::images::fit(media.width, media.height, bounds);
+	Some(
+		div()
+			.mt_1()
+			.w(px(width as f32))
+			.h(px(height as f32))
+			.rounded(px(4.))
+			.overflow_hidden()
+			.bg(color(palette().chat))
+			.children(image.map(|image| img(image).size_full().object_fit(ObjectFit::Contain)))
+			.into_any_element(),
+	)
+}
+
+pub(crate) fn confirm_open_link(url: String, window: &mut Window, cx: &mut App) {
+	confirm_open(url, window, cx)
+}
+
 fn confirm_open(url: String, window: &mut Window, cx: &mut App) {
 	let answer = window.prompt(
 		PromptLevel::Info,
@@ -452,17 +493,29 @@ fn confirm_open(url: String, window: &mut Window, cx: &mut App) {
 
 impl Serein {
 	fn body(&mut self, message: &Message, cx: &mut Context<Self>) -> Vec<AnyElement> {
-		let source = message.display_text();
+		let source = message.display_text().into_owned();
+		self.markdown(message, 0, &source, cx)
+	}
+
+	/// Markdown for one part of a message: 0 is the body, later parts are component texts.
+	pub(crate) fn markdown(
+		&mut self,
+		message: &Message,
+		part: u16,
+		source: &str,
+		cx: &mut Context<Self>,
+	) -> Vec<AnyElement> {
 		if source.trim().is_empty() {
 			return Vec::new();
 		}
 		let view = cx.entity();
-		let formatted = self.format.get(message.id, &source);
+		let formatted = self.format.get_part(message.id, part, source);
 		let mut markdown = Markdown {
 			state: &self.state,
 			message,
 			revealed: self.revealed.contains(&message.id),
 			id: message.id,
+			part,
 			output: Vec::new(),
 			current: Paragraph::default(),
 			blocks_done: 0,
@@ -474,9 +527,10 @@ impl Serein {
 					markdown.blocks_done = block + 1;
 					if let Some((tag, code)) = formatted.code_block(block) {
 						let tokens = formatted.code_tokens(block);
+						let index = usize::from(part) * 64 + block;
 						markdown
 							.output
-							.push(code_block(tag, code, tokens, message.id, block, cx));
+							.push(code_block(tag, code, tokens, message.id, index, cx));
 					}
 				}
 				continue;
@@ -509,9 +563,14 @@ impl Serein {
 			.child(div().flex_1().h(px(1.)).bg(line))
 	}
 
-	fn reply_line(&mut self, message: &Message) -> Option<impl IntoElement> {
+	fn reply_line(
+		&mut self,
+		message: &Message,
+		cx: &mut Context<Self>,
+	) -> Option<impl IntoElement> {
 		let p = palette();
 		let reply = message.reply_to?;
+		let openable = self.state.can_open_reply_target(reply);
 		let original = self.state.timeline.get(reply);
 		let connector = div().w(px(50.)).h(px(18.)).flex_none().relative().child(
 			div()
@@ -573,15 +632,32 @@ impl Serein {
 		};
 		Some(
 			div()
+				.id(("reply-line", message.id.0))
 				.h(px(18.))
 				.mb(px(4.))
 				.flex()
 				.items_center()
 				.gap(px(6.))
 				.overflow_hidden()
+				.when(openable, |d| {
+					d.cursor_pointer()
+						.hover(|d| d.opacity(0.8))
+						.on_click(cx.listener(move |this, _, _, cx| this.open_reply(reply, cx)))
+				})
 				.child(connector)
 				.child(content),
 		)
+	}
+
+	/// Loads or scrolls to the replied-to message without sending anything.
+	fn open_reply(&mut self, target: Id, cx: &mut Context<Self>) {
+		let command = self.state.open_reply_target(target);
+		self.dispatch(command);
+		self.sync_rows();
+		if let Some(index) = self.rows.iter().position(|id| *id == target) {
+			self.messages.scroll_to_reveal_item(index);
+		}
+		cx.notify();
 	}
 
 	fn attachment(
@@ -794,10 +870,24 @@ impl Serein {
 						})
 						.children(
 							embed
+								.image
+								.as_ref()
+								.and_then(|media| embed_media(media, (400, 300))),
+						)
+						.children(
+							embed
 								.footer
 								.as_ref()
 								.map(|footer| small(footer.text.clone(), p.muted)),
 						),
+				)
+				.children(
+					embed
+						.thumbnail
+						.as_ref()
+						.filter(|_| embed.image.is_none())
+						.and_then(|media| embed_media(media, (84, 84)))
+						.map(|thumbnail| div().p(px(12.)).pl_0().flex_none().child(thumbnail)),
 				),
 		)
 	}
@@ -924,6 +1014,8 @@ impl Serein {
 		let can_pin = self.state.can_pin(channel, id);
 		let pinned = can_pin && self.state.is_pinned(channel, id);
 		let can_delete = self.state.can_delete(channel, id);
+		let can_react =
+			!message.is_system() && (self.state.demo || self.state.can_react(id, None, true));
 		div()
 			.absolute()
 			.top(px(-14.))
@@ -937,6 +1029,15 @@ impl Serein {
 			.shadow_md()
 			.flex()
 			.items_center()
+			.when(can_react, |d| {
+				d.child(
+					self.icon_button(("react", id.0), Icon::Smiley, false, "Add reaction")
+						.on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+							let target = crate::emoji::Target::React(id);
+							this.open_emoji_picker(target, event.position(), window, cx)
+						})),
+				)
+			})
 			.child(
 				self.icon_button(("reply", id.0), Icon::Reply, false, "Reply")
 					.on_click(cx.listener(move |this, _, window, cx| {
@@ -1001,6 +1102,7 @@ impl Serein {
 	}
 
 	pub(crate) fn message(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+		self.first_rendered.set(self.first_rendered.get().min(ix));
 		let p = palette();
 		let Some(message) = self
 			.rows
@@ -1154,6 +1256,7 @@ impl Serein {
 					.into_iter()
 					.flatten(),
 			)
+			.children(self.render_components(&message, cx))
 			.children(self.reactions(&message, cx));
 
 		let gutter = if grouped {
@@ -1207,7 +1310,7 @@ impl Serein {
 			.children(if grouped {
 				None
 			} else {
-				self.reply_line(&message)
+				self.reply_line(&message, cx)
 			})
 			.child(div().flex().gap(px(16.)).child(gutter).child(content))
 			.when(hovered, |d| d.child(self.toolbar(&message, cx)));
@@ -1271,6 +1374,13 @@ impl Serein {
 					.text_color(color(p.text_strong))
 					.child(name),
 			)
+			.when(self.state.selected.is_some(), |d| {
+				let pins = self.state.search.as_ref().is_some_and(|view| view.pins);
+				d.child(
+					self.icon_button("pins-toggle", Icon::Pin, pins, "Pinned messages")
+						.on_click(cx.listener(|this, _, _, cx| this.toggle_pins(cx))),
+				)
+			})
 			.child(
 				self.icon_button(
 					"members-toggle",
@@ -1283,6 +1393,51 @@ impl Serein {
 					cx.notify();
 				})),
 			)
+			.when(self.state.selected.is_some(), |d| {
+				d.child(self.search_box())
+			})
+	}
+
+	/// Shown while the first unread message is above the viewport, like the main app's bar.
+	fn unread_banner(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+		let p = palette();
+		let first = self.first_rendered.replace(usize::MAX);
+		let boundary = self.boundary.flatten()?;
+		let index = self.rows.iter().position(|id| *id == boundary)?;
+		// Rows are laid out after this runs, so this reads the previous frame; it redraws on scroll.
+		if first == usize::MAX || index >= first {
+			return None;
+		}
+		let count = self.rows.len() - index;
+		Some(
+			div()
+				.id("unread-banner")
+				.absolute()
+				.top(px(8.))
+				.left(px(16.))
+				.right(px(16.))
+				.h(px(32.))
+				.px_3()
+				.rounded(px(8.))
+				.bg(color(p.accent))
+				.shadow_md()
+				.flex()
+				.items_center()
+				.justify_between()
+				.cursor_pointer()
+				.text_size(px(14.))
+				.font_weight(FontWeight::MEDIUM)
+				.text_color(color(p.accent_text))
+				.on_click(cx.listener(move |this, _, _, cx| {
+					this.messages.scroll_to_reveal_item(index);
+					cx.notify();
+				}))
+				.child(format!(
+					"{count} new message{}",
+					if count == 1 { "" } else { "s" }
+				))
+				.child("Jump to unread ↑"),
+		)
 	}
 
 	fn welcome(&self) -> impl IntoElement {
@@ -1431,6 +1586,18 @@ impl Serein {
 							.when(can_send, |d| {
 								d.child(div().flex_1().min_w_0().child(self.composer.clone()))
 									.child(
+										self.icon_button("emoji", Icon::Smiley, false, "Emoji")
+											.size(px(28.))
+											.on_click(cx.listener(
+												|this, event: &ClickEvent, window, cx| {
+													let target = crate::emoji::Target::Composer;
+													let at =
+														event.position() - point(px(0.), px(20.));
+													this.open_emoji_picker(target, at, window, cx)
+												},
+											)),
+									)
+									.child(
 										self.icon_button("send", Icon::Send, true, "Send (Enter)")
 											.size(px(28.))
 											.on_click(cx.listener(|this, _, _, cx| this.send(cx))),
@@ -1485,6 +1652,7 @@ impl Serein {
 							.size_full(),
 						)
 					})
+					.children(self.unread_banner(cx))
 					.when(
 						!self.rows.is_empty() && self.messages.is_scrolled_to_end() == Some(false),
 						|d| {
@@ -1534,6 +1702,7 @@ impl Serein {
 						)
 					}),
 			)
+			.children(self.interaction_notice())
 			.child(self.composer_area(cx))
 	}
 }

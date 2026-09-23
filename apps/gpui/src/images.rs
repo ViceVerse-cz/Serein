@@ -67,7 +67,9 @@ pub fn media_key(media: &model::EmbedMedia) -> Option<String> {
 		.filter(|source| {
 			source.len() <= 2048
 				&& (source.starts_with("https://cdn.discordapp.com/attachments/")
-					|| source.starts_with("https://media.discordapp.net/attachments/"))
+					|| source.starts_with("https://media.discordapp.net/attachments/")
+					|| source.starts_with("https://images-ext-1.discordapp.net/external/")
+					|| source.starts_with("https://images-ext-2.discordapp.net/external/"))
 		})?;
 	Some(format!("media:{}x{}:{source}", media.width, media.height))
 }
@@ -107,22 +109,40 @@ fn media_url(source: &str, width: u32, height: u32) -> Option<String> {
 		|| url.password().is_some()
 		|| url.port().is_some()
 		|| url.fragment().is_some()
-		|| !matches!(
-			url.host_str()?,
-			"cdn.discordapp.com" | "media.discordapp.net"
-		) {
+	{
 		return None;
 	}
+	let host = url.host_str()?.to_owned();
 	let mut parts = url.path().trim_start_matches('/').split('/');
-	let valid = parts.next() == Some("attachments")
-		&& parts.next()?.parse::<Id>().is_ok()
-		&& parts.next()?.parse::<Id>().is_ok()
-		&& parts.next().is_some_and(|name| !name.is_empty())
-		&& parts.next().is_none();
+	let valid = match parts.next() {
+		Some("attachments") => {
+			matches!(host.as_str(), "cdn.discordapp.com" | "media.discordapp.net")
+				&& parts.next()?.parse::<Id>().is_ok()
+				&& parts.next()?.parse::<Id>().is_ok()
+				&& parts.next().is_some_and(|name| !name.is_empty())
+				&& parts.next().is_none()
+		}
+		// Discord's own media proxy for embed images; the original host is never contacted.
+		Some("external") => {
+			matches!(
+				host.as_str(),
+				"images-ext-1.discordapp.net" | "images-ext-2.discordapp.net"
+			) && parts.next().is_some_and(|hash| {
+				(16..=256).contains(&hash.len())
+					&& hash
+						.bytes()
+						.all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+			}) && matches!(parts.next(), Some("https" | "http"))
+				&& parts.next().is_some_and(|domain| !domain.is_empty())
+		}
+		_ => false,
+	};
 	if !valid {
 		return None;
 	}
-	url.set_host(Some("media.discordapp.net")).ok()?;
+	if host == "cdn.discordapp.com" {
+		url.set_host(Some("media.discordapp.net")).ok()?;
+	}
 	let query: Vec<_> = url
 		.query_pairs()
 		.filter(|(key, _)| {
@@ -517,6 +537,13 @@ mod tests {
 			height: 3000,
 			..Default::default()
 		};
+		let proxied = cdn_url(
+			"media:10x10:https://images-ext-2.discordapp.net/external/abcdefghijklmnop/https/example.com/a.png",
+		)
+		.unwrap();
+		assert!(proxied.starts_with(
+			"https://images-ext-2.discordapp.net/external/abcdefghijklmnop/https/example.com/a.png?"
+		));
 		assert_eq!(
 			cdn_url(&media_key(&media).unwrap()).as_deref(),
 			Some(
@@ -532,6 +559,11 @@ mod tests {
 			"https://cdn.discordapp.com/avatars/1/2.png",
 			"https://cdn.discordapp.com/attachments/1/x/a.png",
 			"https://cdn.discordapp.com/attachments/1/2/a/b.png",
+			"https://images-ext-3.discordapp.net/external/abcdefghijklmnop/https/example.com/a.png",
+			"https://images-ext-1.discordapp.net/external/short/https/example.com/a.png",
+			"https://images-ext-1.discordapp.net/external/abcdefghijklmnop/ftp/example.com/a.png",
+			"https://media.discordapp.net/external/abcdefghijklmnop/https/example.com/a.png",
+			"https://images-ext-1.discordapp.net/attachments/1/2/a.png",
 		] {
 			assert!(
 				cdn_url(&format!("media:10x10:{source}")).is_none(),

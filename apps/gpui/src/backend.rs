@@ -269,6 +269,10 @@ async fn connect(
 	let writes = async {
 		// ponytail: serialize REST work; split history from writes if switching latency matters.
 		while let Some(command) = commands.recv().await {
+			// Dropping the in-flight search is enough; no request goes to Discord.
+			if matches!(command, Command::CancelSearch) {
+				continue;
+			}
 			// Member lists are gateway subscriptions, not REST requests.
 			if let Command::Members {
 				guild,
