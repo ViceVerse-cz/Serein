@@ -98,9 +98,7 @@ in
 
         cargoLock = {
             lockFile = "${finalAttrs.src}/Cargo.lock";
-            outputHashes = {
-                "ecolor-0.36.2" = "sha256-AhZEKazwb9qN/Ykq8O6Xo+ymfskszxqskboiK4omOVA=";
-            };
+            allowBuiltinFetchGit = true;
         };
 
         cargoBuildFlags = [
