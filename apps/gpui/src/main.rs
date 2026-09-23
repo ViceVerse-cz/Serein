@@ -34,7 +34,15 @@ use theme::{Icon, color, icon, palette};
 
 actions!(
 	serein,
-	[Quit, Hide, HideOthers, ShowAll, Minimize, ToggleSwitcher]
+	[
+		Quit,
+		Hide,
+		HideOthers,
+		ShowAll,
+		Minimize,
+		ToggleSwitcher,
+		OpenSettings
+	]
 );
 
 const NOTICE_TIME: Duration = Duration::from_secs(5);
@@ -137,8 +145,8 @@ pub(crate) struct Serein {
 	status: &'static str,
 	backend_status: &'static str,
 	authorized: bool,
-	/// Gear button and appearance popover in the user panel.
-	settings: Entity<settings::Menu>,
+	/// User settings modal and the device choices it edits.
+	settings: settings::Settings,
 	/// Friends page on the home view, shown instead of the chat.
 	friends: friends::Page,
 	/// Post-list settings for forum and media channels.
@@ -166,19 +174,7 @@ impl Serein {
 			this.search_input_event(event, cx)
 		})
 		.detach();
-		let settings = cx.new(|cx| settings::Menu::new(demo, window, cx));
-		cx.subscribe_in(
-			&settings,
-			window,
-			|this, _, event: &settings::Event, window, cx| match event {
-				settings::Event::LogOut => this.confirm_log_out(window, cx),
-				settings::Event::Notifications(on) => {
-					this.alerts.set_enabled(*on);
-					cx.notify();
-				}
-			},
-		)
-		.detach();
+		let settings = settings::Settings::new(window, cx);
 		cx.subscribe(&composer, |this, _, _: &input::Submit, cx| this.send(cx))
 			.detach();
 		cx.subscribe_in(
@@ -325,6 +321,7 @@ impl Serein {
 	/// `--demo-hover`, `--demo-own-hover`, `--demo-edit`, `--demo-profile`, `--demo-mention`, `--demo-emoji-picker`,
 	/// `--demo-emoji-react`, `--demo-emoji-suggest`, `--demo-typing`, `--demo-forum` and `--demo-sign-in`. Synthetic fixtures only.
 	fn apply_demo_flags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+		self.settings.apply_demo_flags();
 		let args = std::env::args().collect::<Vec<_>>();
 		let flag = |name: &str| args.iter().any(|arg| arg == name);
 		if let Some(id) = args
@@ -1697,6 +1694,11 @@ impl Render for Serein {
 					this.toggle_switcher(window, cx)
 				}),
 			)
+			.on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
+				if this.state.user.is_some() {
+					this.open_settings(None, window, cx);
+				}
+			}))
 			.size_full()
 			.relative()
 			.flex()
@@ -1722,6 +1724,7 @@ impl Render for Serein {
 			.children(self.render_reactors(cx))
 			.children(self.render_switcher(cx))
 			.children(self.render_emoji_picker(cx))
+			.children(self.render_settings(window, cx))
 	}
 }
 
@@ -1748,11 +1751,15 @@ fn main() {
 				KeyBinding::new("cmd-m", Minimize, None),
 				KeyBinding::new("cmd-k", ToggleSwitcher, None),
 				KeyBinding::new("ctrl-k", ToggleSwitcher, None),
+				KeyBinding::new("cmd-,", OpenSettings, None),
+				KeyBinding::new("ctrl-,", OpenSettings, None),
 			]);
 			// macOS routes Cut/Copy/Paste/Select All for the hosted login page through this menu;
 			// without it WKWebView never receives those key equivalents.
 			cx.set_menus([
 				Menu::new("Serein").items([
+					MenuItem::action("Settings…", OpenSettings),
+					MenuItem::separator(),
 					MenuItem::action("Hide Serein", Hide),
 					MenuItem::action("Hide Others", HideOthers),
 					MenuItem::action("Show All", ShowAll),

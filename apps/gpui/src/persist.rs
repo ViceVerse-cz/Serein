@@ -438,9 +438,7 @@ impl crate::Serein {
 			match reply {
 				Reply::Settings(settings) => {
 					settings.apply();
-					self.settings.update(cx, |menu, cx| {
-						menu.set_notifications(settings.notifications, cx)
-					});
+					self.settings.notifications = settings.notifications;
 					self.alerts.set_enabled(settings.notifications);
 					self.persist.settings = Some(settings);
 					window.refresh();
@@ -494,7 +492,7 @@ impl crate::Serein {
 			return;
 		}
 		if let Some(saved) = self.persist.settings {
-			let current = Settings::current(self.settings.read(cx).notifications());
+			let current = Settings::current(self.settings.notifications);
 			if current != saved && self.persist.send(Command::Settings(current)) {
 				self.persist.settings = Some(current);
 			}

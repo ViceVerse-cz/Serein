@@ -905,7 +905,7 @@ impl Serein {
 			.into_any_element()
 	}
 
-	fn user_panel(&self) -> impl IntoElement {
+	fn user_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
 		let p = palette();
 		let (name, status) = match &self.state.user {
 			Some(user) => (
@@ -967,7 +967,26 @@ impl Serein {
 								.child(status),
 						),
 				)
-				.child(self.settings.clone()),
+				.child(
+					div()
+						.id("settings-gear")
+						.focusable()
+						.tab_stop(true)
+						.size(px(32.))
+						.flex_none()
+						.rounded(px(6.))
+						.flex()
+						.items_center()
+						.justify_center()
+						.cursor_pointer()
+						.hover(|d| d.bg(color(p.hover)))
+						.focus(|d| d.bg(color(p.hover)))
+						.tooltip(crate::tooltip("User Settings"))
+						.on_click(
+							cx.listener(|this, _, window, cx| this.open_settings(None, window, cx)),
+						)
+						.child(icon(Icon::Gear, px(20.), color(p.muted))),
+				),
 		)
 	}
 
@@ -986,7 +1005,7 @@ impl Serein {
 					.child(self.rail(cx))
 					.child(self.channel_list(cx)),
 			)
-			.child(self.user_panel())
+			.child(self.user_panel(cx))
 			.children(self.render_nav_menu(cx))
 	}
 }
