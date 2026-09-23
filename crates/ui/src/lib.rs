@@ -564,6 +564,17 @@ impl MessagingUi {
 	) {
 		self.group_menu.accept_icon(ctx, request, result);
 	}
+	pub fn take_create_server_icon_request(&mut self) -> Option<(u64, Id, u64)> {
+		self.join_server.take_icon_request()
+	}
+	pub fn accept_create_server_icon(
+		&mut self,
+		ctx: &egui::Context,
+		request: (u64, Id, u64),
+		result: Result<Option<(String, egui::ColorImage)>, &'static str>,
+	) {
+		self.join_server.accept_icon(ctx, request, result);
+	}
 	pub fn timeline_reflows(&self) -> (u64, u64) {
 		(
 			self.timeline.reflow_frames,

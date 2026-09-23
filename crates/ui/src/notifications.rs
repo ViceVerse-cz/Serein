@@ -327,11 +327,11 @@ impl MessagingUi {
 							},
 						);
 						response.widget_info(|| {
-							egui::WidgetInfo::labeled(egui::Role::Button, true, "Join a Server")
+							egui::WidgetInfo::labeled(egui::Role::Button, true, "Add a Server")
 						});
-						design::rail_name(&response, "Join a Server");
+						design::rail_name(&response, "Add a Server");
 						if response.clicked() {
-							self.join_server.open(state.generation);
+							self.join_server.open_picker(state.generation);
 						}
 					});
 			});

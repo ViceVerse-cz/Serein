@@ -514,6 +514,38 @@ impl DiscordApi {
 			}
 		}
 	}
+	// Unofficial normal-user endpoint; observed in discord.py-self/http.py create_guild
+	// (2026-09-23). This non-idempotent write is deliberately attempted only once.
+	async fn create_guild(
+		&self,
+		request: &client_core::guild_creation::Request,
+	) -> Result<model::Id, Failure> {
+		#[derive(serde::Deserialize)]
+		struct CreatedGuild {
+			id: model::Id,
+		}
+		if !request.valid() {
+			return Err(Failure::Protocol);
+		}
+		let bytes = self
+			.request_limited(
+				Method::POST,
+				"/guilds",
+				Some(serde_json::json!({
+					"name": request.name(),
+					"icon": request.icon(),
+					"system_channel_id": null,
+					"channels": [],
+					"guild_template_code": "2TffvPucqHkN",
+				})),
+				64 * 1024,
+			)
+			.await?;
+		let guild = decode::<CreatedGuild>(&bytes).map_err(|_| Failure::Ambiguous)?;
+		(guild.id.0 != 0)
+			.then_some(guild.id)
+			.ok_or(Failure::Ambiguous)
+	}
 	/// Runs one typed command and returns its typed event.
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
@@ -573,6 +605,10 @@ impl DiscordApi {
 				request,
 				captcha,
 			} => self.join_invite(&code, request, captcha).await,
+			Command::CreateGuild { request, sequence } => Event::GuildCreated {
+				sequence,
+				result: self.create_guild(&request).await,
+			},
 			Command::GuildFolders(settings) => Event::GuildFolders(match settings {
 				Some((base, settings)) => self.save_guild_folders(base, settings).await,
 				None => self.guild_folders().await,
@@ -1401,6 +1437,92 @@ fn safe_delay(seconds: Option<f64>) -> Result<Duration, Failure> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[tokio::test]
+	async fn guild_creation_posts_once_and_waits_for_gateway_state() {
+		use tokio::{
+			io::{AsyncReadExt, AsyncWriteExt},
+			net::TcpListener,
+		};
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_GUILD_CREATE_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = tokio::spawn(async move {
+			let (mut stream, _) = listener.accept().await.unwrap();
+			let mut bytes = Vec::new();
+			loop {
+				let mut chunk = [0; 1024];
+				let count = stream.read(&mut chunk).await.unwrap();
+				assert!(count > 0);
+				bytes.extend_from_slice(&chunk[..count]);
+				let Some(headers_end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") else {
+					continue;
+				};
+				let headers = std::str::from_utf8(&bytes[..headers_end]).unwrap();
+				let length = headers
+					.lines()
+					.find_map(|line| {
+						line.to_ascii_lowercase()
+							.strip_prefix("content-length: ")
+							.and_then(|value| value.parse::<usize>().ok())
+					})
+					.unwrap();
+				if bytes.len() >= headers_end + 4 + length {
+					assert!(headers.starts_with("POST /guilds HTTP/1.1"));
+					let body: serde_json::Value =
+						serde_json::from_slice(&bytes[headers_end + 4..headers_end + 4 + length])
+							.unwrap();
+					assert_eq!(
+						body,
+						serde_json::json!({
+							"name": "Synthetic server",
+							"icon": null,
+							"system_channel_id": null,
+							"channels": [],
+							"guild_template_code": "2TffvPucqHkN",
+						})
+					);
+					break;
+				}
+			}
+			let body = r#"{"id":"42","name":"Synthetic server"}"#;
+			stream
+				.write_all(
+					format!(
+						"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+						body.len()
+					)
+					.as_bytes(),
+				)
+				.await
+				.unwrap();
+		});
+		let mut state = client_core::State {
+			auth: client_core::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			..Default::default()
+		};
+		let command = state
+			.create_guild("  Synthetic server  ".into(), None)
+			.unwrap();
+		let event = api.execute(command).await;
+		assert!(matches!(
+			event,
+			Event::GuildCreated {
+				result: Ok(model::Id(42)),
+				..
+			}
+		));
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event,
+		});
+		assert_eq!(state.guild_creation.result, Some(Ok(model::Id(42))));
+		assert!(state.guild(model::Id(42)).is_none());
+		server.await.unwrap();
+	}
 	#[test]
 	fn reaction_user_routes_keep_emoji_in_one_component_and_bound_pages() {
 		assert_eq!(

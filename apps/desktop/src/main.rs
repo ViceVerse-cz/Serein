@@ -745,6 +745,7 @@ struct Desktop {
 	uploads: uploads::Uploads,
 	interaction_files: interaction_uploads::Files,
 	group_icon: group_icon::GroupIcon,
+	create_server_icon: group_icon::GroupIcon,
 	profile_avatar: group_icon::GroupIcon,
 	server_icon: group_icon::GroupIcon,
 	role_icon: group_icon::GroupIcon,
@@ -1881,6 +1882,7 @@ impl Desktop {
 			uploads: uploads::Uploads::default(),
 			interaction_files: Default::default(),
 			group_icon: group_icon::GroupIcon::default(),
+			create_server_icon: group_icon::GroupIcon::default(),
 			profile_avatar: group_icon::GroupIcon::default(),
 			server_icon: group_icon::GroupIcon::default(),
 			role_icon: group_icon::GroupIcon::default(),
@@ -1970,6 +1972,7 @@ impl Desktop {
 		self.role_icon.cancel();
 		self.role_icon_scope = None;
 		self.group_icon.cancel();
+		self.create_server_icon.cancel();
 		self.profile_avatar.cancel();
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
@@ -2046,6 +2049,7 @@ impl Desktop {
 		self.role_icon.cancel();
 		self.role_icon_scope = None;
 		self.group_icon.cancel();
+		self.create_server_icon.cancel();
 		self.profile_avatar.cancel();
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
@@ -3447,6 +3451,10 @@ impl Desktop {
 					result: Ok(test_support::gif_page(query.as_deref())),
 				},
 				Command::CancelGifs => return,
+				Command::CreateGuild { sequence, .. } => Event::GuildCreated {
+					sequence,
+					result: Err(Failure::ProtocolAt("Server creation unavailable offline")),
+				},
 				Command::JoinInvite { request, .. } => Event::JoinInvite {
 					request,
 					result: Err(Failure::ProtocolAt("Server joining unavailable offline")),
@@ -5687,6 +5695,13 @@ impl eframe::App for Desktop {
 			self.messaging.accept_group_icon(&ctx, scope, result);
 		}
 		if let Some((scope, result)) = self
+			.create_server_icon
+			.poll_scoped(self.state.generation, |_| true)
+		{
+			self.messaging
+				.accept_create_server_icon(&ctx, scope, result);
+		}
+		if let Some((scope, result)) = self
 			.profile_avatar
 			.poll_scoped(self.state.generation, |user| {
 				self.state.user.as_ref().is_some_and(|own| own.id == user)
@@ -6067,6 +6082,24 @@ impl eframe::App for Desktop {
 				};
 				if let Err(error) = result {
 					self.messaging.accept_group_icon(&ctx, scope, Err(error));
+				}
+			}
+			if let Some(scope) = self.messaging.take_create_server_icon_request() {
+				let result = if scope.0 != self.state.generation || scope.1 != model::Id(0) {
+					Err("This server draft is no longer available")
+				} else {
+					self.create_server_icon.start(
+						scope,
+						self.runtime.handle(),
+						&ctx,
+						self.window.clone(),
+						"Choose server icon",
+						256,
+					)
+				};
+				if let Err(error) = result {
+					self.messaging
+						.accept_create_server_icon(&ctx, scope, Err(error));
 				}
 			}
 			if let Some(scope) = self.messaging.take_server_role_icon_request() {

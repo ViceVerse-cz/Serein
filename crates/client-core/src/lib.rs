@@ -7,6 +7,7 @@ pub mod channel_actions;
 pub mod fingerprint;
 pub mod forum;
 pub mod gifs;
+pub mod guild_creation;
 pub mod guild_folders;
 pub mod permissions;
 pub mod stickers;
@@ -125,6 +126,10 @@ pub enum Command {
 		code: String,
 		request: u64,
 		captcha: Option<Box<captcha::Retry>>,
+	},
+	CreateGuild {
+		request: guild_creation::Request,
+		sequence: u64,
 	},
 	Invite {
 		code: String,
@@ -422,6 +427,10 @@ pub enum Event {
 		result: Result<Id, auth::Failure>,
 	},
 	GuildJoined(Guild),
+	GuildCreated {
+		sequence: u64,
+		result: Result<Id, auth::Failure>,
+	},
 	GuildFolders(Result<model::guild_folders::Settings, auth::Failure>),
 	/// Discord says another session (or this one) changed account settings.
 	AccountSettings {
@@ -656,6 +665,7 @@ pub struct State {
 	pub own_profile: profile::OwnProfile,
 	pub invites: invites::Cache,
 	pub invite_join: invites::Join,
+	pub guild_creation: guild_creation::Creation,
 	pub voice: voice::State,
 	pub generation: u64,
 	pub auth: auth::AuthState,
@@ -861,6 +871,7 @@ impl Default for State {
 			own_profile: Default::default(),
 			invites: Default::default(),
 			invite_join: Default::default(),
+			guild_creation: Default::default(),
 			voice: voice::State::default(),
 			generation: 1,
 			auth: auth::AuthState::Unauthenticated,
@@ -1983,6 +1994,15 @@ impl State {
 			);
 			return;
 		}
+		if let Command::CreateGuild { sequence, .. } = command {
+			self.apply_guild_created(
+				sequence,
+				Err(auth::Failure::ProtocolAt(
+					"Server creation was not queued; check Discord before retrying",
+				)),
+			);
+			return;
+		}
 		if let Command::Invite { code } = command {
 			self.apply_invite(code, Err(auth::Failure::Capacity));
 			return;
@@ -2480,6 +2500,10 @@ impl State {
 				self.apply_invite_join(request, result);
 				Ok(())
 			}
+			Event::GuildCreated { sequence, result } => {
+				self.apply_guild_created(sequence, result);
+				Ok(())
+			}
 			Event::GuildJoined(guild) => {
 				self.observe_server_joined(guild.id);
 				if !self.guilds.iter().any(|g| g.id == guild.id) {
@@ -2943,6 +2967,7 @@ impl State {
 				self.cancel_server_admin();
 				self.cancel_group_action();
 				self.cancel_invite_join();
+				self.cancel_guild_creation();
 				self.user_actions.reset();
 				self.server_actions.reset();
 				self.channel_actions.reset();
@@ -3294,6 +3319,7 @@ impl State {
 				self.cancel_server_admin();
 				self.cancel_group_action();
 				self.cancel_invite_join();
+				self.cancel_guild_creation();
 				self.read_state.cancel();
 				self.clear_profile();
 				// The voice socket is independent and a RESUME replays roster changes, so the call,
@@ -3322,6 +3348,7 @@ impl State {
 				self.cancel_server_admin();
 				self.cancel_group_action();
 				self.cancel_invite_join();
+				self.cancel_guild_creation();
 				self.clear_direct_presences();
 				self.permissions = permissions::Permissions::default();
 				self.read_state.cancel();
@@ -3544,6 +3571,7 @@ impl State {
 			self.cancel_server_admin();
 			self.cancel_group_action();
 			self.cancel_invite_join();
+			self.cancel_guild_creation();
 			self.clear_direct_presences();
 			self.clear_cached_history();
 			self.clear_search();

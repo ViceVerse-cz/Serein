@@ -1,6 +1,16 @@
-//! Explicit, session-bound invite lookup followed by a user-confirmed join.
-use crate::{design, dialog, invites::input_code};
+//! Session-bound server creation and explicit, user-confirmed invite joining.
+use crate::{design, dialog, icons, invites::input_code};
 use client_core::{Command, State};
+use model::Id;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Page {
+	#[default]
+	Join,
+	Choose,
+	Audience,
+	Customize,
+}
 
 fn invite_input(ui: &mut egui::Ui, text: &mut String, focus: bool) -> egui::Response {
 	let colors = design::palette(ui);
@@ -31,15 +41,101 @@ fn invite_input(ui: &mut egui::Ui, text: &mut String, focus: bool) -> egui::Resp
 	response
 }
 
-#[derive(Default)]
+fn option_row(ui: &mut egui::Ui, icon: icons::Icon, label: &str) -> egui::Response {
+	let colors = design::palette(ui);
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 56.0), egui::Sense::click());
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
+	let hot = response.hovered() || response.has_focus();
+	ui.painter().rect(
+		rect,
+		9,
+		if hot { colors.hover } else { colors.base },
+		egui::Stroke::new(1.0, if hot { colors.accent } else { colors.border }),
+		egui::StrokeKind::Inside,
+	);
+	icons::paint(
+		ui.painter(),
+		icon,
+		egui::Rect::from_center_size(
+			egui::pos2(rect.left() + 27.0, rect.center().y),
+			egui::Vec2::splat(22.0),
+		),
+		if hot {
+			colors.text_strong
+		} else {
+			colors.muted
+		},
+	);
+	ui.painter().text(
+		egui::pos2(rect.left() + 50.0, rect.center().y),
+		egui::Align2::LEFT_CENTER,
+		label,
+		egui::FontId::new(15.0, design::medium_family(ui.ctx())),
+		colors.text,
+	);
+	icons::paint(
+		ui.painter(),
+		icons::Icon::ChevronRight,
+		egui::Rect::from_center_size(
+			egui::pos2(rect.right() - 20.0, rect.center().y),
+			egui::Vec2::splat(16.0),
+		),
+		colors.muted,
+	);
+	response
+}
+
 pub(super) struct JoinDialog {
 	generation: Option<u64>,
+	page: Page,
+	picker: bool,
 	input: String,
 	focus: bool,
 	status: &'static str,
+	name: String,
+	name_focus: bool,
+	icon: Option<String>,
+	icon_preview: Option<egui::TextureHandle>,
+	icon_request: u64,
+	icon_requested: bool,
+	icon_pending: bool,
+	icon_error: Option<&'static str>,
+	submitted: bool,
+}
+
+impl Default for JoinDialog {
+	fn default() -> Self {
+		Self {
+			generation: None,
+			page: Page::Join,
+			picker: false,
+			input: String::new(),
+			focus: false,
+			status: "",
+			name: String::new(),
+			name_focus: false,
+			icon: None,
+			icon_preview: None,
+			icon_request: 0,
+			icon_requested: false,
+			icon_pending: false,
+			icon_error: None,
+			submitted: false,
+		}
+	}
 }
 
 impl JoinDialog {
+	pub fn open_picker(&mut self, generation: u64) {
+		*self = Self {
+			generation: Some(generation),
+			page: Page::Choose,
+			picker: true,
+			..Self::default()
+		};
+	}
+	#[cfg_attr(not(any(test, feature = "demo")), allow(dead_code))]
 	pub fn open(&mut self, generation: u64) {
 		self.open_with(generation, String::new());
 	}
@@ -47,12 +143,62 @@ impl JoinDialog {
 	pub fn open_with(&mut self, generation: u64, input: String) {
 		*self = Self {
 			generation: Some(generation),
+			page: Page::Join,
 			focus: true,
 			input,
 			..Self::default()
 		};
 	}
+	pub fn take_icon_request(&mut self) -> Option<(u64, Id, u64)> {
+		if !std::mem::take(&mut self.icon_requested) {
+			return None;
+		}
+		self.icon_request = self.icon_request.wrapping_add(1);
+		Some((self.generation?, Id(0), self.icon_request))
+	}
+	pub fn accept_icon(
+		&mut self,
+		ctx: &egui::Context,
+		request: (u64, Id, u64),
+		result: Result<Option<(String, egui::ColorImage)>, &'static str>,
+	) {
+		if self.generation != Some(request.0)
+			|| request.1 != Id(0)
+			|| request.2 != self.icon_request
+			|| !self.icon_pending
+		{
+			return;
+		}
+		self.icon_pending = false;
+		match result {
+			Ok(Some((data, image))) if data.len() <= model::server_settings::MAX_ICON_DATA_URI => {
+				self.icon = Some(data);
+				self.icon_preview = Some(ctx.load_texture(
+					"create-server-icon",
+					image,
+					egui::TextureOptions::LINEAR,
+				));
+				self.icon_error = None;
+			}
+			Ok(Some(_)) => self.icon_error = Some("Prepared icon is too large"),
+			Ok(None) => {}
+			Err(error) => self.icon_error = Some(error),
+		}
+	}
 	pub fn show(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		avatars: &mut crate::avatars::Avatars,
+		commands: &mut Vec<Command>,
+	) {
+		if self.page == Page::Join {
+			self.show_join(ctx, state, avatars, commands);
+		} else {
+			self.show_picker(ctx, state, commands);
+		}
+	}
+	fn show_join(
 		&mut self,
 		ctx: &egui::Context,
 		state: &mut State,
@@ -85,12 +231,262 @@ impl JoinDialog {
 							self.submit(state, parsed.clone(), ready, commands);
 						}
 					});
-					close |= dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
+					if dialog::action(
+						ui,
+						if self.picker { "Back" } else { "Cancel" },
+						dialog::Action::Neutral,
+					)
+					.clicked()
+					{
+						if self.picker {
+							self.page = Page::Choose;
+						} else {
+							close = true;
+						}
+					}
 				});
 			});
 		if close || response.close {
 			*self = Self::default();
 		}
+	}
+	fn show_picker(&mut self, ctx: &egui::Context, state: &mut State, commands: &mut Vec<Command>) {
+		if self.generation != Some(state.generation) {
+			*self = Self::default();
+			return;
+		}
+		if self.submitted
+			&& state
+				.guild_creation
+				.result
+				.as_ref()
+				.is_some_and(|result| result.as_ref().is_ok_and(|id| state.guild(*id).is_some()))
+		{
+			*self = Self::default();
+			return;
+		}
+		let (title, subtitle) = match self.page {
+			Page::Choose => (
+				"Create Your Server",
+				"Your server is where you and your friends hang out. Make yours and start talking.",
+			),
+			Page::Audience => (
+				"Tell Us More About Your Server",
+				"Is your new server for a few friends or a larger community?",
+			),
+			Page::Customize => (
+				"Customize Your Server",
+				"Give your new server a name and icon. You can change them later.",
+			),
+			Page::Join => unreachable!(),
+		};
+		let response = dialog::Dialog::new("add-server-dialog", title)
+			.subtitle(subtitle)
+			.width(460.0)
+			.show(ctx, |d| match self.page {
+				Page::Choose => self.choose(d, state),
+				Page::Audience => self.audience(d, state),
+				Page::Customize => self.customize(d, state, commands),
+				Page::Join => {}
+			});
+		if response.close {
+			*self = Self::default();
+		}
+	}
+	fn choose(&mut self, d: &mut dialog::Body<'_>, state: &State) {
+		d.scroll(250.0, |ui| {
+			ui.spacing_mut().item_spacing.y = 10.0;
+			if option_row(ui, icons::Icon::Plus, "Create My Own").clicked() {
+				self.page = Page::Audience;
+			}
+			ui.add_space(8.0);
+			ui.label(design::eyebrow(
+				ui,
+				"Have an invite already?",
+				design::palette(ui).muted,
+			));
+			if option_row(ui, icons::Icon::Compass, "Join a Server").clicked() {
+				self.page = Page::Join;
+				self.focus = true;
+			}
+			if state.demo {
+				ui.add_space(4.0);
+				design::notice(
+					ui,
+					design::Level::Info,
+					"Offline preview - creating and joining servers are disabled.",
+				);
+			}
+		});
+	}
+	fn audience(&mut self, d: &mut dialog::Body<'_>, state: &State) {
+		d.content(|ui| {
+			ui.spacing_mut().item_spacing.y = 10.0;
+			let community = option_row(ui, icons::Icon::Globe, "For a club or community").clicked();
+			let friends = option_row(ui, icons::Icon::People, "For me and my friends").clicked();
+			if community || friends {
+				self.begin_customize(state);
+			}
+			ui.add_space(8.0);
+			ui.horizontal_wrapped(|ui| {
+				ui.label("Not sure?");
+				if ui.link("Skip this question").clicked() {
+					self.begin_customize(state);
+				}
+				ui.label("for now.");
+			});
+		});
+		d.footer(|ui| {
+			if dialog::action(ui, "Back", dialog::Action::Neutral).clicked() {
+				self.page = Page::Choose;
+			}
+		});
+	}
+	fn begin_customize(&mut self, state: &State) {
+		if self.name.is_empty() {
+			self.name = state
+				.user
+				.as_ref()
+				.map(|user| format!("{}'s server", user.name))
+				.unwrap_or_else(|| "My server".to_owned());
+		}
+		self.page = Page::Customize;
+		self.name_focus = true;
+	}
+	fn customize(
+		&mut self,
+		d: &mut dialog::Body<'_>,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		d.scroll(275.0, |ui| {
+			let colors = design::palette(ui);
+			ui.vertical_centered(|ui| {
+				let (rect, response) =
+					ui.allocate_exact_size(egui::Vec2::splat(82.0), egui::Sense::click());
+				response.widget_info(|| {
+					egui::WidgetInfo::labeled(
+						egui::Role::Button,
+						!self.icon_pending,
+						if self.icon.is_some() {
+							"Change server icon"
+						} else {
+							"Upload server icon"
+						},
+					)
+				});
+				ui.painter().circle(
+					rect.center(),
+					40.0,
+					colors.base,
+					egui::Stroke::new(
+						2.0,
+						if response.hovered() || response.has_focus() {
+							colors.accent
+						} else {
+							colors.border
+						},
+					),
+				);
+				if let Some(texture) = &self.icon_preview {
+					ui.painter().image(
+						texture.id(),
+						rect.shrink(5.0),
+						egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+						egui::Color32::WHITE,
+					);
+				} else {
+					icons::paint(
+						ui.painter(),
+						icons::Icon::Image,
+						rect.shrink(27.0),
+						colors.muted,
+					);
+				}
+				if response.clicked() && !self.icon_pending {
+					self.icon_requested = true;
+					self.icon_pending = true;
+					self.icon_error = None;
+				}
+			});
+			ui.add_space(18.0);
+			let label = design::label(ui, "Server name");
+			let input = design::input(
+				ui,
+				egui::TextEdit::singleline(&mut self.name)
+					.char_limit(100)
+					.hint_text("My server"),
+			)
+			.labelled_by(label.id);
+			if std::mem::take(&mut self.name_focus) {
+				input.request_focus();
+			}
+			if input.changed() {
+				self.status = "";
+			}
+			if let Some(error) = self.icon_error {
+				ui.add_space(10.0);
+				design::notice(ui, design::Level::Error, error);
+			}
+			let result = self
+				.submitted
+				.then_some(state.guild_creation.result.as_ref())
+				.flatten();
+			if let Some(Err(error)) = result {
+				ui.add_space(10.0);
+				design::notice(ui, design::Level::Error, error.label());
+			} else if result.is_some_and(Result::is_ok) {
+				ui.add_space(10.0);
+				design::notice(
+					ui,
+					design::Level::Success,
+					"Server created. Waiting for Discord to add it to your server list.",
+				);
+			} else if state.demo {
+				ui.add_space(10.0);
+				design::notice(
+					ui,
+					design::Level::Info,
+					"Offline preview - creation is disabled.",
+				);
+			} else if !self.status.is_empty() {
+				ui.add_space(10.0);
+				design::notice(ui, design::Level::Error, self.status);
+			}
+		});
+		d.footer(|ui| {
+			let accepted = self.submitted
+				&& state
+					.guild_creation
+					.result
+					.as_ref()
+					.is_some_and(Result::is_ok);
+			let busy = self.icon_pending || state.guild_creation.pending;
+			let name = self.name.trim();
+			let valid =
+				(2..=100).contains(&name.chars().count()) && !name.chars().any(char::is_control);
+			ui.add_enabled_ui(!state.demo && !busy && !accepted && valid, |ui| {
+				if dialog::action(
+					ui,
+					if busy { "Please wait..." } else { "Create" },
+					dialog::Action::Primary,
+				)
+				.clicked()
+				{
+					match state.create_guild(name.to_owned(), self.icon.clone()) {
+						Some(command) => {
+							commands.push(command);
+							self.submitted = true;
+							self.status = "";
+						}
+						None => self.status = "Unable to create this server right now.",
+					}
+				}
+			});
+			if dialog::action(ui, "Back", dialog::Action::Neutral).clicked() {
+				self.page = Page::Audience;
+			}
+		});
 	}
 
 	/// Field, examples and the resolved invite preview; returns the lookup state for the footer.
@@ -480,6 +876,54 @@ mod tests {
 				],
 			);
 		}
+	}
+	#[test]
+	fn add_server_flow_reaches_creation_and_preserves_the_draft_on_back() {
+		let ctx = egui::Context::default();
+		design::apply(&ctx);
+		let size = egui::vec2(320.0, 760.0);
+		let mut state = State {
+			auth: client_core::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			..State::default()
+		};
+		let mut dialog = JoinDialog::default();
+		dialog.open_picker(state.generation);
+		let mut commands = vec![];
+		for _ in 0..3 {
+			frame(&ctx, &mut dialog, &mut state, &mut commands, size, vec![]);
+		}
+		click(
+			&ctx,
+			&mut dialog,
+			&mut state,
+			&mut commands,
+			size,
+			"Create My Own",
+		);
+		assert_eq!(dialog.page, Page::Audience);
+		click(
+			&ctx,
+			&mut dialog,
+			&mut state,
+			&mut commands,
+			size,
+			"For me and my friends",
+		);
+		assert_eq!(dialog.page, Page::Customize);
+		dialog.name = "Synthetic server".into();
+		click(&ctx, &mut dialog, &mut state, &mut commands, size, "Back");
+		assert_eq!(dialog.page, Page::Audience);
+		dialog.begin_customize(&state);
+		assert_eq!(dialog.name, "Synthetic server");
+		click(&ctx, &mut dialog, &mut state, &mut commands, size, "Create");
+		let Some(Command::CreateGuild { request, .. }) = commands.pop() else {
+			panic!("create command missing")
+		};
+		assert_eq!(request.name(), "Synthetic server");
+		assert!(request.icon().is_none());
+		assert!(dialog.submitted);
+		assert!(state.guild_creation.pending);
 	}
 	#[test]
 	fn join_dialog_checks_then_confirms_once_and_clears_on_session_change() {
