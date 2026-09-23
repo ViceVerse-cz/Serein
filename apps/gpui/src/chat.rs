@@ -319,8 +319,46 @@ fn preview_text(format: &mut ui::FormatCache, state: &State, message: &Message) 
 	text.chars().take(160).collect()
 }
 
-fn code_block(tag: &str, code: &str) -> AnyElement {
+/// Highlighted fenced block with the main app's syntax colours and a copy button.
+fn code_block(
+	tag: &str,
+	code: &str,
+	tokens: &[(u32, u32, ui::CodeToken)],
+	message: Id,
+	index: usize,
+	cx: &mut Context<Serein>,
+) -> AnyElement {
 	let p = palette();
+	// Light palettes have bright chat surfaces; pick the matching syntax set.
+	let [r, g, b, _] = p.chat.to_array();
+	let dark = u32::from(r) * 299 + u32::from(g) * 587 + u32::from(b) * 114 < 128_000;
+	let colors = ui::design::code_colors_for(p, dark);
+	let mut runs = Vec::with_capacity(tokens.len().max(1));
+	let mut covered = 0;
+	for &(start, end, token) in tokens {
+		let (start, end) = (start as usize, (end as usize).min(code.len()));
+		if start < covered
+			|| start >= end
+			|| !code.is_char_boundary(start)
+			|| !code.is_char_boundary(end)
+		{
+			continue;
+		}
+		if start > covered {
+			runs.push(code_run(covered, start, p.text, false));
+		}
+		runs.push(code_run(
+			start,
+			end,
+			colors.color(token, p.text),
+			token == ui::CodeToken::Comment,
+		));
+		covered = end;
+	}
+	if covered < code.len() {
+		runs.push(code_run(covered, code.len(), p.text, false));
+	}
+	let copy = code.to_owned();
 	div()
 		.my_1()
 		.max_w(px(720.))
@@ -333,24 +371,67 @@ fn code_block(tag: &str, code: &str) -> AnyElement {
 		.flex()
 		.flex_col()
 		.gap_1()
-		.when(!tag.is_empty(), |d| {
-			d.child(
-				div()
-					.text_size(px(12.))
-					.font_weight(FontWeight::SEMIBOLD)
-					.text_color(color(p.muted))
-					.child(tag.to_owned()),
-			)
-		})
 		.child(
 			div()
-				.font_family(MONO)
+				.flex()
+				.items_center()
+				.justify_between()
+				.pb_1()
+				.border_b_1()
+				.border_color(color(p.border))
+				.child(
+					div()
+						.text_size(px(12.))
+						.font_weight(FontWeight::SEMIBOLD)
+						.text_color(color(p.muted))
+						.child(if tag.is_empty() {
+							"code".to_owned()
+						} else {
+							tag.to_owned()
+						}),
+				)
+				.child(
+					div()
+						.id(ElementId::NamedInteger(
+							format!("copy-code-{index}").into(),
+							message.0,
+						))
+						.px_2()
+						.rounded(px(4.))
+						.cursor_pointer()
+						.text_size(px(12.))
+						.text_color(color(p.muted))
+						.hover(|d| d.bg(color(p.hover)).text_color(color(p.text_strong)))
+						.on_click(cx.listener(move |this, _, _, cx| {
+							cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+							this.notify_user("Code copied");
+							cx.notify();
+						}))
+						.child("Copy"),
+				),
+		)
+		.child(
+			div()
 				.text_size(px(13.5))
 				.line_height(px(19.))
-				.text_color(color(p.text))
-				.child(code.to_owned()),
+				.child(StyledText::new(code.to_owned()).with_runs(runs)),
 		)
 		.into_any_element()
+}
+
+fn code_run(start: usize, end: usize, tone: egui::Color32, italic: bool) -> TextRun {
+	let mut font = font(MONO);
+	if italic {
+		font.style = FontStyle::Italic;
+	}
+	TextRun {
+		len: end - start,
+		font,
+		color: color(tone).into(),
+		background_color: None,
+		underline: None,
+		strikethrough: None,
+	}
 }
 
 fn confirm_open(url: String, window: &mut Window, cx: &mut App) {
@@ -392,7 +473,10 @@ impl Serein {
 					markdown.flush(&view);
 					markdown.blocks_done = block + 1;
 					if let Some((tag, code)) = formatted.code_block(block) {
-						markdown.output.push(code_block(tag, code));
+						let tokens = formatted.code_tokens(block);
+						markdown
+							.output
+							.push(code_block(tag, code, tokens, message.id, block, cx));
 					}
 				}
 				continue;
@@ -456,7 +540,7 @@ impl Serein {
 				.items_center()
 				.gap(px(6.))
 				.min_w_0()
-				.child(avatar(&name, 16.))
+				.child(avatar(&name, 16., Some(&original.author)))
 				.child(
 					div()
 						.flex_none()
@@ -524,6 +608,44 @@ impl Serein {
 			(Icon::File, p.muted)
 		};
 		let url = attachment.media.url.clone();
+		// Inline preview, sized from the attachment metadata so its arrival never moves rows.
+		if kind.starts_with("image/")
+			&& kind != "image/svg+xml"
+			&& !attachment.spoiler
+			&& crate::images::enabled()
+			&& let Some(key) = crate::images::media_key(&attachment.media)
+		{
+			let media = &attachment.media;
+			let (width, height) =
+				crate::images::fit(media.width, media.height, crate::images::MEDIA_BOX);
+			return div()
+				.id(ElementId::NamedInteger(
+					format!("attachment-{ix}").into(),
+					message.0,
+				))
+				.mt_1()
+				.w(px(width as f32))
+				.max_w_full()
+				.aspect_ratio(width as f32 / height as f32)
+				.rounded(px(8.))
+				.overflow_hidden()
+				.bg(color(p.raised))
+				.flex()
+				.items_center()
+				.justify_center()
+				.tooltip(tooltip(attachment.filename.clone()))
+				.when_some(url, |d, url| {
+					d.cursor_pointer()
+						.on_click(move |_, window, cx| confirm_open(url.clone(), window, cx))
+				})
+				.child(match crate::images::get(&key) {
+					Some(image) => img(image)
+						.size_full()
+						.object_fit(ObjectFit::Contain)
+						.into_any_element(),
+					None => icon(Icon::FileImage, px(32.), color(p.muted)).into_any_element(),
+				});
+		}
 		div()
 			.id(ElementId::NamedInteger(
 				format!("attachment-{ix}").into(),
@@ -739,10 +861,69 @@ impl Serein {
 		)
 	}
 
+	/// Inline editor in place of the body: Enter saves, Escape cancels, as in the main app.
+	fn inline_editor(
+		&self,
+		editor: Entity<crate::input::Input>,
+		cx: &mut Context<Self>,
+	) -> AnyElement {
+		let p = palette();
+		let hint = |label: &'static str, action: &'static str| {
+			div()
+				.flex()
+				.gap_1()
+				.child(label)
+				.child(div().text_color(color(p.link)).child(action))
+		};
+		div()
+			.mt_1()
+			.flex()
+			.flex_col()
+			.gap_1()
+			.child(
+				div()
+					.px(px(10.))
+					.py(px(6.))
+					.rounded(px(8.))
+					.bg(color(p.raised))
+					.child(editor),
+			)
+			.child(
+				div()
+					.flex()
+					.gap_1()
+					.text_size(px(12.))
+					.text_color(color(p.muted))
+					.child(
+						div()
+							.id("cancel-edit")
+							.cursor_pointer()
+							.on_click(
+								cx.listener(|this, _, window, cx| this.cancel_edit(window, cx)),
+							)
+							.child(hint("escape to", "cancel")),
+					)
+					.child("·")
+					.child(
+						div()
+							.id("save-edit")
+							.cursor_pointer()
+							.on_click(cx.listener(|this, _, _, cx| this.save_edit(cx)))
+							.child(hint("enter to", "save")),
+					),
+			)
+			.into_any_element()
+	}
+
 	fn toolbar(&self, message: &Message, cx: &mut Context<Self>) -> impl IntoElement {
 		let p = palette();
 		let id = message.id;
 		let text = message.content.clone();
+		let channel = message.channel;
+		let can_edit = self.state.can_edit(channel, id) && !message.is_system();
+		let can_pin = self.state.can_pin(channel, id);
+		let pinned = can_pin && self.state.is_pinned(channel, id);
+		let can_delete = self.state.can_delete(channel, id);
 		div()
 			.absolute()
 			.top(px(-14.))
@@ -765,6 +946,29 @@ impl Serein {
 						cx.notify();
 					})),
 			)
+			.when(can_edit, |d| {
+				d.child(
+					self.icon_button(("edit", id.0), Icon::Pencil, false, "Edit")
+						.on_click(
+							cx.listener(move |this, _, window, cx| this.start_edit(id, window, cx)),
+						),
+				)
+			})
+			.when(can_pin, |d| {
+				d.child(
+					self.icon_button(
+						("pin", id.0),
+						Icon::Pin,
+						pinned,
+						if pinned {
+							"Unpin message"
+						} else {
+							"Pin message"
+						},
+					)
+					.on_click(cx.listener(move |this, _, _, cx| this.toggle_pin(id, cx))),
+				)
+			})
 			.when(!text.is_empty(), |d| {
 				d.child(
 					self.icon_button(("copy", id.0), Icon::Copy, false, "Copy text")
@@ -773,6 +977,25 @@ impl Serein {
 							this.notify_user("Message text copied");
 							cx.notify();
 						})),
+				)
+			})
+			.when(can_delete, |d| {
+				let p = palette();
+				d.child(
+					div()
+						.id(("delete", id.0))
+						.size(px(32.))
+						.rounded(px(6.))
+						.flex()
+						.items_center()
+						.justify_center()
+						.cursor_pointer()
+						.hover(|d| d.bg(tint(p.danger, 0.16)))
+						.tooltip(tooltip("Delete message"))
+						.on_click(cx.listener(move |this, _, window, cx| {
+							this.confirm_delete(id, window, cx)
+						}))
+						.child(icon(Icon::Trash, px(20.), color(p.danger))),
 				)
 			})
 	}
@@ -822,13 +1045,28 @@ impl Serein {
 					.flex()
 					.items_center()
 					.gap(px(8.))
-					.child(
+					.child({
+						let author = message.author.clone();
+						let roles = message.author_roles.clone();
+						let guild = self.state.channel(message.channel).and_then(|c| c.guild);
 						div()
+							.id(("author", id.0))
+							.cursor_pointer()
+							.hover(|d| d.underline())
 							.text_size(px(15.5))
 							.font_weight(FontWeight::MEDIUM)
 							.text_color(author_color)
-							.child(name.clone()),
-					)
+							.on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+								this.open_profile(
+									author.clone(),
+									guild,
+									roles.clone(),
+									event.position(),
+									cx,
+								)
+							}))
+							.child(name.clone())
+					})
 					.children(message.author.account_label().map(|label| {
 						div()
 							.h(px(16.))
@@ -866,7 +1104,15 @@ impl Serein {
 						.child("↪ Forwarded"),
 				);
 			}
-			let body = self.body(&message, cx);
+			let editor = self
+				.editing
+				.as_ref()
+				.filter(|(edit, _)| *edit == message.id)
+				.map(|(_, editor)| editor.clone());
+			let body = match editor {
+				Some(editor) => vec![self.inline_editor(editor, cx)],
+				None => self.body(&message, cx),
+			};
 			content = content.child(
 				div()
 					.flex()
@@ -878,7 +1124,7 @@ impl Serein {
 					.children(body),
 			);
 		}
-		if message.edited {
+		if message.edited && self.editing.as_ref().is_none_or(|(edit, _)| *edit != id) {
 			content = content.child(
 				div()
 					.text_size(px(12.))
@@ -923,7 +1169,10 @@ impl Serein {
 				.group_hover(group.clone(), |s| s.text_color(color(p.muted)))
 				.child(time)
 		} else {
-			div().flex_none().mt(px(2.)).child(avatar(&name, 40.))
+			div()
+				.flex_none()
+				.mt(px(2.))
+				.child(avatar(&name, 40., Some(&message.author)))
 		};
 		let row = div()
 			.id(("message", id.0))
@@ -1003,7 +1252,12 @@ impl Serein {
 			.gap(px(8.))
 			.child(match glyph {
 				Some(glyph) => icon(glyph, px(22.), color(p.muted)).into_any_element(),
-				None => avatar(&name, 24.).into_any_element(),
+				None => avatar(
+					&name,
+					24.,
+					channel.and_then(|c| c.recipients.first().filter(|_| c.recipients.len() == 1)),
+				)
+				.into_any_element(),
 			})
 			.child(
 				div()
@@ -1112,8 +1366,10 @@ impl Serein {
 			.children(pending)
 			.child(
 				div()
+					.relative()
 					.px_4()
 					.pt(px(2.))
+					.children(self.render_picker(cx))
 					.children(reply.map(|name| {
 						div()
 							.px_4()
@@ -1229,6 +1485,33 @@ impl Serein {
 							.size_full(),
 						)
 					})
+					.when(
+						!self.rows.is_empty() && self.messages.is_scrolled_to_end() == Some(false),
+						|d| {
+							d.child(
+								div()
+									.id("jump-to-present")
+									.absolute()
+									.right(px(16.))
+									.bottom(px(12.))
+									.size(px(44.))
+									.rounded_full()
+									.bg(color(p.accent))
+									.shadow_lg()
+									.flex()
+									.items_center()
+									.justify_center()
+									.cursor_pointer()
+									.hover(|d| d.opacity(0.9))
+									.tooltip(tooltip("Jump to present"))
+									.on_click(cx.listener(|this, _, _, cx| {
+										this.messages.scroll_to_end();
+										cx.notify();
+									}))
+									.child(icon(Icon::ArrowDown, px(20.), color(p.accent_text))),
+							)
+						},
+					)
 					.when(self.state.history_pending && !self.rows.is_empty(), |d| {
 						d.child(
 							div()

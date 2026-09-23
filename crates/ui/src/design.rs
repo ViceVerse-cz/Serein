@@ -2892,8 +2892,11 @@ impl CodeColors {
 	}
 }
 pub fn code_colors(ui: &egui::Ui) -> CodeColors {
-	let p = palette(ui);
-	if ui.visuals().dark_mode {
+	code_colors_for(palette(ui), ui.visuals().dark_mode)
+}
+/// Syntax colours for a palette, for renderers without an egui context.
+pub fn code_colors_for(p: Palette, dark: bool) -> CodeColors {
+	if dark {
 		CodeColors {
 			keyword: rgb(0xc792ea),
 			type_name: rgb(0xffcb6b),

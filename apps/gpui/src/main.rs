@@ -1,8 +1,12 @@
 //! Experimental native GPUI frontend; transports and secrets remain in Serein's shared crates.
+mod autocomplete;
 mod backend;
 mod chat;
+mod images;
 mod input;
 mod members;
+mod profile;
+mod settings;
 mod sidebar;
 mod signin;
 mod theme;
@@ -87,6 +91,10 @@ pub(crate) struct Serein {
 	messages: ListState,
 	format: ui::FormatCache,
 	hovered: Option<Id>,
+	profile: Option<profile::Card>,
+	picker: Option<autocomplete::Picker>,
+	/// Inline editor for one of your messages.
+	editing: Option<(Id, Entity<input::Input>)>,
 	/// Messages whose spoilers were revealed by a click; cleared on channel change.
 	revealed: BTreeSet<Id>,
 	/// First unread message when the channel opened; `None` until its history arrives.
@@ -99,6 +107,8 @@ pub(crate) struct Serein {
 	status: &'static str,
 	backend_status: &'static str,
 	authorized: bool,
+	/// Gear button and appearance popover in the user panel.
+	settings: Entity<settings::Menu>,
 	#[cfg(not(target_os = "linux"))]
 	login: Option<platform::LoginView>,
 }
@@ -106,8 +116,34 @@ pub(crate) struct Serein {
 impl Serein {
 	fn new(demo: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
 		let composer = cx.new(input::Input::new);
+		let settings = cx.new(|cx| settings::Menu::new(demo, window, cx));
 		cx.subscribe(&composer, |this, _, _: &input::Submit, cx| this.send(cx))
 			.detach();
+		cx.subscribe_in(
+			&composer,
+			window,
+			|this, _, event: &input::Event, window, cx| match event {
+				input::Event::Cancel => {
+					this.state.reply = None;
+					cx.notify();
+				}
+				input::Event::Changed => this.update_picker(cx),
+				input::Event::Pick(key) => this.pick(*key, cx),
+				input::Event::EditLast => {
+					let me = this.state.user.as_ref().map(|u| u.id);
+					let last = this.rows.iter().rev().copied().find(|id| {
+						this.state
+							.timeline
+							.get_display(*id)
+							.is_some_and(|m| Some(m.author.id) == me)
+					});
+					if let Some(id) = last {
+						this.start_edit(id, window, cx);
+					}
+				}
+			},
+		)
+		.detach();
 		// Wake on backend events, or at a slow tick for notices and the login handoff.
 		// Unchanged wakeups neither redraw nor allocate; a backlog drains in bounded batches.
 		cx.spawn_in(window, async move |this, cx| {
@@ -127,6 +163,8 @@ impl Serein {
 		let state = if demo {
 			test_support::chat_demo_state()
 		} else {
+			// Avatars and previews come from Discord's CDN; the offline preview never fetches.
+			images::init();
 			State::default()
 		};
 		let rows = state.timeline.row_ids().collect::<Vec<_>>();
@@ -159,6 +197,9 @@ impl Serein {
 			member_key: None,
 			format: ui::FormatCache::default(),
 			hovered: None,
+			editing: None,
+			profile: None,
+			picker: None,
 			revealed: BTreeSet::new(),
 			boundary: None,
 			notice: None,
@@ -171,6 +212,7 @@ impl Serein {
 			},
 			backend_status: "",
 			authorized: false,
+			settings,
 			#[cfg(not(target_os = "linux"))]
 			login: None,
 		};
@@ -185,8 +227,8 @@ impl Serein {
 	}
 
 	/// Offline screenshot states: `--demo-channel=ID`, `--demo-dm`, `--demo-reply`,
-	/// `--demo-hover`, `--demo-typing` and `--demo-sign-in`. Synthetic fixtures only.
-	fn apply_demo_flags(&mut self, cx: &mut Context<Self>) {
+	/// `--demo-hover`, `--demo-own-hover`, `--demo-edit`, `--demo-profile`, `--demo-mention`, `--demo-typing` and `--demo-sign-in`. Synthetic fixtures only.
+	fn apply_demo_flags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
 		let args = std::env::args().collect::<Vec<_>>();
 		let flag = |name: &str| args.iter().any(|arg| arg == name);
 		if let Some(id) = args
@@ -221,6 +263,41 @@ impl Serein {
 		}
 		if flag("--demo-hover") {
 			self.hovered = self.rows.iter().rev().nth(1).copied();
+		}
+		if flag("--demo-edit") {
+			let me = self.state.user.as_ref().map(|u| u.id);
+			if let Some(id) = self.rows.iter().rev().copied().find(|id| {
+				self.state
+					.timeline
+					.get_display(*id)
+					.is_some_and(|m| Some(m.author.id) == me)
+			}) {
+				self.start_edit(id, window, cx);
+			}
+		}
+		if flag("--demo-own-hover") {
+			let me = self.state.user.as_ref().map(|u| u.id);
+			self.hovered = self.rows.iter().rev().copied().find(|id| {
+				self.state
+					.timeline
+					.get_display(*id)
+					.is_some_and(|m| Some(m.author.id) == me)
+			});
+		}
+		if flag("--demo-profile")
+			&& let Some(message) = self
+				.rows
+				.first()
+				.and_then(|id| self.state.timeline.get_display(*id))
+		{
+			let guild = self.state.channel(message.channel).and_then(|c| c.guild);
+			let (author, roles) = (message.author.clone(), message.author_roles.clone());
+			self.open_profile(author, guild, roles, point(px(560.), px(260.)), cx);
+		}
+		if flag("--demo-mention") {
+			self.composer
+				.update(cx, |input, cx| input.set_value("Thanks @".into(), cx));
+			self.update_picker(cx);
 		}
 		if flag("--demo-sign-in") {
 			self.state = State::default();
@@ -329,6 +406,7 @@ impl Serein {
 			self.notice = None;
 			changed = true;
 		}
+		changed |= images::drain(window, cx);
 		if navigation_changed {
 			self.sync_channels();
 		}
@@ -479,6 +557,48 @@ impl Serein {
 						result: Ok(message),
 					}
 				}
+				Command::Edit {
+					request,
+					channel,
+					message,
+					content,
+				} => {
+					let result = self
+						.state
+						.timeline
+						.get(message)
+						.cloned()
+						.ok_or(client_core::auth::Failure::Protocol)
+						.map(|mut updated| {
+							updated.content = content;
+							updated.edited = true;
+							updated.edited_at =
+								Some(updated.edited_at.unwrap_or(0).saturating_add(1));
+							updated
+						});
+					Event::Edited {
+						request,
+						channel,
+						message,
+						result,
+					}
+				}
+				Command::Delete { channel, message } => Event::Delete {
+					channel,
+					id: message,
+				},
+				Command::Pin {
+					request,
+					channel,
+					message,
+					pinned,
+				} => Event::Pinned {
+					request,
+					channel,
+					message,
+					pinned,
+					result: Ok(()),
+				},
 				Command::Members {
 					guild,
 					channel: Some(channel),
@@ -548,6 +668,9 @@ impl Serein {
 			self.format.retain(|_| false);
 			self.revealed.clear();
 			self.hovered = None;
+			self.editing = None;
+			self.profile = None;
+			self.picker = None;
 		}
 		cx.notify();
 	}
@@ -560,6 +683,114 @@ impl Serein {
 		};
 		self.composer
 			.update(cx, |input, cx| input.set_placeholder(placeholder, cx));
+	}
+
+	pub(crate) fn start_edit(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
+		let Some(channel) = self.state.selected else {
+			return;
+		};
+		if !self.state.can_edit(channel, id) {
+			return;
+		}
+		let Some(content) = self.state.timeline.get(id).map(|m| m.content.clone()) else {
+			return;
+		};
+		let editor = cx.new(input::Input::new);
+		editor.update(cx, |input, cx| {
+			input.set_placeholder("Edit message".into(), cx);
+			input.set_value(content, cx);
+		});
+		cx.subscribe(&editor, |this, _, _: &input::Submit, cx| this.save_edit(cx))
+			.detach();
+		cx.subscribe_in(
+			&editor,
+			window,
+			|this, _, event: &input::Event, window, cx| {
+				if matches!(event, input::Event::Cancel) {
+					this.cancel_edit(window, cx);
+				}
+			},
+		)
+		.detach();
+		let focus = editor.read(cx).focus_handle(cx);
+		window.focus(&focus, cx);
+		self.editing = Some((id, editor));
+		self.messages.remeasure();
+		cx.notify();
+	}
+
+	pub(crate) fn cancel_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+		self.editing = None;
+		self.messages.remeasure();
+		let focus = self.composer.read(cx).focus_handle(cx);
+		window.focus(&focus, cx);
+		cx.notify();
+	}
+
+	pub(crate) fn save_edit(&mut self, cx: &mut Context<Self>) {
+		let (Some(channel), Some((id, editor))) = (self.state.selected, self.editing.take()) else {
+			return;
+		};
+		let content = editor.read(cx).value().to_owned();
+		let unchanged = self
+			.state
+			.timeline
+			.get(id)
+			.is_some_and(|m| m.content == content);
+		if !unchanged {
+			if content.trim().is_empty() {
+				self.notify_user("Delete the message instead of saving it empty.");
+				self.editing = Some((id, editor));
+				cx.notify();
+				return;
+			}
+			let command = self.state.prepare_edit(channel, id, content);
+			self.dispatch(command);
+		}
+		self.messages.remeasure();
+		cx.notify();
+	}
+
+	/// Deletion is irreversible, so it always asks first.
+	pub(crate) fn confirm_delete(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
+		let Some(channel) = self.state.selected else {
+			return;
+		};
+		let answer = window.prompt(
+			PromptLevel::Warning,
+			"Delete this message?",
+			Some("This cannot be undone."),
+			&["Delete", "Cancel"],
+			cx,
+		);
+		cx.spawn(async move |this, cx| {
+			if answer.await == Ok(0) {
+				let _ = this.update(cx, |this, cx| {
+					let command = this.state.prepare_delete(channel, id);
+					this.dispatch(command);
+					this.sync_rows();
+					cx.notify();
+				});
+			}
+		})
+		.detach();
+	}
+
+	pub(crate) fn toggle_pin(&mut self, id: Id, cx: &mut Context<Self>) {
+		let Some(channel) = self.state.selected else {
+			return;
+		};
+		let pinned = !self.state.is_pinned(channel, id);
+		let command = self.state.prepare_pin(channel, id, pinned);
+		if command.is_some() {
+			self.notify_user(if pinned {
+				"Message pinned"
+			} else {
+				"Message unpinned"
+			});
+		}
+		self.dispatch(command);
+		cx.notify();
 	}
 
 	fn load_older(&mut self, cx: &mut Context<Self>) {
@@ -810,7 +1041,7 @@ impl Render for Serein {
 			.relative()
 			.flex()
 			.flex_col()
-			.bg(color(p.base))
+			.bg(theme::window_background())
 			.font_family(theme::FONT)
 			.text_color(color(p.text))
 			.text_size(px(15.))
@@ -827,6 +1058,7 @@ impl Render for Serein {
 			})
 			.child(body)
 			.children(self.notice_layer(cx))
+			.children(self.render_profile(cx))
 	}
 }
 
@@ -892,7 +1124,7 @@ fn main() {
 					cx.new(|cx| {
 						let mut serein = Serein::new(demo, window, cx);
 						if demo {
-							serein.apply_demo_flags(cx);
+							serein.apply_demo_flags(window, cx);
 						}
 						serein
 					})

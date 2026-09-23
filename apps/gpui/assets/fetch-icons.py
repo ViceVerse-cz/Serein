@@ -21,9 +21,10 @@ icons = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(icons)
 
 NAMES = [
-    "arrow-bend-up-left", "caret-down", "caret-right", "chat-centered-text", "chats", "copy",
-    "download-simple", "file", "file-image", "file-text", "hash", "megaphone-simple",
-    "paper-plane-right", "speaker-high", "users", "x",
+    "arrow-bend-up-left", "arrow-down", "caret-down", "caret-right", "chat-centered-text", "chats",
+    "check", "copy", "download-simple", "file", "file-image", "file-text", "gear", "hash",
+    "megaphone-simple", "paper-plane-right", "pencil-simple", "push-pin", "speaker-high", "trash",
+    "users", "x",
 ]
 
 

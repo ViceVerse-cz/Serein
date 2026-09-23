@@ -2042,6 +2042,12 @@ impl Formatted {
 			block: style.block.map(usize::from),
 		})
 	}
+	/// Highlighted byte ranges of [`Formatted::code_block`] text; empty means plain text.
+	pub fn code_tokens(&self, index: usize) -> &[crate::highlight::Segment] {
+		self.blocks
+			.get(index)
+			.map_or(&[], |block| block.segments.as_slice())
+	}
 	/// Fence tag and tab-expanded text of one fenced code block.
 	pub fn code_block(&self, index: usize) -> Option<(&str, &str)> {
 		self.blocks.get(index).map(|block| {

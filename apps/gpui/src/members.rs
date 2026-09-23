@@ -242,6 +242,7 @@ impl Serein {
 			.child(avatar_with_presence(
 				name,
 				32.,
+				Some(&member.user),
 				status.or(Some("offline")),
 				color(p.sidebar),
 			))

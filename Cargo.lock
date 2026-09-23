@@ -8098,13 +8098,16 @@ dependencies = [
  "futures-util",
  "gpui",
  "gpui_platform",
+ "image",
  "model",
  "platform",
+ "reqwest",
  "test-support",
  "time",
  "tokio",
  "ui",
  "unicode-segmentation",
+ "url",
  "zeroize",
 ]
 

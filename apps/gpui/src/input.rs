@@ -27,6 +27,7 @@ actions!(
 		Cut,
 		Copy,
 		Submit,
+		Cancel,
 		Newline,
 		Up,
 		Down,
@@ -44,6 +45,8 @@ pub struct Input {
 	marked_range: Option<Range<usize>>,
 	last_layout: Vec<(usize, Point<Pixels>, ShapedLine)>,
 	is_selecting: bool,
+	/// Set by the owner while a suggestion list is open.
+	picking: bool,
 }
 
 impl Input {
@@ -57,6 +60,7 @@ impl Input {
 			marked_range: None,
 			last_layout: Vec::new(),
 			is_selecting: false,
+			picking: false,
 		}
 	}
 
@@ -65,6 +69,15 @@ impl Input {
 			self.placeholder = placeholder.into();
 			cx.notify();
 		}
+	}
+
+	pub fn set_picking(&mut self, picking: bool) {
+		self.picking = picking;
+	}
+
+	/// Byte offset of the caret.
+	pub fn cursor(&self) -> usize {
+		self.cursor_offset()
 	}
 
 	pub fn value(&self) -> &str {
@@ -84,8 +97,20 @@ impl Input {
 	}
 
 	fn submit(&mut self, _: &Submit, _: &mut Window, cx: &mut Context<Self>) {
+		if self.picking {
+			cx.emit(Event::Pick(Pick::Accept));
+			return;
+		}
 		if self.marked_range.is_none() {
 			cx.emit(Submit);
+		}
+	}
+
+	fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+		if self.picking {
+			cx.emit(Event::Pick(Pick::Close));
+		} else if self.marked_range.is_none() {
+			cx.emit(Event::Cancel);
 		}
 	}
 
@@ -138,9 +163,21 @@ impl Input {
 	}
 
 	fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
+		if self.picking {
+			cx.emit(Event::Pick(Pick::Up));
+			return;
+		}
+		if self.content.is_empty() {
+			cx.emit(Event::EditLast);
+			return;
+		}
 		self.move_to(self.vertical_offset(false), cx);
 	}
 	fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
+		if self.picking {
+			cx.emit(Event::Pick(Pick::Down));
+			return;
+		}
 		self.move_to(self.vertical_offset(true), cx);
 	}
 	fn select_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
@@ -426,6 +463,7 @@ impl EntityInputHandler for Input {
 		self.selected_range = range.start + new_text.len()..range.start + new_text.len();
 		self.selection_reversed = false;
 		self.marked_range.take();
+		cx.emit(Event::Changed);
 		cx.notify();
 	}
 
@@ -714,6 +752,7 @@ impl Render for Input {
 			.cursor(CursorStyle::IBeam)
 			.on_action(cx.listener(Self::submit))
 			.on_action(cx.listener(Self::newline))
+			.on_action(cx.listener(Self::cancel))
 			.on_action(cx.listener(Self::up))
 			.on_action(cx.listener(Self::down))
 			.on_action(cx.listener(Self::select_up))
@@ -756,6 +795,23 @@ impl Focusable for Input {
 }
 
 impl EventEmitter<Submit> for Input {}
+/// Keys the owner handles: Escape, and Up in an empty input.
+pub enum Event {
+	Cancel,
+	EditLast,
+	/// The text changed through typing, paste or IME.
+	Changed,
+	/// Keys routed to an open suggestion list instead of editing.
+	Pick(Pick),
+}
+#[derive(Clone, Copy)]
+pub enum Pick {
+	Up,
+	Down,
+	Accept,
+	Close,
+}
+impl EventEmitter<Event> for Input {}
 
 pub fn init(cx: &mut App) {
 	cx.bind_keys([
@@ -776,6 +832,7 @@ pub fn init(cx: &mut App) {
 		KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, Some("SereinInput")),
 		KeyBinding::new("enter", Submit, Some("SereinInput")),
 		KeyBinding::new("shift-enter", Newline, Some("SereinInput")),
+		KeyBinding::new("escape", Cancel, Some("SereinInput")),
 		KeyBinding::new("up", Up, Some("SereinInput")),
 		KeyBinding::new("down", Down, Some("SereinInput")),
 		KeyBinding::new("shift-up", SelectUp, Some("SereinInput")),

@@ -10,6 +10,9 @@ gpui = { git = "https://github.com/zed-industries/zed", rev = "96e95edac45b0e069
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "96e95edac45b0e0696179b8139aa521cf48db392", features = ["font-kit"] }
 unicode-segmentation = "1"
 futures-util.workspace = true
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+reqwest.workspace = true
+url.workspace = true
 client-core.workspace = true
 model.workspace = true
 discord-api.workspace = true

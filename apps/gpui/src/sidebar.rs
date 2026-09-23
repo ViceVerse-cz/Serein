@@ -1,5 +1,5 @@
 //! Server rail, channel list with categories and threads, and the account panel.
-use crate::theme::{Icon, color, icon, palette, tint};
+use crate::theme::{Icon, color, icon, palette};
 use crate::{Serein, channel_label, text_channel, tooltip};
 use gpui::{prelude::*, *};
 use model::Id;
@@ -24,12 +24,18 @@ pub fn initials(name: &str) -> String {
 		.collect()
 }
 
-/// Initials on the hashed fallback colour; the main app's circle avatar without an image.
-pub fn avatar(name: &str, size: f32) -> Div {
-	div()
-		.size(px(size))
-		.flex_none()
-		.rounded_full()
+/// The user's CDN avatar once loaded, else initials on the hashed fallback colour.
+pub fn avatar(name: &str, size: f32, user: Option<&model::User>) -> Div {
+	let circle = div().size(px(size)).flex_none().rounded_full();
+	if let Some(image) = user.and_then(|user| crate::images::get(&user.avatar_key())) {
+		return circle.child(
+			img(image)
+				.size_full()
+				.rounded_full()
+				.object_fit(ObjectFit::Cover),
+		);
+	}
+	circle
 		.bg(color(ui::design::fallback_avatar_color(name)))
 		.flex()
 		.items_center()
@@ -50,12 +56,18 @@ pub fn presence_color(status: Option<&str>) -> Option<Rgba> {
 }
 
 /// Avatar with a presence dot ringed in the surface colour, bottom-right.
-pub fn avatar_with_presence(name: &str, size: f32, status: Option<&str>, ring: Rgba) -> Div {
+pub fn avatar_with_presence(
+	name: &str,
+	size: f32,
+	user: Option<&model::User>,
+	status: Option<&str>,
+	ring: Rgba,
+) -> Div {
 	let dot = (size * 0.16).clamp(4., 8.);
 	div()
 		.relative()
 		.flex_none()
-		.child(avatar(name, size))
+		.child(avatar(name, size, user))
 		.children(presence_color(status).map(|fill| {
 			div()
 				.absolute()
@@ -188,6 +200,7 @@ impl Serein {
 				.any(|c| c.guild == Some(id) && self.state.unread_count(c.id) > 0);
 			let label = initials(&guild.name);
 			let size = if label.chars().count() > 1 { 16. } else { 18. };
+			let guild_icon = guild.icon_key().and_then(|key| crate::images::get(&key));
 			guilds.push(self.rail_tile(
 				("guild", id.0),
 				guild.name.clone(),
@@ -195,6 +208,14 @@ impl Serein {
 				unread,
 				move |this, cx| this.select_section(Some(id), cx),
 				move |highlight| {
+					if let Some(image) = &guild_icon {
+						return div().size_full().child(
+							img(image.clone())
+								.size_full()
+								.rounded(px(13.))
+								.object_fit(ObjectFit::Cover),
+						);
+					}
 					div()
 						.size_full()
 						.rounded(px(13.))
@@ -529,6 +550,10 @@ impl Serein {
 			row.child(avatar_with_presence(
 				&name,
 				32.,
+				channel
+					.recipients
+					.first()
+					.filter(|_| channel.recipients.len() == 1),
 				status,
 				color(if selected { p.selected } else { p.sidebar }),
 			))
@@ -622,7 +647,13 @@ impl Serein {
 				.flex()
 				.items_center()
 				.gap_2()
-				.child(avatar_with_presence(&name, 32., presence, color(p.raised)))
+				.child(avatar_with_presence(
+					&name,
+					32.,
+					self.state.user.as_ref(),
+					presence,
+					color(p.raised),
+				))
 				.child(
 					div()
 						.flex_1()
@@ -649,19 +680,7 @@ impl Serein {
 								.child(status),
 						),
 				)
-				.child(
-					div()
-						.px_2()
-						.h(px(22.))
-						.flex()
-						.items_center()
-						.rounded(px(6.))
-						.bg(tint(p.accent, 0.16))
-						.text_size(px(11.))
-						.font_weight(FontWeight::SEMIBOLD)
-						.text_color(color(p.mention_text))
-						.child("GPUI"),
-				),
+				.child(self.settings.clone()),
 		)
 	}
 

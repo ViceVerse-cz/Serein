@@ -14,8 +14,11 @@ Legend: **[x]** done · **[~]** partial · **[ ]** to do
 - [x] Wake-on-event backend polling (no fixed 60 Hz timer), bounded event batches
 - [x] Member-list gateway subscription
 - [x] Transient notices instead of status lines
-- [ ] Typing events forwarded from the gateway
-- [ ] Image downloads (avatars, guild icons, attachments, embeds) with a bounded cache
+- [x] Typing events forwarded from the gateway (separate droppable 8-slot queue)
+- [~] Image downloads with a bounded cache (`images.rs`: 256 items / 32 MiB LRU, 6 jobs, CDN
+      allow-list, fingerprint UA, no redirects): avatars, guild icons and inline image attachments.
+      Not yet: embed images/thumbnails, custom emoji, animated images, spoiler images, ThumbHash
+      placeholders. Untested against the live CDN.
 - [ ] Persisted drafts/settings (main app uses SQLite; the experiment keeps them in memory)
 - [ ] Linux hosted login (GTK webview) — Linux restores saved logins only
 
@@ -47,27 +50,31 @@ Legend: **[x]** done · **[~]** partial · **[ ]** to do
       timestamps)
 - [x] Attachment cards, embed cards (text), reactions (toggle when live)
 - [x] Auto-load older history near the top; mark read at the bottom
-- [ ] Typing indicator above the composer
-- [ ] Edit, delete and pin own messages from the hover toolbar; Up to edit last; Escape cancels
-- [ ] Jump to present when scrolled up
-- [ ] Image/video attachments inline, embed images/thumbnails, custom emoji images
-- [ ] Syntax highlighting in code blocks (the parser already computes segments)
+- [x] Typing indicator below the composer (shared `ui::typing_segments` wording)
+- [x] Edit (inline, Enter/Escape), delete (native confirmation) and pin from the hover toolbar;
+      Up in an empty composer edits your last message; Escape cancels a reply
+- [x] Jump to present when scrolled up
+- [~] Image attachments inline (sized from metadata, click opens after confirmation); video,
+      embed images/thumbnails and custom emoji images still to do
+- [x] Syntax highlighting in code blocks (parser segments + `ui::design::code_colors_for`), Copy
 - [ ] Message components (buttons/selects), polls, stickers
 - [ ] Reaction picker / add reaction, reaction user list
-- [ ] Profile popout on avatar/name click
+- [~] Profile card on author-name click from in-memory data (name, username, status, roles,
+      Mention); no profile fetch, bio or mutual servers yet
 
 ## Composer
 
 - [x] "Message #channel" placeholder, IME, clipboard, send button, reply cap
 - [ ] Attachments / uploads
-- [ ] Emoji picker, mention autocomplete, slash commands
+- [x] `@person` / `#channel` autocomplete (Up/Down, Enter, Escape, click)
+- [ ] Emoji picker and `:shortcode:` suggestions, slash commands
 - [ ] Multi-line growth limits matching the main app
 
 ## People and settings
 
 - [x] Member list: gateway groups, thread/DM grouping, presence, role colours, statuses
 - [ ] Lazy member-list paging beyond the first window
-- [ ] Theme variant and light/dark selection
+- [x] Theme variant, Dark/Light/System and accent presets from the user-panel gear (in memory)
 - [ ] Settings window (notifications, privacy, voice)
 
 ## Not planned in this experiment
@@ -76,6 +83,9 @@ Voice/video calls, screen share, extensions, server administration and the updat
 main egui app.
 
 ## Log
+
+- 2026-09-23: typing indicator, inline edit/delete/pin, jump to present, syntax-highlighted code
+  blocks, profile card, mention/channel autocomplete, bounded image cache, theme settings.
 
 - 2026-09-23: rebased onto `main` (`f420f1f5`); chat design port, login clipboard fix, Zed `main`
   GPUI, wake-on-event polling, shared `test_support::demo_members` fixture.
