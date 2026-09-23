@@ -22,7 +22,9 @@ Legend: **[x]** done · **[~]** partial · **[ ]** to do
       Not yet: animated images, spoiler images, ThumbHash placeholders. Untested against the live CDN.
 - [x] Persisted drafts/settings: appearance, theme, accent, notification opt-in, per-account
       drafts and collapsed categories in the experiment's own `serein-gpui/store.sqlite3`
-      (never the main app's store; `--demo` writes nothing). Window size is not remembered yet
+      (never the main app's store; `--demo` writes nothing). Window size/position/maximized are
+      remembered in `serein-gpui/window.txt` (debounced 1 s + on close; clamped to connected
+      displays and 760x480; toggle under Settings > General). Untested live; unit-tested only
 - [ ] Linux hosted login (GTK webview) — Linux restores saved logins only
 
 ## Sign-in
@@ -31,7 +33,7 @@ Legend: **[x]** done · **[~]** partial · **[ ]** to do
 - [x] Consent checkbox, "Continue with Discord", hosted login with a native header and Cancel
 - [x] Clipboard in the hosted login (Edit menu fix)
 - [ ] Saved-account roster / account switching
-- [x] Log out from the settings popover (confirmation; removes the shared saved login, which
+- [x] Log out from Settings (confirmation; removes the shared saved login, which
       also signs out the main app)
 - [ ] Session-token disclosure
 
@@ -148,10 +150,24 @@ Legend: **[x]** done · **[~]** partial · **[ ]** to do
       as rows, placeholder rows until a chunk arrives), `member_slot` + window lookup, visible
       range sent through `focus_member_ranges` as `Command::Members`; small lists unchanged.
       Untested against a live large guild
-- [x] Theme variant, Dark/Light/System and accent presets from the user-panel gear (remembered locally)
-- [x] Desktop notifications opt-in (settings popover): mentions/DMs from the reducer's filtered
-      queue while the window is inactive or elsewhere; clicking opens the channel. No sounds yet
-- [ ] Settings window (notifications, privacy, voice)
+- [x] Settings modal in the main app's layout (gear, ⌘, or Serein ▸ Settings…): searchable
+      sectioned sidebar, same page names/order/keywords, ESC close control, `--demo-settings=PAGE`
+  - [x] My Account (banner card, Log out / Exit preview)
+  - [x] Profile: display name, pronouns, About Me, profile colour, avatar upload (square crop,
+        256 px PNG), live preview, Save/Cancel with only changed fields sent
+  - [x] Messaging Permissions: spam filter, DM permissions per server, friend requests,
+        connected games; requested once per open. Not yet: section sub-items in the sidebar
+  - [x] Data & Privacy: clear in-memory image cache, clear this account's saved drafts
+  - [x] Appearance: Dark/Light/Sync cards, colour presets, primary colour (hex + quick
+        accents), Layout (sidebar width, Show People). Zoom disabled (px layout)
+  - [x] Chat: hide image/GIF links (with new image/GIF link previews), confirm before opening
+        links, show hidden channels (`--demo-hidden-channels`). Animate GIFs, smooth scrolling
+        and scroll speed shown disabled with reasons
+  - [x] Notifications: desktop alert opt-in; sounds/badges explained as unavailable
+  - [x] Keybinds: live keymap listing with keycaps; rebinding stays in the main app
+  - [x] General: remember window size/position (`serein-gpui/window.txt`, clamped to connected
+        displays); startup/tray shown disabled; graphics info
+  - [x] Voice & Video, Game Activity, Updates, Themes, Extensions: main-app-only notices
 
 ## Not planned in this experiment
 
@@ -159,6 +175,10 @@ Voice/video calls, screen share, extensions, server administration and the updat
 main egui app.
 
 ## Log
+
+- 2026-09-23: rebased onto `main` (`8247fafb`); settings modal rebuilt to match the main app
+  with Account, Profile, Messaging Permissions, Data & Privacy, Appearance, Chat,
+  Notifications, Keybinds and General pages; reading preferences and window size persist.
 
 - 2026-09-23: local persistence (own `serein-gpui/store.sqlite3`: theme, notifications opt-in,
   drafts, collapsed categories), slash commands with option chips and private replies, mute and

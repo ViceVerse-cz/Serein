@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 
 /// Decoded images held in RAM; shown ones are mirrored in the GPU atlas until evicted.
 const MAX_ITEMS: usize = 256;
-const MAX_BYTES: usize = 32 * 1024 * 1024;
+pub const MAX_BYTES: usize = 32 * 1024 * 1024;
 /// Waiting keys cost their text plus bookkeeping.
 const WAITING_BYTES: usize = 64;
 const REQUESTS: usize = 64;
@@ -399,6 +399,26 @@ impl Lru {
 			}
 		}
 	}
+	/// Ready images and the bytes they hold, excluding waiting keys.
+	fn ready(&self) -> (usize, usize) {
+		self.entries
+			.values()
+			.filter(|entry| matches!(entry.slot, Slot::Ready(_)))
+			.fold((0, 0), |(count, bytes), entry| {
+				(count + 1, bytes + entry.bytes)
+			})
+	}
+	/// Empties the cache; ready images move to `evicted` so their textures are released.
+	fn clear(&mut self) {
+		self.order.clear();
+		self.bytes = 0;
+		for (_, entry) in self.entries.drain() {
+			if let Slot::Ready(image) = entry.slot {
+				self.evicted.push(image);
+			}
+		}
+		self.entries.shrink_to_fit();
+	}
 	fn remove(&mut self, key: &str) {
 		if let Some(entry) = self.entries.remove(key) {
 			self.order.remove(&entry.tick);
@@ -480,6 +500,28 @@ pub fn enabled() -> bool {
 /// failure, or when images are disabled.
 pub fn get(key: &str) -> Option<Arc<RenderImage>> {
 	STORE.with_borrow_mut(|store| store.as_mut()?.get(key))
+}
+
+/// Decoded images held and their bytes; `None` when images are disabled (offline preview).
+pub fn usage() -> Option<(usize, usize)> {
+	STORE.with_borrow(|store| store.as_ref().map(|store| store.lru.ready()))
+}
+
+/// Drops every decoded image and releases its texture; shown ones download again. Loads in
+/// flight are discarded when they arrive. Returns how many images were dropped.
+pub fn clear(window: &mut Window, cx: &mut App) -> usize {
+	let evicted = STORE.with_borrow_mut(|store| {
+		let Some(store) = store else {
+			return Vec::new();
+		};
+		store.lru.clear();
+		std::mem::take(&mut store.lru.evicted)
+	});
+	let count = evicted.len();
+	for image in evicted {
+		cx.drop_image(image, Some(window));
+	}
+	count
 }
 
 /// Accepts finished loads and releases evicted textures. Returns whether any image arrived.
@@ -644,5 +686,24 @@ mod tests {
 			lru.bytes,
 			lru.entries.values().map(|entry| entry.bytes).sum::<usize>()
 		);
+	}
+
+	#[test]
+	fn clearing_drops_every_image_and_releases_its_texture() {
+		let mut lru = Lru::default();
+		lru.insert("a".into(), image(16, 16));
+		lru.insert("b".into(), image(8, 8));
+		lru.insert("c".into(), Slot::Waiting(Instant::now()));
+		let (count, bytes) = lru.ready();
+		assert_eq!(count, 2);
+		assert_eq!(bytes, 1 + 16 * 16 * 4 + 1 + 8 * 8 * 4);
+		lru.clear();
+		assert_eq!(lru.ready(), (0, 0));
+		assert!(lru.entries.is_empty() && lru.order.is_empty());
+		assert_eq!(lru.bytes, 0);
+		assert_eq!(lru.evicted.len(), 2);
+		// The cache keeps working afterwards.
+		lru.insert("a".into(), image(4, 4));
+		assert!(lru.touch("a").is_some());
 	}
 }

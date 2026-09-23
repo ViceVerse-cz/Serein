@@ -7,7 +7,6 @@ use model::Id;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const RAIL_WIDTH: f32 = 68.;
-pub const LIST_WIDTH: f32 = 240.;
 /// Visible threads per parent channel, as in the main app.
 const THREADS_PER_CHANNEL: usize = 3;
 
@@ -222,96 +221,12 @@ impl Serein {
 		{
 			self.guild = None;
 		}
-		let state = &self.state;
-		let visible = |c: &&model::Channel| {
-			c.guild == self.guild
-				&& (c.supports_text() || matches!(c.kind, 2 | 13 | 15 | 16))
-				&& !matches!(c.kind, 10..=12)
-				&& state.can_view(c.id)
-		};
-		let mut rows = Vec::new();
-		if self.guild.is_none() {
-			let mut direct = state
-				.channels
-				.iter()
-				.filter(|c| c.guild.is_none() && c.supports_text() && state.can_view(c.id))
-				.collect::<Vec<_>>();
-			// Most recent conversation first, like the main app's DM list.
-			direct.sort_by_key(|c| std::cmp::Reverse(c.last_message.unwrap_or(c.id)));
-			rows.extend(direct.into_iter().map(|c| NavRow::Channel {
-				id: c.id,
-				thread: false,
-			}));
-			self.nav = rows;
-			return;
-		}
-		let mut channels = state.channels.iter().filter(visible).collect::<Vec<_>>();
-		channels.sort_by_key(|c| (matches!(c.kind, 2 | 13), c.position, c.id));
-		let mut categories = state
-			.channels
-			.iter()
-			.filter(|c| c.guild == self.guild && c.kind == 4)
-			.collect::<Vec<_>>();
-		categories.sort_by_key(|c| (c.position, c.id));
-		let threads = |parent: Id| {
-			let mut threads = state
-				.channels
-				.iter()
-				.filter(|c| {
-					c.parent_id == Some(parent) && matches!(c.kind, 10..=12) && state.can_view(c.id)
-				})
-				.collect::<Vec<_>>();
-			threads.sort_by_key(|c| std::cmp::Reverse(c.last_message.unwrap_or(c.id)));
-			threads.truncate(THREADS_PER_CHANNEL);
-			threads
-		};
-		let push = |rows: &mut Vec<NavRow>, channel: &model::Channel, collapsed: bool| {
-			let selected = state.selected == Some(channel.id);
-			if !collapsed || selected {
-				rows.push(NavRow::Channel {
-					id: channel.id,
-					thread: false,
-				});
-			}
-			for thread in threads(channel.id) {
-				if !collapsed || state.selected == Some(thread.id) {
-					rows.push(NavRow::Channel {
-						id: thread.id,
-						thread: true,
-					});
-				}
-			}
-		};
-		for channel in channels.iter().filter(|c| {
-			c.parent_id
-				.is_none_or(|parent| !categories.iter().any(|category| category.id == parent))
-		}) {
-			push(&mut rows, channel, false);
-		}
-		for category in &categories {
-			let children = channels
-				.iter()
-				.filter(|c| c.parent_id == Some(category.id))
-				.collect::<Vec<_>>();
-			if children.is_empty() {
-				continue;
-			}
-			rows.push(NavRow::Category {
-				id: category.id,
-				name: category.name.to_uppercase(),
-			});
-			let collapsed = self.collapsed.contains(&category.id);
-			for channel in children {
-				push(&mut rows, channel, collapsed);
-			}
-		}
-		if self
-			.guild
-			.is_some_and(|guild| state.hides_muted_channels(guild) == Some(true))
-		{
-			retain_unmuted(&mut rows, state);
-		}
-		self.nav = rows;
+		self.nav = nav_rows(
+			&self.state,
+			self.guild,
+			&self.collapsed,
+			self.settings.show_hidden_channels,
+		);
 	}
 
 	/// Per-server rail state in one pass over the channels: lit pill and mention total.
@@ -589,7 +504,14 @@ impl Serein {
 			.into_any_element()
 	}
 
-	fn channel_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
+	/// The channel list follows "Sidebar width", narrowing (not saving) so the conversation
+	/// keeps 260 px, like the main app.
+	pub(crate) fn list_width(&self, window: &Window) -> Pixels {
+		let room = window.viewport_size().width - px(RAIL_WIDTH + 260.);
+		px(f32::from(self.settings.reading.sidebar_width)).min(room.clamp(px(190.), px(360.)))
+	}
+
+	fn channel_list(&self, width: Pixels, cx: &mut Context<Self>) -> impl IntoElement {
 		let p = palette();
 		let title = match self.guild {
 			Some(id) => self
@@ -599,7 +521,7 @@ impl Serein {
 			None => "Direct Messages".into(),
 		};
 		div()
-			.w(px(LIST_WIDTH))
+			.w(width)
 			.h_full()
 			.flex_none()
 			.bg(color(p.sidebar))
@@ -730,15 +652,22 @@ impl Serein {
 		} else {
 			self.state.channel_unread(channel) == Some(true)
 		};
-		let mentions = self.state.mention_count(id);
-		let openable = text_channel(channel) || forum;
-		// Muted rows are dimmed and never show the unread pill, as egui's `channel_marks`.
-		let muted = self.state.channel_access(id).muted();
-		let unread = unread && !muted;
+		// Muted and hidden rows are dimmed and never show the unread pill, as egui's
+		// `channel_marks`; hidden ones (listed by "Show hidden channels") cannot be opened.
+		let access = self.state.channel_access(id);
+		let hidden = access.hidden();
+		let dim = access.dim();
+		let mentions = if hidden {
+			0
+		} else {
+			self.state.mention_count(id)
+		};
+		let openable = (text_channel(channel) || forum) && !hidden;
+		let unread = unread && !dim;
 		let strong = selected || unread;
 		let name = channel_label(channel);
 		let direct = channel.guild.is_none();
-		let text = if muted {
+		let text = if dim {
 			crate::theme::tint(p.muted, 0.6)
 		} else {
 			color(if strong { p.text_strong } else { p.muted })
@@ -757,10 +686,10 @@ impl Serein {
 			.gap(px(if direct { 12. } else { 6. }))
 			.text_color(text)
 			.when(selected, |d| d.bg(color(p.selected)))
-			.when(!selected && !muted, |d| {
+			.when(!selected && !dim, |d| {
 				d.hover(|d| d.bg(color(p.hover)).text_color(color(p.text_strong)))
 			})
-			.when(!selected && muted, |d| d.hover(|d| d.bg(color(p.hover))))
+			.when(!selected && dim, |d| d.hover(|d| d.bg(color(p.hover))))
 			.when(openable, |d| {
 				d.cursor_pointer()
 					.focusable()
@@ -779,7 +708,11 @@ impl Serein {
 				}),
 			)
 			.when(!openable, |d| {
-				d.tooltip(tooltip("Voice is available in the main Serein app"))
+				d.tooltip(tooltip(if hidden {
+					"Hidden · you cannot view this channel"
+				} else {
+					"Voice is available in the main Serein app"
+				}))
 			})
 			.when(unread && !selected, |d| {
 				d.child(
@@ -990,9 +923,14 @@ impl Serein {
 		)
 	}
 
-	pub(crate) fn render_navigation(&self, cx: &mut Context<Self>) -> impl IntoElement {
+	pub(crate) fn render_navigation(
+		&self,
+		window: &Window,
+		cx: &mut Context<Self>,
+	) -> impl IntoElement {
+		let width = self.list_width(window);
 		div()
-			.w(px(RAIL_WIDTH + LIST_WIDTH))
+			.w(px(RAIL_WIDTH) + width)
 			.h_full()
 			.flex_none()
 			.flex()
@@ -1003,17 +941,137 @@ impl Serein {
 					.min_h_0()
 					.flex()
 					.child(self.rail(cx))
-					.child(self.channel_list(cx)),
+					.child(self.channel_list(width, cx)),
 			)
 			.child(self.user_panel(cx))
 			.children(self.render_nav_menu(cx))
 	}
 }
 
+/// Channel-list rows for `guild` (direct messages for `None`). Channels the user cannot view
+/// are listed only with `show_hidden`, like the main app's "Show hidden channels".
+fn nav_rows(
+	state: &client_core::State,
+	guild: Option<Id>,
+	collapsed: &BTreeSet<Id>,
+	show_hidden: bool,
+) -> Vec<NavRow> {
+	let visible = |c: &&model::Channel| {
+		c.guild == guild
+			&& (c.supports_text() || matches!(c.kind, 2 | 13 | 15 | 16))
+			&& !matches!(c.kind, 10..=12)
+			&& (show_hidden || state.can_view(c.id))
+	};
+	let mut rows = Vec::new();
+	if guild.is_none() {
+		let mut direct = state
+			.channels
+			.iter()
+			.filter(|c| c.guild.is_none() && c.supports_text() && state.can_view(c.id))
+			.collect::<Vec<_>>();
+		// Most recent conversation first, like the main app's DM list.
+		direct.sort_by_key(|c| std::cmp::Reverse(c.last_message.unwrap_or(c.id)));
+		rows.extend(direct.into_iter().map(|c| NavRow::Channel {
+			id: c.id,
+			thread: false,
+		}));
+		return rows;
+	}
+	let mut channels = state.channels.iter().filter(visible).collect::<Vec<_>>();
+	channels.sort_by_key(|c| (matches!(c.kind, 2 | 13), c.position, c.id));
+	let mut categories = state
+		.channels
+		.iter()
+		.filter(|c| c.guild == guild && c.kind == 4)
+		.collect::<Vec<_>>();
+	categories.sort_by_key(|c| (c.position, c.id));
+	let threads = |parent: Id| {
+		let mut threads = state
+			.channels
+			.iter()
+			.filter(|c| {
+				c.parent_id == Some(parent)
+					&& matches!(c.kind, 10..=12)
+					&& (show_hidden || state.can_view(c.id))
+			})
+			.collect::<Vec<_>>();
+		threads.sort_by_key(|c| std::cmp::Reverse(c.last_message.unwrap_or(c.id)));
+		threads.truncate(THREADS_PER_CHANNEL);
+		threads
+	};
+	let push = |rows: &mut Vec<NavRow>, channel: &model::Channel, collapsed: bool| {
+		let selected = state.selected == Some(channel.id);
+		if !collapsed || selected {
+			rows.push(NavRow::Channel {
+				id: channel.id,
+				thread: false,
+			});
+		}
+		for thread in threads(channel.id) {
+			if !collapsed || state.selected == Some(thread.id) {
+				rows.push(NavRow::Channel {
+					id: thread.id,
+					thread: true,
+				});
+			}
+		}
+	};
+	for channel in channels.iter().filter(|c| {
+		c.parent_id
+			.is_none_or(|parent| !categories.iter().any(|category| category.id == parent))
+	}) {
+		push(&mut rows, channel, false);
+	}
+	for category in &categories {
+		let children = channels
+			.iter()
+			.filter(|c| c.parent_id == Some(category.id))
+			.collect::<Vec<_>>();
+		if children.is_empty() && !show_hidden {
+			continue;
+		}
+		rows.push(NavRow::Category {
+			id: category.id,
+			name: category.name.to_uppercase(),
+		});
+		let collapsed = collapsed.contains(&category.id);
+		for channel in children {
+			push(&mut rows, channel, collapsed);
+		}
+	}
+	if guild.is_some_and(|guild| state.hides_muted_channels(guild) == Some(true)) {
+		retain_unmuted(&mut rows, state);
+	}
+	rows
+}
+
 #[cfg(test)]
 mod tests {
-	use super::{NavRow, badge_label, home_label, retain_unmuted};
+	use super::{NavRow, badge_label, home_label, nav_rows, retain_unmuted};
 	use model::Id;
+	use std::collections::BTreeSet;
+
+	#[test]
+	fn hidden_channels_are_listed_only_when_opted_in() {
+		let mut state = test_support::chat_demo_state();
+		test_support::seed_access_marks(&mut state);
+		// #secret (62) denies @everyone; #staff-notes (61) is allowed through a role.
+		assert!(!state.can_view(Id(62)) && state.can_view(Id(61)));
+		let ids = |show_hidden| {
+			nav_rows(&state, Some(Id(10)), &BTreeSet::new(), show_hidden)
+				.iter()
+				.map(|row| match row {
+					NavRow::Category { id, .. } | NavRow::Channel { id, .. } => id.0,
+				})
+				.collect::<Vec<_>>()
+		};
+		let visible = ids(false);
+		assert!(visible.contains(&60) && visible.contains(&61));
+		assert!(!visible.contains(&62));
+		let all = ids(true);
+		assert!(all.contains(&62));
+		assert!(all.len() > visible.len());
+	}
 
 	#[test]
 	fn hiding_muted_channels_drops_them_and_their_empty_category() {

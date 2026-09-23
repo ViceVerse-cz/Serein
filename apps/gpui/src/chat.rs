@@ -6,6 +6,7 @@ use client_core::State;
 use gpui::{prelude::*, *};
 use model::{Id, Message};
 use std::ops::Range;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Consecutive messages from one author within this window share a header.
 const GROUP_SECONDS: i64 = 300;
@@ -559,11 +560,87 @@ fn embed_media(media: &model::EmbedMedia, bounds: (u32, u32)) -> Option<AnyEleme
 	)
 }
 
+/// "Confirm before opening links", mirrored from the reading preferences.
+static CONFIRM_LINKS: AtomicBool = AtomicBool::new(true);
+
+pub(crate) fn set_confirm_links(on: bool) {
+	CONFIRM_LINKS.store(on, Ordering::Relaxed);
+}
+
+/// HTTPS on Discord's own domains; like the main app, these open without asking.
+fn discord_link(url: &str) -> bool {
+	url::Url::parse(url).is_ok_and(|url| {
+		url.scheme() == "https"
+			&& url.port().is_none()
+			&& url.host_str().is_some_and(|host| {
+				[
+					"discord.com",
+					"discord.gg",
+					"discordapp.com",
+					"discordapp.net",
+				]
+				.iter()
+				.any(|domain| {
+					host == *domain
+						|| host
+							.strip_suffix(domain)
+							.is_some_and(|prefix| prefix.ends_with('.'))
+				})
+			})
+	})
+}
+
+/// Image and GIF embeds the main app shows as a bare preview, when this frontend can load it.
+fn inline_image(embed: &model::Embed) -> Option<&model::EmbedMedia> {
+	matches!(embed.kind.as_str(), "image" | "gifv")
+		.then(|| embed.image.as_ref().or(embed.thumbnail.as_ref()))
+		.flatten()
+		.filter(|media| crate::images::media_key(media).is_some())
+}
+
+/// The message is nothing but links whose image or GIF previews are shown, as the main app's
+/// `standalone_media_links`; spoilers and suppressed embeds keep the text.
+fn standalone_media_links(message: &Message) -> bool {
+	let attachment_spoilers = message.attachments.iter().any(|a| {
+		a.spoiler
+			|| a.filename.starts_with("SPOILER_")
+			|| a.description.as_deref().is_some_and(|s| s.contains("||"))
+	});
+	let embed_spoilers = message.embeds.iter().any(|e| {
+		[&e.title, &e.description]
+			.into_iter()
+			.flatten()
+			.any(|s| s.contains("||"))
+			|| e.fields
+				.iter()
+				.any(|f| f.name.contains("||") || f.value.contains("||"))
+	});
+	!message.embeds_suppressed
+		&& !message.content.contains("||")
+		&& !attachment_spoilers
+		&& !embed_spoilers
+		&& !message.content.trim().is_empty()
+		&& message.content.split_whitespace().all(|link| {
+			message.embeds.iter().any(|embed| {
+				inline_image(embed).is_some()
+					&& (embed.url.as_deref() == Some(link)
+						|| [&embed.image, &embed.thumbnail]
+							.into_iter()
+							.flatten()
+							.any(|media| media.url.as_deref() == Some(link)))
+			})
+		})
+}
+
 pub(crate) fn confirm_open_link(url: String, window: &mut Window, cx: &mut App) {
 	confirm_open(url, window, cx)
 }
 
 fn confirm_open(url: String, window: &mut Window, cx: &mut App) {
+	if !CONFIRM_LINKS.load(Ordering::Relaxed) || discord_link(&url) {
+		cx.open_url(&url);
+		return;
+	}
 	let answer = window.prompt(
 		PromptLevel::Info,
 		"Open this link in your browser?",
@@ -935,6 +1012,9 @@ impl Serein {
 
 	fn embed(&self, embed: &model::Embed) -> Option<impl IntoElement> {
 		let p = palette();
+		if let Some(media) = inline_image(embed) {
+			return embed_media(media, (400, 300)).map(|preview| div().child(preview));
+		}
 		if embed.title.is_none()
 			&& embed.description.is_none()
 			&& embed.fields.is_empty()
@@ -1377,6 +1457,13 @@ impl Serein {
 				.map(|(_, editor)| editor.clone());
 			let body = match editor {
 				Some(editor) => vec![self.inline_editor(editor, cx)],
+				// "Hide image and GIF links": the previews below stand in for the text.
+				None if self.settings.reading.hide_media_links
+					&& crate::images::enabled()
+					&& standalone_media_links(&message) =>
+				{
+					Vec::new()
+				}
 				None => self.body(&message, cx),
 			};
 			content = content.child(
@@ -1911,7 +1998,10 @@ impl Serein {
 #[cfg(test)]
 mod tests {
 	// Not a glob import: `gpui::*` would shadow the built-in `#[test]` attribute.
-	use super::{GROUP_SECONDS, continues, custom_emoji_names, format_size, preview_text};
+	use super::{
+		GROUP_SECONDS, continues, custom_emoji_names, discord_link, format_size, preview_text,
+		standalone_media_links,
+	};
 	use client_core::State;
 	use model::{Id, Message};
 
@@ -1965,6 +2055,55 @@ mod tests {
 			custom_emoji_names("<:x:1> <:bad name:2>"),
 			"<:x:1> <:bad name:2>"
 		);
+	}
+
+	#[test]
+	fn only_https_discord_links_skip_the_confirmation() {
+		assert!(discord_link("https://discord.com/channels/1/2/3"));
+		assert!(discord_link("https://ptb.discord.com/invite/x"));
+		assert!(discord_link("https://discord.gg/serein"));
+		assert!(!discord_link("http://discord.com/channels/1/2"));
+		assert!(!discord_link("https://discord.com:8443/"));
+		assert!(!discord_link("https://notdiscord.com/"));
+		assert!(!discord_link("https://discord.com.example.org/"));
+	}
+
+	#[test]
+	fn media_links_hide_only_beside_their_shown_preview() {
+		let mut message = test_support::message(1, Id(1));
+		let proxy = "https://images-ext-1.discordapp.net/external/abcdefghijklmnopqrstuvwxyz/x.gif";
+		message.content = "https://klipy.com/gifs/waving-lizard".into();
+		message.embeds = vec![model::Embed {
+			kind: "gifv".into(),
+			url: Some(message.content.clone()),
+			thumbnail: Some(model::EmbedMedia {
+				proxy_url: Some(proxy.into()),
+				..Default::default()
+			}),
+			..Default::default()
+		}];
+		assert!(standalone_media_links(&message));
+		message.embeds_suppressed = true;
+		assert!(!standalone_media_links(&message));
+		message.embeds_suppressed = false;
+		message.content.insert_str(0, "Hello! ");
+		assert!(!standalone_media_links(&message));
+		message.content = message.embeds[0].url.clone().unwrap();
+		message.content.push_str(" ||spoiler||");
+		assert!(!standalone_media_links(&message));
+		message.content = message.embeds[0].url.clone().unwrap();
+		// A preview this frontend cannot load keeps the link visible.
+		message.embeds[0].thumbnail = Some(model::EmbedMedia {
+			proxy_url: Some("https://example.com/x.gif".into()),
+			..Default::default()
+		});
+		assert!(!standalone_media_links(&message));
+		message.embeds[0].thumbnail = Some(model::EmbedMedia {
+			proxy_url: Some(proxy.into()),
+			..Default::default()
+		});
+		message.embeds[0].kind = "rich".into();
+		assert!(!standalone_media_links(&message));
 	}
 
 	#[test]

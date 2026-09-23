@@ -7,7 +7,7 @@ pub fn color(value: egui::Color32) -> Rgba {
 	let [r, g, b, a] = value.to_srgba_unmultiplied();
 	rgba((u32::from(r) << 24) | (u32::from(g) << 16) | (u32::from(b) << 8) | u32::from(a))
 }
-/// Light/dark preference, labelled like the egui settings; `System` follows the window.
+/// Light/dark preference; `System` follows the window.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Appearance {
 	Dark,
@@ -16,13 +16,6 @@ pub enum Appearance {
 }
 impl Appearance {
 	pub const ALL: [Self; 3] = [Self::Dark, Self::Light, Self::System];
-	pub fn label(self) -> &'static str {
-		match self {
-			Self::Dark => "Dark",
-			Self::Light => "Light",
-			Self::System => "System",
-		}
-	}
 	fn is_dark(self, system_dark: bool) -> bool {
 		match self {
 			Self::Dark => true,

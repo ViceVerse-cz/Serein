@@ -559,6 +559,12 @@ impl Serein {
 		// `--demo-mute-menu`/`--demo-notification-menu` open the channel menu's submenus,
 		// `--demo-category-menu`, `--demo-dm-menu`, `--demo-group-menu` and
 		// `--demo-friend-menu` the other menus, `--demo-add-friend` the Add Friend tab.
+		// `--demo-hidden-channels` adds the access fixture and turns on "Show hidden channels".
+		if flag("--demo-hidden-channels") {
+			test_support::seed_access_marks(&mut self.state);
+			self.settings.show_hidden_channels = true;
+			self.sync_channels();
+		}
 		if flag("--demo-hide-muted") {
 			let command = self.state.request_channel_action(
 				Id(20),
@@ -1119,6 +1125,11 @@ impl Serein {
 					pinned,
 					result: Ok(()),
 				},
+				Command::EditProfile {
+					user,
+					request,
+					changes,
+				} => settings::demo_profile_edit(&self.state, user, request, changes),
 				Command::Members {
 					guild,
 					channel: Some(channel),
@@ -1666,7 +1677,7 @@ impl Render for Serein {
 					.flex_1()
 					.min_h_0()
 					.flex()
-					.child(self.render_navigation(cx))
+					.child(self.render_navigation(window, cx))
 					.map(|d| {
 						if self.friends_visible() {
 							d.child(self.render_friends(cx))
@@ -1780,11 +1791,46 @@ fn main() {
 				}
 			})
 			.detach();
-			let bounds = Bounds::centered(None, size(px(1180.), px(780.)), cx);
+			// "Remember window size": the offline preview never reads the file.
+			let memory = (!demo)
+				.then(dirs::data_local_dir)
+				.flatten()
+				.map(|dir| persist::load_window(&persist::window_path(&dir)));
+			let displays = cx
+				.primary_display()
+				.into_iter()
+				.chain(cx.displays())
+				.collect::<Vec<_>>();
+			let areas = displays
+				.iter()
+				.map(|d| (d.uuid().ok().map(|u| u.to_string()), d.visible_bounds()))
+				.collect::<Vec<_>>();
+			let placement = memory
+				.as_ref()
+				.filter(|memory| memory.remember)
+				.and_then(|memory| memory.placement.as_ref());
+			let (display_id, window_bounds) = match placement
+				.and_then(|saved| Some((saved, persist::place_window(saved, &areas)?)))
+			{
+				Some((saved, (index, bounds))) => (
+					Some(displays[index].id()),
+					if saved.maximized {
+						WindowBounds::Maximized(bounds)
+					} else {
+						WindowBounds::Windowed(bounds)
+					},
+				),
+				None => (
+					None,
+					WindowBounds::Windowed(Bounds::centered(None, size(px(1180.), px(780.)), cx)),
+				),
+			};
+			let (min_width, min_height) = persist::MIN_WINDOW;
 			let result = cx.open_window(
 				WindowOptions {
-					window_bounds: Some(WindowBounds::Windowed(bounds)),
-					window_min_size: Some(size(px(760.), px(480.))),
+					window_bounds: Some(window_bounds),
+					display_id,
+					window_min_size: Some(size(px(min_width), px(min_height))),
 					titlebar: Some(TitlebarOptions {
 						title: Some("Serein".into()),
 						appears_transparent: true,
@@ -1798,6 +1844,13 @@ fn main() {
 						if demo {
 							serein.apply_demo_flags(window, cx);
 						}
+						if let Some(memory) = memory {
+							serein.restore_window_memory(memory);
+						}
+						cx.observe_window_bounds(window, |this, window, cx| {
+							this.window_bounds_changed(window, cx)
+						})
+						.detach();
 						serein
 					})
 				},

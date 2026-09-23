@@ -1,5 +1,5 @@
 //! Local persistence for the experiment: appearance, theme, accent, the notification opt-in,
-//! and per-account drafts and collapsed categories.
+//! reading and channel-list choices, and per-account drafts and collapsed categories.
 //!
 //! The experiment keeps its own SQLite file beside, never inside, the main app's store, so it
 //! cannot change the egui app's data. One worker thread owns the database behind bounded
@@ -9,7 +9,7 @@
 use crate::theme::{self, Appearance};
 use gpui::{App, Context, Window};
 use local_store::{AppPreferences, LocalStore, StoreError};
-use model::{ChannelPreferences, Id};
+use model::{ChannelPreferences, Id, ReadingPreferences};
 use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},
 	hash::{DefaultHasher, Hash, Hasher},
@@ -36,6 +36,8 @@ pub struct Settings {
 	pub variant: Variant,
 	pub accent: Option<[u8; 3]>,
 	pub notifications: bool,
+	pub reading: ReadingPreferences,
+	pub show_hidden_channels: bool,
 }
 impl Default for Settings {
 	fn default() -> Self {
@@ -44,16 +46,23 @@ impl Default for Settings {
 			variant: Variant::Standard,
 			accent: None,
 			notifications: false,
+			reading: ReadingPreferences::default(),
+			show_hidden_channels: false,
 		}
 	}
 }
 impl Settings {
-	fn current(notifications: bool) -> Self {
+	fn current(view: &crate::Serein) -> Self {
+		let mut reading = view.settings.reading;
+		// The header's People button toggles the member list directly.
+		reading.show_members = view.members_open;
 		Self {
 			appearance: theme::appearance(),
 			variant: ui::design::variant(),
 			accent: ui::design::primary_color(),
-			notifications,
+			notifications: view.settings.notifications,
+			reading,
+			show_hidden_channels: view.settings.show_hidden_channels,
 		}
 	}
 	fn apply(self) {
@@ -98,6 +107,10 @@ enum Command {
 		categories: Vec<Id>,
 	},
 	Forget(Id),
+	/// Deletes the account's stored drafts, keeping its other local data.
+	ClearDrafts(Id),
+	/// Written to the window file beside the store, not to SQLite.
+	Window(WindowMemory),
 }
 
 enum Reply {
@@ -109,6 +122,7 @@ enum Reply {
 		problem: Option<&'static str>,
 	},
 	Problem(&'static str),
+	DraftsCleared(usize),
 }
 
 struct Link {
@@ -132,6 +146,7 @@ pub struct Persist {
 	debounce: Debounce,
 	notice: Option<&'static str>,
 	long_draft_noticed: bool,
+	window: WindowState,
 }
 
 impl Persist {
@@ -147,6 +162,7 @@ impl Persist {
 			debounce: Debounce::default(),
 			notice: None,
 			long_draft_noticed: false,
+			window: WindowState::default(),
 		};
 		if demo {
 			return this;
@@ -308,8 +324,15 @@ fn run(
 		}
 		Err(problem) => return reply(Reply::Problem(problem)),
 	};
+	let window_file = path.with_file_name(WINDOW_FILE);
 	while let Ok(command) = commands.recv() {
-		if let Some(answer) = execute(&mut store, command) {
+		let answer = match command {
+			Command::Window(memory) => save_window(&window_file, &memory)
+				.err()
+				.map(|_| Reply::Problem("Could not save the window size.")),
+			command => execute(&mut store, command),
+		};
+		if let Some(answer) = answer {
 			reply(answer);
 		}
 	}
@@ -351,7 +374,11 @@ fn load_settings(store: &LocalStore) -> Settings {
 			.and_then(Variant::from_key)
 			.unwrap_or(Variant::Standard),
 		accent: preferences.as_ref().and_then(|p| p.primary_color),
-		notifications: preferences.is_some_and(|p| p.notifications_enabled),
+		notifications: preferences
+			.as_ref()
+			.is_some_and(|p| p.notifications_enabled),
+		reading: store.reading_preferences().unwrap_or_default(),
+		show_hidden_channels: preferences.is_some_and(|p| p.show_hidden_channels),
 	}
 }
 
@@ -370,14 +397,16 @@ fn save_settings(store: &LocalStore, settings: Settings) -> Result<(), StoreErro
 	});
 	preferences.primary_color = settings.accent;
 	preferences.notifications_enabled = settings.notifications;
-	store.save_app_preferences(&preferences)
+	preferences.show_hidden_channels = settings.show_hidden_channels;
+	store.save_app_preferences(&preferences)?;
+	store.save_reading_preferences(settings.reading)
 }
 
 fn execute(store: &mut LocalStore, command: Command) -> Option<Reply> {
 	match command {
 		Command::Settings(settings) => save_settings(store, settings)
 			.err()
-			.map(|_| Reply::Problem("Could not save appearance settings.")),
+			.map(|_| Reply::Problem("Could not save your settings.")),
 		Command::Load(account) => {
 			let drafts = store.load_drafts(account);
 			let preferences = store.channel_preferences(account);
@@ -426,6 +455,9 @@ fn execute(store: &mut LocalStore, command: Command) -> Option<Reply> {
 			.forget_account(account)
 			.err()
 			.map(|_| Reply::Problem("Could not remove this account's local drafts.")),
+		Command::ClearDrafts(account) => Some(clear_drafts(store, account)),
+		// `run` writes the window file; the database never holds it.
+		Command::Window(_) => None,
 	}
 }
 
@@ -440,6 +472,9 @@ impl crate::Serein {
 					settings.apply();
 					self.settings.notifications = settings.notifications;
 					self.alerts.set_enabled(settings.notifications);
+					self.apply_reading(settings.reading);
+					self.settings.show_hidden_channels = settings.show_hidden_channels;
+					self.sync_channels();
 					self.persist.settings = Some(settings);
 					window.refresh();
 					changed = true;
@@ -461,6 +496,14 @@ impl crate::Serein {
 				}
 				Reply::Problem(problem) => {
 					self.notify_user(problem);
+					changed = true;
+				}
+				Reply::DraftsCleared(count) => {
+					self.notify_user(match count {
+						0 => "No saved drafts to clear.".to_owned(),
+						1 => "Cleared 1 saved draft.".to_owned(),
+						count => format!("Cleared {count} saved drafts."),
+					});
 					changed = true;
 				}
 			}
@@ -488,11 +531,14 @@ impl crate::Serein {
 
 	/// Queues whatever differs from the store; `flush` skips the draft debounce (switch, quit).
 	pub(crate) fn queue_persist(&mut self, flush: bool, cx: &App) {
+		if flush {
+			self.persist.flush_window();
+		}
 		if !self.persist.enabled() {
 			return;
 		}
 		if let Some(saved) = self.persist.settings {
-			let current = Settings::current(self.settings.notifications);
+			let current = Settings::current(self);
 			if current != saved && self.persist.send(Command::Settings(current)) {
 				self.persist.settings = Some(current);
 			}
@@ -564,11 +610,350 @@ impl crate::Serein {
 	}
 }
 
+/// Deletes every stored draft of `account`; its categories and the settings stay.
+fn clear_drafts(store: &mut LocalStore, account: Id) -> Reply {
+	const PROBLEM: &str = "Could not clear the saved drafts.";
+	let Ok(drafts) = store.load_drafts(account) else {
+		return Reply::Problem(PROBLEM);
+	};
+	for channel in drafts.keys() {
+		if store.save_draft(account, *channel, "").is_err() {
+			return Reply::Problem(PROBLEM);
+		}
+	}
+	Reply::DraftsCleared(drafts.len())
+}
+
+// Window size memory. The bounds live in a small text file beside the store, written by the
+// store worker; `main` reads it once before opening the window. The offline preview never
+// reads or writes it.
+
+/// File beside `store.sqlite3` in the experiment's own data directory.
+const WINDOW_FILE: &str = "window.txt";
+const WINDOW_HEADER: &str = "serein-gpui window 1";
+/// Longest window file read at startup.
+const MAX_WINDOW_FILE: u64 = 512;
+/// Bounds are written once the window has rested this long, and when it closes.
+const WINDOW_DEBOUNCE: Duration = Duration::from_secs(1);
+/// The window's minimum size, as `main` passes it to GPUI.
+pub const MIN_WINDOW: (f32, f32) = (760., 480.);
+/// Coordinates beyond this are corrupt, not a real display arrangement.
+const MAX_COORDINATE: f32 = 100_000.;
+
+/// Whether to reopen at the last size, and where that was.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WindowMemory {
+	pub remember: bool,
+	pub placement: Option<Placement>,
+}
+impl Default for WindowMemory {
+	fn default() -> Self {
+		Self {
+			remember: true,
+			placement: None,
+		}
+	}
+}
+
+/// Restore bounds in GPUI's display-relative logical pixels, and the display's UUID.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Placement {
+	pub display: Option<String>,
+	pub bounds: gpui::Bounds<gpui::Pixels>,
+	pub maximized: bool,
+}
+
+#[derive(Default)]
+struct WindowState {
+	memory: WindowMemory,
+	/// Latest bounds not yet queued, and when they last changed.
+	pending: Option<(Placement, Instant)>,
+	/// A debounce task is waiting to write `pending`.
+	timer: bool,
+}
+
+/// `serein-gpui/window.txt` in the platform data directory.
+pub fn window_path(data_dir: &Path) -> PathBuf {
+	store_path(data_dir).with_file_name(WINDOW_FILE)
+}
+
+/// The remembered window, read once at startup; defaults when absent or unreadable.
+pub fn load_window(path: &Path) -> WindowMemory {
+	use std::io::Read;
+	let mut text = String::new();
+	let read = std::fs::File::open(path)
+		.and_then(|file| file.take(MAX_WINDOW_FILE).read_to_string(&mut text));
+	match read {
+		Ok(_) => parse_window(&text),
+		Err(_) => WindowMemory::default(),
+	}
+}
+
+fn valid_display(id: &str) -> bool {
+	(1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
+}
+
+fn parse_window(text: &str) -> WindowMemory {
+	let mut lines = text.lines();
+	if lines.next() != Some(WINDOW_HEADER) {
+		return WindowMemory::default();
+	}
+	let mut memory = WindowMemory::default();
+	let mut display = None;
+	let mut maximized = false;
+	let mut bounds = None;
+	for line in lines {
+		let mut words = line.split_ascii_whitespace();
+		match (words.next(), words.next()) {
+			(Some("remember"), Some(value)) => memory.remember = value != "0",
+			(Some("display"), Some(id)) if valid_display(id) => display = Some(id.to_owned()),
+			(Some("maximized"), Some(value)) => maximized = value == "1",
+			(Some("bounds"), Some(x)) => {
+				let values = std::iter::once(x)
+					.chain(words.by_ref())
+					.map(str::parse::<f32>)
+					.collect::<Result<Vec<_>, _>>();
+				if let Ok(&[x, y, width, height]) = values.as_deref()
+					&& [x, y, width, height]
+						.iter()
+						.all(|v| v.is_finite() && v.abs() <= MAX_COORDINATE)
+					&& width >= 1. && height >= 1.
+				{
+					bounds = Some(gpui::Bounds::new(
+						gpui::point(gpui::px(x), gpui::px(y)),
+						gpui::size(gpui::px(width), gpui::px(height)),
+					));
+				}
+			}
+			_ => {}
+		}
+	}
+	memory.placement = bounds.map(|bounds| Placement {
+		display,
+		bounds,
+		maximized,
+	});
+	memory
+}
+
+fn format_window(memory: &WindowMemory) -> String {
+	let mut text = format!("{WINDOW_HEADER}\nremember {}\n", u8::from(memory.remember));
+	if let Some(placement) = &memory.placement {
+		let b = placement.bounds;
+		if let Some(display) = placement.display.as_deref().filter(|id| valid_display(id)) {
+			text.push_str(&format!("display {display}\n"));
+		}
+		text.push_str(&format!(
+			"maximized {}\nbounds {} {} {} {}\n",
+			u8::from(placement.maximized),
+			f32::from(b.origin.x).round(),
+			f32::from(b.origin.y).round(),
+			f32::from(b.size.width).round(),
+			f32::from(b.size.height).round(),
+		));
+	}
+	text
+}
+
+/// Replaces the file atomically so a crash mid-write keeps the previous bounds.
+fn save_window(path: &Path, memory: &WindowMemory) -> std::io::Result<()> {
+	let staging = path.with_extension("txt.tmp");
+	std::fs::write(&staging, format_window(memory))?;
+	std::fs::rename(&staging, path)
+}
+
+/// Where to reopen: on the remembered display when it is still connected, otherwise centred
+/// on the first display (the primary). The size keeps the window minimum and fits the
+/// display's visible area; the window is moved fully onto it. `None` without displays.
+pub fn place_window(
+	saved: &Placement,
+	displays: &[(Option<String>, gpui::Bounds<gpui::Pixels>)],
+) -> Option<(usize, gpui::Bounds<gpui::Pixels>)> {
+	use gpui::{Bounds, point, px, size};
+	let found = saved.display.as_ref().and_then(|id| {
+		displays
+			.iter()
+			.position(|(display, _)| display.as_ref() == Some(id))
+	});
+	let index = found.or((!displays.is_empty()).then_some(0))?;
+	let area = displays[index].1;
+	let fit = |value: f32, minimum: f32, room: f32| value.max(minimum).min(room.max(minimum));
+	let width = fit(
+		f32::from(saved.bounds.size.width),
+		MIN_WINDOW.0,
+		f32::from(area.size.width),
+	);
+	let height = fit(
+		f32::from(saved.bounds.size.height),
+		MIN_WINDOW.1,
+		f32::from(area.size.height),
+	);
+	let (left, top) = (f32::from(area.origin.x), f32::from(area.origin.y));
+	let (right, bottom) = (
+		left + f32::from(area.size.width),
+		top + f32::from(area.size.height),
+	);
+	let (x, y) = if found.is_some() {
+		(
+			f32::from(saved.bounds.origin.x),
+			f32::from(saved.bounds.origin.y),
+		)
+	} else {
+		(
+			left + (f32::from(area.size.width) - width) / 2.,
+			top + (f32::from(area.size.height) - height) / 2.,
+		)
+	};
+	let x = x.min(right - width).max(left);
+	let y = y.min(bottom - height).max(top);
+	Some((
+		index,
+		Bounds::new(point(px(x), px(y)), size(px(width), px(height))),
+	))
+}
+
+impl Persist {
+	/// Queues the latest window bounds, if any changed since the last write.
+	fn flush_window(&mut self) {
+		let Some((placement, changed)) = self.window.pending.take() else {
+			return;
+		};
+		if !self.enabled() || !self.window.memory.remember {
+			return;
+		}
+		let memory = WindowMemory {
+			remember: true,
+			placement: Some(placement),
+		};
+		if self.send(Command::Window(memory.clone())) {
+			self.window.memory = memory;
+		} else if self.enabled() {
+			// A full queue: keep it for the next change or the close.
+			self.window.pending = memory.placement.map(|placement| (placement, changed));
+		}
+	}
+
+	/// Whether "Remember window size" is on.
+	pub fn remember_window(&self) -> bool {
+		self.window.memory.remember
+	}
+
+	/// Whether the window size can be saved at all (never in the offline preview).
+	pub fn saves_window(&self) -> bool {
+		self.enabled()
+	}
+}
+
+fn placement(window: &Window, cx: &App) -> Placement {
+	let (bounds, maximized) = match window.window_bounds() {
+		gpui::WindowBounds::Maximized(bounds) => (bounds, true),
+		other => (other.get_bounds(), false),
+	};
+	Placement {
+		display: window
+			.display(cx)
+			.and_then(|display| display.uuid().ok())
+			.map(|uuid| uuid.to_string()),
+		bounds,
+		maximized,
+	}
+}
+
+impl crate::Serein {
+	/// The window file as `main` read it at startup.
+	pub(crate) fn restore_window_memory(&mut self, memory: WindowMemory) {
+		self.persist.window.memory = memory;
+	}
+
+	/// Records moved or resized bounds and writes them once the window rests.
+	pub(crate) fn window_bounds_changed(&mut self, window: &Window, cx: &mut Context<Self>) {
+		if !self.persist.enabled() || !self.persist.window.memory.remember {
+			return;
+		}
+		let current = placement(window, cx);
+		if self.persist.window.pending.is_none()
+			&& self.persist.window.memory.placement.as_ref() == Some(&current)
+		{
+			return;
+		}
+		self.persist.window.pending = Some((current, Instant::now()));
+		if self.persist.window.timer {
+			return;
+		}
+		self.persist.window.timer = true;
+		cx.spawn(async move |this, cx| {
+			loop {
+				cx.background_executor().timer(WINDOW_DEBOUNCE).await;
+				let rested = this.update(cx, |this, _| {
+					let state = &mut this.persist.window;
+					let rested = state
+						.pending
+						.as_ref()
+						.is_none_or(|(_, at)| at.elapsed() >= WINDOW_DEBOUNCE);
+					if rested {
+						state.timer = false;
+						this.persist.flush_window();
+					}
+					rested
+				});
+				if !matches!(rested, Ok(false)) {
+					break;
+				}
+			}
+		})
+		.detach();
+	}
+
+	/// Turns "Remember window size" on (saving the current bounds) or off (forgetting them).
+	pub(crate) fn set_remember_window(&mut self, on: bool, window: &Window, cx: &App) {
+		let state = &mut self.persist.window;
+		state.memory.remember = on;
+		state.pending = None;
+		if !self.persist.enabled() {
+			return;
+		}
+		if on {
+			self.persist.window.pending = Some((placement(window, cx), Instant::now()));
+			self.persist.flush_window();
+		} else {
+			let memory = WindowMemory {
+				remember: false,
+				placement: None,
+			};
+			if self.persist.send(Command::Window(memory.clone())) {
+				self.persist.window.memory = memory;
+			} else {
+				self.notify_user("Could not save the window setting; try again.");
+			}
+		}
+	}
+
+	/// Whether this account's drafts can be cleared from the store now.
+	pub(crate) fn can_clear_drafts(&self) -> bool {
+		self.persist.enabled() && self.persist.account.is_some() && self.persist.loaded
+	}
+
+	/// Clears the signed-in account's drafts, in memory and in the experiment's store.
+	pub(crate) fn clear_saved_drafts(&mut self, cx: &mut Context<Self>) {
+		let Some(account) = self.persist.account.filter(|_| self.can_clear_drafts()) else {
+			return;
+		};
+		if !self.persist.send(Command::ClearDrafts(account)) {
+			self.notify_user("Could not clear the saved drafts; try again.");
+			return;
+		}
+		self.state.drafts.clear();
+		self.persist.drafts.clear();
+		self.composer
+			.update(cx, |input, cx| input.set_value(String::new(), cx));
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::{Command, Debounce, Reply, Settings, execute, load_settings, open, store_path};
 	use crate::theme::Appearance;
-	use model::Id;
+	use model::{Id, ReadingPreferences};
 	use std::{
 		path::Path,
 		time::{Duration, Instant},
@@ -616,6 +1001,14 @@ mod tests {
 			variant: Variant::Eclipse,
 			accent: Some([0x8b, 0x5c, 0xf6]),
 			notifications: true,
+			reading: ReadingPreferences {
+				sidebar_width: 300,
+				show_members: false,
+				hide_media_links: false,
+				confirm_external_links: false,
+				..ReadingPreferences::default()
+			},
+			show_hidden_channels: true,
 		};
 		let account = Id(7);
 		for command in [
@@ -678,6 +1071,186 @@ mod tests {
 			panic!("account data did not load");
 		};
 		assert_eq!(drafts[&Id(21)], "other account");
+		drop(store);
+		std::fs::remove_dir_all(&root).unwrap();
+	}
+}
+
+#[cfg(test)]
+mod window_tests {
+	use super::{
+		Command, MIN_WINDOW, Placement, Reply, WindowMemory, execute, format_window, load_window,
+		open, parse_window, place_window, save_window, store_path, window_path,
+	};
+	use gpui::{Bounds, Pixels, point, px, size};
+	use model::Id;
+
+	fn rect(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
+		Bounds::new(point(px(x), px(y)), size(px(width), px(height)))
+	}
+
+	fn temp_root(name: &str) -> std::path::PathBuf {
+		std::env::temp_dir().join(format!(
+			"serein-gpui-{name}-{}-{}",
+			std::process::id(),
+			std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.unwrap()
+				.as_nanos()
+		))
+	}
+
+	const MAIN: &str = "37D8832A-2D66-02CA-B9F7-8F30A301B230";
+	const SIDE: &str = "1C9A-44";
+
+	#[test]
+	fn saved_bounds_stay_on_a_connected_display_and_above_the_minimum() {
+		let displays = [
+			(Some(MAIN.to_owned()), rect(0., 25., 1512., 920.)),
+			(Some(SIDE.to_owned()), rect(0., 0., 1920., 1080.)),
+		];
+		let saved = |display: Option<&str>, bounds| Placement {
+			display: display.map(str::to_owned),
+			bounds,
+			maximized: false,
+		};
+		// Fits already: unchanged, on its own display.
+		let fits = saved(Some(SIDE), rect(100., 80., 1200., 800.));
+		assert_eq!(
+			place_window(&fits, &displays),
+			Some((1, rect(100., 80., 1200., 800.)))
+		);
+		// Too small and partly off-screen: grown to the minimum and pulled back in.
+		let (index, bounds) =
+			place_window(&saved(Some(MAIN), rect(1400., -50., 300., 200.)), &displays).unwrap();
+		assert_eq!(index, 0);
+		assert_eq!(bounds.size, size(px(MIN_WINDOW.0), px(MIN_WINDOW.1)));
+		assert_eq!(bounds.origin, point(px(1512. - MIN_WINDOW.0), px(25.)));
+		// Larger than the display: shrunk to its visible area.
+		let (_, bounds) =
+			place_window(&saved(Some(MAIN), rect(0., 0., 4000., 3000.)), &displays).unwrap();
+		assert_eq!(bounds, rect(0., 25., 1512., 920.));
+		// A disconnected display: centred on the primary with the saved size.
+		let (index, bounds) = place_window(
+			&saved(Some("FFFF"), rect(3000., 200., 1000., 700.)),
+			&displays,
+		)
+		.unwrap();
+		assert_eq!(index, 0);
+		assert_eq!(bounds, rect(256., 135., 1000., 700.));
+		// A display smaller than the minimum still gets the minimum size.
+		let tiny = [(None, rect(0., 0., 640., 400.))];
+		let (_, bounds) = place_window(&saved(None, rect(0., 0., 900., 600.)), &tiny).unwrap();
+		assert_eq!(bounds, rect(0., 0., MIN_WINDOW.0, MIN_WINDOW.1));
+		assert_eq!(place_window(&fits, &[]), None);
+	}
+
+	#[test]
+	fn window_memory_round_trips_and_rejects_corrupt_files() {
+		let memory = WindowMemory {
+			remember: true,
+			placement: Some(Placement {
+				display: Some(MAIN.to_owned()),
+				bounds: rect(40., 60., 1180., 780.),
+				maximized: true,
+			}),
+		};
+		assert_eq!(parse_window(&format_window(&memory)), memory);
+		let off = WindowMemory {
+			remember: false,
+			placement: None,
+		};
+		assert_eq!(parse_window(&format_window(&off)), off);
+		for corrupt in [
+			"",
+			"something else\nremember 0\n",
+			"serein-gpui window 1\nbounds 1 2 NaN 4\n",
+			"serein-gpui window 1\nbounds 1 2 3\n",
+			"serein-gpui window 1\nbounds 0 0 0 480\n",
+			"serein-gpui window 1\nbounds 0 0 1e9 480\n",
+		] {
+			assert_eq!(
+				parse_window(corrupt),
+				WindowMemory::default(),
+				"{corrupt:?}"
+			);
+		}
+		// A display id with odd characters is dropped, not trusted.
+		let parsed = parse_window("serein-gpui window 1\ndisplay ../x\nbounds 0 0 800 600\n");
+		assert_eq!(parsed.placement.unwrap().display, None);
+	}
+
+	#[test]
+	fn window_file_survives_a_restart_beside_the_store() {
+		let root = temp_root("window");
+		let path = window_path(&root);
+		assert_eq!(path.parent(), store_path(&root).parent());
+		// Nothing saved yet: remember is on, with no bounds.
+		assert_eq!(load_window(&path), WindowMemory::default());
+		let (_store, _) = open(&store_path(&root)).unwrap();
+		let memory = WindowMemory {
+			remember: true,
+			placement: Some(Placement {
+				display: None,
+				bounds: rect(12., 34., 1000., 700.),
+				maximized: false,
+			}),
+		};
+		save_window(&path, &memory).unwrap();
+		assert_eq!(load_window(&path), memory);
+		let off = WindowMemory {
+			remember: false,
+			placement: None,
+		};
+		save_window(&path, &off).unwrap();
+		assert_eq!(load_window(&path), off);
+		std::fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn clearing_drafts_keeps_other_accounts_and_categories() {
+		let root = temp_root("clear-drafts");
+		let (mut store, _) = open(&store_path(&root)).unwrap();
+		let account = Id(7);
+		for command in [
+			Command::Draft {
+				account,
+				channel: Id(21),
+				content: "one".into(),
+			},
+			Command::Draft {
+				account,
+				channel: Id(22),
+				content: "two".into(),
+			},
+			Command::Draft {
+				account: Id(8),
+				channel: Id(21),
+				content: "other account".into(),
+			},
+			Command::Collapsed {
+				account,
+				categories: vec![Id(30)],
+			},
+		] {
+			assert!(execute(&mut store, command).is_none());
+		}
+		assert!(matches!(
+			execute(&mut store, Command::ClearDrafts(account)),
+			Some(Reply::DraftsCleared(2))
+		));
+		let Some(Reply::Account {
+			drafts, collapsed, ..
+		}) = execute(&mut store, Command::Load(account))
+		else {
+			panic!("account data did not load");
+		};
+		assert!(drafts.is_empty());
+		assert_eq!(collapsed, vec![Id(30)]);
+		let Some(Reply::Account { drafts, .. }) = execute(&mut store, Command::Load(Id(8))) else {
+			panic!("account data did not load");
+		};
+		assert_eq!(drafts.len(), 1);
 		drop(store);
 		std::fs::remove_dir_all(&root).unwrap();
 	}

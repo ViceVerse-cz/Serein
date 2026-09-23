@@ -14,6 +14,8 @@ mod permissions;
 mod profile;
 mod storage;
 
+pub(crate) use profile::demo_profile_edit;
+
 use crate::theme::{self, Appearance, Icon, color, icon, palette, solid};
 use crate::{Serein, input};
 use gpui::{prelude::*, *};
@@ -179,6 +181,10 @@ pub struct Settings {
 	/// The main app's reading choices; the ones this frontend can honour are applied.
 	pub reading: ReadingPreferences,
 	pub show_hidden_channels: bool,
+	/// Profile page draft and inputs.
+	profile: profile::ProfileEditor,
+	/// Messaging Permissions page state.
+	messaging: permissions::Messaging,
 }
 
 impl Settings {
@@ -205,6 +211,7 @@ impl Settings {
 		hex.update(cx, |input, cx| input.set_placeholder("#1A72E8".into(), cx));
 		cx.subscribe(&hex, |this, _, _: &input::Submit, cx| this.apply_hex(cx))
 			.detach();
+		let profile = profile::ProfileEditor::new(window, cx);
 		Self {
 			open: false,
 			page: Page::default(),
@@ -216,6 +223,8 @@ impl Settings {
 			notifications: false,
 			reading: ReadingPreferences::default(),
 			show_hidden_channels: false,
+			profile,
+			messaging: permissions::Messaging::default(),
 		}
 	}
 
@@ -270,6 +279,8 @@ impl Serein {
 			return;
 		}
 		self.settings.open = false;
+		// The main app asks for messaging permissions again on the next open.
+		self.settings.messaging.requested = false;
 		self.settings
 			.query
 			.update(cx, |input, cx| input.set_value(String::new(), cx));
@@ -281,6 +292,9 @@ impl Serein {
 
 	fn show_settings_page(&mut self, page: Page) {
 		if self.settings.page != page {
+			if page == Page::MessagingPermissions {
+				self.settings.messaging.requested = false;
+			}
 			self.settings.page = page;
 			self.settings.scroll.set_offset(point(px(0.), px(0.)));
 		}
@@ -539,7 +553,7 @@ impl Serein {
 					.child(div().flex_1().min_w_0().child(self.settings.query.clone()))
 					.child(icon(Icon::Search, px(16.), color(p.muted))),
 			)
-			.child(div().h_2())
+			.child(div().h_3())
 			.children(sections)
 			.child(div().my_2().h(px(1.)).bg(color(p.border)))
 			.child(
