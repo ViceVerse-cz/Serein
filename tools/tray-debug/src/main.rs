@@ -175,6 +175,7 @@ fn check_window() {
 	use egui::{ViewportCommand as Cmd, ViewportId};
 	let ctx = egui::Context::default();
 	let mut state = tray_window::State::default();
+	let _restore = state.restorer();
 	let mut close = egui::RawInput::default();
 	close
 		.viewports
