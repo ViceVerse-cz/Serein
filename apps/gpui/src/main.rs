@@ -237,7 +237,7 @@ impl Serein {
 			true
 		});
 		let state = if demo {
-			test_support::chat_demo_state()
+			demo_state(&std::env::args().collect::<Vec<_>>())
 		} else {
 			// Avatars and previews come from Discord's CDN; the offline preview never fetches.
 			images::init();
@@ -1632,6 +1632,41 @@ impl Serein {
 
 fn ui_warning_tint() -> Rgba {
 	theme::tint(palette().warning, 0.14)
+}
+
+/// The offline fixture, chosen like the main app's `--demo` so screens can be compared side by
+/// side: `--demo` alone is the full synthetic workspace, `--demo-chat`, `--demo-code`, ... pick
+/// the same fixtures as egui. GPUI-only screenshot flags are written against the chat fixture,
+/// so any other `--demo-*` flag (besides appearance and settings) selects it too.
+fn demo_state(args: &[String]) -> State {
+	let flag = |name: &str| args.iter().any(|arg| arg == name);
+	if flag("--demo-forwarded") {
+		test_support::forwarded_demo_state()
+	} else if flag("--demo-audio") || flag("--demo-voice-messages") {
+		test_support::audio_demo_state()
+	} else if flag("--demo-video-playing") || flag("--demo-video-paused") {
+		test_support::video_demo_state()
+	} else if flag("--demo-system-messages") {
+		test_support::system_demo_state()
+	} else if flag("--demo-code") {
+		test_support::code_demo_state()
+	} else if flag("--demo-notifications") {
+		test_support::notification_demo_state()
+	} else if flag("--demo-empty-channel") || flag("--demo-empty-channel-long") {
+		test_support::empty_channel_demo_state(flag("--demo-empty-channel-long"))
+	} else if args.iter().skip(1).any(|arg| {
+		arg.starts_with("--demo-")
+			&& !["--demo-light", "--demo-dark"].contains(&arg.as_str())
+			&& !arg.starts_with("--demo-theme=")
+			&& !arg.starts_with("--demo-settings")
+	}) {
+		test_support::chat_demo_state()
+	} else {
+		let mut state = test_support::demo_state();
+		test_support::seed_demo_folder_mosaic(&mut state);
+		test_support::seed_access_marks(&mut state);
+		state
+	}
 }
 
 /// Updates `list` from `current` to `rows`, remeasuring the changed span and both neighbours
