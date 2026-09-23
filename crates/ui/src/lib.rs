@@ -1264,16 +1264,29 @@ impl MessagingUi {
 								if let Some(subtitle) = subtitle {
 									ui.vertical(|ui| {
 										ui.spacing_mut().item_spacing.y = 1.0;
+										ui.spacing_mut().interact_size.y = 0.0;
 										show_name(ui);
-										ui.add(
-											egui::Label::new(
-												RichText::new(subtitle)
-													.size(12.0)
-													.color(colors.muted),
-											)
-											.truncate()
-											.selectable(false),
-										);
+										ui.horizontal(|ui| {
+											ui.spacing_mut().item_spacing.x = 4.0;
+											if activities.first().is_some_and(profiles::is_spotify)
+											{
+												icons::inline(
+													ui,
+													icons::Icon::Spotify,
+													12.0,
+													colors.positive,
+												);
+											}
+											ui.add(
+												egui::Label::new(
+													RichText::new(subtitle)
+														.size(12.0)
+														.color(colors.muted),
+												)
+												.truncate()
+												.selectable(false),
+											);
+										});
 									});
 								} else {
 									show_name(ui);
@@ -2856,17 +2869,6 @@ impl MessagingUi {
                         }
                         self.mention_lookup.text = self.mention_menu.member_query().to_owned();
                         self.mention_lookup.sync(ctx, state, channel, 0, commands);
-                        if !self.mention_lookup.text.is_empty() && state.channel(channel).and_then(|c| c.guild).is_some() {
-                            let search = &state.member_search[0];
-                            if let Some(error) = search.error {
-                                ui.small(error);
-                                if ui.small_button("Retry member search").clicked() { self.mention_lookup.retry(); }
-                            } else if !search.finished {
-                                ui.small("Searching server members…");
-                            } else if search.rows.is_empty() {
-                                ui.small("No server matches. Try a username, nickname, or user ID.");
-                            }
-                        }
                         if !editing_here && (!new_draft.is_empty() || restore_empty_draft) {
                             state.drafts.insert(channel, new_draft);
                         }
@@ -3652,13 +3654,6 @@ impl MessagingUi {
 					.show(ui, |ui| {
 						self.composer(ui, state, channel, &ctx, &mut commands);
 					});
-				if commands
-					.iter()
-					.any(|command| matches!(command, Command::Send { .. }))
-					&& state.history_targeted
-				{
-					commands.push(state.history(None));
-				}
 				if let Some((shape, top)) = message_fill {
 					let remaining = ui.available_rect_before_wrap();
 					ui.painter().set(

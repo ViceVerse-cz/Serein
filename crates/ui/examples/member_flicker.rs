@@ -4,7 +4,7 @@ use model::{Freshness, Id, Member};
 
 fn text(shape: &egui::Shape, out: &mut Vec<(String, egui::Pos2)>) {
 	match shape {
-		egui::Shape::Text(shape) if shape.galley.job.text.contains("Stable message") => {
+		egui::Shape::Text(shape) => {
 			out.push((shape.galley.job.text.clone(), shape.pos));
 		}
 		egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| text(shape, out)),
@@ -35,6 +35,20 @@ fn frame(
 			text(&shape.shape, &mut painted);
 		}
 	}
+	if state
+		.members
+		.as_ref()
+		.is_some_and(|list| list.freshness == Freshness::Loading)
+		&& state.members_cached()
+	{
+		assert!(
+			painted
+				.iter()
+				.any(|(text, _)| text.contains("Synthetic game")),
+			"cached activity must remain visible during member refresh"
+		);
+	}
+	painted.retain(|(text, _)| text.contains("Stable message"));
 	output.drop_without_applying_deltas();
 	painted
 }
@@ -157,6 +171,7 @@ fn main() {
 		assert_eq!(cached.status.as_deref(), Some("online"));
 		assert_eq!(cached.custom_status.as_deref(), Some("Synthetic status"));
 		assert_eq!(cached.activities[0].name, "Synthetic game");
+		frame(&ctx, &mut view, &mut state);
 		for step in 0..3 {
 			match step {
 				0 => match list.slots[0].as_mut().unwrap() {

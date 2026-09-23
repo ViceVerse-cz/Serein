@@ -519,7 +519,7 @@ impl DiscordApi {
 				captcha,
 			} => self.join_invite(&code, request, captcha).await,
 			Command::GuildFolders(settings) => Event::GuildFolders(match settings {
-				Some(settings) => self.save_guild_folders(settings).await,
+				Some((base, settings)) => self.save_guild_folders(base, settings).await,
 				None => self.guild_folders().await,
 			}),
 			Command::ChannelAction {

@@ -102,7 +102,7 @@ a useful check; it is not a full crash trace.
 | `Handler` | The ABI returned zero output bytes. Check SDK input decoding and output serialization. Native `dispatch_typed` reports its own decoding/size errors directly. |
 | `Output`, `OutputLimit` | Check output JSON, enum tags, control IDs and ranges, ABI buffer, panel count and serialized size. Valid JSON alone is not valid host output. |
 | `Capability` | Check declarations, consent and action surface. Repeating execution does not grant permissions. |
-| `Fuel` | Reduce loops, JSON work and requested data. Parsing and execution share 5,000,000 fuel; byte-size compliance does not ensure enough fuel. |
+| `Fuel` | Reduce loops, JSON work and requested data. Parsing and execution share 10,000,000 fuel; byte-size compliance does not ensure enough fuel. |
 | `Memory` | Reduce allocations and table size. Linear memory is capped at 16 MiB; this category can also mean engine allocation failure. |
 | `Stack` | Reduce recursion and stack allocations. |
 | `Trap` | Check panics, invalid memory access and arithmetic traps with a synthetic native test. The host does not expose panic text. |

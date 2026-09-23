@@ -1671,7 +1671,8 @@ Artwork uses the existing credential-free, redirect-free bounded image worker an
 account-isolated image cache, with the existing 1024px decode limit for media previews.
 Normal-account behavior and live artwork delivery remain unverified.
 
-Serein also polls the linked Spotify account every 15 seconds while visible, independently
+Serein also polls the linked Spotify account at most every 15 seconds while visible (sooner
+at track end, with a one-second minimum interval), independently
 of local game detection. It reads the connection's `show_activity` preference, obtains a
 session-only bearer through Discord's unofficial connection access-token endpoint, and reads
 Spotify's [`GET /v1/me/player`](https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback).
@@ -1683,6 +1684,8 @@ Paused, private, local-file, ad, episode, unavailable or failed playback clears 
 Invisible stops polling and clears publication. Spotify shares the existing rate-limited Gateway
 sender alongside games/custom status. The local profile previews Spotify when no game is active.
 Unlinking or disabling Spotify activity is detected on the next poll; service cooldowns apply.
+Track-end polls retain the previous activity while awaiting the next response, with a
+10–30 second request timeout instead of cancelling immediately at the old track deadline.
 The offline debug command is `cargo run --locked -p serein --features demo -- --demo --demo-check-spotify`.
 
 ### Outgoing message forwarding
@@ -1700,3 +1703,49 @@ can fail independently. The picker reports per-destination sending, sent, failed
 outcomes. Writes are never automatically retried; existing composer drafts are preserved.
 Destinations are limited to loaded text conversations, not a server-wide discovery search.
 The local synthetic debug check does not establish live normal-account compatibility.
+
+### Member list recovery — September 22, 2026
+
+The bounded Gateway mirror accepts omitted member counts/group summaries on incremental
+updates and presence both inside and beside a member, matching the shapes used by
+[SakuraCord's member decoder](https://github.com/SakuraCordApp/SakuraCord/blob/f9953d6086d4090dd1d63c0ecef2b0107ba199ad/Packages/DiscordProtocol/Sources/DiscordProtocol/GuildMemberListUpdateDTO.swift).
+Member-only UPDATE preserves omitted presence for the same user; explicit null/offline
+still clears it. List length includes supplied group headers and visible group counts.
+Up to 512 role groups plus online/offline fit the existing role-catalog limit.
+
+Malformed operations leave the last valid snapshot intact. Invalidation keeps cached rows
+while awaiting a SYNC; other incremental updates cannot cancel that recovery. A stalled
+subscription resets its channel ranges at the existing 15-second interval before requesting
+them again. An empty reply only completes loading when the service explicitly reports zero
+members. Guild presence remains visible during range loading and transient reconnects;
+unavailable/access-revoked state still hides it. All caches remain session/request scoped.
+
+Offline examples `discord-gateway --example member_lists` and `ui --example member_flicker`
+exercise decoding, partial presence, failed-update rollback, recovery state and retained
+activity rendering. No live server verification or performance measurement was performed
+in this fast pass; external client source is wire evidence, not proof of compatibility.
+
+### Member list resilience — September 23, 2026
+
+A stuck "Loading people…" pane traced to all-or-nothing handling: one member row, presence or
+activity this client could not represent (for example a non-integer activity timestamp) failed
+the whole `GUILD_MEMBER_LIST_UPDATE`. Every 15-second resubscribe then received and rejected the
+same SYNC, so the list for that server stayed empty until the member changed or the app restarted.
+
+Rows now fail individually. An unrepresentable activity is dropped while status stays; an
+unreadable presence is treated as omitted; an unreadable row becomes a placeholder at its index
+so later INSERT/DELETE/UPDATE positions stay aligned. An unreadable UPDATE keeps the previous
+row, and unknown operation names are skipped. Only structurally impossible packets (inverted
+ranges, missing indices) are still rejected, with the last valid snapshot retained. Up to 1,024
+operations per packet are accepted, and a heavy page sheds activity details instead of failing
+the 256 KiB budget. Thread participants use the same presence handling.
+
+The member-list ID is computed from cached permissions using the unofficial algorithm
+documented by discord.py-self (`_is_everyone_member_list` and `member_list_id`). If the service
+replies for the open channel's viewport with a different ID before the first SYNC, and the ID
+is not a list this connection recently left, the mirror follows the service's ID for that
+subscription. Stalled-subscription resets back off from 15 to 30, 60, then 120 seconds.
+
+SakuraCord's member decoder uses the same wire shapes (optional counts and groups, presence
+beside or inside a member). Offline unit tests cover each case. This was not verified against
+a live server; the original failing payload was not captured.

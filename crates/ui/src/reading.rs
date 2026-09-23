@@ -55,18 +55,24 @@ impl MessagingUi {
 		}
 	}
 
-	pub fn reading_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
+	/// Header eyebrow with a quiet reset on the right, so the reset stays reachable above a tall card.
+	fn header_with_reset(ui: &mut egui::Ui, title: &str, reset: &str) -> bool {
 		let colors = design::palette(ui);
-		let mut value = self.reading_preferences;
-		// The reset sits in the group header so it stays reachable above a tall card.
-		let mut reset = false;
+		let mut clicked = false;
 		ui.add_space(4.0);
 		ui.horizontal(|ui| {
-			ui.label(design::eyebrow(ui, "Reading and layout", colors.muted));
+			ui.label(design::eyebrow(ui, title, colors.muted));
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-				reset = design::text_action(ui, "Reset reading and layout").clicked();
+				clicked = design::text_action(ui, reset).clicked();
 			});
 		});
+		clicked
+	}
+
+	/// Zoom, sidebar width and member list: the Layout group of the Appearance page.
+	pub fn layout_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
+		let mut value = self.reading_preferences;
+		let reset = Self::header_with_reset(ui, "Layout", "Reset layout");
 		design::card(ui, |ui| {
 			self.zoom_row(ui, &mut value);
 			ui.add_space(10.0);
@@ -85,7 +91,25 @@ impl MessagingUi {
 				Some("Keep the member list open whenever the window is wide enough."),
 				&mut value.show_members,
 			);
-			design::card_divider(ui);
+		});
+		if reset {
+			let defaults = ReadingPreferences::default();
+			value.zoom_percent = defaults.zoom_percent;
+			value.sidebar_width = defaults.sidebar_width;
+			value.show_members = defaults.show_members;
+			self.reading_save_requested = true;
+		}
+		self.reading_save_notice(ui, demo);
+		if value != self.reading_preferences {
+			self.apply_reading_preferences(ui.ctx(), value);
+		}
+	}
+
+	/// Media, link and scrolling behaviour shown on the Chat page.
+	pub fn chat_reading_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
+		let mut value = self.reading_preferences;
+		let reset = Self::header_with_reset(ui, "Messages and media", "Reset chat");
+		design::card(ui, |ui| {
 			design::switch(
 				ui,
 				"Animate GIFs",
@@ -93,6 +117,22 @@ impl MessagingUi {
 				&mut value.animate_gifs,
 			);
 			design::card_divider(ui);
+			design::switch(
+				ui,
+				"Hide image and GIF links",
+				Some("Hide standalone links when their image or GIF preview is shown."),
+				&mut value.hide_media_links,
+			);
+		});
+		design::group(ui, "Links", |ui| {
+			design::switch(
+				ui,
+				"Confirm before opening links",
+				Some("Ask before opening external links. Discord links always open directly."),
+				&mut value.confirm_external_links,
+			);
+		});
+		design::group(ui, "Scrolling", |ui| {
 			design::switch(
 				ui,
 				"Smooth scrolling",
@@ -108,33 +148,28 @@ impl MessagingUi {
 				25..=300,
 				"%",
 			);
-			design::card_divider(ui);
-			design::switch(
-				ui,
-				"Hide image and GIF links",
-				Some("Hide standalone links when their image or GIF preview is shown."),
-				&mut value.hide_media_links,
-			);
-			design::card_divider(ui);
-			design::switch(
-				ui,
-				"Confirm before opening links",
-				Some("Ask before opening external links. Discord links always open directly."),
-				&mut value.confirm_external_links,
-			);
 		});
 		if reset {
-			value = ReadingPreferences::default();
+			let defaults = ReadingPreferences::default();
+			value.animate_gifs = defaults.animate_gifs;
+			value.hide_media_links = defaults.hide_media_links;
+			value.confirm_external_links = defaults.confirm_external_links;
+			value.smooth_scrolling = defaults.smooth_scrolling;
+			value.scroll_speed_percent = defaults.scroll_speed_percent;
 			self.reading_save_requested = true;
 		}
+		self.reading_save_notice(ui, demo);
+		if value != self.reading_preferences {
+			self.apply_reading_preferences(ui.ctx(), value);
+		}
+	}
+
+	fn reading_save_notice(&mut self, ui: &mut egui::Ui, demo: bool) {
 		if !demo && self.reading_status.contains("could not") {
 			design::notice(ui, design::Level::Warning, self.reading_status);
 			if design::text_action(ui, "Retry saving reading settings").clicked() {
 				self.reading_save_requested = true;
 			}
-		}
-		if value != self.reading_preferences {
-			self.apply_reading_preferences(ui.ctx(), value);
 		}
 	}
 
@@ -204,12 +239,15 @@ mod tests {
 				egui::RawInput {
 					screen_rect: Some(egui::Rect::from_min_size(
 						egui::Pos2::ZERO,
-						egui::vec2(480.0, 900.0),
+						egui::vec2(480.0, 1400.0),
 					)),
 					events,
 					..Default::default()
 				},
-				|ui| view.reading_settings(ui, false),
+				|ui| {
+					view.layout_settings(ui, false);
+					view.chat_reading_settings(ui, false);
+				},
 			);
 			assert!(output.platform_output.commands.is_empty());
 			let mut found = vec![];
@@ -280,26 +318,28 @@ mod tests {
 		}
 		assert!(!view.reading_preferences.smooth_scrolling);
 		for _ in 0..2 {
-			let found = frame(&mut view, vec![]);
-			let reset = found
-				.iter()
-				.find(|(text, _)| text == "Reset reading and layout")
-				.unwrap()
-				.1
-				.center();
-			for pressed in [true, false] {
-				frame(
-					&mut view,
-					vec![
-						egui::Event::PointerMoved(reset),
-						egui::Event::PointerButton {
-							pos: reset,
-							button: egui::PointerButton::Primary,
-							pressed,
-							modifiers: egui::Modifiers::NONE,
-						},
-					],
-				);
+			for label in ["Reset layout", "Reset chat"] {
+				let found = frame(&mut view, vec![]);
+				let reset = found
+					.iter()
+					.find(|(text, _)| text == label)
+					.unwrap()
+					.1
+					.center();
+				for pressed in [true, false] {
+					frame(
+						&mut view,
+						vec![
+							egui::Event::PointerMoved(reset),
+							egui::Event::PointerButton {
+								pos: reset,
+								button: egui::PointerButton::Primary,
+								pressed,
+								modifiers: egui::Modifiers::NONE,
+							},
+						],
+					);
+				}
 			}
 			assert_eq!(view.reading_preferences, ReadingPreferences::default());
 			assert!(

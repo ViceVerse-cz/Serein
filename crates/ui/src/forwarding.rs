@@ -1,6 +1,27 @@
-use crate::{avatars::Avatars, design, dialog};
+use crate::{avatars::Avatars, design, dialog, switcher};
 use client_core::{Command, State};
 use model::{Delivery, Id};
+
+/// Destinations listed at once, like the official client; searching finds the rest.
+const DESTINATIONS: usize = 16;
+
+/// The most recently active writable conversations matching `query`.
+fn destinations(state: &State, query: &str) -> Vec<Id> {
+	let query = switcher::bounded(query).to_lowercase();
+	let words: Vec<_> = query.split_whitespace().collect();
+	let mut label = String::new();
+	let mut matched = vec![false; words.len()];
+	let mut found: Vec<_> = state
+		.channels
+		.iter()
+		.filter(|c| {
+			state.can_compose(c.id)
+				&& switcher::channel_matches(state, c, &words, &mut label, &mut matched)
+		})
+		.collect();
+	switcher::recent_first(&mut found, DESTINATIONS, |c| switcher::activity(c));
+	found.into_iter().map(|c| c.id).collect()
+}
 
 #[derive(Default)]
 pub(super) struct ForwardDialog {
@@ -8,6 +29,9 @@ pub(super) struct ForwardDialog {
 	query: String,
 	note: String,
 	targets: Vec<Id>,
+	/// Results for `searched`, rebuilt when the query changes and at most once a second otherwise.
+	results: Vec<Id>,
+	searched: Option<(String, f64)>,
 	/// At most ten nonce strings: one forward and optional note per destination.
 	sent: Vec<(Id, String)>,
 	focus: bool,
@@ -72,25 +96,25 @@ impl ForwardDialog {
 						.auto_shrink([false, true])
 						.show(ui, |ui| {
 							let colors = design::palette(ui);
-							let query = self.query.to_lowercase();
+							let now = ui.input(|input| input.time);
+							if self.searched.as_ref().is_none_or(|(query, at)| {
+								*query != self.query || !(0.0..1.0).contains(&(now - at))
+							}) {
+								self.results = destinations(state, &self.query);
+								self.searched = Some((self.query.clone(), now));
+							}
+							// Chosen destinations stay listed so they can be removed after searching.
+							let rows = self
+								.targets
+								.iter()
+								.filter(|id| !self.results.contains(id))
+								.chain(&self.results)
+								.copied()
+								.collect::<Vec<_>>();
 							let mut found = false;
-							for target in &state.channels {
-								if !state.can_compose(target.id)
-									&& !self.targets.contains(&target.id)
-								{
-									continue;
-								}
+							for target in rows.into_iter().filter_map(|id| state.channel(id)) {
 								let guild = target.guild.and_then(|id| state.guild(id));
 								let context = guild.map_or("Direct Messages", |g| g.name.as_str());
-								if !target.name.to_lowercase().contains(&query)
-									&& !context.to_lowercase().contains(&query)
-									&& !target
-										.recipients
-										.iter()
-										.any(|u| u.name.to_lowercase().contains(&query))
-								{
-									continue;
-								}
 								found = true;
 								let selected = self.targets.contains(&target.id);
 								let enabled = !submitted

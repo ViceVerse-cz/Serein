@@ -88,8 +88,11 @@ impl Connection {
 		let typing_channel = Arc::new(AtomicU64::new(0));
 		let active_typing = typing_channel.clone();
 		let typing_gate = Mutex::new(TypingGate::default());
+		let status_changed = Arc::new(tokio::sync::Notify::new());
+		let status_refresh = status_changed.clone();
 		let task=runtime.spawn(async move {
             let emit=move |event:Event| -> Result<(),Failure> {
+                if let Event::AccountSettings { status: true, .. } = &event { status_changed.notify_one(); }
                 if let Event::Typing(signal) = &event {
                     let active = active_typing.load(Ordering::Relaxed);
                     if !typing_gate.lock().is_ok_and(|mut gate| gate.accept(*signal, active, Instant::now())) { return Ok(()); }
@@ -103,7 +106,17 @@ impl Connection {
                 let gateway=api.gateway_url().await?;
                 let api=Arc::new(api);
 				let cached = cached_presence.get(&user.id).cloned().filter(|presence| presence.valid());
-				let _presence_edits = AbortTask(tokio::spawn(run_presence_edits(api.clone(), presence_edit_events, presence_error_send, finished.clone(), wake.clone())));
+				let account_presence_send = Arc::new(account_presence_send);
+				let _presence_edits = AbortTask(tokio::spawn(run_presence_sync(PresenceSync {
+					api: api.clone(),
+					edits: presence_edit_events,
+					remote_changed: status_refresh,
+					presence: presence_send.clone(),
+					account: account_presence_send.clone(),
+					note: presence_error_send,
+					finished: finished.clone(),
+					wake: wake.clone(),
+				})));
 				let chosen = resolve_account_presence(&api, &presence_send, cached).await;
 				if chosen.is_some() {
 					wake.request_repaint();
@@ -453,43 +466,114 @@ async fn resolve_account_presence(
 	(remote.is_some() || cached.is_some() || current != baseline).then_some(current)
 }
 
-async fn run_presence_edits(
+struct PresenceSync {
 	api: Arc<DiscordApi>,
-	mut edits: watch::Receiver<Option<model::OwnPresence>>,
+	edits: watch::Receiver<Option<model::OwnPresence>>,
+	remote_changed: Arc<tokio::sync::Notify>,
+	presence: watch::Sender<model::OwnPresence>,
+	account: Arc<watch::Sender<Option<model::OwnPresence>>>,
 	note: watch::Sender<Option<&'static str>>,
 	finished: watch::Sender<Option<Failure>>,
 	wake: egui::Context,
-) {
-	let mut last = None;
+}
+
+/// Saves local status edits and adopts status changed on other devices, one request at a
+/// time so a remote echo never races a newer local edit. Unsaved edits retry with backoff.
+async fn run_presence_sync(sync: PresenceSync) {
+	const RETRY: [u64; 5] = [2, 5, 15, 30, 60];
+	let PresenceSync {
+		api,
+		mut edits,
+		remote_changed,
+		presence,
+		account,
+		note,
+		finished,
+		wake,
+	} = sync;
+	let mut pending: Option<model::OwnPresence> = None;
+	let mut failures = 0;
+	let stop = |failure: Failure| {
+		api.stop();
+		let _ = finished.send(Some(failure));
+		wake.request_repaint();
+	};
 	loop {
-		if edits.changed().await.is_err() {
-			return;
+		let retry = pending
+			.as_ref()
+			.map(|_| Duration::from_secs(RETRY[failures.min(RETRY.len() - 1)]));
+		let mut refresh = false;
+		tokio::select! {
+			changed = edits.changed() => {
+				if changed.is_err() {
+					return;
+				}
+				if let Some(next) = edits.borrow_and_update().clone().filter(model::OwnPresence::valid) {
+					// Always write: the account API compares against a fresh read, while a
+					// remembered "last saved" value goes stale once another device edits.
+					pending = Some(next);
+					failures = 0;
+				}
+			}
+			() = remote_changed.notified() => refresh = pending.is_none(),
+			() = tokio::time::sleep(retry.unwrap_or_default()), if retry.is_some() => {}
 		}
-		let Some(next) = edits.borrow_and_update().clone() else {
-			continue;
-		};
-		if last.as_ref() == Some(&next) || !next.valid() {
-			continue;
-		}
-		match api.set_account_presence(&next).await {
-			Ok(()) => {
-				last = Some(next);
-				if note.send_replace(None).is_some() {
+		if let Some(next) = pending.clone() {
+			match api.set_account_presence(&next).await {
+				Ok(()) => {
+					pending = None;
+					failures = 0;
+					if note.send_replace(None).is_some() {
+						wake.request_repaint();
+					}
+				}
+				Err(failure) if failure.ends_session() => return stop(failure),
+				Err(_) => {
+					failures += 1;
+					if failures >= RETRY.len() {
+						// Give up until the next edit or a settings change from Discord.
+						pending = None;
+					}
+					let _ = note.send_replace(Some(
+						"Could not save status to Discord. Retrying; it stays on this device until Discord accepts it.",
+					));
 					wake.request_repaint();
 				}
 			}
-			Err(failure) if failure.ends_session() => {
-				api.stop();
-				let _ = finished.send(Some(failure));
-				wake.request_repaint();
-				return;
+			continue;
+		}
+		if !refresh {
+			continue;
+		}
+		let remote =
+			match tokio::time::timeout(Duration::from_secs(8), api.account_presence()).await {
+				Ok(Ok(remote)) if remote.valid() => remote,
+				Ok(Err(failure)) if failure.ends_session() => return stop(failure),
+				// Keep the current status; the next change or reconnect reads again.
+				_ => continue,
+			};
+		// An edit made while reading is newer than what Discord returned.
+		if edits.has_changed().unwrap_or(true) {
+			continue;
+		}
+		let modified = presence.send_if_modified(|slot| {
+			let modified = *slot != remote;
+			if modified {
+				slot.clone_from(&remote);
 			}
-			Err(_) => {
-				let _ = note.send_replace(Some(
-					"Could not save status to Discord. It stays on this device until Discord accepts it.",
-				));
-				wake.request_repaint();
+			modified
+		});
+		let adopted = account.send_if_modified(|slot| {
+			let modified = slot.as_ref() != Some(&remote);
+			if modified {
+				*slot = Some(remote);
 			}
+			modified
+		});
+		// Discord's value replaces any edit that was given up on.
+		let cleared = note.send_replace(None).is_some();
+		if modified || adopted || cleared {
+			wake.request_repaint();
 		}
 	}
 }

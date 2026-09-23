@@ -1707,9 +1707,7 @@ fn gif_home(
 ) -> Option<GifSection> {
 	let trending = state.gifs.view.as_ref().filter(|view| view.query.is_none());
 	let page = trending.and_then(|view| view.page.as_ref());
-	let categories: Vec<&str> = page
-		.map(|page| page.categories.iter().map(String::as_str).collect())
-		.unwrap_or_default();
+	let categories: &[model::GifCategory] = page.map_or(&[], |page| &page.categories);
 	let favorite_art = state
 		.gifs
 		.favorites
@@ -1764,9 +1762,16 @@ fn gif_home(
 			{
 				chosen = Some(GifSection::Trending);
 			}
-			for (index, name) in categories.iter().enumerate() {
-				if tile(ui, cell(index + 2), name, None, None, index + 2, colors).clicked() {
-					chosen = Some(GifSection::Category((*name).to_owned()));
+			for (index, category) in categories.iter().enumerate() {
+				let rect = cell(index + 2);
+				// Only visible tiles fetch artwork; the rest stay flat until scrolled into view.
+				let art = category
+					.preview
+					.as_deref()
+					.filter(|_| ui.is_rect_visible(rect))
+					.and_then(|preview| avatars.preview_texture(ui.ctx(), preview, demo));
+				if tile(ui, rect, &category.name, None, art, index + 2, colors).clicked() {
+					chosen = Some(GifSection::Category(category.name.clone()));
 				}
 			}
 			if categories.is_empty() && trending.is_some_and(|view| view.loading) {

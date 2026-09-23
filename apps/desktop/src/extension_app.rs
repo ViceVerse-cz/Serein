@@ -1615,7 +1615,7 @@ mod tests {
 				..Default::default()
 			},
 		)
-		.expect("the real demo snapshot must fit App Toolbox's unchanged sandbox budget");
+		.expect("the real demo snapshot must fit App Toolbox's sandbox fuel budget");
 		assert!(!output.panel.is_empty() && output.effects.is_empty());
 		let app = snapshot(
 			&state,

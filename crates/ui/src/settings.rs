@@ -21,6 +21,7 @@ enum Page {
 	General,
 	#[default]
 	Appearance,
+	Chat,
 	MessagingPermissions,
 	Notifications,
 	Activity,
@@ -32,34 +33,49 @@ enum Page {
 	Themes,
 }
 impl Page {
-	const ALL: [Self; 13] = [
+	/// Every page in sidebar order; the narrow-window page picker lists them the same way.
+	const ALL: [Self; 14] = [
 		Self::Account,
 		Self::Profile,
-		Self::General,
-		Self::Appearance,
 		Self::MessagingPermissions,
+		Self::Storage,
+		Self::Appearance,
+		Self::Chat,
 		Self::Notifications,
-		Self::Activity,
 		Self::Voice,
 		Self::Keybinds,
-		Self::Storage,
+		Self::Activity,
+		Self::General,
 		Self::Updates,
-		Self::Extensions,
 		Self::Themes,
+		Self::Extensions,
 	];
-	const USER: [Self; 2] = [Self::Account, Self::Profile];
-	const APP: [Self; 11] = [
-		Self::General,
-		Self::Appearance,
-		Self::MessagingPermissions,
-		Self::Notifications,
-		Self::Activity,
-		Self::Voice,
-		Self::Keybinds,
-		Self::Storage,
-		Self::Updates,
-		Self::Extensions,
-		Self::Themes,
+	/// Sidebar sections: account-level choices first, then how this app looks and behaves,
+	/// then community add-ons.
+	const SECTIONS: [(&'static str, &'static [Self]); 3] = [
+		(
+			"User settings",
+			&[
+				Self::Account,
+				Self::Profile,
+				Self::MessagingPermissions,
+				Self::Storage,
+			],
+		),
+		(
+			"App settings",
+			&[
+				Self::Appearance,
+				Self::Chat,
+				Self::Notifications,
+				Self::Voice,
+				Self::Keybinds,
+				Self::Activity,
+				Self::General,
+				Self::Updates,
+			],
+		),
+		("Customization", &[Self::Themes, Self::Extensions]),
 	];
 	fn label(self) -> &'static str {
 		match self {
@@ -67,6 +83,7 @@ impl Page {
 			Self::Profile => "Profile",
 			Self::General => "General",
 			Self::Appearance => "Appearance",
+			Self::Chat => "Chat",
 			Self::MessagingPermissions => "Messaging Permissions",
 			Self::Notifications => "Notifications",
 			Self::Activity => "Game Activity",
@@ -83,7 +100,8 @@ impl Page {
 			Self::Account => "The Discord account signed in on this device.",
 			Self::Profile => "Choose how you appear across Discord.",
 			Self::General => "Startup, window and graphics behavior on this device.",
-			Self::Appearance => "Theme, colour preset, zoom and layout.",
+			Self::Appearance => "Theme, colours, window effects and layout.",
+			Self::Chat => "How messages, media, links and scrolling behave.",
 			Self::MessagingPermissions => {
 				"Control who can contact you and how messages are filtered."
 			}
@@ -102,10 +120,13 @@ impl Page {
 			Self::Account => "my account profile logout",
 			Self::Profile => "profile edit display name about me bio pronouns color colour",
 			Self::General => {
-				"general windows macos login menu bar startup autostart automatically open minimized minimize close tray background graphics gpu adapter render discrete integrated hardware acceleration performance battery"
+				"general windows macos login menu bar startup autostart automatically open minimized minimize close tray background title bar caption window buttons graphics gpu adapter render discrete integrated hardware acceleration performance battery"
 			}
 			Self::Appearance => {
-				"appearance customization primary accent hex window transparency blur title bar caption tray minimize theme dark light system zoom reading layout sidebar people reset colour color preset animate animated gifs autoplay smooth scrolling motion hide image links confirm confirmation external browser"
+				"appearance customization primary accent hex window effects transparency blur theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
+			}
+			Self::Chat => {
+				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
@@ -381,11 +402,8 @@ impl MessagingUi {
 										&mut self.avatars,
 										commands,
 									),
-									Page::Appearance => {
-										self.appearance_settings(ui);
-										ui.add_space(8.0);
-										self.reading_settings(ui, state.demo);
-									}
+									Page::Appearance => self.appearance_settings(ui, state.demo),
+									Page::Chat => self.chat_settings(ui, state.demo),
 									Page::MessagingPermissions => {
 										self.messaging_permissions_settings(ui, state, commands)
 									}
@@ -451,10 +469,7 @@ impl MessagingUi {
 				self.settings_search(ui);
 				ui.add_space(12.0);
 				let query = self.settings.query.to_lowercase();
-				for (heading, pages) in [
-					("User settings", &Page::USER[..]),
-					("App settings", &Page::APP[..]),
-				] {
+				for (heading, pages) in Page::SECTIONS {
 					let visible: Vec<Page> = pages
 						.iter()
 						.copied()
@@ -746,6 +761,16 @@ impl MessagingUi {
 			}
 		});
 		design::group(ui, "Window", |ui| {
+			#[cfg(any(target_os = "windows", target_os = "macos"))]
+			{
+				design::switch(
+					ui,
+					"Hide Serein title bar",
+					Some("Use the system title bar and window buttons instead."),
+					&mut self.hide_title_bar,
+				);
+				design::card_divider(ui);
+			}
 			ui.add_enabled_ui(self.tray_available, |ui| {
 				design::switch(
 					ui,
@@ -831,21 +856,41 @@ impl MessagingUi {
 		}
 	}
 
-	fn appearance_settings(&mut self, ui: &mut egui::Ui) {
+	fn appearance_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
 		ui.add_space(4.0);
 		ui.label(design::eyebrow(ui, "Theme", colors.muted));
 		theme_preference_cards(ui);
-		#[cfg(any(target_os = "windows", target_os = "macos"))]
-		design::group(ui, "Window", |ui| {
-			design::switch(
+		self.colour_preset_settings(ui);
+		design::group(ui, "Accent", |ui| {
+			let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
+			design::row(
 				ui,
-				"Hide Serein title bar",
-				Some("Use the system title bar and window buttons instead."),
-				&mut self.hide_title_bar,
+				"Primary color",
+				Some(if themed_accent {
+					"The active theme brings its own accent; it takes over while the theme is in use."
+				} else {
+					"Used for buttons, selection and message highlights."
+				}),
+				|ui| {
+					ui.add_enabled_ui(!themed_accent, |ui| {
+						if self.primary_color.is_some()
+							&& design::text_action(ui, "Reset").clicked()
+						{
+							self.primary_color = None;
+						}
+						let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
+						if design::color_edit(ui, &mut color)
+							.on_hover_text("Choose primary color")
+							.changed()
+						{
+							self.primary_color = Some(color);
+						}
+					});
+				},
 			);
 		});
-		design::group(ui, "Customization", |ui| {
+		design::group(ui, "Window effects", |ui| {
 			design::switch(
 				ui,
 				"Transparency & blur",
@@ -881,34 +926,25 @@ impl MessagingUi {
 					&mut self.transparent_all,
 				);
 			}
-			design::card_divider(ui);
-			let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
-			design::row(
+		});
+		self.layout_settings(ui, demo);
+	}
+
+	fn chat_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
+		self.chat_reading_settings(ui, demo);
+		design::group(ui, "Channel list", |ui| {
+			design::switch(
 				ui,
-				"Primary color",
-				Some(if themed_accent {
-					"The active theme brings its own accent; it takes over while the theme is in use."
-				} else {
-					"Used for buttons, selection and message highlights."
-				}),
-				|ui| {
-					ui.add_enabled_ui(!themed_accent, |ui| {
-						if self.primary_color.is_some()
-							&& design::text_action(ui, "Reset").clicked()
-						{
-							self.primary_color = None;
-						}
-						let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
-						if design::color_edit(ui, &mut color)
-							.on_hover_text("Choose primary color")
-							.changed()
-						{
-							self.primary_color = Some(color);
-						}
-					});
-				},
+				"Show hidden channels",
+				Some("Show channels you cannot currently access."),
+				&mut self.show_hidden_channels,
 			);
 		});
+	}
+
+	/// Built-in presets plus enabled community themes, one swatch each.
+	fn colour_preset_settings(&mut self, ui: &mut egui::Ui) {
+		let colors = design::palette(ui);
 		let current = design::variant();
 		let mut presets: Vec<_> = design::Variant::ALL
 			.into_iter()
@@ -973,14 +1009,6 @@ impl MessagingUi {
 				))
 				.size(12.0)
 				.color(colors.muted),
-			);
-		});
-		design::group(ui, "Channel list", |ui| {
-			design::switch(
-				ui,
-				"Show hidden channels",
-				Some("Show channels you cannot currently access."),
-				&mut self.show_hidden_channels,
 			);
 		});
 	}

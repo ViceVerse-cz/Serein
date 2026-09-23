@@ -66,7 +66,7 @@ pub(crate) fn activity_card(
 	demo: bool,
 	(fill, muted): (Color32, Color32),
 ) {
-	let spotify = activity.kind == 2 && activity.name.eq_ignore_ascii_case("Spotify");
+	let spotify = is_spotify(activity);
 	egui::Frame::new()
 		.fill(fill)
 		.corner_radius(RADIUS)
@@ -483,7 +483,7 @@ pub(crate) fn presence_color(status: &str) -> Color32 {
 		_ => Color32::from_rgb(128, 132, 142),
 	}
 }
-/// Prefer the fresh visible member snapshot; DMs use the bounded session presence cache.
+/// Keep known guild presence through range loads and reconnects; access loss clears the snapshot.
 pub(crate) fn presence(
 	state: &State,
 	user: Id,
@@ -493,7 +493,10 @@ pub(crate) fn presence(
 		.members
 		.as_ref()
 		.filter(|list| {
-			guild.is_some() && list.guild == guild && list.freshness == model::Freshness::Fresh
+			guild.is_some()
+				&& list.guild == guild
+				&& list.freshness != model::Freshness::Unavailable
+				&& (state.demo || state.can_view(list.channel))
 		})
 		.and_then(|list| {
 			list.slots
@@ -504,9 +507,7 @@ pub(crate) fn presence(
 					_ => None,
 				})
 				.find(|member| member.user.id == user)
-		})
-		.filter(|_| state.demo || state.gateway_connected)
-	{
+		}) {
 		(
 			member.status.as_deref(),
 			member.custom_status.as_deref(),
@@ -531,28 +532,28 @@ pub(crate) fn member_presence<'a>(
 	member: &'a model::Member,
 	guild: Option<Id>,
 ) -> (Option<&'a str>, Option<&'a str>, &'a [model::RichActivity]) {
-	let remote =
-		if guild.is_some()
-			&& state.members.as_ref().is_some_and(|list| {
-				list.guild == guild && list.freshness == model::Freshness::Fresh
-			}) && (state.demo || state.gateway_connected)
-		{
-			(
-				member.status.as_deref(),
-				member.custom_status.as_deref(),
-				member.activities.as_slice(),
-			)
-		} else {
-			state
-				.presence_for(member.user.id)
-				.map_or((None, None, &[][..]), |p| {
-					(
-						p.status.as_deref(),
-						p.custom_status.as_deref(),
-						p.activities.as_slice(),
-					)
-				})
-		};
+	let remote = if guild.is_some()
+		&& state.members.as_ref().is_some_and(|list| {
+			list.guild == guild
+				&& list.freshness != model::Freshness::Unavailable
+				&& (state.demo || state.can_view(list.channel))
+		}) {
+		(
+			member.status.as_deref(),
+			member.custom_status.as_deref(),
+			member.activities.as_slice(),
+		)
+	} else {
+		state
+			.presence_for(member.user.id)
+			.map_or((None, None, &[][..]), |p| {
+				(
+					p.status.as_deref(),
+					p.custom_status.as_deref(),
+					p.activities.as_slice(),
+				)
+			})
+	};
 	with_local_activity(state, member.user.id, remote)
 }
 
@@ -570,10 +571,20 @@ fn with_local_activity<'a>(
 	}
 }
 
+pub(crate) fn is_spotify(activity: &model::RichActivity) -> bool {
+	activity.kind == 2 && activity.name.eq_ignore_ascii_case("Spotify")
+}
+
 pub(crate) fn subtitle(custom: Option<&str>, activities: &[model::RichActivity]) -> Option<String> {
 	activities
 		.first()
-		.map(model::RichActivity::summary)
+		.map(|activity| {
+			if is_spotify(activity) {
+				activity.state.clone().unwrap_or_else(|| activity.summary())
+			} else {
+				activity.summary()
+			}
+		})
 		.or_else(|| custom.map(str::to_owned))
 }
 
@@ -2113,6 +2124,12 @@ mod tests {
 		state.gateway_connected = false;
 		state.demo = false;
 		assert_eq!(presence(&state, user.id, None), (None, None, [].as_slice()));
+		// Known guild presence survives a reconnect; losing the list clears it.
+		assert_eq!(
+			presence(&state, user.id, Some(Id(10))).1,
+			Some("Server status")
+		);
+		state.members.as_mut().unwrap().freshness = model::Freshness::Unavailable;
 		assert_eq!(
 			presence(&state, user.id, Some(Id(10))),
 			(None, None, [].as_slice())

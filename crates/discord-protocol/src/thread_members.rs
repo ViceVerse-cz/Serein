@@ -14,7 +14,8 @@ const MAX_BYTES: usize = 128 * 1024;
 struct ThreadMember {
 	user_id: Id,
 	member: MemberDto,
-	presence: Option<PresenceDto>,
+	#[serde(default, deserialize_with = "crate::lenient_presence")]
+	presence: model::Patch<PresenceDto>,
 }
 
 #[derive(Deserialize)]
@@ -48,10 +49,11 @@ impl<'de> Deserialize<'de> for Rows {
 					if entry.user_id != entry.member.user.id || !seen.insert(entry.user_id) {
 						return Err(serde::de::Error::custom("Invalid thread member identity"));
 					}
-					if entry.presence.is_some() {
-						entry.member.presence = entry.presence;
+					if let model::Patch::Value(presence) = entry.presence {
+						entry.member.presence = model::Patch::Value(presence);
 					}
 					let member = MemberItem::Member {
+						presence: model::Patch::Absent,
 						member: Box::new(entry.member),
 					}
 					.into_model()
@@ -121,6 +123,14 @@ mod tests {
 		assert_eq!(member.roles, vec![Id(8), Id(9)]);
 		assert_eq!(member.nick.as_deref(), Some("Thread participant"));
 		assert_eq!(member.status.as_deref(), Some("online"));
+		let mut unusual = entry.clone();
+		unusual["presence"] = json!({"status":"idle","activities":[{"type":0,"name":"Game","timestamps":{"start":1.5}}]});
+		let list = parse(snapshot(json!([unusual]))).unwrap();
+		let model::MemberSlot::Person(member) = list.slots[0].as_ref().unwrap() else {
+			panic!("an unusual activity keeps the participant");
+		};
+		assert_eq!(member.status.as_deref(), Some("idle"));
+		assert!(member.activities.is_empty());
 		assert!(parse(snapshot(json!([]))).unwrap().slots.is_empty());
 		for field in ["guild_id", "thread_id"] {
 			let mut invalid = snapshot(json!([entry]));

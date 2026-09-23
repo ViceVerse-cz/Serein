@@ -8,7 +8,7 @@ channels and 100 joined guilds; the selected channel has at most 32 loaded
 recipients. Timeline, members/presence and voice limits remain 50 ordinary loaded
 messages, 100 entries each and 64 participant IDs respectively. A simultaneous
 `message_details` grant lowers the timeline row limit to 20, retaining its 20-KiB
-byte budget and the unchanged Wasm fuel limit; valid wire size alone does not
+byte budget and the shared 10-million Wasm fuel limit; valid wire size alone does not
 guarantee execution fits the fuel budget. Collector budgets
 include item overhead and escaped text: 10 KiB channels, 20 KiB timeline, 6 KiB
 each members/presence/channel-detail recipients, and 8 KiB guilds. Names are
@@ -1310,3 +1310,17 @@ message or attachment is copied into a new cache. Forward and optional-note writ
 64-item / MAX_DRAFT_BYTES pending-send budget and existing serial write queue. Closing the picker
 releases its input; account generation and source navigation changes invalidate it. No new disk
 schema or persistence is introduced.
+
+Member-list recovery (September 22): the lazy Gateway mirror retains at most 200 slots /
+256 KiB of row metadata, plus at most 514 group IDs of up to 32 bytes each. Applying a
+member-list packet stages one bounded copy so malformed operations cannot erase the last
+valid list; that copy is released before the next packet. The existing 1 MiB core member
+chunk cache is unchanged. Cached guild presence survives loading/reconnect while access
+remains available; session reset, permission loss and explicit offline/clear retain their
+existing invalidation behavior. No new persistence, directory fetch or background worker.
+
+Member-list resilience (September 23): the 200-slot / 256 KiB mirror budget is now enforced
+by shedding rich-activity details (far rows first), then far rows, instead of rejecting the
+packet. Each decoded row is captured once as raw JSON for per-row isolation and released with
+the packet. A connection remembers at most 8 recently left list IDs (up to 32 bytes each, no
+row data) so late replies are not mistaken for the open list. No new persistence.

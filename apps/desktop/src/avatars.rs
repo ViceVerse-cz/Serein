@@ -50,6 +50,9 @@ fn encoded_limit(key: &str) -> usize {
 		MAX_ANIMATED_ENCODED
 	} else if key.starts_with("large:") {
 		MAX_LARGE_ENCODED
+	} else if key.starts_with("gif:") {
+		// Provider previews are full clips even when only their first frame is shown.
+		MAX_ANIMATED_ENCODED
 	} else {
 		MAX_ENCODED
 	}
@@ -323,7 +326,10 @@ fn cdn_url(key: &str) -> Option<String> {
 		});
 	}
 	if let Some(source) = key.strip_prefix("anim:") {
-		if is_direct_gif_url(source) {
+		if is_direct_gif_url(source)
+			|| (model::valid_gif_preview(source)
+				&& (source.ends_with(".gif") || source.ends_with(".webp")))
+		{
 			return Some(source.to_owned());
 		}
 		let mut url = url::Url::parse(&embed_url(source, ui::EMBED_EDGE)?).ok()?;
@@ -530,111 +536,57 @@ async fn run(
 		.build()
 		.ok();
 	let mut cooldown = Instant::now();
-	// Four bounded downloads overlap; disk access and image decode stay on this worker.
-	let mut downloads = tokio::task::JoinSet::new();
+	// Eight bounded loads overlap; each downloads and decodes off this loop, which owns the disk.
+	let mut jobs = tokio::task::JoinSet::new();
 	loop {
-		let (key, bytes, mut error, fetched, cached_image, cached_frames) = tokio::select! {
+		let loaded = tokio::select! {
 			biased;
 			_ = cancelled.changed() => break,
-			completed = downloads.join_next(), if !downloads.is_empty() => {
-				let Some(Ok((key, bytes, until))) = completed else { break };
-				cooldown = cooldown.max(until);
-				(key, bytes, disk.is_none().then_some(CACHE_ERROR), true, None, Vec::new())
+			completed = jobs.join_next(), if !jobs.is_empty() => {
+				let Some(Ok(loaded)) = completed else { break };
+				loaded
 			},
-			key = requests.recv(), if downloads.len() < 4 => {
+			key = requests.recv(), if jobs.len() < JOBS => {
 				let Some(key) = key else { break };
 				if *cancelled.borrow() { break; }
 				let Some(url) = cdn_url(&key) else { continue };
 				let mut error = disk.is_none().then_some(CACHE_ERROR);
-				let mut cached = disk.as_mut().and_then(|disk| match disk.read(&key) {
+				let cached = disk.as_mut().and_then(|disk| match disk.read(&key) {
 					Ok(bytes) => bytes,
 					Err(_) => { error = Some(CACHE_ERROR); None }
 				});
-				let edge = decode_edge(&key);
-				let mut frames = if is_animated_key(&key) {
-					cached
-						.as_deref()
-						.and_then(|bytes| decode_animation(bytes, edge))
-						.unwrap_or_default()
-				} else {
-					Vec::new()
-				};
-				if is_animated_key(&key) && frames.len() < 2 {
-					cached = None;
-					frames.clear();
-				}
-				let image = frames.first().map(|(_, image)| image.as_ref().clone()).or_else(|| {
-					cached.as_deref().and_then(|bytes| decode(bytes, edge))
-				});
-				if image.is_none() && Instant::now() >= cooldown && let Some(client) = &client {
-					let client = client.clone();
-					downloads.spawn(async move {
-						let mut until = cooldown;
-						let bytes = async {
-							let url = if key.starts_with("app-icon-") {
-								let metadata = download(
-									&client,
-									&url,
-									&mut until,
-									MAX_APPLICATION_METADATA,
-								)
-								.await?;
-								application_icon_url(&key, &metadata)?
-							} else {
-								url
-							};
-							let limit = if lottie_key(&key) {
-								MAX_LOTTIE_ENCODED
-							} else {
-								encoded_limit(&key)
-							};
-							download(&client, &url, &mut until, limit).await
-						}
-						.await;
-						(key, bytes, until)
-					});
-					continue;
-				}
-				(key, cached, error, false, image, frames)
+				jobs.spawn(load(Job {
+					key,
+					url,
+					cached,
+					error,
+					client: client.clone(),
+					cooldown,
+					early: results.clone(),
+					ctx: ctx.clone(),
+				}));
+				continue;
 			},
 		};
+		let Loaded {
+			key,
+			fetched,
+			image,
+			frames,
+			mut error,
+			until,
+		} = loaded;
+		cooldown = cooldown.max(until);
 		if *cancelled.borrow() {
 			break;
 		}
-		let bytes = if fetched && lottie_key(&key) {
-			bytes.as_deref().and_then(render_lottie)
-		} else {
-			bytes
-		};
-		let edge = decode_edge(&key);
-		let frames = if !cached_frames.is_empty() {
-			cached_frames
-		} else if is_animated_key(&key) {
-			bytes
-				.as_deref()
-				.and_then(|bytes| decode_animation(bytes, edge))
-				.unwrap_or_default()
-		} else {
-			Vec::new()
-		};
-		let image = frames
-			.first()
-			.map(|(_, image)| image.as_ref().clone())
-			.or_else(|| {
-				cached_image.or_else(|| bytes.as_deref().and_then(|bytes| decode(bytes, edge)))
-			});
-		if fetched
-			&& image.is_some()
-			&& let (Some(disk), Some(bytes)) = (&mut disk, &bytes)
+		if let (Some(disk), Some(bytes)) = (&mut disk, &fetched)
 			&& disk.write(&key, bytes).is_err()
 		{
 			error = Some(CACHE_ERROR);
 		}
 		// Decoded results can wait for the UI; the encoded source is no longer needed.
-		drop(bytes);
-		if *cancelled.borrow() {
-			break;
-		}
+		drop(fetched);
 		tokio::select! {
 			biased;
 			_ = cancelled.changed() => break,
@@ -642,7 +594,153 @@ async fn run(
 		}
 		ctx.request_repaint();
 	}
-	downloads.abort_all();
+	jobs.abort_all();
+}
+
+const JOBS: usize = 8;
+struct Job {
+	key: String,
+	url: String,
+	cached: Option<Vec<u8>>,
+	error: Option<&'static str>,
+	client: Option<reqwest::Client>,
+	cooldown: Instant,
+	/// Animated sources post their first frame here while the remaining frames decode.
+	early: async_mpsc::Sender<AvatarResult>,
+	ctx: egui::Context,
+}
+struct Loaded {
+	key: String,
+	/// Downloaded source that decoded; the worker stores it on disk.
+	fetched: Option<Vec<u8>>,
+	image: Option<egui::ColorImage>,
+	frames: ui::GifFrames,
+	error: Option<&'static str>,
+	until: Instant,
+}
+
+async fn load(job: Job) -> Loaded {
+	let Job {
+		key,
+		url,
+		cached,
+		error,
+		client,
+		cooldown,
+		early,
+		ctx,
+	} = job;
+	let animated = is_animated_key(&key);
+	let mut until = cooldown;
+	let mut early = animated.then_some((early, ctx));
+	let mut fallback = None;
+	if let Some(bytes) = cached {
+		let (image, frames, _) = decode_blocking(&key, bytes, false, early.clone()).await;
+		// A single stored frame is fetched again: a static rendition may share its cache name.
+		if image.is_some() && (!animated || frames.len() >= 2) {
+			return Loaded {
+				key,
+				fetched: None,
+				image,
+				frames,
+				error,
+				until,
+			};
+		}
+		if image.is_some() {
+			early = None;
+		}
+		fallback = image;
+	}
+	let bytes = match &client {
+		Some(client) if Instant::now() >= cooldown => fetch(client, &key, url, &mut until).await,
+		_ => None,
+	};
+	let Some(bytes) = bytes else {
+		return Loaded {
+			key,
+			fetched: None,
+			image: fallback,
+			frames: Vec::new(),
+			error,
+			until,
+		};
+	};
+	let (image, frames, bytes) = decode_blocking(&key, bytes, lottie_key(&key), early).await;
+	let image = image.or(fallback);
+	Loaded {
+		fetched: bytes.filter(|_| image.is_some()),
+		key,
+		image,
+		frames,
+		error,
+		until,
+	}
+}
+
+async fn fetch(
+	client: &reqwest::Client,
+	key: &str,
+	url: String,
+	until: &mut Instant,
+) -> Option<Vec<u8>> {
+	let url = if key.starts_with("app-icon-") {
+		let metadata = download(client, &url, until, MAX_APPLICATION_METADATA).await?;
+		application_icon_url(key, &metadata)?
+	} else {
+		url
+	};
+	let limit = if lottie_key(key) {
+		MAX_LOTTIE_ENCODED
+	} else {
+		encoded_limit(key)
+	};
+	download(client, &url, until, limit).await
+}
+
+/// Decode on a blocking thread so loads decode in parallel. Returns the stored bytes too:
+/// a fetched Lottie source is replaced by its rendered PNG.
+async fn decode_blocking(
+	key: &str,
+	bytes: Vec<u8>,
+	lottie: bool,
+	early: Option<(async_mpsc::Sender<AvatarResult>, egui::Context)>,
+) -> (Option<egui::ColorImage>, ui::GifFrames, Option<Vec<u8>>) {
+	let key = key.to_owned();
+	tokio::task::spawn_blocking(move || {
+		let Some(bytes) = (if lottie {
+			render_lottie(&bytes)
+		} else {
+			Some(bytes)
+		}) else {
+			return (None, Vec::new(), None);
+		};
+		let edge = decode_edge(&key);
+		if !is_animated_key(&key) {
+			return (decode(&bytes, edge), Vec::new(), Some(bytes));
+		}
+		if let Some((results, ctx)) = early
+			&& let Some(image) = decode(&bytes, edge)
+			&& results
+				.blocking_send(AvatarResult {
+					key: key.clone(),
+					image: Some(image),
+					frames: Vec::new(),
+					error: None,
+				})
+				.is_ok()
+		{
+			ctx.request_repaint();
+		}
+		let frames = decode_animation(&bytes, edge).unwrap_or_default();
+		let image = frames
+			.first()
+			.map(|(_, image)| image.as_ref().clone())
+			.or_else(|| decode(&bytes, edge));
+		(image, frames, Some(bytes))
+	})
+	.await
+	.unwrap_or((None, Vec::new(), None))
 }
 
 /// Render one bounded static preview; the resulting PNG is what enters the disk cache.

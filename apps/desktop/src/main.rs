@@ -72,6 +72,7 @@ fn main() -> eframe::Result {
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-spotify")
 	{
+		spotify::debug_check();
 		discord_api::spotify::debug_check();
 		discord_gateway::debug_spotify_check();
 		return Ok(());
@@ -3015,9 +3016,9 @@ impl Desktop {
 					request,
 					edit,
 				} => server_settings_demo::execute(&self.state, guild, request, edit),
-				Command::GuildFolders(settings) => {
-					Event::GuildFolders(Ok(settings.unwrap_or_default()))
-				}
+				Command::GuildFolders(settings) => Event::GuildFolders(Ok(settings
+					.map(|(_, settings)| settings)
+					.unwrap_or_default())),
 				Command::SendServerInvite {
 					guild,
 					user,

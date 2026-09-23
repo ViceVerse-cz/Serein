@@ -15,6 +15,9 @@ pub(super) struct Switcher {
 	focus: bool,
 	previous_focus: Option<egui::Id>,
 	composing: bool,
+	/// Results for `searched`, rebuilt when the query changes and at most once a second otherwise.
+	choices: Vec<Candidate>,
+	searched: Option<(String, f64)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -52,7 +55,7 @@ impl Candidate {
 	}
 }
 
-fn bounded(value: &str) -> String {
+pub(super) fn bounded(value: &str) -> String {
 	value.chars().take(QUERY_CHARS).collect()
 }
 
@@ -93,47 +96,55 @@ fn labels_match<'a>(
 	false
 }
 
+/// Whether every lowercase query word appears in the conversation, server or recipient names.
+pub(super) fn channel_matches(
+	state: &State,
+	channel: &Channel,
+	words: &[&str],
+	label: &mut String,
+	matched: &mut [bool],
+) -> bool {
+	let guild = channel
+		.guild
+		.and_then(|id| state.guild(id))
+		.map(|guild| guild.name.as_str());
+	let recipients = channel.guild.is_none().then(|| {
+		channel.recipients.iter().take(64).flat_map(|user| {
+			[
+				Some(user.name.as_str()),
+				state.friend(user.id).map(|friend| friend.name.as_str()),
+				state.friend_nickname(user.id),
+				state.friend_username(user.id),
+			]
+			.into_iter()
+			.flatten()
+		})
+	});
+	let labels = std::iter::once(channel.name.as_str())
+		.chain(guild)
+		.chain(recipients.into_iter().flatten());
+	labels_match(labels, words, label, matched)
+}
+
 fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 	let query = bounded(query).to_lowercase();
 	let words: Vec<_> = query.split_whitespace().collect();
 	// One reused buffer instead of a lowercase copy of every label per keystroke.
 	let mut label = String::new();
 	let mut matched = vec![false; words.len()];
-	let mut matches = |channel: &Channel| {
-		let guild = channel
-			.guild
-			.and_then(|id| state.guild(id))
-			.map(|guild| guild.name.as_str());
-		let recipients = channel.guild.is_none().then(|| {
-			channel.recipients.iter().take(64).flat_map(|user| {
-				[
-					Some(user.name.as_str()),
-					state.friend(user.id).map(|friend| friend.name.as_str()),
-					state.friend_nickname(user.id),
-					state.friend_username(user.id),
-				]
-				.into_iter()
-				.flatten()
-			})
-		});
-		let labels = std::iter::once(channel.name.as_str())
-			.chain(guild)
-			.chain(recipients.into_iter().flatten());
-		labels_match(labels, &words, &mut label, &mut matched)
-	};
-	let selected = state
+	let mut matches =
+		|channel: &Channel| channel_matches(state, channel, &words, &mut label, &mut matched);
+	let mut found: Vec<_> = state
 		.channels
 		.iter()
-		.filter(|c| Some(c.id) == state.selected);
-	let mut choices: Vec<_> = selected
-		.chain(
-			state
-				.channels
-				.iter()
-				.filter(|c| Some(c.id) != state.selected),
-		)
 		.filter(|c| (c.supports_text() || c.kind == 2) && state.can_view(c.id) && matches(c))
-		.take(RESULTS)
+		.collect();
+	// Current conversation first, then the most recently active ones.
+	recent_first(&mut found, RESULTS, |c| {
+		(Some(c.id) == state.selected, activity(c))
+	});
+	let mut choices: Vec<_> = found
+		.into_iter()
 		.map(|channel| {
 			let name = state.conversation_name(channel);
 			let name = if name.is_empty() && channel.guild.is_none() {
@@ -215,6 +226,20 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 		}
 	}
 	choices
+}
+
+/// Snowflake of the latest known activity; a channel's own ID when it has no messages yet.
+pub(super) fn activity(channel: &Channel) -> Id {
+	channel.last_message.unwrap_or(channel.id).max(channel.id)
+}
+
+/// Keeps the `limit` highest-ranked items, highest first.
+pub(super) fn recent_first<T, K: Ord>(items: &mut Vec<T>, limit: usize, rank: impl Fn(&T) -> K) {
+	if items.len() > limit {
+		items.select_nth_unstable_by(limit, |a, b| rank(b).cmp(&rank(a)));
+		items.truncate(limit);
+	}
+	items.sort_by_key(|item| std::cmp::Reverse(rank(item)));
 }
 
 /// Small rounded chip that names a key in the footer legend.
@@ -385,6 +410,7 @@ impl Switcher {
 		self.selected = 0;
 		self.focus = true;
 		self.composing = false;
+		self.searched = None;
 		self.previous_focus = ctx.memory(|memory| memory.focused());
 	}
 
@@ -392,6 +418,8 @@ impl Switcher {
 		self.open = false;
 		self.query.clear();
 		self.composing = false;
+		self.choices = Vec::new();
+		self.searched = None;
 		if !restore {
 			self.previous_focus = None;
 		}
@@ -527,7 +555,16 @@ impl Switcher {
 						.color(colors.warning),
 				);
 			}
-			let choices = candidates(state, &self.query);
+			let now = ui.input(|input| input.time);
+			if self
+				.searched
+				.as_ref()
+				.is_none_or(|(query, at)| *query != self.query || !(0.0..1.0).contains(&(now - at)))
+			{
+				self.choices = candidates(state, &self.query);
+				self.searched = Some((self.query.clone(), now));
+			}
+			let choices = &self.choices;
 			self.selected = self.selected.min(choices.len().saturating_sub(1));
 			if !choices.is_empty() {
 				if down {
@@ -765,7 +802,7 @@ mod tests {
 			);
 			assert_eq!(
 				frame(&mut switcher, vec![key(egui::Key::Enter)]),
-				Some(Target::Channel(Id(1)))
+				Some(Target::Channel(Id(30)))
 			);
 			assert!(!switcher.is_open());
 			ctx.memory_mut(|memory| memory.request_focus(prior));
@@ -841,7 +878,7 @@ mod tests {
 			frame(&mut switcher, vec![key(egui::Key::Tab)]);
 			assert_eq!(
 				frame(&mut switcher, vec![key(egui::Key::Enter)]),
-				Some(Target::Channel(Id(1))),
+				Some(Target::Channel(Id(30))),
 				"Enter must activate the focused result"
 			);
 			switcher.open(&ctx);

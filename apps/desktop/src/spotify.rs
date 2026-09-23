@@ -27,8 +27,9 @@ pub async fn run(
 			}
 			continue;
 		}
-		// Expire a known track even when the next network request stalls.
-		let deadline = remaining(&activity).min(Duration::from_secs(30));
+		// Let the next track arrive before replacing the current activity.
+		// A zero timeout at track end used to cancel the poll and clear presence.
+		let deadline = poll_timeout(remaining(&activity));
 		let result = tokio::select! {
 			biased;
 			changed = presence.changed() => {
@@ -40,7 +41,7 @@ pub async fn run(
 			}
 		};
 		publish(&activity, result.ok().flatten(), &ctx);
-		let delay = remaining(&activity).min(Duration::from_secs(15));
+		let delay = remaining(&activity).clamp(Duration::from_secs(1), Duration::from_secs(15));
 		tokio::select! {
 			changed = presence.changed() => {
 				if changed.is_err() { publish(&activity, None, &ctx); return; }
@@ -78,4 +79,23 @@ fn publish(
 	}) {
 		ctx.request_repaint();
 	}
+}
+
+fn poll_timeout(remaining: Duration) -> Duration {
+	remaining.clamp(Duration::from_secs(10), Duration::from_secs(30))
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub fn debug_check() {
+	for remaining in [
+		Duration::ZERO,
+		Duration::from_millis(1),
+		Duration::from_secs(5),
+	] {
+		assert_eq!(poll_timeout(remaining), Duration::from_secs(10));
+	}
+	assert_eq!(
+		poll_timeout(Duration::from_secs(90)),
+		Duration::from_secs(30)
+	);
 }

@@ -683,6 +683,25 @@ impl Member {
 			&& self.activities.len() <= MAX_RICH_ACTIVITIES
 			&& self.activities.iter().all(RichActivity::valid)
 	}
+	/// Drops presence details this client cannot show, keeping the member row itself.
+	pub fn sanitize_presence(&mut self) {
+		if self
+			.status
+			.as_deref()
+			.is_some_and(|status| !matches!(status, "online" | "idle" | "dnd" | "offline"))
+		{
+			self.status = None;
+		}
+		if self
+			.custom_status
+			.as_deref()
+			.is_some_and(|text| !valid_presence_text(text))
+		{
+			self.custom_status = None;
+		}
+		self.activities.retain(RichActivity::valid);
+		self.activities.truncate(MAX_RICH_ACTIVITIES);
+	}
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.roles.capacity() * size_of::<Id>()
@@ -727,7 +746,7 @@ pub struct MemberList {
 	/// Guild channel lazy list. Scrollbar length is `total`. DMs and threads are false and scroll `slots.len()`.
 	pub lazy: bool,
 	pub freshness: Freshness,
-	/// id -> count from the update's top-level groups array. Display only. At most 64.
+	/// id -> count from the update's top-level groups array. At most MAX_ROLES + 2.
 	pub groups: Vec<(String, u64)>,
 	/// Ranges last requested for a lazy guild list.
 	pub ranges: Vec<[usize; 2]>,

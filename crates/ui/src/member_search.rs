@@ -41,7 +41,4 @@ impl Search {
 			ctx.request_repaint_after(std::time::Duration::from_millis(350));
 		}
 	}
-	pub fn retry(&mut self) {
-		self.sent = false;
-	}
 }

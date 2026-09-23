@@ -649,11 +649,20 @@ fn row_key(
 	layout_key(message).hash(&mut key);
 	grouped(previous, message, boundary).hash(&mut key);
 	previous
-		.is_none_or(|p| timestamp(p.id).date() != timestamp(message.id).date())
+		.is_none_or(|previous| timestamp(previous.id).date() != timestamp(message.id).date())
 		.hash(&mut key);
 	(boundary == Some(message.id)).hash(&mut key);
 	crate::mentions::presentation_fingerprint(state, message).hash(&mut key);
 	key.finish()
+}
+fn row_height_key(
+	message: &Message,
+	previous: Option<&Message>,
+	boundary: Option<Id>,
+	state: &State,
+	deleted: bool,
+) -> u64 {
+	row_key(message, previous, boundary, state) ^ u64::from(deleted)
 }
 fn divider(ui: &mut egui::Ui, label: String, unread: bool) {
 	let colors = crate::design::palette(ui);
@@ -1383,7 +1392,7 @@ impl TimelineView {
 				message.id.hash(&mut fingerprint);
 				row_key(message, previous, self.unread_boundary, state).hash(&mut fingerprint);
 				deleted.hash(&mut fingerprint);
-				previous = (!deleted).then_some(message);
+				previous = Some(message);
 			}
 			let fingerprint = fingerprint.finish();
 			layout_changed = self.layout_fingerprint != fingerprint;
@@ -1434,8 +1443,8 @@ impl TimelineView {
 				.map(|m| {
 					let prior = previous;
 					let deleted = state.timeline.is_deleted(m.id);
-					let key = row_key(m, prior, self.unread_boundary, state) ^ u64::from(deleted);
-					previous = (!deleted).then_some(m);
+					let key = row_height_key(m, prior, self.unread_boundary, state, deleted);
+					previous = Some(m);
 					let lines = m
 						.content
 						.lines()
@@ -1454,7 +1463,7 @@ impl TimelineView {
 						&m.attachments,
 						(width - 88.0).max(1.0),
 					) + 58.0 + 18.0 * lines.min(128.0);
-					if grouped(prior, m, self.unread_boundary) && !deleted {
+					if grouped(prior, m, self.unread_boundary) {
 						estimate = (estimate - GROUPED_ROW_SAVINGS).max(24.0);
 					}
 					estimate += reserved_chrome(ui, m, width);
@@ -1805,7 +1814,13 @@ impl TimelineView {
 						.response;
 					measurements.push((
 						id,
-						row_key(starter, None, self.unread_boundary, state),
+						row_height_key(
+							starter,
+							None,
+							self.unread_boundary,
+							state,
+							state.timeline.is_deleted(id),
+						),
 						response.rect.height(),
 					));
 					continue;
@@ -1823,8 +1838,8 @@ impl TimelineView {
 				}
 				let previous = index
 					.checked_sub(1)
-					.and_then(|i| display_message(state, self.rows[i].0))
-					.filter(|previous| !state.timeline.is_deleted(previous.id));
+					.and_then(|i| display_message(state, self.rows[i].0));
+				let deleted = state.timeline.is_deleted(id);
 				// ponytail: reuse only settled ordinary text; dynamic media, references,
 				// spoilers and reactions need explicit layout invalidation before caching.
 				if index < anchor
@@ -1845,7 +1860,8 @@ impl TimelineView {
 						.is_some_and(<[_]>::is_empty)
 					&& state.interactions.pending.is_none()
 					&& let Some(&(key, height)) = self.heights.get(&id)
-					&& key == row_key(message, previous, self.unread_boundary, state)
+					&& key
+						== row_height_key(message, previous, self.unread_boundary, state, deleted)
 				{
 					ui.add_space(height);
 					// Keep one result per row: visible height updates below zip by index.
@@ -1856,11 +1872,10 @@ impl TimelineView {
 				if index < anchor {
 					self.leading_rendered += 1;
 				}
-				let deleted = state.timeline.is_deleted(id);
 
 				let compact = grouped(previous, message, self.unread_boundary);
-				let new_day =
-					previous.is_none_or(|p| timestamp(p.id).date() != timestamp(id).date());
+				let new_day = previous
+					.is_none_or(|previous| timestamp(previous.id).date() != timestamp(id).date());
 				let response = ui.scope_builder(egui::UiBuilder::new().scope_id(row_id), |ui| {
 					if new_day {
 						let date = timestamp(id);
@@ -2930,7 +2945,7 @@ impl TimelineView {
 				});
 				measurements.push((
 					id,
-					row_key(message, previous, self.unread_boundary, state),
+					row_height_key(message, previous, self.unread_boundary, state, deleted),
 					response.response.rect.height(),
 				));
 			}
@@ -7546,6 +7561,76 @@ mod tests {
 			}
 		}
 		labels
+	}
+
+	#[test]
+	fn successive_deletes_keep_the_floor() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = channel_messages(20, 36);
+		let boundary = 86_400_000_u64 << 22;
+		let first = boundary - 24;
+		state.timeline.clear();
+		for (offset, id) in (first..first + 36).enumerate() {
+			let mut message = text_message(id);
+			message.channel = Id(20);
+			message.content = format!("Row {}", offset + 1);
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		state.channels[0].last_message = Some(Id(first + 35));
+		state.set_preserve_deleted_messages(true);
+		let mut view = TimelineView::default();
+		let mut frame = 0u32;
+		let mut paint = |view: &mut TimelineView, state: &mut State| {
+			frame += 1;
+			paint_timeline(&ctx, view, state, frame)
+		};
+		let mut labels = BTreeMap::new();
+		for _ in 0..6 {
+			labels = paint(&mut view, &mut state);
+		}
+		let before: f32 = view.rows.iter().map(|(_, height)| height).sum();
+		let before_y = labels["Row 36"];
+		for id in first..first + 24 {
+			state.timeline.delete(Id(id)).unwrap();
+			state.revision += 1;
+			labels = paint(&mut view, &mut state);
+		}
+		for _ in 0..4 {
+			labels = paint(&mut view, &mut state);
+		}
+		let after: f32 = view.rows.iter().map(|(_, height)| height).sum();
+		let end_y = labels["Row 36"];
+		assert!(
+			view.following && (after - before).abs() < 48.0 && (end_y - before_y).abs() < 24.0,
+			"successive deletes moved the floor: y={before_y:.1}->{end_y:.1} content={before:.1}->{after:.1} offset={:.1}",
+			view.scroll_offset
+		);
+		let previous = state.timeline.get_display(Id(boundary - 1)).unwrap();
+		let successor = state.timeline.get_display(Id(boundary)).unwrap();
+		assert!(!grouped(Some(previous), successor, None));
+		view.following = false;
+		view.jump = false;
+		view.anchor = Some((Id(first), 0.0));
+		view.revision = u64::MAX;
+		for _ in 0..4 {
+			labels = paint(&mut view, &mut state);
+		}
+		let first_day = labels
+			.keys()
+			.filter(|text| text.contains("January 1,"))
+			.count();
+		assert_eq!(first_day, 1, "successive deletes opened extra day headers");
+		view.anchor = Some((Id(boundary), 0.0));
+		view.revision = u64::MAX;
+		for _ in 0..4 {
+			labels = paint(&mut view, &mut state);
+		}
+		let next_day = labels
+			.keys()
+			.filter(|text| text.contains("January 2,"))
+			.count();
+		assert_eq!(next_day, 1, "successive deletes lost the day boundary");
 	}
 
 	/// Idle frames at the live edge. A moving label is a bounce the reader can see.

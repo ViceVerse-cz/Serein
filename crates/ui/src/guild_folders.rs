@@ -306,9 +306,9 @@ impl MessagingUi {
 				..Default::default()
 			};
 		}
-		if state.guild_folders.is_none()
+		// A change reported by Discord also retries after an earlier failure.
+		if (state.folders_stale || (state.guild_folders.is_none() && state.folders_error.is_none()))
 			&& !state.folders_pending
-			&& state.folders_error.is_none()
 			&& (state.gateway_connected || state.demo)
 			&& let Some(command) = state.load_guild_folders()
 		{

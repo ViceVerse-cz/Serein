@@ -5,7 +5,7 @@ use wasmi::{
 };
 
 const MEMORY_BYTES: usize = 16 * 1024 * 1024;
-const FUEL: u64 = 5_000_000;
+const FUEL: u64 = 10_000_000;
 
 fn engine() -> Engine {
 	let mut config = Config::default();
