@@ -1,15 +1,19 @@
-//! Friends page on the home view: Online / All / Pending from the relationships already in
-//! `client_core::State`, and Add Friend. Accept, decline and cancel go through
-//! `resolve_friend_request`, requests through `add_friend`; right-clicking a friend opens the
-//! shared navigation menu (Message, Remove Friend, Block). The search field stays in the main app.
-use crate::sidebar::avatar_with_presence;
+//! Friends page on the home view, laid out like egui's `friends.rs`: Online / All / Pending /
+//! Blocked & Ignored from the relationships already in `client_core::State`, a search field,
+//! and Add Friend. Accept, decline and cancel go through `resolve_friend_request`, requests
+//! through `add_friend`; the More button and right-click open the shared navigation menu
+//! (Message, Remove Friend, Block, Unblock).
+use crate::sidebar::{avatar, avatar_with_presence};
 use crate::theme::{Icon, color, icon, palette};
 use crate::{Serein, tooltip};
 use client_core::State;
 use gpui::{prelude::*, *};
 use model::Id;
 
-const ROW_HEIGHT: f32 = 62.;
+const ROW_HEIGHT: f32 = 64.;
+const REQUEST_HEIGHT: f32 = 72.;
+/// Longest search query kept, as egui's `char_limit(128)`.
+const QUERY_CHARS: usize = 128;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tab {
@@ -17,16 +21,24 @@ pub enum Tab {
 	Online,
 	All,
 	Pending,
+	Restricted,
 	AddFriend,
 }
 
 impl Tab {
-	const ALL: [Self; 4] = [Self::Online, Self::All, Self::Pending, Self::AddFriend];
+	const ALL: [Self; 5] = [
+		Self::Online,
+		Self::All,
+		Self::Pending,
+		Self::Restricted,
+		Self::AddFriend,
+	];
 	fn label(self) -> &'static str {
 		match self {
 			Self::Online => "Online",
 			Self::All => "All",
 			Self::Pending => "Pending",
+			Self::Restricted => "Blocked & Ignored",
 			Self::AddFriend => "Add Friend",
 		}
 	}
@@ -34,11 +46,15 @@ impl Tab {
 
 #[derive(Default)]
 pub struct Page {
-	/// Chosen from the "Friends" row; any channel selection hides the page again.
+	/// Chosen from the Friends glyph; any channel selection hides the page again.
 	pub open: bool,
 	pub tab: Tab,
+	/// Pending shows outgoing rather than incoming requests.
+	pub outgoing: bool,
 	/// The Add Friend username field, created the first time that tab opens.
 	pub username: Option<Entity<crate::input::Input>>,
+	/// The list search field, created when the page first opens; cleared on tab changes.
+	pub search: Option<Entity<crate::input::Input>>,
 }
 
 fn online(status: Option<&str>) -> bool {
@@ -55,66 +71,93 @@ fn presence_label(status: Option<&str>) -> &'static str {
 	}
 }
 
-/// Rows for a tab as `(user, incoming)`, sorted by name then ID like the egui list. `incoming` is
-/// only meaningful on Pending, where incoming requests come first.
+/// Rows for a tab as `(user, incoming)`, unfiltered; see [`list`].
 pub fn rows(state: &State, tab: Tab) -> Vec<(Id, bool)> {
+	list(state, tab, "", false)
+}
+
+/// Rows for a tab as `(user, incoming)`, sorted by name then ID like the egui list and kept
+/// when a name, display name or username contains `query` (case-insensitive). Pending lists
+/// incoming requests, or outgoing ones with `outgoing`.
+fn list(state: &State, tab: Tab, query: &str, outgoing: bool) -> Vec<(Id, bool)> {
+	let query = query.trim().to_lowercase();
+	let matches = |user: &model::User, username: Option<&str>| {
+		query.is_empty()
+			|| user.name.to_lowercase().contains(&query)
+			|| state
+				.user_display_name(user)
+				.to_lowercase()
+				.contains(&query)
+			|| username.is_some_and(|name| name.to_lowercase().contains(&query))
+	};
 	let mut rows = match tab {
 		Tab::AddFriend => Vec::new(),
 		Tab::Pending => state
 			.pending_friends()
+			.filter(|(user, name, incoming)| *incoming != outgoing && matches(user, Some(name)))
 			.map(|(user, _, incoming)| (user, *incoming))
 			.collect::<Vec<_>>(),
+		Tab::Restricted => state
+			.restricted_users()
+			.filter(|(user, name, _)| matches(user, Some(name)))
+			.map(|(user, _, _)| (user, false))
+			.collect(),
 		Tab::All | Tab::Online => state
 			.friends()
 			.filter(|user| {
-				tab == Tab::All
+				(tab == Tab::All
 					|| online(
 						state
 							.presence_for(user.id)
 							.and_then(|p| p.status.as_deref()),
-					)
+					)) && matches(user, state.friend_username(user.id))
 			})
 			.map(|user| (user, false))
 			.collect(),
 	};
-	rows.sort_unstable_by(|(a, a_in), (b, b_in)| {
-		b_in.cmp(a_in)
-			.then_with(|| a.name.cmp(&b.name))
-			.then(a.id.cmp(&b.id))
-	});
+	rows.sort_unstable_by(|(a, _), (b, _)| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
 	rows.into_iter()
 		.map(|(user, incoming)| (user.id, incoming))
 		.collect()
 }
 
-fn incoming_requests(state: &State) -> usize {
-	state
-		.pending_friends()
-		.filter(|(_, _, incoming)| *incoming)
-		.count()
-}
-
-fn round_button(
+/// A square glyph button as egui's `icons::button`: no plate until hovered.
+fn icon_button(
 	id: impl Into<ElementId>,
+	group: SharedString,
 	glyph: Icon,
+	size: f32,
 	label: &'static str,
-	hover: Rgba,
+	enabled: bool,
 ) -> Stateful<Div> {
 	let p = palette();
 	div()
 		.id(id)
-		.size(px(36.))
+		.group(group.clone())
+		.size(px(size))
 		.flex_none()
-		.rounded_full()
-		.bg(color(p.raised))
+		.rounded(px(6.))
 		.flex()
 		.items_center()
 		.justify_center()
 		.tooltip(tooltip(label))
+		.when(enabled, |d| {
+			d.cursor_pointer().hover(|d| d.bg(color(p.hover)))
+		})
 		.child(
-			icon(glyph, px(18.), color(p.muted)).group_hover(label, move |s| s.text_color(hover)),
+			icon(
+				glyph,
+				px(size * 0.6),
+				if enabled {
+					color(p.muted)
+				} else {
+					crate::theme::tint(p.muted, 0.5)
+				},
+			)
+			.when(enabled, |d| {
+				d.group_hover(group, |d| d.text_color(color(p.text_strong)))
+			}),
 		)
-		.group(label)
 }
 
 impl Serein {
@@ -128,6 +171,17 @@ impl Serein {
 			return;
 		}
 		self.friends.open = true;
+		if self.friends.search.is_none() {
+			let input = cx.new(crate::input::Input::new);
+			input.update(cx, |input, cx| input.set_placeholder("Search".into(), cx));
+			cx.subscribe(&input, |_, _, event: &crate::input::Event, cx| {
+				if matches!(event, crate::input::Event::Changed) {
+					cx.notify();
+				}
+			})
+			.detach();
+			self.friends.search = Some(input);
+		}
 		self.state.open_home();
 		self.guild = None;
 		self.state.timeline.clear();
@@ -143,227 +197,337 @@ impl Serein {
 		cx.notify();
 	}
 
-	fn friend_row(&self, user: Id, incoming: bool, cx: &mut Context<Self>) -> AnyElement {
+	fn friend_query(&self, cx: &App) -> String {
+		self.friends
+			.search
+			.as_ref()
+			.map_or_else(String::new, |input| {
+				input.read(cx).value().chars().take(QUERY_CHARS).collect()
+			})
+	}
+
+	/// Switches tabs, clearing the search like egui.
+	fn set_friends_tab(&mut self, tab: Tab, window: &mut Window, cx: &mut Context<Self>) {
+		self.friends.tab = tab;
+		if let Some(input) = &self.friends.search {
+			input.update(cx, |input, cx| input.set_value(String::new(), cx));
+		}
+		if tab == Tab::AddFriend {
+			self.focus_friend_username(window, cx);
+		}
+		cx.notify();
+	}
+
+	/// One friend or blocked/ignored user: a 64 px row with a top rule, as egui's list.
+	fn friend_row(&self, user: Id, cx: &mut Context<Self>) -> AnyElement {
 		let p = palette();
-		let pending = self.friends.tab == Tab::Pending;
-		let record = if pending {
-			self.state
-				.pending_friends()
-				.find(|(u, _, _)| u.id == user)
-				.map(|(u, name, _)| (u, Some(name.as_str())))
-		} else {
-			self.state
-				.friend(user)
-				.map(|u| (u, self.state.friend_username(user)))
-		};
-		let Some((record, username)) = record else {
+		let restricted = (self.friends.tab == Tab::Restricted)
+			.then(|| self.state.restricted_user(user))
+			.flatten();
+		let Some(record) = restricted
+			.map(|(user, _, _)| user)
+			.or_else(|| self.state.friend(user))
+		else {
 			return div().h(px(ROW_HEIGHT)).into_any_element();
 		};
-		let presence = (!pending).then(|| self.state.presence_for(user)).flatten();
+		let presence = restricted
+			.is_none()
+			.then(|| self.state.presence_for(user))
+			.flatten();
 		let status = presence.and_then(|p| p.status.as_deref());
+		let activity = presence.and_then(|p| p.activities.first());
 		let name = self.state.user_display_name(record).to_owned();
-		let subtitle = if pending {
-			if incoming {
-				"Incoming Friend Request".to_owned()
-			} else {
-				"Outgoing Friend Request".to_owned()
-			}
-		} else {
-			presence
-				.and_then(|p| p.custom_status.clone())
-				.filter(|text| !text.is_empty())
-				.unwrap_or_else(|| presence_label(status).to_owned())
+		let subtitle = match restricted {
+			Some((_, _, ignored)) => if *ignored { "Ignored" } else { "Blocked" }.to_owned(),
+			None => activity
+				.map(|activity| {
+					if activity.kind == 2 && activity.name.eq_ignore_ascii_case("Spotify") {
+						activity.state.clone().unwrap_or_else(|| activity.summary())
+					} else {
+						activity.summary()
+					}
+				})
+				.or_else(|| presence.and_then(|p| p.custom_status.clone()))
+				.unwrap_or_else(|| presence_label(status).to_owned()),
 		};
 		let available =
 			!self.state.user_action_pending() && (self.state.demo || self.state.gateway_connected);
-		let mut actions = div().flex().gap(px(10.));
-		if pending {
-			if incoming {
-				actions = actions.child(
-					round_button(
-						("friend-accept", user.0),
-						Icon::Check,
-						"Accept",
-						color(p.positive),
-					)
-					.when(available, |d| {
-						d.cursor_pointer()
-							.on_click(cx.listener(move |this, _, _, cx| {
-								let command = this.state.resolve_friend_request(user, true);
-								this.dispatch(command);
-								cx.notify();
-							}))
-					})
-					.when(!available, |d| d.opacity(0.5)),
-				);
-			}
-			actions = actions.child(
-				round_button(
-					("friend-decline", user.0),
-					Icon::Close,
-					if incoming { "Ignore" } else { "Cancel" },
-					color(p.danger),
-				)
-				.when(available, |d| {
-					d.cursor_pointer()
-						.on_click(cx.listener(move |this, _, _, cx| {
-							let command = this.state.resolve_friend_request(user, false);
-							this.dispatch(command);
-							cx.notify();
-						}))
-				})
-				.when(!available, |d| d.opacity(0.5)),
-			);
-		} else {
-			actions = actions.child(
-				round_button(
-					("friend-message", user.0),
-					Icon::Chats,
-					"Message",
-					color(p.text_strong),
-				)
-				.when(available, |d| {
-					d.cursor_pointer()
-						.on_click(cx.listener(move |this, _, _, cx| this.message_friend(user, cx)))
-				})
-				.when(!available, |d| d.opacity(0.5)),
-			);
-		}
+		let open_menu =
+			move |this: &mut Self, position, window: &mut Window, cx: &mut Context<Self>| {
+				this.open_nav_menu(crate::nav_menu::Target::Friend(user), position, window, cx);
+			};
+		let dm = restricted.is_none()
+			&& self.state.channels.iter().any(|c| {
+				c.guild.is_none() && c.kind == 1 && c.recipients.iter().any(|u| u.id == user)
+			});
 		div()
 			.id(("friend", user.0))
 			.h(px(ROW_HEIGHT))
+			.flex_none()
 			.border_t_1()
 			.border_color(color(p.border))
-			.when(!pending, |d| {
-				d.on_mouse_down(
-					MouseButton::Right,
-					cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-						let target = crate::nav_menu::Target::Friend(user);
-						this.open_nav_menu(target, event.position, window, cx);
-						cx.stop_propagation();
+			.on_mouse_down(
+				MouseButton::Right,
+				cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+					open_menu(this, event.position, window, cx);
+					cx.stop_propagation();
+				}),
+			)
+			.child(
+				div().size_full().p(px(1.)).child(
+					div()
+						.size_full()
+						.rounded(px(6.))
+						.flex()
+						.items_center()
+						.hover(|d| d.bg(color(p.hover)))
+						.child(match restricted {
+							Some(_) => avatar(&name, 40., Some(record)),
+							None => avatar_with_presence(
+								&name,
+								40.,
+								Some(record),
+								status,
+								color(p.chat),
+							),
+						})
+						.child(
+							div()
+								.ml(px(12.))
+								.self_start()
+								.pt(px(11.))
+								.flex_1()
+								.min_w_0()
+								.flex()
+								.flex_col()
+								.gap(px(6.))
+								.child(
+									div()
+										.overflow_hidden()
+										.whitespace_nowrap()
+										.text_ellipsis()
+										.line_height(px(20.))
+										.text_size(px(16.))
+										.font_weight(FontWeight::SEMIBOLD)
+										.text_color(color(p.text))
+										.child(name),
+								)
+								.child(
+									div()
+										.min_w_0()
+										.flex()
+										.items_center()
+										.gap(px(8.))
+										.when(activity.is_some_and(|a| a.kind != 2), |d| {
+											d.child(icon(
+												Icon::GameController,
+												px(14.),
+												color(p.positive),
+											))
+										})
+										.child(
+											div()
+												.min_w_0()
+												.overflow_hidden()
+												.whitespace_nowrap()
+												.text_ellipsis()
+												.text_size(px(13.))
+												.text_color(color(p.muted))
+												.child(subtitle),
+										),
+								),
+						)
+						.child(
+							div()
+								.w(px(88.))
+								.flex_none()
+								.flex()
+								.items_center()
+								.gap(px(8.))
+								.when(restricted.is_none(), |d| {
+									d.child(
+										icon_button(
+											("friend-message", user.0),
+											format!("friend-message-{user}").into(),
+											Icon::Threads,
+											36.,
+											"Message",
+											available,
+										)
+										.when(available, |d| {
+											d.on_click(cx.listener(move |this, _, _, cx| {
+												this.message_friend(user, cx)
+											}))
+										})
+										.when(!dm, |d| d.opacity(0.85)),
+									)
+								})
+								.child(
+									icon_button(
+										("friend-more", user.0),
+										format!("friend-more-{user}").into(),
+										Icon::More,
+										36.,
+										"More",
+										true,
+									)
+									.on_click(cx.listener(
+										move |this, event: &ClickEvent, window, cx| {
+											open_menu(this, event.position(), window, cx)
+										},
+									)),
+								),
+						),
+				),
+			)
+			.into_any_element()
+	}
+
+	fn resolve_request(&mut self, user: Id, accept: bool, cx: &mut Context<Self>) {
+		let command = self.state.resolve_friend_request(user, accept);
+		self.dispatch(command);
+		cx.notify();
+	}
+
+	/// One pending request, as egui's `friend_requests_page` rows.
+	fn request_row(&self, user: Id, incoming: bool, cx: &mut Context<Self>) -> AnyElement {
+		let p = palette();
+		let Some((record, username)) = self
+			.state
+			.pending_friends()
+			.find(|(u, _, _)| u.id == user)
+			.map(|(u, name, _)| (u, name.clone()))
+		else {
+			return div().h(px(REQUEST_HEIGHT)).into_any_element();
+		};
+		let name = self.state.user_display_name(record).to_owned();
+		let available =
+			!self.state.user_action_pending() && (self.state.demo || self.state.gateway_connected);
+		div()
+			.id(("friend-request", user.0))
+			.h(px(REQUEST_HEIGHT))
+			.flex_none()
+			.border_t_1()
+			.border_color(color(p.border))
+			.flex()
+			.items_center()
+			.gap(px(8.))
+			.child(avatar(&name, 40., Some(record)))
+			.child(
+				div()
+					.flex_1()
+					.min_w_0()
+					.flex()
+					.flex_col()
+					.child(
+						div()
+							.overflow_hidden()
+							.whitespace_nowrap()
+							.text_ellipsis()
+							.text_size(px(16.))
+							.font_weight(FontWeight::SEMIBOLD)
+							.text_color(color(p.text))
+							.child(name),
+					)
+					.child(
+						div()
+							.overflow_hidden()
+							.whitespace_nowrap()
+							.text_ellipsis()
+							.text_size(px(15.))
+							.text_color(color(p.muted))
+							.child(username),
+					),
+			)
+			.when(incoming, |d| {
+				d.child(
+					icon_button(
+						("friend-accept", user.0),
+						format!("friend-accept-{user}").into(),
+						Icon::Check,
+						32.,
+						"Accept request",
+						available,
+					)
+					.when(available, |d| {
+						d.on_click(
+							cx.listener(move |this, _, _, cx| this.resolve_request(user, true, cx)),
+						)
 					}),
 				)
 			})
 			.child(
-				div()
-					.size_full()
-					.px(px(10.))
-					.rounded(px(8.))
-					.flex()
-					.items_center()
-					.gap(px(12.))
-					.hover(|d| d.bg(color(p.hover)))
-					.child(avatar_with_presence(
-						&name,
-						40.,
-						Some(record),
-						status,
-						color(p.chat),
-					))
-					.child(
-						div()
-							.flex_1()
-							.min_w_0()
-							.flex()
-							.flex_col()
-							.child(
-								div()
-									.flex()
-									.items_baseline()
-									.gap(px(6.))
-									.overflow_hidden()
-									.whitespace_nowrap()
-									.child(
-										div()
-											.text_size(px(16.))
-											.font_weight(FontWeight::SEMIBOLD)
-											.text_color(color(p.text_strong))
-											.child(name),
-									)
-									.children(username.map(|username| {
-										div()
-											.text_size(px(13.))
-											.text_color(color(p.muted))
-											.child(username.to_owned())
-									})),
-							)
-							.child(
-								div()
-									.overflow_hidden()
-									.whitespace_nowrap()
-									.text_ellipsis()
-									.text_size(px(13.))
-									.text_color(color(p.muted))
-									.child(subtitle),
-							),
+				icon_button(
+					("friend-decline", user.0),
+					format!("friend-decline-{user}").into(),
+					Icon::Close,
+					32.,
+					if incoming {
+						"Decline request"
+					} else {
+						"Cancel request"
+					},
+					available,
+				)
+				.when(available, |d| {
+					d.on_click(
+						cx.listener(move |this, _, _, cx| this.resolve_request(user, false, cx)),
 					)
-					.child(actions),
+				}),
 			)
 			.into_any_element()
 	}
 
 	fn friends_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
 		let p = palette();
-		let requests = incoming_requests(&self.state);
 		div()
-			.h(px(48.))
 			.flex_none()
-			.px_4()
+			.px(px(24.))
+			// egui's frame margin, then its separator's item spacing and half-gap.
+			.pt(px(8.))
+			.pb(px(16.))
 			.border_b_1()
 			.border_color(color(p.border))
-			.flex()
-			.items_center()
-			.gap(px(8.))
-			.child(icon(Icon::Users, px(22.), color(p.muted)))
 			.child(
 				div()
-					.text_size(px(16.))
-					.font_weight(FontWeight::SEMIBOLD)
-					.text_color(color(p.text_strong))
-					.child("Friends"),
-			)
-			.child(div().mx(px(8.)).w(px(1.)).h(px(24.)).bg(color(p.border)))
-			.children(Tab::ALL.map(|tab| {
-				let selected = self.friends.tab == tab;
-				let add = tab == Tab::AddFriend;
-				div()
-					.id(tab.label())
-					.focusable()
-					.tab_stop(true)
-					.h(px(30.))
-					.px(px(10.))
-					.rounded(px(6.))
+					.min_h(px(32.))
 					.flex()
+					.flex_wrap()
 					.items_center()
-					.gap(px(6.))
-					.cursor_pointer()
-					.text_size(px(15.))
-					.font_weight(FontWeight::MEDIUM)
-					.when(add, |d| d.ml(px(8.)))
-					.when(add && selected, |d| d.text_color(color(p.accent)))
-					.when(add && !selected, |d| {
-						d.bg(color(p.accent)).text_color(color(p.accent_text))
-					})
-					.when(selected && !add, |d| {
-						d.bg(color(p.selected)).text_color(color(p.text_strong))
-					})
-					.when(!selected && !add, |d| {
-						d.text_color(color(p.muted))
-							.hover(|d| d.bg(color(p.hover)).text_color(color(p.text_strong)))
-					})
-					.focus(|d| d.bg(color(p.hover)))
-					.on_click(cx.listener(move |this, _, window, cx| {
-						this.friends.tab = tab;
-						if tab == Tab::AddFriend {
-							this.focus_friend_username(window, cx);
-						}
-						cx.notify();
-					}))
-					.child(tab.label())
-					.when(tab == Tab::Pending && requests > 0, |d| {
-						d.child(crate::sidebar::count_pill(requests as u32))
-					})
-			}))
+					.gap(px(16.))
+					.child(icon(Icon::Users, px(22.), color(p.muted)))
+					.child(
+						div()
+							.text_size(px(16.))
+							.font_weight(FontWeight::SEMIBOLD)
+							.text_color(color(p.text))
+							.child("Friends"),
+					)
+					.child(div().w(px(1.)).h(px(24.)).bg(color(p.border)))
+					.children(Tab::ALL.map(|tab| {
+						let selected = self.friends.tab == tab;
+						let add = tab == Tab::AddFriend;
+						div()
+							.id(tab.label())
+							.focusable()
+							.tab_stop(true)
+							.px(px(12.))
+							.py(px(6.))
+							.rounded(px(8.))
+							.cursor_pointer()
+							.text_size(px(14.))
+							.font_weight(FontWeight::MEDIUM)
+							.text_color(color(if add { p.accent_text } else { p.text }))
+							.when(add, |d| d.bg(color(p.accent)))
+							.when(selected && !add, |d| d.bg(color(p.raised)))
+							.when(!selected && !add, |d| d.hover(|d| d.bg(color(p.hover))))
+							.focus(|d| d.border_1().border_color(color(p.accent)))
+							.on_click(cx.listener(move |this, _, window, cx| {
+								this.set_friends_tab(tab, window, cx)
+							}))
+							.child(tab.label())
+					})),
+			)
 	}
 
 	/// Creates the Add Friend field on first use and focuses it.
@@ -534,93 +698,168 @@ impl Serein {
 			.into_any_element()
 	}
 
+	/// The bordered search box above the list, as egui's.
+	fn friends_search(&self, placeholder_height: f32) -> Div {
+		let p = palette();
+		div()
+			.flex_none()
+			.min_h(px(placeholder_height))
+			.px(px(12.))
+			.py(px(8.))
+			.rounded(px(8.))
+			.border_1()
+			.border_color(color(p.border))
+			.flex()
+			.items_center()
+			.gap(px(8.))
+			.child(icon(Icon::Search, px(18.), color(p.muted)))
+			.child(
+				div()
+					.flex_1()
+					.min_w_0()
+					.text_size(px(15.))
+					.text_color(color(p.text_strong))
+					.children(self.friends.search.clone()),
+			)
+	}
+
 	pub(crate) fn render_friends(&self, cx: &mut Context<Self>) -> AnyElement {
 		let p = palette();
 		let tab = self.friends.tab;
-		if tab == Tab::AddFriend {
-			return div()
-				.flex_1()
-				.min_w_0()
-				.h_full()
-				.bg(color(p.chat))
-				.flex()
-				.flex_col()
-				.child(self.friends_header(cx))
-				.child(self.render_add_friend(cx))
-				.into_any_element();
-		}
-		let rows = rows(&self.state, tab);
-		let heading = format!(
-			"{} — {}",
-			match tab {
-				Tab::Online => "ONLINE",
-				Tab::All => "ALL FRIENDS",
-				Tab::Pending | Tab::AddFriend => "PENDING",
-			},
-			rows.len()
-		);
-		let known = if matches!(tab, Tab::Pending | Tab::AddFriend) {
-			self.state.friend_requests_known()
-		} else {
-			self.state.friends_known()
-		};
-		let empty = match tab {
-			_ if !known => "Friends are not available yet.",
-			Tab::Online => "No friends are currently online.",
-			Tab::All => "No friends yet.",
-			Tab::Pending | Tab::AddFriend => "No pending friend requests.",
-		};
-		let count = rows.len();
-		div()
+		let page = div()
 			.flex_1()
 			.min_w_0()
 			.h_full()
 			.bg(color(p.chat))
 			.flex()
 			.flex_col()
-			.child(self.friends_header(cx))
-			.child(
+			.child(self.friends_header(cx));
+		if tab == Tab::AddFriend {
+			return page.child(self.render_add_friend(cx)).into_any_element();
+		}
+		let query = self.friend_query(cx);
+		let outgoing = self.friends.outgoing;
+		let rows = list(&self.state, tab, &query, outgoing);
+		let count = rows.len();
+		let empty = match tab {
+			Tab::Pending if !self.state.friend_requests_known() => {
+				"Friend requests are not available yet."
+			}
+			Tab::Pending if !query.trim().is_empty() => "No requests match your search.",
+			Tab::Pending if outgoing => "No outgoing friend requests.",
+			Tab::Pending => "No incoming friend requests.",
+			Tab::Restricted if !self.state.restricted_users_known() => {
+				"Blocked and ignored users are not available yet."
+			}
+			_ if tab != Tab::Restricted && !self.state.friends_known() => {
+				"Friends are not available yet."
+			}
+			Tab::Restricted if !query.trim().is_empty() => {
+				"No blocked or ignored users match your search."
+			}
+			_ if !query.trim().is_empty() => "No friends match your search.",
+			Tab::Restricted => "No blocked or ignored users.",
+			Tab::All => "No friends yet.",
+			_ => "No friends are currently online.",
+		};
+		let body = div()
+			.flex_1()
+			.min_h_0()
+			.px(px(24.))
+			.pt(px(35.))
+			.pb(px(24.))
+			.flex()
+			.flex_col();
+		let body = if tab == Tab::Pending {
+			let counts = [false, true].map(|outgoing| {
+				self.state
+					.pending_friends()
+					.filter(|(_, _, incoming)| *incoming != outgoing)
+					.count()
+			});
+			body.child(
 				div()
-					.flex_1()
-					.min_h_0()
-					.px(px(24.))
-					.pt(px(16.))
 					.flex()
-					.flex_col()
-					.child(
+					.gap(px(8.))
+					.children([false, true].map(|choice| {
+						let selected = outgoing == choice;
 						div()
-							.pb(px(12.))
-							.text_size(px(12.))
-							.font_weight(FontWeight::SEMIBOLD)
-							.text_color(color(p.muted))
-							.child(heading),
-					)
-					.when(count == 0, |d| {
-						d.child(
-							div()
-								.pt(px(20.))
-								.text_size(px(14.))
-								.text_color(color(p.muted))
-								.child(empty),
-						)
-					})
-					.when(count > 0, |d| {
-						d.child(
-							uniform_list(
-								"friends-list",
-								count,
-								cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-									range
-										.filter_map(|index| rows.get(index).copied())
-										.map(|(user, incoming)| this.friend_row(user, incoming, cx))
-										.collect::<Vec<_>>()
-								}),
-							)
-							.flex_1(),
-						)
-					}),
+							.id(if choice {
+								"requests-outgoing"
+							} else {
+								"requests-incoming"
+							})
+							.px(px(4.))
+							.py(px(2.))
+							.rounded(px(4.))
+							.cursor_pointer()
+							.text_size(px(15.))
+							.text_color(color(if selected { p.text_strong } else { p.text }))
+							.when(selected, |d| d.bg(color(p.selected)))
+							.when(!selected, |d| d.hover(|d| d.bg(color(p.hover))))
+							.on_click(cx.listener(move |this, _, _, cx| {
+								this.friends.outgoing = choice;
+								cx.notify();
+							}))
+							.child(format!(
+								"{} — {}",
+								if choice { "Outgoing" } else { "Incoming" },
+								counts[usize::from(choice)]
+							))
+					})),
 			)
-			.into_any_element()
+			.child(div().mt(px(12.)).child(self.friends_search(40.)))
+			.child(div().h(px(16.)))
+		} else {
+			body.child(self.friends_search(0.)).child(
+				div()
+					.mt(px(25.))
+					.mb(px(17.))
+					.text_size(px(13.))
+					.text_color(color(p.muted))
+					.child(format!(
+						"{} — {count}",
+						match tab {
+							Tab::All => "All friends",
+							Tab::Restricted => "Blocked & ignored",
+							_ => "Online",
+						}
+					)),
+			)
+		};
+		page.child(
+			body.when(count == 0, |d| {
+				d.child(
+					div()
+						.pt(px(if tab == Tab::Pending { 0. } else { 20. }))
+						.text_size(px(15.))
+						.text_color(color(p.muted))
+						.child(empty),
+				)
+			})
+			.when(count > 0, |d| {
+				d.child(
+					uniform_list(
+						"friends-list",
+						count,
+						cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+							range
+								.filter_map(|index| rows.get(index).copied())
+								.map(|(user, incoming)| {
+									if tab == Tab::Pending {
+										this.request_row(user, incoming, cx)
+									} else {
+										this.friend_row(user, cx)
+									}
+								})
+								.collect::<Vec<_>>()
+						}),
+					)
+					.flex_1(),
+				)
+			}),
+		)
+		.into_any_element()
 	}
 }
 

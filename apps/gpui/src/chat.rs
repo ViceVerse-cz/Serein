@@ -1,6 +1,6 @@
 //! Conversation header, grouped timeline and composer, following the egui timeline's metrics.
 use crate::sidebar::avatar;
-use crate::theme::{FONT, Icon, color, icon, palette, tint};
+use crate::theme::{FONT, Icon, color, icon, palette, solid, tint};
 use crate::{Serein, channel_label, tooltip};
 use client_core::State;
 use gpui::{prelude::*, *};
@@ -11,6 +11,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Consecutive messages from one author within this window share a header.
 const GROUP_SECONDS: i64 = 300;
 const BODY: f32 = 15.;
+/// Inter's own line box (ascent + descent) at a size, as egui lays out a text row.
+const LINE: f32 = 1.21;
+/// Header row and compact-gutter height, as the main app's `MESSAGE_LINE`.
+const MESSAGE_LINE: f32 = 22.;
+/// The main app keeps this much space under the newest message for the typing overlay.
+const TYPING_OVERLAY: f32 = 22.;
 #[cfg(target_os = "macos")]
 const MONO: &str = "Menlo";
 #[cfg(target_os = "windows")]
@@ -51,11 +57,22 @@ pub(crate) fn day_label(id: Id) -> String {
 fn date_label(at: time::OffsetDateTime) -> String {
 	format!("{} {}, {}", at.month(), at.day(), at.year())
 }
+/// The main app's attachment sizes: bytes, then two decimals (none from 100 up).
 fn format_size(bytes: u64) -> String {
-	match bytes {
-		0..1024 => format!("{bytes} bytes"),
-		1024..1_048_576 => format!("{:.1} KB", bytes as f64 / 1024.),
-		_ => format!("{:.1} MB", bytes as f64 / 1_048_576.),
+	const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
+	if bytes < 1024 {
+		return format!("{bytes} bytes");
+	}
+	let mut value = bytes as f64 / 1024.;
+	let mut unit = 0;
+	while value >= 1024. && unit + 1 < UNITS.len() {
+		value /= 1024.;
+		unit += 1;
+	}
+	if value >= 100. {
+		format!("{value:.0} {}", UNITS[unit])
+	} else {
+		format!("{value:.2} {}", UNITS[unit])
 	}
 }
 /// The same grouping rule as the egui timeline.
@@ -175,7 +192,7 @@ impl Markdown<'_> {
 		let element = div()
 			.w_full()
 			.text_size(px(size))
-			.line_height(px((size * 1.375).round()))
+			.line_height(px(size * LINE))
 			.when(paragraph.heading > 0, |d| d.mt_1())
 			.child(text);
 		self.output.push(if paragraph.quote {
@@ -210,11 +227,18 @@ impl Markdown<'_> {
 		let mut click = None;
 		let mut background = None;
 		let mut strong = span.strong || span.heading > 0;
-		let mut foreground = if span.small { p.muted } else { p.text };
+		// The main app's text colours: strong text brighter, quotes and subtext muted.
+		let mut foreground = if span.small || span.quote {
+			p.muted
+		} else if strong {
+			p.text_strong
+		} else {
+			p.text
+		};
+		// User and channel mentions are links in the main app: pill colours, regular weight.
 		let text: String = if let Some(user) = span.mention {
-			strong = true;
 			foreground = p.mention_text;
-			background = Some(tint(p.accent, 0.3));
+			background = Some(color(p.mention_bg));
 			let name = self
 				.message
 				.mentions
@@ -227,32 +251,39 @@ impl Markdown<'_> {
 			format!("@{name}")
 		} else if let Some(role) = span.role {
 			strong = true;
-			foreground = p.mention_text;
-			background = Some(tint(p.accent, 0.3));
-			let name = self
+			background = Some(color(p.mention_bg));
+			let role = self
 				.state
 				.channel(self.message.channel)
 				.and_then(|c| c.guild)
 				.and_then(|guild| self.state.guild_roles(guild))
 				.and_then(|roles| roles.iter().find(|r| r.id == role))
-				.map_or_else(|| format!("unknown-role ({role})"), |r| r.name.clone());
-			format!("@{name}")
+				.ok_or(role);
+			// Role pills wear the role's colour, kept readable on the pill.
+			foreground = match role.as_ref().ok().map(|r| r.color).filter(|c| *c != 0) {
+				Some(rgb) => ui::design::role_name_color(rgb, p.mention_bg, p.mention_text),
+				None => p.mention_text,
+			};
+			match role {
+				Ok(role) => format!("@{}", role.name),
+				Err(id) => format!("@unknown-role ({id})"),
+			}
 		} else if let Some(channel) = span.channel {
-			strong = true;
-			foreground = p.link;
+			foreground = p.mention_text;
+			background = Some(color(p.mention_bg));
 			click = Some(Click::Channel(channel));
 			match self.state.channel(channel) {
 				Some(channel) => format!("#{}", channel_label(channel)),
 				None => "#unknown-channel".into(),
 			}
 		} else if let Some((seconds, style)) = span.timestamp {
-			background = Some(tint(p.raised, 1.));
+			background = Some(color(p.raised));
 			ui::discord_timestamp(seconds, style).unwrap_or_else(|| span.text.to_owned())
 		} else {
 			if span.mass_mention {
 				strong = true;
 				foreground = p.mention_text;
-				background = Some(tint(p.accent, 0.3));
+				background = Some(color(p.mention_bg));
 			}
 			// Text runs cannot hold images: inline custom emoji read as `:name:`.
 			custom_emoji_names(span.text)
@@ -264,11 +295,11 @@ impl Markdown<'_> {
 			click = Some(Click::Link(url.to_owned()));
 		}
 		if span.code {
-			background = Some(tint(p.raised, 1.));
+			background = Some(color(p.raised));
 		}
 		let mut hsla: Hsla = color(foreground).into();
 		if span.spoiler && !self.revealed {
-			background = Some(tint(p.selected, 1.));
+			background = Some(color(p.selected));
 			hsla = color(p.selected).into();
 			click = Some(Click::Spoiler);
 		}
@@ -336,9 +367,46 @@ fn custom_emoji_names(text: &str) -> String {
 	out
 }
 
+/// The main app's icon button: a `size` square with the glyph at 60%, a hover fill and a
+/// brighter glyph on hover or while `active`; disabled buttons dim and ignore clicks.
+pub(crate) fn tool(
+	id: &'static str,
+	glyph: Icon,
+	size: f32,
+	active: bool,
+	enabled: bool,
+	label: &'static str,
+) -> Stateful<Div> {
+	let p = palette();
+	let group: SharedString = format!("tool-{id}").into();
+	let tone = if !enabled {
+		tint(p.muted, 0.5)
+	} else if active {
+		color(p.text_strong)
+	} else {
+		color(p.muted)
+	};
+	div()
+		.id(id)
+		.group(group.clone())
+		.size(px(size))
+		.flex_none()
+		.rounded(px(6.))
+		.flex()
+		.items_center()
+		.justify_center()
+		.tooltip(tooltip(label))
+		.when(enabled, |d| {
+			d.cursor_pointer().hover(|d| d.bg(color(p.hover)))
+		})
+		.child(icon(glyph, px(size * 0.6), tone).when(enabled, |svg| {
+			svg.group_hover(group, |s| s.text_color(color(p.text_strong)))
+		}))
+}
+
 /// A custom emoji image once cached, else its `:name:` in muted text.
 pub(crate) fn custom_emoji(id: Id, name: &str, size: f32) -> AnyElement {
-	match crate::images::get(&format!("emoji-{id}")) {
+	match crate::images::emoji(id) {
 		Some(image) => img(image)
 			.size(px(size))
 			.flex_none()
@@ -391,18 +459,26 @@ fn jumbo(spans: impl Iterator<Item = String>) -> AnyElement {
 		.into_any_element()
 }
 
-/// One-line text of a message with mentions resolved, for reply previews.
-fn preview_text(format: &mut ui::FormatCache, state: &State, message: &Message) -> String {
+/// One-line text of a message with mentions resolved, for reply previews, and the byte ranges
+/// drawn as mention pills.
+fn preview_text(
+	format: &mut ui::FormatCache,
+	state: &State,
+	message: &Message,
+) -> (String, Vec<Range<usize>>) {
 	let source = message.display_text();
 	let mut text = String::new();
+	let mut pills = Vec::new();
 	for span in format.get(message.id, &source).spans() {
 		if text.chars().count() >= 160 {
 			break;
 		}
+		let start = text.len();
 		if let Some(user) = span.mention {
 			let name = message.mentions.iter().find(|u| u.id == user);
 			text.push('@');
 			text.push_str(name.map_or("unknown-user", |u| state.user_display_name(u)));
+			pills.push(start..text.len());
 		} else if let Some(channel) = span.channel {
 			text.push('#');
 			text.push_str(
@@ -410,8 +486,10 @@ fn preview_text(format: &mut ui::FormatCache, state: &State, message: &Message) 
 					.channel(channel)
 					.map_or_else(|| "unknown-channel".into(), channel_label),
 			);
+			pills.push(start..text.len());
 		} else if span.role.is_some() {
 			text.push_str("@role");
+			pills.push(start..text.len());
 		} else {
 			text.extend(
 				span.text
@@ -420,7 +498,12 @@ fn preview_text(format: &mut ui::FormatCache, state: &State, message: &Message) 
 			);
 		}
 	}
-	text.chars().take(160).collect()
+	let text: String = text.chars().take(160).collect();
+	for pill in &mut pills {
+		pill.end = pill.end.min(text.len());
+	}
+	pills.retain(|pill| pill.start < pill.end);
+	(text, pills)
 }
 
 /// Highlighted fenced block with the main app's syntax colours and a copy button.
@@ -463,9 +546,12 @@ fn code_block(
 		runs.push(code_run(covered, code.len(), p.text, false));
 	}
 	let copy = code.to_owned();
+	let label = language_name(tag).map_or_else(|| tag.to_owned(), str::to_owned);
+	// The main app's block: full width, 10x8 padding, a language header with a copy icon only
+	// when the fence names one, and 14px monospace (body 15 * 0.9, rounded).
 	div()
-		.my_1()
-		.max_w(px(720.))
+		.mt(px(4.))
+		.w_full()
 		.px(px(10.))
 		.py(px(8.))
 		.rounded(px(6.))
@@ -474,53 +560,84 @@ fn code_block(
 		.border_color(color(p.border))
 		.flex()
 		.flex_col()
-		.gap_1()
+		.gap(px(6.))
+		.when(!label.is_empty(), |d| {
+			d.child(
+				div()
+					.flex()
+					.items_center()
+					.justify_between()
+					.pb(px(6.))
+					.border_b_1()
+					.border_color(color(p.border))
+					.child(
+						div()
+							.text_size(px(12.))
+							.font_weight(FontWeight::SEMIBOLD)
+							.text_color(color(p.muted))
+							.child(label),
+					)
+					.child(
+						div()
+							.id(ElementId::NamedInteger(
+								format!("copy-code-{index}").into(),
+								message.0,
+							))
+							.size(px(24.))
+							.rounded(px(6.))
+							.flex()
+							.items_center()
+							.justify_center()
+							.cursor_pointer()
+							.hover(|d| d.bg(color(p.hover)))
+							.tooltip(tooltip("Copy code"))
+							.on_click(cx.listener(move |this, _, _, cx| {
+								cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+								this.notify_user("Code copied");
+								cx.notify();
+							}))
+							.child(icon(Icon::Copy, px(14.4), color(p.muted))),
+					),
+			)
+		})
 		.child(
 			div()
-				.flex()
-				.items_center()
-				.justify_between()
-				.pb_1()
-				.border_b_1()
-				.border_color(color(p.border))
-				.child(
-					div()
-						.text_size(px(12.))
-						.font_weight(FontWeight::SEMIBOLD)
-						.text_color(color(p.muted))
-						.child(if tag.is_empty() {
-							"code".to_owned()
-						} else {
-							tag.to_owned()
-						}),
-				)
-				.child(
-					div()
-						.id(ElementId::NamedInteger(
-							format!("copy-code-{index}").into(),
-							message.0,
-						))
-						.px_2()
-						.rounded(px(4.))
-						.cursor_pointer()
-						.text_size(px(12.))
-						.text_color(color(p.muted))
-						.hover(|d| d.bg(color(p.hover)).text_color(color(p.text_strong)))
-						.on_click(cx.listener(move |this, _, _, cx| {
-							cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
-							this.notify_user("Code copied");
-							cx.notify();
-						}))
-						.child("Copy"),
-				),
-		)
-		.child(
-			div()
-				.text_size(px(13.5))
-				.line_height(px(19.))
+				.text_size(px(14.))
+				.line_height(px(16.8))
 				.child(StyledText::new(code.to_owned()).with_runs(runs)),
 		)
 		.into_any_element()
+}
+
+/// The main app's display names for fenced-code language tags.
+fn language_name(tag: &str) -> Option<&'static str> {
+	Some(match tag.trim().to_ascii_lowercase().as_str() {
+		"rs" | "rust" => "Rust",
+		"js" | "javascript" | "jsx" | "mjs" | "cjs" | "node" => "JavaScript",
+		"ts" | "typescript" | "tsx" | "mts" => "TypeScript",
+		"py" | "python" | "python3" | "py3" => "Python",
+		"go" | "golang" => "Go",
+		"java" => "Java",
+		"kt" | "kotlin" | "kts" => "Kotlin",
+		"swift" => "Swift",
+		"c" | "h" => "C",
+		"cpp" | "c++" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => "C++",
+		"cs" | "csharp" | "c#" => "C#",
+		"php" => "PHP",
+		"rb" | "ruby" => "Ruby",
+		"lua" => "Lua",
+		"sh" | "bash" | "zsh" | "shell" | "fish" | "console" | "shellsession" => "Shell",
+		"json" | "jsonc" | "json5" => "JSON",
+		"yaml" | "yml" => "YAML",
+		"toml" | "ini" | "cfg" => "TOML",
+		"sql" | "mysql" | "postgres" | "postgresql" | "sqlite" | "psql" => "SQL",
+		"html" | "htm" | "xml" | "svg" | "vue" | "xhtml" | "xaml" | "jsx-html" => "HTML",
+		"css" | "scss" | "less" => "CSS",
+		"diff" | "patch" => "Diff",
+		"dart" => "Dart",
+		"zig" => "Zig",
+		_ => return None,
+	})
 }
 
 fn code_run(start: usize, end: usize, tone: egui::Color32, italic: bool) -> TextRun {
@@ -538,26 +655,276 @@ fn code_run(start: usize, end: usize, tone: egui::Color32, italic: bool) -> Text
 	}
 }
 
-/// A cached embed image or thumbnail, sized from its metadata; nothing until it has loaded
-/// or when images are off (demo).
-fn embed_media(media: &model::EmbedMedia, bounds: (u32, u32)) -> Option<AnyElement> {
-	if !crate::images::enabled() {
+/// A preview picture sized from its metadata so arrivals never move rows: fitted inside `bounds`
+/// (never enlarged) with the main app's radius. Nothing when previews are off.
+fn media_box(media: &model::EmbedMedia, bounds: (u32, u32), radius: f32) -> Option<Div> {
+	if !crate::images::media_enabled() {
 		return None;
 	}
 	let key = crate::images::media_key(media)?;
-	let image = crate::images::get(&key);
+	let image = crate::images::media(&key);
 	let (width, height) = crate::images::fit(media.width, media.height, bounds);
 	Some(
+		// The picture is laid out absolutely: in flow it would size the box by its own aspect.
 		div()
-			.mt_1()
+			.flex_none()
+			.relative()
 			.w(px(width as f32))
 			.h(px(height as f32))
-			.rounded(px(4.))
-			.overflow_hidden()
-			.bg(color(palette().chat))
-			.children(image.map(|image| img(image).size_full().object_fit(ObjectFit::Contain)))
-			.into_any_element(),
+			.max_w_full()
+			.when(image.is_none(), |d| {
+				d.rounded(px(radius)).bg(color(palette().canvas))
+			})
+			.children(image.map(|image| {
+				img(image)
+					.absolute()
+					.inset_0()
+					.size_full()
+					.rounded(px(radius))
+					.object_fit(ObjectFit::Contain)
+			})),
 	)
+}
+
+/// Only web addresses open from embeds, as in the main app.
+fn external_url(url: &str) -> Option<String> {
+	url::Url::parse(url)
+		.ok()
+		.filter(|url| matches!(url.scheme(), "https" | "http"))
+		.map(|_| url.to_owned())
+}
+
+/// Discord link previews carry additional images as same-URL embed entries; like the main
+/// app, only continuations without independent content join the first embed's gallery.
+fn gallery_len(embeds: &[model::Embed]) -> usize {
+	let Some(first) = embeds.first() else {
+		return 0;
+	};
+	let eligible = |e: &model::Embed| {
+		e.image.is_some()
+			&& e.video.is_none()
+			&& matches!(e.kind.as_str(), "rich" | "article" | "link" | "image")
+	};
+	if !eligible(first) || first.url.as_deref().is_none_or(str::is_empty) {
+		return 1;
+	}
+	1 + embeds[1..]
+		.iter()
+		.take_while(|e| {
+			eligible(e)
+				&& e.url == first.url
+				&& (e.title.is_none() || e.title == first.title)
+				&& (e.description.is_none() || e.description == first.description)
+				&& (e.author.is_none() || e.author == first.author)
+				&& (e.provider.is_none() || e.provider == first.provider)
+				&& (e.footer.is_none() || e.footer == first.footer)
+				&& (e.timestamp.is_none() || e.timestamp == first.timestamp)
+				&& (e.thumbnail.is_none() || e.thumbnail == first.thumbnail)
+				&& (e.fields.is_empty() || e.fields == first.fields)
+		})
+		.count()
+}
+
+/// The main app's gallery mosaic: two columns with a 4px gap, three images as one tall tile
+/// beside two stacked ones. Tiles crop to fill, with rounded top corners.
+fn gallery(group: &[model::Embed], width: f32, message: Id, index: usize) -> AnyElement {
+	let p = palette();
+	let tile = |ix: usize| {
+		let media = group[ix].image.as_ref();
+		let image = media
+			.filter(|_| crate::images::media_enabled())
+			.and_then(crate::images::media_key)
+			.and_then(|key| crate::images::media(&key));
+		let target = media
+			.and_then(|m| m.url.as_deref().or(m.proxy_url.as_deref()))
+			.and_then(external_url);
+		div()
+			.id(ElementId::NamedInteger(
+				format!("gallery-{index}-{ix}").into(),
+				message.0,
+			))
+			.flex_1()
+			.min_w_0()
+			.h_full()
+			.rounded_t(px(8.))
+			.overflow_hidden()
+			.bg(color(p.canvas))
+			.when_some(target, |d, url| {
+				d.cursor_pointer()
+					.tooltip(tooltip("Open image…"))
+					.on_click(move |_, window, cx| confirm_open(url.clone(), window, cx))
+			})
+			.children(image.map(|image| {
+				img(image)
+					.size_full()
+					.rounded_t(px(8.))
+					.object_fit(ObjectFit::Cover)
+			}))
+			.into_any_element()
+	};
+	let count = group.len();
+	let mut grid = div().w(px(width)).max_w_full().flex().gap(px(4.));
+	if count == 3 {
+		grid = grid.aspect_ratio(1.).child(tile(0)).child(
+			div()
+				.flex_1()
+				.min_w_0()
+				.h_full()
+				.flex()
+				.flex_col()
+				.gap(px(4.))
+				.child(tile(1))
+				.child(tile(2)),
+		);
+	} else {
+		let rows = count.div_ceil(2);
+		grid = grid
+			.flex_col()
+			.aspect_ratio(2. / rows as f32)
+			.children((0..rows).map(|row| {
+				div()
+					.flex_1()
+					.min_h_0()
+					.flex()
+					.gap(px(4.))
+					.child(tile(row * 2))
+					.child(if row * 2 + 1 < count {
+						tile(row * 2 + 1)
+					} else {
+						div().flex_1().into_any_element()
+					})
+			}));
+	}
+	grid.into_any_element()
+}
+
+/// Gutter glyph and tint for a system message type, as the main app's system rows.
+fn system_icon(kind: u8) -> (Icon, egui::Color32) {
+	let p = palette();
+	// Discord's boost pink; not part of any theme palette.
+	let boost = egui::Color32::from_rgb(0xff, 0x73, 0xfa);
+	match kind {
+		1 | 7 => (Icon::ArrowRight, p.positive),
+		2 => (Icon::ArrowLeft, p.danger),
+		3 | 65 => (Icon::Phone, p.positive),
+		4 => (Icon::Pencil, p.muted),
+		5 => (Icon::Image, p.muted),
+		6 => (Icon::Pin, p.muted),
+		8..=11 => (Icon::Sparkle, boost),
+		12 | 27..=31 => (Icon::Megaphone, p.muted),
+		14 | 15 => (Icon::Compass, p.positive),
+		16 | 17 => (Icon::Compass, p.warning),
+		18 | 21 => (Icon::Thread, p.muted),
+		22 => (Icon::UserPlus, p.muted),
+		24 | 36 | 38 => (Icon::ShieldWarning, p.danger),
+		37 | 39 | 62 => (Icon::ShieldWarning, p.positive),
+		58 => (Icon::Trash, p.muted),
+		59..=61 => (Icon::ShieldWarning, p.danger),
+		55 => (Icon::ScreenShare, p.accent),
+		67 => (Icon::Check, p.positive),
+		25 | 26 | 32 => (Icon::Crown, p.warning),
+		44 => (Icon::ShoppingCart, p.accent),
+		46 => (Icon::ChartBar, p.muted),
+		_ => (Icon::Help, p.muted),
+	}
+}
+
+#[derive(Clone)]
+enum SystemClick {
+	Person(model::User),
+	Thread(Id),
+	Threads(Id),
+}
+
+impl Serein {
+	/// The main app's system sentence: muted words, names in medium strong text that open
+	/// profiles, a thread name that opens the thread, and the time after it.
+	fn system_sentence(
+		&self,
+		message: &Message,
+		system: &model::SystemMessage,
+		cx: &mut Context<Self>,
+	) -> AnyElement {
+		let p = palette();
+		let thread = (message.kind == 18 && system.content_shown)
+			.then(|| self.state.thread_of(message).map(|c| c.id));
+		let mut text = String::new();
+		let mut runs = Vec::new();
+		let mut ranges = Vec::new();
+		let mut clicks = Vec::new();
+		let mut push = |part: &str, strong: bool, click: Option<SystemClick>| {
+			if part.is_empty() {
+				return;
+			}
+			let start = text.len();
+			text.push_str(part);
+			runs.push(TextRun {
+				len: part.len(),
+				font: Font {
+					weight: if strong {
+						FontWeight::MEDIUM
+					} else {
+						FontWeight::NORMAL
+					},
+					..font(FONT)
+				},
+				color: color(if strong { p.text_strong } else { p.muted }).into(),
+				background_color: None,
+				underline: None,
+				strikethrough: None,
+			});
+			if let Some(click) = click {
+				ranges.push(start..text.len());
+				clicks.push(click);
+			}
+		};
+		for segment in &system.segments {
+			let click = match (&segment.user, thread) {
+				(Some(user), _) => Some(SystemClick::Person(user.clone())),
+				(None, Some(Some(id))) if segment.strong => Some(SystemClick::Thread(id)),
+				_ => None,
+			};
+			push(&segment.text, segment.strong, click);
+		}
+		if thread.is_some() {
+			push(". See all ", false, None);
+			push("threads", true, Some(SystemClick::Threads(message.channel)));
+			push(".", false, None);
+		}
+		let guild = self.state.channel(message.channel).and_then(|c| c.guild);
+		let view = cx.entity().downgrade();
+		let sentence = InteractiveText::new(
+			ElementId::NamedInteger("system".into(), message.id.0),
+			StyledText::new(text).with_runs(runs),
+		)
+		.on_click(ranges, move |ix, window, cx| {
+			let Some(click) = clicks.get(ix).cloned() else {
+				return;
+			};
+			let position = window.mouse_position();
+			let _ = view.update(cx, |this, cx| match click {
+				SystemClick::Person(user) => {
+					this.open_profile(user, guild, Vec::new(), position, cx)
+				}
+				SystemClick::Thread(id) => this.select(id, cx),
+				SystemClick::Threads(parent) => this.open_threads(parent, cx),
+			});
+		});
+		div()
+			.flex()
+			.flex_wrap()
+			.items_baseline()
+			.gap_x(px(8.))
+			.line_height(px(BODY * LINE + 2.))
+			.child(sentence)
+			.child(
+				div()
+					.text_size(px(12.))
+					.text_color(color(p.muted))
+					.child(clock(message.id)),
+			)
+			.into_any_element()
+	}
 }
 
 /// "Confirm before opening links", mirrored from the reading preferences.
@@ -712,10 +1079,11 @@ impl Serein {
 	fn divider(label: String, danger: bool) -> impl IntoElement {
 		let p = palette();
 		let line = color(if danger { p.danger } else { p.border });
+		// The main app's divider spacing (16 + 4 plus its layout gaps), measured side by side.
 		div()
 			.mx_4()
-			.mt(px(16.))
-			.mb(px(4.))
+			.mt(px(18.))
+			.mb(px(9.))
 			.h(px(20.))
 			.flex()
 			.items_center()
@@ -746,7 +1114,7 @@ impl Serein {
 				.left(px(19.))
 				.top(px(8.))
 				.w(px(31.))
-				.h(px(12.))
+				.h(px(18.))
 				.border_l_2()
 				.border_t_2()
 				.rounded_tl(px(5.))
@@ -761,7 +1129,37 @@ impl Serein {
 				.into_any_element()
 		} else if let Some(original) = original {
 			let name = self.state.message_author_name(original).to_owned();
-			let preview = preview_text(&mut self.format, &self.state, original);
+			let (preview, pills) = preview_text(&mut self.format, &self.state, original);
+			let (preview, pills) = if preview.is_empty() {
+				("Click to see attachment".to_owned(), Vec::new())
+			} else {
+				(preview, pills)
+			};
+			// One line as in the main app: "@name  " in semibold, then the preview with pills.
+			let lead = format!("@{name}  ");
+			let run = |len: usize, weight: FontWeight, tone: egui::Color32, pill: bool| TextRun {
+				len,
+				font: Font {
+					weight,
+					..font(FONT)
+				},
+				color: color(tone).into(),
+				background_color: pill.then(|| color(p.mention_bg).into()),
+				underline: None,
+				strikethrough: None,
+			};
+			let mut runs = vec![run(lead.len(), FontWeight::SEMIBOLD, p.muted, false)];
+			let mut at = 0;
+			for pill in &pills {
+				if pill.start > at {
+					runs.push(run(pill.start - at, FontWeight::NORMAL, p.muted, false));
+				}
+				runs.push(run(pill.len(), FontWeight::NORMAL, p.mention_text, true));
+				at = pill.end;
+			}
+			if preview.len() > at {
+				runs.push(run(preview.len() - at, FontWeight::NORMAL, p.muted, false));
+			}
 			div()
 				.flex()
 				.items_center()
@@ -770,38 +1168,26 @@ impl Serein {
 				.child(avatar(&name, 16., Some(&original.author)))
 				.child(
 					div()
-						.flex_none()
-						.text_size(px(13.))
-						.font_weight(FontWeight::SEMIBOLD)
-						.text_color(color(p.muted))
-						.child(format!("@{name}")),
-				)
-				.child(
-					div()
 						.min_w_0()
 						.overflow_hidden()
 						.whitespace_nowrap()
 						.text_ellipsis()
 						.text_size(px(13.))
-						.text_color(color(p.muted))
-						.child(if preview.is_empty() {
-							"Click to see attachment".to_owned()
-						} else {
-							preview
-						}),
+						.child(StyledText::new(format!("{lead}{preview}")).with_runs(runs)),
 				)
 				.into_any_element()
 		} else {
 			div()
 				.text_size(px(13.))
 				.text_color(color(p.muted))
-				.child("Earlier message")
+				.child("Earlier message · View original")
 				.into_any_element()
 		};
 		Some(
 			div()
 				.id(("reply-line", message.id.0))
-				.h(px(18.))
+				// The main app's reply row measures taller than its 18px spine.
+				.h(px(26.))
 				.mb(px(4.))
 				.flex()
 				.items_center()
@@ -828,6 +1214,68 @@ impl Serein {
 		cx.notify();
 	}
 
+	/// Attachments as the main app groups them: runs of images as a two-column mosaic, then
+	/// video previews and file cards.
+	fn attachments(&self, message: &Message) -> Vec<AnyElement> {
+		let inline = |a: &model::Attachment| {
+			a.is_image()
+				&& !a.spoiler
+				&& crate::images::media_enabled()
+				&& crate::images::media_key(&a.media).is_some()
+		};
+		let mut output = Vec::new();
+		let mut offset = 0;
+		for group in message.attachments.chunk_by(|a, b| inline(a) == inline(b)) {
+			if inline(&group[0]) {
+				// Two columns of 207x180 cells in the main app's 420px box; one image gets 420x280.
+				let (columns, cell) = if group.len() > 1 {
+					(2, (207, 180))
+				} else {
+					(1, (420, 280))
+				};
+				let start = offset;
+				output.push(
+					div()
+						.flex()
+						.flex_col()
+						.gap(px(6.))
+						.children(group.chunks(columns).enumerate().map(|(row, images)| {
+							div().flex().items_start().gap(px(6.)).children(
+								images.iter().enumerate().filter_map(|(col, attachment)| {
+									let ix = start + row * columns + col;
+									let url = attachment.media.url.clone();
+									let label = attachment
+										.description
+										.clone()
+										.unwrap_or_else(|| attachment.filename.clone());
+									media_box(&attachment.media, cell, 5.).map(|tile| {
+										tile.id(ElementId::NamedInteger(
+											format!("attachment-{ix}").into(),
+											message.id.0,
+										))
+										.tooltip(tooltip(label))
+										.when_some(url, |d, url| {
+											d.cursor_pointer().on_click(move |_, window, cx| {
+												confirm_open(url.clone(), window, cx)
+											})
+										})
+									})
+								}),
+							)
+						}))
+						.into_any_element(),
+				);
+			} else {
+				output.extend(group.iter().enumerate().map(|(ix, attachment)| {
+					self.attachment(attachment, offset + ix, message.id)
+						.into_any_element()
+				}));
+			}
+			offset += group.len();
+		}
+		output
+	}
+
 	fn attachment(
 		&self,
 		attachment: &model::Attachment,
@@ -847,7 +1295,7 @@ impl Serein {
 		{
 			(Icon::File, p.warning)
 		} else if kind.starts_with("text/") || name.ends_with(".txt") || name.ends_with(".md") {
-			(Icon::FileText, p.link)
+			(Icon::FileText, p.muted)
 		} else {
 			(Icon::File, p.muted)
 		};
@@ -862,7 +1310,7 @@ impl Serein {
 					format!("attachment-{ix}").into(),
 					message.0,
 				))
-				.mt_1()
+				.mb(px(6.))
 				.w(px(width as f32))
 				.max_w_full()
 				.aspect_ratio(width as f32 / height as f32)
@@ -915,51 +1363,16 @@ impl Serein {
 						.child(format_size(attachment.size)),
 				);
 		}
-		// Inline preview, sized from the attachment metadata so its arrival never moves rows.
-		if kind.starts_with("image/")
-			&& kind != "image/svg+xml"
-			&& !attachment.spoiler
-			&& crate::images::enabled()
-			&& let Some(key) = crate::images::media_key(&attachment.media)
-		{
-			let media = &attachment.media;
-			let (width, height) =
-				crate::images::fit(media.width, media.height, crate::images::MEDIA_BOX);
-			return div()
-				.id(ElementId::NamedInteger(
-					format!("attachment-{ix}").into(),
-					message.0,
-				))
-				.mt_1()
-				.w(px(width as f32))
-				.max_w_full()
-				.aspect_ratio(width as f32 / height as f32)
-				.rounded(px(8.))
-				.overflow_hidden()
-				.bg(color(p.raised))
-				.flex()
-				.items_center()
-				.justify_center()
-				.tooltip(tooltip(attachment.filename.clone()))
-				.when_some(url, |d, url| {
-					d.cursor_pointer()
-						.on_click(move |_, window, cx| confirm_open(url.clone(), window, cx))
-				})
-				.child(match crate::images::get(&key) {
-					Some(image) => img(image)
-						.size_full()
-						.object_fit(ObjectFit::Contain)
-						.into_any_element(),
-					None => icon(Icon::FileImage, px(32.), color(p.muted)).into_any_element(),
-				});
-		}
+		// The main app's file card: 432px of content inside 12x10 padding.
+		let demo = self.state.demo;
 		div()
 			.id(ElementId::NamedInteger(
 				format!("attachment-{ix}").into(),
 				message.0,
 			))
-			.mt_1()
-			.max_w(px(432.))
+			.mb(px(6.))
+			.w(px(456.))
+			.max_w_full()
 			.px(px(12.))
 			.py(px(10.))
 			.rounded(px(8.))
@@ -968,7 +1381,7 @@ impl Serein {
 			.border_color(color(p.border))
 			.flex()
 			.items_center()
-			.gap(px(12.))
+			.gap(px(10.))
 			.child(icon(glyph, px(32.), color(tone)))
 			.child(
 				div()
@@ -996,133 +1409,275 @@ impl Serein {
 			.children(url.map(|url| {
 				div()
 					.id("open")
-					.size(px(28.))
+					.h(px(32.))
+					.px(px(12.))
 					.flex_none()
 					.rounded(px(6.))
 					.flex()
 					.items_center()
-					.justify_center()
-					.cursor_pointer()
-					.hover(|d| d.bg(color(p.hover)))
-					.tooltip(tooltip("Open in browser"))
-					.on_click(move |_, window, cx| confirm_open(url.clone(), window, cx))
-					.child(icon(Icon::Download, px(18.), color(p.muted)))
+					.text_size(px(14.))
+					.font_weight(FontWeight::MEDIUM)
+					// Synthetic files have nothing to fetch.
+					.when(demo, |d| {
+						d.text_color(tint(p.muted, 0.6))
+							.tooltip(tooltip("Unavailable for synthetic attachments"))
+					})
+					.when(!demo, |d| {
+						d.text_color(color(p.text))
+							.cursor_pointer()
+							.hover(|d| d.bg(color(p.hover)))
+							.tooltip(tooltip("Open in browser"))
+							.on_click(move |_, window, cx| confirm_open(url.clone(), window, cx))
+					})
+					.child("Download")
 			}))
 	}
 
-	fn embed(&self, embed: &model::Embed) -> Option<impl IntoElement> {
-		let p = palette();
-		if let Some(media) = inline_image(embed) {
-			return embed_media(media, (400, 300)).map(|preview| div().child(preview));
+	/// Embeds in the main app's order and style: bare image/GIF previews, galleries of
+	/// same-link images, and rich cards with markdown descriptions and fields.
+	fn embeds(&mut self, message: &Message, cx: &mut Context<Self>) -> Vec<AnyElement> {
+		if message.embeds_suppressed {
+			return Vec::new();
 		}
-		if embed.title.is_none()
-			&& embed.description.is_none()
-			&& embed.fields.is_empty()
-			&& embed.author.is_none()
-		{
-			return None;
+		let mut output = Vec::new();
+		let mut index = 0;
+		while index < message.embeds.len() {
+			let count = gallery_len(&message.embeds[index..]).max(1);
+			let group = &message.embeds[index..index + count];
+			if let Some(element) = self.embed(message, group, index, cx) {
+				output.push(element);
+			}
+			index += count;
+		}
+		output
+	}
+
+	fn embed(
+		&mut self,
+		message: &Message,
+		group: &[model::Embed],
+		index: usize,
+		cx: &mut Context<Self>,
+	) -> Option<AnyElement> {
+		let p = palette();
+		let embed = &group[0];
+		let id = |name: &str| {
+			ElementId::NamedInteger(format!("embed-{index}-{name}").into(), message.id.0)
+		};
+		if let Some(media) = inline_image(embed) {
+			if group.len() > 1 {
+				return Some(
+					div()
+						.mb(px(6.))
+						.child(gallery(group, 480., message.id, index))
+						.into_any_element(),
+				);
+			}
+			let target = embed
+				.url
+				.as_deref()
+				.or(media.url.as_deref())
+				.and_then(external_url);
+			return media_box(media, (480, 320), 5.).map(|preview| {
+				preview
+					.id(id("media"))
+					.mb(px(6.))
+					.when_some(target, |d, url| {
+						d.cursor_pointer()
+							.tooltip(tooltip("Open image…"))
+							.on_click(move |_, window, cx| confirm_open(url.clone(), window, cx))
+					})
+					.into_any_element()
+			});
+		}
+		let link = |name: &str, label: String, url: Option<&str>, tone: egui::Color32| {
+			let target = url.and_then(external_url);
+			div()
+				.id(id(name))
+				.text_color(color(if target.is_some() { p.link } else { tone }))
+				.when_some(target, |d, url| {
+					d.cursor_pointer()
+						.hover(|d| d.underline())
+						.tooltip(tooltip("Open link…"))
+						.on_click(move |_, window, cx| confirm_open(url.clone(), window, cx))
+				})
+				.child(label)
+		};
+		let small = |text: String| {
+			div()
+				.text_size(px(12.))
+				.line_height(px(12. * LINE))
+				.text_color(color(p.muted))
+				.child(text)
+		};
+		// Parts after the body and component texts, so their format cache entries never collide.
+		let part = 1000 + index as u16 * 64;
+		let description = embed
+			.description
+			.clone()
+			.map(|text| self.markdown(message, part, &text, cx));
+		let fields = embed
+			.fields
+			.iter()
+			.take(25)
+			.enumerate()
+			.map(|(ix, field)| {
+				let value = self.markdown(message, part + 1 + ix as u16, &field.value, cx);
+				(field.inline, field.name.clone(), value)
+			})
+			.collect::<Vec<_>>();
+		// Up to three inline fields share a row in equal columns; others take the full width.
+		let mut rows: Vec<Vec<(String, Vec<AnyElement>)>> = Vec::new();
+		let mut row_inline = false;
+		for (inline, name, value) in fields {
+			match rows.last_mut() {
+				Some(row) if inline && row_inline && row.len() < 3 => row.push((name, value)),
+				_ => {
+					rows.push(vec![(name, value)]);
+					row_inline = inline;
+				}
+			}
 		}
 		let bar = embed
 			.color
 			.map_or(color(p.accent), |value| rgb(value & 0xff_ffff));
-		let small = |text: String, tone: egui::Color32| {
-			div().text_size(px(12.)).text_color(color(tone)).child(text)
-		};
+		let thumbnail = embed
+			.thumbnail
+			.as_ref()
+			.and_then(|media| media_box(media, (84, 84), 5.));
+		let video = embed.video.is_some() || matches!(embed.kind.as_str(), "video" | "gifv");
+		let supported = matches!(
+			embed.kind.as_str(),
+			"rich" | "article" | "link" | "image" | "video" | "gifv"
+		);
 		Some(
 			div()
-				.mt_1()
-				.max_w(px(480.))
+				.w(px(480.))
+				.max_w_full()
+				.mb(px(6.))
+				.relative()
+				.p(px(12.))
 				.rounded(px(5.))
 				.bg(color(p.raised))
 				.flex()
-				.overflow_hidden()
+				.flex_col()
+				.gap(px(4.))
 				.child(
 					div()
+						.absolute()
+						.left_0()
+						.top(px(5.))
+						.bottom(px(5.))
 						.w(px(3.))
-						.flex_none()
-						.my(px(5.))
-						.rounded(px(2.))
 						.bg(bar),
 				)
 				.child(
 					div()
-						.flex_1()
-						.min_w_0()
-						.p(px(12.))
 						.flex()
-						.flex_col()
-						.gap_1()
-						.children(
-							embed
-								.provider
-								.as_ref()
-								.map(|provider| small(provider.name.clone(), p.muted)),
-						)
-						.children(embed.author.as_ref().map(|author| {
+						.items_start()
+						.gap(px(16.))
+						.child(
 							div()
-								.text_size(px(13.))
-								.font_weight(FontWeight::SEMIBOLD)
-								.text_color(color(p.text_strong))
-								.child(author.name.clone())
-						}))
-						.children(embed.title.as_ref().map(|title| {
-							div()
-								.font_weight(FontWeight::SEMIBOLD)
-								.text_color(color(if embed.url.is_some() {
-									p.link
-								} else {
-									p.text_strong
+								.flex_1()
+								.min_w_0()
+								.flex()
+								.flex_col()
+								.gap(px(4.))
+								.children(embed.provider.as_ref().map(|provider| {
+									link(
+										"provider",
+										provider.name.clone(),
+										provider.url.as_deref(),
+										p.text,
+									)
 								}))
-								.child(title.clone())
-						}))
-						.children(embed.description.as_ref().map(|description| {
-							div()
-								.text_size(px(14.))
-								.text_color(color(p.text))
-								.child(description.chars().take(600).collect::<String>())
-						}))
-						.when(!embed.fields.is_empty(), |d| {
-							d.child(div().flex().flex_wrap().gap_2().children(
-								embed.fields.iter().take(25).map(|field| {
-									div()
-										.when(field.inline, |d| d.min_w(px(130.)).flex_1())
-										.when(!field.inline, |d| d.w_full())
-										.flex()
-										.flex_col()
-										.child(
-											div()
-												.text_size(px(13.))
-												.font_weight(FontWeight::SEMIBOLD)
-												.text_color(color(p.text_strong))
-												.child(field.name.clone()),
-										)
-										.child(div().text_size(px(13.)).child(
-											field.value.chars().take(300).collect::<String>(),
-										))
-								}),
-							))
-						})
-						.children(
-							embed
-								.image
-								.as_ref()
-								.and_then(|media| embed_media(media, (400, 300))),
+								.children(embed.author.as_ref().map(|author| {
+									link(
+										"author",
+										author.name.clone(),
+										author.url.as_deref(),
+										p.text,
+									)
+								}))
+								.children(embed.title.as_ref().map(|title| {
+									link(
+										"title",
+										title.clone(),
+										embed.url.as_deref(),
+										p.text_strong,
+									)
+								}))
+								.children(description.map(|paragraphs| {
+									div().flex().flex_col().gap(px(4.)).children(paragraphs)
+								})),
 						)
-						.children(
-							embed
-								.footer
-								.as_ref()
-								.map(|footer| small(footer.text.clone(), p.muted)),
-						),
+						.children(thumbnail),
+				)
+				.children(rows.into_iter().map(|row| {
+					div()
+						.flex()
+						.gap(px(16.))
+						.children(row.into_iter().map(|(name, value)| {
+							div()
+								.flex_1()
+								.min_w_0()
+								.flex()
+								.flex_col()
+								.gap(px(4.))
+								.child(div().text_color(color(p.text_strong)).child(name))
+								.children(value)
+						}))
+				}))
+				.when(group.len() > 1, |d| {
+					d.child(gallery(group, 456., message.id, index))
+				})
+				.when(group.len() == 1, |d| {
+					d.children(
+						embed
+							.image
+							.as_ref()
+							.and_then(|media| media_box(media, (456, 320), 5.)),
+					)
+				})
+				.when(video, |d| {
+					d.child(small(
+						"Video preview · playback opens in your browser".into(),
+					))
+					.child(link(
+						"video",
+						"Open video…".into(),
+						embed
+							.url
+							.as_deref()
+							.or_else(|| embed.video.as_ref().and_then(|v| v.url.as_deref())),
+						p.text,
+					))
+				})
+				.when(
+					!video && embed.title.is_none() && embed.url.is_some(),
+					|d| {
+						d.child(link(
+							"source",
+							"Open source…".into(),
+							embed.url.as_deref(),
+							p.text,
+						))
+					},
 				)
 				.children(
 					embed
-						.thumbnail
+						.footer
 						.as_ref()
-						.filter(|_| embed.image.is_none())
-						.and_then(|media| embed_media(media, (84, 84)))
-						.map(|thumbnail| div().p(px(12.)).pl_0().flex_none().child(thumbnail)),
-				),
+						.map(|footer| small(footer.text.clone())),
+				)
+				.children(embed.timestamp.clone().map(small))
+				.when(group.iter().any(|e| e.limited), |d| {
+					d.child(small("Embed display limited".into()))
+				})
+				.when(!supported, |d| {
+					d.child(small("Additional embed content is not supported".into()))
+				})
+				.into_any_element(),
 		)
 	}
 
@@ -1132,7 +1687,6 @@ impl Serein {
 		let id = message.id;
 		Some(
 			div()
-				.mt_1()
 				.flex()
 				.flex_wrap()
 				.gap_1()
@@ -1163,7 +1717,7 @@ impl Serein {
 						.when(!me, |d| {
 							d.bg(color(p.raised))
 								.border_color(gpui::transparent_black())
-								.hover(|d| d.border_color(color(p.muted)))
+								.hover(|d| d.bg(color(p.hover)))
 						})
 						.on_click(cx.listener(move |this, _, _, cx| {
 							let command = this.state.prepare_reaction(id, emoji.clone());
@@ -1372,6 +1926,7 @@ impl Serein {
 		let mentioned =
 			message.mention_everyone || message.mentions.iter().any(|u| Some(u.id) == me);
 		let hovered = self.hovered == Some(message.id);
+		let reply_target = self.state.reply_target() == Some(message.id);
 		let id = message.id;
 		let name = self.state.message_author_name(&message).to_owned();
 		let author_color = self
@@ -1383,11 +1938,21 @@ impl Serein {
 		let time = clock(message.id);
 		let group: SharedString = format!("message-{id}").into();
 
-		let mut content = div().flex_1().min_w_0().flex().flex_col();
-		if !grouped {
+		// The main app stacks a message's parts 4px apart; a lone line fills the 22px gutter.
+		let system = message.system_message();
+		let mut content = div()
+			.flex_1()
+			.min_w_0()
+			.min_h(px(MESSAGE_LINE))
+			// Measured from the main app: a headed message keeps 4px under its last line.
+			.when(!grouped, |d| d.pb(px(4.)))
+			.flex()
+			.flex_col()
+			.gap(px(4.));
+		if !grouped && system.is_none() {
 			content = content.child(
 				div()
-					.h(px(22.))
+					.h(px(MESSAGE_LINE))
 					.flex()
 					.items_center()
 					.gap(px(8.))
@@ -1434,22 +1999,15 @@ impl Serein {
 					),
 			);
 		}
-		if message.is_system() {
+		if let Some(system) = &system {
+			content = content.child(self.system_sentence(&message, system, cx));
+		} else if message.is_system() {
 			content = content.child(
 				div()
 					.text_color(color(p.muted))
 					.child(message.display_text().into_owned()),
 			);
 		} else {
-			if message.forwarded {
-				content = content.child(
-					div()
-						.text_size(px(13.))
-						.italic()
-						.text_color(color(p.muted))
-						.child("↪ Forwarded"),
-				);
-			}
 			let editor = self
 				.editing
 				.as_ref()
@@ -1459,23 +2017,48 @@ impl Serein {
 				Some(editor) => vec![self.inline_editor(editor, cx)],
 				// "Hide image and GIF links": the previews below stand in for the text.
 				None if self.settings.reading.hide_media_links
-					&& crate::images::enabled()
+					&& crate::images::media_enabled()
 					&& standalone_media_links(&message) =>
 				{
 					Vec::new()
 				}
 				None => self.body(&message, cx),
 			};
-			content = content.child(
-				div()
-					.flex()
-					.flex_col()
-					.gap_1()
-					.when(message.forwarded, |d| {
-						d.pl(px(16.)).border_l_3().border_color(color(p.selected))
-					})
-					.children(body),
-			);
+			// The main app's order: body, embeds, attachments, then "(edited)" and the rest.
+			// A forwarded payload sits behind a rail with its label, all indented together.
+			let mut payload = body;
+			payload.extend(self.embeds(&message, cx));
+			payload.extend(self.attachments(&message));
+			if message.forwarded {
+				content = content.child(
+					div()
+						.relative()
+						.pl(px(16.))
+						.flex()
+						.flex_col()
+						.gap(px(4.))
+						.child(
+							div()
+								.absolute()
+								.left_0()
+								.top_0()
+								.bottom_0()
+								.w(px(3.))
+								.rounded(px(2.))
+								.bg(color(p.selected)),
+						)
+						.child(
+							div()
+								.text_size(px(13.))
+								.italic()
+								.text_color(color(p.muted))
+								.child("\u{21aa} Forwarded"),
+						)
+						.children(payload),
+				);
+			} else {
+				content = content.children(payload);
+			}
 		}
 		if message.edited && self.editing.as_ref().is_none_or(|(edit, _)| *edit != id) {
 			content = content.child(
@@ -1485,35 +2068,90 @@ impl Serein {
 					.child("(edited)"),
 			);
 		}
-		if message.unsupported || message.extra_content.any() {
-			content = content.child(
-				div()
-					.text_size(px(13.))
-					.text_color(color(p.muted))
-					.child("Some content is only shown in the main Serein app."),
-			);
+		// The main app's placeholders for content without a preview, with a way out.
+		let unknown_system = message.unsupported && message.system_summary().is_none();
+		let extra = &message.extra_content;
+		let placeholders = [
+			(
+				unknown_system,
+				format!(
+					"Unsupported message type {} · Preview unavailable",
+					message.kind
+				),
+			),
+			(extra.poll, "Poll · Preview unavailable".to_owned()),
+			// Stickers are not drawn here yet, so they count as unavailable too.
+			(
+				extra.sticker_items || extra.stickers || !message.sticker_items.is_empty(),
+				"Sticker · Preview unavailable".to_owned(),
+			),
+			(
+				(extra.components || extra.components_v2) && message.components.is_empty(),
+				"Components · Preview unavailable".to_owned(),
+			),
+		];
+		if placeholders.iter().any(|(shown, _)| *shown) {
+			let link = self
+				.state
+				.channel(message.channel)
+				.filter(|c| self.state.can_view(c.id))
+				.map(|c| {
+					format!(
+						"{}/{}",
+						crate::nav_menu::channel_link(c.guild, c.id),
+						message.id
+					)
+				});
+			content =
+				content
+					.children(placeholders.into_iter().filter(|(shown, _)| *shown).map(
+						|(_, text)| {
+							div()
+								.text_size(px(12.))
+								.text_color(color(p.muted))
+								.child(text)
+						},
+					))
+					.child(
+						div()
+							.id(("open-in-discord", id.0))
+							.flex_none()
+							.self_start()
+							.h(px(32.))
+							.px(px(12.))
+							.rounded(px(8.))
+							.bg(color(p.raised))
+							.flex()
+							.items_center()
+							.text_size(px(14.))
+							.text_color(color(if link.is_some() { p.text } else { p.muted }))
+							.when_some(link, |d, url| {
+								d.cursor_pointer().hover(|d| d.bg(color(p.hover))).on_click(
+									move |_, window, cx| confirm_open(url.clone(), window, cx),
+								)
+							})
+							.child("Open in Discord"),
+					);
 		}
 		content = content
-			.children(
-				message
-					.attachments
-					.iter()
-					.enumerate()
-					.map(|(ix, a)| self.attachment(a, ix, id)),
-			)
-			.children(
-				(!message.embeds_suppressed)
-					.then(|| message.embeds.iter().filter_map(|e| self.embed(e)))
-					.into_iter()
-					.flatten(),
-			)
 			.children(self.render_components(&message, cx))
 			.children(self.reactions(&message, cx));
 
-		let gutter = if grouped {
+		let gutter = if let Some((glyph, tone)) = system.as_ref().map(|_| system_icon(message.kind))
+		{
 			div()
 				.w(px(40.))
-				.h(px(22.))
+				.h(px(MESSAGE_LINE))
+				.pt(px(3.))
+				.flex_none()
+				.flex()
+				.items_center()
+				.justify_center()
+				.child(icon(glyph, px(18.), color(tone)))
+		} else if grouped {
+			div()
+				.w(px(40.))
+				.h(px(MESSAGE_LINE))
 				.flex_none()
 				.flex()
 				.items_center()
@@ -1525,7 +2163,6 @@ impl Serein {
 		} else {
 			div()
 				.flex_none()
-				.mt(px(2.))
 				.child(avatar(&name, 40., Some(&message.author)))
 		};
 		let row = div()
@@ -1549,7 +2186,11 @@ impl Serein {
 							.bg(color(p.warning)),
 					)
 			})
-			.when(!mentioned, |d| d.hover(|d| d.bg(tint(p.hover, 0.7))))
+			.when(!mentioned && !reply_target, |d| {
+				d.hover(|d| d.bg(tint(p.hover, 0.7)))
+			})
+			// The message being replied to stays marked in the accent, as in the main app.
+			.when(reply_target, |d| d.bg(tint(p.accent, 0.25)))
 			.on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
 				if *hovered {
 					this.hovered = Some(id);
@@ -1576,7 +2217,8 @@ impl Serein {
 				d.child(Self::divider("New messages".into(), true))
 			})
 			.child(row)
-			.when(ix + 1 == self.rows.len(), |d| d.pb(px(16.)))
+			// Room under the newest message for the typing overlay, as the main app keeps.
+			.when(ix + 1 == self.rows.len(), |d| d.pb(px(8. + TYPING_OVERLAY)))
 			.into_any_element()
 	}
 
@@ -1587,14 +2229,88 @@ impl Serein {
 			Some(channel) if channel.guild.is_none() => (None, channel_label(channel)),
 			Some(channel) => (
 				Some(match channel.kind {
-					10..=12 => Icon::Chats,
+					2 | 13 => Icon::Speaker,
 					5 => Icon::Megaphone,
+					15 | 16 => Icon::Forum,
+					10..=12 => Icon::Thread,
 					_ => Icon::Hash,
 				}),
 				channel_label(channel),
 			),
 			None => (Some(Icon::Hash), "Choose a conversation".into()),
 		};
+		// The main app's tools, left to right: reload, threads, pins, people, then search.
+		let tools = self.state.selected.map(|selected| {
+			let reload = self.state.freshness != model::Freshness::Loading
+				&& self.state.can_read_history(selected);
+			let threads = channel
+				.filter(|c| c.guild.is_some() && matches!(c.kind, 0 | 5 | 15 | 16))
+				.map(|c| {
+					(
+						c.id,
+						self.state.can_archive(c.id, model::archives::Kind::Public),
+					)
+				});
+			let pins_open = self.state.search.as_ref().is_some_and(|view| view.pins);
+			div()
+				.flex()
+				.items_center()
+				.gap(px(4.))
+				.child(
+					tool("reload", Icon::Reload, 32., false, reload, "Reload history").when(
+						reload,
+						|d| {
+							d.on_click(cx.listener(|this, _, _, cx| {
+								let command = this.state.history(None);
+								this.dispatch(Some(command));
+								this.hold_read_ack = false;
+								this.messages.scroll_to_end();
+								cx.notify();
+							}))
+						},
+					),
+				)
+				.children(threads.map(|(parent, allowed)| {
+					let open = self.state.archives.is_some();
+					tool("threads", Icon::Thread, 32., open, allowed, "Threads").when(
+						allowed,
+						|d| {
+							d.on_click(
+								cx.listener(move |this, _, _, cx| this.open_threads(parent, cx)),
+							)
+						},
+					)
+				}))
+				.child({
+					let enabled = self.state.can_search() || pins_open || self.state.demo;
+					tool(
+						"pins-toggle",
+						Icon::Pin,
+						32.,
+						pins_open,
+						enabled,
+						"Pinned messages",
+					)
+					.when(enabled, |d| {
+						d.on_click(cx.listener(|this, _, _, cx| this.toggle_pins(cx)))
+					})
+				})
+				.child(
+					tool(
+						"members-toggle",
+						Icon::Users,
+						32.,
+						self.members_open,
+						true,
+						"Show member list",
+					)
+					.on_click(cx.listener(|this, _, _, cx| {
+						this.members_open = !this.members_open;
+						cx.notify();
+					})),
+				)
+				.child(div().ml(px(4.)).child(self.search_box()))
+		});
 		div()
 			.h(px(48.))
 			.flex_none()
@@ -1625,69 +2341,118 @@ impl Serein {
 					.text_color(color(p.text_strong))
 					.child(name),
 			)
-			.when(self.state.selected.is_some(), |d| {
-				let pins = self.state.search.as_ref().is_some_and(|view| view.pins);
-				d.child(
-					self.icon_button("pins-toggle", Icon::Pin, pins, "Pinned messages")
-						.on_click(cx.listener(|this, _, _, cx| this.toggle_pins(cx))),
-				)
-			})
-			.child(
-				self.icon_button(
-					"members-toggle",
-					Icon::Users,
-					self.members_open,
-					"Show people",
-				)
-				.on_click(cx.listener(|this, _, _, cx| {
-					this.members_open = !this.members_open;
-					cx.notify();
-				})),
-			)
-			.when(self.state.selected.is_some(), |d| {
-				d.child(self.search_box())
-			})
+			.children(tools)
 	}
 
-	/// Shown while the first unread message is above the viewport, like the main app's bar.
+	/// The main app's unread bar: flush with the top of the conversation, rounded below, shown
+	/// until the unread messages are read (arriving holds it until the reader scrolls down).
 	fn unread_banner(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
 		let p = palette();
 		let first = self.first_rendered.replace(usize::MAX);
-		let boundary = self.boundary.flatten()?;
-		let index = self.rows.iter().position(|id| *id == boundary)?;
-		// Rows are laid out after this runs, so this reads the previous frame; it redraws on scroll.
-		if first == usize::MAX || index >= first {
+		if !self.state.show_missed_banner() {
 			return None;
 		}
-		let count = self.rows.len() - index;
+		let index = self
+			.boundary
+			.flatten()
+			.and_then(|boundary| self.rows.iter().position(|id| *id == boundary));
+		// Rows are laid out after this runs, so this reads the previous frame; it redraws on scroll.
+		let at_end = self.messages.is_scrolled_to_end() == Some(true);
+		let whole = first == 0 && at_end;
+		if !self.hold_read_ack && (at_end || whole) {
+			return None;
+		}
+		let jump = self.state.can_jump_unread() || index.is_some();
+		let text = color(p.accent_text);
 		Some(
 			div()
-				.id("unread-banner")
 				.absolute()
-				.top(px(8.))
+				.top_0()
 				.left(px(16.))
 				.right(px(16.))
-				.h(px(32.))
-				.px_3()
-				.rounded(px(8.))
+				.h(px(28.))
+				.px(px(12.))
+				.rounded_b(px(8.))
 				.bg(color(p.accent))
-				.shadow_md()
 				.flex()
 				.items_center()
 				.justify_between()
-				.cursor_pointer()
-				.text_size(px(14.))
+				.text_size(px(13.))
 				.font_weight(FontWeight::MEDIUM)
-				.text_color(color(p.accent_text))
-				.on_click(cx.listener(move |this, _, _, cx| {
-					this.messages.scroll_to_reveal_item(index);
-					cx.notify();
-				}))
-				.child(format!(
-					"{count} new message{}",
-					if count == 1 { "" } else { "s" }
-				))
-				.child("Jump to unread ↑"),
+				.text_color(text)
+				.child("Unread messages")
+				.when(jump, |d| {
+					d.child(
+						div()
+							.id("jump-to-unread")
+							.flex()
+							.items_center()
+							.gap(px(4.))
+							.cursor_pointer()
+							.hover(|d| d.underline())
+							.on_click(cx.listener(move |this, _, _, cx| {
+								match index {
+									Some(index) => this.messages.scroll_to_reveal_item(index),
+									None => {
+										let command = this.state.open_unread();
+										this.dispatch(command);
+									}
+								}
+								cx.notify();
+							}))
+							.child("Jump to unread")
+							.child(icon(Icon::ArrowUp, px(14.), text)),
+					)
+				}),
+		)
+	}
+
+	/// The main app's typing overlay: resting dots and names over the bottom of the timeline.
+	fn typing_overlay(&self) -> Option<impl IntoElement> {
+		let p = palette();
+		let segments = self.state.selected.and_then(|channel| {
+			ui::typing_segments(&self.state, channel, std::time::Instant::now())
+		})?;
+		let dot = || div().size(px(5.)).rounded_full().bg(tint(p.muted, 0.675));
+		Some(
+			div()
+				.absolute()
+				.left(px(16.))
+				.right(px(16.))
+				.bottom_0()
+				.h(px(TYPING_OVERLAY))
+				.flex()
+				.items_center()
+				.overflow_hidden()
+				.whitespace_nowrap()
+				.child(
+					div()
+						.flex_none()
+						.ml(px(2.))
+						.mr(px(8.))
+						.flex()
+						.gap(px(2.))
+						.child(dot())
+						.child(dot())
+						.child(dot()),
+				)
+				.child(
+					div()
+						.min_w_0()
+						.flex()
+						.overflow_hidden()
+						.text_ellipsis()
+						.text_size(px(12.5))
+						.text_color(color(p.muted))
+						.children(segments.into_iter().map(|(text, strong)| {
+							div()
+								.when(strong, |d| {
+									d.font_weight(FontWeight::SEMIBOLD)
+										.text_color(color(p.text_strong))
+								})
+								.child(text)
+						})),
+				),
 		)
 	}
 
@@ -1742,11 +2507,16 @@ impl Serein {
 			.state
 			.selected
 			.is_some_and(|channel| self.state.demo || self.state.can_send(channel));
-		let reply = self
-			.state
-			.reply_target()
-			.and_then(|id| self.state.timeline.get(id))
-			.map(|message| self.state.message_author_name(message).to_owned());
+		let reply = self.state.reply.map(|reply| {
+			let target = reply.target();
+			let name = self
+				.state
+				.timeline
+				.get(target)
+				.map_or("an earlier message", |message| message.author.name.as_str())
+				.to_owned();
+			(target, name, reply.mention)
+		});
 		let pending = self
 			.state
 			.pending
@@ -1771,9 +2541,9 @@ impl Serein {
 					})
 			})
 			.collect::<Vec<_>>();
-		let typing = self.state.selected.and_then(|channel| {
-			ui::typing_segments(&self.state, channel, std::time::Instant::now())
-		});
+		// The send button dims until there is something to send, as in the main app.
+		let has_content =
+			!self.composer.read(cx).value().trim().is_empty() || self.uploads.has_files();
 		let tray = can_send.then(|| self.upload_tray(cx)).flatten();
 		let slash = can_send.then(|| self.render_slash_options(cx)).flatten();
 		let joined = self.state.reply.is_some() || tray.is_some() || slash.is_some();
@@ -1787,38 +2557,85 @@ impl Serein {
 					.px_4()
 					.pt(px(2.))
 					.children(self.render_picker(cx))
-					.children(reply.map(|name| {
+					.children(reply.map(|(target, name, mention)| {
+						let openable = self.state.can_open_reply_target(target);
+						// The main app's reply cap: who, then View original, the ping switch
+						// and Cancel on the right.
 						div()
-							.px_4()
+							.pl_4()
 							.pr_2()
 							.py(px(5.))
 							.rounded_t(px(8.))
 							.bg(color(ui::design::mix(p.raised, p.base, 0.45)))
 							.flex()
 							.items_center()
+							.gap(px(6.))
 							.child(
 								div()
 									.flex_1()
+									.min_w_0()
+									.flex()
 									.text_size(px(13.))
 									.text_color(color(p.muted))
-									.child("Replying to ")
+									.child("Replying to\u{a0}")
 									.child(
 										div()
 											.font_weight(FontWeight::SEMIBOLD)
 											.text_color(color(p.text_strong))
 											.child(name),
-									)
-									.flex()
-									.gap_1(),
+									),
 							)
 							.child(
-								self.icon_button(
+								div()
+									.id("view-original")
+									.text_size(px(12.))
+									.text_color(if openable {
+										color(p.muted)
+									} else {
+										tint(p.muted, 0.5)
+									})
+									.when(openable, |d| {
+										d.cursor_pointer()
+											.hover(|d| d.text_color(color(p.text_strong)))
+											.on_click(cx.listener(move |this, _, _, cx| {
+												this.open_reply(target, cx)
+											}))
+									})
+									.child("View original"),
+							)
+							.child(
+								div()
+									.id("reply-mention")
+									.px(px(6.))
+									.py(px(3.))
+									.rounded(px(6.))
+									.cursor_pointer()
+									.hover(|d| d.bg(color(p.hover)))
+									.text_size(px(12.))
+									.font_weight(FontWeight::SEMIBOLD)
+									.text_color(color(if mention { p.link } else { p.muted }))
+									.tooltip(tooltip(if mention {
+										"Click to disable pinging the original author."
+									} else {
+										"Click to enable pinging the original author."
+									}))
+									.on_click(cx.listener(|this, _, _, cx| {
+										if let Some(reply) = this.state.reply.as_mut() {
+											reply.mention = !reply.mention;
+										}
+										cx.notify();
+									}))
+									.child(if mention { "@ ON" } else { "@ OFF" }),
+							)
+							.child(
+								tool(
 									"cancel-reply",
 									Icon::Close,
+									22.,
 									false,
+									true,
 									"Cancel reply",
 								)
-								.size(px(22.))
 								.on_click(cx.listener(|this, _, _, cx| {
 									this.state.reply = None;
 									cx.notify();
@@ -1854,58 +2671,85 @@ impl Serein {
 							})
 							.when(can_send && self.can_attach_here(), |d| {
 								d.child(
-									self.icon_button(
+									tool(
 										"attach",
 										Icon::PlusCircle,
+										28.,
 										false,
-										"Upload a file",
+										true,
+										"Attach files",
 									)
-									.size(px(28.))
 									.on_click(cx.listener(|this, _, _, cx| this.choose_files(cx))),
 								)
 							})
 							.when(can_send, |d| {
+								let gif_open = self.gif_picker.is_some();
+								let emoji_open = self.emoji_picker.is_some();
 								d.child(div().flex_1().min_w_0().child(self.composer.clone()))
 									.child(
-										self.icon_button("emoji", Icon::Smiley, false, "Emoji")
-											.size(px(28.))
-											.on_click(cx.listener(
-												|this, event: &ClickEvent, window, cx| {
-													let target = crate::emoji::Target::Composer;
-													let at =
-														event.position() - point(px(0.), px(20.));
-													this.open_emoji_picker(target, at, window, cx)
-												},
-											)),
-									)
-									.child(
-										self.icon_button("send", Icon::Send, true, "Send (Enter)")
-											.size(px(28.))
-											.on_click(cx.listener(|this, _, _, cx| this.send(cx))),
+										div()
+											.flex()
+											.items_center()
+											.gap(px(4.))
+											.child(
+												tool(
+													"gif",
+													Icon::Gif,
+													28.,
+													gif_open,
+													true,
+													"Send a GIF",
+												)
+												.on_click(cx.listener(
+													|this, event: &ClickEvent, window, cx| {
+														let at = event.position()
+															- point(px(0.), px(20.));
+														this.open_gif_picker(at, window, cx)
+													},
+												)),
+											)
+											.child(
+												tool(
+													"emoji",
+													Icon::Smiley,
+													28.,
+													emoji_open,
+													true,
+													"Insert an emoji",
+												)
+												.on_click(cx.listener(
+													|this, event: &ClickEvent, window, cx| {
+														this.close_gif_picker(None, cx);
+														let target = crate::emoji::Target::Composer;
+														let at = event.position()
+															- point(px(0.), px(20.));
+														this.open_emoji_picker(
+															target, at, window, cx,
+														)
+													},
+												)),
+											)
+											.child(
+												tool(
+													"send",
+													Icon::Send,
+													28.,
+													false,
+													has_content,
+													"Send message",
+												)
+												.when(has_content, |d| {
+													d.on_click(
+														cx.listener(|this, _, _, cx| this.send(cx)),
+													)
+												}),
+											),
 									)
 							}),
 					),
 			)
-			// The typing line keeps its height so the composer never jumps.
-			.child(
-				div()
-					.h(px(24.))
-					.px_4()
-					.flex()
-					.items_center()
-					.text_size(px(12.))
-					.text_color(color(p.muted))
-					.overflow_hidden()
-					.whitespace_nowrap()
-					.children(typing.into_iter().flatten().map(|(text, strong)| {
-						div()
-							.when(strong, |d| {
-								d.font_weight(FontWeight::SEMIBOLD)
-									.text_color(color(p.text_strong))
-							})
-							.child(text)
-					})),
-			)
+			// The main app's composer inset: the input sits 8px above the window edge.
+			.child(div().h(px(8.)))
 	}
 
 	pub(crate) fn render_chat(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1930,6 +2774,17 @@ impl Serein {
 					.flex_1()
 					.min_h_0()
 					.relative()
+					// Scrolling down at the newest message reads an arrival held unread.
+					.on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
+						if this.hold_read_ack
+							&& event.delta.pixel_delta(px(16.)).y < px(0.)
+							&& this.messages.is_scrolled_to_end() == Some(true)
+						{
+							this.hold_read_ack = false;
+							this.mark_read(window);
+							cx.notify();
+						}
+					}))
 					.when(self.rows.is_empty(), |d| d.child(self.welcome()))
 					.when(!self.rows.is_empty(), |d| {
 						d.child(
@@ -1940,31 +2795,78 @@ impl Serein {
 							.size_full(),
 						)
 					})
+					.child({
+						// The main app's bottom fade into the composer, taller while someone types
+						// so the indicator stays legible over the messages behind it.
+						let typing = self.state.selected.is_some_and(|channel| {
+							ui::typing_segments(&self.state, channel, std::time::Instant::now())
+								.is_some()
+						});
+						let mut dense = color(p.chat);
+						if self.messages.is_scrolled_to_end() != Some(false) {
+							dense.a *= 0.88;
+						}
+						let mut clear = dense;
+						clear.a = 0.;
+						div()
+							.absolute()
+							.left_0()
+							.right_0()
+							.bottom_0()
+							.h(px(if typing { TYPING_OVERLAY + 52. } else { 20. }))
+							.bg(linear_gradient(
+								180.,
+								linear_color_stop(clear, 0.),
+								linear_color_stop(dense, 1.),
+							))
+					})
+					.children(self.typing_overlay())
 					.children(self.unread_banner(cx))
 					.when(
 						!self.rows.is_empty() && self.messages.is_scrolled_to_end() == Some(false),
 						|d| {
+							// The main app's round control: raised with a border, accent while
+							// unread messages wait below.
+							let unread = self
+								.state
+								.selected
+								.is_some_and(|c| self.state.missed(c) == Some(true));
 							d.child(
 								div()
 									.id("jump-to-present")
 									.absolute()
 									.right(px(16.))
-									.bottom(px(12.))
-									.size(px(44.))
+									.bottom(px(TYPING_OVERLAY + 10.))
+									.size(px(38.))
 									.rounded_full()
-									.bg(color(p.accent))
-									.shadow_lg()
+									.when(unread, |d| d.bg(color(p.accent)))
+									.when(!unread, |d| {
+										d.bg(solid(p.raised))
+											.border_1()
+											.border_color(color(p.border))
+									})
+									.shadow_md()
 									.flex()
 									.items_center()
 									.justify_center()
 									.cursor_pointer()
 									.hover(|d| d.opacity(0.9))
-									.tooltip(tooltip("Jump to present"))
-									.on_click(cx.listener(|this, _, _, cx| {
+									.tooltip(tooltip(if unread {
+										"New messages below · jump to present"
+									} else {
+										"Jump to present"
+									}))
+									.on_click(cx.listener(|this, _, window, cx| {
+										this.hold_read_ack = false;
 										this.messages.scroll_to_end();
+										this.mark_read(window);
 										cx.notify();
 									}))
-									.child(icon(Icon::ArrowDown, px(20.), color(p.accent_text))),
+									.child(icon(
+										Icon::ArrowDown,
+										px(18.),
+										color(if unread { p.accent_text } else { p.text_strong }),
+									)),
 							)
 						},
 					)
@@ -1992,6 +2894,7 @@ impl Serein {
 			)
 			.children(self.interaction_notice())
 			.child(self.composer_area(cx))
+			.children(self.render_gif_picker(cx))
 	}
 }
 
@@ -2032,14 +2935,17 @@ mod tests {
 		let mut format = ui::FormatCache::default();
 		// Friend nicknames win, as in the main app.
 		let robin = state.user_display_name(&messages[6].mentions[0]);
+		let (text, pills) = preview_text(&mut format, &state, &messages[6]);
 		assert_eq!(
-			preview_text(&mut format, &state, &messages[6]),
+			text,
 			format!("Hey @{robin} — see #long-form. This looks much easier to read.")
 		);
+		let pills = pills.iter().map(|p| &text[p.clone()]).collect::<Vec<_>>();
+		assert_eq!(pills, [format!("@{robin}").as_str(), "#long-form"]);
 		let mut long = messages[0].clone();
 		long.content = "word ".repeat(100);
 		assert_eq!(
-			preview_text(&mut format, &state, &long).chars().count(),
+			preview_text(&mut format, &state, &long).0.chars().count(),
 			160
 		);
 	}
@@ -2109,7 +3015,8 @@ mod tests {
 	#[test]
 	fn attachment_sizes_use_readable_units() {
 		assert_eq!(format_size(512), "512 bytes");
-		assert_eq!(format_size(2048), "2.0 KB");
-		assert_eq!(format_size(3 * 1_048_576), "3.0 MB");
+		assert_eq!(format_size(2048), "2.00 KB");
+		assert_eq!(format_size(3 * 1_048_576), "3.00 MB");
+		assert_eq!(format_size(200 * 1024), "200 KB");
 	}
 }

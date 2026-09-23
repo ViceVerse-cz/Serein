@@ -54,6 +54,8 @@ pub struct Input {
 	is_selecting: bool,
 	/// Set by the owner while a suggestion list is open.
 	picking: bool,
+	/// 13px text in a 20px line, for search pills.
+	small: bool,
 }
 
 impl Input {
@@ -68,6 +70,7 @@ impl Input {
 			last_layout: Vec::new(),
 			is_selecting: false,
 			picking: false,
+			small: false,
 		}
 	}
 
@@ -76,6 +79,11 @@ impl Input {
 			self.placeholder = placeholder.into();
 			cx.notify();
 		}
+	}
+
+	/// 13px text in a 20px line, as the main app's header search field.
+	pub fn set_small(&mut self, small: bool) {
+		self.small = small;
 	}
 
 	pub fn set_picking(&mut self, picking: bool) {
@@ -847,12 +855,12 @@ impl Render for Input {
 			.w_full()
 			.overflow_hidden()
 			.text_color(super::color(super::palette().text))
-			.line_height(px(24.))
-			.text_size(px(15.))
+			.line_height(px(if self.small { 20. } else { 24. }))
+			.text_size(px(if self.small { 13. } else { 15. }))
 			.child(
 				div()
 					.w_full()
-					.py(px(4.))
+					.py(px(if self.small { 0. } else { 4. }))
 					.child(TextElement { input: cx.entity() }),
 			)
 	}

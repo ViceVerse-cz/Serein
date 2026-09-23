@@ -66,7 +66,9 @@ pub fn media_key(media: &model::EmbedMedia) -> Option<String> {
 		.or(media.url.as_deref())
 		.filter(|source| {
 			source.len() <= 2048
-				&& (source.starts_with("https://cdn.discordapp.com/attachments/")
+				// The offline preview draws every image locally, whatever its address.
+				&& (preview()
+					|| source.starts_with("https://cdn.discordapp.com/attachments/")
 					|| source.starts_with("https://media.discordapp.net/attachments/")
 					|| source.starts_with("https://images-ext-1.discordapp.net/external/")
 					|| source.starts_with("https://images-ext-2.discordapp.net/external/"))
@@ -80,6 +82,10 @@ fn cdn_url(key: &str) -> Option<String> {
 		let (size, source) = value.split_once(':')?;
 		let (width, height) = size.split_once('x')?;
 		return media_url(source, width.parse().ok()?, height.parse().ok()?);
+	}
+	// GIF picker stills: only provider media hosts and image formats the model allows.
+	if let Some(preview) = key.strip_prefix("gif:") {
+		return model::valid_gif_preview(preview).then(|| preview.to_owned());
 	}
 	if let Some(id) = key.strip_prefix("emoji-") {
 		let id: Id = id.parse().ok()?;
@@ -281,7 +287,7 @@ async fn load(
 	url: String,
 	cooldown: Instant,
 ) -> (Loaded, Instant) {
-	let media = key.starts_with("media:");
+	let media = key.starts_with("media:") || key.starts_with("gif:");
 	let limit = if media {
 		MAX_MEDIA_ENCODED
 	} else {
@@ -547,6 +553,231 @@ pub fn drain(window: &mut Window, cx: &mut App) -> bool {
 		cx.drop_image(image, Some(window));
 	}
 	changed
+}
+
+thread_local! {
+	/// Offline preview artwork by key, drawn on first use; `None` outside the preview.
+	static DEMO: RefCell<Option<HashMap<String, Arc<RenderImage>>>> = const { RefCell::new(None) };
+}
+
+/// Turns on the offline preview's synthetic avatars and server icons (no network, no assets).
+pub fn init_demo() {
+	DEMO.with_borrow_mut(|demo| {
+		demo.get_or_insert_default();
+	});
+}
+
+/// 32x32 RGB artwork as the atlas's BGRA image, smoothed to 96 px so it scales like egui's
+/// linearly filtered 32 px texture.
+fn demo_image(pixels: impl Fn(u32, u32) -> [u8; 3]) -> Arc<RenderImage> {
+	let image = image::RgbaImage::from_fn(32, 32, |x, y| {
+		let [r, g, b] = pixels(x, y);
+		image::Rgba([b, g, r, 255])
+	});
+	let image = image::imageops::resize(&image, 96, 96, image::imageops::FilterType::Triangle);
+	Arc::new(RenderImage::new(vec![image::Frame::new(image)]))
+}
+
+/// The preview image for `key`, drawn by `paint` once; `None` outside the preview.
+fn demo(key: String, paint: impl FnOnce() -> Arc<RenderImage>) -> Option<Arc<RenderImage>> {
+	DEMO.with_borrow_mut(|demo| {
+		let demo = demo.as_mut()?;
+		if demo.len() >= MAX_ITEMS && !demo.contains_key(&key) {
+			demo.clear();
+		}
+		Some(demo.entry(key).or_insert_with(paint).clone())
+	})
+}
+
+/// Same synthetic silhouette as egui's `Avatars::paint_user` in the offline preview.
+fn demo_user(id: Id) -> Arc<RenderImage> {
+	let background = if id.0.is_multiple_of(2) {
+		[63, 99, 111]
+	} else {
+		[103, 86, 124]
+	};
+	demo_image(|x, y| {
+		let (x, y) = (x as i32, y as i32);
+		if (x - 16).pow(2) + (y - 11).pow(2) < 36 || (x - 16).pow(2) + (y - 31).pow(2) < 121 {
+			[224, 237, 227]
+		} else {
+			background
+		}
+	})
+}
+
+/// Same synthetic server icon as egui's `Avatars::paint_guild_face`: three white bars on a
+/// colour seeded by the icon key.
+fn demo_guild(key: &str) -> Arc<RenderImage> {
+	let seed = key
+		.bytes()
+		.fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b)));
+	let fill = [
+		70 + (seed % 140) as u8,
+		90 + ((seed >> 8) % 120) as u8,
+		110 + ((seed >> 16) % 100) as u8,
+	];
+	demo_image(|x, y| {
+		if (7..25).contains(&x) && [8, 14, 20].iter().any(|row| (*row..row + 3).contains(&y)) {
+			[255; 3]
+		} else {
+			fill
+		}
+	})
+}
+
+/// A user's avatar: the CDN picture once loaded, or the preview's synthetic silhouette.
+pub fn user(user: &model::User) -> Option<Arc<RenderImage>> {
+	demo(format!("preview-{}", user.id), || demo_user(user.id)).or_else(|| get(&user.avatar_key()))
+}
+
+/// A server's icon, if it has one: from the CDN, or the preview's synthetic artwork.
+pub fn guild(guild: &model::Guild) -> Option<Arc<RenderImage>> {
+	let key = guild.icon_key()?;
+	demo(key.clone(), || demo_guild(&key)).or_else(|| get(&key))
+}
+
+/// A server tag badge: the preview's synthetic emblem (egui's `Avatars::show_icon`), else
+/// whatever the cache holds.
+pub fn badge(key: &str) -> Option<Arc<RenderImage>> {
+	let seed = key
+		.bytes()
+		.fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b)));
+	let tint = [
+		90 + (seed % 120) as u8,
+		120 + ((seed >> 8) % 100) as u8,
+		150 + ((seed >> 16) % 90) as u8,
+	];
+	let emblem = || {
+		let image = image::RgbaImage::from_fn(32, 32, |x, y| {
+			let d = (x as i32 - 16).pow(2) + (y as i32 - 16).pow(2);
+			if d < 36 {
+				image::Rgba([255; 4])
+			} else if d < 196 {
+				image::Rgba([tint[2], tint[1], tint[0], 255])
+			} else {
+				image::Rgba([0; 4])
+			}
+		});
+		Arc::new(RenderImage::new(vec![image::Frame::new(image)]))
+	};
+	demo(key.to_owned(), emblem).or_else(|| get(key))
+}
+
+/// The offline preview is running (synthetic artwork, never the network).
+fn preview() -> bool {
+	DEMO.with_borrow(Option::is_some)
+}
+
+/// Whether media previews are shown: from the CDN, or drawn for the offline preview.
+pub fn media_enabled() -> bool {
+	enabled() || preview()
+}
+
+thread_local! {
+	/// The one synthetic picture every preview media key shares, so the map holds no copies.
+	static DEMO_MEDIA: std::cell::OnceCell<Arc<RenderImage>> = const { std::cell::OnceCell::new() };
+}
+
+/// Same synthetic picture as egui's offline media: a teal grid inside a white frame, 320x180.
+fn demo_media() -> Arc<RenderImage> {
+	DEMO_MEDIA.with(|media| {
+		media
+			.get_or_init(|| {
+				let image = image::RgbaImage::from_fn(320, 180, |x, y| {
+					let [r, g, b] = if x < 8 || y < 8 || x >= 312 || y >= 172 {
+						[255, 255, 255]
+					} else if x % 40 < 4 || y % 40 < 4 {
+						[80, 180, 160]
+					} else {
+						[40, 50, 70]
+					};
+					image::Rgba([b, g, r, 255])
+				});
+				Arc::new(RenderImage::new(vec![image::Frame::new(image)]))
+			})
+			.clone()
+	})
+}
+
+/// Same synthetic custom emoji as egui's offline preview for the fixture's two server emoji.
+fn demo_emoji(id: Id) -> Option<Arc<RenderImage>> {
+	let tone = match id.0 {
+		9001 => [55, 180, 165],
+		9002 => [240, 150, 70],
+		_ => return None,
+	};
+	let image = image::RgbaImage::from_fn(32, 32, |x, y| {
+		let inside = (3..29).contains(&x) && (3..29).contains(&y);
+		if inside && (u64::from(x + y) + id.0) % 10 < 7 {
+			image::Rgba([tone[2], tone[1], tone[0], 255])
+		} else {
+			image::Rgba([0, 0, 0, 0])
+		}
+	});
+	Some(Arc::new(RenderImage::new(vec![image::Frame::new(image)])))
+}
+
+/// Same synthetic GIF still as egui's offline picker: a two-tone gradient with a highlight.
+fn demo_gif(seed_text: &str, width: u32, height: u32) -> Arc<RenderImage> {
+	let seed = seed_text.bytes().fold(7usize, |acc, b| {
+		acc.wrapping_mul(31).wrapping_add(b as usize)
+	});
+	let w = 256u32;
+	let h = ((256.0 * height as f32 / width.max(1) as f32) as u32).clamp(64, 512);
+	let hue = ((seed % 97) as f32 * 0.618_034) % 1.0;
+	let a = egui::ecolor::Hsva::new(hue, 0.62, 0.78, 1.0).to_rgba_premultiplied();
+	let b = egui::ecolor::Hsva::new((hue + 0.12) % 1.0, 0.58, 0.42, 1.0).to_rgba_premultiplied();
+	let (cx, cy) = (
+		0.3 + (seed % 5) as f32 * 0.1,
+		0.35 + (seed % 3) as f32 * 0.12,
+	);
+	let image = image::RgbaImage::from_fn(w, h, |x, y| {
+		let (u, v) = (x as f32 / w as f32, y as f32 / h as f32);
+		let t = ((u + v) * 0.5).clamp(0.0, 1.0);
+		let d = ((u - cx).powi(2) + ((v - cy) * h as f32 / w as f32).powi(2)).sqrt();
+		let glow = (1.0 - d / 0.5).clamp(0.0, 1.0).powi(2) * 0.3;
+		let band = (((u * 3.0 - v * 2.0) * std::f32::consts::PI).sin() * 0.5 + 0.5) * 0.06;
+		let channel =
+			|i: usize| ((a[i] * (1.0 - t) + b[i] * t + glow + band) * 255.0).min(255.0) as u8;
+		image::Rgba([channel(2), channel(1), channel(0), 255])
+	});
+	Arc::new(RenderImage::new(vec![image::Frame::new(image)]))
+}
+
+/// An attachment or embed preview by [`media_key`]: from the CDN, or the offline preview's grid.
+pub fn media(key: &str) -> Option<Arc<RenderImage>> {
+	demo(key.to_owned(), demo_media).or_else(|| get(key))
+}
+
+/// A custom emoji image: from the CDN, or the offline preview's synthetic artwork.
+pub fn emoji(id: Id) -> Option<Arc<RenderImage>> {
+	let key = format!("emoji-{id}");
+	if preview() {
+		let image = demo_emoji(id)?;
+		return demo(key, || image);
+	}
+	get(&key)
+}
+
+/// A GIF picker still (first frame only): from its provider host, or drawn for the offline
+/// preview at the GIF's aspect.
+pub fn gif_still(gif: &model::Gif) -> Option<Arc<RenderImage>> {
+	if !model::valid_gif_preview(&gif.preview) {
+		return None;
+	}
+	let key = format!("gif:{}", gif.preview);
+	if preview() {
+		return demo(key, || demo_gif(&gif.id, gif.width, gif.height));
+	}
+	get(&key)
+}
+
+/// GIF category artwork from its provider host; the offline preview has none (flat tiles).
+pub fn gif_category(preview_url: &str) -> Option<Arc<RenderImage>> {
+	(!preview() && model::valid_gif_preview(preview_url))
+		.then(|| get(&format!("gif:{preview_url}")))
+		.flatten()
 }
 
 #[cfg(test)]

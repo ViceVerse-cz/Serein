@@ -35,7 +35,6 @@ impl Serein {
 			.collect::<Vec<_>>();
 		Some(
 			div()
-				.mt_1()
 				.max_w(px(560.))
 				.flex()
 				.flex_col()

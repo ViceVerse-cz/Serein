@@ -362,6 +362,18 @@ impl Serein {
 		.detach();
 	}
 
+	/// Flips a channel's Favorites (`favorite`) or Pinned shelf entry for this session.
+	fn toggle_shortcut(&mut self, favorite: bool, id: Id, cx: &mut Context<Self>) {
+		let shelf = if favorite {
+			&mut self.navigation.favorites
+		} else {
+			&mut self.navigation.pinned
+		};
+		crate::sidebar::toggle_shortcut(shelf, id);
+		self.sync_channels();
+		cx.notify();
+	}
+
 	fn channel_items(&self, id: Id, page: Page) -> Vec<Item> {
 		let Some(channel) = self.state.channel(id) else {
 			return Vec::new();
@@ -489,6 +501,20 @@ impl Serein {
 				.into(),
 			);
 			items.push(Item::Separator);
+			items.push(
+				Row::new(
+					if self.navigation.favorites.contains(&id) {
+						"Remove From Favorites"
+					} else {
+						"Add To Favorites"
+					},
+					true,
+					move |this, _, cx| this.toggle_shortcut(true, id, cx),
+				)
+				.hint(Some("Favorites last until you quit"))
+				.into(),
+			);
+			items.push(Item::Separator);
 			items.push(copy_row(
 				"Copy Link",
 				channel_link(guild, id),
@@ -560,6 +586,18 @@ impl Serein {
 				},
 			)
 			.icon(Icon::Check)
+			.into(),
+			Item::Separator,
+			Row::new(
+				if self.navigation.pinned.contains(&id) {
+					"Unpin DM"
+				} else {
+					"Pin DM"
+				},
+				true,
+				move |this, _, cx| this.toggle_shortcut(false, id, cx),
+			)
+			.hint(Some("Pins last until you quit"))
 			.into(),
 			Item::Separator,
 			Row::new(

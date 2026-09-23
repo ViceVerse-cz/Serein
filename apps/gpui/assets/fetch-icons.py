@@ -26,6 +26,13 @@ NAMES = [
     "hash", "link",
     "magnifying-glass", "megaphone-simple", "paper-plane-right", "pencil-simple", "plus-circle", "push-pin", "smiley", "speaker-high",
     "trash", "users", "x",
+    "dots-three", "eye-slash", "lock-simple", "thread",
+    "calendar-blank", "headphones", "microphone", "user-plus",
+    "arrow-clockwise", "arrow-up", "gif",
+    "game-controller",
+    "arrow-right", "arrow-left", "phone", "image", "sparkle", "compass", "shield-warning", "monitor-arrow-up", "crown", "shopping-cart-simple", "chart-bar", "question",
+    "star-fill", "fire",
+    "star",
 ]
 
 
@@ -35,7 +42,11 @@ def main():
     pins = {name: (asset, sha256) for name, asset, sha256 in icons.ICONS}
     for name in NAMES:
         asset, sha256 = pins[name]
-        svg = icons.fetch(f"assets/{asset}")
+        # Serein's own glyphs live in the repository, pinned the same way.
+        if asset.startswith("repo:"):
+            svg = (ROOT / asset.removeprefix("repo:")).read_bytes()
+        else:
+            svg = icons.fetch(f"assets/{asset}")
         digest = hashlib.sha256(svg).hexdigest()
         if digest != sha256:
             raise ValueError(f"{asset} SHA-256 mismatch: {digest}")

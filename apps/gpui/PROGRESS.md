@@ -39,23 +39,33 @@ Legend: **[x]** done · **[~]** partial · **[ ]** to do
 
 ## Navigation
 
-- [x] Server rail: home tile, initials tiles, selection/hover/unread pill, tooltips
+- [~] Server rail: home tile, server icons (initials fallback), selection/hover/unread pill,
+      tooltips, egui's spacing. The offline preview draws egui's synthetic server icons and
+      avatar silhouettes locally (`images::init_demo`). Not yet: the "Join a Server" + tile
+      (joining needs the main app's CAPTCHA/verification flow)
 - [x] Rail mention badges (99+ cap, ringed, per server/folder via `lights_guild_rail` and
       `mention_count`), home tile request badge (`home_request_parts`, as egui), unread-DM
       48 px avatars under the home tile (`unread_directs`, max 15) with pill and count
 - [~] Server folders from `state.guild_folders` (loaded with `load_guild_folders`): collapsed
-      2×2 mosaic in the folder colour, expand/collapse (session-only), tinted plate, summed
+      2×2 mosaic of server icons in the folder colour, expand/collapse (session-only), tinted plate, summed
       badge. Not yet: drag-and-drop reordering, folder name/colour editor, folder menu
-- [x] Channel list: categories (collapsible), channel-type icons, threads (max 3), unread pills,
-      mention badges; muted channels/DMs dimmed without the unread pill (`channel_access`, as
-      egui `channel_marks`); "Hide Muted Channels" drops muted rows and emptied categories
-      (`--demo-hide-muted`). Muted servers keep their rail pill dark via `lights_guild_rail`
-- [x] DM list: avatars, presence, group size
-- [~] Friends page from a "Friends" row atop the DM list: Online / All / Pending / Add Friend
-      tabs, presence, Message (opens a new DM through `open_friend_dm` when none exists),
+- [x] Channel list as egui's `categories::rows`: Favorites shelf with its rule, categories
+      (collapsible, low-set headers with channel-count tooltips), channel-type icons, only
+      opened threads (`last_viewed_threads`, max 4), unread pills, mention badges, "N New" on
+      forums; muted channels/DMs dimmed without the unread pill, lock badge on limited
+      channels and eye-slash on hidden ones (`channel_access`, as egui `channel_marks`);
+      "Hide Muted Channels" drops muted rows and emptied shelf headings (`--demo-hide-muted`).
+      Muted servers keep their rail pill dark via `lights_guild_rail`. Favorites (channel menu)
+      and pinned DMs (DM menu) are session-only; the preview seeds #getting-started and Robin
+- [x] DM list: "Find conversation" + Friends glyph, Pinned / Direct Messages shelves, spam
+      DMs left out, avatars with presence, group pictures and "N Members", presence subtitles,
+      server tags
+- [~] Friends page from the Friends glyph atop the DM list, laid out like egui's: Online / All
+      / Pending (Incoming/Outgoing) / Blocked & Ignored / Add Friend tabs, search, presence and
+      activity subtitles, Message and More buttons, Message (opens a new DM through `open_friend_dm` when none exists),
       accept/ignore/cancel via `resolve_friend_request`, Add Friend username field via
       `add_friend` (`--demo-add-friend`), right-click friend menu (`--demo-friend-menu`). Not
-      yet: Blocked & Ignored, search, CAPTCHA-challenged requests (cancelled with a notice); the
+      yet: CAPTCHA-challenged requests (cancelled with a notice); the
       home tile still opens the latest DM rather than Friends
 - [~] Right-click menus (`nav_menu.rs`; submenus open as a page with Back, Escape/outside click
       closes, Left/Backspace goes back; results as transient notices):
@@ -175,6 +185,14 @@ Voice/video calls, screen share, extensions, server administration and the updat
 main egui app.
 
 ## Log
+
+- 2026-09-23: fixed endless older-history loading (scroll position anchored across list
+  splices); `--demo` picks the same fixtures as the main app; visual parity pass against
+  egui screenshots: role-coloured authors and members, mention pills, markdown embeds, image
+  mosaics, unread banner, header Reload/Threads dialog, GIF picker, rebuilt profile card,
+  member activity lines and tag chips, silhouette demo avatars, server icons and folder
+  mosaics, Favorites/Pinned sections, thread listing rule, hidden/locked channel marks,
+  Friends page layout. Unread channels now stay unread until you reach the newest message.
 
 - 2026-09-23: rebased onto `main` (`8247fafb`); settings modal rebuilt to match the main app
   with Account, Profile, Messaging Permissions, Data & Privacy, Appearance, Chat,

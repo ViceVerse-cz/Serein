@@ -81,12 +81,7 @@ fn mosaic(state: &State, guilds: &[Id]) -> Vec<(String, Option<Arc<RenderImage>>
 		.iter()
 		.filter_map(|id| state.guild(*id))
 		.take(MOSAIC)
-		.map(|guild| {
-			(
-				initials(&guild.name),
-				guild.icon_key().and_then(|key| crate::images::get(&key)),
-			)
-		})
+		.map(|guild| (initials(&guild.name), crate::images::guild(guild)))
 		.collect()
 }
 
@@ -111,9 +106,10 @@ fn mosaic_face(label: &str, image: Option<&Arc<RenderImage>>) -> AnyElement {
 			.flex()
 			.items_center()
 			.justify_center()
-			.text_size(px(7.))
-			.font_weight(FontWeight::SEMIBOLD)
-			.text_color(color(p.text_strong))
+			// egui's `paint_guild_face`: half the tile, clamped to 7..16 px.
+			.text_size(px((MOSAIC_ICON * 0.5).clamp(7., 16.)))
+			.font_weight(FontWeight::MEDIUM)
+			.text_color(color(p.text))
 			.child(label.to_owned())
 			.into_any_element(),
 	}

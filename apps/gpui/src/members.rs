@@ -1,5 +1,8 @@
-//! People in the open conversation, grouped like the main app: hoisted role, online, offline.
+//! People in the open conversation, as the main app lists them: gateway-paged lists keep the
+//! server's own groups, thread snapshots are grouped by hoisted role, online and offline, and
+//! other lists are plain rows.
 use crate::Serein;
+use crate::profile::{member_presence, server_tag, subtitle};
 use crate::sidebar::avatar_with_presence;
 use crate::theme::{color, palette};
 use client_core::State;
@@ -31,19 +34,10 @@ impl Serein {
 		))
 	}
 
-	fn presence<'a>(&'a self, member: &'a model::Member, guild: Option<Id>) -> Option<&'a str> {
-		let list_fresh = self
-			.state
-			.members
-			.as_ref()
-			.is_some_and(|list| list.guild == guild && list.freshness == Freshness::Fresh);
-		if guild.is_some() && list_fresh && (self.state.demo || self.state.gateway_connected) {
-			member.status.as_deref()
-		} else {
-			self.state
-				.presence_for(member.user.id)
-				.and_then(|presence| presence.status.as_deref())
-		}
+	fn online(&self, member: &Member, guild: Option<Id>) -> bool {
+		member_presence(&self.state, member, guild)
+			.0
+			.is_some_and(|status| matches!(status, "online" | "idle" | "dnd"))
 	}
 
 	fn group_title(&self, id: &str, guild: Option<Id>, count: Option<u64>) -> String {
@@ -62,7 +56,7 @@ impl Serein {
 				.map_or_else(|| "Role".to_owned(), |role| role.name.clone()),
 		};
 		match count {
-			Some(count) => format!("{name} — {count}"),
+			Some(count) => format!("{name} - {count}"),
 			None => name,
 		}
 	}
@@ -114,40 +108,56 @@ impl Serein {
 				_ => None,
 			})
 			.collect::<Vec<_>>();
-		let online = |member: &model::Member| {
-			self.presence(member, list.guild)
-				.is_some_and(|status| matches!(status, "online" | "idle" | "dnd"))
-		};
-		if let Some(guild) = list.guild {
-			// Thread snapshots contain people only: group them like the main app.
-			let (online_members, offline): (Vec<_>, Vec<_>) =
-				members.iter().copied().partition(|(_, m)| online(m));
-			let mut online_members = online_members
-				.into_iter()
-				.map(|member| (member, self.state.member_roles(guild, member.1).0))
-				.collect::<Vec<_>>();
-			online_members.sort_by(|a, b| match (a.1, b.1) {
+		let thread = self
+			.state
+			.channel(list.channel)
+			.is_some_and(|channel| matches!(channel.kind, 10..=12));
+		if !thread {
+			// Plain lists (DMs, groups, offline previews) have no headers, as in the main app.
+			rows.extend(
+				members
+					.iter()
+					.map(|(i, m)| MemberRow::Member(*i, self.online(m, list.guild))),
+			);
+			self.member_rows = rows;
+			return;
+		}
+		// Thread snapshots contain people only: group them like the main app's
+		// `thread_member_rows`, online by hoisted role first, then offline.
+		let mut grouped = members
+			.iter()
+			.map(|&(i, member)| {
+				let offline = !self.online(member, list.guild);
+				let role = list
+					.guild
+					.and_then(|guild| self.state.member_roles(guild, member).0)
+					.filter(|_| !offline);
+				(i, offline, role)
+			})
+			.collect::<Vec<_>>();
+		grouped.sort_by(|a, b| {
+			a.1.cmp(&b.1).then_with(|| match (a.2, b.2) {
 				(Some(a), Some(b)) => b.cmp_hierarchy(a),
 				(Some(_), None) => std::cmp::Ordering::Less,
 				(None, Some(_)) => std::cmp::Ordering::Greater,
 				(None, None) => std::cmp::Ordering::Equal,
-			});
-			for group in online_members.chunk_by(|a, b| a.1.map(|r| r.id) == b.1.map(|r| r.id)) {
-				let name =
-					group[0].1.map_or(
-						"Online",
-						|r| if r.name.is_empty() { "Role" } else { &r.name },
-					);
-				rows.push(MemberRow::Header(format!("{name} — {}", group.len())));
-				rows.extend(group.iter().map(|(m, _)| MemberRow::Member(m.0, true)));
-			}
-			if !offline.is_empty() {
-				rows.push(MemberRow::Header(format!("Offline — {}", offline.len())));
-				rows.extend(offline.iter().map(|m| MemberRow::Member(m.0, false)));
-			}
-		} else {
-			rows.push(MemberRow::Header(format!("Members — {}", members.len())));
-			rows.extend(members.iter().map(|m| MemberRow::Member(m.0, online(m.1))));
+			})
+		});
+		for group in grouped.chunk_by(|a, b| a.1 == b.1 && a.2.map(|r| r.id) == b.2.map(|r| r.id)) {
+			let name = if group[0].1 {
+				"Offline"
+			} else {
+				group[0].2.map_or(
+					"Online",
+					|r| if r.name.is_empty() { "Role" } else { &r.name },
+				)
+			};
+			rows.push(MemberRow::Header(format!("{name} - {}", group.len())));
+			rows.extend(
+				group
+					.iter()
+					.map(|(i, offline, _)| MemberRow::Member(*i, !offline)),
+			);
 		}
 		self.member_rows = rows;
 	}
@@ -237,7 +247,7 @@ impl Serein {
 						let list = self.state.members.as_ref();
 						match list.and_then(|list| list.slots.get(*index)) {
 							Some(Some(MemberSlot::Person(member))) => {
-								self.person_row(member, list.and_then(|l| l.guild), *online)
+								self.person_row(member, list.and_then(|l| l.guild), *online, cx)
 							}
 							_ => pending_row(),
 						}
@@ -267,81 +277,129 @@ impl Serein {
 					header_row(self.group_title(id, guild, count))
 				}
 				Some(MemberSlot::Person(member)) => {
-					let online = self
-						.presence(member, guild)
-						.is_some_and(|status| matches!(status, "online" | "idle" | "dnd"));
-					self.person_row(member, guild, online)
+					self.person_row(member, guild, self.online(member, guild), cx)
 				}
 				None => pending_row(),
 			})
 			.collect()
 	}
 
-	fn person_row(&self, member: &Member, guild: Option<Id>, online: bool) -> AnyElement {
+	fn person_row(
+		&self,
+		member: &Member,
+		guild: Option<Id>,
+		online: bool,
+		cx: &mut Context<Self>,
+	) -> AnyElement {
 		let p = palette();
-		let name = member.nick.as_deref().unwrap_or(&member.user.name);
-		let status = self.presence(member, guild);
-		let name_color = match guild {
-			Some(guild) if online => self
-				.state
-				.member_roles(guild, member)
-				.1
-				.map(|role| color(ui::design::role_name_color(role.color, p.sidebar, p.text)))
-				.unwrap_or(color(p.text)),
-			_ if online => color(p.text),
-			_ => color(p.muted),
+		let name = member
+			.nick
+			.as_deref()
+			.filter(|nick| !nick.is_empty())
+			.unwrap_or_else(|| self.state.user_display_name(&member.user))
+			.to_owned();
+		let (status, custom, activities) = member_presence(&self.state, member, guild);
+		let subtitle = subtitle(custom, activities);
+		// Online names take the top coloured role, like the main app; offline names are muted.
+		let role_color = guild
+			.filter(|_| online)
+			.and_then(|guild| self.state.member_roles(guild, member).1)
+			.map(|role| role.color);
+		let name_color = |background| match role_color {
+			Some(rgb) => color(ui::design::role_name_color(rgb, background, p.text)),
+			None if online => color(p.text),
+			None => color(p.muted),
 		};
-		let subtitle = member.custom_status.clone().or_else(|| {
-			member
-				.activities
-				.first()
-				.map(|activity| format!("Playing {}", activity.name))
-		});
+		let (idle_color, hover_color) = (name_color(p.sidebar), name_color(p.hover));
+		let group: SharedString = format!("member-{}", member.user.id).into();
+		let (user, roles) = (member.user.clone(), member.roles.clone());
 		div()
+			.id(("member", member.user.id.0))
+			.group(group.clone())
 			.w_full()
 			.h(px(ROW_HEIGHT))
 			.flex_none()
 			.overflow_hidden()
-			.px_2()
-			.rounded(px(6.))
-			.flex()
-			.items_center()
-			.gap(px(12.))
-			.when(!online, |d| d.opacity(0.6))
-			.hover(|d| d.bg(color(p.hover)).opacity(1.))
-			.child(avatar_with_presence(
-				name,
-				32.,
-				Some(&member.user),
-				status.or(Some("offline")),
-				color(p.sidebar),
-			))
+			.py(px(1.))
 			.child(
 				div()
-					.flex_1()
-					.min_w_0()
+					.size_full()
+					.px_2()
+					.rounded(px(6.))
 					.flex()
-					.flex_col()
+					.items_center()
+					.gap(px(12.))
+					.cursor_pointer()
+					.group_hover(group.clone(), |d| d.bg(color(p.hover)))
+					.child(avatar_with_presence(
+						&name,
+						32.,
+						Some(&member.user),
+						status,
+						color(p.sidebar),
+					))
 					.child(
 						div()
-							.overflow_hidden()
-							.whitespace_nowrap()
-							.text_ellipsis()
-							.text_size(px(15.))
-							.font_weight(FontWeight::MEDIUM)
-							.text_color(name_color)
-							.child(name.to_owned()),
-					)
-					.children(subtitle.map(|subtitle| {
-						div()
-							.overflow_hidden()
-							.whitespace_nowrap()
-							.text_ellipsis()
-							.text_size(px(12.))
-							.text_color(color(p.muted))
-							.child(subtitle)
-					})),
+							.flex_1()
+							.min_w_0()
+							.flex()
+							.flex_col()
+							.gap(px(1.))
+							.child(
+								div()
+									.h(px(18.))
+									.min_w_0()
+									.flex()
+									.items_center()
+									.gap(px(5.))
+									.child(
+										div()
+											.min_w_0()
+											.overflow_hidden()
+											.whitespace_nowrap()
+											.text_ellipsis()
+											.text_size(px(15.))
+											.font_weight(FontWeight::MEDIUM)
+											.text_color(idle_color)
+											.group_hover(group, |d| d.text_color(hover_color))
+											.child(name),
+									)
+									.children(member.user.account_label().map(|label| {
+										div()
+											.flex_none()
+											.h(px(15.))
+											.px(px(4.))
+											.rounded(px(3.))
+											.bg(color(p.accent))
+											.flex()
+											.items_center()
+											.text_size(px(10.))
+											.font_weight(FontWeight::SEMIBOLD)
+											.text_color(color(p.accent_text))
+											.child(label)
+									}))
+									.children(
+										member
+											.user
+											.primary_guild
+											.as_deref()
+											.map(|tag| server_tag(tag, self.state.demo)),
+									),
+							)
+							.children(subtitle.map(|subtitle| {
+								div()
+									.overflow_hidden()
+									.whitespace_nowrap()
+									.text_ellipsis()
+									.text_size(px(12.))
+									.text_color(color(p.muted))
+									.child(subtitle)
+							})),
+					),
 			)
+			.on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+				this.open_profile(user.clone(), guild, roles.clone(), event.position(), cx)
+			}))
 			.into_any_element()
 	}
 }

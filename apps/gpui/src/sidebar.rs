@@ -1,20 +1,33 @@
-//! Server rail, channel list with categories and threads, and the account panel.
+//! Server rail, channel list with categories, shortcut shelves and opened threads, and the
+//! account panel.
 use crate::nav_menu::Target;
 use crate::theme::{Icon, color, icon, palette};
-use crate::{Serein, channel_label, text_channel, tooltip};
+use crate::{Serein, text_channel, tooltip};
 use gpui::{prelude::*, *};
 use model::Id;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const RAIL_WIDTH: f32 = 68.;
-/// Visible threads per parent channel, as in the main app.
-const THREADS_PER_CHANNEL: usize = 3;
+/// Opened threads listed under their parent channel, as egui's `MAX_VISIBLE_THREADS`.
+const THREADS_PER_CHANNEL: usize = 4;
 
-/// Navigation-only view state: the open right-click menu and expanded server folders.
+/// Navigation-only view state: the open right-click menu, expanded server folders and the
+/// shortcut shelves (egui's device-local Favorites and pinned DMs; session-only here).
 #[derive(Default)]
 pub struct NavState {
 	pub menu: Option<crate::nav_menu::Menu>,
 	pub expanded: BTreeSet<u64>,
+	pub favorites: Vec<Id>,
+	pub pinned: Vec<Id>,
+}
+
+/// Adds `id` to a shortcut shelf, or removes it; bounded like `ChannelPreferences`.
+pub fn toggle_shortcut(shelf: &mut Vec<Id>, id: Id) {
+	if let Some(index) = shelf.iter().position(|entry| *entry == id) {
+		shelf.remove(index);
+	} else if shelf.len() < model::ChannelPreferences::MAX_ENTRIES {
+		shelf.push(id);
+	}
 }
 
 /// One rail button; see [`Serein::rail_tile`].
@@ -90,9 +103,47 @@ fn home_label(friends: u32, messages: u32) -> String {
 	parts.join(" · ")
 }
 
+/// Eyebrow rows above the shortcut shelves and the home remainder, as egui's `Heading`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Heading {
+	Favorites,
+	Pinned,
+	DirectMessages,
+}
+impl Heading {
+	fn label(self) -> &'static str {
+		match self {
+			Self::Favorites => "FAVORITES",
+			Self::Pinned => "PINNED",
+			Self::DirectMessages => "DIRECT MESSAGES",
+		}
+	}
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum NavRow {
-	Category { id: Id, name: String },
-	Channel { id: Id, thread: bool },
+	Heading(Heading),
+	/// `count`: listed rows under the category, for its tooltip.
+	Category {
+		id: Id,
+		name: String,
+		count: usize,
+	},
+	/// `shelf`: a Favorites or Pinned copy, ruled off from the list below.
+	Channel {
+		id: Id,
+		thread: bool,
+		shelf: bool,
+	},
+}
+impl NavRow {
+	fn shelf(&self) -> bool {
+		match self {
+			Self::Heading(heading) => *heading != Heading::DirectMessages,
+			Self::Channel { shelf, .. } => *shelf,
+			Self::Category { .. } => false,
+		}
+	}
 }
 
 /// Initials for tiles and fallback avatars, matching `ui::design::paint_avatar`.
@@ -105,10 +156,11 @@ pub fn initials(name: &str) -> String {
 		.collect()
 }
 
-/// The user's CDN avatar once loaded, else initials on the hashed fallback colour.
+/// The user's avatar (CDN picture, or the offline preview's silhouette), else initials on the
+/// hashed fallback colour, as egui's `Avatars::paint_user` and `design::paint_avatar`.
 pub fn avatar(name: &str, size: f32, user: Option<&model::User>) -> Div {
 	let circle = div().size(px(size)).flex_none().rounded_full();
-	if let Some(image) = user.and_then(|user| crate::images::get(&user.avatar_key())) {
+	if let Some(image) = user.and_then(crate::images::user) {
 		return circle.child(
 			img(image)
 				.size_full()
@@ -164,24 +216,121 @@ pub fn avatar_with_presence(
 		}))
 }
 
-/// "Hide Muted Channels", as egui: drops muted channels (never the open one) with their
-/// threads, then categories left without channels.
-fn retain_unmuted(rows: &mut Vec<NavRow>, state: &client_core::State) {
-	let mut hidden_parent = false;
-	rows.retain(|row| match row {
-		NavRow::Channel { id, thread } => {
-			let hide = state.selected != Some(*id)
-				&& ((*thread && hidden_parent) || state.guild_channel_muted(*id) == Some(true));
-			if !*thread {
-				hidden_parent = hide;
-			}
-			!hide
+/// Group DM picture, as egui's `Avatars::group_avatar`: two members overlapped diagonally (the
+/// second ringed in `ring`), a lone member filling the circle, or a people glyph otherwise.
+pub fn group_avatar(channel: &model::Channel, size: f32, ring: Rgba) -> Div {
+	let p = palette();
+	let users = &channel.recipients;
+	match users.as_slice() {
+		[user] if channel.icon.is_none() => avatar(&user.name, size, Some(user)),
+		[first, second, ..] if channel.icon.is_none() => {
+			let small = size * 0.66;
+			let halo = size * 0.04;
+			div()
+				.relative()
+				.size(px(size))
+				.flex_none()
+				.child(div().absolute().left_0().top_0().child(avatar(
+					&first.name,
+					small,
+					Some(first),
+				)))
+				.child(
+					div()
+						.absolute()
+						.left(px(size - small - halo))
+						.top(px(size - small - halo))
+						.p(px(halo))
+						.rounded_full()
+						.bg(ring)
+						.child(avatar(&second.name, small, Some(second))),
+				)
 		}
-		NavRow::Category { .. } => true,
+		_ => div()
+			.size(px(size))
+			.flex_none()
+			.rounded_full()
+			.bg(color(p.raised))
+			.flex()
+			.items_center()
+			.justify_center()
+			.child(icon(Icon::Users, px(size * 0.56), color(p.muted))),
+	}
+}
+
+/// A server tag chip beside a name, as egui's `profiles::server_tag`.
+fn server_tag(tag: &model::ClanTag) -> Div {
+	let p = palette();
+	div()
+		.flex_none()
+		.flex()
+		.items_center()
+		.gap(px(3.))
+		.px(px(4.))
+		.py(px(1.))
+		.rounded(px(4.))
+		.bg(color(p.raised))
+		.when_some(tag.badge_key(), |d, key| {
+			d.child(match crate::images::badge(&key) {
+				Some(image) => img(image)
+					.size(px(10.))
+					.flex_none()
+					.rounded(px(2.))
+					.into_any_element(),
+				None => div()
+					.size(px(8.))
+					.m(px(1.))
+					.flex_none()
+					.rounded_full()
+					.bg(color(p.border))
+					.into_any_element(),
+			})
+		})
+		.child(
+			div()
+				.text_size(px(10.))
+				.line_height(px(14.))
+				.text_color(color(p.text_strong))
+				.child(tag.tag.clone()),
+		)
+}
+
+/// Activity or custom status under a DM name, as egui's `profiles::subtitle`.
+fn presence_subtitle(presence: &model::MemberPresence) -> Option<String> {
+	presence
+		.activities
+		.first()
+		.map(|activity| {
+			if activity.kind == 2 && activity.name.eq_ignore_ascii_case("Spotify") {
+				activity.state.clone().unwrap_or_else(|| activity.summary())
+			} else {
+				activity.summary()
+			}
+		})
+		.or_else(|| presence.custom_status.clone())
+}
+
+/// A 1 px rule under the last shortcut row, 7 px below it, as egui's `paint_shelf_rule`.
+fn shelf_rule(top: f32) -> Div {
+	div()
+		.absolute()
+		.left(px(8.))
+		.right(px(8.))
+		.top(px(top))
+		.h(px(1.))
+		.bg(color(palette().border))
+}
+
+/// "Hide Muted Channels", as egui: drops muted channel rows (never the open one), then
+/// headings left without a channel below them.
+fn retain_unmuted(rows: &mut Vec<NavRow>, state: &client_core::State) {
+	rows.retain(|row| {
+		!matches!(row, NavRow::Channel { id, .. }
+			if state.selected != Some(*id) && state.guild_channel_muted(*id) == Some(true))
 	});
 	let mut index = 0;
 	while index < rows.len() {
-		if matches!(rows[index], NavRow::Category { .. })
+		if matches!(rows[index], NavRow::Heading(_))
 			&& !matches!(rows.get(index + 1), Some(NavRow::Channel { .. }))
 		{
 			rows.remove(index);
@@ -195,7 +344,7 @@ fn channel_icon(channel: &model::Channel) -> Icon {
 	match channel.kind {
 		2 | 13 => Icon::Speaker,
 		5 => Icon::Megaphone,
-		10..=12 => Icon::Chats,
+		10..=12 => Icon::Thread,
 		15 | 16 => Icon::Forum,
 		_ => Icon::Hash,
 	}
@@ -226,6 +375,7 @@ impl Serein {
 			self.guild,
 			&self.collapsed,
 			self.settings.show_hidden_channels,
+			&self.navigation,
 		);
 	}
 
@@ -255,7 +405,7 @@ impl Serein {
 		let (unread, mentions) = badges.get(&id).copied().unwrap_or_default();
 		let label = initials(&guild.name);
 		let size = if label.chars().count() > 1 { 16. } else { 18. };
-		let guild_icon = guild.icon_key().and_then(|key| crate::images::get(&key));
+		let guild_icon = crate::images::guild(guild);
 		self.rail_tile(
 			Tile {
 				id: ("guild", id.0).into(),
@@ -286,11 +436,7 @@ impl Serein {
 					.justify_center()
 					.text_size(px(size))
 					.font_weight(FontWeight::MEDIUM)
-					.text_color(color(if highlight {
-						p.accent_text
-					} else {
-						p.text_strong
-					}))
+					.text_color(color(if highlight { p.accent_text } else { p.text }))
 					.child(label.clone())
 			},
 			cx,
@@ -311,12 +457,8 @@ impl Serein {
 			let Some(channel) = self.state.channel(id) else {
 				continue;
 			};
-			let name = channel_label(channel);
-			let user = channel
-				.recipients
-				.first()
-				.filter(|_| channel.recipients.len() == 1)
-				.cloned();
+			let name = self.state.conversation_name(channel).to_owned();
+			let picture = channel.clone();
 			let count = self.state.unread_count(id);
 			let unread = self.state.channel_unread(channel) == Some(true) || count > 0;
 			tiles.push(self.rail_tile(
@@ -334,7 +476,15 @@ impl Serein {
 					this.friends.open = false;
 					this.select(id, cx)
 				},
-				move |_| avatar(&name, 48., user.as_ref()),
+				move |_| {
+					if picture.kind == 3 {
+						group_avatar(&picture, 48., color(palette().sidebar))
+					} else if let Some(user) = picture.recipients.first() {
+						avatar(&user.name, 48., Some(user))
+					} else {
+						avatar(&picture.name, 48., None)
+					}
+				},
 				cx,
 			));
 		}
@@ -365,7 +515,8 @@ impl Serein {
 			.flex_col()
 			.items_center()
 			.gap(px(12.))
-			.child(self.rail_tile(
+			// egui spaces the home tile 11 px from the list below it, and the list by 12.
+			.child(div().w_full().mb(px(-1.)).child(self.rail_tile(
 				Tile {
 					id: "home".into(),
 					name: home_label(friend_requests, message_requests).into(),
@@ -388,15 +539,11 @@ impl Serein {
 						.child(icon(
 							Icon::Serein,
 							px(25.),
-							color(if highlight {
-								p.accent_text
-							} else {
-								p.text_strong
-							}),
+							color(if highlight { p.accent_text } else { p.text }),
 						))
 				},
 				cx,
-			))
+			)))
 			.children(self.rail_directs(cx))
 			.child(
 				div()
@@ -451,7 +598,7 @@ impl Serein {
 			.child(
 				div()
 					.absolute()
-					.left(px(-4.))
+					.left(px(-3.))
 					.top(px(middle - pill / 2.))
 					.w(px(8.))
 					.h(px(pill))
@@ -520,6 +667,23 @@ impl Serein {
 				.map_or_else(String::new, |g| g.name.clone()),
 			None => "Direct Messages".into(),
 		};
+		let guild = self.guild;
+		let rows = self
+			.nav
+			.iter()
+			.enumerate()
+			.map(|(index, row)| {
+				// A rule closes a shortcut shelf when the regular list follows.
+				let rule = row.shelf() && self.nav.get(index + 1).is_some_and(|next| !next.shelf());
+				match row {
+					NavRow::Heading(heading) => self.heading_row(*heading, rule),
+					NavRow::Category { id, name, count } => {
+						self.category_row(*id, name, *count, cx).into_any_element()
+					}
+					NavRow::Channel { id, thread, .. } => self.channel_row(*id, *thread, rule, cx),
+				}
+			})
+			.collect::<Vec<_>>();
 		div()
 			.w(width)
 			.h_full()
@@ -530,6 +694,7 @@ impl Serein {
 			.flex_col()
 			.child(
 				div()
+					.id("sidebar-header")
 					.h(px(48.))
 					.flex_none()
 					.px_4()
@@ -537,20 +702,31 @@ impl Serein {
 					.border_color(color(p.border))
 					.flex()
 					.items_center()
-					.justify_between()
+					.gap(px(5.))
+					.when_some(guild, |d, id| {
+						d.cursor_pointer().on_click(cx.listener(
+							move |this, event: &ClickEvent, window, cx| {
+								this.open_nav_menu(Target::Guild(id), event.position(), window, cx);
+							},
+						))
+					})
 					.child(
 						div()
-							.flex_1()
 							.min_w_0()
 							.overflow_hidden()
 							.text_ellipsis()
 							.whitespace_nowrap()
 							.text_size(px(15.))
 							.font_weight(FontWeight::SEMIBOLD)
-							.text_color(color(p.text_strong))
+							// egui's server menu button keeps the body colour; home is strong.
+							.text_color(color(if guild.is_some() {
+								p.text
+							} else {
+								p.text_strong
+							}))
 							.child(title),
 					)
-					.when(self.guild.is_some(), |d| {
+					.when(guild.is_some(), |d| {
 						d.child(icon(Icon::CaretDown, px(14.), color(p.muted)))
 					}),
 			)
@@ -565,41 +741,62 @@ impl Serein {
 					.pb_2()
 					.flex()
 					.flex_col()
-					.when(self.guild.is_none(), |d| d.child(self.friends_row(cx)))
+					.when(guild.is_none(), |d| d.child(self.home_tools(cx)))
 					.when(self.nav.is_empty(), |d| {
-						d.child(div().p_2().text_sm().text_color(color(p.muted)).child(
-							if self.guild.is_some() {
-								"No text channels you can view."
-							} else {
-								"No direct messages yet."
-							},
-						))
+						d.child(
+							div()
+								.p_2()
+								.text_size(px(15.))
+								.text_color(color(p.muted))
+								.child("No conversations available here."),
+						)
 					})
-					.children(self.nav.iter().map(|row| match row {
-						NavRow::Category { id, name } => {
-							self.category_row(*id, name, cx).into_any_element()
-						}
-						NavRow::Channel { id, thread } => {
-							self.channel_row(*id, *thread, cx).into_any_element()
-						}
-					})),
+					.children(rows),
 			)
 	}
 
-	fn category_row(&self, id: Id, name: &str, cx: &mut Context<Self>) -> Stateful<Div> {
+	/// Eyebrow over a shortcut shelf or the home remainder, row-high like the list.
+	fn heading_row(&self, heading: Heading, rule: bool) -> AnyElement {
+		let p = palette();
+		let height = if self.guild.is_some() { 34. } else { 44. };
+		div()
+			.relative()
+			.flex_none()
+			.h(px(height))
+			.pl(px(8.))
+			.flex()
+			.items_center()
+			.text_size(px(12.))
+			.font_weight(FontWeight::SEMIBOLD)
+			.text_color(color(p.muted))
+			.child(heading.label())
+			.when(rule, |d| d.child(shelf_rule(height + 7.)))
+			.into_any_element()
+	}
+
+	/// Collapsible category chrome, as egui's `category_header`: the chevron and label sit
+	/// low in the row so categories read as section breaks.
+	fn category_row(
+		&self,
+		id: Id,
+		name: &str,
+		count: usize,
+		cx: &mut Context<Self>,
+	) -> Stateful<Div> {
 		let p = palette();
 		let collapsed = self.collapsed.contains(&id);
 		let group: SharedString = format!("category-{id}").into();
 		div()
 			.id(("category", id.0))
 			.group(group.clone())
-			.h(px(40.))
-			.pt(px(16.))
-			.pl(px(2.))
-			.flex()
-			.items_center()
-			.gap(px(4.))
+			.relative()
+			.flex_none()
+			.h(px(34.))
 			.cursor_pointer()
+			.tooltip(tooltip(format!(
+				"{name} category · {count} channels · {}",
+				if collapsed { "Expand" } else { "Collapse" }
+			)))
 			.on_click(cx.listener(move |this, _, _, cx| {
 				if !this.collapsed.remove(&id) {
 					this.collapsed.insert(id);
@@ -624,10 +821,18 @@ impl Serein {
 					px(12.),
 					color(p.muted),
 				)
+				.absolute()
+				.left(px(1.))
+				.top(px(15.))
 				.group_hover(group.clone(), |s| s.text_color(color(p.text_strong))),
 			)
 			.child(
 				div()
+					.absolute()
+					.left(px(16.))
+					.right(px(8.))
+					.bottom(px(6.))
+					.line_height(px(15.))
 					.text_size(px(12.))
 					.font_weight(FontWeight::SEMIBOLD)
 					.text_color(color(p.muted))
@@ -635,61 +840,81 @@ impl Serein {
 					.overflow_hidden()
 					.whitespace_nowrap()
 					.text_ellipsis()
-					.child(name.to_owned()),
+					.child(name.to_uppercase()),
 			)
 	}
 
-	fn channel_row(&self, id: Id, thread: bool, cx: &mut Context<Self>) -> AnyElement {
+	/// One channel or conversation row, painted like egui's `channel_list` rows and
+	/// `voice_channel_button` with the `channel_marks` lock badge and hidden eye.
+	fn channel_row(&self, id: Id, thread: bool, rule: bool, cx: &mut Context<Self>) -> AnyElement {
 		let p = palette();
 		let Some(channel) = self.state.channel(id) else {
 			return div().into_any_element();
 		};
 		let selected = self.state.selected == Some(id);
-		let forum = self.state.is_forum(id);
-		// Forum containers carry no messages; they are unread when one of their posts is.
-		let unread = if forum {
-			self.state.forum_unread(id)
-		} else {
-			self.state.channel_unread(channel) == Some(true)
-		};
-		// Muted and hidden rows are dimmed and never show the unread pill, as egui's
-		// `channel_marks`; hidden ones (listed by "Show hidden channels") cannot be opened.
+		let direct = channel.guild.is_none();
 		let access = self.state.channel_access(id);
-		let hidden = access.hidden();
-		let dim = access.dim();
-		let mentions = if hidden {
+		let visible = !access.hidden();
+		let forum = !direct && matches!(channel.kind, 15 | 16);
+		let voice = channel.kind == 2;
+		// A forum carries no messages of its own: its posts hold the activity.
+		let unread = visible
+			&& (self.state.channel_unread(channel) == Some(true)
+				|| self.state.unread_count(id) > 0
+				|| (forum && self.state.forum_unread(id)));
+		let new_posts = if visible && forum {
+			self.state.forum_new_count(id)
+		} else {
 			0
+		};
+		let count = if !visible || forum {
+			0
+		} else if direct {
+			self.state.unread_count(id)
 		} else {
 			self.state.mention_count(id)
 		};
-		let openable = (text_channel(channel) || forum) && !hidden;
-		let unread = unread && !dim;
-		let strong = selected || unread;
-		let name = channel_label(channel);
-		let direct = channel.guild.is_none();
-		let text = if dim {
+		let openable = visible && (text_channel(channel) || forum);
+		// Voice rows highlight like the main app's; calls themselves stay there.
+		let hoverable = openable || (visible && voice);
+		let unavailable = visible && !openable && !voice;
+		// Muted, hidden and unusable rows are dimmed; focus never brightens them.
+		let dim = access.dim() || !visible || unavailable;
+		let idle = if dim {
 			crate::theme::tint(p.muted, 0.6)
 		} else {
-			color(if strong { p.text_strong } else { p.muted })
+			color(p.muted)
 		};
+		let focused = if dim { idle } else { color(p.text_strong) };
+		let text = if selected || (unread && !voice) {
+			focused
+		} else {
+			idle
+		};
+		let group: SharedString = format!("channel-row-{id}").into();
+		let mut label = self.state.conversation_name(channel).to_owned();
+		if unavailable {
+			label.push_str(" · unavailable");
+		}
+		let height = if direct { 42. } else { 32. };
 		let row = div()
 			.id(("channel", id.0))
+			.group(group.clone())
 			.relative()
 			.flex_none()
-			.h(px(if direct { 44. } else { 34. }))
-			.my(px(0.5))
-			.ml(px(if thread { 14. } else { 0. }))
-			.px_2()
+			.h(px(height))
+			.my(px(1.))
+			.pl(px(if thread { 22. } else { 8. }))
+			.pr_2()
 			.rounded(px(8.))
 			.flex()
 			.items_center()
 			.gap(px(if direct { 12. } else { 6. }))
 			.text_color(text)
 			.when(selected, |d| d.bg(color(p.selected)))
-			.when(!selected && !dim, |d| {
-				d.hover(|d| d.bg(color(p.hover)).text_color(color(p.text_strong)))
+			.when(!selected && hoverable, |d| {
+				d.hover(|d| d.bg(color(p.hover)).text_color(focused))
 			})
-			.when(!selected && dim, |d| d.hover(|d| d.bg(color(p.hover))))
 			.when(openable, |d| {
 				d.cursor_pointer()
 					.focusable()
@@ -708,18 +933,20 @@ impl Serein {
 				}),
 			)
 			.when(!openable, |d| {
-				d.tooltip(tooltip(if hidden {
+				d.tooltip(tooltip(if !visible {
 					"Hidden · you cannot view this channel"
-				} else {
+				} else if voice {
 					"Voice is available in the main Serein app"
+				} else {
+					"This channel type is available in the main Serein app"
 				}))
 			})
-			.when(unread && !selected, |d| {
+			.when(unread && !selected && !access.muted(), |d| {
 				d.child(
 					div()
 						.absolute()
 						.left(px(-8.))
-						.top(px(if direct { 18. } else { 13. }))
+						.top(px(height / 2. - 4.))
 						.w(px(4.))
 						.h(px(8.))
 						.rounded(px(2.))
@@ -727,28 +954,32 @@ impl Serein {
 				)
 			});
 		let row = if direct {
-			let status = channel
-				.recipients
-				.first()
-				.filter(|_| channel.recipients.len() == 1)
-				.and_then(|user| self.state.presence_for(user.id))
-				.and_then(|presence| presence.status.as_deref());
-			let subtitle = if channel.recipients.len() > 1 {
-				Some(format!("{} members", channel.recipients.len() + 1))
+			let user = channel.recipients.first();
+			let presence = user
+				.filter(|_| channel.kind == 1)
+				.and_then(|user| self.state.presence_for(user.id));
+			let picture = if channel.kind == 3 {
+				group_avatar(channel, 32., color(p.sidebar))
+			} else if let Some(user) = user {
+				avatar_with_presence(
+					&user.name,
+					32.,
+					Some(user),
+					presence.and_then(|presence| presence.status.as_deref()),
+					color(p.sidebar),
+				)
 			} else {
-				None
+				avatar(&channel.name, 32., None)
 			};
-			row.child(avatar_with_presence(
-				&name,
-				32.,
-				channel
-					.recipients
-					.first()
-					.filter(|_| channel.recipients.len() == 1),
-				status,
-				color(if selected { p.selected } else { p.sidebar }),
-			))
-			.child(
+			let subtitle = if channel.kind == 3 {
+				Some(format!("{} Members", channel.recipients.len().max(1)))
+			} else {
+				presence.and_then(presence_subtitle)
+			};
+			let tag = user
+				.filter(|_| channel.kind == 1)
+				.and_then(|user| user.primary_guild.as_deref());
+			row.child(picture).child(
 				div()
 					.flex_1()
 					.min_w_0()
@@ -756,107 +987,212 @@ impl Serein {
 					.flex_col()
 					.child(
 						div()
-							.overflow_hidden()
-							.whitespace_nowrap()
-							.text_ellipsis()
-							.text_size(px(15.))
-							.font_weight(FontWeight::MEDIUM)
-							.child(name),
+							.h(px(18.))
+							.min_w_0()
+							.flex()
+							.items_center()
+							.gap(px(5.))
+							.child(
+								div()
+									.min_w_0()
+									.overflow_hidden()
+									.whitespace_nowrap()
+									.text_ellipsis()
+									.text_size(px(15.))
+									.font_weight(FontWeight::MEDIUM)
+									.child(label),
+							)
+							.children(tag.map(server_tag)),
 					)
 					.children(subtitle.map(|subtitle| {
 						div()
+							.overflow_hidden()
+							.whitespace_nowrap()
+							.text_ellipsis()
 							.text_size(px(12.))
 							.text_color(color(p.muted))
 							.child(subtitle)
 					})),
 			)
 		} else {
-			row.child(icon(channel_icon(channel), px(20.), text).when(!strong, |d| d.opacity(0.85)))
+			// The glyph is a touch quieter than the name until the row is focused.
+			let quiet = !voice && (!selected || dim);
+			let halo = |fill: egui::Color32| color(p.sidebar.blend(fill));
+			let glyph = div()
+				.relative()
+				.size(px(20.))
+				.flex_none()
 				.child(
-					div()
-						.flex_1()
-						.min_w_0()
-						.overflow_hidden()
-						.whitespace_nowrap()
-						.text_ellipsis()
-						.text_size(px(15.))
-						.font_weight(FontWeight::MEDIUM)
-						.child(name),
+					icon(channel_icon(channel), px(20.), text)
+						.when(quiet, |d| d.opacity(0.85))
+						.when(hoverable && !selected, |d| {
+							d.group_hover(group.clone(), |d| d.text_color(focused).opacity(1.))
+						}),
 				)
+				.when(access.limited(), |d| {
+					d.child(
+						div()
+							.absolute()
+							.left(px(20. * 19.5 / 24. - 7.5))
+							.top(px(20. * 6.25 / 24. - 7.5))
+							.size(px(15.))
+							.rounded_full()
+							.bg(if selected {
+								halo(p.selected)
+							} else {
+								color(p.sidebar)
+							})
+							.when(hoverable && !selected, |d| {
+								d.group_hover(group.clone(), |d| d.bg(halo(p.hover)))
+							})
+							.flex()
+							.items_center()
+							.justify_center()
+							.child(
+								icon(Icon::Lock, px(8.), text).when(hoverable && !selected, |d| {
+									d.group_hover(group.clone(), |d| d.text_color(focused))
+								}),
+							),
+					)
+				});
+			row.child(glyph).child(
+				div()
+					.flex_1()
+					.min_w_0()
+					.overflow_hidden()
+					.whitespace_nowrap()
+					.text_ellipsis()
+					.text_size(px(15.))
+					.font_weight(FontWeight::MEDIUM)
+					.child(label),
+			)
 		};
-		row.when(mentions > 0, |d| d.child(count_pill(mentions)))
-			.into_any_element()
+		row.when(new_posts > 0, |d| {
+			d.child(
+				div()
+					.flex_none()
+					.text_size(px(12.))
+					.text_color(color(p.muted))
+					.child(if new_posts > 99 {
+						"99+ New".to_owned()
+					} else {
+						format!("{new_posts} New")
+					}),
+			)
+		})
+		.when(count > 0, |d| d.child(count_pill(count).mr(px(2.5))))
+		.when(!visible, |d| {
+			d.child(icon(Icon::EyeSlash, px(22.), text).ml(px(2.)).mr(px(8.)))
+		})
+		.when(rule, |d| d.child(shelf_rule(height + 7.)))
+		.into_any_element()
 	}
 
-	/// "Friends" above the direct messages; opens the Friends page in the main area.
-	fn friends_row(&self, cx: &mut Context<Self>) -> AnyElement {
+	/// "Find conversation" and the Friends glyph atop the home list, as egui's sidebar.
+	fn home_tools(&self, cx: &mut Context<Self>) -> AnyElement {
 		let p = palette();
-		let selected = self.friends_visible();
-		let requests = self
-			.state
-			.pending_friends()
-			.filter(|(_, _, incoming)| *incoming)
-			.count();
-		let text = color(if selected { p.text_strong } else { p.muted });
+		let friends = self.friends_visible();
 		div()
-			.id("friends-row")
 			.flex_none()
-			.h(px(44.))
-			.mb(px(4.))
-			.px_2()
-			.rounded(px(8.))
+			// egui's item spacing around the row, plus its 8 px gap below.
+			.mt(px(1.5))
+			.mb(px(17.))
 			.flex()
-			.items_center()
-			.gap(px(12.))
-			.cursor_pointer()
-			.focusable()
-			.tab_stop(true)
-			.text_color(text)
-			.when(selected, |d| d.bg(color(p.selected)))
-			.when(!selected, |d| {
-				d.hover(|d| d.bg(color(p.hover)).text_color(color(p.text_strong)))
-			})
-			.focus(|d| d.bg(color(p.hover)))
-			.on_click(cx.listener(|this, _, _, cx| this.open_friends(cx)))
+			.gap(px(6.))
 			.child(
 				div()
-					.size(px(32.))
-					.flex_none()
+					.id("find-conversation")
+					.flex_1()
+					.min_w(px(60.))
+					.h(px(30.))
+					.rounded(px(8.))
+					.bg(color(p.raised))
 					.flex()
 					.items_center()
 					.justify_center()
-					.child(icon(Icon::Users, px(24.), text)),
+					.overflow_hidden()
+					.whitespace_nowrap()
+					.text_size(px(14.))
+					.font_weight(FontWeight::MEDIUM)
+					.text_color(color(p.text))
+					.cursor_pointer()
+					.focusable()
+					.tab_stop(true)
+					.hover(|d| d.bg(color(p.hover)).text_color(color(p.text_strong)))
+					.focus(|d| d.bg(color(p.hover)).text_color(color(p.text_strong)))
+					.tooltip(tooltip("Search loaded conversations (Ctrl/Cmd+K)"))
+					.on_click(cx.listener(|this, _, window, cx| this.toggle_switcher(window, cx)))
+					.child("Find conversation"),
 			)
 			.child(
 				div()
-					.flex_1()
-					.text_size(px(15.))
-					.font_weight(FontWeight::MEDIUM)
-					.child("Friends"),
+					.id("friends-glyph")
+					.size(px(30.))
+					.flex_none()
+					.rounded(px(6.))
+					.flex()
+					.items_center()
+					.justify_center()
+					.cursor_pointer()
+					.focusable()
+					.tab_stop(true)
+					.group("friends-glyph")
+					.when(friends, |d| d.bg(color(p.selected)))
+					.when(!friends, |d| d.hover(|d| d.bg(color(p.hover))))
+					.focus(|d| d.bg(color(p.hover)))
+					.tooltip(tooltip("Friends"))
+					.on_click(cx.listener(|this, _, _, cx| this.open_friends(cx)))
+					.child(
+						icon(
+							Icon::Users,
+							px(16.),
+							color(if friends { p.text_strong } else { p.muted }),
+						)
+						.group_hover("friends-glyph", |d| d.text_color(color(p.text_strong))),
+					),
 			)
-			.when(requests > 0, |d| d.child(count_pill(requests as u32)))
 			.into_any_element()
 	}
 
 	fn user_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
 		let p = palette();
+		// Second line as the main app's account card: a shared game first, then connection state.
 		let (name, status) = match &self.state.user {
 			Some(user) => (
 				self.state.user_display_name(user).to_owned(),
-				if self.state.demo {
-					"Offline preview"
+				if let Some(game) = self.state.local_game_activity() {
+					game.name.clone()
+				} else if self.state.demo {
+					"Offline preview".to_owned()
 				} else if self.state.gateway_connected {
-					"Online"
+					"Online".to_owned()
 				} else {
-					"Reconnecting…"
+					"Reconnecting…".to_owned()
 				},
 			),
-			None => (String::new(), ""),
+			None => (String::new(), String::new()),
 		};
 		let presence = if self.state.demo || self.state.gateway_connected {
 			Some("online")
 		} else {
 			Some("offline")
+		};
+		// Mic and headphones with their device chevrons sit where the main app has them, but
+		// calls stay in the main app: shown disabled with the reason instead of doing nothing.
+		let voice_off = crate::theme::tint(p.muted, 0.5);
+		let voice = |id: &'static str, glyph: Icon, width: f32, size: f32| {
+			div()
+				.id(id)
+				.w(px(width))
+				.h(px(32.))
+				.flex_none()
+				.flex()
+				.items_center()
+				.justify_center()
+				.tooltip(crate::tooltip(
+					"Voice and calls are only in the main Serein app",
+				))
+				.child(icon(glyph, px(size), voice_off))
 		};
 		div().p_2().flex_none().child(
 			div()
@@ -878,6 +1214,7 @@ impl Serein {
 					div()
 						.flex_1()
 						.min_w_0()
+						.overflow_hidden()
 						.flex()
 						.flex_col()
 						.child(
@@ -902,23 +1239,35 @@ impl Serein {
 				)
 				.child(
 					div()
-						.id("settings-gear")
-						.focusable()
-						.tab_stop(true)
-						.size(px(32.))
 						.flex_none()
-						.rounded(px(6.))
 						.flex()
 						.items_center()
-						.justify_center()
-						.cursor_pointer()
-						.hover(|d| d.bg(color(p.hover)))
-						.focus(|d| d.bg(color(p.hover)))
-						.tooltip(crate::tooltip("User Settings"))
-						.on_click(
-							cx.listener(|this, _, window, cx| this.open_settings(None, window, cx)),
-						)
-						.child(icon(Icon::Gear, px(20.), color(p.muted))),
+						.gap(px(2.))
+						.child(voice("voice-mic", Icon::Microphone, 32., 20.))
+						.child(voice("voice-mic-menu", Icon::CaretDown, 20., 12.))
+						.child(div().w(px(4.)))
+						.child(voice("voice-output", Icon::Headphones, 32., 20.))
+						.child(voice("voice-output-menu", Icon::CaretDown, 20., 12.))
+						.child(
+							div()
+								.id("settings-gear")
+								.focusable()
+								.tab_stop(true)
+								.size(px(32.))
+								.flex_none()
+								.rounded(px(6.))
+								.flex()
+								.items_center()
+								.justify_center()
+								.cursor_pointer()
+								.hover(|d| d.bg(color(p.hover)))
+								.focus(|d| d.bg(color(p.hover)))
+								.tooltip(crate::tooltip("User Settings"))
+								.on_click(cx.listener(|this, _, window, cx| {
+									this.open_settings(None, window, cx)
+								}))
+								.child(icon(Icon::Gear, px(20.), color(p.muted))),
+						),
 				),
 		)
 	}
@@ -948,97 +1297,136 @@ impl Serein {
 	}
 }
 
-/// Channel-list rows for `guild` (direct messages for `None`). Channels the user cannot view
-/// are listed only with `show_hidden`, like the main app's "Show hidden channels".
+/// Channel-list rows for `guild` (direct messages for `None`), as egui's `categories::rows`:
+/// the shortcut shelf first (Favorites in a server, Pinned at home), then uncategorised
+/// channels and categories. Threads are listed only once opened (`last_viewed_threads`), at
+/// most four under their parent. Channels the user cannot view are listed only with
+/// `show_hidden`, like "Show hidden channels"; collapsed categories hide all their rows.
 fn nav_rows(
 	state: &client_core::State,
 	guild: Option<Id>,
 	collapsed: &BTreeSet<Id>,
 	show_hidden: bool,
+	shortcuts: &NavState,
 ) -> Vec<NavRow> {
-	let visible = |c: &&model::Channel| {
+	let thread = |kind: u8| matches!(kind, 10..=12);
+	let admits = |c: &model::Channel| {
 		c.guild == guild
-			&& (c.supports_text() || matches!(c.kind, 2 | 13 | 15 | 16))
-			&& !matches!(c.kind, 10..=12)
+			&& c.kind != 4
+			&& (guild.is_some() || !state.spam_direct(c.id))
 			&& (show_hidden || state.can_view(c.id))
 	};
-	let mut rows = Vec::new();
-	if guild.is_none() {
-		let mut direct = state
-			.channels
-			.iter()
-			.filter(|c| c.guild.is_none() && c.supports_text() && state.can_view(c.id))
-			.collect::<Vec<_>>();
-		// Most recent conversation first, like the main app's DM list.
-		direct.sort_by_key(|c| std::cmp::Reverse(c.last_message.unwrap_or(c.id)));
-		rows.extend(direct.into_iter().map(|c| NavRow::Channel {
-			id: c.id,
-			thread: false,
-		}));
-		return rows;
-	}
-	let mut channels = state.channels.iter().filter(visible).collect::<Vec<_>>();
-	channels.sort_by_key(|c| (matches!(c.kind, 2 | 13), c.position, c.id));
+	let (shelf_ids, heading) = match guild {
+		Some(_) => (&shortcuts.favorites, Heading::Favorites),
+		None => (&shortcuts.pinned, Heading::Pinned),
+	};
+	let mut lifted = BTreeSet::new();
+	let shelf = shelf_ids
+		.iter()
+		.filter_map(|id| state.channel(*id))
+		.filter(|c| admits(c) && lifted.insert(c.id))
+		.collect::<Vec<_>>();
 	let mut categories = state
 		.channels
 		.iter()
-		.filter(|c| c.guild == guild && c.kind == 4)
+		.filter(|c| guild.is_some() && c.guild == guild && c.kind == 4)
 		.collect::<Vec<_>>();
 	categories.sort_by_key(|c| (c.position, c.id));
-	let threads = |parent: Id| {
-		let mut threads = state
-			.channels
-			.iter()
-			.filter(|c| {
-				c.parent_id == Some(parent)
-					&& matches!(c.kind, 10..=12)
-					&& (show_hidden || state.can_view(c.id))
-			})
-			.collect::<Vec<_>>();
-		threads.sort_by_key(|c| std::cmp::Reverse(c.last_message.unwrap_or(c.id)));
-		threads.truncate(THREADS_PER_CHANNEL);
-		threads
-	};
-	let push = |rows: &mut Vec<NavRow>, channel: &model::Channel, collapsed: bool| {
-		let selected = state.selected == Some(channel.id);
-		if !collapsed || selected {
-			rows.push(NavRow::Channel {
-				id: channel.id,
-				thread: false,
-			});
-		}
-		for thread in threads(channel.id) {
-			if !collapsed || state.selected == Some(thread.id) {
-				rows.push(NavRow::Channel {
-					id: thread.id,
-					thread: true,
-				});
+	let category_ids = categories.iter().map(|c| c.id).collect::<BTreeSet<_>>();
+	let parents = state
+		.channels
+		.iter()
+		.filter(|c| guild.is_some() && c.guild == guild && matches!(c.kind, 0 | 5 | 15 | 16))
+		.map(|c| (c.id, c))
+		.collect::<BTreeMap<_, _>>();
+	let mut groups = BTreeMap::<Option<Id>, Vec<&model::Channel>>::new();
+	let mut threads = BTreeMap::<Id, Vec<&model::Channel>>::new();
+	for channel in state
+		.channels
+		.iter()
+		.filter(|c| admits(c) && !lifted.contains(&c.id))
+	{
+		if thread(channel.kind) {
+			if !state.last_viewed_threads.contains(&channel.id) {
+				continue;
+			}
+			if let Some(parent) = channel.parent_id.and_then(|id| parents.get(&id))
+				&& parent.parent_id != Some(channel.id)
+			{
+				threads.entry(parent.id).or_default().push(channel);
+				continue;
 			}
 		}
-	};
-	for channel in channels.iter().filter(|c| {
-		c.parent_id
-			.is_none_or(|parent| !categories.iter().any(|category| category.id == parent))
-	}) {
-		push(&mut rows, channel, false);
+		let parent = channel
+			.parent_id
+			.filter(|id| !thread(channel.kind) && category_ids.contains(id));
+		groups.entry(parent).or_default().push(channel);
 	}
-	for category in &categories {
-		let children = channels
-			.iter()
-			.filter(|c| c.parent_id == Some(category.id))
-			.collect::<Vec<_>>();
+	for group in groups.values_mut() {
+		if guild.is_some() {
+			group.sort_by_key(|c| (matches!(c.kind, 2 | 13), c.position, c.id));
+		} else {
+			// Most recent conversation first, like the main app's DM list.
+			group.sort_by_key(|c| std::cmp::Reverse((state.channel_activity(c), c.id)));
+		}
+	}
+	for group in threads.values_mut() {
+		group.sort_by_key(|c| state.last_viewed_threads.iter().position(|id| *id == c.id));
+		group.truncate(THREADS_PER_CHANNEL);
+	}
+	let append = |rows: &mut Vec<NavRow>, channel: &model::Channel, shelf: bool| {
+		rows.push(NavRow::Channel {
+			id: channel.id,
+			thread: false,
+			shelf,
+		});
+		rows.extend(
+			threads
+				.get(&channel.id)
+				.into_iter()
+				.flatten()
+				.map(|c| NavRow::Channel {
+					id: c.id,
+					thread: true,
+					shelf,
+				}),
+		);
+	};
+	let mut rows = Vec::new();
+	if !shelf.is_empty() {
+		rows.push(NavRow::Heading(heading));
+		for channel in shelf {
+			append(&mut rows, channel, true);
+		}
+	}
+	let mut tree = Vec::new();
+	for channel in groups.remove(&None).unwrap_or_default() {
+		append(&mut tree, channel, false);
+	}
+	for category in categories {
+		let children = groups.remove(&Some(category.id)).unwrap_or_default();
 		if children.is_empty() && !show_hidden {
 			continue;
 		}
-		rows.push(NavRow::Category {
+		let count = children
+			.iter()
+			.map(|c| 1 + threads.get(&c.id).map_or(0, Vec::len))
+			.sum();
+		tree.push(NavRow::Category {
 			id: category.id,
-			name: category.name.to_uppercase(),
+			name: category.name.clone(),
+			count,
 		});
-		let collapsed = collapsed.contains(&category.id);
-		for channel in children {
-			push(&mut rows, channel, collapsed);
+		if !collapsed.contains(&category.id) {
+			for channel in children {
+				append(&mut tree, channel, false);
+			}
 		}
 	}
+	if guild.is_none() && !tree.is_empty() {
+		rows.push(NavRow::Heading(Heading::DirectMessages));
+	}
+	rows.extend(tree);
 	if guild.is_some_and(|guild| state.hides_muted_channels(guild) == Some(true)) {
 		retain_unmuted(&mut rows, state);
 	}
@@ -1047,9 +1435,18 @@ fn nav_rows(
 
 #[cfg(test)]
 mod tests {
-	use super::{NavRow, badge_label, home_label, nav_rows, retain_unmuted};
+	use super::{Heading, NavRow, NavState, badge_label, home_label, nav_rows, retain_unmuted};
 	use model::Id;
 	use std::collections::BTreeSet;
+
+	fn ids(rows: &[NavRow]) -> Vec<u64> {
+		rows.iter()
+			.filter_map(|row| match row {
+				NavRow::Category { id, .. } | NavRow::Channel { id, .. } => Some(id.0),
+				NavRow::Heading(_) => None,
+			})
+			.collect()
+	}
 
 	#[test]
 	fn hidden_channels_are_listed_only_when_opted_in() {
@@ -1057,68 +1454,130 @@ mod tests {
 		test_support::seed_access_marks(&mut state);
 		// #secret (62) denies @everyone; #staff-notes (61) is allowed through a role.
 		assert!(!state.can_view(Id(62)) && state.can_view(Id(61)));
-		let ids = |show_hidden| {
-			nav_rows(&state, Some(Id(10)), &BTreeSet::new(), show_hidden)
-				.iter()
-				.map(|row| match row {
-					NavRow::Category { id, .. } | NavRow::Channel { id, .. } => id.0,
-				})
-				.collect::<Vec<_>>()
+		let listed = |show_hidden| {
+			ids(&nav_rows(
+				&state,
+				Some(Id(10)),
+				&BTreeSet::new(),
+				show_hidden,
+				&NavState::default(),
+			))
 		};
-		let visible = ids(false);
+		let visible = listed(false);
 		assert!(visible.contains(&60) && visible.contains(&61));
 		assert!(!visible.contains(&62));
-		let all = ids(true);
+		let all = listed(true);
 		assert!(all.contains(&62));
 		assert!(all.len() > visible.len());
 	}
 
 	#[test]
-	fn hiding_muted_channels_drops_them_and_their_empty_category() {
+	fn only_opened_threads_are_listed_under_their_parent() {
+		let mut state = test_support::chat_demo_state();
+		let rows = |state: &client_core::State| {
+			nav_rows(
+				state,
+				Some(Id(10)),
+				&BTreeSet::new(),
+				false,
+				&NavState::default(),
+			)
+		};
+		let threads = |rows: &[NavRow]| {
+			rows.iter()
+				.filter_map(|row| match row {
+					NavRow::Channel {
+						id, thread: true, ..
+					} => Some(id.0),
+					_ => None,
+				})
+				.collect::<Vec<_>>()
+		};
+		state.last_viewed_threads.clear();
+		assert!(threads(&rows(&state)).is_empty());
+		// Introductions thread (28) under #getting-started (20); a forum post (27) under #ideas.
+		state.last_viewed_threads = vec![Id(28), Id(27)];
+		let listed = rows(&state);
+		assert_eq!(threads(&listed), [28, 27]);
+		let parent = listed
+			.iter()
+			.position(|row| matches!(row, NavRow::Channel { id: Id(20), .. }))
+			.unwrap();
+		assert!(matches!(
+			listed[parent + 1],
+			NavRow::Channel {
+				id: Id(28),
+				thread: true,
+				..
+			}
+		));
+	}
+
+	#[test]
+	fn shortcut_shelves_lift_channels_above_the_list() {
+		let state = test_support::chat_demo_state();
+		let shortcuts = NavState {
+			favorites: vec![Id(20)],
+			pinned: vec![Id(22)],
+			..Default::default()
+		};
+		let guild = nav_rows(&state, Some(Id(10)), &BTreeSet::new(), false, &shortcuts);
+		assert_eq!(guild[0], NavRow::Heading(Heading::Favorites));
+		assert!(matches!(
+			guild[1],
+			NavRow::Channel {
+				id: Id(20),
+				shelf: true,
+				..
+			}
+		));
+		assert_eq!(ids(&guild).iter().filter(|id| **id == 20).count(), 1);
+		let home = nav_rows(&state, None, &BTreeSet::new(), false, &shortcuts);
+		assert_eq!(home[0], NavRow::Heading(Heading::Pinned));
+		assert!(matches!(home[1], NavRow::Channel { id: Id(22), .. }));
+		assert_eq!(home[2], NavRow::Heading(Heading::DirectMessages));
+		assert!(!ids(&home[3..]).contains(&22));
+	}
+
+	#[test]
+	fn hiding_muted_channels_drops_them_and_their_empty_heading() {
 		// The fixture mutes #long-form (21) and leaves #getting-started (20) unmuted.
 		let mut state = test_support::chat_demo_state();
 		state.selected = None;
 		assert_eq!(state.guild_channel_muted(Id(21)), Some(true));
 		assert_eq!(state.guild_channel_muted(Id(20)), Some(false));
+		let channel = |id, shelf| NavRow::Channel {
+			id: Id(id),
+			thread: false,
+			shelf,
+		};
 		let rows = || {
 			vec![
+				NavRow::Heading(Heading::Favorites),
+				channel(21, true),
 				NavRow::Category {
 					id: Id(23),
-					name: "WELCOME".into(),
+					name: "Welcome".into(),
+					count: 1,
 				},
-				NavRow::Channel {
-					id: Id(20),
-					thread: false,
-				},
-				NavRow::Channel {
-					id: Id(27),
-					thread: true,
-				},
+				channel(20, false),
 				NavRow::Category {
 					id: Id(24),
-					name: "CONVERSATIONS".into(),
+					name: "Conversations".into(),
+					count: 1,
 				},
-				NavRow::Channel {
-					id: Id(21),
-					thread: false,
-				},
+				channel(21, false),
 			]
-		};
-		let ids = |rows: &[NavRow]| {
-			rows.iter()
-				.map(|row| match row {
-					NavRow::Category { id, .. } | NavRow::Channel { id, .. } => id.0,
-				})
-				.collect::<Vec<_>>()
 		};
 		let mut hidden = rows();
 		retain_unmuted(&mut hidden, &state);
-		assert_eq!(ids(&hidden), [23, 20, 27]);
+		assert_eq!(ids(&hidden), [23, 20, 24]);
+		assert!(!hidden.contains(&NavRow::Heading(Heading::Favorites)));
 		// The open channel stays listed even while muted.
 		state.selected = Some(Id(21));
 		let mut open = rows();
 		retain_unmuted(&mut open, &state);
-		assert_eq!(ids(&open), [23, 20, 27, 24, 21]);
+		assert_eq!(ids(&open), [21, 23, 20, 24, 21]);
 	}
 
 	#[test]

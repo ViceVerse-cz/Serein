@@ -33,7 +33,7 @@ pub struct View {
 }
 
 /// "5m ago" from a snowflake, as the main app's post cards.
-fn ago(id: Id, now_unix: i64) -> String {
+pub(crate) fn ago(id: Id, now_unix: i64) -> String {
 	let created = ((id.0 >> 22) / 1000) as i64 + 1_420_070_400;
 	let seconds = now_unix.saturating_sub(created).max(0);
 	match seconds {

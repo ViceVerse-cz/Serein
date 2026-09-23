@@ -81,12 +81,15 @@ impl Serein {
 	}
 
 	/// Search pill for the chat header; Enter searches, Escape clears.
+	/// The main app's 144px pill, widening to 240px while a search is shown.
 	pub(crate) fn search_box(&self) -> impl IntoElement {
 		let p = palette();
+		let searching = self.search_open() && self.state.search.as_ref().is_some_and(|v| !v.pins);
 		div()
-			.w(px(180.))
+			.w(px(if searching { 240. } else { 144. }))
 			.h(px(28.))
-			.px_2()
+			.pl(px(10.))
+			.pr(px(6.))
 			.rounded(px(6.))
 			.bg(color(p.raised))
 			.flex()
@@ -320,6 +323,71 @@ impl Serein {
 					pin_cursor: None,
 				})),
 			}),
+			// Synthetic GIF results; previews are drawn locally.
+			Command::Gifs { query, request } => Some(Event::Gifs {
+				request: *request,
+				result: Ok(test_support::gif_page(query.as_deref())),
+			}),
+			// The main app's synthetic archived threads: three per page, then one older page.
+			Command::Archives {
+				parent,
+				guild,
+				kind,
+				before,
+				request,
+			} => {
+				use model::archives::{Cursor, Page};
+				let offset = parent.0.saturating_mul(10_000).saturating_add(match kind {
+					model::archives::Kind::Public => 0,
+					model::archives::Kind::Private => 1_000,
+					model::archives::Kind::JoinedPrivate => 2_000,
+				});
+				let ids = (if before.is_none() {
+					[900, 850, 800]
+				} else {
+					[700, 650, 600]
+				})
+				.map(|id| offset.saturating_add(id));
+				let announcement = self
+					.state
+					.channels
+					.iter()
+					.any(|c| c.id == *parent && c.kind == 5);
+				let threads = ids
+					.into_iter()
+					.map(|id| model::Channel {
+						id: Id(id),
+						guild: Some(*guild),
+						parent_id: Some(*parent),
+						position: 0,
+						name: format!("Synthetic archived thread {id}"),
+						icon: None,
+						kind: match (kind, announcement) {
+							(model::archives::Kind::Public, true) => 10,
+							(model::archives::Kind::Public, false) => 11,
+							_ => 12,
+						},
+						recipients: vec![],
+						last_message: None,
+						member_list_id: None,
+						message_count: None,
+					})
+					.collect();
+				Some(Event::Archives {
+					parent: *parent,
+					request: *request,
+					result: Ok(Page {
+						threads,
+						next: before.is_none().then_some(
+							if *kind == model::archives::Kind::JoinedPrivate {
+								Cursor::Id(Id(ids[2]))
+							} else {
+								Cursor::Time(1_788_998_400_000_000_000)
+							},
+						),
+					}),
+				})
+			}
 			_ => None,
 		}
 	}

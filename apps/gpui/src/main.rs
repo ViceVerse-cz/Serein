@@ -7,6 +7,7 @@ mod emoji;
 mod folders;
 mod forum;
 mod friends;
+mod gif;
 mod images;
 mod input;
 mod members;
@@ -21,6 +22,7 @@ mod signin;
 mod slash;
 mod switcher;
 mod theme;
+mod threads;
 mod uploads;
 
 use client_core::{Command, Envelope, Event, State};
@@ -126,6 +128,9 @@ pub(crate) struct Serein {
 	switcher: Option<switcher::Switcher>,
 	/// Emoji popover for the composer or a message reaction.
 	emoji_picker: Option<emoji::Picker>,
+	gif_picker: Option<gif::Picker>,
+	/// Name filter of the open Threads dialog.
+	thread_filter: Option<Entity<input::Input>>,
 	emoji_closed_at: Option<Instant>,
 	/// Open string select: message and component `custom_id`.
 	open_select: Option<(Id, String)>,
@@ -135,6 +140,9 @@ pub(crate) struct Serein {
 	revealed: BTreeSet<Id>,
 	/// First unread message when the channel opened; `None` until its history arrives.
 	boundary: Option<Option<Id>>,
+	/// Arriving in an unread conversation keeps it unread (and the banner up) until the reader
+	/// scrolls down at the newest message or jumps to the present, as the main app does.
+	hold_read_ack: bool,
 	notice: Option<(SharedString, Instant)>,
 	/// OS alerts for mentions and DMs while the window is inactive; off until opted in.
 	alerts: platform::notifications::Notifications,
@@ -165,7 +173,10 @@ impl Serein {
 	fn new(demo: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
 		let composer = cx.new(input::Input::new);
 		let search_input = cx.new(input::Input::new);
-		search_input.update(cx, |input, cx| input.set_placeholder("Search".into(), cx));
+		search_input.update(cx, |input, cx| {
+			input.set_small(true);
+			input.set_placeholder("Search".into(), cx)
+		});
 		cx.subscribe(&search_input, |this, _, _: &input::Submit, cx| {
 			this.run_search(cx)
 		})
@@ -237,6 +248,8 @@ impl Serein {
 			true
 		});
 		let state = if demo {
+			// Synthetic avatars and server icons, drawn locally like the main app's preview.
+			images::init_demo();
 			demo_state(&std::env::args().collect::<Vec<_>>())
 		} else {
 			// Avatars and previews come from Discord's CDN; the offline preview never fetches.
@@ -282,10 +295,13 @@ impl Serein {
 			slash: slash::Slash::default(),
 			switcher: None,
 			emoji_picker: None,
+			gif_picker: None,
+			thread_filter: None,
 			emoji_closed_at: None,
 			open_select: None,
 			revealed: BTreeSet::new(),
 			boundary: None,
+			hold_read_ack: false,
 			notice: None,
 			alerts: platform::notifications::Notifications::new(|| backend::WAKE.notify_one()),
 			typists: 0,
@@ -322,6 +338,12 @@ impl Serein {
 	/// `--demo-emoji-react`, `--demo-emoji-suggest`, `--demo-typing`, `--demo-forum` and `--demo-sign-in`. Synthetic fixtures only.
 	fn apply_demo_flags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
 		self.settings.apply_demo_flags();
+		// As the main app's preview: hidden channels listed, #getting-started a favourite and
+		// Robin's DM pinned.
+		self.settings.show_hidden_channels = true;
+		self.navigation.favorites = vec![Id(20)];
+		self.navigation.pinned = vec![Id(22)];
+		self.sync_channels();
 		let args = std::env::args().collect::<Vec<_>>();
 		let flag = |name: &str| args.iter().any(|arg| arg == name);
 		if let Some(id) = args
@@ -339,20 +361,35 @@ impl Serein {
 		{
 			self.state.reply = Some(client_core::Reply::to(last));
 		}
-		if flag("--demo-typing")
+		if (flag("--demo-typing") || flag("--demo-reply"))
 			&& let Some(channel) = self.state.selected
 		{
 			let timestamp = std::time::SystemTime::now()
 				.duration_since(std::time::UNIX_EPOCH)
 				.map_or(0, |elapsed| elapsed.as_secs());
-			self.state.apply(Envelope {
-				generation: self.state.generation,
-				event: Event::Typing(client_core::typing::Signal {
-					channel,
-					user: Id(2),
-					timestamp,
-				}),
-			});
+			// The reply preview shows two typists, as the main app's.
+			let users: &[u64] = if flag("--demo-reply") { &[2, 3] } else { &[2] };
+			for user in users {
+				self.state.apply(Envelope {
+					generation: self.state.generation,
+					event: Event::Typing(client_core::typing::Signal {
+						channel,
+						user: Id(*user),
+						timestamp,
+					}),
+				});
+			}
+		}
+		if flag("--demo-threads")
+			&& let Some(channel) = self.state.selected
+		{
+			self.open_threads(channel, cx);
+		}
+		if let Some(section) = args.iter().find_map(|arg| {
+			arg.strip_prefix("--demo-gifs")
+				.map(|rest| rest.strip_prefix('=').unwrap_or("").to_owned())
+		}) {
+			self.preview_gif_picker(&section, window, cx);
 		}
 		if flag("--demo-hover") {
 			self.hovered = self.rows.iter().rev().nth(1).copied();
@@ -377,15 +414,13 @@ impl Serein {
 					.is_some_and(|m| Some(m.author.id) == me)
 			});
 		}
-		if flag("--demo-profile")
-			&& let Some(message) = self
-				.rows
-				.first()
-				.and_then(|id| self.state.timeline.get_display(*id))
-		{
-			let guild = self.state.channel(message.channel).and_then(|c| c.guild);
-			let (author, roles) = (message.author.clone(), message.author_roles.clone());
-			self.open_profile(author, guild, roles, point(px(560.), px(260.)), cx);
+		// The same synthetic member and profile card as the main app's `--demo-profile`,
+		// opened beside the member list.
+		if flag("--demo-profile") {
+			let user = test_support::message(1, Id(20)).author;
+			let guild = self.state.channel(Id(20)).and_then(|c| c.guild);
+			let anchor = point(window.viewport_size().width - px(members::WIDTH), px(48.));
+			self.open_profile(user, guild, vec![], anchor, cx);
 		}
 		if flag("--demo-emoji-suggest") {
 			self.composer
@@ -868,7 +903,15 @@ impl Serein {
 
 	/// Acknowledge the newest message only while it is on screen in the active window.
 	fn mark_read(&mut self, window: &Window) {
-		if !window.is_window_active() || self.messages.is_scrolled_to_end() != Some(true) {
+		if self.hold_read_ack
+			&& self.state.selected.and_then(|c| self.state.missed(c)) != Some(true)
+		{
+			self.hold_read_ack = false;
+		}
+		if self.hold_read_ack
+			|| !window.is_window_active()
+			|| self.messages.is_scrolled_to_end() != Some(true)
+		{
 			return;
 		}
 		if let Some(&last) = self.rows.last()
@@ -885,6 +928,10 @@ impl Serein {
 		splice_rows(&self.messages, &mut self.rows, rows);
 		if self.boundary.is_none() && !self.state.history_pending && !self.rows.is_empty() {
 			self.boundary = Some(self.unread_boundary());
+			self.hold_read_ack = self
+				.state
+				.selected
+				.is_some_and(|c| self.state.unread(c) == Some(true));
 		}
 		let members = self.members_key();
 		if self.member_key != members {
@@ -1443,6 +1490,8 @@ impl Serein {
 		};
 		if sent {
 			self.state.reply = None;
+			// Sending follows the newest message, as the main app does.
+			self.hold_read_ack = false;
 			self.composer
 				.update(cx, |input, cx| input.set_value(String::new(), cx));
 			self.sync_rows();
@@ -1640,7 +1689,7 @@ fn ui_warning_tint() -> Rgba {
 /// so any other `--demo-*` flag (besides appearance and settings) selects it too.
 fn demo_state(args: &[String]) -> State {
 	let flag = |name: &str| args.iter().any(|arg| arg == name);
-	if flag("--demo-forwarded") {
+	let mut state = if flag("--demo-forwarded") {
 		test_support::forwarded_demo_state()
 	} else if flag("--demo-audio") || flag("--demo-voice-messages") {
 		test_support::audio_demo_state()
@@ -1652,13 +1701,27 @@ fn demo_state(args: &[String]) -> State {
 		test_support::code_demo_state()
 	} else if flag("--demo-notifications") {
 		test_support::notification_demo_state()
+	} else if [
+		"--demo-friends",
+		"--demo-friends-all",
+		"--demo-friends-pending",
+	]
+	.iter()
+	.any(|name| flag(name))
+	{
+		test_support::friends_demo_state()
 	} else if flag("--demo-empty-channel") || flag("--demo-empty-channel-long") {
 		test_support::empty_channel_demo_state(flag("--demo-empty-channel-long"))
 	} else if args.iter().skip(1).any(|arg| {
 		arg.starts_with("--demo-")
-			&& !["--demo-light", "--demo-dark"].contains(&arg.as_str())
+			// The reply preview uses the full workspace fixture, as in the main app.
+			&& !["--demo-light", "--demo-dark", "--demo-reply", "--demo-threads"]
+				.contains(&arg.as_str())
+			&& !arg.starts_with("--demo-gifs")
 			&& !arg.starts_with("--demo-theme=")
 			&& !arg.starts_with("--demo-settings")
+			// The main app's profile preview uses its full workspace fixture.
+			&& arg != "--demo-profile"
 	}) {
 		test_support::chat_demo_state()
 	} else {
@@ -1666,7 +1729,26 @@ fn demo_state(args: &[String]) -> State {
 		test_support::seed_demo_folder_mosaic(&mut state);
 		test_support::seed_access_marks(&mut state);
 		state
+	};
+	// The main app's synthetic roles, so author names and members wear the same colours.
+	for guild in state.permissions.guilds.values_mut() {
+		if let Some(roles) = &mut guild.roles {
+			for (id, name, color, position) in [
+				(9001, "Founders", 0xe78284, 2),
+				(9002, "Community", 0xe5c769, 1),
+			] {
+				roles.push(model::permissions::Role {
+					id: Id(id),
+					bits: 0,
+					name: name.into(),
+					color,
+					position,
+					hoist: true,
+				});
+			}
+		}
 	}
+	state
 }
 
 /// Updates `list` from `current` to `rows`, remeasuring the changed span and both neighbours
@@ -1785,10 +1867,11 @@ impl Render for Serein {
 			})
 			.child(body)
 			.children(self.notice_layer(cx))
-			.children(self.render_profile(cx))
+			.children(self.render_profile(window, cx))
 			.children(self.render_reactors(cx))
 			.children(self.render_switcher(cx))
 			.children(self.render_emoji_picker(cx))
+			.children(self.render_threads(window, cx))
 			.children(self.render_settings(window, cx))
 	}
 }
