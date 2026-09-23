@@ -32,8 +32,8 @@ impl Appearance {
 	}
 }
 
-// Process-wide and in-memory only, because `palette()` is called from render code without a
-// context. The colour variant and accent live in `ui::design`'s own statics, as in egui.
+// Process-wide statics (saved by `persist`), because `palette()` is called from render code
+// without a context. The colour variant and accent live in `ui::design`'s own statics, as in egui.
 static APPEARANCE: AtomicU8 = AtomicU8::new(Appearance::System as u8);
 static SYSTEM_DARK: AtomicBool = AtomicBool::new(true);
 

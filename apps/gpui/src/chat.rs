@@ -775,6 +775,69 @@ impl Serein {
 			(Icon::File, p.muted)
 		};
 		let url = attachment.media.url.clone();
+		// Videos play in the browser; the box keeps the metadata aspect so rows never jump.
+		if attachment.is_video() && !attachment.spoiler {
+			let media = &attachment.media;
+			let (width, height) = crate::images::fit(media.width, media.height, (420, 236));
+			let open = url.clone();
+			return div()
+				.id(ElementId::NamedInteger(
+					format!("attachment-{ix}").into(),
+					message.0,
+				))
+				.mt_1()
+				.w(px(width as f32))
+				.max_w_full()
+				.aspect_ratio(width as f32 / height as f32)
+				.rounded(px(8.))
+				.overflow_hidden()
+				.bg(color(p.base))
+				.border_1()
+				.border_color(color(p.border))
+				.relative()
+				.flex()
+				.items_center()
+				.justify_center()
+				.tooltip(tooltip("Play in browser"))
+				.when_some(open, |d, url| {
+					d.cursor_pointer()
+						.on_click(move |_, window, cx| confirm_open(url.clone(), window, cx))
+				})
+				.child(
+					div()
+						.size(px(52.))
+						.rounded_full()
+						.bg(tint(egui::Color32::BLACK, 0.6))
+						.flex()
+						.items_center()
+						.justify_center()
+						.text_size(px(22.))
+						.text_color(white())
+						.child("▶"),
+				)
+				.child(
+					div()
+						.absolute()
+						.left_0()
+						.right_0()
+						.bottom_0()
+						.px_3()
+						.py_1()
+						.bg(tint(egui::Color32::BLACK, 0.5))
+						.flex()
+						.justify_between()
+						.text_size(px(12.))
+						.text_color(white())
+						.child(
+							div()
+								.overflow_hidden()
+								.whitespace_nowrap()
+								.text_ellipsis()
+								.child(attachment.filename.clone()),
+						)
+						.child(format_size(attachment.size)),
+				);
+		}
 		// Inline preview, sized from the attachment metadata so its arrival never moves rows.
 		if kind.starts_with("image/")
 			&& kind != "image/svg+xml"
@@ -1030,6 +1093,13 @@ impl Serein {
 							this.dispatch(command);
 							cx.notify();
 						}))
+						.tooltip(crate::tooltip("Right-click to see who reacted"))
+						.on_mouse_down(MouseButton::Right, {
+							let emoji = reaction.emoji.clone();
+							cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+								this.open_reactors(id, emoji.clone(), event.position, cx)
+							})
+						})
 						.child(match (reaction.emoji.id, &reaction.emoji.name) {
 							(Some(id), Some(name)) => custom_emoji(id, name, 18.),
 							_ => div().text_size(px(16.)).child(label).into_any_element(),
@@ -1618,10 +1688,12 @@ impl Serein {
 			ui::typing_segments(&self.state, channel, std::time::Instant::now())
 		});
 		let tray = can_send.then(|| self.upload_tray(cx)).flatten();
-		let joined = self.state.reply.is_some() || tray.is_some();
+		let slash = can_send.then(|| self.render_slash_options(cx)).flatten();
+		let joined = self.state.reply.is_some() || tray.is_some() || slash.is_some();
 		div()
 			.flex_none()
 			.children(pending)
+			.children(self.render_ephemeral(cx))
 			.child(
 				div()
 					.relative()
@@ -1672,6 +1744,7 @@ impl Serein {
 							.overflow_hidden()
 							.child(tray)
 					}))
+					.children(slash)
 					.child(
 						div()
 							.min_h(px(44.))

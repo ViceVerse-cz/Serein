@@ -8091,6 +8091,7 @@ name = "serein-gpui"
 version = "0.1.0"
 dependencies = [
  "client-core",
+ "dirs 7.0.0",
  "discord-api",
  "discord-gateway",
  "discord-voice",
@@ -8099,6 +8100,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "image",
+ "local-store",
  "model",
  "platform",
  "reqwest",

@@ -11,11 +11,14 @@ mod images;
 mod input;
 mod members;
 mod nav_menu;
+mod persist;
 mod profile;
+mod reactors;
 mod search;
 mod settings;
 mod sidebar;
 mod signin;
+mod slash;
 mod switcher;
 mod theme;
 mod uploads;
@@ -107,7 +110,11 @@ pub(crate) struct Serein {
 	format: ui::FormatCache,
 	hovered: Option<Id>,
 	profile: Option<profile::Card>,
+	/// Anchor of the open "who reacted" popover.
+	reactors_at: Option<Point<Pixels>>,
 	picker: Option<autocomplete::Picker>,
+	/// Slash-command picker, chosen command and its option fields.
+	slash: slash::Slash,
 	switcher: Option<switcher::Switcher>,
 	/// Emoji popover for the composer or a message reaction.
 	emoji_picker: Option<emoji::Picker>,
@@ -140,6 +147,8 @@ pub(crate) struct Serein {
 	navigation: sidebar::NavState,
 	/// Composer attachments: chosen files and the upload in flight.
 	uploads: uploads::Uploads,
+	/// Settings, drafts and categories in the experiment's own local store.
+	persist: persist::Persist,
 	#[cfg(not(target_os = "linux"))]
 	login: Option<platform::LoginView>,
 }
@@ -177,11 +186,13 @@ impl Serein {
 			window,
 			|this, _, event: &input::Event, window, cx| match event {
 				input::Event::Cancel => {
-					this.state.reply = None;
+					if !this.cancel_slash(cx) {
+						this.state.reply = None;
+					}
 					cx.notify();
 				}
 				input::Event::Changed => this.update_picker(cx),
-				input::Event::Pick(key) => this.pick(*key, cx),
+				input::Event::Pick(key) => this.pick(*key, window, cx),
 				input::Event::EditLast => {
 					let me = this.state.user.as_ref().map(|u| u.id);
 					let last = this.rows.iter().rev().copied().find(|id| {
@@ -213,6 +224,22 @@ impl Serein {
 			}
 		})
 		.detach();
+		// Queue the open draft and unsaved choices before the window or the app goes away.
+		cx.on_app_quit(|this, cx| {
+			this.queue_persist(true, cx);
+			let done = this.persist.finish();
+			cx.background_executor().spawn(async move {
+				if let Some(done) = done {
+					let _ = done.recv_timeout(persist::EXIT_WAIT);
+				}
+			})
+		})
+		.detach();
+		let closing = cx.entity().downgrade();
+		window.on_window_should_close(cx, move |_, cx| {
+			let _ = closing.update(cx, |this, cx| this.queue_persist(true, cx));
+			true
+		});
 		let state = if demo {
 			test_support::chat_demo_state()
 		} else {
@@ -254,7 +281,9 @@ impl Serein {
 			hovered: None,
 			editing: None,
 			profile: None,
+			reactors_at: None,
 			picker: None,
+			slash: slash::Slash::default(),
 			switcher: None,
 			emoji_picker: None,
 			emoji_closed_at: None,
@@ -277,6 +306,7 @@ impl Serein {
 			forum: forum::View::default(),
 			navigation: sidebar::NavState::default(),
 			uploads: uploads::Uploads::default(),
+			persist: persist::Persist::start(demo),
 			#[cfg(not(target_os = "linux"))]
 			login: None,
 		};
@@ -286,6 +316,7 @@ impl Serein {
 		if demo {
 			let command = this.state.request_members();
 			this.dispatch(command);
+			slash::demo_permissions(&mut this.state);
 		}
 		this
 	}
@@ -527,6 +558,60 @@ impl Serein {
 			let target = nav_menu::Target::Guild(Id(10));
 			self.open_nav_menu(target, point(px(44.), px(130.)), window, cx);
 		}
+		// The fixture already mutes #long-form; `--demo-hide-muted` hides it from the list,
+		// `--demo-mute-menu`/`--demo-notification-menu` open the channel menu's submenus,
+		// `--demo-category-menu`, `--demo-dm-menu`, `--demo-group-menu` and
+		// `--demo-friend-menu` the other menus, `--demo-add-friend` the Add Friend tab.
+		if flag("--demo-hide-muted") {
+			let command = self.state.request_channel_action(
+				Id(20),
+				client_core::channel_actions::Action::HideMuted(true),
+			);
+			self.dispatch(command);
+			self.sync_channels();
+		}
+		for (name, page) in [
+			("--demo-mute-menu", nav_menu::Page::Mute),
+			("--demo-notification-menu", nav_menu::Page::Notifications),
+		] {
+			if flag(name) {
+				let target = nav_menu::Target::Channel(self.state.selected.unwrap_or(Id(21)));
+				self.open_nav_menu(target, point(px(230.), px(150.)), window, cx);
+				self.set_nav_menu_page(page);
+			}
+		}
+		if flag("--demo-category-menu") {
+			self.open_nav_menu(
+				nav_menu::Target::Channel(Id(24)),
+				point(px(230.), px(150.)),
+				window,
+				cx,
+			);
+		}
+		for (name, channel) in [("--demo-dm-menu", Id(22)), ("--demo-group-menu", Id(29))] {
+			if flag(name) {
+				self.select_section(None, cx);
+				let target = nav_menu::Target::Channel(channel);
+				self.open_nav_menu(target, point(px(230.), px(150.)), window, cx);
+			}
+		}
+		if flag("--demo-friend-menu")
+			&& let Some(&(user, _)) = friends::rows(&self.state, friends::Tab::All).first()
+		{
+			self.friends.tab = friends::Tab::All;
+			self.open_friends(cx);
+			self.open_nav_menu(
+				nav_menu::Target::Friend(user),
+				point(px(640.), px(150.)),
+				window,
+				cx,
+			);
+		}
+		if flag("--demo-add-friend") {
+			self.friends.tab = friends::Tab::AddFriend;
+			self.open_friends(cx);
+			self.focus_friend_username(window, cx);
+		}
 		if let Some(query) = args
 			.iter()
 			.find_map(|arg| arg.strip_prefix("--demo-switcher="))
@@ -564,6 +649,57 @@ impl Serein {
 			if flag("--demo-upload-progress") {
 				self.uploads
 					.demo_progress(generation, channel, 2, 1_310_720, 2_092_032);
+			}
+		}
+		if flag("--demo-reactors")
+			&& let Some(&last) = self.rows.last()
+		{
+			let emoji = model::ReactionEmoji {
+				id: None,
+				name: Some("👍".into()),
+			};
+			let _ = self.state.timeline.set_reactions(
+				last,
+				Some(vec![model::Reaction {
+					emoji: emoji.clone(),
+					count: 3,
+					me: false,
+					me_burst: false,
+				}]),
+			);
+			self.sync_rows();
+			self.open_reactors(last, emoji, point(px(700.), px(420.)), cx);
+		}
+		if flag("--demo-video")
+			&& let Some(&last) = self.rows.last()
+			&& let Some(mut message) = self.state.timeline.get(last).cloned()
+		{
+			message.attachments.push(model::Attachment {
+				id: Id(9100),
+				filename: "harbour-timelapse.mp4".into(),
+				description: None,
+				content_type: Some("video/mp4".into()),
+				size: 8_400_000,
+				media: model::EmbedMedia {
+					width: 1920,
+					height: 1080,
+					..Default::default()
+				},
+				spoiler: false,
+				duration_ms: None,
+				waveform: vec![],
+			});
+			let _ = self.state.timeline.insert(message, true, false);
+			self.sync_rows();
+		}
+		// `--demo-slash` opens the command picker; `--demo-slash-options` chooses /weather with
+		// filled, one out-of-range, option; `--demo-slash-reply` runs it for a private reply.
+		if flag("--demo-slash") || flag("--demo-slash-options") || flag("--demo-slash-reply") {
+			self.composer
+				.update(cx, |input, cx| input.set_value("/".into(), cx));
+			self.update_picker(cx);
+			if !flag("--demo-slash") {
+				self.demo_slash_options(flag("--demo-slash-reply"), window, cx);
 			}
 		}
 		if flag("--demo-sign-in") {
@@ -693,6 +829,7 @@ impl Serein {
 			changed = true;
 		}
 		changed |= images::drain(window, cx);
+		changed |= self.poll_slash(cx);
 		let attach = self
 			.state
 			.selected
@@ -704,6 +841,7 @@ impl Serein {
 			self.notify_user(problem);
 			changed = true;
 		}
+		changed |= self.poll_persist(window, cx);
 		if navigation_changed {
 			self.sync_channels();
 		}
@@ -826,6 +964,10 @@ impl Serein {
 			}
 			let event = match command {
 				Command::CancelSearch => return,
+				command @ (Command::ApplicationCommands { .. } | Command::Interaction(_)) => {
+					slash::demo_respond(&mut self.state, command);
+					return;
+				}
 				Command::History {
 					channel,
 					request,
@@ -893,6 +1035,77 @@ impl Serein {
 						result,
 					}
 				}
+				Command::Reactions(command) => {
+					use client_core::reactions::{Command as R, Event as E};
+					Event::Reactions(match command {
+						R::Read {
+							channel,
+							message,
+							request,
+						} => E::Read {
+							channel,
+							message,
+							request,
+							result: Ok(vec![]),
+						},
+						// Same synthetic-RAM toggle as the desktop fixture; nothing is sent.
+						R::Set {
+							channel,
+							message,
+							emoji,
+							add,
+							request,
+						} => {
+							let mut reactions = self
+								.state
+								.timeline
+								.get(message)
+								.and_then(|m| m.reactions.clone())
+								.unwrap_or_default();
+							if let Some(r) = reactions.iter_mut().find(|r| r.emoji.same(&emoji)) {
+								if r.me != add {
+									r.count = if add {
+										r.count + 1
+									} else {
+										r.count.saturating_sub(1)
+									};
+									r.me = add;
+								}
+							} else if add {
+								reactions.push(model::Reaction {
+									emoji,
+									count: 1,
+									me: true,
+									me_burst: false,
+								});
+							}
+							reactions.retain(|r| r.count > 0);
+							self.state.reactions.reset();
+							let _ = self.state.timeline.set_reactions(message, Some(reactions));
+							E::Written {
+								channel,
+								message,
+								request,
+								result: Ok(()),
+							}
+						}
+						R::Users {
+							channel,
+							message,
+							emoji,
+							request,
+							..
+						} => E::Users {
+							channel,
+							message,
+							emoji,
+							request,
+							result: Ok((1..=3)
+								.map(|id| test_support::message(id, channel).author)
+								.collect()),
+						},
+					})
+				}
 				Command::Delete { channel, message } => Event::Delete {
 					channel,
 					id: message,
@@ -935,10 +1148,44 @@ impl Serein {
 				}
 				Command::UserAction {
 					action, request, ..
-				} => Event::UserAction(client_core::user_actions::Event::Written {
+				} => {
+					for event in friends::demo_user_events(&self.state, action, request) {
+						self.state.apply(Envelope {
+							generation: self.state.generation,
+							event,
+						});
+					}
+					return;
+				}
+				// Personal mute/notification/hide-muted writes, as the desktop `channel_demo`.
+				Command::ChannelAction {
+					guild,
+					channel,
+					request,
+					action,
+				} if nav_menu::demo_channel_outcome(&action).is_some() => {
+					Event::ChannelAction(client_core::channel_actions::Event::Finished {
+						guild,
+						channel,
+						request,
+						result: Ok(nav_menu::demo_channel_outcome(&action).expect("checked")),
+					})
+				}
+				Command::ServerAction {
+					action: action @ client_core::server_actions::Action::Leave(_),
+					request,
+				} => Event::ServerAction(client_core::server_actions::Event::Written {
 					action,
 					request,
-					result: Ok(()),
+					result: Ok(None),
+				}),
+				Command::GroupAction {
+					action: client_core::group_actions::Action::Leave(channel),
+					request,
+				} => Event::GroupAction(client_core::group_actions::Event::Written {
+					channel,
+					request,
+					result: Ok(None),
 				}),
 				_ => {
 					self.state.command_rejected(command);
@@ -955,6 +1202,7 @@ impl Serein {
 	}
 
 	fn save_draft(&mut self, cx: &mut Context<Self>) -> bool {
+		self.queue_persist(true, cx);
 		if let Some(id) = self.state.selected {
 			let value = self.composer.read(cx).value();
 			let old = self.state.drafts.get(&id).map_or(0, String::capacity);
@@ -1008,6 +1256,7 @@ impl Serein {
 			self.hovered = None;
 			self.editing = None;
 			self.profile = None;
+			self.reactors_at = None;
 			self.picker = None;
 			self.emoji_picker = None;
 		}
@@ -1117,6 +1366,9 @@ impl Serein {
 				this.backend = backend::Backend::idle();
 				this.backend_status = "";
 				this.alerts.clear();
+				if let Some(account) = account {
+					this.persist.forget(account);
+				}
 				this.state = State::default();
 				this.rows.clear();
 				this.messages.reset(0);
@@ -1188,6 +1440,9 @@ impl Serein {
 	}
 
 	fn send(&mut self, cx: &mut Context<Self>) {
+		if self.run_slash(cx) {
+			return;
+		}
 		if !self.save_draft(cx) {
 			return;
 		}
@@ -1464,6 +1719,7 @@ impl Render for Serein {
 			.child(body)
 			.children(self.notice_layer(cx))
 			.children(self.render_profile(cx))
+			.children(self.render_reactors(cx))
 			.children(self.render_switcher(cx))
 			.children(self.render_emoji_picker(cx))
 	}

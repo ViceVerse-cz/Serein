@@ -75,6 +75,11 @@ fn rank(name: &str, query: &str) -> Option<u8> {
 
 /// People from the member list, the loaded timeline and DM recipients; channels from the server.
 pub fn items(state: &State, kind: Kind, query: &str) -> Vec<Item> {
+	items_up_to(state, kind, query, MAX_ITEMS)
+}
+
+/// [`items`] with another bound on people and channels (slash-command choosers list more).
+pub fn items_up_to(state: &State, kind: Kind, query: &str, limit: usize) -> Vec<Item> {
 	let query = query.to_lowercase();
 	let mut ranked = Vec::new();
 	match kind {
@@ -148,7 +153,7 @@ pub fn items(state: &State, kind: Kind, query: &str) -> Vec<Item> {
 	ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.label.cmp(&b.1.label)));
 	ranked
 		.into_iter()
-		.take(MAX_ITEMS)
+		.take(limit)
 		.map(|(_, item)| item)
 		.collect()
 }
@@ -228,6 +233,14 @@ pub fn custom_markup(emoji: &model::CustomEmoji) -> String {
 impl Serein {
 	/// Recomputes suggestions after each edit; closes when the caret leaves a trigger token.
 	pub(crate) fn update_picker(&mut self, cx: &mut Context<Self>) {
+		if self.update_slash(cx) {
+			self.picker = None;
+			let picking = self.slash.picking();
+			self.composer
+				.update(cx, |input, _| input.set_picking(picking));
+			cx.notify();
+			return;
+		}
 		let input = self.composer.read(cx);
 		let (text, cursor) = (input.value().to_owned(), input.cursor());
 		self.picker = token(&text, cursor).and_then(|(kind, start, query)| {
@@ -246,7 +259,10 @@ impl Serein {
 		cx.notify();
 	}
 
-	pub(crate) fn pick(&mut self, key: input::Pick, cx: &mut Context<Self>) {
+	pub(crate) fn pick(&mut self, key: input::Pick, window: &mut Window, cx: &mut Context<Self>) {
+		if self.slash_pick(key, window, cx) {
+			return;
+		}
 		let Some(picker) = &mut self.picker else {
 			return;
 		};
@@ -287,7 +303,10 @@ impl Serein {
 		cx.notify();
 	}
 
-	pub(crate) fn render_picker(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+	pub(crate) fn render_picker(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+		if let Some(slash) = self.render_slash_picker(cx) {
+			return Some(slash);
+		}
 		let p = palette();
 		let picker = self.picker.as_ref()?;
 		Some(
@@ -367,7 +386,8 @@ impl Serein {
 								.text_color(color(p.muted))
 								.child(detail)
 						}))
-				})),
+				}))
+				.into_any_element(),
 		)
 	}
 }

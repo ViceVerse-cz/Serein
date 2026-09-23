@@ -254,7 +254,15 @@ async fn connect(
 	let (ready_send, ready_receive) = tokio::sync::oneshot::channel();
 	let ready_send = Mutex::new(Some(ready_send));
 	let save_secret = secret.clone();
+	let api = api;
 	let stream = discord_gateway::run(secret, gateway, subscription, |event| {
+		// Interactions (slash commands, components) must carry the gateway session id.
+		if let Event::Interaction(client_core::interactions::Event::Session(session)) = event {
+			return api.interaction_session(Some(session));
+		}
+		if matches!(&event, Event::Disconnected | Event::Resync) {
+			api.interaction_session(None)?;
+		}
 		if let Some((owner, _, _)) = event.ready_navigation()
 			&& owner.id != user.id
 		{

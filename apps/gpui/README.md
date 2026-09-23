@@ -57,8 +57,11 @@ faces and Phosphor icons (see `assets/icons/README.md`):
 Images, avatars and custom emoji are not downloaded: avatars use the main app's initials
 fallback and image attachments appear as file cards with a confirmed "open in browser" action.
 Media, voice controls, editing, search, pins, account switching and settings stay in the main
-app. Drafts exist only in this process and are lost on exit. It does not write the main app's
-SQLite caches/settings. There is no logout/credential-deletion control in this prototype.
+app. Appearance, theme, accent, the desktop-notification opt-in, and per-account drafts and
+collapsed categories are remembered in the experiment's own bounded SQLite file
+(`serein-gpui/store.sqlite3` in the platform data directory), written by one worker thread;
+logging out removes that account's drafts. It never opens or writes the main app's
+`serein/client.sqlite3`, and `--demo` touches no disk. There is no logout/credential-deletion control in this prototype.
 
 ## GPUI version
 

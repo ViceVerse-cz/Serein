@@ -165,6 +165,33 @@ pub fn avatar_with_presence(
 		}))
 }
 
+/// "Hide Muted Channels", as egui: drops muted channels (never the open one) with their
+/// threads, then categories left without channels.
+fn retain_unmuted(rows: &mut Vec<NavRow>, state: &client_core::State) {
+	let mut hidden_parent = false;
+	rows.retain(|row| match row {
+		NavRow::Channel { id, thread } => {
+			let hide = state.selected != Some(*id)
+				&& ((*thread && hidden_parent) || state.guild_channel_muted(*id) == Some(true));
+			if !*thread {
+				hidden_parent = hide;
+			}
+			!hide
+		}
+		NavRow::Category { .. } => true,
+	});
+	let mut index = 0;
+	while index < rows.len() {
+		if matches!(rows[index], NavRow::Category { .. })
+			&& !matches!(rows.get(index + 1), Some(NavRow::Channel { .. }))
+		{
+			rows.remove(index);
+		} else {
+			index += 1;
+		}
+	}
+}
+
 fn channel_icon(channel: &model::Channel) -> Icon {
 	match channel.kind {
 		2 | 13 => Icon::Speaker,
@@ -187,6 +214,13 @@ impl Serein {
 		{
 			let command = self.state.load_guild_folders();
 			self.dispatch(command);
+		}
+		// A server left or removed elsewhere must not keep its (now empty) channel list open.
+		if self
+			.guild
+			.is_some_and(|guild| self.state.guild(guild).is_none())
+		{
+			self.guild = None;
 		}
 		let state = &self.state;
 		let visible = |c: &&model::Channel| {
@@ -270,6 +304,12 @@ impl Serein {
 			for channel in children {
 				push(&mut rows, channel, collapsed);
 			}
+		}
+		if self
+			.guild
+			.is_some_and(|guild| state.hides_muted_channels(guild) == Some(true))
+		{
+			retain_unmuted(&mut rows, state);
 		}
 		self.nav = rows;
 	}
@@ -645,6 +685,13 @@ impl Serein {
 				this.sync_channels();
 				cx.notify();
 			}))
+			.on_mouse_down(
+				MouseButton::Right,
+				cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+					this.open_nav_menu(Target::Channel(id), event.position, window, cx);
+					cx.stop_propagation();
+				}),
+			)
 			.child(
 				icon(
 					if collapsed {
@@ -685,10 +732,17 @@ impl Serein {
 		};
 		let mentions = self.state.mention_count(id);
 		let openable = text_channel(channel) || forum;
+		// Muted rows are dimmed and never show the unread pill, as egui's `channel_marks`.
+		let muted = self.state.channel_access(id).muted();
+		let unread = unread && !muted;
 		let strong = selected || unread;
 		let name = channel_label(channel);
 		let direct = channel.guild.is_none();
-		let text = color(if strong { p.text_strong } else { p.muted });
+		let text = if muted {
+			crate::theme::tint(p.muted, 0.6)
+		} else {
+			color(if strong { p.text_strong } else { p.muted })
+		};
 		let row = div()
 			.id(("channel", id.0))
 			.relative()
@@ -703,9 +757,10 @@ impl Serein {
 			.gap(px(if direct { 12. } else { 6. }))
 			.text_color(text)
 			.when(selected, |d| d.bg(color(p.selected)))
-			.when(!selected, |d| {
+			.when(!selected && !muted, |d| {
 				d.hover(|d| d.bg(color(p.hover)).text_color(color(p.text_strong)))
 			})
+			.when(!selected && muted, |d| d.hover(|d| d.bg(color(p.hover))))
 			.when(openable, |d| {
 				d.cursor_pointer()
 					.focusable()
@@ -938,7 +993,56 @@ impl Serein {
 
 #[cfg(test)]
 mod tests {
-	use super::{badge_label, home_label};
+	use super::{NavRow, badge_label, home_label, retain_unmuted};
+	use model::Id;
+
+	#[test]
+	fn hiding_muted_channels_drops_them_and_their_empty_category() {
+		// The fixture mutes #long-form (21) and leaves #getting-started (20) unmuted.
+		let mut state = test_support::chat_demo_state();
+		state.selected = None;
+		assert_eq!(state.guild_channel_muted(Id(21)), Some(true));
+		assert_eq!(state.guild_channel_muted(Id(20)), Some(false));
+		let rows = || {
+			vec![
+				NavRow::Category {
+					id: Id(23),
+					name: "WELCOME".into(),
+				},
+				NavRow::Channel {
+					id: Id(20),
+					thread: false,
+				},
+				NavRow::Channel {
+					id: Id(27),
+					thread: true,
+				},
+				NavRow::Category {
+					id: Id(24),
+					name: "CONVERSATIONS".into(),
+				},
+				NavRow::Channel {
+					id: Id(21),
+					thread: false,
+				},
+			]
+		};
+		let ids = |rows: &[NavRow]| {
+			rows.iter()
+				.map(|row| match row {
+					NavRow::Category { id, .. } | NavRow::Channel { id, .. } => id.0,
+				})
+				.collect::<Vec<_>>()
+		};
+		let mut hidden = rows();
+		retain_unmuted(&mut hidden, &state);
+		assert_eq!(ids(&hidden), [23, 20, 27]);
+		// The open channel stays listed even while muted.
+		state.selected = Some(Id(21));
+		let mut open = rows();
+		retain_unmuted(&mut open, &state);
+		assert_eq!(ids(&open), [23, 20, 27, 24, 21]);
+	}
 
 	#[test]
 	fn badges_widen_with_digits_and_cap_at_99() {

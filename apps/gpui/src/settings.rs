@@ -1,5 +1,5 @@
 //! Appearance popover behind the user panel's gear: mode, colour variant and accent.
-//! Choices are process-wide and in memory only; nothing is persisted by the experiment.
+//! Choices are process-wide; `persist` saves them to the experiment's own local store.
 use crate::theme::{self, Appearance, Icon, color, icon, palette, solid};
 use crate::tooltip;
 use gpui::{prelude::*, *};
@@ -20,7 +20,7 @@ const ACCENTS: [(Option<[u8; 3]>, &str); 6] = [
 /// Account actions the popover hands to the app.
 pub enum Event {
 	LogOut,
-	/// Session-only opt-in; macOS may ask for permission the first time.
+	/// Opt-in, remembered by `persist`; macOS may ask for permission the first time.
 	Notifications(bool),
 }
 
@@ -72,6 +72,16 @@ impl Menu {
 			this.open = flag("--demo-settings");
 		}
 		this
+	}
+
+	pub fn notifications(&self) -> bool {
+		self.notifications
+	}
+
+	/// Restores a saved opt-in without emitting [`Event::Notifications`].
+	pub fn set_notifications(&mut self, on: bool, cx: &mut Context<Self>) {
+		self.notifications = on;
+		cx.notify();
 	}
 
 	fn toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
