@@ -1500,6 +1500,8 @@ mod tests {
 			(Some(Id(490)), 491, 500),
 		] {
 			let mut state = demo_state();
+			// A loaded boundary scrolls locally; this covers the paged path.
+			state.timeline.clear();
 			state
 				.apply_read_state(client_core::read_state::Event::Snapshot {
 					entries: Some(vec![(Id(20), marker, 0)]),

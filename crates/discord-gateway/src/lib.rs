@@ -2398,6 +2398,11 @@ mod tests {
 						Event::DirectPresence(_) => "presence",
 						Event::Resync => "resync",
 						Event::Disconnected => "disconnected",
+						// A fresh session after resume failure must refetch account settings.
+						Event::AccountSettings {
+							status: true,
+							folders: true,
+						} => "settings",
 						Event::ReadState(client_core::read_state::Event::Snapshot { .. }) => {
 							return Ok(());
 						}
@@ -2467,7 +2472,9 @@ mod tests {
 					.into_iter()
 					.filter(|event| *event != "disconnected")
 					.collect::<Vec<_>>(),
-				["ready", "resumed", "presence", "resync", "ready"]
+				[
+					"ready", "resumed", "presence", "resync", "ready", "settings"
+				]
 			);
 		})
 		.await

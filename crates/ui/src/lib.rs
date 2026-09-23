@@ -3650,13 +3650,6 @@ impl MessagingUi {
 					.show(ui, |ui| {
 						self.composer(ui, state, channel, &ctx, &mut commands);
 					});
-				if commands
-					.iter()
-					.any(|command| matches!(command, Command::Send { .. }))
-					&& state.history_targeted
-				{
-					commands.push(state.history(None));
-				}
 				if let Some((shape, top)) = message_fill {
 					let remaining = ui.available_rect_before_wrap();
 					ui.painter().set(

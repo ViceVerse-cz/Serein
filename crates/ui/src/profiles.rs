@@ -2124,6 +2124,12 @@ mod tests {
 		state.gateway_connected = false;
 		state.demo = false;
 		assert_eq!(presence(&state, user.id, None), (None, None, [].as_slice()));
+		// Known guild presence survives a reconnect; losing the list clears it.
+		assert_eq!(
+			presence(&state, user.id, Some(Id(10))).1,
+			Some("Server status")
+		);
+		state.members.as_mut().unwrap().freshness = model::Freshness::Unavailable;
 		assert_eq!(
 			presence(&state, user.id, Some(Id(10))),
 			(None, None, [].as_slice())
