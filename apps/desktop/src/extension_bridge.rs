@@ -3,7 +3,8 @@ use crate::extensions::{Event, ExtensionHost, InstallSource, InstalledExtension,
 use client_core::State;
 use eframe::egui;
 use extensions::{
-	AppEventKind, Capability, CatalogEntry, ExtensionKind, Invocation, MessageEvent, Surface,
+	ActionResult, AppEventKind, Capability, CatalogEntry, ExtensionKind, Invocation, Manifest,
+	MessageEvent, Surface,
 };
 use std::{
 	collections::{BTreeMap, BTreeSet, VecDeque},
@@ -34,15 +35,41 @@ const MAX_MESSAGE_EVENTS: usize = 32;
 const MAX_MESSAGE_EVENT_BYTES: usize = 64 * 1024;
 const MESSAGE_EVENT_INTERVAL: Duration = Duration::from_millis(100);
 
+fn attach_app_data(
+	invocation: &mut Invocation,
+	state: &State,
+	messaging: &ui::MessagingUi,
+	manifest: &Manifest,
+) {
+	invocation.app = crate::extension_app::snapshot(state, messaging, manifest);
+	invocation.queries = crate::extension_app::query_snapshot(state, manifest);
+	invocation.messaging_settings =
+		crate::extension_app::messaging_settings_snapshot(state, manifest);
+	invocation.guild_folders = crate::extension_app::guild_folders_snapshot(state, manifest);
+	for field in 0..3 {
+		if serde_json::to_vec(invocation)
+			.is_ok_and(|wire| wire.len() <= extensions::MAX_IO_BYTES - 8 * 1024)
+		{
+			break;
+		}
+		match field {
+			0 => invocation.messaging_settings = None,
+			1 => invocation.guild_folders = None,
+			_ => invocation.queries = None,
+		}
+	}
+}
+
 enum ReactiveEvent {
 	Message(MessageEvent),
 	App(AppEventKind),
+	ActionResult(ActionResult),
 }
 impl ReactiveEvent {
 	fn available(&self, state: &State) -> bool {
 		match self {
 			Self::Message(_) => crate::extension_events::available(state),
-			Self::App(_) => crate::extension_app::available(state),
+			Self::App(_) | Self::ActionResult(_) => crate::extension_app::available(state),
 		}
 	}
 }
@@ -59,6 +86,7 @@ impl QueuedEvent {
 			+ self.action.len()
 			+ match &self.event {
 				ReactiveEvent::App(_) => 0,
+				ReactiveEvent::ActionResult(result) => result.request_id.len(),
 				ReactiveEvent::Message(event) => {
 					event.channel_id.len()
 						+ event.message_id.len()
@@ -94,6 +122,7 @@ pub struct Bridge {
 	message_event_at: Option<Instant>,
 	message_events_dropped: bool,
 	app_key: Option<crate::extension_app::ChangeKey>,
+	extended_key: Option<u64>,
 	app_context_changed: bool,
 	data_changes: crate::extension_data_events::Changes,
 	data_key: Option<crate::extension_data_events::DataKey>,
@@ -166,6 +195,7 @@ impl Bridge {
 					&& entry.manifest.capabilities.contains(&Capability::AppEvents)
 			}) {
 			self.app_key = None;
+			self.extended_key = None;
 			self.data_changes = Default::default();
 			self.data_key = None;
 			return;
@@ -178,12 +208,29 @@ impl Bridge {
 		let changes = std::mem::take(&mut self.data_changes);
 		let key = crate::extension_app::ChangeKey::capture(state, messaging);
 		let invalidated = std::mem::take(&mut self.app_context_changed);
+		let extended = self.installed.iter().any(|entry| {
+			entry.error.is_none()
+				&& !self.disabled.contains(&entry.manifest.id)
+				&& entry.manifest.capabilities.iter().any(|capability| {
+					matches!(
+						capability,
+						Capability::DataQueries
+							| Capability::MessagingSettings
+							| Capability::GuildFolders
+					)
+				})
+		});
+		let next_extended_key = extended.then(|| crate::extension_app::extended_change_key(state));
+		let extended_changed = next_extended_key.is_some()
+			&& self.extended_key.is_some()
+			&& next_extended_key != self.extended_key;
+		self.extended_key = next_extended_key;
 		let event = self
 			.app_key
 			.as_ref()
 			.map_or(Some(AppEventKind::Ready), |old| {
 				key.changed(old)
-					.or_else(|| invalidated.then_some(AppEventKind::Context))
+					.or_else(|| (invalidated || extended_changed).then_some(AppEventKind::Context))
 			});
 		self.app_key = Some(key);
 		for entry in &self.installed {
@@ -941,7 +988,7 @@ impl Bridge {
 							.find(|e| e.manifest.id == id)
 							.unwrap()
 							.manifest;
-						invocation.app = crate::extension_app::snapshot(state, messaging, manifest);
+						attach_app_data(&mut invocation, state, messaging, manifest);
 						if crate::extension_app::uses_app(&manifest.capabilities) {
 							// App snapshots and proposals belong to the conversation that produced them.
 							context.app_wide = false;
@@ -959,6 +1006,51 @@ impl Bridge {
 							ctx,
 							messaging,
 						);
+					}
+				}
+				ExtensionRequest::ActionResult {
+					id,
+					result,
+					mut context,
+				} => {
+					let Some(entry) = self.installed.iter().find(|entry| {
+						entry.manifest.id == id
+							&& entry.error.is_none()
+							&& !self.disabled.contains(&id)
+							&& entry
+								.manifest
+								.capabilities
+								.contains(&Capability::ActionFeedback)
+					}) else {
+						continue;
+					};
+					let Some(action) = entry
+						.manifest
+						.actions
+						.iter()
+						.find(|action| action.surface == Surface::AppEvent)
+					else {
+						continue;
+					};
+					context.app_wide = true;
+					context.channel = None;
+					let queued = QueuedEvent {
+						id,
+						action: action.id.clone(),
+						context,
+						event: ReactiveEvent::ActionResult(result),
+					};
+					if self.message_events.len() >= MAX_MESSAGE_EVENTS
+						|| self
+							.message_events
+							.iter()
+							.map(QueuedEvent::bytes)
+							.sum::<usize>() + queued.bytes()
+							> MAX_MESSAGE_EVENT_BYTES
+					{
+						self.message_events_dropped = true;
+					} else {
+						self.message_events.push_back(queued);
 					}
 				}
 			}
@@ -1040,6 +1132,7 @@ impl Bridge {
 						action: queued.action,
 						..Default::default()
 					};
+					let feedback = matches!(&queued.event, ReactiveEvent::ActionResult(_));
 					match queued.event {
 						ReactiveEvent::Message(event) => {
 							invocation.message_event = Some(Box::new(event))
@@ -1052,11 +1145,29 @@ impl Bridge {
 								.find(|e| e.manifest.id == queued.id)
 								.unwrap()
 								.manifest;
-							invocation.app =
-								crate::extension_app::snapshot(state, messaging, manifest);
+							attach_app_data(&mut invocation, state, messaging, manifest);
+						}
+						ReactiveEvent::ActionResult(result) => {
+							invocation.app_event = Some(AppEventKind::Context);
+							invocation.action_result = Some(result);
+							let manifest = &self
+								.installed
+								.iter()
+								.find(|e| e.manifest.id == queued.id)
+								.unwrap()
+								.manifest;
+							attach_app_data(&mut invocation, state, messaging, manifest);
 						}
 					}
-					let pending = Some((queued.id.clone(), invocation.clone(), queued.context));
+					let pending = Some((
+						queued.id.clone(),
+						invocation.clone(),
+						if feedback {
+							ExtensionContext::capture(state, false)
+						} else {
+							queued.context
+						},
+					));
 					self.submit(
 						Job::Invoke {
 							id: queued.id,

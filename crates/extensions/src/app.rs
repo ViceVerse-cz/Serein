@@ -1,6 +1,7 @@
 use crate::{
-	ChannelMetadataSnapshot, ConversationActivitySnapshot, ForumDataSnapshot,
-	MemberDetailsSnapshot, MessageContentSnapshot,
+	ArchiveQueryKind, ChannelMetadataSnapshot, ConversationActivitySnapshot, ForumDataSnapshot,
+	GuildFolderInput, MemberDetailsSnapshot, MessageContentSnapshot, MessagingSettingsChange,
+	ServerAdminPage,
 };
 use serde::{Deserialize, Serialize};
 
@@ -410,6 +411,33 @@ pub enum AppEventKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum ActionResultStatus {
+	Accepted,
+	Rejected,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionResultCode {
+	Accepted,
+	ContextChanged,
+	Unavailable,
+	Invalid,
+	Denied,
+	Failed,
+}
+
+/// Bounded result of applying a tracked proposal. This reports host acceptance, not network completion.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionResult {
+	pub request_id: String,
+	pub status: ActionResultStatus,
+	pub code: ActionResultCode,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AppView {
 	Friends,
 	Search,
@@ -649,6 +677,50 @@ pub enum AppAction {
 	},
 	OpenScreenSharePicker,
 	StopScreenShare,
+	RequestMessageSearch {
+		query: String,
+		before_id: Option<String>,
+	},
+	RequestPins {
+		before: Option<String>,
+	},
+	RequestArchives {
+		parent_id: String,
+		kind: ArchiveQueryKind,
+		before: Option<String>,
+	},
+	RequestMemberSearch {
+		channel_id: String,
+		query: String,
+	},
+	RequestProfile {
+		user_id: String,
+		guild_id: Option<String>,
+	},
+	RequestGifs {
+		query: Option<String>,
+	},
+	SetMessagingSettings {
+		change: MessagingSettingsChange,
+	},
+	SetGuildFolders {
+		base_version: u64,
+		folders: Vec<GuildFolderInput>,
+	},
+	OpenJoinServer {
+		invite: String,
+	},
+	SendServerInvite {
+		guild_id: String,
+		user_id: String,
+	},
+	OpenServerAdmin {
+		guild_id: String,
+		page: ServerAdminPage,
+	},
+	OpenGroupEditor {
+		channel_id: String,
+	},
 
 	SendMessage {
 		channel_id: String,
@@ -861,6 +933,10 @@ pub enum AppAction {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum HostEffect {
 	AppAction {
+		action: AppAction,
+	},
+	TrackedAppAction {
+		request_id: String,
 		action: AppAction,
 	},
 	Navigate {
@@ -1584,6 +1660,18 @@ impl AppAction {
 			}
 			Self::SelectCameraDevice { .. } => Capability::CameraControl,
 			Self::OpenScreenSharePicker | Self::StopScreenShare => Capability::MediaControl,
+			Self::RequestMessageSearch { .. }
+			| Self::RequestPins { .. }
+			| Self::RequestArchives { .. }
+			| Self::RequestMemberSearch { .. }
+			| Self::RequestProfile { .. }
+			| Self::RequestGifs { .. } => Capability::DataQueries,
+			Self::SetMessagingSettings { .. } => Capability::MessagingSettings,
+			Self::SetGuildFolders { .. } => Capability::GuildFolders,
+			Self::OpenJoinServer { .. }
+			| Self::SendServerInvite { .. }
+			| Self::OpenServerAdmin { .. } => Capability::ServerControl,
+			Self::OpenGroupEditor { .. } => Capability::ChannelControl,
 			Self::SetChannelMute { .. }
 			| Self::SetChannelNotifications { .. }
 			| Self::SetGuildHideMuted { .. }
@@ -1799,6 +1887,65 @@ impl AppAction {
 					label(value, 256)?;
 				}
 			}
+			Self::RequestMessageSearch { query, before_id } => {
+				profile_text(query, 1024, false)?;
+				if query.trim().is_empty() {
+					return Err(Error::Invalid);
+				}
+				if let Some(id) = before_id {
+					entity_id(id)?;
+				}
+			}
+			Self::RequestPins { before } => {
+				if let Some(before) = before {
+					before.parse::<i128>().map_err(|_| Error::Invalid)?;
+				}
+			}
+			Self::RequestArchives {
+				parent_id, before, ..
+			} => {
+				entity_id(parent_id)?;
+				if let Some(before) = before {
+					before.parse::<i128>().map_err(|_| Error::Invalid)?;
+				}
+			}
+			Self::RequestMemberSearch { channel_id, query } => {
+				entity_id(channel_id)?;
+				label(query, 256)?;
+			}
+			Self::RequestProfile { user_id, guild_id } => {
+				entity_id(user_id)?;
+				if let Some(guild_id) = guild_id {
+					entity_id(guild_id)?;
+				}
+			}
+			Self::RequestGifs { query } => {
+				if let Some(query) = query {
+					label(query, 1024)?;
+				}
+			}
+			Self::SetMessagingSettings { change } => change.validate()?,
+			Self::SetGuildFolders {
+				base_version,
+				folders,
+			} => {
+				if *base_version > u32::MAX.into() {
+					return Err(Error::Invalid);
+				}
+				if folders.len() > 200 {
+					return Err(Error::Limit);
+				}
+				for folder in folders {
+					folder.validate()?;
+				}
+			}
+			Self::OpenJoinServer { invite } => label(invite, 512)?,
+			Self::SendServerInvite { guild_id, user_id } => {
+				entity_id(guild_id)?;
+				entity_id(user_id)?;
+			}
+			Self::OpenServerAdmin { guild_id, .. } => entity_id(guild_id)?,
+			Self::OpenGroupEditor { channel_id } => entity_id(channel_id)?,
 			Self::SetChannelMute {
 				channel_id,
 				duration_seconds,
@@ -1994,10 +2141,23 @@ impl AppAction {
 	}
 }
 
+impl ActionResult {
+	pub fn validate(&self) -> Result<(), Error> {
+		label(&self.request_id, 64)?;
+		if matches!(self.status, ActionResultStatus::Accepted)
+			!= matches!(self.code, ActionResultCode::Accepted)
+		{
+			return Err(Error::Invalid);
+		}
+		Ok(())
+	}
+}
+
 impl HostEffect {
 	pub fn required_capability(&self) -> Capability {
 		match self {
 			Self::AppAction { action } => action.required_capability(),
+			Self::TrackedAppAction { .. } => Capability::ActionFeedback,
 			Self::Navigate { .. }
 			| Self::Home
 			| Self::OpenView { .. }
@@ -2016,6 +2176,11 @@ impl HostEffect {
 		grant(manifest, self.required_capability())?;
 		match self {
 			Self::AppAction { action } => action.validate()?,
+			Self::TrackedAppAction { request_id, action } => {
+				label(request_id, 64)?;
+				action.validate()?;
+				grant(manifest, action.required_capability())?;
+			}
 			Self::Navigate { channel_id } => entity_id(channel_id)?,
 			Self::OpenProfile { user_id } => entity_id(user_id)?,
 			Self::JumpToMessage {

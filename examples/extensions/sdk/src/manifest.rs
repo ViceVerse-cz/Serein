@@ -46,6 +46,10 @@ pub enum Capability {
 	RoleControl,
 	ModerationControl,
 	MediaControl,
+	ActionFeedback,
+	DataQueries,
+	MessagingSettings,
+	GuildFolders,
 
 	MessageContent,
 	ForumData,

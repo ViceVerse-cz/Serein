@@ -147,6 +147,7 @@ Follow an operation for its fields, example and additional checks.
 | `set_local_settings` | `local_settings` | [Change reading preferences](extension-sdk-actions.md#change-local-reading-settings) |
 | `set_notification_settings` | `notification_settings` | [Change device notifications](extension-sdk-actions.md#change-device-local-notification-settings) |
 | `app_action` | Depends on nested action | [Messages, threads, accounts and media](extension-sdk-actions.md#app-actions) |
+| `tracked_app_action` | Nested action grant plus `action_feedback` | [Receive Apply admission results](extension-sdk-actions.md#tracked-actions) |
 
 ### App actions
 
@@ -158,6 +159,47 @@ Read-only grants never authorize writes. Most action grants do not disclose data
 `audio_settings` also exposes current audio preferences. Other snapshot groups
 still require their respective read grants.
 All operations retain the one-proposal, foreground-only, 8 KiB limit and **Apply**.
+
+#### Queries and native editors
+
+These actions expose existing native paths. Query actions require `data_queries`;
+their latest bounded result appears in `ExtendedAppInvocation.queries` on the
+app-event handler. Settings and folders use their same-named capability.
+
+| Nested `type` / Rust variant | Fields | Grant and effect |
+| --- | --- | --- |
+| `request_message_search` / `RequestMessageSearch` | `query`; optional `before_id` | `data_queries`; search the selected readable conversation. |
+| `request_pins` / `RequestPins` | optional `before` cursor | `data_queries`; load the selected conversation's pins. |
+| `request_archives` / `RequestArchives` | `parent_id`, `kind`; optional `before` | `data_queries`; load public, private or joined-private archived threads. |
+| `request_member_search` / `RequestMemberSearch` | `channel_id`, `query` | `data_queries`; search members in the selected server channel. |
+| `request_profile` / `RequestProfile` | `user_id`; optional `guild_id` | `data_queries`; load a bounded profile for the current user, a friend or a user known in the selected conversation. |
+| `request_gifs` / `RequestGifs` | optional `query` | `data_queries`; load GIF categories or search results. |
+| `set_messaging_settings` / `SetMessagingSettings` | typed `change` | `messaging_settings`; update one loaded account privacy preference. |
+| `set_guild_folders` / `SetGuildFolders` | `base_version`; complete `folders` array | `guild_folders`; replace the loaded folder layout only if `base_version` still matches the snapshot. |
+| `open_join_server` / `OpenJoinServer` | `invite` | `server_control`; open the native invite review/CAPTCHA flow. |
+| `send_server_invite` / `SendServerInvite` | `guild_id`, `user_id` | `server_control`; send a server invite to a loaded friend. |
+| `open_server_admin` / `OpenServerAdmin` | `guild_id`, `page` | `server_control`; open `emoji`, `members`, `roles`, `invites` or `audit_log`. |
+| `open_group_editor` / `OpenGroupEditor` | `channel_id` | `channel_control`; open the native group-DM editor. |
+
+Query cursors are opaque strings. Reuse only the cursor from the current matching
+snapshot; stale or cross-query cursors are rejected. Integrations, webhooks and
+slash commands are deliberately absent.
+
+#### Tracked actions
+
+`HostEffect::TrackedAppAction` has `request_id` plus the same nested `action` as
+`app_action`. It additionally requires `action_feedback`, `app_events` and one
+`app_event` action. Decode that handler as `ExtendedAppInvocation` and inspect
+`action_result`:
+
+```json
+{"effects":[{"type":"tracked_app_action","request_id":"save-42","action":{"type":"set_activity_sharing","enabled":false}}]}
+```
+
+The result status is `accepted` or `rejected`; its code is `accepted`,
+`context_changed`, `unavailable`, `invalid`, `denied` or `failed`. This reports
+whether Apply entered the native path. A queued network operation can still fail
+later through the app's ordinary status UI.
 
 For example, a handler with `message_send` can propose:
 

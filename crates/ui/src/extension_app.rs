@@ -1,8 +1,9 @@
 //! Explicitly confirmed extension proposals reuse the ordinary native UI paths.
-use crate::{ExtensionContext, MessagingUi, design};
+use crate::{ExtensionContext, ExtensionRequest, MessagingUi, design};
 use client_core::{Command, State};
 use extensions::{
-	AppAction, AppView, HostEffect, LocalSettingsSnapshot, NotificationSettingsSnapshot,
+	ActionResult, ActionResultCode, ActionResultStatus, AppAction, AppView, HostEffect,
+	LocalSettingsSnapshot, NotificationSettingsSnapshot,
 };
 use model::Id;
 
@@ -20,6 +21,39 @@ fn setting(lines: &mut Vec<String>, label: &str, value: Option<impl std::fmt::Di
 
 fn app_action_description(action: &AppAction) -> String {
 	match action {
+		AppAction::RequestMessageSearch { query, .. } => {
+			format!("Search the current conversation for:\n{query}")
+		}
+		AppAction::RequestPins { .. } => "Load pinned messages in the current conversation".into(),
+		AppAction::RequestArchives {
+			parent_id, kind, ..
+		} => format!("Load {kind:?} archived threads for channel {parent_id}"),
+		AppAction::RequestMemberSearch { channel_id, query } => {
+			format!("Search members in channel {channel_id} for:\n{query}")
+		}
+		AppAction::RequestProfile { user_id, .. } => format!("Load the profile for user {user_id}"),
+		AppAction::RequestGifs { query } => format!(
+			"Load GIF {}",
+			query
+				.as_deref()
+				.map_or("categories".into(), |query| format!("results for {query}"))
+		),
+		AppAction::SetMessagingSettings { .. } => {
+			"Change account messaging privacy settings".into()
+		}
+		AppAction::SetGuildFolders { .. } => "Replace the account's server-folder layout".into(),
+		AppAction::OpenJoinServer { invite } => {
+			format!("Open the join-server flow for invite {invite}")
+		}
+		AppAction::SendServerInvite { guild_id, user_id } => {
+			format!("Send an invite to server {guild_id} to friend {user_id}")
+		}
+		AppAction::OpenServerAdmin { guild_id, page } => {
+			format!("Open the {page:?} settings page for server {guild_id}")
+		}
+		AppAction::OpenGroupEditor { channel_id } => {
+			format!("Open group conversation settings for channel {channel_id}")
+		}
 		AppAction::SendMessage {
 			channel_id,
 			content,
@@ -424,7 +458,9 @@ fn app_action_description(action: &AppAction) -> String {
 
 pub(crate) fn effect_description(effect: &HostEffect) -> String {
 	match effect {
-		HostEffect::AppAction { action } => app_action_description(action),
+		HostEffect::AppAction { action } | HostEffect::TrackedAppAction { action, .. } => {
+			app_action_description(action)
+		}
 		HostEffect::Navigate { channel_id } => format!("Open channel {channel_id}"),
 		HostEffect::Home => "Open Friends / Home".into(),
 		HostEffect::OpenView { view } => format!("Open {}", view_label(*view)),
@@ -511,7 +547,9 @@ pub(crate) fn effect_button(effect: &HostEffect) -> &'static str {
 		HostEffect::AppAction {
 			action: AppAction::SetCamera { enabled: true },
 		} => "Apply: Enable camera",
-		HostEffect::AppAction { .. } => "Apply: Confirm action",
+		HostEffect::AppAction { .. } | HostEffect::TrackedAppAction { .. } => {
+			"Apply: Confirm action"
+		}
 		HostEffect::CopyText { .. } => "Apply: Copy text",
 		HostEffect::Notice { .. } => "Apply: Show notice",
 		HostEffect::SetVoice { .. } => "Apply: Change call audio",
@@ -601,6 +639,88 @@ impl MessagingUi {
 		confirmed: ConfirmedEffect,
 		commands: &mut Vec<Command>,
 	) -> Result<(), String> {
+		let ConfirmedEffect {
+			plugin,
+			context,
+			effect,
+		} = confirmed;
+		let (request_id, effect) = match effect {
+			HostEffect::TrackedAppAction { request_id, action } => {
+				let entry = self
+					.extensions
+					.entries
+					.iter()
+					.find(|entry| {
+						entry.manifest.id == plugin && entry.enabled && !entry.cleanup_pending
+					})
+					.ok_or("The extension is no longer enabled")?;
+				HostEffect::TrackedAppAction {
+					request_id: request_id.clone(),
+					action: action.clone(),
+				}
+				.validate(&entry.manifest)
+				.map_err(|error| error.to_string())?;
+				(Some(request_id), HostEffect::AppAction { action })
+			}
+			effect => (None, effect),
+		};
+		let rejection_code = if !context.is_current(state) {
+			ActionResultCode::ContextChanged
+		} else if state.user.is_none()
+			|| !(state.demo || state.auth == client_core::auth::AuthState::Authenticated)
+		{
+			ActionResultCode::Unavailable
+		} else if context.channel.is_some_and(|channel| {
+			!state.can_view(channel) || state.freshness == model::Freshness::Unavailable
+		}) {
+			ActionResultCode::Denied
+		} else {
+			ActionResultCode::Failed
+		};
+		let feedback_context = context.clone();
+		let feedback_plugin = plugin.clone();
+		let result = self.apply_extension_effect_inner(
+			ctx,
+			state,
+			ConfirmedEffect {
+				plugin,
+				context,
+				effect,
+			},
+			commands,
+		);
+		if let Some(request_id) = request_id {
+			let code = match &result {
+				Ok(()) => ActionResultCode::Accepted,
+				Err(_) => rejection_code,
+			};
+			self.extensions.queue(
+				ctx,
+				ExtensionRequest::ActionResult {
+					id: feedback_plugin,
+					result: ActionResult {
+						request_id,
+						status: if result.is_ok() {
+							ActionResultStatus::Accepted
+						} else {
+							ActionResultStatus::Rejected
+						},
+						code,
+					},
+					context: feedback_context,
+				},
+			);
+		}
+		result
+	}
+
+	fn apply_extension_effect_inner(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		confirmed: ConfirmedEffect,
+		commands: &mut Vec<Command>,
+	) -> Result<(), String> {
 		if !confirmed.context.is_current(state)
 			|| state.user.is_none()
 			|| !(state.demo || state.auth == client_core::auth::AuthState::Authenticated)
@@ -626,6 +746,9 @@ impl MessagingUi {
 			.map_err(|error| error.to_string())?;
 		let plugin_name = entry.manifest.name.clone();
 		match confirmed.effect {
+			HostEffect::TrackedAppAction { .. } => {
+				unreachable!("tracked effects are normalized before dispatch")
+			}
 			HostEffect::AppAction { action } => {
 				if matches!(
 					action,

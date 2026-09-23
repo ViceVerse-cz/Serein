@@ -112,6 +112,11 @@ pub enum ExtensionRequest {
 		invocation: Invocation,
 		context: ExtensionContext,
 	},
+	ActionResult {
+		id: String,
+		result: extensions::ActionResult,
+		context: ExtensionContext,
+	},
 }
 
 #[derive(Clone)]
@@ -2209,6 +2214,11 @@ fn request_bytes(request: &ExtensionRequest) -> usize {
 					.map(|(key, value)| key.len() + value.len())
 					.sum::<usize>()
 			}
+			ExtensionRequest::ActionResult {
+				id,
+				result,
+				context,
+			} => id.len() + result.request_id.len() + context.draft.as_ref().map_or(0, String::len),
 		}
 }
 
@@ -2564,6 +2574,16 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::MediaControl => {
 			"Propose camera, screen-share and local media-device changes for approval"
 		}
+		Capability::ActionFeedback => {
+			"Receive whether a confirmed app action was accepted by Serein"
+		}
+		Capability::DataQueries => {
+			"Request and read bounded search, pin, thread, member, profile and GIF results"
+		}
+		Capability::MessagingSettings => {
+			"Read and propose account messaging privacy changes for approval"
+		}
+		Capability::GuildFolders => "Read and propose server-folder changes for approval",
 		Capability::RelationshipControl => {
 			"Propose friend, block, nickname and note changes for approval"
 		}

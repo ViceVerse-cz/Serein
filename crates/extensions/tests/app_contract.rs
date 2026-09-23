@@ -19,6 +19,10 @@ fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validatio
 		Capability::RoleControl,
 		Capability::ModerationControl,
 		Capability::MediaControl,
+		Capability::ActionFeedback,
+		Capability::DataQueries,
+		Capability::MessagingSettings,
+		Capability::GuildFolders,
 		Capability::MessageContent,
 		Capability::ForumData,
 		Capability::ConversationActivity,
@@ -393,8 +397,15 @@ fn each_snapshot_group_requires_its_own_grant_and_typed_sdk_roundtrips() {
 	let output: Output = serde_json::from_slice(&result).unwrap();
 	output.validate(&manifest, &input).unwrap();
 	assert_eq!(sdk::MAX_APP_SNAPSHOT_BYTES, MAX_APP_SNAPSHOT_BYTES);
+	assert_eq!(sdk::MAX_APP_CHANNELS, MAX_APP_CHANNELS);
+	assert_eq!(sdk::MAX_APP_MESSAGES, MAX_APP_MESSAGES);
+	assert_eq!(sdk::MAX_APP_MEMBERS, MAX_APP_MEMBERS);
+	assert_eq!(sdk::MAX_APP_PRESENCES, MAX_APP_PRESENCES);
+	assert_eq!(sdk::MAX_VOICE_PARTICIPANTS, MAX_VOICE_PARTICIPANTS);
 	assert_eq!(sdk::MAX_HOST_EFFECTS, MAX_HOST_EFFECTS);
+	assert_eq!(sdk::MAX_HOST_EFFECT_BYTES, MAX_HOST_EFFECT_BYTES);
 	assert_eq!(sdk::MAX_CAPABILITIES, MAX_CAPABILITIES);
+	assert_eq!(sdk::MAX_MESSAGING_SETTINGS_IDS, MAX_MESSAGING_SETTINGS_IDS);
 }
 
 #[test]
@@ -886,10 +897,16 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 		serde_json::from_value(serde_json::json!({"action":"run"})).unwrap();
 	assert!(old.host.is_none());
 	let caps = HostInfo::current().capabilities.to_vec();
-	test_manifest(caps.clone()).validate().unwrap();
-	assert_eq!(caps.len(), 47);
+	let mut supported = test_manifest(caps.clone());
+	supported.actions.push(Action {
+		id: "events".into(),
+		label: "Events".into(),
+		surface: Surface::AppEvent,
+	});
+	supported.validate().unwrap();
+	assert_eq!(caps.len(), 51);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 47);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 51);
 }
 
 #[test]
@@ -1050,6 +1067,36 @@ fn app_actions_round_trip_and_require_foreground_granted_confirmation() {
 		r#"{"type":"decline_call","channel_id":"2"}"#,
 		r#"{"type":"join_voice","channel_id":"2","ring":false,"muted":true,"deafened":false}"#,
 		r#"{"type":"set_camera","enabled":false}"#,
+		r#"{"type":"open_attachment_picker","channel_id":"2"}"#,
+		r#"{"type":"select_audio_devices","input_id":"mic-1","output_id":"out-1"}"#,
+		r#"{"type":"refresh_media_devices"}"#,
+		r#"{"type":"select_camera_device","device_id":"cam-1"}"#,
+		r#"{"type":"open_screen_share_picker"}"#,
+		r#"{"type":"stop_screen_share"}"#,
+		r#"{"type":"request_message_search","query":"hello","before_id":null}"#,
+		r#"{"type":"request_pins","before":null}"#,
+		r#"{"type":"request_archives","parent_id":"2","kind":"public","before":null}"#,
+		r#"{"type":"request_member_search","channel_id":"2","query":"alex"}"#,
+		r#"{"type":"request_profile","user_id":"6","guild_id":"4"}"#,
+		r#"{"type":"request_gifs","query":"wave"}"#,
+		r#"{"type":"set_messaging_settings","change":{"type":"default_allow_dms","enabled":true}}"#,
+		r#"{"type":"set_guild_folders","base_version":1,"folders":[{"guild_ids":["4"]}]}"#,
+		r#"{"type":"open_join_server","invite":"example"}"#,
+		r#"{"type":"send_server_invite","guild_id":"4","user_id":"6"}"#,
+		r#"{"type":"open_server_admin","guild_id":"4","page":"audit_log"}"#,
+		r#"{"type":"open_group_editor","channel_id":"2"}"#,
+		r#"{"type":"update_server_settings","guild_id":"4","settings":{"name":"SDK server"}}"#,
+		r#"{"type":"create_role","guild_id":"4","role":{"name":"Readers"}}"#,
+		r#"{"type":"edit_role","guild_id":"4","role_id":"5","role":{"mentionable":true}}"#,
+		r#"{"type":"delete_role","guild_id":"4","role_id":"5"}"#,
+		r#"{"type":"move_role","guild_id":"4","role_id":"5","position":1}"#,
+		r#"{"type":"set_member_role","guild_id":"4","user_id":"6","role_id":"5","assigned":true}"#,
+		r#"{"type":"set_member_nickname","guild_id":"4","user_id":"6","nickname":"Friend"}"#,
+		r#"{"type":"kick_member","guild_id":"4","user_id":"6"}"#,
+		r#"{"type":"prune_members","guild_id":"4","days":7,"execute":false}"#,
+		r#"{"type":"set_member_list_visible","guild_id":"4","enabled":true}"#,
+		r#"{"type":"rename_server_emoji","guild_id":"4","emoji_id":"7","name":"wave"}"#,
+		r#"{"type":"delete_server_emoji","guild_id":"4","emoji_id":"7"}"#,
 	];
 	for wire in actions {
 		let action: AppAction = serde_json::from_str(wire).unwrap();
@@ -1102,6 +1149,59 @@ fn app_actions_round_trip_and_require_foreground_granted_confirmation() {
 			Err(Error::Limit)
 		));
 	}
+}
+
+#[test]
+fn tracked_actions_and_extended_inputs_preserve_v1_wire_compatibility() {
+	let mut manifest = test_manifest(vec![
+		Capability::ActionFeedback,
+		Capability::AppEvents,
+		Capability::AccountControl,
+		Capability::DataQueries,
+		Capability::MessagingSettings,
+		Capability::GuildFolders,
+	]);
+	manifest.actions.push(Action {
+		id: "events".into(),
+		label: "Events".into(),
+		surface: Surface::AppEvent,
+	});
+	manifest.validate().unwrap();
+	let effect = HostEffect::TrackedAppAction {
+		request_id: "save-42".into(),
+		action: AppAction::SetActivitySharing { enabled: false },
+	};
+	effect.validate(&manifest).unwrap();
+	let input = Invocation {
+		action: "events".into(),
+		app_event: Some(AppEventKind::Context),
+		action_result: Some(ActionResult {
+			request_id: "save-42".into(),
+			status: ActionResultStatus::Accepted,
+			code: ActionResultCode::Accepted,
+		}),
+		..Default::default()
+	};
+	input.validate(&manifest).unwrap();
+	let sdk: sdk::ExtendedAppInvocation =
+		serde_json::from_value(serde_json::to_value(&input).unwrap()).unwrap();
+	assert_eq!(sdk.action_result.unwrap().request_id, "save-42");
+	assert_eq!(sdk.invocation.invocation.action, "events");
+	let oversized = MessagingSettingsSnapshot {
+		spam_filter: 1,
+		default_allow_dms: true,
+		restricted_guild_ids: (1..=MAX_MESSAGING_SETTINGS_IDS + 1)
+			.map(|id| id.to_string())
+			.collect(),
+		default_filter_requests: true,
+		unfiltered_guild_ids: Vec::new(),
+		friend_source_flags: 0,
+		personalized_requests: true,
+		game_friend_dms: true,
+		game_dms: 1,
+		truncated: true,
+	};
+	assert!(matches!(oversized.validate(), Err(Error::Limit)));
 }
 
 #[test]

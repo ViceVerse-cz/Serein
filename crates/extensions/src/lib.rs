@@ -19,6 +19,8 @@ mod member_details;
 pub use member_details::*;
 mod app;
 pub use app::*;
+mod extended;
+pub use extended::*;
 
 pub const API_VERSION: u32 = 1;
 pub const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -99,6 +101,10 @@ pub enum Capability {
 	RoleControl,
 	ModerationControl,
 	MediaControl,
+	ActionFeedback,
+	DataQueries,
+	MessagingSettings,
+	GuildFolders,
 
 	MessageContent,
 	ForumData,
@@ -366,6 +372,14 @@ pub struct Invocation {
 	pub app: Option<Box<AppSnapshot>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub app_event: Option<AppEventKind>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub action_result: Option<ActionResult>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub queries: Option<Box<QuerySnapshot>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub messaging_settings: Option<Box<MessagingSettingsSnapshot>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub guild_folders: Option<Box<GuildFoldersSnapshot>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -536,6 +550,24 @@ impl Manifest {
 		}
 		if capabilities.contains(&Capability::DataEvents)
 			&& !capabilities.contains(&Capability::AppEvents)
+		{
+			return Err(Error::Capability);
+		}
+		if capabilities.contains(&Capability::ActionFeedback)
+			&& (!capabilities.contains(&Capability::AppEvents)
+				|| !self
+					.actions
+					.iter()
+					.any(|action| action.surface == Surface::AppEvent))
+		{
+			return Err(Error::Capability);
+		}
+		if capabilities.contains(&Capability::DataQueries)
+			&& (!capabilities.contains(&Capability::AppEvents)
+				|| !self
+					.actions
+					.iter()
+					.any(|action| action.surface == Surface::AppEvent))
 		{
 			return Err(Error::Capability);
 		}
@@ -839,6 +871,36 @@ impl Invocation {
 			self.app_event.ok_or(Error::Invalid)?.validate(manifest)?;
 		} else if self.app_event.is_some() {
 			return Err(Error::Capability);
+		}
+		if let Some(result) = &self.action_result {
+			if action.surface != Surface::AppEvent
+				|| self.app_event != Some(AppEventKind::Context)
+				|| !manifest.capabilities.contains(&Capability::ActionFeedback)
+			{
+				return Err(Error::Capability);
+			}
+			result.validate()?;
+		}
+		if let Some(queries) = &self.queries {
+			if !manifest.capabilities.contains(&Capability::DataQueries) {
+				return Err(Error::Capability);
+			}
+			queries.validate()?;
+		}
+		if let Some(settings) = &self.messaging_settings {
+			if !manifest
+				.capabilities
+				.contains(&Capability::MessagingSettings)
+			{
+				return Err(Error::Capability);
+			}
+			settings.validate()?;
+		}
+		if let Some(folders) = &self.guild_folders {
+			if !manifest.capabilities.contains(&Capability::GuildFolders) {
+				return Err(Error::Capability);
+			}
+			folders.validate()?;
 		}
 		if action.surface == Surface::MessageEvent {
 			if !manifest.capabilities.contains(&Capability::MessageEvents)

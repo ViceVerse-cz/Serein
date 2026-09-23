@@ -1,5 +1,8 @@
 # Extension SDK inputs and app data
 
+> **Preview SDK — PR #405, not yet released.** Extended query, messaging-settings,
+> guild-folder and action-result fields require a host built from this branch.
+
 ## Invocation and events
 
 An invocation is one call to your handler. The host chooses a declared action,
@@ -14,6 +17,7 @@ instance. Local variables do not survive the call. Use the separately granted
 | `Invocation` | Message tools, composer tools, panels and activation | `input.action` |
 | `EventInvocation` | Those actions plus live message events | `input.invocation.action` |
 | `AppInvocation` | Those actions plus app snapshots and app change events | `input.invocation.action` |
+| `ExtendedAppInvocation` | `AppInvocation` plus queries, account settings, folders and tracked action results | `input.invocation.invocation.action` |
 
 The wrappers keep the original `Invocation` fields unchanged. Their `invocation`
 field is a Rust convenience: JSON stays flat. There is no JSON object named
@@ -81,6 +85,10 @@ common optional fields above may instead be serialized as `null`.
 | `message_event` | `Option<MessageEvent>` / object or absent | Live message change. Available in `EventInvocation` and `AppInvocation`; requires `message_events` and the `message_event` surface. | `input.message_event.as_ref()` |
 | `app` | `Option<AppSnapshot>` / object or absent | Independently granted [app data](extension-sdk-reference.md#app-data). Available in `AppInvocation`. The desktop supplies snapshots to foreground actions and app events; activation and message events do not currently receive them. | `input.app.as_ref().and_then(\|app\| app.timeline.as_ref())` |
 | `app_event` | `Option<AppEventKind>` / string or absent | Why the host scheduled an app observer. Requires `app_events` and the `app_event` surface. Available in `AppInvocation`. | `input.app_event == Some(AppEventKind::Connection)` |
+| `queries` | `Option<QuerySnapshot>` / object or absent | Latest bounded native query state; requires `data_queries`. Available through `ExtendedAppInvocation`. | `input.queries.as_ref().and_then(\|q\| q.profile.as_ref())` |
+| `messaging_settings` | `Option<MessagingSettingsSnapshot>` / object or absent | Loaded account messaging privacy preferences; requires `messaging_settings`. | `input.messaging_settings.as_ref()` |
+| `guild_folders` | `Option<GuildFoldersSnapshot>` / object or absent | Loaded versioned server-folder layout; requires `guild_folders`. | `input.guild_folders.as_ref()` |
+| `action_result` | `Option<ActionResult>` / object or absent | Apply admission result for `tracked_app_action`; requires `action_feedback`. | `input.action_result.as_ref()` |
 
 ### HostInfo: discover supported names
 
@@ -94,7 +102,7 @@ can be inspected without decoding a newer capability/event enum.
 | --- | --- | --- | --- |
 | `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
-| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (47 currently), not this plugin's granted capabilities. | `host.supports("forum_data")` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (51 currently), not this plugin's granted capabilities. | `host.supports("forum_data")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
 
 A supported capability still needs to be declared and explicitly granted. Older
@@ -128,6 +136,10 @@ account snapshot or grant-dependent data:
       "role_control",
       "moderation_control",
       "media_control",
+      "action_feedback",
+      "data_queries",
+      "messaging_settings",
+      "guild_folders",
       "message_content",
       "forum_data",
       "conversation_activity",
@@ -317,6 +329,58 @@ and duplicate creates are not an exactly-once counting source. All handlers stil
 use the usual memory, input/output and execution-fuel limits.
 
 ## App data
+
+### Extended query and account snapshots
+
+`ExtendedAppInvocation` flattens `AppInvocation` and adds four optional top-level
+fields. This keeps existing struct literals and handlers source-compatible.
+
+`queries` is capped at 48 KiB and 25 rows per group. Its optional groups are:
+
+| Group | Contents |
+| --- | --- |
+| `messages` | Channel, pin/search mode, query, loading/error, total/partial, opaque next cursor and bounded message ID/author/excerpt rows. |
+| `archives` | Parent, public/private/joined-private kind, loading/error, thread summaries and opaque next cursor. |
+| `members` | Channel/query, loading/error, bounded user/nickname/role rows and truncation. |
+| `profile` | Requested user/server, loading/error and a bounded profile with bio, pronouns, nickname, roles and `limited`. |
+| `gifs` | Optional query, loading/error, bounded HTTPS result metadata, categories and truncation. No GIF bytes enter Wasm. |
+
+`messaging_settings` exposes only the loaded account preference snapshot. Each
+guild-ID array exposes at most 1,024 of the native model's sorted IDs and sets
+`truncated` when either list is longer. `guild_folders`
+contains the complete loaded layout and service version, bounded to 200 folders,
+200 unique server IDs and 16 KiB of native heap data. Missing fields mean the
+capability was not granted, the native data is not loaded, or lower-priority
+extended data was omitted to keep the complete invocation below its 256 KiB ABI
+limit. Query results are retained ahead of settings and folder snapshots.
+
+`action_result` has the plugin-supplied `request_id`, an `accepted`/`rejected`
+status and a stable result code. It is present only for the matching app-event call
+after a tracked action is applied. It describes native admission, not later network
+completion.
+
+This complete app-event handler reads the extended wrapper while remaining passive:
+
+```rust
+use serein_extension_sdk::{AppOutput, ExtendedAppInvocation};
+
+fn handle(input: ExtendedAppInvocation) -> AppOutput {
+    if let Some(result) = input.action_result {
+        // Save or display the stable request_id/status/code on a later foreground call.
+        let _ = (result.request_id, result.status, result.code);
+    }
+    if let Some(profile) = input.queries.and_then(|queries| queries.profile) {
+        let _ = (profile.user_id, profile.loading, profile.data);
+    }
+    AppOutput::default()
+}
+
+serein_extension_sdk::export!(handle);
+```
+
+Declare the handler action with surface `app_event`. Request `app_events` plus only
+the extended capabilities it reads. Event handlers cannot open panels or return
+host effects.
 
 Read app data through `AppInvocation.app`. The host copies only bounded,
 already-loaded state. Reading a group does not fetch history, discover guild

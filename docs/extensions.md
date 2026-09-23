@@ -120,7 +120,7 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 47 capabilities, with at most 64 distinct declarations per manifest.
+supports 51 capabilities, with at most 64 distinct declarations per manifest.
 
 > **Preview SDK — PR #405, not yet released.** `channel_control`,
 > `server_control`, `role_control`, `moderation_control` and `media_control`, plus
@@ -194,7 +194,7 @@ not consent; discovery never bypasses required manifest validation or grants.
 
 `app` contains separately granted optional `context`, `account_profile`, `guilds`,
 `channel_details`, `channels`, `timeline`, `members`, `presence`, `voice`,
-`read_state`, `settings`, `notification_settings`, `message_details`, `relationships`, `channel_metadata`
+`read_state`, `settings`, `notification_settings`, `message_details`, `relationships`, `channel_metadata`,
 `member_details`, `message_content`, `forum_data`, `conversation_activity`,
 `audio_settings` and `own_presence` groups. A missing group
 is unavailable or ungranted, not an empty dataset. Snapshot construction reads
@@ -237,12 +237,41 @@ joins/rings and camera changes. Screen-source selection and recording are not
 exposed. Read the [app-action reference](extension-sdk-actions.md#app-actions)
 for messaging, threads, relationships, account and audio operations.
 
+Four opt-in additions extend the same ABI without changing existing SDK structs:
+
+- `data_queries` adds `ExtendedAppInvocation.queries` and approved request actions for
+  message search, pins, archived threads, member search, profiles and GIF search.
+  Results reuse Serein's bounded native views: at most 25 rows and 48 KiB total,
+  with loading, error, truncation and next-cursor fields where applicable.
+- `messaging_settings` adds the loaded account privacy snapshot and approved updates
+  for DM, message-request, friend-source and game-DM preferences.
+- `guild_folders` adds the loaded server-folder layout and an approved whole-layout
+  update through the existing versioned, 200-folder/200-server native path. Updates
+  carry the snapshot's `base_version` and reject stale full-layout replacements.
+- `action_feedback` adds `tracked_app_action`. Supply a unique `request_id`; after
+  **Apply**, the app-event handler receives `action_result` with `accepted` or
+  `rejected` and a stable code (`accepted`, `context_changed`, `unavailable`,
+  `invalid`, `denied` or `failed`). Acceptance means Serein admitted the action to
+  its native path; it does not claim that a later network request succeeded.
+
+Use `ExtendedAppInvocation` only when reading these fields. Existing
+`AppInvocation` source remains compatible and ignores the additional JSON fields.
+`data_queries` and `action_feedback` require one `app_event` action because query
+completion and tracked results use that bounded, best-effort queue. Query
+invalidations may be coalesced; always read the latest snapshot.
+
+Approved convenience actions also open the native join-server flow, send a server
+invite to a loaded friend, open emoji/member/role/invite/audit-log administration,
+and open a group-DM editor. The native UI still performs its ordinary access and
+permission checks. Integrations, webhooks and slash commands remain outside this
+SDK surface.
+
 One `app_event` action may observe `ready`, `navigation`, `context`, `connection`,
 `voice` and `settings`. Settings events cover reading, notification, audio and own-presence/activity
 preferences; each snapshot still requires its own grant. Context
 events report loaded-data/freshness changes after navigation; use `message_events` for individual message changes. The additional
 `data_events` grant opts into `account`, `channels`, `members`, `presence`,
-`read_state`, `message_details`, `relationships`, `threads`, `roles`, `permissions`
+`read_state`, `message_details`, `relationships`, `threads`, `roles`, `permissions`,
 `recovered`, `reactions`, `pins`, `typing` and `polls` invalidation hints (21 event kinds total), each requiring the corresponding data grant
 (`channels` accepts `channel_directory`, `guild_directory`, `channel_details` or `channel_metadata`; `members`
 accepts `members` or `member_details`). `threads` requires `channel_metadata` or `forum_data`,
@@ -399,7 +428,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 10,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 64 distinct | Only the 47 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 64 distinct | Only the 51 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |

@@ -32,6 +32,9 @@ pub fn uses_app(capabilities: &[Capability]) -> bool {
 				| Capability::ReadState
 				| Capability::LocalSettings
 				| Capability::NotificationSettings
+				| Capability::DataQueries
+				| Capability::MessagingSettings
+				| Capability::GuildFolders
 				| Capability::Navigation
 				| Capability::LocalNotices
 				| Capability::ClipboardWrite
@@ -819,6 +822,298 @@ pub fn snapshot(
 	Some(Box::new(app))
 }
 
+pub fn query_snapshot(state: &State, manifest: &Manifest) -> Option<Box<QuerySnapshot>> {
+	if !available(state) || !manifest.capabilities.contains(&Capability::DataQueries) {
+		return None;
+	}
+	let messages = state.search.as_ref().map(|view| {
+		let page = view.page.as_ref();
+		MessageQuerySnapshot {
+			channel_id: view.channel.0.to_string(),
+			pins: view.pins,
+			query: view.query.clone(),
+			loading: view.loading,
+			error: view.error.map(str::to_owned),
+			total: page.map_or(0, |page| page.total),
+			partial: page.is_some_and(|page| page.partial),
+			next: page.and_then(|page| {
+				if view.pins {
+					page.pin_cursor.map(|cursor| cursor.to_string())
+				} else {
+					page.partial
+						.then(|| page.hits.last().map(|hit| hit.id.0.to_string()))
+						.flatten()
+				}
+			}),
+			items: page
+				.into_iter()
+				.flat_map(|page| page.hits.iter())
+				.take(20)
+				.map(|hit| MessageQueryItem {
+					id: hit.id.0.to_string(),
+					author: user(&hit.author),
+					excerpt: text(&hit.excerpt, 512),
+				})
+				.collect(),
+		}
+	});
+	let archives = state.archives.as_ref().map(|view| ArchiveQuerySnapshot {
+		parent_id: view.parent.0.to_string(),
+		kind: match view.kind {
+			model::archives::Kind::Public => ArchiveQueryKind::Public,
+			model::archives::Kind::Private => ArchiveQueryKind::Private,
+			model::archives::Kind::JoinedPrivate => ArchiveQueryKind::JoinedPrivate,
+		},
+		loading: view.loading,
+		error: view.error.map(str::to_owned),
+		items: view
+			.page
+			.as_ref()
+			.into_iter()
+			.flat_map(|page| page.threads.iter())
+			.take(20)
+			.map(channel)
+			.collect(),
+		next: view.page.as_ref().and_then(|page| {
+			page.next.map(|cursor| match cursor {
+				model::archives::Cursor::Time(value) => value.to_string(),
+				model::archives::Cursor::Id(value) => value.0.to_string(),
+			})
+		}),
+	});
+	let member_view = &state.member_search[0];
+	let members = member_view
+		.request
+		.as_ref()
+		.map(|request| MemberQuerySnapshot {
+			channel_id: request.channel.0.to_string(),
+			query: request.query.clone(),
+			loading: !member_view.finished && member_view.error.is_none(),
+			error: member_view.error.map(str::to_owned),
+			truncated: member_view.rows.len() > 20,
+			items: member_view
+				.rows
+				.iter()
+				.take(20)
+				.map(|member| MemberQueryItem {
+					user: user(&member.user),
+					nickname: member.nick.as_ref().map(|value| text(value, 256)),
+					role_ids: member
+						.roles
+						.iter()
+						.take(32)
+						.map(|id| id.0.to_string())
+						.collect(),
+				})
+				.collect(),
+		});
+	let profile = state.profile.as_ref().map(|view| ProfileQuerySnapshot {
+		user_id: view.user.0.to_string(),
+		guild_id: view.guild.map(|id| id.0.to_string()),
+		loading: view.loading,
+		error: view.error.map(str::to_owned),
+		data: view.data.as_ref().map(|profile| ProfileQueryData {
+			user: user(&profile.user),
+			display_name: profile.global_name.as_ref().map(|value| text(value, 256)),
+			bio: text(&profile.bio, 4096),
+			pronouns: text(&profile.pronouns, 256),
+			nickname: profile
+				.guild
+				.as_ref()
+				.and_then(|guild| guild.nick.as_ref())
+				.map(|value| text(value, 256)),
+			role_ids: profile
+				.guild
+				.as_ref()
+				.into_iter()
+				.flat_map(|guild| guild.roles.iter())
+				.take(32)
+				.map(|id| id.0.to_string())
+				.collect(),
+			limited: profile.limited,
+		}),
+	});
+	let gifs = state.gifs.view.as_ref().map(|view| {
+		let page = view.page.as_ref();
+		GifQuerySnapshot {
+			query: view.query.clone(),
+			loading: view.loading,
+			error: view.error.map(str::to_owned),
+			truncated: page.is_some_and(|page| page.gifs.len() > 10 || page.categories.len() > 20),
+			items: page
+				.into_iter()
+				.flat_map(|page| page.gifs.iter())
+				.take(10)
+				.map(|gif| GifQueryItem {
+					id: gif.id.clone(),
+					title: gif.title.clone(),
+					url: gif.url.clone(),
+					preview: gif.preview.clone(),
+					width: gif.width,
+					height: gif.height,
+				})
+				.collect(),
+			categories: page
+				.into_iter()
+				.flat_map(|page| page.categories.iter())
+				.take(20)
+				.map(|category| category.name.clone())
+				.collect(),
+		}
+	});
+	let snapshot = QuerySnapshot {
+		messages,
+		archives,
+		members,
+		profile,
+		gifs,
+	};
+	snapshot.validate().ok()?;
+	Some(Box::new(snapshot))
+}
+
+pub fn messaging_settings_snapshot(
+	state: &State,
+	manifest: &Manifest,
+) -> Option<Box<MessagingSettingsSnapshot>> {
+	if !available(state)
+		|| !manifest
+			.capabilities
+			.contains(&Capability::MessagingSettings)
+	{
+		return None;
+	}
+	let value = state.messaging_permissions.snapshot.as_ref()?;
+	let truncated = value.restricted_guilds.len() > MAX_MESSAGING_SETTINGS_IDS
+		|| value.unfiltered_guilds.len() > MAX_MESSAGING_SETTINGS_IDS;
+	Some(Box::new(MessagingSettingsSnapshot {
+		spam_filter: value.spam_filter.try_into().ok()?,
+		default_allow_dms: value.default_allow_dms,
+		restricted_guild_ids: value
+			.restricted_guilds
+			.iter()
+			.take(MAX_MESSAGING_SETTINGS_IDS)
+			.map(|id| id.0.to_string())
+			.collect(),
+		default_filter_requests: value.default_filter_requests,
+		unfiltered_guild_ids: value
+			.unfiltered_guilds
+			.iter()
+			.take(MAX_MESSAGING_SETTINGS_IDS)
+			.map(|id| id.0.to_string())
+			.collect(),
+		friend_source_flags: value.friend_source_flags,
+		personalized_requests: value.personalized_requests,
+		game_friend_dms: value.game_friend_dms,
+		game_dms: value.game_dms.try_into().ok()?,
+		truncated,
+	}))
+}
+
+pub fn extended_change_key(state: &State) -> u64 {
+	use std::hash::{Hash, Hasher};
+	let mut hash = std::collections::hash_map::DefaultHasher::new();
+	if let Some(view) = &state.search {
+		(
+			view.request,
+			view.loading,
+			view.error,
+			view.pins,
+			view.channel,
+		)
+			.hash(&mut hash);
+		if let Some(page) = &view.page {
+			(page.total, page.partial, page.pin_cursor).hash(&mut hash);
+			for hit in &page.hits {
+				hit.id.hash(&mut hash);
+			}
+		}
+	}
+	if let Some(view) = &state.archives {
+		(view.request, view.loading, view.error, view.parent).hash(&mut hash);
+		if let Some(page) = &view.page {
+			for channel in &page.threads {
+				channel.id.hash(&mut hash);
+			}
+		}
+	}
+	let members = &state.member_search[0];
+	(members.finished, members.error).hash(&mut hash);
+	if let Some(request) = &members.request {
+		(request.nonce, request.channel, request.query.as_str()).hash(&mut hash);
+	}
+	for member in &members.rows {
+		member.user.id.hash(&mut hash);
+	}
+	if let Some(view) = &state.profile {
+		(
+			view.request,
+			view.loading,
+			view.error,
+			view.user,
+			view.guild,
+		)
+			.hash(&mut hash);
+	}
+	if let Some(view) = &state.gifs.view {
+		(view.request, view.loading, view.error, &view.query).hash(&mut hash);
+		if let Some(page) = &view.page {
+			for gif in &page.gifs {
+				gif.id.hash(&mut hash);
+			}
+			for category in &page.categories {
+				category.name.hash(&mut hash);
+			}
+		}
+	}
+	if let Some(value) = &state.messaging_permissions.snapshot {
+		(
+			value.spam_filter,
+			value.default_allow_dms,
+			value.default_filter_requests,
+			value.friend_source_flags,
+			value.personalized_requests,
+			value.game_friend_dms,
+			value.game_dms,
+		)
+			.hash(&mut hash);
+		value.restricted_guilds.hash(&mut hash);
+		value.unfiltered_guilds.hash(&mut hash);
+	}
+	if let Some(value) = &state.guild_folders {
+		value.version.hash(&mut hash);
+		for folder in &value.folders {
+			(folder.id, &folder.guild_ids, &folder.name, folder.color).hash(&mut hash);
+		}
+	}
+	hash.finish()
+}
+
+pub fn guild_folders_snapshot(
+	state: &State,
+	manifest: &Manifest,
+) -> Option<Box<GuildFoldersSnapshot>> {
+	if !available(state) || !manifest.capabilities.contains(&Capability::GuildFolders) {
+		return None;
+	}
+	let value = state.guild_folders.as_ref()?;
+	let snapshot = GuildFoldersSnapshot {
+		folders: value
+			.folders
+			.iter()
+			.map(|folder| GuildFolderInput {
+				id: folder.id,
+				guild_ids: folder.guild_ids.iter().map(|id| id.0.to_string()).collect(),
+				name: folder.name.clone(),
+				color: folder.color,
+			})
+			.collect(),
+		version: value.version,
+	};
+	snapshot.validate().ok()?;
+	Some(Box::new(snapshot))
+}
+
 fn conversation_activity(state: &State) -> Option<ConversationActivitySnapshot> {
 	if !available(state) || !state.gateway_connected || state.freshness != Freshness::Fresh {
 		return None;
@@ -990,6 +1285,26 @@ mod tests {
 				surface: Surface::Panel,
 			}],
 		}
+	}
+	#[test]
+	fn extended_change_key_ignores_unrelated_revisions_and_tracks_queries() {
+		let mut state = test_support::demo_state();
+		let initial = extended_change_key(&state);
+		state.revision = state.revision.wrapping_add(1);
+		assert_eq!(extended_change_key(&state), initial);
+		let channel = state.selected.unwrap();
+		state.search = Some(client_core::search::SearchView {
+			pins: true,
+			channel,
+			query: String::new(),
+			before: None,
+			pin_before: None,
+			request: 1,
+			loading: true,
+			error: None,
+			page: None,
+		});
+		assert_ne!(extended_change_key(&state), initial);
 	}
 	#[test]
 	fn extension_app_account_audio_snapshots_are_granted_and_track_preference_changes() {

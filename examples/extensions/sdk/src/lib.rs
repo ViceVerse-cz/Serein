@@ -28,6 +28,8 @@ mod member_details;
 pub use member_details::*;
 mod app;
 pub use app::*;
+mod extended;
+pub use extended::*;
 mod manifest;
 pub use manifest::*;
 

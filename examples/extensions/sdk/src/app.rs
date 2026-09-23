@@ -1,6 +1,7 @@
 use crate::{
-	ChannelMetadataSnapshot, ConversationActivitySnapshot, ForumDataSnapshot,
-	MemberDetailsSnapshot, MessageContentSnapshot,
+	ArchiveQueryKind, ChannelMetadataSnapshot, ConversationActivitySnapshot, ForumDataSnapshot,
+	GuildFolderInput, MemberDetailsSnapshot, MessageContentSnapshot, MessagingSettingsChange,
+	ServerAdminPage,
 };
 use serde::{Deserialize, Serialize};
 
@@ -386,6 +387,32 @@ pub enum AppEventKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum ActionResultStatus {
+	Accepted,
+	Rejected,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionResultCode {
+	Accepted,
+	ContextChanged,
+	Unavailable,
+	Invalid,
+	Denied,
+	Failed,
+}
+
+/// Bounded result of applying a tracked proposal. This reports host acceptance, not network completion.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActionResult {
+	pub request_id: String,
+	pub status: ActionResultStatus,
+	pub code: ActionResultCode,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AppView {
 	Friends,
 	Search,
@@ -620,6 +647,50 @@ pub enum AppAction {
 	},
 	OpenScreenSharePicker,
 	StopScreenShare,
+	RequestMessageSearch {
+		query: String,
+		before_id: Option<String>,
+	},
+	RequestPins {
+		before: Option<String>,
+	},
+	RequestArchives {
+		parent_id: String,
+		kind: ArchiveQueryKind,
+		before: Option<String>,
+	},
+	RequestMemberSearch {
+		channel_id: String,
+		query: String,
+	},
+	RequestProfile {
+		user_id: String,
+		guild_id: Option<String>,
+	},
+	RequestGifs {
+		query: Option<String>,
+	},
+	SetMessagingSettings {
+		change: MessagingSettingsChange,
+	},
+	SetGuildFolders {
+		base_version: u64,
+		folders: Vec<GuildFolderInput>,
+	},
+	OpenJoinServer {
+		invite: String,
+	},
+	SendServerInvite {
+		guild_id: String,
+		user_id: String,
+	},
+	OpenServerAdmin {
+		guild_id: String,
+		page: ServerAdminPage,
+	},
+	OpenGroupEditor {
+		channel_id: String,
+	},
 
 	SendMessage {
 		channel_id: String,
@@ -834,6 +905,10 @@ pub enum HostEffect {
 	AppAction {
 		action: AppAction,
 	},
+	TrackedAppAction {
+		request_id: String,
+		action: AppAction,
+	},
 	Navigate {
 		channel_id: String,
 	},
@@ -885,6 +960,21 @@ pub struct AppInvocation {
 	pub app: Option<AppSnapshot>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub app_event: Option<AppEventKind>,
+}
+
+/// Opt-in action feedback while preserving `AppInvocation` struct-literal compatibility.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtendedAppInvocation {
+	#[serde(flatten)]
+	pub invocation: AppInvocation,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub action_result: Option<ActionResult>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub queries: Option<crate::QuerySnapshot>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub messaging_settings: Option<crate::MessagingSettingsSnapshot>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub guild_folders: Option<crate::GuildFoldersSnapshot>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

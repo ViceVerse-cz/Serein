@@ -1,7 +1,7 @@
 //! Approved messaging proposals use the same state transitions as native controls.
 use crate::MessagingUi;
 use client_core::{Command, State, channel_actions::Action};
-use extensions::AppAction;
+use extensions::{AppAction, ArchiveQueryKind, MessagingSettingsChange, ServerAdminPage};
 use model::{Id, ReactionEmoji};
 
 fn id(value: &str) -> Result<Id, String> {
@@ -49,6 +49,214 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 	) -> Result<(), String> {
 		let command = match action {
+			AppAction::RequestMessageSearch { query, before_id } => {
+				state.request_search(query, before_id.as_deref().map(id).transpose()?)
+			}
+			AppAction::RequestPins { before } => {
+				if let Some(before) = before {
+					let before = before.parse::<i128>().map_err(|_| "Invalid pin cursor")?;
+					let current = state
+						.search
+						.as_ref()
+						.and_then(|view| view.page.as_ref())
+						.and_then(|page| page.pin_cursor);
+					if current != Some(before) {
+						return Err("The pin cursor changed; request the current page again".into());
+					}
+					state.request_older_pins()
+				} else {
+					state.request_pins()
+				}
+			}
+			AppAction::RequestArchives {
+				parent_id,
+				kind,
+				before,
+			} => {
+				let kind = match kind {
+					ArchiveQueryKind::Public => model::archives::Kind::Public,
+					ArchiveQueryKind::Private => model::archives::Kind::Private,
+					ArchiveQueryKind::JoinedPrivate => model::archives::Kind::JoinedPrivate,
+				};
+				let before = before
+					.as_deref()
+					.map(|value| match kind {
+						model::archives::Kind::JoinedPrivate => {
+							id(value).map(model::archives::Cursor::Id)
+						}
+						_ => value
+							.parse::<i128>()
+							.map(model::archives::Cursor::Time)
+							.map_err(|_| "Invalid archive cursor".into()),
+					})
+					.transpose()?;
+				state.request_archives(id(&parent_id)?, kind, before)
+			}
+			AppAction::RequestMemberSearch { channel_id, query } => {
+				state.search_members(id(&channel_id)?, &query, 0)
+			}
+			AppAction::RequestProfile { user_id, guild_id } => {
+				let user = id(&user_id)?;
+				let guild = guild_id.as_deref().map(id).transpose()?;
+				let known = state
+					.user
+					.as_ref()
+					.is_some_and(|current| current.id == user)
+					|| state.friend(user).is_some()
+					|| state.selected.is_some_and(|channel| {
+						state.can_view(channel)
+							&& crate::mentions::known_users(state, channel)
+								.into_iter()
+								.any(|known| known.id == user)
+					});
+				if !known {
+					return Err("This user is not known in the current session".into());
+				}
+				let command = state.request_profile(user, guild);
+				if command.is_none()
+					&& !state.profile.as_ref().is_some_and(|profile| {
+						profile.user == user && profile.guild == guild && profile.error.is_none()
+					}) {
+					return Err("Profile is unavailable".into());
+				}
+				if let Some(command) = command {
+					Some(command)
+				} else {
+					return Ok(());
+				}
+			}
+			AppAction::RequestGifs { query } => {
+				let command = state.request_gifs(query.as_deref());
+				if command.is_none()
+					&& !state
+						.gifs
+						.view
+						.as_ref()
+						.is_some_and(|view| view.query == query && view.error.is_none())
+				{
+					return Err("GIF search is unavailable".into());
+				}
+				if let Some(command) = command {
+					Some(command)
+				} else {
+					return Ok(());
+				}
+			}
+			AppAction::SetMessagingSettings { change } => {
+				use model::messaging_permissions::Change as C;
+				let change = match change {
+					MessagingSettingsChange::SpamFilter { level } => C::SpamFilter(level.into()),
+					MessagingSettingsChange::DefaultAllowDms { enabled } => {
+						C::DefaultAllowDms(enabled)
+					}
+					MessagingSettingsChange::AllowGuildDms { guild_id, enabled } => {
+						C::AllowGuildDms(id(&guild_id)?, enabled)
+					}
+					MessagingSettingsChange::DefaultFilterRequests { enabled } => {
+						C::DefaultFilterRequests(enabled)
+					}
+					MessagingSettingsChange::FilterGuildRequests { guild_id, enabled } => {
+						C::FilterGuildRequests(id(&guild_id)?, enabled)
+					}
+					MessagingSettingsChange::Everyone { enabled } => C::Everyone(enabled),
+					MessagingSettingsChange::FriendsOfFriends { enabled } => {
+						C::FriendsOfFriends(enabled)
+					}
+					MessagingSettingsChange::ServerMembers { enabled } => C::ServerMembers(enabled),
+					MessagingSettingsChange::PersonalizedRequests { enabled } => {
+						C::PersonalizedRequests(enabled)
+					}
+					MessagingSettingsChange::GameFriendDms { enabled } => C::GameFriendDms(enabled),
+					MessagingSettingsChange::GameDms { level } => C::GameDms(level.into()),
+				};
+				let command = state.update_messaging_permissions(change);
+				if let Some(command) = command {
+					Some(command)
+				} else if state.demo {
+					return Ok(());
+				} else {
+					return Err("Messaging settings are unavailable".into());
+				}
+			}
+			AppAction::SetGuildFolders {
+				base_version,
+				folders,
+			} => {
+				let version = state
+					.guild_folders
+					.as_ref()
+					.ok_or("Server folders are unavailable")?
+					.version;
+				if version != base_version {
+					return Err("The server folder layout changed; run the extension again".into());
+				}
+				let folders = folders
+					.into_iter()
+					.map(|folder| {
+						Ok(model::guild_folders::Folder {
+							id: folder.id,
+							guild_ids: folder
+								.guild_ids
+								.iter()
+								.map(|value| id(value))
+								.collect::<Result<_, _>>()?,
+							name: folder.name,
+							color: folder.color,
+						})
+					})
+					.collect::<Result<Vec<_>, String>>()?;
+				let command =
+					state.save_guild_folders(model::guild_folders::Settings { folders, version });
+				if let Some(command) = command {
+					Some(command)
+				} else if state.folders_error.is_none() && !state.folders_pending {
+					return Ok(());
+				} else {
+					return Err(state
+						.folders_error
+						.unwrap_or("Server folders are unavailable")
+						.into());
+				}
+			}
+			AppAction::OpenJoinServer { invite } => {
+				self.open_rpc_invite(state.generation, invite);
+				return Ok(());
+			}
+			AppAction::SendServerInvite { guild_id, user_id } => {
+				state.send_server_invite(id(&guild_id)?, id(&user_id)?)
+			}
+			AppAction::OpenServerAdmin { guild_id, page } => {
+				let guild = id(&guild_id)?;
+				let allowed = match page {
+					ServerAdminPage::Emoji => state.can_open_emoji_settings(guild),
+					ServerAdminPage::Members => state.can_open_member_settings(guild),
+					ServerAdminPage::Roles => state.can_open_role_settings(guild),
+					ServerAdminPage::Invites => state.can_open_invite_settings(guild),
+					ServerAdminPage::AuditLog => state.can_open_audit_log_settings(guild),
+				};
+				if !allowed {
+					return Err(
+						"Server administration is unavailable with the current permissions".into(),
+					);
+				}
+				let page = match page {
+					ServerAdminPage::Emoji => "emoji",
+					ServerAdminPage::Members => "members",
+					ServerAdminPage::Roles => "roles",
+					ServerAdminPage::Invites => "invites",
+					ServerAdminPage::AuditLog => "audit-log",
+				};
+				let command = self.preview_server_admin(state, guild, page);
+				if let Some(command) = command {
+					Some(command)
+				} else {
+					return Ok(());
+				}
+			}
+			AppAction::OpenGroupEditor { channel_id } => {
+				self.preview_group_editor(state, id(&channel_id)?)?;
+				return Ok(());
+			}
 			AppAction::SendMessage {
 				channel_id,
 				content,
@@ -595,6 +803,84 @@ mod tests {
 		.unwrap();
 		assert!(
 			matches!(&commands[1], Command::CreatePost { parent: Id(26), title, content, attachments, .. } if title == "Approved post" && content == "Starter message" && attachments.is_empty())
+		);
+	}
+
+	#[test]
+	fn query_and_account_settings_reuse_native_bounded_state() {
+		let mut state = test_state();
+		let mut view = MessagingUi::default();
+		let mut commands = Vec::new();
+		view.apply_extension_app_action(
+			&mut state,
+			AppAction::RequestMessageSearch {
+				query: "release".into(),
+				before_id: None,
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert!(matches!(&commands[0], Command::Search { query, .. } if query == "release"));
+
+		state.demo = true;
+		state.messaging_permissions.snapshot = Some(Default::default());
+		view.apply_extension_app_action(
+			&mut state,
+			AppAction::SetMessagingSettings {
+				change: MessagingSettingsChange::DefaultAllowDms { enabled: false },
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert!(
+			!state
+				.messaging_permissions
+				.snapshot
+				.as_ref()
+				.unwrap()
+				.default_allow_dms
+		);
+
+		state.guild_folders = Some(Default::default());
+		view.apply_extension_app_action(
+			&mut state,
+			AppAction::SetGuildFolders {
+				base_version: 0,
+				folders: vec![extensions::GuildFolderInput {
+					id: None,
+					guild_ids: vec!["1".into()],
+					name: None,
+					color: None,
+				}],
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert_eq!(
+			state.guild_folders.as_ref().unwrap().folders[0].guild_ids,
+			[Id(1)]
+		);
+		assert!(
+			view.apply_extension_app_action(
+				&mut state,
+				AppAction::SetGuildFolders {
+					base_version: 99,
+					folders: Vec::new(),
+				},
+				&mut commands,
+			)
+			.is_err()
+		);
+		assert!(
+			view.apply_extension_app_action(
+				&mut state,
+				AppAction::RequestProfile {
+					user_id: "999999".into(),
+					guild_id: None,
+				},
+				&mut commands,
+			)
+			.is_err()
 		);
 	}
 }
