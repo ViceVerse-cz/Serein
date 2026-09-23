@@ -33,6 +33,18 @@ impl DiscordApi {
 			return Err(Failure::Protocol);
 		}
 		match action {
+			// Unofficial normal-user route; deletion is owner-only and attempted once.
+			Action::Delete(guild) => self
+				.request_limited(Method::DELETE, &format!("/guilds/{guild}"), None, 64 * 1024)
+				.await
+				.map_err(write_failure)
+				.and_then(|body| {
+					if body.is_empty() {
+						Ok(None)
+					} else {
+						Err(Failure::Ambiguous)
+					}
+				}),
 			Action::Leave(guild) => self
 				.request_limited(
 					Method::DELETE,
@@ -235,6 +247,7 @@ mod tests {
 			(invite, 403, "{}", Err(Failure::Forbidden)),
 			(invite, 500, "{}", Err(Failure::Ambiguous)),
 			(Action::Leave(Id(2)), 204, "", Ok(None)),
+			(Action::Delete(Id(2)), 204, "", Ok(None)),
 			(Action::Leave(Id(2)), 200, "{}", Err(Failure::Ambiguous)),
 			(
 				Action::Leave(Id(2)),
@@ -275,8 +288,13 @@ mod tests {
 									serde_json::json!({"max_age":3600,"max_uses":10,"temporary":true,"unique":true})
 								);
 							}
-							Action::Leave(_) => {
-								assert!(headers.starts_with("DELETE /users/@me/guilds/2 HTTP/1.1"));
+							Action::Leave(_) | Action::Delete(_) => {
+								let path = if matches!(action, Action::Delete(_)) {
+									"DELETE /guilds/2 HTTP/1.1"
+								} else {
+									"DELETE /users/@me/guilds/2 HTTP/1.1"
+								};
+								assert!(headers.starts_with(path));
 								assert_eq!(length, 0);
 							}
 						}

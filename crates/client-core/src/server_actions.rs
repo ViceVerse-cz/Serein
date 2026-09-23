@@ -42,11 +42,12 @@ pub enum Action {
 		options: InviteOptions,
 	},
 	Leave(Id),
+	Delete(Id),
 }
 impl Action {
 	pub fn guild(self) -> Id {
 		match self {
-			Self::CreateInvite { guild, .. } | Self::Leave(guild) => guild,
+			Self::CreateInvite { guild, .. } | Self::Leave(guild) | Self::Delete(guild) => guild,
 		}
 	}
 }
@@ -322,6 +323,42 @@ impl State {
 		}
 		self.request_server_action(Action::Leave(guild))
 	}
+	pub fn can_delete_server(&self, guild: Id) -> bool {
+		self.guild(guild).is_some()
+			&& self.user.as_ref().is_some_and(|user| {
+				self.permissions
+					.guilds
+					.get(&guild)
+					.and_then(|permissions| permissions.owner)
+					== Some(user.id)
+			})
+	}
+	pub fn delete_server_reason(&self, guild: Id) -> Option<&'static str> {
+		if !self.can_delete_server(guild) {
+			return Some("Only the server owner can delete this server");
+		}
+		if self.server_settings.pending
+			|| self.server_admin.pending
+			|| self.pending.iter().any(|pending| {
+				self.channel(pending.channel)
+					.is_some_and(|channel| channel.guild == Some(guild))
+			}) || self
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.guild == Some(guild))
+		{
+			return Some("Finish pending changes, messages and calls before deleting this server");
+		}
+		None
+	}
+	pub fn delete_server(&mut self, guild: Id) -> Option<Command> {
+		if let Some(reason) = self.delete_server_reason(guild) {
+			self.server_actions.status = Some((guild, reason));
+			return None;
+		}
+		self.request_server_action(Action::Delete(guild))
+	}
 	fn request_server_action(&mut self, action: Action) -> Option<Command> {
 		if self.server_action_pending() || self.server_invite_pending() {
 			return None;
@@ -393,7 +430,7 @@ impl State {
 			{
 				Ok(code)
 			}
-			Action::Leave(_) if code.is_none() => Ok(None),
+			Action::Leave(_) | Action::Delete(_) if code.is_none() => Ok(None),
 			_ => Err(Failure::Ambiguous),
 		});
 		let status = match result {
@@ -423,12 +460,16 @@ impl State {
 						"Invite created, but channel access changed; check Discord"
 					}
 				}
-				Action::Leave(guild) => {
+				Action::Leave(guild) | Action::Delete(guild) => {
 					if observed {
 						"Request completed; latest server membership shown"
 					} else {
 						self.remove_server(guild);
-						"Left server"
+						if matches!(action, Action::Delete(_)) {
+							"Deleted server"
+						} else {
+							"Left server"
+						}
 					}
 				}
 			},
@@ -678,6 +719,14 @@ mod tests {
 	}
 	#[test]
 	fn server_actions_scope_permissions_and_confirmed_removal() {
+		let mut owner = state();
+		assert!(!owner.can_delete_server(Id(2)));
+		assert!(owner.delete_server(Id(2)).is_none());
+		owner.permissions.guilds.get_mut(&Id(2)).unwrap().owner = Some(Id(1));
+		assert!(owner.can_delete_server(Id(2)));
+		let delete = owner.delete_server(Id(2)).unwrap();
+		finish(&mut owner, delete, Ok(None));
+		assert!(owner.guild(Id(2)).is_none());
 		let mut state = state();
 		assert_eq!(state.invite_channel(Id(2)), Some(Id(3)));
 		assert_eq!(state.invite_channel(Id(8)), None);

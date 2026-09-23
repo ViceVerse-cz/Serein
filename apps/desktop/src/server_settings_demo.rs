@@ -605,7 +605,7 @@ pub fn execute_action(
 			}
 			Some(code)
 		}
-		Action::Leave(_) => None,
+		Action::Leave(_) | Action::Delete(_) => None,
 	};
 	Event::ServerAction(client_core::server_actions::Event::Written {
 		action,

@@ -64,6 +64,8 @@ pub(super) struct Editor {
 	icon_pending: bool,
 	icon_error: Option<&'static str>,
 	form_error: Option<&'static str>,
+	delete: bool,
+	delete_name: String,
 	emoji_picker: crate::emoji_picker::Picker,
 	pub(super) admin: crate::server_admin::Admin,
 	stickers: crate::server_stickers::StickersUi,
@@ -556,6 +558,16 @@ impl Editor {
 									self.page = page;
 								}
 							}
+							if state.can_delete_server(guild) {
+								ui.add_space(16.0);
+								ui.separator();
+								ui.add_space(12.0);
+								if delete_server_button(ui).clicked() {
+									state.clear_server_action_result(guild);
+									self.delete = true;
+									self.delete_name.clear();
+								}
+							}
 						});
 				}
 				egui::CentralPanel::default()
@@ -598,6 +610,12 @@ impl Editor {
 								}
 								close = close_control(ui).clicked();
 							});
+							if state.can_delete_server(guild) && delete_server_button(ui).clicked()
+							{
+								state.clear_server_action_result(guild);
+								self.delete = true;
+								self.delete_name.clear();
+							}
 						}
 						if self.dirty() || state.server_settings.saving {
 							egui::Panel::bottom("server-settings-save")
@@ -681,6 +699,81 @@ impl Editor {
 				Some(dialog::Choice::Cancelled) => self.discard = false,
 				None => {}
 			}
+		}
+		if self.delete {
+			self.delete_dialog(ctx, state, guild, commands);
+		}
+	}
+
+	fn delete_dialog(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		guild: Id,
+		commands: &mut Vec<Command>,
+	) {
+		let Some(name) = state.guild(guild).map(|guild| guild.name.clone()) else {
+			self.delete = false;
+			return;
+		};
+		if !state.can_delete_server(guild) {
+			self.delete = false;
+			return;
+		}
+		let pending = state.server_action_pending();
+		let reason = state.delete_server_reason(guild);
+		let mut delete = false;
+		let mut close = false;
+		let response = dialog::Dialog::new("delete-server", format!("Delete '{name}'"))
+			.subtitle(format!(
+				"Are you sure you want to delete {name}? This action cannot be undone."
+			))
+			.danger()
+			.width(520.0)
+			.show(ctx, |d| {
+				d.content(|ui| {
+					let label = dialog::label(ui, "Enter server name");
+					dialog::input(
+						ui,
+						egui::TextEdit::singleline(&mut self.delete_name)
+							.char_limit(100)
+							.desired_width(f32::INFINITY),
+					)
+					.labelled_by(label.id);
+					if let Some(reason) = reason {
+						dialog::notice(ui, dialog::Level::Warning, reason);
+					} else if let Some(status) = state.server_action_status(guild) {
+						dialog::notice(ui, dialog::Level::Error, status);
+					}
+					if state.demo {
+						dialog::hint(ui, "Offline preview · no server changes");
+					}
+				});
+				d.footer(|ui| {
+					ui.add_enabled_ui(
+						!pending && reason.is_none() && self.delete_name == name,
+						|ui| {
+							delete = dialog::action(
+								ui,
+								if pending {
+									"Deleting…"
+								} else {
+									"Delete Server"
+								},
+								dialog::Action::Danger,
+							)
+							.clicked();
+						},
+					);
+					close |= dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
+				});
+			});
+		if delete && let Some(command) = state.delete_server(guild) {
+			commands.push(command);
+		}
+		if (close || response.close) && !pending {
+			self.delete = false;
+			self.delete_name.clear();
 		}
 	}
 
@@ -1279,6 +1372,36 @@ fn timeout_picker(ui: &mut egui::Ui, timeout: &mut u32) {
 				ui.selectable_value(timeout, seconds, format!("{} minutes", seconds / 60));
 			}
 		});
+}
+
+fn delete_server_button(ui: &mut egui::Ui) -> egui::Response {
+	let colors = design::palette(ui);
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Delete Server")
+	});
+	if response.hovered() || response.has_focus() {
+		ui.painter()
+			.rect_filled(rect, 8, colors.danger.gamma_multiply(0.16));
+	}
+	ui.painter().text(
+		egui::pos2(rect.left() + 12.0, rect.center().y),
+		egui::Align2::LEFT_CENTER,
+		"Delete Server",
+		egui::FontId::new(15.0, design::medium_family(ui.ctx())),
+		colors.danger,
+	);
+	crate::icons::paint(
+		ui.painter(),
+		crate::icons::Icon::Trash,
+		egui::Rect::from_center_size(
+			egui::pos2(rect.right() - 17.0, rect.center().y),
+			egui::Vec2::splat(18.0),
+		),
+		colors.danger,
+	);
+	response
 }
 
 /// Floating "unsaved changes" strip Discord pins over the settings content.

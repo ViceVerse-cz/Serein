@@ -3599,7 +3599,7 @@ impl Event {
 				result: Ok(()),
 				..
 			}) | Event::ServerAction(server_actions::Event::Written {
-				action: server_actions::Action::Leave(_),
+				action: server_actions::Action::Leave(_) | server_actions::Action::Delete(_),
 				result: Ok(None),
 				..
 			}) | Event::ServerAdmin(server_admin::Event {
