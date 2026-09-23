@@ -882,28 +882,7 @@ impl Serein {
 
 	fn sync_rows(&mut self) {
 		let rows = self.state.timeline.row_ids().collect::<Vec<_>>();
-		let prefix = self
-			.rows
-			.iter()
-			.zip(&rows)
-			.take_while(|(a, b)| a == b)
-			.count();
-		let suffix = self.rows[prefix..]
-			.iter()
-			.rev()
-			.zip(rows[prefix..].iter().rev())
-			.take_while(|(a, b)| a == b)
-			.count();
-		if rows == self.rows {
-			self.messages.splice(0..rows.len(), rows.len());
-		} else {
-			// Dividers and grouping depend on the previous row: remeasure both neighbours.
-			let start = prefix.saturating_sub(1);
-			let suffix = suffix.saturating_sub(1);
-			self.messages
-				.splice(start..self.rows.len() - suffix, rows.len() - start - suffix);
-			self.rows = rows;
-		}
+		splice_rows(&self.messages, &mut self.rows, rows);
 		if self.boundary.is_none() && !self.state.history_pending && !self.rows.is_empty() {
 			self.boundary = Some(self.unread_boundary());
 		}
@@ -1655,6 +1634,46 @@ fn ui_warning_tint() -> Rgba {
 	theme::tint(palette().warning, 0.14)
 }
 
+/// Updates `list` from `current` to `rows`, remeasuring the changed span and both neighbours
+/// (dividers and grouping depend on the previous row).
+///
+/// `ListState::splice` moves the scroll top to the start of a replaced range that contains it,
+/// so a page of older history would leave the reader at the new first row, which requests the
+/// next page, forever. The message at the top of the view is kept in place instead; a list
+/// following the newest message keeps following.
+fn splice_rows(list: &ListState, current: &mut Vec<Id>, rows: Vec<Id>) {
+	if rows == *current {
+		// Content (edits, reactions, embeds) may have changed height; this keeps the position.
+		list.remeasure_items(0..rows.len());
+		return;
+	}
+	let prefix = current
+		.iter()
+		.zip(&rows)
+		.take_while(|(a, b)| a == b)
+		.count();
+	let suffix = current[prefix..]
+		.iter()
+		.rev()
+		.zip(rows[prefix..].iter().rev())
+		.take_while(|(a, b)| a == b)
+		.count();
+	let top = list.logical_scroll_top();
+	let anchor = current.get(top.item_ix).map(|id| (*id, top.offset_in_item));
+	let start = prefix.saturating_sub(1);
+	let suffix = suffix.saturating_sub(1);
+	list.splice(start..current.len() - suffix, rows.len() - start - suffix);
+	*current = rows;
+	if let Some((id, offset_in_item)) = anchor
+		&& let Some(item_ix) = current.iter().position(|row| *row == id)
+	{
+		list.scroll_to(ListOffset {
+			item_ix,
+			offset_in_item,
+		});
+	}
+}
+
 impl Render for Serein {
 	fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
 		let p = palette();
@@ -1861,4 +1880,52 @@ fn main() {
 			}
 			cx.activate(true);
 		});
+}
+
+#[cfg(test)]
+mod tests {
+	use super::splice_rows;
+	use gpui::{ListAlignment, ListOffset, ListState, px};
+	use model::Id;
+
+	fn ids(values: &[u64]) -> Vec<Id> {
+		values.iter().copied().map(Id).collect()
+	}
+
+	#[test]
+	fn older_history_keeps_the_message_being_read_in_view() {
+		let list = ListState::new(3, ListAlignment::Bottom, px(120.));
+		let mut rows = ids(&[30, 40, 50]);
+		list.scroll_to(ListOffset {
+			item_ix: 0,
+			offset_in_item: px(5.),
+		});
+		splice_rows(&list, &mut rows, ids(&[10, 20, 30, 40, 50]));
+		let top = list.logical_scroll_top();
+		assert_eq!((top.item_ix, top.offset_in_item), (2, px(5.)));
+		assert_eq!(list.item_count(), 5);
+	}
+
+	#[test]
+	fn unchanged_rows_keep_the_scroll_position() {
+		let list = ListState::new(3, ListAlignment::Bottom, px(120.));
+		let mut rows = ids(&[30, 40, 50]);
+		list.scroll_to(ListOffset {
+			item_ix: 1,
+			offset_in_item: px(3.),
+		});
+		splice_rows(&list, &mut rows, ids(&[30, 40, 50]));
+		let top = list.logical_scroll_top();
+		assert_eq!((top.item_ix, top.offset_in_item), (1, px(3.)));
+	}
+
+	#[test]
+	fn a_list_following_the_newest_message_keeps_following() {
+		let list = ListState::new(3, ListAlignment::Bottom, px(120.));
+		let mut rows = ids(&[30, 40, 50]);
+		splice_rows(&list, &mut rows, ids(&[30, 40, 50, 60]));
+		assert_eq!(list.logical_scroll_top().item_ix, 4);
+		splice_rows(&list, &mut rows, ids(&[10, 20, 30, 40, 50, 60]));
+		assert_eq!(list.logical_scroll_top().item_ix, 6);
+	}
 }
