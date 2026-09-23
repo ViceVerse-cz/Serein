@@ -729,7 +729,7 @@ mod tests {
 		assert!(Page::Appearance.matches("accent"));
 		assert!(!Page::Keybinds.matches("accent"));
 		for (_, pages) in Page::SECTIONS {
-			for page in *pages {
+			for page in pages.iter() {
 				assert!(Page::ALL.contains(page));
 			}
 		}
