@@ -319,22 +319,24 @@ impl Watch {
 		let identity = pending.identity;
 		let audio = pending.audio;
 		let task = runtime.spawn(async move {
-			let result = discord_voice::watch_stream(credentials, identity, sink, audio, |event| {
-				let status = match event {
-					Status::Connecting => "Connecting to the stream…",
-					Status::Discovering => "Checking the stream network…",
-					Status::TransportReady | Status::Securing => "Securing the stream…",
-					Status::WaitingForPeer => "Waiting for the streamer…",
-					Status::Ready { .. } => "Stream secured · waiting for video",
-					Status::RemoteAudio | Status::Speaking(_) | Status::CameraAvailable(_) => {
-						return Ok(());
-					}
-				};
-				send.send_replace(Some(Notice::Status(status)));
-				wake.request_repaint();
-				Ok(())
-			})
-			.await;
+			let (status_send, status_wake) = (send.clone(), wake.clone());
+			let result =
+				discord_voice::watch_stream(credentials, identity, sink, audio, move |event| {
+					let status = match event {
+						Status::Connecting => "Connecting to the stream…",
+						Status::Discovering => "Checking the stream network…",
+						Status::TransportReady | Status::Securing => "Securing the stream…",
+						Status::WaitingForPeer => "Waiting for the streamer…",
+						Status::Ready { .. } => "Stream secured · waiting for video",
+						Status::RemoteAudio | Status::Speaking(_) | Status::CameraAvailable(_) => {
+							return Ok(());
+						}
+					};
+					status_send.send_replace(Some(Notice::Status(status)));
+					status_wake.request_repaint();
+					Ok(())
+				})
+				.await;
 			if let Err(error) = result {
 				send.send_replace(Some(Notice::Failed(error)));
 			}

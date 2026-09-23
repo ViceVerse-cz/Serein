@@ -183,18 +183,21 @@ pub(super) fn run(
 					// Let startup/recovery reach its existing deadline: changing targets must
 					// not repeatedly restart a failing encoder before fallback can run.
 					if target != active_bitrate && !waiting_keyframe {
-						if mode != Mode::Software && !pipeline.set_bitrate(target) {
-							// Older plugins cannot change rate while playing: reopen the same
-							// mode with a fresh PipeWire remote, keeping the approved portal.
-							mode_index -= 1;
-							break;
-						}
-						if mode == Mode::Software {
+						if mode != Mode::Software && pipeline.set_bitrate(target) {
+							active_bitrate = target;
+						} else if super::software_rate_change(active_bitrate, target) {
+							// Restarts cost an IDR, so only large moves apply. Older plugins
+							// cannot change rate while playing: reopen the same mode with a
+							// fresh PipeWire remote, keeping the approved portal.
+							if mode != Mode::Software {
+								mode_index -= 1;
+								break;
+							}
 							software = None;
 							waiting_keyframe = true;
 							keyframe.store(true, Ordering::Release);
+							active_bitrate = target;
 						}
-						active_bitrate = target;
 					}
 					// Counted per pass: whether a picture was taken, and whether one was left
 					// in the pipeline because the transport had not drained the last.

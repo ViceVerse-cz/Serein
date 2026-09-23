@@ -185,7 +185,6 @@ pub(super) fn run() {
 	frame.resize(120_000, 7);
 	pacer.queue(
 		video::packetize(&frame, &mut sequence, 93_000, 42).unwrap(),
-		60,
 		now,
 	);
 	let (mut sent, mut repairs) = (0, 0);
@@ -198,7 +197,7 @@ pub(super) fn run() {
 			sent += packet.payload.len() + 32;
 		}
 	}
-	assert!(sent > 20_000 && sent + repairs * 1200 <= 41_000);
+	assert!(sent > 60_000 && sent + repairs * 1200 <= 84_000); // 2.5x of 250 kbps.
 	assert!((4..=5).contains(&repairs)); // Repairs cannot consume the whole wire budget.
 	assert!(!pacer.stale(now + Duration::from_secs(1))); // Slow progress must not loop on IDRs.
 	assert!(pacer.stale(now + Duration::from_millis(1500)));

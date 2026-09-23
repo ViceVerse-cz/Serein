@@ -498,7 +498,8 @@ impl Screen {
 		let wake = ctx.clone();
 		let identity = pending.identity;
 		let task = runtime.spawn(async move {
-			let result = discord_voice::run_stream(credentials, identity, video, |event| {
+			let (status_send, status_wake) = (send.clone(), wake.clone());
+			let result = discord_voice::run_stream(credentials, identity, video, move |event| {
 				let status = match event {
 					Status::Connecting => "Connecting screen-share transport…",
 					Status::Discovering => "Checking screen-share network…",
@@ -509,8 +510,8 @@ impl Screen {
 						return Ok(());
 					}
 				};
-				send.send_replace(Some(Notice::Status(status)));
-				wake.request_repaint();
+				status_send.send_replace(Some(Notice::Status(status)));
+				status_wake.request_repaint();
 				Ok(())
 			})
 			.await;

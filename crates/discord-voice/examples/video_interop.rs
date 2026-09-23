@@ -107,21 +107,23 @@ fn main() {
 	// A tiny payload would hide a whole-frame burst; use a bounded, noisy keyframe too.
 	let mut noisy = vec![0, 0, 0, 1, 0x65, 0xb8];
 	noisy.resize(120_000, 7);
-	for fps in [15, 30, 60] {
+	// Windows' default 15.6 ms tick must cost latency, never throughput.
+	for tick in [1, 2, 16] {
+		let tick = std::time::Duration::from_millis(tick);
 		let mut sequence = u16::MAX - 2;
 		let mut pacer = video::Pacer::new();
 		let now = tokio::time::Instant::now();
 		let packets = video::packetize(&noisy, &mut sequence, 90_000, 42).unwrap();
 		let total = packets.len();
-		pacer.queue(packets, fps, now);
+		pacer.queue(packets, now);
 		let mut sent = 0;
 		let mut receiver = stream_playback::video_receive::Receivers::default();
 		receiver.announce(1, 42).unwrap();
 		let mut transport = crypto::Encryption::new(&[9; 32]);
 		let mut restored = None;
+		let mut due = now;
 		while !pacer.is_empty() {
-			let due = pacer.deadline;
-			assert!(due < now + std::time::Duration::from_millis(150));
+			assert!(due < now + std::time::Duration::from_millis(60));
 			let batch: Vec<_> = pacer.next_batch(due, 16_000_000).collect();
 			assert!(batch.len() < total);
 			for packet in batch {
@@ -139,12 +141,13 @@ fn main() {
 					restored = Some(frame);
 				}
 			}
+			let wait = pacer.deadline.duration_since(now).as_micros();
+			due = now + tick * wait.div_ceil(tick.as_micros()).max(1) as u32;
 		}
 		assert_eq!(sent, total);
 		assert_eq!(restored.unwrap(), noisy);
 		pacer.queue(
 			video::packetize(&encrypted, &mut sequence, 93_000, 42).unwrap(),
-			fps,
 			now,
 		);
 		pacer.clear(); // Rekey/cancellation must discard every pending encrypted fragment.

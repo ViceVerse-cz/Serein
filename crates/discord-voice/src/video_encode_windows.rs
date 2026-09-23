@@ -193,6 +193,18 @@ impl Encoder {
 			.and_then(|length| length.checked_add(v.len()))
 			.filter(|_| u.len() == v.len() && y.len() == u.len() * 4)
 			.ok_or(FAILED)?;
+		self.encode_with(length, force_keyframe, |picture| {
+			i420_to_nv12(y, u, v, picture)
+		})
+	}
+
+	/// Encode one `length`-byte NV12 picture that `fill` writes into the native buffer.
+	pub(crate) fn encode_with(
+		&mut self,
+		length: usize,
+		force_keyframe: bool,
+		fill: impl FnOnce(&mut [u8]) -> Result<(), &'static str>,
+	) -> Result<(Vec<u8>, bool), &'static str> {
 		self.wait_for_input()?;
 		if force_keyframe {
 			// SAFETY: Codec control is called on the owning worker before this input sample.
@@ -218,7 +230,7 @@ impl Encoder {
 				return Err(FAILED);
 			}
 			let destination = std::slice::from_raw_parts_mut(data, length);
-			if i420_to_nv12(y, u, v, destination).is_err() {
+			if fill(destination).is_err() {
 				let _ = buffer.Unlock();
 				return Err(FAILED);
 			}

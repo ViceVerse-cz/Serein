@@ -210,7 +210,7 @@ pub async fn run(
 	camera: Option<Receiver<crate::camera_video::Frame>>,
 	remote_video: Option<VideoSink>,
 	stream_audio: Option<Receiver<Frame>>,
-	emit: impl Fn(Status) -> Result<(), ()>,
+	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 ) -> Result<(), &'static str> {
 	run_with_identity(
 		credentials,
@@ -235,23 +235,25 @@ pub async fn run_with_identity(
 	camera: Option<Receiver<crate::camera_video::Frame>>,
 	remote_video: Option<VideoSink>,
 	stream_audio: Option<Receiver<Frame>>,
-	emit: impl Fn(Status) -> Result<(), ()>,
+	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 	identity: Arc<Identity>,
 ) -> Result<(), &'static str> {
 	let url = endpoint(&credentials.endpoint)?;
-	run_inner(
-		credentials,
-		capture,
-		playback,
-		controls,
-		camera,
-		remote_video,
-		stream_audio,
-		emit,
-		identity,
-		url,
-		false,
-	)
+	crate::timer::isolated("serein-voice", move || {
+		run_inner(
+			credentials,
+			capture,
+			playback,
+			controls,
+			camera,
+			remote_video,
+			stream_audio,
+			emit,
+			identity,
+			url,
+			false,
+		)
+	})
 	.await
 }
 #[allow(clippy::too_many_arguments)] // Public media inputs plus the loopback-only test endpoint.
@@ -908,19 +910,21 @@ pub async fn run_stream(
 	credentials: VoiceConnection,
 	identity: Arc<Identity>,
 	video: crate::screen::Video,
-	emit: impl Fn(Status) -> Result<(), ()>,
+	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 ) -> Result<(), &'static str> {
 	let url = endpoint(&credentials.endpoint)?;
-	run_stream_inner(
-		credentials,
-		identity,
-		Some(video),
-		None,
-		None,
-		emit,
-		url,
-		false,
-	)
+	crate::timer::isolated("serein-stream", move || {
+		run_stream_inner(
+			credentials,
+			identity,
+			Some(video),
+			None,
+			None,
+			emit,
+			url,
+			false,
+		)
+	})
 	.await
 }
 /// Watch another participant's Go Live stream on its own voice gateway; decoded frames
@@ -930,19 +934,21 @@ pub async fn watch_stream(
 	identity: Arc<Identity>,
 	sink: VideoSink,
 	audio: Option<SyncSender<Frame>>,
-	emit: impl Fn(Status) -> Result<(), ()>,
+	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 ) -> Result<(), &'static str> {
 	let url = endpoint(&credentials.endpoint)?;
-	run_stream_inner(
-		credentials,
-		identity,
-		None,
-		Some(sink),
-		audio,
-		emit,
-		url,
-		false,
-	)
+	crate::timer::isolated("serein-watch", move || {
+		run_stream_inner(
+			credentials,
+			identity,
+			None,
+			Some(sink),
+			audio,
+			emit,
+			url,
+			false,
+		)
+	})
 	.await
 }
 #[allow(clippy::too_many_arguments)] // Media inputs plus the loopback-only test endpoint.
@@ -1228,7 +1234,7 @@ async fn run_stream_inner(
 				let normalized=crate::video_sps::normalize(&frame.data)?;
 				let encrypted=dave.session.encrypt(davey::MediaType::VIDEO,davey::Codec::H264,&normalized).map_err(|_|"DAVE H264 encryption failed")?;
 				let packets=crate::video::packetize(&encrypted,&mut sequence,frame.timestamp,video_ssrc)?;
-				outgoing.queue(packets,video.as_ref().ok_or("Missing stream capture")?.settings.fps,Instant::now());
+				outgoing.queue(packets,Instant::now());
 				outgoing_keyframe=frame.keyframe;
 				metrics.finish(crate::diagnostics::Stage::VideoSend,start);
 			},

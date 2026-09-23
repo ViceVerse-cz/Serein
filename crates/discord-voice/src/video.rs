@@ -16,10 +16,18 @@ pub(crate) struct Packet {
 	pub payload: Vec<u8>,
 }
 
-/// One bounded access unit, spread across its frame interval instead of a UDP burst.
+/// libwebrtc's default: the pacer drains at 2.5x the encoder target, so an average frame
+/// leaves in well under its frame interval while keyframes still avoid a line-rate burst.
+const PACING_FACTOR: f64 = 2.5;
+/// Longest sleep the pacer accounts for. A coarse OS timer (Windows' 15.6 ms default tick)
+/// or a delayed task sends proportionally more on its next wake instead of losing frames.
+const MAX_CATCH_UP: Duration = Duration::from_millis(100);
+/// Budget a fresh access unit may send before the first pacing sleep.
+const INITIAL_BURST: f64 = (4 * MTU) as f64;
+
+/// One bounded access unit, paced by elapsed time against the encoder target.
 pub(crate) struct Pacer {
 	packets: std::vec::IntoIter<Packet>,
-	batch: usize,
 	credit: f64,
 	repair_credit: f64,
 	updated: Instant,
@@ -30,8 +38,7 @@ impl Pacer {
 	pub fn new() -> Self {
 		Self {
 			packets: Vec::new().into_iter(),
-			batch: 1,
-			credit: MTU as f64,
+			credit: INITIAL_BURST,
 			repair_credit: 0.0,
 			updated: Instant::now(),
 			progress: Instant::now(),
@@ -47,19 +54,28 @@ impl Pacer {
 	pub fn stale(&self, now: Instant) -> bool {
 		!self.is_empty() && now.duration_since(self.progress) >= Duration::from_millis(500)
 	}
-	pub fn queue(&mut self, packets: Vec<Packet>, fps: u32, now: Instant) {
-		let slots = (500 / fps.clamp(1, 60)).max(1) as usize;
-		self.batch = packets.len().div_ceil(slots).max(1);
+	pub fn queue(&mut self, packets: Vec<Packet>, now: Instant) {
+		// Idle time is not banked into a burst; only the small initial allowance carries over.
+		self.credit = self.credit.min(INITIAL_BURST);
+		self.updated = now;
 		self.packets = packets.into_iter();
 		self.deadline = now;
 		self.progress = now;
 	}
 	fn refill(&mut self, now: Instant, bitrate: u32) {
-		let bytes = now.duration_since(self.updated).as_secs_f64() * f64::from(bitrate) / 8.0;
+		let elapsed = now
+			.saturating_duration_since(self.updated)
+			.min(MAX_CATCH_UP)
+			.as_secs_f64();
 		self.updated = now;
-		// 25% wire headroom includes RTP/AEAD and repairs; no large catch-up bursts.
-		self.credit = (self.credit + bytes * 1.25).min((8 * MTU) as f64);
-		self.repair_credit = (self.repair_credit + bytes * 0.20).min((2 * MTU) as f64);
+		let target = f64::from(bitrate) / 8.0;
+		let added = elapsed * target * PACING_FACTOR;
+		// Keep a 5 ms bucket on precise timers; a longer wake may spend what it accrued.
+		let limit = (target * PACING_FACTOR * 0.005)
+			.max(INITIAL_BURST)
+			.max(added);
+		self.credit = (self.credit + added).min(limit);
+		self.repair_credit = (self.repair_credit + elapsed * target * 0.20).min((2 * MTU) as f64);
 	}
 	pub fn allow_repair(&mut self, now: Instant, bitrate: u32) -> bool {
 		self.refill(now, bitrate);
@@ -72,16 +88,27 @@ impl Pacer {
 	}
 	pub fn next_batch(&mut self, now: Instant, bitrate: u32) -> impl Iterator<Item = Packet> + '_ {
 		self.refill(now, bitrate);
-		self.deadline = (self.deadline + Duration::from_millis(2)).max(now);
 		let mut count = 0;
-		for packet in self.packets.as_slice().iter().take(self.batch) {
+		let mut shortfall = 0.0;
+		for packet in self.packets.as_slice() {
 			let bytes = (RTP_HEADER + packet.payload.len() + TRANSPORT_OVERHEAD) as f64;
 			if bytes > self.credit {
+				shortfall = bytes - self.credit;
 				break;
 			}
 			self.credit -= bytes;
 			count += 1;
 		}
+		// Sleep until the next media packet, or else a pending repair, is affordable.
+		let target = f64::from(bitrate.max(1)) / 8.0;
+		let wait = if count < self.packets.len() {
+			shortfall / (target * PACING_FACTOR)
+		} else {
+			((MTU as f64 - self.repair_credit) / (target * 0.20))
+				.max((MTU as f64 - self.credit) / (target * PACING_FACTOR))
+				.max(0.0)
+		};
+		self.deadline = now + Duration::from_secs_f64(wait.min(0.1)).max(Duration::from_millis(1));
 		// A large IDR at a reduced bitrate needs time to drain. Only a lack of
 		// progress expires it, otherwise every replacement IDR could be cut off too.
 		if count > 0 {

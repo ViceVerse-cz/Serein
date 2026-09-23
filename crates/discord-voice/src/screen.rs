@@ -9,6 +9,9 @@ mod audio_windows;
 #[cfg(not(target_os = "linux"))]
 #[path = "screen/capture.rs"]
 mod capture;
+#[cfg(any(test, not(target_os = "linux")))]
+#[path = "screen/convert.rs"]
+mod convert;
 #[cfg(target_os = "linux")]
 #[path = "screen/gstreamer.rs"]
 mod gstreamer;
@@ -25,7 +28,7 @@ use openh264::{
 		BitRate, Complexity, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod,
 		RateControlMode, UsageType,
 	},
-	formats::{BgraSliceU8, YUVBuffer},
+	formats::{BgraSliceU8, YUVBuffer, YUVSource},
 };
 use std::sync::{
 	Arc, Mutex,
@@ -384,23 +387,26 @@ fn encode_loop(
 		{
 			keyframe.store(true, Ordering::Release);
 		}
-		let pixels = fit_frame(
-			latest_frame.take().expect("latest screen frame"),
-			settings.width,
-			settings.height,
-		)?;
 		// Retain one current source snapshot, never encoded media, for a viewer's keyframe
-		// request on an unchanged desktop. Replacing it with fitted pixels avoids a copy.
-		latest_frame = Some(RawFrame {
-			width: settings.width,
-			height: settings.height,
-			stride: settings.width as usize * 4,
-			data: pixels,
-		});
+		// request on an unchanged desktop. VideoToolbox takes packed BGRA at the stream size
+		// (ScreenCaptureKit already scales); other encoders convert the source in one pass.
+		#[cfg(target_os = "macos")]
+		{
+			let pixels = fit_frame(
+				latest_frame.take().expect("latest screen frame"),
+				settings.width,
+				settings.height,
+			)?;
+			latest_frame = Some(RawFrame {
+				width: settings.width,
+				height: settings.height,
+				stride: settings.width as usize * 4,
+				data: pixels,
+			});
+		}
 		let force_keyframe = keyframe.swap(false, Ordering::AcqRel);
 		let (data, is_keyframe) = encoding.as_mut().expect("secure screen encoder").encode(
-			&latest_frame.as_ref().expect("fitted screen frame").data,
-			(settings.width as usize, settings.height as usize),
+			latest_frame.as_ref().expect("latest screen frame"),
 			force_keyframe,
 		)?;
 		if force_keyframe && (data.is_empty() || !is_keyframe) {
@@ -447,7 +453,8 @@ fn retain_screen_frame(
 struct ScreenEncoder {
 	diagnostics: crate::diagnostics::EncoderRegistration,
 	software: Option<Encoder>,
-	yuv: YUVBuffer,
+	/// Reused I420 picture for openh264.
+	i420: Vec<u8>,
 	hardware: Option<crate::video_encode::hardware::Encoder>,
 	settings: Settings,
 	bitrate: u32,
@@ -480,7 +487,7 @@ impl ScreenEncoder {
 		Ok(Self {
 			diagnostics: crate::diagnostics::EncoderRegistration::new(true, hardware.is_some()),
 			software,
-			yuv: YUVBuffer::new(settings.width as usize, settings.height as usize),
+			i420: Vec::new(),
 			hardware,
 			settings,
 			bitrate,
@@ -500,7 +507,11 @@ impl ScreenEncoder {
 			return Ok(false);
 		}
 		if self.hardware.is_none() {
-			// OpenH264 exposes no safe runtime bitrate setter; restart with an IDR.
+			// OpenH264 exposes no safe runtime bitrate setter, and a restart costs an IDR:
+			// follow only large moves so gradual recovery cannot cause a keyframe per second.
+			if !software_rate_change(self.bitrate, bitrate) {
+				return Ok(false);
+			}
 			self.software = Some(encoder(self.settings, bitrate)?);
 			self.bitrate = bitrate;
 		} else {
@@ -514,20 +525,18 @@ impl ScreenEncoder {
 
 	fn encode(
 		&mut self,
-		pixels: &[u8],
-		dimensions: (usize, usize),
+		frame: &RawFrame,
 		force_keyframe: bool,
 	) -> Result<(Vec<u8>, bool), &'static str> {
+		let (width, height) = (self.settings.width as usize, self.settings.height as usize);
 		let mut software_force = force_keyframe;
 		if let Some(hardware) = self.hardware.as_mut() {
 			#[cfg(target_os = "macos")]
-			let encoded = hardware.encode(pixels, dimensions, force_keyframe);
+			let encoded = hardware.encode(&frame.data, (width, height), force_keyframe);
 			#[cfg(target_os = "windows")]
-			let encoded = {
-				use openh264::formats::YUVSource;
-				self.yuv.read_bgra8(BgraSliceU8::new(pixels, dimensions));
-				hardware.encode(self.yuv.y(), self.yuv.u(), self.yuv.v(), force_keyframe)
-			};
+			let encoded = hardware.encode_with(width * height * 3 / 2, force_keyframe, |picture| {
+				convert::bgra_to_yuv420(frame, width, height, convert::Chroma::Interleaved, picture)
+			});
 			if let Ok(encoded) = encoded {
 				return Ok(encoded);
 			}
@@ -538,13 +547,34 @@ impl ScreenEncoder {
 			self.diagnostics.set(Some(false));
 			software_force = true;
 		}
-		self.yuv.read_bgra8(BgraSliceU8::new(pixels, dimensions));
+		self.i420.resize(width * height * 3 / 2, 0);
+		convert::bgra_to_yuv420(
+			frame,
+			width,
+			height,
+			convert::Chroma::Planar,
+			&mut self.i420,
+		)?;
+		let (y, chroma) = self.i420.split_at(width * height);
+		let (u, v) = chroma.split_at(width * height / 4);
 		encode_yuv(
 			self.software.as_mut().expect("software screen encoder"),
-			&self.yuv,
+			&openh264::formats::YUVSlices::new(
+				(y, u, v),
+				(width, height),
+				(width, width / 2, width / 2),
+			),
 			software_force,
 		)
 	}
+}
+
+/// Whether a software encoder should restart for a new transport target.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+pub(crate) fn software_rate_change(current: u32, target: u32) -> bool {
+	// Always honor congestion cuts of at least 15%; grow in 25% steps.
+	u64::from(target) * 100 <= u64::from(current) * 85
+		|| u64::from(target) * 100 >= u64::from(current) * 125
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -606,7 +636,7 @@ pub(super) fn encode_pixels(
 
 fn encode_yuv(
 	encoder: &mut Encoder,
-	yuv: &YUVBuffer,
+	yuv: &impl YUVSource,
 	force_keyframe: bool,
 ) -> Result<(Vec<u8>, bool), &'static str> {
 	if force_keyframe {
@@ -681,7 +711,7 @@ pub(super) fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'stat
 	}))
 }
 
-#[cfg(any(test, not(target_os = "linux")))]
+#[cfg(any(test, target_os = "macos"))]
 fn fit_frame(frame: RawFrame, width: u32, height: u32) -> Result<Vec<u8>, &'static str> {
 	let (row_bytes, required) = validate_frame(&frame)?;
 
