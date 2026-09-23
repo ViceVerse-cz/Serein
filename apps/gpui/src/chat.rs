@@ -1104,74 +1104,104 @@ impl Serein {
 					.child(pending.content.clone())
 			})
 			.collect::<Vec<_>>();
-		div().flex_none().children(pending).child(
-			div()
-				.px_4()
-				.pt(px(2.))
-				.pb(px(8.))
-				.children(reply.map(|name| {
-					div()
-						.px_4()
-						.pr_2()
-						.py(px(5.))
-						.rounded_t(px(8.))
-						.bg(color(ui::design::mix(p.raised, p.base, 0.45)))
-						.flex()
-						.items_center()
-						.child(
-							div()
-								.flex_1()
-								.text_size(px(13.))
-								.text_color(color(p.muted))
-								.child("Replying to ")
-								.child(
-									div()
-										.font_weight(FontWeight::SEMIBOLD)
-										.text_color(color(p.text_strong))
-										.child(name),
+		let typing = self.state.selected.and_then(|channel| {
+			ui::typing_segments(&self.state, channel, std::time::Instant::now())
+		});
+		div()
+			.flex_none()
+			.children(pending)
+			.child(
+				div()
+					.px_4()
+					.pt(px(2.))
+					.children(reply.map(|name| {
+						div()
+							.px_4()
+							.pr_2()
+							.py(px(5.))
+							.rounded_t(px(8.))
+							.bg(color(ui::design::mix(p.raised, p.base, 0.45)))
+							.flex()
+							.items_center()
+							.child(
+								div()
+									.flex_1()
+									.text_size(px(13.))
+									.text_color(color(p.muted))
+									.child("Replying to ")
+									.child(
+										div()
+											.font_weight(FontWeight::SEMIBOLD)
+											.text_color(color(p.text_strong))
+											.child(name),
+									)
+									.flex()
+									.gap_1(),
+							)
+							.child(
+								self.icon_button(
+									"cancel-reply",
+									Icon::Close,
+									false,
+									"Cancel reply",
 								)
-								.flex()
-								.gap_1(),
-						)
-						.child(
-							self.icon_button("cancel-reply", Icon::Close, false, "Cancel reply")
 								.size(px(22.))
 								.on_click(cx.listener(|this, _, _, cx| {
 									this.state.reply = None;
 									cx.notify();
 								})),
-						)
-				}))
-				.child(
-					div()
-						.min_h(px(44.))
-						.px(px(10.))
-						.py(px(6.))
-						.bg(color(p.raised))
-						.when(self.state.reply.is_some(), |d| d.rounded_b(px(8.)))
-						.when(self.state.reply.is_none(), |d| d.rounded(px(8.)))
-						.flex()
-						.items_center()
-						.gap(px(8.))
-						.when(!can_send, |d| {
-							d.child(div().flex_1().px_1().text_color(color(p.muted)).child(
-								if self.state.selected.is_some() {
-									"You do not have permission to send messages here."
-								} else {
-									"Choose a conversation to start chatting."
-								},
-							))
-						})
-						.when(can_send, |d| {
-							d.child(div().flex_1().min_w_0().child(self.composer.clone()))
-								.child(
-									self.icon_button("send", Icon::Send, true, "Send (Enter)")
-										.size(px(28.))
-										.on_click(cx.listener(|this, _, _, cx| this.send(cx))),
-								)
-						}),
-				),
-		)
+							)
+					}))
+					.child(
+						div()
+							.min_h(px(44.))
+							.px(px(10.))
+							.py(px(6.))
+							.bg(color(p.raised))
+							.when(self.state.reply.is_some(), |d| d.rounded_b(px(8.)))
+							.when(self.state.reply.is_none(), |d| d.rounded(px(8.)))
+							.flex()
+							.items_center()
+							.gap(px(8.))
+							.when(!can_send, |d| {
+								d.child(div().flex_1().px_1().text_color(color(p.muted)).child(
+									if self.state.selected.is_some() {
+										"You do not have permission to send messages here."
+									} else {
+										"Choose a conversation to start chatting."
+									},
+								))
+							})
+							.when(can_send, |d| {
+								d.child(div().flex_1().min_w_0().child(self.composer.clone()))
+									.child(
+										self.icon_button("send", Icon::Send, true, "Send (Enter)")
+											.size(px(28.))
+											.on_click(cx.listener(|this, _, _, cx| this.send(cx))),
+									)
+							}),
+					),
+			)
+			// The typing line keeps its height so the composer never jumps.
+			.child(
+				div()
+					.h(px(24.))
+					.px_4()
+					.flex()
+					.items_center()
+					.text_size(px(12.))
+					.text_color(color(p.muted))
+					.overflow_hidden()
+					.whitespace_nowrap()
+					.children(typing.into_iter().flatten().map(|(text, strong)| {
+						div()
+							.when(strong, |d| {
+								d.font_weight(FontWeight::SEMIBOLD)
+									.text_color(color(p.text_strong))
+							})
+							.child(text)
+					})),
+			)
 	}
 
 	pub(crate) fn render_chat(&self, cx: &mut Context<Self>) -> impl IntoElement {

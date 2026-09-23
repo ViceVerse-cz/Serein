@@ -92,6 +92,8 @@ pub(crate) struct Serein {
 	/// First unread message when the channel opened; `None` until its history arrives.
 	boundary: Option<Option<Id>>,
 	notice: Option<(SharedString, Instant)>,
+	/// Visible typists at the last redraw.
+	typists: usize,
 	/// Last `State::status` shown, so each new value becomes one transient notice.
 	state_status: &'static str,
 	status: &'static str,
@@ -160,6 +162,7 @@ impl Serein {
 			revealed: BTreeSet::new(),
 			boundary: None,
 			notice: None,
+			typists: 0,
 			state_status: "",
 			status: if demo {
 				"Offline preview · synthetic data"
@@ -182,7 +185,7 @@ impl Serein {
 	}
 
 	/// Offline screenshot states: `--demo-channel=ID`, `--demo-dm`, `--demo-reply`,
-	/// `--demo-hover` and `--demo-sign-in`. Synthetic fixtures only.
+	/// `--demo-hover`, `--demo-typing` and `--demo-sign-in`. Synthetic fixtures only.
 	fn apply_demo_flags(&mut self, cx: &mut Context<Self>) {
 		let args = std::env::args().collect::<Vec<_>>();
 		let flag = |name: &str| args.iter().any(|arg| arg == name);
@@ -200,6 +203,21 @@ impl Serein {
 			&& let Some(&last) = self.rows.last()
 		{
 			self.state.reply = Some(client_core::Reply::to(last));
+		}
+		if flag("--demo-typing")
+			&& let Some(channel) = self.state.selected
+		{
+			let timestamp = std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.map_or(0, |elapsed| elapsed.as_secs());
+			self.state.apply(Envelope {
+				generation: self.state.generation,
+				event: Event::Typing(client_core::typing::Signal {
+					channel,
+					user: Id(2),
+					timestamp,
+				}),
+			});
 		}
 		if flag("--demo-hover") {
 			self.hovered = self.rows.iter().rev().nth(1).copied();
@@ -245,6 +263,7 @@ impl Serein {
 			}
 			changed = true;
 		}
+		let mut batch = Vec::new();
 		for applied in 0..=EVENTS_PER_TICK {
 			if applied == EVENTS_PER_TICK {
 				backend::WAKE.notify_one();
@@ -253,6 +272,16 @@ impl Serein {
 			let Ok(envelope) = self.backend.events.try_recv() else {
 				break;
 			};
+			batch.push(envelope);
+		}
+		// Typing signals queued before these events apply first, so a message retires them.
+		let mut typing = Vec::new();
+		while typing.len() < 8
+			&& let Ok(envelope) = self.backend.events.typing.try_recv()
+		{
+			typing.push(envelope);
+		}
+		for envelope in typing.into_iter().chain(batch) {
 			navigation_changed |= matches!(
 				&envelope.event,
 				Event::Startup(_)
@@ -277,6 +306,12 @@ impl Serein {
 					| Event::ForumPosts { .. }
 			);
 			self.state.apply(envelope);
+			changed = true;
+		}
+		// Typists expire without an event; redraw when the visible set shrinks.
+		let typists = self.state.typing_users(Instant::now()).count();
+		if typists != self.typists {
+			self.typists = typists;
 			changed = true;
 		}
 		if self.state.status != self.state_status {

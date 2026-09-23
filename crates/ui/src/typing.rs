@@ -48,7 +48,7 @@ fn name(state: &State, channel: Id, user: Id) -> Option<&str> {
 }
 
 /// Text runs for the indicator; `true` marks a typist name rendered in the strong weight.
-fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, bool)>> {
+pub fn segments(state: &State, channel: Id, now: Instant) -> Option<Vec<(String, bool)>> {
 	if state.selected != Some(channel) {
 		return None;
 	}

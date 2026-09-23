@@ -11,6 +11,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 
 static CREDENTIAL_GATE: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(1)));
 /// Wakes the UI when an event or status is ready; one stored permit coalesces bursts.
+const TYPING_SLOTS: usize = 8;
 pub static WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 pub struct Backend {
@@ -22,6 +23,8 @@ pub struct Backend {
 
 pub struct Events {
 	receive: mpsc::Receiver<(Envelope, OwnedSemaphorePermit)>,
+	/// Ephemeral typing signals have their own few slots and are dropped under pressure.
+	pub typing: mpsc::Receiver<Envelope>,
 	terminal: watch::Receiver<Option<Failure>>,
 	terminal_delivered: bool,
 }
@@ -47,13 +50,24 @@ impl Events {
 
 struct Output {
 	events: mpsc::Sender<(Envelope, OwnedSemaphorePermit)>,
+	typing: mpsc::Sender<Envelope>,
 	bytes: Arc<Semaphore>,
 	startup: Arc<Semaphore>,
 }
 impl Output {
 	fn emit(&self, event: Event) -> Result<(), Failure> {
-		// This first UI has no typing indicator. Never let ephemeral typing crowd out messages.
+		// Never let ephemeral typing crowd out messages: it has separate, droppable slots.
 		if matches!(&event, Event::Typing(_)) {
+			if self
+				.typing
+				.try_send(Envelope {
+					generation: 1,
+					event,
+				})
+				.is_ok()
+			{
+				WAKE.notify_one();
+			}
 			return Ok(());
 		}
 		let startup = event.ready_navigation().is_some();
@@ -111,6 +125,7 @@ impl Backend {
 	fn launch(demo: bool, secret: Option<SessionSecret>) -> Self {
 		let (commands, receive) = mpsc::channel(COMMAND_SLOTS);
 		let (events, incoming) = mpsc::channel(4000 + EVENT_SLOTS);
+		let (typing, typing_incoming) = mpsc::channel(TYPING_SLOTS);
 		let (report, status) = watch::channel(if demo {
 			"Offline demo · synthetic data"
 		} else {
@@ -132,6 +147,7 @@ impl Backend {
 				};
 				let output = Output {
 					events,
+					typing,
 					bytes: Arc::new(Semaphore::new(EVENT_SLOTS * MAX_EVENT_BYTES)),
 					startup: Arc::new(Semaphore::new(1)),
 				};
@@ -162,6 +178,7 @@ impl Backend {
 			commands,
 			events: Events {
 				receive: incoming,
+				typing: typing_incoming,
 				terminal,
 				terminal_delivered: false,
 			},
@@ -350,14 +367,17 @@ mod tests {
 	#[test]
 	fn queued_events_release_their_byte_budget() {
 		let (send, receive) = mpsc::channel(1);
+		let (typing, typing_incoming) = mpsc::channel(1);
 		let output = Output {
 			events: send,
+			typing,
 			bytes: Arc::new(Semaphore::new(MAX_EVENT_BYTES)),
 			startup: Arc::new(Semaphore::new(1)),
 		};
 		let (finished, terminal) = watch::channel(None);
 		let mut events = Events {
 			receive,
+			typing: typing_incoming,
 			terminal,
 			terminal_delivered: false,
 		};
