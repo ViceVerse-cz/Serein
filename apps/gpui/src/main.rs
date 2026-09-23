@@ -5,6 +5,7 @@ mod chat;
 mod components;
 mod emoji;
 mod folders;
+mod forum;
 mod friends;
 mod images;
 mod input;
@@ -15,7 +16,9 @@ mod search;
 mod settings;
 mod sidebar;
 mod signin;
+mod switcher;
 mod theme;
+mod uploads;
 
 use client_core::{Command, Envelope, Event, State};
 use gpui::{prelude::*, *};
@@ -26,7 +29,10 @@ use std::{
 };
 use theme::{Icon, color, icon, palette};
 
-actions!(serein, [Quit, Hide, HideOthers, ShowAll, Minimize]);
+actions!(
+	serein,
+	[Quit, Hide, HideOthers, ShowAll, Minimize, ToggleSwitcher]
+);
 
 const NOTICE_TIME: Duration = Duration::from_secs(5);
 /// Events applied per wakeup; a larger backlog re-arms the wakeup instead of starving input.
@@ -102,6 +108,7 @@ pub(crate) struct Serein {
 	hovered: Option<Id>,
 	profile: Option<profile::Card>,
 	picker: Option<autocomplete::Picker>,
+	switcher: Option<switcher::Switcher>,
 	/// Emoji popover for the composer or a message reaction.
 	emoji_picker: Option<emoji::Picker>,
 	emoji_closed_at: Option<Instant>,
@@ -114,6 +121,8 @@ pub(crate) struct Serein {
 	/// First unread message when the channel opened; `None` until its history arrives.
 	boundary: Option<Option<Id>>,
 	notice: Option<(SharedString, Instant)>,
+	/// OS alerts for mentions and DMs while the window is inactive; off until opted in.
+	alerts: platform::notifications::Notifications,
 	/// Visible typists at the last redraw.
 	typists: usize,
 	/// Last `State::status` shown, so each new value becomes one transient notice.
@@ -125,8 +134,12 @@ pub(crate) struct Serein {
 	settings: Entity<settings::Menu>,
 	/// Friends page on the home view, shown instead of the chat.
 	friends: friends::Page,
+	/// Post-list settings for forum and media channels.
+	forum: forum::View,
 	/// Rail/channel right-click menu and expanded server folders.
 	navigation: sidebar::NavState,
+	/// Composer attachments: chosen files and the upload in flight.
+	uploads: uploads::Uploads,
 	#[cfg(not(target_os = "linux"))]
 	login: Option<platform::LoginView>,
 }
@@ -145,6 +158,18 @@ impl Serein {
 		})
 		.detach();
 		let settings = cx.new(|cx| settings::Menu::new(demo, window, cx));
+		cx.subscribe_in(
+			&settings,
+			window,
+			|this, _, event: &settings::Event, window, cx| match event {
+				settings::Event::LogOut => this.confirm_log_out(window, cx),
+				settings::Event::Notifications(on) => {
+					this.alerts.set_enabled(*on);
+					cx.notify();
+				}
+			},
+		)
+		.detach();
 		cx.subscribe(&composer, |this, _, _: &input::Submit, cx| this.send(cx))
 			.detach();
 		cx.subscribe_in(
@@ -230,12 +255,14 @@ impl Serein {
 			editing: None,
 			profile: None,
 			picker: None,
+			switcher: None,
 			emoji_picker: None,
 			emoji_closed_at: None,
 			open_select: None,
 			revealed: BTreeSet::new(),
 			boundary: None,
 			notice: None,
+			alerts: platform::notifications::Notifications::new(|| backend::WAKE.notify_one()),
 			typists: 0,
 			state_status: "",
 			status: if demo {
@@ -247,7 +274,9 @@ impl Serein {
 			authorized: false,
 			settings,
 			friends: friends::Page::default(),
+			forum: forum::View::default(),
 			navigation: sidebar::NavState::default(),
+			uploads: uploads::Uploads::default(),
 			#[cfg(not(target_os = "linux"))]
 			login: None,
 		};
@@ -263,7 +292,7 @@ impl Serein {
 
 	/// Offline screenshot states: `--demo-channel=ID`, `--demo-dm`, `--demo-reply`,
 	/// `--demo-hover`, `--demo-own-hover`, `--demo-edit`, `--demo-profile`, `--demo-mention`, `--demo-emoji-picker`,
-	/// `--demo-emoji-react`, `--demo-emoji-suggest`, `--demo-typing` and `--demo-sign-in`. Synthetic fixtures only.
+	/// `--demo-emoji-react`, `--demo-emoji-suggest`, `--demo-typing`, `--demo-forum` and `--demo-sign-in`. Synthetic fixtures only.
 	fn apply_demo_flags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
 		let args = std::env::args().collect::<Vec<_>>();
 		let flag = |name: &str| args.iter().any(|arg| arg == name);
@@ -498,6 +527,45 @@ impl Serein {
 			let target = nav_menu::Target::Guild(Id(10));
 			self.open_nav_menu(target, point(px(44.), px(130.)), window, cx);
 		}
+		if let Some(query) = args
+			.iter()
+			.find_map(|arg| arg.strip_prefix("--demo-switcher="))
+		{
+			let query = query.to_owned();
+			self.toggle_switcher(window, cx);
+			if let Some(switcher) = &self.switcher {
+				let input = switcher.input.clone();
+				input.update(cx, |input, cx| input.set_value(query, cx));
+			}
+			self.refresh_switcher(cx);
+		}
+		// `--demo-forum` opens the synthetic "ideas" forum with seeded post summaries.
+		if flag("--demo-forum")
+			&& let Some(forum) = self
+				.state
+				.channels
+				.iter()
+				.find(|c| self.state.is_forum(c.id))
+				.map(|c| c.id)
+		{
+			self.select(forum, cx);
+		}
+		// `--demo-attachments` shows two synthetic chosen files (nothing is read from disk);
+		// `--demo-upload-progress` freezes a synthetic upload part-way.
+		if let Some(channel) = self.state.selected {
+			let generation = self.state.generation;
+			if flag("--demo-attachments") {
+				let files = [
+					("launch-notes.pdf", 248_832),
+					("harbour-sunset.png", 1_843_200),
+				];
+				self.uploads.demo_select(generation, channel, &files);
+			}
+			if flag("--demo-upload-progress") {
+				self.uploads
+					.demo_progress(generation, channel, 2, 1_310_720, 2_092_032);
+			}
+		}
 		if flag("--demo-sign-in") {
 			self.state = State::default();
 			self.status = "No saved login. Choose Continue with Discord.";
@@ -584,6 +652,25 @@ impl Serein {
 			self.state.apply(envelope);
 			changed = true;
 		}
+		// Always drain, so the reducer's bounded queue never holds stale alerts.
+		let active = window.is_window_active();
+		while let Some(notification) = self.state.take_notification() {
+			if self.state.demo || (active && self.state.selected == Some(notification.channel)) {
+				continue;
+			}
+			let title: String = notification.sender.chars().take(64).collect();
+			let body: String = notification.preview.chars().take(180).collect();
+			let _ = self
+				.alerts
+				.notify_channel(notification.channel, title, body, None);
+		}
+		if let Some(channel) = self.alerts.take_activation() {
+			window.activate_window();
+			if self.state.channel(channel).is_some() {
+				self.select(channel, cx);
+			}
+			changed = true;
+		}
 		// Typists expire without an event; redraw when the visible set shrinks.
 		let typists = self.state.typing_users(Instant::now()).count();
 		if typists != self.typists {
@@ -606,6 +693,17 @@ impl Serein {
 			changed = true;
 		}
 		changed |= images::drain(window, cx);
+		let attach = self
+			.state
+			.selected
+			.is_some_and(|channel| self.state.demo || self.state.can_attach(channel));
+		changed |= self
+			.uploads
+			.poll(self.state.generation, self.state.selected, attach);
+		if let Some(problem) = self.uploads.take_notice() {
+			self.notify_user(problem);
+			changed = true;
+		}
 		if navigation_changed {
 			self.sync_channels();
 		}
@@ -759,6 +857,11 @@ impl Serein {
 					message.nonce = Some(nonce.clone());
 					message.reply_to = reply.map(client_core::Reply::target);
 					message.reactions = Some(vec![]);
+					// Synthetic metadata for files "uploaded" offline; no bytes leave the app.
+					let files = self.uploads.take_demo_sent();
+					if !files.is_empty() {
+						message.attachments = files;
+					}
 					Event::SendResult {
 						nonce,
 						result: Ok(message),
@@ -885,6 +988,9 @@ impl Serein {
 		self.guild = self.state.channel(id).and_then(|c| c.guild);
 		self.sync_channels();
 		self.dispatch(command);
+		if self.state.selected == Some(id) && self.state.is_forum(id) {
+			self.open_forum(id);
+		}
 		if changed {
 			self.state.reply = None;
 			let members = self.state.request_members();
@@ -984,6 +1090,49 @@ impl Serein {
 		cx.notify();
 	}
 
+	/// Removes the shared saved login after confirmation; the main app uses the same entry.
+	fn confirm_log_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+		let account = self.state.user.as_ref().map(|user| user.id);
+		let answer = window.prompt(
+			PromptLevel::Warning,
+			"Log out of Serein?",
+			Some(
+				"This removes the saved login from the OS credential store, which also signs out the main Serein app on this device.",
+			),
+			&["Log out", "Cancel"],
+			cx,
+		);
+		cx.spawn(async move |this, cx| {
+			if answer.await != Ok(0) {
+				return;
+			}
+			let forgotten = cx
+				.background_executor()
+				.spawn(async move {
+					platform::forget_session().is_ok()
+						&& account.is_none_or(|id| platform::forget_account_session(id).is_ok())
+				})
+				.await;
+			let _ = this.update(cx, |this, cx| {
+				this.backend = backend::Backend::idle();
+				this.backend_status = "";
+				this.alerts.clear();
+				this.state = State::default();
+				this.rows.clear();
+				this.messages.reset(0);
+				this.nav.clear();
+				this.authorized = false;
+				this.status = if forgotten {
+					"Signed out. The saved login was removed."
+				} else {
+					"Signed out, but the OS credential store could not remove the saved login."
+				};
+				cx.notify();
+			});
+		})
+		.detach();
+	}
+
 	/// Deletion is irreversible, so it always asks first.
 	pub(crate) fn confirm_delete(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
 		let Some(channel) = self.state.selected else {
@@ -1042,9 +1191,15 @@ impl Serein {
 		if !self.save_draft(cx) {
 			return;
 		}
-		let command = self.state.prepare_send();
-		if command.is_some() {
+		let sent = if self.uploads.has_files() {
+			self.send_with_attachments()
+		} else {
+			let command = self.state.prepare_send();
+			let sent = command.is_some();
 			self.dispatch(command);
+			sent
+		};
+		if sent {
 			self.state.reply = None;
 			self.composer
 				.update(cx, |input, cx| input.set_value(String::new(), cx));
@@ -1263,6 +1418,8 @@ impl Render for Serein {
 					.map(|d| {
 						if self.friends_visible() {
 							d.child(self.render_friends(cx))
+						} else if self.forum_visible() {
+							d.child(self.render_forum(cx))
 						} else {
 							d.child(self.render_chat(cx))
 						}
@@ -1280,6 +1437,11 @@ impl Render for Serein {
 		let signed_in = signed_in && self.login.is_none();
 		div()
 			.on_key_down(tab_navigation)
+			.on_action(
+				cx.listener(|this, _: &ToggleSwitcher, window, cx| {
+					this.toggle_switcher(window, cx)
+				}),
+			)
 			.size_full()
 			.relative()
 			.flex()
@@ -1302,6 +1464,7 @@ impl Render for Serein {
 			.child(body)
 			.children(self.notice_layer(cx))
 			.children(self.render_profile(cx))
+			.children(self.render_switcher(cx))
 			.children(self.render_emoji_picker(cx))
 	}
 }
@@ -1327,6 +1490,8 @@ fn main() {
 				KeyBinding::new("cmd-h", Hide, None),
 				KeyBinding::new("alt-cmd-h", HideOthers, None),
 				KeyBinding::new("cmd-m", Minimize, None),
+				KeyBinding::new("cmd-k", ToggleSwitcher, None),
+				KeyBinding::new("ctrl-k", ToggleSwitcher, None),
 			]);
 			// macOS routes Cut/Copy/Paste/Select All for the hosted login page through this menu;
 			// without it WKWebView never receives those key equivalents.

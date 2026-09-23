@@ -81,6 +81,12 @@ fn cdn_url(key: &str) -> Option<String> {
 		let (width, height) = size.split_once('x')?;
 		return media_url(source, width.parse().ok()?, height.parse().ok()?);
 	}
+	if let Some(id) = key.strip_prefix("emoji-") {
+		let id: Id = id.parse().ok()?;
+		return Some(format!(
+			"https://cdn.discordapp.com/emojis/{id}.png?size=64"
+		));
+	}
 	if let Some(icon) = key.strip_prefix("guild-") {
 		let (id, hash) = icon.split_once('-')?;
 		let id: Id = id.parse().ok()?;
@@ -525,7 +531,19 @@ mod tests {
 			Some(format!("https://cdn.discordapp.com/icons/7/{hash}.png?size=128").as_str())
 		);
 		assert!(cdn_url("default-3").is_some());
-		for bad in ["default-6", "0-abc", "42-../x", "guild-7-xyz", "42-"] {
+		assert_eq!(
+			cdn_url("emoji-9001").as_deref(),
+			Some("https://cdn.discordapp.com/emojis/9001.png?size=64")
+		);
+		for bad in [
+			"default-6",
+			"0-abc",
+			"42-../x",
+			"guild-7-xyz",
+			"42-",
+			"emoji-x",
+			"emoji-1/2",
+		] {
 			assert!(cdn_url(bad).is_none(), "{bad}");
 		}
 		let media = model::EmbedMedia {

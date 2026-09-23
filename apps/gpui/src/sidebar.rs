@@ -676,9 +676,15 @@ impl Serein {
 			return div().into_any_element();
 		};
 		let selected = self.state.selected == Some(id);
-		let unread = self.state.channel_unread(channel) == Some(true);
+		let forum = self.state.is_forum(id);
+		// Forum containers carry no messages; they are unread when one of their posts is.
+		let unread = if forum {
+			self.state.forum_unread(id)
+		} else {
+			self.state.channel_unread(channel) == Some(true)
+		};
 		let mentions = self.state.mention_count(id);
-		let openable = text_channel(channel) && !matches!(channel.kind, 15 | 16);
+		let openable = text_channel(channel) || forum;
 		let strong = selected || unread;
 		let name = channel_label(channel);
 		let direct = channel.guild.is_none();
@@ -718,11 +724,7 @@ impl Serein {
 				}),
 			)
 			.when(!openable, |d| {
-				d.tooltip(tooltip(if matches!(channel.kind, 15 | 16) {
-					"Forum posts open in the main Serein app"
-				} else {
-					"Voice is available in the main Serein app"
-				}))
+				d.tooltip(tooltip("Voice is available in the main Serein app"))
 			})
 			.when(unread && !selected, |d| {
 				d.child(

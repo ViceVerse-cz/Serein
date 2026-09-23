@@ -1,4 +1,5 @@
 //! The existing Discord adapters run independently of GPUI's render thread.
+use crate::uploads::UploadRequest;
 use client_core::{
 	COMMAND_SLOTS, Command, EVENT_SLOTS, Envelope, Event, MAX_EVENT_BYTES,
 	auth::{AuthProvider, Failure, SessionSecret},
@@ -13,9 +14,15 @@ static CREDENTIAL_GATE: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Sem
 /// Wakes the UI when an event or status is ready; one stored permit coalesces bursts.
 const TYPING_SLOTS: usize = 8;
 pub static WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();
+/// At most one upload waits behind the one in flight; the UI also allows only one at a time.
+const UPLOAD_SLOTS: usize = 1;
+/// Upload progress wakes the UI at most this often; the idle tick covers the rest.
+const PROGRESS_WAKE: Duration = Duration::from_millis(100);
 
 pub struct Backend {
 	pub commands: mpsc::Sender<Command>,
+	/// Attachment uploads run beside the serial REST queue, as in the egui connection.
+	pub uploads: mpsc::Sender<UploadRequest>,
 	pub events: Events,
 	pub status: watch::Receiver<&'static str>,
 	cancel: watch::Sender<bool>,
@@ -124,6 +131,7 @@ impl Backend {
 
 	fn launch(demo: bool, secret: Option<SessionSecret>) -> Self {
 		let (commands, receive) = mpsc::channel(COMMAND_SLOTS);
+		let (uploads, upload_receive) = mpsc::channel(UPLOAD_SLOTS);
 		let (events, incoming) = mpsc::channel(4000 + EVENT_SLOTS);
 		let (typing, typing_incoming) = mpsc::channel(TYPING_SLOTS);
 		let (report, status) = watch::channel(if demo {
@@ -161,7 +169,7 @@ impl Backend {
 					tokio::select! {
 						_ = cancelled.changed() => {},
 						_ = forward => {},
-						result = connect(receive, &output, &report, secret) => {
+						result = connect(receive, upload_receive, &output, &report, secret) => {
 							if let Err(failure) = result {
 								let _ = report.send(failure.label());
 								let _ = finished.send(Some(failure));
@@ -176,6 +184,7 @@ impl Backend {
 		}
 		Self {
 			commands,
+			uploads,
 			events: Events {
 				receive: incoming,
 				typing: typing_incoming,
@@ -195,6 +204,7 @@ impl Drop for Backend {
 
 async fn connect(
 	mut commands: mpsc::Receiver<Command>,
+	mut uploads: mpsc::Receiver<UploadRequest>,
 	output: &Output,
 	status: &watch::Sender<&'static str>,
 	supplied: Option<SessionSecret>,
@@ -270,7 +280,7 @@ async fn connect(
 		// ponytail: serialize REST work; split history from writes if switching latency matters.
 		while let Some(command) = commands.recv().await {
 			// Dropping the in-flight search is enough; no request goes to Discord.
-			if matches!(command, Command::CancelSearch) {
+			if matches!(command, Command::CancelSearch | Command::CancelProfile) {
 				continue;
 			}
 			// Member lists are gateway subscriptions, not REST requests.
@@ -356,9 +366,52 @@ async fn connect(
 		}
 		std::future::pending::<()>().await;
 	};
+	let uploading = async {
+		while let Some(request) = uploads.recv().await {
+			let UploadRequest {
+				command,
+				source,
+				progress,
+				cancel,
+			} = request;
+			let mut updates = progress.subscribe();
+			// `cancel` stays alive here: a dropped sender reads as cancellation.
+			let operation = api.upload_messages(command, source, progress, cancel.subscribe());
+			tokio::pin!(operation);
+			let mut observing = true;
+			let mut woke: Option<std::time::Instant> = None;
+			let event = loop {
+				tokio::select! {
+					event = &mut operation => break event,
+					changed = updates.changed(), if observing => {
+						observing = changed.is_ok();
+						if woke.is_none_or(|at| at.elapsed() >= PROGRESS_WAKE) {
+							woke = Some(std::time::Instant::now());
+							WAKE.notify_one();
+						}
+					}
+				}
+			};
+			drop(cancel);
+			let terminal = match &event {
+				Event::SendResult {
+					result: Err(failure),
+					..
+				} if failure.ends_session() => Some(*failure),
+				_ => None,
+			};
+			output.emit(event)?;
+			if let Some(failure) = terminal {
+				return Err(failure);
+			}
+		}
+		// The sender lives in `Backend`; its drop cancels the whole worker.
+		std::future::pending().await
+	};
 	let result = tokio::select! {
 		result = stream => result.and(Err(Failure::Network)),
 		result = writes => result,
+		result = uploading => result,
 		_ = save => Ok(()),
 	};
 	api.stop();

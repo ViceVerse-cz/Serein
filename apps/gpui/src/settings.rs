@@ -17,7 +17,16 @@ const ACCENTS: [(Option<[u8; 3]>, &str); 6] = [
 	(Some([0xef, 0x55, 0x61]), "Rose"),
 ];
 
+/// Account actions the popover hands to the app.
+pub enum Event {
+	LogOut,
+	/// Session-only opt-in; macOS may ask for permission the first time.
+	Notifications(bool),
+}
+
 pub struct Menu {
+	demo: bool,
+	notifications: bool,
 	open: bool,
 	focus: FocusHandle,
 	/// Focus before opening, restored on close.
@@ -37,6 +46,8 @@ impl Menu {
 			window.refresh();
 		});
 		let mut this = Self {
+			demo,
+			notifications: false,
 			open: false,
 			focus: cx.focus_handle(),
 			restore: None,
@@ -244,8 +255,64 @@ impl Menu {
 			.child(div().flex().flex_col().gap(px(2.)).children(variants))
 			.child(eyebrow("Accent"))
 			.child(div().px_1().flex().gap(px(6.)).children(accents))
+			.when(!self.demo, |d| {
+				let on = self.notifications;
+				d.child(div().h(px(1.)).my_1().bg(color(p.border)))
+					.child(
+						div()
+							.id("notifications")
+							.h(px(32.))
+							.px_2()
+							.rounded(px(6.))
+							.flex()
+							.items_center()
+							.justify_between()
+							.cursor_pointer()
+							.text_size(px(14.))
+							.text_color(color(p.text_strong))
+							.hover(|d| d.bg(color(p.hover)))
+							.on_click(cx.listener(|this, _, _, cx| {
+								this.notifications = !this.notifications;
+								cx.emit(Event::Notifications(this.notifications));
+								cx.notify();
+							}))
+							.child("Desktop notifications")
+							.child(
+								div()
+									.w(px(34.))
+									.h(px(20.))
+									.p(px(2.))
+									.rounded_full()
+									.bg(color(if on { p.accent } else { p.selected }))
+									.flex()
+									.when(on, |d| d.justify_end())
+									.child(div().size(px(16.)).rounded_full().bg(white())),
+							),
+					)
+					.child(
+						div()
+							.id("log-out")
+							.h(px(32.))
+							.px_2()
+							.rounded(px(6.))
+							.flex()
+							.items_center()
+							.cursor_pointer()
+							.text_size(px(14.))
+							.font_weight(FontWeight::MEDIUM)
+							.text_color(color(p.danger))
+							.hover(|d| d.bg(crate::theme::tint(p.danger, 0.12)))
+							.on_click(cx.listener(|this, _, window, cx| {
+								this.close(window, cx);
+								cx.emit(Event::LogOut);
+							}))
+							.child("Log out"),
+					)
+			})
 	}
 }
+
+impl EventEmitter<Event> for Menu {}
 
 /// The egui preset swatch in miniature: chat colour with a base dot, or the gradient stops.
 fn variant_swatch(swatch: &ui::design::Palette, border: Rgba) -> impl IntoElement {

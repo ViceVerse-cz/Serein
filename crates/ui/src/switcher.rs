@@ -228,6 +228,43 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 	choices
 }
 
+/// One quick-switcher result for renderers outside egui.
+pub struct SwitcherChoice {
+	/// A conversation to open, or `None` for a friend without a direct message yet.
+	pub channel: Option<Id>,
+	pub friend: Option<Id>,
+	pub voice: bool,
+	pub guild: bool,
+	pub name: String,
+	/// Server name, "Direct message", or the friend's username.
+	pub scope: String,
+	pub current: bool,
+	pub user: Option<model::User>,
+}
+
+/// The same bounded ranking the egui switcher uses: current and recent conversations first.
+pub fn switcher_choices(state: &State, query: &str) -> Vec<SwitcherChoice> {
+	candidates(state, query)
+		.into_iter()
+		.map(|candidate| SwitcherChoice {
+			channel: match candidate.target {
+				Target::Channel(id) => Some(id),
+				Target::Friend(_) => None,
+			},
+			friend: match candidate.target {
+				Target::Friend(id) => Some(id),
+				Target::Channel(_) => None,
+			},
+			voice: candidate.kind == Kind::Voice,
+			guild: matches!(candidate.kind, Kind::Text | Kind::Voice),
+			name: candidate.name,
+			scope: candidate.scope,
+			current: candidate.current,
+			user: candidate.user,
+		})
+		.collect()
+}
+
 /// Snowflake of the latest known activity; a channel's own ID when it has no messages yet.
 pub(super) fn activity(channel: &Channel) -> Id {
 	channel.last_message.unwrap_or(channel.id).max(channel.id)

@@ -28,6 +28,13 @@ actions!(
 		Copy,
 		Submit,
 		Cancel,
+		FormatBold,
+		FormatItalic,
+		FormatUnderline,
+		FormatStrike,
+		FormatCode,
+		FormatCodeBlock,
+		FormatSpoiler,
 		Newline,
 		Up,
 		Down,
@@ -104,6 +111,62 @@ impl Input {
 		if self.marked_range.is_none() {
 			cx.emit(Submit);
 		}
+	}
+
+	/// Wraps the selection (or inserts an empty pair) with markdown markers; an already wrapped
+	/// selection is unwrapped, matching the main app's composer shortcuts.
+	fn wrap(&mut self, prefix: &str, suffix: &str, window: &mut Window, cx: &mut Context<Self>) {
+		let range = self.selected_range.clone();
+		let selected = self.content[range.clone()].to_owned();
+		let (text, inner) = match selected
+			.strip_prefix(prefix)
+			.and_then(|rest| rest.strip_suffix(suffix))
+			.filter(|_| selected.len() >= prefix.len() + suffix.len())
+		{
+			Some(inner) => (inner.to_owned(), 0..inner.len()),
+			None => (
+				format!("{prefix}{selected}{suffix}"),
+				prefix.len()..prefix.len() + selected.len(),
+			),
+		};
+		let start = range.start;
+		self.selected_range = range;
+		self.replace_text_in_range(None, &text, window, cx);
+		if self.content.len() >= start + inner.end {
+			self.selected_range = start + inner.start..start + inner.end;
+			cx.notify();
+		}
+	}
+	fn format_bold(&mut self, _: &FormatBold, window: &mut Window, cx: &mut Context<Self>) {
+		self.wrap("**", "**", window, cx);
+	}
+	fn format_italic(&mut self, _: &FormatItalic, window: &mut Window, cx: &mut Context<Self>) {
+		self.wrap("*", "*", window, cx);
+	}
+	fn format_underline(
+		&mut self,
+		_: &FormatUnderline,
+		window: &mut Window,
+		cx: &mut Context<Self>,
+	) {
+		self.wrap("__", "__", window, cx);
+	}
+	fn format_strike(&mut self, _: &FormatStrike, window: &mut Window, cx: &mut Context<Self>) {
+		self.wrap("~~", "~~", window, cx);
+	}
+	fn format_code(&mut self, _: &FormatCode, window: &mut Window, cx: &mut Context<Self>) {
+		self.wrap("`", "`", window, cx);
+	}
+	fn format_code_block(
+		&mut self,
+		_: &FormatCodeBlock,
+		window: &mut Window,
+		cx: &mut Context<Self>,
+	) {
+		self.wrap("```\n", "\n```", window, cx);
+	}
+	fn format_spoiler(&mut self, _: &FormatSpoiler, window: &mut Window, cx: &mut Context<Self>) {
+		self.wrap("||", "||", window, cx);
 	}
 
 	fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
@@ -753,6 +816,13 @@ impl Render for Input {
 			.on_action(cx.listener(Self::submit))
 			.on_action(cx.listener(Self::newline))
 			.on_action(cx.listener(Self::cancel))
+			.on_action(cx.listener(Self::format_bold))
+			.on_action(cx.listener(Self::format_italic))
+			.on_action(cx.listener(Self::format_underline))
+			.on_action(cx.listener(Self::format_strike))
+			.on_action(cx.listener(Self::format_code))
+			.on_action(cx.listener(Self::format_code_block))
+			.on_action(cx.listener(Self::format_spoiler))
 			.on_action(cx.listener(Self::up))
 			.on_action(cx.listener(Self::down))
 			.on_action(cx.listener(Self::select_up))
@@ -833,6 +903,14 @@ pub fn init(cx: &mut App) {
 		KeyBinding::new("enter", Submit, Some("SereinInput")),
 		KeyBinding::new("shift-enter", Newline, Some("SereinInput")),
 		KeyBinding::new("escape", Cancel, Some("SereinInput")),
+		// The main app's default formatting chords (`model::Keybinds::default`).
+		KeyBinding::new("secondary-b", FormatBold, Some("SereinInput")),
+		KeyBinding::new("secondary-i", FormatItalic, Some("SereinInput")),
+		KeyBinding::new("secondary-u", FormatUnderline, Some("SereinInput")),
+		KeyBinding::new("secondary-shift-x", FormatStrike, Some("SereinInput")),
+		KeyBinding::new("secondary-e", FormatCode, Some("SereinInput")),
+		KeyBinding::new("secondary-shift-c", FormatCodeBlock, Some("SereinInput")),
+		KeyBinding::new("secondary-shift-p", FormatSpoiler, Some("SereinInput")),
 		KeyBinding::new("up", Up, Some("SereinInput")),
 		KeyBinding::new("down", Down, Some("SereinInput")),
 		KeyBinding::new("shift-up", SelectUp, Some("SereinInput")),

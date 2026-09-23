@@ -18,7 +18,8 @@ Legend: **[x]** done · **[~]** partial · **[ ]** to do
 - [~] Image downloads with a bounded cache (`images.rs`: 256 items / 32 MiB LRU, 6 jobs, CDN
       allow-list, fingerprint UA, no redirects): avatars, guild icons and inline image attachments.
       Embed images/thumbnails through Discord's `images-ext` proxy (same rules as the main app).
-      Not yet: custom emoji, animated images, spoiler images, ThumbHash placeholders. Untested against the live CDN.
+      Custom emoji images in emoji-only messages and reactions (inline ones read `:name:`).
+      Not yet: animated images, spoiler images, ThumbHash placeholders. Untested against the live CDN.
 - [ ] Persisted drafts/settings (main app uses SQLite; the experiment keeps them in memory)
 - [ ] Linux hosted login (GTK webview) — Linux restores saved logins only
 
@@ -28,7 +29,9 @@ Legend: **[x]** done · **[~]** partial · **[ ]** to do
 - [x] Consent checkbox, "Continue with Discord", hosted login with a native header and Cancel
 - [x] Clipboard in the hosted login (Edit menu fix)
 - [ ] Saved-account roster / account switching
-- [ ] Session-token disclosure and "Forget saved login"
+- [x] Log out from the settings popover (confirmation; removes the shared saved login, which
+      also signs out the main app)
+- [ ] Session-token disclosure
 
 ## Navigation
 
@@ -49,7 +52,14 @@ Legend: **[x]** done · **[~]** partial · **[ ]** to do
 - [~] Right-click menus: channel rows and rail DMs (Mark As Read, Copy Link, Copy Channel ID),
       server tiles (Mark As Read, Copy Server ID); Escape/outside click closes. Not yet: mute,
       notification settings, invite, category and folder menus
-- [ ] Voice channels (listed only), forum posts view
+- [ ] Voice channels (listed only)
+- [~] Forum/media channels (`forum.rs`, `--demo-forum`): post cards (unread dot, latest author
+      and excerpt from `post_summary`, reply count, "(N New)", last activity), sort by activity or
+      creation, "Load more posts"/Retry via `request_forum_posts`, visible-card summaries via
+      `request_post_summaries`; a card opens the post as a thread; forum rows light from
+      `forum_unread`. Not yet: tags (not in the model), post search, New Post, archived posts,
+      author member lookup for role colours, post context menu
+- [x] ⌘K / Ctrl+K quick switcher (`ui::switcher_choices` ranking, arrows/Enter/Escape)
 
 ## Timeline
 
@@ -74,13 +84,22 @@ Legend: **[x]** done · **[~]** partial · **[ ]** to do
       user/role/channel selects, media galleries, files, modal forms; polls and stickers
 - [x] Add reaction from the hover toolbar (smiley button, same emoji picker, `prepare_reaction`)
 - [ ] Reaction user list
-- [~] Profile card on author-name click from in-memory data (name, username, status, roles,
-      Mention); no profile fetch, bio or mutual servers yet
+- [x] Profile card on author-name click: local data immediately, then the fetched profile (bio,
+      pronouns, server roles) via `request_profile`; account age; Mention. No badges, banner
+      image, connections or mutual servers yet
 
 ## Composer
 
 - [x] "Message #channel" placeholder, IME, clipboard, send button, reply cap
-- [ ] Attachments / uploads
+- [x] Formatting shortcuts (⌘/Ctrl B, I, U, E, ⇧X, ⇧C, ⇧P wrap or unwrap the selection)
+- [~] Attachments / uploads (`uploads.rs`): "+" opens the native multi-file panel, files dropped
+      on the conversation are added, removable cards (name, size) above the input; Enter sends
+      them with the draft via `prepare_send_with_attachments` and `discord_api` `upload_messages`
+      on its own backend lane (1 queued, progress watch, cancel), progress line with Cancel,
+      failures as notices. Same limits as egui (10 files, 500 MB total, `Source::inspect` name and
+      regular-file checks, metadata read on a worker thread). `--demo` fakes the result offline;
+      `--demo-attachments` / `--demo-upload-progress` for screenshots. Not yet: thumbnails, paste
+      image, spoiler/description, per-account size limits, forum-post files. Untested live
 - [x] `@person` / `#channel` autocomplete (Up/Down, Enter, Escape, click)
 - [~] Emoji picker from the composer smiley button (`emoji.rs`): search, category tabs, bundled
       Unicode grid (system emoji font, skin-tone variants hidden) and the current server's usable
@@ -94,8 +113,13 @@ Legend: **[x]** done · **[~]** partial · **[ ]** to do
 ## People and settings
 
 - [x] Member list: gateway groups, thread/DM grouping, presence, role colours, statuses
-- [ ] Lazy member-list paging beyond the first window
+- [x] Lazy member-list paging: a `uniform_list` of 42 px rows over the list `total` (headers
+      as rows, placeholder rows until a chunk arrives), `member_slot` + window lookup, visible
+      range sent through `focus_member_ranges` as `Command::Members`; small lists unchanged.
+      Untested against a live large guild
 - [x] Theme variant, Dark/Light/System and accent presets from the user-panel gear (in memory)
+- [x] Desktop notifications opt-in (settings popover): mentions/DMs from the reducer's filtered
+      queue while the window is inactive or elsewhere; clicking opens the channel. No sounds yet
 - [ ] Settings window (notifications, privacy, voice)
 
 ## Not planned in this experiment
@@ -104,6 +128,10 @@ Voice/video calls, screen share, extensions, server administration and the updat
 main egui app.
 
 ## Log
+
+- 2026-09-23: attachments/uploads (picker, drop, cards, progress, cancel), forum view, lazy
+  member paging, ⌘K switcher, formatting shortcuts, desktop notifications, log out, fetched
+  profiles, custom emoji images.
 
 - 2026-09-23: rail badges, unread-DM avatars, server folders, right-click menus, Friends page,
   emoji suggestions/picker/add-reaction, search and pins panel, message components, embed

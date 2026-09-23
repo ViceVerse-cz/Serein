@@ -34,6 +34,7 @@ pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, Exte
 pub use highlight::Token as CodeToken;
 pub use local_time::{discord_timestamp, local as local_datetime};
 pub use markdown::{FormatCache, Formatted, Span as MarkdownSpan};
+pub use switcher::{SwitcherChoice, switcher_choices};
 pub use typing::segments as typing_segments;
 pub mod emoji;
 mod emoji_details;

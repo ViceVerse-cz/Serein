@@ -24,7 +24,7 @@ NAMES = [
     "arrow-bend-up-left", "arrow-down", "caret-down", "caret-right", "chat-centered-text", "chats",
     "check", "copy", "download-simple", "file", "file-image", "file-text", "folder-open", "gear",
     "hash", "link",
-    "magnifying-glass", "megaphone-simple", "paper-plane-right", "pencil-simple", "push-pin", "smiley", "speaker-high",
+    "magnifying-glass", "megaphone-simple", "paper-plane-right", "pencil-simple", "plus-circle", "push-pin", "smiley", "speaker-high",
     "trash", "users", "x",
 ]
 

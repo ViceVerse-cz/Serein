@@ -158,7 +158,8 @@ pub(crate) fn blank(ctx: &Context, size: f32) -> Image<'static> {
 	Image::new(&texture).fit_to_exact_size(egui::Vec2::splat(size))
 }
 
-pub(crate) fn custom_prefix(text: &str) -> Option<(model::Id, usize)> {
+/// A custom emoji token `<:name:id>`/`<a:name:id>` at the start of `text`: its id and byte length.
+pub fn custom_prefix(text: &str) -> Option<(model::Id, usize)> {
 	let body = text
 		.strip_prefix("<:")
 		.or_else(|| text.strip_prefix("<a:"))?;

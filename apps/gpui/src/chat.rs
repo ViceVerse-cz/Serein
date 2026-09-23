@@ -43,6 +43,10 @@ pub(crate) fn short_date(id: Id) -> String {
 		)
 	})
 }
+/// "September 10, 2026" for when a snowflake was created (account age on profiles).
+pub(crate) fn day_label(id: Id) -> String {
+	created(id).map_or_else(String::new, date_label)
+}
 fn date_label(at: time::OffsetDateTime) -> String {
 	format!("{} {}, {}", at.month(), at.day(), at.year())
 }
@@ -249,7 +253,8 @@ impl Markdown<'_> {
 				foreground = p.mention_text;
 				background = Some(tint(p.accent, 0.3));
 			}
-			span.text.to_owned()
+			// Text runs cannot hold images: inline custom emoji read as `:name:`.
+			custom_emoji_names(span.text)
 		};
 		if let Some(url) = span.link
 			&& click.is_none()
@@ -300,6 +305,89 @@ impl Markdown<'_> {
 			}),
 		});
 	}
+}
+
+/// Name of a custom emoji token `<:name:id>` / `<a:name:id>`.
+fn custom_name(token: &str) -> &str {
+	token
+		.trim_start_matches("<a:")
+		.trim_start_matches("<:")
+		.split(':')
+		.next()
+		.unwrap_or_default()
+}
+
+fn custom_emoji_names(text: &str) -> String {
+	let mut out = String::with_capacity(text.len());
+	let mut offset = 0;
+	while offset < text.len() {
+		if let Some((_, len)) = ui::emoji::custom_prefix(&text[offset..]) {
+			out.push(':');
+			out.push_str(custom_name(&text[offset..offset + len]));
+			out.push(':');
+			offset += len;
+		} else {
+			let next = text[offset..].chars().next().map_or(1, char::len_utf8);
+			out.push_str(&text[offset..offset + next]);
+			offset += next;
+		}
+	}
+	out
+}
+
+/// A custom emoji image once cached, else its `:name:` in muted text.
+pub(crate) fn custom_emoji(id: Id, name: &str, size: f32) -> AnyElement {
+	match crate::images::get(&format!("emoji-{id}")) {
+		Some(image) => img(image)
+			.size(px(size))
+			.flex_none()
+			.object_fit(ObjectFit::Contain)
+			.into_any_element(),
+		None => div()
+			.text_size(px((size * 0.6).max(13.)))
+			.text_color(color(palette().muted))
+			.child(format!(":{name}:"))
+			.into_any_element(),
+	}
+}
+
+/// Emoji-only messages render large, custom emoji as images, like the main app.
+fn jumbo(spans: impl Iterator<Item = String>) -> AnyElement {
+	use unicode_segmentation::UnicodeSegmentation;
+	let mut items = Vec::new();
+	for text in spans {
+		let mut offset = 0;
+		while offset < text.len() {
+			if let Some((id, len)) = ui::emoji::custom_prefix(&text[offset..]) {
+				items.push(custom_emoji(
+					id,
+					custom_name(&text[offset..offset + len]),
+					48.,
+				));
+				offset += len;
+				continue;
+			}
+			let Some(cluster) = text[offset..].graphemes(true).next() else {
+				break;
+			};
+			if !cluster.trim().is_empty() {
+				items.push(
+					div()
+						.text_size(px(44.))
+						.child(cluster.to_owned())
+						.into_any_element(),
+				);
+			}
+			offset += cluster.len();
+		}
+	}
+	div()
+		.flex()
+		.flex_wrap()
+		.items_center()
+		.gap_1()
+		.children(items)
+		.into_any_element()
 }
 
 /// One-line text of a message with mentions resolved, for reply previews.
@@ -510,6 +598,9 @@ impl Serein {
 		}
 		let view = cx.entity();
 		let formatted = self.format.get_part(message.id, part, source);
+		if formatted.jumbo() {
+			return vec![jumbo(formatted.spans().map(|span| span.text.to_owned()))];
+		}
 		let mut markdown = Markdown {
 			state: &self.state,
 			message,
@@ -939,7 +1030,10 @@ impl Serein {
 							this.dispatch(command);
 							cx.notify();
 						}))
-						.child(div().text_size(px(16.)).child(label))
+						.child(match (reaction.emoji.id, &reaction.emoji.name) {
+							(Some(id), Some(name)) => custom_emoji(id, name, 18.),
+							_ => div().text_size(px(16.)).child(label).into_any_element(),
+						})
 						.child(
 							div()
 								.text_size(px(14.))
@@ -1510,12 +1604,21 @@ impl Serein {
 					.overflow_hidden()
 					.whitespace_nowrap()
 					.text_ellipsis()
-					.child(pending.content.clone())
+					.child(if pending.attachments.is_empty() {
+						pending.content.clone()
+					} else {
+						// Uploads in flight name their files; progress shows in the composer.
+						format!("{} [{}]", pending.content, pending.attachments.join(", "))
+							.trim_start()
+							.to_owned()
+					})
 			})
 			.collect::<Vec<_>>();
 		let typing = self.state.selected.and_then(|channel| {
 			ui::typing_segments(&self.state, channel, std::time::Instant::now())
 		});
+		let tray = can_send.then(|| self.upload_tray(cx)).flatten();
+		let joined = self.state.reply.is_some() || tray.is_some();
 		div()
 			.flex_none()
 			.children(pending)
@@ -1563,14 +1666,20 @@ impl Serein {
 								})),
 							)
 					}))
+					.children(tray.map(|tray| {
+						div()
+							.when(self.state.reply.is_none(), |d| d.rounded_t(px(8.)))
+							.overflow_hidden()
+							.child(tray)
+					}))
 					.child(
 						div()
 							.min_h(px(44.))
 							.px(px(10.))
 							.py(px(6.))
 							.bg(color(p.raised))
-							.when(self.state.reply.is_some(), |d| d.rounded_b(px(8.)))
-							.when(self.state.reply.is_none(), |d| d.rounded(px(8.)))
+							.when(joined, |d| d.rounded_b(px(8.)))
+							.when(!joined, |d| d.rounded(px(8.)))
 							.flex()
 							.items_center()
 							.gap(px(8.))
@@ -1582,6 +1691,18 @@ impl Serein {
 										"Choose a conversation to start chatting."
 									},
 								))
+							})
+							.when(can_send && self.can_attach_here(), |d| {
+								d.child(
+									self.icon_button(
+										"attach",
+										Icon::PlusCircle,
+										false,
+										"Upload a file",
+									)
+									.size(px(28.))
+									.on_click(cx.listener(|this, _, _, cx| this.choose_files(cx))),
+								)
 							})
 							.when(can_send, |d| {
 								d.child(div().flex_1().min_w_0().child(self.composer.clone()))
@@ -1636,6 +1757,13 @@ impl Serein {
 			.bg(color(p.chat))
 			.flex()
 			.flex_col()
+			// Files dropped on the conversation join the composer's attachments.
+			.when(self.can_attach_here(), |d| {
+				d.drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(tint(p.accent, 0.08)))
+					.on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+						this.attach_paths(paths.paths().to_vec(), cx)
+					}))
+			})
 			.child(self.chat_header(cx))
 			.child(
 				div()
@@ -1710,7 +1838,7 @@ impl Serein {
 #[cfg(test)]
 mod tests {
 	// Not a glob import: `gpui::*` would shadow the built-in `#[test]` attribute.
-	use super::{GROUP_SECONDS, continues, format_size, preview_text};
+	use super::{GROUP_SECONDS, continues, custom_emoji_names, format_size, preview_text};
 	use client_core::State;
 	use model::{Id, Message};
 
@@ -1750,6 +1878,19 @@ mod tests {
 		assert_eq!(
 			preview_text(&mut format, &state, &long).chars().count(),
 			160
+		);
+	}
+
+	#[test]
+	fn inline_custom_emoji_read_as_names() {
+		assert_eq!(
+			custom_emoji_names("hi <:serein_wave:9001> and <a:party:42>!"),
+			"hi :serein_wave: and :party:!"
+		);
+		// Malformed tokens stay literal.
+		assert_eq!(
+			custom_emoji_names("<:x:1> <:bad name:2>"),
+			"<:x:1> <:bad name:2>"
 		);
 	}
 

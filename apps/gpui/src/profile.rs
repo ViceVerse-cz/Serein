@@ -22,12 +22,23 @@ impl Serein {
 		position: Point<Pixels>,
 		cx: &mut Context<Self>,
 	) {
+		// Fetch the full profile (bio, pronouns, server roles); the card shows local data meanwhile.
+		let command = self.state.request_profile(user.id, guild);
+		self.dispatch(command);
 		self.profile = Some(Card {
 			user,
 			guild,
 			roles,
 			position,
 		});
+		cx.notify();
+	}
+
+	pub(crate) fn close_profile(&mut self, cx: &mut Context<Self>) {
+		if self.profile.take().is_some() && self.state.profile.is_some() {
+			let command = self.state.clear_profile();
+			self.dispatch(Some(command));
+		}
 		cx.notify();
 	}
 
@@ -61,6 +72,13 @@ impl Serein {
 				_ => None,
 			})
 		});
+		let fetched = self
+			.state
+			.profile
+			.as_ref()
+			.filter(|view| view.user == user.id)
+			.and_then(|view| view.data.as_ref());
+		let server = fetched.and_then(|profile| profile.guild.as_ref());
 		// The live member list can know roles the message snapshot did not carry.
 		let member_roles = self
 			.state
@@ -81,12 +99,34 @@ impl Serein {
 			.map(|roles| {
 				roles
 					.iter()
-					.filter(|role| card.roles.contains(&role.id) || member_roles.contains(&role.id))
+					.filter(|role| {
+						card.roles.contains(&role.id)
+							|| member_roles.contains(&role.id)
+							|| server.is_some_and(|guild| guild.roles.contains(&role.id))
+					})
 					.collect::<Vec<_>>()
 			})
 			.unwrap_or_default();
 		roles.sort_by(|a, b| b.cmp_hierarchy(a));
 		roles.truncate(12);
+		let pronouns = server
+			.map(|guild| guild.pronouns.as_str())
+			.filter(|text| !text.is_empty())
+			.or(fetched.map(|profile| profile.pronouns.as_str()))
+			.filter(|text| !text.is_empty())
+			.map(str::to_owned);
+		let bio = server
+			.map(|guild| guild.bio.as_str())
+			.filter(|text| !text.is_empty())
+			.or(fetched.map(|profile| profile.bio.as_str()))
+			.filter(|text| !text.is_empty())
+			.map(|bio| bio.chars().take(400).collect::<String>());
+		let since = crate::chat::day_label(user.id);
+		let loading = self
+			.state
+			.profile
+			.as_ref()
+			.is_some_and(|view| view.user == user.id && view.loading);
 		let mention = format!("<@{}> ", user.id);
 		// Same hashed colour as the initials avatar, softened for the banner.
 		let banner = tint(ui::design::fallback_avatar_color(&name), 0.55);
@@ -106,10 +146,7 @@ impl Serein {
 						.shadow_lg()
 						.overflow_hidden()
 						.font_family(crate::theme::FONT)
-						.on_mouse_down_out(cx.listener(|this, _, _, cx| {
-							this.profile = None;
-							cx.notify();
-						}))
+						.on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_profile(cx)))
 						.child(div().h(px(60.)).bg(banner))
 						.child(
 							div().px_4().mt(px(-36.)).child(
@@ -173,6 +210,36 @@ impl Serein {
 										.text_size(px(14.))
 										.child(custom)
 								}))
+								.children(pronouns.map(|pronouns| {
+									div()
+										.text_size(px(13.))
+										.text_color(color(p.muted))
+										.child(pronouns)
+								}))
+								.children(bio.map(|bio| {
+									div()
+										.flex()
+										.flex_col()
+										.gap_1()
+										.child(section_title("ABOUT ME"))
+										.child(div().text_size(px(14.)).child(bio))
+								}))
+								.child(
+									div()
+										.flex()
+										.flex_col()
+										.gap_1()
+										.child(section_title("MEMBER SINCE"))
+										.child(div().text_size(px(14.)).child(since)),
+								)
+								.when(loading, |d| {
+									d.child(
+										div()
+											.text_size(px(12.))
+											.text_color(color(p.muted))
+											.child("Loading profile…"),
+									)
+								})
 								.when(!roles.is_empty(), |d| {
 									d.child(
 										div()
@@ -225,7 +292,7 @@ impl Serein {
 											});
 											let focus = this.composer.read(cx).focus_handle(cx);
 											window.focus(&focus, cx);
-											this.profile = None;
+											this.close_profile(cx);
 											cx.notify();
 										}))
 										.child("Mention"),
@@ -234,4 +301,12 @@ impl Serein {
 				),
 		))
 	}
+}
+
+fn section_title(title: &'static str) -> Div {
+	div()
+		.text_size(px(12.))
+		.font_weight(FontWeight::SEMIBOLD)
+		.text_color(color(palette().muted))
+		.child(title)
 }
