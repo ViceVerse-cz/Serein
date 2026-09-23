@@ -46,18 +46,7 @@ fn attach_app_data(
 	invocation.messaging_settings =
 		crate::extension_app::messaging_settings_snapshot(state, manifest);
 	invocation.guild_folders = crate::extension_app::guild_folders_snapshot(state, manifest);
-	for field in 0..3 {
-		if serde_json::to_vec(invocation)
-			.is_ok_and(|wire| wire.len() <= extensions::MAX_IO_BYTES - 8 * 1024)
-		{
-			break;
-		}
-		match field {
-			0 => invocation.messaging_settings = None,
-			1 => invocation.guild_folders = None,
-			_ => invocation.queries = None,
-		}
-	}
+	crate::extensions::trim_extended_input(invocation, extensions::MAX_IO_BYTES - 8 * 1024);
 }
 
 enum ReactiveEvent {
@@ -778,8 +767,10 @@ impl Bridge {
 			}
 		}
 		for request in std::mem::take(&mut messaging.extensions.requests) {
-			if !matches!(request, ExtensionRequest::Preview { .. })
-				&& !self.pending.is_empty()
+			if !matches!(
+				request,
+				ExtensionRequest::Preview { .. } | ExtensionRequest::ActionResult { .. }
+			) && !self.pending.is_empty()
 				&& self.pending.values().all(|pending| {
 					pending.preview.is_some() || pending.catalog || pending.reactive()
 				}) {

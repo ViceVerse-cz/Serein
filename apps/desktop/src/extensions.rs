@@ -30,6 +30,21 @@ const MAX_PER_SCOPE: usize = 8;
 const MAX_ACCOUNTS: usize = 8;
 const MAX_QUEUE: usize = 4;
 
+pub(crate) fn trim_extended_input(invocation: &mut Invocation, limit: usize) -> bool {
+	for field in 0..=3 {
+		if serde_json::to_vec(invocation).is_ok_and(|wire| wire.len() <= limit) {
+			return true;
+		}
+		match field {
+			0 => invocation.messaging_settings = None,
+			1 => invocation.guild_folders = None,
+			2 => invocation.queries = None,
+			_ => return false,
+		}
+	}
+	false
+}
+
 #[derive(Clone)]
 pub enum InstallSource {
 	Bundled {
@@ -819,6 +834,9 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			} else {
 				None
 			};
+			if !trim_extended_input(&mut invocation, extensions::MAX_IO_BYTES) {
+				return Err("Plugin input exceeds 256 KiB".into());
+			}
 			gate.check()?;
 			let mut output =
 				extensions::invoke(&stored.package, &invocation).map_err(|e| e.to_string())?;
@@ -1619,6 +1637,22 @@ fn public_ip(ip: IpAddr) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn extended_input_is_trimmed_after_storage_is_loaded() {
+		let mut invocation = Invocation {
+			action: "run".into(),
+			storage: Some("stored state".into()),
+			queries: Some(Box::default()),
+			..Default::default()
+		};
+		let mut without_extended = invocation.clone();
+		without_extended.queries = None;
+		let limit = serde_json::to_vec(&without_extended).unwrap().len();
+		assert!(trim_extended_input(&mut invocation, limit));
+		assert!(invocation.queries.is_none());
+		assert_eq!(invocation.storage.as_deref(), Some("stored state"));
+	}
 
 	struct Profile(PathBuf);
 	impl Profile {

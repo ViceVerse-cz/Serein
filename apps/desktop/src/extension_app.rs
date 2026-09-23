@@ -986,7 +986,7 @@ pub fn messaging_settings_snapshot(
 	let value = state.messaging_permissions.snapshot.as_ref()?;
 	let truncated = value.restricted_guilds.len() > MAX_MESSAGING_SETTINGS_IDS
 		|| value.unfiltered_guilds.len() > MAX_MESSAGING_SETTINGS_IDS;
-	Some(Box::new(MessagingSettingsSnapshot {
+	let snapshot = MessagingSettingsSnapshot {
 		spam_filter: value.spam_filter.try_into().ok()?,
 		default_allow_dms: value.default_allow_dms,
 		restricted_guild_ids: value
@@ -1007,7 +1007,9 @@ pub fn messaging_settings_snapshot(
 		game_friend_dms: value.game_friend_dms,
 		game_dms: value.game_dms.try_into().ok()?,
 		truncated,
-	}))
+	};
+	snapshot.validate().ok()?;
+	Some(Box::new(snapshot))
 }
 
 pub fn extended_change_key(state: &State) -> u64 {

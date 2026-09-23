@@ -1187,6 +1187,25 @@ fn tracked_actions_and_extended_inputs_preserve_v1_wire_compatibility() {
 		serde_json::from_value(serde_json::to_value(&input).unwrap()).unwrap();
 	assert_eq!(sdk.action_result.unwrap().request_id, "save-42");
 	assert_eq!(sdk.invocation.invocation.action, "events");
+	let older_sdk: sdk::ExtendedAppInvocation = serde_json::from_value(serde_json::json!({
+		"action": "events",
+		"queries": { "future_group": true },
+		"messaging_settings": {
+			"spam_filter": 1,
+			"default_allow_dms": true,
+			"restricted_guild_ids": [],
+			"default_filter_requests": true,
+			"unfiltered_guild_ids": [],
+			"friend_source_flags": 0,
+			"personalized_requests": true,
+			"game_friend_dms": true,
+			"game_dms": 1,
+			"truncated": false,
+			"future_setting": true
+		}
+	}))
+	.unwrap();
+	assert!(older_sdk.queries.is_some() && older_sdk.messaging_settings.is_some());
 	let oversized = MessagingSettingsSnapshot {
 		spam_filter: 1,
 		default_allow_dms: true,

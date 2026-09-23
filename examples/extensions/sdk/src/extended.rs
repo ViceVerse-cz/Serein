@@ -14,7 +14,7 @@ pub enum ArchiveQueryKind {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct QuerySnapshot {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub messages: Option<MessageQuerySnapshot>,
@@ -29,7 +29,6 @@ pub struct QuerySnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MessageQuerySnapshot {
 	pub channel_id: String,
 	pub pins: bool,
@@ -45,7 +44,6 @@ pub struct MessageQuerySnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MessageQueryItem {
 	pub id: String,
 	pub author: UserSnapshot,
@@ -53,7 +51,6 @@ pub struct MessageQueryItem {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ArchiveQuerySnapshot {
 	pub parent_id: String,
 	pub kind: ArchiveQueryKind,
@@ -66,7 +63,6 @@ pub struct ArchiveQuerySnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MemberQuerySnapshot {
 	pub channel_id: String,
 	pub query: String,
@@ -78,7 +74,6 @@ pub struct MemberQuerySnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MemberQueryItem {
 	pub user: UserSnapshot,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -87,7 +82,6 @@ pub struct MemberQueryItem {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProfileQuerySnapshot {
 	pub user_id: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -100,7 +94,6 @@ pub struct ProfileQuerySnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProfileQueryData {
 	pub user: UserSnapshot,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -114,7 +107,6 @@ pub struct ProfileQueryData {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct GifQuerySnapshot {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub query: Option<String>,
@@ -127,7 +119,6 @@ pub struct GifQuerySnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct GifQueryItem {
 	pub id: String,
 	pub title: String,
@@ -138,7 +129,6 @@ pub struct GifQueryItem {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct MessagingSettingsSnapshot {
 	pub spam_filter: u8,
 	pub default_allow_dms: bool,
@@ -153,14 +143,12 @@ pub struct MessagingSettingsSnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct GuildFoldersSnapshot {
 	pub folders: Vec<GuildFolderInput>,
 	pub version: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct GuildFolderInput {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<u64>,
