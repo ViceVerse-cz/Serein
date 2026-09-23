@@ -1,6 +1,6 @@
 # Build your first Serein plugin
 
-> **Preview SDK — PR #405, not yet released.** The branch adds approved reply,
+> **Preview SDK — PR #411, not yet released.** The branch adds approved reply,
 > sticker, forward, channel, server, role, moderation and host-mediated media
 > actions. Install a matching host build before using those grants or variants.
 

@@ -1,6 +1,6 @@
 # SDK overview
 
-> **Preview SDK — PR #405, not yet released.** This branch adds approved reply,
+> **Preview SDK — PR #411, not yet released.** This branch adds approved reply,
 > sticker, forward, channel, server, role, moderation and host-mediated media
 > operations.
 

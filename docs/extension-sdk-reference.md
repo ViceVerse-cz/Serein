@@ -1,6 +1,6 @@
 # Extension SDK inputs and app data
 
-> **Preview SDK — PR #405, not yet released.** Extended query, messaging-settings,
+> **Preview SDK — PR #411, not yet released.** Extended query, messaging-settings,
 > guild-folder and action-result fields require a host built from this branch.
 
 ## Invocation and events

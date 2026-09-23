@@ -1,6 +1,6 @@
 # Extension SDK actions and panels
 
-> **Preview SDK — PR #405, not yet released.** The message, channel, server,
+> **Preview SDK — PR #411, not yet released.** The message, channel, server,
 > role, moderation and host-mediated media actions called out as preview below
 > require a host built from this branch.
 
@@ -287,7 +287,7 @@ Serein independently validates the resulting proposal.
 
 #### Channels, conversations and servers
 
-> **Preview SDK — PR #405, not yet released.**
+> **Preview SDK — PR #411, not yet released.**
 
 These operations reuse Serein's native channel, group, DM and server admission
 paths. `channel_control` covers channel administration and conversation-local
@@ -360,7 +360,7 @@ or bytes.
 
 #### Roles and moderation
 
-> **Preview SDK — PR #405, not yet released.**
+> **Preview SDK — PR #411, not yet released.**
 
 Role changes require `role_control`; member changes require
 `moderation_control`. All operations run through the native server-admin queue,
