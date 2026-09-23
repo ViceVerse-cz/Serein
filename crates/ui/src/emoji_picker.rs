@@ -5,6 +5,7 @@ use model::Id;
 use std::sync::OnceLock;
 
 const NAMES: &str = include_str!("../../../assets/twemoji/names.tsv");
+const DISCORD_NAMES: &str = include_str!("../../../assets/twemoji/discord-shortcodes.tsv");
 const CELL: f32 = 40.0;
 
 /// Replace the composer's scalar-index selection without exceeding its character or RAM budget.
@@ -75,14 +76,16 @@ pub(crate) fn complete_shortcode(
 	if !(2..=64).contains(&name.chars().count()) {
 		return None;
 	}
-	let emoji = standard()
-		.iter()
-		.zip(shortcodes())
-		.find_map(|((emoji, _), code)| {
-			code[1..code.len() - 1]
-				.eq_ignore_ascii_case(name)
-				.then_some(*emoji)
-		})?;
+	let emoji =
+		standard()
+			.iter()
+			.zip(discord_names())
+			.find_map(|((emoji, _), (_, _, aliases))| {
+				aliases
+					.split(',')
+					.any(|alias| alias.eq_ignore_ascii_case(name))
+					.then_some(*emoji)
+			})?;
 	let start = draft[..start].chars().count();
 	insert(
 		draft,
@@ -101,6 +104,20 @@ pub(crate) fn standard() -> &'static [(&'static str, &'static str)] {
 		NAMES
 			.lines()
 			.map(|line| line.split_once('\t').expect("bundled emoji name"))
+			.collect()
+	})
+}
+
+pub(crate) fn discord_names() -> &'static [(&'static str, &'static str, &'static str)] {
+	static ENTRIES: OnceLock<Vec<(&'static str, &'static str, &'static str)>> = OnceLock::new();
+	ENTRIES.get_or_init(|| {
+		DISCORD_NAMES
+			.lines()
+			.map(|line| {
+				let (text, names) = line.split_once('\t').expect("bundled Discord emoji");
+				let (primary, aliases) = names.split_once('\t').expect("bundled Discord names");
+				(text, primary, aliases)
+			})
 			.collect()
 	})
 }
@@ -441,7 +458,14 @@ impl Picker {
 			standard()
 				.iter()
 				.enumerate()
-				.filter(|(_, (text, name))| name.contains(&query) || text.contains(&query))
+				.filter(|(index, (text, name))| {
+					name.contains(&query)
+						|| text.contains(&query)
+						|| discord_names()[*index]
+							.2
+							.split(',')
+							.any(|alias| alias.contains(&query))
+				})
 				.map(|(index, _)| index),
 		);
 	}
@@ -1100,7 +1124,7 @@ impl Picker {
 													hovered = Some((
 														crate::emoji::image(ui.ctx(), text, 32.0),
 														text.into(),
-														shortcode(name),
+														shortcodes()[index].clone(),
 													));
 												}
 												if response.clicked() {
@@ -1205,8 +1229,10 @@ impl Picker {
 																	emoji.markup(),
 																)
 															} else {
-																let (text, name) = standard()
-																	[unicode[index - custom.len()]];
+																let standard_index =
+																	unicode[index - custom.len()];
+																let (text, _) =
+																	standard()[standard_index];
 																(
 																	crate::emoji::image(
 																		ui.ctx(),
@@ -1214,7 +1240,8 @@ impl Picker {
 																		32.0,
 																	),
 																	text.to_owned(),
-																	shortcode(name),
+																	shortcodes()[standard_index]
+																		.clone(),
 																	None,
 																	model::ReactionEmoji {
 																		id: None,
@@ -1912,28 +1939,12 @@ fn gif_grid(
 /// `:short_code:` for every bundled emoji, in `standard()` order, built once for autocomplete.
 pub(crate) fn shortcodes() -> &'static [String] {
 	static CODES: OnceLock<Vec<String>> = OnceLock::new();
-	CODES.get_or_init(|| standard().iter().map(|(_, name)| shortcode(name)).collect())
-}
-
-/// Discord-style `:short_code:` rendered from the bundled CLDR name.
-pub(crate) fn shortcode(name: &str) -> String {
-	let mut code = String::with_capacity(name.len() + 2);
-	code.push(':');
-	let mut last_underscore = true;
-	for c in name.chars() {
-		if c.is_alphanumeric() {
-			code.extend(c.to_lowercase());
-			last_underscore = false;
-		} else if !last_underscore {
-			code.push('_');
-			last_underscore = true;
-		}
-	}
-	if code.ends_with('_') {
-		code.pop();
-	}
-	code.push(':');
-	code
+	CODES.get_or_init(|| {
+		discord_names()
+			.iter()
+			.map(|(_, primary, _)| format!(":{primary}:"))
+			.collect()
+	})
 }
 
 fn paint_emoji(
@@ -2693,11 +2704,14 @@ mod tests {
 
 	#[test]
 	fn completed_shortcode_becomes_unicode_at_the_caret() {
-		let mut draft = "look :eyes: here :eyes:".to_owned();
+		let mut draft = "look :eyes: here :pray:".to_owned();
 		assert_eq!(complete_shortcode(&mut draft, 11, 0), Some(6));
-		assert_eq!(draft, "look 👀 here :eyes:");
+		assert_eq!(draft, "look 👀 here :pray:");
 		assert_eq!(complete_shortcode(&mut draft, 18, 0), Some(13));
-		assert_eq!(draft, "look 👀 here 👀");
+		assert_eq!(draft, "look 👀 here 🙏");
+		let mut alias = ":folded_hands:".to_owned();
+		assert_eq!(complete_shortcode(&mut alias, 14, 0), Some(1));
+		assert_eq!(alias, "🙏");
 		for literal in ["word:eyes:", "https:", "<:eyes:", ":unknown:"] {
 			let mut draft = literal.to_owned();
 			let cursor = draft.chars().count();
@@ -2713,17 +2727,25 @@ mod tests {
 			.map(|l| l.split_once('\t').unwrap().0)
 			.collect();
 		assert_eq!(standard().len(), 3953);
+		assert_eq!(discord_names().len(), standard().len());
 		assert!(NAMES.len() < 300_000);
-		for (text, name) in standard() {
+		assert!(DISCORD_NAMES.len() < 300_000);
+		for (index, (text, name)) in standard().iter().enumerate() {
 			assert!(atlas.contains(text.replace('\u{fe0f}', "").as_str()));
 			assert!(!name.is_empty());
+			assert_eq!(*text, discord_names()[index].0);
 		}
+		let pray = standard()
+			.iter()
+			.position(|(text, _)| *text == "🙏")
+			.unwrap();
+		assert_eq!(shortcodes()[pray], ":pray:");
 		let mut picker = Picker {
-			query: "WOMAN TECHNOLOGIST".into(),
+			query: "pray".into(),
 			..Default::default()
 		};
 		picker.filter();
-		assert!(picker.matches.iter().any(|&i| standard()[i].0 == "👩🏽‍💻"));
+		assert!(picker.matches.iter().any(|&i| standard()[i].0 == "🙏"));
 		picker.query = "❤️".into();
 		picker.filter();
 		assert!(picker.matches.iter().any(|&i| standard()[i].0 == "❤️"));

@@ -15,7 +15,7 @@ fn title(text: &str) -> String {
 	}
 	emoji_picker::standard()
 		.iter()
-		.find(|(value, _)| {
+		.position(|(value, _)| {
 			value
 				.chars()
 				.filter(|c| *c != '\u{fe0f}')
@@ -23,7 +23,7 @@ fn title(text: &str) -> String {
 		})
 		.map_or_else(
 			|| text.to_owned(),
-			|(_, name)| emoji_picker::shortcode(name),
+			|index| emoji_picker::shortcodes()[index].clone(),
 		)
 }
 

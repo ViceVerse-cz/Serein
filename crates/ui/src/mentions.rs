@@ -525,7 +525,12 @@ impl Menu {
 					.zip(crate::emoji_picker::shortcodes())
 					.enumerate()
 				{
-					if let Some(rank) = rank(&query, &code[1..code.len() - 1], Id(0)) {
+					let rank = crate::emoji_picker::discord_names()[index]
+						.2
+						.split(',')
+						.filter_map(|alias| rank(&query, alias, Id(0)))
+						.min();
+					if let Some(rank) = rank {
 						push_emoji(&mut out, (rank, 1, index as u64), || Candidate::Unicode {
 							text,
 							code,
@@ -1212,7 +1217,7 @@ mod tests {
 		assert!(
 			menu.candidates
 				.iter()
-				.any(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":red_heart:"))
+				.any(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
 		);
 		let mut draft = "hi :he".to_owned();
 		assert_eq!(insert(&mut draft, menu.pick(0).unwrap()), Some(31));
@@ -1220,7 +1225,7 @@ mod tests {
 		let unicode = menu
 			.candidates
 			.iter()
-			.position(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":red_heart:"))
+			.position(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
 			.unwrap();
 		let mut draft = "hi :he".to_owned();
 		insert(&mut draft, menu.pick(unicode).unwrap()).unwrap();
