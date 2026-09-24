@@ -121,7 +121,7 @@ ICONS = [
     ("sliders-horizontal", "bold/sliders-horizontal-bold.svg", "e409a5fb3c2c134e46d51e48ac395e392223e04535c5ec664253f3e7e78cd7a9"),
     ("arrows-down-up", "bold/arrows-down-up-bold.svg", "174464c54af7273e46a6fc204ebd0fc1da75906573880687836b314e3fbdb85e"),
     ("thread", "repo:assets/icons/thread.svg", "dfd7daf80375504a5af37b95bee1773af55a9eabe7c802e7f4152905f123c72c"),
-    ("device-mobile", "fill/device-mobile-fill.svg", "cec802e8cbe698b5bdf604770c770e4431f24ad879d441937fc6120b8b29ff28"),
+    ("device-mobile", "bold/device-mobile-bold.svg", "77a4a5ebcba16e37637e700381bc3858b92c9350730ecf1e207f5f40d524de03"),
 ]
 LICENSE_SHA256 = "ddbe6082ec3cf979db47e5af549d2849c5d6182b3e005ef91ce1dbb9eb122f11"
 

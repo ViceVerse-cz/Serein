@@ -607,7 +607,7 @@ pub(crate) fn presence_badge(
 		icons::paint(
 			ui.painter(),
 			Icon::DeviceMobile,
-			Rect::from_center_size(center, Vec2::splat(radius * 1.7)),
+			Rect::from_center_size(center, Vec2::splat(radius * 2.2)),
 			presence_color(status),
 		);
 	} else {
