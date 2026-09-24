@@ -364,15 +364,14 @@ impl Icon {
 	}
 }
 
-fn decoded() -> &'static egui::ColorImage {
-	static IMAGE: OnceLock<egui::ColorImage> = OnceLock::new();
-	IMAGE.get_or_init(|| {
-		let image = image::load_from_memory_with_format(ATLAS, image::ImageFormat::Png)
-			.expect("bundled icon atlas")
-			.into_rgba8();
-		let size = [image.width() as usize, image.height() as usize];
-		egui::ColorImage::from_rgba_unmultiplied(size, &image)
-	})
+/// Decoded per upload rather than cached: the texture owns the pixels afterwards, and a
+/// retained copy would keep 1.7 MB alive for the whole session.
+fn decoded() -> egui::ColorImage {
+	let image = image::load_from_memory_with_format(ATLAS, image::ImageFormat::Png)
+		.expect("bundled icon atlas")
+		.into_rgba8();
+	let size = [image.width() as usize, image.height() as usize];
+	egui::ColorImage::from_rgba_unmultiplied(size, &image)
 }
 
 /// Upload the atlas for `ctx` during application creation, outside the render callback.
@@ -387,7 +386,7 @@ fn texture(ctx: &egui::Context) -> TextureHandle {
 	}
 	let texture = ctx.load_texture(
 		"Phosphor Icons 2.1.1",
-		decoded().clone(),
+		decoded(),
 		egui::TextureOptions {
 			mipmap_mode: Some(egui::TextureFilter::Linear),
 			..egui::TextureOptions::LINEAR

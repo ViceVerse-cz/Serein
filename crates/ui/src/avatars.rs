@@ -894,6 +894,10 @@ impl Avatars {
 		highlight: bool,
 		radius: u8,
 	) {
+		// The rail is not virtualized; skip initials layout for scrolled-out servers.
+		if !ui.is_rect_visible(rect) {
+			return;
+		}
 		let size = rect.width().min(rect.height());
 		let initials_size = (size * 0.5).clamp(7.0, 16.0);
 		let short: String = guild
@@ -904,9 +908,7 @@ impl Avatars {
 			.collect();
 		let colors = crate::design::palette(ui);
 		let mut painted = false;
-		if ui.is_rect_visible(rect)
-			&& let Some(key) = guild.icon_key()
-		{
+		if let Some(key) = guild.icon_key() {
 			#[cfg(any(test, feature = "demo"))]
 			if demo && !self.textures.contains_key(&key) {
 				let seed = key

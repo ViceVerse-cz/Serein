@@ -349,7 +349,7 @@ impl MessagingUi {
 					}
 					let response = match item {
 						Item::Server(id) => {
-							let Some(guild) = state.guilds.iter().find(|g| g.id == id) else {
+							let Some(guild) = state.guild(id) else {
 								return;
 							};
 							let response = self.avatars.show_guild_rail(
