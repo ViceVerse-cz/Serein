@@ -645,7 +645,7 @@ impl State {
 		self.auth == AuthState::Authenticated
 			&& self.gateway_connected
 			&& self.selected == Some(channel)
-			&& matches!(self.freshness, Freshness::Fresh | Freshness::Loading)
+			&& self.freshness != Freshness::Unavailable
 			&& self.can_compose(channel)
 	}
 	/// Permission-only composer availability, including while drafting offline.
