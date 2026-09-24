@@ -7,7 +7,7 @@ use std::{
 };
 
 pub const MAX_BYTES: usize = model::account::MAX_PERMISSION_BYTES;
-const MAX_DECISIONS: usize = 4000;
+const MAX_DECISIONS: usize = 32768;
 #[derive(Default)]
 pub struct Permissions {
 	cache: RefCell<BTreeMap<(Id, Id, Id), Decision>>,

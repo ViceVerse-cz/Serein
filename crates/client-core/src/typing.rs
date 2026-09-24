@@ -37,9 +37,8 @@ impl State {
 			&& !self.history_pending
 			&& self.can_read_history(channel)
 			&& self
-				.channels
-				.iter()
-				.any(|known| known.id == channel && known.supports_text()))
+				.channel(channel)
+				.is_some_and(|known| known.supports_text()))
 		.then_some(channel)
 	}
 	/// Wall time validates the wire timestamp; monotonic time controls display expiry.

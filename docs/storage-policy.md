@@ -256,7 +256,9 @@ UI session reset releases the caches. No disk records or schema migration change
 Account navigation supports 131,072 guild/channel entries within 128 MiB of estimated
 navigation and permission storage. The permission mirror has a 64 MiB sub-budget,
 131,072 aggregate roles and 1,048,576 aggregate overwrites; per-object role/overwrite
-validation remains unchanged. Permission decisions still cache at most 4,000 entries.
+validation remains unchanged. Permission decisions cache at most 32,768 entries (4 MiB
+reserved), enough that a full sidebar badge scan of a large account does not evict its own
+decisions.
 Incoming read-state snapshot vectors use at most 131,072 entries / 16 MiB; retained
 read maps are bounded by account channels, with the existing separate activity/alert budgets.
 Notification preferences
@@ -678,7 +680,7 @@ It retains at most 4,000 guild/channel records, 16,384 guild roles and 32,768 ov
 per guild/member role lists stop at 512, per-channel wire overwrites at 1,000. Other members'
 overwrite entries are validated then discarded; all role overwrite entries remain so later
 self-role changes can be calculated. A 2 MiB estimated allocation budget includes reserved
-space for at most 4,000 cached decisions. Updates clone the bounded metadata for atomic
+space for cached decisions (now at most 32,768). Updates clone the bounded metadata for atomic
 validation; that temporary copy is additional peak memory. These estimates are not process
 RSS. Decisions expire at timeout boundaries, are recomputed after clock rollback and are
 cleared on metadata updates. Logout/READY replace the session mirror.
