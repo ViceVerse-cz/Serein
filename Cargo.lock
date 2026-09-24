@@ -6175,6 +6175,7 @@ dependencies = [
  "getrandom 0.4.3",
  "image",
  "local-store",
+ "log",
  "md4",
  "model",
  "opus2",

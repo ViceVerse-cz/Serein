@@ -47,6 +47,9 @@ opus2 = { version = "=0.4.0", default-features = false, features = ["backend-lib
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 png = "=0.18.1"
 arboard = "=3.6.1"
+# Serein never installs a `log` logger, so dependency log calls (wgpu, winit, reqwest, ...)
+# are dead code; this feature compiles them out of release builds instead of shipping them.
+log = { version = "=0.4.34", features = ["release_max_level_off"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Use Adwaita decorations when the Wayland compositor does not provide a frame (GNOME).

@@ -11,7 +11,9 @@ rasterizes it with the `resvg` command-line tool. Requires `resvg` 0.45.1 on PAT
 import argparse
 import hashlib
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 import urllib.request
 
 VERSION = "2.1.1"  # @phosphor-icons/core on npm, MIT
@@ -231,6 +233,11 @@ def main():
     atlas_svg.write_text("".join(parts), encoding="utf-8")
     subprocess.run([args.resvg, str(atlas_svg), str(destination / "atlas.png")], check=True)
     atlas_svg.unlink()
+    # Lossless; resvg writes an unoptimized PNG about 4x larger. Install with `cargo install oxipng`.
+    if shutil.which("oxipng"):
+        subprocess.run(["oxipng", "-o", "max", "--strip", "all", "-q", destination / "atlas.png"], check=True)
+    else:
+        print("oxipng not found; atlas.png left at resvg compression", file=sys.stderr)
     (destination / "index.tsv").write_text("".join(f"{name}\t{cell}\n" for name, cell in index), encoding="utf-8")
     (destination / "LICENSE").write_bytes(license_text)
     (destination / "LICENSE-SIMPLE-ICONS").write_bytes(simple_license)
