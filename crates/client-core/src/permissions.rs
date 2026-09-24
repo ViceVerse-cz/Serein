@@ -245,9 +245,15 @@ impl Permissions {
 			|| channels
 				.iter()
 				.any(|(id, old)| self.channels.get(id) != old.as_ref());
-		self.cache.get_mut().retain(|(guild, channel, _), _| {
+		let limit = self.decision_limit.max(MIN_DECISIONS);
+		let cache = self.cache.get_mut();
+		cache.retain(|(guild, channel, _), _| {
 			!guild_ids.contains(guild) && !channel_ids.contains(channel)
 		});
+		// Larger metadata can shrink the budget; do not keep decisions it no longer covers.
+		if cache.len() > limit {
+			cache.clear();
+		}
 		Ok(changed)
 	}
 	fn update_in_place(&mut self, event: Event) -> Result<(), &'static str> {
