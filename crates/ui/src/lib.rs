@@ -335,6 +335,10 @@ pub struct MessagingUi {
 	voice_stream_muted: bool,
 	/// Enlarged stage tile; cleared when it stops showing video or on Escape.
 	pub voice_focus: Option<voice::StageFocus>,
+	/// Screen share currently owning the client surface, its prior window mode and focus target.
+	voice_fullscreen: Option<(voice::StageFocus, egui::Context, bool, egui::Id)>,
+	/// Native window transition for the desktop to apply after this UI frame.
+	voice_fullscreen_request: Option<bool>,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.
 	pub voice_focus_participants: bool,
 	/// Session-only visibility of the selected guild voice channel's chat.
@@ -827,6 +831,9 @@ impl MessagingUi {
 	}
 	pub fn video(&mut self) -> &mut VideoUi {
 		&mut self.timeline.video
+	}
+	pub fn take_voice_fullscreen_request(&mut self) -> Option<bool> {
+		self.voice_fullscreen_request.take()
 	}
 	pub fn clear_avatars(&mut self) {
 		self.avatars = avatars::Avatars::default();
@@ -3176,7 +3183,12 @@ impl MessagingUi {
 				}
 			}
 		}
-		// Fullscreen playback owns the whole client surface, including during native resizing.
+		// Fullscreen media owns the whole client surface, including during native resizing.
+		if self.show_fullscreen_voice(ui.ctx(), state) {
+			ui.painter()
+				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
+			return commands;
+		}
 		if self.timeline.show_fullscreen_video(ui.ctx(), state) {
 			ui.painter()
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);

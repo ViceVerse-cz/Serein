@@ -178,6 +178,64 @@ fn main() {
 				expanded,
 				"left-click must toggle stream expansion"
 			);
+			if expanded {
+				for _ in 0..100 {
+					labels = frame(
+						&ctx,
+						&mut view,
+						&mut state,
+						width,
+						vec![egui::Event::Key {
+							key: egui::Key::Tab,
+							physical_key: None,
+							pressed: true,
+							repeat: false,
+							modifiers: egui::Modifiers::NONE,
+						}],
+					);
+					if labels.iter().any(|(text, _)| text == "Fullscreen") {
+						break;
+					}
+				}
+				let pos = labels
+					.iter()
+					.find(|(text, _)| text == "Fullscreen")
+					.unwrap()
+					.1
+					.center();
+				for pressed in [true, false] {
+					frame(
+						&ctx,
+						&mut view,
+						&mut state,
+						width,
+						vec![
+							egui::Event::PointerMoved(pos),
+							egui::Event::PointerButton {
+								pos,
+								button: egui::PointerButton::Primary,
+								pressed,
+								modifiers: egui::Modifiers::NONE,
+							},
+						],
+					);
+				}
+				assert_eq!(view.take_voice_fullscreen_request(), Some(true));
+				frame(
+					&ctx,
+					&mut view,
+					&mut state,
+					width,
+					vec![egui::Event::Key {
+						key: egui::Key::Escape,
+						physical_key: None,
+						pressed: true,
+						repeat: false,
+						modifiers: egui::Modifiers::NONE,
+					}],
+				);
+				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
+			}
 		}
 		for (label, expected_volume) in [
 			("Stream audio", 100),
@@ -240,6 +298,6 @@ fn main() {
 		assert!(!state.can_compose(channel) && !state.can_read_history(channel));
 	}
 	println!(
-		"PASS: voice chat history, wide/narrow stream audio button and right-click menus, stream mute, independent user volume, permission gates (offline egui)."
+		"PASS: voice chat history, wide/narrow screen-share fullscreen and audio controls, stream mute, independent user volume, permission gates (offline egui)."
 	);
 }

@@ -25,6 +25,86 @@ pub(super) struct CallSwitch {
 }
 
 impl MessagingUi {
+	fn exit_voice_fullscreen(&mut self) {
+		if let Some((_, ctx, previous, focus)) = self.voice_fullscreen.take() {
+			self.voice_fullscreen_request = Some(previous);
+			ctx.memory_mut(|memory| memory.request_focus(focus));
+			ctx.request_repaint();
+		}
+	}
+
+	pub(super) fn show_fullscreen_voice(&mut self, ctx: &egui::Context, state: &State) -> bool {
+		let Some((focus, _, _, _)) = &self.voice_fullscreen else {
+			return false;
+		};
+		let focus = *focus;
+		let Some(channel) = state
+			.voice
+			.active
+			.as_ref()
+			.filter(|call| {
+				call.phase != Phase::Failed
+					&& match focus {
+						StageFocus::LocalScreen => self.screen.preview.is_some(),
+						StageFocus::Stream(user) => call.watching == Some(user),
+						StageFocus::Participant(_) => false,
+					}
+			})
+			.map(|call| call.channel)
+		else {
+			self.exit_voice_fullscreen();
+			return false;
+		};
+		let screen = ctx.content_rect();
+		let id = egui::Id::unique("voice-fullscreen");
+		let mut exit =
+			ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+		let overlay = egui::Modal::new(id)
+			.area(
+				egui::Modal::default_area(id)
+					.anchor(egui::Align2::LEFT_TOP, egui::Vec2::ZERO)
+					.fade_in(false),
+			)
+			.backdrop_color(egui::Color32::BLACK)
+			.frame(egui::Frame::NONE)
+			.show(ctx, |ui| {
+				ui.set_min_size(screen.size());
+				let rect = egui::Rect::from_min_size(screen.min, screen.size());
+				ui.painter().rect_filled(rect, 0, STAGE_FILL);
+				match focus {
+					StageFocus::LocalScreen => self.screen_tile(ui, rect, false),
+					StageFocus::Stream(user) => {
+						self.stream_tile(ui, state, rect, channel, user, false)
+					}
+					StageFocus::Participant(_) => unreachable!("validated screen share"),
+				}
+				let button = ui.put(
+					egui::Rect::from_min_size(
+						rect.right_top() + egui::vec2(-52.0, 12.0),
+						egui::Vec2::splat(40.0),
+					),
+					egui::Button::new("")
+						.fill(egui::Color32::from_black_alpha(180))
+						.corner_radius(8),
+				);
+				crate::icons::paint(
+					ui.painter(),
+					crate::icons::Icon::Close,
+					button.rect.shrink(9.0),
+					egui::Color32::WHITE,
+				);
+				button.widget_info(|| {
+					egui::WidgetInfo::labeled(egui::Role::Button, true, "Exit fullscreen")
+				});
+				exit |= button.on_hover_text("Exit fullscreen (Esc)").clicked();
+			});
+		exit |= overlay.should_close();
+		if exit {
+			self.exit_voice_fullscreen();
+		}
+		true
+	}
+
 	/// Effective screen-share audio level, independent of participant voice levels.
 	pub fn voice_stream_volume(&self) -> u16 {
 		if self.voice_stream_muted {
@@ -2231,7 +2311,12 @@ impl MessagingUi {
 		let controls = self.controls_enabled(state);
 		let voice_toggles = controls || state.demo;
 		let focused = self.voice_focus.is_some();
-		let pill_width = MEDIA_PILL + if focused { 48.0 } else { 0.0 };
+		let screen_focused = matches!(
+			self.voice_focus,
+			Some(StageFocus::LocalScreen | StageFocus::Stream(_))
+		);
+		let pill_width =
+			MEDIA_PILL + if focused { 48.0 } else { 0.0 } + if screen_focused { 48.0 } else { 0.0 };
 		let width = pill_width + BAR_GAP + HANG_UP;
 		let mut camera_clicked = false;
 		let mut mute_clicked = false;
@@ -2334,6 +2419,17 @@ impl MessagingUi {
 				);
 				self.camera_settings_popup(&camera_settings, state.demo);
 				self.screen_share_control(ui, state);
+				if screen_focused {
+					let fullscreen = fullscreen_control(ui, STAGE_TEXT);
+					if fullscreen.clicked() {
+						let previous =
+							ui.input(|input| input.viewport().fullscreen.unwrap_or(false));
+						self.voice_fullscreen = self
+							.voice_focus
+							.map(|focus| (focus, ui.ctx().clone(), previous, fullscreen.id));
+						self.voice_fullscreen_request = Some(true);
+					}
+				}
 				if focused {
 					let shown = self.voice_focus_participants;
 					if control(
@@ -3224,6 +3320,29 @@ fn control(
 	);
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
 	response.on_hover_text(hint)
+}
+
+fn fullscreen_control(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response {
+	let (rect, response) =
+		ui.allocate_exact_size(egui::vec2(48.0, CONTROL_HEIGHT), egui::Sense::click());
+	if response.hovered() || response.has_focus() {
+		ui.painter()
+			.rect_filled(rect.shrink(4.0), 8, egui::Color32::from_white_alpha(28));
+	}
+	let icon = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.0));
+	for (x, y) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+		let corner = icon.center() + egui::vec2(x * 8.0, y * 8.0);
+		ui.painter().add(egui::Shape::line(
+			vec![
+				corner - egui::vec2(x * 6.0, 0.0),
+				corner,
+				corner - egui::vec2(0.0, y * 6.0),
+			],
+			egui::Stroke::new(1.8, color),
+		));
+	}
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Fullscreen"));
+	response.on_hover_text("View this screen share in fullscreen")
 }
 
 /// Circular filled action (answer/decline) used by the incoming-call banner.
