@@ -7,10 +7,15 @@ use std::{
 };
 
 pub const MAX_BYTES: usize = model::account::MAX_PERMISSION_BYTES;
+// Admission always reserves room for the minimum; larger accounts may cache up to the
+// maximum from whatever permission budget their metadata leaves free.
+const MIN_DECISIONS: usize = 4000;
 const MAX_DECISIONS: usize = 32768;
+const DECISION_BYTES: usize = 128;
 #[derive(Default)]
 pub struct Permissions {
 	cache: RefCell<BTreeMap<(Id, Id, Id), Decision>>,
+	decision_limit: usize,
 	pub guilds: BTreeMap<Id, p::Guild>,
 	pub channels: BTreeMap<Id, p::Channel>,
 }
@@ -26,6 +31,7 @@ impl Clone for Permissions {
 			guilds: self.guilds.clone(),
 			channels: self.channels.clone(),
 			cache: RefCell::default(),
+			decision_limit: self.decision_limit,
 		}
 	}
 }
@@ -113,7 +119,7 @@ impl Permissions {
 			.filter(|until| *until > now)
 			.unwrap_or(i64::MAX);
 		let mut cache = self.cache.borrow_mut();
-		if cache.len() >= MAX_DECISIONS && !cache.contains_key(&key) {
+		if cache.len() >= self.decision_limit.max(MIN_DECISIONS) && !cache.contains_key(&key) {
 			cache.clear();
 		}
 		cache.insert(
@@ -133,7 +139,7 @@ impl Permissions {
 	}
 	fn valid(&self) -> bool {
 		self.guilds.len() + self.channels.len() <= crate::MAX_NAV
-			&& self.bytes() + MAX_DECISIONS * 128 <= MAX_BYTES
+			&& self.bytes() + MIN_DECISIONS * DECISION_BYTES <= MAX_BYTES
 			&& self
 				.guilds
 				.values()
@@ -360,6 +366,8 @@ impl Permissions {
 		if !next.valid() {
 			return Err("Permission metadata exceeds safe capacity");
 		}
+		next.decision_limit = (MAX_BYTES.saturating_sub(next.bytes()) / DECISION_BYTES)
+			.clamp(MIN_DECISIONS, MAX_DECISIONS);
 		Ok(())
 	}
 	fn update_member(&mut self, guild: Id, roles: Patch<Vec<Id>>, timeout_until: Patch<i64>) {

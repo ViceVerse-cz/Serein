@@ -1907,7 +1907,8 @@ rail-revision change, such as a message in any channel. With 4,000 cached decisi
 scan of more than 4,000 channels evicted its own entries and recomputed every role map.
 The cache now holds 32,768 decisions (7.7 ms), and `mention_count` checks the mention count
 before permissions (6.1 ms). Real per-entry size is about 72 bytes plus B-tree overhead,
-within the 128-byte reservation that is now 4 MiB of the 64 MiB permission budget.
+within the 128-byte estimate. Admission still reserves only 4,000 entries; the cache
+grows beyond that only into permission budget left free by the admitted metadata.
 
 The emoji row times `mentions::Menu::refresh` in release mode, 200 iterations per query
 (`:sm`, `:smile`, `:zzq`). ASCII names are now compared case-insensitively in place instead of
