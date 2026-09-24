@@ -1880,3 +1880,53 @@ Timeline-only reads retain 50 rows, metadata-only reads retain 20. The unchanged
 real-Wasm demo regression test and all ten desktop SDK integration tests pass
 with the same 5,000,000-fuel limit. The timing table above uses its original fixed
 synthetic snapshot; it does not measure this collector reduction.
+
+## Startup parsing, sidebar scans and package trims - September 24, 2026
+
+Baseline: `f164494e`. macOS 27.0, Apple M1 Pro, 16 GiB RAM, Rust 1.98.1
+aarch64-apple-darwin. Both packages come from `cargo xtask package` (voice included, no
+demo features) in separate worktrees and target directories.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 58,113,312 | 57,537,488 | -575,824 (-0.99%) |
+| Installed `dist` bytes (205 files) | 64,119,376 | 63,543,552 | -575,824 (-0.90%) |
+| `ditto -c -k --sequesterRsrc dist` ZIP bytes | 42,031,473 | 41,752,881 | -278,592 (-0.66%) |
+| READY permission projection, 9.5 MiB / 200 guilds / 20,000 channels, ms | 27.8-28.1 | 17.2-18.0 | about -37% |
+| Sidebar badge scan, 200 guilds / 20,000 channels / 50 roles, ms | 23.8 | 6.1 | -74% |
+| `:` emoji suggestion refresh, 100 servers x 100 custom emoji, ms | 0.92-1.31 | 0.42-0.58 | about -58% |
+
+The READY row times `Envelope::permissions` on a synthetic release-mode payload, three
+runs each. The permission projection now decodes each guild while splitting the array
+rather than collecting raw values and parsing every guild again, so each guild's JSON is
+scanned once. `navigation` (17.5-19.1 ms) and the envelope split (10.3-10.7 ms) are unchanged.
+
+The sidebar row times the rail badge loop (`lights_guild_rail` plus `mention_count` for
+every channel) over 20 release-mode iterations. It runs on the UI thread after every
+rail-revision change, such as a message in any channel. With 4,000 cached decisions, one
+scan of more than 4,000 channels evicted its own entries and recomputed every role map.
+The cache now holds 32,768 decisions (7.7 ms), and `mention_count` checks the mention count
+before permissions (6.1 ms). Real per-entry size is about 72 bytes plus B-tree overhead,
+within the 128-byte reservation that is now 4 MiB of the 64 MiB permission budget.
+
+The emoji row times `mentions::Menu::refresh` in release mode, 200 iterations per query
+(`:sm`, `:smile`, `:zzq`). ASCII names are now compared case-insensitively in place instead of
+through a lowercase copy for each of the roughly 16,000 candidate names. Refresh runs twice
+per frame while a `:` query is open.
+
+Of the size delta, 88,889 bytes come from re-encoding `assets/icons/atlas.png` with
+`oxipng -o max --strip all` (pixel-identical). The remaining 486,935 bytes come from compiling
+out dependency `log` calls in release builds (nothing ever installs a logger) together
+with dropping unused SQLite extensions (FTS3/4/5, R-tree, dbstat, soundex, STAT4) through
+`LIBSQLITE3_FLAGS`. These two were measured together. Mach-O page alignment makes byte
+deltas under 16 KiB invisible.
+
+The decoded Phosphor atlas (512x832 RGBA, 1,703,936 bytes) is no longer kept in a static
+after upload. That figure is computed from its dimensions, not measured as process RSS.
+On Windows, the unread-badge recount no longer arms a 1 s repaint while the window is idle.
+It runs at most 1 s after a frame instead. That Windows path was not run locally, and
+idle CPU was not measured on any platform.
+
+Rejected after measurement: a zstd raw-RGBA Twemoji atlas would save 929 KB but decodes in
+44.5 ms against 24.3 ms for the PNG at startup. Writing zlib output straight into the
+growing buffer saved 0.3 ms per 8 MiB. No live Discord session was used.
