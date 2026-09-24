@@ -586,25 +586,11 @@ pub(crate) fn presence_color(status: &str) -> Color32 {
 		_ => Color32::from_rgb(128, 132, 142),
 	}
 }
-fn client_platforms(clients: model::ClientPlatforms) -> impl Iterator<Item = (Icon, &'static str)> {
-	[
-		(clients.desktop, Icon::Desktop, "Desktop"),
-		(clients.mobile, Icon::DeviceMobile, "Mobile"),
-		(clients.web, Icon::Globe, "Web"),
-		(clients.vr, Icon::VirtualReality, "VR"),
-	]
-	.into_iter()
-	.filter_map(|(active, icon, label)| active.then_some((icon, label)))
-}
 fn presence_description(status: &str, clients: model::ClientPlatforms) -> String {
-	let platforms = client_platforms(clients)
-		.map(|(_, label)| label)
-		.collect::<Vec<_>>()
-		.join(", ");
-	if platforms.is_empty() {
-		presence_label(status).into()
+	if clients.mobile {
+		format!("{} on Mobile", presence_label(status))
 	} else {
-		format!("{} on {platforms}", presence_label(status))
+		presence_label(status).into()
 	}
 }
 pub(crate) fn presence_badge(
@@ -614,19 +600,15 @@ pub(crate) fn presence_badge(
 	clients: model::ClientPlatforms,
 	ring: Color32,
 ) {
-	let mut platforms = client_platforms(clients);
-	let first = platforms.next();
-	if let (Some((icon, _)), None) = (first, platforms.next()) {
+	if clients.mobile {
 		let radius = (rect.width() * 0.2).clamp(6.0, 10.0);
 		let center = rect.right_bottom() - Vec2::splat(radius + 0.5);
 		ui.painter().circle_filled(center, radius + 2.0, ring);
-		ui.painter()
-			.circle_filled(center, radius, presence_color(status));
 		icons::paint(
 			ui.painter(),
-			icon,
-			Rect::from_center_size(center, Vec2::splat(radius * 1.35)),
-			Color32::WHITE,
+			Icon::DeviceMobile,
+			Rect::from_center_size(center, Vec2::splat(radius * 1.7)),
+			presence_color(status),
 		);
 	} else {
 		design::presence_dot(ui, rect, presence_color(status), ring);
@@ -1573,24 +1555,6 @@ pub fn show(
 								ui.add_space(4.0);
 								ui.add(egui::Label::new(RichText::new(custom).size(13.0)).wrap());
 							}
-							if clients.any() {
-								ui.add_space(4.0);
-								ui.horizontal_wrapped(|ui| {
-									ui.spacing_mut().item_spacing.x = 5.0;
-									ui.label(
-										RichText::new("Active on").size(12.0).color(theme.muted),
-									);
-									for (icon, label) in client_platforms(clients) {
-										icons::inline(
-											ui,
-											icon,
-											14.0,
-											presence_color(status.unwrap_or("online")),
-										);
-										ui.label(RichText::new(label).size(12.0));
-									}
-								});
-							}
 							if !user.webhook && view.is_none_or(|v| v.loading) {
 								ui.add_space(4.0);
 								ui.horizontal(|ui| {
@@ -1897,6 +1861,26 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn only_mobile_changes_the_presence_description() {
+		let non_mobile = model::ClientPlatforms {
+			desktop: true,
+			web: true,
+			vr: true,
+			mobile: false,
+		};
+		assert_eq!(presence_description("online", non_mobile), "Online");
+		assert_eq!(
+			presence_description(
+				"online",
+				model::ClientPlatforms {
+					mobile: true,
+					..non_mobile
+				},
+			),
+			"Online on Mobile"
+		);
+	}
 	#[test]
 	fn rich_activity_card_keeps_compact_text_badge_and_elapsed_time() {
 		assert_eq!(activity_elapsed(1_000, 131_000).as_deref(), Some("2:10"));

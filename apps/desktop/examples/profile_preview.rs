@@ -213,6 +213,7 @@ fn prime_activities(state: &mut client_core::State) {
 					status: model::Patch::Value("online".into()),
 					custom_status: model::Patch::Absent,
 					activities: model::Patch::Value(activities.clone()),
+					clients: model::Patch::Absent,
 				})
 				.collect(),
 		),
@@ -589,8 +590,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					guild: Some(model::Id(10)),
 					request: 0,
 					total: 1,
+					start: 0,
+					lazy: false,
+					groups: vec![],
+					ranges: vec![],
 					freshness: model::Freshness::Fresh,
-					rows: vec![Some(model::Member {
+					slots: vec![Some(model::MemberSlot::Person(model::Member {
 						user: user.clone(),
 						nick: None,
 						roles: vec![],
@@ -601,7 +606,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 							mobile: true,
 							..Default::default()
 						},
-					})],
+					}))],
 				});
 				messaging.preview_profile(user);
 			} else if let Some((package, _invocation, result)) = fixture {
