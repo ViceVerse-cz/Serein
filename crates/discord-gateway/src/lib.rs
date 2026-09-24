@@ -1601,7 +1601,8 @@ async fn run_inner(
 									}
 									"MESSAGE_DELETE" => { let d: Deleted = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; emit(Event::Delete { channel:d.channel_id, id:d.id })?; }
 									"MESSAGE_DELETE_BULK" => { let d: BulkDeleted = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; if d.ids.len() > 100 { return Err(Failure::Capacity); } emit(Event::DeleteBulk { channel:d.channel_id, ids: d.ids })?; }
-									"AUTH_SESSION_CHANGE" => return Err(Failure::Expired),
+									// Only the auth-session hash changed; revocation arrives as HTTP 401 or close 4004.
+									"AUTH_SESSION_CHANGE" => {}
 									"CHANNEL_DELETE" => { let c: ChannelDto = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?; inbox.forget(c.id); calls.invalidate(c.id); emit(Event::Unavailable(c.id))?; }
 									"CHANNEL_CREATE" => {
 										let permissions=owner_id.map(|owner|channel_events::permission_metadata(packet.d.get().as_bytes(),owner)).transpose()?.flatten();
@@ -2084,20 +2085,20 @@ mod tests {
                 send(&mut socket, json!({"op":10,"d":{"heartbeat_interval":1000}})).await;
                 assert_eq!(packet(&mut socket).await["op"], 2);
                 send(&mut socket, ready(1, "synthetic-typing-session")).await;
-                for (sequence, name) in [(2, Some("SYNTHETIC_PRIVATE_EVENT_NAME")), (3, None), (4, Some(""))] {
+                for (sequence, name) in [(2, Some("SYNTHETIC_PRIVATE_EVENT_NAME")), (3, None), (4, Some("")), (5, Some("AUTH_SESSION_CHANGE"))] {
                     send(&mut socket, json!({"op":0,"t":name,"s":sequence,"d":{
                         "token":"SYNTHETIC_PRIVATE_PAYLOAD", "permissions":"8", "content":"not a message"
                     }})).await;
                 }
                 for (sequence, data) in [
-                    (5, json!({"channel_id":"2","user_id":"3","timestamp":1700000000,"member":{"user":{"username":"discarded"}}})),
-                    (6, json!({"channel_id":"2","user_id":"3","timestamp":"invalid"})),
-                    (7, json!({"channel_id":"2","user_id":"3","timestamp":1700000000,"member":{"padding":"x".repeat(discord_protocol::typing::MAX_WIRE)}})),
+                    (6, json!({"channel_id":"2","user_id":"3","timestamp":1700000000,"member":{"user":{"username":"discarded"}}})),
+                    (7, json!({"channel_id":"2","user_id":"3","timestamp":"invalid"})),
+                    (8, json!({"channel_id":"2","user_id":"3","timestamp":1700000000,"member":{"padding":"x".repeat(discord_protocol::typing::MAX_WIRE)}})),
                 ] {
                     send(&mut socket, json!({"op":0,"t":"TYPING_START","s":sequence,"d":data})).await;
                 }
-                send(&mut socket, json!({"op":0,"t":"MESSAGE_CREATE","s":8,"d":{"id":"4","channel_id":"2","author":{"id":"3","username":"Synthetic"},"content":"Message after invalid typing"}})).await;
-                acknowledge(&mut socket, 8).await;
+                send(&mut socket, json!({"op":0,"t":"MESSAGE_CREATE","s":9,"d":{"id":"4","channel_id":"2","author":{"id":"3","username":"Synthetic"},"content":"Message after invalid typing"}})).await;
+                acknowledge(&mut socket, 9).await;
                 // Exercise a heartbeat reply racing the terminal close.
                 send(&mut socket, json!({"op":1,"d":null})).await;
                 socket.send(Frame::Close(Some(CloseFrame {

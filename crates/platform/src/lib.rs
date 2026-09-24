@@ -37,6 +37,8 @@ const SERVICE: &str = "cz.viceverse.serein";
 const ACCOUNT: &str = "discord-session";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CredentialError {
+	/// No OS credential store exists (e.g. Linux without a Secret Service provider).
+	NoStore,
 	Unavailable,
 	Invalid,
 	TimedOut,
@@ -81,9 +83,14 @@ pub fn save_account_session(
 pub fn forget_account_session(account: model::Id) -> Result<(), CredentialError> {
 	forget_entry(&account_entry(account))
 }
+fn entry(name: &str) -> Result<keyring::Entry, CredentialError> {
+	keyring::Entry::new(SERVICE, name).map_err(|error| match error {
+		keyring::Error::NoDefaultStore => CredentialError::NoStore,
+		_ => CredentialError::Unavailable,
+	})
+}
 fn load_entry(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
-	let entry = keyring::Entry::new(SERVICE, name).map_err(|_| CredentialError::Unavailable)?;
-	match entry.get_password() {
+	match entry(name)?.get_password() {
 		Ok(value) => SessionSecret::from_owner_input(value)
 			.map(Some)
 			.map_err(|_| CredentialError::Invalid),
@@ -92,12 +99,12 @@ fn load_entry(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
 	}
 }
 fn save_entry(name: &str, secret: &SessionSecret) -> Result<(), CredentialError> {
-	keyring::Entry::new(SERVICE, name)
-		.and_then(|entry| entry.set_password(secret.expose()))
+	entry(name)?
+		.set_password(secret.expose())
 		.map_err(|_| CredentialError::Unavailable)
 }
 fn forget_entry(name: &str) -> Result<(), CredentialError> {
-	match keyring::Entry::new(SERVICE, name).and_then(|entry| entry.delete_credential()) {
+	match entry(name)?.delete_credential() {
 		Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
 		Err(_) => Err(CredentialError::Unavailable),
 	}

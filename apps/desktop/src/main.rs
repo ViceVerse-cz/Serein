@@ -4836,7 +4836,7 @@ impl Desktop {
 								has_token: true,
 							},
 						);
-					} else {
+					} else if result != Err(platform::CredentialError::NoStore) {
 						self.credential_status =
 							"Could not save this account for the switcher; sign in again to retry";
 					}
@@ -4844,12 +4844,18 @@ impl Desktop {
 				credentials::Outcome::Saved(Ok(())) => {
 					self.credential_status = "Login saved in the OS credential store"
 				}
+				credentials::Outcome::Saved(Err(platform::CredentialError::NoStore)) => {
+					self.messaging.toasts.push(
+						ui::design::Level::Warning,
+						"No OS keyring found, so you will need to sign in again next launch",
+					);
+				}
 				credentials::Outcome::Saved(Err(_)) => {
 					self.credential_status =
 						"Could not save login; this session will not restore automatically"
 				}
 				credentials::Outcome::AccountForgotten(result) => {
-					if result.is_err() {
+					if result.is_err_and(|error| error != platform::CredentialError::NoStore) {
 						self.messaging.toasts.push(
 							ui::design::Level::Error,
 							"Could not remove that account's saved login from the OS credential store",
@@ -4858,10 +4864,13 @@ impl Desktop {
 				}
 				credentials::Outcome::Forgotten(result) => {
 					self.forgetting = false;
-					self.credential_status = if result.is_ok() {
-						"Saved login removed"
-					} else {
-						"Could not remove saved login; remove cz.viceverse.serein / discord-session in your OS credential manager"
+					self.credential_status = match result {
+						Ok(()) => "Saved login removed",
+						// Nothing could have been saved without a credential store.
+						Err(platform::CredentialError::NoStore) => "",
+						Err(_) => {
+							"Could not remove saved login; remove cz.viceverse.serein / discord-session in your OS credential manager"
+						}
 					};
 				}
 			}
