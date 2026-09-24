@@ -119,8 +119,12 @@ impl Permissions {
 			.filter(|until| *until > now)
 			.unwrap_or(i64::MAX);
 		let mut cache = self.cache.borrow_mut();
-		if cache.len() >= self.decision_limit.max(MIN_DECISIONS) && !cache.contains_key(&key) {
-			cache.clear();
+		// Evict single entries: a scan larger than the cache then keeps most of its decisions
+		// warm instead of clearing them all on every miss.
+		if !cache.contains_key(&key) {
+			while cache.len() >= self.decision_limit.max(MIN_DECISIONS) {
+				cache.pop_last();
+			}
 		}
 		cache.insert(
 			key,
@@ -250,9 +254,9 @@ impl Permissions {
 		cache.retain(|(guild, channel, _), _| {
 			!guild_ids.contains(guild) && !channel_ids.contains(channel)
 		});
-		// Larger metadata can shrink the budget; do not keep decisions it no longer covers.
-		if cache.len() > limit {
-			cache.clear();
+		// Larger metadata can shrink the budget; drop only the decisions it no longer covers.
+		while cache.len() > limit {
+			cache.pop_last();
 		}
 		Ok(changed)
 	}
