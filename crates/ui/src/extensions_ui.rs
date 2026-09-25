@@ -2544,7 +2544,9 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::Presence => {
 			"Read loaded user presence status, reported client platform and activity name"
 		}
-		Capability::VoiceState => "Read current call state and participant identifiers",
+		Capability::VoiceState => {
+			"Read current call state, participant identifiers and when the call connected"
+		}
 		Capability::ReadState => "Read unread and mention counts in the active conversation",
 		Capability::LocalSettings => "Read local reading settings and propose changes for approval",
 		Capability::NotificationSettings => {

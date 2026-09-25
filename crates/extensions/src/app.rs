@@ -301,9 +301,9 @@ pub struct VoiceSnapshot {
 	pub camera: bool,
 	pub streaming: bool,
 	pub participants: Vec<String>,
-	/// Unix milliseconds when this device's call became connected, as a UTC instant.
-	/// Absent while the call is not connected, so it is present only in phases where
-	/// a call timer is meaningful. Supplied by the host; never sent by the plugin.
+	/// Unix milliseconds when this device's call became connected. Present only in the
+	/// established phases (`connected` and `waiting`); absent while connecting, ringing,
+	/// failed or idle, and absent on older hosts. Supplied by the host, never by the plugin.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connected_at_ms: Option<u64>,
 }

@@ -271,7 +271,8 @@ pub struct VoiceSnapshot {
 	pub camera: bool,
 	pub streaming: bool,
 	pub participants: Vec<String>,
-	/// Unix milliseconds when this device's call connected; absent while not connected.
+	/// Unix milliseconds when this device's call connected; present only in the
+	/// established `connected` and `waiting` phases.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connected_at_ms: Option<u64>,
 }

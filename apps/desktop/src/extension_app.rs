@@ -49,6 +49,21 @@ fn connected_at_ms(connected_at: Option<std::time::Instant>) -> Option<u64> {
 	)
 }
 
+/// A call start is only meaningful while the call is actually established. `Call` retains
+/// `connected_at` after a later disconnect or failure, so the phase gates the field:
+/// `connected` and `waiting` are the established states, and a failed or departing call
+/// must not keep advertising a timer.
+fn established_connected_at_ms(
+	phase: &str,
+	connected_at: Option<std::time::Instant>,
+) -> Option<u64> {
+	if matches!(phase, "connected" | "waiting") {
+		connected_at_ms(connected_at)
+	} else {
+		None
+	}
+}
+
 pub fn uses_app(capabilities: &[Capability]) -> bool {
 	capabilities.iter().any(|capability| {
 		matches!(
@@ -601,28 +616,37 @@ pub fn snapshot(
 			};
 			let mut budget = 6 * 1024;
 			// Members and DM recipients carry the same loaded presence record. A record
-			// with no status is not reported as offline: it is simply not yet known, and
-			// the entry is omitted rather than fabricating a state.
-			let member_presence = members.into_iter().flat_map(|m| {
-				m.slots.iter().flatten().filter_map(|slot| match slot {
-					model::MemberSlot::Person(member) => {
-						member.status.as_ref().map(|_| model::MemberPresence {
-							user: member.user.id,
-							status: member.status.clone(),
-							custom_status: member.custom_status.clone(),
-							activities: member.activities.clone(),
-							clients: member.clients,
-						})
-					}
-					_ => None,
+			// with no known status is omitted entirely rather than reported as offline:
+			// the service did not supply a state, and plugins must not receive one we
+			// invented. This mirrors the long-standing member-path behaviour.
+			let member_presence: Vec<model::MemberPresence> = members
+				.into_iter()
+				.flat_map(|m| {
+					m.slots.iter().flatten().filter_map(|slot| match slot {
+						model::MemberSlot::Person(member) => {
+							member.status.as_ref().map(|status| model::MemberPresence {
+								user: member.user.id,
+								status: Some(status.clone()),
+								custom_status: member.custom_status.clone(),
+								activities: member.activities.clone(),
+								clients: member.clients,
+							})
+						}
+						_ => None,
+					})
 				})
-			});
+				.collect();
+			// Borrowed, not cloned: only the first activity's name and kind are read.
 			let recipient_presence = recipients
 				.filter(|_| members.is_none())
 				.into_iter()
 				.flat_map(|c| &c.recipients)
-				.filter_map(|u| state.presence_for(u.id).cloned());
-			for member in member_presence.chain(recipient_presence) {
+				.filter_map(|u| state.presence_for(u.id))
+				.filter(|presence| presence.status.is_some());
+			for member in member_presence.iter().chain(recipient_presence) {
+				let Some(status) = member.status.as_deref() else {
+					continue;
+				};
 				let user_id = member.user.0.to_string();
 				if presence.items.iter().any(|item| item.user_id == user_id) {
 					continue;
@@ -632,7 +656,7 @@ pub fn snapshot(
 					&mut presence.items,
 					PresenceEntry {
 						user_id,
-						status: member.status.clone().unwrap_or_else(|| "offline".into()),
+						status: status.into(),
 						platform: platform_text(member.clients),
 						activity_name,
 						activity_kind,
@@ -655,22 +679,25 @@ pub fn snapshot(
 					&& state.freshness == Freshness::Unavailable)
 		});
 		app.voice = Some(match call {
-			Some(call) => VoiceSnapshot {
-				channel_id: Some(call.channel.0.to_string()),
-				phase: phase(call.phase).into(),
-				muted: call.muted,
-				deafened: call.deafened,
-				camera: call.camera,
-				streaming: messaging.screen.busy,
-				participants: call
-					.participants
-					.iter()
-					.filter(|p| p.user.0 != 0)
-					.take(MAX_VOICE_PARTICIPANTS)
-					.map(|p| p.user.0.to_string())
-					.collect(),
-				connected_at_ms: connected_at_ms(call.connected_at),
-			},
+			Some(call) => {
+				let phase = phase(call.phase);
+				VoiceSnapshot {
+					channel_id: Some(call.channel.0.to_string()),
+					phase: phase.into(),
+					muted: call.muted,
+					deafened: call.deafened,
+					camera: call.camera,
+					streaming: messaging.screen.busy,
+					participants: call
+						.participants
+						.iter()
+						.filter(|p| p.user.0 != 0)
+						.take(MAX_VOICE_PARTICIPANTS)
+						.map(|p| p.user.0.to_string())
+						.collect(),
+					connected_at_ms: established_connected_at_ms(phase, call.connected_at),
+				}
+			}
 			None => VoiceSnapshot {
 				channel_id: None,
 				phase: "idle".into(),
@@ -1381,6 +1408,36 @@ mod tests {
 			value <= now + 5_000 && value + 5_000 >= now,
 			"expected {value} near {now}"
 		);
+	}
+
+	#[test]
+	fn only_established_phases_expose_a_call_start() {
+		let started = Some(std::time::Instant::now());
+		// The retained instant survives a failure, so the phase must gate it.
+		for phase in ["connected", "waiting"] {
+			assert!(
+				established_connected_at_ms(phase, started).is_some(),
+				"{phase} should expose a call start"
+			);
+		}
+		for phase in [
+			"idle",
+			"connecting",
+			"connecting_transport",
+			"discovering",
+			"opening_audio",
+			"ringing",
+			"securing",
+			"failed",
+		] {
+			assert_eq!(
+				established_connected_at_ms(phase, started),
+				None,
+				"{phase} must not expose a call start"
+			);
+		}
+		// No instant at all stays absent even when connected.
+		assert_eq!(established_connected_at_ms("connected", None), None);
 	}
 
 	fn manifest(capabilities: Vec<Capability>) -> Manifest {

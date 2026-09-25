@@ -1099,7 +1099,7 @@ idle summary: no `channel_id`, phase `idle`, false flags and no participants.
 | `camera` | `bool` / boolean | Current account's call camera flag. No frames or device details are provided. | `voice.camera` |
 | `streaming` | `bool` / boolean | Local screen sharing is busy: starting, active, stopping or retiring. It is not proof that frames are currently being transmitted. | `voice.streaming` |
 | `participants` | `Vec<String>` / array of ID strings | At most 64 tracked participant IDs. No per-user voice flags or media are supplied. There is no `truncated` flag, so treat this as a bounded roster. | `voice.participants.len()` |
-| `connected_at_ms` | `Option<u64>` / integer or absent | Unix milliseconds when this device's call became connected. Absent while the call is not connected or on older hosts. It is a local connection instant for a call timer, not a service-reported or participant join time, and it may be absent even in `connected` if the host never observed the transition. | `voice.connected_at_ms` |
+| `connected_at_ms` | `Option<u64>` / integer or absent | Unix milliseconds when this device's call became connected. Present **only** in the established phases `connected` and `waiting`; absent while connecting, ringing, `failed` or idle, and absent on older hosts. It is a local connection instant for a call timer, not a service-reported or participant join time. | `voice.connected_at_ms` |
 
 | `phase` | Meaning in the host |
 | --- | --- |

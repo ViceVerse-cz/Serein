@@ -152,7 +152,7 @@ supports 51 capabilities, with at most 64 distinct declarations per manifest.
 | `timeline` | Read ordinary loaded messages in the active conversation | Fresh readable timeline, at most 50 (12 with `message_details`); no deleted/ephemeral text |
 | `members` | Read loaded members or DM recipients | Active channel, at most 100; no fetch |
 | `presence` | Read cached status strings, reported client platforms and the first activity name for that context | At most 100; no activity details, state, images or custom-status text |
-| `voice_state` | Read current call state, participant IDs and the local connected instant | At most 64 participants; no raw media; no participant join times |
+| `voice_state` | Read current call state, participant IDs and the local connected instant | At most 64 participants; connected instant only in established phases; no raw media; no participant join times |
 | `read_state` | Read current channel unread/mention summary | Unknown unread remains distinct from false |
 | `local_settings` | Read and propose changing seven local reading preferences | Zoom/sidebar/member list/GIFs/media links/smooth scrolling/scroll speed; changes require Apply |
 | `notification_settings` | Read and propose changing device-local notification preferences | Sound volume, sound toggles and unread badge; changes require Apply; no Discord notification settings |
