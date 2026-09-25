@@ -283,3 +283,5 @@ minutes before playback and is limited to 100 MiB input/output, 1080p and two ho
 Missing FFmpeg or conversion failures appear in the video card. Linux and Windows
 continue to use their installed native codecs. This optional fallback is not bundled
 in release packages; actual codec coverage depends on the local FFmpeg build.
+Windows passes MPEG-4/MOV and WebM/Matroska attachments to Media Foundation; a recognized
+container can still fail when its video or audio codec is not installed.

@@ -134,13 +134,14 @@ impl Decoder {
 		source.seek(SeekFrom::Start(0)).map_err(|_| INVALID)?;
 		let mut header = [0_u8; 8];
 		source.read_exact(&mut header).map_err(|_| INVALID)?;
-		// Only the MPEG-4/MOV source is supported. Its documented source cannot
-		// resolve external tracks: media must live in mdat boxes. No base URL is supplied.
-		if length < 8
-			|| !matches!(
-				&header[4..],
-				b"ftyp" | b"moov" | b"mdat" | b"free" | b"skip" | b"wide"
-			) {
+		// Admit only the native MPEG-4/MOV and WebM/Matroska sources. Neither can resolve
+		// external tracks because Media Foundation receives no base URL.
+		let mp4 = matches!(
+			&header[4..],
+			b"ftyp" | b"moov" | b"mdat" | b"free" | b"skip" | b"wide"
+		);
+		let ebml = header[..4] == [0x1a, 0x45, 0xdf, 0xa3];
+		if length < 8 || (!mp4 && !ebml) {
 			return Err(UNSUPPORTED);
 		}
 		source.seek(SeekFrom::Start(0)).map_err(|_| INVALID)?;
@@ -1045,5 +1046,20 @@ mod tests {
 			[6, 5, 4, 255, 3, 2, 1, 255]
 		);
 		assert!(rgba_frame(&input[..4], 1, 2, 4, 0, 2, (0, 0)).is_err());
+	}
+	/// Developer check: `$env:SEREIN_VIDEO_SAMPLE='C:\path\clip.webm'; cargo test -p platform
+	/// decodes_local_sample -- --ignored --nocapture`.
+	#[test]
+	#[ignore = "decodes a developer-supplied local clip"]
+	fn decodes_local_sample() {
+		let path = std::env::var("SEREIN_VIDEO_SAMPLE").expect("SEREIN_VIDEO_SAMPLE path");
+		let bytes = std::fs::read(path).unwrap();
+		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(bytes))).unwrap();
+		let info = decoder.info();
+		eprintln!("{info:?}");
+		assert!(matches!(
+			decoder.read_video().unwrap(),
+			Some(Sample::Video { .. })
+		));
 	}
 }

@@ -1931,3 +1931,20 @@ idle CPU was not measured on any platform.
 Rejected after measurement: a zstd raw-RGBA Twemoji atlas would save 929 KB but decodes in
 44.5 ms against 24.3 ms for the PNG at startup. Writing zlib output straight into the
 growing buffer saved 0.3 ms per 8 MiB. No live Discord session was used.
+
+## Windows WebM container admission - September 25, 2026
+
+Baseline: `7bdf862`. Windows x86_64, Rust 1.98.1. Both standard release packages include
+voice and contain 198 files. ZIPs use PowerShell `Compress-Archive -CompressionLevel Optimal`.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| `dist/serein.exe` | 73,463,296 bytes | 73,463,808 bytes | +512 (+0.0007%) |
+| Installed `dist` bytes | 77,566,012 | 77,566,632 | +620 (+0.0008%) |
+| Portable ZIP bytes | 43,341,577 | 43,341,880 | +303 (+0.0007%; compression noise) |
+
+A three-second 320x180 VP9/Opus WebM synthesized from the existing fixture decoded its
+first video frame through Media Foundation with 48 kHz audio metadata. The existing MOV
+decode/seek tests also passed. Native UI CPU, memory, frame timing and screenshots were
+not measured because desktop capture/control is unavailable; no performance improvement
+or universal Windows codec coverage is claimed.
