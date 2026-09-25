@@ -248,9 +248,20 @@ pub struct PresenceSnapshot {
 pub struct PresenceEntry {
 	pub user_id: String,
 	pub status: String,
+	/// Reported client platforms in fixed `desktop`/`mobile`/`web`/`vr` order.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub platform: Option<String>,
+	/// Name of the first loaded rich activity, without details, state or images.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub activity_name: Option<String>,
+	/// Service activity-type number (0 playing, 1 streaming, 2 listening,
+	/// 3 watching, 5 competing); present only alongside `activity_name`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub activity_kind: Option<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// All-false is a meaningful value: it is the idle summary used when no call is exposed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VoiceSnapshot {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub channel_id: Option<String>,
@@ -260,6 +271,9 @@ pub struct VoiceSnapshot {
 	pub camera: bool,
 	pub streaming: bool,
 	pub participants: Vec<String>,
+	/// Unix milliseconds when this device's call connected; absent while not connected.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connected_at_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -20,6 +20,12 @@ pub const MAX_APP_PRESENCES: usize = 100;
 pub const MAX_VOICE_PARTICIPANTS: usize = 64;
 pub const MAX_HOST_EFFECTS: usize = 1;
 pub const MAX_HOST_EFFECT_BYTES: usize = 8 * 1024;
+/// Character ceiling for a plugin-visible activity name, matching the model's
+/// `valid_presence_text` bound on `RichActivity::name`.
+pub const MAX_ACTIVITY_NAME_CHARS: usize = 128;
+/// Upper bound for a plugin-visible unix-millisecond instant, matching the model's
+/// `MAX_ACTIVITY_TIMESTAMP` ceiling for producer-supplied timestamps.
+pub const MAX_ACTIVITY_TIMESTAMP_MS: u64 = 9_007_199_254_740_991;
 
 /// Each group is present only when granted and available; partial lists say so explicitly.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -268,9 +274,23 @@ pub struct PresenceSnapshot {
 pub struct PresenceEntry {
 	pub user_id: String,
 	pub status: String,
+	/// Reported client platforms, in fixed `desktop`/`mobile`/`web`/`vr` order.
+	/// Absent when the service reported none. This is the platform the account is
+	/// actually using, never a spoofed value.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub platform: Option<String>,
+	/// Name of the first loaded rich activity, if any. No details, state, images or
+	/// secrets accompany it; those stay out of the plugin surface.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub activity_name: Option<String>,
+	/// Service activity-type number for `activity_name` (0 playing, 1 streaming,
+	/// 2 listening, 3 watching, 5 competing). Absent without an activity.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub activity_kind: Option<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// All-false is a meaningful value: it is the idle summary used when no call is exposed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VoiceSnapshot {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -281,6 +301,11 @@ pub struct VoiceSnapshot {
 	pub camera: bool,
 	pub streaming: bool,
 	pub participants: Vec<String>,
+	/// Unix milliseconds when this device's call became connected, as a UTC instant.
+	/// Absent while the call is not connected, so it is present only in phases where
+	/// a call timer is meaningful. Supplied by the host; never sent by the plugin.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connected_at_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1005,6 +1030,40 @@ pub(crate) fn label(value: &str, limit: usize) -> Result<(), Error> {
 	Ok(())
 }
 
+/// A comma-separated subset of `desktop`, `mobile`, `web` and `vr`, in that canonical
+/// order, without duplicates and without empty entries.
+pub(crate) fn valid_platform_list(value: &str) -> bool {
+	const ORDER: [&str; 4] = ["desktop", "mobile", "web", "vr"];
+	let mut index = 0;
+	for part in value.split(',') {
+		let Some(found) = ORDER.iter().position(|name| *name == part) else {
+			return false;
+		};
+		// Strictly increasing positions guarantee canonical order and no duplicates.
+		if found < index {
+			return false;
+		}
+		index = found + 1;
+	}
+	!value.is_empty()
+}
+
+/// Bounded activity text, mirroring the model's `valid_presence_text` rules so a
+/// plugin sees exactly what the client already retained.
+pub(crate) fn activity_text(value: &str) -> Result<(), Error> {
+	if value.chars().count() > MAX_ACTIVITY_NAME_CHARS {
+		return Err(Error::Limit);
+	}
+	if value.len() > 512
+		|| value.is_empty()
+		|| value.trim() != value
+		|| value.chars().any(char::is_control)
+	{
+		return Err(Error::Invalid);
+	}
+	Ok(())
+}
+
 pub(crate) fn user(user: &UserSnapshot) -> Result<(), Error> {
 	entity_id(&user.id)?;
 	label(&user.name, 256)
@@ -1350,6 +1409,21 @@ impl AppSnapshot {
 			)?;
 			for item in &presence.items {
 				label(&item.status, 32)?;
+				if let Some(platform) = &item.platform {
+					// A comma-separated subset of the fixed platform vocabulary, in
+					// canonical order, without duplicates. Bounded and non-free-form.
+					if !valid_platform_list(platform) {
+						return Err(Error::Invalid);
+					}
+				}
+				if let Some(name) = &item.activity_name {
+					activity_text(name)?;
+				}
+				if let Some(kind) = item.activity_kind
+					&& (!matches!(kind, 0..=3 | 5) || item.activity_name.is_none())
+				{
+					return Err(Error::Invalid);
+				}
 			}
 		}
 		if let Some(voice) = &self.voice {
@@ -1361,6 +1435,12 @@ impl AppSnapshot {
 				voice.participants.iter().map(String::as_str),
 				MAX_VOICE_PARTICIPANTS,
 			)?;
+			if voice
+				.connected_at_ms
+				.is_some_and(|at| at > MAX_ACTIVITY_TIMESTAMP_MS)
+			{
+				return Err(Error::Invalid);
+			}
 		}
 		if let Some(read_state) = &self.read_state
 			&& let Some(channel) = &read_state.channel_id

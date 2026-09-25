@@ -8,6 +8,47 @@ pub fn available(state: &State) -> bool {
 		&& state.user.as_ref().is_some_and(|user| user.id.0 != 0)
 }
 
+/// Reported client platforms as a canonical comma-separated subset, or `None` when the
+/// service reported none. This is the platform the account is actually using.
+fn platform_text(clients: model::ClientPlatforms) -> Option<String> {
+	let mut names = Vec::new();
+	if clients.desktop {
+		names.push("desktop");
+	}
+	if clients.mobile {
+		names.push("mobile");
+	}
+	if clients.web {
+		names.push("web");
+	}
+	if clients.vr {
+		names.push("vr");
+	}
+	(!names.is_empty()).then(|| names.join(","))
+}
+
+/// Name and service type of the first retained rich activity, if the account shares one.
+/// Details, state, images and timestamps are deliberately not exposed.
+fn activity_of(activities: &[model::RichActivity]) -> (Option<String>, Option<u8>) {
+	match activities.first() {
+		Some(activity) => (Some(activity.name.clone()), Some(activity.kind)),
+		None => (None, None),
+	}
+}
+
+/// A connected call's start as unix milliseconds. `Instant` is process-relative, so it
+/// carries no absolute instant on its own and must be anchored to the wall clock here.
+fn connected_at_ms(connected_at: Option<std::time::Instant>) -> Option<u64> {
+	let at = connected_at?;
+	Some(
+		std::time::SystemTime::now()
+			.checked_sub(at.elapsed())?
+			.duration_since(std::time::UNIX_EPOCH)
+			.ok()?
+			.as_millis() as u64,
+	)
+}
+
 pub fn uses_app(capabilities: &[Capability]) -> bool {
 	capabilities.iter().any(|capability| {
 		matches!(
@@ -559,40 +600,42 @@ pub fn snapshot(
 				truncated: false,
 			};
 			let mut budget = 6 * 1024;
-			let statuses = members
-				.into_iter()
-				.flat_map(|m| {
-					m.slots
-						.iter()
-						.flatten()
-						.filter_map(|slot| match slot {
-							model::MemberSlot::Person(member) => Some(member),
-							_ => None,
+			// Members and DM recipients carry the same loaded presence record. A record
+			// with no status is not reported as offline: it is simply not yet known, and
+			// the entry is omitted rather than fabricating a state.
+			let member_presence = members.into_iter().flat_map(|m| {
+				m.slots.iter().flatten().filter_map(|slot| match slot {
+					model::MemberSlot::Person(member) => {
+						member.status.as_ref().map(|_| model::MemberPresence {
+							user: member.user.id,
+							status: member.status.clone(),
+							custom_status: member.custom_status.clone(),
+							activities: member.activities.clone(),
+							clients: member.clients,
 						})
-						.filter_map(|m| m.status.as_deref().map(|status| (m.user.id, status)))
+					}
+					_ => None,
 				})
-				.chain(
-					recipients
-						.filter(|_| members.is_none())
-						.into_iter()
-						.flat_map(|c| &c.recipients)
-						.filter_map(|u| {
-							state
-								.presence_for(u.id)
-								.and_then(|p| p.status.as_deref())
-								.map(|s| (u.id, s))
-						}),
-				);
-			for (user, status) in statuses {
-				let user_id = user.0.to_string();
+			});
+			let recipient_presence = recipients
+				.filter(|_| members.is_none())
+				.into_iter()
+				.flat_map(|c| &c.recipients)
+				.filter_map(|u| state.presence_for(u.id).cloned());
+			for member in member_presence.chain(recipient_presence) {
+				let user_id = member.user.0.to_string();
 				if presence.items.iter().any(|item| item.user_id == user_id) {
 					continue;
 				}
+				let (activity_name, activity_kind) = activity_of(&member.activities);
 				if !push(
 					&mut presence.items,
 					PresenceEntry {
 						user_id,
-						status: status.into(),
+						status: member.status.clone().unwrap_or_else(|| "offline".into()),
+						platform: platform_text(member.clients),
+						activity_name,
+						activity_kind,
 					},
 					&mut budget,
 					MAX_APP_PRESENCES,
@@ -611,20 +654,28 @@ pub fn snapshot(
 				&& !(state.selected == Some(call.channel)
 					&& state.freshness == Freshness::Unavailable)
 		});
-		app.voice = Some(VoiceSnapshot {
-			channel_id: call.map(|c| c.channel.0.to_string()),
-			phase: call.map_or("idle", |c| phase(c.phase)).into(),
-			muted: call.is_some_and(|c| c.muted),
-			deafened: call.is_some_and(|c| c.deafened),
-			camera: call.is_some_and(|c| c.camera),
-			streaming: call.is_some() && messaging.screen.busy,
-			participants: call
-				.into_iter()
-				.flat_map(|c| &c.participants)
-				.filter(|p| p.user.0 != 0)
-				.take(MAX_VOICE_PARTICIPANTS)
-				.map(|p| p.user.0.to_string())
-				.collect(),
+		app.voice = Some(match call {
+			Some(call) => VoiceSnapshot {
+				channel_id: Some(call.channel.0.to_string()),
+				phase: phase(call.phase).into(),
+				muted: call.muted,
+				deafened: call.deafened,
+				camera: call.camera,
+				streaming: messaging.screen.busy,
+				participants: call
+					.participants
+					.iter()
+					.filter(|p| p.user.0 != 0)
+					.take(MAX_VOICE_PARTICIPANTS)
+					.map(|p| p.user.0.to_string())
+					.collect(),
+				connected_at_ms: connected_at_ms(call.connected_at),
+			},
+			None => VoiceSnapshot {
+				channel_id: None,
+				phase: "idle".into(),
+				..Default::default()
+			},
 		});
 	}
 	if granted(Capability::ReadState) {
@@ -1270,6 +1321,68 @@ impl ChangeKey {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn presence_platform_text_uses_canonical_order_and_omits_known_none() {
+		let none = model::ClientPlatforms::default();
+		assert_eq!(platform_text(none), None);
+
+		let web = model::ClientPlatforms {
+			web: true,
+			..Default::default()
+		};
+		assert_eq!(platform_text(web).as_deref(), Some("web"));
+
+		// Order is fixed regardless of which flags are set.
+		let all = model::ClientPlatforms {
+			desktop: true,
+			mobile: true,
+			web: true,
+			vr: true,
+		};
+		assert_eq!(platform_text(all).as_deref(), Some("desktop,mobile,web,vr"));
+
+		let mixed = model::ClientPlatforms {
+			mobile: true,
+			vr: true,
+			..Default::default()
+		};
+		assert_eq!(platform_text(mixed).as_deref(), Some("mobile,vr"));
+	}
+
+	#[test]
+	fn presence_activity_exposes_only_the_first_name_and_kind() {
+		assert_eq!(activity_of(&[]), (None, None));
+		let activity = model::RichActivity {
+			kind: 2,
+			name: "Synthetic track".into(),
+			details: Some("secret detail".into()),
+			state: Some("secret state".into()),
+			image: None,
+			small_image: None,
+			started_at: Some(1_790_351_082_000),
+			ends_at: None,
+		};
+		let (name, kind) = activity_of(std::slice::from_ref(&activity));
+		assert_eq!(name.as_deref(), Some("Synthetic track"));
+		assert_eq!(kind, Some(2));
+	}
+
+	#[test]
+	fn connected_at_is_anchored_to_the_wall_clock() {
+		assert_eq!(connected_at_ms(None), None);
+		// A call connected "now" lands within a generous window of the current instant.
+		let now = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap()
+			.as_millis() as u64;
+		let value = connected_at_ms(Some(std::time::Instant::now())).unwrap();
+		assert!(
+			value <= now + 5_000 && value + 5_000 >= now,
+			"expected {value} near {now}"
+		);
+	}
+
 	fn manifest(capabilities: Vec<Capability>) -> Manifest {
 		Manifest {
 			api_version: API_VERSION,

@@ -441,7 +441,7 @@ For the examples below, `app` is a borrowed `AppSnapshot`. Each field is an
 | `channels` | [`Option<ChannelDirectorySnapshot>`](extension-sdk-reference.md#channeldirectorysnapshot-loaded-channel-list) | `channel_directory`; Gateway connected. Only loaded channels the user can view; a selected channel known to be unavailable is excluded. | `app.channels.as_ref().map(\|group\| group.items.len())` |
 | `timeline` | [`Option<TimelineSnapshot>`](extension-sdk-reference.md#timelinesnapshot-and-messagesnapshot-loaded-messages) | `timeline`; selected text-capable conversation, connected, readable history and fresh timeline. | `app.timeline.as_ref()` |
 | `members` | [`Option<MembersSnapshot>`](extension-sdk-reference.md#memberssnapshot-loaded-people-in-this-conversation) | `members`; connected, accessible selected conversation with a fresh loaded member list, or loaded DM/group-DM recipients. | `app.members.as_ref()` |
-| `presence` | [`Option<PresenceSnapshot>`](extension-sdk-reference.md#presencesnapshot-and-presenceentry-known-status-only) | `presence`; the same selected member/recipient scope, using only known status entries. | `app.presence.as_ref()` |
+| `presence` | [`Option<PresenceSnapshot>`](extension-sdk-reference.md#presencesnapshot-and-presenceentry-known-status-and-reported-client) | `presence`; the same selected member/recipient scope, using only known status entries plus reported platform and first activity name. | `app.presence.as_ref()` |
 | `voice` | [`Option<VoiceSnapshot>`](extension-sdk-reference.md#voicesnapshot-the-current-call) | `voice_state`; current call summary, or an idle summary when there is no accessible active call. The call may be in a different channel from the selected chat. | `app.voice.as_ref()` |
 | `read_state` | [`Option<ReadSnapshot>`](extension-sdk-reference.md#readsnapshot-unread-and-mentions) | `read_state`; selected-channel summary. The group can exist with no channel and unknown unread state. | `app.read_state.as_ref()` |
 | `settings` | [`Option<LocalSettingsSnapshot>`](extension-sdk-reference.md#localsettingssnapshot-reading-preferences) | `local_settings`; current local reading/layout preferences. | `app.settings.as_ref()` |
@@ -1061,22 +1061,28 @@ no such member list is present. This is not a server member search or full roste
 | `items` | `Vec<UserSnapshot>` / array | Up to 100 distinct known user labels and IDs. No member roles or permission records are included. | `members.items.iter().map(\|user\| user.name.as_str())` |
 | `truncated` | `bool` / boolean | Loaded rows do not cover the host's known member count, or a size/item limit was reached. | `members.truncated` |
 
-### PresenceSnapshot and PresenceEntry: known status only
+### PresenceSnapshot and PresenceEntry: known status and reported client
 
 Requires `presence`, independently of `members`. Entries are drawn from the
 selected fresh member-list scope or known statuses of loaded DM recipients.
-No custom status text, activities or desktop/mobile session details are exposed.
-A user with no entry has unknown/unsupplied presence, not necessarily offline.
+Users with unknown status are omitted, so a user with no entry has
+unknown/unsupplied presence, not necessarily offline. Each entry also carries the
+client platforms the service reported and, when the account shares one, the name
+and type of its first rich activity. Activity details, state, images and timestamps
+are never exposed, and no custom-status text is included.
 
 | Group wire field | SDK Rust / JSON type | Meaning | Reading from `presence: &PresenceSnapshot` |
 | --- | --- | --- | --- |
-| `items` | `Vec<PresenceEntry>` / array | Up to 100 distinct user/status pairs. Users with unknown status are omitted. | `presence.items.iter().find(\|entry\| entry.user_id == "300")` |
+| `items` | `Vec<PresenceEntry>` / array | Up to 100 distinct entries. Users with unknown status are omitted. | `presence.items.iter().find(\|entry\| entry.user_id == "300")` |
 | `truncated` | `bool` / boolean | Entries may be incomplete because of member coverage or size/item limits. `false` still does not prove every person's status is known. | `presence.truncated` |
 
 | Entry wire field | SDK Rust / JSON type | Meaning | Reading from `entry: &PresenceEntry` |
 | --- | --- | --- | --- |
 | `user_id` | `String` / string | User whose known status is reported. | `entry.user_id.as_str()` |
 | `status` | `String` / string | Current producer values: `online`, `idle`, `dnd` (Do Not Disturb), or `offline`. Bounded to 32 bytes; handle future strings without failing. | `entry.status == "online"` |
+| `platform` | `Option<String>` / string or absent | Comma-separated client platforms in fixed `desktop`, `mobile`, `web`, `vr` order, such as `desktop,mobile`. Absent when the service reported none or on older hosts. This is the platform the account is actually using, never a spoofed value. | `entry.platform.as_deref() == Some("desktop")` |
+| `activity_name` | `Option<String>` / string or absent | Name of the first retained rich activity, bounded to 128 characters. No details, state, images or timestamps accompany it. | `entry.activity_name.as_deref()` |
+| `activity_kind` | `Option<u8>` / integer or absent | Service activity-type number for `activity_name`: `0` playing, `1` streaming, `2` listening, `3` watching, `5` competing. Present only alongside `activity_name`; handle unknown future values. | `entry.activity_kind == Some(0)` |
 
 ### VoiceSnapshot: the current call
 
@@ -1093,6 +1099,7 @@ idle summary: no `channel_id`, phase `idle`, false flags and no participants.
 | `camera` | `bool` / boolean | Current account's call camera flag. No frames or device details are provided. | `voice.camera` |
 | `streaming` | `bool` / boolean | Local screen sharing is busy: starting, active, stopping or retiring. It is not proof that frames are currently being transmitted. | `voice.streaming` |
 | `participants` | `Vec<String>` / array of ID strings | At most 64 tracked participant IDs. No per-user voice flags or media are supplied. There is no `truncated` flag, so treat this as a bounded roster. | `voice.participants.len()` |
+| `connected_at_ms` | `Option<u64>` / integer or absent | Unix milliseconds when this device's call became connected. Absent while the call is not connected or on older hosts. It is a local connection instant for a call timer, not a service-reported or participant join time, and it may be absent even in `connected` if the host never observed the transition. | `voice.connected_at_ms` |
 
 | `phase` | Meaning in the host |
 | --- | --- |

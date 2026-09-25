@@ -2541,7 +2541,9 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::Relationships => "Read my loaded friends, requests, blocked and ignored users",
 		Capability::Timeline => "Read loaded messages in the active conversation",
 		Capability::Members => "Read loaded members of the active conversation",
-		Capability::Presence => "Read loaded user presence status",
+		Capability::Presence => {
+			"Read loaded user presence status, reported client platform and activity name"
+		}
 		Capability::VoiceState => "Read current call state and participant identifiers",
 		Capability::ReadState => "Read unread and mention counts in the active conversation",
 		Capability::LocalSettings => "Read local reading settings and propose changes for approval",

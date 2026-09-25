@@ -271,6 +271,9 @@ fn snapshot() -> AppSnapshot {
 			items: vec![PresenceEntry {
 				user_id: "1".into(),
 				status: "online".into(),
+				platform: Some("desktop,mobile".into()),
+				activity_name: Some("Synthetic activity".into()),
+				activity_kind: Some(0),
 			}],
 			truncated: false,
 		}),
@@ -282,6 +285,7 @@ fn snapshot() -> AppSnapshot {
 			camera: false,
 			streaming: false,
 			participants: vec!["1".into()],
+			connected_at_ms: Some(1_790_351_082_000),
 		}),
 		read_state: Some(ReadSnapshot {
 			channel_id: Some("2".into()),
@@ -1337,4 +1341,77 @@ fn preference_snapshots_are_bounded_and_old_hosts_can_omit_them() {
 	assert!(data.validate(&manifest).is_err());
 	let old: sdk::AppSnapshot = serde_json::from_str("{}").unwrap();
 	assert!(old.audio_settings.is_none() && old.own_presence.is_none());
+}
+
+#[test]
+fn presence_platform_and_activity_and_call_instant_are_bounded() {
+	let manifest = test_manifest(read_grants());
+
+	// A platform list must be a canonical, duplicate-free subset of the vocabulary.
+	let mut data = snapshot();
+	for bad in [
+		"",
+		"Desktop",
+		"desktop,desktop",
+		"mobile,desktop",
+		"phone",
+		"desktop,",
+	] {
+		data.presence.as_mut().unwrap().items[0].platform = Some(bad.into());
+		assert!(
+			data.validate(&manifest).is_err(),
+			"accepted platform {bad:?}"
+		);
+	}
+	for good in ["desktop", "mobile", "web", "vr", "desktop,mobile,web,vr"] {
+		data.presence.as_mut().unwrap().items[0].platform = Some(good.into());
+		data.validate(&manifest).unwrap();
+	}
+	data.presence.as_mut().unwrap().items[0].platform = None;
+
+	// Activity text mirrors the model's presence-text rules.
+	for bad in [" padded ", "", "line\nbreak"] {
+		data.presence.as_mut().unwrap().items[0].activity_name = Some(bad.into());
+		assert!(
+			data.validate(&manifest).is_err(),
+			"accepted activity {bad:?}"
+		);
+	}
+	data.presence.as_mut().unwrap().items[0].activity_name = Some("x".repeat(128));
+	data.validate(&manifest).unwrap();
+	data.presence.as_mut().unwrap().items[0].activity_name = Some("x".repeat(129));
+	assert!(data.validate(&manifest).is_err());
+	data.presence.as_mut().unwrap().items[0].activity_name = Some("Synthetic".into());
+
+	// Only the five known service activity types are accepted, and never without a name.
+	for bad in [4u8, 6, u8::MAX] {
+		data.presence.as_mut().unwrap().items[0].activity_kind = Some(bad);
+		assert!(data.validate(&manifest).is_err(), "accepted kind {bad}");
+	}
+	data.presence.as_mut().unwrap().items[0].activity_kind = None;
+	data.presence.as_mut().unwrap().items[0].activity_name = None;
+	data.validate(&manifest).unwrap();
+	data.presence.as_mut().unwrap().items[0].activity_kind = Some(0);
+	assert!(data.validate(&manifest).is_err());
+	data.presence.as_mut().unwrap().items[0].activity_kind = Some(0);
+	data.presence.as_mut().unwrap().items[0].activity_name = Some("Synthetic".into());
+
+	// The call instant is bounded like any other producer-supplied timestamp.
+	let voice = data.voice.as_mut().unwrap();
+	voice.connected_at_ms = Some(MAX_ACTIVITY_TIMESTAMP_MS);
+	data.validate(&manifest).unwrap();
+	data.voice.as_mut().unwrap().connected_at_ms = Some(MAX_ACTIVITY_TIMESTAMP_MS + 1);
+	assert!(data.validate(&manifest).is_err());
+	data.voice.as_mut().unwrap().connected_at_ms = None;
+	data.validate(&manifest).unwrap();
+
+	// Older hosts omit the new fields entirely.
+	let old: sdk::PresenceEntry =
+		serde_json::from_str(r#"{"user_id":"1","status":"online"}"#).unwrap();
+	assert!(old.platform.is_none() && old.activity_name.is_none() && old.activity_kind.is_none());
+	let old_voice: sdk::VoiceSnapshot = serde_json::from_str(
+		r#"{"phase":"idle","muted":false,"deafened":false,"camera":false,"streaming":false,"participants":[]}"#,
+	)
+	.unwrap();
+	assert!(old_voice.connected_at_ms.is_none());
 }
