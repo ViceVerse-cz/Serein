@@ -1948,3 +1948,20 @@ first video frame through Media Foundation with 48 kHz audio metadata. The exist
 decode/seek tests also passed. Native UI CPU, memory, frame timing and screenshots were
 not measured because desktop capture/control is unavailable; no performance improvement
 or universal Windows codec coverage is claimed.
+
+## Windows rounded corners - September 25, 2026
+
+Compared clean baseline `9013b20` with the Windows DWM corner-preference change on Windows
+x64, Rust 1.98.1. Both standard `cargo xtask package` builds include voice and contain 198
+files. ZIPs use .NET `ZipFile` with Optimal compression over the complete `dist` directory.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| `dist/serein.exe` | 73,463,808 bytes | 73,463,808 bytes | 0 |
+| Installed `dist` bytes | 77,566,604 | 77,566,604 | 0 |
+| Portable ZIP bytes | 43,341,873 | 43,341,978 | +105 (+0.0002%; compression noise) |
+
+Native UI CPU, memory, frame timing and before/after screenshots remain unmeasured because
+the untouched baseline's offline demo does not compile: existing fixtures omit the new
+`Member.clients` field and a demo-only slider check is not exported to the binary. The
+standard authenticated build was not launched for evidence. No performance change is claimed.

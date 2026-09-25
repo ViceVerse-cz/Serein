@@ -1848,7 +1848,11 @@ impl Desktop {
 			.ok_or("Native window unavailable")?
 			.clone();
 		#[cfg(target_os = "windows")]
-		align_undecorated_surface(&window);
+		{
+			use winit::platform::windows::{CornerPreference, WindowExtWindows as _};
+			window.set_corner_preference(CornerPreference::Round);
+			align_undecorated_surface(&window);
+		}
 		// The GPU surface and X11 visual are selected at startup. Opaque launches
 		// keep the same native/compositor path as builds without window effects.
 		let tray_window = tray_window::State::default();

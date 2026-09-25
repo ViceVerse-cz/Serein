@@ -14,6 +14,8 @@ adds one pixel to `WM_NCCALCSIZE` top and bottom. Maximizing skips the shift, wh
 only that state looked sharp. `ViewportBuilder::with_has_shadow` is macOS-only and does not
 disable the Windows hack. Native DPI and eframe's physical surface sizing remain unchanged.
 macOS/Linux window creation is unchanged.
+The custom Windows frame requests DWM's rounded-corner treatment on Windows 11. Windows keeps
+maximized windows square, and older releases ignore the unsupported preference.
 For offline inspection, run `cargo run --locked -p serein --features demo -- --demo --demo-rendering`.
 The diagnostic shows the physical client size, logical viewport, native/egui scale and WGPU
 surface dimensions sampled by a render callback, plus alternating one-pixel stripes.
