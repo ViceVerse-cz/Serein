@@ -674,6 +674,10 @@ pub struct State {
 	pub user: Option<User>,
 	pub members: Option<MemberList>,
 	pub member_chunks: MemberChunks,
+	#[doc(hidden)]
+	pub member_pages: Vec<MemberPage>,
+	#[doc(hidden)]
+	pub offline_list_hidden: Vec<(Id, bool)>,
 	pub member_search: [member_search::View; 2],
 	pub member_search_nonce: u64,
 	pub direct_presences: Vec<MemberPresence>,
@@ -723,6 +727,23 @@ pub struct State {
 const MEMBER_CHUNK: usize = 100;
 const MEMBER_CACHE_BYTES: usize = 1024 * 1024;
 const MEMBER_CACHE_CHUNKS: usize = 32;
+const MEMBER_PAGES: usize = 4;
+/// Members, hoisted roles, and the Online/Offline headers. Discord's client
+/// stops listing offline people once that sum reaches 1,000.
+const OFFLINE_LIST_HIDE: u64 = 1000;
+/// Official cap: once hidden at 1,000+, the offline list returns under 800 members.
+const OFFLINE_LIST_SHOW: u64 = 800;
+const MEMBER_LIST_HEADERS: u64 = 2;
+const OFFLINE_GUILDS: usize = 32;
+
+#[doc(hidden)]
+pub struct MemberPage {
+	guild: Id,
+	list_id: String,
+	slots: Vec<Option<MemberSlot>>,
+	total: u64,
+	groups: Vec<(String, u64)>,
+}
 
 /// Decoded member-list chunks for the open request. The gateway subscription stays on the
 /// viewport. This cache is what the sidebar paints when the user scrolls back.
@@ -880,6 +901,8 @@ impl Default for State {
 			user: None,
 			members: None,
 			member_chunks: MemberChunks::default(),
+			member_pages: Vec::new(),
+			offline_list_hidden: Vec::new(),
 			member_search: Default::default(),
 			member_search_nonce: 0,
 			direct_presences: vec![],
@@ -1130,6 +1153,7 @@ impl State {
 		self.typing.clear();
 		self.select_resident(channel);
 		self.history_targeted = false;
+		self.remember_member_page();
 		if self.shared_member_list_id(channel).is_none() {
 			self.members = None;
 		}
@@ -1344,9 +1368,11 @@ impl State {
 		} else {
 			Freshness::Loading
 		};
-		self.members = Some(MemberList {
-			guild: channel.guild,
-			channel: channel.id,
+		let guild = channel.guild;
+		let channel_id = channel.id;
+		let mut list = MemberList {
+			guild,
+			channel: channel_id,
 			request: self.member_request,
 			start: 0,
 			total: if lazy { 0 } else { slots.len() as u64 },
@@ -1355,13 +1381,37 @@ impl State {
 			freshness,
 			groups: vec![],
 			ranges: ranges.clone(),
-		});
+		};
+		if lazy
+			&& let Some(list_id) = list_id.as_deref()
+			&& let Some(page) = self
+				.member_pages
+				.iter()
+				.find(|page| Some(page.guild) == guild && page.list_id == list_id)
+		{
+			list.slots = page.slots.clone();
+			list.total = page.total;
+			list.groups = page.groups.clone();
+			if list.slots.iter().any(|slot| slot.is_some())
+				&& self.freshness != Freshness::Unavailable
+			{
+				list.freshness = Freshness::Fresh;
+			}
+			if let Some(guild) = guild {
+				self.note_offline_list(guild, list.total);
+			}
+		}
+		let restored = list.slots.iter().any(|slot| slot.is_some());
+		self.members = Some(list);
+		if restored && let Some(list) = &self.members {
+			self.member_chunks.merge(list);
+		}
 		let command = Command::Members {
 			thread,
-			guild: channel.guild.filter(|_| {
+			guild: guild.filter(|_| {
 				(thread || list_id.is_some()) && self.freshness != Freshness::Unavailable
 			}),
-			channel: Some(channel.id),
+			channel: Some(channel_id),
 			request: self.member_request,
 			list_id,
 			ranges,
@@ -1394,7 +1444,106 @@ impl State {
 			list.lazy && self.member_chunks.request == list.request && self.member_chunks.occupied()
 		})
 	}
+	/// Rows in the lazy scrollbar. Offline people drop out once the list reaches
+	/// Discord's 1,000-row cap. The offline header stays so the count is still visible.
+	pub fn member_scroll_rows(&self) -> usize {
+		let Some(list) = &self.members else {
+			return 0;
+		};
+		if !list.lazy {
+			return list.slots.len();
+		}
+		let hidden = list
+			.guild
+			.is_some_and(|guild| self.offline_people_hidden(guild));
+		if list.groups.is_empty() {
+			return list.total.min(250_000) as usize;
+		}
+		let rows = list
+			.groups
+			.iter()
+			.map(|(id, count)| {
+				if hidden && id == "offline" {
+					1
+				} else {
+					count.saturating_add(1)
+				}
+			})
+			.sum::<u64>();
+		let rows = if hidden { rows } else { rows.max(list.total) };
+		rows.min(250_000) as usize
+	}
+	fn note_offline_list(&mut self, guild: Id, total: u64) {
+		if total == 0 {
+			return;
+		}
+		let hoisted = self
+			.guild_roles(guild)
+			.map(|roles| roles.iter().filter(|role| role.hoist).count())
+			.unwrap_or(0) as u64;
+		let budget = total
+			.saturating_add(hoisted)
+			.saturating_add(MEMBER_LIST_HEADERS);
+		let hidden = if self.offline_people_hidden(guild) {
+			total >= OFFLINE_LIST_SHOW
+		} else {
+			budget >= OFFLINE_LIST_HIDE
+		};
+		self.offline_list_hidden.retain(|(id, _)| *id != guild);
+		self.offline_list_hidden.insert(0, (guild, hidden));
+		self.offline_list_hidden.truncate(OFFLINE_GUILDS);
+	}
+	fn offline_people_hidden(&self, guild: Id) -> bool {
+		self.offline_list_hidden
+			.iter()
+			.any(|(id, hidden)| *id == guild && *hidden)
+	}
+	fn remember_member_page(&mut self) {
+		let top = self.member_chunks.chunks.get(&0).cloned();
+		let Some((guild, channel, slots, total, groups)) = self.members.as_ref().and_then(|list| {
+			if !list.lazy {
+				return None;
+			}
+			let guild = list.guild?;
+			let slots = if let Some(top) = top.clone() {
+				top
+			} else if list.start == 0 {
+				list.slots.clone()
+			} else {
+				return None;
+			};
+			if slots.iter().all(|slot| slot.is_none()) {
+				return None;
+			}
+			Some((guild, list.channel, slots, list.total, list.groups.clone()))
+		}) else {
+			return;
+		};
+		let Some(list_id) = self
+			.channel(channel)
+			.and_then(|channel| self.member_list_id(channel))
+		else {
+			return;
+		};
+		if total > 0 {
+			self.note_offline_list(guild, total);
+		}
+		self.member_pages
+			.retain(|page| page.guild != guild || page.list_id != list_id);
+		self.member_pages.insert(
+			0,
+			MemberPage {
+				guild,
+				list_id,
+				slots,
+				total,
+				groups,
+			},
+		);
+		self.member_pages.truncate(MEMBER_PAGES);
+	}
 	pub fn focus_member_ranges(&mut self, first: usize, last: usize) -> Option<Command> {
+		let rows = self.member_scroll_rows();
 		let list = self.members.as_ref()?;
 		if !list.lazy
 			|| Some(list.channel) != self.selected
@@ -1410,11 +1559,7 @@ impl State {
 			return None;
 		}
 		let list_id = self.member_list_id(channel)?;
-		let max_idx = if list.total > 0 {
-			(list.total as usize).saturating_sub(1)
-		} else {
-			0
-		};
+		let max_idx = rows.saturating_sub(1);
 		let first = first.min(max_idx);
 		let last = last.min(max_idx).max(first);
 		let chunk = |i: usize| -> [usize; 2] {
@@ -2893,7 +3038,13 @@ impl State {
 					}
 					self.member_chunks.merge(&list);
 					self.member_chunks.evict(&list.ranges);
+					if let Some(guild) = list.guild
+						&& list.total > 0
+					{
+						self.note_offline_list(guild, list.total);
+					}
 					self.members = Some(list);
+					self.remember_member_page();
 				}
 				Ok(())
 			}
@@ -2909,6 +3060,8 @@ impl State {
 					.as_ref()
 					.is_some_and(|previous| previous.id != user.id)
 				{
+					self.member_pages.clear();
+					self.offline_list_hidden.clear();
 					self.auth = auth::AuthState::Failed;
 					self.status = "Different account rejected; log out before switching accounts";
 					return;

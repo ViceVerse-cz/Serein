@@ -765,7 +765,8 @@ pub struct MemberList {
 	/// Contiguous window. None is a hole. At most 200 entries.
 	pub slots: Vec<Option<MemberSlot>>,
 	pub total: u64,
-	/// Guild channel lazy list. Scrollbar length is `total`. DMs and threads are false and scroll `slots.len()`.
+	/// Guild channel lazy list. DMs and threads are false and scroll `slots.len()`.
+	/// A lazy scrollbar follows the gateway list, not this window.
 	pub lazy: bool,
 	pub freshness: Freshness,
 	/// id -> count from the update's top-level groups array. At most MAX_ROLES + 2.
