@@ -1391,6 +1391,7 @@ impl Desktop {
 			.last()
 			.map_or(10_000, |m| m.id.0.max(10_000));
 		let mut messaging = ui::MessagingUi::default();
+		messaging.minimize_to_tray = tray_setting.enabled;
 		let preference_defaults = local_store::AppPreferences::default();
 		messaging.notifications_enabled = preference_defaults.notifications_enabled;
 		messaging.transparency = preference_defaults.transparency;
