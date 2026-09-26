@@ -586,12 +586,13 @@ pub(crate) fn presence_color(status: &str) -> Color32 {
 		_ => Color32::from_rgb(128, 132, 142),
 	}
 }
-fn presence_description(status: &str, clients: model::ClientPlatforms) -> String {
-	if clients.mobile {
-		format!("{} on Mobile", presence_label(status))
-	} else {
-		presence_label(status).into()
-	}
+fn presence_badge_rect(rect: Rect) -> Rect {
+	let radius = (rect.width() * 0.2).clamp(6.0, 10.0);
+	let center = rect.right_bottom() - Vec2::splat(radius + 0.5);
+	Rect::from_center_size(center, Vec2::splat((radius + 2.0) * 2.0))
+}
+fn pointer_on_presence(status: Option<&str>, avatar: Rect, pointer: Option<egui::Pos2>) -> bool {
+	status.is_some() && pointer.is_some_and(|pos| presence_badge_rect(avatar).contains(pos))
 }
 pub(crate) fn presence_badge(
 	ui: &mut egui::Ui,
@@ -613,13 +614,8 @@ pub(crate) fn presence_badge(
 	} else {
 		design::presence_dot(ui, rect, presence_color(status), ring);
 	}
-	let radius = (rect.width() * 0.2).clamp(6.0, 10.0);
-	let center = rect.right_bottom() - Vec2::splat(radius + 0.5);
-	ui.allocate_rect(
-		Rect::from_center_size(center, Vec2::splat((radius + 2.0) * 2.0)),
-		egui::Sense::hover(),
-	)
-	.on_hover_text(presence_description(status, clients));
+	ui.allocate_rect(presence_badge_rect(rect), egui::Sense::hover())
+		.on_hover_text(presence_label(status));
 }
 /// Keep known guild presence through range loads and reconnects; access loss clears the snapshot.
 pub(crate) fn presence(
@@ -1323,8 +1319,13 @@ pub fn show(
 			}
 			ui.painter()
 				.circle_filled(avatar_rect.center(), AVATAR * 0.5 + 6.0, theme.card);
+			let pointer_on_presence = pointer_on_presence(
+				status,
+				avatar_rect,
+				ui.input(|input| input.pointer.hover_pos()),
+			);
 			ui.scope_builder(UiBuilder::new().max_rect(avatar_rect), |ui| {
-				let response = avatars.with_avatar_animation(true, |avatars| {
+				let mut response = avatars.with_avatar_animation(true, |avatars| {
 					if let Some(data) = data {
 						avatars.show_profile_avatar(ui, data, AVATAR, state.demo)
 					} else {
@@ -1334,11 +1335,12 @@ pub fn show(
 				response.widget_info(|| {
 					egui::WidgetInfo::labeled(egui::Role::Button, true, "View profile picture")
 				});
-				if response
-					.on_hover_cursor(egui::CursorIcon::ZoomIn)
-					.on_hover_text("View profile picture")
-					.clicked()
-				{
+				if !pointer_on_presence {
+					response = response
+						.on_hover_cursor(egui::CursorIcon::ZoomIn)
+						.on_hover_text("View profile picture");
+				}
+				if response.clicked() && !pointer_on_presence {
 					let mut url = data.map_or(user, |data| &data.user).avatar_url();
 					if let Some(data) = data
 						&& let Some(member) = data.guild.as_ref()
@@ -1862,23 +1864,19 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 mod tests {
 	use super::*;
 	#[test]
-	fn only_mobile_changes_the_presence_description() {
-		let non_mobile = model::ClientPlatforms {
-			desktop: true,
-			web: true,
-			vr: true,
-			mobile: false,
-		};
-		assert_eq!(presence_description("online", non_mobile), "Online");
+	fn presence_badge_excludes_the_avatar_hover_target() {
+		let avatar = Rect::from_min_size(egui::Pos2::ZERO, Vec2::splat(80.0));
 		assert_eq!(
-			presence_description(
-				"online",
-				model::ClientPlatforms {
-					mobile: true,
-					..non_mobile
-				},
-			),
-			"Online on Mobile"
+			[
+				pointer_on_presence(Some("online"), avatar, Some(avatar.center())),
+				pointer_on_presence(
+					Some("online"),
+					avatar,
+					Some(presence_badge_rect(avatar).center()),
+				),
+				pointer_on_presence(None, avatar, Some(presence_badge_rect(avatar).center())),
+			],
+			[false, true, false]
 		);
 	}
 	#[test]
