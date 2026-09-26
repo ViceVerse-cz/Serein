@@ -48,63 +48,6 @@ struct Style {
 	block: Option<u8>,
 }
 
-/// Split styled text into Unicode BiDi runs in visual order. The text inside each run stays in
-/// logical order so egui's shaper can still join Arabic-family scripts correctly.
-fn bidi_spans(spans: &[(String, Style)]) -> Option<(Vec<(String, Style)>, bool)> {
-	if spans.iter().all(|(text, _)| text.is_ascii()) {
-		return None;
-	}
-	let text: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-	let bidi = unicode_bidi::BidiInfo::new(&text, None);
-	if !bidi.has_rtl() {
-		return None;
-	}
-	let right_aligned = bidi
-		.paragraphs
-		.iter()
-		.find(|paragraph| {
-			text[paragraph.range.clone()]
-				.chars()
-				.any(|c| !c.is_whitespace())
-		})
-		.is_some_and(|paragraph| paragraph.level.is_rtl());
-	let mut styled = Vec::with_capacity(spans.len());
-	let mut start = 0;
-	for (value, style) in spans {
-		let end = start + value.len();
-		styled.push((start..end, *style));
-		start = end;
-	}
-	let mut visual: Vec<(String, Style)> = Vec::with_capacity(spans.len());
-	for paragraph in &bidi.paragraphs {
-		let (levels, runs) = bidi.visual_runs(paragraph, paragraph.range.clone());
-		for run in runs {
-			let rtl = levels.get(run.start).is_some_and(|level| level.is_rtl());
-			let mut parts: Vec<_> = styled
-				.iter()
-				.filter_map(|(range, style)| {
-					let start = range.start.max(run.start);
-					let end = range.end.min(run.end);
-					(start < end).then_some((start..end, *style))
-				})
-				.collect();
-			if rtl {
-				parts.reverse();
-			}
-			for (range, style) in parts {
-				let value = text[range].to_owned();
-				if let Some((last, last_style)) = visual.last_mut()
-					&& *last_style == style
-				{
-					last.push_str(&value);
-				} else {
-					visual.push((value, style));
-				}
-			}
-		}
-	}
-	Some((visual, right_aligned))
-}
 /// Emoji artwork is taller than the body font, so any line carrying it grows. Knowing this at
 /// parse time lets every widget on a line reserve that height before the first one is placed.
 fn has_artwork(spans: &[(String, Style)]) -> bool {
@@ -1625,15 +1568,6 @@ impl Formatted {
 		let body = egui::TextStyle::Body.resolve(ui.style());
 		let mut job = LayoutJob::default();
 		let source: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-		let bidi = bidi_spans(spans);
-		let (spans, right_aligned) = bidi
-			.as_ref()
-			.map_or((spans, false), |(spans, right)| (spans.as_slice(), *right));
-		job.halign = if right_aligned {
-			egui::Align::RIGHT
-		} else {
-			egui::Align::LEFT
-		};
 		let mut inlines: Vec<Inline> = Vec::new();
 		// Label overwrites the first section's leading space with the wrap indentation.
 		job.append("", 0.0, Self::format(ui, &Style::default()));
@@ -1712,14 +1646,7 @@ impl Formatted {
 			}
 			job.sections = sections;
 		}
-		let label = egui::Label::new(job)
-			.wrap()
-			.halign(if right_aligned {
-				egui::Align::RIGHT
-			} else {
-				egui::Align::LEFT
-			})
-			.selectable(false);
+		let label = egui::Label::new(job).wrap().selectable(false);
 		let (pos, mut galley, mut response) = label.layout_in_ui(ui);
 		response
 			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &source));
@@ -1743,7 +1670,7 @@ impl Formatted {
 					// Placeholders are the only glyphs with the artwork line height; a literal
 					// space in message text keeps the body font's row height.
 					if next >= inlines.len() || glyph.chr != ' ' || glyph.line_height != size {
-						glyphs.push(*glyph);
+						glyphs.push(glyph.clone());
 						continue;
 					}
 					let index = next;
@@ -1758,7 +1685,7 @@ impl Formatted {
 					));
 					// One hit target: selection endpoints never split a sequence or markup.
 					for chr in inlines[index].text.chars() {
-						let mut slot = *glyph;
+						let mut slot = glyph.clone();
 						slot.chr = chr;
 						slot.pos.x = left;
 						slot.advance_width = size;
@@ -2070,85 +1997,6 @@ impl Formatted {
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn bidi_runs_keep_each_script_logical_and_follow_paragraph_direction() {
-		let style = Style::default();
-		let (rtl, right) = bidi_spans(&[("مرحبا English!".into(), style)]).unwrap();
-		assert!(right);
-		assert_eq!(
-			rtl.iter()
-				.map(|(text, _)| text.as_str())
-				.collect::<String>(),
-			"!Englishمرحبا "
-		);
-
-		let (ltr, right) = bidi_spans(&[("English مرحبا!".into(), style)]).unwrap();
-		assert!(!right);
-		assert_eq!(
-			ltr.iter()
-				.map(|(text, _)| text.as_str())
-				.collect::<String>(),
-			"English مرحبا!"
-		);
-		assert!(bidi_spans(&[("English only".into(), style)]).is_none());
-		assert!(bidi_spans(&[]).is_none());
-		let ascii: String = (0..=127).map(char::from).collect();
-		assert!(bidi_spans(&[(ascii, style), ("second span".into(), style)]).is_none());
-		for text in ["\u{202e}English\u{202c}", "English \u{2067}مرحبا\u{2069}"] {
-			assert!(bidi_spans(&[(text.into(), style)]).is_some());
-		}
-	}
-
-	#[test]
-	#[ignore = "release-only BiDi microbenchmark; run with --ignored --nocapture"]
-	fn bidi_ascii_benchmark() {
-		use std::{hint::black_box, time::Instant};
-		const ITERATIONS: usize = 100_000;
-		for (name, spans) in [
-			(
-				"ascii",
-				vec![(
-					"A typical message with plain English text and a link https://example.com."
-						.repeat(4),
-					Style::default(),
-				)],
-			),
-			(
-				"ascii_styled",
-				vec![
-					("A styled message ".repeat(8), Style::default()),
-					(
-						"with a bold section ".repeat(8),
-						Style {
-							strong: true,
-							..Default::default()
-						},
-					),
-				],
-			),
-			(
-				"mixed_rtl",
-				vec![("English مرحبا! ".repeat(8), Style::default())],
-			),
-		] {
-			let mut samples = Vec::with_capacity(5);
-			for run in 0..6 {
-				let start = Instant::now();
-				for _ in 0..ITERATIONS {
-					black_box(bidi_spans(black_box(&spans)));
-				}
-				if run > 0 {
-					samples.push(start.elapsed());
-				}
-			}
-			samples.sort_unstable();
-			println!(
-				"{name}: {ITERATIONS} calls, median {:?}, samples {samples:?}",
-				samples[2]
-			);
-		}
-	}
 
 	#[test]
 	fn messages_made_only_of_emoji_are_drawn_larger() {

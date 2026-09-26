@@ -197,15 +197,20 @@ impl Layout {
 				if let Some(inline) = self.inlines.get(next).filter(|i| i.projected == projected) {
 					let count = inline.source.len();
 					for (index, chr) in chars[inline.source.clone()].iter().enumerate() {
-						let mut slot = *glyph;
+						let mut slot = glyph.clone();
 						slot.chr = *chr;
-						slot.pos.x = glyph.pos.x + inline.width * index as f32 / count as f32;
+						let visual = if glyph.is_rtl {
+							count - index - 1
+						} else {
+							index
+						};
+						slot.pos.x = glyph.pos.x + inline.width * visual as f32 / count as f32;
 						slot.advance_width = inline.width / count as f32;
 						glyphs.push(slot);
 					}
 					next += 1;
 				} else {
-					glyphs.push(*glyph);
+					glyphs.push(glyph.clone());
 				}
 				projected += 1;
 			}
@@ -231,10 +236,14 @@ impl Layout {
 		for inline in &self.inlines {
 			let mut cursor = CCursor::new(inline.source.start);
 			cursor.prefer_next_row = true;
-			let position = output
-				.galley
-				.pos_from_cursor(cursor)
-				.translate(output.galley_pos.to_vec2());
+			let location = output.galley.layout_from_cursor(cursor);
+			let row = &output.galley.rows[location.row];
+			let glyphs = &row.glyphs[location.column.0..location.column.0 + inline.source.len()];
+			let left = glyphs.iter().map(|g| g.pos.x).fold(f32::INFINITY, f32::min);
+			let position = egui::Rect::from_min_size(
+				output.galley_pos + row.pos.to_vec2() + egui::vec2(left, 0.0),
+				egui::vec2(0.0, row.height()),
+			);
 			let rect = egui::Rect::from_min_size(
 				position.min,
 				egui::vec2(inline.width, position.height()),
@@ -814,4 +823,214 @@ mod tests {
 			"hi <@42>č你!"
 		);
 	}
+}
+
+#[cfg(all(feature = "demo", debug_assertions))]
+pub fn debug_arabic_check() {
+	let ctx = egui::Context::default();
+	crate::fonts::install(&ctx);
+	crate::design::apply(&ctx);
+	let mut layout = Layout::default();
+	let mut avatars = Avatars::default();
+	const ARABIC: &str = "هذا الخط معكوس";
+	ctx.run_ui(Default::default(), |ui| {
+		for source in [
+			ARABIC,
+			"مرحبا English 123!",
+			"English مرحبا 123!",
+			"مَرْحَبًا لا لأ",
+			"مرحبا 😀 <@42> world",
+			"مرحبا\nEnglish 123\nالعربية",
+		] {
+			for width in [500.0, 85.0] {
+				let galley =
+					layout.galley(ui, source, width, &[], &[], &[], false, &mut avatars, true);
+				assert_eq!(galley.job.text, source);
+				let text: String = galley
+					.rows
+					.iter()
+					.flat_map(|row| {
+						row.glyphs
+							.iter()
+							.map(|g| g.chr)
+							.chain(row.ends_with_newline.then_some('\n'))
+					})
+					.collect();
+				assert_eq!(text, source, "one source scalar per editing slot");
+				assert_eq!(galley.end().index.0, source.chars().count());
+				for row in &galley.rows {
+					assert!(
+						row.glyphs
+							.iter()
+							.all(|g| g.pos.x.is_finite() && g.advance_width >= 0.0)
+					);
+				}
+				if source == ARABIC && width == 500.0 {
+					let row = &galley.rows[0];
+					let mut visual = row.glyphs.clone();
+					visual.sort_by(|a, b| a.pos.x.total_cmp(&b.pos.x));
+					assert_eq!(
+						visual.iter().map(|g| g.chr).collect::<String>(),
+						"سوكعم طخلا اذه"
+					);
+					let start = galley.pos_from_cursor(CCursor::new(0)).center();
+					let end = galley.pos_from_cursor(galley.end()).center();
+					assert!(start.x > end.x);
+					assert_eq!(galley.cursor_from_pos(start.to_vec2()).index.0, 0);
+					assert_eq!(
+						galley.cursor_from_pos(end.to_vec2()).index.0,
+						ARABIC.chars().count()
+					);
+					assert_eq!(
+						galley.cursor_left_one_character(&CCursor::new(0)).index.0,
+						1
+					);
+				}
+				let mut selected = galley.clone();
+				egui::text_selection::visuals::paint_text_selection(
+					&mut selected,
+					ui.visuals(),
+					&egui::text::CCursorRange::two(CCursor::new(0), galley.end()),
+					None,
+				);
+				assert!(selected.rows.iter().all(|row| row.visuals.mesh.is_valid()));
+			}
+		}
+	})
+	.drop_without_applying_deltas();
+
+	ctx.run_ui(Default::default(), |ui| {
+		let joined = layout.galley(ui, "بَ", 1.0, &[], &[], &[], false, &mut avatars, true);
+		assert_eq!(
+			joined.rows.len(),
+			1,
+			"wrapping must not split a base/mark cluster"
+		);
+		let mixed = layout.galley(
+			ui,
+			"abc ابج def",
+			500.0,
+			&[],
+			&[],
+			&[],
+			false,
+			&mut avatars,
+			true,
+		);
+		let row = &mixed.rows[0];
+		for (i, glyph) in row.glyphs.iter().enumerate() {
+			if glyph.advance_width <= 0.0 {
+				continue;
+			}
+			for fraction in [0.1, 0.9] {
+				let point = egui::vec2(
+					row.pos.x + glyph.pos.x + fraction * glyph.advance_width,
+					row.pos.y + row.height() / 2.0,
+				);
+				let cursor = mixed.cursor_from_pos(point);
+				let leading = (fraction < 0.5) != glyph.is_rtl;
+				assert_eq!(
+					cursor.index.0,
+					i + usize::from(!leading),
+					"mixed-direction glyph hit"
+				);
+				let expected_x = if fraction < 0.5 {
+					glyph.pos.x
+				} else {
+					glyph.max_x()
+				};
+				// Kerning and pixel snapping can overlap adjacent caret cells by a fraction of a pixel.
+				assert!(
+					(mixed.pos_from_cursor(cursor).center().x - row.pos.x - expected_x).abs()
+						< 1.0,
+					"caret retains boundary affinity: char {i} {:?}, fraction {fraction}, cursor {cursor:?}, actual {}, expected {expected_x}", glyph.chr, mixed.pos_from_cursor(cursor).center().x - row.pos.x
+				);
+			}
+		}
+		let single = ui.fonts_mut(|fonts| {
+			fonts.layout_job(LayoutJob::simple_singleline(
+				"مرحبا\nالعربية".into(),
+				egui::FontId::proportional(15.0),
+				Color32::WHITE,
+			))
+		});
+		assert_eq!(single.rows.len(), 1);
+		assert!(single.rows[0].glyphs[0].pos.x > single.rows[0].glyphs[4].pos.x);
+	})
+	.drop_without_applying_deltas();
+	let painted = ctx.run_ui(Default::default(), |ui| {
+		crate::markdown::Formatted::parse(ARABIC).show_with_images(
+			ui,
+			&mut None,
+			&[],
+			None,
+			&mut crate::profiles::ProfileSession::default(),
+			(&mut avatars, true, &[]),
+		)
+	});
+	assert!(painted.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == ARABIC && text.galley.rows[0].glyphs[0].is_rtl)), "message renderer retains logical Arabic source");
+	painted.drop_without_applying_deltas();
+
+	let id = egui::Id::unique("arabic-debug-edit");
+	let mut text = String::new();
+	ctx.memory_mut(|m| m.request_focus(id));
+	for events in [
+		vec![egui::Event::Text(ARABIC.into())],
+		vec![egui::Event::Copy],
+		vec![egui::Event::Text("!".into())],
+	] {
+		let copying = events.iter().any(|e| matches!(e, egui::Event::Copy));
+		if copying {
+			let mut state = egui::text_edit::TextEditState::load(&ctx, id).unwrap();
+			state
+				.cursor
+				.set_char_range(Some(egui::text::CCursorRange::two(
+					CCursor::new(0),
+					CCursor::new(text.chars().count()),
+				)));
+			state.store(&ctx, id);
+		}
+		let output = ctx.run_ui(
+			egui::RawInput {
+				events,
+				..Default::default()
+			},
+			|ui| {
+				let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
+					layout.galley(
+						ui,
+						buffer.as_str(),
+						width,
+						&[],
+						&[],
+						&[],
+						false,
+						&mut avatars,
+						true,
+					)
+				};
+				egui::TextEdit::multiline(&mut text)
+					.id(id)
+					.layouter(&mut layouter)
+					.show(ui);
+			},
+		);
+		if copying {
+			assert!(
+				output
+					.platform_output
+					.commands
+					.iter()
+					.any(|c| matches!(c, egui::OutputCommand::CopyText(s) if s == ARABIC))
+			);
+		}
+		output.drop_without_applying_deltas();
+	}
+	assert_eq!(
+		text, "!",
+		"selection replacement uses logical source indices"
+	);
+	println!(
+		"Arabic debug check passed: visual order, wrapping, marks, mixed text, inline objects, cursor hit testing, copy and editing."
+	);
 }

@@ -517,6 +517,10 @@ That workload repeatedly decodes two synthetic OpenH264 keyframes, without devic
 or network. Buffer reuse is verified separately with alternating real software decodes;
 its high-water allocation remains until the decoder worker exits.
 
+The historical `bidi_ascii_benchmark` below belongs to the old message-only run reorderer.
+It was removed with the shared egui/epaint bidi fix; these figures do not measure that renderer.
+No new performance measurements were collected in the fast local fix.
+
 Reproduce the component workloads with the following ignored tests. Each performs
 its own warmup and five samples; for the old revision, apply only the benchmark
 harness additions. Build once before measuring, then run the produced executables
