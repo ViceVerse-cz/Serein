@@ -197,3 +197,8 @@ opt-level = 3
 
 [profile.dev.package.sonora-agc2]
 opt-level = 3
+
+# Shared Arabic/BiDi layout and editing fix; see vendor/egui/SEREIN-PATCH.md.
+[patch."https://github.com/emilk/egui"]
+egui = { path = "vendor/egui/crates/egui" }
+epaint = { path = "vendor/egui/crates/epaint" }

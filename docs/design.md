@@ -54,6 +54,13 @@ channel names and uppercase 12px eyebrows. Body is 15px, small 12px. Until `font
 marks a context, the weight families resolve to the default face so headless tests never
 reference an unknown family.
 
+Arabic uses the bundled Noto face and the existing HarfRust shaper. The local egui/epaint
+patch resolves Unicode bidi runs before shaping, wraps logical clusters, and places each
+line visually while keeping editing, copy and accessibility text in source order. Mixed
+direction accessibility chunks retain their text but omit detailed character geometry.
+Native IME and screen-reader behavior still need platform validation. Patch provenance and
+the offline debug command are in `vendor/egui/SEREIN-PATCH.md`.
+
 Appearance → Typography can import one TTF or OTF file up to 8 MiB, apply it immediately,
 or reset to Inter. The selected face leads all proportional families; variable fonts use
 400/500/600 weights while static fonts retain their supplied weight. Code stays monospace,

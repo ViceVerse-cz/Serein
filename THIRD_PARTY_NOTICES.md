@@ -88,6 +88,13 @@ egui_system_fonts/fontique and platform font discovery; see docs/dependency-vers
 for the exact added dependency versions and declared licenses. OS emoji fonts
 remain installed system resources and are not bundled or redistributed.
 
+Serein vendors egui and epaint from commit
+`fe6d63efa4a4df6f56ceab814d4f3a6efab69b88` (MIT OR Apache-2.0) with an Arabic/bidirectional
+layout and editing patch. The other egui crates remain pinned to that same revision.
+Source, upstream licenses, and patch details are in `vendor/egui`; the existing bundled
+egui license texts remain applicable. This reuses unicode-bidi 0.3.18 (MIT OR Apache-2.0),
+which was already resolved for the message renderer; no new dependency version is added.
+
 Linux login uses gtk4 0.11.4, webkit6 0.6.1, javascriptcore6 0.6.0, glib 0.22.9 and soup3
 0.9.0 Rust bindings (MIT). Windows/macOS retain Wry 0.57.0 (MIT OR Apache-2.0) via a documented
 manifest/build patch excluding obsolete Linux dependencies; backend sources are unchanged.

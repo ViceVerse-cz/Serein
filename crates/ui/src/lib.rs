@@ -7368,3 +7368,6 @@ pub fn debug_forward_check(state: &mut State) {
 			.all(|p| p.delivery != model::Delivery::Sending)
 	);
 }
+
+#[cfg(all(feature = "demo", debug_assertions))]
+pub use composer_text::debug_arabic_check;
