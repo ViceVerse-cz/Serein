@@ -1972,16 +1972,17 @@ Baseline `dad3c26c`, compared with this PR on macOS 27.0 (26A428), Apple M1 Pro,
 16 GiB RAM, pinned Rust 1.98.1 and locked dependencies. Component timing uses
 release builds, one warmup and five measured batches, with no concurrent Cargo
 build during sampling. The image queue workload measures allocated pixel capacity
-in debug tests; it is not a timing or whole-process RSS comparison.
+in debug tests; it is not a timing or desktop-process RSS comparison.
 
 | Metric / method | Baseline | After | Delta |
 | --- | ---: | ---: | ---: |
-| Recent history completion, µs/page | 193.722 | 108.413 | -44.04% |
-| Older history completion, µs/page | 101.516 | 12.237 | -87.95% |
-| Append history completion, µs/page | 102.810 | 15.397 | -85.02% |
-| 200 incremental SQLite saves, ms | 303.007 | 249.976 | -17.50% |
-| Paused image consumer, queued pixel bytes | 536,870,912 | 130,023,424 | -75.78% |
-| 100,000-event reducer replay, ms | 158.133 | 155.741 | -1.51%, small/noise |
+| Recent history completion, µs/page | 193.722 | 108.413 | -85.309 / -44.04% |
+| Older history completion, µs/page | 101.516 | 12.237 | -89.279 / -87.95% |
+| Append history completion, µs/page | 102.810 | 15.397 | -87.413 / -85.02% |
+| 200 incremental SQLite saves, ms | 303.007 | 249.976 | -53.031 / -17.50% |
+| Paused image consumer, queued pixel bytes | 536,870,912 | 130,023,424 | -406,847,488 / -75.78% |
+| Queue workload process peak RSS, bytes | 555,302,912 | 151,552,000 | -403,750,912 / -72.71% |
+| 100,000-event reducer replay, ms | 158.133 | 155.741 | -2.392 / -1.51%, small/noise |
 | Retained replay timeline, estimated bytes / rows | 331,992–332,477 / 500 | 331,992–332,477 / 500 | Unchanged |
 
 The history workload starts with 500 rows, each carrying the maximum 512 author
@@ -2011,6 +2012,14 @@ UI/GPU caches and allocator overhead remain additional. This is not a 128 MiB
 whole-app cap. The queue now requests another frame when a partial UI drain leaves
 results behind.
 
+Queue peak RSS uses macOS `/usr/bin/time -l` around the emitted `serein` debug test
+executable, invoked directly with
+`avatars::tests::decoded_result_queue_workload --ignored --exact --nocapture`.
+There was one separate process per mode, with `SEREIN_IMAGE_QUEUE_LEGACY=1` only
+for the original item-only comparator; no compiler was running. This includes the
+test runtime and the next producer allocation before it blocks, unlike the queued
+pixel count. It is an isolated component process, not the running desktop app.
+
 Replay uses one warmup and five direct executable runs after building each revision.
 Its ordinary message stream scarcely exercises these changes; the small timing
 variation is not claimed as a general reducer improvement. No live Discord account,
@@ -2031,3 +2040,38 @@ cargo replay
 For historical history/storage comparisons, apply only the added benchmark tests
 to `dad3c26c`; keep its production implementations unchanged. The queue comparator
 runs from the new source and uses identical pixel allocations in both modes.
+
+Both standard voice-enabled `cargo xtask package` builds passed, without demo or
+developer-session features. Baseline and runtime commit `dbe18e56` outputs were
+preserved separately. Installed size sums all 205 files in each complete `dist`;
+ZIPs use `ditto -c -k --sequesterRsrc` over that directory, without `--keepParent`.
+The macOS bundles are locally ad-hoc signed and verified, not notarized releases.
+
+| Package metric, bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 57,932,160 | 57,915,712 | -16,448 / -0.0284% |
+| Full installed package | 63,938,384 | 63,921,936 | -16,448 / -0.0257% |
+| Compressed distribution | 41,948,935 | 41,932,334 | -16,601 / -0.0396% |
+
+These are small artifact deltas, not a substantive bundle-size optimization;
+archive metadata and compression can vary between builds. Licenses/notices and
+runtime assets are unchanged.
+
+The native idle control uses release builds with `--features demo`, launched with
+`--demo --demo-friends --demo-frame-sample=1,1`: 1120×760 logical pixels, 2× scale,
+Apple M1 Pro Metal backend. Each revision has one launch, a ten-second warmup and
+twenty `ps -p PID -o %cpu=,rss=` samples one second apart, with no input after
+launch and no concurrent build. Settled RSS is the median of the last five samples;
+peak RSS covers the sampling interval, not startup. Only the demo PID is included.
+
+| Native idle metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Median sampled CPU | 0.75% | 0.45% | -0.30 percentage points; noisy |
+| Sampled peak RSS, KiB | 146,192 | 146,352 | +160 / +0.11% |
+| Settled RSS, KiB | 130,032 | 130,224 | +192 / +0.15% |
+
+Idle RSS is essentially unchanged. The CPU difference is not claimed as a stable
+improvement from these short runs. The demo disables downloaded-image workers, so
+it controls for idle regressions rather than measuring the queue fix. System/GPU
+resources are not fully represented by process RSS. Frame/startup latency remains
+unmeasured; the frame diagnostic only confirmed matching viewport and scale.
