@@ -40,6 +40,7 @@ pub mod emoji;
 mod emoji_details;
 mod emoji_picker;
 pub mod fonts;
+pub mod i18n;
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub fn debug_channel_creation(state: client_core::State) {
 	channel_menu::debug_creation(state);
@@ -181,6 +182,7 @@ fn thread_member_rows<'a>(
 
 #[derive(Default)]
 pub struct MessagingUi {
+	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
 	pub image_sharing_enabled: bool,
 	pub image_share_requested: Option<model::ImageShare>,

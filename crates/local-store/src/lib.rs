@@ -35,6 +35,8 @@ pub struct LocalStore(Connection);
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct AppPreferences {
+	/// `None` follows the operating-system locale; otherwise this is a bounded BCP 47 tag.
+	pub language: Option<String>,
 	pub notifications_enabled: bool,
 	pub auto_update: bool,
 	pub update_nightly: bool,
@@ -73,6 +75,7 @@ pub struct AppPreferences {
 impl Default for AppPreferences {
 	fn default() -> Self {
 		Self {
+			language: None,
 			notifications_enabled: true,
 			auto_update: false,
 			update_nightly: true,
@@ -104,7 +107,13 @@ impl Default for AppPreferences {
 }
 impl AppPreferences {
 	pub fn is_valid(&self) -> bool {
-		self.transparency <= 100
+		self.language.as_ref().is_none_or(|language| {
+			!language.is_empty()
+				&& language.len() <= 35
+				&& language
+					.bytes()
+					.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+		}) && self.transparency <= 100
 			&& self.blur <= 100
 			&& self.input_percent <= 200
 			&& self.output_percent <= 200
@@ -1834,6 +1843,7 @@ mod tests {
 		assert!(legacy.voice_processing.is_none());
 		assert!(legacy.voice_noise_suppression);
 		let mut value = AppPreferences {
+			language: Some("cs".into()),
 			notifications_enabled: true,
 			hide_title_bar: true,
 			primary_color: Some([80, 120, 220]),
@@ -1901,6 +1911,9 @@ mod tests {
 			store.app_preferences().unwrap().gpu_preference,
 			model::GpuPreference::PowerSaving
 		);
+		value.voice_input = None;
+		value.language = Some("../cs".into());
+		assert!(store.save_app_preferences(&value).is_err());
 	}
 	#[test]
 	fn app_preferences_tolerate_an_unknown_gpu_preference() {

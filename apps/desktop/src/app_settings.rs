@@ -27,6 +27,7 @@ impl Settings {
 	}
 	pub fn observe(&mut self, ui: &ui::MessagingUi) {
 		let value = AppPreferences {
+			language: ui.language.preference().map(str::to_owned),
 			notifications_enabled: ui.notifications_enabled,
 			auto_update: ui.updates.auto_update,
 			update_nightly: ui.updates.nightly,
@@ -66,6 +67,7 @@ impl Settings {
 	}
 	pub fn apply(&self, ui: &mut ui::MessagingUi) {
 		let value = &self.current;
+		ui.language = ui::i18n::Language::from_preference(value.language.as_deref());
 		ui.notifications_enabled = value.notifications_enabled;
 		ui.updates.auto_update = value.auto_update;
 		ui.updates.nightly = value.update_nightly;
@@ -115,10 +117,12 @@ mod tests {
 		);
 		assert!(!settings.state.dirty);
 
+		settings.current.language = Some("cs".into());
 		settings.current.notification_options.current_channel = true;
 		settings.loaded = true;
 		settings.apply(&mut ui);
 		settings.observe(&ui);
+		assert_eq!(ui.language, ui::i18n::Language::Czech);
 		assert!(ui.notification_options.current_channel);
 		assert!(!settings.state.touched);
 		assert!(!settings.state.dirty);

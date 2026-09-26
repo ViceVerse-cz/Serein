@@ -1,6 +1,6 @@
 //! User settings modal in Discord's layout: a sidebar of pages on the left, the selected page
 //! on the right, and a round close control with its Escape hint.
-use crate::{MessagingUi, design, icons};
+use crate::{MessagingUi, design, i18n::Language, icons};
 use client_core::State;
 use egui::RichText;
 
@@ -54,7 +54,7 @@ impl Page {
 	/// then community add-ons.
 	const SECTIONS: [(&'static str, &'static [Self]); 3] = [
 		(
-			"User settings",
+			"section-user",
 			&[
 				Self::Account,
 				Self::Profile,
@@ -63,7 +63,7 @@ impl Page {
 			],
 		),
 		(
-			"App settings",
+			"section-app",
 			&[
 				Self::Appearance,
 				Self::Chat,
@@ -75,47 +75,51 @@ impl Page {
 				Self::Updates,
 			],
 		),
-		("Customization", &[Self::Themes, Self::Extensions]),
+		("section-customization", &[Self::Themes, Self::Extensions]),
 	];
-	fn label(self) -> &'static str {
+	fn label_key(self) -> &'static str {
 		match self {
-			Self::Account => "My Account",
-			Self::Profile => "Profile",
-			Self::General => "General",
-			Self::Appearance => "Appearance",
-			Self::Chat => "Chat",
-			Self::MessagingPermissions => "Messaging Permissions",
-			Self::Notifications => "Notifications",
-			Self::Activity => "Game Activity",
-			Self::Voice => "Voice & Video",
-			Self::Keybinds => "Keybinds",
-			Self::Storage => "Data & Privacy",
-			Self::Updates => "Updates",
-			Self::Extensions => "Extensions",
-			Self::Themes => "Themes",
+			Self::Account => "page-account",
+			Self::Profile => "page-profile",
+			Self::General => "page-general",
+			Self::Appearance => "page-appearance",
+			Self::Chat => "page-chat",
+			Self::MessagingPermissions => "page-messaging-permissions",
+			Self::Notifications => "page-notifications",
+			Self::Activity => "page-activity",
+			Self::Voice => "page-voice",
+			Self::Keybinds => "page-keybinds",
+			Self::Storage => "page-storage",
+			Self::Updates => "page-updates",
+			Self::Extensions => "page-extensions",
+			Self::Themes => "page-themes",
 		}
 	}
-	fn description(self) -> &'static str {
+	fn label(self, language: Language) -> String {
+		language.text(self.label_key())
+	}
+	fn description_key(self) -> &'static str {
 		match self {
-			Self::Account => "The Discord account signed in on this device.",
-			Self::Profile => "Choose how you appear across Discord.",
-			Self::General => "Startup, window and graphics behavior on this device.",
-			Self::Appearance => "Theme, colours, window effects and layout.",
-			Self::Chat => "How messages, media, links and scrolling behave.",
-			Self::MessagingPermissions => {
-				"Control who can contact you and how messages are filtered."
-			}
-			Self::Notifications => "Choose which notifications you receive and how they appear.",
-			Self::Activity => "Show others what you are playing.",
-			Self::Voice => "Microphone, speakers, camera and voice processing.",
-			Self::Keybinds => "Keyboard shortcuts for Serein.",
-			Self::Storage => "What Serein keeps on this device.",
-			Self::Updates => "Keep Serein up to date on this device.",
-			Self::Extensions => "Manage community plugins.",
-			Self::Themes => "Choose a community theme.",
+			Self::Account => "description-account",
+			Self::Profile => "description-profile",
+			Self::General => "description-general",
+			Self::Appearance => "description-appearance",
+			Self::Chat => "description-chat",
+			Self::MessagingPermissions => "description-messaging-permissions",
+			Self::Notifications => "description-notifications",
+			Self::Activity => "description-activity",
+			Self::Voice => "description-voice",
+			Self::Keybinds => "description-keybinds",
+			Self::Storage => "description-storage",
+			Self::Updates => "description-updates",
+			Self::Extensions => "description-extensions",
+			Self::Themes => "description-themes",
 		}
 	}
-	fn matches(self, query: &str) -> bool {
+	fn description(self, language: Language) -> String {
+		language.text(self.description_key())
+	}
+	fn matches(self, query: &str, language: Language) -> bool {
 		let keywords = match self {
 			Self::Account => "my account profile logout",
 			Self::Profile => "profile edit display name about me bio pronouns color colour",
@@ -149,7 +153,25 @@ impl Page {
 			Self::Themes => "themes shop store catalog import community appearance colors",
 		};
 		keywords.contains(query)
+			|| self.label(language).to_lowercase().contains(query)
+			|| self.description(language).to_lowercase().contains(query)
 	}
+}
+
+fn gpu_label(language: Language, preference: model::GpuPreference) -> String {
+	language.text(match preference {
+		model::GpuPreference::Automatic => "gpu-automatic",
+		model::GpuPreference::HighPerformance => "gpu-high-performance",
+		model::GpuPreference::PowerSaving => "gpu-power-saving",
+	})
+}
+
+fn gpu_description(language: Language, preference: model::GpuPreference) -> String {
+	language.text(match preference {
+		model::GpuPreference::Automatic => "gpu-automatic-description",
+		model::GpuPreference::HighPerformance => "gpu-high-performance-description",
+		model::GpuPreference::PowerSaving => "gpu-power-saving-description",
+	})
 }
 
 impl MessagingUi {
@@ -253,10 +275,12 @@ impl MessagingUi {
 	/// Fixture-only entry point for the native offline settings preview.
 	pub fn preview_settings(&mut self, page: &str) {
 		self.settings.open = true;
-		if let Some(page) = Page::ALL
-			.into_iter()
-			.find(|candidate| candidate.label().to_lowercase().contains(page))
-		{
+		if let Some(page) = Page::ALL.into_iter().find(|candidate| {
+			candidate
+				.label(Language::English)
+				.to_lowercase()
+				.contains(page)
+		}) {
 			self.settings.page = page;
 		}
 	}
@@ -315,29 +339,24 @@ impl MessagingUi {
 					.show(ui, |ui| {
 						let editing_theme =
 							self.settings.page == Page::Themes && self.extensions.editing_theme();
+						let heading = if editing_theme {
+							self.language.text("theme-maker")
+						} else {
+							self.settings.page.label(self.language)
+						};
+						let description = if editing_theme {
+							self.language.text("theme-maker-description")
+						} else {
+							self.settings.page.description(self.language)
+						};
 						ui.horizontal_top(|ui| {
 							ui.vertical(|ui| {
 								ui.spacing_mut().item_spacing.y = 2.0;
 								ui.label(
-									design::semibold(
-										ui,
-										if editing_theme {
-											"Theme maker"
-										} else {
-											self.settings.page.label()
-										},
-										20.0,
-									)
-									.color(colors.text_strong),
+									design::semibold(ui, &heading, 20.0).color(colors.text_strong),
 								);
 								ui.label(
-									RichText::new(if editing_theme {
-										"Make it yours. Preview changes in your conversations."
-									} else {
-										self.settings.page.description()
-									})
-									.size(13.0)
-									.color(colors.muted),
+									RichText::new(&description).size(13.0).color(colors.muted),
 								);
 							});
 							ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
@@ -350,15 +369,18 @@ impl MessagingUi {
 							ui.add_space(8.0);
 							self.settings_search(ui);
 							egui::ComboBox::from_id_salt("settings-page")
-								.selected_text(self.settings.page.label())
+								.selected_text(self.settings.page.label(self.language))
 								.width(ui.available_width())
 								.show_ui(ui, |ui| {
 									for page in Page::ALL {
-										if page.matches(&self.settings.query.to_lowercase()) {
+										if page.matches(
+											&self.settings.query.to_lowercase(),
+											self.language,
+										) {
 											ui.selectable_value(
 												&mut self.settings.page,
 												page,
-												page.label(),
+												page.label(self.language),
 											);
 										}
 									}
@@ -385,12 +407,19 @@ impl MessagingUi {
 								ui.set_width((ui.available_width() - scroll_padding).min(720.0));
 								ui.spacing_mut().item_spacing.y = 12.0;
 								let query = self.settings.query.to_lowercase();
-								if !Page::ALL.into_iter().any(|p| p.matches(&query)) {
+								if !Page::ALL
+									.into_iter()
+									.any(|p| p.matches(&query, self.language))
+								{
 									ui.label(
-										design::semibold(ui, "No settings found", 16.0)
-											.color(colors.text_strong),
+										design::semibold(
+											ui,
+											self.language.text("no-settings-found"),
+											16.0,
+										)
+										.color(colors.text_strong),
 									);
-									ui.weak("Try theme, notifications, voice, or cache.");
+									ui.weak(self.language.text("search-suggestion"));
 									return;
 								}
 								match self.settings.page {
@@ -433,10 +462,7 @@ impl MessagingUi {
 								}
 								if state.demo {
 									ui.add_space(20.0);
-									design::hint(
-										ui,
-										"Offline preview · changes stay in this session and are never sent.",
-									);
+									design::hint(ui, &self.language.text("offline-preview"));
 								}
 								ui.add_space(24.0);
 							});
@@ -461,6 +487,7 @@ impl MessagingUi {
 
 	fn settings_navigation(&mut self, ui: &mut egui::Ui, state: &State) {
 		let colors = design::palette(ui);
+		let language = self.language;
 		egui::ScrollArea::vertical()
 			.id_salt("settings-navigation-scroll")
 			.auto_shrink([false, false])
@@ -473,16 +500,21 @@ impl MessagingUi {
 					let visible: Vec<Page> = pages
 						.iter()
 						.copied()
-						.filter(|page| page.matches(&query))
+						.filter(|page| page.matches(&query, language))
 						.collect();
 					if visible.is_empty() {
 						continue;
 					}
 					ui.add_space(6.0);
-					ui.add(egui::Label::new(design::eyebrow(ui, heading, colors.muted)));
+					ui.add(egui::Label::new(design::eyebrow(
+						ui,
+						language.text(heading),
+						colors.muted,
+					)));
 					ui.add_space(2.0);
 					for page in visible {
-						if nav_item(ui, page.label(), self.settings.page == page).clicked() {
+						if nav_item(ui, &page.label(language), self.settings.page == page).clicked()
+						{
 							if page == Page::MessagingPermissions && self.settings.page != page {
 								self.settings.messaging_permissions.requested = false;
 							}
@@ -533,7 +565,7 @@ impl MessagingUi {
 						.color(colors.muted),
 				);
 				ui.label(
-					RichText::new("Unofficial · not endorsed by Discord")
+					RichText::new(language.text("unofficial"))
 						.size(11.0)
 						.color(colors.muted),
 				);
@@ -542,6 +574,7 @@ impl MessagingUi {
 
 	fn settings_search(&mut self, ui: &mut egui::Ui) {
 		let colors = design::palette(ui);
+		let language = self.language;
 		egui::Frame::new()
 			.fill(colors.raised)
 			.corner_radius(6)
@@ -551,7 +584,7 @@ impl MessagingUi {
 					ui.spacing_mut().item_spacing.x = 6.0;
 					let response = ui.add(
 						egui::TextEdit::singleline(&mut self.settings.query)
-							.hint_text("Search")
+							.hint_text(language.text("search"))
 							.char_limit(64)
 							.frame(egui::Frame::NONE)
 							.desired_width(ui.available_width() - 24.0),
@@ -559,8 +592,9 @@ impl MessagingUi {
 					icons::inline(ui, icons::Icon::Search, 16.0, colors.muted);
 					if response.changed() {
 						let query = self.settings.query.to_lowercase();
-						if !self.settings.page.matches(&query)
-							&& let Some(page) = Page::ALL.into_iter().find(|p| p.matches(&query))
+						if !self.settings.page.matches(&query, language)
+							&& let Some(page) =
+								Page::ALL.into_iter().find(|p| p.matches(&query, language))
 						{
 							self.settings.page = page;
 						}
@@ -571,18 +605,20 @@ impl MessagingUi {
 
 	fn settings_logout(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
-		let label = if demo { "Exit preview" } else { "Log out" };
+		let label = self
+			.language
+			.text(if demo { "exit-preview" } else { "log-out" });
 		let (rect, response) =
 			ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click());
 		response
-			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
 		if response.hovered() || response.has_focus() {
 			ui.painter().rect_filled(rect, 4, colors.hover);
 		}
 		ui.painter().text(
 			egui::pos2(rect.left() + 10.0, rect.center().y),
 			egui::Align2::LEFT_CENTER,
-			label,
+			&label,
 			egui::FontId::new(15.0, design::medium_family(ui.ctx())),
 			colors.danger,
 		);
@@ -736,98 +772,113 @@ impl MessagingUi {
 	}
 
 	fn general_settings(&mut self, ui: &mut egui::Ui, _demo: bool) {
-		design::group(ui, "Startup", |ui| {
+		let language = self.language;
+		let title = language.text("language-group");
+		design::group(ui, &title, |ui| {
+			let label = language.text("language-label");
+			let description = language.text("language-description");
+			design::row(ui, &label, Some(&description), |ui| {
+				egui::ComboBox::from_id_salt("display-language")
+					.selected_text(self.language.name(language))
+					.width(ui.available_width().min(220.0))
+					.show_ui(ui, |ui| {
+						for candidate in Language::ALL {
+							ui.selectable_value(
+								&mut self.language,
+								candidate,
+								candidate.name(language),
+							);
+						}
+					});
+			});
+		});
+		let title = language.text("general-startup");
+		design::group(ui, &title, |ui| {
 			ui.add_enabled_ui(self.startup_available && !self.startup_busy, |ui| {
-				design::switch(
-					ui,
-					"Open Serein when your computer starts",
-					Some("Serein signs in and connects in the background."),
-					&mut self.startup_enabled,
-				);
+				let label = language.text("general-open-at-startup");
+				let description = language.text("general-open-at-startup-description");
+				design::switch(ui, &label, Some(&description), &mut self.startup_enabled);
 				design::card_divider(ui);
 				ui.add_enabled_ui(self.startup_enabled, |ui| {
-					design::switch(
-						ui,
-						"Start minimized",
-						Some("Start in the background, out of your way."),
-						&mut self.startup_minimized,
-					);
+					let label = language.text("general-start-minimized");
+					let description = language.text("general-start-minimized-description");
+					design::switch(ui, &label, Some(&description), &mut self.startup_minimized);
 				});
 			});
 			if !self.startup_available {
-				design::hint(ui, "Automatic startup is available on Windows and macOS.");
+				design::hint(ui, &language.text("general-startup-unavailable"));
 			} else if !self.startup_status.is_empty() {
 				design::hint(ui, self.startup_status);
 			}
 		});
-		design::group(ui, "Window", |ui| {
+		let title = language.text("general-window");
+		design::group(ui, &title, |ui| {
 			#[cfg(target_os = "linux")]
 			{
+				let label = language.text("general-hide-decorations");
+				let description = language.text("general-hide-decorations-description");
 				design::switch(
 					ui,
-					"Hide window decorations",
-					Some(
-						"Remove the system title bar and borders. Use your window manager to move, resize or close Serein.",
-					),
+					&label,
+					Some(&description),
 					&mut self.hide_window_decorations,
 				);
 				design::card_divider(ui);
 			}
 			#[cfg(any(target_os = "windows", target_os = "macos"))]
 			{
-				design::switch(
-					ui,
-					"Hide Serein title bar",
-					Some("Use the system title bar and window buttons instead."),
-					&mut self.hide_title_bar,
-				);
+				let label = language.text("general-hide-title-bar");
+				let description = language.text("general-hide-title-bar-description");
+				design::switch(ui, &label, Some(&description), &mut self.hide_title_bar);
 				design::card_divider(ui);
 			}
 			ui.add_enabled_ui(self.tray_available, |ui| {
-				design::switch(
-					ui,
-					if cfg!(target_os = "macos") {
-						"Keep Serein in the menu bar"
-					} else {
-						"Keep Serein in the system tray"
-					},
-					Some(if cfg!(target_os = "macos") {
-						"Closing the window keeps Serein in the menu bar. Quit from its menu to exit."
-					} else if cfg!(target_os = "linux") {
-						"Closing keeps Serein running. Use the tray to show, minimize or quit."
-					} else {
-						"Closing the window keeps Serein in the notification area. Quit from its menu to exit."
-					}),
-					&mut self.minimize_to_tray,
-				);
+				let label = language.text(if cfg!(target_os = "macos") {
+					"general-keep-menu-bar"
+				} else {
+					"general-keep-system-tray"
+				});
+				let description = language.text(if cfg!(target_os = "macos") {
+					"general-menu-bar-description"
+				} else if cfg!(target_os = "linux") {
+					"general-linux-tray-description"
+				} else {
+					"general-windows-tray-description"
+				});
+				design::switch(ui, &label, Some(&description), &mut self.minimize_to_tray);
 			});
 			if !self.tray_available {
-				design::hint(ui, "The tray is unavailable on this platform.");
+				design::hint(ui, &language.text("general-tray-unavailable"));
 			} else if !self.tray_status.is_empty() {
 				design::hint(ui, self.tray_status);
 			}
 		});
-		design::group(ui, "Graphics", |ui| {
+		let title = language.text("general-graphics");
+		design::group(ui, &title, |ui| {
+			let restart = language.text("general-gpu-restart");
 			let detail = if self.gpu_adapter.is_empty() {
-				"Takes effect the next time Serein starts.".to_owned()
+				restart
 			} else {
 				format!(
-					"Currently drawing with {}. Takes effect the next time Serein starts.",
-					self.gpu_adapter
+					"{} {}. {}",
+					language.text("general-gpu-current-prefix"),
+					self.gpu_adapter,
+					restart
 				)
 			};
-			design::row(ui, "Render with", Some(&detail), |ui| {
+			let label = language.text("general-render-with");
+			design::row(ui, &label, Some(&detail), |ui| {
 				egui::ComboBox::from_id_salt("gpu-preference")
-					.selected_text(self.gpu_preference.label())
+					.selected_text(gpu_label(language, self.gpu_preference))
 					.width(ui.available_width().min(220.0))
 					.show_ui(ui, |ui| {
 						for preference in model::GpuPreference::ALL {
 							ui.selectable_value(
 								&mut self.gpu_preference,
 								preference,
-								preference.label(),
+								gpu_label(language, preference),
 							)
-							.on_hover_text(preference.description());
+							.on_hover_text(gpu_description(language, preference));
 						}
 					});
 			});
