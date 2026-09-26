@@ -53,6 +53,7 @@ mod uploads;
 mod video;
 mod voice;
 mod watch;
+mod webview2_install;
 use client_core::{
 	Command, Envelope, Event, State,
 	auth::{AuthState, Failure, SessionSecret},
@@ -830,6 +831,8 @@ struct Desktop {
 	forgetting: bool,
 	confirming_close: bool,
 	confirming_logout: bool,
+	webview2_installer: Option<webview2_install::Webview2Installer>,
+	webview2_installing: bool,
 	/// What the pending session teardown is for: logging out, switching or adding an account.
 	end_intent: SessionEnd,
 	/// Saved account whose token is being read for a switch.
@@ -1997,6 +2000,8 @@ impl Desktop {
 			forgetting: false,
 			confirming_close: false,
 			confirming_logout: false,
+			webview2_installer: None,
+			webview2_installing: false,
 			end_intent: SessionEnd::Logout,
 			switching: None,
 			roster_pending: false,
@@ -4096,7 +4101,8 @@ impl Desktop {
 			.show(ui, |ui| {
 				let returning = !self.messaging.accounts.is_empty();
 				let waiting = self.state.auth == AuthState::Authenticating;
-				let idle = !waiting && !self.forgetting;
+				let installing = self.webview2_installing;
+				let idle = !waiting && !installing && !self.forgetting;
 				// A new sign-in needs explicit authorization; a saved account was already
 				// authorized once and restores unattended on launch, so it only waits for idle.
 				// Fixture builds render the enabled state for captures; the actions stay inert.
@@ -4107,7 +4113,9 @@ impl Desktop {
 					self.sign_in_accounts(ui, idle);
 					ui.add_space(10.0);
 				}
-				let label = if waiting {
+				let label = if installing {
+					"Installing WebView2…"
+				} else if waiting {
 					"Waiting for Discord…"
 				} else if returning {
 					"Use another account"
@@ -4138,6 +4146,19 @@ impl Desktop {
 							self.state.status = "Waiting for Discord login";
 						}
 						Err(_) => {
+							#[cfg(target_os = "windows")]
+							if !platform::is_webview2_installed()
+								&& self.webview2_installer.is_none()
+							{
+								self.webview2_installer =
+									Some(webview2_install::Webview2Installer::start());
+								self.webview2_installing = true;
+								self.state.auth = AuthState::Authenticating;
+								self.state.status =
+									"Installing Edge WebView2 Runtime in background…";
+								self.credential_status = "Attempting automated installation…";
+								return;
+							}
 							self.state.auth = AuthState::Failed;
 							self.state.status =
 								"Platform login webview unavailable; see platform-support.md";
@@ -4319,6 +4340,7 @@ impl Desktop {
 			AuthState::Failed | AuthState::Expired | AuthState::Challenged
 		);
 		let busy = self.state.auth == AuthState::Authenticating
+			|| self.webview2_installing
 			|| self.forgetting
 			|| self.cache_pending > 0
 			|| self.cache_clears.pending();
@@ -4651,7 +4673,45 @@ impl Desktop {
 			self.command(command);
 		}
 	}
+	fn poll_webview2_installer(&mut self, ctx: &egui::Context) {
+		let Some(installer) = &self.webview2_installer else {
+			return;
+		};
+		match installer.try_recv() {
+			Ok(webview2_install::InstallEvent::Progress(msg)) => {
+				self.credential_status = msg;
+				ctx.request_repaint();
+			}
+			Ok(webview2_install::InstallEvent::Success) => {
+				self.webview2_installer = None;
+				self.webview2_installing = false;
+				if let Ok(exe) = std::env::current_exe() {
+					let mut cmd = std::process::Command::new(exe);
+					cmd.args(std::env::args().skip(1));
+					let _ = cmd.spawn();
+				}
+				ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+			}
+			Ok(webview2_install::InstallEvent::Failed(err)) => {
+				self.webview2_installer = None;
+				self.webview2_installing = false;
+				self.state.auth = AuthState::Failed;
+				self.state.status = "Platform login webview unavailable; see platform-support.md";
+				self.credential_status = err;
+				ctx.request_repaint();
+			}
+			Err(std::sync::mpsc::TryRecvError::Empty) => {}
+			Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+				self.webview2_installer = None;
+				self.webview2_installing = false;
+				self.state.auth = AuthState::Failed;
+				self.state.status = "Platform login webview unavailable; see platform-support.md";
+				ctx.request_repaint();
+			}
+		}
+	}
 	fn poll(&mut self, ctx: &egui::Context) {
+		self.poll_webview2_installer(ctx);
 		let mut cached = Vec::new();
 		let mut presence_cache_stopped = false;
 		if let Some(cache) = &self.cache {
@@ -6339,7 +6399,23 @@ impl eframe::App for Desktop {
 				match platform::LoginView::open(self.window.clone(), move || wake.request_repaint())
 				{
 					Ok(login) => self.login = Some(login),
-					Err(_) => self.state.status = "Platform login webview unavailable",
+					Err(_) => {
+						#[cfg(target_os = "windows")]
+						if !platform::is_webview2_installed() && self.webview2_installer.is_none() {
+							self.webview2_installer =
+								Some(webview2_install::Webview2Installer::start());
+							self.webview2_installing = true;
+							self.state.auth = AuthState::Authenticating;
+							self.state.status = "Installing Edge WebView2 Runtime in background…";
+							self.credential_status = "Attempting automated installation…";
+						} else {
+							self.state.status = "Platform login webview unavailable";
+						}
+						#[cfg(not(target_os = "windows"))]
+						{
+							self.state.status = "Platform login webview unavailable";
+						}
+					}
 				}
 			}
 			let draft_changes = std::mem::take(&mut self.messaging.draft_changes);
