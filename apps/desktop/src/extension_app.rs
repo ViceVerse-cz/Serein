@@ -1564,6 +1564,7 @@ mod tests {
 			badges: vec![],
 			connections: vec![],
 			mutual_guilds: vec![],
+			mutual_friends: vec![],
 			guild: None,
 			theme_colors: None,
 			clan: None,

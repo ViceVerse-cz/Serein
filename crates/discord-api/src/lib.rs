@@ -915,7 +915,7 @@ impl DiscordApi {
 				request,
 			} => {
 				let mut path = format!(
-					"/users/{user}/profile?with_mutual_guilds=true&with_mutual_friends=false&with_mutual_friends_count=false"
+					"/users/{user}/profile?with_mutual_guilds=true&with_mutual_friends=true&with_mutual_friends_count=false"
 				);
 				if let Some(guild) = guild {
 					path.push_str(&format!("&guild_id={guild}"));
@@ -2288,7 +2288,7 @@ mod tests {
 			let mut buffer = [0; 4096];
 			let n = profile.read(&mut buffer).await.unwrap();
 			let request = std::str::from_utf8(&buffer[..n]).unwrap();
-			assert!(request.starts_with("GET /users/5/profile?with_mutual_guilds=true&with_mutual_friends=false&with_mutual_friends_count=false&guild_id=2 HTTP/1.1"));
+			assert!(request.starts_with("GET /users/5/profile?with_mutual_guilds=true&with_mutual_friends=true&with_mutual_friends_count=false&guild_id=2 HTTP/1.1"));
 			assert!(request.contains("SYNTHETIC_PROFILE_TOKEN"));
 			let body = r#"{"user":{"id":"5","username":"Synthetic"},"user_profile":{"bio":"About","banner":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}"#;
 			profile
