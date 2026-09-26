@@ -145,7 +145,11 @@ impl MessagingUi {
 				if state.user.as_ref().is_some_and(|own| own.id.0 != id) {
 					let muted = self.voice_user_locally_muted(entry.participant.user);
 					if ui
-						.button(if muted { "Unmute" } else { "Mute" })
+						.button(if muted {
+							crate::i18n::translate("Unmute")
+						} else {
+							crate::i18n::translate("Mute")
+						})
 						.on_hover_text(crate::i18n::translate(
 							"Silence this person on this device only. Nobody else is affected.",
 						))
@@ -2062,16 +2066,20 @@ impl MessagingUi {
 				Some("Removes keyboard, fan and room noise from your microphone."),
 				|ui| {
 					egui::ComboBox::from_id_salt("voice-noise-suppression")
-						.selected_text(
+						.selected_text(crate::i18n::translate(
 							choices
 								.iter()
 								.find(|(value, _)| *value == processing.suppression)
 								.map_or("Off", |(_, label)| *label),
-						)
+						))
 						.width(ui.available_width().min(160.0))
 						.show_ui(ui, |ui| {
 							for (value, label) in choices {
-								ui.selectable_value(&mut processing.suppression, value, label);
+								ui.selectable_value(
+									&mut processing.suppression,
+									value,
+									crate::i18n::translate(label),
+								);
 							}
 						});
 				},
@@ -2081,14 +2089,16 @@ impl MessagingUi {
 				let strength = ["Low", "Moderate", "High", "Very high"];
 				design::row(ui, "Suppression strength", None, |ui| {
 					egui::ComboBox::from_id_salt("voice-suppression-strength")
-						.selected_text(strength[usize::from(processing.suppression_level.min(3))])
+						.selected_text(crate::i18n::translate(
+							strength[usize::from(processing.suppression_level.min(3))],
+						))
 						.width(ui.available_width().min(160.0))
 						.show_ui(ui, |ui| {
 							for (index, label) in strength.iter().enumerate() {
 								ui.selectable_value(
 									&mut processing.suppression_level,
 									index as u8,
-									*label,
+									crate::i18n::translate(label),
 								);
 							}
 						});
@@ -2160,12 +2170,12 @@ impl MessagingUi {
 			} else {
 				self.voice_muted
 			};
-			let label = match (deafen, active) {
+			let label = crate::i18n::translate(match (deafen, active) {
 				(true, true) => "Undeafen",
 				(true, false) => "Deafen",
 				(false, true) => "Unmute",
 				(false, false) => "Mute",
-			};
+			});
 			let (rect, response) =
 				ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click());
 			if response.hovered() || response.has_focus() {
@@ -2183,7 +2193,7 @@ impl MessagingUi {
 				if active { colors.danger } else { colors.muted },
 			);
 			response.widget_info(|| {
-				egui::WidgetInfo::selected(egui::Role::Button, true, active, label)
+				egui::WidgetInfo::selected(egui::Role::Button, true, active, &label)
 			});
 			if response.clicked() {
 				if deafen {
@@ -2202,12 +2212,12 @@ impl MessagingUi {
 		let active = if deafen { deafened } else { muted };
 		let enabled =
 			(self.controls_enabled(state) || state.demo) && (deafen || can_speak || state.demo);
-		let label = match (deafen, active) {
+		let label = crate::i18n::translate(match (deafen, active) {
 			(true, true) => "Undeafen",
 			(true, false) => "Deafen",
 			(false, true) => "Unmute",
 			(false, false) => "Mute",
-		};
+		});
 		let response = ui
 			.add_enabled_ui(enabled, |ui| {
 				let (rect, response) =
@@ -2232,17 +2242,17 @@ impl MessagingUi {
 				};
 				crate::icons::paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
 				response.widget_info(|| {
-					egui::WidgetInfo::selected(egui::Role::Button, enabled, active, label)
+					egui::WidgetInfo::selected(egui::Role::Button, enabled, active, &label)
 				});
 				response
 			})
 			.inner
 			.on_hover_text(if enabled {
-				label
+				label.clone()
 			} else if !can_speak && !deafen {
-				"Speaking is unavailable in this channel."
+				crate::i18n::translate("Speaking is unavailable in this channel.")
 			} else {
-				"Controls are unavailable in this build or preview."
+				crate::i18n::translate("Controls are unavailable in this build or preview.")
 			});
 		if response.clicked() {
 			if deafen {
@@ -2429,17 +2439,17 @@ impl MessagingUi {
 					egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.0)),
 					egui::Color32::WHITE,
 				);
-				let label = if phase == Phase::Failed {
+				let label = crate::i18n::translate(if phase == Phase::Failed {
 					"Dismiss call"
 				} else {
 					"Disconnect"
-				};
+				});
 				response
-					.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+					.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
 				response.on_hover_text(if enabled {
-					label
+					label.clone()
 				} else {
-					"Leaving is unavailable in the offline preview."
+					crate::i18n::translate("Leaving is unavailable in the offline preview.")
 				})
 			};
 			leave = hang_up.clicked() && !state.demo;
@@ -2967,6 +2977,8 @@ fn card_action(
 	label: &str,
 	hint: &str,
 ) -> egui::Response {
+	let label = crate::i18n::translate(label);
+	let hint = crate::i18n::translate(hint);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(
 		egui::vec2(width, 40.0),
@@ -2995,7 +3007,8 @@ fn card_action(
 		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(20.0)),
 		color,
 	);
-	response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, enabled, active, label));
+	response
+		.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, enabled, active, &label));
 	response.on_hover_text(hint)
 }
 
@@ -3260,6 +3273,8 @@ fn control(
 	label: &str,
 	hint: &str,
 ) -> egui::Response {
+	let label = crate::i18n::translate(label);
+	let hint = crate::i18n::translate(hint);
 	let (rect, response) = ui.allocate_exact_size(
 		egui::vec2(width, CONTROL_HEIGHT),
 		if enabled {
@@ -3283,7 +3298,7 @@ fn control(
 			STAGE_MUTED.gamma_multiply(0.45)
 		},
 	);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
 	response.on_hover_text(hint)
 }
 
@@ -3295,6 +3310,7 @@ fn round_action(
 	enabled: bool,
 	label: &str,
 ) -> egui::Response {
+	let label = crate::i18n::translate(label);
 	let (rect, response) = ui.allocate_exact_size(
 		egui::Vec2::splat(40.0),
 		if enabled {
@@ -3317,7 +3333,7 @@ fn round_action(
 		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(20.0)),
 		egui::Color32::WHITE,
 	);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
 	response.on_hover_text(label)
 }
 
@@ -3511,27 +3527,27 @@ fn device_combo(
 	selected: &mut Option<String>,
 ) -> egui::Response {
 	let label = match selected.as_ref() {
-		None => "System default",
-		Some(id) => devices
-			.iter()
-			.find(|(key, _)| key == id)
-			.map_or("Device unavailable", |(_, label)| label.as_str()),
+		None => crate::i18n::translate("System default"),
+		Some(id) => devices.iter().find(|(key, _)| key == id).map_or_else(
+			|| crate::i18n::translate("Device unavailable"),
+			|(_, label)| label.clone(),
+		),
 	};
 	egui::ComboBox::from_id_salt(id)
-		.selected_text(label)
+		.selected_text(&label)
 		.width(ui.available_width())
 		.truncate()
 		.height(220.0)
 		.show_ui(ui, |ui| {
 			ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-			ui.selectable_value(selected, None, "System default");
+			ui.selectable_value(selected, None, crate::i18n::translate("System default"));
 			for (id, label) in devices.iter().take(32) {
 				ui.selectable_value(selected, Some(id.clone()), label)
 					.on_hover_text(label);
 			}
 		})
 		.response
-		.on_hover_text(label)
+		.on_hover_text(&label)
 }
 
 #[cfg(test)]

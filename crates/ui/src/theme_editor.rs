@@ -40,24 +40,26 @@ enum ImageRegion {
 	InputArea,
 }
 impl ImageRegion {
-	fn label(self) -> &'static str {
+	fn label(self) -> String {
 		match self {
-			Self::TopBars => "Top bars",
-			Self::ServerList => "Server list",
-			Self::PeopleChannels => "People & channels",
-			Self::MessageList => "Message list",
-			Self::MemberList => "Member list",
-			Self::InputArea => "Message input area",
+			Self::TopBars => crate::i18n::translate("Top bars"),
+			Self::ServerList => crate::i18n::translate("Server list"),
+			Self::PeopleChannels => crate::i18n::translate("People & channels"),
+			Self::MessageList => crate::i18n::translate("Message list"),
+			Self::MemberList => crate::i18n::translate("Member list"),
+			Self::InputArea => crate::i18n::translate("Message input area"),
 		}
 	}
-	fn description(self) -> &'static str {
+	fn description(self) -> String {
 		match self {
-			Self::TopBars => "Window title and conversation header",
-			Self::ServerList => "The left server rail",
-			Self::PeopleChannels => "Direct messages and channel navigation",
-			Self::MessageList => "The conversation timeline",
-			Self::MemberList => "The member and search pane on the right",
-			Self::InputArea => "The area around the message box",
+			Self::TopBars => crate::i18n::translate("Window title and conversation header"),
+			Self::ServerList => crate::i18n::translate("The left server rail"),
+			Self::PeopleChannels => {
+				crate::i18n::translate("Direct messages and channel navigation")
+			}
+			Self::MessageList => crate::i18n::translate("The conversation timeline"),
+			Self::MemberList => crate::i18n::translate("The member and search pane on the right"),
+			Self::InputArea => crate::i18n::translate("The area around the message box"),
 		}
 	}
 	fn opacity(self, sections: &mut SectionOpacity) -> &mut u8 {
@@ -529,22 +531,24 @@ impl ThemeEditor {
 							let mut changed = false;
 							egui::ComboBox::from_id_salt("image-fit")
 								.selected_text(match background.fit {
-									BackgroundFit::Cover => "Fill area",
-									BackgroundFit::Contain => "Fit entire image",
+									BackgroundFit::Cover => crate::i18n::translate("Fill area"),
+									BackgroundFit::Contain => {
+										crate::i18n::translate("Fit entire image")
+									}
 								})
 								.show_ui(ui, |ui| {
 									changed |= ui
 										.selectable_value(
 											&mut background.fit,
 											BackgroundFit::Cover,
-											"Fill area",
+											crate::i18n::translate("Fill area"),
 										)
 										.changed();
 									changed |= ui
 										.selectable_value(
 											&mut background.fit,
 											BackgroundFit::Contain,
-											"Fit entire image",
+											crate::i18n::translate("Fit entire image"),
 										)
 										.changed();
 								});
@@ -1225,7 +1229,7 @@ fn section_controls(
 					ui.selectable_value(selected, region, region.label());
 				}
 			});
-		design::hint(ui, selected.description());
+		design::hint(ui, &selected.description());
 		ui.add_space(12.0);
 		changed = design::slider_row(
 			ui,

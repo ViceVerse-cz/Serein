@@ -135,6 +135,17 @@ mod tests {
 		assert_eq!(Language::Czech.source("Create invite"), "Vytvořit pozvánku");
 		assert_eq!(Language::Czech.source("Direct Messages"), "Přímé zprávy");
 		assert_eq!(Language::Czech.source("Online"), "Online");
+		for (source, translated) in [
+			("Copy message", "Kopírovat zprávu"),
+			("Reply", "Odpovědět"),
+			("Forward", "Přeposlat"),
+			("Mark read through here", "Označit jako přečtené až sem"),
+			("Mark Unread", "Označit jako nepřečtené"),
+			("Pin message", "Připnout zprávu"),
+			("Unpin message", "Odepnout zprávu"),
+		] {
+			assert_eq!(Language::Czech.source(source), translated);
+		}
 		assert_eq!(
 			Language::Czech
 				.source("Saved channel preferences are damaged or incompatible with this build."),

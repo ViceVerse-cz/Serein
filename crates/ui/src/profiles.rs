@@ -473,9 +473,9 @@ fn more_menu(
 		.add_enabled(
 			enabled && friend,
 			egui::Button::new(if state.friend_nickname(user.id).is_some() {
-				"Edit Friend Nickname"
+				crate::i18n::translate("Edit Friend Nickname")
 			} else {
-				"Add Friend Nickname"
+				crate::i18n::translate("Add Friend Nickname")
 			}),
 		)
 		.on_disabled_hover_text(crate::i18n::translate(
@@ -494,7 +494,11 @@ fn more_menu(
 		if ui
 			.add_enabled(
 				enabled,
-				egui::Button::new(if muted { "Unmute" } else { "Mute" }),
+				egui::Button::new(if muted {
+					crate::i18n::translate("Unmute")
+				} else {
+					crate::i18n::translate("Mute")
+				}),
 			)
 			.on_hover_text(crate::i18n::translate(
 				"Mute this direct message's notifications until you unmute it.",
@@ -530,7 +534,12 @@ fn more_menu(
 		.add_enabled(
 			enabled,
 			egui::Button::new(
-				RichText::new(if blocked { "Unblock" } else { "Block" }).color(colors.danger),
+				RichText::new(if blocked {
+					crate::i18n::translate("Unblock")
+				} else {
+					crate::i18n::translate("Block")
+				})
+				.color(colors.danger),
 			),
 		)
 		.clicked()

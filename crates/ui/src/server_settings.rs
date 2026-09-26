@@ -606,7 +606,11 @@ impl Editor {
 									if !page.allowed(state, guild) {
 										continue;
 									}
-									ui.selectable_value(&mut self.page, page, page.label());
+									ui.selectable_value(
+										&mut self.page,
+										page,
+										crate::i18n::translate(page.label()),
+									);
 								}
 								close = close_control(ui).clicked();
 							});
@@ -1366,16 +1370,19 @@ fn channel_picker(
 		.collect();
 	let muted = design::palette(ui).muted;
 	let current = selected.and_then(|id| choices.iter().find(|channel| channel.id == id));
-	let mut label = egui::Atoms::new(current.map_or(
-		if selected.is_some() {
-			"Unavailable channel"
-		} else if voice {
-			"No Inactive Channel"
-		} else {
-			"No System Messages Channel"
+	let label = current.map_or_else(
+		|| {
+			crate::i18n::translate(if selected.is_some() {
+				"Unavailable channel"
+			} else if voice {
+				"No Inactive Channel"
+			} else {
+				"No System Messages Channel"
+			})
 		},
-		|channel| channel.name.as_str(),
-	));
+		|channel| channel.name.clone(),
+	);
+	let mut label = egui::Atoms::new(label);
 	if let Some(channel) = current {
 		label.push_left(crate::icons::atom(
 			crate::icons::channel(channel.kind),
@@ -1388,7 +1395,7 @@ fn channel_picker(
 		.selected_text(label)
 		.width(ui.available_width())
 		.show_ui(ui, |ui| {
-			ui.selectable_value(selected, None, "None");
+			ui.selectable_value(selected, None, crate::i18n::translate("None"));
 			for channel in choices {
 				ui.selectable_value(
 					selected,
@@ -1401,16 +1408,24 @@ fn channel_picker(
 			}
 		});
 	if empty {
-		ui.weak("No accessible channels available.");
+		ui.weak(crate::i18n::translate("No accessible channels available."));
 	}
 }
 fn timeout_picker(ui: &mut egui::Ui, timeout: &mut u32) {
 	egui::ComboBox::from_id_salt("server-afk-timeout")
-		.selected_text(format!("{} minutes", *timeout / 60))
+		.selected_text(format!(
+			"{} {}",
+			*timeout / 60,
+			crate::i18n::translate("minutes")
+		))
 		.width(ui.available_width())
 		.show_ui(ui, |ui| {
 			for seconds in [60, 300, 900, 1800, 3600] {
-				ui.selectable_value(timeout, seconds, format!("{} minutes", seconds / 60));
+				ui.selectable_value(
+					timeout,
+					seconds,
+					format!("{} {}", seconds / 60, crate::i18n::translate("minutes")),
+				);
 			}
 		});
 }

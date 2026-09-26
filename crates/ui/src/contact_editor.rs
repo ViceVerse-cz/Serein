@@ -101,9 +101,9 @@ impl ContactEditor {
 						crate::dialog::input(
 							ui,
 							edit.char_limit(limit).hint_text(if self.nickname {
-								"Enter a nickname"
+								crate::i18n::translate("Enter a nickname")
 							} else {
-								"Add something to remember…"
+								crate::i18n::translate("Add something to remember…")
 							}),
 						)
 						.labelled_by(label.id);

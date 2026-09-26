@@ -689,9 +689,9 @@ fn select(
 		.width(width)
 		.height(360.0)
 		.selected_text(if selected_text.is_empty() {
-			c.placeholder.as_deref().unwrap_or("Choose options")
+			crate::i18n::translate(c.placeholder.as_deref().unwrap_or("Choose options"))
 		} else {
-			&selected_text
+			selected_text.clone()
 		})
 		.show_ui(ui, |ui| {
 			ui.set_min_width((width - 16.0).max(40.0));

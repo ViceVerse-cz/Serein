@@ -872,11 +872,11 @@ fn message_actions(
 		if ui
 			.add_enabled(
 				can_pin,
-				egui::Button::new(if pinned {
+				egui::Button::new(crate::i18n::translate(if pinned {
 					"Unpin message"
 				} else {
 					"Pin message"
-				}),
+				})),
 			)
 			.clicked()
 		{
@@ -1002,9 +1002,9 @@ fn present_control(ui: &mut egui::Ui, rect: egui::Rect, unread: bool) -> bool {
 	});
 	response
 		.on_hover_text(if unread {
-			"New messages below · jump to present"
+			crate::i18n::translate("New messages below · jump to present")
 		} else {
-			"Jump to present"
+			crate::i18n::translate("Jump to present")
 		})
 		.clicked()
 }

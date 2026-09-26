@@ -111,7 +111,14 @@ impl PermissionsUi {
 								.filter(|r| r.name.to_lowercase().contains(&query))
 							{
 								if ui
-									.selectable_label(false, format!("Role: {}", role.name))
+									.selectable_label(
+										false,
+										format!(
+											"{}: {}",
+											crate::i18n::translate("Role"),
+											role.name
+										),
+									)
 									.clicked()
 								{
 									self.add(rows, (0, role.id));
@@ -134,7 +141,14 @@ impl PermissionsUi {
 							{
 								if user.name.to_lowercase().contains(&query)
 									&& ui
-										.selectable_label(false, format!("Member: {}", user.name))
+										.selectable_label(
+											false,
+											format!(
+												"{}: {}",
+												crate::i18n::translate("Member"),
+												user.name
+											),
+										)
 										.clicked()
 								{
 									self.add(rows, (1, user.id));

@@ -330,14 +330,22 @@ impl MessagingUi {
 				|ui| {
 					egui::ComboBox::from_id_salt("update-release-channel")
 						.selected_text(if self.updates.nightly {
-							"Nightly"
+							crate::i18n::translate("Nightly")
 						} else {
-							"Production"
+							crate::i18n::translate("Production")
 						})
 						.width(ui.available_width().min(160.0))
 						.show_ui(ui, |ui| {
-							ui.selectable_value(&mut self.updates.nightly, false, "Production");
-							ui.selectable_value(&mut self.updates.nightly, true, "Nightly");
+							ui.selectable_value(
+								&mut self.updates.nightly,
+								false,
+								crate::i18n::translate("Production"),
+							);
+							ui.selectable_value(
+								&mut self.updates.nightly,
+								true,
+								crate::i18n::translate("Nightly"),
+							);
 						});
 				},
 			);

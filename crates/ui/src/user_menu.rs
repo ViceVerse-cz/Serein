@@ -135,9 +135,9 @@ pub(super) fn contents(
 		.add_enabled(
 			enabled && state.friends().any(|friend| friend.id == user.id),
 			egui::Button::new(if state.friend_nickname(user.id).is_some() {
-				"Edit Friend Nickname"
+				crate::i18n::translate("Edit Friend Nickname")
 			} else {
-				"Add Friend Nickname"
+				crate::i18n::translate("Add Friend Nickname")
 			}),
 		)
 		.on_disabled_hover_text(crate::i18n::translate(
@@ -155,7 +155,11 @@ pub(super) fn contents(
 			if ui
 				.add_enabled(
 					view.available(),
-					egui::Button::new(if pinned { "Unpin DM" } else { "Pin DM" }),
+					egui::Button::new(if pinned {
+						crate::i18n::translate("Unpin DM")
+					} else {
+						crate::i18n::translate("Pin DM")
+					}),
 				)
 				.on_hover_text(crate::i18n::translate(
 					"Pinned direct messages are saved on this device.",
@@ -171,9 +175,9 @@ pub(super) fn contents(
 			.add_enabled(
 				enabled,
 				egui::Button::new(if muted {
-					"Unmute Conversation"
+					crate::i18n::translate("Unmute Conversation")
 				} else {
-					"Mute Conversation"
+					crate::i18n::translate("Mute Conversation")
 				}),
 			)
 			.on_hover_text(crate::i18n::translate(

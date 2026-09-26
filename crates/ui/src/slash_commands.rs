@@ -1252,12 +1252,16 @@ fn argument(
 			.map_or(value.as_str(), |choice| choice.name.as_str());
 		egui::ComboBox::from_id_salt(id)
 			.width(ui.available_width())
-			.selected_text(if label.is_empty() { "Choose…" } else { label })
+			.selected_text(if label.is_empty() {
+				crate::i18n::translate("Choose…")
+			} else {
+				label.to_owned()
+			})
 			.show_ui(ui, |ui| {
-				ui.selectable_value(value, String::new(), "Not set");
+				ui.selectable_value(value, String::new(), crate::i18n::translate("Not set"));
 				if option.kind == 5 {
-					ui.selectable_value(value, "true".into(), "True");
-					ui.selectable_value(value, "false".into(), "False");
+					ui.selectable_value(value, "true".into(), crate::i18n::translate("True"));
+					ui.selectable_value(value, "false".into(), crate::i18n::translate("False"));
 				}
 				for choice in &option.choices {
 					ui.selectable_value(value, value_text(&choice.value), &choice.name);

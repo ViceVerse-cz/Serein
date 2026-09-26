@@ -195,9 +195,9 @@ pub fn show(
 						}
 						if ui
 							.button(if pending.sticker.is_some() {
-								"Dismiss"
+								crate::i18n::translate("Dismiss")
 							} else {
-								"Restore to composer"
+								crate::i18n::translate("Restore to composer")
 							})
 							.clicked()
 						{

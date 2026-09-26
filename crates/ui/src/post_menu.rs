@@ -101,7 +101,11 @@ impl PostMenu {
 				let followed = details.is_some_and(|d| d.followed);
 				if row(
 					ui,
-					&format!("{} {noun}", if followed { "Unfollow" } else { "Follow" }),
+					&if followed {
+						noun_action(noun, "Unfollow Post", "Unfollow Thread")
+					} else {
+						noun_action(noun, "Follow Post", "Follow Thread")
+					},
 					ready && details.is_some_and(|d| !d.archived),
 					false,
 				)
@@ -114,7 +118,11 @@ impl PostMenu {
 				if state.can_edit_post(post.id)
 					&& row(
 						ui,
-						&format!("{} {noun}", if archived { "Open" } else { "Close" }),
+						&if archived {
+							noun_action(noun, "Open Post", "Open Thread")
+						} else {
+							noun_action(noun, "Close Post", "Close Thread")
+						},
 						ready && (!archived || !locked || state.can_manage_post(post.id)),
 						false,
 					)
@@ -125,7 +133,11 @@ impl PostMenu {
 				if state.can_manage_post(post.id)
 					&& row(
 						ui,
-						&format!("{} {noun}", if locked { "Unlock" } else { "Lock" }),
+						&if locked {
+							noun_action(noun, "Unlock Post", "Unlock Thread")
+						} else {
+							noun_action(noun, "Lock Post", "Lock Thread")
+						},
 						ready,
 						false,
 					)
@@ -134,7 +146,13 @@ impl PostMenu {
 					intent = Some(Intent::Write(Action::PostLock(!locked)));
 				}
 				if state.can_edit_post(post.id)
-					&& row(ui, &format!("Edit {noun}"), ready, false).clicked()
+					&& row(
+						ui,
+						&noun_action(noun, "Edit Post", "Edit Thread"),
+						ready,
+						false,
+					)
+					.clicked()
 				{
 					intent = Some(Intent::Edit);
 				}
@@ -147,12 +165,12 @@ impl PostMenu {
 				}
 				ui.separator();
 				ui.add_enabled_ui(ready && followed, |ui| {
-					if details.is_some_and(|d| d.muted)
-						&& row(ui, &format!("Unmute {noun}"), true, false).clicked()
-					{
+					let unmute = noun_action(noun, "Unmute Post", "Unmute Thread");
+					if details.is_some_and(|d| d.muted) && row(ui, &unmute, true, false).clicked() {
 						intent = Some(Intent::Write(Action::PostMute(Mute::Unmute)));
 					}
-					ui.menu_button(format!("Mute {noun}"), |ui| {
+					let mute = noun_action(noun, "Mute Post", "Mute Thread");
+					ui.menu_button(mute, |ui| {
 						for (label, mute) in [
 							("For 15 Minutes", Mute::For(900)),
 							("For 1 Hour", Mute::For(3600)),
@@ -174,7 +192,10 @@ impl PostMenu {
 							(3, "Use Default"),
 						] {
 							if ui
-								.selectable_label(details.is_some_and(|d| d.level == level), label)
+								.selectable_label(
+									details.is_some_and(|d| d.level == level),
+									crate::i18n::translate(label),
+								)
 								.clicked()
 							{
 								intent = Some(Intent::Write(Action::PostNotifications(level)));
@@ -183,16 +204,21 @@ impl PostMenu {
 					});
 				})
 				.response
-				.on_disabled_hover_text(format!(
-					"Follow this {} to change its notifications.",
-					noun.to_lowercase()
+				.on_disabled_hover_text(noun_action(
+					noun,
+					"Follow this post to change its notifications.",
+					"Follow this thread to change its notifications.",
 				));
 				if state.can_manage_post(post.id) {
 					ui.separator();
 					let pinned = details.is_some_and(|d| d.pinned);
 					if row(
 						ui,
-						&format!("{} {noun}", if pinned { "Unpin" } else { "Pin" }),
+						&if pinned {
+							noun_action(noun, "Unpin Post", "Unpin Thread")
+						} else {
+							noun_action(noun, "Pin Post", "Pin Thread")
+						},
 						ready,
 						false,
 					)
@@ -200,7 +226,14 @@ impl PostMenu {
 					{
 						intent = Some(Intent::Write(Action::PostPin(!pinned)));
 					}
-					if row(ui, &format!("Delete {noun}"), ready, true).clicked() {
+					if row(
+						ui,
+						&noun_action(noun, "Delete Post", "Delete Thread"),
+						ready,
+						true,
+					)
+					.clicked()
+					{
 						intent = Some(Intent::Delete);
 					}
 				}
@@ -446,4 +479,8 @@ fn noun(state: &State, channel: Id) -> &'static str {
 	} else {
 		"Thread"
 	}
+}
+
+fn noun_action(noun: &str, post: &str, thread: &str) -> String {
+	crate::i18n::translate(if noun == "Post" { post } else { thread })
 }

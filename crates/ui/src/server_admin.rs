@@ -546,16 +546,16 @@ impl Admin {
 			ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
 			let before = self.query.sort;
 			let sorts = [
-				"Newest members",
-				"Oldest members",
-				"Newest Discord accounts",
-				"Oldest Discord accounts",
+				crate::i18n::translate("Newest members"),
+				crate::i18n::translate("Oldest members"),
+				crate::i18n::translate("Newest Discord accounts"),
+				crate::i18n::translate("Oldest Discord accounts"),
 			];
 			egui::ComboBox::from_id_salt("member-sort")
-				.selected_text(sorts[usize::from(self.query.sort.saturating_sub(1)).min(3)])
+				.selected_text(&sorts[usize::from(self.query.sort.saturating_sub(1)).min(3)])
 				.width(200.0)
 				.show_ui(ui, |ui| {
-					for (index, name) in sorts.into_iter().enumerate() {
+					for (index, name) in sorts.iter().enumerate() {
 						ui.selectable_value(&mut self.query.sort, index as u8 + 1, name);
 					}
 				});
@@ -1098,12 +1098,17 @@ impl Admin {
 					Dialog::Prune { days, counted } => {
 						crate::dialog::label(ui, "Inactive for");
 						let before = *days;
+						let label = |value| match value {
+							7 => crate::i18n::translate("7 days"),
+							30 => crate::i18n::translate("30 days"),
+							_ => value.to_string(),
+						};
 						egui::ComboBox::from_id_salt("prune-days")
-							.selected_text(format!("{days} days"))
+							.selected_text(label(*days))
 							.width(ui.available_width())
 							.show_ui(ui, |ui| {
 								for value in [7, 30] {
-									ui.selectable_value(days, value, format!("{value} days"));
+									ui.selectable_value(days, value, label(value));
 								}
 							});
 						if before != *days {

@@ -114,7 +114,7 @@ impl MessagingUi {
 			ui.horizontal_wrapped(|ui| {
 				for tab in Tab::ALL {
 					if ui
-						.selectable_label(nav.active == tab, tab.label())
+						.selectable_label(nav.active == tab, crate::i18n::translate(tab.label()))
 						.clicked()
 					{
 						nav.jump = Some(tab);
@@ -171,7 +171,13 @@ impl MessagingUi {
 
 			nav.heading(ui, Tab::DirectMessages);
 			design::card(ui, |ui| {
-				let label = nav.guild.and_then(|id| state.guilds.iter().find(|guild| guild.id == id)).map_or("All servers", |guild| guild.name.as_str()).to_owned();
+				let label = nav
+					.guild
+					.and_then(|id| state.guilds.iter().find(|guild| guild.id == id))
+					.map_or_else(
+						|| crate::i18n::translate("All servers"),
+						|guild| guild.name.clone(),
+					);
 				let allow = settings.allow_dms(nav.guild);
 				let filter = settings.filter_requests(nav.guild);
 				let all = nav.guild.is_none();
@@ -192,7 +198,11 @@ impl MessagingUi {
 							.width(ui.available_width().min(260.0))
 							.height(280.0)
 							.show_ui(ui, |ui| {
-								ui.selectable_value(&mut nav.guild, None, "All servers");
+								ui.selectable_value(
+									&mut nav.guild,
+									None,
+									crate::i18n::translate("All servers"),
+								);
 								for guild in &state.guilds {
 									ui.selectable_value(&mut nav.guild, Some(guild.id), &guild.name);
 								}

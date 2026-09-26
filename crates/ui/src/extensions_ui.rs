@@ -1017,9 +1017,9 @@ impl ExtensionUi {
 						ui.add(
 							egui::TextEdit::singleline(&mut self.query)
 								.hint_text(if self.themes {
-									"Search themes"
+									crate::i18n::translate("Search themes")
 								} else {
-									"Search extensions"
+									crate::i18n::translate("Search extensions")
 								})
 								.char_limit(128)
 								.frame(egui::Frame::NONE)
@@ -1028,9 +1028,9 @@ impl ExtensionUi {
 						if working {
 							ui.add(egui::Spinner::new().size(16.0).color(colors.muted))
 								.on_hover_text(if self.catalog_refreshing {
-									"Checking for packages and updates"
+									crate::i18n::translate("Checking for packages and updates")
 								} else {
-									"Working on your last action"
+									crate::i18n::translate("Working on your last action")
 								});
 						}
 						if !self.query.is_empty() {

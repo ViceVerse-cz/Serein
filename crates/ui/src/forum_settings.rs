@@ -617,10 +617,10 @@ pub(crate) fn slowmode(ui: &mut egui::Ui, salt: &str, seconds: &mut u32) {
 	};
 	egui::ComboBox::from_id_salt(salt)
 		.width(ui.available_width().min(560.0))
-		.selected_text(label(*seconds))
+		.selected_text(crate::i18n::translate(&label(*seconds)))
 		.show_ui(ui, |ui| {
 			for (step, text) in SLOWMODE {
-				ui.selectable_value(seconds, step, text);
+				ui.selectable_value(seconds, step, crate::i18n::translate(text));
 			}
 		});
 }
@@ -637,10 +637,10 @@ fn select<T: Copy + PartialEq>(
 		.map_or("", |(_, label)| label);
 	egui::ComboBox::from_id_salt(salt)
 		.width(ui.available_width().min(560.0))
-		.selected_text(current)
+		.selected_text(crate::i18n::translate(current))
 		.show_ui(ui, |ui| {
 			for (option, label) in options {
-				ui.selectable_value(value, *option, *label);
+				ui.selectable_value(value, *option, crate::i18n::translate(label));
 			}
 		});
 }

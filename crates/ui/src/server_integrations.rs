@@ -298,9 +298,9 @@ impl IntegrationsUi {
 		avatars: &mut Avatars,
 	) {
 		ui.label(if self.channel.is_some() {
-			"Manage webhooks and followed channels posting to this channel."
+			crate::i18n::translate("Manage webhooks and followed channels posting to this channel.")
 		} else {
-			"Customize your server with integrations. Manage webhooks, followed channels, and apps connected to your server."
+			crate::i18n::translate("Customize your server with integrations. Manage webhooks, followed channels, and apps connected to your server.")
 		});
 		ui.hyperlink_to(
 			crate::i18n::translate("Learn more about managing integrations."),
@@ -586,9 +586,9 @@ impl IntegrationsUi {
 				.add_enabled(
 					writable(state),
 					egui::Button::new(if self.copied == Some(webhook.id) {
-						"Copied!"
+						crate::i18n::translate("Copied!")
 					} else {
-						"Copy Webhook URL"
+						crate::i18n::translate("Copy Webhook URL")
 					}),
 				)
 				.clicked()
@@ -626,9 +626,9 @@ impl IntegrationsUi {
 		}
 		ui.label(format!("Service: {}", service_name(integration)));
 		ui.label(if integration.enabled {
-			"Enabled"
+			crate::i18n::translate("Enabled")
 		} else {
-			"Disabled"
+			crate::i18n::translate("Disabled")
 		});
 		if let Some(user) = &integration.user {
 			ui.horizontal(|ui| {
@@ -723,7 +723,11 @@ impl IntegrationsUi {
 		design::label(ui, &crate::i18n::translate("Channel"));
 		let muted = design::palette(ui).muted;
 		let current = draft.channel.and_then(|id| state.channel(id));
-		let mut label = egui::Atoms::new(current.map_or("Choose a channel", |c| c.name.as_str()));
+		let label = current.map_or_else(
+			|| crate::i18n::translate("Choose a channel"),
+			|channel| channel.name.clone(),
+		);
+		let mut label = egui::Atoms::new(label);
 		if let Some(channel) = current {
 			label.push_left(crate::icons::atom(
 				crate::icons::channel(channel.kind),
@@ -784,9 +788,9 @@ impl IntegrationsUi {
 				.add_enabled(
 					!self.submitted,
 					egui::Button::new(if self.baseline.is_some() {
-						"Reset"
+						crate::i18n::translate("Reset")
 					} else {
-						"Cancel"
+						crate::i18n::translate("Cancel")
 					})
 					.frame(false),
 				)

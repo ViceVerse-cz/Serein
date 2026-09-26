@@ -95,13 +95,13 @@ impl AuditLogUi {
 			let selected = query
 				.user
 				.map(|id| user_name(state.server_admin.audit_log.as_ref(), id))
-				.unwrap_or_else(|| "All Users".into());
+				.unwrap_or_else(|| crate::i18n::translate("All Users"));
 			egui::ComboBox::from_id_salt("audit-user")
 				.selected_text(selected)
 				.width(picker_width)
 				.truncate()
 				.show_ui(ui, |ui| {
-					ui.selectable_value(&mut query.user, None, "All Users");
+					ui.selectable_value(&mut query.user, None, crate::i18n::translate("All Users"));
 					if let Some(page) = &state.server_admin.audit_log {
 						for user in page.users.iter().filter(|user| {
 							page.entries
@@ -133,16 +133,24 @@ impl AuditLogUi {
 			));
 			let selected = query
 				.action
-				.map(|action| action_text(action).to_owned())
-				.unwrap_or_else(|| "All Actions".into());
+				.map(|action| crate::i18n::translate(action_text(action)))
+				.unwrap_or_else(|| crate::i18n::translate("All Actions"));
 			egui::ComboBox::from_id_salt("audit-action")
 				.selected_text(selected)
 				.width(picker_width)
 				.truncate()
 				.show_ui(ui, |ui| {
-					ui.selectable_value(&mut query.action, None, "All Actions");
+					ui.selectable_value(
+						&mut query.action,
+						None,
+						crate::i18n::translate("All Actions"),
+					);
 					for &(action, label) in ACTIONS {
-						ui.selectable_value(&mut query.action, Some(action), label);
+						ui.selectable_value(
+							&mut query.action,
+							Some(action),
+							crate::i18n::translate(label),
+						);
 					}
 				});
 		}
@@ -402,11 +410,15 @@ fn summary(entry: &Entry, page: &Page, state: &State) -> String {
 	let actor = entry
 		.user_id
 		.map(|id| user_name(Some(page), id))
-		.unwrap_or_else(|| "Unknown user".into());
+		.unwrap_or_else(|| crate::i18n::translate("Unknown user"));
 	let action = if action_text(entry.action_type) == "Unknown Action" {
-		format!("performed action {}", entry.action_type)
+		format!(
+			"{} {}",
+			crate::i18n::translate("performed action"),
+			entry.action_type
+		)
 	} else {
-		action_text(entry.action_type).to_lowercase()
+		crate::i18n::translate(action_text(entry.action_type)).to_lowercase()
 	};
 	let name = entry
 		.changes

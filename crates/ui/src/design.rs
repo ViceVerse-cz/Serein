@@ -1956,6 +1956,8 @@ pub fn switch(
 	description: Option<&str>,
 	enabled: &mut bool,
 ) -> egui::Response {
+	let label = crate::i18n::translate(label);
+	let description = description.map(crate::i18n::translate);
 	let p = palette(ui);
 	let width = ui.available_width();
 	let text_width = (width - 64.0).max(80.0);
@@ -1983,7 +1985,7 @@ pub fn switch(
 		response.mark_changed();
 	}
 	response.widget_info(|| {
-		egui::WidgetInfo::selected(egui::Role::CheckBox, ui.is_enabled(), *enabled, label)
+		egui::WidgetInfo::selected(egui::Role::CheckBox, ui.is_enabled(), *enabled, &label)
 	});
 	let painter = ui.painter();
 	let mut y = rect.top() + 8.0;
@@ -2265,6 +2267,10 @@ pub fn save_bar(
 	can_save: bool,
 	can_reset: bool,
 ) -> (bool, bool) {
+	let saving = saving.map_or_else(
+		|| crate::i18n::translate("Careful — you have unsaved changes!"),
+		crate::i18n::translate,
+	);
 	let p = palette(ui);
 	ui.horizontal(|ui| {
 		ui.spacing_mut().item_spacing.x = 8.0;
@@ -2280,17 +2286,7 @@ pub fn save_bar(
 				.inner
 				.clicked();
 			ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-				ui.add(
-					egui::Label::new(
-						medium(
-							ui,
-							saving.unwrap_or("Careful — you have unsaved changes!"),
-							14.0,
-						)
-						.color(p.text_strong),
-					)
-					.truncate(),
-				);
+				ui.add(egui::Label::new(medium(ui, &saving, 14.0).color(p.text_strong)).truncate());
 			});
 			(save, reset)
 		})
@@ -2305,13 +2301,17 @@ pub fn segmented(ui: &mut egui::Ui, labels: &[&str], selected: usize) -> Option<
 	if labels.is_empty() {
 		return None;
 	}
+	let labels: Vec<_> = labels
+		.iter()
+		.map(|label| crate::i18n::translate(label))
+		.collect();
 	let p = palette(ui);
 	let font = FontId::new(13.0, medium_family(ui.ctx()));
 	let widths: Vec<f32> = labels
 		.iter()
 		.map(|label| {
 			ui.painter()
-				.layout_no_wrap((*label).to_owned(), font.clone(), p.text)
+				.layout_no_wrap(label.clone(), font.clone(), p.text)
 				.size()
 				.x + 28.0
 		})
@@ -2373,7 +2373,7 @@ pub fn segmented(ui: &mut egui::Ui, labels: &[&str], selected: usize) -> Option<
 		painter.text(
 			segment.center(),
 			egui::Align2::CENTER_CENTER,
-			labels[index],
+			&labels[index],
 			font.clone(),
 			color,
 		);
@@ -2485,6 +2485,8 @@ pub fn row<R>(
 	detail: Option<&str>,
 	control: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
+	let title = crate::i18n::translate(title);
+	let detail = detail.map(crate::i18n::translate);
 	let p = palette(ui);
 	let width = ui.available_width();
 	let text_width = (width * 0.55).max(120.0);
@@ -2495,7 +2497,7 @@ pub fn row<R>(
 			egui::Layout::top_down(egui::Align::Min),
 			|ui| {
 				ui.spacing_mut().item_spacing.y = 2.0;
-				ui.add(egui::Label::new(medium(ui, title, 15.0).color(p.text_strong)).wrap());
+				ui.add(egui::Label::new(medium(ui, &title, 15.0).color(p.text_strong)).wrap());
 				if let Some(detail) = detail {
 					ui.add(
 						egui::Label::new(RichText::new(detail).size(13.0).color(p.muted)).wrap(),
@@ -2847,9 +2849,11 @@ pub fn slider_row<T: egui::emath::Numeric>(
 	range: std::ops::RangeInclusive<T>,
 	suffix: &str,
 ) -> egui::Response {
+	let title = crate::i18n::translate(title);
+	let detail = detail.map(crate::i18n::translate);
 	let p = palette(ui);
 	ui.spacing_mut().item_spacing.y = 4.0;
-	ui.add(egui::Label::new(medium(ui, title, 15.0).color(p.text_strong)).wrap());
+	ui.add(egui::Label::new(medium(ui, &title, 15.0).color(p.text_strong)).wrap());
 	if let Some(detail) = detail {
 		ui.add(egui::Label::new(RichText::new(detail).size(13.0).color(p.muted)).wrap());
 	}

@@ -1203,11 +1203,12 @@ fn account_row(ui: &mut egui::Ui, label: &str, value: &str) {
 
 /// Sidebar entry in the settings modal; the selected page uses the strong surface and text.
 pub(super) fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
+	let label = crate::i18n::translate(label);
 	let colors = design::palette(ui);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
 	response.widget_info(|| {
-		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), selected, label)
+		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), selected, &label)
 	});
 	let hot = response.hovered() || response.has_focus();
 	if selected {
@@ -1235,7 +1236,7 @@ pub(super) fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::
 	ui.painter().text(
 		egui::pos2(rect.left() + 12.0, rect.center().y),
 		egui::Align2::LEFT_CENTER,
-		label,
+		&label,
 		egui::FontId::new(15.0, design::medium_family(ui.ctx())),
 		if selected {
 			colors.text_strong

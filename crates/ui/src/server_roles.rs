@@ -936,9 +936,9 @@ impl RolesUi {
 					.add_enabled(
 						!self.icon_pending,
 						egui::Button::new(if self.icon_pending {
-							"Preparing..."
+							crate::i18n::translate("Preparing...")
 						} else {
-							"Choose Image"
+							crate::i18n::translate("Choose Image")
 						})
 						.min_size(egui::vec2(120.0, 36.0)),
 					)
@@ -1103,9 +1103,9 @@ impl RolesUi {
 				.add_enabled(
 					!state.server_admin.pending,
 					egui::Button::new(if self.adding_members {
-						"Back to Role Members"
+						crate::i18n::translate("Back to Role Members")
 					} else {
-						"Add Members"
+						crate::i18n::translate("Add Members")
 					}),
 				)
 				.clicked()
@@ -1167,7 +1167,11 @@ impl RolesUi {
 						&& ui
 							.add_enabled(
 								!state.server_admin.pending && !state.server_admin.needs_refresh,
-								egui::Button::new(if assigned { "Remove" } else { "Add" }),
+								egui::Button::new(crate::i18n::translate(if assigned {
+									"Remove"
+								} else {
+									"Add"
+								})),
 							)
 							.clicked()
 					{

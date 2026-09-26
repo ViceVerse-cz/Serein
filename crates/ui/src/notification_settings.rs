@@ -175,7 +175,10 @@ impl MessagingUi {
 			ui.horizontal_wrapped(|ui| {
 				for tab in Tab::ALL {
 					if ui
-						.selectable_label(self.settings.notifications.active == tab, tab.label())
+						.selectable_label(
+							self.settings.notifications.active == tab,
+							crate::i18n::translate(tab.label()),
+						)
 						.clicked()
 					{
 						self.settings.notifications.jump = Some(tab);

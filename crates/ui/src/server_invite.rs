@@ -96,7 +96,10 @@ impl InviteDialog {
 							.color(colors.muted),
 					);
 					let current = state.channels.iter().find(|c| Some(c.id) == *channel);
-					let name = current.map_or("No eligible channel", |c| c.name.as_str());
+					let name = current.map_or_else(
+						|| crate::i18n::translate("No eligible channel"),
+						|channel| channel.name.clone(),
+					);
 					egui::ComboBox::from_id_salt("invite-channel")
 						.selected_text((
 							crate::icons::atom(
@@ -428,7 +431,7 @@ impl InviteDialog {
 		ui.add_enabled_ui(!pending, |ui| {
 			ui.label(design::medium(ui, crate::i18n::translate("Expire After"), 18.0));
 			ui.add_space(8.0);
-			select(ui, "invite-expiry", expiry_label(options.max_age), |ui| {
+			select(ui, "invite-expiry", &expiry_label(options.max_age), |ui| {
 				for seconds in [1800, 3600, 21600, 43200, 86400, 604800, 2592000, 0] { ui.selectable_value(&mut options.max_age, seconds, expiry_label(seconds)); }
 			});
 			ui.add_space(24.0);
@@ -481,8 +484,8 @@ impl InviteDialog {
 		self.settings = if back { None } else { Some(options) };
 	}
 }
-fn expiry_label(seconds: u32) -> &'static str {
-	match seconds {
+fn expiry_label(seconds: u32) -> String {
+	crate::i18n::translate(match seconds {
 		0 => "Never",
 		1800 => "30 minutes",
 		3600 => "1 hour",
@@ -491,11 +494,11 @@ fn expiry_label(seconds: u32) -> &'static str {
 		86400 => "1 day",
 		604800 => "7 days",
 		_ => "30 days",
-	}
+	})
 }
 fn uses_label(uses: u16) -> String {
 	if uses == 0 {
-		"No limit".into()
+		crate::i18n::translate("No limit")
 	} else {
 		uses.to_string()
 	}

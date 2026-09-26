@@ -203,7 +203,10 @@ impl ChannelMenu {
 						(2, "Nothing"),
 						(3, "Use Server Default"),
 					] {
-						if ui.selectable_label(level == Some(value), label).clicked() {
+						if ui
+							.selectable_label(level == Some(value), crate::i18n::translate(label))
+							.clicked()
+						{
 							intent = Some(Intent::Write(Action::Notifications(value)));
 						}
 					}
@@ -796,9 +799,9 @@ impl Dialog {
 			ui,
 			egui::TextEdit::singleline(&mut self.draft.name)
 				.hint_text(if self.kind == Kind::CreateCategory {
-					"new-category"
+					crate::i18n::translate("new-category")
 				} else {
-					"new-channel"
+					crate::i18n::translate("new-channel")
 				})
 				.char_limit(100),
 		)

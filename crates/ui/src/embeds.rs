@@ -402,9 +402,9 @@ pub fn show(
 						favorite_action = Some(gif);
 					}
 					star.on_hover_text(if favorite {
-						"Remove from GIF favorites"
+						crate::i18n::translate("Remove from GIF favorites")
 					} else {
-						"Save to GIF favorites"
+						crate::i18n::translate("Save to GIF favorites")
 					})
 				});
 				if !star

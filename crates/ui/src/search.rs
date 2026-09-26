@@ -657,9 +657,9 @@ impl SearchUi {
 						ui.add_enabled(
 							allowed && !view.loading,
 							egui::Button::new(if retry {
-								"Retry older pins"
+								crate::i18n::translate("Retry older pins")
 							} else {
-								"Older pins"
+								crate::i18n::translate("Older pins")
 							}),
 						)
 					})
