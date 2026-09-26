@@ -143,6 +143,10 @@ mod tests {
 			("Mark Unread", "Označit jako nepřečtené"),
 			("Pin message", "Připnout zprávu"),
 			("Unpin message", "Odepnout zprávu"),
+			("Copy image", "Kopírovat obrázek"),
+			("Save image as…", "Uložit obrázek jako…"),
+			("Playing", "Hraje"),
+			("Listening to", "Poslouchá"),
 		] {
 			assert_eq!(Language::Czech.source(source), translated);
 		}

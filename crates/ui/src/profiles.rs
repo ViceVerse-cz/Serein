@@ -74,15 +74,12 @@ pub(crate) fn activity_card(
 		.show(ui, |ui| {
 			ui.set_width(ui.available_width());
 			ui.horizontal(|ui| {
-				let heading = match activity.kind {
-					1 => "Streaming",
-					2 if spotify => "Listening to Spotify",
-					2 => "Listening to",
-					3 => "Watching",
-					5 => "Competing in",
-					_ => "Playing",
+				let heading = if spotify {
+					crate::i18n::translate("Listening to Spotify")
+				} else {
+					activity_verb(activity)
 				};
-				ui.label(design::semibold(ui, heading, 12.0).color(muted));
+				ui.label(design::semibold(ui, &heading, 12.0).color(muted));
 				if spotify {
 					icons::inline(ui, Icon::Spotify, 14.0, muted);
 				}
@@ -95,7 +92,7 @@ pub(crate) fn activity_card(
 					);
 					egui::Popup::menu(&more).show(|ui| {
 						if ui.button(crate::i18n::translate("Copy activity")).clicked() {
-							let mut text = activity.summary();
+							let mut text = activity_summary(activity);
 							for line in [&activity.details, &activity.state].into_iter().flatten() {
 								text.push('\n');
 								text.push_str(line);
@@ -259,7 +256,11 @@ fn activity_row(
 		egui::WidgetInfo::labeled(
 			egui::Role::Button,
 			true,
-			format!("Show {}", activity.summary()),
+			format!(
+				"{} {}",
+				crate::i18n::translate("Show"),
+				activity_summary(activity)
+			),
 		)
 	});
 	if !ui.is_rect_visible(rect) {
@@ -306,13 +307,9 @@ fn activity_row(
 			.layout(egui::Layout::left_to_right(egui::Align::Center)),
 	);
 	text.spacing_mut().item_spacing.x = 6.0;
-	let verb = activity.summary();
-	let verb = verb.strip_suffix(activity.name.as_str()).unwrap_or("");
+	let verb = activity_verb(activity);
 	if !verb.is_empty() {
-		text.add(
-			egui::Label::new(RichText::new(verb.trim_end()).size(12.0).color(muted))
-				.selectable(false),
-		);
+		text.add(egui::Label::new(RichText::new(verb).size(12.0).color(muted)).selectable(false));
 	}
 	text.add(
 		egui::Label::new(design::semibold(ui, &activity.name, 13.0))
@@ -765,14 +762,32 @@ pub(crate) fn is_spotify(activity: &model::RichActivity) -> bool {
 	activity.kind == 2 && activity.name.eq_ignore_ascii_case("Spotify")
 }
 
+fn activity_verb(activity: &model::RichActivity) -> String {
+	crate::i18n::translate(match activity.kind {
+		0 => "Playing",
+		1 => "Streaming",
+		2 => "Listening to",
+		3 => "Watching",
+		5 => "Competing in",
+		_ => "Activity",
+	})
+}
+
+fn activity_summary(activity: &model::RichActivity) -> String {
+	format!("{} {}", activity_verb(activity), activity.name)
+}
+
 pub(crate) fn subtitle(custom: Option<&str>, activities: &[model::RichActivity]) -> Option<String> {
 	activities
 		.first()
 		.map(|activity| {
 			if is_spotify(activity) {
-				activity.state.clone().unwrap_or_else(|| activity.summary())
+				activity
+					.state
+					.clone()
+					.unwrap_or_else(|| activity_summary(activity))
 			} else {
-				activity.summary()
+				activity_summary(activity)
 			}
 		})
 		.or_else(|| custom.map(str::to_owned))

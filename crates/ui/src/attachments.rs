@@ -518,17 +518,24 @@ fn media_menu(
 	let mut action = None;
 	popup.show(|ui| {
 		let idle = !demo && !download.busy();
-		let kind = if video { "video" } else { "image" };
-		for (copy, label) in [
-			(true, format!("Copy {kind}")),
-			(false, format!("Save {kind} as…")),
-		] {
+		let actions = if video {
+			[
+				(true, crate::i18n::translate("Copy video")),
+				(false, crate::i18n::translate("Save video as…")),
+			]
+		} else {
+			[
+				(true, crate::i18n::translate("Copy image")),
+				(false, crate::i18n::translate("Save image as…")),
+			]
+		};
+		for (copy, label) in actions {
 			if ui
 				.add_enabled(idle, egui::Button::new(label))
 				.on_disabled_hover_text(if demo {
-					"Unavailable for synthetic attachments"
+					crate::i18n::translate("Unavailable for synthetic attachments")
 				} else {
-					"A media transfer is already active"
+					crate::i18n::translate("A media transfer is already active")
 				})
 				.clicked()
 			{
