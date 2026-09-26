@@ -335,7 +335,9 @@ impl MessagingUi {
 						let (rect, _) =
 							ui.allocate_exact_size(egui::Vec2::splat(20.0), Sense::hover());
 						icons::paint(ui.painter(), icon, rect, design::palette(ui).text);
-						for entry in entries.take(6) {
+						const VISIBLE: usize = 5;
+						let count = entries.clone().count();
+						for entry in entries.take(VISIBLE) {
 							if let Some(user) = crate::voice::participant_user(
 								state,
 								entry.channel,
@@ -345,6 +347,10 @@ impl MessagingUi {
 							} else {
 								design::avatar(ui, "?", 24.0);
 							}
+						}
+						let overflow = count.saturating_sub(VISIBLE);
+						if overflow > 0 {
+							ui.label(format!("+{overflow}"));
 						}
 					});
 				}
