@@ -65,7 +65,9 @@ impl GroupMenu {
 				row(ui, if pinned { "Unpin DM" } else { "Pin DM" }, colors.text)
 			})
 			.inner
-			.on_hover_text("Pinned direct messages are saved on this device.")
+			.on_hover_text(crate::i18n::translate(
+				"Pinned direct messages are saved on this device.",
+			))
 			.clicked()
 		{
 			self.pin_requested = Some(view.toggle(Shortcut::Pinned, channel.id));
@@ -88,7 +90,9 @@ impl GroupMenu {
 				},
 				colors.text,
 			)
-			.on_hover_text("Mute notifications until you unmute this conversation.")
+			.on_hover_text(crate::i18n::translate(
+				"Mute notifications until you unmute this conversation.",
+			))
 			.clicked()
 			{
 				self.mute = Some((channel.id, !muted));
@@ -121,7 +125,12 @@ impl GroupMenu {
 		channel: &Channel,
 		view: ShortcutView<'_>,
 	) {
-		let response = icons::button(ui, icons::Icon::More, 28.0, "Group menu");
+		let response = icons::button(
+			ui,
+			icons::Icon::More,
+			28.0,
+			&crate::i18n::translate("Group menu"),
+		);
 		egui::Popup::menu(&response)
 			.id(response.id.with((state.generation, channel.id)))
 			.show(|ui| self.menu(ui, state, channel, view));
@@ -208,7 +217,9 @@ impl GroupMenu {
 		)
 		.width(440.0);
 		builder = if dialog.edit {
-			builder.subtitle("Give this group a name and an icon everyone will recognise.")
+			builder.subtitle(crate::i18n::translate(
+				"Give this group a name and an icon everyone will recognise.",
+			))
 		} else {
 			builder.danger().subtitle(format!(
 				"You will need an invitation to rejoin {}.",
@@ -259,10 +270,13 @@ impl GroupMenu {
 								egui::WidgetInfo::labeled(
 									egui::Role::Button,
 									ui.is_enabled(),
-									"Change group icon",
+									crate::i18n::translate("Change group icon"),
 								)
 							});
-							if response.on_hover_text("Change group icon").clicked() {
+							if response
+								.on_hover_text(crate::i18n::translate("Change group icon"))
+								.clicked()
+							{
 								dialog.choosing = true;
 								dialog.error = None;
 								self.icon_request =
@@ -270,7 +284,7 @@ impl GroupMenu {
 							}
 						});
 						if dialog.choosing {
-							ui.label("Choosing image…");
+							ui.label(crate::i18n::translate("Choosing image…"));
 						}
 						if (dialog.preview.is_some()
 							|| state
@@ -279,7 +293,10 @@ impl GroupMenu {
 							&& !matches!(dialog.icon, Patch::Null)
 							&& ui
 								.add_enabled_ui(!busy && !dialog.choosing, |ui| {
-									crate::design::text_action(ui, "Remove icon")
+									crate::design::text_action(
+										ui,
+										&crate::i18n::translate("Remove icon"),
+									)
 								})
 								.inner
 								.clicked()
@@ -295,7 +312,7 @@ impl GroupMenu {
 							ui,
 							egui::TextEdit::singleline(&mut dialog.name)
 								.char_limit(100)
-								.hint_text("Group name")
+								.hint_text(crate::i18n::translate("Group name"))
 								.id(egui::Id::unique(("group-name", self.revision))),
 						)
 						.labelled_by(label.id);
@@ -387,6 +404,7 @@ impl MessagingUi {
 	}
 }
 fn row(ui: &mut egui::Ui, label: &str, color: egui::Color32) -> egui::Response {
+	let label = crate::i18n::translate(label);
 	ui.add_sized(
 		[ui.available_width(), 40.0],
 		egui::Button::new(())
@@ -440,7 +458,10 @@ mod tests {
 				..Default::default()
 			},
 			|ui| {
-				let row = ui.add_sized([220.0, 40.0], egui::Button::new("Synthetic group"));
+				let row = ui.add_sized(
+					[220.0, 40.0],
+					egui::Button::new(crate::i18n::translate("Synthetic group")),
+				);
 				let known = state.channel(channel).unwrap().clone();
 				let preferences = model::ChannelPreferences::default();
 				menu.context(&row, state, &known, ShortcutView::new(&preferences, true));

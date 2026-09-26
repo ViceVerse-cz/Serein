@@ -182,7 +182,10 @@ impl MessagingUi {
 				commands.push(command);
 			}
 			if state.demo {
-				design::hint(ui, "Offline demo · actions are simulated.");
+				design::hint(
+					ui,
+					&crate::i18n::translate("Offline demo · actions are simulated."),
+				);
 			} else if !state.gateway_connected {
 				design::hint(ui, &language.text("friends-reconnect"));
 			}
@@ -722,9 +725,7 @@ impl MessagingUi {
 										})
 										.inner;
 									if message
-										.on_disabled_hover_text(
-											&language.text("friends-no-open-dm"),
-										)
+										.on_disabled_hover_text(language.text("friends-no-open-dm"))
 										.clicked()
 									{
 										selected = dm.map(|c| c.id);
@@ -964,7 +965,14 @@ fn search(ui: &mut egui::Ui, query: &mut String, id: egui::Id, hint: &str) -> eg
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					if query.is_empty() {
 						icons::inline(ui, Icon::Search, 18.0, colors.muted);
-					} else if icons::button(ui, Icon::Close, 22.0, "Clear search").clicked() {
+					} else if icons::button(
+						ui,
+						Icon::Close,
+						22.0,
+						&crate::i18n::translate("Clear search"),
+					)
+					.clicked()
+					{
 						query.clear();
 					}
 				});

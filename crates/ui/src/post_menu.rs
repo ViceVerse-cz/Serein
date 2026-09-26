@@ -89,7 +89,9 @@ impl PostMenu {
 					view.available() && state.channel(post.id).is_some(),
 					false,
 				)
-				.on_hover_text("Favorites are saved on this device.")
+				.on_hover_text(crate::i18n::translate(
+					"Favorites are saved on this device.",
+				))
 				.clicked()
 				{
 					self.shortcut_requested = Some(view.toggle(Shortcut::Favorite, post.id));
@@ -164,7 +166,7 @@ impl PostMenu {
 							}
 						}
 					});
-					ui.menu_button("Notification Settings", |ui| {
+					ui.menu_button(crate::i18n::translate("Notification Settings"), |ui| {
 						for (level, label) in [
 							(0, "All Messages"),
 							(1, "Only @mentions"),
@@ -214,7 +216,7 @@ impl PostMenu {
 					.filter(|_| !state.channel_action_succeeded(post.id))
 				{
 					ui.colored_label(colors.danger, error);
-					if ui.button("Retry").clicked() {
+					if ui.button(crate::i18n::translate("Retry")).clicked() {
 						self.load = Some(post.id);
 					}
 				}

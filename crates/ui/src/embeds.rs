@@ -54,7 +54,10 @@ fn link(
 	if let Some(target) = target {
 		response
 			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), label));
-		if response.on_hover_text("Open link…").clicked() {
+		if response
+			.on_hover_text(crate::i18n::translate("Open link…"))
+			.clicked()
+		{
 			*opening = Some(target);
 		}
 	}
@@ -211,7 +214,9 @@ fn gallery(
 					);
 				}
 				if let Some(target) = target
-					&& response.on_hover_text("Open image…").clicked()
+					&& response
+						.on_hover_text(crate::i18n::translate("Open image…"))
+						.clicked()
 				{
 					*opening = Some(target);
 				}
@@ -284,7 +289,11 @@ fn image_preview(
 		.response;
 	let response = ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
 	response.widget_info(|| {
-		egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Image actions")
+		egui::WidgetInfo::labeled(
+			egui::Role::Button,
+			ui.is_enabled(),
+			crate::i18n::translate("Image actions"),
+		)
 	});
 	embed_context_menu(&response, image, download, demo);
 }
@@ -339,7 +348,11 @@ pub fn show(
 				let response =
 					ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
 				response.widget_info(|| {
-					egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Open image")
+					egui::WidgetInfo::labeled(
+						egui::Role::Button,
+						ui.is_enabled(),
+						crate::i18n::translate("Open image"),
+					)
 				});
 				embed_context_menu(&response, image, download, demo);
 				let star = gif.map(|gif| {
@@ -382,7 +395,7 @@ pub fn show(
 							egui::Role::CheckBox,
 							ui.is_enabled(),
 							favorite,
-							"Favorite GIF",
+							crate::i18n::translate("Favorite GIF"),
 						)
 					});
 					if star.clicked() {
@@ -397,7 +410,9 @@ pub fn show(
 				if !star
 					.as_ref()
 					.is_some_and(|star| star.hovered() || star.clicked())
-					&& response.on_hover_text("Open image…").clicked()
+					&& response
+						.on_hover_text(crate::i18n::translate("Open image…"))
+						.clicked()
 				{
 					*opening = embed
 						.url

@@ -91,20 +91,22 @@ pub(crate) fn show(
 						.wrap(),
 					);
 					if custom.is_some() {
-						ui.label("A custom emoji.");
+						ui.label(crate::i18n::translate("A custom emoji."));
 						if let Some((guild, _)) = source {
 							ui.add(egui::Label::new(format!("From {}", guild.name)).wrap());
 						} else {
 							ui.add(
-								egui::Label::new("Source server unavailable in this session.")
-									.wrap(),
+								egui::Label::new(crate::i18n::translate(
+									"Source server unavailable in this session.",
+								))
+								.wrap(),
 							);
 						}
 					} else {
 						ui.add(
-							egui::Label::new(
+							egui::Label::new(crate::i18n::translate(
 								"A default emoji. You can use this emoji everywhere on Discord.",
-							)
+							))
 							.wrap(),
 						);
 					}
@@ -112,7 +114,7 @@ pub(crate) fn show(
 			});
 		});
 	response.context_menu(|ui| {
-		if ui.button("Copy emoji").clicked() {
+		if ui.button(crate::i18n::translate("Copy emoji")).clicked() {
 			ui.ctx().copy_text(text.to_owned());
 			ui.close();
 		}

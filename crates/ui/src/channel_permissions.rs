@@ -42,34 +42,38 @@ impl PermissionsUi {
 			);
 		}
 		design::divider(ui);
-		egui::CollapsingHeader::new(design::semibold(ui, "Advanced permissions", 18.0))
-			.default_open(true)
-			.show(ui, |ui| {
-				let selected = self.selected.get_or_insert((0, guild));
-				if *selected != (0, guild) && !rows.iter().any(|o| (o.kind, o.id) == *selected) {
-					*selected = (0, guild);
-				}
-				if ui.available_width() >= 580.0 {
-					ui.horizontal_top(|ui| {
-						ui.allocate_ui_with_layout(
-							egui::vec2(180.0, 0.0),
-							egui::Layout::top_down(egui::Align::Min),
-							|ui| {
-								ui.set_width(180.0);
-								self.targets(ui, state, channel, rows);
-							},
-						);
-						ui.add_space(16.0);
-						ui.vertical(|ui| {
-							self.permissions(ui, state, channel, rows);
-						});
+		egui::CollapsingHeader::new(design::semibold(
+			ui,
+			crate::i18n::translate("Advanced permissions"),
+			18.0,
+		))
+		.default_open(true)
+		.show(ui, |ui| {
+			let selected = self.selected.get_or_insert((0, guild));
+			if *selected != (0, guild) && !rows.iter().any(|o| (o.kind, o.id) == *selected) {
+				*selected = (0, guild);
+			}
+			if ui.available_width() >= 580.0 {
+				ui.horizontal_top(|ui| {
+					ui.allocate_ui_with_layout(
+						egui::vec2(180.0, 0.0),
+						egui::Layout::top_down(egui::Align::Min),
+						|ui| {
+							ui.set_width(180.0);
+							self.targets(ui, state, channel, rows);
+						},
+					);
+					ui.add_space(16.0);
+					ui.vertical(|ui| {
+						self.permissions(ui, state, channel, rows);
 					});
-				} else {
-					self.targets(ui, state, channel, rows);
-					ui.separator();
-					self.permissions(ui, state, channel, rows);
-				}
-			});
+				});
+			} else {
+				self.targets(ui, state, channel, rows);
+				ui.separator();
+				self.permissions(ui, state, channel, rows);
+			}
+		});
 	}
 
 	fn targets(
@@ -84,11 +88,11 @@ impl PermissionsUi {
 		ui.add_enabled_ui(
 			state.can_manage_channel_permissions(channel.id) && rows.len() < p::MAX_OVERWRITES,
 			|ui| {
-				ui.menu_button("+ Add role or member", |ui| {
+				ui.menu_button(crate::i18n::translate("+ Add role or member"), |ui| {
 					ui.set_width(240.0);
 					ui.add(
 						egui::TextEdit::singleline(&mut self.search)
-							.hint_text("Search roles or loaded members")
+							.hint_text(crate::i18n::translate("Search roles or loaded members"))
 							.char_limit(64)
 							.desired_width(f32::INFINITY),
 					);
@@ -152,7 +156,10 @@ impl PermissionsUi {
 							&& !rows.iter().any(|o| o.id == Id(*id) && o.kind != 1)
 					});
 					if ui
-						.add_enabled(id.is_some(), egui::Button::new("Add Member"))
+						.add_enabled(
+							id.is_some(),
+							egui::Button::new(crate::i18n::translate("Add Member")),
+						)
 						.clicked()
 					{
 						self.add(rows, (1, Id(id.unwrap())));
@@ -469,7 +476,8 @@ impl PermissionsUi {
 				.add_enabled(
 					editable,
 					egui::Button::new(
-						egui::RichText::new("Remove Role / Member").color(colors.danger),
+						egui::RichText::new(crate::i18n::translate("Remove Role / Member"))
+							.color(colors.danger),
 					),
 				)
 				.clicked()

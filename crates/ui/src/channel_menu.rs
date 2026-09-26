@@ -142,7 +142,9 @@ impl ChannelMenu {
 					view.available(),
 					false,
 				)
-				.on_hover_text("Favorites are saved on this device.")
+				.on_hover_text(crate::i18n::translate(
+					"Favorites are saved on this device.",
+				))
 				.clicked()
 			{
 				self.shortcut_requested = Some(view.toggle(Shortcut::Favorite, channel.id));
@@ -177,7 +179,7 @@ impl ChannelMenu {
 				{
 					intent = Some(Intent::Write(Action::Mute(Mute::Unmute)));
 				}
-				ui.menu_button("Mute Channel", |ui| {
+				ui.menu_button(crate::i18n::translate("Mute Channel"), |ui| {
 					for (label, seconds) in [
 						("For 15 Minutes", 900),
 						("For 1 Hour", 3600),
@@ -193,7 +195,7 @@ impl ChannelMenu {
 						intent = Some(Intent::Write(Action::Mute(Mute::Forever)));
 					}
 				});
-				ui.menu_button("Notification Settings", |ui| {
+				ui.menu_button(crate::i18n::translate("Notification Settings"), |ui| {
 					let level = state.channel_notification_level(channel.id);
 					for (value, label) in [
 						(0, "All Messages"),
@@ -506,7 +508,7 @@ impl ChannelMenu {
 					if pending_now {
 						ui.horizontal(|ui| {
 							ui.spinner();
-							ui.label("Loading channel settings…");
+							ui.label(crate::i18n::translate("Loading channel settings…"));
 						});
 					} else {
 						dialog::notice(
@@ -729,16 +731,18 @@ impl ChannelMenu {
 					.unwrap_or("The channel action could not be started.")
 			});
 		}
-		let dismissed = dialog::Dialog::new("channel-feedback", "Channel action")
-			.width(380.0)
-			.show(ctx, |d| {
-				let mut dismissed = false;
-				d.content(|ui| dialog::notice(ui, dialog::Level::Warning, &message));
-				d.footer(|ui| {
-					dismissed = dialog::action(ui, "Dismiss", dialog::Action::Primary).clicked();
+		let dismissed =
+			dialog::Dialog::new("channel-feedback", crate::i18n::translate("Channel action"))
+				.width(380.0)
+				.show(ctx, |d| {
+					let mut dismissed = false;
+					d.content(|ui| dialog::notice(ui, dialog::Level::Warning, &message));
+					d.footer(|ui| {
+						dismissed =
+							dialog::action(ui, "Dismiss", dialog::Action::Primary).clicked();
+					});
+					dismissed
 				});
-				dismissed
-			});
 		if dismissed.inner || dismissed.close {
 			self.feedback = None;
 			self.preference_error = false;
@@ -808,7 +812,9 @@ impl Dialog {
 			let topic = dialog::input(
 				ui,
 				egui::TextEdit::multiline(&mut self.draft.topic)
-					.hint_text("Let everyone know how to use this channel")
+					.hint_text(crate::i18n::translate(
+						"Let everyone know how to use this channel",
+					))
 					.char_limit(1024)
 					.desired_rows(3),
 			)
@@ -912,7 +918,7 @@ impl Dialog {
 				.integrations
 				.show(ui, state, this.guild, avatars, commands),
 			Page::Overview => {
-				design::section(ui, "Overview", None);
+				design::section(ui, &crate::i18n::translate("Overview"), None);
 				ui.add_enabled_ui(can_delete, |ui| {
 					this.overview(ui, &channel);
 					if matches!(channel.kind, 15 | 16) {
@@ -975,6 +981,7 @@ fn toggle_row(ui: &mut egui::Ui, label: &str, value: &mut bool) -> egui::Respons
 
 pub(super) fn row(ui: &mut egui::Ui, label: &str, enabled: bool, danger: bool) -> egui::Response {
 	let colors = design::palette(ui);
+	let label = crate::i18n::translate(label);
 	ui.add_enabled(
 		enabled,
 		egui::Button::new(())

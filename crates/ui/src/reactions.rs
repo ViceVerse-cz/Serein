@@ -98,7 +98,10 @@ pub fn show(
 		let Some(reactions) = reactions else {
 			ui.weak("Reactions unavailable");
 			if ui
-				.add_enabled(enabled, egui::Button::new("Reload reactions").small())
+				.add_enabled(
+					enabled,
+					egui::Button::new(crate::i18n::translate("Reload reactions")).small(),
+				)
 				.clicked()
 			{
 				action = Some(Action::Reload);
@@ -243,7 +246,12 @@ pub fn add_button(
 ) -> Option<(egui::Rect, egui::Id)> {
 	let response = ui
 		.add_enabled_ui(enabled && !writing, |ui| {
-			crate::icons::button(ui, crate::icons::Icon::Smile, 28.0, "Add reaction")
+			crate::icons::button(
+				ui,
+				crate::icons::Icon::Smile,
+				28.0,
+				&crate::i18n::translate("Add reaction"),
+			)
 		})
 		.inner;
 	response.clicked().then_some((response.rect, response.id))
@@ -271,74 +279,80 @@ pub fn show_users(
 	let mut select = None;
 	let mut more = false;
 	let mut close = false;
-	let response = crate::dialog::Dialog::new("reaction-users", "Reactions")
-		.width(560.0)
-		.show(ctx, |dialog| {
-			dialog.content(|ui| {
-				ui.horizontal_wrapped(|ui| {
-					for reaction in &reactions {
-						let selected = details.emoji.same(&reaction.emoji);
-						if ui
-							.add(
-								reaction_button(
-									ui.ctx(),
-									avatars,
-									&reaction.emoji,
-									reaction.count,
-									state.demo,
+	let response =
+		crate::dialog::Dialog::new("reaction-users", crate::i18n::translate("Reactions"))
+			.width(560.0)
+			.show(ctx, |dialog| {
+				dialog.content(|ui| {
+					ui.horizontal_wrapped(|ui| {
+						for reaction in &reactions {
+							let selected = details.emoji.same(&reaction.emoji);
+							if ui
+								.add(
+									reaction_button(
+										ui.ctx(),
+										avatars,
+										&reaction.emoji,
+										reaction.count,
+										state.demo,
+									)
+									.selected(selected),
 								)
-								.selected(selected),
-							)
-							.clicked() && !selected
+								.clicked() && !selected
+							{
+								select = Some(reaction.emoji.clone());
+							}
+						}
+					});
+				});
+				dialog.scroll(190.0, |ui| {
+					if details.users.is_empty() && details.loading {
+						ui.horizontal(|ui| {
+							ui.spinner();
+							ui.label(crate::i18n::translate("Loading reactions…"));
+						});
+					} else if details.users.is_empty() {
+						crate::dialog::hint(
+							ui,
+							details
+								.error
+								.unwrap_or("Nobody currently has this reaction."),
+						);
+					}
+					for user in &details.users {
+						ui.horizontal(|ui| {
+							avatars.show_plain(ui, user, 36.0, state.demo);
+							ui.label(crate::design::medium(ui, &user.name, 15.0));
+						});
+					}
+					if details.users.len() >= client_core::reactions::MAX_REACTION_USERS {
+						crate::dialog::hint(ui, "Showing the first 1,000 reactions.");
+					} else if let Some(error) = details.error {
+						crate::dialog::notice(ui, crate::dialog::Level::Warning, error);
+						if crate::dialog::action(ui, "Retry", crate::dialog::Action::Neutral)
+							.clicked()
 						{
-							select = Some(reaction.emoji.clone());
+							more = true;
+						}
+					} else if !details.exhausted {
+						if details.loading {
+							ui.spinner();
+						} else if crate::dialog::action(
+							ui,
+							"Load more",
+							crate::dialog::Action::Neutral,
+						)
+						.clicked()
+						{
+							more = true;
 						}
 					}
 				});
+				dialog.footer(|ui| {
+					close = crate::dialog::action(ui, "Close", crate::dialog::Action::Primary)
+						.clicked();
+				});
 			});
-			dialog.scroll(190.0, |ui| {
-				if details.users.is_empty() && details.loading {
-					ui.horizontal(|ui| {
-						ui.spinner();
-						ui.label("Loading reactions…");
-					});
-				} else if details.users.is_empty() {
-					crate::dialog::hint(
-						ui,
-						details
-							.error
-							.unwrap_or("Nobody currently has this reaction."),
-					);
-				}
-				for user in &details.users {
-					ui.horizontal(|ui| {
-						avatars.show_plain(ui, user, 36.0, state.demo);
-						ui.label(crate::design::medium(ui, &user.name, 15.0));
-					});
-				}
-				if details.users.len() >= client_core::reactions::MAX_REACTION_USERS {
-					crate::dialog::hint(ui, "Showing the first 1,000 reactions.");
-				} else if let Some(error) = details.error {
-					crate::dialog::notice(ui, crate::dialog::Level::Warning, error);
-					if crate::dialog::action(ui, "Retry", crate::dialog::Action::Neutral).clicked()
-					{
-						more = true;
-					}
-				} else if !details.exhausted {
-					if details.loading {
-						ui.spinner();
-					} else if crate::dialog::action(ui, "Load more", crate::dialog::Action::Neutral)
-						.clicked()
-					{
-						more = true;
-					}
-				}
-			});
-			dialog.footer(|ui| {
-				close =
-					crate::dialog::action(ui, "Close", crate::dialog::Action::Primary).clicked();
-			});
-		});
 	close |= response.close;
 	if close {
 		state.close_reaction_users();

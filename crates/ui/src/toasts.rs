@@ -110,9 +110,13 @@ impl Toasts {
 								ui.with_layout(
 									egui::Layout::right_to_left(egui::Align::Center),
 									|ui| {
-										dismissed |=
-											icons::button(ui, icons::Icon::Close, 22.0, "Dismiss")
-												.clicked();
+										dismissed |= icons::button(
+											ui,
+											icons::Icon::Close,
+											22.0,
+											&crate::i18n::translate("Dismiss"),
+										)
+										.clicked();
 										ui.with_layout(
 											egui::Layout::left_to_right(egui::Align::Center),
 											|ui| {

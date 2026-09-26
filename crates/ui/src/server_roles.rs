@@ -238,7 +238,7 @@ impl RolesUi {
 			if ui
 				.add_sized(
 					[width - 36.0, 32.0],
-					egui::Button::new("←  BACK").frame(false),
+					egui::Button::new(crate::i18n::translate("←  BACK")).frame(false),
 				)
 				.clicked()
 			{
@@ -252,7 +252,7 @@ impl RolesUi {
 							&& !self.has_changes(),
 						egui::Button::new("+"),
 					)
-					.on_hover_text("Create Role")
+					.on_hover_text(crate::i18n::translate("Create Role"))
 					.clicked()
 			{
 				self.creating = Self::dispatch(
@@ -330,7 +330,7 @@ impl RolesUi {
 			if ui
 				.add_enabled(
 					!state.server_admin.pending,
-					egui::Button::new("Reload Roles"),
+					egui::Button::new(crate::i18n::translate("Reload Roles")),
 				)
 				.clicked()
 			{
@@ -372,16 +372,20 @@ impl RolesUi {
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
-		ui.label(design::semibold(ui, "Roles", 22.0));
-		ui.label("Use roles to group your server members and assign permissions.");
+		ui.label(design::semibold(ui, crate::i18n::translate("Roles"), 22.0));
+		ui.label(crate::i18n::translate(
+			"Use roles to group your server members and assign permissions.",
+		));
 		ui.add_space(20.0);
 		let width = ui.available_width();
 		if ui
 			.add_sized(
 				[width, 76.0],
 				egui::Button::new(
-					RichText::new("Default Permissions\n@everyone · applies to all server members")
-						.size(16.0),
+					RichText::new(crate::i18n::translate(
+						"Default Permissions\n@everyone · applies to all server members",
+					))
+					.size(16.0),
 				)
 				.right_text("›")
 				.fill(colors.raised)
@@ -395,7 +399,7 @@ impl RolesUi {
 		ui.horizontal(|ui| {
 			ui.add(
 				egui::TextEdit::singleline(&mut self.search)
-					.hint_text("Search Roles")
+					.hint_text(crate::i18n::translate("Search Roles"))
 					.char_limit(100)
 					.desired_width((width - 128.0).max(60.0))
 					.margin(egui::vec2(12.0, 10.0)),
@@ -404,7 +408,13 @@ impl RolesUi {
 				&& ui
 					.add_enabled_ui(
 						!state.server_admin.pending && !state.server_admin.needs_refresh,
-						|ui| design::button(ui, "Create Role", design::ButtonKind::Primary),
+						|ui| {
+							design::button(
+								ui,
+								&crate::i18n::translate("Create Role"),
+								design::ButtonKind::Primary,
+							)
+						},
 					)
 					.inner
 					.clicked()
@@ -420,9 +430,9 @@ impl RolesUi {
 				);
 			}
 		});
-		ui.label(
+		ui.label(crate::i18n::translate(
 			"Members use the color of the highest role they have on this list. Drag roles to reorder them.",
-		);
+		));
 		ui.add_space(28.0);
 		let Some(catalog) = &state.server_admin.roles else {
 			return;
@@ -503,12 +513,12 @@ impl RolesUi {
 						}
 						let menu = boxed_icon(ui, icons::Icon::More, "Role actions");
 						egui::Popup::menu(&menu).show(|ui| {
-							if ui.button("Edit Role").clicked() {
+							if ui.button(crate::i18n::translate("Edit Role")).clicked() {
 								self.switch(Some(role.id), guild);
 								ui.close();
 							}
 							if state.can_move_guild_role(guild, role.id, role.position + 1)
-								&& ui.button("Move Up").clicked()
+								&& ui.button(crate::i18n::translate("Move Up")).clicked()
 							{
 								action = Some(Action::Move {
 									id: role.id,
@@ -517,7 +527,7 @@ impl RolesUi {
 								ui.close();
 							}
 							if state.can_move_guild_role(guild, role.id, role.position - 1)
-								&& ui.button("Move Down").clicked()
+								&& ui.button(crate::i18n::translate("Move Down")).clicked()
 							{
 								action = Some(Action::Move {
 									id: role.id,
@@ -527,7 +537,10 @@ impl RolesUi {
 							}
 							if state.can_delete_guild_role(guild, role.id)
 								&& ui
-									.button(RichText::new("Delete Role").color(colors.danger))
+									.button(
+										RichText::new(crate::i18n::translate("Delete Role"))
+											.color(colors.danger),
+									)
 									.clicked()
 							{
 								self.delete = Some(role.id);
@@ -582,11 +595,14 @@ impl RolesUi {
 		if ui.ctx().content_rect().width() < 752.0 {
 			let mut selected = self.selected;
 			ui.horizontal_wrapped(|ui| {
-				if ui.button("← Back to Roles").clicked() {
+				if ui
+					.button(crate::i18n::translate("← Back to Roles"))
+					.clicked()
+				{
 					selected = None;
 				}
 				egui::ComboBox::from_id_salt("compact-role-navigation")
-					.selected_text("Choose role")
+					.selected_text(crate::i18n::translate("Choose role"))
 					.show_ui(ui, |ui| {
 						if let Some(catalog) = &state.server_admin.roles {
 							for role in &catalog.items {
@@ -613,10 +629,18 @@ impl RolesUi {
 				true,
 			);
 			if state.can_delete_guild_role(guild, role) {
-				let button = icons::button(ui, icons::Icon::More, 28.0, "Role actions");
+				let button = icons::button(
+					ui,
+					icons::Icon::More,
+					28.0,
+					&crate::i18n::translate("Role actions"),
+				);
 				egui::Popup::menu(&button).show(|ui| {
 					if ui
-						.button(RichText::new("Delete Role").color(colors.danger))
+						.button(
+							RichText::new(crate::i18n::translate("Delete Role"))
+								.color(colors.danger),
+						)
 						.clicked()
 					{
 						self.delete = Some(role);
@@ -683,7 +707,7 @@ impl RolesUi {
 			return;
 		};
 		let colors = design::palette(ui);
-		let label = design::label(ui, "Role name");
+		let label = design::label(ui, &crate::i18n::translate("Role name"));
 		design::input(
 			ui,
 			egui::TextEdit::singleline(&mut draft.name).char_limit(100),
@@ -756,13 +780,20 @@ impl RolesUi {
 											rgb(sample.primary),
 										);
 										ui.add(
-											egui::Label::new(design::semibold(ui, "Preview", 14.0))
-												.truncate(),
+											egui::Label::new(design::semibold(
+												ui,
+												crate::i18n::translate("Preview"),
+												14.0,
+											))
+											.truncate(),
 										);
 									});
 									ui.add(
-										egui::Label::new(RichText::new("Sample message").small())
-											.truncate(),
+										egui::Label::new(
+											RichText::new(crate::i18n::translate("Sample message"))
+												.small(),
+										)
+										.truncate(),
 									);
 									ui.add_space(8.0);
 									ui.add(egui::Label::new(name).truncate());
@@ -831,7 +862,10 @@ impl RolesUi {
 							colors.text,
 						);
 					}
-					if response.on_hover_text("Default role color").clicked() {
+					if response
+						.on_hover_text(crate::i18n::translate("Default role color"))
+						.clicked()
+					{
 						draft.colors.primary = 0;
 					}
 					let mut color = [
@@ -840,7 +874,7 @@ impl RolesUi {
 						draft.colors.primary as u8,
 					];
 					if design::color_edit(ui, &mut color)
-						.on_hover_text("Custom role color")
+						.on_hover_text(crate::i18n::translate("Custom role color"))
 						.changed()
 					{
 						draft.colors.primary = (u32::from(color[0]) << 16)
@@ -879,7 +913,7 @@ impl RolesUi {
 			&& let Some(secondary) = &mut draft.colors.secondary
 		{
 			ui.horizontal(|ui| {
-				ui.label("Second gradient color");
+				ui.label(crate::i18n::translate("Second gradient color"));
 				let mut color = [
 					(*secondary >> 16) as u8,
 					(*secondary >> 8) as u8,
@@ -926,7 +960,7 @@ impl RolesUi {
 				if (draft.icon.is_some()
 					|| draft.unicode_emoji.is_some()
 					|| !matches!(self.icon, Patch::Absent))
-					&& ui.button("Remove Icon").clicked()
+					&& ui.button(crate::i18n::translate("Remove Icon")).clicked()
 				{
 					draft.icon = None;
 					draft.unicode_emoji = None;
@@ -983,7 +1017,9 @@ impl RolesUi {
 									);
 								}
 							});
-							ui.label("This is how members with this role appear.");
+							ui.label(crate::i18n::translate(
+								"This is how members with this role appear.",
+							));
 						});
 					});
 				});
@@ -1054,7 +1090,7 @@ impl RolesUi {
 			if ui
 				.add(
 					egui::TextEdit::singleline(&mut self.member_query.search)
-						.hint_text("Search members")
+						.hint_text(crate::i18n::translate("Search members"))
 						.char_limit(100)
 						.desired_width(220.0),
 				)
@@ -1148,7 +1184,10 @@ impl RolesUi {
 				ui.weak(format!("Showing {} members", members.items.len()));
 				if self.member_query.after.is_some()
 					&& ui
-						.add_enabled(!state.server_admin.pending, egui::Button::new("First page"))
+						.add_enabled(
+							!state.server_admin.pending,
+							egui::Button::new(crate::i18n::translate("First page")),
+						)
 						.clicked()
 				{
 					self.member_query.after = None;
@@ -1156,7 +1195,10 @@ impl RolesUi {
 				}
 				if let Some(next) = members.next
 					&& ui
-						.add_enabled(!state.server_admin.pending, egui::Button::new("Next page"))
+						.add_enabled(
+							!state.server_admin.pending,
+							egui::Button::new(crate::i18n::translate("Next page")),
+						)
 						.clicked()
 				{
 					self.member_query.after = Some(next);
@@ -1347,7 +1389,7 @@ fn permissions(
 	ui.add(
 		egui::TextEdit::singleline(search)
 			.char_limit(64)
-			.hint_text("Search permissions")
+			.hint_text(crate::i18n::translate("Search permissions"))
 			.desired_width(f32::INFINITY),
 	);
 	let query = search.to_lowercase();

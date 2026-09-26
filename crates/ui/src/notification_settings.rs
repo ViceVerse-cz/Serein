@@ -284,7 +284,7 @@ impl MessagingUi {
 					design::card_divider(ui);
 				}
 				design::switch(ui, label, None, value);
-				if design::text_action(ui, "Preview Sound").clicked() {
+				if design::text_action(ui, &crate::i18n::translate("Preview Sound")).clicked() {
 					self.notification_preview = Some(sound);
 				}
 			}
@@ -299,7 +299,13 @@ impl MessagingUi {
 				ui,
 				"Voice & Video",
 				Some("Ringtones, call devices and microphone processing."),
-				|ui| design::button(ui, "Open", design::ButtonKind::Outline),
+				|ui| {
+					design::button(
+						ui,
+						&crate::i18n::translate("Open"),
+						design::ButtonKind::Outline,
+					)
+				},
 			)
 			.clicked()
 			{

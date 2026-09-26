@@ -3851,7 +3851,10 @@ impl Desktop {
 					})
 					.show(ui, |ui| {
 						ui.horizontal(|ui| {
-							ui.label(ui::design::semibold(ui, "Serein", 16.0).color(p.muted));
+							ui.label(
+								ui::design::semibold(ui, ui::i18n::translate("Serein"), 16.0)
+									.color(p.muted),
+							);
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
@@ -3884,7 +3887,10 @@ impl Desktop {
 						p.accent_text,
 					);
 					ui.add_space(18.0);
-					ui.label(ui::design::semibold(ui, "Welcome back", 24.0).color(p.text_strong));
+					ui.label(
+						ui::design::semibold(ui, ui::i18n::translate("Welcome back"), 24.0)
+							.color(p.text_strong),
+					);
 					ui.add_space(6.0);
 					ui.label(
 						egui::RichText::new(format!("{stage}…"))
@@ -3916,7 +3922,11 @@ impl Desktop {
 						egui::vec2(220.0, 0.0),
 						egui::Layout::top_down(egui::Align::Center),
 						|ui| {
-							if ui::design::secondary_button(ui, "Use a different account").clicked()
+							if ui::design::secondary_button(
+								ui,
+								&ui::i18n::translate("Use a different account"),
+							)
+							.clicked()
 							{
 								if let Some(store) = &mut self.store {
 									store.cancel_load();
@@ -3966,7 +3976,10 @@ impl Desktop {
 								p.accent_text,
 							);
 							ui.add_space(8.0);
-							ui.label(ui::design::semibold(ui, "Serein", 16.0).color(p.text_strong));
+							ui.label(
+								ui::design::semibold(ui, ui::i18n::translate("Serein"), 16.0)
+									.color(p.text_strong),
+							);
 							ui.add_space(8.0);
 							// Painted rather than framed: the pill must hug the text, not the row height.
 							let stage = ui.painter().layout_no_wrap(
@@ -4067,9 +4080,9 @@ impl Desktop {
 							);
 							ui.add_space(18.0);
 							ui.label(
-								egui::RichText::new(
+								egui::RichText::new(ui::i18n::translate(
 									"Independent and open source. Not affiliated with Discord.",
-								)
+								))
 								.size(12.0)
 								.color(p.muted),
 							);
@@ -4209,7 +4222,11 @@ impl Desktop {
 	/// Accounts already signed in on this device: one tap restores their saved login.
 	fn sign_in_accounts(&mut self, ui: &mut egui::Ui, enabled: bool) {
 		let p = ui::design::palette(ui);
-		ui.label(ui::design::eyebrow(ui, "Saved accounts", p.muted));
+		ui.label(ui::design::eyebrow(
+			ui,
+			ui::i18n::translate("Saved accounts"),
+			p.muted,
+		));
 		ui.add_space(6.0);
 		let saved: Vec<(model::Id, String, String)> = self
 			.messaging
@@ -4302,14 +4319,14 @@ impl Desktop {
 				ui.set_width(ui.available_width());
 				ui.checkbox(
 					&mut self.authorized,
-					ui::design::medium(ui, "I own this account and authorize this session.", 13.0)
+					ui::design::medium(ui, ui::i18n::translate("I own this account and authorize this session."), 13.0)
 						.color(p.text_strong),
 				);
 				ui.add_space(4.0);
 				ui.add(
 					egui::Label::new(
 						egui::RichText::new(
-							"Passwords and 2FA stay on Discord's own login page; only the session token is kept, in your OS credential store.",
+							ui::i18n::translate("Passwords and 2FA stay on Discord's own login page; only the session token is kept, in your OS credential store."),
 						)
 						.size(12.0)
 						.color(p.muted),
@@ -4439,7 +4456,9 @@ impl Desktop {
 			ui.allocate_space(egui::vec2(width, 16.0));
 		});
 		ui.add_space(14.0);
-		if ui::design::secondary_button(ui, "Explore the offline preview").clicked() {
+		if ui::design::secondary_button(ui, &ui::i18n::translate("Explore the offline preview"))
+			.clicked()
+		{
 			if let Some(store) = &mut self.store {
 				store.cancel_load();
 			}
@@ -4457,16 +4476,20 @@ impl Desktop {
 		ui.add_space(8.0);
 		ui.vertical_centered(|ui| {
 			ui.label(
-				egui::RichText::new("Sample conversations. No Discord connection.")
-					.size(12.0)
-					.color(p.muted),
+				egui::RichText::new(&ui::i18n::translate(
+					"Sample conversations. No Discord connection.",
+				))
+				.size(12.0)
+				.color(p.muted),
 			);
 		});
 	}
 	/// Secondary panels: what this client is, and the owner's own session token.
 	fn sign_in_disclosures(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
 		let p = ui::design::palette(ui);
-		if ui::design::disclosure(ui, "About Serein", self.about_open).clicked() {
+		if ui::design::disclosure(ui, &ui::i18n::translate("About Serein"), self.about_open)
+			.clicked()
+		{
 			self.about_open = !self.about_open;
 		}
 		if self.about_open {
@@ -4494,7 +4517,7 @@ impl Desktop {
 					}
 					if !self.fixture_only {
 						ui.add_space(2.0);
-						if ui::design::button(ui, "Forget saved login", ui::design::ButtonKind::Outline)
+						if ui::design::button(ui, &ui::i18n::translate("Forget saved login"), ui::design::ButtonKind::Outline)
 							.clicked()
 						{
 							self.logout(ctx);
@@ -4502,7 +4525,13 @@ impl Desktop {
 					}
 				});
 		}
-		if ui::design::disclosure(ui, "Sign in with a session token", self.token_open).clicked() {
+		if ui::design::disclosure(
+			ui,
+			&ui::i18n::translate("Sign in with a session token"),
+			self.token_open,
+		)
+		.clicked()
+		{
 			self.token_open = !self.token_open;
 		}
 		if self.token_open {
@@ -4518,7 +4547,7 @@ impl Desktop {
 					ui.add(
 						egui::Label::new(
 							egui::RichText::new(
-								"For owners who already hold a valid Discord session token, for example from another signed-in Serein install. Passwords and 2FA are never used here; this bypasses Discord's hosted login page entirely.",
+								ui::i18n::translate("For owners who already hold a valid Discord session token, for example from another signed-in Serein install. Passwords and 2FA are never used here; this bypasses Discord's hosted login page entirely."),
 							)
 							.size(12.0)
 							.color(p.muted),
@@ -4531,14 +4560,14 @@ impl Desktop {
 						egui::TextEdit::singleline(&mut *self.token_input)
 							.password(true)
 							.char_limit(2048)
-							.hint_text("Session token"),
+							.hint_text(ui::i18n::translate("Session token")),
 					);
 					ui.add_space(8.0);
 					let connect = ui
 						.add_enabled_ui(self.authorized && !self.token_input.is_empty(), |ui| {
 							ui::design::button(
 								ui,
-								"Connect with this token",
+								&ui::i18n::translate("Connect with this token"),
 								ui::design::ButtonKind::Primary,
 							)
 						})
@@ -5935,13 +5964,17 @@ impl eframe::App for Desktop {
 						ui.vertical(|ui| {
 							ui.spacing_mut().item_spacing.y = 1.0;
 							ui.label(
-								ui::design::semibold(ui, "Sign in to Discord", 15.0)
-									.color(p.text_strong),
+								ui::design::semibold(
+									ui,
+									ui::i18n::translate("Sign in to Discord"),
+									15.0,
+								)
+								.color(p.text_strong),
 							);
 							ui.label(
-								egui::RichText::new(
+								egui::RichText::new(ui::i18n::translate(
 									"discord.com · temporary login window · passwords and 2FA never leave the page",
-								)
+								))
 								.size(12.0)
 								.color(p.muted),
 							);
@@ -5953,7 +5986,8 @@ impl eframe::App for Desktop {
 							if ui
 								.add(
 									egui::Button::new(
-										ui::design::medium(ui, "Cancel", 13.0).color(p.text_strong),
+										ui::design::medium(ui, ui::i18n::translate("Cancel"), 13.0)
+											.color(p.text_strong),
 									)
 									.fill(p.raised)
 									.stroke(egui::Stroke::new(1.0, p.border))
@@ -5972,7 +6006,10 @@ impl eframe::App for Desktop {
 				.frame(egui::Frame::NONE.fill(p.canvas))
 				.show(ui, |ui| {
 					ui.centered_and_justified(|ui| {
-						ui.label(egui::RichText::new("Loading discord.com…").color(p.muted));
+						ui.label(
+							egui::RichText::new(ui::i18n::translate("Loading discord.com…"))
+								.color(p.muted),
+						);
 					});
 				});
 			if let Some(login) = &self.login {

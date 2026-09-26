@@ -69,15 +69,17 @@ impl ForwardDialog {
 		let mut submit = false;
 		let mut close = false;
 		let submitted = !self.sent.is_empty();
-		let response = dialog::Dialog::new("forward-message", "Forward To")
-			.subtitle("Select where you want to share this message.")
+		let response = dialog::Dialog::new("forward-message", crate::i18n::translate("Forward To"))
+			.subtitle(crate::i18n::translate(
+				"Select where you want to share this message.",
+			))
 			.width(480.0)
 			.show(ctx, |d| {
 				d.content(|ui| {
 					let input = design::input(
 						ui,
 						egui::TextEdit::singleline(&mut self.query)
-							.hint_text("Search")
+							.hint_text(crate::i18n::translate("Search"))
 							.char_limit(256)
 							.desired_width(f32::INFINITY),
 					);
@@ -86,7 +88,11 @@ impl ForwardDialog {
 					}
 					design::hint(
 						ui,
-						&format!("{} of 5 destinations selected", self.targets.len()),
+						&format!(
+							"{} / 5 {}",
+							self.targets.len(),
+							crate::i18n::translate("destinations selected")
+						),
 					);
 					ui.add_space(8.0);
 				});
@@ -114,7 +120,10 @@ impl ForwardDialog {
 							let mut found = false;
 							for target in rows.into_iter().filter_map(|id| state.channel(id)) {
 								let guild = target.guild.and_then(|id| state.guild(id));
-								let context = guild.map_or("Direct Messages", |g| g.name.as_str());
+								let context = guild.map_or_else(
+									|| crate::i18n::translate("Direct Messages"),
+									|g| g.name.clone(),
+								);
 								found = true;
 								let selected = self.targets.contains(&target.id);
 								let enabled = !submitted
@@ -127,7 +136,7 @@ impl ForwardDialog {
 												ui,
 												selected,
 												&target.name,
-												context,
+												&context,
 												|ui, rect| {
 													if let Some(guild) = guild {
 														avatars.paint_guild(
@@ -180,7 +189,7 @@ impl ForwardDialog {
 								}
 							}
 							if !found {
-								ui.label("No matching destinations");
+								ui.label(crate::i18n::translate("No matching destinations"));
 							}
 						});
 				});
@@ -198,20 +207,22 @@ impl ForwardDialog {
 								.map(|c| if c.is_whitespace() { ' ' } else { c })
 								.collect()
 						};
-						ui.label(if preview.is_empty() {
-							"Attachment or embedded content"
+						if preview.is_empty() {
+							ui.label(crate::i18n::translate("Attachment or embedded content"));
 						} else {
-							&preview
-						});
+							ui.label(&preview);
+						}
 					} else {
-						ui.label("Source message is no longer available");
+						ui.label(crate::i18n::translate(
+							"Source message is no longer available",
+						));
 					}
 					ui.add_space(8.0);
 					ui.add_enabled_ui(!submitted, |ui| {
 						design::input(
 							ui,
 							egui::TextEdit::singleline(&mut self.note)
-								.hint_text("Add an optional message…")
+								.hint_text(crate::i18n::translate("Add an optional message…"))
 								.char_limit(client_core::MAX_CONTENT)
 								.desired_width(f32::INFINITY),
 						)
@@ -229,7 +240,7 @@ impl ForwardDialog {
 									state.pending.iter().find(|p| &p.nonce == nonce)
 								})
 								.collect();
-							let status =
+							let status = crate::i18n::translate(
 								if pending.iter().any(|p| p.delivery == Delivery::Ambiguous) {
 									"Outcome unknown — check the destination before resending"
 								} else if pending.iter().any(|p| p.delivery == Delivery::Rejected) {
@@ -238,13 +249,13 @@ impl ForwardDialog {
 									"Sent"
 								} else {
 									"Sending…"
-								};
-							ui.label(format!(
-								"{}: {status}",
-								state
-									.channel(*target)
-									.map_or("Conversation", |c| c.name.as_str())
-							));
+								},
+							);
+							let conversation = state.channel(*target).map_or_else(
+								|| crate::i18n::translate("Conversation"),
+								|c| c.name.clone(),
+							);
+							ui.label(format!("{conversation}: {status}"));
 						}
 					}
 				});

@@ -91,7 +91,7 @@ impl InviteDialog {
 				};
 				ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 0.0), layout, |ui| {
 					ui.label(
-						egui::RichText::new("Recipients will land in")
+						egui::RichText::new(crate::i18n::translate("Recipients will land in"))
 							.size(18.0)
 							.color(colors.muted),
 					);
@@ -149,7 +149,7 @@ impl InviteDialog {
 					icons::paint(ui.painter(), icons::Icon::Search, rect, colors.muted);
 					ui.add(
 						egui::TextEdit::singleline(&mut self.search)
-							.hint_text("Search for friends")
+							.hint_text(crate::i18n::translate("Search for friends"))
 							.char_limit(100)
 							.font(egui::FontId::proportional(18.0))
 							.align(egui::Align2::LEFT_CENTER)
@@ -309,7 +309,7 @@ impl InviteDialog {
 		ui.add_space(20.0);
 		ui.label(design::medium(
 			ui,
-			"Or, send a server invite link to a friend",
+			crate::i18n::translate("Or, send a server invite link to a friend"),
 			17.0,
 		));
 		ui.add_space(8.0);
@@ -333,7 +333,7 @@ impl InviteDialog {
 				.add_enabled(
 					!state.server_action_pending() && !state.server_invite_pending(),
 					egui::Button::new(
-						egui::RichText::new("Edit link.")
+						egui::RichText::new(crate::i18n::translate("Edit link."))
 							.size(12.0)
 							.color(colors.link),
 					)
@@ -353,7 +353,9 @@ impl InviteDialog {
 			design::notice(
 				ui,
 				design::Level::Warning,
-				"You need Create Invite permission in a channel to create an invite.",
+				&crate::i18n::translate(
+					"You need Create Invite permission in a channel to create an invite.",
+				),
 			);
 		}
 	}
@@ -424,13 +426,13 @@ impl InviteDialog {
 		let mut options = self.settings.unwrap();
 		ui.add_space(28.0);
 		ui.add_enabled_ui(!pending, |ui| {
-			ui.label(design::medium(ui, "Expire After", 18.0));
+			ui.label(design::medium(ui, crate::i18n::translate("Expire After"), 18.0));
 			ui.add_space(8.0);
 			select(ui, "invite-expiry", expiry_label(options.max_age), |ui| {
 				for seconds in [1800, 3600, 21600, 43200, 86400, 604800, 2592000, 0] { ui.selectable_value(&mut options.max_age, seconds, expiry_label(seconds)); }
 			});
 			ui.add_space(24.0);
-			ui.label(design::medium(ui, "Max Number of Uses", 18.0));
+			ui.label(design::medium(ui, crate::i18n::translate("Max Number of Uses"), 18.0));
 			ui.add_space(8.0);
 			select(ui, "invite-uses", &uses_label(options.max_uses), |ui| {
 				for uses in [0, 1, 5, 10, 25, 50, 100] { ui.selectable_value(&mut options.max_uses, uses, uses_label(uses)); }
@@ -441,7 +443,13 @@ impl InviteDialog {
 		ui.add_space(24.0);
 		let mut back = false;
 		ui.horizontal(|ui| {
-			if design::button(ui, "Cancel", design::ButtonKind::Outline).clicked() {
+			if design::button(
+				ui,
+				&crate::i18n::translate("Cancel"),
+				design::ButtonKind::Outline,
+			)
+			.clicked()
+			{
 				back = true;
 			}
 			if ui

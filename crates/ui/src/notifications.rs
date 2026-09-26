@@ -351,7 +351,11 @@ impl MessagingUi {
 							},
 						);
 						response.widget_info(|| {
-							egui::WidgetInfo::labeled(egui::Role::Button, true, "Add a Server")
+							egui::WidgetInfo::labeled(
+								egui::Role::Button,
+								true,
+								crate::i18n::translate("Add a Server"),
+							)
 						});
 						design::rail_name(&response, "Add a Server");
 						if response.clicked() {

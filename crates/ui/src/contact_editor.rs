@@ -74,7 +74,7 @@ impl ContactEditor {
 					if busy {
 						ui.horizontal(|ui| {
 							ui.spinner();
-							ui.label("Loading note…");
+							ui.label(crate::i18n::translate("Loading note…"));
 						});
 					} else {
 						crate::dialog::notice(

@@ -173,7 +173,7 @@ impl SearchUi {
 					let output = egui::TextEdit::singleline(&mut self.query)
 						.char_limit(256)
 						.frame(egui::Frame::NONE)
-						.hint_text("Search")
+						.hint_text(crate::i18n::translate("Search"))
 						.desired_width((ui.available_width() - 28.0).max(30.0))
 						.show(ui);
 					let input = output
@@ -201,7 +201,14 @@ impl SearchUi {
 						&& input.lost_focus()
 						&& ui.input(|i| i.key_pressed(egui::Key::Enter))
 						&& !self.ime_frame;
-					if icons::button(ui, icons::Icon::Close, 22.0, "Close search").clicked() {
+					if icons::button(
+						ui,
+						icons::Icon::Close,
+						22.0,
+						&crate::i18n::translate("Close search"),
+					)
+					.clicked()
+					{
 						self.open = false;
 						self.filters_open = false;
 					}
@@ -328,7 +335,9 @@ impl SearchUi {
 											}
 										}
 										if matching.is_empty() {
-											ui.label("No matching users in this conversation.");
+											ui.label(crate::i18n::translate(
+												"No matching users in this conversation.",
+											));
 										}
 									});
 								if let Some(id) = chosen {
@@ -360,7 +369,12 @@ impl SearchUi {
 								ui.horizontal(|ui| {
 									ui.add_space(10.0);
 									ui.label(
-										design::semibold(ui, "Filters", 13.0).color(colors.muted),
+										design::semibold(
+											ui,
+											crate::i18n::translate("Filters"),
+											13.0,
+										)
+										.color(colors.muted),
 									);
 								});
 								for (title, detail, key) in [
@@ -476,14 +490,23 @@ impl SearchUi {
 									ui.spacing_mut().item_spacing.x = 8.0;
 									icons::inline(ui, icons::Icon::Pin, 20.0, colors.muted);
 									ui.label(
-										design::semibold(ui, "Pinned Messages", 16.0)
-											.color(colors.text_strong),
+										design::semibold(
+											ui,
+											crate::i18n::translate("Pinned Messages"),
+											16.0,
+										)
+										.color(colors.text_strong),
 									);
 									ui.with_layout(
 										egui::Layout::right_to_left(egui::Align::Center),
 										|ui| {
-											if icons::button(ui, icons::Icon::Close, 28.0, "Close")
-												.clicked()
+											if icons::button(
+												ui,
+												icons::Icon::Close,
+												28.0,
+												&crate::i18n::translate("Close"),
+											)
+											.clicked()
 											{
 												self.open = false;
 											}
@@ -493,7 +516,7 @@ impl SearchUi {
 														ui,
 														icons::Icon::Reload,
 														28.0,
-														"Reload pins",
+														&crate::i18n::translate("Reload pins"),
 													)
 												})
 												.inner;
@@ -600,9 +623,9 @@ impl SearchUi {
 		ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 		if !allowed {
 			ui.label(
-				RichText::new(
+				RichText::new(crate::i18n::translate(
 					"Pinned messages are unavailable while disconnected or without channel access.",
-				)
+				))
 				.small()
 				.color(colors.muted),
 			);
@@ -669,9 +692,9 @@ impl SearchUi {
 					});
 				if page.pin_cursor.is_none() && !view.loading && page.partial {
 					ui.label(
-						RichText::new(
+						RichText::new(crate::i18n::translate(
 							"More pins may exist, but this page has no usable continuation.",
-						)
+						))
 						.small()
 						.color(colors.muted),
 					);
@@ -707,12 +730,25 @@ impl SearchUi {
 		ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 		if self.pins {
 			ui.horizontal(|ui| {
-				ui.label(design::semibold(ui, "Pinned Messages", 16.0).color(colors.text_strong));
+				ui.label(
+					design::semibold(ui, crate::i18n::translate("Pinned Messages"), 16.0)
+						.color(colors.text_strong),
+				);
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-					if icons::button(ui, icons::Icon::Close, 28.0, "Close").clicked() {
+					if icons::button(
+						ui,
+						icons::Icon::Close,
+						28.0,
+						&crate::i18n::translate("Close"),
+					)
+					.clicked()
+					{
 						self.open = false;
 					}
-					let reload = ui.add_enabled(allowed, egui::Button::new("Reload pins"));
+					let reload = ui.add_enabled(
+						allowed,
+						egui::Button::new(crate::i18n::translate("Reload pins")),
+					);
 					if self.focus {
 						reload.request_focus();
 						self.focus = false;
@@ -756,11 +792,17 @@ impl SearchUi {
 					ui.spacing_mut().item_spacing.x = 8.0;
 					let settings = chip(ui, Chip::icon(icons::Icon::Gear, "Search settings"));
 					egui::Popup::menu(&settings).show(|ui| {
-						ui.checkbox(&mut self.hide_highlight, "Hide matching-text highlight");
+						ui.checkbox(
+							&mut self.hide_highlight,
+							crate::i18n::translate("Hide matching-text highlight"),
+						);
 					});
 					let sort = chip(ui, Chip::new(icons::Icon::SortArrows, "Sort"));
 					egui::Popup::menu(&sort).show(|ui| {
-						ui.label(RichText::new("Order on this page").color(colors.muted));
+						ui.label(
+							RichText::new(crate::i18n::translate("Order on this page"))
+								.color(colors.muted),
+						);
 						ui.radio_value(&mut self.oldest_first, false, "Newest first");
 						ui.radio_value(&mut self.oldest_first, true, "Oldest first");
 					});
@@ -780,15 +822,17 @@ impl SearchUi {
 			design::notice(
 				ui,
 				design::Level::Warning,
-				"Messages are unavailable while disconnected or without channel access.",
+				&crate::i18n::translate(
+					"Messages are unavailable while disconnected or without channel access.",
+				),
 			);
 		}
 		let Some(view) = &state.search else {
 			design::empty_state(
 				ui,
 				icons::Icon::Search,
-				"Search this conversation",
-				"Type a query above and press Enter.",
+				&crate::i18n::translate("Search this conversation"),
+				&crate::i18n::translate("Type a query above and press Enter."),
 			);
 			return;
 		};
@@ -800,8 +844,8 @@ impl SearchUi {
 				design::empty_state(
 					ui,
 					icons::Icon::Search,
-					"Searching…",
-					"Looking for matching messages.",
+					&crate::i18n::translate("Searching…"),
+					&crate::i18n::translate("Looking for matching messages."),
 				);
 			}
 			None => {}
@@ -820,17 +864,19 @@ impl SearchUi {
 						ui.spacing_mut().item_spacing.y = 16.0;
 						if page.partial {
 							ui.label(
-								RichText::new("Indexing is incomplete; results may be missing.")
-									.small()
-									.color(colors.muted),
+								RichText::new(crate::i18n::translate(
+									"Indexing is incomplete; results may be missing.",
+								))
+								.small()
+								.color(colors.muted),
 							);
 						}
 						if page.hits.is_empty() {
 							design::empty_state(
 								ui,
 								icons::Icon::Search,
-								"No results",
-								"Nothing on this page matches the query.",
+								&crate::i18n::translate("No results"),
+								&crate::i18n::translate("Nothing on this page matches the query."),
 							);
 						}
 						for index in 0..page.hits.len() {
@@ -1129,10 +1175,12 @@ impl SearchUi {
 							let preview = &self.previews[&hit.id];
 							if crate::embeds::has_media_spoilers(preview) {
 								ui.label(
-									RichText::new("Spoiler media - open the message to reveal it.")
-										.small()
-										.italics()
-										.color(colors.muted),
+									RichText::new(crate::i18n::translate(
+										"Spoiler media - open the message to reveal it.",
+									))
+									.small()
+									.italics()
+									.color(colors.muted),
 								);
 							} else {
 								if !preview.embeds.is_empty() {

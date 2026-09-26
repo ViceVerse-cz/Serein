@@ -395,6 +395,7 @@ fn category_header(
 }
 
 fn eyebrow_row(ui: &mut egui::Ui, label: &str, row_height: f32) -> egui::Rect {
+	let label = crate::i18n::translate(label);
 	let colors = design::palette(ui);
 	ui.allocate_ui_with_layout(
 		egui::vec2(ui.available_width(), row_height),
@@ -1042,7 +1043,7 @@ impl MessagingUi {
 								format!(
 									"{} · {}{}{}",
 									channel.name,
-									kind_label(channel.kind),
+									crate::i18n::translate(kind_label(channel.kind)),
 									channel_marks::label(access),
 									if unread && !forum && state.channel_unread(channel).is_none() {
 										" · Session activity; read sync unavailable"

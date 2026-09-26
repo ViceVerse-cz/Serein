@@ -68,6 +68,7 @@ impl Settings {
 	pub fn apply(&self, ui: &mut ui::MessagingUi) {
 		let value = &self.current;
 		ui.language = ui::i18n::Language::from_preference(value.language.as_deref());
+		ui::i18n::set_current(ui.language);
 		ui.notifications_enabled = value.notifications_enabled;
 		ui.updates.auto_update = value.auto_update;
 		ui.updates.nightly = value.update_nightly;

@@ -146,9 +146,9 @@ impl MessagingUi {
 					let muted = self.voice_user_locally_muted(entry.participant.user);
 					if ui
 						.button(if muted { "Unmute" } else { "Mute" })
-						.on_hover_text(
+						.on_hover_text(crate::i18n::translate(
 							"Silence this person on this device only. Nobody else is affected.",
-						)
+						))
 						.clicked()
 					{
 						self.set_voice_user_locally_muted(entry.participant.user, !muted);
@@ -160,7 +160,10 @@ impl MessagingUi {
 						.map_or(100, |(_, volume)| *volume);
 					let changed = gain_slider(ui, &mut volume, "User volume").changed();
 					let reset = ui
-						.add_enabled(volume != 100, egui::Button::new("Reset volume"))
+						.add_enabled(
+							volume != 100,
+							egui::Button::new(crate::i18n::translate("Reset volume")),
+						)
 						.clicked();
 					if changed || reset {
 						self.set_voice_user_volume(
@@ -471,8 +474,10 @@ impl MessagingUi {
 		);
 		if !state.can_view(channel) {
 			body_ui.label(
-				RichText::new("Participant list unavailable with the current access.")
-					.color(STAGE_MUTED),
+				RichText::new(crate::i18n::translate(
+					"Participant list unavailable with the current access.",
+				))
+				.color(STAGE_MUTED),
 			);
 		} else {
 			let entries = stage_participants(state, channel);
@@ -495,9 +500,11 @@ impl MessagingUi {
 			} else {
 				if !state.demo && !state.gateway_connected {
 					body_ui.label(
-						RichText::new("Last known participants Â· reconnect to refresh")
-							.small()
-							.color(STAGE_MUTED),
+						RichText::new(crate::i18n::translate(
+							"Last known participants Â· reconnect to refresh",
+						))
+						.small()
+						.color(STAGE_MUTED),
 					);
 				}
 				self.participant_tiles(&mut body_ui, state, channel, &entries, false);
@@ -865,7 +872,10 @@ impl MessagingUi {
 
 	fn stream_audio_controls(&mut self, ui: &mut egui::Ui) {
 		ui.set_width(220.0);
-		ui.checkbox(&mut self.voice_stream_muted, "Mute stream audio");
+		ui.checkbox(
+			&mut self.voice_stream_muted,
+			crate::i18n::translate("Mute stream audio"),
+		);
 		gain_slider(
 			ui,
 			self.voice_stream_volume.get_or_insert(100),
@@ -1378,8 +1388,12 @@ impl MessagingUi {
 	}
 
 	pub(super) fn voice_settings(&mut self, ui: &mut egui::Ui, demo: bool, active: bool) {
-		let trigger =
-			crate::icons::button(ui, crate::icons::Icon::Headphones, 32.0, "Output settings");
+		let trigger = crate::icons::button(
+			ui,
+			crate::icons::Icon::Headphones,
+			32.0,
+			&crate::i18n::translate("Output settings"),
+		);
 		self.voice_settings_popup(&trigger, demo, active, false);
 	}
 
@@ -1430,7 +1444,7 @@ impl MessagingUi {
 				if ui
 					.add_sized(
 						[ui.available_width(), 32.0],
-						egui::Button::new("All voice settings"),
+						egui::Button::new(crate::i18n::translate("All voice settings")),
 					)
 					.clicked()
 				{
@@ -1449,7 +1463,7 @@ impl MessagingUi {
 			design::notice(
 				ui,
 				design::Level::Info,
-				"Install a voice-enabled build to use these controls.",
+				&crate::i18n::translate("Install a voice-enabled build to use these controls."),
 			);
 		}
 		ui.add_enabled_ui(!demo && self.voice_available, |ui| {
@@ -1493,10 +1507,16 @@ impl MessagingUi {
 				gain_slider(ui, &mut self.voice_gain.output_percent, "Speaker volume");
 			}
 			ui.horizontal_wrapped(|ui| {
-				if ui.small_button("Refresh devices").clicked() {
+				if ui
+					.small_button(crate::i18n::translate("Refresh devices"))
+					.clicked()
+				{
 					self.voice_refresh_devices = true;
 				}
-				if ui.small_button("Reset levels").clicked() {
+				if ui
+					.small_button(crate::i18n::translate("Reset levels"))
+					.clicked()
+				{
 					self.voice_gain = crate::VoiceGain::default();
 				}
 			});
@@ -1526,9 +1546,9 @@ impl MessagingUi {
 				);
 			} else {
 				ui.label(
-					RichText::new(
+					RichText::new(crate::i18n::translate(
 						"Deafen turns off incoming audio and mutes your microphone with it.",
-					)
+					))
 					.size(12.0)
 					.color(colors.muted),
 				);
@@ -1536,9 +1556,9 @@ impl MessagingUi {
 		});
 		if self.voice_microphone_unavailable {
 			ui.label(
-				RichText::new(
+				RichText::new(crate::i18n::translate(
 					"Microphone unavailable Â· choose another input. You are still connected.",
-				)
+				))
 				.size(12.0)
 				.color(colors.warning),
 			);
@@ -1553,19 +1573,26 @@ impl MessagingUi {
 		if active
 			&& !input && let Some(code) = &self.voice_privacy_code
 		{
-			egui::CollapsingHeader::new("Voice privacy code").show(ui, |ui| {
-				ui.add(
-					egui::Label::new(RichText::new(code).monospace())
-						.selectable(true)
-						.wrap(),
-				);
-			});
+			egui::CollapsingHeader::new(crate::i18n::translate("Voice privacy code")).show(
+				ui,
+				|ui| {
+					ui.add(
+						egui::Label::new(RichText::new(code).monospace())
+							.selectable(true)
+							.wrap(),
+					);
+				},
+			);
 		}
 	}
 
 	fn microphone_preview_controls(&mut self, ui: &mut egui::Ui, active: bool) {
 		let colors = design::palette(ui);
-		ui.label(design::medium(ui, "Microphone test", 15.0));
+		ui.label(design::medium(
+			ui,
+			crate::i18n::translate("Microphone test"),
+			15.0,
+		));
 		ui.label(
 			RichText::new(if active {
 				"Leave the call to test your microphone locally."
@@ -1658,21 +1685,23 @@ impl MessagingUi {
 			design::notice(
 				ui,
 				design::Level::Info,
-				"Install a voice-enabled build to use these controls.",
+				&crate::i18n::translate("Install a voice-enabled build to use these controls."),
 			);
 		}
 		ui.add_enabled_ui(!demo && self.voice_available, |ui| {
 			if compact {
 				self.voice_audio_controls(ui);
-				egui::CollapsingHeader::new("Voice processing & input mode")
-					.show(ui, |ui| self.voice_processing_controls(ui));
+				egui::CollapsingHeader::new(crate::i18n::translate(
+					"Voice processing & input mode",
+				))
+				.show(ui, |ui| self.voice_processing_controls(ui));
 			} else {
-				design::group(ui, "Devices & levels", |ui| {
+				design::group(ui, &crate::i18n::translate("Devices & levels"), |ui| {
 					self.voice_audio_controls(ui);
 					design::card_divider(ui);
 					self.microphone_preview_controls(ui, active);
 				});
-				design::group(ui, "Voice processing", |ui| {
+				design::group(ui, &crate::i18n::translate("Voice processing"), |ui| {
 					self.voice_processing_controls(ui)
 				});
 			}
@@ -1685,27 +1714,34 @@ impl MessagingUi {
 				self.global_keybind_status,
 			);
 		}
-		design::group(ui, "Camera", |ui| self.camera_settings_content(ui, demo));
+		design::group(ui, &crate::i18n::translate("Camera"), |ui| {
+			self.camera_settings_content(ui, demo)
+		});
 		if active && let Some(code) = &self.voice_privacy_code {
-			egui::CollapsingHeader::new("Voice privacy code").show(ui, |ui| {
-				ui.add(
-					egui::Label::new(RichText::new(code).monospace())
-						.selectable(true)
-						.wrap(),
-				);
-				ui.label(
-					RichText::new(
-						"Compare with the other participants. This code changes with the encrypted call group.",
-					)
-					.size(12.0)
-					.color(colors.muted),
-				);
-			});
+			egui::CollapsingHeader::new(crate::i18n::translate("Voice privacy code")).show(
+				ui,
+				|ui| {
+					ui.add(
+						egui::Label::new(RichText::new(code).monospace())
+							.selectable(true)
+							.wrap(),
+					);
+					ui.label(
+						RichText::new(crate::i18n::translate(
+							"Compare with the other participants. This code changes with the encrypted call group.",
+						))
+						.size(12.0)
+						.color(colors.muted),
+					);
+				},
+			);
 		}
 		if !compact {
 			design::hint(
 				ui,
-				"Audio preferences are saved on this device. Your microphone starts only when you join a call or start testing.",
+				&crate::i18n::translate(
+					"Audio preferences are saved on this device. Your microphone starts only when you join a call or start testing.",
+				),
 			);
 		}
 	}
@@ -1718,7 +1754,9 @@ impl MessagingUi {
 			target_os = "macos",
 			target_os = "linux"
 		)) {
-			ui.label("Camera capture is unavailable on this platform.");
+			ui.label(crate::i18n::translate(
+				"Camera capture is unavailable on this platform.",
+			));
 			return;
 		}
 		if demo && self.voice_cameras.is_empty() {
@@ -1738,7 +1776,11 @@ impl MessagingUi {
 			self.voice_refresh_cameras = true;
 			ui.ctx().request_repaint();
 		}
-		let label = ui.label(design::medium(ui, "Camera device", 15.0));
+		let label = ui.label(design::medium(
+			ui,
+			crate::i18n::translate("Camera device"),
+			15.0,
+		));
 		device_combo(
 			ui,
 			"voice-camera",
@@ -1749,7 +1791,7 @@ impl MessagingUi {
 		ui.horizontal(|ui| {
 			ui.spacing_mut().item_spacing.x = 4.0;
 			ui.add_enabled_ui(!demo && !self.voice_camera_devices_loading, |ui| {
-				if design::text_action(ui, "Refresh cameras").clicked() {
+				if design::text_action(ui, &crate::i18n::translate("Refresh cameras")).clicked() {
 					self.voice_refresh_cameras = true;
 				}
 			});
@@ -1764,7 +1806,9 @@ impl MessagingUi {
 		if !demo {
 			design::hint(
 				ui,
-				"Changing devices stops your camera and takes effect the next time you turn it on.",
+				&crate::i18n::translate(
+					"Changing devices stops your camera and takes effect the next time you turn it on.",
+				),
 			);
 		}
 		if self.voice_settings_open() {
@@ -1897,11 +1941,11 @@ impl MessagingUi {
 		gain_controls(ui, &mut self.voice_gain);
 		ui.horizontal(|ui| {
 			ui.spacing_mut().item_spacing.x = 4.0;
-			if design::text_action(ui, "Refresh devices").clicked() {
+			if design::text_action(ui, &crate::i18n::translate("Refresh devices")).clicked() {
 				self.voice_refresh_devices = true;
 			}
 			if self.voice_gain != crate::VoiceGain::default()
-				&& design::text_action(ui, "Reset levels").clicked()
+				&& design::text_action(ui, &crate::i18n::translate("Reset levels")).clicked()
 			{
 				self.voice_gain = crate::VoiceGain::default();
 			}
@@ -1917,7 +1961,9 @@ impl MessagingUi {
 			design::notice(
 				ui,
 				design::Level::Warning,
-				"Microphone unavailable Â· choose another input. You are still connected.",
+				&crate::i18n::translate(
+					"Microphone unavailable Â· choose another input. You are still connected.",
+				),
 			);
 		}
 	}
@@ -1926,8 +1972,10 @@ impl MessagingUi {
 		let colors = design::palette(ui);
 		design::section(
 			ui,
-			"Input profile",
-			Some("Applies to calls and your local microphone test."),
+			&crate::i18n::translate("Input profile"),
+			Some(&crate::i18n::translate(
+				"Applies to calls and your local microphone test.",
+			)),
 		);
 		for (profile, label, detail) in [
 			(
@@ -1997,7 +2045,9 @@ impl MessagingUi {
 			} else {
 				design::hint(
 					ui,
-					"Start the microphone test or join a call to see your input level.",
+					&crate::i18n::translate(
+						"Start the microphone test or join a call to see your input level.",
+					),
 				);
 			}
 			design::card_divider(ui);
@@ -2066,7 +2116,9 @@ impl MessagingUi {
 			Some("Hold your configured shortcut when you want to speak."),
 			&mut self.voice_push_to_talk,
 		)
-		.on_hover_text("Mute and deafen always take priority.");
+		.on_hover_text(crate::i18n::translate(
+			"Mute and deafen always take priority.",
+		));
 	}
 
 	/// Whether the local mute/deafen controls may emit commands for the active call.
@@ -2601,8 +2653,12 @@ impl MessagingUi {
 								ui.add_enabled(
 									unavailable.is_none(),
 									egui::Button::new(
-										design::medium(ui, "Join call", 13.0)
-											.color(egui::Color32::WHITE),
+										design::medium(
+											ui,
+											crate::i18n::translate("Join call"),
+											13.0,
+										)
+										.color(egui::Color32::WHITE),
 									)
 									.fill(colors.positive)
 									.min_size(egui::vec2(84.0, 36.0)),
@@ -2701,9 +2757,9 @@ impl MessagingUi {
 				ui.spacing_mut().item_spacing.y = 8.0;
 				if self.voice_microphone_unavailable {
 					ui.label(
-						RichText::new(
+						RichText::new(crate::i18n::translate(
 							"Microphone unavailable Â· still connected. Choose another input in Audio settings.",
-						)
+						))
 						.size(12.0)
 						.color(colors.warning),
 					);
@@ -2809,7 +2865,7 @@ impl MessagingUi {
 						ui,
 						crate::icons::Icon::ChevronDown,
 						24.0,
-						"Camera settings",
+						&crate::i18n::translate("Camera settings"),
 					);
 					self.camera_settings_popup(&camera_settings, state.demo);
 					share_clicked = card_action(
@@ -3133,8 +3189,13 @@ fn call_failure(ui: &mut egui::Ui, error: Option<&str>, color: egui::Color32) {
 	let Some(error) = error else { return };
 	ui.horizontal_top(|ui| {
 		ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-			if crate::icons::button(ui, crate::icons::Icon::Copy, 28.0, "Copy failure reason")
-				.clicked()
+			if crate::icons::button(
+				ui,
+				crate::icons::Icon::Copy,
+				28.0,
+				&crate::i18n::translate("Copy failure reason"),
+			)
+			.clicked()
 			{
 				ui.ctx()
 					.copy_text(format!("Serein call failed\nReason: {error}"));
@@ -3398,7 +3459,10 @@ fn gain_controls(ui: &mut egui::Ui, gain: &mut crate::VoiceGain) -> [egui::Respo
 			slider(ui, &mut gain.output_percent, "Speaker volume"),
 		]
 	};
-	design::hint(ui, "100% is the original level. Higher levels may distort.");
+	design::hint(
+		ui,
+		&crate::i18n::translate("100% is the original level. Higher levels may distort."),
+	);
 	responses
 }
 
@@ -3434,8 +3498,10 @@ fn live_badge(ui: &mut egui::Ui) {
 		egui::FontId::new(9.0, design::medium_family(ui.ctx())),
 		egui::Color32::WHITE,
 	);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, "Live"));
-	response.on_hover_text("Streaming");
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(egui::Role::Label, true, crate::i18n::translate("Live"))
+	});
+	response.on_hover_text(crate::i18n::translate("Streaming"));
 }
 
 fn device_combo(
@@ -3666,7 +3732,7 @@ mod tests {
 					..Default::default()
 				},
 				|ui| {
-					let trigger = ui.button("Choose camera");
+					let trigger = ui.button(crate::i18n::translate("Choose camera"));
 					messaging.camera_settings_popup(&trigger, true);
 				},
 			);
@@ -3971,7 +4037,7 @@ mod tests {
 					..Default::default()
 				},
 				|ui| {
-					let trigger = ui.button("Open voice");
+					let trigger = ui.button(crate::i18n::translate("Open voice"));
 					messaging.voice_settings_popup(&trigger, demo, false, true);
 				},
 			);

@@ -187,7 +187,10 @@ fn channel_welcome(ui: &mut egui::Ui, channel: &model::Channel, height: f32) {
 		egui::TextStyle::Heading,
 	);
 	let description = egui::WidgetText::from(
-		RichText::new("This is the beginning of the conversation.").color(colors.muted),
+		RichText::new(crate::i18n::translate(
+			"This is the beginning of the conversation.",
+		))
+		.color(colors.muted),
 	)
 	.into_galley(
 		ui,
@@ -229,8 +232,13 @@ fn loading_messages(ui: &mut egui::Ui) {
 		egui::vec2(ui.available_width(), height),
 		egui::Sense::hover(),
 	);
-	response
-		.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, false, "Loading messages"));
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(
+			egui::Role::Label,
+			false,
+			crate::i18n::translate("Loading messages"),
+		)
+	});
 	let painter = ui.painter().with_clip_rect(ui.clip_rect().intersect(rect));
 	let fill = colors.muted.gamma_multiply(0.22);
 	let text_width = (rect.width() - 88.0).clamp(0.0, 480.0);
@@ -544,7 +552,7 @@ fn starter_row(
 				);
 				crate::icons::inline(ui, crate::icons::Icon::Thread, 14.0, colors.muted);
 				ui.label(
-					RichText::new("Thread started from this message")
+					RichText::new(crate::i18n::translate("Thread started from this message"))
 						.size(12.0)
 						.color(colors.muted),
 				);
@@ -732,11 +740,17 @@ enum DeletedLocalAction {
 fn deleted_message_actions(popup: egui::Popup<'_>, action: &mut Option<DeletedLocalAction>) {
 	popup.show(|ui| {
 		ui.set_min_width(160.0);
-		if ui.button("Toggle Deleted Highlight").clicked() {
+		if ui
+			.button(crate::i18n::translate("Toggle Deleted Highlight"))
+			.clicked()
+		{
 			*action = Some(DeletedLocalAction::ToggleHighlight);
 			ui.close();
 		}
-		if ui.button("Remove Message").clicked() {
+		if ui
+			.button(crate::i18n::translate("Remove Message"))
+			.clicked()
+		{
 			*action = Some(DeletedLocalAction::Remove);
 			ui.close();
 		}
@@ -774,7 +788,7 @@ fn message_actions(
 	popup.show(|ui| {
 		ui.set_min_width(160.0);
 		if !extension_actions.is_empty() {
-			ui.menu_button("Extensions", |ui| {
+			ui.menu_button(crate::i18n::translate("Extensions"), |ui| {
 				for action in extension_actions {
 					if ui.button(&action.label).clicked() {
 						*extension_request =
@@ -785,34 +799,48 @@ fn message_actions(
 			});
 			ui.separator();
 		}
-		if crate::select::has_selection(ui.ctx()) && ui.button("Copy").clicked() {
+		if crate::select::has_selection(ui.ctx())
+			&& ui.button(crate::i18n::translate("Copy")).clicked()
+		{
 			crate::select::request_copy(ui.ctx());
 			ui.close();
 		}
-		if ui.button("Copy message").clicked() {
+		if ui.button(crate::i18n::translate("Copy message")).clicked() {
 			ui.ctx().copy_text(message.display_text().into_owned());
 			ui.close();
 		}
 		if ui
-			.add_enabled(can_reply, egui::Button::new("Reply"))
+			.add_enabled(
+				can_reply,
+				egui::Button::new(crate::i18n::translate("Reply")),
+			)
 			.clicked()
 		{
 			*reply = Some(message.id);
 			ui.close();
 		}
 		if ui
-			.add_enabled(forward.0, egui::Button::new("Forward"))
+			.add_enabled(
+				forward.0,
+				egui::Button::new(crate::i18n::translate("Forward")),
+			)
 			.clicked()
 		{
 			*forward.1 = Some(message.id);
 			ui.close();
 		}
-		if can_thread && ui.button("Create Thread\u{2026}").clicked() {
+		if can_thread
+			&& ui
+				.button(crate::i18n::translate("Create Thread\u{2026}"))
+				.clicked()
+		{
 			*thread_request = Some((message.channel, message.id));
 			ui.close();
 		}
 		if let Some((emoji, view)) = view_reactions
-			&& ui.button("View reactions").clicked()
+			&& ui
+				.button(crate::i18n::translate("View reactions"))
+				.clicked()
 		{
 			*view = Some((message.id, emoji, true));
 			ui.close();
@@ -820,7 +848,7 @@ fn message_actions(
 		if ui
 			.add_enabled(
 				mark_read.is_some(),
-				egui::Button::new("Mark read through here"),
+				egui::Button::new(crate::i18n::translate("Mark read through here")),
 			)
 			.clicked()
 		{
@@ -830,7 +858,10 @@ fn message_actions(
 			ui.close();
 		}
 		if ui
-			.add_enabled(mark_unread.is_some(), egui::Button::new("Mark Unread"))
+			.add_enabled(
+				mark_unread.is_some(),
+				egui::Button::new(crate::i18n::translate("Mark Unread")),
+			)
 			.clicked()
 		{
 			if let Some(mark_unread) = mark_unread {
@@ -857,7 +888,10 @@ fn message_actions(
 		}
 		if own
 			&& ui
-				.add_enabled(can_edit, egui::Button::new("Edit message"))
+				.add_enabled(
+					can_edit,
+					egui::Button::new(crate::i18n::translate("Edit message")),
+				)
 				.clicked()
 		{
 			*editing = Some((message.channel, message.id, message.content.clone()));
@@ -866,7 +900,10 @@ fn message_actions(
 		}
 		if (own || can_delete)
 			&& ui
-				.add_enabled(can_delete, egui::Button::new("Delete message\u{2026}"))
+				.add_enabled(
+					can_delete,
+					egui::Button::new(crate::i18n::translate("Delete message\u{2026}")),
+				)
 				.clicked()
 		{
 			*deleting = Some((message.channel, message.id));
@@ -956,7 +993,13 @@ fn present_control(ui: &mut egui::Ui, rect: egui::Rect, unread: bool) -> bool {
 			egui::Stroke::new(1.0, colors.accent),
 		);
 	}
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Jump to present"));
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(
+			egui::Role::Button,
+			true,
+			crate::i18n::translate("Jump to present"),
+		)
+	});
 	response
 		.on_hover_text(if unread {
 			"New messages below · jump to present"
@@ -1017,7 +1060,10 @@ fn unread_banner(ui: &mut egui::Ui, rect: egui::Rect, jump: bool) -> (bool, bool
 			se: 8,
 		},
 		|ui| {
-			ui.label(crate::design::medium(ui, "Unread messages", 13.0).color(text));
+			ui.label(
+				crate::design::medium(ui, crate::i18n::translate("Unread messages"), 13.0)
+					.color(text),
+			);
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				if bar_button(ui, "Mark as read", crate::icons::Icon::Check, text).clicked() {
 					mark_read = true;
@@ -1090,11 +1136,12 @@ fn show_system(
 				profile.person_click(ui, &response, None, user);
 			}
 			if let Some((_, parent)) = thread {
-				let (pos, galley, response) =
-					egui::Label::new(RichText::new(". See all ").color(colors.muted))
-						.wrap()
-						.selectable(false)
-						.layout_in_ui(ui);
+				let (pos, galley, response) = egui::Label::new(
+					RichText::new(crate::i18n::translate(". See all ")).color(colors.muted),
+				)
+				.wrap()
+				.selectable(false)
+				.layout_in_ui(ui);
 				surface.run(ui, &response, pos, galley, Vec::new());
 				let all = ui
 					.add(
@@ -1104,7 +1151,7 @@ fn show_system(
 						.sense(egui::Sense::click()),
 					)
 					.on_hover_cursor(egui::CursorIcon::PointingHand)
-					.on_hover_text("Open this channel\u{2019}s threads");
+					.on_hover_text(crate::i18n::translate("Open this channel\u{2019}s threads"));
 				surface.keep(&all);
 				if all.clicked() {
 					*open_all = Some(parent);
@@ -1972,10 +2019,12 @@ impl TimelineView {
 									if message.reply_deleted || state.timeline.is_deleted(reply) {
 										let deleted = ui.add(
 											egui::Label::new(
-												RichText::new("Message deleted")
-													.size(13.0)
-													.italics()
-													.color(colors.muted),
+												RichText::new(crate::i18n::translate(
+													"Message deleted",
+												))
+												.size(13.0)
+												.italics()
+												.color(colors.muted),
 											)
 											.truncate(),
 										);
@@ -2073,9 +2122,13 @@ impl TimelineView {
 														.on_hover_cursor(
 															egui::CursorIcon::PointingHand,
 														)
-														.on_hover_text("View original message")
+														.on_hover_text(crate::i18n::translate(
+															"View original message",
+														))
 														.on_disabled_hover_text(
-															"Wait for readable, current message history",
+															crate::i18n::translate(
+																"Wait for readable, current message history",
+															),
 														);
 													surface.keep(&reply_preview);
 													if reply_preview.clicked() {
@@ -2228,10 +2281,12 @@ impl TimelineView {
 										.show(ui, |ui| {
 											if message.forwarded {
 												ui.label(
-													RichText::new("\u{21aa} Forwarded")
-														.size(13.0)
-														.italics()
-														.color(colors.muted),
+													RichText::new(crate::i18n::translate(
+														"\u{21aa} Forwarded",
+													))
+													.size(13.0)
+													.italics()
+													.color(colors.muted),
 												);
 												ui.add_space(4.0);
 											}
@@ -2274,7 +2329,9 @@ impl TimelineView {
 														if deleted && message.content.is_empty() {
 															ui.label(
 																RichText::new(
-																	"[Deleted message had no text]",
+																	crate::i18n::translate(
+																		"[Deleted message had no text]",
+																	),
 																)
 																.size(16.0)
 																.color(
@@ -2313,16 +2370,18 @@ impl TimelineView {
 											}
 											if formatted.limited {
 												ui.label(
-													RichText::new(
+													RichText::new(crate::i18n::translate(
 														"Display limited · Copy message for the full text",
-													)
+													))
 													.small()
 													.color(colors.muted),
 												);
 											}
 											if crate::embeds::has_media_spoilers(message) && !media
 											{
-												let reveal = ui.button("Reveal spoiler media");
+												let reveal = ui.button(crate::i18n::translate(
+													"Reveal spoiler media",
+												));
 												surface.keep(&reveal);
 												if reveal.clicked() {
 													media = true;
@@ -2384,7 +2443,9 @@ impl TimelineView {
 												}
 											}
 											if text != 0 || media {
-												let hide = ui.small_button("Hide spoilers");
+												let hide = ui.small_button(crate::i18n::translate(
+													"Hide spoilers",
+												));
 												surface.keep(&hide);
 												if hide.clicked() {
 													text = 0;
@@ -2405,9 +2466,11 @@ impl TimelineView {
 											}
 											if message.edited {
 												ui.label(
-													RichText::new("(edited)")
-														.small()
-														.color(colors.muted),
+													RichText::new(crate::i18n::translate(
+														"(edited)",
+													))
+													.small()
+													.color(colors.muted),
 												);
 											}
 											if !message.components.is_empty() {
@@ -2457,16 +2520,22 @@ impl TimelineView {
 														colors.muted,
 													);
 													ui.label(
-														RichText::new("Only you can see this  •")
-															.size(13.0)
-															.color(colors.muted),
+														RichText::new(crate::i18n::translate(
+															"Only you can see this  •",
+														))
+														.size(13.0)
+														.color(colors.muted),
 													);
 													let dismiss = ui
 														.add(
 															egui::Button::new(
-																RichText::new("Dismiss message")
-																	.size(13.0)
-																	.color(colors.link),
+																RichText::new(
+																	crate::i18n::translate(
+																		"Dismiss message",
+																	),
+																)
+																.size(13.0)
+																.color(colors.link),
 															)
 															.frame(false),
 														)
@@ -2554,7 +2623,9 @@ impl TimelineView {
 													.and_then(|c| discord_url(c, Some(message.id)));
 												let open = ui.add_enabled(
 													target.is_some(),
-													egui::Button::new("Open in Discord"),
+													egui::Button::new(crate::i18n::translate(
+														"Open in Discord",
+													)),
 												);
 												surface.keep(&open);
 												if open.clicked() {

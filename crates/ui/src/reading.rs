@@ -124,7 +124,7 @@ impl MessagingUi {
 				&mut value.hide_media_links,
 			);
 		});
-		design::group(ui, "Links", |ui| {
+		design::group(ui, &crate::i18n::translate("Links"), |ui| {
 			design::switch(
 				ui,
 				"Confirm before opening links",
@@ -132,7 +132,7 @@ impl MessagingUi {
 				&mut value.confirm_external_links,
 			);
 		});
-		design::group(ui, "Scrolling", |ui| {
+		design::group(ui, &crate::i18n::translate("Scrolling"), |ui| {
 			design::switch(
 				ui,
 				"Smooth scrolling",
@@ -167,7 +167,9 @@ impl MessagingUi {
 	fn reading_save_notice(&mut self, ui: &mut egui::Ui, demo: bool) {
 		if !demo && self.reading_status.contains("could not") {
 			design::notice(ui, design::Level::Warning, self.reading_status);
-			if design::text_action(ui, "Retry saving reading settings").clicked() {
+			if design::text_action(ui, &crate::i18n::translate("Retry saving reading settings"))
+				.clicked()
+			{
 				self.reading_save_requested = true;
 			}
 		}
@@ -418,7 +420,7 @@ mod tests {
 						.size_range(190.0..=maximum)
 						.show(ui, |ui| {
 							ui.set_min_width(ui.available_width());
-							ui.label("Synthetic navigation");
+							ui.label(crate::i18n::translate("Synthetic navigation"));
 						});
 					rendered = panel.response.rect.width();
 					view.record_reading_sidebar(rendered);

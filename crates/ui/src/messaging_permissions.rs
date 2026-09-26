@@ -138,7 +138,7 @@ impl MessagingUi {
 		}
 		if let Some(error) = state.messaging_permissions.error {
 			design::notice(ui, design::Level::Error, error.label());
-			if !busy && design::text_action(ui, "Try again").clicked() {
+			if !busy && design::text_action(ui, &crate::i18n::translate("Try again")).clicked() {
 				nav.requested = false;
 			}
 		}
@@ -151,8 +151,8 @@ impl MessagingUi {
 			design::card(ui, |ui| {
 				design::section(
 					ui,
-					"Automatically filter suspected spam messages",
-					Some("Discord can filter out some messages that contain spam. These messages go to your Spam inbox."),
+					&crate::i18n::translate("Automatically filter suspected spam messages"),
+					Some(&crate::i18n::translate("Discord can filter out some messages that contain spam. These messages go to your Spam inbox.")),
 				);
 				for (value, label, hint) in [
 					(3, "Filter all spam", None),
@@ -165,7 +165,7 @@ impl MessagingUi {
 					}
 				}
 				if settings.spam_filter > 3 {
-					design::hint(ui, "Your account uses a custom spam filter setting. Select an option to replace it.");
+					design::hint(ui, &crate::i18n::translate("Your account uses a custom spam filter setting. Select an option to replace it."));
 				}
 			});
 
@@ -216,13 +216,13 @@ impl MessagingUi {
 					}
 				});
 				if all && state.guilds.len() > MAX_GUILDS {
-					design::hint(ui, "There are too many servers to update together. Choose an individual server.");
+					design::hint(ui, &crate::i18n::translate("There are too many servers to update together. Choose an individual server."));
 				}
 			});
 
 			nav.heading(ui, Tab::FriendRequests);
 			design::card(ui, |ui| {
-				design::section(ui, "Allow friend requests from", Some("Control who can send you friend requests and how they appear."));
+				design::section(ui, &crate::i18n::translate("Allow friend requests from"), Some(&crate::i18n::translate("Control who can send you friend requests and how they appear.")));
 				for (label, bit, make, description) in [
 					("Everyone", 8, Change::Everyone as fn(bool) -> Change, None),
 					("Friends of friends", 2, Change::FriendsOfFriends, None),
@@ -240,13 +240,13 @@ impl MessagingUi {
 
 			nav.heading(ui, Tab::ConnectedGames);
 			design::card(ui, |ui| {
-				design::hint(ui, "Settings for games that use Discord to power their social experiences.");
+				design::hint(ui, &crate::i18n::translate("Settings for games that use Discord to power their social experiences."));
 				ui.add_space(4.0);
 				if let Some(value) = toggle(ui, "Allow friends from games to send direct messages and invites", Some("Let friends from connected games send DMs and invite you to play, even when the game isn't open."), settings.game_friend_dms) {
 					change = Some(Change::GameFriendDms(value));
 				}
 				design::card_divider(ui);
-				design::section(ui, "Show Direct Messages in games", Some("Read and respond to DMs directly from in-game chats."));
+				design::section(ui, &crate::i18n::translate("Show Direct Messages in games"), Some(&crate::i18n::translate("Read and respond to DMs directly from in-game chats.")));
 				for (value, label) in [(1, "Show all DMs"), (2, "Show only DMs from people who also play the game"), (3, "Don't show DMs")] {
 					let selected = settings.game_dms == value || (settings.game_dms == 0 && value == 1);
 					if design::radio_row(ui, selected, label, None).clicked() && !selected {
@@ -254,7 +254,7 @@ impl MessagingUi {
 					}
 				}
 				if settings.game_dms > 3 {
-					design::hint(ui, "Your account uses a custom in-game DM setting. Select an option to replace it.");
+					design::hint(ui, &crate::i18n::translate("Your account uses a custom in-game DM setting. Select an option to replace it."));
 				}
 			});
 		});

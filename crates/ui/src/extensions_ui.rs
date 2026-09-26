@@ -397,9 +397,12 @@ impl ExtensionUi {
 						)
 						.clicked();
 						if gallery.is_some() {
-							customize =
-								design::button(ui, "Customize", design::ButtonKind::Outline)
-									.clicked();
+							customize = design::button(
+								ui,
+								&crate::i18n::translate("Customize"),
+								design::ButtonKind::Outline,
+							)
+							.clicked();
 						}
 					});
 				});
@@ -690,7 +693,10 @@ impl ExtensionUi {
 						format!("Preview {}", entry.manifest.name),
 					)
 				});
-				if response.on_hover_text("View preview").clicked() {
+				if response
+					.on_hover_text(crate::i18n::translate("View preview"))
+					.clicked()
+				{
 					self.open_preview(ui.ctx(), entry);
 				}
 				return;
@@ -931,7 +937,7 @@ impl ExtensionUi {
 			return;
 		}
 		let mut selected = None;
-		ui.menu_button("Tools", |ui| {
+		ui.menu_button(crate::i18n::translate("Tools"), |ui| {
 			for entry in self.entries.iter().filter(|entry| entry.enabled) {
 				for action in
 					entry.manifest.actions.iter().filter(|action| {
@@ -1040,7 +1046,10 @@ impl ExtensionUi {
 									colors.muted
 								},
 							);
-							if response.on_hover_text("Clear search").clicked() {
+							if response
+								.on_hover_text(crate::i18n::translate("Clear search"))
+								.clicked()
+							{
 								self.query.clear();
 							}
 						}
@@ -1065,7 +1074,10 @@ impl ExtensionUi {
 				egui::Popup::menu(&more).show(|ui| {
 					ui.set_min_width(176.0);
 					if ui
-						.add_enabled(!self.busy, egui::Button::new("Import theme…"))
+						.add_enabled(
+							!self.busy,
+							egui::Button::new(crate::i18n::translate("Import theme…")),
+						)
 						.clicked()
 					{
 						self.status.clear();
@@ -1073,7 +1085,10 @@ impl ExtensionUi {
 						ui.close();
 					}
 					if ui
-						.add_enabled(!self.busy, egui::Button::new("Refresh catalog"))
+						.add_enabled(
+							!self.busy,
+							egui::Button::new(crate::i18n::translate("Refresh catalog")),
+						)
 						.clicked()
 					{
 						self.previews.clear();
@@ -1092,7 +1107,9 @@ impl ExtensionUi {
 				egui::vec2(92.0, height),
 				colors,
 			)
-			.on_hover_text("Look for new packages and updates. Nothing installs on its own.")
+			.on_hover_text(crate::i18n::translate(
+				"Look for new packages and updates. Nothing installs on its own.",
+			))
 			.clicked()
 			{
 				self.previews.clear();
@@ -1107,7 +1124,9 @@ impl ExtensionUi {
 				egui::vec2(150.0, height),
 				colors,
 			)
-			.on_hover_text("Open a package file from this computer.")
+			.on_hover_text(crate::i18n::translate(
+				"Open a package file from this computer.",
+			))
 			.clicked()
 			{
 				self.status.clear();
@@ -1149,7 +1168,9 @@ impl ExtensionUi {
 								colors.muted
 							},
 						);
-						dismiss = response.on_hover_text("Dismiss").clicked();
+						dismiss = response
+							.on_hover_text(crate::i18n::translate("Dismiss"))
+							.clicked();
 					});
 				});
 			if dismiss {
@@ -1405,15 +1426,15 @@ impl ExtensionUi {
 							.add_enabled(
 								!self.busy,
 								egui::Button::new(
-									egui::RichText::new("Update")
+									egui::RichText::new(crate::i18n::translate("Update"))
 										.size(11.5)
 										.color(colors.accent),
 								)
 								.frame(false),
 							)
-							.on_hover_text(
+							.on_hover_text(crate::i18n::translate(
 								"Review the new release before it replaces this version.",
-							)
+							))
 							.clicked();
 					}
 					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -1440,7 +1461,9 @@ impl ExtensionUi {
 								quiet_action(ui, "Remove", colors.muted, colors.danger)
 							})
 							.inner
-							.on_hover_text("Remove this theme and delete its local data.")
+							.on_hover_text(crate::i18n::translate(
+								"Remove this theme and delete its local data.",
+							))
 							.clicked()
 					{
 						*disable = Some(entry.manifest.id.clone());
@@ -1460,7 +1483,11 @@ impl ExtensionUi {
 			});
 		} else {
 			ui.horizontal(|ui| {
-				ui.label(design::eyebrow(ui, "Plugin", colors.muted));
+				ui.label(design::eyebrow(
+					ui,
+					crate::i18n::translate("Plugin"),
+					colors.muted,
+				));
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
 					if entry.cleanup_pending {
@@ -1541,7 +1568,9 @@ impl ExtensionUi {
 					outline,
 					colors.text_strong,
 				)
-				.on_hover_text("Finish removing this extension and its local data.")
+				.on_hover_text(crate::i18n::translate(
+					"Finish removing this extension and its local data.",
+				))
 				.clicked()
 				{
 					*disable = Some(entry.manifest.id.clone());
@@ -1630,7 +1659,9 @@ impl ExtensionUi {
 							)
 						})
 						.inner
-						.on_hover_text("Apply this installed theme to the app.")
+						.on_hover_text(crate::i18n::translate(
+							"Apply this installed theme to the app.",
+						))
 						.clicked()
 					{
 						self.queue(
@@ -1698,7 +1729,9 @@ impl ExtensionUi {
 							egui::Stroke::NONE,
 							colors.accent_text,
 						)
-						.on_hover_text("Review the new release before it replaces this version.")
+						.on_hover_text(crate::i18n::translate(
+							"Review the new release before it replaces this version.",
+						))
 					})
 					.inner
 					.clicked()
@@ -1718,7 +1751,7 @@ impl ExtensionUi {
 					visuals.widgets.active.weak_bg_fill = neutral.gamma_multiply(0.85);
 					visuals.widgets.open.weak_bg_fill = neutral.linear_multiply(1.12);
 					ui.spacing_mut().button_padding.x = (each / 2.0 - 30.0).max(6.0);
-					ui.menu_button("Open tool", |ui| {
+					ui.menu_button(crate::i18n::translate("Open tool"), |ui| {
 						for action in &panel_actions {
 							if ui
 								.add_enabled(!self.busy, egui::Button::new(&action.label))
@@ -1739,7 +1772,9 @@ impl ExtensionUi {
 				outline,
 				colors.text_strong,
 			)
-			.on_hover_text("Removes this extension and deletes its local data.")
+			.on_hover_text(crate::i18n::translate(
+				"Removes this extension and deletes its local data.",
+			))
 			.clicked()
 			{
 				*disable = Some(entry.manifest.id.clone());
@@ -1765,7 +1800,9 @@ impl ExtensionUi {
 				"Enable this extension"
 			},
 		)
-		.subtitle("Everything it may touch is listed below.")
+		.subtitle(crate::i18n::translate(
+			"Everything it may touch is listed below.",
+		))
 		.width(460.0)
 		.show(ctx, |d| {
 			d.scroll(260.0, |ui| {
@@ -1862,7 +1899,8 @@ impl ExtensionUi {
 								});
 								if !consent.entry.manifest.source.is_empty() {
 									ui.hyperlink_to(
-										egui::RichText::new("View source").size(12.0),
+										egui::RichText::new(crate::i18n::translate("View source"))
+											.size(12.0),
 										&consent.entry.manifest.source,
 									);
 								}
@@ -1889,9 +1927,9 @@ impl ExtensionUi {
 									colors.warning,
 								);
 								ui.label(
-									egui::RichText::new(
+									egui::RichText::new(crate::i18n::translate(
 										"Unreviewed package — its source has not been reviewed for the catalog.",
-									)
+									))
 									.size(12.5)
 									.color(colors.text),
 								);
@@ -1919,16 +1957,20 @@ impl ExtensionUi {
 									colors.positive,
 								);
 								ui.label(
-									egui::RichText::new(
+									egui::RichText::new(crate::i18n::translate(
 										"No access to conversations or composer text.",
-									)
+									))
 									.size(13.0)
 									.color(colors.text),
 								);
 							});
 						});
 				} else {
-					ui.label(design::eyebrow(ui, "Allow this extension to", colors.muted));
+					ui.label(design::eyebrow(
+						ui,
+						crate::i18n::translate("Allow this extension to"),
+						colors.muted,
+					));
 					ui.spacing_mut().item_spacing.y = 8.0;
 					for capability in &consent.entry.manifest.capabilities {
 						let mut granted = consent.grants.contains(capability);
@@ -1945,9 +1987,9 @@ impl ExtensionUi {
 					}
 				}
 				ui.label(
-					egui::RichText::new(
+					egui::RichText::new(crate::i18n::translate(
 						"Disabling removes the extension and its local data. Re-enabling starts fresh.",
-					)
+					))
 					.size(12.0)
 					.color(colors.muted),
 				);
@@ -1965,7 +2007,9 @@ impl ExtensionUi {
 					})
 					.inner;
 				if !ready {
-					enable.on_hover_text("Allow every listed permission to continue.");
+					enable.on_hover_text(crate::i18n::translate(
+						"Allow every listed permission to continue.",
+					));
 				} else if enable.clicked() {
 					self.queue(
 						ctx,
@@ -2032,18 +2076,21 @@ impl ExtensionUi {
 	) -> Option<crate::extension_app::ConfirmedEffect> {
 		if let Some(message) = self.error.take() {
 			let mut dismissed = false;
-			let response = crate::dialog::Dialog::new("extension-error", "Extension error")
-				.width(400.0)
-				.show(ctx, |d| {
-					d.content(|ui| {
-						crate::dialog::notice(ui, crate::dialog::Level::Error, &message);
-					});
-					d.footer(|ui| {
-						dismissed =
-							crate::dialog::action(ui, "Dismiss", crate::dialog::Action::Primary)
-								.clicked();
-					});
+			let response = crate::dialog::Dialog::new(
+				"extension-error",
+				crate::i18n::translate("Extension error"),
+			)
+			.width(400.0)
+			.show(ctx, |d| {
+				d.content(|ui| {
+					crate::dialog::notice(ui, crate::dialog::Level::Error, &message);
 				});
+				d.footer(|ui| {
+					dismissed =
+						crate::dialog::action(ui, "Dismiss", crate::dialog::Action::Primary)
+							.clicked();
+				});
+			});
 			if !dismissed && !response.close {
 				self.error = Some(message);
 			}
@@ -2064,7 +2111,9 @@ impl ExtensionUi {
 			.to_owned();
 		let mut close = false;
 		let response = crate::dialog::Dialog::new("extension-result", title)
-			.subtitle("Review the result. App actions and draft changes need your approval.")
+			.subtitle(crate::i18n::translate(
+				"Review the result. App actions and draft changes need your approval.",
+			))
 			.width(520.0)
 			.show(ctx, |d| {
 				d.scroll(240.0, |ui| {

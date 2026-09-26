@@ -344,7 +344,7 @@ impl ThemeEditor {
 				}
 				if self.dirty {
 					ui.label(
-						egui::RichText::new("Unsaved changes")
+						egui::RichText::new(crate::i18n::translate("Unsaved changes"))
 							.size(12.0)
 							.color(design::palette(ui).warning),
 					);
@@ -388,7 +388,7 @@ impl ThemeEditor {
 				ui.spacing_mut().item_spacing.x = 8.0;
 				ui.add(egui::Spinner::new().size(14.0));
 				ui.label(
-					egui::RichText::new("Working…")
+					egui::RichText::new(crate::i18n::translate("Working…"))
 						.size(12.0)
 						.color(design::palette(ui).muted),
 				);
@@ -434,35 +434,49 @@ impl ThemeEditor {
 				EditorTab::Basics => {
 					design::section(
 						ui,
-						"Theme details",
-						Some("How your theme appears in the gallery."),
+						&crate::i18n::translate("Theme details"),
+						Some(&crate::i18n::translate(
+							"How your theme appears in the gallery.",
+						)),
 					);
 					let show_errors = self.show_errors;
 					design::card(ui, |ui| {
 						let manifest = &mut self.package.manifest;
 						changed |= text_field(ui, "Theme name", &mut manifest.name, 32, "My theme");
 						if show_errors && manifest.name.trim().is_empty() {
-							design::notice(ui, design::Level::Error, "Theme name is required.");
+							design::notice(
+								ui,
+								design::Level::Error,
+								&crate::i18n::translate("Theme name is required."),
+							);
 						}
 						changed |=
 							text_field(ui, "Created by", &mut manifest.author, 32, "Your name");
 						if show_errors && manifest.author.trim().is_empty() {
-							design::notice(ui, design::Level::Error, "Creator name is required.");
+							design::notice(
+								ui,
+								design::Level::Error,
+								&crate::i18n::translate("Creator name is required."),
+							);
 						}
 					});
 					ui.add_space(20.0);
 					design::section(
 						ui,
-						"Card cover",
-						Some("Choose the image shown on your theme card in Themes."),
+						&crate::i18n::translate("Card cover"),
+						Some(&crate::i18n::translate(
+							"Choose the image shown on your theme card in Themes.",
+						)),
 					);
 					self.cover_card(ui, requests, &mut changed);
 				}
 				EditorTab::Background => {
 					design::section(
 						ui,
-						"App background",
-						Some("Use one image behind your conversations and sidebars."),
+						&crate::i18n::translate("App background"),
+						Some(&crate::i18n::translate(
+							"Use one image behind your conversations and sidebars.",
+						)),
 					);
 					self.image_card(ui, requests, &mut changed);
 					if !self.package.background_image.is_empty() {
@@ -482,7 +496,12 @@ impl ThemeEditor {
 							..Default::default()
 						});
 						if background.sections.is_none() {
-							design::hint(ui, "This older theme uses its original image placement.");
+							design::hint(
+								ui,
+								&crate::i18n::translate(
+									"This older theme uses its original image placement.",
+								),
+							);
 							if dialog::action(
 								ui,
 								"Use image across the app",
@@ -535,7 +554,7 @@ impl ThemeEditor {
 							ui.add_space(16.0);
 							design::section(
 								ui,
-								"Section opacity",
+								&crate::i18n::translate("Section opacity"),
 								Some(
 									"Select an area, then choose how much of the image shows through.",
 								),
@@ -555,15 +574,19 @@ impl ThemeEditor {
 					} else {
 						design::hint(
 							ui,
-							"Choose an image to adjust the top bar, lists, and message area.",
+							&crate::i18n::translate(
+								"Choose an image to adjust the top bar, lists, and message area.",
+							),
 						);
 					}
 				}
 				EditorTab::Colors => {
 					design::section(
 						ui,
-						"Conversation colors",
-						Some("Click a swatch to choose a color, or enter its hex value."),
+						&crate::i18n::translate("Conversation colors"),
+						Some(&crate::i18n::translate(
+							"Click a swatch to choose a color, or enter its hex value.",
+						)),
 					);
 					let theme = self
 						.package
@@ -591,15 +614,19 @@ impl ThemeEditor {
 						ui.add_space(12.0);
 						design::hint(
 							ui,
-							"Your primary color in Appearance takes precedence over this accent.",
+							&crate::i18n::translate(
+								"Your primary color in Appearance takes precedence over this accent.",
+							),
 						);
 					}
 				}
 				EditorTab::Advanced => {
 					design::section(
 						ui,
-						"Advanced",
-						Some("Additional colors, app controls, and sharing details."),
+						&crate::i18n::translate("Advanced"),
+						Some(&crate::i18n::translate(
+							"Additional colors, app controls, and sharing details.",
+						)),
 					);
 					{
 						let theme = self
@@ -614,7 +641,13 @@ impl ThemeEditor {
 						};
 						let base = design::builtin_colors(self.dark, design::variant());
 						self.open_colors |= std::mem::take(&mut self.reveal_advanced_colors);
-						if design::disclosure(ui, "More colors", self.open_colors).clicked() {
+						if design::disclosure(
+							ui,
+							&crate::i18n::translate("More colors"),
+							self.open_colors,
+						)
+						.clicked()
+						{
 							self.open_colors = !self.open_colors;
 						}
 						if self.open_colors {
@@ -631,7 +664,13 @@ impl ThemeEditor {
 						}
 						ui.add_space(12.0);
 						self.open_gradient |= std::mem::take(&mut self.reveal_gradient);
-						if design::disclosure(ui, "Window gradient", self.open_gradient).clicked() {
+						if design::disclosure(
+							ui,
+							&crate::i18n::translate("Window gradient"),
+							self.open_gradient,
+						)
+						.clicked()
+						{
 							self.open_gradient = !self.open_gradient;
 						}
 						if self.open_gradient {
@@ -664,7 +703,9 @@ impl ThemeEditor {
 											design::notice(
 												ui,
 												design::Level::Error,
-												"Use #RRGGBB or #RRGGBBAA.",
+												&crate::i18n::translate(
+													"Use #RRGGBB or #RRGGBBAA.",
+												),
 											);
 										}
 									}
@@ -672,14 +713,22 @@ impl ThemeEditor {
 							});
 						}
 						ui.add_space(12.0);
-						if design::disclosure(ui, "Window effects", self.open_effects).clicked() {
+						if design::disclosure(
+							ui,
+							&crate::i18n::translate("Window effects"),
+							self.open_effects,
+						)
+						.clicked()
+						{
 							self.open_effects = !self.open_effects;
 						}
 						if self.open_effects {
 							design::card(ui, |ui| {
 								design::hint(
 									ui,
-									"Requires Transparency & blur in Appearance, then an app restart.",
+									&crate::i18n::translate(
+										"Requires Transparency & blur in Appearance, then an app restart.",
+									),
 								);
 								let style = &mut theme.style;
 								let defaults = design::default_window_effects();
@@ -746,8 +795,12 @@ impl ThemeEditor {
 							});
 						}
 						ui.add_space(12.0);
-						if design::disclosure(ui, "Text, spacing & corners", self.open_metrics)
-							.clicked()
+						if design::disclosure(
+							ui,
+							&crate::i18n::translate("Text, spacing & corners"),
+							self.open_metrics,
+						)
+						.clicked()
 						{
 							self.open_metrics = !self.open_metrics;
 						}
@@ -755,7 +808,9 @@ impl ThemeEditor {
 							design::card(ui, |ui| {
 								design::hint(
 									ui,
-									"These settings apply to dark and light appearances.",
+									&crate::i18n::translate(
+										"These settings apply to dark and light appearances.",
+									),
 								);
 								let style = &mut theme.style;
 								for (label, value, default, min, max) in [
@@ -793,7 +848,7 @@ impl ThemeEditor {
 					ui.add_space(12.0);
 					design::section(
 						ui,
-						"Sharing & export",
+						&crate::i18n::translate("Sharing & export"),
 						Some(
 							"The license and version are required. A source URL is optional for local themes.",
 						),
@@ -819,7 +874,9 @@ impl ThemeEditor {
 							design::notice(
 								ui,
 								design::Level::Error,
-								"Use a valid HTTPS source URL or leave this blank.",
+								&crate::i18n::translate(
+									"Use a valid HTTPS source URL or leave this blank.",
+								),
 							);
 						}
 						if self.show_errors
@@ -829,12 +886,14 @@ impl ThemeEditor {
 							design::notice(
 								ui,
 								design::Level::Error,
-								"License and version are required.",
+								&crate::i18n::translate("License and version are required."),
 							);
 						}
 						design::hint(
 							ui,
-							"Only share images you own or have permission to use. Keep required attribution.",
+							&crate::i18n::translate(
+								"Only share images you own or have permission to use. Keep required attribution.",
+							),
 						);
 						ui.add_space(8.0);
 						if dialog::action(ui, "Export theme", dialog::Action::Outline).clicked() {
@@ -972,7 +1031,9 @@ impl ThemeEditor {
 		});
 		design::hint(
 			ui,
-			"PNG or JPEG, up to 2 MiB. This image does not change the chat background.",
+			&crate::i18n::translate(
+				"PNG or JPEG, up to 2 MiB. This image does not change the chat background.",
+			),
 		);
 	}
 
@@ -1064,7 +1125,7 @@ impl ThemeEditor {
 				});
 			});
 		});
-		design::hint(ui, "PNG or JPEG, up to 2 MiB");
+		design::hint(ui, &crate::i18n::translate("PNG or JPEG, up to 2 MiB"));
 	}
 }
 
@@ -1072,11 +1133,13 @@ fn appearance_switch(ui: &mut egui::Ui, dark: &mut bool) {
 	ui.horizontal(|ui| {
 		ui.spacing_mut().item_spacing.x = 8.0;
 		ui.label(
-			egui::RichText::new("Editing")
+			egui::RichText::new(crate::i18n::translate("Editing"))
 				.size(12.0)
 				.color(design::palette(ui).muted),
 		)
-		.on_hover_text("Colors and opacity are saved separately for dark and light appearance.");
+		.on_hover_text(crate::i18n::translate(
+			"Colors and opacity are saved separately for dark and light appearance.",
+		));
 		if let Some(index) = design::segmented(ui, &["Dark", "Light"], usize::from(!*dark)) {
 			*dark = index == 0;
 		}
@@ -1142,7 +1205,11 @@ fn section_controls(
 		ui.visuals_mut().widgets.inactive.bg_fill = palette.base;
 		ui.visuals_mut().widgets.inactive.weak_bg_fill = palette.base;
 		ui.visuals_mut().selection.bg_fill = palette.accent;
-		ui.label(design::medium(ui, "Selected section", 13.0));
+		ui.label(design::medium(
+			ui,
+			crate::i18n::translate("Selected section"),
+			13.0,
+		));
 		egui::ComboBox::from_id_salt("background-section")
 			.width(ui.available_width())
 			.selected_text(selected.label())
@@ -1169,7 +1236,10 @@ fn section_controls(
 			"%",
 		)
 		.changed();
-		design::hint(ui, "0% shows the image. 100% is a solid section color.");
+		design::hint(
+			ui,
+			&crate::i18n::translate("0% shows the image. 100% is a solid section color."),
+		);
 	});
 	changed
 }
@@ -1377,7 +1447,7 @@ fn color_input(ui: &mut egui::Ui, value: &mut String) -> bool {
 					rect,
 					design::palette(ui).danger,
 				);
-				response.on_hover_text("Use #RRGGBB or #RRGGBBAA");
+				response.on_hover_text(crate::i18n::translate("Use #RRGGBB or #RRGGBBAA"));
 			}
 			changed
 		},
@@ -1517,8 +1587,10 @@ fn color_override(
 			map.insert(key.into(), value);
 		}
 		if map.contains_key(key)
-			&& design::text_action(ui, "Reset")
-				.on_hover_text("Use the default color for this appearance")
+			&& design::text_action(ui, &crate::i18n::translate("Reset"))
+				.on_hover_text(crate::i18n::translate(
+					"Use the default color for this appearance",
+				))
 				.clicked()
 		{
 			map.remove(key);
@@ -1530,7 +1602,11 @@ fn color_override(
 		.get(key)
 		.is_some_and(|value| extensions::parse_color(value).is_err())
 	{
-		design::notice(ui, design::Level::Error, "Use #RRGGBB or #RRGGBBAA.");
+		design::notice(
+			ui,
+			design::Level::Error,
+			&crate::i18n::translate("Use #RRGGBB or #RRGGBBAA."),
+		);
 	}
 	changed
 }
@@ -1565,8 +1641,8 @@ fn metric_label(ui: &mut egui::Ui, label: &str, overridden: bool) -> bool {
 		ui.label(design::medium(ui, label, 14.0).color(design::palette(ui).text_strong));
 		if overridden {
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-				reset = design::text_action(ui, "Reset")
-					.on_hover_text("Use the built-in value")
+				reset = design::text_action(ui, &crate::i18n::translate("Reset"))
+					.on_hover_text(crate::i18n::translate("Use the built-in value"))
 					.clicked();
 			});
 		}

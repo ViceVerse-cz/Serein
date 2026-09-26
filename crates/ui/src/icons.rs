@@ -443,6 +443,7 @@ pub fn channel(kind: u8) -> Icon {
 
 /// Square icon button that highlights on hover and exposes `label` to accessibility.
 pub fn button(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response {
+	let label = crate::i18n::translate(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
 	if response.hovered() || response.has_focus() {
@@ -456,12 +457,13 @@ pub fn button(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response
 		colors.muted
 	};
 	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
-	response.on_hover_text(label)
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
+	response.on_hover_text(&label)
 }
 
 /// Toggleable variant: `active` keeps the icon in the strong text colour.
 pub fn toggle(ui: &mut egui::Ui, icon: Icon, size: f32, active: bool, label: &str) -> Response {
+	let label = crate::i18n::translate(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
 	if response.hovered() || response.has_focus() {
@@ -474,9 +476,9 @@ pub fn toggle(ui: &mut egui::Ui, icon: Icon, size: f32, active: bool, label: &st
 	};
 	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
 	response.widget_info(|| {
-		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, label)
+		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, &label)
 	});
-	response.on_hover_text(label)
+	response.on_hover_text(&label)
 }
 
 /// Inline glyph used beside labels (channel kinds, section headers).

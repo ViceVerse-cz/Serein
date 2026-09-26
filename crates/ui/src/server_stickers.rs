@@ -127,13 +127,20 @@ impl StickersUi {
 			self.request_started = false;
 		}
 
-		ui.label(design::semibold(ui, "Stickers", 22.0));
-		ui.label("Add custom stickers for members to use in this server. Artwork is cropped and resized to 320 × 320 pixels before upload.");
+		ui.label(design::semibold(
+			ui,
+			crate::i18n::translate("Stickers"),
+			22.0,
+		));
+		ui.label(crate::i18n::translate("Add custom stickers for members to use in this server. Artwork is cropped and resized to 320 × 320 pixels before upload."));
 		ui.add_space(14.0);
 		if let Some(error) = state.server_admin.error.or(self.error) {
 			design::notice(ui, design::Level::Error, error);
 			if ui
-				.add_enabled(!state.server_admin.pending, egui::Button::new("Reload"))
+				.add_enabled(
+					!state.server_admin.pending,
+					egui::Button::new(crate::i18n::translate("Reload")),
+				)
 				.clicked() && let Some(command) =
 				state.request_server_admin(guild, Action::LoadStickers)
 			{
@@ -156,7 +163,13 @@ impl StickersUi {
 			if ui
 				.add_enabled_ui(
 					!self.choosing && self.upload.is_none() && !state.server_admin.pending,
-					|ui| design::button(ui, "Upload Sticker", design::ButtonKind::Primary),
+					|ui| {
+						design::button(
+							ui,
+							&crate::i18n::translate("Upload Sticker"),
+							design::ButtonKind::Primary,
+						)
+					},
 				)
 				.inner
 				.clicked()
@@ -176,24 +189,24 @@ impl StickersUi {
 				.corner_radius(10)
 				.inner_margin(14)
 				.show(ui, |ui| {
-					ui.label(design::semibold(ui, "Review sticker", 16.0));
+					ui.label(design::semibold(ui, crate::i18n::translate("Review sticker"), 16.0));
 					ui.horizontal(|ui| {
 						ui.add(egui::Image::from_texture(&upload.texture).fit_to_exact_size(egui::Vec2::splat(96.0)));
 						ui.vertical(|ui| {
 							crate::dialog::label(ui, "Name");
 							ui.add(egui::TextEdit::singleline(&mut upload.name).char_limit(30));
 							crate::dialog::label(ui, "Related emoji");
-							ui.add(egui::TextEdit::singleline(&mut upload.tags).hint_text("For example: 🐀").char_limit(200));
+							ui.add(egui::TextEdit::singleline(&mut upload.tags).hint_text(crate::i18n::translate("For example: 🐀")).char_limit(200));
 						});
 					});
 					crate::dialog::label(ui, "Description (optional)");
 					ui.add(egui::TextEdit::singleline(&mut upload.description).char_limit(100));
 					let valid = valid_fields(&upload.name, &upload.description, &upload.tags);
 					if !valid {
-						design::notice(ui, design::Level::Error, "Use a 2–30 character name, an optional description up to 100 characters, and at least one related emoji.");
+						design::notice(ui, design::Level::Error, &crate::i18n::translate("Use a 2–30 character name, an optional description up to 100 characters, and at least one related emoji."));
 					}
 					ui.horizontal(|ui| {
-						if ui.add_enabled(valid && !state.server_admin.pending, egui::Button::new("Upload")).clicked()
+						if ui.add_enabled(valid && !state.server_admin.pending, egui::Button::new(crate::i18n::translate("Upload"))).clicked()
 							&& let Some(command) = state.request_server_admin(guild, Action::CreateSticker {
 								name: upload.name.trim().to_owned(),
 								description: upload.description.trim().to_owned(),
@@ -206,7 +219,7 @@ impl StickersUi {
 							self.submitted_upload = true;
 							commands.push(command);
 						}
-						if ui.add_enabled(!state.server_admin.pending, egui::Button::new("Cancel")).clicked() {
+						if ui.add_enabled(!state.server_admin.pending, egui::Button::new(crate::i18n::translate("Cancel"))).clicked() {
 							cancel_upload = true;
 						}
 					});
@@ -224,7 +237,11 @@ impl StickersUi {
 		};
 		let count = catalog.items.len();
 		ui.horizontal(|ui| {
-			ui.label(design::semibold(ui, "Your stickers", 18.0));
+			ui.label(design::semibold(
+				ui,
+				crate::i18n::translate("Your stickers"),
+				18.0,
+			));
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				ui.weak(catalog.limit.map_or_else(
 					|| format!("{count} stickers"),
@@ -278,10 +295,13 @@ impl StickersUi {
 												ui,
 												icons::Icon::More,
 												22.0,
-												"Sticker actions",
+												&crate::i18n::translate("Sticker actions"),
 											);
 											egui::Popup::menu(&button).show(|ui| {
-												if ui.button("Edit").clicked() {
+												if ui
+													.button(crate::i18n::translate("Edit"))
+													.clicked()
+												{
 													self.dialog = Some(Dialog::Edit {
 														id: row.sticker.id,
 														name: row.sticker.name.clone(),
@@ -295,8 +315,10 @@ impl StickersUi {
 												}
 												if ui
 													.button(
-														RichText::new("Delete Sticker")
-															.color(design::palette(ui).danger),
+														RichText::new(crate::i18n::translate(
+															"Delete Sticker",
+														))
+														.color(design::palette(ui).danger),
 													)
 													.clicked()
 												{

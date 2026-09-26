@@ -118,31 +118,33 @@ impl ScreenUi {
 		}
 		let mut cancel = false;
 		let mut share = false;
-		let response = crate::dialog::Dialog::new("screen-share-settings", "Share your screen")
-			.subtitle("Choose what people in this call can see.")
-			.width(460.0)
-			.show(ctx, |d| {
-				d.scroll(260.0, |ui| self.body(ui, state));
-				d.footer(|ui| {
-					let allowed = !state.demo
-						&& self.supported && !self.busy
-						&& self.settings().is_some()
-						&& state.voice.active.as_ref().is_some_and(|call| {
-							matches!(call.phase, Phase::Connected | Phase::Waiting)
-								&& state.can_stream(call.channel)
-						});
-					ui.add_enabled_ui(allowed, |ui| {
-						share = crate::dialog::action(
-							ui,
-							"Share Screen",
-							crate::dialog::Action::Primary,
-						)
-						.clicked();
+		let response = crate::dialog::Dialog::new(
+			"screen-share-settings",
+			crate::i18n::translate("Share your screen"),
+		)
+		.subtitle(crate::i18n::translate(
+			"Choose what people in this call can see.",
+		))
+		.width(460.0)
+		.show(ctx, |d| {
+			d.scroll(260.0, |ui| self.body(ui, state));
+			d.footer(|ui| {
+				let allowed = !state.demo
+					&& self.supported
+					&& !self.busy && self.settings().is_some()
+					&& state.voice.active.as_ref().is_some_and(|call| {
+						matches!(call.phase, Phase::Connected | Phase::Waiting)
+							&& state.can_stream(call.channel)
 					});
-					cancel |= crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral)
-						.clicked();
+				ui.add_enabled_ui(allowed, |ui| {
+					share =
+						crate::dialog::action(ui, "Share Screen", crate::dialog::Action::Primary)
+							.clicked();
 				});
+				cancel |=
+					crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral).clicked();
 			});
+		});
 		cancel |= response.close;
 		if share && !cancel {
 			self.request = self.settings().map(Request::Start);
@@ -156,11 +158,15 @@ impl ScreenUi {
 	fn body(&mut self, ui: &mut egui::Ui, state: &State) {
 		let colors = crate::design::palette(ui);
 		ui.horizontal(|ui| {
-			ui.label(crate::design::eyebrow(ui, "Screen or window", colors.muted));
+			ui.label(crate::design::eyebrow(
+				ui,
+				crate::i18n::translate("Screen or window"),
+				colors.muted,
+			));
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				if ui
 					.add_enabled_ui(!state.demo && !cfg!(target_os = "linux"), |ui| {
-						crate::design::text_action(ui, "Refresh")
+						crate::design::text_action(ui, &crate::i18n::translate("Refresh"))
 					})
 					.inner
 					.clicked()
@@ -178,7 +184,11 @@ impl ScreenUi {
 			.max_height(196.0)
 			.show(ui, |ui| self.source_list(ui));
 		ui.add_space(14.0);
-		ui.label(crate::design::eyebrow(ui, "Quality", colors.muted));
+		ui.label(crate::design::eyebrow(
+			ui,
+			crate::i18n::translate("Quality"),
+			colors.muted,
+		));
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
@@ -189,7 +199,11 @@ impl ScreenUi {
 			}
 		});
 		ui.add_space(8.0);
-		ui.label(crate::design::eyebrow(ui, "Frame rate", colors.muted));
+		ui.label(crate::design::eyebrow(
+			ui,
+			crate::i18n::translate("Frame rate"),
+			colors.muted,
+		));
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
@@ -202,9 +216,11 @@ impl ScreenUi {
 		ui.add_space(4.0);
 		ui.add(
 			egui::Label::new(
-				egui::RichText::new("Quality selection does not require Nitro.")
-					.size(12.0)
-					.color(colors.muted),
+				egui::RichText::new(crate::i18n::translate(
+					"Quality selection does not require Nitro.",
+				))
+				.size(12.0)
+				.color(colors.muted),
 			)
 			.wrap(),
 		);
@@ -231,9 +247,11 @@ impl ScreenUi {
 		ui.add_space(4.0);
 		ui.add(
 			egui::Label::new(
-				egui::RichText::new("Your call microphone keeps its current settings.")
-					.size(12.0)
-					.color(colors.muted),
+				egui::RichText::new(crate::i18n::translate(
+					"Your call microphone keeps its current settings.",
+				))
+				.size(12.0)
+				.color(colors.muted),
 			)
 			.wrap(),
 		);
@@ -269,9 +287,11 @@ impl ScreenUi {
 					ui.set_width(ui.available_width());
 					ui.add(
 						egui::Label::new(
-							egui::RichText::new("No screens or windows are available yet.")
-								.size(13.0)
-								.color(colors.muted),
+							egui::RichText::new(crate::i18n::translate(
+								"No screens or windows are available yet.",
+							))
+							.size(13.0)
+							.color(colors.muted),
 						)
 						.wrap(),
 					);

@@ -33,7 +33,7 @@ impl ServerMenu {
 				menu_row(
 					ui,
 					icons::Icon::Check,
-					"Mark As Read",
+					&crate::i18n::translate("Mark As Read"),
 					design::palette(ui).text,
 				)
 			})
@@ -56,7 +56,7 @@ impl ServerMenu {
 			&& menu_row(
 				ui,
 				icons::Icon::Gear,
-				"Server Settings",
+				&crate::i18n::translate("Server Settings"),
 				design::palette(ui).text,
 			)
 			.clicked()
@@ -79,7 +79,7 @@ impl ServerMenu {
 				menu_row(
 					ui,
 					icons::Icon::ArrowRight,
-					"Leave server",
+					&crate::i18n::translate("Leave server"),
 					design::palette(ui).danger,
 				)
 			})
@@ -160,7 +160,12 @@ impl ServerMenu {
 					self.settings_item(ui, state, guild);
 					if ui
 						.add_enabled_ui(available, |ui| {
-							menu_row(ui, icons::Icon::AddPeople, "Create invite", colors.text)
+							menu_row(
+								ui,
+								icons::Icon::AddPeople,
+								&crate::i18n::translate("Create invite"),
+								colors.text,
+							)
 						})
 						.inner
 						.clicked()
@@ -230,7 +235,7 @@ impl ServerMenu {
 		let reason = state.leave_server_reason(guild);
 		let mut leave = false;
 		let mut close = false;
-		let response = dialog::Dialog::new("server-action-dialog", "Leave server?")
+		let response = dialog::Dialog::new("server-action-dialog", crate::i18n::translate("Leave server?"))
 			.danger()
 			.width(440.0)
 			.show(ctx, |d| {
@@ -291,6 +296,7 @@ fn menu_row(
 	label: &str,
 	color: egui::Color32,
 ) -> egui::Response {
+	let label = crate::i18n::translate(label);
 	ui.scope(|ui| {
 		ui.spacing_mut().button_padding = egui::vec2(36.0, 8.0);
 		let response = ui.add_sized(

@@ -89,51 +89,53 @@ impl ThreadCreateUi {
 			return;
 		}
 		let mut close = false;
-		let result = dialog::Dialog::new(("create-thread", channel), "Create Thread")
-			.subtitle(if request.message.is_some() {
-				"The selected message starts the thread. Everyone who can see this channel can see the thread."
-			} else {
-				"Everyone who can see this channel can see the thread."
-			})
-			.width(420.0)
-			.show(ctx, |d| {
-				d.content(|ui| {
-					let label = dialog::label(ui, "Thread name");
-					dialog::input(
-						ui,
-						egui::TextEdit::singleline(&mut request.name).char_limit(100),
-					)
-					.labelled_by(label.id);
-					request.name.shrink_to_fit();
-					if let Some(error) = state
-						.channel_action_status(channel)
-						.filter(|_| !state.channel_action_succeeded(channel))
-					{
-						dialog::notice(ui, dialog::Level::Error, error);
-					}
-				});
-				d.footer(|ui| {
-					ui.add_enabled_ui(
-						!state.channel_action_pending()
-							&& (state.demo || state.gateway_connected)
-							&& client_core::channel_actions::valid_name(&request.name),
-						|ui| {
-							if dialog::action(ui, "Create", dialog::Action::Primary).clicked() {
-								let action = Action::CreateThread {
-									name: request.name.trim().to_owned(),
-									message: request.message,
-								};
-								if let Some(command) = state.request_channel_action(channel, action)
-								{
-									commands.push(command);
-									request.submitted = true;
-								}
-							}
-						},
-					);
-					close = dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
-				});
+		let result = dialog::Dialog::new(
+			("create-thread", channel),
+			crate::i18n::translate("Create Thread"),
+		)
+		.subtitle(if request.message.is_some() {
+			"The selected message starts the thread. Everyone who can see this channel can see the thread."
+		} else {
+			"Everyone who can see this channel can see the thread."
+		})
+		.width(420.0)
+		.show(ctx, |d| {
+			d.content(|ui| {
+				let label = dialog::label(ui, "Thread name");
+				dialog::input(
+					ui,
+					egui::TextEdit::singleline(&mut request.name).char_limit(100),
+				)
+				.labelled_by(label.id);
+				request.name.shrink_to_fit();
+				if let Some(error) = state
+					.channel_action_status(channel)
+					.filter(|_| !state.channel_action_succeeded(channel))
+				{
+					dialog::notice(ui, dialog::Level::Error, error);
+				}
 			});
+			d.footer(|ui| {
+				ui.add_enabled_ui(
+					!state.channel_action_pending()
+						&& (state.demo || state.gateway_connected)
+						&& client_core::channel_actions::valid_name(&request.name),
+					|ui| {
+						if dialog::action(ui, "Create", dialog::Action::Primary).clicked() {
+							let action = Action::CreateThread {
+								name: request.name.trim().to_owned(),
+								message: request.message,
+							};
+							if let Some(command) = state.request_channel_action(channel, action) {
+								commands.push(command);
+								request.submitted = true;
+							}
+						}
+					},
+				);
+				close = dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
+			});
+		});
 		if close || result.close {
 			self.request = None;
 		}

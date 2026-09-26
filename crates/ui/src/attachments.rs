@@ -204,7 +204,13 @@ pub fn pending_card(
 		),
 		|ui| {
 			ui.add_enabled_ui(removable, |ui| {
-				icons::button(ui, Icon::Trash, 32.0, "Remove attachment").clicked()
+				icons::button(
+					ui,
+					Icon::Trash,
+					32.0,
+					&crate::i18n::translate("Remove attachment"),
+				)
+				.clicked()
 			})
 			.inner
 		},
@@ -431,7 +437,7 @@ fn open_original(
 	opening: &mut Option<String>,
 ) -> Option<egui::Response> {
 	let target = attachment.media.url.as_deref().and_then(external_url)?;
-	let response = ui.small_button("Open original…");
+	let response = ui.small_button(crate::i18n::translate("Open original…"));
 	if response.clicked() {
 		*opening = Some(target);
 	}
@@ -531,11 +537,15 @@ fn media_menu(
 			}
 		}
 		if let Some(url) = url.and_then(external_url) {
-			if video && ui.button("Open original…").clicked() {
+			if video
+				&& ui
+					.button(crate::i18n::translate("Open original…"))
+					.clicked()
+			{
 				*opening = Some(url.clone());
 				ui.close();
 			}
-			if ui.button("Copy link").clicked() {
+			if ui.button(crate::i18n::translate("Copy link")).clicked() {
 				ui.ctx().copy_text(url);
 				ui.close();
 			}
@@ -554,10 +564,14 @@ impl DownloadUi {
 		if !self.status.is_empty() {
 			ui.horizontal_wrapped(|ui| {
 				ui.small(&self.status);
-				if self.active && ui.small_button("Cancel download").clicked() {
+				if self.active
+					&& ui
+						.small_button(crate::i18n::translate("Cancel download"))
+						.clicked()
+				{
 					self.cancel_requested = true;
 				}
-				if !self.active && ui.small_button("Dismiss").clicked() {
+				if !self.active && ui.small_button(crate::i18n::translate("Dismiss")).clicked() {
 					self.dismiss_requested = true;
 				}
 			});
@@ -571,8 +585,13 @@ fn download_button(
 	demo: bool,
 ) -> egui::Response {
 	let response = ui
-		.add_enabled(!demo && !download.busy(), egui::Button::new("Download"))
-		.on_hover_text("Choose where to save this file · up to 100 MiB")
+		.add_enabled(
+			!demo && !download.busy(),
+			egui::Button::new(crate::i18n::translate("Download")),
+		)
+		.on_hover_text(crate::i18n::translate(
+			"Choose where to save this file · up to 100 MiB",
+		))
 		.on_disabled_hover_text(if demo {
 			"Downloads are disabled for synthetic attachments"
 		} else {
@@ -804,7 +823,9 @@ pub fn viewer(
 					} else {
 						egui::CursorIcon::ZoomIn
 					})
-					.on_hover_text("Scroll to zoom · Drag to pan · Double-click to reset")
+					.on_hover_text(crate::i18n::translate(
+						"Scroll to zoom · Drag to pan · Double-click to reset",
+					))
 					.on_hover_text(
 						attachment
 							.description
@@ -941,8 +962,12 @@ pub fn viewer(
 						&& ui
 							.add(
 								egui::Label::new(
-									design::medium(ui, "Open in browser", 13.0)
-										.color(Color32::from_rgb(0, 168, 252)),
+									design::medium(
+										ui,
+										crate::i18n::translate("Open in browser"),
+										13.0,
+									)
+									.color(Color32::from_rgb(0, 168, 252)),
 								)
 								.sense(Sense::click())
 								.selectable(false),
@@ -966,7 +991,7 @@ pub fn viewer(
 							&& ui
 								.add(
 									egui::Label::new(
-										design::medium(ui, "Cancel", 13.0)
+										design::medium(ui, crate::i18n::translate("Cancel"), 13.0)
 											.color(Color32::from_rgb(0, 168, 252)),
 									)
 									.sense(Sense::click())

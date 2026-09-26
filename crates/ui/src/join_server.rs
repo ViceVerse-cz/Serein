@@ -210,42 +210,47 @@ impl JoinDialog {
 			return;
 		}
 		let mut close = false;
-		let response = dialog::Dialog::new("join-server-dialog", "Join a Server")
-			.subtitle("Enter an invite below to join an existing server.")
-			.width(460.0)
-			.show(ctx, |d| {
-				let (ready, member, loading, accepted, parsed) =
-					d.scroll(260.0, |ui| self.body(ui, state, avatars));
-				d.footer(|ui| {
-					let busy = loading || state.invite_join.pending;
-					let enabled = !state.demo && !busy && !member && !accepted;
-					let text = if busy {
-						"Please wait…"
-					} else if ready {
-						"Join Server"
-					} else {
-						"Check Invite"
-					};
-					ui.add_enabled_ui(enabled, |ui| {
-						if dialog::action(ui, text, dialog::Action::Primary).clicked() {
-							self.submit(state, parsed.clone(), ready, commands);
-						}
-					});
-					if dialog::action(
-						ui,
-						if self.picker { "Back" } else { "Cancel" },
-						dialog::Action::Neutral,
-					)
-					.clicked()
-					{
-						if self.picker {
-							self.page = Page::Choose;
-						} else {
-							close = true;
-						}
+		let response = dialog::Dialog::new(
+			"join-server-dialog",
+			crate::i18n::translate("Join a Server"),
+		)
+		.subtitle(crate::i18n::translate(
+			"Enter an invite below to join an existing server.",
+		))
+		.width(460.0)
+		.show(ctx, |d| {
+			let (ready, member, loading, accepted, parsed) =
+				d.scroll(260.0, |ui| self.body(ui, state, avatars));
+			d.footer(|ui| {
+				let busy = loading || state.invite_join.pending;
+				let enabled = !state.demo && !busy && !member && !accepted;
+				let text = if busy {
+					"Please wait…"
+				} else if ready {
+					"Join Server"
+				} else {
+					"Check Invite"
+				};
+				ui.add_enabled_ui(enabled, |ui| {
+					if dialog::action(ui, text, dialog::Action::Primary).clicked() {
+						self.submit(state, parsed.clone(), ready, commands);
 					}
 				});
+				if dialog::action(
+					ui,
+					if self.picker { "Back" } else { "Cancel" },
+					dialog::Action::Neutral,
+				)
+				.clicked()
+				{
+					if self.picker {
+						self.page = Page::Choose;
+					} else {
+						close = true;
+					}
+				}
 			});
+		});
 		if close || response.close {
 			*self = Self::default();
 		}
@@ -302,7 +307,7 @@ impl JoinDialog {
 			ui.add_space(8.0);
 			ui.label(design::eyebrow(
 				ui,
-				"Have an invite already?",
+				crate::i18n::translate("Have an invite already?"),
 				design::palette(ui).muted,
 			));
 			if option_row(ui, icons::Icon::Compass, "Join a Server").clicked() {
@@ -314,7 +319,9 @@ impl JoinDialog {
 				design::notice(
 					ui,
 					design::Level::Info,
-					"Offline preview - creating and joining servers are disabled.",
+					&crate::i18n::translate(
+						"Offline preview - creating and joining servers are disabled.",
+					),
 				);
 			}
 		});
@@ -329,11 +336,11 @@ impl JoinDialog {
 			}
 			ui.add_space(8.0);
 			ui.horizontal_wrapped(|ui| {
-				ui.label("Not sure?");
+				ui.label(crate::i18n::translate("Not sure?"));
 				if ui.link("Skip this question").clicked() {
 					self.begin_customize(state);
 				}
-				ui.label("for now.");
+				ui.label(crate::i18n::translate("for now."));
 			});
 		});
 		d.footer(|ui| {
@@ -410,12 +417,12 @@ impl JoinDialog {
 				}
 			});
 			ui.add_space(18.0);
-			let label = design::label(ui, "Server name");
+			let label = design::label(ui, &crate::i18n::translate("Server name"));
 			let input = design::input(
 				ui,
 				egui::TextEdit::singleline(&mut self.name)
 					.char_limit(100)
-					.hint_text("My server"),
+					.hint_text(crate::i18n::translate("My server")),
 			)
 			.labelled_by(label.id);
 			if std::mem::take(&mut self.name_focus) {
@@ -440,14 +447,16 @@ impl JoinDialog {
 				design::notice(
 					ui,
 					design::Level::Success,
-					"Server created. Waiting for Discord to add it to your server list.",
+					&crate::i18n::translate(
+						"Server created. Waiting for Discord to add it to your server list.",
+					),
 				);
 			} else if state.demo {
 				ui.add_space(10.0);
 				design::notice(
 					ui,
 					design::Level::Info,
-					"Offline preview - creation is disabled.",
+					&crate::i18n::translate("Offline preview - creation is disabled."),
 				);
 			} else if !self.status.is_empty() {
 				ui.add_space(10.0);
@@ -497,7 +506,11 @@ impl JoinDialog {
 		avatars: &mut crate::avatars::Avatars,
 	) -> (bool, bool, bool, bool, Option<String>) {
 		let colors = design::palette(ui);
-		let label = ui.label(design::eyebrow(ui, "Invite link", colors.muted));
+		let label = ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("Invite link"),
+			colors.muted,
+		));
 		ui.add_space(6.0);
 		let input = invite_input(ui, &mut self.input, std::mem::take(&mut self.focus))
 			.labelled_by(label.id);
@@ -507,7 +520,7 @@ impl JoinDialog {
 		ui.add_space(10.0);
 		ui.add(
 			egui::Label::new(
-				egui::RichText::new("Invites look like")
+				egui::RichText::new(crate::i18n::translate("Invites look like"))
 					.size(12.0)
 					.color(colors.muted),
 			)
@@ -516,10 +529,12 @@ impl JoinDialog {
 		ui.add_space(2.0);
 		ui.add(
 			egui::Label::new(
-				egui::RichText::new("hTKzmak · discord.gg/hTKzmak · discord.gg/wumpus-friends")
-					.size(12.0)
-					.monospace()
-					.color(colors.muted),
+				egui::RichText::new(crate::i18n::translate(
+					"hTKzmak · discord.gg/hTKzmak · discord.gg/wumpus-friends",
+				))
+				.size(12.0)
+				.monospace()
+				.color(colors.muted),
 			)
 			.wrap(),
 		);
@@ -697,11 +712,17 @@ impl JoinDialog {
 			.show(ui, |ui| {
 				ui.set_width(ui.available_width());
 				ui.spacing_mut().item_spacing.y = 4.0;
-				ui.label(design::semibold(ui, "Don't have an invite?", 15.0));
+				ui.label(design::semibold(
+					ui,
+					crate::i18n::translate("Don't have an invite?"),
+					15.0,
+				));
 				ui.hyperlink_to(
-					egui::RichText::new("Explore discoverable communities in Discord ↗")
-						.size(13.0)
-						.color(colors.link),
+					egui::RichText::new(crate::i18n::translate(
+						"Explore discoverable communities in Discord ↗",
+					))
+					.size(13.0)
+					.color(colors.link),
 					"https://discord.com/servers",
 				);
 			});

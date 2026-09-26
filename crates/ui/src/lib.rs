@@ -470,7 +470,7 @@ fn mention_switch(ui: &mut egui::Ui, colors: &design::Palette, on: &mut bool) {
 			egui::Role::CheckBox,
 			ui.is_enabled(),
 			*on,
-			"Ping the original author",
+			crate::i18n::translate("Ping the original author"),
 		)
 	});
 	response.on_hover_text(hover);
@@ -1055,16 +1055,24 @@ impl MessagingUi {
 								.inner_margin(egui::Margin::symmetric(8, 3))
 								.show(ui, |ui| {
 									ui.label(
-										design::semibold(ui, "OFFLINE PREVIEW", 10.0)
-											.color(colors.muted),
+										design::semibold(
+											ui,
+											crate::i18n::translate("OFFLINE PREVIEW"),
+											10.0,
+										)
+										.color(colors.muted),
 									);
 								})
 								.response
-								.on_hover_text("Synthetic data · no network or local storage");
+								.on_hover_text(crate::i18n::translate(
+									"Synthetic data · no network or local storage",
+								));
 						}
 						if !state.demo
 							&& state.auth != client_core::auth::AuthState::Authenticated
-							&& ui.small_button("Sign in again").clicked()
+							&& ui
+								.small_button(crate::i18n::translate("Sign in again"))
+								.clicked()
 						{
 							self.reconnect_requested = true;
 						}
@@ -1520,7 +1528,10 @@ impl MessagingUi {
 					commands.push(command);
 				}
 				if !self.channel_preferences_status.is_empty() {
-					ui.colored_label(design::palette(ui).warning, self.channel_preferences_status);
+					ui.colored_label(
+						design::palette(ui).warning,
+						crate::i18n::translate(self.channel_preferences_status),
+					);
 					if ui.button(language.text("retry-shortcuts")).clicked() {
 						if self.channel_preferences_loaded {
 							self.channel_preferences_changed = true;
@@ -2283,19 +2294,26 @@ impl MessagingUi {
 				);
 				if self.edit_sent {
 					ui.label(
-						RichText::new("· Save requested, check the connection before retrying")
-							.size(12.0)
-							.color(colors.muted),
+						RichText::new(crate::i18n::translate(
+							"· Save requested, check the connection before retrying",
+						))
+						.size(12.0)
+						.color(colors.muted),
 					);
 				}
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-					cancel_edit =
-						icons::button(ui, icons::Icon::Close, 22.0, "Cancel edit").clicked();
+					cancel_edit = icons::button(
+						ui,
+						icons::Icon::Close,
+						22.0,
+						&crate::i18n::translate("Cancel edit"),
+					)
+					.clicked();
 					if unavailable
 						&& ui
 							.add(
 								egui::Button::new(
-									RichText::new("Copy edit text")
+									RichText::new(crate::i18n::translate("Copy edit text"))
 										.size(12.0)
 										.color(colors.muted),
 								)
@@ -2316,11 +2334,22 @@ impl MessagingUi {
 				.to_owned();
 			let cap = composer_cap(ui, &colors, |ui| {
 				ui.spacing_mut().item_spacing.x = 0.0;
-				ui.label(RichText::new("Replying to ").size(13.0).color(colors.muted));
+				ui.label(
+					RichText::new(crate::i18n::translate("Replying to "))
+						.size(13.0)
+						.color(colors.muted),
+				);
 				ui.label(design::semibold(ui, author.as_str(), 13.0).color(colors.text_strong));
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
-					if icons::button(ui, icons::Icon::Close, 22.0, "Cancel reply").clicked() {
+					if icons::button(
+						ui,
+						icons::Icon::Close,
+						22.0,
+						&crate::i18n::translate("Cancel reply"),
+					)
+					.clicked()
+					{
 						state.reply = None;
 					}
 					if let Some(reply) = state.reply.as_mut() {
@@ -2330,7 +2359,7 @@ impl MessagingUi {
 						.add_enabled(
 							state.can_open_reply_target(reply.target()),
 							egui::Button::new(
-								RichText::new("View original")
+								RichText::new(crate::i18n::translate("View original"))
 									.size(12.0)
 									.color(colors.muted),
 							)
@@ -2352,8 +2381,14 @@ impl MessagingUi {
 		let full = state.draft_bytes() >= MAX_DRAFT_BYTES
 			|| (!state.drafts.contains_key(&channel) && state.drafts.len() >= 64);
 		if full && !editing_here {
-			ui.label("Draft budget full. Clear an existing draft to continue.");
-			if state.drafts.contains_key(&channel) && ui.button("Clear this draft").clicked() {
+			ui.label(crate::i18n::translate(
+				"Draft budget full. Clear an existing draft to continue.",
+			));
+			if state.drafts.contains_key(&channel)
+				&& ui
+					.button(crate::i18n::translate("Clear this draft"))
+					.clicked()
+			{
 				self.clear_draft(state, channel);
 			}
 			return;
@@ -2636,10 +2671,10 @@ impl MessagingUi {
                     } else {
                         Some(ui
                             .add_enabled_ui(can_attach, |ui| {
-                                icons::button(ui, icons::Icon::Attach, 28.0, "Attach files")
+                                icons::button(ui, icons::Icon::Attach, 28.0, &crate::i18n::translate("Attach files"))
                             })
                             .inner
-                            .on_hover_text("Choose, drop, or paste files (Ctrl/Cmd/Option+V). Up to 10 files and 500 MB total; account limits may be lower. Send starts the upload."))
+                            .on_hover_text(crate::i18n::translate("Choose, drop, or paste files (Ctrl/Cmd/Option+V). Up to 10 files and 500 MB total; account limits may be lower. Send starts the upload.")))
                     };
                     if !editing_here { self.extensions.composer_menu(ui, state); }
                     if attach.is_some_and(|attach| attach.clicked()) {
@@ -3167,6 +3202,7 @@ impl MessagingUi {
 
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		crate::scroll::apply_preferences(ui.ctx(), self.reading_preferences);
+		crate::i18n::set_current(self.language);
 		let language = self.language;
 		if let Some(status) = state.take_user_action_status() {
 			self.toasts.push(design::Level::Error, status);
@@ -7366,7 +7402,12 @@ pub fn debug_forward_check(state: &mut State) {
 					if response.clicked() {
 						selected = !selected;
 					}
-					icons::button(ui, icons::Icon::Forward, 28.0, "Forward message");
+					icons::button(
+						ui,
+						icons::Icon::Forward,
+						28.0,
+						&crate::i18n::translate("Forward message"),
+					);
 				},
 			)
 			.drop_without_applying_deltas();

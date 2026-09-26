@@ -290,7 +290,8 @@ impl ForumUi {
 						let button = ui.add_enabled(
 							allowed && self.draft.is_none(),
 							egui::Button::new(
-								design::medium(ui, "New Post", 14.0).color(colors.accent_text),
+								design::medium(ui, crate::i18n::translate("New Post"), 14.0)
+									.color(colors.accent_text),
 							)
 							.fill(colors.accent)
 							.stroke(egui::Stroke::NONE)
@@ -301,9 +302,9 @@ impl ForumUi {
 							self.start_draft(String::new());
 						}
 						if !allowed && state.is_forum(forum) {
-							button.on_disabled_hover_text(
+							button.on_disabled_hover_text(crate::i18n::translate(
 								"Posting requires a connected session with permission to send here.",
-							);
+							));
 						}
 						ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 							icons::inline(ui, icons::Icon::Search, 20.0, colors.muted);
@@ -311,7 +312,7 @@ impl ForumUi {
 								egui::TextEdit::singleline(&mut self.query)
 									.char_limit(MAX_TITLE)
 									.frame(egui::Frame::NONE)
-									.hint_text("Search or create a post...")
+									.hint_text(crate::i18n::translate("Search or create a post..."))
 									.font(egui::TextStyle::Body)
 									.desired_width(ui.available_width().max(60.0)),
 							);
@@ -386,12 +387,20 @@ impl ForumUi {
 			.show(|ui| {
 				ui.set_min_width(200.0);
 				ui.spacing_mut().item_spacing.y = 6.0;
-				ui.label(design::eyebrow(ui, "Sort by", colors.muted));
+				ui.label(design::eyebrow(
+					ui,
+					crate::i18n::translate("Sort by"),
+					colors.muted,
+				));
 				for sort in [Sort::Activity, Sort::Created] {
 					ui.radio_value(&mut self.sort, sort, sort_label(sort));
 				}
 				ui.separator();
-				ui.label(design::eyebrow(ui, "View as", colors.muted));
+				ui.label(design::eyebrow(
+					ui,
+					crate::i18n::translate("View as"),
+					colors.muted,
+				));
 				ui.radio_value(&mut self.layout, Layout::List, "List");
 				ui.radio_value(&mut self.layout, Layout::Gallery, "Gallery");
 			});
@@ -442,7 +451,7 @@ impl ForumUi {
 			!self.tags.is_empty(),
 		);
 		let button = if folded {
-			button.on_hover_text("More tags")
+			button.on_hover_text(crate::i18n::translate("More tags"))
 		} else {
 			button
 		};
@@ -452,7 +461,10 @@ impl ForumUi {
 				ui.set_max_width(360.0);
 				ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 				ui.horizontal(|ui| {
-					ui.label(design::semibold(ui, "Select Tags", 15.0).color(colors.muted));
+					ui.label(
+						design::semibold(ui, crate::i18n::translate("Select Tags"), 15.0)
+							.color(colors.muted),
+					);
 					count_badge(ui, self.tags.len());
 				});
 				ui.horizontal_wrapped(|ui| {
@@ -473,18 +485,26 @@ impl ForumUi {
 					}
 				});
 				ui.horizontal(|ui| {
-					ui.label(RichText::new("Match").size(13.0).color(colors.muted));
+					ui.label(
+						RichText::new(crate::i18n::translate("Match"))
+							.size(13.0)
+							.color(colors.muted),
+					);
 					ui.radio_value(&mut self.match_all, false, "Some")
-						.on_hover_text("Show posts with any selected tag");
+						.on_hover_text(crate::i18n::translate("Show posts with any selected tag"));
 					ui.radio_value(&mut self.match_all, true, "All")
-						.on_hover_text("Show only posts with every selected tag");
+						.on_hover_text(crate::i18n::translate(
+							"Show only posts with every selected tag",
+						));
 				});
 				ui.separator();
 				if ui
 					.add_enabled(
 						!self.tags.is_empty(),
-						egui::Button::new(RichText::new("Clear all").color(colors.link))
-							.frame(false),
+						egui::Button::new(
+							RichText::new(crate::i18n::translate("Clear all")).color(colors.link),
+						)
+						.frame(false),
 					)
 					.clicked()
 				{
@@ -534,8 +554,13 @@ impl ForumUi {
 						ui.set_width(ui.available_width());
 						ui.horizontal_top(|ui| {
 							ui.spacing_mut().item_spacing.x = 10.0;
-							if icons::button(ui, icons::Icon::Close, 22.0, "Discard this post")
-								.clicked()
+							if icons::button(
+								ui,
+								icons::Icon::Close,
+								22.0,
+								&crate::i18n::translate("Discard this post"),
+							)
+							.clicked()
 							{
 								cancel = true;
 							}
@@ -554,7 +579,12 @@ impl ForumUi {
 										))
 										.text_color(colors.text_strong)
 										.hint_text(
-											design::semibold(ui, "Title", 20.0).color(colors.muted),
+											design::semibold(
+												ui,
+												crate::i18n::translate("Title"),
+												20.0,
+											)
+											.color(colors.muted),
 										)
 										.desired_width(f32::INFINITY),
 								);
@@ -568,9 +598,11 @@ impl ForumUi {
 										.char_limit(MAX_CONTENT)
 										.frame(egui::Frame::NONE)
 										.hint_text(
-											RichText::new("Enter a message...")
-												.size(15.0)
-												.color(colors.muted),
+											RichText::new(crate::i18n::translate(
+												"Enter a message...",
+											))
+											.size(15.0)
+											.color(colors.muted),
 										)
 										.desired_rows(3)
 										.desired_width(f32::INFINITY),
@@ -623,7 +655,7 @@ impl ForumUi {
 									egui::WidgetInfo::labeled(
 										egui::Role::Button,
 										enabled,
-										"Add images to this post",
+										crate::i18n::translate("Add images to this post"),
 									)
 								});
 								if response.clicked() {
@@ -676,8 +708,12 @@ impl ForumUi {
 									let post = ui.add_enabled(
 										ready && !draft.submitted && !posting,
 										egui::Button::new(
-											design::medium(ui, "Post", 14.0)
-												.color(colors.accent_text),
+											design::medium(
+												ui,
+												crate::i18n::translate("Post"),
+												14.0,
+											)
+											.color(colors.accent_text),
 										)
 										.fill(colors.accent)
 										.stroke(egui::Stroke::NONE)
@@ -686,7 +722,10 @@ impl ForumUi {
 									);
 									submit = post.clicked();
 									if posting {
-										ui.label(RichText::new("Posting…").color(colors.muted));
+										ui.label(
+											RichText::new(crate::i18n::translate("Posting…"))
+												.color(colors.muted),
+										);
 									} else if let Some(error) = error {
 										ui.label(RichText::new(error).color(colors.danger));
 									}
@@ -799,7 +838,7 @@ fn post_tags(
 				CARD_TAG_HEIGHT,
 				egui::Sense::click(),
 			)
-			.on_hover_text("Remove tag")
+			.on_hover_text(crate::i18n::translate("Remove tag"))
 			.clicked()
 			{
 				removed = Some(tag.id);
@@ -823,13 +862,13 @@ fn post_tags(
 			})
 			.inner;
 		let button = if full {
-			button.on_disabled_hover_text("A post can carry up to 5 tags.")
+			button.on_disabled_hover_text(crate::i18n::translate("A post can carry up to 5 tags."))
 		} else {
 			button
 		};
 		if required && picked.is_empty() {
 			ui.label(
-				RichText::new("This forum requires a tag")
+				RichText::new(crate::i18n::translate("This forum requires a tag"))
 					.size(12.0)
 					.color(colors.muted),
 			);
@@ -840,7 +879,10 @@ fn post_tags(
 				ui.set_max_width(360.0);
 				ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 				ui.horizontal(|ui| {
-					ui.label(design::semibold(ui, "Select Tags", 15.0).color(colors.muted));
+					ui.label(
+						design::semibold(ui, crate::i18n::translate("Select Tags"), 15.0)
+							.color(colors.muted),
+					);
 					count_badge(ui, picked.len());
 					ui.label(
 						RichText::new(format!("up to {}", model::forum::MAX_APPLIED_TAGS))
@@ -867,7 +909,9 @@ fn post_tags(
 							})
 							.inner;
 						let pill = if tag.moderated && !state.can_apply_tag(forum, tag) {
-							pill.on_disabled_hover_text("Only moderators can apply this tag.")
+							pill.on_disabled_hover_text(crate::i18n::translate(
+								"Only moderators can apply this tag.",
+							))
 						} else {
 							pill
 						};
@@ -1241,7 +1285,7 @@ fn latest_row(ui: &mut egui::Ui, state: &State, post: &Channel) {
 		.and_then(|summary| summary.latest.as_ref());
 	let Some(latest) = latest else {
 		ui.label(
-			RichText::new("Latest message unavailable")
+			RichText::new(crate::i18n::translate("Latest message unavailable"))
 				.size(14.0)
 				.color(colors.muted),
 		);
@@ -1308,7 +1352,11 @@ fn stats_row(
 		);
 		if archived {
 			ui.label(RichText::new("·").color(colors.muted));
-			ui.label(RichText::new("Archived").size(13.0).color(colors.muted));
+			ui.label(
+				RichText::new(crate::i18n::translate("Archived"))
+					.size(13.0)
+					.color(colors.muted),
+			);
 		}
 	});
 }
@@ -1513,7 +1561,7 @@ fn posts_footer(ui: &mut egui::Ui, state: &State, forum: Id) -> bool {
 	ui.horizontal_wrapped(|ui| {
 		if state.posts.loading {
 			ui.label(
-				RichText::new("Loading posts…")
+				RichText::new(crate::i18n::translate("Loading posts…"))
 					.size(13.0)
 					.color(colors.muted),
 			);
@@ -1522,14 +1570,14 @@ fn posts_footer(ui: &mut egui::Ui, state: &State, forum: Id) -> bool {
 			request = ui
 				.add_enabled(
 					state.can_load_posts(forum),
-					egui::Button::new(RichText::new("Retry").size(13.0)),
+					egui::Button::new(RichText::new(crate::i18n::translate("Retry")).size(13.0)),
 				)
 				.clicked();
 		} else if state.posts.more {
 			request = ui
 				.add(
 					egui::Button::new(
-						RichText::new("Load more posts")
+						RichText::new(crate::i18n::translate("Load more posts"))
 							.size(13.0)
 							.color(colors.link),
 					)
@@ -1556,7 +1604,7 @@ fn archive_footer(
 			let button = ui.add_enabled(
 				allowed,
 				egui::Button::new(
-					RichText::new("Load archived posts")
+					RichText::new(crate::i18n::translate("Load archived posts"))
 						.size(13.0)
 						.color(colors.link),
 				)
@@ -1567,15 +1615,17 @@ fn archive_footer(
 			}
 			if !allowed {
 				ui.label(
-					RichText::new("Archived posts need a connected session with history access.")
-						.size(12.0)
-						.color(colors.muted),
+					RichText::new(crate::i18n::translate(
+						"Archived posts need a connected session with history access.",
+					))
+					.size(12.0)
+					.color(colors.muted),
 				);
 			}
 		}
 		Some(view) if view.loading => {
 			ui.label(
-				RichText::new("Loading archived posts…")
+				RichText::new(crate::i18n::translate("Loading archived posts…"))
 					.size(13.0)
 					.color(colors.muted),
 			);
@@ -1586,7 +1636,9 @@ fn archive_footer(
 				if ui
 					.add_enabled(
 						allowed,
-						egui::Button::new(RichText::new("Retry").size(13.0)),
+						egui::Button::new(
+							RichText::new(crate::i18n::translate("Retry")).size(13.0),
+						),
 					)
 					.clicked()
 				{
@@ -1598,7 +1650,7 @@ fn archive_footer(
 						.add_enabled(
 							allowed,
 							egui::Button::new(
-								RichText::new("Older archived posts")
+								RichText::new(crate::i18n::translate("Older archived posts"))
 									.size(13.0)
 									.color(colors.link),
 							)
@@ -1610,7 +1662,7 @@ fn archive_footer(
 					}
 				} else {
 					ui.label(
-						RichText::new("No older archived posts reported.")
+						RichText::new(crate::i18n::translate("No older archived posts reported."))
 							.size(12.0)
 							.color(colors.muted),
 					);

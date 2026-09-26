@@ -719,7 +719,7 @@ impl MessagingUi {
 								|ui| {
 									if design::button(
 										ui,
-										"Edit profile",
+										&crate::i18n::translate("Edit profile"),
 										design::ButtonKind::Outline,
 									)
 									.clicked()
@@ -752,7 +752,7 @@ impl MessagingUi {
 		} else {
 			"Log out"
 		};
-		design::group(ui, "Session", |ui| {
+		design::group(ui, &crate::i18n::translate("Session"), |ui| {
 			if design::row(
 				ui,
 				label,
@@ -892,10 +892,18 @@ impl MessagingUi {
 		ui.set_min_width(324.0);
 		ui.set_max_width(324.0);
 		ui.spacing_mut().item_spacing.y = 6.0;
-		ui.label(design::eyebrow(ui, "Mode", colors.muted));
+		ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("Mode"),
+			colors.muted,
+		));
 		theme_preference_cards(ui);
 		ui.add_space(6.0);
-		ui.label(design::eyebrow(ui, "Theme", colors.muted));
+		ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("Theme"),
+			colors.muted,
+		));
 		let current = design::variant();
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
@@ -910,7 +918,11 @@ impl MessagingUi {
 			}
 		});
 		ui.add_space(6.0);
-		ui.label(design::eyebrow(ui, "Display", colors.muted));
+		ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("Display"),
+			colors.muted,
+		));
 		let mut value = self.reading_preferences;
 		ui.spacing_mut().slider_width = 96.0;
 		self.zoom_row(ui, &mut value);
@@ -922,11 +934,15 @@ impl MessagingUi {
 	fn appearance_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
 		ui.add_space(4.0);
-		ui.label(design::eyebrow(ui, "Theme", colors.muted));
+		ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("Theme"),
+			colors.muted,
+		));
 		theme_preference_cards(ui);
 		self.colour_preset_settings(ui);
 		self.custom_font.show(ui);
-		design::group(ui, "Accent", |ui| {
+		design::group(ui, &crate::i18n::translate("Accent"), |ui| {
 			let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
 			design::row(
 				ui,
@@ -939,13 +955,13 @@ impl MessagingUi {
 				|ui| {
 					ui.add_enabled_ui(!themed_accent, |ui| {
 						if self.primary_color.is_some()
-							&& design::text_action(ui, "Reset").clicked()
+							&& design::text_action(ui, &crate::i18n::translate("Reset")).clicked()
 						{
 							self.primary_color = None;
 						}
 						let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
 						if design::color_edit(ui, &mut color)
-							.on_hover_text("Choose primary color")
+							.on_hover_text(crate::i18n::translate("Choose primary color"))
 							.changed()
 						{
 							self.primary_color = Some(color);
@@ -954,7 +970,7 @@ impl MessagingUi {
 				},
 			);
 		});
-		design::group(ui, "Window effects", |ui| {
+		design::group(ui, &crate::i18n::translate("Window effects"), |ui| {
 			design::switch(
 				ui,
 				"Transparency & blur",
@@ -996,7 +1012,7 @@ impl MessagingUi {
 
 	fn chat_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		self.chat_reading_settings(ui, demo);
-		design::group(ui, "Channel list", |ui| {
+		design::group(ui, &crate::i18n::translate("Channel list"), |ui| {
 			design::switch(
 				ui,
 				"Show hidden channels",
@@ -1043,7 +1059,7 @@ impl MessagingUi {
 			})
 			.map_or(current.label(), |(_, _, label, _)| label.as_str())
 			.to_owned();
-		design::group(ui, "Colour preset", |ui| {
+		design::group(ui, &crate::i18n::translate("Colour preset"), |ui| {
 			ui.horizontal_wrapped(|ui| {
 				ui.spacing_mut().item_spacing = egui::vec2(12.0, 10.0);
 				for (variant, id, label, swatch) in presets {
@@ -1129,14 +1145,19 @@ impl MessagingUi {
 	}
 
 	fn storage_page(&mut self, ui: &mut egui::Ui, state: &State) {
-		design::group(ui, "Local storage", |ui| {
+		design::group(ui, &crate::i18n::translate("Local storage"), |ui| {
 			design::row(
 				ui,
 				"Clear cache",
 				Some("Removes cached messages and media. Drafts and your login stay."),
 				|ui| {
 					ui.add_enabled_ui(!state.demo, |ui| {
-						if design::button(ui, "Clear cache", design::ButtonKind::Outline).clicked()
+						if design::button(
+							ui,
+							&crate::i18n::translate("Clear cache"),
+							design::ButtonKind::Outline,
+						)
+						.clicked()
 						{
 							self.clear_cache_requested = true;
 						}
@@ -1149,13 +1170,17 @@ impl MessagingUi {
 			design::card_divider(ui);
 			design::hint(
 				ui,
-				"Messages and drafts are cached on this device inside bounded, account-isolated files. Cache data is not encrypted by Serein; saved login tokens use the OS credential store.",
+				&crate::i18n::translate(
+					"Messages and drafts are cached on this device inside bounded, account-isolated files. Cache data is not encrypted by Serein; saved login tokens use the OS credential store.",
+				),
 			);
 		});
-		design::group(ui, "Your privacy", |ui| {
+		design::group(ui, &crate::i18n::translate("Your privacy"), |ui| {
 			design::hint(
 				ui,
-				"Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.",
+				&crate::i18n::translate(
+					"Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.",
+				),
 			);
 		});
 	}
@@ -1228,7 +1253,11 @@ pub(super) fn close_control(ui: &mut egui::Ui) -> egui::Response {
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(egui::vec2(40.0, 56.0), egui::Sense::click());
 	response.widget_info(|| {
-		egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Close settings (Esc)")
+		egui::WidgetInfo::labeled(
+			egui::Role::Button,
+			ui.is_enabled(),
+			crate::i18n::translate("Close settings (Esc)"),
+		)
 	});
 	let hot = response.hovered() || response.has_focus();
 	let center = egui::pos2(rect.center().x, rect.top() + 18.0);
@@ -1259,7 +1288,7 @@ pub(super) fn close_control(ui: &mut egui::Ui) -> egui::Response {
 		egui::FontId::new(11.0, design::semibold_family(ui.ctx())),
 		colors.muted,
 	);
-	response.on_hover_text("Close settings (Esc)")
+	response.on_hover_text(crate::i18n::translate("Close settings (Esc)"))
 }
 
 /// Dark, light or system cards with a miniature of each palette and a radio marker.

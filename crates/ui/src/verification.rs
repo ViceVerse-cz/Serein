@@ -47,7 +47,7 @@ impl VerificationUi {
 			} else {
 				"invite-verification"
 			},
-			"Verification required",
+			crate::i18n::translate("Verification required"),
 		)
 		.subtitle(if friend {
 			"Complete the check to send this friend request."

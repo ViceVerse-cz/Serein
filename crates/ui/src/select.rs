@@ -313,7 +313,7 @@ impl egui::Plugin for Pointer {
 		.open_memory(Some(egui::SetOpenCommand::Bool(true)))
 		.kind(egui::PopupKind::Menu)
 		.show(|ui| {
-			if ui.button("Copy").clicked() {
+			if ui.button(crate::i18n::translate("Copy")).clicked() {
 				request_copy(ui.ctx());
 				ui.close();
 			}

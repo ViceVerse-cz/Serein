@@ -643,7 +643,7 @@ impl Menu {
 				&mut body,
 				icons::Icon::Reload,
 				18.0,
-				"Refresh application commands",
+				&crate::i18n::translate("Refresh application commands"),
 			)
 			.clicked()
 		{
@@ -1270,7 +1270,7 @@ fn argument(
 				egui::TextEdit::singleline(value)
 					.id(id)
 					.frame(egui::Frame::NONE)
-					.hint_text("ID or choose…")
+					.hint_text(crate::i18n::translate("ID or choose…"))
 					.char_limit(22)
 					.desired_width((ui.available_width() - 25.0).max(24.0)),
 			);
@@ -1321,8 +1321,10 @@ fn argument(
 		})
 		.inner
 	} else if option.kind == 11 {
-		ui.add(egui::Label::new("Unavailable").truncate())
-			.on_hover_text("Attachment arguments are not supported yet.")
+		ui.add(egui::Label::new(crate::i18n::translate("Unavailable")).truncate())
+			.on_hover_text(crate::i18n::translate(
+				"Attachment arguments are not supported yet.",
+			))
 	} else {
 		ui.add(
 			egui::TextEdit::singleline(value)

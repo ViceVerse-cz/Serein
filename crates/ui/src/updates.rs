@@ -103,7 +103,13 @@ impl MessagingUi {
 		);
 		let mut dismiss = false;
 		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-			dismiss = icons::button(ui, icons::Icon::Close, 18.0, "Dismiss update").clicked();
+			dismiss = icons::button(
+				ui,
+				icons::Icon::Close,
+				18.0,
+				&crate::i18n::translate("Dismiss update"),
+			)
+			.clicked();
 		});
 		response
 			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
@@ -237,16 +243,24 @@ impl MessagingUi {
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					if self.updates.ready {
 						ui.add_enabled_ui(!self.updates.busy, |ui| {
-							if design::button(ui, "Restart to update", design::ButtonKind::Primary)
-								.clicked()
+							if design::button(
+								ui,
+								&crate::i18n::translate("Restart to update"),
+								design::ButtonKind::Primary,
+							)
+							.clicked()
 							{
 								self.updates.restart_requested = true;
 							}
 						});
 					} else if self.updates.available && self.updates.supported {
 						ui.add_enabled_ui(!self.updates.busy, |ui| {
-							if design::button(ui, "Download update", design::ButtonKind::Primary)
-								.clicked()
+							if design::button(
+								ui,
+								&crate::i18n::translate("Download update"),
+								design::ButtonKind::Primary,
+							)
+							.clicked()
 							{
 								self.updates.download_requested = true;
 							}
@@ -254,13 +268,17 @@ impl MessagingUi {
 					} else {
 						let allowed = (!cfg!(debug_assertions) || demo) && !self.updates.busy;
 						ui.add_enabled_ui(allowed, |ui| {
-							if design::button(ui, "Check for updates", design::ButtonKind::Outline)
-								.on_disabled_hover_text(if cfg!(debug_assertions) && !demo {
-									"Update checks are disabled in debug builds."
-								} else {
-									"Finish the current update before checking again."
-								})
-								.clicked()
+							if design::button(
+								ui,
+								&crate::i18n::translate("Check for updates"),
+								design::ButtonKind::Outline,
+							)
+							.on_disabled_hover_text(if cfg!(debug_assertions) && !demo {
+								"Update checks are disabled in debug builds."
+							} else {
+								"Finish the current update before checking again."
+							})
+							.clicked()
 							{
 								self.updates.check_requested = true;
 							}
@@ -285,11 +303,13 @@ impl MessagingUi {
 				design::notice(
 					ui,
 					design::Level::Warning,
-					"Could not load or save update preferences. Changes may not survive restart.",
+					&crate::i18n::translate(
+						"Could not load or save update preferences. Changes may not survive restart.",
+					),
 				);
 			}
 		});
-		design::group(ui, "Preferences", |ui| {
+		design::group(ui, &crate::i18n::translate("Preferences"), |ui| {
 			ui.add_enabled_ui(self.updates.supported || demo, |ui| {
 				design::switch(
 					ui,
@@ -325,7 +345,9 @@ impl MessagingUi {
 				if self.updates.flatpak {
 					design::hint(
 						ui,
-						"Flatpak manages updates via its repository. Run `flatpak update` or use GNOME Software / KDE Discover to install new releases.",
+						&crate::i18n::translate(
+							"Flatpak manages updates via its repository. Run `flatpak update` or use GNOME Software / KDE Discover to install new releases.",
+						),
 					);
 				} else if !self.updates.supported {
 					if let Some(cmd) = &self.updates.linux_update_cmd {
@@ -368,13 +390,15 @@ impl MessagingUi {
 					} else {
 						design::hint(
 							ui,
-							"In-app installation requires a macOS or Windows release package, or a Linux x86-64 AppImage. Other Linux installations use their package manager.",
+							&crate::i18n::translate(
+								"In-app installation requires a macOS or Windows release package, or a Linux x86-64 AppImage. Other Linux installations use their package manager.",
+							),
 						);
 					}
 				}
 			}
 		});
-		design::group(ui, "Support & diagnostics", |ui| {
+		design::group(ui, &crate::i18n::translate("Support & diagnostics"), |ui| {
 			let copied = self
 				.updates
 				.copied_diagnostics

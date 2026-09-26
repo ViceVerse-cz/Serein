@@ -63,7 +63,11 @@ impl AuditLogUi {
 				))
 				.layout(egui::Layout::left_to_right(egui::Align::Center)),
 		);
-		heading.label(design::semibold(&heading, "Audit Log", 20.0));
+		heading.label(design::semibold(
+			&heading,
+			crate::i18n::translate("Audit Log"),
+			20.0,
+		));
 		let filter_start = header.min
 			+ if wide {
 				Vec2::new(heading_width + 12.0, 0.0)
@@ -83,7 +87,11 @@ impl AuditLogUi {
 			if !available {
 				ui.disable();
 			}
-			ui.label(design::medium(ui, "Filter by User", 14.0));
+			ui.label(design::medium(
+				ui,
+				crate::i18n::translate("Filter by User"),
+				14.0,
+			));
 			let selected = query
 				.user
 				.map(|id| user_name(state.server_admin.audit_log.as_ref(), id))
@@ -118,7 +126,11 @@ impl AuditLogUi {
 			if !available {
 				ui.disable();
 			}
-			ui.label(design::medium(ui, "Filter by Action", 14.0));
+			ui.label(design::medium(
+				ui,
+				crate::i18n::translate("Filter by Action"),
+				14.0,
+			));
 			let selected = query
 				.action
 				.map(|action| action_text(action).to_owned())
@@ -144,7 +156,10 @@ impl AuditLogUi {
 		};
 		ui.horizontal(|ui| {
 			if ui
-				.add_enabled(available, egui::Button::new("Reload").frame(false))
+				.add_enabled(
+					available,
+					egui::Button::new(crate::i18n::translate("Reload")).frame(false),
+				)
 				.clicked()
 			{
 				requested = Some(query.clone());
@@ -185,7 +200,8 @@ impl AuditLogUi {
 				&& ui
 					.add_enabled(
 						available,
-						egui::Button::new("Load More").min_size(Vec2::new(120.0, 36.0)),
+						egui::Button::new(crate::i18n::translate("Load More"))
+							.min_size(Vec2::new(120.0, 36.0)),
 					)
 					.clicked()
 			{

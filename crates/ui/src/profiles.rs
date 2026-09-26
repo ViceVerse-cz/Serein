@@ -87,9 +87,14 @@ pub(crate) fn activity_card(
 					icons::inline(ui, Icon::Spotify, 14.0, muted);
 				}
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-					let more = icons::button(ui, Icon::More, 20.0, "Activity options");
+					let more = icons::button(
+						ui,
+						Icon::More,
+						20.0,
+						&crate::i18n::translate("Activity options"),
+					);
 					egui::Popup::menu(&more).show(|ui| {
-						if ui.button("Copy activity").clicked() {
+						if ui.button(crate::i18n::translate("Copy activity")).clicked() {
 							let mut text = activity.summary();
 							for line in [&activity.details, &activity.state].into_iter().flatten() {
 								text.push('\n');
@@ -440,7 +445,11 @@ fn more_menu(
 	ui.spacing_mut().button_padding = vec2(8.0, 6.0);
 	let own_profile = state.user.as_ref().is_some_and(|own| own.id == user.id);
 	// Message is the card's own footer button, so the menu does not repeat it.
-	if user.webhook && ui.button("Copy webhook ID").clicked() {
+	if user.webhook
+		&& ui
+			.button(crate::i18n::translate("Copy webhook ID"))
+			.clicked()
+	{
 		ui.ctx().copy_text(user.id.to_string());
 		ui.close();
 	}
@@ -451,7 +460,10 @@ fn more_menu(
 	let friend = state.friends().any(|friend| friend.id == user.id);
 	ui.separator();
 	if ui
-		.add_enabled(enabled, egui::Button::new("Add Note"))
+		.add_enabled(
+			enabled,
+			egui::Button::new(crate::i18n::translate("Add Note")),
+		)
 		.clicked()
 	{
 		action = Some(Action::Menu(crate::user_menu::Action::Note(user.clone())));
@@ -466,7 +478,9 @@ fn more_menu(
 				"Add Friend Nickname"
 			}),
 		)
-		.on_disabled_hover_text("Private nicknames are available for confirmed friends.")
+		.on_disabled_hover_text(crate::i18n::translate(
+			"Private nicknames are available for confirmed friends.",
+		))
 		.clicked()
 	{
 		action = Some(Action::Menu(crate::user_menu::Action::Nickname(
@@ -482,7 +496,9 @@ fn more_menu(
 				enabled,
 				egui::Button::new(if muted { "Unmute" } else { "Mute" }),
 			)
-			.on_hover_text("Mute this direct message's notifications until you unmute it.")
+			.on_hover_text(crate::i18n::translate(
+				"Mute this direct message's notifications until you unmute it.",
+			))
 			.clicked()
 		{
 			action = Some(Action::Menu(crate::user_menu::Action::Mute {
@@ -492,12 +508,17 @@ fn more_menu(
 			ui.close();
 		}
 	} else {
-		ui.add_enabled(false, egui::Button::new("Mute"))
-			.on_disabled_hover_text("No open direct message with this user.");
+		ui.add_enabled(false, egui::Button::new(crate::i18n::translate("Mute")))
+			.on_disabled_hover_text(crate::i18n::translate(
+				"No open direct message with this user.",
+			));
 	}
 	if friend
 		&& ui
-			.add_enabled(enabled, egui::Button::new("Remove Friend"))
+			.add_enabled(
+				enabled,
+				egui::Button::new(crate::i18n::translate("Remove Friend")),
+			)
 			.clicked()
 	{
 		action = Some(Action::RemoveFriend);
@@ -1025,7 +1046,10 @@ fn role_chips(
 			);
 			response
 				.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label.clone()));
-			if response.on_hover_text("Show remaining roles").clicked() {
+			if response
+				.on_hover_text(crate::i18n::translate("Show remaining roles"))
+				.clicked()
+			{
 				ui.data_mut(|data| data.insert_temp(expanded_id, true));
 			}
 		}
@@ -1292,12 +1316,16 @@ pub fn show(
 				let banner_response = if !pointer_in_subwidgets {
 					banner_response
 						.on_hover_cursor(egui::CursorIcon::ZoomIn)
-						.on_hover_text("View banner")
+						.on_hover_text(crate::i18n::translate("View banner"))
 				} else {
 					banner_response
 				};
 				banner_response.widget_info(|| {
-					egui::WidgetInfo::labeled(egui::Role::Button, true, "View banner")
+					egui::WidgetInfo::labeled(
+						egui::Role::Button,
+						true,
+						crate::i18n::translate("View banner"),
+					)
 				});
 				let pointer_interact_in_subwidgets = ui.input(|i| {
 					i.pointer
@@ -1333,12 +1361,16 @@ pub fn show(
 					}
 				});
 				response.widget_info(|| {
-					egui::WidgetInfo::labeled(egui::Role::Button, true, "View profile picture")
+					egui::WidgetInfo::labeled(
+						egui::Role::Button,
+						true,
+						crate::i18n::translate("View profile picture"),
+					)
 				});
 				if !pointer_on_presence {
 					response = response
 						.on_hover_cursor(egui::CursorIcon::ZoomIn)
-						.on_hover_text("View profile picture");
+						.on_hover_text(crate::i18n::translate("View profile picture"));
 				}
 				if response.clicked() && !pointer_on_presence {
 					let mut url = data.map_or(user, |data| &data.user).avatar_url();
@@ -1434,7 +1466,7 @@ pub fn show(
 								design::notice(
 									ui,
 									design::Level::Warning,
-									"Unable to load parts of profile",
+									&crate::i18n::translate("Unable to load parts of profile"),
 								);
 								ui.add_space(6.0);
 							}
@@ -1562,7 +1594,7 @@ pub fn show(
 								ui.horizontal(|ui| {
 									ui.spinner();
 									ui.label(
-										RichText::new("Loading profile…")
+										RichText::new(crate::i18n::translate("Loading profile…"))
 											.size(13.0)
 											.color(theme.muted),
 									);
@@ -1571,7 +1603,7 @@ pub fn show(
 							if let Some(error) = view.and_then(|v| v.error) {
 								ui.add_space(4.0);
 								if ui
-									.small_button("Retry profile")
+									.small_button(crate::i18n::translate("Retry profile"))
 									.on_hover_text(error)
 									.clicked()
 								{
@@ -1732,7 +1764,8 @@ pub fn show(
 							.add_sized(
 								[ui.available_width(), 32.0],
 								egui::Button::new(
-									RichText::new("Edit profile").color(colors.accent_text),
+									RichText::new(crate::i18n::translate("Edit profile"))
+										.color(colors.accent_text),
 								)
 								.fill(colors.accent)
 								.stroke(Stroke::NONE)
@@ -1764,7 +1797,9 @@ pub fn show(
 							.add_sized(
 								[ui.available_width(), 32.0],
 								egui::Button::new(
-									RichText::new("Copy webhook ID").size(13.0).strong(),
+									RichText::new(crate::i18n::translate("Copy webhook ID"))
+										.size(13.0)
+										.strong(),
 								)
 								.corner_radius(RADIUS),
 							)
@@ -1774,7 +1809,7 @@ pub fn show(
 					}
 					if state.demo {
 						ui.label(
-							RichText::new("Offline preview · synthetic")
+							RichText::new(crate::i18n::translate("Offline preview · synthetic"))
 								.size(11.0)
 								.color(theme.muted),
 						);

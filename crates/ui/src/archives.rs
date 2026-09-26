@@ -37,7 +37,7 @@ impl ArchivesUi {
 		let filter = self.filter.trim().to_lowercase();
 		let matches = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
 		let can_create = state.can_create_thread(parent);
-		let response = crate::dialog::Dialog::new("archived-threads", "Threads")
+		let response = crate::dialog::Dialog::new("archived-threads", crate::i18n::translate("Threads"))
 			.icon(crate::icons::Icon::Thread)
 			.width(520.0)
 			.show(ctx, |d| {
@@ -53,7 +53,7 @@ impl ArchivesUi {
 									ui,
 									egui::TextEdit::singleline(&mut self.filter)
 										.char_limit(100)
-										.hint_text("Search for thread name"),
+										.hint_text(crate::i18n::translate("Search for thread name")),
 								)
 							})
 							.inner;
@@ -66,7 +66,7 @@ impl ArchivesUi {
 									crate::dialog::Action::Primary,
 								)
 								.on_disabled_hover_text(
-									"You cannot start a thread in this channel.",
+									crate::i18n::translate("You cannot start a thread in this channel."),
 								)
 								.clicked();
 							});
@@ -169,7 +169,7 @@ impl ArchivesUi {
 					if view.loading {
 						ui.horizontal(|ui| {
 							ui.spinner();
-							ui.label("Loading older threads…");
+							ui.label(crate::i18n::translate("Loading older threads…"));
 						});
 					}
 					if let Some(page) = &view.page {
@@ -238,6 +238,7 @@ const CARD_HEIGHT: f32 = 74.0;
 const CARD_GAP: f32 = 8.0;
 
 fn section(ui: &mut egui::Ui, label: &str, colors: &crate::design::Palette) {
+	let label = crate::i18n::translate(label);
 	ui.label(crate::design::semibold(ui, label, 12.0).color(colors.muted));
 	ui.add_space(6.0);
 }
@@ -280,7 +281,7 @@ fn thread_card(
 						avatars.show_plain(ui, &starter.author, 18.0, state.demo);
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new("Started by")
+								egui::RichText::new(crate::i18n::translate("Started by"))
 									.size(13.0)
 									.color(colors.muted),
 							)

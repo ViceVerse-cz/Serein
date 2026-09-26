@@ -178,8 +178,10 @@ impl Browser {
 							let (_, header, _) = header.body(|ui| {
 								if matching.is_empty() {
 									ui.label(
-										egui::RichText::new("This server has no stickers yet.")
-											.color(colors.muted),
+										egui::RichText::new(crate::i18n::translate(
+											"This server has no stickers yet.",
+										))
+										.color(colors.muted),
 									);
 								}
 								for row in matching.chunks(columns) {
@@ -251,10 +253,10 @@ impl Browser {
 							}
 						}
 						if results == 0 && !query.is_empty() {
-							ui.label("No stickers found.");
+							ui.label(crate::i18n::translate("No stickers found."));
 						}
 						if state.stickers.loading {
-							ui.label("Loading sticker packs…");
+							ui.label(crate::i18n::translate("Loading sticker packs…"));
 						}
 					});
 			});
@@ -322,7 +324,7 @@ pub(crate) fn message(
 			if let Some(section) = section {
 				ui.label(format!("This is a {} sticker.", section.name));
 			} else if state.stickers.detail_loading == Some(sticker.id) {
-				ui.label("Loading sticker details…");
+				ui.label(crate::i18n::translate("Loading sticker details…"));
 			} else {
 				ui.label(
 					state
@@ -330,7 +332,10 @@ pub(crate) fn message(
 						.detail_error
 						.unwrap_or("Sticker details unavailable."),
 				);
-				if ui.button("Retry sticker details").clicked() {
+				if ui
+					.button(crate::i18n::translate("Retry sticker details"))
+					.clicked()
+				{
 					*request = Some(sticker.id);
 				}
 			}
@@ -359,7 +364,8 @@ pub(crate) fn message(
 				});
 			}
 			ui.separator();
-			if design::secondary_button(ui, "View More Stickers").clicked() {
+			if design::secondary_button(ui, &crate::i18n::translate("View More Stickers")).clicked()
+			{
 				*browse = Some(detail.clone());
 				ui.close();
 			}

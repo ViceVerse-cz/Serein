@@ -459,7 +459,10 @@ impl VideoUi {
 					seek.widget_info(|| egui::WidgetInfo::slider(can_seek, position, "Seek video"));
 					controls_focused |= seek.has_focus();
 					response |= seek.clone();
-					if seek.on_hover_text("Seek video").changed() && !context_click {
+					if seek
+						.on_hover_text(crate::i18n::translate("Seek video"))
+						.changed() && !context_click
+					{
 						self.command = Some(VideoCommand::Seek(position));
 					}
 					ui.horizontal(|ui| {
@@ -603,7 +606,10 @@ impl VideoUi {
 							});
 							controls_focused |= volume.has_focus();
 							response |= volume.clone();
-							if volume.on_hover_text("Video volume").changed() && !context_click {
+							if volume
+								.on_hover_text(crate::i18n::translate("Video volume"))
+								.changed() && !context_click
+							{
 								self.volume = volume_value;
 								self.command = Some(VideoCommand::Volume(self.volume));
 							}

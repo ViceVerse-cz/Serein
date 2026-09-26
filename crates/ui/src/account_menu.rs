@@ -36,14 +36,14 @@ impl ClearAfter {
 		Self::Hours4,
 		Self::Today,
 	];
-	fn label(self) -> &'static str {
-		match self {
+	fn label(self) -> String {
+		crate::i18n::translate(match self {
 			Self::Never => "Don't clear",
 			Self::Minutes30 => "30 minutes",
 			Self::Hour => "1 hour",
 			Self::Hours4 => "4 hours",
 			Self::Today => "Today",
-		}
+		})
 	}
 	/// Absolute deadline in milliseconds since the Unix epoch; `None` never clears.
 	fn deadline(self) -> Option<u64> {
@@ -76,9 +76,13 @@ impl ClearAfter {
 		};
 		let clock = format!("{:02}:{:02}", at.hour(), at.minute());
 		Some(if at.date() == now.date() {
-			format!("at {clock}")
+			format!("{} {clock}", crate::i18n::translate("at"))
 		} else {
-			format!("at {clock} tomorrow")
+			format!(
+				"{} {clock} {}",
+				crate::i18n::translate("at"),
+				crate::i18n::translate("tomorrow")
+			)
 		})
 	}
 	/// Nearest choice for an existing deadline, so reopening the editor shows what is set.
@@ -180,13 +184,18 @@ impl MessagingUi {
 		self.account_menu.open = open && !std::mem::take(&mut self.account_menu.close);
 		if self.account_menu.custom_open {
 			let ctx = anchor.ctx.clone();
-			let response = crate::dialog::Dialog::new("custom-status-editor", "Custom status")
-				.subtitle("Shown next to your name across Discord.")
-				.width(420.0)
-				.show(&ctx, |d| {
-					d.content(|ui| self.custom_status_editor(ui, state));
-					d.footer(|ui| self.custom_status_actions(ui));
-				});
+			let response = crate::dialog::Dialog::new(
+				"custom-status-editor",
+				crate::i18n::translate("Custom status"),
+			)
+			.subtitle(crate::i18n::translate(
+				"Shown next to your name across Discord.",
+			))
+			.width(420.0)
+			.show(&ctx, |d| {
+				d.content(|ui| self.custom_status_editor(ui, state));
+				d.footer(|ui| self.custom_status_actions(ui));
+			});
 			if response.close {
 				self.account_menu.custom_open = false;
 			}
@@ -296,7 +305,11 @@ impl MessagingUi {
 			ui.allocate_exact_size(vec2(ui.available_width(), 1.0), egui::Sense::hover());
 		ui.painter().rect_filled(line, 0, colors.border);
 		ui.add_space(10.0);
-		ui.label(design::eyebrow(ui, "Switch accounts", colors.muted));
+		ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("Switch accounts"),
+			colors.muted,
+		));
 		ui.add_space(4.0);
 		for account in &others {
 			self.account_switcher_row(ui, account, state.demo);
@@ -308,7 +321,8 @@ impl MessagingUi {
 				ui.add(
 					egui::Button::new(())
 						.left_text(
-							design::medium(ui, "Add an account", 14.0).color(colors.text_strong),
+							design::medium(ui, crate::i18n::translate("Add an account"), 14.0)
+								.color(colors.text_strong),
 						)
 						.frame_when_inactive(false)
 						.corner_radius(6)
@@ -410,17 +424,22 @@ impl MessagingUi {
 			egui::WidgetInfo::labeled(
 				egui::Role::Button,
 				true,
-				format!("Switch to {}", account.label()),
+				format!(
+					"{} {}",
+					crate::i18n::translate("Switch to"),
+					account.label()
+				),
 			)
 		});
 		forget.widget_info(|| {
 			egui::WidgetInfo::labeled(
 				egui::Role::Button,
 				true,
-				format!("Forget {}", account.label()),
+				format!("{} {}", crate::i18n::translate("Forget"), account.label()),
 			)
 		});
-		let forget = forget.on_hover_text("Forget this account on this device");
+		let forget =
+			forget.on_hover_text(crate::i18n::translate("Forget this account on this device"));
 		if forget.clicked() {
 			self.forget_account_requested = Some(account.id);
 			self.account_menu.close = true;
@@ -490,7 +509,7 @@ impl MessagingUi {
 				if state.own_profile.loading {
 					ui.add_space(6.0);
 					ui.label(
-						RichText::new("Loading profile…")
+						RichText::new(crate::i18n::translate("Loading profile…"))
 							.small()
 							.color(colors.muted),
 					);
@@ -501,8 +520,9 @@ impl MessagingUi {
 						egui::Label::new(RichText::new(error).size(12.0).color(colors.danger))
 							.wrap(),
 					);
-					if ui.button("Reload profile").clicked()
-						&& let Some(command) = state.load_own_profile()
+					if ui
+						.button(crate::i18n::translate("Reload profile"))
+						.clicked() && let Some(command) = state.load_own_profile()
 					{
 						commands.push(command);
 					}
@@ -514,7 +534,8 @@ impl MessagingUi {
 	fn account_status_row(&mut self, ui: &mut egui::Ui) {
 		let colors = design::palette(ui);
 		let status = self.own_presence.status;
-		let label = design::medium(ui, status.label(), 14.0).color(colors.text_strong);
+		let label = design::medium(ui, crate::i18n::translate(status.label()), 14.0)
+			.color(colors.text_strong);
 		let response = ui
 			.scope(|ui| {
 				let width = ui.available_width();
@@ -558,11 +579,12 @@ impl MessagingUi {
 		let colors = design::palette(ui);
 		ui.set_width(260.0_f32.min(ui.ctx().content_rect().width() - 48.0));
 		for status in PresenceStatus::ALL {
-			let description = match status {
+			let label = crate::i18n::translate(status.label());
+			let description = crate::i18n::translate(match status {
 				PresenceStatus::DoNotDisturb => "You will not receive desktop notifications",
 				PresenceStatus::Invisible => "You will appear offline",
 				_ => "",
-			};
+			});
 			let height = if description.is_empty() { 40.0 } else { 62.0 };
 			let response = ui.add_sized(
 				[ui.available_width(), height],
@@ -570,9 +592,7 @@ impl MessagingUi {
 					.frame_when_inactive(false)
 					.corner_radius(6),
 			);
-			response.widget_info(|| {
-				egui::WidgetInfo::labeled(egui::Role::Button, true, status.label())
-			});
+			response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
 			let x = response.rect.left() + 34.0;
 			let y = response.rect.top() + if description.is_empty() { 11.0 } else { 10.0 };
 			let background = if response.hovered() || response.has_focus() {
@@ -590,13 +610,13 @@ impl MessagingUi {
 			ui.painter().text(
 				egui::pos2(x, y),
 				egui::Align2::LEFT_TOP,
-				status.label(),
+				&label,
 				egui::FontId::new(14.0, design::medium_family(ui.ctx())),
 				colors.text_strong,
 			);
 			if !description.is_empty() {
 				let galley = ui.painter().layout(
-					description.into(),
+					description,
 					egui::FontId::proportional(12.0),
 					colors.muted,
 					(response.rect.width() - 46.0).max(80.0),
@@ -626,7 +646,8 @@ impl MessagingUi {
 		} else {
 			"Set a custom status"
 		};
-		let text = design::medium(ui, label, 14.0).color(colors.text_strong);
+		let text =
+			design::medium(ui, crate::i18n::translate(label), 14.0).color(colors.text_strong);
 		let response = ui
 			.scope(|ui| {
 				let width = ui.available_width();
@@ -754,9 +775,9 @@ impl MessagingUi {
 							.truncate(),
 						);
 						let (status, color) = if draft.is_empty() {
-							("No custom status", colors.muted)
+							(crate::i18n::translate("No custom status"), colors.muted)
 						} else {
-							(draft.as_str(), colors.text)
+							(draft.clone(), colors.text)
 						};
 						ui.add(
 							egui::Label::new(RichText::new(status).size(13.0).color(color))
@@ -771,7 +792,7 @@ impl MessagingUi {
 			ui,
 			egui::TextEdit::singleline(&mut self.account_menu.draft)
 				.id_salt(("account-custom-status", state.generation))
-				.hint_text("What's on your mind?")
+				.hint_text(crate::i18n::translate("What's on your mind?"))
 				.char_limit(128),
 		)
 		.labelled_by(label.id);
@@ -800,7 +821,10 @@ impl MessagingUi {
 		// The deadline is local to this client, so name the moment rather than implying
 		// Discord will clear it for you.
 		if let Some(clears) = self.account_menu.clear_after.clears_at() {
-			dialog::hint(ui, &format!("Serein clears it {clears}."));
+			dialog::hint(
+				ui,
+				&format!("{} {clears}.", crate::i18n::translate("Serein clears it")),
+			);
 		}
 		if !valid {
 			ui.add_space(8.0);

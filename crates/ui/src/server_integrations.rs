@@ -177,7 +177,7 @@ impl IntegrationsUi {
 				if ui
 					.add_enabled(
 						!self.has_changes(),
-						egui::Button::new("< Integrations").frame(false),
+						egui::Button::new(crate::i18n::translate("< Integrations")).frame(false),
 					)
 					.clicked()
 				{
@@ -209,9 +209,9 @@ impl IntegrationsUi {
 			if ui
 				.add_enabled(
 					!state.server_admin.pending && !self.submitted && !self.deleting,
-					egui::Button::new("Reload").frame(false),
+					egui::Button::new(crate::i18n::translate("Reload")).frame(false),
 				)
-				.on_hover_text("Reload integrations")
+				.on_hover_text(crate::i18n::translate("Reload integrations"))
 				.clicked()
 			{
 				action = Some(self.load_action(state, guild));
@@ -302,7 +302,10 @@ impl IntegrationsUi {
 		} else {
 			"Customize your server with integrations. Manage webhooks, followed channels, and apps connected to your server."
 		});
-		ui.hyperlink_to("Learn more about managing integrations.", HELP);
+		ui.hyperlink_to(
+			crate::i18n::translate("Learn more about managing integrations."),
+			HELP,
+		);
 		design::divider(ui);
 		if self.can_manage_webhooks(state, guild)
 			&& let Some(webhooks) = &snapshot.webhooks
@@ -331,7 +334,11 @@ impl IntegrationsUi {
 			&& state.can_manage_guild(guild)
 			&& let Some(integrations) = &snapshot.integrations
 		{
-			ui.label(design::medium(ui, "Bots and Apps", 15.0));
+			ui.label(design::medium(
+				ui,
+				crate::i18n::translate("Bots and Apps"),
+				15.0,
+			));
 			ui.add_space(12.0);
 			if integrations.is_empty() {
 				ui.weak("No integrations in this server.");
@@ -413,7 +420,12 @@ impl IntegrationsUi {
 											});
 										},
 									);
-									if ui.add(egui::Button::new("Manage >").frame(false)).clicked()
+									if ui
+										.add(
+											egui::Button::new(crate::i18n::translate("Manage >"))
+												.frame(false),
+										)
+										.clicked()
 									{
 										self.page = Page::App(integration.id);
 									}
@@ -434,10 +446,17 @@ impl IntegrationsUi {
 	) {
 		let follows = self.page == Page::Follows;
 		if follows {
-			ui.label("Posts from these followed channels are delivered to your server.");
-			ui.hyperlink_to("Learn more about following channels", FOLLOW_HELP);
+			ui.label(crate::i18n::translate(
+				"Posts from these followed channels are delivered to your server.",
+			));
+			ui.hyperlink_to(
+				crate::i18n::translate("Learn more about following channels"),
+				FOLLOW_HELP,
+			);
 		} else {
-			ui.label("Send updates from your apps and services to a channel in this server.");
+			ui.label(crate::i18n::translate(
+				"Send updates from your apps and services to a channel in this server.",
+			));
 			if let Some(channel) = self.channel.and_then(|id| state.channel(id)) {
 				ui.label(format!("Posting to #{}", channel.name));
 			}
@@ -507,7 +526,10 @@ impl IntegrationsUi {
 									&& webhook.channel.is_some_and(|id| {
 										state.can_manage_webhook_channel(guild, id)
 									}) && ui
-									.add_enabled(writable(state), egui::Button::new("Edit"))
+									.add_enabled(
+										writable(state),
+										egui::Button::new(crate::i18n::translate("Edit")),
+									)
 									.clicked()
 								{
 									let draft = Draft {
@@ -639,7 +661,8 @@ impl IntegrationsUi {
 				.add_enabled(
 					writable(state),
 					egui::Button::new(
-						RichText::new("Remove Integration").color(design::palette(ui).danger),
+						RichText::new(crate::i18n::translate("Remove Integration"))
+							.color(design::palette(ui).danger),
 					),
 				)
 				.clicked()
@@ -678,7 +701,7 @@ impl IntegrationsUi {
 			return;
 		};
 		ui.add_space(12.0);
-		let label = design::label(ui, "Name");
+		let label = design::label(ui, &crate::i18n::translate("Name"));
 		design::input(
 			ui,
 			egui::TextEdit::singleline(&mut draft.name).char_limit(80),
@@ -691,11 +714,13 @@ impl IntegrationsUi {
 			design::notice(
 				ui,
 				design::Level::Error,
-				"Use 1–80 characters without control characters or the reserved names Discord and Clyde.",
+				&crate::i18n::translate(
+					"Use 1–80 characters without control characters or the reserved names Discord and Clyde.",
+				),
 			);
 		}
 		ui.add_space(16.0);
-		design::label(ui, "Channel");
+		design::label(ui, &crate::i18n::translate("Channel"));
 		let muted = design::palette(ui).muted;
 		let current = draft.channel.and_then(|id| state.channel(id));
 		let mut label = egui::Atoms::new(current.map_or("Choose a channel", |c| c.name.as_str()));

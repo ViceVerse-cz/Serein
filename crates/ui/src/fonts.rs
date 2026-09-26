@@ -64,17 +64,22 @@ pub struct Settings {
 impl Settings {
 	pub(super) fn show(&mut self, ui: &mut egui::Ui) {
 		use crate::design;
-		design::group(ui, "Typography", |ui| {
+		design::group(ui, &crate::i18n::translate("Typography"), |ui| {
 			ui.add_enabled_ui(!self.busy, |ui| {
 				design::row(
 					ui,
 					"Interface font",
 					Some(self.name.as_deref().unwrap_or("Inter (default)")),
 					|ui| {
-						if design::text_action(ui, "Reset").clicked() {
+						if design::text_action(ui, &crate::i18n::translate("Reset")).clicked() {
 							self.request = Some(Action::Reset);
 						}
-						if design::button(ui, "Import font…", design::ButtonKind::Outline).clicked()
+						if design::button(
+							ui,
+							&crate::i18n::translate("Import font…"),
+							design::ButtonKind::Outline,
+						)
+						.clicked()
 						{
 							self.request = Some(Action::Import);
 						}
@@ -83,9 +88,13 @@ impl Settings {
 			});
 			design::hint(
 				ui,
-				"TTF or OTF, up to 8 MiB. Saved on this device. Code keeps its monospace font.",
+				&crate::i18n::translate(
+					"TTF or OTF, up to 8 MiB. Saved on this device. Code keeps its monospace font.",
+				),
 			);
-			ui.label("The quick brown fox jumps over the lazy dog. 0123456789");
+			ui.label(crate::i18n::translate(
+				"The quick brown fox jumps over the lazy dog. 0123456789",
+			));
 			if !self.status.is_empty() {
 				design::hint(ui, self.status);
 			}
@@ -391,7 +400,7 @@ mod tests {
 		install(&ctx);
 		for _ in 0..3 {
 			ctx.run_ui(Default::default(), |ui| {
-				ui.label("Synthetic Latin text");
+				ui.label(crate::i18n::translate("Synthetic Latin text"));
 				assert!(!ui.fonts(|fonts| {
 					fonts
 						.definitions()

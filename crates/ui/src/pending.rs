@@ -186,9 +186,11 @@ pub fn show(
 					} else if pending.delivery != Delivery::Confirmed {
 						if pending.delivery == Delivery::Ambiguous {
 							ui.label(
-								RichText::new("Check the conversation before sending again.")
-									.small()
-									.color(colors.muted),
+								RichText::new(crate::i18n::translate(
+									"Check the conversation before sending again.",
+								))
+								.small()
+								.color(colors.muted),
 							);
 						}
 						if ui
@@ -342,11 +344,16 @@ fn upload_strip(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>, c
 				ui.spacing_mut().item_spacing.x = 8.0;
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					if upload.is_some()
-						&& icons::button(ui, icons::Icon::Close, 24.0, "Cancel upload")
-							.on_hover_text(
-								"The message may already have reached Discord. Check the conversation before sending again.",
-							)
-							.clicked()
+						&& icons::button(
+							ui,
+							icons::Icon::Close,
+							24.0,
+							&crate::i18n::translate("Cancel upload"),
+						)
+						.on_hover_text(crate::i18n::translate(
+							"The message may already have reached Discord. Check the conversation before sending again.",
+						))
+						.clicked()
 					{
 						*cancel = true;
 					}
@@ -371,10 +378,8 @@ fn upload_strip(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>, c
 					});
 				});
 			});
-			let (bar, _) = ui.allocate_exact_size(
-				egui::vec2(ui.available_width(), 6.0),
-				egui::Sense::hover(),
-			);
+			let (bar, _) =
+				ui.allocate_exact_size(egui::vec2(ui.available_width(), 6.0), egui::Sense::hover());
 			ui.painter().rect_filled(bar, 3, colors.hover);
 			if fraction > 0.0 {
 				let fill = egui::Rect::from_min_size(
