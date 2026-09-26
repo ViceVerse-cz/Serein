@@ -3349,7 +3349,7 @@ fn resolve_member<'a>(
 }
 
 /// Find a call participant's user from self, DM recipients or the roster.
-fn participant_user(state: &State, channel: Id, user: Id) -> Option<&model::User> {
+pub(super) fn participant_user(state: &State, channel: Id, user: Id) -> Option<&model::User> {
 	state
 		.user
 		.as_ref()

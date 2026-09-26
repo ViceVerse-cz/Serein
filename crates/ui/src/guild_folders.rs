@@ -292,7 +292,65 @@ fn paint_folder_tile(
 	}
 }
 
+fn guild_voice(
+	state: &State,
+	guild: Id,
+	streaming: bool,
+) -> impl Clone + Iterator<Item = &client_core::voice::RosterEntry> {
+	state
+		.voice
+		.roster
+		.iter()
+		.filter(move |entry| entry.guild == guild && (!streaming || entry.participant.streaming))
+}
+
 impl MessagingUi {
+	fn guild_rail_name(&mut self, response: &egui::Response, state: &State, guild: &model::Guild) {
+		let voice = guild_voice(state, guild.id, false);
+		if voice.clone().next().is_none() {
+			design::rail_name(response, &guild.name);
+			return;
+		}
+		let dragging = response
+			.ctx
+			.input(|input| input.pointer.is_decidedly_dragging());
+		egui::Popup::from_response(response)
+			.kind(egui::PopupKind::Tooltip)
+			.open(
+				!dragging
+					&& (response.contains_pointer() || response.hovered() || response.has_focus()),
+			)
+			.gap(8.0)
+			.width(220.0)
+			.interactable(false)
+			.show(|ui| {
+				ui.label(egui::RichText::new(&guild.name).strong());
+				ui.add_space(4.0);
+				for (icon, streaming) in [(Icon::Speaker, false), (Icon::ScreenShare, true)] {
+					let entries = guild_voice(state, guild.id, streaming);
+					if entries.clone().next().is_none() {
+						continue;
+					}
+					ui.horizontal(|ui| {
+						let (rect, _) =
+							ui.allocate_exact_size(egui::Vec2::splat(20.0), Sense::hover());
+						icons::paint(ui.painter(), icon, rect, design::palette(ui).text);
+						for entry in entries.take(6) {
+							if let Some(user) = crate::voice::participant_user(
+								state,
+								entry.channel,
+								entry.participant.user,
+							) {
+								self.avatars.show_plain(ui, user, 24.0, state.demo);
+							} else {
+								design::avatar(ui, "?", 24.0);
+							}
+						}
+					});
+				}
+			});
+	}
+
 	pub(super) fn server_folders(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -378,7 +436,7 @@ impl MessagingUi {
 									colors.base,
 								);
 							}
-							design::rail_name(&response, &guild.name);
+							self.guild_rail_name(&response, state, guild);
 							if response.clicked() {
 								self.guild = Some(id);
 								if let Some(command) = state.select_guild(id) {
@@ -768,6 +826,28 @@ impl MessagingUi {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn guild_voice_splits_participants_and_streamers() {
+		let mut state = test_support::voice_demo_state();
+		let mut other_guild = state.voice.roster[0].clone();
+		other_guild.guild = Id(11);
+		other_guild.participant.streaming = true;
+		state.voice.roster.push(other_guild);
+
+		assert_eq!(
+			guild_voice(&state, Id(10), false)
+				.map(|entry| entry.participant.user)
+				.collect::<Vec<_>>(),
+			vec![Id(1), Id(2), Id(3)]
+		);
+		assert_eq!(
+			guild_voice(&state, Id(10), true)
+				.map(|entry| entry.participant.user)
+				.collect::<Vec<_>>(),
+			vec![Id(3)]
+		);
+	}
 
 	#[test]
 	fn server_icon_restores_channel_once_in_standalone_and_expanded_folder() {
