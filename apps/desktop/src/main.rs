@@ -360,12 +360,20 @@ fn main() -> eframe::Result {
 		wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
 			wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(
 				eframe::egui_wgpu::WgpuSetupCreateNew {
-					// Avoid Intel Vulkan driver startup crashes; keep the diagnostic override.
 					#[cfg(target_os = "windows")]
-					instance_descriptor: eframe::wgpu::InstanceDescriptor {
-						backends: eframe::wgpu::Backends::from_env()
-							.unwrap_or(eframe::wgpu::Backends::DX12),
-						..eframe::wgpu::InstanceDescriptor::new_without_display_handle_from_env()
+					instance_descriptor: {
+						let mut descriptor =
+							eframe::wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+						// HWND swapchains ignore alpha. DirectComposition keeps DX12 while
+						// presenting the transparent surface selected at startup.
+						if transparency_available {
+							descriptor.backend_options.dx12.presentation_system =
+								eframe::wgpu::Dx12SwapchainKind::DxgiFromVisual.with_env();
+						}
+						// Avoid Intel Vulkan driver startup crashes; keep the diagnostic override.
+						descriptor.backends = eframe::wgpu::Backends::from_env()
+							.unwrap_or(eframe::wgpu::Backends::DX12);
+						descriptor
 					},
 					// Only adapters that can present to this window are eligible; the saved
 					// preference just orders them. A power hint alone picks GPUs the display is
