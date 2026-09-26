@@ -16,7 +16,7 @@ use std::{
 	},
 	time::{Duration, Instant, SystemTime},
 };
-use tokio::sync::{mpsc as async_mpsc, watch};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc as async_mpsc, watch};
 use ui::{Lane, Motion, Rendition, Size};
 
 const MAX_ENCODED: usize = 2 * 1024 * 1024;
@@ -26,6 +26,7 @@ const ANIMATION_CANVAS: u32 = 2048;
 // GIF decoding can hold a persistent canvas, a frame and a composited canvas.
 const ANIMATION_ALLOC: u64 = 3 * 2048 * 2048 * 4;
 const QUEUED: usize = 1024;
+const RESULT_BYTES: usize = 128 * 1024 * 1024;
 fn is_animated_key(key: &str) -> bool {
 	if key.starts_with("anim:") {
 		return true;
@@ -185,6 +186,88 @@ pub struct AvatarResult {
 	pub frames: ui::GifFrames,
 	pub error: Option<&'static str>,
 	pub stage: DecodeStage,
+	// Stays charged until the UI has consumed or discarded the complete result.
+	_reservation: Option<OwnedSemaphorePermit>,
+}
+
+impl AvatarResult {
+	fn bytes(&self) -> usize {
+		let pixels =
+			|image: &egui::ColorImage| image.pixels.capacity() * size_of::<egui::Color32>();
+		size_of::<Self>()
+			+ self.key.capacity()
+			+ self.image.as_ref().map_or(0, pixels)
+			+ self.frames.capacity() * size_of::<(Duration, Arc<egui::ColorImage>)>()
+			+ self
+				.frames
+				.iter()
+				.map(|(_, image)| {
+					pixels(image) + size_of::<egui::ColorImage>() + 2 * size_of::<usize>()
+				})
+				.sum::<usize>()
+	}
+}
+
+#[derive(Clone)]
+struct ResultSender {
+	send: async_mpsc::Sender<AvatarResult>,
+	bytes: Arc<Semaphore>,
+	wake: egui::Context,
+}
+
+fn result_channel(wake: egui::Context) -> (ResultSender, async_mpsc::Receiver<AvatarResult>) {
+	let (send, receive) = async_mpsc::channel(128);
+	(
+		ResultSender {
+			send,
+			bytes: Arc::new(Semaphore::new(RESULT_BYTES)),
+			wake,
+		},
+		receive,
+	)
+}
+
+impl ResultSender {
+	async fn send(&self, mut result: AvatarResult) -> bool {
+		if result.bytes() > RESULT_BYTES {
+			// A future decoder change must not wait forever for an impossible reservation.
+			result.image = None;
+			result.frames = Vec::new();
+			result.error = Some("Decoded image exceeds the memory limit");
+		}
+		let bytes = result.bytes();
+		if bytes > RESULT_BYTES {
+			return false;
+		}
+		let permit = tokio::select! {
+			_ = self.send.closed() => return false,
+			permit = self.bytes.clone().acquire_many_owned(bytes as u32) => permit,
+		};
+		let Ok(permit) = permit else { return false };
+		result._reservation = Some(permit);
+		if self.send.send(result).await.is_err() {
+			return false;
+		}
+		self.wake.request_repaint();
+		true
+	}
+
+	fn preview(&self, mut result: AvatarResult) -> bool {
+		let bytes = result.bytes();
+		if bytes > RESULT_BYTES {
+			return false;
+		}
+		let Ok(permit) = self.bytes.clone().try_acquire_many_owned(bytes as u32) else {
+			return false;
+		};
+		result._reservation = Some(permit);
+		// Previews are optional; decoding and shutdown must never wait for a stopped UI.
+		if self.send.try_send(result).is_err() {
+			return false;
+		}
+		self.wake.request_repaint();
+		true
+	}
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -196,6 +279,7 @@ pub enum DecodeStage {
 pub struct AvatarWorker {
 	requests: async_mpsc::Sender<String>,
 	results: async_mpsc::Receiver<AvatarResult>,
+	wake: egui::Context,
 	cancel: watch::Sender<bool>,
 	clear: Arc<AtomicBool>,
 	cleanup: Option<Cleanup>,
@@ -219,7 +303,8 @@ impl AvatarWorker {
 		ctx: egui::Context,
 	) -> Result<Self, &'static str> {
 		let (requests, receive) = async_mpsc::channel(1024);
-		let (send, results) = async_mpsc::channel(128);
+		let (send, results) = result_channel(ctx.clone());
+		let wake = ctx.clone();
 		let (cancel, cancelled) = watch::channel(false);
 		let clear = Arc::new(AtomicBool::new(false));
 		let cleanup_flag = clear.clone();
@@ -228,7 +313,7 @@ impl AvatarWorker {
 		std::thread::Builder::new()
 			.name("avatar-cache".into())
 			.spawn(move || {
-				handle.block_on(run(root.as_deref(), receive, send, cancelled, &ctx));
+				handle.block_on(run(root.as_deref(), receive, send, cancelled));
 				let result = if cleanup_flag.load(Ordering::Acquire) {
 					clear_directory(root.as_deref())
 				} else {
@@ -241,6 +326,7 @@ impl AvatarWorker {
 		Ok(Self {
 			requests,
 			results,
+			wake,
 			cancel,
 			clear,
 			cleanup: Some(cleanup),
@@ -250,7 +336,11 @@ impl AvatarWorker {
 		cdn_url(&key).is_some() && self.requests.try_send(key).is_ok()
 	}
 	pub fn poll(&mut self) -> Option<AvatarResult> {
-		self.results.try_recv().ok()
+		let result = self.results.try_recv().ok()?;
+		if !self.results.is_empty() {
+			self.wake.request_repaint();
+		}
+		Some(result)
 	}
 	/// Completion follows the last decode/write. Recreate the account worker only afterwards.
 	pub fn shutdown_and_clear(self) -> Cleanup {
@@ -723,9 +813,8 @@ pub(crate) fn notification_image_path(account: Id, key: &str) -> Option<String> 
 async fn run(
 	root: Option<&Path>,
 	mut requests: async_mpsc::Receiver<String>,
-	results: async_mpsc::Sender<AvatarResult>,
+	results: ResultSender,
 	mut cancelled: watch::Receiver<bool>,
-	ctx: &egui::Context,
 ) {
 	let mut disk = root.and_then(|root| Disk::open(root.to_owned()).ok());
 	let client = reqwest::Client::builder()
@@ -767,7 +856,6 @@ async fn run(
 				client: client.clone(),
 				cooldown,
 				early: results.clone(),
-				ctx: ctx.clone(),
 			}));
 		}
 		let loaded = tokio::select! {
@@ -816,9 +904,9 @@ async fn run(
 			frames,
 			error,
 			stage: DecodeStage::Settled,
-		}) => if result.is_err() { break },
+			_reservation: None,
+		}) => if !result { break },
 		}
-		ctx.request_repaint();
 	}
 	jobs.abort_all();
 }
@@ -844,8 +932,7 @@ struct Job {
 	client: Option<reqwest::Client>,
 	cooldown: Instant,
 	/// Animated sources post their first frame here while the remaining frames decode.
-	early: async_mpsc::Sender<AvatarResult>,
-	ctx: egui::Context,
+	early: ResultSender,
 }
 struct Loaded {
 	key: String,
@@ -868,11 +955,10 @@ async fn load(job: Job) -> Loaded {
 		client,
 		cooldown,
 		early,
-		ctx,
 	} = job;
 	let animated = budget.frames.is_some();
 	let mut until = cooldown;
-	let mut early = animated.then_some((early, ctx));
+	let mut early = animated.then_some(early);
 	let mut stale = None;
 	if let Some(bytes) = cached {
 		let (image, frames, _) = decode_blocking(&key, bytes, false, budget, early.clone()).await;
@@ -946,7 +1032,7 @@ async fn decode_blocking(
 	bytes: Vec<u8>,
 	lottie: bool,
 	budget: Budget,
-	early: Option<(async_mpsc::Sender<AvatarResult>, egui::Context)>,
+	early: Option<ResultSender>,
 ) -> (Option<egui::ColorImage>, ui::GifFrames, Option<Vec<u8>>) {
 	let key = key.to_owned();
 	tokio::task::spawn_blocking(move || {
@@ -961,18 +1047,15 @@ async fn decode_blocking(
 			return (decode(&bytes, &budget), Vec::new(), Some(bytes));
 		};
 		let post = |image: &egui::ColorImage| {
-			if let Some((results, ctx)) = &early
-				&& results
-					.blocking_send(AvatarResult {
-						key: key.clone(),
-						image: Some(image.clone()),
-						frames: Vec::new(),
-						error: None,
-						stage: DecodeStage::Preview,
-					})
-					.is_ok()
-			{
-				ctx.request_repaint();
+			if let Some(results) = &early {
+				results.preview(AvatarResult {
+					key: key.clone(),
+					image: Some(image.clone()),
+					frames: Vec::new(),
+					error: None,
+					stage: DecodeStage::Preview,
+					_reservation: None,
+				});
 			}
 		};
 		let frames = decode_animation(&bytes, &frame_budget, post).unwrap_or_default();
@@ -1476,6 +1559,185 @@ impl Disk {
 
 #[cfg(test)]
 mod tests {
+	fn queued_image(edge: usize) -> AvatarResult {
+		AvatarResult {
+			key: "synthetic".into(),
+			image: Some(egui::ColorImage::filled([edge, edge], egui::Color32::RED)),
+			frames: Vec::new(),
+			error: None,
+			stage: DecodeStage::Settled,
+			_reservation: None,
+		}
+	}
+
+	#[tokio::test]
+	async fn decoded_result_budget_covers_consumption_and_cancellation() {
+		use std::future::Future;
+		let (sender, mut receive) = result_channel(egui::Context::default());
+		let charge = queued_image(2).bytes();
+		let reserved = sender
+			.bytes
+			.clone()
+			.acquire_many_owned((RESULT_BYTES - charge) as u32)
+			.await
+			.unwrap();
+		assert!(sender.send(queued_image(2)).await);
+		let held = receive.try_recv().unwrap();
+		// Dequeueing alone does not free pixels still being handed to the UI.
+		assert_eq!(sender.bytes.available_permits(), 0);
+		assert!(!sender.preview(queued_image(2)));
+		{
+			let mut pending = std::pin::pin!(sender.send(queued_image(2)));
+			assert!(
+				pending
+					.as_mut()
+					.poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+					.is_pending()
+			);
+			drop(held);
+			assert!(pending.await);
+		}
+		let held = receive.try_recv().unwrap();
+		{
+			let mut cancelled = std::pin::pin!(sender.send(queued_image(2)));
+			assert!(
+				cancelled
+					.as_mut()
+					.poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+					.is_pending()
+			);
+		}
+		// Cancelling a waiting send leaks no reservation; a disconnected UI also wakes it.
+		assert_eq!(sender.bytes.available_permits(), 0);
+		let mut closed = std::pin::pin!(sender.send(queued_image(2)));
+		assert!(
+			closed
+				.as_mut()
+				.poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+				.is_pending()
+		);
+		drop(receive);
+		assert!(!closed.await);
+		drop(held);
+		drop(reserved);
+		assert_eq!(sender.bytes.available_permits(), RESULT_BYTES);
+
+		// Frames must consume the byte budget even without a separate still image.
+		let (sender, mut receive) = result_channel(egui::Context::default());
+		let frame = Arc::new(egui::ColorImage::filled([1024, 1024], egui::Color32::RED));
+		let animated = || {
+			let mut result = queued_image(0);
+			result.image = None;
+			result
+				.frames
+				.push((Duration::from_millis(100), frame.clone()));
+			result
+		};
+		let reserved = sender
+			.bytes
+			.clone()
+			.acquire_many_owned((RESULT_BYTES - 2 * 1024 * 1024) as u32)
+			.await
+			.unwrap();
+		assert!(!sender.preview(animated()));
+		let mut pending = std::pin::pin!(sender.send(animated()));
+		assert!(
+			pending
+				.as_mut()
+				.poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+				.is_pending()
+		);
+		drop(reserved);
+		assert!(pending.await);
+		assert_eq!(receive.try_recv().unwrap().frames.len(), 1);
+		assert_eq!(sender.bytes.available_permits(), RESULT_BYTES);
+	}
+
+	#[tokio::test]
+	async fn decoded_results_reject_oversize_and_repaint_remaining_work() {
+		let ctx = egui::Context::default();
+		let (sender, results) = result_channel(ctx.clone());
+		let (requests, _) = async_mpsc::channel(1);
+		let (cancel, _) = watch::channel(false);
+		let mut worker = AvatarWorker {
+			requests,
+			results,
+			wake: ctx.clone(),
+			cancel,
+			clear: Arc::new(AtomicBool::new(false)),
+			cleanup: None,
+		};
+		let mut oversized = queued_image(1);
+		oversized
+			.image
+			.as_mut()
+			.unwrap()
+			.pixels
+			.reserve(RESULT_BYTES / 4);
+		assert!(sender.send(oversized).await);
+		assert!(sender.send(queued_image(2)).await);
+		for _ in 0..3 {
+			let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+			output.textures_delta.clear();
+		}
+		assert!(!ctx.has_requested_repaint());
+		let result = worker.poll().unwrap();
+		assert!(result.image.is_none());
+		assert!(result.frames.is_empty());
+		assert!(result.error.is_some());
+		assert!(matches!(result.stage, DecodeStage::Settled));
+		assert!(ctx.has_requested_repaint());
+		drop(result);
+		drop(worker.poll().unwrap());
+		assert_eq!(sender.bytes.available_permits(), RESULT_BYTES);
+		// Item pressure also drops optional previews and returns their byte reservation.
+		for _ in 0..128 {
+			assert!(sender.preview(queued_image(1)));
+		}
+		let available = sender.bytes.available_permits();
+		assert!(!sender.preview(queued_image(1)));
+		assert_eq!(sender.bytes.available_permits(), available);
+		drop(worker);
+		assert_eq!(sender.bytes.available_permits(), RESULT_BYTES);
+	}
+
+	#[tokio::test]
+	#[ignore = "synthetic paused-consumer memory workload; allocates up to 512 MiB"]
+	async fn decoded_result_queue_workload() {
+		use std::future::Future;
+		// Explicit comparator reproduces the old item-only admission using the same results.
+		let legacy = std::env::var_os("SEREIN_IMAGE_QUEUE_LEGACY").is_some();
+		let (sender, mut receive) = result_channel(egui::Context::default());
+		for _ in 0..128 {
+			let result = queued_image(1024);
+			if legacy {
+				assert!(sender.send.send(result).await.is_ok());
+			} else {
+				let mut send = std::pin::pin!(sender.send(result));
+				match send
+					.as_mut()
+					.poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+				{
+					std::task::Poll::Ready(true) => {}
+					std::task::Poll::Pending => break,
+					std::task::Poll::Ready(false) => panic!("synthetic result rejected"),
+				}
+			}
+		}
+		let items = receive.len();
+		let mut pixels = 0;
+		let mut charged = 0;
+		while let Ok(result) = receive.try_recv() {
+			pixels += result.image.as_ref().unwrap().pixels.capacity() * 4;
+			charged += result.bytes();
+		}
+		eprintln!(
+			"image_queue legacy={legacy} items={items} pixel_bytes={pixels} estimated_bytes={charged}"
+		);
+		assert_eq!(items, if legacy { 128 } else { 31 });
+		assert!(legacy || charged <= RESULT_BYTES);
+	}
+
 	#[test]
 	fn apng_sticker_frames_preserve_pixels_and_delays() {
 		// Synthetic 1x1 APNG: opaque red for 100 ms, then opaque green for 200 ms.

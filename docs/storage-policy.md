@@ -557,12 +557,18 @@ until completion; capacity defers new requests rather than evicting pending work
 Failed entries expire five seconds after failure, permitting an on-demand retry.
 
 Current image limits include the GIF and larger-viewer features added after September 10.
-One worker decodes serially while up to eight credential-free downloads overlap.
-The UI tracks 128 requests. The worker holds at most 1,024 keys, and viewer keys run before inline keys.
+One coordinator owns disk access while up to eight credential-free download/decode jobs overlap.
+The request channel and coordinator backlog each hold at most 1,024 keys; viewer keys run before inline keys.
 Ordinary encoded bodies are capped at 2 MiB. Animation bodies are capped at 16 MiB.
 A still message picture accepts at most 32 MiB encoded.
 Eight overlapping downloads can hold one body each, separately from decoder memory.
 The completed encoded source is released before waiting to deliver its decoded result.
+Decoded results have a shared 128-item / 128 MiB allocation budget, including pixel-vector
+capacity, frame/key metadata and the result being consumed by the UI. Final results wait for
+capacity and remain cancellable; optional first-frame previews are skipped when either bound
+is full. Pending results schedule another UI frame after a partial drain. The eight active
+or completed jobs and one coordinator result waiting for admission are additional working
+sets, not part of that queue ceiling; this is not a whole-process memory cap.
 Avatar/icon decoding accepts at most 512 KiB encoded, 256×256 source, 1 MiB decoder
 allocations and 128×128 output. Previews/banners use 1024×1024 source, 8 MiB decoder
 allocations and a 512-pixel output edge. A still message picture allows an 8192 canvas and 128 MiB of decoder allocations.
@@ -597,9 +603,10 @@ allowances and are released when work/results are consumed or dropped. Byte exha
 rejects command admission through the existing unsaved/cleanup handling; the storage worker
 waits for result capacity without dropping completions. One completed result awaiting
 admission and the SQLite working set are additional. History payloads retain the 500-row /
-4 MiB limit. A connection-local byte total avoids rescanning all history on each save;
-SQLite write/version counters invalidate it after other writes. The disk schema and
-transactional eviction limits are unchanged.
+4 MiB limit. Incremental saves borrow the loaded and changed rows instead of cloning the
+window. Occupied SQLite pages skip the global payload sum while below the history budget;
+larger stores sum payload bytes inside the transaction. The disk schema and transactional
+eviction limits are unchanged.
 
 Each remote-video decoder queue admits at most 64 access units and 16 MiB of allocated
 encoded capacity, including the access unit being decoded. Exhaustion uses the existing

@@ -1965,3 +1965,69 @@ Native UI CPU, memory, frame timing and before/after screenshots remain unmeasur
 the untouched baseline's offline demo does not compile: existing fixtures omit the new
 `Member.clients` field and a demo-only slider check is not exported to the binary. The
 standard authenticated build was not launched for evidence. No performance change is claimed.
+
+## History copies and decoded-image backpressure — September 26, 2026
+
+Baseline `dad3c26c`, compared with this PR on macOS 27.0 (26A428), Apple M1 Pro,
+16 GiB RAM, pinned Rust 1.98.1 and locked dependencies. Component timing uses
+release builds, one warmup and five measured batches, with no concurrent Cargo
+build during sampling. The image queue workload measures allocated pixel capacity
+in debug tests; it is not a timing or whole-process RSS comparison.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Recent history completion, µs/page | 193.722 | 108.413 | -44.04% |
+| Older history completion, µs/page | 101.516 | 12.237 | -87.95% |
+| Append history completion, µs/page | 102.810 | 15.397 | -85.02% |
+| 200 incremental SQLite saves, ms | 303.007 | 249.976 | -17.50% |
+| Paused image consumer, queued pixel bytes | 536,870,912 | 130,023,424 | -75.78% |
+| 100,000-event reducer replay, ms | 158.133 | 155.741 | -1.51%, small/noise |
+| Retained replay timeline, estimated bytes / rows | 331,992–332,477 / 500 | 331,992–332,477 / 500 | Unchanged |
+
+The history workload starts with 500 rows, each carrying the maximum 512 author
+roles and a synthetic nickname, then completes a 50-row recent/older/append page.
+Each sample averages 100 completions, excluding fixture construction. This is a
+membership-heavy stress case, not a claim about typical chats. Incoming rows now
+inherit directly from the prior timeline before replacement or eviction. This
+removes a map containing 2,048,000 bytes of copied role IDs plus nickname/node
+allocations per page in this fixture; it is not a measured RSS reduction.
+
+The storage workload uses an in-memory SQLite database with 500 rows / 3,736,500
+estimated message bytes, toggling one row's edited flag for every save. It includes
+loading, validation, comparison and SQL work; it excludes filesystem latency.
+Borrowed rows replace a second owned message window. Full saves add only a bounded
+vector of at most 500 references. Transactions, account isolation and eviction
+limits are unchanged.
+
+The paused-consumer workload offers up to 128 separate 1024×1024 RGBA results.
+Its explicit legacy comparator bypasses byte admission to reproduce the original
+128-item channel. The new sender admits 31 results (124 MiB of pixels, 130,027,919
+charged bytes including metadata), then waits on the next result. The workload
+cancels that waiting send before draining. The production queue permits at most
+128 items / 128 MiB of charged allocations, including results being consumed;
+optional previews drop under pressure, final results wait cancellably. Eight
+active/completed jobs, one coordinator result awaiting admission, decoder scratch,
+UI/GPU caches and allocator overhead remain additional. This is not a 128 MiB
+whole-app cap. The queue now requests another frame when a partial UI drain leaves
+results behind.
+
+Replay uses one warmup and five direct executable runs after building each revision.
+Its ordinary message stream scarcely exercises these changes; the small timing
+variation is not claimed as a general reducer improvement. No live Discord account,
+voice call, microphone or camera was used. There is no new dependency, schema or
+asset change. The bundle audit retained existing fat LTO, stripping, compressed CJK
+fonts and Twemoji artwork rather than reducing language/emoji coverage.
+
+Reproduce the focused workloads:
+
+```sh
+cargo test --locked --release -p session-cache page_membership_benchmark -- --ignored --nocapture
+cargo test --locked --release -p local-store benchmark_changed_row_save -- --ignored --nocapture
+SEREIN_IMAGE_QUEUE_LEGACY=1 cargo test --locked -p serein avatars::tests::decoded_result_queue_workload -- --ignored --exact --nocapture
+cargo test --locked -p serein avatars::tests::decoded_result_queue_workload -- --ignored --exact --nocapture
+cargo replay
+```
+
+For historical history/storage comparisons, apply only the added benchmark tests
+to `dad3c26c`; keep its production implementations unchanged. The queue comparator
+runs from the new source and uses identical pixel allocations in both modes.
