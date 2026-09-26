@@ -117,18 +117,21 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
+		let language = self.language;
 		egui::Frame::new().inner_margin(24).show(ui, |ui| {
-			ui.label(design::semibold(ui, "Add Friend", 20.0).color(colors.text_strong));
+			ui.label(
+				design::semibold(ui, language.text("friends-add"), 20.0).color(colors.text_strong),
+			);
 			ui.add(
 				egui::Label::new(
-					RichText::new("You can add friends with their Discord username.")
+					RichText::new(language.text("friends-add-description"))
 						.size(14.0)
 						.color(colors.muted),
 				)
 				.wrap(),
 			);
 			ui.add_space(16.0);
-			design::label(ui, "Username");
+			design::label(ui, &language.text("friends-username"));
 			let busy = state.user_action_pending();
 			let enabled = !busy
 				&& !self.friends.username.trim().is_empty()
@@ -136,9 +139,9 @@ impl MessagingUi {
 					|| (state.gateway_connected
 						&& state.auth == client_core::auth::AuthState::Authenticated));
 			let label = if busy {
-				"Sending…"
+				language.text("friends-sending")
 			} else {
-				"Send Friend Request"
+				language.text("friends-send-request")
 			};
 			let mut send = false;
 			let mut field = |ui: &mut egui::Ui, width: f32| {
@@ -146,7 +149,7 @@ impl MessagingUi {
 					let input = design::input(
 						ui,
 						egui::TextEdit::singleline(&mut self.friends.username)
-							.hint_text("Enter a username")
+							.hint_text(language.text("friends-enter-username"))
 							.char_limit(33),
 					);
 					enabled
@@ -157,7 +160,7 @@ impl MessagingUi {
 			};
 			let action = |ui: &mut egui::Ui| {
 				ui.add_enabled_ui(enabled, |ui| {
-					design::button(ui, label, design::ButtonKind::Primary)
+					design::button(ui, &label, design::ButtonKind::Primary)
 				})
 				.inner
 				.clicked()
@@ -181,17 +184,17 @@ impl MessagingUi {
 			if state.demo {
 				design::hint(ui, "Offline demo · actions are simulated.");
 			} else if !state.gateway_connected {
-				design::hint(ui, "Reconnect before sending a friend request.");
+				design::hint(ui, &language.text("friends-reconnect"));
 			}
-			design::hint(ui, "Personalized request notes are not supported yet.");
+			design::hint(ui, &language.text("friends-notes-unsupported"));
 			design::divider(ui);
 			ui.label(
-				design::semibold(ui, "Other Places to Make Friends", 16.0)
+				design::semibold(ui, language.text("friends-other-places"), 16.0)
 					.color(colors.text_strong),
 			);
 			ui.add(
 				egui::Label::new(
-					RichText::new("Don't have a username? Discover public communities in Discord.")
+					RichText::new(language.text("friends-discover-description"))
 						.size(14.0)
 						.color(colors.muted),
 				)
@@ -199,7 +202,7 @@ impl MessagingUi {
 			);
 			ui.add_space(8.0);
 			ui.hyperlink_to(
-				"Explore Discoverable Servers ↗",
+				language.text("friends-explore-servers"),
 				"https://discord.com/servers",
 			);
 		});
@@ -211,6 +214,7 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
+		let language = self.language;
 		let mut resolve = None;
 		egui::Frame::new()
 			.inner_margin(egui::Margin::symmetric(24, 16))
@@ -222,8 +226,8 @@ impl MessagingUi {
 						.count()
 				});
 				let labels = [
-					format!("Incoming — {incoming}"),
-					format!("Outgoing — {outgoing}"),
+					format!("{} — {incoming}", language.text("friends-incoming")),
+					format!("{} — {outgoing}", language.text("friends-outgoing")),
 				];
 				if let Some(index) = design::segmented(
 					ui,
@@ -237,7 +241,7 @@ impl MessagingUi {
 					ui,
 					&mut self.friends.query,
 					egui::Id::unique("friend-requests-search"),
-					"Search requests",
+					&language.text("friends-search-requests"),
 				);
 				ui.add_space(16.0);
 				let query = self.friends.query.trim().to_lowercase();
@@ -251,24 +255,21 @@ impl MessagingUi {
 					.collect();
 				rows.sort_unstable_by(|a, b| a.0.name.cmp(&b.0.name).then(a.0.id.cmp(&b.0.id)));
 				if rows.is_empty() {
-					design::empty_state(
-						ui,
-						Icon::People,
-						if !state.friend_requests_known() {
-							"Friend requests are not available yet."
-						} else if !query.is_empty() {
-							"No requests match your search."
-						} else if self.friends.outgoing {
-							"No outgoing friend requests."
-						} else {
-							"No incoming friend requests."
-						},
-						if query.is_empty() {
-							"New requests appear here."
-						} else {
-							"Try a different name or username."
-						},
-					);
+					let title = if !state.friend_requests_known() {
+						language.text("friends-requests-unavailable")
+					} else if !query.is_empty() {
+						language.text("friends-no-request-search")
+					} else if self.friends.outgoing {
+						language.text("friends-no-outgoing")
+					} else {
+						language.text("friends-no-incoming")
+					};
+					let detail = if query.is_empty() {
+						language.text("friends-new-requests")
+					} else {
+						language.text("friends-try-different")
+					};
+					design::empty_state(ui, Icon::People, &title, &detail);
 					return;
 				}
 				section_label(
@@ -278,9 +279,9 @@ impl MessagingUi {
 						format!(
 							"{} — {}",
 							if self.friends.outgoing {
-								"Outgoing"
+								language.text("friends-outgoing")
 							} else {
-								"Incoming"
+								language.text("friends-incoming")
 							},
 							rows.len()
 						),
@@ -328,9 +329,15 @@ impl MessagingUi {
 								text.add(
 									egui::Label::new(
 										RichText::new(if *incoming {
-											format!("{name} · Incoming friend request")
+											format!(
+												"{name} · {}",
+												language.text("friends-incoming-request")
+											)
 										} else {
-											format!("{name} · Outgoing friend request")
+											format!(
+												"{name} · {}",
+												language.text("friends-outgoing-request")
+											)
 										})
 										.size(13.0)
 										.color(colors.muted),
@@ -345,28 +352,24 @@ impl MessagingUi {
 								row.spacing_mut().item_spacing.x = ACTION_GAP;
 								row.add_enabled_ui(enabled, |ui| {
 									ui.spacing_mut().item_spacing.x = ACTION_GAP;
+									let reject_label = language.text(if *incoming {
+										"friends-decline-request"
+									} else {
+										"friends-cancel-request"
+									});
 									if *incoming
 										&& round_action(
 											ui,
 											Icon::Check,
-											"Accept request",
+											&language.text("friends-accept-request"),
 											colors.positive,
 										)
 										.clicked()
 									{
 										resolve = Some((user.id, true));
 									}
-									if round_action(
-										ui,
-										Icon::Close,
-										if *incoming {
-											"Decline request"
-										} else {
-											"Cancel request"
-										},
-										colors.danger,
-									)
-									.clicked()
+									if round_action(ui, Icon::Close, &reject_label, colors.danger)
+										.clicked()
 									{
 										resolve = Some((user.id, false));
 									}
@@ -388,6 +391,7 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
+		let language = self.language;
 		egui::Frame::new()
 			.inner_margin(egui::Margin::symmetric(16, 8))
 			.show(ui, |ui| {
@@ -395,7 +399,10 @@ impl MessagingUi {
 					ui.set_min_height(32.0);
 					ui.spacing_mut().item_spacing.x = 8.0;
 					icons::inline(ui, Icon::People, 20.0, colors.muted);
-					ui.label(design::semibold(ui, "Friends", 16.0).color(colors.text_strong));
+					ui.label(
+						design::semibold(ui, language.text("friends"), 16.0)
+							.color(colors.text_strong),
+					);
 					let (rule, _) = ui.allocate_exact_size(vec2(17.0, 24.0), egui::Sense::hover());
 					ui.painter().vline(
 						rule.center().x,
@@ -403,11 +410,11 @@ impl MessagingUi {
 						egui::Stroke::new(1.0, colors.border),
 					);
 					for (tab, title) in [
-						(Tab::Online, "Online"),
-						(Tab::All, "All"),
-						(Tab::Pending, "Pending"),
-						(Tab::Restricted, "Blocked & Ignored"),
-						(Tab::Add, "Add Friend"),
+						(Tab::Online, language.text("friends-online")),
+						(Tab::All, language.text("friends-all")),
+						(Tab::Pending, language.text("friends-pending")),
+						(Tab::Restricted, language.text("friends-blocked-ignored")),
+						(Tab::Add, language.text("friends-add")),
 					] {
 						let count = (tab == Tab::Pending)
 							.then(|| {
@@ -417,7 +424,7 @@ impl MessagingUi {
 									.count()
 							})
 							.filter(|count| *count > 0);
-						if header_tab(ui, title, count, self.friends.tab == tab, tab == Tab::Add)
+						if header_tab(ui, &title, count, self.friends.tab == tab, tab == Tab::Add)
 							.clicked() && self.friends.tab != tab
 						{
 							self.friends.tab = tab;
@@ -438,13 +445,21 @@ impl MessagingUi {
 					ui.horizontal_top(|ui| {
 						icons::inline(ui, Icon::ShieldWarning, 18.0, colors.warning);
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-							if icons::button(ui, Icon::Close, 22.0, "Dismiss friend status warning")
-								.clicked()
+							if icons::button(
+								ui,
+								Icon::Close,
+								22.0,
+								&language.text("friends-dismiss-warning"),
+							)
+							.clicked()
 							{
 								self.friends.presence_warning_dismissed = Some(state.generation);
 							}
 							ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-								ui.add(egui::Label::new("Some friends’ online status and activity couldn’t be loaded. The Online list may be incomplete.").wrap());
+								ui.add(
+									egui::Label::new(language.text("friends-status-warning"))
+										.wrap(),
+								);
 							});
 						});
 					});
@@ -466,7 +481,7 @@ impl MessagingUi {
 					ui,
 					&mut self.friends.query,
 					egui::Id::unique("friends-search"),
-					"Search",
+					&language.text("friends-search"),
 				);
 				#[cfg(feature = "demo")]
 				if std::mem::take(&mut self.friends.focus_search) {
@@ -483,9 +498,9 @@ impl MessagingUi {
 						format!(
 							"{} \u{2014} {}",
 							match self.friends.tab {
-								Tab::All => "All friends",
-								Tab::Restricted => "Blocked & ignored",
-								_ => "Online",
+								Tab::All => language.text("friends-all-heading"),
+								Tab::Restricted => language.text("friends-blocked-heading"),
+								_ => language.text("friends-online"),
 							},
 							self.friends.list.len()
 						),
@@ -496,6 +511,31 @@ impl MessagingUi {
 				ui.spacing_mut().item_spacing.y = 0.0;
 				if self.friends.list.is_empty() {
 					let searching = !self.friends.query.trim().is_empty();
+					let title =
+						if self.friends.tab == Tab::Restricted && !state.restricted_users_known() {
+							language.text("friends-blocked-unavailable")
+						} else if self.friends.tab != Tab::Restricted && !state.friends_known() {
+							language.text("friends-unavailable")
+						} else if searching {
+							language.text(if self.friends.tab == Tab::Restricted {
+								"friends-no-blocked-search"
+							} else {
+								"friends-no-search"
+							})
+						} else if self.friends.tab == Tab::Restricted {
+							language.text("friends-no-blocked")
+						} else if self.friends.tab == Tab::All {
+							language.text("friends-none-yet")
+						} else {
+							language.text("friends-none-online")
+						};
+					let detail = if searching {
+						language.text("friends-try-different")
+					} else if self.friends.tab == Tab::Restricted {
+						language.text("friends-blocked-help")
+					} else {
+						language.text("friends-add-help")
+					};
 					design::empty_state(
 						ui,
 						if self.friends.tab == Tab::Restricted {
@@ -503,30 +543,8 @@ impl MessagingUi {
 						} else {
 							Icon::People
 						},
-						if self.friends.tab == Tab::Restricted && !state.restricted_users_known() {
-							"Blocked and ignored users are not available yet."
-						} else if self.friends.tab != Tab::Restricted && !state.friends_known() {
-							"Friends are not available yet."
-						} else if searching {
-							if self.friends.tab == Tab::Restricted {
-								"No blocked or ignored users match your search."
-							} else {
-								"No friends match your search."
-							}
-						} else if self.friends.tab == Tab::Restricted {
-							"No blocked or ignored users."
-						} else if self.friends.tab == Tab::All {
-							"No friends yet."
-						} else {
-							"No friends are currently online."
-						},
-						if searching {
-							"Try a different name or username."
-						} else if self.friends.tab == Tab::Restricted {
-							"People you block or ignore appear here."
-						} else {
-							"Add friends by username from the Add Friend tab."
-						},
+						&title,
+						&detail,
 					);
 					return;
 				}
@@ -650,16 +668,18 @@ impl MessagingUi {
 								});
 								let subtitle = restricted
 									.map(|(_, _, ignored)| {
-										if *ignored { "Ignored" } else { "Blocked" }.into()
+										language.text(if *ignored {
+											"friends-ignored"
+										} else {
+											"friends-blocked"
+										})
 									})
 									.or_else(|| profiles::subtitle(custom, activities))
 									.unwrap_or_else(|| {
-										status
-											.map_or(
-												"Presence unavailable",
-												profiles::presence_label,
-											)
-											.into()
+										status.map_or_else(
+											|| language.text("friends-presence-unavailable"),
+											|status| profiles::presence_label(status).to_owned(),
+										)
 									});
 								text.horizontal(|ui| {
 									ui.spacing_mut().item_spacing.x = 4.0;
@@ -696,14 +716,14 @@ impl MessagingUi {
 											round_action(
 												ui,
 												Icon::Threads,
-												"Message",
+												&language.text("friends-message"),
 												colors.text_strong,
 											)
 										})
 										.inner;
 									if message
 										.on_disabled_hover_text(
-											"No open direct message with this friend",
+											&language.text("friends-no-open-dm"),
 										)
 										.clicked()
 									{
@@ -713,7 +733,7 @@ impl MessagingUi {
 								let more = round_action(
 									&mut actions,
 									Icon::More,
-									"More",
+									&language.text("friends-more"),
 									colors.text_strong,
 								);
 								egui::Popup::menu(&more).show(|ui| {

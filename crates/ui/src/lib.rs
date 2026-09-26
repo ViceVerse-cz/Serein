@@ -1074,6 +1074,7 @@ impl MessagingUi {
 	}
 	fn member_rows(&mut self, ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
 		let colors = design::palette(ui);
+		let language = self.language;
 		let cached = state.members_cached();
 		let Some(list) = state
 			.members
@@ -1081,7 +1082,9 @@ impl MessagingUi {
 			.filter(|list| Some(list.channel) == state.selected)
 		else {
 			ui.add_space(8.0);
-			ui.label(RichText::new("Choose a conversation to see its people.").color(colors.muted));
+			ui.label(
+				RichText::new(language.text("choose-conversation-people")).color(colors.muted),
+			);
 			return;
 		};
 		let has_entry = list.slots.iter().any(|slot| slot.is_some()) || cached;
@@ -1089,14 +1092,14 @@ impl MessagingUi {
 			ui.add_space(8.0);
 			if list.freshness != Freshness::Fresh {
 				let text = if list.freshness == Freshness::Unavailable {
-					"People aren't available in this conversation."
+					language.text("people-unavailable")
 				} else {
-					"Loading people…"
+					language.text("loading-people")
 				};
 				ui.label(RichText::new(text).small().color(colors.muted));
 			} else {
 				ui.label(
-					RichText::new("No people returned for this view.")
+					RichText::new(language.text("no-people"))
 						.small()
 						.color(colors.muted),
 				);
@@ -1153,8 +1156,8 @@ impl MessagingUi {
 					match slot {
 						Some(model::MemberSlot::Group(id)) => {
 							let name = match id.as_str() {
-								"online" => "Online".to_owned(),
-								"offline" => "Offline".to_owned(),
+								"online" => language.text("status-online"),
+								"offline" => language.text("status-offline"),
 								_ => {
 									let role = id.parse::<u64>().ok().and_then(|role_id| {
 										guild.and_then(|guild| {
@@ -1165,7 +1168,7 @@ impl MessagingUi {
 									});
 									match role {
 										Some(role) if !role.name.is_empty() => role.name.clone(),
-										_ => "Role".to_owned(),
+										_ => language.text("role"),
 									}
 								}
 							};
@@ -1394,6 +1397,7 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
+		let language = self.language;
 		egui::Panel::top("sidebar-header")
 			.exact_size(48.0)
 			.show_separator_line(false)
@@ -1444,17 +1448,18 @@ impl MessagingUi {
 								|ui| {
 									ui.add_sized(
 										[(ui.available_width() - 36.0).max(60.0), 30.0],
-										egui::Button::new("Find conversation").truncate(),
+										egui::Button::new(language.text("find-conversation"))
+											.truncate(),
 									)
 								},
 							)
 							.inner
-							.on_hover_text("Search loaded conversations (Ctrl/Cmd+K)");
+							.on_hover_text(language.text("find-conversation-tooltip"));
 						find.widget_info(|| {
 							egui::WidgetInfo::labeled(
 								egui::Role::Button,
 								ui.is_enabled(),
-								"Find conversation, Ctrl or Command K",
+								language.text("find-conversation"),
 							)
 						});
 						if find.clicked() {
@@ -1486,9 +1491,14 @@ impl MessagingUi {
 							},
 						);
 						response.widget_info(|| {
-							egui::WidgetInfo::selected(egui::Role::Button, true, friends, "Friends")
+							egui::WidgetInfo::selected(
+								egui::Role::Button,
+								true,
+								friends,
+								language.text("friends"),
+							)
 						});
-						if response.on_hover_text("Friends").clicked() {
+						if response.on_hover_text(language.text("friends")).clicked() {
 							state.open_home();
 							self.guild = None;
 							self.search.open = false;
@@ -1502,7 +1512,7 @@ impl MessagingUi {
 					&& ui
 						.add_sized(
 							[ui.available_width(), 32.0],
-							egui::Button::new("Members").frame(false),
+							egui::Button::new(language.text("members")).frame(false),
 						)
 						.clicked() && let Some(command) =
 					self.preview_server_admin(state, guild, "members")
@@ -1511,7 +1521,7 @@ impl MessagingUi {
 				}
 				if !self.channel_preferences_status.is_empty() {
 					ui.colored_label(design::palette(ui).warning, self.channel_preferences_status);
-					if ui.button("Retry shortcuts").clicked() {
+					if ui.button(language.text("retry-shortcuts")).clicked() {
 						if self.channel_preferences_loaded {
 							self.channel_preferences_changed = true;
 						} else {
@@ -1543,6 +1553,7 @@ impl MessagingUi {
 	/// Account card; while in a call it grows upward with the call header and quick actions.
 	fn account_card(&mut self, ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
 		let colors = design::palette(ui);
+		let language = self.language;
 		let mut anchor = None;
 		let in_call = state.voice.active.is_some();
 		egui::Frame::new()
@@ -1579,7 +1590,7 @@ impl MessagingUi {
 									egui::WidgetInfo::labeled(
 										egui::Role::Button,
 										true,
-										"Profile and status",
+										language.text("profile-and-status"),
 									)
 								});
 								if avatar.has_focus() {
@@ -1603,14 +1614,19 @@ impl MessagingUi {
 									profiles::presence_color(self.own_presence.status.wire()),
 									colors.raised,
 								);
-								anchor = Some(avatar.on_hover_text("Profile and status"));
+								anchor =
+									Some(avatar.on_hover_text(language.text("profile-and-status")));
 							}
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
 									ui.spacing_mut().item_spacing.x = 2.0;
-									let settings =
-										icons::button(ui, icons::Icon::Gear, 32.0, "User settings");
+									let settings = icons::button(
+										ui,
+										icons::Icon::Gear,
+										32.0,
+										&language.text("user-settings"),
+									);
 									if settings.clicked() {
 										self.settings.open = true;
 										egui::Popup::close_all(ui.ctx());
@@ -1628,12 +1644,13 @@ impl MessagingUi {
 														egui::Label::new(
 															design::semibold(
 																ui,
-																state
-																	.user
-																	.as_ref()
-																	.map_or("Your account", |u| {
-																		u.name.as_str()
-																	}),
+																state.user.as_ref().map_or_else(
+																	|| {
+																		language
+																			.text("your-account")
+																	},
+																	|u| u.name.clone(),
+																),
 																14.0,
 															)
 															.color(colors.text_strong),
@@ -1660,14 +1677,24 @@ impl MessagingUi {
 																	}) {
 																	game.to_owned()
 																} else if state.demo {
-																	"Offline preview".to_owned()
+																	language.text("offline-preview")
 																} else if state.gateway_connected {
-																	self.own_presence
-																		.status
-																		.label()
-																		.to_owned()
+																	language.text(
+																		match self
+																			.own_presence
+																			.status
+																			.wire()
+																		{
+																			"online" => {
+																				"status-online"
+																			}
+																			"idle" => "status-idle",
+																			"dnd" => "status-dnd",
+																			_ => "status-offline",
+																		},
+																	)
 																} else {
-																	"Reconnecting…".to_owned()
+																	language.text("reconnecting")
 																},
 															)
 															.size(12.0)
@@ -1684,12 +1711,12 @@ impl MessagingUi {
 													ui.scope_id().with("account-identity"),
 													egui::Sense::click(),
 												)
-												.on_hover_text("Profile and status");
+												.on_hover_text(language.text("profile-and-status"));
 											identity.widget_info(|| {
 												egui::WidgetInfo::labeled(
 													egui::Role::Button,
 													true,
-													"Profile and status",
+													language.text("profile-and-status"),
 												)
 											});
 											if let Some(avatar) = anchor.take() {
@@ -1725,6 +1752,7 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
+		let language = self.language;
 		egui::Panel::top("channel-header")
 			.exact_size(48.0)
 			.show_separator_line(false)
@@ -1751,6 +1779,11 @@ impl MessagingUi {
 				let shortcuts_available = self.shortcuts_available(state);
 				ui.horizontal_centered(|ui| {
 					ui.spacing_mut().item_spacing.x = 8.0;
+					let voice_chat_label = language.text(if self.voice_chat_open {
+						"hide-chat"
+					} else {
+						"show-chat"
+					});
 					match channel.as_ref() {
 						Some(c) if c.guild.is_none() && c.kind == 3 => {
 							let avatar = self.avatars.show_group(ui, c, 24.0, state.demo);
@@ -1817,11 +1850,7 @@ impl MessagingUi {
 								icons::Icon::Forum,
 								32.0,
 								self.voice_chat_open,
-								if self.voice_chat_open {
-									"Hide chat"
-								} else {
-									"Show chat"
-								},
+								&voice_chat_label,
 							)
 							.clicked()
 						{
@@ -1860,7 +1889,11 @@ impl MessagingUi {
 								);
 								let enabled = state.can_search();
 								response.widget_info(|| {
-									egui::WidgetInfo::labeled(egui::Role::Button, enabled, "Search")
+									egui::WidgetInfo::labeled(
+										egui::Role::Button,
+										enabled,
+										language.text("search"),
+									)
 								});
 								ui.painter().rect_filled(pill, 6, colors.raised);
 								let pill_text = if enabled {
@@ -1871,7 +1904,7 @@ impl MessagingUi {
 								ui.painter().text(
 									pill.left_center() + egui::vec2(10.0, 0.0),
 									egui::Align2::LEFT_CENTER,
-									"Search",
+									language.text("search"),
 									egui::FontId::proportional(13.0),
 									pill_text,
 								);
@@ -1885,7 +1918,9 @@ impl MessagingUi {
 									pill_text,
 								);
 								if enabled
-									&& response.on_hover_text("Search this conversation").clicked()
+									&& response
+										.on_hover_text(language.text("search-conversation"))
+										.clicked()
 								{
 									if state.archives.is_some() {
 										commands.push(state.clear_archives());
@@ -1899,7 +1934,7 @@ impl MessagingUi {
 								icons::Icon::People,
 								32.0,
 								show_members,
-								"Show member list",
+								&language.text("show-member-list"),
 							)
 							.clicked()
 							{
@@ -1918,7 +1953,7 @@ impl MessagingUi {
 										icons::Icon::Pin,
 										32.0,
 										pins_open,
-										"Pinned messages",
+										&language.text("pinned-messages"),
 									)
 								})
 								.inner;
@@ -1938,7 +1973,12 @@ impl MessagingUi {
 									state.can_archive(c.id, model::archives::Kind::Public);
 								let archive = ui
 									.add_enabled_ui(allowed, |ui| {
-										icons::button(ui, icons::Icon::Thread, 32.0, "Threads")
+										icons::button(
+											ui,
+											icons::Icon::Thread,
+											32.0,
+											&language.text("threads"),
+										)
 									})
 									.inner;
 								if archive.clicked() {
@@ -1956,7 +1996,7 @@ impl MessagingUi {
 											ui,
 											icons::Icon::Reload,
 											32.0,
-											"Reload history",
+											&language.text("reload-history"),
 										)
 									},
 								)
@@ -1976,9 +2016,10 @@ impl MessagingUi {
 						}
 						ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 							// Centre the name block in the fixed-height header even without a subtitle.
-							let name = channel
-								.as_ref()
-								.map_or("Direct Messages", |c| state.conversation_name(c));
+							let name = channel.as_ref().map_or_else(
+								|| language.text("direct-messages"),
+								|c| state.conversation_name(c).to_owned(),
+							);
 							let subtitle = channel
 								.as_ref()
 								.filter(|_| dm)
@@ -2045,7 +2086,7 @@ impl MessagingUi {
 								icons::inline(ui, icons::Icon::InCall, 16.0, colors.positive);
 								ui.add(
 									egui::Label::new(
-										design::medium(ui, "In a call", 14.0)
+										design::medium(ui, language.text("in-a-call"), 14.0)
 											.color(colors.positive),
 									)
 									.selectable(false),
@@ -3126,6 +3167,7 @@ impl MessagingUi {
 
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		crate::scroll::apply_preferences(ui.ctx(), self.reading_preferences);
+		let language = self.language;
 		if let Some(status) = state.take_user_action_status() {
 			self.toasts.push(design::Level::Error, status);
 		}
@@ -3345,7 +3387,7 @@ impl MessagingUi {
 		let title = self
 			.guild
 			.and_then(|id| state.guild(id))
-			.map_or_else(|| "Direct Messages".to_owned(), |g| g.name.clone());
+			.map_or_else(|| language.text("direct-messages"), |g| g.name.clone());
 		if self.shows_title_bar() {
 			self.title_bar(ui, state, &title);
 		}
@@ -3529,8 +3571,8 @@ impl MessagingUi {
 						self.member_rows(ui, state, &mut commands);
 					});
 			} else {
-				let response = dialog::Dialog::new("members-narrow", "Members")
-					.subtitle("Everyone with access to this conversation.")
+				let response = dialog::Dialog::new("members-narrow", language.text("members"))
+					.subtitle(language.text("members-description"))
 					.width(360.0)
 					.show(&ctx, |d| {
 						let max = (d.available_height() - 180.0).clamp(120.0, 620.0);
@@ -3624,13 +3666,12 @@ impl MessagingUi {
 					ui.add_space((ui.available_height() * 0.32).max(24.0));
 					ui.vertical_centered(|ui| {
 						ui.label(
-							design::semibold(ui, "No conversation selected", 20.0)
+							design::semibold(ui, language.text("no-conversation-selected"), 20.0)
 								.color(colors.text_strong),
 						);
 						ui.add_space(8.0);
 						ui.label(
-							RichText::new("Pick a channel or direct message from the list.")
-								.color(colors.muted),
+							RichText::new(language.text("select-conversation")).color(colors.muted),
 						);
 					});
 					return;

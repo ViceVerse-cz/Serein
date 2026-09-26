@@ -458,6 +458,7 @@ fn kind_label(kind: u8) -> &'static str {
 
 impl MessagingUi {
 	pub(super) fn channel_list(&mut self, ui: &mut egui::Ui, state: &mut State) -> Option<Id> {
+		let language = self.language;
 		let hide_muted = self
 			.guild
 			.is_some_and(|guild| state.hides_muted_channels(guild) == Some(true));
@@ -561,7 +562,7 @@ impl MessagingUi {
 		let colors = design::palette(ui);
 		let mut selected = None;
 		if self.guild.is_some() && self.channel_cache.rows.is_empty() {
-			ui.label(RichText::new("No conversations available here.").color(colors.muted));
+			ui.label(RichText::new(language.text("no-conversations")).color(colors.muted));
 		}
 		let dm_list = self.guild.is_none();
 		let row_height = if dm_list { 44.0 } else { 34.0 };
@@ -580,7 +581,7 @@ impl MessagingUi {
 				for index in range {
 					let Some(row) = self.channel_cache.rows.get(index).copied() else {
 						ui.label(
-							RichText::new("No conversations available here.").color(colors.muted),
+							RichText::new(language.text("no-conversations")).color(colors.muted),
 						);
 						continue;
 					};
@@ -788,12 +789,13 @@ impl MessagingUi {
 							let new_label = (new_posts > 0).then(|| {
 								ui.painter().layout_no_wrap(
 									format!(
-										"{} New",
+										"{} {}",
 										if new_posts > 99 {
 											"99+".to_owned()
 										} else {
 											new_posts.to_string()
-										}
+										},
+										language.text("new")
 									),
 									egui::FontId::proportional(12.0),
 									colors.muted,
@@ -907,8 +909,13 @@ impl MessagingUi {
 									crate::profiles::subtitle(custom, activities)
 								})
 							} else {
-								(dm_list && channel.kind == 3)
-									.then(|| format!("{} Members", channel.recipients.len().max(1)))
+								(dm_list && channel.kind == 3).then(|| {
+									format!(
+										"{} {}",
+										channel.recipients.len().max(1),
+										language.text("members-count")
+									)
+								})
 							};
 							let direct_user = (dm_list && channel.kind == 1)
 								.then(|| channel.recipients.first())
@@ -984,7 +991,7 @@ impl MessagingUi {
 									&mut open,
 									crate::icons::Icon::External,
 									28.0,
-									"Open in Discord",
+									&language.text("open-in-discord"),
 								)
 								.clicked()
 								{
