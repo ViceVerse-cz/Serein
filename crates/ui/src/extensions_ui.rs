@@ -773,7 +773,7 @@ impl ExtensionUi {
 									.capabilities
 									.contains(&Capability::ImageSharing)
 								{
-									"Selecting artwork sends it as an image attachment."
+									"Unavailable emoji and stickers fall back to image attachments."
 								} else {
 									"Example deleted-message appearance"
 								},

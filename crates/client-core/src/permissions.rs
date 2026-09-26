@@ -701,6 +701,12 @@ impl State {
 				.map(|emoji| (guild, emoji))
 		})
 	}
+	pub fn can_send_custom_emoji(&self, channel: Id, source: Id, emoji: &CustomEmoji) -> bool {
+		self.custom_emoji_unavailable_reason(channel, source, emoji)
+			.is_none()
+			&& (self.stickers.external_allowed
+				|| self.channel(channel).and_then(|target| target.guild) == Some(source))
+	}
 	/// Local eligibility for an emoji borrowed from `source`'s catalog. Discord still
 	/// decides account entitlements, including Nitro; this is not a send guarantee.
 	pub fn custom_emoji_unavailable_reason(

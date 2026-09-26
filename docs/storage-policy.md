@@ -1323,7 +1323,8 @@ or background pagination is added.
 
 ### Emoji and sticker image sharing
 
-The opt-in plugin stages public artwork as ordinary attachments only after selection.
+The opt-in plugin stages public artwork as ordinary attachments only after selecting
+an emoji or sticker that cannot use its normal Discord send path.
 One host download/preparation uses generated HTTPS CDN URLs without credentials or
 redirects, capped at 8 MiB per image and 15 seconds per request. Raster preview decoding
 uses the existing 64 MiB allocation limit and 320px thumbnail edge outside rendering.

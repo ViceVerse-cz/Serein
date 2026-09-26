@@ -131,7 +131,7 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 			include_bytes!(
 				"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
 			),
-			"While enabled, selecting custom emoji or stickers sends an image attachment immediately.",
+			"While enabled, custom emoji and stickers fall back to image attachments only when native sending is unavailable.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(

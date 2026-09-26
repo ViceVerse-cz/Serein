@@ -133,7 +133,7 @@ supports 51 capabilities, with at most 64 distinct declarations per manifest.
 | `composer` | Read the current draft and propose replacement | A `composer` action; replacement requires Apply |
 | `storage` | Read/replace one opaque local UTF-8 value | Per-account/plugin; 1 MiB disk limit and 256 KiB invocation budget |
 | `deleted_messages` | Enable host retention of already-loaded deleted messages | Activation only; bounded session memory, no deleted text sent to Wasm |
-| `image_sharing` | Enable host emoji/sticker image attachment mode | Activation only; picker selection authorizes sending, Wasm receives no image bytes |
+| `image_sharing` | Enable host emoji/sticker image attachment fallback | Activation only; unavailable native picker selections authorize sending, Wasm receives no image bytes |
 | `appearance` | Return a bounded declarative theme overlay | Native colors/control metrics; no arbitrary drawing |
 | `message_events` | Observe live create/update/delete events | Active accessible conversation; bounded best-effort delivery |
 | `app_context` | Read connection, current user and selected channel | Current session, optional fields |
@@ -355,11 +355,14 @@ Older hosts reject the new capability/action in the manifest. They do not load
 a message-event plugin merely because its manifest declares API version 1.
 
 The **Emoji & Sticker Images** catalog plugin requests `image_sharing`. Its
-activation output makes custom emoji and sticker selections stage artwork as ordinary
-image attachments. Selecting artwork authorizes one send after host download and
-validation, without another composer confirmation. Text drafts stay intact. Existing
-file selections must be sent or removed first. Serein displays these attachments at
-32px for emoji and 160px for stickers; other clients control their own attachment layout. Enabling the plugin never sends anything, grants
+activation output adds an image-attachment fallback for custom emoji and stickers that
+the current account cannot send natively. Emoji and stickers usable in the current
+conversation keep their normal Discord send path, including for Nitro accounts.
+Selecting fallback artwork authorizes one send after host download and validation,
+without another composer confirmation. Animated APNG stickers are sent as GIF
+attachments so their animation survives. Text drafts stay intact. Existing file
+selections must be sent or removed first. Serein displays these attachments at
+48px for emoji and 160px for stickers; other clients control their own attachment layout. Enabling the plugin never sends anything, grants
 network access to Wasm, or changes native sticker/emoji entitlements. Disabling removes the option. Logout, account changes and channel navigation cancel
 pending image preparation; already selected files follow ordinary attachment handling.
 The `image_sharing` output defaults to false and is accepted only from an activation

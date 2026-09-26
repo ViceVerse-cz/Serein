@@ -1,3 +1,26 @@
+# Native-first plugin artwork fallback - September 26, 2026
+
+Baseline `48e442715a0db51f54eedfabd99d1f8dba4369a3`, compared with this change on
+Windows 11 Home 10.0.26200, Ryzen 7 7800X3D, 31.1 GiB RAM and pinned Rust 1.98.1.
+Both standard voice-enabled `cargo xtask package` builds used locked dependencies
+without demo/developer features. Complete distribution ZIPs use .NET `ZipFile`
+with `CompressionLevel.Optimal`; baseline and updated distributions were separate.
+NSIS was unavailable, so installer executables were not generated. The updated
+package's first final link hit MSVC `LNK1318` on its PDB; a serialized retry against
+the same compiled artifacts passed.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable bytes | 73,543,168 | 73,545,216 | +2,048 / +0.0028% |
+| Installed package bytes | 77,645,994 | 77,648,042 | +2,048 / +0.0026% |
+| Portable ZIP bytes | 43,363,325 | 43,363,214 | -111 / -0.0003% (compression noise) |
+
+The selection change adds no idle work: it performs bounded catalog and permission
+lookups only when artwork is chosen. Native CPU/RSS/frame timing is not applicable
+to this event-only branch, and a still screenshot cannot verify animation. Focused
+synthetic tests verify native/fallback routing and multi-frame GIF output; they do
+not establish live Discord interoperability.
+
 # Animated profile review fixes - September 22, 2026
 
 Compared the PR head `ffa38ae` with `dda91ab` on Windows x64, Ryzen 7 7800X3D,

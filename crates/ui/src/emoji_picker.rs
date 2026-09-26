@@ -601,8 +601,19 @@ impl Picker {
 		self.image_sharing_enabled && self.reaction.is_none()
 	}
 
-	fn pick(&self, emoji: model::ReactionEmoji, text: String) -> Pick {
-		if self.images()
+	fn shares_emoji(&self, state: &State, emoji: &model::ReactionEmoji) -> bool {
+		self.images()
+			&& emoji.id.is_some_and(|id| {
+				!state.custom_emoji(id).is_some_and(|(guild, custom)| {
+					self.channel.is_some_and(|channel| {
+						state.can_send_custom_emoji(channel, guild.id, custom)
+					})
+				})
+			})
+	}
+
+	fn pick(&self, state: &State, emoji: model::ReactionEmoji, text: String) -> Pick {
+		if self.shares_emoji(state, &emoji)
 			&& let Some(id) = emoji.id
 		{
 			return Pick::Image(model::ImageShare::Emoji {
@@ -616,8 +627,19 @@ impl Picker {
 		}
 	}
 
+	fn pick_sticker(&self, state: &State, sticker: model::Sticker) -> Pick {
+		if self.images() && !state.can_send_sticker(&sticker) {
+			Pick::Image(model::ImageShare::Sticker {
+				id: sticker.id,
+				format_type: sticker.format_type,
+			})
+		} else {
+			Pick::Sticker(sticker)
+		}
+	}
+
 	fn can_pick(&self, state: &State, emoji: &model::ReactionEmoji) -> bool {
-		if self.images() && emoji.id.is_some() {
+		if self.shares_emoji(state, emoji) {
 			return self
 				.channel
 				.is_some_and(|channel| state.can_send(channel) && state.can_attach(channel));
@@ -988,14 +1010,7 @@ impl Picker {
 										&mut hovered_sticker,
 										image_mode,
 									) {
-										selected = Some(if image_mode {
-											Pick::Image(model::ImageShare::Sticker {
-												id: sticker.id,
-												format_type: sticker.format_type,
-											})
-										} else {
-											Pick::Sticker(sticker)
-										});
+										selected = Some(self.pick_sticker(state, sticker));
 									}
 								},
 							);
@@ -1129,7 +1144,8 @@ impl Picker {
 													));
 												}
 												if response.clicked() {
-													selected = Some(self.pick(emoji, text.into()));
+													selected =
+														Some(self.pick(state, emoji, text.into()));
 													used = Some(text);
 												}
 											}
@@ -1304,8 +1320,9 @@ impl Picker {
 																		.0,
 																	);
 																}
-																selected =
-																	Some(self.pick(emoji, text));
+																selected = Some(
+																	self.pick(state, emoji, text),
+																);
 															}
 														}
 													});
@@ -2285,7 +2302,7 @@ mod tests {
 
 	#[test]
 	fn image_sharing_requires_enabled_plugin_and_never_changes_reactions() {
-		let state = test_support::demo_state();
+		let mut state = test_support::demo_state();
 		let mut picker = Picker {
 			channel: state.selected,
 			image_sharing_enabled: true,
@@ -2297,7 +2314,7 @@ mod tests {
 		};
 		assert!(picker.can_pick(&state, &emoji));
 		assert!(matches!(
-			picker.pick(emoji.clone(), "<a:wave:999>".into()),
+			picker.pick(&state, emoji.clone(), "<a:wave:999>".into()),
 			Pick::Image(model::ImageShare::Emoji {
 				id: Id(999),
 				animated: true
@@ -2306,14 +2323,53 @@ mod tests {
 		picker.image_sharing_enabled = false;
 		assert!(!picker.can_pick(&state, &emoji));
 		assert!(matches!(
-			picker.pick(emoji.clone(), "<a:wave:999>".into()),
+			picker.pick(&state, emoji.clone(), "<a:wave:999>".into()),
 			Pick::Insert(_)
 		));
 		picker.image_sharing_enabled = true;
 		picker.reaction = Some((Id(500), egui::Rect::NOTHING, egui::Id::unique("reaction")));
 		assert!(matches!(
-			picker.pick(emoji, "<a:wave:999>".into()),
+			picker.pick(&state, emoji, "<a:wave:999>".into()),
 			Pick::React(Id(500), _)
+		));
+
+		picker.reaction = None;
+		let local = model::ReactionEmoji {
+			id: Some(Id(9002)),
+			name: Some("serein_party".into()),
+		};
+		assert!(matches!(
+			picker.pick(&state, local.clone(), "<a:serein_party:9002>".into()),
+			Pick::Insert(_)
+		));
+		state.selected = Some(Id(22));
+		picker.channel = state.selected;
+		assert!(matches!(
+			picker.pick(&state, local.clone(), "<a:serein_party:9002>".into()),
+			Pick::Image(model::ImageShare::Emoji { id: Id(9002), .. })
+		));
+		state.stickers.external_allowed = true;
+		assert!(matches!(
+			picker.pick(&state, local, "<a:serein_party:9002>".into()),
+			Pick::Insert(_)
+		));
+
+		test_support::seed_stickers(&mut state);
+		let standard = state.stickers.packs[0].stickers[0].clone();
+		assert!(matches!(
+			picker.pick_sticker(&state, standard),
+			Pick::Sticker(_)
+		));
+		let external = state.guilds[0].stickers.as_ref().unwrap()[0].clone();
+		state.stickers.external_allowed = false;
+		assert!(matches!(
+			picker.pick_sticker(&state, external.clone()),
+			Pick::Image(model::ImageShare::Sticker { .. })
+		));
+		state.stickers.external_allowed = true;
+		assert!(matches!(
+			picker.pick_sticker(&state, external),
+			Pick::Sticker(_)
 		));
 	}
 
@@ -2576,24 +2632,17 @@ mod tests {
 					break;
 				}
 			}
-			if images {
-				assert!(matches!(
-					picked,
-					Some(Pick::Image(model::ImageShare::Sticker { id: Id(9201), .. }))
-				));
-			} else {
-				let Some(Pick::Sticker(sticker)) = picked else {
-					panic!("keyboard sticker selection");
-				};
-				assert_eq!(sticker.name, "Sleep");
-				assert!(matches!(
-					state.prepare_sticker_send(&sticker),
-					Some(Command::Send {
-						sticker: Some(Id(9201)),
-						..
-					})
-				));
-			}
+			let Some(Pick::Sticker(sticker)) = picked else {
+				panic!("keyboard sticker selection");
+			};
+			assert_eq!(sticker.name, "Sleep");
+			assert!(matches!(
+				state.prepare_sticker_send(&sticker),
+				Some(Command::Send {
+					sticker: Some(Id(9201)),
+					..
+				})
+			));
 			assert_eq!(state.drafts[&channel], "Keep my draft");
 			assert!(!picker.open);
 			state.generation += 1;
