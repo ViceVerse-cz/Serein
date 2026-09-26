@@ -185,8 +185,8 @@ impl ForwardDialog {
 						});
 				});
 				d.content(|ui| {
-					ui.separator();
-					ui.add_space(8.0);
+					crate::design::card_divider(ui);
+					ui.add_space(2.0);
 					if let Some(source) = state.timeline.get(message) {
 						let preview: String = if source.content.contains("||") {
 							"[Spoiler hidden]".into()

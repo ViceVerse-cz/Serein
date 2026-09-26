@@ -95,17 +95,17 @@ impl InviteDialog {
 							.size(18.0)
 							.color(colors.muted),
 					);
-					let name = state
-						.channels
-						.iter()
-						.find(|c| Some(c.id) == *channel)
-						.map_or("No eligible channel", |c| c.name.as_str());
+					let current = state.channels.iter().find(|c| Some(c.id) == *channel);
+					let name = current.map_or("No eligible channel", |c| c.name.as_str());
 					egui::ComboBox::from_id_salt("invite-channel")
-						.selected_text(
-							egui::RichText::new(format!("# {name}"))
-								.color(colors.muted)
-								.size(18.0),
-						)
+						.selected_text((
+							crate::icons::atom(
+								crate::icons::channel(current.map_or(0, |c| c.kind)),
+								18.0,
+								colors.muted,
+							),
+							egui::RichText::new(name).color(colors.muted).size(18.0),
+						))
 						.width(ui.available_width().min(300.0))
 						.wrap_mode(egui::TextWrapMode::Truncate)
 						.height(220.0)
@@ -115,7 +115,18 @@ impl InviteDialog {
 								.iter()
 								.filter(|c| state.can_create_server_invite(guild, c.id))
 							{
-								ui.selectable_value(channel, Some(c.id), &c.name);
+								ui.selectable_value(
+									channel,
+									Some(c.id),
+									(
+										crate::icons::atom(
+											crate::icons::channel(c.kind),
+											16.0,
+											colors.muted,
+										),
+										c.name.as_str(),
+									),
+								);
 							}
 						});
 				});

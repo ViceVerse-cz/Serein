@@ -34,7 +34,6 @@ pub(super) fn show(
 	capturing: &mut Option<KeybindAction>,
 	global_status: &str,
 ) {
-	let colors = design::palette(ui);
 	section(
 		ui,
 		"Navigation",
@@ -59,12 +58,7 @@ pub(super) fn show(
 		bindings,
 		capturing,
 	);
-	voice_section(ui, bindings, capturing);
-	ui.add_space(10.0);
-	ui.label(design::eyebrow(ui, "Global availability", colors.muted));
-	design::hint(ui, global_status);
-
-	capture(ui, bindings, capturing);
+	show_voice(ui, bindings, capturing, global_status);
 }
 
 pub(super) fn show_voice(
@@ -77,7 +71,17 @@ pub(super) fn show_voice(
 	voice_section(ui, bindings, capturing);
 	ui.add_space(10.0);
 	ui.label(design::eyebrow(ui, "Global availability", colors.muted));
-	design::hint(ui, global_status);
+	design::switch(
+		ui,
+		"Enable global keybinds",
+		Some(
+			"Use voice shortcuts while another app is focused. When off, shortcuts only work while Serein is focused.",
+		),
+		&mut bindings.global_enabled,
+	);
+	if bindings.global_enabled {
+		design::hint(ui, global_status);
+	}
 	capture(ui, bindings, capturing);
 }
 
@@ -230,7 +234,7 @@ fn row(
 			egui::Layout::left_to_right(egui::Align::Center),
 			|ui| {
 				ui.label(action.label());
-				if action.is_global() {
+				if action.is_global() && bindings.global_enabled {
 					ui.label(RichText::new("GLOBAL").size(10.0).color(colors.accent));
 				}
 				if let Some(ref msg) = conflict_text.filter(|_| fade_alpha > 0.0) {

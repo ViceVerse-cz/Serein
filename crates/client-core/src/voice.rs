@@ -893,6 +893,7 @@ mod tests {
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				})
 				.collect(),
@@ -1013,6 +1014,7 @@ mod tests {
 			status: None,
 			custom_status: None,
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 		});
 		state.apply_voice(Event::Snapshot {
 			guild: None,
@@ -1144,6 +1146,7 @@ mod tests {
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				})
 				.collect(),
@@ -1295,6 +1298,7 @@ mod tests {
 				}],
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			..ClientState::default()
@@ -1393,6 +1397,7 @@ mod tests {
 				}],
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			..ClientState::default()

@@ -343,6 +343,7 @@ impl StickersUi {
 			),
 		};
 		let mut action = None;
+		let mut cancel = false;
 		let mut builder = crate::dialog::Dialog::new("server-sticker-dialog", title)
 			.subtitle(subtitle)
 			.width(440.0);
@@ -357,57 +358,84 @@ impl StickersUi {
 					tags,
 					..
 				} => {
-					crate::dialog::label(ui, "Name");
-					ui.add(egui::TextEdit::singleline(name).char_limit(30));
-					crate::dialog::label(ui, "Description (optional)");
-					ui.add(egui::TextEdit::singleline(description).char_limit(100));
-					crate::dialog::label(ui, "Related emoji");
-					ui.add(egui::TextEdit::singleline(tags).char_limit(200));
+					let label = crate::dialog::label(ui, "Name");
+					crate::dialog::input(ui, egui::TextEdit::singleline(name).char_limit(30))
+						.labelled_by(label.id);
+					ui.add_space(12.0);
+					let label = crate::dialog::label(ui, "Description (optional)");
+					crate::dialog::input(
+						ui,
+						egui::TextEdit::singleline(description).char_limit(100),
+					)
+					.labelled_by(label.id);
+					ui.add_space(12.0);
+					let label = crate::dialog::label(ui, "Related emoji");
+					crate::dialog::input(ui, egui::TextEdit::singleline(tags).char_limit(200))
+						.labelled_by(label.id);
 				}
 				Dialog::Delete { .. } => {}
 			});
-			dialog_ui.footer(|ui| match dialog {
-				Dialog::Edit {
-					id,
-					name,
-					description,
-					tags,
-				} => {
-					if ui
-						.add_enabled(
-							!state.server_admin.pending
-								&& state.can_edit_guild_sticker(guild, *id)
-								&& valid_fields(name, description, tags),
-							egui::Button::new("Save"),
-						)
-						.clicked()
-					{
-						action = Some(Action::EditSticker {
-							id: *id,
-							name: name.trim().to_owned(),
-							description: description.trim().to_owned(),
-							tags: tags.trim().to_owned(),
-						});
+			dialog_ui.footer(|ui| {
+				match dialog {
+					Dialog::Edit {
+						id,
+						name,
+						description,
+						tags,
+					} => {
+						if ui
+							.add_enabled_ui(
+								!state.server_admin.pending
+									&& state.can_edit_guild_sticker(guild, *id)
+									&& valid_fields(name, description, tags),
+								|ui| {
+									crate::dialog::action(
+										ui,
+										"Save",
+										crate::dialog::Action::Primary,
+									)
+								},
+							)
+							.inner
+							.clicked()
+						{
+							action = Some(Action::EditSticker {
+								id: *id,
+								name: name.trim().to_owned(),
+								description: description.trim().to_owned(),
+								tags: tags.trim().to_owned(),
+							});
+						}
+					}
+					Dialog::Delete { id, .. } => {
+						if ui
+							.add_enabled_ui(
+								!state.server_admin.pending
+									&& state.can_edit_guild_sticker(guild, *id),
+								|ui| {
+									crate::dialog::action(
+										ui,
+										"Delete Sticker",
+										crate::dialog::Action::Danger,
+									)
+								},
+							)
+							.inner
+							.clicked()
+						{
+							action = Some(Action::DeleteSticker { id: *id });
+						}
 					}
 				}
-				Dialog::Delete { id, .. } => {
-					if ui
-						.add_enabled(
-							!state.server_admin.pending && state.can_edit_guild_sticker(guild, *id),
-							egui::Button::new("Delete Sticker"),
-						)
-						.clicked()
-					{
-						action = Some(Action::DeleteSticker { id: *id });
-					}
-				}
+				cancel =
+					crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral).clicked();
 			});
 		});
 		if let Some(action) = action.and_then(|action| state.request_server_admin(guild, action)) {
 			self.dialog_submitted = true;
 			commands.push(action);
 		}
-		if response.close && !self.dialog_submitted {
+		if (response.close || cancel) && !self.dialog_submitted {
 			self.dialog = None;
 		}
 	}

@@ -55,6 +55,7 @@ fn main() {
 				roles: if id == 2 { vec![] } else { vec![Id(999)] },
 				status: Some(if id == 3 { "offline" } else { "online" }.into()),
 				custom_status: None,
+				clients: model::ClientPlatforms::default(),
 				activities: if id == 2 {
 					vec![model::RichActivity {
 						kind: 2,

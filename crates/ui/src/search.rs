@@ -1319,18 +1319,6 @@ fn hairline(ui: &mut egui::Ui) {
 		egui::Stroke::new(1.0, colors.border),
 	);
 }
-/// Glyph for a channel row: threads, forums, voice, announcements and direct messages.
-fn channel_icon(channel: &model::Channel) -> icons::Icon {
-	match channel.kind {
-		1 => icons::Icon::Profile,
-		3 => icons::Icon::People,
-		2 | 13 => icons::Icon::Speaker,
-		5 => icons::Icon::Megaphone,
-		10..=12 => icons::Icon::Threads,
-		15 | 16 => icons::Icon::Forum,
-		_ => icons::Icon::Hash,
-	}
-}
 /// Section heading above a result: where the message lives, and its thread parent or category.
 fn channel_heading(ui: &mut egui::Ui, state: &State, channel: &model::Channel) {
 	let colors = design::palette(ui);
@@ -1342,7 +1330,7 @@ fn channel_heading(ui: &mut egui::Ui, state: &State, channel: &model::Channel) {
 				if parent.kind == 4 {
 					icons::Icon::Folder
 				} else {
-					channel_icon(parent)
+					icons::channel(parent.kind)
 				},
 				parent.name.as_str(),
 			)
@@ -1353,7 +1341,7 @@ fn channel_heading(ui: &mut egui::Ui, state: &State, channel: &model::Channel) {
 		|ui| {
 			ui.spacing_mut().item_spacing.x = 6.0;
 			let total = ui.available_width();
-			icons::inline(ui, channel_icon(channel), 18.0, colors.text);
+			icons::inline(ui, icons::channel(channel.kind), 18.0, colors.text);
 			ui.scope(|ui| {
 				ui.set_max_width(if context.is_some() {
 					total * 0.58
@@ -1419,6 +1407,7 @@ mod tests {
 					kind: 3,
 					recipients: vec![],
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 					icon: None,
 					last_message: None,
@@ -1603,6 +1592,7 @@ mod tests {
 				kind: 1,
 				recipients: vec![],
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 				icon: None,
 				last_message: None,

@@ -404,9 +404,10 @@ pub fn ready_fields(
 	{
 		return Err(DecodeError);
 	}
-	let guilds: List<&serde_json::value::RawValue, MAX_ITEMS> =
-		serde_json::from_slice(guilds).map_err(|_| DecodeError)?;
-	let merged: Option<List<&serde_json::value::RawValue, MAX_ITEMS>> = merged
+	// Decode each guild in the same pass that splits the array; a raw-value split would
+	// scan every byte twice.
+	let guilds: List<Guild, MAX_ITEMS> = serde_json::from_slice(guilds).map_err(|_| DecodeError)?;
+	let merged: Option<List<List<Member, MAX_MEMBERS>, MAX_ITEMS>> = merged
 		.map(serde_json::from_slice)
 		.transpose()
 		.map_err(|_| DecodeError)?;
@@ -416,14 +417,10 @@ pub fn ready_fields(
 	{
 		return Err(DecodeError);
 	}
+	let mut merged = merged.map(|rows| rows.0.into_iter());
 	checked_snapshot(
-		guilds.0.into_iter().enumerate().map(|(index, guild)| {
-			let guild: Guild = decode_gateway(guild.get().as_bytes())?;
-			let members: List<Member, MAX_MEMBERS> = merged
-				.as_ref()
-				.map(|rows| decode_gateway(rows.0[index].get().as_bytes()))
-				.transpose()?
-				.unwrap_or_default();
+		guilds.0.into_iter().map(|guild| {
+			let members = merged.as_mut().and_then(Iterator::next).unwrap_or_default();
 			Ok((guild, members.0))
 		}),
 		user,

@@ -287,6 +287,7 @@ mod tests {
 				position: 0,
 				recipients: vec![],
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			..State::default()
@@ -302,6 +303,7 @@ mod tests {
 			position: Patch::Absent,
 			kind: Patch::Absent,
 			message_count: Patch::Absent,
+			tags: Patch::Absent,
 		}
 	}
 	fn finish(state: &mut State, command: Command, result: Result<Option<ChannelPatch>, Failure>) {

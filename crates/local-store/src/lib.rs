@@ -41,6 +41,7 @@ pub struct AppPreferences {
 	pub notification_options: model::notification_preferences::Device,
 	pub show_hidden_channels: bool,
 	pub hide_title_bar: bool,
+	pub hide_window_decorations: bool,
 	pub primary_color: Option<[u8; 3]>,
 	pub transparency_blur: bool,
 	pub transparency: u8,
@@ -78,6 +79,7 @@ impl Default for AppPreferences {
 			notification_options: Default::default(),
 			show_hidden_channels: false,
 			hide_title_bar: false,
+			hide_window_decorations: false,
 			primary_color: None,
 			transparency_blur: false,
 			transparency: 15,
@@ -334,6 +336,10 @@ impl LocalStore {
 		transaction.execute_batch("CREATE TABLE IF NOT EXISTS app_preferences(
             singleton INTEGER PRIMARY KEY CHECK(singleton=1),
             value TEXT NOT NULL CHECK(typeof(value)='text' AND length(CAST(value AS BLOB))<=16384));")?;
+		transaction.execute_batch("CREATE TABLE IF NOT EXISTS custom_font(
+            singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+            name TEXT NOT NULL CHECK(typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128),
+            data BLOB NOT NULL CHECK(typeof(data)='blob' AND length(data) BETWEEN 1 AND 8388608));")?;
 		if !has_reply_deleted {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN reply_deleted INTEGER NOT NULL DEFAULT 0 CHECK(typeof(reply_deleted)='integer' AND reply_deleted IN (0,1));")?;
 		}
@@ -454,6 +460,35 @@ impl LocalStore {
 			return Err(StoreError::Incompatible);
 		}
 		Ok(value)
+	}
+	/// One device-local font, atomically replaced; account logout leaves it intact.
+	pub fn custom_font(&self) -> Result<Option<(String, Vec<u8>)>> {
+		self.0.query_row(
+			"SELECT
+             CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128 THEN name ELSE NULL END,
+             CASE WHEN typeof(data)='blob' AND length(data) BETWEEN 1 AND 8388608 THEN data ELSE NULL END
+             FROM custom_font WHERE singleton=1",
+			[], |row| Ok((row.get(0)?, row.get(1)?)),
+		).optional().map_err(Into::into)
+	}
+	pub fn save_custom_font(&self, font: Option<(&str, &[u8])>) -> Result<()> {
+		if let Some((name, bytes)) = font {
+			if name.is_empty()
+				|| name.len() > 128
+				|| bytes.is_empty()
+				|| bytes.len() > 8 * 1024 * 1024
+			{
+				return Err(StoreError::Capacity);
+			}
+			self.0.execute(
+				"INSERT INTO custom_font VALUES(1,?1,?2)
+                 ON CONFLICT(singleton) DO UPDATE SET name=excluded.name,data=excluded.data",
+				params![name, bytes],
+			)?;
+		} else {
+			self.0.execute("DELETE FROM custom_font", [])?;
+		}
+		Ok(())
 	}
 	pub fn save_app_preferences(&self, value: &AppPreferences) -> Result<()> {
 		if !value.is_valid() {

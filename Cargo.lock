@@ -1723,7 +1723,7 @@ dependencies = [
 [[package]]
 name = "ecolor"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=99df44a801749aee958295ed96fccad8dfecb289#99df44a801749aee958295ed96fccad8dfecb289"
+source = "git+https://github.com/emilk/egui?rev=fe6d63efa4a4df6f56ceab814d4f3a6efab69b88#fe6d63efa4a4df6f56ceab814d4f3a6efab69b88"
 dependencies = [
  "bytemuck",
  "emath",
@@ -1757,7 +1757,7 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=99df44a801749aee958295ed96fccad8dfecb289#99df44a801749aee958295ed96fccad8dfecb289"
+source = "git+https://github.com/emilk/egui?rev=fe6d63efa4a4df6f56ceab814d4f3a6efab69b88#fe6d63efa4a4df6f56ceab814d4f3a6efab69b88"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1792,7 +1792,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=99df44a801749aee958295ed96fccad8dfecb289#99df44a801749aee958295ed96fccad8dfecb289"
+source = "git+https://github.com/emilk/egui?rev=fe6d63efa4a4df6f56ceab814d4f3a6efab69b88#fe6d63efa4a4df6f56ceab814d4f3a6efab69b88"
 dependencies = [
  "accesskit",
  "ahash",
@@ -1811,7 +1811,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=99df44a801749aee958295ed96fccad8dfecb289#99df44a801749aee958295ed96fccad8dfecb289"
+source = "git+https://github.com/emilk/egui?rev=fe6d63efa4a4df6f56ceab814d4f3a6efab69b88#fe6d63efa4a4df6f56ceab814d4f3a6efab69b88"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1830,7 +1830,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=99df44a801749aee958295ed96fccad8dfecb289#99df44a801749aee958295ed96fccad8dfecb289"
+source = "git+https://github.com/emilk/egui?rev=fe6d63efa4a4df6f56ceab814d4f3a6efab69b88#fe6d63efa4a4df6f56ceab814d4f3a6efab69b88"
 dependencies = [
  "accesskit_winit",
  "arboard",
@@ -1851,7 +1851,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=99df44a801749aee958295ed96fccad8dfecb289#99df44a801749aee958295ed96fccad8dfecb289"
+source = "git+https://github.com/emilk/egui?rev=fe6d63efa4a4df6f56ceab814d4f3a6efab69b88#fe6d63efa4a4df6f56ceab814d4f3a6efab69b88"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1864,7 +1864,7 @@ dependencies = [
 [[package]]
 name = "egui_system_fonts"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=99df44a801749aee958295ed96fccad8dfecb289#99df44a801749aee958295ed96fccad8dfecb289"
+source = "git+https://github.com/emilk/egui?rev=fe6d63efa4a4df6f56ceab814d4f3a6efab69b88#fe6d63efa4a4df6f56ceab814d4f3a6efab69b88"
 dependencies = [
  "epaint",
  "fontique",
@@ -1905,7 +1905,7 @@ dependencies = [
 [[package]]
 name = "emath"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=99df44a801749aee958295ed96fccad8dfecb289#99df44a801749aee958295ed96fccad8dfecb289"
+source = "git+https://github.com/emilk/egui?rev=fe6d63efa4a4df6f56ceab814d4f3a6efab69b88#fe6d63efa4a4df6f56ceab814d4f3a6efab69b88"
 dependencies = [
  "bytemuck",
 ]
@@ -1951,7 +1951,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=99df44a801749aee958295ed96fccad8dfecb289#99df44a801749aee958295ed96fccad8dfecb289"
+source = "git+https://github.com/emilk/egui?rev=fe6d63efa4a4df6f56ceab814d4f3a6efab69b88#fe6d63efa4a4df6f56ceab814d4f3a6efab69b88"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1976,7 +1976,7 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=99df44a801749aee958295ed96fccad8dfecb289#99df44a801749aee958295ed96fccad8dfecb289"
+source = "git+https://github.com/emilk/egui?rev=fe6d63efa4a4df6f56ceab814d4f3a6efab69b88#fe6d63efa4a4df6f56ceab814d4f3a6efab69b88"
 
 [[package]]
 name = "equivalent"
@@ -6175,6 +6175,7 @@ dependencies = [
  "getrandom 0.4.3",
  "image",
  "local-store",
+ "log",
  "md4",
  "model",
  "opus2",

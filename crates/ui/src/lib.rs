@@ -40,8 +40,13 @@ pub mod emoji;
 mod emoji_details;
 mod emoji_picker;
 pub mod fonts;
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub fn debug_channel_creation(state: client_core::State) {
+	channel_menu::debug_creation(state);
+}
 mod formatting;
 mod forum;
+mod forum_settings;
 mod friends;
 mod group_menu;
 mod guild_folders;
@@ -242,6 +247,8 @@ pub struct MessagingUi {
 	pub reading_preferences: model::ReadingPreferences,
 	pub show_hidden_channels: bool,
 	pub hide_title_bar: bool,
+	pub hide_window_decorations: bool,
+	pub custom_font: fonts::Settings,
 	/// Which GPU renders the window; the running adapter only changes on restart.
 	pub gpu_preference: model::GpuPreference,
 	/// Adapter currently in use, shown next to the preference for bug reports.
@@ -504,9 +511,11 @@ impl MessagingUi {
 
 	/// Returns whether the configured push-to-talk chord is held in the focused window.
 	pub fn push_to_talk_down(&self, ctx: &egui::Context) -> bool {
+		if ctx.egui_wants_keyboard_input() {
+			return false;
+		}
 		ctx.input(|input| {
 			input.focused
-				&& !ctx.egui_wants_keyboard_input()
 				&& crate::keybinds::down(
 					input,
 					self.keybinds.chord(model::KeybindAction::PushToTalk),
@@ -585,6 +594,25 @@ impl MessagingUi {
 	#[cfg(feature = "demo")]
 	pub fn preview_slash_commands(&mut self) {
 		self.preview_slash_commands = true;
+	}
+	/// Fixture-only: show the forum list as `layout`.
+	#[cfg(feature = "demo")]
+	pub fn preview_forum_layout(&mut self, layout: model::forum::Layout) {
+		self.forum.preview_layout(layout);
+	}
+	/// Fixture-only: open the settings dialog of `channel` at startup.
+	#[cfg(feature = "demo")]
+	pub fn preview_channel_settings(&mut self, channel: Id, generation: u64) {
+		self.channel_menu.preview_settings(channel, generation);
+	}
+	#[cfg(feature = "demo")]
+	pub fn preview_channel_creation(&mut self, channel: Id, generation: u64) {
+		self.channel_menu.preview_creation(channel, generation);
+	}
+	/// Fixture-only: filter the forum list by `tags`, optionally with the post composer open.
+	#[cfg(feature = "demo")]
+	pub fn preview_forum(&mut self, forum: Id, tags: &[Id], draft: Option<&str>) {
+		self.forum.preview(forum, tags, draft);
 	}
 	/// Fixture-only: open the Threads dialog for `parent` at startup, as the header control would.
 	#[cfg(any(test, feature = "demo"))]
@@ -1174,7 +1202,7 @@ impl MessagingUi {
 								.as_deref()
 								.filter(|nick| !nick.is_empty())
 								.unwrap_or_else(|| state.user_display_name(&member.user));
-							let (status, custom, activities) =
+							let (status, custom, activities, clients) =
 								profiles::member_presence(state, member, guild);
 							let subtitle = profiles::subtitle(custom, activities);
 							let online =
@@ -1223,10 +1251,11 @@ impl MessagingUi {
 									&mut self.user_action,
 								);
 								if let Some(status) = status {
-									design::presence_dot(
+									profiles::presence_badge(
 										ui,
 										avatar.rect,
-										profiles::presence_color(status),
+										status,
+										clients,
 										colors.sidebar,
 									);
 								}
@@ -1751,13 +1780,14 @@ impl MessagingUi {
 										)),
 									);
 								}
-								if dm
-									&& let Some(status) = profiles::presence(state, user.id, None).0
-								{
-									design::presence_dot(
+								let (status, _, _, clients) =
+									profiles::presence(state, user.id, None);
+								if dm && let Some(status) = status {
+									profiles::presence_badge(
 										ui,
 										avatar.rect,
-										profiles::presence_color(status),
+										status,
+										clients,
 										colors.sidebar,
 									);
 								}
@@ -1952,7 +1982,7 @@ impl MessagingUi {
 								.filter(|_| dm)
 								.and_then(|c| c.recipients.first())
 								.and_then(|user| {
-									let (_, custom, activities) =
+									let (_, custom, activities, _) =
 										profiles::presence(state, user.id, None);
 									profiles::subtitle(custom, activities)
 								});
@@ -3642,7 +3672,7 @@ impl MessagingUi {
 						state,
 						channel,
 						&mut commands,
-						(&mut self.scroll, &mut staged),
+						(&mut self.scroll, &mut staged, &mut self.avatars),
 						(&mut self.channel_menu, view),
 					);
 					return;
@@ -3986,6 +4016,17 @@ impl MessagingUi {
 				}
 			} else {
 				self.timeline.pending_channel_reference = None;
+			}
+		}
+		if let Some((channel, message)) = self.timeline.leave_read.take()
+			&& let Some(command) = state.prepare_mark_left_channel_read(channel, message)
+		{
+			commands.push(command);
+		}
+		if let Some(channel) = self.timeline.mark_channel_read.take() {
+			self.timeline.mark_read = None;
+			if let Some(command) = state.prepare_mark_channel_read(channel) {
+				commands.push(command);
 			}
 		}
 		if let Some(message) = self.timeline.mark_unread.take() {
@@ -4459,6 +4500,7 @@ mod composer_tests {
 				recipients: vec![],
 				last_message: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 				icon: None,
 			}],
@@ -5488,7 +5530,9 @@ mod composer_tests {
 					frame(&mut view, &mut state, vec![]);
 				}
 				if last == 15 {
-					let commands = click(&mut view, &mut state, "Next messages");
+					// Older history has no bar of its own; this is the request its end sends.
+					view.timeline.load_newer = true;
+					let (_, commands) = frame(&mut view, &mut state, vec![]);
 					assert!(commands.iter().any(|command| matches!(
 						command,
 						Command::History {
@@ -6081,6 +6125,7 @@ mod composer_tests {
 				position: 0,
 				recipients: vec![],
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 				icon: None,
 			});
@@ -6173,6 +6218,7 @@ mod composer_tests {
 									status: Some("online".into()),
 									custom_status: Some(format!("Activity {id}")),
 									activities: vec![],
+									clients: model::ClientPlatforms::default(),
 								}))
 							})
 							.collect(),
@@ -6261,6 +6307,7 @@ mod composer_tests {
 				kind: 0,
 				recipients: Vec::new(),
 				member_list_id: Some("everyone".into()),
+				tags: None,
 				message_count: None,
 				icon: None,
 			}],
@@ -6303,6 +6350,7 @@ mod composer_tests {
 							.map(str::to_owned),
 							custom_status: None,
 							activities: vec![],
+							clients: model::ClientPlatforms::default(),
 						}))
 					})
 					.collect(),
@@ -6459,6 +6507,7 @@ mod composer_tests {
 				status: Some("online".into()),
 				custom_status: Some("Initial synthetic status".into()),
 				activities: vec![],
+				clients: model::ClientPlatforms::default(),
 			}))],
 		});
 		state.profile = Some(client_core::profile::ProfileView {
@@ -6533,6 +6582,7 @@ mod composer_tests {
 						status: Some("online".into()),
 						custom_status: custom_status.map(str::to_owned),
 						activities: vec![],
+						clients: model::ClientPlatforms::default(),
 					}],
 				},
 			});
@@ -6602,6 +6652,7 @@ mod composer_tests {
 					status: Some("online".into()),
 					custom_status: None,
 					activities: vec![],
+					clients: model::ClientPlatforms::default(),
 				}))],
 			});
 			let mut messaging = MessagingUi {
@@ -6644,6 +6695,7 @@ mod composer_tests {
 							status: Some("online".into()),
 							custom_status: None,
 							activities,
+							clients: model::ClientPlatforms::default(),
 						}],
 					}
 				} else {
@@ -6652,6 +6704,7 @@ mod composer_tests {
 						status: model::Patch::Value("online".into()),
 						activities: model::Patch::Value(activities),
 						custom_status: model::Patch::Absent,
+						clients: model::Patch::Absent,
 					}])
 				};
 				state.apply(client_core::Envelope {
@@ -6935,6 +6988,7 @@ mod composer_tests {
 					kind: if guild.is_some() { 0 } else { 1 },
 					recipients: vec![user.clone()],
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 					icon: None,
 				}],
@@ -7159,6 +7213,7 @@ mod composer_tests {
 				kind: 1,
 				recipients: Vec::new(),
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 				icon: None,
 			}],

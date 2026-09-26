@@ -185,7 +185,7 @@ pub(super) fn run(
 					if target != active_bitrate && !waiting_keyframe {
 						if mode != Mode::Software && pipeline.set_bitrate(target) {
 							active_bitrate = target;
-						} else if super::software_rate_change(active_bitrate, target) {
+						} else if crate::screen::software_rate_change(active_bitrate, target) {
 							// Restarts cost an IDR, so only large moves apply. Older plugins
 							// cannot change rate while playing: reopen the same mode with a
 							// fresh PipeWire remote, keeping the approved portal.

@@ -1333,21 +1333,28 @@ fn channel_picker(
 				}
 		})
 		.collect();
-	let name = selected
-		.and_then(|id| choices.iter().find(|channel| channel.id == id))
-		.map_or(
-			if selected.is_some() {
-				"Unavailable channel"
-			} else if voice {
-				"No Inactive Channel"
-			} else {
-				"No System Messages Channel"
-			},
-			|channel| channel.name.as_str(),
-		);
+	let muted = design::palette(ui).muted;
+	let current = selected.and_then(|id| choices.iter().find(|channel| channel.id == id));
+	let mut label = egui::Atoms::new(current.map_or(
+		if selected.is_some() {
+			"Unavailable channel"
+		} else if voice {
+			"No Inactive Channel"
+		} else {
+			"No System Messages Channel"
+		},
+		|channel| channel.name.as_str(),
+	));
+	if let Some(channel) = current {
+		label.push_left(crate::icons::atom(
+			crate::icons::channel(channel.kind),
+			16.0,
+			muted,
+		));
+	}
 	let empty = choices.is_empty();
 	egui::ComboBox::from_id_salt(("server-channel", voice))
-		.selected_text(name)
+		.selected_text(label)
 		.width(ui.available_width())
 		.show_ui(ui, |ui| {
 			ui.selectable_value(selected, None, "None");
@@ -1355,7 +1362,10 @@ fn channel_picker(
 				ui.selectable_value(
 					selected,
 					Some(channel.id),
-					format!("{} {}", if voice { "♪" } else { "#" }, channel.name),
+					(
+						crate::icons::atom(crate::icons::channel(channel.kind), 16.0, muted),
+						channel.name.as_str(),
+					),
 				);
 			}
 		});

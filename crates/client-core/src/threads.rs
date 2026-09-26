@@ -140,6 +140,7 @@ mod tests {
 			last_message: None,
 			icon: None,
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 		};
 		let mut state = State {
@@ -394,6 +395,7 @@ mod tests {
 			last_message: None,
 			icon: None,
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 		};
 		let original = vec![

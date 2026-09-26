@@ -7,10 +7,15 @@ use std::{
 };
 
 pub const MAX_BYTES: usize = model::account::MAX_PERMISSION_BYTES;
-const MAX_DECISIONS: usize = 4000;
+// Admission always reserves room for the minimum; larger accounts may cache up to the
+// maximum from whatever permission budget their metadata leaves free.
+const MIN_DECISIONS: usize = 4000;
+const MAX_DECISIONS: usize = 32768;
+const DECISION_BYTES: usize = 128;
 #[derive(Default)]
 pub struct Permissions {
 	cache: RefCell<BTreeMap<(Id, Id, Id), Decision>>,
+	decision_limit: usize,
 	pub guilds: BTreeMap<Id, p::Guild>,
 	pub channels: BTreeMap<Id, p::Channel>,
 }
@@ -26,6 +31,7 @@ impl Clone for Permissions {
 			guilds: self.guilds.clone(),
 			channels: self.channels.clone(),
 			cache: RefCell::default(),
+			decision_limit: self.decision_limit,
 		}
 	}
 }
@@ -113,8 +119,12 @@ impl Permissions {
 			.filter(|until| *until > now)
 			.unwrap_or(i64::MAX);
 		let mut cache = self.cache.borrow_mut();
-		if cache.len() >= MAX_DECISIONS && !cache.contains_key(&key) {
-			cache.clear();
+		// Evict single entries: a scan larger than the cache then keeps most of its decisions
+		// warm instead of clearing them all on every miss.
+		if !cache.contains_key(&key) {
+			while cache.len() >= self.decision_limit.max(MIN_DECISIONS) {
+				cache.pop_last();
+			}
 		}
 		cache.insert(
 			key,
@@ -133,7 +143,7 @@ impl Permissions {
 	}
 	fn valid(&self) -> bool {
 		self.guilds.len() + self.channels.len() <= crate::MAX_NAV
-			&& self.bytes() + MAX_DECISIONS * 128 <= MAX_BYTES
+			&& self.bytes() + MIN_DECISIONS * DECISION_BYTES <= MAX_BYTES
 			&& self
 				.guilds
 				.values()
@@ -239,9 +249,15 @@ impl Permissions {
 			|| channels
 				.iter()
 				.any(|(id, old)| self.channels.get(id) != old.as_ref());
-		self.cache.get_mut().retain(|(guild, channel, _), _| {
+		let limit = self.decision_limit.max(MIN_DECISIONS);
+		let cache = self.cache.get_mut();
+		cache.retain(|(guild, channel, _), _| {
 			!guild_ids.contains(guild) && !channel_ids.contains(channel)
 		});
+		// Larger metadata can shrink the budget; drop only the decisions it no longer covers.
+		while cache.len() > limit {
+			cache.pop_last();
+		}
 		Ok(changed)
 	}
 	fn update_in_place(&mut self, event: Event) -> Result<(), &'static str> {
@@ -360,6 +376,8 @@ impl Permissions {
 		if !next.valid() {
 			return Err("Permission metadata exceeds safe capacity");
 		}
+		next.decision_limit = (MAX_BYTES.saturating_sub(next.bytes()) / DECISION_BYTES)
+			.clamp(MIN_DECISIONS, MAX_DECISIONS);
 		Ok(())
 	}
 	fn update_member(&mut self, guild: Id, roles: Patch<Vec<Id>>, timeout_until: Patch<i64>) {
@@ -645,7 +663,7 @@ impl State {
 		self.auth == AuthState::Authenticated
 			&& self.gateway_connected
 			&& self.selected == Some(channel)
-			&& matches!(self.freshness, Freshness::Fresh | Freshness::Loading)
+			&& self.freshness != Freshness::Unavailable
 			&& self.can_compose(channel)
 	}
 	/// Permission-only composer availability, including while drafting offline.

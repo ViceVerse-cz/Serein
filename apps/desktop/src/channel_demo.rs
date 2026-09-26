@@ -2,9 +2,27 @@
 use client_core::{
 	Event, State,
 	auth::Failure,
-	channel_actions::{Action, Edit, Mute, Outcome, PostDetails},
+	channel_actions::{Action, Edit, ForumEdit, Mute, Outcome, PostDetails},
 };
-use model::Id;
+use model::{Channel, Id};
+
+/// The forum settings a fixture channel carries, as the service would report them.
+fn forum_settings(source: &Channel) -> Option<Box<ForumEdit>> {
+	if !matches!(source.kind, 15 | 16) {
+		return None;
+	}
+	let tags = source.tags.as_deref().cloned().unwrap_or_default();
+	Some(Box::new(ForumEdit {
+		tags: tags.available,
+		require_tag: tags.required,
+		reaction: tags.reaction,
+		layout: tags.layout,
+		sort: tags.sort,
+		match_all: tags.match_all,
+		hide_after: 4320,
+		..ForumEdit::default()
+	}))
+}
 
 pub fn execute(
 	state: &State,
@@ -29,6 +47,7 @@ pub fn execute(
 							.get(&channel)
 							.and_then(|p| p.overwrites.clone())
 							.unwrap_or_default(),
+						forum: forum_settings(source),
 						..Edit::default()
 					}
 				}))
@@ -139,6 +158,22 @@ pub fn execute(
 					Action::Edit { after, .. } => {
 						updated.name = after.name;
 						edited_overwrites = Some(after.overwrites);
+						if let Some(forum) = after.forum {
+							let mut tags = updated.tags.take().unwrap_or_default();
+							tags.available = forum.tags;
+							for tag in &mut tags.available {
+								if tag.id.0 == 0 {
+									*next_id += 1;
+									tag.id = Id(*next_id);
+								}
+							}
+							tags.required = forum.require_tag;
+							tags.reaction = forum.reaction;
+							tags.layout = forum.layout;
+							tags.sort = forum.sort;
+							tags.match_all = forum.match_all;
+							updated.tags = (!tags.is_empty()).then_some(tags);
+						}
 					}
 					Action::Duplicate { name }
 					| Action::Create { name, .. }

@@ -1,7 +1,7 @@
 use crate::{
 	MessagingUi, design,
 	icons::{self, Icon},
-	notifications::{badge, rail_indicator},
+	notifications::{badge, rail_indicator, voice_badge},
 };
 use client_core::{Command, State};
 use egui::{Color32, Sense};
@@ -323,6 +323,7 @@ impl MessagingUi {
 		let mut refresh = false;
 		let mut drop_rows = Vec::new();
 		let mut background: Option<(u64, egui::layers::ShapeIdx, egui::Rect, Color32)> = None;
+		let call_guild = state.voice.active.as_ref().and_then(|call| call.guild);
 		for index in 0..self.folder_ui.rows.len() {
 			let (item, group) = self.folder_ui.rows[index];
 			if group.map(|g| g.0) != background.as_ref().map(|b| b.0) {
@@ -349,7 +350,7 @@ impl MessagingUi {
 					}
 					let response = match item {
 						Item::Server(id) => {
-							let Some(guild) = state.guilds.iter().find(|g| g.id == id) else {
+							let Some(guild) = state.guild(id) else {
 								return;
 							};
 							let response = self.avatars.show_guild_rail(
@@ -366,6 +367,9 @@ impl MessagingUi {
 								response.hovered() || response.has_focus(),
 								unread,
 							);
+							if call_guild == Some(id) || self.rail_cache.guild_voice(id) {
+								voice_badge(ui, response.rect, call_guild == Some(id));
+							}
 							if count > 0 {
 								badge(
 									ui,
@@ -438,6 +442,17 @@ impl MessagingUi {
 									response.hovered() || response.has_focus(),
 									unread,
 								);
+							}
+							if !open {
+								let own = call_guild.is_some_and(|g| folder.guild_ids.contains(&g));
+								if own
+									|| folder
+										.guild_ids
+										.iter()
+										.any(|g| self.rail_cache.guild_voice(*g))
+								{
+									voice_badge(ui, rect, own);
+								}
 							}
 							if !open && count > 0 {
 								badge(

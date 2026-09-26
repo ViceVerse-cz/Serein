@@ -82,8 +82,8 @@ impl ContactEditor {
 							crate::dialog::Level::Error,
 							"Could not load the note. Your existing note has not been changed.",
 						);
-						if ui.button("Retry").clicked()
-							&& let Some(command) = state.load_user_note(user.id)
+						if crate::dialog::action(ui, "Retry", crate::dialog::Action::Neutral)
+							.clicked() && let Some(command) = state.load_user_note(user.id)
 						{
 							commands.push(command);
 						}
@@ -128,7 +128,14 @@ impl ContactEditor {
 					);
 					if !self.nickname
 						&& ui
-							.add_enabled(!busy, egui::Button::new("Reload saved note"))
+							.add_enabled_ui(!busy, |ui| {
+								crate::dialog::action(
+									ui,
+									"Reload saved note",
+									crate::dialog::Action::Neutral,
+								)
+							})
+							.inner
 							.clicked() && let Some(command) = state.load_user_note(user.id)
 					{
 						commands.push(command);

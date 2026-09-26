@@ -278,10 +278,10 @@ impl GroupMenu {
 								.is_some_and(|c| c.icon.is_some()))
 							&& !matches!(dialog.icon, Patch::Null)
 							&& ui
-								.add_enabled(
-									!busy && !dialog.choosing,
-									egui::Button::new("Remove icon").frame(false),
-								)
+								.add_enabled_ui(!busy && !dialog.choosing, |ui| {
+									crate::design::text_action(ui, "Remove icon")
+								})
+								.inner
 								.clicked()
 						{
 							dialog.icon = Patch::Null;

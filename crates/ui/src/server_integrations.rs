@@ -696,12 +696,18 @@ impl IntegrationsUi {
 		}
 		ui.add_space(16.0);
 		design::label(ui, "Channel");
-		let name = draft
-			.channel
-			.and_then(|id| state.channel(id))
-			.map_or("Choose a channel", |c| c.name.as_str());
+		let muted = design::palette(ui).muted;
+		let current = draft.channel.and_then(|id| state.channel(id));
+		let mut label = egui::Atoms::new(current.map_or("Choose a channel", |c| c.name.as_str()));
+		if let Some(channel) = current {
+			label.push_left(crate::icons::atom(
+				crate::icons::channel(channel.kind),
+				16.0,
+				muted,
+			));
+		}
 		egui::ComboBox::from_id_salt("webhook-destination")
-			.selected_text(name)
+			.selected_text(label)
 			.width(ui.available_width())
 			.show_ui(ui, |ui| {
 				for channel in state.channels.iter().filter(|c| {
@@ -713,7 +719,10 @@ impl IntegrationsUi {
 					ui.selectable_value(
 						&mut draft.channel,
 						Some(channel.id),
-						format!("#{}", channel.name),
+						(
+							crate::icons::atom(crate::icons::channel(channel.kind), 16.0, muted),
+							channel.name.as_str(),
+						),
 					);
 				}
 			});

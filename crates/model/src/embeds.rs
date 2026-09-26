@@ -59,10 +59,10 @@ fn string_bytes(value: &Option<String>) -> usize {
 	value.as_ref().map_or(0, String::capacity)
 }
 impl EmbedMedia {
-	fn bytes(&self) -> usize {
+	pub fn bytes(&self) -> usize {
 		string_bytes(&self.url) + string_bytes(&self.proxy_url) + self.placeholder.capacity()
 	}
-	fn valid(&self) -> bool {
+	pub fn valid(&self) -> bool {
 		[&self.url, &self.proxy_url]
 			.into_iter()
 			.all(|s| s.as_ref().is_none_or(|s| s.len() <= 2048))

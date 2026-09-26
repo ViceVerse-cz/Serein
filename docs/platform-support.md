@@ -14,6 +14,8 @@ adds one pixel to `WM_NCCALCSIZE` top and bottom. Maximizing skips the shift, wh
 only that state looked sharp. `ViewportBuilder::with_has_shadow` is macOS-only and does not
 disable the Windows hack. Native DPI and eframe's physical surface sizing remain unchanged.
 macOS/Linux window creation is unchanged.
+The custom Windows frame requests DWM's rounded-corner treatment on Windows 11. Windows keeps
+maximized windows square, and older releases ignore the unsupported preference.
 For offline inspection, run `cargo run --locked -p serein --features demo -- --demo --demo-rendering`.
 The diagnostic shows the physical client size, logical viewport, native/egui scale and WGPU
 surface dimensions sampled by a render callback, plus alternating one-pixel stripes.
@@ -28,13 +30,16 @@ including over its nonselectable context title. It does not wait for egui's text
 Caption buttons and other clickable title-strip controls keep their own actions; Windows
 double-click maximize/restore remains available. Synthetic egui input tests check command
 dispatch, not native OS window movement, which still requires a desktop interaction check.
-On Windows and macOS, Appearance settings can hide this 36 px strip and use the native title bar
+On Windows and macOS, General settings can hide this 36 px strip and use the native title bar
 and window buttons instead. The device preference defaults to showing the custom strip and
 is saved with other app preferences; older saved settings keep that default. macOS switches
 without restarting and keeps its native traffic lights. Linux always omits the app strip and
-requests system decorations; on Wayland compositors without server decorations, including GNOME,
+defaults to system decorations; on Wayland compositors without server decorations, including GNOME,
 winit uses its Adwaita frame instead of the basic fallback. GNOME rendering remains unverified
-in this macOS fast local pass.
+in this macOS fast local pass. Linux General → Window includes **Hide window decorations**,
+which requests a borderless window immediately and persists across restarts. Moving, resizing
+and closing then use the window manager's controls. The compositor controls whether decoration
+requests are honored; native X11/Wayland verification of this toggle remains pending.
 
 | Platform | Build/runtime requirements | Status |
 |---|---|---|
@@ -283,3 +288,5 @@ minutes before playback and is limited to 100 MiB input/output, 1080p and two ho
 Missing FFmpeg or conversion failures appear in the video card. Linux and Windows
 continue to use their installed native codecs. This optional fallback is not bundled
 in release packages; actual codec coverage depends on the local FFmpeg build.
+Windows passes MPEG-4/MOV and WebM/Matroska attachments to Media Foundation; a recognized
+container can still fail when its video or audio codec is not installed.

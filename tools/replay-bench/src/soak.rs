@@ -33,6 +33,7 @@ fn ready(state: &mut State) {
 					recipients: vec![],
 					last_message: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 					icon: None,
 				})

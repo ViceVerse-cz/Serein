@@ -128,12 +128,10 @@ impl Runtime {
 		if let Some(sound) = sound {
 			self.sounds.play(sound, options.volume, ctx);
 		}
-		if self
-			.badge_check
-			.is_none_or(|time| time.elapsed() >= Duration::from_secs(1))
-			|| !badges
-			|| !live
-		{
+		// Counts only change while frames run, so an idle window needs no badge timer: a
+		// throttled frame schedules one follow-up recount, and then the window can sleep.
+		let since = self.badge_check.map(|time| time.elapsed());
+		if since.is_none_or(|since| since >= Duration::from_secs(1)) || !badges || !live {
 			self.badge_check = Some(Instant::now());
 			let pings = if live && badges {
 				state
@@ -157,9 +155,8 @@ impl Runtime {
 				self.badge_status = platform::badge::set(window, pings).err().unwrap_or("");
 				self.badge = Some(pings);
 			}
-		}
-		if live && badges {
-			ctx.request_repaint_after(Duration::from_secs(1));
+		} else if let Some(since) = since {
+			ctx.request_repaint_after(Duration::from_secs(1).saturating_sub(since));
 		}
 		ui.notification_sound_status = if self.sounds.status().is_empty() {
 			self.badge_status

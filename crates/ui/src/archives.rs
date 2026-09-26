@@ -46,31 +46,15 @@ impl ArchivesUi {
 					// Discord's popout header: search on the left, Create on the right.
 					ui.horizontal(|ui| {
 						let create_width = 88.0;
-						let field = egui::Frame::new()
-							.fill(colors.sidebar.to_opaque())
-							.stroke(egui::Stroke::new(1.0, colors.border))
-							.corner_radius(8)
-							.inner_margin(egui::Margin::symmetric(10, 6))
-							.show(ui, |ui| {
-								ui.set_width(
-									(ui.available_width() - create_width - 28.0).max(80.0),
-								);
-								ui.horizontal(|ui| {
-									crate::icons::inline(
-										ui,
-										crate::icons::Icon::Search,
-										16.0,
-										colors.muted,
-									);
-									ui.add(
-										egui::TextEdit::singleline(&mut self.filter)
-											.desired_width(f32::INFINITY)
-											.frame(egui::Frame::NONE)
-											.char_limit(100)
-											.hint_text("Search for thread name"),
-									)
-								})
-								.inner
+						let field_width = (ui.available_width() - create_width - 12.0).max(80.0);
+						let field = ui
+							.allocate_ui(egui::vec2(field_width, 0.0), |ui| {
+								crate::dialog::input(
+									ui,
+									egui::TextEdit::singleline(&mut self.filter)
+										.char_limit(100)
+										.hint_text("Search for thread name"),
+								)
 							})
 							.inner;
 						self.filter.shrink_to_fit();
@@ -115,25 +99,38 @@ impl ArchivesUi {
 						ui.add_space(12.0);
 					}
 					section(ui, "OLDER THREADS", &colors);
-					ui.horizontal_wrapped(|ui| {
+					// A plain row, not `horizontal_wrapped`: the enabled scopes below are child
+					// uis, which would break wrapping.
+					ui.horizontal(|ui| {
 						ui.spacing_mut().item_spacing.x = 6.0;
-						for (kind, name) in [
+						let kinds: Vec<(Kind, &str)> = [
 							(Kind::Public, "Public"),
 							(Kind::JoinedPrivate, "Joined private"),
 							(Kind::Private, "Private"),
-						] {
-							if (kind == Kind::Public || private)
-								&& ui
-									.add_enabled(
-										allowed && !view.loading,
-										egui::Button::selectable(view.kind == kind, name),
-									)
-									.clicked() && kind != view.kind
-							{
-								request = Some((kind, None));
-							}
+						]
+						.into_iter()
+						.filter(|(kind, _)| *kind == Kind::Public || private)
+						.collect();
+						let names: Vec<&str> = kinds.iter().map(|(_, name)| *name).collect();
+						let selected = kinds
+							.iter()
+							.position(|(kind, _)| *kind == view.kind)
+							.unwrap_or(usize::MAX);
+						if let Some(index) = ui
+							.add_enabled_ui(allowed && !view.loading, |ui| {
+								crate::design::segmented(ui, &names, selected)
+							})
+							.inner
+						{
+							request = Some((kinds[index].0, None));
 						}
-						let reload = ui.add_enabled(allowed, egui::Button::new("Reload"));
+						let action = |ui: &mut egui::Ui, enabled: bool, label: &str| {
+							ui.add_enabled_ui(enabled, |ui| {
+								crate::dialog::action(ui, label, crate::dialog::Action::Neutral)
+							})
+							.inner
+						};
+						let reload = action(ui, allowed, "Reload");
 						if self.focus {
 							reload.request_focus();
 							self.focus = false;
@@ -142,16 +139,11 @@ impl ArchivesUi {
 							request = Some((view.kind, None));
 						}
 						if view.error.is_some() {
-							if ui
-								.add_enabled(allowed && !view.loading, egui::Button::new("Retry"))
-								.clicked()
-							{
+							if action(ui, allowed && !view.loading, "Retry").clicked() {
 								request = Some((view.kind, view.before));
 							}
 						} else if let Some(before) = view.page.as_ref().and_then(|page| page.next)
-							&& ui
-								.add_enabled(allowed && !view.loading, egui::Button::new("Older"))
-								.clicked()
+							&& action(ui, allowed && !view.loading, "Older").clicked()
 						{
 							request = Some((view.kind, Some(before)));
 						}
@@ -350,6 +342,7 @@ mod tests {
 			recipients: vec![],
 			last_message: None,
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 			icon: None,
 		}

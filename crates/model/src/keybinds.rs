@@ -113,6 +113,7 @@ impl KeybindAction {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Keybinds {
+	pub global_enabled: bool,
 	pub show_shortcuts: KeyChord,
 	pub switch_conversation: KeyChord,
 	pub close_overlay: KeyChord,
@@ -134,6 +135,7 @@ pub struct Keybinds {
 impl Default for Keybinds {
 	fn default() -> Self {
 		Self {
+			global_enabled: true,
 			show_shortcuts: KeyChord::new("Slash", PRIMARY),
 			switch_conversation: KeyChord::new("K", PRIMARY),
 			close_overlay: KeyChord::new("Escape", 0),

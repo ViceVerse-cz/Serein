@@ -256,7 +256,10 @@ UI session reset releases the caches. No disk records or schema migration change
 Account navigation supports 131,072 guild/channel entries within 128 MiB of estimated
 navigation and permission storage. The permission mirror has a 64 MiB sub-budget,
 131,072 aggregate roles and 1,048,576 aggregate overwrites; per-object role/overwrite
-validation remains unchanged. Permission decisions still cache at most 4,000 entries.
+validation remains unchanged. Admission reserves room for 4,000 cached permission decisions
+(128 estimated bytes each). The cache may grow to 32,768 entries, but only within the
+sub-budget the admitted metadata leaves free, so a full sidebar badge scan of a large
+account does not evict its own decisions.
 Incoming read-state snapshot vectors use at most 131,072 entries / 16 MiB; retained
 read maps are bounded by account channels, with the existing separate activity/alert budgets.
 Notification preferences
@@ -452,8 +455,10 @@ Retry saving is deliberate. Closing with pending/failed writes prompts before di
 In-app preview edits are not saved; a write already requested outside preview still completes.
 The standalone --demo does not start the SQLite worker. Narrow People overlays and outer window geometry remain session-local.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
-input profile/custom processing, push-to-talk and gain are saved in the device-wide `app_preferences`
-SQLite singleton (16 KiB maximum), using the existing background worker. These survive
+input profile/custom processing, push-to-talk, gain, keyboard bindings and the global-keybind
+switch (enabled by default) are saved in the device-wide `app_preferences`
+SQLite singleton (16 KiB maximum), using the existing background worker. The Linux
+hide-window-decorations boolean is stored in this same record and defaults to false. These survive
 restart/logout; demo controls never read or write them. Save failures remain visible.
 The optional voice profile preserves older records: an absent profile migrates the legacy
 suppression boolean to Custom with RNNoise/Off, AEC on, and no AGC/sensitivity gate.
@@ -678,7 +683,7 @@ It retains at most 4,000 guild/channel records, 16,384 guild roles and 32,768 ov
 per guild/member role lists stop at 512, per-channel wire overwrites at 1,000. Other members'
 overwrite entries are validated then discarded; all role overwrite entries remain so later
 self-role changes can be calculated. A 2 MiB estimated allocation budget includes reserved
-space for at most 4,000 cached decisions. Updates clone the bounded metadata for atomic
+space for at least 4,000 cached decisions. Updates clone the bounded metadata for atomic
 validation; that temporary copy is additional peak memory. These estimates are not process
 RSS. Decisions expire at timeout boundaries, are recomputed after clock rollback and are
 cleared on metadata updates. Logout/READY replace the session mirror.
@@ -842,10 +847,19 @@ use the existing SHA-256 disk filenames. No new cache, schema or dependency is i
 
 Eframe `system_fonts` enumerates installed fonts on a background thread and uses
 read-only memory-mapped OS font files for missing glyphs, including native color
-emoji. No font download or font-file copy is added. Upstream fallback can wait
+emoji. System fallback does not download or copy font files. Upstream fallback can wait
 for enumeration on its first missing glyph; its font/cache memory is framework
 overhead, separate from Serein message/image budgets. OS font availability and
 emoji coverage vary by platform. Bundled text faces and Twemoji remain in use.
+
+Explicit Appearance → Typography import accepts one local TTF/OTF up to 8 MiB. A native
+picker feeds one bounded background read and validation; no file path is saved. The existing
+SQLite worker atomically replaces one `custom_font` row (name ≤128 UTF-8 bytes, font ≤8 MiB),
+within the database's existing total size ceiling. Reset deletes that row; logout retains it.
+The prior font stays active if importing or saving fails. The three proportional weight
+definitions share the imported bytes; the active font and one pending replacement can each
+retain up to 8 MiB, in addition to renderer/font-atlas overhead. Cache queue reservations
+include font payload bytes. Demo imports stay in memory and do not read or write this row.
 
 
 ### Inline MP3/WAV preview (September 11, 2026)

@@ -266,6 +266,7 @@ fn channel(id: u64, kind: u8, parent: Option<Id>) -> Channel {
 		last_message: None,
 		icon: None,
 		member_list_id: None,
+		tags: None,
 		message_count: None,
 	}
 }
@@ -1114,6 +1115,7 @@ fn thread_target_changes_revoke_content_for_patches_creates_and_snapshots() {
 						parent_id: Patch::Value(parent),
 						kind: Patch::Absent,
 						message_count: Patch::Absent,
+						tags: Patch::Absent,
 						name: Patch::Absent,
 						position: Patch::Absent,
 						last_message: Patch::Absent,
@@ -1236,6 +1238,7 @@ fn member_requests_survive_guild_hydration_and_follow_current_permissions() {
 		start: 0,
 		slots: vec![Some(model::MemberSlot::Person(model::Member {
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 			roles: vec![],
 			user: user(),
 			nick: None,
@@ -1328,6 +1331,7 @@ fn member_role_display_tracks_live_role_metadata_and_membership() {
 	let mut state = state();
 	let mut member = model::Member {
 		activities: vec![],
+		clients: model::ClientPlatforms::default(),
 		roles: vec![Id(13), Id(12), Id(11), Id(10)],
 		user: user(),
 		nick: None,
@@ -1453,7 +1457,7 @@ fn member_role_display_tracks_live_role_metadata_and_membership() {
 }
 
 #[test]
-fn history_loading_does_not_disable_authorized_sending() {
+fn history_freshness_does_not_disable_authorized_sending() {
 	let mut state = state();
 	let _ = state.history(Some(Id(100)));
 	assert_eq!(state.freshness, Freshness::Loading);
@@ -1462,7 +1466,7 @@ fn history_loading_does_not_disable_authorized_sending() {
 	assert!(!state.can_send(Id(20)));
 	state.gateway_connected = true;
 	state.freshness = Freshness::Stale;
-	assert!(!state.can_send(Id(20)));
+	assert!(state.can_send(Id(20)));
 	state.freshness = Freshness::Loading;
 	state.permissions.guilds.clear();
 	assert!(!state.can_send(Id(20)) && !state.can_attach(Id(20)));

@@ -120,10 +120,10 @@ impl Page {
 			Self::Account => "my account profile logout",
 			Self::Profile => "profile edit display name about me bio pronouns color colour",
 			Self::General => {
-				"general windows macos login menu bar startup autostart automatically open minimized minimize close tray background title bar caption window buttons graphics gpu adapter render discrete integrated hardware acceleration performance battery"
+				"general windows macos linux login menu bar startup autostart automatically open minimized minimize close tray background title bar caption window buttons decorations borderless tiling graphics gpu adapter render discrete integrated hardware acceleration performance battery"
 			}
 			Self::Appearance => {
-				"appearance customization primary accent hex window effects transparency blur theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
+				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
 			}
 			Self::Chat => {
 				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset"
@@ -761,6 +761,18 @@ impl MessagingUi {
 			}
 		});
 		design::group(ui, "Window", |ui| {
+			#[cfg(target_os = "linux")]
+			{
+				design::switch(
+					ui,
+					"Hide window decorations",
+					Some(
+						"Remove the system title bar and borders. Use your window manager to move, resize or close Serein.",
+					),
+					&mut self.hide_window_decorations,
+				);
+				design::card_divider(ui);
+			}
 			#[cfg(any(target_os = "windows", target_os = "macos"))]
 			{
 				design::switch(
@@ -862,6 +874,7 @@ impl MessagingUi {
 		ui.label(design::eyebrow(ui, "Theme", colors.muted));
 		theme_preference_cards(ui);
 		self.colour_preset_settings(ui);
+		self.custom_font.show(ui);
 		design::group(ui, "Accent", |ui| {
 			let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
 			design::row(

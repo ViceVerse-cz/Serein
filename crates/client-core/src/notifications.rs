@@ -442,8 +442,10 @@ impl State {
 		}
 	}
 	pub fn mention_count(&self, channel: Id) -> u32 {
-		if self.can_view(channel) {
-			self.read_state.activity.count(channel, true)
+		// Most channels have no mentions; skip the permission lookup for those.
+		let count = self.read_state.activity.count(channel, true);
+		if count > 0 && self.can_view(channel) {
+			count
 		} else {
 			0
 		}
@@ -894,6 +896,7 @@ mod tests {
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				})
 				.collect(),

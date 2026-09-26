@@ -170,6 +170,7 @@ mod tests {
 						roles: (1..=40).map(model::Id).collect(),
 						status: None,
 						custom_status: None,
+						clients: model::ClientPlatforms::default(),
 						activities: vec![],
 					}))
 				})

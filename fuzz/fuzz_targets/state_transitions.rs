@@ -40,6 +40,7 @@ fn ready() -> Event {
 				last_message: None,
 				message_count: None,
 				member_list_id: None,
+				tags: None,
 			})
 			.collect(),
 		permissions: p::Snapshot {

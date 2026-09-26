@@ -276,6 +276,7 @@ mod tests {
 			last_message: None,
 			icon: None,
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 		}
 	}
@@ -554,6 +555,7 @@ mod tests {
 							position: model::Patch::Absent,
 							kind: model::Patch::Absent,
 							message_count: model::Patch::Absent,
+							tags: model::Patch::Absent,
 						},
 					}
 				} else {

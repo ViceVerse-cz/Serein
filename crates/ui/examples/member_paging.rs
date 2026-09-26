@@ -15,6 +15,7 @@ fn reply(state: &mut State, start: usize, total: u64) {
 				roles: vec![],
 				status: None,
 				custom_status: None,
+				clients: model::ClientPlatforms::default(),
 				activities: vec![],
 			}))
 		})

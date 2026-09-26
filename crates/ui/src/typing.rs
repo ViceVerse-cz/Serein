@@ -243,6 +243,7 @@ mod tests {
 				name: "Synthetic typing conversation".into(),
 				last_message: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 				icon: None,
 				recipients: vec![

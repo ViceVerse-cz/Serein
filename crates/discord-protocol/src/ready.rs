@@ -454,6 +454,12 @@ mod tests {
 					message_count: None,
 					is_message_request: false,
 					is_spam: false,
+					available_tags: None,
+					applied_tags: None,
+					default_reaction_emoji: None,
+					default_forum_layout: None,
+					default_sort_order: None,
+					default_tag_setting: None,
 				})
 				.collect();
 			assert_eq!(

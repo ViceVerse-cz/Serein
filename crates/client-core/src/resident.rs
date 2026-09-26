@@ -298,6 +298,7 @@ mod tests {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				})
 				.collect(),
@@ -606,6 +607,7 @@ mod tests {
 				name: Patch::Absent,
 				kind: Patch::Absent,
 				message_count: Patch::Absent,
+				tags: Patch::Absent,
 				position: Patch::Absent,
 				last_message: Patch::Absent,
 			}),

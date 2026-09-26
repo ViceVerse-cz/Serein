@@ -2474,6 +2474,7 @@ mod tests {
 			position: 0,
 			recipients: vec![],
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 			icon: None,
 			last_message: None,
@@ -3057,6 +3058,7 @@ mod tests {
 			position: 0,
 			recipients: vec![],
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 			icon: None,
 		})

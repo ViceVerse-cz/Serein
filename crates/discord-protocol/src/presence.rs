@@ -1,6 +1,6 @@
 //! Only identity, scope and bounded status/activity metadata survive presence decoding.
 use crate::DecodeError;
-use model::{ActivityImage, Id, MAX_RICH_ACTIVITIES, Patch, RichActivity};
+use model::{ActivityImage, ClientPlatforms, Id, MAX_RICH_ACTIVITIES, Patch, RichActivity};
 use serde::{
 	Deserialize, Deserializer,
 	de::{MapAccess, SeqAccess, Visitor},
@@ -13,6 +13,7 @@ pub struct PresenceUpdate {
 	pub status: Patch<String>,
 	pub custom_status: Patch<String>,
 	pub activities: Patch<Vec<RichActivity>>,
+	pub clients: Patch<ClientPlatforms>,
 }
 
 #[derive(Deserialize)]
@@ -284,6 +285,43 @@ struct Identity {
 	id: Id,
 }
 
+#[derive(Deserialize, Default)]
+pub(crate) struct ClientStatus {
+	#[serde(default)]
+	desktop: Option<String>,
+	#[serde(default)]
+	mobile: Option<String>,
+	#[serde(default)]
+	web: Option<String>,
+	#[serde(default)]
+	vr: Option<String>,
+}
+
+impl ClientStatus {
+	pub(crate) fn platforms(&self) -> ClientPlatforms {
+		let active =
+			|status: &Option<String>| matches!(status.as_deref(), Some("online" | "idle" | "dnd"));
+		ClientPlatforms {
+			desktop: active(&self.desktop),
+			mobile: active(&self.mobile),
+			web: active(&self.web),
+			vr: active(&self.vr),
+		}
+	}
+}
+
+impl From<ClientPlatforms> for ClientStatus {
+	fn from(platforms: ClientPlatforms) -> Self {
+		let active = || "online".to_owned();
+		Self {
+			desktop: platforms.desktop.then(active),
+			mobile: platforms.mobile.then(active),
+			web: platforms.web.then(active),
+			vr: platforms.vr.then(active),
+		}
+	}
+}
+
 #[derive(Deserialize)]
 struct PresenceDto {
 	#[serde(default)]
@@ -296,6 +334,8 @@ struct PresenceDto {
 	status: Patch<String>,
 	#[serde(default)]
 	activities: Patch<Activities>,
+	#[serde(default)]
+	client_status: Patch<ClientStatus>,
 }
 
 pub fn decode(bytes: &[u8]) -> Result<PresenceUpdate, DecodeError> {
@@ -324,12 +364,18 @@ pub fn decode(bytes: &[u8]) -> Result<PresenceUpdate, DecodeError> {
 			(custom.map_or(Patch::Null, Patch::Value), Patch::Value(rich))
 		}
 	};
+	let clients = match presence.client_status {
+		Patch::Absent => Patch::Absent,
+		Patch::Null => Patch::Null,
+		Patch::Value(status) => Patch::Value(status.platforms()),
+	};
 	Ok(PresenceUpdate {
 		guild: presence.guild_id,
 		user,
 		status,
 		custom_status,
 		activities,
+		clients,
 	})
 }
 
@@ -779,6 +825,7 @@ mod tests {
 				format!(r#"{{"status":"online","activities":{activities}}}"#).as_bytes(),
 			)
 			.unwrap();
+			let clients = snapshot.clients();
 			assert_eq!(snapshot.custom_status(), expected);
 			assert!(
 				model::MemberPresence {
@@ -786,10 +833,41 @@ mod tests {
 					status: None,
 					custom_status: snapshot.custom_status(),
 					activities: snapshot.activities.1,
+					clients,
 				}
 				.valid()
 			);
 		}
+	}
+
+	#[test]
+	fn client_platforms_are_bounded_to_documented_active_sessions() {
+		let update = decode(br#"{"user":{"id":"2"},"client_status":{"desktop":"online","mobile":"idle","web":"dnd","vr":"online","future":"online"}}"#).unwrap();
+		assert_eq!(
+			update.clients,
+			Patch::Value(ClientPlatforms {
+				desktop: true,
+				mobile: true,
+				web: true,
+				vr: true,
+			})
+		);
+		assert_eq!(
+			decode(br#"{"user_id":"2","client_status":{"desktop":"offline","mobile":"unknown","web":null}}"#)
+				.unwrap()
+				.clients,
+			Patch::Value(ClientPlatforms::default())
+		);
+		assert_eq!(
+			decode(br#"{"user_id":"2"}"#).unwrap().clients,
+			Patch::Absent
+		);
+		assert_eq!(
+			decode(br#"{"user_id":"2","client_status":null}"#)
+				.unwrap()
+				.clients,
+			Patch::Null
+		);
 	}
 
 	#[test]

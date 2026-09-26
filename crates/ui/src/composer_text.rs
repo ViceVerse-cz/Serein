@@ -41,9 +41,7 @@ impl Layout {
 		let mut key = DefaultHasher::new();
 		text.hash(&mut key);
 		width.to_bits().hash(&mut key);
-		ui.ctx()
-			.fonts(|fonts| fonts.definitions().font_data.len())
-			.hash(&mut key);
+		crate::fonts::revision(ui.ctx()).hash(&mut key);
 		ui.ctx().pixels_per_point().to_bits().hash(&mut key);
 		egui::TextStyle::Body.resolve(ui.style()).hash(&mut key);
 		let colors = crate::design::palette(ui);

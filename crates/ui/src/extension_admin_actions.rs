@@ -50,6 +50,7 @@ fn edit(value: ChannelEditInput) -> Result<Edit, String> {
 			.into_iter()
 			.map(overwrite)
 			.collect::<Result<_, _>>()?,
+		forum: None,
 	})
 }
 

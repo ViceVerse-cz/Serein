@@ -274,11 +274,14 @@ pub struct Channel {
 	pub member_list_id: Option<String>,
 	/// Thread reply count reported by the service; None for non-threads or unknown.
 	pub message_count: Option<u32>,
+	/// Forum tags offered by a forum or media channel, or applied to one of its posts.
+	pub tags: Option<Box<forum::Tags>>,
 }
 impl Channel {
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.name.capacity()
+			+ self.tags.as_ref().map_or(0, |tags| tags.bytes())
 			+ self.icon.as_ref().map_or(0, String::capacity)
 			+ self.member_list_id.as_ref().map_or(0, String::capacity)
 			+ self.recipients.capacity() * size_of::<User>()
@@ -298,6 +301,8 @@ pub struct ChannelPatch {
 	pub position: Patch<i32>,
 	pub kind: Patch<u8>,
 	pub message_count: Patch<u32>,
+	/// Channel updates carry whole objects, so present tags replace the known ones.
+	pub tags: Patch<Box<forum::Tags>>,
 }
 /// The command invocation that produced an application response message.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -623,6 +628,21 @@ fn valid_presence_text(text: &str) -> bool {
 		&& !text.chars().any(char::is_control)
 }
 
+/// Fixed-size client session flags for an already-loaded user.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClientPlatforms {
+	pub desktop: bool,
+	pub mobile: bool,
+	pub web: bool,
+	pub vr: bool,
+}
+
+impl ClientPlatforms {
+	pub fn any(self) -> bool {
+		self.desktop || self.mobile || self.web || self.vr
+	}
+}
+
 /// Complete, bounded presence values for an already-loaded user.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberPresence {
@@ -630,6 +650,7 @@ pub struct MemberPresence {
 	pub status: Option<String>,
 	pub custom_status: Option<String>,
 	pub activities: Vec<RichActivity>,
+	pub clients: ClientPlatforms,
 }
 
 impl MemberPresence {
@@ -668,6 +689,7 @@ pub struct Member {
 	/// Custom status text with any unicode emoji; bounded, never a rich activity.
 	pub custom_status: Option<String>,
 	pub activities: Vec<RichActivity>,
+	pub clients: ClientPlatforms,
 }
 impl Member {
 	pub fn valid(&self) -> bool {
@@ -805,6 +827,7 @@ mod presence_tests {
 			status: None,
 			custom_status: None,
 			activities: vec![activity.clone(); MAX_RICH_ACTIVITIES],
+			clients: ClientPlatforms::default(),
 		};
 		assert!(presence.valid());
 		assert_eq!(

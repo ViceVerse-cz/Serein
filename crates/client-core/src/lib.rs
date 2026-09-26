@@ -139,6 +139,8 @@ pub enum Command {
 		guild: Id,
 		title: String,
 		content: String,
+		/// Forum tag IDs applied to the new post.
+		tags: Vec<Id>,
 		/// Filenames staged for the starter message, in selection order; empty sends text only.
 		attachments: Vec<String>,
 		request: u64,
@@ -1325,6 +1327,7 @@ impl State {
 						status: None,
 						custom_status: None,
 						activities: vec![],
+						clients: model::ClientPlatforms::default(),
 						user,
 					}))
 				})
@@ -2726,6 +2729,11 @@ impl State {
 					if let Patch::Value(count) = patch.message_count {
 						channel.message_count = Some(count);
 					}
+					match patch.tags {
+						Patch::Value(tags) => channel.tags = Some(tags),
+						Patch::Null => channel.tags = None,
+						Patch::Absent => {}
+					}
 					if self.navigation_bytes() + self.permissions.bytes()
 						> model::account::MAX_BYTES
 					{
@@ -4049,6 +4057,7 @@ mod tests {
 				last_message: None,
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			selected: Some(Id(1)),
@@ -4102,6 +4111,7 @@ mod tests {
 				last_message: None,
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			selected: Some(Id(1)),
@@ -4216,6 +4226,7 @@ mod tests {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				})
 				.collect(),
@@ -4392,6 +4403,7 @@ mod tests {
 				last_message: None,
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			gateway_connected: true,
@@ -4816,6 +4828,7 @@ mod tests {
 			recipients: vec![],
 			icon: None,
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 		};
 		apply(&mut state, Event::ChannelCreated(channel.clone()));
@@ -4832,6 +4845,7 @@ mod tests {
 				position: Patch::Value(0),
 				kind: Patch::Absent,
 				message_count: Patch::Absent,
+				tags: Patch::Absent,
 			}),
 		);
 		assert_eq!(state.channels[0].parent_id, None);
@@ -4851,6 +4865,7 @@ mod tests {
 				position: Patch::Absent,
 				kind: Patch::Value(4),
 				message_count: Patch::Absent,
+				tags: Patch::Absent,
 			}),
 		);
 		assert!(state.selected.is_none());
@@ -4872,6 +4887,7 @@ mod tests {
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				}),
 			);
@@ -4946,6 +4962,7 @@ mod tests {
 				last_message: None,
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			..State::default()
@@ -5084,6 +5101,7 @@ mod tests {
 				recipients: vec![user.clone()],
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			..State::default()
@@ -5145,6 +5163,7 @@ mod tests {
 				status: None,
 				custom_status: None,
 				activities: vec![],
+				clients: model::ClientPlatforms::default(),
 			}))],
 			total: 250,
 			lazy: true,
@@ -5175,6 +5194,7 @@ mod tests {
 			status: None,
 			custom_status: None,
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 		}));
 		apply(
 			&mut state,
@@ -5219,6 +5239,7 @@ mod tests {
 			last_message: Some(Id(80)),
 			icon: None,
 			member_list_id: Some("known-list".into()),
+			tags: None,
 			message_count: None,
 		};
 		let mut state = State {
@@ -5244,6 +5265,7 @@ mod tests {
 			last_message: None,
 			icon: None,
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 			..channel.clone()
 		};
@@ -5263,6 +5285,7 @@ mod tests {
 				position: Patch::Absent,
 				kind: Patch::Absent,
 				message_count: Patch::Absent,
+				tags: Patch::Absent,
 			}),
 		);
 		assert_eq!(state.channels[0].name, "Renamed");
@@ -5359,6 +5382,7 @@ mod tests {
 			last_message: None,
 			icon: None,
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 		};
 		let guild = Guild {
@@ -5449,6 +5473,7 @@ mod tests {
 			last_message: None,
 			icon: None,
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 		};
 		let user = || User {
@@ -5604,6 +5629,7 @@ mod tests {
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				}],
 			},

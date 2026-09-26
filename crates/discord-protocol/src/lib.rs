@@ -182,6 +182,18 @@ pub struct ChannelDto {
 	pub is_message_request: bool,
 	#[serde(default)]
 	pub is_spam: bool,
+	#[serde(default)]
+	pub available_tags: Option<forum::TagList>,
+	#[serde(default)]
+	pub applied_tags: Option<forum::AppliedTags>,
+	#[serde(default)]
+	pub default_reaction_emoji: Option<forum::DefaultReaction>,
+	#[serde(default)]
+	pub default_forum_layout: Option<u8>,
+	#[serde(default)]
+	pub default_sort_order: Option<u8>,
+	#[serde(default)]
+	pub default_tag_setting: Option<String>,
 }
 const CHANNEL_FLAG_SPAM: u64 = 1 << 5;
 impl ChannelDto {
@@ -222,6 +234,18 @@ impl ChannelDto {
 					.collect::<Vec<_>>()
 					.join(", ")
 			}),
+			tags: forum::tags(
+				self.kind,
+				self.available_tags,
+				self.applied_tags,
+				self.flags,
+				forum::Defaults {
+					reaction: self.default_reaction_emoji,
+					layout: self.default_forum_layout,
+					sort: self.default_sort_order,
+					tag_setting: self.default_tag_setting,
+				},
+			),
 			kind: self.kind,
 			recipients,
 			member_list_id: None,
@@ -254,6 +278,18 @@ pub struct ChannelPatchDto {
 	pub is_message_request: Patch<bool>,
 	#[serde(default)]
 	pub is_spam: Patch<bool>,
+	#[serde(default)]
+	pub available_tags: Patch<forum::TagList>,
+	#[serde(default)]
+	pub applied_tags: Patch<forum::AppliedTags>,
+	#[serde(default)]
+	pub default_reaction_emoji: Option<forum::DefaultReaction>,
+	#[serde(default)]
+	pub default_forum_layout: Option<u8>,
+	#[serde(default)]
+	pub default_sort_order: Option<u8>,
+	#[serde(default)]
+	pub default_tag_setting: Option<String>,
 }
 impl ChannelPatchDto {
 	pub fn is_obfuscated(&self) -> bool {
@@ -326,6 +362,18 @@ impl ChannelPatchDto {
 			name: self.name,
 			parent_id: self.parent_id,
 			position: self.position,
+			tags: forum::patched_tags(
+				self.kind.clone(),
+				self.available_tags,
+				self.applied_tags,
+				&self.flags,
+				forum::Defaults {
+					reaction: self.default_reaction_emoji,
+					layout: self.default_forum_layout,
+					sort: self.default_sort_order,
+					tag_setting: self.default_tag_setting,
+				},
+			),
 			kind: self.kind,
 			message_count: self.message_count,
 		}
@@ -1496,16 +1544,27 @@ pub(crate) fn lenient_presence<'de, D: serde::Deserializer<'de>>(
 		status: String,
 		#[serde(default, deserialize_with = "lenient_activities")]
 		activities: presence::Activities,
+		#[serde(default)]
+		client_status: presence::ClientStatus,
 	}
 	let raw = Box::<RawValue>::deserialize(d)?;
 	if raw.get() == "null" {
 		return Ok(Patch::Null);
 	}
-	Ok(
-		serde_json::from_str(raw.get()).map_or(Patch::Absent, |Status { status, activities }| {
-			Patch::Value(PresenceDto { status, activities })
-		}),
-	)
+	Ok(serde_json::from_str(raw.get()).map_or(
+		Patch::Absent,
+		|Status {
+		     status,
+		     activities,
+		     client_status,
+		 }| {
+			Patch::Value(PresenceDto {
+				status,
+				activities,
+				client_status,
+			})
+		},
+	))
 }
 fn lenient_activities<'de, D: serde::Deserializer<'de>>(
 	d: D,
@@ -1518,11 +1577,16 @@ pub struct PresenceDto {
 	pub status: String,
 	#[serde(default)]
 	pub activities: presence::Activities,
+	#[serde(default)]
+	client_status: presence::ClientStatus,
 }
 impl PresenceDto {
 	/// The same bounded custom-status normalization is used for snapshots and updates.
 	pub fn custom_status(&self) -> Option<String> {
 		self.activities.0.clone()
+	}
+	pub fn clients(&self) -> model::ClientPlatforms {
+		self.client_status.platforms()
 	}
 }
 pub enum MemberItem {
@@ -1593,6 +1657,7 @@ impl MemberItem {
 					previous.custom_status.clone(),
 					previous.activities.clone(),
 				),
+				client_status: presence::ClientStatus::from(previous.clients),
 			});
 		}
 	}
@@ -1635,6 +1700,10 @@ impl MemberItem {
 						.as_mut()
 						.filter(|p| p.status != "offline")
 						.map_or_else(Vec::new, |p| std::mem::take(&mut p.activities.1)),
+					clients: presence
+						.as_ref()
+						.filter(|p| p.status != "offline")
+						.map_or_default(PresenceDto::clients),
 					status: presence.and_then(|p| match p.status.as_str() {
 						"online" | "idle" | "dnd" | "offline" => Some(p.status),
 						_ => None,

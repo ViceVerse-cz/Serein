@@ -54,6 +54,12 @@ channel names and uppercase 12px eyebrows. Body is 15px, small 12px. Until `font
 marks a context, the weight families resolve to the default face so headless tests never
 reference an unknown family.
 
+Appearance → Typography can import one TTF or OTF file up to 8 MiB, apply it immediately,
+or reset to Inter. The selected face leads all proportional families; variable fonts use
+400/500/600 weights while static fonts retain their supplied weight. Code stays monospace,
+and bundled/system missing-glyph fallbacks remain available. A bounded local copy survives
+restart and logout; import and persistence failures leave the current font in use.
+
 Text is rasterized by egui on the CPU as grayscale coverage, not by DirectWrite or Core Text.
 That cannot reproduce ClearType. `design::apply` turns TrueType hinting off and sub-pixel
 binning on. Dark mode remaps coverage with `FontColorTransferFunction::Gamma(0.5)`. Light
@@ -63,9 +69,11 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
 ## Layout
 
 - 36px title strip (`base`): hidden native title bar on macOS with traffic lights inline, centred
-  context title, session status text and an OFFLINE PREVIEW / EXPERIMENTAL pill. Windows and macOS Appearance
+  context title, session status text and an OFFLINE PREVIEW / EXPERIMENTAL pill. Windows and macOS General
   settings can hide the app strip and use native window decorations instead. Linux always omits
-  the app strip and uses system decorations, with the Adwaita Wayland fallback on GNOME.
+  the app strip and defaults to system decorations, with the Adwaita Wayland fallback on GNOME.
+  General → Window can hide Linux decorations immediately for tiling window managers; the
+  device preference also applies at startup.
 - 72px server rail (`base`): 48px home button and server icons (circle, rounded square when
   hovered/selected), white edge pill (8px unread, 20px hover, 40px selected), red mention badges.
 - The lists and conversation share one rounded surface beside the rail. Channel sidebar

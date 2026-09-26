@@ -298,6 +298,7 @@ mod tests {
 				parent_id: None,
 				position: 0,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			..State::default()

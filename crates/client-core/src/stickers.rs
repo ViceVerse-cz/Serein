@@ -191,6 +191,7 @@ mod tests {
 				last_message: None,
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			selected: Some(Id(1)),

@@ -1,5 +1,5 @@
 //! Session-scoped account menu; the host owns presence publication.
-use crate::{MessagingUi, design, icons, profiles};
+use crate::{MessagingUi, design, dialog, icons, profiles};
 use client_core::{Command, State};
 use egui::{RichText, vec2};
 use model::PresenceStatus;
@@ -185,6 +185,7 @@ impl MessagingUi {
 				.width(420.0)
 				.show(&ctx, |d| {
 					d.content(|ui| self.custom_status_editor(ui, state));
+					d.footer(|ui| self.custom_status_actions(ui));
 				});
 			if response.close {
 				self.account_menu.custom_open = false;
@@ -258,18 +259,17 @@ impl MessagingUi {
 						.selected
 						.and_then(|id| state.channel(id))
 						.and_then(|c| c.guild);
-					let (_, _, activities) = profiles::presence(state, user.id, guild);
+					let (_, _, activities, _) = profiles::presence(state, user.id, guild);
 					if !activities.is_empty() {
 						ui.add_space(8.0);
-						for activity in activities {
-							profiles::activity_card(
-								ui,
-								activity,
-								&mut self.avatars,
-								state.demo,
-								(colors.base, colors.muted),
-							);
-						}
+						profiles::activity_list(
+							ui,
+							egui::Id::unique(("account-activity", user.id)),
+							activities,
+							&mut self.avatars,
+							state.demo,
+							(colors.base, colors.muted),
+						);
 					}
 				}
 				ui.add_space(8.0);
@@ -766,28 +766,16 @@ impl MessagingUi {
 				});
 			});
 		ui.add_space(16.0);
-		let label = ui.label(design::eyebrow(ui, "Status text", colors.muted));
-		ui.add_space(6.0);
-		ui.add_sized(
-			[ui.available_width(), 44.0],
+		let label = dialog::label(ui, "Status text");
+		dialog::input(
+			ui,
 			egui::TextEdit::singleline(&mut self.account_menu.draft)
-				.align(egui::Align2::LEFT_CENTER)
 				.id_salt(("account-custom-status", state.generation))
 				.hint_text("What's on your mind?")
-				.char_limit(128)
-				.margin(egui::Margin::symmetric(12, 0))
-				.desired_width(f32::INFINITY),
+				.char_limit(128),
 		)
 		.labelled_by(label.id);
-		let valid = model::OwnPresence {
-			status: self.own_presence.status,
-			custom_status: draft.clone(),
-			expires_at_ms: None,
-		}
-		.valid();
-		let changed = draft != self.own_presence.custom_status
-			|| (!draft.is_empty()
-				&& ClearAfter::nearest(self.own_presence_expires) != self.account_menu.clear_after);
+		let (_, valid, _) = self.custom_status_draft();
 		ui.add_space(4.0);
 		// A bounded row: a bare right-to-left layout here takes the dialog's whole remaining
 		// height and the size never settles.
@@ -807,87 +795,79 @@ impl MessagingUi {
 			});
 		});
 		ui.add_space(12.0);
-		let label = ui.label(design::eyebrow(ui, "Clear after", colors.muted));
-		ui.add_space(6.0);
+		let label = dialog::label(ui, "Clear after");
 		self.clear_after_row(ui).labelled_by(label.id);
 		// The deadline is local to this client, so name the moment rather than implying
 		// Discord will clear it for you.
 		if let Some(clears) = self.account_menu.clear_after.clears_at() {
-			ui.add_space(6.0);
-			ui.add(
-				egui::Label::new(
-					RichText::new(format!("Serein clears it {clears}."))
-						.size(12.0)
-						.color(colors.muted),
-				)
-				.wrap(),
-			);
+			dialog::hint(ui, &format!("Serein clears it {clears}."));
 		}
 		if !valid {
-			ui.add_space(4.0);
-			ui.add(
-				egui::Label::new(
-					RichText::new("Use up to 128 characters without control characters.")
-						.size(12.0)
-						.color(colors.danger),
-				)
-				.wrap(),
+			ui.add_space(8.0);
+			dialog::notice(
+				ui,
+				dialog::Level::Error,
+				"Use up to 128 characters without control characters.",
 			);
 		}
 		if !self.own_presence_status.is_empty() {
-			ui.add_space(4.0);
-			ui.add(
-				egui::Label::new(
-					RichText::new(self.own_presence_status)
-						.size(12.0)
-						.color(colors.muted),
-				)
-				.wrap(),
-			);
+			dialog::hint(ui, self.own_presence_status);
 		}
-		ui.add_space(16.0);
+	}
+
+	/// Trimmed draft, whether it is publishable, and whether it differs from what is live.
+	fn custom_status_draft(&self) -> (String, bool, bool) {
+		let draft = self.account_menu.draft.trim().to_owned();
+		let valid = model::OwnPresence {
+			status: self.own_presence.status,
+			custom_status: draft.clone(),
+			expires_at_ms: None,
+		}
+		.valid();
+		let changed = draft != self.own_presence.custom_status
+			|| (!draft.is_empty()
+				&& ClearAfter::nearest(self.own_presence_expires) != self.account_menu.clear_after);
+		(draft, valid, changed)
+	}
+
+	/// Footer actions: Apply publishes the draft, Clear removes the live status.
+	fn custom_status_actions(&mut self, ui: &mut egui::Ui) {
+		let (draft, valid, changed) = self.custom_status_draft();
+		if ui
+			.add_enabled_ui(valid && changed, |ui| {
+				dialog::action(ui, "Apply", dialog::Action::Primary)
+			})
+			.inner
+			.clicked()
+		{
+			self.own_presence.custom_status = draft.clone();
+			self.account_menu
+				.draft
+				.clone_from(&self.own_presence.custom_status);
+			self.own_presence_expires = (!draft.is_empty())
+				.then(|| self.account_menu.clear_after.deadline())
+				.flatten();
+			self.own_presence.expires_at_ms = self.own_presence_expires;
+			self.own_presence_changed = true;
+		}
 		let clearable =
 			!self.own_presence.custom_status.is_empty() || !self.account_menu.draft.is_empty();
-		let width = ui.available_width();
-		ui.horizontal(|ui| {
-			ui.spacing_mut().item_spacing.x = 8.0;
-			let half = (width - 8.0) * 0.5;
-			ui.allocate_ui(vec2(half, 44.0), |ui| {
-				ui.set_width(half);
-				if ui
-					.add_enabled_ui(clearable, |ui| design::secondary_button(ui, "Clear"))
-					.inner
-					.clicked()
-				{
-					self.account_menu.draft.clear();
-					self.account_menu.clear_after = ClearAfter::Never;
-					self.own_presence_expires = None;
-					self.own_presence.expires_at_ms = None;
-					if !self.own_presence.custom_status.is_empty() {
-						self.own_presence.custom_status.clear();
-						self.own_presence_changed = true;
-					}
-				}
-			});
-			ui.allocate_ui(vec2(half, 44.0), |ui| {
-				ui.set_width(half);
-				if ui
-					.add_enabled_ui(valid && changed, |ui| design::primary_button(ui, "Apply"))
-					.inner
-					.clicked()
-				{
-					self.own_presence.custom_status = draft.clone();
-					self.account_menu
-						.draft
-						.clone_from(&self.own_presence.custom_status);
-					self.own_presence_expires = (!draft.is_empty())
-						.then(|| self.account_menu.clear_after.deadline())
-						.flatten();
-					self.own_presence.expires_at_ms = self.own_presence_expires;
-					self.own_presence_changed = true;
-				}
-			});
-		});
+		if ui
+			.add_enabled_ui(clearable, |ui| {
+				dialog::action(ui, "Clear", dialog::Action::Outline)
+			})
+			.inner
+			.clicked()
+		{
+			self.account_menu.draft.clear();
+			self.account_menu.clear_after = ClearAfter::Never;
+			self.own_presence_expires = None;
+			self.own_presence.expires_at_ms = None;
+			if !self.own_presence.custom_status.is_empty() {
+				self.own_presence.custom_status.clear();
+				self.own_presence_changed = true;
+			}
+		}
 	}
 }
 

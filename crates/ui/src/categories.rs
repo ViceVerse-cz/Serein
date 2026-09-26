@@ -841,14 +841,16 @@ impl MessagingUi {
 								} else if let Some(user) = channel.recipients.first() {
 									let avatar =
 										self.avatars.show(&mut inner, user, 32.0, state.demo);
+									let (status, _, _, clients) =
+										crate::profiles::presence(state, user.id, None);
 									if channel.kind == 1
-										&& let Some(status) =
-											crate::profiles::presence(state, user.id, None).0
+										&& let Some(status) = status
 									{
-										design::presence_dot(
-											&inner,
+										crate::profiles::presence_badge(
+											&mut inner,
 											avatar.rect,
-											crate::profiles::presence_color(status),
+											status,
+											clients,
 											colors.sidebar,
 										);
 									}
@@ -900,7 +902,7 @@ impl MessagingUi {
 							}
 							let subtitle = if dm_list && channel.kind == 1 {
 								channel.recipients.first().and_then(|user| {
-									let (_, custom, activities) =
+									let (_, custom, activities, _) =
 										crate::profiles::presence(state, user.id, None);
 									crate::profiles::subtitle(custom, activities)
 								})
@@ -1222,7 +1224,7 @@ pub fn debug_thread_navigation_check(state: &mut State) {
 			attachments,
 			..
 		} = state
-			.create_post_with_attachments(parent, "Image post", "", &["synthetic.png"])
+			.create_post_with_attachments(parent, "Image post", "", &["synthetic.png"], &[])
 			.unwrap()
 		else {
 			panic!("Expected post command")
@@ -1638,6 +1640,7 @@ mod tests {
 			kind,
 			recipients: vec![],
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 			icon: None,
 		}

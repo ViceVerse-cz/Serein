@@ -348,10 +348,22 @@ fn rank(query: &str, name: &str, id: Id) -> Option<u8> {
 	if query.is_empty() {
 		return Some(1);
 	}
-	let name = name.to_lowercase();
-	if name.starts_with(query) {
+	// Most names are ASCII; compare those in place instead of allocating a lowercase copy.
+	let (prefix, substring) = if name.is_ascii() {
+		let (name, query) = (name.as_bytes(), query.as_bytes());
+		let prefix = name.len() >= query.len() && name[..query.len()].eq_ignore_ascii_case(query);
+		let substring = prefix
+			|| name
+				.windows(query.len())
+				.any(|window| window.eq_ignore_ascii_case(query));
+		(prefix, substring)
+	} else {
+		let name = name.to_lowercase();
+		(name.starts_with(query), name.contains(query))
+	};
+	if prefix {
 		Some(0)
-	} else if name.contains(query) {
+	} else if substring {
 		Some(1)
 	} else if id.0 != 0 && id.to_string().starts_with(query) {
 		Some(2)
@@ -954,6 +966,7 @@ mod tests {
 				kind,
 				recipients: vec![user(42, "Zoe")],
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 				icon: None,
 			});
@@ -1103,6 +1116,7 @@ mod tests {
 			position: 0,
 			recipients: vec![],
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 			icon: None,
 		}

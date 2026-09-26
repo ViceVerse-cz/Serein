@@ -65,6 +65,21 @@ impl eframe::App for Preview {
 				client_core::Command::ServerAction { action, request } => {
 					server_settings_demo::execute_action(&mut self.state, action, request)
 				}
+				client_core::Command::ChannelAction {
+					guild,
+					channel,
+					request,
+					action: client_core::channel_actions::Action::Load,
+				} => client_core::Event::ChannelAction(
+					client_core::channel_actions::Event::Finished {
+						guild,
+						channel,
+						request,
+						result: Ok(client_core::channel_actions::Outcome::Details(
+							channel_settings(&self.state, channel),
+						)),
+					},
+				),
 				_ => continue,
 			};
 			self.state.apply(client_core::Envelope {
@@ -162,6 +177,47 @@ fn prime_profile(state: &mut client_core::State) {
 			},
 		});
 	}
+}
+
+/// Several synthetic Rich Presence entries for the first friend and the message author.
+fn prime_activities(state: &mut client_core::State) {
+	let activity =
+		|kind, name: &str, details: Option<&str>, state: Option<&str>| model::RichActivity {
+			kind,
+			name: name.into(),
+			details: details.map(Into::into),
+			state: state.map(Into::into),
+			image: None,
+			small_image: None,
+			ends_at: None,
+			started_at: Some(1_700_000_000_000),
+		};
+	let activities = vec![
+		activity(
+			0,
+			"Synthetic Quest",
+			Some("Exploring the hollow"),
+			Some("Chapter 3"),
+		),
+		activity(2, "Spotify", Some("Quiet Harbor"), Some("The Offline Band")),
+		activity(3, "Harbor Stories", None, None),
+	];
+	let author = test_support::message(1, model::Id(20)).author.id;
+	state.apply(client_core::Envelope {
+		generation: state.generation,
+		event: client_core::Event::DirectPresence(
+			[model::Id(1001), author]
+				.into_iter()
+				.map(|user| client_core::presence::Update {
+					user,
+					status: model::Patch::Value("online".into()),
+					custom_status: model::Patch::Absent,
+					activities: model::Patch::Value(activities.clone()),
+					clients: model::Patch::Absent,
+				})
+				.collect(),
+		),
+	});
 }
 
 fn prime_extension_chat(state: &mut client_core::State) {
@@ -335,6 +391,32 @@ fn seed_catalog(extensions: &mut ui::ExtensionUi, themes: bool) {
 	}
 }
 
+/// Synthetic settings for a fixture channel, including a forum's tags and post defaults.
+fn channel_settings(
+	state: &client_core::State,
+	channel: model::Id,
+) -> client_core::channel_actions::Edit {
+	let source = state.channel(channel).expect("fixture channel");
+	let tags = source.tags.as_deref().cloned().unwrap_or_default();
+	client_core::channel_actions::Edit {
+		name: source.name.clone(),
+		topic: "Share one idea per post. Search first, and tag what the idea is about.".into(),
+		forum: matches!(source.kind, 15 | 16).then(|| {
+			Box::new(client_core::channel_actions::ForumEdit {
+				tags: tags.available,
+				require_tag: tags.required,
+				reaction: tags.reaction,
+				layout: tags.layout,
+				sort: tags.sort,
+				match_all: tags.match_all,
+				hide_after: 4320,
+				..Default::default()
+			})
+		}),
+		..Default::default()
+	}
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
@@ -360,6 +442,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "server"
 			| "server-engagement"
 			| "server-stickers"
+			| "forum" | "forum-post"
+			| "forum-gallery"
+			| "forum-settings"
+			| "friends"
 	) {
 		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement or server-stickers".into());
 	}
@@ -372,7 +458,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	if !(500.0..=1920.0).contains(&width) || !(520.0..=1200.0).contains(&height) {
 		return Err("Viewport must be 500-1920 by 520-1200".into());
 	}
+	let forum_tags: Vec<_> = value("--tags=")
+		.map(|list| {
+			list.split(',')
+				.filter_map(|id| id.parse().ok())
+				.map(model::Id)
+				.collect()
+		})
+		.unwrap_or_default();
 	let light = args.iter().any(|arg| arg == "--light");
+	let activities = args.iter().any(|arg| arg == "--activities");
+	let friends_tab = value("--tab=").unwrap_or("online").to_owned();
 	let theme_editor = value("--theme-editor=").map(str::to_owned);
 	let theme_preview = args.iter().any(|arg| arg == "--theme-preview");
 	let thumbnail = args.iter().any(|arg| arg == "--thumbnail");
@@ -392,6 +488,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		},
 		Box::new(move |cc| {
 			ui::fonts::install(&cc.egui_ctx);
+			let _ = ui::emoji::install(&cc.egui_ctx);
 			ui::design::apply(&cc.egui_ctx);
 			cc.egui_ctx.set_theme(if light {
 				egui::ThemePreference::Light
@@ -403,9 +500,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				"slash-commands" | "slash-command-search" | "slash-command-options"
 			) {
 				slash_demo::preview()
+			} else if page == "friends" {
+				test_support::friends_demo_state()
 			} else {
 				test_support::demo_state()
 			};
+			if activities {
+				prime_activities(&mut state);
+			}
 			if page == "profile" {
 				prime_profile(&mut state);
 			}
@@ -428,17 +530,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						status: Some("online".into()),
 						custom_status: Some("Building a quieter place".into()),
 						activities: vec![],
+						clients: model::ClientPlatforms {
+							mobile: true,
+							..Default::default()
+						},
 					}))],
 				});
 			} else if page == "dm-tags" {
 				let _ = state.select(model::Id(22));
+			} else if page.starts_with("forum") {
+				state.gateway_connected = true;
+				state.auth = client_core::auth::AuthState::Authenticated;
+				let _ = state.select(model::Id(26));
 			}
 			let mut messaging = ui::MessagingUi::default();
 			messaging.tray_available = platform::tray::supported();
 			messaging.startup_available = platform::startup::available();
 			messaging.startup_enabled = args.iter().any(|arg| arg == "--startup-enabled");
 			messaging.startup_minimized = args.iter().any(|arg| arg == "--startup-minimized");
-			if matches!(page.as_str(), "member-tags" | "dm-tags") {
+			if page == "friends" {
+				messaging.preview_friends_tab(&friends_tab);
+			} else if page == "forum" {
+				messaging.preview_forum(model::Id(26), &forum_tags, None);
+			} else if page == "forum-gallery" {
+				messaging.preview_forum(model::Id(26), &[], None);
+				messaging.preview_forum_layout(model::forum::Layout::Gallery);
+			} else if page == "forum-settings" {
+				messaging.preview_channel_settings(model::Id(26), state.generation);
+			} else if page == "forum-post" {
+				messaging.preview_forum(
+					model::Id(26),
+					&[model::Id(2603)],
+					Some("Faster startup on older phones"),
+				);
+			} else if matches!(page.as_str(), "member-tags" | "dm-tags") {
 				// State is primed above; the normal offline messaging surface renders the list.
 			} else if page == "slash-commands" {
 				messaging.preview_slash_commands();
@@ -458,7 +583,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				messaging.preview_sticker_picker();
 			} else if page == "profile-card" {
 				state.demo = false;
-				messaging.preview_profile(test_support::message(1, model::Id(20)).author);
+				state.gateway_connected = true;
+				let user = test_support::message(1, model::Id(20)).author;
+				state.members = Some(model::MemberList {
+					channel: model::Id(20),
+					guild: Some(model::Id(10)),
+					request: 0,
+					total: 1,
+					start: 0,
+					lazy: false,
+					groups: vec![],
+					ranges: vec![],
+					freshness: model::Freshness::Fresh,
+					slots: vec![Some(model::MemberSlot::Person(model::Member {
+						user: user.clone(),
+						nick: None,
+						roles: vec![],
+						status: Some("online".into()),
+						custom_status: None,
+						activities: vec![],
+						clients: model::ClientPlatforms {
+							mobile: true,
+							..Default::default()
+						},
+					}))],
+				});
+				messaging.preview_profile(user);
 			} else if let Some((package, _invocation, result)) = fixture {
 				prime_extension_chat(&mut state);
 				if let Some(theme) = package.theme.as_ref() {

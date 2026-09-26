@@ -688,6 +688,7 @@ mod tests {
 					primary_guild: None,
 				}],
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 				icon: None,
 				last_message: None,

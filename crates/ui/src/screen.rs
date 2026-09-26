@@ -159,13 +159,10 @@ impl ScreenUi {
 			ui.label(crate::design::eyebrow(ui, "Screen or window", colors.muted));
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				if ui
-					.add_enabled(
-						!state.demo && !cfg!(target_os = "linux"),
-						egui::Button::new(
-							egui::RichText::new("Refresh").size(12.0).color(colors.link),
-						)
-						.frame(false),
-					)
+					.add_enabled_ui(!state.demo && !cfg!(target_os = "linux"), |ui| {
+						crate::design::text_action(ui, "Refresh")
+					})
+					.inner
 					.clicked()
 				{
 					self.selected = None;

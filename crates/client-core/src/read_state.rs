@@ -335,6 +335,28 @@ impl State {
 		let message = self.channel(channel)?.last_message?;
 		Some(self.mark_read_command(channel, message, false, None))
 	}
+	/// Leaving a channel acknowledges the latest message the reader had on screen there,
+	/// even when a short conversation never let them scroll toward the bottom.
+	pub fn prepare_mark_left_channel_read(
+		&mut self,
+		channel: Id,
+		message: Id,
+	) -> Option<crate::Command> {
+		if self.auth != AuthState::Authenticated
+			|| !self.gateway_connected
+			|| self.read_state.pending.is_some()
+			|| self
+				.channel(channel)?
+				.last_message
+				.is_none_or(|latest| message > latest)
+			|| self
+				.read_marker(channel)?
+				.is_some_and(|read| message <= read)
+		{
+			return None;
+		}
+		Some(self.mark_read_command(channel, message, false, None))
+	}
 	pub fn can_mark_unread(&self, message: Id) -> bool {
 		self.auth == AuthState::Authenticated
 			&& self.gateway_connected
@@ -872,6 +894,7 @@ mod navigation_tests {
 				last_message: Some(Id(500)),
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			..Default::default()

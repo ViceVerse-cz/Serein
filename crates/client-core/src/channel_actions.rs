@@ -17,10 +17,74 @@ pub struct Edit {
 	pub slowmode: u32,
 	pub nsfw: bool,
 	pub overwrites: Vec<model::permissions::Overwrite>,
+	/// Forum and media channel settings; None for every other channel type.
+	pub forum: Option<Box<ForumEdit>>,
+}
+/// Discord's forum tag name limit.
+pub const TAG_NAME_LIMIT: usize = 20;
+/// "Hide After Inactivity" choices, in minutes.
+pub const HIDE_AFTER: [u32; 4] = [60, 1440, 4320, 10080];
+/// Forum channel flag: new posts must carry a tag.
+pub const REQUIRE_TAG: u64 = 1 << 4;
+
+/// Forum and media channel settings, loaded and saved with the rest of the channel.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ForumEdit {
+	/// Tags in display order; `Id(0)` marks one the service has not created yet.
+	pub tags: Vec<model::forum::Tag>,
+	pub require_tag: bool,
+	pub reaction: Option<model::ReactionEmoji>,
+	/// Slowmode for messages inside posts (`default_thread_rate_limit_per_user`).
+	pub message_slowmode: u32,
+	pub layout: model::forum::Layout,
+	pub sort: model::forum::Sort,
+	pub match_all: bool,
+	/// Minutes of inactivity before new posts hide (`default_auto_archive_duration`).
+	pub hide_after: u32,
+	/// Channel flags other than [`REQUIRE_TAG`], preserved on save.
+	pub flags: u64,
+}
+impl ForumEdit {
+	pub fn valid(&self) -> bool {
+		self.tags.len() <= model::forum::MAX_TAGS
+			&& self.tags.iter().enumerate().all(|(index, tag)| {
+				valid_tag_name(&tag.name)
+					&& tag.emoji_name.as_ref().is_none_or(|name| name.len() <= 128)
+					&& (tag.id.0 == 0 || !self.tags[..index].iter().any(|other| other.id == tag.id))
+			}) && self
+			.reaction
+			.as_ref()
+			.is_none_or(model::ReactionEmoji::valid)
+			&& self.message_slowmode <= 21600
+			&& HIDE_AFTER.contains(&self.hide_after)
+			&& self.flags & REQUIRE_TAG == 0
+	}
+	pub fn bytes(&self) -> usize {
+		size_of::<Self>()
+			+ self.tags.capacity() * size_of::<model::forum::Tag>()
+			+ self
+				.tags
+				.iter()
+				.map(|tag| {
+					tag.name.capacity() + tag.emoji_name.as_ref().map_or(0, String::capacity)
+				})
+				.sum::<usize>()
+			+ self
+				.reaction
+				.as_ref()
+				.and_then(|emoji| emoji.name.as_ref())
+				.map_or(0, String::capacity)
+	}
+}
+pub fn valid_tag_name(name: &str) -> bool {
+	!name.trim().is_empty()
+		&& name.chars().count() <= TAG_NAME_LIMIT
+		&& !name.chars().any(char::is_control)
 }
 impl Edit {
 	pub fn valid(&self) -> bool {
-		valid_name(&self.name)
+		self.forum.as_deref().is_none_or(ForumEdit::valid)
+			&& valid_name(&self.name)
 			&& self.name.capacity() <= 400
 			&& self.topic.chars().count() <= 4096
 			&& self.topic.capacity() <= 16384
@@ -39,6 +103,7 @@ impl Edit {
 		self.name.capacity()
 			+ self.topic.capacity()
 			+ self.overwrites.capacity() * size_of::<model::permissions::Overwrite>()
+			+ self.forum.as_deref().map_or(0, ForumEdit::bytes)
 	}
 }
 pub fn valid_name(name: &str) -> bool {
@@ -69,6 +134,7 @@ pub enum CreateKind {
 	#[default]
 	Text,
 	Voice,
+	Announcement,
 	Forum,
 }
 impl CreateKind {
@@ -76,6 +142,7 @@ impl CreateKind {
 		match self {
 			Self::Text => 0,
 			Self::Voice => 2,
+			Self::Announcement => 5,
 			Self::Forum => 15,
 		}
 	}
@@ -794,6 +861,7 @@ impl State {
 								position: Patch::Absent,
 								kind: Patch::Absent,
 								message_count: Patch::Absent,
+								tags: Patch::Absent,
 							}),
 						});
 					}
@@ -958,6 +1026,7 @@ impl State {
 							position: Patch::Value(position),
 							kind: Patch::Absent,
 							message_count: Patch::Absent,
+							tags: Patch::Absent,
 						}),
 					});
 					for (shift_id, shift_pos) in shifts {
@@ -972,6 +1041,7 @@ impl State {
 								position: Patch::Value(shift_pos),
 								kind: Patch::Absent,
 								message_count: Patch::Absent,
+								tags: Patch::Absent,
 							}),
 						});
 					}
@@ -1047,6 +1117,7 @@ mod tests {
 				last_message: None,
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			..State::default()
@@ -1280,6 +1351,7 @@ mod tests {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				}),
 				permissions: None,
@@ -1306,6 +1378,7 @@ mod tests {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				}),
 				permissions: None,
@@ -1433,6 +1506,7 @@ mod tests {
 			position: Patch::Absent,
 			kind: Patch::Absent,
 			message_count: Patch::Absent,
+			tags: Patch::Absent,
 		}));
 		finish(&mut state, pending, Ok(Outcome::Deleted));
 		assert!(state.channel(Id(3)).is_none());

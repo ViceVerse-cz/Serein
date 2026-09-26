@@ -2737,7 +2737,7 @@ pub fn slider<T: egui::emath::Numeric>(
 
 /// Offline pointer/keyboard check for the shared settings control.
 #[cfg(debug_assertions)]
-#[test]
+#[cfg_attr(test, test)]
 pub fn debug_slider_check() {
 	let ctx = egui::Context::default();
 	apply(&ctx);

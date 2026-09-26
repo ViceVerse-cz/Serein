@@ -1812,6 +1812,7 @@ mod tests {
 					slowmode: 5,
 					nsfw: false,
 					overwrites: vec![],
+					forum: None,
 				})),
 			}),
 		});
@@ -1948,6 +1949,7 @@ mod tests {
 			nick: None,
 			status: Some("online".into()),
 			custom_status: None,
+			clients: model::ClientPlatforms::default(),
 			activities: Vec::new(),
 		};
 		state.members = Some(model::MemberList {

@@ -5,7 +5,7 @@ use crate::{
 	profiles, user_menu,
 };
 use client_core::{Command, State};
-use egui::{RichText, vec2};
+use egui::{Color32, RichText, vec2};
 
 #[derive(Default)]
 pub(super) struct Friends {
@@ -39,7 +39,7 @@ enum Tab {
 impl Friends {
 	fn matches(&self, state: &State, user: &model::User, query: &str) -> bool {
 		if self.tab == Tab::Online {
-			let (status, _, _) = profiles::presence(state, user.id, None);
+			let (status, _, _, _) = profiles::presence(state, user.id, None);
 			if !matches!(status, Some("online" | "idle" | "dnd")) {
 				return false;
 			}
@@ -97,6 +97,16 @@ impl MessagingUi {
 		self.friends.focus_search = true;
 	}
 	#[cfg(feature = "demo")]
+	pub fn preview_friends_tab(&mut self, tab: &str) {
+		self.friends.tab = match tab {
+			"all" => Tab::All,
+			"pending" => Tab::Pending,
+			"blocked" => Tab::Restricted,
+			"add" => Tab::Add,
+			_ => Tab::Online,
+		};
+	}
+	#[cfg(feature = "demo")]
 	pub fn friends_sample_focused(&self, ctx: &egui::Context) -> bool {
 		ctx.memory(|memory| memory.has_focus(egui::Id::unique("friends-search")))
 	}
@@ -108,74 +118,86 @@ impl MessagingUi {
 	) {
 		let colors = design::palette(ui);
 		egui::Frame::new().inner_margin(24).show(ui, |ui| {
-			ui.label(design::semibold(ui, "Add Friend", 24.0));
-			ui.label("You can add friends with their Discord username.");
-			ui.add_space(18.0);
-			let label = ui.label("Username");
-			let input = ui
-				.add_sized(
-					[ui.available_width(), 48.0],
-					egui::TextEdit::singleline(&mut self.friends.username)
-						.hint_text("Enter a username")
-						.char_limit(33)
-						.align(egui::Align2::LEFT_CENTER)
-						.frame(
-							egui::Frame::new()
-								.fill(colors.base)
-								.stroke(egui::Stroke::new(1.0, colors.border))
-								.corner_radius(8)
-								.inner_margin(egui::Margin::symmetric(12, 8)),
-						),
+			ui.label(design::semibold(ui, "Add Friend", 20.0).color(colors.text_strong));
+			ui.add(
+				egui::Label::new(
+					RichText::new("You can add friends with their Discord username.")
+						.size(14.0)
+						.color(colors.muted),
 				)
-				.labelled_by(label.id);
-			if input.has_focus() {
-				ui.painter().rect_stroke(
-					input.rect,
-					8,
-					egui::Stroke::new(2.0, colors.accent),
-					egui::StrokeKind::Inside,
-				);
-			}
-			ui.add_space(12.0);
+				.wrap(),
+			);
+			ui.add_space(16.0);
+			design::label(ui, "Username");
 			let busy = state.user_action_pending();
 			let enabled = !busy
 				&& !self.friends.username.trim().is_empty()
 				&& (state.demo
 					|| (state.gateway_connected
 						&& state.auth == client_core::auth::AuthState::Authenticated));
-			if ui
-				.add_enabled(
-					enabled,
-					egui::Button::new(
-						RichText::new(if busy {
-							"Sending…"
-						} else {
-							"Send Friend Request"
-						})
-						.color(colors.accent_text),
-					)
-					.fill(colors.accent)
-					.min_size(vec2(180.0, 40.0)),
-				)
-				.clicked() && let Some(command) = state.add_friend(&self.friends.username)
-			{
+			let label = if busy {
+				"Sending…"
+			} else {
+				"Send Friend Request"
+			};
+			let mut send = false;
+			let mut field = |ui: &mut egui::Ui, width: f32| {
+				ui.allocate_ui(vec2(width, 40.0), |ui| {
+					let input = design::input(
+						ui,
+						egui::TextEdit::singleline(&mut self.friends.username)
+							.hint_text("Enter a username")
+							.char_limit(33),
+					);
+					enabled
+						&& input.lost_focus()
+						&& ui.input(|input| input.key_pressed(egui::Key::Enter))
+				})
+				.inner
+			};
+			let action = |ui: &mut egui::Ui| {
+				ui.add_enabled_ui(enabled, |ui| {
+					design::button(ui, label, design::ButtonKind::Primary)
+				})
+				.inner
+				.clicked()
+			};
+			// The button sits beside the field when it fits and drops below it otherwise.
+			let button = 170.0;
+			if ui.available_width() >= 360.0 {
+				ui.horizontal(|ui| {
+					ui.spacing_mut().item_spacing.x = 8.0;
+					send |= field(ui, ui.available_width() - button - 8.0);
+					send |= action(ui);
+				});
+			} else {
+				send |= field(ui, ui.available_width());
+				ui.add_space(8.0);
+				send |= action(ui);
+			}
+			if send && let Some(command) = state.add_friend(&self.friends.username) {
 				commands.push(command);
 			}
 			if state.demo {
-				ui.colored_label(colors.muted, "Offline demo · actions are simulated.");
+				design::hint(ui, "Offline demo · actions are simulated.");
 			} else if !state.gateway_connected {
-				ui.label("Reconnect before sending a friend request.");
+				design::hint(ui, "Reconnect before sending a friend request.");
 			}
-			ui.add_space(8.0);
-			ui.colored_label(
-				colors.muted,
-				"Personalized request notes are not supported yet.",
+			design::hint(ui, "Personalized request notes are not supported yet.");
+			design::divider(ui);
+			ui.label(
+				design::semibold(ui, "Other Places to Make Friends", 16.0)
+					.color(colors.text_strong),
 			);
-			ui.add_space(24.0);
-			ui.separator();
-			ui.add_space(16.0);
-			ui.label(design::semibold(ui, "Other Places to Make Friends", 20.0));
-			ui.label("Don't have a username? Discover public communities in Discord.");
+			ui.add(
+				egui::Label::new(
+					RichText::new("Don't have a username? Discover public communities in Discord.")
+						.size(14.0)
+						.color(colors.muted),
+				)
+				.wrap(),
+			);
+			ui.add_space(8.0);
 			ui.hyperlink_to(
 				"Explore Discoverable Servers ↗",
 				"https://discord.com/servers",
@@ -190,133 +212,169 @@ impl MessagingUi {
 	) {
 		let colors = design::palette(ui);
 		let mut resolve = None;
-		egui::Frame::new().inner_margin(24).show(ui, |ui| {
-			ui.horizontal_wrapped(|ui| {
-				for outgoing in [false, true] {
-					let count = state
+		egui::Frame::new()
+			.inner_margin(egui::Margin::symmetric(24, 16))
+			.show(ui, |ui| {
+				let [incoming, outgoing] = [false, true].map(|outgoing| {
+					state
 						.pending_friends()
 						.filter(|(_, _, incoming)| *incoming != outgoing)
-						.count();
-					if ui
-						.selectable_label(
-							self.friends.outgoing == outgoing,
-							format!(
-								"{} — {count}",
-								if outgoing { "Outgoing" } else { "Incoming" }
-							),
-						)
-						.clicked()
-					{
-						self.friends.outgoing = outgoing;
-					}
-				}
-			});
-			ui.add_space(12.0);
-			ui.add_sized(
-				[ui.available_width(), 40.0],
-				egui::TextEdit::singleline(&mut self.friends.query)
-					.hint_text("Search requests")
-					.char_limit(128)
-					.align(egui::Align2::LEFT_CENTER),
-			);
-			ui.add_space(16.0);
-			let query = self.friends.query.trim().to_lowercase();
-			let mut rows: Vec<_> = state
-				.pending_friends()
-				.filter(|(user, name, incoming)| {
-					*incoming != self.friends.outgoing
-						&& (user.name.to_lowercase().contains(&query)
-							|| name.to_lowercase().contains(&query))
-				})
-				.collect();
-			rows.sort_unstable_by(|a, b| a.0.name.cmp(&b.0.name).then(a.0.id.cmp(&b.0.id)));
-			if rows.is_empty() {
-				ui.label(if !state.friend_requests_known() {
-					"Friend requests are not available yet."
-				} else if !query.is_empty() {
-					"No requests match your search."
-				} else if self.friends.outgoing {
-					"No outgoing friend requests."
-				} else {
-					"No incoming friend requests."
+						.count()
 				});
-			}
-			ui.spacing_mut().item_spacing.y = 0.0;
-			self.scroll
-				.attach(
+				let labels = [
+					format!("Incoming — {incoming}"),
+					format!("Outgoing — {outgoing}"),
+				];
+				if let Some(index) = design::segmented(
 					ui,
-					"friend-requests",
-					egui::ScrollArea::vertical().auto_shrink([false, false]),
-				)
-				.show_rows(ui, 72.0, rows.len(), |ui, range| {
-					for (user, name, incoming) in &rows[range] {
-						ui.push_id(user.id.0, |ui| {
-							let (rect, _) = ui.allocate_exact_size(
-								vec2(ui.available_width(), 72.0),
-								egui::Sense::hover(),
-							);
-							ui.painter().hline(
-								rect.x_range(),
-								rect.top(),
-								egui::Stroke::new(1.0, colors.border),
-							);
-							let mut row = ui.new_child(
-								egui::UiBuilder::new()
-									.max_rect(rect.shrink2(vec2(0.0, 12.0)))
-									.layout(egui::Layout::left_to_right(egui::Align::Center)),
-							);
-							// The friends surfaces keep their own row actions; the profile
-							// stays behind the context menu instead of every click.
-							self.avatars.show_plain(&mut row, user, 40.0, state.demo);
-							let width = (row.available_width() - 88.0).max(1.0);
-							row.allocate_ui_with_layout(
-								vec2(width, 44.0),
-								egui::Layout::top_down(egui::Align::Min),
-								|ui| {
-									ui.add(
-										egui::Label::new(design::semibold(
-											ui,
-											state.user_display_name(user),
-											16.0,
-										))
-										.truncate(),
-									);
-									ui.add(
-										egui::Label::new(RichText::new(name).color(colors.muted))
-											.truncate(),
-									);
-								},
-							);
-							row.add_enabled_ui(
-								!state.user_action_pending()
-									&& (state.demo || state.gateway_connected),
-								|ui| {
+					&[&labels[0], &labels[1]],
+					usize::from(self.friends.outgoing),
+				) {
+					self.friends.outgoing = index == 1;
+				}
+				ui.add_space(12.0);
+				search(
+					ui,
+					&mut self.friends.query,
+					egui::Id::unique("friend-requests-search"),
+					"Search requests",
+				);
+				ui.add_space(16.0);
+				let query = self.friends.query.trim().to_lowercase();
+				let mut rows: Vec<_> = state
+					.pending_friends()
+					.filter(|(user, name, incoming)| {
+						*incoming != self.friends.outgoing
+							&& (user.name.to_lowercase().contains(&query)
+								|| name.to_lowercase().contains(&query))
+					})
+					.collect();
+				rows.sort_unstable_by(|a, b| a.0.name.cmp(&b.0.name).then(a.0.id.cmp(&b.0.id)));
+				if rows.is_empty() {
+					design::empty_state(
+						ui,
+						Icon::People,
+						if !state.friend_requests_known() {
+							"Friend requests are not available yet."
+						} else if !query.is_empty() {
+							"No requests match your search."
+						} else if self.friends.outgoing {
+							"No outgoing friend requests."
+						} else {
+							"No incoming friend requests."
+						},
+						if query.is_empty() {
+							"New requests appear here."
+						} else {
+							"Try a different name or username."
+						},
+					);
+					return;
+				}
+				section_label(
+					ui,
+					design::eyebrow(
+						ui,
+						format!(
+							"{} — {}",
+							if self.friends.outgoing {
+								"Outgoing"
+							} else {
+								"Incoming"
+							},
+							rows.len()
+						),
+						colors.muted,
+					),
+				);
+				ui.add_space(8.0);
+				ui.spacing_mut().item_spacing.y = 0.0;
+				let enabled =
+					!state.user_action_pending() && (state.demo || state.gateway_connected);
+				let mut after_hot = false;
+				self.scroll
+					.attach(
+						ui,
+						"friend-requests",
+						egui::ScrollArea::vertical().auto_shrink([false, false]),
+					)
+					.show_rows(ui, ROW, rows.len(), |ui, range| {
+						for (user, name, incoming) in &rows[range] {
+							ui.push_id(user.id.0, |ui| {
+								// The friends surfaces keep their own row actions; the profile
+								// stays behind the context menu instead of every click.
+								let (rect, _, hot) =
+									person_row(ui, after_hot, egui::Sense::hover());
+								after_hot = hot;
+								let actions = if *incoming { 2 } else { 1 };
+								let layout = RowLayout::new(rect, actions);
+								self.avatars.show_plain(
+									&mut ui
+										.new_child(egui::UiBuilder::new().max_rect(layout.avatar)),
+									user,
+									40.0,
+									state.demo,
+								);
+								let mut text =
+									ui.new_child(egui::UiBuilder::new().max_rect(layout.text));
+								text.spacing_mut().item_spacing.y = 1.0;
+								text.add(
+									egui::Label::new(
+										design::semibold(ui, state.user_display_name(user), 15.0)
+											.color(colors.text_strong),
+									)
+									.truncate(),
+								);
+								text.add(
+									egui::Label::new(
+										RichText::new(if *incoming {
+											format!("{name} · Incoming friend request")
+										} else {
+											format!("{name} · Outgoing friend request")
+										})
+										.size(13.0)
+										.color(colors.muted),
+									)
+									.truncate(),
+								);
+								let mut row = ui.new_child(
+									egui::UiBuilder::new()
+										.max_rect(layout.actions)
+										.layout(egui::Layout::left_to_right(egui::Align::Center)),
+								);
+								row.spacing_mut().item_spacing.x = ACTION_GAP;
+								row.add_enabled_ui(enabled, |ui| {
+									ui.spacing_mut().item_spacing.x = ACTION_GAP;
 									if *incoming
-										&& icons::button(ui, Icon::Check, 32.0, "Accept request")
-											.clicked()
+										&& round_action(
+											ui,
+											Icon::Check,
+											"Accept request",
+											colors.positive,
+										)
+										.clicked()
 									{
 										resolve = Some((user.id, true));
 									}
-									if icons::button(
+									if round_action(
 										ui,
 										Icon::Close,
-										32.0,
 										if *incoming {
 											"Decline request"
 										} else {
 											"Cancel request"
 										},
+										colors.danger,
 									)
 									.clicked()
 									{
 										resolve = Some((user.id, false));
 									}
-								},
-							);
-						});
-					}
-				});
-		});
+								});
+							});
+						}
+					});
+			});
 		if let Some((user, accept)) = resolve
 			&& let Some(command) = state.resolve_friend_request(user, accept)
 		{
@@ -331,14 +389,19 @@ impl MessagingUi {
 	) {
 		let colors = design::palette(ui);
 		egui::Frame::new()
-			.inner_margin(egui::Margin::symmetric(24, 8))
+			.inner_margin(egui::Margin::symmetric(16, 8))
 			.show(ui, |ui| {
 				ui.horizontal_wrapped(|ui| {
 					ui.set_min_height(32.0);
-					ui.spacing_mut().item_spacing.x = 16.0;
-					icons::inline(ui, Icon::People, 22.0, colors.muted);
-					ui.label(design::semibold(ui, "Friends", 16.0));
-					ui.separator();
+					ui.spacing_mut().item_spacing.x = 8.0;
+					icons::inline(ui, Icon::People, 20.0, colors.muted);
+					ui.label(design::semibold(ui, "Friends", 16.0).color(colors.text_strong));
+					let (rule, _) = ui.allocate_exact_size(vec2(17.0, 24.0), egui::Sense::hover());
+					ui.painter().vline(
+						rule.center().x,
+						rule.y_range(),
+						egui::Stroke::new(1.0, colors.border),
+					);
 					for (tab, title) in [
 						(Tab::Online, "Online"),
 						(Tab::All, "All"),
@@ -346,23 +409,16 @@ impl MessagingUi {
 						(Tab::Restricted, "Blocked & Ignored"),
 						(Tab::Add, "Add Friend"),
 					] {
-						if ui
-							.add(
-								egui::Button::new(RichText::new(title).color(if tab == Tab::Add {
-									colors.accent_text
-								} else {
-									colors.text
-								}))
-								.selected(self.friends.tab == tab)
-								.fill(if tab == Tab::Add {
-									colors.accent
-								} else if self.friends.tab == tab {
-									colors.raised
-								} else {
-									egui::Color32::TRANSPARENT
-								}),
-							)
-							.clicked()
+						let count = (tab == Tab::Pending)
+							.then(|| {
+								state
+									.pending_friends()
+									.filter(|(_, _, incoming)| *incoming)
+									.count()
+							})
+							.filter(|count| *count > 0);
+						if header_tab(ui, title, count, self.friends.tab == tab, tab == Tab::Add)
+							.clicked() && self.friends.tab != tab
 						{
 							self.friends.tab = tab;
 							self.friends.query.clear();
@@ -404,77 +460,77 @@ impl MessagingUi {
 		}
 		let mut selected = None;
 		egui::Frame::new()
-			.inner_margin(egui::Margin::symmetric(24, 24))
+			.inner_margin(egui::Margin::symmetric(24, 16))
 			.show(ui, |ui| {
-				egui::Frame::new()
-					.stroke(egui::Stroke::new(1.0, colors.border))
-					.corner_radius(8)
-					.inner_margin(egui::Margin::symmetric(12, 8))
-					.show(ui, |ui| {
-						ui.horizontal(|ui| {
-							icons::inline(ui, Icon::Search, 18.0, colors.muted);
-							let search = ui.add(
-								egui::TextEdit::singleline(&mut self.friends.query)
-									.id(egui::Id::unique("friends-search"))
-									.hint_text("Search")
-									.char_limit(128)
-									.frame(egui::Frame::NONE)
-									.desired_width(ui.available_width()),
-							);
-							#[cfg(feature = "demo")]
-							if std::mem::take(&mut self.friends.focus_search) {
-								search.request_focus();
-							}
-							#[cfg(not(feature = "demo"))]
-							let _ = search;
-						});
-					});
+				let search = search(
+					ui,
+					&mut self.friends.query,
+					egui::Id::unique("friends-search"),
+					"Search",
+				);
+				#[cfg(feature = "demo")]
+				if std::mem::take(&mut self.friends.focus_search) {
+					search.request_focus();
+				}
+				#[cfg(not(feature = "demo"))]
+				let _ = search;
 				ui.add_space(20.0);
 				self.friends.sync_list(state);
-				ui.label(
-					RichText::new(format!(
-						"{} \u{2014} {}",
-						match self.friends.tab {
-							Tab::All => "All friends",
-							Tab::Restricted => "Blocked & ignored",
-							_ => "Online",
-						},
-						self.friends.list.len()
-					))
-					.size(13.0)
-					.color(colors.muted),
+				section_label(
+					ui,
+					design::eyebrow(
+						ui,
+						format!(
+							"{} \u{2014} {}",
+							match self.friends.tab {
+								Tab::All => "All friends",
+								Tab::Restricted => "Blocked & ignored",
+								_ => "Online",
+							},
+							self.friends.list.len()
+						),
+						colors.muted,
+					),
 				);
-				ui.add_space(12.0);
+				ui.add_space(8.0);
 				ui.spacing_mut().item_spacing.y = 0.0;
 				if self.friends.list.is_empty() {
-					ui.add_space(20.0);
-					ui.label(
-						RichText::new(
-							if self.friends.tab == Tab::Restricted
-								&& !state.restricted_users_known()
-							{
-								"Blocked and ignored users are not available yet."
-							} else if self.friends.tab != Tab::Restricted && !state.friends_known()
-							{
-								"Friends are not available yet."
-							} else if !self.friends.query.trim().is_empty() {
-								if self.friends.tab == Tab::Restricted {
-									"No blocked or ignored users match your search."
-								} else {
-									"No friends match your search."
-								}
-							} else if self.friends.tab == Tab::Restricted {
-								"No blocked or ignored users."
-							} else if self.friends.tab == Tab::All {
-								"No friends yet."
+					let searching = !self.friends.query.trim().is_empty();
+					design::empty_state(
+						ui,
+						if self.friends.tab == Tab::Restricted {
+							Icon::ShieldWarning
+						} else {
+							Icon::People
+						},
+						if self.friends.tab == Tab::Restricted && !state.restricted_users_known() {
+							"Blocked and ignored users are not available yet."
+						} else if self.friends.tab != Tab::Restricted && !state.friends_known() {
+							"Friends are not available yet."
+						} else if searching {
+							if self.friends.tab == Tab::Restricted {
+								"No blocked or ignored users match your search."
 							} else {
-								"No friends are currently online."
-							},
-						)
-						.color(colors.muted),
+								"No friends match your search."
+							}
+						} else if self.friends.tab == Tab::Restricted {
+							"No blocked or ignored users."
+						} else if self.friends.tab == Tab::All {
+							"No friends yet."
+						} else {
+							"No friends are currently online."
+						},
+						if searching {
+							"Try a different name or username."
+						} else if self.friends.tab == Tab::Restricted {
+							"People you block or ignore appear here."
+						} else {
+							"Add friends by username from the Add Friend tab."
+						},
 					);
 					return;
 				}
+				let mut after_hot = false;
 				self.scroll
 					.attach(
 						ui,
@@ -485,7 +541,7 @@ impl MessagingUi {
 						},
 						egui::ScrollArea::vertical().auto_shrink([false, false]),
 					)
-					.show_rows(ui, 64.0, self.friends.list.len(), |ui, range| {
+					.show_rows(ui, ROW, self.friends.list.len(), |ui, range| {
 						for index in range {
 							let restricted = (self.friends.tab == Tab::Restricted)
 								.then(|| state.restricted_user(self.friends.list[index]))
@@ -497,30 +553,40 @@ impl MessagingUi {
 								continue;
 							};
 							ui.push_id(user.id.0, |ui| {
-								let (status, custom, activities) = if restricted.is_some() {
-									(None, None, &[][..])
+								let (status, custom, activities, clients) = if restricted.is_some()
+								{
+									(None, None, &[][..], model::ClientPlatforms::default())
 								} else {
 									profiles::presence(state, user.id, None)
 								};
-								let (rect, response) = ui.allocate_exact_size(
-									vec2(ui.available_width(), 64.0),
-									egui::Sense::click(),
-								);
-								ui.painter().hline(
-									rect.x_range(),
-									rect.top(),
-									egui::Stroke::new(1.0, colors.border),
-								);
-								if response.hovered() || response.has_focus() {
-									ui.painter().rect_filled(
-										rect.shrink(1.0),
-										6,
-										design::row_highlight(ui, colors.hover, 1.0),
-									);
-								}
+								let dm = restricted
+									.is_none()
+									.then(|| {
+										state.channels.iter().find(|c| {
+											c.guild.is_none()
+												&& c.kind == 1 && c
+												.recipients
+												.iter()
+												.any(|u| u.id == user.id)
+										})
+									})
+									.flatten();
+								let (rect, response, hot) =
+									person_row(ui, after_hot, egui::Sense::click());
+								after_hot = hot;
+								let response = if dm.is_some() {
+									response.on_hover_cursor(egui::CursorIcon::PointingHand)
+								} else {
+									response
+								};
 								response.widget_info(|| {
 									egui::WidgetInfo::labeled(egui::Role::Button, true, &user.name)
 								});
+								if response.clicked()
+									&& let Some(dm) = dm
+								{
+									selected = Some(dm.id);
+								}
 								user_menu::show(
 									&response,
 									state,
@@ -528,38 +594,60 @@ impl MessagingUi {
 									&mut self.profile,
 									&mut self.user_action,
 								);
-								let mut avatar_ui = ui.new_child(egui::UiBuilder::new().max_rect(
-									egui::Rect::from_min_size(
-										rect.min + vec2(0.0, 12.0),
-										vec2(40.0, 40.0),
-									),
-								));
-								let avatar =
-									self.avatars
-										.show_plain(&mut avatar_ui, user, 40.0, state.demo);
+								let layout =
+									RowLayout::new(rect, if restricted.is_none() { 2 } else { 1 });
+								let avatar = self.avatars.show_plain(
+									&mut ui
+										.new_child(egui::UiBuilder::new().max_rect(layout.avatar)),
+									user,
+									40.0,
+									state.demo,
+								);
 								if let Some(status) = status {
-									design::presence_dot(
+									profiles::presence_badge(
 										ui,
 										avatar.rect,
-										profiles::presence_color(status),
-										colors.chat,
+										status,
+										clients,
+										if hot { colors.hover } else { colors.chat },
 									);
 								}
-								let mut text = ui.new_child(egui::UiBuilder::new().max_rect(
-									egui::Rect::from_min_max(
-										rect.min + vec2(52.0, 12.0),
-										rect.max - vec2(100.0, 8.0),
-									),
-								));
-								text.spacing_mut().item_spacing.y = 1.0;
-								text.add(
-									egui::Label::new(design::semibold(
-										ui,
-										state.user_display_name(user),
-										16.0,
-									))
-									.truncate(),
+								let mut text = ui.new_child(
+									egui::UiBuilder::new()
+										.max_rect(layout.text)
+										.layout(egui::Layout::top_down(egui::Align::Min)),
 								);
+								text.spacing_mut().item_spacing.y = 1.0;
+								text.spacing_mut().interact_size.y = 0.0;
+								text.horizontal(|ui| {
+									ui.spacing_mut().item_spacing.x = 6.0;
+									ui.add(
+										egui::Label::new(
+											design::semibold(
+												ui,
+												state.user_display_name(user),
+												15.0,
+											)
+											.color(colors.text_strong),
+										)
+										.truncate()
+										.selectable(false),
+									);
+									let username = restricted
+										.map(|(_, name, _)| name.as_str())
+										.or_else(|| state.friend_username(user.id));
+									if hot && let Some(username) = username {
+										ui.add(
+											egui::Label::new(
+												RichText::new(username)
+													.size(13.0)
+													.color(colors.muted),
+											)
+											.truncate()
+											.selectable(false),
+										);
+									}
+								});
 								let subtitle = restricted
 									.map(|(_, _, ignored)| {
 										if *ignored { "Ignored" } else { "Blocked" }.into()
@@ -574,6 +662,7 @@ impl MessagingUi {
 											.into()
 									});
 								text.horizontal(|ui| {
+									ui.spacing_mut().item_spacing.x = 4.0;
 									if let Some(activity) = activities.first() {
 										icons::inline(
 											ui,
@@ -590,27 +679,26 @@ impl MessagingUi {
 										egui::Label::new(
 											RichText::new(&subtitle).size(13.0).color(colors.muted),
 										)
-										.truncate(),
+										.truncate()
+										.selectable(false),
 									)
 									.on_hover_text(&subtitle);
 								});
-								let dm = state.channels.iter().find(|c| {
-									c.guild.is_none()
-										&& c.kind == 1 && c.recipients.iter().any(|u| u.id == user.id)
-								});
 								let mut actions = ui.new_child(
 									egui::UiBuilder::new()
-										.max_rect(egui::Rect::from_min_size(
-											rect.right_center() - vec2(88.0, 18.0),
-											vec2(88.0, 36.0),
-										))
+										.max_rect(layout.actions)
 										.layout(egui::Layout::left_to_right(egui::Align::Center)),
 								);
-								actions.spacing_mut().item_spacing.x = 8.0;
+								actions.spacing_mut().item_spacing.x = ACTION_GAP;
 								if restricted.is_none() {
 									let message = actions
 										.add_enabled_ui(dm.is_some(), |ui| {
-											icons::button(ui, Icon::Threads, 36.0, "Message")
+											round_action(
+												ui,
+												Icon::Threads,
+												"Message",
+												colors.text_strong,
+											)
 										})
 										.inner;
 									if message
@@ -622,7 +710,12 @@ impl MessagingUi {
 										selected = dm.map(|c| c.id);
 									}
 								}
-								let more = icons::button(&mut actions, Icon::More, 36.0, "More");
+								let more = round_action(
+									&mut actions,
+									Icon::More,
+									"More",
+									colors.text_strong,
+								);
 								egui::Popup::menu(&more).show(|ui| {
 									user_menu::contents(
 										ui,
@@ -645,6 +738,234 @@ impl MessagingUi {
 	}
 }
 
+/// List heading aligned with the row content inset.
+fn section_label(ui: &mut egui::Ui, text: RichText) {
+	ui.horizontal(|ui| {
+		ui.spacing_mut().interact_size.y = 0.0;
+		ui.add_space(10.0);
+		ui.label(text);
+	});
+}
+
+/// Row height shared by the friend, request and restricted lists.
+const ROW: f32 = 62.0;
+const ACTION: f32 = 36.0;
+const ACTION_GAP: f32 = 10.0;
+
+/// Avatar, text and right-aligned action slots inside one person row.
+struct RowLayout {
+	avatar: egui::Rect,
+	text: egui::Rect,
+	actions: egui::Rect,
+}
+impl RowLayout {
+	fn new(rect: egui::Rect, actions: usize) -> Self {
+		let inner = rect.shrink2(vec2(10.0, 0.0));
+		let width = actions as f32 * ACTION + actions.saturating_sub(1) as f32 * ACTION_GAP;
+		let actions = egui::Rect::from_min_max(
+			egui::pos2(inner.right() - width, rect.center().y - ACTION / 2.0),
+			egui::pos2(inner.right(), rect.center().y + ACTION / 2.0),
+		);
+		Self {
+			avatar: egui::Rect::from_min_size(
+				egui::pos2(inner.left(), rect.center().y - 20.0),
+				vec2(40.0, 40.0),
+			),
+			text: egui::Rect::from_min_max(
+				egui::pos2(inner.left() + 52.0, rect.center().y - 19.0),
+				egui::pos2(
+					(actions.left() - 12.0).max(inner.left() + 53.0),
+					rect.center().y + 21.0,
+				),
+			),
+			actions,
+		}
+	}
+}
+
+/// Full-width person row with a rounded hover fill and inset dividers that step aside for
+/// the hovered row. Returns whether the row is hot so the next row can hide its divider.
+fn person_row(
+	ui: &mut egui::Ui,
+	after_hot: bool,
+	sense: egui::Sense,
+) -> (egui::Rect, egui::Response, bool) {
+	let colors = design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), sense);
+	let hot = response.contains_pointer() || response.has_focus();
+	if hot {
+		ui.painter()
+			.rect_filled(rect, 8, design::row_highlight(ui, colors.hover, 1.0));
+	} else if !after_hot {
+		ui.painter().hline(
+			egui::Rangef::new(rect.left() + 10.0, rect.right() - 10.0),
+			rect.top(),
+			egui::Stroke::new(1.0, colors.border),
+		);
+	}
+	(rect, response, hot)
+}
+
+/// Round row action; `tint` colours the glyph while hovered.
+fn round_action(ui: &mut egui::Ui, icon: Icon, label: &str, tint: Color32) -> egui::Response {
+	let colors = design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(ACTION), egui::Sense::click());
+	let enabled = ui.is_enabled();
+	let hot = enabled && (response.hovered() || response.has_focus());
+	let painter = ui.painter();
+	painter.circle_filled(
+		rect.center(),
+		ACTION / 2.0,
+		if hot {
+			design::mix(colors.base, colors.text, 0.08)
+		} else {
+			colors.base
+		},
+	);
+	if response.has_focus() {
+		painter.circle_stroke(
+			rect.center(),
+			ACTION / 2.0 + 1.0,
+			egui::Stroke::new(2.0, colors.accent),
+		);
+	}
+	icons::paint(
+		painter,
+		icon,
+		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(18.0)),
+		if !enabled {
+			colors.muted.gamma_multiply(0.5)
+		} else if hot {
+			tint
+		} else {
+			colors.text
+		},
+	);
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+	response.on_hover_text(label)
+}
+
+/// Pill tab in the friends header; `accent` is the filled Add Friend call to action.
+fn header_tab(
+	ui: &mut egui::Ui,
+	title: &str,
+	count: Option<usize>,
+	selected: bool,
+	accent: bool,
+) -> egui::Response {
+	let colors = design::palette(ui);
+	let font = egui::FontId::new(14.0, design::medium_family(ui.ctx()));
+	let galley = ui
+		.painter()
+		.layout_no_wrap(title.to_owned(), font, Color32::WHITE);
+	let badge = count.map(|count| {
+		ui.painter().layout_no_wrap(
+			count.min(99).to_string(),
+			egui::FontId::new(11.0, design::semibold_family(ui.ctx())),
+			Color32::WHITE,
+		)
+	});
+	let badge_width = badge.as_ref().map_or(0.0, |b| b.size().x.max(8.0) + 14.0);
+	let (rect, response) = ui.allocate_exact_size(
+		vec2(galley.size().x + 20.0 + badge_width, 30.0),
+		egui::Sense::click(),
+	);
+	let hot = response.hovered() || response.has_focus();
+	let (fill, text) = if accent && selected {
+		(colors.accent.gamma_multiply(0.18), colors.accent)
+	} else if accent {
+		(
+			if hot {
+				colors.accent.linear_multiply(1.1)
+			} else {
+				colors.accent
+			},
+			colors.accent_text,
+		)
+	} else if selected {
+		(colors.selected, colors.text_strong)
+	} else if hot {
+		(colors.hover, colors.text)
+	} else {
+		(Color32::TRANSPARENT, colors.muted)
+	};
+	let painter = ui.painter();
+	painter.rect_filled(rect, 6, fill);
+	if response.has_focus() {
+		painter.rect_stroke(
+			rect.expand(1.0),
+			7,
+			egui::Stroke::new(2.0, colors.accent),
+			egui::StrokeKind::Outside,
+		);
+	}
+	let left = rect.left() + 10.0;
+	painter.galley_with_override_text_color(
+		egui::pos2(left, rect.center().y - galley.size().y / 2.0),
+		galley.clone(),
+		text,
+	);
+	if let Some(badge) = badge {
+		let pill = egui::Rect::from_center_size(
+			egui::pos2(
+				left + galley.size().x + 6.0 + badge_width / 2.0 - 3.0,
+				rect.center().y,
+			),
+			vec2(badge.size().x.max(8.0) + 8.0, 16.0),
+		);
+		painter.rect_filled(pill, 8, colors.danger);
+		painter.galley_with_override_text_color(
+			pill.center() - badge.size() / 2.0,
+			badge,
+			Color32::WHITE,
+		);
+	}
+	response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, selected, title));
+	response
+}
+
+/// Rounded search field with a trailing search glyph that becomes a clear button.
+fn search(ui: &mut egui::Ui, query: &mut String, id: egui::Id, hint: &str) -> egui::Response {
+	let colors = design::palette(ui);
+	let frame = egui::Frame::new()
+		.fill(colors.base)
+		.corner_radius(8)
+		.inner_margin(egui::Margin::symmetric(12, 6))
+		.show(ui, |ui| {
+			ui.horizontal(|ui| {
+				let edit = ui.add(
+					egui::TextEdit::singleline(query)
+						.id(id)
+						.hint_text(hint)
+						.char_limit(128)
+						.frame(egui::Frame::NONE)
+						.desired_width((ui.available_width() - 30.0).max(40.0)),
+				);
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+					if query.is_empty() {
+						icons::inline(ui, Icon::Search, 18.0, colors.muted);
+					} else if icons::button(ui, Icon::Close, 22.0, "Clear search").clicked() {
+						query.clear();
+					}
+				});
+				edit
+			})
+			.inner
+		});
+	let edit = frame.inner;
+	ui.painter().rect_stroke(
+		frame.response.rect,
+		8,
+		if edit.has_focus() {
+			egui::Stroke::new(2.0, colors.accent)
+		} else {
+			egui::Stroke::new(1.0, colors.border)
+		},
+		egui::StrokeKind::Inside,
+	);
+	edit
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -662,7 +983,7 @@ mod tests {
 	fn uncached(friends: &Friends, state: &State) -> Vec<Id> {
 		let query = friends.query.trim().to_lowercase();
 		let filter = |user: &&model::User| {
-			let (status, _, _) = profiles::presence(state, user.id, None);
+			let (status, _, _, _) = profiles::presence(state, user.id, None);
 			(friends.tab != Tab::Online || matches!(status, Some("online" | "idle" | "dnd")))
 				&& (user.name.to_lowercase().contains(&query)
 					|| state
@@ -793,6 +1114,7 @@ mod tests {
 					status: Patch::Value(if index < 7 { "online" } else { "offline" }.into()),
 					custom_status: Patch::Null,
 					activities: Patch::Null,
+					clients: Patch::Absent,
 				})
 				.collect();
 			let owner = state.user.clone().unwrap();
@@ -863,10 +1185,11 @@ mod tests {
 						ends_at: None,
 						started_at: None,
 					}]),
+					clients: Patch::Absent,
 				}]),
 			);
 			assert!(!friends.sync_list(&state));
-			let (_, custom, activities) = profiles::presence(&state, Id(1001), None);
+			let (_, custom, activities, _) = profiles::presence(&state, Id(1001), None);
 			assert_eq!(
 				profiles::subtitle(custom, activities).as_deref(),
 				Some("Playing Synthetic game")
@@ -885,6 +1208,7 @@ mod tests {
 					status,
 					custom_status: Patch::Absent,
 					activities: Patch::Absent,
+					clients: Patch::Absent,
 				}]),
 			);
 			assert!(friends.sync_list(&state));
@@ -949,7 +1273,7 @@ mod tests {
 			let text = render(&mut view, &mut state);
 			assert!(
 				text.iter()
-					.any(|s| s.starts_with("Online") && s.ends_with('7')),
+					.any(|s| s.starts_with("ONLINE") && s.ends_with('7')),
 				"{text:?}"
 			);
 			assert!(text.iter().any(|s| s == "Robin"));
@@ -970,6 +1294,7 @@ mod tests {
 						ends_at: None,
 						started_at: None,
 					}]),
+					clients: Patch::Absent,
 				}]),
 			);
 			assert!(!view.friends.sync_list(&state));
@@ -982,7 +1307,7 @@ mod tests {
 			let text = render(&mut view, &mut state);
 			assert!(
 				text.iter()
-					.any(|s| s.starts_with("All friends") && s.ends_with("16"))
+					.any(|s| s.starts_with("ALL FRIENDS") && s.ends_with("16"))
 			);
 			view.friends.query = "ROBIN.SYNTHETIC".into();
 			let text = render(&mut view, &mut state);

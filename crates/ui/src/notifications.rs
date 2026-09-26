@@ -10,9 +10,11 @@ pub(super) const RAIL_WIDTH: f32 = 68.0;
 pub(super) struct RailCache {
 	key: Option<(u64, u64, bool, Option<Id>)>,
 	// Fixed-size records only: at most MAX_NAV * size_of::<(Id, (bool, u32))>() bytes
-	// for badges and 15 * size_of::<Id>() bytes for direct-message rows.
+	// for badges, 15 * size_of::<Id>() bytes for direct-message rows and at most
+	// voice::MAX_ROSTER * size_of::<Id>() bytes for servers with someone in voice.
 	guild_badges: Box<[(Id, (bool, u32))]>,
 	direct: Box<[Id]>,
+	voice_guilds: Box<[Id]>,
 }
 impl RailCache {
 	fn sync(&mut self, state: &State) -> bool {
@@ -35,6 +37,11 @@ impl RailCache {
 			}
 		}
 		self.guild_badges = badges.into_iter().collect();
+		// Voice states advance the rail revision, so this runs per roster change, not per frame.
+		let mut voice: Vec<Id> = state.voice.roster.iter().map(|r| r.guild).collect();
+		voice.sort_unstable();
+		voice.dedup();
+		self.voice_guilds = voice.into_boxed_slice();
 		self.direct = state.unread_directs(call).into_boxed_slice();
 		self.key = Some(key);
 		true
@@ -44,6 +51,9 @@ impl RailCache {
 			.binary_search_by_key(&guild, |(id, _)| *id)
 			.map(|index| self.guild_badges[index].1)
 			.unwrap_or_default()
+	}
+	pub(super) fn guild_voice(&self, guild: Id) -> bool {
+		self.voice_guilds.binary_search(&guild).is_ok()
 	}
 }
 fn direct_call(state: &State) -> Option<Id> {
@@ -81,21 +91,21 @@ pub(super) fn badge(ui: &egui::Ui, center: egui::Pos2, count: u32, ring: Color32
 		count.to_string()
 	};
 	let width = if count > 99 {
-		30.0
+		29.0
 	} else if count > 9 {
-		24.0
+		23.0
 	} else {
-		19.0
+		18.0
 	};
-	let rect = egui::Rect::from_center_size(center, egui::vec2(width, 19.0));
+	let rect = egui::Rect::from_center_size(center, egui::vec2(width, 18.0));
 	let colors = design::palette(ui);
-	ui.painter().rect_filled(rect.expand(3.0), 12, ring);
-	ui.painter().rect_filled(rect, 10, colors.danger);
+	ui.painter().rect_filled(rect.expand(2.0), 11, ring);
+	ui.painter().rect_filled(rect, 9, colors.danger);
 	ui.painter().text(
 		center,
 		Align2::CENTER_CENTER,
 		label,
-		FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
+		FontId::new(11.5, crate::design::semibold_family(ui.ctx())),
 		Color32::WHITE,
 	);
 }
@@ -125,17 +135,31 @@ pub(super) fn rail_indicator(
 }
 /// Green speaker badge on the rail avatar of the conversation you are calling in.
 fn call_badge(ui: &egui::Ui, rect: egui::Rect) {
+	speaker_badge(ui, rect, design::palette(ui).positive, Color32::WHITE);
+}
+/// Speaker badge on a server icon: green for your own call, neutral when others are in voice.
+pub(super) fn voice_badge(ui: &egui::Ui, rect: egui::Rect, own_call: bool) {
+	if !ui.is_rect_visible(rect) {
+		return;
+	}
 	let colors = design::palette(ui);
-	// Inset from the corner so neither the ring nor the glyph meets the list's clip rect.
-	let center = rect.right_top() + egui::vec2(-10.0, 10.0);
+	if own_call {
+		call_badge(ui, rect);
+	} else {
+		speaker_badge(ui, rect, colors.raised, colors.text_strong);
+	}
+}
+fn speaker_badge(ui: &egui::Ui, rect: egui::Rect, fill: Color32, glyph: Color32) {
+	// Mirrors the mention badge's geometry at the top corner so the two line up.
+	let center = rect.right_top() + egui::vec2(-8.0, 8.0);
 	ui.painter()
-		.circle_filled(center, 13.0, design::window_palette(ui).base);
-	ui.painter().circle_filled(center, 11.0, colors.positive);
+		.circle_filled(center, 11.0, design::window_palette(ui).base);
+	ui.painter().circle_filled(center, 9.0, fill);
 	crate::icons::paint(
 		ui.painter(),
 		crate::icons::Icon::Speaker,
-		egui::Rect::from_center_size(center, egui::Vec2::splat(12.0)),
-		egui::Color32::WHITE,
+		egui::Rect::from_center_size(center, egui::Vec2::splat(11.0)),
+		glyph,
 	);
 }
 fn indicator(ui: &egui::Ui, rect: egui::Rect, unread: bool, count: u32) {
@@ -430,6 +454,7 @@ mod tests {
 				last_message: None,
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}),
 		);
@@ -457,6 +482,7 @@ mod tests {
 				last_message: None,
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}),
 		);

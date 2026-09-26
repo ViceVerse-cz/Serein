@@ -741,52 +741,68 @@ impl ExtensionUi {
 			self.enlarged = None;
 			return;
 		}
+		let pad = crate::dialog::PAD * 2.0;
+		// Room left for the shared header, captions and footer strip around the artwork.
+		let available = ctx.content_rect().size() - egui::vec2(64.0 + pad, 240.0);
+		let artwork = if native {
+			let width = available
+				.x
+				.clamp(1.0, 800.0)
+				.min((available.y * 16.0 / 9.0).max(1.0));
+			egui::vec2(width, width * 9.0 / 16.0)
+		} else if let Some(texture) = texture {
+			let source = texture.size_vec2().max(egui::vec2(1.0, 1.0));
+			let bounds = available.max(egui::vec2(1.0, 1.0));
+			source * (bounds.x / source.x).min(bounds.y / source.y)
+		} else {
+			egui::Vec2::ZERO
+		};
 		let mut close = false;
-		let modal = egui::Modal::new(egui::Id::unique("extension-preview-modal")).show(ctx, |ui| {
-			ui.label(design::semibold(ui, &entry.manifest.name, 20.0));
-			let available = ctx.content_rect().size() - egui::vec2(64.0, 140.0);
-			if native {
-				let width = available
-					.x
-					.clamp(1.0, 800.0)
-					.min((available.y * 16.0 / 9.0).max(1.0));
-				let (rect, _) = ui.allocate_exact_size(
-					egui::vec2(width, width * 9.0 / 16.0),
-					egui::Sense::hover(),
-				);
-				draw_native_preview(ui, rect, entry, egui::CornerRadius::same(8));
-				if entry.manifest.kind != ExtensionKind::Theme {
-					ui.weak(
-						if entry
-							.manifest
-							.capabilities
-							.contains(&Capability::ImageSharing)
-						{
-							"Selecting artwork sends it as an image attachment."
-						} else {
-							"Example deleted-message appearance"
-						},
-					);
-				}
-			} else if let Some(texture) = texture {
-				ui.add(
-					egui::Image::new(texture)
-						.max_size(available.max(egui::vec2(1.0, 1.0)))
-						.corner_radius(8),
-				);
-				if entry.manifest.kind != ExtensionKind::Theme {
-					ui.weak("Creator preview");
-				}
-			}
-			if entry.manifest.kind == ExtensionKind::Theme {
-				ui.weak(format!("by {}", entry.manifest.author));
-				if !entry.description.is_empty() {
-					ui.add(egui::Label::new(&entry.description).wrap());
-				}
-			}
-			close = ui.button("Close preview").clicked();
-		});
-		if close || modal.should_close() {
+		let response = crate::dialog::Dialog::new("extension-preview-modal", &entry.manifest.name)
+			.width((artwork.x + pad).max(320.0))
+			.show(ctx, |d| {
+				d.content(|ui| {
+					if native {
+						let (rect, _) = ui.allocate_exact_size(artwork, egui::Sense::hover());
+						draw_native_preview(ui, rect, entry, egui::CornerRadius::same(8));
+						if entry.manifest.kind != ExtensionKind::Theme {
+							crate::dialog::hint(
+								ui,
+								if entry
+									.manifest
+									.capabilities
+									.contains(&Capability::ImageSharing)
+								{
+									"Selecting artwork sends it as an image attachment."
+								} else {
+									"Example deleted-message appearance"
+								},
+							);
+						}
+					} else if let Some(texture) = texture {
+						ui.add(
+							egui::Image::new(texture)
+								.fit_to_exact_size(artwork)
+								.corner_radius(8),
+						);
+						if entry.manifest.kind != ExtensionKind::Theme {
+							crate::dialog::hint(ui, "Creator preview");
+						}
+					}
+					if entry.manifest.kind == ExtensionKind::Theme {
+						crate::dialog::hint(ui, &format!("by {}", entry.manifest.author));
+						if !entry.description.is_empty() {
+							ui.add(egui::Label::new(&entry.description).wrap());
+						}
+					}
+				});
+				d.footer(|ui| {
+					close =
+						crate::dialog::action(ui, "Close preview", crate::dialog::Action::Neutral)
+							.clicked();
+				});
+			});
+		if close || response.close {
 			self.enlarged = None;
 		}
 	}
@@ -1916,31 +1932,9 @@ impl ExtensionUi {
 					ui.spacing_mut().item_spacing.y = 8.0;
 					for capability in &consent.entry.manifest.capabilities {
 						let mut granted = consent.grants.contains(capability);
-						let changed = egui::Frame::new()
-							.fill(colors.raised)
-							.corner_radius(10)
-							.stroke(egui::Stroke::new(
-								1.0,
-								if granted {
-									colors.accent
-								} else {
-									colors.border
-								},
-							))
-							.inner_margin(12)
-							.show(ui, |ui| {
-								ui.set_width((ui.available_width() - 26.0).max(1.0));
-								ui.spacing_mut().icon_width = 20.0;
-								ui.spacing_mut().icon_spacing = 10.0;
-								ui.visuals_mut().widgets.inactive.bg_stroke =
-									egui::Stroke::new(1.0, colors.muted);
-								ui.checkbox(
-									&mut granted,
-									egui::RichText::new(capability_label(*capability)).size(13.5),
-								)
-								.changed()
-							})
-							.inner;
+						let changed =
+							design::switch(ui, capability_label(*capability), None, &mut granted)
+								.changed();
 						if changed {
 							if granted {
 								consent.grants.push(*capability);

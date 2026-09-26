@@ -8,6 +8,7 @@ use std::sync::{
 };
 
 const READY: &str = "Global voice keybinds are enabled.";
+const DISABLED: &str = "Global keybinds are off. Shortcuts work while Serein is focused.";
 #[cfg(target_os = "linux")]
 const WAYLAND_PENDING: &str = "Approve the global voice keybinds in your desktop's dialog.";
 #[cfg(target_os = "linux")]
@@ -80,28 +81,38 @@ impl Hotkeys {
 	}
 
 	pub fn sync(&mut self, keybinds: &Keybinds, _runtime: &tokio::runtime::Runtime) {
-		let next = [
-			keybinds.chord(KeybindAction::PushToTalk).clone(),
-			keybinds.chord(KeybindAction::ToggleMute).clone(),
-			keybinds.chord(KeybindAction::ToggleDeafen).clone(),
-		];
-		if self.bindings.as_ref() == Some(&next) {
+		let next = keybinds.global_enabled.then(|| {
+			[
+				keybinds.chord(KeybindAction::PushToTalk).clone(),
+				keybinds.chord(KeybindAction::ToggleMute).clone(),
+				keybinds.chord(KeybindAction::ToggleDeafen).clone(),
+			]
+		});
+		if self.bindings == next {
 			return;
 		}
-		self.bindings = Some(next.clone());
+		self.bindings = next.clone();
 		self.unregister_all();
 		self.ptt_down = false;
 		self.pending_toggles = 0;
 
 		#[cfg(target_os = "linux")]
-		if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+		{
 			if let Some(task) = self.portal.take() {
 				task.abort();
 			}
-			self.portal_pending.store(0, Ordering::Relaxed);
-			self.portal_registered.store(0, Ordering::Relaxed);
-			self.portal_ptt_down.store(false, Ordering::Relaxed);
-			self.portal_status.store(1, Ordering::Relaxed);
+			// A cancelled portal task must not publish late input into the new configuration.
+			self.portal_pending = Arc::new(AtomicU8::new(0));
+			self.portal_registered = Arc::new(AtomicU8::new(0));
+			self.portal_ptt_down = Arc::new(AtomicBool::new(false));
+			self.portal_status = Arc::new(AtomicU8::new(1));
+		}
+		let Some(next) = next else {
+			return;
+		};
+
+		#[cfg(target_os = "linux")]
+		if std::env::var_os("WAYLAND_DISPLAY").is_some() {
 			let pending = self.portal_pending.clone();
 			let registered = self.portal_registered.clone();
 			let ptt_down = self.portal_ptt_down.clone();
@@ -216,6 +227,9 @@ impl Hotkeys {
 	}
 
 	pub fn status(&self) -> &'static str {
+		if self.bindings.is_none() {
+			return DISABLED;
+		}
 		#[cfg(target_os = "linux")]
 		if std::env::var_os("WAYLAND_DISPLAY").is_some() {
 			return match self.portal_status.load(Ordering::Relaxed) {

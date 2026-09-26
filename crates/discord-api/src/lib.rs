@@ -677,11 +677,12 @@ impl DiscordApi {
 				title,
 				content,
 				attachments,
+				tags,
 				request,
 			} => {
 				// Files are staged by the upload worker, which owns the whole post request.
 				let result = if attachments.is_empty() {
-					self.create_post(parent, guild, &title, &content, None)
+					self.create_post(parent, guild, (&title, &tags), &content, None)
 						.await
 				} else {
 					Err(Failure::ProtocolAt(
@@ -1347,13 +1348,14 @@ impl DiscordApi {
 		&self,
 		parent: model::Id,
 		guild: model::Id,
-		title: &str,
+		(title, tags): (&str, &[model::Id]),
 		content: &str,
 		attachments: Option<Vec<serde_json::Value>>,
 	) -> Result<model::Channel, Failure> {
 		let title = title.trim();
 		if title.is_empty()
 			|| title.chars().count() > client_core::forum::MAX_TITLE
+			|| tags.len() > model::forum::MAX_APPLIED_TAGS
 			|| (content.trim().is_empty() && attachments.is_none())
 			|| content.chars().count() > client_core::MAX_CONTENT
 		{
@@ -1366,11 +1368,14 @@ impl DiscordApi {
 		if let Some(attachments) = attachments {
 			message["attachments"] = serde_json::json!(attachments);
 		}
-		let body = serde_json::json!({
+		let mut body = serde_json::json!({
 			"name": title,
 			"auto_archive_duration": 4320,
 			"message": message,
 		});
+		if !tags.is_empty() {
+			body["applied_tags"] = serde_json::json!(tags);
+		}
 		self.request(
 			Method::POST,
 			&format!("/channels/{parent}/threads"),

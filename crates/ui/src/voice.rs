@@ -4249,6 +4249,7 @@ mod tests {
 				status: None,
 				custom_status: None,
 				activities: vec![],
+				clients: model::ClientPlatforms::default(),
 			}),
 		}];
 		let mut messaging = MessagingUi::default();
@@ -4336,6 +4337,7 @@ mod tests {
 					status: None,
 					custom_status: None,
 					activities: vec![],
+					clients: model::ClientPlatforms::default(),
 				}),
 			})
 			.collect();
@@ -4397,6 +4399,7 @@ mod tests {
 					primary_guild: None,
 				}],
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 				icon: None,
 			}],

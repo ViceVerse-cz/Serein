@@ -214,6 +214,109 @@ pub(crate) fn activity_card(
 		});
 }
 
+/// Rich Presence stack: one activity gets the full card, the rest collapse to one-line rows
+/// that swap in when clicked. The choice is keyed by activity name, not position.
+pub(crate) fn activity_list(
+	ui: &mut egui::Ui,
+	id: egui::Id,
+	activities: &[model::RichActivity],
+	avatars: &mut Avatars,
+	demo: bool,
+	(fill, muted): (Color32, Color32),
+) {
+	let key = |activity: &model::RichActivity| egui::Id::unique((activity.kind, &activity.name));
+	let chosen = ui.data(|data| data.get_temp::<egui::Id>(id));
+	let main = chosen
+		.and_then(|chosen| activities.iter().position(|a| key(a) == chosen))
+		.unwrap_or(0);
+	let Some(activity) = activities.get(main) else {
+		return;
+	};
+	activity_card(ui, activity, avatars, demo, (fill, muted));
+	for (index, activity) in activities.iter().enumerate() {
+		if index != main && activity_row(ui, activity, avatars, demo, (fill, muted)).clicked() {
+			ui.data_mut(|data| data.insert_temp(id, key(activity)));
+		}
+	}
+}
+
+fn activity_row(
+	ui: &mut egui::Ui,
+	activity: &model::RichActivity,
+	avatars: &mut Avatars,
+	demo: bool,
+	(fill, muted): (Color32, Color32),
+) -> egui::Response {
+	let (rect, response) =
+		ui.allocate_exact_size(vec2(ui.available_width(), 36.0), egui::Sense::click());
+	let hot = response.hovered() || response.has_focus();
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(
+			egui::Role::Button,
+			true,
+			format!("Show {}", activity.summary()),
+		)
+	});
+	if !ui.is_rect_visible(rect) {
+		return response.on_hover_cursor(egui::CursorIcon::PointingHand);
+	}
+	let colors = design::palette(ui);
+	ui.painter().rect_filled(
+		rect,
+		8,
+		if hot {
+			design::mix(fill, colors.text, 0.06)
+		} else {
+			fill
+		},
+	);
+	let icon = Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), Vec2::splat(24.0));
+	if let Some(image) = &activity.image {
+		let mut ui = ui.new_child(UiBuilder::new().max_rect(icon));
+		avatars.show_icon(&mut ui, Some(image.key()), 24.0, demo, &activity.name);
+	} else {
+		let glyph = if is_spotify(activity) {
+			Icon::Spotify
+		} else {
+			Icon::GameController
+		};
+		icons::paint(ui.painter(), glyph, icon.shrink(2.0), muted);
+	}
+	let chevron = Rect::from_center_size(
+		pos2(rect.right() - 18.0, rect.center().y),
+		Vec2::splat(16.0),
+	);
+	icons::paint(
+		ui.painter(),
+		Icon::ChevronDown,
+		chevron,
+		if hot { colors.text } else { muted },
+	);
+	let mut text = ui.new_child(
+		UiBuilder::new()
+			.max_rect(Rect::from_x_y_ranges(
+				icon.right() + 8.0..=(chevron.left() - 6.0).max(icon.right() + 9.0),
+				rect.y_range(),
+			))
+			.layout(egui::Layout::left_to_right(egui::Align::Center)),
+	);
+	text.spacing_mut().item_spacing.x = 6.0;
+	let verb = activity.summary();
+	let verb = verb.strip_suffix(activity.name.as_str()).unwrap_or("");
+	if !verb.is_empty() {
+		text.add(
+			egui::Label::new(RichText::new(verb.trim_end()).size(12.0).color(muted))
+				.selectable(false),
+		);
+	}
+	text.add(
+		egui::Label::new(design::semibold(ui, &activity.name, 13.0))
+			.truncate()
+			.selectable(false),
+	);
+	response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
 fn activity_elapsed(start: u64, now: u64) -> Option<String> {
 	let seconds = now.checked_sub(start)? / 1000;
 	Some(if seconds >= 3600 {
@@ -483,12 +586,52 @@ pub(crate) fn presence_color(status: &str) -> Color32 {
 		_ => Color32::from_rgb(128, 132, 142),
 	}
 }
+fn presence_description(status: &str, clients: model::ClientPlatforms) -> String {
+	if clients.mobile {
+		format!("{} on Mobile", presence_label(status))
+	} else {
+		presence_label(status).into()
+	}
+}
+pub(crate) fn presence_badge(
+	ui: &mut egui::Ui,
+	rect: Rect,
+	status: &str,
+	clients: model::ClientPlatforms,
+	ring: Color32,
+) {
+	if clients.mobile {
+		let radius = (rect.width() * 0.2).clamp(6.0, 10.0);
+		let center = rect.right_bottom() - Vec2::splat(radius + 0.5);
+		ui.painter().circle_filled(center, radius + 2.0, ring);
+		icons::paint(
+			ui.painter(),
+			Icon::DeviceMobile,
+			Rect::from_center_size(center, Vec2::splat(radius * 2.2)),
+			presence_color(status),
+		);
+	} else {
+		design::presence_dot(ui, rect, presence_color(status), ring);
+	}
+	let radius = (rect.width() * 0.2).clamp(6.0, 10.0);
+	let center = rect.right_bottom() - Vec2::splat(radius + 0.5);
+	ui.allocate_rect(
+		Rect::from_center_size(center, Vec2::splat((radius + 2.0) * 2.0)),
+		egui::Sense::hover(),
+	)
+	.on_hover_text(presence_description(status, clients));
+}
 /// Keep known guild presence through range loads and reconnects; access loss clears the snapshot.
 pub(crate) fn presence(
 	state: &State,
 	user: Id,
 	guild: Option<Id>,
-) -> (Option<&str>, Option<&str>, &[model::RichActivity]) {
+) -> (
+	Option<&str>,
+	Option<&str>,
+	&[model::RichActivity],
+	model::ClientPlatforms,
+) {
 	let remote = if let Some(member) = state
 		.members
 		.as_ref()
@@ -512,17 +655,20 @@ pub(crate) fn presence(
 			member.status.as_deref(),
 			member.custom_status.as_deref(),
 			member.activities.as_slice(),
+			member.clients,
 		)
 	} else {
-		state
-			.presence_for(user)
-			.map_or((None, None, &[][..]), |presence| {
+		state.presence_for(user).map_or(
+			(None, None, &[][..], model::ClientPlatforms::default()),
+			|presence| {
 				(
 					presence.status.as_deref(),
 					presence.custom_status.as_deref(),
 					presence.activities.as_slice(),
+					presence.clients,
 				)
-			})
+			},
+		)
 	};
 	with_local_activity(state, user, remote)
 }
@@ -531,7 +677,12 @@ pub(crate) fn member_presence<'a>(
 	state: &'a State,
 	member: &'a model::Member,
 	guild: Option<Id>,
-) -> (Option<&'a str>, Option<&'a str>, &'a [model::RichActivity]) {
+) -> (
+	Option<&'a str>,
+	Option<&'a str>,
+	&'a [model::RichActivity],
+	model::ClientPlatforms,
+) {
 	let remote = if guild.is_some()
 		&& state.members.as_ref().is_some_and(|list| {
 			list.guild == guild
@@ -542,17 +693,20 @@ pub(crate) fn member_presence<'a>(
 			member.status.as_deref(),
 			member.custom_status.as_deref(),
 			member.activities.as_slice(),
+			member.clients,
 		)
 	} else {
-		state
-			.presence_for(member.user.id)
-			.map_or((None, None, &[][..]), |p| {
+		state.presence_for(member.user.id).map_or(
+			(None, None, &[][..], model::ClientPlatforms::default()),
+			|p| {
 				(
 					p.status.as_deref(),
 					p.custom_status.as_deref(),
 					p.activities.as_slice(),
+					p.clients,
 				)
-			})
+			},
+		)
 	};
 	with_local_activity(state, member.user.id, remote)
 }
@@ -560,12 +714,22 @@ pub(crate) fn member_presence<'a>(
 fn with_local_activity<'a>(
 	state: &'a State,
 	user: Id,
-	remote: (Option<&'a str>, Option<&'a str>, &'a [model::RichActivity]),
-) -> (Option<&'a str>, Option<&'a str>, &'a [model::RichActivity]) {
+	remote: (
+		Option<&'a str>,
+		Option<&'a str>,
+		&'a [model::RichActivity],
+		model::ClientPlatforms,
+	),
+) -> (
+	Option<&'a str>,
+	Option<&'a str>,
+	&'a [model::RichActivity],
+	model::ClientPlatforms,
+) {
 	if state.user.as_ref().is_some_and(|own| own.id == user)
 		&& let Some(activity) = state.local_game_activity()
 	{
-		(remote.0, remote.1, std::slice::from_ref(activity))
+		(remote.0, remote.1, std::slice::from_ref(activity), remote.3)
 	} else {
 		remote
 	}
@@ -1019,8 +1183,8 @@ pub fn show(
 		.selected
 		.and_then(|id| state.channels.iter().find(|c| c.id == id))
 		.and_then(|c| c.guild);
-	let (status, custom, activities) = if user.webhook {
-		(None, None, [].as_slice())
+	let (status, custom, activities, clients) = if user.webhook {
+		(None, None, [].as_slice(), model::ClientPlatforms::default())
 	} else {
 		presence(state, user.id, guild)
 	};
@@ -1198,15 +1362,7 @@ pub fn show(
 				}
 			});
 			if let Some(status) = status {
-				let center = avatar_rect.right_bottom() - vec2(12.0, 12.0);
-				ui.painter().circle_filled(center, 13.0, theme.card);
-				ui.painter()
-					.circle_filled(center, 9.0, presence_color(status));
-				ui.allocate_rect(
-					Rect::from_center_size(center, Vec2::splat(20.0)),
-					egui::Sense::hover(),
-				)
-				.on_hover_text(presence_label(status));
+				presence_badge(ui, avatar_rect, status, clients, theme.card);
 			}
 			let mut header_bottom = avatar_rect.bottom();
 			let (icon_badges, text_badges): (Vec<_>, Vec<_>) = data
@@ -1436,15 +1592,14 @@ pub fn show(
 										let mut sections = 0;
 										if !activities.is_empty() {
 											sections += 1;
-											for activity in activities {
-												activity_card(
-													ui,
-													activity,
-													avatars,
-													state.demo,
-													(theme.chip, theme.muted),
-												);
-											}
+											activity_list(
+												ui,
+												egui::Id::unique(("profile-activity", user.id)),
+												activities,
+												avatars,
+												state.demo,
+												(theme.chip, theme.muted),
+											);
 										}
 										if let Some(data) = data {
 											let bio = data
@@ -1706,6 +1861,26 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn only_mobile_changes_the_presence_description() {
+		let non_mobile = model::ClientPlatforms {
+			desktop: true,
+			web: true,
+			vr: true,
+			mobile: false,
+		};
+		assert_eq!(presence_description("online", non_mobile), "Online");
+		assert_eq!(
+			presence_description(
+				"online",
+				model::ClientPlatforms {
+					mobile: true,
+					..non_mobile
+				},
+			),
+			"Online on Mobile"
+		);
+	}
 	#[test]
 	fn rich_activity_card_keeps_compact_text_badge_and_elapsed_time() {
 		assert_eq!(activity_elapsed(1_000, 131_000).as_deref(), Some("2:10"));
@@ -2108,6 +2283,7 @@ mod tests {
 				status: Some("idle".into()),
 				custom_status: Some("Server status".into()),
 				activities: vec![],
+				clients: model::ClientPlatforms::default(),
 			}))],
 		});
 		state.direct_presences.push(model::MemberPresence {
@@ -2115,6 +2291,7 @@ mod tests {
 			status: Some("online".into()),
 			custom_status: Some("Direct status".into()),
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 		});
 		assert_eq!(
 			presence(&state, user.id, Some(Id(10))).1,
@@ -2123,7 +2300,10 @@ mod tests {
 		assert_eq!(presence(&state, user.id, None).1, Some("Direct status"));
 		state.gateway_connected = false;
 		state.demo = false;
-		assert_eq!(presence(&state, user.id, None), (None, None, [].as_slice()));
+		assert_eq!(
+			presence(&state, user.id, None),
+			(None, None, [].as_slice(), model::ClientPlatforms::default())
+		);
 		// Known guild presence survives a reconnect; losing the list clears it.
 		assert_eq!(
 			presence(&state, user.id, Some(Id(10))).1,
@@ -2132,7 +2312,7 @@ mod tests {
 		state.members.as_mut().unwrap().freshness = model::Freshness::Unavailable;
 		assert_eq!(
 			presence(&state, user.id, Some(Id(10))),
-			(None, None, [].as_slice())
+			(None, None, [].as_slice(), model::ClientPlatforms::default())
 		);
 	}
 

@@ -179,6 +179,7 @@ pub fn check() {
 			nick: None,
 			status: None,
 			custom_status: None,
+			clients: model::ClientPlatforms::default(),
 			activities: Vec::new(),
 		}]),
 	};

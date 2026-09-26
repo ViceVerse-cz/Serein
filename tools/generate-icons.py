@@ -11,7 +11,9 @@ rasterizes it with the `resvg` command-line tool. Requires `resvg` 0.45.1 on PAT
 import argparse
 import hashlib
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 import urllib.request
 
 VERSION = "2.1.1"  # @phosphor-icons/core on npm, MIT
@@ -119,6 +121,7 @@ ICONS = [
     ("sliders-horizontal", "bold/sliders-horizontal-bold.svg", "e409a5fb3c2c134e46d51e48ac395e392223e04535c5ec664253f3e7e78cd7a9"),
     ("arrows-down-up", "bold/arrows-down-up-bold.svg", "174464c54af7273e46a6fc204ebd0fc1da75906573880687836b314e3fbdb85e"),
     ("thread", "repo:assets/icons/thread.svg", "dfd7daf80375504a5af37b95bee1773af55a9eabe7c802e7f4152905f123c72c"),
+    ("device-mobile", "bold/device-mobile-bold.svg", "77a4a5ebcba16e37637e700381bc3858b92c9350730ecf1e207f5f40d524de03"),
 ]
 LICENSE_SHA256 = "ddbe6082ec3cf979db47e5af549d2849c5d6182b3e005ef91ce1dbb9eb122f11"
 
@@ -231,6 +234,11 @@ def main():
     atlas_svg.write_text("".join(parts), encoding="utf-8")
     subprocess.run([args.resvg, str(atlas_svg), str(destination / "atlas.png")], check=True)
     atlas_svg.unlink()
+    # Lossless; resvg writes an unoptimized PNG about 4x larger. Install with `cargo install oxipng`.
+    if shutil.which("oxipng"):
+        subprocess.run(["oxipng", "-o", "max", "--strip", "all", "-q", destination / "atlas.png"], check=True)
+    else:
+        print("oxipng not found; atlas.png left at resvg compression", file=sys.stderr)
     (destination / "index.tsv").write_text("".join(f"{name}\t{cell}\n" for name, cell in index), encoding="utf-8")
     (destination / "LICENSE").write_bytes(license_text)
     (destination / "LICENSE-SIMPLE-ICONS").write_bytes(simple_license)

@@ -252,6 +252,36 @@ fn demo_embeds(id: u64) -> Vec<Embed> {
         ..Default::default()
     }]
 }
+/// Synthetic tags offered by the fixture forum, one moderated and one with an emoji.
+fn forum_tags() -> model::forum::Tags {
+	let tag = |id: u64, name: &str, emoji: Option<&str>, moderated: bool| model::forum::Tag {
+		id: Id(id),
+		name: name.into(),
+		moderated,
+		emoji_id: None,
+		emoji_name: emoji.map(Into::into),
+	};
+	model::forum::Tags {
+		available: vec![
+			tag(2601, "Announcement", Some("📣"), true),
+			tag(2602, "Feature request", None, false),
+			tag(2603, "Performance", Some("⚡"), false),
+			tag(2604, "Mobile", None, false),
+			tag(2605, "Discussion", None, false),
+			model::forum::Tag {
+				emoji_id: Some(Id(9002)),
+				..tag(2606, "Bug", Some("serein_spark"), false)
+			},
+			tag(2607, "Accessibility", None, false),
+		],
+		reaction: Some(model::ReactionEmoji {
+			id: None,
+			name: Some("❤️".into()),
+		}),
+		..Default::default()
+	}
+}
+
 pub fn demo_state() -> State {
 	let mut state = State {
 		demo: true,
@@ -306,6 +336,7 @@ pub fn demo_state() -> State {
 					recipients: vec![],
 					icon: None,
 					member_list_id: Some("everyone".into()),
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -319,6 +350,7 @@ pub fn demo_state() -> State {
 					recipients: vec![],
 					icon: None,
 					member_list_id: Some("everyone".into()),
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -332,6 +364,7 @@ pub fn demo_state() -> State {
 					recipients: vec![message(1, Id(22)).author],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -345,6 +378,7 @@ pub fn demo_state() -> State {
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -366,6 +400,7 @@ pub fn demo_state() -> State {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -387,6 +422,7 @@ pub fn demo_state() -> State {
 					last_message: Some(Id(900)),
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -411,6 +447,7 @@ pub fn demo_state() -> State {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -424,6 +461,7 @@ pub fn demo_state() -> State {
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -437,6 +475,7 @@ pub fn demo_state() -> State {
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -450,6 +489,7 @@ pub fn demo_state() -> State {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: Some(Box::new(forum_tags())),
 					message_count: None,
 				},
 				Channel {
@@ -463,6 +503,10 @@ pub fn demo_state() -> State {
 					last_message: Some(Id(1_542_322_755_993_600_000)),
 					icon: None,
 					member_list_id: None,
+					tags: Some(Box::new(model::forum::Tags {
+						applied: vec![Id(2601)],
+						..Default::default()
+					})),
 					message_count: Some(10),
 				},
 				Channel {
@@ -476,6 +520,10 @@ pub fn demo_state() -> State {
 					last_message: Some(Id(1_546_671_410_380_800_000)),
 					icon: None,
 					member_list_id: None,
+					tags: Some(Box::new(model::forum::Tags {
+						applied: vec![Id(2602), Id(2603), Id(2604), Id(2605)],
+						..Default::default()
+					})),
 					message_count: Some(0),
 				},
 				Channel {
@@ -489,6 +537,10 @@ pub fn demo_state() -> State {
 					last_message: Some(Id(1_547_722_335_191_040_000)),
 					icon: None,
 					member_list_id: None,
+					tags: Some(Box::new(model::forum::Tags {
+						applied: vec![Id(2603), Id(2602)],
+						..Default::default()
+					})),
 					message_count: Some(6),
 				},
 				Channel {
@@ -502,6 +554,7 @@ pub fn demo_state() -> State {
 					last_message: Some(Id(1_547_722_335_191_040_000)),
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: Some(4),
 				},
 			],
@@ -511,6 +564,31 @@ pub fn demo_state() -> State {
 		.permissions
 		.replace(permission_snapshot(&state))
 		.unwrap();
+	// Offline starters for the fixture posts; the demo painter draws a synthetic grid.
+	for (post, image, count) in [(27, Some(710), 12), (41, None, 3), (42, Some(711), 321)] {
+		state.posts.remember_preview(
+			Id(post),
+			model::forum::Starter {
+				image: image.map(|image| EmbedMedia {
+					url: Some(format!(
+						"https://cdn.discordapp.com/attachments/26/{image}/synthetic-preview.png"
+					)),
+					width: 320,
+					height: 320,
+					..Default::default()
+				}),
+				reactions: vec![model::Reaction {
+					emoji: model::ReactionEmoji {
+						id: None,
+						name: Some(if post == 42 { "🔥" } else { "❤️" }.into()),
+					},
+					count,
+					me: post == 27,
+					me_burst: false,
+				}],
+			},
+		);
+	}
 	state
 		.apply_notification_preferences(client_core::notifications::Event::Settings {
 			entries: vec![client_core::notifications::Setting {
@@ -655,6 +733,7 @@ pub fn voice_demo_state() -> State {
 		recipients: vec![],
 		icon: None,
 		member_list_id: None,
+		tags: None,
 		message_count: None,
 		last_message: None,
 	});
@@ -691,6 +770,7 @@ pub fn voice_demo_state() -> State {
 			status: None,
 			custom_status: None,
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 		}),
 	})
 	.collect();
@@ -870,6 +950,7 @@ pub fn seed_access_marks(state: &mut State) {
 		recipients: vec![],
 		icon: None,
 		member_list_id: None,
+		tags: None,
 		message_count: None,
 	};
 	state.channels.extend([
@@ -1339,6 +1420,7 @@ pub fn friends_demo_state() -> State {
 						model::Patch::Null
 					},
 					activities: model::Patch::Value(Vec::new()),
+					clients: model::Patch::Absent,
 				})
 				.collect(),
 		),

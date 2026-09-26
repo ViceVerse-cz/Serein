@@ -2,6 +2,150 @@
 use egui::{Context, FontData, FontDefinitions, FontFamily};
 use std::sync::{Arc, Mutex, Weak};
 
+pub const MAX_CUSTOM_FONT_BYTES: usize = 8 * 1024 * 1024;
+const CUSTOM: [&str; 3] = [
+	"Serein Custom",
+	"Serein Custom Medium",
+	"Serein Custom SemiBold",
+];
+const DEFINITIONS_KEY: &str = "serein-font-definitions";
+
+#[derive(Clone)]
+pub struct CustomFont {
+	pub name: String,
+	data: FontData,
+}
+
+impl CustomFont {
+	/// Validate before handing user-selected bytes to the renderer. Called off the UI thread.
+	pub fn new(mut name: String, mut bytes: Vec<u8>) -> Result<Self, &'static str> {
+		use skrifa::{MetadataProvider, raw::TableProvider};
+		if bytes.is_empty() || bytes.len() > MAX_CUSTOM_FONT_BYTES {
+			return Err("Choose a font up to 8 MiB.");
+		}
+		if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
+			return Err("The font name is invalid.");
+		}
+		let font = skrifa::FontRef::new(&bytes).map_err(|_| "Choose a valid TTF or OTF font.")?;
+		if font.head().map_or(true, |head| head.units_per_em() == 0)
+			|| font.hhea().is_err()
+			|| font.maxp().is_err()
+			|| font.hmtx().is_err()
+			|| font.charmap().mappings().next().is_none()
+			|| font.outline_glyphs().format().is_none()
+		{
+			return Err("This font is missing readable text or outlines.");
+		}
+		bytes.shrink_to_fit();
+		name.shrink_to_fit();
+		let mut data = FontData::from_owned(bytes);
+		data.tweak.hinting = Some(false);
+		data.tweak.subpixel_binning = Some(true);
+		Ok(Self { name, data })
+	}
+	pub fn bytes(&self) -> &[u8] {
+		self.data.bytes()
+	}
+}
+
+pub enum Action {
+	Import,
+	Reset,
+}
+
+#[derive(Default)]
+pub struct Settings {
+	pub name: Option<String>,
+	pub busy: bool,
+	pub status: &'static str,
+	pub request: Option<Action>,
+}
+
+impl Settings {
+	pub(super) fn show(&mut self, ui: &mut egui::Ui) {
+		use crate::design;
+		design::group(ui, "Typography", |ui| {
+			ui.add_enabled_ui(!self.busy, |ui| {
+				design::row(
+					ui,
+					"Interface font",
+					Some(self.name.as_deref().unwrap_or("Inter (default)")),
+					|ui| {
+						if design::text_action(ui, "Reset").clicked() {
+							self.request = Some(Action::Reset);
+						}
+						if design::button(ui, "Import font…", design::ButtonKind::Outline).clicked()
+						{
+							self.request = Some(Action::Import);
+						}
+					},
+				);
+			});
+			design::hint(
+				ui,
+				"TTF or OTF, up to 8 MiB. Saved on this device. Code keeps its monospace font.",
+			);
+			ui.label("The quick brown fox jumps over the lazy dog. 0123456789");
+			if !self.status.is_empty() {
+				design::hint(ui, self.status);
+			}
+		});
+	}
+}
+
+/// Use the active definitions so layout caches change on the same pass as egui's fonts.
+pub fn revision(ctx: &Context) -> (usize, usize) {
+	ctx.fonts(|fonts| {
+		let data = &fonts.definitions().font_data;
+		(
+			data.len(),
+			data.get(CUSTOM[0])
+				.map_or(0, |font| Arc::as_ptr(font) as usize),
+		)
+	})
+}
+
+pub fn apply_custom(ctx: &Context, font: Option<&CustomFont>) {
+	let shared = ctx.data(|data| {
+		data.get_temp::<Arc<Mutex<FontDefinitions>>>(egui::Id::unique(DEFINITIONS_KEY))
+	});
+	let Some(shared) = shared else { return };
+	let mut definitions = shared.lock().expect("font definitions");
+	for (family, name, weight) in [
+		(FontFamily::Proportional, CUSTOM[0], 400.0),
+		(
+			FontFamily::Name(crate::design::MEDIUM.into()),
+			CUSTOM[1],
+			500.0,
+		),
+		(
+			FontFamily::Name(crate::design::SEMIBOLD.into()),
+			CUSTOM[2],
+			600.0,
+		),
+	] {
+		definitions.font_data.remove(name);
+		definitions
+			.families
+			.entry(family.clone())
+			.or_default()
+			.retain(|entry| entry != name);
+		if let Some(font) = font {
+			let mut data = font.data.clone();
+			// Static faces keep their supplied weight; variable faces use the UI's three weights.
+			data.tweak.coords = egui::epaint::text::VariationCoords::new([(b"wght", weight)]);
+			definitions.font_data.insert(name.into(), data.into());
+			definitions
+				.families
+				.entry(family)
+				.or_default()
+				.insert(0, name.into());
+		}
+	}
+	ctx.set_fonts(definitions.clone());
+	ctx.request_repaint();
+}
+
 /// Noto Sans CJK JP is a quarter of the executable uncompressed (16.4 MB). It ships as a
 /// `zstd -19` archive (12.0 MB) and is inflated in memory the first time CJK text is
 /// drawn; Latin-only sessions never pay for the decode.
@@ -65,7 +209,9 @@ impl CjkScan {
 
 /// Install once during application creation, before the first UI pass.
 pub fn install(ctx: &Context) {
-	ctx.set_fonts(definitions(false));
+	let shared = Arc::new(Mutex::new(definitions(false)));
+	ctx.set_fonts(shared.lock().expect("font definitions").clone());
+	ctx.data_mut(|data| data.insert_temp(egui::Id::unique(DEFINITIONS_KEY), shared.clone()));
 	let installed = std::sync::atomic::AtomicBool::new(false);
 	let scan = Mutex::new(CjkScan::default());
 	ctx.on_end_pass(
@@ -91,21 +237,45 @@ pub fn install(ctx: &Context) {
 				// Inflating 16 MB and reparsing the font set takes tens of milliseconds; keep
 				// it off the UI thread and accept one pass of fallback glyphs.
 				let worker = ctx.clone();
+				let definitions = shared.clone();
 				let spawned =
 					std::thread::Builder::new()
 						.name("cjk-font".into())
 						.spawn(move || {
-							worker.set_fonts(definitions(true));
+							install_cjk(&worker, &definitions);
 							worker.request_repaint();
 						});
 				if spawned.is_err() {
-					ctx.set_fonts(definitions(true));
+					install_cjk(ctx, &shared);
 					ctx.request_repaint();
 				}
 			}
 		}),
 	);
 	crate::design::weights_installed(ctx);
+}
+
+fn install_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>) {
+	let data = FontData::from_owned(cjk());
+	let mut definitions = shared.lock().expect("font definitions");
+	add_fallback(&mut definitions, "Noto Sans CJK JP", data);
+	ctx.set_fonts(definitions.clone());
+}
+
+fn add_fallback(definitions: &mut FontDefinitions, name: &str, data: FontData) {
+	definitions.font_data.insert(name.into(), data.into());
+	for family in [
+		FontFamily::Proportional,
+		FontFamily::Monospace,
+		FontFamily::Name(crate::design::MEDIUM.into()),
+		FontFamily::Name(crate::design::SEMIBOLD.into()),
+	] {
+		definitions
+			.families
+			.entry(family)
+			.or_default()
+			.push(name.into());
+	}
 }
 
 fn latin(data: &'static [u8]) -> FontData {
@@ -165,19 +335,7 @@ fn definitions(with_cjk: bool) -> FontDefinitions {
 			("Noto Sans Arabic", FontData::from_static(ARABIC)),
 			("Noto Sans Math", FontData::from_static(MATH)),
 		]) {
-		definitions.font_data.insert(name.into(), data.into());
-		for family in [
-			FontFamily::Proportional,
-			FontFamily::Monospace,
-			FontFamily::Name(crate::design::MEDIUM.into()),
-			FontFamily::Name(crate::design::SEMIBOLD.into()),
-		] {
-			definitions
-				.families
-				.entry(family)
-				.or_default()
-				.push(name.into());
-		}
+		add_fallback(&mut definitions, name, data);
 	}
 	// ponytail: one Japanese CJK face bounds asset cost; add regional Han faces
 	// when locale-specific glyph forms are implemented and measured.
