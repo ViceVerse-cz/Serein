@@ -6059,6 +6059,13 @@ impl eframe::App for Desktop {
 					}),
 				);
 			}
+			if let Some(fullscreen) = self.messaging.take_voice_fullscreen_request() {
+				self.window.set_fullscreen(
+					fullscreen.then(|| {
+						winit::window::Fullscreen::Borderless(self.window.current_monitor())
+					}),
+				);
+			}
 			self.notifications.set_enabled(
 				self.messaging.notifications_enabled
 					&& (!self.fixture_only || self.messaging.notification_test_available),
