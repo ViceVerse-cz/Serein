@@ -804,7 +804,7 @@ impl MessagingUi {
 				ui.painter().rect_filled(rect, 8, TILE_FILL);
 				if !compact {
 					let status = if self.voice_stream_status.is_empty() {
-						"Connecting to the streamâ€¦"
+						"Connecting to the stream…"
 					} else {
 						self.voice_stream_status
 					};
@@ -2626,7 +2626,7 @@ impl MessagingUi {
 										);
 										ui.label(
 											RichText::new(if incoming {
-												unavailable.unwrap_or("Incoming callâ€¦")
+												unavailable.unwrap_or("Incoming call…")
 											} else if !state.gateway_connected {
 												"Reconnect to refresh call"
 											} else {
@@ -2680,7 +2680,7 @@ impl MessagingUi {
 		} else if connected {
 			"Voice Connected"
 		} else {
-			"Connectingâ€¦"
+			"Connecting…"
 		};
 		let color = if phase == Phase::Failed {
 			colors.danger
