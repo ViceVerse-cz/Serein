@@ -1680,47 +1680,85 @@ pub fn show(
 													);
 												}
 											});
-											if !data.mutual_guilds.is_empty()
-												&& state
-													.user
-													.as_ref()
-													.is_none_or(|own| own.id != user.id)
+											if state
+												.user
+												.as_ref()
+												.is_none_or(|own| own.id != user.id) && (!data
+												.mutual_guilds
+												.is_empty()
+												|| !data.mutual_friends.is_empty())
 											{
 												ui.add_space(10.0);
-												let names: Vec<String> = data
-													.mutual_guilds
-													.iter()
-													.map(|guild| {
-														state
-															.guilds
-															.iter()
-															.find(|g| g.id == guild.id)
-															.map_or_else(
-																|| format!("Server {}", guild.id),
-																|g| g.name.clone(),
-															)
-													})
-													.collect();
-												ui.horizontal(|ui| {
-													ui.spacing_mut().item_spacing.x = 6.0;
-													icons::inline(
-														ui,
-														Icon::People,
-														16.0,
-														theme.muted,
-													);
-													ui.label(
+												if !data.mutual_guilds.is_empty() {
+													let count = data.mutual_guilds.len();
+													egui::CollapsingHeader::new(
 														RichText::new(format!(
-															"{} Mutual Server{}",
-															names.len(),
-															if names.len() == 1 { "" } else { "s" }
+															"{count} Mutual Server{}",
+															if count == 1 { "" } else { "s" }
 														))
 														.size(13.0)
 														.strong(),
-													);
-												})
-												.response
-												.on_hover_text(names.join("\n"));
+													)
+													.id_salt(("mutual-servers", user.id))
+													.show(ui, |ui| {
+														for mutual in &data.mutual_guilds {
+															if let Some(guild) = state
+																.guilds
+																.iter()
+																.find(|g| g.id == mutual.id)
+															{
+																ui.horizontal(|ui| {
+																	let (rect, _) = ui
+																		.allocate_exact_size(
+																			egui::Vec2::splat(28.0),
+																			egui::Sense::hover(),
+																		);
+																	avatars.paint_guild(
+																		ui, guild, rect,
+																		state.demo, 8,
+																	);
+																	ui.label(
+																		RichText::new(&guild.name)
+																			.size(13.0),
+																	);
+																});
+															} else {
+																ui.label(
+																	RichText::new(format!(
+																		"Server {}",
+																		mutual.id
+																	))
+																	.size(13.0),
+																);
+															}
+														}
+													});
+												}
+												if !data.mutual_friends.is_empty() {
+													let count = data.mutual_friends.len();
+													egui::CollapsingHeader::new(
+														RichText::new(format!(
+															"{count} Mutual Friend{}",
+															if count == 1 { "" } else { "s" }
+														))
+														.size(13.0)
+														.strong(),
+													)
+													.id_salt(("mutual-friends", user.id))
+													.show(ui, |ui| {
+														for friend in &data.mutual_friends {
+															ui.horizontal(|ui| {
+																avatars.show_plain(
+																	ui, friend, 28.0, state.demo,
+																);
+																ui.label(
+																	RichText::new(&friend.name)
+																		.size(13.0),
+																);
+															});
+														}
+													});
+												}
 											}
 										}
 									});
@@ -1840,6 +1878,19 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 		mutual_guilds: guild
             .map(|id| vec![model::ProfileGuild { id, nick: None }])
             .unwrap_or_default(),
+		mutual_friends: guild
+			.map(|_| {
+				vec![User {
+					id: Id(42),
+					name: "Mutual friend".into(),
+					avatar: None,
+					webhook: false,
+					kind: Default::default(),
+					discriminator: 0,
+					primary_guild: None,
+				}]
+			})
+			.unwrap_or_default(),
 		guild: guild.map(|guild| model::GuildProfile {
 			guild,
 			roles: vec![],
@@ -2261,6 +2312,56 @@ mod tests {
 		);
 	}
 	#[test]
+	fn other_profiles_show_mutual_summaries() {
+		let user = test_support::message(1, Id(22)).author;
+		let mut data = synthetic(&user, Some(Id(9)));
+		data.bio.clear();
+		data.badges.clear();
+		data.connections.clear();
+		let view = ProfileView {
+			user: user.id,
+			guild: None,
+			request: 1,
+			loading: false,
+			error: None,
+			data: Some(data),
+		};
+		let mut own = user.clone();
+		own.id = Id(1);
+		let state = State {
+			user: Some(own),
+			demo: true,
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		let mut opening = None;
+		let mut painted = String::new();
+		for _ in 0..3 {
+			let output = ctx.run_ui(input(vec2(700.0, 900.0), vec![]), |ui| {
+				show(
+					ui,
+					&user,
+					Some(&view),
+					&state,
+					&mut images,
+					&mut opening,
+					&mut FormatCache::default(),
+					true,
+					pos2(20.0, 70.0),
+				);
+			});
+			for shape in &output.shapes {
+				text(&shape.shape, &mut painted);
+			}
+			output.drop_without_applying_deltas();
+		}
+		assert!(painted.contains("1 Mutual Server"));
+		assert!(painted.contains("1 Mutual Friend"));
+		assert!(!painted.contains("Server 9"));
+		assert!(!painted.contains("Mutual friend"));
+	}
+	#[test]
 	fn dm_presence_does_not_use_a_visible_guild_snapshot() {
 		let mut state = test_support::demo_state();
 		let user = test_support::message(1, Id(22)).author;
@@ -2416,6 +2517,7 @@ mod tests {
 				&& painted.contains("SRN")
 		);
 		assert!(!painted.contains("Mutual Server"));
+		assert!(!painted.contains("Mutual Friend"));
 		assert!(images.take_requests().is_empty());
 		let rect = ctx.memory(|m| m.area_rect(egui::Id::unique("user-profile-popout")));
 		let rect = rect.expect("popout area");
