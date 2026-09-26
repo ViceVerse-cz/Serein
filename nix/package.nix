@@ -7,7 +7,6 @@
     makeWrapper,
     swift,
     swiftpm,
-    apple-sdk_15,
     wrapGAppsHook4,
     autoPatchelfHook,
     glib,
@@ -92,7 +91,7 @@
 in
     rustPlatform.buildRustPackage (finalAttrs: {
         pname = "serein";
-        version = "1.0.0-nightly.20260914.14";
+        version = (builtins.fromTOML (builtins.readFile ../Cargo.toml)).workspace.package.version;
 
         src = ../.;
 
@@ -121,16 +120,16 @@ in
                 swiftpm
             ];
 
-        buildInputs =
-            lib.optionals isLinux (
-                toolkitDeps ++ graphicsDeps ++ windowingDeps ++ audioDeps ++ gstPlugins
-            )
-            ++ lib.optionals isDarwin [apple-sdk_15];
+        buildInputs = lib.optionals isLinux (
+            toolkitDeps ++ graphicsDeps ++ windowingDeps ++ audioDeps ++ gstPlugins
+        );
 
-        runtimeDependencies = lib.optionals isLinux graphicsDeps;
+        # winit loads these libraries dynamically; retain them in the runtime RPATH.
+        runtimeDependencies = lib.optionals isLinux (graphicsDeps ++ windowingDeps);
 
         dontUseSwiftpmBuild = true;
         dontUseSwiftpmCheck = true;
+        dontUseSwiftpmInstall = true;
         doCheck = false;
 
         preFixup = lib.optionalString isLinux ''
@@ -143,7 +142,20 @@ in
         '';
 
         postInstall =
-            lib.optionalString isLinux ''
+            ''
+                docs="$out/share/doc/serein"
+                mkdir -p "$docs/licenses" "$docs/source"
+                cp README.md LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md "$docs/"
+                cp -R assets/licenses/. "$docs/licenses/"
+                cp assets/fonts/*-OFL.txt assets/fonts/*-LICENSE.txt "$docs/licenses/"
+                cp assets/sounds/README.md "$docs/licenses/notification-sounds.md"
+                cp assets/twemoji/LICENSE-GRAPHICS "$docs/licenses/Twemoji-CC-BY-4.0.txt"
+                cp assets/twemoji/LICENSE-UNICODE "$docs/licenses/Unicode-LICENSE.txt"
+                cp assets/icons/LICENSE "$docs/licenses/Phosphor-Icons-MIT.txt"
+                cp assets/icons/LICENSE-SIMPLE-ICONS "$docs/licenses/Simple-Icons-CC0.txt"
+                cp -R vendor/hpke-rs "$docs/source/"
+            ''
+            + lib.optionalString isLinux ''
                 install -Dm444 ${finalAttrs.src}/packaging/linux/serein.desktop \
                   $out/share/applications/org.serein.desktop.desktop
                 substituteInPlace $out/share/applications/org.serein.desktop.desktop \
@@ -162,6 +174,7 @@ in
                 install -Dm444 ${finalAttrs.src}/packaging/macos/Serein.icns "$app/Resources/Serein.icns"
                 mkdir -p "$app/MacOS"
                 ln -s "$out/bin/serein" "$app/MacOS/serein"
+                ln -s "$docs" "$app/Resources/documentation"
             '';
 
         meta = {

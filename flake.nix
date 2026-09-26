@@ -2,7 +2,8 @@
     description = "Tiny, performant, native Discord client written in Rust (egui/wgpu)";
 
     inputs = {
-        nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+        # Swift 6 is required by the macOS capture bridge; not yet in nixos-unstable.
+        nixpkgs.url = "github:NixOS/nixpkgs/caa0ccbe110ef30193d17b033008c680ba60799b";
         flake-parts = {
             url = "github:hercules-ci/flake-parts";
             inputs.nixpkgs-lib.follows = "nixpkgs";

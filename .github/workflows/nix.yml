@@ -2,10 +2,36 @@ name: Nix test build
 on:
   push:
     branches: [main]
-    paths: ['flake.nix', 'flake.lock', 'nix/**', '.github/workflows/nix.yml']
+    paths:
+      - "flake.*"
+      - "nix/**"
+      - ".github/workflows/nix.yml"
+      - "**/Cargo.*"
+      - "rust-toolchain.toml"
+      - "crates/**"
+      - "apps/**"
+      - "vendor/**"
+      - "packaging/**"
+      - "assets/**"
+      - "LICENSE*"
+      - "THIRD_PARTY_NOTICES.md"
+      - "README.md"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths: ['flake.nix', 'flake.lock', 'nix/**', '.github/workflows/nix.yml']
+    paths:
+      - "flake.*"
+      - "nix/**"
+      - ".github/workflows/nix.yml"
+      - "**/Cargo.*"
+      - "rust-toolchain.toml"
+      - "crates/**"
+      - "apps/**"
+      - "vendor/**"
+      - "packaging/**"
+      - "assets/**"
+      - "LICENSE*"
+      - "THIRD_PARTY_NOTICES.md"
+      - "README.md"
   workflow_dispatch:
 
 concurrency:
@@ -33,6 +59,25 @@ jobs:
         run: nix build --print-build-logs --show-trace .#serein
       - name: Verify installed binary
         run: test -x result/bin/serein
+      - name: Verify bundled notices and corresponding source
+        shell: bash
+        run: |
+          docs=result/share/doc/serein
+          for file in README.md LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md; do
+            cmp "$file" "$docs/$file"
+          done
+          for dir in assets/licenses/*; do
+            diff -r "$dir" "$docs/licenses/$(basename "$dir")"
+          done
+          for file in assets/fonts/*-OFL.txt assets/fonts/*-LICENSE.txt; do
+            cmp "$file" "$docs/licenses/$(basename "$file")"
+          done
+          cmp assets/sounds/README.md "$docs/licenses/notification-sounds.md"
+          cmp assets/twemoji/LICENSE-GRAPHICS "$docs/licenses/Twemoji-CC-BY-4.0.txt"
+          cmp assets/twemoji/LICENSE-UNICODE "$docs/licenses/Unicode-LICENSE.txt"
+          cmp assets/icons/LICENSE "$docs/licenses/Phosphor-Icons-MIT.txt"
+          cmp assets/icons/LICENSE-SIMPLE-ICONS "$docs/licenses/Simple-Icons-CC0.txt"
+          diff -r vendor/hpke-rs "$docs/source/hpke-rs"
       - name: Verify Linux desktop assets
         if: runner.os == 'Linux'
         run: test -f result/share/applications/org.serein.desktop.desktop
