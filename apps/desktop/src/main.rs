@@ -3804,7 +3804,9 @@ impl Desktop {
 		// Fixture-only preview of the restore screen, e.g. `--demo --demo-restoring`.
 		#[cfg(feature = "demo")]
 		if self.fixture_only && std::env::args().any(|arg| arg == "--demo-restoring") {
-			return Some(ui::i18n::translate("Checking your saved login"));
+			return Some(ui::i18n::translate(
+				"main-restoring-checking-your-saved-login",
+			));
 		}
 		if self.fixture_only
 			|| self.state.demo
@@ -3821,11 +3823,13 @@ impl Desktop {
 			.as_ref()
 			.is_some_and(|store| store.remaining(std::time::Instant::now()).is_some())
 		{
-			return Some(ui::i18n::translate("Checking your saved login"));
+			return Some(ui::i18n::translate(
+				"main-restoring-checking-your-saved-login",
+			));
 		}
 		self.connection
 			.is_some()
-			.then(|| ui::i18n::translate("Connecting to Discord"))
+			.then(|| ui::i18n::translate("main-restoring-connecting-to-discord"))
 	}
 	/// Restore screen for returning accounts: no sign-in controls, just the stage,
 	/// an indeterminate bar and a way out to the welcome screen.
@@ -3854,8 +3858,12 @@ impl Desktop {
 					.show(ui, |ui| {
 						ui.horizontal(|ui| {
 							ui.label(
-								ui::design::semibold(ui, ui::i18n::translate("Serein"), 16.0)
-									.color(p.muted),
+								ui::design::semibold(
+									ui,
+									ui::i18n::translate("main-restoring-screen-serein"),
+									16.0,
+								)
+								.color(p.muted),
 							);
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
@@ -3890,8 +3898,12 @@ impl Desktop {
 					);
 					ui.add_space(18.0);
 					ui.label(
-						ui::design::semibold(ui, ui::i18n::translate("Welcome back"), 24.0)
-							.color(p.text_strong),
+						ui::design::semibold(
+							ui,
+							ui::i18n::translate("main-restoring-screen-welcome-back"),
+							24.0,
+						)
+						.color(p.text_strong),
 					);
 					ui.add_space(6.0);
 					ui.label(
@@ -3926,7 +3938,9 @@ impl Desktop {
 						|ui| {
 							if ui::design::secondary_button(
 								ui,
-								&ui::i18n::translate("Use a different account"),
+								&ui::i18n::translate(
+									"main-restoring-screen-use-a-different-account",
+								),
 							)
 							.clicked()
 							{
@@ -3979,8 +3993,12 @@ impl Desktop {
 							);
 							ui.add_space(8.0);
 							ui.label(
-								ui::design::semibold(ui, ui::i18n::translate("Serein"), 16.0)
-									.color(p.text_strong),
+								ui::design::semibold(
+									ui,
+									ui::i18n::translate("main-sign-in-screen-serein"),
+									16.0,
+								)
+								.color(p.text_strong),
 							);
 							ui.add_space(8.0);
 							// Painted rather than framed: the pill must hug the text, not the row height.
@@ -4083,7 +4101,7 @@ impl Desktop {
 							ui.add_space(18.0);
 							ui.label(
 								egui::RichText::new(ui::i18n::translate(
-									"Independent and open source. Not affiliated with Discord.",
+									"main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord",
 								))
 								.size(12.0)
 								.color(p.muted),
@@ -4197,10 +4215,10 @@ impl Desktop {
 			ui.label(
 				ui::design::semibold(
 					ui,
-					ui::i18n::translate(if returning {
-						"Welcome back"
+					ui::i18n::translate_if_key(if returning {
+						"main-sign-in-header-welcome-back"
 					} else {
-						"Welcome to Serein"
+						"main-sign-in-header-welcome-to-serein"
 					}),
 					22.0,
 				)
@@ -4209,10 +4227,10 @@ impl Desktop {
 			ui.add_space(5.0);
 			ui.add(
 				egui::Label::new(
-					egui::RichText::new(ui::i18n::translate(if returning {
-						"Continue with a saved account, or sign in with another one."
+					egui::RichText::new(ui::i18n::translate_if_key(if returning {
+						"main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another"
 					} else {
-						"Sign in with your Discord account to get started."
+						"main-sign-in-header-sign-in-with-your-discord-account-to-get-started"
 					}))
 					.size(14.0)
 					.color(p.muted),
@@ -4226,7 +4244,7 @@ impl Desktop {
 		let p = ui::design::palette(ui);
 		ui.label(ui::design::eyebrow(
 			ui,
-			ui::i18n::translate("Saved accounts"),
+			ui::i18n::translate("main-sign-in-accounts-saved-accounts"),
 			p.muted,
 		));
 		ui.add_space(6.0);
@@ -4321,15 +4339,21 @@ impl Desktop {
 				ui.set_width(ui.available_width());
 				ui.checkbox(
 					&mut self.authorized,
-					ui::design::medium(ui, ui::i18n::translate("I own this account and authorize this session."), 13.0)
-						.color(p.text_strong),
+					ui::design::medium(
+						ui,
+						ui::i18n::translate(
+							"main-sign-in-consent-i-own-this-account-and-authorize-this-session",
+						),
+						13.0,
+					)
+					.color(p.text_strong),
 				);
 				ui.add_space(4.0);
 				ui.add(
 					egui::Label::new(
-						egui::RichText::new(
-							ui::i18n::translate("Passwords and 2FA stay on Discord's own login page; only the session token is kept, in your OS credential store."),
-						)
+						egui::RichText::new(ui::i18n::translate(
+							"main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page",
+						))
 						.size(12.0)
 						.color(p.muted),
 					)
@@ -4458,8 +4482,11 @@ impl Desktop {
 			ui.allocate_space(egui::vec2(width, 16.0));
 		});
 		ui.add_space(14.0);
-		if ui::design::secondary_button(ui, &ui::i18n::translate("Explore the offline preview"))
-			.clicked()
+		if ui::design::secondary_button(
+			ui,
+			&ui::i18n::translate("main-sign-in-preview-explore-the-offline-preview"),
+		)
+		.clicked()
 		{
 			if let Some(store) = &mut self.store {
 				store.cancel_load();
@@ -4479,7 +4506,7 @@ impl Desktop {
 		ui.vertical_centered(|ui| {
 			ui.label(
 				egui::RichText::new(&ui::i18n::translate(
-					"Sample conversations. No Discord connection.",
+					"main-sign-in-preview-sample-conversations-no-discord-connection",
 				))
 				.size(12.0)
 				.color(p.muted),
@@ -4489,8 +4516,12 @@ impl Desktop {
 	/// Secondary panels: what this client is, and the owner's own session token.
 	fn sign_in_disclosures(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
 		let p = ui::design::palette(ui);
-		if ui::design::disclosure(ui, &ui::i18n::translate("About Serein"), self.about_open)
-			.clicked()
+		if ui::design::disclosure(
+			ui,
+			&ui::i18n::translate("main-sign-in-disclosures-about-serein"),
+			self.about_open,
+		)
+		.clicked()
 		{
 			self.about_open = !self.about_open;
 		}
@@ -4519,7 +4550,7 @@ impl Desktop {
 					}
 					if !self.fixture_only {
 						ui.add_space(2.0);
-						if ui::design::button(ui, &ui::i18n::translate("Forget saved login"), ui::design::ButtonKind::Outline)
+						if ui::design::button(ui, &ui::i18n::translate("main-sign-in-disclosures-forget-saved-login"), ui::design::ButtonKind::Outline)
 							.clicked()
 						{
 							self.logout(ctx);
@@ -4529,7 +4560,7 @@ impl Desktop {
 		}
 		if ui::design::disclosure(
 			ui,
-			&ui::i18n::translate("Sign in with a session token"),
+			&ui::i18n::translate("main-sign-in-disclosures-sign-in-with-a-session-token"),
 			self.token_open,
 		)
 		.clicked()
@@ -4548,9 +4579,9 @@ impl Desktop {
 				.show(ui, |ui| {
 					ui.add(
 						egui::Label::new(
-							egui::RichText::new(
-								ui::i18n::translate("For owners who already hold a valid Discord session token, for example from another signed-in Serein install. Passwords and 2FA are never used here; this bypasses Discord's hosted login page entirely."),
-							)
+							egui::RichText::new(ui::i18n::translate(
+								"main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token",
+							))
 							.size(12.0)
 							.color(p.muted),
 						)
@@ -4562,14 +4593,18 @@ impl Desktop {
 						egui::TextEdit::singleline(&mut *self.token_input)
 							.password(true)
 							.char_limit(2048)
-							.hint_text(ui::i18n::translate("Session token")),
+							.hint_text(ui::i18n::translate(
+								"main-sign-in-disclosures-session-token",
+							)),
 					);
 					ui.add_space(8.0);
 					let connect = ui
 						.add_enabled_ui(self.authorized && !self.token_input.is_empty(), |ui| {
 							ui::design::button(
 								ui,
-								&ui::i18n::translate("Connect with this token"),
+								&ui::i18n::translate(
+									"main-sign-in-disclosures-connect-with-this-token",
+								),
 								ui::design::ButtonKind::Primary,
 							)
 						})
@@ -5968,14 +6003,14 @@ impl eframe::App for Desktop {
 							ui.label(
 								ui::design::semibold(
 									ui,
-									ui::i18n::translate("Sign in to Discord"),
+									ui::i18n::translate("main-ui-sign-in-to-discord"),
 									15.0,
 								)
 								.color(p.text_strong),
 							);
 							ui.label(
 								egui::RichText::new(ui::i18n::translate(
-									"discord.com · temporary login window · passwords and 2FA never leave the page",
+									"main-ui-discord-com-temporary-login-window-passwords-and-2fa-never-leave",
 								))
 								.size(12.0)
 								.color(p.muted),
@@ -5988,8 +6023,12 @@ impl eframe::App for Desktop {
 							if ui
 								.add(
 									egui::Button::new(
-										ui::design::medium(ui, ui::i18n::translate("Cancel"), 13.0)
-											.color(p.text_strong),
+										ui::design::medium(
+											ui,
+											ui::i18n::translate("main-ui-cancel"),
+											13.0,
+										)
+										.color(p.text_strong),
 									)
 									.fill(p.raised)
 									.stroke(egui::Stroke::new(1.0, p.border))
@@ -6009,7 +6048,7 @@ impl eframe::App for Desktop {
 				.show(ui, |ui| {
 					ui.centered_and_justified(|ui| {
 						ui.label(
-							egui::RichText::new(ui::i18n::translate("Loading discord.com…"))
+							egui::RichText::new(ui::i18n::translate("main-ui-loading-discord-com"))
 								.color(p.muted),
 						);
 					});

@@ -47,12 +47,12 @@ impl VerificationUi {
 			} else {
 				"invite-verification"
 			},
-			crate::i18n::translate("Verification required"),
+			crate::i18n::translate("verification-show-verification-required"),
 		)
-		.subtitle(crate::i18n::translate(if friend {
-			"Complete the check to send this friend request."
+		.subtitle(crate::i18n::translate_if_key(if friend {
+			"verification-show-complete-the-check-to-send-this-friend-request"
 		} else {
-			"Complete the check to join this server."
+			"verification-show-complete-the-check-to-join-this-server"
 		}))
 		.width(520.0)
 		.show(ctx, |d| {
@@ -78,22 +78,22 @@ impl VerificationUi {
 						ui.add_space(if self.active { 28.0 } else { 12.0 });
 						ui.label(design::semibold(
 							ui,
-							crate::i18n::translate(if self.active {
-								"Loading verification…"
+							crate::i18n::translate_if_key(if self.active {
+								"verification-show-loading-verification"
 							} else {
-								"One quick check"
+								"verification-show-one-quick-check"
 							}),
 							18.0,
 						));
 						ui.add_space(8.0);
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new(crate::i18n::translate(if state.demo {
-									"Offline preview · no verification service is contacted."
+								egui::RichText::new(crate::i18n::translate_if_key(if state.demo {
+									"verification-show-offline-preview-no-verification-service-is-contacted"
 								} else if friend {
-									"Discord requires a security check before you can add this person."
+									"verification-show-discord-requires-a-security-check-before-you-can-add-this"
 								} else {
-									"Discord requires a security check before you can join."
+									"verification-show-discord-requires-a-security-check-before-you-can-join"
 								}))
 								.size(13.0)
 								.color(colors.muted),
@@ -112,12 +112,16 @@ impl VerificationUi {
 				ui.add_space(16.0);
 			});
 			d.footer(|ui| {
-				if !self.active && dialog::action(ui, "Verify", dialog::Action::Primary).clicked() {
+				if !self.active
+					&& dialog::action(ui, "verification-show-verify", dialog::Action::Primary)
+						.clicked()
+				{
 					self.error = None;
 					self.active = true;
 					self.start_requested = !state.demo;
 				}
-				cancel |= dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
+				cancel |= dialog::action(ui, "verification-show-cancel", dialog::Action::Neutral)
+					.clicked();
 			});
 		});
 		if cancel || response.close {

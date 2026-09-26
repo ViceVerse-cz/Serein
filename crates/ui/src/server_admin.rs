@@ -196,7 +196,7 @@ impl Admin {
 			if ui
 				.add_enabled(
 					!state.server_admin.pending,
-					egui::Button::new(crate::i18n::translate("Reload")),
+					egui::Button::new(crate::i18n::translate("server-admin-show-reload")),
 				)
 				.clicked() && let Some(command) = state.request_server_admin(
 				guild,
@@ -213,11 +213,13 @@ impl Admin {
 		if state.server_admin.pending {
 			ui.horizontal(|ui| {
 				ui.spinner();
-				ui.weak(crate::i18n::translate(if state.server_admin.saving {
-					"Saving changes..."
-				} else {
-					"Loading..."
-				}));
+				ui.weak(crate::i18n::translate_if_key(
+					if state.server_admin.saving {
+						"server-admin-show-saving-changes"
+					} else {
+						"server-admin-show-loading"
+					},
+				));
 			});
 		}
 		ui.add_enabled_ui(!state.server_admin.needs_refresh, |ui| {
@@ -238,8 +240,14 @@ impl Admin {
 		profile: &mut crate::profiles::ProfileSession,
 	) {
 		let colors = design::palette(ui);
-		ui.label(design::semibold(ui, crate::i18n::translate("Emoji"), 22.0));
-		ui.label(crate::i18n::translate("Add custom emoji that anyone can use in this server. Animated GIF emoji may be used by members with Discord Nitro."));
+		ui.label(design::semibold(
+			ui,
+			crate::i18n::translate("server-admin-emojis-emoji"),
+			22.0,
+		));
+		ui.label(crate::i18n::translate(
+			"server-admin-emojis-add-custom-emoji-that-anyone-can-use-in-this-server",
+		));
 		ui.add_space(14.0);
 		if state.can_create_guild_emoji(guild) {
 			if ui
@@ -248,7 +256,7 @@ impl Admin {
 					|ui| {
 						design::button(
 							ui,
-							&crate::i18n::translate("Upload Emoji"),
+							&crate::i18n::translate("server-admin-emojis-upload-emoji"),
 							design::ButtonKind::Primary,
 						)
 					},
@@ -259,10 +267,14 @@ impl Admin {
 				self.queue_files(Vec::new());
 			}
 			ui.add_space(18.0);
-			ui.small(crate::i18n::translate("Drag and drop up to 10 images onto this page, or choose files. Review their names before uploading."));
+			ui.small(crate::i18n::translate(
+				"server-admin-emojis-drag-and-drop-up-to-10-images-onto-this-page",
+			));
 		}
 		if self.preparing {
-			ui.weak(crate::i18n::translate("Preparing emoji images..."));
+			ui.weak(crate::i18n::translate(
+				"server-admin-emojis-preparing-emoji-images",
+			));
 		}
 		if !self.uploads.is_empty() {
 			egui::Frame::new()
@@ -272,7 +284,7 @@ impl Admin {
 				.show(ui, |ui| {
 					ui.label(design::semibold(
 						ui,
-						crate::i18n::translate("Review uploads"),
+						crate::i18n::translate("server-admin-emojis-review-uploads"),
 						16.0,
 					));
 					let mut remove = None;
@@ -290,17 +302,19 @@ impl Admin {
 										.char_limit(32),
 								)
 								.on_hover_text(crate::i18n::translate(
-									"Emoji name: 2–32 letters, numbers, or underscores",
+									"server-admin-emojis-emoji-name-232-letters-numbers-or-underscores",
 								));
-								ui.weak(crate::i18n::translate(if upload.animated {
-									"Animated"
+								ui.weak(crate::i18n::translate_if_key(if upload.animated {
+									"server-admin-emojis-animated"
 								} else {
-									"Static"
+									"server-admin-emojis-static"
 								}));
 								if ui
 									.add_enabled(
 										!self.uploading,
-										egui::Button::new(crate::i18n::translate("Remove")),
+										egui::Button::new(crate::i18n::translate(
+											"server-admin-emojis-remove",
+										)),
 									)
 									.clicked()
 								{
@@ -321,7 +335,7 @@ impl Admin {
 							ui,
 							design::Level::Error,
 							&crate::i18n::translate(
-								"Emoji names must use 2–32 letters, numbers, or underscores.",
+								"server-admin-emojis-emoji-names-must-use-232-letters-numbers-or-underscores",
 							),
 						);
 					}
@@ -329,7 +343,9 @@ impl Admin {
 						if ui
 							.add_enabled(
 								valid && !self.uploading && !state.server_admin.pending,
-								egui::Button::new(crate::i18n::translate("Upload")),
+								egui::Button::new(crate::i18n::translate(
+									"server-admin-emojis-upload",
+								)),
 							)
 							.clicked()
 						{
@@ -338,7 +354,9 @@ impl Admin {
 						if ui
 							.add_enabled(
 								!self.uploading,
-								egui::Button::new(crate::i18n::translate("Cancel")),
+								egui::Button::new(crate::i18n::translate(
+									"server-admin-emojis-cancel",
+								)),
 							)
 							.clicked()
 						{
@@ -356,7 +374,11 @@ impl Admin {
 		for animated in [false, true] {
 			ui.label(design::semibold(
 				ui,
-				crate::i18n::translate(if animated { "Animated Emoji" } else { "Emoji" }),
+				crate::i18n::translate_if_key(if animated {
+					"server-admin-emojis-animated-emoji"
+				} else {
+					"server-admin-emojis-emoji"
+				}),
 				21.0,
 			));
 			let count = catalog
@@ -370,12 +392,17 @@ impl Admin {
 				catalog.static_limit
 			};
 			ui.label(limit.map_or_else(
-				|| format!("{count} {}", crate::i18n::translate("emoji")),
+				|| {
+					format!(
+						"{count} {}",
+						crate::i18n::translate("server-admin-emojis-emoji-2")
+					)
+				},
 				|limit| {
 					format!(
 						"{} {}",
 						limit.saturating_sub(count),
-						crate::i18n::translate("slots available")
+						crate::i18n::translate("server-admin-emojis-slots-available")
 					)
 				},
 			));
@@ -384,7 +411,7 @@ impl Admin {
 				ui.add_space(8.0);
 				ui.vertical_centered(|ui| {
 					ui.label(
-						RichText::new(crate::i18n::translate("NONE"))
+						RichText::new(crate::i18n::translate("server-admin-emojis-none"))
 							.size(18.0)
 							.color(colors.muted),
 					);
@@ -399,9 +426,9 @@ impl Admin {
 						let name_width = ((width - 116.0) * 0.47).max(60.0);
 						let by_width = (width - name_width - 116.0).max(40.0);
 						ui.horizontal(|ui| {
-							cell_text(ui, "Image", 44.0, true);
-							cell_text(ui, "Name", name_width, true);
-							cell_text(ui, "Uploaded By", by_width, true);
+							cell_text(ui, "server-admin-emojis-image", 44.0, true);
+							cell_text(ui, "server-admin-emojis-name", name_width, true);
+							cell_text(ui, "server-admin-emojis-uploaded-by", by_width, true);
 						});
 						ui.separator();
 						for row in catalog
@@ -442,7 +469,9 @@ impl Admin {
 												profile.person_click(ui, &avatar, None, user);
 												ui.add(egui::Label::new(&user.name).truncate());
 											} else {
-												ui.weak(crate::i18n::translate("Unknown"));
+												ui.weak(crate::i18n::translate(
+													"server-admin-emojis-unknown",
+												));
 											}
 										},
 									);
@@ -451,10 +480,16 @@ impl Admin {
 											ui,
 											icons::Icon::More,
 											24.0,
-											&crate::i18n::translate("Emoji actions"),
+											&crate::i18n::translate(
+												"server-admin-emojis-emoji-actions",
+											),
 										);
 										egui::Popup::menu(&button).show(|ui| {
-											if ui.button(crate::i18n::translate("Rename")).clicked()
+											if ui
+												.button(crate::i18n::translate(
+													"server-admin-emojis-rename",
+												))
+												.clicked()
 											{
 												self.dialog = Some(Dialog::Rename {
 													id: row.emoji.id,
@@ -465,7 +500,7 @@ impl Admin {
 											if ui
 												.button(
 													RichText::new(crate::i18n::translate(
-														"Delete Emoji",
+														"server-admin-emojis-delete-emoji",
 													))
 													.color(colors.danger),
 												)
@@ -499,7 +534,7 @@ impl Admin {
 		let colors = design::palette(ui);
 		ui.label(design::semibold(
 			ui,
-			crate::i18n::translate("Server Members"),
+			crate::i18n::translate("server-admin-members-server-members"),
 			22.0,
 		));
 		ui.add_space(20.0);
@@ -512,13 +547,24 @@ impl Admin {
 			&& state.can_show_members_in_channel_list(guild)
 		{
 			ui.add_enabled_ui(!state.server_admin.pending, |ui| {
-				if design::switch(ui, "Show Members In Channel List", Some("Show the members page in the channel list to quickly see recent joins and members flagged for unusual activity."), &mut enabled).changed() { action = Some(Action::ShowMembers { enabled }); }
+				if design::switch(
+					ui,
+					"server-admin-members-show-members-in-channel-list",
+					Some(
+						"server-admin-members-show-the-members-page-in-the-channel-list-to-quickly",
+					),
+					&mut enabled,
+				)
+				.changed()
+				{
+					action = Some(Action::ShowMembers { enabled });
+				}
 			});
 			ui.add_space(24.0);
 		}
 		ui.label(design::semibold(
 			ui,
-			crate::i18n::translate("Recent Members"),
+			crate::i18n::translate("server-admin-members-recent-members"),
 			15.0,
 		));
 		let search_width = (ui.available_width() - 44.0).clamp(100.0, 260.0);
@@ -536,7 +582,9 @@ impl Admin {
 								egui::TextEdit::singleline(&mut self.query.search)
 									.frame(egui::Frame::NONE)
 									.font(egui::FontId::proportional(13.0))
-									.hint_text(crate::i18n::translate("Search by username or ID"))
+									.hint_text(crate::i18n::translate(
+										"server-admin-members-search-by-username-or-id",
+									))
 									.desired_width(search_width)
 									.char_limit(100),
 							)
@@ -552,10 +600,10 @@ impl Admin {
 			ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
 			let before = self.query.sort;
 			let sorts = [
-				crate::i18n::translate("Newest members"),
-				crate::i18n::translate("Oldest members"),
-				crate::i18n::translate("Newest Discord accounts"),
-				crate::i18n::translate("Oldest Discord accounts"),
+				crate::i18n::translate("server-admin-members-newest-members"),
+				crate::i18n::translate("server-admin-members-oldest-members"),
+				crate::i18n::translate("server-admin-members-newest-discord-accounts"),
+				crate::i18n::translate("server-admin-members-oldest-discord-accounts"),
 			];
 			egui::ComboBox::from_id_salt("member-sort")
 				.selected_text(&sorts[usize::from(self.query.sort.saturating_sub(1)).min(3)])
@@ -574,7 +622,8 @@ impl Admin {
 					.add_enabled(
 						!state.server_admin.pending,
 						egui::Button::new(
-							RichText::new(crate::i18n::translate("Prune")).color(colors.danger),
+							RichText::new(crate::i18n::translate("server-admin-members-prune"))
+								.color(colors.danger),
 						),
 					)
 					.clicked()
@@ -588,7 +637,7 @@ impl Admin {
 		if ui
 			.checkbox(
 				&mut self.query.recent,
-				crate::i18n::translate("Joined in the last 7 days"),
+				crate::i18n::translate("server-admin-members-joined-in-the-last-7-days"),
 			)
 			.changed()
 		{
@@ -779,7 +828,7 @@ impl Admin {
 									ui,
 									icons::Icon::More,
 									24.0,
-									&crate::i18n::translate("Member actions"),
+									&crate::i18n::translate("server-admin-members-member-actions"),
 								);
 								egui::Popup::menu(&button).show(|ui| {
 									self.member_menu(
@@ -801,16 +850,18 @@ impl Admin {
 			ui.horizontal_wrapped(|ui| {
 				ui.weak(format!(
 					"{} {} {} {}",
-					crate::i18n::translate("Showing"),
+					crate::i18n::translate("server-admin-members-showing"),
 					members.items.len(),
-					crate::i18n::translate("of"),
+					crate::i18n::translate("server-admin-members-of"),
 					members.total
 				));
 				if self.query.after.is_some()
 					&& ui
 						.add_enabled(
 							!state.server_admin.pending,
-							egui::Button::new(crate::i18n::translate("First page")),
+							egui::Button::new(crate::i18n::translate(
+								"server-admin-members-first-page",
+							)),
 						)
 						.clicked()
 				{
@@ -821,7 +872,9 @@ impl Admin {
 					&& ui
 						.add_enabled(
 							!state.server_admin.pending,
-							egui::Button::new(crate::i18n::translate("Next page")),
+							egui::Button::new(crate::i18n::translate(
+								"server-admin-members-next-page",
+							)),
 						)
 						.clicked()
 				{
@@ -830,7 +883,9 @@ impl Admin {
 				}
 			});
 			if members.items.is_empty() {
-				ui.weak(crate::i18n::translate("No members match this search."));
+				ui.weak(crate::i18n::translate(
+					"server-admin-members-no-members-match-this-search",
+				));
 			}
 		}
 		if let Some(action) = action
@@ -886,7 +941,7 @@ impl Admin {
 						ui,
 						icons::Icon::More,
 						28.0,
-						&crate::i18n::translate("Member actions"),
+						&crate::i18n::translate("server-admin-member-card-member-actions"),
 					);
 					egui::Popup::menu(&button).show(|ui| {
 						self.member_menu(ui, state, guild, member, roles, profile, action)
@@ -898,7 +953,7 @@ impl Admin {
 			ui.label(
 				RichText::new(format!(
 					"{} {}",
-					crate::i18n::translate("Member since"),
+					crate::i18n::translate("server-admin-member-card-member-since"),
 					date(member.joined_at).replace('\n', " · ")
 				))
 				.color(colors.muted),
@@ -907,10 +962,13 @@ impl Admin {
 			if !signals.is_empty() {
 				ui.label(signals);
 			}
-			egui::CollapsingHeader::new(crate::i18n::translate("Member details")).show(ui, |ui| {
+			egui::CollapsingHeader::new(crate::i18n::translate(
+				"server-admin-member-card-member-details",
+			))
+			.show(ui, |ui| {
 				ui.label(format!(
 					"{}: {}",
-					crate::i18n::translate("Joined Discord"),
+					crate::i18n::translate("server-admin-member-card-joined-discord"),
 					date(Some(i128::from(
 						(member.user.id.0 >> 22) + 1_420_070_400_000
 					)))
@@ -918,11 +976,14 @@ impl Admin {
 				));
 				ui.label(format!(
 					"{}: {}",
-					crate::i18n::translate("Join method"),
+					crate::i18n::translate("server-admin-member-card-join-method"),
 					join_method(member)
 				));
 				if let Some(code) = &member.invite_code {
-					ui.label(format!("{}: {code}", crate::i18n::translate("Invite")));
+					ui.label(format!(
+						"{}: {code}",
+						crate::i18n::translate("server-admin-member-card-invite")
+					));
 				}
 				ui.horizontal_wrapped(|ui| {
 					for role in roles
@@ -948,7 +1009,10 @@ impl Admin {
 	) {
 		ui.set_width(190.0);
 		let colors = design::palette(ui);
-		if ui.button(crate::i18n::translate("Profile")).clicked() {
+		if ui
+			.button(crate::i18n::translate("server-admin-member-menu-profile"))
+			.clicked()
+		{
 			profile.command_open(member.user.clone());
 			ui.close();
 		}
@@ -958,7 +1022,9 @@ impl Admin {
 					.recipients
 					.iter()
 					.any(|user| user.id == member.user.id)
-		}) && ui.button(crate::i18n::translate("Message")).clicked()
+		}) && ui
+			.button(crate::i18n::translate("server-admin-member-menu-message"))
+			.clicked()
 		{
 			self.message = Some(dm.id);
 			ui.close();
@@ -966,7 +1032,9 @@ impl Admin {
 		ui.separator();
 		if state.can_edit_guild_nickname(guild, member.user.id)
 			&& ui
-				.button(crate::i18n::translate("Change Nickname"))
+				.button(crate::i18n::translate(
+					"server-admin-member-menu-change-nickname",
+				))
 				.clicked()
 		{
 			self.dialog = Some(Dialog::Nickname {
@@ -985,10 +1053,10 @@ impl Admin {
 				.add_enabled(
 					!state.user_action_pending(),
 					egui::Button::new(
-						RichText::new(crate::i18n::translate(if blocked {
-							"Unblock"
+						RichText::new(crate::i18n::translate_if_key(if blocked {
+							"server-admin-member-menu-unblock"
 						} else {
-							"Block"
+							"server-admin-member-menu-block"
 						}))
 						.color(colors.danger),
 					),
@@ -1007,35 +1075,37 @@ impl Admin {
 			.any(|role| state.can_edit_member_role(guild, member.user.id, role.role.id))
 		{
 			ui.separator();
-			ui.menu_button(crate::i18n::translate("Roles"), |ui| {
-				for role in roles
-					.iter()
-					.filter(|role| state.can_edit_member_role(guild, member.user.id, role.role.id))
-				{
-					let mut assigned = member.roles.contains(&role.role.id);
-					if ui
-						.add_enabled(
-							!state.server_admin.pending,
-							egui::Checkbox::new(&mut assigned, &role.role.name),
-						)
-						.changed()
-					{
-						*action = Some(Action::SetRole {
-							user: member.user.id,
-							role: role.role.id,
-							assigned,
-						});
-						ui.close();
+			ui.menu_button(
+				crate::i18n::translate("server-admin-member-menu-roles"),
+				|ui| {
+					for role in roles.iter().filter(|role| {
+						state.can_edit_member_role(guild, member.user.id, role.role.id)
+					}) {
+						let mut assigned = member.roles.contains(&role.role.id);
+						if ui
+							.add_enabled(
+								!state.server_admin.pending,
+								egui::Checkbox::new(&mut assigned, &role.role.name),
+							)
+							.changed()
+						{
+							*action = Some(Action::SetRole {
+								user: member.user.id,
+								role: role.role.id,
+								assigned,
+							});
+							ui.close();
+						}
 					}
-				}
-			});
+				},
+			);
 		}
 		if state.can_kick_guild_member(guild, member.user.id)
 			&& ui
 				.button(
 					RichText::new(format!(
 						"{} {}",
-						crate::i18n::translate("Kick"),
+						crate::i18n::translate("server-admin-member-menu-kick"),
 						member.user.name
 					))
 					.color(colors.danger),
@@ -1049,7 +1119,12 @@ impl Admin {
 			ui.close();
 		}
 		ui.separator();
-		if ui.button(crate::i18n::translate("Copy User ID")).clicked() {
+		if ui
+			.button(crate::i18n::translate(
+				"server-admin-member-menu-copy-user-id",
+			))
+			.clicked()
+		{
 			ui.ctx().copy_text(member.user.id.to_string());
 			ui.close();
 		}
@@ -1104,28 +1179,33 @@ impl Admin {
 				ui.spacing_mut().item_spacing.y = 10.0;
 				match dialog {
 					Dialog::Rename { name, .. } => {
-						let label = crate::dialog::label(ui, "Emoji name");
+						let label = crate::dialog::label(ui, "server-admin-dialog-emoji-name");
 						crate::dialog::input(ui, egui::TextEdit::singleline(name).char_limit(32))
 							.labelled_by(label.id);
 					}
 					Dialog::Delete { .. } | Dialog::Kick { .. } => {}
 					Dialog::Nickname { name, .. } => {
-						let label = crate::dialog::label(ui, "Nickname");
+						let label = crate::dialog::label(ui, "server-admin-dialog-nickname");
 						crate::dialog::input(
 							ui,
 							egui::TextEdit::singleline(name)
-								.hint_text(crate::i18n::translate("Use their username"))
+								.hint_text(crate::i18n::translate(
+									"server-admin-dialog-use-their-username",
+								))
 								.char_limit(32),
 						)
 						.labelled_by(label.id);
-						crate::dialog::hint(ui, "Leave blank to use their username.");
+						crate::dialog::hint(
+							ui,
+							"server-admin-dialog-leave-blank-to-use-their-username",
+						);
 					}
 					Dialog::Prune { days, counted } => {
-						crate::dialog::label(ui, "Inactive for");
+						crate::dialog::label(ui, "server-admin-dialog-inactive-for");
 						let before = *days;
 						let label = |value| match value {
-							7 => crate::i18n::translate("7 days"),
-							30 => crate::i18n::translate("30 days"),
+							7 => crate::i18n::translate("server-admin-dialog-7-days"),
+							30 => crate::i18n::translate("server-admin-dialog-30-days"),
 							_ => value.to_string(),
 						};
 						egui::ComboBox::from_id_salt("prune-days")
@@ -1169,7 +1249,9 @@ impl Admin {
 								&& state.can_edit_guild_emoji(guild, *id)
 								&& model::server_admin::valid_emoji_name(name),
 							|ui| {
-								if crate::dialog::action(ui, "Save", kind).clicked() {
+								if crate::dialog::action(ui, "server-admin-dialog-save", kind)
+									.clicked()
+								{
 									action = Some(Action::RenameEmoji {
 										id: *id,
 										name: name.clone(),
@@ -1180,7 +1262,9 @@ impl Admin {
 					}
 					Dialog::Delete { id, .. } => {
 						ui.add_enabled_ui(ready && state.can_edit_guild_emoji(guild, *id), |ui| {
-							if crate::dialog::action(ui, "Delete Emoji", kind).clicked() {
+							if crate::dialog::action(ui, "server-admin-dialog-delete-emoji", kind)
+								.clicked()
+							{
 								action = Some(Action::DeleteEmoji { id: *id });
 							}
 						});
@@ -1191,7 +1275,9 @@ impl Admin {
 								&& state.can_edit_guild_nickname(guild, *user)
 								&& !name.chars().any(char::is_control),
 							|ui| {
-								if crate::dialog::action(ui, "Save", kind).clicked() {
+								if crate::dialog::action(ui, "server-admin-dialog-save", kind)
+									.clicked()
+								{
 									action = Some(Action::SetNickname {
 										user: *user,
 										nick: name.clone(),
@@ -1204,7 +1290,13 @@ impl Admin {
 						ui.add_enabled_ui(
 							ready && state.can_kick_guild_member(guild, *user),
 							|ui| {
-								if crate::dialog::action(ui, "Kick Member", kind).clicked() {
+								if crate::dialog::action(
+									ui,
+									"server-admin-dialog-kick-member",
+									kind,
+								)
+								.clicked()
+								{
 									action = Some(Action::Kick { user: *user });
 								}
 							},
@@ -1218,7 +1310,13 @@ impl Admin {
 						ui.add_enabled_ui(
 							previewed && count > 0 && state.can_prune_guild(guild),
 							|ui| {
-								if crate::dialog::action(ui, "Prune Members", kind).clicked() {
+								if crate::dialog::action(
+									ui,
+									"server-admin-dialog-prune-members",
+									kind,
+								)
+								.clicked()
+								{
 									action = Some(Action::Prune {
 										days: *days,
 										execute: true,
@@ -1228,8 +1326,12 @@ impl Admin {
 							},
 						);
 						ui.add_enabled_ui(ready && state.can_prune_guild(guild), |ui| {
-							if crate::dialog::action(ui, "Preview", crate::dialog::Action::Outline)
-								.clicked()
+							if crate::dialog::action(
+								ui,
+								"server-admin-dialog-preview",
+								crate::dialog::Action::Outline,
+							)
+							.clicked()
 							{
 								*counted = Some(*days);
 								action = Some(Action::Prune {
@@ -1241,8 +1343,12 @@ impl Admin {
 					}
 				}
 				ui.add_enabled_ui(!state.server_admin.saving, |ui| {
-					close |= crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral)
-						.clicked();
+					close |= crate::dialog::action(
+						ui,
+						"server-admin-dialog-cancel",
+						crate::dialog::Action::Neutral,
+					)
+					.clicked();
 				});
 			});
 		});
@@ -1258,7 +1364,7 @@ impl Admin {
 	}
 }
 fn cell_text(ui: &mut egui::Ui, text: &str, width: f32, heading: bool) {
-	let translated = heading.then(|| crate::i18n::translate(text));
+	let translated = heading.then(|| crate::i18n::translate_if_key(text));
 	let text = translated.as_deref().unwrap_or(text);
 	ui.allocate_ui_with_layout(
 		egui::vec2(width, if heading { 32.0 } else { 44.0 }),
@@ -1286,18 +1392,18 @@ fn cell_text(ui: &mut egui::Ui, text: &str, width: f32, heading: bool) {
 }
 fn join_method(member: &Member) -> String {
 	if member.invite_code.is_some() {
-		return crate::i18n::translate("Invite");
+		return crate::i18n::translate("server-admin-join-method-invite");
 	}
-	crate::i18n::translate(match member.join_source {
-		Some(1) => "Bot",
-		Some(2) => "Integration",
-		Some(3) => "Discovery",
-		Some(4) => "Student Hub",
-		Some(5) => "Invite",
-		Some(6) => "Vanity URL",
-		Some(7) => "Application",
-		Some(8) => "Linked Lobby",
-		_ => "Unknown",
+	crate::i18n::translate_if_key(match member.join_source {
+		Some(1) => "server-admin-join-method-bot",
+		Some(2) => "server-admin-join-method-integration",
+		Some(3) => "server-admin-join-method-discovery",
+		Some(4) => "server-admin-join-method-student-hub",
+		Some(5) => "server-admin-join-method-invite",
+		Some(6) => "server-admin-join-method-vanity-url",
+		Some(7) => "server-admin-join-method-application",
+		Some(8) => "server-admin-join-method-linked-lobby",
+		_ => "server-admin-join-method-unknown",
 	})
 }
 fn date(millis: Option<i128>) -> String {
@@ -1305,7 +1411,7 @@ fn date(millis: Option<i128>) -> String {
 		.and_then(|millis| millis.checked_mul(1_000_000))
 		.and_then(|nanos| time::OffsetDateTime::from_unix_timestamp_nanos(nanos).ok())
 		.map_or_else(
-			|| crate::i18n::translate("Unknown"),
+			|| crate::i18n::translate("server-admin-date-unknown"),
 			|date| {
 				let date = crate::local_time::local(date);
 				format!(
@@ -1327,20 +1433,26 @@ fn signals(member: &Member) -> String {
 	let now = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
 	let mut signals = Vec::new();
 	if member.timeout_until.is_some_and(|until| until > now) {
-		signals.push(crate::i18n::translate("Timed out"));
+		signals.push(crate::i18n::translate("server-admin-signals-timed-out"));
 	}
 	if member.unusual_dm_until.is_some_and(|until| until > now) {
-		signals.push(crate::i18n::translate("Unusual DM activity"));
+		signals.push(crate::i18n::translate(
+			"server-admin-signals-unusual-dm-activity",
+		));
 	}
 	if let Some(flags) = member.flags {
 		if flags & (1 << 7) != 0 {
-			signals.push(crate::i18n::translate("Username flagged"));
+			signals.push(crate::i18n::translate(
+				"server-admin-signals-username-flagged",
+			));
 		}
 		if flags & (1 << 10) != 0 {
-			signals.push(crate::i18n::translate("Server tag flagged"));
+			signals.push(crate::i18n::translate(
+				"server-admin-signals-server-tag-flagged",
+			));
 		}
 		if flags & 1 != 0 {
-			signals.push(crate::i18n::translate("Rejoined"));
+			signals.push(crate::i18n::translate("server-admin-signals-rejoined"));
 		}
 	}
 	signals.join(", ")

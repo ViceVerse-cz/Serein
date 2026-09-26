@@ -108,7 +108,7 @@ pub(super) fn dot_stat(ui: &mut egui::Ui, color: egui::Color32, value: &str, lab
 	ui.painter().circle_filled(rect.center(), 4.0, color);
 	ui.add_space(-2.0);
 	ui.label(
-		egui::RichText::new(format!("{value} {}", crate::i18n::translate(label)))
+		egui::RichText::new(format!("{value} {}", crate::i18n::translate_if_key(label)))
 			.size(13.0)
 			.color(colors.muted),
 	);
@@ -161,12 +161,12 @@ pub fn show(
 							ui.set_width(width - 32.0);
 							ui.set_height(CARD_HEIGHT - 32.0);
 							ui.spacing_mut().item_spacing.y = 0.0;
-							let eyebrow = crate::i18n::translate(if member {
-								"You're a member of"
+							let eyebrow = crate::i18n::translate_if_key(if member {
+								"invites-show-you-re-a-member-of"
 							} else if failed {
-								"Invite unavailable"
+								"invites-show-invite-unavailable"
 							} else {
-								"You've been invited to join a server"
+								"invites-show-you-ve-been-invited-to-join-a-server"
 							});
 							ui.label(crate::design::eyebrow(ui, eyebrow, colors.muted));
 							ui.add_space(12.0);
@@ -202,16 +202,16 @@ pub fn show(
 								}
 
 								// Action first so the text column gets whatever width remains.
-								let label = crate::i18n::translate(if member {
-									"Go To Server"
+								let label = crate::i18n::translate_if_key(if member {
+									"invites-show-go-to-server"
 								} else if verification {
-									"Verify"
+									"invites-show-verify"
 								} else if pending {
-									"Joining…"
+									"invites-show-joining"
 								} else if accepted {
-									"Accepted"
+									"invites-show-accepted"
 								} else {
-									"Join"
+									"invites-show-join"
 								});
 								ui.with_layout(
 									egui::Layout::right_to_left(egui::Align::Center),
@@ -259,12 +259,12 @@ pub fn show(
 												let title = embed
 													.and_then(|e| e.title.clone())
 													.unwrap_or_else(|| {
-														crate::i18n::translate(if failed {
-															"Invite expired or invalid"
+														crate::i18n::translate_if_key(if failed {
+															"invites-show-invite-expired-or-invalid"
 														} else if demo {
-															"Server preview"
+															"invites-show-server-preview"
 														} else {
-															"Loading…"
+															"invites-show-loading"
 														})
 													});
 												ui.add(
@@ -301,7 +301,7 @@ pub fn show(
 														None => {
 															let text = if verification {
 																crate::i18n::translate(
-																	"Verification required",
+																	"invites-show-verification-required",
 																)
 															} else if let Some(f) = join_error {
 																f.label().to_owned()
@@ -312,15 +312,15 @@ pub fn show(
 																d.to_owned()
 															} else if demo {
 																crate::i18n::translate(
-																	"Preview unavailable offline",
+																	"invites-show-preview-unavailable-offline",
 																)
 															} else if failed {
 																crate::i18n::translate(
-																	"This invite may have expired",
+																	"invites-show-this-invite-may-have-expired",
 																)
 															} else {
 																crate::i18n::translate(
-																	"Fetching server details…",
+																	"invites-show-fetching-server-details",
 																)
 															};
 															ui.add(

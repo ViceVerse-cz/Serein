@@ -91,7 +91,7 @@ pub fn show(
 									design::medium(
 										ui,
 										state.user.as_ref().map_or_else(
-											|| crate::i18n::translate("You"),
+											|| crate::i18n::translate("pending-show-you"),
 											|u| u.name.clone(),
 										),
 										15.5,
@@ -190,18 +190,18 @@ pub fn show(
 						if pending.delivery == Delivery::Ambiguous {
 							ui.label(
 								RichText::new(crate::i18n::translate(
-									"Check the conversation before sending again.",
+									"pending-show-check-the-conversation-before-sending-again",
 								))
 								.small()
 								.color(colors.muted),
 							);
 						}
 						if ui
-							.button(crate::i18n::translate(
+							.button(crate::i18n::translate_if_key(
 								&(if pending.sticker.is_some() {
-									crate::i18n::translate("Dismiss")
+									crate::i18n::translate("pending-show-dismiss")
 								} else {
-									crate::i18n::translate("Restore to composer")
+									crate::i18n::translate("pending-show-restore-to-composer")
 								}),
 							))
 							.clicked()
@@ -353,10 +353,10 @@ fn upload_strip(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>, c
 							ui,
 							icons::Icon::Close,
 							24.0,
-							&crate::i18n::translate("Cancel upload"),
+							&crate::i18n::translate("pending-upload-strip-cancel-upload"),
 						)
 						.on_hover_text(crate::i18n::translate(
-							"The message may already have reached Discord. Check the conversation before sending again.",
+							"pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation",
 						))
 						.clicked()
 					{

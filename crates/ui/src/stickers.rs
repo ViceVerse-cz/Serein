@@ -179,7 +179,7 @@ impl Browser {
 								if matching.is_empty() {
 									ui.label(
 										egui::RichText::new(crate::i18n::translate(
-											"This server has no stickers yet.",
+											"stickers-show-this-server-has-no-stickers-yet",
 										))
 										.color(colors.muted),
 									);
@@ -227,14 +227,14 @@ impl Browser {
 												}
 												if !enabled {
 													response.on_disabled_hover_text(
-														crate::i18n::translate(
+														crate::i18n::translate_if_key(
 															if !as_image
 																&& state
 																	.sticker_requires_nitro(sticker)
 															{
-																"Nitro is required to use this sticker outside its server."
+																"stickers-show-nitro-is-required-to-use-this-sticker-outside-its-server"
 															} else {
-																"This sticker is unavailable with the current connection or permissions."
+																"stickers-show-this-sticker-is-unavailable-with-the-current-connection-or-permissions"
 															},
 														),
 													);
@@ -250,16 +250,16 @@ impl Browser {
 							}
 							if !query.is_empty() && results >= 500 {
 								ui.small(crate::i18n::translate(
-									"Showing the first 500 stickers. Search to narrow the results.",
+									"stickers-show-showing-the-first-500-stickers-search-to-narrow-the-results",
 								));
 								break;
 							}
 						}
 						if results == 0 && !query.is_empty() {
-							ui.label(crate::i18n::translate("No stickers found."));
+							ui.label(crate::i18n::translate("stickers-show-no-stickers-found"));
 						}
 						if state.stickers.loading {
-							ui.label(crate::i18n::translate("Loading sticker packs…"));
+							ui.label(crate::i18n::translate("stickers-show-loading-sticker-packs"));
 						}
 					});
 			});
@@ -327,19 +327,23 @@ pub(crate) fn message(
 			if let Some(section) = section {
 				ui.label(format!(
 					"{} {} {}.",
-					crate::i18n::translate("This is a"),
+					crate::i18n::translate("stickers-message-this-is-a"),
 					section.name,
-					crate::i18n::translate("sticker")
+					crate::i18n::translate("stickers-message-sticker")
 				));
 			} else if state.stickers.detail_loading == Some(sticker.id) {
-				ui.label(crate::i18n::translate("Loading sticker details…"));
+				ui.label(crate::i18n::translate(
+					"stickers-message-loading-sticker-details",
+				));
 			} else {
 				ui.label(state.stickers.detail_error.map_or_else(
-					|| crate::i18n::translate("Sticker details unavailable."),
+					|| crate::i18n::translate("stickers-message-sticker-details-unavailable"),
 					str::to_owned,
 				));
 				if ui
-					.button(crate::i18n::translate("Retry sticker details"))
+					.button(crate::i18n::translate(
+						"stickers-message-retry-sticker-details",
+					))
 					.clicked()
 				{
 					*request = Some(sticker.id);
@@ -370,7 +374,11 @@ pub(crate) fn message(
 				});
 			}
 			ui.separator();
-			if design::secondary_button(ui, &crate::i18n::translate("View More Stickers")).clicked()
+			if design::secondary_button(
+				ui,
+				&crate::i18n::translate("stickers-message-view-more-stickers"),
+			)
+			.clicked()
 			{
 				*browse = Some(detail.clone());
 				ui.close();

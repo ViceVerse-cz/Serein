@@ -42,8 +42,8 @@ pub(crate) fn server_tag(
 		.response
 		.on_hover_text(format!(
 			"{} · {} {}",
-			crate::i18n::translate("Server tag"),
-			crate::i18n::translate("server"),
+			crate::i18n::translate("profiles-server-tag-server-tag"),
+			crate::i18n::translate("profiles-server-tag-server"),
 			tag.guild
 		))
 }
@@ -80,7 +80,7 @@ pub(crate) fn activity_card(
 			ui.set_width(ui.available_width());
 			ui.horizontal(|ui| {
 				let heading = if spotify {
-					crate::i18n::translate("Listening to Spotify")
+					crate::i18n::translate("profiles-activity-card-listening-to-spotify")
 				} else {
 					activity_verb(activity)
 				};
@@ -93,10 +93,15 @@ pub(crate) fn activity_card(
 						ui,
 						Icon::More,
 						20.0,
-						&crate::i18n::translate("Activity options"),
+						&crate::i18n::translate("profiles-activity-card-activity-options"),
 					);
 					egui::Popup::menu(&more).show(|ui| {
-						if ui.button(crate::i18n::translate("Copy activity")).clicked() {
+						if ui
+							.button(crate::i18n::translate(
+								"profiles-activity-card-copy-activity",
+							))
+							.clicked()
+						{
 							let mut text = activity_summary(activity);
 							for line in [&activity.details, &activity.state].into_iter().flatten() {
 								text.push('\n');
@@ -263,7 +268,7 @@ fn activity_row(
 			true,
 			format!(
 				"{} {}",
-				crate::i18n::translate("Show"),
+				crate::i18n::translate("profiles-activity-row-show"),
 				activity_summary(activity)
 			),
 		)
@@ -359,7 +364,7 @@ fn actions_enabled(state: &State) -> bool {
 }
 /// Translucent round button over the banner; disabled circles still show their tooltip.
 fn header_circle(ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool) -> egui::Response {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	let (rect, response) = ui.allocate_exact_size(
 		Vec2::splat(CIRCLE),
 		if enabled {
@@ -450,7 +455,7 @@ fn more_menu(
 	// Message is the card's own footer button, so the menu does not repeat it.
 	if user.webhook
 		&& ui
-			.button(crate::i18n::translate("Copy webhook ID"))
+			.button(crate::i18n::translate("profiles-more-menu-copy-webhook-id"))
 			.clicked()
 	{
 		ui.ctx().copy_text(user.id.to_string());
@@ -465,7 +470,7 @@ fn more_menu(
 	if ui
 		.add_enabled(
 			enabled,
-			egui::Button::new(crate::i18n::translate("Add Note")),
+			egui::Button::new(crate::i18n::translate("profiles-more-menu-add-note")),
 		)
 		.clicked()
 	{
@@ -475,16 +480,16 @@ fn more_menu(
 	if ui
 		.add_enabled(
 			enabled && friend,
-			egui::Button::new(crate::i18n::translate(
+			egui::Button::new(crate::i18n::translate_if_key(
 				&(if state.friend_nickname(user.id).is_some() {
-					crate::i18n::translate("Edit Friend Nickname")
+					crate::i18n::translate("profiles-more-menu-edit-friend-nickname")
 				} else {
-					crate::i18n::translate("Add Friend Nickname")
+					crate::i18n::translate("profiles-more-menu-add-friend-nickname")
 				}),
 			)),
 		)
 		.on_disabled_hover_text(crate::i18n::translate(
-			"Private nicknames are available for confirmed friends.",
+			"profiles-more-menu-private-nicknames-are-available-for-confirmed-friends",
 		))
 		.clicked()
 	{
@@ -499,16 +504,16 @@ fn more_menu(
 		if ui
 			.add_enabled(
 				enabled,
-				egui::Button::new(crate::i18n::translate(
+				egui::Button::new(crate::i18n::translate_if_key(
 					&(if muted {
-						crate::i18n::translate("Unmute")
+						crate::i18n::translate("profiles-more-menu-unmute")
 					} else {
-						crate::i18n::translate("Mute")
+						crate::i18n::translate("profiles-more-menu-mute")
 					}),
 				)),
 			)
 			.on_hover_text(crate::i18n::translate(
-				"Mute this direct message's notifications until you unmute it.",
+				"profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it",
 			))
 			.clicked()
 		{
@@ -519,16 +524,19 @@ fn more_menu(
 			ui.close();
 		}
 	} else {
-		ui.add_enabled(false, egui::Button::new(crate::i18n::translate("Mute")))
-			.on_disabled_hover_text(crate::i18n::translate(
-				"No open direct message with this user.",
-			));
+		ui.add_enabled(
+			false,
+			egui::Button::new(crate::i18n::translate("profiles-more-menu-mute")),
+		)
+		.on_disabled_hover_text(crate::i18n::translate(
+			"profiles-more-menu-no-open-direct-message-with-this-user",
+		));
 	}
 	if friend
 		&& ui
 			.add_enabled(
 				enabled,
-				egui::Button::new(crate::i18n::translate("Remove Friend")),
+				egui::Button::new(crate::i18n::translate("profiles-more-menu-remove-friend")),
 			)
 			.clicked()
 	{
@@ -541,11 +549,11 @@ fn more_menu(
 		.add_enabled(
 			enabled,
 			egui::Button::new(
-				RichText::new(crate::i18n::translate(
+				RichText::new(crate::i18n::translate_if_key(
 					&(if blocked {
-						crate::i18n::translate("Unblock")
+						crate::i18n::translate("profiles-more-menu-unblock")
 					} else {
-						crate::i18n::translate("Block")
+						crate::i18n::translate("profiles-more-menu-block")
 					}),
 				))
 				.color(colors.danger),
@@ -775,13 +783,13 @@ pub(crate) fn is_spotify(activity: &model::RichActivity) -> bool {
 }
 
 fn activity_verb(activity: &model::RichActivity) -> String {
-	crate::i18n::translate(match activity.kind {
-		0 => "Playing",
-		1 => "Streaming",
-		2 => "Listening to",
-		3 => "Watching",
-		5 => "Competing in",
-		_ => "Activity",
+	crate::i18n::translate_if_key(match activity.kind {
+		0 => "profiles-activity-verb-playing",
+		1 => "profiles-activity-verb-streaming",
+		2 => "profiles-activity-verb-listening-to",
+		3 => "profiles-activity-verb-watching",
+		5 => "profiles-activity-verb-competing-in",
+		_ => "profiles-activity-verb-activity",
 	})
 }
 
@@ -951,7 +959,7 @@ impl Theme {
 }
 /// Section title; adds breathing room before every section after the first.
 fn section(ui: &mut egui::Ui, theme: &Theme, count: &mut usize, text: &str) {
-	let text = crate::i18n::translate(text);
+	let text = crate::i18n::translate_if_key(text);
 	if *count > 0 {
 		ui.add_space(10.0);
 	}
@@ -1084,7 +1092,9 @@ fn role_chips(
 			response
 				.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label.clone()));
 			if response
-				.on_hover_text(crate::i18n::translate("Show remaining roles"))
+				.on_hover_text(crate::i18n::translate(
+					"profiles-role-chips-show-remaining-roles",
+				))
 				.clicked()
 			{
 				ui.data_mut(|data| data.insert_temp(expanded_id, true));
@@ -1329,7 +1339,7 @@ pub fn show(
 					.layout(egui::Layout::right_to_left(egui::Align::Center)),
 				|ui| {
 					ui.spacing_mut().item_spacing.x = 8.0;
-					let more = header_circle(ui, Icon::More, "More", true);
+					let more = header_circle(ui, Icon::More, "profiles-show-more", true);
 					egui::Popup::menu(&more).id(menu_id).show(|ui| {
 						if let Some(picked) = more_menu(ui, state, user, dm_channel) {
 							action = Some(picked);
@@ -1353,7 +1363,7 @@ pub fn show(
 				let banner_response = if !pointer_in_subwidgets {
 					banner_response
 						.on_hover_cursor(egui::CursorIcon::ZoomIn)
-						.on_hover_text(crate::i18n::translate("View banner"))
+						.on_hover_text(crate::i18n::translate("profiles-show-view-banner"))
 				} else {
 					banner_response
 				};
@@ -1361,7 +1371,7 @@ pub fn show(
 					egui::WidgetInfo::labeled(
 						egui::Role::Button,
 						true,
-						crate::i18n::translate("View banner"),
+						crate::i18n::translate("profiles-show-view-banner"),
 					)
 				});
 				let pointer_interact_in_subwidgets = ui.input(|i| {
@@ -1401,13 +1411,15 @@ pub fn show(
 					egui::WidgetInfo::labeled(
 						egui::Role::Button,
 						true,
-						crate::i18n::translate("View profile picture"),
+						crate::i18n::translate("profiles-show-view-profile-picture"),
 					)
 				});
 				if !pointer_on_presence {
 					response = response
 						.on_hover_cursor(egui::CursorIcon::ZoomIn)
-						.on_hover_text(crate::i18n::translate("View profile picture"));
+						.on_hover_text(crate::i18n::translate(
+							"profiles-show-view-profile-picture",
+						));
 				}
 				if response.clicked() && !pointer_on_presence {
 					let mut url = data.map_or(user, |data| &data.user).avatar_url();
@@ -1503,7 +1515,9 @@ pub fn show(
 								design::notice(
 									ui,
 									design::Level::Warning,
-									&crate::i18n::translate("Unable to load parts of profile"),
+									&crate::i18n::translate(
+										"profiles-show-unable-to-load-parts-of-profile",
+									),
 								);
 								ui.add_space(6.0);
 							}
@@ -1570,8 +1584,8 @@ pub fn show(
 										.response
 										.on_hover_text(format!(
 											"{} · {} {}",
-											crate::i18n::translate("Server tag"),
-											crate::i18n::translate("server"),
+											crate::i18n::translate("profiles-show-server-tag"),
+											crate::i18n::translate("profiles-show-server"),
 											clan.guild
 										));
 								}
@@ -1633,16 +1647,20 @@ pub fn show(
 								ui.horizontal(|ui| {
 									ui.spinner();
 									ui.label(
-										RichText::new(crate::i18n::translate("Loading profile…"))
-											.size(13.0)
-											.color(theme.muted),
+										RichText::new(crate::i18n::translate(
+											"profiles-show-loading-profile",
+										))
+										.size(13.0)
+										.color(theme.muted),
 									);
 								});
 							}
 							if let Some(error) = view.and_then(|v| v.error) {
 								ui.add_space(4.0);
 								if ui
-									.small_button(crate::i18n::translate("Retry profile"))
+									.small_button(crate::i18n::translate(
+										"profiles-show-retry-profile",
+									))
 									.on_hover_text(error)
 									.clicked()
 								{
@@ -1682,7 +1700,12 @@ pub fn show(
 												.filter(|s| !s.is_empty())
 												.unwrap_or(&data.bio);
 											if !bio.is_empty() {
-												section(ui, &theme, &mut sections, "ABOUT ME");
+												section(
+													ui,
+													&theme,
+													&mut sections,
+													"profiles-show-about-me",
+												);
 												let mut linked = ProfileSession::default();
 												formatted.get(user.id, bio).show_with_images(
 													ui,
@@ -1705,10 +1728,20 @@ pub fn show(
 														})
 													},
 												) {
-												section(ui, &theme, &mut sections, "ROLES");
+												section(
+													ui,
+													&theme,
+													&mut sections,
+													"profiles-show-roles",
+												);
 												role_chips(ui, &theme, state, data.user.id, guild);
 											}
-											section(ui, &theme, &mut sections, "MEMBER SINCE");
+											section(
+												ui,
+												&theme,
+												&mut sections,
+												"profiles-show-member-since",
+											);
 											ui.horizontal_wrapped(|ui| {
 												ui.spacing_mut().item_spacing.x = 6.0;
 												if let Some(date) = creation_date(user.id) {
@@ -1734,7 +1767,11 @@ pub fn show(
 																})
 															})
 															.map_or_else(
-																|| crate::i18n::translate("Server"),
+																|| {
+																	crate::i18n::translate(
+																		"profiles-show-server-2",
+																	)
+																},
 																|g| g.name.clone(),
 															);
 													ui.label(
@@ -1787,11 +1824,11 @@ pub fn show(
 														RichText::new(format!(
 															"{} {}",
 															names.len(),
-															crate::i18n::translate(
+															crate::i18n::translate_if_key(
 																if names.len() == 1 {
-																	"Mutual Server"
+																	"profiles-show-mutual-server"
 																} else {
-																	"Mutual Servers"
+																	"profiles-show-mutual-servers"
 																}
 															)
 														))
@@ -1812,8 +1849,10 @@ pub fn show(
 							.add_sized(
 								[ui.available_width(), 32.0],
 								egui::Button::new(
-									RichText::new(crate::i18n::translate("Edit profile"))
-										.color(colors.accent_text),
+									RichText::new(crate::i18n::translate(
+										"profiles-show-edit-profile",
+									))
+									.color(colors.accent_text),
 								)
 								.fill(colors.accent)
 								.stroke(Stroke::NONE)
@@ -1830,7 +1869,7 @@ pub fn show(
 								egui::Button::new(
 									RichText::new(format!(
 										"{} @{}",
-										crate::i18n::translate("Message"),
+										crate::i18n::translate("profiles-show-message"),
 										user.name
 									))
 									.color(colors.accent_text)
@@ -1849,9 +1888,11 @@ pub fn show(
 							.add_sized(
 								[ui.available_width(), 32.0],
 								egui::Button::new(
-									RichText::new(crate::i18n::translate("Copy webhook ID"))
-										.size(13.0)
-										.strong(),
+									RichText::new(crate::i18n::translate(
+										"profiles-show-copy-webhook-id",
+									))
+									.size(13.0)
+									.strong(),
 								)
 								.corner_radius(RADIUS),
 							)
@@ -1861,9 +1902,11 @@ pub fn show(
 					}
 					if state.demo {
 						ui.label(
-							RichText::new(crate::i18n::translate("Offline preview · synthetic"))
-								.size(11.0)
-								.color(theme.muted),
+							RichText::new(crate::i18n::translate(
+								"profiles-show-offline-preview-synthetic",
+							))
+							.size(11.0)
+							.color(theme.muted),
 						);
 					}
 				});

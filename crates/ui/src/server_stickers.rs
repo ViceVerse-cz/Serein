@@ -129,17 +129,19 @@ impl StickersUi {
 
 		ui.label(design::semibold(
 			ui,
-			crate::i18n::translate("Stickers"),
+			crate::i18n::translate("server-stickers-show-stickers"),
 			22.0,
 		));
-		ui.label(crate::i18n::translate("Add custom stickers for members to use in this server. Artwork is cropped and resized to 320 × 320 pixels before upload."));
+		ui.label(crate::i18n::translate(
+			"server-stickers-show-add-custom-stickers-for-members-to-use-in-this-server",
+		));
 		ui.add_space(14.0);
 		if let Some(error) = state.server_admin.error.or(self.error) {
 			design::notice(ui, design::Level::Error, error);
 			if ui
 				.add_enabled(
 					!state.server_admin.pending,
-					egui::Button::new(crate::i18n::translate("Reload")),
+					egui::Button::new(crate::i18n::translate("server-stickers-show-reload")),
 				)
 				.clicked() && let Some(command) =
 				state.request_server_admin(guild, Action::LoadStickers)
@@ -151,11 +153,13 @@ impl StickersUi {
 		if state.server_admin.pending {
 			ui.horizontal(|ui| {
 				ui.spinner();
-				ui.weak(crate::i18n::translate(if state.server_admin.saving {
-					"Saving changes…"
-				} else {
-					"Loading…"
-				}));
+				ui.weak(crate::i18n::translate_if_key(
+					if state.server_admin.saving {
+						"server-stickers-show-saving-changes"
+					} else {
+						"server-stickers-show-loading"
+					},
+				));
 			});
 		}
 
@@ -166,7 +170,7 @@ impl StickersUi {
 					|ui| {
 						design::button(
 							ui,
-							&crate::i18n::translate("Upload Sticker"),
+							&crate::i18n::translate("server-stickers-show-upload-sticker"),
 							design::ButtonKind::Primary,
 						)
 					},
@@ -176,10 +180,14 @@ impl StickersUi {
 			{
 				self.choose();
 			}
-			ui.small(crate::i18n::translate("Static PNG, JPEG and WebP artwork is supported up to 8 MB. The prepared PNG must fit within Discord's 512 KB limit."));
+			ui.small(crate::i18n::translate(
+				"server-stickers-show-static-png-jpeg-and-webp-artwork-is-supported-up-to",
+			));
 		}
 		if self.choosing {
-			ui.weak(crate::i18n::translate("Preparing sticker artwork…"));
+			ui.weak(crate::i18n::translate(
+				"server-stickers-show-preparing-sticker-artwork",
+			));
 		}
 		if let Some(upload) = &mut self.upload {
 			let colors = design::palette(ui);
@@ -189,37 +197,72 @@ impl StickersUi {
 				.corner_radius(10)
 				.inner_margin(14)
 				.show(ui, |ui| {
-					ui.label(design::semibold(ui, crate::i18n::translate("Review sticker"), 16.0));
+					ui.label(design::semibold(
+						ui,
+						crate::i18n::translate("server-stickers-show-review-sticker"),
+						16.0,
+					));
 					ui.horizontal(|ui| {
-						ui.add(egui::Image::from_texture(&upload.texture).fit_to_exact_size(egui::Vec2::splat(96.0)));
+						ui.add(
+							egui::Image::from_texture(&upload.texture)
+								.fit_to_exact_size(egui::Vec2::splat(96.0)),
+						);
 						ui.vertical(|ui| {
-							crate::dialog::label(ui, "Name");
+							crate::dialog::label(ui, "server-stickers-show-name");
 							ui.add(egui::TextEdit::singleline(&mut upload.name).char_limit(30));
-							crate::dialog::label(ui, "Related emoji");
-							ui.add(egui::TextEdit::singleline(&mut upload.tags).hint_text(crate::i18n::translate("For example: 🐀")).char_limit(200));
+							crate::dialog::label(ui, "server-stickers-show-related-emoji");
+							ui.add(
+								egui::TextEdit::singleline(&mut upload.tags)
+									.hint_text(crate::i18n::translate(
+										"server-stickers-show-for-example",
+									))
+									.char_limit(200),
+							);
 						});
 					});
-					crate::dialog::label(ui, "Description (optional)");
+					crate::dialog::label(ui, "server-stickers-show-description-optional");
 					ui.add(egui::TextEdit::singleline(&mut upload.description).char_limit(100));
 					let valid = valid_fields(&upload.name, &upload.description, &upload.tags);
 					if !valid {
-						design::notice(ui, design::Level::Error, &crate::i18n::translate("Use a 2–30 character name, an optional description up to 100 characters, and at least one related emoji."));
+						design::notice(
+							ui,
+							design::Level::Error,
+							&crate::i18n::translate(
+								"server-stickers-show-use-a-230-character-name-an-optional-description-up-to",
+							),
+						);
 					}
 					ui.horizontal(|ui| {
-						if ui.add_enabled(valid && !state.server_admin.pending, egui::Button::new(crate::i18n::translate("Upload"))).clicked()
-							&& let Some(command) = state.request_server_admin(guild, Action::CreateSticker {
+						if ui
+							.add_enabled(
+								valid && !state.server_admin.pending,
+								egui::Button::new(crate::i18n::translate(
+									"server-stickers-show-upload",
+								)),
+							)
+							.clicked() && let Some(command) = state.request_server_admin(
+							guild,
+							Action::CreateSticker {
 								name: upload.name.trim().to_owned(),
 								description: upload.description.trim().to_owned(),
 								tags: upload.tags.trim().to_owned(),
 								filename: upload.filename.clone(),
 								content_type: "image/png".into(),
 								file: upload.file.clone(),
-							})
-						{
+							},
+						) {
 							self.submitted_upload = true;
 							commands.push(command);
 						}
-						if ui.add_enabled(!state.server_admin.pending, egui::Button::new(crate::i18n::translate("Cancel"))).clicked() {
+						if ui
+							.add_enabled(
+								!state.server_admin.pending,
+								egui::Button::new(crate::i18n::translate(
+									"server-stickers-show-cancel",
+								)),
+							)
+							.clicked()
+						{
 							cancel_upload = true;
 						}
 					});
@@ -239,18 +282,23 @@ impl StickersUi {
 		ui.horizontal(|ui| {
 			ui.label(design::semibold(
 				ui,
-				crate::i18n::translate("Your stickers"),
+				crate::i18n::translate("server-stickers-show-your-stickers"),
 				18.0,
 			));
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				ui.weak(catalog.limit.map_or_else(
-					|| format!("{count} {}", crate::i18n::translate("stickers")),
+					|| {
+						format!(
+							"{count} {}",
+							crate::i18n::translate("server-stickers-show-stickers-2")
+						)
+					},
 					|limit| {
 						format!(
 							"{} {} {limit} {}",
 							count.min(limit),
-							crate::i18n::translate("of"),
-							crate::i18n::translate("slots used")
+							crate::i18n::translate("server-stickers-show-of"),
+							crate::i18n::translate("server-stickers-show-slots-used")
 						)
 					},
 				));
@@ -258,7 +306,11 @@ impl StickersUi {
 		});
 		ui.add_space(10.0);
 		if catalog.items.is_empty() {
-			ui.vertical_centered(|ui| ui.weak(crate::i18n::translate("No custom stickers yet.")));
+			ui.vertical_centered(|ui| {
+				ui.weak(crate::i18n::translate(
+					"server-stickers-show-no-custom-stickers-yet",
+				))
+			});
 		} else {
 			let available = ui.available_width();
 			let columns = ((available / 190.0).floor() as usize).clamp(1, 4);
@@ -297,7 +349,7 @@ impl StickersUi {
 										if let Some(user) = &row.uploader {
 											ui.weak(format!(
 												"{} {}",
-												crate::i18n::translate("by"),
+												crate::i18n::translate("server-stickers-show-by"),
 												user.name
 											));
 										}
@@ -306,11 +358,15 @@ impl StickersUi {
 												ui,
 												icons::Icon::More,
 												22.0,
-												&crate::i18n::translate("Sticker actions"),
+												&crate::i18n::translate(
+													"server-stickers-show-sticker-actions",
+												),
 											);
 											egui::Popup::menu(&button).show(|ui| {
 												if ui
-													.button(crate::i18n::translate("Edit"))
+													.button(crate::i18n::translate(
+														"server-stickers-show-edit",
+													))
 													.clicked()
 												{
 													self.dialog = Some(Dialog::Edit {
@@ -327,7 +383,7 @@ impl StickersUi {
 												if ui
 													.button(
 														RichText::new(crate::i18n::translate(
-															"Delete Sticker",
+															"server-stickers-show-delete-sticker",
 														))
 														.color(design::palette(ui).danger),
 													)
@@ -391,18 +447,19 @@ impl StickersUi {
 					tags,
 					..
 				} => {
-					let label = crate::dialog::label(ui, "Name");
+					let label = crate::dialog::label(ui, "server-stickers-dialog-name");
 					crate::dialog::input(ui, egui::TextEdit::singleline(name).char_limit(30))
 						.labelled_by(label.id);
 					ui.add_space(12.0);
-					let label = crate::dialog::label(ui, "Description (optional)");
+					let label =
+						crate::dialog::label(ui, "server-stickers-dialog-description-optional");
 					crate::dialog::input(
 						ui,
 						egui::TextEdit::singleline(description).char_limit(100),
 					)
 					.labelled_by(label.id);
 					ui.add_space(12.0);
-					let label = crate::dialog::label(ui, "Related emoji");
+					let label = crate::dialog::label(ui, "server-stickers-dialog-related-emoji");
 					crate::dialog::input(ui, egui::TextEdit::singleline(tags).char_limit(200))
 						.labelled_by(label.id);
 				}
@@ -424,7 +481,7 @@ impl StickersUi {
 								|ui| {
 									crate::dialog::action(
 										ui,
-										"Save",
+										"server-stickers-dialog-save",
 										crate::dialog::Action::Primary,
 									)
 								},
@@ -448,7 +505,7 @@ impl StickersUi {
 								|ui| {
 									crate::dialog::action(
 										ui,
-										"Delete Sticker",
+										"server-stickers-dialog-delete-sticker",
 										crate::dialog::Action::Danger,
 									)
 								},
@@ -460,8 +517,12 @@ impl StickersUi {
 						}
 					}
 				}
-				cancel =
-					crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral).clicked();
+				cancel = crate::dialog::action(
+					ui,
+					"server-stickers-dialog-cancel",
+					crate::dialog::Action::Neutral,
+				)
+				.clicked();
 			});
 		});
 		if let Some(action) = action.and_then(|action| state.request_server_admin(guild, action)) {

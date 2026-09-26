@@ -1,8 +1,9 @@
+# cs application translations. Edit with Weblate or any Fluent editor.
+
 language-system = Systém
 language-group = Jazyk
 language-label = Jazyk zobrazení
 language-description = Zvolte jazyk aplikace Serein. Obsah Discordu se nepřekládá.
-
 section-user = Uživatelská nastavení
 section-app = Nastavení aplikace
 section-customization = Přizpůsobení
@@ -43,7 +44,6 @@ exit-preview = Ukončit náhled
 log-out = Odhlásit se
 unofficial = Neoficiální · bez podpory Discordu
 offline-preview = Offline náhled · změny zůstanou v této relaci a nikdy se neodešlou.
-
 general-startup = Spouštění
 general-open-at-startup = Otevřít Serein při spuštění počítače
 general-open-at-startup-description = Serein se přihlásí a připojí na pozadí.
@@ -71,7 +71,6 @@ gpu-power-saving = Úspora energie
 gpu-automatic-description = Nechá Serein vybrat grafický procesor, který dokáže vykreslit toto okno.
 gpu-high-performance-description = Použije samostatnou grafickou kartu, pokud je dostupná.
 gpu-power-saving-description = Použije integrovanou grafiku a šetří baterii.
-
 direct-messages = Přímé zprávy
 find-conversation = Najít konverzaci
 find-conversation-tooltip = Hledat v načtených konverzacích (Ctrl/Cmd+K)
@@ -106,7 +105,6 @@ new = Nové
 members-count = členů
 no-conversation-selected = Není vybrána žádná konverzace
 select-conversation = Vyberte kanál nebo přímou zprávu ze seznamu.
-
 friends-online = Online
 friends-all = Všichni
 friends-pending = Čekající
@@ -157,3378 +155,3839 @@ friends-message = Zpráva
 friends-no-open-dm = S tímto přítelem není otevřena přímá zpráva
 friends-more = Další
 
-# Generated source-string catalog. Keep IDs stable for Weblate.
-source-e2ba7fbf33ab62fe = #generál
-source-9977d117b71711b0 = %2f
-source-9982c617b7210684 = %5c
-source-baf2dbcb41ca49a9 = (upraveno)
-source-e0ed93235f2a2ab9 = ) || app.to_string_lossy().contains(
-source-3d7f7d45f5797cde = ) || trimed.starts_with(
-source-0779469a6798d2fc = )).ok().as_deref() != Some(b
-source-bb8d97aea98a947e = ), b
-source-59a720932871d607 = + Přidat datum
-source-bf7ff2a762b953b2 = + Přidat roli nebo člena
-source-1f2de94f6e6187ec = + rychlý start
-source-07e41807b4a8904c = +N
-source-40b22805b11260c7 = , archivováno
-source-c5b3f06b281de12c = , připojeno
-source-b83de214b3209bdf = , v hovoru
-source-fae85bb22e04597e = , nepřečteno
-source-d33288cf3eeaad27 = --demo-attachment=soubor
-source-0ea6d02e8844dd06 = --demo-attachment=multi
-source-4fd3ebfc1710d76a = --demo-search=
-source-9e006ae718da324b = --demo-theme=
-source-4dc61da1eeb8f3f6 = --verbose=4
-source-0f71f13f53a39740 = -Politika provádění
-source-0d3da451019087ce = -Soubor
-source-2975f187c708676d = -Neinteraktivní
-source-6be0ff5bacd01f48 = -Žádný profil
-source-d09a059444612f6b = ../../../assets/fonts/Inter-Medium.ttf
-source-db87a62631254afc = ../../../assets/fonts/Inter-Regular.ttf
-source-b3f9bc5db076a85d = ../../../assets/fonts/Inter-SemiBold.ttf
-source-2174a82f7cb4d130 = ../../../assets/fonts/NotoSansArabic.ttf
-source-56798272dfae0cd3 = ../../../assets/fonts/NotoSansCJKjp-Regular.otf.zst
-source-6404e137c225dd0e = ../../../assets/fonts/NotoSansMath-Regular.otf
-source-6327c42f4782df6d = .AppImage
-source-b94d8847e8f94e30 = /gif [hledat]
-source-1a2c133bb397554b = /me text
-source-449d520d45422fdf = /msg @uživatel [zpráva]
-source-674e308a38d8a4da = /pokrčit rameny [text]
-source-e2c06636acbfd6cf = /text spoileru
-source-c789a1242b2311ab = /nálepka [hledat]
-source-d6f5937541bfb796 = /tableflip [text]
-source-fcfe9af1d2d30f5b = /unflip [text]
-source-fdee446bfb652060 = 0 % ukazuje obrázek. 100 % je plná barva sekce.
-source-6d751d7dbb90136d = 0:a:0?
-source-d73e89fb5ca7534e = 1 den
-source-44e1f16ea614011d = 1 žádost o přátelství
-source-9899f07ee811b5ca = 1 hodina
-source-1aedef77d184c8ea = 1 hodina
-source-686ab4dd58b52fb3 = 1 zpráva
-source-f4744aa41d96cd8e = 1 žádost o zprávu
-source-8734d3112c508504 = 1 minuta
-source-57a8c5a751acc7d8 = 1 týden
-source-36f5d5123da1d24d = 10 minut
-source-8d13513f9c9a0c51 = 10 sekund
-source-9f884ca9528441cf = 100% je původní úroveň. Vyšší úrovně mohou zkreslit.
-source-a6ab28c69299397d = 12 hodin
-source-2a46c7c5730014aa = 15 minut
-source-cb98233fc1fe95be = 15 sekund
-source-bef3027f2aba42c8 = 2 dny
-source-543610c88aecac7e = 2 hodiny
-source-e022bfbf21a62ea4 = 2 minuty
-source-b773629ac81b71c5 = 2026-01-01T00:00:00Z
-source-4c84831699a66c00 = 24 hodin
-source-1dc522a4a05cf0a5 = 3 dny
-source-26156a5bcb44ac99 = 30 dní
-source-801744c4d83f671f = 30 minut
-source-9a04d0509ccf2ae7 = 30 sekund
-source-7aa29984e3199a10 = 4 hodiny
-source-f40cb1ac8887e1a1 = 5 minut
-source-89b8fbc44ee62b8d = 5 sekund
-source-1741ba7f5b595722 = 6 hodin
-source-d636599a979f0d59 = 7 dní
-source-6f073b8cbdb4deae = < Integrace
-source-70118e18301700fc = <a:
-source-60030d4518672b9d = = začít
-source-424af112b78b9f2d = = konec
-source-ffb05029aca7283a = ?passthrough=false
-source-fd566af54baa4d7c = ?velikost=64
-source-3502a329ea88a32a = @každý
-source-04c60119a6feb209 = @mě
-source-797a268358a38eba = [Smazaná zpráva neobsahovala žádný text]
-source-304cfbbd9afd3d67 = [Spoiler skrytý]
-source-dd1cd405fbf51642 = [rok]-[měsíc]-[den]
-source-ba5ad919bde9f91b = __SOUBOR__
-source-ff2e9a5d05f1c407 = __ČÁRA__
-source-60ed7e6fea310320 = __MACOSX
-source-af63fc4c860222ec = A
-source-ea0a5c65ac517e7c = Aktualizace katalogu nemůže nahradit místní nebo importovaný balíček
-source-07c471660b5c5b6d = příkaz
-source-8e8f3a23e0e9ece1 = Vlastní emotikony.
-source-3427440866cf683e = den
-source-832d6f9c21fe327c = Výchozí emodži. Tento emotikon můžete použít všude na Discordu.
-source-c87a72cf210bdf1a = Stahování je již aktivní
-source-036822775cb3d29d = Stahování nebo čištění schránky je již aktivní
-source-b1d2a5473e87197b = několik sekund
-source-1bca120d5f0f6f59 = V cíli se objevil soubor; vyberte jiný název nebo potvrďte náhradu
-source-90bed8158c1718ba = Fórum může nabízet až 20 značek.
-source-196aa7589058fa81 = Hra odeslala aktivitu, kterou nelze přečíst.
-source-d712e298601972c9 = Již probíhá přenos média
-source-c73f1143b7a6bd21 = Zprávu se nepodařilo odeslat — zkontrolujte cíl
-source-bc98b6217e0e3434 = minutu
-source-22bbef89386d92ba = měsíc
-source-b1ec16df76d9bd09 = nový explicitně zahájený hovor má vlastní spojovací bod
-source-d9ec4a79c83ebbeb = Příspěvek může nést až 5 štítků.
-source-547bd314aecb3f43 = Probíhá akce serveru.
-source-0dcbc262ee054e81 = kontrolovaný balíček podporované platformy má archiv ke stažení
-source-7ee589362716c195 = Užitečná zpráva zůstane čitelná
-source-9e94a28a5b802784 = Hlasový hovor je již aktivní
-source-ae6d213acd310fd5 = rok
-source-1841cd89a01ce541 = a/CON.txt
-source-e6b9b11904eabd96 = a\b
-source-09efc23b583b2370 = O MNĚ
-source-e957aac89298c890 = O mně
-source-5454fce28deb1dfc = O Serein
-source-136526f9761a4d77 = Přízvuk
-source-d66c4767fa3dde28 = Barva přízvuku
-source-13be1af9766661e9 = Přijmout
-source-fa837eedde682e5a = Přijměte žádost o přátelství
-source-e0d1d6bd81fc1980 = Přijato
-source-9be5c595be455b0e = Přijaté podmínky zpeněžení autorů
-source-2b9bacc0275f2f5e = Vyčištění rozšíření účtu není dokončeno; znovu otevřete rozšíření a zkuste to znovu
-source-73af8d28f4d05959 = nastavení účtu
-source-f8acd75e4c30dec1 = Snímek spuštění účtu přesahuje 128 MiB; spojení zastaveno
-source-afd252ca87254e0c = Snímek spuštění účtu je již ve frontě; spojení zastaveno
-source-84ad5c38e8e5ac27 = Událost synchronizace účtu přesahuje 4 MiB; spojení zastaveno
-source-64fc952e3785ffac = Fronta událostí synchronizace účtu je plná; spojení zastaveno
-source-229c11f32846b199 = Fronta synchronizace účtu přesahuje 32 MiB; spojení zastaveno
-source-a45a194b58837e4f = Aktivní
-source-096271b572c564b1 = AKTIVNÍ ODKAZY NA POZVÁNÍ
-source-c141f9a556c5ae3c = Aktivní vlákna pocházejí z relace; starší vlákna se načítají 25 najednou. Otevření načte zprávy bez připojení.
-source-6c76b294d740446c = Aktivita
-source-b50206be65c022ef = Aktivita odznak
-source-ceafed983d9c999d = Nastavení zdroje aktivity
-source-303530211648923a = Možnosti aktivity
-source-ec35beeb0a638889 = nastavení aktivity
-source-78319537e3e40195 = Sdílení aktivity je vypnuté
-source-f9aee319a006c9b4 = Přidat
-source-a669985c2b3d37bc = Před uložením přidejte licenci a verzi.
-source-8188503ddfecb719 = Přidejte do svých konverzací nový nástroj.
-source-338cffe0ab083bd2 = Přidat server
-source-76dce2e228d13136 = Před uložením přidejte název motivu a jméno tvůrce.
-source-c3ee70112775e610 = Přidat účet
-source-2e8ec7ac529c0416 = Přidat volitelnou zprávu…
-source-1906429c63e122c5 = Přidejte vlastní emotikony, které může na tomto serveru použít kdokoli. Animované emotikony GIF mohou používat členové s Discord Nitro.
-source-65178f4c7396be95 = Přidejte vlastní nálepky pro členy k použití na tomto serveru. Před odesláním je kresba oříznuta a její velikost se změní na 320 × 320 pixelů.
-source-9da45ad17e1e6254 = Přidat přítele
-source-4eac18cd86d220b8 = Přidat přezdívku přítele
-source-b0f52633d46a24b4 = Přidejte obrázky nebo soubory. Až 10 souborů a celkem 500 MB; limity účtu mohou být nižší.
-source-87814e07c665fc5d = Přidejte obrázky k tomuto příspěvku
-source-5e155029a998ab6e = Přidat člena
-source-76e253cb2e6ac247 = Přidat členy
-source-63b2998e75bab548 = Přidat poznámku
-source-5769170fd14b80a7 = Přidejte reakci
-source-76858359c87d089c = Přidat reakce
-source-6a21eb86b7b0c950 = Přidejte nějaký text za příkaz lomítko.
-source-7b8a39d746ab6d28 = Přidejte něco na památku…
-source-e591e3c5db7e2eb4 = Přidat značku
-source-f83403c676525f14 = Přidat značku
-source-9514d033f7697c25 = Přidejte značky
-source-83ed914674d80cf4 = Přidat do oblíbených
-source-a76a13082fdfd4cf = Přidejte až 5 vlastností, abyste ukázali zájmy a osobnost vašeho serveru.
-source-aa6e8f16f76de2d7 = Přidejte svůj
-source-9c72f57353a54264 = Přidán bot
-source-37994d4488233fda = Přidáno uživatelem
-source-7fa8d1166848bb78 = Další barvy, ovládací prvky aplikace a podrobnosti o sdílení.
-source-ce8c8aeef166296b = Další vložený obsah není podporován
-source-7661fba1154cdbfa = Automaticky nastavte hlasitost mikrofonu.
-source-071922eccfa99cca = Správce
-source-21b06c38fc4164db = Moderní
-source-5125a792dfd0a6e7 = Pokročilá oprávnění
-source-510a499d8a643447 = Pokročilá oprávnění
-source-d7b3e01ac0e72549 = Po
-source-7c88198b18340805 = Po musí být dříve než Před.
-source-ce55bb99b12a1e10 = Dosvit
-source-ed076a4658ba7d11 = Věkově omezený kanál
-source-a2254e6216746711 = Kanál s věkovým omezením
-source-c0d0e6fd009afbe7 = AIx02
-source-05ad6e8ac44c2505 = Alex
-source-1add6446d9c2c6f3 = Alex (syntetika)
-source-f993bb199fefbe04 = Vše
-source-f91a6ea8de0be477 = Všechny akce
-source-246e5886f3baf6c2 = Všechny příkazy
-source-524251a5dae81428 = Všechny zprávy
-source-4937fa8909079774 = Všechny servery
-source-1df0cb73b3272f74 = Všichni uživatelé
-source-bd667a92c4cd3c47 = Všechna nastavení hlasu
-source-2ee366cbb0141712 = Povolit
-source-886fe15aec256d31 = Umožněte komukoli @zmínit tuto roli
-source-47f07dde0c168ec4 = Povolit DM od ostatních členů serveru
-source-a4e76f5dccb52d8b = Povolit pokračování všech uvedených oprávnění.
-source-81f9e2079db57288 = Povolit žádosti o přátelství od
-source-5ac5cb2de54a1f17 = Umožněte přátelům z her posílat přímé zprávy a pozvánky
-source-05c4345683c31690 = Povolit tomuto rozšíření
-source-7cdd3a5ec5457ec4 = Povolené soubory
-source-220be55e476bf0a9 = Umožňuje emotikony z jiných serverů.
-source-83b73c30cce923ac = Umožňuje členům přidávat nové reakce na emotikony.
-source-83950361169d5b66 = Umožňuje členům měnit oprávnění kanálu.
-source-9d15005aca6894c3 = Umožňuje členům vytvářet, upravovat a mazat webhooky.
-source-912736ad38e850de = Umožňuje členům ohlušit ostatní v hlasových kanálech.
-source-125f7af1d17ad206 = Umožňuje členům mazat zprávy ostatních.
-source-eea2b750d5a4d225 = Umožňuje členům upravovat nastavení kanálu a mazat kanály.
-source-7685320fed317541 = Umožňuje členům zvát lidi na tento server.
-source-703cd20eedcb1147 = Umožňuje členům připojit se k hlasovým kanálům.
-source-830e3ef937832855 = Umožňuje členům spravovat a odstraňovat vlákna.
-source-8913c6f15421e3cd = Umožňuje členům přesouvat ostatní mezi hlasovými kanály.
-source-6aeea27a0332bf80 = Umožňuje členům ztlumit ostatní v hlasových kanálech.
-source-3e1c02061c383543 = Umožňuje členům připínat a odepínat zprávy.
-source-16a831acff361802 = Umožňuje členům číst předchozí zprávy.
-source-8090eb073263f9c5 = Umožňuje členům odpovídat ve vláknech.
-source-e895c2a95ae68653 = Umožňuje členům posílat zprávy v těchto kanálech.
-source-5d5f8860271efc1e = Umožňuje členům sdílet video a jejich obrazovku.
-source-52edcb7075c3c816 = Umožňuje členům mluvit v hlasových kanálech.
-source-7a3edba6470612e7 = Umožňuje členům zakládat soukromá vlákna.
-source-b2021467ee0ca247 = Umožňuje členům zakládat veřejná vlákna.
-source-ba93b08e5287739a = Umožňuje členům nahrávat soubory a média.
-source-f5e65cbc9cb8cff3 = Umožňuje členům zobrazit tyto kanály.
-source-5d288a0a7bc7ebbc = Umožňuje zmínky, které upozorní všechny nebo celé role.
-source-6647891644c56ce6 = Umožňuje číst zprávy nahlas pomocí převodu textu na řeč.
-source-3dfe4fd0d1469bfc = Umožňuje mluvit bez push-to-talk.
-source-287105702f89c0d9 = Umožňuje nálepky z jiných serverů.
-source-f993c3199fefcb9c = Alt
-source-09085707b5a0d793 = DOPOLEDNE
-source-860f42a2624ffee0 = hodinu
-source-52ba681d9318b707 = Soubor aktualizace překračuje deklarovanou velikost.
-source-172d209974e2f7bf = Aktualizační soubor je neúplný.
-source-97ae740df3e7e45f = Animujte GIFy
-source-03afdbb3158dcc1a = Animujte pohyb kolečka a přeskakování mezi zprávami.
-source-9804d4d3daf05e1c = Animovaný
-source-fa8f7cf29168c2b2 = Animované Emoji
-source-a3c34f09134f4c9a = Animované emotikony musí mít maximálně 256 kB
-source-f68f660a60b3effa = Oznámení
-source-5dd67743cac44579 = Kanál oznámení
-source-a6a92648588602bf = Odpověď
-source-1e75e26f239524f1 = Přijmout hovor
-source-f999d4199ff4542d = Žádný
-source-f7cb0deec6345d60 = Jakýkoli obsah
-source-f9f2c719a04066ec = App
-source-fa5ee719a09bbc2c = APP
-source-e0c960aa6d4b1440 = Pozadí aplikace
-source-ca4222f16f732223 = APPDIR
-source-f0e261e04eda82ff = Vzhled
-source-9c7b44ac9890fcf3 = přizpůsobení vzhledu písmo typografie import ttf otf primární zvýraznění hexadecimální okno efekty průhlednost rozostření motiv tmavé světlo systémový režim přiblížení měřítko rozložení postranní lišta šířka lidé seznam členů reset barev přednastavení barvy
-source-af77fc86744de8b0 = nastavení vzhledu
-source-3b756cb60b2ac008 = Připojte ke zprávě pokrčení ramen.
-source-01b5724f92832a10 = Připojte ke zprávě list tabulky.
-source-eb0319b004b340c9 = APPIMAGE
-source-fe3ddfcb791a4c94 = Ověření záhlaví AppImage se nezdařilo.
-source-f1e9d421f35b51e5 = Aplikace
-source-869f92af672408fc = Adresář dat aplikace je nedostupný.
-source-03bf6399542211e6 = Čeká se na interakci s aplikací…
-source-bdb243be142632e2 = Zpráva generovaná aplikací
-source-17e3cd226501a372 = application/vnd.github+json
-source-77dfb31c5a778156 = Platí pro hovory a místní test mikrofonu.
-source-4d600e7f783b509e = platí pro váš příští hovor.
-source-b8f855b49234b81b = Použít
-source-5418307528e56b20 = Použít filtry
-source-cc1343c30b0ee18d = Použít nebo odebrat formátování ve skladateli.
-source-56f684df5d2b61df = Použijte tento nainstalovaný motiv na aplikaci.
-source-52086cb9e0b759b9 = Aplikujte na všechny povrchy
-source-65e3ad889f1ac883 = Použít do konceptu
-source-8e962433cd6f9865 = Použít: Změna zvuku hovoru
-source-b216c80781aafa05 = Použít: Změna oznámení
-source-3220032dace63f56 = Použít: Změna nastavení
-source-1a950908de179363 = Použít: Potvrďte akci
-source-6bcc1017f44556a7 = Použít: Zkopírujte text
-source-5ab339284faf2ff1 = Použít: Odstranit zprávu
-source-ba67f2122a76bf75 = Použít: Povolit fotoaparát
-source-ea4dd3090e537c87 = Použít: Připojte se k hovoru
-source-c21eb09704067df4 = Použít: Opustit hovor
-source-ebac3d35dd0f2a1a = Použít: Otevřít pohled
-source-086772cbc4d478f5 = Použít: Hledat
-source-945918caa298ad68 = Použít: Odeslat zprávu
-source-94318c622e7cf16c = Použít: Ukažte upozornění
-source-0aff2f8be8a14bcd = APLIKACE
-source-976b3daab8c4196e = APT (DEB)
-source-f9f8e219a045007b = Oblouk
-source-a0ca791d0f13f0e5 = Archiv
-source-4bfc4d609ee1ab33 = Archivováno
-source-4619bd2bc2b40db0 = Archivované příspěvky potřebují připojenou relaci s přístupem k historii.
-source-1d9b4fe636d596a4 = Při odpojení nebo bez přístupu ke kanálu nejsou archivy dostupné.
-source-caa388e6c5fc4326 = Opravdu chcete smazat?
-source-9197c793d6d2ccc4 = Jste si jistý, že chcete odejít?
-source-008f84cd357fb057 = ARM64
-source-6b36f3c18920c686 = Pole
-source-35fb62ecb4a374ce = ArrowDown
-source-043f052f4aec0783 = ArrowLeft
-source-59de5ee12528b90c = ŠipkaVpravo
-source-faca44c6cb373cfb = ArrowUp
-source-aae07dc89c12fa36 = Animace uměleckého díla nemá žádné rámečky
-source-b8915f6eb5cd0476 = Animace uměleckého díla je příliš velká na bezpečnou přípravu
-source-ef390e917b24934b = Před otevřením externích odkazů se zeptejte. Discord odkazy se vždy otevírají přímo.
-source-c92c1a54034e21cc = Přiřadit
-source-089c4e07b545a968 = v
-source-457feeb54c5875de = V horní části tohoto serveru · používá oprávnění serveru
-source-5c100df97c50deeb = Připojit soubory
-source-89be37e8c5404b10 = Ke každé zprávě připojte až 10 souborů
-source-5539800782e2f20b = Přikládání souborů zde není dostupné
-source-54cd4879a3bba7db = Přikládání souborů není v tomto fóru dostupné.
-source-ddfc86d2b1251528 = Příloha
-source-7889b4c9bb168493 = Argumenty příloh zatím nejsou podporovány.
-source-e34ce9f170e16c8d = Stažení přílohy se nezdařilo
-source-2a1a2a8290e62d52 = Stažení přílohy není k dispozici
-source-13a28b769cbf5180 = Příloha překračuje limit stahování
-source-30d691ec3fb57874 = Příloha musí být prázdná a maximálně 100 MiB
-source-a6bebfb27bfc1707 = Operace připojení je již aktivní nebo žádný rozsah výběru
-source-7a8c3c959ac360c8 = Příloha nebo vložený obsah
-source-438b547f3b2fa49d = Příloha nebo netextová zpráva
-source-0c2d7300f0ec5ecc = Příloha byla uložena, ale její dočasný soubor nelze odstranit
-source-14d1f1642694858c = Výběr přílohy byl přerušen
-source-e8f933d73c6d330b = Velikost přílohy změněna; znovu načíst konverzaci
-source-bb998de202e8ad59 = Přenos přílohy nebyl dokončen
-source-672347bb6174fe3d = Přenos přílohy byl přerušen
-source-5678c2eb707f0ca2 = Příloha není k dispozici; znovu načtěte konverzaci a zkuste to znovu
-source-7b1082149fccd857 = Nahrávání přílohy bylo přerušeno
-source-8704bfbe468883b3 = Celková velikost příloh musí být maximálně 500 MB; limity účtu mohou být nižší
-source-310b9c448a16888c = Zvuková příloha není k dispozici
-source-2e2cf3d3799a3412 = Zjišťování zvukového zařízení bylo zastaveno
-source-114ae209c86f5f2e = Časový limit otevření zvukového zařízení vypršel; zkontrolujte výběr zařízení a oprávnění k systémovému mikrofonu
-source-d8e0780293e9d86c = Audio zařízení zastaveno nebo odpojeno; vyberte zařízení a zavolejte znovu
-source-119877adf7f839af = Zvuková zařízení se neotevřela; zkontrolujte výběr zařízení a oprávnění k mikrofonu.
-source-e1f7ff3be1e8c7c5 = Načtená zvuková zařízení · sluchátka zabraňují ozvěně mikrofonu
-source-f14950f18436ef66 = Zvuková zařízení se zastavila; zkontrolujte oprávnění k mikrofonu a výběr zařízení
-source-5a9bb212f461d36c = Stažení zvuku se nezdařilo
-source-73af3c43d8452c8d = Stahování zvuku není dokončeno
-source-3957a7ea8742ed39 = Stahování zvuku bylo přerušeno
-source-51b3c0eb8ae86251 = Stahování zvuku není k dispozici
-source-60f3977cbe2e7785 = Zvukový výstup je odpojen
-source-dda1c1f423130cfc = Zvukový výstup není k dispozici
-source-6b9dcab3577bc36c = Zvukový výstup není k dispozici. Zkontrolujte nastavení zvuku systému.
-source-3bf634ef5284aee4 = Předvolby zvuku jsou uloženy v tomto zařízení. Váš mikrofon se spustí, pouze když se připojíte k hovoru nebo začnete testovat.
-source-256ba0dd9a05a9b4 = Limit náhledu zvuku: soubor 20 MiB, dekódováno 64 MiB, 10 minut
-source-70c1adaa458e0015 = Audio server nepodporuje ukládání do vyrovnávací paměti; stáhnout a hrát externě
-source-076accfc5c6c2ac8 = Velikost zvuku nebo kódování změněno; znovu načíst konverzaci
-source-deb1d5ae3d015f79 = musí být dokončeno také odstranění zvuku
-source-3672c2257bb7d439 = Zvuk není k dispozici; znovu načíst konverzaci
-source-5fa40d26e63c9500 = Audio pracovník zastaven; restartujte Serein
-source-15c84f11ebb108aa = Protokol auditu
-source-0e1b4276d5e667d2 = Typ autora
-source-13ddf6fb4d5195c4 = Autor: poslední zpráva
-source-83ab87c5fd63149b = Automatická aktualizace
-source-c2d16f8333e07d4f = Automatický zisk
-source-f80b58ea901de3e6 = Automatické ovládání zisku
-source-44e8120bfc4bb088 = Automatický náhled
-source-606259d560d20e73 = Automaticky filtrovat podezřelé spamové zprávy
-source-03f20653bba79664 = Automaticky přesouvat členy do tohoto kanálu a ztlumit je, když jsou nečinní déle, než je časový limit neaktivní. To nemá vliv na prohlížeče.
-source-fa54ad19a0930519 = AUX
-source-74f6b0957ffa5a96 = Vyčištění mezipaměti avatarů se nezdařilo; obrázky uložené v mezipaměti mohou zůstat na disku
-source-0fd7c4b01e3427fb = avatar klíč
-source-d18a6ce639af3671 = mezipaměť klíče avataru
-source-af63ff4c86022805 = B
-source-c16e00a7a8b2fde2 = Zadní
-source-dbbf848734787ad3 = Zpět na kategorie GIF
-source-fa410955c0e55c75 = Zpět k Interu
-source-daa09c73dd931e52 = Zpět na Role Members
-source-c5cea2143726eabf = zpět na živou hranu
-source-9e48b3807e009b33 = Zpět k editoru témat
-source-190ccbda2c8f9a3f = Zpět k tématům
-source-1efbfc3937d565bd = Pozadí
-source-cdbe8890bc1daf7e = Pozadí za vašimi zprávami
-source-df34a5599d66f85c = Obrázek na pozadí
-source-a5d5f178f3876c3f = Obrázek na pozadí přesahuje 2 MiB
-source-e56593eace60ba73 = Pracovník obrázku na pozadí selhal.
-source-d64445ead33533cc = Backspace
-source-327781c739315ba7 = Backtick
-source-69583da04e5946b1 = Odznaky
-source-9758fb833fbf9c99 = Zakázaný člen
-source-00e1a56a841e83af = Prapor
-source-15b6305e863792ea = Základy
-source-1788737137ec6d9e = Před
-source-1a0210d5a1a16b68 = Bio (prázdné ho vymaže)
-source-28475413927d5432 = Smíchejte dvě barvy za povrchy aplikace.
-source-2b2ae20d26f78ac2 = Blok
-source-7979901374f4c62d = Blokovaná zpráva pomocí AutoMod
-source-388f2b6f8d65658b = Velikost bloku
-source-ecf3bca7c1691718 = Rozmazat
-source-fe80250010367cf8 = Hlavní text
-source-f7bdd5a7c820889d = Bool
-source-0b946f226c5700df = Boolean
-source-fa31adc78eb90e2c = Hranice
-source-16565219b102f81e = Bot
-source-15e97219b0a65c9e = BOT
-source-f8fa4f35c8f32435 = Bot účet
-source-7fbc9a48e98cecd6 = Roboti a aplikace
-source-a6ed12942709e3f8 = ohraničené klientské sloty
-source-e919affbc348568e = výsledek omezeného úložiště odpovídá frontě
-source-16564e19b102f152 = Krabice
-source-9bd40e994f30dc8a = BuildContext
-source-cb163115768bced4 = Budování klidnějšího místa pro konverzace.
-    { "**Náhled nativního profilu** · všechny podrobnosti zde jsou syntetické." }
-source-505fc202b5428fa5 = Vestavěný
-source-20184aa30888947e = vestavěné předvolby uchovávají nainstalovaná témata
-source-2518741c10420239 = ikona přibalené aplikace
-source-7c1a3b74345c8f74 = svázaná atlasová buňka
-source-22b50e2162ad4c6b = přiložený atlasový formát
-source-6b8894962f4570f8 = přiložený archiv písem CJK
-source-2d2f1029a0d2bc81 = přibalený emotikon Discord
-source-0c3688231635a6a3 = sdružená jména Discord
-source-59348fc67fb85749 = sdružený index emotikonů
-source-5847ac6b7696ded8 = název balíčku emodži
-source-034cc54c0435fe1b = svázaný atlas ikon
-source-ad070bcf47f55000 = svázaná ikona buňky
-source-f65bff42479f2ea8 = přiložený index ikon
-source-2ab12c6a6dfed8bf = Přiložený plugin se neaktivoval
-source-0312976fe9da5951 = Tlačítko
-source-503a000f8677a058 = Polstrování knoflíků
-source-12f0752a5e0574c6 = Tlačítka
-source-3d9f8a6530f33d7a = Tlačítka, výběr a zvýraznění
-source-e40567630146944d = Bypass
-source-af63fe4c86022652 = C
-source-090f8d07b5a75203 = C#
-source-0cd9ec19ab679810 = C++
-source-f6d0cc190dae8bb0 = c++
-source-3d9b3f96b413e48c = C:/absolutně
-source-1fbe4cf939e466f5 = C: Windows
-source-ce390f13a0ab7cce = Překročení nevyřízeného vyčistění mezipaměti; mezipaměť historie deaktivována až do restartu; smazané zprávy mohou zůstat na disku
-source-747d55f140839712 = cache přes rozpočet
-source-b2e0a1640a6a3a3f = Čeká se na vyčištění historie mezipaměti; zavření nyní může zanechat smazané zprávy na disku.
-source-50a025b9afaf6ced = Historie mezipaměti vymazána; uložené koncepty zachovány
-source-24b9d48a6bd44b00 = uložená zpráva
-source-130875199ab8168c = Platnost akce volání vypršela; nebyl odeslán žádný požadavek na prozvonění
-source-36c6e380f765ea21 = Ovládání hovorů není k dispozici
-source-11acb9aa4b26baed = Kontrola ladění volacího cue prošla: místní/vzdálená připojení, odchody, překlíčování a potlačení opětovného připojení. Nejsou otevřena žádná zvuková zařízení.
-source-5131d536a3858d66 = Hovor se nezdařil
-source-a3da2c52c2a9b31b = Probíhá hovor
-source-4696c55509a17d3a = Přepnutí hovoru zrušeno: předchozí hovor nedokončil odpojení. Před dalším voláním se znovu připojte.
-source-3a04ca28b431d65f = V offline náhledu nejsou hovory dostupné. Není přístupný žádný mikrofon.
-source-65af94222c32b682 = Klidná lesní zeleň a svěží listové akcenty.
-source-54d1b2a64667e32e = Fotoaparát
-source-495ad228525627ba = Snímání fotoaparátem není k dispozici
-source-b575b693165156cc = Snímání fotoaparátem není na této platformě dostupné
-source-a85c1deeec36a206 = Snímání fotoaparátem není na této platformě dostupné.
-source-8e3486751abad50e = Fotoaparát vyměněn. Chcete-li ji použít, klikněte na Náhled kamery.
-source-80f393ce10fddbb4 = Ovládací prvky fotoaparátu nejsou k dispozici
-source-3f129a081da91e1c = Zařízení fotoaparátu
-source-8e5a58aa4d687006 = Zařízení fotoaparátu změněno. Chcete-li použít vybrané zařízení, zapněte fotoaparát.
-source-9b6074b9e21ade9b = Zjištění zařízení fotoaparátu se nezdařilo
-source-a3fafbf6e92f8907 = Zjišťování zařízení fotoaparátu bylo zastaveno
-source-ea56f302bd3fae6a = Fotoaparát je v offline náhledu vypnutý
-source-282d982fc7b4708c = Kamera se stále zavírá; zkuste to za chvíli znovu
-source-c39760087308f11e = Kamera není k dispozici s aktuálními oprávněními kanálu
-source-9b29587de4d8bac0 = Kamera na zvuk
-source-39e24f35327ace01 = Fotoaparát je zapnutý · místní náhled
-source-7d5d998cd1808359 = Kamera vyžaduje podporu H264 z hlasového serveru
-source-9583bf45857e38cf = Nastavení fotoaparátu
-source-7ac57d624b358fdf = Kamera se zastavila; před zapnutím jej znovu bezpečně připojte
-source-57a446f4a69504a0 = Kamery načteny
-source-2ceb11be2290bb1b = Zrušit
-source-3b5fd0df6b2757e8 = Zrušit nahrávání
-source-3bb786d3b55ba37c = Zrušeno
-source-50aa63b5ed4a282e = Zrušené delta skenování pokračovalo.
-source-96a025c4843e09f5 = Nelze získat přístup k cíli uložení
-source-eb11ba4bbc079c84 = Tuto reakci nyní nelze přidat
-source-7fee991fd23e54b4 = Aktualizaci nelze posoudit pomocí macOS Gatekeeper.
-source-91d2f639e38f901b = Nelze vyčistit archiv ověřených aktualizací.
-source-98fe434d0ff0cda1 = Nelze vytvořit jedinečné předání restartu.
-source-c4e2c91b78c4b3e2 = Nelze vytvořit soubor aktualizace.
-source-550ca743130fc596 = Nelze vytvořit adresář katalogu
-source-fe69767ffc391540 = Nelze vytvořit dočasný adresář schránky
-source-611246d0f0372744 = Nelze vytvořit soubor ke stažení
-source-cb678d668236ab58 = Nelze vytvořit adresář rozšíření
-source-12f0f8ae44ad8973 = Nelze vytvořit izolovaný adresář kontroly motivu
-source-e29eb9638877eec4 = Nelze vytvořit syntetický ZIP.
-source-dba43270224a1c83 = Nelze vytvořit export motivu
-source-aada8f3a7f998386 = Nelze vytvořit aktualizační adresáře.
-source-61de5d46b1461a6b = Nelze vytvořit pracovní úložiště aktualizací.
-source-f1a4246aa7256879 = Balíček rozšíření nelze zakódovat
-source-e561d54aef4b1013 = Nelze zakódovat plán aktualizace.
-source-aa6908c34ae96d11 = Balíček motivů nelze zakódovat
-source-9453d1e7954bd36d = Aktualizaci nelze extrahovat. Zkontrolujte dostupné místo na disku.
-source-7597bd31c59de1ac = Data rozšíření nelze dokončit
-source-b3e27aaa92a42065 = Nelze dokončit syntetický ZIP.
-source-a75d9b5807938c2a = Export motivu nelze dokončit
-source-3442c21e0e0f3860 = Rozpočet rozšíření nelze zkontrolovat
-source-d24d991f0805723b = Nelze zkontrolovat čištění rozšíření
-source-8ca96e88f30b099a = Nelze zkontrolovat cestu čištění rozšíření
-source-ab6867fcbba4df1b = Nelze zkontrolovat soubor rozšíření
-source-51d061dd502f399b = Nelze zkontrolovat AppImage.
-source-3c239b46de6b4e60 = Nelze zkontrolovat identitu podpisu aplikace.
-source-04e4bfd18213af1b = Nelze najít nainstalovaný AppImage.
-source-9156581959ab6693 = Nelze najít nainstalovanou aplikaci.
-source-08489b182eb8e837 = AppImage nelze spustit jako spustitelný.
-source-b5b8ff65424ba781 = Nelze připravit pomocníka pro aktualizaci.
-source-8e663a72d83db36e = Nelze připravit export motivu
-source-e434e405766d282e = Nelze přečíst záznam z archivu aktualizace.
-source-f7761496d1045727 = Nelze přečíst záznam rozšíření
-source-b633e237156af64f = Nelze přečíst soubor rozšíření
-source-47b682d45e7e0540 = Nelze číst rozšíření
-source-e6da628c0757efbf = Nelze přečíst AppImage.
-source-d62da5bfdb3664df = Staženou aktualizaci nelze přečíst.
-source-658cc303b0edf413 = Nelze odstranit izolovaný adresář kontroly motivu
-source-13054cc6d16d61e5 = Data rozšíření nelze nahradit
-source-a6fba333ead59e13 = Export motivu nelze nahradit
-source-1102c73a0fe2af4d = Nelze resetovat předávání aktualizace.
-source-fec2c407d532bf35 = Extrahovanou aktualizaci nelze uložit.
-source-00ce0b626ad4fae6 = Plán aktualizace nelze uložit.
-source-f1300b1606e03c07 = Nelze nastavit oprávnění k souboru aktualizace.
-source-3c8c66e6f4a2e791 = Nelze vytvořit AppImage.
-source-e8c6665e5504523c = Nelze spustit pomocníka pro aktualizaci.
-source-4f2684899e76b148 = Nelze ověřit podpis kódu aktualizace.
-source-5d8b893e4a0a707c = Nelze zapisovat data rozšíření
-source-da47383f8a97edda = Nelze zapsat export motivu
-source-0c0fa9a79632e928 = Kryt karty
-source-c3c904bb6c80ed71 = Karty a zadávání zpráv
-source-07ceb14a7ae660dd = CARGO_MANIFEST_DIR
-source-7fae2dcb3491a8c1 = CARGO_PKG_VERSION
-source-6718e2e8c75b04e7 = Kategorie organizují související kanály.
-source-e8b92ef3f8e57128 = Název kategorie
-source-9c8b888be93af84e = Nastavení kategorií
-source-2254407e0c6b0121 = CC0-1,0
-source-2f64461723d3df5d = Přeměna
-source-8c9c54e0d22213b3 = Změňte nastavení ochrany osobních údajů pro zprávy v účtu
-source-738d022128fb727a = Změna nastavení zvuku zařízení:
-source-4c6420e9be4c25fb = Změňte emotikony
-source-eacd40e6c9e9d1e7 = Změnit ikonu skupiny
-source-f1cce5f75027d1fc = Změnit místní nastavení oznámení:
-source-35a761634348ebb7 = Změnit místní nastavení čtení:
-source-a94c725865c0c9bc = Změnit místní zvuk pro sdílení obrazovky:
-source-c46090d1920616f7 = Změňte přezdívku
-source-189973aa29971817 = Změnit přezdívku
-source-f5f7f77ab9c1baaa = Změnit profilový obrázek
-source-7a61c62c7be398d5 = Změnit ikonu serveru
-source-a0eff7e3c6e5f195 = Změnit ikonu serveru
-source-2d0c784b4fc7a0a1 = Změňte svůj Discord profil:
-source-47758c080c0dff54 = Změňte svůj stav:
-source-b8ff2266a932fe61 = Změny se použijí pro všechny aktuální servery a nastaví výchozí hodnotu pro nově připojené servery.
-source-5d6ee817d178b6c4 = Změny se týkají pouze tohoto serveru.
-source-37c3e6cfaf3a0a58 = Změny zatím nejsou uloženy
-source-2a7c73c8198aabaf = Změna zařízení zastaví fotoaparát a projeví se při příštím zapnutí.
-source-1da50951bdd7a204 = Kanál
-source-9527d6265f36ae7e = Akce kanálu
-source-62343e171ff192f3 = Šířka seznamu kanálů a konverzací v širokých oknech.
-source-69c1e8cf4951cfb8 = Obsah kanálu je vždy viditelný.
-source-8e2d9e7c9c802934 = Seznam kanálů
-source-b313538e5b8d8527 = Název kanálu
-source-d2c127e02b62df51 = Nastavení kanálu
-source-967c610c93b25fd3 = Nastavení kanálu nelze načíst.
-source-909f42012e8d4f5d = Před uložením je třeba obnovit nastavení kanálu. Tento koncept nahradí opětovné načtení.
-source-e34e204726493ce4 = Typ kanálu
-source-f10300bf9b138705 = Kanál není v této relaci dostupný nebo není podporován
-source-0fe04d43d78b3025 = Seznamy kanálů, konverzací a členů
-source-37cfc48bd4958d03 = Sledované kanály
-source-abfe23c45dfe3050 = Charakter
-source-fbb5094ac57a1e81 = zprávy chatu čtení médií animované animované gify automatické přehrávání skrýt odkazy na obrázky potvrzení potvrzení externí prohlížeč plynulé posouvání rychlost posouvání pohyb kolečko trackpadu skryté kanály resetování seznamu kanálů
-source-e283106b5bf0ddd0 = Ukazatel výběru chatu
-source-c0c8035281ee7caf = Zkontrolujte znovu
-source-56c14ca22284e07c = Zkontrolujte limity znaků a odstraňte kontrolní znaky. Zobrazovaný název nemůže obsahovat pouze mezery.
-source-e6a8976fdb8243a6 = Zkontrolujte aktualizace
-source-05e32526688edb30 = Zaškrtněte možnost Pozvat
-source-522d640faa616902 = Před dalším odesláním konverzaci zkontrolujte.
-source-08962d4ec5543300 = Zkontrolujte licenci, verzi a volitelnou zdrojovou adresu URL.
-source-a6798194b7fea9e5 = Před uložením zkontrolujte zbývající nastavení motivu.
-source-4aa39e78a2a231aa = zkontrolovaný balíček
-source-7f3531a7d70170dc = kontrolovaná fáze
-source-4d261ee741ff1fee = Kontrola nastavení sdílení aktivity Discordu...
-source-17e321e241626a9c = Kontrola balíčků a aktualizací
-source-4a2e5d013b4a17b4 = Kontrola aktualizací…
-source-7799725d5aaa9e0e = Kontrola pozvánky…
-source-f99a691b6ee82f79 = Kontrola uložených přihlašovacích údajů…
-source-e9dda2df763e8699 = Kontrola sítě pro sdílení obrazovky…
-source-7713a7f7855b44b8 = Kontrola sítě streamu…
-source-9818df49b00d2796 = Kontrola uložených přihlašovacích údajů
-source-93b19aa093b1cc8c = Ověření kontrolního součtu se nezdařilo.
-source-f4d6ce8937dcc5c2 = Vyberte fotoaparát
-source-1d6dc20ffc2c3480 = Vyberte kanál
-source-66a6694a9ed6c572 = Vyberte typ a název kanálu.
-source-7a8352bb844cd63c = Před spuštěním vyberte příkaz ze seznamu.
-source-caa3d81b0a0ad864 = Nejprve vyberte konverzaci
-source-c84fe964f86c6703 = zvolte jiný příkaz
-source-8e8af8325e0788ec = Vyberte písmo až do velikosti 8 MiB.
-source-07317b2c82e5fe30 = Vyberte GIF s maximálně 120 snímky
-source-d77f86967c63aff1 = Vyberte místní obrázek s podporovanou cestou
-source-f2ea7ad2161d2c64 = Vyberte obrázek PNG, JPEG, GIF nebo WebP
-source-58a4ef5a34860544 = Vyberte příjemce: /msg @user [zpráva]
-source-7ba7e226fa6c3c2c = Vyberte běžný soubor obrázku
-source-977c9c7835c89fa7 = Vyberte běžný obrázek PNG, JPEG nebo WebP až do velikosti 8 MB
-source-c9aa294c80cb952d = Vyberte běžný soubor TTF nebo OTF.
-source-96281252536ecc66 = Vyberte obrazovku nebo okno
-source-6c7f4300c97b067b = Vyberte menší animaci GIF
-source-68c451badf545216 = Vyberte statický PNG nebo JPEG v rozmezí 4096 pixelů na okraj a 4 miliony pixelů
-source-0a009c026fd20e36 = Vyberte uživatele
-source-2738ea9b5f44fb52 = Vyberte platné písmo TTF nebo OTF.
-source-604a2c4b572aa02d = Vyberte si algoritmus ve všech nastaveních hlasu.
-source-26acb9c01a437067 = Vyberte obrázek pro úpravu horní lišty, seznamů a oblasti zpráv.
-source-a1faed462867dbcf = Vyberte obrázek o velikosti až 8 MB
-source-6ffe7deacadd53b4 = Vyberte maximálně 10 emotikonů najednou
-source-94eed757d773fae1 = Vyberte typ autora
-source-afdf1a951251ee6b = Vyberte kryt
-source-0b6b3c55bcde011e = Vyberte emotikony
-source-c7b2cbad7fb7ec99 = Vyberte soubory…
-source-eeabd76984a63e34 = Vyberte ikonu skupiny
-source-28fa2d57e568c9dd = Vyberte obrázek
-source-3f3f14b96f7f713d = Vyberte Obrázek
-source-ff37995b89189edf = Vyberte obrázky do velikosti 8 MB
-source-359e844a894bf49a = Potvrďte volbu Připojit k serveru.
-source-3ead32dc855ce5de = Vyberte možnosti
-source-639568ef8bd0c33d = Vyberte primární barvu
-source-660bc5185aff2b4e = Vyberte barvu profilu
-source-f4a7202b30c76817 = Vyberte profilový obrázek
-source-08fc428a9b5c119f = Vyberte běžné soubory obrázků až do velikosti 8 MB
-source-01d98cd9e749e2f0 = Vyberte roli
-source-501383de6552d091 = Vyberte ikonu role
-source-941ac057595e9fdc = Vyberte ikonu serveru
-source-f3e72abe13f35f3f = Vyberte si nálepku
-source-df29793c3c78e143 = Vyberte obrázek zobrazený na kartě motivu v Tématech.
-source-05654046117b6800 = Vyberte výběr systému nebo na X11 explicitně sdílejte celou plochu
-source-1a588a29c8803935 = Vyberte, co mohou lidé v tomto hovoru vidět.
-source-d394b2bb5287c2f3 = Vyberte si potlačení hluku, citlivost a zpracování.
-source-b7b0f30bf8a9e8fc = Vybrat…
-source-c36c783ba211fa68 = Výběr písma…
-source-27b2e81074b43ed6 = Výběr obrázku…
-source-510fee4c4bd18d81 = Záložní CJK
-source-ed4cbb11f68db8ea = skenování CJK
-source-90d53cfba1df4aff = Třída
-source-85664e5f8a2a16c0 = Čeká se na vyčištění
-source-b4f1dffbb6be6302 = Jasný
-source-3723aab495477797 = Jasná akcentní barva
-source-304e8ec60d78d88c = Po vymazání
-source-0ff31a87b91191ca = Vymazat po sekundách (0 znamená nikdy)
-source-8cda828dac449ea5 = Vymazat vše
-source-3ed5607ad78d4224 = Vymazat mezipaměť
-source-2f23747db0cea917 = Vymazat zobrazovaný název
-source-533291cfab68a4a9 = Vymazat filtry
-source-5f4586bc1e2740e6 = Vymazat vyhledávání
-source-8f18916860db5d80 = Jasný výběr
-source-75c0510570ce02b9 = Před použitím /msg uvolněte místo konceptu. Váš koncept byl zachován.
-source-17d528d50acb7068 = Kliknutím na GIF jej ihned odešlete
-source-a7c67fe777e8524b = Klepnutím na políčko vyberte barvu nebo zadejte její hexadecimální hodnotu.
-source-5d9b531db15371bd = Kliknutím nebo stisknutím klávesy Escape se vrátíte do mřížky
-source-6c93f20e8a2f1482 = Kliknutím zvětšíte
-source-13a5756e3d78ce8b = Klikatelný kurzor
-source-4548bf38f177532f = Čtení schránky bylo přerušeno
-source-0a6eb213e8a2dd1f = Čtení schránky přerušeno; znovu vložit
-source-b950b781c6930f87 = Schránka není k dispozici
-source-5e8250fb85d64c23 = Blízko
-source-2acb104372b0320d = Zavřít dialog (Esc)
-source-abda905ba90988be = Zavřít DM
-source-19650afe47227f3b = Zavřít příspěvek
-source-dec709236764aa73 = Zavřít náhled
-source-4e606ce6a461df05 = Zavřít vyhledávání
-source-61ee6c1b9f6d8128 = Zavřít nastavení (Esc)
-source-fc575fba03440dad = Nejprve zavřete předchozí výběr emodži
-source-21cada6de8b98770 = Nejprve zavřete předchozí výběr obrázku
-source-85dab813db4af1c2 = Nejprve zavřete předchozí výběr nálepek
-source-7297d0532524082d = Zavřít vlákno
-source-ea940c1c2cc66abb = Zavře offline zařízení. Pro náhled se nic neukládá.
-source-3643189d1abbb7f4 = Kód
-source-4993444bfd3f3e5e = Kolaps
-source-7e860296d38b6351 = Barvy
-source-ebf5bdd0a2bdfc26 = Barvy a krytí jsou uloženy odděleně pro tmavý a světlý vzhled.
-source-7e9d0b96d39e517d = Barva
-source-04bd852225796670 = Přednastavená barva
-source-1fe5309c7cbacabd = COM1
-source-1fe52d9c7cbac5a4 = COM2
-source-1fe52e9c7cbac757 = COM3
-source-1fe52b9c7cbac23e = COM4
-source-1fe52c9c7cbac3f1 = COM5
-source-1fe5299c7cbabed8 = COM6
-source-1fe52a9c7cbac08b = COM7
-source-1fe5279c7cbabb72 = COM8
-source-1fe5289c7cbabd25 = COM9
-source-2d076ef48fe289b8 = Čárka
-source-a41b36cc9c8142b9 = Příkaz nedostupný. Vaše argumenty jsou zachovány.
-source-03902b205d60074e = porovnávání příkazů
-source-d0864ea6cb6ef22e = Společenství
-source-fcd5321822111ef3 = Porovnejte s ostatními účastníky. Tento kód se mění se šifrovanou hovorovou skupinou.
-source-4fa5d909fda0653c = Soutěží v
-source-ff48acdfbbb52c1f = kompletní vyjednávání obrazovky
-source-4d78d4df27185ddb = kompletní vyjednávání o streamu
-source-922be67cbebc66e5 = Chcete-li se připojit k tomuto serveru, proveďte zaškrtnutí.
-source-21b734060282ca01 = Dokončete zaškrtnutí pro odeslání této žádosti o přátelství.
-source-26c2471b57eed202 = Komponenty · Náhled není k dispozici
-source-69f6755a95647960 = Zkratky skladatele jsou aktivní pouze během psaní.
-source-eb4816e7efbce6f2 = COM²
-source-eb4817e7efbce8a5 = COM³
-source-eb481de7efbcf2d7 = COM¹
-source-0ba0f119aa5d684b = OŠIDIT
-source-6b18bf707d9ae591 = Nakonfigurujte zprávy systémových událostí odesílané na váš server.
-source-b85774dc5d18ff0f = Potvrdit
-source-88d7a1d92a44533b = Před otevřením odkazů potvrďte
-source-85f524dc46057d64 = Před povolením tohoto rozšíření potvrďte všechny požadované funkce
-source-0202d9165ab141d4 = CONIN $
-source-7a4f059aaa029719 = Připojit
-source-0f32a0c2963f99b7 = Před sledováním streamu připojte hovor
-source-79d93257d544d68c = Spojte se s tímto tokenem
-source-4802c8e984c6a6f3 = Propojené hry
-source-aad0e4f8b4bcfd9a = Připojování přenosu sdílené obrazovky…
-source-3403635fea51ee2c = Připojování k Discordu
-source-bb80973884ff1508 = Připojování k Discord…
-source-ef7c9c08dd9a10a3 = Připojování ke streamu…
-source-71f975916c82dcfa = Spojení s dodanou relací; uložené přihlašovací údaje beze změny
-source-b055b780a919f111 = Spojovací…
-source-3a759fd0453a875a = Připojení obnoveno. Před uložením znovu načtěte uloženou poznámku; váš koncept je zachován.
-source-bab3520cfd0bdd9b = CONOUT$
-source-fcab4b3574f6c9aa = Utěšit
-source-cfcc1cdb98b249f6 = Viditelnost obsahu
-source-4c68496075c5e459 = Pokračujte s uloženým účtem nebo se přihlaste pomocí jiného.
-source-dd45f65613514d4c = Pokračujte s Discordem
-source-f7c55521d2f5b718 = Kontrolní rohy
-source-1f1ea04651424eb9 = Ovládání výšky
-source-45288fbf4c660e7e = Určete, jak dlouho tento odkaz trvá a kolik lidí jej může použít.
-source-7c3889311343158f = Určete, kdo vám může posílat žádosti o přátelství a jak se zobrazují.
-source-2e1cab55520bb563 = Ovládejte svůj mikrofon a příchozí zvuk během připojeného hovoru.
-source-a2915684ede2ecc7 = Ovládací prvky nejsou v tomto sestavení nebo náhledu dostupné.
-source-41b4752c216d0b66 = Konverzace
-source-7fb1379f949cd722 = Barvy konverzace
-source-4f6c201fb6bc940d = členové konverzace
-source-30aecefef69c52da = hledání konverzace
-source-589b1d6647c2b40f = Rozhovory a přátelé
-source-00d2594f679cfdec = Převedené video překračuje limit náhledu 100 MiB
-source-d499dac88619e933 = Chladné modrozelené povrchy se svěžími modrozelenými akcenty.
-source-f4de3bfbfaca12e5 = Zkopírováno
-source-dfb2b12b255de30c = Zkopírováno!
-source-97093b9f8a5cfbfb = Zkopíruje nastavení a oprávnění. Zprávy se nekopírují.
-source-3687049d1af562c4 = Kopie
-source-4651678b2be4607f = Před vložením zkopírujte soubor, obrázek nebo text
-source-2345aff679a53331 = Kopírovat aktivitu
-source-efc5f4f185331f48 = Kopírovat ID kanálu
-source-4f013b4c82c08809 = Kopírovat kód
-source-c3dfe8bbcab1e985 = Kopírovat příkaz
-source-f26bb54b183d3b9a = Kopírovat emotikony
-source-5db56b585b0dcaa6 = Důvod selhání kopírování
-source-6c24d848b4294429 = Kopírovat obrázek
-source-51616e3c3d5fa46c = Kopírovat obrázky s maximálně 4 miliony pixelů; místo toho uložte větší obrázky
-source-884e6d14b13fbaa3 = Zkopírovat odkaz na pozvánku
-source-9a2a2fda9cfa1ddc = Kopírovat odkaz
-source-67b8d96c4d75442b = Kopírovat zprávu
-source-3abbc06a7163a20d = Kopírování podporuje obrázky a videa
-source-c4489349aeb7af80 = Zkopírujte podrobnosti o systému a prostředí klienta ve formátu pro hlášení problémů GitHubu.
-source-316fc072ace20251 = Kopírovat ID vlákna
-source-8ea6139fefe0b028 = Kopírovat ID uživatele
-source-dc669220c7e57797 = Kopírovat video
-source-5bac5ad35db2fb72 = Zkopírujte ID webhooku
-source-f890a5cbb8ccea58 = Zkopírujte adresu URL webhooku
-source-4c92f4f120e7293d = Opravte hodnotu zvýrazněné barvy.
-source-b7b67b67af5d9ad6 = Opravte zvýrazněnou hodnotu přechodu.
-source-acbbe370b0ef3900 = Poškozený výsledek delta byl přijat.
-source-1684bc3c6a2c1527 = nemohl
-source-86de852428ea3511 = Nelze zkontrolovat zkopírovaný soubor
-source-ead7d8c2081ce773 = Nepodařilo se zkontrolovat nebo změnit nastavení sdílení aktivity Discordu.
-source-410875fce2a5223a = Nelze vymazat historii mezipaměti; mezipaměť historie deaktivována až do restartu; zprávy mohou zůstat na disku
-source-fef9a38a39447fd8 = Nelze vymazat zkopírovaný soubor
-source-fe26fb8df04847b5 = Nelze vymazat staré úložiště aktualizací.
-source-1e3bfc0c190255d3 = Média se nepodařilo zkopírovat do schránky
-source-d8d6551b496d86cd = Nelze vytvořit stahování aktualizace.
-source-e290c1f5b9d77ed9 = Toto umělecké dílo se nepodařilo bezpečně dekódovat
-source-748c4766e516891e = Tento obrázek se nepodařilo bezpečně dekódovat
-source-690f607c1aa95192 = Částečnou aktualizaci nelze zahodit.
-source-6d05a44fff2d620e = Tento obrázek nelze stáhnout
-source-4a0d8859a2cbde7e = Stahování nelze dokončit
-source-e08472b28ad3588a = Ukládání přílohy nelze dokončit; zkontrolujte oprávnění složky a místo na disku
-source-e516e28ec1360b5a = Připravenou aktualizaci nelze předat. Nainstalovaná aplikace nebyla nahrazena.
-source-91c6993d80362aa3 = Aktualizaci nelze předat instalačnímu programu.
-source-0a223fe9349f366e = Nelze inicializovat přenos zabezpečené aktualizace.
-source-aff1fac5d872dd61 = Toto umělecké dílo nebylo možné bezpečně zkontrolovat
-source-15feba1bd9932ffa = Nelze načíst nebo uložit předvolby aktualizace. Změny nemusí přežít restart.
-source-e43bf4d38a946c13 = Nelze načíst uložený vzhled; pomocí systémového motivu
-source-3c918600e9b86d11 = Poznámku se nepodařilo načíst. Vaše stávající poznámka nebyla změněna.
-source-c3d3ca6895000ef4 = Uložené písmo nelze načíst.
-source-2c429b664987aac0 = Nelze najít obrázky uložené v mezipaměti pro odstranění
-source-03d6b9cf17dd4a4a = Vybrané emotikony nelze otevřít
-source-cbc2e30fcded6959 = Vybraný obrázek nelze otevřít
-source-06547dd5f11eb83b = Nelze otevřít vybranou kresbu nálepky
-source-86f9d19087bad7cf = Nelze otevřít písmo.
-source-0b703938d359f507 = Nelze připravit stahování obrázku
-source-1e131fb051efd470 = Nelze připravit vložený obrázek
-source-40e580bfa52ea94a = Nelze připravit syntetický obrázek
-source-545c2a94ba912650 = Ikonu nelze připravit
-source-2ff4c03a5c918c0b = Nelze připravit restart aktualizace.
-source-60443163f395fd1e = Nelze připravit úložiště aktualizací.
-source-279768998b333a48 = Nelze zařadit do fronty odstranění dat místního účtu
-source-35b92371357fea8f = Nelze zařadit do fronty uložené přihlášení; pouze relace
-source-57a1134e8eadb018 = Nelze se spojit s GitHub. Zkontrolujte připojení a zkuste to znovu.
-source-66bae12d3cf82db1 = Historii uložené v mezipaměti nelze přečíst
-source-b9f37fd32738ed34 = Předvolby kanálů se nepodařilo načíst z místního úložiště.
-source-f1450ee473fadd92 = Nelze číst zkopírované soubory; znovu vložit
-source-89acca945c044c12 = Zkopírovaný obrázek nelze přečíst
-source-feff082f2726f5b8 = Nelze přečíst nebo aktualizovat seznam uložených účtů
-source-ca88d16116bbe5ae = Vybrané emotikony se nepodařilo přečíst
-source-3e0dc47b42e139ed = Vybraný obrázek nelze přečíst
-source-cc37477b0740deef = Vybrané umělecké dílo nálepky nelze přečíst
-source-fcf1df2942dc4d33 = Nelze přečíst písmo.
-source-7803ddc4e9eddc1f = Nelze uvolnit dočasné médium schránky
-source-b2ea8f7965f1e6c6 = Nelze odstranit obrázky uložené v mezipaměti; soubory mohou zůstat na disku
-source-9686ffd6cb092aac = Smazané zprávy z mezipaměti nelze odstranit; mezipaměť historie deaktivována až do restartu; zprávy mohou zůstat na disku
-source-85399400eefb7f1c = Nelze odstranit data místního účtu; historie a koncepty mohou zůstat na disku
-source-c72c9cffe8bbbae1 = Nelze odstranit uložené přihlašovací údaje; odeberte cz.viceverse.serein / discord-session ve správci pověření operačního systému
-source-825c7bcf6360d2ae = Nepodařilo se odstranit uložené přihlašovací údaje tohoto účtu z úložiště pověření OS
-source-9f7dd4b721282cbe = Vybraný soubor nelze nahradit
-source-427137772d21ccdc = Nelze požádat o změnu nastavení. Zkuste to znovu.
-source-7d63f72259e6669b = Velikost tohoto uměleckého díla se nepodařilo změnit
-source-898066a44cd4ce4f = Nelze obnovit koncepty z místního úložiště
-source-bcf5f40e2b4e8248 = Nebylo možné obnovit oblíbené GIF z místního úložiště
-source-1c3504b673616163 = Koncept se nepodařilo uložit; nejnovější text může existovat pouze v paměti
-source-6a3d020d0b461bee = Vzhled nelze uložit; změna existuje pouze v této relaci
-source-c4c116ce27e8582e = Historii z mezipaměti nelze uložit
-source-51c4cb36f21c48e5 = Předvolby kanálů se nepodařilo uložit.
-source-c5a7a52ab143eb9c = Nastavení oznámení zařízení nelze uložit. Změny platí pouze do restartu.
-source-1f370c0a888c3c32 = Nelze uložit oblíbené GIF; změna existuje pouze v této relaci
-source-f9f5c3df74c23c80 = Přihlášení nelze uložit; tato relace se automaticky neobnoví
-source-87ae56ecb0ab5b7e = Stav se nepodařilo uložit do Discordu. Opakování; zůstane na tomto zařízení, dokud jej Discord nepřijme.
-source-c3f44402f7bbe8ef = Písmo se nepodařilo uložit. Zkuste to znovu.
-source-69020184403337a9 = Písmo se nepodařilo uložit. Zkuste jej importovat znovu.
-source-4077f70d91f8ec52 = Aktualizační balíček nelze uložit.
-source-339b56af46bfe110 = Tyto změny nelze uložit. Zkontrolujte vybrané kanály, znovu se připojte nebo znovu načtěte nastavení serveru a zkuste to znovu.
-source-6ae0e0aa6c767086 = Nelze uložit tento účet pro přepínač; znovu se přihlaste a zkuste to znovu
-source-59e8f6ad602f5217 = Tuto roli nelze uložit. Zkontrolujte název, oprávnění a hierarchii rolí.
-source-a344ce4a120ef253 = Nelze spustit vyhledávání zvukového zařízení
-source-17f78518ca1760de = Nelze spustit výstup zvuku
-source-d39420114623f4e9 = Nelze spustit zvukového pracovníka
-source-8a7c5e3b833292d6 = Nepodařilo se spustit vyhledávání zařízení fotoaparátu
-source-7283ba47445eb3d8 = Nelze spustit image worker
-source-b0f74f585399a02c = Nelze spustit zjišťování zdroje obrazovky
-source-90eeb7167d32e152 = Nelze spustit videoworker
-source-e585bdfdf184d235 = Aktualizaci nelze rozbalit.
-source-5f0fd7ad256ac233 = Integrace se nepodařilo aktualizovat. Zkontrolujte svá oprávnění a připojení a poté znovu načtěte.
-source-f5605ba53f7980d8 = Stav nelze aktualizovat: připojení není k dispozici.
-source-d9fac810d8c681e4 = Nelze zapsat přílohu; zkontrolujte dostupné místo na disku
-source-1e0b76ae10b2763e = Aktualizaci nelze zapsat. Zkontrolujte dostupné místo na disku.
-source-18758503d7689d02 = Titulní obrázek přesahuje 2 MiB
-source-60ba5f888a2079cc = Pracovník s obrázkem obálky selhal.
-source-382a2aa3984474dd = Vytvořit
-source-d92bb198b35a85b0 = Vytvořte odkaz ke sdílení
-source-835925acc21b68c7 = Vytvořte odkaz s pozvánkou a přivítejte lidi na tomto serveru.
-source-9c99d3f4a6cb88db = Vytvořit kategorii
-source-0dcc3542d5b77e16 = Vytvořit kanál
-source-16dfe22ad782d6ce = Vytvářejte výrazy
-source-5db57f2814942db2 = Vytvořit pozvánku
-source-461e523beecf9392 = Vytvořit pozvánku
-source-ce67ba7d4c91848e = Vytvořit odkaz na pozvánku
-source-1bb47213a314465b = Vytvořit odkaz
-source-0b2fa375fb5213b1 = Vytvořit vlastní
-source-1ca952a0f10a7b63 = Vytvořte soukromá vlákna
-source-19c1a06f6aa91423 = Vytvářejte veřejná vlákna
-source-c5f923729564fbf3 = Vytvořit roli
-source-f103b8dbbc4aac0d = Vytvořit značku
-source-5c175b1f85652a68 = Vytvořte téma
-source-020ba69b968d45a7 = Vytvořit vlákno
-source-765d7cdc51cba911 = Vytvořit vlákno…
-source-c2717258f120ae20 = Vytvořte webhook
-source-5e5cff69a6d9543f = Vytvořte si svůj server
-source-0e48fdc1d25a3d3c = Vytvořeno pravidlo AutoMod
-source-4aee34a672e5cfc0 = Vytvořil
-source-3bc00948402b2a88 = Vytvořený kanál
-source-c89bbbc22d30e61a = Přepsání oprávnění kanálu bylo vytvořeno
-source-1a5ebc934f4dbad5 = Vytvořena žádost o zpeněžení autora
-source-43d0e5411c2bb8a9 = Vytvořeno emotikony
-source-3eb673cd7b5ee133 = Vytvořeno domácí nastavení
-source-d5b8032616b95e69 = Vytvořená integrace
-source-d9f3af77938aa54c = Pozvánka vytvořena
-source-ab60977dfb40c7a4 = Vytvořeno onboarding
-source-9b75aa85f4497ffa = Byla vytvořena výzva k registraci
-source-0c3cebd9295125ed = Vytvořená role
-source-6e26dd1f4afff88c = Vytvořená naplánovaná událost
-source-9fcbe25b846a3d67 = Vytvořil zvuk soundboard
-source-0e490773e2d1f0d9 = Vytvořená scéna
-source-449696c884289800 = Vytvořená nálepka
-source-553d3b576ececfa5 = Vytvořeno vlákno
-source-4339d5f545a1f994 = Vytvořen stav hlasového kanálu
-source-930b366c85da6dea = Vytvořen webhook
-source-2a35392fddc81ba3 = Vytváření odkazu na pozvánku…
-source-4a58e62083970a56 = Vytváření…
-source-2d119c0d85bde088 = Datum vytvoření
-source-11ee378934ab0f8d = Čas vytvoření
-source-c593b0976a6268bf = Jméno tvůrce je povinné.
-source-2d3cbfb6158cc7c7 = Náhled tvůrce
-source-fbf6afadead4779b = Vyhledávání pověření není k dispozici; znovu se přihlaste pomocí Discordu
-source-0beafa22dc30957b = Fronta pověření není k dispozici; uložené přihlašovací údaje mohou zůstat
-source-0b423419aa0d45a0 = CSS
-source-6fb3409caa74b0a4 = Ctrl
-source-96fb2219ad3070ba = PROUD
-source-ab8b4cbbb1fa71fa = Proud
-source-65dcda4c5b6c0401 = aktuální řádek kanálu
-source-d6aa66d42f812c4a = Zvuk aktuálního kanálu
-source-f0cab2483f66aa2e = Zvyk
-source-1995a948733ac7bd = Vlastní barva
-source-f9b5bb48f1de4eb9 = Kryt na zakázku
-source-6e247239c3b9115b = Vlastní písmo
-source-e5a1cc2ee82bb2e3 = Vlastní písmo 日本語
-source-5056fa9079a3d801 = Vlastní barva role
-source-722fda04606d8074 = Vlastní stav
-source-099d476cb54b6fa5 = Vlastní stav (prázdný jej vymaže)
-source-a89808f057cf9368 = Vlastní stav vymazán
-source-e9eb6976f93dfb18 = Přizpůsobit
-source-efb0bccda1346d32 = Přizpůsobte si barvy aplikace, typografii a styl ovládání
-source-44c1ab78f3d57101 = Upravte, jak se váš server zobrazuje v odkazech na pozvánky a pokud je povoleno, ve zprávách Server Discovery a Announcement Channel.
-source-9351cb6afb65528b = Přizpůsobte si nastavení a kdo co zde může dělat.
-source-c5756436ff756f9e = Přizpůsobte si svůj server
-source-5e7acef59442f265 = Přizpůsobte si server pomocí integrací. Spravujte webhooky, sledované kanály a aplikace připojené k vašemu serveru.
-source-af63f94c86021dd3 = D
-source-ac895c732f350ac5 = Tmavý
-source-ac896d732f3527a8 = Šipka
-source-a603948a0cea6a15 = nastavení dat a soukromí
-source-3f9c26572c0dfd76 = soukromí dat místní úložiště vymazat mezipaměť koncepty pověření
-source-ac8252732f2edb19 = Datum
-source-d57b24fa846b14b5 = data, typ autora a další
-source-b0c04a1592853742 = Ohlušit
-source-57d2b7f1d6678c99 = Neslyšící členové
-source-b5893bd6978e6395 = Hluchý zvuk
-source-448181d18f640dee = Deafen vypne příchozí zvuk a ztlumí vám mikrofon.
-source-1e16896b058b2d13 = Ohlušený
-source-6fe17c2844da1113 = Ohlušen serverem
-source-fda8ac5c5174a19e = Ohlušen serverem
-source-32322dc45e502559 = Pokles
-source-805b81fbfcb428f6 = Dekódovaný obrázek překračuje limit paměti
-source-657f80dffe736128 = Tmavě modré povrchy s jasným akcentem oceánu.
-source-11326fd2590f4e5e = Výchozí
-source-3d8d90ed798cda84 = Výchozí rozložení
-source-d8fed10701008656 = Výchozí nastavení oznámení
-source-62a3f74a862ecad6 = Výchozí oprávnění
+# Semantic application strings. Keys stay stable when English copy changes.
+
+## crates/ui/src/account_badge.rs
+# Context: name
+account-badge-app = APP
+# Context: name
+account-badge-app-description = Zpráva generovaná aplikací
+# Context: name
+account-badge-bot = BOT
+# Context: name
+account-badge-bot-description = Bot účet
+# Context: name
+account-badge-webhook = WEBHOOK
+# Context: name
+account-badge-webhook-description = Autor webhooku
+
+## crates/ui/src/account_menu.rs
+# Context: account_identity_card
+account-menu-account-identity-card-loading-profile = Načítání profilu…
+# Context: account_identity_card
+account-menu-account-identity-card-reload-profile = Znovu načíst profil
+# Context: account_menu
+account-menu-account-menu-custom-status = Vlastní stav
+# Context: account_menu
+account-menu-account-menu-shown-next-to-your-name-across-discord = Zobrazuje se vedle vašeho jména v Discordu.
+# Context: account_switcher
+account-menu-account-switcher-add-an-account = Přidat účet
+# Context: account_switcher_row
+account-menu-account-switcher-row-forget = Odebrat
+# Context: account_switcher_row
+account-menu-account-switcher-row-forget-this-account-on-this-device = Zapomenout tento účet na tomto zařízení
+# Context: account_switcher_row
+account-menu-account-switcher-row-switch-to = Přepnout na
+# Context: account_switcher
+account-menu-account-switcher-switch-accounts = Přepnout účty
+# Context: clears_at
+account-menu-clears-at-at = v
+# Context: clears_at
+account-menu-clears-at-tomorrow = zítra
+# Context: custom_status_actions
+account-menu-custom-status-actions-apply = Použít
+# Context: custom_status_actions
+account-menu-custom-status-actions-clear = Jasný
+# Context: account_custom_status_row
+account-menu-custom-status-edit = Upravit vlastní stav
+# Context: custom_status_editor
+account-menu-custom-status-editor-clear-after = Po vymazání
+# Context: custom_status_editor
+account-menu-custom-status-editor-no-custom-status = Žádný vlastní stav
+# Context: custom_status_editor
+account-menu-custom-status-editor-serein-clears-it = Serein jej vymaže
+# Context: custom_status_editor
+account-menu-custom-status-editor-status-text = Stavový text
+# Context: custom_status_editor
+account-menu-custom-status-editor-use-up-to-128-characters-without-control-characters = Použijte až 128 znaků bez řídicích znaků.
+# Context: custom_status_editor
+account-menu-custom-status-editor-what-s-on-your-mind = co máš na srdci?
+# Context: account_custom_status_row
+account-menu-custom-status-set = Nastavit vlastní stav
+# Context: label
+account-menu-label-1-hour = 1 hodina
+# Context: label
+account-menu-label-30-minutes = 30 minut
+# Context: label
+account-menu-label-4-hours = 4 hodiny
+# Context: label
+account-menu-label-don-t-clear = Nemazat
+# Context: label
+account-menu-label-today = Dnes
+# Context: presence_menu
+account-menu-presence-menu-you-will-appear-offline = Budete se zobrazovat jako offline
+# Context: presence_menu
+account-menu-presence-menu-you-will-not-receive-desktop-notifications = Nebudete dostávat oznámení na ploše
+# Context: account_status_row
+account-menu-status-invisible = Neviditelný
+
+## crates/ui/src/archives.rs
+# Context: show
+archives-active-threads = AKTIVNÍ nitě
+# Context: show
+archives-show-active-threads-come-from-the-session-older-threads-load-25 = Aktivní vlákna pocházejí z relace; starší vlákna se načítají 25 najednou. Otevření načte zprávy bez připojení.
+# Context: show
+archives-show-archives-active-threads = archivuje aktivní vlákna
+# Context: show
+archives-show-archives-are-unavailable-while-disconnected-or-without-channel-access = Při odpojení nebo bez přístupu ke kanálu nejsou archivy dostupné.
+# Context: show
+archives-show-close = Blízko
+# Context: show
+archives-show-create = Vytvořit
+# Context: show
+archives-show-loading-older-threads = Načítání starších vláken…
+# Context: show
+archives-show-no-active-thread-matches-this-search = Tomuto vyhledávání neodpovídá žádné aktivní vlákno.
+# Context: show
+archives-show-no-older-threads-reported-by-the-service = Služba nenahlásila žádná starší vlákna.
+# Context: show
+archives-show-no-older-threads-returned = Nevrátila se žádná starší vlákna.
+# Context: show
+archives-show-older-threads = STARŠÍ NITKY
+# Context: show
+archives-show-private-archives-require-permission-from-the-service = Soukromé archivy vyžadují povolení od služby.
+# Context: show
+archives-show-search-for-thread-name = Vyhledejte název vlákna
+# Context: show
+archives-show-threads = Vlákna
+# Context: show
+archives-show-you-cannot-start-a-thread-in-this-channel = V tomto kanálu nemůžete zahájit vlákno.
+# Context: thread_card
+archives-thread-card-open-thread = Otevřete vlákno
+# Context: thread_card
+archives-thread-card-started-by = Zahájil
+
+## crates/ui/src/attachments.rs
+# Context: download_button
+attachments-download-button-a-download-is-already-active = Stahování je již aktivní
+# Context: download_button
+attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Vyberte, kam chcete tento soubor uložit · až 100 MiB
+# Context: download_button
+attachments-download-button-download = Stáhnout
+# Context: download_button
+attachments-download-button-downloads-are-disabled-for-synthetic-attachments = U syntetických příloh je stahování zakázáno
+# Context: media_menu
+attachments-media-menu-a-media-transfer-is-already-active = Již probíhá přenos média
+# Context: media_menu
+attachments-media-menu-copy-image = Kopírovat obrázek
+# Context: media_menu
+attachments-media-menu-copy-link = Zkopírujte odkaz
+# Context: media_menu
+attachments-media-menu-copy-video = Kopírovat video
+# Context: media_menu
+attachments-media-menu-open-original = Otevřít originál…
+# Context: media_menu
+attachments-media-menu-save-image-as = Uložit obrázek jako…
+# Context: media_menu
+attachments-media-menu-save-video-as = Uložit video jako…
+# Context: media_menu
+attachments-media-menu-unavailable-for-synthetic-attachments = Nedostupné pro syntetické přílohy
+# Context: open_original
+attachments-open-original-open-original = Otevřít originál…
+# Context: pending_card
+attachments-pending-card-remove-attachment = Odstraňte přílohu
+# Context: show_status
+attachments-show-status-cancel-download = Zrušit stahování
+# Context: show_status
+attachments-show-status-dismiss = Propustit
+# Context: viewer
+attachments-viewer-a-download-is-already-active = Stahování je již aktivní
+# Context: viewer
+attachments-viewer-cancel = Zrušit
+# Context: viewer
+attachments-viewer-downloads-are-disabled-for-synthetic-attachments = U syntetických příloh je stahování zakázáno
+# Context: viewer
+attachments-viewer-open-in-browser = Otevřít v prohlížeči
+# Context: viewer
+attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset = Posunutím zvětšíte · Přetažením posunete · Dvojitým kliknutím resetujete
+
+## crates/ui/src/audio.rs
+# Context: show
+audio-show-loading-audio = Načítání zvuku…
+# Context: show
+audio-show-seek = Hledat
+# Context: show
+audio-show-volume = Objem
+# Context: waveform
+audio-waveform-seek-voice-message = Vyhledejte hlasovou zprávu
+
+## crates/ui/src/avatars.rs
+# Context: show_profile_avatar
+avatars-show-profile-avatar-server-profile-picture = Profilový obrázek serveru
+# Context: sticker_image
+avatars-sticker-image-image-unavailable = Obrázek není k dispozici
+
+## crates/ui/src/categories.rs
+# Context: category_header
+categories-category-header-category = kategorie
+# Context: category_header
+categories-category-header-channels = kanály
+# Context: category_header
+categories-category-header-collapse = Kolaps
+# Context: category_header
+categories-category-header-collapsed = se zhroutil
+# Context: category_header
+categories-category-header-expand = Rozšířit
+# Context: category_header
+categories-category-header-expanded = rozšířený
+# Context: channel_list
+categories-channel-list-notifications = oznámení
+# Context: channel_list
+categories-channel-list-unread = , nepřečteno
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-announcement-channel = Kanál oznámení
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-direct-message = Soukromá zpráva
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-directory-not-implemented = Adresář · není implementován
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-forum-loaded-posts = Fórum · načtené příspěvky
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-group-direct-message = Skupinová soukromá zpráva
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-media-loaded-posts = Média · načtené příspěvky
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-server-voice-channel = Hlasový kanál serveru
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-stage-channel-not-implemented = Pódium · není implementováno
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-text-channel = Textový kanál
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-thread = Vlákno
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-unknown-channel-type-not-implemented = Neznámý typ kanálu · není implementován
+
+## crates/ui/src/shortcuts.rs
+# Context: key
+channel-list-heading-direct-messages = Přímé zprávy
+# Context: key
+channel-list-heading-favorites = Oblíbené
+# Context: key
+channel-list-heading-pinned = Připnuté
+
+## crates/ui/src/channel_menu.rs
+# Context: context
+channel-menu-context-add-to-favorites = Přidat do oblíbených
+# Context: context
+channel-menu-context-copy-channel-id = Kopírovat ID kanálu
+# Context: context
+channel-menu-context-copy-link = Kopírovat odkaz
+# Context: context
+channel-menu-context-create-category = Vytvořit kategorii
+# Context: context
+channel-menu-context-create-channel = Vytvořit kanál
+# Context: context
+channel-menu-context-edit-category = Upravit kategorii
+# Context: context
+channel-menu-context-edit-channel = Upravit kanál
+# Context: context
+channel-menu-context-favorites-are-saved-on-this-device = Oblíbené položky jsou uloženy v tomto zařízení.
+# Context: context
+channel-menu-context-invite-to-channel = Pozvat do kanálu
+# Context: context
+channel-menu-context-mark-as-read = Označit jako přečtené
+# Context: context
+channel-menu-context-mute-channel = Ztlumit kanál
+# Context: context
+channel-menu-context-notification-settings = Nastavení oznámení
+# Context: context
+channel-menu-context-remove-from-favorites = Odebrat z oblíbených
+# Context: context
+channel-menu-context-unmute-channel = Zrušit ztlumení kanálu
+# Context: context
+channel-menu-context-until-i-turn-it-back-on = Dokud to znovu nezapnu
+# Context: show
+channel-menu-delete-category-confirm = Smazat { $name }? Jeho kanály zůstanou na serveru. Toto nelze vrátit zpět.
+# Context: show
+channel-menu-delete-channel-confirm = Opravdu chcete smazat #{ $name }? Jeho zprávy budou trvale smazány. Toto nelze vrátit zpět.
+# Context: editor
+channel-menu-editor-overview = Přehled
+# Context: navigation
+channel-menu-navigation-delete-category = Odstranit kategorii
+# Context: navigation
+channel-menu-navigation-delete-channel = Odstranit kanál
+# Context: overview
+channel-menu-overview-age-restricted-channel = Věkově omezený kanál
+# Context: overview
+channel-menu-overview-category-name = Název kategorie
+# Context: overview
+channel-menu-overview-channel-name = Název kanálu
+# Context: overview
+channel-menu-overview-channel-type = Typ kanálu
+# Context: overview
+channel-menu-overview-let-everyone-know-how-to-use-this-channel = Dejte všem vědět, jak tento kanál používat
+# Context: overview
+channel-menu-overview-members-must-confirm-they-are-of-age-before-viewing = Členové musí před zobrazením potvrdit, že jsou plnoletí.
+# Context: overview
+channel-menu-overview-members-will-be-restricted-to-one-message-in-this-interval = Členové budou v tomto intervalu omezeni na jednu zprávu.
+# Context: overview
+channel-menu-overview-new-category = nová kategorie
+# Context: overview
+channel-menu-overview-new-channel = nový kanál
+# Context: overview
+channel-menu-overview-slowmode = Pomalý režim
+# Context: overview
+channel-menu-overview-topic = Téma
+# Context: report_capacity
+channel-menu-report-capacity-all-messages = Všechny zprávy
+# Context: report_capacity
+channel-menu-report-capacity-create-channel = Vytvořit kanál
+# Context: report_capacity
+channel-menu-report-capacity-delete-category = Odstranit kategorii
+# Context: report_capacity
+channel-menu-report-capacity-delete-channel = Odstranit kanál
+# Context: report_capacity
+channel-menu-report-capacity-duplicate-category = Duplikovat kategorii
+# Context: report_capacity
+channel-menu-report-capacity-duplicate-channel = Duplikovat kanál
+# Context: report_capacity
+channel-menu-report-capacity-for-1-hour = Na 1 hodinu
+# Context: report_capacity
+channel-menu-report-capacity-for-15-minutes = Na 15 minut
+# Context: report_capacity
+channel-menu-report-capacity-for-24-hours = Na 24 hodin
+# Context: report_capacity
+channel-menu-report-capacity-for-3-hours = Na 3 hodiny
+# Context: report_capacity
+channel-menu-report-capacity-for-8-hours = Na 8 hodin
+# Context: report_capacity
+channel-menu-report-capacity-nothing = Nic
+# Context: report_capacity
+channel-menu-report-capacity-only-mentions = Jen @zmínky
+# Context: report_capacity
+channel-menu-report-capacity-use-server-default = Použít výchozí nastavení serveru
+# Context: show
+channel-menu-show-at-the-top-of-this-server-uses-server-permissions = V horní části tohoto serveru · používá oprávnění serveru
+# Context: show
+channel-menu-show-cancel = Zrušit
+# Context: show
+channel-menu-show-channel-settings-could-not-be-loaded = Nastavení kanálu nelze načíst.
+# Context: show
+channel-menu-show-channel-settings-need-to-be-refreshed-before-saving-reloading-replaces = Před uložením je třeba obnovit nastavení kanálu. Tento koncept nahradí opětovné načtení.
+# Context: show
+channel-menu-show-close = Blízko
+# Context: show_feedback
+channel-menu-show-feedback-channel-action = Akce kanálu
+# Context: show_feedback
+channel-menu-show-feedback-dismiss = Propustit
+# Context: show
+channel-menu-show-in-this-channels-category-inherits-category-permissions = V kategorii tohoto kanálu · zdědí oprávnění kategorie
+# Context: show
+channel-menu-show-loading-channel-settings = Načítání nastavení kanálu…
+# Context: show
+channel-menu-show-offline-preview-no-server-changes = Offline náhled · žádné změny na serveru
+# Context: show
+channel-menu-show-reload-channel = Znovu načíst kanál
+# Context: show
+channel-menu-show-retry = Zkuste to znovu
+# Context: show
+channel-menu-show-you-no-longer-have-permission-to-manage-this-channel = Ke správě tohoto kanálu již nemáte oprávnění.
+# Context: sidebar_context
+channel-menu-sidebar-context-hide-muted-channels = Skrýt ztlumené kanály
+# Context: sidebar_context
+channel-menu-sidebar-context-invite-to-server = Pozvat na server
+
+## crates/ui/src/channel_permissions.rs
+# Context: add
+channel-permissions-add-add-reactions = Přidat reakce
+# Context: add
+channel-permissions-add-allow = Povolit
+# Context: add
+channel-permissions-add-allows-emoji-from-other-servers = Umožňuje emotikony z jiných serverů.
+# Context: add
+channel-permissions-add-allows-members-to-add-new-emoji-reactions = Umožňuje členům přidávat nové reakce na emotikony.
+# Context: add
+channel-permissions-add-allows-members-to-change-channel-permissions = Umožňuje členům měnit oprávnění kanálu.
+# Context: add
+channel-permissions-add-allows-members-to-create-edit-and-delete-webhooks = Umožňuje členům vytvářet, upravovat a mazat webhooky.
+# Context: add
+channel-permissions-add-allows-members-to-deafen-others-in-voice-channels = Umožňuje členům ohlušit ostatní v hlasových kanálech.
+# Context: add
+channel-permissions-add-allows-members-to-delete-others-messages = Umožňuje členům mazat zprávy ostatních.
+# Context: add
+channel-permissions-add-allows-members-to-edit-channel-settings-and-delete-channels = Umožňuje členům upravovat nastavení kanálu a mazat kanály.
+# Context: add
+channel-permissions-add-allows-members-to-invite-people-to-this-server = Umožňuje členům zvát lidi na tento server.
+# Context: add
+channel-permissions-add-allows-members-to-join-voice-channels = Umožňuje členům připojit se k hlasovým kanálům.
+# Context: add
+channel-permissions-add-allows-members-to-manage-and-delete-threads = Umožňuje členům spravovat a odstraňovat vlákna.
+# Context: add
+channel-permissions-add-allows-members-to-move-others-between-voice-channels = Umožňuje členům přesouvat ostatní mezi hlasovými kanály.
+# Context: add
+channel-permissions-add-allows-members-to-mute-others-in-voice-channels = Umožňuje členům ztlumit ostatní v hlasových kanálech.
+# Context: add
+channel-permissions-add-allows-members-to-pin-and-unpin-messages = Umožňuje členům připínat a odepínat zprávy.
+# Context: add
+channel-permissions-add-allows-members-to-read-previous-messages = Umožňuje členům číst předchozí zprávy.
+# Context: add
+channel-permissions-add-allows-members-to-reply-in-threads = Umožňuje členům odpovídat ve vláknech.
+# Context: add
+channel-permissions-add-allows-members-to-send-messages-in-these-channels = Umožňuje členům posílat zprávy v těchto kanálech.
+# Context: add
+channel-permissions-add-allows-members-to-share-video-and-their-screen = Umožňuje členům sdílet video a jejich obrazovku.
+# Context: add
+channel-permissions-add-allows-members-to-speak-in-voice-channels = Umožňuje členům mluvit v hlasových kanálech.
+# Context: add
+channel-permissions-add-allows-members-to-start-private-threads = Umožňuje členům zakládat soukromá vlákna.
+# Context: add
+channel-permissions-add-allows-members-to-start-public-threads = Umožňuje členům zakládat veřejná vlákna.
+# Context: add
+channel-permissions-add-allows-members-to-upload-files-and-media = Umožňuje členům nahrávat soubory a média.
+# Context: add
+channel-permissions-add-allows-members-to-view-these-channels = Umožňuje členům zobrazit tyto kanály.
+# Context: add
+channel-permissions-add-allows-mentions-that-notify-everyone-or-entire-roles = Umožňuje zmínky, které upozorní všechny nebo celé role.
+# Context: add
+channel-permissions-add-allows-messages-read-aloud-with-text-to-speech = Umožňuje číst zprávy nahlas pomocí převodu textu na řeč.
+# Context: add
+channel-permissions-add-allows-speaking-without-push-to-talk = Umožňuje mluvit bez push-to-talk.
+# Context: add
+channel-permissions-add-allows-stickers-from-other-servers = Umožňuje nálepky z jiných serverů.
+# Context: add
+channel-permissions-add-attach-files = Připojit soubory
+# Context: add
+channel-permissions-add-connect = Připojit
+# Context: add
+channel-permissions-add-create-invite = Vytvořit pozvánku
+# Context: add
+channel-permissions-add-create-private-threads = Vytvořte soukromá vlákna
+# Context: add
+channel-permissions-add-create-public-threads = Vytvářejte veřejná vlákna
+# Context: add
+channel-permissions-add-deafen-members = Neslyšící členové
+# Context: add
+channel-permissions-add-deny = Odmítnout
+# Context: add
+channel-permissions-add-embed-links = Vložit odkazy
+# Context: add
+channel-permissions-add-general-category-permissions = Obecná oprávnění kategorie
+# Context: add
+channel-permissions-add-general-channel-permissions = Obecná oprávnění kanálu
+# Context: add
+channel-permissions-add-inherit = Zdědit
+# Context: add
+channel-permissions-add-manage-channels = Správa kanálů
+# Context: add
+channel-permissions-add-manage-messages = Správa zpráv
+# Context: add
+channel-permissions-add-manage-permissions = Spravovat oprávnění
+# Context: add
+channel-permissions-add-manage-threads = Správa vláken
+# Context: add
+channel-permissions-add-manage-webhooks = Správa webhooků
+# Context: add
+channel-permissions-add-membership-permissions = Členská oprávnění
+# Context: add
+channel-permissions-add-mention-everyone-here-and-all-roles = Uveďte @všichni, @zde a Všechny role
+# Context: add
+channel-permissions-add-move-members = Přesunout členy
+# Context: add
+channel-permissions-add-mute-members = Ignorovat členy
+# Context: add
+channel-permissions-add-pin-messages = Připnout zprávy
+# Context: add
+channel-permissions-add-read-message-history = Přečtěte si historii zpráv
+# Context: add
+channel-permissions-add-send-messages = Posílejte zprávy
+# Context: add
+channel-permissions-add-send-messages-in-threads = Posílejte zprávy ve vláknech
+# Context: add
+channel-permissions-add-send-text-to-speech-messages = Odesílejte zprávy typu Text-to-Speech
+# Context: add
+channel-permissions-add-shows-previews-for-links-members-send = Zobrazuje náhledy odkazů odesílaných členy.
+# Context: add
+channel-permissions-add-speak = Mluvit
+# Context: add
+channel-permissions-add-text-channel-permissions = Oprávnění textového kanálu
+# Context: add
+channel-permissions-add-use-external-emoji = Použijte externí Emoji
+# Context: add
+channel-permissions-add-use-external-stickers = Použijte externí nálepky
+# Context: add
+channel-permissions-add-use-voice-activity = Použijte Hlasovou aktivitu
+# Context: add
+channel-permissions-add-video = Video
+# Context: add
+channel-permissions-add-view-channels = Zobrazit kanály
+# Context: add
+channel-permissions-add-voice-channel-permissions = Oprávnění hlasového kanálu
+# Context: permissions
+channel-permissions-permissions-remove-role-member = Odebrat roli / člena
+# Context: show
+channel-permissions-show-advanced-permissions = Pokročilá oprávnění
+# Context: show
+channel-permissions-show-only-selected-members-and-roles-can-view-this-category-synced = Tuto kategorii mohou zobrazit pouze vybraní členové a role. Synchronizované kanály se řídí jeho oprávněními.
+# Context: show
+channel-permissions-show-only-selected-members-and-roles-can-view-this-channel-administrators = Tento kanál mohou zobrazit pouze vybraní členové a role. Administrátoři si ponechávají přístup.
+# Context: show
+channel-permissions-show-private-category = Soukromá kategorie
+# Context: show
+channel-permissions-show-private-channel = Soukromý kanál
+# Context: show
+channel-permissions-show-you-need-manage-channels-and-manage-permissions-to-change-these = Ke změně těchto nastavení potřebujete Spravovat kanály a Spravovat oprávnění.
+# Context: targets
+channel-permissions-targets-add-member = Přidat člena
+# Context: targets
+channel-permissions-targets-add-role-or-member = + Přidat roli nebo člena
+# Context: targets
+channel-permissions-targets-member = Člen
+# Context: targets
+channel-permissions-targets-member-id = ID člena
+# Context: targets
+channel-permissions-targets-role = Role
+# Context: targets
+channel-permissions-targets-roles-members = ROLE/ČLENOVÉ
+# Context: targets
+channel-permissions-targets-search-roles-or-loaded-members = Vyhledejte role nebo načtené členy
+
+## crates/ui/src/components.rs
+# Context: dialogs
+components-dialogs-submit = Předložit
+# Context: dialogs
+components-dialogs-submitting = Odesílání…
+# Context: field
+components-field-allowed-files = Povolené soubory
+# Context: field
+components-field-choose-files = Vyberte soubory…
+# Context: field
+components-field-confirm = Potvrdit
+# Context: field
+components-field-unsupported-form-field-type = Nepodporovaný typ pole formuláře
+# Context: select
+components-select-choose-options = Vyberte možnosti
+# Context: select
+components-select-clear-selection = Jasný výběr
+# Context: select
+components-select-no-matching-options-loaded = Nebyly načteny žádné odpovídající možnosti
+# Context: select
+components-select-refine-your-search-to-see-more-results = Upřesněte vyhledávání, abyste viděli více výsledků
+# Context: select
+components-select-search-options = Možnosti vyhledávání
+# Context: select
+components-select-type-to-search-members-available-roles-and-channels-are-listed = Zadejte pro vyhledávání členů; jsou uvedeny dostupné role a kanály
+# Context: show_component
+components-show-component-reveal-spoiler-component = Odhalte součást spoileru
+# Context: show_component
+components-show-component-reveal-spoiler-media = Odhalte spoilerová média
+# Context: show_component
+components-show-component-submit-selection = Odeslat výběr
+# Context: show_component
+components-show-component-unsupported-component-type = Nepodporovaný typ součásti
+# Context: show_media
+components-show-media-open-media = Otevřete médium
+# Context: show_media
+components-show-media-reveal-spoiler-attachment = Odhalit připevnění spoileru
+
+## crates/ui/src/contact_editor.rs
+# Context: show
+contact-editor-show-add-something-to-remember = Přidejte něco na památku…
+# Context: show
+contact-editor-show-cancel = Zrušit
+# Context: show
+contact-editor-show-connection-refreshed-reload-the-saved-note-before-saving-your-draft = Připojení obnoveno. Před uložením znovu načtěte uloženou poznámku; váš koncept je zachován.
+# Context: show
+contact-editor-show-could-not-load-the-note-your-existing-note-has-not = Poznámku se nepodařilo načíst. Vaše stávající poznámka nebyla změněna.
+# Context: show
+contact-editor-show-enter-a-nickname = Zadejte přezdívku
+# Context: show
+contact-editor-show-friend-nickname = Přezdívka přítele
+# Context: show
+contact-editor-show-loading-note = Načítání poznámky…
+# Context: show
+contact-editor-show-nickname = Přezdívka
+# Context: show
+contact-editor-show-note = Poznámka
+# Context: show
+contact-editor-show-only-you-can-see-this-nickname-it-does-not-change = Tuto přezdívku vidíte pouze vy. Nezmění jejich název serveru.
+# Context: show
+contact-editor-show-only-you-can-see-this-note-it-is-saved-to = Tuto poznámku můžete vidět pouze vy. Uloží se na váš Discord účet.
+# Context: show
+contact-editor-show-reload-saved-note = Znovu načíst uloženou poznámku
+# Context: show
+contact-editor-show-retry = Zkuste to znovu
+# Context: show
+contact-editor-show-save = Uložit
+# Context: show
+contact-editor-show-saving = Ukládání…
+# Context: show
+contact-editor-show-this-user-is-no-longer-a-confirmed-friend = Tento uživatel již není potvrzeným přítelem.
+
+## crates/ui/src/design.rs
+# Context: account_row_with_remove
+design-account-row-with-remove-forget = Odebrat
+# Context: account_row_with_remove
+design-account-row-with-remove-forget-this-account-on-this-device = Zapomenout tento účet na tomto zařízení
+# Context: color_edit
+design-color-edit-hex-color-rrggbb-click-to-type-or-paste = Barva hex: #RRGGBB. Klepnutím zadejte nebo vložte.
+# Context: save_bar
+design-save-bar-careful-you-have-unsaved-changes = Pozor – máte neuložené změny!
+
+## crates/ui/src/dialog.rs
+# Context: header
+dialog-header-close-dialog-esc = Zavřít dialog (Esc)
+# Context: module
+dialog-module-cancel = Zrušit
+# Context: module
+dialog-module-delete = Vymazat
+# Context: module
+dialog-module-delete-channel = Smazat kanál?
+# Context: module
+dialog-module-this-cannot-be-undone = Toto nelze vrátit zpět.
+
+## crates/ui/src/embeds.rs
+# Context: gallery
+embeds-gallery-of = z
+# Context: gallery
+embeds-gallery-open-embed-image = Otevřít vložený obrázek
+# Context: gallery
+embeds-gallery-open-image = Otevřít obrázek…
+# Context: image_preview
+embeds-image-preview-image-actions = Akce s obrázky
+# Context: link
+embeds-link-open-link = Otevřít odkaz…
+# Context: show
+embeds-show-additional-embed-content-is-not-supported = Další vložený obsah není podporován
+# Context: show
+embeds-show-embed-display-limited = Vložení zobrazení omezeno
+# Context: show
+embeds-show-favorite-gif = Oblíbený GIF
+# Context: show
+embeds-show-open-image = Otevřít obrázek
+# Context: show
+embeds-show-open-image-2 = Otevřít obrázek…
+# Context: show
+embeds-show-remove-from-gif-favorites = Odebrat z oblíbených GIFů
+# Context: show
+embeds-show-save-to-gif-favorites = Uložit do oblíbených GIFů
+# Context: show
+embeds-show-video-preview-playback-opens-in-your-browser = Náhled videa · přehrávání se otevře ve vašem prohlížeči
+# Context: text
+embeds-text-text-display-limited = Omezené zobrazení textu
+
+## crates/ui/src/emoji_details.rs
+# Context: show
+emoji-details-show-a-custom-emoji = Vlastní emotikony.
+# Context: show
+emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Výchozí emodži. Tento emotikon můžete použít všude na Discordu.
+# Context: show
+emoji-details-show-copy-emoji = Kopírovat emotikony
+# Context: show
+emoji-details-show-from = Z
+# Context: show
+emoji-details-show-source-server-unavailable-in-this-session = Zdrojový server není v této relaci dostupný.
+
+## crates/ui/src/emoji_picker.rs
+# Context: gif_body
+emoji-picker-gif-body-favorites = Oblíbené
+# Context: gif_body
+emoji-picker-gif-body-gif-search-needs-a-connected-session = Vyhledávání GIF vyžaduje připojenou relaci.
+# Context: gif_body
+emoji-picker-gif-body-hover-a-gif-and-press-the-star-to-keep-it = Umístěte kurzor na GIF a stiskněte hvězdičku, aby zde zůstal.
+# Context: gif_body
+emoji-picker-gif-body-loading-gifs = Načítání GIFů…
+# Context: gif_body
+emoji-picker-gif-body-no-favorites-yet = Zatím žádné oblíbené
+# Context: gif_body
+emoji-picker-gif-body-no-gifs-found = Nebyly nalezeny žádné GIFy
+# Context: gif_body
+emoji-picker-gif-body-searching-klipy = Vyhledávání KLIPY…
+# Context: gif_body
+emoji-picker-gif-body-trending-gifs = Populární GIFy
+# Context: gif_body
+emoji-picker-gif-body-try-a-different-search-term = Zkuste jiný hledaný výraz.
+# Context: gif_grid
+emoji-picker-gif-grid-favorite = Oblíbený
+# Context: gif_grid
+emoji-picker-gif-grid-send-gif = Odeslat GIF
+# Context: gif_home
+emoji-picker-gif-home-loading-trending-categories = Načítání populárních kategorií…
+# Context: popup
+emoji-picker-popup-back-to-gif-categories = Zpět na kategorie GIF
+# Context: popup
+emoji-picker-popup-cannot-add-this-reaction-right-now = Tuto reakci nyní nelze přidat
+# Context: popup
+emoji-picker-popup-click-a-gif-to-send-it-right-away = Kliknutím na GIF jej ihned odešlete
+# Context: popup
+emoji-picker-popup-emoji = Emoji
+# Context: popup
+emoji-picker-popup-frequently-used = ČASTO POUŽÍVANÉ
+# Context: popup
+emoji-picker-popup-hover-a-sticker-to-preview-it = Umístěním kurzoru na nálepku zobrazíte její náhled
+# Context: popup
+emoji-picker-popup-hover-an-emoji-to-preview-it = Umístěním kurzoru na emotikon zobrazíte jeho náhled
+# Context: popup
+emoji-picker-popup-no-matching-emoji = Žádné odpovídající emotikony.
+# Context: popup
+emoji-picker-popup-retry-sticker-packs = Zkuste znovu balíčky nálepek
+# Context: popup
+emoji-picker-popup-search-results = Výsledky vyhledávání
+# Context: popup
+emoji-picker-popup-showing-the-first-1-000-custom-emoji-refine-your-search = Zobrazuje se prvních 1 000 vlastních emotikonů. Upřesněte vyhledávání a získejte více.
+# Context: popup
+emoji-picker-popup-standard-emoji = Standardní emotikony
+# Context: popup
+emoji-picker-popup-this-server-has-no-custom-emoji = Tento server nemá žádné vlastní emotikony.
+# Context: popup
+emoji-picker-popup-this-server-s-emoji-list-is-not-loaded-yet = Seznam emodži tohoto serveru ještě není načten.
+# Context: popup
+emoji-picker-search-emoji = Najděte perfektní emotikony
+# Context: popup
+emoji-picker-search-emoji-label = Vyhledejte emotikony podle názvu
+# Context: popup
+emoji-picker-search-gifs-label = Hledejte GIFy na KLIPY
+# Context: popup
+emoji-picker-search-klipy = Hledat KLIPY
+# Context: popup
+emoji-picker-search-stickers = Najděte perfektní nálepku
+# Context: popup
+emoji-picker-search-stickers-label = Vyhledejte nálepky podle názvu
+# Context: show
+emoji-picker-show-insert-an-emoji = Vložte emotikon
+# Context: show_reaction
+emoji-picker-show-reaction-add-reaction = Přidejte reakci
+# Context: show
+emoji-picker-show-send-a-gif = Pošlete GIF
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-choose-emoji = Vyberte emotikony
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-remove-emoji = Odebrat emotikony
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-search-emoji = Hledat emotikony
+
+## crates/ui/src/extensions_ui.rs
+# Context: card_body
+extensions-ui-card-body-active = Aktivní
+# Context: card_body
+extensions-ui-card-body-apply-this-installed-theme-to-the-app = Použijte tento nainstalovaný motiv na aplikaci.
+# Context: card_body
+extensions-ui-card-body-by = podle
+# Context: card_body
+extensions-ui-card-body-cleanup-pending = Čeká se na vyčištění
+# Context: card_body
+extensions-ui-card-body-enabled = Povoleno
+# Context: card_body
+extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Dokončete odstranění tohoto rozšíření a jeho místních dat.
+# Context: card_body
+extensions-ui-card-body-open-tool = Otevřete nástroj
+# Context: card_body
+extensions-ui-card-body-plugin = Plugin
+# Context: card_body
+extensions-ui-card-body-remove = Odstranit
+# Context: card_body
+extensions-ui-card-body-remove-this-theme-and-delete-its-local-data = Odeberte tento motiv a odstraňte jeho místní data.
+# Context: card_body
+extensions-ui-card-body-removes-this-extension-and-deletes-its-local-data = Odebere toto rozšíření a smaže jeho místní data.
+# Context: card_body
+extensions-ui-card-body-review-the-new-release-before-it-replaces-this-version = Zkontrolujte nové vydání, než nahradí tuto verzi.
+# Context: card_body
+extensions-ui-card-body-update = Aktualizovat
+# Context: composer_menu
+extensions-ui-composer-menu-tools = Nástroje
+# Context: consent_modal
+extensions-ui-consent-modal-allow-every-listed-permission-to-continue = Povolit pokračování všech uvedených oprávnění.
+# Context: consent_modal
+extensions-ui-consent-modal-allow-this-extension-to = Povolit tomuto rozšíření
+# Context: consent_modal
+extensions-ui-consent-modal-by = podle
+# Context: consent_modal
+extensions-ui-consent-modal-cancel = Zrušit
+# Context: consent_modal
+extensions-ui-consent-modal-disabling-removes-the-extension-and-its-local-data-re-enabling = Zakázání odstraní rozšíření a jeho místní data. Opětovná aktivace začíná znovu.
+# Context: consent_modal
+extensions-ui-consent-modal-enable = Umožnit
+# Context: consent_modal
+extensions-ui-consent-modal-enable-this-extension = Povolit toto rozšíření
+# Context: consent_modal
+extensions-ui-consent-modal-enable-this-theme = Povolit toto téma
+# Context: consent_modal
+extensions-ui-consent-modal-everything-it-may-touch-is-listed-below = Vše, čeho se může dotknout, je uvedeno níže.
+# Context: consent_modal
+extensions-ui-consent-modal-no-access-to-conversations-or-composer-text = Žádný přístup ke konverzacím nebo textu skladatele.
+# Context: consent_modal
+extensions-ui-consent-modal-reviewed = Zkontrolováno
+# Context: consent_modal
+extensions-ui-consent-modal-unreviewed = Nerecenzováno
+# Context: consent_modal
+extensions-ui-consent-modal-unreviewed-package-its-source-has-not-been-reviewed-for-the = Nezkontrolovaný balíček — jeho zdroj nebyl zkontrolován pro katalog.
+# Context: consent_modal
+extensions-ui-consent-modal-view-source = Zobrazit zdroj
+# Context: preview_image
+extensions-ui-preview-image-preview = Náhled
+# Context: preview_image
+extensions-ui-preview-image-view-preview = Zobrazit náhled
+# Context: preview_modal
+extensions-ui-preview-modal-close-preview = Zavřít náhled
+# Context: preview_modal
+extensions-ui-preview-modal-creator-preview = Náhled tvůrce
+# Context: preview_modal
+extensions-ui-preview-modal-example-deleted-message-appearance = Příklad vzhledu smazané zprávy
+# Context: preview_modal
+extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = Výběrem kresby se odešle jako obrazová příloha.
+# Context: settings
+extensions-ui-settings-no-extensions-yet = Zatím žádná rozšíření
+# Context: settings
+extensions-ui-settings-no-matches = Žádné zápasy
+# Context: settings
+extensions-ui-settings-no-themes-yet = Zatím žádná témata
+# Context: settings
+extensions-ui-settings-refresh-the-catalog-or-import-a-creator-s-package-to = Začněte obnovením katalogu nebo importem balíčku autora.
+# Context: settings
+extensions-ui-settings-try-a-different-name-or-creator = Zkuste jiné jméno nebo autora.
+# Context: show_result
+extensions-ui-show-result-apply-to-draft = Použít do konceptu
+# Context: show_result
+extensions-ui-show-result-close = Blízko
+# Context: show_result
+extensions-ui-show-result-dismiss = Propustit
+# Context: show_result
+extensions-ui-show-result-extension-error = Chyba rozšíření
+# Context: show_result
+extensions-ui-show-result-proposed-app-action = Navrhovaná akce aplikace
+# Context: show_result
+extensions-ui-show-result-proposed-composer-text = Navrhovaný text skladatele
+# Context: show_result
+extensions-ui-show-result-review-the-result-app-actions-and-draft-changes-need-your = Zkontrolujte výsledek. Akce v aplikaci a změny konceptů vyžadují váš souhlas.
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-back-to-theme-editor = Zpět k editoru témat
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-back-to-themes = Zpět k tématům
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-changes-are-not-saved-yet = Změny zatím nejsou uloženy
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-customize = Přizpůsobit
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-previewing-theme = Náhled tématu
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-theme-preview = Náhled motivu
+# Context: toolbar
+extensions-ui-toolbar-checking-for-packages-and-updates = Kontrola balíčků a aktualizací
+# Context: toolbar
+extensions-ui-toolbar-clear-search = Vymazat vyhledávání
+# Context: toolbar
+extensions-ui-toolbar-dismiss = Propustit
+# Context: toolbar
+extensions-ui-toolbar-import-theme = Importovat motiv…
+# Context: toolbar
+extensions-ui-toolbar-look-for-new-packages-and-updates-nothing-installs-on-its = Hledejte nové balíčky a aktualizace. Nic se neinstaluje samo.
+# Context: toolbar
+extensions-ui-toolbar-open-a-package-file-from-this-computer = Otevřete soubor balíčku z tohoto počítače.
+# Context: toolbar
+extensions-ui-toolbar-refresh-catalog = Aktualizovat katalog
+# Context: toolbar
+extensions-ui-toolbar-search-extensions = Vyhledat rozšíření
+# Context: toolbar
+extensions-ui-toolbar-search-themes = Vyhledat motivy
+# Context: toolbar
+extensions-ui-toolbar-working-on-your-last-action = Zpracovávám poslední akci
+
+## crates/ui/src/fonts.rs
+# Context: show
+fonts-show-import-font = Importovat písmo…
+# Context: show
+fonts-show-inter-default = Inter (výchozí)
+# Context: show
+fonts-show-interface-font = Písmo rozhraní
+# Context: show
+fonts-show-reset = Resetovat
+# Context: show
+fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Rychlá hnědá liška přeskakuje líného psa. 0123456789
+# Context: show
+fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF nebo OTF, až 8 MiB. Uloženo v tomto zařízení. Kód si zachovává jednoprostorové písmo.
+# Context: show
+fonts-show-typography = Typografie
+
+## crates/ui/src/forum.rs
+# Context: archive_footer
+forum-archive-footer-archived-posts-need-a-connected-session-with-history-access = Archivované příspěvky potřebují připojenou relaci s přístupem k historii.
+# Context: archive_footer
+forum-archive-footer-load-archived-posts = Načíst archivované příspěvky
+# Context: archive_footer
+forum-archive-footer-loading-archived-posts = Načítání archivovaných příspěvků…
+# Context: archive_footer
+forum-archive-footer-no-older-archived-posts-reported = Nebyly hlášeny žádné starší archivované příspěvky.
+# Context: archive_footer
+forum-archive-footer-older-archived-posts = Starší archivované příspěvky
+# Context: archive_footer
+forum-archive-footer-retry = Zkuste to znovu
+# Context: composer
+forum-composer-add-images-or-files-up-to-10-files-and-500 = Přidejte obrázky nebo soubory. Až 10 souborů a celkem 500 MB; limity účtu mohou být nižší.
+# Context: composer
+forum-composer-add-images-to-this-post = Přidejte obrázky k tomuto příspěvku
+# Context: composer
+forum-composer-attaching-files-is-unavailable-in-this-forum = Přikládání souborů není v tomto fóru dostupné.
+# Context: composer
+forum-composer-discard-this-post = Zahoďte tento příspěvek
+# Context: composer
+forum-composer-enter-a-message = Zadejte zprávu...
+# Context: composer
+forum-composer-post = Zveřejnit
+# Context: composer
+forum-composer-posting = Odesílání…
+# Context: composer
+forum-composer-title = Titul
+# Context: describe
+forum-describe-archived = , archivováno
+# Context: describe
+forum-describe-replies = odpovědi
+# Context: describe
+forum-describe-unknown = neznámý
+# Context: describe
+forum-describe-unread = , nepřečteno
+# Context: latest_row
+forum-latest-row-attachment-or-non-text-message = Příloha nebo netextová zpráva
+# Context: latest_row
+forum-latest-row-latest-message-unavailable = Poslední zpráva není k dispozici
+# Context: post_tags
+forum-post-tags-a-post-can-carry-up-to-5-tags = Příspěvek může nést až 5 štítků.
+# Context: post_tags
+forum-post-tags-add-tag = Přidat značku
+# Context: post_tags
+forum-post-tags-add-tags = Přidejte značky
+# Context: post_tags
+forum-post-tags-only-moderators-can-apply-this-tag = Tuto značku mohou použít pouze moderátoři.
+# Context: post_tags
+forum-post-tags-remove-tag = Odebrat značku
+# Context: post_tags
+forum-post-tags-select-tags = Vyberte Značky
+# Context: post_tags
+forum-post-tags-this-forum-requires-a-tag = Toto fórum vyžaduje značku
+# Context: post_tags
+forum-post-tags-up-to = až do
+# Context: posts_footer
+forum-posts-footer-load-more-posts = Načíst další příspěvky
+# Context: posts_footer
+forum-posts-footer-loading-posts = Načítání příspěvků…
+# Context: posts_footer
+forum-posts-footer-retry = Zkuste to znovu
+
+## crates/ui/src/forum_settings.rs
+# Context: chooser
+forum-settings-chooser-no-emoji-match = Žádná shoda emodži
+# Context: chooser
+forum-settings-chooser-search-emoji = Hledat emotikony
+# Context: chooser
+forum-settings-chooser-server-emoji = emotikony serveru
+# Context: chooser
+forum-settings-chooser-then-standard-emoji = pak standardní emotikony
+# Context: chooser
+forum-settings-chooser-this-server = Tento server
+# Context: module
+forum-settings-module-1-hour = 1 hodina
+# Context: module
+forum-settings-module-1-minute = 1 minuta
+# Context: module
+forum-settings-module-10-minutes = 10 minut
+# Context: module
+forum-settings-module-10-seconds = 10 sekund
+# Context: module
+forum-settings-module-15-minutes = 15 minut
+# Context: module
+forum-settings-module-15-seconds = 15 sekund
+# Context: module
+forum-settings-module-2-hours = 2 hodiny
+# Context: module
+forum-settings-module-2-minutes = 2 minuty
+# Context: module
+forum-settings-module-30-minutes = 30 minut
+# Context: module
+forum-settings-module-30-seconds = 30 sekund
+# Context: module
+forum-settings-module-5-minutes = 5 minut
+# Context: module
+forum-settings-module-5-seconds = 5 sekund
+# Context: module
+forum-settings-module-6-hours = 6 hodin
+# Context: module
+forum-settings-module-off = Vypnuto
+# Context: show
+forum-settings-show-age-restricted-channel = Kanál s věkovým omezením
+# Context: show
+forum-settings-show-channel-content-is-always-visible = Obsah kanálu je vždy viditelný.
+# Context: show
+forum-settings-show-content-visibility = Viditelnost obsahu
+# Context: show
+forum-settings-show-creation-time = Čas vytvoření
+# Context: show
+forum-settings-show-default = Výchozí
+# Context: show
+forum-settings-show-default-layout = Výchozí rozložení
+# Context: show
+forum-settings-show-default-reaction = Výchozí reakce
+# Context: show
+forum-settings-show-gallery-view = Zobrazení galerie
+# Context: show
+forum-settings-show-help-people-organize-their-posts-into-subcategories-by-creating-a = Pomozte lidem uspořádat jejich příspěvky do podkategorií vytvořením značky.
+# Context: show
+forum-settings-show-hide-after-inactivity = Skrýt po nečinnosti
+# Context: show
+forum-settings-show-let-everyone-know-how-to-use-this-channel = Dejte všem vědět, jak používat tento kanál!
+# Context: show
+forum-settings-show-list-view = Zobrazení seznamu
+# Context: show
+forum-settings-show-match-all = Srovnat vše
+# Context: show
+forum-settings-show-match-some = Shoda s některými
+# Context: show
+forum-settings-show-members-will-be-limited-to-one-message-per-this-interval = Členové budou omezeni na jednu zprávu v tomto intervalu pro jakékoli nové příspěvky, pokud nemají povolení Obejít pomalý režim.
+# Context: show
+forum-settings-show-members-will-be-restricted-to-creating-one-post-per-this = Členové budou omezeni na vytvoření jednoho příspěvku v tomto intervalu, pokud nemají oprávnění Obejít pomalý režim.
+# Context: show
+forum-settings-show-messages = Zprávy
+# Context: show
+forum-settings-show-new-posts-stop-showing-in-the-channel-list-after-this = Nové příspěvky se po této dlouhé době bez aktivity přestanou zobrazovat v seznamu kanálů.
+# Context: show
+forum-settings-show-pick-a-default-emoji-that-your-members-will-use-to = Vyberte výchozí emotikon, který vaši členové použijí k reakci na příspěvek z tohoto kanálu.
+# Context: show
+forum-settings-show-post-guidelines = Publikovat pokyny
+# Context: show
+forum-settings-show-posts = Příspěvky
+# Context: show
+forum-settings-show-recent-activity = Nedávná aktivita
+# Context: show
+forum-settings-show-remove = Odstranit
+# Context: show
+forum-settings-show-require-people-to-select-tags-when-posting = Vyžadovat, aby lidé při zveřejňování vybrali štítky
+# Context: show
+forum-settings-show-set-the-default-layout-view-to-a-media-focused-gallery = Nastavte výchozí zobrazení rozvržení na galerii zaměřenou na média nebo na seznam zaměřený na text. Členové budou stále moci mezi těmito možnostmi přepínat.
+# Context: show
+forum-settings-show-set-the-default-sort-order-for-new-posts-members-will = Nastavte výchozí pořadí řazení pro nové příspěvky. Členové budou stále moci mezi těmito možnostmi přepínat.
+# Context: show
+forum-settings-show-set-the-default-tag-matching-behaviour-members-will-still-be = Nastavte výchozí chování při přiřazování značek. Členové budou stále moci mezi těmito možnostmi přepínat.
+# Context: show
+forum-settings-show-slowmode = Pomalý režim
+# Context: show
+forum-settings-show-sort-order = Pořadí řazení
+# Context: show
+forum-settings-show-tag-matching = Shoda značek
+# Context: show
+forum-settings-show-tags = Tagy
+# Context: show
+forum-settings-show-users-will-need-to-confirm-they-are-of-over-the = Uživatelé budou muset potvrdit, že dosáhli zákonného věku, aby mohli sledovat obsah tohoto kanálu. Kanály s věkovým omezením jsou vyňaty z filtru explicitního obsahu.
+# Context: slowmode
+forum-settings-slowmode-forum-settings-slowmode-seconds = Nastavení fóra pomalé sekundy
+# Context: slowmode
+forum-settings-slowmode-seconds = sekundy
+# Context: tag_editor
+forum-settings-tag-editor-add-tag = Přidat značku
+# Context: tag_editor
+forum-settings-tag-editor-cancel = Zrušit
+# Context: tag_editor
+forum-settings-tag-editor-create-tag = Vytvořit značku
+# Context: tag_editor
+forum-settings-tag-editor-edit-tag = Upravit značku
+# Context: tag_editor
+forum-settings-tag-editor-emoji = Emoji
+# Context: tag_editor
+forum-settings-tag-editor-members-with-manage-threads-can-still-use-it = Členové se správou vláken jej mohou stále používat.
+# Context: tag_editor
+forum-settings-tag-editor-only-allow-moderators-to-apply-this-tag = Povolit použití této značky pouze moderátorům
+# Context: tag_editor
+forum-settings-tag-editor-preview = Náhled
+# Context: tag_editor
+forum-settings-tag-editor-question = Otázka
+# Context: tag_editor
+forum-settings-tag-editor-remove-emoji = Odebrat emotikony
+# Context: tag_editor
+forum-settings-tag-editor-save-tag = Uložit značku
+# Context: tag_editor
+forum-settings-tag-editor-tag-name = Název značky
+# Context: tags
+forum-settings-tags-a-forum-can-offer-up-to-20-tags = Fórum může nabízet až 20 značek.
+# Context: tags
+forum-settings-tags-create-tag = Vytvořit značku
+# Context: tags
+forum-settings-tags-delete-tag = Smazat značku
+# Context: tags
+forum-settings-tags-edit-tag = Upravit značku
+# Context: tags
+forum-settings-tags-moderators-only = Pouze moderátoři
+
+## crates/ui/src/forum.rs
+# Context: show
+forum-show-no-loaded-post-carries-the-selected-tags-load-more-or = Žádný načtený příspěvek nenese vybrané značky; naplňte více nebo vyčistěte filtr.
+# Context: show
+forum-show-no-posts-loaded = Nebyly načteny žádné příspěvky
+# Context: show
+forum-show-no-posts-match = Žádné příspěvky neodpovídají
+# Context: show
+forum-show-nothing-is-posted-here-yet-archived-posts-load-on-request = Zatím zde není nic zveřejněno; archivované příspěvky načíst na vyžádání.
+# Context: show
+forum-show-press-enter-to-start-a-post-with-this-title = Stisknutím klávesy Enter zahájíte příspěvek s tímto názvem.
+# Context: sort_label
+forum-sort-label-creation-date = Datum vytvoření
+# Context: sort_label
+forum-sort-label-recent-activity = Nedávná aktivita
+# Context: sort_menu
+forum-sort-menu-gallery = Galerie
+# Context: sort_menu
+forum-sort-menu-gallery-2 = galerie
+# Context: sort_menu
+forum-sort-menu-list = Seznam
+# Context: sort_menu
+forum-sort-menu-list-2 = seznam
+# Context: sort_menu
+forum-sort-menu-sort-by = Seřadit podle
+# Context: sort_menu
+forum-sort-menu-sort-view = Seřadit a zobrazit
+# Context: sort_menu
+forum-sort-menu-sorted-by = Seřazeno podle
+# Context: sort_menu
+forum-sort-menu-view = pohled
+# Context: sort_menu
+forum-sort-menu-view-as = Zobrazit jako
+# Context: stats_row
+forum-stats-row-archived = Archivováno
+# Context: stats_row
+forum-stats-row-new = Nový
+# Context: tag_filter
+forum-tag-filter-all = Vše
+# Context: tag_filter
+forum-tag-filter-clear-all = Vymazat vše
+# Context: tag_filter
+forum-tag-filter-match = Zápas
+# Context: tag_filter
+forum-tag-filter-more-tags = Více značek
+# Context: tag_filter
+forum-tag-filter-select-tags = Vyberte Značky
+# Context: tag_filter
+forum-tag-filter-show-only-posts-with-every-selected-tag = Zobrazit pouze příspěvky s každým vybraným štítkem
+# Context: tag_filter
+forum-tag-filter-show-posts-with-any-selected-tag = Zobrazit příspěvky s libovolnou vybranou značkou
+# Context: tag_filter
+forum-tag-filter-some = Nějaký
+# Context: toolbar
+forum-toolbar-new-post = Nový příspěvek
+# Context: toolbar
+forum-toolbar-posting-requires-a-connected-session-with-permission-to-send-here = Zveřejňování vyžaduje připojenou relaci s oprávněním k odeslání sem.
+# Context: toolbar
+forum-toolbar-search-or-create-a-post = Hledat nebo vytvořit příspěvek…
+
+## crates/ui/src/forwarding.rs
+# Context: show
+forwarding-show-a-message-failed-check-the-destination = Zprávu se nepodařilo odeslat — zkontrolujte cíl
+# Context: show
+forwarding-show-add-an-optional-message = Přidat volitelnou zprávu…
+# Context: show
+forwarding-show-attachment-or-embedded-content = Příloha nebo vložený obsah
+# Context: show
+forwarding-show-cancel = Zrušit
+# Context: show
+forwarding-show-conversation = Konverzace
+# Context: show
+forwarding-show-destinations-selected = vybraných cílů
+# Context: show
+forwarding-show-direct-messages = Přímé zprávy
+# Context: show
+forwarding-show-done = Hotovo
+# Context: show
+forwarding-show-forward-to = Předat dál
+# Context: show
+forwarding-show-no-matching-destinations = Žádné odpovídající destinace
+# Context: show
+forwarding-show-outcome-unknown-check-the-destination-before-resending = Výsledek není známý — před opětovným odesláním zkontrolujte cíl
+# Context: show
+forwarding-show-search = Vyhledávání
+# Context: show
+forwarding-show-select-where-you-want-to-share-this-message = Vyberte, kde chcete tuto zprávu sdílet.
+# Context: show
+forwarding-show-send = Poslat
+# Context: show
+forwarding-show-sending = Odesílání…
+# Context: show
+forwarding-show-sent = Odesláno
+# Context: show
+forwarding-show-source-message-is-no-longer-available = Zdrojová zpráva již není dostupná
+
+## crates/ui/src/friends.rs
+# Context: add_friend_page
+friends-add-friend-page-offline-demo-actions-are-simulated = Offline demo · akce jsou simulovány.
+# Context: search
+friends-search-clear-search = Vymazat vyhledávání
+
+## crates/ui/src/group_menu.rs
+# Context: dropdown
+group-menu-dropdown-group-menu = Skupinové menu
+# Context: frame
+group-menu-frame-synthetic-group = Syntetická skupina
+# Context: menu
+group-menu-menu-edit-group = Upravit skupinu
+# Context: menu
+group-menu-menu-group-actions-unavailable-while-disconnected-or-busy = Skupinové akce nejsou dostupné, když jste odpojeni nebo zaneprázdněni.
+# Context: menu
+group-menu-menu-leave-group = Opustit skupinu
+# Context: menu
+group-menu-menu-mute-conversation = Ztlumit konverzaci
+# Context: menu
+group-menu-menu-mute-notifications-until-you-unmute-this-conversation = Ignorovat oznámení, dokud nezrušíte ignorování této konverzace.
+# Context: menu
+group-menu-menu-pin-dm = Připnout soukromou zprávu
+# Context: menu
+group-menu-menu-pinned-direct-messages-are-saved-on-this-device = Připnuté přímé zprávy se ukládají do tohoto zařízení.
+# Context: menu
+group-menu-menu-unmute-conversation = Zrušit ztlumení konverzace
+# Context: menu
+group-menu-menu-unpin-dm = Odepnout soukromou zprávu
+# Context: show
+group-menu-show-cancel = Zrušit
+# Context: show
+group-menu-show-change-group-icon = Změnit ikonu skupiny
+# Context: show
+group-menu-show-choosing-image = Výběr obrázku…
+# Context: show
+group-menu-show-edit-group = Upravit skupinu
+# Context: show
+group-menu-show-give-this-group-a-name-and-an-icon-everyone-will = Dejte této skupině název a ikonu, kterou každý pozná.
+# Context: show
+group-menu-show-group-name = Název skupiny
+# Context: show
+group-menu-show-leave-group = Opustit skupinu?
+# Context: show
+group-menu-show-offline-preview-no-group-changes = Offline náhled · žádné změny skupiny
+# Context: show
+group-menu-show-remove-icon = Odebrat ikonu
+# Context: show
+group-menu-show-you-will-need-an-invitation-to-rejoin = K opětovnému připojení budete potřebovat pozvánku
+
+## crates/ui/src/guild_folders.rs
+# Context: server_folders
+guild-folders-server-folders-cancel = Zrušit
+# Context: server_folders
+guild-folders-server-folders-collapsed = se zhroutil
+# Context: server_folders
+guild-folders-server-folders-colour = Barva
+# Context: server_folders
+guild-folders-server-folders-expanded = rozšířený
+# Context: server_folders
+guild-folders-server-folders-folder-name = Název složky
+# Context: server_folders
+guild-folders-server-folders-folder-name-and-color = Název složky a barva…
+# Context: server_folders
+guild-folders-server-folders-folder-settings = Nastavení složky
+# Context: server_folders
+guild-folders-server-folders-group-with-server = Skupina se serverem
+# Context: server_folders
+guild-folders-server-folders-move-down = Posuňte se dolů
+# Context: server_folders
+guild-folders-server-folders-move-outside-folders = Přesunout mimo složky
+# Context: server_folders
+guild-folders-server-folders-move-up = Posuňte se nahoru
+# Context: server_folders
+guild-folders-server-folders-name-this-folder-and-pick-the-colour-shown-on-the = Pojmenujte tuto složku a vyberte barvu zobrazenou na liště serveru.
+# Context: server_folders
+guild-folders-server-folders-refresh-folders-from-discord = Obnovte složky z Discordu
+# Context: server_folders
+guild-folders-server-folders-retry = Zkuste to znovu
+# Context: server_folders
+guild-folders-server-folders-save = Uložit
+# Context: server_folders
+guild-folders-server-folders-servers = servery
+# Context: server_folders
+guild-folders-server-folders-sync = Synchronizovat…
+# Context: server_folders
+guild-folders-server-folders-syncing-server-folders-with-discord = Synchronizace složek serveru pomocí aplikace Discord
+# Context: server_folders
+guild-folders-server-folders-ungroup-servers = Oddělit servery
+
+## crates/ui/src/invites.rs
+# Context: show
+invites-show-accepted = Přijato
+# Context: show
+invites-show-fetching-server-details = Načítání podrobností o serveru…
+# Context: show
+invites-show-go-to-server = Přejít na server
+# Context: show
+invites-show-invite-expired-or-invalid = Platnost pozvánky vypršela nebo je neplatná
+# Context: show
+invites-show-invite-unavailable = Pozvánka není k dispozici
+# Context: show
+invites-show-join = Připojte se
+# Context: show
+invites-show-joining = Připojování…
+# Context: show
+invites-show-loading = Načítání…
+# Context: show
+invites-show-preview-unavailable-offline = Náhled není k dispozici offline
+# Context: show
+invites-show-server-preview = Náhled serveru
+# Context: show
+invites-show-this-invite-may-have-expired = Platnost této pozvánky možná vypršela
+# Context: show
+invites-show-verification-required = Vyžaduje se ověření
+# Context: show
+invites-show-verify = Ověřte
+# Context: show
+invites-show-you-re-a-member-of = Jste členem
+# Context: show
+invites-show-you-ve-been-invited-to-join-a-server = Byli jste pozváni, abyste se připojili k serveru
+
+## crates/ui/src/join_server.rs
+# Context: audience
+join-server-audience-back = Zadní
+# Context: audience
+join-server-audience-for-a-club-or-community = Pro klub nebo komunitu
+# Context: audience
+join-server-audience-for-me-and-my-friends = Pro mě a mé přátele
+# Context: audience
+join-server-audience-for-now = zatím.
+# Context: audience
+join-server-audience-not-sure = Nejste si jisti?
+# Context: body
+join-server-body-checking-invite = Kontrola pozvánky…
+# Context: body
+join-server-body-choose-join-server-to-confirm = Potvrďte volbu Připojit k serveru.
+# Context: body
+join-server-body-don-t-have-an-invite = Nemáte pozvánku?
+# Context: body
+join-server-body-explore-discoverable-communities-in-discord = Prozkoumejte objevitelné komunity v Discordu ↗
+# Context: body
+join-server-body-fetching-server-details = Načítání podrobností o serveru…
+# Context: body
+join-server-body-htkzmak-discord-gg-htkzmak-discord-gg-wumpus-friends = hTKzmak · discord.gg/hTKzmak · discord.gg/wumpus-friends
+# Context: body
+join-server-body-invite-link = Odkaz na pozvánku
+# Context: body
+join-server-body-invites-look-like = Pozvánky vypadají jako
+# Context: body
+join-server-body-review-this-server-then-choose-join-server = Zkontrolujte tento server a poté zvolte Připojit se k serveru.
+# Context: body
+join-server-body-you-are-already-a-member = Již jste členem.
+# Context: body
+join-server-body-you-are-already-a-member-of-this-server = Již jste členem tohoto serveru.
+# Context: choose
+join-server-choose-create-my-own = Vytvořit vlastní
+# Context: choose
+join-server-choose-have-an-invite-already = Už máte pozvánku?
+# Context: choose
+join-server-choose-join-a-server = Připojte se k serveru
+# Context: choose
+join-server-choose-offline-preview-creating-and-joining-servers-are-disabled = Offline náhled – vytváření a připojování k serverům je zakázáno.
+# Context: customize
+join-server-customize-back = Zadní
+# Context: customize
+join-server-customize-change-server-icon = Změnit ikonu serveru
+# Context: customize
+join-server-customize-create = Vytvořit
+# Context: customize
+join-server-customize-my-server = Můj server
+# Context: customize
+join-server-customize-offline-preview-creation-is-disabled = Offline náhled – vytváření je zakázáno.
+# Context: customize
+join-server-customize-please-wait = Čekejte prosím...
+# Context: customize
+join-server-customize-server-created-waiting-for-discord-to-add-it-to-your = Server vytvořen. Čeká se, až ho Discord přidá do seznamu serverů.
+# Context: customize
+join-server-customize-server-name = Název serveru
+# Context: customize
+join-server-customize-upload-server-icon = Nahrát ikonu serveru
+# Context: show_join
+join-server-show-join-back = Zadní
+# Context: show_join
+join-server-show-join-cancel = Zrušit
+# Context: show_join
+join-server-show-join-enter-an-invite-below-to-join-an-existing-server = Níže zadejte pozvánku a připojte se k existujícímu serveru.
+# Context: show_join
+join-server-show-join-join-a-server = Připojte se k serveru
+# Context: body
+join-server-status-invite-accepted = Pozvánka přijata. Čekání na přístup k serveru; vyplňte všechna pravidla serveru v Discordu.
+# Context: body
+join-server-status-offline-preview = Offline náhled — připojení k serverům je zakázáno.
+
+## crates/ui/src/keybinds.rs
+# Context: row
+keybinds-row-global = GLOBÁLNÍ
+# Context: row
+keybinds-row-reset = Resetovat
+# Context: show_voice
+keybinds-show-voice-enable-global-keybinds = Povolit globální klávesové zkratky
+# Context: show_voice
+keybinds-show-voice-global-availability = Globální dostupnost
+# Context: show_voice
+keybinds-show-voice-use-voice-shortcuts-while-another-app-is-focused-when-off = Používejte hlasové zkratky, když je zaměřena jiná aplikace. Když je vypnuto, zkratky fungují pouze při zaostření Serein.
+
+## crates/ui/src/lib.rs
+# Context: account_card
+lib-account-card-dnd = dnd
+# Context: account_card
+lib-account-card-idle = líný
+# Context: account_card
+lib-account-card-online = online
+# Context: composer
+lib-composer-message-deleted-the-unchanged-edit-was-closed = Zpráva smazána. Nezměněná úprava byla uzavřena.
+# Context: debug_forward_check
+lib-debug-forward-check-forward-message = Přeposlat zprávu
+# Context: ime_updates_text
+lib-ime-updates-text-attach-files = Připojit soubory
+# Context: ime_updates_text
+lib-ime-updates-text-attaching-files-is-unavailable-here-remove-the-attachment-to-send = Přikládání souborů zde není dostupné. Chcete-li odeslat pouze text, odeberte přílohu.
+# Context: ime_updates_text
+lib-ime-updates-text-attachments-unavailable-right-now = Přílohy jsou momentálně nedostupné
+# Context: ime_updates_text
+lib-ime-updates-text-cancel-edit = Zrušit úpravu
+# Context: ime_updates_text
+lib-ime-updates-text-cancel-reply = Zrušit odpověď
+# Context: ime_updates_text
+lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Vyberte, přetáhněte nebo vložte soubory (Ctrl/Cmd/Option+V). Až 10 souborů a celkem 500 MB; limity účtu mohou být nižší. Odeslat spustí nahrávání.
+# Context: ime_updates_text
+lib-ime-updates-text-clear-this-draft = Vymazat tento koncept
+# Context: ime_updates_text
+lib-ime-updates-text-copy-edit-text = Kopírovat upravit text
+# Context: ime_updates_text
+lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = Návrh rozpočtu je plný. Chcete-li pokračovat, vymažte existující koncept.
+# Context: ime_updates_text
+lib-ime-updates-text-drop-files-to-attach = Přetáhněte soubory, které chcete připojit
+# Context: ime_updates_text
+lib-ime-updates-text-editing-message = Úprava zprávy
+# Context: ime_updates_text
+lib-ime-updates-text-editing-this-message-is-unavailable-your-text-is-kept-until = Úprava této zprávy není dostupná. Váš text je uložen, dokud jej nezrušíte.
+# Context: ime_updates_text
+lib-ime-updates-text-message-unavailable-unsent-edit = Zpráva není k dispozici · neodeslaná úprava
+# Context: ime_updates_text
+lib-ime-updates-text-replying-to = Odpovídání na
+# Context: ime_updates_text
+lib-ime-updates-text-return-to-an-available-conversation-after-the-current-operation-finishes = Po dokončení aktuální operace se vraťte k dostupné konverzaci
+# Context: ime_updates_text
+lib-ime-updates-text-save-edit = Uložit úpravu
+# Context: ime_updates_text
+lib-ime-updates-text-save-requested-check-the-connection-before-retrying = · Požadováno uložení, před dalším pokusem zkontrolujte připojení
+# Context: ime_updates_text
+lib-ime-updates-text-send-command = Odeslat příkaz
+# Context: ime_updates_text
+lib-ime-updates-text-send-message = Odeslat zprávu
+# Context: ime_updates_text
+lib-ime-updates-text-sending-messages-is-unavailable-in-this-conversation-your-draft-is = Odesílání zpráv je v této konverzaci nedostupné. Váš koncept je zachován.
+# Context: ime_updates_text
+lib-ime-updates-text-the-original-message-was-deleted = Původní zpráva byla smazána
+# Context: ime_updates_text
+lib-ime-updates-text-up-to-10-files-500-mb-max-account-limit-applies = Až 10 souborů · 500 MB max. · Platí limit účtu
+# Context: ime_updates_text
+lib-ime-updates-text-view-original = Zobrazit originál
+# Context: ime_updates_text
+lib-ime-updates-text-wait-for-readable-current-message-history = Počkejte na čitelnou aktuální historii zpráv
+# Context: mention_switch
+lib-mention-switch-ping-the-original-author = Ping na původního autora
+# Context: title_bar
+lib-title-bar-offline-preview = OFFLINE NÁHLED
+# Context: title_bar
+lib-title-bar-sign-in-again = Znovu se přihlaste
+# Context: title_bar
+lib-title-bar-synthetic-data-no-network-or-local-storage = Syntetická data · žádná síť ani místní úložiště
+
+## apps/desktop/src/main.rs
+# Context: restoring
+main-restoring-checking-your-saved-login = Kontrola uložených přihlašovacích údajů
+# Context: restoring
+main-restoring-connecting-to-discord = Připojování k Discordu
+# Context: restoring_screen
+main-restoring-screen-serein = Serein
+# Context: restoring_screen
+main-restoring-screen-use-a-different-account = Použijte jiný účet
+# Context: restoring_screen
+main-restoring-screen-welcome-back = Vítejte zpět
+# Context: sign_in_accounts
+main-sign-in-accounts-saved-accounts = Uložené účty
+# Context: sign_in_consent
+main-sign-in-consent-i-own-this-account-and-authorize-this-session = Vlastním tento účet a autorizuji tuto relaci.
+# Context: sign_in_consent
+main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Hesla a 2FA zůstávají na vlastní přihlašovací stránce Discordu; ve vašem úložišti pověření OS je zachován pouze token relace.
+# Context: sign_in_disclosures
+main-sign-in-disclosures-about-serein = O Serein
+# Context: sign_in_disclosures
+main-sign-in-disclosures-connect-with-this-token = Spojte se s tímto tokenem
+# Context: sign_in_disclosures
+main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Pro vlastníky, kteří již mají platný token relace Discord, například z jiné přihlášené instalace Serein. Hesla a 2FA se zde nikdy nepoužívají; to zcela obchází hostovanou přihlašovací stránku Discordu.
+# Context: sign_in_disclosures
+main-sign-in-disclosures-forget-saved-login = Zapomeňte uložené přihlašovací údaje
+# Context: sign_in_disclosures
+main-sign-in-disclosures-session-token = Token relace
+# Context: sign_in_disclosures
+main-sign-in-disclosures-sign-in-with-a-session-token = Přihlaste se pomocí tokenu relace
+# Context: sign_in_header
+main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Pokračujte s uloženým účtem nebo se přihlaste pomocí jiného.
+# Context: sign_in_header
+main-sign-in-header-sign-in-with-your-discord-account-to-get-started = Chcete-li začít, přihlaste se pomocí svého účtu Discord.
+# Context: sign_in_header
+main-sign-in-header-welcome-back = Vítejte zpět
+# Context: sign_in_header
+main-sign-in-header-welcome-to-serein = Vítejte v destinaci Serein
+# Context: sign_in_preview
+main-sign-in-preview-explore-the-offline-preview = Prozkoumejte offline náhled
+# Context: sign_in_preview
+main-sign-in-preview-sample-conversations-no-discord-connection = Ukázkové rozhovory. Žádné připojení Discord.
+# Context: sign_in_screen
+main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord = Nezávislý a otevřený zdroj. Není spojen s Discordem.
+# Context: sign_in_screen
+main-sign-in-screen-serein = Serein
+# Context: ui
+main-ui-cancel = Zrušit
+# Context: ui
+main-ui-discord-com-temporary-login-window-passwords-and-2fa-never-leave = discord.com · dočasné přihlašovací okno · hesla a 2FA nikdy neopustí stránku
+# Context: ui
+main-ui-loading-discord-com = Načítání discord.com…
+# Context: ui
+main-ui-sign-in-to-discord = Přihlaste se do Discordu
+
+## crates/ui/src/markdown.rs
+# Context: confirm_external_link
+markdown-confirm-external-link-cancel = Zrušit
+# Context: confirm_external_link
+markdown-confirm-external-link-open-external-link = Otevřít externí odkaz?
+# Context: confirm_external_link
+markdown-confirm-external-link-open-in-browser = Otevřít v prohlížeči
+# Context: confirm_external_link
+markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Tento cíl se otevře ve vašem výchozím prohlížeči.
+# Context: show_emoji
+markdown-show-emoji-copy-emoji = Kopírovat emotikony
+# Context: show_run
+markdown-show-run-channel-unavailable-or-unsupported-in-this-session = Kanál není v této relaci dostupný nebo není podporován
+# Context: show_run
+markdown-show-run-load-channel = Načíst kanál
+# Context: show_run
+markdown-show-run-open-channel = Otevřete kanál
+# Context: show_run
+markdown-show-run-open-user-profile = Otevřete uživatelský profil
+# Context: show_run
+markdown-show-run-reveal-spoiler = Odhalit spoiler
+# Context: show_run
+markdown-show-run-unknown-channel-load-channel = Neznámý kanál, načíst kanál
+
+## crates/ui/src/mentions.rs
+# Context: show
+mentions-show-choose-tab-enter-insert-esc = ↑↓ zvolte · Tab/Enter vložit · Esc
+
+## crates/ui/src/timeline.rs
+# Context: message_actions
+message-menu-copy = Kopírovat zprávu
+
+## crates/ui/src/messaging_permissions.rs
+# Context: heading
+messaging-permissions-heading-connected-games = Zprávy v propojených hrách
+# Context: heading
+messaging-permissions-heading-direct-messages = Oprávnění soukromých zpráv
+# Context: heading
+messaging-permissions-heading-friend-requests = Oprávnění žádostí o přátelství
+# Context: heading
+messaging-permissions-heading-spam = Filtry spamu
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-all-servers = Všechny servery
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-allow-friend-requests-from = Povolit žádosti o přátelství od
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-automatically-filter-suspected-spam-messages = Automaticky filtrovat podezřelé spamové zprávy
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-changes-apply-to-all-current-servers-and-set-the-default = Změny se použijí pro všechny aktuální servery a nastaví výchozí hodnotu pro nově připojené servery.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-changes-apply-to-this-server-only = Změny se týkají pouze tohoto serveru.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-control-who-can-send-you-friend-requests-and-how-they = Určete, kdo vám může posílat žádosti o přátelství a jak se zobrazují.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-discord-can-filter-out-some-messages-that-contain-spam-these = Discord dokáže odfiltrovat některé zprávy, které obsahují spam. Tyto zprávy jdou do vaší spamové schránky.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-loading-your-preferences = Načítání předvoleb…
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-read-and-respond-to-dms-directly-from-in-game-chats = Čtěte a odpovídejte na DM přímo z chatů ve hře.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-saving = Ukládání…
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-server = Server
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-settings-for-games-that-use-discord-to-power-their-social = Nastavení pro hry, které používají Discord k posílení jejich sociálních zážitků.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-show-direct-messages-in-games = Zobrazovat přímé zprávy ve hrách
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-some-servers-have-different-preferences-choose-a-server-to-review = Některé servery mají jiné preference. Vyberte server a zkontrolujte jeho nastavení.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-there-are-too-many-servers-to-update-together-choose-an = Existuje příliš mnoho serverů na aktualizaci společně. Vyberte individuální server.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-try-again = Zkuste to znovu
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-your-account-uses-a-custom-in-game-dm-setting-select = Váš účet používá vlastní nastavení DM ve hře. Vyberte možnost, kterou chcete nahradit.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-your-account-uses-a-custom-spam-filter-setting-select-an = Váš účet používá vlastní nastavení filtru spamu. Vyberte možnost, kterou chcete nahradit.
+# Context: label
+messaging-permissions-tab-connected-games = Propojené hry
+# Context: label
+messaging-permissions-tab-direct-messages = Přímé zprávy
+# Context: label
+messaging-permissions-tab-friend-requests = Žádosti o přátelství
+# Context: label
+messaging-permissions-tab-spam = Filtry spamu
+
+## crates/ui/src/notification_settings.rs
+# Context: notification_settings
+notification-settings-notification-settings-adjusts-the-volume-of-all-notification-sounds-and-ringtones = Upravuje hlasitost všech zvuků upozornění a vyzváněcích tónů.
+# Context: notification_settings
+notification-settings-notification-settings-app-icon-badges-are-not-available-on-this-platform-yet = Odznaky ikon aplikací zatím nejsou na této platformě dostupné.
+# Context: notification_settings
+notification-settings-notification-settings-disable-all-notification-sounds = Zakázat všechny zvuky upozornění
+# Context: notification_settings
+notification-settings-notification-settings-disables-notification-sounds-your-individual-sound-preferences-are-saved = Vypne zvuky upozornění. Vaše individuální předvolby zvuku se uloží a obnoví, když toto vypnete.
+# Context: notification_settings
+notification-settings-notification-settings-enable-desktop-notifications = Povolit upozornění na ploše
+# Context: notification_settings
+notification-settings-notification-settings-enable-unread-message-badge = Povolit odznak nepřečtené zprávy
+# Context: notification_settings
+notification-settings-notification-settings-for-per-channel-or-per-server-notifications-right-click-the = Pro upozornění na kanál nebo server klikněte pravým tlačítkem na kanál nebo server a vyberte Nastavení upozornění.
+# Context: notification_settings
+notification-settings-notification-settings-open = OTEVŘENO
+# Context: notification_settings
+notification-settings-notification-settings-preview-sound = Náhled zvuku
+# Context: notification_settings
+notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Zpracování vyzváněcích tónů, hovorových zařízení a mikrofonu.
+# Context: notification_settings
+notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Když máte nepřečtené zprávy, zobrazí na ikoně aplikace červený odznak.
+# Context: notification_settings
+notification-settings-notification-settings-sound-volume = Hlasitost zvuku
+# Context: notification_settings
+notification-settings-notification-settings-voice-video = Hlas a video
+# Context: label
+notification-settings-tab-badges = Odznaky
+# Context: label
+notification-settings-tab-overview = Přehled
+# Context: label
+notification-settings-tab-sounds = Zvuky
+
+## crates/ui/src/notifications.rs
+# Context: notification_rail
+notifications-notification-rail-add-a-server = Přidat server
+# Context: notification_rail
+notifications-notification-rail-in-a-call = , v hovoru
+# Context: notification_rail
+notifications-notification-rail-notifications = oznámení
+# Context: notification_rail
+notifications-notification-rail-open = OTEVŘENO
+# Context: notification_rail
+notifications-notification-rail-unread = , nepřečteno
+
+## crates/ui/src/pending.rs
+# Context: show
+pending-show-check-the-conversation-before-sending-again = Před dalším odesláním konverzaci zkontrolujte.
+# Context: show
+pending-show-dismiss = Propustit
+# Context: show
+pending-show-restore-to-composer = Obnovit do editoru zprávy
+# Context: show
+pending-show-you = Vy
+# Context: upload_strip
+pending-upload-strip-cancel-upload = Zrušit nahrávání
+# Context: upload_strip
+pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = Zpráva již možná dorazila do Discordu. Před dalším odesláním konverzaci zkontrolujte.
+
+## crates/ui/src/post_menu.rs
+# Context: context
+post-menu-context-add-to-favorites = Přidat do oblíbených
+# Context: context
+post-menu-context-close-post = Zavřít příspěvek
+# Context: context
+post-menu-context-close-thread = Zavřít vlákno
+# Context: context
+post-menu-context-copy-link = Kopírovat odkaz
+# Context: context
+post-menu-context-copy-thread-id = Kopírovat ID vlákna
+# Context: context
+post-menu-context-delete-post = Smazat příspěvek
+# Context: context
+post-menu-context-delete-thread = Smazat vlákno
+# Context: context
+post-menu-context-edit-post = Upravit příspěvek
+# Context: context
+post-menu-context-edit-thread = Upravit vlákno
+# Context: context
+post-menu-context-favorites-are-saved-on-this-device = Oblíbené položky jsou uloženy v tomto zařízení.
+# Context: context
+post-menu-context-follow-post = Sledovat příspěvek
+# Context: context
+post-menu-context-follow-this-post-to-change-its-notifications = Chcete-li změnit oznámení, začněte tento příspěvek sledovat.
+# Context: context
+post-menu-context-follow-this-thread-to-change-its-notifications = Chcete-li změnit oznámení, začněte toto vlákno sledovat.
+# Context: context
+post-menu-context-follow-thread = Sledovat vlákno
+# Context: context
+post-menu-context-loading = Načítání
+# Context: context
+post-menu-context-lock-post = Zamknout příspěvek
+# Context: context
+post-menu-context-lock-thread = Zamknout vlákno
+# Context: context
+post-menu-context-mark-as-read = Označit jako přečtené
+# Context: context
+post-menu-context-mute-post = Ztlumit příspěvek
+# Context: context
+post-menu-context-mute-thread = Ztlumit vlákno
+# Context: context
+post-menu-context-notification-settings = Nastavení oznámení
+# Context: context
+post-menu-context-open-post = Otevřít příspěvek
+# Context: context
+post-menu-context-open-thread = Otevřít vlákno
+# Context: context
+post-menu-context-pin-post = Připnout příspěvek
+# Context: context
+post-menu-context-pin-thread = Připnout vlákno
+# Context: context
+post-menu-context-remove-from-favorites = Odebrat z oblíbených
+# Context: context
+post-menu-context-retry = Zkuste to znovu
+# Context: context
+post-menu-context-settings = nastavení
+# Context: context
+post-menu-context-unfollow-post = Přestat sledovat příspěvek
+# Context: context
+post-menu-context-unfollow-thread = Přestat sledovat vlákno
+# Context: context
+post-menu-context-unlock-post = Odemknout příspěvek
+# Context: context
+post-menu-context-unlock-thread = Odemknout vlákno
+# Context: context
+post-menu-context-unmute-post = Zrušit ztlumení příspěvku
+# Context: context
+post-menu-context-unmute-thread = Zrušit ztlumení vlákna
+# Context: context
+post-menu-context-unpin-post = Odepnout příspěvek
+# Context: context
+post-menu-context-unpin-thread = Odepnout vlákno
+# Context: noun_action
+post-menu-noun-action-post = Zveřejnit
+# Context: noun
+post-menu-noun-post = Zveřejnit
+# Context: noun
+post-menu-noun-thread = Vlákno
+# Context: show
+post-menu-show-cancel = Zrušit
+# Context: show
+post-menu-show-delete = Vymazat
+# Context: show
+post-menu-show-dismiss = Propustit
+# Context: show
+post-menu-show-edit = Upravit
+# Context: show
+post-menu-show-its-messages-will-be-permanently-deleted-this-cannot-be-undone = Jeho zprávy budou trvale smazány. Toto nelze vrátit zpět.
+# Context: show
+post-menu-show-save-changes = Uložit změny
+# Context: show
+post-menu-show-the-action-could-not-be-started = Akci nelze spustit.
+# Context: show
+post-menu-show-title = titul
+# Context: show
+post-menu-show-you-no-longer-have-permission-to-change-this-conversation = Již nemáte oprávnění tuto konverzaci měnit.
+
+## crates/ui/src/profile_edit.rs
+# Context: form
+profile-edit-form-change = Přeměna
+# Context: form
+profile-edit-form-choose-profile-color = Vyberte barvu profilu
+# Context: form
+profile-edit-form-custom-color = Vlastní barva
+# Context: form
+profile-edit-form-leave-blank-to-use-your-username = Chcete-li použít své uživatelské jméno, ponechte prázdné.
+# Context: form
+profile-edit-form-new-picture-chosen-save-to-upload-it = Vybrán nový obrázek. Uložit a nahrát jej.
+# Context: form
+profile-edit-form-png-jpeg-gif-or-webp-up-to-8-mb-cropped = PNG, JPEG, GIF nebo WebP až 8 MB. Oříznuté na čtverec.
+# Context: form
+profile-edit-form-profile-color = Barva profilu
+# Context: form
+profile-edit-form-profile-picture = Profilový obrázek
+# Context: form
+profile-edit-form-remove = Odstranit
+# Context: form
+profile-edit-form-tints-your-banner-when-you-have-not-set-a-banner = Tónuje váš banner, když jste nenastavili obrázek banneru.
+# Context: form
+profile-edit-form-undo = Vrátit zpět
+# Context: form
+profile-edit-form-use-default = Použít výchozí
+# Context: form
+profile-edit-form-your-picture-will-be-removed-when-you-save = Váš obrázek bude při uložení odstraněn.
+# Context: preview
+profile-edit-preview-about-me = O mně
+# Context: preview
+profile-edit-preview-change-profile-picture = Změnit profilový obrázek
+# Context: preview
+profile-edit-preview-preview = Náhled
+# Context: show
+profile-edit-show-cancel = Zrušit
+# Context: show
+profile-edit-show-check-character-limits-and-remove-control-characters-a-display-name = Zkontrolujte limity znaků a odstraňte kontrolní znaky. Zobrazovaný název nemůže obsahovat pouze mezery.
+# Context: show
+profile-edit-show-loading-your-profile = Načítání vašeho profilu…
+# Context: show
+profile-edit-show-profile-saved = Profil uložen
+# Context: show
+profile-edit-show-reconnect-to-save-your-profile = Pro uložení profilu se znovu připojte.
+# Context: show
+profile-edit-show-reload-profile = Znovu načíst profil
+# Context: show
+profile-edit-show-save-changes = Uložte změny
+# Context: show
+profile-edit-show-saved-in-preview = Uloženo v náhledu
+# Context: show
+profile-edit-show-saving-profile = Ukládání profilu…
+# Context: show
+profile-edit-show-you-have-unsaved-changes = Máte neuložené změny.
+
+## crates/ui/src/profiles.rs
+# Context: activity_card
+profiles-activity-card-activity-options = Možnosti aktivity
+# Context: activity_card
+profiles-activity-card-copy-activity = Kopírovat aktivitu
+# Context: activity_card
+profiles-activity-card-listening-to-spotify = Poslouchá Spotify
+# Context: activity_row
+profiles-activity-row-show = Zobrazit
+# Context: activity_verb
+profiles-activity-verb-activity = Aktivita
+# Context: activity_verb
+profiles-activity-verb-competing-in = Soutěží v
+# Context: activity_verb
+profiles-activity-verb-listening-to = Poslouchá
+# Context: activity_verb
+profiles-activity-verb-playing = Hraje
+# Context: activity_verb
+profiles-activity-verb-streaming = Streamuje
+# Context: activity_verb
+profiles-activity-verb-watching = Sleduje
+# Context: more_menu
+profiles-more-menu-add-friend-nickname = Přidat přezdívku přítele
+# Context: more_menu
+profiles-more-menu-add-note = Přidat poznámku
+# Context: more_menu
+profiles-more-menu-block = Blok
+# Context: more_menu
+profiles-more-menu-copy-webhook-id = Zkopírujte ID webhooku
+# Context: more_menu
+profiles-more-menu-edit-friend-nickname = Upravit přezdívku přítele
+# Context: more_menu
+profiles-more-menu-mute = Ztlumit
+# Context: more_menu
+profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it = Vypněte oznámení této přímé zprávy, dokud je nezrušíte.
+# Context: more_menu
+profiles-more-menu-no-open-direct-message-with-this-user = Žádná otevřená přímá zpráva s tímto uživatelem.
+# Context: more_menu
+profiles-more-menu-private-nicknames-are-available-for-confirmed-friends = Pro potvrzené přátele jsou k dispozici soukromé přezdívky.
+# Context: more_menu
+profiles-more-menu-remove-friend = Odebrat přítele
+# Context: more_menu
+profiles-more-menu-unblock = Odblokovat
+# Context: more_menu
+profiles-more-menu-unmute = Zrušit ztlumení
+# Context: role_chips
+profiles-role-chips-show-remaining-roles = Zobrazit zbývající role
+# Context: server_tag
+profiles-server-tag-server = server
+# Context: server_tag
+profiles-server-tag-server-tag = Značka serveru
+# Context: show
+profiles-show-about-me = O MNĚ
+# Context: show
+profiles-show-copy-webhook-id = Zkopírujte ID webhooku
+# Context: show
+profiles-show-edit-profile = Upravit profil
+# Context: show
+profiles-show-loading-profile = Načítání profilu…
+# Context: show
+profiles-show-member-since = ČLENEM OD
+# Context: show
+profiles-show-message = Zpráva
+# Context: show
+profiles-show-more = Více
+# Context: show
+profiles-show-mutual-server = Vzájemný server
+# Context: show
+profiles-show-mutual-servers = Vzájemné servery
+# Context: show
+profiles-show-offline-preview-synthetic = Offline náhled · syntetický
+# Context: show
+profiles-show-retry-profile = Opakovat profil
+# Context: show
+profiles-show-roles = ROLE
+# Context: show
+profiles-show-server = server
+# Context: show
+profiles-show-server-2 = Server
+# Context: show
+profiles-show-server-tag = Značka serveru
+# Context: show
+profiles-show-unable-to-load-parts-of-profile = Části profilu nelze načíst
+# Context: show
+profiles-show-view-banner = Zobrazit banner
+# Context: show
+profiles-show-view-profile-picture = Zobrazit profilový obrázek
+
+## crates/ui/src/reactions.rs
+# Context: add_button
+reactions-add-button-add-reaction = Přidejte reakci
+# Context: show
+reactions-show-reactions-unavailable = Reakce nedostupné
+# Context: show
+reactions-show-reload-reactions = Znovu načíst reakce
+# Context: show_users
+reactions-show-users-close = Blízko
+# Context: show_users
+reactions-show-users-load-more = Načíst více
+# Context: show_users
+reactions-show-users-loading-reactions = Načítání reakcí…
+# Context: show_users
+reactions-show-users-nobody-currently-has-this-reaction = Tuto reakci v současné době nikdo nemá.
+# Context: show_users
+reactions-show-users-reactions = Reakce
+# Context: show_users
+reactions-show-users-retry = Zkuste to znovu
+# Context: show_users
+reactions-show-users-showing-the-first-1-000-reactions = Zobrazuje se prvních 1 000 reakcí.
+
+## crates/ui/src/reading.rs
+# Context: chat_reading_settings
+reading-chat-reading-settings-animate-gifs = Animujte GIFy
+# Context: chat_reading_settings
+reading-chat-reading-settings-animate-wheel-movement-and-jumps-between-messages = Animujte pohyb kolečka a přeskakování mezi zprávami.
+# Context: chat_reading_settings
+reading-chat-reading-settings-ask-before-opening-external-links-discord-links-always-open-directly = Před otevřením externích odkazů se zeptejte. Discord odkazy se vždy otevírají přímo.
+# Context: chat_reading_settings
+reading-chat-reading-settings-confirm-before-opening-links = Před otevřením odkazů potvrďte
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-image-and-gif-links = Skrýt odkazy na obrázky a GIF
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-standalone-links-when-their-image-or-gif-preview-is = Skrýt samostatné odkazy, když se zobrazí jejich obrázek nebo náhled GIF.
+# Context: chat_reading_settings
+reading-chat-reading-settings-links = Odkazy
+# Context: chat_reading_settings
+reading-chat-reading-settings-messages-and-media = Zprávy a média
+# Context: chat_reading_settings
+reading-chat-reading-settings-mouse-wheel-and-trackpad-movement-100-is-the-default = Pohyb kolečka myši a trackpadu. Výchozí hodnota je 100 %.
+# Context: chat_reading_settings
+reading-chat-reading-settings-reset-chat = Resetovat chat
+# Context: chat_reading_settings
+reading-chat-reading-settings-scrolling = Posouvání
+# Context: chat_reading_settings
+reading-chat-reading-settings-scrolling-speed = Rychlost rolování
+# Context: chat_reading_settings
+reading-chat-reading-settings-smooth-scrolling = Plynulé rolování
+# Context: chat_reading_settings
+reading-chat-reading-settings-visible-chat-gifs-play-automatically = Viditelné GIFy chatu se přehrávají automaticky.
+# Context: layout_settings
+reading-layout-settings-channel-and-conversation-list-width-in-wide-windows = Šířka seznamu kanálů a konverzací v širokých oknech.
+# Context: layout_settings
+reading-layout-settings-keep-the-member-list-open-whenever-the-window-is-wide = Udržujte seznam členů otevřený, kdykoli je okno dostatečně široké.
+# Context: layout_settings
+reading-layout-settings-layout = Rozložení
+# Context: layout_settings
+reading-layout-settings-reset-layout = Obnovit rozložení
+# Context: layout_settings
+reading-layout-settings-show-people-in-wide-windows = Zobrazit lidi v širokých oknech
+# Context: layout_settings
+reading-layout-settings-sidebar-width = Šířka boční lišty
+# Context: reading_save_notice
+reading-reading-save-notice-retry-saving-reading-settings = Zkuste znovu uložit nastavení čtení
+# Context: zoom_row
+reading-zoom-row-scales-text-and-controls-across-the-app = Mění měřítko textu a ovládacích prvků v celé aplikaci.
+# Context: zoom_row
+reading-zoom-row-zoom = Přiblížení
+
+## crates/ui/src/screen.rs
+# Context: body
+screen-body-frame-rate = Snímková frekvence
+# Context: body
+screen-body-include-the-pointer-in-the-shared-video = Zahrnout ukazatel do sdíleného videa.
+# Context: body
+screen-body-quality = Kvalitní
+# Context: body
+screen-body-quality-selection-does-not-require-nitro = Výběr kvality nevyžaduje Nitro.
+# Context: body
+screen-body-refresh = Obnovit
+# Context: body
+screen-body-screen-or-window = Obrazovka nebo okno
+# Context: body
+screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Odesílejte, co váš Mac hraje, spolu s obrazovkou. Serein vlastní zvuk hovoru je vynechán.
+# Context: body
+screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Sdílejte zvuk z jiných aplikací, i když sdílíte jedno okno. Serein vlastní zvuk je vynechán.
+# Context: body
+screen-body-share-system-audio = Sdílejte systémový zvuk
+# Context: body
+screen-body-show-cursor = Zobrazit kurzor
+# Context: body
+screen-body-your-call-microphone-keeps-its-current-settings = Váš mikrofon hovoru si zachová aktuální nastavení.
+# Context: show
+screen-show-cancel = Zrušit
+# Context: show
+screen-show-choose-what-people-in-this-call-can-see = Vyberte, co mohou lidé v tomto hovoru vidět.
+# Context: show
+screen-show-share-screen = Sdílet obrazovku
+# Context: show
+screen-show-share-your-screen = Sdílejte svou obrazovku
+# Context: source_list
+screen-source-list-no-screens-or-windows-are-available-yet = Zatím nejsou k dispozici žádné obrazovky ani okna.
+
+## crates/ui/src/search_filters.rs
+# Context: choices
+search-filters-choices-any = Žádný
+# Context: show
+search-filters-show-add-date = + Přidat datum
+# Context: show
+search-filters-show-any = Žádný
+# Context: show
+search-filters-show-any-content = Jakýkoli obsah
+# Context: show
+search-filters-show-apply-filters = Použít filtry
+# Context: show
+search-filters-show-bot = bot
+# Context: show
+search-filters-show-bot-2 = Bot
+# Context: show
+search-filters-show-cancel = Zrušit
+# Context: show
+search-filters-show-choose-author-type = Vyberte typ autora
+# Context: show
+search-filters-show-clear-filters = Vymazat filtry
+# Context: show
+search-filters-show-embed = vložit
+# Context: show
+search-filters-show-embed-2 = Vložený obsah
+# Context: show
+search-filters-show-false = falešný
+# Context: show
+search-filters-show-false-2 = Ne
+# Context: show
+search-filters-show-file = soubor
+# Context: show
+search-filters-show-file-2 = Soubor
+# Context: show
+search-filters-show-filters = Filtry
+# Context: show
+search-filters-show-image = obraz
+# Context: show
+search-filters-show-image-2 = Obrázek
+# Context: show
+search-filters-show-link = odkaz
+# Context: show
+search-filters-show-link-2 = Odkaz
+# Context: show
+search-filters-show-narrow-this-search-down-to-the-messages-you-want = Zužte toto vyhledávání na požadované zprávy.
+# Context: show
+search-filters-show-remove-dates = Odebrat data
+# Context: show
+search-filters-show-sound = zvuk
+# Context: show
+search-filters-show-sound-2 = Zvuk
+# Context: show
+search-filters-show-true = věrný
+# Context: show
+search-filters-show-true-2 = Ano
+# Context: show
+search-filters-show-user = uživatel
+# Context: show
+search-filters-show-user-2 = Uživatel
+# Context: show
+search-filters-show-video = video
+# Context: show
+search-filters-show-video-2 = Video
+# Context: show
+search-filters-show-webhook = webhook
+# Context: show
+search-filters-show-webhook-2 = Webhook
+# Context: show
+search-filters-show-yyyy-mm-dd = YYYY-MM-DD
+# Context: user_picker
+search-filters-user-picker-choose-a-user = Vyberte uživatele
+# Context: user_picker
+search-filters-user-picker-no-matching-users = Žádní odpovídající uživatelé
+# Context: user_picker
+search-filters-user-picker-search-users = Hledat uživatele
+
+## crates/ui/src/search.rs
+# Context: header_input
+search-header-input-close-search = Zavřít vyhledávání
+# Context: header_input
+search-header-input-search = Vyhledávání
+# Context: open_filters
+search-open-filters-dates-author-type-and-more = data, typ autora a další
+# Context: open_filters
+search-open-filters-from-a-specific-user = Od konkrétního uživatele
+# Context: open_filters
+search-open-filters-from-user = od: uživatel
+# Context: open_filters
+search-open-filters-has-link-embed-or-file = má: odkaz, vložení nebo soubor
+# Context: open_filters
+search-open-filters-includes-a-specific-type-of-data = Zahrnuje konkrétní typ dat
+# Context: open_filters
+search-open-filters-mentions-a-specific-user = Zmiňuje konkrétního uživatele
+# Context: open_filters
+search-open-filters-mentions-user = zmiňuje: uživatel
+# Context: open_filters
+search-open-filters-more-filters = Více filtrů
+# Context: overlays
+search-overlays-filters = Filtry
+# Context: overlays
+search-overlays-from = z
+# Context: overlays
+search-overlays-from-user = Od uživatele
+# Context: overlays
+search-overlays-mentions-user = Zmínky o uživateli
+# Context: overlays
+search-overlays-no-matching-users-in-this-conversation = V této konverzaci nejsou žádní odpovídající uživatelé.
+# Context: overlays
+search-overlays-search-for = Hledat
+# Context: pane
+search-pane-close = Blízko
+# Context: pane
+search-pane-hide-matching-text-highlight = Skrýt zvýraznění shodného textu
+# Context: pane
+search-pane-indexing-is-incomplete-results-may-be-missing = Indexování je neúplné; výsledky mohou chybět.
+# Context: pane
+search-pane-looking-for-matching-messages = Hledání odpovídajících zpráv.
+# Context: pane
+search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Zprávy nejsou dostupné, pokud jste odpojeni nebo nemáte přístup ke kanálu.
+# Context: pane
+search-pane-newest-first = Nejdříve nejnovější
+# Context: pane
+search-pane-no-results = Žádné výsledky
+# Context: pane
+search-pane-nothing-on-this-page-matches-the-query = Nic na této stránce neodpovídá dotazu.
+# Context: pane
+search-pane-of = z
+# Context: pane
+search-pane-oldest-first = Nejdříve nejstarší
+# Context: pane
+search-pane-order-on-this-page = Objednávejte na této stránce
+# Context: pane
+search-pane-pinned-messages = Připnuté zprávy
+# Context: pane
+search-pane-reload-pins = Znovu nabijte kolíky
+# Context: pane
+search-pane-search-this-conversation = Prohledejte tuto konverzaci
+# Context: pane
+search-pane-searching = Vyhledávání…
+# Context: pane
+search-pane-type-a-query-above-and-press-enter = Zadejte dotaz výše a stiskněte Enter.
+# Context: pins_content
+search-pins-content-loading-older-pins = Načítání starších pinů…
+# Context: pins_content
+search-pins-content-loading-pinned-messages = Načítání připnutých zpráv…
+# Context: pins_content
+search-pins-content-more-pins-may-exist-but-this-page-has-no-usable = Může existovat více pinů, ale tato stránka nemá použitelné pokračování.
+# Context: pins_content
+search-pins-content-older-pins = Starší připnuté zprávy
+# Context: pins_content
+search-pins-content-pinned-messages-are-unavailable-while-disconnected-or-without-channel-ac = Připnuté zprávy nejsou dostupné, pokud jste odpojeni nebo nemáte přístup ke kanálu.
+# Context: pins_content
+search-pins-content-retry-older-pins = Zkusit znovu načíst starší připnuté zprávy
+# Context: pins_empty
+search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet = Tento kanál nemá
+    všechny připnuté zprávy... zatím.
+# Context: pins_empty
+search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet = Tato přímá zpráva nemá
+    všechny připnuté zprávy... zatím.
+# Context: pins_popout
+search-pins-popout-close = Blízko
+# Context: pins_popout
+search-pins-popout-pinned-messages = Připnuté zprávy
+# Context: pins_popout
+search-pins-popout-reload-pins = Znovu nabijte kolíky
+# Context: result_card
+search-result-card-jump-to-message-from = Přejít na zprávu od
+# Context: result_card
+search-result-card-spoiler-media-open-the-message-to-reveal-it = Spoiler media – otevřete zprávu, abyste ji odhalili.
+
+## crates/ui/src/select.rs
+# Context: on_end_pass
+select-on-end-pass-copy = Kopie
+
+## crates/ui/src/server_admin.rs
+# Context: date
+server-admin-date-unknown = Neznámý
+# Context: dialog
+server-admin-dialog-30-days = 30 dní
+# Context: dialog
+server-admin-dialog-7-days = 7 dní
+# Context: dialog
+server-admin-dialog-cancel = Zrušit
+# Context: dialog
+server-admin-dialog-delete-emoji = Smazat Emoji
+# Context: dialog
+server-admin-dialog-emoji-name = Název emodži
+# Context: dialog
+server-admin-dialog-inactive-for = Neaktivní pro
+# Context: dialog
+server-admin-dialog-kick-member = Kick Member
+# Context: dialog
+server-admin-dialog-leave-blank-to-use-their-username = Chcete-li použít jejich uživatelské jméno, ponechte prázdné.
+# Context: dialog
+server-admin-dialog-nickname = Přezdívka
+# Context: dialog
+server-admin-dialog-preview = Náhled
+# Context: dialog
+server-admin-dialog-prune-members = Prune Members
+# Context: dialog
+server-admin-dialog-save = Uložit
+# Context: dialog
+server-admin-dialog-use-their-username = Použijte jejich uživatelské jméno
+# Context: emojis
+server-admin-emojis-add-custom-emoji-that-anyone-can-use-in-this-server = Přidejte vlastní emotikony, které může na tomto serveru použít kdokoli. Animované emotikony GIF mohou používat členové s Discord Nitro.
+# Context: emojis
+server-admin-emojis-animated = Animovaný
+# Context: emojis
+server-admin-emojis-animated-emoji = Animované Emoji
+# Context: emojis
+server-admin-emojis-cancel = Zrušit
+# Context: emojis
+server-admin-emojis-delete-emoji = Smazat Emoji
+# Context: emojis
+server-admin-emojis-drag-and-drop-up-to-10-images-onto-this-page = Přetáhněte na tuto stránku až 10 obrázků nebo vyberte soubory. Před nahráním zkontrolujte jejich jména.
+# Context: emojis
+server-admin-emojis-emoji = Emoji
+# Context: emojis
+server-admin-emojis-emoji-2 = emotikony
+# Context: emojis
+server-admin-emojis-emoji-actions = Akce emodži
+# Context: emojis
+server-admin-emojis-emoji-name-232-letters-numbers-or-underscores = Název emodži: 2–32 písmen, číslic nebo podtržítek
+# Context: emojis
+server-admin-emojis-emoji-names-must-use-232-letters-numbers-or-underscores = Názvy emodži musí obsahovat 2–32 písmen, číslic nebo podtržítek.
+# Context: emojis
+server-admin-emojis-image = Obrázek
+# Context: emojis
+server-admin-emojis-name = Jméno
+# Context: emojis
+server-admin-emojis-none = ŽÁDNÝ
+# Context: emojis
+server-admin-emojis-preparing-emoji-images = Příprava obrázků emodži...
+# Context: emojis
+server-admin-emojis-remove = Odstranit
+# Context: emojis
+server-admin-emojis-rename = Přejmenovat
+# Context: emojis
+server-admin-emojis-review-uploads = Zkontrolujte nahraná videa
+# Context: emojis
+server-admin-emojis-slots-available = sloty k dispozici
+# Context: emojis
+server-admin-emojis-static = Statický
+# Context: emojis
+server-admin-emojis-unknown = Neznámý
+# Context: emojis
+server-admin-emojis-upload = Nahrát
+# Context: emojis
+server-admin-emojis-upload-emoji = Nahrajte emotikony
+# Context: emojis
+server-admin-emojis-uploaded-by = Nahrál(a).
+# Context: join_method
+server-admin-join-method-application = Aplikace
+# Context: join_method
+server-admin-join-method-bot = Bot
+# Context: join_method
+server-admin-join-method-discovery = Objev
+# Context: join_method
+server-admin-join-method-integration = Integrace
+# Context: join_method
+server-admin-join-method-invite = Pozvat
+# Context: join_method
+server-admin-join-method-linked-lobby = Propojená lobby
+# Context: join_method
+server-admin-join-method-student-hub = Studentské centrum
+# Context: join_method
+server-admin-join-method-unknown = Neznámý
+# Context: join_method
+server-admin-join-method-vanity-url = Vanity URL
+# Context: member_card
+server-admin-member-card-invite = Pozvat
+# Context: member_card
+server-admin-member-card-join-method = Metoda spojení
+# Context: member_card
+server-admin-member-card-joined-discord = Připojil se k Discordu
+# Context: member_card
+server-admin-member-card-member-actions = Akce členů
+# Context: member_card
+server-admin-member-card-member-details = Podrobnosti o členech
+# Context: member_card
+server-admin-member-card-member-since = Členem od
+# Context: member_menu
+server-admin-member-menu-block = Blok
+# Context: member_menu
+server-admin-member-menu-change-nickname = Změňte přezdívku
+# Context: member_menu
+server-admin-member-menu-copy-user-id = Kopírovat ID uživatele
+# Context: member_menu
+server-admin-member-menu-kick = Kop
+# Context: member_menu
+server-admin-member-menu-message = Zpráva
+# Context: member_menu
+server-admin-member-menu-profile = Profil
+# Context: member_menu
+server-admin-member-menu-roles = Role
+# Context: member_menu
+server-admin-member-menu-unblock = Odblokovat
+# Context: members
+server-admin-members-first-page = První stránka
+# Context: members
+server-admin-members-joined-in-the-last-7-days = Připojeno během posledních 7 dnů
+# Context: members
+server-admin-members-member-actions = Akce členů
+# Context: members
+server-admin-members-newest-discord-accounts = Nejnovější Discord účty
+# Context: members
+server-admin-members-newest-members = Nejnovější členové
+# Context: members
+server-admin-members-next-page = Další stránka
+# Context: members
+server-admin-members-no-members-match-this-search = Tomuto vyhledávání neodpovídají žádní členové.
+# Context: members
+server-admin-members-of = z
+# Context: members
+server-admin-members-oldest-discord-accounts = Nejstarší účty Discord
+# Context: members
+server-admin-members-oldest-members = Nejdéle přítomní členové
+# Context: members
+server-admin-members-prune = Prořezávat
+# Context: members
+server-admin-members-recent-members = Nedávní členové
+# Context: members
+server-admin-members-search-by-username-or-id = Vyhledávejte podle uživatelského jména nebo ID
+# Context: members
+server-admin-members-server-members = Členové serveru
+# Context: members
+server-admin-members-show-members-in-channel-list = Zobrazit členy v seznamu kanálů
+# Context: members
+server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = Zobrazte stránku členů v seznamu kanálů, abyste rychle viděli poslední připojení a členy označené kvůli neobvyklé aktivitě.
+# Context: members
+server-admin-members-showing = Zobrazení
+# Context: show
+server-admin-show-loading = Načítání...
+# Context: show
+server-admin-show-reload = Znovu načíst
+# Context: show
+server-admin-show-saving-changes = Ukládání změn...
+# Context: signals
+server-admin-signals-rejoined = Znovu se připojil
+# Context: signals
+server-admin-signals-server-tag-flagged = Značka serveru byla označena
+# Context: signals
+server-admin-signals-timed-out = Vypršel časový limit
+# Context: signals
+server-admin-signals-unusual-dm-activity = Neobvyklá aktivita DM
+# Context: signals
+server-admin-signals-username-flagged = Uživatelské jméno bylo označeno
+
+## crates/ui/src/server_audit_log.rs
+# Context: action_text
+server-audit-log-action-text-accepted-creator-monetization-terms = Přijaté podmínky zpeněžení autorů
+# Context: action_text
+server-audit-log-action-text-added-bot = Přidán bot
+# Context: action_text
+server-audit-log-action-text-banned-member = Zakázaný člen
+# Context: action_text
+server-audit-log-action-text-blocked-message-with-automod = Blokovaná zpráva pomocí AutoMod
+# Context: action_text
+server-audit-log-action-text-created-automod-rule = Vytvořeno pravidlo AutoMod
+# Context: action_text
+server-audit-log-action-text-created-channel = Vytvořený kanál
+# Context: action_text
+server-audit-log-action-text-created-channel-permission-overwrite = Přepsání oprávnění kanálu bylo vytvořeno
+# Context: action_text
+server-audit-log-action-text-created-creator-monetization-request = Vytvořena žádost o zpeněžení autora
+# Context: action_text
+server-audit-log-action-text-created-emoji = Vytvořeno emotikony
+# Context: action_text
+server-audit-log-action-text-created-home-settings = Vytvořeno domácí nastavení
+# Context: action_text
+server-audit-log-action-text-created-integration = Vytvořená integrace
+# Context: action_text
+server-audit-log-action-text-created-invite = Pozvánka vytvořena
+# Context: action_text
+server-audit-log-action-text-created-onboarding = Vytvořeno onboarding
+# Context: action_text
+server-audit-log-action-text-created-onboarding-prompt = Byla vytvořena výzva k registraci
+# Context: action_text
+server-audit-log-action-text-created-role = Vytvořená role
+# Context: action_text
+server-audit-log-action-text-created-scheduled-event = Vytvořená naplánovaná událost
+# Context: action_text
+server-audit-log-action-text-created-soundboard-sound = Vytvořil zvuk soundboard
+# Context: action_text
+server-audit-log-action-text-created-stage = Vytvořená scéna
+# Context: action_text
+server-audit-log-action-text-created-sticker = Vytvořená nálepka
+# Context: action_text
+server-audit-log-action-text-created-thread = Vytvořeno vlákno
+# Context: action_text
+server-audit-log-action-text-created-voice-channel-status = Vytvořen stav hlasového kanálu
+# Context: action_text
+server-audit-log-action-text-created-webhook = Vytvořen webhook
+# Context: action_text
+server-audit-log-action-text-deleted-automod-rule = Smazané pravidlo AutoMod
+# Context: action_text
+server-audit-log-action-text-deleted-channel = Kanál byl smazán
+# Context: action_text
+server-audit-log-action-text-deleted-channel-permission-overwrite = Přepsání oprávnění kanálu bylo smazáno
+# Context: action_text
+server-audit-log-action-text-deleted-emoji = Smazané emotikony
+# Context: action_text
+server-audit-log-action-text-deleted-integration = Smazaná integrace
+# Context: action_text
+server-audit-log-action-text-deleted-invite = Pozvánka byla smazána
+# Context: action_text
+server-audit-log-action-text-deleted-message = Smazaná zpráva
+# Context: action_text
+server-audit-log-action-text-deleted-messages = Smazané zprávy
+# Context: action_text
+server-audit-log-action-text-deleted-onboarding-prompt = Výzva k registraci byla smazána
+# Context: action_text
+server-audit-log-action-text-deleted-role = Smazaná role
+# Context: action_text
+server-audit-log-action-text-deleted-scheduled-event = Naplánovaná událost byla smazána
+# Context: action_text
+server-audit-log-action-text-deleted-soundboard-sound = Smazaný zvuk zvukové desky
+# Context: action_text
+server-audit-log-action-text-deleted-stage = Smazaná fáze
+# Context: action_text
+server-audit-log-action-text-deleted-sticker = Smazaná nálepka
+# Context: action_text
+server-audit-log-action-text-deleted-thread = Smazané vlákno
+# Context: action_text
+server-audit-log-action-text-deleted-voice-channel-status = Stav hlasového kanálu byl smazán
+# Context: action_text
+server-audit-log-action-text-deleted-webhook = Webhook byl smazán
+# Context: action_text
+server-audit-log-action-text-disconnected-member = Odpojený člen
+# Context: action_text
+server-audit-log-action-text-flagged-message-with-automod = Zpráva označená pomocí AutoMod
+# Context: action_text
+server-audit-log-action-text-kicked-member = Vykopnutý člen
+# Context: action_text
+server-audit-log-action-text-moved-member = Přesunutý člen
+# Context: action_text
+server-audit-log-action-text-pinned-message = Připnul zprávu
+# Context: action_text
+server-audit-log-action-text-pruned-members = Odebral neaktivní členy
+# Context: action_text
+server-audit-log-action-text-quarantined-member-with-automod = AutoMod umístil člena do karantény
+# Context: action_text
+server-audit-log-action-text-timed-out-member-with-automod = AutoMod dočasně omezil člena
+# Context: action_text
+server-audit-log-action-text-unbanned-member = Zrušil zákaz člena
+# Context: action_text
+server-audit-log-action-text-unpinned-message = Odepnul zprávu
+# Context: action_text
+server-audit-log-action-text-updated-application-command-permissions = Aktualizoval oprávnění příkazů aplikace
+# Context: action_text
+server-audit-log-action-text-updated-automod-rule = Aktualizoval pravidlo AutoMod
+# Context: action_text
+server-audit-log-action-text-updated-channel = Aktualizoval kanál
+# Context: action_text
+server-audit-log-action-text-updated-channel-permission-overwrite = Aktualizoval přepsání oprávnění kanálu
+# Context: action_text
+server-audit-log-action-text-updated-emoji = Aktualizoval emoji
+# Context: action_text
+server-audit-log-action-text-updated-home-settings = Aktualizoval nastavení domovské stránky
+# Context: action_text
+server-audit-log-action-text-updated-integration = Aktualizoval integraci
+# Context: action_text
+server-audit-log-action-text-updated-invite = Aktualizoval pozvánku
+# Context: action_text
+server-audit-log-action-text-updated-member = Aktualizoval člena
+# Context: action_text
+server-audit-log-action-text-updated-member-roles = Aktualizoval role člena
+# Context: action_text
+server-audit-log-action-text-updated-onboarding = Aktualizoval úvodní nastavení
+# Context: action_text
+server-audit-log-action-text-updated-onboarding-prompt = Aktualizoval výzvu úvodního nastavení
+# Context: action_text
+server-audit-log-action-text-updated-role = Aktualizoval roli
+# Context: action_text
+server-audit-log-action-text-updated-scheduled-event = Aktualizoval naplánovanou událost
+# Context: action_text
+server-audit-log-action-text-updated-server-settings = Aktualizoval nastavení serveru
+# Context: action_text
+server-audit-log-action-text-updated-soundboard-sound = Aktualizoval zvuk soundboardu
+# Context: action_text
+server-audit-log-action-text-updated-stage = Aktualizoval pódium
+# Context: action_text
+server-audit-log-action-text-updated-sticker = Aktualizoval samolepku
+# Context: action_text
+server-audit-log-action-text-updated-thread = Aktualizoval vlákno
+# Context: action_text
+server-audit-log-action-text-updated-webhook = Aktualizoval webhook
+# Context: details
+server-audit-log-details-no-additional-details-were-provided-for-this-event = K této události nebyly poskytnuty žádné další podrobnosti.
+# Context: event_icon
+server-audit-log-event-icon-unknown-action = Neznámá akce
+# Context: show
+server-audit-log-show-all-actions = Všechny akce
+# Context: show
+server-audit-log-show-all-users = Všichni uživatelé
+# Context: show
+server-audit-log-show-audit-log = Protokol auditu
+# Context: show
+server-audit-log-show-filter-by-action = Filtrovat podle akce
+# Context: show
+server-audit-log-show-filter-by-user = Filtrovat podle uživatele
+# Context: show
+server-audit-log-show-load-more = Načíst více
+# Context: show
+server-audit-log-show-loading-audit-log = Načítání protokolu auditu…
+# Context: show
+server-audit-log-show-no-audit-log-entries-match-these-filters = Těmto filtrům neodpovídají žádné záznamy protokolu auditu.
+# Context: show
+server-audit-log-show-reload = Znovu načíst
+# Context: show
+server-audit-log-show-the-audit-log-reached-its-local-entry-or-memory-limit = Protokol auditu dosáhl limitu místního záznamu nebo paměti. Upravte filtry, abyste našli další události.
+# Context: summary
+server-audit-log-summary-performed-action = provedl akci
+# Context: summary
+server-audit-log-summary-unknown-user = Neznámý uživatel
+
+## crates/ui/src/server_integrations.rs
+# Context: app
+server-integrations-app-added-by = Přidáno uživatelem
+# Context: app
+server-integrations-app-disabled = Zakázáno
+# Context: app
+server-integrations-app-enabled = Povoleno
+# Context: app
+server-integrations-app-remove-integration = Odebrat integraci
+# Context: app
+server-integrations-app-service = Servis
+# Context: app
+server-integrations-app-this-integration-is-no-longer-available = Tato integrace již není k dispozici.
+# Context: copy_button
+server-integrations-copy-button-copied = Zkopírováno!
+# Context: copy_button
+server-integrations-copy-button-copy-webhook-url = Zkopírujte adresu URL webhooku
+# Context: editor
+server-integrations-editor-cancel = Zrušit
+# Context: editor
+server-integrations-editor-channel = Kanál
+# Context: editor
+server-integrations-editor-choose-a-channel = Vyberte kanál
+# Context: editor
+server-integrations-editor-name = Jméno
+# Context: editor
+server-integrations-editor-reset = Resetovat
+# Context: editor
+server-integrations-editor-use-180-characters-without-control-characters-or-the-reserved-names = Použijte 1–80 znaků bez řídicích znaků nebo vyhrazených názvů Discord a Clyde.
+# Context: overview
+server-integrations-overview-added-by = Přidáno uživatelem
+# Context: overview
+server-integrations-overview-bots-and-apps = Roboti a aplikace
+# Context: overview
+server-integrations-overview-customize-your-server-with-integrations-manage-webhooks-followed-channel = Přizpůsobte si server pomocí integrací. Spravujte webhooky, sledované kanály a aplikace připojené k vašemu serveru.
+# Context: overview
+server-integrations-overview-learn-more-about-managing-integrations = Další informace o správě integrací.
+# Context: overview
+server-integrations-overview-manage = Spravovat >
+# Context: overview
+server-integrations-overview-manage-webhooks-and-followed-channels-posting-to-this-channel = Spravujte webhooky a sledované kanály přispívající na tento kanál.
+# Context: overview
+server-integrations-overview-no-integrations-in-this-server = Na tomto serveru nejsou žádné integrace.
+# Context: overview
+server-integrations-overview-showing-the-first-50-integrations-returned-by-discord = Zobrazuje prvních 50 integrací vrácených Discordem.
+# Context: show
+server-integrations-show-channels-followed = Sledované kanály
+# Context: show
+server-integrations-show-create-webhook = Vytvořte webhook
+# Context: show
+server-integrations-show-edit-webhook = Upravit webhook
+# Context: show
+server-integrations-show-integrations = < Integrace
+# Context: show
+server-integrations-show-integrations-2 = Integrace
+# Context: show
+server-integrations-show-loading-integrations = Načítání integrací...
+# Context: show
+server-integrations-show-manage-integration = Spravovat integraci
+# Context: show
+server-integrations-show-reload = Znovu načíst
+# Context: show
+server-integrations-show-reload-integrations = Znovu načíst integrace
+# Context: show
+server-integrations-show-reload-integrations-before-making-more-changes-your-draft-will-be = Před provedením dalších změn znovu načtěte integrace. Váš koncept bude zachován.
+# Context: show
+server-integrations-show-updating-integrations = Aktualizace integrací...
+# Context: show
+server-integrations-show-webhooks = Webhooky
+# Context: summary_card
+server-integrations-summary-card-app = App
+# Context: summary_card
+server-integrations-summary-card-bot = Bot
+# Context: summary_card
+server-integrations-summary-card-twitch = Škubnutí
+# Context: summary_card
+server-integrations-summary-card-youtube = YouTube
+# Context: webhooks
+server-integrations-webhooks-delete = Vymazat
+# Context: webhooks
+server-integrations-webhooks-edit = Upravit
+# Context: webhooks
+server-integrations-webhooks-learn-more-about-following-channels = Další informace o sledování kanálů
+# Context: webhooks
+server-integrations-webhooks-no-channels-followed = Nebyly sledovány žádné kanály.
+# Context: webhooks
+server-integrations-webhooks-no-webhooks-yet = Zatím žádné webhooky.
+# Context: webhooks
+server-integrations-webhooks-posting-to = Odesílání do
+# Context: webhooks
+server-integrations-webhooks-posts-from-these-followed-channels-are-delivered-to-your-server = Příspěvky z těchto sledovaných kanálů jsou doručovány na váš server.
+# Context: webhooks
+server-integrations-webhooks-send-updates-from-your-apps-and-services-to-a-channel = Odesílejte aktualizace ze svých aplikací a služeb do kanálu na tomto serveru.
+# Context: webhooks
+server-integrations-webhooks-unfollow = Přestat sledovat
+
+## crates/ui/src/server_invite.rs
+# Context: expiry_label
+server-invite-expiry-label-1-day = 1 den
+# Context: expiry_label
+server-invite-expiry-label-1-hour = 1 hodina
+# Context: expiry_label
+server-invite-expiry-label-12-hours = 12 hodin
+# Context: expiry_label
+server-invite-expiry-label-30-days = 30 dní
+# Context: expiry_label
+server-invite-expiry-label-30-minutes = 30 minut
+# Context: expiry_label
+server-invite-expiry-label-6-hours = 6 hodin
+# Context: expiry_label
+server-invite-expiry-label-7-days = 7 dní
+# Context: expiry_label
+server-invite-expiry-label-never = Nikdy
+# Context: picker
+server-invite-picker-edit-link = Upravit odkaz.
+# Context: picker
+server-invite-picker-friends-are-not-available-yet = Přátelé zatím nejsou k dispozici.
+# Context: picker
+server-invite-picker-invite = Pozvat
+# Context: picker
+server-invite-picker-no-eligible-channel = Žádný vhodný kanál
+# Context: picker
+server-invite-picker-no-friends-match-your-search = Vašemu vyhledávání neodpovídají žádní přátelé.
+# Context: picker
+server-invite-picker-no-friends-to-invite-yet-share-the-link-below = Zatím žádné přátele k pozvání. Sdílejte níže uvedený odkaz.
+# Context: picker
+server-invite-picker-or-send-a-server-invite-link-to-a-friend = Nebo pošlete příteli odkaz na pozvánku na server
+# Context: picker
+server-invite-picker-recipients-will-land-in = Příjemci přistanou
+# Context: picker
+server-invite-picker-retry = Zkuste to znovu
+# Context: picker
+server-invite-picker-search-for-friends = Hledat přátele
+# Context: picker
+server-invite-picker-sending = Odesílání…
+# Context: picker
+server-invite-picker-sent = Odesláno
+# Context: picker
+server-invite-picker-uncertain = Nejistý
+# Context: picker
+server-invite-picker-you-need-create-invite-permission-in-a-channel-to-create = K vytvoření pozvánky potřebujete oprávnění k vytvoření pozvánky v kanálu.
+# Context: picker
+server-invite-picker-your-invite-link-expires-in = Platnost vašeho odkazu s pozvánkou vyprší za
+# Context: picker
+server-invite-picker-your-invite-link-never-expires = Platnost vašeho odkazu s pozvánkou nikdy nevyprší.
+# Context: settings
+server-invite-settings-cancel = Zrušit
+# Context: settings
+server-invite-settings-expire-after = Vyprší po
+# Context: settings
+server-invite-settings-generate-a-new-link = Vygenerujte nový odkaz
+# Context: settings
+server-invite-settings-generating = Generování…
+# Context: settings
+server-invite-settings-grant-temporary-membership = Udělit dočasné členství
+# Context: settings
+server-invite-settings-max-number-of-uses = Maximální počet použití
+# Context: settings
+server-invite-settings-temporary-members-are-automatically-kicked-when-they-disconnect-unless-a = Dočasní členové jsou automaticky vyhozeni, když se odpojí, pokud jim nebyla přiřazena role
+# Context: show
+server-invite-show-control-how-long-this-link-lasts-and-how-many-people = Určete, jak dlouho tento odkaz trvá a kolik lidí jej může použít.
+# Context: show
+server-invite-show-share-a-link-so-friends-can-join-this-server = Sdílejte odkaz, aby se přátelé mohli připojit k tomuto serveru.
+# Context: uses_label
+server-invite-uses-label-no-limit = Bez omezení
+
+## crates/ui/src/server_invites.rs
+# Context: show
+server-invites-show-active-invite-links = AKTIVNÍ ODKAZY NA POZVÁNÍ
+# Context: show
+server-invites-show-copied = Zkopírováno!
+# Context: show
+server-invites-show-copy-invite-link = Zkopírovat odkaz na pozvánku
+# Context: show
+server-invites-show-create-an-invite-link-to-welcome-people-to-this-server = Vytvořte odkaz s pozvánkou a přivítejte lidi na tomto serveru.
+# Context: show
+server-invites-show-create-invite-link = Vytvořit odkaz na pozvánku
+# Context: show
+server-invites-show-invite-links-paused = ODKAZY S POZVÁNKAMI POZASTAVENY
+# Context: show
+server-invites-show-invites = Pozvánky
+# Context: show
+server-invites-show-load-invites = Načíst pozvánky
+# Context: show
+server-invites-show-loading-invites = Načítání pozvánek…
+# Context: show
+server-invites-show-no-active-invite-links = Žádné aktivní odkazy na pozvánky
+# Context: show
+server-invites-show-pause-invites = Pozastavit pozvánky
+# Context: show
+server-invites-show-reload = Znovu načíst
+# Context: show
+server-invites-show-reload-invites = Znovu načíst pozvánky
+# Context: show
+server-invites-show-resume-invites = Obnovit pozvánky
+# Context: show
+server-invites-show-revoke-invite = Zrušit pozvánku
+# Context: show
+server-invites-show-updating-invites = Aktualizace pozvánek…
+
+## crates/ui/src/server_menu.rs
+# Context: header
+server-menu-header-a-server-action-is-in-progress = Probíhá akce serveru.
+# Context: header
+server-menu-header-create-invite = Vytvořit pozvánku
+# Context: header
+server-menu-header-reconnect-to-manage-this-server = Chcete-li tento server spravovat, znovu se připojte.
+# Context: header
+server-menu-header-server-menu = Nabídka serveru
+# Context: leave_item
+server-menu-leave-item-leave-server = Opustit server
+# Context: read_item
+server-menu-read-item-mark-as-read = Označit jako přečtené
+# Context: settings_item
+server-menu-settings-item-server-settings = Nastavení serveru
+# Context: show
+server-menu-show-are-you-sure-you-want-to-leave = Jste si jistý, že chcete odejít?
+# Context: show
+server-menu-show-cancel = Zrušit
+# Context: show
+server-menu-show-close = Blízko
+# Context: show
+server-menu-show-leave-server = Opustit server?
+# Context: show
+server-menu-show-leave-server-2 = Opustit server
+# Context: show
+server-menu-show-leaving = Odcházení…
+# Context: show
+server-menu-show-offline-preview-no-server-changes = Offline náhled · žádné změny na serveru
+# Context: show
+server-menu-show-you-will-not-be-able-to-rejoin-this-server-unless = Nebudete se moci znovu připojit k tomuto serveru, dokud nebudete znovu pozváni.
+
+## crates/ui/src/server_roles.rs
+# Context: display
+server-roles-display-allow-anyone-to-mention-this-role = Umožněte komukoli @zmínit tuto roli
+# Context: display
+server-roles-display-choose-image = Vyberte Obrázek
+# Context: display
+server-roles-display-custom-role-color = Vlastní barva role
+# Context: display
+server-roles-display-default-role-color = Výchozí barva role
+# Context: display
+server-roles-display-display-role-members-separately-from-online-members = Zobrazte členy role odděleně od online členů
+# Context: display
+server-roles-display-members-use-the-color-of-their-highest-role-on-the = Členové používají barvu své nejvyšší role na seznamu rolí.
+# Context: display
+server-roles-display-members-with-permission-to-mention-all-roles-can-always-mention = Členové s povolením zmínit všechny role mohou tuto roli vždy zmínit.
+# Context: display
+server-roles-display-preparing = Připravuji...
+# Context: display
+server-roles-display-preview = Náhled
+# Context: display
+server-roles-display-remove-icon = Odebrat ikonu
+# Context: display
+server-roles-display-role-name = Název role
+# Context: display
+server-roles-display-sample-message = Ukázková zpráva
+# Context: display
+server-roles-display-second-gradient-color = Druhá barva přechodu
+# Context: display
+server-roles-display-this-is-how-members-with-this-role-appear = Takto se objevují členové s touto rolí.
+# Context: display
+server-roles-display-upload-an-image-under-256-kib-or-choose-a-unicode = Nahrajte obrázek do 256 kB nebo zvolte emotikony Unicode. Doporučujeme alespoň 64×64 pixelů.
+# Context: editor
+server-roles-editor-back-to-roles = ← Zpět na Role
+# Context: editor
+server-roles-editor-choose-role = Vyberte roli
+# Context: editor
+server-roles-editor-delete-role = Smazat roli
+# Context: editor
+server-roles-editor-display = Zobrazit
+# Context: editor
+server-roles-editor-edit-role = UPRAVIT ROLE
+# Context: editor
+server-roles-editor-permissions = Oprávnění
+# Context: editor
+server-roles-editor-role-actions = Akce rolí
+# Context: editor
+server-roles-editor-this-role-is-above-your-highest-role-and-is-read = Tato role je nad vaší nejvyšší rolí a je pouze pro čtení.
+# Context: editor
+server-roles-editor-this-role-is-managed-by-an-integration = Tato role je řízena integrací.
+# Context: list
+server-roles-list-create-role = Vytvořit roli
+# Context: list
+server-roles-list-default-permissions-everyone-applies-to-all-server-members = Výchozí oprávnění
     @všichni · platí pro všechny členy serveru
-source-8f9d22306e0812bd = Výchozí reakce
-source-99bb1f3a57417c91 = Výchozí barva role
-source-b677b0431fa422a7 = definováno?
-source-dc673e73b5c13aea = Vymazat
-source-702ed7930a08eab6 = Odstranit kategorii
-source-a882d7da0d2686cb = Smazat kategorii?
-source-ddcb7800631c50c9 = Odstranit kanál
-source-e3a17ec5ae465222 = Smazat kanál?
-source-fd0ddea8691d9202 = Smazat kanál?
-source-3be470be232243f8 = Smazat Emoji
-source-ff070701d8fe9ec5 = Smazat emotikony?
-source-0c35d0eb66e46e37 = Okamžitě smažte zprávu
-source-59b7fa5bf0b28763 = Smazat zprávu…
-source-e9f9d8094ba6a7b0 = Smazat příspěvek
-source-9255ccfc892d27a6 = Smazat roli
-source-153382b6a5a5d01b = Smazat roli?
-source-8fc7840b4ddbcfd9 = Smazat server
-source-abddbb71875116d1 = Smazat nálepku
-source-4fd65b1ca1330a8a = Smazat nálepku?
-source-3e89f9151caf347e = Smazat značku
-source-869ac8c6dd907cca = Smazat vlákno
-source-5deda14b53ea0218 = Smazat webhook?
-source-efdd22a490f5afb4 = Smazáno – vedeno ochráncem smazání zpráv
-source-0ace722d44ecfbbb = Smazané pravidlo AutoMod
-source-a6004317690ac4c9 = Kanál byl smazán
-source-3f26fc3b67d88481 = Přepsání oprávnění kanálu bylo smazáno
-source-b436a8b674ff97f8 = Smazané emotikony
-source-6869b3afd5df2ac0 = Smazaná integrace
-source-a0cf9f30c0194d1f = Pozvánka byla smazána
-source-0393235493e2649d = Smazaná zpráva
-source-dfd01d7222af2a22 = Přístup ke smazané zprávě nebyl udělen
-source-f569f6b749b1806a = Smazané zprávy
-source-28d2e7eeb608c55c = smazané zprávy nemohou přijímat servisní akce
-source-09c90a469e25a5df = Výzva k registraci byla smazána
-source-f976bc0c686883a6 = Smazaná role
-source-c48b3c948d808d65 = Naplánovaná událost byla smazána
-source-0f169d5b2ffb2d20 = Smazaný zvuk zvukové desky
-source-0b668f490227fb08 = Smazaná fáze
-source-741286888d3f8ad1 = Smazaná nálepka
-source-d7a3e3b9f8a638ca = Smazané vlákno
-source-00574f84bc91ec10 = Smazané koncové řádky nesmí přetáčet stránkování
-source-ee6e4ff936a1f523 = Stav hlasového kanálu byl smazán
-source-754d820b9e2c5017 = Webhook byl smazán
-source-5fdee00c36940c47 = Smazáním kategorie zůstanou její kanály na serveru.
-source-e0192e6ddc3dcf18 = Smazáním kanálu se odstraní jeho zprávy pro všechny.
-source-f520d1f154f4acf3 = Mazání…
-source-34767a171377d497 = Dodávka neznámá
-source-e5f26ee02aff2e6e = Neshoda kontrolního součtu Delta.
-source-2118b6af69d5bf99 = Delta sken byl zrušen nebo překročil časový limit.
-source-9f8ec586afd02475 = Delta scan překročil svůj pracovní limit.
-source-c7159d9e9b77c9c9 = Delta aktualizace je příliš fragmentovaná.
-source-089b96777b594651 = demo konverzace
-source-8515287ae0610deb = demo má aktuálního uživatele
-source-7fd4040204cec675 = Demo podpora není zahrnuta; znovu sestavit s --features demo a spustit s --demo
-source-8d09d6fd464b3bc5 = demo uživatele
-source-d0680e7343dedb27 = Odmítnout
-source-63d894b1ddb06289 = Popis
-source-4751dfb9fb0442c4 = Popis (volitelné)
-source-8fad0d62339a9f96 = Cíl existuje nebo se nejedná o běžný soubor
-source-601620e3c5a1a625 = vybraných cílů
-source-e4d062ad1e9bee7b = Zjistěte běžící hry a požádejte Discord, aby je sdílel jako aktivitu.
-source-e0a34a19921b0c5c = Dev
-source-5bf365b61e35bb65 = Zařízení není k dispozici
-source-b39eef9408a202f5 = Zařízení a úrovně
-source-3a37816f980a0be7 = nastavení rozložení dialogu
-source-2e498936822d8eb5 = Slovník
-source-f48ac77358c2843a = Dif
-source-d137eebdef43fb93 = Soukromá zpráva
-source-efaccdd898b84e4f = Oprávnění soukromých zpráv
-source-c5c64e1845bbca3d = Otevřená přímá zpráva. Zkontrolujte zprávu a odešlete ji stisknutím klávesy Enter.
-source-c64f7f67ac6b0f80 = Přímé zprávy
-source-8304a2831753a9fc = Přímé zprávy a navigace kanálů
-source-76bb7cdba3f33c72 = Adresář · není implementován
-source-10c8e4cae4e11503 = Zakázat
-source-c6a64d8d5e96b794 = Nejprve zakažte rozšíření; každý rozsah umožňuje osm nainstalovaných rozšíření
-source-138e9bb4d2de4e69 = Zakázat zvuky
-source-641cd03dce2b8986 = Deaktivujte kameru v aktuálním hovoru
-source-66722bc2ea775e05 = Zakázáno
-source-6957b589eb6fe0ec = Zakázáno. Stažený kód a data rozšíření byly odstraněny.
-source-8c3ebc65a2a0fe20 = Zakázání odstraní rozšíření a jeho místní data. Opětovná aktivace začíná znovu.
-source-c00a88b90cd60661 = Vyřadit
-source-15455d8477f27ccd = Zahodit a pokračovat
-source-f471ec2496f904cc = Zahodit změny
-source-6b138c631a7d2a2c = Zahodit změny
-source-e7da4152c78d699f = Zahodit změny rolí?
-source-e050c6249a970e43 = Zahoďte tento příspěvek
-source-838b97ac07fc3c77 = Zahodit neuložené změny?
-source-a1f0e88bfb0b6a1f = Zahodit neuložený motiv?
-source-cde94ceb9f6ae176 = Zahodit změny webhooku?
-source-d2208cd1a767644b = Odpojit
-source-fc2c3bd345c0128a = Odpojeno
-source-d4f49f46d2e3caa8 = Odpojený člen
-source-f60a41837fc67e7f = Discord dokáže odfiltrovat některé zprávy, které obsahují spam. Tyto zprávy jdou do vaší spamové schránky.
-source-11fc2c4ade9fe913 = Discord změnil aktivní server pro sdílení obrazovky
-source-8047181a374b49a1 = Discord nemohl připravit grafiku hry.
-source-77c1afb4005913c6 = Discord nepotvrdil zastavení sdílení obrazovky; před dalším sdílením hovor opustit
-source-cd302f33a2904b81 = Discord neuvedl vaši hru veřejně. Zkontrolujte jeho registrované hry a ovládací prvky sdílení serveru.
-source-77653f2765742d71 = Discord neposkytla podrobnosti o připojení ke sdílení obrazovky do 30 sekund
-source-439e31aecc574cbf = Discord neposkytla připojení ke streamu; zkuste to znovu
-source-1b6796f5854806da = Discord neuvedl podrobnosti o hlasovém připojení; zaškrtněte oprávnění pro připojení a kapacitu kanálu
-source-a5b50b349ec2088f = Discord skrývá vaši hru. Zkontrolujte registrované hry a sdílení aktivit ve službě Discord.
-source-f59567662974ac88 = Discord uvádí vaši hru. Nastavení soukromí serveru a přátel stále platí.
-source-5b4ccd7d9c078776 = Změna přihlašovací relace Discord; zahájit nový hovor
-source-90b3d979169be771 = Discord vynechal token sdílení obrazovky
-source-56ee937097d46fdb = Discord vynechal token připojení ke streamu
-source-9735bc4dc9512511 = Discord vynechal token hlasového připojení
-source-90e31523e839c853 = Discord obdržel vaši hru, ale neuvedl ji veřejně.
-source-4fd724906e4ebb02 = Před přidáním této osoby vyžaduje Discord bezpečnostní kontrolu.
-source-a36824272b051dd4 = Discord vyžaduje bezpečnostní kontrolu, než se budete moci připojit.
-source-42e59c7b25f2af40 = Server pro sdílení obrazovky Discord je nedostupný
-source-d5b4e387f6ffb382 = Sdílení aktivity na celém účtu Discordu je vypnuté.
-source-5ba91211f4c07a63 = discord.com · dočasné přihlašovací okno · hesla a 2FA nikdy neopustí stránku
-source-fc33964aaa350cb5 = Objev
-source-12d6dde9b30c3093 = Propustit
-source-4118ac7f75bb8b6d = Zrušit hovor
-source-bcfafb587d8bba80 = Zavřít zprávu
-source-f4e7d8d5af798928 = Zavřít aktualizaci
-source-1125d159f7e64df5 = Zobrazit
-source-ec538d64cdfa22ae = Displej 1 · Syntetický náhled
-source-067e653b3284948e = Zobrazit zdroj aktivity na tomto serveru
-source-55f9237cd5828604 = Omezené zobrazení · Zkopírujte zprávu pro celý text
-source-e724e8e0ccb7f52c = Zobrazovaný název
-source-38b9ff37adcd7fda = Zobrazte členy role odděleně od online členů
-source-4c542c0d89e1db30 = Zobrazte text s důrazem.
-source-f55a16619aa99c0f = DNF (RPM)
-source-f7e3e019e8facc9a = Nerušit
-source-dc43626df2960a28 = Nemazat
-source-70ef80bac94469da = Nefiltrujte spam
-source-582da6fd7548ef92 = Nemáte pozvánku?
-source-9bd5f692274434de = Nezobrazovat DM
-source-0379fc73608ab971 = Hotovo
-source-8e44d55a85b0b388 = Dvojnásobek
-source-d3386a2ef42e80b9 = Stáhnout
-source-53ae7df22cdebbf5 = Stahování bylo zastaveno, ale jeho dočasný soubor nelze odstranit
-source-4f5103afe70a01cf = Stahování není k dispozici
-source-4e42a5a12275cada = Stáhnout aktualizaci
-source-8c43e770c12b17f8 = Stahujte aktualizace na pozadí. Restartujte, až budete připraveni. Serein stále kontroluje při spuštění a pravidelně, když je vypnutý.
-source-328805ef4c741437 = Stahovací pracovník není k dispozici
-source-1dc55b86a2bb722e = U syntetických příloh je stahování zakázáno
-source-a7da42c68521456d = Návrh rozpočtu je plný. Před použitím /msg vymažte existující koncept.
-source-427830bfd51d27fc = Přetáhněte na tuto stránku až 10 obrázků nebo vyberte soubory. Před nahráním zkontrolujte jejich jména.
-source-d71c1fa8c318e52e = Přetáhněte místní soubor s podporovanou cestou
-source-7dd1239c563e1e1a = Duplikovat kategorii
-source-01d0558b426124e5 = Duplikovat kanál
-source-fef3452e613bcee8 = Duplicitní příspěvky zůstávají blokovány
-source-af63f84c86021c20 = E
-source-93bcd444a57e66a3 = Dřívější zpráva · Zobrazit originál
-source-4ddbc4b081023d98 = Brzy staví s nejnovějšími změnami. Noční vydání může být méně spolehlivé.
-source-5cbcad66665e15b0 = Předběžný náhled
-source-285256231da6ca77 = Zrušení echa
-source-0fb54fc6dbcf011e = Zatmění
-source-64ef2a6c2dd1d3d1 = Upravit
-source-d59edddb0404a407 = Upravit kategorii
-source-67d0f7ee857edbca = Upravit kanál
-source-dbbe8d3af708ae12 = Upravit vlastní stav
-source-0004f244dcc1f92d = Upravit přezdívku přítele
-source-494e1ed913d9351a = Upravit skupinu
-source-60ba551af0a9f02b = Upravit odkaz.
-source-bd41a390c6044e4a = Upravit zprávu
-source-0a3a833266cb4585 = Upravit příspěvek
-source-63182413f7631d4c = Upravit profil
-source-4ce25a2df7d09227 = UPRAVIT ROLE
-source-33869f2cbda53587 = Upravit roli
-source-08f89e20bc34c1a7 = Upravit roli
-source-ab68cb1163c86bbe = Upravit nálepku
-source-d6e313197e231741 = Upravit značku
-source-ecec331a1bdc23a1 = Upravit značku
-source-934db4e7208236dc = Upravit motiv
-source-1b10744423f05e8b = Upravit vlákno
-source-f6c727233c1b6da4 = Upravit webhook
-source-05c44a5db696fcaf = Editace
-source-b862157d53a6b703 = E-mail, heslo a zabezpečení
-source-cace301a88231cce = Vložený obsah
-source-245c5df82f276652 = Vložení zobrazení omezeno
-source-3d1a7baa39e2bd83 = Vložit odkazy
-source-a1e4b01cd0916852 = Vložený obrázek
-source-76d9763b30b68cf4 = Stažení vloženého obrázku není k dispozici
-source-6a439f6898ac9710 = Vložený obrázek potřebuje prázdnou délku obsahu nejvýše 16 MiB
-source-ac313f894a08b603 = Vložený proxy server nevrátil PNG
-source-ea95c2cf6ba1321e = Vložený obrázek, načítání v plné kvalitě
-source-cace221a88230504 = Ember
-source-e3ed881a961f14bd = Emoji
-source-cee765c0e64432aa = Akce emodži
-source-573c3ae1700a0304 = Název emodži
-source-b155b53d8beb3523 = Název emodži: 2–32 písmen, číslic nebo podtržítek
-source-1218793cd20035e6 = Názvy emodži musí obsahovat 2–32 písmen, číslic nebo podtržítek.
-source-4f32846604c2dedb = Příprava emodži zrušena
-source-d0bcb0176c225693 = Příprava emodži přerušena; vyberte obrázky znovu
-source-cbae70bda0745d59 = en-US
-source-9078ee819c18df6e = Umožnit
-source-1a2e69906e685d3e = Povolit explicitní výběr emotikonů a obrázků nálepek
-source-e2da94ab260a1992 = Povolit globální klávesové zkratky
-source-67794c6150d44a83 = Povolit na Discordu
-source-58b1a0d3bafb9717 = Povolit toto rozšíření
-source-f69dd93b60605717 = Povolit toto téma
-source-3122c8f9c960ec25 = Povolte kameru v aktuálním hovoru. Vaše video bude sdíleno s účastníky hovoru.
-source-965c503c3e42fdfe = Povoleno
-source-7c2f4458ff91247a = Šifrované soubory, odkazy a speciální soubory nejsou v aktualizacích povoleny.
-source-d8f923198e0c5c6a = Konec
-source-0c026f63f4692281 = Koncová barva
-source-703c0aa2d894682e = Zasnoubení
-source-4caed5b7a7e5d89b = angličtina
-source-7e388025be643d0d = Vstupte
-source-9645ed22476854f9 = Zadejte zprávu...
-source-53dff427018a39aa = Zadejte přezdívku
-source-d971e783e8e1c230 = Zadejte platný zvací odkaz Discord nebo zvací kód.
-source-efc367168ba9d790 = Níže zadejte pozvánku a připojte se k existujícímu serveru.
-source-000e2a6e5c27aaa3 = Zadejte data ve formátu RRRR-MM-DD po ​​1. lednu 2015.
-source-a67c29835114dbff = Zadejte název serveru
-source-1856c582cabea9b4 = rovná se
-source-d90625198e16ea2c = Chybovat
-source-5f343a43e7ea9f91 = Chyba
-source-4c5ab8c67a3c8d06 = Chyba a nebezpečí
-source-d9763e198e761c5e = ESC
-source-d90a1e198e1ac71e = Esc
-source-1b61db587d3e3f26 = Uniknout
-source-88ea71eff91fc3ad = Založeno
-source-96cfdad16b1fc29a = každá ikona je v přibaleném atlasu
-source-51a1dec7855d81f8 = Každý
-source-05f85a15be408b30 = Každý, kdo vidí tento kanál, může vidět vlákno.
-source-79d584525abb8fe7 = Vše, čeho se může dotknout, je uvedeno níže.
-source-4d8a5c34640b7c4c = Příklad vzhledu smazané zprávy
-source-a6905be242387f36 = Výjimka
-source-00f3434c37a595a2 = Ukončit celou obrazovku (Esc)
-source-b713c19435a32ea9 = Ukončit náhled
-source-3b151ca64eb26ec1 = Rozšířit
-source-c53599bd0d514ea4 = Očekávaný příkaz post
-source-3cc3d110acf1a01f = Očekávané potvrzení o přečtení
-source-18200f4abfc1aabf = Očekávané dva startovací pluginy a devět témat
-source-0f204db3f00f224c = Vyprší po
-source-d923f95605fed7b2 = Platnost vypršela
-source-d924045605feea63 = Platnost vyprší
-source-84a21cf179dffbde = Vypršení je mimo rozsah
-source-e2c575a9c8f6cf74 = Prozkoumejte objevitelné komunity v Discordu ↗
-source-bb00c21107619a9c = Prozkoumejte offline náhled
-source-b5541625a637dc5a = Cesta exportu je příliš dlouhá
-source-23d16d71268f4c6e = Export motivu
-source-c2f8a5c18de21c0b = VÝRAZY
-source-6e2b24864ce75735 = Odebrání dat účtu rozšíření nebylo možné zařadit do fronty
-source-8189793f185caef1 = Vyčištění rozšíření se nezdařilo; zkusí to znovu při spuštění
-source-af020c5332d3c066 = Vyčištění rozšíření se nezdařilo; zkuste to znovu nebo znovu otevřete rozšíření
-source-d61f3c801ebf657f = Kontrola ladění rozšíření prošla: počáteční balíčky, souhlas, zachován smazaný řádek, odmítnutí zastaralé historie a místní odstranění.
-source-34e24e528d7748fe = Adresář rozšíření nemůže být symbolický odkaz
-source-195416e814190f6a = Stažení DNS rozšíření se nezdařilo
-source-7bc4430b3ca9e66a = Stahování rozšíření překračuje jeho bajtový rozpočet
-source-d72deafa566af453 = Stažení rozšíření se nezdařilo
-source-41b548cb2200222c = Stahování rozšíření bylo přerušeno
-source-3b84bd9a34acdeaf = Velikost stahování rozšíření změněna
-source-4c48f0085e30f974 = Velikost stahování nebo kódování rozšíření není podporováno
-source-700a42dd85e66531 = Vypršel časový limit stahování rozšíření
-source-6249e4736b0dbc8c = Stažení rozšíření není k dispozici; obnovte katalog nebo použijte místní balíček
-source-c7738956d1c15997 = Stahovač rozšíření není k dispozici
-source-b4e5ec9a408b35a6 = Stahování rozšíření nemá přístup k soukromým sítím
-source-b101445a5213901f = Rozšíření povoleno.
-source-deaef0955d655338 = Chyba rozšíření
-source-b371d4a2fae90a84 = Soubor rozšíření překračuje svůj bajtový rozpočet
-source-fd81ac1e8e40a740 = Výběr souboru přípony skončil.
-source-49db7a4cf2a9e120 = Rozšíření je zakázáno; čištění je třeba zopakovat
-source-f511b9389c28f278 = Operace rozšíření zrušena
-source-3e15cb7b1adac780 = Kontrolní součet balíčku rozšíření změněn; znovu zkontrolujte uvolnění
-source-5390664b6a2f838f = Balíček rozšíření překračuje rozpočet úložiště
-source-1b4d525a974ff43f = Balíček rozšíření musí být běžný soubor
-source-8f683e089be62eb8 = Úložiště rozšíření je plné; nejprve odhlaste starý účet
-source-bc8382e62a862de8 = Nástroj pro rozšíření
-source-79f6edaaffc1fa63 = Pracovník rozšíření se neočekávaně zastavil
-source-9698888cf053484b = Rozšíření
-source-079f0684890eeede = Rozšíření jsou zaneprázdněna. Zkuste to znovu po dokončení aktuální akce.
-source-4b780885b35a030b = Rozšíření jsou zaneprázdněna; zkuste to znovu po aktuální operaci
-source-be17b4ce8cc085d6 = rozšíření pluginy obchod obchod katalog import komunitní nástroje
-source-6af7709ae013ba4c = Rozšíření vyžadují veřejné adresy URL HTTPS bez přihlašovacích údajů
-source-56bcc58e283553fc = nastavení rozšíření
-source-af63fb4c86022139 = F
-source-09050b07b59e2098 = F1
-source-f1b266199bb17d78 = F10
-source-f1b267199bb17f2b = F11
-source-f1b268199bb180de = F12
-source-09050e07b59e25b1 = F2
-source-09050d07b59e23fe = F3
-source-09051007b59e2917 = F4
-source-09050f07b59e2764 = F5
-source-09051207b59e2c7d = F6
-source-09051107b59e2aca = F7
-source-09050407b59e14b3 = F8
-source-09050307b59e1300 = F9
-source-772b6467f5681ff0 = selhání přežije odchod
-source-09dccb2f68f0a098 = FALEŠNÝ
-source-7254ca27b16ae2d8 = Ne
-source-51ba5321a04109cd = Oblíbený
-source-278894f14b3a2827 = Oblíbený GIF
-source-20a500234e838dda = Oblíbené
-source-71ddb2d7436549d4 = Oblíbené položky jsou uloženy v tomto zařízení.
-source-6da2a4faf81bb30a = Načítání podrobností o serveru…
-source-e79412858c13b923 = SOUBOR
-source-d1f81284eeb7b503 = Soubor
-source-3b6f4c0ecc764f98 = Soubor není připojen; vraťte se k připojené konverzaci a znovu ji upusťte
-source-6c607f6de8bc4cda = Soubor nebyl odeslán; znovu připojte a znovu vyberte přílohu
-source-c53eecba31441697 = Soubory nebyly odeslány; vyberte až 10 souborů o celkové velikosti maximálně 500 MB
-source-2821bde3272e7dd1 = Vyplňte oblast
-source-8a904bc5734c26fd = Filtrujte veškerý spam
-source-c78f2b11121d749e = Filtrovat podle akce
-source-2eda83d21be9b20f = Filtrovat podle uživatele
-source-9bed178750df20c8 = Filtrujte zprávy od lidí, kteří nejsou přáteli
-source-9de4cfd6c4734ef5 = Filtrovat zprávy od členů serveru, které možná neznám
-source-a8beb6b1182241ac = Filtry
-source-cadf6c1ed80c4665 = Najít konverzaci
-source-036454e59e47ba76 = Najděte perfektní emotikony
-source-77934b05d5db8b6f = Najděte perfektní nálepku
-source-49c572d8d6fe4f6f = Dokončete skládání textu před otevřením nebo zavřením.
-source-e9be2550c775902e = Před použitím příkazu lomítko dokončete úpravy nebo nahrávání.
-source-a51d57ef25091964 = Nejprve dokončete úpravy nastavení serveru
-source-e179a19bdbd3fb98 = Dokončete odstranění tohoto rozšíření a jeho místních dat.
-source-1d6b6bec2a02a75a = Před další kontrolou dokončete aktuální aktualizaci.
-source-4dc7a2f3b345afdb = Nejprve dokončete aktuální nahrávání. Vyberte až 10 obrázků najednou.
-source-9d6c49a1136d640d = První zpráva tohoto příspěvku
-source-17d7735daef94b08 = První stránka
-source-25abe5fd8011f5b0 = Přizpůsobit celý obrázek
-source-3ecb9c975b67b27e = Režim zařízení nikdy neotevře úložiště pověření ani síť
-source-d9feb2de7b1d113f = Zpráva označená pomocí AutoMod
-source-1845d941049117e8 = Flatpak spravuje aktualizace prostřednictvím svého úložiště. Spusťte `flatpak update` nebo použijte GNOME Software / KDE Discover k instalaci nových vydání.
-source-8f9f6bf0d9e5f79d = Aktualizace Flatpak jsou spravovány prostřednictvím jeho úložiště nebo `flatpak update`.
-source-62edc0fd99aa859a = FLATPAK_ID
-source-b64f4a0accc8a8c5 = Plovák
-source-41e1d3c9e15d4e44 = Název složky
-source-6991b88b59c28e86 = Název složky a barva…
-source-f314b2d4e233ff7a = Nastavení složky
-source-4fd78d90908a11f0 = Následovat
-source-a98d0892a081eeda = Sledovat příspěvek
-source-99e8e08708a9239f = Chcete-li změnit oznámení, začněte tento příspěvek sledovat.
-source-d54073ff1cf10885 = Chcete-li změnit oznámení, začněte toto vlákno sledovat.
-source-ecd37261d5eae9e0 = Sledovat vlákno
-source-40384403db2ea003 = Kontrola ladění písem prošla: omezený import, neplatný vstup, uložená kopie, nahrazení během načítání CJK, reset a uložená preference dekorace.
-source-339e2c08f4cbe486 = definice písma
-source-1cf0e3786ba7e88c = Import písem byl přerušen. Zkuste to znovu.
-source-f4668abd58e91513 = Na 1 hodinu
-source-e3945a6cbdc056e3 = Na 15 minut
-source-576080d0ab8b31d9 = Na 24 hodin
-source-50da0d6885986e32 = Na 3 hodiny
-source-97ed643174870537 = Na 8 hodin
-source-304dda6df0046683 = Pro klub nebo komunitu
-source-88ec3800dc5b32e1 = Například: 🐀
-source-7c0faf44b7599d62 = Pro mě a mé přátele
-source-34d419a9f8685cb2 = zatím.
-source-fbcd6af7d9aff325 = Pro vlastníky, kteří již mají platný token relace Discord, například z jiné přihlášené instalace Serein. Hesla a 2FA se zde nikdy nepoužívají; to zcela obchází hostovanou přihlašovací stránku Discordu.
-source-7175399dc6314dac = Odebrat
-source-9397a9369bb3db4b = Zapomeňte na účet
-source-1d90f9eda8b4b1ca = Zapomeňte uložené přihlašovací údaje
-source-adbe56978c9cfede = Zapomenout tento účet na tomto zařízení
-source-a384dc1622f82116 = Forum
-source-eba3fab86485cfe5 = Fórum · načtené příspěvky
-source-9fc3568ec8629bda = Přeposlat
-source-7daf5bfa11898c81 = Dopředná kontrola ladění prošla: výběr, ohraničené cíle, volitelná poznámka, uchování konceptu a odmítnutí fronty.
-source-7ec11c0013933e6d = Přeposlat zprávu
-source-059f509c56a037f3 = Předat dál
-source-5ad0482fed792e59 = Zvuk pouze vpřed
-source-9a937c330ddf4c7b = pouze dopředné zdrojové dekódování
-source-26c8265e79df99a5 = Zakladatelé
-source-8be13012c2c30e80 = Snímková frekvence
-source-f05c881aa97a3001 = Před výběrem příkazu uvolněte místo konceptu.
-source-224d6be8ffada421 = ČASTO POUŽÍVANÉ
-source-9f57a2661b8a7e2d = příteli
-source-70474ccb0dc33ce7 = Přezdívka přítele
-source-c446ee72f0a45594 = Oprávnění žádostí o přátelství
-source-e9181d5845ed2006 = Žádost o přátelství odeslána
-source-9369cfa7a815be46 = Žádost o přátelství odeslána
-source-681dcadff37dc161 = Žádosti o přátelství
-source-e33713c40cf8905a = Přátelé / Domov
-source-9c2738fc2a406ace = Přátelé zatím nejsou k dispozici.
-source-65eb5bc01697d4e2 = Přátelé přátel
-source-c9a69a60f64de5fb = Přátelé ✓ · kliknutím odeberete
-source-a6ab5184d6315895 = Z
-source-6a22169a205e9ee5 = Od konkrétního uživatele
-source-35af70bbb896f6dc = Od uživatele
-source-bbaf771b88e35414 = od: uživatel
-source-706925c982e7f828 = fronta existuje
-source-4b10acae683d2978 = Celá obrazovka
-source-07da69ddbc0d4c69 = Funkce
-source-140834e3da0cc236 = Budoucnost
-source-af63fa4c86021f86 = G
-source-1e3a08abb66683bd = Galerie
-source-0a9a42586b09b675 = galerie obsahuje obrázky
-source-1e34d0d25d7b3f62 = Zobrazení galerie
-source-b8e5f7265e112995 = Herní aktivita není dostupná. Zavřete ostatní klienty Discord a poté sdílení vypněte a zapněte.
-source-e7985c1f65a954c8 = herní aktivita hraní osu status sdílení přítomnosti
-source-ec1fd5e3efcd9dce = Herní aktivita byla zastavena. Chcete-li to zkusit znovu, vypněte a zapněte sdílení.
-source-4ca984ba718c3836 = Připojení brány: nepodporovaný handshake nebo událost
-source-a151ff7482693921 = Obecná oprávnění kategorie
-source-681e7c486f10ddc4 = Obecná oprávnění kanálu
-source-1a44957753e55a32 = Obecná oprávnění serveru
-source-d7610725910c019c = obecná nastavení
-source-f10b658a307e86bd = obecné okna přihlášení macos linux lišta nabídek spuštění automatické spuštění automaticky otevřít minimalizováno minimalizovat zavřít zásobník pozadí záhlaví titulek oken tlačítka dekorace bez okrajů dlaždice grafika adaptér gpu vykreslování diskrétní integrovaný hardwarová akcelerace výkon baterie
-source-9d8db15e76da6741 = Vygenerujte nový odkaz
-source-923705a1daf9e84b = Generování…
-source-eaa7b519982a0e81 = GIF
-source-1e7afe9c575c706a = GIF nemá žádné rámečky
-source-ef523a043cb1a201 = Obrázek GIF je příliš velký
-source-da334a907c5c26f7 = Vyhledávání GIF není k dispozici
-source-06f6fe5fe2333748 = Vyhledávání GIF vyžaduje připojenou relaci.
-source-a99c5d408bd41e1f = GIF87a
-source-a97a61408bb73e85 = GIF89a
-source-e507ac7d8f776536 = GIFy
-source-a8c3b80277455232 = GitHub
-source-b6d9318313cb0848 = GitHub nemohl poskytnout aktualizaci. Zkuste to znovu později.
-source-e7884a357ee4c9d2 = GitHub vrátil neplatná metadata vydání.
-source-4de5f0ba822e25c8 = Byl dosažen limit aktualizací GitHubu. Zkuste to znovu později.
-source-a243636f80fc6cce = Dejte této skupině název a ikonu, kterou každý pozná.
-source-57f156fdd0c8dbef = Dejte svému novému serveru název a ikonu. Později je můžete změnit.
-source-bd4e2210817a1a0e = GLOBÁLNÍ
-source-4ba26827f64d38bd = Globální dostupnost
-source-09023907b59c38eb = Jít
-source-20d5102dc78225fb = Přejít na server
-source-ea0cb350ea71bc45 = Gradient
-source-3515e80533806a86 = Udělit dočasné členství
-source-41803f9fcd0f8de5 = Uděluje všechna oprávnění a obchází přepsání oprávnění kanálu. Dopřejte to pouze lidem, kterým důvěřujete.
-source-ecbc78bca0822905 = Skupinové akce nejsou dostupné, když jste odpojeni nebo zaneprázdněni.
-source-dd0585c25a191d3f = Skupinová konverzace není dostupná
-source-39048d780c11ddc6 = Skupinová soukromá zpráva
-source-366842f512dbbd93 = Ikona skupiny překračuje limit velikosti
-source-9ed4b1216c365c5b = Skupinové menu
-source-030655287e89069f = Název skupiny
-source-6312a7bbb63e7117 = Skupina se serverem
-source-1b2f61ae8f202f60 = Chráněná metadata ZIP se nezdařila.
-source-78d49005a4e852ba = Dekódování chráněného datového obsahu ZIP se nezdařilo.
-source-af64054c86023237 = H
-source-1369c99f2e45df7a = Bavte se a mluvte spolu.
-source-49613319cda8a1a3 = Má
-source-909c6c31361a82c7 = má: odkaz, vložení nebo soubor
-source-58cb9fd8758aebf1 = hash
-source-439d260b478d6e91 = Hash-Lengths
-source-3f51f5a6ced22f90 = Už máte pozvánku?
-source-75d83fc3f0cfab40 = Záhlaví
-source-2e07cda805841012 = Nadpisy
-source-c241395cbd5f4876 = Poslouchejte se prostřednictvím vybraných reproduktorů. Používejte sluchátka, abyste se vyhnuli zpětné vazbě.
-source-9d35c5db61e86ce6 = Pomozte lidem uspořádat jejich příspěvky do podkategorií vytvořením značky.
-source-b291fc0e032d0d4f = Barva hex: #RRGGBB. Klepnutím zadejte nebo vložte.
-source-9df212d89cab196d = Skrýt
-source-0ffbdc1726fb6ebb = Skrýt po nečinnosti
-source-769ed34384d07576 = Skrýt odkazy na obrázky a GIF
-source-0aa873e6c2f28288 = Skrýt zvýraznění shodného textu
-source-57e16ad6652e6134 = Skrýt odkazy na média
-source-725477d04a36a98a = Skrýt ztlumené kanály
-source-762e679f62ae02c1 = Skrýt účastníky
-source-8529bfe5e40476a8 = Skrýt spoilery
-source-3dc515b39430e680 = Skrýt samostatné odkazy, když se zobrazí jejich obrázek nebo náhled GIF.
-source-b162fba95c2ecba9 = Skryjte proužek účastníka pod zvětšeným videem
-source-9deeefd89ca8a81d = Vysoký
-source-58c754018ec47b5f = Dějiny
-source-877db9a965e78ff1 = Historie zatím není k dispozici. Použijte Znovu načíst a zkuste to znovu.
-source-e923cd10a1e399e1 = Když chcete mluvit, podržte nakonfigurovanou zkratku.
-source-a53a3619d24212cf = Holografický
-source-6abb1cd87fe0114e = Domov
-source-0b43e6e909895c89 = Horizontální
-source-14b242e1c4820e0d = Vznášet se
-source-000ccf53f16fac4e = Umístěte kurzor na GIF a stiskněte hvězdičku, aby zde zůstal.
-source-890ee07baf12f5d7 = Umístěním kurzoru na nálepku zobrazíte její náhled
-source-2f7a3edead4ab00c = Umístěním kurzoru na emotikon zobrazíte jeho náhled
-source-b31ae534f0201385 = Jak váš server začal? Proč by se lidé měli připojit?
-source-81d5b23881088e83 = Jak se váš motiv zobrazuje v galerii.
-source-731d0208840a7800 = hTKzmak · discord.gg/hTKzmak · discord.gg/wumpus-friends
-source-c98fb2d8b57594f0 = HTML
-source-af64044c86023084 = já
-source-d10d2dc5f8e74c73 = Vlastním tento účet a autorizuji tuto relaci.
-source-068d4dd16d9106d0 = Ikona
-source-a553c9a0dce42642 = ID nebo vybrat…
-source-411a4a19c9146569 = ID3
-source-49e91d0d9e0bf552 = Užitná zátěž ID3 se nikdy nenačte
-source-411a5419c9147667 = ID=
-source-ae423d5fb59ebed9 = Identifikátor=
-source-c92905d14a9421f3 = Nečinný
-source-bdee1c54486ec63e = IEpočetné
-source-370a3dd62278a528 = Jestli je zpráva připnutá nebo ne
-source-3d93f9ea0c5a13fa = Obrázek
-source-66b8dfd81d2ada15 = Akce s obrázky
-source-190b1f0db71908fb = Obrazová příloha
-source-4a752a36999535a7 = Obrázek nelze kopírovat v rámci limitu dekódování
-source-915dd15d1094d035 = Obrázek se nepodařilo dekódovat
-source-53d3f2aec75dc3ac = Stahování obrázku bylo přerušeno
-source-28a63ec28a4d9cb5 = Přizpůsobení obrázku
-source-8d53e3ace074daa4 = Obraz je větší než 8 MiB
-source-9a8bdf5e02fde283 = Obrázek je příliš velký
-source-d66857039cf6aa8c = Obrázek není podporován nebo je příliš velký; použijte maximálně 4096 × 4096 pixelů
-source-8eb80838a31c6217 = Neprůhlednost obrazu
-source-b0e95a44c5832060 = Obrazový příspěvek
-source-cc44400cc9d4eeed = Příprava snímku byla přerušena
-source-21fd53a0c86b5494 = Příprava obrazu přerušena; vyberte si to znovu
-source-e9992f53ea8527e2 = Náhled obrázku
-source-4f7a7453ede3db5b = Výběr obrázku zrušen
-source-7b9e62201fc23913 = Nebyl udělen přístup ke sdílení obrázků
-source-f9e9fb8972db5290 = Obrázek není k dispozici
-source-824bcaa487aefa5f = Obrázek není k dispozici nebo je větší než 8 MiB
-source-0c002f31d0eccc90 = Obrázky nelze uložit do mezipaměti; zůstávají dostupné v paměti
-source-7be593be34983abf = Importovat písmo…
-source-536b11358e1bc3a0 = Importovat balíček…
-source-ed12d0d18b972087 = Cesta importu je příliš dlouhá
-source-aab9f9d1763e826f = Importovat motiv…
-source-b59092a018c8c220 = V kategorii tohoto kanálu · zdědí oprávnění kategorie
-source-5afd8800d125b01a = v…
-source-7b44be5f4de4f0e3 = Instalace v aplikaci není na této platformě podporována.
-source-db4bd4b824a282f0 = Instalace v aplikaci vyžaduje vydání Serein s podpisem Developer ID.
-source-567e3276f0b0f009 = Instalace v aplikaci vyžaduje balíček vydání pro macOS nebo Windows nebo Linux x86-64 AppImage. Ostatní instalace Linuxu používají svého správce balíčků.
-source-78bf951bc1632023 = Neaktivní kanál
-source-1b9310d53986c897 = Neaktivní pro
-source-2220bd7f2217cf5b = Neaktivní časový limit
-source-d2ef82d232067766 = Zahrňte postranní panely, serverovou lištu, záhlaví a skladatel.
-source-10901dc29f1103bb = Zahrnout ukazatel do sdíleného videa.
-source-fcbb9955a42abef4 = Zahrnuje konkrétní typ dat
-source-e30930ba8681baeb = Zahrnuje libovolný z vybraných typů dat
-source-0372bce8ab8e7b45 = Příchozí hovor…
-source-2e80b701dc80533d = Příchozí prsten
-source-4db54da3664c2055 = Neúplná záplata role
-source-a978564370e2b2f3 = Nezávislý a otevřený zdroj. Není spojen s Discordem.
-source-72f8dbd6003e4624 = Indexování je neúplné; výsledky mohou chybět.
-source-0c0230002435da99 = Nekonečno
-source-6b585ba37cdb8260 = Zdědit
-source-2256feb673e7874c = inicializováno výše
-source-88d374f8374273ec = Inkoustový půlnoční povrch se živým fialovým akcentem.
-source-db1595f5c742dfbb = Vstup
-source-f735822173a46384 = Vstupní zisk (%)
-source-7dd9b019ce8d7d29 = Vstupní úroveň
-source-c78869b8c7b3e7b2 = Vstupní profil
-source-e5ce0d4b7f1cdc2c = Nastavení vstupu
-source-e07e2bf7e4687e74 = Vstupní práh
-source-41a92219c98dd9b7 = Ins
-source-5ada999b33ccc808 = Vložit
-source-70d9d4fda21a48c5 = Vložte emotikon
-source-ee5ac5102dcacf1a = Chcete-li používat tyto ovládací prvky, nainstalujte sestavení s podporou hlasu.
-source-c58d983d7f8dc085 = Nainstalujte motiv
-source-0ee0c68d0024b96b = Otisk prstu nainstalovaného rozšíření je neplatný
-source-80cb01ff2864c336 = Identita nainstalovaného rozšíření změněna
-source-a93385788263bda8 = Metadata nainstalovaného rozšíření jsou neplatná
-source-4e89bcac7237882a = Identita nainstalovaného pluginu změněna
-source-54ee04e01df690b3 = instalace zachová předchozí předvolby
-source-41a91f19c98dd49e = Int
-source-61d49062aaedbf65 = Celé číslo
-source-75c5a62c20aeb9f4 = Integrovaná kamera (náhled)
-source-03970aa76a09982d = Integrace
-source-233f78792e4de7ba = Integrace
-source-baaadff5b5886ee9 = Mezi
-source-59d72bac7fa31a39 = Inter (výchozí)
-source-13cc7c9a6045f074 = Mezi střední
-source-ee3924f4b629eb16 = Inter SemiBold
-source-1a81ae5aabe22de4 = Inter-Regular.ttf
-source-e6b26e433d821b85 = Inter-SemiBold.ttf
-source-1aea0acdc165591d = Písmo rozhraní
-source-51693b181594f130 = Neplatný
-source-aff59fe0ca6f3337 = Neplatný aktivní motiv
-source-f0ede5667e3c2368 = Neplatný archivní kurzor
-source-d555edf4908c1d30 = Neplatný zvuk oznámení
-source-3340ea4ac8a008ca = Neplatný identifikátor kanálu
-source-fad7ba128f14189f = Neplatný druh kanálu
-source-98c63dbd9df31dd7 = Neplatný kontrolní součet.
-source-7647b72796eaac6e = Neplatná značka čištění
-source-6bb35ccac4214000 = Neplatný název vlastního emotikonu
-source-5bc866e5341fc71a = Byla přijata neplatná delta metadata.
-source-5a9316c0f55d2c1f = Neplatný obrázek emodži
-source-2a24647263ec3c22 = Neplatný rozsah účtu rozšíření
-source-7e2d0d6e28b10843 = Neplatný hostitel pro stahování rozšíření
-source-f39ed7267460de3a = Neplatná adresa URL ke stažení rozšíření
-source-c8a0d30bcb4932ac = Neplatný identifikátor rozšíření
-source-8d3e3fdf912b6247 = Neplatné přesměrování rozšíření
-source-b914efe8a0101490 = Neplatná animace GIF
-source-841b936014dbdc07 = Neplatný obrázek GIF
-source-c92909345b3cc683 = Neplatný identifikátor
-source-2144d2fd528b11de = Neplatný identifikátor zprávy
-source-9e0a3f07d119818c = Neplatná nastavení zpracování mikrofonu
-source-c88d54eb07eaa02d = Neplatný profil mikrofonu
-source-66a622ff6e253fcb = Neplatná cesta k balíčku.
-source-c24233b6611d0b96 = Neplatná oprávnění povolit masku
-source-77cb31f8ce19f359 = Neplatná maska ​​odepření oprávnění
-source-e304160d5c17e0f9 = Neplatná maska ​​oprávnění
-source-103b0e96130997a7 = Neplatný pin kurzor
-source-97991767f58bad16 = Neplatná udělení pluginu
-source-de7a9123467851fb = Neplatné předvolby přítomnosti
-source-70e622bcaf00bb11 = Neplatný stav přítomnosti
-source-926da7ff753427e9 = Neplatný emodži reakce
-source-699b6984bf2adc2d = Neplatný cíl uložení
-source-efff269891a514d6 = Neplatná hlasová relace obrazovky
-source-890785553e903272 = Neplatná hlasová relace streamu
-source-b8efab09a838ede2 = Neplatný režim potlačení
-source-8fe713d416554a32 = Neplatný identifikátor uživatele
-source-3c29996ee3f84135 = Neplatné hledání videa
-source-3f4de05e737c4050 = Neviditelný
-source-2afc9a717c161490 = Pozvat
-source-552eee8a38a62007 = Pozvánka přijata. Čekání na přístup k serveru; vyplňte všechna pravidla serveru v Discordu.
-source-8da3b13ecb71b7c5 = Kód pozvánky
-source-e0cb011a27bd9365 = Platnost pozvánky vypršela nebo je neplatná
-source-6c0826939c587680 = Odkaz na pozvánku
-source-29ee695e0f89c0cd = Nastavení odkazu na pozvánku
-source-21c03de940770a05 = ODKAZY S POZVÁNKAMI POZASTAVENY
-source-b3675a0187b1e112 = Pozvat do kanálu
-source-456d2642d56934d8 = Pozvat na server
-source-cc2c588519113d3a = Pozvánka není k dispozici
-source-214f50d5d9857c06 = Zvaná
-source-214f51d5d9857db9 = Pozvánky
-source-ac6d5df486b78dcb = Pozvánky vypadají jako
-source-2ae8be723608ca27 = Limit rámců IPC
-source-76ec54b338997987 = Je váš nový server pro pár přátel nebo větší komunitu?
-source-bf6fbda23925fcb4 = Diagnostika problému
-source-0f39f43458e1606f = Rozestupy položek
-source-132e74c95d560583 = Iterovatelné
-source-14c80c3d82ecfe2f = Jeho zprávy budou trvale smazány. Toto nelze vrátit zpět.
-source-c110b9e869ede5f2 = Jeho uložené přihlašovací údaje, historie v mezipaměti a koncepty na tomto zařízení budou odstraněny. Samotný účet Discord je nedotčen; můžete se kdykoli znovu přihlásit.
-source-af64074c8602359d = J
-source-c2af8aea5b96bba5 = Jáva
-source-1cdd68204da8bdaa = JavaScript
-source-6c6bf3ea2ad3d219 = Připojte se
-source-b2afbf038a6cfe9d = Připojte se k serveru
-source-60988f8dcf4afee1 = Připojte se ke zvuku. Váš mikrofon se spustí po zabezpečení hovoru.
-source-e59e5884d3263eeb = Připojte se k hovoru
-source-f93c30c9e799811a = Metoda spojení
-source-29a7fede2fd2d558 = Připojte se k serveru
-source-c57036386980e37f = Připojte se k poslechu. V tomto kanálu není mluvení k dispozici.
-source-958fd8a18d9097af = Připojte se k Voice
-source-2a2b53f9a9998870 = Připojil se k Discordu
-source-03499a0733b35e4c = Připojeno během posledních 7 dnů
-source-11042a37390cda1b = Připojeno soukromě
-source-d2ae1a44fbc39082 = Připojení k tomuto hovoru již není možné
-source-07732f31ca518ea0 = Připojení k tomuto kanálu není s aktuálními informacemi o oprávnění k dispozici.
-source-621bc36db6521411 = Připojování…
-source-34d46fe97a690403 = JSON
-source-15a477e9f9a165ad = Skok
-source-8d29fb87378b5493 = Přejít na zprávu od
-source-ea06f2fec89302d9 = Přejít do současnosti
-source-dc1660d3322d1da5 = Přejít na nepřečtené
-source-84126fa92f00b4ef = právě teď
-source-af64064c860233ea = K
-source-739c12da7c022020 = Tmavé uhlové povrchy Katany a ostré červené akcenty. Světelný režim využívá vestavěné barvy.
-source-d60a7dde73859828 = Nechat
-source-ec6d1ce476382a2c = Pokračujte v úpravách
-source-7b8db4b25760798c = Pokračujte v úpravách
-source-1884d8e4db1b7e44 = Udržujte neprůhlednost obrázku a sekce mezi 0 % a 100 %.
-source-b40ef363d7acbab2 = Uchovávejte načtené smazané zprávy v paměti relace, když je povoleno
-source-fefea061e3aef939 = Po smazání ponechat zprávy, které již byly v této relaci vidět, viditelné červeně. Vymaže se při deaktivaci nebo odhlášení.
-source-b37797ccd56f4513 = Udržujte seznam členů otevřený, kdykoli je okno dostatečně široké.
-source-5847ae7d38e846bb = Pokračujte v práci
-source-85e7706d883c1b1f = nastavení klávesových zkratek
-source-70b984de3ae12f5f = Kop
-source-dcaaa6a6d1d2f80b = Kick Member
-source-c8f1a576897c33e8 = Kick Members
-source-010cab31d8ba72f4 = Vykopnutý člen
-source-beb0c3f65be90a4c = Kotlin
-source-af64014c86022b6b = L
-source-f6758693b338b2bf = Poslední známí účastníci Â· znovu se připojte k obnovení
-source-02e61b83d7705416 = naposledy uloženo
-source-9c6674b1ad79be87 = Později se brána odpojí
-source-05902840ffa77a6f = Poslední zpráva není k dispozici
-source-2e4818861000b13f = Rozložení
-source-e04aaca8ea615571 = LD_LIBRARY_PATH
-source-4ebfefaed46645e7 = LD_PRELOAD
-source-7ba0310a53345190 = Další informace o sledování kanálů
-source-24f216d03b0273ba = Další informace o správě integrací.
-source-e1bb5c90def98862 = Chcete-li použít jejich uživatelské jméno, ponechte prázdné.
-source-b6f6eb378f7ed8d5 = Chcete-li použít své uživatelské jméno, ponechte prázdné.
-source-c0b43e6938b15b03 = Opustit skupinu
-source-23a148cb555e06f4 = Opustit skupinu?
-source-c23ec1237701b64b = Opustit server
-source-304720e80cd0cb6b = Opustit server
-source-1258a34337e9071c = Opustit server?
-source-b95db8072a682ef3 = Nechte hovor a otestujte svůj mikrofon lokálně.
-source-09127d64a1f32e14 = Opustit aktuální hlasový hovor
-source-52d5e2312cb98b44 = Opustit tento účet?
-source-bfd5fdbfbf8878c5 = Opustit tuto relaci?
-source-ad791b6a1cbe4edc = Opuštění není v offline náhledu dostupné.
-source-757c3a7cd6e640a5 = Odcházení…
-source-d65688f2da9401db = Kompatibilita staršího pohyblivého kontrolního součtu selhala.
-source-202fffd5a2e1c595 = Délka
-source-a566392b59057905 = Dejte všem vědět, jak tento kanál používat
-source-122c48a8444cd82c = Dejte všem vědět, jak používat tento kanál!
-source-060d1b267ab42d13 = Umožněte přátelům z připojených her posílat zprávy DM a zvát vás ke hře, i když hra není otevřená.
-source-17597a8bb4810524 = Licence
-source-ab004d8a9aa6ed5e = Vyžaduje se licence a verze.
-source-aeac80851d9f420d = LICENCE-APACH
-source-c7fa97a208420daf = LICENCE-MIT
-source-3b0ab4b52326316f = Světlo
-source-3cf89cb47fdde7e9 = Odkaz
-source-32926f430c16efd8 = Propojená lobby
-source-7859e0b546108aae = Odkazy
-source-3d249bb480032121 = Seznam
-source-70315aaffba9e636 = Zobrazení seznamu
-source-82d9a68d45439d03 = Poslouchá
-source-e9c77e5b3a0fdc89 = Poslouchá Spotify
-source-52afd6b51d51164f = ŽÍT
-source-3d1396b47ff4a56f = Žít
-source-11fa9d6c061afa16 = Načíst archivované příspěvky
-source-3a2d89e9113caee2 = Načíst kanál
-source-c986f57b00dd25bf = Načíst pozvánky
-source-9cacdfdfd5d7123e = Načíst více
-source-7584ded3d749c75e = Načíst více
-source-61556c6ba5dcfb6d = Načíst další příspěvky
-source-95ef182cb1fd4feb = Načíst připnuté zprávy v aktuální konverzaci
-source-8b95fbad9e9aef05 = Načíst nastavení serveru
-source-31a65dd97cdf8a37 = Před změnou načtěte nastavení tohoto serveru
-source-8439ee25437e77d1 = Načtěte předvolby aktualizací nebo povolte kontrolu výběrem nastavení aktualizací.
-source-6783077442c0dad3 = načtené smazané položky zmizí s deaktivovaným rozšířením
-source-50f79eb3620799d6 = Načtená vlákna nejsou návštěvy
-source-851ecddc366a2691 = Načtené nepřečtené se musí posouvat lokálně
-source-b59d68ed12d46377 = Načítání
-source-3463bde1664305d3 = Načítání příkazů aplikace…
-source-17e508cdddf68e84 = Načítání archivovaných příspěvků…
-source-933c587eb7d7507f = Načítání zvuku…
-source-09077a8228a5d71a = Načítání protokolu auditu…
-source-2667f1dca13f7227 = Načítání nastavení kanálu…
-source-7e00d690bf476c8c = Načítání discord.com…
-source-5d5a3b2949e254bb = Načítání stavu přátelství...
-source-8ca6703ab61779c6 = Načítání GIFů…
-source-2b71ebd4732fd0ea = Načítání obrázku…
-source-b282c7ee62d8c2d8 = Načítání integrací...
-source-df5d55e82fc6013f = Načítání pozvánek…
-source-51c132ed40a874ca = Načítání místního vzhledu…
-source-10af059c2c92c925 = Načítání zpráv
-source-421d6e269a43d41b = Načítání zpráv…
-source-875cc33c8d2087f3 = Načítání poznámky…
-source-1a5772902a9d27a5 = Načítání starších pinů…
-source-8f7234437c1583f4 = Načítání starších vláken…
-source-57ebd0152abc1eb3 = Načítání připnutých zpráv…
-source-7571d69557f1b608 = Načítání příspěvků…
-source-a4e5c9890f31e1e3 = Načítání náhledu...
-source-2c194c9c95937c4e = Načítání profilu…
-source-36a96cdf3de5b155 = Načítání reakcí…
-source-67ec529ae2ea432c = Načítání rolí...
-source-adf4a00a3ea3251f = Načítání uloženého písma…
-source-7c0b644c42303aef = Načítání uloženého čtení a rozvržení…
-source-9b846168bcc5b3ed = Načítání nastavení serveru…
-source-c4848c001eaee8c5 = Načítání nastavení spouštění…
-source-a86d4233d96c4c82 = Načítání podrobností nálepky…
-source-152a12fc4255c012 = Načítání balíčků nálepek…
-source-166b779cf597cb90 = Načítání populárních kategorií…
-source-b77be09763b48a7e = Načítání ověření…
-source-a3f0b4f8e3f25240 = Načítání předvoleb…
-source-71c7694cb9bded2d = Načítání vašeho profilu…
-source-49730f3d5751a433 = Načítání...
-source-5360d33e7f91fb81 = Načítání…
-source-8c3a591524e36cac = Náhled místní kamery · nesdíleno
-source-428841c1fafa8116 = Místní změny uloženy
-source-86cb70463ce6ff8d = Pouze místní náhled. Čeká se, až Discord potvrdí sdílení.
-source-dab3f9b1dd55cddd = místní odstranění sníží zadržené užitečné zatížení
-source-b11508797a8874d9 = Místní úložiště
-source-587de31efff4f090 = Místní úložiště není k dispozici; předvolby kanálu nelze obnovit.
-source-e516c47c18950d2d = Fronta místního úložiště je plná; některé změny se neuloží
-source-af1860ae7538fce5 = Pracovník místního úložiště byl zastaven. Pro uložení písem restartujte Serein.
-source-25973456bb1171d4 = Proces místního úložiště se zastavil; předvolby kanálů obnovíte restartováním Sereinu.
-source-310dae92ee14c708 = Lokálně ztlumeno
-source-4f27f6b48a68b5c2 = Zámek
-source-aa1882f01fbba808 = Zamknout příspěvek
-source-06ff5c2b070ce282 = Zamknout vlákno
-source-b64127e4e4f0b575 = Odhlaste se
-source-4cb5ec320d30ec11 = Přihlášení uložené v úložišti pověření OS
-source-d804b2e383880418 = Časový limit přihlášení vypršel nebo předání tokenu není k dispozici; žádná relace přijata
-source-54f2f375d03c4ca9 = Přihlášení bude uloženo po připojení Discordu
-source-015a125837ba3808 = Přihlašovací okno se neočekávaně zastavilo (webový proces skončil); žádná relace přijata
-source-4efbcab48a433013 = Dlouho
-source-22bafe4747c3804d = Hledejte nové balíčky a aktualizace. Nic se neinstaluje samo.
-source-50f5dacedd665cfd = Hledáte běžeckou hru
-source-34b738b2a8d421ca = Hledám audio zařízení...
-source-3de54cb3d0707200 = Hledání audio zařízení…
-source-c8a84bc62f1d68fd = Hledáte fotoaparáty...
-source-690f47c9ef94f3af = Hledáte fotoaparáty…
-source-bd35252fcb8bab86 = Hledání odpovídajících zpráv.
-source-661ccb47375cc60c = Hledám obrazovky a okna…
-source-24f3a319b88552c1 = Nízký
-source-2b5e7fb59815427a = LPT1
-source-2b5e7eb5981540c7 = LPT2
-source-2b5e7db598153f14 = LPT3
-source-2b5e7cb598153d61 = LPT4
-source-2b5e7bb598153bae = LPT5
-source-2b5e7ab5981539fb = LPT6
-source-2b5e79b598153848 = LPT7
-source-2b5e78b598153695 = LPT8
-source-2b5e77b5981534e2 = LPT9
-source-c62f43916b92feff = LPT²
-source-c62f42916b92fd4c = LPT³
-source-c62f4c916b930e4a = LPT¹
-source-254bb119b8cfe061 = Lua
-source-af64004c860229b8 = M
-source-12f523a52b843ea2 = macOS
-source-695b5c1e78455c03 = macOS Gatekeeper aktualizaci nepřijal.
-source-43380c838d3e92b4 = Spravovat >
-source-49373cba18a86ae2 = Správa kanálů
-source-7861b1e487bb2d99 = Správa výrazů
-source-d1d4c6933d613834 = Spravovat integraci
-source-ecef5ad7748320ce = Správa zpráv
-source-554506ea893cc81f = Spravovat přezdívky
-source-5c5f4e5016610592 = Spravovat oprávnění
-source-e72177b2b053f323 = Správa rolí
-source-b57383903d2813f5 = Správa serveru
-source-c5de1bfb54eb0516 = Spravujte nastavení, která pomáhají udržet váš server aktivní.
-source-a56c26a6a5e193ff = Správa vláken
-source-b5981274d4d2d4a0 = Správa webhooků
-source-043a9e1ac7396527 = Spravujte webhooky a sledované kanály přispívající na tento kanál.
-source-21ffd82809639845 = Spravováno v Discordu
-source-1e187919b52639f1 = Mapa
-source-b82ecdfc78c29614 = Označit jako přečtené
-source-5bb4026da28b7914 = Označit jako přečtené
-source-76b4152e69e800b1 = Označit jako přečtené až sem
-source-c8c3ee2f3d2dbb67 = Označit jako nepřečtené
-source-e0d773f122b8cbdc = Označení této zprávy jako nepřečtené není k dispozici
-source-837fcb0b70616656 = Zápas
-source-b54a17494757f739 = Srovnat vše
-source-beecdafa6aa9f2ea = Shoda s některými
-source-1f06583ace9c9d48 = spárovaný katalog
-source-d3523209cd4147d8 = odpovídající aktivní hovor
-source-49dd67aed00029ef = Matematika
-source-1a3191077684e8bd = Maximální počet použití
-source-2b3441b8eece504f = Maximalizovat
-source-1e8f2719b58ad500 = MD4
-source-25a83280cea8df01 = Kompatibilita MD4 se nezdařila.
-source-93360e02ae89685c = Média · načtené příspěvky
-source-751678adb0aa2b23 = Člen
-source-ca695802849ab7f8 = Akce členů
-source-b51d57449ddb6721 = Podrobnosti o členech
-source-5d9c2286b4ab1cdc = ID člena
-source-fe9b5751b796a9c5 = Seznam členů
-source-87775b4ed01293bb = Kontrola ladění hledání členů prošla: vzdálené zmínky a barvy role viditelného autora používají omezené, nezávislé vyhledávání brány.
-source-f0ae37fb42ebb259 = ČLENEM OD
-source-8847d64291996459 = Členem od
-source-9f5a5f23312798f0 = členové
-source-5dc9a5bd59847870 = ČLENOVÉ
-source-24fc7d6be45666e1 = Členové musí před zobrazením potvrdit, že jsou plnoletí.
-source-dd4296be53097fdf = Členové použijí barvu nejvyšší role, kterou mají na tomto seznamu. Přetažením rolí změníte jejich pořadí.
-source-6b9cbb8f892a14c1 = Členové používají barvu své nejvyšší role na seznamu rolí.
-source-070c455ea88183a5 = Členové budou omezeni na jednu zprávu v tomto intervalu pro jakékoli nové příspěvky, pokud nemají povolení Obejít pomalý režim.
-source-141072de886af452 = Členové budou omezeni na vytvoření jednoho příspěvku v tomto intervalu, pokud nemají oprávnění Obejít pomalý režim.
-source-2cc123a56a77d730 = Členové budou v tomto intervalu omezeni na jednu zprávu.
-source-142ee774bc3d2608 = Členové se správou vláken jej mohou stále používat.
-source-36cf079496723195 = Členové s povolením zmínit všechny role mohou tuto roli vždy zmínit.
-source-ffd32ee5baef934d = Členská oprávnění
-source-22c7a36f572f4655 = Zmínka
-source-66727c051d2eafc5 = Uveďte @všichni, @zde a Všechny role
-source-60daedf441ee5363 = Zmínit pozadí
-source-084f35b0df88af58 = Zmínit text
-source-4880dc3125543292 = Zmínky
-source-9a9ee511958b75b2 = ZMÍNKY
-source-7fbc2482e27c1dd6 = Zmiňuje konkrétního uživatele
-source-ec24319a17f6fdaf = Zmíní kteréhokoli z vybraných uživatelů
-source-4c136db0c6596249 = Zmínky o uživateli
-source-0e7ff37095c562eb = zmiňuje: uživatel
-source-114813466431afcc = Rohy nabídky
-source-79e8cc71a5975b04 = Zpráva
-source-a20d073f8ff525e4 = Pošlete zprávu uživateli.
-source-0f71c9b39094881d = Oblast zpráv
-source-143b695787cb5499 = Zpráva smazána
-source-de676f78fefde026 = Historie zpráv není s aktuálními informacemi o oprávnění k dispozici.
-source-bdc54e8c8eec3bd9 = Oblast pro zadávání zpráv
-source-daadc547b53eb434 = Seznam zpráv
-source-6620710a505ec258 = Výsledek zprávy neznámý; před dalším pokusem zkontrolujte konverzaci
-source-51e4cf3810f0203c = Zpráva nebyla vrácena; mohl být odstraněn nebo se stal nedostupným
-source-bdeedc1c60306b35 = Zprávy
-source-695a7a586ff9dc47 = Zprávy a koncepty se ukládají lokálně. Přihlašovací tokeny používají úložiště pověření operačního systému.
-source-69a9ca95cdb4d43b = Zprávy a koncepty se v tomto zařízení ukládají do mezipaměti v ohraničených souborech izolovaných na účtech. Data mezipaměti nejsou zašifrována Sereinem; uložené přihlašovací tokeny používají úložiště pověření OS.
-source-b3a412920dd74a1c = Zprávy a média
-source-121a1458f443325b = Zprávy a běžné štítky
-source-faa7e3d853d314b3 = Zprávy nejsou dostupné, pokud jste odpojeni nebo nemáte přístup ke kanálu.
-source-ac4ea84963a5c8ae = Zprávy v propojených hrách
-source-43784ca2e0805b43 = nastavení oprávnění k zasílání zpráv
-source-2fcb5047da233cf9 = oprávnění k zasílání zpráv spamové filtry přímé zprávy dm žádosti o přátelství přizpůsobené připojené hry
-source-f4b9f0457a752170 = Nastavení zpráv nejsou k dispozici
-source-f8c5462180afce0f = Značky zpráv, reakcí, vyhledávání a čtení mají offline testy. Interoperabilita Real Discord stále není ověřena; nahrávání příloh a pokročilé vyhledávání zůstávají neúplné.
-source-557a4777f155d7c9 = Kontrola ladění náhledu mikrofonu/kamery proběhla úspěšně: nastavení se vykresluje, otevírání nastavení nikdy nespustí snímání, ukázka a ochrana uzavřených stránek zastaví požadavky. Nejsou otevřena žádná zvuková zařízení.
-source-232f88877550dfa9 = Mikrofon
-source-7a45f482436be672 = Nastavení mikrofonu a reproduktoru
-source-742c9587b20bf8c4 = Zisk mikrofonu
-source-b1772b5e873910c2 = Mikrofon ztlumen
-source-6bc439bdf9f4c792 = Citlivost mikrofonu (dBFS)
-source-9cfa09a28f797297 = Citlivost mikrofonu: vždy otevřený
-source-75578a286f45007f = Test mikrofonu
-source-0f6afa4b0d4690ec = Test mikrofonu zastaven; zkuste to znovu.
-source-5640005fd7b5c247 = Mikrofon není k dispozici. Vyberte jiný vstup. Jste stále připojeni.
-source-af334fc235660586 = Mikrofon není k dispozici Â· stále připojen. V nastavení zvuku vyberte jiný vstup.
-source-0ef20adcd014e5da = Mikrofon není k dispozici; zkontrolujte oprávnění nebo zvolte jiný vstup. Opakování…
-source-1c109a21525649fd = Minimalizovat
-source-41168fc929aacf0f = Mínus
-source-01757df2027f2c2e = Chybí připojení AppImage.
-source-e5ee1eb26ce8d9f6 = Chybí cesta AppImage.
-source-5574e673374a2424 = Chybí identita obrazovky RTC
-source-180ea19db88c8920 = Chybí server obrazovky
-source-be7d1b0d3e9abe80 = Chybí identita streamu RTC
-source-26f75402a3d7bcf4 = Chybí stream server
-source-6d190fc4ac1b7958 = Chybí hlasový server
-source-5540f7186b767545 = Chybějící hlasová relace
-source-09d953226c6eb98c = modální inicializováno
-source-37cbecaec58e2192 = Režim
-source-0f3b0ae12a710300 = Mírný
-source-2b39cffedda9f40d = MODEROVÁNÍ
-source-917d6cecbb170b11 = Pouze moderátoři
-source-37a9e8aec5713460 = Více
-source-3f4b17dfab9fca4c = Více barev
-source-1c5099bc15997c73 = Více filtrů
-source-0a6a710a7e87112c = Může existovat více pinů, ale tato stránka nemá použitelné pokračování.
-source-c2dad3e4f7d52029 = Více značek
-source-15528e06a6388237 = Pohyb kolečka myši a trackpadu. Výchozí hodnota je 100 %.
-source-02903e9b6f960b1e = mov,matroska,webm
-source-2d6036a5923caa65 = Pohybujte se po Serein, aniž byste sáhli po myši.
-source-b233557012dcb328 = Posuňte se dolů
-source-87a55464116c3f48 = Přesunout dolů
-source-0cd6ebb0a6c5eb67 = Přesunout členy
-source-db6975c2435139a8 = Přesuňte zprávy od lidí, které možná neznáte, do Žádosti o zprávy.
-source-3dedc07c603ea4e6 = Přesunout mimo složky
-source-4e33f21fc24666c1 = Posunout nahoru
-source-4ea0f21fc2a338a1 = Posuňte se nahoru
-source-c1f9209fa25d8f42 = Přesunutý člen
-source-e0f67eae944f8f94 = Ztlumit
-source-14b69a74909a3502 = Němý a hluchý mají vždy přednost.
-source-04a4026777a6f1bf = Ztlumit kanál
-source-90edce5e2bd42c7b = Ztlumit konverzaci
-source-f44ed5f8547f1267 = Ignorovat členy
-source-9e3d1452f996cc1e = Ignorovat oznámení, dokud nezrušíte ignorování této konverzace.
-source-62dc808fe3900456 = Ztlumit příspěvek
-source-90ed5ecbc62c0923 = Ztlumit zvuk
-source-197fc2f02575b096 = Ztlumit streamovaný zvuk
-source-a53465e834b34952 = Vypněte oznámení této přímé zprávy, dokud je nezrušíte.
-source-1176ab7a5ecd28c4 = Ztlumit vlákno
-source-926932a6033194d0 = Ztlumeno
-source-a6d9550b6a11485c = Ztlumeno serverem
-source-9d5dce9a60eb77a1 = Ztlumeno serverem
-source-98e0c76429ccb8ab = Ztlumeno pro vás na tomto zařízení
-source-98741bff7e329fe8 = Vzájemný server
-source-3feb2e2370053461 = Vzájemné servery
-source-c072f70b625c8489 = odhlášení z profilu mého účtu
-source-870b7417205fc44e = Můj server
-source-77430f705c8adf0e = Moje téma
-source-af64034c86022ed1 = N
-source-d9297519ff36a94b = N zpráv · poslední aktivita
-source-ef49aec68fd1dc66 = Jméno
-source-c67036ff3465d307 = Pojmenujte tuto složku a vyberte barvu zobrazenou na liště serveru.
-source-10271936476ae359 = Jména používají písmena, čísla a podtržítka.
-source-3734dc19c3200eba = NaN
-source-adb339355dde42b7 = Zužte toto vyhledávání na požadované zprávy.
-source-7cbf0f4086ba567e = Nativní balíček
-source-8f5ea921969a1238 = Nativní okno není k dispozici
-source-07e6118e838b2e23 = Navigace
-source-8b97ea84af17c029 = Nikdy
-source-3741f519c32ac391 = Nový
-source-c8337735ad89201d = Nový zvuk zprávy
-source-d3b60ec2f9fb421b = Nové zprávy
-source-a356fb968995728b = Níže jsou nové zprávy · přejít na nejnovější
-source-a2be1021c91dc81f = Vybrán nový obrázek. Uložit a nahrát jej.
-source-f6f5d8ff2a4899c5 = Nový příspěvek
-source-ba25eb1084928171 = Nové příspěvky se po této dlouhé době bez aktivity přestanou zobrazovat v seznamu kanálů.
-source-6dafd7d212eeebe7 = novou roli
-source-69a991c86e3136e4 = Nový webhook
-source-74dea8806e19236b = Nejnovější
-source-58b4c338dccaacb9 = Nejnovější Discord účty
-source-ba2a0427963d1a25 = Nejdříve nejnovější
-source-8355a903ea308554 = Nejnovější členové
-source-542ffff558768ea3 = Další stránka
-source-e9f30e4492cee2cd = Přezdívka
-source-3bf424e632269e64 = Setmění
-source-f6d4582d68e813ea = Noční
-source-fbeaef53d1906622 = noční verze
-source-86253e33bf1b2595 = Nitro je povinen používat tuto nálepku mimo svůj server.
-source-e69565850af92ceb = Žádný přístup ke konverzacím nebo textu skladatele.
-source-c1a4a71de3eb91bf = Nejsou k dispozici žádné dostupné kanály.
-source-f891e2d3321bffd8 = Žádný aktivní hovor
-source-412ca900b5a9e6fc = Žádné aktivní odkazy na pozvánky
-source-6877eaa80d7c0b9d = Tomuto vyhledávání neodpovídá žádné aktivní vlákno.
-source-9374e11f70cf90d8 = K této události nebyly poskytnuty žádné další podrobnosti.
-source-775a56f606040475 = Žádné zvukové výstupní zařízení
-source-6b4386d955528474 = Těmto filtrům neodpovídají žádné záznamy protokolu auditu.
-source-82dff1fee5edf1bb = Nebyl požadován žádný hovor
-source-36c0189ca94d214d = Nebyly nalezeny žádné kamery. Zkontrolujte připojení kamery nebo instalaci virtuální kamery a poté obnovte stránku.
-source-9cb8d641f192f378 = Nebyly sledovány žádné kanály.
-source-27387fd3c754b0b5 = Žádné příkazy neodpovídají
-source-3ff935a531a0a05b = Žádné konverzace ani přátelé se neshodují
-source-67f003d3e24e24a9 = Žádný vlastní stav
-source-69681f96f888669d = Zatím žádné vlastní nálepky.
-source-bed4b879924ad0b8 = Žádný vhodný kanál
-source-7d1966d947ff9329 = Žádná shoda emodži
-source-81387e9fe7913716 = Zatím žádná rozšíření
-source-8fe5bc6b6d3268c1 = Zatím žádné oblíbené
-source-e314fbc238f69037 = Vašemu vyhledávání neodpovídají žádní přátelé.
-source-4197f7bea1711182 = Zatím žádné přátele k pozvání. Sdílejte níže uvedený odkaz.
-source-3a0bef63461834bd = Nebyly nalezeny žádné GIFy
-source-91c660c697d54d5d = no GPU adapter found; nainstalovat ovladač Vulkan, Metal, DirectX nebo OpenGL
-source-e8213494a59bc1f8 = Nebyl vybrán žádný obrázek
-source-9a9b5ab1569a1290 = Žádný neaktivní kanál
-source-cdc25ae76471a84b = Na tomto serveru nejsou žádné integrace.
-source-fd0dcab6acf65c1d = Bez omezení
-source-e4f478b26d0417ba = Žádný načtený příspěvek nenese vybrané značky; naplňte více nebo vyčistěte filtr.
-source-28d7266643f5992f = Žádné zápasy
-source-1986edeeac3f37be = Žádné odpovídající destinace
-source-2a5ae75084b7609b = Žádné odpovídající emotikony.
-source-2d1193776029e430 = Nebyly načteny žádné odpovídající možnosti
-source-d1362bc0288193e9 = Žádní odpovídající uživatelé
-source-965fe3510f5a42b7 = V této konverzaci nejsou žádní odpovídající uživatelé.
-source-8fc8869bcb1445ae = Tomuto vyhledávání neodpovídají žádní členové.
-source-4476cd56b8e63a11 = Zatím žádné zprávy. Začněte konverzaci níže.
-source-615f59eca8642532 = Nebyly hlášeny žádné starší archivované příspěvky.
-source-779ffe89d529b70d = Služba nenahlásila žádná starší vlákna.
-source-0e044f85e1042122 = Nevrátila se žádná starší vlákna.
-source-ff1c1c671f7adec0 = Nikdo tu ještě není
-source-7ea06611e5c78f03 = Žádná otevřená přímá zpráva s tímto uživatelem.
-source-d7e8c2c9062bf815 = Nebyl nalezen žádný svazek klíčů OS, takže se při příštím spuštění budete muset znovu přihlásit
-source-c658f9978ab6c460 = Nebyl nalezen žádný svazek klíčů OS; přihlásit se při každém spuštění. Abyste zůstali přihlášeni, nainstalujte si GNOME Keyring nebo KWallet.
-source-82128cb68caad8aa = Nebyly načteny žádné příspěvky
-source-27074081d60f490c = Žádné příspěvky neodpovídají
-source-921e1823a1d98984 = Na tomto kanálu zatím není k dispozici žádná publikovaná verze.
-source-05c0c6595d494ae4 = Zatím žádné odpovědi
-source-991d216e6efc157c = Žádné výsledky
-source-d5a39946eef35ea9 = Žádné opakovaně použitelné bloky AppImage.
-source-b241cc46e92893ed = V tomto zařízení nejsou pro tento účet uloženy žádné přihlašovací údaje. K opětovnému přihlášení použijte jiný účet nebo jej zapomeňte pomocí ×.
-source-ae6c9c892eb21c0a = Nebyly nalezeny žádné uložené přihlašovací údaje. Chcete-li jeden uložit, přihlaste se pomocí aplikace Discord.
-source-ebfdb2373cfa2e7c = Zatím nejsou k dispozici žádné obrazovky ani okna.
-source-a26acf212cef3ce1 = Nebyly nalezeny žádné sdílené obrazovky ani okna
-source-15906936955a04c0 = Nebyly nalezeny žádné nálepky.
-source-b252d7940cf58ff6 = Žádný kanál systémových zpráv
-source-a7a7a87655c7b116 = Zatím žádná témata
-source-3b9155e555d24852 = Není připraven žádný aktualizační pomocník.
-source-077935c20c0ec158 = Zatím žádné webhooky.
-source-0a1626700498d01f = Tuto reakci v současné době nikdo nemá.
-source-e384aa3a7f315eaa = Potlačení hluku
-source-d025a053094e1944 = Potlačení šumu není v tomto sestavení nebo náhledu k dispozici.
-source-cbae7aad79194203 = Potlačení hluku lokálně snižuje hluk klávesnice, dýchání a ventilátory.
-source-669b18c6d2d9c95b = Žádný
-source-50fed8c6357d587b = ŽÁDNÝ
-source-5c2570a7140483ad = prázdný ocas
-source-70c407d0fdd69918 = normalizované UTF-8
-source-ad5372e96bb9783e = ne písmo
-source-5ca102bf327e771c = Nepřipojeno; stav není sdílen.
-source-44cfb5f01f1202fd = Není poskytnuto
-source-739264aa3476b5b4 = Nebylo odesláno
-source-0df0e8c4f3c2eba6 = Není nastaveno
-source-6ace63b336f8392c = Nejste si jisti?
-source-6686fcc6d2c8f0bd = Poznámka
-source-41d0639ac24cbb6a = Nic
-source-e362807e48e942fd = Zatím zde není nic zveřejněno; archivované příspěvky načíst na vyžádání.
-source-c04398572a2a89f4 = Nic na této stránce neodpovídá dotazu.
-source-4b11696fddfe065f = Kontrola ladění oznámení prošla: navigace DM/guild a odmítnutí zastaralého kliknutí.
-source-e79d59a5fc01ae77 = nastavení upozornění
-source-039e128122096637 = Nastavení oznámení
-source-518c2768c5c91b61 = upozornění desktop systém upozornění přehled zvuky odznaky zvonění zpráv
-source-1f44178a49d67a46 = Noto Sans Arabic
-source-964005d08b147f56 = Noto Sans CJK JP
-source-64021dbff820a004 = Noto Sans Math
-source-369eba19c29ffe00 = NUL
-source-6fb485c5b5dd1b24 = NULL
-source-8629c5c653f17cc4 = Null
-source-370bdb19c2fd07f3 = Num
-source-862d0fc653f43059 = Num0
-source-862d0ec653f42ea6 = Číslo1
-source-862d0dc653f42cf3 = Číslo2
-source-862d0cc653f42b40 = Číslo3
-source-862d13c653f43725 = Číslo4
-source-862d12c653f43572 = Číslo5
-source-862d11c653f433bf = č.6
-source-862d10c653f4320c = Číslo7
-source-862d17c653f43df1 = Číslo8
-source-862d16c653f43c3e = Číslo9
-source-af64024c86022d1e = Ó
-source-730182ad28374cda = Objekt
-source-88b32bd40e072050 = Obsidiánově fialové povrchy a levandulové akcenty ve světle a ve tmě.
-source-302cbb19bf9a174a = Vypnuto
-source-cde3342a428aaee8 = Offline
-source-a9606d1529af3891 = Offline demo · akce jsou simulovány.
-source-9f59bb3aa71d6244 = Offline demo: místo toho importujte místní balíček.
-source-55a15d18c0bb75c7 = Offline příslušenství · vyskakovací okno účtu otevřeno při spuštění
-source-e07092fc09a9d8b5 = Offline zařízení · akce ovlivnila pouze syntetickou RAM
-source-7124901374a06ca0 = Offline zařízení · vyskakovací okno emoji se otevřelo při spuštění
-source-eb12a8c1836ae490 = Offline zařízení · explicitní test upozornění systému
-source-deee7861bbc3a8f0 = Offline zařízení · Vyskakovací okno GIF se otevřelo při spuštění
-source-2419690b905611ef = Offline zařízení · Dialog připojení k serveru se otevře při spuštění
-source-d695e4ecca4a2d01 = Offline zařízení · prohlížeč médií otevřen při spuštění
-source-873b40bdebeaaaec = Offline zařízení · vyskakovací okno připnutých zpráv se otevřelo při spuštění
-source-52ad4c7f4c45267a = Offline zařízení · Při spuštění se zobrazí panel odpovědí a řádek pro psaní
-source-d54514c41508c13f = Offline zařízení · výběr sdílení obrazovky otevřen při spuštění
-source-62252eee05c3d214 = Offline zařízení · syntetická příloha inscenovaná ve skladateli
-source-cd0059600f0b5278 = Offline příslušenství · syntetická příloha souboru zinscenovaná ve skladateli
-source-908ac39ced36aaf5 = Offline zařízení · syntetická nevyřízená zpráva; žádné nahrávání ani odesílání
-source-f562de210af35e07 = Offline zařízení · karta syntetického profilu otevřena při spuštění
-source-3232bff487031902 = Offline zařízení · syntetické vyhledávání otevřeno při spuštění
-source-f96c1d6edb549787 = Offline příslušenství · tři syntetické přílohy inscenované ve skladateli
-source-6d9aab6d994bebb1 = Offline zařízení · zobrazený pruh nepřečtených zpráv a starších zpráv
-source-553a3751743895b0 = Offline zařízení: výběr nálepek
-source-9ddf685aefec8b0f = Offline náhled – vytváření a připojování k serverům je zakázáno.
-source-4e646fd088f3393a = Offline náhled – vytváření je zakázáno.
-source-c8c672a12ac48707 = Offline náhled nekontaktuje aplikace
-source-18e212d4261a8714 = Offline náhled · žádné změny skupiny
-source-1261d0321c701030 = Offline náhled · není zachycena žádná obrazovka
-source-cecbb02d477a9ffc = Offline náhled · žádné změny na serveru
-source-cb4190bf096c91e9 = Offline náhled · není přijímán žádný stream
-source-af75c1d6dae5d627 = Offline náhled · není kontaktována žádná ověřovací služba.
-source-fc0e345795c3f3a0 = Offline náhled · syntetický
-source-9f8ad73046bd4b7f = Offline náhled · syntetický účet
-source-de78c36f144a8aec = Offline náhled — připojení k serverům je zakázáno.
-source-eb73c7bdb782670c = Offline náhled: nesdílí se ani neukládá.
-source-05cc8574ed5844cd = Offline náhled: syntetická aktivita, nikdy sdílená ani uložená.
-source-f71b0e953940852a = Tok aktualizací offline, kompatibilita předvoleb a vykreslování nastavení prošly.
-source-c0337e59aed9a364 = ověření offline aktualizačního programu
-source-56293f4fa14777fe = Spouštění Ogg se po hlavičkách musí zastavit
-source-813e66c099d9d705 = OggS
-source-091d5d07b5b33dcf = Dobře
-source-c032b109be3096a1 = Starší
-source-50cad7d307c3dc6e = Starší archivované příspěvky
-source-f3df2eaeb55cbf6b = Starší připnuté zprávy
-source-8577fa7f8eaf5558 = STARŠÍ NITKY
-source-3dc0668ec9ea5802 = Nejstarší účty Discord
-source-f5e8ed5d0cb38be2 = nejstarší záznam
-source-da134a52656c41b0 = Nejdříve nejstarší
-source-54508e71981dc175 = Nejdéle přítomní členové
-source-2e3f650df89cc65d = nejstarší textura
-source-f68c46468416704b = nahoře
-source-6cbbe9055a28027f = jedna ohraničená zpráva se hodí
-source-4f0334407935a2e4 = Jedna rychlá kontrola
-source-eadeb3a807d7478a = Online
-source-5ce39f9435dffd7c = Jen @zmínky
-source-3706a26fc1ddab85 = Ovlivňuje pouze to, jak se tento člen zobrazí na tomto serveru.
-source-f26a4de46f67d9f9 = Povolit použití této značky pouze moderátorům
-source-41d9e6546f59cec0 = Pouze ze serverů, kde také povolujete přímé zprávy.
-source-e536e25ff2aa4b75 = Tuto značku mohou použít pouze moderátoři.
-source-fd228852d1bcb9d1 = Tuto kategorii mohou zobrazit pouze vybraní členové a role. Synchronizované kanály se řídí jeho oprávněními.
-source-5e3d80e43fcc9836 = Tento kanál mohou zobrazit pouze vybraní členové a role. Administrátoři si ponechávají přístup.
-source-7e9c04b4f18898ba = Sdílejte pouze obrázky, které vlastníte nebo máte oprávnění k použití. Ponechte požadovanou atribuci.
-source-3c4a2c49190583dd = Přenášejte pouze zvuk nad touto úrovní. Nižší hodnoty zachycují tišší řeč.
-source-b66f498db84b2acd = Toto můžete vidět pouze vy •
-source-2e2fc90b53ae3732 = Tuto přezdívku vidíte pouze vy. Nezmění jejich název serveru.
-source-66cf0d1df45a433c = Tuto poznámku můžete vidět pouze vy. Uloží se na váš Discord účet.
-source-1f7698c061c208c9 = OTEVŘENO
-source-bdfaf2ff4591e9cb = Nejprve otevřete DM s tímto uživatelem nebo si vyberte přítele pomocí /msg.
-source-0d9f361f14a27471 = Otevřete soubor balíčku z tohoto počítače.
-source-c8c458e4ded64fe2 = Otevřete kanál
-source-a6b9589dd15b27f1 = Otevřít vložený obrázek
-source-bfa4880bcf9c2305 = Otevřít externí odkaz?
-source-210095d367b65ea8 = Otevřete Přátelé / Domů
-source-f491b07a7bdbffd0 = Otevřít obrázek
-source-cccb44350fd2de2c = Otevřít obrázek…
-source-c2345660b578ed10 = Otevřít v prohlížeči
-source-0cd0e08453708738 = Otevřít v Discordu
-source-3ea798aa0afd48e9 = Otevřít odkaz…
-source-e121164e43f8460d = Otevřete médium
-source-aeb8874e785ef329 = Otevřený mikrofon bez potlačení, potlačení ozvěny nebo automatického zesílení.
-source-d433ca9090866e62 = Otevřete mikrofon. Stále platí ztlumení a Push to talk.
-source-ffd1f97b3bf2cc6c = Otevřít originál…
-source-c85c20c423dd80bd = Otevřít příspěvek
-source-6a81f2f29c9f775e = Open source…
-source-d6046ba0da6c33c1 = Otevřete nepřečtené zprávy aktuální konverzace
-source-d7968f13927ad944 = Otevřete nativní výběr sdílení obrazovky pro aktuální hovor
-source-0e59ff1e05a0917f = Otevřít vlákna tohoto kanálu
-source-27dfb882d39365e3 = Otevřít vlákno
-source-3f77e56ef959b303 = Otevřete vlákno
-source-a34407db7a1a8005 = Otevřete nástroj
-source-827a6534f458557d = Otevřete uživatelský profil
-source-9df9322e025638d6 = Otevřít video…
-source-dcea0d284cab270e = Otevírání fotoaparátu…
-source-b9c26c5608299e42 = Otevírání mikrofonu a reproduktorů…
-source-8e9ebbb06e3b9b4c = Otevření této přímé konverzace již není k dispozici
-source-ddf803060176952b = otevře místní zvukové výstupní zařízení s nulovou hlasitostí; explicitní kontrola offline přehrávání
-source-4802e47fe2e95134 = Volba
-source-cc7a3682dd25ae19 = Volitelný
-source-74dbe7e55e4505d4 = OpusHead
-source-c21492c1a4675423 = OpusTags
-source-f87721294366a17d = Nebo pošlete příteli odkaz na pozvánku na server
-source-672ba61ecccbe297 = Objednávejte na této stránce
-source-e7ebc29bb47e8edd = Uspořádejte diskuse do samostatných příspěvků.
-source-ed9a8bb45c917185 = osu!
-source-1d27698210c63656 = Výsledek není známý — před opětovným odesláním zkontrolujte cíl
-source-54a47864c5da0977 = Odchozí prsten
-source-fd77270c3f54f664 = Výstup
-source-eb50b65932353935 = Výstupní zisk (%)
-source-c907ffeeafb021d1 = Nastavení výstupu
-source-2a7536b72e043644 = Mimo
-source-4ff8804ab63f5bdd = Přepsat výchozí nastavení vzhledu pro tento motiv.
-source-4fc0dcc5fb30fe93 = Příliš velký adresář ZIP akceptován.
-source-3d197283cb019b5a = Přehled
-source-af640d4c86023fcf = P
-source-608cd4ccb45f9d99 = Balíček neodpovídá kontrolovanému manifestu
-source-e60d2800ca6a8831 = Balíček zkontrolován. Před povolením zkontrolujte jeho zdroj a možnosti.
-source-74f3b83071bf24e6 = Aktualizace správce balíčků
-source-72ee704e9e1cb74f = balíček.AppImage
-source-fc643e610604d927 = balíček/Serein.app
-source-15831592a43c6b50 = Pacman (Arch)
-source-952c26cac2583cfe = PageDown
-source-c205408d70cf40cb = PageUp
-source-db590927fb6744da = Částečný
-source-7c89ad4312eaf268 = částečný soubor
-source-b9db2ac3aa496f0e = Účastník
-source-5a46f9e4d4d9b108 = Při odpojení není seznam účastníků dostupný
-source-a7613d2b90c0d422 = Seznam účastníků není s aktuálním přístupem k dispozici.
-source-3b154d612405d624 = Hesla a 2FA zůstávají na vlastní přihlašovací stránce Discordu; ve vašem úložišti pověření OS je zachován pouze token relace.
-source-7b3ab5a0027e0e72 = Vložte místní soubor s podporovanou cestou
-source-851e38fdfc135937 = Vložte obrázek s maximálně 4 miliony pixelů
-source-f8fb8cb5fd5efb91 = Vložený text překračuje limit konceptu
-source-061cc20e3432dead = Pauza
-source-c0aad3bada6a2503 = Pozastavit pozvánky
-source-806181d6767cb523 = Výška čekající zprávy nastavena
-source-6bc837237e36cfdd = čekající jednání
-source-27978edca84ba459 = Čekající příspěvek musí umožňovat jeho nahrání
-source-95f78e7bf229fee0 = čekající na přepnutí
-source-9cace6ede455728e = LIDÉ
-source-4854cd48f30ff8ee = Lidé
-source-ddacfd6303ecdff4 = Lidé a kanály
-source-9dc321f25a233e8b = provedl akci
-source-ea2adb1f2047d144 = Období
-source-e8dca0132c66ae03 = Oprávnění
-source-f8dd3a19ce935eae = PgDn
-source-f8aa2a19ce67e9e5 = PgUp
-source-36be3358a306d616 = Fosforové ikony 2.1.1
-source-8d4ea219f3be900f = PHP
-source-b58a986d783bbebf = Vyberte výchozí emotikon, který vaši členové použijí k reakci na příspěvek z tohoto kanálu.
-source-8db89619f41917b4 = Kolík
-source-e696eb8987efa89f = Připnout soukromou zprávu
-source-c706b4e457ebf5db = Připnout zprávu
-source-d0dc1cd29b880358 = Připnout zprávy
-source-a78a6609e99b31b6 = Připnout příspěvek
-source-5cea80fa4be26124 = Připnout vlákno
-source-44851a8adf059eef = Připnuté
-source-5f9d5d7b441e1c46 = Připnuté přímé zprávy se ukládají do tohoto zařízení.
-source-4ae3dd42749e1c7c = Připnul zprávu
-source-fcc1234c7817b89d = připnuté zprávy
-source-8e7a241393fbd55d = Připnuté zprávy
-source-fecf630a50860c61 = Připnuté zprávy nejsou dostupné
-source-89e846d82b9845bb = Připnuté zprávy nejsou dostupné, pokud jste odpojeni nebo nemáte přístup ke kanálu.
-source-c8025afb9e1c4f57 = PKx01x02
-source-7f387ed820dbcb8f = PKx05x06
-source-a83631951ce5cdaa = Webové zobrazení přihlášení k platformě není k dispozici
-source-5917a63ad0123578 = Webové zobrazení přihlášení k platformě není k dispozici; viz platform-support.md
-source-cd105819b5a10243 = Hrát
-source-2e38f0c09c71f2a7 = přehrávání nemohlo držet krok s reálným časem
-source-bf037cc5a99f1763 = přehrávání přijímá PCM před úplným dekódováním
-source-c6a07b2c2125e503 = vypršel časový limit přehrávání
-source-308604b3ae13fbb5 = Hraje
-source-1073b7e447f13237 = Přehrávání syntetické beatmapy
-source-66af460c96888f1b = Přehrává se zvuk upozornění...
-source-e392b792763e0ccf = Hraje se osu!
-source-6a81ff5f272ff64f = Přehrávání mikrofonu přes vybrané reproduktory.
-source-1f5c2638403b9a3c = Počkejte prosím jednu minutu mezi kontrolami aktualizací.
-source-6b16791d5fc658ea = Čekejte prosím...
-source-71b80d1e85384a60 = Čekejte prosím…
-source-3409ff086bb765da = Plugin
-source-c1b7b852fe0a84b7 = Přístup k pluginu nebyl udělen
-source-c807e1906c25af4f = Aktivace pluginu musí vyžadovat výslovné povolení
-source-cd408d41d1afb470 = Data pluginu překračují přidělený rozpočet úložiště
-source-1ed1dcb59d31ed31 = Data pluginu jsou neplatná
-source-a222bb43d16f0578 = Vstup pluginu přesahuje 256 kB
-source-8c009332ddf5525e = Plugin je zakázán
-source-09421b07b5d1e9e6 = ODPOLEDNE
-source-958641a82284fd77 = PNG nebo JPEG, až 2 MiB
-source-915028b5e911d855 = PNG nebo JPEG, až 2 MiB. Tento obrázek nemění pozadí chatu.
-source-52b0dc220084dd64 = PNG, JPEG, GIF nebo WebP až 8 MB. Oříznuté na čtverec.
-source-7678cc553d3d561d = Anketa · Náhled není k dispozici
-source-b357ea19a722d827 = Zveřejnit
-source-ce759dc1c73bbf36 = Publikovat pokyny
-source-73bdcc27b99cad54 = Příspěvek nebyl vytvořen; znovu připojte a znovu vyberte přílohu
-source-330cbe4bb25a6fe9 = Název příspěvku
-source-d877d3e3a6593bb5 = Zveřejňování vyžaduje připojenou relaci s oprávněním k odeslání sem.
-source-d7d4b30bc730d74e = Odesílání do
-source-c17d6e0a994ce337 = Odesílání…
-source-e13b1d97003596bc = Příspěvky
-source-9b3a5b083b2ec2da = Příspěvky z těchto sledovaných kanálů jsou doručovány na váš server.
-source-2b5047d39b9baf3d = Předvolby
-source-78e8154150f1977e = Připravená ikona přesahuje 256 KB; zvolte jednodušší obrázek
-source-e0c04be2d16bf1d6 = Připravená ikona je příliš velká
-source-7b6f8c5a694fbe72 = Připravený obrázek je příliš velký; zvolte jednodušší obrázek
-source-000ed08319e7d0a3 = Připravená nálepka přesahuje 512 KB
-source-046dc2e760ebd389 = Příprava obrázků emodži...
-source-a722c7fde3b3e7c4 = Ikona se připravuje…
-source-6c41aeaf07b17248 = Příprava kresby nálepek…
-source-623ca9d324559af9 = Příprava na restart…
-source-07e50975ca0e4ac0 = Příprava nahrání…
-source-896a051b3f1da3ab = Připravuji...
-source-672a868be614a8de = Stav není dostupný
-source-4f7cb4cd7a37fd0e = Stisknutím klávesy Enter zahájíte příspěvek s tímto názvem.
-source-edc3b8c9924eeef4 = Stiskněte klávesy…
-source-417b90913e05bc17 = Náhled
-source-bec5b05becb3347e = Náhled fotoaparátu
-source-70d21c5075061f99 = Náhled v aplikaci
-source-69f799735cdb45ef = Náhled nebyl načten
-source-607442e5b633da35 = Pouze náhled; toto písmo není uloženo.
-source-ef3473bcf41edf90 = Náhled prořezávání
-source-a4d57f3d68d8be6e = náhled spuštěn
-source-0351d58cf249e2f9 = Náhled není k dispozici
-source-7092f4397b838b02 = Náhled není k dispozici offline
-source-1f781bc7f55b602c = Náhled tématu
-source-1edfaa976c0a475f = Předchozí zvuková zařízení se stále zavírají; zkuste to za chvíli znovu
-source-09d3d29472e6bed0 = Předchozí sdílení obrazovky se stále uzavírá
-source-937563e328c2fafa = Základní barva
-source-e7bee6e9a9b5394c = Soukromé
-source-b3d2106827312041 = Soukromé archivy vyžadují povolení od služby.
-source-dba9ca43fb346bdc = Soukromá kategorie
-source-2dee345e9f30cdf7 = Soukromý kanál
-source-94d813c08226af7f = Pro potvrzené přátele jsou k dispozici soukromé přezdívky.
-source-8d995819f3fdfdcb = PRN
-source-b15099c45ca2861a = Stabilní
-source-b061ff5a347a296e = Profil
-source-045ae58f3ba2c27d = Barva profilu
-source-fb413a6520f68e8f = profil upravit zobrazované jméno o mně bio zájmena barva barva
-source-578611d7a6031374 = Profil je nedostupný
-source-7de0ee8b863c0b30 = Profilový obrázek
-source-4b4c06aa2b6e5629 = Profil uložen
-source-fb347c129f6ffa2f = nastavení profilu
-source-c497ffe6d9fc987f = Poznámky k projektu · Syntetické okno
-source-52f7171195e80782 = Slib
-source-bdba2b9136c15a98 = Vyzvěte členy, aby odpovídali na uvítací zprávy pomocí nálepky.
-source-213dc586881c44d1 = Zájmena
-source-c9ad04c067ea282d = Zájmena (prázdné je vymaže)
-source-7282a96b438fc64a = Navrhnout přidání nebo odebrání mých reakcí ke schválení
-source-e7f8aebfc62a6415 = Navrhněte ztlumení/ohlušení hovoru, opuštění nebo sledování streamu ke schválení
-source-39c5c81e8e260e06 = Navrhněte ke schválení změny fotoaparátu, sdílení obrazovky a místního mediálního zařízení
-source-09fcf0a85d0fb0f3 = Navrhněte kanál, kategorii, skupinovou konverzaci a ignorujte změny ke schválení
-source-e536168f636b2100 = Navrhněte text schránky ke schválení
-source-1d7492217bf79895 = Navrhněte vytvoření a správu vláken nebo příspěvků na fóru ke schválení
-source-fe4b1913abb988b5 = Navrhujte úpravy, smazání nebo připnutí zpráv ke schválení
-source-41262dff8fd077fc = Navrhnout povolení nebo zakázání mého fotoaparátu ke schválení
-source-0455ece182e22b78 = Navrhněte změny přítele, blokování, přezdívky a poznámky ke schválení
-source-5a1f61408bf792c4 = Navrhněte připojení, prozvonění nebo odmítnutí hovorů ke schválení
-source-76483ae3668f8cb7 = Navrhněte ke schválení místní oznámení
-source-689e4cb487e341e8 = Navrhněte označení konverzací jako přečtených nebo nepřečtených ke schválení
-source-43fb381909abad5b = Navrhněte roli člena, přezdívku, akce kopání a prořezávání ke schválení
-source-14ae041eeff7a613 = Navrhněte otevření konverzací, profilů, vyhledávání a zobrazení aplikací
-source-9173a3df312b14d5 = Navrhněte zasílání zpráv ke schválení
-source-b11009ae0b877e3d = Navrhněte změny rolí serveru ke schválení
-source-c7c3a103c9e1e7a1 = Navrhněte ke schválení nastavení serveru, pozvánky, emotikony a změny členství
-source-34539d164ee47142 = Navrhovaná akce aplikace
-source-bd834b5296a9853e = Navrhovaný text skladatele
-source-0fd50e8b10d74cd7 = Prořezávat
-source-6818b1e815d43260 = Prune Members
-source-d8f81a1a34abe300 = Prořezávat členy
-source-f7ff1e5e5e370b2e = Odebral neaktivní členy
-source-dd1ff479d04ac140 = Veřejnost
-source-c82192ae4dc0141b = Zveřejněná stabilní vydání. Přepínání kanálů nikdy nenainstaluje starší verzi.
-source-40bbf4a98d873400 = Push to talk
-source-88b0d524c6412bea = Pro mluvení je zde vyžadováno push-to-talk. Povolte jej v nastavení hlasu.
-source-3f1a318ed131a6ea = Vraťte stůl.
-source-39938159c7a334f7 = Krajta
-source-af640c4c86023e1c = Q
-source-f675f879b1c892c6 = Kvalitní
-source-15daee76414a1a07 = Výběr kvality nevyžaduje Nitro.
-source-8a77d6a7eb6beb80 = AutoMod umístil člena do karantény
-source-b4f593d4c6b311a5 = Otázka
-source-af640f4c86024335 = R
-source-09495507b5d86b22 = Rc
-source-a8ca1cbccf57963e = Podrobnosti o reakci nejsou k dispozici
-source-9ff2ac475c7b07db = Reakce
-source-eb6ea6df7a71fe4d = Reakce nedostupné
-source-6299f50a2d3ff2f2 = Přečtěte si a navrhněte změny ochrany osobních údajů pro zprávy účtu ke schválení
-source-a1b3e4532467f761 = Přečtěte si a navrhněte změny ve složce serveru ke schválení
-source-3a9359ab859312f3 = Čtěte a odpovídejte na DM přímo z chatů ve hře.
-source-2c24298259ec0c00 = Číst předvolby zvuku; navrhnout nastavení zvuku, účastníka a změny hlasitosti streamu ke schválení
-source-f37afea1a173f345 = Přečtěte si aktuální stav hovoru a identifikátory účastníků
-source-2a7b20fd76f6b569 = Číst aktuální metadata kanálu, příjemce a oprávnění
-source-7d005268991292a2 = Číst aktuálně píšící uživatele a načtené piny; pozorovat reakce
-source-fad63586871c2fe2 = Přečtěte si živé zprávy a text v aktivní konverzaci
-source-859c08b09812e56c = Přečtěte si načtená témata kanálu, kategorie, podrobnosti vláken a oprávnění
-source-77d979bd73d4cd06 = Přečtěte si načtený vložený text, nálepky a referenční metadata zpráv
-source-17793c0ef8605662 = Přečtěte si shrnutí načteného fóra a vláken
-source-02e5f347c88a415c = Přečtěte si načtené členy aktivní konverzace
-source-43ddc17f33dccbc5 = Přečtěte si načtené odpovědi na zprávy, zmínky, metadata příloh a reakce
-source-d4bce7f7e4daf2bf = Přečtěte si načtené zprávy v aktivní konverzaci
-source-7cc838753603fd19 = Přečtěte si načtené členy serveru, role a profily serveru
-source-a0afe7e3c1222ed4 = Číst načtený stav přítomnosti uživatele
-source-47bf117cb8a9b601 = Přečtěte si místní nastavení čtení a navrhněte změny ke schválení
-source-2927e08a4d9b2110 = Přečtěte si místní nastavení zvuku a oznámení a navrhněte změny ke schválení
-source-8bc338a1d0f91e8a = Přečtěte si historii zpráv
-source-dc989f7ff528e0cf = Přečtěte si můj účet a podrobnosti o aktuální konverzaci
-source-0e699df0b74a19f1 = Přečtěte si můj návrh a navrhněte změny textu
-source-11779c5d2f35d080 = Přečtěte si mé načtené přátele, požadavky, blokované a ignorované uživatele
-source-4704ba3b0a399b9a = Přečtěte si můj načtený profil, včetně životopisu a zájmen
-source-65805f3b6661acc8 = Přečtěte si názvy a identifikátory mých načtených serverů
-source-0f1570eaf9c5cba2 = Čtení vlastních preferencí přítomnosti a sdílení aktivit; navrhnout změny účtu ke schválení
-source-bece36aa13c1b03c = Přečtěte si seznam načtených a čitelných konverzací
-source-98a2bd0bd50d001f = Přečtěte si zprávu, kterou jsem zvolil pro akci
-source-0642a2732ddb25fe = Přečtěte si nepřečtené počty a zmínky v aktivní konverzaci
-source-8fd59126eed71205 = Čtení a rozložení se ukládají do tohoto zařízení, a to i po odhlášení. Reset obnoví výchozí nastavení.
-source-8154305d6b50855c = Čtení a rozložení nelze uložit; změny existují pouze v této relaci
-source-83e6f73b3e37c43f = Čtení uložených přihlašovacích údajů pro tento účet…
-source-3f15cf6f633a5d62 = README.md
-source-59dc812c244f088a = čte následovat poptávku
-source-c678f2190f974ca7 = Přijímejte události životního cyklu aplikace a navigace, když jsou povoleny
-source-f2871427d0d11bd6 = Přijímat změny samostatně udělených údajů o účtu a konverzacích
-source-05902f6b5cbe9380 = Přijmout sdílení obrazovky tohoto účastníka
-source-01fdf50020983183 = Získejte, zda byla potvrzená akce aplikace přijata Sereinem
-source-e449f1215ef49707 = Nedávná aktivita
-source-ef5005edac8b82e7 = Nedávná aktivita
-source-e260d8331149ff45 = Nedávní členové
-source-a9300eb10e34199e = Nedávno použité
-source-14263cc7cff0feb3 = Příjemci přistanou
-source-075e2cb33cb16386 = uznávaný vestavěný
-source-12f6b3b9aa6fe76c = Doporučeno
-source-df78e162dbbb41fc = Před voláním se znovu připojte k Discordu.
-source-7029a59905b2d0b1 = Chcete-li načíst nastavení serveru, znovu se připojte.
-source-a86ada92edab6a6d = Chcete-li tento server spravovat, znovu se připojte.
-source-48c518388bfa1e7c = Pro obnovení hovoru se znovu připojte
-source-009a8c415421a515 = Chcete-li uložit změny, znovu se připojte.
-source-1cf6f6c7006bf73c = Pro uložení profilu se znovu připojte.
-source-8a4ff2bd9c13498c = Záznam
-source-ba6de1cb37f26d0f = Snižte zvuk reproduktoru zachycovaný vaším mikrofonem.
-source-a7ad7555a637e0a0 = Upřesněte vyhledávání, abyste viděli více výsledků
-source-7b7163270e57e8b4 = Obnovit
-source-e6c863c3adb1623c = Obnovit příkazy aplikace
-source-0b7b28d123a8ae88 = Obnovte fotoaparáty
-source-15f7f0a931709203 = Aktualizovat katalog
-source-ff3380d0a231883f = Obnovit zařízení
-source-3b58c1b7f6fce277 = Obnovte složky z Discordu
-source-cfce14e5038df525 = Obnovte místní mikrofony, reproduktory a kamery
-source-bfca1ed1418f03d1 = Začněte obnovením katalogu nebo importem balíčku autora.
-source-93787245395a7f94 = Aktualizujte katalog nebo importujte tento balíček znovu.
-source-123da0f92f97dd86 = Odmítnout
-source-38ace4d40716aac1 = Znovu se připojil
-source-c83246e618430136 = Související emotikony
-source-f948766d516f998d = Uvolněte kanál
-source-03edf13757dea515 = Metadata vydání překračují limit velikosti.
-source-d5b6130b4937488c = Znovu načíst
-source-a1e19fe0d955f8b7 = Znovu načíst kanál
-source-91896afddbd4830f = Znovu načíst integrace
-source-f333c9173a2427ec = Před provedením dalších změn znovu načtěte integrace. Váš koncept bude zachován.
-source-3d6a71c726a586ea = Znovu načíst pozvánky
-source-998c0beb7bc529e0 = Znovu nabijte kolíky
-source-775b73a686645051 = Znovu načíst profil
-source-7f8dd350b6c07e64 = Znovu načíst reakce
-source-1080b5a97d104d2d = Znovu načíst role
-source-2f92ab35eb987085 = Znovu načíst uloženou poznámku
-source-f56c4fca7d746608 = Znovu načtěte nastavení serveru
-source-bb44a7c8f0f78637 = Před uložením znovu načtěte nastavení serveru. Vaše úpravy budou zachovány.
-source-1ebe8baf644039da = zbývající text
-source-16835bc2c441b2fe = vzdálený rám vložen
-source-ea4f08110bb8f15d = Odstranit
-source-f80f4b704dba8250 = Odebrat data
-source-c6687f397e3927fb = Odebrat emotikony
-source-1bc32fa2cf4113eb = Odebrat přítele
-source-6dbdc5a62b94b13c = Odebrat přítele?
-source-1f499e8a73feea66 = Odebrat z oblíbených
-source-340de08a838127e4 = Odebrat z oblíbených GIFů
-source-53a9310a10c88406 = Odebrat ikonu
-source-7e363216123744e6 = Odebrat ikonu
-source-7c136cb4e38bacf7 = Odebrat integraci
-source-61d7d450d8f46878 = Odebrat integraci?
-source-139e9afa047d2fc6 = Odebrat zprávu
-source-72d51f6b2abacc40 = Odebrat roli / člena
-source-65345193d57a242d = Odebrat značku
-source-5ee8fe87cb64e8a6 = Odeberte tuto konverzaci ze seznamu DM. Zprávy se uchovávají.
-source-53cee0fb23fcda55 = Odeberte tento motiv a odstraňte jeho místní data.
-source-1755b68c3ebf1f0d = Odstraňte vlastnost
-source-068bc98e26b78314 = Odstraňte svůj
-source-910b11ba5f4300d5 = Odstraní zprávy a média z mezipaměti. Koncepty a vaše přihlášení zůstávají.
-source-84aa5a4911f9ba02 = Odebere neaktivní členy, kteří nemají žádné další role.
-source-4cb60b1130d12dcb = Odstraňuje hluk z klávesnice, ventilátoru a místnosti z mikrofonu.
-source-8b107f398988112f = Odebere uložené přihlašovací údaje a vymaže místní mezipaměť a koncepty tohoto účtu.
-source-4d869154c93ddc21 = Odebere toto rozšíření a smaže jeho místní data.
-source-43059e2db8e43abf = Odebrání dat rozšíření před uzavřením.
-source-4b27cb66aaf37dac = Odstraňování uložených přihlašovacích údajů…
-source-60320a18282b2b33 = Přejmenovat
-source-cdc372fbaad1ecc1 = Přejmenujte emotikony
-source-76a1cf16e19609aa = Opakované bloky seed překročily odpovídající rozpočet.
-source-e5359052096240f4 = Vyměňte kryt
-source-e9a18580e9728abe = Nahradit obrázek
-source-e1f33b64570245fb = Nahradit rozložení složky na serveru
-source-32679eb7255a58c7 = Nahrazení
-source-8e53316cda490a28 = Náhradní písmo 日本語
-source-10673825f65de969 = náhradní hledání
-source-81a19821f3e4a3d2 = Přehrát znovu
-source-0b7ae9543c001867 = Odpovědět
-source-17d1e647b0f606c1 = Odpověď je nedostupná nebo překračuje vstupní rozpočet
-source-73c51ecc6e5c0c5f = Vyžádejte si a přečtěte si omezené výsledky hledání, pin, vlákno, člen, profil a GIF
-source-3f0b9f0cbcb49e15 = Požadované vyčištění historie dokončeno; mezipaměť historie zůstane deaktivována až do restartu po selhání úložiště
-source-1665e9eda5973238 = Požaduje se připojení ke sdílení obrazovky…
-source-16f6b159aabbcffd = Požadavek na stream…
-source-a826e11988d49785 = Vyžadovat, aby lidé při zveřejňování vybrali štítky
-source-3e240030b195eb63 = Vyžaduje průhlednost a rozmazání ve vzhledu a poté restartování aplikace.
-source-255857544a9d5ec0 = Resetovat
-source-6a50ce44affe0376 = Resetovat chat
-source-b527763ec611e3e6 = Obnovit rozložení
-source-dacf92c51c3c97ef = Resetovat úrovně
-source-61f6e5c28e45b092 = Resetovat hlasitost
-source-6e959439db98d247 = Velikost uměleckého díla je větší než 8 MiB
-source-1a59de325dfe58c2 = vyřešená metadata
-source-b4b933c406aeef60 = Po změně restartujte Serein. Motivy mohou upravovat efekty, když jsou povoleny.
-source-9b9794a36a84b666 = Pro aktualizaci restartujte
-source-26f91b6796e33111 = Obnovit
-source-4c045ad8386da940 = Obnovit do editoru zprávy
-source-890e983a7be64da4 = Výsledek
-source-e943126c0c2298bf = Výsledek byl zahozen, protože se konverzace nebo koncept změnil.
-source-ca1a826088564455 = Výsledky
-source-89118d3a7be870ca = Resumé
-source-99e7b2125d2dd2a4 = Obnovit pozvánky
-source-2c8189544e3ea679 = Zkuste to znovu
-source-8fb4a8104dc5099d = Opakujte čištění
-source-77ce63b9a6354a49 = Zkusit znovu načíst starší připnuté zprávy
-source-ebfd03fb647684c4 = Opakovat profil
-source-6c41549f2b41c8ae = Zkuste znovu uložit nastavení čtení
-source-c5d9d91a0e98a190 = Zkuste znovu podrobnosti nálepky
-source-473beb2d5bbf13b8 = Zkuste znovu balíčky nálepek
-source-31964fcdbe2dc0c2 = Odhalit spoiler
-source-532133fec0ac1263 = Odhalit připevnění spoileru
-source-569ae3a37cb09c55 = Odhalte součást spoileru
-source-d0beaa7f86071516 = Odhalte spoilerová média
-source-a71f3a7d439a96e6 = Zkontrolovat a aktivovat
-source-4168c0b41e00280e = Nálepka s recenzí
-source-9b40a2cbdfe94e10 = Zkontrolujte nové vydání, než nahradí tuto verzi.
-source-e1b5b5200f58e174 = Zkontrolujte výsledek. Akce v aplikaci a změny konceptů vyžadují váš souhlas.
-source-18499f72bb532165 = Zkontrolujte tento server a poté zvolte Připojit se k serveru.
-source-988da3045445ce0f = Zkontrolujte nahraná videa
-source-b89d8d8bc0c08e98 = Zkontrolováno
-source-d8e1fc7538c8d924 = Zrušit pozvánku
-source-48d753e395f68144 = Zrušit pozvánku
-source-bc6506b7d1de0401 = Zrušit pozvánku?
-source-f3449c2c980f8250 = RIFF
-source-3435c3f0cd8719cd = RNNoise
-source-0adfce032fa95288 = RN Potlačení šumu, potlačení ozvěny a automatické zesílení řeči.
-source-c1f392a7dc96341b = Červenka
-source-ca7fed2bef53cb99 = Role
-source-8c8a7845700d51fe = Akce rolí
-source-aba5f3b627a900fa = Barva role
-source-ba16b16dc887a7aa = Ikona role
-source-62ff009599ec1ff3 = Členy role se nepodařilo načíst. Znovu načtěte nebo změňte vyhledávání a zkuste to znovu.
-source-17986a8a77d86200 = Název role
-source-47a0237a20e2cb3c = Styl role
-source-6b2beba7ab637e9e = Role
-source-801cecb30f763b5e = ROLE
-source-b4f157ed71280936 = ROLE/ČLENOVÉ
-source-ea52df2b70a5c10d = Rubín
-source-fe66f627e8bf06bc = Spusťte Serein z jeho AppImage a nainstalujte aktualizace.
-source-ea8ce02b70d73b07 = Rez
-source-af640e4c86024182 = S
-source-4d40406fca0909da = Sam (syntetický)
-source-590fc8d846a78850 = Ukázkové rozhovory. Žádné připojení Discord.
-source-59a8c35c86b563e4 = Ukázková zpráva
-source-33f85f24c0f5f008 = Uložit
-source-f6bd38782a811135 = Uložit a použít
-source-870f7b2f8c27e219 = Uložte změny
-source-031945e67717bf79 = Uložit změny
-source-6c634d114bce0615 = Uložit obrázek jako…
-source-4f128a472e319de2 = Před otevřením konverzace uložte nebo zahoďte změny nastavení serveru.
-source-f25bcf5c9ab907a8 = Uložit značku
-source-d9ee4197b17aab46 = Uložit do oblíbených GIFů
-source-14decb5195aa34af = Uložit video jako…
-source-0bdb473d4fe0066b = Uložený účet byl z tohoto zařízení odstraněn
-source-db47c9175c2af7b0 = Uložené účty
-source-666717eb96d5e498 = Uložené předvolby kanálů jsou poškozené nebo nekompatibilní s touto verzí.
-source-7bf59be69a16cd3f = Uložené předvolby kanálu jsou plné. Odeberte oblíbenou položku nebo špendlík nebo rozbalte kategorii.
-source-71b2680c91e113b9 = Uložené koncepty byly obnoveny; zkontrolujte konverzaci před opětovným odesláním obnoveného textu
-source-305b3f3ed2a17e73 = Uloženo v náhledu
-source-b36cd269570070f5 = Bylo nalezeno uložené přihlášení; připojení k Discordu
-source-fd2b16647eb92918 = Uložené přihlašovací údaje jsou neplatné. Znovu se přihlaste pomocí Discordu.
-source-ce33d3429a3dc5d1 = Uložené přihlašovací údaje byly odstraněny
-source-f790510720d5a8fd = Uložené přihlašovací údaje nejsou k dispozici; nelze spustit vyhledávání pověření
-source-5c6f84e96503da2a = Uložené přihlašovací údaje nejsou k dispozici; přihlaste se pomocí Discord. Žádná záložní reklama ve formátu prostého textu.
-source-40a16d07a72ea80a = Uložené čtení a rozložení nelze načíst; pomocí výchozích nastavení
-source-2bd3f521b037d156 = Uložené textové koncepty přežijí ukončení; vybrané soubory musí být znovu vybrány. Odhlášení odstraní data místního účtu.
-source-fd29a34b05fe1d6d = Uložené textové koncepty přežijí změnu; vybrané soubory musí být znovu vybrány. Tento účet zůstane v přepínači.
-source-4d318e067bd48668 = Ušetřeno s vaším vzhledem. Předvolby přechodu vždy používají tmavý text.
-source-b34cec0d614c6ad0 = Vypršel časový limit pro kontrolu uloženého přihlášení. Přihlaste se pomocí Discord; obchod pověření nereagoval.
-source-0001573615d2e279 = Obnovení uloženého přihlášení bylo zrušeno
-source-c83d273276aa51bc = Ukládání změn...
-source-07c0db31793104ae = Ukládání změn…
-source-4248894fbd7aa5d0 = Ukládání písma…
-source-fb7b74cdca8cc83b = Ukládání místních změn…
-source-10ec6769ba70fc4a = Ukládání profilu…
-source-a0fd9c241cd68d88 = Ukládání čtení a rozvržení…
-source-61c51a921de4855b = Ukládání role…
-source-7572c5bd72e919f9 = Ukládání nastavení…
-source-1bdc0b745a2497a9 = Ukládání nastavení spouštění…
-source-717d4a2cd3f7d66f = Ukládání...
-source-329e062dd1fdf61d = Ukládání…
-source-2f1ff26c6453749a = scale=w='max(2,min(1920,iw))':h='max(2,min(1080,ih))':force_original_aspect_ratio=decrease:force_devisible_by=2
-source-9b8312fad4a3f6eb = Mění měřítko textu a ovládacích prvků v celé aplikaci.
-source-744d993d03f29851 = Obrazovka
-source-b69cf5b21faba122 = Snímání obrazovky bylo zastaveno
-source-fa63b7f287b06bfa = Obrazovka nebo okno
-source-50b181964fcd13fb = Náhled obrazovky · čekání na ostatní
-source-70017df1375408ed = Zvuk sdílení obrazovky
-source-86c1783939f223ec = Sdílení obrazovky, které sledujete
-source-ad8a45267315dc52 = Sdílení obrazovky není v aktuálním hovoru dostupné
-source-8a01cce72e5665a1 = Sdílení obrazovky není na této platformě dostupné
-source-4739e0051c41d4d0 = Sdílení obrazovky vyžaduje povolení pro připojený hovor a video na podporované ploše.
-source-08e5a969a8e0ce42 = Sdílení obrazovky vyžaduje aktuální připojený hovor
-source-6d81d7ebe44dfb44 = Sdílení obrazovky bylo zastaveno
-source-eaca8c23bd1c5b2d = Zjišťování zdroje obrazovky bylo zastaveno
-source-305c701964bc64eb = Akce sdílení obrazovky nebyla odeslána; hlasová fronta je plná
-source-1a7b38e67d731ab1 = Připojení ke sdílení obrazovky bylo ukončeno
-source-bc59488feecdff2c = Oprávnění ke sdílení obrazovky bylo odebráno; zastavení sdílení
-source-c2536e077514accc = Posouvání
-source-f6bf0e7886e7dc6f = Rychlost rolování
-source-5d929ff1619ac0c9 = Vyhledávání
-source-ac2b1f7c96f136d9 = Hledejte animované GIFy.
-source-511cf4ad87d404c8 = Vyhledávejte podle uživatelského jména nebo ID
-source-a9d13f71e8de590f = Hledat emotikony
-source-c678b06185ed372f = Vyhledejte emotikony podle názvu
-source-01d0dd8e57c5856d = Vyhledat rozšíření
-source-d54fce8458776b2e = Hledat
-source-1dba3a368b42bbdf = Hledat přátele
-source-ec07ac2e601c3b11 = Vyhledejte název vlákna
-source-1b844e05478f6f04 = Hledejte GIFy na KLIPY
-source-9d4f40b2b35982d7 = Při odpojení není vyhledávání dostupné
-source-fd20b1e076872634 = Hledat KLIPY
-source-86dae239544ca363 = Prohledejte načtené příspěvky nebo začněte nový
-source-71c69d9e6f99a34e = Hledat členy
-source-ef00bdf45313e7e1 = Hledat zprávy v této konverzaci
-source-d278d4db5324488f = Možnosti vyhledávání
-source-e35d22bb1a71307d = Hledat nebo vytvořit příspěvek…
-source-045291a4cc6001dd = Oprávnění k vyhledávání
-source-5643568b7c038f43 = Výsledky vyhledávání
-source-b9eb9a734a9361f4 = Hledání rolí
-source-7bc3a4a5a8382329 = Vyhledejte role nebo načtené členy
-source-b901449675b474d6 = Nastavení vyhledávání
-source-64d6b96e444f3b15 = vyhledávání by mělo být povoleno
-source-0c2fb89655eb7eff = Vyhledejte nálepky podle názvu
-source-8cdffd7c5229b4a5 = Vyhledat motivy
-source-6941bde74e3b3492 = Prohledejte tuto konverzaci
-source-a637bb8f70a4a981 = Hledat uživatele
-source-5e0c26d1eb4983fe = Prohledejte své nálepky.
-source-8f7a05e1cd7b166e = Vyhledávání KLIPY…
-source-fe515bf2902cac81 = Vyhledávání…
-source-8161d3e880287d94 = Druhá barva přechodu
-source-35b679156b635a64 = Sekundární text
-source-4eb7f7fecd1fe546 = sekce patří cechu
-source-0929c5f49b0019b1 = Neprůhlednost sekce
-source-043db9078fc00072 = Zabezpečení videa na obrazovce…
-source-6dfce8fa9f22b62c = Zabezpečení streamu…
-source-5788d924d55d3ff1 = Hledat
-source-08e41fcb00632f3e = Hledat video
-source-59a2050d3144eda4 = Vyhledejte hlasovou zprávu
-source-b2fb42aeaa1672d2 = Před povolením pluginů vyberte účet
-source-6a86404d6e509af4 = Vyberte oblast a poté zvolte, jak velká část obrázku bude prosvítat.
-source-487bfc8b355fe465 = Vyberte existující hlasový kanál DM nebo serveru
-source-3b84d9505bae0fcb = Vyberte emotikony
-source-c14632800a845f4a = Vyberte Značky
-source-fb483eabd7e724b2 = Vyberte, kde chcete tuto zprávu sdílet.
-source-669cf054132226bb = Vybraná sekce
-source-d0f64e831fda5436 = Výběrem kresby se odešle jako obrazová příloha.
-source-0380652457f8ba15 = Výběr
-source-57a6e624d5765397 = Já
-source-57adf424d57c8a0f = Poslat
-source-357e0427bcca1f7a = Pošlete GIF
-source-c30077075bd6557a = Pošlete zprávu, když někdo posiluje tento server.
-source-23f23b682f286960 = Pošlete náhodnou uvítací zprávu, když se někdo připojí k tomuto serveru.
-source-8c33074f7ead1f59 = Odeslat GIF
-source-9395e47754f7303a = Pošlete užitečné tipy pro nastavení serveru.
-source-d2632761f8bc7cbd = Posílejte zprávy
-source-60b71a5bfe59d6dd = Posílejte zprávy ve vláknech
-source-f706fa9a8fec5f9f = Odesílejte zprávy, obrázky a soubory.
-source-f1fce0d77a9ad6cc = Před výběrem obrázku odešlete nebo odstraňte existující přílohy
-source-65bbc49271a82f81 = Před použitím /msg odešlete nebo odeberte vybrané přílohy.
-source-04a336a5c2a847ab = Odesílejte zprávy typu Text-to-Speech
-source-1ba1e394bad0e4d8 = Odesílejte aktualizace ze svých aplikací a služeb do kanálu na tomto serveru.
-source-6e91488cc098227f = Odesílejte, co váš Mac hraje, spolu s obrazovkou. Serein vlastní zvuk hovoru je vynechán.
-source-f44572f297b915c0 = Odesílání z oddělené historie musí vyžadovat aktuální stránku
-source-41e2e5317dd14289 = Odesílání je nedostupné nebo překračuje vstupní rozpočet
-source-0392ff1b723d0682 = Odesílání zprávy…
-source-0d1ec2ca1edf2abf = Odesílání…
-source-57ade424d57c6edf = Odesláno
-source-167e5a02e3f6ba3c = Odesláno kterýmkoli z vybraných typů autorů
-source-266899d6441ecba1 = Odesláno kterýmkoli z vybraných uživatelů
-source-cad2d591cadc16af = Serein
-source-f392efddac5fb934 = Serein jej vymaže
-source-f590eb8e7c5e4be6 = Serein Custom
-source-7574ac78ac482f41 = Serein Custom Medium
-source-03365973b729d5e7 = Serein Custom SemiBold
-source-c23a4b40071920f0 = Serein neshromažďuje telemetrii ani nenahrává diagnostiku. Discord uchovává data na straně služeb podle svých vlastních zásad.
-source-be324a622506b819 = Serein je na tomto kanálu aktuální.
-source-2acf1f5854f87516 = Serein byl nainstalován prostřednictvím vaší distribuce. Spusťte to v terminálu pro aktualizaci.
-source-42736cb61d724206 = Serein.app
-source-662d070cf6f7c46a = Serein.app/Contents/MacOS/serein
-source-805766bbb3fa3b80 = Serein/
-source-371d829bf04998db = SEREIN_CHANNEL
-source-93a967981cf6e20e = SEREIN_FRAME_DIAGNOSTICS
-source-62721c625b369749 = SEREIN_GATEWAY_DIAGNOSTICS
-source-4bb1680ded56386d = SEREIN_MEMBER_DIAGNOSTICS
-source-21628c14859268ae = SEREIN_VIDEO_SAMPLE
-source-b5782c425a21b019 = Cesta SEREIN_VIDEO_SAMPLE
-source-7552f6fd66393ff6 = SEREIN_VIDEO_SAMPLE poskytuje offline klip; otevře ztlumený místní výstup
-source-111425d6402a4445 = SEREIN_VOICE_DIAGNOSTICS
-source-5afcaa918bbb91b2 = Server
-source-334ca50e41e21afc = Správa serveru není s aktuálními oprávněními dostupná
-source-e9672a634396a285 = Vylepšení serveru
-source-3789bdaf8e3545c8 = Server vytvořen. Čeká se, až ho Discord přidá do seznamu serverů.
-source-c81750b3ca90cec2 = Vytvoření serveru není k dispozici offline
-source-6f6b7f965d7e403b = Výchozí nastavení serveru
-source-874c0225e3ba1def = Server neposkytnul požadovaný rozdílový rozsah.
-source-9e517ef8b9209a80 = emotikony serveru
-source-69b1694fa80d6fa6 = Složka serveru
-source-3a02197c375e684b = Složky serveru nejsou k dispozici
-source-35c6b3835c23cc5b = Připojení k serveru není dostupné offline
-source-b677b74fd7583842 = Seznam serverů
-source-01f35e54078ae209 = Členové serveru
-source-752efe92882bde69 = Členové serveru
-source-0099285ad19604c9 = Nabídka serveru
-source-9125243e17ee4435 = Název serveru
-source-9ea06069ddfbdb4a = Náhled serveru
-source-2c796ad52f701a3b = Profil serveru
-source-26fc973905937715 = Profilový obrázek serveru
-source-576d94964775efa3 = Nastavení serveru
-source-194b9b5b8956f706 = Značka serveru
-source-b4f75a4ab92c8179 = Odznak značky serveru
-source-06709c30707789c8 = Značka serveru byla označena
-source-f587b273e6310223 = Hlasový kanál serveru
-source-f1bbac50373377e4 = Servis
-source-62278f512692e037 = Zasedání
-source-fdf17bfb44b28042 = Token relace
-source-9844a719fa9b1a83 = Soubor
-source-eae627a1f8088c8b = Nastavit vlastní stav
-source-3f97421d89b18351 = Nastavte výchozí zobrazení rozvržení na galerii zaměřenou na média nebo na seznam zaměřený na text. Členové budou stále moci mezi těmito možnostmi přepínat.
-source-82e715834c9f4fe1 = Nastavte výchozí pořadí řazení pro nové příspěvky. Členové budou stále moci mezi těmito možnostmi přepínat.
-source-705f21e6ce3719d7 = Nastavte výchozí chování při přiřazování značek. Členové budou stále moci mezi těmito možnostmi přepínat.
-source-0ce9a5aecc6dd3b7 = Nastavení nelze uložit nebo načíst. Přepnutím se pokusíte uložit znovu.
-source-5a872471095707a2 = Nastavení pro hry, které používají Discord k posílení jejich sociálních zážitků.
-source-115b51c0b3e792f1 = Několik uživatelů se shoduje. Použijte zmínku nebo ID uživatele s /msg.
-source-da68df88bd08f5f4 = SHA256SUMS.txt
-source-ba4076b03255c1e5 = Sdílejte odkaz, aby se přátelé mohli připojit k tomuto serveru.
-source-aaf9b84edaab407e = Sdílejte obrazovku nebo okno
-source-2c3c34153ac74ed3 = Sdílejte herní aktivitu
-source-45424021c300477c = Sdílet obrazovku
-source-ac20e718c073966e = Sdílejte zvuk z jiných aplikací, i když sdílíte jedno okno. Serein vlastní zvuk je vynechán.
-source-0271a8f65fe94e07 = Sdílejte systémový zvuk
-source-201311c687d03fd1 = Sdílejte aktualizace. Vyžaduje komunitní server.
-source-3d85ff460396575d = Sdílejte svou obrazovku
-source-3fe52fe70d27121d = Sdílejte vybranou kameru s tímto hovorem
-source-f1b4a3f1947fb4d5 = Sdílení a export
-source-5f0298f79747ad16 = Sdílení obrazovky
-source-0ce8eeaf9aa0c421 = Shell
-source-e93a3eaf86201ae7 = Posun
-source-d209ee27e7449876 = posunutá předpona
-source-3c2b7ef8ccd3cd5a = Odeslání hezčího popout
-source-716a6024e3fe999c = Zobrazit
-source-93d8b6aded340643 = Zobrazit všechny DM
-source-b2f8ae3e6b28ba6c = Zobrazit kanály, ke kterým momentálně nemáte přístup.
-source-833dfcfd41dcd086 = Zobrazit kurzor
-source-79b0a69cbcda8649 = Zobrazovat přímé zprávy ve hrách
-source-9bc560cd5b46bcf0 = Zobrazit skryté kanály
-source-a0afec0f61baf4af = Zobrazit členy
-source-7495fa2d565710c7 = Zobrazit členy v seznamu kanálů
-source-66bcca373589a989 = Zobrazit pouze DM od lidí, kteří také hrají hru
-source-f72fef5a1834b24d = Zobrazit pouze příspěvky s každým vybraným štítkem
-source-0251c868653fce26 = Zobrazit účastníky
-source-a40e169498ad656c = Zobrazit lidi v širokých oknech
-source-72682125748dbcae = Zobrazit personalizované zprávy
-source-7d16f2b5d14c2056 = Zobrazovat personalizované zprávy na příchozí žádosti o přátelství. Pokud přijmete, zpráva se stále objeví ve vašich DM.
-source-14f0c7b11300c270 = Zobrazit příspěvky s libovolnou vybranou značkou
-source-b1ae69c3dd991fe9 = Zobrazit zbývající role
-source-e809b405a7655b0b = Zobrazte stránku členů v seznamu kanálů, abyste rychle viděli poslední připojení a členy označené kvůli neobvyklé aktivitě.
-source-9bc15080170ef0cd = Ukažte ostatní účastníky pod zvětšeným videem
-source-40664bffa760c01c = Zobrazení
-source-68ba74051d2c1613 = Zobrazuje se prvních 1 000 vlastních emotikonů. Upřesněte vyhledávání a získejte více.
-source-dae76222d45285b8 = Zobrazuje se prvních 1 000 reakcí.
-source-237f621c4b72e005 = Zobrazuje prvních 50 integrací vrácených Discordem.
-source-93f2c7a47f67a615 = Zobrazuje se prvních 500 nálepek. Vyhledávání zúžit výsledky.
-source-eb9a0b75e7e33bb3 = Zobrazuje se vedle vašeho jména v Discordu.
-source-84708053633f5ef9 = Zobrazuje zdroj aktivity z her a připojených aplikací na tomto serveru.
-source-a7d70cb93b5b638b = Zobrazuje náhledy odkazů odesílaných členy.
-source-09f8960ef0b013c7 = Postranní panel
-source-301079349cba0c9f = Šířka boční lišty
-source-d1053f7b262d7006 = Před voláním se přihlaste
-source-462be028720a0ebb = Před změnou profilového obrázku se přihlaste
-source-627980e85ae679a7 = Přihlaste se přes Discord; vyhledávání uložených přihlášení zastaveno
-source-a57736e4dc6a3128 = Přihlaste se do Discordu
-source-019d32c2a20341db = Přihlaste se pomocí tokenu relace
-source-c9fb496771461b85 = Chcete-li začít, přihlaste se pomocí svého účtu Discord.
-source-3d3b4f88fa2273ee = Signály
-source-5e71e0ce66a10d54 = Přihlášeni pomocí svého účtu Discord
-source-c72d860b4f85d6ba = Odhlášen z tohoto účtu; jeho uložené přihlašovací údaje jsou zachovány
-source-69f3ca37b52fc2fe = Ztišit tuto osobu pouze na tomto zařízení. Nikdo jiný není ovlivněn.
-source-818767abdf5c33cc = velikost = 128
-source-d273ff03a1219b3d = velikost = 2048
-source-8dbe3ba5e7e01776 = přeskočit užitečné zatížení ID3
-source-97ad1f22200db972 = Přeskočte tuto otázku
-source-2f280ccd5811f80a = Slash
-source-d98aa872d5169f33 = Příkaz lomítko překračuje vstupní rozpočet relace. Váš koncept byl zachován.
-source-2f3231cd581a8b6e = Břidlice
-source-75806bc79fc741a1 = sloty k dispozici
-source-c4317264317eda93 = použité sloty
-source-4e060e976cc3db2b = Pomalý režim
-source-54903ffa7010b013 = Malý text
-source-768a84a167fc5784 = Plynulé rolování
-source-7fc5fe39edc3d58d = časové razítko sněhové vločky je v dosahu
-source-4cc269f8aebca984 = Měkké růžové povrchy s teplým růžovým akcentem.
-source-fe31d1c784d29ef4 = Solidní
-source-8ac6d324f22e6d8a = Sólo
-source-8ac2dd24f22a95b1 = Nějaký
-source-9a503971735f80de = Některé události pluginu byly přeskočeny, protože fronta událostí byla plná.
-source-6d78f54795cdbb71 = Některé servery mají jiné preference. Vyberte server a zkontrolujte jeho nastavení.
-source-bc62c50f0c4496f8 = Někdo píše…
-source-8a7bee24f1eeaff1 = Seřadit
-source-d1410e2def3cb910 = Seřadit a zobrazit
-source-3606b9d856cdbafe = Seřadit podle
-source-6fa38d7884c5e4e5 = Pořadí řazení
-source-9b3904e0c710f295 = Seřazeno podle
-source-2593d0c70a1c5074 = Zvuk
-source-f67bc9362e1bfbe5 = Zvuky
-source-dc5c829684625bbb = zdrojový koncept
-source-16379c0e7bfc97de = Zdrojová zpráva již není dostupná
-source-cf524002408649be = Zdrojový server není v této relaci dostupný.
-source-a39e9b837556f159 = URL zdroje
-source-032cd9f1245d3645 = Plocha
-source-6b771a67c2e45fbb = Filtry spamu
-source-e23357f112296589 = Mluvit
-source-c5f07bd7a271b5b8 = Hlasitost reproduktoru
-source-b6a535fede052183 = Reproduktory
-source-cfdd134ddcd54f6e = V tomto hovoru není mluvení k dispozici
-source-0e303e22b5c99089 = V tomto kanálu nelze mluvit.
-source-0e6572337b972b29 = V tomto kanálu není mluvení k dispozici. Stále můžete poslouchat.
-source-9290f6af0cafb479 = Spoiler
-source-396418a002dfa719 = Spoiler media – otevřete zprávu, abyste ji odhalili.
-source-82cb7c14b78eba12 = SPOILER_
-source-6b8e309703900e15 = Spotify
-source-f73fdea270dfc174 = Jaro - den 12
-source-98007f19fa6109bf = SQL
-source-97f5df19fa57a55a = SRN
-source-27cc88818cc46ff6 = Stabilní
-source-779f20a1a5b8312e = stabilní verze
-source-61b3c49fc1cb3850 = Pódium · není implementováno
-source-cd979411b94e9181 = zastaralá historie nemůže vzkřísit smazání
-source-8448e0151316470b = zastaralý výsledek musí být ignorován
-source-1a26a190d73fe746 = Standardní emotikony
-source-54775a219415a2fe = Údolí Stardew
-source-f11add05cecc2474 = založit vlákno
-source-4474425c0472ac00 = Spustit barvu
-source-41bbcf9b780998b3 = Začněte testovat
-source-45f0f7e853ab3e87 = Spusťte test mikrofonu nebo se připojte k hovoru, abyste viděli svou vstupní úroveň.
-source-d702c26b4032d893 = Zahajte hlasový hovor
-source-35c0a92f334aeafb = založil vlákno
-source-f78fab1fe68a47c3 = Zahájil
-source-423411ccd80dbe86 = Kontrolní součet startéru nebo délka bajtu se změnily
-source-c014e78b57090011 = Starter manifest změněn
-source-5abc7c9625324f00 = startovací balíčky se aktivují se souhlasem
-source-29e87af8077c4457 = Startovací zdroj musí být přibalen
-source-b225dfbb31111b9e = spuštění nesmí číst audio datovou zátěž
-source-09aa16017b259c70 = Pracovník nastavení spouštění byl zastaven. Přepněte nastavení a zkuste to znovu.
-source-ad9d5481474d4f5b = Statický
-source-a5dc0fbd822ef066 = Statická grafika PNG, JPEG a WebP je podporována až do velikosti 8 MB. Připravený PNG se musí vejít do limitu Discordu 512 kB.
-source-ad3e3c8146fc920f = Postavení
-source-0dbe98129d79639a = Stav musí mít maximálně 128 znaků bez zalomení řádků nebo okolních mezer.
-source-6c512cba41aedf26 = Stavový text
-source-653552905397a5d1 = Zůstaňte v hovoru
-source-5819616c806e7d5f = Akce nálepek
-source-21333a6cfc8e7282 = Podrobnosti nálepky nejsou k dispozici.
-source-d341d0e6f7bce206 = Příprava nálepky zrušena
-source-8b20702650fe2eba = Příprava nálepky přerušena; vyberte si to znovu
-source-14f45a93be2170d1 = Nálepka · Náhled není k dispozici
-source-f12094936eee025d = Samolepky
-source-76b82e61ed8f8b2f = zastavit po prvním paketu
-source-f83bedb815ca8289 = Zastavit náhled
-source-89648382f1f45770 = Přestat přijímat toto sdílení obrazovky
-source-ba31db18366c5881 = Přestat sdílet
-source-b2be9288f555d69f = Přestaňte sdílet fotoaparát
-source-04becc1144bf8534 = Přestaňte sdílet svou obrazovku
-source-bb5cd017e0e50c57 = Ukončete sdílení obrazovky v aktuálním hovoru
-source-c9e6a10c2529c1ed = Přestaňte testovat
-source-9241f1191921699a = Přestaň se dívat
-source-7f34423867339160 = Přestaňte sledovat aktuální stream
-source-f96b615e5b8b96cf = Přestal sledovat
-source-c2773f63f685229d = Zastavování sdílení obrazovky…
-source-17a6948ef43cdaa5 = Uložte až 1 MiB místních dat pro tento účet
-source-37d209ecc2ca2c65 = Proud
-source-467498fe13dea55b = Streamujte zvuk
-source-169f89a55a8e0cd6 = Stream ztlumen
-source-98d422af31a33c48 = Požadavek na stream nebyl odeslán; hlasová fronta je plná
-source-93c48a92bcd69322 = Stream zabezpečen · čekání na video
-source-0dbcb46b880ae0f9 = Hlasitost streamu
-source-ecb7fa88a28ecbfb = Streamuje
-source-58b4b3ecd4eb6238 = Řetězec
-source-165ca6348a9c9ef1 = Silný-hash-algoritmus
-source-3476c9192da21f2f = Studentské centrum
-source-735851282b7922a3 = Studio
-source-b3d4f79d9d8b71e5 = Předložit
-source-bd1f8a89447f778b = Odeslat výběr
-source-ed2e6e6a15556e6b = Odesílání…
-source-92a0d19a28995530 = Úspěch
-source-10fab4d1211b0790 = sudo apt update && sudo apt install --only-upgrade serein
-source-ff044d576bf0e0b6 = sudo dnf upgrade serein
-source-dfd89cc7e078553c = sudo pacman -Syu serein
-source-b9f7595a2b6d4047 = aktualizace sudo zypper serein
-source-7cfbd463d799bd73 = Kontrola ladění ukazatele návrhu proběhla úspěšně: členové, emotikony a kanály se vloží kliknutím bez odeslání.
-source-74563c12985d7846 = Podpora a diagnostika
-source-588fbd0ca5948e09 = Síla potlačení
-source-641060b2512a5241 = Neprůhlednost povrchu
-source-63d61d08bd63f538 = Rychlý
-source-1dbc50b9bbfadfcf = Přepnout účty
-source-3629497c7cacd5b3 = Přepnout hovor
-source-3a29dfd6e4b7e6cd = Přepnout hovory?
-source-ac48c1c773dcfbf4 = přepínač vyžaduje potvrzení
-source-af6ed9336c14c8ae = Přepnout na
-source-d083d3aa96af5af1 = Symbol
-source-1dcc203233cc2f68 = synchronizace a streamování akcí směrovaných výše
-source-fbd2c35742165dbf = Synchronizace se systémem
-source-ca5ada25afc84d10 = Synchronizace složek serveru pomocí aplikace Discord
-source-bf866859d6f1167a = Synchronizovat…
-source-1710991edf84bdbe = Syntetická aktivita, nikdy sdílená ani uložená.
-source-aca0751c7e3f2843 = Syntetický odznak jedna
-source-72fe2e1cee5c544d = Syntetický odznak dva
-source-2057457bddfb2197 = Selhání syntetického přípravku · Discord nebyl kontaktován
-source-1fca9c49a9fb4bff = Syntetické sdílení obrázků vyžaduje sestavení ukázky
-source-fb3de286999a0f18 = syntetický Ogg/Opus dekóduje
-source-b90c22917f0993e9 = syntetické hlavičky Opus
-source-0180fec134076ba8 = Syntetičtí účastníci · mikrofon a reproduktory jsou vypnuté.
-source-61133cb873cb14ec = Syntetický náhled
-source-2671b43d99c7f8ff = Syntetický náhled: simulovaný restart. Žádná instalace nebyla změněna.
-source-ea58bb2f4280e7e3 = Syntetický náhled: Serein 99.0.0 je k dispozici. Nebyl proveden žádný síťový požadavek.
-source-583e44aa4b2738f8 = Syntetický náhled: aktualizace připravena k restartu. Nebyly staženy žádné soubory.
-source-938b4ed3dcc78c3b = syntetická WAV hlavička
-source-89b157ba3f1b6209 = Syntetické dekódování ZIP se nezdařilo.
-source-81d24911585379df = Chybí syntetický zápis ZIP.
-source-a81e2cdaf6921adc = Systém
-source-087d4afac2b493b2 = Systémové hodiny jsou mimo rozsah
-source-89308fc80241f110 = Systémové hodiny nejsou k dispozici
-source-bb6d50f39cffc429 = výchozí nastavení systému
-source-612cd3419dafd909 = Výchozí nastavení systému
-source-7ddb86b52fd2a7d2 = systémové klávesové zkratky klávesové zkratky vlastní výchozí formátování navigace
-source-5f10d417345d5280 = Systémové zprávy
-source-dc75454d9f19606b = Kanál systémových zpráv
-source-1c1fec5705346635 = Dialogové okno oprávnění systému
-source-fe2eb47cb9ba0693 = System32WindowsPowerShellv1.0powershell.exe
-source-f82865b371985dec = SystemRoot
-source-af64094c86023903 = T
-source-6ce0ce19e201b66c = Tab
-source-08a36c89cf51d8ae = Shoda značek
-source-8d69b56d26a90f82 = Název značky
-source-03aa3cfb08dff960 = Tagy
-source-03ee3cfb0919c62c = Úkol
-source-dad2dcc683d8a766 = TeamIdentifier=
-source-746b56ce7029b76b = Řekněte světu něco o tomto serveru.
-source-e7bf0e7337589780 = Řekněte nám více o svém serveru
-source-aef3e9d1cc99d338 = Dočasný soubor není k dispozici
-source-9e3e0736bc5d7860 = Dočasní členové jsou automaticky vyhozeni, když se odpojí, pokud jim nebyla přiřazena role
-source-937d74f8bf96bf5b = Dočasné vyčištění videa se nezdařilo; odstranit soubory serein-video z dočasné systémové složky
-source-b178575c95e40d30 = Péče o syntetickou farmu
-source-2492f5fb1b05b45e = Text
-source-bb05b66479f06f51 = Textový odznak
-source-a49452caee01d78d = Textový kanál
-source-3c519fae24775b41 = Oprávnění textového kanálu
-source-fcc00f8f38e5bf7a = TEXTOVÉ KANÁLY
-source-528fae7409467be2 = Omezené zobrazení textu
-source-5260a7bb5d853a61 = Formátování textu
-source-b90a3d15ef7d8e53 = Text s přízvukem
-source-3c0df60c6f7aa0c3 = Text, mezery a rohy
-source-a604668fceafd191 = mezipaměť textur přes rozpočet
-source-091aebf4ee6b9f05 = Chybí uložené přihlašovací údaje tohoto účtu; pro obnovení se znovu přihlaste
-source-031665bb4e89f563 = Ten obrázek je příliš velký; zvolte jednodušší obrázek
-source-36c648e5ea87aa0b = Účet nebo konverzace se změnily; spusťte rozšíření znovu.
-source-94c943f7ec6d2dc8 = Akci nelze spustit.
-source-d76bab451d4bf7cb = Aktivní téma přináší svůj vlastní akcent; přebírá to, když se téma používá.
-source-7cf5fcdaa69d6c47 = Oblast kolem pole zprávy
-source-9c8070771ed73bb5 = Dílo není z úložiště vydání Serein.
-source-229e001c5175ed0f = Protokol auditu dosáhl limitu místního záznamu nebo paměti. Upravte filtry, abyste našli další události.
-source-c3196c758d12cc48 = Hovor se změnil; spusťte rozšíření znovu.
-source-a15081404de6bc72 = Kamera již není k dispozici
-source-b79502bea259a921 = Akci kanálu nelze spustit.
-source-1a0af5cf522a9054 = Soubor kontrolního součtu je neplatný.
-source-f81d25e4d1c1899a = Seznam kontrolních součtů překračuje limit velikosti.
-source-b12e17f9000854ca = Historie konverzace
-source-ba988ea53a32cc15 = Seznam detekovatelných her není k dispozici.
-source-f86a8e16e87115aa = Příjemce DM je nedostupný
-source-5f2300da2b60d32e = Stažený balíček překračuje limit velikosti.
-source-bdc63c63aaaeb1ed = Koncept se změnil nebo návrh překračuje limit návrhu.
-source-fbf3ed7f982fb65e = Rozšíření již není povoleno
-source-07b80e5c8ff386bf = Název písma je neplatný.
-source-117878dc34eae50f = Přítel je nedostupný nebo nastavení serveru vyžadují pozornost
-source-c4503990ff7ce3d7 = Instalační cestu nemůže představovat pomocník aktualizace.
-source-cbb0a5913c0f6e2c = Nainstalovaný AppImage se přesunul; restartujte před aktualizací.
-source-304e87861c085c7c = Levý panel serverů
-source-320896c4f3df853a = Licence a verze jsou povinné. Zdrojová adresa URL je pro místní motivy volitelná.
-source-2fb81c63ceea1998 = Bylo dosaženo limitu ztlumení místního účastníka
-source-aab8c25b9ea50e1f = Panel členů a vyhledávání vpravo
-source-819b3188c4971ddb = Zpráva již možná dorazila do Discordu. Před dalším odesláním konverzaci zkontrolujte.
-source-5444864190449fef = Mikrofon již není k dispozici
-source-444c3556ad692b08 = Kontrolní součet balíčku je neplatný nebo duplicitní.
-source-58391f0c869e8ae4 = Velikost balíčku neodpovídá jeho metadatům vydání.
-source-db49b01ade45e432 = Kurzor špendlíku se změnil; znovu požádat o aktuální stránku
-source-c7e6f9a9a5b4a6df = Připravená ikona je příliš velká.
-source-8561c4e8d417ddf8 = Ikona připravené role překračuje hranice svých obrázků.
-source-d4295415cd723b49 = Rychlá hnědá liška přeskakuje líného psa. 0123456789
-source-3f3748f1a9ae3941 = Metadata díla vydání jsou neplatná.
-source-12ad90dff902ac5d = Vydání obsahuje nedůvěryhodnou adresu ke stažení.
-source-6bd719d95bada4ae = Vydání obsahuje příliš mnoho prostředků.
-source-bfdc7f5bf0b94022 = Vydání nemá pro tento balíček žádný kontrolní součet.
-source-6d484d49e5cf5483 = Seznam verzí překračuje svůj limit.
-source-bd3a5c5eb515b096 = vybraný kanál
-source-03af15a71ea80f0f = Vybraná konverzace se změnila nebo již není přístupná
-source-366286d1db0c0313 = Vybraná konverzace již není dostupná
-source-92d605c7427fe559 = Vybrané obrázky překračují limity pro nahrávání emodži.
-source-ecf43b5cfcc3f4fd = Vybraná zpráva zahájí vlákno. Každý, kdo vidí tento kanál, může vidět vlákno.
-source-a4b7054956079671 = Rozvržení složky serveru se změnilo; spusťte rozšíření znovu
-source-f722c523147309b7 = Server nemá přístupný kanál
-source-729ec7dfae966f27 = Server nemá žádný kanál, kde lze vytvářet pozvánky
-source-4f922921c10c2c92 = Server nemá žádný spravovatelný kanál
-source-836114ff46dcadf3 = Výsledek příkazu lomítko překračuje limit délky zprávy.
-source-de5ba51cb9bbb804 = Reproduktorové zařízení již není k dispozici
-source-648cf56c28900fa8 = Spojení streamu bylo ukončeno
-source-9c284b6c9b5c8f10 = Stream skončil
-source-eeca86112f872aa2 = Archiv aktualizací obsahuje nebezpečný název souboru.
-source-9476118a60cb760b = Archiv aktualizací obsahuje duplicitní názvy souborů.
-source-3c0768502ae27c24 = Archiv aktualizací obsahuje příliš mnoho souborů.
-source-31711f87cbc616b0 = Archiv aktualizací překračuje limit velikosti extrahované.
-source-1982d0aeae946bf2 = Archiv aktualizací je poškozený.
-source-cf38693eb82dfd70 = Kontrolní součet nebo délka aktualizace se neshodovaly. Nic nebylo nainstalováno.
-source-0b9202c72e03d4aa = Aktualizace obsahuje neočekávaný obsah balíčku.
-source-207e7bd4a938ab90 = Aktualizace neobsahuje Serein.app.
-source-1288bddb87e6c5ce = Stahování aktualizace bylo přerušeno.
-source-5a3e6d7ab01c3c34 = Aktualizace nemá žádný podpisový identifikátor svazku.
-source-8c4050514d1503b5 = Pomocník aktualizace se nespustil. Serein zůstane otevřený.
-source-d59c2878915ac2e9 = Aktualizace postrádá upozornění na spustitelný soubor nebo balíček.
-source-a7ee90ed89a6d45e = Aktualizace není podporovaná aplikace x86-64 Type 2 AppImage.
-source-7d447391bb1fe8a6 = Aktualizace není platný balíček ZIP.
-source-6a619001565cad53 = Odezva na aktualizaci byla přerušena.
-source-61b02cc5807beee4 = Aktualizace nebyla podepsána tímto vydavatelem Serein.
-source-ff87e05e9b79be51 = Aktualizační pracovník se zastavil. Zkuste to prosím znovu.
-source-2fa629cb4b3b6374 = Aktualizační adresář ZIP je neplatný nebo překračuje své limity.
-source-d2589a7c8c135c63 = Podpis macOS aktualizace je neplatný.
-source-5ca44460d06c3e41 = Hlasový hovor se změnil nebo jeho ovládací prvky nejsou dostupné; spusťte rozšíření znovu.
-source-82d50f99118cbbad = Hlasový kanál je nedostupný
-source-a50392afda5ed27a = Sledovaný stream se změnil; spusťte rozšíření znovu.
-source-aab875d8cfcfe712 = Téma
-source-eb2d074b1c7450a5 = Čeká se na vyčištění motivu
-source-995c0cb1dc44620c = Detaily tématu
-source-326b63ca34a0da40 = Motiv neodpovídá požadovanému balíčku
-source-5900ea3902ac3c64 = editor motivů vždy obsahuje motiv
-source-8f99c67a7474e728 = Editor motivů přijímá pouze motivy
-source-a0aa3f3d19cc32b9 = Téma bylo exportováno.
-source-8fa63933d6a259d8 = Výběr souboru motivu skončil.
-source-e894186aade09550 = Motiv není místně dostupný
-source-96225dc374daea97 = Téma není v balíčku
-source-457be27a66849bf5 = Motiv není nainstalován
-source-c5659913f6096315 = Název motivu
-source-158bf59c4a5f5e4e = Název motivu je povinný.
-source-9dcad5b0faa3464e = Balíček témat přesahuje 16 MiB
-source-cda89cefef512daa = Náhled motivu
-source-aeeccb48a983e8c4 = Motiv odstraněn.
-source-058f7d5c23975083 = nastavení motivu
-source-5d6f5166d7611031 = Spouštěč tématu musí dodat pouze platnou paletu
-source-3b9241edd1cb076b = motivy obchod obchod katalog import komunity vzhled barev
-source-1988bbfa1d43f9a1 = pak standardní emotikony
-source-d07ee197637159ae = Existuje příliš mnoho serverů na aktualizaci společně. Vyberte individuální server.
-source-649d4c6bf7d1d183 = Neexistuje žádné aktivní sdílení obrazovky
-source-6e286eff60bc0746 = Není aktivní žádný hlasový hovor
-source-c9d06fbde78f3a20 = Neexistuje žádný sledovaný stream
-source-5976a9ab9dbecb62 = Tato nastavení platí pro tmavé a světlé vzhledy.
-source-4642fa585a9d5014 = oni / oni
-source-cfb4fc36243ce25a = Mohou se znovu připojit pomocí nové pozvánky.
-source-1f9d1894af8dce52 = THIRD_PARTY_NOTICES.md
-source-042d8e499a4ef676 = tento účet
-source-3b3fe4e829af3e8e = Tuto akci nelze vrátit zpět.
-source-13135ba78d840d02 = Tato akce již není k dispozici; obnovte data aplikace
-source-4ce21aadf845122c = Tato akce není s aktuálními oprávněními, daty nebo čekající operací dostupná
-source-dfe333b3c0bb720f = Tato akce není s aktuálními oprávněními, načtenými daty nebo čekající operací dostupná
-source-3b3c3da1df9874d7 = Toto sestavení má neplatnou verzi.
-source-cb2f6eed034bed6e = Toto nelze vrátit zpět.
-source-4fd7904698faaefc = Tento kanál nemá
-    všechny připnuté zprávy... zatím.
-source-707517521dfcc516 = Tento kanál není v aktuální relaci čitelný
-source-3e593875a0c6a513 = Tento příkaz není k dispozici. Vaše argumenty jsou zachovány.
-source-4c857ba61c1b8e7a = Tato konverzace již není přístupná
-source-1561d5a524b51ffb = Tento cíl se otevře ve vašem výchozím prohlížeči.
-source-3601a9a67180f781 = Tato přímá zpráva nemá
-    všechny připnuté zprávy... zatím.
-source-a4d8ec041d3dcff7 = Tento DM již má koncept. Váš text /msg byl zachován v původní konverzaci.
-source-b10a8f60d67ebd26 = Tento emotikon nelze nahrát. Zkontrolujte jeho název, dostupné sloty a vaše oprávnění.
-source-71794532ecd13de1 = Tomuto písmu chybí čitelný text nebo obrysy.
-source-7df10ece44880997 = Toto fórum vyžaduje značku
-source-bda837b1cf24f07d = Tato skupina již není dostupná
-source-fbf1c5583ada88cc = Tento příchozí hovor již není dostupný
-source-64d95f6ebf138c84 = Tato integrace již není k dispozici.
-source-8e108f5640c03166 = Platnost této pozvánky možná vypršela
-source-f87f9f46087a1aec = Toto je a
-source-7191b9a9f8aaf247 = Takto se objevují členové s touto rolí.
-source-0d25765d35fe3d6e = Toto je účet, pomocí kterého jste přihlášeni: budete odhlášeni a jeho uložené přihlašovací údaje, historie v mezipaměti a koncepty na tomto zařízení budou odstraněny.
-source-b4a63cbef3d9a730 = Toto je začátek rozhovoru.
-source-86255480b6339b5b = Toto je kanál, do kterého posíláme zprávy o systémových událostech.
-source-a6e7aedea22b0d1d = Toto starší téma využívá své původní umístění obrázku.
-source-77968b5f7dd56753 = Tato platforma nemůže instalovat aktualizace do aplikace.
-source-21c6fe9bbefdb3e0 = Tento vzdálený účastník se již nezúčastňuje hovoru
-source-2b0f39bdb3a934b7 = tuto roli
-source-7909fbef160a71cb = Tuto roli nelze přesunout. Znovu načtěte role a zkontrolujte svá oprávnění.
-source-2cbf54163f5500c5 = Tato role je nad vaší nejvyšší rolí a je pouze pro čtení.
-source-d005eb8b27dbe57c = Tato role je řízena integrací.
-source-61289a85eb22830f = Toto vyhledávání je nedostupné nebo neplatné
-source-ff7c20ca699ff4f0 = Tento server
-source-3d778964d89d4a72 = Tento koncept serveru již není dostupný
-source-c2006cfaea6b0b4e = Tento server nemá žádné vlastní emotikony.
-source-53d2e311cb54d2bf = Tento server zatím nemá žádné nálepky.
-source-d3e60090d1ef570e = Seznam emodži tohoto serveru ještě není načten.
-source-9c6fa9a111096b28 = Tato nálepka není v aktuální konverzaci k dispozici
-source-9e221a2b4712ce9b = Tato nálepka není s aktuálním připojením nebo oprávněními k dispozici.
-source-b7b0f7be8590123a = Tento stream již není dostupný
-source-d89880e8920c9e64 = Tato syntetická zpráva zahájila vlákno; odpovědi pokračují níže.
-source-62432088ac9f6108 = Toto téma patří do jiného balíčku; před uložením jej zduplikujte
-source-52e53b1e3a32527c = Tento uživatel již není potvrzeným přítelem.
-source-565e7a0170cb18d3 = Tento uživatel není v aktuální relaci dostupný
-source-54d079df157eb6f3 = Tento uživatel není v aktuální relaci znám
-source-26ab1d6dc7d4884f = Toto video nelze převést pro přehrávání
-source-b2308466af951f68 = Toto video potřebuje pro přehrávání FFmpeg. Nainstalujte FFmpeg a zkuste to znovu.
-source-d660fedd50fc7600 = To určí, zda členové, kteří explicitně nenastavili svá nastavení oznámení, obdrží oznámení o každé zprávě odeslané na tento server, či nikoli.
-source-9843eeda70cff191 = Vlákno
-source-bf3d9db84273773d = Kontrola ladění vlákna prošla: oprávnění k odeslání obrázku, vytvořené příspěvky, čtyři otevřená vlákna, nejnovější jako první.
-source-d088e9af77a6bc48 = Název vlákna
-source-52aa5293477aa3c3 = Vlákno začalo od této zprávy
-source-8b60bf2db1580306 = Vlákna
-source-e8a4a7f2b614d5a6 = Vlákna nejsou v této konverzaci dostupná
-source-ce141c82a8513704 = Vypršel časový limit
-source-d484a2bc8ec7434b = AutoMod dočasně omezil člena
-source-52988c02510c87dc = Časová osa živého přenosu nastavena
-source-935f34d5f97f5ad4 = Výšky zpráv na časové ose se ustálily
-source-a61c1b7a70d8d13b = Časový limit členů
-source-4ee230b71ef2280d = Časová razítka a podpůrný text
-source-5b74edbe25f7d75c = Tónuje váš banner, když jste nenastavili obrázek banneru.
-source-99f110d27e30b289 = Titul
-source-63d040e37887f17e = Dnes
-source-1cc759a3bd3d3eb8 = Přepněte Odstraněné zvýraznění
-source-44ced5fa9cb07445 = TOML
-source-480b227ca618e526 = zítra
-source-5c7042a5045f335e = Příliš mnoho přesměrování stahování rozšíření
-source-4838fdc9562c3eb8 = Příliš mnoho nainstalovaných rozšíření
-source-c26501e3ade7da3c = Nástroje
-source-6d02dc19e21eb49c = Nahoru
-source-eddea32341d37146 = Horní panely
-source-11cc72e3db49fec4 = Téma
-source-fe090d65673b8ac5 = sledované účinky jsou před odesláním normalizovány
-source-35f050478b2b516a = Název vlastnosti
-source-b43b9774a77751c8 = Vlastnosti
-source-08e22a2dc90d9557 = Průhlednost
-source-8f7f491559b25d06 = Průhlednost a rozostření
-source-61124b362cbc1517 = Zásobník není k dispozici. Spusťte hostitele StatusNotifier a poté vypněte/zapněte zásobník.
-source-8b109f5e2f5cc247 = Zásobník není k dispozici. Okno zůstane viditelné.
-source-d0dc7e9089e3a6a7 = Populární GIFy
-source-704e59fab561c2a5 = VĚRNÝ
-source-85ea99fb52be3385 = Ano
-source-635784d63b82506c = Zkuste jméno kanálu, serveru nebo osoby.
-source-034caf9874550626 = Zkuste jiné jméno nebo autora.
-source-68ec73f5474c88b4 = Zkuste jiný hledaný výraz.
-source-cd1dd6ff53d0d01a = Zkuste to znovu
-source-18d16b5d097b1d40 = TTF nebo OTF, až 8 MiB. Uloženo v tomto zařízení. Kód si zachovává jednoprostorové písmo.
-source-49c2a4ee7987367a = Vypněte fotoaparát
-source-d8347c2715f51c83 = Vypněte příchozí zvuk
-source-ff918c14d2ef950d = Vypněte mikrofon
-source-f49e43ecc2b661a6 = Vypněte potlačení hluku
-source-876fdaf82de17a4e = Zapněte kameru
-source-452c31207918c2e7 = Zapněte příchozí zvuk
-source-09cb00c31da2f2c9 = Zapněte mikrofon
-source-8434cc9287f005ca = Zapněte potlačení hluku
-source-8755e35dddf6b4fb = Twemoji 17.0.3
-source-de3bc2bfb3a73e2a = Škubnutí
-source-6997ea31ebe06cf3 = Zadejte dotaz výše a stiskněte Enter.
-source-d3e7d077a37a663a = Zadejte pro vyhledávání členů; jsou uvedeny dostupné role a kanály
-source-89758ae8b9a73e02 = TypeScript
-source-4b4afa8bcb02d5ac = Typografie
-source-af64084c86023750 = U
-source-4dd1f7efd08e6421 = UInt
-source-6597cbdc04319ae9 = ulimit -f 131072 || výstup 1; exec "$@"
-source-74d3b973117d6a0e = Tento server momentálně nelze vytvořit.
-source-27007d1e259af30d = Části profilu nelze načíst
-source-c3aff5e6f92347ed = Nelze pokračovat. Zkontrolujte připojení nebo to zkuste znovu po aktuálním požadavku.
-source-f71a90bc017f1e80 = Zrušit archivaci
-source-43e9aef7aa01fca9 = Není k dispozici
-source-cac61dd87983a242 = Nedostupný kanál
-source-50f5271061b2eeeb = Nedostupné pro syntetické přílohy
-source-64ceb1abd74fcbd0 = Zrušil zákaz člena
-source-865b6f4c6920e17f = Odblokovat
-source-4bab7c95bcfbd464 = Nejistý
-source-f30bda2b29ab6cd5 = Nehluchý
-source-f2ad55e2808940b6 = Neslyšný zvuk
-source-8f4be9f086eb530f = Vrátit zpět
-source-33e83ac676f67e20 = Neočekávané kódování přílohy; znovu načíst konverzaci
-source-0f048c425eaa1ec4 = Neočekávaná video audio stopa
-source-5da7d55d65cc6e32 = Neočekávaná video stopa
-source-7f6c9aa6ca96b7c7 = Přestat sledovat
-source-5c9aef301d36cfc7 = Přestat sledovat příspěvek
-source-b52e8dfdaf5e5d31 = Přestat sledovat vlákno
-source-0adf9fe574fae88d = Oddělit servery
-source-8f26e0f086cc2787 = Jednotka
-source-c592307ea80f16b9 = Neznámý
-source-9e33a77f873f41f9 = Neznámá akce
-source-a8a87669cabacf92 = Neznámý kanál
-source-b968b22d700c2690 = Neznámý typ kanálu · není implementován
-source-cf313c941485315d = Neznámý kanál, načíst kanál
-source-a7ee0e617cd83e3c = Neznámý pozván
-source-2d93c7d5885f85b2 = Neznámý čas
-source-88e4a2cee2cad378 = Neznámý uživatel
-source-5d303fbc88281c15 = Odemknout
-source-abc02fbabb75c121 = Odemknout příspěvek
-source-89b287e09039529f = Odemknout vlákno
-source-c07837c309cc699b = Zrušit ztlumení
-source-0a9380677e9f27e8 = Zrušit ztlumení kanálu
-source-205f3418f8897e4a = Zrušit ztlumení konverzace
-source-3352e14c87c097d3 = Zrušit ztlumení příspěvku
-source-c26538522ff378d8 = Zapnout zvuk
-source-7aa13a7b5cae8285 = Zrušit ztlumení vlákna
-source-b26035b596566abf = Nejmenovaný
-source-3e65416219e37321 = Neoficiální klienti mohou ohrozit váš účet Discord.
-source-bc0cd0b4dfb7dde1 = Odepnout
-source-3d803329fa4ff8a8 = Odepnout soukromou zprávu
-source-ea5244afaa2e399a = Odepnout zprávu
-source-ea740aa67a0ee115 = Odepnout příspěvek
-source-ca6ad52d56f739bb = Odepnout vlákno
-source-32f3b79fc535d32b = Odepnul zprávu
-source-ec898b17fe11a51d = Nepřečtený odznak
-source-f222181de7c67922 = Nepřečtené zprávy
-source-d1f156e084917946 = Nepřečtená navigace není k dispozici
-source-a28269a53e5be713 = Nerecenzováno
-source-309de19bfe7b8d61 = Nezkontrolovaný balíček — jeho zdroj nebyl zkontrolován pro katalog.
-source-5dd76b398166e864 = neuložené změny
-source-6e6e4d288ea76fc4 = Neuložené změny
-source-ae896376665aaf83 = Neuložené změny motivu budou zahozeny.
-source-a8cfdfb1a70389b3 = Nepodporovaná akce aplikace
-source-8281e54007e43760 = Nepodporovaný formát obrázku uměleckého díla
-source-3f12316c0f1e4e22 = Nepodporovaný výstupní formát zvuku
-source-4d6d8f6628ae83c5 = Nepodporovaný typ součásti
-source-b7364a3171008634 = Nepodporovaná grafika emodži nebo nálepky
-source-2644d45f02f86682 = Nepodporovaný typ pole formuláře
-source-053b201d40c22d36 = Nepodporovaný nebo poškozený zvuk; stáhnout a hrát externě
-source-e2515175ae6a110d = Nepodporovaná nebo neplatná delta metadata.
-source-b98c3cc9dacb86bd = Nepodporovaná nebo neplatná data obrázku
-source-a309fe24d6f91895 = Nepodporovaná vzorkovací frekvence videa a zvuku
-source-ac3807db50413d01 = Nepodporované časování zvuku videa
-source-bd929eeedda18cc0 = Dokud to znovu nezapnu
-source-f317a756638a78e4 = Nedůvěryhodný původ akceptován.
-source-f3c2534cc5bfb6d2 = Nedůvěryhodné přesměrování aktualizace
-source-197d8f717bef5c90 = Neobvyklá aktivita DM
-source-1c9de3571623fb49 = až do
-source-8b0432eecbd8b034 = Aktualizovat
-source-6c410fedda2a575f = Aktualizace k dispozici
-source-018198064ad0e0fb = Aktualizace zrušena.
-source-566c2f6082f1215e = Kontroly aktualizací jsou v ladicích sestaveních zakázány.
-source-06b36f3061f9d3a9 = Aktualizace stažena a ověřena. Restartujte, až budete připraveni.
-source-2332eba59310a2ad = Aktualizace připravena. Zavřete Serein pro instalaci a restartování.
-source-da78e3983d6fb761 = aktualizovat nastavení
-source-97a98b40b90f56b1 = Přetečení velikosti aktualizace.
-source-b6ec4dcb17961197 = Aktualizujte název nálepky, popis a související emotikony.
-source-5e50246c00d5a4d7 = Aktualizoval oprávnění příkazů aplikace
-source-b56f7e456ae1c6f1 = Aktualizoval pravidlo AutoMod
-source-19648a7f257a967b = Aktualizoval kanál
-source-717a5ce99cd89cb7 = Aktualizoval přepsání oprávnění kanálu
-source-ebc9fe298e29d18e = Aktualizoval emoji
-source-c7475879f840e9c8 = Aktualizoval nastavení domovské stránky
-source-1ec12f34a4ac8fe2 = Aktualizoval integraci
-source-83862a8c345f2f79 = Aktualizoval pozvánku
-source-98d292e3f05569e2 = Aktualizoval člena
-source-f54d6f3bc3f1cf27 = Aktualizoval role člena
-source-ef65ac31dca18ef1 = Aktualizoval úvodní nastavení
-source-ceff81aa55954521 = Aktualizoval výzvu úvodního nastavení
-source-434cbdc689391a60 = Aktualizoval roli
-source-730f88e345d0cffb = Aktualizoval naplánovanou událost
-source-6d38e9960d2648ac = Aktualizoval nastavení serveru
-source-f119284fd21a88fe = Aktualizoval zvuk soundboardu
-source-82d0a94a8e0653ee = Aktualizoval pódium
-source-7db69c1f76797287 = Aktualizoval samolepku
-source-f60be1ebfea12600 = Aktualizoval vlákno
-source-9412f1a3e9e7a721 = Aktualizoval webhook
-source-10d2d2c4613388a5 = Aktualizace
-source-8dbc700d7081bf16 = aktualizace automatická aktualizace vydání kanál produkce stabilní noční stahování restart kontrola verze diagnostika problém chyba systémové informace ladění
-source-4f2fb98ab3211849 = Aktualizace na tomto kanálu ještě nebyly zkontrolovány.
-source-8fe6d943a7280051 = Aktualizace zatím nebyly zkontrolovány.
-source-cb56be2d0ad7f517 = Aktualizace nastavení kanálu…
-source-772b714e708eac24 = Aktualizace nastavení sdílení aktivity Discordu...
-source-606696257ed9bdc8 = Aktualizace integrací...
-source-2e6d61e5f98af3af = Aktualizace pozvánek…
-source-963cace19c8b2f91 = Aktualizace…
-source-96668830629e0dfc = Nahrát
-source-26649309e06f29a8 = Nahrajte obrázek do 256 kB nebo zvolte emotikony Unicode. Doporučujeme alespoň 64×64 pixelů.
-source-4925cebfca644a52 = Nahrajte emotikony
-source-0c20b6d9b4589ba9 = Plná fronta nahrávání; znovu vyberte soubor
-source-2c2b41ea67ee7540 = Nahrát ikonu serveru
-source-08817a547ee51553 = Nahrát nálepku
-source-e6a492ac4ce9294e = Nahrání není k dispozici; znovu vyberte soubor a zkuste to znovu
-source-70a85d0fe45a6f62 = Nahrál(a).
-source-16184f457965bc4d = analyzovat URL
-source-baa3fde841a694a3 = USB kamera (náhled)
-source-c0e9c95310a2e311 = Použijte #RRGGBB nebo #RRGGBBAA
-source-7024572544c8240d = Použijte #RRGGBB nebo #RRGGBBAA.
-source-4cc45c54ecb5cbb2 = Použijte --demo --demo-friends --demo-frame-sample=WARMUP,SAMPLE (celé sekundy, zahřívání 1..600, ukázka 1..600)
-source-1505ac2b2b85b71f = Použijte 1–80 znaků bez řídicích znaků nebo vyhrazených názvů Discord a Clyde.
-source-39af8d17c90b393f = Použijte název o délce 2–30 znaků, volitelný popis o délce až 100 znaků a alespoň jeden související emotikon.
-source-e91102eec4179879 = Použijte jiný účet
-source-0e8db6c5b0897f25 = Použijte přechod
-source-22af7f67b411f1b6 = Použijte název serveru o délce 2–100 znaků, popis o délce až 300 znaků a platné vlastnosti bez řídicích znaků.
-source-394f5beef344430e = Použijte statický obrázek PNG, JPEG nebo WebP, který se vejde do 512 kB
-source-38e2b9e2903cbda2 = Použijte platnou adresu URL zdroje HTTPS nebo ponechte toto pole prázdné.
-source-8506875a9d95f22c = Použijte jiný účet
-source-e2aa0fdd031da211 = Použít výchozí
-source-082eda98d60c2a71 = Použít výchozí
-source-da9efeda30622cb9 = Použijte externí Emoji
-source-b6e401e855387999 = Použijte externí nálepky
-source-a61278258feeb5fe = Použijte obrázek v celé aplikaci
-source-80f2c74955ce0f1a = Použijte jeden obrázek za konverzacemi a postranními panely.
-source-ac82a2bf4d34f3cc = Použijte role k seskupení členů serveru a přiřazení oprávnění.
-source-373963a757aad586 = Použít výchozí nastavení serveru
-source-bdf2acbd8baed86c = Použijte vestavěnou hodnotu
-source-3e7a7d098fd26e18 = Pro tento vzhled použijte výchozí barvu
-source-deeb874684a76a88 = Použijte jejich uživatelské jméno
-source-359c1b2800819e19 = Použijte motiv
-source-db4138b28731611a = Použijte až 128 znaků bez řídicích znaků.
-source-085e386bc279d562 = Při vyhledávání obrázků GIF nebo nálepek použijte až 64 znaků.
-source-ea30f5ebc20a0def = Použijte Hlasovou aktivitu
-source-f2d7f3f661f7ea12 = Používejte hlasové zkratky, když je zaměřena jiná aplikace. Když je vypnuto, zkratky fungují pouze při zaostření Serein.
-source-7cd026b3d5b072b8 = Pomocí správce balíčků aktualizujte Serein nebo spusťte vydání AppImage.
-source-bdbd3d7392e197ab = Používá se pro tlačítka, výběr a zvýraznění zpráv.
-source-4ccf7f0157938ae0 = použil stejné ID
-source-a48f81f001b893d2 = Uživatel
-source-438b40ecd6a71435 = Zvuk připojení uživatele
-source-393eb187dca41d36 = Zvuk opuštění uživatele
-source-1894386083bb21c9 = Akce uživatelského menu
-source-dbf32ffb36a04cfc = Uživatel nenalezen. Použijte zmínku známého uživatele, ID nebo přesné uživatelské jméno s /msg.
-source-99222edc4ca94f28 = Uživatelský objem
-source-dee96918fab12b37 = Uživatelské jméno bylo označeno
-source-d48d652058c99bc6 = Uživatelé budou muset potvrdit, že dosáhli zákonného věku, aby mohli sledovat obsah tohoto kanálu. Kanály s věkovým omezením jsou vyňaty z filtru explicitního obsahu.
-source-a48f82f001b89585 = Použití
-source-af640b4c86023c69 = PROTI
-source-7f960a7f6584a6ae = Platná cesta archivu zamítnuta.
-source-1e8c3529ec60fc49 = ověřené zaměření
-source-d2528a48cacb6207 = Vanity URL
-source-7bb42119e9b1a3e5 = Vec
-source-37c408c8adb26d03 = Zelenající se
-source-83f718b99a74cfa2 = Platnost ověření vypršela. Spusťte kontrolu znovu.
-source-df6f4d3511e31903 = Vyžaduje se ověření
-source-ca4fb8fafd9b52e5 = Ověřeno
-source-c2b6c18334a4a2c4 = Ověřte
-source-f4122b220926be97 = Verze
-source-4adb303afb07fa10 = Objednání verze nebo ověření značky se nezdařilo.
-source-2fba71bd651bdbfb = Vertikální
-source-ace35f00865c76df = Velmi vysoká
-source-85186a61e0d55bac = Video
-source-b88f655e46b2eb87 = Příloha videa není k dispozici
-source-d062b52546761372 = Video audio výstup zastaven
-source-4ac2f745c380142e = Ukládání videa do vyrovnávací paměti se zastavilo; opakujte nebo stáhněte a přehrajte externě
-source-e677a5e19187c3da = Převod videa byl zrušen nebo přesáhl dvě minuty
-source-687f454c60e0c80a = Stažení videa se nezdařilo nebo se změnilo; znovu načíst konverzaci
-source-7a3ffa8eba6f9db8 = Limit náhledu videa: 100 MiB
-source-d58ec87d257ef933 = Náhled videa · přehrávání se otevře ve vašem prohlížeči
-source-9fcdaf9ce2522c7e = Video server nepodporuje ukládání do vyrovnávací paměti; stáhnout a hrát externě
-source-fb9d6822e9069125 = video ocas se zastavil
-source-6b61a1918b56fc96 = Hlasitost videa
-source-61edf6112c6fa5cb = Video pracovník zastaven; restartujte Serein
-source-a6dfc67975360f88 = Zobrazit jako
-source-3835a2eb415fc406 = Zobrazit banner
-source-f0984f41d2753eb0 = Zobrazit kanály
-source-8cce57368168970f = Zobrazit další samolepky
-source-a5cd74c2a87ead44 = Zobrazit původní zprávu
-source-e064be780d0366cc = Zobrazit náhled
-source-4cbf8491b23782cf = Zobrazit profilový obrázek
-source-1eedbe2fbc47b270 = Zobrazit reakce
-source-3082d635c024691d = Zobrazit zdroj
-source-c9995b81bd83d770 = Zobrazit vlákno ›
-source-bfbbe039b5b9cb62 = mělo by být povoleno viditelné vyhledávání autora
-source-038776cdc40e51d3 = Viditelné GIFy chatu se přehrávají automaticky.
-source-47a9f592c61daa59 = Hlas
-source-6a69760da73a4f0b = V offline náhledu nejsou hlasové hovory dostupné
-source-1eeca30f38c7f552 = hlasový kanál
-source-b5a9b8bf580de49e = Oprávnění hlasového kanálu
-source-16d935854997f12e = Hlasové připojení
-source-961efd6c1cf29f9a = Hlasové spojení ukončeno; explicitně zahájit nový hovor
-source-fb05803dcf7ce939 = hlasové zařízení má hovor
-source-12ef480e9aec4d92 = Hlas je odpojen; nebyl zahájen žádný hovor
-source-e1b4d34ae94916a2 = Hlas není v této relaci dostupný.
-source-ee6b1d49fb8920a1 = Hlasová izolace
-source-c4b32afb9184bfad = Hlasový náhled
-source-38aae4c91fbd94ee = Hlasový soukromý kód
-source-470d360ad8905858 = Zpracování hlasu
-source-2096e82cc9a23dad = Zpracování hlasu a režim zadávání
-source-b011ccab2cbc9798 = Hlasový server změněn; zahájit nový šifrovaný hovor
-source-dfd722899e87de45 = Hlasová relace se během připojení změnila; zkuste nový hovor
-source-e417beddf681f205 = Hlasová relace změněna; zahájit nový hovor
-source-80c69d6618332cc6 = Nastavení hlasu
-source-e4e08cf3df7c04e6 = nastavení hlasu
-source-577b531ff67a120b = Hlasová signalizace je odpojena; akce sdílení obrazovky nebyla odeslána
-source-ef55814d0fce6335 = Hlasová signalizace je odpojena; požadavek na stream nebyl odeslán
-source-90a1996ca8517413 = náhled hlasové kamery zvuk mikrofon reproduktory zařízení zesílení hlasitosti potlačení hluku push to talk
-source-4c5725b06e1f2cb7 = Hlas · seznam
-source-b286ca07fcecaabf = Neplatné
-source-5b528a7f6c0c40af = Objem
-source-ef927d35d549b315 = objem (%)
-source-af640a4c86023ab6 = W
-source-37f4274bc7c4e275 = Počkejte na čitelnou aktuální historii zpráv
-source-28d6a51c6d87f7e6 = Počkejte na dokončení odstranění uložených přihlašovacích údajů.
-source-479471eae833c01b = Počkejte na dokončení aktuální operace přílohy
-source-b8457fb381a208ff = Počkejte, až se dokončí příprava nebo nahrávání aktuálních obrázků emotikonů.
-source-c2ea0f3651b8d482 = Počkejte na dokončení aktuálního vkládání
-source-e55bd0d85dd08d0c = Před zavřením počkejte na dokončení aktuálního ukládání.
-source-0e91eab83bc1da70 = Počkejte, až se otevře předchozí přímá zpráva.
-source-f92d939ac4327a15 = Čekání na připojení.
-source-e430b4836da108ba = Čekání na přihlášení Discord
-source-4c565555b5817f89 = Čekání na Discord…
-source-e5742c5172b9acba = Čekání na aplikaci…
-source-c181f3020df2bafc = Čekání na odpojení předchozího hovoru.
-source-efe123eff3dc7ca5 = Čekání na streamera…
-source-7101dd2deff8fb99 = Čekání na vymazání historie mezipaměti; historie mezipaměti dočasně zakázána
-source-c3fa29b962c8d811 = Teplé dřevěné uhlí a zlato se zaoblenými, prostornými ovládacími prvky.
-source-40868a9aa75f20f5 = Teplé kávové tóny a krémový karamelový akcent.
-source-34be76c6b1eadbef = Varování
-source-0a0a36c999741088 = Sledujte stream
-source-0ebc660e93c4b560 = Sleduje
-source-6d3c94995c337799 = Sledování streamu
-source-9f300702cb64b834 = VLNA
-source-b596f148a31b7d16 = Důrazně doporučujeme nastavit toto pouze na @zmínky pro komunitní server.
-source-f8e4d4474e5bc624 = Doporučujeme obrázek o velikosti alespoň 512×512.
-source-577977ef6b305426 = Webhook
-source-6d69fb7008bb9485 = Autor webhooku
-source-d3bb20d3231f4c6f = Webhooky
-source-3bf3b24b6fcd677c = WebRTC
-source-6d5853b56f3f0766 = Vítejte zpět
-source-ce18bd19ec376c06 = Vítejte v destinaci Serein
-source-8f9c15bbb8ec6408 = co máš na srdci?
-source-0d89b09e531af16a = Když byla zpráva odeslána
-source-ce5d20654a922851 = kam bys chtěl jít?
-source-476b4192dc7278a4 = Která nikdy nevyprší
-source-749b6c726c1960eb = Když je tato možnost povolena, výběr vlastních emotikonů nebo nálepek okamžitě odešle obrázkovou přílohu.
-source-ae3bcbd787941b05 = Widget
-source-5c49cfa8045bc89d = Okno
-source-ff204ac178603ceb = Pozadí okna
-source-39215563bac98e77 = Rohy oken
-source-820ebad499d4c0a3 = Efekty oken
-source-fcc663a2582664eb = Přechod okna
-source-58299ffc05b5c73a = Název okna a záhlaví konverzace
-source-2d34c87f67f66c6a = Windows
-source-3071ed12a0deedaa = S neomezeným využitím
-source-759ec4221a89f75c = slovo ze zdroje
-source-1216ca21d66069cb = pracovník vytvořil
-source-73169ba3b8a0f98b = pracovník vlastní svůj přijímač čištění
-source-f31ea692dc630aae = pracovník začal
-source-4ea3930603447c5a = Zpracovávám poslední akci
-source-142e390b955f4f74 = Pracovní…
-source-8864c20775805e00 = Zalamujte text do spoilerů.
-source-de6362a1744a1bbc = Byla přijata nesprávná architektura AppImage.
-source-af64154c86024d67 = X
-source-d3448a1a1b8f2095 = X64
-source-40970cbe1010db29 = x7fELFx02x01x01
-source-b3394d570128d7b2 = XDG_SESSION_TYPE
-source-af64144c86024bb4 = Y
-source-dd583e56281a195e = YAML
-source-5b4abc92ede53bc7 = Včera
-source-cb6a9c1a1757adbc = Vy
-source-d8e8412a1cb116ed = Již jste členem tohoto serveru.
-source-89c3d70ffc45603d = Již jste členem.
-source-1a402bf2c2585fdd = Již se účastníte tohoto hovoru.
-source-4a9c1c035a243d7f = Tuto ikonu role již nemůžete změnit
-source-c1c2537dfebd04ae = Tento server již nemůžete spravovat
-source-186ee238dbfc7285 = Na tento server již nemůžete nahrávat emotikony
-source-cc3c58e5876b3d35 = Na tento server již nemůžete nahrávat nálepky
-source-2c18dfb018d912b4 = V tomto kanálu nemůžete zahájit vlákno.
-source-76ce3141a1c3fb53 = Tuto konverzaci nemůžete zobrazit.
-source-ac13390c7576a5dc = K použití tohoto příkazu v tomto kanálu nemáte oprávnění.
-source-020a64b5155ccd31 = Máte neuložené změny.
-source-b26b1a2412f8f712 = K vytvoření pozvánky potřebujete oprávnění k vytvoření pozvánky v kanálu.
-source-8f79586ed215c2f2 = Ke změně těchto nastavení potřebujete Spravovat kanály a Spravovat oprávnění.
-source-1c7a8eed90437231 = Již nemáte oprávnění tuto konverzaci měnit.
-source-0ab41190f558a2ba = Ke správě tohoto kanálu již nemáte oprávnění.
-source-9685685b933f743a = Budete se zobrazovat jako offline
-source-8aa748c099f4f5c4 = K opětovnému připojení budete potřebovat pozvánku
-source-ad8a078d018c64f5 = Nebudete se moci znovu připojit k tomuto serveru, dokud nebudete znovu pozváni.
-source-2dc205839b740ab4 = Nebudete dostávat oznámení na ploše
-source-e6e4b6dcb80f5e9c = Jste členem
-source-12c21b402cd2d2a4 = Byli jste pozváni, abyste se připojili k serveru
-source-48fd2ebd801bef61 = Váš účet
-source-76b709858b643e8c = Váš účet používá vlastní nastavení DM ve hře. Vyberte možnost, kterou chcete nahradit.
-source-b11634125ee78408 = Váš účet používá vlastní nastavení filtru spamu. Vyberte možnost, kterou chcete nahradit.
-source-f87d23e5aa7f501a = Váš mikrofon hovoru si zachová aktuální nastavení.
-source-21e2b1dfd199a58b = Vaše změny nebyly uloženy.
-source-9415bd27ed29516a = Vaše změny na tomto serveru budou ztraceny.
-source-e0100216ff74664c = Platnost vašeho odkazu s pozvánkou vyprší za
-source-b846f844f8d62fe7 = Platnost vašeho odkazu s pozvánkou nikdy nevyprší.
-source-a9d1dd5d6142477d = Vaše jméno
-source-b737b4083287e83d = Váš obrázek bude při uložení odstraněn.
-source-5b880cce516ba3a2 = Vaše primární barva ve Vzhledu má přednost před tímto akcentem.
-source-6f577c0bdac1d0c6 = Vaše soukromí
-source-865005865360b572 = Vaše obrazovka
-source-5a62d6c20c047243 = Vaše obrazovka · místní náhled
-source-d3aeef586c5f0477 = Váš server je místo, kde se vy a vaši přátelé setkáte. Udělejte si svůj a začněte mluvit.
-source-6cb85de5133a3e86 = Vaše nálepky
-source-8b1b348158ebc95f = Vaše neuložené změny této role budou ztraceny.
-source-12ac16fdd201f4d1 = Vaše neuložené změny webhooku budou ztraceny.
-source-dcdd12bef40e339e = YouTube
-source-1f8972b051a58a65 = YYYY-MM-DD
-source-af64174c860250cd = Z
-source-91f4da69d58dc6c1 = Nula zakáže rozmazání; nativní skladatel kontroluje jeho přesnou sílu.
-source-e457191a25288af1 = Zig
-source-166bd56d19670a72 = Přiblížení
-source-e480d638d81a9417 = Zypper (RPM)
-source-e7f56f26713340f4 = Čeština
-source-2271ddacfd0a1f7e = … před
-source-d431526dc3eb18ac = ← ZPĚT
-source-547fba8644585336 = ← Zpět na Role
-source-3903e09ce17ed692 = ↑↓ zvolte · Tab/Enter vložit · Esc
-source-999c224c68c025f1 = ↪ Přeposláno
-source-0bd7b459109bb979 = 🌙 poloplynulý v syntetických datech
+# Context: list
+server-roles-list-delete-role = Smazat roli
+# Context: list
+server-roles-list-edit-role = Upravit roli
+# Context: list
+server-roles-list-edit-role-2 = Upravit roli
+# Context: list
+server-roles-list-members = ČLENOVÉ
+# Context: list
+server-roles-list-members-use-the-color-of-the-highest-role-they-have = Členové použijí barvu nejvyšší role, kterou mají na tomto seznamu. Přetažením rolí změníte jejich pořadí.
+# Context: list
+server-roles-list-move-down = Přesunout dolů
+# Context: list
+server-roles-list-move-up = Posunout nahoru
+# Context: list
+server-roles-list-role-actions = Akce rolí
+# Context: list
+server-roles-list-roles = Role
+# Context: list
+server-roles-list-roles-2 = ROLE
+# Context: list
+server-roles-list-search-roles = Hledání rolí
+# Context: list
+server-roles-list-unknown = Neznámý
+# Context: list
+server-roles-list-use-roles-to-group-your-server-members-and-assign-permissions = Použijte role k seskupení členů serveru a přiřazení oprávnění.
+# Context: members
+server-roles-members-add = Přidat
+# Context: members
+server-roles-members-add-members = Přidat členy
+# Context: members
+server-roles-members-back-to-role-members = Zpět na Role Members
+# Context: members
+server-roles-members-first-page = První stránka
+# Context: members
+server-roles-members-next-page = Další stránka
+# Context: members
+server-roles-members-remove = Odstranit
+# Context: members
+server-roles-members-search-members = Hledat členy
+# Context: members
+server-roles-members-showing = Zobrazení
+# Context: navigation
+server-roles-navigation-back = ← ZPĚT
+# Context: navigation
+server-roles-navigation-create-role = Vytvořit roli
+# Context: permissions
+server-roles-permissions-search-permissions = Oprávnění k vyhledávání
+# Context: save_bar
+server-roles-save-bar-saving-role = Ukládání role…
+# Context: show
+server-roles-show-loading-roles = Načítání rolí...
+# Context: show
+server-roles-show-reload-roles = Znovu načíst role
+# Context: show
+server-roles-show-saving = Ukládání...
+
+## crates/ui/src/server_settings.rs
+# Context: channel_picker
+server-settings-channel-picker-no-accessible-channels-available = Nejsou k dispozici žádné dostupné kanály.
+# Context: channel_picker
+server-settings-channel-picker-no-inactive-channel = Žádný neaktivní kanál
+# Context: channel_picker
+server-settings-channel-picker-no-system-messages-channel = Žádný kanál systémových zpráv
+# Context: channel_picker
+server-settings-channel-picker-none = Žádný
+# Context: channel_picker
+server-settings-channel-picker-unavailable-channel = Nedostupný kanál
+# Context: delete_dialog
+server-settings-delete-dialog-are-you-sure-you-want-to-delete = Opravdu chcete smazat?
+# Context: delete_dialog
+server-settings-delete-dialog-cancel = Zrušit
+# Context: delete_dialog
+server-settings-delete-dialog-delete = Vymazat
+# Context: delete_dialog
+server-settings-delete-dialog-delete-server = Smazat server
+# Context: delete_dialog
+server-settings-delete-dialog-deleting = Mazání…
+# Context: delete_dialog
+server-settings-delete-dialog-enter-server-name = Zadejte název serveru
+# Context: delete_dialog
+server-settings-delete-dialog-offline-preview-no-server-changes = Offline náhled · žádné změny na serveru
+# Context: delete_dialog
+server-settings-delete-dialog-this-action-cannot-be-undone = Tuto akci nelze vrátit zpět.
+# Context: delete_server_button
+server-settings-delete-server-button-delete-server = Smazat server
+# Context: engagement
+server-settings-engagement-activity-feed-settings = Nastavení zdroje aktivity
+# Context: engagement
+server-settings-engagement-all-messages = Všechny zprávy
+# Context: engagement
+server-settings-engagement-automatically-move-members-to-this-channel-and-mute-them-when = Automaticky přesouvat členy do tohoto kanálu a ztlumit je, když jsou nečinní déle, než je časový limit neaktivní. To nemá vliv na prohlížeče.
+# Context: engagement
+server-settings-engagement-configure-system-event-messages-sent-to-your-server = Nakonfigurujte zprávy systémových událostí odesílané na váš server.
+# Context: engagement
+server-settings-engagement-default-notification-settings = Výchozí nastavení oznámení
+# Context: engagement
+server-settings-engagement-display-activity-feed-in-this-server = Zobrazit zdroj aktivity na tomto serveru
+# Context: engagement
+server-settings-engagement-engagement = Zasnoubení
+# Context: engagement
+server-settings-engagement-inactive-channel = Neaktivní kanál
+# Context: engagement
+server-settings-engagement-inactive-timeout = Neaktivní časový limit
+# Context: engagement
+server-settings-engagement-manage-settings-that-help-keep-your-server-active = Spravujte nastavení, která pomáhají udržet váš server aktivní.
+# Context: engagement
+server-settings-engagement-only-mentions = Jen @zmínky
+# Context: engagement
+server-settings-engagement-server-default = Výchozí nastavení serveru
+# Context: engagement
+server-settings-engagement-shows-a-feed-of-activity-from-games-and-connected-apps = Zobrazuje zdroj aktivity z her a připojených aplikací na tomto serveru.
+# Context: engagement
+server-settings-engagement-system-messages = Systémové zprávy
+# Context: engagement
+server-settings-engagement-system-messages-channel = Kanál systémových zpráv
+# Context: engagement
+server-settings-engagement-this-is-the-channel-we-send-system-event-messages-to = Toto je kanál, do kterého posíláme zprávy o systémových událostech.
+# Context: engagement
+server-settings-engagement-this-will-determine-whether-members-who-have-not-explicitly-set = To určí, zda členové, kteří explicitně nenastavili svá nastavení oznámení, obdrží oznámení o každé zprávě odeslané na tento server, či nikoli.
+# Context: engagement
+server-settings-engagement-we-highly-recommend-setting-this-to-only-mentions-for-a = Důrazně doporučujeme nastavit toto pouze na @zmínky pro komunitní server.
+# Context: label
+server-settings-page-audit-log = Protokol auditu
+# Context: page_body
+server-settings-page-body-load-server-settings = Načíst nastavení serveru
+# Context: page_body
+server-settings-page-body-loading-server-settings = Načítání nastavení serveru…
+# Context: page_body
+server-settings-page-body-reconnect-to-load-server-settings = Chcete-li načíst nastavení serveru, znovu se připojte.
+# Context: page_body
+server-settings-page-body-reload-server-settings = Znovu načtěte nastavení serveru
+# Context: label
+server-settings-page-emoji = Emoji
+# Context: label
+server-settings-page-engagement = Zasnoubení
+# Context: label
+server-settings-page-integrations = Integrace
+# Context: label
+server-settings-page-invites = Pozvánky
+# Context: label
+server-settings-page-members = členové
+# Context: label
+server-settings-page-profile = Profil serveru
+# Context: label
+server-settings-page-roles = Role
+# Context: label
+server-settings-page-stickers = Samolepky
+# Context: preview
+server-settings-preview-established = Založeno
+# Context: preview
+server-settings-preview-members = členové
+# Context: preview
+server-settings-preview-online = Online
+# Context: profile_form
+server-settings-profile-form-add-up-to-5-traits-to-show-off-your-server = Přidejte až 5 vlastností, abyste ukázali zájmy a osobnost vašeho serveru.
+# Context: profile_form
+server-settings-profile-form-banner = Prapor
+# Context: profile_form
+server-settings-profile-form-change-server-icon = Změnit ikonu serveru
+# Context: profile_form
+server-settings-profile-form-customize-how-your-server-appears-in-invite-links-and-if = Upravte, jak se váš server zobrazuje v odkazech na pozvánky a pokud je povoleno, ve zprávách Server Discovery a Announcement Channel.
+# Context: profile_form
+server-settings-profile-form-description = Popis
+# Context: profile_form
+server-settings-profile-form-how-did-your-server-get-started-why-should-people-join = Jak váš server začal? Proč by se lidé měli připojit?
+# Context: profile_form
+server-settings-profile-form-icon = Ikona
+# Context: profile_form
+server-settings-profile-form-name = Jméno
+# Context: profile_form
+server-settings-profile-form-preparing-icon = Ikona se připravuje…
+# Context: profile_form
+server-settings-profile-form-remove-icon = Odebrat ikonu
+# Context: profile_form
+server-settings-profile-form-remove-trait = Odstraňte vlastnost
+# Context: profile_form
+server-settings-profile-form-server-profile = Profil serveru
+# Context: profile_form
+server-settings-profile-form-tell-the-world-a-bit-about-this-server = Řekněte světu něco o tomto serveru.
+# Context: profile_form
+server-settings-profile-form-trait-name = Název vlastnosti
+# Context: profile_form
+server-settings-profile-form-traits = Vlastnosti
+# Context: profile_form
+server-settings-profile-form-we-recommend-an-image-of-at-least-512512 = Doporučujeme obrázek o velikosti alespoň 512×512.
+# Context: save_bar
+server-settings-save-bar-reconnect-to-save-changes = Chcete-li uložit změny, znovu se připojte.
+# Context: save_bar
+server-settings-save-bar-reload-the-server-settings-before-saving-again-your-edits-will = Před uložením znovu načtěte nastavení serveru. Vaše úpravy budou zachovány.
+# Context: save_bar
+server-settings-save-bar-saving-changes = Ukládání změn…
+# Context: show
+server-settings-show-apps = APLIKACE
+# Context: show
+server-settings-show-expression = VÝRAZY
+# Context: show
+server-settings-show-moderation = MODEROVÁNÍ
+# Context: show
+server-settings-show-people = LIDÉ
+# Context: timeout_picker
+server-settings-timeout-picker-minutes = zápis
+
+## crates/ui/src/server_stickers.rs
+# Context: dialog
+server-stickers-dialog-cancel = Zrušit
+# Context: dialog
+server-stickers-dialog-delete-sticker = Smazat nálepku
+# Context: dialog
+server-stickers-dialog-description-optional = Popis (volitelné)
+# Context: dialog
+server-stickers-dialog-name = Jméno
+# Context: dialog
+server-stickers-dialog-related-emoji = Související emotikony
+# Context: dialog
+server-stickers-dialog-save = Uložit
+# Context: show
+server-stickers-show-add-custom-stickers-for-members-to-use-in-this-server = Přidejte vlastní nálepky pro členy k použití na tomto serveru. Před odesláním je kresba oříznuta a její velikost se změní na 320 × 320 pixelů.
+# Context: show
+server-stickers-show-by = podle
+# Context: show
+server-stickers-show-cancel = Zrušit
+# Context: show
+server-stickers-show-delete-sticker = Smazat nálepku
+# Context: show
+server-stickers-show-description-optional = Popis (volitelné)
+# Context: show
+server-stickers-show-edit = Upravit
+# Context: show
+server-stickers-show-for-example = Například: 🐀
+# Context: show
+server-stickers-show-loading = Načítání…
+# Context: show
+server-stickers-show-name = Jméno
+# Context: show
+server-stickers-show-no-custom-stickers-yet = Zatím žádné vlastní nálepky.
+# Context: show
+server-stickers-show-of = z
+# Context: show
+server-stickers-show-preparing-sticker-artwork = Příprava kresby nálepek…
+# Context: show
+server-stickers-show-related-emoji = Související emotikony
+# Context: show
+server-stickers-show-reload = Znovu načíst
+# Context: show
+server-stickers-show-review-sticker = Nálepka s recenzí
+# Context: show
+server-stickers-show-saving-changes = Ukládání změn…
+# Context: show
+server-stickers-show-slots-used = použité sloty
+# Context: show
+server-stickers-show-static-png-jpeg-and-webp-artwork-is-supported-up-to = Statická grafika PNG, JPEG a WebP je podporována až do velikosti 8 MB. Připravený PNG se musí vejít do limitu Discordu 512 kB.
+# Context: show
+server-stickers-show-sticker-actions = Akce nálepek
+# Context: show
+server-stickers-show-stickers = Samolepky
+# Context: show
+server-stickers-show-stickers-2 = samolepky
+# Context: show
+server-stickers-show-upload = Nahrát
+# Context: show
+server-stickers-show-upload-sticker = Nahrát nálepku
+# Context: show
+server-stickers-show-use-a-230-character-name-an-optional-description-up-to = Použijte název o délce 2–30 znaků, volitelný popis o délce až 100 znaků a alespoň jeden související emotikon.
+# Context: show
+server-stickers-show-your-stickers = Vaše nálepky
+
+## crates/ui/src/settings.rs
+# Context: account_page
+settings-account-page-closes-the-offline-fixture-nothing-is-stored-for-the-preview = Zavře offline zařízení. Pro náhled se nic neukládá.
+# Context: account_page
+settings-account-page-display-name = Zobrazovaný název
+# Context: account_page
+settings-account-page-edit-profile = Upravit profil
+# Context: account_page
+settings-account-page-email-password-and-security = E-mail, heslo a zabezpečení
+# Context: account_page
+settings-account-page-offline-preview-synthetic-account = Offline náhled · syntetický účet
+# Context: account_page
+settings-account-page-removes-the-saved-login-and-clears-this-account-s-local = Odebere uložené přihlašovací údaje a vymaže místní mezipaměť a koncepty tohoto účtu.
+# Context: account_page
+settings-account-page-session = Zasedání
+# Context: account_page
+settings-account-page-signed-in-with-your-discord-account = Přihlášeni pomocí svého účtu Discord
+# Context: activity_settings
+settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = Zjistěte běžící hry a požádejte Discord, aby je sdílel jako aktivitu.
+# Context: activity_settings
+settings-activity-settings-share-game-activity = Sdílejte herní aktivitu
+# Context: appearance_menu
+settings-appearance-menu-display = Zobrazit
+# Context: appearance_menu
+settings-appearance-menu-mode = Režim
+# Context: appearance_menu
+settings-appearance-menu-theme = Téma
+# Context: appearance_settings
+settings-appearance-settings-accent = Přízvuk
+# Context: appearance_settings
+settings-appearance-settings-apply-to-all-surfaces = Aplikujte na všechny povrchy
+# Context: appearance_settings
+settings-appearance-settings-blur = Rozmazat
+# Context: appearance_settings
+settings-appearance-settings-choose-primary-color = Vyberte primární barvu
+# Context: appearance_settings
+settings-appearance-settings-include-sidebars-server-rail-headers-and-composer = Zahrňte postranní panely, serverovou lištu, záhlaví a skladatel.
+# Context: appearance_settings
+settings-appearance-settings-primary-color = Základní barva
+# Context: appearance_settings
+settings-appearance-settings-reset = Resetovat
+# Context: appearance_settings
+settings-appearance-settings-restart-serein-after-changing-this-themes-can-customize-effects-while = Po změně restartujte Serein. Motivy mohou upravovat efekty, když jsou povoleny.
+# Context: appearance_settings
+settings-appearance-settings-the-active-theme-brings-its-own-accent-it-takes-over = Aktivní téma přináší svůj vlastní akcent; přebírá to, když se téma používá.
+# Context: appearance_settings
+settings-appearance-settings-theme = Téma
+# Context: appearance_settings
+settings-appearance-settings-transparency = Průhlednost
+# Context: appearance_settings
+settings-appearance-settings-transparency-blur = Průhlednost a rozostření
+# Context: appearance_settings
+settings-appearance-settings-used-for-buttons-selection-and-message-highlights = Používá se pro tlačítka, výběr a zvýraznění zpráv.
+# Context: appearance_settings
+settings-appearance-settings-window-effects = Efekty oken
+# Context: appearance_settings
+settings-appearance-settings-zero-disables-blur-the-native-compositor-controls-its-exact-strength = Nula zakáže rozmazání; nativní skladatel kontroluje jeho přesnou sílu.
+# Context: chat_settings
+settings-chat-settings-channel-list = Seznam kanálů
+# Context: chat_settings
+settings-chat-settings-show-channels-you-cannot-currently-access = Zobrazit kanály, ke kterým momentálně nemáte přístup.
+# Context: chat_settings
+settings-chat-settings-show-hidden-channels = Zobrazit skryté kanály
+# Context: close_control
+settings-close-control-close-settings-esc = Zavřít nastavení (Esc)
+# Context: colour_preset_settings
+settings-colour-preset-settings-colour-preset = Přednastavená barva
+# Context: colour_preset_settings
+settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Ušetřeno s vaším vzhledem. Předvolby přechodu vždy používají tmavý text.
+# Context: storage_page
+settings-storage-page-clear-cache = Vymazat mezipaměť
+# Context: storage_page
+settings-storage-page-local-storage = Místní úložiště
+# Context: storage_page
+settings-storage-page-messages-and-drafts-are-cached-on-this-device-inside-bounded = Zprávy a koncepty se v tomto zařízení ukládají do mezipaměti v ohraničených souborech izolovaných na účtech. Data mezipaměti nejsou zašifrována Sereinem; uložené přihlašovací tokeny používají úložiště pověření OS.
+# Context: storage_page
+settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-stay = Odstraní zprávy a média z mezipaměti. Koncepty a vaše přihlášení zůstávají.
+# Context: storage_page
+settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein neshromažďuje telemetrii ani nenahrává diagnostiku. Discord uchovává data na straně služeb podle svých vlastních zásad.
+# Context: storage_page
+settings-storage-page-your-privacy = Vaše soukromí
+
+## crates/ui/src/slash_commands.rs
+# Context: argument
+slash-commands-argument-attachment-arguments-are-not-supported-yet = Argumenty příloh zatím nejsou podporovány.
+# Context: argument
+slash-commands-argument-choose = Vybrat…
+# Context: argument
+slash-commands-argument-false = Ne
+# Context: argument
+slash-commands-argument-id-or-choose = ID nebo vybrat…
+# Context: argument
+slash-commands-argument-not-set = Není nastaveno
+# Context: argument
+slash-commands-argument-true = Ano
+# Context: argument
+slash-commands-argument-unavailable = Není k dispozici
+# Context: composer
+slash-commands-composer-choose-a-different-command = zvolte jiný příkaz
+# Context: composer
+slash-commands-composer-command-unavailable-your-arguments-are-kept = Příkaz nedostupný. Vaše argumenty jsou zachovány.
+# Context: footer
+slash-commands-footer-refresh-application-commands = Obnovit příkazy aplikace
+
+## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-loading-sticker-details = Načítání podrobností nálepky…
+# Context: message
+stickers-message-retry-sticker-details = Zkuste znovu podrobnosti nálepky
+# Context: message
+stickers-message-sticker = nálepka
+# Context: message
+stickers-message-sticker-details-unavailable = Podrobnosti nálepky nejsou k dispozici.
+# Context: message
+stickers-message-this-is-a = Toto je a
+# Context: message
+stickers-message-view-more-stickers = Zobrazit další samolepky
+# Context: show
+stickers-show-loading-sticker-packs = Načítání balíčků nálepek…
+# Context: show
+stickers-show-nitro-is-required-to-use-this-sticker-outside-its-server = Nitro je povinen používat tuto nálepku mimo svůj server.
+# Context: show
+stickers-show-no-stickers-found = Nebyly nalezeny žádné nálepky.
+# Context: show
+stickers-show-showing-the-first-500-stickers-search-to-narrow-the-results = Zobrazuje se prvních 500 nálepek. Vyhledávání zúžit výsledky.
+# Context: show
+stickers-show-this-server-has-no-stickers-yet = Tento server zatím nemá žádné nálepky.
+# Context: show
+stickers-show-this-sticker-is-unavailable-with-the-current-connection-or-permissions = Tato nálepka není s aktuálním připojením nebo oprávněními k dispozici.
+
+## crates/ui/src/switcher.rs
+# Context: show
+switcher-show-close = Blízko
+# Context: show
+switcher-show-conversations-and-friends = Rozhovory a přátelé
+# Context: show
+switcher-show-finish-composing-text-before-opening-or-closing = Dokončete skládání textu před otevřením nebo zavřením.
+# Context: show
+switcher-show-no-conversations-or-friends-match = Žádné konverzace ani přátelé se neshodují
+# Context: show
+switcher-show-results = Výsledky
+# Context: show
+switcher-show-try-a-channel-server-or-person-name = Zkuste jméno kanálu, serveru nebo osoby.
+# Context: show
+switcher-show-where-would-you-like-to-go = kam bys chtěl jít?
+
+## crates/ui/src/theme_editor.rs
+# Context: appearance_switch
+theme-editor-appearance-switch-colors-and-opacity-are-saved-separately-for-dark-and-light = Barvy a krytí jsou uloženy odděleně pro tmavý a světlý vzhled.
+# Context: appearance_switch
+theme-editor-appearance-switch-dark = Tmavý
+# Context: appearance_switch
+theme-editor-appearance-switch-editing = Editace
+# Context: appearance_switch
+theme-editor-appearance-switch-light = Světlo
+# Context: color_input
+theme-editor-color-input-use-rrggbb-or-rrggbbaa = Použijte #RRGGBB nebo #RRGGBBAA
+# Context: color_override
+theme-editor-color-override-reset = Resetovat
+# Context: color_override
+theme-editor-color-override-use-rrggbb-or-rrggbbaa = Použijte #RRGGBB nebo #RRGGBBAA.
+# Context: color_override
+theme-editor-color-override-use-the-default-color-for-this-appearance = Pro tento vzhled použijte výchozí barvu
+# Context: cover_card
+theme-editor-cover-card-automatic-preview = Automatický náhled
+# Context: cover_card
+theme-editor-cover-card-choose-cover = Vyberte kryt
+# Context: cover_card
+theme-editor-cover-card-custom-cover = Kryt na zakázku
+# Context: cover_card
+theme-editor-cover-card-png-or-jpeg-up-to-2-mib-this-image-does = PNG nebo JPEG, až 2 MiB. Tento obrázek nemění pozadí chatu.
+# Context: cover_card
+theme-editor-cover-card-remove = Odstranit
+# Context: cover_card
+theme-editor-cover-card-replace-cover = Vyměňte kryt
+# Context: description
+theme-editor-description-direct-messages-and-channel-navigation = Přímé zprávy a navigace kanálů
+# Context: description
+theme-editor-description-the-area-around-the-message-box = Oblast kolem pole zprávy
+# Context: description
+theme-editor-description-the-conversation-timeline = Historie konverzace
+# Context: description
+theme-editor-description-the-left-server-rail = Levý panel serverů
+# Context: description
+theme-editor-description-the-member-and-search-pane-on-the-right = Panel členů a vyhledávání vpravo
+# Context: description
+theme-editor-description-window-title-and-conversation-header = Název okna a záhlaví konverzace
+# Context: image_card
+theme-editor-image-card-background-image = Obrázek na pozadí
+# Context: image_card
+theme-editor-image-card-choose-image = Vyberte obrázek
+# Context: image_card
+theme-editor-image-card-no-image-selected = Nebyl vybrán žádný obrázek
+# Context: image_card
+theme-editor-image-card-pixels = pixelů
+# Context: image_card
+theme-editor-image-card-png-or-jpeg-up-to-2-mib = PNG nebo JPEG, až 2 MiB
+# Context: image_card
+theme-editor-image-card-remove = Odstranit
+# Context: image_card
+theme-editor-image-card-replace-image = Nahradit obrázek
+# Context: label
+theme-editor-label-member-list = Seznam členů
+# Context: label
+theme-editor-label-message-input-area = Oblast pro zadávání zpráv
+# Context: label
+theme-editor-label-message-list = Seznam zpráv
+# Context: label
+theme-editor-label-people-channels = Lidé a kanály
+# Context: label
+theme-editor-label-server-list = Seznam serverů
+# Context: label
+theme-editor-label-top-bars = Horní panely
+# Context: metric_label
+theme-editor-metric-label-reset = Resetovat
+# Context: metric_label
+theme-editor-metric-label-use-the-built-in-value = Použijte vestavěnou hodnotu
+# Context: section_controls
+theme-editor-section-controls-0-shows-the-image-100-is-a-solid-section-color = 0 % ukazuje obrázek. 100 % je plná barva sekce.
+# Context: section_controls
+theme-editor-section-controls-selected-section = Vybraná sekce
+# Context: section_controls
+theme-editor-section-controls-surface-opacity = Neprůhlednost povrchu
+# Context: show
+theme-editor-show-additional-colors-app-controls-and-sharing-details = Další barvy, ovládací prvky aplikace a podrobnosti o sdílení.
+# Context: show
+theme-editor-show-advanced = Moderní
+# Context: show
+theme-editor-show-app-background = Pozadí aplikace
+# Context: show
+theme-editor-show-apply-to-all-surfaces = Aplikujte na všechny povrchy
+# Context: show
+theme-editor-show-blend-two-colors-behind-the-app-s-surfaces = Smíchejte dvě barvy za povrchy aplikace.
+# Context: show
+theme-editor-show-blur = Rozmazat
+# Context: show
+theme-editor-show-card-cover = Kryt karty
+# Context: show
+theme-editor-show-choose-an-image-to-adjust-the-top-bar-lists-and = Vyberte obrázek pro úpravu horní lišty, seznamů a oblasti zpráv.
+# Context: show
+theme-editor-show-choose-the-image-shown-on-your-theme-card-in-themes = Vyberte obrázek zobrazený na kartě motivu v Tématech.
+# Context: show
+theme-editor-show-click-a-swatch-to-choose-a-color-or-enter-its = Klepnutím na políčko vyberte barvu nebo zadejte její hexadecimální hodnotu.
+# Context: show
+theme-editor-show-conversation-colors = Barvy konverzace
+# Context: show
+theme-editor-show-created-by = Vytvořil
+# Context: show
+theme-editor-show-creator-name-is-required = Jméno tvůrce je povinné.
+# Context: show
+theme-editor-show-export-theme = Export motivu
+# Context: show
+theme-editor-show-fill-area = Vyplňte oblast
+# Context: show
+theme-editor-show-fit-entire-image = Přizpůsobit celý obrázek
+# Context: show
+theme-editor-show-how-your-theme-appears-in-the-gallery = Jak se váš motiv zobrazuje v galerii.
+# Context: show
+theme-editor-show-image-opacity = Neprůhlednost obrazu
+# Context: show
+theme-editor-show-include-sidebars-server-rail-headers-and-composer = Zahrňte postranní panely, serverovou lištu, záhlaví a skladatel.
+# Context: show
+theme-editor-show-license = Licence
+# Context: show
+theme-editor-show-license-and-version-are-required = Vyžaduje se licence a verze.
+# Context: show
+theme-editor-show-more-colors = Více barev
+# Context: show
+theme-editor-show-only-share-images-you-own-or-have-permission-to-use = Sdílejte pouze obrázky, které vlastníte nebo máte oprávnění k použití. Ponechte požadovanou atribuci.
+# Context: show
+theme-editor-show-override-the-default-appearance-setting-for-this-theme = Přepsat výchozí nastavení vzhledu pro tento motiv.
+# Context: show
+theme-editor-show-requires-transparency-blur-in-appearance-then-an-app-restart = Vyžaduje průhlednost a rozmazání ve vzhledu a poté restartování aplikace.
+# Context: show
+theme-editor-show-section-opacity = Neprůhlednost sekce
+# Context: show
+theme-editor-show-select-an-area-then-choose-how-much-of-the-image = Vyberte oblast a poté zvolte, jak velká část obrázku bude prosvítat.
+# Context: show
+theme-editor-show-sharing-export = Sdílení a export
+# Context: show
+theme-editor-show-source-url = URL zdroje
+# Context: show
+theme-editor-show-text-spacing-corners = Text, mezery a rohy
+# Context: show
+theme-editor-show-the-license-and-version-are-required-a-source-url-is = Licence a verze jsou povinné. Zdrojová adresa URL je pro místní motivy volitelná.
+# Context: show
+theme-editor-show-theme-details = Detaily tématu
+# Context: show
+theme-editor-show-theme-name = Název motivu
+# Context: show
+theme-editor-show-theme-name-is-required = Název motivu je povinný.
+# Context: show
+theme-editor-show-these-settings-apply-to-dark-and-light-appearances = Tato nastavení platí pro tmavé a světlé vzhledy.
+# Context: show
+theme-editor-show-this-older-theme-uses-its-original-image-placement = Toto starší téma využívá své původní umístění obrázku.
+# Context: show
+theme-editor-show-transparency = Průhlednost
+# Context: show
+theme-editor-show-transparency-blur = Průhlednost a rozostření
+# Context: show
+theme-editor-show-use-a-gradient = Použijte přechod
+# Context: show
+theme-editor-show-use-a-valid-https-source-url-or-leave-this-blank = Použijte platnou adresu URL zdroje HTTPS nebo ponechte toto pole prázdné.
+# Context: show
+theme-editor-show-use-image-across-the-app = Použijte obrázek v celé aplikaci
+# Context: show
+theme-editor-show-use-one-image-behind-your-conversations-and-sidebars = Použijte jeden obrázek za konverzacemi a postranními panely.
+# Context: show
+theme-editor-show-use-rrggbb-or-rrggbbaa = Použijte #RRGGBB nebo #RRGGBBAA.
+# Context: show
+theme-editor-show-version = Verze
+# Context: show
+theme-editor-show-window-effects = Efekty oken
+# Context: show
+theme-editor-show-window-gradient = Přechod okna
+# Context: show
+theme-editor-show-your-primary-color-in-appearance-takes-precedence-over-this-accent = Vaše primární barva ve Vzhledu má přednost před tímto akcentem.
+# Context: show
+theme-editor-show-zero-disables-blur-the-native-compositor-controls-its-exact-strength = Nula zakáže rozmazání; nativní skladatel kontroluje jeho přesnou sílu.
+# Context: key
+theme-editor-tab-advanced = Moderní
+# Context: key
+theme-editor-tab-background = Pozadí
+# Context: key
+theme-editor-tab-basics = Základy
+# Context: key
+theme-editor-tab-colors = Barvy
+# Context: toolbar
+theme-editor-toolbar-back = Zadní
+# Context: toolbar
+theme-editor-toolbar-preview-in-app = Náhled v aplikaci
+# Context: toolbar
+theme-editor-toolbar-save-and-apply = Uložit a použít
+# Context: toolbar
+theme-editor-toolbar-unsaved-changes = Neuložené změny
+# Context: toolbar
+theme-editor-toolbar-working = Pracovní…
+
+## crates/ui/src/thread_create.rs
+# Context: show
+thread-create-show-cancel = Zrušit
+# Context: show
+thread-create-show-create = Vytvořit
+# Context: show
+thread-create-show-create-thread = Vytvořit vlákno
+# Context: show
+thread-create-show-everyone-who-can-see-this-channel-can-see-the-thread = Každý, kdo vidí tento kanál, může vidět vlákno.
+# Context: show
+thread-create-show-the-selected-message-starts-the-thread-everyone-who-can-see = Vybraná zpráva zahájí vlákno. Každý, kdo vidí tento kanál, může vidět vlákno.
+# Context: show
+thread-create-show-thread-name = Název vlákna
+
+## crates/ui/src/timeline.rs
+# Context: channel_welcome
+timeline-channel-welcome-this-is-the-beginning-of-the-conversation = Toto je začátek rozhovoru.
+# Context: deleted_message_actions
+timeline-deleted-message-actions-remove-message = Odebrat zprávu
+# Context: deleted_message_actions
+timeline-deleted-message-actions-toggle-deleted-highlight = Přepněte Odstraněné zvýraznění
+# Context: loading_messages
+timeline-loading-messages-loading-messages = Načítání zpráv
+# Context: message_actions
+timeline-message-actions-copy = Kopie
+# Context: message_actions
+timeline-message-actions-create-thread = Vytvořit vlákno…
+# Context: message_actions
+timeline-message-actions-delete-message = Smazat zprávu…
+# Context: message_actions
+timeline-message-actions-edit-message = Upravit zprávu
+# Context: message_actions
+timeline-message-actions-extensions = Rozšíření
+# Context: message_actions
+timeline-message-actions-forward = Přeposlat
+# Context: message_actions
+timeline-message-actions-mark-read-through-here = Označit jako přečtené až sem
+# Context: message_actions
+timeline-message-actions-mark-unread = Označit jako nepřečtené
+# Context: message_actions
+timeline-message-actions-pin-message = Připnout zprávu
+# Context: message_actions
+timeline-message-actions-reply = Odpovědět
+# Context: message_actions
+timeline-message-actions-unpin-message = Odepnout zprávu
+# Context: message_actions
+timeline-message-actions-view-reactions = Zobrazit reakce
+# Context: present_control
+timeline-present-control-jump-to-present = Přejít do současnosti
+# Context: present_control
+timeline-present-control-new-messages-below-jump-to-present = Níže jsou nové zprávy · přejít na nejnovější
+# Context: show_system
+timeline-show-system-open-this-channels-threads = Otevřít vlákna tohoto kanálu
+# Context: show_system
+timeline-show-system-see-all = . Zobrazit vše
+# Context: show_with_scroll
+timeline-show-with-scroll-application-interaction-pending = Čeká se na interakci s aplikací…
+# Context: show_with_scroll
+timeline-show-with-scroll-deleted-message-had-no-text = [Smazaná zpráva neobsahovala žádný text]
+# Context: show_with_scroll
+timeline-show-with-scroll-dismiss-message = Zavřít zprávu
+# Context: show_with_scroll
+timeline-show-with-scroll-display-limited-copy-message-for-the-full-text = Omezené zobrazení · Zkopírujte zprávu pro celý text
+# Context: show_with_scroll
+timeline-show-with-scroll-edited = (upraveno)
+# Context: show_with_scroll
+timeline-show-with-scroll-forwarded = ↪ Přeposláno
+# Context: show_with_scroll
+timeline-show-with-scroll-hide-spoilers = Skrýt spoilery
+# Context: show_with_scroll
+timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = Historie zatím není k dispozici. Použijte Znovu načíst a zkuste to znovu.
+# Context: show_with_scroll
+timeline-show-with-scroll-loading-messages = Načítání zpráv…
+# Context: show_with_scroll
+timeline-show-with-scroll-message-deleted = Zpráva smazána
+# Context: show_with_scroll
+timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Historie zpráv není s aktuálními informacemi o oprávnění k dispozici.
+# Context: show_with_scroll
+timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Zatím žádné zprávy. Začněte konverzaci níže.
+# Context: show_with_scroll
+timeline-show-with-scroll-only-you-can-see-this = Toto můžete vidět pouze vy •
+# Context: show_with_scroll
+timeline-show-with-scroll-open-in-discord = Otevřít v Discordu
+# Context: show_with_scroll
+timeline-show-with-scroll-reveal-spoiler-media = Odhalte spoilerová média
+# Context: show_with_scroll
+timeline-show-with-scroll-view-original-message = Zobrazit původní zprávu
+# Context: show_with_scroll
+timeline-show-with-scroll-wait-for-readable-current-message-history = Počkejte na čitelnou aktuální historii zpráv
+# Context: show_with_scroll
+timeline-show-with-scroll-you-cannot-view-this-conversation = Tuto konverzaci nemůžete zobrazit.
+# Context: starter_row
+timeline-starter-row-thread-started-from-this-message = Vlákno začalo od této zprávy
+# Context: unread_banner
+timeline-unread-banner-unread-messages = Nepřečtené zprávy
+
+## crates/ui/src/toasts.rs
+# Context: show
+toasts-show-dismiss = Propustit
+
+## crates/ui/src/updates.rs
+# Context: shows_update_banner
+updates-shows-update-banner-on-top = nahoře
+# Context: shows_update_banner
+updates-shows-update-banner-restart-to-update = Pro aktualizaci restartujte
+# Context: shows_update_banner
+updates-shows-update-banner-update-available = Aktualizace k dispozici
+# Context: shows_update_banner
+updates-shows-update-banner-updating = Aktualizace…
+# Context: update_banner
+updates-update-banner-dismiss-update = Zavřít aktualizaci
+# Context: update_settings
+updates-update-settings-auto-update = Automatická aktualizace
+# Context: update_settings
+updates-update-settings-check-for-updates = Zkontrolujte aktualizace
+# Context: update_settings
+updates-update-settings-copied = Zkopírováno
+# Context: update_settings
+updates-update-settings-copy = Kopie
+# Context: update_settings
+updates-update-settings-copy-command = Kopírovat příkaz
+# Context: update_settings
+updates-update-settings-copy-system-and-client-environment-details-formatted-for-github-issue = Zkopírujte podrobnosti o systému a prostředí klienta ve formátu pro hlášení problémů GitHubu.
+# Context: update_settings
+updates-update-settings-could-not-load-or-save-update-preferences-changes-may-not = Nelze načíst nebo uložit předvolby aktualizace. Změny nemusí přežít restart.
+# Context: update_settings
+updates-update-settings-download-update = Stáhnout aktualizaci
+# Context: update_settings
+updates-update-settings-download-updates-in-the-background-restart-when-you-are-ready = Stahujte aktualizace na pozadí. Restartujte, až budete připraveni. Serein stále kontroluje při spuštění a pravidelně, když je vypnutý.
+# Context: update_settings
+updates-update-settings-early-builds-with-the-newest-changes-nightly-releases-can-be = Brzy staví s nejnovějšími změnami. Noční vydání může být méně spolehlivé.
+# Context: update_settings
+updates-update-settings-finish-the-current-update-before-checking-again = Před další kontrolou dokončete aktuální aktualizaci.
+# Context: update_settings
+updates-update-settings-flatpak-manages-updates-via-its-repository-run-flatpak-update-or = Flatpak spravuje aktualizace prostřednictvím svého úložiště. Spusťte `flatpak update` nebo použijte GNOME Software / KDE Discover k instalaci nových vydání.
+# Context: update_settings
+updates-update-settings-in-app-installation-requires-a-macos-or-windows-release-package = Instalace v aplikaci vyžaduje balíček vydání pro macOS nebo Windows nebo Linux x86-64 AppImage. Ostatní instalace Linuxu používají svého správce balíčků.
+# Context: update_settings
+updates-update-settings-issue-diagnostics = Diagnostika problému
+# Context: update_settings
+updates-update-settings-nightly = Noční
+# Context: update_settings
+updates-update-settings-package-manager-updates = Aktualizace správce balíčků
+# Context: update_settings
+updates-update-settings-preferences = Předvolby
+# Context: update_settings
+updates-update-settings-production = Stabilní
+# Context: update_settings
+updates-update-settings-published-stable-releases-switching-channels-never-installs-an-older-ver = Zveřejněná stabilní vydání. Přepínání kanálů nikdy nenainstaluje starší verzi.
+# Context: update_settings
+updates-update-settings-release-channel = Uvolněte kanál
+# Context: update_settings
+updates-update-settings-restart-to-update = Pro aktualizaci restartujte
+# Context: update_settings
+updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein byl nainstalován prostřednictvím vaší distribuce. Spusťte to v terminálu pro aktualizaci.
+# Context: update_settings
+updates-update-settings-support-diagnostics = Podpora a diagnostika
+# Context: update_settings
+updates-update-settings-update-checks-are-disabled-in-debug-builds = Kontroly aktualizací jsou v ladicích sestaveních zakázány.
+
+## crates/ui/src/user_menu.rs
+# Context: contents
+user-menu-contents-add-friend-nickname = Přidat přezdívku přítele
+# Context: contents
+user-menu-contents-add-note = Přidat poznámku
+# Context: contents
+user-menu-contents-block = Blok
+# Context: contents
+user-menu-contents-close-dm = Zavřít DM
+# Context: contents
+user-menu-contents-edit-friend-nickname = Upravit přezdívku přítele
+# Context: contents
+user-menu-contents-mention = Zmínka
+# Context: contents
+user-menu-contents-mute-conversation = Ztlumit konverzaci
+# Context: contents
+user-menu-contents-mute-this-direct-message-s-notifications-until-you-unmute-it = Vypněte oznámení této přímé zprávy, dokud je nezrušíte.
+# Context: contents
+user-menu-contents-no-open-direct-message-with-this-user = Žádná otevřená přímá zpráva s tímto uživatelem.
+# Context: contents
+user-menu-contents-pin-dm = Připnout soukromou zprávu
+# Context: contents
+user-menu-contents-pinned-direct-messages-are-saved-on-this-device = Připnuté přímé zprávy se ukládají do tohoto zařízení.
+# Context: contents
+user-menu-contents-private-nicknames-are-available-for-confirmed-friends = Pro potvrzené přátele jsou k dispozici soukromé přezdívky.
+# Context: contents
+user-menu-contents-profile = Profil
+# Context: contents
+user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Odeberte tuto konverzaci ze seznamu DM. Zprávy se uchovávají.
+# Context: contents
+user-menu-contents-unblock = Odblokovat
+# Context: contents
+user-menu-contents-unmute-conversation = Zrušit ztlumení konverzace
+# Context: contents
+user-menu-contents-unpin-dm = Odepnout soukromou zprávu
+
+## crates/ui/src/verification.rs
+# Context: show
+verification-show-cancel = Zrušit
+# Context: show
+verification-show-complete-the-check-to-join-this-server = Chcete-li se připojit k tomuto serveru, proveďte zaškrtnutí.
+# Context: show
+verification-show-complete-the-check-to-send-this-friend-request = Dokončete zaškrtnutí pro odeslání této žádosti o přátelství.
+# Context: show
+verification-show-discord-requires-a-security-check-before-you-can-add-this = Před přidáním této osoby vyžaduje Discord bezpečnostní kontrolu.
+# Context: show
+verification-show-discord-requires-a-security-check-before-you-can-join = Discord vyžaduje bezpečnostní kontrolu, než se budete moci připojit.
+# Context: show
+verification-show-loading-verification = Načítání ověření…
+# Context: show
+verification-show-offline-preview-no-verification-service-is-contacted = Offline náhled · není kontaktována žádná ověřovací služba.
+# Context: show
+verification-show-one-quick-check = Jedna rychlá kontrola
+# Context: show
+verification-show-verification-required = Vyžaduje se ověření
+# Context: show
+verification-show-verify = Ověřte
+
+## crates/ui/src/video.rs
+# Context: show_player
+video-show-player-a-download-is-already-active = Stahování je již aktivní
+# Context: show_player
+video-show-player-cancel = Zrušit
+# Context: show_player
+video-show-player-downloads-are-disabled-for-synthetic-attachments = U syntetických příloh je stahování zakázáno
+# Context: show_player
+video-show-player-pause = Pauza
+# Context: show_player
+video-show-player-play = Hrát
+# Context: show_player
+video-show-player-replay = Přehrát znovu
+# Context: show_player
+video-show-player-resume = Resumé
+# Context: show_player
+video-show-player-retry = Zkuste to znovu
+# Context: show_player
+video-show-player-seek-video = Hledat video
+# Context: show_player
+video-show-player-video = video
+# Context: show_player
+video-show-player-video-volume = Hlasitost videa
+
+## crates/ui/src/voice.rs
+# Context: call_bar
+voice-call-bar-call-in-progress = Probíhá hovor
+# Context: call_bar
+voice-call-bar-incoming-call = Příchozí hovor…
+# Context: call_bar
+voice-call-bar-join-call = Připojte se k hovoru
+# Context: call_bar
+voice-call-bar-reconnect-to-refresh-call = Pro obnovení hovoru se znovu připojte
+# Context: call_controls
+voice-call-controls-disconnect = Odpojit
+# Context: call_controls
+voice-call-controls-dismiss-call = Zrušit hovor
+# Context: call_controls
+voice-call-controls-leaving-is-unavailable-in-the-offline-preview = Opuštění není v offline náhledu dostupné.
+# Context: call_failure
+voice-call-failure-copy-failure-reason = Důvod selhání kopírování
+# Context: camera_settings_content
+voice-camera-settings-content-camera-capture-is-unavailable-on-this-platform = Snímání fotoaparátem není na této platformě dostupné.
+# Context: camera_settings_content
+voice-camera-settings-content-camera-device = Zařízení fotoaparátu
+# Context: camera_settings_content
+voice-camera-settings-content-changing-devices-stops-your-camera-and-takes-effect-the-next = Změna zařízení zastaví fotoaparát a projeví se při příštím zapnutí.
+# Context: camera_settings_content
+voice-camera-settings-content-refresh-cameras = Obnovte fotoaparáty
+# Context: device_combo
+voice-device-combo-device-unavailable = Zařízení není k dispozici
+# Context: device_combo
+voice-device-default = Výchozí nastavení systému
+# Context: frame
+voice-frame-open-voice = Otevřený hlas
+# Context: gain_controls
+voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% je původní úroveň. Vyšší úrovně mohou zkreslit.
+# Context: labels
+voice-labels-choose-camera = Vyberte fotoaparát
+# Context: live_badge
+voice-live-badge-live = ŽÍT
+# Context: live_badge
+voice-live-badge-live-2 = Žít
+# Context: live_badge
+voice-live-badge-streaming = Streamuje
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-hear-yourself-through-your-selected-speakers-use-headphones-to-avoid = Poslouchejte se prostřednictvím vybraných reproduktorů. Používejte sluchátka, abyste se vyhnuli zpětné vazbě.
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-input-level = Vstupní úroveň
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-leave-the-call-to-test-your-microphone-locally = Nechte hovor a otestujte svůj mikrofon lokálně.
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-microphone-test = Test mikrofonu
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-start-testing = Začněte testovat
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-stop-testing = Přestaňte testovat
+# Context: mute_toggle
+voice-mute-toggle-applies-to-your-next-call = platí pro váš příští hovor.
+# Context: mute_toggle
+voice-mute-toggle-controls-are-unavailable-in-this-build-or-preview = Ovládací prvky nejsou v tomto sestavení nebo náhledu dostupné.
+# Context: mute_toggle
+voice-mute-toggle-deafen = Ohlušit
+# Context: mute_toggle
+voice-mute-toggle-mute = Ztlumit
+# Context: mute_toggle
+voice-mute-toggle-speaking-is-unavailable-in-this-channel = V tomto kanálu nelze mluvit.
+# Context: mute_toggle
+voice-mute-toggle-undeafen = Nehluchý
+# Context: mute_toggle
+voice-mute-toggle-unmute = Zrušit ztlumení
+# Context: mute_toggle_with_settings
+voice-mute-toggle-with-settings-input-settings = Nastavení vstupu
+# Context: mute_toggle_with_settings
+voice-mute-toggle-with-settings-output-settings = Nastavení výstupu
+# Context: stream_audio_controls
+voice-stream-audio-controls-mute-stream-audio = Ztlumit streamovaný zvuk
+# Context: stream_audio_controls
+voice-stream-audio-controls-stream-volume = Hlasitost streamu
+# Context: stream_tile
+voice-stream-tile-stream-audio = Streamujte zvuk
+# Context: stream_tile
+voice-stream-tile-stream-muted = Stream ztlumen
+# Context: voice_audio_controls
+voice-voice-audio-controls-microphone = Mikrofon
+# Context: voice_audio_controls
+voice-voice-audio-controls-microphone-unavailable-a-choose-another-input-you-are-still-connected = Mikrofon není k dispozici. Vyberte jiný vstup. Jste stále připojeni.
+# Context: voice_audio_controls
+voice-voice-audio-controls-refresh-devices = Obnovit zařízení
+# Context: voice_audio_controls
+voice-voice-audio-controls-reset-levels = Resetovat úrovně
+# Context: voice_audio_controls
+voice-voice-audio-controls-speakers = Reproduktory
+# Context: voice_card_section
+voice-voice-card-section-camera-settings = Nastavení fotoaparátu
+# Context: voice_card_section
+voice-voice-card-section-disconnect = Odpojit
+# Context: voice_card_section
+voice-voice-card-section-dismiss-call = Zrušit hovor
+# Context: voice_card_section
+voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Mikrofon není k dispozici Â· stále připojen. V nastavení zvuku vyberte jiný vstup.
+# Context: voice_channel_button
+voice-voice-channel-button-connected = , připojeno
+# Context: voice_channel_button
+voice-voice-channel-button-voice-channel = hlasový kanál
+# Context: voice_channel
+voice-voice-channel-last-known-participants-a-reconnect-to-refresh = Poslední známí účastníci Â· znovu se připojte k obnovení
+# Context: voice_channel
+voice-voice-channel-no-one-s-here-yet = Nikdo tu ještě není
+# Context: voice_channel
+voice-voice-channel-participant-list-unavailable-while-disconnected = Při odpojení není seznam účastníků dostupný
+# Context: voice_channel
+voice-voice-channel-participant-list-unavailable-with-the-current-access = Seznam účastníků není s aktuálním přístupem k dispozici.
+# Context: voice_participant
+voice-voice-participant-deafened = Ohlušený
+# Context: voice_participant
+voice-voice-participant-deafened-by-server = Ohlušen serverem
+# Context: voice_participant_menu
+voice-voice-participant-menu-mute = Ztlumit
+# Context: voice_participant_menu
+voice-voice-participant-menu-reset-volume = Resetovat hlasitost
+# Context: voice_participant_menu
+voice-voice-participant-menu-silence-this-person-on-this-device-only-nobody-else-is = Ztišit tuto osobu pouze na tomto zařízení. Nikdo jiný není ovlivněn.
+# Context: voice_participant_menu
+voice-voice-participant-menu-unmute = Zrušit ztlumení
+# Context: voice_participant_menu
+voice-voice-participant-menu-user-volume = Uživatelský objem
+# Context: voice_participant
+voice-voice-participant-microphone-muted = Mikrofon ztlumen
+# Context: voice_participant
+voice-voice-participant-muted-by-server = Ztlumeno serverem
+# Context: voice_participant
+voice-voice-participant-muted-for-you-on-this-device = Ztlumeno pro vás na tomto zařízení
+# Context: voice_popup_content
+voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Vyberte si algoritmus ve všech nastaveních hlasu.
+# Context: voice_popup_content
+voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen vypne příchozí zvuk a ztlumí vám mikrofon.
+# Context: voice_popup_content
+voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Když chcete mluvit, podržte nakonfigurovanou zkratku.
+# Context: voice_popup_content
+voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Chcete-li používat tyto ovládací prvky, nainstalujte sestavení s podporou hlasu.
+# Context: voice_popup_content
+voice-voice-popup-content-microphone = Mikrofon
+# Context: voice_popup_content
+voice-voice-popup-content-microphone-gain = Zisk mikrofonu
+# Context: voice_popup_content
+voice-voice-popup-content-microphone-unavailable-a-choose-another-input-you-are-still-connected = Mikrofon není k dispozici. Vyberte jiný vstup. Jste stále připojeni.
+# Context: voice_popup_content
+voice-voice-popup-content-noise-suppression = Potlačení hluku
+# Context: voice_popup_content
+voice-voice-popup-content-push-to-talk = Push to talk
+# Context: voice_popup_content
+voice-voice-popup-content-refresh-devices = Obnovit zařízení
+# Context: voice_popup_content
+voice-voice-popup-content-reset-levels = Resetovat úrovně
+# Context: voice_popup_content
+voice-voice-popup-content-speaker-volume = Hlasitost reproduktoru
+# Context: voice_popup_content
+voice-voice-popup-content-speakers = Reproduktory
+# Context: voice_popup_content
+voice-voice-popup-content-voice-privacy-code = Hlasový soukromý kód
+# Context: voice_processing_controls
+voice-voice-processing-controls-adjust-microphone-loudness-automatically = Automaticky nastavte hlasitost mikrofonu.
+# Context: voice_processing_controls
+voice-voice-processing-controls-applies-to-calls-and-your-local-microphone-test = Platí pro hovory a místní test mikrofonu.
+# Context: voice_processing_controls
+voice-voice-processing-controls-automatic-gain-control = Automatické ovládání zisku
+# Context: voice_processing_controls
+voice-voice-processing-controls-echo-cancellation = Zrušení echa
+# Context: voice_processing_controls
+voice-voice-processing-controls-hold-your-configured-shortcut-when-you-want-to-speak = Když chcete mluvit, podržte nakonfigurovanou zkratku.
+# Context: voice_processing_controls
+voice-voice-processing-controls-input-profile = Vstupní profil
+# Context: voice_processing_controls
+voice-voice-processing-controls-input-threshold = Vstupní práh
+# Context: voice_processing_controls
+voice-voice-processing-controls-mute-and-deafen-always-take-priority = Němý a hluchý mají vždy přednost.
+# Context: voice_processing_controls
+voice-voice-processing-controls-noise-suppression = Potlačení hluku
+# Context: voice_processing_controls
+voice-voice-processing-controls-off = Vypnuto
+# Context: voice_processing_controls
+voice-voice-processing-controls-only-transmit-sound-above-this-level-lower-values-pick-up = Přenášejte pouze zvuk nad touto úrovní. Nižší hodnoty zachycují tišší řeč.
+# Context: voice_processing_controls
+voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-apply = Otevřete mikrofon. Stále platí ztlumení a Push to talk.
+# Context: voice_processing_controls
+voice-voice-processing-controls-push-to-talk = Push to talk
+# Context: voice_processing_controls
+voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = Snižte zvuk reproduktoru zachycovaný vaším mikrofonem.
+# Context: voice_processing_controls
+voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = Odstraňuje hluk z klávesnice, ventilátoru a místnosti z mikrofonu.
+# Context: voice_processing_controls
+voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see = Spusťte test mikrofonu nebo se připojte k hovoru, abyste viděli svou vstupní úroveň.
+# Context: voice_processing_controls
+voice-voice-processing-controls-suppression-strength = Síla potlačení
+# Context: voice_settings_content
+voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = Předvolby zvuku jsou uloženy v tomto zařízení. Váš mikrofon se spustí, pouze když se připojíte k hovoru nebo začnete testovat.
+# Context: voice_settings_content
+voice-voice-settings-content-camera = Fotoaparát
+# Context: voice_settings_content
+voice-voice-settings-content-compare-with-the-other-participants-this-code-changes-with-the = Porovnejte s ostatními účastníky. Tento kód se mění se šifrovanou hovorovou skupinou.
+# Context: voice_settings_content
+voice-voice-settings-content-devices-levels = Zařízení a úrovně
+# Context: voice_settings_content
+voice-voice-settings-content-install-a-voice-enabled-build-to-use-these-controls = Chcete-li používat tyto ovládací prvky, nainstalujte sestavení s podporou hlasu.
+# Context: voice_settings_content
+voice-voice-settings-content-voice-privacy-code = Hlasový soukromý kód
+# Context: voice_settings_content
+voice-voice-settings-content-voice-processing = Zpracování hlasu
+# Context: voice_settings_content
+voice-voice-settings-content-voice-processing-input-mode = Zpracování hlasu a režim zadávání
+# Context: voice_settings
+voice-voice-settings-output-settings = Nastavení výstupu
+# Context: voice_settings_popup
+voice-voice-settings-popup-all-voice-settings = Všechna nastavení hlasu
+# Context: voice_settings_popup
+voice-voice-settings-popup-input = Vstup
+# Context: voice_settings_popup
+voice-voice-settings-popup-output = Výstup

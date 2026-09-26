@@ -134,7 +134,9 @@ impl Components {
 				let revealed = self.revealed.contains(&id.value());
 				if !revealed {
 					if ui
-						.button(crate::i18n::translate("Reveal spoiler component"))
+						.button(crate::i18n::translate(
+							"components-show-component-reveal-spoiler-component",
+						))
 						.clicked()
 					{
 						if self.revealed.len() >= 256 {
@@ -363,7 +365,9 @@ impl Components {
 						} else {
 							ui.add_enabled(
 								valid,
-								egui::Button::new(crate::i18n::translate("Submit selection")),
+								egui::Button::new(crate::i18n::translate(
+									"components-show-component-submit-selection",
+								)),
 							)
 							.clicked()
 						};
@@ -431,7 +435,9 @@ impl Components {
 						let revealed = self.revealed.contains(&key.value());
 						if item.spoiler && !revealed {
 							if ui
-								.button(crate::i18n::translate("Reveal spoiler media"))
+								.button(crate::i18n::translate(
+									"components-show-component-reveal-spoiler-media",
+								))
 								.clicked()
 							{
 								if self.revealed.len() >= 256 {
@@ -482,7 +488,9 @@ impl Components {
 						colors.muted,
 						format!(
 							"{} ({})",
-							crate::i18n::translate("Unsupported component type"),
+							crate::i18n::translate(
+								"components-show-component-unsupported-component-type"
+							),
 							c.kind
 						),
 					);
@@ -560,12 +568,14 @@ impl Components {
 					ui.colored_label(design::palette(ui).danger, error);
 				}
 				if busy {
-					ui.label(crate::i18n::translate("Submitting…"));
+					ui.label(crate::i18n::translate("components-dialogs-submitting"));
 				}
 			});
 			dialog.footer(|ui| {
 				ui.add_enabled_ui(valid && !busy, |ui| {
-					submit = dialog::action(ui, "Submit", dialog::Action::Primary).clicked();
+					submit =
+						dialog::action(ui, "components-dialogs-submit", dialog::Action::Primary)
+							.clicked();
 				});
 			});
 		});
@@ -692,9 +702,13 @@ fn select(
 	egui::ComboBox::from_id_salt("selection")
 		.width(width)
 		.height(360.0)
-		.selected_text(crate::i18n::translate(
+		.selected_text(crate::i18n::translate_if_key(
 			&(if selected_text.is_empty() {
-				crate::i18n::translate(c.placeholder.as_deref().unwrap_or("Choose options"))
+				crate::i18n::translate_if_key(
+					c.placeholder
+						.as_deref()
+						.unwrap_or("components-select-choose-options"),
+				)
 			} else {
 				selected_text.clone()
 			}),
@@ -704,7 +718,7 @@ fn select(
 			if (c.min_values == Some(0) || !c.required)
 				&& !values.is_empty()
 				&& ui
-					.button(crate::i18n::translate("Clear selection"))
+					.button(crate::i18n::translate("components-select-clear-selection"))
 					.clicked()
 			{
 				values.clear();
@@ -716,7 +730,7 @@ fn select(
 				&& ui
 					.add(
 						egui::TextEdit::singleline(query)
-							.hint_text(crate::i18n::translate("Search options"))
+							.hint_text(crate::i18n::translate("components-select-search-options"))
 							.char_limit(64),
 					)
 					.changed()
@@ -841,17 +855,19 @@ fn select(
 				}
 			}
 			if options.is_empty() {
-				ui.label(crate::i18n::translate("No matching options loaded"));
+				ui.label(crate::i18n::translate(
+					"components-select-no-matching-options-loaded",
+				));
 			}
 			if options.len() == 100 {
 				ui.small(crate::i18n::translate(
-					"Refine your search to see more results",
+					"components-select-refine-your-search-to-see-more-results",
 				));
 			}
 		});
 	if matches!(c.kind, 5..=8) {
 		ui.small(crate::i18n::translate(
-			"Type to search members; available roles and channels are listed",
+			"components-select-type-to-search-members-available-roles-and-channels-are-listed",
 		));
 	}
 	changed
@@ -994,7 +1010,7 @@ fn field(
 					c.checked.get_or_insert(false),
 					c.label
 						.clone()
-						.unwrap_or_else(|| crate::i18n::translate("Confirm")),
+						.unwrap_or_else(|| crate::i18n::translate("components-field-confirm")),
 				);
 				valid = true;
 			}
@@ -1026,11 +1042,14 @@ fn field(
 				if !c.file_types.is_empty() {
 					ui.small(format!(
 						"{}: {}",
-						crate::i18n::translate("Allowed files"),
+						crate::i18n::translate("components-field-allowed-files"),
 						c.file_types.join(", ")
 					));
 				}
-				if ui.button(crate::i18n::translate("Choose files…")).clicked() {
+				if ui
+					.button(crate::i18n::translate("components-field-choose-files"))
+					.clicked()
+				{
 					*file_request = c.custom_id.clone();
 				}
 				if let Some((_, selected)) = files
@@ -1052,7 +1071,7 @@ fn field(
 			_ => {
 				ui.label(format!(
 					"{} ({}).",
-					crate::i18n::translate("Unsupported form field type"),
+					crate::i18n::translate("components-field-unsupported-form-field-type"),
 					c.kind
 				));
 				valid = false;
@@ -1097,7 +1116,9 @@ fn show_media(
 		.value();
 		if attachment.spoiler && !revealed.contains(&reveal_id) {
 			if ui
-				.button(crate::i18n::translate("Reveal spoiler attachment"))
+				.button(crate::i18n::translate(
+					"components-show-media-reveal-spoiler-attachment",
+				))
 				.clicked()
 			{
 				if revealed.len() >= 256 {
@@ -1178,7 +1199,7 @@ fn show_media(
 		ui.small(description);
 	}
 	if ui
-		.small_button(crate::i18n::translate("Open media"))
+		.small_button(crate::i18n::translate("components-show-media-open-media"))
 		.clicked()
 	{
 		*opening = resolve_media(&media.url, message).and_then(markdown::external_url);

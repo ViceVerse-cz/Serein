@@ -70,7 +70,7 @@ impl PostMenu {
 				let mut intent = None;
 				if row(
 					ui,
-					"Mark As Read",
+					"post-menu-context-mark-as-read",
 					state.can_mark_channel_read(post.id),
 					false,
 				)
@@ -82,15 +82,15 @@ impl PostMenu {
 				if row(
 					ui,
 					if view.contains(Shortcut::Favorite, post.id) {
-						"Remove From Favorites"
+						"post-menu-context-remove-from-favorites"
 					} else {
-						"Add To Favorites"
+						"post-menu-context-add-to-favorites"
 					},
 					view.available() && state.channel(post.id).is_some(),
 					false,
 				)
 				.on_hover_text(crate::i18n::translate(
-					"Favorites are saved on this device.",
+					"post-menu-context-favorites-are-saved-on-this-device",
 				))
 				.clicked()
 				{
@@ -102,9 +102,17 @@ impl PostMenu {
 				if row(
 					ui,
 					&if followed {
-						noun_action(noun, "Unfollow Post", "Unfollow Thread")
+						noun_action(
+							noun,
+							"post-menu-context-unfollow-post",
+							"post-menu-context-unfollow-thread",
+						)
 					} else {
-						noun_action(noun, "Follow Post", "Follow Thread")
+						noun_action(
+							noun,
+							"post-menu-context-follow-post",
+							"post-menu-context-follow-thread",
+						)
 					},
 					ready && details.is_some_and(|d| !d.archived),
 					false,
@@ -119,9 +127,17 @@ impl PostMenu {
 					&& row(
 						ui,
 						&if archived {
-							noun_action(noun, "Open Post", "Open Thread")
+							noun_action(
+								noun,
+								"post-menu-context-open-post",
+								"post-menu-context-open-thread",
+							)
 						} else {
-							noun_action(noun, "Close Post", "Close Thread")
+							noun_action(
+								noun,
+								"post-menu-context-close-post",
+								"post-menu-context-close-thread",
+							)
 						},
 						ready && (!archived || !locked || state.can_manage_post(post.id)),
 						false,
@@ -134,9 +150,17 @@ impl PostMenu {
 					&& row(
 						ui,
 						&if locked {
-							noun_action(noun, "Unlock Post", "Unlock Thread")
+							noun_action(
+								noun,
+								"post-menu-context-unlock-post",
+								"post-menu-context-unlock-thread",
+							)
 						} else {
-							noun_action(noun, "Lock Post", "Lock Thread")
+							noun_action(
+								noun,
+								"post-menu-context-lock-post",
+								"post-menu-context-lock-thread",
+							)
 						},
 						ready,
 						false,
@@ -148,7 +172,11 @@ impl PostMenu {
 				if state.can_edit_post(post.id)
 					&& row(
 						ui,
-						&noun_action(noun, "Edit Post", "Edit Thread"),
+						&noun_action(
+							noun,
+							"post-menu-context-edit-post",
+							"post-menu-context-edit-thread",
+						),
 						ready,
 						false,
 					)
@@ -156,7 +184,7 @@ impl PostMenu {
 				{
 					intent = Some(Intent::Edit);
 				}
-				if row(ui, "Copy Link", true, false).clicked() {
+				if row(ui, "post-menu-context-copy-link", true, false).clicked() {
 					if let Some(guild) = post.guild {
 						ui.ctx()
 							.copy_text(format!("https://discord.com/channels/{guild}/{}", post.id));
@@ -165,11 +193,19 @@ impl PostMenu {
 				}
 				ui.separator();
 				ui.add_enabled_ui(ready && followed, |ui| {
-					let unmute = noun_action(noun, "Unmute Post", "Unmute Thread");
+					let unmute = noun_action(
+						noun,
+						"post-menu-context-unmute-post",
+						"post-menu-context-unmute-thread",
+					);
 					if details.is_some_and(|d| d.muted) && row(ui, &unmute, true, false).clicked() {
 						intent = Some(Intent::Write(Action::PostMute(Mute::Unmute)));
 					}
-					let mute = noun_action(noun, "Mute Post", "Mute Thread");
+					let mute = noun_action(
+						noun,
+						"post-menu-context-mute-post",
+						"post-menu-context-mute-thread",
+					);
 					ui.menu_button(mute, |ui| {
 						for (label, mute) in [
 							("For 15 Minutes", Mute::For(900)),
@@ -184,30 +220,33 @@ impl PostMenu {
 							}
 						}
 					});
-					ui.menu_button(crate::i18n::translate("Notification Settings"), |ui| {
-						for (level, label) in [
-							(0, "All Messages"),
-							(1, "Only @mentions"),
-							(2, "Nothing"),
-							(3, "Use Default"),
-						] {
-							if ui
-								.selectable_label(
-									details.is_some_and(|d| d.level == level),
-									crate::i18n::translate(label),
-								)
-								.clicked()
-							{
-								intent = Some(Intent::Write(Action::PostNotifications(level)));
+					ui.menu_button(
+						crate::i18n::translate("post-menu-context-notification-settings"),
+						|ui| {
+							for (level, label) in [
+								(0, "All Messages"),
+								(1, "Only @mentions"),
+								(2, "Nothing"),
+								(3, "Use Default"),
+							] {
+								if ui
+									.selectable_label(
+										details.is_some_and(|d| d.level == level),
+										crate::i18n::translate_if_key(label),
+									)
+									.clicked()
+								{
+									intent = Some(Intent::Write(Action::PostNotifications(level)));
+								}
 							}
-						}
-					});
+						},
+					);
 				})
 				.response
 				.on_disabled_hover_text(noun_action(
 					noun,
-					"Follow this post to change its notifications.",
-					"Follow this thread to change its notifications.",
+					"post-menu-context-follow-this-post-to-change-its-notifications",
+					"post-menu-context-follow-this-thread-to-change-its-notifications",
 				));
 				if state.can_manage_post(post.id) {
 					ui.separator();
@@ -215,9 +254,17 @@ impl PostMenu {
 					if row(
 						ui,
 						&if pinned {
-							noun_action(noun, "Unpin Post", "Unpin Thread")
+							noun_action(
+								noun,
+								"post-menu-context-unpin-post",
+								"post-menu-context-unpin-thread",
+							)
 						} else {
-							noun_action(noun, "Pin Post", "Pin Thread")
+							noun_action(
+								noun,
+								"post-menu-context-pin-post",
+								"post-menu-context-pin-thread",
+							)
 						},
 						ready,
 						false,
@@ -228,7 +275,11 @@ impl PostMenu {
 					}
 					if row(
 						ui,
-						&noun_action(noun, "Delete Post", "Delete Thread"),
+						&noun_action(
+							noun,
+							"post-menu-context-delete-post",
+							"post-menu-context-delete-thread",
+						),
 						ready,
 						true,
 					)
@@ -238,23 +289,26 @@ impl PostMenu {
 					}
 				}
 				ui.separator();
-				if row(ui, "Copy Thread ID", true, false).clicked() {
+				if row(ui, "post-menu-context-copy-thread-id", true, false).clicked() {
 					ui.ctx().copy_text(post.id.to_string());
 					ui.close();
 				}
 				if self.load.is_some() || state.channel_action_pending() {
 					ui.label(format!(
 						"{} {} {}…",
-						crate::i18n::translate("Loading"),
-						crate::i18n::translate(noun).to_lowercase(),
-						crate::i18n::translate("settings")
+						crate::i18n::translate("post-menu-context-loading"),
+						crate::i18n::translate_if_key(noun).to_lowercase(),
+						crate::i18n::translate("post-menu-context-settings")
 					));
 				} else if let Some(error) = state
 					.channel_action_status(post.id)
 					.filter(|_| !state.channel_action_succeeded(post.id))
 				{
 					ui.colored_label(colors.danger, error);
-					if ui.button(crate::i18n::translate("Retry")).clicked() {
+					if ui
+						.button(crate::i18n::translate("post-menu-context-retry"))
+						.clicked()
+					{
 						self.load = Some(post.id);
 					}
 				}
@@ -354,13 +408,17 @@ impl PostMenu {
 								dialog::Level::Error,
 								state
 									.channel_action_status(id)
-									.unwrap_or("The action could not be started."),
+									.unwrap_or("post-menu-show-the-action-could-not-be-started"),
 							)
 						});
 						let mut close = false;
 						d.footer(|ui| {
-							close =
-								dialog::action(ui, "Dismiss", dialog::Action::Primary).clicked();
+							close = dialog::action(
+								ui,
+								"post-menu-show-dismiss",
+								dialog::Action::Primary,
+							)
+							.clicked();
 						});
 						close
 					});
@@ -390,14 +448,14 @@ impl PostMenu {
 		let title = if editor.delete {
 			format!(
 				"{} {}?",
-				crate::i18n::translate("Delete"),
-				crate::i18n::translate(noun)
+				crate::i18n::translate("post-menu-show-delete"),
+				crate::i18n::translate_if_key(noun)
 			)
 		} else {
 			format!(
 				"{} {}",
-				crate::i18n::translate("Edit"),
-				crate::i18n::translate(noun)
+				crate::i18n::translate("post-menu-show-edit"),
+				crate::i18n::translate_if_key(noun)
 			)
 		};
 		let mut builder =
@@ -407,18 +465,18 @@ impl PostMenu {
 		}
 		let delete_label = format!(
 			"{} {}",
-			crate::i18n::translate("Delete"),
-			crate::i18n::translate(noun)
+			crate::i18n::translate("post-menu-show-delete"),
+			crate::i18n::translate_if_key(noun)
 		);
 		let result = builder.show(ctx, |d| {
 			d.content(|ui| {
 				if editor.delete {
 					ui.label(format!(
 						"{} {}? {}",
-						crate::i18n::translate("Delete"),
+						crate::i18n::translate("post-menu-show-delete"),
 						editor.name,
 						crate::i18n::translate(
-							"Its messages will be permanently deleted. This cannot be undone."
+							"post-menu-show-its-messages-will-be-permanently-deleted-this-cannot-be-undone"
 						)
 					));
 				} else {
@@ -426,8 +484,8 @@ impl PostMenu {
 						ui,
 						&format!(
 							"{} {}",
-							crate::i18n::translate(noun),
-							crate::i18n::translate("title")
+							crate::i18n::translate_if_key(noun),
+							crate::i18n::translate("post-menu-show-title")
 						),
 					);
 					dialog::input(
@@ -441,7 +499,7 @@ impl PostMenu {
 					dialog::notice(
 						ui,
 						dialog::Level::Warning,
-						"You no longer have permission to change this conversation.",
+						"post-menu-show-you-no-longer-have-permission-to-change-this-conversation",
 					);
 				}
 				if let Some(error) = state
@@ -464,7 +522,7 @@ impl PostMenu {
 							if editor.delete {
 								delete_label.as_str()
 							} else {
-								"Save Changes"
+								"post-menu-show-save-changes"
 							},
 							if editor.delete {
 								dialog::Action::Danger
@@ -488,7 +546,8 @@ impl PostMenu {
 						}
 					},
 				);
-				close = dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
+				close =
+					dialog::action(ui, "post-menu-show-cancel", dialog::Action::Neutral).clicked();
 			});
 		});
 		if close || result.close {
@@ -503,12 +562,16 @@ impl PostMenu {
 /// "Post" inside a forum, "Thread" anywhere else; both use the same bounded channel actions.
 fn noun(state: &State, channel: Id) -> &'static str {
 	if state.is_forum_post(channel) {
-		"Post"
+		"post-menu-noun-post"
 	} else {
-		"Thread"
+		"post-menu-noun-thread"
 	}
 }
 
 fn noun_action(noun: &str, post: &str, thread: &str) -> String {
-	crate::i18n::translate(if noun == "Post" { post } else { thread })
+	crate::i18n::translate_if_key(if noun == "post-menu-noun-action-post" {
+		post
+	} else {
+		thread
+	})
 }

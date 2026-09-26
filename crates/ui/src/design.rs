@@ -184,7 +184,7 @@ pub fn color_edit(ui: &mut egui::Ui, color: &mut [u8; 3]) -> egui::Response {
 				.update_while_editing(false),
 		)
 		.on_hover_text(crate::i18n::translate(
-			"Hex color: #RRGGBB. Click to type or paste.",
+			"design-color-edit-hex-color-rrggbb-click-to-type-or-paste",
 		));
 	if hex.changed() {
 		let [_, r, g, b] = value.to_be_bytes();
@@ -886,7 +886,12 @@ pub(crate) fn jumbo_emoji(ui: &mut egui::Ui) {
 /// Uppercase section heading used above channel categories and member groups.
 pub fn eyebrow(ui: &egui::Ui, text: impl Into<String>, color: Color32) -> RichText {
 	let text = text.into();
-	semibold(ui, crate::i18n::translate(&text).to_uppercase(), 12.0).color(color)
+	semibold(
+		ui,
+		crate::i18n::translate_if_key(&text).to_uppercase(),
+		12.0,
+	)
+	.color(color)
 }
 
 fn is_activate_target(sense: egui::Sense) -> bool {
@@ -1290,7 +1295,7 @@ fn wide_button(
 	stroke: Stroke,
 	text: Color32,
 ) -> egui::Response {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	let p = palette(ui);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::click());
@@ -1487,17 +1492,22 @@ pub fn account_row_with_remove(
 			egui::WidgetInfo::labeled(
 				egui::Role::Button,
 				enabled,
-				format!("{} {name}", crate::i18n::translate("Forget")),
+				format!(
+					"{} {name}",
+					crate::i18n::translate("design-account-row-with-remove-forget")
+				),
 			)
 		});
-		remove.on_hover_text(crate::i18n::translate("Forget this account on this device"))
+		remove.on_hover_text(crate::i18n::translate(
+			"design-account-row-with-remove-forget-this-account-on-this-device",
+		))
 	});
 	(response, remove)
 }
 
 /// Quiet expander row: a chevron and a label, for secondary panels that stay folded away.
 pub fn disclosure(ui: &mut egui::Ui, label: &str, open: bool) -> egui::Response {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	let p = palette(ui);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click());
@@ -1689,14 +1699,9 @@ mod tests {
 						},
 						|ui| {
 							let response = match kind {
-								"button" => ui.button(crate::i18n::translate("Action")),
-								"checkbox" => {
-									ui.checkbox(&mut false, crate::i18n::translate("Toggle"))
-								}
-								"disabled" => ui.add_enabled(
-									false,
-									egui::Button::new(crate::i18n::translate("Disabled")),
-								),
+								"button" => ui.button("Action"),
+								"checkbox" => ui.checkbox(&mut false, "Toggle"),
+								"disabled" => ui.add_enabled(false, egui::Button::new("Disabled")),
 								"text" => ui.text_edit_singleline(&mut text),
 								_ => {
 									ui.add_enabled_ui(kind != "disabled-custom", |ui| {
@@ -1960,8 +1965,8 @@ pub fn switch(
 	description: Option<&str>,
 	enabled: &mut bool,
 ) -> egui::Response {
-	let label = crate::i18n::translate(label);
-	let description = description.map(crate::i18n::translate);
+	let label = crate::i18n::translate_if_key(label);
+	let description = description.map(crate::i18n::translate_if_key);
 	let p = palette(ui);
 	let width = ui.available_width();
 	let text_width = (width - 64.0).max(80.0);
@@ -2052,7 +2057,7 @@ pub enum ButtonKind {
 /// Compact inline button. Sizes, radius, focus ring and disabled styling are identical
 /// everywhere: dialog footers, settings toolbars and page headers all use this.
 pub fn button(ui: &mut egui::Ui, label: &str, kind: ButtonKind) -> egui::Response {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	let p = palette(ui);
 	let (fill, stroke, text) = match kind {
 		ButtonKind::Primary => (p.accent, Stroke::NONE, p.accent_text),
@@ -2115,7 +2120,7 @@ pub fn button(ui: &mut egui::Ui, label: &str, kind: ButtonKind) -> egui::Respons
 
 /// Uppercase label above a form control.
 pub fn label(ui: &mut egui::Ui, text: &str) -> egui::Response {
-	let text = crate::i18n::translate(text);
+	let text = crate::i18n::translate_if_key(text);
 	let colors = palette(ui);
 	let response = ui.label(eyebrow(ui, text, colors.muted));
 	ui.add_space(6.0);
@@ -2124,7 +2129,7 @@ pub fn label(ui: &mut egui::Ui, text: &str) -> egui::Response {
 
 /// Small muted explanation under a form control.
 pub fn hint(ui: &mut egui::Ui, text: &str) {
-	let text = crate::i18n::translate(text);
+	let text = crate::i18n::translate_if_key(text);
 	let colors = palette(ui);
 	ui.add_space(4.0);
 	ui.add(egui::Label::new(RichText::new(text).size(12.0).color(colors.muted)).wrap());
@@ -2165,7 +2170,7 @@ pub enum Level {
 /// Tinted callout used for dialog status, permission and failure messages. Replaces the bare
 /// coloured labels these dialogs used to print.
 pub fn notice(ui: &mut egui::Ui, level: Level, text: &str) {
-	let text = crate::i18n::translate(text);
+	let text = crate::i18n::translate_if_key(text);
 	let colors = palette(ui);
 	let (tint, icon) = match level {
 		Level::Info => (colors.accent, crate::icons::Icon::Help),
@@ -2199,8 +2204,8 @@ pub fn divider(ui: &mut egui::Ui) {
 
 /// Title of a settings group, with an optional supporting line under it.
 pub fn section(ui: &mut egui::Ui, title: &str, help: Option<&str>) {
-	let title = crate::i18n::translate(title);
-	let help = help.map(crate::i18n::translate);
+	let title = crate::i18n::translate_if_key(title);
+	let help = help.map(crate::i18n::translate_if_key);
 	let p = palette(ui);
 	ui.label(medium(ui, title, 16.0).color(p.text_strong));
 	if let Some(help) = help {
@@ -2243,8 +2248,8 @@ pub fn interactive_card_frame(ui: &egui::Ui, response: &egui::Response) -> egui:
 
 /// Centered icon, title and explanation for empty, idle and loading views.
 pub fn empty_state(ui: &mut egui::Ui, icon: crate::icons::Icon, title: &str, detail: &str) {
-	let title = crate::i18n::translate(title);
-	let detail = crate::i18n::translate(detail);
+	let title = crate::i18n::translate_if_key(title);
+	let detail = crate::i18n::translate_if_key(detail);
 	let p = palette(ui);
 	egui::Frame::new()
 		.inner_margin(egui::Margin::symmetric(24, 40))
@@ -2272,7 +2277,7 @@ pub fn save_bar(
 	can_reset: bool,
 ) -> (bool, bool) {
 	let saving = saving.map_or_else(
-		|| crate::i18n::translate("Careful — you have unsaved changes!"),
+		|| crate::i18n::translate("design-save-bar-careful-you-have-unsaved-changes"),
 		crate::i18n::translate,
 	);
 	let p = palette(ui);
@@ -2307,7 +2312,7 @@ pub fn segmented(ui: &mut egui::Ui, labels: &[&str], selected: usize) -> Option<
 	}
 	let labels: Vec<_> = labels
 		.iter()
-		.map(|label| crate::i18n::translate(label))
+		.map(|label| crate::i18n::translate_if_key(label))
 		.collect();
 	let p = palette(ui);
 	let font = FontId::new(13.0, medium_family(ui.ctx()));
@@ -2489,8 +2494,8 @@ pub fn row<R>(
 	detail: Option<&str>,
 	control: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
-	let title = crate::i18n::translate(title);
-	let detail = detail.map(crate::i18n::translate);
+	let title = crate::i18n::translate_if_key(title);
+	let detail = detail.map(crate::i18n::translate_if_key);
 	let p = palette(ui);
 	let width = ui.available_width();
 	let text_width = (width * 0.55).max(120.0);
@@ -2518,7 +2523,7 @@ pub fn row<R>(
 /// Quiet inline action for secondary verbs such as "Reset" or "Try again": muted text that
 /// brightens and underlines on hover instead of a full button.
 pub fn text_action(ui: &mut egui::Ui, label: &str) -> egui::Response {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	let p = palette(ui);
 	let galley = ui.painter().layout_no_wrap(
 		label.to_owned(),
@@ -2563,8 +2568,8 @@ pub fn radio_row(
 	label: &str,
 	detail: Option<&str>,
 ) -> egui::Response {
-	let label = crate::i18n::translate(label);
-	let detail = detail.map(crate::i18n::translate);
+	let label = crate::i18n::translate_if_key(label);
+	let detail = detail.map(crate::i18n::translate_if_key);
 	let p = palette(ui);
 	let width = ui.available_width();
 	let text_width = (width - 44.0).max(80.0);
@@ -2853,8 +2858,8 @@ pub fn slider_row<T: egui::emath::Numeric>(
 	range: std::ops::RangeInclusive<T>,
 	suffix: &str,
 ) -> egui::Response {
-	let title = crate::i18n::translate(title);
-	let detail = detail.map(crate::i18n::translate);
+	let title = crate::i18n::translate_if_key(title);
+	let detail = detail.map(crate::i18n::translate_if_key);
 	let p = palette(ui);
 	ui.spacing_mut().item_spacing.y = 4.0;
 	ui.add(egui::Label::new(medium(ui, &title, 15.0).color(p.text_strong)).wrap());
@@ -2877,7 +2882,7 @@ pub fn card_divider(ui: &mut egui::Ui) {
 
 /// Card body with a group title above it, the way every settings page introduces a group.
 pub fn group<R>(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
-	let title = crate::i18n::translate(title);
+	let title = crate::i18n::translate_if_key(title);
 	let p = palette(ui);
 	ui.add_space(4.0);
 	ui.label(eyebrow(ui, title, p.muted));

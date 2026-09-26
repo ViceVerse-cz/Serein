@@ -254,14 +254,12 @@ fn user_picker(
 			query,
 			key,
 			users,
-			&crate::i18n::translate("Choose a user"),
+			&crate::i18n::translate("search-filters-user-picker-choose-a-user"),
 		))
 		.show_ui(ui, |ui| {
-			ui.add(
-				egui::TextEdit::singleline(needle)
-					.char_limit(64)
-					.hint_text(crate::i18n::translate("Search users")),
-			);
+			ui.add(egui::TextEdit::singleline(needle).char_limit(64).hint_text(
+				crate::i18n::translate("search-filters-user-picker-search-users"),
+			));
 			let mut count = 0;
 			for user in users
 				.iter()
@@ -274,7 +272,9 @@ fn user_picker(
 				}
 			}
 			if count == 0 {
-				ui.label(crate::i18n::translate("No matching users"));
+				ui.label(crate::i18n::translate(
+					"search-filters-user-picker-no-matching-users",
+				));
 			}
 		});
 }
@@ -293,7 +293,7 @@ fn choices(
 			query,
 			key,
 			&[],
-			&crate::i18n::translate(placeholder),
+			&crate::i18n::translate_if_key(placeholder),
 		))
 		.show_ui(ui, |ui| {
 			if !multi
@@ -302,7 +302,7 @@ fn choices(
 						!query
 							.split_whitespace()
 							.any(|t| t.starts_with(&format!("{key}:"))),
-						crate::i18n::translate("Any"),
+						crate::i18n::translate("search-filters-choices-any"),
 					)
 					.clicked()
 			{
@@ -310,7 +310,10 @@ fn choices(
 			}
 			for (value, label) in values {
 				if ui
-					.selectable_label(selected(query, key, value), crate::i18n::translate(label))
+					.selectable_label(
+						selected(query, key, value),
+						crate::i18n::translate_if_key(label),
+					)
 					.clicked()
 				{
 					replace(query, key, value, multi);
@@ -359,10 +362,10 @@ impl Draft {
 		let mut action = Action::None;
 		let response = dialog::Dialog::new(
 			"message-search-filter-dialog",
-			crate::i18n::translate("Filters"),
+			crate::i18n::translate("search-filters-show-filters"),
 		)
 		.subtitle(crate::i18n::translate(
-			"Narrow this search down to the messages you want.",
+			"search-filters-show-narrow-this-search-down-to-the-messages-you-want",
 		))
 		.width(width)
 		.show(ctx, |d| {
@@ -391,14 +394,14 @@ impl Draft {
 						ui,
 						&mut self.query,
 						"has",
-						"Any content",
+						"search-filters-show-any-content",
 						&[
-							("link", "Link"),
-							("embed", "Embed"),
-							("file", "File"),
-							("image", "Image"),
-							("video", "Video"),
-							("sound", "Sound"),
+							("search-filters-show-link", "search-filters-show-link-2"),
+							("search-filters-show-embed", "search-filters-show-embed-2"),
+							("search-filters-show-file", "search-filters-show-file-2"),
+							("search-filters-show-image", "search-filters-show-image-2"),
+							("search-filters-show-video", "search-filters-show-video-2"),
+							("search-filters-show-sound", "search-filters-show-sound-2"),
 						],
 						true,
 					);
@@ -419,7 +422,9 @@ impl Draft {
 						if ui
 							.add_sized(
 								[ui.available_width(), 42.0],
-								egui::Button::new(crate::i18n::translate("+  Add date")),
+								egui::Button::new(crate::i18n::translate(
+									"search-filters-show-add-date",
+								)),
 							)
 							.clicked()
 						{
@@ -432,12 +437,17 @@ impl Draft {
 							ui.label(label);
 							ui.add(
 								egui::TextEdit::singleline(date)
-									.hint_text(crate::i18n::translate("YYYY-MM-DD"))
+									.hint_text(crate::i18n::translate(
+										"search-filters-show-yyyy-mm-dd",
+									))
 									.char_limit(10)
 									.desired_width(f32::INFINITY),
 							);
 						}
-						if ui.button(crate::i18n::translate("Remove dates")).clicked() {
+						if ui
+							.button(crate::i18n::translate("search-filters-show-remove-dates"))
+							.clicked()
+						{
 							self.after.clear();
 							self.before.clear();
 							self.date_open = false;
@@ -453,8 +463,15 @@ impl Draft {
 						ui,
 						&mut self.query,
 						"author_type",
-						"Choose author type",
-						&[("user", "User"), ("bot", "Bot"), ("webhook", "Webhook")],
+						"search-filters-show-choose-author-type",
+						&[
+							("search-filters-show-user", "search-filters-show-user-2"),
+							("search-filters-show-bot", "search-filters-show-bot-2"),
+							(
+								"search-filters-show-webhook",
+								"search-filters-show-webhook-2",
+							),
+						],
 						true,
 					);
 					ui.add_space(22.0);
@@ -463,8 +480,11 @@ impl Draft {
 						ui,
 						&mut self.query,
 						"pinned",
-						"Any",
-						&[("true", "True"), ("false", "False")],
+						"search-filters-show-any",
+						&[
+							("search-filters-show-true", "search-filters-show-true-2"),
+							("search-filters-show-false", "search-filters-show-false-2"),
+						],
 						false,
 					);
 					if let Some(error) = self.error {
@@ -474,22 +494,32 @@ impl Draft {
 			});
 			d.footer(|ui| {
 				ui.add_enabled_ui(state.can_search(), |ui| {
-					if dialog::action(ui, "Apply Filters", dialog::Action::Primary).clicked() {
+					if dialog::action(
+						ui,
+						"search-filters-show-apply-filters",
+						dialog::Action::Primary,
+					)
+					.clicked()
+					{
 						match self.applied() {
 							Ok(query) => action = Action::Apply(query),
 							Err(error) => self.error = Some(error),
 						}
 					}
 				});
-				if dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked() {
+				if dialog::action(ui, "search-filters-show-cancel", dialog::Action::Neutral)
+					.clicked()
+				{
 					action = Action::Cancel;
 				}
 				ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 					if ui
 						.add(
 							egui::Button::new(
-								RichText::new(crate::i18n::translate("Clear Filters"))
-									.color(colors.accent),
+								RichText::new(crate::i18n::translate(
+									"search-filters-show-clear-filters",
+								))
+								.color(colors.accent),
 							)
 							.frame(false),
 						)

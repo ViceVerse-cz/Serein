@@ -184,7 +184,9 @@ impl MessagingUi {
 			if state.demo {
 				design::hint(
 					ui,
-					&crate::i18n::translate("Offline demo · actions are simulated."),
+					&crate::i18n::translate(
+						"friends-add-friend-page-offline-demo-actions-are-simulated",
+					),
 				);
 			} else if !state.gateway_connected {
 				design::hint(ui, &language.text("friends-reconnect"));
@@ -331,19 +333,17 @@ impl MessagingUi {
 								);
 								text.add(
 									egui::Label::new(
-										RichText::new(crate::i18n::translate(
-											&(if *incoming {
-												format!(
-													"{name} · {}",
-													language.text("friends-incoming-request")
-												)
-											} else {
-												format!(
-													"{name} · {}",
-													language.text("friends-outgoing-request")
-												)
-											}),
-										))
+										RichText::new(if *incoming {
+											format!(
+												"{name} · {}",
+												language.text("friends-incoming-request")
+											)
+										} else {
+											format!(
+												"{name} · {}",
+												language.text("friends-outgoing-request")
+											)
+										})
 										.size(13.0)
 										.color(colors.muted),
 									)
@@ -971,7 +971,7 @@ fn search(ui: &mut egui::Ui, query: &mut String, id: egui::Id, hint: &str) -> eg
 						ui,
 						Icon::Close,
 						22.0,
-						&crate::i18n::translate("Clear search"),
+						&crate::i18n::translate("friends-search-clear-search"),
 					)
 					.clicked()
 					{

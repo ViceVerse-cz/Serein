@@ -37,180 +37,209 @@ impl ArchivesUi {
 		let filter = self.filter.trim().to_lowercase();
 		let matches = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
 		let can_create = state.can_create_thread(parent);
-		let response = crate::dialog::Dialog::new("archived-threads", crate::i18n::translate("Threads"))
-			.icon(crate::icons::Icon::Thread)
-			.width(520.0)
-			.show(ctx, |d| {
-				d.content(|ui| {
-					let colors = crate::design::palette(ui);
-					// Discord's popout header: search on the left, Create on the right.
-					ui.horizontal(|ui| {
-						let create_width = 88.0;
-						let field_width = (ui.available_width() - create_width - 12.0).max(80.0);
-						let field = ui
-							.allocate_ui(egui::vec2(field_width, 0.0), |ui| {
-								crate::dialog::input(
-									ui,
-									egui::TextEdit::singleline(&mut self.filter)
-										.char_limit(100)
-										.hint_text(crate::i18n::translate("Search for thread name")),
-								)
-							})
-							.inner;
-						self.filter.shrink_to_fit();
-						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-							ui.add_enabled_ui(can_create && !state.channel_action_pending(), |ui| {
-								create = crate::dialog::action(
-									ui,
-									"Create",
-									crate::dialog::Action::Primary,
-								)
-								.on_disabled_hover_text(
-									crate::i18n::translate("You cannot start a thread in this channel."),
-								)
-								.clicked();
-							});
+		let response = crate::dialog::Dialog::new(
+			"archived-threads",
+			crate::i18n::translate("archives-show-threads"),
+		)
+		.icon(crate::icons::Icon::Thread)
+		.width(520.0)
+		.show(ctx, |d| {
+			d.content(|ui| {
+				let colors = crate::design::palette(ui);
+				// Discord's popout header: search on the left, Create on the right.
+				ui.horizontal(|ui| {
+					let create_width = 88.0;
+					let field_width = (ui.available_width() - create_width - 12.0).max(80.0);
+					let field = ui
+						.allocate_ui(egui::vec2(field_width, 0.0), |ui| {
+							crate::dialog::input(
+								ui,
+								egui::TextEdit::singleline(&mut self.filter)
+									.char_limit(100)
+									.hint_text(crate::i18n::translate(
+										"archives-show-search-for-thread-name",
+									)),
+							)
+						})
+						.inner;
+					self.filter.shrink_to_fit();
+					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+						ui.add_enabled_ui(can_create && !state.channel_action_pending(), |ui| {
+							create = crate::dialog::action(
+								ui,
+								"archives-show-create",
+								crate::dialog::Action::Primary,
+							)
+							.on_disabled_hover_text(crate::i18n::translate(
+								"archives-show-you-cannot-start-a-thread-in-this-channel",
+							))
+							.clicked();
 						});
-						if field.changed() {
-							ui.ctx().request_repaint();
-						}
 					});
-					ui.add_space(14.0);
-					let shown: Vec<_> = active
+					if field.changed() {
+						ui.ctx().request_repaint();
+					}
+				});
+				ui.add_space(14.0);
+				let shown: Vec<_> = active
+					.iter()
+					.filter(|thread| matches(&thread.name))
+					.collect();
+				if !active.is_empty() {
+					section(
+						ui,
+						&format!(
+							"{} {}",
+							shown.len(),
+							crate::i18n::translate("archives-show-archives-active-threads")
+						),
+						&colors,
+					);
+					if shown.is_empty() {
+						crate::dialog::hint(
+							ui,
+							"archives-show-no-active-thread-matches-this-search",
+						);
+					}
+					egui::ScrollArea::vertical()
+						.id_salt(("active-threads", parent))
+						.max_height(236.0)
+						.show(ui, |ui| {
+							for thread in &shown {
+								let card = thread_card(ui, state, thread, avatars, &colors);
+								if card.clicked() {
+									active_target = Some(thread.id);
+								}
+							}
+						});
+					ui.add_space(12.0);
+				}
+				section(
+					ui,
+					&crate::i18n::translate("archives-show-older-threads"),
+					&colors,
+				);
+				// A plain row, not `horizontal_wrapped`: the enabled scopes below are child
+				// uis, which would break wrapping.
+				ui.horizontal(|ui| {
+					ui.spacing_mut().item_spacing.x = 6.0;
+					let kinds: Vec<(Kind, &str)> = [
+						(Kind::Public, "Public"),
+						(Kind::JoinedPrivate, "Joined private"),
+						(Kind::Private, "Private"),
+					]
+					.into_iter()
+					.filter(|(kind, _)| *kind == Kind::Public || private)
+					.collect();
+					let names: Vec<&str> = kinds.iter().map(|(_, name)| *name).collect();
+					let selected = kinds
+						.iter()
+						.position(|(kind, _)| *kind == view.kind)
+						.unwrap_or(usize::MAX);
+					if let Some(index) = ui
+						.add_enabled_ui(allowed && !view.loading, |ui| {
+							crate::design::segmented(ui, &names, selected)
+						})
+						.inner
+					{
+						request = Some((kinds[index].0, None));
+					}
+					let action = |ui: &mut egui::Ui, enabled: bool, label: &str| {
+						ui.add_enabled_ui(enabled, |ui| {
+							crate::dialog::action(ui, label, crate::dialog::Action::Neutral)
+						})
+						.inner
+					};
+					let reload = action(ui, allowed, "Reload");
+					if self.focus {
+						reload.request_focus();
+						self.focus = false;
+					}
+					if reload.clicked() {
+						request = Some((view.kind, None));
+					}
+					if view.error.is_some() {
+						if action(ui, allowed && !view.loading, "Retry").clicked() {
+							request = Some((view.kind, view.before));
+						}
+					} else if let Some(before) = view.page.as_ref().and_then(|page| page.next)
+						&& action(ui, allowed && !view.loading, "Older").clicked()
+					{
+						request = Some((view.kind, Some(before)));
+					}
+				});
+				ui.add_space(6.0);
+				if view.kind == Kind::Private {
+					crate::dialog::notice(
+						ui,
+						crate::dialog::Level::Info,
+						"archives-show-private-archives-require-permission-from-the-service",
+					);
+				}
+				if !allowed {
+					crate::dialog::notice(
+						ui,
+						crate::dialog::Level::Warning,
+						"archives-show-archives-are-unavailable-while-disconnected-or-without-channel-access",
+					);
+				}
+				if let Some(error) = view.error {
+					crate::dialog::notice(ui, crate::dialog::Level::Error, error);
+				}
+				if view.loading {
+					ui.horizontal(|ui| {
+						ui.spinner();
+						ui.label(crate::i18n::translate(
+							"archives-show-loading-older-threads",
+						));
+					});
+				}
+				if let Some(page) = &view.page {
+					if page.threads.is_empty() {
+						crate::dialog::hint(ui, "archives-show-no-older-threads-returned");
+					}
+					let older: Vec<_> = page
+						.threads
 						.iter()
 						.filter(|thread| matches(&thread.name))
 						.collect();
-					if !active.is_empty() {
-						section(ui, &format!("{} ACTIVE THREADS", shown.len()), &colors);
-						if shown.is_empty() {
-							crate::dialog::hint(ui, "No active thread matches this search.");
-						}
-						egui::ScrollArea::vertical()
-							.id_salt(("active-threads", parent))
-							.max_height(236.0)
-							.show(ui, |ui| {
-								for thread in &shown {
-									let card = thread_card(ui, state, thread, avatars, &colors);
-									if card.clicked() {
-										active_target = Some(thread.id);
-									}
-								}
-							});
-						ui.add_space(12.0);
-					}
-					section(ui, "OLDER THREADS", &colors);
-					// A plain row, not `horizontal_wrapped`: the enabled scopes below are child
-					// uis, which would break wrapping.
-					ui.horizontal(|ui| {
-						ui.spacing_mut().item_spacing.x = 6.0;
-						let kinds: Vec<(Kind, &str)> = [
-							(Kind::Public, "Public"),
-							(Kind::JoinedPrivate, "Joined private"),
-							(Kind::Private, "Private"),
-						]
-						.into_iter()
-						.filter(|(kind, _)| *kind == Kind::Public || private)
-						.collect();
-						let names: Vec<&str> = kinds.iter().map(|(_, name)| *name).collect();
-						let selected = kinds
-							.iter()
-							.position(|(kind, _)| *kind == view.kind)
-							.unwrap_or(usize::MAX);
-						if let Some(index) = ui
-							.add_enabled_ui(allowed && !view.loading, |ui| {
-								crate::design::segmented(ui, &names, selected)
-							})
-							.inner
-						{
-							request = Some((kinds[index].0, None));
-						}
-						let action = |ui: &mut egui::Ui, enabled: bool, label: &str| {
-							ui.add_enabled_ui(enabled, |ui| {
-								crate::dialog::action(ui, label, crate::dialog::Action::Neutral)
-							})
-							.inner
-						};
-						let reload = action(ui, allowed, "Reload");
-						if self.focus {
-							reload.request_focus();
-							self.focus = false;
-						}
-						if reload.clicked() {
-							request = Some((view.kind, None));
-						}
-						if view.error.is_some() {
-							if action(ui, allowed && !view.loading, "Retry").clicked() {
-								request = Some((view.kind, view.before));
-							}
-						} else if let Some(before) = view.page.as_ref().and_then(|page| page.next)
-							&& action(ui, allowed && !view.loading, "Older").clicked()
-						{
-							request = Some((view.kind, Some(before)));
-						}
-					});
-					ui.add_space(6.0);
-					if view.kind == Kind::Private {
-						crate::dialog::notice(
-							ui,
-							crate::dialog::Level::Info,
-							"Private archives require permission from the service.",
-						);
-					}
-					if !allowed {
-						crate::dialog::notice(
-							ui,
-							crate::dialog::Level::Warning,
-							"Archives are unavailable while disconnected or without channel access.",
-						);
-					}
-					if let Some(error) = view.error {
-						crate::dialog::notice(ui, crate::dialog::Level::Error, error);
-					}
-					if view.loading {
-						ui.horizontal(|ui| {
-							ui.spinner();
-							ui.label(crate::i18n::translate("Loading older threads…"));
-						});
-					}
-					if let Some(page) = &view.page {
-						if page.threads.is_empty() {
-							crate::dialog::hint(ui, "No older threads returned.");
-						}
-						let older: Vec<_> = page
-							.threads
-							.iter()
-							.filter(|thread| matches(&thread.name))
-							.collect();
-						egui::ScrollArea::vertical()
-							.id_salt(("archive-page", view.request))
-							.max_height(300.0)
-							.show_rows(ui, CARD_HEIGHT + CARD_GAP, older.len(), |ui, range| {
-								for thread in &older[range] {
-									ui.push_id(thread.id, |ui| {
-										ui.add_enabled_ui(allowed && !view.loading, |ui| {
-											if thread_card(ui, state, thread, avatars, &colors)
-												.clicked()
-											{
-												target = Some(thread.id);
-											}
-										});
+					egui::ScrollArea::vertical()
+						.id_salt(("archive-page", view.request))
+						.max_height(300.0)
+						.show_rows(ui, CARD_HEIGHT + CARD_GAP, older.len(), |ui, range| {
+							for thread in &older[range] {
+								ui.push_id(thread.id, |ui| {
+									ui.add_enabled_ui(allowed && !view.loading, |ui| {
+										if thread_card(ui, state, thread, avatars, &colors)
+											.clicked()
+										{
+											target = Some(thread.id);
+										}
 									});
-								}
-							});
-						if page.next.is_none() && !view.loading {
-							crate::dialog::hint(ui, "No older threads reported by the service.");
-						}
+								});
+							}
+						});
+					if page.next.is_none() && !view.loading {
+						crate::dialog::hint(
+							ui,
+							"archives-show-no-older-threads-reported-by-the-service",
+						);
 					}
-					crate::dialog::hint(
-						ui,
-						"Active threads come from the session; older threads load 25 at a time. Opening loads messages without joining.",
-					);
-				});
-				d.footer(|ui| {
-					close |= crate::dialog::action(ui, "Close", crate::dialog::Action::Neutral)
-						.clicked();
-				});
+				}
+				crate::dialog::hint(
+					ui,
+					"archives-show-active-threads-come-from-the-session-older-threads-load-25",
+				);
 			});
+			d.footer(|ui| {
+				close |= crate::dialog::action(
+					ui,
+					"archives-show-close",
+					crate::dialog::Action::Neutral,
+				)
+				.clicked();
+			});
+		});
 		if create {
 			self.create_requested = Some(parent);
 		}
@@ -238,7 +267,6 @@ const CARD_HEIGHT: f32 = 74.0;
 const CARD_GAP: f32 = 8.0;
 
 fn section(ui: &mut egui::Ui, label: &str, colors: &crate::design::Palette) {
-	let label = crate::i18n::translate(label);
 	ui.label(crate::design::semibold(ui, label, 12.0).color(colors.muted));
 	ui.add_space(6.0);
 }
@@ -281,9 +309,11 @@ fn thread_card(
 						avatars.show_plain(ui, &starter.author, 18.0, state.demo);
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new(crate::i18n::translate("Started by"))
-									.size(13.0)
-									.color(colors.muted),
+								egui::RichText::new(crate::i18n::translate(
+									"archives-thread-card-started-by",
+								))
+								.size(13.0)
+								.color(colors.muted),
 							)
 							.selectable(false),
 						);
@@ -323,7 +353,7 @@ fn thread_card(
 	ui.add_space(CARD_GAP);
 	response.on_hover_text(format!(
 		"{} “{}”",
-		crate::i18n::translate("Open thread"),
+		crate::i18n::translate("archives-thread-card-open-thread"),
 		thread.name
 	))
 }

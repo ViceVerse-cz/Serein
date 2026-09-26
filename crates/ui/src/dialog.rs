@@ -6,13 +6,13 @@
 //! second theme.
 //!
 //! ```ignore
-//! let response = dialog::Dialog::new("delete-channel", &crate::i18n::translate("Delete channel?"))
+//! let response = dialog::Dialog::new("delete-channel", &crate::i18n::translate("dialog-module-delete-channel"))
 //!     .danger()
 //!     .show(ctx, |d| {
-//!         d.content(|ui| { ui.label(&crate::i18n::translate("This cannot be undone.")); });
+//!         d.content(|ui| { ui.label(&crate::i18n::translate("dialog-module-this-cannot-be-undone")); });
 //!         d.footer(|ui| {
-//!             confirmed = dialog::action(ui, "Delete", dialog::Action::Danger).clicked();
-//!             cancelled = dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
+//!             confirmed = dialog::action(ui, "dialog-module-delete", dialog::Action::Danger).clicked();
+//!             cancelled = dialog::action(ui, "dialog-module-cancel", dialog::Action::Neutral).clicked();
 //!         });
 //!     });
 //! ```
@@ -240,8 +240,8 @@ fn header(
 	icon: Option<icons::Icon>,
 	dismissable: bool,
 ) -> bool {
-	let title = crate::i18n::translate(title);
-	let subtitle = subtitle.map(crate::i18n::translate);
+	let title = crate::i18n::translate_if_key(title);
+	let subtitle = subtitle.map(crate::i18n::translate_if_key);
 	let colors = design::palette(ui);
 	let mut close = false;
 	egui::Frame::new()
@@ -302,7 +302,7 @@ fn header(
 							ui,
 							icons::Icon::Close,
 							30.0,
-							&crate::i18n::translate("Close dialog (Esc)"),
+							&crate::i18n::translate("dialog-header-close-dialog-esc"),
 						)
 						.clicked();
 					});
@@ -383,7 +383,7 @@ impl Confirm {
 			enabled,
 			note,
 		} = self;
-		let message = crate::i18n::translate(&message);
+		let message = crate::i18n::translate_if_key(&message);
 		let dialog_id = dialog.id;
 		let mut choice = None;
 		let response = dialog.show(ctx, |d| {

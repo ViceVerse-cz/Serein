@@ -443,7 +443,7 @@ pub fn channel(kind: u8) -> Icon {
 
 /// Square icon button that highlights on hover and exposes `label` to accessibility.
 pub fn button(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
 	if response.hovered() || response.has_focus() {
@@ -463,7 +463,7 @@ pub fn button(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response
 
 /// Toggleable variant: `active` keeps the icon in the strong text colour.
 pub fn toggle(ui: &mut egui::Ui, icon: Icon, size: f32, active: bool, label: &str) -> Response {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
 	if response.hovered() || response.has_focus() {

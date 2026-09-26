@@ -378,9 +378,13 @@ fn category_header(
 	let response = response.on_hover_text_with(|| {
 		format!(
 			"{name} {} · {count} {} · {}",
-			crate::i18n::translate("category"),
-			crate::i18n::translate("channels"),
-			crate::i18n::translate(if collapsed { "Expand" } else { "Collapse" })
+			crate::i18n::translate("categories-category-header-category"),
+			crate::i18n::translate("categories-category-header-channels"),
+			crate::i18n::translate_if_key(if collapsed {
+				"categories-category-header-expand"
+			} else {
+				"categories-category-header-collapse"
+			})
 		)
 	});
 	response.widget_info(|| {
@@ -389,9 +393,13 @@ fn category_header(
 			true,
 			format!(
 				"{name} {}, {}, {count} {}",
-				crate::i18n::translate("category"),
-				crate::i18n::translate(if collapsed { "collapsed" } else { "expanded" }),
-				crate::i18n::translate("channels")
+				crate::i18n::translate("categories-category-header-category"),
+				crate::i18n::translate_if_key(if collapsed {
+					"categories-category-header-collapsed"
+				} else {
+					"categories-category-header-expanded"
+				}),
+				crate::i18n::translate("categories-category-header-channels")
 			),
 		)
 	});
@@ -399,7 +407,7 @@ fn category_header(
 }
 
 fn eyebrow_row(ui: &mut egui::Ui, label: &str, row_height: f32) -> egui::Rect {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	ui.allocate_ui_with_layout(
 		egui::vec2(ui.available_width(), row_height),
@@ -447,17 +455,17 @@ fn paint_shelf_rule(ui: &egui::Ui, rect: egui::Rect, rows: &[CachedRow], index: 
 
 fn kind_label(kind: u8) -> &'static str {
 	match kind {
-		0 => "Text channel",
-		1 => "Direct message",
-		2 => "Server voice channel",
-		3 => "Group direct message",
-		5 => "Announcement channel",
-		10..=12 => "Thread",
-		13 => "Stage channel · not implemented",
-		14 => "Directory · not implemented",
-		15 => "Forum · loaded posts",
-		16 => "Media · loaded posts",
-		_ => "Unknown channel type · not implemented",
+		0 => "categories-paint-shelf-rule-text-channel",
+		1 => "categories-paint-shelf-rule-direct-message",
+		2 => "categories-paint-shelf-rule-server-voice-channel",
+		3 => "categories-paint-shelf-rule-group-direct-message",
+		5 => "categories-paint-shelf-rule-announcement-channel",
+		10..=12 => "categories-paint-shelf-rule-thread",
+		13 => "categories-paint-shelf-rule-stage-channel-not-implemented",
+		14 => "categories-paint-shelf-rule-directory-not-implemented",
+		15 => "categories-paint-shelf-rule-forum-loaded-posts",
+		16 => "categories-paint-shelf-rule-media-loaded-posts",
+		_ => "categories-paint-shelf-rule-unknown-channel-type-not-implemented",
 	}
 }
 
@@ -592,7 +600,11 @@ impl MessagingUi {
 					};
 					match row {
 						CachedRow::Heading(heading) => {
-							let rect = eyebrow_row(ui, heading.label(), row_height);
+							let rect = eyebrow_row(
+								ui,
+								&crate::i18n::translate_if_key(heading.key()),
+								row_height,
+							);
 							paint_shelf_rule(ui, rect, &self.channel_cache.rows, index);
 						}
 						CachedRow::Participant(entry) => {
@@ -1047,7 +1059,7 @@ impl MessagingUi {
 								format!(
 									"{} · {}{}{}",
 									channel.name,
-									crate::i18n::translate(kind_label(channel.kind)),
+									crate::i18n::translate_if_key(kind_label(channel.kind)),
 									channel_marks::label(access),
 									if unread && !forum && state.channel_unread(channel).is_none() {
 										" · Session activity; read sync unavailable"
@@ -1069,12 +1081,14 @@ impl MessagingUi {
 										channel.name,
 										channel_marks::label(access),
 										if unread {
-											crate::i18n::translate(", unread")
+											crate::i18n::translate("categories-channel-list-unread")
 										} else {
 											String::new()
 										},
 										count,
-										crate::i18n::translate("notifications")
+										crate::i18n::translate(
+											"categories-channel-list-notifications"
+										)
 									),
 								)
 							});
@@ -2229,9 +2243,15 @@ mod tests {
 		assert_eq!(ids(collapsed), [20, 21, 22, 23, 24, 25, 27, 28, 4]);
 		assert!(!hierarchy[1].supports_text() && !hierarchy[6].supports_text());
 		assert!(hierarchy[2].supports_text());
-		assert_eq!(kind_label(16), "Media · loaded posts");
+		assert_eq!(
+			crate::i18n::Language::English.text(kind_label(16)),
+			"Media · loaded posts"
+		);
 		assert!(!channels[1].supports_text());
-		assert_eq!(kind_label(15), "Forum · loaded posts");
+		assert_eq!(
+			crate::i18n::Language::English.text(kind_label(15)),
+			"Forum · loaded posts"
+		);
 		let mut state = State {
 			user: Some(model::User {
 				id: Id(2),

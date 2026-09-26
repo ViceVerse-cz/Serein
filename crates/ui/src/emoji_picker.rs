@@ -340,7 +340,7 @@ impl Picker {
 				ui,
 				crate::icons::Icon::Smile,
 				28.0,
-				&crate::i18n::translate("Choose emoji"),
+				&crate::i18n::translate("emoji-picker-unicode-button-with-choose-emoji"),
 			)
 		} else {
 			ui.add_sized(
@@ -348,12 +348,14 @@ impl Picker {
 				egui::Button::new(selected.as_deref().unwrap_or("☺")).frame(false),
 			)
 		}
-		.on_hover_text(crate::i18n::translate("Choose emoji"));
+		.on_hover_text(crate::i18n::translate(
+			"emoji-picker-unicode-button-with-choose-emoji",
+		));
 		button.widget_info(|| {
 			egui::WidgetInfo::labeled(
 				egui::Role::Button,
 				ui.is_enabled(),
-				crate::i18n::translate("Choose emoji"),
+				crate::i18n::translate("emoji-picker-unicode-button-with-choose-emoji"),
 			)
 		});
 		if button.clicked() {
@@ -368,7 +370,9 @@ impl Picker {
 				if ui
 					.add(
 						egui::TextEdit::singleline(&mut self.query)
-							.hint_text(crate::i18n::translate("Search emoji"))
+							.hint_text(crate::i18n::translate(
+								"emoji-picker-unicode-button-with-search-emoji",
+							))
 							.char_limit(64)
 							.desired_width(f32::INFINITY),
 					)
@@ -376,7 +380,13 @@ impl Picker {
 				{
 					self.filter();
 				}
-				if removable && ui.button(crate::i18n::translate("Remove emoji")).clicked() {
+				if removable
+					&& ui
+						.button(crate::i18n::translate(
+							"emoji-picker-unicode-button-with-remove-emoji",
+						))
+						.clicked()
+				{
 					*selected = None;
 					ui.close();
 				}
@@ -565,7 +575,7 @@ impl Picker {
 			egui::WidgetInfo::labeled(
 				egui::Role::Button,
 				ui.is_enabled(),
-				crate::i18n::translate("Add reaction"),
+				crate::i18n::translate("emoji-picker-show-reaction-add-reaction"),
 			)
 		});
 		if let Some(Pick::React(message, emoji)) =
@@ -670,14 +680,14 @@ impl Picker {
 			crate::icons::Icon::Smile,
 			28.0,
 			self.open && self.tab == Tab::Emoji,
-			&crate::i18n::translate("Insert an emoji"),
+			&crate::i18n::translate("emoji-picker-show-insert-an-emoji"),
 		);
 		let gif_trigger = crate::icons::toggle(
 			ui,
 			crate::icons::Icon::Gif,
 			28.0,
 			self.open && self.tab == Tab::Gifs,
-			&crate::i18n::translate("Send a GIF"),
+			&crate::i18n::translate("emoji-picker-show-send-a-gif"),
 		);
 		for (response, tab) in [(&trigger, Tab::Emoji), (&gif_trigger, Tab::Gifs)] {
 			if response.clicked() {
@@ -909,7 +919,9 @@ impl Picker {
 										ui,
 										crate::icons::Icon::ArrowLeft,
 										30.0,
-										&crate::i18n::translate("Back to GIF categories"),
+										&crate::i18n::translate(
+											"emoji-picker-popup-back-to-gif-categories",
+										),
 									)
 									.clicked()
 								{
@@ -937,20 +949,20 @@ impl Picker {
 											let (text, hint, label) = if gifs_tab {
 												(
 													&mut self.gif_query,
-													"Search KLIPY",
-													"Search GIFs on KLIPY",
+													"emoji-picker-search-klipy",
+													"emoji-picker-search-gifs-label",
 												)
 											} else if stickers_tab {
 												(
 													&mut self.stickers.query,
-													"Find the perfect sticker",
-													"Search stickers by name",
+													"emoji-picker-search-stickers",
+													"emoji-picker-search-stickers-label",
 												)
 											} else {
 												(
 													&mut self.query,
-													"Find the perfect emoji",
-													"Search emoji by name",
+													"emoji-picker-search-emoji",
+													"emoji-picker-search-emoji-label",
 												)
 											};
 											let search = ui.add(
@@ -958,11 +970,12 @@ impl Picker {
 													.id(ui.scope_id().with("picker-search"))
 													.char_limit(64)
 													.frame(egui::Frame::NONE)
-													.hint_text(crate::i18n::translate(hint))
+													.hint_text(crate::i18n::translate_if_key(hint))
 													.desired_width(ui.available_width()),
 											);
-											let search = search
-												.accessible_name(crate::i18n::translate(label));
+											let search = search.accessible_name(
+												crate::i18n::translate_if_key(label),
+											);
 											if self.focus {
 												search.request_focus();
 												self.focus = false;
@@ -989,7 +1002,9 @@ impl Picker {
 									if let Some(error) = state.stickers.error {
 										ui.label(error);
 										if ui
-											.button(crate::i18n::translate("Retry sticker packs"))
+											.button(crate::i18n::translate(
+												"emoji-picker-popup-retry-sticker-packs",
+											))
 											.clicked() && let Some(command) =
 											state.request_sticker_packs()
 										{
@@ -1040,7 +1055,9 @@ impl Picker {
 										crate::icons::Icon::Smile,
 										32.0,
 										self.server.is_none(),
-										&crate::i18n::translate("Standard emoji"),
+										&crate::i18n::translate(
+											"emoji-picker-popup-standard-emoji",
+										),
 									);
 									if unicode.clicked() {
 										self.server = None;
@@ -1122,7 +1139,9 @@ impl Picker {
 										ui.label(
 											crate::design::semibold(
 												ui,
-												crate::i18n::translate("FREQUENTLY USED"),
+												crate::i18n::translate(
+													"emoji-picker-popup-frequently-used",
+												),
 												12.0,
 											)
 											.color(colors.muted),
@@ -1161,10 +1180,10 @@ impl Picker {
 										.server
 										.and_then(|id| state.guilds.iter().find(|g| g.id == id));
 									let heading = if searching {
-										crate::i18n::translate("Search results")
+										crate::i18n::translate("emoji-picker-popup-search-results")
 									} else {
 										guild.map_or_else(
-											|| crate::i18n::translate("Emoji"),
+											|| crate::i18n::translate("emoji-picker-popup-emoji"),
 											|g| g.name.clone(),
 										)
 									};
@@ -1192,19 +1211,19 @@ impl Picker {
 									};
 									let count = custom.len() + unicode.len();
 									if count == 0 {
-										let text = crate::i18n::translate(if searching {
-											"No matching emoji."
+										let text = crate::i18n::translate_if_key(if searching {
+											"emoji-picker-popup-no-matching-emoji"
 										} else if guild.is_some_and(|g| g.emojis.is_none()) {
-											"This server's emoji list is not loaded yet."
+											"emoji-picker-popup-this-server-s-emoji-list-is-not-loaded-yet"
 										} else {
-											"This server has no custom emoji."
+											"emoji-picker-popup-this-server-has-no-custom-emoji"
 										});
 										ui.label(egui::RichText::new(text).color(colors.muted));
 									}
 									if searching && custom.len() == CUSTOM_LIMIT {
 										ui.label(
 											egui::RichText::new(crate::i18n::translate(
-												"Showing the first 1,000 custom emoji. Refine your search for more.",
+												"emoji-picker-popup-showing-the-first-1-000-custom-emoji-refine-your-search",
 											))
 											.small()
 											.color(colors.muted),
@@ -1309,7 +1328,7 @@ impl Picker {
 																		.map(str::to_owned)
 																		.unwrap_or_else(|| {
 																			crate::i18n::translate(
-																				"Cannot add this reaction right now",
+																				"emoji-picker-popup-cannot-add-this-reaction-right-now",
 																			)
 																		}),
 																)
@@ -1388,7 +1407,7 @@ impl Picker {
 										});
 									} else {
 										ui.label(crate::i18n::translate(
-											"Hover a sticker to preview it",
+											"emoji-picker-popup-hover-a-sticker-to-preview-it",
 										));
 									}
 									return;
@@ -1414,7 +1433,7 @@ impl Picker {
 										None => {
 											ui.label(
 												egui::RichText::new(crate::i18n::translate(
-													"Click a GIF to send it right away",
+													"emoji-picker-popup-click-a-gif-to-send-it-right-away",
 												))
 												.color(colors.muted),
 											);
@@ -1459,7 +1478,7 @@ impl Picker {
 										);
 										ui.label(
 											egui::RichText::new(crate::i18n::translate(
-												"Hover an emoji to preview it",
+												"emoji-picker-popup-hover-an-emoji-to-preview-it",
 											))
 											.color(colors.muted),
 										);
@@ -1550,8 +1569,12 @@ impl Picker {
 				ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 				let heading = match mode {
 					GifMode::Home | GifMode::Waiting => None,
-					GifMode::Favorites => Some(crate::i18n::translate("Favorites")),
-					GifMode::Remote(None) => Some(crate::i18n::translate("Trending GIFs")),
+					GifMode::Favorites => {
+						Some(crate::i18n::translate("emoji-picker-gif-body-favorites"))
+					}
+					GifMode::Remote(None) => Some(crate::i18n::translate(
+						"emoji-picker-gif-body-trending-gifs",
+					)),
 					GifMode::Remote(Some(query)) => Some(query.clone()),
 				};
 				if let Some(heading) = heading {
@@ -1575,9 +1598,9 @@ impl Picker {
 							crate::design::empty_state(
 								ui,
 								crate::icons::Icon::Star,
-								&crate::i18n::translate("No favorites yet"),
+								&crate::i18n::translate("emoji-picker-gif-body-no-favorites-yet"),
 								&crate::i18n::translate(
-									"Hover a GIF and press the star to keep it here.",
+									"emoji-picker-gif-body-hover-a-gif-and-press-the-star-to-keep-it",
 								),
 							);
 						} else {
@@ -1594,13 +1617,13 @@ impl Picker {
 						}
 					}
 					GifMode::Waiting => {
-						status_row(ui, colors, true, "Searching KLIPY…");
+						status_row(ui, colors, true, "emoji-picker-gif-body-searching-klipy");
 					}
 					GifMode::Remote(query) => {
 						let view = state.gifs.view.as_ref().filter(|view| view.query == *query);
 						match view {
 							Some(view) if view.loading => {
-								status_row(ui, colors, true, "Loading GIFs…");
+								status_row(ui, colors, true, "emoji-picker-gif-body-loading-gifs");
 							}
 							Some(view) if view.error.is_some() => {
 								status_row(ui, colors, false, view.error.unwrap_or_default());
@@ -1615,8 +1638,12 @@ impl Picker {
 									crate::design::empty_state(
 										ui,
 										crate::icons::Icon::Gif,
-										&crate::i18n::translate("No GIFs found"),
-										&crate::i18n::translate("Try a different search term."),
+										&crate::i18n::translate(
+											"emoji-picker-gif-body-no-gifs-found",
+										),
+										&crate::i18n::translate(
+											"emoji-picker-gif-body-try-a-different-search-term",
+										),
 									);
 								} else {
 									action = gif_grid(
@@ -1636,7 +1663,7 @@ impl Picker {
 									ui,
 									colors,
 									false,
-									"GIF search needs a connected session.",
+									"emoji-picker-gif-body-gif-search-needs-a-connected-session",
 								);
 							}
 						}
@@ -1654,7 +1681,7 @@ const TILE_GAP: f32 = 8.0;
 const TILE_HEIGHT: f32 = 92.0;
 
 fn status_row(ui: &mut egui::Ui, colors: &crate::design::Palette, spinner: bool, text: &str) {
-	let text = crate::i18n::translate(text);
+	let text = crate::i18n::translate_if_key(text);
 	ui.add_space(24.0);
 	ui.vertical_centered(|ui| {
 		if spinner {
@@ -1850,7 +1877,7 @@ fn gif_home(
 						ui.add(egui::Spinner::new().size(16.0).color(colors.muted));
 						ui.label(
 							egui::RichText::new(crate::i18n::translate(
-								"Loading trending categories…",
+								"emoji-picker-gif-home-loading-trending-categories",
 							))
 							.color(colors.muted),
 						);
@@ -1958,14 +1985,18 @@ fn gif_grid(
 							egui::Role::CheckBox,
 							true,
 							favorite,
-							crate::i18n::translate("Favorite"),
+							crate::i18n::translate("emoji-picker-gif-grid-favorite"),
 						)
 					});
 				}
 				let label = if gif.title.is_empty() {
-					crate::i18n::translate("Send GIF")
+					crate::i18n::translate("emoji-picker-gif-grid-send-gif")
 				} else {
-					format!("{}: {}", crate::i18n::translate("Send GIF"), gif.title)
+					format!(
+						"{}: {}",
+						crate::i18n::translate("emoji-picker-gif-grid-send-gif"),
+						gif.title
+					)
 				};
 				response
 					.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));

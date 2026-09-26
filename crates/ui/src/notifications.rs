@@ -302,17 +302,25 @@ impl MessagingUi {
 									true,
 									format!(
 										"{} {}{}, {} {}",
-										crate::i18n::translate("Open"),
+										crate::i18n::translate(
+											"notifications-notification-rail-open"
+										),
 										channel.name,
 										if in_call {
-											crate::i18n::translate(", in a call")
+											crate::i18n::translate(
+												"notifications-notification-rail-in-a-call",
+											)
 										} else if unread {
-											crate::i18n::translate(", unread")
+											crate::i18n::translate(
+												"notifications-notification-rail-unread",
+											)
 										} else {
 											String::new()
 										},
 										count,
-										crate::i18n::translate("notifications")
+										crate::i18n::translate(
+											"notifications-notification-rail-notifications"
+										)
 									),
 								)
 							});
@@ -356,7 +364,9 @@ impl MessagingUi {
 							egui::WidgetInfo::labeled(
 								egui::Role::Button,
 								true,
-								crate::i18n::translate("Add a Server"),
+								crate::i18n::translate(
+									"notifications-notification-rail-add-a-server",
+								),
 							)
 						});
 						design::rail_name(&response, "Add a Server");

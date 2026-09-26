@@ -1,4 +1,4 @@
-# ja translations. Machine-bootstrapped; refine through Weblate.
+# ja application translations. Edit with Weblate or any Fluent editor.
 
 language-system = システム
 language-group = 言語
@@ -154,3377 +154,3840 @@ friends-presence-unavailable = プレゼンスが利用できません
 friends-message = メッセージ
 friends-no-open-dm = この友人とのオープンなダイレクト メッセージはありません
 friends-more = もっと
-source-e2ba7fbf33ab62fe = ＃ 一般的な
-source-9977d117b71711b0 = %2f
-source-9982c617b7210684 = %5c
-source-baf2dbcb41ca49a9 = (編集済み)
-source-e0ed93235f2a2ab9 = ) || app.to_string_lossy().contains(
-source-3d7f7d45f5797cde = ) ||トリミング済み.starts_with(
-source-0779469a6798d2fc = )).ok().as_deref() != Some(b
-source-bb8d97aea98a947e = )、b
-source-59a720932871d607 = + 日付を追加
-source-bf7ff2a762b953b2 = + 役割またはメンバーを追加
-source-1f2de94f6e6187ec = +ファストスタート
-source-07e41807b4a8904c = +N
-source-40b22805b11260c7 = 、アーカイブ済み
-source-c5b3f06b281de12c = 、接続されています
-source-b83de214b3209bdf = 、通話中
-source-fae85bb22e04597e = 、未読
-source-d33288cf3eeaad27 = --demo-attachment=ファイル
-source-0ea6d02e8844dd06 = --demo-attachment=multi
-source-4fd3ebfc1710d76a = --デモ検索=
-source-9e006ae718da324b = --デモテーマ=
-source-4dc61da1eeb8f3f6 = --verbose=4
-source-0f71f13f53a39740 = -実行ポリシー
-source-0d3da451019087ce = -ファイル
-source-2975f187c708676d = -非インタラクティブ
-source-6be0ff5bacd01f48 = -プロファイルなし
-source-d09a059444612f6b = ../../../assets/fonts/Inter-Medium.ttf
-source-db87a62631254afc = ../../../assets/fonts/Inter- Regular.ttf
-source-b3f9bc5db076a85d = ../../../assets/fonts/Inter-SemiBold.ttf
-source-2174a82f7cb4d130 = ../../../assets/fonts/NotoSansArabic.ttf
-source-56798272dfae0cd3 = ../../../assets/fonts/NotoSansCJKjp- Regular.otf.zst
-source-6404e137c225dd0e = ../../../assets/fonts/NotoSansMath- Regular.otf
-source-6327c42f4782df6d = .AppImage
-source-b94d8847e8f94e30 = /gif [検索]
-source-1a2c133bb397554b = /me テキスト
-source-449d520d45422fdf = /msg @user [メッセージ]
-source-674e308a38d8a4da = /肩をすくめる [テキスト]
-source-e2c06636acbfd6cf = /ネタバレテキスト
-source-c789a1242b2311ab = /ステッカー [検索]
-source-d6f5937541bfb796 = /tableflip [テキスト]
-source-fcfe9af1d2d30f5b = /unflip [テキスト]
-source-fdee446bfb652060 = 0% shows the image. 100% はソリッドセクションカラーです。
-source-6d751d7dbb90136d = 0:a:0?
-source-d73e89fb5ca7534e = 1日
-source-44e1f16ea614011d = 友達リクエスト1件
-source-9899f07ee811b5ca = 1時間
-source-1aedef77d184c8ea = 1時間
-source-686ab4dd58b52fb3 = 1 メッセージ
-source-f4744aa41d96cd8e = 1 メッセージリクエスト
-source-8734d3112c508504 = 1分
-source-57a8c5a751acc7d8 = 1週間
-source-36f5d5123da1d24d = 10分
-source-8d13513f9c9a0c51 = 10秒
-source-9f884ca9528441cf = 100% が元のレベルです。レベルを高くすると歪む可能性があります。
-source-a6ab28c69299397d = 12時間
-source-2a46c7c5730014aa = 15分
-source-cb98233fc1fe95be = 15秒
-source-bef3027f2aba42c8 = 2日
-source-543610c88aecac7e = 2時間
-source-e022bfbf21a62ea4 = 2分
-source-b773629ac81b71c5 = 2026-01-01T00:00:00Z
-source-4c84831699a66c00 = 24時間
-source-1dc522a4a05cf0a5 = 3日間
-source-26156a5bcb44ac99 = 30日
-source-801744c4d83f671f = 30分
-source-9a04d0509ccf2ae7 = 30秒
-source-7aa29984e3199a10 = 4時間
-source-f40cb1ac8887e1a1 = 5分
-source-89b8fbc44ee62b8d = 5秒
-source-1741ba7f5b595722 = 6時間
-source-d636599a979f0d59 = 7日間
-source-6f073b8cbdb4deae = < 統合
-source-70118e18301700fc = <a:
-source-60030d4518672b9d = =始まり
-source-424af112b78b9f2d = =終わり
-source-ffb05029aca7283a = ?パススルー=false
-source-fd566af54baa4d7c = ?サイズ=64
-source-3502a329ea88a32a = @みんな
-source-04c60119a6feb209 = @自分
-source-797a268358a38eba = [削除されたメッセージにはテキストがありませんでした]
-source-304cfbbd9afd3d67 = 【ネタバレ隠しあり】
-source-dd1cd405fbf51642 = [年]-[月]-[日]
-source-ba5ad919bde9f91b = __ファイル__
-source-ff2e9a5d05f1c407 = __ライン__
-source-60ed7e6fea310320 = __MACOSX
-source-af63fc4c860222ec = あ
-source-ea0a5c65ac517e7c = カタログの更新では、ローカルまたはインポートされたパッケージを置き換えることはできません
-source-07c471660b5c5b6d = コマンド
-source-8e8f3a23e0e9ece1 = カスタム絵文字。
-source-3427440866cf683e = 一日
-source-832d6f9c21fe327c = デフォルトの絵文字。この絵文字は Discord のどこでも使用できます。
-source-c87a72cf210bdf1a = ダウンロードはすでにアクティブです
-source-036822775cb3d29d = ダウンロードまたはクリップボードのクリーンアップはすでにアクティブです
-source-b1d2a5473e87197b = 数秒
-source-1bca120d5f0f6f59 = ファイルが宛先に現れました。別の名前を選択するか、置換を確認します
-source-90bed8158c1718ba = フォーラムでは最大 20 個のタグを提供できます。
-source-196aa7589058fa81 = ゲームが送信したアクティビティを読み取ることができませんでした。
-source-d712e298601972c9 = メディア転送はすでにアクティブです
-source-c73f1143b7a6bd21 = メッセージが失敗しました - 宛先を確認してください
-source-bc98b6217e0e3434 = ちょっと
-source-22bbef89386d92ba = 一ヶ月
-source-b1ec16df76d9bd09 = 新しく明示的に開始された通話には独自の参加キューがあります
-source-d9ec4a79c83ebbeb = 投稿には最大 5 つのタグを付けることができます。
-source-547bd314aecb3f43 = サーバーアクションが進行中です。
-source-0dcbc262ee054e81 = サポートされているプラ​​ットフォームのチェック済みパッケージには、ダウンロード可能なアーカイブがあります
-source-7ee589362716c195 = 有益なメッセージは読みやすいままになる
-source-9e94a28a5b802784 = 音声通話はすでにアクティブです
-source-ae6d213acd310fd5 = 一年
-source-1841cd89a01ce541 = a/CON.txt
-source-e6b9b11904eabd96 = a\b
-source-09efc23b583b2370 = 私について
-source-e957aac89298c890 = 私について
-source-5454fce28deb1dfc = セレインについて
-source-136526f9761a4d77 = アクセント
-source-d66c4767fa3dde28 = アクセントカラー
-source-13be1af9766661e9 = 受け入れる
-source-fa837eedde682e5a = 友達リクエストを承認する
-source-e0d1d6bd81fc1980 = 承認されました
-source-9be5c595be455b0e = 承認されたクリエイターの収益化規約
-source-2b9bacc0275f2f5e = アカウント拡張機能のクリーンアップが不完全です。拡張機能を再度開いて再試行します
-source-73af8d28f4d05959 = アカウント設定
-source-f8acd75e4c30dec1 = アカウント起動スナップショットが 128 MiB を超えています。接続が停止しました
-source-afd252ca87254e0c = アカウント起動スナップショットはすでにキューに入れられています。接続が停止されました
-source-84ad5c38e8e5ac27 = アカウント同期イベントが 4 MiB を超えています。接続が停止しました
-source-64fc952e3785ffac = アカウント同期イベントキューがいっぱいです。接続が停止されました
-source-229c11f32846b199 = アカウント同期キューが 32 MiB を超えています。接続が停止されました
-source-a45a194b58837e4f = アクティブ
-source-096271b572c564b1 = アクティブな招待リンク
-source-c141f9a556c5ae3c = アクティブなスレッドはセッションから取得されます。古いスレッドは一度に 25 個ロードされます。開くと、参加せずにメッセージが読み込まれます。
-source-6c76b294d740446c = 活動
-source-b50206be65c022ef = アクティビティバッジ
-source-ceafed983d9c999d = アクティビティフィード設定
-source-303530211648923a = アクティビティのオプション
-source-ec35beeb0a638889 = アクティビティ設定
-source-78319537e3e40195 = アクティビティの共有がオフになっています
-source-f9aee319a006c9b4 = 追加
-source-a669985c2b3d37bc = 保存する前にライセンスとバージョンを追加してください。
-source-8188503ddfecb719 = 会話に新しいツールを追加します。
-source-338cffe0ab083bd2 = サーバーを追加する
-source-76dce2e228d13136 = 保存する前に、テーマ名と作成者名を追加します。
-source-c3ee70112775e610 = アカウントを追加する
-source-2e8ec7ac529c0416 = オプションのメッセージを追加します…
-source-1906429c63e122c5 = このサーバーで誰でも使用できるカスタム絵文字を追加します。アニメーション GIF 絵文字は、Discord Nitro のメンバーが使用できます。
-source-65178f4c7396be95 = メンバーがこのサーバーで使用できるカスタム ステッカーを追加します。アートワークはアップロード前にトリミングされ、320 × 320 ピクセルにサイズ変更されます。
-source-9da45ad17e1e6254 = 友達を追加
-source-4eac18cd86d220b8 = 友達のニックネームを追加
-source-b0f52633d46a24b4 = Add images or files.最大 10 ファイル、合計 500 MB。アカウントの制限が低くなる可能性があります。
-source-87814e07c665fc5d = この投稿に画像を追加する
-source-5e155029a998ab6e = メンバーを追加
-source-76e253cb2e6ac247 = メンバーを追加する
-source-63b2998e75bab548 = メモを追加
-source-5769170fd14b80a7 = リアクションを追加
-source-76858359c87d089c = リアクションの追加
-source-6a21eb86b7b0c950 = スラッシュコマンドの後にテキストを追加します。
-source-7b8a39d746ab6d28 = 覚えておくべきことを追加してください…
-source-e591e3c5db7e2eb4 = タグを追加
-source-f83403c676525f14 = タグの追加
-source-9514d033f7697c25 = タグを追加する
-source-83ed914674d80cf4 = お気に入りに追加
-source-a76a13082fdfd4cf = 最大 5 つの特性を追加して、サーバーの興味や個性を誇示します。
-source-aa6e8f16f76de2d7 = を追加してください
-source-9c72f57353a54264 = ボットを追加しました
-source-37994d4488233fda = 追加者
-source-7fa8d1166848bb78 = 追加の色、アプリのコントロール、詳細の共有。
-source-ce8c8aeef166296b = 追加の埋め込みコンテンツはサポートされていません
-source-7661fba1154cdbfa = マイクの音量を自動的に調整します。
-source-071922eccfa99cca = 管理者
-source-21b06c38fc4164db = 高度な
-source-5125a792dfd0a6e7 = 高度な権限
-source-510a499d8a643447 = 高度な権限
-source-d7b3e01ac0e72549 = 後
-source-7c88198b18340805 = After は Before よりも前でなければなりません。
-source-ce55bb99b12a1e10 = 残光
-source-ed076a4658ba7d11 = 年齢制限のあるチャンネル
-source-a2254e6216746711 = 年齢制限のあるチャンネル
-source-c0d0e6fd009afbe7 = AIx02
-source-05ad6e8ac44c2505 = アレックス
-source-1add6446d9c2c6f3 = アレックス（合成）
-source-f993bb199fefbe04 = 全て
-source-f91a6ea8de0be477 = すべてのアクション
-source-246e5886f3baf6c2 = すべてのコマンド
-source-524251a5dae81428 = すべてのメッセージ
-source-4937fa8909079774 = すべてのサーバー
-source-1df0cb73b3272f74 = すべてのユーザー
-source-bd667a92c4cd3c47 = すべての音声設定
-source-2ee366cbb0141712 = 許可する
-source-886fe15aec256d31 = 誰でもこのロールを @メンションできるようにする
-source-47f07dde0c168ec4 = 他のサーバーメンバーからのDMを許可する
-source-a4e76f5dccb52d8b = リストされているすべての権限を続行できるようにします。
-source-81f9e2079db57288 = ～からの友達リクエストを許可する
-source-5ac5cb2de54a1f17 = ゲームのフレンドがダイレクト メッセージを送信したり招待したりできるようにする
-source-05c4345683c31690 = この拡張機能に許可する
-source-7cdd3a5ec5457ec4 = 許可されたファイル
-source-220be55e476bf0a9 = 他のサーバーからの絵文字を許可します。
-source-83b73c30cce923ac = メンバーが新しい絵文字リアクションを追加できるようにします。
-source-83950361169d5b66 = メンバーがチャンネルの権限を変更できるようにします。
-source-9d15005aca6894c3 = メンバーが Webhook を作成、編集、削除できるようにします。
-source-912736ad38e850de = メンバーが音声チャンネルで他の人の耳をつんざくことができるようにします。
-source-125f7af1d17ad206 = メンバーが他の人のメッセージを削除できるようにします。
-source-eea2b750d5a4d225 = メンバーがチャンネル設定を編集したり、チャンネルを削除したりできるようにします。
-source-7685320fed317541 = メンバーがこのサーバーに人々を招待できるようにします。
-source-703cd20eedcb1147 = メンバーが音声チャンネルに参加できるようにします。
-source-830e3ef937832855 = メンバーがスレッドを管理および削除できるようにします。
-source-8913c6f15421e3cd = メンバーが音声チャネル間で他のメンバーを移動できるようにします。
-source-6aeea27a0332bf80 = メンバーが音声チャネルで他のユーザーをミュートできるようにします。
-source-3e1c02061c383543 = メンバーがメッセージを固定または固定解除できるようにします。
-source-16a831acff361802 = メンバーが以前のメッセージを読むことができます。
-source-8090eb073263f9c5 = メンバーがスレッド内で返信できるようにします。
-source-e895c2a95ae68653 = メンバーがこれらのチャネルでメッセージを送信できるようにします。
-source-5d5f8860271efc1e = メンバーがビデオと画面を共有できるようにします。
-source-52edcb7075c3c816 = メンバーが音声チャネルで発言できるようにします。
-source-7a3edba6470612e7 = メンバーがプライベート スレッドを開始できるようにします。
-source-b2021467ee0ca247 = メンバーが公開スレッドを開始できるようにします。
-source-ba93b08e5287739a = メンバーがファイルとメディアをアップロードできるようにします。
-source-f5e65cbc9cb8cff3 = メンバーがこれらのチャンネルを閲覧できるようにします。
-source-5d288a0a7bc7ebbc = 全員またはロール全体に通知するメンションを許可します。
-source-6647891644c56ce6 = テキスト読み上げを使用してメッセージを読み上げることができます。
-source-3dfe4fd0d1469bfc = プッシュツートークなしで話すことができます。
-source-287105702f89c0d9 = 他のサーバーからのステッカーを許可します。
-source-f993c3199fefcb9c = 代替
-source-09085707b5a0d793 = 午前
-source-860f42a2624ffee0 = 1時間
-source-52ba681d9318b707 = 更新ファイルが宣言されたサイズを超えています。
-source-172d209974e2f7bf = アップデートファイルが不完全です。
-source-97ae740df3e7e45f = GIF をアニメーション化する
-source-03afdbb3158dcc1a = ホイールの動きをアニメーション化し、メッセージ間をジャンプします。
-source-9804d4d3daf05e1c = アニメーション
-source-fa8f7cf29168c2b2 = アニメーション絵文字
-source-a3c34f09134f4c9a = アニメーション絵文字は最大 256 KB にする必要があります
-source-f68f660a60b3effa = 発表
-source-5dd67743cac44579 = アナウンスチャンネル
-source-a6a92648588602bf = 答え
-source-1e75e26f239524f1 = 電話に応答する
-source-f999d4199ff4542d = どれでも
-source-f7cb0deec6345d60 = あらゆるコンテンツ
-source-f9f2c719a04066ec = アプリ
-source-fa5ee719a09bbc2c = アプリ
-source-e0c960aa6d4b1440 = アプリの背景
-source-ca4222f16f732223 = APPDIR
-source-f0e261e04eda82ff = 外観
-source-9c7b44ac9890fcf3 = 外観のカスタマイズ フォント タイポグラフィー インポート ttf otf プライマリ アクセント 16 進数 ウィンドウ エフェクト 透明度 ぼかしテーマ ダーク ライト システム モード ズーム スケール レイアウト サイドバーの幅 人物 メンバー メンバー リスト リセット カラー カラー プリセット
-source-af77fc86744de8b0 = 外観設定
-source-3b756cb60b2ac008 = メッセージに肩をすくめてください。
-source-01b5724f92832a10 = メッセージに表フリップを追加します。
-source-eb0319b004b340c9 = アプリイメージ
-source-fe3ddfcb791a4c94 = AppImage ヘッダーの検証に失敗しました。
-source-f1e9d421f35b51e5 = 応用
-source-869f92af672408fc = アプリケーション データ ディレクトリが使用できません。
-source-03bf6399542211e6 = アプリケーションのインタラクションが保留中…
-source-bdb243be142632e2 = アプリケーション生成メッセージ
-source-17e3cd226501a372 = アプリケーション/vnd.github+json
-source-77dfb31c5a778156 = 通話とローカルマイクテストに適用されます。
-source-4d600e7f783b509e = 次回の通話に適用されます。
-source-b8f855b49234b81b = 適用する
-source-5418307528e56b20 = フィルターを適用する
-source-cc1343c30b0ee18d = コンポーザーで書式設定を適用または削除します。
-source-56f684df5d2b61df = このインストールされたテーマをアプリに適用します。
-source-52086cb9e0b759b9 = すべての表面に適用
-source-65e3ad889f1ac883 = ドラフトに適用
-source-8e962433cd6f9865 = 適用: 通話音声を変更する
-source-b216c80781aafa05 = 適用: 変更通知
-source-3220032dace63f56 = 適用：設定を変更します
-source-1a950908de179363 = 適用: アクションを確認します
-source-6bcc1017f44556a7 = 適用: テキストをコピー
-source-5ab339284faf2ff1 = 適用: メッセージを削除
-source-ba67f2122a76bf75 = 適用: カメラを有効にする
-source-ea4dd3090e537c87 = 適用: 通話に参加
-source-c21eb09704067df4 = 適用: 通話を終了
-source-ebac3d35dd0f2a1a = 適用: ビューを開く
-source-086772cbc4d478f5 = 適用: 検索
-source-945918caa298ad68 = 申請: メッセージを送信
-source-94318c622e7cf16c = 申請：通知を表示
-source-0aff2f8be8a14bcd = アプリ
-source-976b3daab8c4196e = APT (DEB)
-source-f9f8e219a045007b = アーク
-source-a0ca791d0f13f0e5 = アーカイブ
-source-4bfc4d609ee1ab33 = アーカイブ済み
-source-4619bd2bc2b40db0 = アーカイブされた投稿には、履歴にアクセスできる接続されたセッションが必要です。
-source-1d9b4fe636d596a4 = 接続されていないとき、またはチャンネルにアクセスできないときは、アーカイブは利用できません。
-source-caa388e6c5fc4326 = 削除してもよろしいですか
-source-9197c793d6d2ccc4 = 本当に退会してもよろしいですか
-source-008f84cd357fb057 = ARM64
-source-6b36f3c18920c686 = 配列
-source-35fb62ecb4a374ce = 下矢印
-source-043f052f4aec0783 = 左矢印
-source-59de5ee12528b90c = 右矢印
-source-faca44c6cb373cfb = 上矢印
-source-aae07dc89c12fa36 = アートワークアニメーションにはフレームがありません
-source-b8915f6eb5cd0476 = アートワークのアニメーションが大きすぎて安全に準備できません
-source-ef390e917b24934b = 外部リンクを開く前に質問してください。 Discord のリンクは常に直接開きます。
-source-c92c1a54034e21cc = 割り当てる
-source-089c4e07b545a968 = で
-source-457feeb54c5875de = このサーバーの最上位で、サーバー権限を使用します
-source-5c100df97c50deeb = ファイルを添付する
-source-89be37e8c5404b10 = メッセージごとに最大 10 個のファイルを添付できます
-source-5539800782e2f20b = ここではファイルを添付できません
-source-54cd4879a3bba7db = このフォーラムではファイルの添付はできません。
-source-ddfc86d2b1251528 = アタッチメント
-source-7889b4c9bb168493 = 添付ファイルの引数はまだサポートされていません。
-source-e34ce9f170e16c8d = 添付ファイルのダウンロードに失敗しました
-source-2a1a2a8290e62d52 = 添付ファイルをダウンロードできません
-source-13a28b769cbf5180 = 添付ファイルがダウンロード制限を超えています
-source-30d691ec3fb57874 = 添付ファイルは空ではなく、最大 100 MiB である必要があります
-source-a6bebfb27bfc1707 = アタッチメント操作がすでにアクティブであるか、選択範囲がありません
-source-7a8c3c959ac360c8 = 添付ファイルまたは埋め込みコンテンツ
-source-438b547f3b2fa49d = 添付ファイルまたはテキスト以外のメッセージ
-source-0c2d7300f0ec5ecc = 添付ファイルは保存されましたが、一時ファイルを削除できませんでした
-source-14d1f1642694858c = アタッチメントの選択が中断されました
-source-e8f933d73c6d330b = 添付ファイルのサイズが変更されました。会話をリロードする
-source-bb998de202e8ad59 = 添付ファイルの転送が完了していません
-source-672347bb6174fe3d = 添付ファイルの転送が中断されました
-source-5678c2eb707f0ca2 = 添付ファイルは利用できません。会話をリロードして、もう一度試してください
-source-7b1082149fccd857 = 添付ファイルのアップロードが中断されました
-source-8704bfbe468883b3 = 添付ファイルの合計は最大 500 MB である必要があります。アカウント制限が低くなる可能性があります
-source-310b9c448a16888c = 音声添付ファイルは使用できません
-source-2e2cf3d3799a3412 = オーディオデバイスの検出が停止しました
-source-114ae209c86f5f2e = オーディオ デバイスを開くときにタイムアウトが発生しました。デバイスの選択とシステムマイクの許可を確認してください
-source-d8e0780293e9d86c = オーディオデバイスが停止または切断されました。デバイスを選択して再度電話をかける
-source-119877adf7f839af = オーディオデバイスが開きませんでした。デバイスの選択とマイクの許可を確認してください。
-source-e1f7ff3be1e8c7c5 = オーディオデバイスがロードされているため、ヘッドフォンはマイクのエコーを回避します
-source-f14950f18436ef66 = オーディオデバイスが停止しました。マイクの許可とデバイスの選択を確認してください
-source-5a9bb212f461d36c = 音声のダウンロードに失敗しました
-source-73af3c43d8452c8d = 音声のダウンロードが不完全です
-source-3957a7ea8742ed39 = 音声のダウンロードが中断されました
-source-51b3c0eb8ae86251 = 音声のダウンロードは利用できません
-source-60f3977cbe2e7785 = オーディオ出力が切断されました
-source-dda1c1f423130cfc = 音声出力は使用できません
-source-6b9dcab3577bc36c = 音声出力は利用できません。システムのサウンド設定を確認してください。
-source-3bf634ef5284aee4 = オーディオ設定はこのデバイスに保存されます。マイクは、通話に参加するかテストを開始するときにのみ起動します。
-source-256ba0dd9a05a9b4 = オーディオプレビューの制限: 20 MiB ファイル、64 MiB デコード、10 分
-source-70c1adaa458e0015 = オーディオサーバーはバッファリングをサポートしていません。ダウンロードして外部で再生する
-source-076accfc5c6c2ac8 = 音声サイズまたはエンコーディングが変更されました。会話をリロードする
-source-deb1d5ae3d015f79 = オーディオのティアダウンも完了する必要があります
-source-3672c2257bb7d439 = 音声は利用できません。会話をリロードする
-source-5fa40d26e63c9500 = オーディオワーカーが停止しました。セレインを再起動する
-source-15c84f11ebb108aa = 監査ログ
-source-0e1b4276d5e667d2 = 著者の種類
-source-13ddf6fb4d5195c4 = 著者: 最新メッセージ
-source-83ab87c5fd63149b = 自動更新
-source-c2d16f8333e07d4f = 自動ゲイン
-source-f80b58ea901de3e6 = 自動ゲイン制御
-source-44e8120bfc4bb088 = 自動プレビュー
-source-606259d560d20e73 = スパムの疑いのあるメッセージを自動的にフィルタリングする
-source-03f20653bba79664 = メンバーが自動的にこのチャネルに移動し、非アクティブなタイムアウトを超えてアイドル状態が続いた場合にミュートします。これはブラウザには影響しません。
-source-fa54ad19a0930519 = AUX
-source-74f6b0957ffa5a96 = アバター キャッシュのクリーンアップに失敗しました。キャッシュされた画像がディスク上に残る場合があります
-source-0fd7c4b01e3427fb = アバターキー
-source-d18a6ce639af3671 = アバターキーキャッシュ
-source-af63ff4c86022805 = B
-source-c16e00a7a8b2fde2 = 戻る
-source-dbbf848734787ad3 = GIF カテゴリに戻る
-source-fa410955c0e55c75 = インテルに戻る
-source-daa09c73dd931e52 = 役割メンバーに戻る
-source-c5cea2143726eabf = ライブエッジに戻る
-source-9e48b3807e009b33 = テーマエディターに戻る
-source-190ccbda2c8f9a3f = テーマに戻る
-source-1efbfc3937d565bd = 背景
-source-cdbe8890bc1daf7e = メッセージの背景
-source-df34a5599d66f85c = 背景画像
-source-a5d5f178f3876c3f = 背景画像が 2 MiB を超えています
-source-e56593eace60ba73 = 背景画像ワーカーが失敗しました。
-source-d64445ead33533cc = バックスペース
-source-327781c739315ba7 = バックティック
-source-69583da04e5946b1 = バッジ
-source-9758fb833fbf9c99 = 禁止メンバー
-source-00e1a56a841e83af = バナー
-source-15b6305e863792ea = 基本
-source-1788737137ec6d9e = 前に
-source-1a0210d5a1a16b68 = Bio (空にするとクリア)
-source-28475413927d5432 = アプリの表面の裏側で 2 つの色をブレンドします。
-source-2b2ae20d26f78ac2 = ブロック
-source-7979901374f4c62d = AutoMod でブロックされたメッセージ
-source-388f2b6f8d65658b = ブロックサイズ
-source-ecf3bca7c1691718 = ぼかし
-source-fe80250010367cf8 = 本文
-source-f7bdd5a7c820889d = ブール
-source-0b946f226c5700df = ブール値
-source-fa31adc78eb90e2c = 国境
-source-16565219b102f81e = ボット
-source-15e97219b0a65c9e = ボット
-source-f8fa4f35c8f32435 = ボットアカウント
-source-7fbc9a48e98cecd6 = ボットとアプリ
-source-a6ed12942709e3f8 = 制限されたクライアント スロット
-source-e919affbc348568e = 制限されたストレージの結果がキューに適合する
-source-16564e19b102f152 = 箱
-source-9bd40e994f30dc8a = ビルドコンテキスト
-source-cb163115768bced4 = 会話のための静かな場所を構築します。
-    { "**ネイティブ プロファイル プレビュー** · ここでの詳細はすべて合成です。" }
-source-505fc202b5428fa5 = 内蔵
-source-20184aa30888947e = 組み込みのプリセットはインストールされたテーマを維持します
-source-2518741c10420239 = バンドルされたアプリのアイコン
-source-7c1a3b74345c8f74 = バンドルされたアトラスセル
-source-22b50e2162ad4c6b = バンドルされたアトラス形式
-source-6b8894962f4570f8 = バンドルされた CJK フォント アーカイブ
-source-2d2f1029a0d2bc81 = バンドルされた Discord 絵文字
-source-0c3688231635a6a3 = バンドルされた Discord 名
-source-59348fc67fb85749 = バンドルされた絵文字インデックス
-source-5847ac6b7696ded8 = バンドルされた絵文字名
-source-034cc54c0435fe1b = バンドルされたアイコン アトラス
-source-ad070bcf47f55000 = バンドルされたアイコンセル
-source-f65bff42479f2ea8 = バンドルされたアイコンのインデックス
-source-2ab12c6a6dfed8bf = バンドルされたプラグインが有効になりませんでした
-source-0312976fe9da5951 = ボタン
-source-503a000f8677a058 = ボタンのパディング
-source-12f0752a5e0574c6 = ボタン
-source-3d9f8a6530f33d7a = ボタン、選択範囲、ハイライト
-source-e40567630146944d = バイパス
-source-af63fe4c86022652 = C
-source-090f8d07b5a75203 = C#
-source-0cd9ec19ab679810 = C++
-source-f6d0cc190dae8bb0 = C++
-source-3d9b3f96b413e48c = C:/絶対
-source-1fbe4cf939e466f5 = C:Windows
-source-ce390f13a0ab7cce = キャッシュ クリーンアップ バックログを超過しました。履歴キャッシュは再起動するまで無効になります。削除されたメッセージがディスクに残る場合がある
-source-747d55f140839712 = 予算を超えるキャッシュ
-source-b2e0a1640a6a3a3f = キャッシュされた履歴のクリーンアップは保留中です。今すぐ閉じると、削除されたメッセージがディスク上に残る可能性があります。
-source-50a025b9afaf6ced = キャッシュされた履歴がクリアされます。保存された下書きが保存されました
-source-24b9d48a6bd44b00 = キャッシュされたメッセージ
-source-130875199ab8168c = コールアクションの有効期限が切れました。呼び出し要求は送信されませんでした
-source-36c6e380f765ea21 = 通話制御は利用できません
-source-11acb9aa4b26baed = コール キューのデバッグ チェックに合格しました: ローカル/リモートの参加、離脱、キーの再生成、および再接続の抑制。オーディオデバイスが開かれていません。
-source-5131d536a3858d66 = 通話に失敗しました
-source-a3da2c52c2a9b31b = 通話中
-source-4696c55509a17d3a = 通話の切り替えがキャンセルされました: 前の通話の切断が完了していません。再度電話をかける前に再接続してください。
-source-3a04ca28b431d65f = オフライン プレビューでは通話は利用できません。マイクにはアクセスできません。
-source-65af94222c32b682 = 穏やかな森の緑と新鮮な葉のアクセント。
-source-54d1b2a64667e32e = カメラ
-source-495ad228525627ba = カメラキャプチャは利用できません
-source-b575b693165156cc = このプラットフォームではカメラ キャプチャは利用できません
-source-a85c1deeec36a206 = このプラットフォームではカメラ キャプチャは利用できません。
-source-8e3486751abad50e = カメラが変わりました。使用するには、「カメラをプレビュー」をクリックします。
-source-80f393ce10fddbb4 = カメラコントロールは使用できません
-source-3f129a081da91e1c = カメラデバイス
-source-8e5a58aa4d687006 = カメラデバイスが変更されました。選択したデバイスを使用するには、カメラの電源をオンにします。
-source-9b6074b9e21ade9b = カメラデバイスの検出に失敗しました
-source-a3fafbf6e92f8907 = カメラデバイスの検出が停止しました
-source-ea56f302bd3fae6a = オフライン プレビューではカメラがオフになっています
-source-282d982fc7b4708c = カメラはまだ閉じています。すぐにもう一度試してください
-source-c39760087308f11e = 現在のチャンネル権限ではカメラを利用できません
-source-9b29587de4d8bac0 = カメラオンサウンド
-source-39e24f35327ace01 = カメラオン・ローカルプレビュー
-source-7d5d998cd1808359 = カメラには音声サーバーからの H264 サポートが必要です
-source-9583bf45857e38cf = カメラの設定
-source-7ac57d624b358fdf = カメラが停止しました。電源を入れる前にしっかりと再接続してください
-source-57a446f4a69504a0 = カメラが搭載されています
-source-2ceb11be2290bb1b = キャンセル
-source-3b5fd0df6b2757e8 = アップロードをキャンセルする
-source-3bb786d3b55ba37c = キャンセル
-source-50aa63b5ed4a282e = キャンセルされたデルタ スキャンは続行されました。
-source-96a025c4843e09f5 = 保存先にアクセスできません
-source-eb11ba4bbc079c84 = 現在このリアクションを追加できません
-source-7fee991fd23e54b4 = macOS Gatekeeper ではアップデートを評価できません。
-source-91d2f639e38f901b = 検証済みの更新アーカイブをクリーンアップできません。
-source-98fe434d0ff0cda1 = 固有の再起動ハンドオフを作成できません。
-source-c4e2c91b78c4b3e2 = アップデートファイルを作成できません。
-source-550ca743130fc596 = カタログディレクトリを作成できません
-source-fe69767ffc391540 = クリップボードの一時ディレクトリを作成できません
-source-611246d0f0372744 = ダウンロードファイルを作成できません
-source-cb678d668236ab58 = 拡張ディレクトリを作成できません
-source-12f0f8ae44ad8973 = 独立したテーマのチェック ディレクトリを作成できません
-source-e29eb9638877eec4 = 合成 ZIP を作成できません。
-source-dba43270224a1c83 = テーマのエクスポートを作成できません
-source-aada8f3a7f998386 = 更新ディレクトリを作成できません。
-source-61de5d46b1461a6b = 更新ステージング ストレージを作成できません。
-source-f1a4246aa7256879 = 拡張パッケージをエンコードできません
-source-e561d54aef4b1013 = 更新計画をエンコードできません。
-source-aa6908c34ae96d11 = テーマパッケージをエンコードできません
-source-9453d1e7954bd36d = アップデートを抽出できません。利用可能なディスク容量を確認します。
-source-7597bd31c59de1ac = 拡張データを終了できません
-source-b3e27aaa92a42065 = 合成 ZIP を終了できません。
-source-a75d9b5807938c2a = テーマのエクスポートを完了できません
-source-3442c21e0e0f3860 = 拡張予算を検査できません
-source-d24d991f0805723b = 拡張機能のクリーンアップを検査できません
-source-8ca96e88f30b099a = 拡張機能のクリーンアップ パスを検査できません
-source-ab6867fcbba4df1b = 拡張ファイルを検査できません
-source-51d061dd502f399b = AppImageを検査できません。
-source-3c239b46de6b4e60 = アプリケーション署名 ID を検査できません。
-source-04e4bfd18213af1b = インストールされている AppImage が見つかりません。
-source-9156581959ab6693 = インストールされているアプリケーションが見つかりません。
-source-08489b182eb8e837 = AppImageを実行可能にできません。
-source-b5b8ff65424ba781 = 更新ヘルパーを準備できません。
-source-8e663a72d83db36e = テーマのエクスポートを準備できません
-source-e434e405766d282e = 更新アーカイブ エントリを読み取ることができません。
-source-f7761496d1045727 = 拡張子のエントリを読み取れません
-source-b633e237156af64f = 拡張ファイルを読み取れません
-source-47b682d45e7e0540 = 拡張子を読み取れません
-source-e6da628c0757efbf = AppImage を読み取れません。
-source-d62da5bfdb3664df = ダウンロードしたアップデートを読み取れません。
-source-658cc303b0edf413 = 分離されたテーマ チェック ディレクトリを削除できません
-source-13054cc6d16d61e5 = 拡張データを置き換えることはできません
-source-a6fba333ead59e13 = テーマのエクスポートを置き換えることはできません
-source-1102c73a0fe2af4d = アップデートのハンドオフをリセットできません。
-source-fec2c407d532bf35 = 抽出されたアップデートを保存できません。
-source-00ce0b626ad4fae6 = 更新計画を保存できません。
-source-f1300b1606e03c07 = 更新ファイルのアクセス許可を設定できません。
-source-3c8c66e6f4a2e791 = AppImage をステージングできません。
-source-e8c6665e5504523c = 更新ヘルパーを開始できません。
-source-4f2684899e76b148 = アップデートのコード署名を検証できません。
-source-5d8b893e4a0a707c = 拡張データを書き込めません
-source-da47383f8a97edda = テーマのエクスポートを書き込めません
-source-0c0fa9a79632e928 = カードカバー
-source-c3c904bb6c80ed71 = カード＆メッセージ入力
-source-07ceb14a7ae660dd = CARGO_MANIFEST_DIR
-source-7fae2dcb3491a8c1 = CARGO_PKG_VERSION
-source-6718e2e8c75b04e7 = カテゴリは関連するチャンネルを整理します。
-source-e8b92ef3f8e57128 = カテゴリ名
-source-9c8b888be93af84e = カテゴリ設定
-source-2254407e0c6b0121 = CC0-1.0
-source-2f64461723d3df5d = 変化
-source-8c9c54e0d22213b3 = アカウントのメッセージングのプライバシー設定を変更する
-source-738d022128fb727a = デバイスのオーディオ設定を変更します。
-source-4c6420e9be4c25fb = 絵文字を変更する
-source-eacd40e6c9e9d1e7 = グループアイコンの変更
-source-f1cce5f75027d1fc = ローカル通知設定を変更します。
-source-35a761634348ebb7 = ローカル読み取り設定を変更します。
-source-a94c725865c0c9bc = ローカル画面共有オーディオを変更します。
-source-c46090d1920616f7 = ニックネームの変更
-source-189973aa29971817 = ニックネームの変更
-source-f5f7f77ab9c1baaa = プロフィール写真を変更する
-source-7a61c62c7be398d5 = サーバーアイコンの変更
-source-a0eff7e3c6e5f195 = サーバーアイコンの変更
-source-2d0c784b4fc7a0a1 = Discord プロフィールを変更します。
-source-47758c080c0dff54 = ステータスを変更します。
-source-b8ff2266a932fe61 = 変更は現在のすべてのサーバーに適用され、新しく参加したサーバーのデフォルトを設定します。
-source-5d6ee817d178b6c4 = 変更はこのサーバーにのみ適用されます。
-source-37c3e6cfaf3a0a58 = 変更はまだ保存されていません
-source-2a7c73c8198aabaf = デバイスを変更するとカメラが停止し、次回電源を入れたときに有効になります。
-source-1da50951bdd7a204 = チャネル
-source-9527d6265f36ae7e = チャネルアクション
-source-62343e171ff192f3 = ワイド ウィンドウでのチャネルと会話リストの幅。
-source-69c1e8cf4951cfb8 = チャンネルのコンテンツは常に表示されます。
-source-8e2d9e7c9c802934 = チャンネルリスト
-source-b313538e5b8d8527 = チャンネル名
-source-d2c127e02b62df51 = チャンネル設定
-source-967c610c93b25fd3 = チャンネル設定をロードできませんでした。
-source-909f42012e8d4f5d = 保存する前にチャンネル設定を更新する必要があります。再ロードすると、このドラフトが置き換えられます。
-source-e34e204726493ce4 = チャネルの種類
-source-f10300bf9b138705 = このセッションではチャネルが使用できないかサポートされていません
-source-0fe04d43d78b3025 = チャンネル、会話、メンバーリスト
-source-37cfc48bd4958d03 = フォローされているチャンネル
-source-abfe23c45dfe3050 = キャラクター
-source-fbb5094ac57a1e81 = チャット メッセージ メディア読み取り アニメーション GIF 自動再生 画像リンクを非表示にする 確認確認 外部ブラウザ スムーズ スクロール スクロール速度 モーション トラックパッド ホイール 隠しチャンネル チャンネル リスト リセット
-source-e283106b5bf0ddd0 = チャット選択ポインター
-source-c0c8035281ee7caf = もう一度確認してください
-source-56c14ca22284e07c = 文字制限を確認し、制御文字を削除してください。表示名にはスペースのみを含めることはできません。
-source-e6a8976fdb8243a6 = アップデートを確認する
-source-05e32526688edb30 = 招待を確認する
-source-522d640faa616902 = 再度送信する前に会話を確認してください。
-source-08962d4ec5543300 = ライセンス、バージョン、およびオプションのソース URL を確認してください。
-source-a6798194b7fea9e5 = 保存する前に、残りのテーマ設定を確認してください。
-source-4aa39e78a2a231aa = チェックされたパッケージ
-source-7f3531a7d70170dc = チェック段階
-source-4d261ee741ff1fee = Discord のアクティビティ共有設定を確認しています...
-source-17e321e241626a9c = パッケージとアップデートの確認
-source-4a2e5d013b4a17b4 = アップデートをチェック中…
-source-7799725d5aaa9e0e = 招待状を確認中…
-source-f99a691b6ee82f79 = 保存されたログイン情報を確認しています…
-source-e9dda2df763e8699 = 画面共有ネットワークを確認しています…
-source-7713a7f7855b44b8 = ストリームネットワークを確認しています…
-source-9818df49b00d2796 = 保存されたログイン情報を確認する
-source-93b19aa093b1cc8c = チェックサムの検証に失敗しました。
-source-f4d6ce8937dcc5c2 = カメラを選択してください
-source-1d6dc20ffc2c3480 = チャンネルを選択してください
-source-66a6694a9ed6c572 = チャンネルのタイプと名前を選択します。
-source-7a8352bb844cd63c = コマンドを実行する前にリストからコマンドを選択します。
-source-caa3d81b0a0ad864 = 最初に会話を選択してください
-source-c84fe964f86c6703 = 別のコマンドを選択してください
-source-8e8af8325e0788ec = 最大 8 MiB のフォントを選択します。
-source-07317b2c82e5fe30 = 最大 120 フレームの GIF を選択してください
-source-d77f86967c63aff1 = サポートされているパスを持つローカル イメージを選択してください
-source-f2ea7ad2161d2c64 = PNG、JPEG、GIF、または WebP 画像を選択してください
-source-58a4ef5a34860544 = 受信者を選択してください: /msg @user [メッセージ]
-source-7ba7e226fa6c3c2c = 通常の画像ファイルを選択してください
-source-977c9c7835c89fa7 = 最大 8 MB の通常の PNG、JPEG、または WebP 画像を選択します
-source-c9aa294c80cb952d = 通常の TTF または OTF ファイルを選択します。
-source-96281252536ecc66 = 画面またはウィンドウを選択してください
-source-6c7f4300c97b067b = 小さいGIFアニメーションを選択してください
-source-68c451badf545216 = エッジあたり 4096 ピクセル、400 万ピクセル以内の静的な PNG または JPEG を選択してください
-source-0a009c026fd20e36 = ユーザーを選択してください
-source-2738ea9b5f44fb52 = 有効な TTF または OTF フォントを選択します。
-source-604a2c4b572aa02d = すべての音声設定でアルゴリズムを選択します。
-source-26acb9c01a437067 = 画像を選択して、トップバー、リスト、メッセージ領域を調整します。
-source-a1faed462867dbcf = 最大 8 MB の画像を選択してください
-source-6ffe7deacadd53b4 = 一度に選択できる絵文字は最大 10 個です
-source-94eed757d773fae1 = 著者タイプを選択してください
-source-afdf1a951251ee6b = カバーを選択してください
-source-0b6b3c55bcde011e = 絵文字を選択してください
-source-c7b2cbad7fb7ec99 = ファイルを選択してください…
-source-eeabd76984a63e34 = グループアイコンを選択
-source-28fa2d57e568c9dd = 画像を選択してください
-source-3f3f14b96f7f713d = 画像の選択
-source-ff37995b89189edf = 最大 8 MB の画像を選択してください
-source-359e844a894bf49a = [サーバーに参加] を選択して確認します。
-source-3ead32dc855ce5de = オプションを選択してください
-source-639568ef8bd0c33d = 原色を選択してください
-source-660bc5185aff2b4e = プロファイルの色を選択してください
-source-f4a7202b30c76817 = プロフィール写真を選択してください
-source-08fc428a9b5c119f = 最大 8 MB までの通常の画像ファイルを選択してください
-source-01d98cd9e749e2f0 = 役割の選択
-source-501383de6552d091 = 役割アイコンを選択
-source-941ac057595e9fdc = サーバーアイコンを選択
-source-f3e72abe13f35f3f = ステッカーのアートワークを選択してください
-source-df29793c3c78e143 = [テーマ] でテーマ カードに表示される画像を選択します。
-source-05654046117b6800 = システム ピッカーを選択するか、X11 ではデスクトップ全体を明示的に共有します
-source-1a588a29c8803935 = この通話に参加している人に表示できる内容を選択します。
-source-d394b2bb5287c2f3 = ノイズ抑制、感度、処理を選択してください。
-source-b7b0f30bf8a9e8fc = 選ぶ…
-source-c36c783ba211fa68 = フォントを選択中…
-source-27b2e81074b43ed6 = 画像を選択中…
-source-510fee4c4bd18d81 = 日中韓フォールバック
-source-ed4cbb11f68db8ea = 日中韓スキャン
-source-90d53cfba1df4aff = クラス
-source-85664e5f8a2a16c0 = クリーンアップ保留中
-source-b4f1dffbb6be6302 = クリア
-source-3723aab495477797 = クリアなアクセントカラー
-source-304e8ec60d78d88c = 後クリア
-source-0ff31a87b91191ca = 数秒後にクリア (0 は決してしないことを意味します)
-source-8cda828dac449ea5 = すべてクリア
-source-3ed5607ad78d4224 = キャッシュをクリアする
-source-2f23747db0cea917 = 表示名のクリア
-source-533291cfab68a4a9 = フィルターをクリアする
-source-5f4586bc1e2740e6 = 検索をクリア
-source-8f18916860db5d80 = 選択をクリア
-source-75c0510570ce02b9 = /msg を使用する前に、下書きスペースをいくつか空けてください。あなたのドラフトは保存されました。
-source-17d528d50acb7068 = GIF をクリックしてすぐに送信します
-source-a7c67fe777e8524b = スウォッチをクリックして色を選択するか、その 16 進値を入力します。
-source-5d9b531db15371bd = クリックするか Esc キーを押してグリッドに戻ります
-source-6c93f20e8a2f1482 = クリックして拡大
-source-13a5756e3d78ce8b = クリッカブルカーソル
-source-4548bf38f177532f = クリップボードの読み取りが中断されました
-source-0a6eb213e8a2dd1f = クリップボードの読み取りが中断されました。もう一度貼り付けます
-source-b950b781c6930f87 = クリップボードが使用できません
-source-5e8250fb85d64c23 = 近い
-source-2acb104372b0320d = ダイアログを閉じる (Esc)
-source-abda905ba90988be = DMを閉じる
-source-19650afe47227f3b = 投稿を閉じる
-source-dec709236764aa73 = プレビューを閉じる
-source-4e606ce6a461df05 = 検索を閉じる
-source-61ee6c1b9f6d8128 = 設定を閉じる (Esc)
-source-fc575fba03440dad = まず前の絵文字ピッカーを閉じます
-source-21cada6de8b98770 = まず前の画像ピッカーを閉じます
-source-85dab813db4af1c2 = まず前のステッカー ピッカーを閉じます
-source-7297d0532524082d = スレッドを閉じる
-source-ea940c1c2cc66abb = オフラインフィクスチャを閉じます。プレビュー用に何も保存されません。
-source-3643189d1abbb7f4 = コード
-source-4993444bfd3f3e5e = 崩壊
-source-7e860296d38b6351 = 色
-source-ebf5bdd0a2bdfc26 = 色と不透明度は、暗い外観と明るい外観に分けて保存されます。
-source-7e9d0b96d39e517d = 色
-source-04bd852225796670 = カラープリセット
-source-1fe5309c7cbacabd = COM1
-source-1fe52d9c7cbac5a4 = COM2
-source-1fe52e9c7cbac757 = COM3
-source-1fe52b9c7cbac23e = COM4
-source-1fe52c9c7cbac3f1 = COM5
-source-1fe5299c7cbabed8 = COM6
-source-1fe52a9c7cbac08b = COM7
-source-1fe5279c7cbabb72 = COM8
-source-1fe5289c7cbabd25 = COM9
-source-2d076ef48fe289b8 = コンマ
-source-a41b36cc9c8142b9 = コマンドは使用できません。あなたの議論は維持されます。
-source-03902b205d60074e = コマンドの一致
-source-d0864ea6cb6ef22e = コミュニティ
-source-fcd5321822111ef3 = 他の参加者と比較してください。このコードは、暗号化された通話グループに応じて変更されます。
-source-4fa5d909fda0653c = 出場中
-source-ff48acdfbbb52c1f = 画面ネゴシエーションを完了する
-source-4d78d4df27185ddb = ストリームネゴシエーションを完了する
-source-922be67cbebc66e5 = このサーバーに参加するにはチェックを完了してください。
-source-21b734060282ca01 = この友達リクエストを送信するにはチェックを完了してください。
-source-26c2471b57eed202 = コンポーネント · プレビューは利用できません
-source-69f6755a95647960 = Composer のショートカットは、執筆中にのみアクティブになります。
-source-eb4816e7efbce6f2 = COM²
-source-eb4817e7efbce8a5 = COM3
-source-eb481de7efbcf2d7 = COM¹
-source-0ba0f119aa5d684b = CON
-source-6b18bf707d9ae591 = サーバーに送信されるシステム イベント メッセージを構成します。
-source-b85774dc5d18ff0f = 確認する
-source-88d7a1d92a44533b = リンクを開く前に確認してください
-source-85f524dc46057d64 = この拡張機能を有効にする前に、要求されたすべての機能を確認してください
-source-0202d9165ab141d4 = コニン$
-source-7a4f059aaa029719 = 接続する
-source-0f32a0c2963f99b7 = ストリームを視聴する前に電話を接続してください
-source-79d93257d544d68c = このトークンで接続します
-source-4802c8e984c6a6f3 = コネクテッド ゲーム
-source-aad0e4f8b4bcfd9a = 画面共有トランスポートを接続中…
-source-3403635fea51ee2c = Discordに接続する
-source-bb80973884ff1508 = Discord に接続中…
-source-ef7c9c08dd9a10a3 = ストリームに接続中…
-source-71f975916c82dcfa = 提供されたセッションに接続します。ログインを変更せずに保存
-source-b055b780a919f111 = 接続中…
-source-3a759fd0453a875a = 接続が更新されました。保存する前に、保存したメモを再ロードします。あなたのドラフトは保存されます。
-source-bab3520cfd0bdd9b = CONOUT$
-source-fcab4b3574f6c9aa = コンソール
-source-cfcc1cdb98b249f6 = コンテンツの可視性
-source-4c68496075c5e459 = 保存したアカウントで続行するか、別のアカウントでサインインします。
-source-dd45f65613514d4c = Discordを続ける
-source-f7c55521d2f5b718 = コントロールコーナー
-source-1f1ea04651424eb9 = 高さの制御
-source-45288fbf4c660e7e = このリンクの存続期間と使用できる人数を制御します。
-source-7c3889311343158f = 誰があなたに友達リクエストを送信できるか、そしてそのリクエストがどのように表示されるかを制御します。
-source-2e1cab55520bb563 = 接続された通話中にマイクと受信音声を制御します。
-source-a2915684ede2ecc7 = このビルドまたはプレビューではコントロールは使用できません。
-source-41b4752c216d0b66 = 会話
-source-7fb1379f949cd722 = 会話の色
-source-4f6c201fb6bc940d = 会話メンバー
-source-30aecefef69c52da = 会話検索
-source-589b1d6647c2b40f = 会話と友達
-source-00d2594f679cfdec = 変換されたビデオが 100 MiB のプレビュー制限を超えています
-source-d499dac88619e933 = クールなブルーグリーンの表面に、フレッシュなティールのアクセント。
-source-f4de3bfbfaca12e5 = コピーされました
-source-dfb2b12b255de30c = コピーしました！
-source-97093b9f8a5cfbfb = 設定と権限をコピーします。メッセージはコピーされません。
-source-3687049d1af562c4 = コピー
-source-4651678b2be4607f = 貼り付ける前にファイル、画像、またはテキストをコピーしてください
-source-2345aff679a53331 = コピーアクティビティ
-source-efc5f4f185331f48 = チャンネルIDをコピー
-source-4f013b4c82c08809 = コードをコピーする
-source-c3dfe8bbcab1e985 = コピーコマンド
-source-f26bb54b183d3b9a = 絵文字をコピーする
-source-5db56b585b0dcaa6 = コピー失敗の理由
-source-6c24d848b4294429 = 画像をコピーする
-source-51616e3c3d5fa46c = 最大 400 万ピクセルの画像をコピーします。代わりに大きな画像を保存してください
-source-884e6d14b13fbaa3 = 招待リンクをコピーする
-source-9a2a2fda9cfa1ddc = リンクをコピー
-source-67b8d96c4d75442b = メッセージをコピーする
-source-3abbc06a7163a20d = コピーは画像とビデオをサポートします
-source-c4489349aeb7af80 = GitHub の問題レポート用にフォーマットされたシステムおよびクライアント環境の詳細をコピーします。
-source-316fc072ace20251 = スレッドIDをコピー
-source-8ea6139fefe0b028 = ユーザーIDをコピーする
-source-dc669220c7e57797 = ビデオをコピーする
-source-5bac5ad35db2fb72 = Webhook ID をコピーする
-source-f890a5cbb8ccea58 = Webhook URLをコピー
-source-4c92f4f120e7293d = 強調表示された色の値を修正します。
-source-b7b67b67af5d9ad6 = ハイライト表示されたグラデーション値を修正します。
-source-acbbe370b0ef3900 = 不正なデルタ結果が受け入れられました。
-source-1684bc3c6a2c1527 = できませんでした
-source-86de852428ea3511 = コピーされたファイルを確認できませんでした
-source-ead7d8c2081ce773 = Discordのアクティビティ共有設定を確認または変更できませんでした。
-source-410875fce2a5223a = キャッシュされた履歴をクリアできませんでした。履歴キャッシュは再起動するまで無効になります。メッセージがディスクに残る場合がある
-source-fef9a38a39447fd8 = コピーしたファイルをクリアできませんでした
-source-fe26fb8df04847b5 = 古いアップデートのストレージをクリアできませんでした。
-source-1e3bfc0c190255d3 = メディアをクリップボードにコピーできませんでした
-source-d8d6551b496d86cd = アップデートのダウンロードを作成できませんでした。
-source-e290c1f5b9d77ed9 = このアートワークを安全にデコードできませんでした
-source-748c4766e516891e = この画像を安全にデコードできませんでした
-source-690f607c1aa95192 = 部分的な更新を破棄できませんでした。
-source-6d05a44fff2d620e = この画像をダウンロードできませんでした
-source-4a0d8859a2cbde7e = ダウンロードを完了できませんでした
-source-e08472b28ad3588a = 添付ファイルの保存を完了できませんでした。フォルダーのアクセス許可とディスク容量を確認する
-source-e516e28ec1360b5a = 準備されたアップデートを引き渡すことができませんでした。インストールされているアプリは置き換えられませんでした。
-source-91c6993d80362aa3 = アップデートをインストーラーに引き渡すことができませんでした。
-source-0a223fe9349f366e = 安全な更新トランスポートを初期化できませんでした。
-source-aff1fac5d872dd61 = このアートワークを安全に検査できませんでした
-source-15feba1bd9932ffa = 更新設定をロードまたは保存できませんでした。変更は再起動後に存続しない可能性があります。
-source-e43bf4d38a946c13 = 保存された外観をロードできませんでした。システムテーマを使用する
-source-3c918600e9b86d11 = メモをロードできませんでした。既存のメモは変更されていません。
-source-c3d3ca6895000ef4 = 保存したフォントを読み込めませんでした。
-source-2c429b664987aac0 = 削除するキャッシュされた画像が見つかりませんでした
-source-03d6b9cf17dd4a4a = 選択した絵文字を開けませんでした
-source-cbc2e30fcded6959 = 選択した画像を開けませんでした
-source-06547dd5f11eb83b = 選択したステッカーアートワークを開けませんでした
-source-86f9d19087bad7cf = フォントを開けませんでした。
-source-0b703938d359f507 = 画像のダウンロードを準備できませんでした
-source-1e131fb051efd470 = 貼り付けた画像を準備できませんでした
-source-40e580bfa52ea94a = 合成画像を準備できませんでした
-source-545c2a94ba912650 = アイコンを準備できませんでした
-source-2ff4c03a5c918c0b = 更新の再開を準備できませんでした。
-source-60443163f395fd1e = 更新ストレージを準備できませんでした。
-source-279768998b333a48 = ローカルアカウントデータの削除をキューに入れることができませんでした
-source-35b92371357fea8f = 保存されたログインをキューに入れることができませんでした。セッションのみ
-source-57a1134e8eadb018 = GitHub にアクセスできませんでした。接続を確認して、もう一度試してください。
-source-66bae12d3cf82db1 = キャッシュされた履歴を読み取れませんでした
-source-b9f37fd32738ed34 = ローカル ストレージからチャンネル設定を読み取ることができませんでした。
-source-f1450ee473fadd92 = コピーされたファイルを読み取れませんでした。もう一度貼り付けます
-source-89acca945c044c12 = コピーした画像を読み取れませんでした
-source-feff082f2726f5b8 = 保存されたアカウントリストの読み取りまたは更新ができませんでした
-source-ca88d16116bbe5ae = 選択した絵文字を読み取れませんでした
-source-3e0dc47b42e139ed = 選択した画像を読み取れませんでした
-source-cc37477b0740deef = 選択したステッカーのアートワークを読み取れませんでした
-source-fcf1df2942dc4d33 = フォントを読み取れませんでした。
-source-7803ddc4e9eddc1f = クリップボードの一時メディアを解放できませんでした
-source-b2ea8f7965f1e6c6 = キャッシュされた画像を削除できませんでした。ファイルがディスク上に残る可能性があります
-source-9686ffd6cb092aac = 削除されたキャッシュされたメッセージを削除できませんでした。履歴キャッシュは再起動するまで無効になります。メッセージがディスクに残る場合がある
-source-85399400eefb7f1c = ローカルアカウントデータを削除できませんでした。履歴と下書きがディスク上に残る場合があります
-source-c72c9cffe8bbbae1 = 保存されたログインを削除できませんでした。 OS 認証情報マネージャーで cz.viceverse.serein / discord-session を削除します
-source-825c7bcf6360d2ae = そのアカウントの保存されたログインを OS 資格情報ストアから削除できませんでした
-source-9f7dd4b721282cbe = 選択したファイルを置換できませんでした
-source-427137772d21ccdc = 設定変更を要求できませんでした。もう一度やり直してください。
-source-7d63f72259e6669b = このアートワークのサイズを変更できませんでした
-source-898066a44cd4ce4f = ローカルストレージから下書きを復元できませんでした
-source-bcf5f40e2b4e8248 = GIF のお気に入りをローカル ストレージから復元できませんでした
-source-1c3504b673616163 = 下書きを保存できませんでした。最新のテキストはメモリ内にのみ存在する可能性があります
-source-6a3d020d0b461bee = 外観を保存できませんでした。変更はこのセッション内にのみ存在します
-source-c4c116ce27e8582e = キャッシュされた履歴を保存できませんでした
-source-51c4cb36f21c48e5 = チャンネル設定を保存できませんでした。
-source-c5a7a52ab143eb9c = デバイスの通知設定を保存できませんでした。変更は再起動するまでのみ適用されます。
-source-1f370c0a888c3c32 = GIF のお気に入りを保存できませんでした。変更はこのセッション内にのみ存在します
-source-f9f5c3df74c23c80 = ログインを保存できませんでした。このセッションは自動的には復元されません
-source-87ae56ecb0ab5b7e = ステータスを Discord に保存できませんでした。再試行中。 Discord がそれを受け入れるまで、このデバイス上に残ります。
-source-c3f44402f7bbe8ef = フォントを保存できませんでした。もう一度やり直してください。
-source-69020184403337a9 = フォントを保存できませんでした。再度インポートしてみてください。
-source-4077f70d91f8ec52 = 更新パッケージを保存できませんでした。
-source-339b56af46bfe110 = これらの変更を保存できませんでした。選択したチャネルを確認し、再接続するか、サーバー設定をリロードして、再試行してください。
-source-6ae0e0aa6c767086 = このアカウントをスイッチャー用に保存できませんでした。もう一度サインインして再試行してください
-source-59e8f6ad602f5217 = この役割を保存できませんでした。名前、権限、役割階層を確認してください。
-source-a344ce4a120ef253 = オーディオデバイスの検出を開始できませんでした
-source-17f78518ca1760de = 音声出力を開始できませんでした
-source-d39420114623f4e9 = オーディオワーカーを開始できませんでした
-source-8a7c5e3b833292d6 = カメラデバイスの検出を開始できませんでした
-source-7283ba47445eb3d8 = イメージワーカーを起動できませんでした
-source-b0f74f585399a02c = 画面ソース検出を開始できませんでした
-source-90eeb7167d32e152 = ビデオワーカーを開始できませんでした
-source-e585bdfdf184d235 = アップデートを解凍できませんでした。
-source-5f0fd7ad256ac233 = 統合を更新できませんでした。権限と接続を確認してから、リロードしてください。
-source-f5605ba53f7980d8 = ステータスを更新できませんでした: 接続できません。
-source-d9fac810d8c681e4 = 添付ファイルを書き込めませんでした。利用可能なディスク容量を確認する
-source-1e0b76ae10b2763e = アップデートを書き込めませんでした。利用可能なディスク容量を確認します。
-source-18758503d7689d02 = カバー画像が 2 MiB を超えています
-source-60ba5f888a2079cc = カバー画像ワーカーが失敗しました。
-source-382a2aa3984474dd = 作成する
-source-d92bb198b35a85b0 = 共有するリンクを作成する
-source-835925acc21b68c7 = 招待リンクを作成して、このサーバーに人々を歓迎します。
-source-9c99d3f4a6cb88db = カテゴリの作成
-source-0dcc3542d5b77e16 = チャンネルの作成
-source-16dfe22ad782d6ce = 式の作成
-source-5db57f2814942db2 = 招待状の作成
-source-461e523beecf9392 = 招待の作成
-source-ce67ba7d4c91848e = 招待リンクの作成
-source-1bb47213a314465b = リンクの作成
-source-0b2fa375fb5213b1 = 自分のものを作成する
-source-1ca952a0f10a7b63 = プライベートスレッドの作成
-source-19c1a06f6aa91423 = 公開スレッドを作成する
-source-c5f923729564fbf3 = ロールの作成
-source-f103b8dbbc4aac0d = タグの作成
-source-5c175b1f85652a68 = テーマの作成
-source-020ba69b968d45a7 = スレッドの作成
-source-765d7cdc51cba911 = スレッドを作成…
-source-c2717258f120ae20 = Webhook の作成
-source-5e5cff69a6d9543f = サーバーを作成する
-source-0e48fdc1d25a3d3c = AutoMod ルールを作成しました
-source-4aee34a672e5cfc0 = 作成者
-source-3bc00948402b2a88 = 作成されたチャンネル
-source-c89bbbc22d30e61a = 作成されたチャネル権限の上書き
-source-1a5ebc934f4dbad5 = クリエイター収益化リクエストを作成しました
-source-43d0e5411c2bb8a9 = 作成された絵文字
-source-3eb673cd7b5ee133 = 作成されたホーム設定
-source-d5b8032616b95e69 = 作成された統合
-source-d9f3af77938aa54c = 招待状を作成しました
-source-ab60977dfb40c7a4 = オンボーディングを作成しました
-source-9b75aa85f4497ffa = オンボーディングプロンプトを作成しました
-source-0c3cebd9295125ed = 作成されたロール
-source-6e26dd1f4afff88c = スケジュールされたイベントを作成しました
-source-9fcbe25b846a3d67 = サウンドボードサウンドを作成しました
-source-0e490773e2d1f0d9 = 作成されたステージ
-source-449696c884289800 = 作成したステッカー
-source-553d3b576ececfa5 = 作成されたスレッド
-source-4339d5f545a1f994 = 作成された音声チャネルのステータス
-source-930b366c85da6dea = 作成された Webhook
-source-2a35392fddc81ba3 = 招待リンクを作成中…
-source-4a58e62083970a56 = 作成…
-source-2d119c0d85bde088 = 作成日
-source-11ee378934ab0f8d = 作成時間
-source-c593b0976a6268bf = 作成者名は必須です。
-source-2d3cbfb6158cc7c7 = クリエイタープレビュー
-source-fbf6afadead4779b = 資格情報の検索は利用できません。 Discordに再度サインインする
-source-0beafa22dc30957b = 資格情報キューは使用できません。保存されたログインは残る可能性があります
-source-0b423419aa0d45a0 = CSS
-source-6fb3409caa74b0a4 = Ctrl
-source-96fb2219ad3070ba = 現在
-source-ab8b4cbbb1fa71fa = 現在
-source-65dcda4c5b6c0401 = 現在のチャンネル行
-source-d6aa66d42f812c4a = 現在のチャンネルのサウンド
-source-f0cab2483f66aa2e = カスタム
-source-1995a948733ac7bd = カスタムカラー
-source-f9b5bb48f1de4eb9 = カスタムカバー
-source-6e247239c3b9115b = カスタムフォント
-source-e5a1cc2ee82bb2e3 = カスタムフォント 日本語
-source-5056fa9079a3d801 = カスタム役割の色
-source-722fda04606d8074 = カスタムステータス
-source-099d476cb54b6fa5 = カスタム ステータス (空にするとクリアされます)
-source-a89808f057cf9368 = カスタムステータスがクリアされました
-source-e9eb6976f93dfb18 = カスタマイズ
-source-efb0bccda1346d32 = アプリの色、タイポグラフィー、コントロールのスタイルをカスタマイズする
-source-44c1ab78f3d57101 = 招待リンク、および有効な場合はサーバー検出メッセージとアナウンス チャネル メッセージでサーバーがどのように表示されるかをカスタマイズします。
-source-9351cb6afb65528b = ここで設定と誰が何をできるかをカスタマイズします。
-source-c5756436ff756f9e = サーバーをカスタマイズする
-source-5e7acef59442f265 = 統合を使用してサーバーをカスタマイズします。 Webhook、フォローされているチャネル、サーバーに接続されているアプリを管理します。
-source-af63f94c86021dd3 = D
-source-ac895c732f350ac5 = 暗い
-source-ac896d732f3527a8 = ダーツ
-source-a603948a0cea6a15 = データとプライバシーの設定
-source-3f9c26572c0dfd76 = データ プライバシー ローカル ストレージ キャッシュのクリア ドラフト 認証情報
-source-ac8252732f2edb19 = 日付
-source-d57b24fa846b14b5 = 日付、著者のタイプなど
-source-b0c04a1592853742 = 聴覚障害者
-source-57d2b7f1d6678c99 = ろう者会員
-source-b5893bd6978e6395 = 耳をつんざく音
-source-448181d18f640dee = Deafen は受信音声をオフにし、マイクをミュートします。
-source-1e16896b058b2d13 = 耳が聞こえない
-source-6fe17c2844da1113 = サーバーによって聴覚障害者になる
-source-fda8ac5c5174a19e = サーバーによって耳が聞こえなくなりました
-source-32322dc45e502559 = 衰退
-source-805b81fbfcb428f6 = デコードされた画像がメモリ制限を超えています
-source-657f80dffe736128 = 深い青色の表面に明るい海のアクセントが付いています。
-source-11326fd2590f4e5e = デフォルト
-source-3d8d90ed798cda84 = デフォルトのレイアウト
-source-d8fed10701008656 = デフォルトの通知設定
-source-62a3f74a862ecad6 = デフォルトの権限
+
+# Semantic application strings. Keys stay stable when English copy changes.
+
+## crates/ui/src/account_badge.rs
+# Context: name
+account-badge-app = アプリ
+# Context: name
+account-badge-app-description = アプリケーション生成メッセージ
+# Context: name
+account-badge-bot = ボット
+# Context: name
+account-badge-bot-description = ボットアカウント
+# Context: name
+account-badge-webhook = ウェブフック
+# Context: name
+account-badge-webhook-description = Webhook 作成者
+
+## crates/ui/src/account_menu.rs
+# Context: account_identity_card
+account-menu-account-identity-card-loading-profile = プロファイルを読み込み中…
+# Context: account_identity_card
+account-menu-account-identity-card-reload-profile = プロファイルをリロードする
+# Context: account_menu
+account-menu-account-menu-custom-status = カスタムステータス
+# Context: account_menu
+account-menu-account-menu-shown-next-to-your-name-across-discord = Discord 全体であなたの名前の横に表示されます。
+# Context: account_switcher
+account-menu-account-switcher-add-an-account = アカウントを追加する
+# Context: account_switcher_row
+account-menu-account-switcher-row-forget = 忘れる
+# Context: account_switcher_row
+account-menu-account-switcher-row-forget-this-account-on-this-device = このデバイス上のこのアカウントを忘れてください
+# Context: account_switcher_row
+account-menu-account-switcher-row-switch-to = に切り替えます
+# Context: account_switcher
+account-menu-account-switcher-switch-accounts = アカウントを切り替える
+# Context: clears_at
+account-menu-clears-at-at = で
+# Context: clears_at
+account-menu-clears-at-tomorrow = 明日
+# Context: custom_status_actions
+account-menu-custom-status-actions-apply = 適用する
+# Context: custom_status_actions
+account-menu-custom-status-actions-clear = クリア
+# Context: account_custom_status_row
+account-menu-custom-status-edit = カスタムステータスを編集する
+# Context: custom_status_editor
+account-menu-custom-status-editor-clear-after = 後クリア
+# Context: custom_status_editor
+account-menu-custom-status-editor-no-custom-status = カスタムステータスなし
+# Context: custom_status_editor
+account-menu-custom-status-editor-serein-clears-it = セレインがクリアする
+# Context: custom_status_editor
+account-menu-custom-status-editor-status-text = ステータステキスト
+# Context: custom_status_editor
+account-menu-custom-status-editor-use-up-to-128-characters-without-control-characters = 制御文字を除く最大 128 文字を使用します。
+# Context: custom_status_editor
+account-menu-custom-status-editor-what-s-on-your-mind = 何を考えているの？
+# Context: account_custom_status_row
+account-menu-custom-status-set = カスタムステータスを設定する
+# Context: label
+account-menu-label-1-hour = 1時間
+# Context: label
+account-menu-label-30-minutes = 30分
+# Context: label
+account-menu-label-4-hours = 4時間
+# Context: label
+account-menu-label-don-t-clear = クリアしないでください
+# Context: label
+account-menu-label-today = 今日
+# Context: presence_menu
+account-menu-presence-menu-you-will-appear-offline = オフラインで表示されます
+# Context: presence_menu
+account-menu-presence-menu-you-will-not-receive-desktop-notifications = デスクトップ通知は受信されません
+# Context: account_status_row
+account-menu-status-invisible = 見えない
+
+## crates/ui/src/archives.rs
+# Context: show
+archives-active-threads = アクティブなスレッド
+# Context: show
+archives-show-active-threads-come-from-the-session-older-threads-load-25 = アクティブなスレッドはセッションから取得されます。古いスレッドは一度に 25 個ロードされます。開くと、参加せずにメッセージが読み込まれます。
+# Context: show
+archives-show-archives-active-threads = アクティブなスレッドをアーカイブする
+# Context: show
+archives-show-archives-are-unavailable-while-disconnected-or-without-channel-access = 接続されていないとき、またはチャンネルにアクセスできないときは、アーカイブは利用できません。
+# Context: show
+archives-show-close = 近い
+# Context: show
+archives-show-create = 作成する
+# Context: show
+archives-show-loading-older-threads = 古いスレッドを読み込んでいます…
+# Context: show
+archives-show-no-active-thread-matches-this-search = この検索に一致するアクティブなスレッドはありません。
+# Context: show
+archives-show-no-older-threads-reported-by-the-service = サービスによって古いスレッドは報告されません。
+# Context: show
+archives-show-no-older-threads-returned = 古いスレッドは返されません。
+# Context: show
+archives-show-older-threads = 古いスレッド
+# Context: show
+archives-show-private-archives-require-permission-from-the-service = プライベートアーカイブにはサービスからの許可が必要です。
+# Context: show
+archives-show-search-for-thread-name = スレッド名で検索
+# Context: show
+archives-show-threads = スレッド
+# Context: show
+archives-show-you-cannot-start-a-thread-in-this-channel = このチャネルではスレッドを開始できません。
+# Context: thread_card
+archives-thread-card-open-thread = オープンスレッド
+# Context: thread_card
+archives-thread-card-started-by = によって開始されました
+
+## crates/ui/src/attachments.rs
+# Context: download_button
+attachments-download-button-a-download-is-already-active = ダウンロードはすでにアクティブです
+# Context: download_button
+attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = このファイルを保存する場所を選択してください · 最大 100 MiB
+# Context: download_button
+attachments-download-button-download = ダウンロード
+# Context: download_button
+attachments-download-button-downloads-are-disabled-for-synthetic-attachments = 合成添付ファイルのダウンロードは無効になっています
+# Context: media_menu
+attachments-media-menu-a-media-transfer-is-already-active = メディア転送はすでにアクティブです
+# Context: media_menu
+attachments-media-menu-copy-image = 画像をコピーする
+# Context: media_menu
+attachments-media-menu-copy-link = リンクをコピー
+# Context: media_menu
+attachments-media-menu-copy-video = ビデオをコピーする
+# Context: media_menu
+attachments-media-menu-open-original = オリジナルを開く…
+# Context: media_menu
+attachments-media-menu-save-image-as = 画像に名前を付けて保存…
+# Context: media_menu
+attachments-media-menu-save-video-as = ビデオに名前を付けて保存…
+# Context: media_menu
+attachments-media-menu-unavailable-for-synthetic-attachments = 合成アタッチメントには使用できません
+# Context: open_original
+attachments-open-original-open-original = オリジナルを開く…
+# Context: pending_card
+attachments-pending-card-remove-attachment = 添付ファイルを削除する
+# Context: show_status
+attachments-show-status-cancel-download = ダウンロードをキャンセルする
+# Context: show_status
+attachments-show-status-dismiss = 却下する
+# Context: viewer
+attachments-viewer-a-download-is-already-active = ダウンロードはすでにアクティブです
+# Context: viewer
+attachments-viewer-cancel = キャンセル
+# Context: viewer
+attachments-viewer-downloads-are-disabled-for-synthetic-attachments = 合成添付ファイルのダウンロードは無効になっています
+# Context: viewer
+attachments-viewer-open-in-browser = ブラウザで開く
+# Context: viewer
+attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset = スクロールしてズーム · ドラッグしてパン · ダブルクリックしてリセット
+
+## crates/ui/src/audio.rs
+# Context: show
+audio-show-loading-audio = 音声を読み込んでいます…
+# Context: show
+audio-show-seek = 求める
+# Context: show
+audio-show-volume = 音量
+# Context: waveform
+audio-waveform-seek-voice-message = 音声メッセージを求める
+
+## crates/ui/src/avatars.rs
+# Context: show_profile_avatar
+avatars-show-profile-avatar-server-profile-picture = サーバーのプロフィール写真
+# Context: sticker_image
+avatars-sticker-image-image-unavailable = 画像が利用できません
+
+## crates/ui/src/categories.rs
+# Context: category_header
+categories-category-header-category = カテゴリ
+# Context: category_header
+categories-category-header-channels = チャンネル
+# Context: category_header
+categories-category-header-collapse = 崩壊
+# Context: category_header
+categories-category-header-collapsed = 折りたたまれた
+# Context: category_header
+categories-category-header-expand = 拡大する
+# Context: category_header
+categories-category-header-expanded = 拡張された
+# Context: channel_list
+categories-channel-list-notifications = 通知
+# Context: channel_list
+categories-channel-list-unread = 、未読
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-announcement-channel = アナウンスチャンネル
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-direct-message = ダイレクトメッセージ
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-directory-not-implemented = ディレクトリ・未実装
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-forum-loaded-posts = フォーラム · 読み込まれた投稿
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-group-direct-message = グループダイレクトメッセージ
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-media-loaded-posts = メディア · 読み込まれた投稿
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-server-voice-channel = サーバー音声チャネル
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-stage-channel-not-implemented = ステージチャンネル・未実装
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-text-channel = テキストチャンネル
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-thread = 糸
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-unknown-channel-type-not-implemented = 不明なチャネルタイプ · 実装されていません
+
+## crates/ui/src/shortcuts.rs
+# Context: key
+channel-list-heading-direct-messages = ダイレクトメッセージ
+# Context: key
+channel-list-heading-favorites = お気に入り
+# Context: key
+channel-list-heading-pinned = 固定された
+
+## crates/ui/src/channel_menu.rs
+# Context: context
+channel-menu-context-add-to-favorites = お気に入りに追加
+# Context: context
+channel-menu-context-copy-channel-id = チャンネルIDをコピー
+# Context: context
+channel-menu-context-copy-link = リンクをコピー
+# Context: context
+channel-menu-context-create-category = カテゴリの作成
+# Context: context
+channel-menu-context-create-channel = チャンネルの作成
+# Context: context
+channel-menu-context-edit-category = カテゴリの編集
+# Context: context
+channel-menu-context-edit-channel = チャンネルの編集
+# Context: context
+channel-menu-context-favorites-are-saved-on-this-device = お気に入りはこのデバイスに保存されます。
+# Context: context
+channel-menu-context-invite-to-channel = チャンネルに招待する
+# Context: context
+channel-menu-context-mark-as-read = 既読としてマーク
+# Context: context
+channel-menu-context-mute-channel = チャンネルをミュートする
+# Context: context
+channel-menu-context-notification-settings = 通知設定
+# Context: context
+channel-menu-context-remove-from-favorites = お気に入りから削除
+# Context: context
+channel-menu-context-unmute-channel = チャンネルのミュートを解除する
+# Context: context
+channel-menu-context-until-i-turn-it-back-on = 再び電源を入れるまで
+# Context: show
+channel-menu-delete-category-confirm = { $name } を削除しますか?そのチャネルはサーバー内に残ります。これを元に戻すことはできません。
+# Context: show
+channel-menu-delete-channel-confirm = #{ $name } を削除してもよろしいですか?そのメッセージは完全に削除されます。これを元に戻すことはできません。
+# Context: editor
+channel-menu-editor-overview = 概要
+# Context: navigation
+channel-menu-navigation-delete-category = カテゴリの削除
+# Context: navigation
+channel-menu-navigation-delete-channel = チャンネルの削除
+# Context: overview
+channel-menu-overview-age-restricted-channel = 年齢制限のあるチャンネル
+# Context: overview
+channel-menu-overview-category-name = カテゴリ名
+# Context: overview
+channel-menu-overview-channel-name = チャンネル名
+# Context: overview
+channel-menu-overview-channel-type = チャネルの種類
+# Context: overview
+channel-menu-overview-let-everyone-know-how-to-use-this-channel = このチャンネルの使用方法をみんなに知らせる
+# Context: overview
+channel-menu-overview-members-must-confirm-they-are-of-age-before-viewing = 会員は閲覧する前に成人であることを確認する必要があります。
+# Context: overview
+channel-menu-overview-members-will-be-restricted-to-one-message-in-this-interval = メンバーは、この間隔内で 1 つのメッセージに制限されます。
+# Context: overview
+channel-menu-overview-new-category = 新しいカテゴリー
+# Context: overview
+channel-menu-overview-new-channel = 新しいチャンネル
+# Context: overview
+channel-menu-overview-slowmode = スローモード
+# Context: overview
+channel-menu-overview-topic = トピック
+# Context: report_capacity
+channel-menu-report-capacity-all-messages = すべてのメッセージ
+# Context: report_capacity
+channel-menu-report-capacity-create-channel = チャンネルの作成
+# Context: report_capacity
+channel-menu-report-capacity-delete-category = カテゴリの削除
+# Context: report_capacity
+channel-menu-report-capacity-delete-channel = チャンネルの削除
+# Context: report_capacity
+channel-menu-report-capacity-duplicate-category = 重複したカテゴリ
+# Context: report_capacity
+channel-menu-report-capacity-duplicate-channel = 重複したチャンネル
+# Context: report_capacity
+channel-menu-report-capacity-for-1-hour = 1時間
+# Context: report_capacity
+channel-menu-report-capacity-for-15-minutes = 15分間
+# Context: report_capacity
+channel-menu-report-capacity-for-24-hours = 24時間
+# Context: report_capacity
+channel-menu-report-capacity-for-3-hours = 3時間
+# Context: report_capacity
+channel-menu-report-capacity-for-8-hours = 8時間
+# Context: report_capacity
+channel-menu-report-capacity-nothing = 何もない
+# Context: report_capacity
+channel-menu-report-capacity-only-mentions = @メンションのみ
+# Context: report_capacity
+channel-menu-report-capacity-use-server-default = サーバーのデフォルトを使用
+# Context: show
+channel-menu-show-at-the-top-of-this-server-uses-server-permissions = このサーバーの最上位で、サーバー権限を使用します
+# Context: show
+channel-menu-show-cancel = キャンセル
+# Context: show
+channel-menu-show-channel-settings-could-not-be-loaded = チャンネル設定をロードできませんでした。
+# Context: show
+channel-menu-show-channel-settings-need-to-be-refreshed-before-saving-reloading-replaces = 保存する前にチャンネル設定を更新する必要があります。再ロードすると、このドラフトが置き換えられます。
+# Context: show
+channel-menu-show-close = 近い
+# Context: show_feedback
+channel-menu-show-feedback-channel-action = チャネルアクション
+# Context: show_feedback
+channel-menu-show-feedback-dismiss = 却下する
+# Context: show
+channel-menu-show-in-this-channels-category-inherits-category-permissions = このチャンネルのカテゴリでは、カテゴリの権限を継承します
+# Context: show
+channel-menu-show-loading-channel-settings = チャンネル設定を読み込み中…
+# Context: show
+channel-menu-show-offline-preview-no-server-changes = オフライン プレビュー - サーバーの変更なし
+# Context: show
+channel-menu-show-reload-channel = チャンネルをリロードする
+# Context: show
+channel-menu-show-retry = リトライ
+# Context: show
+channel-menu-show-you-no-longer-have-permission-to-manage-this-channel = このチャンネルを管理する権限がなくなりました。
+# Context: sidebar_context
+channel-menu-sidebar-context-hide-muted-channels = ミュートされたチャンネルを非表示にする
+# Context: sidebar_context
+channel-menu-sidebar-context-invite-to-server = サーバーに招待
+
+## crates/ui/src/channel_permissions.rs
+# Context: add
+channel-permissions-add-add-reactions = リアクションの追加
+# Context: add
+channel-permissions-add-allow = 許可する
+# Context: add
+channel-permissions-add-allows-emoji-from-other-servers = 他のサーバーからの絵文字を許可します。
+# Context: add
+channel-permissions-add-allows-members-to-add-new-emoji-reactions = メンバーが新しい絵文字リアクションを追加できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-change-channel-permissions = メンバーがチャンネルの権限を変更できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-create-edit-and-delete-webhooks = メンバーが Webhook を作成、編集、削除できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-deafen-others-in-voice-channels = メンバーが音声チャンネルで他の人の耳をつんざくことができるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-delete-others-messages = メンバーが他の人のメッセージを削除できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-edit-channel-settings-and-delete-channels = メンバーがチャンネル設定を編集したり、チャンネルを削除したりできるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-invite-people-to-this-server = メンバーがこのサーバーに人々を招待できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-join-voice-channels = メンバーが音声チャンネルに参加できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-manage-and-delete-threads = メンバーがスレッドを管理および削除できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-move-others-between-voice-channels = メンバーが音声チャネル間で他のメンバーを移動できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-mute-others-in-voice-channels = メンバーが音声チャネルで他のユーザーをミュートできるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-pin-and-unpin-messages = メンバーがメッセージを固定または固定解除できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-read-previous-messages = メンバーが以前のメッセージを読むことができます。
+# Context: add
+channel-permissions-add-allows-members-to-reply-in-threads = メンバーがスレッド内で返信できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-send-messages-in-these-channels = メンバーがこれらのチャネルでメッセージを送信できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-share-video-and-their-screen = メンバーがビデオと画面を共有できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-speak-in-voice-channels = メンバーが音声チャネルで発言できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-start-private-threads = メンバーがプライベート スレッドを開始できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-start-public-threads = メンバーが公開スレッドを開始できるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-upload-files-and-media = メンバーがファイルとメディアをアップロードできるようにします。
+# Context: add
+channel-permissions-add-allows-members-to-view-these-channels = メンバーがこれらのチャンネルを閲覧できるようにします。
+# Context: add
+channel-permissions-add-allows-mentions-that-notify-everyone-or-entire-roles = 全員またはロール全体に通知するメンションを許可します。
+# Context: add
+channel-permissions-add-allows-messages-read-aloud-with-text-to-speech = テキスト読み上げを使用してメッセージを読み上げることができます。
+# Context: add
+channel-permissions-add-allows-speaking-without-push-to-talk = プッシュツートークなしで話すことができます。
+# Context: add
+channel-permissions-add-allows-stickers-from-other-servers = 他のサーバーからのステッカーを許可します。
+# Context: add
+channel-permissions-add-attach-files = ファイルを添付する
+# Context: add
+channel-permissions-add-connect = 接続する
+# Context: add
+channel-permissions-add-create-invite = 招待の作成
+# Context: add
+channel-permissions-add-create-private-threads = プライベートスレッドの作成
+# Context: add
+channel-permissions-add-create-public-threads = 公開スレッドを作成する
+# Context: add
+channel-permissions-add-deafen-members = ろう者会員
+# Context: add
+channel-permissions-add-deny = 拒否
+# Context: add
+channel-permissions-add-embed-links = リンクを埋め込む
+# Context: add
+channel-permissions-add-general-category-permissions = 一般カテゴリの権限
+# Context: add
+channel-permissions-add-general-channel-permissions = 一般的なチャネル許可
+# Context: add
+channel-permissions-add-inherit = 継承する
+# Context: add
+channel-permissions-add-manage-channels = チャネルの管理
+# Context: add
+channel-permissions-add-manage-messages = メッセージの管理
+# Context: add
+channel-permissions-add-manage-permissions = 権限の管理
+# Context: add
+channel-permissions-add-manage-threads = スレッドの管理
+# Context: add
+channel-permissions-add-manage-webhooks = Webhook の管理
+# Context: add
+channel-permissions-add-membership-permissions = メンバーシップの許可
+# Context: add
+channel-permissions-add-mention-everyone-here-and-all-roles = @everyone、@here、およびすべての役割について言及します
+# Context: add
+channel-permissions-add-move-members = メンバーの移動
+# Context: add
+channel-permissions-add-mute-members = メンバーをミュートする
+# Context: add
+channel-permissions-add-pin-messages = ピンメッセージ
+# Context: add
+channel-permissions-add-read-message-history = メッセージ履歴を読む
+# Context: add
+channel-permissions-add-send-messages = メッセージを送信する
+# Context: add
+channel-permissions-add-send-messages-in-threads = スレッドでメッセージを送信する
+# Context: add
+channel-permissions-add-send-text-to-speech-messages = テキスト読み上げメッセージを送信する
+# Context: add
+channel-permissions-add-shows-previews-for-links-members-send = メンバーが送信したリンクのプレビューを表示します。
+# Context: add
+channel-permissions-add-speak = 話す
+# Context: add
+channel-permissions-add-text-channel-permissions = テキストチャネルの権限
+# Context: add
+channel-permissions-add-use-external-emoji = 外部絵文字を使用する
+# Context: add
+channel-permissions-add-use-external-stickers = 外部ステッカーを使用する
+# Context: add
+channel-permissions-add-use-voice-activity = 音声アクティビティを使用する
+# Context: add
+channel-permissions-add-video = ビデオ
+# Context: add
+channel-permissions-add-view-channels = チャンネルを見る
+# Context: add
+channel-permissions-add-voice-channel-permissions = 音声チャネルの許可
+# Context: permissions
+channel-permissions-permissions-remove-role-member = 役割/メンバーの削除
+# Context: show
+channel-permissions-show-advanced-permissions = 高度な権限
+# Context: show
+channel-permissions-show-only-selected-members-and-roles-can-view-this-category-synced = 選択されたメンバーと役割のみがこのカテゴリを表示できます。同期されたチャンネルはその権限に従います。
+# Context: show
+channel-permissions-show-only-selected-members-and-roles-can-view-this-channel-administrators = 選択されたメンバーと役割のみがこのチャンネルを表示できます。管理者はアクセス権を保持します。
+# Context: show
+channel-permissions-show-private-category = プライベートカテゴリー
+# Context: show
+channel-permissions-show-private-channel = プライベートチャンネル
+# Context: show
+channel-permissions-show-you-need-manage-channels-and-manage-permissions-to-change-these = これらの設定を変更するには、「チャネルの管理」と「権限の管理」が必要です。
+# Context: targets
+channel-permissions-targets-add-member = メンバーを追加
+# Context: targets
+channel-permissions-targets-add-role-or-member = + 役割またはメンバーを追加
+# Context: targets
+channel-permissions-targets-member = メンバー
+# Context: targets
+channel-permissions-targets-member-id = 会員ID
+# Context: targets
+channel-permissions-targets-role = 役割
+# Context: targets
+channel-permissions-targets-roles-members = 役割/メンバー
+# Context: targets
+channel-permissions-targets-search-roles-or-loaded-members = ロールまたはロードされたメンバーを検索する
+
+## crates/ui/src/components.rs
+# Context: dialogs
+components-dialogs-submit = 提出する
+# Context: dialogs
+components-dialogs-submitting = 送信中…
+# Context: field
+components-field-allowed-files = 許可されたファイル
+# Context: field
+components-field-choose-files = ファイルを選択してください…
+# Context: field
+components-field-confirm = 確認する
+# Context: field
+components-field-unsupported-form-field-type = サポートされていないフォームフィールドタイプです
+# Context: select
+components-select-choose-options = オプションを選択してください
+# Context: select
+components-select-clear-selection = 選択をクリア
+# Context: select
+components-select-no-matching-options-loaded = 一致するオプションがロードされていません
+# Context: select
+components-select-refine-your-search-to-see-more-results = 検索を絞り込んでさらに結果を表示します
+# Context: select
+components-select-search-options = 検索オプション
+# Context: select
+components-select-type-to-search-members-available-roles-and-channels-are-listed = メンバーを検索するには入力します。利用可能な役割とチャネルがリストされます
+# Context: show_component
+components-show-component-reveal-spoiler-component = スポイラーコンポーネントを明らかにする
+# Context: show_component
+components-show-component-reveal-spoiler-media = ネタバレメディ​​アを公開する
+# Context: show_component
+components-show-component-submit-selection = 選択内容を送信
+# Context: show_component
+components-show-component-unsupported-component-type = サポートされていないコンポーネントの種類
+# Context: show_media
+components-show-media-open-media = オープンメディア
+# Context: show_media
+components-show-media-reveal-spoiler-attachment = スポイラーの取り付けを明らかにします
+
+## crates/ui/src/contact_editor.rs
+# Context: show
+contact-editor-show-add-something-to-remember = 覚えておくべきことを追加してください…
+# Context: show
+contact-editor-show-cancel = キャンセル
+# Context: show
+contact-editor-show-connection-refreshed-reload-the-saved-note-before-saving-your-draft = 接続が更新されました。保存する前に、保存したメモを再ロードします。あなたのドラフトは保存されます。
+# Context: show
+contact-editor-show-could-not-load-the-note-your-existing-note-has-not = メモをロードできませんでした。既存のメモは変更されていません。
+# Context: show
+contact-editor-show-enter-a-nickname = ニックネームを入力してください
+# Context: show
+contact-editor-show-friend-nickname = 友達のニックネーム
+# Context: show
+contact-editor-show-loading-note = メモを読み込んでいます…
+# Context: show
+contact-editor-show-nickname = ニックネーム
+# Context: show
+contact-editor-show-note = 注記
+# Context: show
+contact-editor-show-only-you-can-see-this-nickname-it-does-not-change = このニックネームはあなただけが見ることができます。サーバー名は変更されません。
+# Context: show
+contact-editor-show-only-you-can-see-this-note-it-is-saved-to = このメモはあなただけが見ることができます。 Discord アカウントに保存されます。
+# Context: show
+contact-editor-show-reload-saved-note = 保存したメモをリロードする
+# Context: show
+contact-editor-show-retry = リトライ
+# Context: show
+contact-editor-show-save = 保存
+# Context: show
+contact-editor-show-saving = 保存中…
+# Context: show
+contact-editor-show-this-user-is-no-longer-a-confirmed-friend = このユーザーは確認済みの友達ではなくなりました。
+
+## crates/ui/src/design.rs
+# Context: account_row_with_remove
+design-account-row-with-remove-forget = 忘れる
+# Context: account_row_with_remove
+design-account-row-with-remove-forget-this-account-on-this-device = このデバイス上のこのアカウントを忘れてください
+# Context: color_edit
+design-color-edit-hex-color-rrggbb-click-to-type-or-paste = 16 進カラー: #RRGGBB。クリックして入力または貼り付けます。
+# Context: save_bar
+design-save-bar-careful-you-have-unsaved-changes = 注意してください。保存されていない変更があります。
+
+## crates/ui/src/dialog.rs
+# Context: header
+dialog-header-close-dialog-esc = ダイアログを閉じる (Esc)
+# Context: module
+dialog-module-cancel = キャンセル
+# Context: module
+dialog-module-delete = 消去
+# Context: module
+dialog-module-delete-channel = チャンネルを削除しますか?
+# Context: module
+dialog-module-this-cannot-be-undone = これを元に戻すことはできません。
+
+## crates/ui/src/embeds.rs
+# Context: gallery
+embeds-gallery-of = の
+# Context: gallery
+embeds-gallery-open-embed-image = 埋め込み画像を開く
+# Context: gallery
+embeds-gallery-open-image = 画像を開く…
+# Context: image_preview
+embeds-image-preview-image-actions = 画像アクション
+# Context: link
+embeds-link-open-link = リンクを開く…
+# Context: show
+embeds-show-additional-embed-content-is-not-supported = 追加の埋め込みコンテンツはサポートされていません
+# Context: show
+embeds-show-embed-display-limited = 埋め込み表示制限あり
+# Context: show
+embeds-show-favorite-gif = お気に入りのGIF
+# Context: show
+embeds-show-open-image = 画像を開く
+# Context: show
+embeds-show-open-image-2 = 画像を開く…
+# Context: show
+embeds-show-remove-from-gif-favorites = GIF のお気に入りから削除
+# Context: show
+embeds-show-save-to-gif-favorites = GIF のお気に入りに保存
+# Context: show
+embeds-show-video-preview-playback-opens-in-your-browser = ビデオのプレビュー・再生がブラウザで開きます
+# Context: text
+embeds-text-text-display-limited = テキスト表示制限あり
+
+## crates/ui/src/emoji_details.rs
+# Context: show
+emoji-details-show-a-custom-emoji = カスタム絵文字。
+# Context: show
+emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = デフォルトの絵文字。この絵文字は Discord のどこでも使用できます。
+# Context: show
+emoji-details-show-copy-emoji = 絵文字をコピーする
+# Context: show
+emoji-details-show-from = から
+# Context: show
+emoji-details-show-source-server-unavailable-in-this-session = このセッションではソース サーバーを利用できません。
+
+## crates/ui/src/emoji_picker.rs
+# Context: gif_body
+emoji-picker-gif-body-favorites = お気に入り
+# Context: gif_body
+emoji-picker-gif-body-gif-search-needs-a-connected-session = GIF 検索には接続されたセッションが必要です。
+# Context: gif_body
+emoji-picker-gif-body-hover-a-gif-and-press-the-star-to-keep-it = GIF にカーソルを合わせて星を押し、ここに保持します。
+# Context: gif_body
+emoji-picker-gif-body-loading-gifs = GIFを読み込み中…
+# Context: gif_body
+emoji-picker-gif-body-no-favorites-yet = まだお気に入りはありません
+# Context: gif_body
+emoji-picker-gif-body-no-gifs-found = GIFが見つかりませんでした
+# Context: gif_body
+emoji-picker-gif-body-searching-klipy = KLIPYを検索中…
+# Context: gif_body
+emoji-picker-gif-body-trending-gifs = トレンドのGIF
+# Context: gif_body
+emoji-picker-gif-body-try-a-different-search-term = 別の検索語を試してください。
+# Context: gif_grid
+emoji-picker-gif-grid-favorite = お気に入り
+# Context: gif_grid
+emoji-picker-gif-grid-send-gif = GIFを送信する
+# Context: gif_home
+emoji-picker-gif-home-loading-trending-categories = トレンドカテゴリを読み込み中…
+# Context: popup
+emoji-picker-popup-back-to-gif-categories = GIF カテゴリに戻る
+# Context: popup
+emoji-picker-popup-cannot-add-this-reaction-right-now = 現在このリアクションを追加できません
+# Context: popup
+emoji-picker-popup-click-a-gif-to-send-it-right-away = GIF をクリックしてすぐに送信します
+# Context: popup
+emoji-picker-popup-emoji = 絵文字
+# Context: popup
+emoji-picker-popup-frequently-used = 頻繁に使用される
+# Context: popup
+emoji-picker-popup-hover-a-sticker-to-preview-it = ステッカーにカーソルを合わせるとプレビューできます
+# Context: popup
+emoji-picker-popup-hover-an-emoji-to-preview-it = 絵文字にカーソルを合わせるとプレビューできます
+# Context: popup
+emoji-picker-popup-no-matching-emoji = 一致する絵文字がありません。
+# Context: popup
+emoji-picker-popup-retry-sticker-packs = リトライステッカーパック
+# Context: popup
+emoji-picker-popup-search-results = 検索結果
+# Context: popup
+emoji-picker-popup-showing-the-first-1-000-custom-emoji-refine-your-search = 最初の 1,000 個のカスタム絵文字を表示します。さらに検索を絞り込みます。
+# Context: popup
+emoji-picker-popup-standard-emoji = 標準の絵文字
+# Context: popup
+emoji-picker-popup-this-server-has-no-custom-emoji = このサーバーにはカスタム絵文字がありません。
+# Context: popup
+emoji-picker-popup-this-server-s-emoji-list-is-not-loaded-yet = このサーバーの絵文字リストはまだロードされていません。
+# Context: popup
+emoji-picker-search-emoji = 完璧な絵文字を見つける
+# Context: popup
+emoji-picker-search-emoji-label = 絵文字を名前で検索する
+# Context: popup
+emoji-picker-search-gifs-label = KLIPYでGIFを検索
+# Context: popup
+emoji-picker-search-klipy = KLIPYを検索
+# Context: popup
+emoji-picker-search-stickers = 完璧なステッカーを見つけてください
+# Context: popup
+emoji-picker-search-stickers-label = ステッカーを名前で検索
+# Context: show
+emoji-picker-show-insert-an-emoji = 絵文字を挿入する
+# Context: show_reaction
+emoji-picker-show-reaction-add-reaction = リアクションを追加
+# Context: show
+emoji-picker-show-send-a-gif = GIFを送信する
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-choose-emoji = 絵文字を選択してください
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-remove-emoji = 絵文字を削除する
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-search-emoji = 絵文字を検索
+
+## crates/ui/src/extensions_ui.rs
+# Context: card_body
+extensions-ui-card-body-active = アクティブ
+# Context: card_body
+extensions-ui-card-body-apply-this-installed-theme-to-the-app = このインストールされたテーマをアプリに適用します。
+# Context: card_body
+extensions-ui-card-body-by = による
+# Context: card_body
+extensions-ui-card-body-cleanup-pending = クリーンアップ保留中
+# Context: card_body
+extensions-ui-card-body-enabled = 有効
+# Context: card_body
+extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = この拡張機能とそのローカル データの削除を完了します。
+# Context: card_body
+extensions-ui-card-body-open-tool = ツールを開く
+# Context: card_body
+extensions-ui-card-body-plugin = プラグイン
+# Context: card_body
+extensions-ui-card-body-remove = 取り除く
+# Context: card_body
+extensions-ui-card-body-remove-this-theme-and-delete-its-local-data = このテーマを削除し、そのローカル データを削除します。
+# Context: card_body
+extensions-ui-card-body-removes-this-extension-and-deletes-its-local-data = この拡張機能を削除し、そのローカル データを削除します。
+# Context: card_body
+extensions-ui-card-body-review-the-new-release-before-it-replaces-this-version = このバージョンを置き換える前に、新しいリリースを確認してください。
+# Context: card_body
+extensions-ui-card-body-update = アップデート
+# Context: composer_menu
+extensions-ui-composer-menu-tools = ツール
+# Context: consent_modal
+extensions-ui-consent-modal-allow-every-listed-permission-to-continue = リストされているすべての権限を続行できるようにします。
+# Context: consent_modal
+extensions-ui-consent-modal-allow-this-extension-to = この拡張機能に許可する
+# Context: consent_modal
+extensions-ui-consent-modal-by = による
+# Context: consent_modal
+extensions-ui-consent-modal-cancel = キャンセル
+# Context: consent_modal
+extensions-ui-consent-modal-disabling-removes-the-extension-and-its-local-data-re-enabling = 無効にすると、拡張機能とそのローカル データが削除されます。再度有効にすると、新たに開始されます。
+# Context: consent_modal
+extensions-ui-consent-modal-enable = 有効にする
+# Context: consent_modal
+extensions-ui-consent-modal-enable-this-extension = この拡張機能を有効にする
+# Context: consent_modal
+extensions-ui-consent-modal-enable-this-theme = このテーマを有効にする
+# Context: consent_modal
+extensions-ui-consent-modal-everything-it-may-touch-is-listed-below = 接触する可能性のあるものはすべて以下にリストされています。
+# Context: consent_modal
+extensions-ui-consent-modal-no-access-to-conversations-or-composer-text = 会話や作曲者のテキストにはアクセスできません。
+# Context: consent_modal
+extensions-ui-consent-modal-reviewed = レビュー済み
+# Context: consent_modal
+extensions-ui-consent-modal-unreviewed = 未レビュー
+# Context: consent_modal
+extensions-ui-consent-modal-unreviewed-package-its-source-has-not-been-reviewed-for-the = 未レビューのパッケージ — そのソースはカタログ用にレビューされていません。
+# Context: consent_modal
+extensions-ui-consent-modal-view-source = ソースを見る
+# Context: preview_image
+extensions-ui-preview-image-preview = プレビュー
+# Context: preview_image
+extensions-ui-preview-image-view-preview = プレビューを表示する
+# Context: preview_modal
+extensions-ui-preview-modal-close-preview = プレビューを閉じる
+# Context: preview_modal
+extensions-ui-preview-modal-creator-preview = クリエイタープレビュー
+# Context: preview_modal
+extensions-ui-preview-modal-example-deleted-message-appearance = 削除されたメッセージの外観の例
+# Context: preview_modal
+extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = アートワークを選択すると、画像添付として送信されます。
+# Context: settings
+extensions-ui-settings-no-extensions-yet = まだ拡張機能はありません
+# Context: settings
+extensions-ui-settings-no-matches = 一致しません
+# Context: settings
+extensions-ui-settings-no-themes-yet = まだテーマがありません
+# Context: settings
+extensions-ui-settings-refresh-the-catalog-or-import-a-creator-s-package-to = カタログを更新するか、作成者のパッケージをインポートして開始してください。
+# Context: settings
+extensions-ui-settings-try-a-different-name-or-creator = 別の名前または作成者を試してください。
+# Context: show_result
+extensions-ui-show-result-apply-to-draft = ドラフトに適用
+# Context: show_result
+extensions-ui-show-result-close = 近い
+# Context: show_result
+extensions-ui-show-result-dismiss = 却下する
+# Context: show_result
+extensions-ui-show-result-extension-error = 拡張エラー
+# Context: show_result
+extensions-ui-show-result-proposed-app-action = 提案されたアプリのアクション
+# Context: show_result
+extensions-ui-show-result-proposed-composer-text = 提案された作曲家テキスト
+# Context: show_result
+extensions-ui-show-result-review-the-result-app-actions-and-draft-changes-need-your = 結果を確認します。アプリの操作と下書きの変更には承認が必要です。
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-back-to-theme-editor = テーマエディターに戻る
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-back-to-themes = テーマに戻る
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-changes-are-not-saved-yet = 変更はまだ保存されていません
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-customize = カスタマイズ
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-previewing-theme = テーマのプレビュー
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-theme-preview = テーマのプレビュー
+# Context: toolbar
+extensions-ui-toolbar-checking-for-packages-and-updates = パッケージとアップデートの確認
+# Context: toolbar
+extensions-ui-toolbar-clear-search = 検索をクリア
+# Context: toolbar
+extensions-ui-toolbar-dismiss = 却下する
+# Context: toolbar
+extensions-ui-toolbar-import-theme = テーマをインポート…
+# Context: toolbar
+extensions-ui-toolbar-look-for-new-packages-and-updates-nothing-installs-on-its = 新しいパッケージやアップデートを探してください。単独でインストールされるものはありません。
+# Context: toolbar
+extensions-ui-toolbar-open-a-package-file-from-this-computer = このコンピュータからパッケージ ファイルを開きます。
+# Context: toolbar
+extensions-ui-toolbar-refresh-catalog = カタログを更新する
+# Context: toolbar
+extensions-ui-toolbar-search-extensions = 検索拡張機能
+# Context: toolbar
+extensions-ui-toolbar-search-themes = テーマを検索する
+# Context: toolbar
+extensions-ui-toolbar-working-on-your-last-action = 最後のアクションに取り組んでいます
+
+## crates/ui/src/fonts.rs
+# Context: show
+fonts-show-import-font = フォントをインポート…
+# Context: show
+fonts-show-inter-default = インター (デフォルト)
+# Context: show
+fonts-show-interface-font = インターフェースフォント
+# Context: show
+fonts-show-reset = リセット
+# Context: show
+fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = 素早い茶色のキツネが怠惰な犬を飛び越えます。 0123456789
+# Context: show
+fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF または OTF、最大 8 MiB。このデバイスに保存されます。コードは等幅フォントを維持します。
+# Context: show
+fonts-show-typography = タイポグラフィ
+
+## crates/ui/src/forum.rs
+# Context: archive_footer
+forum-archive-footer-archived-posts-need-a-connected-session-with-history-access = アーカイブされた投稿には、履歴にアクセスできる接続されたセッションが必要です。
+# Context: archive_footer
+forum-archive-footer-load-archived-posts = アーカイブされた投稿をロードする
+# Context: archive_footer
+forum-archive-footer-loading-archived-posts = アーカイブされた投稿を読み込んでいます…
+# Context: archive_footer
+forum-archive-footer-no-older-archived-posts-reported = 古いアーカイブされた投稿は報告されませんでした。
+# Context: archive_footer
+forum-archive-footer-older-archived-posts = 古いアーカイブされた投稿
+# Context: archive_footer
+forum-archive-footer-retry = リトライ
+# Context: composer
+forum-composer-add-images-or-files-up-to-10-files-and-500 = Add images or files.最大 10 ファイル、合計 500 MB。アカウントの制限が低くなる可能性があります。
+# Context: composer
+forum-composer-add-images-to-this-post = この投稿に画像を追加する
+# Context: composer
+forum-composer-attaching-files-is-unavailable-in-this-forum = このフォーラムではファイルの添付はできません。
+# Context: composer
+forum-composer-discard-this-post = この投稿を破棄する
+# Context: composer
+forum-composer-enter-a-message = メッセージを入力してください...
+# Context: composer
+forum-composer-post = 役職
+# Context: composer
+forum-composer-posting = 投稿中…
+# Context: composer
+forum-composer-title = タイトル
+# Context: describe
+forum-describe-archived = 、アーカイブ済み
+# Context: describe
+forum-describe-replies = 返信する
+# Context: describe
+forum-describe-unknown = 未知
+# Context: describe
+forum-describe-unread = 、未読
+# Context: latest_row
+forum-latest-row-attachment-or-non-text-message = 添付ファイルまたはテキスト以外のメッセージ
+# Context: latest_row
+forum-latest-row-latest-message-unavailable = 最新のメッセージは利用できません
+# Context: post_tags
+forum-post-tags-a-post-can-carry-up-to-5-tags = 投稿には最大 5 つのタグを付けることができます。
+# Context: post_tags
+forum-post-tags-add-tag = タグを追加
+# Context: post_tags
+forum-post-tags-add-tags = タグを追加する
+# Context: post_tags
+forum-post-tags-only-moderators-can-apply-this-tag = このタグを適用できるのはモデレーターのみです。
+# Context: post_tags
+forum-post-tags-remove-tag = タグを削除する
+# Context: post_tags
+forum-post-tags-select-tags = タグの選択
+# Context: post_tags
+forum-post-tags-this-forum-requires-a-tag = このフォーラムにはタグが必要です
+# Context: post_tags
+forum-post-tags-up-to = まで
+# Context: posts_footer
+forum-posts-footer-load-more-posts = さらに投稿を読み込む
+# Context: posts_footer
+forum-posts-footer-loading-posts = 投稿を読み込み中…
+# Context: posts_footer
+forum-posts-footer-retry = リトライ
+
+## crates/ui/src/forum_settings.rs
+# Context: chooser
+forum-settings-chooser-no-emoji-match = 一致する絵文字はありません
+# Context: chooser
+forum-settings-chooser-search-emoji = 絵文字を検索
+# Context: chooser
+forum-settings-chooser-server-emoji = サーバーの絵文字
+# Context: chooser
+forum-settings-chooser-then-standard-emoji = 次に標準の絵文字
+# Context: chooser
+forum-settings-chooser-this-server = このサーバー
+# Context: module
+forum-settings-module-1-hour = 1時間
+# Context: module
+forum-settings-module-1-minute = 1分
+# Context: module
+forum-settings-module-10-minutes = 10分
+# Context: module
+forum-settings-module-10-seconds = 10秒
+# Context: module
+forum-settings-module-15-minutes = 15分
+# Context: module
+forum-settings-module-15-seconds = 15秒
+# Context: module
+forum-settings-module-2-hours = 2時間
+# Context: module
+forum-settings-module-2-minutes = 2分
+# Context: module
+forum-settings-module-30-minutes = 30分
+# Context: module
+forum-settings-module-30-seconds = 30秒
+# Context: module
+forum-settings-module-5-minutes = 5分
+# Context: module
+forum-settings-module-5-seconds = 5秒
+# Context: module
+forum-settings-module-6-hours = 6時間
+# Context: module
+forum-settings-module-off = オフ
+# Context: show
+forum-settings-show-age-restricted-channel = 年齢制限のあるチャンネル
+# Context: show
+forum-settings-show-channel-content-is-always-visible = チャンネルのコンテンツは常に表示されます。
+# Context: show
+forum-settings-show-content-visibility = コンテンツの可視性
+# Context: show
+forum-settings-show-creation-time = 作成時間
+# Context: show
+forum-settings-show-default = デフォルト
+# Context: show
+forum-settings-show-default-layout = デフォルトのレイアウト
+# Context: show
+forum-settings-show-default-reaction = デフォルトの反応
+# Context: show
+forum-settings-show-gallery-view = ギャラリービュー
+# Context: show
+forum-settings-show-help-people-organize-their-posts-into-subcategories-by-creating-a = タグを作成して、投稿をサブカテゴリーに整理できるようにします。
+# Context: show
+forum-settings-show-hide-after-inactivity = 非アクティブになった後は非表示にする
+# Context: show
+forum-settings-show-let-everyone-know-how-to-use-this-channel = このチャンネルの使い方をみんなに教えてください！
+# Context: show
+forum-settings-show-list-view = リストビュー
+# Context: show
+forum-settings-show-match-all = すべて一致
+# Context: show
+forum-settings-show-match-some = 一部を一致させる
+# Context: show
+forum-settings-show-members-will-be-limited-to-one-message-per-this-interval = メンバーがスローモードをバイパスする権限を持っていない限り、新しい投稿については、この間隔ごとに 1 つのメッセージに制限されます。
+# Context: show
+forum-settings-show-members-will-be-restricted-to-creating-one-post-per-this = メンバーは、スローモードのバイパス権限を持っていない限り、この間隔で 1 つの投稿を作成するように制限されます。
+# Context: show
+forum-settings-show-messages = メッセージ
+# Context: show
+forum-settings-show-new-posts-stop-showing-in-the-channel-list-after-this = アクティビティが長期間行われないと、新しい投稿がチャンネル リストに表示されなくなります。
+# Context: show
+forum-settings-show-pick-a-default-emoji-that-your-members-will-use-to = メンバーがこのチャンネルの投稿に反応するために使用するデフォルトの絵文字を選択します。
+# Context: show
+forum-settings-show-post-guidelines = 投稿ガイドライン
+# Context: show
+forum-settings-show-posts = 投稿
+# Context: show
+forum-settings-show-recent-activity = 最近の活動
+# Context: show
+forum-settings-show-remove = 取り除く
+# Context: show
+forum-settings-show-require-people-to-select-tags-when-posting = 投稿時にタグの選択を要求する
+# Context: show
+forum-settings-show-set-the-default-layout-view-to-a-media-focused-gallery = デフォルトのレイアウト ビューをメディア中心のギャラリーまたはテキスト中心のリストに設定します。メンバーは引き続きこれらのオプションを切り替えることができます。
+# Context: show
+forum-settings-show-set-the-default-sort-order-for-new-posts-members-will = 新しい投稿のデフォルトの並べ替え順序を設定します。メンバーは引き続きこれらのオプションを切り替えることができます。
+# Context: show
+forum-settings-show-set-the-default-tag-matching-behaviour-members-will-still-be = デフォルトのタグ一致動作を設定します。メンバーは引き続きこれらのオプションを切り替えることができます。
+# Context: show
+forum-settings-show-slowmode = スローモード
+# Context: show
+forum-settings-show-sort-order = 並べ替え順序
+# Context: show
+forum-settings-show-tag-matching = タグマッチング
+# Context: show
+forum-settings-show-tags = タグ
+# Context: show
+forum-settings-show-users-will-need-to-confirm-they-are-of-over-the = ユーザーがこのチャンネルのコンテンツを視聴するには、法定年齢に達していることを確認する必要があります。年齢制限のあるチャンネルは、露骨なコンテンツ フィルターの対象から除外されます。
+# Context: slowmode
+forum-settings-slowmode-forum-settings-slowmode-seconds = フォーラム設定スローモード秒数
+# Context: slowmode
+forum-settings-slowmode-seconds = 秒
+# Context: tag_editor
+forum-settings-tag-editor-add-tag = タグの追加
+# Context: tag_editor
+forum-settings-tag-editor-cancel = キャンセル
+# Context: tag_editor
+forum-settings-tag-editor-create-tag = タグの作成
+# Context: tag_editor
+forum-settings-tag-editor-edit-tag = タグの編集
+# Context: tag_editor
+forum-settings-tag-editor-emoji = 絵文字
+# Context: tag_editor
+forum-settings-tag-editor-members-with-manage-threads-can-still-use-it = スレッドを管理できるメンバーは引き続き使用できます。
+# Context: tag_editor
+forum-settings-tag-editor-only-allow-moderators-to-apply-this-tag = モデレータのみにこのタグの適用を許可する
+# Context: tag_editor
+forum-settings-tag-editor-preview = プレビュー
+# Context: tag_editor
+forum-settings-tag-editor-question = 質問
+# Context: tag_editor
+forum-settings-tag-editor-remove-emoji = 絵文字を削除する
+# Context: tag_editor
+forum-settings-tag-editor-save-tag = タグの保存
+# Context: tag_editor
+forum-settings-tag-editor-tag-name = タグ名
+# Context: tags
+forum-settings-tags-a-forum-can-offer-up-to-20-tags = フォーラムでは最大 20 個のタグを提供できます。
+# Context: tags
+forum-settings-tags-create-tag = タグの作成
+# Context: tags
+forum-settings-tags-delete-tag = タグの削除
+# Context: tags
+forum-settings-tags-edit-tag = タグを編集する
+# Context: tags
+forum-settings-tags-moderators-only = モデレータのみ
+
+## crates/ui/src/forum.rs
+# Context: show
+forum-show-no-loaded-post-carries-the-selected-tags-load-more-or = ロードされた投稿には選択したタグが含まれていません。さらにロードするか、フィルターをクリアしてください。
+# Context: show
+forum-show-no-posts-loaded = 投稿が読み込まれていません
+# Context: show
+forum-show-no-posts-match = 一致する投稿はありません
+# Context: show
+forum-show-nothing-is-posted-here-yet-archived-posts-load-on-request = ここにはまだ何も投稿されていません。アーカイブされた投稿はリクエストに応じて読み込まれます。
+# Context: show
+forum-show-press-enter-to-start-a-post-with-this-title = Enter キーを押して、このタイトルの投稿を開始します。
+# Context: sort_label
+forum-sort-label-creation-date = 作成日
+# Context: sort_label
+forum-sort-label-recent-activity = 最近の活動
+# Context: sort_menu
+forum-sort-menu-gallery = ギャラリー
+# Context: sort_menu
+forum-sort-menu-gallery-2 = ギャラリー
+# Context: sort_menu
+forum-sort-menu-list = リスト
+# Context: sort_menu
+forum-sort-menu-list-2 = リスト
+# Context: sort_menu
+forum-sort-menu-sort-by = 並べ替え
+# Context: sort_menu
+forum-sort-menu-sort-view = 並べ替えて表示する
+# Context: sort_menu
+forum-sort-menu-sorted-by = 並べ替え順
+# Context: sort_menu
+forum-sort-menu-view = ビュー
+# Context: sort_menu
+forum-sort-menu-view-as = として表示
+# Context: stats_row
+forum-stats-row-archived = アーカイブ済み
+# Context: stats_row
+forum-stats-row-new = 新しい
+# Context: tag_filter
+forum-tag-filter-all = 全て
+# Context: tag_filter
+forum-tag-filter-clear-all = すべてクリア
+# Context: tag_filter
+forum-tag-filter-match = マッチ
+# Context: tag_filter
+forum-tag-filter-more-tags = タグをもっと見る
+# Context: tag_filter
+forum-tag-filter-select-tags = タグの選択
+# Context: tag_filter
+forum-tag-filter-show-only-posts-with-every-selected-tag = 選択したすべてのタグを持つ投稿のみを表示
+# Context: tag_filter
+forum-tag-filter-show-posts-with-any-selected-tag = 選択したタグの投稿を表示します
+# Context: tag_filter
+forum-tag-filter-some = いくつかの
+# Context: toolbar
+forum-toolbar-new-post = 新しい投稿
+# Context: toolbar
+forum-toolbar-posting-requires-a-connected-session-with-permission-to-send-here = 投稿するには、ここに送信する権限を持つ接続されたセッションが必要です。
+# Context: toolbar
+forum-toolbar-search-or-create-a-post = 投稿を検索または作成...
+
+## crates/ui/src/forwarding.rs
+# Context: show
+forwarding-show-a-message-failed-check-the-destination = メッセージが失敗しました - 宛先を確認してください
+# Context: show
+forwarding-show-add-an-optional-message = オプションのメッセージを追加します…
+# Context: show
+forwarding-show-attachment-or-embedded-content = 添付ファイルまたは埋め込みコンテンツ
+# Context: show
+forwarding-show-cancel = キャンセル
+# Context: show
+forwarding-show-conversation = 会話
+# Context: show
+forwarding-show-destinations-selected = 選択された目的地
+# Context: show
+forwarding-show-direct-messages = ダイレクトメッセージ
+# Context: show
+forwarding-show-done = 終わり
+# Context: show
+forwarding-show-forward-to = 転送先
+# Context: show
+forwarding-show-no-matching-destinations = 一致する目的地がありません
+# Context: show
+forwarding-show-outcome-unknown-check-the-destination-before-resending = 結果は不明 — 再送信する前に宛先を確認してください
+# Context: show
+forwarding-show-search = 検索
+# Context: show
+forwarding-show-select-where-you-want-to-share-this-message = このメッセージを共有する場所を選択してください。
+# Context: show
+forwarding-show-send = 送信
+# Context: show
+forwarding-show-sending = 送信中…
+# Context: show
+forwarding-show-sent = 送信済み
+# Context: show
+forwarding-show-source-message-is-no-longer-available = ソースメッセージは利用できなくなりました
+
+## crates/ui/src/friends.rs
+# Context: add_friend_page
+friends-add-friend-page-offline-demo-actions-are-simulated = オフラインのデモ・アクションがシミュレートされます。
+# Context: search
+friends-search-clear-search = 検索をクリア
+
+## crates/ui/src/group_menu.rs
+# Context: dropdown
+group-menu-dropdown-group-menu = グループメニュー
+# Context: frame
+group-menu-frame-synthetic-group = 合成基
+# Context: menu
+group-menu-menu-edit-group = グループの編集
+# Context: menu
+group-menu-menu-group-actions-unavailable-while-disconnected-or-busy = グループアクションは、切断中または通話中は利用できません。
+# Context: menu
+group-menu-menu-leave-group = グループを離れる
+# Context: menu
+group-menu-menu-mute-conversation = 会話をミュートする
+# Context: menu
+group-menu-menu-mute-notifications-until-you-unmute-this-conversation = この会話のミュートを解除するまで、通知をミュートします。
+# Context: menu
+group-menu-menu-pin-dm = ピンDM
+# Context: menu
+group-menu-menu-pinned-direct-messages-are-saved-on-this-device = 固定されたダイレクト メッセージはこのデバイスに保存されます。
+# Context: menu
+group-menu-menu-unmute-conversation = 会話のミュートを解除する
+# Context: menu
+group-menu-menu-unpin-dm = DMの固定を解除
+# Context: show
+group-menu-show-cancel = キャンセル
+# Context: show
+group-menu-show-change-group-icon = グループアイコンの変更
+# Context: show
+group-menu-show-choosing-image = 画像を選択中…
+# Context: show
+group-menu-show-edit-group = グループの編集
+# Context: show
+group-menu-show-give-this-group-a-name-and-an-icon-everyone-will = このグループに、誰もが認識できる名前とアイコンを付けます。
+# Context: show
+group-menu-show-group-name = グループ名
+# Context: show
+group-menu-show-leave-group = グループを脱退しますか?
+# Context: show
+group-menu-show-offline-preview-no-group-changes = オフライン プレビュー - グループ変更なし
+# Context: show
+group-menu-show-remove-icon = アイコンを削除
+# Context: show
+group-menu-show-you-will-need-an-invitation-to-rejoin = 再参加するには招待状が必要です
+
+## crates/ui/src/guild_folders.rs
+# Context: server_folders
+guild-folders-server-folders-cancel = キャンセル
+# Context: server_folders
+guild-folders-server-folders-collapsed = 折りたたまれた
+# Context: server_folders
+guild-folders-server-folders-colour = 色
+# Context: server_folders
+guild-folders-server-folders-expanded = 拡張された
+# Context: server_folders
+guild-folders-server-folders-folder-name = フォルダ名
+# Context: server_folders
+guild-folders-server-folders-folder-name-and-color = フォルダー名と色…
+# Context: server_folders
+guild-folders-server-folders-folder-settings = フォルダー設定
+# Context: server_folders
+guild-folders-server-folders-group-with-server = サーバーとのグループ化
+# Context: server_folders
+guild-folders-server-folders-move-down = 下に移動
+# Context: server_folders
+guild-folders-server-folders-move-outside-folders = フォルダの外に移動する
+# Context: server_folders
+guild-folders-server-folders-move-up = 上に移動
+# Context: server_folders
+guild-folders-server-folders-name-this-folder-and-pick-the-colour-shown-on-the = このフォルダーに名前を付け、サーバー レールに表示されている色を選択します。
+# Context: server_folders
+guild-folders-server-folders-refresh-folders-from-discord = Discordからフォルダーを更新する
+# Context: server_folders
+guild-folders-server-folders-retry = リトライ
+# Context: server_folders
+guild-folders-server-folders-save = 保存
+# Context: server_folders
+guild-folders-server-folders-servers = サーバー
+# Context: server_folders
+guild-folders-server-folders-sync = 同期…
+# Context: server_folders
+guild-folders-server-folders-syncing-server-folders-with-discord = サーバーフォルダーをDiscordと同期する
+# Context: server_folders
+guild-folders-server-folders-ungroup-servers = サーバーのグループを解除する
+
+## crates/ui/src/invites.rs
+# Context: show
+invites-show-accepted = 承認されました
+# Context: show
+invites-show-fetching-server-details = サーバーの詳細を取得しています…
+# Context: show
+invites-show-go-to-server = サーバーに移動
+# Context: show
+invites-show-invite-expired-or-invalid = 招待の有効期限が切れているか無効です
+# Context: show
+invites-show-invite-unavailable = 招待できません
+# Context: show
+invites-show-join = 参加する
+# Context: show
+invites-show-joining = 接合…
+# Context: show
+invites-show-loading = 読み込み中…
+# Context: show
+invites-show-preview-unavailable-offline = オフラインではプレビューが利用できない
+# Context: show
+invites-show-server-preview = サーバープレビュー
+# Context: show
+invites-show-this-invite-may-have-expired = この招待は有効期限が切れている可能性があります
+# Context: show
+invites-show-verification-required = 要検証
+# Context: show
+invites-show-verify = 確認する
+# Context: show
+invites-show-you-re-a-member-of = あなたはのメンバーです
+# Context: show
+invites-show-you-ve-been-invited-to-join-a-server = サーバーに参加するよう招待されました
+
+## crates/ui/src/join_server.rs
+# Context: audience
+join-server-audience-back = 戻る
+# Context: audience
+join-server-audience-for-a-club-or-community = クラブやコミュニティの場合
+# Context: audience
+join-server-audience-for-me-and-my-friends = 私と私の友達にとって
+# Context: audience
+join-server-audience-for-now = 今のところ。
+# Context: audience
+join-server-audience-not-sure = わからない？
+# Context: body
+join-server-body-checking-invite = 招待状を確認中…
+# Context: body
+join-server-body-choose-join-server-to-confirm = [サーバーに参加] を選択して確認します。
+# Context: body
+join-server-body-don-t-have-an-invite = 招待状がありませんか?
+# Context: body
+join-server-body-explore-discoverable-communities-in-discord = Discord で発見可能なコミュニティを探索する ↗
+# Context: body
+join-server-body-fetching-server-details = サーバーの詳細を取得しています…
+# Context: body
+join-server-body-htkzmak-discord-gg-htkzmak-discord-gg-wumpus-friends = hTKzmak · discord.gg/hTKzmak · discord.gg/wumpus-friends
+# Context: body
+join-server-body-invite-link = 招待リンク
+# Context: body
+join-server-body-invites-look-like = 招待状は次のようになります
+# Context: body
+join-server-body-review-this-server-then-choose-join-server = このサーバーを確認し、[サーバーに参加] を選択します。
+# Context: body
+join-server-body-you-are-already-a-member = あなたはすでに会員です。
+# Context: body
+join-server-body-you-are-already-a-member-of-this-server = あなたはすでにこのサーバーのメンバーです。
+# Context: choose
+join-server-choose-create-my-own = 自分のものを作成する
+# Context: choose
+join-server-choose-have-an-invite-already = すでに招待状をお持ちですか?
+# Context: choose
+join-server-choose-join-a-server = サーバーに参加する
+# Context: choose
+join-server-choose-offline-preview-creating-and-joining-servers-are-disabled = オフライン プレビュー - サーバーの作成と参加は無効になっています。
+# Context: customize
+join-server-customize-back = 戻る
+# Context: customize
+join-server-customize-change-server-icon = サーバーアイコンの変更
+# Context: customize
+join-server-customize-create = 作成する
+# Context: customize
+join-server-customize-my-server = 私のサーバー
+# Context: customize
+join-server-customize-offline-preview-creation-is-disabled = オフライン プレビュー - 作成は無効になっています。
+# Context: customize
+join-server-customize-please-wait = お待ちください...
+# Context: customize
+join-server-customize-server-created-waiting-for-discord-to-add-it-to-your = サーバーが作成されました。 Discordがサーバーリストに追加するのを待っています。
+# Context: customize
+join-server-customize-server-name = サーバー名
+# Context: customize
+join-server-customize-upload-server-icon = アップロードサーバーアイコン
+# Context: show_join
+join-server-show-join-back = 戻る
+# Context: show_join
+join-server-show-join-cancel = キャンセル
+# Context: show_join
+join-server-show-join-enter-an-invite-below-to-join-an-existing-server = 既存のサーバーに参加するには、以下に招待状を入力してください。
+# Context: show_join
+join-server-show-join-join-a-server = サーバーに参加する
+# Context: body
+join-server-status-invite-accepted = 招待が受け入れられました。サーバーアクセスを待機しています。 Discord のサーバー ルールを完了します。
+# Context: body
+join-server-status-offline-preview = オフライン プレビュー — サーバーへの参加は無効になっています。
+
+## crates/ui/src/keybinds.rs
+# Context: row
+keybinds-row-global = グローバル
+# Context: row
+keybinds-row-reset = リセット
+# Context: show_voice
+keybinds-show-voice-enable-global-keybinds = グローバルキーバインドを有効にする
+# Context: show_voice
+keybinds-show-voice-global-availability = グローバルな可用性
+# Context: show_voice
+keybinds-show-voice-use-voice-shortcuts-while-another-app-is-focused-when-off = 別のアプリがフォーカスされているときに音声ショートカットを使用します。オフの場合、ショートカットは Serein がフォーカスされている間のみ機能します。
+
+## crates/ui/src/lib.rs
+# Context: account_card
+lib-account-card-dnd = だめ
+# Context: account_card
+lib-account-card-idle = アイドル状態
+# Context: account_card
+lib-account-card-online = オンライン
+# Context: composer
+lib-composer-message-deleted-the-unchanged-edit-was-closed = メッセージが削除されました。変更されていない編集は閉じられました。
+# Context: debug_forward_check
+lib-debug-forward-check-forward-message = メッセージの転送
+# Context: ime_updates_text
+lib-ime-updates-text-attach-files = ファイルを添付する
+# Context: ime_updates_text
+lib-ime-updates-text-attaching-files-is-unavailable-here-remove-the-attachment-to-send = ここではファイルの添付はできません。テキストのみを送信するには、添付ファイルを削除します。
+# Context: ime_updates_text
+lib-ime-updates-text-attachments-unavailable-right-now = 現在添付ファイルは利用できません
+# Context: ime_updates_text
+lib-ime-updates-text-cancel-edit = 編集をキャンセルする
+# Context: ime_updates_text
+lib-ime-updates-text-cancel-reply = 返信をキャンセル
+# Context: ime_updates_text
+lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = ファイルを選択、ドロップ、または貼り付けます (Ctrl/Cmd/Option+V)。最大 10 ファイル、合計 500 MB。アカウントの制限が低くなる可能性があります。送信するとアップロードが開始されます。
+# Context: ime_updates_text
+lib-ime-updates-text-clear-this-draft = このドラフトをクリアする
+# Context: ime_updates_text
+lib-ime-updates-text-copy-edit-text = 編集テキストをコピーする
+# Context: ime_updates_text
+lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = 予算案は満席です。続行するには、既存の下書きをクリアします。
+# Context: ime_updates_text
+lib-ime-updates-text-drop-files-to-attach = ファイルをドロップして添付する
+# Context: ime_updates_text
+lib-ime-updates-text-editing-message = メッセージの編集
+# Context: ime_updates_text
+lib-ime-updates-text-editing-this-message-is-unavailable-your-text-is-kept-until = このメッセージは編集できません。あなたのテキストはキャンセルするまで保持されます。
+# Context: ime_updates_text
+lib-ime-updates-text-message-unavailable-unsent-edit = メッセージは利用できません · 未送信の編集
+# Context: ime_updates_text
+lib-ime-updates-text-replying-to = 返信する
+# Context: ime_updates_text
+lib-ime-updates-text-return-to-an-available-conversation-after-the-current-operation-finishes = 現在の操作が終了したら、利用可能な会話に戻ります
+# Context: ime_updates_text
+lib-ime-updates-text-save-edit = 編集を保存
+# Context: ime_updates_text
+lib-ime-updates-text-save-requested-check-the-connection-before-retrying = · 保存が要求されました。再試行する前に接続を確認してください
+# Context: ime_updates_text
+lib-ime-updates-text-send-command = コマンドを送信する
+# Context: ime_updates_text
+lib-ime-updates-text-send-message = メッセージを送信する
+# Context: ime_updates_text
+lib-ime-updates-text-sending-messages-is-unavailable-in-this-conversation-your-draft-is = この会話ではメッセージを送信できません。下書きは保存されます。
+# Context: ime_updates_text
+lib-ime-updates-text-the-original-message-was-deleted = 元のメッセージは削除されました
+# Context: ime_updates_text
+lib-ime-updates-text-up-to-10-files-500-mb-max-account-limit-applies = 最大 10 ファイル · 最大 500 MB · アカウント制限が適用されます
+# Context: ime_updates_text
+lib-ime-updates-text-view-original = 原文を見る
+# Context: ime_updates_text
+lib-ime-updates-text-wait-for-readable-current-message-history = 読み取り可能な現在のメッセージ履歴を待ちます
+# Context: mention_switch
+lib-mention-switch-ping-the-original-author = 原作者に問い合わせる
+# Context: title_bar
+lib-title-bar-offline-preview = オフラインプレビュー
+# Context: title_bar
+lib-title-bar-sign-in-again = 再度サインインしてください
+# Context: title_bar
+lib-title-bar-synthetic-data-no-network-or-local-storage = 合成データ · ネットワークまたはローカル ストレージなし
+
+## apps/desktop/src/main.rs
+# Context: restoring
+main-restoring-checking-your-saved-login = 保存されたログイン情報を確認する
+# Context: restoring
+main-restoring-connecting-to-discord = Discordに接続する
+# Context: restoring_screen
+main-restoring-screen-serein = セレイン
+# Context: restoring_screen
+main-restoring-screen-use-a-different-account = 別のアカウントを使用する
+# Context: restoring_screen
+main-restoring-screen-welcome-back = おかえり
+# Context: sign_in_accounts
+main-sign-in-accounts-saved-accounts = 保存されたアカウント
+# Context: sign_in_consent
+main-sign-in-consent-i-own-this-account-and-authorize-this-session = 私はこのアカウントを所有しており、このセッションを承認しています。
+# Context: sign_in_consent
+main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = パスワードと 2FA は Discord 自体のログイン ページに残ります。セッション トークンのみが OS 資格情報ストアに保持されます。
+# Context: sign_in_disclosures
+main-sign-in-disclosures-about-serein = セレインについて
+# Context: sign_in_disclosures
+main-sign-in-disclosures-connect-with-this-token = このトークンで接続します
+# Context: sign_in_disclosures
+main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = サインインした別の Serein インストールなどから、すでに有効な Discord セッション トークンを保持しているオーナーの場合。ここではパスワードと 2FA は決して使用されません。これにより、Discord がホストするログイン ページが完全にバイパスされます。
+# Context: sign_in_disclosures
+main-sign-in-disclosures-forget-saved-login = 保存したログイン情報を忘れる
+# Context: sign_in_disclosures
+main-sign-in-disclosures-session-token = セッショントークン
+# Context: sign_in_disclosures
+main-sign-in-disclosures-sign-in-with-a-session-token = セッショントークンを使用してサインインする
+# Context: sign_in_header
+main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = 保存したアカウントで続行するか、別のアカウントでサインインします。
+# Context: sign_in_header
+main-sign-in-header-sign-in-with-your-discord-account-to-get-started = 始めるには、Discord アカウントでサインインしてください。
+# Context: sign_in_header
+main-sign-in-header-welcome-back = おかえり
+# Context: sign_in_header
+main-sign-in-header-welcome-to-serein = セレインへようこそ
+# Context: sign_in_preview
+main-sign-in-preview-explore-the-offline-preview = オフライン プレビューを確認する
+# Context: sign_in_preview
+main-sign-in-preview-sample-conversations-no-discord-connection = 会話例。 Discord接続がありません。
+# Context: sign_in_screen
+main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord = 独立したオープンソース。 Discordとは関係ありません。
+# Context: sign_in_screen
+main-sign-in-screen-serein = セレイン
+# Context: ui
+main-ui-cancel = キャンセル
+# Context: ui
+main-ui-discord-com-temporary-login-window-passwords-and-2fa-never-leave = discord.com · 一時的なログイン ウィンドウ · パスワードと 2FA はページから離れることはありません
+# Context: ui
+main-ui-loading-discord-com = discord.comを読み込んでいます…
+# Context: ui
+main-ui-sign-in-to-discord = Discordにサインインする
+
+## crates/ui/src/markdown.rs
+# Context: confirm_external_link
+markdown-confirm-external-link-cancel = キャンセル
+# Context: confirm_external_link
+markdown-confirm-external-link-open-external-link = 外部リンクを開きますか?
+# Context: confirm_external_link
+markdown-confirm-external-link-open-in-browser = ブラウザで開く
+# Context: confirm_external_link
+markdown-confirm-external-link-this-destination-opens-in-your-default-browser = この宛先はデフォルトのブラウザで開きます。
+# Context: show_emoji
+markdown-show-emoji-copy-emoji = 絵文字をコピーする
+# Context: show_run
+markdown-show-run-channel-unavailable-or-unsupported-in-this-session = このセッションではチャネルが使用できないかサポートされていません
+# Context: show_run
+markdown-show-run-load-channel = ロードチャンネル
+# Context: show_run
+markdown-show-run-open-channel = オープンチャネル
+# Context: show_run
+markdown-show-run-open-user-profile = ユーザープロフィールを開く
+# Context: show_run
+markdown-show-run-reveal-spoiler = スポイラーを明らかにする
+# Context: show_run
+markdown-show-run-unknown-channel-load-channel = 不明なチャネル、ロードチャネル
+
+## crates/ui/src/mentions.rs
+# Context: show
+mentions-show-choose-tab-enter-insert-esc = ↑↓選択・Tab/Enter・挿入・Esc
+
+## crates/ui/src/timeline.rs
+# Context: message_actions
+message-menu-copy = メッセージをコピーする
+
+## crates/ui/src/messaging_permissions.rs
+# Context: heading
+messaging-permissions-heading-connected-games = コネクテッド ゲームでのメッセージング
+# Context: heading
+messaging-permissions-heading-direct-messages = ダイレクトメッセージ (DM) の権限
+# Context: heading
+messaging-permissions-heading-friend-requests = 友達リクエストの権限
+# Context: heading
+messaging-permissions-heading-spam = スパムフィルター
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-all-servers = すべてのサーバー
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-allow-friend-requests-from = ～からの友達リクエストを許可する
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-automatically-filter-suspected-spam-messages = スパムの疑いのあるメッセージを自動的にフィルタリングする
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-changes-apply-to-all-current-servers-and-set-the-default = 変更は現在のすべてのサーバーに適用され、新しく参加したサーバーのデフォルトを設定します。
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-changes-apply-to-this-server-only = 変更はこのサーバーにのみ適用されます。
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-control-who-can-send-you-friend-requests-and-how-they = 誰があなたに友達リクエストを送信できるか、そしてそのリクエストがどのように表示されるかを制御します。
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-discord-can-filter-out-some-messages-that-contain-spam-these = Discord ではスパムを含む一部のメッセージを除外できます。これらのメッセージはスパム受信箱に送られます。
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-loading-your-preferences = 設定を読み込んでいます…
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-read-and-respond-to-dms-directly-from-in-game-chats = ゲーム内チャットから直接 DM を読んで返信します。
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-saving = 保存中…
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-server = サーバ
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-settings-for-games-that-use-discord-to-power-their-social = Discord を使用してソーシャル エクスペリエンスを強化するゲームの設定。
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-show-direct-messages-in-games = ゲーム内にダイレクトメッセージを表示する
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-some-servers-have-different-preferences-choose-a-server-to-review = 一部のサーバーは異なる設定を持っています。サーバーを選択して設定を確認します。
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-there-are-too-many-servers-to-update-together-choose-an = サーバーが多すぎるため、まとめて更新できません。個別のサーバーを選択します。
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-try-again = もう一度やり直してください
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-your-account-uses-a-custom-in-game-dm-setting-select = あなたのアカウントはカスタムのゲーム内 DM 設定を使用しています。置き換えるオプションを選択します。
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-your-account-uses-a-custom-spam-filter-setting-select-an = お使いのアカウントはカスタムのスパム フィルター設定を使用しています。置き換えるオプションを選択します。
+# Context: label
+messaging-permissions-tab-connected-games = コネクテッド ゲーム
+# Context: label
+messaging-permissions-tab-direct-messages = ダイレクトメッセージ
+# Context: label
+messaging-permissions-tab-friend-requests = 友達リクエスト
+# Context: label
+messaging-permissions-tab-spam = スパムフィルター
+
+## crates/ui/src/notification_settings.rs
+# Context: notification_settings
+notification-settings-notification-settings-adjusts-the-volume-of-all-notification-sounds-and-ringtones = すべての通知音と着信音の音量を調整します。
+# Context: notification_settings
+notification-settings-notification-settings-app-icon-badges-are-not-available-on-this-platform-yet = アプリ アイコン バッジはこのプラットフォームではまだ利用できません。
+# Context: notification_settings
+notification-settings-notification-settings-disable-all-notification-sounds = すべての通知音を無効にする
+# Context: notification_settings
+notification-settings-notification-settings-disables-notification-sounds-your-individual-sound-preferences-are-saved = 通知音を無効にします。これをオフにすると、個々のサウンド設定が保存され、復元されます。
+# Context: notification_settings
+notification-settings-notification-settings-enable-desktop-notifications = デスクトップ通知を有効にする
+# Context: notification_settings
+notification-settings-notification-settings-enable-unread-message-badge = 未読メッセージバッジを有効にする
+# Context: notification_settings
+notification-settings-notification-settings-for-per-channel-or-per-server-notifications-right-click-the = チャネルごとまたはサーバーごとの通知の場合は、チャネルまたはサーバーを右クリックし、[通知設定] を選択します。
+# Context: notification_settings
+notification-settings-notification-settings-open = 開ける
+# Context: notification_settings
+notification-settings-notification-settings-preview-sound = サウンドのプレビュー
+# Context: notification_settings
+notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = 着信音、通話デバイス、マイクの処理。
+# Context: notification_settings
+notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = 未読メッセージがある場合、アプリのアイコンに赤いバッジが表示されます。
+# Context: notification_settings
+notification-settings-notification-settings-sound-volume = 音量
+# Context: notification_settings
+notification-settings-notification-settings-voice-video = 音声とビデオ
+# Context: label
+notification-settings-tab-badges = バッジ
+# Context: label
+notification-settings-tab-overview = 概要
+# Context: label
+notification-settings-tab-sounds = 音
+
+## crates/ui/src/notifications.rs
+# Context: notification_rail
+notifications-notification-rail-add-a-server = サーバーを追加する
+# Context: notification_rail
+notifications-notification-rail-in-a-call = 、通話中
+# Context: notification_rail
+notifications-notification-rail-notifications = 通知
+# Context: notification_rail
+notifications-notification-rail-open = 開ける
+# Context: notification_rail
+notifications-notification-rail-unread = 、未読
+
+## crates/ui/src/pending.rs
+# Context: show
+pending-show-check-the-conversation-before-sending-again = 再度送信する前に会話を確認してください。
+# Context: show
+pending-show-dismiss = 却下する
+# Context: show
+pending-show-restore-to-composer = コンポーザーに復元
+# Context: show
+pending-show-you = あなた
+# Context: upload_strip
+pending-upload-strip-cancel-upload = アップロードをキャンセルする
+# Context: upload_strip
+pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = メッセージはすでに Discord に届いている可能性があります。再度送信する前に会話を確認してください。
+
+## crates/ui/src/post_menu.rs
+# Context: context
+post-menu-context-add-to-favorites = お気に入りに追加
+# Context: context
+post-menu-context-close-post = 投稿を閉じる
+# Context: context
+post-menu-context-close-thread = スレッドを閉じる
+# Context: context
+post-menu-context-copy-link = リンクをコピー
+# Context: context
+post-menu-context-copy-thread-id = スレッドIDをコピー
+# Context: context
+post-menu-context-delete-post = 投稿の削除
+# Context: context
+post-menu-context-delete-thread = スレッドの削除
+# Context: context
+post-menu-context-edit-post = 投稿の編集
+# Context: context
+post-menu-context-edit-thread = スレッドの編集
+# Context: context
+post-menu-context-favorites-are-saved-on-this-device = お気に入りはこのデバイスに保存されます。
+# Context: context
+post-menu-context-follow-post = 投稿をフォローする
+# Context: context
+post-menu-context-follow-this-post-to-change-its-notifications = 通知を変更するには、この投稿に従ってください。
+# Context: context
+post-menu-context-follow-this-thread-to-change-its-notifications = 通知を変更するには、このスレッドに従ってください。
+# Context: context
+post-menu-context-follow-thread = スレッドをフォローする
+# Context: context
+post-menu-context-loading = 読み込み中
+# Context: context
+post-menu-context-lock-post = ロックポスト
+# Context: context
+post-menu-context-lock-thread = ロックスレッド
+# Context: context
+post-menu-context-mark-as-read = 既読としてマーク
+# Context: context
+post-menu-context-mute-post = 投稿をミュートする
+# Context: context
+post-menu-context-mute-thread = スレッドをミュートする
+# Context: context
+post-menu-context-notification-settings = 通知設定
+# Context: context
+post-menu-context-open-post = オープンポスト
+# Context: context
+post-menu-context-open-thread = オープンスレッド
+# Context: context
+post-menu-context-pin-post = ピンポスト
+# Context: context
+post-menu-context-pin-thread = ピンネジ
+# Context: context
+post-menu-context-remove-from-favorites = お気に入りから削除
+# Context: context
+post-menu-context-retry = リトライ
+# Context: context
+post-menu-context-settings = 設定
+# Context: context
+post-menu-context-unfollow-post = 投稿のフォローを解除する
+# Context: context
+post-menu-context-unfollow-thread = スレッドのフォローを解除する
+# Context: context
+post-menu-context-unlock-post = 投稿のロックを解除する
+# Context: context
+post-menu-context-unlock-thread = スレッドのロックを解除する
+# Context: context
+post-menu-context-unmute-post = 投稿のミュートを解除する
+# Context: context
+post-menu-context-unmute-thread = スレッドのミュートを解除する
+# Context: context
+post-menu-context-unpin-post = 投稿の固定を解除する
+# Context: context
+post-menu-context-unpin-thread = スレッドのピンを外す
+# Context: noun_action
+post-menu-noun-action-post = 役職
+# Context: noun
+post-menu-noun-post = 役職
+# Context: noun
+post-menu-noun-thread = 糸
+# Context: show
+post-menu-show-cancel = キャンセル
+# Context: show
+post-menu-show-delete = 消去
+# Context: show
+post-menu-show-dismiss = 却下する
+# Context: show
+post-menu-show-edit = 編集
+# Context: show
+post-menu-show-its-messages-will-be-permanently-deleted-this-cannot-be-undone = そのメッセージは完全に削除されます。これを元に戻すことはできません。
+# Context: show
+post-menu-show-save-changes = 変更を保存
+# Context: show
+post-menu-show-the-action-could-not-be-started = アクションを開始できませんでした。
+# Context: show
+post-menu-show-title = タイトル
+# Context: show
+post-menu-show-you-no-longer-have-permission-to-change-this-conversation = この会話を変更する権限がありません。
+
+## crates/ui/src/profile_edit.rs
+# Context: form
+profile-edit-form-change = 変化
+# Context: form
+profile-edit-form-choose-profile-color = プロファイルの色を選択してください
+# Context: form
+profile-edit-form-custom-color = カスタムカラー
+# Context: form
+profile-edit-form-leave-blank-to-use-your-username = ユーザー名を使用する場合は空白のままにします。
+# Context: form
+profile-edit-form-new-picture-chosen-save-to-upload-it = 新しい写真が選択されました。保存してアップロードします。
+# Context: form
+profile-edit-form-png-jpeg-gif-or-webp-up-to-8-mb-cropped = PNG、JPEG、GIF、または WebP 最大 8 MB。正方形に切り取られます。
+# Context: form
+profile-edit-form-profile-color = プロファイルの色
+# Context: form
+profile-edit-form-profile-picture = プロフィール写真
+# Context: form
+profile-edit-form-remove = 取り除く
+# Context: form
+profile-edit-form-tints-your-banner-when-you-have-not-set-a-banner = バナー画像を設定していない場合に、バナーに色合いを付けます。
+# Context: form
+profile-edit-form-undo = 元に戻す
+# Context: form
+profile-edit-form-use-default = デフォルトを使用する
+# Context: form
+profile-edit-form-your-picture-will-be-removed-when-you-save = 保存すると写真は削除されます。
+# Context: preview
+profile-edit-preview-about-me = 私について
+# Context: preview
+profile-edit-preview-change-profile-picture = プロフィール写真を変更する
+# Context: preview
+profile-edit-preview-preview = プレビュー
+# Context: show
+profile-edit-show-cancel = キャンセル
+# Context: show
+profile-edit-show-check-character-limits-and-remove-control-characters-a-display-name = 文字制限を確認し、制御文字を削除してください。表示名にはスペースのみを含めることはできません。
+# Context: show
+profile-edit-show-loading-your-profile = プロフィールを読み込んでいます…
+# Context: show
+profile-edit-show-profile-saved = プロファイルが保存されました
+# Context: show
+profile-edit-show-reconnect-to-save-your-profile = 再接続してプロファイルを保存します。
+# Context: show
+profile-edit-show-reload-profile = プロファイルをリロードする
+# Context: show
+profile-edit-show-save-changes = 変更を保存する
+# Context: show
+profile-edit-show-saved-in-preview = プレビューに保存されました
+# Context: show
+profile-edit-show-saving-profile = プロファイルを保存中…
+# Context: show
+profile-edit-show-you-have-unsaved-changes = 未保存の変更があります。
+
+## crates/ui/src/profiles.rs
+# Context: activity_card
+profiles-activity-card-activity-options = アクティビティのオプション
+# Context: activity_card
+profiles-activity-card-copy-activity = コピーアクティビティ
+# Context: activity_card
+profiles-activity-card-listening-to-spotify = Spotify を聴く
+# Context: activity_row
+profiles-activity-row-show = 見せる
+# Context: activity_verb
+profiles-activity-verb-activity = 活動
+# Context: activity_verb
+profiles-activity-verb-competing-in = 出場中
+# Context: activity_verb
+profiles-activity-verb-listening-to = 聞いている
+# Context: activity_verb
+profiles-activity-verb-playing = 遊ぶ
+# Context: activity_verb
+profiles-activity-verb-streaming = ストリーミング
+# Context: activity_verb
+profiles-activity-verb-watching = 見てる
+# Context: more_menu
+profiles-more-menu-add-friend-nickname = 友達のニックネームを追加
+# Context: more_menu
+profiles-more-menu-add-note = メモを追加
+# Context: more_menu
+profiles-more-menu-block = ブロック
+# Context: more_menu
+profiles-more-menu-copy-webhook-id = Webhook ID をコピーする
+# Context: more_menu
+profiles-more-menu-edit-friend-nickname = 友達のニックネームを編集する
+# Context: more_menu
+profiles-more-menu-mute = ミュート
+# Context: more_menu
+profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it = ミュートを解除するまで、このダイレクト メッセージの通知をミュートします。
+# Context: more_menu
+profiles-more-menu-no-open-direct-message-with-this-user = このユーザーとのオープンなダイレクト メッセージはありません。
+# Context: more_menu
+profiles-more-menu-private-nicknames-are-available-for-confirmed-friends = 確認済みの友達にはプライベートニックネームが利用可能です。
+# Context: more_menu
+profiles-more-menu-remove-friend = 友達を削除する
+# Context: more_menu
+profiles-more-menu-unblock = ブロックを解除する
+# Context: more_menu
+profiles-more-menu-unmute = ミュートを解除する
+# Context: role_chips
+profiles-role-chips-show-remaining-roles = 残りの役割を表示
+# Context: server_tag
+profiles-server-tag-server = サーバ
+# Context: server_tag
+profiles-server-tag-server-tag = サーバータグ
+# Context: show
+profiles-show-about-me = 私について
+# Context: show
+profiles-show-copy-webhook-id = Webhook ID をコピーする
+# Context: show
+profiles-show-edit-profile = プロフィールの編集
+# Context: show
+profiles-show-loading-profile = プロファイルを読み込み中…
+# Context: show
+profiles-show-member-since = 以来のメンバー
+# Context: show
+profiles-show-message = メッセージ
+# Context: show
+profiles-show-more = もっと
+# Context: show
+profiles-show-mutual-server = 相互サーバー
+# Context: show
+profiles-show-mutual-servers = 相互サーバー
+# Context: show
+profiles-show-offline-preview-synthetic = オフラインプレビュー・合成
+# Context: show
+profiles-show-retry-profile = プロファイルを再試行する
+# Context: show
+profiles-show-roles = 役割
+# Context: show
+profiles-show-server = サーバ
+# Context: show
+profiles-show-server-2 = サーバ
+# Context: show
+profiles-show-server-tag = サーバータグ
+# Context: show
+profiles-show-unable-to-load-parts-of-profile = プロファイルの一部をロードできません
+# Context: show
+profiles-show-view-banner = バナーを見る
+# Context: show
+profiles-show-view-profile-picture = プロフィール写真を見る
+
+## crates/ui/src/reactions.rs
+# Context: add_button
+reactions-add-button-add-reaction = リアクションを追加
+# Context: show
+reactions-show-reactions-unavailable = 反応がありません
+# Context: show
+reactions-show-reload-reactions = リロード反応
+# Context: show_users
+reactions-show-users-close = 近い
+# Context: show_users
+reactions-show-users-load-more = さらにロードする
+# Context: show_users
+reactions-show-users-loading-reactions = リアクションを読み込んでいます…
+# Context: show_users
+reactions-show-users-nobody-currently-has-this-reaction = 現在、このような反応を示す人は誰もいません。
+# Context: show_users
+reactions-show-users-reactions = 反応
+# Context: show_users
+reactions-show-users-retry = リトライ
+# Context: show_users
+reactions-show-users-showing-the-first-1-000-reactions = 最初の 1,000 件のリアクションを表示します。
+
+## crates/ui/src/reading.rs
+# Context: chat_reading_settings
+reading-chat-reading-settings-animate-gifs = GIF をアニメーション化する
+# Context: chat_reading_settings
+reading-chat-reading-settings-animate-wheel-movement-and-jumps-between-messages = ホイールの動きをアニメーション化し、メッセージ間をジャンプします。
+# Context: chat_reading_settings
+reading-chat-reading-settings-ask-before-opening-external-links-discord-links-always-open-directly = 外部リンクを開く前に質問してください。 Discord のリンクは常に直接開きます。
+# Context: chat_reading_settings
+reading-chat-reading-settings-confirm-before-opening-links = リンクを開く前に確認してください
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-image-and-gif-links = 画像とGIFのリンクを非表示にする
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-standalone-links-when-their-image-or-gif-preview-is = 画像または GIF プレビューが表示されているときにスタンドアロン リンクを非表示にします。
+# Context: chat_reading_settings
+reading-chat-reading-settings-links = リンク
+# Context: chat_reading_settings
+reading-chat-reading-settings-messages-and-media = メッセージとメディア
+# Context: chat_reading_settings
+reading-chat-reading-settings-mouse-wheel-and-trackpad-movement-100-is-the-default = マウスホイールとトラックパッドの動き。 100% がデフォルトです。
+# Context: chat_reading_settings
+reading-chat-reading-settings-reset-chat = チャットをリセット
+# Context: chat_reading_settings
+reading-chat-reading-settings-scrolling = スクロール
+# Context: chat_reading_settings
+reading-chat-reading-settings-scrolling-speed = スクロール速度
+# Context: chat_reading_settings
+reading-chat-reading-settings-smooth-scrolling = スムーズなスクロール
+# Context: chat_reading_settings
+reading-chat-reading-settings-visible-chat-gifs-play-automatically = 表示されるチャット GIF は自動的に再生されます。
+# Context: layout_settings
+reading-layout-settings-channel-and-conversation-list-width-in-wide-windows = ワイド ウィンドウでのチャネルと会話リストの幅。
+# Context: layout_settings
+reading-layout-settings-keep-the-member-list-open-whenever-the-window-is-wide = ウィンドウが十分に広い場合は常にメンバー リストを開いたままにしてください。
+# Context: layout_settings
+reading-layout-settings-layout = レイアウト
+# Context: layout_settings
+reading-layout-settings-reset-layout = レイアウトをリセットする
+# Context: layout_settings
+reading-layout-settings-show-people-in-wide-windows = 広いウィンドウに人物を表示
+# Context: layout_settings
+reading-layout-settings-sidebar-width = サイドバーの幅
+# Context: reading_save_notice
+reading-reading-save-notice-retry-saving-reading-settings = 読み取り設定の保存を再試行します
+# Context: zoom_row
+reading-zoom-row-scales-text-and-controls-across-the-app = アプリ全体でテキストとコントロールを拡大縮小します。
+# Context: zoom_row
+reading-zoom-row-zoom = ズーム
+
+## crates/ui/src/screen.rs
+# Context: body
+screen-body-frame-rate = フレームレート
+# Context: body
+screen-body-include-the-pointer-in-the-shared-video = 共有ビデオにポインターを含めます。
+# Context: body
+screen-body-quality = 品質
+# Context: body
+screen-body-quality-selection-does-not-require-nitro = 品質の選択にはニトロは必要ありません。
+# Context: body
+screen-body-refresh = リフレッシュ
+# Context: body
+screen-body-screen-or-window = スクリーンまたはウィンドウ
+# Context: body
+screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Mac で再生しているものを画面とともに送信します。セレイン自身の通話音声は省略されています。
+# Context: body
+screen-body-share-sound-from-other-apps-even-when-sharing-one-window = 1 つのウィンドウを共有している場合でも、他のアプリのサウンドを共有します。 Serein 自身の音声は省略されています。
+# Context: body
+screen-body-share-system-audio = システムオーディオを共有する
+# Context: body
+screen-body-show-cursor = カーソルを表示
+# Context: body
+screen-body-your-call-microphone-keeps-its-current-settings = 通話マイクは現在の設定を維持します。
+# Context: show
+screen-show-cancel = キャンセル
+# Context: show
+screen-show-choose-what-people-in-this-call-can-see = この通話に参加している人に表示できる内容を選択します。
+# Context: show
+screen-show-share-screen = 画面共有
+# Context: show
+screen-show-share-your-screen = 画面を共有する
+# Context: source_list
+screen-source-list-no-screens-or-windows-are-available-yet = まだ利用できるスクリーンやウィンドウはありません。
+
+## crates/ui/src/search_filters.rs
+# Context: choices
+search-filters-choices-any = どれでも
+# Context: show
+search-filters-show-add-date = + 日付を追加
+# Context: show
+search-filters-show-any = どれでも
+# Context: show
+search-filters-show-any-content = あらゆるコンテンツ
+# Context: show
+search-filters-show-apply-filters = フィルターを適用する
+# Context: show
+search-filters-show-bot = ボット
+# Context: show
+search-filters-show-bot-2 = ボット
+# Context: show
+search-filters-show-cancel = キャンセル
+# Context: show
+search-filters-show-choose-author-type = 著者タイプを選択してください
+# Context: show
+search-filters-show-clear-filters = フィルターをクリアする
+# Context: show
+search-filters-show-embed = 埋め込む
+# Context: show
+search-filters-show-embed-2 = 埋め込む
+# Context: show
+search-filters-show-false = 間違い
+# Context: show
+search-filters-show-false-2 = 間違い
+# Context: show
+search-filters-show-file = ファイル
+# Context: show
+search-filters-show-file-2 = ファイル
+# Context: show
+search-filters-show-filters = フィルター
+# Context: show
+search-filters-show-image = 画像
+# Context: show
+search-filters-show-image-2 = 画像
+# Context: show
+search-filters-show-link = リンク
+# Context: show
+search-filters-show-link-2 = リンク
+# Context: show
+search-filters-show-narrow-this-search-down-to-the-messages-you-want = この検索を必要なメッセージに絞り込みます。
+# Context: show
+search-filters-show-remove-dates = 日付を削除する
+# Context: show
+search-filters-show-sound = 音
+# Context: show
+search-filters-show-sound-2 = 音
+# Context: show
+search-filters-show-true = 真実
+# Context: show
+search-filters-show-true-2 = 真実
+# Context: show
+search-filters-show-user = ユーザー
+# Context: show
+search-filters-show-user-2 = ユーザー
+# Context: show
+search-filters-show-video = ビデオ
+# Context: show
+search-filters-show-video-2 = ビデオ
+# Context: show
+search-filters-show-webhook = ウェブフック
+# Context: show
+search-filters-show-webhook-2 = Webhook
+# Context: show
+search-filters-show-yyyy-mm-dd = YYYY-MM-DD
+# Context: user_picker
+search-filters-user-picker-choose-a-user = ユーザーを選択してください
+# Context: user_picker
+search-filters-user-picker-no-matching-users = 一致するユーザーがいません
+# Context: user_picker
+search-filters-user-picker-search-users = ユーザーを検索する
+
+## crates/ui/src/search.rs
+# Context: header_input
+search-header-input-close-search = 検索を閉じる
+# Context: header_input
+search-header-input-search = 検索
+# Context: open_filters
+search-open-filters-dates-author-type-and-more = 日付、著者のタイプなど
+# Context: open_filters
+search-open-filters-from-a-specific-user = 特定のユーザーから
+# Context: open_filters
+search-open-filters-from-user = 送信者: ユーザー
+# Context: open_filters
+search-open-filters-has-link-embed-or-file = あり: リンク、埋め込み、またはファイル
+# Context: open_filters
+search-open-filters-includes-a-specific-type-of-data = 特定の種類のデータが含まれる
+# Context: open_filters
+search-open-filters-mentions-a-specific-user = 特定のユーザーに言及する
+# Context: open_filters
+search-open-filters-mentions-user = 言及: ユーザー
+# Context: open_filters
+search-open-filters-more-filters = その他のフィルター
+# Context: overlays
+search-overlays-filters = フィルター
+# Context: overlays
+search-overlays-from = から
+# Context: overlays
+search-overlays-from-user = ユーザーから
+# Context: overlays
+search-overlays-mentions-user = ユーザーへの言及
+# Context: overlays
+search-overlays-no-matching-users-in-this-conversation = この会話には一致するユーザーがいません。
+# Context: overlays
+search-overlays-search-for = 検索する
+# Context: pane
+search-pane-close = 近い
+# Context: pane
+search-pane-hide-matching-text-highlight = 一致するテキストのハイライトを非表示にする
+# Context: pane
+search-pane-indexing-is-incomplete-results-may-be-missing = インデックス作成が不完全です。結果が見つからない可能性があります。
+# Context: pane
+search-pane-looking-for-matching-messages = 一致するメッセージを探しています。
+# Context: pane
+search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = 接続が切断されている場合、またはチャネルにアクセスできない場合、メッセージは利用できません。
+# Context: pane
+search-pane-newest-first = 新しい順
+# Context: pane
+search-pane-no-results = 結果はありません
+# Context: pane
+search-pane-nothing-on-this-page-matches-the-query = このページにはクエリに一致するものはありません。
+# Context: pane
+search-pane-of = の
+# Context: pane
+search-pane-oldest-first = 古い順
+# Context: pane
+search-pane-order-on-this-page = このページで注文する
+# Context: pane
+search-pane-pinned-messages = 固定メッセージ
+# Context: pane
+search-pane-reload-pins = ピンをリロードする
+# Context: pane
+search-pane-search-this-conversation = この会話を検索
+# Context: pane
+search-pane-searching = 検索中…
+# Context: pane
+search-pane-type-a-query-above-and-press-enter = 上にクエリを入力して Enter キーを押します。
+# Context: pins_content
+search-pins-content-loading-older-pins = 古いピンをロードしています…
+# Context: pins_content
+search-pins-content-loading-pinned-messages = 固定されたメッセージを読み込んでいます…
+# Context: pins_content
+search-pins-content-more-pins-may-exist-but-this-page-has-no-usable = さらに多くのピンが存在する可能性がありますが、このページには使用可能な続きがありません。
+# Context: pins_content
+search-pins-content-older-pins = 古いピン
+# Context: pins_content
+search-pins-content-pinned-messages-are-unavailable-while-disconnected-or-without-channel-ac = 固定されたメッセージは、切断されている場合、またはチャネルにアクセスできない場合は利用できません。
+# Context: pins_content
+search-pins-content-retry-older-pins = 古いピンを再試行する
+# Context: pins_empty
+search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet = このチャンネルにはありません
+    固定されたメッセージはまだありません。
+# Context: pins_empty
+search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet = このダイレクトメッセージには、
+    固定されたメッセージはまだありません。
+# Context: pins_popout
+search-pins-popout-close = 近い
+# Context: pins_popout
+search-pins-popout-pinned-messages = 固定メッセージ
+# Context: pins_popout
+search-pins-popout-reload-pins = ピンをリロードする
+# Context: result_card
+search-result-card-jump-to-message-from = からのメッセージにジャンプします
+# Context: result_card
+search-result-card-spoiler-media-open-the-message-to-reveal-it = ネタバレメディ​​ア - メッセージを開いて公開します。
+
+## crates/ui/src/select.rs
+# Context: on_end_pass
+select-on-end-pass-copy = コピー
+
+## crates/ui/src/server_admin.rs
+# Context: date
+server-admin-date-unknown = 未知
+# Context: dialog
+server-admin-dialog-30-days = 30日
+# Context: dialog
+server-admin-dialog-7-days = 7日間
+# Context: dialog
+server-admin-dialog-cancel = キャンセル
+# Context: dialog
+server-admin-dialog-delete-emoji = 絵文字の削除
+# Context: dialog
+server-admin-dialog-emoji-name = 絵文字名
+# Context: dialog
+server-admin-dialog-inactive-for = 非アクティブ期間
+# Context: dialog
+server-admin-dialog-kick-member = キックメンバー
+# Context: dialog
+server-admin-dialog-leave-blank-to-use-their-username = ユーザー名を使用する場合は空白のままにします。
+# Context: dialog
+server-admin-dialog-nickname = ニックネーム
+# Context: dialog
+server-admin-dialog-preview = プレビュー
+# Context: dialog
+server-admin-dialog-prune-members = プルーンメンバー
+# Context: dialog
+server-admin-dialog-save = 保存
+# Context: dialog
+server-admin-dialog-use-their-username = ユーザー名を使用する
+# Context: emojis
+server-admin-emojis-add-custom-emoji-that-anyone-can-use-in-this-server = このサーバーで誰でも使用できるカスタム絵文字を追加します。アニメーション GIF 絵文字は、Discord Nitro のメンバーが使用できます。
+# Context: emojis
+server-admin-emojis-animated = アニメーション
+# Context: emojis
+server-admin-emojis-animated-emoji = アニメーション絵文字
+# Context: emojis
+server-admin-emojis-cancel = キャンセル
+# Context: emojis
+server-admin-emojis-delete-emoji = 絵文字の削除
+# Context: emojis
+server-admin-emojis-drag-and-drop-up-to-10-images-onto-this-page = 最大 10 個の画像をこのページにドラッグ アンド ドロップするか、ファイルを選択します。アップロードする前に名前を確認してください。
+# Context: emojis
+server-admin-emojis-emoji = 絵文字
+# Context: emojis
+server-admin-emojis-emoji-2 = 絵文字
+# Context: emojis
+server-admin-emojis-emoji-actions = 絵文字アクション
+# Context: emojis
+server-admin-emojis-emoji-name-232-letters-numbers-or-underscores = 絵文字名: 2 ～ 32 文字、数字、またはアンダースコア
+# Context: emojis
+server-admin-emojis-emoji-names-must-use-232-letters-numbers-or-underscores = 絵文字名には 2 ～ 32 文字の文字、数字、またはアンダースコアを使用する必要があります。
+# Context: emojis
+server-admin-emojis-image = 画像
+# Context: emojis
+server-admin-emojis-name = 名前
+# Context: emojis
+server-admin-emojis-none = なし
+# Context: emojis
+server-admin-emojis-preparing-emoji-images = 絵文字画像を準備しています...
+# Context: emojis
+server-admin-emojis-remove = 取り除く
+# Context: emojis
+server-admin-emojis-rename = 名前の変更
+# Context: emojis
+server-admin-emojis-review-uploads = アップロードのレビュー
+# Context: emojis
+server-admin-emojis-slots-available = 利用可能なスロット
+# Context: emojis
+server-admin-emojis-static = 静的
+# Context: emojis
+server-admin-emojis-unknown = 未知
+# Context: emojis
+server-admin-emojis-upload = アップロード
+# Context: emojis
+server-admin-emojis-upload-emoji = 絵文字をアップロードする
+# Context: emojis
+server-admin-emojis-uploaded-by = アップロード者
+# Context: join_method
+server-admin-join-method-application = 応用
+# Context: join_method
+server-admin-join-method-bot = ボット
+# Context: join_method
+server-admin-join-method-discovery = 発見
+# Context: join_method
+server-admin-join-method-integration = 統合
+# Context: join_method
+server-admin-join-method-invite = 招待する
+# Context: join_method
+server-admin-join-method-linked-lobby = 連動ロビー
+# Context: join_method
+server-admin-join-method-student-hub = 学生ハブ
+# Context: join_method
+server-admin-join-method-unknown = 未知
+# Context: join_method
+server-admin-join-method-vanity-url = バニティ URL
+# Context: member_card
+server-admin-member-card-invite = 招待する
+# Context: member_card
+server-admin-member-card-join-method = 結合方法
+# Context: member_card
+server-admin-member-card-joined-discord = Discordに参加しました
+# Context: member_card
+server-admin-member-card-member-actions = メンバーのアクション
+# Context: member_card
+server-admin-member-card-member-details = 会員詳細
+# Context: member_card
+server-admin-member-card-member-since = 以来のメンバー
+# Context: member_menu
+server-admin-member-menu-block = ブロック
+# Context: member_menu
+server-admin-member-menu-change-nickname = ニックネームの変更
+# Context: member_menu
+server-admin-member-menu-copy-user-id = ユーザーIDをコピーする
+# Context: member_menu
+server-admin-member-menu-kick = キック
+# Context: member_menu
+server-admin-member-menu-message = メッセージ
+# Context: member_menu
+server-admin-member-menu-profile = プロフィール
+# Context: member_menu
+server-admin-member-menu-roles = 役割
+# Context: member_menu
+server-admin-member-menu-unblock = ブロックを解除する
+# Context: members
+server-admin-members-first-page = 最初のページ
+# Context: members
+server-admin-members-joined-in-the-last-7-days = 過去 7 日間に参加しました
+# Context: members
+server-admin-members-member-actions = メンバーのアクション
+# Context: members
+server-admin-members-newest-discord-accounts = 最新の Discord アカウント
+# Context: members
+server-admin-members-newest-members = 最新のメンバー
+# Context: members
+server-admin-members-next-page = 次のページ
+# Context: members
+server-admin-members-no-members-match-this-search = この検索に一致するメンバーはありません。
+# Context: members
+server-admin-members-of = の
+# Context: members
+server-admin-members-oldest-discord-accounts = 最も古い Discord アカウント
+# Context: members
+server-admin-members-oldest-members = 最年長メンバー
+# Context: members
+server-admin-members-prune = プルーン
+# Context: members
+server-admin-members-recent-members = 最近のメンバー
+# Context: members
+server-admin-members-search-by-username-or-id = ユーザー名またはIDで検索
+# Context: members
+server-admin-members-server-members = サーバーメンバー
+# Context: members
+server-admin-members-show-members-in-channel-list = チャンネルリストにメンバーを表示
+# Context: members
+server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = チャンネル リストのメンバー ページを表示すると、最近の参加や異常なアクティビティのフラグが立てられたメンバーをすぐに確認できます。
+# Context: members
+server-admin-members-showing = 表示中
+# Context: show
+server-admin-show-loading = 読み込み中...
+# Context: show
+server-admin-show-reload = リロード
+# Context: show
+server-admin-show-saving-changes = 変更を保存しています...
+# Context: signals
+server-admin-signals-rejoined = 再参加しました
+# Context: signals
+server-admin-signals-server-tag-flagged = サーバータグにフラグが立てられています
+# Context: signals
+server-admin-signals-timed-out = タイムアウトしました
+# Context: signals
+server-admin-signals-unusual-dm-activity = 異常な DM アクティビティ
+# Context: signals
+server-admin-signals-username-flagged = ユーザー名にフラグが設定されました
+
+## crates/ui/src/server_audit_log.rs
+# Context: action_text
+server-audit-log-action-text-accepted-creator-monetization-terms = 承認されたクリエイターの収益化規約
+# Context: action_text
+server-audit-log-action-text-added-bot = ボットを追加しました
+# Context: action_text
+server-audit-log-action-text-banned-member = 禁止メンバー
+# Context: action_text
+server-audit-log-action-text-blocked-message-with-automod = AutoMod でブロックされたメッセージ
+# Context: action_text
+server-audit-log-action-text-created-automod-rule = AutoMod ルールを作成しました
+# Context: action_text
+server-audit-log-action-text-created-channel = 作成されたチャンネル
+# Context: action_text
+server-audit-log-action-text-created-channel-permission-overwrite = 作成されたチャネル権限の上書き
+# Context: action_text
+server-audit-log-action-text-created-creator-monetization-request = クリエイター収益化リクエストを作成しました
+# Context: action_text
+server-audit-log-action-text-created-emoji = 作成された絵文字
+# Context: action_text
+server-audit-log-action-text-created-home-settings = 作成されたホーム設定
+# Context: action_text
+server-audit-log-action-text-created-integration = 作成された統合
+# Context: action_text
+server-audit-log-action-text-created-invite = 招待状を作成しました
+# Context: action_text
+server-audit-log-action-text-created-onboarding = オンボーディングを作成しました
+# Context: action_text
+server-audit-log-action-text-created-onboarding-prompt = オンボーディングプロンプトを作成しました
+# Context: action_text
+server-audit-log-action-text-created-role = 作成されたロール
+# Context: action_text
+server-audit-log-action-text-created-scheduled-event = スケジュールされたイベントを作成しました
+# Context: action_text
+server-audit-log-action-text-created-soundboard-sound = サウンドボードサウンドを作成しました
+# Context: action_text
+server-audit-log-action-text-created-stage = 作成されたステージ
+# Context: action_text
+server-audit-log-action-text-created-sticker = 作成したステッカー
+# Context: action_text
+server-audit-log-action-text-created-thread = 作成されたスレッド
+# Context: action_text
+server-audit-log-action-text-created-voice-channel-status = 作成された音声チャネルのステータス
+# Context: action_text
+server-audit-log-action-text-created-webhook = 作成された Webhook
+# Context: action_text
+server-audit-log-action-text-deleted-automod-rule = 削除された AutoMod ルール
+# Context: action_text
+server-audit-log-action-text-deleted-channel = 削除されたチャンネル
+# Context: action_text
+server-audit-log-action-text-deleted-channel-permission-overwrite = 削除されたチャネル権限の上書き
+# Context: action_text
+server-audit-log-action-text-deleted-emoji = 削除された絵文字
+# Context: action_text
+server-audit-log-action-text-deleted-integration = 削除された統合
+# Context: action_text
+server-audit-log-action-text-deleted-invite = 削除された招待
+# Context: action_text
+server-audit-log-action-text-deleted-message = 削除されたメッセージ
+# Context: action_text
+server-audit-log-action-text-deleted-messages = 削除されたメッセージ
+# Context: action_text
+server-audit-log-action-text-deleted-onboarding-prompt = オンボーディング プロンプトが削除されました
+# Context: action_text
+server-audit-log-action-text-deleted-role = 削除された役割
+# Context: action_text
+server-audit-log-action-text-deleted-scheduled-event = 予定されていたイベントを削除しました
+# Context: action_text
+server-audit-log-action-text-deleted-soundboard-sound = 削除されたサウンドボードサウンド
+# Context: action_text
+server-audit-log-action-text-deleted-stage = 削除されたステージ
+# Context: action_text
+server-audit-log-action-text-deleted-sticker = 削除されたステッカー
+# Context: action_text
+server-audit-log-action-text-deleted-thread = 削除されたスレッド
+# Context: action_text
+server-audit-log-action-text-deleted-voice-channel-status = 削除された音声チャネルのステータス
+# Context: action_text
+server-audit-log-action-text-deleted-webhook = 削除された Webhook
+# Context: action_text
+server-audit-log-action-text-disconnected-member = 切断されたメンバー
+# Context: action_text
+server-audit-log-action-text-flagged-message-with-automod = AutoMod でフラグが設定されたメッセージ
+# Context: action_text
+server-audit-log-action-text-kicked-member = キックされたメンバー
+# Context: action_text
+server-audit-log-action-text-moved-member = メンバーを移動しました
+# Context: action_text
+server-audit-log-action-text-pinned-message = 固定メッセージ
+# Context: action_text
+server-audit-log-action-text-pruned-members = 枝刈りされたメンバー
+# Context: action_text
+server-audit-log-action-text-quarantined-member-with-automod = AutoMod を使用して隔離されたメンバー
+# Context: action_text
+server-audit-log-action-text-timed-out-member-with-automod = AutoMod でタイムアウトしたメンバー
+# Context: action_text
+server-audit-log-action-text-unbanned-member = 禁止されていないメンバー
+# Context: action_text
+server-audit-log-action-text-unpinned-message = 固定されていないメッセージ
+# Context: action_text
+server-audit-log-action-text-updated-application-command-permissions = アプリケーションコマンドの権限を更新しました
+# Context: action_text
+server-audit-log-action-text-updated-automod-rule = AutoMod ルールを更新しました
+# Context: action_text
+server-audit-log-action-text-updated-channel = 更新されたチャンネル
+# Context: action_text
+server-audit-log-action-text-updated-channel-permission-overwrite = 更新されたチャネル権限の上書き
+# Context: action_text
+server-audit-log-action-text-updated-emoji = 絵文字を更新しました
+# Context: action_text
+server-audit-log-action-text-updated-home-settings = ホーム設定を更新しました
+# Context: action_text
+server-audit-log-action-text-updated-integration = 統合の更新
+# Context: action_text
+server-audit-log-action-text-updated-invite = 招待状を更新しました
+# Context: action_text
+server-audit-log-action-text-updated-member = メンバーを更新しました
+# Context: action_text
+server-audit-log-action-text-updated-member-roles = メンバーの役割を更新しました
+# Context: action_text
+server-audit-log-action-text-updated-onboarding = オンボーディングの更新
+# Context: action_text
+server-audit-log-action-text-updated-onboarding-prompt = オンボーディングプロンプトを更新しました
+# Context: action_text
+server-audit-log-action-text-updated-role = 更新された役割
+# Context: action_text
+server-audit-log-action-text-updated-scheduled-event = 予定されているイベントを更新しました
+# Context: action_text
+server-audit-log-action-text-updated-server-settings = サーバー設定を更新しました
+# Context: action_text
+server-audit-log-action-text-updated-soundboard-sound = サウンドボードサウンドを更新
+# Context: action_text
+server-audit-log-action-text-updated-stage = ステージを更新しました
+# Context: action_text
+server-audit-log-action-text-updated-sticker = ステッカーを更新しました
+# Context: action_text
+server-audit-log-action-text-updated-thread = スレッドを更新しました
+# Context: action_text
+server-audit-log-action-text-updated-webhook = 更新された Webhook
+# Context: details
+server-audit-log-details-no-additional-details-were-provided-for-this-event = このイベントに関する追加の詳細は提供されていません。
+# Context: event_icon
+server-audit-log-event-icon-unknown-action = 不明なアクション
+# Context: show
+server-audit-log-show-all-actions = すべてのアクション
+# Context: show
+server-audit-log-show-all-users = すべてのユーザー
+# Context: show
+server-audit-log-show-audit-log = 監査ログ
+# Context: show
+server-audit-log-show-filter-by-action = アクションによるフィルター
+# Context: show
+server-audit-log-show-filter-by-user = ユーザーによるフィルター
+# Context: show
+server-audit-log-show-load-more = もっと読み込む
+# Context: show
+server-audit-log-show-loading-audit-log = 監査ログを読み込み中…
+# Context: show
+server-audit-log-show-no-audit-log-entries-match-these-filters = これらのフィルターに一致する監査ログ エントリはありません。
+# Context: show
+server-audit-log-show-reload = リロード
+# Context: show
+server-audit-log-show-the-audit-log-reached-its-local-entry-or-memory-limit = 監査ログがローカル エントリまたはメモリ制限に達しました。フィルターを調整して他のイベントを見つけます。
+# Context: summary
+server-audit-log-summary-performed-action = 実行されたアクション
+# Context: summary
+server-audit-log-summary-unknown-user = 不明なユーザー
+
+## crates/ui/src/server_integrations.rs
+# Context: app
+server-integrations-app-added-by = 追加者
+# Context: app
+server-integrations-app-disabled = 無効
+# Context: app
+server-integrations-app-enabled = 有効
+# Context: app
+server-integrations-app-remove-integration = 統合の削除
+# Context: app
+server-integrations-app-service = サービス
+# Context: app
+server-integrations-app-this-integration-is-no-longer-available = この統合は利用できなくなりました。
+# Context: copy_button
+server-integrations-copy-button-copied = コピーしました！
+# Context: copy_button
+server-integrations-copy-button-copy-webhook-url = Webhook URLをコピー
+# Context: editor
+server-integrations-editor-cancel = キャンセル
+# Context: editor
+server-integrations-editor-channel = チャネル
+# Context: editor
+server-integrations-editor-choose-a-channel = チャンネルを選択してください
+# Context: editor
+server-integrations-editor-name = 名前
+# Context: editor
+server-integrations-editor-reset = リセット
+# Context: editor
+server-integrations-editor-use-180-characters-without-control-characters-or-the-reserved-names = 制御文字や予約名の Discord および Clyde を含まない 1 ～ 80 文字を使用します。
+# Context: overview
+server-integrations-overview-added-by = 追加者
+# Context: overview
+server-integrations-overview-bots-and-apps = ボットとアプリ
+# Context: overview
+server-integrations-overview-customize-your-server-with-integrations-manage-webhooks-followed-channel = 統合を使用してサーバーをカスタマイズします。 Webhook、フォローされているチャネル、サーバーに接続されているアプリを管理します。
+# Context: overview
+server-integrations-overview-learn-more-about-managing-integrations = 統合の管理について詳しくは、こちらをご覧ください。
+# Context: overview
+server-integrations-overview-manage = 管理 >
+# Context: overview
+server-integrations-overview-manage-webhooks-and-followed-channels-posting-to-this-channel = Webhook とこのチャンネルに投稿するフォローされているチャンネルを管理します。
+# Context: overview
+server-integrations-overview-no-integrations-in-this-server = このサーバーには統合がありません。
+# Context: overview
+server-integrations-overview-showing-the-first-50-integrations-returned-by-discord = Discord から返された最初の 50 件の統合を表示します。
+# Context: show
+server-integrations-show-channels-followed = フォローされているチャンネル
+# Context: show
+server-integrations-show-create-webhook = Webhook の作成
+# Context: show
+server-integrations-show-edit-webhook = Webhook の編集
+# Context: show
+server-integrations-show-integrations = < 統合
+# Context: show
+server-integrations-show-integrations-2 = 統合
+# Context: show
+server-integrations-show-loading-integrations = 統合を読み込んでいます...
+# Context: show
+server-integrations-show-manage-integration = 統合の管理
+# Context: show
+server-integrations-show-reload = リロード
+# Context: show
+server-integrations-show-reload-integrations = 統合のリロード
+# Context: show
+server-integrations-show-reload-integrations-before-making-more-changes-your-draft-will-be = さらに変更を加える前に、統合をリロードします。あなたのドラフトは保存されます。
+# Context: show
+server-integrations-show-updating-integrations = 統合を更新しています...
+# Context: show
+server-integrations-show-webhooks = Webhook
+# Context: summary_card
+server-integrations-summary-card-app = アプリ
+# Context: summary_card
+server-integrations-summary-card-bot = ボット
+# Context: summary_card
+server-integrations-summary-card-twitch = けいれん
+# Context: summary_card
+server-integrations-summary-card-youtube = YouTube
+# Context: webhooks
+server-integrations-webhooks-delete = 消去
+# Context: webhooks
+server-integrations-webhooks-edit = 編集
+# Context: webhooks
+server-integrations-webhooks-learn-more-about-following-channels = チャンネルのフォローについて詳しくはこちら
+# Context: webhooks
+server-integrations-webhooks-no-channels-followed = フォローされているチャンネルはありません。
+# Context: webhooks
+server-integrations-webhooks-no-webhooks-yet = Webhook はまだありません。
+# Context: webhooks
+server-integrations-webhooks-posting-to = 投稿先
+# Context: webhooks
+server-integrations-webhooks-posts-from-these-followed-channels-are-delivered-to-your-server = これらのフォローされているチャネルからの投稿はサーバーに配信されます。
+# Context: webhooks
+server-integrations-webhooks-send-updates-from-your-apps-and-services-to-a-channel = アプリやサービスの更新をこのサーバーのチャネルに送信します。
+# Context: webhooks
+server-integrations-webhooks-unfollow = フォローを解除する
+
+## crates/ui/src/server_invite.rs
+# Context: expiry_label
+server-invite-expiry-label-1-day = 1日
+# Context: expiry_label
+server-invite-expiry-label-1-hour = 1時間
+# Context: expiry_label
+server-invite-expiry-label-12-hours = 12時間
+# Context: expiry_label
+server-invite-expiry-label-30-days = 30日
+# Context: expiry_label
+server-invite-expiry-label-30-minutes = 30分
+# Context: expiry_label
+server-invite-expiry-label-6-hours = 6時間
+# Context: expiry_label
+server-invite-expiry-label-7-days = 7日間
+# Context: expiry_label
+server-invite-expiry-label-never = 一度もない
+# Context: picker
+server-invite-picker-edit-link = リンクを編集します。
+# Context: picker
+server-invite-picker-friends-are-not-available-yet = 友達はまだ利用できません。
+# Context: picker
+server-invite-picker-invite = 招待する
+# Context: picker
+server-invite-picker-no-eligible-channel = 対象となるチャンネルがありません
+# Context: picker
+server-invite-picker-no-friends-match-your-search = 検索に一致する友達はいません。
+# Context: picker
+server-invite-picker-no-friends-to-invite-yet-share-the-link-below = 招待できる友達はまだいません。以下のリンクを共有してください。
+# Context: picker
+server-invite-picker-or-send-a-server-invite-link-to-a-friend = または、サーバーの招待リンクを友人に送信します
+# Context: picker
+server-invite-picker-recipients-will-land-in = 受信者は次の場所に着陸します
+# Context: picker
+server-invite-picker-retry = リトライ
+# Context: picker
+server-invite-picker-search-for-friends = 友達を探す
+# Context: picker
+server-invite-picker-sending = 送信中…
+# Context: picker
+server-invite-picker-sent = 送信済み
+# Context: picker
+server-invite-picker-uncertain = 不確実
+# Context: picker
+server-invite-picker-you-need-create-invite-permission-in-a-channel-to-create = 招待を作成するには、チャネルでの招待の作成権限が必要です。
+# Context: picker
+server-invite-picker-your-invite-link-expires-in = 招待リンクの有効期限は次のとおりです
+# Context: picker
+server-invite-picker-your-invite-link-never-expires = 招待リンクに有効期限はありません。
+# Context: settings
+server-invite-settings-cancel = キャンセル
+# Context: settings
+server-invite-settings-expire-after = 期限切れになる
+# Context: settings
+server-invite-settings-generate-a-new-link = 新しいリンクを生成する
+# Context: settings
+server-invite-settings-generating = 生成中…
+# Context: settings
+server-invite-settings-grant-temporary-membership = 一時的なメンバーシップを付与する
+# Context: settings
+server-invite-settings-max-number-of-uses = 最大使用回数
+# Context: settings
+server-invite-settings-temporary-members-are-automatically-kicked-when-they-disconnect-unless-a = 一時的なメンバーは、役割が割り当てられていない限り、切断されると自動的にキックされます
+# Context: show
+server-invite-show-control-how-long-this-link-lasts-and-how-many-people = このリンクの存続期間と使用できる人数を制御します。
+# Context: show
+server-invite-show-share-a-link-so-friends-can-join-this-server = リンクを共有すると、友達がこのサーバーに参加できるようになります。
+# Context: uses_label
+server-invite-uses-label-no-limit = 制限なし
+
+## crates/ui/src/server_invites.rs
+# Context: show
+server-invites-show-active-invite-links = アクティブな招待リンク
+# Context: show
+server-invites-show-copied = コピーしました！
+# Context: show
+server-invites-show-copy-invite-link = 招待リンクをコピーする
+# Context: show
+server-invites-show-create-an-invite-link-to-welcome-people-to-this-server = 招待リンクを作成して、このサーバーに人々を歓迎します。
+# Context: show
+server-invites-show-create-invite-link = 招待リンクの作成
+# Context: show
+server-invites-show-invite-links-paused = 招待リンクが一時停止されました
+# Context: show
+server-invites-show-invites = 招待します
+# Context: show
+server-invites-show-load-invites = 招待をロードする
+# Context: show
+server-invites-show-loading-invites = 招待状を読み込んでいます…
+# Context: show
+server-invites-show-no-active-invite-links = アクティブな招待リンクはありません
+# Context: show
+server-invites-show-pause-invites = 招待を一時停止する
+# Context: show
+server-invites-show-reload = リロード
+# Context: show
+server-invites-show-reload-invites = 招待をリロードする
+# Context: show
+server-invites-show-resume-invites = 招待を再開する
+# Context: show
+server-invites-show-revoke-invite = 招待を取り消す
+# Context: show
+server-invites-show-updating-invites = 招待状を更新中…
+
+## crates/ui/src/server_menu.rs
+# Context: header
+server-menu-header-a-server-action-is-in-progress = サーバーアクションが進行中です。
+# Context: header
+server-menu-header-create-invite = 招待状の作成
+# Context: header
+server-menu-header-reconnect-to-manage-this-server = このサーバーを管理するには再接続してください。
+# Context: header
+server-menu-header-server-menu = サーバーメニュー
+# Context: leave_item
+server-menu-leave-item-leave-server = サーバーから離れる
+# Context: read_item
+server-menu-read-item-mark-as-read = 既読としてマーク
+# Context: settings_item
+server-menu-settings-item-server-settings = サーバー設定
+# Context: show
+server-menu-show-are-you-sure-you-want-to-leave = 本当に退会してもよろしいですか
+# Context: show
+server-menu-show-cancel = キャンセル
+# Context: show
+server-menu-show-close = 近い
+# Context: show
+server-menu-show-leave-server = サーバーを離れますか?
+# Context: show
+server-menu-show-leave-server-2 = サーバーから離れる
+# Context: show
+server-menu-show-leaving = 出発中…
+# Context: show
+server-menu-show-offline-preview-no-server-changes = オフライン プレビュー - サーバーの変更なし
+# Context: show
+server-menu-show-you-will-not-be-able-to-rejoin-this-server-unless = 再度招待されない限り、このサーバーに再参加することはできません。
+
+## crates/ui/src/server_roles.rs
+# Context: display
+server-roles-display-allow-anyone-to-mention-this-role = 誰でもこのロールを @メンションできるようにする
+# Context: display
+server-roles-display-choose-image = 画像の選択
+# Context: display
+server-roles-display-custom-role-color = カスタム役割の色
+# Context: display
+server-roles-display-default-role-color = デフォルトの役割の色
+# Context: display
+server-roles-display-display-role-members-separately-from-online-members = ロール メンバーをオンライン メンバーとは別に表示する
+# Context: display
+server-roles-display-members-use-the-color-of-their-highest-role-on-the = メンバーは、役割リストで最も高い役割の色を使用します。
+# Context: display
+server-roles-display-members-with-permission-to-mention-all-roles-can-always-mention = すべての役割について言及する権限を持つメンバーは、いつでもこの役割について言及できます。
+# Context: display
+server-roles-display-preparing = 準備中...
+# Context: display
+server-roles-display-preview = プレビュー
+# Context: display
+server-roles-display-remove-icon = アイコンを削除
+# Context: display
+server-roles-display-role-name = 役割名
+# Context: display
+server-roles-display-sample-message = サンプルメッセージ
+# Context: display
+server-roles-display-second-gradient-color = 2番目のグラデーションカラー
+# Context: display
+server-roles-display-this-is-how-members-with-this-role-appear = この役割を持つメンバーが登場します。
+# Context: display
+server-roles-display-upload-an-image-under-256-kib-or-choose-a-unicode = 256 KiB 未満の画像をアップロードするか、Unicode 絵文字を選択してください。少なくとも 64×64 ピクセルをお勧めします。
+# Context: editor
+server-roles-editor-back-to-roles = ← 役割に戻る
+# Context: editor
+server-roles-editor-choose-role = 役割の選択
+# Context: editor
+server-roles-editor-delete-role = 役割の削除
+# Context: editor
+server-roles-editor-display = 画面
+# Context: editor
+server-roles-editor-edit-role = 役割の編集
+# Context: editor
+server-roles-editor-permissions = 権限
+# Context: editor
+server-roles-editor-role-actions = ロールアクション
+# Context: editor
+server-roles-editor-this-role-is-above-your-highest-role-and-is-read = このロールは最上位のロールの上にあり、読み取り専用です。
+# Context: editor
+server-roles-editor-this-role-is-managed-by-an-integration = このロールは統合によって管理されます。
+# Context: list
+server-roles-list-create-role = ロールの作成
+# Context: list
+server-roles-list-default-permissions-everyone-applies-to-all-server-members = デフォルトの権限
     @everyone · すべてのサーバーメンバーに適用されます
-source-8f9d22306e0812bd = デフォルトの反応
-source-99bb1f3a57417c91 = デフォルトの役割の色
-source-b677b0431fa422a7 = 定義されていますか？
-source-dc673e73b5c13aea = 消去
-source-702ed7930a08eab6 = カテゴリの削除
-source-a882d7da0d2686cb = カテゴリを削除しますか?
-source-ddcb7800631c50c9 = チャンネルの削除
-source-e3a17ec5ae465222 = チャンネルを削除しますか?
-source-fd0ddea8691d9202 = チャンネルを削除しますか?
-source-3be470be232243f8 = 絵文字の削除
-source-ff070701d8fe9ec5 = 絵文字を削除しますか?
-source-0c35d0eb66e46e37 = メッセージをすぐに削除する
-source-59b7fa5bf0b28763 = メッセージを削除…
-source-e9f9d8094ba6a7b0 = 投稿の削除
-source-9255ccfc892d27a6 = 役割の削除
-source-153382b6a5a5d01b = 役割を削除しますか?
-source-8fc7840b4ddbcfd9 = サーバーの削除
-source-abddbb71875116d1 = ステッカーを削除する
-source-4fd65b1ca1330a8a = ステッカーを削除しますか?
-source-3e89f9151caf347e = タグの削除
-source-869ac8c6dd907cca = スレッドの削除
-source-5deda14b53ea0218 = Webhook を削除しますか?
-source-efdd22a490f5afb4 = 削除済み - メッセージ削除プロテクターによって保持されています
-source-0ace722d44ecfbbb = 削除された AutoMod ルール
-source-a6004317690ac4c9 = 削除されたチャンネル
-source-3f26fc3b67d88481 = 削除されたチャネル権限の上書き
-source-b436a8b674ff97f8 = 削除された絵文字
-source-6869b3afd5df2ac0 = 削除された統合
-source-a0cf9f30c0194d1f = 削除された招待
-source-0393235493e2649d = 削除されたメッセージ
-source-dfd01d7222af2a22 = 削除されたメッセージへのアクセスは許可されませんでした
-source-f569f6b749b1806a = 削除されたメッセージ
-source-28d2e7eeb608c55c = 削除されたメッセージはサービスアクションを受信できません
-source-09c90a469e25a5df = オンボーディング プロンプトが削除されました
-source-f976bc0c686883a6 = 削除された役割
-source-c48b3c948d808d65 = 予定されていたイベントを削除しました
-source-0f169d5b2ffb2d20 = 削除されたサウンドボードサウンド
-source-0b668f490227fb08 = 削除されたステージ
-source-741286888d3f8ad1 = 削除されたステッカー
-source-d7a3e3b9f8a638ca = 削除されたスレッド
-source-00574f84bc91ec10 = 削除された後続行のページネーションを巻き戻してはなりません
-source-ee6e4ff936a1f523 = 削除された音声チャネルのステータス
-source-754d820b9e2c5017 = 削除された Webhook
-source-5fdee00c36940c47 = カテゴリを削除すると、そのチャネルがサーバーに残ります。
-source-e0192e6ddc3dcf18 = チャンネルを削除すると、全員のメッセージが削除されます。
-source-f520d1f154f4acf3 = 削除中…
-source-34767a171377d497 = 配送不明
-source-e5f26ee02aff2e6e = デルタチェックサムの不一致。
-source-2118b6af69d5bf99 = デルタ スキャンがキャンセルされたか、制限時間を超過しました。
-source-9f8ec586afd02475 = デルタ スキャンが作業限界を超えました。
-source-c7159d9e9b77c9c9 = デルタ更新が断片的すぎる。
-source-089b96777b594651 = デモ会話
-source-8515287ae0610deb = デモには現在のユーザーがいます
-source-7fd4040204cec675 = デモサポートは含まれていません。 --features デモでリビルドし、--demo で実行
-source-8d09d6fd464b3bc5 = デモユーザー
-source-d0680e7343dedb27 = 拒否
-source-63d894b1ddb06289 = 説明
-source-4751dfb9fb0442c4 = 説明 (オプション)
-source-8fad0d62339a9f96 = 宛先が存在するか、通常のファイルではありません
-source-601620e3c5a1a625 = 選択された目的地
-source-e4d062ad1e9bee7b = 実行中のゲームを検出し、アクティビティとして共有するように Discord に依頼します。
-source-e0a34a19921b0c5c = 開発者
-source-5bf365b61e35bb65 = デバイスが使用不可
-source-b39eef9408a202f5 = デバイスとレベル
-source-3a37816f980a0be7 = ダイアログレイアウトの設定
-source-2e498936822d8eb5 = 辞書
-source-f48ac77358c2843a = 差分
-source-d137eebdef43fb93 = ダイレクトメッセージ
-source-efaccdd898b84e4f = ダイレクトメッセージ (DM) の権限
-source-c5c64e1845bbca3d = ダイレクトメッセージを開設しました。メッセージを確認し、Enter キーを押して送信します。
-source-c64f7f67ac6b0f80 = ダイレクトメッセージ
-source-8304a2831753a9fc = ダイレクトメッセージとチャンネルナビゲーション
-source-76bb7cdba3f33c72 = ディレクトリ・未実装
-source-10c8e4cae4e11503 = 無効にする
-source-c6a64d8d5e96b794 = まず拡張機能を無効にしてください。各スコープでは 8 つの拡張機能をインストールできます
-source-138e9bb4d2de4e69 = サウンドを無効にする
-source-641cd03dce2b8986 = 現在の通話でカメラを無効にする
-source-66722bc2ea775e05 = 無効
-source-6957b589eb6fe0ec = 無効。ダウンロードされたコードと拡張機能データは削除されました。
-source-8c3ebc65a2a0fe20 = 無効にすると、拡張機能とそのローカル データが削除されます。再度有効にすると、新たに開始されます。
-source-c00a88b90cd60661 = 破棄
-source-15455d8477f27ccd = 破棄して続行
-source-f471ec2496f904cc = 変更を破棄する
-source-6b138c631a7d2a2c = 変更の破棄
-source-e7da4152c78d699f = 役割の変更を破棄しますか?
-source-e050c6249a970e43 = この投稿を破棄する
-source-838b97ac07fc3c77 = 保存されていない変更を破棄しますか?
-source-a1f0e88bfb0b6a1f = 保存されていないテーマを破棄しますか?
-source-cde94ceb9f6ae176 = Webhook の変更を破棄しますか?
-source-d2208cd1a767644b = 切断する
-source-fc2c3bd345c0128a = 切断されました
-source-d4f49f46d2e3caa8 = 切断されたメンバー
-source-f60a41837fc67e7f = Discord ではスパムを含む一部のメッセージを除外できます。これらのメッセージはスパム受信箱に送られます。
-source-11fc2c4ade9fe913 = Discord がアクティブな画面共有サーバーを変更しました
-source-8047181a374b49a1 = Discord はゲームのアートワークを準備できませんでした。
-source-77c1afb4005913c6 = Discordは画面共有の停止を認めなかった。再度共有する前に通話を終了してください
-source-cd302f33a2904b81 = Discord はあなたのゲームを公開していませんでした。登録されているゲームとサーバー共有コントロールを確認してください。
-source-77653f2765742d71 = Discord は 30 秒以内に画面共有接続の詳細を提供しませんでした
-source-439e31aecc574cbf = Discord はストリーム接続を提供しませんでした。もう一度やり直してください
-source-1b6796f5854806da = Discord は音声接続の詳細を提供していません。接続許可とチャネル容量を確認してください
-source-a5b50b349ec2088f = Discord があなたのゲームを隠しています。 Discordで登録されているゲームとアクティビティの共有を確認します。
-source-f59567662974ac88 = Discord にゲームがリストされます。サーバーと友人のプライバシー設定は引き続き適用されます。
-source-5b4ccd7d9c078776 = Discordのログインセッションが変更されました。新しい通話を開始する
-source-90b3d979169be771 = Discord は画面共有トークンを省略しました
-source-56ee937097d46fdb = Discordはストリーム接続トークンを省略しました
-source-9735bc4dc9512511 = Discord は音声接続トークンを省略しました
-source-90e31523e839c853 = Discord はあなたのゲームを受け取りましたが、公開されていません。
-source-4fd724906e4ebb02 = Discord では、この人を追加する前にセキュリティチェックが必要です。
-source-a36824272b051dd4 = Discord では、参加する前にセキュリティチェックが必要です。
-source-42e59c7b25f2af40 = Discord 画面共有サーバーが利用できない
-source-d5b4e387f6ffb382 = Discord のアカウント全体のアクティビティ共有はオフになっています。
-source-5ba91211f4c07a63 = discord.com · 一時的なログイン ウィンドウ · パスワードと 2FA はページから離れることはありません
-source-fc33964aaa350cb5 = 発見
-source-12d6dde9b30c3093 = 却下する
-source-4118ac7f75bb8b6d = 通話を終了する
-source-bcfafb587d8bba80 = メッセージを閉じる
-source-f4e7d8d5af798928 = 更新を閉じる
-source-1125d159f7e64df5 = 画面
-source-ec538d64cdfa22ae = 表示1・合成プレビュー
-source-067e653b3284948e = このサーバーのアクティビティ フィードを表示する
-source-55f9237cd5828604 = 表示制限・メッセージ全文コピー
-source-e724e8e0ccb7f52c = 表示名
-source-38b9ff37adcd7fda = ロール メンバーをオンライン メンバーとは別に表示する
-source-4c542c0d89e1db30 = テキストを強調して表示します。
-source-f55a16619aa99c0f = DNF (RPM)
-source-f7e3e019e8facc9a = 邪魔しないでください
-source-dc43626df2960a28 = クリアしないでください
-source-70ef80bac94469da = スパムをフィルタリングしないでください
-source-582da6fd7548ef92 = 招待状がありませんか?
-source-9bd5f692274434de = DMを表示しない
-source-0379fc73608ab971 = 終わり
-source-8e44d55a85b0b388 = ダブル
-source-d3386a2ef42e80b9 = ダウンロード
-source-53ae7df22cdebbf5 = ダウンロードは停止しましたが、一時ファイルを削除できませんでした
-source-4f5103afe70a01cf = ダウンロード不可
-source-4e42a5a12275cada = アップデートをダウンロード
-source-8c43e770c12b17f8 = バックグラウンドでアップデートをダウンロードします。準備ができたら再起動します。 Serein は起動時と、これがオフの場合でも定期的にチェックします。
-source-328805ef4c741437 = ダウンロード ワーカーが利用できません
-source-1dc55b86a2bb722e = 合成添付ファイルのダウンロードは無効になっています
-source-a7da42c68521456d = 予算案は満席です。 /msg を使用する前に、既存の下書きをクリアします。
-source-427830bfd51d27fc = 最大 10 個の画像をこのページにドラッグ アンド ドロップするか、ファイルを選択します。アップロードする前に名前を確認してください。
-source-d71c1fa8c318e52e = サポートされているパスを持つローカル ファイルをドロップします
-source-7dd1239c563e1e1a = 重複したカテゴリ
-source-01d0558b426124e5 = 重複したチャンネル
-source-fef3452e613bcee8 = 重複した送信はブロックされたままになります
-source-af63f84c86021c20 = E
-source-93bcd444a57e66a3 = 以前のメッセージ · 原文を見る
-source-4ddbc4b081023d98 = 最新の変更を加えた初期のビルド。夜間リリースは信頼性が低くなる可能性があります。
-source-5cbcad66665e15b0 = 早期プレビュー
-source-285256231da6ca77 = エコーキャンセル
-source-0fb54fc6dbcf011e = 日食
-source-64ef2a6c2dd1d3d1 = 編集
-source-d59edddb0404a407 = カテゴリの編集
-source-67d0f7ee857edbca = チャンネルの編集
-source-dbbe8d3af708ae12 = カスタムステータスを編集する
-source-0004f244dcc1f92d = 友達のニックネームを編集する
-source-494e1ed913d9351a = グループの編集
-source-60ba551af0a9f02b = リンクを編集します。
-source-bd41a390c6044e4a = メッセージを編集する
-source-0a3a833266cb4585 = 投稿の編集
-source-63182413f7631d4c = プロフィールの編集
-source-4ce25a2df7d09227 = 役割の編集
-source-33869f2cbda53587 = 役割の編集
-source-08f89e20bc34c1a7 = 役割の編集
-source-ab68cb1163c86bbe = ステッカーを編集する
-source-d6e313197e231741 = タグの編集
-source-ecec331a1bdc23a1 = タグを編集する
-source-934db4e7208236dc = テーマの編集
-source-1b10744423f05e8b = スレッドの編集
-source-f6c727233c1b6da4 = Webhook の編集
-source-05c44a5db696fcaf = 編集
-source-b862157d53a6b703 = メールアドレス、パスワード、セキュリティ
-source-cace301a88231cce = 埋め込む
-source-245c5df82f276652 = 埋め込み表示制限あり
-source-3d1a7baa39e2bd83 = リンクを埋め込む
-source-a1e4b01cd0916852 = 埋め込み画像
-source-76d9763b30b68cf4 = 埋め込み画像のダウンロードは利用できません
-source-6a439f6898ac9710 = 埋め込み画像には最大 16 MiB の空ではない Content-Length が必要です
-source-ac313f894a08b603 = 埋め込まれた画像プロキシが PNG を返さなかった
-source-ea95c2cf6ba1321e = 埋め込み画像、フル品質で読み込み
-source-cace221a88230504 = 残り火
-source-e3ed881a961f14bd = 絵文字
-source-cee765c0e64432aa = 絵文字アクション
-source-573c3ae1700a0304 = 絵文字名
-source-b155b53d8beb3523 = 絵文字名: 2 ～ 32 文字、数字、またはアンダースコア
-source-1218793cd20035e6 = 絵文字名には 2 ～ 32 文字の文字、数字、またはアンダースコアを使用する必要があります。
-source-4f32846604c2dedb = 絵文字の準備がキャンセルされました
-source-d0bcb0176c225693 = 絵文字の準備が中断されました。もう一度画像を選択してください
-source-cbae70bda0745d59 = en-US
-source-9078ee819c18df6e = 有効にする
-source-1a2e69906e685d3e = 明示的な絵文字とステッカー画像の添付ファイルの選択を有効にする
-source-e2da94ab260a1992 = グローバルキーバインドを有効にする
-source-67794c6150d44a83 = Discord で有効にする
-source-58b1a0d3bafb9717 = この拡張機能を有効にする
-source-f69dd93b60605717 = このテーマを有効にする
-source-3122c8f9c960ec25 = 現在の通話でカメラを有効にします。あなたのビデオは通話参加者と共有されます。
-source-965c503c3e42fdfe = 有効
-source-7c2f4458ff91247a = 暗号化されたファイル、リンク、特殊ファイルはアップデートでは許可されません。
-source-d8f923198e0c5c6a = 終わり
-source-0c026f63f4692281 = エンドカラー
-source-703c0aa2d894682e = 婚約
-source-4caed5b7a7e5d89b = 英語
-source-7e388025be643d0d = 入力
-source-9645ed22476854f9 = メッセージを入力してください...
-source-53dff427018a39aa = ニックネームを入力してください
-source-d971e783e8e1c230 = 有効な Discord 招待リンクまたは招待コードを入力してください。
-source-efc367168ba9d790 = 既存のサーバーに参加するには、以下に招待状を入力してください。
-source-000e2a6e5c27aaa3 = 2015 年 1 月 1 日以降の日付を YYYY-MM-DD として入力します。
-source-a67c29835114dbff = サーバー名を入力してください
-source-1856c582cabea9b4 = 等しい
-source-d90625198e16ea2c = エラー
-source-5f343a43e7ea9f91 = エラー
-source-4c5ab8c67a3c8d06 = エラーと危険
-source-d9763e198e761c5e = ESC
-source-d90a1e198e1ac71e = ESC
-source-1b61db587d3e3f26 = 逃げる
-source-88ea71eff91fc3ad = 設立
-source-96cfdad16b1fc29a = すべてのアイコンはバンドルされたアトラスに含まれています
-source-51a1dec7855d81f8 = みんな
-source-05f85a15be408b30 = このチャンネルを閲覧できる人は誰でもスレッドを閲覧できます。
-source-79d584525abb8fe7 = 接触する可能性のあるものはすべて以下にリストされています。
-source-4d8a5c34640b7c4c = 削除されたメッセージの外観の例
-source-a6905be242387f36 = 例外
-source-00f3434c37a595a2 = 全画面表示を終了 (Esc)
-source-b713c19435a32ea9 = プレビューを終了する
-source-3b151ca64eb26ec1 = 拡大する
-source-c53599bd0d514ea4 = 予期されるポストコマンド
-source-3cc3d110acf1a01f = 予期される読み取り確認
-source-18200f4abfc1aabf = 2 つのスターター プラグインと 9 つのテーマが予定されています
-source-0f204db3f00f224c = 期限切れになる
-source-d923f95605fed7b2 = 期限切れ
-source-d924045605feea63 = 有効期限が切れます
-source-84a21cf179dffbde = 有効期限が範囲外です
-source-e2c575a9c8f6cf74 = Discord で発見可能なコミュニティを探索する ↗
-source-bb00c21107619a9c = オフライン プレビューを確認する
-source-b5541625a637dc5a = エクスポートパスが長すぎます
-source-23d16d71268f4c6e = テーマのエクスポート
-source-c2f8a5c18de21c0b = 表現
-source-6e2b24864ce75735 = 拡張機能アカウント データの削除をキューに入れることができませんでした
-source-8189793f185caef1 = 拡張機能のクリーンアップに失敗しました。起動時に再試行されます
-source-af020c5332d3c066 = 拡張機能のクリーンアップに失敗しました。拡張機能を再試行または再度開く
-source-d61f3c801ebf657f = 拡張機能のデバッグ チェックに合格しました: スターター パッケージ、同意、削除された行の保持、古い履歴の拒否、ローカル削除。
-source-34e24e528d7748fe = 拡張ディレクトリをシンボリックリンクにすることはできません
-source-195416e814190f6a = 拡張機能のダウンロード DNS に失敗しました
-source-7bc4430b3ca9e66a = 拡張機能のダウンロードがバイト バジェットを超えています
-source-d72deafa566af453 = 拡張機能のダウンロードに失敗しました
-source-41b548cb2200222c = 拡張機能のダウンロードが中断されました
-source-3b84bd9a34acdeaf = 拡張機能のダウンロード サイズが変更されました
-source-4c48f0085e30f974 = 拡張機能のダウンロード サイズまたはエンコードがサポートされていません
-source-700a42dd85e66531 = 拡張機能のダウンロードがタイムアウトしました
-source-6249e4736b0dbc8c = 拡張機能のダウンロードは利用できません。カタログを更新するか、ローカル パッケージを使用してください
-source-c7738956d1c15997 = 拡張機能ダウンローダーは使用できません
-source-b4e5ec9a408b35a6 = 拡張機能のダウンロードではプライベート ネットワークにアクセスできません
-source-b101445a5213901f = 拡張機能が有効になりました。
-source-deaef0955d655338 = 拡張エラー
-source-b371d4a2fae90a84 = 拡張ファイルがバイトバジェットを超えています
-source-fd81ac1e8e40a740 = 拡張子ファイルの選択が終了しました。
-source-49db7a4cf2a9e120 = 拡張機能は無効になっています。クリーンアップには再試行が必要です
-source-f511b9389c28f278 = 延長操作がキャンセルされました
-source-3e15cb7b1adac780 = 拡張パッケージのチェックサムが変更されました。リリースを再度検査する
-source-5390664b6a2f838f = 拡張パッケージがストレージ予算を超えています
-source-1b4d525a974ff43f = 拡張パッケージは通常のファイルである必要があります
-source-8f683e089be62eb8 = 拡張ストレージがいっぱいです。まず古いアカウントからログアウトしてください
-source-bc8382e62a862de8 = 拡張ツール
-source-79f6edaaffc1fa63 = 拡張機能ワーカーが予期せず停止しました
-source-9698888cf053484b = 拡張機能
-source-079f0684890eeede = 拡張機能がビジー状態です。現在のアクションが終了してから再試行してください。
-source-4b780885b35a030b = 拡張機能はビジー状態です。現在の操作後に再試行してください
-source-be17b4ce8cc085d6 = 拡張機能 プラグイン ショップ ストア カタログ インポート コミュニティ ツール
-source-6af7709ae013ba4c = 拡張機能には認証情報不要のパブリック HTTPS URL が必要です
-source-56bcc58e283553fc = 拡張機能の設定
-source-af63fb4c86022139 = F
-source-09050b07b59e2098 = F1
-source-f1b266199bb17d78 = F10
-source-f1b267199bb17f2b = F11
-source-f1b268199bb180de = F12
-source-09050e07b59e25b1 = F2
-source-09050d07b59e23fe = F3
-source-09051007b59e2917 = F4
-source-09050f07b59e2764 = F5
-source-09051207b59e2c7d = F6
-source-09051107b59e2aca = F7
-source-09050407b59e14b3 = F8
-source-09050307b59e1300 = F9
-source-772b6467f5681ff0 = 失敗は出発を生き残る
-source-09dccb2f68f0a098 = 間違い
-source-7254ca27b16ae2d8 = 間違い
-source-51ba5321a04109cd = お気に入り
-source-278894f14b3a2827 = お気に入りのGIF
-source-20a500234e838dda = お気に入り
-source-71ddb2d7436549d4 = お気に入りはこのデバイスに保存されます。
-source-6da2a4faf81bb30a = サーバーの詳細を取得しています…
-source-e79412858c13b923 = ファイル
-source-d1f81284eeb7b503 = ファイル
-source-3b6f4c0ecc764f98 = ファイルが添付されていません。接続されている会話に戻り、再度ドロップします
-source-6c607f6de8bc4cda = ファイルは送信されませんでした。再接続してアタッチメントを再選択します
-source-c53eecba31441697 = ファイルは送信されませんでした。合計 500 MB 以下のファイルを 10 個まで選択します
-source-2821bde3272e7dd1 = 塗りつぶし領域
-source-8a904bc5734c26fd = すべてのスパムをフィルタリングする
-source-c78f2b11121d749e = アクションによるフィルター
-source-2eda83d21be9b20f = ユーザーによるフィルター
-source-9bed178750df20c8 = 友達以外からのメッセージをフィルタリングする
-source-9de4cfd6c4734ef5 = 知らないサーバーメンバーからのメッセージをフィルタリングする
-source-a8beb6b1182241ac = フィルター
-source-cadf6c1ed80c4665 = 会話を見つける
-source-036454e59e47ba76 = 完璧な絵文字を見つける
-source-77934b05d5db8b6f = 完璧なステッカーを見つけてください
-source-49c572d8d6fe4f6f = テキストを開く前または閉じる前に、テキストの作成を完了してください。
-source-e9be2550c775902e = スラッシュ コマンドを使用する前に、編集またはアップロードを終了してください。
-source-a51d57ef25091964 = まずサーバー設定の編集を完了してください
-source-e179a19bdbd3fb98 = この拡張機能とそのローカル データの削除を完了します。
-source-1d6b6bec2a02a75a = 再度確認する前に、現在の更新を終了してください。
-source-4dc7a2f3b345afdb = まず現在のアップロードを完了してください。一度に最大 10 枚の画像を選択できます。
-source-9d6c49a1136d640d = この投稿の最初のメッセージ
-source-17d7735daef94b08 = 最初のページ
-source-25abe5fd8011f5b0 = 画像全体をフィットさせる
-source-3ecb9c975b67b27e = フィクスチャ モードは資格情報ストアやネットワークを開くことはありません
-source-d9feb2de7b1d113f = AutoMod でフラグが設定されたメッセージ
-source-1845d941049117e8 = Flatpak はリポジトリ経由でアップデートを管理します。 「 flatpak update 」を実行するか、GNOME ソフトウェア/KDE Discover を使用して新しいリリースをインストールします。
-source-8f9f6bf0d9e5f79d = Flatpak アップデートは、そのリポジトリまたは「 flatpak update 」を通じて管理されます。
-source-62edc0fd99aa859a = FLATPAK_ID
-source-b64f4a0accc8a8c5 = フロート
-source-41e1d3c9e15d4e44 = フォルダ名
-source-6991b88b59c28e86 = フォルダー名と色…
-source-f314b2d4e233ff7a = フォルダー設定
-source-4fd78d90908a11f0 = フォローする
-source-a98d0892a081eeda = 投稿をフォローする
-source-99e8e08708a9239f = 通知を変更するには、この投稿に従ってください。
-source-d54073ff1cf10885 = 通知を変更するには、このスレッドに従ってください。
-source-ecd37261d5eae9e0 = スレッドをフォローする
-source-40384403db2ea003 = フォント デバッグ チェックに合格しました: 境界付きインポート、無効な入力、保存されたコピー、CJK ロード中の置換、リセット、および保存された装飾設定。
-source-339e2c08f4cbe486 = フォント定義
-source-1cf0e3786ba7e88c = フォントのインポートが中断されました。もう一度やり直してください。
-source-f4668abd58e91513 = 1時間
-source-e3945a6cbdc056e3 = 15分間
-source-576080d0ab8b31d9 = 24時間
-source-50da0d6885986e32 = 3時間
-source-97ed643174870537 = 8時間
-source-304dda6df0046683 = クラブやコミュニティの場合
-source-88ec3800dc5b32e1 = 例: 🐀
-source-7c0faf44b7599d62 = 私と私の友達にとって
-source-34d419a9f8685cb2 = 今のところ。
-source-fbcd6af7d9aff325 = サインインした別の Serein インストールなどから、すでに有効な Discord セッション トークンを保持しているオーナーの場合。ここではパスワードと 2FA は決して使用されません。これにより、Discord がホストするログイン ページが完全にバイパスされます。
-source-7175399dc6314dac = 忘れる
-source-9397a9369bb3db4b = アカウントを忘れる
-source-1d90f9eda8b4b1ca = 保存したログイン情報を忘れる
-source-adbe56978c9cfede = このデバイス上のこのアカウントを忘れてください
-source-a384dc1622f82116 = フォーラム
-source-eba3fab86485cfe5 = フォーラム · 読み込まれた投稿
-source-9fc3568ec8629bda = フォワード
-source-7daf5bfa11898c81 = フォワード デバッグ チェックに合格しました: ピッカー、限定された宛先、オプションのメモ、下書きの保存、およびキューの拒否。
-source-7ec11c0013933e6d = メッセージの転送
-source-059f509c56a037f3 = 転送先
-source-5ad0482fed792e59 = 順方向のみの音声
-source-9a937c330ddf4c7b = 順方向のみのソース デコード
-source-26c8265e79df99a5 = 創設者
-source-8be13012c2c30e80 = フレームレート
-source-f05c881aa97a3001 = コマンドを選択する前に、ドラフト スペースを解放してください。
-source-224d6be8ffada421 = 頻繁に使用される
-source-9f57a2661b8a7e2d = 友達
-source-70474ccb0dc33ce7 = 友達のニックネーム
-source-c446ee72f0a45594 = 友達リクエストの権限
-source-e9181d5845ed2006 = フレンドリクエストを送信しました
-source-9369cfa7a815be46 = 友達リクエストを送信しました
-source-681dcadff37dc161 = 友達リクエスト
-source-e33713c40cf8905a = 友達/家
-source-9c2738fc2a406ace = 友達はまだ利用できません。
-source-65eb5bc01697d4e2 = 友達の友達
-source-c9a69a60f64de5fb = 友達 ✓ · クリックして削除
-source-a6ab5184d6315895 = から
-source-6a22169a205e9ee5 = 特定のユーザーから
-source-35af70bbb896f6dc = ユーザーから
-source-bbaf771b88e35414 = 送信者: ユーザー
-source-706925c982e7f828 = フロントが存在します
-source-4b10acae683d2978 = 全画面表示
-source-07da69ddbc0d4c69 = 関数
-source-140834e3da0cc236 = 未来
-source-af63fa4c86021f86 = G
-source-1e3a08abb66683bd = ギャラリー
-source-0a9a42586b09b675 = ギャラリーには画像があります
-source-1e34d0d25d7b3f62 = ギャラリービュー
-source-b8e5f7265e112995 = ゲームアクティビティは利用できません。他の Discord クライアントを閉じて、共有をオフにしてからオンにします。
-source-e7985c1f65a954c8 = ゲームアクティビティのプレイ OSU ステータスの共有
-source-ec1fd5e3efcd9dce = ゲームのアクティビティが停止しました。共有をオフにしてからオンにして、再試行してください。
-source-4ca984ba718c3836 = ゲートウェイ接続: サポートされていないハンドシェイクまたはイベント
-source-a151ff7482693921 = 一般カテゴリの権限
-source-681e7c486f10ddc4 = 一般的なチャネル許可
-source-1a44957753e55a32 = 一般的なサーバー権限
-source-d7610725910c019c = 一般設定
-source-f10b658a307e86bd = 一般的な Windows MacOS Linux ログイン メニュー バー スタートアップ 自動起動 自動的に開く 最小化 最小化 閉じる トレイの背景 タイトル バー キャプション ウィンドウ ボタン 装飾 ボーダーレス タイル グラフィックス GPU アダプター レンダリング ディスクリート 統合ハードウェア アクセラレーション パフォーマンス バッテリー
-source-9d8db15e76da6741 = 新しいリンクを生成する
-source-923705a1daf9e84b = 生成中…
-source-eaa7b519982a0e81 = GIF
-source-1e7afe9c575c706a = GIFにはフレームがありません
-source-ef523a043cb1a201 = GIF画像が大きすぎます
-source-da334a907c5c26f7 = GIF検索は利用できません
-source-06f6fe5fe2333748 = GIF 検索には接続されたセッションが必要です。
-source-a99c5d408bd41e1f = GIF87a
-source-a97a61408bb73e85 = GIF89a
-source-e507ac7d8f776536 = GIF
-source-a8c3b80277455232 = GitHub
-source-b6d9318313cb0848 = GitHub はアップデートを提供できませんでした。後でもう一度試してください。
-source-e7884a357ee4c9d2 = GitHub が無効なリリース メタデータを返しました。
-source-4de5f0ba822e25c8 = GitHub の更新制限に達しました。後でもう一度試してください。
-source-a243636f80fc6cce = このグループに、誰もが認識できる名前とアイコンを付けます。
-source-57f156fdd0c8dbef = 新しいサーバーに名前とアイコンを付けます。後で変更することもできます。
-source-bd4e2210817a1a0e = グローバル
-source-4ba26827f64d38bd = グローバルな可用性
-source-09023907b59c38eb = 行く
-source-20d5102dc78225fb = サーバーに移動
-source-ea0cb350ea71bc45 = 勾配
-source-3515e80533806a86 = 一時的なメンバーシップを付与する
-source-41803f9fcd0f8de5 = すべての権限を付与し、チャネル権限のオーバーライドをバイパスします。これは信頼できる人にのみ許可してください。
-source-ecbc78bca0822905 = グループアクションは、切断中または通話中は利用できません。
-source-dd0585c25a191d3f = グループ会話は利用できません
-source-39048d780c11ddc6 = グループダイレクトメッセージ
-source-366842f512dbbd93 = グループアイコンがサイズ制限を超えています
-source-9ed4b1216c365c5b = グループメニュー
-source-030655287e89069f = グループ名
-source-6312a7bbb63e7117 = サーバーとのグループ化
-source-1b2f61ae8f202f60 = 保護された ZIP メタデータが失敗しました。
-source-78d49005a4e852ba = 保護された ZIP ペイロードのデコードに失敗しました。
-source-af64054c86023237 = H
-source-1369c99f2e45df7a = 一緒にぶらぶらして話しましょう。
-source-49613319cda8a1a3 = もっている
-source-909c6c31361a82c7 = あり: リンク、埋め込み、またはファイル
-source-58cb9fd8758aebf1 = ハッシュ
-source-439d260b478d6e91 = ハッシュ長
-source-3f51f5a6ced22f90 = すでに招待状をお持ちですか?
-source-75d83fc3f0cfab40 = ヘッダ
-source-2e07cda805841012 = 見出し
-source-c241395cbd5f4876 = 選択したスピーカーから自分の声を聞いてください。フィードバックを避けるためにヘッドフォンを使用してください。
-source-9d35c5db61e86ce6 = タグを作成して、投稿をサブカテゴリーに整理できるようにします。
-source-b291fc0e032d0d4f = 16 進カラー: #RRGGBB。クリックして入力または貼り付けます。
-source-9df212d89cab196d = 隠れる
-source-0ffbdc1726fb6ebb = 非アクティブになった後は非表示にする
-source-769ed34384d07576 = 画像とGIFのリンクを非表示にする
-source-0aa873e6c2f28288 = 一致するテキストのハイライトを非表示にする
-source-57e16ad6652e6134 = メディアリンクを非表示にする
-source-725477d04a36a98a = ミュートされたチャンネルを非表示にする
-source-762e679f62ae02c1 = 参加者を非表示にする
-source-8529bfe5e40476a8 = ネタバレを隠す
-source-3dc515b39430e680 = 画像または GIF プレビューが表示されているときにスタンドアロン リンクを非表示にします。
-source-b162fba95c2ecba9 = 拡大されたビデオの下の参加者ストリップを非表示にする
-source-9deeefd89ca8a81d = 高い
-source-58c754018ec47b5f = 歴史
-source-877db9a965e78ff1 = 履歴はまだ利用できません。リロードを使用して再試行してください。
-source-e923cd10a1e399e1 = 話したいときは、設定したショートカットを長押しします。
-source-a53a3619d24212cf = ホログラフィック
-source-6abb1cd87fe0114e = 家
-source-0b43e6e909895c89 = 水平
-source-14b242e1c4820e0d = ホバー
-source-000ccf53f16fac4e = GIF にカーソルを合わせて星を押し、ここに保持します。
-source-890ee07baf12f5d7 = ステッカーにカーソルを合わせるとプレビューできます
-source-2f7a3edead4ab00c = 絵文字にカーソルを合わせるとプレビューできます
-source-b31ae534f0201385 = サーバーはどのようにして起動されましたか?なぜ参加する必要があるのでしょうか?
-source-81d5b23881088e83 = テーマがギャラリーにどのように表示されるか。
-source-731d0208840a7800 = hTKzmak · discord.gg/hTKzmak · discord.gg/wumpus-friends
-source-c98fb2d8b57594f0 = HTML
-source-af64044c86023084 = 私
-source-d10d2dc5f8e74c73 = 私はこのアカウントを所有しており、このセッションを承認しています。
-source-068d4dd16d9106d0 = アイコン
-source-a553c9a0dce42642 = ID または選択…
-source-411a4a19c9146569 = ID3
-source-49e91d0d9e0bf552 = ID3 ペイロードがフェッチされることはありません
-source-411a5419c9147667 = ID=
-source-ae423d5fb59ebed9 = 識別子=
-source-c92905d14a9421f3 = アイドル状態
-source-bdee1c54486ec63e = IEnumerable
-source-370a3dd62278a528 = メッセージが固定されているかどうか
-source-3d93f9ea0c5a13fa = 画像
-source-66b8dfd81d2ada15 = 画像アクション
-source-190b1f0db71908fb = 画像添付
-source-4a752a36999535a7 = デコード制限内では画像をコピーできません
-source-915dd15d1094d035 = 画像をデコードできませんでした
-source-53d3f2aec75dc3ac = 画像のダウンロードが中断されました
-source-28a63ec28a4d9cb5 = 画像のフィット
-source-8d53e3ace074daa4 = 画像が 8 MiB を超えています
-source-9a8bdf5e02fde283 = 画像が大きすぎます
-source-d66857039cf6aa8c = 画像がサポートされていないか、大きすぎます。最大 4096 × 4096 ピクセルを使用する
-source-8eb80838a31c6217 = 画像の不透明度
-source-b0e95a44c5832060 = 画像投稿
-source-cc44400cc9d4eeed = 画像の準備が中断されました
-source-21fd53a0c86b5494 = 画像の準備が中断されました。もう一度選択してください
-source-e9992f53ea8527e2 = 画像プレビュー
-source-4f7a7453ede3db5b = 画像の選択がキャンセルされました
-source-7b9e62201fc23913 = 画像共有アクセスが許可されませんでした
-source-f9e9fb8972db5290 = 画像が利用できません
-source-824bcaa487aefa5f = 画像が利用できないか、8 MiB を超えています
-source-0c002f31d0eccc90 = 画像をキャッシュできませんでした。それらはメモリ内で利用可能なままになります
-source-7be593be34983abf = フォントをインポート…
-source-536b11358e1bc3a0 = パッケージをインポート…
-source-ed12d0d18b972087 = インポートパスが長すぎます
-source-aab9f9d1763e826f = テーマをインポート…
-source-b59092a018c8c220 = このチャンネルのカテゴリでは、カテゴリの権限を継承します
-source-5afd8800d125b01a = で …
-source-7b44be5f4de4f0e3 = このプラットフォームではアプリ内インストールはサポートされていません。
-source-db4bd4b824a282f0 = アプリ内インストールには、開発者 ID で署名された Serein リリースが必要です。
-source-567e3276f0b0f009 = アプリ内インストールには、macOS または Windows リリース パッケージ、または Linux x86-64 AppImage が必要です。他の Linux インストールでは、パッケージ マネージャーを使用します。
-source-78bf951bc1632023 = 非アクティブなチャネル
-source-1b9310d53986c897 = 非アクティブ期間
-source-2220bd7f2217cf5b = 非アクティブなタイムアウト
-source-d2ef82d232067766 = サイドバー、サーバー レール、ヘッダー、およびコンポーザーが含まれます。
-source-10901dc29f1103bb = 共有ビデオにポインターを含めます。
-source-fcbb9955a42abef4 = 特定の種類のデータが含まれる
-source-e30930ba8681baeb = 選択したタイプのデータのいずれかを含みます
-source-0372bce8ab8e7b45 = 着信中…
-source-2e80b701dc80533d = 着信音
-source-4db54da3664c2055 = 不完全なロールパッチ
-source-a978564370e2b2f3 = 独立したオープンソース。 Discordとは関係ありません。
-source-72f8dbd6003e4624 = インデックス作成が不完全です。結果が見つからない可能性があります。
-source-0c0230002435da99 = 無限大
-source-6b585ba37cdb8260 = 継承する
-source-2256feb673e7874c = 上記で初期化されました
-source-88d374f8374273ec = 真っ黒な真夜中の表面に、鮮やかなバイオレットのアクセントが加わります。
-source-db1595f5c742dfbb = 入力
-source-f735822173a46384 = 入力ゲイン(%)
-source-7dd9b019ce8d7d29 = 入力レベル
-source-c78869b8c7b3e7b2 = 入力プロファイル
-source-e5ce0d4b7f1cdc2c = 入力設定
-source-e07e2bf7e4687e74 = 入力閾値
-source-41a92219c98dd9b7 = インス
-source-5ada999b33ccc808 = 入れる
-source-70d9d4fda21a48c5 = 絵文字を挿入する
-source-ee5ac5102dcacf1a = これらのコントロールを使用するには、音声対応ビルドをインストールします。
-source-c58d983d7f8dc085 = テーマをインストールする
-source-0ee0c68d0024b96b = インストールされている拡張機能のフィンガープリントが無効です
-source-80cb01ff2864c336 = インストールされている拡張機能の ID が変更されました
-source-a93385788263bda8 = インストールされている拡張機能のメタデータが無効です
-source-4e89bcac7237882a = インストールされているプラ​​グインの ID が変更されました
-source-54ee04e01df690b3 = インストールすると以前のプリセットが保持されます
-source-41a91f19c98dd49e = 内部
-source-61d49062aaedbf65 = 整数
-source-75c5a62c20aeb9f4 = 統合カメラ (プレビュー)
-source-03970aa76a09982d = 統合
-source-233f78792e4de7ba = 統合
-source-baaadff5b5886ee9 = インテル
-source-59d72bac7fa31a39 = インター (デフォルト)
-source-13cc7c9a6045f074 = インターミディアム
-source-ee3924f4b629eb16 = インターセミボールド
-source-1a81ae5aabe22de4 = インターレギュラー.ttf
-source-e6b26e433d821b85 = インターセミボールド.ttf
-source-1aea0acdc165591d = インターフェースフォント
-source-51693b181594f130 = 無効
-source-aff59fe0ca6f3337 = 無効なアクティブなテーマ
-source-f0ede5667e3c2368 = 無効なアーカイブ カーソル
-source-d555edf4908c1d30 = 無効なバンドル通知音
-source-3340ea4ac8a008ca = 無効なチャネル識別子
-source-fad7ba128f14189f = 無効なチャネルの種類です
-source-98c63dbd9df31dd7 = チェックサムが無効です。
-source-7647b72796eaac6e = 無効なクリーンアップ マーカー
-source-6bb35ccac4214000 = 無効なカスタム絵文字名です
-source-5bc866e5341fc71a = 無効なデルタメタデータが受け入れられました。
-source-5a9316c0f55d2c1f = 無効な絵文字画像です
-source-2a24647263ec3c22 = 拡張機能アカウントのスコープが無効です
-source-7e2d0d6e28b10843 = 拡張機能のダウンロード ホストが無効です
-source-f39ed7267460de3a = 拡張機能のダウンロード URL が無効です
-source-c8a0d30bcb4932ac = 無効な拡張識別子
-source-8d3e3fdf912b6247 = 無効な拡張機能のリダイレクト
-source-b914efe8a0101490 = 無効なGIFアニメーション
-source-841b936014dbdc07 = 無効なGIF画像です
-source-c92909345b3cc683 = 無効な識別子
-source-2144d2fd528b11de = 無効なメッセージ識別子
-source-9e0a3f07d119818c = 無効なマイク処理設定
-source-c88d54eb07eaa02d = 無効なマイクプロファイル
-source-66a622ff6e253fcb = パッケージのパスが無効です。
-source-c24233b6611d0b96 = 無効な権限許可マスクです
-source-77cb31f8ce19f359 = 無効な権限拒否マスクです
-source-e304160d5c17e0f9 = 無効な権限マスク
-source-103b0e96130997a7 = 無効なピン カーソル
-source-97991767f58bad16 = 無効なプラグイン許可
-source-de7a9123467851fb = 無効なプレゼンス設定
-source-70e622bcaf00bb11 = 無効なプレゼンスステータス
-source-926da7ff753427e9 = 無効なリアクション絵文字です
-source-699b6984bf2adc2d = 保存先が無効です
-source-efff269891a514d6 = 無効な画面音声セッション
-source-890785553e903272 = 無効なストリーム音声セッション
-source-b8efab09a838ede2 = 無効な抑制モードです
-source-8fe713d416554a32 = 無効なユーザー識別子
-source-3c29996ee3f84135 = 無効なビデオシーク
-source-3f4de05e737c4050 = 見えない
-source-2afc9a717c161490 = 招待する
-source-552eee8a38a62007 = 招待が受け入れられました。サーバーアクセスを待機しています。 Discord のサーバー ルールを完了します。
-source-8da3b13ecb71b7c5 = 招待コード
-source-e0cb011a27bd9365 = 招待の有効期限が切れているか無効です
-source-6c0826939c587680 = 招待リンク
-source-29ee695e0f89c0cd = 招待リンク設定
-source-21c03de940770a05 = 招待リンクが一時停止されました
-source-b3675a0187b1e112 = チャンネルに招待する
-source-456d2642d56934d8 = サーバーに招待
-source-cc2c588519113d3a = 招待できません
-source-214f50d5d9857c06 = 招待者
-source-214f51d5d9857db9 = 招待します
-source-ac6d5df486b78dcb = 招待状は次のようになります
-source-2ae8be723608ca27 = IPCフレーム制限
-source-76ec54b338997987 = 新しいサーバーは数人の友人用ですか、それとも大規模なコミュニティ用ですか?
-source-bf6fbda23925fcb4 = 問題の診断
-source-0f39f43458e1606f = 項目の間隔
-source-132e74c95d560583 = 反復可能
-source-14c80c3d82ecfe2f = そのメッセージは完全に削除されます。これを元に戻すことはできません。
-source-c110b9e869ede5f2 = このデバイスに保存されているログイン、キャッシュされた履歴、および下書きは削除されます。 Discord アカウント自体は変更されていません。いつでも再度サインインできます。
-source-af64074c8602359d = J
-source-c2af8aea5b96bba5 = ジャワ
-source-1cdd68204da8bdaa = JavaScript
-source-6c6bf3ea2ad3d219 = 参加する
-source-b2afbf038a6cfe9d = サーバーに参加する
-source-60988f8dcf4afee1 = オーディオに参加します。通話が保護された後、マイクが起動します。
-source-e59e5884d3263eeb = 通話に参加する
-source-f93c30c9e799811a = 結合方法
-source-29a7fede2fd2d558 = サーバーに参加する
-source-c57036386980e37f = 参加して聞いてください。このチャンネルでは話すことはできません。
-source-958fd8a18d9097af = 音声に参加する
-source-2a2b53f9a9998870 = Discordに参加しました
-source-03499a0733b35e4c = 過去 7 日間に参加しました
-source-11042a37390cda1b = プライベートに参加しました
-source-d2ae1a44fbc39082 = この通話には参加できなくなりました
-source-07732f31ca518ea0 = 現在の権限情報では、このチャンネルに参加できません。
-source-621bc36db6521411 = 接合…
-source-34d46fe97a690403 = JSON
-source-15a477e9f9a165ad = ジャンプ
-source-8d29fb87378b5493 = からのメッセージにジャンプします
-source-ea06f2fec89302d9 = 現在へジャンプ
-source-dc1660d3322d1da5 = 未読にジャンプ
-source-84126fa92f00b4ef = ちょうど今
-source-af64064c860233ea = K
-source-739c12da7c022020 = Katana のダークチャコールの表面とシャープなレッドのアクセント。ライト モードでは組み込みのカラーが使用されます。
-source-d60a7dde73859828 = 保つ
-source-ec6d1ce476382a2c = 編集を続ける
-source-7b8db4b25760798c = 編集を続ける
-source-1884d8e4db1b7e44 = 画像とセクションの不透明度を 0% から 100% の間に保ちます。
-source-b40ef363d7acbab2 = 有効になっている間、ロードされた削除済みメッセージをセッション メモリに保持します。
-source-fefea061e3aef939 = このセッションですでに表示されているメッセージは、削除後も赤色で表示されたままになります。無効化またはサインアウトするとクリアされます。
-source-b37797ccd56f4513 = ウィンドウが十分に広い場合は常にメンバー リストを開いたままにしてください。
-source-5847ae7d38e846bb = 働き続ける
-source-85e7706d883c1b1f = キーボードショートカットの設定
-source-70b984de3ae12f5f = キック
-source-dcaaa6a6d1d2f80b = キックメンバー
-source-c8f1a576897c33e8 = キックメンバー
-source-010cab31d8ba72f4 = キックされたメンバー
-source-beb0c3f65be90a4c = コトリン
-source-af64014c86022b6b = L
-source-f6758693b338b2bf = 最後に確認された参加者 · 再接続して更新する
-source-02e61b83d7705416 = 最後に保存された
-source-9c6674b1ad79be87 = 後でゲートウェイが切断される
-source-05902840ffa77a6f = 最新のメッセージは利用できません
-source-2e4818861000b13f = レイアウト
-source-e04aaca8ea615571 = LD_LIBRARY_PATH
-source-4ebfefaed46645e7 = LD_PRELOAD
-source-7ba0310a53345190 = チャンネルのフォローについて詳しくはこちら
-source-24f216d03b0273ba = 統合の管理について詳しくは、こちらをご覧ください。
-source-e1bb5c90def98862 = ユーザー名を使用する場合は空白のままにします。
-source-b6f6eb378f7ed8d5 = ユーザー名を使用する場合は空白のままにします。
-source-c0b43e6938b15b03 = グループを離れる
-source-23a148cb555e06f4 = グループを脱退しますか?
-source-c23ec1237701b64b = サーバーから離れる
-source-304720e80cd0cb6b = サーバーから離れる
-source-1258a34337e9071c = サーバーを離れますか?
-source-b95db8072a682ef3 = 通話を終了してマイクをローカルでテストします。
-source-09127d64a1f32e14 = 現在の音声通話を終了します
-source-52d5e2312cb98b44 = このアカウントを辞めますか?
-source-bfd5fdbfbf8878c5 = このセッションを終了しますか?
-source-ad791b6a1cbe4edc = オフライン プレビューでは退席することはできません。
-source-757c3a7cd6e640a5 = 出発中…
-source-d65688f2da9401db = 従来のローリング チェックサムの互換性が失敗しました。
-source-202fffd5a2e1c595 = 長さ
-source-a566392b59057905 = このチャンネルの使用方法をみんなに知らせる
-source-122c48a8444cd82c = このチャンネルの使い方をみんなに教えてください！
-source-060d1b267ab42d13 = ゲームが開いていないときでも、接続されているゲームの友達が DM を送信して、プレイに招待できるようにします。
-source-17597a8bb4810524 = ライセンス
-source-ab004d8a9aa6ed5e = ライセンスとバージョンが必要です。
-source-aeac80851d9f420d = ライセンス-Apache
-source-c7fa97a208420daf = ライセンス-MIT
-source-3b0ab4b52326316f = ライト
-source-3cf89cb47fdde7e9 = リンク
-source-32926f430c16efd8 = 連動ロビー
-source-7859e0b546108aae = リンク
-source-3d249bb480032121 = リスト
-source-70315aaffba9e636 = リストビュー
-source-82d9a68d45439d03 = 聞いている
-source-e9c77e5b3a0fdc89 = Spotify を聴く
-source-52afd6b51d51164f = ライブ
-source-3d1396b47ff4a56f = ライブ
-source-11fa9d6c061afa16 = アーカイブされた投稿をロードする
-source-3a2d89e9113caee2 = ロードチャンネル
-source-c986f57b00dd25bf = 招待をロードする
-source-9cacdfdfd5d7123e = もっと読み込む
-source-7584ded3d749c75e = さらにロードする
-source-61556c6ba5dcfb6d = さらに投稿を読み込む
-source-95ef182cb1fd4feb = 現在の会話に固定されたメッセージを読み込む
-source-8b95fbad9e9aef05 = サーバー設定をロードする
-source-31a65dd97cdf8a37 = 変更する前にこのサーバーの設定をロードしてください
-source-8439ee25437e77d1 = 更新設定をロードするか、更新設定を選択してチェックを有効にします。
-source-6783077442c0dad3 = 拡張機能が無効になるとロードされた削除が表示されなくなります
-source-50f79eb3620799d6 = 読み込まれたスレッドは訪問ではありません
-source-851ecddc366a2691 = ロードされた未読はローカルでスクロールする必要があります
-source-b59d68ed12d46377 = 読み込み中
-source-3463bde1664305d3 = アプリケーションコマンドをロード中…
-source-17e508cdddf68e84 = アーカイブされた投稿を読み込んでいます…
-source-933c587eb7d7507f = 音声を読み込んでいます…
-source-09077a8228a5d71a = 監査ログを読み込み中…
-source-2667f1dca13f7227 = チャンネル設定を読み込み中…
-source-7e00d690bf476c8c = discord.comを読み込んでいます…
-source-5d5a3b2949e254bb = 友情ステータスを読み込んでいます...
-source-8ca6703ab61779c6 = GIFを読み込み中…
-source-2b71ebd4732fd0ea = 画像を読み込み中…
-source-b282c7ee62d8c2d8 = 統合を読み込んでいます...
-source-df5d55e82fc6013f = 招待状を読み込んでいます…
-source-51c132ed40a874ca = ローカルの外観を読み込み中…
-source-10af059c2c92c925 = メッセージをロードしています
-source-421d6e269a43d41b = メッセージを読み込んでいます…
-source-875cc33c8d2087f3 = メモを読み込んでいます…
-source-1a5772902a9d27a5 = 古いピンをロードしています…
-source-8f7234437c1583f4 = 古いスレッドを読み込んでいます…
-source-57ebd0152abc1eb3 = 固定されたメッセージを読み込んでいます…
-source-7571d69557f1b608 = 投稿を読み込み中…
-source-a4e5c9890f31e1e3 = プレビューを読み込んでいます...
-source-2c194c9c95937c4e = プロファイルを読み込み中…
-source-36a96cdf3de5b155 = リアクションを読み込んでいます…
-source-67ec529ae2ea432c = 役割を読み込んでいます...
-source-adf4a00a3ea3251f = 保存したフォントを読み込んでいます…
-source-7c0b644c42303aef = 保存された読み取り値とレイアウトをロードしています…
-source-9b846168bcc5b3ed = サーバー設定を読み込んでいます…
-source-c4848c001eaee8c5 = 起動設定を読み込んでいます…
-source-a86d4233d96c4c82 = ステッカーの詳細を読み込んでいます…
-source-152a12fc4255c012 = ステッカー パックを読み込み中…
-source-166b779cf597cb90 = トレンドカテゴリを読み込み中…
-source-b77be09763b48a7e = 検証を読み込み中…
-source-a3f0b4f8e3f25240 = 設定を読み込んでいます…
-source-71c7694cb9bded2d = プロフィールを読み込んでいます…
-source-49730f3d5751a433 = 読み込み中...
-source-5360d33e7f91fb81 = 読み込み中…
-source-8c3a591524e36cac = ローカルカメラのプレビュー · 共有されません
-source-428841c1fafa8116 = ローカルの変更が保存されました
-source-86cb70463ce6ff8d = ローカルプレビューのみ。 Discord が共有を確認するのを待っています。
-source-dab3f9b1dd55cddd = ローカル削除は保持されたペイロードを削除します
-source-b11508797a8874d9 = ローカルストレージ
-source-587de31efff4f090 = ローカルストレージは利用できません。チャンネル設定を復元できませんでした。
-source-e516c47c18950d2d = ローカルストレージキューがいっぱいです。一部の変更は保存されません
-source-af1860ae7538fce5 = ローカル ストレージ ワーカーが停止しました。フォントを保存するには Serein を再起動します。
-source-25973456bb1171d4 = ローカルストレージワーカーが停止しました。 Serein を再起動してチャンネル設定を復元します。
-source-310dae92ee14c708 = ローカルでミュート
-source-4f27f6b48a68b5c2 = ロック
-source-aa1882f01fbba808 = ロックポスト
-source-06ff5c2b070ce282 = ロックスレッド
-source-b64127e4e4f0b575 = ログアウト
-source-4cb5ec320d30ec11 = OS資格情報ストアに保存されたログイン
-source-d804b2e383880418 = ログインがタイムアウトしたか、トークンのハンドオフが利用できません。セッションは受け付けられませんでした
-source-54f2f375d03c4ca9 = Discordの接続後にログインが保存されます
-source-015a125837ba3808 = ログイン ウィンドウが予期せず停止しました (Web プロセスが終了しました)。セッションは受け付けられませんでした
-source-4efbcab48a433013 = 長さ
-source-22bafe4747c3804d = 新しいパッケージやアップデートを探してください。単独でインストールされるものはありません。
-source-50f5dacedd665cfd = ランニングゲームを探しています
-source-34b738b2a8d421ca = オーディオデバイスを探しています...
-source-3de54cb3d0707200 = オーディオデバイスを探しています…
-source-c8a84bc62f1d68fd = カメラを探しています...
-source-690f47c9ef94f3af = カメラを探しています…
-source-bd35252fcb8bab86 = 一致するメッセージを探しています。
-source-661ccb47375cc60c = スクリーンとウィンドウを探しています…
-source-24f3a319b88552c1 = 低い
-source-2b5e7fb59815427a = LPT1
-source-2b5e7eb5981540c7 = LPT2
-source-2b5e7db598153f14 = LPT3
-source-2b5e7cb598153d61 = LPT4
-source-2b5e7bb598153bae = LPT5
-source-2b5e7ab5981539fb = LPT6
-source-2b5e79b598153848 = LPT7
-source-2b5e78b598153695 = LPT8
-source-2b5e77b5981534e2 = LPT9
-source-c62f43916b92feff = LPT²
-source-c62f42916b92fd4c = LPT3
-source-c62f4c916b930e4a = LPT¹
-source-254bb119b8cfe061 = ルア
-source-af64004c860229b8 = M
-source-12f523a52b843ea2 = macOS
-source-695b5c1e78455c03 = macOS Gatekeeper はアップデートを受け入れませんでした。
-source-43380c838d3e92b4 = 管理 >
-source-49373cba18a86ae2 = チャネルの管理
-source-7861b1e487bb2d99 = 式の管理
-source-d1d4c6933d613834 = 統合の管理
-source-ecef5ad7748320ce = メッセージの管理
-source-554506ea893cc81f = ニックネームの管理
-source-5c5f4e5016610592 = 権限の管理
-source-e72177b2b053f323 = 役割の管理
-source-b57383903d2813f5 = サーバーの管理
-source-c5de1bfb54eb0516 = サーバーをアクティブに保つための設定を管理します。
-source-a56c26a6a5e193ff = スレッドの管理
-source-b5981274d4d2d4a0 = Webhook の管理
-source-043a9e1ac7396527 = Webhook とこのチャンネルに投稿するフォローされているチャンネルを管理します。
-source-21ffd82809639845 = Discordで管理
-source-1e187919b52639f1 = 地図
-source-b82ecdfc78c29614 = 既読としてマーク
-source-5bb4026da28b7914 = 既読としてマークする
-source-76b4152e69e800b1 = マークはここを最後まで読みました
-source-c8c3ee2f3d2dbb67 = 未読としてマークする
-source-e0d773f122b8cbdc = このメッセージを未読としてマークすることはできません
-source-837fcb0b70616656 = マッチ
-source-b54a17494757f739 = すべて一致
-source-beecdafa6aa9f2ea = 一部を一致させる
-source-1f06583ace9c9d48 = 一致したカタログ
-source-d3523209cd4147d8 = 一致するアクティブな通話
-source-49dd67aed00029ef = 数学
-source-1a3191077684e8bd = 最大使用回数
-source-2b3441b8eece504f = 最大化する
-source-1e8f2719b58ad500 = MD4
-source-25a83280cea8df01 = MD4 互換性に失敗しました。
-source-93360e02ae89685c = メディア · 読み込まれた投稿
-source-751678adb0aa2b23 = メンバー
-source-ca695802849ab7f8 = メンバーのアクション
-source-b51d57449ddb6721 = 会員詳細
-source-5d9c2286b4ab1cdc = 会員ID
-source-fe9b5751b796a9c5 = メンバーリスト
-source-87775b4ed01293bb = メンバー検索デバッグ チェックに合格しました。リモート メンションと表示される作成者ロールの色は、制限された独立したゲートウェイ ルックアップを使用します。
-source-f0ae37fb42ebb259 = 以来のメンバー
-source-8847d64291996459 = 以来のメンバー
-source-9f5a5f23312798f0 = メンバー
-source-5dc9a5bd59847870 = メンバー
-source-24fc7d6be45666e1 = 会員は閲覧する前に成人であることを確認する必要があります。
-source-dd4296be53097fdf = メンバーは、このリストで最も高い役割の色を使用します。役割をドラッグして順序を変更します。
-source-6b9cbb8f892a14c1 = メンバーは、役割リストで最も高い役割の色を使用します。
-source-070c455ea88183a5 = メンバーがスローモードをバイパスする権限を持っていない限り、新しい投稿については、この間隔ごとに 1 つのメッセージに制限されます。
-source-141072de886af452 = メンバーは、スローモードのバイパス権限を持っていない限り、この間隔で 1 つの投稿を作成するように制限されます。
-source-2cc123a56a77d730 = メンバーは、この間隔内で 1 つのメッセージに制限されます。
-source-142ee774bc3d2608 = スレッドを管理できるメンバーは引き続き使用できます。
-source-36cf079496723195 = すべての役割について言及する権限を持つメンバーは、いつでもこの役割について言及できます。
-source-ffd32ee5baef934d = メンバーシップの許可
-source-22c7a36f572f4655 = 言及
-source-66727c051d2eafc5 = @everyone、@here、およびすべての役割について言及します
-source-60daedf441ee5363 = 背景に言及する
-source-084f35b0df88af58 = 言及テキスト
-source-4880dc3125543292 = 言及
-source-9a9ee511958b75b2 = 言及
-source-7fbc2482e27c1dd6 = 特定のユーザーに言及する
-source-ec24319a17f6fdaf = 選択したユーザーのいずれかをメンションします
-source-4c136db0c6596249 = ユーザーへの言及
-source-0e7ff37095c562eb = 言及: ユーザー
-source-114813466431afcc = メニューコーナー
-source-79e8cc71a5975b04 = メッセージ
-source-a20d073f8ff525e4 = ユーザーにメッセージを送信します。
-source-0f71c9b39094881d = メッセージエリア
-source-143b695787cb5499 = メッセージが削除されました
-source-de676f78fefde026 = 現在の権限情報ではメッセージ履歴を利用できません。
-source-bdc54e8c8eec3bd9 = メッセージ入力エリア
-source-daadc547b53eb434 = メッセージ一覧
-source-6620710a505ec258 = メッセージの結果は不明です。再試行する前に会話を確認してください
-source-51e4cf3810f0203c = メッセージは返されませんでした。削除されているか、利用できなくなっている可能性があります
-source-bdeedc1c60306b35 = メッセージ
-source-695a7a586ff9dc47 = メッセージと下書きはローカルにキャッシュされます。ログイン トークンは、オペレーティング システムの資格情報ストアを使用します。
-source-69a9ca95cdb4d43b = メッセージと下書きは、このデバイス上の制限されたアカウント分離ファイル内にキャッシュされます。キャッシュ データは Serein によって暗号化されません。保存されたログイン トークンは OS 資格情報ストアを使用します。
-source-b3a412920dd74a1c = メッセージとメディア
-source-121a1458f443325b = メッセージと通常のラベル
-source-faa7e3d853d314b3 = 接続が切断されている場合、またはチャネルにアクセスできない場合、メッセージは利用できません。
-source-ac4ea84963a5c8ae = コネクテッド ゲームでのメッセージング
-source-43784ca2e0805b43 = メッセージング権限設定
-source-2fcb5047da233cf9 = メッセージング権限 スパムフィルター ダイレクトメッセージ dm 友達リクエスト パーソナライズされた接続ゲーム
-source-f4b9f0457a752170 = メッセージ設定が利用できない
-source-f8c5462180afce0f = メッセージング、リアクション、検索および読み取りマーカーにはオフライン テストがあります。実際の Discord の相互運用性はまだ検証されていません。添付ファイルのアップロードと高度な検索は不完全なままです。
-source-557a4777f155d7c9 = マイク/カメラ プレビュー デバッグ チェックに合格しました: 設定がレンダリングされ、設定を開いてもキャプチャが開始されず、デモとクローズド ページ ガードはリクエストを停止します。オーディオデバイスが開かれていません。
-source-232f88877550dfa9 = マイクロフォン
-source-7a45f482436be672 = マイクとスピーカーの設定
-source-742c9587b20bf8c4 = マイクゲイン
-source-b1772b5e873910c2 = マイクがミュートされました
-source-6bc439bdf9f4c792 = マイク感度 (dBFS)
-source-9cfa09a28f797297 = マイク感度: 常にオープン
-source-75578a286f45007f = マイクテスト
-source-0f6afa4b0d4690ec = マイクテストが停止しました。もう一度やり直してください。
-source-5640005fd7b5c247 = マイクが使用できません · 別の入力を選択してください。あなたはまだつながっています。
-source-af334fc235660586 = マイクが使用できません · 接続されたままです。オーディオ設定で別の入力を選択します。
-source-0ef20adcd014e5da = マイクが使用できません。権限を確認するか、別の入力を選択してください。再試行中…
-source-1c109a21525649fd = 最小化する
-source-41168fc929aacf0f = マイナス
-source-01757df2027f2c2e = AppImage マウントがありません。
-source-e5ee1eb26ce8d9f6 = AppImage パスがありません。
-source-5574e673374a2424 = 画面 RTC ID がありません
-source-180ea19db88c8920 = スクリーンサーバーがありません
-source-be7d1b0d3e9abe80 = ストリーム RTC ID がありません
-source-26f75402a3d7bcf4 = ストリームサーバーがありません
-source-6d190fc4ac1b7958 = 音声サーバーがありません
-source-5540f7186b767545 = 音声セッションがありません
-source-09d953226c6eb98c = モーダルが初期化されました
-source-37cbecaec58e2192 = モード
-source-0f3b0ae12a710300 = 適度
-source-2b39cffedda9f40d = 節度
-source-917d6cecbb170b11 = モデレータのみ
-source-37a9e8aec5713460 = もっと
-source-3f4b17dfab9fca4c = より多くの色
-source-1c5099bc15997c73 = その他のフィルター
-source-0a6a710a7e87112c = さらに多くのピンが存在する可能性がありますが、このページには使用可能な続きがありません。
-source-c2dad3e4f7d52029 = タグをもっと見る
-source-15528e06a6388237 = マウスホイールとトラックパッドの動き。 100% がデフォルトです。
-source-02903e9b6f960b1e = mov、マトロスカ、ウェブム
-source-2d6036a5923caa65 = マウスに手を伸ばさずにセレインの周りを移動します。
-source-b233557012dcb328 = 下に移動
-source-87a55464116c3f48 = 下に移動
-source-0cd6ebb0a6c5eb67 = メンバーの移動
-source-db6975c2435139a8 = 知らない人からのメッセージをメッセージ リクエストに移動します。
-source-3dedc07c603ea4e6 = フォルダの外に移動する
-source-4e33f21fc24666c1 = 上に移動
-source-4ea0f21fc2a338a1 = 上に移動
-source-c1f9209fa25d8f42 = メンバーを移動しました
-source-e0f67eae944f8f94 = ミュート
-source-14b69a74909a3502 = ミュートと聴覚障害者が常に優先されます。
-source-04a4026777a6f1bf = チャンネルをミュートする
-source-90edce5e2bd42c7b = 会話をミュートする
-source-f44ed5f8547f1267 = メンバーをミュートする
-source-9e3d1452f996cc1e = この会話のミュートを解除するまで、通知をミュートします。
-source-62dc808fe3900456 = 投稿をミュートする
-source-90ed5ecbc62c0923 = 音を消す
-source-197fc2f02575b096 = ストリーム音声をミュートする
-source-a53465e834b34952 = ミュートを解除するまで、このダイレクト メッセージの通知をミュートします。
-source-1176ab7a5ecd28c4 = スレッドをミュートする
-source-926932a6033194d0 = ミュート
-source-a6d9550b6a11485c = サーバーによってミュートされています
-source-9d5dce9a60eb77a1 = サーバーによってミュートされています
-source-98e0c76429ccb8ab = このデバイスではミュートされています
-source-98741bff7e329fe8 = 相互サーバー
-source-3feb2e2370053461 = 相互サーバー
-source-c072f70b625c8489 = 私のアカウントプロフィールのログアウト
-source-870b7417205fc44e = 私のサーバー
-source-77430f705c8adf0e = 私のテーマ
-source-af64034c86022ed1 = N
-source-d9297519ff36a94b = N 個のメッセージ · 最後のアクティビティ
-source-ef49aec68fd1dc66 = 名前
-source-c67036ff3465d307 = このフォルダーに名前を付け、サーバー レールに表示されている色を選択します。
-source-10271936476ae359 = 名前には文字、数字、アンダースコアが使用されます。
-source-3734dc19c3200eba = NaN
-source-adb339355dde42b7 = この検索を必要なメッセージに絞り込みます。
-source-7cbf0f4086ba567e = ネイティブパッケージ
-source-8f5ea921969a1238 = ネイティブウィンドウは使用できません
-source-07e6118e838b2e23 = ナビゲーション
-source-8b97ea84af17c029 = 一度もない
-source-3741f519c32ac391 = 新しい
-source-c8337735ad89201d = 新しいメッセージ音
-source-d3b60ec2f9fb421b = 新しいメッセージ
-source-a356fb968995728b = 新しいメッセージは以下にあります · 現在のメッセージにジャンプします
-source-a2be1021c91dc81f = 新しい写真が選択されました。保存してアップロードします。
-source-f6f5d8ff2a4899c5 = 新しい投稿
-source-ba25eb1084928171 = アクティビティが長期間行われないと、新しい投稿がチャンネル リストに表示されなくなります。
-source-6dafd7d212eeebe7 = 新しい役割
-source-69a991c86e3136e4 = 新しい Webhook
-source-74dea8806e19236b = 最新
-source-58b4c338dccaacb9 = 最新の Discord アカウント
-source-ba2a0427963d1a25 = 新しい順
-source-8355a903ea308554 = 最新のメンバー
-source-542ffff558768ea3 = 次のページ
-source-e9f30e4492cee2cd = ニックネーム
-source-3bf424e632269e64 = 日暮れ
-source-f6d4582d68e813ea = 毎晩
-source-fbeaef53d1906622 = 夜間バージョン
-source-86253e33bf1b2595 = Nitro は、このステッカーをサーバー外で使用する必要があります。
-source-e69565850af92ceb = 会話や作曲者のテキストにはアクセスできません。
-source-c1a4a71de3eb91bf = アクセス可能なチャンネルがありません。
-source-f891e2d3321bffd8 = アクティブな通話はありません
-source-412ca900b5a9e6fc = アクティブな招待リンクはありません
-source-6877eaa80d7c0b9d = この検索に一致するアクティブなスレッドはありません。
-source-9374e11f70cf90d8 = このイベントに関する追加の詳細は提供されていません。
-source-775a56f606040475 = 音声出力デバイスがありません
-source-6b4386d955528474 = これらのフィルターに一致する監査ログ エントリはありません。
-source-82dff1fee5edf1bb = 電話は要求されませんでした
-source-36c0189ca94d214d = カメラが見つかりませんでした。カメラの接続または仮想カメラのインストールを確認し、更新してください。
-source-9cb8d641f192f378 = フォローされているチャンネルはありません。
-source-27387fd3c754b0b5 = 一致するコマンドはありません
-source-3ff935a531a0a05b = 会話も友達も一致しない
-source-67f003d3e24e24a9 = カスタムステータスなし
-source-69681f96f888669d = カスタムステッカーはまだありません。
-source-bed4b879924ad0b8 = 対象となるチャンネルがありません
-source-7d1966d947ff9329 = 一致する絵文字はありません
-source-81387e9fe7913716 = まだ拡張機能はありません
-source-8fe5bc6b6d3268c1 = まだお気に入りはありません
-source-e314fbc238f69037 = 検索に一致する友達はいません。
-source-4197f7bea1711182 = 招待できる友達はまだいません。以下のリンクを共有してください。
-source-3a0bef63461834bd = GIFが見つかりませんでした
-source-91c660c697d54d5d = GPU アダプターが見つかりません。 Vulkan、Metal、DirectX、または OpenGL ドライバーをインストールする
-source-e8213494a59bc1f8 = 画像が選択されていません
-source-9a9b5ab1569a1290 = 非アクティブなチャンネルはありません
-source-cdc25ae76471a84b = このサーバーには統合がありません。
-source-fd0dcab6acf65c1d = 制限なし
-source-e4f478b26d0417ba = ロードされた投稿には選択したタグが含まれていません。さらにロードするか、フィルターをクリアしてください。
-source-28d7266643f5992f = 一致しません
-source-1986edeeac3f37be = 一致する目的地がありません
-source-2a5ae75084b7609b = 一致する絵文字がありません。
-source-2d1193776029e430 = 一致するオプションがロードされていません
-source-d1362bc0288193e9 = 一致するユーザーがいません
-source-965fe3510f5a42b7 = この会話には一致するユーザーがいません。
-source-8fc8869bcb1445ae = この検索に一致するメンバーはありません。
-source-4476cd56b8e63a11 = まだメッセージはありません。以下で会話を始めてください。
-source-615f59eca8642532 = 古いアーカイブされた投稿は報告されませんでした。
-source-779ffe89d529b70d = サービスによって古いスレッドは報告されません。
-source-0e044f85e1042122 = 古いスレッドは返されません。
-source-ff1c1c671f7adec0 = まだ誰も来ていません
-source-7ea06611e5c78f03 = このユーザーとのオープンなダイレクト メッセージはありません。
-source-d7e8c2c9062bf815 = OS キーリングが見つからないため、次回起動時に再度サインインする必要があります
-source-c658f9978ab6c460 = OS キーリングが見つかりません。起動するたびにサインインします。サインインした状態を維持するには、GNOME キーリングまたは KWallet をインストールします。
-source-82128cb68caad8aa = 投稿が読み込まれていません
-source-27074081d60f490c = 一致する投稿はありません
-source-921e1823a1d98984 = このチャンネルではまだ公開リリースはありません。
-source-05c0c6595d494ae4 = まだ返信はありません
-source-991d216e6efc157c = 結果はありません
-source-d5a39946eef35ea9 = 再利用可能な AppImage ブロックはありません。
-source-b241cc46e92893ed = このデバイスにはそのアカウントのログインが保存されていません。別のアカウントを使用して再度サインインするか、×で忘れてください。
-source-ae6c9c892eb21c0a = 保存されたログインが見つかりません。保存するには Discord でサインインしてください。
-source-ebfdb2373cfa2e7c = まだ利用できるスクリーンやウィンドウはありません。
-source-a26acf212cef3ce1 = 共有可能な画面またはウィンドウが見つかりませんでした
-source-15906936955a04c0 = ステッカーが見つかりませんでした。
-source-b252d7940cf58ff6 = システムメッセージチャネルがありません
-source-a7a7a87655c7b116 = まだテーマがありません
-source-3b9155e555d24852 = 更新ヘルパーが準備されていません。
-source-077935c20c0ec158 = Webhook はまだありません。
-source-0a1626700498d01f = 現在、このような反応を示す人は誰もいません。
-source-e384aa3a7f315eaa = ノイズ抑制
-source-d025a053094e1944 = このビルドまたはプレビューでは、ノイズ抑制は利用できません。
-source-cbae7aad79194203 = ノイズ抑制により、キーボードのノイズ、呼吸音、ファンが局所的に低減されます。
-source-669b18c6d2d9c95b = なし
-source-50fed8c6357d587b = なし
-source-5c2570a7140483ad = 空でない尾
-source-70c407d0fdd69918 = 正規化されたUTF-8
-source-ad5372e96bb9783e = フォントではありません
-source-5ca102bf327e771c = 接続されていません。ステータスは共有されません。
-source-44cfb5f01f1202fd = 提供されません
-source-739264aa3476b5b4 = 送信されませんでした
-source-0df0e8c4f3c2eba6 = 未設定
-source-6ace63b336f8392c = わからない？
-source-6686fcc6d2c8f0bd = 注記
-source-41d0639ac24cbb6a = 何もない
-source-e362807e48e942fd = ここにはまだ何も投稿されていません。アーカイブされた投稿はリクエストに応じて読み込まれます。
-source-c04398572a2a89f4 = このページにはクエリに一致するものはありません。
-source-4b11696fddfe065f = 通知クリックのデバッグ チェックに合格しました: DM/ギルド ナビゲーションと古いクリックの拒否。
-source-e79d59a5fc01ae77 = 通知設定
-source-039e128122096637 = 通知設定
-source-518c2768c5c91b61 = 通知 デスクトップ システム アラート 概要 サウンド バッジ メッセージ リング
-source-1f44178a49d67a46 = アラビア語のないノート
-source-964005d08b147f56 = Noto Sans CJK JP
-source-64021dbff820a004 = Noto Sans Math
-source-369eba19c29ffe00 = NUL
-source-6fb485c5b5dd1b24 = NULL
-source-8629c5c653f17cc4 = ヌル
-source-370bdb19c2fd07f3 = 番号
-source-862d0fc653f43059 = Num0
-source-862d0ec653f42ea6 = 番号1
-source-862d0dc653f42cf3 = 番号2
-source-862d0cc653f42b40 = 番号3
-source-862d13c653f43725 = 番号4
-source-862d12c653f43572 = 番号5
-source-862d11c653f433bf = 番号6
-source-862d10c653f4320c = 番号7
-source-862d17c653f43df1 = Num8
-source-862d16c653f43c3e = 番号9
-source-af64024c86022d1e = ○
-source-730182ad28374cda = 物体
-source-88b32bd40e072050 = 黒曜石のバイオレットの表面と、明暗のラベンダーのアクセント。
-source-302cbb19bf9a174a = オフ
-source-cde3342a428aaee8 = オフライン
-source-a9606d1529af3891 = オフラインのデモ・アクションがシミュレートされます。
-source-9f59bb3aa71d6244 = オフライン デモ: 代わりにローカル パッケージをインポートします。
-source-55a15d18c0bb75c7 = オフラインフィクスチャ・起動時に開かれるアカウントポップアウト
-source-e07092fc09a9d8b5 = オフライン フィクスチャ · アクションは合成 RAM のみに影響します
-source-7124901374a06ca0 = オフラインフィクスチャ・起動時に開く絵文字ポップアウト
-source-eb12a8c1836ae490 = オフラインフィクスチャ・明示的なシステム通知テスト
-source-deee7861bbc3a8f0 = オフラインフィクスチャ・起動時に開くGIFポップアウト
-source-2419690b905611ef = オフラインフィクスチャ · 起動時に開かれるサーバー参加ダイアログ
-source-d695e4ecca4a2d01 = 起動時に開くオフラインフィクスチャ・メディアビューア
-source-873b40bdebeaaaec = オフラインフィクスチャ · 起動時に開かれるピン留めされたメッセージのポップアウト
-source-52ad4c7f4c45267a = オフラインフィクスチャ - 起動時に表示される返信バーと入力行
-source-d54514c41508c13f = オフラインフィクスチャ、起動時に開く画面共有ピッカー
-source-62252eee05c3d214 = オフラインフィクスチャ・コンポーザー内でステージングされる合成アタッチメント
-source-cd0059600f0b5278 = オフラインフィクスチャ・コンポーザでステージングされた合成ファイル添付
-source-908ac39ced36aaf5 = オフラインフィクスチャ · 合成保留メッセージ。アップロードも送信もなし
-source-f562de210af35e07 = オフラインフィクスチャ・起動時に開かれる合成プロファイルカード
-source-3232bff487031902 = 起動時に開くオフラインフィクスチャ・合成検索
-source-f96c1d6edb549787 = オフラインフィクスチャ - コンポーザでステージングされる 3 つの合成アタッチメント
-source-6d9aab6d994bebb1 = オフラインフィクスチャ・未読ストリップと古いメッセージバーが表示されます
-source-553a3751743895b0 = オフラインフィクスチャ: ステッカーピッカー
-source-9ddf685aefec8b0f = オフライン プレビュー - サーバーの作成と参加は無効になっています。
-source-4e646fd088f3393a = オフライン プレビュー - 作成は無効になっています。
-source-c8c672a12ac48707 = オフライン プレビューはアプリケーションに接続しません
-source-18e212d4261a8714 = オフライン プレビュー - グループ変更なし
-source-1261d0321c701030 = オフライン プレビュー · 画面はキャプチャされません
-source-cecbb02d477a9ffc = オフライン プレビュー - サーバーの変更なし
-source-cb4190bf096c91e9 = オフライン プレビュー · ストリームが受信されない
-source-af75c1d6dae5d627 = オフライン プレビュー · 検証サービスは接続されません。
-source-fc0e345795c3f3a0 = オフラインプレビュー・合成
-source-9f8ad73046bd4b7f = オフラインプレビュー・合成アカウント
-source-de78c36f144a8aec = オフライン プレビュー — サーバーへの参加は無効になっています。
-source-eb73c7bdb782670c = オフライン プレビュー: 共有または保存されません。
-source-05cc8574ed5844cd = オフライン プレビュー: 合成アクティビティ。共有または保存されません。
-source-f71b0e953940852a = オフライン更新フロー、設定の互換性、および設定のレンダリングが完了しました。
-source-c0337e59aed9a364 = オフラインアップデーターの検証
-source-56293f4fa14777fe = Ogg の起動はヘッダーの後で停止する必要があります
-source-813e66c099d9d705 = オッグス
-source-091d5d07b5b33dcf = わかりました
-source-c032b109be3096a1 = 古い
-source-50cad7d307c3dc6e = 古いアーカイブされた投稿
-source-f3df2eaeb55cbf6b = 古いピン
-source-8577fa7f8eaf5558 = 古いスレッド
-source-3dc0668ec9ea5802 = 最も古い Discord アカウント
-source-f5e8ed5d0cb38be2 = 最も古いエントリ
-source-da134a52656c41b0 = 古い順
-source-54508e71981dc175 = 最年長メンバー
-source-2e3f650df89cc65d = 最も古いテクスチャ
-source-f68c46468416704b = 上に
-source-6cbbe9055a28027f = 1 つの境界付きメッセージが適合します
-source-4f0334407935a2e4 = 簡単なチェックを 1 つ
-source-eadeb3a807d7478a = オンライン
-source-5ce39f9435dffd7c = @メンションのみ
-source-3706a26fc1ddab85 = このメンバーがこのサーバーでどのように表示されるかにのみ影響します。
-source-f26a4de46f67d9f9 = モデレータのみにこのタグの適用を許可する
-source-41d9e6546f59cec0 = ダイレクト メッセージも許可しているサーバーからのみ。
-source-e536e25ff2aa4b75 = このタグを適用できるのはモデレーターのみです。
-source-fd228852d1bcb9d1 = 選択されたメンバーと役割のみがこのカテゴリを表示できます。同期されたチャンネルはその権限に従います。
-source-5e3d80e43fcc9836 = 選択されたメンバーと役割のみがこのチャンネルを表示できます。管理者はアクセス権を保持します。
-source-7e9c04b4f18898ba = 自分が所有する画像、または使用許可を得ている画像のみを共有してください。必要な帰属を保持してください。
-source-3c4a2c49190583dd = このレベルを超える音のみを送信します。値を低くすると、静かな音声が拾われます。
-source-b66f498db84b2acd = これはあなただけが見ることができます •
-source-2e2fc90b53ae3732 = このニックネームはあなただけが見ることができます。サーバー名は変更されません。
-source-66cf0d1df45a433c = このメモはあなただけが見ることができます。 Discord アカウントに保存されます。
-source-1f7698c061c208c9 = 開ける
-source-bdfaf2ff4591e9cb = まずこのユーザーとの DM を開くか、/msg で友達を選択してください。
-source-0d9f361f14a27471 = このコンピュータからパッケージ ファイルを開きます。
-source-c8c458e4ded64fe2 = オープンチャネル
-source-a6b9589dd15b27f1 = 埋め込み画像を開く
-source-bfa4880bcf9c2305 = 外部リンクを開きますか?
-source-210095d367b65ea8 = 友達/ホームを開く
-source-f491b07a7bdbffd0 = 画像を開く
-source-cccb44350fd2de2c = 画像を開く…
-source-c2345660b578ed10 = ブラウザで開く
-source-0cd0e08453708738 = Discordで開く
-source-3ea798aa0afd48e9 = リンクを開く…
-source-e121164e43f8460d = オープンメディア
-source-aeb8874e785ef329 = 抑制、エコーキャンセル、自動ゲインを使用しないオープンマイク。
-source-d433ca9090866e62 = マイクを開きます。ミュートとプッシュトゥトークは引き続き適用されます。
-source-ffd1f97b3bf2cc6c = オリジナルを開く…
-source-c85c20c423dd80bd = オープンポスト
-source-6a81f2f29c9f775e = オープンソース…
-source-d6046ba0da6c33c1 = 現在の会話の未読メッセージを開く
-source-d7968f13927ad944 = 現在の通話のネイティブ画面共有ピッカーを開きます
-source-0e59ff1e05a0917f = このチャンネルのスレッドを開く
-source-27dfb882d39365e3 = オープンスレッド
-source-3f77e56ef959b303 = オープンスレッド
-source-a34407db7a1a8005 = ツールを開く
-source-827a6534f458557d = ユーザープロフィールを開く
-source-9df9322e025638d6 = ビデオを開く…
-source-dcea0d284cab270e = カメラを開いて…
-source-b9c26c5608299e42 = マイクとスピーカーを開くと…
-source-8e9ebbb06e3b9b4c = この直接会話を開くことはできなくなりました
-source-ddf803060176952b = ローカルオーディオ出力デバイスをボリュームゼロで開きます。明示的なオフライン再生チェック
-source-4802e47fe2e95134 = オプション
-source-cc7a3682dd25ae19 = オプション
-source-74dbe7e55e4505d4 = オーパスヘッド
-source-c21492c1a4675423 = オーパスタグ
-source-f87721294366a17d = または、サーバーの招待リンクを友人に送信します
-source-672ba61ecccbe297 = このページで注文する
-source-e7ebc29bb47e8edd = ディスカッションを別の投稿に整理します。
-source-ed9a8bb45c917185 = 押忍！
-source-1d27698210c63656 = 結果は不明 — 再送信する前に宛先を確認してください
-source-54a47864c5da0977 = 発信リング
-source-fd77270c3f54f664 = 出力
-source-eb50b65932353935 = 出力ゲイン(%)
-source-c907ffeeafb021d1 = 出力設定
-source-2a7536b72e043644 = 外
-source-4ff8804ab63f5bdd = このテーマのデフォルトの外観設定をオーバーライドします。
-source-4fc0dcc5fb30fe93 = 特大の ZIP ディレクトリを受け入れます。
-source-3d197283cb019b5a = 概要
-source-af640d4c86023fcf = P
-source-608cd4ccb45f9d99 = パッケージがレビューされたマニフェストと一致しません
-source-e60d2800ca6a8831 = パッケージ検査済み。有効にする前に、そのソースと機能を確認してください。
-source-74f3b83071bf24e6 = パッケージマネージャーのアップデート
-source-72ee704e9e1cb74f = パッケージ.AppImage
-source-fc643e610604d927 = パッケージ/Serein.app
-source-15831592a43c6b50 = パックマン (アーチ)
-source-952c26cac2583cfe = ページダウン
-source-c205408d70cf40cb = ページアップ
-source-db590927fb6744da = 部分的
-source-7c89ad4312eaf268 = 部分ファイル
-source-b9db2ac3aa496f0e = 参加者
-source-5a46f9e4d4d9b108 = 切断中は参加者リストを利用できません
-source-a7613d2b90c0d422 = 現在のアクセスでは参加者リストを利用できません。
-source-3b154d612405d624 = パスワードと 2FA は Discord 自体のログイン ページに残ります。セッション トークンのみが OS 資格情報ストアに保持されます。
-source-7b3ab5a0027e0e72 = サポートされているパスを使用してローカル ファイルを貼り付けます
-source-851e38fdfc135937 = 最大 400 万ピクセルの画像を貼り付けてください
-source-f8fb8cb5fd5efb91 = 貼り付けたテキストが下書きの制限を超えています
-source-061cc20e3432dead = 一時停止
-source-c0aad3bada6a2503 = 招待を一時停止する
-source-806181d6767cb523 = 保留中のメッセージの高さが決定されました
-source-6bc837237e36cfdd = 交渉保留中
-source-27978edca84ba459 = 保留中の投稿はアップロードを許可する必要があります
-source-95f78e7bf229fee0 = 保留中のスイッチ
-source-9cace6ede455728e = 人々
-source-4854cd48f30ff8ee = 人々
-source-ddacfd6303ecdff4 = 人とチャンネル
-source-9dc321f25a233e8b = 実行されたアクション
-source-ea2adb1f2047d144 = 期間
-source-e8dca0132c66ae03 = 権限
-source-f8dd3a19ce935eae = PGD​​N
-source-f8aa2a19ce67e9e5 = PgUp
-source-36be3358a306d616 = 蛍光体アイコン 2.1.1
-source-8d4ea219f3be900f = PHP
-source-b58a986d783bbebf = メンバーがこのチャンネルの投稿に反応するために使用するデフォルトの絵文字を選択します。
-source-8db89619f41917b4 = ピン
-source-e696eb8987efa89f = ピンDM
-source-c706b4e457ebf5db = ピンメッセージ
-source-d0dc1cd29b880358 = ピンメッセージ
-source-a78a6609e99b31b6 = ピンポスト
-source-5cea80fa4be26124 = ピンネジ
-source-44851a8adf059eef = 固定された
-source-5f9d5d7b441e1c46 = 固定されたダイレクト メッセージはこのデバイスに保存されます。
-source-4ae3dd42749e1c7c = 固定メッセージ
-source-fcc1234c7817b89d = 固定されたメッセージ
-source-8e7a241393fbd55d = 固定メッセージ
-source-fecf630a50860c61 = 固定されたメッセージは利用できません
-source-89e846d82b9845bb = 固定されたメッセージは、切断されている場合、またはチャネルにアクセスできない場合は利用できません。
-source-c8025afb9e1c4f57 = PKx01x02
-source-7f387ed820dbcb8f = PKx05x06
-source-a83631951ce5cdaa = プラットフォーム ログイン WebView は使用できません
-source-5917a63ad0123578 = プラットフォーム ログイン Webview は使用できません。 platform-support.md を参照してください。
-source-cd105819b5a10243 = 遊ぶ
-source-2e38f0c09c71f2a7 = 再生がリアルタイムに追いつかない
-source-bf037cc5a99f1763 = 再生は完全にデコードする前に PCM を受信します
-source-c6a07b2c2125e503 = 再生がタイムアウトしました
-source-308604b3ae13fbb5 = 遊ぶ
-source-1073b7e447f13237 = 合成ビートマップの再生
-source-66af460c96888f1b = 通知音を鳴らしています...
-source-e392b792763e0ccf = 押忍プレイ中！
-source-6a81ff5f272ff64f = 選択したスピーカーからマイクを再生します。
-source-1f5c2638403b9a3c = 更新チェックの間隔は 1 分間お待ちください。
-source-6b16791d5fc658ea = お待ちください...
-source-71b80d1e85384a60 = お待ちください…
-source-3409ff086bb765da = プラグイン
-source-c1b7b852fe0a84b7 = プラグインへのアクセスが許可されませんでした
-source-c807e1906c25af4f = プラグインのアクティブ化には明示的な許可が必要です
-source-cd408d41d1afb470 = プラグインデータが付与されたストレージ予算を超えています
-source-1ed1dcb59d31ed31 = プラグインデータが無効です
-source-a222bb43d16f0578 = プラグイン入力が 256 KiB を超えています
-source-8c009332ddf5525e = プラグインが無効になっています
-source-09421b07b5d1e9e6 = 午後
-source-958641a82284fd77 = PNG または JPEG、最大 2 MiB
-source-915028b5e911d855 = PNG または JPEG、最大 2 MiB。この画像はチャットの背景を変更しません。
-source-52b0dc220084dd64 = PNG、JPEG、GIF、または WebP 最大 8 MB。正方形に切り取られます。
-source-7678cc553d3d561d = 投票・プレビューは利用できません
-source-b357ea19a722d827 = 役職
-source-ce759dc1c73bbf36 = 投稿ガイドライン
-source-73bdcc27b99cad54 = 投稿は作成されていません。再接続してアタッチメントを再選択します
-source-330cbe4bb25a6fe9 = 投稿タイトル
-source-d877d3e3a6593bb5 = 投稿するには、ここに送信する権限を持つ接続されたセッションが必要です。
-source-d7d4b30bc730d74e = 投稿先
-source-c17d6e0a994ce337 = 投稿中…
-source-e13b1d97003596bc = 投稿
-source-9b3a5b083b2ec2da = これらのフォローされているチャネルからの投稿はサーバーに配信されます。
-source-2b5047d39b9baf3d = 設定
-source-78e8154150f1977e = 用意されたアイコンが 256 KB を超えています。よりシンプルな画像を選択してください
-source-e0c04be2d16bf1d6 = 用意されたアイコンが大きすぎます
-source-7b6f8c5a694fbe72 = 準備された画像が大きすぎます。よりシンプルな画像を選択してください
-source-000ed08319e7d0a3 = 用意したステッカーが512KBを超えています
-source-046dc2e760ebd389 = 絵文字画像を準備しています...
-source-a722c7fde3b3e7c4 = アイコンを準備しています…
-source-6c41aeaf07b17248 = ステッカーのアートワークを準備しています…
-source-623ca9d324559af9 = 再起動の準備中…
-source-07e50975ca0e4ac0 = アップロードを準備しています…
-source-896a051b3f1da3ab = 準備中...
-source-672a868be614a8de = プレゼンスが利用できません
-source-4f7cb4cd7a37fd0e = Enter キーを押して、このタイトルの投稿を開始します。
-source-edc3b8c9924eeef4 = キーを押してください…
-source-417b90913e05bc17 = プレビュー
-source-bec5b05becb3347e = プレビューカメラ
-source-70d21c5075061f99 = アプリでプレビュー
-source-69f799735cdb45ef = プレビューが読み込まれていません
-source-607442e5b633da35 = プレビューのみ。このフォントは保存されていません。
-source-ef3473bcf41edf90 = プレビューの枝刈り
-source-a4d57f3d68d8be6e = プレビューが開始されました
-source-0351d58cf249e2f9 = プレビューは利用できません
-source-7092f4397b838b02 = オフラインではプレビューが利用できない
-source-1f781bc7f55b602c = テーマのプレビュー
-source-1edfaa976c0a475f = 以前のオーディオ デバイスはまだ閉じています。すぐにもう一度試してください
-source-09d3d29472e6bed0 = 以前の画面共有はまだ閉じています
-source-937563e328c2fafa = 原色
-source-e7bee6e9a9b5394c = プライベート
-source-b3d2106827312041 = プライベートアーカイブにはサービスからの許可が必要です。
-source-dba9ca43fb346bdc = プライベートカテゴリー
-source-2dee345e9f30cdf7 = プライベートチャンネル
-source-94d813c08226af7f = 確認済みの友達にはプライベートニックネームが利用可能です。
-source-8d995819f3fdfdcb = PRN
-source-b15099c45ca2861a = 生産
-source-b061ff5a347a296e = プロフィール
-source-045ae58f3ba2c27d = プロファイルの色
-source-fb413a6520f68e8f = プロフィール編集 表示名 私について 経歴 代名詞 色 カラー
-source-578611d7a6031374 = プロファイルが利用できません
-source-7de0ee8b863c0b30 = プロフィール写真
-source-4b4c06aa2b6e5629 = プロファイルが保存されました
-source-fb347c129f6ffa2f = プロファイル設定
-source-c497ffe6d9fc987f = プロジェクトノート · 合成ウィンドウ
-source-52f7171195e80782 = 約束
-source-bdba2b9136c15a98 = ステッカーを使用してウェルカム メッセージに返信するようメンバーに促します。
-source-213dc586881c44d1 = 代名詞
-source-c9ad04c067ea282d = 代名詞 (空の場合はクリアされます)
-source-7282a96b438fc64a = 承認のために自分の反応を追加または削除することを提案する
-source-e7f8aebfc62a6415 = 承認のために通話のミュート/聴覚障害、退席またはストリームの視聴を提案する
-source-39c5c81e8e260e06 = カメラ、画面共有、ローカル メディア デバイスの変更を承認のために提案する
-source-09fcf0a85d0fb0f3 = チャンネル、カテゴリ、グループ会話、ミュートの変更を提案して承認を得る
-source-e536168f636b2100 = クリップボードのテキストを承認のために提案する
-source-1d7492217bf79895 = 承認を得るためのスレッドまたはフォーラム投稿の作成と管理を提案する
-source-fe4b1913abb988b5 = 承認のためにメッセージの編集、削除、または固定を提案する
-source-41262dff8fd077fc = 承認のためにカメラを有効または無効にすることを提案する
-source-0455ece182e22b78 = 友達、ブロック、ニックネームを提案し、承認のために変更をメモする
-source-5a1f61408bf792c4 = 承認を求める電話への参加、呼び出し、または拒否を提案する
-source-76483ae3668f8cb7 = 承認を求めるローカル通知を提案する
-source-689e4cb487e341e8 = 承認のために会話に既読または未読のマークを付けることを提案する
-source-43fb381909abad5b = メンバーの役割、ニックネーム、キックおよびプルーニングのアクションを承認のために提案する
-source-14ae041eeff7a613 = 会話、プロフィール、検索、アプリビューの開始を提案する
-source-9173a3df312b14d5 = 承認を求めるメッセージの送信を提案する
-source-b11009ae0b877e3d = 承認のためにサーバーの役割の変更を提案する
-source-c7c3a103c9e1e7a1 = サーバー設定、招待、絵文字、メンバーシップの変更を提案して承認を得る
-source-34539d164ee47142 = 提案されたアプリのアクション
-source-bd834b5296a9853e = 提案された作曲家テキスト
-source-0fd50e8b10d74cd7 = プルーン
-source-6818b1e815d43260 = プルーンメンバー
-source-d8f81a1a34abe300 = プルーンメンバー
-source-f7ff1e5e5e370b2e = 枝刈りされたメンバー
-source-dd1ff479d04ac140 = 公共
-source-c82192ae4dc0141b = 安定版リリースが公開されました。チャンネルを切り替えても古いバージョンがインストールされることはありません。
-source-40bbf4a98d873400 = プッシュして話す
-source-88b0d524c6412bea = ここで発言するにはプッシュトークが必要です。音声設定で有効にします。
-source-3f1a318ed131a6ea = テーブルを元に戻します。
-source-39938159c7a334f7 = パイソン
-source-af640c4c86023e1c = Q
-source-f675f879b1c892c6 = 品質
-source-15daee76414a1a07 = 品質の選択にはニトロは必要ありません。
-source-8a77d6a7eb6beb80 = AutoMod を使用して隔離されたメンバー
-source-b4f593d4c6b311a5 = 質問
-source-af640f4c86024335 = R
-source-09495507b5d86b22 = Rc
-source-a8ca1cbccf57963e = 反応の詳細は不明
-source-9ff2ac475c7b07db = 反応
-source-eb6ea6df7a71fe4d = 反応がありません
-source-6299f50a2d3ff2f2 = アカウント メッセージングのプライバシー変更を読み、承認のために提案する
-source-a1b3e4532467f761 = サーバーフォルダーの変更を読み取って提案し、承認を得る
-source-3a9359ab859312f3 = ゲーム内チャットから直接 DM を読んで返信します。
-source-2c24298259ec0c00 = オーディオ設定を読み取ります。音声設定、参加者、およびストリームの音量変更を承認のために提案する
-source-f37afea1a173f345 = 現在の通話状態と参加者識別子の読み取り
-source-2a7b20fd76f6b569 = 現在のチャンネルのメタデータ、受信者、権限を読み取る
-source-7d005268991292a2 = 現在の入力ユーザーとロードされたピンを読み取ります。反応を観察する
-source-fad63586871c2fe2 = アクティブな会話内のライブメッセージイベントとテキストを読む
-source-859c08b09812e56c = ロードされたチャンネルのトピック、カテゴリ、スレッドの詳細、権限を読み取る
-source-77d979bd73d4cd06 = 読み込まれた埋め込みテキスト、ステッカー、メッセージ参照メタデータを読み取る
-source-17793c0ef8605662 = ロードされたフォーラムとスレッドの概要を読む
-source-02e5f347c88a415c = アクティブな会話の読み込まれたメンバーを読み取る
-source-43ddc17f33dccbc5 = 読み込まれたメッセージの返信、メンション、添付ファイルのメタデータ、および反応を読み取る
-source-d4bce7f7e4daf2bf = アクティブな会話で読み込まれたメッセージを読む
-source-7cc838753603fd19 = ロードされたサーバーメンバー、ロール、およびサーバープロファイルを読み取る
-source-a0afe7e3c1222ed4 = ロードされたユーザーのプレゼンスステータスを読み取る
-source-47bf117cb8a9b601 = ローカルの読み取り設定を読み取り、承認のために変更を提案します
-source-2927e08a4d9b2110 = ローカルのサウンドと通知の設定を読み取り、承認のために変更を提案します。
-source-8bc338a1d0f91e8a = メッセージ履歴を読む
-source-dc989f7ff528e0cf = 私のアカウントと現在の会話の詳細を読む
-source-0e699df0b74a19f1 = 私のドラフトを読んでテキストの変更を提案してください
-source-11779c5d2f35d080 = ロードされている友達、リクエスト、ブロックされているユーザー、無視されているユーザーを読む
-source-4704ba3b0a399b9a = 伝記や代名詞を含む、ロードされたプロフィールを読む
-source-65805f3b6661acc8 = ロードされたサーバー名と識別子を読み取る
-source-0f1570eaf9c5cba2 = 自分のプレゼンスとアクティビティの共有設定を読み取ります。承認のためにアカウント変更を提案する
-source-bece36aa13c1b03c = ロードされた読み取り可能な会話のリストを読む
-source-98a2bd0bd50d001f = アクションとして選択したメッセージを読む
-source-0642a2732ddb25fe = アクティブな会話の未読数とメンション数
-source-8fd59126eed71205 = ログアウト後も含め、読み上げとレイアウトはこのデバイスに保存されます。リセットするとデフォルトに戻ります。
-source-8154305d6b50855c = 読み取り値とレイアウトを保存できませんでした。変更はこのセッション内にのみ存在します
-source-83e6f73b3e37c43f = そのアカウントの保存されたログイン情報を読み取っています…
-source-3f15cf6f633a5d62 = README.md
-source-59dc812c244f088a = 要求に従って読み取ります
-source-c678f2190f974ca7 = 有効になっている間、アプリのライフサイクルとナビゲーション イベントを受信します
-source-f2871427d0d11bd6 = 個別に付与されたアカウントと会話データへの変更を受け取る
-source-05902f6b5cbe9380 = この参加者の画面共有を受信します
-source-01fdf50020983183 = 確認されたアプリアクションが Serein によって受け入れられたかどうかを受け取ります
-source-e449f1215ef49707 = 最近の活動
-source-ef5005edac8b82e7 = 最近の活動
-source-e260d8331149ff45 = 最近のメンバー
-source-a9300eb10e34199e = 最近使用した
-source-14263cc7cff0feb3 = 受信者は次の場所に着陸します
-source-075e2cb33cb16386 = 認識された組み込み
-source-12f6b3b9aa6fe76c = 推奨
-source-df78e162dbbb41fc = 電話をかける前に Discord に再接続してください。
-source-7029a59905b2d0b1 = 再接続してサーバー設定をロードします。
-source-a86ada92edab6a6d = このサーバーを管理するには再接続してください。
-source-48c518388bfa1e7c = 再接続して通話を更新する
-source-009a8c415421a515 = 再接続して変更を保存します。
-source-1cf6f6c7006bf73c = 再接続してプロファイルを保存します。
-source-8a4ff2bd9c13498c = 記録
-source-ba6de1cb37f26d0f = マイクが拾うスピーカーの音声を減らします。
-source-a7ad7555a637e0a0 = 検索を絞り込んでさらに結果を表示します
-source-7b7163270e57e8b4 = リフレッシュ
-source-e6c863c3adb1623c = アプリケーションコマンドを更新する
-source-0b7b28d123a8ae88 = カメラをリフレッシュする
-source-15f7f0a931709203 = カタログを更新する
-source-ff3380d0a231883f = デバイスをリフレッシュする
-source-3b58c1b7f6fce277 = Discordからフォルダーを更新する
-source-cfce14e5038df525 = ローカルのマイク、スピーカー、カメラを更新します
-source-bfca1ed1418f03d1 = カタログを更新するか、作成者のパッケージをインポートして開始してください。
-source-93787245395a7f94 = カタログを更新するか、このパッケージを再度インポートしてください。
-source-123da0f92f97dd86 = 拒否する
-source-38ace4d40716aac1 = 再参加しました
-source-c83246e618430136 = 関連する絵文字
-source-f948766d516f998d = リリースチャンネル
-source-03edf13757dea515 = リリースのメタデータがサイズ制限を超えています。
-source-d5b6130b4937488c = リロード
-source-a1e19fe0d955f8b7 = チャンネルをリロードする
-source-91896afddbd4830f = 統合のリロード
-source-f333c9173a2427ec = さらに変更を加える前に、統合をリロードします。あなたのドラフトは保存されます。
-source-3d6a71c726a586ea = 招待をリロードする
-source-998c0beb7bc529e0 = ピンをリロードする
-source-775b73a686645051 = プロファイルをリロードする
-source-7f8dd350b6c07e64 = リロード反応
-source-1080b5a97d104d2d = 役割のリロード
-source-2f92ab35eb987085 = 保存したメモをリロードする
-source-f56c4fca7d746608 = サーバー設定をリロードする
-source-bb44a7c8f0f78637 = 再度保存する前に、サーバー設定をリロードしてください。編集内容は保存されます。
-source-1ebe8baf644039da = 残りのテキスト
-source-16835bc2c441b2fe = リモートフレームが挿入されました
-source-ea4f08110bb8f15d = 取り除く
-source-f80f4b704dba8250 = 日付を削除する
-source-c6687f397e3927fb = 絵文字を削除する
-source-1bc32fa2cf4113eb = 友達を削除する
-source-6dbdc5a62b94b13c = 友達を削除しますか?
-source-1f499e8a73feea66 = お気に入りから削除
-source-340de08a838127e4 = GIF のお気に入りから削除
-source-53a9310a10c88406 = アイコンを削除
-source-7e363216123744e6 = アイコンを削除
-source-7c136cb4e38bacf7 = 統合の削除
-source-61d7d450d8f46878 = 統合を削除しますか?
-source-139e9afa047d2fc6 = メッセージの削除
-source-72d51f6b2abacc40 = 役割/メンバーの削除
-source-65345193d57a242d = タグを削除する
-source-5ee8fe87cb64e8a6 = この会話を DM リストから削除してください。メッセージは保存されます。
-source-53cee0fb23fcda55 = このテーマを削除し、そのローカル データを削除します。
-source-1755b68c3ebf1f0d = 特性を削除する
-source-068bc98e26b78314 = を削除してください
-source-910b11ba5f4300d5 = キャッシュされたメッセージとメディアを削除します。下書きとログインはそのまま残ります。
-source-84aa5a4911f9ba02 = 追加の役割を持たない非アクティブなメンバーを削除します。
-source-4cb60b1130d12dcb = キーボード、ファン、室内のノイズをマイクから除去します。
-source-8b107f398988112f = 保存されたログインを削除し、このアカウントのローカル キャッシュと下書きをクリアします。
-source-4d869154c93ddc21 = この拡張機能を削除し、そのローカル データを削除します。
-source-43059e2db8e43abf = 閉じる前に拡張機能データを削除します。
-source-4b27cb66aaf37dac = 保存されたログイン情報を削除しています…
-source-60320a18282b2b33 = 名前の変更
-source-cdc372fbaad1ecc1 = 絵文字の名前を変更する
-source-76a1cf16e19609aa = 繰り返しのシード ブロックが一致するバジェットを超えました。
-source-e5359052096240f4 = カバーを交換する
-source-e9a18580e9728abe = 画像を置き換える
-source-e1f33b64570245fb = アカウントのサーバーフォルダーのレイアウトを置き換える
-source-32679eb7255a58c7 = 交換
-source-8e53316cda490a28 = 置換フォント 日本語
-source-10673825f65de969 = 置換検索
-source-81a19821f3e4a3d2 = リプレイ
-source-0b7ae9543c001867 = 返事
-source-17d1e647b0f606c1 = 返信できないか、入力予算を超えています
-source-73c51ecc6e5c0c5f = 限定検索、ピン、スレッド、メンバー、プロフィール、GIF の結果をリクエストして読み取る
-source-3f0b9f0cbcb49e15 = 要求された履歴のクリーンアップが完了しました。ストレージ障害後に再起動するまで履歴キャッシュは無効のままになります
-source-1665e9eda5973238 = 画面共有接続をリクエストしています…
-source-16f6b159aabbcffd = ストリームをリクエスト中…
-source-a826e11988d49785 = 投稿時にタグの選択を要求する
-source-3e240030b195eb63 = 外観で透明性とぼかしを設定してからアプリを再起動する必要があります。
-source-255857544a9d5ec0 = リセット
-source-6a50ce44affe0376 = チャットをリセット
-source-b527763ec611e3e6 = レイアウトをリセットする
-source-dacf92c51c3c97ef = レベルをリセットする
-source-61f6e5c28e45b092 = 音量をリセットする
-source-6e959439db98d247 = サイズ変更されたアートワークは 8 MiB を超えています
-source-1a59de325dfe58c2 = 解決されたメタデータ
-source-b4b933c406aeef60 = これを変更した後、Serein を再起動します。テーマは有効になっている間、効果をカスタマイズできます。
-source-9b9794a36a84b666 = 更新するには再起動してください
-source-26f91b6796e33111 = 復元する
-source-4c045ad8386da940 = コンポーザーに復元
-source-890e983a7be64da4 = 結果
-source-e943126c0c2298bf = 会話またはドラフトが変更されたため、結果は破棄されました。
-source-ca1a826088564455 = 結果
-source-89118d3a7be870ca = 再開する
-source-99e7b2125d2dd2a4 = 招待を再開する
-source-2c8189544e3ea679 = リトライ
-source-8fb4a8104dc5099d = クリーンアップを再試行します
-source-77ce63b9a6354a49 = 古いピンを再試行する
-source-ebfd03fb647684c4 = プロファイルを再試行する
-source-6c41549f2b41c8ae = 読み取り設定の保存を再試行します
-source-c5d9d91a0e98a190 = リトライステッカー詳細
-source-473beb2d5bbf13b8 = リトライステッカーパック
-source-31964fcdbe2dc0c2 = スポイラーを明らかにする
-source-532133fec0ac1263 = スポイラーの取り付けを明らかにします
-source-569ae3a37cb09c55 = スポイラーコンポーネントを明らかにする
-source-d0beaa7f86071516 = ネタバレメディ​​アを公開する
-source-a71f3a7d439a96e6 = 確認して有効にする
-source-4168c0b41e00280e = レビューステッカー
-source-9b40a2cbdfe94e10 = このバージョンを置き換える前に、新しいリリースを確認してください。
-source-e1b5b5200f58e174 = 結果を確認します。アプリの操作と下書きの変更には承認が必要です。
-source-18499f72bb532165 = このサーバーを確認し、[サーバーに参加] を選択します。
-source-988da3045445ce0f = アップロードのレビュー
-source-b89d8d8bc0c08e98 = レビュー済み
-source-d8e1fc7538c8d924 = 招待を取り消す
-source-48d753e395f68144 = 招待を取り消す
-source-bc6506b7d1de0401 = 招待を取り消しますか?
-source-f3449c2c980f8250 = リフ
-source-3435c3f0cd8719cd = RNノイズ
-source-0adfce032fa95288 = RNノイズ抑制、エコーキャンセル、音声の自動ゲイン。
-source-c1f392a7dc96341b = ロビン
-source-ca7fed2bef53cb99 = 役割
-source-8c8a7845700d51fe = ロールアクション
-source-aba5f3b627a900fa = 役割の色
-source-ba16b16dc887a7aa = 役割アイコン
-source-62ff009599ec1ff3 = ロールメンバーをロードできませんでした。リロードするか、検索を変更して再試行してください。
-source-17986a8a77d86200 = 役割名
-source-47a0237a20e2cb3c = 役割スタイル
-source-6b2beba7ab637e9e = 役割
-source-801cecb30f763b5e = 役割
-source-b4f157ed71280936 = 役割/メンバー
-source-ea52df2b70a5c10d = ルビー
-source-fe66f627e8bf06bc = AppImage から Serein を実行してアップデートをインストールします。
-source-ea8ce02b70d73b07 = さび
-source-af640e4c86024182 = S
-source-4d40406fca0909da = サム（合成）
-source-590fc8d846a78850 = 会話例。 Discord接続がありません。
-source-59a8c35c86b563e4 = サンプルメッセージ
-source-33f85f24c0f5f008 = 保存
-source-f6bd38782a811135 = 保存して適用する
-source-870f7b2f8c27e219 = 変更を保存する
-source-031945e67717bf79 = 変更を保存
-source-6c634d114bce0615 = 画像に名前を付けて保存…
-source-4f128a472e319de2 = 会話を開く前に、サーバー設定の変更を保存または破棄します。
-source-f25bcf5c9ab907a8 = タグの保存
-source-d9ee4197b17aab46 = GIF のお気に入りに保存
-source-14decb5195aa34af = ビデオに名前を付けて保存…
-source-0bdb473d4fe0066b = 保存されたアカウントがこのデバイスから削除されました
-source-db47c9175c2af7b0 = 保存されたアカウント
-source-666717eb96d5e498 = 保存されたチャンネル設定が破損しているか、このビルドと互換性がありません。
-source-7bf59be69a16cd3f = 保存されたチャンネル設定がいっぱいです。お気に入りまたはピンを削除するか、カテゴリを展開します。
-source-71b2680c91e113b9 = 保存された下書きが復元されました。回復されたテキストを再送信する前に会話を確認してください
-source-305b3f3ed2a17e73 = プレビューに保存されました
-source-b36cd269570070f5 = 保存されたログインが見つかりました。 Discordに接続する
-source-fd2b16647eb92918 = 保存されたログインは無効です。再度Discordにサインインします。
-source-ce33d3429a3dc5d1 = 保存されたログインが削除されました
-source-f790510720d5a8fd = 保存されたログインは使用できません。資格情報の検索を開始できませんでした
-source-5c6f84e96503da2a = 保存されたログインは使用できません。 Discordでサインインします。平文フォールバックはありません。
-source-40a16d07a72ea80a = 保存された読み取り値とレイアウトをロードできませんでした。デフォルトを使用する
-source-2bd3f521b037d156 = 保存されたテキストの下書きは終了しても残ります。選択したファイルは再選択する必要があります。ログアウトすると、ローカル アカウント データが削除されます。
-source-fd29a34b05fe1d6d = 保存されたテキストの下書きは切り替え後も残ります。選択したファイルは再選択する必要があります。このアカウントはスイッチャーに残ります。
-source-4d318e067bd48668 = あなたの容姿とともに保存されました。グラデーション プリセットでは常に暗いテキストが使用されます。
-source-b34cec0d614c6ad0 = 保存されたログインチェックがタイムアウトしました。 Discord でサインインします。資格情報ストアが応答しませんでした。
-source-0001573615d2e279 = 保存されたログインの復元がキャンセルされました
-source-c83d273276aa51bc = 変更を保存しています...
-source-07c0db31793104ae = 変更を保存中…
-source-4248894fbd7aa5d0 = フォントを保存中…
-source-fb7b74cdca8cc83b = ローカルの変更を保存しています…
-source-10ec6769ba70fc4a = プロファイルを保存中…
-source-a0fd9c241cd68d88 = 読み取りとレイアウトを保存しています…
-source-61c51a921de4855b = 役割を保存中…
-source-7572c5bd72e919f9 = 設定を保存中…
-source-1bdc0b745a2497a9 = 起動設定を保存しています…
-source-717d4a2cd3f7d66f = 保存中...
-source-329e062dd1fdf61d = 保存中…
-source-2f1ff26c6453749a = scale=w='max(2,min(1920,iw))':h='max(2,min(1080,ih))':force_original_aspect_ratio=decrease:force_divisible_by=2
-source-9b8312fad4a3f6eb = アプリ全体でテキストとコントロールを拡大縮小します。
-source-744d993d03f29851 = 画面
-source-b69cf5b21faba122 = 画面キャプチャが停止しました
-source-fa63b7f287b06bfa = スクリーンまたはウィンドウ
-source-50b181964fcd13fb = 画面プレビュー・他の人を待っています
-source-70017df1375408ed = 画面共有音
-source-86c1783939f223ec = 見ている画面の共有
-source-ad8a45267315dc52 = 現在の通話では画面共有は利用できません
-source-8a01cce72e5665a1 = このプラットフォームでは画面共有は利用できません
-source-4739e0051c41d4d0 = 画面共有には、サポートされているデスクトップでの接続された通話とビデオの許可が必要です。
-source-08e5a969a8e0ce42 = 画面共有には現在接続されている通話が必要です
-source-6d81d7ebe44dfb44 = 画面共有が停止しました
-source-eaca8c23bd1c5b2d = 画面ソース検出が停止しました
-source-305c701964bc64eb = 画面共有アクションは送信されませんでした。音声キューがいっぱいです
-source-1a7b38e67d731ab1 = 画面共有接続が終了しました
-source-bc59488feecdff2c = 画面共有の許可が削除されました。共有の停止
-source-c2536e077514accc = スクロール
-source-f6bf0e7886e7dc6f = スクロール速度
-source-5d929ff1619ac0c9 = 検索
-source-ac2b1f7c96f136d9 = アニメーション GIF を検索します。
-source-511cf4ad87d404c8 = ユーザー名またはIDで検索
-source-a9d13f71e8de590f = 絵文字を検索
-source-c678b06185ed372f = 絵文字を名前で検索する
-source-01d0dd8e57c5856d = 検索拡張機能
-source-d54fce8458776b2e = 検索する
-source-1dba3a368b42bbdf = 友達を探す
-source-ec07ac2e601c3b11 = スレッド名で検索
-source-1b844e05478f6f04 = KLIPYでGIFを検索
-source-9d4f40b2b35982d7 = 接続が切断されている間は検索は利用できません
-source-fd20b1e076872634 = KLIPYを検索
-source-86dae239544ca363 = 読み込まれた投稿を検索するか、新しい投稿を開始します
-source-71c69d9e6f99a34e = メンバーを検索する
-source-ef00bdf45313e7e1 = この会話内のメッセージを検索する
-source-d278d4db5324488f = 検索オプション
-source-e35d22bb1a71307d = 投稿を検索または作成...
-source-045291a4cc6001dd = 検索権限
-source-5643568b7c038f43 = 検索結果
-source-b9eb9a734a9361f4 = 役割の検索
-source-7bc3a4a5a8382329 = ロールまたはロードされたメンバーを検索する
-source-b901449675b474d6 = 検索設定
-source-64d6b96e444f3b15 = 検索は許可されるべきです
-source-0c2fb89655eb7eff = ステッカーを名前で検索
-source-8cdffd7c5229b4a5 = テーマを検索する
-source-6941bde74e3b3492 = この会話を検索
-source-a637bb8f70a4a981 = ユーザーを検索する
-source-5e0c26d1eb4983fe = ステッカーを検索します。
-source-8f7a05e1cd7b166e = KLIPYを検索中…
-source-fe515bf2902cac81 = 検索中…
-source-8161d3e880287d94 = 2番目のグラデーションカラー
-source-35b679156b635a64 = 二次テキスト
-source-4eb7f7fecd1fe546 = セクションはギルドに属します
-source-0929c5f49b0019b1 = セクションの不透明度
-source-043db9078fc00072 = 画面ビデオを保護しています…
-source-6dfce8fa9f22b62c = ストリームを確保しています…
-source-5788d924d55d3ff1 = 求める
-source-08e41fcb00632f3e = ビデオを探す
-source-59a2050d3144eda4 = 音声メッセージを求める
-source-b2fb42aeaa1672d2 = プラグインを有効にする前にアカウントを選択してください
-source-6a86404d6e509af4 = 領域を選択し、画像がどの程度透けて見えるかを選択します。
-source-487bfc8b355fe465 = 既存の DM またはサーバー音声チャネルを選択します
-source-3b84d9505bae0fcb = 絵文字を選択してください
-source-c14632800a845f4a = タグの選択
-source-fb483eabd7e724b2 = このメッセージを共有する場所を選択してください。
-source-669cf054132226bb = 選択したセクション
-source-d0f64e831fda5436 = アートワークを選択すると、画像添付として送信されます。
-source-0380652457f8ba15 = 選択
-source-57a6e624d5765397 = 自己
-source-57adf424d57c8a0f = 送信
-source-357e0427bcca1f7a = GIFを送信する
-source-c30077075bd6557a = 誰かがこのサーバーをブーストしたときにメッセージを送信します。
-source-23f23b682f286960 = 誰かがこのサーバーに参加したときに、ランダムなウェルカム メッセージを送信します。
-source-8c33074f7ead1f59 = GIFを送信する
-source-9395e47754f7303a = サーバーのセットアップに役立つヒントを送信します。
-source-d2632761f8bc7cbd = メッセージを送信する
-source-60b71a5bfe59d6dd = スレッドでメッセージを送信する
-source-f706fa9a8fec5f9f = メッセージ、画像、ファイルを送信します。
-source-f1fce0d77a9ad6cc = 画像を選択する前に、既存の添付ファイルを送信または削除します
-source-65bbc49271a82f81 = /msg を使用する前に、選択した添付ファイルを送信または削除してください。
-source-04a336a5c2a847ab = テキスト読み上げメッセージを送信する
-source-1ba1e394bad0e4d8 = アプリやサービスの更新をこのサーバーのチャネルに送信します。
-source-6e91488cc098227f = Mac で再生しているものを画面とともに送信します。セレイン自身の通話音声は省略されています。
-source-f44572f297b915c0 = 切り離された履歴から送信するには、現在のページをリクエストする必要があります
-source-41e2e5317dd14289 = 送信できないか、入力予算を超えています
-source-0392ff1b723d0682 = メッセージを送信中…
-source-0d1ec2ca1edf2abf = 送信中…
-source-57ade424d57c6edf = 送信済み
-source-167e5a02e3f6ba3c = 選択したタイプの著者のいずれかによって送信されました
-source-266899d6441ecba1 = 選択したユーザーのいずれかによって送信されました
-source-cad2d591cadc16af = セレイン
-source-f392efddac5fb934 = セレインがクリアする
-source-f590eb8e7c5e4be6 = セレインカスタム
-source-7574ac78ac482f41 = セレイン カスタム ミディアム
-source-03365973b729d5e7 = セレインカスタムセミボールド
-source-c23a4b40071920f0 = Serein はテレメトリを収集したり、診断をアップロードしたりしません。 Discord は、独自のポリシーに従ってサービス側のデータを保持します。
-source-be324a622506b819 = Serein はこのチャンネルの最新情​​報を更新しています。
-source-2acf1f5854f87516 = Serein はディストリビューション経由でインストールされました。ターミナルでこれを実行して更新します。
-source-42736cb61d724206 = セレイン.app
-source-662d070cf6f7c46a = Serein.app/Contents/MacOS/serein
-source-805766bbb3fa3b80 = セレイン/
-source-371d829bf04998db = SEREIN_CHANNEL
-source-93a967981cf6e20e = SEREIN_FRAME_DIAGNOSTICS
-source-62721c625b369749 = SEREIN_GATEWAY_DIAGNOSTICS
-source-4bb1680ded56386d = SEREIN_MEMBER_DIAGNOSTICS
-source-21628c14859268ae = SEREIN_VIDEO_SAMPLE
-source-b5782c425a21b019 = SEREIN_VIDEO_SAMPLE パス
-source-7552f6fd66393ff6 = SEREIN_VIDEO_SAMPLE はオフライン クリップを提供します。ミュートされたローカル出力を開きます
-source-111425d6402a4445 = SEREIN_VOICE_DIAGNOSTICS
-source-5afcaa918bbb91b2 = サーバ
-source-334ca50e41e21afc = 現在の権限ではサーバー管理は利用できません
-source-e9672a634396a285 = サーバーブースト
-source-3789bdaf8e3545c8 = サーバーが作成されました。 Discordがサーバーリストに追加するのを待っています。
-source-c81750b3ca90cec2 = サーバーの作成はオフラインでは使用できません
-source-6f6b7f965d7e403b = サーバーのデフォルト
-source-874c0225e3ba1def = サーバーは要求されたデルタ範囲を提供しませんでした。
-source-9e517ef8b9209a80 = サーバーの絵文字
-source-69b1694fa80d6fa6 = サーバーフォルダー
-source-3a02197c375e684b = サーバーフォルダーが使用できません
-source-35c6b3835c23cc5b = サーバーはオフラインでは参加できません
-source-b677b74fd7583842 = サーバーリスト
-source-01f35e54078ae209 = サーバーメンバー
-source-752efe92882bde69 = サーバーメンバー
-source-0099285ad19604c9 = サーバーメニュー
-source-9125243e17ee4435 = サーバー名
-source-9ea06069ddfbdb4a = サーバープレビュー
-source-2c796ad52f701a3b = サーバープロファイル
-source-26fc973905937715 = サーバーのプロフィール写真
-source-576d94964775efa3 = サーバー設定
-source-194b9b5b8956f706 = サーバータグ
-source-b4f75a4ab92c8179 = サーバータグバッジ
-source-06709c30707789c8 = サーバータグにフラグが立てられています
-source-f587b273e6310223 = サーバー音声チャネル
-source-f1bbac50373377e4 = サービス
-source-62278f512692e037 = セッション
-source-fdf17bfb44b28042 = セッショントークン
-source-9844a719fa9b1a83 = セット
-source-eae627a1f8088c8b = カスタムステータスを設定する
-source-3f97421d89b18351 = デフォルトのレイアウト ビューをメディア中心のギャラリーまたはテキスト中心のリストに設定します。メンバーは引き続きこれらのオプションを切り替えることができます。
-source-82e715834c9f4fe1 = 新しい投稿のデフォルトの並べ替え順序を設定します。メンバーは引き続きこれらのオプションを切り替えることができます。
-source-705f21e6ce3719d7 = デフォルトのタグ一致動作を設定します。メンバーは引き続きこれらのオプションを切り替えることができます。
-source-0ce9a5aecc6dd3b7 = 設定を保存またはロードできませんでした。切り替えて保存を再試行します。
-source-5a872471095707a2 = Discord を使用してソーシャル エクスペリエンスを強化するゲームの設定。
-source-115b51c0b3e792f1 = 複数のユーザーが一致します。 /msg を使用してユーザーのメンションまたは ID を使用します。
-source-da68df88bd08f5f4 = SHA256SUMS.txt
-source-ba4076b03255c1e5 = リンクを共有すると、友達がこのサーバーに参加できるようになります。
-source-aaf9b84edaab407e = 画面またはウィンドウを共有する
-source-2c3c34153ac74ed3 = ゲームアクティビティを共有する
-source-45424021c300477c = 画面共有
-source-ac20e718c073966e = 1 つのウィンドウを共有している場合でも、他のアプリのサウンドを共有します。 Serein 自身の音声は省略されています。
-source-0271a8f65fe94e07 = システムオーディオを共有する
-source-201311c687d03fd1 = 更新情報を共有します。コミュニティサーバーが必要です。
-source-3d85ff460396575d = 画面を共有する
-source-3fe52fe70d27121d = 選択したカメラをこの通話で共有します
-source-f1b4a3f1947fb4d5 = 共有とエクスポート
-source-5f0298f79747ad16 = 画面を共有する
-source-0ce8eeaf9aa0c421 = シェル
-source-e93a3eaf86201ae7 = シフト
-source-d209ee27e7449876 = シフトされたプレフィックス
-source-3c2b7ef8ccd3cd5a = より優れたポップアウトを出荷
-source-716a6024e3fe999c = 見せる
-source-93d8b6aded340643 = すべてのDMを表示
-source-b2f8ae3e6b28ba6c = 現在アクセスできないチャンネルを表示します。
-source-833dfcfd41dcd086 = カーソルを表示
-source-79b0a69cbcda8649 = ゲーム内にダイレクトメッセージを表示する
-source-9bc560cd5b46bcf0 = 隠しチャンネルを表示する
-source-a0afec0f61baf4af = メンバーを表示
-source-7495fa2d565710c7 = チャンネルリストにメンバーを表示
-source-66bcca373589a989 = ゲームをプレイしている人からの DM のみを表示する
-source-f72fef5a1834b24d = 選択したすべてのタグを持つ投稿のみを表示
-source-0251c868653fce26 = ショーの参加者
-source-a40e169498ad656c = 広いウィンドウに人物を表示
-source-72682125748dbcae = パーソナライズされたメッセージを表示する
-source-7d16f2b5d14c2056 = 受信した友達リクエストに対してパーソナライズされたメッセージを表示します。同意した場合でも、メッセージは DM に表示されます。
-source-14f0c7b11300c270 = 選択したタグの投稿を表示します
-source-b1ae69c3dd991fe9 = 残りの役割を表示
-source-e809b405a7655b0b = チャンネル リストのメンバー ページを表示すると、最近の参加や異常なアクティビティのフラグが立てられたメンバーをすぐに確認できます。
-source-9bc15080170ef0cd = 拡大されたビデオの下に他の参加者を表示します
-source-40664bffa760c01c = 表示中
-source-68ba74051d2c1613 = 最初の 1,000 個のカスタム絵文字を表示します。さらに検索を絞り込みます。
-source-dae76222d45285b8 = 最初の 1,000 件のリアクションを表示します。
-source-237f621c4b72e005 = Discord から返された最初の 50 件の統合を表示します。
-source-93f2c7a47f67a615 = 最初の 500 個のステッカーを表示します。検索して結果を絞り込みます。
-source-eb9a0b75e7e33bb3 = Discord 全体であなたの名前の横に表示されます。
-source-84708053633f5ef9 = このサーバー内のゲームや接続されているアプリからのアクティビティのフィードを表示します。
-source-a7d70cb93b5b638b = メンバーが送信したリンクのプレビューを表示します。
-source-09f8960ef0b013c7 = サイドバー
-source-301079349cba0c9f = サイドバーの幅
-source-d1053f7b262d7006 = 電話をかける前にサインインしてください
-source-462be028720a0ebb = プロフィール写真を変更する前にサインインしてください
-source-627980e85ae679a7 = Discord を通じてサインインします。保存されたログインの検索が停止されました
-source-a57736e4dc6a3128 = Discordにサインインする
-source-019d32c2a20341db = セッショントークンを使用してサインインする
-source-c9fb496771461b85 = 始めるには、Discord アカウントでサインインしてください。
-source-3d3b4f88fa2273ee = 信号
-source-5e71e0ce66a10d54 = Discord アカウントでサインインしている
-source-c72d860b4f85d6ba = このアカウントからサインアウトしました。保存されたログインは保持されます
-source-69f3ca37b52fc2fe = このデバイス上でのみこの人を沈黙させます。他の人は影響を受けません。
-source-818767abdf5c33cc = サイズ=128
-source-d273ff03a1219b3d = サイズ=2048
-source-8dbe3ba5e7e01776 = ID3ペイロードをスキップする
-source-97ad1f22200db972 = この質問をスキップしてください
-source-2f280ccd5811f80a = スラッシュ
-source-d98aa872d5169f33 = スラッシュ コマンドがセッション入力バジェットを超えています。あなたのドラフトは保存されました。
-source-2f3231cd581a8b6e = スレート
-source-75806bc79fc741a1 = 利用可能なスロット
-source-c4317264317eda93 = 使用されたスロット
-source-4e060e976cc3db2b = スローモード
-source-54903ffa7010b013 = 小さな文字
-source-768a84a167fc5784 = スムーズなスクロール
-source-7fc5fe39edc3d58d = スノーフレークのタイムスタンプが範囲内にあります
-source-4cc269f8aebca984 = 柔らかいバラの表面に温かみのあるピンクのアクセントが付いています。
-source-fe31d1c784d29ef4 = 固体
-source-8ac6d324f22e6d8a = ソロ
-source-8ac2dd24f22a95b1 = いくつかの
-source-9a503971735f80de = イベント キューがいっぱいだったため、一部のプラグイン イベントがスキップされました。
-source-6d78f54795cdbb71 = 一部のサーバーは異なる設定を持っています。サーバーを選択して設定を確認します。
-source-bc62c50f0c4496f8 = 誰かが入力しています...
-source-8a7bee24f1eeaff1 = 選別
-source-d1410e2def3cb910 = 並べ替えて表示する
-source-3606b9d856cdbafe = 並べ替え
-source-6fa38d7884c5e4e5 = 並べ替え順序
-source-9b3904e0c710f295 = 並べ替え順
-source-2593d0c70a1c5074 = 音
-source-f67bc9362e1bfbe5 = 音
-source-dc5c829684625bbb = ソースドラフト
-source-16379c0e7bfc97de = ソースメッセージは利用できなくなりました
-source-cf524002408649be = このセッションではソース サーバーを利用できません。
-source-a39e9b837556f159 = ソースURL
-source-032cd9f1245d3645 = 空間
-source-6b771a67c2e45fbb = スパムフィルター
-source-e23357f112296589 = 話す
-source-c5f07bd7a271b5b8 = スピーカーの音量
-source-b6a535fede052183 = スピーカー
-source-cfdd134ddcd54f6e = この通話では話すことはできません
-source-0e303e22b5c99089 = このチャンネルでは話すことはできません。
-source-0e6572337b972b29 = このチャンネルでは話すことはできません。まだ聞くことができます。
-source-9290f6af0cafb479 = スポイラー
-source-396418a002dfa719 = ネタバレメディ​​ア - メッセージを開いて公開します。
-source-82cb7c14b78eba12 = ネタバレ_
-source-6b8e309703900e15 = スポティファイ
-source-f73fdea270dfc174 = 春 - 12日目
-source-98007f19fa6109bf = SQL
-source-97f5df19fa57a55a = SRN
-source-27cc88818cc46ff6 = 安定した
-source-779f20a1a5b8312e = 安定版
-source-61b3c49fc1cb3850 = ステージチャンネル・未実装
-source-cd979411b94e9181 = 古い履歴では削除を復活させることはできません
-source-8448e0151316470b = 古い結果は無視する必要があります
-source-1a26a190d73fe746 = 標準の絵文字
-source-54775a219415a2fe = スターデューバレー
-source-f11add05cecc2474 = スレッドを開始する
-source-4474425c0472ac00 = 開始色
-source-41bbcf9b780998b3 = テストを開始する
-source-45f0f7e853ab3e87 = マイクテストを開始するか、通話に参加して入力レベルを確認してください。
-source-d702c26b4032d893 = 音声通話を開始する
-source-35c0a92f334aeafb = スレッドを開始しました
-source-f78fab1fe68a47c3 = によって開始されました
-source-423411ccd80dbe86 = スターターチェックサムまたはバイト長が変更されました
-source-c014e78b57090011 = スターターマニフェストが変更されました
-source-5abc7c9625324f00 = スターター パッケージは同意を得てアクティベートされます
-source-29e87af8077c4457 = スターター ソースをバンドルする必要があります
-source-b225dfbb31111b9e = 起動時に音声ペイロードを読み取ってはなりません
-source-09aa16017b259c70 = スタートアップ設定ワーカーが停止しました。設定を切り替えて再試行します。
-source-ad9d5481474d4f5b = 静的
-source-a5dc0fbd822ef066 = 静的な PNG、JPEG、WebP アートワークは最大 8 MB までサポートされます。準備した PNG は、Discord の 512 KB 制限内に収まる必要があります。
-source-ad3e3c8146fc920f = 状態
-source-0dbe98129d79639a = ステータスは、改行や周囲のスペースを含めずに最大 128 文字にする必要があります。
-source-6c512cba41aedf26 = ステータステキスト
-source-653552905397a5d1 = 通話を続ける
-source-5819616c806e7d5f = ステッカーのアクション
-source-21333a6cfc8e7282 = ステッカーの詳細は不明です。
-source-d341d0e6f7bce206 = ステッカー準備中止
-source-8b20702650fe2eba = ステッカーの準備が中断されました。もう一度選択してください
-source-14f45a93be2170d1 = ステッカー・プレビュー不可
-source-f12094936eee025d = ステッカー
-source-76b82e61ed8f8b2f = 最初のパケットの後で停止する
-source-f83bedb815ca8289 = プレビューを停止する
-source-89648382f1f45770 = この画面共有の受信を停止します
-source-ba31db18366c5881 = 共有を停止する
-source-b2be9288f555d69f = カメラの共有をやめる
-source-04becc1144bf8534 = 画面共有を停止する
-source-bb5cd017e0e50c57 = 現在の通話で画面の共有を停止します
-source-c9e6a10c2529c1ed = テストを停止する
-source-9241f1191921699a = 見るのをやめる
-source-7f34423867339160 = 現在のストリームの視聴を停止する
-source-f96b615e5b8b96cf = 見るのをやめた
-source-c2773f63f685229d = 画面共有を停止しています…
-source-17a6948ef43cdaa5 = このアカウントのローカル データを最大 1 MiB 保存します
-source-37d209ecc2ca2c65 = ストリーム
-source-467498fe13dea55b = ストリームオーディオ
-source-169f89a55a8e0cd6 = ストリームミュート
-source-98d422af31a33c48 = ストリーム要求は送信されませんでした。音声キューがいっぱいです
-source-93c48a92bcd69322 = ストリームが保護されています · ビデオを待機しています
-source-0dbcb46b880ae0f9 = ストリームボリューム
-source-ecb7fa88a28ecbfb = ストリーミング
-source-58b4b3ecd4eb6238 = 弦
-source-165ca6348a9c9ef1 = 強力なハッシュ アルゴリズム
-source-3476c9192da21f2f = 学生ハブ
-source-735851282b7922a3 = スタジオ
-source-b3d4f79d9d8b71e5 = 提出する
-source-bd1f8a89447f778b = 選択内容を送信
-source-ed2e6e6a15556e6b = 送信中…
-source-92a0d19a28995530 = 成功
-source-10fab4d1211b0790 = sudo apt update && sudo apt install --only-upgrade serein
-source-ff044d576bf0e0b6 = sudo dnf アップグレード セレイン
-source-dfd89cc7e078553c = sudo パックマン - シュウ・セレイン
-source-b9f7595a2b6d4047 = sudo zypper アップデートセレイン
-source-7cfbd463d799bd73 = 提案ポインタのデバッグ チェックに合格しました: メンバー、絵文字、チャンネルは送信せずにクリック時に挿入します。
-source-74563c12985d7846 = サポートと診断
-source-588fbd0ca5948e09 = 抑制力
-source-641060b2512a5241 = 表面の不透明度
-source-63d61d08bd63f538 = 迅速
-source-1dbc50b9bbfadfcf = アカウントを切り替える
-source-3629497c7cacd5b3 = 通話を切り替える
-source-3a29dfd6e4b7e6cd = 通話を切り替えますか?
-source-ac48c1c773dcfbf4 = 切り替えには確認が必要です
-source-af6ed9336c14c8ae = に切り替えます
-source-d083d3aa96af5af1 = シンボル
-source-1dcc203233cc2f68 = 上記でルーティングされた同期およびストリーム アクション
-source-fbd2c35742165dbf = システムと同期する
-source-ca5ada25afc84d10 = サーバーフォルダーをDiscordと同期する
-source-bf866859d6f1167a = 同期…
-source-1710991edf84bdbe = 合成アクティビティ。決して共有または保存されません。
-source-aca0751c7e3f2843 = 合成バッジ 1
-source-72fe2e1cee5c544d = 合成バッジ 2
-source-2057457bddfb2197 = 合成フィクスチャの失敗 · Discord に連絡が取れなかった
-source-1fca9c49a9fb4bff = 合成イメージの共有にはデモのビルドが必要です
-source-fb3de286999a0f18 = 合成 Ogg/Opus デコード
-source-b90c22917f0993e9 = 合成 Opus ヘッダー
-source-0180fec134076ba8 = 合成参加者のマイクとスピーカーはオフになっています。
-source-61133cb873cb14ec = 合成プレビュー
-source-2671b43d99c7f8ff = 合成プレビュー: シミュレートされた再起動。インストールは変更されませんでした。
-source-ea58bb2f4280e7e3 = 合成プレビュー: Serein 99.0.0 が利用可能です。ネットワーク要求は行われませんでした。
-source-583e44aa4b2738f8 = 合成プレビュー: 更新を再開する準備ができています。ファイルはダウンロードされませんでした。
-source-938b4ed3dcc78c3b = 合成 WAV ヘッダー
-source-89b157ba3f1b6209 = 合成 ZIP デコードに失敗しました。
-source-81d24911585379df = 合成 ZIP エントリがありません。
-source-a81e2cdaf6921adc = システム
-source-087d4afac2b493b2 = システムクロックが範囲外です
-source-89308fc80241f110 = システムクロックが利用できません
-source-bb6d50f39cffc429 = システムのデフォルト
-source-612cd3419dafd909 = システムのデフォルト
-source-7ddb86b52fd2a7d2 = システム キーバインド キーボード ショートカット カスタム デフォルトの書式設定 ナビゲーション
-source-5f10d417345d5280 = システムメッセージ
-source-dc75454d9f19606b = システムメッセージチャネル
-source-1c1fec5705346635 = システム許可ダイアログ
-source-fe2eb47cb9ba0693 = System32WindowsPowerShellv1.0powershell.exe
-source-f82865b371985dec = システムルート
-source-af64094c86023903 = T
-source-6ce0ce19e201b66c = タブ
-source-08a36c89cf51d8ae = タグマッチング
-source-8d69b56d26a90f82 = タグ名
-source-03aa3cfb08dff960 = タグ
-source-03ee3cfb0919c62c = タスク
-source-dad2dcc683d8a766 = チーム識別子=
-source-746b56ce7029b76b = このサーバーについて少し世界に知らせてください。
-source-e7bf0e7337589780 = サーバーについて詳しく教えてください
-source-aef3e9d1cc99d338 = 一時ファイルが利用できません
-source-9e3e0736bc5d7860 = 一時的なメンバーは、役割が割り当てられていない限り、切断されると自動的にキックされます
-source-937d74f8bf96bf5b = 一時的なビデオのクリーンアップに失敗しました。システムの一時フォルダーから serein-video ファイルを削除します
-source-b178575c95e40d30 = 合成農場の手入れ
-source-2492f5fb1b05b45e = 文章
-source-bb05b66479f06f51 = テキストバッジ
-source-a49452caee01d78d = テキストチャンネル
-source-3c519fae24775b41 = テキストチャネルの権限
-source-fcc00f8f38e5bf7a = テキストチャンネル
-source-528fae7409467be2 = テキスト表示制限あり
-source-5260a7bb5d853a61 = テキストの書式設定
-source-b90a3d15ef7d8e53 = アクセント上のテキスト
-source-3c0df60c6f7aa0c3 = テキスト、間隔、コーナー
-source-a604668fceafd191 = テクスチャキャッシュが予算を超えている
-source-091aebf4ee6b9f05 = そのアカウントの保存されたログイン情報がありません。再度サインインして更新します
-source-031665bb4e89f563 = その写真は大きすぎます。よりシンプルな画像を選択してください
-source-36c648e5ea87aa0b = アカウントまたは会話が変更されました。拡張機能を再度実行します。
-source-94c943f7ec6d2dc8 = アクションを開始できませんでした。
-source-d76bab451d4bf7cb = アクティブなテーマが独自のアクセントをもたらします。テーマの使用中はそれが引き継がれます。
-source-7cf5fcdaa69d6c47 = メッセージボックスの周囲
-source-9c8070771ed73bb5 = このアセットは Serein リリース リポジトリからのものではありません。
-source-229e001c5175ed0f = 監査ログがローカル エントリまたはメモリ制限に達しました。フィルターを調整して他のイベントを見つけます。
-source-c3196c758d12cc48 = 電話の内容が変わりました。拡張機能を再度実行します。
-source-a15081404de6bc72 = カメラはもう使用できません
-source-b79502bea259a921 = チャネルアクションを開始できませんでした。
-source-1a0af5cf522a9054 = チェックサムファイルが無効です。
-source-f81d25e4d1c1899a = チェックサム リストがサイズ制限を超えています。
-source-b12e17f9000854ca = 会話のタイムライン
-source-ba988ea53a32cc15 = 検出可能なゲームのリストは利用できません。
-source-f86a8e16e87115aa = DMの受信者が不在です
-source-5f2300da2b60d32e = ダウンロードしたパッケージはサイズ制限を超えています。
-source-bdc63c63aaaeb1ed = ドラフトが変更されたか、提案がドラフトの制限を超えています。
-source-fbf3ed7f982fb65e = 拡張機能は有効ではなくなりました
-source-07b80e5c8ff386bf = フォント名が無効です。
-source-117878dc34eae50f = 友達が利用できないか、サーバー設定に注意が必要です
-source-c4503990ff7ce3d7 = インストール パスは更新ヘルパーでは表すことができません。
-source-cbb0a5913c0f6e2c = インストールされている AppImage が移動されました。アップデートする前に再起動してください。
-source-304e87861c085c7c = 左側のサーバーレール
-source-320896c4f3df853a = ライセンスとバージョンが必要です。ローカル テーマの場合、ソース URL はオプションです。
-source-2fb81c63ceea1998 = ローカル参加者のミュート制限に達しました
-source-aab8c25b9ea50e1f = 右側のメンバーと検索ペイン
-source-819b3188c4971ddb = メッセージはすでに Discord に届いている可能性があります。再度送信する前に会話を確認してください。
-source-5444864190449fef = マイクは使用できなくなりました
-source-444c3556ad692b08 = パッケージのチェックサムが無効であるか、重複しています。
-source-58391f0c869e8ae4 = パッケージのサイズがリリースのメタデータと一致しません。
-source-db49b01ade45e432 = ピンカーソルが変わりました。現在のページを再度リクエストします
-source-c7e6f9a9a5b4a6df = 用意されたアイコンが大きすぎます。
-source-8561c4e8d417ddf8 = 準備されたロールのアイコンが画像の制限を超えています。
-source-d4295415cd723b49 = 素早い茶色のキツネが怠惰な犬を飛び越えます。 0123456789
-source-3f3748f1a9ae3941 = リリースアセットのメタデータが無効です。
-source-12ad90dff902ac5d = リリースには信頼できないダウンロード アドレスが含まれています。
-source-6bd719d95bada4ae = リリースに含まれるアセットが多すぎます。
-source-bfdc7f5bf0b94022 = このリリースには、このパッケージのチェックサムがありません。
-source-6d484d49e5cf5483 = リリース リストが制限を超えています。
-source-bd3a5c5eb515b096 = 選択したチャンネル
-source-03af15a71ea80f0f = 選択した会話が変更されたか、アクセスできなくなりました
-source-366286d1db0c0313 = 選択した会話は利用できなくなりました
-source-92d605c7427fe559 = 選択した画像は絵文字のアップロード制限を超えています。
-source-ecf43b5cfcc3f4fd = 選択したメッセージによってスレッドが開始されます。このチャンネルを閲覧できる人は誰でもスレッドを閲覧できます。
-source-a4b7054956079671 = サーバーフォルダーのレイアウトが変更されました。拡張機能を再度実行する
-source-f722c523147309b7 = サーバーにはアクセス可能なチャネルがありません
-source-729ec7dfae966f27 = サーバーには招待を作成できるチャネルがありません
-source-4f922921c10c2c92 = サーバーには管理可能なチャネルがありません
-source-836114ff46dcadf3 = スラッシュ コマンドの結果がメッセージ長の制限を超えています。
-source-de5ba51cb9bbb804 = スピーカー デバイスは使用できなくなりました
-source-648cf56c28900fa8 = ストリーム接続が終了しました
-source-9c284b6c9b5c8f10 = ストリームが終了しました
-source-eeca86112f872aa2 = 更新アーカイブには安全でないファイル名が含まれています。
-source-9476118a60cb760b = アップデート アーカイブには重複したファイル名が含まれています。
-source-3c0768502ae27c24 = アップデート アーカイブに含まれるファイルが多すぎます。
-source-31711f87cbc616b0 = 更新アーカイブは抽出されたサイズ制限を超えています。
-source-1982d0aeae946bf2 = アップデートのアーカイブが破損しています。
-source-cf38693eb82dfd70 = アップデートのチェックサムまたは長さが一致しませんでした。何もインストールされていませんでした。
-source-0b9202c72e03d4aa = アップデートには予期しないパッケージ コンテンツが含まれています。
-source-207e7bd4a938ab90 = アップデートには Serein.app は含まれません。
-source-1288bddb87e6c5ce = アップデートのダウンロードが中断されました。
-source-5a3e6d7ab01c3c34 = アップデートにはバンドル署名識別子がありません。
-source-8c4050514d1503b5 = アップデートヘルパーが起動しませんでした。セレインは引き続き営業いたします。
-source-d59c2878915ac2e9 = アップデートには、実行可能ファイルまたはバンドルされた通知がありません。
-source-a7ee90ed89a6d45e = この更新プログラムは、サポートされている x86-64 Type 2 AppImage ではありません。
-source-7d447391bb1fe8a6 = アップデートは有効な ZIP パッケージではありません。
-source-6a619001565cad53 = 更新応答が中断されました。
-source-61b02cc5807beee4 = このアップデートは、この Serein 発行者によって署名されていません。
-source-ff87e05e9b79be51 = 更新ワーカーが停止しました。もう一度試してください。
-source-2fa629cb4b3b6374 = アップデート ZIP ディレクトリが無効であるか、制限を超えています。
-source-d2589a7c8c135c63 = アップデートの macOS 署名が無効です。
-source-5ca44460d06c3e41 = 音声通話が変更されたか、そのコントロールが利用できなくなりました。拡張機能を再度実行します。
-source-82d50f99118cbbad = 音声チャンネルが利用できません
-source-a50392afda5ed27a = 監視されているストリームが変更されました。拡張機能を再度実行します。
-source-aab875d8cfcfe712 = テーマ
-source-eb2d074b1c7450a5 = テーマのクリーンアップが保留中です
-source-995c0cb1dc44620c = テーマの詳細
-source-326b63ca34a0da40 = テーマが要求されたパッケージと一致しません
-source-5900ea3902ac3c64 = テーマエディターは常にテーマを保持します
-source-8f99c67a7474e728 = テーマエディターはテーマのみを受け入れます
-source-a0aa3f3d19cc32b9 = テーマがエクスポートされました。
-source-8fa63933d6a259d8 = テーマファイルの選択が終了しました。
-source-e894186aade09550 = テーマはローカルでは利用できません
-source-96225dc374daea97 = テーマはバンドルされていません
-source-457be27a66849bf5 = テーマがインストールされていません
-source-c5659913f6096315 = テーマ名
-source-158bf59c4a5f5e4e = テーマ名は必須です。
-source-9dcad5b0faa3464e = テーマ パッケージが 16 MiB を超えています
-source-cda89cefef512daa = テーマのプレビュー
-source-aeeccb48a983e8c4 = テーマが削除されました。
-source-058f7d5c23975083 = テーマ設定
-source-5d6f5166d7611031 = テーマスターターは有効なパレットのみを提供する必要があります
-source-3b9241edd1cb076b = テーマ ショップ ストア カタログ インポート コミュニティ 外観の色
-source-1988bbfa1d43f9a1 = 次に標準の絵文字
-source-d07ee197637159ae = サーバーが多すぎるため、まとめて更新できません。個別のサーバーを選択します。
-source-649d4c6bf7d1d183 = アクティブな画面共有はありません
-source-6e286eff60bc0746 = アクティブな音声通話はありません
-source-c9d06fbde78f3a20 = 視聴されているストリームはありません
-source-5976a9ab9dbecb62 = これらの設定は、暗い外観と明るい外観に適用されます。
-source-4642fa585a9d5014 = 彼ら/彼ら
-source-cfb4fc36243ce25a = 新しい招待を使用して再参加できます。
-source-1f9d1894af8dce52 = THIRD_PARTY_NOTICES.md
-source-042d8e499a4ef676 = このアカウント
-source-3b3fe4e829af3e8e = この操作は元に戻すことができません。
-source-13135ba78d840d02 = このアクションは利用できなくなりました。アプリデータを更新する
-source-4ce21aadf845122c = このアクションは、現在の権限、データ、または保留中の操作では使用できません。
-source-dfe333b3c0bb720f = このアクションは、現在の権限、ロードされたデータ、または保留中の操作では使用できません。
-source-3b3c3da1df9874d7 = このビルドには無効なバージョンがあります。
-source-cb2f6eed034bed6e = これを元に戻すことはできません。
-source-4fd7904698faaefc = このチャンネルにはありません
-    固定されたメッセージはまだありません。
-source-707517521dfcc516 = このチャネルは現在のセッションでは読み取れません
-source-3e593875a0c6a513 = このコマンドは使用できません。あなたの議論は維持されます。
-source-4c857ba61c1b8e7a = この会話にはアクセスできなくなりました
-source-1561d5a524b51ffb = この宛先はデフォルトのブラウザで開きます。
-source-3601a9a67180f781 = このダイレクトメッセージには、
-    固定されたメッセージはまだありません。
-source-a4d8ec041d3dcff7 = このDMにはすでに下書きがあります。 /msg テキストは元の会話に残されました。
-source-b10a8f60d67ebd26 = この絵文字はアップロードできません。その名前、利用可能なスロット、および権限を確認してください。
-source-71794532ecd13de1 = このフォントには、判読可能なテキストまたはアウトラインがありません。
-source-7df10ece44880997 = このフォーラムにはタグが必要です
-source-bda837b1cf24f07d = このグループはもう利用できません
-source-fbf1c5583ada88cc = この着信はもう利用できません
-source-64d95f6ebf138c84 = この統合は利用できなくなりました。
-source-8e108f5640c03166 = この招待は有効期限が切れている可能性があります
-source-f87f9f46087a1aec = これは
-source-7191b9a9f8aaf247 = この役割を持つメンバーが登場します。
-source-0d25765d35fe3d6e = これは、サインインに使用しているアカウントです。ログアウトされ、このデバイスに保存されているログイン情報、キャッシュされた履歴、および下書きが削除されます。
-source-b4a63cbef3d9a730 = これが会話の始まりです。
-source-86255480b6339b5b = これは、システム イベント メッセージの送信先チャネルです。
-source-a6e7aedea22b0d1d = この古いテーマでは、元の画像配置が使用されています。
-source-77968b5f7dd56753 = このプラットフォームではアプリ内にアップデートをインストールできません。
-source-21c6fe9bbefdb3e0 = このリモート参加者はもう通話に参加していません
-source-2b0f39bdb3a934b7 = この役割
-source-7909fbef160a71cb = このロールは移動できません。役割を再ロードし、権限を確認してください。
-source-2cbf54163f5500c5 = このロールは最上位のロールの上にあり、読み取り専用です。
-source-d005eb8b27dbe57c = このロールは統合によって管理されます。
-source-61289a85eb22830f = この検索は利用できないか無効です
-source-ff7c20ca699ff4f0 = このサーバー
-source-3d778964d89d4a72 = このサーバードラフトは利用できなくなりました
-source-c2006cfaea6b0b4e = このサーバーにはカスタム絵文字がありません。
-source-53d2e311cb54d2bf = このサーバーにはまだステッカーがありません。
-source-d3e60090d1ef570e = このサーバーの絵文字リストはまだロードされていません。
-source-9c6fa9a111096b28 = このスタンプは現在の会話では使用できません
-source-9e221a2b4712ce9b = このステッカーは、現在の接続または権限では使用できません。
-source-b7b0f7be8590123a = このストリームは利用できなくなりました
-source-d89880e8920c9e64 = この合成メッセージがスレッドを開始しました。返信は以下に続きます。
-source-62432088ac9f6108 = このテーマは別のパッケージに属しています。保存する前に複製してください
-source-52e53b1e3a32527c = このユーザーは確認済みの友達ではなくなりました。
-source-565e7a0170cb18d3 = このユーザーは現在のセッションでは利用できません
-source-54d079df157eb6f3 = このユーザーは現在のセッションでは認識されていません
-source-26ab1d6dc7d4884f = このビデオは再生用に変換できませんでした
-source-b2308466af951f68 = このビデオの再生には FFmpeg が必要です。 FFmpeg をインストールして再試行してください。
-source-d660fedd50fc7600 = これにより、通知設定を明示的に設定していないメンバーが、このサーバーで送信されるすべてのメッセージについて通知を受け取るかどうかが決まります。
-source-9843eeda70cff191 = 糸
-source-bf3d9db84273773d = スレッドのデバッグ チェックに合格しました: 画像投稿のディスパッチ許可、作成された投稿、4 つの開かれたスレッド、最新のものから順。
-source-d088e9af77a6bc48 = スレッド名
-source-52aa5293477aa3c3 = このメッセージからスレッドが開始されました
-source-8b60bf2db1580306 = スレッド
-source-e8a4a7f2b614d5a6 = この会話ではスレッドを利用できません
-source-ce141c82a8513704 = タイムアウトしました
-source-d484a2bc8ec7434b = AutoMod でタイムアウトしたメンバー
-source-52988c02510c87dc = タイムラインのライブエッジが解決されました
-source-935f34d5f97f5ad4 = タイムラインメッセージの高さの修正
-source-a61c1b7a70d8d13b = タイムアウトメンバー
-source-4ee230b71ef2280d = タイムスタンプとサポートテキスト
-source-5b74edbe25f7d75c = バナー画像を設定していない場合に、バナーに色合いを付けます。
-source-99f110d27e30b289 = タイトル
-source-63d040e37887f17e = 今日
-source-1cc759a3bd3d3eb8 = 削除されたハイライトの切り替え
-source-44ced5fa9cb07445 = TOML
-source-480b227ca618e526 = 明日
-source-5c7042a5045f335e = 拡張機能ダウンロードのリダイレクトが多すぎます
-source-4838fdc9562c3eb8 = インストールされている拡張機能が多すぎます
-source-c26501e3ade7da3c = ツール
-source-6d02dc19e21eb49c = トップ
-source-eddea32341d37146 = トップバー
-source-11cc72e3db49fec4 = トピック
-source-fe090d65673b8ac5 = 追跡された効果は発送前に正規化されます
-source-35f050478b2b516a = 特性名
-source-b43b9774a77751c8 = 特性
-source-08e22a2dc90d9557 = 透明性
-source-8f7f491559b25d06 = 透明度とぼかし
-source-61124b362cbc1517 = トレイが使用できません。 StatusNotifier ホストを起動し、トレイのオフ/オンを切り替えます。
-source-8b109f5e2f5cc247 = トレイが使用できません。ウィンドウは表示されたままになります。
-source-d0dc7e9089e3a6a7 = トレンドのGIF
-source-704e59fab561c2a5 = 真実
-source-85ea99fb52be3385 = 真実
-source-635784d63b82506c = チャンネル、サーバー、または人の名前を試してください。
-source-034caf9874550626 = 別の名前または作成者を試してください。
-source-68ec73f5474c88b4 = 別の検索語を試してください。
-source-cd1dd6ff53d0d01a = もう一度やり直してください
-source-18d16b5d097b1d40 = TTF または OTF、最大 8 MiB。このデバイスに保存されます。コードは等幅フォントを維持します。
-source-49c2a4ee7987367a = カメラをオフにする
-source-d8347c2715f51c83 = 受信音声をオフにする
-source-ff918c14d2ef950d = マイクをオフにする
-source-f49e43ecc2b661a6 = ノイズ抑制をオフにする
-source-876fdaf82de17a4e = カメラをオンにする
-source-452c31207918c2e7 = 受信音声をオンにする
-source-09cb00c31da2f2c9 = マイクをオンにする
-source-8434cc9287f005ca = ノイズ抑制をオンにする
-source-8755e35dddf6b4fb = トゥエモジ 17.0.3
-source-de3bc2bfb3a73e2a = けいれん
-source-6997ea31ebe06cf3 = 上にクエリを入力して Enter キーを押します。
-source-d3e7d077a37a663a = メンバーを検索するには入力します。利用可能な役割とチャネルがリストされます
-source-89758ae8b9a73e02 = TypeScript
-source-4b4afa8bcb02d5ac = タイポグラフィ
-source-af64084c86023750 = U
-source-4dd1f7efd08e6421 = UInt
-source-6597cbdc04319ae9 = ulimit -f 131072 || 1番出口。 「$@」を実行
-source-74d3b973117d6a0e = 現在このサーバーを作成できません。
-source-27007d1e259af30d = プロファイルの一部をロードできません
-source-c3aff5e6f92347ed = 続行できません。接続を確認するか、現在のリクエストの後に再試行してください。
-source-f71a90bc017f1e80 = アーカイブを解除する
-source-43e9aef7aa01fca9 = 利用不可
-source-cac61dd87983a242 = 利用できないチャンネル
-source-50f5271061b2eeeb = 合成アタッチメントには使用できません
-source-64ceb1abd74fcbd0 = 禁止されていないメンバー
-source-865b6f4c6920e17f = ブロックを解除する
-source-4bab7c95bcfbd464 = 不確実
-source-f30bda2b29ab6cd5 = 聴覚障害者
-source-f2ad55e2808940b6 = 耳をつんざく音
-source-8f4be9f086eb530f = 元に戻す
-source-33e83ac676f67e20 = 予期しない添付ファイルのエンコーディング。会話をリロードする
-source-0f048c425eaa1ec4 = 予期しないビデオオーディオトラック
-source-5da7d55d65cc6e32 = 予期せぬビデオトラック
-source-7f6c9aa6ca96b7c7 = フォローを解除する
-source-5c9aef301d36cfc7 = 投稿のフォローを解除する
-source-b52e8dfdaf5e5d31 = スレッドのフォローを解除する
-source-0adf9fe574fae88d = サーバーのグループを解除する
-source-8f26e0f086cc2787 = ユニット
-source-c592307ea80f16b9 = 未知
-source-9e33a77f873f41f9 = 不明なアクション
-source-a8a87669cabacf92 = 不明なチャンネル
-source-b968b22d700c2690 = 不明なチャネルタイプ · 実装されていません
-source-cf313c941485315d = 不明なチャネル、ロードチャネル
-source-a7ee0e617cd83e3c = 不明な招待者
-source-2d93c7d5885f85b2 = 不明な時間
-source-88e4a2cee2cad378 = 不明なユーザー
-source-5d303fbc88281c15 = ロックを解除する
-source-abc02fbabb75c121 = 投稿のロックを解除する
-source-89b287e09039529f = スレッドのロックを解除する
-source-c07837c309cc699b = ミュートを解除する
-source-0a9380677e9f27e8 = チャンネルのミュートを解除する
-source-205f3418f8897e4a = 会話のミュートを解除する
-source-3352e14c87c097d3 = 投稿のミュートを解除する
-source-c26538522ff378d8 = サウンドのミュートを解除する
-source-7aa13a7b5cae8285 = スレッドのミュートを解除する
-source-b26035b596566abf = 無名
-source-3e65416219e37321 = 非公式クライアントはあなたの Discord アカウントを危険にさらす可能性があります。
-source-bc0cd0b4dfb7dde1 = 固定を解除する
-source-3d803329fa4ff8a8 = DMの固定を解除
-source-ea5244afaa2e399a = メッセージの固定を解除する
-source-ea740aa67a0ee115 = 投稿の固定を解除する
-source-ca6ad52d56f739bb = スレッドのピンを外す
-source-32f3b79fc535d32b = 固定されていないメッセージ
-source-ec898b17fe11a51d = 未読バッジ
-source-f222181de7c67922 = 未読メッセージ
-source-d1f156e084917946 = 未読ナビゲーションは利用できません
-source-a28269a53e5be713 = 未レビュー
-source-309de19bfe7b8d61 = 未レビューのパッケージ — そのソースはカタログ用にレビューされていません。
-source-5dd76b398166e864 = 未保存の変更
-source-6e6e4d288ea76fc4 = 未保存の変更
-source-ae896376665aaf83 = 保存されていないテーマの変更は破棄されます。
-source-a8cfdfb1a70389b3 = サポートされていないアプリのアクション
-source-8281e54007e43760 = サポートされていないアートワーク画像形式
-source-3f12316c0f1e4e22 = サポートされていないオーディオ出力形式
-source-4d6d8f6628ae83c5 = サポートされていないコンポーネントの種類
-source-b7364a3171008634 = サポートされていない絵文字またはステッカーのアートワーク
-source-2644d45f02f86682 = サポートされていないフォームフィールドタイプです
-source-053b201d40c22d36 = オーディオがサポートされていない、または破損している。ダウンロードして外部で再生する
-source-e2515175ae6a110d = サポートされていない、または無効なデルタ メタデータです。
-source-b98c3cc9dacb86bd = サポートされていない、または無効な画像データ
-source-a309fe24d6f91895 = サポートされていないビデオオーディオサンプルレート
-source-ac3807db50413d01 = サポートされていないビデオオーディオタイミング
-source-bd929eeedda18cc0 = 再び電源を入れるまで
-source-f317a756638a78e4 = 信頼できない発信元が受け入れられました。
-source-f3c2534cc5bfb6d2 = 信頼できない更新のリダイレクト
-source-197d8f717bef5c90 = 異常な DM アクティビティ
-source-1c9de3571623fb49 = まで
-source-8b0432eecbd8b034 = アップデート
-source-6c410fedda2a575f = 利用可能なアップデート
-source-018198064ad0e0fb = 更新がキャンセルされました。
-source-566c2f6082f1215e = デバッグ ビルドでは更新チェックが無効になります。
-source-06b36f3061f9d3a9 = アップデートをダウンロードして確認しました。準備ができたら再起動します。
-source-2332eba59310a2ad = アップデートの準備ができました。 Serein を閉じてインストールし、再起動します。
-source-da78e3983d6fb761 = 設定を更新する
-source-97a98b40b90f56b1 = 更新サイズのオーバーフロー。
-source-b6ec4dcb17961197 = ステッカーの名前、説明、関連する絵文字を更新します。
-source-5e50246c00d5a4d7 = アプリケーションコマンドの権限を更新しました
-source-b56f7e456ae1c6f1 = AutoMod ルールを更新しました
-source-19648a7f257a967b = 更新されたチャンネル
-source-717a5ce99cd89cb7 = 更新されたチャネル権限の上書き
-source-ebc9fe298e29d18e = 絵文字を更新しました
-source-c7475879f840e9c8 = ホーム設定を更新しました
-source-1ec12f34a4ac8fe2 = 統合の更新
-source-83862a8c345f2f79 = 招待状を更新しました
-source-98d292e3f05569e2 = メンバーを更新しました
-source-f54d6f3bc3f1cf27 = メンバーの役割を更新しました
-source-ef65ac31dca18ef1 = オンボーディングの更新
-source-ceff81aa55954521 = オンボーディングプロンプトを更新しました
-source-434cbdc689391a60 = 更新された役割
-source-730f88e345d0cffb = 予定されているイベントを更新しました
-source-6d38e9960d2648ac = サーバー設定を更新しました
-source-f119284fd21a88fe = サウンドボードサウンドを更新
-source-82d0a94a8e0653ee = ステージを更新しました
-source-7db69c1f76797287 = ステッカーを更新しました
-source-f60be1ebfea12600 = スレッドを更新しました
-source-9412f1a3e9e7a721 = 更新された Webhook
-source-10d2d2c4613388a5 = アップデート
-source-8dbc700d7081bf16 = アップデート 自動アップデート リリース チャネル プロダクション 安定した夜間ダウンロード 再起動 バージョンチェック 診断 問題 バグ システム情報 デバッグ
-source-4f2fb98ab3211849 = このチャンネルではまだ更新がチェックされていません。
-source-8fe6d943a7280051 = アップデートはまだチェックされていません。
-source-cb56be2d0ad7f517 = チャンネル設定を更新中…
-source-772b714e708eac24 = Discord のアクティビティ共有設定を更新しています...
-source-606696257ed9bdc8 = 統合を更新しています...
-source-2e6d61e5f98af3af = 招待状を更新中…
-source-963cace19c8b2f91 = 更新中…
-source-96668830629e0dfc = アップロード
-source-26649309e06f29a8 = 256 KiB 未満の画像をアップロードするか、Unicode 絵文字を選択してください。少なくとも 64×64 ピクセルをお勧めします。
-source-4925cebfca644a52 = 絵文字をアップロードする
-source-0c20b6d9b4589ba9 = アップロードキューがいっぱいです。ファイルを選択し直す
-source-2c2b41ea67ee7540 = アップロードサーバーアイコン
-source-08817a547ee51553 = ステッカーをアップロードする
-source-e6a492ac4ce9294e = アップロードは利用できません。ファイルを選択し直して再試行してください
-source-70a85d0fe45a6f62 = アップロード者
-source-16184f457965bc4d = URL解析
-source-baa3fde841a694a3 = USB カメラ (プレビュー)
-source-c0e9c95310a2e311 = #RRGGBB または #RRGGBBAA を使用してください
-source-7024572544c8240d = #RRGGBB または #RRGGBBAA を使用します。
-source-4cc45c54ecb5cbb2 = --demo --demo-friends --demo-frame-sample=WARMUP,SAMPLE を使用します (整数秒、ウォームアップ 1..600、サンプル 1..600)
-source-1505ac2b2b85b71f = 制御文字や予約名の Discord および Clyde を含まない 1 ～ 80 文字を使用します。
-source-39af8d17c90b393f = 2 ～ 30 文字の名前、オプションで最大 100 文字の説明、および関連する絵文字を少なくとも 1 つ使用します。
-source-e91102eec4179879 = 別のアカウントを使用する
-source-0e8db6c5b0897f25 = グラデーションを使用する
-source-22af7f67b411f1b6 = 2 ～ 100 文字のサーバー名、最大 300 文字の説明、および制御文字を含まない有効な特性を使用します。
-source-394f5beef344430e = 512 KB 以内に収まる静的な PNG、JPEG、または WebP 画像を使用してください
-source-38e2b9e2903cbda2 = 有効な HTTPS ソース URL を使用するか、これを空白のままにします。
-source-8506875a9d95f22c = 別のアカウントを使用する
-source-e2aa0fdd031da211 = デフォルトを使用
-source-082eda98d60c2a71 = デフォルトを使用する
-source-da9efeda30622cb9 = 外部絵文字を使用する
-source-b6e401e855387999 = 外部ステッカーを使用する
-source-a61278258feeb5fe = アプリ全体で画像を使用する
-source-80f2c74955ce0f1a = 会話やサイドバーの背後に 1 つの画像を使用します。
-source-ac82a2bf4d34f3cc = ロールを使用してサーバー メンバーをグループ化し、権限を割り当てます。
-source-373963a757aad586 = サーバーのデフォルトを使用
-source-bdf2acbd8baed86c = 組み込み値を使用する
-source-3e7a7d098fd26e18 = この外観にはデフォルトの色を使用します
-source-deeb874684a76a88 = ユーザー名を使用する
-source-359c1b2800819e19 = テーマを使用する
-source-db4138b28731611a = 制御文字を除く最大 128 文字を使用します。
-source-085e386bc279d562 = GIF またはステッカーの検索では、最大 64 文字を使用できます。
-source-ea30f5ebc20a0def = 音声アクティビティを使用する
-source-f2d7f3f661f7ea12 = 別のアプリがフォーカスされているときに音声ショートカットを使用します。オフの場合、ショートカットは Serein がフォーカスされている間のみ機能します。
-source-7cd026b3d5b072b8 = パッケージ マネージャーを使用して Serein を更新するか、リリースの AppImage を実行します。
-source-bdbd3d7392e197ab = ボタン、選択範囲、メッセージのハイライトに使用されます。
-source-4ccf7f0157938ae0 = 同じIDを使用しました
-source-a48f81f001b893d2 = ユーザー
-source-438b40ecd6a71435 = ユーザー参加音
-source-393eb187dca41d36 = ユーザーの退出音
-source-1894386083bb21c9 = ユーザーメニューアクション
-source-dbf32ffb36a04cfc = ユーザーが見つかりません。 /msg には、既知のユーザーのメンション、ID、または正確なユーザー名を使用します。
-source-99222edc4ca94f28 = ユーザーボリューム
-source-dee96918fab12b37 = ユーザー名にフラグが設定されました
-source-d48d652058c99bc6 = ユーザーがこのチャンネルのコンテンツを視聴するには、法定年齢に達していることを確認する必要があります。年齢制限のあるチャンネルは、露骨なコンテンツ フィルターの対象から除外されます。
-source-a48f82f001b89585 = 用途
-source-af640b4c86023c69 = V
-source-7f960a7f6584a6ae = 有効なアーカイブ パスが拒否されました。
-source-1e8c3529ec60fc49 = 検証済みのフォーカス
-source-d2528a48cacb6207 = バニティ URL
-source-7bb42119e9b1a3e5 = ベク
-source-37c408c8adb26d03 = 緑豊かな
-source-83f718b99a74cfa2 = 検証の有効期限が切れました。再度チェックを開始してください。
-source-df6f4d3511e31903 = 要検証
-source-ca4fb8fafd9b52e5 = 確認済み
-source-c2b6c18334a4a2c4 = 確認する
-source-f4122b220926be97 = バージョン
-source-4adb303afb07fa10 = バージョンの順序付けまたはタグの検証に失敗しました。
-source-2fba71bd651bdbfb = 垂直
-source-ace35f00865c76df = 非常に高い
-source-85186a61e0d55bac = ビデオ
-source-b88f655e46b2eb87 = ビデオ添付ファイルは利用できません
-source-d062b52546761372 = 映像音声出力停止
-source-4ac2f745c380142e = ビデオバッファリングが停止しました。再試行するかダウンロードして外部で再生する
-source-e677a5e19187c3da = ビデオ変換がキャンセルされたか、2 分を超えました
-source-687f454c60e0c80a = ビデオのダウンロードが失敗したか、変更されました。会話をリロードする
-source-7a3ffa8eba6f9db8 = ビデオプレビューの制限: 100 MiB
-source-d58ec87d257ef933 = ビデオのプレビュー・再生がブラウザで開きます
-source-9fcdaf9ce2522c7e = ビデオサーバーはバッファリングをサポートしていません。ダウンロードして外部で再生する
-source-fb9d6822e9069125 = ビデオテールが停止する
-source-6b61a1918b56fc96 = ビデオの音量
-source-61edf6112c6fa5cb = ビデオワーカーが停止しました。セレインを再起動する
-source-a6dfc67975360f88 = として表示
-source-3835a2eb415fc406 = バナーを見る
-source-f0984f41d2753eb0 = チャンネルを見る
-source-8cce57368168970f = ステッカーをもっと見る
-source-a5cd74c2a87ead44 = 元のメッセージを表示
-source-e064be780d0366cc = プレビューを表示する
-source-4cbf8491b23782cf = プロフィール写真を見る
-source-1eedbe2fbc47b270 = 反応を見る
-source-3082d635c024691d = ソースを見る
-source-c9995b81bd83d770 = スレッドを見る ›
-source-bfbbe039b5b9cb62 = 表示されている著者の検索を許可する必要があります
-source-038776cdc40e51d3 = 表示されるチャット GIF は自動的に再生されます。
-source-47a9f592c61daa59 = 声
-source-6a69760da73a4f0b = オフライン プレビューでは音声通話は利用できません
-source-1eeca30f38c7f552 = 音声チャンネル
-source-b5a9b8bf580de49e = 音声チャネルの許可
-source-16d935854997f12e = 音声接続
-source-961efd6c1cf29f9a = 音声接続が終了しました。新しい通話を明示的に開始する
-source-fb05803dcf7ce939 = 音声設備から電話があります
-source-12ef480e9aec4d92 = 音声が切断されます。通話は開始されませんでした
-source-e1b4d34ae94916a2 = このセッションでは音声を利用できません。
-source-ee6b1d49fb8920a1 = 音声分離
-source-c4b32afb9184bfad = 音声プレビュー
-source-38aae4c91fbd94ee = 音声プライバシーコード
-source-470d360ad8905858 = 音声処理
-source-2096e82cc9a23dad = 音声処理&入力モード
-source-b011ccab2cbc9798 = 音声サーバーが変更されました。新しい暗号化された通話を開始する
-source-dfd722899e87de45 = 接続中に音声セッションが変更されました。新しい通話を試してください
-source-e417beddf681f205 = 音声セッションが変更されました。新しい通話を開始する
-source-80c69d6618332cc6 = 音声設定
-source-e4e08cf3df7c04e6 = 音声設定
-source-577b531ff67a120b = 音声信号が切断されています。画面共有アクションが送信されませんでした
-source-ef55814d0fce6335 = 音声信号が切断されています。ストリームリクエストは送信されませんでした
-source-90a1996ca8517413 = 音声 ビデオ カメラ プレビュー オーディオ マイク スピーカー デバイス ボリューム ゲイン ノイズ抑制 プッシュ トゥ トーク
-source-4c5725b06e1f2cb7 = ボイス・名簿
-source-b286ca07fcecaabf = 空所
-source-5b528a7f6c0c40af = 音量
-source-ef927d35d549b315 = 音量 （％）
-source-af640a4c86023ab6 = W
-source-37f4274bc7c4e275 = 読み取り可能な現在のメッセージ履歴を待ちます
-source-28d6a51c6d87f7e6 = 保存されたログインの削除が完了するまで待ちます。
-source-479471eae833c01b = 現在の接続操作が完了するまで待ちます
-source-b8457fb381a208ff = 現在の絵文字画像の準備またはアップロードが完了するまで待ちます。
-source-c2ea0f3651b8d482 = 現在の貼り付けが完了するまで待ちます
-source-e55bd0d85dd08d0c = 現在の保存が完了するまで待ってから閉じてください。
-source-0e91eab83bc1da70 = 前のダイレクト メッセージが開くまで待ちます。
-source-f92d939ac4327a15 = 接続を待っています。
-source-e430b4836da108ba = Discordのログインを待っています
-source-4c565555b5817f89 = Discordを待っています…
-source-e5742c5172b9acba = 申請を待っています…
-source-c181f3020df2bafc = 前の通話が切断されるのを待っています。
-source-efe123eff3dc7ca5 = ストリーマーを待っています…
-source-7101dd2deff8fb99 = キャッシュされた履歴をクリアするのを待っています。キャッシュされた履歴が一時的に無効になります
-source-c3fa29b962c8d811 = 温かみのあるチャコールとゴールド、丸みを帯びた広々としたコントロール。
-source-40868a9aa75f20f5 = 温かみのあるコーヒーのトーンとクリーミーなキャラメルのアクセント。
-source-34be76c6b1eadbef = 警告
-source-0a0a36c999741088 = ストリームを見る
-source-0ebc660e93c4b560 = 見てる
-source-6d3c94995c337799 = ストリームを見る
-source-9f300702cb64b834 = 波
-source-b596f148a31b7d16 = コミュニティ サーバーの @メンションのみにこれを設定することを強くお勧めします。
-source-f8e4d4474e5bc624 = 少なくとも 512×512 の画像を推奨します。
-source-577977ef6b305426 = Webhook
-source-6d69fb7008bb9485 = Webhook 作成者
-source-d3bb20d3231f4c6f = Webhook
-source-3bf3b24b6fcd677c = WebRTC
-source-6d5853b56f3f0766 = おかえり
-source-ce18bd19ec376c06 = セレインへようこそ
-source-8f9c15bbb8ec6408 = 何を考えているの？
-source-0d89b09e531af16a = メッセージが送信されたとき
-source-ce5d20654a922851 = どこに行きたいですか？
-source-476b4192dc7278a4 = 有効期限が切れないもの
-source-749b6c726c1960eb = 有効にすると、カスタム絵文字またはステッカーを選択すると、画像添付ファイルがすぐに送信されます。
-source-ae3bcbd787941b05 = ウィジェット
-source-5c49cfa8045bc89d = ウィンドウ
-source-ff204ac178603ceb = ウィンドウの背景
-source-39215563bac98e77 = 窓の隅
-source-820ebad499d4c0a3 = ウィンドウ効果
-source-fcc663a2582664eb = ウィンドウのグラデーション
-source-58299ffc05b5c73a = ウィンドウのタイトルと会話ヘッダー
-source-2d34c87f67f66c6a = 窓
-source-3071ed12a0deedaa = 無制限に使用可能
-source-759ec4221a89f75c = 出典からの言葉
-source-1216ca21d66069cb = ワーカーが作成した
-source-73169ba3b8a0f98b = ワーカーはクリーンアップ レシーバーを所有します
-source-f31ea692dc630aae = ワーカーが開始しました
-source-4ea3930603447c5a = 最後のアクションに取り組んでいます
-source-142e390b955f4f74 = 働く…
-source-8864c20775805e00 = テキストをスポイラーマーカーで囲みます。
-source-de6362a1744a1bbc = 間違った AppImage アーキテクチャが受け入れられました。
-source-af64154c86024d67 = ×
-source-d3448a1a1b8f2095 = X64
-source-40970cbe1010db29 = x7fELFx02x01x01
-source-b3394d570128d7b2 = XDG_SESSION_TYPE
-source-af64144c86024bb4 = Y
-source-dd583e56281a195e = YAML
-source-5b4abc92ede53bc7 = 昨日
-source-cb6a9c1a1757adbc = あなた
-source-d8e8412a1cb116ed = あなたはすでにこのサーバーのメンバーです。
-source-89c3d70ffc45603d = あなたはすでに会員です。
-source-1a402bf2c2585fdd = あなたはすでにこの通話に参加しています。
-source-4a9c1c035a243d7f = この役割アイコンは変更できなくなりました
-source-c1c2537dfebd04ae = このサーバーを管理できなくなりました
-source-186ee238dbfc7285 = このサーバーに絵文字をアップロードできなくなりました
-source-cc3c58e5876b3d35 = このサーバーにステッカーをアップロードできなくなりました
-source-2c18dfb018d912b4 = このチャネルではスレッドを開始できません。
-source-76ce3141a1c3fb53 = この会話は表示できません。
-source-ac13390c7576a5dc = このチャンネルでこのコマンドを使用する権限がありません。
-source-020a64b5155ccd31 = 未保存の変更があります。
-source-b26b1a2412f8f712 = 招待を作成するには、チャネルでの招待の作成権限が必要です。
-source-8f79586ed215c2f2 = これらの設定を変更するには、「チャネルの管理」と「権限の管理」が必要です。
-source-1c7a8eed90437231 = この会話を変更する権限がありません。
-source-0ab41190f558a2ba = このチャンネルを管理する権限がなくなりました。
-source-9685685b933f743a = オフラインで表示されます
-source-8aa748c099f4f5c4 = 再参加するには招待状が必要です
-source-ad8a078d018c64f5 = 再度招待されない限り、このサーバーに再参加することはできません。
-source-2dc205839b740ab4 = デスクトップ通知は受信されません
-source-e6e4b6dcb80f5e9c = あなたはのメンバーです
-source-12c21b402cd2d2a4 = サーバーに参加するよう招待されました
-source-48fd2ebd801bef61 = あなたのアカウント
-source-76b709858b643e8c = あなたのアカウントはカスタムのゲーム内 DM 設定を使用しています。置き換えるオプションを選択します。
-source-b11634125ee78408 = お使いのアカウントはカスタムのスパム フィルター設定を使用しています。置き換えるオプションを選択します。
-source-f87d23e5aa7f501a = 通話マイクは現在の設定を維持します。
-source-21e2b1dfd199a58b = 変更は保存されていません。
-source-9415bd27ed29516a = このサーバーへの変更は失われます。
-source-e0100216ff74664c = 招待リンクの有効期限は次のとおりです
-source-b846f844f8d62fe7 = 招待リンクに有効期限はありません。
-source-a9d1dd5d6142477d = あなたの名前
-source-b737b4083287e83d = 保存すると写真は削除されます。
-source-5b880cce516ba3a2 = 外観の基本色がこのアクセントより優先されます。
-source-6f577c0bdac1d0c6 = あなたのプライバシー
-source-865005865360b572 = あなたの画面
-source-5a62d6c20c047243 = あなたの画面・ローカルプレビュー
-source-d3aeef586c5f0477 = サーバーはあなたと友達がたむろする場所です。自分で作って話しましょう。
-source-6cb85de5133a3e86 = あなたのステッカー
-source-8b1b348158ebc95f = このロールに対する未保存の変更は失われます。
-source-12ac16fdd201f4d1 = 保存されていない Webhook の変更は失われます。
-source-dcdd12bef40e339e = YouTube
-source-1f8972b051a58a65 = YYYY-MM-DD
-source-af64174c860250cd = Z
-source-91f4da69d58dc6c1 = ゼロはぼかしを無効にします。ネイティブ コンポジターはその正確な強度を制御します。
-source-e457191a25288af1 = ジグ
-source-166bd56d19670a72 = ズーム
-source-e480d638d81a9417 = ジッパー (RPM)
-source-e7f56f26713340f4 = チェシュティナ
-source-2271ddacfd0a1f7e = … 前
-source-d431526dc3eb18ac = ← 戻る
-source-547fba8644585336 = ← 役割に戻る
-source-3903e09ce17ed692 = ↑↓選択・Tab/Enter・挿入・Esc
-source-999c224c68c025f1 = ↪ 転送されました
-source-0bd7b459109bb979 = 🌙 合成データにある程度精通している
+# Context: list
+server-roles-list-delete-role = 役割の削除
+# Context: list
+server-roles-list-edit-role = 役割の編集
+# Context: list
+server-roles-list-edit-role-2 = 役割の編集
+# Context: list
+server-roles-list-members = メンバー
+# Context: list
+server-roles-list-members-use-the-color-of-the-highest-role-they-have = メンバーは、このリストで最も高い役割の色を使用します。役割をドラッグして順序を変更します。
+# Context: list
+server-roles-list-move-down = 下に移動
+# Context: list
+server-roles-list-move-up = 上に移動
+# Context: list
+server-roles-list-role-actions = ロールアクション
+# Context: list
+server-roles-list-roles = 役割
+# Context: list
+server-roles-list-roles-2 = 役割
+# Context: list
+server-roles-list-search-roles = 役割の検索
+# Context: list
+server-roles-list-unknown = 未知
+# Context: list
+server-roles-list-use-roles-to-group-your-server-members-and-assign-permissions = ロールを使用してサーバー メンバーをグループ化し、権限を割り当てます。
+# Context: members
+server-roles-members-add = 追加
+# Context: members
+server-roles-members-add-members = メンバーを追加する
+# Context: members
+server-roles-members-back-to-role-members = 役割メンバーに戻る
+# Context: members
+server-roles-members-first-page = 最初のページ
+# Context: members
+server-roles-members-next-page = 次のページ
+# Context: members
+server-roles-members-remove = 取り除く
+# Context: members
+server-roles-members-search-members = メンバーを検索する
+# Context: members
+server-roles-members-showing = 表示中
+# Context: navigation
+server-roles-navigation-back = ← 戻る
+# Context: navigation
+server-roles-navigation-create-role = ロールの作成
+# Context: permissions
+server-roles-permissions-search-permissions = 検索権限
+# Context: save_bar
+server-roles-save-bar-saving-role = 役割を保存中…
+# Context: show
+server-roles-show-loading-roles = 役割を読み込んでいます...
+# Context: show
+server-roles-show-reload-roles = 役割のリロード
+# Context: show
+server-roles-show-saving = 保存中...
+
+## crates/ui/src/server_settings.rs
+# Context: channel_picker
+server-settings-channel-picker-no-accessible-channels-available = アクセス可能なチャンネルがありません。
+# Context: channel_picker
+server-settings-channel-picker-no-inactive-channel = 非アクティブなチャンネルはありません
+# Context: channel_picker
+server-settings-channel-picker-no-system-messages-channel = システムメッセージチャネルがありません
+# Context: channel_picker
+server-settings-channel-picker-none = なし
+# Context: channel_picker
+server-settings-channel-picker-unavailable-channel = 利用できないチャンネル
+# Context: delete_dialog
+server-settings-delete-dialog-are-you-sure-you-want-to-delete = 削除してもよろしいですか
+# Context: delete_dialog
+server-settings-delete-dialog-cancel = キャンセル
+# Context: delete_dialog
+server-settings-delete-dialog-delete = 消去
+# Context: delete_dialog
+server-settings-delete-dialog-delete-server = サーバーの削除
+# Context: delete_dialog
+server-settings-delete-dialog-deleting = 削除中…
+# Context: delete_dialog
+server-settings-delete-dialog-enter-server-name = サーバー名を入力してください
+# Context: delete_dialog
+server-settings-delete-dialog-offline-preview-no-server-changes = オフライン プレビュー - サーバーの変更なし
+# Context: delete_dialog
+server-settings-delete-dialog-this-action-cannot-be-undone = この操作は元に戻すことができません。
+# Context: delete_server_button
+server-settings-delete-server-button-delete-server = サーバーの削除
+# Context: engagement
+server-settings-engagement-activity-feed-settings = アクティビティフィード設定
+# Context: engagement
+server-settings-engagement-all-messages = すべてのメッセージ
+# Context: engagement
+server-settings-engagement-automatically-move-members-to-this-channel-and-mute-them-when = メンバーが自動的にこのチャネルに移動し、非アクティブなタイムアウトを超えてアイドル状態が続いた場合にミュートします。これはブラウザには影響しません。
+# Context: engagement
+server-settings-engagement-configure-system-event-messages-sent-to-your-server = サーバーに送信されるシステム イベント メッセージを構成します。
+# Context: engagement
+server-settings-engagement-default-notification-settings = デフォルトの通知設定
+# Context: engagement
+server-settings-engagement-display-activity-feed-in-this-server = このサーバーのアクティビティ フィードを表示する
+# Context: engagement
+server-settings-engagement-engagement = 婚約
+# Context: engagement
+server-settings-engagement-inactive-channel = 非アクティブなチャネル
+# Context: engagement
+server-settings-engagement-inactive-timeout = 非アクティブなタイムアウト
+# Context: engagement
+server-settings-engagement-manage-settings-that-help-keep-your-server-active = サーバーをアクティブに保つための設定を管理します。
+# Context: engagement
+server-settings-engagement-only-mentions = @メンションのみ
+# Context: engagement
+server-settings-engagement-server-default = サーバーのデフォルト
+# Context: engagement
+server-settings-engagement-shows-a-feed-of-activity-from-games-and-connected-apps = このサーバー内のゲームや接続されているアプリからのアクティビティのフィードを表示します。
+# Context: engagement
+server-settings-engagement-system-messages = システムメッセージ
+# Context: engagement
+server-settings-engagement-system-messages-channel = システムメッセージチャネル
+# Context: engagement
+server-settings-engagement-this-is-the-channel-we-send-system-event-messages-to = これは、システム イベント メッセージの送信先チャネルです。
+# Context: engagement
+server-settings-engagement-this-will-determine-whether-members-who-have-not-explicitly-set = これにより、通知設定を明示的に設定していないメンバーが、このサーバーで送信されるすべてのメッセージについて通知を受け取るかどうかが決まります。
+# Context: engagement
+server-settings-engagement-we-highly-recommend-setting-this-to-only-mentions-for-a = コミュニティ サーバーの @メンションのみにこれを設定することを強くお勧めします。
+# Context: label
+server-settings-page-audit-log = 監査ログ
+# Context: page_body
+server-settings-page-body-load-server-settings = サーバー設定をロードする
+# Context: page_body
+server-settings-page-body-loading-server-settings = サーバー設定を読み込んでいます…
+# Context: page_body
+server-settings-page-body-reconnect-to-load-server-settings = 再接続してサーバー設定をロードします。
+# Context: page_body
+server-settings-page-body-reload-server-settings = サーバー設定をリロードする
+# Context: label
+server-settings-page-emoji = 絵文字
+# Context: label
+server-settings-page-engagement = 婚約
+# Context: label
+server-settings-page-integrations = 統合
+# Context: label
+server-settings-page-invites = 招待します
+# Context: label
+server-settings-page-members = メンバー
+# Context: label
+server-settings-page-profile = サーバープロファイル
+# Context: label
+server-settings-page-roles = 役割
+# Context: label
+server-settings-page-stickers = ステッカー
+# Context: preview
+server-settings-preview-established = 設立
+# Context: preview
+server-settings-preview-members = メンバー
+# Context: preview
+server-settings-preview-online = オンライン
+# Context: profile_form
+server-settings-profile-form-add-up-to-5-traits-to-show-off-your-server = 最大 5 つの特性を追加して、サーバーの興味や個性を誇示します。
+# Context: profile_form
+server-settings-profile-form-banner = バナー
+# Context: profile_form
+server-settings-profile-form-change-server-icon = サーバーアイコンの変更
+# Context: profile_form
+server-settings-profile-form-customize-how-your-server-appears-in-invite-links-and-if = 招待リンク、および有効な場合はサーバー検出メッセージとアナウンス チャネル メッセージでサーバーがどのように表示されるかをカスタマイズします。
+# Context: profile_form
+server-settings-profile-form-description = 説明
+# Context: profile_form
+server-settings-profile-form-how-did-your-server-get-started-why-should-people-join = サーバーはどのようにして起動されましたか?なぜ参加する必要があるのでしょうか?
+# Context: profile_form
+server-settings-profile-form-icon = アイコン
+# Context: profile_form
+server-settings-profile-form-name = 名前
+# Context: profile_form
+server-settings-profile-form-preparing-icon = アイコンを準備しています…
+# Context: profile_form
+server-settings-profile-form-remove-icon = アイコンを削除
+# Context: profile_form
+server-settings-profile-form-remove-trait = 特性を削除する
+# Context: profile_form
+server-settings-profile-form-server-profile = サーバープロファイル
+# Context: profile_form
+server-settings-profile-form-tell-the-world-a-bit-about-this-server = このサーバーについて少し世界に知らせてください。
+# Context: profile_form
+server-settings-profile-form-trait-name = 特性名
+# Context: profile_form
+server-settings-profile-form-traits = 特性
+# Context: profile_form
+server-settings-profile-form-we-recommend-an-image-of-at-least-512512 = 少なくとも 512×512 の画像を推奨します。
+# Context: save_bar
+server-settings-save-bar-reconnect-to-save-changes = 再接続して変更を保存します。
+# Context: save_bar
+server-settings-save-bar-reload-the-server-settings-before-saving-again-your-edits-will = 再度保存する前に、サーバー設定をリロードしてください。編集内容は保存されます。
+# Context: save_bar
+server-settings-save-bar-saving-changes = 変更を保存中…
+# Context: show
+server-settings-show-apps = アプリ
+# Context: show
+server-settings-show-expression = 表現
+# Context: show
+server-settings-show-moderation = 節度
+# Context: show
+server-settings-show-people = 人々
+# Context: timeout_picker
+server-settings-timeout-picker-minutes = 分
+
+## crates/ui/src/server_stickers.rs
+# Context: dialog
+server-stickers-dialog-cancel = キャンセル
+# Context: dialog
+server-stickers-dialog-delete-sticker = ステッカーを削除する
+# Context: dialog
+server-stickers-dialog-description-optional = 説明 (オプション)
+# Context: dialog
+server-stickers-dialog-name = 名前
+# Context: dialog
+server-stickers-dialog-related-emoji = 関連する絵文字
+# Context: dialog
+server-stickers-dialog-save = 保存
+# Context: show
+server-stickers-show-add-custom-stickers-for-members-to-use-in-this-server = メンバーがこのサーバーで使用できるカスタム ステッカーを追加します。アートワークはアップロード前にトリミングされ、320 × 320 ピクセルにサイズ変更されます。
+# Context: show
+server-stickers-show-by = による
+# Context: show
+server-stickers-show-cancel = キャンセル
+# Context: show
+server-stickers-show-delete-sticker = ステッカーを削除する
+# Context: show
+server-stickers-show-description-optional = 説明 (オプション)
+# Context: show
+server-stickers-show-edit = 編集
+# Context: show
+server-stickers-show-for-example = 例: 🐀
+# Context: show
+server-stickers-show-loading = 読み込み中…
+# Context: show
+server-stickers-show-name = 名前
+# Context: show
+server-stickers-show-no-custom-stickers-yet = カスタムステッカーはまだありません。
+# Context: show
+server-stickers-show-of = の
+# Context: show
+server-stickers-show-preparing-sticker-artwork = ステッカーのアートワークを準備しています…
+# Context: show
+server-stickers-show-related-emoji = 関連する絵文字
+# Context: show
+server-stickers-show-reload = リロード
+# Context: show
+server-stickers-show-review-sticker = レビューステッカー
+# Context: show
+server-stickers-show-saving-changes = 変更を保存中…
+# Context: show
+server-stickers-show-slots-used = 使用されたスロット
+# Context: show
+server-stickers-show-static-png-jpeg-and-webp-artwork-is-supported-up-to = 静的な PNG、JPEG、WebP アートワークは最大 8 MB までサポートされます。準備した PNG は、Discord の 512 KB 制限内に収まる必要があります。
+# Context: show
+server-stickers-show-sticker-actions = ステッカーのアクション
+# Context: show
+server-stickers-show-stickers = ステッカー
+# Context: show
+server-stickers-show-stickers-2 = ステッカー
+# Context: show
+server-stickers-show-upload = アップロード
+# Context: show
+server-stickers-show-upload-sticker = ステッカーをアップロードする
+# Context: show
+server-stickers-show-use-a-230-character-name-an-optional-description-up-to = 2 ～ 30 文字の名前、オプションで最大 100 文字の説明、および関連する絵文字を少なくとも 1 つ使用します。
+# Context: show
+server-stickers-show-your-stickers = あなたのステッカー
+
+## crates/ui/src/settings.rs
+# Context: account_page
+settings-account-page-closes-the-offline-fixture-nothing-is-stored-for-the-preview = オフラインフィクスチャを閉じます。プレビュー用に何も保存されません。
+# Context: account_page
+settings-account-page-display-name = 表示名
+# Context: account_page
+settings-account-page-edit-profile = プロフィールの編集
+# Context: account_page
+settings-account-page-email-password-and-security = メールアドレス、パスワード、セキュリティ
+# Context: account_page
+settings-account-page-offline-preview-synthetic-account = オフラインプレビュー・合成アカウント
+# Context: account_page
+settings-account-page-removes-the-saved-login-and-clears-this-account-s-local = 保存されたログインを削除し、このアカウントのローカル キャッシュと下書きをクリアします。
+# Context: account_page
+settings-account-page-session = セッション
+# Context: account_page
+settings-account-page-signed-in-with-your-discord-account = Discord アカウントでサインインしている
+# Context: activity_settings
+settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = 実行中のゲームを検出し、アクティビティとして共有するように Discord に依頼します。
+# Context: activity_settings
+settings-activity-settings-share-game-activity = ゲームアクティビティを共有する
+# Context: appearance_menu
+settings-appearance-menu-display = 画面
+# Context: appearance_menu
+settings-appearance-menu-mode = モード
+# Context: appearance_menu
+settings-appearance-menu-theme = テーマ
+# Context: appearance_settings
+settings-appearance-settings-accent = アクセント
+# Context: appearance_settings
+settings-appearance-settings-apply-to-all-surfaces = すべての表面に適用
+# Context: appearance_settings
+settings-appearance-settings-blur = ぼかし
+# Context: appearance_settings
+settings-appearance-settings-choose-primary-color = 原色を選択してください
+# Context: appearance_settings
+settings-appearance-settings-include-sidebars-server-rail-headers-and-composer = サイドバー、サーバー レール、ヘッダー、およびコンポーザーが含まれます。
+# Context: appearance_settings
+settings-appearance-settings-primary-color = 原色
+# Context: appearance_settings
+settings-appearance-settings-reset = リセット
+# Context: appearance_settings
+settings-appearance-settings-restart-serein-after-changing-this-themes-can-customize-effects-while = これを変更した後、Serein を再起動します。テーマは有効になっている間、効果をカスタマイズできます。
+# Context: appearance_settings
+settings-appearance-settings-the-active-theme-brings-its-own-accent-it-takes-over = アクティブなテーマが独自のアクセントをもたらします。テーマの使用中はそれが引き継がれます。
+# Context: appearance_settings
+settings-appearance-settings-theme = テーマ
+# Context: appearance_settings
+settings-appearance-settings-transparency = 透明性
+# Context: appearance_settings
+settings-appearance-settings-transparency-blur = 透明度とぼかし
+# Context: appearance_settings
+settings-appearance-settings-used-for-buttons-selection-and-message-highlights = ボタン、選択範囲、メッセージのハイライトに使用されます。
+# Context: appearance_settings
+settings-appearance-settings-window-effects = ウィンドウ効果
+# Context: appearance_settings
+settings-appearance-settings-zero-disables-blur-the-native-compositor-controls-its-exact-strength = ゼロはぼかしを無効にします。ネイティブ コンポジターはその正確な強度を制御します。
+# Context: chat_settings
+settings-chat-settings-channel-list = チャンネルリスト
+# Context: chat_settings
+settings-chat-settings-show-channels-you-cannot-currently-access = 現在アクセスできないチャンネルを表示します。
+# Context: chat_settings
+settings-chat-settings-show-hidden-channels = 隠しチャンネルを表示する
+# Context: close_control
+settings-close-control-close-settings-esc = 設定を閉じる (Esc)
+# Context: colour_preset_settings
+settings-colour-preset-settings-colour-preset = カラープリセット
+# Context: colour_preset_settings
+settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = あなたの容姿とともに保存されました。グラデーション プリセットでは常に暗いテキストが使用されます。
+# Context: storage_page
+settings-storage-page-clear-cache = キャッシュをクリアする
+# Context: storage_page
+settings-storage-page-local-storage = ローカルストレージ
+# Context: storage_page
+settings-storage-page-messages-and-drafts-are-cached-on-this-device-inside-bounded = メッセージと下書きは、このデバイス上の制限されたアカウント分離ファイル内にキャッシュされます。キャッシュ データは Serein によって暗号化されません。保存されたログイン トークンは OS 資格情報ストアを使用します。
+# Context: storage_page
+settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-stay = キャッシュされたメッセージとメディアを削除します。下書きとログインはそのまま残ります。
+# Context: storage_page
+settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein はテレメトリを収集したり、診断をアップロードしたりしません。 Discord は、独自のポリシーに従ってサービス側のデータを保持します。
+# Context: storage_page
+settings-storage-page-your-privacy = あなたのプライバシー
+
+## crates/ui/src/slash_commands.rs
+# Context: argument
+slash-commands-argument-attachment-arguments-are-not-supported-yet = 添付ファイルの引数はまだサポートされていません。
+# Context: argument
+slash-commands-argument-choose = 選ぶ…
+# Context: argument
+slash-commands-argument-false = 間違い
+# Context: argument
+slash-commands-argument-id-or-choose = ID または選択…
+# Context: argument
+slash-commands-argument-not-set = 未設定
+# Context: argument
+slash-commands-argument-true = 真実
+# Context: argument
+slash-commands-argument-unavailable = 利用不可
+# Context: composer
+slash-commands-composer-choose-a-different-command = 別のコマンドを選択してください
+# Context: composer
+slash-commands-composer-command-unavailable-your-arguments-are-kept = コマンドは使用できません。あなたの議論は維持されます。
+# Context: footer
+slash-commands-footer-refresh-application-commands = アプリケーションコマンドを更新する
+
+## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-loading-sticker-details = ステッカーの詳細を読み込んでいます…
+# Context: message
+stickers-message-retry-sticker-details = リトライステッカー詳細
+# Context: message
+stickers-message-sticker = ステッカー
+# Context: message
+stickers-message-sticker-details-unavailable = ステッカーの詳細は不明です。
+# Context: message
+stickers-message-this-is-a = これは
+# Context: message
+stickers-message-view-more-stickers = ステッカーをもっと見る
+# Context: show
+stickers-show-loading-sticker-packs = ステッカー パックを読み込み中…
+# Context: show
+stickers-show-nitro-is-required-to-use-this-sticker-outside-its-server = Nitro は、このステッカーをサーバー外で使用する必要があります。
+# Context: show
+stickers-show-no-stickers-found = ステッカーが見つかりませんでした。
+# Context: show
+stickers-show-showing-the-first-500-stickers-search-to-narrow-the-results = 最初の 500 個のステッカーを表示します。検索して結果を絞り込みます。
+# Context: show
+stickers-show-this-server-has-no-stickers-yet = このサーバーにはまだステッカーがありません。
+# Context: show
+stickers-show-this-sticker-is-unavailable-with-the-current-connection-or-permissions = このステッカーは、現在の接続または権限では使用できません。
+
+## crates/ui/src/switcher.rs
+# Context: show
+switcher-show-close = 近い
+# Context: show
+switcher-show-conversations-and-friends = 会話と友達
+# Context: show
+switcher-show-finish-composing-text-before-opening-or-closing = テキストを開く前または閉じる前に、テキストの作成を完了してください。
+# Context: show
+switcher-show-no-conversations-or-friends-match = 会話も友達も一致しない
+# Context: show
+switcher-show-results = 結果
+# Context: show
+switcher-show-try-a-channel-server-or-person-name = チャンネル、サーバー、または人の名前を試してください。
+# Context: show
+switcher-show-where-would-you-like-to-go = どこに行きたいですか？
+
+## crates/ui/src/theme_editor.rs
+# Context: appearance_switch
+theme-editor-appearance-switch-colors-and-opacity-are-saved-separately-for-dark-and-light = 色と不透明度は、暗い外観と明るい外観に分けて保存されます。
+# Context: appearance_switch
+theme-editor-appearance-switch-dark = 暗い
+# Context: appearance_switch
+theme-editor-appearance-switch-editing = 編集
+# Context: appearance_switch
+theme-editor-appearance-switch-light = ライト
+# Context: color_input
+theme-editor-color-input-use-rrggbb-or-rrggbbaa = #RRGGBB または #RRGGBBAA を使用してください
+# Context: color_override
+theme-editor-color-override-reset = リセット
+# Context: color_override
+theme-editor-color-override-use-rrggbb-or-rrggbbaa = #RRGGBB または #RRGGBBAA を使用します。
+# Context: color_override
+theme-editor-color-override-use-the-default-color-for-this-appearance = この外観にはデフォルトの色を使用します
+# Context: cover_card
+theme-editor-cover-card-automatic-preview = 自動プレビュー
+# Context: cover_card
+theme-editor-cover-card-choose-cover = カバーを選択してください
+# Context: cover_card
+theme-editor-cover-card-custom-cover = カスタムカバー
+# Context: cover_card
+theme-editor-cover-card-png-or-jpeg-up-to-2-mib-this-image-does = PNG または JPEG、最大 2 MiB。この画像はチャットの背景を変更しません。
+# Context: cover_card
+theme-editor-cover-card-remove = 取り除く
+# Context: cover_card
+theme-editor-cover-card-replace-cover = カバーを交換する
+# Context: description
+theme-editor-description-direct-messages-and-channel-navigation = ダイレクトメッセージとチャンネルナビゲーション
+# Context: description
+theme-editor-description-the-area-around-the-message-box = メッセージボックスの周囲
+# Context: description
+theme-editor-description-the-conversation-timeline = 会話のタイムライン
+# Context: description
+theme-editor-description-the-left-server-rail = 左側のサーバーレール
+# Context: description
+theme-editor-description-the-member-and-search-pane-on-the-right = 右側のメンバーと検索ペイン
+# Context: description
+theme-editor-description-window-title-and-conversation-header = ウィンドウのタイトルと会話ヘッダー
+# Context: image_card
+theme-editor-image-card-background-image = 背景画像
+# Context: image_card
+theme-editor-image-card-choose-image = 画像を選択してください
+# Context: image_card
+theme-editor-image-card-no-image-selected = 画像が選択されていません
+# Context: image_card
+theme-editor-image-card-pixels = ピクセル
+# Context: image_card
+theme-editor-image-card-png-or-jpeg-up-to-2-mib = PNG または JPEG、最大 2 MiB
+# Context: image_card
+theme-editor-image-card-remove = 取り除く
+# Context: image_card
+theme-editor-image-card-replace-image = 画像を置き換える
+# Context: label
+theme-editor-label-member-list = メンバーリスト
+# Context: label
+theme-editor-label-message-input-area = メッセージ入力エリア
+# Context: label
+theme-editor-label-message-list = メッセージ一覧
+# Context: label
+theme-editor-label-people-channels = 人とチャンネル
+# Context: label
+theme-editor-label-server-list = サーバーリスト
+# Context: label
+theme-editor-label-top-bars = トップバー
+# Context: metric_label
+theme-editor-metric-label-reset = リセット
+# Context: metric_label
+theme-editor-metric-label-use-the-built-in-value = 組み込み値を使用する
+# Context: section_controls
+theme-editor-section-controls-0-shows-the-image-100-is-a-solid-section-color = 0% shows the image. 100% はソリッドセクションカラーです。
+# Context: section_controls
+theme-editor-section-controls-selected-section = 選択したセクション
+# Context: section_controls
+theme-editor-section-controls-surface-opacity = 表面の不透明度
+# Context: show
+theme-editor-show-additional-colors-app-controls-and-sharing-details = 追加の色、アプリのコントロール、詳細の共有。
+# Context: show
+theme-editor-show-advanced = 高度な
+# Context: show
+theme-editor-show-app-background = アプリの背景
+# Context: show
+theme-editor-show-apply-to-all-surfaces = すべての表面に適用
+# Context: show
+theme-editor-show-blend-two-colors-behind-the-app-s-surfaces = アプリの表面の裏側で 2 つの色をブレンドします。
+# Context: show
+theme-editor-show-blur = ぼかし
+# Context: show
+theme-editor-show-card-cover = カードカバー
+# Context: show
+theme-editor-show-choose-an-image-to-adjust-the-top-bar-lists-and = 画像を選択して、トップバー、リスト、メッセージ領域を調整します。
+# Context: show
+theme-editor-show-choose-the-image-shown-on-your-theme-card-in-themes = [テーマ] でテーマ カードに表示される画像を選択します。
+# Context: show
+theme-editor-show-click-a-swatch-to-choose-a-color-or-enter-its = スウォッチをクリックして色を選択するか、その 16 進値を入力します。
+# Context: show
+theme-editor-show-conversation-colors = 会話の色
+# Context: show
+theme-editor-show-created-by = 作成者
+# Context: show
+theme-editor-show-creator-name-is-required = 作成者名は必須です。
+# Context: show
+theme-editor-show-export-theme = テーマのエクスポート
+# Context: show
+theme-editor-show-fill-area = 塗りつぶし領域
+# Context: show
+theme-editor-show-fit-entire-image = 画像全体をフィットさせる
+# Context: show
+theme-editor-show-how-your-theme-appears-in-the-gallery = テーマがギャラリーにどのように表示されるか。
+# Context: show
+theme-editor-show-image-opacity = 画像の不透明度
+# Context: show
+theme-editor-show-include-sidebars-server-rail-headers-and-composer = サイドバー、サーバー レール、ヘッダー、およびコンポーザーが含まれます。
+# Context: show
+theme-editor-show-license = ライセンス
+# Context: show
+theme-editor-show-license-and-version-are-required = ライセンスとバージョンが必要です。
+# Context: show
+theme-editor-show-more-colors = より多くの色
+# Context: show
+theme-editor-show-only-share-images-you-own-or-have-permission-to-use = 自分が所有する画像、または使用許可を得ている画像のみを共有してください。必要な帰属を保持してください。
+# Context: show
+theme-editor-show-override-the-default-appearance-setting-for-this-theme = このテーマのデフォルトの外観設定をオーバーライドします。
+# Context: show
+theme-editor-show-requires-transparency-blur-in-appearance-then-an-app-restart = 外観で透明性とぼかしを設定してからアプリを再起動する必要があります。
+# Context: show
+theme-editor-show-section-opacity = セクションの不透明度
+# Context: show
+theme-editor-show-select-an-area-then-choose-how-much-of-the-image = 領域を選択し、画像がどの程度透けて見えるかを選択します。
+# Context: show
+theme-editor-show-sharing-export = 共有とエクスポート
+# Context: show
+theme-editor-show-source-url = ソースURL
+# Context: show
+theme-editor-show-text-spacing-corners = テキスト、間隔、コーナー
+# Context: show
+theme-editor-show-the-license-and-version-are-required-a-source-url-is = ライセンスとバージョンが必要です。ローカル テーマの場合、ソース URL はオプションです。
+# Context: show
+theme-editor-show-theme-details = テーマの詳細
+# Context: show
+theme-editor-show-theme-name = テーマ名
+# Context: show
+theme-editor-show-theme-name-is-required = テーマ名は必須です。
+# Context: show
+theme-editor-show-these-settings-apply-to-dark-and-light-appearances = これらの設定は、暗い外観と明るい外観に適用されます。
+# Context: show
+theme-editor-show-this-older-theme-uses-its-original-image-placement = この古いテーマでは、元の画像配置が使用されています。
+# Context: show
+theme-editor-show-transparency = 透明性
+# Context: show
+theme-editor-show-transparency-blur = 透明度とぼかし
+# Context: show
+theme-editor-show-use-a-gradient = グラデーションを使用する
+# Context: show
+theme-editor-show-use-a-valid-https-source-url-or-leave-this-blank = 有効な HTTPS ソース URL を使用するか、これを空白のままにします。
+# Context: show
+theme-editor-show-use-image-across-the-app = アプリ全体で画像を使用する
+# Context: show
+theme-editor-show-use-one-image-behind-your-conversations-and-sidebars = 会話やサイドバーの背後に 1 つの画像を使用します。
+# Context: show
+theme-editor-show-use-rrggbb-or-rrggbbaa = #RRGGBB または #RRGGBBAA を使用します。
+# Context: show
+theme-editor-show-version = バージョン
+# Context: show
+theme-editor-show-window-effects = ウィンドウ効果
+# Context: show
+theme-editor-show-window-gradient = ウィンドウのグラデーション
+# Context: show
+theme-editor-show-your-primary-color-in-appearance-takes-precedence-over-this-accent = 外観の基本色がこのアクセントより優先されます。
+# Context: show
+theme-editor-show-zero-disables-blur-the-native-compositor-controls-its-exact-strength = ゼロはぼかしを無効にします。ネイティブ コンポジターはその正確な強度を制御します。
+# Context: key
+theme-editor-tab-advanced = 高度な
+# Context: key
+theme-editor-tab-background = 背景
+# Context: key
+theme-editor-tab-basics = 基本
+# Context: key
+theme-editor-tab-colors = 色
+# Context: toolbar
+theme-editor-toolbar-back = 戻る
+# Context: toolbar
+theme-editor-toolbar-preview-in-app = アプリでプレビュー
+# Context: toolbar
+theme-editor-toolbar-save-and-apply = 保存して適用する
+# Context: toolbar
+theme-editor-toolbar-unsaved-changes = 未保存の変更
+# Context: toolbar
+theme-editor-toolbar-working = 働く…
+
+## crates/ui/src/thread_create.rs
+# Context: show
+thread-create-show-cancel = キャンセル
+# Context: show
+thread-create-show-create = 作成する
+# Context: show
+thread-create-show-create-thread = スレッドの作成
+# Context: show
+thread-create-show-everyone-who-can-see-this-channel-can-see-the-thread = このチャンネルを閲覧できる人は誰でもスレッドを閲覧できます。
+# Context: show
+thread-create-show-the-selected-message-starts-the-thread-everyone-who-can-see = 選択したメッセージによってスレッドが開始されます。このチャンネルを閲覧できる人は誰でもスレッドを閲覧できます。
+# Context: show
+thread-create-show-thread-name = スレッド名
+
+## crates/ui/src/timeline.rs
+# Context: channel_welcome
+timeline-channel-welcome-this-is-the-beginning-of-the-conversation = これが会話の始まりです。
+# Context: deleted_message_actions
+timeline-deleted-message-actions-remove-message = メッセージの削除
+# Context: deleted_message_actions
+timeline-deleted-message-actions-toggle-deleted-highlight = 削除されたハイライトの切り替え
+# Context: loading_messages
+timeline-loading-messages-loading-messages = メッセージをロードしています
+# Context: message_actions
+timeline-message-actions-copy = コピー
+# Context: message_actions
+timeline-message-actions-create-thread = スレッドを作成…
+# Context: message_actions
+timeline-message-actions-delete-message = メッセージを削除…
+# Context: message_actions
+timeline-message-actions-edit-message = メッセージを編集する
+# Context: message_actions
+timeline-message-actions-extensions = 拡張機能
+# Context: message_actions
+timeline-message-actions-forward = フォワード
+# Context: message_actions
+timeline-message-actions-mark-read-through-here = マークはここを最後まで読みました
+# Context: message_actions
+timeline-message-actions-mark-unread = 未読としてマークする
+# Context: message_actions
+timeline-message-actions-pin-message = ピンメッセージ
+# Context: message_actions
+timeline-message-actions-reply = 返事
+# Context: message_actions
+timeline-message-actions-unpin-message = メッセージの固定を解除する
+# Context: message_actions
+timeline-message-actions-view-reactions = 反応を見る
+# Context: present_control
+timeline-present-control-jump-to-present = 現在へジャンプ
+# Context: present_control
+timeline-present-control-new-messages-below-jump-to-present = 新しいメッセージは以下にあります · 現在のメッセージにジャンプします
+# Context: show_system
+timeline-show-system-open-this-channels-threads = このチャンネルのスレッドを開く
+# Context: show_system
+timeline-show-system-see-all = 。全て見る
+# Context: show_with_scroll
+timeline-show-with-scroll-application-interaction-pending = アプリケーションのインタラクションが保留中…
+# Context: show_with_scroll
+timeline-show-with-scroll-deleted-message-had-no-text = [削除されたメッセージにはテキストがありませんでした]
+# Context: show_with_scroll
+timeline-show-with-scroll-dismiss-message = メッセージを閉じる
+# Context: show_with_scroll
+timeline-show-with-scroll-display-limited-copy-message-for-the-full-text = 表示制限・メッセージ全文コピー
+# Context: show_with_scroll
+timeline-show-with-scroll-edited = (編集済み)
+# Context: show_with_scroll
+timeline-show-with-scroll-forwarded = ↪ 転送されました
+# Context: show_with_scroll
+timeline-show-with-scroll-hide-spoilers = ネタバレを隠す
+# Context: show_with_scroll
+timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = 履歴はまだ利用できません。リロードを使用して再試行してください。
+# Context: show_with_scroll
+timeline-show-with-scroll-loading-messages = メッセージを読み込んでいます…
+# Context: show_with_scroll
+timeline-show-with-scroll-message-deleted = メッセージが削除されました
+# Context: show_with_scroll
+timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = 現在の権限情報ではメッセージ履歴を利用できません。
+# Context: show_with_scroll
+timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = まだメッセージはありません。以下で会話を始めてください。
+# Context: show_with_scroll
+timeline-show-with-scroll-only-you-can-see-this = これはあなただけが見ることができます •
+# Context: show_with_scroll
+timeline-show-with-scroll-open-in-discord = Discordで開く
+# Context: show_with_scroll
+timeline-show-with-scroll-reveal-spoiler-media = ネタバレメディ​​アを公開する
+# Context: show_with_scroll
+timeline-show-with-scroll-view-original-message = 元のメッセージを表示
+# Context: show_with_scroll
+timeline-show-with-scroll-wait-for-readable-current-message-history = 読み取り可能な現在のメッセージ履歴を待ちます
+# Context: show_with_scroll
+timeline-show-with-scroll-you-cannot-view-this-conversation = この会話は表示できません。
+# Context: starter_row
+timeline-starter-row-thread-started-from-this-message = このメッセージからスレッドが開始されました
+# Context: unread_banner
+timeline-unread-banner-unread-messages = 未読メッセージ
+
+## crates/ui/src/toasts.rs
+# Context: show
+toasts-show-dismiss = 却下する
+
+## crates/ui/src/updates.rs
+# Context: shows_update_banner
+updates-shows-update-banner-on-top = 上に
+# Context: shows_update_banner
+updates-shows-update-banner-restart-to-update = 更新するには再起動してください
+# Context: shows_update_banner
+updates-shows-update-banner-update-available = 利用可能なアップデート
+# Context: shows_update_banner
+updates-shows-update-banner-updating = 更新中…
+# Context: update_banner
+updates-update-banner-dismiss-update = 更新を閉じる
+# Context: update_settings
+updates-update-settings-auto-update = 自動更新
+# Context: update_settings
+updates-update-settings-check-for-updates = アップデートを確認する
+# Context: update_settings
+updates-update-settings-copied = コピーされました
+# Context: update_settings
+updates-update-settings-copy = コピー
+# Context: update_settings
+updates-update-settings-copy-command = コピーコマンド
+# Context: update_settings
+updates-update-settings-copy-system-and-client-environment-details-formatted-for-github-issue = GitHub の問題レポート用にフォーマットされたシステムおよびクライアント環境の詳細をコピーします。
+# Context: update_settings
+updates-update-settings-could-not-load-or-save-update-preferences-changes-may-not = 更新設定をロードまたは保存できませんでした。変更は再起動後に存続しない可能性があります。
+# Context: update_settings
+updates-update-settings-download-update = アップデートをダウンロード
+# Context: update_settings
+updates-update-settings-download-updates-in-the-background-restart-when-you-are-ready = バックグラウンドでアップデートをダウンロードします。準備ができたら再起動します。 Serein は起動時と、これがオフの場合でも定期的にチェックします。
+# Context: update_settings
+updates-update-settings-early-builds-with-the-newest-changes-nightly-releases-can-be = 最新の変更を加えた初期のビルド。夜間リリースは信頼性が低くなる可能性があります。
+# Context: update_settings
+updates-update-settings-finish-the-current-update-before-checking-again = 再度確認する前に、現在の更新を終了してください。
+# Context: update_settings
+updates-update-settings-flatpak-manages-updates-via-its-repository-run-flatpak-update-or = Flatpak はリポジトリ経由でアップデートを管理します。 「 flatpak update 」を実行するか、GNOME ソフトウェア/KDE Discover を使用して新しいリリースをインストールします。
+# Context: update_settings
+updates-update-settings-in-app-installation-requires-a-macos-or-windows-release-package = アプリ内インストールには、macOS または Windows リリース パッケージ、または Linux x86-64 AppImage が必要です。他の Linux インストールでは、パッケージ マネージャーを使用します。
+# Context: update_settings
+updates-update-settings-issue-diagnostics = 問題の診断
+# Context: update_settings
+updates-update-settings-nightly = 毎晩
+# Context: update_settings
+updates-update-settings-package-manager-updates = パッケージマネージャーのアップデート
+# Context: update_settings
+updates-update-settings-preferences = 設定
+# Context: update_settings
+updates-update-settings-production = 生産
+# Context: update_settings
+updates-update-settings-published-stable-releases-switching-channels-never-installs-an-older-ver = 安定版リリースが公開されました。チャンネルを切り替えても古いバージョンがインストールされることはありません。
+# Context: update_settings
+updates-update-settings-release-channel = リリースチャンネル
+# Context: update_settings
+updates-update-settings-restart-to-update = 更新するには再起動してください
+# Context: update_settings
+updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein はディストリビューション経由でインストールされました。ターミナルでこれを実行して更新します。
+# Context: update_settings
+updates-update-settings-support-diagnostics = サポートと診断
+# Context: update_settings
+updates-update-settings-update-checks-are-disabled-in-debug-builds = デバッグ ビルドでは更新チェックが無効になります。
+
+## crates/ui/src/user_menu.rs
+# Context: contents
+user-menu-contents-add-friend-nickname = 友達のニックネームを追加
+# Context: contents
+user-menu-contents-add-note = メモを追加
+# Context: contents
+user-menu-contents-block = ブロック
+# Context: contents
+user-menu-contents-close-dm = DMを閉じる
+# Context: contents
+user-menu-contents-edit-friend-nickname = 友達のニックネームを編集する
+# Context: contents
+user-menu-contents-mention = 言及
+# Context: contents
+user-menu-contents-mute-conversation = 会話をミュートする
+# Context: contents
+user-menu-contents-mute-this-direct-message-s-notifications-until-you-unmute-it = ミュートを解除するまで、このダイレクト メッセージの通知をミュートします。
+# Context: contents
+user-menu-contents-no-open-direct-message-with-this-user = このユーザーとのオープンなダイレクト メッセージはありません。
+# Context: contents
+user-menu-contents-pin-dm = ピンDM
+# Context: contents
+user-menu-contents-pinned-direct-messages-are-saved-on-this-device = 固定されたダイレクト メッセージはこのデバイスに保存されます。
+# Context: contents
+user-menu-contents-private-nicknames-are-available-for-confirmed-friends = 確認済みの友達にはプライベートニックネームが利用可能です。
+# Context: contents
+user-menu-contents-profile = プロフィール
+# Context: contents
+user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = この会話を DM リストから削除してください。メッセージは保存されます。
+# Context: contents
+user-menu-contents-unblock = ブロックを解除する
+# Context: contents
+user-menu-contents-unmute-conversation = 会話のミュートを解除する
+# Context: contents
+user-menu-contents-unpin-dm = DMの固定を解除
+
+## crates/ui/src/verification.rs
+# Context: show
+verification-show-cancel = キャンセル
+# Context: show
+verification-show-complete-the-check-to-join-this-server = このサーバーに参加するにはチェックを完了してください。
+# Context: show
+verification-show-complete-the-check-to-send-this-friend-request = この友達リクエストを送信するにはチェックを完了してください。
+# Context: show
+verification-show-discord-requires-a-security-check-before-you-can-add-this = Discord では、この人を追加する前にセキュリティチェックが必要です。
+# Context: show
+verification-show-discord-requires-a-security-check-before-you-can-join = Discord では、参加する前にセキュリティチェックが必要です。
+# Context: show
+verification-show-loading-verification = 検証を読み込み中…
+# Context: show
+verification-show-offline-preview-no-verification-service-is-contacted = オフライン プレビュー · 検証サービスは接続されません。
+# Context: show
+verification-show-one-quick-check = 簡単なチェックを 1 つ
+# Context: show
+verification-show-verification-required = 要検証
+# Context: show
+verification-show-verify = 確認する
+
+## crates/ui/src/video.rs
+# Context: show_player
+video-show-player-a-download-is-already-active = ダウンロードはすでにアクティブです
+# Context: show_player
+video-show-player-cancel = キャンセル
+# Context: show_player
+video-show-player-downloads-are-disabled-for-synthetic-attachments = 合成添付ファイルのダウンロードは無効になっています
+# Context: show_player
+video-show-player-pause = 一時停止
+# Context: show_player
+video-show-player-play = 遊ぶ
+# Context: show_player
+video-show-player-replay = リプレイ
+# Context: show_player
+video-show-player-resume = 再開する
+# Context: show_player
+video-show-player-retry = リトライ
+# Context: show_player
+video-show-player-seek-video = ビデオを探す
+# Context: show_player
+video-show-player-video = ビデオ
+# Context: show_player
+video-show-player-video-volume = ビデオの音量
+
+## crates/ui/src/voice.rs
+# Context: call_bar
+voice-call-bar-call-in-progress = 通話中
+# Context: call_bar
+voice-call-bar-incoming-call = 着信中…
+# Context: call_bar
+voice-call-bar-join-call = 通話に参加する
+# Context: call_bar
+voice-call-bar-reconnect-to-refresh-call = 再接続して通話を更新する
+# Context: call_controls
+voice-call-controls-disconnect = 切断する
+# Context: call_controls
+voice-call-controls-dismiss-call = 通話を終了する
+# Context: call_controls
+voice-call-controls-leaving-is-unavailable-in-the-offline-preview = オフライン プレビューでは退席することはできません。
+# Context: call_failure
+voice-call-failure-copy-failure-reason = コピー失敗の理由
+# Context: camera_settings_content
+voice-camera-settings-content-camera-capture-is-unavailable-on-this-platform = このプラットフォームではカメラ キャプチャは利用できません。
+# Context: camera_settings_content
+voice-camera-settings-content-camera-device = カメラデバイス
+# Context: camera_settings_content
+voice-camera-settings-content-changing-devices-stops-your-camera-and-takes-effect-the-next = デバイスを変更するとカメラが停止し、次回電源を入れたときに有効になります。
+# Context: camera_settings_content
+voice-camera-settings-content-refresh-cameras = カメラをリフレッシュする
+# Context: device_combo
+voice-device-combo-device-unavailable = デバイスが使用不可
+# Context: device_combo
+voice-device-default = システムのデフォルト
+# Context: frame
+voice-frame-open-voice = オープンな声
+# Context: gain_controls
+voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% が元のレベルです。レベルを高くすると歪む可能性があります。
+# Context: labels
+voice-labels-choose-camera = カメラを選択してください
+# Context: live_badge
+voice-live-badge-live = ライブ
+# Context: live_badge
+voice-live-badge-live-2 = ライブ
+# Context: live_badge
+voice-live-badge-streaming = ストリーミング
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-hear-yourself-through-your-selected-speakers-use-headphones-to-avoid = 選択したスピーカーから自分の声を聞いてください。フィードバックを避けるためにヘッドフォンを使用してください。
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-input-level = 入力レベル
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-leave-the-call-to-test-your-microphone-locally = 通話を終了してマイクをローカルでテストします。
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-microphone-test = マイクテスト
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-start-testing = テストを開始する
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-stop-testing = テストを停止する
+# Context: mute_toggle
+voice-mute-toggle-applies-to-your-next-call = 次回の通話に適用されます。
+# Context: mute_toggle
+voice-mute-toggle-controls-are-unavailable-in-this-build-or-preview = このビルドまたはプレビューではコントロールは使用できません。
+# Context: mute_toggle
+voice-mute-toggle-deafen = 聴覚障害者
+# Context: mute_toggle
+voice-mute-toggle-mute = ミュート
+# Context: mute_toggle
+voice-mute-toggle-speaking-is-unavailable-in-this-channel = このチャンネルでは話すことはできません。
+# Context: mute_toggle
+voice-mute-toggle-undeafen = 聴覚障害者
+# Context: mute_toggle
+voice-mute-toggle-unmute = ミュートを解除する
+# Context: mute_toggle_with_settings
+voice-mute-toggle-with-settings-input-settings = 入力設定
+# Context: mute_toggle_with_settings
+voice-mute-toggle-with-settings-output-settings = 出力設定
+# Context: stream_audio_controls
+voice-stream-audio-controls-mute-stream-audio = ストリーム音声をミュートする
+# Context: stream_audio_controls
+voice-stream-audio-controls-stream-volume = ストリームボリューム
+# Context: stream_tile
+voice-stream-tile-stream-audio = ストリームオーディオ
+# Context: stream_tile
+voice-stream-tile-stream-muted = ストリームミュート
+# Context: voice_audio_controls
+voice-voice-audio-controls-microphone = マイクロフォン
+# Context: voice_audio_controls
+voice-voice-audio-controls-microphone-unavailable-a-choose-another-input-you-are-still-connected = マイクが使用できません · 別の入力を選択してください。あなたはまだつながっています。
+# Context: voice_audio_controls
+voice-voice-audio-controls-refresh-devices = デバイスをリフレッシュする
+# Context: voice_audio_controls
+voice-voice-audio-controls-reset-levels = レベルをリセットする
+# Context: voice_audio_controls
+voice-voice-audio-controls-speakers = スピーカー
+# Context: voice_card_section
+voice-voice-card-section-camera-settings = カメラの設定
+# Context: voice_card_section
+voice-voice-card-section-disconnect = 切断する
+# Context: voice_card_section
+voice-voice-card-section-dismiss-call = 通話を終了する
+# Context: voice_card_section
+voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = マイクが使用できません · 接続されたままです。オーディオ設定で別の入力を選択します。
+# Context: voice_channel_button
+voice-voice-channel-button-connected = 、接続されています
+# Context: voice_channel_button
+voice-voice-channel-button-voice-channel = 音声チャンネル
+# Context: voice_channel
+voice-voice-channel-last-known-participants-a-reconnect-to-refresh = 最後に確認された参加者 · 再接続して更新する
+# Context: voice_channel
+voice-voice-channel-no-one-s-here-yet = まだ誰も来ていません
+# Context: voice_channel
+voice-voice-channel-participant-list-unavailable-while-disconnected = 切断中は参加者リストを利用できません
+# Context: voice_channel
+voice-voice-channel-participant-list-unavailable-with-the-current-access = 現在のアクセスでは参加者リストを利用できません。
+# Context: voice_participant
+voice-voice-participant-deafened = 耳が聞こえない
+# Context: voice_participant
+voice-voice-participant-deafened-by-server = サーバーによって聴覚障害者になる
+# Context: voice_participant_menu
+voice-voice-participant-menu-mute = ミュート
+# Context: voice_participant_menu
+voice-voice-participant-menu-reset-volume = 音量をリセットする
+# Context: voice_participant_menu
+voice-voice-participant-menu-silence-this-person-on-this-device-only-nobody-else-is = このデバイス上でのみこの人を沈黙させます。他の人は影響を受けません。
+# Context: voice_participant_menu
+voice-voice-participant-menu-unmute = ミュートを解除する
+# Context: voice_participant_menu
+voice-voice-participant-menu-user-volume = ユーザーボリューム
+# Context: voice_participant
+voice-voice-participant-microphone-muted = マイクがミュートされました
+# Context: voice_participant
+voice-voice-participant-muted-by-server = サーバーによってミュートされています
+# Context: voice_participant
+voice-voice-participant-muted-for-you-on-this-device = このデバイスではミュートされています
+# Context: voice_popup_content
+voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = すべての音声設定でアルゴリズムを選択します。
+# Context: voice_popup_content
+voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen は受信音声をオフにし、マイクをミュートします。
+# Context: voice_popup_content
+voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = 話したいときは、設定したショートカットを長押しします。
+# Context: voice_popup_content
+voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = これらのコントロールを使用するには、音声対応ビルドをインストールします。
+# Context: voice_popup_content
+voice-voice-popup-content-microphone = マイクロフォン
+# Context: voice_popup_content
+voice-voice-popup-content-microphone-gain = マイクゲイン
+# Context: voice_popup_content
+voice-voice-popup-content-microphone-unavailable-a-choose-another-input-you-are-still-connected = マイクが使用できません · 別の入力を選択してください。あなたはまだつながっています。
+# Context: voice_popup_content
+voice-voice-popup-content-noise-suppression = ノイズ抑制
+# Context: voice_popup_content
+voice-voice-popup-content-push-to-talk = プッシュして話す
+# Context: voice_popup_content
+voice-voice-popup-content-refresh-devices = デバイスをリフレッシュする
+# Context: voice_popup_content
+voice-voice-popup-content-reset-levels = レベルをリセットする
+# Context: voice_popup_content
+voice-voice-popup-content-speaker-volume = スピーカーの音量
+# Context: voice_popup_content
+voice-voice-popup-content-speakers = スピーカー
+# Context: voice_popup_content
+voice-voice-popup-content-voice-privacy-code = 音声プライバシーコード
+# Context: voice_processing_controls
+voice-voice-processing-controls-adjust-microphone-loudness-automatically = マイクの音量を自動的に調整します。
+# Context: voice_processing_controls
+voice-voice-processing-controls-applies-to-calls-and-your-local-microphone-test = 通話とローカルマイクテストに適用されます。
+# Context: voice_processing_controls
+voice-voice-processing-controls-automatic-gain-control = 自動ゲイン制御
+# Context: voice_processing_controls
+voice-voice-processing-controls-echo-cancellation = エコーキャンセル
+# Context: voice_processing_controls
+voice-voice-processing-controls-hold-your-configured-shortcut-when-you-want-to-speak = 話したいときは、設定したショートカットを長押しします。
+# Context: voice_processing_controls
+voice-voice-processing-controls-input-profile = 入力プロファイル
+# Context: voice_processing_controls
+voice-voice-processing-controls-input-threshold = 入力閾値
+# Context: voice_processing_controls
+voice-voice-processing-controls-mute-and-deafen-always-take-priority = ミュートと聴覚障害者が常に優先されます。
+# Context: voice_processing_controls
+voice-voice-processing-controls-noise-suppression = ノイズ抑制
+# Context: voice_processing_controls
+voice-voice-processing-controls-off = オフ
+# Context: voice_processing_controls
+voice-voice-processing-controls-only-transmit-sound-above-this-level-lower-values-pick-up = このレベルを超える音のみを送信します。値を低くすると、静かな音声が拾われます。
+# Context: voice_processing_controls
+voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-apply = マイクを開きます。ミュートとプッシュトゥトークは引き続き適用されます。
+# Context: voice_processing_controls
+voice-voice-processing-controls-push-to-talk = プッシュして話す
+# Context: voice_processing_controls
+voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = マイクが拾うスピーカーの音声を減らします。
+# Context: voice_processing_controls
+voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = キーボード、ファン、室内のノイズをマイクから除去します。
+# Context: voice_processing_controls
+voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see = マイクテストを開始するか、通話に参加して入力レベルを確認してください。
+# Context: voice_processing_controls
+voice-voice-processing-controls-suppression-strength = 抑制力
+# Context: voice_settings_content
+voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = オーディオ設定はこのデバイスに保存されます。マイクは、通話に参加するかテストを開始するときにのみ起動します。
+# Context: voice_settings_content
+voice-voice-settings-content-camera = カメラ
+# Context: voice_settings_content
+voice-voice-settings-content-compare-with-the-other-participants-this-code-changes-with-the = 他の参加者と比較してください。このコードは、暗号化された通話グループに応じて変更されます。
+# Context: voice_settings_content
+voice-voice-settings-content-devices-levels = デバイスとレベル
+# Context: voice_settings_content
+voice-voice-settings-content-install-a-voice-enabled-build-to-use-these-controls = これらのコントロールを使用するには、音声対応ビルドをインストールします。
+# Context: voice_settings_content
+voice-voice-settings-content-voice-privacy-code = 音声プライバシーコード
+# Context: voice_settings_content
+voice-voice-settings-content-voice-processing = 音声処理
+# Context: voice_settings_content
+voice-voice-settings-content-voice-processing-input-mode = 音声処理&入力モード
+# Context: voice_settings
+voice-voice-settings-output-settings = 出力設定
+# Context: voice_settings_popup
+voice-voice-settings-popup-all-voice-settings = すべての音声設定
+# Context: voice_settings_popup
+voice-voice-settings-popup-input = 入力
+# Context: voice_settings_popup
+voice-voice-settings-popup-output = 出力

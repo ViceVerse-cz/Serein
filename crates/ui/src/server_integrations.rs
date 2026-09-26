@@ -177,7 +177,10 @@ impl IntegrationsUi {
 				if ui
 					.add_enabled(
 						!self.has_changes(),
-						egui::Button::new(crate::i18n::translate("< Integrations")).frame(false),
+						egui::Button::new(crate::i18n::translate(
+							"server-integrations-show-integrations",
+						))
+						.frame(false),
 					)
 					.clicked()
 				{
@@ -191,16 +194,16 @@ impl IntegrationsUi {
 		ui.horizontal(|ui| {
 			ui.label(design::semibold(
 				ui,
-				crate::i18n::translate(match self.page {
-					Page::Overview => "Integrations",
-					Page::Webhooks => "Webhooks",
-					Page::Follows => "Channels Followed",
-					Page::App(_) => "Manage Integration",
+				crate::i18n::translate_if_key(match self.page {
+					Page::Overview => "server-integrations-show-integrations-2",
+					Page::Webhooks => "server-integrations-show-webhooks",
+					Page::Follows => "server-integrations-show-channels-followed",
+					Page::App(_) => "server-integrations-show-manage-integration",
 					Page::Editor => {
 						if self.draft.as_ref().is_some_and(|d| d.id.is_some()) {
-							"Edit Webhook"
+							"server-integrations-show-edit-webhook"
 						} else {
-							"Create Webhook"
+							"server-integrations-show-create-webhook"
 						}
 					}
 				}),
@@ -209,9 +212,12 @@ impl IntegrationsUi {
 			if ui
 				.add_enabled(
 					!state.server_admin.pending && !self.submitted && !self.deleting,
-					egui::Button::new(crate::i18n::translate("Reload")).frame(false),
+					egui::Button::new(crate::i18n::translate("server-integrations-show-reload"))
+						.frame(false),
 				)
-				.on_hover_text(crate::i18n::translate("Reload integrations"))
+				.on_hover_text(crate::i18n::translate(
+					"server-integrations-show-reload-integrations",
+				))
 				.clicked()
 			{
 				action = Some(self.load_action(state, guild));
@@ -223,17 +229,19 @@ impl IntegrationsUi {
 		}
 		if state.server_admin.needs_refresh {
 			ui.weak(crate::i18n::translate(
-				"Reload integrations before making more changes. Your draft will be kept.",
+				"server-integrations-show-reload-integrations-before-making-more-changes-your-draft-will-be",
 			));
 		}
 		if state.server_admin.pending {
 			ui.horizontal(|ui| {
 				ui.spinner();
-				ui.weak(crate::i18n::translate(if state.server_admin.saving {
-					"Updating integrations..."
-				} else {
-					"Loading integrations..."
-				}));
+				ui.weak(crate::i18n::translate_if_key(
+					if state.server_admin.saving {
+						"server-integrations-show-updating-integrations"
+					} else {
+						"server-integrations-show-loading-integrations"
+					},
+				));
 			});
 		}
 		if self.page == Page::Editor {
@@ -299,13 +307,15 @@ impl IntegrationsUi {
 		snapshot: &Snapshot,
 		avatars: &mut Avatars,
 	) {
-		ui.label(crate::i18n::translate(&(if self.channel.is_some() {
-			crate::i18n::translate("Manage webhooks and followed channels posting to this channel.")
+		ui.label(crate::i18n::translate_if_key(&(if self.channel.is_some() {
+			crate::i18n::translate("server-integrations-overview-manage-webhooks-and-followed-channels-posting-to-this-channel")
 		} else {
-			crate::i18n::translate("Customize your server with integrations. Manage webhooks, followed channels, and apps connected to your server.")
+			crate::i18n::translate("server-integrations-overview-customize-your-server-with-integrations-manage-webhooks-followed-channel")
 		})));
 		ui.hyperlink_to(
-			crate::i18n::translate("Learn more about managing integrations."),
+			crate::i18n::translate(
+				"server-integrations-overview-learn-more-about-managing-integrations",
+			),
 			HELP,
 		);
 		design::divider(ui);
@@ -338,16 +348,18 @@ impl IntegrationsUi {
 		{
 			ui.label(design::medium(
 				ui,
-				crate::i18n::translate("Bots and Apps"),
+				crate::i18n::translate("server-integrations-overview-bots-and-apps"),
 				15.0,
 			));
 			ui.add_space(12.0);
 			if integrations.is_empty() {
-				ui.weak(crate::i18n::translate("No integrations in this server."));
+				ui.weak(crate::i18n::translate(
+					"server-integrations-overview-no-integrations-in-this-server",
+				));
 			}
 			if integrations.len() == model::server_integrations::MAX_INTEGRATIONS {
 				ui.weak(crate::i18n::translate(
-					"Showing the first 50 integrations returned by Discord.",
+					"server-integrations-overview-showing-the-first-50-integrations-returned-by-discord",
 				));
 			}
 			let height = design::list_height(ui, 0.0);
@@ -393,7 +405,9 @@ impl IntegrationsUi {
 													egui::Label::new(
 														RichText::new(format!(
 															"{} {}",
-															crate::i18n::translate("Added by"),
+															crate::i18n::translate(
+																"server-integrations-overview-added-by"
+															),
 															user.name
 														))
 														.size(12.0),
@@ -427,8 +441,10 @@ impl IntegrationsUi {
 									);
 									if ui
 										.add(
-											egui::Button::new(crate::i18n::translate("Manage >"))
-												.frame(false),
+											egui::Button::new(crate::i18n::translate(
+												"server-integrations-overview-manage",
+											))
+											.frame(false),
 										)
 										.clicked()
 									{
@@ -452,20 +468,22 @@ impl IntegrationsUi {
 		let follows = self.page == Page::Follows;
 		if follows {
 			ui.label(crate::i18n::translate(
-				"Posts from these followed channels are delivered to your server.",
+				"server-integrations-webhooks-posts-from-these-followed-channels-are-delivered-to-your-server",
 			));
 			ui.hyperlink_to(
-				crate::i18n::translate("Learn more about following channels"),
+				crate::i18n::translate(
+					"server-integrations-webhooks-learn-more-about-following-channels",
+				),
 				FOLLOW_HELP,
 			);
 		} else {
 			ui.label(crate::i18n::translate(
-				"Send updates from your apps and services to a channel in this server.",
+				"server-integrations-webhooks-send-updates-from-your-apps-and-services-to-a-channel",
 			));
 			if let Some(channel) = self.channel.and_then(|id| state.channel(id)) {
 				ui.label(format!(
 					"{} #{}",
-					crate::i18n::translate("Posting to"),
+					crate::i18n::translate("server-integrations-webhooks-posting-to"),
 					channel.name
 				));
 			}
@@ -495,10 +513,10 @@ impl IntegrationsUi {
 			.filter(|w| (w.kind == 2) == follows)
 			.collect();
 		if rows.is_empty() {
-			ui.weak(crate::i18n::translate(if follows {
-				"No channels followed."
+			ui.weak(crate::i18n::translate_if_key(if follows {
+				"server-integrations-webhooks-no-channels-followed"
 			} else {
-				"No webhooks yet."
+				"server-integrations-webhooks-no-webhooks-yet"
 			}));
 		}
 		let row_height = if ui.available_width() < 360.0 {
@@ -537,7 +555,9 @@ impl IntegrationsUi {
 									}) && ui
 									.add_enabled(
 										writable(state),
-										egui::Button::new(crate::i18n::translate("Edit")),
+										egui::Button::new(crate::i18n::translate(
+											"server-integrations-webhooks-edit",
+										)),
 									)
 									.clicked()
 								{
@@ -559,11 +579,13 @@ impl IntegrationsUi {
 										.add_enabled(
 											writable(state),
 											egui::Button::new(
-												RichText::new(crate::i18n::translate(if follows {
-													"Unfollow"
-												} else {
-													"Delete"
-												}))
+												RichText::new(crate::i18n::translate_if_key(
+													if follows {
+														"server-integrations-webhooks-unfollow"
+													} else {
+														"server-integrations-webhooks-delete"
+													},
+												))
 												.color(design::palette(ui).danger),
 											),
 										)
@@ -594,11 +616,13 @@ impl IntegrationsUi {
 			&& ui
 				.add_enabled(
 					writable(state),
-					egui::Button::new(crate::i18n::translate(
+					egui::Button::new(crate::i18n::translate_if_key(
 						&(if self.copied == Some(webhook.id) {
-							crate::i18n::translate("Copied!")
+							crate::i18n::translate("server-integrations-copy-button-copied")
 						} else {
-							crate::i18n::translate("Copy Webhook URL")
+							crate::i18n::translate(
+								"server-integrations-copy-button-copy-webhook-url",
+							)
 						}),
 					)),
 				)
@@ -623,7 +647,7 @@ impl IntegrationsUi {
 			.and_then(|items| items.iter().find(|i| i.id == id))
 		else {
 			ui.weak(crate::i18n::translate(
-				"This integration is no longer available.",
+				"server-integrations-app-this-integration-is-no-longer-available",
 			));
 			return;
 		};
@@ -639,14 +663,14 @@ impl IntegrationsUi {
 		}
 		ui.label(format!(
 			"{}: {}",
-			crate::i18n::translate("Service"),
+			crate::i18n::translate("server-integrations-app-service"),
 			service_name(integration)
 		));
-		ui.label(crate::i18n::translate(
+		ui.label(crate::i18n::translate_if_key(
 			&(if integration.enabled {
-				crate::i18n::translate("Enabled")
+				crate::i18n::translate("server-integrations-app-enabled")
 			} else {
-				crate::i18n::translate("Disabled")
+				crate::i18n::translate("server-integrations-app-disabled")
 			}),
 		));
 		if let Some(user) = &integration.user {
@@ -654,7 +678,7 @@ impl IntegrationsUi {
 				avatars.show(ui, user, 24.0, state.demo);
 				ui.label(format!(
 					"{} {}",
-					crate::i18n::translate("Added by"),
+					crate::i18n::translate("server-integrations-app-added-by"),
 					user.name
 				));
 			});
@@ -684,8 +708,10 @@ impl IntegrationsUi {
 				.add_enabled(
 					writable(state),
 					egui::Button::new(
-						RichText::new(crate::i18n::translate("Remove Integration"))
-							.color(design::palette(ui).danger),
+						RichText::new(crate::i18n::translate(
+							"server-integrations-app-remove-integration",
+						))
+						.color(design::palette(ui).danger),
 					),
 				)
 				.clicked()
@@ -724,7 +750,10 @@ impl IntegrationsUi {
 			return;
 		};
 		ui.add_space(12.0);
-		let label = design::label(ui, &crate::i18n::translate("Name"));
+		let label = design::label(
+			ui,
+			&crate::i18n::translate("server-integrations-editor-name"),
+		);
 		design::input(
 			ui,
 			egui::TextEdit::singleline(&mut draft.name).char_limit(80),
@@ -738,16 +767,19 @@ impl IntegrationsUi {
 				ui,
 				design::Level::Error,
 				&crate::i18n::translate(
-					"Use 1–80 characters without control characters or the reserved names Discord and Clyde.",
+					"server-integrations-editor-use-180-characters-without-control-characters-or-the-reserved-names",
 				),
 			);
 		}
 		ui.add_space(16.0);
-		design::label(ui, &crate::i18n::translate("Channel"));
+		design::label(
+			ui,
+			&crate::i18n::translate("server-integrations-editor-channel"),
+		);
 		let muted = design::palette(ui).muted;
 		let current = draft.channel.and_then(|id| state.channel(id));
 		let label = current.map_or_else(
-			|| crate::i18n::translate("Choose a channel"),
+			|| crate::i18n::translate("server-integrations-editor-choose-a-channel"),
 			|channel| channel.name.clone(),
 		);
 		let mut label = egui::Atoms::new(label);
@@ -810,11 +842,11 @@ impl IntegrationsUi {
 			if ui
 				.add_enabled(
 					!self.submitted,
-					egui::Button::new(crate::i18n::translate(
+					egui::Button::new(crate::i18n::translate_if_key(
 						&(if self.baseline.is_some() {
-							crate::i18n::translate("Reset")
+							crate::i18n::translate("server-integrations-editor-reset")
 						} else {
-							crate::i18n::translate("Cancel")
+							crate::i18n::translate("server-integrations-editor-cancel")
 						}),
 					))
 					.frame(false),
@@ -1021,14 +1053,14 @@ fn service_name(integration: &Integration) -> String {
 				.and_then(|a| a.bot.as_ref())
 				.is_some() =>
 		{
-			"Bot"
+			"server-integrations-summary-card-bot"
 		}
-		"discord" => "App",
-		"twitch" => "Twitch",
-		"youtube" => "YouTube",
+		"discord" => "server-integrations-summary-card-app",
+		"twitch" => "server-integrations-summary-card-twitch",
+		"youtube" => "server-integrations-summary-card-youtube",
 		_ => return integration.kind.clone(),
 	};
-	crate::i18n::translate(known)
+	crate::i18n::translate_if_key(known)
 }
 #[cfg(test)]
 mod tests {

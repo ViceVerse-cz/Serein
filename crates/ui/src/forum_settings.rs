@@ -12,20 +12,20 @@ use model::{
 
 /// Discord's slowmode steps, in seconds.
 pub(crate) const SLOWMODE: [(u32, &str); 14] = [
-	(0, "Off"),
-	(5, "5 seconds"),
-	(10, "10 seconds"),
-	(15, "15 seconds"),
-	(30, "30 seconds"),
-	(60, "1 minute"),
-	(120, "2 minutes"),
-	(300, "5 minutes"),
-	(600, "10 minutes"),
-	(900, "15 minutes"),
-	(1800, "30 minutes"),
-	(3600, "1 hour"),
-	(7200, "2 hours"),
-	(21600, "6 hours"),
+	(0, "forum-settings-module-off"),
+	(5, "forum-settings-module-5-seconds"),
+	(10, "forum-settings-module-10-seconds"),
+	(15, "forum-settings-module-15-seconds"),
+	(30, "forum-settings-module-30-seconds"),
+	(60, "forum-settings-module-1-minute"),
+	(120, "forum-settings-module-2-minutes"),
+	(300, "forum-settings-module-5-minutes"),
+	(600, "forum-settings-module-10-minutes"),
+	(900, "forum-settings-module-15-minutes"),
+	(1800, "forum-settings-module-30-minutes"),
+	(3600, "forum-settings-module-1-hour"),
+	(7200, "forum-settings-module-2-hours"),
+	(21600, "forum-settings-module-6-hours"),
 ];
 
 /// A tag being created (`index` None) or edited in place.
@@ -65,12 +65,12 @@ impl ForumSettingsUi {
 		};
 		let demo = state.demo;
 		ui.add_space(14.0);
-		let label = dialog::label(ui, "Post Guidelines");
+		let label = dialog::label(ui, "forum-settings-show-post-guidelines");
 		let topic = dialog::input(
 			ui,
 			egui::TextEdit::multiline(&mut draft.topic)
 				.hint_text(crate::i18n::translate(
-					"Let everyone know how to use this channel!",
+					"forum-settings-show-let-everyone-know-how-to-use-this-channel",
 				))
 				.char_limit(4096)
 				.desired_rows(5),
@@ -90,16 +90,16 @@ impl ForumSettingsUi {
 		design::divider(ui);
 		design::section(
 			ui,
-			&crate::i18n::translate("Tags"),
+			&crate::i18n::translate("forum-settings-show-tags"),
 			Some(&crate::i18n::translate(
-				"Help people organize their posts into subcategories by creating a tag.",
+				"forum-settings-show-help-people-organize-their-posts-into-subcategories-by-creating-a",
 			)),
 		);
 		self.tags(ui, state, guild, forum, (images, demo));
 		ui.add_space(8.0);
 		design::switch(
 			ui,
-			"Require people to select tags when posting",
+			"forum-settings-show-require-people-to-select-tags-when-posting",
 			None,
 			&mut forum.require_tag,
 		);
@@ -107,10 +107,8 @@ impl ForumSettingsUi {
 		design::divider(ui);
 		design::section(
 			ui,
-			&crate::i18n::translate("Default Reaction"),
-			Some(
-				"Pick a default emoji that your members will use to react to a post from this channel.",
-			),
+			&crate::i18n::translate("forum-settings-show-default-reaction"),
+			Some("forum-settings-show-pick-a-default-emoji-that-your-members-will-use-to"),
 		);
 		ui.horizontal_top(|ui| {
 			ui.vertical(|ui| {
@@ -139,7 +137,8 @@ impl ForumSettingsUi {
 						});
 					}
 					if current.is_some()
-						&& dialog::action(ui, "Remove", dialog::Action::Neutral).clicked()
+						&& dialog::action(ui, "forum-settings-show-remove", dialog::Action::Neutral)
+							.clicked()
 					{
 						forum.reaction = None;
 					}
@@ -149,77 +148,84 @@ impl ForumSettingsUi {
 		});
 
 		design::divider(ui);
-		design::section(ui, &crate::i18n::translate("Slowmode"), None);
-		dialog::label(ui, "Posts");
+		design::section(
+			ui,
+			&crate::i18n::translate("forum-settings-show-slowmode"),
+			None,
+		);
+		dialog::label(ui, "forum-settings-show-posts");
 		slowmode(ui, "slowmode-posts", &mut draft.slowmode);
 		dialog::hint(
 			ui,
-			"Members will be restricted to creating one post per this interval, unless they have the Bypass Slowmode permission.",
+			"forum-settings-show-members-will-be-restricted-to-creating-one-post-per-this",
 		);
 		ui.add_space(14.0);
-		dialog::label(ui, "Messages");
+		dialog::label(ui, "forum-settings-show-messages");
 		slowmode(ui, "slowmode-messages", &mut forum.message_slowmode);
 		dialog::hint(
 			ui,
-			"Members will be limited to one message per this interval for any new posts, unless they have the Bypass Slowmode permission.",
+			"forum-settings-show-members-will-be-limited-to-one-message-per-this-interval",
 		);
 
 		design::divider(ui);
 		design::section(
 			ui,
-			&crate::i18n::translate("Default Layout"),
-			Some(
-				"Set the default layout view to a media-focused gallery or a text-focused list. Members will still be able to toggle between these options.",
-			),
+			&crate::i18n::translate("forum-settings-show-default-layout"),
+			Some("forum-settings-show-set-the-default-layout-view-to-a-media-focused-gallery"),
 		);
 		select(
 			ui,
 			"forum-layout",
 			&mut forum.layout,
 			&[
-				(Layout::List, "List View"),
-				(Layout::Gallery, "Gallery View"),
+				(Layout::List, "forum-settings-show-list-view"),
+				(Layout::Gallery, "forum-settings-show-gallery-view"),
 			],
 		);
 		ui.add_space(18.0);
 		design::section(
 			ui,
-			&crate::i18n::translate("Sort Order"),
-			Some(
-				"Set the default sort order for new posts. Members will still be able to toggle between these options.",
-			),
+			&crate::i18n::translate("forum-settings-show-sort-order"),
+			Some("forum-settings-show-set-the-default-sort-order-for-new-posts-members-will"),
 		);
 		select(
 			ui,
 			"forum-sort",
 			&mut forum.sort,
 			&[
-				(Sort::Activity, "Recent Activity"),
-				(Sort::Created, "Creation Time"),
+				(Sort::Activity, "forum-settings-show-recent-activity"),
+				(Sort::Created, "forum-settings-show-creation-time"),
 			],
 		);
 		ui.add_space(18.0);
 		design::section(
 			ui,
-			&crate::i18n::translate("Tag Matching"),
+			&crate::i18n::translate("forum-settings-show-tag-matching"),
 			Some(
-				"Set the default tag matching behaviour. Members will still be able to toggle between these options.",
+				"forum-settings-show-set-the-default-tag-matching-behaviour-members-will-still-be",
 			),
 		);
 		select(
 			ui,
 			"forum-match",
 			&mut forum.match_all,
-			&[(false, "Match Some"), (true, "Match All")],
+			&[
+				(false, "forum-settings-show-match-some"),
+				(true, "forum-settings-show-match-all"),
+			],
 		);
 
 		design::divider(ui);
-		design::section(ui, &crate::i18n::translate("Content Visibility"), None);
+		design::section(
+			ui,
+			&crate::i18n::translate("forum-settings-show-content-visibility"),
+			None,
+		);
 		if design::radio_row(
 			ui,
 			!draft.nsfw,
-			"Default",
-			Some("Channel content is always visible."),
+			"forum-settings-show-default",
+			Some("forum-settings-show-channel-content-is-always-visible"),
 		)
 		.clicked()
 		{
@@ -228,8 +234,8 @@ impl ForumSettingsUi {
 		if design::radio_row(
 			ui,
 			draft.nsfw,
-			"Age-Restricted Channel",
-			Some("Users will need to confirm they are of over the legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter."),
+			"forum-settings-show-age-restricted-channel",
+			Some("forum-settings-show-users-will-need-to-confirm-they-are-of-over-the"),
 		)
 		.clicked()
 		{
@@ -239,9 +245,9 @@ impl ForumSettingsUi {
 		design::divider(ui);
 		design::section(
 			ui,
-			&crate::i18n::translate("Hide After Inactivity"),
+			&crate::i18n::translate("forum-settings-show-hide-after-inactivity"),
 			Some(&crate::i18n::translate(
-				"New posts stop showing in the channel list after this long without activity.",
+				"forum-settings-show-new-posts-stop-showing-in-the-channel-list-after-this",
 			)),
 		);
 		let hide_after: Vec<(u32, &str)> = HIDE_AFTER
@@ -283,9 +289,11 @@ impl ForumSettingsUi {
 					if tag.moderated {
 						icons::inline(ui, icons::Icon::Lock, 14.0, colors.muted);
 						ui.label(
-							RichText::new(crate::i18n::translate("Moderators only"))
-								.size(12.0)
-								.color(colors.muted),
+							RichText::new(crate::i18n::translate(
+								"forum-settings-tags-moderators-only",
+							))
+							.size(12.0)
+							.color(colors.muted),
 						);
 					}
 					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -293,7 +301,7 @@ impl ForumSettingsUi {
 							ui,
 							icons::Icon::Trash,
 							20.0,
-							&crate::i18n::translate("Delete tag"),
+							&crate::i18n::translate("forum-settings-tags-delete-tag"),
 						)
 						.clicked()
 						{
@@ -303,7 +311,7 @@ impl ForumSettingsUi {
 							ui,
 							icons::Icon::Pencil,
 							20.0,
-							&crate::i18n::translate("Edit tag"),
+							&crate::i18n::translate("forum-settings-tags-edit-tag"),
 						)
 						.clicked()
 						{
@@ -327,12 +335,16 @@ impl ForumSettingsUi {
 			let full = forum.tags.len() >= MAX_TAGS;
 			let button = ui
 				.add_enabled_ui(!full, |ui| {
-					dialog::action(ui, "Create Tag", dialog::Action::Primary)
+					dialog::action(
+						ui,
+						"forum-settings-tags-create-tag",
+						dialog::Action::Primary,
+					)
 				})
 				.inner;
 			if full {
 				button.on_disabled_hover_text(crate::i18n::translate(
-					"A forum can offer up to 20 tags.",
+					"forum-settings-tags-a-forum-can-offer-up-to-20-tags",
 				));
 			} else if button.clicked() {
 				self.tag = Some(TagDraft {
@@ -367,24 +379,24 @@ impl ForumSettingsUi {
 			ui.label(
 				design::semibold(
 					ui,
-					crate::i18n::translate(if draft.index.is_some() {
-						"Edit Tag"
+					crate::i18n::translate_if_key(if draft.index.is_some() {
+						"forum-settings-tag-editor-edit-tag"
 					} else {
-						"Create Tag"
+						"forum-settings-tag-editor-create-tag"
 					}),
 					15.0,
 				)
 				.color(design::palette(ui).text_strong),
 			);
-			let label = dialog::label(ui, "Tag name");
+			let label = dialog::label(ui, "forum-settings-tag-editor-tag-name");
 			dialog::input(
 				ui,
 				egui::TextEdit::singleline(&mut draft.tag.name)
-					.hint_text(crate::i18n::translate("Question"))
+					.hint_text(crate::i18n::translate("forum-settings-tag-editor-question"))
 					.char_limit(TAG_NAME_LIMIT),
 			)
 			.labelled_by(label.id);
-			dialog::label(ui, "Emoji");
+			dialog::label(ui, "forum-settings-tag-editor-emoji");
 			ui.horizontal(|ui| {
 				if let Some(choice) = self.chooser(
 					ui,
@@ -402,7 +414,12 @@ impl ForumSettingsUi {
 					draft.tag.emoji_name = choice.1;
 				}
 				if (draft.tag.emoji_id.is_some() || draft.tag.emoji_name.is_some())
-					&& dialog::action(ui, "Remove emoji", dialog::Action::Neutral).clicked()
+					&& dialog::action(
+						ui,
+						"forum-settings-tag-editor-remove-emoji",
+						dialog::Action::Neutral,
+					)
+					.clicked()
 				{
 					draft.tag.emoji_id = None;
 					draft.tag.emoji_name = None;
@@ -410,12 +427,12 @@ impl ForumSettingsUi {
 			});
 			design::switch(
 				ui,
-				"Only allow moderators to apply this tag",
-				Some("Members with Manage Threads can still use it."),
+				"forum-settings-tag-editor-only-allow-moderators-to-apply-this-tag",
+				Some("forum-settings-tag-editor-members-with-manage-threads-can-still-use-it"),
 				&mut draft.tag.moderated,
 			);
 			if !draft.tag.name.trim().is_empty() {
-				dialog::label(ui, "Preview");
+				dialog::label(ui, "forum-settings-tag-editor-preview");
 				crate::forum::tag_pill(
 					ui,
 					(images, demo),
@@ -432,9 +449,9 @@ impl ForumSettingsUi {
 						dialog::action(
 							ui,
 							if draft.index.is_some() {
-								"Save Tag"
+								"forum-settings-tag-editor-save-tag"
 							} else {
-								"Add Tag"
+								"forum-settings-tag-editor-add-tag"
 							},
 							dialog::Action::Primary,
 						)
@@ -452,7 +469,13 @@ impl ForumSettingsUi {
 					}
 					keep = false;
 				}
-				if dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked() {
+				if dialog::action(
+					ui,
+					"forum-settings-tag-editor-cancel",
+					dialog::Action::Neutral,
+				)
+				.clicked()
+				{
 					keep = false;
 				}
 			});
@@ -497,7 +520,9 @@ impl ForumSettingsUi {
 				ui.set_width(CELL * COLUMNS as f32 + 24.0);
 				ui.add(
 					egui::TextEdit::singleline(&mut self.query)
-						.hint_text(crate::i18n::translate("Search emoji"))
+						.hint_text(crate::i18n::translate(
+							"forum-settings-chooser-search-emoji",
+						))
 						.char_limit(64)
 						.desired_width(f32::INFINITY),
 				);
@@ -521,15 +546,17 @@ impl ForumSettingsUi {
 				choices.extend(self.matches.iter().map(|index| Choice::Unicode(*index)));
 				if choices.is_empty() {
 					ui.label(
-						RichText::new(crate::i18n::translate("No emoji match"))
-							.color(design::palette(ui).muted),
+						RichText::new(crate::i18n::translate(
+							"forum-settings-chooser-no-emoji-match",
+						))
+						.color(design::palette(ui).muted),
 					);
 					return;
 				}
 				if server > 0 {
 					ui.label(design::eyebrow(
 						ui,
-						crate::i18n::translate("This server"),
+						crate::i18n::translate("forum-settings-chooser-this-server"),
 						design::palette(ui).muted,
 					));
 				}
@@ -596,8 +623,8 @@ impl ForumSettingsUi {
 					ui.label(
 						RichText::new(format!(
 							"{server} {}, {}",
-							crate::i18n::translate("server emoji"),
-							crate::i18n::translate("then standard emoji")
+							crate::i18n::translate("forum-settings-chooser-server-emoji"),
+							crate::i18n::translate("forum-settings-chooser-then-standard-emoji")
 						))
 						.size(11.0)
 						.color(design::palette(ui).muted),
@@ -615,16 +642,23 @@ pub(crate) fn slowmode(ui: &mut egui::Ui, salt: &str, seconds: &mut u32) {
 			.iter()
 			.find(|(step, _)| *step == value)
 			.map_or_else(
-				|| format!("{value} seconds"),
-				|(_, label)| (*label).to_owned(),
+				|| {
+					format!(
+						"{value} {}",
+						crate::i18n::translate(
+							"forum-settings-slowmode-forum-settings-slowmode-seconds"
+						)
+					)
+				},
+				|(_, key)| crate::i18n::translate_if_key(key),
 			)
 	};
 	egui::ComboBox::from_id_salt(salt)
 		.width(ui.available_width().min(560.0))
-		.selected_text(crate::i18n::translate(&label(*seconds)))
+		.selected_text(label(*seconds))
 		.show_ui(ui, |ui| {
 			for (step, text) in SLOWMODE {
-				ui.selectable_value(seconds, step, crate::i18n::translate(text));
+				ui.selectable_value(seconds, step, crate::i18n::translate_if_key(text));
 			}
 		});
 }
@@ -641,10 +675,10 @@ fn select<T: Copy + PartialEq>(
 		.map_or("", |(_, label)| label);
 	egui::ComboBox::from_id_salt(salt)
 		.width(ui.available_width().min(560.0))
-		.selected_text(crate::i18n::translate(current))
+		.selected_text(crate::i18n::translate_if_key(current))
 		.show_ui(ui, |ui| {
 			for (option, label) in options {
-				ui.selectable_value(value, *option, crate::i18n::translate(label));
+				ui.selectable_value(value, *option, crate::i18n::translate_if_key(label));
 			}
 		});
 }

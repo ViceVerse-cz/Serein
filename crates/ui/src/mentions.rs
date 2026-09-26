@@ -676,7 +676,7 @@ impl Menu {
 										ui.add_space(12.0);
 										ui.label(
 											egui::RichText::new(crate::i18n::translate(
-												"↑↓ choose · Tab/Enter insert · Esc",
+												"mentions-show-choose-tab-enter-insert-esc",
 											))
 											.size(11.0)
 											.color(colors.muted),
@@ -847,16 +847,14 @@ fn row(
 			egui::Role::Button,
 			true,
 			selected,
-			crate::i18n::translate(
-				&(match candidate {
-					Candidate::User { name, .. } => name.clone(),
-					Candidate::Mass { name } => format!("@{name}"),
-					Candidate::Role { name, .. } => format!("@{name}, role"),
-					Candidate::Channel { name, .. } => name.clone(),
-					Candidate::Unicode { code, .. } => (*code).to_owned(),
-					Candidate::Custom { name, server, .. } => format!("{name} from {server}"),
-				}),
-			),
+			match candidate {
+				Candidate::User { name, .. } => name.clone(),
+				Candidate::Mass { name } => format!("@{name}"),
+				Candidate::Role { name, .. } => format!("@{name}, role"),
+				Candidate::Channel { name, .. } => name.clone(),
+				Candidate::Unicode { code, .. } => (*code).to_owned(),
+				Candidate::Custom { name, server, .. } => format!("{name} from {server}"),
+			},
 		)
 	});
 	response

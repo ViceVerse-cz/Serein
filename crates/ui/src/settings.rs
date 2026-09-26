@@ -686,10 +686,10 @@ impl MessagingUi {
 									.truncate(),
 								);
 								ui.label(
-									RichText::new(crate::i18n::translate(if state.demo {
-										"Offline preview · synthetic account"
+									RichText::new(crate::i18n::translate_if_key(if state.demo {
+										"settings-account-page-offline-preview-synthetic-account"
 									} else {
-										"Signed in with your Discord account"
+										"settings-account-page-signed-in-with-your-discord-account"
 									}))
 									.size(13.0)
 									.color(colors.muted),
@@ -704,11 +704,11 @@ impl MessagingUi {
 							.show(ui, |ui| {
 								ui.set_width(ui.available_width());
 								ui.spacing_mut().item_spacing.y = 10.0;
-								account_row(ui, "Display name", &name);
+								account_row(ui, "settings-account-page-display-name", &name);
 								ui.separator();
 								account_row(
 									ui,
-									"Email, password and security",
+									"settings-account-page-email-password-and-security",
 									"Managed in Discord",
 								);
 							});
@@ -719,7 +719,9 @@ impl MessagingUi {
 								|ui| {
 									if design::button(
 										ui,
-										&crate::i18n::translate("Edit profile"),
+										&crate::i18n::translate(
+											"settings-account-page-edit-profile",
+										),
 										design::ButtonKind::Outline,
 									)
 									.clicked()
@@ -752,23 +754,27 @@ impl MessagingUi {
 		} else {
 			"Log out"
 		};
-		design::group(ui, &crate::i18n::translate("Session"), |ui| {
-			if design::row(
-				ui,
-				label,
-				Some(if state.demo {
-					"Closes the offline fixture. Nothing is stored for the preview."
-				} else {
-					"Removes the saved login and clears this account's local cache and drafts."
-				}),
-				|ui| design::button(ui, label, design::ButtonKind::Danger),
-			)
-			.clicked()
-			{
-				self.logout_requested = true;
-				self.settings.open = false;
-			}
-		});
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-account-page-session"),
+			|ui| {
+				if design::row(
+					ui,
+					label,
+					Some(if state.demo {
+						"settings-account-page-closes-the-offline-fixture-nothing-is-stored-for-the-preview"
+					} else {
+						"settings-account-page-removes-the-saved-login-and-clears-this-account-s-local"
+					}),
+					|ui| design::button(ui, label, design::ButtonKind::Danger),
+				)
+				.clicked()
+				{
+					self.logout_requested = true;
+					self.settings.open = false;
+				}
+			},
+		);
 	}
 
 	fn general_settings(&mut self, ui: &mut egui::Ui, _demo: bool) {
@@ -894,14 +900,14 @@ impl MessagingUi {
 		ui.spacing_mut().item_spacing.y = 6.0;
 		ui.label(design::eyebrow(
 			ui,
-			crate::i18n::translate("Mode"),
+			crate::i18n::translate("settings-appearance-menu-mode"),
 			colors.muted,
 		));
 		theme_preference_cards(ui);
 		ui.add_space(6.0);
 		ui.label(design::eyebrow(
 			ui,
-			crate::i18n::translate("Theme"),
+			crate::i18n::translate("settings-appearance-menu-theme"),
 			colors.muted,
 		));
 		let current = design::variant();
@@ -920,7 +926,7 @@ impl MessagingUi {
 		ui.add_space(6.0);
 		ui.label(design::eyebrow(
 			ui,
-			crate::i18n::translate("Display"),
+			crate::i18n::translate("settings-appearance-menu-display"),
 			colors.muted,
 		));
 		let mut value = self.reading_preferences;
@@ -936,90 +942,113 @@ impl MessagingUi {
 		ui.add_space(4.0);
 		ui.label(design::eyebrow(
 			ui,
-			crate::i18n::translate("Theme"),
+			crate::i18n::translate("settings-appearance-settings-theme"),
 			colors.muted,
 		));
 		theme_preference_cards(ui);
 		self.colour_preset_settings(ui);
 		self.custom_font.show(ui);
-		design::group(ui, &crate::i18n::translate("Accent"), |ui| {
-			let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
-			design::row(
-				ui,
-				"Primary color",
-				Some(if themed_accent {
-					"The active theme brings its own accent; it takes over while the theme is in use."
-				} else {
-					"Used for buttons, selection and message highlights."
-				}),
-				|ui| {
-					ui.add_enabled_ui(!themed_accent, |ui| {
-						if self.primary_color.is_some()
-							&& design::text_action(ui, &crate::i18n::translate("Reset")).clicked()
-						{
-							self.primary_color = None;
-						}
-						let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
-						if design::color_edit(ui, &mut color)
-							.on_hover_text(crate::i18n::translate("Choose primary color"))
-							.changed()
-						{
-							self.primary_color = Some(color);
-						}
-					});
-				},
-			);
-		});
-		design::group(ui, &crate::i18n::translate("Window effects"), |ui| {
-			design::switch(
-				ui,
-				"Transparency & blur",
-				Some(
-					"Restart Serein after changing this. Themes can customize effects while enabled.",
-				),
-				&mut self.transparency_blur,
-			);
-			if self.transparency_blur {
-				design::card_divider(ui);
-				design::slider_row(
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-appearance-settings-accent"),
+			|ui| {
+				let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
+				design::row(
 					ui,
-					"Transparency",
-					None,
-					&mut self.transparency,
-					0..=100,
-					"%",
+					"settings-appearance-settings-primary-color",
+					Some(if themed_accent {
+						"settings-appearance-settings-the-active-theme-brings-its-own-accent-it-takes-over"
+					} else {
+						"settings-appearance-settings-used-for-buttons-selection-and-message-highlights"
+					}),
+					|ui| {
+						ui.add_enabled_ui(!themed_accent, |ui| {
+							if self.primary_color.is_some()
+								&& design::text_action(
+									ui,
+									&crate::i18n::translate("settings-appearance-settings-reset"),
+								)
+								.clicked()
+							{
+								self.primary_color = None;
+							}
+							let mut color =
+								self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
+							if design::color_edit(ui, &mut color)
+								.on_hover_text(crate::i18n::translate(
+									"settings-appearance-settings-choose-primary-color",
+								))
+								.changed()
+							{
+								self.primary_color = Some(color);
+							}
+						});
+					},
 				);
-				ui.add_space(8.0);
-				design::slider_row(
-					ui,
-					"Blur",
-					Some("Zero disables blur; the native compositor controls its exact strength."),
-					&mut self.blur,
-					0..=100,
-					"%",
-				);
-				ui.add_space(4.0);
+			},
+		);
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-appearance-settings-window-effects"),
+			|ui| {
 				design::switch(
 					ui,
-					"Apply to all surfaces",
-					Some("Include sidebars, server rail, headers, and composer."),
-					&mut self.transparent_all,
+					"settings-appearance-settings-transparency-blur",
+					Some(
+						"settings-appearance-settings-restart-serein-after-changing-this-themes-can-customize-effects-while",
+					),
+					&mut self.transparency_blur,
 				);
-			}
-		});
+				if self.transparency_blur {
+					design::card_divider(ui);
+					design::slider_row(
+						ui,
+						"settings-appearance-settings-transparency",
+						None,
+						&mut self.transparency,
+						0..=100,
+						"%",
+					);
+					ui.add_space(8.0);
+					design::slider_row(
+						ui,
+						"settings-appearance-settings-blur",
+						Some(
+							"settings-appearance-settings-zero-disables-blur-the-native-compositor-controls-its-exact-strength",
+						),
+						&mut self.blur,
+						0..=100,
+						"%",
+					);
+					ui.add_space(4.0);
+					design::switch(
+						ui,
+						"settings-appearance-settings-apply-to-all-surfaces",
+						Some(
+							"settings-appearance-settings-include-sidebars-server-rail-headers-and-composer",
+						),
+						&mut self.transparent_all,
+					);
+				}
+			},
+		);
 		self.layout_settings(ui, demo);
 	}
 
 	fn chat_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		self.chat_reading_settings(ui, demo);
-		design::group(ui, &crate::i18n::translate("Channel list"), |ui| {
-			design::switch(
-				ui,
-				"Show hidden channels",
-				Some("Show channels you cannot currently access."),
-				&mut self.show_hidden_channels,
-			);
-		});
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-chat-settings-channel-list"),
+			|ui| {
+				design::switch(
+					ui,
+					"settings-chat-settings-show-hidden-channels",
+					Some("settings-chat-settings-show-channels-you-cannot-currently-access"),
+					&mut self.show_hidden_channels,
+				);
+			},
+		);
 	}
 
 	/// Built-in presets plus enabled community themes, one swatch each.
@@ -1059,49 +1088,55 @@ impl MessagingUi {
 			})
 			.map_or(current.label(), |(_, _, label, _)| label.as_str())
 			.to_owned();
-		design::group(ui, &crate::i18n::translate("Colour preset"), |ui| {
-			ui.horizontal_wrapped(|ui| {
-				ui.spacing_mut().item_spacing = egui::vec2(12.0, 10.0);
-				for (variant, id, label, swatch) in presets {
-					let selected = if let Some(active) = &self.extensions.active_theme {
-						id.as_ref() == Some(active)
-					} else {
-						variant == Some(current)
-					};
-					let response = preset_swatch(ui, &label, &swatch, selected);
-					if response.on_hover_text(&label).clicked()
-						&& !selected && !self.extensions.busy
-					{
-						if let Some(variant) = variant {
-							design::set_variant(variant);
-							design::apply(ui.ctx());
-							self.theme_variant_changed = Some(variant);
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-colour-preset-settings-colour-preset"),
+			|ui| {
+				ui.horizontal_wrapped(|ui| {
+					ui.spacing_mut().item_spacing = egui::vec2(12.0, 10.0);
+					for (variant, id, label, swatch) in presets {
+						let selected = if let Some(active) = &self.extensions.active_theme {
+							id.as_ref() == Some(active)
+						} else {
+							variant == Some(current)
+						};
+						let response = preset_swatch(ui, &label, &swatch, selected);
+						if response.on_hover_text(&label).clicked()
+							&& !selected && !self.extensions.busy
+						{
+							if let Some(variant) = variant {
+								design::set_variant(variant);
+								design::apply(ui.ctx());
+								self.theme_variant_changed = Some(variant);
+							}
+							self.extensions
+								.queue(ui.ctx(), crate::ExtensionRequest::SelectTheme { id });
 						}
-						self.extensions
-							.queue(ui.ctx(), crate::ExtensionRequest::SelectTheme { id });
 					}
-				}
-			});
-			ui.add_space(4.0);
-			ui.label(
+				});
+				ui.add_space(4.0);
+				ui.label(
 				RichText::new(format!(
 					"{active_label} · {}",
 					crate::i18n::translate(
-						"Saved with your appearance. Gradient presets always use dark text."
+						"settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text"
 					)
 				))
 				.size(12.0)
 				.color(colors.muted),
 			);
-		});
+			},
+		);
 	}
 
 	fn activity_settings(&mut self, ui: &mut egui::Ui, state: &State) {
 		design::card(ui, |ui| {
 			design::switch(
 				ui,
-				"Share game activity",
-				Some("Detect running games and ask Discord to share them as activity."),
+				"settings-activity-settings-share-game-activity",
+				Some(
+					"settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as",
+				),
 				&mut self.share_game_activity,
 			);
 			design::card_divider(ui);
@@ -1148,49 +1183,59 @@ impl MessagingUi {
 	}
 
 	fn storage_page(&mut self, ui: &mut egui::Ui, state: &State) {
-		design::group(ui, &crate::i18n::translate("Local storage"), |ui| {
-			design::row(
-				ui,
-				"Clear cache",
-				Some("Removes cached messages and media. Drafts and your login stay."),
-				|ui| {
-					ui.add_enabled_ui(!state.demo, |ui| {
-						if design::button(
-							ui,
-							&crate::i18n::translate("Clear cache"),
-							design::ButtonKind::Outline,
-						)
-						.clicked()
-						{
-							self.clear_cache_requested = true;
-						}
-					});
-				},
-			);
-			if !state.demo && !self.storage_status.is_empty() {
-				design::hint(ui, self.storage_status);
-			}
-			design::card_divider(ui);
-			design::hint(
-				ui,
-				&crate::i18n::translate(
-					"Messages and drafts are cached on this device inside bounded, account-isolated files. Cache data is not encrypted by Serein; saved login tokens use the OS credential store.",
-				),
-			);
-		});
-		design::group(ui, &crate::i18n::translate("Your privacy"), |ui| {
-			design::hint(
-				ui,
-				&crate::i18n::translate(
-					"Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.",
-				),
-			);
-		});
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-storage-page-local-storage"),
+			|ui| {
+				design::row(
+					ui,
+					"settings-storage-page-clear-cache",
+					Some(
+						"settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-stay",
+					),
+					|ui| {
+						ui.add_enabled_ui(!state.demo, |ui| {
+							if design::button(
+								ui,
+								&crate::i18n::translate("settings-storage-page-clear-cache"),
+								design::ButtonKind::Outline,
+							)
+							.clicked()
+							{
+								self.clear_cache_requested = true;
+							}
+						});
+					},
+				);
+				if !state.demo && !self.storage_status.is_empty() {
+					design::hint(ui, self.storage_status);
+				}
+				design::card_divider(ui);
+				design::hint(
+					ui,
+					&crate::i18n::translate(
+						"settings-storage-page-messages-and-drafts-are-cached-on-this-device-inside-bounded",
+					),
+				);
+			},
+		);
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-storage-page-your-privacy"),
+			|ui| {
+				design::hint(
+					ui,
+					&crate::i18n::translate(
+						"settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains",
+					),
+				);
+			},
+		);
 	}
 }
 
 fn account_row(ui: &mut egui::Ui, label: &str, value: &str) {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	ui.horizontal(|ui| {
 		ui.vertical(|ui| {
@@ -1207,7 +1252,7 @@ fn account_row(ui: &mut egui::Ui, label: &str, value: &str) {
 
 /// Sidebar entry in the settings modal; the selected page uses the strong surface and text.
 pub(super) fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
@@ -1261,7 +1306,7 @@ pub(super) fn close_control(ui: &mut egui::Ui) -> egui::Response {
 		egui::WidgetInfo::labeled(
 			egui::Role::Button,
 			ui.is_enabled(),
-			crate::i18n::translate("Close settings (Esc)"),
+			crate::i18n::translate("settings-close-control-close-settings-esc"),
 		)
 	});
 	let hot = response.hovered() || response.has_focus();
@@ -1293,7 +1338,9 @@ pub(super) fn close_control(ui: &mut egui::Ui) -> egui::Response {
 		egui::FontId::new(11.0, design::semibold_family(ui.ctx())),
 		colors.muted,
 	);
-	response.on_hover_text(crate::i18n::translate("Close settings (Esc)"))
+	response.on_hover_text(crate::i18n::translate(
+		"settings-close-control-close-settings-esc",
+	))
 }
 
 /// Dark, light or system cards with a miniature of each palette and a radio marker.
@@ -1304,7 +1351,7 @@ fn preset_swatch(
 	swatch: &design::Palette,
 	selected: bool,
 ) -> egui::Response {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(egui::vec2(76.0, 70.0), egui::Sense::click());
 	response.widget_info(|| {
@@ -1380,7 +1427,7 @@ fn theme_preference_cards(ui: &mut egui::Ui) {
 				},
 			),
 		] {
-			let label = crate::i18n::translate(label);
+			let label = crate::i18n::translate_if_key(label);
 			let selected = current == preference;
 			let (rect, response) =
 				ui.allocate_exact_size(egui::vec2(width, 76.0), egui::Sense::click());

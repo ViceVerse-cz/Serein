@@ -55,7 +55,7 @@ fn link(
 		response
 			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), label));
 		if response
-			.on_hover_text(crate::i18n::translate("Open link…"))
+			.on_hover_text(crate::i18n::translate("embeds-link-open-link"))
 			.clicked()
 		{
 			*opening = Some(target);
@@ -87,7 +87,7 @@ fn text(
 		(images, demo, guilds),
 	);
 	if formatted.limited {
-		ui.small(crate::i18n::translate("Text display limited"));
+		ui.small(crate::i18n::translate("embeds-text-text-display-limited"));
 	}
 }
 pub fn standalone_media_links(message: &Message) -> bool {
@@ -204,9 +204,9 @@ fn gallery(
 						ui.is_enabled(),
 						format!(
 							"{} {} {} {}",
-							crate::i18n::translate("Open embed image"),
+							crate::i18n::translate("embeds-gallery-open-embed-image"),
 							index + 1,
-							crate::i18n::translate("of"),
+							crate::i18n::translate("embeds-gallery-of"),
 							embeds.len()
 						),
 					)
@@ -221,7 +221,7 @@ fn gallery(
 				}
 				if let Some(target) = target
 					&& response
-						.on_hover_text(crate::i18n::translate("Open image…"))
+						.on_hover_text(crate::i18n::translate("embeds-gallery-open-image"))
 						.clicked()
 				{
 					*opening = Some(target);
@@ -298,7 +298,7 @@ fn image_preview(
 		egui::WidgetInfo::labeled(
 			egui::Role::Button,
 			ui.is_enabled(),
-			crate::i18n::translate("Image actions"),
+			crate::i18n::translate("embeds-image-preview-image-actions"),
 		)
 	});
 	embed_context_menu(&response, image, download, demo);
@@ -333,7 +333,7 @@ pub fn show(
 			if count > 1 && inline_image(embed).is_some() {
 				gallery(ui, group, images, opening, download, demo);
 				if group.iter().any(|e| e.limited) {
-					ui.small(crate::i18n::translate("Embed display limited"));
+					ui.small(crate::i18n::translate("embeds-show-embed-display-limited"));
 				}
 				ui.add_space(6.0);
 				return;
@@ -357,7 +357,7 @@ pub fn show(
 					egui::WidgetInfo::labeled(
 						egui::Role::Button,
 						ui.is_enabled(),
-						crate::i18n::translate("Open image"),
+						crate::i18n::translate("embeds-show-open-image"),
 					)
 				});
 				embed_context_menu(&response, image, download, demo);
@@ -401,17 +401,17 @@ pub fn show(
 							egui::Role::CheckBox,
 							ui.is_enabled(),
 							favorite,
-							crate::i18n::translate("Favorite GIF"),
+							crate::i18n::translate("embeds-show-favorite-gif"),
 						)
 					});
 					if star.clicked() {
 						favorite_action = Some(gif);
 					}
-					star.on_hover_text(crate::i18n::translate(
+					star.on_hover_text(crate::i18n::translate_if_key(
 						&(if favorite {
-							crate::i18n::translate("Remove from GIF favorites")
+							crate::i18n::translate("embeds-show-remove-from-gif-favorites")
 						} else {
-							crate::i18n::translate("Save to GIF favorites")
+							crate::i18n::translate("embeds-show-save-to-gif-favorites")
 						}),
 					))
 				});
@@ -419,7 +419,7 @@ pub fn show(
 					.as_ref()
 					.is_some_and(|star| star.hovered() || star.clicked())
 					&& response
-						.on_hover_text(crate::i18n::translate("Open image…"))
+						.on_hover_text(crate::i18n::translate("embeds-show-open-image-2"))
 						.clicked()
 				{
 					*opening = embed
@@ -593,7 +593,7 @@ pub fn show(
 								|| matches!(embed.kind.as_str(), "video" | "gifv")
 							{
 								ui.small(crate::i18n::translate(
-									"Video preview · playback opens in your browser",
+									"embeds-show-video-preview-playback-opens-in-your-browser",
 								));
 								link(
 									ui,
@@ -633,14 +633,16 @@ pub fn show(
 								ui.small(timestamp);
 							}
 							if group.iter().any(|e| e.limited) {
-								ui.small(crate::i18n::translate("Embed display limited"));
+								ui.small(crate::i18n::translate(
+									"embeds-show-embed-display-limited",
+								));
 							}
 							if !matches!(
 								embed.kind.as_str(),
 								"rich" | "article" | "link" | "image" | "video" | "gifv"
 							) {
 								ui.small(crate::i18n::translate(
-									"Additional embed content is not supported",
+									"embeds-show-additional-embed-content-is-not-supported",
 								));
 							}
 						});

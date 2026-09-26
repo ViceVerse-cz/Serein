@@ -62,11 +62,19 @@ impl GroupMenu {
 		let pinned = view.contains(Shortcut::Pinned, channel.id);
 		if ui
 			.add_enabled_ui(view.available(), |ui| {
-				row(ui, if pinned { "Unpin DM" } else { "Pin DM" }, colors.text)
+				row(
+					ui,
+					if pinned {
+						"group-menu-menu-unpin-dm"
+					} else {
+						"group-menu-menu-pin-dm"
+					},
+					colors.text,
+				)
 			})
 			.inner
 			.on_hover_text(crate::i18n::translate(
-				"Pinned direct messages are saved on this device.",
+				"group-menu-menu-pinned-direct-messages-are-saved-on-this-device",
 			))
 			.clicked()
 		{
@@ -75,7 +83,7 @@ impl GroupMenu {
 		}
 		ui.separator();
 		ui.add_enabled_ui(enabled, |ui| {
-			if row(ui, "Edit Group", colors.text).clicked() {
+			if row(ui, "group-menu-menu-edit-group", colors.text).clicked() {
 				self.open(state, channel, true);
 				ui.close();
 			}
@@ -84,14 +92,14 @@ impl GroupMenu {
 			if row(
 				ui,
 				if muted {
-					"Unmute Conversation"
+					"group-menu-menu-unmute-conversation"
 				} else {
-					"Mute Conversation"
+					"group-menu-menu-mute-conversation"
 				},
 				colors.text,
 			)
 			.on_hover_text(crate::i18n::translate(
-				"Mute notifications until you unmute this conversation.",
+				"group-menu-menu-mute-notifications-until-you-unmute-this-conversation",
 			))
 			.clicked()
 			{
@@ -99,14 +107,14 @@ impl GroupMenu {
 				ui.close();
 			}
 			ui.separator();
-			if row(ui, "Leave Group", colors.danger).clicked() {
+			if row(ui, "group-menu-menu-leave-group", colors.danger).clicked() {
 				self.open(state, channel, false);
 				ui.close();
 			}
 		});
 		if !enabled {
 			ui.small(crate::i18n::translate(
-				"Group actions unavailable while disconnected or busy.",
+				"group-menu-menu-group-actions-unavailable-while-disconnected-or-busy",
 			));
 		}
 	}
@@ -131,7 +139,7 @@ impl GroupMenu {
 			ui,
 			icons::Icon::More,
 			28.0,
-			&crate::i18n::translate("Group menu"),
+			&crate::i18n::translate("group-menu-dropdown-group-menu"),
 		);
 		egui::Popup::menu(&response)
 			.id(response.id.with((state.generation, channel.id)))
@@ -211,21 +219,21 @@ impl GroupMenu {
 		let busy = dialog.submitted.is_some() || state.group_action_pending();
 		let mut builder = crate::dialog::Dialog::new(
 			"group-editor",
-			crate::i18n::translate(if dialog.edit {
-				"Edit Group"
+			crate::i18n::translate_if_key(if dialog.edit {
+				"group-menu-show-edit-group"
 			} else {
-				"Leave Group?"
+				"group-menu-show-leave-group"
 			}),
 		)
 		.width(440.0);
 		builder = if dialog.edit {
 			builder.subtitle(crate::i18n::translate(
-				"Give this group a name and an icon everyone will recognise.",
+				"group-menu-show-give-this-group-a-name-and-an-icon-everyone-will",
 			))
 		} else {
 			builder.danger().subtitle(format!(
 				"{} {}.",
-				crate::i18n::translate("You will need an invitation to rejoin"),
+				crate::i18n::translate("group-menu-show-you-will-need-an-invitation-to-rejoin"),
 				dialog.name
 			))
 		};
@@ -273,11 +281,13 @@ impl GroupMenu {
 								egui::WidgetInfo::labeled(
 									egui::Role::Button,
 									ui.is_enabled(),
-									crate::i18n::translate("Change group icon"),
+									crate::i18n::translate("group-menu-show-change-group-icon"),
 								)
 							});
 							if response
-								.on_hover_text(crate::i18n::translate("Change group icon"))
+								.on_hover_text(crate::i18n::translate(
+									"group-menu-show-change-group-icon",
+								))
 								.clicked()
 							{
 								dialog.choosing = true;
@@ -287,7 +297,7 @@ impl GroupMenu {
 							}
 						});
 						if dialog.choosing {
-							ui.label(crate::i18n::translate("Choosing image…"));
+							ui.label(crate::i18n::translate("group-menu-show-choosing-image"));
 						}
 						if (dialog.preview.is_some()
 							|| state
@@ -298,7 +308,7 @@ impl GroupMenu {
 								.add_enabled_ui(!busy && !dialog.choosing, |ui| {
 									crate::design::text_action(
 										ui,
-										&crate::i18n::translate("Remove icon"),
+										&crate::i18n::translate("group-menu-show-remove-icon"),
 									)
 								})
 								.inner
@@ -310,12 +320,12 @@ impl GroupMenu {
 					});
 					ui.add_space(10.0);
 					ui.add_enabled_ui(!busy, |ui| {
-						let label = crate::dialog::label(ui, "Group name");
+						let label = crate::dialog::label(ui, "group-menu-show-group-name");
 						let response = crate::dialog::input(
 							ui,
 							egui::TextEdit::singleline(&mut dialog.name)
 								.char_limit(100)
-								.hint_text(crate::i18n::translate("Group name"))
+								.hint_text(crate::i18n::translate("group-menu-show-group-name"))
 								.id(egui::Id::unique(("group-name", self.revision))),
 						)
 						.labelled_by(label.id);
@@ -331,7 +341,7 @@ impl GroupMenu {
 					crate::dialog::notice(ui, crate::dialog::Level::Error, error);
 				}
 				if state.demo {
-					crate::dialog::hint(ui, "Offline preview · no group changes");
+					crate::dialog::hint(ui, "group-menu-show-offline-preview-no-group-changes");
 				}
 			});
 			d.footer(|ui| {
@@ -380,8 +390,12 @@ impl GroupMenu {
 						}
 					}
 				});
-				close |=
-					crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral).clicked();
+				close |= crate::dialog::action(
+					ui,
+					"group-menu-show-cancel",
+					crate::dialog::Action::Neutral,
+				)
+				.clicked();
 			});
 		});
 		if close || response.close {
@@ -407,7 +421,7 @@ impl MessagingUi {
 	}
 }
 fn row(ui: &mut egui::Ui, label: &str, color: egui::Color32) -> egui::Response {
-	let label = crate::i18n::translate(label);
+	let label = crate::i18n::translate_if_key(label);
 	ui.add_sized(
 		[ui.available_width(), 40.0],
 		egui::Button::new(())
@@ -463,7 +477,7 @@ mod tests {
 			|ui| {
 				let row = ui.add_sized(
 					[220.0, 40.0],
-					egui::Button::new(crate::i18n::translate("Synthetic group")),
+					egui::Button::new(crate::i18n::translate("group-menu-frame-synthetic-group")),
 				);
 				let known = state.channel(channel).unwrap().clone();
 				let preferences = model::ChannelPreferences::default();

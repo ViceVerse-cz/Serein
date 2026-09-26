@@ -470,7 +470,7 @@ fn mention_switch(ui: &mut egui::Ui, colors: &design::Palette, on: &mut bool) {
 			egui::Role::CheckBox,
 			ui.is_enabled(),
 			*on,
-			crate::i18n::translate("Ping the original author"),
+			crate::i18n::translate("lib-mention-switch-ping-the-original-author"),
 		)
 	});
 	response.on_hover_text(hover);
@@ -1057,7 +1057,7 @@ impl MessagingUi {
 									ui.label(
 										design::semibold(
 											ui,
-											crate::i18n::translate("OFFLINE PREVIEW"),
+											crate::i18n::translate("lib-title-bar-offline-preview"),
 											10.0,
 										)
 										.color(colors.muted),
@@ -1065,13 +1065,13 @@ impl MessagingUi {
 								})
 								.response
 								.on_hover_text(crate::i18n::translate(
-									"Synthetic data · no network or local storage",
+									"lib-title-bar-synthetic-data-no-network-or-local-storage",
 								));
 						}
 						if !state.demo
 							&& state.auth != client_core::auth::AuthState::Authenticated
 							&& ui
-								.small_button(crate::i18n::translate("Sign in again"))
+								.small_button(crate::i18n::translate("lib-title-bar-sign-in-again"))
 								.clicked()
 						{
 							self.reconnect_requested = true;
@@ -1530,7 +1530,7 @@ impl MessagingUi {
 				if !self.channel_preferences_status.is_empty() {
 					ui.colored_label(
 						design::palette(ui).warning,
-						crate::i18n::translate(self.channel_preferences_status),
+						crate::i18n::translate_if_key(self.channel_preferences_status),
 					);
 					if ui.button(language.text("retry-shortcuts")).clicked() {
 						if self.channel_preferences_loaded {
@@ -1671,43 +1671,55 @@ impl MessagingUi {
 													);
 													ui.add(
 														egui::Label::new(
-															RichText::new(crate::i18n::translate(
-																&(if !self
-																	.own_presence
-																	.custom_status
-																	.is_empty()
-																{
-																	self.own_presence
+															RichText::new(
+																crate::i18n::translate_if_key(
+																	&(if !self
+																		.own_presence
 																		.custom_status
-																		.clone()
-																} else if let Some(game) = self
-																	.own_game
-																	.as_deref()
-																	.filter(|_| {
-																		self.share_game_activity
-																	}) {
-																	game.to_owned()
-																} else if state.demo {
-																	language.text("offline-preview")
-																} else if state.gateway_connected {
-																	language.text(
-																		match self
-																			.own_presence
-																			.status
-																			.wire()
-																		{
-																			"online" => {
-																				"status-online"
-																			}
-																			"idle" => "status-idle",
-																			"dnd" => "status-dnd",
-																			_ => "status-offline",
-																		},
-																	)
-																} else {
-																	language.text("reconnecting")
-																}),
-															))
+																		.is_empty()
+																	{
+																		self.own_presence
+																			.custom_status
+																			.clone()
+																	} else if let Some(game) = self
+																		.own_game
+																		.as_deref()
+																		.filter(|_| {
+																			self.share_game_activity
+																		}) {
+																		game.to_owned()
+																	} else if state.demo {
+																		language
+																			.text("offline-preview")
+																	} else if state
+																		.gateway_connected
+																	{
+																		language.text(
+																			match self
+																				.own_presence
+																				.status
+																				.wire()
+																			{
+																				"lib-account-card-online" => {
+																					"status-online"
+																				}
+																				"lib-account-card-idle" => {
+																					"status-idle"
+																				}
+																				"lib-account-card-dnd" => {
+																					"status-dnd"
+																				}
+																				_ => {
+																					"status-offline"
+																				}
+																			},
+																		)
+																	} else {
+																		language
+																			.text("reconnecting")
+																	}),
+																),
+															)
 															.size(12.0)
 															.color(colors.muted),
 														)
@@ -2151,7 +2163,7 @@ impl MessagingUi {
 			egui::text_edit::TextEditState::default()
 				.store(ctx, ui.make_persistent_id("message-edit"));
 			ui.weak(crate::i18n::translate(
-				"Message deleted. The unchanged edit was closed.",
+				"lib-composer-message-deleted-the-unchanged-edit-was-closed",
 			));
 			ctx.request_repaint();
 			return;
@@ -2261,19 +2273,19 @@ impl MessagingUi {
 					ui.set_min_width((ui.available_width() - 2.0).max(0.0));
 					ui.label(design::semibold(
 						ui,
-						crate::i18n::translate(if available {
-							"Drop files to attach"
+						crate::i18n::translate_if_key(if available {
+							"lib-ime-updates-text-drop-files-to-attach"
 						} else {
-							"Attachments unavailable right now"
+							"lib-ime-updates-text-attachments-unavailable-right-now"
 						}),
 						18.0,
 					));
 					ui.add_space(6.0);
 					ui.label(
-						egui::RichText::new(crate::i18n::translate(if available {
-							"Up to 10 files · 500 MB max · Account limit applies"
+						egui::RichText::new(crate::i18n::translate_if_key(if available {
+							"lib-ime-updates-text-up-to-10-files-500-mb-max-account-limit-applies"
 						} else {
-							"Return to an available conversation after the current operation finishes"
+							"lib-ime-updates-text-return-to-an-available-conversation-after-the-current-operation-finishes"
 						}))
 						.color(colors.muted),
 					);
@@ -2286,10 +2298,10 @@ impl MessagingUi {
 			let unavailable = editing_key.is_some_and(|(_, id)| state.timeline.get(id).is_none());
 			let cap = composer_cap(ui, &colors, |ui| {
 				ui.label(
-					RichText::new(crate::i18n::translate(if unavailable {
-						"Message unavailable · unsent edit"
+					RichText::new(crate::i18n::translate_if_key(if unavailable {
+						"lib-ime-updates-text-message-unavailable-unsent-edit"
 					} else {
-						"Editing message"
+						"lib-ime-updates-text-editing-message"
 					}))
 					.size(13.0)
 					.color(colors.muted),
@@ -2297,7 +2309,7 @@ impl MessagingUi {
 				if self.edit_sent {
 					ui.label(
 						RichText::new(crate::i18n::translate(
-							"· Save requested, check the connection before retrying",
+							"lib-ime-updates-text-save-requested-check-the-connection-before-retrying",
 						))
 						.size(12.0)
 						.color(colors.muted),
@@ -2308,16 +2320,18 @@ impl MessagingUi {
 						ui,
 						icons::Icon::Close,
 						22.0,
-						&crate::i18n::translate("Cancel edit"),
+						&crate::i18n::translate("lib-ime-updates-text-cancel-edit"),
 					)
 					.clicked();
 					if unavailable
 						&& ui
 							.add(
 								egui::Button::new(
-									RichText::new(crate::i18n::translate("Copy edit text"))
-										.size(12.0)
-										.color(colors.muted),
+									RichText::new(crate::i18n::translate(
+										"lib-ime-updates-text-copy-edit-text",
+									))
+									.size(12.0)
+									.color(colors.muted),
 								)
 								.frame(false),
 							)
@@ -2337,10 +2351,11 @@ impl MessagingUi {
 			let cap = composer_cap(ui, &colors, |ui| {
 				ui.spacing_mut().item_spacing.x = 0.0;
 				ui.label(
-					RichText::new(crate::i18n::translate("Replying to "))
+					RichText::new(crate::i18n::translate("lib-ime-updates-text-replying-to"))
 						.size(13.0)
 						.color(colors.muted),
 				);
+				ui.add_space(4.0);
 				ui.label(design::semibold(ui, author.as_str(), 13.0).color(colors.text_strong));
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
@@ -2348,7 +2363,7 @@ impl MessagingUi {
 						ui,
 						icons::Icon::Close,
 						22.0,
-						&crate::i18n::translate("Cancel reply"),
+						&crate::i18n::translate("lib-ime-updates-text-cancel-reply"),
 					)
 					.clicked()
 					{
@@ -2361,17 +2376,19 @@ impl MessagingUi {
 						.add_enabled(
 							state.can_open_reply_target(reply.target()),
 							egui::Button::new(
-								RichText::new(crate::i18n::translate("View original"))
-									.size(12.0)
-									.color(colors.muted),
+								RichText::new(crate::i18n::translate(
+									"lib-ime-updates-text-view-original",
+								))
+								.size(12.0)
+								.color(colors.muted),
 							)
 							.frame(false),
 						)
-						.on_disabled_hover_text(crate::i18n::translate(
+						.on_disabled_hover_text(crate::i18n::translate_if_key(
 							if state.timeline.is_deleted(reply.target()) {
-								"The original message was deleted"
+								"lib-ime-updates-text-the-original-message-was-deleted"
 							} else {
-								"Wait for readable, current message history"
+								"lib-ime-updates-text-wait-for-readable-current-message-history"
 							},
 						))
 						.clicked()
@@ -2386,11 +2403,13 @@ impl MessagingUi {
 			|| (!state.drafts.contains_key(&channel) && state.drafts.len() >= 64);
 		if full && !editing_here {
 			ui.label(crate::i18n::translate(
-				"Draft budget full. Clear an existing draft to continue.",
+				"lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue",
 			));
 			if state.drafts.contains_key(&channel)
 				&& ui
-					.button(crate::i18n::translate("Clear this draft"))
+					.button(crate::i18n::translate(
+						"lib-ime-updates-text-clear-this-draft",
+					))
 					.clicked()
 			{
 				self.clear_draft(state, channel);
@@ -2675,10 +2694,10 @@ impl MessagingUi {
                     } else {
                         Some(ui
                             .add_enabled_ui(can_attach, |ui| {
-                                icons::button(ui, icons::Icon::Attach, 28.0, &crate::i18n::translate("Attach files"))
+                                icons::button(ui, icons::Icon::Attach, 28.0, &crate::i18n::translate("lib-ime-updates-text-attach-files"))
                             })
                             .inner
-                            .on_hover_text(crate::i18n::translate("Choose, drop, or paste files (Ctrl/Cmd/Option+V). Up to 10 files and 500 MB total; account limits may be lower. Send starts the upload.")))
+                            .on_hover_text(crate::i18n::translate("lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up")))
                     };
                     if !editing_here { self.extensions.composer_menu(ui, state); }
                     if attach.is_some_and(|attach| attach.clicked()) {
@@ -2692,7 +2711,7 @@ impl MessagingUi {
                                     ui,
                                     icons::Icon::Send,
                                     28.0,
-                                    &crate::i18n::translate(if editing_here { "Save edit" } else if application_command { "Send command" } else { "Send message" }),
+                                    &crate::i18n::translate_if_key(if editing_here { "lib-ime-updates-text-save-edit" } else if application_command { "lib-ime-updates-text-send-command" } else { "lib-ime-updates-text-send-message" }),
                                 )
                             })
                             .inner;
@@ -3036,11 +3055,11 @@ impl MessagingUi {
                     });
                 });
                 if let Some((edit_channel, message)) = editing_key {
-                    if state.freshness != Freshness::Fresh || !state.can_edit(edit_channel, message) { ui.weak(crate::i18n::translate("Editing this message is unavailable. Your text is kept until you cancel.")); }
+                    if state.freshness != Freshness::Fresh || !state.can_edit(edit_channel, message) { ui.weak(crate::i18n::translate("lib-ime-updates-text-editing-this-message-is-unavailable-your-text-is-kept-until")); }
                 } else if !state.can_send(channel) && !application_command {
-                    ui.weak(crate::i18n::translate("Sending messages is unavailable in this conversation. Your draft is kept."));
+                    ui.weak(crate::i18n::translate("lib-ime-updates-text-sending-messages-is-unavailable-in-this-conversation-your-draft-is"));
                 } else if self.attachment.is_some() && !state.can_attach(channel) {
-                    ui.weak(crate::i18n::translate("Attaching files is unavailable here. Remove the attachment to send only text."));
+                    ui.weak(crate::i18n::translate("lib-ime-updates-text-attaching-files-is-unavailable-here-remove-the-attachment-to-send"));
                 }
             });
 		if editing_here {
@@ -7410,7 +7429,7 @@ pub fn debug_forward_check(state: &mut State) {
 						ui,
 						icons::Icon::Forward,
 						28.0,
-						&crate::i18n::translate("Forward message"),
+						&crate::i18n::translate("lib-debug-forward-check-forward-message"),
 					);
 				},
 			)

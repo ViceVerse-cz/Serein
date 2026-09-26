@@ -245,13 +245,13 @@ impl VideoUi {
 		if active && self.is_fullscreen() && !fullscreen {
 			return response;
 		}
-		let label = crate::i18n::translate(match state {
-			VideoState::Loading => "Cancel",
-			VideoState::Playing => "Pause",
-			VideoState::Paused => "Resume",
-			VideoState::Ended => "Replay",
-			VideoState::Failed(_) => "Retry",
-			VideoState::Idle => "Play",
+		let label = crate::i18n::translate_if_key(match state {
+			VideoState::Loading => "video-show-player-cancel",
+			VideoState::Playing => "video-show-player-pause",
+			VideoState::Paused => "video-show-player-resume",
+			VideoState::Ended => "video-show-player-replay",
+			VideoState::Failed(_) => "video-show-player-retry",
+			VideoState::Idle => "video-show-player-play",
 		});
 		let painter = ui.painter().with_clip_rect(stage);
 		painter.rect_filled(stage, CORNER, egui::Color32::BLACK);
@@ -289,7 +289,7 @@ impl VideoUi {
 				ui.is_enabled(),
 				format!(
 					"{label} {} {}",
-					crate::i18n::translate("video"),
+					crate::i18n::translate("video-show-player-video"),
 					attachment.filename
 				),
 			)
@@ -464,7 +464,7 @@ impl VideoUi {
 					controls_focused |= seek.has_focus();
 					response |= seek.clone();
 					if seek
-						.on_hover_text(crate::i18n::translate("Seek video"))
+						.on_hover_text(crate::i18n::translate("video-show-player-seek-video"))
 						.changed() && !context_click
 					{
 						self.command = Some(VideoCommand::Seek(position));
@@ -611,7 +611,9 @@ impl VideoUi {
 							controls_focused |= volume.has_focus();
 							response |= volume.clone();
 							if volume
-								.on_hover_text(crate::i18n::translate("Video volume"))
+								.on_hover_text(crate::i18n::translate(
+									"video-show-player-video-volume",
+								))
 								.changed() && !context_click
 							{
 								self.volume = volume_value;
@@ -652,10 +654,10 @@ impl VideoUi {
 						)
 					})
 					.inner
-					.on_disabled_hover_text(crate::i18n::translate(if demo {
-						"Downloads are disabled for synthetic attachments"
+					.on_disabled_hover_text(crate::i18n::translate_if_key(if demo {
+						"video-show-player-downloads-are-disabled-for-synthetic-attachments"
 					} else {
-						"A download is already active"
+						"video-show-player-a-download-is-already-active"
 					}))
 					.clicked()
 				{

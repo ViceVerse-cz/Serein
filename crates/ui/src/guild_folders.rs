@@ -535,11 +535,13 @@ impl MessagingUi {
 									format!(
 										"{name}, {} {}, {}",
 										folder.guild_ids.len(),
-										crate::i18n::translate("servers"),
-										crate::i18n::translate(if open {
-											"expanded"
+										crate::i18n::translate(
+											"guild-folders-server-folders-servers"
+										),
+										crate::i18n::translate_if_key(if open {
+											"guild-folders-server-folders-expanded"
 										} else {
-											"collapsed"
+											"guild-folders-server-folders-collapsed"
 										})
 									),
 								)
@@ -572,7 +574,7 @@ impl MessagingUi {
 							.add_enabled(
 								!state.folders_pending,
 								egui::Button::new(crate::i18n::translate(
-									"Refresh folders from Discord",
+									"guild-folders-server-folders-refresh-folders-from-discord",
 								)),
 							)
 							.clicked()
@@ -581,18 +583,30 @@ impl MessagingUi {
 							ui.close();
 						}
 						ui.add_enabled_ui(enabled, |ui| {
-							if ui.button(crate::i18n::translate("Move up")).clicked() {
+							if ui
+								.button(crate::i18n::translate(
+									"guild-folders-server-folders-move-up",
+								))
+								.clicked()
+							{
 								change = Some(Edit::Shift(item, false));
 								ui.close();
 							}
-							if ui.button(crate::i18n::translate("Move down")).clicked() {
+							if ui
+								.button(crate::i18n::translate(
+									"guild-folders-server-folders-move-down",
+								))
+								.clicked()
+							{
 								change = Some(Edit::Shift(item, true));
 								ui.close();
 							}
 							match item {
 								Item::Folder(id) => {
 									if ui
-										.button(crate::i18n::translate("Folder name and color…"))
+										.button(crate::i18n::translate(
+											"guild-folders-server-folders-folder-name-and-color",
+										))
 										.clicked()
 									{
 										let f = state
@@ -612,7 +626,9 @@ impl MessagingUi {
 										ui.close();
 									}
 									if ui
-										.button(crate::i18n::translate("Ungroup servers"))
+										.button(crate::i18n::translate(
+											"guild-folders-server-folders-ungroup-servers",
+										))
 										.clicked()
 									{
 										change = Some(Edit::Dissolve(id));
@@ -621,14 +637,18 @@ impl MessagingUi {
 								}
 								Item::Server(id) => {
 									if ui
-										.button(crate::i18n::translate("Move outside folders"))
+										.button(crate::i18n::translate(
+											"guild-folders-server-folders-move-outside-folders",
+										))
 										.clicked()
 									{
 										change = Some(Edit::Outside(id));
 										ui.close();
 									}
 									ui.menu_button(
-										crate::i18n::translate("Group with server"),
+										crate::i18n::translate(
+											"guild-folders-server-folders-group-with-server",
+										),
 										|ui| {
 											for guild in state.guilds.iter().filter(|g| g.id != id)
 											{
@@ -770,14 +790,17 @@ impl MessagingUi {
 				});
 		}
 		if state.folders_pending {
-			ui.label(egui::RichText::new(crate::i18n::translate("Sync…")).small())
-				.on_hover_text(crate::i18n::translate(
-					"Syncing server folders with Discord",
-				));
+			ui.label(
+				egui::RichText::new(crate::i18n::translate("guild-folders-server-folders-sync"))
+					.small(),
+			)
+			.on_hover_text(crate::i18n::translate(
+				"guild-folders-server-folders-syncing-server-folders-with-discord",
+			));
 		}
 		if let Some(error) = state.folders_error
 			&& ui
-				.small_button(crate::i18n::translate("Retry"))
+				.small_button(crate::i18n::translate("guild-folders-server-folders-retry"))
 				.on_hover_text(error)
 				.clicked()
 			&& let Some(command) = state.load_guild_folders()
@@ -788,30 +811,37 @@ impl MessagingUi {
 		if let Some((id, name, color)) = &mut self.folder_ui.editor {
 			let response = crate::dialog::Dialog::new(
 				"folder-settings",
-				crate::i18n::translate("Folder Settings"),
+				crate::i18n::translate("guild-folders-server-folders-folder-settings"),
 			)
 			.subtitle(crate::i18n::translate(
-				"Name this folder and pick the colour shown on the server rail.",
+				"guild-folders-server-folders-name-this-folder-and-pick-the-colour-shown-on-the",
 			))
 			.width(400.0)
 			.show(ui.ctx(), |d| {
 				d.content(|ui| {
-					let label = crate::dialog::label(ui, "Folder name");
+					let label =
+						crate::dialog::label(ui, "guild-folders-server-folders-folder-name");
 					crate::dialog::input(
 						ui,
 						egui::TextEdit::singleline(name)
-							.hint_text(crate::i18n::translate("Folder name"))
+							.hint_text(crate::i18n::translate(
+								"guild-folders-server-folders-folder-name",
+							))
 							.char_limit(100),
 					)
 					.labelled_by(label.id);
 					ui.add_space(14.0);
-					crate::dialog::label(ui, "Colour");
+					crate::dialog::label(ui, "guild-folders-server-folders-colour");
 					design::color_edit(ui, color);
 				});
 				d.footer(|ui| {
 					ui.add_enabled_ui(enabled, |ui| {
-						if crate::dialog::action(ui, "Save", crate::dialog::Action::Primary)
-							.clicked()
+						if crate::dialog::action(
+							ui,
+							"guild-folders-server-folders-save",
+							crate::dialog::Action::Primary,
+						)
+						.clicked()
 						{
 							change = Some(Edit::Customize(
 								*id,
@@ -822,8 +852,12 @@ impl MessagingUi {
 							close = true;
 						}
 					});
-					close |= crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral)
-						.clicked();
+					close |= crate::dialog::action(
+						ui,
+						"guild-folders-server-folders-cancel",
+						crate::dialog::Action::Neutral,
+					)
+					.clicked();
 				});
 			});
 			close |= response.close;

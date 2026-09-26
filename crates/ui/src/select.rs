@@ -313,7 +313,10 @@ impl egui::Plugin for Pointer {
 		.open_memory(Some(egui::SetOpenCommand::Bool(true)))
 		.kind(egui::PopupKind::Menu)
 		.show(|ui| {
-			if ui.button(crate::i18n::translate("Copy")).clicked() {
+			if ui
+				.button(crate::i18n::translate("select-on-end-pass-copy"))
+				.clicked()
+			{
 				request_copy(ui.ctx());
 				ui.close();
 			}

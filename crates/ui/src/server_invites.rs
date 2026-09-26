@@ -66,15 +66,16 @@ impl InvitesUi {
 		ui.horizontal(|ui| {
 			ui.label(design::semibold(
 				ui,
-				crate::i18n::translate("Invites"),
+				crate::i18n::translate("server-invites-show-invites"),
 				22.0,
 			));
 			if ui
 				.add_enabled(
 					!state.server_admin.pending,
-					egui::Button::new(crate::i18n::translate("Reload")).frame(false),
+					egui::Button::new(crate::i18n::translate("server-invites-show-reload"))
+						.frame(false),
 				)
-				.on_hover_text(crate::i18n::translate("Reload Invites"))
+				.on_hover_text(crate::i18n::translate("server-invites-show-reload-invites"))
 				.clicked()
 			{
 				action = Some(Action::Load);
@@ -100,10 +101,10 @@ impl InvitesUi {
 					ui.set_width(label_width);
 					ui.label(design::eyebrow(
 						ui,
-						crate::i18n::translate(if paused {
-							"INVITE LINKS PAUSED"
+						crate::i18n::translate_if_key(if paused {
+							"server-invites-show-invite-links-paused"
 						} else {
-							"ACTIVE INVITE LINKS"
+							"server-invites-show-active-invite-links"
 						}),
 						colors.muted,
 					));
@@ -114,10 +115,10 @@ impl InvitesUi {
 					.add_enabled(
 						writable,
 						egui::Button::new(
-							RichText::new(crate::i18n::translate(if paused {
-								"Resume Invites"
+							RichText::new(crate::i18n::translate_if_key(if paused {
+								"server-invites-show-resume-invites"
 							} else {
-								"Pause Invites"
+								"server-invites-show-pause-invites"
 							}))
 							.color(if paused { colors.text } else { colors.danger }),
 						)
@@ -132,7 +133,7 @@ impl InvitesUi {
 					.add_enabled_ui(writable && !paused, |ui| {
 						design::button(
 							ui,
-							&crate::i18n::translate("Create Invite Link"),
+							&crate::i18n::translate("server-invites-show-create-invite-link"),
 							design::ButtonKind::Primary,
 						)
 					})
@@ -152,7 +153,7 @@ impl InvitesUi {
 			if ui
 				.add_enabled(
 					!state.server_admin.pending,
-					egui::Button::new(crate::i18n::translate("Reload Invites")),
+					egui::Button::new(crate::i18n::translate("server-invites-show-reload-invites")),
 				)
 				.clicked()
 			{
@@ -162,11 +163,13 @@ impl InvitesUi {
 		if state.server_admin.pending {
 			ui.horizontal(|ui| {
 				ui.spinner();
-				ui.weak(crate::i18n::translate(if state.server_admin.saving {
-					"Updating invites…"
-				} else {
-					"Loading invites…"
-				}));
+				ui.weak(crate::i18n::translate_if_key(
+					if state.server_admin.saving {
+						"server-invites-show-updating-invites"
+					} else {
+						"server-invites-show-loading-invites"
+					},
+				));
 			});
 		}
 		if let Some(snapshot) = &state.server_admin.invites {
@@ -174,12 +177,12 @@ impl InvitesUi {
 				ui.add_space(32.0);
 				ui.label(design::semibold(
 					ui,
-					crate::i18n::translate("No active invite links"),
+					crate::i18n::translate("server-invites-show-no-active-invite-links"),
 					18.0,
 				));
 				if state.invite_channel(guild).is_some() {
 					ui.weak(crate::i18n::translate(
-						"Create an invite link to welcome people to this server.",
+						"server-invites-show-create-an-invite-link-to-welcome-people-to-this-server",
 					));
 				}
 			} else {
@@ -316,13 +319,15 @@ impl InvitesUi {
 											if ui
 												.add(
 													egui::Label::new(
-														RichText::new(crate::i18n::translate(
-															if copied {
-																"Copied!"
-															} else {
-																&invite.code
-															},
-														))
+														RichText::new(
+															crate::i18n::translate_if_key(
+																if copied {
+																	"server-invites-show-copied"
+																} else {
+																	&invite.code
+																},
+															),
+														)
 														.monospace()
 														.size(13.0),
 													)
@@ -330,7 +335,7 @@ impl InvitesUi {
 													.sense(egui::Sense::click()),
 												)
 												.on_hover_text(crate::i18n::translate(
-													"Copy invite link",
+													"server-invites-show-copy-invite-link",
 												))
 												.clicked()
 											{
@@ -407,7 +412,9 @@ impl InvitesUi {
 													egui::WidgetInfo::labeled(
 														egui::Role::Button,
 														writable,
-														crate::i18n::translate("Revoke invite"),
+														crate::i18n::translate(
+															"server-invites-show-revoke-invite",
+														),
 													)
 												});
 												if hovered
@@ -426,7 +433,7 @@ impl InvitesUi {
 												}
 												if response
 													.on_hover_text(crate::i18n::translate(
-														"Revoke invite",
+														"server-invites-show-revoke-invite",
 													))
 													.clicked() && writable
 												{
@@ -445,7 +452,9 @@ impl InvitesUi {
 			}
 		} else if !state.server_admin.pending
 			&& state.server_admin.error.is_none()
-			&& ui.button(crate::i18n::translate("Load Invites")).clicked()
+			&& ui
+				.button(crate::i18n::translate("server-invites-show-load-invites"))
+				.clicked()
 		{
 			action = Some(Action::Load);
 		}

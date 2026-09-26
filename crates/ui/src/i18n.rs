@@ -1,8 +1,12 @@
 //! Embedded application translations. Discord content and protocol locale stay untouched.
-use fluent_templates::{LanguageIdentifier, Loader};
-use std::sync::{
-	LazyLock,
-	atomic::{AtomicU8, Ordering},
+use fluent_templates::{LanguageIdentifier, Loader, fluent_bundle::FluentValue};
+use std::{
+	borrow::Cow,
+	collections::HashMap,
+	sync::{
+		LazyLock,
+		atomic::{AtomicU8, Ordering},
+	},
 };
 
 fluent_templates::static_loader! {
@@ -99,10 +103,16 @@ impl Language {
 		TRANSLATIONS.lookup(language, key)
 	}
 
-	pub fn source(self, source: &str) -> String {
-		TRANSLATIONS
-			.try_lookup(self.identifier(), &source_key(source))
-			.unwrap_or_else(|| source.to_owned())
+	fn try_text(self, key: &str) -> Option<String> {
+		TRANSLATIONS.try_lookup(self.identifier(), key)
+	}
+
+	fn text_with_args(self, key: &str, values: &[(&'static str, &str)]) -> String {
+		let args: HashMap<_, _> = values
+			.iter()
+			.map(|(name, value)| (Cow::Borrowed(*name), FluentValue::from(*value)))
+			.collect();
+		TRANSLATIONS.lookup_with_args(self.identifier(), key, &args)
 	}
 
 	pub fn name(self, current: Self) -> String {
@@ -150,22 +160,27 @@ pub fn set_current(language: Language) {
 	CURRENT.store(language as u8, Ordering::Relaxed);
 }
 
-pub fn translate(source: &str) -> String {
-	let value = CURRENT.load(Ordering::Relaxed);
-	let language = Language::ALL
-		.into_iter()
-		.find(|language| *language as u8 == value)
-		.unwrap_or_default();
-	language.source(source)
+pub fn translate(key: &str) -> String {
+	current().text(key)
 }
 
-fn source_key(source: &str) -> String {
-	let hash = source
-		.bytes()
-		.fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-			(hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3)
-		});
-	format!("source-{hash:016x}")
+pub fn translate_args(key: &str, values: &[(&'static str, &str)]) -> String {
+	current().text_with_args(key, values)
+}
+
+/// Translate a semantic key while leaving service- or user-provided text untouched.
+pub fn translate_if_key(value: &str) -> String {
+	current()
+		.try_text(value)
+		.unwrap_or_else(|| value.to_owned())
+}
+
+fn current() -> Language {
+	let value = CURRENT.load(Ordering::Relaxed);
+	Language::ALL
+		.into_iter()
+		.find(|language| *language as u8 == value)
+		.unwrap_or_default()
 }
 
 fn language_from_tag(tag: &str) -> Language {
@@ -211,52 +226,22 @@ mod tests {
 		}
 		assert_eq!(Language::Czech.text("page-general"), "Obecné");
 		assert_eq!(Language::Japanese.text("page-general"), "一般的な");
-		assert_eq!(source_key("Mark As Read"), "source-b82ecdfc78c29614");
 		assert_eq!(
-			Language::Czech.source("Mark As Read"),
-			"Označit jako přečtené"
+			Language::Czech.text("message-menu-copy"),
+			"Kopírovat zprávu"
 		);
 		assert_eq!(
-			Language::Czech.source("Server Settings"),
-			"Nastavení serveru"
+			Language::Czech.text("voice-device-default"),
+			"Výchozí nastavení systému"
 		);
-		assert_eq!(Language::Czech.source("Create invite"), "Vytvořit pozvánku");
-		assert_eq!(Language::Czech.source("Direct Messages"), "Přímé zprávy");
-		assert_eq!(Language::Czech.source("Online"), "Online");
-		for source in [
-			"Manage settings that help keep your server active.",
-			"Use roles to group your server members and assign permissions.",
-			"Default Permissions\n@everyone · applies to all server members",
-			"Members use the color of the highest role they have on this list. Drag roles to reorder them.",
-			"Delete Server",
-			"ROLES",
-			"MEMBERS",
-			"EXPRESSION",
-			"PEOPLE",
-			"APPS",
-			"MODERATION",
-		] {
-			assert_ne!(Language::Czech.source(source), source);
-		}
-		for (source, translated) in [
-			("Copy message", "Kopírovat zprávu"),
-			("Reply", "Odpovědět"),
-			("Forward", "Přeposlat"),
-			("Mark read through here", "Označit jako přečtené až sem"),
-			("Mark Unread", "Označit jako nepřečtené"),
-			("Pin message", "Připnout zprávu"),
-			("Unpin message", "Odepnout zprávu"),
-			("Copy image", "Kopírovat obrázek"),
-			("Save image as…", "Uložit obrázek jako…"),
-			("Playing", "Hraje"),
-			("Listening to", "Poslouchá"),
-		] {
-			assert_eq!(Language::Czech.source(source), translated);
-		}
+		assert_eq!(Language::English.text("message-menu-copy"), "Copy message");
+		assert!(Language::English.try_text("Copy message").is_none());
 		assert_eq!(
-			Language::Czech
-				.source("Saved channel preferences are damaged or incompatible with this build."),
-			"Uložené předvolby kanálů jsou poškozené nebo nekompatibilní s touto verzí."
+			Language::English.text_with_args(
+				"channel-menu-delete-category-confirm",
+				&[("name", "General")],
+			),
+			"Delete \u{2068}General\u{2069}? Its channels will remain in the server. This cannot be undone."
 		);
 	}
 }

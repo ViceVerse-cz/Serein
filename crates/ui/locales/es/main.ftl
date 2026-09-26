@@ -1,4 +1,4 @@
-# es translations. Machine-bootstrapped; refine through Weblate.
+# es application translations. Edit with Weblate or any Fluent editor.
 
 language-system = Sistema
 language-group = Idioma
@@ -154,3377 +154,3840 @@ friends-presence-unavailable = Presencia no disponible
 friends-message = Mensaje
 friends-no-open-dm = No hay mensajes directos abiertos con este amigo.
 friends-more = Más
-source-e2ba7fbf33ab62fe = # general
-source-9977d117b71711b0 = %2f
-source-9982c617b7210684 = %5c
-source-baf2dbcb41ca49a9 = (editado)
-source-e0ed93235f2a2ab9 = ) || app.to_string_lossy().contiene(
-source-3d7f7d45f5797cde = ) || recortado.starts_with(
-source-0779469a6798d2fc = )).ok().as_deref() != Algunos(b
-source-bb8d97aea98a947e = ), b
-source-59a720932871d607 = + Agregar fecha
-source-bf7ff2a762b953b2 = + Agregar rol o miembro
-source-1f2de94f6e6187ec = +inicio rápido
-source-07e41807b4a8904c = +N
-source-40b22805b11260c7 = , archivado
-source-c5b3f06b281de12c = , conectado
-source-b83de214b3209bdf = , en una llamada
-source-fae85bb22e04597e = , no leído
-source-d33288cf3eeaad27 = --demo-attachment=archivo
-source-0ea6d02e8844dd06 = --demo-attachment=multi
-source-4fd3ebfc1710d76a = --demo-búsqueda=
-source-9e006ae718da324b = --tema-demo=
-source-4dc61da1eeb8f3f6 = --detallado=4
-source-0f71f13f53a39740 = -Política de ejecución
-source-0d3da451019087ce = -Archivo
-source-2975f187c708676d = -No interactivo
-source-6be0ff5bacd01f48 = -Sin perfil
-source-d09a059444612f6b = ../../../assets/fonts/Inter-Medium.ttf
-source-db87a62631254afc = ../../../assets/fonts/Inter-Regular.ttf
-source-b3f9bc5db076a85d = ../../../assets/fonts/Inter-SemiBold.ttf
-source-2174a82f7cb4d130 = ../../../assets/fonts/NotoSansArabic.ttf
-source-56798272dfae0cd3 = ../../../assets/fonts/NotoSansCJKjp-Regular.otf.zst
-source-6404e137c225dd0e = ../../../assets/fonts/NotoSansMath-Regular.otf
-source-6327c42f4782df6d = .Imagen de aplicación
-source-b94d8847e8f94e30 = /gif [buscar]
-source-1a2c133bb397554b = /yo texto
-source-449d520d45422fdf = /msg @usuario [mensaje]
-source-674e308a38d8a4da = /encogerse de hombros [texto]
-source-e2c06636acbfd6cf = /texto spoiler
-source-c789a1242b2311ab = /pegatina [buscar]
-source-d6f5937541bfb796 = /tableflip [texto]
-source-fcfe9af1d2d30f5b = /desplegar [texto]
-source-fdee446bfb652060 = 0% muestra la imagen. 100% es un color de sección sólida.
-source-6d751d7dbb90136d = 0:a:0?
-source-d73e89fb5ca7534e = 1 dia
-source-44e1f16ea614011d = 1 solicitud de amistad
-source-9899f07ee811b5ca = 1 hora
-source-1aedef77d184c8ea = 1 hora
-source-686ab4dd58b52fb3 = 1 mensaje
-source-f4744aa41d96cd8e = 1 solicitud de mensaje
-source-8734d3112c508504 = 1 minuto
-source-57a8c5a751acc7d8 = 1 semana
-source-36f5d5123da1d24d = 10 minutos
-source-8d13513f9c9a0c51 = 10 segundos
-source-9f884ca9528441cf = 100% es el nivel original. Los niveles más altos pueden distorsionar.
-source-a6ab28c69299397d = 12 horas
-source-2a46c7c5730014aa = 15 minutos
-source-cb98233fc1fe95be = 15 segundos
-source-bef3027f2aba42c8 = 2 dias
-source-543610c88aecac7e = 2 horas
-source-e022bfbf21a62ea4 = 2 minutos
-source-b773629ac81b71c5 = 2026-01-01T00:00:00Z
-source-4c84831699a66c00 = 24 Horas
-source-1dc522a4a05cf0a5 = 3 dias
-source-26156a5bcb44ac99 = 30 dias
-source-801744c4d83f671f = 30 minutos
-source-9a04d0509ccf2ae7 = 30 segundos
-source-7aa29984e3199a10 = 4 horas
-source-f40cb1ac8887e1a1 = 5 minutos
-source-89b8fbc44ee62b8d = 5 segundos
-source-1741ba7f5b595722 = 6 horas
-source-d636599a979f0d59 = 7 dias
-source-6f073b8cbdb4deae = < Integraciones
-source-70118e18301700fc = <una:
-source-60030d4518672b9d = =comenzar
-source-424af112b78b9f2d = =fin
-source-ffb05029aca7283a = ?paso=falso
-source-fd566af54baa4d7c = ?tamaño=64
-source-3502a329ea88a32a = @todos
-source-04c60119a6feb209 = @a mí
-source-797a268358a38eba = [El mensaje eliminado no tenía texto]
-source-304cfbbd9afd3d67 = [Spoiler oculto]
-source-dd1cd405fbf51642 = [año]-[mes]-[día]
-source-ba5ad919bde9f91b = __ARCHIVO__
-source-ff2e9a5d05f1c407 = __LÍNEA__
-source-60ed7e6fea310320 = __MACOSX
-source-af63fc4c860222ec = A
-source-ea0a5c65ac517e7c = Una actualización del catálogo no puede reemplazar un paquete local o importado
-source-07c471660b5c5b6d = un comando
-source-8e8f3a23e0e9ece1 = Un emoji personalizado.
-source-3427440866cf683e = un dia
-source-832d6f9c21fe327c = Un emoji predeterminado. Puedes usar este emoji en todas partes en Discord.
-source-c87a72cf210bdf1a = Ya hay una descarga activa
-source-036822775cb3d29d = Una descarga o limpieza del portapapeles ya está activa
-source-b1d2a5473e87197b = unos segundos
-source-1bca120d5f0f6f59 = Apareció un archivo en el destino; elija otro nombre o confirme el reemplazo
-source-90bed8158c1718ba = Un foro puede ofrecer hasta 20 etiquetas.
-source-196aa7589058fa81 = Un juego envió actividad que no se pudo leer.
-source-d712e298601972c9 = Una transferencia de medios ya está activa
-source-c73f1143b7a6bd21 = Un mensaje falló: verifique el destino
-source-bc98b6217e0e3434 = un minuto
-source-22bbef89386d92ba = un mes
-source-b1ec16df76d9bd09 = una nueva llamada iniciada explícitamente tiene su propia señal de entrada
-source-d9ec4a79c83ebbeb = Una publicación puede llevar hasta 5 etiquetas.
-source-547bd314aecb3f43 = Hay una acción del servidor en curso.
-source-0dcbc262ee054e81 = El paquete marcado de una plataforma compatible tiene un archivo descargable.
-source-7ee589362716c195 = Un mensaje útil sigue siendo legible
-source-9e94a28a5b802784 = Ya hay una llamada de voz activa
-source-ae6d213acd310fd5 = un año
-source-1841cd89a01ce541 = a/CON.txt
-source-e6b9b11904eabd96 = a\b
-source-09efc23b583b2370 = ACERCA DE MÍ
-source-e957aac89298c890 = Acerca de mí
-source-5454fce28deb1dfc = Sobre Serein
-source-136526f9761a4d77 = Acento
-source-d66c4767fa3dde28 = Color de acento
-source-13be1af9766661e9 = Aceptar
-source-fa837eedde682e5a = Aceptar solicitud de amistad
-source-e0d1d6bd81fc1980 = Aceptado
-source-9be5c595be455b0e = Términos de monetización de creadores aceptados
-source-2b9bacc0275f2f5e = La limpieza de la extensión de la cuenta está incompleta; volver a abrir Extensiones para volver a intentarlo
-source-73af8d28f4d05959 = Configuraciones de la cuenta
-source-f8acd75e4c30dec1 = La instantánea de inicio de la cuenta supera los 128 MiB; conexión detenida
-source-afd252ca87254e0c = La instantánea de inicio de la cuenta ya está en cola; conexión detenida
-source-84ad5c38e8e5ac27 = El evento de sincronización de cuenta supera los 4 MiB; conexión detenida
-source-64fc952e3785ffac = La cola de eventos de sincronización de cuentas está llena; conexión detenida
-source-229c11f32846b199 = La cola de sincronización de cuentas supera los 32 MiB; conexión detenida
-source-a45a194b58837e4f = Activo
-source-096271b572c564b1 = ENLACES DE INVITACIÓN ACTIVOS
-source-c141f9a556c5ae3c = Los hilos activos provienen de la sesión; Los hilos más antiguos cargan 25 a la vez. Al abrir se cargan mensajes sin unirse.
-source-6c76b294d740446c = Actividad
-source-b50206be65c022ef = Insignia de actividad
-source-ceafed983d9c999d = Configuración del feed de actividades
-source-303530211648923a = Opciones de actividad
-source-ec35beeb0a638889 = configuración de actividad
-source-78319537e3e40195 = El uso compartido de actividades está desactivado
-source-f9aee319a006c9b4 = Agregar
-source-a669985c2b3d37bc = Agregue una licencia y una versión antes de guardar.
-source-8188503ddfecb719 = Añade una nueva herramienta a tus conversaciones.
-source-338cffe0ab083bd2 = Agregar un servidor
-source-76dce2e228d13136 = Agregue un nombre de tema y un nombre de creador antes de guardar.
-source-c3ee70112775e610 = Agregar una cuenta
-source-2e8ec7ac529c0416 = Añade un mensaje opcional...
-source-1906429c63e122c5 = Agregue emoji personalizados que cualquiera pueda usar en este servidor. Los miembros de Discord Nitro pueden utilizar emoji GIF animados.
-source-65178f4c7396be95 = Agregue pegatinas personalizadas para que los miembros las utilicen en este servidor. La obra de arte se recorta y se cambia de tamaño a 320 × 320 píxeles antes de cargarla.
-source-9da45ad17e1e6254 = Agregar amigo
-source-4eac18cd86d220b8 = Agregar apodo de amigo
-source-b0f52633d46a24b4 = Añade imágenes o archivos. Hasta 10 archivos y 500 MB en total; Los límites de la cuenta pueden ser más bajos.
-source-87814e07c665fc5d = Agregar imágenes a esta publicación
-source-5e155029a998ab6e = Agregar miembro
-source-76e253cb2e6ac247 = Agregar miembros
-source-63b2998e75bab548 = Agregar nota
-source-5769170fd14b80a7 = Añadir reacción
-source-76858359c87d089c = Agregar reacciones
-source-6a21eb86b7b0c950 = Agregue algo de texto después del comando de barra diagonal.
-source-7b8a39d746ab6d28 = Añade algo para recordar...
-source-e591e3c5db7e2eb4 = Agregar etiqueta
-source-f83403c676525f14 = Agregar etiqueta
-source-9514d033f7697c25 = Agregar etiquetas
-source-83ed914674d80cf4 = Agregar a favoritos
-source-a76a13082fdfd4cf = Agregue hasta 5 rasgos para mostrar los intereses y la personalidad de su servidor.
-source-aa6e8f16f76de2d7 = Añade tu
-source-9c72f57353a54264 = robot agregado
-source-37994d4488233fda = Añadido por
-source-7fa8d1166848bb78 = Colores adicionales, controles de aplicaciones y detalles para compartir.
-source-ce8c8aeef166296b = No se admite contenido insertado adicional
-source-7661fba1154cdbfa = Ajuste el volumen del micrófono automáticamente.
-source-071922eccfa99cca = Administrador
-source-21b06c38fc4164db = Avanzado
-source-5125a792dfd0a6e7 = Permisos avanzados
-source-510a499d8a643447 = Permisos avanzados
-source-d7b3e01ac0e72549 = Después
-source-7c88198b18340805 = Después debe ser anterior que Antes.
-source-ce55bb99b12a1e10 = Resplandor crepuscular
-source-ed076a4658ba7d11 = Canal restringido por edad
-source-a2254e6216746711 = Canal restringido por edad
-source-c0d0e6fd009afbe7 = AIx02
-source-05ad6e8ac44c2505 = Alex
-source-1add6446d9c2c6f3 = Alex (sintético)
-source-f993bb199fefbe04 = Todo
-source-f91a6ea8de0be477 = Todas las acciones
-source-246e5886f3baf6c2 = Todos los comandos
-source-524251a5dae81428 = Todos los mensajes
-source-4937fa8909079774 = Todos los servidores
-source-1df0cb73b3272f74 = Todos los usuarios
-source-bd667a92c4cd3c47 = Todas las configuraciones de voz
-source-2ee366cbb0141712 = Permitir
-source-886fe15aec256d31 = Permitir que cualquiera @mencione este rol
-source-47f07dde0c168ec4 = Permitir mensajes directos de otros miembros del servidor
-source-a4e76f5dccb52d8b = Permita que todos los permisos enumerados continúen.
-source-81f9e2079db57288 = Permitir solicitudes de amistad de
-source-5ac5cb2de54a1f17 = Permitir que amigos de juegos envíen mensajes directos e invitaciones
-source-05c4345683c31690 = Permitir que esta extensión
-source-7cdd3a5ec5457ec4 = Archivos permitidos
-source-220be55e476bf0a9 = Permite emoji de otros servidores.
-source-83b73c30cce923ac = Permite a los miembros agregar nuevas reacciones emoji.
-source-83950361169d5b66 = Permite a los miembros cambiar los permisos del canal.
-source-9d15005aca6894c3 = Permite a los miembros crear, editar y eliminar webhooks.
-source-912736ad38e850de = Permite a los miembros ensordecer a otros en canales de voz.
-source-125f7af1d17ad206 = Permite a los miembros eliminar los mensajes de otras personas.
-source-eea2b750d5a4d225 = Permite a los miembros editar la configuración del canal y eliminar canales.
-source-7685320fed317541 = Permite a los miembros invitar personas a este servidor.
-source-703cd20eedcb1147 = Permite a los miembros unirse a canales de voz.
-source-830e3ef937832855 = Permite a los miembros administrar y eliminar hilos.
-source-8913c6f15421e3cd = Permite a los miembros mover a otros entre canales de voz.
-source-6aeea27a0332bf80 = Permite a los miembros silenciar a otros en los canales de voz.
-source-3e1c02061c383543 = Permite a los miembros fijar y quitar mensajes.
-source-16a831acff361802 = Permite a los miembros leer mensajes anteriores.
-source-8090eb073263f9c5 = Permite a los miembros responder en hilos.
-source-e895c2a95ae68653 = Permite a los miembros enviar mensajes en estos canales.
-source-5d5f8860271efc1e = Permite a los miembros compartir videos y su pantalla.
-source-52edcb7075c3c816 = Permite a los miembros hablar en canales de voz.
-source-7a3edba6470612e7 = Permite a los miembros iniciar hilos privados.
-source-b2021467ee0ca247 = Permite a los miembros iniciar hilos públicos.
-source-ba93b08e5287739a = Permite a los miembros cargar archivos y medios.
-source-f5e65cbc9cb8cff3 = Permite a los miembros ver estos canales.
-source-5d288a0a7bc7ebbc = Permite menciones que notifican a todos o a roles completos.
-source-6647891644c56ce6 = Permite leer mensajes en voz alta con texto a voz.
-source-3dfe4fd0d1469bfc = Permite hablar sin pulsar para hablar.
-source-287105702f89c0d9 = Permite stickers de otros servidores.
-source-f993c3199fefcb9c = Alt.
-source-09085707b5a0d793 = SOY
-source-860f42a2624ffee0 = una hora
-source-52ba681d9318b707 = Un archivo de actualización excede su tamaño declarado.
-source-172d209974e2f7bf = Un archivo de actualización está incompleto.
-source-97ae740df3e7e45f = GIF animados
-source-03afdbb3158dcc1a = Anima el movimiento de la rueda y los saltos entre mensajes.
-source-9804d4d3daf05e1c = Animado
-source-fa8f7cf29168c2b2 = emojis animados
-source-a3c34f09134f4c9a = Los emoji animados deben tener un tamaño máximo de 256 KB.
-source-f68f660a60b3effa = Anuncio
-source-5dd67743cac44579 = Canal de anuncios
-source-a6a92648588602bf = Respuesta
-source-1e75e26f239524f1 = contestar llamada
-source-f999d4199ff4542d = Cualquier
-source-f7cb0deec6345d60 = cualquier contenido
-source-f9f2c719a04066ec = Aplicación
-source-fa5ee719a09bbc2c = APLICACIÓN
-source-e0c960aa6d4b1440 = Fondo de la aplicación
-source-ca4222f16f732223 = APLICACIÓN
-source-f0e261e04eda82ff = Apariencia
-source-9c7b44ac9890fcf3 = apariencia personalización fuente tipografía importar ttf otf acento primario hexadecimal efectos de ventana transparencia difuminar tema luz oscura sistema modo zoom escala diseño barra lateral ancho personas miembros lista de miembros restablecer color color preestablecido
-source-af77fc86744de8b0 = configuración de apariencia
-source-3b756cb60b2ac008 = Agregue un encogimiento de hombros a su mensaje.
-source-01b5724f92832a10 = Agregue un cambio de tabla a su mensaje.
-source-eb0319b004b340c9 = IMAGEN DE LA APLICACIÓN
-source-fe3ddfcb791a4c94 = Error de validación del encabezado de AppImage.
-source-f1e9d421f35b51e5 = Solicitud
-source-869f92af672408fc = El directorio de datos de la aplicación no está disponible.
-source-03bf6399542211e6 = Interacción de la aplicación pendiente...
-source-bdb243be142632e2 = Mensaje generado por la aplicación
-source-17e3cd226501a372 = aplicación/vnd.github+json
-source-77dfb31c5a778156 = Aplica para llamadas y tu prueba de micrófono local.
-source-4d600e7f783b509e = se aplica a su próxima llamada.
-source-b8f855b49234b81b = Aplicar
-source-5418307528e56b20 = Aplicar filtros
-source-cc1343c30b0ee18d = Aplicar o eliminar formato en el compositor.
-source-56f684df5d2b61df = Aplique este tema instalado a la aplicación.
-source-52086cb9e0b759b9 = Aplicar a todas las superficies.
-source-65e3ad889f1ac883 = Aplicar al borrador
-source-8e962433cd6f9865 = Aplicar: cambiar el audio de la llamada
-source-b216c80781aafa05 = Aplicar: Cambiar notificaciones
-source-3220032dace63f56 = Aplicar: cambiar configuración
-source-1a950908de179363 = Aplicar: Confirmar acción
-source-6bcc1017f44556a7 = Aplicar: Copiar texto
-source-5ab339284faf2ff1 = Aplicar: Eliminar mensaje
-source-ba67f2122a76bf75 = Aplicar: habilitar la cámara
-source-ea4dd3090e537c87 = Aplicar: Unirse a la llamada
-source-c21eb09704067df4 = Aplicar: Dejar llamada
-source-ebac3d35dd0f2a1a = Aplicar: Vista abierta
-source-086772cbc4d478f5 = Aplicar: Buscar
-source-945918caa298ad68 = Aplicar: Enviar mensaje
-source-94318c622e7cf16c = Aplicar: Mostrar aviso
-source-0aff2f8be8a14bcd = APLICACIONES
-source-976b3daab8c4196e = APTO (DEB)
-source-f9f8e219a045007b = Arco
-source-a0ca791d0f13f0e5 = Archivo
-source-4bfc4d609ee1ab33 = Archivado
-source-4619bd2bc2b40db0 = Las publicaciones archivadas necesitan una sesión conectada con acceso al historial.
-source-1d9b4fe636d596a4 = Los archivos no están disponibles mientras está desconectado o sin acceso al canal.
-source-caa388e6c5fc4326 = ¿Estás seguro de que quieres eliminar?
-source-9197c793d6d2ccc4 = ¿Estás seguro de que quieres irte?
-source-008f84cd357fb057 = ARM64
-source-6b36f3c18920c686 = Formación
-source-35fb62ecb4a374ce = Flecha abajo
-source-043f052f4aec0783 = FlechaIzquierda
-source-59de5ee12528b90c = FlechaDerecha
-source-faca44c6cb373cfb = Flecha arriba
-source-aae07dc89c12fa36 = La animación de la obra de arte no tiene marcos.
-source-b8915f6eb5cd0476 = La animación del arte es demasiado grande para prepararla de manera segura
-source-ef390e917b24934b = Pregunte antes de abrir enlaces externos. Los enlaces de Discord siempre se abren directamente.
-source-c92c1a54034e21cc = Asignar
-source-089c4e07b545a968 = en
-source-457feeb54c5875de = En la parte superior de este servidor · utiliza permisos de servidor
-source-5c100df97c50deeb = Adjuntar archivos
-source-89be37e8c5404b10 = Adjunte hasta 10 archivos por mensaje
-source-5539800782e2f20b = Adjuntar archivos no está disponible aquí
-source-54cd4879a3bba7db = Adjuntar archivos no está disponible en este foro.
-source-ddfc86d2b1251528 = Adjunto
-source-7889b4c9bb168493 = Los argumentos adjuntos aún no son compatibles.
-source-e34ce9f170e16c8d = Falló la descarga del archivo adjunto
-source-2a1a2a8290e62d52 = Descarga de archivos adjuntos no disponible
-source-13a28b769cbf5180 = El archivo adjunto supera el límite de descarga
-source-30d691ec3fb57874 = El archivo adjunto no debe estar vacío y tener como máximo 100 MiB
-source-a6bebfb27bfc1707 = Operación de adjunto ya activa o sin alcance de selección
-source-7a8c3c959ac360c8 = Archivo adjunto o contenido incrustado
-source-438b547f3b2fa49d = Archivo adjunto o mensaje que no sea de texto
-source-0c2d7300f0ec5ecc = El archivo adjunto se guardó, pero su archivo temporal no se pudo eliminar
-source-14d1f1642694858c = Selección de archivos adjuntos interrumpida
-source-e8f933d73c6d330b = El tamaño del archivo adjunto cambió; recargar la conversación
-source-bb998de202e8ad59 = Transferencia de archivos adjuntos incompleta
-source-672347bb6174fe3d = Transferencia de archivos adjuntos interrumpida
-source-5678c2eb707f0ca2 = Archivo adjunto no disponible; recarga la conversación y vuelve a intentarlo
-source-7b1082149fccd857 = Carga de archivos adjuntos interrumpida
-source-8704bfbe468883b3 = Los archivos adjuntos deben tener un tamaño máximo de 500 MB; los límites de la cuenta pueden ser más bajos
-source-310b9c448a16888c = Archivo adjunto de audio no disponible
-source-2e2cf3d3799a3412 = Se detuvo el descubrimiento de dispositivos de audio
-source-114ae209c86f5f2e = Se agotó el tiempo de apertura del dispositivo de audio; verifique la selección del dispositivo y el permiso del micrófono del sistema
-source-d8e0780293e9d86c = Dispositivo de audio detenido o desconectado; elige un dispositivo y vuelve a llamar
-source-119877adf7f839af = Los dispositivos de audio no se abrieron; verifique la selección del dispositivo y el permiso del micrófono.
-source-e1f7ff3be1e8c7c5 = Dispositivos de audio cargados · los auriculares evitan el eco del micrófono
-source-f14950f18436ef66 = Los dispositivos de audio se detuvieron; comprobar el permiso del micrófono y la selección del dispositivo
-source-5a9bb212f461d36c = Falló la descarga de audio
-source-73af3c43d8452c8d = Descarga de audio incompleta
-source-3957a7ea8742ed39 = Descarga de audio interrumpida
-source-51b3c0eb8ae86251 = Descarga de audio no disponible
-source-60f3977cbe2e7785 = Salida de audio desconectada
-source-dda1c1f423130cfc = Salida de audio no disponible
-source-6b9dcab3577bc36c = Salida de audio no disponible. Verifique la configuración de sonido de su sistema.
-source-3bf634ef5284aee4 = Las preferencias de audio se guardan en este dispositivo. Su micrófono se activa solo cuando se une a una llamada o comienza a realizar pruebas.
-source-256ba0dd9a05a9b4 = Límite de vista previa de audio: archivo de 20 MiB, 64 MiB decodificados, 10 minutos
-source-70c1adaa458e0015 = El servidor de audio no admite el almacenamiento en búfer; descargar para jugar externamente
-source-076accfc5c6c2ac8 = Se cambió el tamaño o la codificación del audio; recargar la conversación
-source-deb1d5ae3d015f79 = El desmontaje del audio también debe completarse.
-source-3672c2257bb7d439 = Audio no disponible; recargar la conversación
-source-5fa40d26e63c9500 = El trabajador de audio se detuvo; reiniciar Serein
-source-15c84f11ebb108aa = Registro de auditoría
-source-0e1b4276d5e667d2 = Tipo de autor
-source-13ddf6fb4d5195c4 = Autor: último mensaje
-source-83ab87c5fd63149b = Actualización automática
-source-c2d16f8333e07d4f = Ganancia automática
-source-f80b58ea901de3e6 = Control automático de ganancia
-source-44e8120bfc4bb088 = Vista previa automática
-source-606259d560d20e73 = Filtrar automáticamente mensajes sospechosos de spam
-source-03f20653bba79664 = Mueva automáticamente a los miembros a este canal y siléntelos cuando hayan estado inactivos durante más tiempo que el tiempo de inactividad. Esto no afecta a los navegadores.
-source-fa54ad19a0930519 = auxiliar
-source-74f6b0957ffa5a96 = Error al limpiar la caché de avatar; las imágenes almacenadas en caché pueden permanecer en el disco
-source-0fd7c4b01e3427fb = clave de avatar
-source-d18a6ce639af3671 = caché de clave de avatar
-source-af63ff4c86022805 = B
-source-c16e00a7a8b2fde2 = Atrás
-source-dbbf848734787ad3 = Volver a categorías GIF
-source-fa410955c0e55c75 = Volver al Inter
-source-daa09c73dd931e52 = Volver a miembros de rol
-source-c5cea2143726eabf = de vuelta al borde vivo
-source-9e48b3807e009b33 = Volver al editor de temas
-source-190ccbda2c8f9a3f = Volver a temas
-source-1efbfc3937d565bd = Fondo
-source-cdbe8890bc1daf7e = Antecedentes detrás de tus mensajes
-source-df34a5599d66f85c = Imagen de fondo
-source-a5d5f178f3876c3f = La imagen de fondo supera los 2 MiB
-source-e56593eace60ba73 = El trabajador de la imagen de fondo falló.
-source-d64445ead33533cc = Retroceso
-source-327781c739315ba7 = comillas invertidas
-source-69583da04e5946b1 = Insignias
-source-9758fb833fbf9c99 = Miembro prohibido
-source-00e1a56a841e83af = Bandera
-source-15b6305e863792ea = Lo esencial
-source-1788737137ec6d9e = Antes
-source-1a0210d5a1a16b68 = Bio (vacío lo borra)
-source-28475413927d5432 = Mezcla dos colores detrás de las superficies de la aplicación.
-source-2b2ae20d26f78ac2 = Bloquear
-source-7979901374f4c62d = Mensaje bloqueado con AutoMod
-source-388f2b6f8d65658b = Tamaño de bloque
-source-ecf3bca7c1691718 = Difuminar
-source-fe80250010367cf8 = Texto del cuerpo
-source-f7bdd5a7c820889d = booleano
-source-0b946f226c5700df = Booleano
-source-fa31adc78eb90e2c = Fronteras
-source-16565219b102f81e = Bot
-source-15e97219b0a65c9e = BOT
-source-f8fa4f35c8f32435 = cuenta de robot
-source-7fbc9a48e98cecd6 = Bots y aplicaciones
-source-a6ed12942709e3f8 = espacios de cliente limitados
-source-e919affbc348568e = El resultado del almacenamiento limitado se ajusta a la cola.
-source-16564e19b102f152 = Caja
-source-9bd40e994f30dc8a = Construir contexto
-source-cb163115768bced4 = Construir un lugar más tranquilo para las conversaciones.
-    { "**Vista previa del perfil nativo** · todos los detalles aquí son sintéticos." }
-source-505fc202b5428fa5 = Incorporado
-source-20184aa30888947e = Los ajustes preestablecidos incorporados mantienen los temas instalados.
-source-2518741c10420239 = icono de aplicación incluida
-source-7c1a3b74345c8f74 = célula de atlas agrupada
-source-22b50e2162ad4c6b = formato de atlas incluido
-source-6b8894962f4570f8 = archivo de fuentes CJK incluido
-source-2d2f1029a0d2bc81 = emoji de Discord incluido
-source-0c3688231635a6a3 = nombres de Discord agrupados
-source-59348fc67fb85749 = índice de emoji incluido
-source-5847ac6b7696ded8 = nombre emoji incluido
-source-034cc54c0435fe1b = atlas de iconos incluidos
-source-ad070bcf47f55000 = celda de icono incluida
-source-f65bff42479f2ea8 = índice de iconos incluidos
-source-2ab12c6a6dfed8bf = El complemento incluido no se activó
-source-0312976fe9da5951 = Botón
-source-503a000f8677a058 = Acolchado de botones
-source-12f0752a5e0574c6 = Botones
-source-3d9f8a6530f33d7a = Botones, selección y resaltados.
-source-e40567630146944d = Derivación
-source-af63fe4c86022652 = do
-source-090f8d07b5a75203 = DO#
-source-0cd9ec19ab679810 = C++
-source-f6d0cc190dae8bb0 = c++
-source-3d9b3f96b413e48c = C:/absoluto
-source-1fbe4cf939e466f5 = C:Windows
-source-ce390f13a0ab7cce = Se superó el trabajo pendiente de limpieza de caché; caché de historial deshabilitado hasta el reinicio; Los mensajes eliminados pueden permanecer en el disco.
-source-747d55f140839712 = caché por encima del presupuesto
-source-b2e0a1640a6a3a3f = La limpieza del historial en caché está pendiente; cerrar ahora puede dejar mensajes eliminados en el disco.
-source-50a025b9afaf6ced = Se borró el historial en caché; borradores guardados conservados
-source-24b9d48a6bd44b00 = mensaje en caché
-source-130875199ab8168c = La acción de llamada expiró; no se envió ninguna solicitud de timbre
-source-36c6e380f765ea21 = Los controles de llamadas no están disponibles
-source-11acb9aa4b26baed = Se pasó la verificación de depuración de señales de llamada: uniones locales/remotas, salidas, cambio de claves y supresión de reconexión. No se abrieron ningún dispositivo de audio.
-source-5131d536a3858d66 = llamada fallida
-source-a3da2c52c2a9b31b = Llamada en curso
-source-4696c55509a17d3a = Cambio de llamada cancelado: la llamada anterior no terminó de desconectarse. Vuelva a conectarse antes de volver a llamar.
-source-3a04ca28b431d65f = Las llamadas no están disponibles en la vista previa sin conexión. No se accede a ningún micrófono.
-source-65af94222c32b682 = Verdes del bosque tranquilos y toques de hojas frescas.
-source-54d1b2a64667e32e = Cámara
-source-495ad228525627ba = La captura de cámara no está disponible
-source-b575b693165156cc = La captura de cámara no está disponible en esta plataforma
-source-a85c1deeec36a206 = La captura de cámara no está disponible en esta plataforma.
-source-8e3486751abad50e = Cámara cambiada. Haga clic en Vista previa de la cámara para usarla.
-source-80f393ce10fddbb4 = Los controles de la cámara no están disponibles
-source-3f129a081da91e1c = Dispositivo de cámara
-source-8e5a58aa4d687006 = El dispositivo de la cámara cambió. Encienda la cámara para usar el dispositivo seleccionado.
-source-9b6074b9e21ade9b = Falló el descubrimiento del dispositivo de la cámara
-source-a3fafbf6e92f8907 = Se detuvo el descubrimiento del dispositivo de cámara
-source-ea56f302bd3fae6a = La cámara está apagada en la vista previa sin conexión
-source-282d982fc7b4708c = La cámara todavía se está cerrando; inténtalo de nuevo en breve
-source-c39760087308f11e = La cámara no está disponible con los permisos del canal actual
-source-9b29587de4d8bac0 = cámara en sonido
-source-39e24f35327ace01 = Cámara encendida · vista previa local
-source-7d5d998cd1808359 = La cámara requiere compatibilidad con H264 del servidor de voz
-source-9583bf45857e38cf = Configuración de la cámara
-source-7ac57d624b358fdf = La cámara se detuvo; Vuelva a conectarlo de forma segura antes de encenderlo.
-source-57a446f4a69504a0 = Cámaras cargadas
-source-2ceb11be2290bb1b = Cancelar
-source-3b5fd0df6b2757e8 = Cancelar carga
-source-3bb786d3b55ba37c = Cancelado
-source-50aa63b5ed4a282e = La exploración delta cancelada continuó.
-source-96a025c4843e09f5 = No se puede acceder al destino para guardar
-source-eb11ba4bbc079c84 = No se puede agregar esta reacción en este momento.
-source-7fee991fd23e54b4 = No se puede evaluar la actualización con macOS Gatekeeper.
-source-91d2f639e38f901b = No se puede limpiar el archivo de actualización verificado.
-source-98fe434d0ff0cda1 = No se puede crear una transferencia de reinicio única.
-source-c4e2c91b78c4b3e2 = No se puede crear un archivo de actualización.
-source-550ca743130fc596 = No se puede crear el directorio del catálogo
-source-fe69767ffc391540 = No se puede crear el directorio temporal del portapapeles
-source-611246d0f0372744 = No se puede crear el archivo de descarga
-source-cb678d668236ab58 = No se puede crear el directorio de extensión
-source-12f0f8ae44ad8973 = No se puede crear un directorio de verificación de temas aislados
-source-e29eb9638877eec4 = No se puede crear ZIP sintético.
-source-dba43270224a1c83 = No se puede crear la exportación del tema
-source-aada8f3a7f998386 = No se pueden crear directorios de actualización.
-source-61de5d46b1461a6b = No se puede crear un almacenamiento provisional de actualización.
-source-f1a4246aa7256879 = No se puede codificar el paquete de extensión
-source-e561d54aef4b1013 = No se puede codificar el plan de actualización.
-source-aa6908c34ae96d11 = No se puede codificar el paquete de temas
-source-9453d1e7954bd36d = No se puede extraer la actualización. Verifique el espacio disponible en el disco.
-source-7597bd31c59de1ac = No se pueden finalizar los datos de la extensión
-source-b3e27aaa92a42065 = No se puede terminar el ZIP sintético.
-source-a75d9b5807938c2a = No se puede finalizar la exportación del tema
-source-3442c21e0e0f3860 = No se puede inspeccionar el presupuesto de extensión
-source-d24d991f0805723b = No se puede inspeccionar la limpieza de la extensión
-source-8ca96e88f30b099a = No se puede inspeccionar la ruta de limpieza de la extensión
-source-ab6867fcbba4df1b = No se puede inspeccionar el archivo de extensión
-source-51d061dd502f399b = No se puede inspeccionar AppImage.
-source-3c239b46de6b4e60 = No se puede inspeccionar la identidad de firma de la aplicación.
-source-04e4bfd18213af1b = No se puede localizar la AppImage instalada.
-source-9156581959ab6693 = No se puede localizar la aplicación instalada.
-source-08489b182eb8e837 = No se puede hacer que AppImage sea ejecutable.
-source-b5b8ff65424ba781 = No se puede preparar el asistente de actualización.
-source-8e663a72d83db36e = No se puede preparar la exportación del tema
-source-e434e405766d282e = No se puede leer una entrada del archivo de actualización.
-source-f7761496d1045727 = No se puede leer la entrada de la extensión
-source-b633e237156af64f = No se puede leer el archivo de extensión
-source-47b682d45e7e0540 = No puedo leer extensiones
-source-e6da628c0757efbf = No se puede leer la AppImage.
-source-d62da5bfdb3664df = No se puede leer la actualización descargada.
-source-658cc303b0edf413 = No se puede eliminar el directorio de verificación de temas aislados
-source-13054cc6d16d61e5 = No se pueden reemplazar los datos de la extensión
-source-a6fba333ead59e13 = No se puede reemplazar la exportación del tema
-source-1102c73a0fe2af4d = No se puede restablecer la transferencia de actualización.
-source-fec2c407d532bf35 = No se puede guardar la actualización extraída.
-source-00ce0b626ad4fae6 = No se puede guardar el plan de actualización.
-source-f1300b1606e03c07 = No se pueden configurar los permisos del archivo de actualización.
-source-3c8c66e6f4a2e791 = No se puede preparar AppImage.
-source-e8c6665e5504523c = No se puede iniciar el asistente de actualización.
-source-4f2684899e76b148 = No se puede verificar la firma del código de la actualización.
-source-5d8b893e4a0a707c = No se pueden escribir datos de extensión
-source-da47383f8a97edda = No se puede escribir la exportación del tema
-source-0c0fa9a79632e928 = cubierta de tarjeta
-source-c3c904bb6c80ed71 = Entrada de tarjetas y mensajes
-source-07ceb14a7ae660dd = CARGO_MANIFEST_DIR
-source-7fae2dcb3491a8c1 = CARGO_PKG_VERSION
-source-6718e2e8c75b04e7 = Las categorías organizan canales relacionados.
-source-e8b92ef3f8e57128 = Nombre de categoría
-source-9c8b888be93af84e = Configuración de categoría
-source-2254407e0c6b0121 = CC0-1.0
-source-2f64461723d3df5d = Cambiar
-source-8c9c54e0d22213b3 = Cambiar la configuración de privacidad de los mensajes de la cuenta
-source-738d022128fb727a = Cambiar la configuración de audio del dispositivo:
-source-4c6420e9be4c25fb = cambiar emojis
-source-eacd40e6c9e9d1e7 = Cambiar icono de grupo
-source-f1cce5f75027d1fc = Cambiar la configuración de notificaciones locales:
-source-35a761634348ebb7 = Cambiar la configuración de lectura local:
-source-a94c725865c0c9bc = Cambiar el audio de pantalla compartida local:
-source-c46090d1920616f7 = Cambiar apodo
-source-189973aa29971817 = Cambiar apodo
-source-f5f7f77ab9c1baaa = Cambiar foto de perfil
-source-7a61c62c7be398d5 = Cambiar icono de servidor
-source-a0eff7e3c6e5f195 = Cambiar icono de servidor
-source-2d0c784b4fc7a0a1 = Cambia tu perfil de Discord:
-source-47758c080c0dff54 = Cambia tu estado:
-source-b8ff2266a932fe61 = Los cambios se aplican a todos los servidores actuales y establecen el valor predeterminado para los servidores recién unidos.
-source-5d6ee817d178b6c4 = Los cambios se aplican únicamente a este servidor.
-source-37c3e6cfaf3a0a58 = Los cambios aún no se guardan
-source-2a7c73c8198aabaf = El cambio de dispositivo detiene la cámara y entra en vigor la próxima vez que la enciendes.
-source-1da50951bdd7a204 = Canal
-source-9527d6265f36ae7e = Acción del canal
-source-62343e171ff192f3 = Ancho de lista de canales y conversaciones en ventanas amplias.
-source-69c1e8cf4951cfb8 = El contenido del canal siempre está visible.
-source-8e2d9e7c9c802934 = lista de canales
-source-b313538e5b8d8527 = Nombre del canal
-source-d2c127e02b62df51 = Configuración del canal
-source-967c610c93b25fd3 = No se pudo cargar la configuración del canal.
-source-909f42012e8d4f5d = La configuración del canal debe actualizarse antes de guardarla. La recarga reemplaza este borrador.
-source-e34e204726493ce4 = tipo de canal
-source-f10300bf9b138705 = Canal no disponible o no admitido en esta sesión
-source-0fe04d43d78b3025 = Listas de canales, conversaciones y miembros
-source-37cfc48bd4958d03 = Canales seguidos
-source-abfe23c45dfe3050 = Personaje
-source-fbb5094ac57a1e81 = mensajes de chat lectura de medios animar gifs animados reproducción automática ocultar enlaces de imágenes confirmar confirmación navegador externo desplazamiento suave velocidad de desplazamiento movimiento trackpad rueda canales ocultos lista de canales restablecer
-source-e283106b5bf0ddd0 = Puntero de selección de chat
-source-c0c8035281ee7caf = comprobar de nuevo
-source-56c14ca22284e07c = Verifique los límites de caracteres y elimine los caracteres de control. Un nombre para mostrar no puede contener solo espacios.
-source-e6a8976fdb8243a6 = Buscar actualizaciones
-source-05e32526688edb30 = Comprobar invitación
-source-522d640faa616902 = Revisa la conversación antes de volver a enviarla.
-source-08962d4ec5543300 = Verifique la licencia, la versión y la URL de origen opcional.
-source-a6798194b7fea9e5 = Verifique las configuraciones restantes del tema antes de guardar.
-source-4aa39e78a2a231aa = paquete comprobado
-source-7f3531a7d70170dc = etapa comprobada
-source-4d261ee741ff1fee = Comprobando la configuración para compartir actividades de Discord...
-source-17e321e241626a9c = Comprobando paquetes y actualizaciones
-source-4a2e5d013b4a17b4 = Buscando actualizaciones...
-source-7799725d5aaa9e0e = Comprobando invitación…
-source-f99a691b6ee82f79 = Comprobando el inicio de sesión guardado...
-source-e9dda2df763e8699 = Comprobando la red de pantalla compartida...
-source-7713a7f7855b44b8 = Comprobando la red de transmisión...
-source-9818df49b00d2796 = Comprobando su inicio de sesión guardado
-source-93b19aa093b1cc8c = La validación de la suma de comprobación falló.
-source-f4d6ce8937dcc5c2 = Elige una cámara
-source-1d6dc20ffc2c3480 = Elige un canal
-source-66a6694a9ed6c572 = Elija un tipo de canal y un nombre.
-source-7a8352bb844cd63c = Elija un comando de la lista antes de ejecutarlo.
-source-caa3d81b0a0ad864 = Elige una conversación primero
-source-c84fe964f86c6703 = elige un comando diferente
-source-8e8af8325e0788ec = Elija una fuente de hasta 8 MiB.
-source-07317b2c82e5fe30 = Elija un GIF con como máximo 120 fotogramas
-source-d77f86967c63aff1 = Elija una imagen local con una ruta compatible
-source-f2ea7ad2161d2c64 = Elija una imagen PNG, JPEG, GIF o WebP
-source-58a4ef5a34860544 = Elija un destinatario: /msg @usuario [mensaje]
-source-7ba7e226fa6c3c2c = Elija un archivo de imagen normal
-source-977c9c7835c89fa7 = Elija una imagen PNG, JPEG o WebP normal de hasta 8 MB
-source-c9aa294c80cb952d = Elija un archivo TTF u OTF normal.
-source-96281252536ecc66 = Elige una pantalla o ventana
-source-6c7f4300c97b067b = Elija una animación GIF más pequeña
-source-68c451badf545216 = Elija un PNG o JPEG estático con 4096 píxeles por borde y 4 millones de píxeles
-source-0a009c026fd20e36 = Elige un usuario
-source-2738ea9b5f44fb52 = Elija una fuente TTF u OTF válida.
-source-604a2c4b572aa02d = Elija un algoritmo en todas las configuraciones de voz.
-source-26acb9c01a437067 = Elija una imagen para ajustar la barra superior, las listas y el área de mensajes.
-source-a1faed462867dbcf = Elija una imagen de hasta 8 MB
-source-6ffe7deacadd53b4 = Elige como máximo 10 emoji a la vez
-source-94eed757d773fae1 = Elige tipo de autor
-source-afdf1a951251ee6b = Elige portada
-source-0b6b3c55bcde011e = Elige emojis
-source-c7b2cbad7fb7ec99 = Elija archivos…
-source-eeabd76984a63e34 = Elija el icono de grupo
-source-28fa2d57e568c9dd = Elige imagen
-source-3f3f14b96f7f713d = Elige Imagen
-source-ff37995b89189edf = Elija imágenes de hasta 8 MB
-source-359e844a894bf49a = Elija Unirse al servidor para confirmar.
-source-3ead32dc855ce5de = Elige opciones
-source-639568ef8bd0c33d = Elige color primario
-source-660bc5185aff2b4e = Elige el color del perfil
-source-f4a7202b30c76817 = Elige foto de perfil
-source-08fc428a9b5c119f = Elija archivos de imagen normales de hasta 8 MB
-source-01d98cd9e749e2f0 = Elige rol
-source-501383de6552d091 = Elija el icono de rol
-source-941ac057595e9fdc = Elija el icono del servidor
-source-f3e72abe13f35f3f = Elige el diseño de la pegatina
-source-df29793c3c78e143 = Elija la imagen que se muestra en su tarjeta temática en Temas.
-source-05654046117b6800 = Elija el selector del sistema o, en X11, comparta explícitamente todo el escritorio
-source-1a588a29c8803935 = Elija lo que pueden ver las personas en esta llamada.
-source-d394b2bb5287c2f3 = Elija su supresión de ruido, sensibilidad y procesamiento.
-source-b7b0f30bf8a9e8fc = Elegir…
-source-c36c783ba211fa68 = Eligiendo fuente…
-source-27b2e81074b43ed6 = Eligiendo imagen…
-source-510fee4c4bd18d81 = reserva de CJK
-source-ed4cbb11f68db8ea = escaneo CJK
-source-90d53cfba1df4aff = Clase
-source-85664e5f8a2a16c0 = Limpieza pendiente
-source-b4f1dffbb6be6302 = Claro
-source-3723aab495477797 = Color de acento claro
-source-304e8ec60d78d88c = Limpiar después
-source-0ff31a87b91191ca = Borrar después de segundos (0 significa nunca)
-source-8cda828dac449ea5 = Borrar todo
-source-3ed5607ad78d4224 = Borrar caché
-source-2f23747db0cea917 = Borrar nombre para mostrar
-source-533291cfab68a4a9 = Borrar filtros
-source-5f4586bc1e2740e6 = Borrar búsqueda
-source-8f18916860db5d80 = Borrar selección
-source-75c0510570ce02b9 = Libere algo de espacio de borrador antes de usar /msg. Tu borrador fue guardado.
-source-17d528d50acb7068 = Haga clic en un GIF para enviarlo de inmediato
-source-a7c67fe777e8524b = Haga clic en una muestra para elegir un color o ingrese su valor hexadecimal.
-source-5d9b531db15371bd = Haga clic o presione Escape para regresar a la cuadrícula.
-source-6c93f20e8a2f1482 = Haga clic para ampliar
-source-13a5756e3d78ce8b = Cursor en el que se puede hacer clic
-source-4548bf38f177532f = Lectura del portapapeles interrumpida
-source-0a6eb213e8a2dd1f = Se interrumpió la lectura del portapapeles; pegar de nuevo
-source-b950b781c6930f87 = Portapapeles no disponible
-source-5e8250fb85d64c23 = Cerca
-source-2acb104372b0320d = Cerrar cuadro de diálogo (Esc)
-source-abda905ba90988be = Cerrar DM
-source-19650afe47227f3b = Cerrar publicación
-source-dec709236764aa73 = Cerrar vista previa
-source-4e606ce6a461df05 = Cerrar búsqueda
-source-61ee6c1b9f6d8128 = Cerrar configuración (Esc)
-source-fc575fba03440dad = Cierra primero el selector de emoji anterior
-source-21cada6de8b98770 = Primero cierre el selector de imágenes anterior.
-source-85dab813db4af1c2 = Cierra primero el selector de stickers anterior.
-source-7297d0532524082d = Cerrar hilo
-source-ea940c1c2cc66abb = Cierra el dispositivo fuera de línea. No se almacena nada para la vista previa.
-source-3643189d1abbb7f4 = Código
-source-4993444bfd3f3e5e = Colapsar
-source-7e860296d38b6351 = Bandera
-source-ebf5bdd0a2bdfc26 = Los colores y la opacidad se guardan por separado para una apariencia oscura y clara.
-source-7e9d0b96d39e517d = Color
-source-04bd852225796670 = Color preestablecido
-source-1fe5309c7cbacabd = COM1
-source-1fe52d9c7cbac5a4 = COM2
-source-1fe52e9c7cbac757 = COM3
-source-1fe52b9c7cbac23e = COM4
-source-1fe52c9c7cbac3f1 = COM5
-source-1fe5299c7cbabed8 = COM6
-source-1fe52a9c7cbac08b = COM7
-source-1fe5279c7cbabb72 = COM8
-source-1fe5289c7cbabd25 = COM9
-source-2d076ef48fe289b8 = Coma
-source-a41b36cc9c8142b9 = Comando no disponible. Tus argumentos se mantienen.
-source-03902b205d60074e = comandos coincidentes
-source-d0864ea6cb6ef22e = Comunidad
-source-fcd5321822111ef3 = Comparar con los demás participantes. Este código cambia con el grupo de llamadas cifradas.
-source-4fa5d909fda0653c = Competir en
-source-ff48acdfbbb52c1f = negociación de pantalla completa
-source-4d78d4df27185ddb = negociación de flujo completa
-source-922be67cbebc66e5 = Complete la verificación para unirse a este servidor.
-source-21b734060282ca01 = Complete la verificación para enviar esta solicitud de amistad.
-source-26c2471b57eed202 = Componentes · Vista previa no disponible
-source-69f6755a95647960 = Los atajos de Composer solo están activos mientras escribes.
-source-eb4816e7efbce6f2 = COM²
-source-eb4817e7efbce8a5 = COM³
-source-eb481de7efbcf2d7 = COM¹
-source-0ba0f119aa5d684b = ESTAFA
-source-6b18bf707d9ae591 = Configure los mensajes de eventos del sistema enviados a su servidor.
-source-b85774dc5d18ff0f = Confirmar
-source-88d7a1d92a44533b = Confirmar antes de abrir enlaces
-source-85f524dc46057d64 = Confirme todas las capacidades solicitadas antes de habilitar esta extensión
-source-0202d9165ab141d4 = CONIN$
-source-7a4f059aaa029719 = Conectar
-source-0f32a0c2963f99b7 = Conecte la llamada antes de ver una transmisión
-source-79d93257d544d68c = Conéctate con este token
-source-4802c8e984c6a6f3 = Juegos conectados
-source-aad0e4f8b4bcfd9a = Conectando transporte de pantalla compartida...
-source-3403635fea51ee2c = Conectándose a la discordia
-source-bb80973884ff1508 = Conectándose a Discord…
-source-ef7c9c08dd9a10a3 = Conectándose a la transmisión…
-source-71f975916c82dcfa = Conexión con la sesión proporcionada; inicio de sesión guardado sin cambios
-source-b055b780a919f111 = Conectando…
-source-3a759fd0453a875a = Conexión actualizada. Vuelva a cargar la nota guardada antes de guardarla; su borrador se conserva.
-source-bab3520cfd0bdd9b = CONS$
-source-fcab4b3574f6c9aa = Consola
-source-cfcc1cdb98b249f6 = Visibilidad del contenido
-source-4c68496075c5e459 = Continúe con una cuenta guardada o inicie sesión con otra.
-source-dd45f65613514d4c = Continuar con discordia
-source-f7c55521d2f5b718 = Controlar las esquinas
-source-1f1ea04651424eb9 = Controlar la altura
-source-45288fbf4c660e7e = Controla cuánto dura este enlace y cuántas personas pueden utilizarlo.
-source-7c3889311343158f = Controla quién puede enviarte solicitudes de amistad y cómo aparecen.
-source-2e1cab55520bb563 = Controle su micrófono y el audio entrante durante una llamada conectada.
-source-a2915684ede2ecc7 = Los controles no están disponibles en esta compilación o vista previa.
-source-41b4752c216d0b66 = Conversación
-source-7fb1379f949cd722 = Colores de conversación
-source-4f6c201fb6bc940d = miembros de la conversación
-source-30aecefef69c52da = búsqueda de conversación
-source-589b1d6647c2b40f = Conversaciones y amigos
-source-00d2594f679cfdec = El vídeo convertido supera el límite de vista previa de 100 MiB
-source-d499dac88619e933 = Superficies frescas de color azul verdoso con frescos detalles en verde azulado.
-source-f4de3bfbfaca12e5 = Copiado
-source-dfb2b12b255de30c = ¡Copiado!
-source-97093b9f8a5cfbfb = Copia configuraciones y permisos. Los mensajes no se copian.
-source-3687049d1af562c4 = Copiar
-source-4651678b2be4607f = Copie un archivo, imagen o texto antes de pegarlo
-source-2345aff679a53331 = Copiar actividad
-source-efc5f4f185331f48 = Copiar ID de canal
-source-4f013b4c82c08809 = Copiar código
-source-c3dfe8bbcab1e985 = comando copiar
-source-f26bb54b183d3b9a = Copiar emojis
-source-5db56b585b0dcaa6 = Motivo del error de copia
-source-6c24d848b4294429 = Copiar imagen
-source-51616e3c3d5fa46c = Copie imágenes con un máximo de 4 millones de píxeles; guarda imágenes más grandes en su lugar
-source-884e6d14b13fbaa3 = Copiar enlace de invitación
-source-9a2a2fda9cfa1ddc = Copiar enlace
-source-67b8d96c4d75442b = Copiar mensaje
-source-3abbc06a7163a20d = Copiar admite imágenes y videos.
-source-c4489349aeb7af80 = Copie los detalles del sistema y del entorno del cliente formateados para los informes de problemas de GitHub.
-source-316fc072ace20251 = Copiar ID del hilo
-source-8ea6139fefe0b028 = Copiar ID de usuario
-source-dc669220c7e57797 = Copiar vídeo
-source-5bac5ad35db2fb72 = Copiar el ID del webhook
-source-f890a5cbb8ccea58 = Copiar URL de webhook
-source-4c92f4f120e7293d = Corrija el valor del color resaltado.
-source-b7b67b67af5d9ad6 = Corrija el valor del gradiente resaltado.
-source-acbbe370b0ef3900 = Se acepta el resultado delta corrupto.
-source-1684bc3c6a2c1527 = no pudo
-source-86de852428ea3511 = No se pudo verificar el archivo copiado
-source-ead7d8c2081ce773 = No se pudo verificar ni cambiar la configuración para compartir actividades de Discord.
-source-410875fce2a5223a = No se pudo borrar el historial almacenado en caché; caché de historial deshabilitado hasta el reinicio; Los mensajes pueden permanecer en el disco.
-source-fef9a38a39447fd8 = No se pudo borrar el archivo copiado
-source-fe26fb8df04847b5 = No se pudo borrar el almacenamiento de actualizaciones antiguas.
-source-1e3bfc0c190255d3 = No se pudieron copiar los medios al portapapeles
-source-d8d6551b496d86cd = No se pudo crear la descarga de la actualización.
-source-e290c1f5b9d77ed9 = No se pudo decodificar esta obra de arte de forma segura
-source-748c4766e516891e = No se pudo decodificar esta imagen de forma segura
-source-690f607c1aa95192 = No se pudo descartar la actualización parcial.
-source-6d05a44fff2d620e = No se pudo descargar esta imagen
-source-4a0d8859a2cbde7e = No se pudo finalizar la descarga
-source-e08472b28ad3588a = No se pudo terminar de guardar el archivo adjunto; comprobar los permisos de la carpeta y el espacio en disco
-source-e516e28ec1360b5a = No se pudo entregar la actualización preparada. La aplicación instalada no fue reemplazada.
-source-91c6993d80362aa3 = No se pudo transferir la actualización al instalador.
-source-0a223fe9349f366e = No se pudo inicializar el transporte de actualización seguro.
-source-aff1fac5d872dd61 = No se pudo inspeccionar esta obra de arte de forma segura.
-source-15feba1bd9932ffa = No se pudieron cargar ni guardar las preferencias de actualización. Es posible que los cambios no sobrevivan al reinicio.
-source-e43bf4d38a946c13 = No se pudo cargar la apariencia guardada; usando el tema del sistema
-source-3c918600e9b86d11 = No se pudo cargar la nota. Su nota existente no ha sido modificada.
-source-c3d3ca6895000ef4 = No se pudo cargar la fuente guardada.
-source-2c429b664987aac0 = No se pudieron ubicar las imágenes almacenadas en caché para eliminarlas
-source-03d6b9cf17dd4a4a = No se pudo abrir el emoji elegido
-source-cbc2e30fcded6959 = No se pudo abrir la imagen elegida
-source-06547dd5f11eb83b = No se pudo abrir la obra de arte de la pegatina elegida.
-source-86f9d19087bad7cf = No se pudo abrir la fuente.
-source-0b703938d359f507 = No se pudo preparar la descarga de la imagen
-source-1e131fb051efd470 = No se pudo preparar la imagen pegada
-source-40e580bfa52ea94a = No se pudo preparar la imagen sintética
-source-545c2a94ba912650 = No se pudo preparar el ícono
-source-2ff4c03a5c918c0b = No se pudo preparar el reinicio de la actualización.
-source-60443163f395fd1e = No se pudo preparar el almacenamiento de actualizaciones.
-source-279768998b333a48 = No se pudo poner en cola la eliminación de datos de la cuenta local
-source-35b92371357fea8f = No se pudo poner en cola el inicio de sesión guardado; solo sesión
-source-57a1134e8eadb018 = No se pudo acceder a GitHub. Comprueba tu conexión y vuelve a intentarlo.
-source-66bae12d3cf82db1 = No se pudo leer el historial almacenado en caché
-source-b9f37fd32738ed34 = No se pudieron leer las preferencias del canal desde el almacenamiento local.
-source-f1450ee473fadd92 = No se pudieron leer los archivos copiados; pegar de nuevo
-source-89acca945c044c12 = No se pudo leer la imagen copiada
-source-feff082f2726f5b8 = No se pudo leer ni actualizar la lista de cuentas guardadas
-source-ca88d16116bbe5ae = No se pudo leer el emoji elegido
-source-3e0dc47b42e139ed = No se pudo leer la imagen elegida.
-source-cc37477b0740deef = No se pudo leer la obra de arte de la pegatina elegida.
-source-fcf1df2942dc4d33 = No se pudo leer la fuente.
-source-7803ddc4e9eddc1f = No se pudieron liberar los medios temporales del portapapeles
-source-b2ea8f7965f1e6c6 = No se pudieron eliminar las imágenes almacenadas en caché; Los archivos pueden permanecer en el disco.
-source-9686ffd6cb092aac = No se pudieron eliminar los mensajes eliminados en caché; caché de historial deshabilitado hasta el reinicio; Los mensajes pueden permanecer en el disco.
-source-85399400eefb7f1c = No se pudieron eliminar los datos de la cuenta local; el historial y los borradores pueden permanecer en el disco
-source-c72c9cffe8bbbae1 = No se pudo eliminar el inicio de sesión guardado; elimine cz.viceverse.serein/discord-session en el administrador de credenciales de su sistema operativo
-source-825c7bcf6360d2ae = No se pudo eliminar el inicio de sesión guardado de esa cuenta del almacén de credenciales del sistema operativo.
-source-9f7dd4b721282cbe = No se pudo reemplazar el archivo seleccionado
-source-427137772d21ccdc = No se pudo solicitar el cambio de configuración. Intentar otra vez.
-source-7d63f72259e6669b = No se pudo cambiar el tamaño de esta obra de arte.
-source-898066a44cd4ce4f = No se pudieron restaurar borradores desde el almacenamiento local
-source-bcf5f40e2b4e8248 = No se pudieron restaurar los GIF favoritos desde el almacenamiento local
-source-1c3504b673616163 = No se pudo guardar un borrador; El último texto puede existir sólo en la memoria.
-source-6a3d020d0b461bee = No se pudo salvar la apariencia; el cambio existe solo en esta sesión
-source-c4c116ce27e8582e = No se pudo guardar el historial en caché
-source-51c4cb36f21c48e5 = No se pudieron guardar las preferencias del canal.
-source-c5a7a52ab143eb9c = No se pudo guardar la configuración de notificaciones del dispositivo. Los cambios se aplican solo hasta el reinicio.
-source-1f370c0a888c3c32 = No se pudieron guardar los favoritos GIF; el cambio existe solo en esta sesión
-source-f9f5c3df74c23c80 = No se pudo guardar el inicio de sesión; esta sesión no se restaurará automáticamente
-source-87ae56ecb0ab5b7e = No se pudo guardar el estado en Discord. Reintentando; permanece en este dispositivo hasta que Discord lo acepte.
-source-c3f44402f7bbe8ef = No se pudo guardar la fuente. Intentar otra vez.
-source-69020184403337a9 = No se pudo guardar la fuente. Intente importarlo nuevamente.
-source-4077f70d91f8ec52 = No se pudo guardar el paquete de actualización.
-source-339b56af46bfe110 = No se pudieron guardar estos cambios. Verifique los canales seleccionados, vuelva a conectarse o vuelva a cargar la configuración del servidor e inténtelo nuevamente.
-source-6ae0e0aa6c767086 = No se pudo guardar esta cuenta para el conmutador; inicia sesión nuevamente para volver a intentarlo
-source-59e8f6ad602f5217 = No se pudo guardar este rol. Verifique el nombre, los permisos y su jerarquía de roles.
-source-a344ce4a120ef253 = No se pudo iniciar la detección de dispositivos de audio
-source-17f78518ca1760de = No se pudo iniciar la salida de audio
-source-d39420114623f4e9 = No se pudo iniciar el trabajador de audio
-source-8a7c5e3b833292d6 = No se pudo iniciar la detección del dispositivo de la cámara
-source-7283ba47445eb3d8 = No se pudo iniciar el trabajador de imágenes
-source-b0f74f585399a02c = No se pudo iniciar el descubrimiento de la fuente de la pantalla
-source-90eeb7167d32e152 = No se pudo iniciar el trabajador de video
-source-e585bdfdf184d235 = No se pudo descomprimir la actualización.
-source-5f0fd7ad256ac233 = No se pudieron actualizar las integraciones. Verifique sus permisos y conexión, luego vuelva a cargar.
-source-f5605ba53f7980d8 = No se pudo actualizar el estado: conexión no disponible.
-source-d9fac810d8c681e4 = No se pudo escribir el archivo adjunto; comprobar el espacio disponible en disco
-source-1e0b76ae10b2763e = No se pudo escribir la actualización. Verifique el espacio disponible en el disco.
-source-18758503d7689d02 = La imagen de portada supera los 2 MiB
-source-60ba5f888a2079cc = El trabajador de la imagen de portada falló.
-source-382a2aa3984474dd = Crear
-source-d92bb198b35a85b0 = Crea un enlace para compartir
-source-835925acc21b68c7 = Cree un enlace de invitación para dar la bienvenida a las personas a este servidor.
-source-9c99d3f4a6cb88db = Crear categoría
-source-0dcc3542d5b77e16 = Crear canal
-source-16dfe22ad782d6ce = Crear expresiones
-source-5db57f2814942db2 = Crear invitación
-source-461e523beecf9392 = Crear invitación
-source-ce67ba7d4c91848e = Crear enlace de invitación
-source-1bb47213a314465b = Crear enlace
-source-0b2fa375fb5213b1 = Crear el mío
-source-1ca952a0f10a7b63 = Crear hilos privados
-source-19c1a06f6aa91423 = Crear hilos públicos
-source-c5f923729564fbf3 = Crear rol
-source-f103b8dbbc4aac0d = Crear etiqueta
-source-5c175b1f85652a68 = Crear tema
-source-020ba69b968d45a7 = Crear hilo
-source-765d7cdc51cba911 = Crear hilo…
-source-c2717258f120ae20 = Crear webhook
-source-5e5cff69a6d9543f = Crea tu servidor
-source-0e48fdc1d25a3d3c = Regla de AutoMod creada
-source-4aee34a672e5cfc0 = Creado por
-source-3bc00948402b2a88 = Canal creado
-source-c89bbbc22d30e61a = Sobrescritura de permisos de canal creado
-source-1a5ebc934f4dbad5 = Solicitud de monetización del creador creada
-source-43d0e5411c2bb8a9 = Emoji creado
-source-3eb673cd7b5ee133 = Configuraciones de inicio creadas
-source-d5b8032616b95e69 = Integración creada
-source-d9f3af77938aa54c = Invitación creada
-source-ab60977dfb40c7a4 = Incorporación creada
-source-9b75aa85f4497ffa = Mensaje de incorporación creado
-source-0c3cebd9295125ed = Rol creado
-source-6e26dd1f4afff88c = Evento programado creado
-source-9fcbe25b846a3d67 = Sonido de caja de resonancia creado
-source-0e490773e2d1f0d9 = Etapa creada
-source-449696c884289800 = pegatina creada
-source-553d3b576ececfa5 = Hilo creado
-source-4339d5f545a1f994 = Estado del canal de voz creado
-source-930b366c85da6dea = Webhook creado
-source-2a35392fddc81ba3 = Creando enlace de invitación...
-source-4a58e62083970a56 = Creando…
-source-2d119c0d85bde088 = Fecha de creación
-source-11ee378934ab0f8d = Tiempo de creación
-source-c593b0976a6268bf = Se requiere el nombre del creador.
-source-2d3cbfb6158cc7c7 = Vista previa del creador
-source-fbf6afadead4779b = Búsqueda de credenciales no disponible; iniciar sesión con Discord nuevamente
-source-0beafa22dc30957b = Cola de credenciales no disponible; el inicio de sesión guardado puede permanecer
-source-0b423419aa0d45a0 = CSS
-source-6fb3409caa74b0a4 = Control
-source-96fb2219ad3070ba = ACTUAL
-source-ab8b4cbbb1fa71fa = Actual
-source-65dcda4c5b6c0401 = fila del canal actual
-source-d6aa66d42f812c4a = Sonido del canal actual
-source-f0cab2483f66aa2e = Costumbre
-source-1995a948733ac7bd = Color personalizado
-source-f9b5bb48f1de4eb9 = portada personalizada
-source-6e247239c3b9115b = Fuente personalizada
-source-e5a1cc2ee82bb2e3 = Fuente personalizada 日本語
-source-5056fa9079a3d801 = Color de rol personalizado
-source-722fda04606d8074 = Estado personalizado
-source-099d476cb54b6fa5 = Estado personalizado (vacío lo borra)
-source-a89808f057cf9368 = Estado personalizado borrado
-source-e9eb6976f93dfb18 = Personalizar
-source-efb0bccda1346d32 = Personalice los colores, la tipografía y el estilo de control de la aplicación
-source-44c1ab78f3d57101 = Personalice cómo aparece su servidor en los enlaces de invitación y, si está habilitado, en los mensajes del canal de anuncios y descubrimiento de servidores.
-source-9351cb6afb65528b = Personaliza la configuración y quién puede hacer qué aquí.
-source-c5756436ff756f9e = Personaliza tu servidor
-source-5e7acef59442f265 = Personaliza tu servidor con integraciones. Administre webhooks, canales seguidos y aplicaciones conectadas a su servidor.
-source-af63f94c86021dd3 = D
-source-ac895c732f350ac5 = Oscuro
-source-ac896d732f3527a8 = Dardo
-source-a603948a0cea6a15 = configuración de datos y privacidad
-source-3f9c26572c0dfd76 = privacidad de datos almacenamiento local borrar caché borradores credenciales
-source-ac8252732f2edb19 = Fecha
-source-d57b24fa846b14b5 = fechas, tipo de autor y más
-source-b0c04a1592853742 = Ensordecer
-source-57d2b7f1d6678c99 = Miembros sordos
-source-b5893bd6978e6395 = sonido ensordecedor
-source-448181d18f640dee = Deafen apaga el audio entrante y silencia el micrófono con él.
-source-1e16896b058b2d13 = ensordecido
-source-6fe17c2844da1113 = Ensordecido por el servidor
-source-fda8ac5c5174a19e = Ensordecido por el servidor.
-source-32322dc45e502559 = Rechazar
-source-805b81fbfcb428f6 = La imagen decodificada excede el límite de memoria
-source-657f80dffe736128 = Superficies de color azul intenso con un brillante acento oceánico.
-source-11326fd2590f4e5e = Por defecto
-source-3d8d90ed798cda84 = Diseño predeterminado
-source-d8fed10701008656 = Configuración de notificación predeterminada
-source-62a3f74a862ecad6 = Permisos predeterminados
+
+# Semantic application strings. Keys stay stable when English copy changes.
+
+## crates/ui/src/account_badge.rs
+# Context: name
+account-badge-app = APLICACIÓN
+# Context: name
+account-badge-app-description = Mensaje generado por la aplicación
+# Context: name
+account-badge-bot = BOT
+# Context: name
+account-badge-bot-description = cuenta de robot
+# Context: name
+account-badge-webhook = WEBHOOK
+# Context: name
+account-badge-webhook-description = Autor del webhook
+
+## crates/ui/src/account_menu.rs
+# Context: account_identity_card
+account-menu-account-identity-card-loading-profile = Cargando perfil…
+# Context: account_identity_card
+account-menu-account-identity-card-reload-profile = Recargar perfil
+# Context: account_menu
+account-menu-account-menu-custom-status = Estado personalizado
+# Context: account_menu
+account-menu-account-menu-shown-next-to-your-name-across-discord = Se muestra junto a tu nombre en Discord.
+# Context: account_switcher
+account-menu-account-switcher-add-an-account = Agregar una cuenta
+# Context: account_switcher_row
+account-menu-account-switcher-row-forget = Olvidar
+# Context: account_switcher_row
+account-menu-account-switcher-row-forget-this-account-on-this-device = Olvidar esta cuenta en este dispositivo
+# Context: account_switcher_row
+account-menu-account-switcher-row-switch-to = Cambiar a
+# Context: account_switcher
+account-menu-account-switcher-switch-accounts = Cambiar cuentas
+# Context: clears_at
+account-menu-clears-at-at = en
+# Context: clears_at
+account-menu-clears-at-tomorrow = mañana
+# Context: custom_status_actions
+account-menu-custom-status-actions-apply = Aplicar
+# Context: custom_status_actions
+account-menu-custom-status-actions-clear = Claro
+# Context: account_custom_status_row
+account-menu-custom-status-edit = Editar estado personalizado
+# Context: custom_status_editor
+account-menu-custom-status-editor-clear-after = Limpiar después
+# Context: custom_status_editor
+account-menu-custom-status-editor-no-custom-status = Sin estado personalizado
+# Context: custom_status_editor
+account-menu-custom-status-editor-serein-clears-it = Serein lo aclara
+# Context: custom_status_editor
+account-menu-custom-status-editor-status-text = Texto de estado
+# Context: custom_status_editor
+account-menu-custom-status-editor-use-up-to-128-characters-without-control-characters = Utilice hasta 128 caracteres sin caracteres de control.
+# Context: custom_status_editor
+account-menu-custom-status-editor-what-s-on-your-mind = ¿Qué tienes en mente?
+# Context: account_custom_status_row
+account-menu-custom-status-set = Establecer un estado personalizado
+# Context: label
+account-menu-label-1-hour = 1 hora
+# Context: label
+account-menu-label-30-minutes = 30 minutos
+# Context: label
+account-menu-label-4-hours = 4 horas
+# Context: label
+account-menu-label-don-t-clear = no borrar
+# Context: label
+account-menu-label-today = Hoy
+# Context: presence_menu
+account-menu-presence-menu-you-will-appear-offline = Aparecerás desconectado
+# Context: presence_menu
+account-menu-presence-menu-you-will-not-receive-desktop-notifications = No recibirás notificaciones de escritorio
+# Context: account_status_row
+account-menu-status-invisible = Invisible
+
+## crates/ui/src/archives.rs
+# Context: show
+archives-active-threads = HILOS ACTIVOS
+# Context: show
+archives-show-active-threads-come-from-the-session-older-threads-load-25 = Los hilos activos provienen de la sesión; Los hilos más antiguos cargan 25 a la vez. Al abrir se cargan mensajes sin unirse.
+# Context: show
+archives-show-archives-active-threads = archiva hilos activos
+# Context: show
+archives-show-archives-are-unavailable-while-disconnected-or-without-channel-access = Los archivos no están disponibles mientras está desconectado o sin acceso al canal.
+# Context: show
+archives-show-close = Cerca
+# Context: show
+archives-show-create = Crear
+# Context: show
+archives-show-loading-older-threads = Cargando temas antiguos...
+# Context: show
+archives-show-no-active-thread-matches-this-search = Ningún hilo activo coincide con esta búsqueda.
+# Context: show
+archives-show-no-older-threads-reported-by-the-service = El servicio no ha reportado hilos antiguos.
+# Context: show
+archives-show-no-older-threads-returned = No se devolvieron hilos más antiguos.
+# Context: show
+archives-show-older-threads = HILOS ANTIGUOS
+# Context: show
+archives-show-private-archives-require-permission-from-the-service = Los archivos privados requieren permiso del servicio.
+# Context: show
+archives-show-search-for-thread-name = Buscar nombre del hilo
+# Context: show
+archives-show-threads = Trapos
+# Context: show
+archives-show-you-cannot-start-a-thread-in-this-channel = No puedes iniciar un hilo en este canal.
+# Context: thread_card
+archives-thread-card-open-thread = Hilo abierto
+# Context: thread_card
+archives-thread-card-started-by = Iniciado por
+
+## crates/ui/src/attachments.rs
+# Context: download_button
+attachments-download-button-a-download-is-already-active = Ya hay una descarga activa
+# Context: download_button
+attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Elija dónde guardar este archivo · hasta 100 MiB
+# Context: download_button
+attachments-download-button-download = Descargar
+# Context: download_button
+attachments-download-button-downloads-are-disabled-for-synthetic-attachments = Las descargas están deshabilitadas para archivos adjuntos sintéticos.
+# Context: media_menu
+attachments-media-menu-a-media-transfer-is-already-active = Una transferencia de medios ya está activa
+# Context: media_menu
+attachments-media-menu-copy-image = Copiar imagen
+# Context: media_menu
+attachments-media-menu-copy-link = Copiar enlace
+# Context: media_menu
+attachments-media-menu-copy-video = Copiar vídeo
+# Context: media_menu
+attachments-media-menu-open-original = Abrir original…
+# Context: media_menu
+attachments-media-menu-save-image-as = Guardar imagen como…
+# Context: media_menu
+attachments-media-menu-save-video-as = Guardar vídeo como…
+# Context: media_menu
+attachments-media-menu-unavailable-for-synthetic-attachments = No disponible para accesorios sintéticos
+# Context: open_original
+attachments-open-original-open-original = Abrir original…
+# Context: pending_card
+attachments-pending-card-remove-attachment = Quitar archivo adjunto
+# Context: show_status
+attachments-show-status-cancel-download = Cancelar descarga
+# Context: show_status
+attachments-show-status-dismiss = Despedir
+# Context: viewer
+attachments-viewer-a-download-is-already-active = Ya hay una descarga activa
+# Context: viewer
+attachments-viewer-cancel = Cancelar
+# Context: viewer
+attachments-viewer-downloads-are-disabled-for-synthetic-attachments = Las descargas están deshabilitadas para archivos adjuntos sintéticos.
+# Context: viewer
+attachments-viewer-open-in-browser = Abrir en el navegador
+# Context: viewer
+attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset = Desplácese para hacer zoom · Arrastre para desplazarse · Haga doble clic para restablecer
+
+## crates/ui/src/audio.rs
+# Context: show
+audio-show-loading-audio = Cargando audio…
+# Context: show
+audio-show-seek = Buscar
+# Context: show
+audio-show-volume = Volumen
+# Context: waveform
+audio-waveform-seek-voice-message = buscar mensaje de voz
+
+## crates/ui/src/avatars.rs
+# Context: show_profile_avatar
+avatars-show-profile-avatar-server-profile-picture = Foto de perfil del servidor
+# Context: sticker_image
+avatars-sticker-image-image-unavailable = Imagen no disponible
+
+## crates/ui/src/categories.rs
+# Context: category_header
+categories-category-header-category = categoría
+# Context: category_header
+categories-category-header-channels = canales
+# Context: category_header
+categories-category-header-collapse = Colapsar
+# Context: category_header
+categories-category-header-collapsed = colapsado
+# Context: category_header
+categories-category-header-expand = Expandir
+# Context: category_header
+categories-category-header-expanded = expandido
+# Context: channel_list
+categories-channel-list-notifications = notificaciones
+# Context: channel_list
+categories-channel-list-unread = , no leído
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-announcement-channel = Canal de anuncios
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-direct-message = Mensaje directo
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-directory-not-implemented = Directorio · no implementado
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-forum-loaded-posts = Foro · publicaciones cargadas
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-group-direct-message = Mensaje directo grupal
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-media-loaded-posts = Medios · publicaciones cargadas
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-server-voice-channel = Canal de voz del servidor
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-stage-channel-not-implemented = Canal de escenario · no implementado
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-text-channel = Canal de texto
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-thread = Hilo
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-unknown-channel-type-not-implemented = Tipo de canal desconocido · no implementado
+
+## crates/ui/src/shortcuts.rs
+# Context: key
+channel-list-heading-direct-messages = Mensajes directos
+# Context: key
+channel-list-heading-favorites = Favoritos
+# Context: key
+channel-list-heading-pinned = Fijado
+
+## crates/ui/src/channel_menu.rs
+# Context: context
+channel-menu-context-add-to-favorites = Agregar a favoritos
+# Context: context
+channel-menu-context-copy-channel-id = Copiar ID de canal
+# Context: context
+channel-menu-context-copy-link = Copiar enlace
+# Context: context
+channel-menu-context-create-category = Crear categoría
+# Context: context
+channel-menu-context-create-channel = Crear canal
+# Context: context
+channel-menu-context-edit-category = Editar categoría
+# Context: context
+channel-menu-context-edit-channel = Editar canal
+# Context: context
+channel-menu-context-favorites-are-saved-on-this-device = Los favoritos se guardan en este dispositivo.
+# Context: context
+channel-menu-context-invite-to-channel = Invitar al canal
+# Context: context
+channel-menu-context-mark-as-read = Marcar como leído
+# Context: context
+channel-menu-context-mute-channel = Canal silenciado
+# Context: context
+channel-menu-context-notification-settings = Configuración de notificaciones
+# Context: context
+channel-menu-context-remove-from-favorites = Eliminar de favoritos
+# Context: context
+channel-menu-context-unmute-channel = Activar canal
+# Context: context
+channel-menu-context-until-i-turn-it-back-on = Hasta que lo vuelvo a encender
+# Context: show
+channel-menu-delete-category-confirm = ¿Eliminar { $name }? Sus canales permanecerán en el servidor. Esto no se puede deshacer.
+# Context: show
+channel-menu-delete-channel-confirm = ¿Estás seguro de que deseas eliminar #{ $name }? Sus mensajes se eliminarán permanentemente. Esto no se puede deshacer.
+# Context: editor
+channel-menu-editor-overview = Descripción general
+# Context: navigation
+channel-menu-navigation-delete-category = Eliminar categoría
+# Context: navigation
+channel-menu-navigation-delete-channel = Eliminar canal
+# Context: overview
+channel-menu-overview-age-restricted-channel = Canal restringido por edad
+# Context: overview
+channel-menu-overview-category-name = Nombre de categoría
+# Context: overview
+channel-menu-overview-channel-name = Nombre del canal
+# Context: overview
+channel-menu-overview-channel-type = tipo de canal
+# Context: overview
+channel-menu-overview-let-everyone-know-how-to-use-this-channel = Que todos sepan cómo usar este canal.
+# Context: overview
+channel-menu-overview-members-must-confirm-they-are-of-age-before-viewing = Los miembros deben confirmar que son mayores de edad antes de verlo.
+# Context: overview
+channel-menu-overview-members-will-be-restricted-to-one-message-in-this-interval = Los miembros estarán restringidos a un mensaje en este intervalo.
+# Context: overview
+channel-menu-overview-new-category = nueva categoría
+# Context: overview
+channel-menu-overview-new-channel = nuevo canal
+# Context: overview
+channel-menu-overview-slowmode = Modo lento
+# Context: overview
+channel-menu-overview-topic = Tema
+# Context: report_capacity
+channel-menu-report-capacity-all-messages = Todos los mensajes
+# Context: report_capacity
+channel-menu-report-capacity-create-channel = Crear canal
+# Context: report_capacity
+channel-menu-report-capacity-delete-category = Eliminar categoría
+# Context: report_capacity
+channel-menu-report-capacity-delete-channel = Eliminar canal
+# Context: report_capacity
+channel-menu-report-capacity-duplicate-category = Categoría duplicada
+# Context: report_capacity
+channel-menu-report-capacity-duplicate-channel = Canal duplicado
+# Context: report_capacity
+channel-menu-report-capacity-for-1-hour = Durante 1 hora
+# Context: report_capacity
+channel-menu-report-capacity-for-15-minutes = Durante 15 minutos
+# Context: report_capacity
+channel-menu-report-capacity-for-24-hours = Durante 24 horas
+# Context: report_capacity
+channel-menu-report-capacity-for-3-hours = Por 3 Horas
+# Context: report_capacity
+channel-menu-report-capacity-for-8-hours = Durante 8 horas
+# Context: report_capacity
+channel-menu-report-capacity-nothing = Nada
+# Context: report_capacity
+channel-menu-report-capacity-only-mentions = Sólo @menciones
+# Context: report_capacity
+channel-menu-report-capacity-use-server-default = Usar el servidor predeterminado
+# Context: show
+channel-menu-show-at-the-top-of-this-server-uses-server-permissions = En la parte superior de este servidor · utiliza permisos de servidor
+# Context: show
+channel-menu-show-cancel = Cancelar
+# Context: show
+channel-menu-show-channel-settings-could-not-be-loaded = No se pudo cargar la configuración del canal.
+# Context: show
+channel-menu-show-channel-settings-need-to-be-refreshed-before-saving-reloading-replaces = La configuración del canal debe actualizarse antes de guardarla. La recarga reemplaza este borrador.
+# Context: show
+channel-menu-show-close = Cerca
+# Context: show_feedback
+channel-menu-show-feedback-channel-action = Acción del canal
+# Context: show_feedback
+channel-menu-show-feedback-dismiss = Despedir
+# Context: show
+channel-menu-show-in-this-channels-category-inherits-category-permissions = En la categoría de este canal · hereda los permisos de categoría
+# Context: show
+channel-menu-show-loading-channel-settings = Cargando configuración del canal…
+# Context: show
+channel-menu-show-offline-preview-no-server-changes = Vista previa sin conexión · sin cambios en el servidor
+# Context: show
+channel-menu-show-reload-channel = Recargar canal
+# Context: show
+channel-menu-show-retry = Rever
+# Context: show
+channel-menu-show-you-no-longer-have-permission-to-manage-this-channel = Ya no tienes permiso para administrar este canal.
+# Context: sidebar_context
+channel-menu-sidebar-context-hide-muted-channels = Ocultar canales silenciados
+# Context: sidebar_context
+channel-menu-sidebar-context-invite-to-server = Invitar al servidor
+
+## crates/ui/src/channel_permissions.rs
+# Context: add
+channel-permissions-add-add-reactions = Agregar reacciones
+# Context: add
+channel-permissions-add-allow = Permitir
+# Context: add
+channel-permissions-add-allows-emoji-from-other-servers = Permite emoji de otros servidores.
+# Context: add
+channel-permissions-add-allows-members-to-add-new-emoji-reactions = Permite a los miembros agregar nuevas reacciones emoji.
+# Context: add
+channel-permissions-add-allows-members-to-change-channel-permissions = Permite a los miembros cambiar los permisos del canal.
+# Context: add
+channel-permissions-add-allows-members-to-create-edit-and-delete-webhooks = Permite a los miembros crear, editar y eliminar webhooks.
+# Context: add
+channel-permissions-add-allows-members-to-deafen-others-in-voice-channels = Permite a los miembros ensordecer a otros en canales de voz.
+# Context: add
+channel-permissions-add-allows-members-to-delete-others-messages = Permite a los miembros eliminar los mensajes de otras personas.
+# Context: add
+channel-permissions-add-allows-members-to-edit-channel-settings-and-delete-channels = Permite a los miembros editar la configuración del canal y eliminar canales.
+# Context: add
+channel-permissions-add-allows-members-to-invite-people-to-this-server = Permite a los miembros invitar personas a este servidor.
+# Context: add
+channel-permissions-add-allows-members-to-join-voice-channels = Permite a los miembros unirse a canales de voz.
+# Context: add
+channel-permissions-add-allows-members-to-manage-and-delete-threads = Permite a los miembros administrar y eliminar hilos.
+# Context: add
+channel-permissions-add-allows-members-to-move-others-between-voice-channels = Permite a los miembros mover a otros entre canales de voz.
+# Context: add
+channel-permissions-add-allows-members-to-mute-others-in-voice-channels = Permite a los miembros silenciar a otros en los canales de voz.
+# Context: add
+channel-permissions-add-allows-members-to-pin-and-unpin-messages = Permite a los miembros fijar y quitar mensajes.
+# Context: add
+channel-permissions-add-allows-members-to-read-previous-messages = Permite a los miembros leer mensajes anteriores.
+# Context: add
+channel-permissions-add-allows-members-to-reply-in-threads = Permite a los miembros responder en hilos.
+# Context: add
+channel-permissions-add-allows-members-to-send-messages-in-these-channels = Permite a los miembros enviar mensajes en estos canales.
+# Context: add
+channel-permissions-add-allows-members-to-share-video-and-their-screen = Permite a los miembros compartir videos y su pantalla.
+# Context: add
+channel-permissions-add-allows-members-to-speak-in-voice-channels = Permite a los miembros hablar en canales de voz.
+# Context: add
+channel-permissions-add-allows-members-to-start-private-threads = Permite a los miembros iniciar hilos privados.
+# Context: add
+channel-permissions-add-allows-members-to-start-public-threads = Permite a los miembros iniciar hilos públicos.
+# Context: add
+channel-permissions-add-allows-members-to-upload-files-and-media = Permite a los miembros cargar archivos y medios.
+# Context: add
+channel-permissions-add-allows-members-to-view-these-channels = Permite a los miembros ver estos canales.
+# Context: add
+channel-permissions-add-allows-mentions-that-notify-everyone-or-entire-roles = Permite menciones que notifican a todos o a roles completos.
+# Context: add
+channel-permissions-add-allows-messages-read-aloud-with-text-to-speech = Permite leer mensajes en voz alta con texto a voz.
+# Context: add
+channel-permissions-add-allows-speaking-without-push-to-talk = Permite hablar sin pulsar para hablar.
+# Context: add
+channel-permissions-add-allows-stickers-from-other-servers = Permite stickers de otros servidores.
+# Context: add
+channel-permissions-add-attach-files = Adjuntar archivos
+# Context: add
+channel-permissions-add-connect = Conectar
+# Context: add
+channel-permissions-add-create-invite = Crear invitación
+# Context: add
+channel-permissions-add-create-private-threads = Crear hilos privados
+# Context: add
+channel-permissions-add-create-public-threads = Crear hilos públicos
+# Context: add
+channel-permissions-add-deafen-members = Miembros sordos
+# Context: add
+channel-permissions-add-deny = Denegar
+# Context: add
+channel-permissions-add-embed-links = Insertar enlaces
+# Context: add
+channel-permissions-add-general-category-permissions = Permisos de categoría generales
+# Context: add
+channel-permissions-add-general-channel-permissions = Permisos generales del canal
+# Context: add
+channel-permissions-add-inherit = Heredar
+# Context: add
+channel-permissions-add-manage-channels = Administrar canales
+# Context: add
+channel-permissions-add-manage-messages = Administrar mensajes
+# Context: add
+channel-permissions-add-manage-permissions = Administrar permisos
+# Context: add
+channel-permissions-add-manage-threads = Administrar hilos
+# Context: add
+channel-permissions-add-manage-webhooks = Administrar webhooks
+# Context: add
+channel-permissions-add-membership-permissions = Permisos de membresía
+# Context: add
+channel-permissions-add-mention-everyone-here-and-all-roles = Mencione a @todos, @aquí y todos los roles.
+# Context: add
+channel-permissions-add-move-members = Mover miembros
+# Context: add
+channel-permissions-add-mute-members = Silenciar miembros
+# Context: add
+channel-permissions-add-pin-messages = Fijar mensajes
+# Context: add
+channel-permissions-add-read-message-history = Leer historial de mensajes
+# Context: add
+channel-permissions-add-send-messages = Enviar mensajes
+# Context: add
+channel-permissions-add-send-messages-in-threads = Enviar mensajes en hilos
+# Context: add
+channel-permissions-add-send-text-to-speech-messages = Enviar mensajes de texto a voz
+# Context: add
+channel-permissions-add-shows-previews-for-links-members-send = Muestra vistas previas de los enlaces que envían los miembros.
+# Context: add
+channel-permissions-add-speak = Hablar
+# Context: add
+channel-permissions-add-text-channel-permissions = Permisos de canales de texto
+# Context: add
+channel-permissions-add-use-external-emoji = Usar emoji externo
+# Context: add
+channel-permissions-add-use-external-stickers = Usar pegatinas externas
+# Context: add
+channel-permissions-add-use-voice-activity = Usar actividad de voz
+# Context: add
+channel-permissions-add-video = Video
+# Context: add
+channel-permissions-add-view-channels = Ver canales
+# Context: add
+channel-permissions-add-voice-channel-permissions = Permisos del canal de voz
+# Context: permissions
+channel-permissions-permissions-remove-role-member = Eliminar rol/miembro
+# Context: show
+channel-permissions-show-advanced-permissions = Permisos avanzados
+# Context: show
+channel-permissions-show-only-selected-members-and-roles-can-view-this-category-synced = Solo los miembros y roles seleccionados pueden ver esta categoría. Los canales sincronizados siguen sus permisos.
+# Context: show
+channel-permissions-show-only-selected-members-and-roles-can-view-this-channel-administrators = Solo los miembros y roles seleccionados pueden ver este canal. Los administradores conservan el acceso.
+# Context: show
+channel-permissions-show-private-category = Categoría privada
+# Context: show
+channel-permissions-show-private-channel = Canal Privado
+# Context: show
+channel-permissions-show-you-need-manage-channels-and-manage-permissions-to-change-these = Necesita Administrar canales y Administrar permisos para cambiar esta configuración.
+# Context: targets
+channel-permissions-targets-add-member = Agregar miembro
+# Context: targets
+channel-permissions-targets-add-role-or-member = + Agregar rol o miembro
+# Context: targets
+channel-permissions-targets-member = Miembro
+# Context: targets
+channel-permissions-targets-member-id = ID de miembro
+# Context: targets
+channel-permissions-targets-role = Role
+# Context: targets
+channel-permissions-targets-roles-members = FUNCIONES/MIEMBROS
+# Context: targets
+channel-permissions-targets-search-roles-or-loaded-members = Buscar roles o miembros cargados
+
+## crates/ui/src/components.rs
+# Context: dialogs
+components-dialogs-submit = Entregar
+# Context: dialogs
+components-dialogs-submitting = Sumisión…
+# Context: field
+components-field-allowed-files = Archivos permitidos
+# Context: field
+components-field-choose-files = Elija archivos…
+# Context: field
+components-field-confirm = Confirmar
+# Context: field
+components-field-unsupported-form-field-type = Tipo de campo de formulario no admitido
+# Context: select
+components-select-choose-options = Elige opciones
+# Context: select
+components-select-clear-selection = Borrar selección
+# Context: select
+components-select-no-matching-options-loaded = No se han cargado opciones coincidentes
+# Context: select
+components-select-refine-your-search-to-see-more-results = Refina tu búsqueda para ver más resultados
+# Context: select
+components-select-search-options = Opciones de búsqueda
+# Context: select
+components-select-type-to-search-members-available-roles-and-channels-are-listed = Escriba para buscar miembros; Se enumeran los roles y canales disponibles.
+# Context: show_component
+components-show-component-reveal-spoiler-component = Revelar componente de spoiler
+# Context: show_component
+components-show-component-reveal-spoiler-media = Revelar medios spoilers
+# Context: show_component
+components-show-component-submit-selection = Enviar selección
+# Context: show_component
+components-show-component-unsupported-component-type = Tipo de componente no admitido
+# Context: show_media
+components-show-media-open-media = medios abiertos
+# Context: show_media
+components-show-media-reveal-spoiler-attachment = Revelar archivo adjunto de spoiler
+
+## crates/ui/src/contact_editor.rs
+# Context: show
+contact-editor-show-add-something-to-remember = Añade algo para recordar...
+# Context: show
+contact-editor-show-cancel = Cancelar
+# Context: show
+contact-editor-show-connection-refreshed-reload-the-saved-note-before-saving-your-draft = Conexión actualizada. Vuelva a cargar la nota guardada antes de guardarla; su borrador se conserva.
+# Context: show
+contact-editor-show-could-not-load-the-note-your-existing-note-has-not = No se pudo cargar la nota. Su nota existente no ha sido modificada.
+# Context: show
+contact-editor-show-enter-a-nickname = Introduce un apodo
+# Context: show
+contact-editor-show-friend-nickname = Apodo de amigo
+# Context: show
+contact-editor-show-loading-note = Cargando nota…
+# Context: show
+contact-editor-show-nickname = Apodo
+# Context: show
+contact-editor-show-note = Nota
+# Context: show
+contact-editor-show-only-you-can-see-this-nickname-it-does-not-change = Sólo tú puedes ver este apodo. No cambia el nombre de su servidor.
+# Context: show
+contact-editor-show-only-you-can-see-this-note-it-is-saved-to = Sólo tú puedes ver esta nota. Se guarda en su cuenta de Discord.
+# Context: show
+contact-editor-show-reload-saved-note = Recargar nota guardada
+# Context: show
+contact-editor-show-retry = Rever
+# Context: show
+contact-editor-show-save = Ahorrar
+# Context: show
+contact-editor-show-saving = Ahorro…
+# Context: show
+contact-editor-show-this-user-is-no-longer-a-confirmed-friend = Este usuario ya no es un amigo confirmado.
+
+## crates/ui/src/design.rs
+# Context: account_row_with_remove
+design-account-row-with-remove-forget = Olvidar
+# Context: account_row_with_remove
+design-account-row-with-remove-forget-this-account-on-this-device = Olvidar esta cuenta en este dispositivo
+# Context: color_edit
+design-color-edit-hex-color-rrggbb-click-to-type-or-paste = Color hexadecimal: #RRGGBB. Haga clic para escribir o pegar.
+# Context: save_bar
+design-save-bar-careful-you-have-unsaved-changes = Cuidado: ¡tienes cambios sin guardar!
+
+## crates/ui/src/dialog.rs
+# Context: header
+dialog-header-close-dialog-esc = Cerrar cuadro de diálogo (Esc)
+# Context: module
+dialog-module-cancel = Cancelar
+# Context: module
+dialog-module-delete = Borrar
+# Context: module
+dialog-module-delete-channel = ¿Eliminar canal?
+# Context: module
+dialog-module-this-cannot-be-undone = Esto no se puede deshacer.
+
+## crates/ui/src/embeds.rs
+# Context: gallery
+embeds-gallery-of = de
+# Context: gallery
+embeds-gallery-open-embed-image = Abrir imagen para insertar
+# Context: gallery
+embeds-gallery-open-image = Abrir imagen…
+# Context: image_preview
+embeds-image-preview-image-actions = Acciones de imagen
+# Context: link
+embeds-link-open-link = Abrir enlace…
+# Context: show
+embeds-show-additional-embed-content-is-not-supported = No se admite contenido insertado adicional
+# Context: show
+embeds-show-embed-display-limited = Pantalla integrada limitada
+# Context: show
+embeds-show-favorite-gif = GIF favorito
+# Context: show
+embeds-show-open-image = Abrir imagen
+# Context: show
+embeds-show-open-image-2 = Abrir imagen…
+# Context: show
+embeds-show-remove-from-gif-favorites = Eliminar de favoritos GIF
+# Context: show
+embeds-show-save-to-gif-favorites = Guardar en favoritos GIF
+# Context: show
+embeds-show-video-preview-playback-opens-in-your-browser = Vista previa del vídeo · la reproducción se abre en tu navegador
+# Context: text
+embeds-text-text-display-limited = Visualización de texto limitada
+
+## crates/ui/src/emoji_details.rs
+# Context: show
+emoji-details-show-a-custom-emoji = Un emoji personalizado.
+# Context: show
+emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Un emoji predeterminado. Puedes usar este emoji en todas partes en Discord.
+# Context: show
+emoji-details-show-copy-emoji = Copiar emojis
+# Context: show
+emoji-details-show-from = De
+# Context: show
+emoji-details-show-source-server-unavailable-in-this-session = El servidor de origen no está disponible en esta sesión.
+
+## crates/ui/src/emoji_picker.rs
+# Context: gif_body
+emoji-picker-gif-body-favorites = Favoritos
+# Context: gif_body
+emoji-picker-gif-body-gif-search-needs-a-connected-session = La búsqueda de GIF necesita una sesión conectada.
+# Context: gif_body
+emoji-picker-gif-body-hover-a-gif-and-press-the-star-to-keep-it = Coloca el cursor sobre un GIF y presiona la estrella para mantenerlo aquí.
+# Context: gif_body
+emoji-picker-gif-body-loading-gifs = Cargando GIF…
+# Context: gif_body
+emoji-picker-gif-body-no-favorites-yet = Aún no hay favoritos
+# Context: gif_body
+emoji-picker-gif-body-no-gifs-found = No se encontraron GIF
+# Context: gif_body
+emoji-picker-gif-body-searching-klipy = Buscando KLIPY…
+# Context: gif_body
+emoji-picker-gif-body-trending-gifs = GIF de tendencia
+# Context: gif_body
+emoji-picker-gif-body-try-a-different-search-term = Pruebe con un término de búsqueda diferente.
+# Context: gif_grid
+emoji-picker-gif-grid-favorite = Favorito
+# Context: gif_grid
+emoji-picker-gif-grid-send-gif = Enviar GIF
+# Context: gif_home
+emoji-picker-gif-home-loading-trending-categories = Cargando categorías de tendencia...
+# Context: popup
+emoji-picker-popup-back-to-gif-categories = Volver a categorías GIF
+# Context: popup
+emoji-picker-popup-cannot-add-this-reaction-right-now = No se puede agregar esta reacción en este momento.
+# Context: popup
+emoji-picker-popup-click-a-gif-to-send-it-right-away = Haga clic en un GIF para enviarlo de inmediato
+# Context: popup
+emoji-picker-popup-emoji = emojis
+# Context: popup
+emoji-picker-popup-frequently-used = UTILIZADO CON FRECUENCIA
+# Context: popup
+emoji-picker-popup-hover-a-sticker-to-preview-it = Pase el cursor sobre una pegatina para obtener una vista previa
+# Context: popup
+emoji-picker-popup-hover-an-emoji-to-preview-it = Coloca el cursor sobre un emoji para obtener una vista previa
+# Context: popup
+emoji-picker-popup-no-matching-emoji = No hay emoji coincidentes.
+# Context: popup
+emoji-picker-popup-retry-sticker-packs = Reintentar paquetes de pegatinas
+# Context: popup
+emoji-picker-popup-search-results = Resultados de la búsqueda
+# Context: popup
+emoji-picker-popup-showing-the-first-1-000-custom-emoji-refine-your-search = Mostrando los primeros 1000 emoji personalizados. Refine su búsqueda para obtener más.
+# Context: popup
+emoji-picker-popup-standard-emoji = Emoji estándar
+# Context: popup
+emoji-picker-popup-this-server-has-no-custom-emoji = Este servidor no tiene emoji personalizados.
+# Context: popup
+emoji-picker-popup-this-server-s-emoji-list-is-not-loaded-yet = La lista de emojis de este servidor aún no está cargada.
+# Context: popup
+emoji-picker-search-emoji = Encuentra el emoji perfecto
+# Context: popup
+emoji-picker-search-emoji-label = Buscar emoji por nombre
+# Context: popup
+emoji-picker-search-gifs-label = Buscar GIF en KLIPY
+# Context: popup
+emoji-picker-search-klipy = Buscar KLIPY
+# Context: popup
+emoji-picker-search-stickers = Encuentra la pegatina perfecta
+# Context: popup
+emoji-picker-search-stickers-label = Buscar pegatinas por nombre
+# Context: show
+emoji-picker-show-insert-an-emoji = Inserta un emoji
+# Context: show_reaction
+emoji-picker-show-reaction-add-reaction = Añadir reacción
+# Context: show
+emoji-picker-show-send-a-gif = Enviar un GIF
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-choose-emoji = Elige emojis
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-remove-emoji = Quitar emojis
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-search-emoji = buscar emojis
+
+## crates/ui/src/extensions_ui.rs
+# Context: card_body
+extensions-ui-card-body-active = Activo
+# Context: card_body
+extensions-ui-card-body-apply-this-installed-theme-to-the-app = Aplique este tema instalado a la aplicación.
+# Context: card_body
+extensions-ui-card-body-by = por
+# Context: card_body
+extensions-ui-card-body-cleanup-pending = Limpieza pendiente
+# Context: card_body
+extensions-ui-card-body-enabled = Activado
+# Context: card_body
+extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Termina de eliminar esta extensión y sus datos locales.
+# Context: card_body
+extensions-ui-card-body-open-tool = Abrir herramienta
+# Context: card_body
+extensions-ui-card-body-plugin = Complemento
+# Context: card_body
+extensions-ui-card-body-remove = Eliminar
+# Context: card_body
+extensions-ui-card-body-remove-this-theme-and-delete-its-local-data = Elimine este tema y elimine sus datos locales.
+# Context: card_body
+extensions-ui-card-body-removes-this-extension-and-deletes-its-local-data = Elimina esta extensión y elimina sus datos locales.
+# Context: card_body
+extensions-ui-card-body-review-the-new-release-before-it-replaces-this-version = Revise la nueva versión antes de que reemplace esta versión.
+# Context: card_body
+extensions-ui-card-body-update = Actualizar
+# Context: composer_menu
+extensions-ui-composer-menu-tools = Herramientas
+# Context: consent_modal
+extensions-ui-consent-modal-allow-every-listed-permission-to-continue = Permita que todos los permisos enumerados continúen.
+# Context: consent_modal
+extensions-ui-consent-modal-allow-this-extension-to = Permitir que esta extensión
+# Context: consent_modal
+extensions-ui-consent-modal-by = por
+# Context: consent_modal
+extensions-ui-consent-modal-cancel = Cancelar
+# Context: consent_modal
+extensions-ui-consent-modal-disabling-removes-the-extension-and-its-local-data-re-enabling = Al desactivarla se elimina la extensión y sus datos locales. La reactivación comienza de nuevo.
+# Context: consent_modal
+extensions-ui-consent-modal-enable = Permitir
+# Context: consent_modal
+extensions-ui-consent-modal-enable-this-extension = Habilitar esta extensión
+# Context: consent_modal
+extensions-ui-consent-modal-enable-this-theme = Habilitar este tema
+# Context: consent_modal
+extensions-ui-consent-modal-everything-it-may-touch-is-listed-below = Todo lo que puede tocar se enumera a continuación.
+# Context: consent_modal
+extensions-ui-consent-modal-no-access-to-conversations-or-composer-text = No hay acceso a conversaciones ni al texto del compositor.
+# Context: consent_modal
+extensions-ui-consent-modal-reviewed = Revisado
+# Context: consent_modal
+extensions-ui-consent-modal-unreviewed = Sin revisar
+# Context: consent_modal
+extensions-ui-consent-modal-unreviewed-package-its-source-has-not-been-reviewed-for-the = Paquete no revisado: su fuente no ha sido revisada para el catálogo.
+# Context: consent_modal
+extensions-ui-consent-modal-view-source = Ver fuente
+# Context: preview_image
+extensions-ui-preview-image-preview = Avance
+# Context: preview_image
+extensions-ui-preview-image-view-preview = Ver vista previa
+# Context: preview_modal
+extensions-ui-preview-modal-close-preview = Cerrar vista previa
+# Context: preview_modal
+extensions-ui-preview-modal-creator-preview = Vista previa del creador
+# Context: preview_modal
+extensions-ui-preview-modal-example-deleted-message-appearance = Ejemplo de apariencia de mensaje eliminado
+# Context: preview_modal
+extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = Al seleccionar la obra de arte, se envía como una imagen adjunta.
+# Context: settings
+extensions-ui-settings-no-extensions-yet = Aún no hay extensiones
+# Context: settings
+extensions-ui-settings-no-matches = No hay coincidencias
+# Context: settings
+extensions-ui-settings-no-themes-yet = Aún no hay temas
+# Context: settings
+extensions-ui-settings-refresh-the-catalog-or-import-a-creator-s-package-to = Actualice el catálogo o importe el paquete de un creador para comenzar.
+# Context: settings
+extensions-ui-settings-try-a-different-name-or-creator = Pruebe con un nombre o creador diferente.
+# Context: show_result
+extensions-ui-show-result-apply-to-draft = Aplicar al borrador
+# Context: show_result
+extensions-ui-show-result-close = Cerca
+# Context: show_result
+extensions-ui-show-result-dismiss = Despedir
+# Context: show_result
+extensions-ui-show-result-extension-error = Error de extensión
+# Context: show_result
+extensions-ui-show-result-proposed-app-action = Acción de aplicación propuesta
+# Context: show_result
+extensions-ui-show-result-proposed-composer-text = Texto del compositor propuesto
+# Context: show_result
+extensions-ui-show-result-review-the-result-app-actions-and-draft-changes-need-your = Revisa el resultado. Las acciones de la aplicación y los borradores de cambios necesitan su aprobación.
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-back-to-theme-editor = Volver al editor de temas
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-back-to-themes = Volver a temas
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-changes-are-not-saved-yet = Los cambios aún no se guardan
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-customize = Personalizar
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-previewing-theme = Vista previa del tema
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-theme-preview = Vista previa del tema
+# Context: toolbar
+extensions-ui-toolbar-checking-for-packages-and-updates = Comprobando paquetes y actualizaciones
+# Context: toolbar
+extensions-ui-toolbar-clear-search = Borrar búsqueda
+# Context: toolbar
+extensions-ui-toolbar-dismiss = Despedir
+# Context: toolbar
+extensions-ui-toolbar-import-theme = Importar tema…
+# Context: toolbar
+extensions-ui-toolbar-look-for-new-packages-and-updates-nothing-installs-on-its = Busque nuevos paquetes y actualizaciones. Nada se instala por sí solo.
+# Context: toolbar
+extensions-ui-toolbar-open-a-package-file-from-this-computer = Abra un archivo de paquete desde esta computadora.
+# Context: toolbar
+extensions-ui-toolbar-refresh-catalog = Actualizar catálogo
+# Context: toolbar
+extensions-ui-toolbar-search-extensions = Extensiones de búsqueda
+# Context: toolbar
+extensions-ui-toolbar-search-themes = Buscar temas
+# Context: toolbar
+extensions-ui-toolbar-working-on-your-last-action = Trabajando en tu última acción
+
+## crates/ui/src/fonts.rs
+# Context: show
+fonts-show-import-font = Importar fuente…
+# Context: show
+fonts-show-inter-default = Inter (predeterminado)
+# Context: show
+fonts-show-interface-font = Fuente de interfaz
+# Context: show
+fonts-show-reset = Reiniciar
+# Context: show
+fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = El veloz zorro marrón salta sobre el perro perezoso. 0123456789
+# Context: show
+fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF u OTF, hasta 8 MiB. Guardado en este dispositivo. El código mantiene su fuente monoespaciada.
+# Context: show
+fonts-show-typography = Tipografía
+
+## crates/ui/src/forum.rs
+# Context: archive_footer
+forum-archive-footer-archived-posts-need-a-connected-session-with-history-access = Las publicaciones archivadas necesitan una sesión conectada con acceso al historial.
+# Context: archive_footer
+forum-archive-footer-load-archived-posts = Cargar publicaciones archivadas
+# Context: archive_footer
+forum-archive-footer-loading-archived-posts = Cargando publicaciones archivadas…
+# Context: archive_footer
+forum-archive-footer-no-older-archived-posts-reported = No se reportaron publicaciones archivadas más antiguas.
+# Context: archive_footer
+forum-archive-footer-older-archived-posts = Publicaciones archivadas más antiguas
+# Context: archive_footer
+forum-archive-footer-retry = Rever
+# Context: composer
+forum-composer-add-images-or-files-up-to-10-files-and-500 = Añade imágenes o archivos. Hasta 10 archivos y 500 MB en total; Los límites de la cuenta pueden ser más bajos.
+# Context: composer
+forum-composer-add-images-to-this-post = Agregar imágenes a esta publicación
+# Context: composer
+forum-composer-attaching-files-is-unavailable-in-this-forum = Adjuntar archivos no está disponible en este foro.
+# Context: composer
+forum-composer-discard-this-post = Descartar esta publicación
+# Context: composer
+forum-composer-enter-a-message = Introduce un mensaje...
+# Context: composer
+forum-composer-post = Correo
+# Context: composer
+forum-composer-posting = Destino…
+# Context: composer
+forum-composer-title = Título
+# Context: describe
+forum-describe-archived = , archivado
+# Context: describe
+forum-describe-replies = respuestas
+# Context: describe
+forum-describe-unknown = desconocido
+# Context: describe
+forum-describe-unread = , no leído
+# Context: latest_row
+forum-latest-row-attachment-or-non-text-message = Archivo adjunto o mensaje que no sea de texto
+# Context: latest_row
+forum-latest-row-latest-message-unavailable = Último mensaje no disponible
+# Context: post_tags
+forum-post-tags-a-post-can-carry-up-to-5-tags = Una publicación puede llevar hasta 5 etiquetas.
+# Context: post_tags
+forum-post-tags-add-tag = Agregar etiqueta
+# Context: post_tags
+forum-post-tags-add-tags = Agregar etiquetas
+# Context: post_tags
+forum-post-tags-only-moderators-can-apply-this-tag = Sólo los moderadores pueden aplicar esta etiqueta.
+# Context: post_tags
+forum-post-tags-remove-tag = Quitar etiqueta
+# Context: post_tags
+forum-post-tags-select-tags = Seleccionar etiquetas
+# Context: post_tags
+forum-post-tags-this-forum-requires-a-tag = Este foro requiere una etiqueta
+# Context: post_tags
+forum-post-tags-up-to = arriba a
+# Context: posts_footer
+forum-posts-footer-load-more-posts = Cargar más publicaciones
+# Context: posts_footer
+forum-posts-footer-loading-posts = Cargando publicaciones…
+# Context: posts_footer
+forum-posts-footer-retry = Rever
+
+## crates/ui/src/forum_settings.rs
+# Context: chooser
+forum-settings-chooser-no-emoji-match = No hay coincidencia de emoji
+# Context: chooser
+forum-settings-chooser-search-emoji = buscar emojis
+# Context: chooser
+forum-settings-chooser-server-emoji = emoji del servidor
+# Context: chooser
+forum-settings-chooser-then-standard-emoji = luego emoji estándar
+# Context: chooser
+forum-settings-chooser-this-server = este servidor
+# Context: module
+forum-settings-module-1-hour = 1 hora
+# Context: module
+forum-settings-module-1-minute = 1 minuto
+# Context: module
+forum-settings-module-10-minutes = 10 minutos
+# Context: module
+forum-settings-module-10-seconds = 10 segundos
+# Context: module
+forum-settings-module-15-minutes = 15 minutos
+# Context: module
+forum-settings-module-15-seconds = 15 segundos
+# Context: module
+forum-settings-module-2-hours = 2 horas
+# Context: module
+forum-settings-module-2-minutes = 2 minutos
+# Context: module
+forum-settings-module-30-minutes = 30 minutos
+# Context: module
+forum-settings-module-30-seconds = 30 segundos
+# Context: module
+forum-settings-module-5-minutes = 5 minutos
+# Context: module
+forum-settings-module-5-seconds = 5 segundos
+# Context: module
+forum-settings-module-6-hours = 6 horas
+# Context: module
+forum-settings-module-off = Apagado
+# Context: show
+forum-settings-show-age-restricted-channel = Canal restringido por edad
+# Context: show
+forum-settings-show-channel-content-is-always-visible = El contenido del canal siempre está visible.
+# Context: show
+forum-settings-show-content-visibility = Visibilidad del contenido
+# Context: show
+forum-settings-show-creation-time = Tiempo de creación
+# Context: show
+forum-settings-show-default = Por defecto
+# Context: show
+forum-settings-show-default-layout = Diseño predeterminado
+# Context: show
+forum-settings-show-default-reaction = Reacción predeterminada
+# Context: show
+forum-settings-show-gallery-view = Vista de galería
+# Context: show
+forum-settings-show-help-people-organize-their-posts-into-subcategories-by-creating-a = Ayude a las personas a organizar sus publicaciones en subcategorías creando una etiqueta.
+# Context: show
+forum-settings-show-hide-after-inactivity = Ocultar después de la inactividad
+# Context: show
+forum-settings-show-let-everyone-know-how-to-use-this-channel = ¡Que todos sepan cómo usar este canal!
+# Context: show
+forum-settings-show-list-view = Vista de lista
+# Context: show
+forum-settings-show-match-all = Combinar todo
+# Context: show
+forum-settings-show-match-some = Combina algunos
+# Context: show
+forum-settings-show-members-will-be-limited-to-one-message-per-this-interval = Los miembros estarán limitados a un mensaje por este intervalo para cualquier publicación nueva, a menos que tengan el permiso Omitir modo lento.
+# Context: show
+forum-settings-show-members-will-be-restricted-to-creating-one-post-per-this = Los miembros estarán restringidos a crear una publicación por este intervalo, a menos que tengan el permiso Omitir modo lento.
+# Context: show
+forum-settings-show-messages = Mensajes
+# Context: show
+forum-settings-show-new-posts-stop-showing-in-the-channel-list-after-this = Las publicaciones nuevas dejan de aparecer en la lista de canales después de tanto tiempo sin actividad.
+# Context: show
+forum-settings-show-pick-a-default-emoji-that-your-members-will-use-to = Elige un emoji predeterminado que tus miembros usarán para reaccionar a una publicación de este canal.
+# Context: show
+forum-settings-show-post-guidelines = Pautas de publicación
+# Context: show
+forum-settings-show-posts = Publicaciones
+# Context: show
+forum-settings-show-recent-activity = Actividad reciente
+# Context: show
+forum-settings-show-remove = Eliminar
+# Context: show
+forum-settings-show-require-people-to-select-tags-when-posting = Requerir que las personas seleccionen etiquetas al publicar
+# Context: show
+forum-settings-show-set-the-default-layout-view-to-a-media-focused-gallery = Establezca la vista de diseño predeterminada en una galería centrada en medios o una lista centrada en texto. Los miembros aún podrán alternar entre estas opciones.
+# Context: show
+forum-settings-show-set-the-default-sort-order-for-new-posts-members-will = Establezca el orden de clasificación predeterminado para las publicaciones nuevas. Los miembros aún podrán alternar entre estas opciones.
+# Context: show
+forum-settings-show-set-the-default-tag-matching-behaviour-members-will-still-be = Establezca el comportamiento predeterminado de coincidencia de etiquetas. Los miembros aún podrán alternar entre estas opciones.
+# Context: show
+forum-settings-show-slowmode = Modo lento
+# Context: show
+forum-settings-show-sort-order = Orden de clasificación
+# Context: show
+forum-settings-show-tag-matching = Coincidencia de etiquetas
+# Context: show
+forum-settings-show-tags = Etiquetas
+# Context: show
+forum-settings-show-users-will-need-to-confirm-they-are-of-over-the = Los usuarios deberán confirmar que son mayores de edad para visualizar el contenido de este canal. Los canales con restricción de edad están exentos del filtro de contenido explícito.
+# Context: slowmode
+forum-settings-slowmode-forum-settings-slowmode-seconds = configuración del foro segundos en modo lento
+# Context: slowmode
+forum-settings-slowmode-seconds = artículos de segunda clase
+# Context: tag_editor
+forum-settings-tag-editor-add-tag = Agregar etiqueta
+# Context: tag_editor
+forum-settings-tag-editor-cancel = Cancelar
+# Context: tag_editor
+forum-settings-tag-editor-create-tag = Crear etiqueta
+# Context: tag_editor
+forum-settings-tag-editor-edit-tag = Editar etiqueta
+# Context: tag_editor
+forum-settings-tag-editor-emoji = emojis
+# Context: tag_editor
+forum-settings-tag-editor-members-with-manage-threads-can-still-use-it = Los miembros con Administrar hilos aún pueden usarlo.
+# Context: tag_editor
+forum-settings-tag-editor-only-allow-moderators-to-apply-this-tag = Sólo permitir que los moderadores apliquen esta etiqueta
+# Context: tag_editor
+forum-settings-tag-editor-preview = Avance
+# Context: tag_editor
+forum-settings-tag-editor-question = Pregunta
+# Context: tag_editor
+forum-settings-tag-editor-remove-emoji = Quitar emojis
+# Context: tag_editor
+forum-settings-tag-editor-save-tag = Guardar etiqueta
+# Context: tag_editor
+forum-settings-tag-editor-tag-name = Nombre de etiqueta
+# Context: tags
+forum-settings-tags-a-forum-can-offer-up-to-20-tags = Un foro puede ofrecer hasta 20 etiquetas.
+# Context: tags
+forum-settings-tags-create-tag = Crear etiqueta
+# Context: tags
+forum-settings-tags-delete-tag = Eliminar etiqueta
+# Context: tags
+forum-settings-tags-edit-tag = Editar etiqueta
+# Context: tags
+forum-settings-tags-moderators-only = Sólo moderadores
+
+## crates/ui/src/forum.rs
+# Context: show
+forum-show-no-loaded-post-carries-the-selected-tags-load-more-or = Ninguna publicación cargada lleva las etiquetas seleccionadas; cargar más o borrar el filtro.
+# Context: show
+forum-show-no-posts-loaded = No hay publicaciones cargadas
+# Context: show
+forum-show-no-posts-match = Ninguna publicación coincide
+# Context: show
+forum-show-nothing-is-posted-here-yet-archived-posts-load-on-request = No se ha publicado nada aquí todavía; Las publicaciones archivadas se cargan a pedido.
+# Context: show
+forum-show-press-enter-to-start-a-post-with-this-title = Presione Entrar para iniciar una publicación con este título.
+# Context: sort_label
+forum-sort-label-creation-date = Fecha de creación
+# Context: sort_label
+forum-sort-label-recent-activity = Actividad reciente
+# Context: sort_menu
+forum-sort-menu-gallery = Galería
+# Context: sort_menu
+forum-sort-menu-gallery-2 = galería
+# Context: sort_menu
+forum-sort-menu-list = Lista
+# Context: sort_menu
+forum-sort-menu-list-2 = lista
+# Context: sort_menu
+forum-sort-menu-sort-by = Ordenar por
+# Context: sort_menu
+forum-sort-menu-sort-view = Ordenar y ver
+# Context: sort_menu
+forum-sort-menu-sorted-by = Ordenado por
+# Context: sort_menu
+forum-sort-menu-view = vista
+# Context: sort_menu
+forum-sort-menu-view-as = Ver como
+# Context: stats_row
+forum-stats-row-archived = Archivado
+# Context: stats_row
+forum-stats-row-new = Nuevo
+# Context: tag_filter
+forum-tag-filter-all = Todo
+# Context: tag_filter
+forum-tag-filter-clear-all = Borrar todo
+# Context: tag_filter
+forum-tag-filter-match = Fósforo
+# Context: tag_filter
+forum-tag-filter-more-tags = Más etiquetas
+# Context: tag_filter
+forum-tag-filter-select-tags = Seleccionar etiquetas
+# Context: tag_filter
+forum-tag-filter-show-only-posts-with-every-selected-tag = Mostrar solo publicaciones con cada etiqueta seleccionada
+# Context: tag_filter
+forum-tag-filter-show-posts-with-any-selected-tag = Mostrar publicaciones con cualquier etiqueta seleccionada
+# Context: tag_filter
+forum-tag-filter-some = Alguno
+# Context: toolbar
+forum-toolbar-new-post = Nueva publicación
+# Context: toolbar
+forum-toolbar-posting-requires-a-connected-session-with-permission-to-send-here = La publicación requiere una sesión conectada con permiso para enviar aquí.
+# Context: toolbar
+forum-toolbar-search-or-create-a-post = Buscar o crear una publicación...
+
+## crates/ui/src/forwarding.rs
+# Context: show
+forwarding-show-a-message-failed-check-the-destination = Un mensaje falló: verifique el destino
+# Context: show
+forwarding-show-add-an-optional-message = Añade un mensaje opcional...
+# Context: show
+forwarding-show-attachment-or-embedded-content = Archivo adjunto o contenido incrustado
+# Context: show
+forwarding-show-cancel = Cancelar
+# Context: show
+forwarding-show-conversation = Conversación
+# Context: show
+forwarding-show-destinations-selected = destinos seleccionados
+# Context: show
+forwarding-show-direct-messages = Mensajes directos
+# Context: show
+forwarding-show-done = Hecho
+# Context: show
+forwarding-show-forward-to = Reenviar a
+# Context: show
+forwarding-show-no-matching-destinations = No hay destinos coincidentes
+# Context: show
+forwarding-show-outcome-unknown-check-the-destination-before-resending = Resultado desconocido: verifique el destino antes de reenviar
+# Context: show
+forwarding-show-search = Buscar
+# Context: show
+forwarding-show-select-where-you-want-to-share-this-message = Selecciona dónde quieres compartir este mensaje.
+# Context: show
+forwarding-show-send = Enviar
+# Context: show
+forwarding-show-sending = Envío…
+# Context: show
+forwarding-show-sent = Enviado
+# Context: show
+forwarding-show-source-message-is-no-longer-available = El mensaje fuente ya no está disponible
+
+## crates/ui/src/friends.rs
+# Context: add_friend_page
+friends-add-friend-page-offline-demo-actions-are-simulated = Demostración sin conexión · Se simulan acciones.
+# Context: search
+friends-search-clear-search = Borrar búsqueda
+
+## crates/ui/src/group_menu.rs
+# Context: dropdown
+group-menu-dropdown-group-menu = Menú de grupo
+# Context: frame
+group-menu-frame-synthetic-group = grupo sintético
+# Context: menu
+group-menu-menu-edit-group = Editar grupo
+# Context: menu
+group-menu-menu-group-actions-unavailable-while-disconnected-or-busy = Las acciones grupales no están disponibles mientras está desconectado u ocupado.
+# Context: menu
+group-menu-menu-leave-group = Dejar grupo
+# Context: menu
+group-menu-menu-mute-conversation = Silenciar conversación
+# Context: menu
+group-menu-menu-mute-notifications-until-you-unmute-this-conversation = Silencia las notificaciones hasta que reactives el sonido de esta conversación.
+# Context: menu
+group-menu-menu-pin-dm = Pin DM
+# Context: menu
+group-menu-menu-pinned-direct-messages-are-saved-on-this-device = Los mensajes directos fijados se guardan en este dispositivo.
+# Context: menu
+group-menu-menu-unmute-conversation = Activar conversación
+# Context: menu
+group-menu-menu-unpin-dm = Desanclar DM
+# Context: show
+group-menu-show-cancel = Cancelar
+# Context: show
+group-menu-show-change-group-icon = Cambiar icono de grupo
+# Context: show
+group-menu-show-choosing-image = Eligiendo imagen…
+# Context: show
+group-menu-show-edit-group = Editar grupo
+# Context: show
+group-menu-show-give-this-group-a-name-and-an-icon-everyone-will = Dale a este grupo un nombre y un ícono que todos reconocerán.
+# Context: show
+group-menu-show-group-name = Nombre del grupo
+# Context: show
+group-menu-show-leave-group = ¿Dejar el grupo?
+# Context: show
+group-menu-show-offline-preview-no-group-changes = Vista previa sin conexión · sin cambios de grupo
+# Context: show
+group-menu-show-remove-icon = Quitar icono
+# Context: show
+group-menu-show-you-will-need-an-invitation-to-rejoin = Necesitarás una invitación para volver a unirte.
+
+## crates/ui/src/guild_folders.rs
+# Context: server_folders
+guild-folders-server-folders-cancel = Cancelar
+# Context: server_folders
+guild-folders-server-folders-collapsed = colapsado
+# Context: server_folders
+guild-folders-server-folders-colour = Color
+# Context: server_folders
+guild-folders-server-folders-expanded = expandido
+# Context: server_folders
+guild-folders-server-folders-folder-name = Nombre de la carpeta
+# Context: server_folders
+guild-folders-server-folders-folder-name-and-color = Nombre y color de la carpeta...
+# Context: server_folders
+guild-folders-server-folders-folder-settings = Configuración de carpeta
+# Context: server_folders
+guild-folders-server-folders-group-with-server = grupo con servidor
+# Context: server_folders
+guild-folders-server-folders-move-down = Bajar
+# Context: server_folders
+guild-folders-server-folders-move-outside-folders = Mover carpetas exteriores
+# Context: server_folders
+guild-folders-server-folders-move-up = Subir
+# Context: server_folders
+guild-folders-server-folders-name-this-folder-and-pick-the-colour-shown-on-the = Asigne un nombre a esta carpeta y elija el color que se muestra en el riel del servidor.
+# Context: server_folders
+guild-folders-server-folders-refresh-folders-from-discord = Actualizar carpetas de Discord
+# Context: server_folders
+guild-folders-server-folders-retry = Rever
+# Context: server_folders
+guild-folders-server-folders-save = Ahorrar
+# Context: server_folders
+guild-folders-server-folders-servers = servidores
+# Context: server_folders
+guild-folders-server-folders-sync = Sincronizar…
+# Context: server_folders
+guild-folders-server-folders-syncing-server-folders-with-discord = Sincronizar carpetas del servidor con Discord
+# Context: server_folders
+guild-folders-server-folders-ungroup-servers = Desagrupar servidores
+
+## crates/ui/src/invites.rs
+# Context: show
+invites-show-accepted = Aceptado
+# Context: show
+invites-show-fetching-server-details = Obteniendo detalles del servidor...
+# Context: show
+invites-show-go-to-server = Ir al servidor
+# Context: show
+invites-show-invite-expired-or-invalid = La invitación ha caducado o no es válida
+# Context: show
+invites-show-invite-unavailable = Invitación no disponible
+# Context: show
+invites-show-join = Unirse
+# Context: show
+invites-show-joining = Unión…
+# Context: show
+invites-show-loading = Cargando…
+# Context: show
+invites-show-preview-unavailable-offline = Vista previa no disponible sin conexión
+# Context: show
+invites-show-server-preview = Vista previa del servidor
+# Context: show
+invites-show-this-invite-may-have-expired = Es posible que esta invitación haya caducado
+# Context: show
+invites-show-verification-required = Se requiere verificación
+# Context: show
+invites-show-verify = Verificar
+# Context: show
+invites-show-you-re-a-member-of = Eres miembro de
+# Context: show
+invites-show-you-ve-been-invited-to-join-a-server = Te han invitado a unirte a un servidor.
+
+## crates/ui/src/join_server.rs
+# Context: audience
+join-server-audience-back = Atrás
+# Context: audience
+join-server-audience-for-a-club-or-community = Para un club o comunidad
+# Context: audience
+join-server-audience-for-me-and-my-friends = Para mi y mis amigos
+# Context: audience
+join-server-audience-for-now = por ahora.
+# Context: audience
+join-server-audience-not-sure = ¿No estás seguro?
+# Context: body
+join-server-body-checking-invite = Comprobando invitación…
+# Context: body
+join-server-body-choose-join-server-to-confirm = Elija Unirse al servidor para confirmar.
+# Context: body
+join-server-body-don-t-have-an-invite = ¿No tienes una invitación?
+# Context: body
+join-server-body-explore-discoverable-communities-in-discord = Explora comunidades detectables en Discord ↗
+# Context: body
+join-server-body-fetching-server-details = Obteniendo detalles del servidor...
+# Context: body
+join-server-body-htkzmak-discord-gg-htkzmak-discord-gg-wumpus-friends = hTKzmak · discord.gg/hTKzmak · discord.gg/wumpus-friends
+# Context: body
+join-server-body-invite-link = Enlace de invitación
+# Context: body
+join-server-body-invites-look-like = Las invitaciones parecen
+# Context: body
+join-server-body-review-this-server-then-choose-join-server = Revise este servidor y luego elija Unirse al servidor.
+# Context: body
+join-server-body-you-are-already-a-member = Ya eres miembro.
+# Context: body
+join-server-body-you-are-already-a-member-of-this-server = Ya eres miembro de este servidor.
+# Context: choose
+join-server-choose-create-my-own = Crear el mío
+# Context: choose
+join-server-choose-have-an-invite-already = ¿Ya tienes una invitación?
+# Context: choose
+join-server-choose-join-a-server = Unirse a un servidor
+# Context: choose
+join-server-choose-offline-preview-creating-and-joining-servers-are-disabled = Vista previa sin conexión: la creación y unión de servidores están deshabilitadas.
+# Context: customize
+join-server-customize-back = Atrás
+# Context: customize
+join-server-customize-change-server-icon = Cambiar icono de servidor
+# Context: customize
+join-server-customize-create = Crear
+# Context: customize
+join-server-customize-my-server = mi servidor
+# Context: customize
+join-server-customize-offline-preview-creation-is-disabled = Vista previa sin conexión: la creación está deshabilitada.
+# Context: customize
+join-server-customize-please-wait = Espere por favor...
+# Context: customize
+join-server-customize-server-created-waiting-for-discord-to-add-it-to-your = Servidor creado. Esperando a que Discord lo agregue a su lista de servidores.
+# Context: customize
+join-server-customize-server-name = Nombre del servidor
+# Context: customize
+join-server-customize-upload-server-icon = Cargar icono del servidor
+# Context: show_join
+join-server-show-join-back = Atrás
+# Context: show_join
+join-server-show-join-cancel = Cancelar
+# Context: show_join
+join-server-show-join-enter-an-invite-below-to-join-an-existing-server = Ingrese una invitación a continuación para unirse a un servidor existente.
+# Context: show_join
+join-server-show-join-join-a-server = Unirse a un servidor
+# Context: body
+join-server-status-invite-accepted = Invitación aceptada. Esperando acceso al servidor; Completa cualquier regla del servidor en Discord.
+# Context: body
+join-server-status-offline-preview = Vista previa sin conexión: unirse a servidores está deshabilitado.
+
+## crates/ui/src/keybinds.rs
+# Context: row
+keybinds-row-global = GLOBAL
+# Context: row
+keybinds-row-reset = Reiniciar
+# Context: show_voice
+keybinds-show-voice-enable-global-keybinds = Habilitar combinaciones de teclas globales
+# Context: show_voice
+keybinds-show-voice-global-availability = Disponibilidad global
+# Context: show_voice
+keybinds-show-voice-use-voice-shortcuts-while-another-app-is-focused-when-off = Utilice atajos de voz mientras otra aplicación está enfocada. Cuando están desactivados, los atajos solo funcionan mientras Serein está enfocado.
+
+## crates/ui/src/lib.rs
+# Context: account_card
+lib-account-card-dnd = dnd
+# Context: account_card
+lib-account-card-idle = inactivo
+# Context: account_card
+lib-account-card-online = en línea
+# Context: composer
+lib-composer-message-deleted-the-unchanged-edit-was-closed = Mensaje eliminado. La edición sin cambios se cerró.
+# Context: debug_forward_check
+lib-debug-forward-check-forward-message = Reenviar mensaje
+# Context: ime_updates_text
+lib-ime-updates-text-attach-files = Adjuntar archivos
+# Context: ime_updates_text
+lib-ime-updates-text-attaching-files-is-unavailable-here-remove-the-attachment-to-send = Adjuntar archivos no está disponible aquí. Elimine el archivo adjunto para enviar solo texto.
+# Context: ime_updates_text
+lib-ime-updates-text-attachments-unavailable-right-now = Archivos adjuntos no disponibles en este momento
+# Context: ime_updates_text
+lib-ime-updates-text-cancel-edit = Cancelar edición
+# Context: ime_updates_text
+lib-ime-updates-text-cancel-reply = Cancelar respuesta
+# Context: ime_updates_text
+lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Elija, suelte o pegue archivos (Ctrl/Cmd/Opción+V). Hasta 10 archivos y 500 MB en total; Los límites de la cuenta pueden ser más bajos. Enviar inicia la carga.
+# Context: ime_updates_text
+lib-ime-updates-text-clear-this-draft = Borrar este borrador
+# Context: ime_updates_text
+lib-ime-updates-text-copy-edit-text = Copiar editar texto
+# Context: ime_updates_text
+lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = Proyecto de presupuesto completo. Borre un borrador existente para continuar.
+# Context: ime_updates_text
+lib-ime-updates-text-drop-files-to-attach = Soltar archivos para adjuntar
+# Context: ime_updates_text
+lib-ime-updates-text-editing-message = Editando mensaje
+# Context: ime_updates_text
+lib-ime-updates-text-editing-this-message-is-unavailable-your-text-is-kept-until = No es posible editar este mensaje. Su mensaje de texto se conserva hasta que lo cancele.
+# Context: ime_updates_text
+lib-ime-updates-text-message-unavailable-unsent-edit = Mensaje no disponible · edición no enviada
+# Context: ime_updates_text
+lib-ime-updates-text-replying-to = Respondiendo a
+# Context: ime_updates_text
+lib-ime-updates-text-return-to-an-available-conversation-after-the-current-operation-finishes = Volver a una conversación disponible después de que finalice la operación actual
+# Context: ime_updates_text
+lib-ime-updates-text-save-edit = Guardar edición
+# Context: ime_updates_text
+lib-ime-updates-text-save-requested-check-the-connection-before-retrying = · Guardar solicitado, verifique la conexión antes de volver a intentarlo
+# Context: ime_updates_text
+lib-ime-updates-text-send-command = enviar comando
+# Context: ime_updates_text
+lib-ime-updates-text-send-message = enviar mensaje
+# Context: ime_updates_text
+lib-ime-updates-text-sending-messages-is-unavailable-in-this-conversation-your-draft-is = El envío de mensajes no está disponible en esta conversación. Se conserva su borrador.
+# Context: ime_updates_text
+lib-ime-updates-text-the-original-message-was-deleted = El mensaje original fue eliminado.
+# Context: ime_updates_text
+lib-ime-updates-text-up-to-10-files-500-mb-max-account-limit-applies = Hasta 10 archivos · 500 MB máx. · Se aplica límite de cuenta
+# Context: ime_updates_text
+lib-ime-updates-text-view-original = Ver original
+# Context: ime_updates_text
+lib-ime-updates-text-wait-for-readable-current-message-history = Espere a que el historial de mensajes sea legible y actual
+# Context: mention_switch
+lib-mention-switch-ping-the-original-author = Hacer ping al autor original
+# Context: title_bar
+lib-title-bar-offline-preview = VISTA PREVIA SIN CONEXIÓN
+# Context: title_bar
+lib-title-bar-sign-in-again = Iniciar sesión nuevamente
+# Context: title_bar
+lib-title-bar-synthetic-data-no-network-or-local-storage = Datos sintéticos · sin red ni almacenamiento local
+
+## apps/desktop/src/main.rs
+# Context: restoring
+main-restoring-checking-your-saved-login = Comprobando su inicio de sesión guardado
+# Context: restoring
+main-restoring-connecting-to-discord = Conectándose a la discordia
+# Context: restoring_screen
+main-restoring-screen-serein = serena
+# Context: restoring_screen
+main-restoring-screen-use-a-different-account = Usa una cuenta diferente
+# Context: restoring_screen
+main-restoring-screen-welcome-back = Bienvenido de nuevo
+# Context: sign_in_accounts
+main-sign-in-accounts-saved-accounts = Cuentas guardadas
+# Context: sign_in_consent
+main-sign-in-consent-i-own-this-account-and-authorize-this-session = Soy dueño de esta cuenta y autorizo ​​esta sesión.
+# Context: sign_in_consent
+main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Las contraseñas y 2FA permanecen en la página de inicio de sesión de Discord; solo se conserva el token de sesión en el almacén de credenciales de su sistema operativo.
+# Context: sign_in_disclosures
+main-sign-in-disclosures-about-serein = Sobre Serein
+# Context: sign_in_disclosures
+main-sign-in-disclosures-connect-with-this-token = Conéctate con este token
+# Context: sign_in_disclosures
+main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Para propietarios que ya tienen un token de sesión de Discord válido, por ejemplo, de otra instalación de Serein que haya iniciado sesión. Aquí nunca se utilizan contraseñas ni 2FA; esto omite por completo la página de inicio de sesión alojada de Discord.
+# Context: sign_in_disclosures
+main-sign-in-disclosures-forget-saved-login = Olvidar el inicio de sesión guardado
+# Context: sign_in_disclosures
+main-sign-in-disclosures-session-token = token de sesión
+# Context: sign_in_disclosures
+main-sign-in-disclosures-sign-in-with-a-session-token = Iniciar sesión con un token de sesión
+# Context: sign_in_header
+main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Continúe con una cuenta guardada o inicie sesión con otra.
+# Context: sign_in_header
+main-sign-in-header-sign-in-with-your-discord-account-to-get-started = Inicia sesión con tu cuenta de Discord para comenzar.
+# Context: sign_in_header
+main-sign-in-header-welcome-back = Bienvenido de nuevo
+# Context: sign_in_header
+main-sign-in-header-welcome-to-serein = Bienvenido a Serein
+# Context: sign_in_preview
+main-sign-in-preview-explore-the-offline-preview = Explora la vista previa sin conexión
+# Context: sign_in_preview
+main-sign-in-preview-sample-conversations-no-discord-connection = Conversaciones de muestra. Sin conexión de Discord.
+# Context: sign_in_screen
+main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord = Independiente y de código abierto. No afiliado a Discord.
+# Context: sign_in_screen
+main-sign-in-screen-serein = serena
+# Context: ui
+main-ui-cancel = Cancelar
+# Context: ui
+main-ui-discord-com-temporary-login-window-passwords-and-2fa-never-leave = discord.com · ventana de inicio de sesión temporal · contraseñas y 2FA nunca abandonan la página
+# Context: ui
+main-ui-loading-discord-com = Cargando discord.com…
+# Context: ui
+main-ui-sign-in-to-discord = Iniciar sesión en discordia
+
+## crates/ui/src/markdown.rs
+# Context: confirm_external_link
+markdown-confirm-external-link-cancel = Cancelar
+# Context: confirm_external_link
+markdown-confirm-external-link-open-external-link = ¿Abrir enlace externo?
+# Context: confirm_external_link
+markdown-confirm-external-link-open-in-browser = Abrir en el navegador
+# Context: confirm_external_link
+markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Este destino se abre en su navegador predeterminado.
+# Context: show_emoji
+markdown-show-emoji-copy-emoji = Copiar emojis
+# Context: show_run
+markdown-show-run-channel-unavailable-or-unsupported-in-this-session = Canal no disponible o no admitido en esta sesión
+# Context: show_run
+markdown-show-run-load-channel = Canal de carga
+# Context: show_run
+markdown-show-run-open-channel = canal abierto
+# Context: show_run
+markdown-show-run-open-user-profile = Abrir perfil de usuario
+# Context: show_run
+markdown-show-run-reveal-spoiler = Revelar spoiler
+# Context: show_run
+markdown-show-run-unknown-channel-load-channel = Canal desconocido, canal de carga
+
+## crates/ui/src/mentions.rs
+# Context: show
+mentions-show-choose-tab-enter-insert-esc = ↑↓ elegir · Tabulador/Entrar insertar · Esc
+
+## crates/ui/src/timeline.rs
+# Context: message_actions
+message-menu-copy = Copiar mensaje
+
+## crates/ui/src/messaging_permissions.rs
+# Context: heading
+messaging-permissions-heading-connected-games = Mensajería en juegos conectados
+# Context: heading
+messaging-permissions-heading-direct-messages = Permisos de mensajes directos (DM)
+# Context: heading
+messaging-permissions-heading-friend-requests = Permisos de solicitud de amistad
+# Context: heading
+messaging-permissions-heading-spam = Filtros de spam
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-all-servers = Todos los servidores
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-allow-friend-requests-from = Permitir solicitudes de amistad de
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-automatically-filter-suspected-spam-messages = Filtrar automáticamente mensajes sospechosos de spam
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-changes-apply-to-all-current-servers-and-set-the-default = Los cambios se aplican a todos los servidores actuales y establecen el valor predeterminado para los servidores recién unidos.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-changes-apply-to-this-server-only = Los cambios se aplican únicamente a este servidor.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-control-who-can-send-you-friend-requests-and-how-they = Controla quién puede enviarte solicitudes de amistad y cómo aparecen.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-discord-can-filter-out-some-messages-that-contain-spam-these = Discord puede filtrar algunos mensajes que contienen spam. Estos mensajes van a tu bandeja de entrada de Spam.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-loading-your-preferences = Cargando tus preferencias…
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-read-and-respond-to-dms-directly-from-in-game-chats = Lea y responda mensajes directos directamente desde los chats del juego.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-saving = Ahorro…
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-server = Servidor
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-settings-for-games-that-use-discord-to-power-their-social = Configuraciones para juegos que usan Discord para potenciar sus experiencias sociales.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-show-direct-messages-in-games = Mostrar mensajes directos en juegos
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-some-servers-have-different-preferences-choose-a-server-to-review = Algunos servidores tienen preferencias diferentes. Elija un servidor para revisar su configuración.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-there-are-too-many-servers-to-update-together-choose-an = Hay demasiados servidores para actualizarlos juntos. Elija un servidor individual.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-try-again = Intentar otra vez
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-your-account-uses-a-custom-in-game-dm-setting-select = Tu cuenta utiliza una configuración de DM personalizada en el juego. Seleccione una opción para reemplazarla.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-your-account-uses-a-custom-spam-filter-setting-select-an = Su cuenta utiliza una configuración de filtro de spam personalizada. Seleccione una opción para reemplazarla.
+# Context: label
+messaging-permissions-tab-connected-games = Juegos conectados
+# Context: label
+messaging-permissions-tab-direct-messages = Mensajes directos
+# Context: label
+messaging-permissions-tab-friend-requests = Solicitudes de amistad
+# Context: label
+messaging-permissions-tab-spam = Filtros de spam
+
+## crates/ui/src/notification_settings.rs
+# Context: notification_settings
+notification-settings-notification-settings-adjusts-the-volume-of-all-notification-sounds-and-ringtones = Ajusta el volumen de todos los sonidos de notificación y tonos de llamada.
+# Context: notification_settings
+notification-settings-notification-settings-app-icon-badges-are-not-available-on-this-platform-yet = Las insignias de íconos de aplicaciones aún no están disponibles en esta plataforma.
+# Context: notification_settings
+notification-settings-notification-settings-disable-all-notification-sounds = Deshabilitar todos los sonidos de notificación
+# Context: notification_settings
+notification-settings-notification-settings-disables-notification-sounds-your-individual-sound-preferences-are-saved = Desactiva los sonidos de notificación. Tus preferencias de sonido individuales se guardan y restauran cuando desactivas esta opción.
+# Context: notification_settings
+notification-settings-notification-settings-enable-desktop-notifications = Habilitar notificaciones de escritorio
+# Context: notification_settings
+notification-settings-notification-settings-enable-unread-message-badge = Habilitar insignia de mensaje no leído
+# Context: notification_settings
+notification-settings-notification-settings-for-per-channel-or-per-server-notifications-right-click-the = Para notificaciones por canal o por servidor, haga clic derecho en el canal o servidor y seleccione Configuración de notificaciones.
+# Context: notification_settings
+notification-settings-notification-settings-open = Abierto
+# Context: notification_settings
+notification-settings-notification-settings-preview-sound = Vista previa del sonido
+# Context: notification_settings
+notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Tonos de llamada, dispositivos de llamada y procesamiento de micrófonos.
+# Context: notification_settings
+notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Muestra una insignia roja en el ícono de la aplicación cuando tienes mensajes no leídos.
+# Context: notification_settings
+notification-settings-notification-settings-sound-volume = Volumen de sonido
+# Context: notification_settings
+notification-settings-notification-settings-voice-video = Voz y vídeo
+# Context: label
+notification-settings-tab-badges = Insignias
+# Context: label
+notification-settings-tab-overview = Descripción general
+# Context: label
+notification-settings-tab-sounds = sonidos
+
+## crates/ui/src/notifications.rs
+# Context: notification_rail
+notifications-notification-rail-add-a-server = Agregar un servidor
+# Context: notification_rail
+notifications-notification-rail-in-a-call = , en una llamada
+# Context: notification_rail
+notifications-notification-rail-notifications = notificaciones
+# Context: notification_rail
+notifications-notification-rail-open = Abierto
+# Context: notification_rail
+notifications-notification-rail-unread = , no leído
+
+## crates/ui/src/pending.rs
+# Context: show
+pending-show-check-the-conversation-before-sending-again = Revisa la conversación antes de volver a enviarla.
+# Context: show
+pending-show-dismiss = Despedir
+# Context: show
+pending-show-restore-to-composer = Restaurar al compositor
+# Context: show
+pending-show-you = Tú
+# Context: upload_strip
+pending-upload-strip-cancel-upload = Cancelar carga
+# Context: upload_strip
+pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = Es posible que el mensaje ya haya llegado a Discord. Revisa la conversación antes de volver a enviarla.
+
+## crates/ui/src/post_menu.rs
+# Context: context
+post-menu-context-add-to-favorites = Agregar a favoritos
+# Context: context
+post-menu-context-close-post = Cerrar publicación
+# Context: context
+post-menu-context-close-thread = Cerrar hilo
+# Context: context
+post-menu-context-copy-link = Copiar enlace
+# Context: context
+post-menu-context-copy-thread-id = Copiar ID del hilo
+# Context: context
+post-menu-context-delete-post = Eliminar publicación
+# Context: context
+post-menu-context-delete-thread = Eliminar hilo
+# Context: context
+post-menu-context-edit-post = Editar publicación
+# Context: context
+post-menu-context-edit-thread = Editar hilo
+# Context: context
+post-menu-context-favorites-are-saved-on-this-device = Los favoritos se guardan en este dispositivo.
+# Context: context
+post-menu-context-follow-post = Seguir publicación
+# Context: context
+post-menu-context-follow-this-post-to-change-its-notifications = Sigue esta publicación para cambiar sus notificaciones.
+# Context: context
+post-menu-context-follow-this-thread-to-change-its-notifications = Sigue este hilo para cambiar sus notificaciones.
+# Context: context
+post-menu-context-follow-thread = Seguir hilo
+# Context: context
+post-menu-context-loading = Cargando
+# Context: context
+post-menu-context-lock-post = Poste de bloqueo
+# Context: context
+post-menu-context-lock-thread = Bloquear hilo
+# Context: context
+post-menu-context-mark-as-read = Marcar como leído
+# Context: context
+post-menu-context-mute-post = Silenciar publicación
+# Context: context
+post-menu-context-mute-thread = Silenciar hilo
+# Context: context
+post-menu-context-notification-settings = Configuración de notificaciones
+# Context: context
+post-menu-context-open-post = Publicación abierta
+# Context: context
+post-menu-context-open-thread = Tema abierto
+# Context: context
+post-menu-context-pin-post = Fijar publicación
+# Context: context
+post-menu-context-pin-thread = Hilo de pasador
+# Context: context
+post-menu-context-remove-from-favorites = Eliminar de favoritos
+# Context: context
+post-menu-context-retry = Rever
+# Context: context
+post-menu-context-settings = ajustes
+# Context: context
+post-menu-context-unfollow-post = Dejar de seguir la publicación
+# Context: context
+post-menu-context-unfollow-thread = Dejar de seguir el hilo
+# Context: context
+post-menu-context-unlock-post = Desbloquear publicación
+# Context: context
+post-menu-context-unlock-thread = Desbloquear hilo
+# Context: context
+post-menu-context-unmute-post = Dejar silenciar publicación
+# Context: context
+post-menu-context-unmute-thread = Dejar silenciar el hilo
+# Context: context
+post-menu-context-unpin-post = Desanclar publicación
+# Context: context
+post-menu-context-unpin-thread = Desanclar hilo
+# Context: noun_action
+post-menu-noun-action-post = Correo
+# Context: noun
+post-menu-noun-post = Correo
+# Context: noun
+post-menu-noun-thread = Hilo
+# Context: show
+post-menu-show-cancel = Cancelar
+# Context: show
+post-menu-show-delete = Borrar
+# Context: show
+post-menu-show-dismiss = Despedir
+# Context: show
+post-menu-show-edit = Editar
+# Context: show
+post-menu-show-its-messages-will-be-permanently-deleted-this-cannot-be-undone = Sus mensajes se eliminarán permanentemente. Esto no se puede deshacer.
+# Context: show
+post-menu-show-save-changes = Guardar cambios
+# Context: show
+post-menu-show-the-action-could-not-be-started = No se pudo iniciar la acción.
+# Context: show
+post-menu-show-title = título
+# Context: show
+post-menu-show-you-no-longer-have-permission-to-change-this-conversation = Ya no tienes permiso para cambiar esta conversación.
+
+## crates/ui/src/profile_edit.rs
+# Context: form
+profile-edit-form-change = Cambiar
+# Context: form
+profile-edit-form-choose-profile-color = Elige el color del perfil
+# Context: form
+profile-edit-form-custom-color = Color personalizado
+# Context: form
+profile-edit-form-leave-blank-to-use-your-username = Déjelo en blanco para usar su nombre de usuario.
+# Context: form
+profile-edit-form-new-picture-chosen-save-to-upload-it = Nueva imagen elegida. Guardar para subirlo.
+# Context: form
+profile-edit-form-png-jpeg-gif-or-webp-up-to-8-mb-cropped = PNG, JPEG, GIF o WebP hasta 8 MB. Recortado a un cuadrado.
+# Context: form
+profile-edit-form-profile-color = Color de perfil
+# Context: form
+profile-edit-form-profile-picture = Foto de perfil
+# Context: form
+profile-edit-form-remove = Eliminar
+# Context: form
+profile-edit-form-tints-your-banner-when-you-have-not-set-a-banner = Tiñe su banner cuando no ha configurado una imagen de banner.
+# Context: form
+profile-edit-form-undo = Deshacer
+# Context: form
+profile-edit-form-use-default = Usar predeterminado
+# Context: form
+profile-edit-form-your-picture-will-be-removed-when-you-save = Su imagen se eliminará cuando la guarde.
+# Context: preview
+profile-edit-preview-about-me = Acerca de mí
+# Context: preview
+profile-edit-preview-change-profile-picture = Cambiar foto de perfil
+# Context: preview
+profile-edit-preview-preview = Avance
+# Context: show
+profile-edit-show-cancel = Cancelar
+# Context: show
+profile-edit-show-check-character-limits-and-remove-control-characters-a-display-name = Verifique los límites de caracteres y elimine los caracteres de control. Un nombre para mostrar no puede contener solo espacios.
+# Context: show
+profile-edit-show-loading-your-profile = Cargando tu perfil…
+# Context: show
+profile-edit-show-profile-saved = Perfil guardado
+# Context: show
+profile-edit-show-reconnect-to-save-your-profile = Vuelva a conectarse para guardar su perfil.
+# Context: show
+profile-edit-show-reload-profile = Recargar perfil
+# Context: show
+profile-edit-show-save-changes = Guardar cambios
+# Context: show
+profile-edit-show-saved-in-preview = Guardado en vista previa
+# Context: show
+profile-edit-show-saving-profile = Guardando perfil…
+# Context: show
+profile-edit-show-you-have-unsaved-changes = Tienes cambios sin guardar.
+
+## crates/ui/src/profiles.rs
+# Context: activity_card
+profiles-activity-card-activity-options = Opciones de actividad
+# Context: activity_card
+profiles-activity-card-copy-activity = Copiar actividad
+# Context: activity_card
+profiles-activity-card-listening-to-spotify = Escuchando Spotify
+# Context: activity_row
+profiles-activity-row-show = Espectáculo
+# Context: activity_verb
+profiles-activity-verb-activity = Actividad
+# Context: activity_verb
+profiles-activity-verb-competing-in = Competir en
+# Context: activity_verb
+profiles-activity-verb-listening-to = escuchando
+# Context: activity_verb
+profiles-activity-verb-playing = Jugando
+# Context: activity_verb
+profiles-activity-verb-streaming = Transmisión
+# Context: activity_verb
+profiles-activity-verb-watching = Mirando
+# Context: more_menu
+profiles-more-menu-add-friend-nickname = Agregar apodo de amigo
+# Context: more_menu
+profiles-more-menu-add-note = Agregar nota
+# Context: more_menu
+profiles-more-menu-block = Bloquear
+# Context: more_menu
+profiles-more-menu-copy-webhook-id = Copiar el ID del webhook
+# Context: more_menu
+profiles-more-menu-edit-friend-nickname = Editar apodo de amigo
+# Context: more_menu
+profiles-more-menu-mute = Silenciar
+# Context: more_menu
+profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it = Silencia las notificaciones de este mensaje directo hasta que lo reactives.
+# Context: more_menu
+profiles-more-menu-no-open-direct-message-with-this-user = No hay mensajes directos abiertos con este usuario.
+# Context: more_menu
+profiles-more-menu-private-nicknames-are-available-for-confirmed-friends = Hay apodos privados disponibles para amigos confirmados.
+# Context: more_menu
+profiles-more-menu-remove-friend = Eliminar amigo
+# Context: more_menu
+profiles-more-menu-unblock = Desatascar
+# Context: more_menu
+profiles-more-menu-unmute = Dejar de silenciar
+# Context: role_chips
+profiles-role-chips-show-remaining-roles = Mostrar roles restantes
+# Context: server_tag
+profiles-server-tag-server = servidor
+# Context: server_tag
+profiles-server-tag-server-tag = Etiqueta del servidor
+# Context: show
+profiles-show-about-me = ACERCA DE MÍ
+# Context: show
+profiles-show-copy-webhook-id = Copiar el ID del webhook
+# Context: show
+profiles-show-edit-profile = Editar perfil
+# Context: show
+profiles-show-loading-profile = Cargando perfil…
+# Context: show
+profiles-show-member-since = MIEMBRO DESDE
+# Context: show
+profiles-show-message = Mensaje
+# Context: show
+profiles-show-more = Más
+# Context: show
+profiles-show-mutual-server = Servidor mutuo
+# Context: show
+profiles-show-mutual-servers = Servidores mutuos
+# Context: show
+profiles-show-offline-preview-synthetic = Vista previa sin conexión · sintética
+# Context: show
+profiles-show-retry-profile = Reintentar perfil
+# Context: show
+profiles-show-roles = FUNCIONES
+# Context: show
+profiles-show-server = servidor
+# Context: show
+profiles-show-server-2 = Servidor
+# Context: show
+profiles-show-server-tag = Etiqueta del servidor
+# Context: show
+profiles-show-unable-to-load-parts-of-profile = No se pueden cargar partes del perfil
+# Context: show
+profiles-show-view-banner = Ver banner
+# Context: show
+profiles-show-view-profile-picture = Ver foto de perfil
+
+## crates/ui/src/reactions.rs
+# Context: add_button
+reactions-add-button-add-reaction = Añadir reacción
+# Context: show
+reactions-show-reactions-unavailable = Reacciones no disponibles
+# Context: show
+reactions-show-reload-reactions = Recargar reacciones
+# Context: show_users
+reactions-show-users-close = Cerca
+# Context: show_users
+reactions-show-users-load-more = Cargar más
+# Context: show_users
+reactions-show-users-loading-reactions = Cargando reacciones…
+# Context: show_users
+reactions-show-users-nobody-currently-has-this-reaction = Nadie tiene actualmente esta reacción.
+# Context: show_users
+reactions-show-users-reactions = Reacciones
+# Context: show_users
+reactions-show-users-retry = Rever
+# Context: show_users
+reactions-show-users-showing-the-first-1-000-reactions = Mostrando las primeras 1.000 reacciones.
+
+## crates/ui/src/reading.rs
+# Context: chat_reading_settings
+reading-chat-reading-settings-animate-gifs = GIF animados
+# Context: chat_reading_settings
+reading-chat-reading-settings-animate-wheel-movement-and-jumps-between-messages = Anima el movimiento de la rueda y los saltos entre mensajes.
+# Context: chat_reading_settings
+reading-chat-reading-settings-ask-before-opening-external-links-discord-links-always-open-directly = Pregunte antes de abrir enlaces externos. Los enlaces de Discord siempre se abren directamente.
+# Context: chat_reading_settings
+reading-chat-reading-settings-confirm-before-opening-links = Confirmar antes de abrir enlaces
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-image-and-gif-links = Ocultar enlaces de imágenes y GIF
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-standalone-links-when-their-image-or-gif-preview-is = Oculte enlaces independientes cuando se muestre su imagen o vista previa GIF.
+# Context: chat_reading_settings
+reading-chat-reading-settings-links = Campo de golf
+# Context: chat_reading_settings
+reading-chat-reading-settings-messages-and-media = Mensajes y medios
+# Context: chat_reading_settings
+reading-chat-reading-settings-mouse-wheel-and-trackpad-movement-100-is-the-default = Movimiento de la rueda del mouse y del trackpad. 100% es el valor predeterminado.
+# Context: chat_reading_settings
+reading-chat-reading-settings-reset-chat = Restablecer chat
+# Context: chat_reading_settings
+reading-chat-reading-settings-scrolling = Desplazamiento
+# Context: chat_reading_settings
+reading-chat-reading-settings-scrolling-speed = Velocidad de desplazamiento
+# Context: chat_reading_settings
+reading-chat-reading-settings-smooth-scrolling = Desplazamiento suave
+# Context: chat_reading_settings
+reading-chat-reading-settings-visible-chat-gifs-play-automatically = Los GIF de chat visibles se reproducen automáticamente.
+# Context: layout_settings
+reading-layout-settings-channel-and-conversation-list-width-in-wide-windows = Ancho de lista de canales y conversaciones en ventanas amplias.
+# Context: layout_settings
+reading-layout-settings-keep-the-member-list-open-whenever-the-window-is-wide = Mantenga abierta la lista de miembros siempre que la ventana sea lo suficientemente amplia.
+# Context: layout_settings
+reading-layout-settings-layout = Disposición
+# Context: layout_settings
+reading-layout-settings-reset-layout = Restablecer diseño
+# Context: layout_settings
+reading-layout-settings-show-people-in-wide-windows = Mostrar personas en ventanas amplias
+# Context: layout_settings
+reading-layout-settings-sidebar-width = Ancho de la barra lateral
+# Context: reading_save_notice
+reading-reading-save-notice-retry-saving-reading-settings = Reintentar guardar la configuración de lectura
+# Context: zoom_row
+reading-zoom-row-scales-text-and-controls-across-the-app = Escala el texto y los controles en toda la aplicación.
+# Context: zoom_row
+reading-zoom-row-zoom = Zoom
+
+## crates/ui/src/screen.rs
+# Context: body
+screen-body-frame-rate = Velocidad de fotogramas
+# Context: body
+screen-body-include-the-pointer-in-the-shared-video = Incluye el puntero en el vídeo compartido.
+# Context: body
+screen-body-quality = Calidad
+# Context: body
+screen-body-quality-selection-does-not-require-nitro = La selección de calidad no requiere Nitro.
+# Context: body
+screen-body-refresh = Refrescar
+# Context: body
+screen-body-screen-or-window = Pantalla o ventana
+# Context: body
+screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Envía lo que reproduce tu Mac junto con la pantalla. El audio de la propia llamada de Serein queda fuera.
+# Context: body
+screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Comparte sonido de otras aplicaciones, incluso cuando compartes una ventana. El audio del propio Serein queda fuera.
+# Context: body
+screen-body-share-system-audio = Compartir audio del sistema
+# Context: body
+screen-body-show-cursor = Mostrar cursor
+# Context: body
+screen-body-your-call-microphone-keeps-its-current-settings = Su micrófono de llamadas mantiene su configuración actual.
+# Context: show
+screen-show-cancel = Cancelar
+# Context: show
+screen-show-choose-what-people-in-this-call-can-see = Elija lo que pueden ver las personas en esta llamada.
+# Context: show
+screen-show-share-screen = Compartir pantalla
+# Context: show
+screen-show-share-your-screen = Comparte tu pantalla
+# Context: source_list
+screen-source-list-no-screens-or-windows-are-available-yet = Aún no hay pantallas ni ventanas disponibles.
+
+## crates/ui/src/search_filters.rs
+# Context: choices
+search-filters-choices-any = Cualquier
+# Context: show
+search-filters-show-add-date = + Agregar fecha
+# Context: show
+search-filters-show-any = Cualquier
+# Context: show
+search-filters-show-any-content = cualquier contenido
+# Context: show
+search-filters-show-apply-filters = Aplicar filtros
+# Context: show
+search-filters-show-bot = bot
+# Context: show
+search-filters-show-bot-2 = Bot
+# Context: show
+search-filters-show-cancel = Cancelar
+# Context: show
+search-filters-show-choose-author-type = Elige tipo de autor
+# Context: show
+search-filters-show-clear-filters = Borrar filtros
+# Context: show
+search-filters-show-embed = empotrar
+# Context: show
+search-filters-show-embed-2 = Empotrar
+# Context: show
+search-filters-show-false = FALSO
+# Context: show
+search-filters-show-false-2 = FALSO
+# Context: show
+search-filters-show-file = archivo
+# Context: show
+search-filters-show-file-2 = Archivo
+# Context: show
+search-filters-show-filters = Filtros
+# Context: show
+search-filters-show-image = imagen
+# Context: show
+search-filters-show-image-2 = Imagen
+# Context: show
+search-filters-show-link = enlace
+# Context: show
+search-filters-show-link-2 = Enlace
+# Context: show
+search-filters-show-narrow-this-search-down-to-the-messages-you-want = Limita esta búsqueda a los mensajes que desees.
+# Context: show
+search-filters-show-remove-dates = Eliminar fechas
+# Context: show
+search-filters-show-sound = sonido
+# Context: show
+search-filters-show-sound-2 = Sonido
+# Context: show
+search-filters-show-true = verdadero
+# Context: show
+search-filters-show-true-2 = Verdadero
+# Context: show
+search-filters-show-user = usuario
+# Context: show
+search-filters-show-user-2 = Usuario
+# Context: show
+search-filters-show-video = video
+# Context: show
+search-filters-show-video-2 = Video
+# Context: show
+search-filters-show-webhook = gancho web
+# Context: show
+search-filters-show-webhook-2 = gancho web
+# Context: show
+search-filters-show-yyyy-mm-dd = AAAA-MM-DD
+# Context: user_picker
+search-filters-user-picker-choose-a-user = Elige un usuario
+# Context: user_picker
+search-filters-user-picker-no-matching-users = No hay usuarios coincidentes
+# Context: user_picker
+search-filters-user-picker-search-users = Buscar usuarios
+
+## crates/ui/src/search.rs
+# Context: header_input
+search-header-input-close-search = Cerrar búsqueda
+# Context: header_input
+search-header-input-search = Buscar
+# Context: open_filters
+search-open-filters-dates-author-type-and-more = fechas, tipo de autor y más
+# Context: open_filters
+search-open-filters-from-a-specific-user = De un usuario específico
+# Context: open_filters
+search-open-filters-from-user = de: usuario
+# Context: open_filters
+search-open-filters-has-link-embed-or-file = tiene: enlace, incrustar o archivo
+# Context: open_filters
+search-open-filters-includes-a-specific-type-of-data = Incluye un tipo específico de datos.
+# Context: open_filters
+search-open-filters-mentions-a-specific-user = Menciona a un usuario específico.
+# Context: open_filters
+search-open-filters-mentions-user = menciona: usuario
+# Context: open_filters
+search-open-filters-more-filters = Más filtros
+# Context: overlays
+search-overlays-filters = Filtros
+# Context: overlays
+search-overlays-from = de
+# Context: overlays
+search-overlays-from-user = Del usuario
+# Context: overlays
+search-overlays-mentions-user = Menciona al usuario
+# Context: overlays
+search-overlays-no-matching-users-in-this-conversation = No hay usuarios coincidentes en esta conversación.
+# Context: overlays
+search-overlays-search-for = Buscar
+# Context: pane
+search-pane-close = Cerca
+# Context: pane
+search-pane-hide-matching-text-highlight = Ocultar resaltado de texto coincidente
+# Context: pane
+search-pane-indexing-is-incomplete-results-may-be-missing = La indexación está incompleta; Es posible que falten resultados.
+# Context: pane
+search-pane-looking-for-matching-messages = Buscando mensajes coincidentes.
+# Context: pane
+search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Los mensajes no están disponibles mientras estás desconectado o sin acceso al canal.
+# Context: pane
+search-pane-newest-first = Lo nuevo primero
+# Context: pane
+search-pane-no-results = Sin resultados
+# Context: pane
+search-pane-nothing-on-this-page-matches-the-query = Nada en esta página coincide con la consulta.
+# Context: pane
+search-pane-of = de
+# Context: pane
+search-pane-oldest-first = El más viejo primero
+# Context: pane
+search-pane-order-on-this-page = Haz tu pedido en esta página
+# Context: pane
+search-pane-pinned-messages = Mensajes fijados
+# Context: pane
+search-pane-reload-pins = Recargar pines
+# Context: pane
+search-pane-search-this-conversation = Buscar esta conversación
+# Context: pane
+search-pane-searching = Búsqueda…
+# Context: pane
+search-pane-type-a-query-above-and-press-enter = Escriba una consulta arriba y presione Entrar.
+# Context: pins_content
+search-pins-content-loading-older-pins = Cargando pines más antiguos...
+# Context: pins_content
+search-pins-content-loading-pinned-messages = Cargando mensajes fijados...
+# Context: pins_content
+search-pins-content-more-pins-may-exist-but-this-page-has-no-usable = Es posible que existan más pines, pero esta página no tiene una continuación utilizable.
+# Context: pins_content
+search-pins-content-older-pins = Pines más antiguos
+# Context: pins_content
+search-pins-content-pinned-messages-are-unavailable-while-disconnected-or-without-channel-ac = Los mensajes fijados no están disponibles mientras estás desconectado o sin acceso al canal.
+# Context: pins_content
+search-pins-content-retry-older-pins = Reintentar pines más antiguos
+# Context: pins_empty
+search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet = Este canal no tiene
+    algún mensaje fijado... todavía.
+# Context: pins_empty
+search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet = Este mensaje directo no tiene
+    algún mensaje fijado... todavía.
+# Context: pins_popout
+search-pins-popout-close = Cerca
+# Context: pins_popout
+search-pins-popout-pinned-messages = Mensajes fijados
+# Context: pins_popout
+search-pins-popout-reload-pins = Recargar pines
+# Context: result_card
+search-result-card-jump-to-message-from = Saltar al mensaje de
+# Context: result_card
+search-result-card-spoiler-media-open-the-message-to-reveal-it = Spoiler media: abre el mensaje para revelarlo.
+
+## crates/ui/src/select.rs
+# Context: on_end_pass
+select-on-end-pass-copy = Copiar
+
+## crates/ui/src/server_admin.rs
+# Context: date
+server-admin-date-unknown = Desconocido
+# Context: dialog
+server-admin-dialog-30-days = 30 dias
+# Context: dialog
+server-admin-dialog-7-days = 7 dias
+# Context: dialog
+server-admin-dialog-cancel = Cancelar
+# Context: dialog
+server-admin-dialog-delete-emoji = Eliminar emojis
+# Context: dialog
+server-admin-dialog-emoji-name = nombre emoji
+# Context: dialog
+server-admin-dialog-inactive-for = Inactivo por
+# Context: dialog
+server-admin-dialog-kick-member = Miembro de patada
+# Context: dialog
+server-admin-dialog-leave-blank-to-use-their-username = Déjelo en blanco para usar su nombre de usuario.
+# Context: dialog
+server-admin-dialog-nickname = Apodo
+# Context: dialog
+server-admin-dialog-preview = Avance
+# Context: dialog
+server-admin-dialog-prune-members = Podar miembros
+# Context: dialog
+server-admin-dialog-save = Ahorrar
+# Context: dialog
+server-admin-dialog-use-their-username = Usa su nombre de usuario
+# Context: emojis
+server-admin-emojis-add-custom-emoji-that-anyone-can-use-in-this-server = Agregue emoji personalizados que cualquiera pueda usar en este servidor. Los miembros de Discord Nitro pueden utilizar emoji GIF animados.
+# Context: emojis
+server-admin-emojis-animated = Animado
+# Context: emojis
+server-admin-emojis-animated-emoji = emojis animados
+# Context: emojis
+server-admin-emojis-cancel = Cancelar
+# Context: emojis
+server-admin-emojis-delete-emoji = Eliminar emojis
+# Context: emojis
+server-admin-emojis-drag-and-drop-up-to-10-images-onto-this-page = Arrastra y suelta hasta 10 imágenes en esta página o elige archivos. Revise sus nombres antes de cargarlos.
+# Context: emojis
+server-admin-emojis-emoji = emojis
+# Context: emojis
+server-admin-emojis-emoji-2 = emojis
+# Context: emojis
+server-admin-emojis-emoji-actions = Acciones de emojis
+# Context: emojis
+server-admin-emojis-emoji-name-232-letters-numbers-or-underscores = Nombre del emoji: 2 a 32 letras, números o guiones bajos
+# Context: emojis
+server-admin-emojis-emoji-names-must-use-232-letters-numbers-or-underscores = Los nombres de emoji deben utilizar entre 2 y 32 letras, números o guiones bajos.
+# Context: emojis
+server-admin-emojis-image = Imagen
+# Context: emojis
+server-admin-emojis-name = Nombre
+# Context: emojis
+server-admin-emojis-none = NINGUNO
+# Context: emojis
+server-admin-emojis-preparing-emoji-images = Preparando imágenes emoji...
+# Context: emojis
+server-admin-emojis-remove = Eliminar
+# Context: emojis
+server-admin-emojis-rename = Rebautizar
+# Context: emojis
+server-admin-emojis-review-uploads = Revisar cargas
+# Context: emojis
+server-admin-emojis-slots-available = espacios disponibles
+# Context: emojis
+server-admin-emojis-static = Estático
+# Context: emojis
+server-admin-emojis-unknown = Desconocido
+# Context: emojis
+server-admin-emojis-upload = Subir
+# Context: emojis
+server-admin-emojis-upload-emoji = Subir emojis
+# Context: emojis
+server-admin-emojis-uploaded-by = Subido por
+# Context: join_method
+server-admin-join-method-application = Solicitud
+# Context: join_method
+server-admin-join-method-bot = Bot
+# Context: join_method
+server-admin-join-method-discovery = Descubrimiento
+# Context: join_method
+server-admin-join-method-integration = Integración
+# Context: join_method
+server-admin-join-method-invite = Invitar
+# Context: join_method
+server-admin-join-method-linked-lobby = Vestíbulo vinculado
+# Context: join_method
+server-admin-join-method-student-hub = Centro de estudiantes
+# Context: join_method
+server-admin-join-method-unknown = Desconocido
+# Context: join_method
+server-admin-join-method-vanity-url = URL personalizada
+# Context: member_card
+server-admin-member-card-invite = Invitar
+# Context: member_card
+server-admin-member-card-join-method = Método de unión
+# Context: member_card
+server-admin-member-card-joined-discord = Se unió a la discordia
+# Context: member_card
+server-admin-member-card-member-actions = Acciones de miembros
+# Context: member_card
+server-admin-member-card-member-details = Detalles del miembro
+# Context: member_card
+server-admin-member-card-member-since = Miembro desde
+# Context: member_menu
+server-admin-member-menu-block = Bloquear
+# Context: member_menu
+server-admin-member-menu-change-nickname = Cambiar apodo
+# Context: member_menu
+server-admin-member-menu-copy-user-id = Copiar ID de usuario
+# Context: member_menu
+server-admin-member-menu-kick = Patada
+# Context: member_menu
+server-admin-member-menu-message = Mensaje
+# Context: member_menu
+server-admin-member-menu-profile = Perfil
+# Context: member_menu
+server-admin-member-menu-roles = Roles
+# Context: member_menu
+server-admin-member-menu-unblock = Desatascar
+# Context: members
+server-admin-members-first-page = Primera página
+# Context: members
+server-admin-members-joined-in-the-last-7-days = Se unió en los últimos 7 días
+# Context: members
+server-admin-members-member-actions = Acciones de miembros
+# Context: members
+server-admin-members-newest-discord-accounts = Cuentas de Discord más recientes
+# Context: members
+server-admin-members-newest-members = Miembros más nuevos
+# Context: members
+server-admin-members-next-page = Página siguiente
+# Context: members
+server-admin-members-no-members-match-this-search = Ningún miembro coincide con esta búsqueda.
+# Context: members
+server-admin-members-of = de
+# Context: members
+server-admin-members-oldest-discord-accounts = Cuentas de Discord más antiguas
+# Context: members
+server-admin-members-oldest-members = Miembros más antiguos
+# Context: members
+server-admin-members-prune = Ciruela pasa
+# Context: members
+server-admin-members-recent-members = Miembros recientes
+# Context: members
+server-admin-members-search-by-username-or-id = Buscar por nombre de usuario o ID
+# Context: members
+server-admin-members-server-members = Miembros del servidor
+# Context: members
+server-admin-members-show-members-in-channel-list = Mostrar miembros en la lista de canales
+# Context: members
+server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = Muestre la página de miembros en la lista de canales para ver rápidamente las uniones recientes y los miembros marcados por actividad inusual.
+# Context: members
+server-admin-members-showing = Demostración
+# Context: show
+server-admin-show-loading = Cargando...
+# Context: show
+server-admin-show-reload = Recargar
+# Context: show
+server-admin-show-saving-changes = Guardando cambios...
+# Context: signals
+server-admin-signals-rejoined = Se reincorporó
+# Context: signals
+server-admin-signals-server-tag-flagged = Etiqueta de servidor marcada
+# Context: signals
+server-admin-signals-timed-out = Tiempo agotado
+# Context: signals
+server-admin-signals-unusual-dm-activity = Actividad inusual de DM
+# Context: signals
+server-admin-signals-username-flagged = Nombre de usuario marcado
+
+## crates/ui/src/server_audit_log.rs
+# Context: action_text
+server-audit-log-action-text-accepted-creator-monetization-terms = Términos de monetización de creadores aceptados
+# Context: action_text
+server-audit-log-action-text-added-bot = robot agregado
+# Context: action_text
+server-audit-log-action-text-banned-member = Miembro prohibido
+# Context: action_text
+server-audit-log-action-text-blocked-message-with-automod = Mensaje bloqueado con AutoMod
+# Context: action_text
+server-audit-log-action-text-created-automod-rule = Regla de AutoMod creada
+# Context: action_text
+server-audit-log-action-text-created-channel = Canal creado
+# Context: action_text
+server-audit-log-action-text-created-channel-permission-overwrite = Sobrescritura de permisos de canal creado
+# Context: action_text
+server-audit-log-action-text-created-creator-monetization-request = Solicitud de monetización del creador creada
+# Context: action_text
+server-audit-log-action-text-created-emoji = Emoji creado
+# Context: action_text
+server-audit-log-action-text-created-home-settings = Configuraciones de inicio creadas
+# Context: action_text
+server-audit-log-action-text-created-integration = Integración creada
+# Context: action_text
+server-audit-log-action-text-created-invite = Invitación creada
+# Context: action_text
+server-audit-log-action-text-created-onboarding = Incorporación creada
+# Context: action_text
+server-audit-log-action-text-created-onboarding-prompt = Mensaje de incorporación creado
+# Context: action_text
+server-audit-log-action-text-created-role = Rol creado
+# Context: action_text
+server-audit-log-action-text-created-scheduled-event = Evento programado creado
+# Context: action_text
+server-audit-log-action-text-created-soundboard-sound = Sonido de caja de resonancia creado
+# Context: action_text
+server-audit-log-action-text-created-stage = Etapa creada
+# Context: action_text
+server-audit-log-action-text-created-sticker = pegatina creada
+# Context: action_text
+server-audit-log-action-text-created-thread = Hilo creado
+# Context: action_text
+server-audit-log-action-text-created-voice-channel-status = Estado del canal de voz creado
+# Context: action_text
+server-audit-log-action-text-created-webhook = Webhook creado
+# Context: action_text
+server-audit-log-action-text-deleted-automod-rule = Regla de AutoMod eliminada
+# Context: action_text
+server-audit-log-action-text-deleted-channel = Canal eliminado
+# Context: action_text
+server-audit-log-action-text-deleted-channel-permission-overwrite = Sobrescritura de permisos de canales eliminados
+# Context: action_text
+server-audit-log-action-text-deleted-emoji = emojis eliminados
+# Context: action_text
+server-audit-log-action-text-deleted-integration = Integración eliminada
+# Context: action_text
+server-audit-log-action-text-deleted-invite = Invitación eliminada
+# Context: action_text
+server-audit-log-action-text-deleted-message = mensaje eliminado
+# Context: action_text
+server-audit-log-action-text-deleted-messages = Mensajes eliminados
+# Context: action_text
+server-audit-log-action-text-deleted-onboarding-prompt = Mensaje de incorporación eliminado
+# Context: action_text
+server-audit-log-action-text-deleted-role = Rol eliminado
+# Context: action_text
+server-audit-log-action-text-deleted-scheduled-event = Evento programado eliminado
+# Context: action_text
+server-audit-log-action-text-deleted-soundboard-sound = Sonido de caja de resonancia eliminado
+# Context: action_text
+server-audit-log-action-text-deleted-stage = Etapa eliminada
+# Context: action_text
+server-audit-log-action-text-deleted-sticker = Etiqueta eliminada
+# Context: action_text
+server-audit-log-action-text-deleted-thread = Hilo eliminado
+# Context: action_text
+server-audit-log-action-text-deleted-voice-channel-status = Estado del canal de voz eliminado
+# Context: action_text
+server-audit-log-action-text-deleted-webhook = Webhook eliminado
+# Context: action_text
+server-audit-log-action-text-disconnected-member = Miembro desconectado
+# Context: action_text
+server-audit-log-action-text-flagged-message-with-automod = Mensaje marcado con AutoMod
+# Context: action_text
+server-audit-log-action-text-kicked-member = miembro pateado
+# Context: action_text
+server-audit-log-action-text-moved-member = Miembro movido
+# Context: action_text
+server-audit-log-action-text-pinned-message = Mensaje fijado
+# Context: action_text
+server-audit-log-action-text-pruned-members = Miembros podados
+# Context: action_text
+server-audit-log-action-text-quarantined-member-with-automod = Miembro en cuarentena con AutoMod
+# Context: action_text
+server-audit-log-action-text-timed-out-member-with-automod = Miembro agotado con AutoMod
+# Context: action_text
+server-audit-log-action-text-unbanned-member = Miembro no baneado
+# Context: action_text
+server-audit-log-action-text-unpinned-message = Mensaje no fijado
+# Context: action_text
+server-audit-log-action-text-updated-application-command-permissions = Permisos de comando de aplicaciones actualizados
+# Context: action_text
+server-audit-log-action-text-updated-automod-rule = Regla AutoMod actualizada
+# Context: action_text
+server-audit-log-action-text-updated-channel = Canal actualizado
+# Context: action_text
+server-audit-log-action-text-updated-channel-permission-overwrite = Sobrescritura de permisos de canal actualizados
+# Context: action_text
+server-audit-log-action-text-updated-emoji = emojis actualizados
+# Context: action_text
+server-audit-log-action-text-updated-home-settings = Configuración de inicio actualizada
+# Context: action_text
+server-audit-log-action-text-updated-integration = Integración actualizada
+# Context: action_text
+server-audit-log-action-text-updated-invite = Invitación actualizada
+# Context: action_text
+server-audit-log-action-text-updated-member = Miembro actualizado
+# Context: action_text
+server-audit-log-action-text-updated-member-roles = Roles de miembros actualizados
+# Context: action_text
+server-audit-log-action-text-updated-onboarding = Incorporación actualizada
+# Context: action_text
+server-audit-log-action-text-updated-onboarding-prompt = Mensaje de incorporación actualizado
+# Context: action_text
+server-audit-log-action-text-updated-role = Rol actualizado
+# Context: action_text
+server-audit-log-action-text-updated-scheduled-event = Evento programado actualizado
+# Context: action_text
+server-audit-log-action-text-updated-server-settings = Configuración del servidor actualizada
+# Context: action_text
+server-audit-log-action-text-updated-soundboard-sound = Sonido de caja de resonancia actualizado
+# Context: action_text
+server-audit-log-action-text-updated-stage = Etapa actualizada
+# Context: action_text
+server-audit-log-action-text-updated-sticker = Etiqueta actualizada
+# Context: action_text
+server-audit-log-action-text-updated-thread = Hilo actualizado
+# Context: action_text
+server-audit-log-action-text-updated-webhook = Webhook actualizado
+# Context: details
+server-audit-log-details-no-additional-details-were-provided-for-this-event = No se proporcionaron detalles adicionales para este evento.
+# Context: event_icon
+server-audit-log-event-icon-unknown-action = Acción desconocida
+# Context: show
+server-audit-log-show-all-actions = Todas las acciones
+# Context: show
+server-audit-log-show-all-users = Todos los usuarios
+# Context: show
+server-audit-log-show-audit-log = Registro de auditoría
+# Context: show
+server-audit-log-show-filter-by-action = Filtrar por acción
+# Context: show
+server-audit-log-show-filter-by-user = Filtrar por usuario
+# Context: show
+server-audit-log-show-load-more = Cargar más
+# Context: show
+server-audit-log-show-loading-audit-log = Cargando registro de auditoría...
+# Context: show
+server-audit-log-show-no-audit-log-entries-match-these-filters = Ninguna entrada del registro de auditoría coincide con estos filtros.
+# Context: show
+server-audit-log-show-reload = Recargar
+# Context: show
+server-audit-log-show-the-audit-log-reached-its-local-entry-or-memory-limit = El registro de auditoría alcanzó su entrada local o límite de memoria. Ajuste los filtros para encontrar otros eventos.
+# Context: summary
+server-audit-log-summary-performed-action = acción realizada
+# Context: summary
+server-audit-log-summary-unknown-user = Usuario desconocido
+
+## crates/ui/src/server_integrations.rs
+# Context: app
+server-integrations-app-added-by = Añadido por
+# Context: app
+server-integrations-app-disabled = Desactivado
+# Context: app
+server-integrations-app-enabled = Activado
+# Context: app
+server-integrations-app-remove-integration = Eliminar integración
+# Context: app
+server-integrations-app-service = Servicio
+# Context: app
+server-integrations-app-this-integration-is-no-longer-available = Esta integración ya no está disponible.
+# Context: copy_button
+server-integrations-copy-button-copied = ¡Copiado!
+# Context: copy_button
+server-integrations-copy-button-copy-webhook-url = Copiar URL de webhook
+# Context: editor
+server-integrations-editor-cancel = Cancelar
+# Context: editor
+server-integrations-editor-channel = Canal
+# Context: editor
+server-integrations-editor-choose-a-channel = Elige un canal
+# Context: editor
+server-integrations-editor-name = Nombre
+# Context: editor
+server-integrations-editor-reset = Reiniciar
+# Context: editor
+server-integrations-editor-use-180-characters-without-control-characters-or-the-reserved-names = Utilice entre 1 y 80 caracteres sin caracteres de control ni los nombres reservados Discord y Clyde.
+# Context: overview
+server-integrations-overview-added-by = Añadido por
+# Context: overview
+server-integrations-overview-bots-and-apps = Bots y aplicaciones
+# Context: overview
+server-integrations-overview-customize-your-server-with-integrations-manage-webhooks-followed-channel = Personaliza tu servidor con integraciones. Administre webhooks, canales seguidos y aplicaciones conectadas a su servidor.
+# Context: overview
+server-integrations-overview-learn-more-about-managing-integrations = Obtenga más información sobre cómo administrar integraciones.
+# Context: overview
+server-integrations-overview-manage = Administrar >
+# Context: overview
+server-integrations-overview-manage-webhooks-and-followed-channels-posting-to-this-channel = Administre webhooks y canales seguidos que publican en este canal.
+# Context: overview
+server-integrations-overview-no-integrations-in-this-server = No hay integraciones en este servidor.
+# Context: overview
+server-integrations-overview-showing-the-first-50-integrations-returned-by-discord = Mostrando las primeras 50 integraciones devueltas por Discord.
+# Context: show
+server-integrations-show-channels-followed = Canales seguidos
+# Context: show
+server-integrations-show-create-webhook = Crear webhook
+# Context: show
+server-integrations-show-edit-webhook = Editar webhook
+# Context: show
+server-integrations-show-integrations = < Integraciones
+# Context: show
+server-integrations-show-integrations-2 = Integraciones
+# Context: show
+server-integrations-show-loading-integrations = Cargando integraciones...
+# Context: show
+server-integrations-show-manage-integration = Gestionar la integración
+# Context: show
+server-integrations-show-reload = Recargar
+# Context: show
+server-integrations-show-reload-integrations = Recargar integraciones
+# Context: show
+server-integrations-show-reload-integrations-before-making-more-changes-your-draft-will-be = Vuelva a cargar las integraciones antes de realizar más cambios. Se conservará su borrador.
+# Context: show
+server-integrations-show-updating-integrations = Actualizando integraciones...
+# Context: show
+server-integrations-show-webhooks = Ganchos web
+# Context: summary_card
+server-integrations-summary-card-app = Aplicación
+# Context: summary_card
+server-integrations-summary-card-bot = Bot
+# Context: summary_card
+server-integrations-summary-card-twitch = Contracción nerviosa
+# Context: summary_card
+server-integrations-summary-card-youtube = YouTube
+# Context: webhooks
+server-integrations-webhooks-delete = Borrar
+# Context: webhooks
+server-integrations-webhooks-edit = Editar
+# Context: webhooks
+server-integrations-webhooks-learn-more-about-following-channels = Más información sobre los siguientes canales
+# Context: webhooks
+server-integrations-webhooks-no-channels-followed = No se siguieron canales.
+# Context: webhooks
+server-integrations-webhooks-no-webhooks-yet = Aún no hay webhooks.
+# Context: webhooks
+server-integrations-webhooks-posting-to = Publicar en
+# Context: webhooks
+server-integrations-webhooks-posts-from-these-followed-channels-are-delivered-to-your-server = Las publicaciones de estos canales seguidos se entregan a su servidor.
+# Context: webhooks
+server-integrations-webhooks-send-updates-from-your-apps-and-services-to-a-channel = Envíe actualizaciones de sus aplicaciones y servicios a un canal en este servidor.
+# Context: webhooks
+server-integrations-webhooks-unfollow = Dejar de seguir
+
+## crates/ui/src/server_invite.rs
+# Context: expiry_label
+server-invite-expiry-label-1-day = 1 dia
+# Context: expiry_label
+server-invite-expiry-label-1-hour = 1 hora
+# Context: expiry_label
+server-invite-expiry-label-12-hours = 12 horas
+# Context: expiry_label
+server-invite-expiry-label-30-days = 30 dias
+# Context: expiry_label
+server-invite-expiry-label-30-minutes = 30 minutos
+# Context: expiry_label
+server-invite-expiry-label-6-hours = 6 horas
+# Context: expiry_label
+server-invite-expiry-label-7-days = 7 dias
+# Context: expiry_label
+server-invite-expiry-label-never = Nunca
+# Context: picker
+server-invite-picker-edit-link = Editar enlace.
+# Context: picker
+server-invite-picker-friends-are-not-available-yet = Los amigos aún no están disponibles.
+# Context: picker
+server-invite-picker-invite = Invitar
+# Context: picker
+server-invite-picker-no-eligible-channel = Ningún canal elegible
+# Context: picker
+server-invite-picker-no-friends-match-your-search = Ningún amigo coincide con tu búsqueda.
+# Context: picker
+server-invite-picker-no-friends-to-invite-yet-share-the-link-below = Aún no hay amigos a quienes invitar. Comparte el enlace a continuación.
+# Context: picker
+server-invite-picker-or-send-a-server-invite-link-to-a-friend = O enviar un enlace de invitación al servidor a un amigo
+# Context: picker
+server-invite-picker-recipients-will-land-in = Los destinatarios aterrizarán en
+# Context: picker
+server-invite-picker-retry = Rever
+# Context: picker
+server-invite-picker-search-for-friends = buscar amigos
+# Context: picker
+server-invite-picker-sending = Envío…
+# Context: picker
+server-invite-picker-sent = Enviado
+# Context: picker
+server-invite-picker-uncertain = Incierto
+# Context: picker
+server-invite-picker-you-need-create-invite-permission-in-a-channel-to-create = Necesita el permiso Crear invitación en un canal para crear una invitación.
+# Context: picker
+server-invite-picker-your-invite-link-expires-in = Su enlace de invitación caduca en
+# Context: picker
+server-invite-picker-your-invite-link-never-expires = Su enlace de invitación nunca caduca.
+# Context: settings
+server-invite-settings-cancel = Cancelar
+# Context: settings
+server-invite-settings-expire-after = Caducar después
+# Context: settings
+server-invite-settings-generate-a-new-link = Generar un nuevo enlace
+# Context: settings
+server-invite-settings-generating = Generando…
+# Context: settings
+server-invite-settings-grant-temporary-membership = Conceder membresía temporal
+# Context: settings
+server-invite-settings-max-number-of-uses = Número máximo de usos
+# Context: settings
+server-invite-settings-temporary-members-are-automatically-kicked-when-they-disconnect-unless-a = Los miembros temporales son expulsados ​​automáticamente cuando se desconectan, a menos que se les haya asignado un rol.
+# Context: show
+server-invite-show-control-how-long-this-link-lasts-and-how-many-people = Controla cuánto dura este enlace y cuántas personas pueden utilizarlo.
+# Context: show
+server-invite-show-share-a-link-so-friends-can-join-this-server = Comparte un enlace para que tus amigos puedan unirse a este servidor.
+# Context: uses_label
+server-invite-uses-label-no-limit = Sin límite
+
+## crates/ui/src/server_invites.rs
+# Context: show
+server-invites-show-active-invite-links = ENLACES DE INVITACIÓN ACTIVOS
+# Context: show
+server-invites-show-copied = ¡Copiado!
+# Context: show
+server-invites-show-copy-invite-link = Copiar enlace de invitación
+# Context: show
+server-invites-show-create-an-invite-link-to-welcome-people-to-this-server = Cree un enlace de invitación para dar la bienvenida a las personas a este servidor.
+# Context: show
+server-invites-show-create-invite-link = Crear enlace de invitación
+# Context: show
+server-invites-show-invite-links-paused = ENLACES DE INVITACIÓN EN PAUSA
+# Context: show
+server-invites-show-invites = invita
+# Context: show
+server-invites-show-load-invites = Cargar invitaciones
+# Context: show
+server-invites-show-loading-invites = Cargando invitaciones…
+# Context: show
+server-invites-show-no-active-invite-links = No hay enlaces de invitación activos
+# Context: show
+server-invites-show-pause-invites = Pausar invitaciones
+# Context: show
+server-invites-show-reload = Recargar
+# Context: show
+server-invites-show-reload-invites = Recargar invitaciones
+# Context: show
+server-invites-show-resume-invites = Reanudar invitaciones
+# Context: show
+server-invites-show-revoke-invite = Revocar invitación
+# Context: show
+server-invites-show-updating-invites = Actualizando invitaciones…
+
+## crates/ui/src/server_menu.rs
+# Context: header
+server-menu-header-a-server-action-is-in-progress = Hay una acción del servidor en curso.
+# Context: header
+server-menu-header-create-invite = Crear invitación
+# Context: header
+server-menu-header-reconnect-to-manage-this-server = Vuelva a conectarse para administrar este servidor.
+# Context: header
+server-menu-header-server-menu = Menú del servidor
+# Context: leave_item
+server-menu-leave-item-leave-server = Salir del servidor
+# Context: read_item
+server-menu-read-item-mark-as-read = Marcar como leído
+# Context: settings_item
+server-menu-settings-item-server-settings = Configuración del servidor
+# Context: show
+server-menu-show-are-you-sure-you-want-to-leave = ¿Estás seguro de que quieres irte?
+# Context: show
+server-menu-show-cancel = Cancelar
+# Context: show
+server-menu-show-close = Cerca
+# Context: show
+server-menu-show-leave-server = ¿Dejar el servidor?
+# Context: show
+server-menu-show-leave-server-2 = Salir del servidor
+# Context: show
+server-menu-show-leaving = Partida…
+# Context: show
+server-menu-show-offline-preview-no-server-changes = Vista previa sin conexión · sin cambios en el servidor
+# Context: show
+server-menu-show-you-will-not-be-able-to-rejoin-this-server-unless = No podrá volver a unirse a este servidor a menos que se le vuelva a invitar.
+
+## crates/ui/src/server_roles.rs
+# Context: display
+server-roles-display-allow-anyone-to-mention-this-role = Permitir que cualquiera @mencione este rol
+# Context: display
+server-roles-display-choose-image = Elige Imagen
+# Context: display
+server-roles-display-custom-role-color = Color de rol personalizado
+# Context: display
+server-roles-display-default-role-color = Color de rol predeterminado
+# Context: display
+server-roles-display-display-role-members-separately-from-online-members = Mostrar miembros de roles por separado de los miembros en línea
+# Context: display
+server-roles-display-members-use-the-color-of-their-highest-role-on-the = Los miembros usan el color de su rol más alto en la lista de roles.
+# Context: display
+server-roles-display-members-with-permission-to-mention-all-roles-can-always-mention = Los miembros con permiso para mencionar todos los roles siempre pueden mencionar este rol.
+# Context: display
+server-roles-display-preparing = Preparante...
+# Context: display
+server-roles-display-preview = Avance
+# Context: display
+server-roles-display-remove-icon = Quitar icono
+# Context: display
+server-roles-display-role-name = Nombre del rol
+# Context: display
+server-roles-display-sample-message = Mensaje de muestra
+# Context: display
+server-roles-display-second-gradient-color = Segundo color degradado
+# Context: display
+server-roles-display-this-is-how-members-with-this-role-appear = Así aparecen los miembros con este rol.
+# Context: display
+server-roles-display-upload-an-image-under-256-kib-or-choose-a-unicode = Sube una imagen de menos de 256 KiB o elige un emoji Unicode. Recomendamos al menos 64×64 píxeles.
+# Context: editor
+server-roles-editor-back-to-roles = ← Volver a Roles
+# Context: editor
+server-roles-editor-choose-role = Elige rol
+# Context: editor
+server-roles-editor-delete-role = Eliminar rol
+# Context: editor
+server-roles-editor-display = Mostrar
+# Context: editor
+server-roles-editor-edit-role = EDITAR ROL
+# Context: editor
+server-roles-editor-permissions = Permisos
+# Context: editor
+server-roles-editor-role-actions = Acciones de rol
+# Context: editor
+server-roles-editor-this-role-is-above-your-highest-role-and-is-read = Esta función está por encima de su función más alta y es de solo lectura.
+# Context: editor
+server-roles-editor-this-role-is-managed-by-an-integration = Este rol es gestionado por una integración.
+# Context: list
+server-roles-list-create-role = Crear rol
+# Context: list
+server-roles-list-default-permissions-everyone-applies-to-all-server-members = Permisos predeterminados
     @todos · se aplica a todos los miembros del servidor
-source-8f9d22306e0812bd = Reacción predeterminada
-source-99bb1f3a57417c91 = Color de rol predeterminado
-source-b677b0431fa422a7 = definido?
-source-dc673e73b5c13aea = Borrar
-source-702ed7930a08eab6 = Eliminar categoría
-source-a882d7da0d2686cb = ¿Eliminar categoría?
-source-ddcb7800631c50c9 = Eliminar canal
-source-e3a17ec5ae465222 = ¿Eliminar canal?
-source-fd0ddea8691d9202 = ¿Eliminar canal?
-source-3be470be232243f8 = Eliminar emojis
-source-ff070701d8fe9ec5 = ¿Eliminar emojis?
-source-0c35d0eb66e46e37 = Eliminar mensaje inmediatamente
-source-59b7fa5bf0b28763 = Eliminar mensaje…
-source-e9f9d8094ba6a7b0 = Eliminar publicación
-source-9255ccfc892d27a6 = Eliminar rol
-source-153382b6a5a5d01b = ¿Eliminar rol?
-source-8fc7840b4ddbcfd9 = Eliminar servidor
-source-abddbb71875116d1 = Eliminar pegatina
-source-4fd65b1ca1330a8a = ¿Eliminar pegatina?
-source-3e89f9151caf347e = Eliminar etiqueta
-source-869ac8c6dd907cca = Eliminar hilo
-source-5deda14b53ea0218 = ¿Eliminar webhook?
-source-efdd22a490f5afb4 = Eliminado: conservado por el protector de eliminación de mensajes
-source-0ace722d44ecfbbb = Regla de AutoMod eliminada
-source-a6004317690ac4c9 = Canal eliminado
-source-3f26fc3b67d88481 = Sobrescritura de permisos de canales eliminados
-source-b436a8b674ff97f8 = emojis eliminados
-source-6869b3afd5df2ac0 = Integración eliminada
-source-a0cf9f30c0194d1f = Invitación eliminada
-source-0393235493e2649d = mensaje eliminado
-source-dfd01d7222af2a22 = No se concedió el acceso al mensaje eliminado
-source-f569f6b749b1806a = Mensajes eliminados
-source-28d2e7eeb608c55c = Los mensajes eliminados no pueden recibir acciones de servicio.
-source-09c90a469e25a5df = Mensaje de incorporación eliminado
-source-f976bc0c686883a6 = Rol eliminado
-source-c48b3c948d808d65 = Evento programado eliminado
-source-0f169d5b2ffb2d20 = Sonido de caja de resonancia eliminado
-source-0b668f490227fb08 = Etapa eliminada
-source-741286888d3f8ad1 = Etiqueta eliminada
-source-d7a3e3b9f8a638ca = Hilo eliminado
-source-00574f84bc91ec10 = Las filas finales eliminadas no deben rebobinar la paginación
-source-ee6e4ff936a1f523 = Estado del canal de voz eliminado
-source-754d820b9e2c5017 = Webhook eliminado
-source-5fdee00c36940c47 = Eliminar una categoría deja sus canales en el servidor.
-source-e0192e6ddc3dcf18 = Al eliminar un canal, se eliminan sus mensajes para todos.
-source-f520d1f154f4acf3 = Eliminando…
-source-34767a171377d497 = Entrega desconocida
-source-e5f26ee02aff2e6e = La suma de comprobación delta no coincide.
-source-2118b6af69d5bf99 = La exploración delta se canceló o excedió su límite de tiempo.
-source-9f8ec586afd02475 = La exploración delta superó su límite de trabajo.
-source-c7159d9e9b77c9c9 = La actualización delta está demasiado fragmentada.
-source-089b96777b594651 = conversación de demostración
-source-8515287ae0610deb = la demostración tiene un usuario actual
-source-7fd4040204cec675 = El soporte de demostración no está incluido; reconstruir con --features demo y ejecutar con --demo
-source-8d09d6fd464b3bc5 = usuario de demostración
-source-d0680e7343dedb27 = Denegar
-source-63d894b1ddb06289 = Descripción
-source-4751dfb9fb0442c4 = Descripción (opcional)
-source-8fad0d62339a9f96 = El destino existe o no es un archivo normal
-source-601620e3c5a1a625 = destinos seleccionados
-source-e4d062ad1e9bee7b = Detecta juegos en ejecución y pide a Discord que los comparta como actividad.
-source-e0a34a19921b0c5c = desarrollador
-source-5bf365b61e35bb65 = Dispositivo no disponible
-source-b39eef9408a202f5 = Dispositivos y niveles
-source-3a37816f980a0be7 = configuración del diseño del diálogo
-source-2e498936822d8eb5 = Diccionario
-source-f48ac77358c2843a = diferencia
-source-d137eebdef43fb93 = Mensaje directo
-source-efaccdd898b84e4f = Permisos de mensajes directos (DM)
-source-c5c64e1845bbca3d = Mensaje directo abierto. Revise el mensaje y luego presione Entrar para enviar.
-source-c64f7f67ac6b0f80 = Mensajes directos
-source-8304a2831753a9fc = Mensajes directos y navegación por canales.
-source-76bb7cdba3f33c72 = Directorio · no implementado
-source-10c8e4cae4e11503 = Desactivar
-source-c6a64d8d5e96b794 = Primero deshabilite una extensión; cada alcance permite ocho extensiones instaladas
-source-138e9bb4d2de4e69 = Desactivar sonidos
-source-641cd03dce2b8986 = Desactiva tu cámara en la llamada actual
-source-66722bc2ea775e05 = Desactivado
-source-6957b589eb6fe0ec = Desactivado. Se eliminaron el código descargado y los datos de extensión.
-source-8c3ebc65a2a0fe20 = Al desactivarla se elimina la extensión y sus datos locales. La reactivación comienza de nuevo.
-source-c00a88b90cd60661 = Desechar
-source-15455d8477f27ccd = Descartar y continuar
-source-f471ec2496f904cc = Descartar cambios
-source-6b138c631a7d2a2c = Descartar cambios
-source-e7da4152c78d699f = ¿Descartar cambios de rol?
-source-e050c6249a970e43 = Descartar esta publicación
-source-838b97ac07fc3c77 = ¿Descartar los cambios no guardados?
-source-a1f0e88bfb0b6a1f = ¿Descartar el tema no guardado?
-source-cde94ceb9f6ae176 = ¿Descartar los cambios del webhook?
-source-d2208cd1a767644b = Desconectar
-source-fc2c3bd345c0128a = Desconectado
-source-d4f49f46d2e3caa8 = Miembro desconectado
-source-f60a41837fc67e7f = Discord puede filtrar algunos mensajes que contienen spam. Estos mensajes van a tu bandeja de entrada de Spam.
-source-11fc2c4ade9fe913 = Discord cambió el servidor activo de pantalla compartida
-source-8047181a374b49a1 = Discord no pudo preparar el arte del juego.
-source-77c1afb4005913c6 = Discord no reconoció haber dejado de compartir pantalla; deja la llamada antes de volver a compartir
-source-cd302f33a2904b81 = Discord no incluyó tu juego públicamente. Consulte sus Juegos registrados y controles para compartir servidores.
-source-77653f2765742d71 = Discord no proporcionó detalles de conexión para compartir pantalla en 30 segundos
-source-439e31aecc574cbf = Discord no proporcionó la conexión de transmisión; intentar otra vez
-source-1b6796f5854806da = Discord no proporcionó detalles de la conexión de voz; marque el permiso de conexión y la capacidad del canal
-source-a5b50b349ec2088f = Discord está ocultando tu juego. Consulta los juegos registrados y la actividad compartida en Discord.
-source-f59567662974ac88 = Discord enumera tu juego. La configuración de privacidad del servidor y de los amigos aún se aplica.
-source-5b4ccd7d9c078776 = La sesión de inicio de sesión de Discord cambió; iniciar una nueva llamada
-source-90b3d979169be771 = Discord omitió el token de pantalla compartida
-source-56ee937097d46fdb = Discord omitió el token de conexión de transmisión
-source-9735bc4dc9512511 = Discord omitió el token de conexión de voz
-source-90e31523e839c853 = Discord recibió tu juego, pero no lo incluyó públicamente.
-source-4fd724906e4ebb02 = Discord requiere un control de seguridad antes de poder agregar a esta persona.
-source-a36824272b051dd4 = Discord requiere un control de seguridad antes de que puedas unirte.
-source-42e59c7b25f2af40 = El servidor de pantalla compartida de Discord no está disponible
-source-d5b4e387f6ffb382 = El intercambio de actividades en toda la cuenta de Discord está desactivado.
-source-5ba91211f4c07a63 = discord.com · ventana de inicio de sesión temporal · contraseñas y 2FA nunca abandonan la página
-source-fc33964aaa350cb5 = Descubrimiento
-source-12d6dde9b30c3093 = Despedir
-source-4118ac7f75bb8b6d = Descartar llamada
-source-bcfafb587d8bba80 = Descartar mensaje
-source-f4e7d8d5af798928 = Descartar actualización
-source-1125d159f7e64df5 = Mostrar
-source-ec538d64cdfa22ae = Pantalla 1 · Vista previa sintética
-source-067e653b3284948e = Mostrar fuente de actividad en este servidor
-source-55f9237cd5828604 = Visualización limitada · Copiar mensaje para el texto completo
-source-e724e8e0ccb7f52c = Nombre para mostrar
-source-38b9ff37adcd7fda = Mostrar miembros de roles por separado de los miembros en línea
-source-4c542c0d89e1db30 = Mostrar texto con énfasis.
-source-f55a16619aa99c0f = No finalizar (RPM)
-source-f7e3e019e8facc9a = No molestar
-source-dc43626df2960a28 = no borrar
-source-70ef80bac94469da = No filtrar spam
-source-582da6fd7548ef92 = ¿No tienes una invitación?
-source-9bd5f692274434de = No mostrar DM
-source-0379fc73608ab971 = Hecho
-source-8e44d55a85b0b388 = Doble
-source-d3386a2ef42e80b9 = Descargar
-source-53ae7df22cdebbf5 = La descarga se detuvo, pero no se pudo eliminar su archivo temporal
-source-4f5103afe70a01cf = Descarga no disponible
-source-4e42a5a12275cada = Descargar actualización
-source-8c43e770c12b17f8 = Descarga actualizaciones en segundo plano. Reinicie cuando esté listo. Serein todavía verifica al inicio y periódicamente cuando está desactivado.
-source-328805ef4c741437 = Descargar trabajador no disponible
-source-1dc55b86a2bb722e = Las descargas están deshabilitadas para archivos adjuntos sintéticos.
-source-a7da42c68521456d = Proyecto de presupuesto completo. Borre un borrador existente antes de usar /msg.
-source-427830bfd51d27fc = Arrastra y suelta hasta 10 imágenes en esta página o elige archivos. Revise sus nombres antes de cargarlos.
-source-d71c1fa8c318e52e = Suelte un archivo local con una ruta compatible
-source-7dd1239c563e1e1a = Categoría duplicada
-source-01d0558b426124e5 = Canal duplicado
-source-fef3452e613bcee8 = Los envíos duplicados permanecen bloqueados
-source-af63f84c86021c20 = mi
-source-93bcd444a57e66a3 = Mensaje anterior · Ver original
-source-4ddbc4b081023d98 = Construcciones tempranas con los cambios más recientes. Los lanzamientos nocturnos pueden ser menos confiables.
-source-5cbcad66665e15b0 = Vista previa anticipada
-source-285256231da6ca77 = Cancelación de eco
-source-0fb54fc6dbcf011e = Eclipse
-source-64ef2a6c2dd1d3d1 = Editar
-source-d59edddb0404a407 = Editar categoría
-source-67d0f7ee857edbca = Editar canal
-source-dbbe8d3af708ae12 = Editar estado personalizado
-source-0004f244dcc1f92d = Editar apodo de amigo
-source-494e1ed913d9351a = Editar grupo
-source-60ba551af0a9f02b = Editar enlace.
-source-bd41a390c6044e4a = Editar mensaje
-source-0a3a833266cb4585 = Editar publicación
-source-63182413f7631d4c = Editar perfil
-source-4ce25a2df7d09227 = EDITAR ROL
-source-33869f2cbda53587 = Editar rol
-source-08f89e20bc34c1a7 = Editar rol
-source-ab68cb1163c86bbe = Editar etiqueta
-source-d6e313197e231741 = Editar etiqueta
-source-ecec331a1bdc23a1 = Editar etiqueta
-source-934db4e7208236dc = Editar tema
-source-1b10744423f05e8b = Editar hilo
-source-f6c727233c1b6da4 = Editar webhook
-source-05c44a5db696fcaf = Edición
-source-b862157d53a6b703 = Correo electrónico, contraseña y seguridad
-source-cace301a88231cce = Empotrar
-source-245c5df82f276652 = Pantalla integrada limitada
-source-3d1a7baa39e2bd83 = Insertar enlaces
-source-a1e4b01cd0916852 = Imagen incrustada
-source-76d9763b30b68cf4 = Descarga de imagen incrustada no disponible
-source-6a439f6898ac9710 = La imagen incrustada necesita una longitud de contenido no vacía de como máximo 16 MiB
-source-ac313f894a08b603 = El proxy de imagen incrustado no devolvió PNG
-source-ea95c2cf6ba1321e = Imagen incrustada, cargando calidad completa.
-source-cace221a88230504 = Ascua
-source-e3ed881a961f14bd = emojis
-source-cee765c0e64432aa = Acciones de emojis
-source-573c3ae1700a0304 = nombre emoji
-source-b155b53d8beb3523 = Nombre del emoji: 2 a 32 letras, números o guiones bajos
-source-1218793cd20035e6 = Los nombres de emoji deben utilizar entre 2 y 32 letras, números o guiones bajos.
-source-4f32846604c2dedb = Preparación de emoji cancelada
-source-d0bcb0176c225693 = Se interrumpió la preparación de emojis; Elige las imágenes de nuevo.
-source-cbae70bda0745d59 = es-US
-source-9078ee819c18df6e = Permitir
-source-1a2e69906e685d3e = Habilitar la selección explícita de archivos adjuntos de imágenes de stickers y emojis
-source-e2da94ab260a1992 = Habilitar combinaciones de teclas globales
-source-67794c6150d44a83 = Habilitar en Discord
-source-58b1a0d3bafb9717 = Habilitar esta extensión
-source-f69dd93b60605717 = Habilitar este tema
-source-3122c8f9c960ec25 = Habilite su cámara en la llamada actual. Su video se compartirá con los participantes de la llamada.
-source-965c503c3e42fdfe = Activado
-source-7c2f4458ff91247a = No se permiten archivos cifrados, enlaces ni archivos especiales en las actualizaciones.
-source-d8f923198e0c5c6a = Fin
-source-0c026f63f4692281 = Color final
-source-703c0aa2d894682e = Compromiso
-source-4caed5b7a7e5d89b = Inglés
-source-7e388025be643d0d = Ingresar
-source-9645ed22476854f9 = Introduce un mensaje...
-source-53dff427018a39aa = Introduce un apodo
-source-d971e783e8e1c230 = Ingrese un enlace de invitación de Discord válido o un código de invitación.
-source-efc367168ba9d790 = Ingrese una invitación a continuación para unirse a un servidor existente.
-source-000e2a6e5c27aaa3 = Ingrese las fechas como AAAA-MM-DD, después del 1 de enero de 2015.
-source-a67c29835114dbff = Introduzca el nombre del servidor
-source-1856c582cabea9b4 = igual
-source-d90625198e16ea2c = Errar
-source-5f343a43e7ea9f91 = Error
-source-4c5ab8c67a3c8d06 = Error y peligro
-source-d9763e198e761c5e = ESC
-source-d90a1e198e1ac71e = ESC
-source-1b61db587d3e3f26 = Escapar
-source-88ea71eff91fc3ad = Establecido
-source-96cfdad16b1fc29a = cada ícono está en el atlas incluido
-source-51a1dec7855d81f8 = Todos
-source-05f85a15be408b30 = Todos los que puedan ver este canal pueden ver el hilo.
-source-79d584525abb8fe7 = Todo lo que puede tocar se enumera a continuación.
-source-4d8a5c34640b7c4c = Ejemplo de apariencia de mensaje eliminado
-source-a6905be242387f36 = Excepción
-source-00f3434c37a595a2 = Salir de pantalla completa (Esc)
-source-b713c19435a32ea9 = Salir de la vista previa
-source-3b151ca64eb26ec1 = Expandir
-source-c53599bd0d514ea4 = Comando de publicación esperado
-source-3cc3d110acf1a01f = Acuse de lectura esperado
-source-18200f4abfc1aabf = Se esperaban dos complementos iniciales y nueve temas.
-source-0f204db3f00f224c = Caducar después
-source-d923f95605fed7b2 = Venció
-source-d924045605feea63 = Vence
-source-84a21cf179dffbde = La caducidad está fuera de rango
-source-e2c575a9c8f6cf74 = Explora comunidades detectables en Discord ↗
-source-bb00c21107619a9c = Explora la vista previa sin conexión
-source-b5541625a637dc5a = La ruta de exportación es demasiado larga
-source-23d16d71268f4c6e = Tema de exportación
-source-c2f8a5c18de21c0b = EXPRESIÓN
-source-6e2b24864ce75735 = La eliminación de datos de la cuenta de extensión no se pudo poner en cola
-source-8189793f185caef1 = Error en la limpieza de la extensión; lo volverá a intentar al iniciar
-source-af020c5332d3c066 = Error en la limpieza de la extensión; reintentar o reabrir Extensiones
-source-d61f3c801ebf657f = Se pasó la verificación de depuración de la extensión: paquetes de inicio, consentimiento, fila eliminada retenida, rechazo de historial obsoleto y eliminación local.
-source-34e24e528d7748fe = El directorio de extensiones no puede ser un enlace simbólico
-source-195416e814190f6a = Error al descargar la extensión DNS
-source-7bc4430b3ca9e66a = La descarga de la extensión supera su presupuesto de bytes
-source-d72deafa566af453 = Falló la descarga de la extensión
-source-41b548cb2200222c = Descarga de extensión interrumpida
-source-3b84bd9a34acdeaf = El tamaño de descarga de la extensión cambió
-source-4c48f0085e30f974 = El tamaño o la codificación de descarga de la extensión no son compatibles
-source-700a42dd85e66531 = Se agotó el tiempo de descarga de la extensión
-source-6249e4736b0dbc8c = Descarga de extensión no disponible; actualizar el catálogo o utilizar un paquete local
-source-c7738956d1c15997 = Descargador de extensiones no disponible
-source-b4e5ec9a408b35a6 = Las descargas de extensiones no pueden acceder a redes privadas
-source-b101445a5213901f = Extensión habilitada.
-source-deaef0955d655338 = Error de extensión
-source-b371d4a2fae90a84 = El archivo de extensión excede su presupuesto de bytes
-source-fd81ac1e8e40a740 = La selección del archivo de extensión finalizó.
-source-49db7a4cf2a9e120 = La extensión está deshabilitada; Es necesario volver a intentar la limpieza.
-source-f511b9389c28f278 = Operación de extensión cancelada
-source-3e15cb7b1adac780 = Se cambió la suma de verificación del paquete de extensión; inspeccionar la liberación nuevamente
-source-5390664b6a2f838f = El paquete de extensión supera el presupuesto de almacenamiento
-source-1b4d525a974ff43f = El paquete de extensión debe ser un archivo normal.
-source-8f683e089be62eb8 = El almacenamiento de extensiones está lleno; cerrar sesión en una cuenta antigua primero
-source-bc8382e62a862de8 = herramienta de extensión
-source-79f6edaaffc1fa63 = El trabajador de extensión se detuvo inesperadamente
-source-9698888cf053484b = Extensiones
-source-079f0684890eeede = Las extensiones están ocupadas. Inténtalo de nuevo después de que finalice la acción actual.
-source-4b780885b35a030b = Las extensiones están ocupadas; Inténtalo de nuevo después de la operación actual.
-source-be17b4ce8cc085d6 = extensiones complementos tienda catálogo de tienda importación herramientas comunitarias
-source-6af7709ae013ba4c = Las extensiones requieren URL HTTPS públicas sin credenciales
-source-56bcc58e283553fc = configuración de extensiones
-source-af63fb4c86022139 = F
-source-09050b07b59e2098 = F1
-source-f1b266199bb17d78 = F10
-source-f1b267199bb17f2b = F11
-source-f1b268199bb180de = F12
-source-09050e07b59e25b1 = F2
-source-09050d07b59e23fe = F3
-source-09051007b59e2917 = F4
-source-09050f07b59e2764 = F5
-source-09051207b59e2c7d = F6
-source-09051107b59e2aca = F7
-source-09050407b59e14b3 = F8
-source-09050307b59e1300 = F9
-source-772b6467f5681ff0 = el fracaso sobrevive a la partida
-source-09dccb2f68f0a098 = FALSO
-source-7254ca27b16ae2d8 = FALSO
-source-51ba5321a04109cd = Favorito
-source-278894f14b3a2827 = GIF favorito
-source-20a500234e838dda = Favoritos
-source-71ddb2d7436549d4 = Los favoritos se guardan en este dispositivo.
-source-6da2a4faf81bb30a = Obteniendo detalles del servidor...
-source-e79412858c13b923 = ARCHIVO
-source-d1f81284eeb7b503 = Archivo
-source-3b6f4c0ecc764f98 = Archivo no adjunto; volver a una conversación conectada y soltarla nuevamente
-source-6c607f6de8bc4cda = Archivo no enviado; Vuelva a conectar y seleccione el archivo adjunto.
-source-c53eecba31441697 = Los archivos no fueron enviados; seleccione hasta 10 archivos con un total de 500 MB como máximo
-source-2821bde3272e7dd1 = Rellenar área
-source-8a904bc5734c26fd = Filtrar todo el spam
-source-c78f2b11121d749e = Filtrar por acción
-source-2eda83d21be9b20f = Filtrar por usuario
-source-9bed178750df20c8 = Filtrar mensajes de personas que no son amigos
-source-9de4cfd6c4734ef5 = Filtrar mensajes de miembros del servidor que quizás no conozca
-source-a8beb6b1182241ac = Filtros
-source-cadf6c1ed80c4665 = encontrar conversación
-source-036454e59e47ba76 = Encuentra el emoji perfecto
-source-77934b05d5db8b6f = Encuentra la pegatina perfecta
-source-49c572d8d6fe4f6f = Termine de redactar el texto antes de abrirlo o cerrarlo.
-source-e9be2550c775902e = Termine de editar o cargar antes de usar un comando de barra diagonal.
-source-a51d57ef25091964 = Termine de editar la configuración del servidor primero
-source-e179a19bdbd3fb98 = Termina de eliminar esta extensión y sus datos locales.
-source-1d6b6bec2a02a75a = Finalice la actualización actual antes de volver a comprobarla.
-source-4dc7a2f3b345afdb = Termine las cargas actuales primero. Elija hasta 10 imágenes a la vez.
-source-9d6c49a1136d640d = Primer mensaje de este post.
-source-17d7735daef94b08 = Primera página
-source-25abe5fd8011f5b0 = Ajustar toda la imagen
-source-3ecb9c975b67b27e = El modo de dispositivo nunca abre la red o el almacén de credenciales
-source-d9feb2de7b1d113f = Mensaje marcado con AutoMod
-source-1845d941049117e8 = Flatpak gestiona las actualizaciones a través de su repositorio. Ejecute la `actualización de flatpak` o use el software GNOME/KDE Discover para instalar nuevas versiones.
-source-8f9f6bf0d9e5f79d = Las actualizaciones de Flatpak se gestionan a través de su repositorio o `actualización de Flatpak`.
-source-62edc0fd99aa859a = FLATPAK_ID
-source-b64f4a0accc8a8c5 = Flotar
-source-41e1d3c9e15d4e44 = Nombre de la carpeta
-source-6991b88b59c28e86 = Nombre y color de la carpeta...
-source-f314b2d4e233ff7a = Configuración de carpeta
-source-4fd78d90908a11f0 = Seguir
-source-a98d0892a081eeda = Seguir publicación
-source-99e8e08708a9239f = Sigue esta publicación para cambiar sus notificaciones.
-source-d54073ff1cf10885 = Sigue este hilo para cambiar sus notificaciones.
-source-ecd37261d5eae9e0 = Seguir hilo
-source-40384403db2ea003 = Se pasó la verificación de depuración de fuentes: importación limitada, entrada no válida, copia guardada, reemplazo durante la carga de CJK, restablecimiento y preferencia de decoración guardada.
-source-339e2c08f4cbe486 = definiciones de fuentes
-source-1cf0e3786ba7e88c = Se interrumpió la importación de fuentes. Intentar otra vez.
-source-f4668abd58e91513 = Durante 1 hora
-source-e3945a6cbdc056e3 = Durante 15 minutos
-source-576080d0ab8b31d9 = Durante 24 horas
-source-50da0d6885986e32 = Por 3 Horas
-source-97ed643174870537 = Durante 8 horas
-source-304dda6df0046683 = Para un club o comunidad
-source-88ec3800dc5b32e1 = Por ejemplo: 🐀
-source-7c0faf44b7599d62 = Para mi y mis amigos
-source-34d419a9f8685cb2 = por ahora.
-source-fbcd6af7d9aff325 = Para propietarios que ya tienen un token de sesión de Discord válido, por ejemplo, de otra instalación de Serein que haya iniciado sesión. Aquí nunca se utilizan contraseñas ni 2FA; esto omite por completo la página de inicio de sesión alojada de Discord.
-source-7175399dc6314dac = Olvidar
-source-9397a9369bb3db4b = olvidar cuenta
-source-1d90f9eda8b4b1ca = Olvidar el inicio de sesión guardado
-source-adbe56978c9cfede = Olvidar esta cuenta en este dispositivo
-source-a384dc1622f82116 = Foro
-source-eba3fab86485cfe5 = Foro · publicaciones cargadas
-source-9fc3568ec8629bda = Adelante
-source-7daf5bfa11898c81 = Se pasó la verificación de depuración directa: selector, destinos delimitados, nota opcional, conservación de borradores y rechazo de cola.
-source-7ec11c0013933e6d = Reenviar mensaje
-source-059f509c56a037f3 = Reenviar a
-source-5ad0482fed792e59 = Audio solo hacia adelante
-source-9a937c330ddf4c7b = decodificaciones de fuente solo hacia adelante
-source-26c8265e79df99a5 = Fundadores
-source-8be13012c2c30e80 = Velocidad de fotogramas
-source-f05c881aa97a3001 = Libere algo de espacio de borrador antes de elegir un comando.
-source-224d6be8ffada421 = UTILIZADO CON FRECUENCIA
-source-9f57a2661b8a7e2d = amigo
-source-70474ccb0dc33ce7 = Apodo de amigo
-source-c446ee72f0a45594 = Permisos de solicitud de amistad
-source-e9181d5845ed2006 = Solicitud de amistad enviada
-source-9369cfa7a815be46 = Solicitud de amistad enviada
-source-681dcadff37dc161 = Solicitudes de amistad
-source-e33713c40cf8905a = Amigos / Hogar
-source-9c2738fc2a406ace = Los amigos aún no están disponibles.
-source-65eb5bc01697d4e2 = amigos de amigos
-source-c9a69a60f64de5fb = Amigos ✓ · haz clic para eliminar
-source-a6ab5184d6315895 = De
-source-6a22169a205e9ee5 = De un usuario específico
-source-35af70bbb896f6dc = Del usuario
-source-bbaf771b88e35414 = de: usuario
-source-706925c982e7f828 = el frente existe
-source-4b10acae683d2978 = Pantalla completa
-source-07da69ddbc0d4c69 = Función
-source-140834e3da0cc236 = Futuro
-source-af63fa4c86021f86 = GRAMO
-source-1e3a08abb66683bd = Galería
-source-0a9a42586b09b675 = la galería tiene imágenes
-source-1e34d0d25d7b3f62 = Vista de galería
-source-b8e5f7265e112995 = La actividad del juego no está disponible. Cierra otros clientes de Discord y luego activa y desactiva el uso compartido.
-source-e7985c1f65a954c8 = actividad del juego jugar osu estado presencia compartir
-source-ec1fd5e3efcd9dce = La actividad del juego se detuvo. Desactiva y activa el uso compartido para volver a intentarlo.
-source-4ca984ba718c3836 = Conexión de puerta de enlace: evento o protocolo de enlace no admitido
-source-a151ff7482693921 = Permisos de categoría generales
-source-681e7c486f10ddc4 = Permisos generales del canal
-source-1a44957753e55a32 = Permisos generales del servidor
-source-d7610725910c019c = ajustes generales
-source-f10b658a307e86bd = general windows macos linux iniciar sesión barra de menú inicio inicio automático automáticamente abrir minimizado minimizar cerrar bandeja fondo barra de título título ventana botones decoraciones sin bordes mosaico gráficos gpu adaptador render discreto integrado hardware aceleración rendimiento batería
-source-9d8db15e76da6741 = Generar un nuevo enlace
-source-923705a1daf9e84b = Generando…
-source-eaa7b519982a0e81 = GIF
-source-1e7afe9c575c706a = GIF no tiene marcos
-source-ef523a043cb1a201 = La imagen GIF es demasiado grande
-source-da334a907c5c26f7 = La búsqueda de GIF no está disponible
-source-06f6fe5fe2333748 = La búsqueda de GIF necesita una sesión conectada.
-source-a99c5d408bd41e1f = GIF87a
-source-a97a61408bb73e85 = GIF89a
-source-e507ac7d8f776536 = GIF
-source-a8c3b80277455232 = GitHub
-source-b6d9318313cb0848 = GitHub no pudo proporcionar la actualización. Vuelve a intentarlo más tarde.
-source-e7884a357ee4c9d2 = GitHub devolvió metadatos de versión no válidos.
-source-4de5f0ba822e25c8 = Se alcanzó el límite de actualizaciones de GitHub. Vuelve a intentarlo más tarde.
-source-a243636f80fc6cce = Dale a este grupo un nombre y un ícono que todos reconocerán.
-source-57f156fdd0c8dbef = Dale a tu nuevo servidor un nombre y un ícono. Puedes cambiarlos más tarde.
-source-bd4e2210817a1a0e = GLOBAL
-source-4ba26827f64d38bd = Disponibilidad global
-source-09023907b59c38eb = Ir
-source-20d5102dc78225fb = Ir al servidor
-source-ea0cb350ea71bc45 = Gradiente
-source-3515e80533806a86 = Conceder membresía temporal
-source-41803f9fcd0f8de5 = Otorga todos los permisos y omite las anulaciones de permisos del canal. Concédelo solo a personas en las que confíes.
-source-ecbc78bca0822905 = Las acciones grupales no están disponibles mientras está desconectado u ocupado.
-source-dd0585c25a191d3f = La conversación grupal no está disponible
-source-39048d780c11ddc6 = Mensaje directo grupal
-source-366842f512dbbd93 = El ícono del grupo excede el límite de tamaño
-source-9ed4b1216c365c5b = Menú de grupo
-source-030655287e89069f = Nombre del grupo
-source-6312a7bbb63e7117 = grupo con servidor
-source-1b2f61ae8f202f60 = Error en los metadatos ZIP protegidos.
-source-78d49005a4e852ba = Error al decodificar la carga útil ZIP protegida.
-source-af64054c86023237 = h
-source-1369c99f2e45df7a = Pasar el rato y hablar juntos.
-source-49613319cda8a1a3 = Tiene
-source-909c6c31361a82c7 = tiene: enlace, incrustar o archivo
-source-58cb9fd8758aebf1 = Picadillo
-source-439d260b478d6e91 = Longitudes de hash
-source-3f51f5a6ced22f90 = ¿Ya tienes una invitación?
-source-75d83fc3f0cfab40 = Encabezamiento
-source-2e07cda805841012 = Encabezamientos
-source-c241395cbd5f4876 = Escúchate a ti mismo a través de los oradores seleccionados. Utilice auriculares para evitar comentarios.
-source-9d35c5db61e86ce6 = Ayude a las personas a organizar sus publicaciones en subcategorías creando una etiqueta.
-source-b291fc0e032d0d4f = Color hexadecimal: #RRGGBB. Haga clic para escribir o pegar.
-source-9df212d89cab196d = Esconder
-source-0ffbdc1726fb6ebb = Ocultar después de la inactividad
-source-769ed34384d07576 = Ocultar enlaces de imágenes y GIF
-source-0aa873e6c2f28288 = Ocultar resaltado de texto coincidente
-source-57e16ad6652e6134 = Ocultar enlaces de medios
-source-725477d04a36a98a = Ocultar canales silenciados
-source-762e679f62ae02c1 = Ocultar participantes
-source-8529bfe5e40476a8 = Ocultar spoilers
-source-3dc515b39430e680 = Oculte enlaces independientes cuando se muestre su imagen o vista previa GIF.
-source-b162fba95c2ecba9 = Oculte la franja del participante debajo del video ampliado.
-source-9deeefd89ca8a81d = Alto
-source-58c754018ec47b5f = Historia
-source-877db9a965e78ff1 = El historial aún no está disponible. Utilice Recargar para intentarlo de nuevo.
-source-e923cd10a1e399e1 = Mantenga presionado su acceso directo configurado cuando quiera hablar.
-source-a53a3619d24212cf = holografico
-source-6abb1cd87fe0114e = Hogar
-source-0b43e6e909895c89 = Horizontal
-source-14b242e1c4820e0d = Flotar
-source-000ccf53f16fac4e = Coloca el cursor sobre un GIF y presiona la estrella para mantenerlo aquí.
-source-890ee07baf12f5d7 = Pase el cursor sobre una pegatina para obtener una vista previa
-source-2f7a3edead4ab00c = Coloca el cursor sobre un emoji para obtener una vista previa
-source-b31ae534f0201385 = ¿Cómo empezó su servidor? ¿Por qué la gente debería unirse?
-source-81d5b23881088e83 = Cómo aparece tu tema en la galería.
-source-731d0208840a7800 = hTKzmak · discord.gg/hTKzmak · discord.gg/wumpus-friends
-source-c98fb2d8b57594f0 = HTML
-source-af64044c86023084 = I
-source-d10d2dc5f8e74c73 = Soy dueño de esta cuenta y autorizo ​​esta sesión.
-source-068d4dd16d9106d0 = Icono
-source-a553c9a0dce42642 = DNI o elige…
-source-411a4a19c9146569 = ID3
-source-49e91d0d9e0bf552 = La carga útil ID3 nunca se recupera
-source-411a5419c9147667 = identificación=
-source-ae423d5fb59ebed9 = Identificador=
-source-c92905d14a9421f3 = Inactivo
-source-bdee1c54486ec63e = IEnumerable
-source-370a3dd62278a528 = Si el mensaje está fijado o no
-source-3d93f9ea0c5a13fa = Imagen
-source-66b8dfd81d2ada15 = Acciones de imagen
-source-190b1f0db71908fb = Adjunto imagen
-source-4a752a36999535a7 = La imagen no se puede copiar dentro del límite de decodificación
-source-915dd15d1094d035 = La imagen no se pudo decodificar
-source-53d3f2aec75dc3ac = Descarga de imagen interrumpida
-source-28a63ec28a4d9cb5 = Ajuste de imagen
-source-8d53e3ace074daa4 = La imagen tiene más de 8 MiB
-source-9a8bdf5e02fde283 = La imagen es demasiado grande.
-source-d66857039cf6aa8c = La imagen no es compatible o es demasiado grande; utilizar como máximo 4096 × 4096 píxeles
-source-8eb80838a31c6217 = Opacidad de la imagen
-source-b0e95a44c5832060 = Publicación de imagen
-source-cc44400cc9d4eeed = Preparación de la imagen interrumpida
-source-21fd53a0c86b5494 = Se interrumpió la preparación de la imagen; elígelo de nuevo
-source-e9992f53ea8527e2 = Vista previa de la imagen
-source-4f7a7453ede3db5b = Selección de imagen cancelada
-source-7b9e62201fc23913 = No se concedió el acceso para compartir imágenes
-source-f9e9fb8972db5290 = Imagen no disponible
-source-824bcaa487aefa5f = Imagen no disponible o tiene más de 8 MiB
-source-0c002f31d0eccc90 = Las imágenes no se pudieron almacenar en caché; permanecen disponibles en la memoria
-source-7be593be34983abf = Importar fuente…
-source-536b11358e1bc3a0 = Importar paquete…
-source-ed12d0d18b972087 = La ruta de importación es demasiado larga
-source-aab9f9d1763e826f = Importar tema…
-source-b59092a018c8c220 = En la categoría de este canal · hereda los permisos de categoría
-source-5afd8800d125b01a = en …
-source-7b44be5f4de4f0e3 = La instalación dentro de la aplicación no es compatible con esta plataforma.
-source-db4bd4b824a282f0 = La instalación dentro de la aplicación requiere una versión firmada con ID de desarrollador de Serein.
-source-567e3276f0b0f009 = La instalación dentro de la aplicación requiere un paquete de versión de macOS o Windows, o una AppImage de Linux x86-64. Otras instalaciones de Linux utilizan su administrador de paquetes.
-source-78bf951bc1632023 = Canal inactivo
-source-1b9310d53986c897 = Inactivo por
-source-2220bd7f2217cf5b = Tiempo de espera inactivo
-source-d2ef82d232067766 = Incluya barras laterales, barra de servidor, encabezados y compositor.
-source-10901dc29f1103bb = Incluye el puntero en el vídeo compartido.
-source-fcbb9955a42abef4 = Incluye un tipo específico de datos.
-source-e30930ba8681baeb = Incluye cualquiera de los tipos de datos seleccionados.
-source-0372bce8ab8e7b45 = Llamada entrante…
-source-2e80b701dc80533d = Anillo entrante
-source-4db54da3664c2055 = Parche de rol incompleto
-source-a978564370e2b2f3 = Independiente y de código abierto. No afiliado a Discord.
-source-72f8dbd6003e4624 = La indexación está incompleta; Es posible que falten resultados.
-source-0c0230002435da99 = Infinidad
-source-6b585ba37cdb8260 = Heredar
-source-2256feb673e7874c = inicializado arriba
-source-88d374f8374273ec = La medianoche tintada emerge con un acento violeta vivo.
-source-db1595f5c742dfbb = Aporte
-source-f735822173a46384 = Ganancia de entrada (%)
-source-7dd9b019ce8d7d29 = Nivel de entrada
-source-c78869b8c7b3e7b2 = Perfil de entrada
-source-e5ce0d4b7f1cdc2c = Configuración de entrada
-source-e07e2bf7e4687e74 = Umbral de entrada
-source-41a92219c98dd9b7 = Ins
-source-5ada999b33ccc808 = Insertar
-source-70d9d4fda21a48c5 = Inserta un emoji
-source-ee5ac5102dcacf1a = Instale una compilación habilitada por voz para usar estos controles.
-source-c58d983d7f8dc085 = Instalar tema
-source-0ee0c68d0024b96b = La huella digital de la extensión instalada no es válida
-source-80cb01ff2864c336 = La identidad de la extensión instalada cambió
-source-a93385788263bda8 = Los metadatos de la extensión instalada no son válidos
-source-4e89bcac7237882a = La identidad del complemento instalado cambió
-source-54ee04e01df690b3 = la instalación conserva los ajustes preestablecidos anteriores
-source-41a91f19c98dd49e = internacional
-source-61d49062aaedbf65 = Entero
-source-75c5a62c20aeb9f4 = Cámara integrada (vista previa)
-source-03970aa76a09982d = Integración
-source-233f78792e4de7ba = Integraciones
-source-baaadff5b5886ee9 = Enterrar
-source-59d72bac7fa31a39 = Inter (predeterminado)
-source-13cc7c9a6045f074 = Intermedio
-source-ee3924f4b629eb16 = Inter seminegrita
-source-1a81ae5aabe22de4 = Inter-Regular.ttf
-source-e6b26e433d821b85 = Inter-SemiBold.ttf
-source-1aea0acdc165591d = Fuente de interfaz
-source-51693b181594f130 = Inválido
-source-aff59fe0ca6f3337 = Tema activo no válido
-source-f0ede5667e3c2368 = Cursor de archivo no válido
-source-d555edf4908c1d30 = Sonido de notificación incluido no válido
-source-3340ea4ac8a008ca = Identificador de canal no válido
-source-fad7ba128f14189f = Tipo de canal no válido
-source-98c63dbd9df31dd7 = Suma de comprobación no válida.
-source-7647b72796eaac6e = Marcador de limpieza no válido
-source-6bb35ccac4214000 = Nombre de emoji personalizado no válido
-source-5bc866e5341fc71a = Se aceptan metadatos delta no válidos.
-source-5a9316c0f55d2c1f = Imagen emoji no válida
-source-2a24647263ec3c22 = Alcance de la cuenta de extensión no válido
-source-7e2d0d6e28b10843 = Host de descarga de extensión no válido
-source-f39ed7267460de3a = URL de descarga de extensión no válida
-source-c8a0d30bcb4932ac = Identificador de extensión no válido
-source-8d3e3fdf912b6247 = Redirección de extensión no válida
-source-b914efe8a0101490 = Animación GIF no válida
-source-841b936014dbdc07 = Imagen GIF no válida
-source-c92909345b3cc683 = Identificador no válido
-source-2144d2fd528b11de = Identificador de mensaje no válido
-source-9e0a3f07d119818c = Configuración de procesamiento de micrófono no válida
-source-c88d54eb07eaa02d = Perfil de micrófono no válido
-source-66a622ff6e253fcb = Ruta de paquete no válida.
-source-c24233b6611d0b96 = Permiso no válido permitir máscara
-source-77cb31f8ce19f359 = Máscara de denegación de permiso no válida
-source-e304160d5c17e0f9 = Máscara de permiso no válida
-source-103b0e96130997a7 = Cursor de pin no válido
-source-97991767f58bad16 = Subvenciones de complementos no válidas
-source-de7a9123467851fb = Preferencias de presencia no válidas
-source-70e622bcaf00bb11 = Estado de presencia no válido
-source-926da7ff753427e9 = Emoji de reacción no válida
-source-699b6984bf2adc2d = Destino de guardado no válido
-source-efff269891a514d6 = Sesión de voz en pantalla no válida
-source-890785553e903272 = Sesión de transmisión de voz no válida
-source-b8efab09a838ede2 = Modo de supresión no válido
-source-8fe713d416554a32 = Identificador de usuario no válido
-source-3c29996ee3f84135 = Búsqueda de vídeo no válida
-source-3f4de05e737c4050 = Invisible
-source-2afc9a717c161490 = Invitar
-source-552eee8a38a62007 = Invitación aceptada. Esperando acceso al servidor; Completa cualquier regla del servidor en Discord.
-source-8da3b13ecb71b7c5 = Código de invitación
-source-e0cb011a27bd9365 = La invitación ha caducado o no es válida
-source-6c0826939c587680 = Enlace de invitación
-source-29ee695e0f89c0cd = Configuración del enlace de invitación
-source-21c03de940770a05 = ENLACES DE INVITACIÓN EN PAUSA
-source-b3675a0187b1e112 = Invitar al canal
-source-456d2642d56934d8 = Invitar al servidor
-source-cc2c588519113d3a = Invitación no disponible
-source-214f50d5d9857c06 = Invitador
-source-214f51d5d9857db9 = invita
-source-ac6d5df486b78dcb = Las invitaciones parecen
-source-2ae8be723608ca27 = Límite de trama IPC
-source-76ec54b338997987 = ¿Su nuevo servidor es para unos pocos amigos o para una comunidad más grande?
-source-bf6fbda23925fcb4 = Diagnóstico de problemas
-source-0f39f43458e1606f = Espaciado de elementos
-source-132e74c95d560583 = iterable
-source-14c80c3d82ecfe2f = Sus mensajes se eliminarán permanentemente. Esto no se puede deshacer.
-source-c110b9e869ede5f2 = Se eliminan el inicio de sesión guardado, el historial almacenado en caché y los borradores en este dispositivo. La cuenta de Discord en sí está intacta; Puedes iniciar sesión nuevamente en cualquier momento.
-source-af64074c8602359d = j
-source-c2af8aea5b96bba5 = Java
-source-1cdd68204da8bdaa = javascript
-source-6c6bf3ea2ad3d219 = Unirse
-source-b2afbf038a6cfe9d = Unirse a un servidor
-source-60988f8dcf4afee1 = Únase al audio. Su micrófono se inicia después de que se asegura la llamada.
-source-e59e5884d3263eeb = Unirse a la llamada
-source-f93c30c9e799811a = Método de unión
-source-29a7fede2fd2d558 = Unirse al servidor
-source-c57036386980e37f = Únase para escuchar. Hablar no está disponible en este canal.
-source-958fd8a18d9097af = Únase a la voz
-source-2a2b53f9a9998870 = Se unió a la discordia
-source-03499a0733b35e4c = Se unió en los últimos 7 días
-source-11042a37390cda1b = Se unió privado
-source-d2ae1a44fbc39082 = Unirse a esta llamada ya no está disponible
-source-07732f31ca518ea0 = Unirse a este canal no está disponible con la información de permiso actual.
-source-621bc36db6521411 = Unión…
-source-34d46fe97a690403 = JSON
-source-15a477e9f9a165ad = Saltar
-source-8d29fb87378b5493 = Saltar al mensaje de
-source-ea06f2fec89302d9 = Saltar al presente
-source-dc1660d3322d1da5 = Saltar a no leído
-source-84126fa92f00b4ef = En este momento
-source-af64064c860233ea = k
-source-739c12da7c022020 = Superficies de carbón oscuro de Katana y acentos rojos intensos. El modo de luz utiliza colores integrados.
-source-d60a7dde73859828 = Mantener
-source-ec6d1ce476382a2c = Seguir editando
-source-7b8db4b25760798c = Sigue editando
-source-1884d8e4db1b7e44 = Mantenga la opacidad de la imagen y la sección entre 0% y 100%.
-source-b40ef363d7acbab2 = Mantener los mensajes eliminados cargados en la memoria de la sesión mientras esté habilitado
-source-fefea061e3aef939 = Mantenga los mensajes ya vistos en esta sesión visibles en rojo después de eliminarlos. Se borra cuando se desactiva o se cierra la sesión.
-source-b37797ccd56f4513 = Mantenga abierta la lista de miembros siempre que la ventana sea lo suficientemente amplia.
-source-5847ae7d38e846bb = Sigue trabajando
-source-85e7706d883c1b1f = configuración de atajos de teclado
-source-70b984de3ae12f5f = Patada
-source-dcaaa6a6d1d2f80b = Miembro de patada
-source-c8f1a576897c33e8 = Miembros de patada
-source-010cab31d8ba72f4 = miembro pateado
-source-beb0c3f65be90a4c = Kotlin
-source-af64014c86022b6b = l
-source-f6758693b338b2bf = Últimos participantes conocidos · vuelva a conectarse para actualizar
-source-02e61b83d7705416 = último guardado
-source-9c6674b1ad79be87 = Desconexión posterior de la puerta de enlace
-source-05902840ffa77a6f = Último mensaje no disponible
-source-2e4818861000b13f = Disposición
-source-e04aaca8ea615571 = LD_LIBRARY_PATH
-source-4ebfefaed46645e7 = LD_PRELOAD
-source-7ba0310a53345190 = Más información sobre los siguientes canales
-source-24f216d03b0273ba = Obtenga más información sobre cómo administrar integraciones.
-source-e1bb5c90def98862 = Déjelo en blanco para usar su nombre de usuario.
-source-b6f6eb378f7ed8d5 = Déjelo en blanco para usar su nombre de usuario.
-source-c0b43e6938b15b03 = Dejar grupo
-source-23a148cb555e06f4 = ¿Dejar el grupo?
-source-c23ec1237701b64b = Salir del servidor
-source-304720e80cd0cb6b = Salir del servidor
-source-1258a34337e9071c = ¿Dejar el servidor?
-source-b95db8072a682ef3 = Deje la llamada para probar su micrófono localmente.
-source-09127d64a1f32e14 = Dejar la llamada de voz actual
-source-52d5e2312cb98b44 = ¿Dejar esta cuenta?
-source-bfd5fdbfbf8878c5 = ¿Salir de esta sesión?
-source-ad791b6a1cbe4edc = Salir no está disponible en la vista previa sin conexión.
-source-757c3a7cd6e640a5 = Partida…
-source-d65688f2da9401db = Error de compatibilidad con la suma de comprobación continua heredada.
-source-202fffd5a2e1c595 = Longitud
-source-a566392b59057905 = Que todos sepan cómo usar este canal.
-source-122c48a8444cd82c = ¡Que todos sepan cómo usar este canal!
-source-060d1b267ab42d13 = Deja que tus amigos de juegos conectados envíen mensajes directos y te inviten a jugar, incluso cuando el juego no esté abierto.
-source-17597a8bb4810524 = Licencia
-source-ab004d8a9aa6ed5e = Se requiere licencia y versión.
-source-aeac80851d9f420d = LICENCIA-APACHE
-source-c7fa97a208420daf = LICENCIA-MIT
-source-3b0ab4b52326316f = Luz
-source-3cf89cb47fdde7e9 = Enlace
-source-32926f430c16efd8 = Vestíbulo vinculado
-source-7859e0b546108aae = Campo de golf
-source-3d249bb480032121 = Lista
-source-70315aaffba9e636 = Vista de lista
-source-82d9a68d45439d03 = escuchando
-source-e9c77e5b3a0fdc89 = Escuchando Spotify
-source-52afd6b51d51164f = VIVIR
-source-3d1396b47ff4a56f = Vivir
-source-11fa9d6c061afa16 = Cargar publicaciones archivadas
-source-3a2d89e9113caee2 = Canal de carga
-source-c986f57b00dd25bf = Cargar invitaciones
-source-9cacdfdfd5d7123e = Cargar más
-source-7584ded3d749c75e = Cargar más
-source-61556c6ba5dcfb6d = Cargar más publicaciones
-source-95ef182cb1fd4feb = Cargar mensajes anclados en la conversación actual
-source-8b95fbad9e9aef05 = Cargar la configuración del servidor
-source-31a65dd97cdf8a37 = Cargue la configuración de este servidor antes de cambiarla
-source-8439ee25437e77d1 = Cargue las preferencias de actualización o elija su configuración de actualización para habilitar la verificación.
-source-6783077442c0dad3 = las eliminaciones cargadas desaparecen con la extensión deshabilitada
-source-50f79eb3620799d6 = Los hilos cargados no son visitas.
-source-851ecddc366a2691 = Los archivos cargados no leídos deben desplazarse localmente
-source-b59d68ed12d46377 = Cargando
-source-3463bde1664305d3 = Cargando comandos de la aplicación...
-source-17e508cdddf68e84 = Cargando publicaciones archivadas…
-source-933c587eb7d7507f = Cargando audio…
-source-09077a8228a5d71a = Cargando registro de auditoría...
-source-2667f1dca13f7227 = Cargando configuración del canal…
-source-7e00d690bf476c8c = Cargando discord.com…
-source-5d5a3b2949e254bb = Cargando estado de amistad...
-source-8ca6703ab61779c6 = Cargando GIF…
-source-2b71ebd4732fd0ea = Cargando imagen…
-source-b282c7ee62d8c2d8 = Cargando integraciones...
-source-df5d55e82fc6013f = Cargando invitaciones…
-source-51c132ed40a874ca = Cargando apariencia local…
-source-10af059c2c92c925 = Cargando mensajes
-source-421d6e269a43d41b = Cargando mensajes…
-source-875cc33c8d2087f3 = Cargando nota…
-source-1a5772902a9d27a5 = Cargando pines más antiguos...
-source-8f7234437c1583f4 = Cargando temas antiguos...
-source-57ebd0152abc1eb3 = Cargando mensajes fijados...
-source-7571d69557f1b608 = Cargando publicaciones…
-source-a4e5c9890f31e1e3 = Cargando vista previa...
-source-2c194c9c95937c4e = Cargando perfil…
-source-36a96cdf3de5b155 = Cargando reacciones…
-source-67ec529ae2ea432c = Cargando roles...
-source-adf4a00a3ea3251f = Cargando fuente guardada…
-source-7c0b644c42303aef = Cargando lectura y diseño guardados...
-source-9b846168bcc5b3ed = Cargando configuración del servidor…
-source-c4848c001eaee8c5 = Cargando configuración de inicio…
-source-a86d4233d96c4c82 = Cargando detalles de la etiqueta...
-source-152a12fc4255c012 = Cargando paquetes de pegatinas...
-source-166b779cf597cb90 = Cargando categorías de tendencia...
-source-b77be09763b48a7e = Cargando verificación…
-source-a3f0b4f8e3f25240 = Cargando tus preferencias…
-source-71c7694cb9bded2d = Cargando tu perfil…
-source-49730f3d5751a433 = Cargando...
-source-5360d33e7f91fb81 = Cargando…
-source-8c3a591524e36cac = Vista previa de la cámara local · no compartida
-source-428841c1fafa8116 = Cambios locales guardados
-source-86cb70463ce6ff8d = Solo vista previa local. Esperando a que Discord confirme el uso compartido.
-source-dab3f9b1dd55cddd = La eliminación local elimina la carga útil retenida.
-source-b11508797a8874d9 = Almacenamiento local
-source-587de31efff4f090 = El almacenamiento local no está disponible; No se pudieron restaurar las preferencias de canal.
-source-e516c47c18950d2d = Cola de almacenamiento local llena; algunos cambios no se guardan
-source-af1860ae7538fce5 = El trabajador del almacén local se detuvo. Reinicie Serein para guardar las fuentes.
-source-25973456bb1171d4 = Trabajador del almacén local detenido; reinicie Serein para restaurar las preferencias del canal.
-source-310dae92ee14c708 = Silenciado localmente
-source-4f27f6b48a68b5c2 = Cerrar
-source-aa1882f01fbba808 = Poste de bloqueo
-source-06ff5c2b070ce282 = Bloquear hilo
-source-b64127e4e4f0b575 = Finalizar la sesión
-source-4cb5ec320d30ec11 = Inicio de sesión guardado en el almacén de credenciales del sistema operativo
-source-d804b2e383880418 = Se agotó el tiempo de inicio de sesión o la transferencia de token no está disponible; no se acepta ninguna sesión
-source-54f2f375d03c4ca9 = El inicio de sesión se guardará después de que Discord se conecte
-source-015a125837ba3808 = La ventana de inicio de sesión se detuvo inesperadamente (el proceso web finalizó); no se acepta ninguna sesión
-source-4efbcab48a433013 = Largo
-source-22bafe4747c3804d = Busque nuevos paquetes y actualizaciones. Nada se instala por sí solo.
-source-50f5dacedd665cfd = Buscando un juego de carrera
-source-34b738b2a8d421ca = Buscando dispositivos de audio...
-source-3de54cb3d0707200 = Buscando dispositivos de audio...
-source-c8a84bc62f1d68fd = Buscando cámaras...
-source-690f47c9ef94f3af = Buscando cámaras...
-source-bd35252fcb8bab86 = Buscando mensajes coincidentes.
-source-661ccb47375cc60c = Buscando mamparas y ventanas…
-source-24f3a319b88552c1 = Bajo
-source-2b5e7fb59815427a = LPT1
-source-2b5e7eb5981540c7 = LPT2
-source-2b5e7db598153f14 = LPT3
-source-2b5e7cb598153d61 = LPT4
-source-2b5e7bb598153bae = LPT5
-source-2b5e7ab5981539fb = LPT6
-source-2b5e79b598153848 = LPT7
-source-2b5e78b598153695 = LPT8
-source-2b5e77b5981534e2 = LPT9
-source-c62f43916b92feff = LPT²
-source-c62f42916b92fd4c = LPT³
-source-c62f4c916b930e4a = LPT¹
-source-254bb119b8cfe061 = lua
-source-af64004c860229b8 = METRO
-source-12f523a52b843ea2 = macos
-source-695b5c1e78455c03 = macOS Gatekeeper no aceptó la actualización.
-source-43380c838d3e92b4 = Administrar >
-source-49373cba18a86ae2 = Administrar canales
-source-7861b1e487bb2d99 = Administrar expresiones
-source-d1d4c6933d613834 = Gestionar la integración
-source-ecef5ad7748320ce = Administrar mensajes
-source-554506ea893cc81f = Administrar apodos
-source-5c5f4e5016610592 = Administrar permisos
-source-e72177b2b053f323 = Administrar roles
-source-b57383903d2813f5 = Administrar servidor
-source-c5de1bfb54eb0516 = Administre configuraciones que ayuden a mantener su servidor activo.
-source-a56c26a6a5e193ff = Administrar hilos
-source-b5981274d4d2d4a0 = Administrar webhooks
-source-043a9e1ac7396527 = Administre webhooks y canales seguidos que publican en este canal.
-source-21ffd82809639845 = Gestionado en discordia
-source-1e187919b52639f1 = Mapa
-source-b82ecdfc78c29614 = Marcar como leído
-source-5bb4026da28b7914 = Marcar como leído
-source-76b4152e69e800b1 = Mark leyó hasta aquí
-source-c8c3ee2f3d2dbb67 = Marcar como no leído
-source-e0d773f122b8cbdc = Marcar este mensaje como como leído no está disponible
-source-837fcb0b70616656 = Fósforo
-source-b54a17494757f739 = Combinar todo
-source-beecdafa6aa9f2ea = Combina algunos
-source-1f06583ace9c9d48 = catálogo coincidente
-source-d3523209cd4147d8 = llamada activa coincidente
-source-49dd67aed00029ef = Matemáticas
-source-1a3191077684e8bd = Número máximo de usos
-source-2b3441b8eece504f = Maximizar
-source-1e8f2719b58ad500 = MD4
-source-25a83280cea8df01 = La compatibilidad con MD4 falló.
-source-93360e02ae89685c = Medios · publicaciones cargadas
-source-751678adb0aa2b23 = Miembro
-source-ca695802849ab7f8 = Acciones de miembros
-source-b51d57449ddb6721 = Detalles del miembro
-source-5d9c2286b4ab1cdc = ID de miembro
-source-fe9b5751b796a9c5 = Lista de miembros
-source-87775b4ed01293bb = Se aprobó la verificación de depuración de búsqueda de miembros: las menciones remotas y los colores de las funciones de autor visible utilizan búsquedas de puerta de enlace independientes y limitadas.
-source-f0ae37fb42ebb259 = MIEMBRO DESDE
-source-8847d64291996459 = Miembro desde
-source-9f5a5f23312798f0 = Miembros
-source-5dc9a5bd59847870 = MIEMBROS
-source-24fc7d6be45666e1 = Los miembros deben confirmar que son mayores de edad antes de verlo.
-source-dd4296be53097fdf = Los miembros usan el color del rol más alto que tienen en esta lista. Arrastra los roles para reordenarlos.
-source-6b9cbb8f892a14c1 = Los miembros usan el color de su rol más alto en la lista de roles.
-source-070c455ea88183a5 = Los miembros estarán limitados a un mensaje por este intervalo para cualquier publicación nueva, a menos que tengan el permiso Omitir modo lento.
-source-141072de886af452 = Los miembros estarán restringidos a crear una publicación por este intervalo, a menos que tengan el permiso Omitir modo lento.
-source-2cc123a56a77d730 = Los miembros estarán restringidos a un mensaje en este intervalo.
-source-142ee774bc3d2608 = Los miembros con Administrar hilos aún pueden usarlo.
-source-36cf079496723195 = Los miembros con permiso para mencionar todos los roles siempre pueden mencionar este rol.
-source-ffd32ee5baef934d = Permisos de membresía
-source-22c7a36f572f4655 = Mencionar
-source-66727c051d2eafc5 = Mencione a @todos, @aquí y todos los roles.
-source-60daedf441ee5363 = Mencionar antecedentes
-source-084f35b0df88af58 = Mencionar texto
-source-4880dc3125543292 = Menciones
-source-9a9ee511958b75b2 = MENCIONES
-source-7fbc2482e27c1dd6 = Menciona a un usuario específico.
-source-ec24319a17f6fdaf = Menciona a alguno de los usuarios seleccionados.
-source-4c136db0c6596249 = Menciona al usuario
-source-0e7ff37095c562eb = menciona: usuario
-source-114813466431afcc = Esquinas del menú
-source-79e8cc71a5975b04 = Mensaje
-source-a20d073f8ff525e4 = Envía un mensaje a un usuario.
-source-0f71c9b39094881d = Área de mensajes
-source-143b695787cb5499 = Mensaje eliminado
-source-de676f78fefde026 = El historial de mensajes no está disponible con la información de permisos actual.
-source-bdc54e8c8eec3bd9 = Área de entrada de mensajes
-source-daadc547b53eb434 = Lista de mensajes
-source-6620710a505ec258 = Resultado del mensaje desconocido; revisa la conversación antes de volver a intentarlo
-source-51e4cf3810f0203c = El mensaje no fue devuelto; Es posible que se haya eliminado o que ya no esté disponible.
-source-bdeedc1c60306b35 = Mensajes
-source-695a7a586ff9dc47 = Los mensajes y borradores se almacenan en caché localmente. Los tokens de inicio de sesión utilizan el almacén de credenciales del sistema operativo.
-source-69a9ca95cdb4d43b = Los mensajes y borradores se almacenan en caché en este dispositivo dentro de archivos delimitados y aislados de la cuenta. Serein no cifra los datos de la caché; Los tokens de inicio de sesión guardados utilizan el almacén de credenciales del sistema operativo.
-source-b3a412920dd74a1c = Mensajes y medios
-source-121a1458f443325b = Mensajes y etiquetas habituales.
-source-faa7e3d853d314b3 = Los mensajes no están disponibles mientras estás desconectado o sin acceso al canal.
-source-ac4ea84963a5c8ae = Mensajería en juegos conectados
-source-43784ca2e0805b43 = configuración de permisos de mensajería
-source-2fcb5047da233cf9 = permisos de mensajería filtros de spam mensajes directos dm solicitudes de amistad juegos conectados personalizados
-source-f4b9f0457a752170 = La configuración de mensajería no está disponible
-source-f8c5462180afce0f = Los marcadores de mensajería, reacciones, búsqueda y lectura tienen pruebas fuera de línea. La interoperabilidad de Real Discord aún no está verificada; La carga de archivos adjuntos y la búsqueda avanzada permanecen incompletas.
-source-557a4777f155d7c9 = Se pasó la verificación de depuración de vista previa del micrófono/cámara: la configuración se procesa, la configuración de apertura nunca inicia la captura, la demostración y los guardias de página cerrada detienen las solicitudes. No se abrieron ningún dispositivo de audio.
-source-232f88877550dfa9 = Micrófono
-source-7a45f482436be672 = Configuración de micrófono y altavoz
-source-742c9587b20bf8c4 = Ganancia de micrófono
-source-b1772b5e873910c2 = Micrófono silenciado
-source-6bc439bdf9f4c792 = Sensibilidad del micrófono (dBFS)
-source-9cfa09a28f797297 = Sensibilidad del micrófono: siempre abierto
-source-75578a286f45007f = Prueba de micrófono
-source-0f6afa4b0d4690ec = Se detuvo la prueba del micrófono; intentar otra vez.
-source-5640005fd7b5c247 = Micrófono no disponible · elija otra entrada. Todavía estás conectado.
-source-af334fc235660586 = Micrófono no disponible · todavía conectado. Elija otra entrada en la configuración de Audio.
-source-0ef20adcd014e5da = Micrófono no disponible; verifique el permiso o elija otra entrada. Reintentando…
-source-1c109a21525649fd = Minimizar
-source-41168fc929aacf0f = Menos
-source-01757df2027f2c2e = Falta el montaje de AppImage.
-source-e5ee1eb26ce8d9f6 = Falta la ruta de AppImage.
-source-5574e673374a2424 = Falta identidad RTC en la pantalla
-source-180ea19db88c8920 = Servidor de pantalla faltante
-source-be7d1b0d3e9abe80 = Falta la identidad RTC de la transmisión
-source-26f75402a3d7bcf4 = Falta servidor de transmisión
-source-6d190fc4ac1b7958 = Falta servidor de voz
-source-5540f7186b767545 = Sesión de voz perdida
-source-09d953226c6eb98c = modal inicializado
-source-37cbecaec58e2192 = Modo
-source-0f3b0ae12a710300 = Moderado
-source-2b39cffedda9f40d = MODERACIÓN
-source-917d6cecbb170b11 = Sólo moderadores
-source-37a9e8aec5713460 = Más
-source-3f4b17dfab9fca4c = Más colores
-source-1c5099bc15997c73 = Más filtros
-source-0a6a710a7e87112c = Es posible que existan más pines, pero esta página no tiene una continuación utilizable.
-source-c2dad3e4f7d52029 = Más etiquetas
-source-15528e06a6388237 = Movimiento de la rueda del mouse y del trackpad. 100% es el valor predeterminado.
-source-02903e9b6f960b1e = mov,matroska,webm
-source-2d6036a5923caa65 = Muévete por Serein sin alcanzar el ratón.
-source-b233557012dcb328 = Bajar
-source-87a55464116c3f48 = Mover hacia abajo
-source-0cd6ebb0a6c5eb67 = Mover miembros
-source-db6975c2435139a8 = Mueva mensajes de personas que quizás no conozca a Solicitudes de mensajes.
-source-3dedc07c603ea4e6 = Mover carpetas exteriores
-source-4e33f21fc24666c1 = Subir
-source-4ea0f21fc2a338a1 = Subir
-source-c1f9209fa25d8f42 = Miembro movido
-source-e0f67eae944f8f94 = Silenciar
-source-14b69a74909a3502 = Los mudos y los sordos siempre tienen prioridad.
-source-04a4026777a6f1bf = Canal silenciado
-source-90edce5e2bd42c7b = Silenciar conversación
-source-f44ed5f8547f1267 = Silenciar miembros
-source-9e3d1452f996cc1e = Silencia las notificaciones hasta que reactives el sonido de esta conversación.
-source-62dc808fe3900456 = Silenciar publicación
-source-90ed5ecbc62c0923 = Sonido silenciado
-source-197fc2f02575b096 = Silenciar la transmisión de audio
-source-a53465e834b34952 = Silencia las notificaciones de este mensaje directo hasta que lo reactives.
-source-1176ab7a5ecd28c4 = Silenciar hilo
-source-926932a6033194d0 = Apagado
-source-a6d9550b6a11485c = Silenciado por el servidor
-source-9d5dce9a60eb77a1 = Silenciado por el servidor
-source-98e0c76429ccb8ab = Silenciado para ti en este dispositivo
-source-98741bff7e329fe8 = Servidor mutuo
-source-3feb2e2370053461 = Servidores mutuos
-source-c072f70b625c8489 = cerrar sesión en mi perfil de cuenta
-source-870b7417205fc44e = mi servidor
-source-77430f705c8adf0e = mi tema
-source-af64034c86022ed1 = norte
-source-d9297519ff36a94b = N mensajes · última actividad
-source-ef49aec68fd1dc66 = Nombre
-source-c67036ff3465d307 = Asigne un nombre a esta carpeta y elija el color que se muestra en el riel del servidor.
-source-10271936476ae359 = Los nombres utilizan letras, números y guiones bajos.
-source-3734dc19c3200eba = Yaya
-source-adb339355dde42b7 = Limita esta búsqueda a los mensajes que desees.
-source-7cbf0f4086ba567e = Paquete Nativo
-source-8f5ea921969a1238 = Ventana nativa no disponible
-source-07e6118e838b2e23 = Navegación
-source-8b97ea84af17c029 = Nunca
-source-3741f519c32ac391 = Nuevo
-source-c8337735ad89201d = Sonido de mensaje nuevo
-source-d3b60ec2f9fb421b = Nuevos mensajes
-source-a356fb968995728b = Nuevos mensajes a continuación · saltar al presente
-source-a2be1021c91dc81f = Nueva imagen elegida. Guardar para subirlo.
-source-f6f5d8ff2a4899c5 = Nueva publicación
-source-ba25eb1084928171 = Las publicaciones nuevas dejan de aparecer en la lista de canales después de tanto tiempo sin actividad.
-source-6dafd7d212eeebe7 = nuevo rol
-source-69a991c86e3136e4 = Nuevo webhook
-source-74dea8806e19236b = El más nuevo
-source-58b4c338dccaacb9 = Cuentas de Discord más recientes
-source-ba2a0427963d1a25 = Lo nuevo primero
-source-8355a903ea308554 = Miembros más nuevos
-source-542ffff558768ea3 = Página siguiente
-source-e9f30e4492cee2cd = Apodo
-source-3bf424e632269e64 = Anochecer
-source-f6d4582d68e813ea = Nocturno
-source-fbeaef53d1906622 = versión nocturna
-source-86253e33bf1b2595 = Se requiere que Nitro use esta etiqueta fuera de su servidor.
-source-e69565850af92ceb = No hay acceso a conversaciones ni al texto del compositor.
-source-c1a4a71de3eb91bf = No hay canales accesibles disponibles.
-source-f891e2d3321bffd8 = Ninguna llamada activa
-source-412ca900b5a9e6fc = No hay enlaces de invitación activos
-source-6877eaa80d7c0b9d = Ningún hilo activo coincide con esta búsqueda.
-source-9374e11f70cf90d8 = No se proporcionaron detalles adicionales para este evento.
-source-775a56f606040475 = Sin dispositivo de salida de audio
-source-6b4386d955528474 = Ninguna entrada del registro de auditoría coincide con estos filtros.
-source-82dff1fee5edf1bb = No se solicitó ninguna llamada
-source-36c0189ca94d214d = No se encontraron cámaras. Verifique la conexión de la cámara o la instalación de la cámara virtual y luego actualice.
-source-9cb8d641f192f378 = No se siguieron canales.
-source-27387fd3c754b0b5 = Ningún comando coincide
-source-3ff935a531a0a05b = No coinciden conversaciones ni amigos
-source-67f003d3e24e24a9 = Sin estado personalizado
-source-69681f96f888669d = Aún no hay pegatinas personalizadas.
-source-bed4b879924ad0b8 = Ningún canal elegible
-source-7d1966d947ff9329 = No hay coincidencia de emoji
-source-81387e9fe7913716 = Aún no hay extensiones
-source-8fe5bc6b6d3268c1 = Aún no hay favoritos
-source-e314fbc238f69037 = Ningún amigo coincide con tu búsqueda.
-source-4197f7bea1711182 = Aún no hay amigos a quienes invitar. Comparte el enlace a continuación.
-source-3a0bef63461834bd = No se encontraron GIF
-source-91c660c697d54d5d = no se encontró ningún adaptador de GPU; instalar un controlador Vulkan, Metal, DirectX u OpenGL
-source-e8213494a59bc1f8 = Ninguna imagen seleccionada
-source-9a9b5ab1569a1290 = Ningún canal inactivo
-source-cdc25ae76471a84b = No hay integraciones en este servidor.
-source-fd0dcab6acf65c1d = Sin límite
-source-e4f478b26d0417ba = Ninguna publicación cargada lleva las etiquetas seleccionadas; cargar más o borrar el filtro.
-source-28d7266643f5992f = No hay coincidencias
-source-1986edeeac3f37be = No hay destinos coincidentes
-source-2a5ae75084b7609b = No hay emoji coincidentes.
-source-2d1193776029e430 = No se han cargado opciones coincidentes
-source-d1362bc0288193e9 = No hay usuarios coincidentes
-source-965fe3510f5a42b7 = No hay usuarios coincidentes en esta conversación.
-source-8fc8869bcb1445ae = Ningún miembro coincide con esta búsqueda.
-source-4476cd56b8e63a11 = Aún no hay mensajes. Inicie la conversación a continuación.
-source-615f59eca8642532 = No se reportaron publicaciones archivadas más antiguas.
-source-779ffe89d529b70d = El servicio no ha reportado hilos antiguos.
-source-0e044f85e1042122 = No se devolvieron hilos más antiguos.
-source-ff1c1c671f7adec0 = No hay nadie aquí todavía
-source-7ea06611e5c78f03 = No hay mensajes directos abiertos con este usuario.
-source-d7e8c2c9062bf815 = No se encontró ningún conjunto de claves del sistema operativo, por lo que deberá iniciar sesión nuevamente en el próximo inicio.
-source-c658f9978ab6c460 = No se encontró ningún conjunto de claves del sistema operativo; Regístrate en cada lanzamiento. Instale GNOME Keyring o KWallet para permanecer conectado.
-source-82128cb68caad8aa = No hay publicaciones cargadas
-source-27074081d60f490c = Ninguna publicación coincide
-source-921e1823a1d98984 = Aún no hay ningún lanzamiento publicado disponible en este canal.
-source-05c0c6595d494ae4 = Aún no hay respuestas
-source-991d216e6efc157c = Sin resultados
-source-d5a39946eef35ea9 = No hay bloques de AppImage reutilizables.
-source-b241cc46e92893ed = No hay ningún inicio de sesión guardado para esa cuenta en este dispositivo. Utilice otra cuenta para iniciar sesión nuevamente u olvídela con ×.
-source-ae6c9c892eb21c0a = No se encontró ningún inicio de sesión guardado. Inicia sesión con Discord para guardar uno.
-source-ebfdb2373cfa2e7c = Aún no hay pantallas ni ventanas disponibles.
-source-a26acf212cef3ce1 = No se encontraron pantallas o ventanas para compartir
-source-15906936955a04c0 = No se encontraron pegatinas.
-source-b252d7940cf58ff6 = Sin canal de mensajes del sistema
-source-a7a7a87655c7b116 = Aún no hay temas
-source-3b9155e555d24852 = No hay ningún asistente de actualización listo.
-source-077935c20c0ec158 = Aún no hay webhooks.
-source-0a1626700498d01f = Nadie tiene actualmente esta reacción.
-source-e384aa3a7f315eaa = Supresión de ruido
-source-d025a053094e1944 = La supresión de ruido no está disponible en esta versión o vista previa.
-source-cbae7aad79194203 = La supresión de ruido reduce localmente el ruido del teclado, la respiración y los ventiladores.
-source-669b18c6d2d9c95b = Ninguno
-source-50fed8c6357d587b = NINGUNO
-source-5c2570a7140483ad = cola no vacía
-source-70c407d0fdd69918 = UTF-8 normalizado
-source-ad5372e96bb9783e = no es una fuente
-source-5ca102bf327e771c = No conectado; El estado no se comparte.
-source-44cfb5f01f1202fd = No proporcionado
-source-739264aa3476b5b4 = No enviado
-source-0df0e8c4f3c2eba6 = No establecido
-source-6ace63b336f8392c = ¿No estás seguro?
-source-6686fcc6d2c8f0bd = Nota
-source-41d0639ac24cbb6a = Nada
-source-e362807e48e942fd = No se ha publicado nada aquí todavía; Las publicaciones archivadas se cargan a pedido.
-source-c04398572a2a89f4 = Nada en esta página coincide con la consulta.
-source-4b11696fddfe065f = Se pasó la verificación de depuración de clic de notificación: navegación DM/gremio y rechazo de clic obsoleto.
-source-e79d59a5fc01ae77 = configuración de notificaciones
-source-039e128122096637 = Configuración de notificaciones
-source-518c2768c5c91b61 = notificaciones escritorio sistema alertas descripción general sonidos insignias mensaje anillo
-source-1f44178a49d67a46 = Noto sin árabe
-source-964005d08b147f56 = Noto Sans CJK JP
-source-64021dbff820a004 = Noto Sans Matemáticas
-source-369eba19c29ffe00 = NUL
-source-6fb485c5b5dd1b24 = NULO
-source-8629c5c653f17cc4 = Nulo
-source-370bdb19c2fd07f3 = número
-source-862d0fc653f43059 = Núm0
-source-862d0ec653f42ea6 = Núm1
-source-862d0dc653f42cf3 = Núm2
-source-862d0cc653f42b40 = Núm3
-source-862d13c653f43725 = Núm4
-source-862d12c653f43572 = Núm5
-source-862d11c653f433bf = Núm6
-source-862d10c653f4320c = Núm7
-source-862d17c653f43df1 = Núm8
-source-862d16c653f43c3e = Núm9
-source-af64024c86022d1e = oh
-source-730182ad28374cda = Objeto
-source-88b32bd40e072050 = Superficies de violeta obsidiana y toques de lavanda en tonos claros y oscuros.
-source-302cbb19bf9a174a = Apagado
-source-cde3342a428aaee8 = Desconectado
-source-a9606d1529af3891 = Demostración sin conexión · Se simulan acciones.
-source-9f59bb3aa71d6244 = Demostración sin conexión: importe el paquete local en su lugar.
-source-55a15d18c0bb75c7 = Accesorio sin conexión · ventana emergente de cuenta abierta al inicio
-source-e07092fc09a9d8b5 = Dispositivo sin conexión · la acción afectó solo a la RAM sintética
-source-7124901374a06ca0 = Dispositivo sin conexión · ventana emergente de emoji abierta al inicio
-source-eb12a8c1836ae490 = Accesorio sin conexión · prueba de notificación explícita del sistema
-source-deee7861bbc3a8f0 = Accesorio sin conexión · Ventana emergente GIF abierta al inicio
-source-2419690b905611ef = Dispositivo sin conexión · cuadro de diálogo para unirse al servidor abierto al inicio
-source-d695e4ecca4a2d01 = Accesorio sin conexión · visor de medios abierto al inicio
-source-873b40bdebeaaaec = Dispositivo sin conexión · ventana emergente de mensajes fijados que se abre al inicio
-source-52ad4c7f4c45267a = Accesorio sin conexión · barra de respuesta y fila de escritura mostradas al inicio
-source-d54514c41508c13f = Dispositivo sin conexión · selector de pantalla compartida abierto al inicio
-source-62252eee05c3d214 = Accesorio fuera de línea · archivo adjunto sintético organizado en el compositor
-source-cd0059600f0b5278 = Dispositivo sin conexión · archivo adjunto sintético preparado en el compositor
-source-908ac39ced36aaf5 = Accesorio sin conexión · mensaje pendiente sintético; no cargar ni enviar
-source-f562de210af35e07 = Accesorio fuera de línea · tarjeta de perfil sintético abierta al inicio
-source-3232bff487031902 = Dispositivo sin conexión · búsqueda sintética abierta al inicio
-source-f96c1d6edb549787 = Accesorio fuera de línea · tres archivos adjuntos sintéticos organizados en el compositor
-source-6d9aab6d994bebb1 = Dispositivo sin conexión · se muestra la tira no leída y la barra de mensajes antiguos
-source-553a3751743895b0 = Accesorio sin conexión: selector de pegatinas
-source-9ddf685aefec8b0f = Vista previa sin conexión: la creación y unión de servidores están deshabilitadas.
-source-4e646fd088f3393a = Vista previa sin conexión: la creación está deshabilitada.
-source-c8c672a12ac48707 = La vista previa sin conexión no contacta las aplicaciones
-source-18e212d4261a8714 = Vista previa sin conexión · sin cambios de grupo
-source-1261d0321c701030 = Vista previa sin conexión · no se captura ninguna pantalla
-source-cecbb02d477a9ffc = Vista previa sin conexión · sin cambios en el servidor
-source-cb4190bf096c91e9 = Vista previa sin conexión · no se recibe ninguna transmisión
-source-af75c1d6dae5d627 = Vista previa sin conexión · no se contacta con ningún servicio de verificación.
-source-fc0e345795c3f3a0 = Vista previa sin conexión · sintética
-source-9f8ad73046bd4b7f = Vista previa sin conexión · cuenta sintética
-source-de78c36f144a8aec = Vista previa sin conexión: unirse a servidores está deshabilitado.
-source-eb73c7bdb782670c = Vista previa sin conexión: no compartida ni guardada.
-source-05cc8574ed5844cd = Vista previa sin conexión: actividad sintética, nunca compartida ni guardada.
-source-f71b0e953940852a = Se aprobó el flujo de actualización sin conexión, la compatibilidad de preferencias y la representación de configuraciones.
-source-c0337e59aed9a364 = validación del actualizador fuera de línea
-source-56293f4fa14777fe = El inicio de Ogg debe detenerse después de los encabezados
-source-813e66c099d9d705 = oggs
-source-091d5d07b5b33dcf = De acuerdo
-source-c032b109be3096a1 = Más viejo
-source-50cad7d307c3dc6e = Publicaciones archivadas más antiguas
-source-f3df2eaeb55cbf6b = Pines más antiguos
-source-8577fa7f8eaf5558 = HILOS ANTIGUOS
-source-3dc0668ec9ea5802 = Cuentas de Discord más antiguas
-source-f5e8ed5d0cb38be2 = entrada más antigua
-source-da134a52656c41b0 = El más viejo primero
-source-54508e71981dc175 = Miembros más antiguos
-source-2e3f650df89cc65d = textura más antigua
-source-f68c46468416704b = encima
-source-6cbbe9055a28027f = un mensaje acotado encaja
-source-4f0334407935a2e4 = Una comprobación rápida
-source-eadeb3a807d7478a = En línea
-source-5ce39f9435dffd7c = Sólo @menciones
-source-3706a26fc1ddab85 = Sólo afecta la forma en que este miembro aparece en este servidor.
-source-f26a4de46f67d9f9 = Sólo permitir que los moderadores apliquen esta etiqueta
-source-41d9e6546f59cec0 = Sólo desde servidores donde también permites Mensajes Directos.
-source-e536e25ff2aa4b75 = Sólo los moderadores pueden aplicar esta etiqueta.
-source-fd228852d1bcb9d1 = Solo los miembros y roles seleccionados pueden ver esta categoría. Los canales sincronizados siguen sus permisos.
-source-5e3d80e43fcc9836 = Solo los miembros y roles seleccionados pueden ver este canal. Los administradores conservan el acceso.
-source-7e9c04b4f18898ba = Comparta únicamente imágenes de su propiedad o que tenga permiso para usar. Mantenga la atribución requerida.
-source-3c4a2c49190583dd = Transmita únicamente sonido por encima de este nivel. Los valores más bajos captan un habla más tranquila.
-source-b66f498db84b2acd = Sólo tú puedes ver esto •
-source-2e2fc90b53ae3732 = Sólo tú puedes ver este apodo. No cambia el nombre de su servidor.
-source-66cf0d1df45a433c = Sólo tú puedes ver esta nota. Se guarda en su cuenta de Discord.
-source-1f7698c061c208c9 = Abierto
-source-bdfaf2ff4591e9cb = Primero abre un DM con este usuario o elige un amigo con /msg.
-source-0d9f361f14a27471 = Abra un archivo de paquete desde esta computadora.
-source-c8c458e4ded64fe2 = canal abierto
-source-a6b9589dd15b27f1 = Abrir imagen para insertar
-source-bfa4880bcf9c2305 = ¿Abrir enlace externo?
-source-210095d367b65ea8 = Abrir Amigos / Inicio
-source-f491b07a7bdbffd0 = Abrir imagen
-source-cccb44350fd2de2c = Abrir imagen…
-source-c2345660b578ed10 = Abrir en el navegador
-source-0cd0e08453708738 = Abrir en discordia
-source-3ea798aa0afd48e9 = Abrir enlace…
-source-e121164e43f8460d = medios abiertos
-source-aeb8874e785ef329 = Micrófono abierto sin supresión, cancelación de eco ni ganancia automática.
-source-d433ca9090866e62 = Micrófono abierto. Silenciar y presionar para hablar aún se aplican.
-source-ffd1f97b3bf2cc6c = Abrir original…
-source-c85c20c423dd80bd = Publicación abierta
-source-6a81f2f29c9f775e = Código abierto…
-source-d6046ba0da6c33c1 = Abrir los mensajes no leídos de la conversación actual
-source-d7968f13927ad944 = Abra el selector nativo de pantalla compartida para la llamada actual
-source-0e59ff1e05a0917f = Abrir los hilos de este canal.
-source-27dfb882d39365e3 = Tema abierto
-source-3f77e56ef959b303 = Hilo abierto
-source-a34407db7a1a8005 = Abrir herramienta
-source-827a6534f458557d = Abrir perfil de usuario
-source-9df9322e025638d6 = Abrir vídeo…
-source-dcea0d284cab270e = Abriendo cámara...
-source-b9c26c5608299e42 = Abriendo micrófono y parlantes…
-source-8e9ebbb06e3b9b4c = Abrir esta conversación directa ya no está disponible
-source-ddf803060176952b = abre el dispositivo de salida de audio local a volumen cero; verificación de reproducción sin conexión explícita
-source-4802e47fe2e95134 = Opción
-source-cc7a3682dd25ae19 = Opcional
-source-74dbe7e55e4505d4 = OpusHead
-source-c21492c1a4675423 = OpusEtiquetas
-source-f87721294366a17d = O enviar un enlace de invitación al servidor a un amigo
-source-672ba61ecccbe297 = Haz tu pedido en esta página
-source-e7ebc29bb47e8edd = Organice las discusiones en publicaciones separadas.
-source-ed9a8bb45c917185 = osu!
-source-1d27698210c63656 = Resultado desconocido: verifique el destino antes de reenviar
-source-54a47864c5da0977 = anillo saliente
-source-fd77270c3f54f664 = Producción
-source-eb50b65932353935 = Ganancia de salida (%)
-source-c907ffeeafb021d1 = Configuración de salida
-source-2a7536b72e043644 = Afuera
-source-4ff8804ab63f5bdd = Anule la configuración de Apariencia predeterminada para este tema.
-source-4fc0dcc5fb30fe93 = Se acepta directorio ZIP de gran tamaño.
-source-3d197283cb019b5a = Descripción general
-source-af640d4c86023fcf = PAG
-source-608cd4ccb45f9d99 = El paquete no coincide con el manifiesto revisado
-source-e60d2800ca6a8831 = Paquete inspeccionado. Revise su fuente y capacidades antes de habilitarlo.
-source-74f3b83071bf24e6 = Actualizaciones del administrador de paquetes
-source-72ee704e9e1cb74f = paquete.AppImage
-source-fc643e610604d927 = paquete/Serein.app
-source-15831592a43c6b50 = Pacman (Arco)
-source-952c26cac2583cfe = AvPág
-source-c205408d70cf40cb = Re Pág
-source-db590927fb6744da = Parcial
-source-7c89ad4312eaf268 = archivo parcial
-source-b9db2ac3aa496f0e = Partícipe
-source-5a46f9e4d4d9b108 = La lista de participantes no está disponible mientras está desconectado
-source-a7613d2b90c0d422 = Lista de participantes no disponible con el acceso actual.
-source-3b154d612405d624 = Las contraseñas y 2FA permanecen en la página de inicio de sesión de Discord; solo se conserva el token de sesión en el almacén de credenciales de su sistema operativo.
-source-7b3ab5a0027e0e72 = Pegue un archivo local con una ruta compatible
-source-851e38fdfc135937 = Pegue una imagen con como máximo 4 millones de píxeles
-source-f8fb8cb5fd5efb91 = El texto pegado supera el límite de borrador
-source-061cc20e3432dead = Pausa
-source-c0aad3bada6a2503 = Pausar invitaciones
-source-806181d6767cb523 = Altura del mensaje pendiente resuelta
-source-6bc837237e36cfdd = negociación pendiente
-source-27978edca84ba459 = La publicación pendiente debe permitir su carga.
-source-95f78e7bf229fee0 = cambio pendiente
-source-9cace6ede455728e = GENTE
-source-4854cd48f30ff8ee = Gente
-source-ddacfd6303ecdff4 = Personas y canales
-source-9dc321f25a233e8b = acción realizada
-source-ea2adb1f2047d144 = Período
-source-e8dca0132c66ae03 = Permisos
-source-f8dd3a19ce935eae = AvPág
-source-f8aa2a19ce67e9e5 = Re Pág
-source-36be3358a306d616 = (Íconos de fósforo)
-source-8d4ea219f3be900f = PHP
-source-b58a986d783bbebf = Elige un emoji predeterminado que tus miembros usarán para reaccionar a una publicación de este canal.
-source-8db89619f41917b4 = Alfiler
-source-e696eb8987efa89f = Pin DM
-source-c706b4e457ebf5db = Fijar mensaje
-source-d0dc1cd29b880358 = Fijar mensajes
-source-a78a6609e99b31b6 = Fijar publicación
-source-5cea80fa4be26124 = Hilo de pasador
-source-44851a8adf059eef = Fijado
-source-5f9d5d7b441e1c46 = Los mensajes directos fijados se guardan en este dispositivo.
-source-4ae3dd42749e1c7c = Mensaje fijado
-source-fcc1234c7817b89d = mensajes fijados
-source-8e7a241393fbd55d = Mensajes fijados
-source-fecf630a50860c61 = Los mensajes fijados no están disponibles
-source-89e846d82b9845bb = Los mensajes fijados no están disponibles mientras estás desconectado o sin acceso al canal.
-source-c8025afb9e1c4f57 = PKx01x02
-source-7f387ed820dbcb8f = PKx05x06
-source-a83631951ce5cdaa = Vista web de inicio de sesión en la plataforma no disponible
-source-5917a63ad0123578 = Vista web de inicio de sesión en la plataforma no disponible; ver plataforma-support.md
-source-cd105819b5a10243 = Jugar
-source-2e38f0c09c71f2a7 = la reproducción no pudo seguir el ritmo del tiempo real
-source-bf037cc5a99f1763 = la reproducción recibe PCM antes de la decodificación completa
-source-c6a07b2c2125e503 = reproducción agotada
-source-308604b3ae13fbb5 = Jugando
-source-1073b7e447f13237 = Reproducir un mapa de ritmos sintético
-source-66af460c96888f1b = Reproduciendo sonido de notificación...
-source-e392b792763e0ccf = ¡Jugando a osu!
-source-6a81ff5f272ff64f = Reproduciendo su micrófono a través de los parlantes seleccionados.
-source-1f5c2638403b9a3c = Espere un minuto entre comprobaciones de actualización.
-source-6b16791d5fc658ea = Espere por favor...
-source-71b80d1e85384a60 = Espere por favor…
-source-3409ff086bb765da = Complemento
-source-c1b7b852fe0a84b7 = No se concedió el acceso al complemento
-source-c807e1906c25af4f = La activación del complemento debe requerir un permiso explícito
-source-cd408d41d1afb470 = Los datos del complemento superan el presupuesto de almacenamiento otorgado
-source-1ed1dcb59d31ed31 = Los datos del complemento no son válidos
-source-a222bb43d16f0578 = La entrada del complemento supera los 256 KiB
-source-8c009332ddf5525e = El complemento está deshabilitado
-source-09421b07b5d1e9e6 = P.M
-source-958641a82284fd77 = PNG o JPEG, hasta 2 MiB
-source-915028b5e911d855 = PNG o JPEG, hasta 2 MiB. Esta imagen no cambia el fondo del chat.
-source-52b0dc220084dd64 = PNG, JPEG, GIF o WebP hasta 8 MB. Recortado a un cuadrado.
-source-7678cc553d3d561d = Encuesta · Vista previa no disponible
-source-b357ea19a722d827 = Correo
-source-ce759dc1c73bbf36 = Pautas de publicación
-source-73bdcc27b99cad54 = Publicación no creada; Vuelva a conectar y seleccione el archivo adjunto.
-source-330cbe4bb25a6fe9 = Título de la publicación
-source-d877d3e3a6593bb5 = La publicación requiere una sesión conectada con permiso para enviar aquí.
-source-d7d4b30bc730d74e = Publicar en
-source-c17d6e0a994ce337 = Destino…
-source-e13b1d97003596bc = Publicaciones
-source-9b3a5b083b2ec2da = Las publicaciones de estos canales seguidos se entregan a su servidor.
-source-2b5047d39b9baf3d = Preferencias
-source-78e8154150f1977e = El icono preparado supera los 256 KB; elige una imagen más simple
-source-e0c04be2d16bf1d6 = El icono preparado es demasiado grande
-source-7b6f8c5a694fbe72 = La imagen preparada es demasiado grande; elige una imagen más simple
-source-000ed08319e7d0a3 = La pegatina preparada supera los 512 KB
-source-046dc2e760ebd389 = Preparando imágenes emoji...
-source-a722c7fde3b3e7c4 = Icono de preparación…
-source-6c41aeaf07b17248 = Preparando el arte de las pegatinas...
-source-623ca9d324559af9 = Preparándose para reiniciar…
-source-07e50975ca0e4ac0 = Preparando la carga…
-source-896a051b3f1da3ab = Preparante...
-source-672a868be614a8de = Presencia no disponible
-source-4f7cb4cd7a37fd0e = Presione Entrar para iniciar una publicación con este título.
-source-edc3b8c9924eeef4 = Presione las teclas…
-source-417b90913e05bc17 = Avance
-source-bec5b05becb3347e = Cámara de vista previa
-source-70d21c5075061f99 = Vista previa en la aplicación
-source-69f799735cdb45ef = Vista previa no cargada
-source-607442e5b633da35 = Sólo vista previa; esta fuente no se guarda.
-source-ef3473bcf41edf90 = Vista previa de poda
-source-a4d57f3d68d8be6e = vista previa iniciada
-source-0351d58cf249e2f9 = Vista previa no disponible
-source-7092f4397b838b02 = Vista previa no disponible sin conexión
-source-1f781bc7f55b602c = Vista previa del tema
-source-1edfaa976c0a475f = Los dispositivos de audio anteriores todavía se están cerrando; inténtalo de nuevo en breve
-source-09d3d29472e6bed0 = La pantalla compartida anterior aún se está cerrando
-source-937563e328c2fafa = color primario
-source-e7bee6e9a9b5394c = Privado
-source-b3d2106827312041 = Los archivos privados requieren permiso del servicio.
-source-dba9ca43fb346bdc = Categoría privada
-source-2dee345e9f30cdf7 = Canal Privado
-source-94d813c08226af7f = Hay apodos privados disponibles para amigos confirmados.
-source-8d995819f3fdfdcb = PRN
-source-b15099c45ca2861a = Producción
-source-b061ff5a347a296e = Perfil
-source-045ae58f3ba2c27d = Color de perfil
-source-fb413a6520f68e8f = perfil editar nombre para mostrar acerca de mí biografía pronombres color color
-source-578611d7a6031374 = El perfil no está disponible
-source-7de0ee8b863c0b30 = Foto de perfil
-source-4b4c06aa2b6e5629 = Perfil guardado
-source-fb347c129f6ffa2f = configuración de perfil
-source-c497ffe6d9fc987f = Notas del proyecto · Ventana sintética
-source-52f7171195e80782 = Promesa
-source-bdba2b9136c15a98 = Solicite a los miembros que respondan los mensajes de bienvenida con una pegatina.
-source-213dc586881c44d1 = Pronombres
-source-c9ad04c067ea282d = Pronombres (vacío los borra)
-source-7282a96b438fc64a = Proponer agregar o eliminar mis reacciones para su aprobación
-source-e7f8aebfc62a6415 = Proponer llamada silenciar/ensordecer, abandonar o mirar una transmisión para su aprobación
-source-39c5c81e8e260e06 = Proponer cambios en la cámara, la pantalla compartida y el dispositivo multimedia local para su aprobación
-source-09fcf0a85d0fb0f3 = Proponer cambios de canal, categoría, conversación grupal y silencio para su aprobación
-source-e536168f636b2100 = Proponer texto del portapapeles para su aprobación
-source-1d7492217bf79895 = Proponer la creación y gestión de hilos o publicaciones en foros para su aprobación.
-source-fe4b1913abb988b5 = Proponer editar, eliminar o fijar mensajes para su aprobación.
-source-41262dff8fd077fc = Proponer habilitar o deshabilitar mi cámara para su aprobación
-source-0455ece182e22b78 = Proponer cambios de amigos, bloques, apodos y notas para su aprobación.
-source-5a1f61408bf792c4 = Proponer unirse, llamar o rechazar llamadas de aprobación
-source-76483ae3668f8cb7 = Proponer avisos locales para su aprobación.
-source-689e4cb487e341e8 = Proponer marcar conversaciones como leídas o no leídas para su aprobación
-source-43fb381909abad5b = Proponer acciones de rol de miembro, apodo, expulsión y eliminación para su aprobación.
-source-14ae041eeff7a613 = Proponer abrir conversaciones, perfiles, búsquedas y vistas de aplicaciones.
-source-9173a3df312b14d5 = Proponer enviar mensajes para su aprobación
-source-b11009ae0b877e3d = Proponer cambios de función del servidor para su aprobación
-source-c7c3a103c9e1e7a1 = Proponer cambios en la configuración del servidor, invitaciones, emoji y membresía para su aprobación.
-source-34539d164ee47142 = Acción de aplicación propuesta
-source-bd834b5296a9853e = Texto del compositor propuesto
-source-0fd50e8b10d74cd7 = Ciruela pasa
-source-6818b1e815d43260 = Podar miembros
-source-d8f81a1a34abe300 = Podar miembros
-source-f7ff1e5e5e370b2e = Miembros podados
-source-dd1ff479d04ac140 = Público
-source-c82192ae4dc0141b = Lanzamientos estables publicados. Cambiar de canal nunca instala una versión anterior.
-source-40bbf4a98d873400 = Empuja para hablar
-source-88b0d524c6412bea = Para hablar aquí es necesario pulsar para hablar. Habilítelo en la configuración de Voz.
-source-3f1a318ed131a6ea = Vuelve a poner la mesa.
-source-39938159c7a334f7 = Pitón
-source-af640c4c86023e1c = q
-source-f675f879b1c892c6 = Calidad
-source-15daee76414a1a07 = La selección de calidad no requiere Nitro.
-source-8a77d6a7eb6beb80 = Miembro en cuarentena con AutoMod
-source-b4f593d4c6b311a5 = Pregunta
-source-af640f4c86024335 = R
-source-09495507b5d86b22 = RC
-source-a8ca1cbccf57963e = Detalles de la reacción no disponibles
-source-9ff2ac475c7b07db = Reacciones
-source-eb6ea6df7a71fe4d = Reacciones no disponibles
-source-6299f50a2d3ff2f2 = Leer y proponer cambios en la privacidad de los mensajes de la cuenta para su aprobación.
-source-a1b3e4532467f761 = Leer y proponer cambios en la carpeta del servidor para su aprobación.
-source-3a9359ab859312f3 = Lea y responda mensajes directos directamente desde los chats del juego.
-source-2c24298259ec0c00 = Leer preferencias de audio; proponer configuraciones de audio, participantes y cambios de volumen de transmisión para su aprobación
-source-f37afea1a173f345 = Leer el estado actual de la llamada y los identificadores de participantes
-source-2a7b20fd76f6b569 = Leer metadatos, destinatarios y permisos del canal actual
-source-7d005268991292a2 = Lea los usuarios de mecanografía actuales y los pines cargados; observar reacciones
-source-fad63586871c2fe2 = Leer eventos de mensajes en vivo y texto en la conversación activa
-source-859c08b09812e56c = Leer temas, categorías, detalles de hilos y permisos del canal cargado
-source-77d979bd73d4cd06 = Leer texto incrustado, pegatinas y metadatos de referencia de mensajes cargados
-source-17793c0ef8605662 = Leer foros cargados y resúmenes de hilos
-source-02e5f347c88a415c = Leer miembros cargados de la conversación activa
-source-43ddc17f33dccbc5 = Leer respuestas a mensajes cargados, menciones, metadatos de archivos adjuntos y reacciones
-source-d4bce7f7e4daf2bf = Leer mensajes cargados en la conversación activa
-source-7cc838753603fd19 = Leer miembros, roles y perfiles del servidor cargados
-source-a0afe7e3c1222ed4 = Leer el estado de presencia del usuario cargado
-source-47bf117cb8a9b601 = Leer la configuración de lectura local y proponer cambios para su aprobación.
-source-2927e08a4d9b2110 = Lea la configuración de notificaciones y sonidos locales y proponga cambios para su aprobación.
-source-8bc338a1d0f91e8a = Leer historial de mensajes
-source-dc989f7ff528e0cf = Leer mi cuenta y los detalles de la conversación actual.
-source-0e699df0b74a19f1 = Leer mi borrador y proponer cambios de texto.
-source-11779c5d2f35d080 = Leer mis amigos cargados, solicitudes, usuarios bloqueados e ignorados
-source-4704ba3b0a399b9a = Lea mi perfil cargado, incluida la biografía y los pronombres.
-source-65805f3b6661acc8 = Leer los nombres e identificadores de mis servidores cargados
-source-0f1570eaf9c5cba2 = Leer su propia presencia y preferencias para compartir actividades; proponer cambios de cuenta para su aprobación
-source-bece36aa13c1b03c = Lea la lista de conversaciones cargadas y legibles
-source-98a2bd0bd50d001f = Leer el mensaje que elijo para una acción
-source-0642a2732ddb25fe = Números de lecturas no leídas y menciones en la conversación activa
-source-8fd59126eed71205 = La lectura y el diseño se guardan en este dispositivo, incluso después de cerrar sesión. Restablecer restaura los valores predeterminados.
-source-8154305d6b50855c = No se pudo guardar la lectura y el diseño; los cambios existen solo en esta sesión
-source-83e6f73b3e37c43f = Leyendo el inicio de sesión guardado para esa cuenta...
-source-3f15cf6f633a5d62 = LÉAME.md
-source-59dc812c244f088a = las lecturas siguen la demanda
-source-c678f2190f974ca7 = Reciba eventos de navegación y ciclo de vida de la aplicación mientras esté habilitado
-source-f2871427d0d11bd6 = Reciba cambios en los datos de cuenta y conversación otorgados por separado
-source-05902f6b5cbe9380 = Recibir la pantalla compartida de este participante
-source-01fdf50020983183 = Recibir si Serein aceptó una acción de aplicación confirmada
-source-e449f1215ef49707 = Actividad reciente
-source-ef5005edac8b82e7 = Actividad reciente
-source-e260d8331149ff45 = Miembros recientes
-source-a9300eb10e34199e = Usado recientemente
-source-14263cc7cff0feb3 = Los destinatarios aterrizarán en
-source-075e2cb33cb16386 = incorporado reconocido
-source-12f6b3b9aa6fe76c = Recomendado
-source-df78e162dbbb41fc = Vuelve a conectarte a Discord antes de llamar.
-source-7029a59905b2d0b1 = Vuelva a conectarse para cargar la configuración del servidor.
-source-a86ada92edab6a6d = Vuelva a conectarse para administrar este servidor.
-source-48c518388bfa1e7c = Reconectarse para actualizar la llamada
-source-009a8c415421a515 = Vuelva a conectarse para guardar los cambios.
-source-1cf6f6c7006bf73c = Vuelva a conectarse para guardar su perfil.
-source-8a4ff2bd9c13498c = Registro
-source-ba6de1cb37f26d0f = Reduzca el audio del altavoz captado por su micrófono.
-source-a7ad7555a637e0a0 = Refina tu búsqueda para ver más resultados
-source-7b7163270e57e8b4 = Refrescar
-source-e6c863c3adb1623c = Actualizar comandos de la aplicación
-source-0b7b28d123a8ae88 = Actualizar cámaras
-source-15f7f0a931709203 = Actualizar catálogo
-source-ff3380d0a231883f = Actualizar dispositivos
-source-3b58c1b7f6fce277 = Actualizar carpetas de Discord
-source-cfce14e5038df525 = Actualizar micrófonos, parlantes y cámaras locales
-source-bfca1ed1418f03d1 = Actualice el catálogo o importe el paquete de un creador para comenzar.
-source-93787245395a7f94 = Actualice el catálogo o importe este paquete nuevamente.
-source-123da0f92f97dd86 = Rechazar
-source-38ace4d40716aac1 = Se reincorporó
-source-c83246e618430136 = Emojis relacionados
-source-f948766d516f998d = Canal de lanzamiento
-source-03edf13757dea515 = Los metadatos de la versión superan el límite de tamaño.
-source-d5b6130b4937488c = Recargar
-source-a1e19fe0d955f8b7 = Recargar canal
-source-91896afddbd4830f = Recargar integraciones
-source-f333c9173a2427ec = Vuelva a cargar las integraciones antes de realizar más cambios. Se conservará su borrador.
-source-3d6a71c726a586ea = Recargar invitaciones
-source-998c0beb7bc529e0 = Recargar pines
-source-775b73a686645051 = Recargar perfil
-source-7f8dd350b6c07e64 = Recargar reacciones
-source-1080b5a97d104d2d = Recargar roles
-source-2f92ab35eb987085 = Recargar nota guardada
-source-f56c4fca7d746608 = Recargar la configuración del servidor
-source-bb44a7c8f0f78637 = Vuelva a cargar la configuración del servidor antes de guardar nuevamente. Se conservarán sus ediciones.
-source-1ebe8baf644039da = texto restante
-source-16835bc2c441b2fe = marco remoto insertado
-source-ea4f08110bb8f15d = Eliminar
-source-f80f4b704dba8250 = Eliminar fechas
-source-c6687f397e3927fb = Quitar emojis
-source-1bc32fa2cf4113eb = Eliminar amigo
-source-6dbdc5a62b94b13c = ¿Quitar amigo?
-source-1f499e8a73feea66 = Eliminar de favoritos
-source-340de08a838127e4 = Eliminar de favoritos GIF
-source-53a9310a10c88406 = Quitar icono
-source-7e363216123744e6 = Quitar icono
-source-7c136cb4e38bacf7 = Eliminar integración
-source-61d7d450d8f46878 = ¿Eliminar la integración?
-source-139e9afa047d2fc6 = Eliminar mensaje
-source-72d51f6b2abacc40 = Eliminar rol/miembro
-source-65345193d57a242d = Quitar etiqueta
-source-5ee8fe87cb64e8a6 = Elimina esta conversación de tu lista de mensajes directos. Los mensajes se mantienen.
-source-53cee0fb23fcda55 = Elimine este tema y elimine sus datos locales.
-source-1755b68c3ebf1f0d = Eliminar rasgo
-source-068bc98e26b78314 = Retire su
-source-910b11ba5f4300d5 = Elimina mensajes y medios almacenados en caché. Los borradores y su inicio de sesión permanecen.
-source-84aa5a4911f9ba02 = Elimina miembros inactivos que no desempeñan funciones adicionales.
-source-4cb60b1130d12dcb = Elimina el ruido del teclado, el ventilador y la habitación de su micrófono.
-source-8b107f398988112f = Elimina el inicio de sesión guardado y borra el caché y los borradores locales de esta cuenta.
-source-4d869154c93ddc21 = Elimina esta extensión y elimina sus datos locales.
-source-43059e2db8e43abf = Eliminando datos de extensión antes de cerrar.
-source-4b27cb66aaf37dac = Eliminando el inicio de sesión guardado...
-source-60320a18282b2b33 = Rebautizar
-source-cdc372fbaad1ecc1 = Cambiar el nombre de los emojis
-source-76a1cf16e19609aa = Los bloques de semillas repetidos excedieron el presupuesto correspondiente.
-source-e5359052096240f4 = Reemplace la cubierta
-source-e9a18580e9728abe = Reemplazar imagen
-source-e1f33b64570245fb = Reemplazar el diseño de la carpeta del servidor de la cuenta
-source-32679eb7255a58c7 = Reemplazo
-source-8e53316cda490a28 = Fuente de reemplazo 日本語
-source-10673825f65de969 = búsqueda de reemplazo
-source-81a19821f3e4a3d2 = Repetición
-source-0b7ae9543c001867 = Responder
-source-17d1e647b0f606c1 = La respuesta no está disponible o excede el presupuesto de entrada
-source-73c51ecc6e5c0c5f = Solicite y lea resultados de búsqueda, pin, hilo, miembro, perfil y GIF delimitados
-source-3f0b9f0cbcb49e15 = Se completó la limpieza del historial solicitada; La caché del historial permanece deshabilitada hasta que se reinicia después de un error de almacenamiento.
-source-1665e9eda5973238 = Solicitando conexión para compartir pantalla...
-source-16f6b159aabbcffd = Solicitando la transmisión…
-source-a826e11988d49785 = Requerir que las personas seleccionen etiquetas al publicar
-source-3e240030b195eb63 = Requiere transparencia y desenfoque en la apariencia, luego reiniciar la aplicación.
-source-255857544a9d5ec0 = Reiniciar
-source-6a50ce44affe0376 = Restablecer chat
-source-b527763ec611e3e6 = Restablecer diseño
-source-dacf92c51c3c97ef = Restablecer niveles
-source-61f6e5c28e45b092 = Restablecer volumen
-source-6e959439db98d247 = La obra de arte redimensionada tiene más de 8 MiB
-source-1a59de325dfe58c2 = metadatos resueltos
-source-b4b933c406aeef60 = Reinicie Serein después de cambiar esto. Los temas pueden personalizar los efectos mientras están habilitados.
-source-9b9794a36a84b666 = Reiniciar para actualizar
-source-26f91b6796e33111 = Restaurar
-source-4c045ad8386da940 = Restaurar al compositor
-source-890e983a7be64da4 = Resultado
-source-e943126c0c2298bf = Resultado descartado porque la conversación o borrador cambió.
-source-ca1a826088564455 = Resultados
-source-89118d3a7be870ca = Reanudar
-source-99e7b2125d2dd2a4 = Reanudar invitaciones
-source-2c8189544e3ea679 = Rever
-source-8fb4a8104dc5099d = Reintentar la limpieza
-source-77ce63b9a6354a49 = Reintentar pines más antiguos
-source-ebfd03fb647684c4 = Reintentar perfil
-source-6c41549f2b41c8ae = Reintentar guardar la configuración de lectura
-source-c5d9d91a0e98a190 = Reintentar detalles de la etiqueta
-source-473beb2d5bbf13b8 = Reintentar paquetes de pegatinas
-source-31964fcdbe2dc0c2 = Revelar spoiler
-source-532133fec0ac1263 = Revelar archivo adjunto de spoiler
-source-569ae3a37cb09c55 = Revelar componente de spoiler
-source-d0beaa7f86071516 = Revelar medios spoilers
-source-a71f3a7d439a96e6 = Revisar y habilitar
-source-4168c0b41e00280e = Etiqueta de revisión
-source-9b40a2cbdfe94e10 = Revise la nueva versión antes de que reemplace esta versión.
-source-e1b5b5200f58e174 = Revisa el resultado. Las acciones de la aplicación y los borradores de cambios necesitan su aprobación.
-source-18499f72bb532165 = Revise este servidor y luego elija Unirse al servidor.
-source-988da3045445ce0f = Revisar cargas
-source-b89d8d8bc0c08e98 = Revisado
-source-d8e1fc7538c8d924 = Revocar invitación
-source-48d753e395f68144 = Revocar invitación
-source-bc6506b7d1de0401 = ¿Revocar invitación?
-source-f3449c2c980f8250 = RIFF
-source-3435c3f0cd8719cd = RNRuido
-source-0adfce032fa95288 = RNSupresión de ruido, cancelación de eco y ganancia automática de voz.
-source-c1f392a7dc96341b = Petirrojo
-source-ca7fed2bef53cb99 = Role
-source-8c8a7845700d51fe = Acciones de rol
-source-aba5f3b627a900fa = Color de rol
-source-ba16b16dc887a7aa = Icono de rol
-source-62ff009599ec1ff3 = No se pudieron cargar los miembros de la función. Vuelve a cargar o cambia la búsqueda para volver a intentarlo.
-source-17986a8a77d86200 = Nombre del rol
-source-47a0237a20e2cb3c = Estilo de rol
-source-6b2beba7ab637e9e = Roles
-source-801cecb30f763b5e = FUNCIONES
-source-b4f157ed71280936 = FUNCIONES/MIEMBROS
-source-ea52df2b70a5c10d = Rubí
-source-fe66f627e8bf06bc = Ejecute Serein desde su AppImage para instalar actualizaciones.
-source-ea8ce02b70d73b07 = Óxido
-source-af640e4c86024182 = S
-source-4d40406fca0909da = Sam (sintético)
-source-590fc8d846a78850 = Conversaciones de muestra. Sin conexión de Discord.
-source-59a8c35c86b563e4 = Mensaje de muestra
-source-33f85f24c0f5f008 = Ahorrar
-source-f6bd38782a811135 = Guardar y aplicar
-source-870f7b2f8c27e219 = Guardar cambios
-source-031945e67717bf79 = Guardar cambios
-source-6c634d114bce0615 = Guardar imagen como…
-source-4f128a472e319de2 = Guarde o descarte los cambios en la configuración del servidor antes de abrir la conversación.
-source-f25bcf5c9ab907a8 = Guardar etiqueta
-source-d9ee4197b17aab46 = Guardar en favoritos GIF
-source-14decb5195aa34af = Guardar vídeo como…
-source-0bdb473d4fe0066b = Cuenta guardada eliminada de este dispositivo
-source-db47c9175c2af7b0 = Cuentas guardadas
-source-666717eb96d5e498 = Las preferencias de canales guardadas están dañadas o son incompatibles con esta compilación.
-source-7bf59be69a16cd3f = Las preferencias de canales guardados están completas. Elimina un favorito o pin, o expande una categoría.
-source-71b2680c91e113b9 = Borradores guardados restaurados; revisa la conversación antes de reenviar el texto recuperado
-source-305b3f3ed2a17e73 = Guardado en vista previa
-source-b36cd269570070f5 = Se encontró el inicio de sesión guardado; conectándose a la discordia
-source-fd2b16647eb92918 = El inicio de sesión guardado no es válido. Inicia sesión con Discord nuevamente.
-source-ce33d3429a3dc5d1 = Se eliminó el inicio de sesión guardado
-source-f790510720d5a8fd = El inicio de sesión guardado no está disponible; no se pudo iniciar la búsqueda de credenciales
-source-5c6f84e96503da2a = El inicio de sesión guardado no está disponible; inicia sesión con Discord. Sin respaldo de texto plano.
-source-40a16d07a72ea80a = No se pudo cargar la lectura y el diseño guardados; usando valores predeterminados
-source-2bd3f521b037d156 = Los borradores de texto guardados sobreviven a la salida; Los archivos seleccionados deben volver a seleccionarse. Al cerrar sesión se eliminan los datos de la cuenta local.
-source-fd29a34b05fe1d6d = Los borradores de texto guardados sobreviven al cambio; Los archivos seleccionados deben volver a seleccionarse. Esta cuenta permanece en el conmutador.
-source-4d318e067bd48668 = Guardado con tu apariencia. Los ajustes preestablecidos de degradado siempre utilizan texto oscuro.
-source-b34cec0d614c6ad0 = Se agotó el tiempo de espera para la verificación de inicio de sesión guardado. Inicia sesión con Discord; el almacén de credenciales no respondió.
-source-0001573615d2e279 = Restauración del inicio de sesión guardado cancelada
-source-c83d273276aa51bc = Guardando cambios...
-source-07c0db31793104ae = Guardando cambios…
-source-4248894fbd7aa5d0 = Guardando fuente…
-source-fb7b74cdca8cc83b = Guardando cambios locales…
-source-10ec6769ba70fc4a = Guardando perfil…
-source-a0fd9c241cd68d88 = Guardando lectura y diseño…
-source-61c51a921de4855b = Guardando rol…
-source-7572c5bd72e919f9 = Guardando configuración…
-source-1bdc0b745a2497a9 = Guardando la configuración de inicio…
-source-717d4a2cd3f7d66f = Ahorro...
-source-329e062dd1fdf61d = Ahorro…
-source-2f1ff26c6453749a = escala=w='max(2,min(1920,iw))':h='max(2,min(1080,ih))':force_original_aspect_ratio=disminución:force_divisible_by=2
-source-9b8312fad4a3f6eb = Escala el texto y los controles en toda la aplicación.
-source-744d993d03f29851 = Pantalla
-source-b69cf5b21faba122 = Captura de pantalla detenida
-source-fa63b7f287b06bfa = Pantalla o ventana
-source-50b181964fcd13fb = Vista previa de pantalla · esperando a otros
-source-70017df1375408ed = Sonido de compartir pantalla
-source-86c1783939f223ec = Compartir pantalla que estás viendo
-source-ad8a45267315dc52 = Compartir pantalla no está disponible en la llamada actual
-source-8a01cce72e5665a1 = Compartir pantalla no está disponible en esta plataforma
-source-4739e0051c41d4d0 = Compartir pantalla requiere una llamada conectada y un permiso de video en un escritorio compatible.
-source-08e5a969a8e0ce42 = Compartir pantalla requiere la llamada conectada actualmente
-source-6d81d7ebe44dfb44 = Se detuvo el uso compartido de pantalla
-source-eaca8c23bd1c5b2d = Se detuvo el descubrimiento de la fuente de la pantalla
-source-305c701964bc64eb = No se envió la acción de compartir pantalla; la cola de voz está llena
-source-1a7b38e67d731ab1 = La conexión de pantalla compartida finalizó
-source-bc59488feecdff2c = Se eliminó el permiso para compartir pantalla; dejar de compartir
-source-c2536e077514accc = Desplazamiento
-source-f6bf0e7886e7dc6f = Velocidad de desplazamiento
-source-5d929ff1619ac0c9 = Buscar
-source-ac2b1f7c96f136d9 = Busca GIF animados.
-source-511cf4ad87d404c8 = Buscar por nombre de usuario o ID
-source-a9d13f71e8de590f = buscar emojis
-source-c678b06185ed372f = Buscar emoji por nombre
-source-01d0dd8e57c5856d = Extensiones de búsqueda
-source-d54fce8458776b2e = Buscar
-source-1dba3a368b42bbdf = buscar amigos
-source-ec07ac2e601c3b11 = Buscar nombre del hilo
-source-1b844e05478f6f04 = Buscar GIF en KLIPY
-source-9d4f40b2b35982d7 = La búsqueda no está disponible mientras está desconectado
-source-fd20b1e076872634 = Buscar KLIPY
-source-86dae239544ca363 = Buscar publicaciones cargadas o iniciar una nueva
-source-71c69d9e6f99a34e = Buscar miembros
-source-ef00bdf45313e7e1 = Buscar mensajes en esta conversación
-source-d278d4db5324488f = Opciones de búsqueda
-source-e35d22bb1a71307d = Buscar o crear una publicación...
-source-045291a4cc6001dd = Permisos de búsqueda
-source-5643568b7c038f43 = Resultados de la búsqueda
-source-b9eb9a734a9361f4 = Roles de búsqueda
-source-7bc3a4a5a8382329 = Buscar roles o miembros cargados
-source-b901449675b474d6 = Configuración de búsqueda
-source-64d6b96e444f3b15 = se debe permitir la búsqueda
-source-0c2fb89655eb7eff = Buscar pegatinas por nombre
-source-8cdffd7c5229b4a5 = Buscar temas
-source-6941bde74e3b3492 = Buscar esta conversación
-source-a637bb8f70a4a981 = Buscar usuarios
-source-5e0c26d1eb4983fe = Busca tus pegatinas.
-source-8f7a05e1cd7b166e = Buscando KLIPY…
-source-fe515bf2902cac81 = Búsqueda…
-source-8161d3e880287d94 = Segundo color degradado
-source-35b679156b635a64 = Texto secundario
-source-4eb7f7fecd1fe546 = la sección pertenece al gremio
-source-0929c5f49b0019b1 = Opacidad de la sección
-source-043db9078fc00072 = Asegurando el vídeo de la pantalla...
-source-6dfce8fa9f22b62c = Asegurando la corriente...
-source-5788d924d55d3ff1 = Buscar
-source-08e41fcb00632f3e = buscar vídeo
-source-59a2050d3144eda4 = buscar mensaje de voz
-source-b2fb42aeaa1672d2 = Seleccione una cuenta antes de habilitar los complementos
-source-6a86404d6e509af4 = Seleccione un área y luego elija qué parte de la imagen se muestra.
-source-487bfc8b355fe465 = Seleccione un canal de voz de servidor o DM existente
-source-3b84d9505bae0fcb = Seleccionar emojis
-source-c14632800a845f4a = Seleccionar etiquetas
-source-fb483eabd7e724b2 = Selecciona dónde quieres compartir este mensaje.
-source-669cf054132226bb = Sección seleccionada
-source-d0f64e831fda5436 = Al seleccionar la obra de arte, se envía como una imagen adjunta.
-source-0380652457f8ba15 = Selección
-source-57a6e624d5765397 = Ser
-source-57adf424d57c8a0f = Enviar
-source-357e0427bcca1f7a = Enviar un GIF
-source-c30077075bd6557a = Envía un mensaje cuando alguien mejore este servidor.
-source-23f23b682f286960 = Envíe un mensaje de bienvenida aleatorio cuando alguien se una a este servidor.
-source-8c33074f7ead1f59 = Enviar GIF
-source-9395e47754f7303a = Envíe consejos útiles para la configuración del servidor.
-source-d2632761f8bc7cbd = Enviar mensajes
-source-60b71a5bfe59d6dd = Enviar mensajes en hilos
-source-f706fa9a8fec5f9f = Envía mensajes, imágenes y archivos.
-source-f1fce0d77a9ad6cc = Enviar o eliminar archivos adjuntos existentes antes de seleccionar una imagen
-source-65bbc49271a82f81 = Envíe o elimine los archivos adjuntos seleccionados antes de usar /msg.
-source-04a336a5c2a847ab = Enviar mensajes de texto a voz
-source-1ba1e394bad0e4d8 = Envíe actualizaciones de sus aplicaciones y servicios a un canal en este servidor.
-source-6e91488cc098227f = Envía lo que reproduce tu Mac junto con la pantalla. El audio de la propia llamada de Serein queda fuera.
-source-f44572f297b915c0 = El envío desde historial separado debe solicitar la página actual
-source-41e2e5317dd14289 = El envío no está disponible o excede el presupuesto de entrada
-source-0392ff1b723d0682 = Enviando mensaje…
-source-0d1ec2ca1edf2abf = Envío…
-source-57ade424d57c6edf = Enviado
-source-167e5a02e3f6ba3c = Enviado por cualquiera de los tipos de autor seleccionados
-source-266899d6441ecba1 = Enviado por cualquiera de los usuarios seleccionados
-source-cad2d591cadc16af = serena
-source-f392efddac5fb934 = Serein lo aclara
-source-f590eb8e7c5e4be6 = Sereina personalizada
-source-7574ac78ac482f41 = Serein personalizado mediano
-source-03365973b729d5e7 = Serein personalizado seminegrita
-source-c23a4b40071920f0 = Serein no recopila telemetría ni carga diagnósticos. Discord retiene datos del lado del servicio de acuerdo con sus propias políticas.
-source-be324a622506b819 = Serein está al día en este canal.
-source-2acf1f5854f87516 = Serein se instaló a través de su distribución. Ejecute esto en una terminal para actualizar.
-source-42736cb61d724206 = Serein.aplicación
-source-662d070cf6f7c46a = Serein.app/Contents/MacOS/serein
-source-805766bbb3fa3b80 = Serena/
-source-371d829bf04998db = SEREIN_CHANNEL
-source-93a967981cf6e20e = SEREIN_FRAME_DIAGNOSTICS
-source-62721c625b369749 = SEREIN_GATEWAY_DIAGNOSTICS
-source-4bb1680ded56386d = SEREIN_MEMBER_DIAGNOSTICS
-source-21628c14859268ae = SEREIN_VIDEO_MUESTRA
-source-b5782c425a21b019 = Ruta SEREIN_VIDEO_SAMPLE
-source-7552f6fd66393ff6 = SEREIN_VIDEO_SAMPLE proporciona un clip sin conexión; abre la salida local silenciada
-source-111425d6402a4445 = SEREIN_VOICE_DIAGNOSTICS
-source-5afcaa918bbb91b2 = Servidor
-source-334ca50e41e21afc = La administración del servidor no está disponible con los permisos actuales
-source-e9672a634396a285 = Impulso del servidor
-source-3789bdaf8e3545c8 = Servidor creado. Esperando a que Discord lo agregue a su lista de servidores.
-source-c81750b3ca90cec2 = La creación del servidor no está disponible sin conexión
-source-6f6b7f965d7e403b = Valor predeterminado del servidor
-source-874c0225e3ba1def = El servidor no proporcionó el rango delta solicitado.
-source-9e517ef8b9209a80 = emoji del servidor
-source-69b1694fa80d6fa6 = Carpeta del servidor
-source-3a02197c375e684b = Las carpetas del servidor no están disponibles
-source-35c6b3835c23cc5b = La conexión al servidor no está disponible sin conexión
-source-b677b74fd7583842 = Lista de servidores
-source-01f35e54078ae209 = Miembros del servidor
-source-752efe92882bde69 = Miembros del servidor
-source-0099285ad19604c9 = Menú del servidor
-source-9125243e17ee4435 = Nombre del servidor
-source-9ea06069ddfbdb4a = Vista previa del servidor
-source-2c796ad52f701a3b = Perfil del servidor
-source-26fc973905937715 = Foto de perfil del servidor
-source-576d94964775efa3 = Configuración del servidor
-source-194b9b5b8956f706 = Etiqueta del servidor
-source-b4f75a4ab92c8179 = Insignia de etiqueta de servidor
-source-06709c30707789c8 = Etiqueta de servidor marcada
-source-f587b273e6310223 = Canal de voz del servidor
-source-f1bbac50373377e4 = Servicio
-source-62278f512692e037 = Sesión
-source-fdf17bfb44b28042 = token de sesión
-source-9844a719fa9b1a83 = Colocar
-source-eae627a1f8088c8b = Establecer un estado personalizado
-source-3f97421d89b18351 = Establezca la vista de diseño predeterminada en una galería centrada en medios o una lista centrada en texto. Los miembros aún podrán alternar entre estas opciones.
-source-82e715834c9f4fe1 = Establezca el orden de clasificación predeterminado para las publicaciones nuevas. Los miembros aún podrán alternar entre estas opciones.
-source-705f21e6ce3719d7 = Establezca el comportamiento predeterminado de coincidencia de etiquetas. Los miembros aún podrán alternar entre estas opciones.
-source-0ce9a5aecc6dd3b7 = La configuración no se pudo guardar ni cargar. Alternelo para volver a intentar guardar.
-source-5a872471095707a2 = Configuraciones para juegos que usan Discord para potenciar sus experiencias sociales.
-source-115b51c0b3e792f1 = Varios usuarios coinciden. Utilice una mención o ID de usuario con /msg.
-source-da68df88bd08f5f4 = SHA256SUMS.txt
-source-ba4076b03255c1e5 = Comparte un enlace para que tus amigos puedan unirse a este servidor.
-source-aaf9b84edaab407e = Compartir una pantalla o ventana
-source-2c3c34153ac74ed3 = Compartir actividad de juego
-source-45424021c300477c = Compartir pantalla
-source-ac20e718c073966e = Comparte sonido de otras aplicaciones, incluso cuando compartes una ventana. El audio del propio Serein queda fuera.
-source-0271a8f65fe94e07 = Compartir audio del sistema
-source-201311c687d03fd1 = Comparte actualizaciones. Requiere un servidor comunitario.
-source-3d85ff460396575d = Comparte tu pantalla
-source-3fe52fe70d27121d = Comparte tu cámara seleccionada con esta llamada
-source-f1b4a3f1947fb4d5 = Compartir y exportar
-source-5f0298f79747ad16 = Compartiendo tu pantalla
-source-0ce8eeaf9aa0c421 = Caparazón
-source-e93a3eaf86201ae7 = Cambio
-source-d209ee27e7449876 = prefijo desplazado
-source-3c2b7ef8ccd3cd5a = Envío de un popout más agradable
-source-716a6024e3fe999c = Espectáculo
-source-93d8b6aded340643 = Mostrar todos los DM
-source-b2f8ae3e6b28ba6c = Muestra canales a los que no puedes acceder actualmente.
-source-833dfcfd41dcd086 = Mostrar cursor
-source-79b0a69cbcda8649 = Mostrar mensajes directos en juegos
-source-9bc560cd5b46bcf0 = Mostrar canales ocultos
-source-a0afec0f61baf4af = Mostrar miembros
-source-7495fa2d565710c7 = Mostrar miembros en la lista de canales
-source-66bcca373589a989 = Mostrar solo mensajes directos de personas que también juegan
-source-f72fef5a1834b24d = Mostrar solo publicaciones con cada etiqueta seleccionada
-source-0251c868653fce26 = Mostrar participantes
-source-a40e169498ad656c = Mostrar personas en ventanas amplias
-source-72682125748dbcae = Mostrar mensajes personalizados
-source-7d16f2b5d14c2056 = Muestra mensajes personalizados en solicitudes de amistad entrantes. Si aceptas, el mensaje seguirá apareciendo en tus DM.
-source-14f0c7b11300c270 = Mostrar publicaciones con cualquier etiqueta seleccionada
-source-b1ae69c3dd991fe9 = Mostrar roles restantes
-source-e809b405a7655b0b = Muestre la página de miembros en la lista de canales para ver rápidamente las uniones recientes y los miembros marcados por actividad inusual.
-source-9bc15080170ef0cd = Muestre a los demás participantes debajo del vídeo ampliado.
-source-40664bffa760c01c = Demostración
-source-68ba74051d2c1613 = Mostrando los primeros 1000 emoji personalizados. Refine su búsqueda para obtener más.
-source-dae76222d45285b8 = Mostrando las primeras 1.000 reacciones.
-source-237f621c4b72e005 = Mostrando las primeras 50 integraciones devueltas por Discord.
-source-93f2c7a47f67a615 = Mostrando las primeras 500 pegatinas. Busque para limitar los resultados.
-source-eb9a0b75e7e33bb3 = Se muestra junto a tu nombre en Discord.
-source-84708053633f5ef9 = Muestra una fuente de actividad de juegos y aplicaciones conectadas en este servidor.
-source-a7d70cb93b5b638b = Muestra vistas previas de los enlaces que envían los miembros.
-source-09f8960ef0b013c7 = Barra lateral
-source-301079349cba0c9f = Ancho de la barra lateral
-source-d1053f7b262d7006 = Inicia sesión antes de llamar
-source-462be028720a0ebb = Inicia sesión antes de cambiar tu foto de perfil
-source-627980e85ae679a7 = Inicie sesión a través de Discord; búsqueda de inicio de sesión guardado detenida
-source-a57736e4dc6a3128 = Iniciar sesión en discordia
-source-019d32c2a20341db = Iniciar sesión con un token de sesión
-source-c9fb496771461b85 = Inicia sesión con tu cuenta de Discord para comenzar.
-source-3d3b4f88fa2273ee = Señales
-source-5e71e0ce66a10d54 = Iniciaste sesión con tu cuenta de Discord
-source-c72d860b4f85d6ba = Cerró sesión en esta cuenta; su inicio de sesión guardado se mantiene
-source-69f3ca37b52fc2fe = Silencia a esta persona únicamente en este dispositivo. Nadie más se ve afectado.
-source-818767abdf5c33cc = tamaño = 128
-source-d273ff03a1219b3d = tamaño = 2048
-source-8dbe3ba5e7e01776 = omitir la carga útil ID3
-source-97ad1f22200db972 = Salta esta pregunta
-source-2f280ccd5811f80a = Barra oblicua
-source-d98aa872d5169f33 = El comando de barra diagonal excede el presupuesto de entrada de la sesión. Tu borrador fue guardado.
-source-2f3231cd581a8b6e = Pizarra
-source-75806bc79fc741a1 = espacios disponibles
-source-c4317264317eda93 = ranuras utilizadas
-source-4e060e976cc3db2b = Modo lento
-source-54903ffa7010b013 = Texto pequeño
-source-768a84a167fc5784 = Desplazamiento suave
-source-7fc5fe39edc3d58d = la marca de tiempo del copo de nieve está dentro del rango
-source-4cc269f8aebca984 = Superficies rosas suaves con un toque rosa cálido.
-source-fe31d1c784d29ef4 = Sólido
-source-8ac6d324f22e6d8a = Solo
-source-8ac2dd24f22a95b1 = Alguno
-source-9a503971735f80de = Se omitieron algunos eventos de complementos porque la cola de eventos estaba llena.
-source-6d78f54795cdbb71 = Algunos servidores tienen preferencias diferentes. Elija un servidor para revisar su configuración.
-source-bc62c50f0c4496f8 = Alguien está escribiendo...
-source-8a7bee24f1eeaff1 = Clasificar
-source-d1410e2def3cb910 = Ordenar y ver
-source-3606b9d856cdbafe = Ordenar por
-source-6fa38d7884c5e4e5 = Orden de clasificación
-source-9b3904e0c710f295 = Ordenado por
-source-2593d0c70a1c5074 = Sonido
-source-f67bc9362e1bfbe5 = sonidos
-source-dc5c829684625bbb = borrador fuente
-source-16379c0e7bfc97de = El mensaje fuente ya no está disponible
-source-cf524002408649be = El servidor de origen no está disponible en esta sesión.
-source-a39e9b837556f159 = URL de origen
-source-032cd9f1245d3645 = Espacio
-source-6b771a67c2e45fbb = Filtros de spam
-source-e23357f112296589 = Hablar
-source-c5f07bd7a271b5b8 = Volumen del altavoz
-source-b6a535fede052183 = Altavoces
-source-cfdd134ddcd54f6e = Hablar no está disponible en esta llamada
-source-0e303e22b5c99089 = Hablar no está disponible en este canal.
-source-0e6572337b972b29 = Hablar no está disponible en este canal. Todavía puedes escuchar.
-source-9290f6af0cafb479 = spoiler
-source-396418a002dfa719 = Spoiler media: abre el mensaje para revelarlo.
-source-82cb7c14b78eba12 = SPOILER_
-source-6b8e309703900e15 = Spotify
-source-f73fdea270dfc174 = Primavera - Día 12
-source-98007f19fa6109bf = SQL
-source-97f5df19fa57a55a = SRN
-source-27cc88818cc46ff6 = Estable
-source-779f20a1a5b8312e = versión estable
-source-61b3c49fc1cb3850 = Canal de escenario · no implementado
-source-cd979411b94e9181 = el historial obsoleto no puede resucitar una eliminación
-source-8448e0151316470b = el resultado obsoleto debe ignorarse
-source-1a26a190d73fe746 = Emoji estándar
-source-54775a219415a2fe = Valle Stardew
-source-f11add05cecc2474 = iniciar un hilo
-source-4474425c0472ac00 = Color de inicio
-source-41bbcf9b780998b3 = Empezar a probar
-source-45f0f7e853ab3e87 = Inicie la prueba del micrófono o únase a una llamada para ver su nivel de entrada.
-source-d702c26b4032d893 = Iniciar llamada de voz
-source-35c0a92f334aeafb = comenzó un hilo
-source-f78fab1fe68a47c3 = Iniciado por
-source-423411ccd80dbe86 = La suma de comprobación inicial o la longitud del byte cambiaron
-source-c014e78b57090011 = El manifiesto inicial cambió
-source-5abc7c9625324f00 = Los paquetes de inicio se activan con el consentimiento.
-source-29e87af8077c4457 = La fuente de inicio debe estar incluida
-source-b225dfbb31111b9e = El inicio no debe leer la carga útil de audio.
-source-09aa16017b259c70 = El trabajador de configuración de inicio se detuvo. Cambie la configuración para volver a intentarlo.
-source-ad9d5481474d4f5b = Estático
-source-a5dc0fbd822ef066 = Se admiten ilustraciones estáticas PNG, JPEG y WebP de hasta 8 MB. El PNG preparado debe ajustarse al límite de 512 KB de Discord.
-source-ad3e3c8146fc920f = Estado
-source-0dbe98129d79639a = El estado debe tener como máximo 128 caracteres sin saltos de línea ni espacios circundantes.
-source-6c512cba41aedf26 = Texto de estado
-source-653552905397a5d1 = Manténgase en llamada
-source-5819616c806e7d5f = Acciones de pegatinas
-source-21333a6cfc8e7282 = Los detalles de la pegatina no están disponibles.
-source-d341d0e6f7bce206 = Preparación de pegatinas cancelada
-source-8b20702650fe2eba = Se interrumpió la preparación de las pegatinas; elígelo de nuevo
-source-14f45a93be2170d1 = Etiqueta · Vista previa no disponible
-source-f12094936eee025d = Pegatinas
-source-76b82e61ed8f8b2f = detenerse después del primer paquete
-source-f83bedb815ca8289 = Detener vista previa
-source-89648382f1f45770 = Dejar de recibir esta pantalla compartida
-source-ba31db18366c5881 = dejar de compartir
-source-b2be9288f555d69f = Deja de compartir tu cámara
-source-04becc1144bf8534 = Deja de compartir tu pantalla
-source-bb5cd017e0e50c57 = Deja de compartir tu pantalla en la llamada actual
-source-c9e6a10c2529c1ed = dejar de probar
-source-9241f1191921699a = deja de mirar
-source-7f34423867339160 = Deja de ver la transmisión actual
-source-f96b615e5b8b96cf = Dejé de mirar
-source-c2773f63f685229d = Dejando de compartir pantalla...
-source-17a6948ef43cdaa5 = Almacene hasta 1 MiB de datos locales para esta cuenta
-source-37d209ecc2ca2c65 = Arroyo
-source-467498fe13dea55b = Transmitir audio
-source-169f89a55a8e0cd6 = Transmisión silenciada
-source-98d422af31a33c48 = La solicitud de transmisión no fue enviada; la cola de voz está llena
-source-93c48a92bcd69322 = Transmisión asegurada · esperando video
-source-0dbcb46b880ae0f9 = Volumen de transmisión
-source-ecb7fa88a28ecbfb = Transmisión
-source-58b4b3ecd4eb6238 = Cadena
-source-165ca6348a9c9ef1 = Algoritmo Hash Fuerte
-source-3476c9192da21f2f = Centro de estudiantes
-source-735851282b7922a3 = Estudio
-source-b3d4f79d9d8b71e5 = Entregar
-source-bd1f8a89447f778b = Enviar selección
-source-ed2e6e6a15556e6b = Sumisión…
-source-92a0d19a28995530 = Éxito
-source-10fab4d1211b0790 = sudo apt update && sudo apt install --only-upgrade aquí
-source-ff044d576bf0e0b6 = Serein de actualización de sudo dnf
-source-dfd89cc7e078553c = sudo pacman -Syu serein
-source-b9f7595a2b6d4047 = Serein de actualización de sudo zypper
-source-7cfbd463d799bd73 = Se pasó la verificación de depuración del puntero de sugerencia: los miembros, los emoji y los canales se insertan al hacer clic sin enviar.
-source-74563c12985d7846 = Soporte y diagnóstico
-source-588fbd0ca5948e09 = Fuerza de supresión
-source-641060b2512a5241 = Opacidad de la superficie
-source-63d61d08bd63f538 = Rápido
-source-1dbc50b9bbfadfcf = Cambiar cuentas
-source-3629497c7cacd5b3 = cambiar de llamada
-source-3a29dfd6e4b7e6cd = ¿Cambiar llamadas?
-source-ac48c1c773dcfbf4 = el cambio requiere confirmación
-source-af6ed9336c14c8ae = Cambiar a
-source-d083d3aa96af5af1 = Símbolo
-source-1dcc203233cc2f68 = sincronizar y transmitir acciones enrutadas arriba
-source-fbd2c35742165dbf = Sincronizar con el sistema
-source-ca5ada25afc84d10 = Sincronizar carpetas del servidor con Discord
-source-bf866859d6f1167a = Sincronizar…
-source-1710991edf84bdbe = Actividad sintética, nunca compartida ni guardada.
-source-aca0751c7e3f2843 = Insignia sintética uno
-source-72fe2e1cee5c544d = Insignia sintética dos
-source-2057457bddfb2197 = Fallo del accesorio sintético · No se contactó a Discord
-source-1fca9c49a9fb4bff = El intercambio de imágenes sintéticas requiere una compilación de demostración
-source-fb3de286999a0f18 = decodificaciones sintéticas Ogg/Opus
-source-b90c22917f0993e9 = cabeceras Opus sintéticas
-source-0180fec134076ba8 = Participantes sintéticos · El micrófono y los altavoces están apagados.
-source-61133cb873cb14ec = Vista previa sintética
-source-2671b43d99c7f8ff = Vista previa sintética: reinicio simulado. No se cambió ninguna instalación.
-source-ea58bb2f4280e7e3 = Vista previa sintética: Serein 99.0.0 está disponible. No se realizó ninguna solicitud de red.
-source-583e44aa4b2738f8 = Vista previa sintética: actualización lista para reiniciar. No se descargaron archivos.
-source-938b4ed3dcc78c3b = encabezado WAV sintético
-source-89b157ba3f1b6209 = Falló la decodificación ZIP sintética.
-source-81d24911585379df = Falta la entrada ZIP sintética.
-source-a81e2cdaf6921adc = Sistema
-source-087d4afac2b493b2 = El reloj del sistema está fuera de rango
-source-89308fc80241f110 = El reloj del sistema no está disponible
-source-bb6d50f39cffc429 = valor predeterminado del sistema
-source-612cd3419dafd909 = Valor predeterminado del sistema
-source-7ddb86b52fd2a7d2 = combinaciones de teclas del sistema atajos de teclado formato predeterminado personalizado navegación
-source-5f10d417345d5280 = Mensajes del sistema
-source-dc75454d9f19606b = Canal de mensajes del sistema
-source-1c1fec5705346635 = Diálogo de permisos del sistema
-source-fe2eb47cb9ba0693 = System32WindowsPowerShellv1.0powershell.exe
-source-f82865b371985dec = raíz del sistema
-source-af64094c86023903 = t
-source-6ce0ce19e201b66c = Pestaña
-source-08a36c89cf51d8ae = Coincidencia de etiquetas
-source-8d69b56d26a90f82 = Nombre de etiqueta
-source-03aa3cfb08dff960 = Etiquetas
-source-03ee3cfb0919c62c = Tarea
-source-dad2dcc683d8a766 = Identificador de equipo=
-source-746b56ce7029b76b = Cuéntale al mundo un poco sobre este servidor.
-source-e7bf0e7337589780 = Cuéntenos más sobre su servidor
-source-aef3e9d1cc99d338 = Archivo temporal no disponible
-source-9e3e0736bc5d7860 = Los miembros temporales son expulsados ​​automáticamente cuando se desconectan, a menos que se les haya asignado un rol.
-source-937d74f8bf96bf5b = Error en la limpieza temporal del vídeo; eliminar archivos serein-video de la carpeta temporal del sistema
-source-b178575c95e40d30 = Cuidando la granja sintética
-source-2492f5fb1b05b45e = Texto
-source-bb05b66479f06f51 = Insignia de texto
-source-a49452caee01d78d = Canal de texto
-source-3c519fae24775b41 = Permisos de canales de texto
-source-fcc00f8f38e5bf7a = CANALES DE TEXTO
-source-528fae7409467be2 = Visualización de texto limitada
-source-5260a7bb5d853a61 = Formato de texto
-source-b90a3d15ef7d8e53 = Texto con acento
-source-3c0df60c6f7aa0c3 = Texto, espaciado y esquinas
-source-a604668fceafd191 = caché de texturas por encima del presupuesto
-source-091aebf4ee6b9f05 = Falta el inicio de sesión guardado de esa cuenta; inicia sesión nuevamente para actualizarlo
-source-031665bb4e89f563 = Esa imagen es demasiado grande; elige una imagen más simple
-source-36c648e5ea87aa0b = La cuenta o conversación cambió; ejecute la extensión nuevamente.
-source-94c943f7ec6d2dc8 = No se pudo iniciar la acción.
-source-d76bab451d4bf7cb = El tema activo aporta su propio acento; toma el control mientras el tema está en uso.
-source-7cf5fcdaa69d6c47 = El área alrededor del cuadro de mensaje.
-source-9c8070771ed73bb5 = El activo no proviene del repositorio de versiones de Serein.
-source-229e001c5175ed0f = El registro de auditoría alcanzó su entrada local o límite de memoria. Ajuste los filtros para encontrar otros eventos.
-source-c3196c758d12cc48 = La llamada cambió; ejecute la extensión nuevamente.
-source-a15081404de6bc72 = La cámara ya no está disponible.
-source-b79502bea259a921 = No se pudo iniciar la acción del canal.
-source-1a0af5cf522a9054 = El archivo de suma de comprobación no es válido.
-source-f81d25e4d1c1899a = La lista de suma de verificación excede su límite de tamaño.
-source-b12e17f9000854ca = La línea de tiempo de la conversación
-source-ba988ea53a32cc15 = La lista de juegos detectables no está disponible.
-source-f86a8e16e87115aa = El destinatario del DM no está disponible
-source-5f2300da2b60d32e = El paquete descargado excede su límite de tamaño.
-source-bdc63c63aaaeb1ed = El borrador cambió o la propuesta excede el límite del borrador.
-source-fbf3ed7f982fb65e = La extensión ya no está habilitada.
-source-07b80e5c8ff386bf = El nombre de la fuente no es válido.
-source-117878dc34eae50f = El amigo no está disponible o la configuración del servidor necesita atención
-source-c4503990ff7ce3d7 = La ruta de instalación no puede ser representada por el asistente de actualización.
-source-cbb0a5913c0f6e2c = La AppImage instalada se movió; reiniciar antes de actualizar.
-source-304e87861c085c7c = El carril izquierdo del servidor
-source-320896c4f3df853a = Se requiere la licencia y la versión. Una URL de origen es opcional para los temas locales.
-source-2fb81c63ceea1998 = Se alcanzó el límite de silencio de participantes locales
-source-aab8c25b9ea50e1f = El panel de búsqueda y miembros a la derecha
-source-819b3188c4971ddb = Es posible que el mensaje ya haya llegado a Discord. Revisa la conversación antes de volver a enviarla.
-source-5444864190449fef = El micrófono ya no está disponible.
-source-444c3556ad692b08 = La suma de comprobación del paquete no es válida o está duplicada.
-source-58391f0c869e8ae4 = El tamaño del paquete no coincide con los metadatos de su versión.
-source-db49b01ade45e432 = El cursor del pin cambió; solicitar la página actual nuevamente
-source-c7e6f9a9a5b4a6df = El icono preparado es demasiado grande.
-source-8561c4e8d417ddf8 = El ícono de rol preparado excede sus límites de imagen.
-source-d4295415cd723b49 = El veloz zorro marrón salta sobre el perro perezoso. 0123456789
-source-3f3748f1a9ae3941 = Los metadatos del recurso de lanzamiento no son válidos.
-source-12ad90dff902ac5d = La versión contiene una dirección de descarga que no es de confianza.
-source-6bd719d95bada4ae = El comunicado contiene demasiados activos.
-source-bfdc7f5bf0b94022 = La versión no tiene suma de comprobación para este paquete.
-source-6d484d49e5cf5483 = La lista de lanzamientos excede su límite.
-source-bd3a5c5eb515b096 = el canal seleccionado
-source-03af15a71ea80f0f = La conversación seleccionada cambió o ya no es accesible
-source-366286d1db0c0313 = La conversación seleccionada ya no está disponible
-source-92d605c7427fe559 = Las imágenes seleccionadas superan los límites de carga de emoji.
-source-ecf43b5cfcc3f4fd = El mensaje seleccionado inicia el hilo. Todos los que puedan ver este canal pueden ver el hilo.
-source-a4b7054956079671 = El diseño de la carpeta del servidor cambió; ejecutar la extensión nuevamente
-source-f722c523147309b7 = El servidor no tiene ningún canal accesible.
-source-729ec7dfae966f27 = El servidor no tiene ningún canal donde se puedan crear invitaciones.
-source-4f922921c10c2c92 = El servidor no tiene ningún canal manejable.
-source-836114ff46dcadf3 = El resultado del comando de barra diagonal excede el límite de longitud del mensaje.
-source-de5ba51cb9bbb804 = El dispositivo de altavoz ya no está disponible
-source-648cf56c28900fa8 = La conexión de transmisión terminó
-source-9c284b6c9b5c8f10 = la corriente termino
-source-eeca86112f872aa2 = El archivo de actualización contiene un nombre de archivo no seguro.
-source-9476118a60cb760b = El archivo de actualización contiene nombres de archivos duplicados.
-source-3c0768502ae27c24 = El archivo de actualización contiene demasiados archivos.
-source-31711f87cbc616b0 = El archivo de actualización excede su límite de tamaño extraído.
-source-1982d0aeae946bf2 = El archivo de actualización está dañado.
-source-cf38693eb82dfd70 = La suma de comprobación de actualización o la longitud no coincidieron. No se instaló nada.
-source-0b9202c72e03d4aa = La actualización incluye contenido de paquete inesperado.
-source-207e7bd4a938ab90 = La actualización no contiene Serein.app.
-source-1288bddb87e6c5ce = La descarga de la actualización fue interrumpida.
-source-5a3e6d7ab01c3c34 = La actualización no tiene ningún identificador de firma de paquete.
-source-8c4050514d1503b5 = El asistente de actualización no se inició. Serein permanecerá abierto.
-source-d59c2878915ac2e9 = A la actualización le faltan los avisos ejecutables o incluidos.
-source-a7ee90ed89a6d45e = La actualización no es una AppImage x86-64 tipo 2 compatible.
-source-7d447391bb1fe8a6 = La actualización no es un paquete ZIP válido.
-source-6a619001565cad53 = La respuesta de actualización fue interrumpida.
-source-61b02cc5807beee4 = La actualización no fue firmada por este editor de Serein.
-source-ff87e05e9b79be51 = El trabajador de actualización se detuvo. Por favor inténtalo de nuevo.
-source-2fa629cb4b3b6374 = El directorio ZIP de actualización no es válido o excede sus límites.
-source-d2589a7c8c135c63 = La firma de macOS de la actualización no es válida.
-source-5ca44460d06c3e41 = La llamada de voz cambió o sus controles no están disponibles; ejecute la extensión nuevamente.
-source-82d50f99118cbbad = El canal de voz no está disponible.
-source-a50392afda5ed27a = La corriente observada cambió; ejecute la extensión nuevamente.
-source-aab875d8cfcfe712 = Tema
-source-eb2d074b1c7450a5 = La limpieza del tema está pendiente
-source-995c0cb1dc44620c = Detalles del tema
-source-326b63ca34a0da40 = El tema no coincide con el paquete solicitado.
-source-5900ea3902ac3c64 = El editor de temas siempre contiene un tema.
-source-8f99c67a7474e728 = El editor de temas solo acepta temas.
-source-a0aa3f3d19cc32b9 = Tema exportado.
-source-8fa63933d6a259d8 = La selección del archivo de tema finalizó.
-source-e894186aade09550 = El tema no está disponible localmente
-source-96225dc374daea97 = El tema no está incluido.
-source-457be27a66849bf5 = El tema no está instalado
-source-c5659913f6096315 = Nombre del tema
-source-158bf59c4a5f5e4e = El nombre del tema es obligatorio.
-source-9dcad5b0faa3464e = El paquete temático supera los 16 MiB
-source-cda89cefef512daa = Vista previa del tema
-source-aeeccb48a983e8c4 = Tema eliminado.
-source-058f7d5c23975083 = configuración del tema
-source-5d6f5166d7611031 = El iniciador del tema solo debe proporcionar una paleta válida.
-source-3b9241edd1cb076b = temas tienda catálogo de tienda importación comunidad apariencia colores
-source-1988bbfa1d43f9a1 = luego emoji estándar
-source-d07ee197637159ae = Hay demasiados servidores para actualizarlos juntos. Elija un servidor individual.
-source-649d4c6bf7d1d183 = No hay pantalla compartida activa
-source-6e286eff60bc0746 = No hay ninguna llamada de voz activa
-source-c9d06fbde78f3a20 = No hay ninguna transmisión vista
-source-5976a9ab9dbecb62 = Estas configuraciones se aplican a apariencias oscuras y claras.
-source-4642fa585a9d5014 = ellos / ellos
-source-cfb4fc36243ce25a = Pueden volver a unirse mediante una nueva invitación.
-source-1f9d1894af8dce52 = AVISOS_TERCEROS.md
-source-042d8e499a4ef676 = esta cuenta
-source-3b3fe4e829af3e8e = Esta acción no se puede deshacer.
-source-13135ba78d840d02 = Esta acción ya no está disponible; actualizar los datos de la aplicación
-source-4ce21aadf845122c = Esta acción no está disponible con los permisos, datos u operación pendiente actuales
-source-dfe333b3c0bb720f = Esta acción no está disponible con los permisos actuales, los datos cargados o la operación pendiente
-source-3b3c3da1df9874d7 = Esta compilación tiene una versión no válida.
-source-cb2f6eed034bed6e = Esto no se puede deshacer.
-source-4fd7904698faaefc = Este canal no tiene
-    algún mensaje fijado... todavía.
-source-707517521dfcc516 = Este canal no se puede leer en la sesión actual.
-source-3e593875a0c6a513 = Este comando no está disponible. Tus argumentos se mantienen.
-source-4c857ba61c1b8e7a = Esta conversación ya no es accesible.
-source-1561d5a524b51ffb = Este destino se abre en su navegador predeterminado.
-source-3601a9a67180f781 = Este mensaje directo no tiene
-    algún mensaje fijado... todavía.
-source-a4d8ec041d3dcff7 = Este DM ya tiene borrador. Tu texto /msg se mantuvo en la conversación original.
-source-b10a8f60d67ebd26 = Este emoji no se puede cargar. Verifique su nombre, espacios disponibles y sus permisos.
-source-71794532ecd13de1 = A esta fuente le faltan textos o contornos legibles.
-source-7df10ece44880997 = Este foro requiere una etiqueta
-source-bda837b1cf24f07d = Este grupo ya no está disponible
-source-fbf1c5583ada88cc = Esta llamada entrante ya no está disponible
-source-64d95f6ebf138c84 = Esta integración ya no está disponible.
-source-8e108f5640c03166 = Es posible que esta invitación haya caducado
-source-f87f9f46087a1aec = Este es un
-source-7191b9a9f8aaf247 = Así aparecen los miembros con este rol.
-source-0d25765d35fe3d6e = Esta es la cuenta con la que inició sesión: se cerrará su sesión y se eliminarán el inicio de sesión guardado, el historial almacenado en caché y los borradores en este dispositivo.
-source-b4a63cbef3d9a730 = Este es el comienzo de la conversación.
-source-86255480b6339b5b = Este es el canal al que enviamos mensajes de eventos del sistema.
-source-a6e7aedea22b0d1d = Este tema más antiguo utiliza la ubicación de la imagen original.
-source-77968b5f7dd56753 = Esta plataforma no puede instalar actualizaciones dentro de la aplicación.
-source-21c6fe9bbefdb3e0 = Este participante remoto ya no está en la llamada
-source-2b0f39bdb3a934b7 = este papel
-source-7909fbef160a71cb = Este rol no se puede mover. Vuelva a cargar los roles y verifique sus permisos.
-source-2cbf54163f5500c5 = Esta función está por encima de su función más alta y es de solo lectura.
-source-d005eb8b27dbe57c = Este rol es gestionado por una integración.
-source-61289a85eb22830f = Esta búsqueda no está disponible o no es válida
-source-ff7c20ca699ff4f0 = este servidor
-source-3d778964d89d4a72 = Este borrador del servidor ya no está disponible
-source-c2006cfaea6b0b4e = Este servidor no tiene emoji personalizados.
-source-53d2e311cb54d2bf = Este servidor aún no tiene pegatinas.
-source-d3e60090d1ef570e = La lista de emojis de este servidor aún no está cargada.
-source-9c6fa9a111096b28 = Esta pegatina no está disponible en la conversación actual.
-source-9e221a2b4712ce9b = Esta pegatina no está disponible con la conexión o los permisos actuales.
-source-b7b0f7be8590123a = Esta transmisión ya no está disponible
-source-d89880e8920c9e64 = Este mensaje sintético inició el hilo; Las respuestas continúan a continuación.
-source-62432088ac9f6108 = Este tema pertenece a otro paquete; duplicarlo antes de guardar
-source-52e53b1e3a32527c = Este usuario ya no es un amigo confirmado.
-source-565e7a0170cb18d3 = Este usuario no está disponible en la sesión actual.
-source-54d079df157eb6f3 = Este usuario no es conocido en la sesión actual.
-source-26ab1d6dc7d4884f = Este vídeo no se pudo convertir para reproducirlo.
-source-b2308466af951f68 = Este video necesita FFmpeg para su reproducción. Instale FFmpeg y vuelva a intentarlo.
-source-d660fedd50fc7600 = Esto determinará si los miembros que no han configurado explícitamente su configuración de notificación recibirán una notificación por cada mensaje enviado en este servidor o no.
-source-9843eeda70cff191 = Hilo
-source-bf3d9db84273773d = Se pasó la verificación de depuración del hilo: permiso de envío de publicaciones de imágenes, publicaciones creadas, cuatro hilos abiertos, los más nuevos primero.
-source-d088e9af77a6bc48 = Nombre del hilo
-source-52aa5293477aa3c3 = Hilo iniciado con este mensaje.
-source-8b60bf2db1580306 = Trapos
-source-e8a4a7f2b614d5a6 = Los hilos no están disponibles en esta conversación.
-source-ce141c82a8513704 = Tiempo agotado
-source-d484a2bc8ec7434b = Miembro agotado con AutoMod
-source-52988c02510c87dc = Borde en vivo de la línea de tiempo resuelto
-source-935f34d5f97f5ad4 = Alturas de mensajes de la línea de tiempo establecidas
-source-a61c1b7a70d8d13b = Miembros de tiempo de espera
-source-4ee230b71ef2280d = Marcas de tiempo y texto de respaldo
-source-5b74edbe25f7d75c = Tiñe su banner cuando no ha configurado una imagen de banner.
-source-99f110d27e30b289 = Título
-source-63d040e37887f17e = Hoy
-source-1cc759a3bd3d3eb8 = Alternar resaltado eliminado
-source-44ced5fa9cb07445 = TOML
-source-480b227ca618e526 = mañana
-source-5c7042a5045f335e = Demasiadas redirecciones de descarga de extensiones
-source-4838fdc9562c3eb8 = Demasiadas extensiones instaladas
-source-c26501e3ade7da3c = Herramientas
-source-6d02dc19e21eb49c = Arriba
-source-eddea32341d37146 = barras superiores
-source-11cc72e3db49fec4 = Tema
-source-fe090d65673b8ac5 = los efectos rastreados se normalizan antes del envío
-source-35f050478b2b516a = nombre del rasgo
-source-b43b9774a77751c8 = Rasgos
-source-08e22a2dc90d9557 = Transparencia
-source-8f7f491559b25d06 = Transparencia y desenfoque
-source-61124b362cbc1517 = Bandeja no disponible. Inicie un host StatusNotifier y luego active o desactive la bandeja.
-source-8b109f5e2f5cc247 = Bandeja no disponible. La ventana permanecerá visible.
-source-d0dc7e9089e3a6a7 = GIF de tendencia
-source-704e59fab561c2a5 = VERDADERO
-source-85ea99fb52be3385 = Verdadero
-source-635784d63b82506c = Pruebe con un canal, servidor o nombre de persona.
-source-034caf9874550626 = Pruebe con un nombre o creador diferente.
-source-68ec73f5474c88b4 = Pruebe con un término de búsqueda diferente.
-source-cd1dd6ff53d0d01a = Intentar otra vez
-source-18d16b5d097b1d40 = TTF u OTF, hasta 8 MiB. Guardado en este dispositivo. El código mantiene su fuente monoespaciada.
-source-49c2a4ee7987367a = Apagar la cámara
-source-d8347c2715f51c83 = Desactivar el audio entrante
-source-ff918c14d2ef950d = Apagar el micrófono
-source-f49e43ecc2b661a6 = Desactivar la supresión de ruido
-source-876fdaf82de17a4e = encender la cámara
-source-452c31207918c2e7 = Activar el audio entrante
-source-09cb00c31da2f2c9 = Enciende el micrófono
-source-8434cc9287f005ca = Activar la supresión de ruido
-source-8755e35dddf6b4fb = Dosmoji 17.0.3
-source-de3bc2bfb3a73e2a = Contracción nerviosa
-source-6997ea31ebe06cf3 = Escriba una consulta arriba y presione Entrar.
-source-d3e7d077a37a663a = Escriba para buscar miembros; Se enumeran los roles y canales disponibles.
-source-89758ae8b9a73e02 = Mecanografiado
-source-4b4afa8bcb02d5ac = Tipografía
-source-af64084c86023750 = Ud.
-source-4dd1f7efd08e6421 = UInt
-source-6597cbdc04319ae9 = ulimit -f 131072 || salida 1; ejecutivo "$@"
-source-74d3b973117d6a0e = No se puede crear este servidor en este momento.
-source-27007d1e259af30d = No se pueden cargar partes del perfil
-source-c3aff5e6f92347ed = No se puede continuar. Verifique su conexión o inténtelo nuevamente después de la solicitud actual.
-source-f71a90bc017f1e80 = Desarchivar
-source-43e9aef7aa01fca9 = Indisponible
-source-cac61dd87983a242 = Canal no disponible
-source-50f5271061b2eeeb = No disponible para accesorios sintéticos
-source-64ceb1abd74fcbd0 = Miembro no baneado
-source-865b6f4c6920e17f = Desatascar
-source-4bab7c95bcfbd464 = Incierto
-source-f30bda2b29ab6cd5 = no sordo
-source-f2ad55e2808940b6 = sonido ensordecedor
-source-8f4be9f086eb530f = Deshacer
-source-33e83ac676f67e20 = Codificación de archivos adjuntos inesperados; recargar la conversación
-source-0f048c425eaa1ec4 = Pista de audio de vídeo inesperada
-source-5da7d55d65cc6e32 = Pista de vídeo inesperada
-source-7f6c9aa6ca96b7c7 = Dejar de seguir
-source-5c9aef301d36cfc7 = Dejar de seguir la publicación
-source-b52e8dfdaf5e5d31 = Dejar de seguir el hilo
-source-0adf9fe574fae88d = Desagrupar servidores
-source-8f26e0f086cc2787 = Unidad
-source-c592307ea80f16b9 = Desconocido
-source-9e33a77f873f41f9 = Acción desconocida
-source-a8a87669cabacf92 = Canal desconocido
-source-b968b22d700c2690 = Tipo de canal desconocido · no implementado
-source-cf313c941485315d = Canal desconocido, canal de carga
-source-a7ee0e617cd83e3c = Invitador desconocido
-source-2d93c7d5885f85b2 = Hora desconocida
-source-88e4a2cee2cad378 = Usuario desconocido
-source-5d303fbc88281c15 = Descubrir
-source-abc02fbabb75c121 = Desbloquear publicación
-source-89b287e09039529f = Desbloquear hilo
-source-c07837c309cc699b = Dejar de silenciar
-source-0a9380677e9f27e8 = Activar canal
-source-205f3418f8897e4a = Activar conversación
-source-3352e14c87c097d3 = Dejar silenciar publicación
-source-c26538522ff378d8 = Activar sonido
-source-7aa13a7b5cae8285 = Dejar silenciar el hilo
-source-b26035b596566abf = Sin nombre
-source-3e65416219e37321 = Los clientes no oficiales pueden poner en riesgo su cuenta de Discord.
-source-bc0cd0b4dfb7dde1 = Desprender
-source-3d803329fa4ff8a8 = Desanclar DM
-source-ea5244afaa2e399a = Desanclar mensaje
-source-ea740aa67a0ee115 = Desanclar publicación
-source-ca6ad52d56f739bb = Desanclar hilo
-source-32f3b79fc535d32b = Mensaje no fijado
-source-ec898b17fe11a51d = Insignia no leída
-source-f222181de7c67922 = Mensajes no leídos
-source-d1f156e084917946 = La navegación no leída no está disponible
-source-a28269a53e5be713 = Sin revisar
-source-309de19bfe7b8d61 = Paquete no revisado: su fuente no ha sido revisada para el catálogo.
-source-5dd76b398166e864 = cambios no guardados
-source-6e6e4d288ea76fc4 = Cambios no guardados
-source-ae896376665aaf83 = Los cambios de tema no guardados se descartarán.
-source-a8cfdfb1a70389b3 = Acción de aplicación no admitida
-source-8281e54007e43760 = Formato de imagen de obra de arte no admitido
-source-3f12316c0f1e4e22 = Formato de salida de audio no compatible
-source-4d6d8f6628ae83c5 = Tipo de componente no admitido
-source-b7364a3171008634 = Ilustraciones de emoji o calcomanías no admitidas
-source-2644d45f02f86682 = Tipo de campo de formulario no admitido
-source-053b201d40c22d36 = Audio no compatible o dañado; descargar para jugar externamente
-source-e2515175ae6a110d = Metadatos delta no admitidos o no válidos.
-source-b98c3cc9dacb86bd = Datos de imagen no admitidos o no válidos
-source-a309fe24d6f91895 = Frecuencia de muestreo de audio y vídeo no compatible
-source-ac3807db50413d01 = Temporización de audio de vídeo no compatible
-source-bd929eeedda18cc0 = Hasta que lo vuelvo a encender
-source-f317a756638a78e4 = Se acepta origen no confiable.
-source-f3c2534cc5bfb6d2 = Redirección de actualización no confiable
-source-197d8f717bef5c90 = Actividad inusual de DM
-source-1c9de3571623fb49 = arriba a
-source-8b0432eecbd8b034 = Actualizar
-source-6c410fedda2a575f = Actualización disponible
-source-018198064ad0e0fb = Actualización cancelada.
-source-566c2f6082f1215e = Las comprobaciones de actualización están deshabilitadas en las compilaciones de depuración.
-source-06b36f3061f9d3a9 = Actualización descargada y verificada. Reinicie cuando esté listo.
-source-2332eba59310a2ad = Actualización lista. Cierre Serein para instalarlo y reiniciarlo.
-source-da78e3983d6fb761 = actualizar configuración
-source-97a98b40b90f56b1 = Desbordamiento de tamaño de actualización.
-source-b6ec4dcb17961197 = Actualiza el nombre de la pegatina, la descripción y los emoji relacionados.
-source-5e50246c00d5a4d7 = Permisos de comando de aplicaciones actualizados
-source-b56f7e456ae1c6f1 = Regla AutoMod actualizada
-source-19648a7f257a967b = Canal actualizado
-source-717a5ce99cd89cb7 = Sobrescritura de permisos de canal actualizados
-source-ebc9fe298e29d18e = emojis actualizados
-source-c7475879f840e9c8 = Configuración de inicio actualizada
-source-1ec12f34a4ac8fe2 = Integración actualizada
-source-83862a8c345f2f79 = Invitación actualizada
-source-98d292e3f05569e2 = Miembro actualizado
-source-f54d6f3bc3f1cf27 = Roles de miembros actualizados
-source-ef65ac31dca18ef1 = Incorporación actualizada
-source-ceff81aa55954521 = Mensaje de incorporación actualizado
-source-434cbdc689391a60 = Rol actualizado
-source-730f88e345d0cffb = Evento programado actualizado
-source-6d38e9960d2648ac = Configuración del servidor actualizada
-source-f119284fd21a88fe = Sonido de caja de resonancia actualizado
-source-82d0a94a8e0653ee = Etapa actualizada
-source-7db69c1f76797287 = Etiqueta actualizada
-source-f60be1ebfea12600 = Hilo actualizado
-source-9412f1a3e9e7a721 = Webhook actualizado
-source-10d2d2c4613388a5 = Actualizaciones
-source-8dbc700d7081bf16 = actualizaciones actualización automática canal de lanzamiento producción estable descarga nocturna reiniciar versión verificar diagnóstico problema error información del sistema depurar
-source-4f2fb98ab3211849 = Las actualizaciones aún no se han verificado en este canal.
-source-8fe6d943a7280051 = Las actualizaciones aún no se han comprobado.
-source-cb56be2d0ad7f517 = Actualizando la configuración del canal…
-source-772b714e708eac24 = Actualizando la configuración para compartir actividades de Discord...
-source-606696257ed9bdc8 = Actualizando integraciones...
-source-2e6d61e5f98af3af = Actualizando invitaciones…
-source-963cace19c8b2f91 = Actualizando…
-source-96668830629e0dfc = Subir
-source-26649309e06f29a8 = Sube una imagen de menos de 256 KiB o elige un emoji Unicode. Recomendamos al menos 64×64 píxeles.
-source-4925cebfca644a52 = Subir emojis
-source-0c20b6d9b4589ba9 = Cola de carga llena; volver a seleccionar el archivo
-source-2c2b41ea67ee7540 = Cargar icono del servidor
-source-08817a547ee51553 = Subir pegatina
-source-e6a492ac4ce9294e = Carga no disponible; Vuelva a seleccionar el archivo para volver a intentarlo.
-source-70a85d0fe45a6f62 = Subido por
-source-16184f457965bc4d = análisis de URL
-source-baa3fde841a694a3 = Cámara USB (vista previa)
-source-c0e9c95310a2e311 = Utilice #RRGGBB o #RRGGBBAA
-source-7024572544c8240d = Utilice #RRGGBB o #RRGGBBAA.
-source-4cc45c54ecb5cbb2 = Utilice --demo --demo-friends --demo-frame-sample=CALENTAMIENTO, MUESTRA (segundos completos, calentamiento 1..600, muestra 1..600)
-source-1505ac2b2b85b71f = Utilice entre 1 y 80 caracteres sin caracteres de control ni los nombres reservados Discord y Clyde.
-source-39af8d17c90b393f = Utilice un nombre de 2 a 30 caracteres, una descripción opcional de hasta 100 caracteres y al menos un emoji relacionado.
-source-e91102eec4179879 = Usa una cuenta diferente
-source-0e8db6c5b0897f25 = Usa un degradado
-source-22af7f67b411f1b6 = Utilice un nombre de servidor de 2 a 100 caracteres, una descripción de hasta 300 caracteres y rasgos válidos sin caracteres de control.
-source-394f5beef344430e = Utilice una imagen estática PNG, JPEG o WebP que quepa en 512 KB
-source-38e2b9e2903cbda2 = Utilice una URL de origen HTTPS válida o déjelo en blanco.
-source-8506875a9d95f22c = Usa otra cuenta
-source-e2aa0fdd031da211 = Usar predeterminado
-source-082eda98d60c2a71 = Usar predeterminado
-source-da9efeda30622cb9 = Usar emoji externo
-source-b6e401e855387999 = Usar pegatinas externas
-source-a61278258feeb5fe = Usar imagen en toda la aplicación
-source-80f2c74955ce0f1a = Utilice una imagen detrás de sus conversaciones y barras laterales.
-source-ac82a2bf4d34f3cc = Utilice roles para agrupar a los miembros de su servidor y asignar permisos.
-source-373963a757aad586 = Usar el servidor predeterminado
-source-bdf2acbd8baed86c = Utilice el valor incorporado
-source-3e7a7d098fd26e18 = Utilice el color predeterminado para esta apariencia.
-source-deeb874684a76a88 = Usa su nombre de usuario
-source-359c1b2800819e19 = Usar tema
-source-db4138b28731611a = Utilice hasta 128 caracteres sin caracteres de control.
-source-085e386bc279d562 = Utilice hasta 64 caracteres en una búsqueda de GIF o calcomanías.
-source-ea30f5ebc20a0def = Usar actividad de voz
-source-f2d7f3f661f7ea12 = Utilice atajos de voz mientras otra aplicación está enfocada. Cuando están desactivados, los atajos solo funcionan mientras Serein está enfocado.
-source-7cd026b3d5b072b8 = Utilice su administrador de paquetes para actualizar Serein o ejecute una versión de AppImage.
-source-bdbd3d7392e197ab = Se utiliza para botones, selección y resaltado de mensajes.
-source-4ccf7f0157938ae0 = usó la misma identificación
-source-a48f81f001b893d2 = Usuario
-source-438b40ecd6a71435 = Sonido de entrada de usuario
-source-393eb187dca41d36 = El usuario deja el sonido.
-source-1894386083bb21c9 = Acción del menú de usuario
-source-dbf32ffb36a04cfc = Usuario no encontrado. Utilice la mención, el ID o el nombre de usuario exacto de un usuario conocido con /msg.
-source-99222edc4ca94f28 = Volumen de usuarios
-source-dee96918fab12b37 = Nombre de usuario marcado
-source-d48d652058c99bc6 = Los usuarios deberán confirmar que son mayores de edad para visualizar el contenido de este canal. Los canales con restricción de edad están exentos del filtro de contenido explícito.
-source-a48f82f001b89585 = Usos
-source-af640b4c86023c69 = V
-source-7f960a7f6584a6ae = Ruta de archivo válida rechazada.
-source-1e8c3529ec60fc49 = enfoque validado
-source-d2528a48cacb6207 = URL personalizada
-source-7bb42119e9b1a3e5 = vec
-source-37c408c8adb26d03 = Verde
-source-83f718b99a74cfa2 = La verificación expiró. Inicie la verificación nuevamente.
-source-df6f4d3511e31903 = Se requiere verificación
-source-ca4fb8fafd9b52e5 = Verificado
-source-c2b6c18334a4a2c4 = Verificar
-source-f4122b220926be97 = Versión
-source-4adb303afb07fa10 = Error al ordenar la versión o validar la etiqueta.
-source-2fba71bd651bdbfb = Vertical
-source-ace35f00865c76df = muy alto
-source-85186a61e0d55bac = Video
-source-b88f655e46b2eb87 = El vídeo adjunto no está disponible
-source-d062b52546761372 = Salida de audio de vídeo detenida
-source-4ac2f745c380142e = El almacenamiento en búfer de vídeo se detuvo; reintentar o descargar para jugar externamente
-source-e677a5e19187c3da = La conversión de vídeo se canceló o superó los dos minutos.
-source-687f454c60e0c80a = La descarga del video falló o cambió; recargar la conversación
-source-7a3ffa8eba6f9db8 = Límite de vista previa de vídeo: 100 MiB
-source-d58ec87d257ef933 = Vista previa del vídeo · la reproducción se abre en tu navegador
-source-9fcdaf9ce2522c7e = El servidor de vídeo no admite el almacenamiento en búfer; descargar para jugar externamente
-source-fb9d6822e9069125 = cola de video estancada
-source-6b61a1918b56fc96 = Volumen de vídeo
-source-61edf6112c6fa5cb = El trabajador del vídeo se detuvo; reiniciar Serein
-source-a6dfc67975360f88 = Ver como
-source-3835a2eb415fc406 = Ver banner
-source-f0984f41d2753eb0 = Ver canales
-source-8cce57368168970f = Ver más pegatinas
-source-a5cd74c2a87ead44 = Ver mensaje original
-source-e064be780d0366cc = Ver vista previa
-source-4cbf8491b23782cf = Ver foto de perfil
-source-1eedbe2fbc47b270 = Ver reacciones
-source-3082d635c024691d = Ver fuente
-source-c9995b81bd83d770 = Ver hilo ›
-source-bfbbe039b5b9cb62 = Se debe permitir la búsqueda de autor visible.
-source-038776cdc40e51d3 = Los GIF de chat visibles se reproducen automáticamente.
-source-47a9f592c61daa59 = Voz
-source-6a69760da73a4f0b = Las llamadas de voz no están disponibles en la vista previa sin conexión
-source-1eeca30f38c7f552 = canal de voz
-source-b5a9b8bf580de49e = Permisos del canal de voz
-source-16d935854997f12e = Voz conectada
-source-961efd6c1cf29f9a = La conexión de voz finalizó; iniciar una nueva llamada explícitamente
-source-fb05803dcf7ce939 = El dispositivo de voz tiene una llamada.
-source-12ef480e9aec4d92 = La voz está desconectada; no se inició ninguna llamada
-source-e1b4d34ae94916a2 = La voz no está disponible en esta sesión.
-source-ee6b1d49fb8920a1 = Aislamiento de voz
-source-c4b32afb9184bfad = Vista previa de voz
-source-38aae4c91fbd94ee = Código de privacidad de voz
-source-470d360ad8905858 = Procesamiento de voz
-source-2096e82cc9a23dad = Procesamiento de voz y modo de entrada
-source-b011ccab2cbc9798 = El servidor de voz cambió; iniciar una nueva llamada cifrada
-source-dfd722899e87de45 = La sesión de voz cambió durante la conexión; prueba una nueva llamada
-source-e417beddf681f205 = La sesión de voz cambió; iniciar una nueva llamada
-source-80c69d6618332cc6 = Configuraciones de voz
-source-e4e08cf3df7c04e6 = configuración de voz
-source-577b531ff67a120b = La señalización por voz está desconectada; La acción de compartir pantalla no fue enviada.
-source-ef55814d0fce6335 = La señalización por voz está desconectada; la solicitud de transmisión no fue enviada
-source-90a1996ca8517413 = voz video cámara vista previa audio micrófono altavoces dispositivos aumento de volumen supresión de ruido pulsar para hablar
-source-4c5725b06e1f2cb7 = Voz · lista
-source-b286ca07fcecaabf = Vacío
-source-5b528a7f6c0c40af = Volumen
-source-ef927d35d549b315 = Volumen (%)
-source-af640a4c86023ab6 = W.
-source-37f4274bc7c4e275 = Espere a que el historial de mensajes sea legible y actual
-source-28d6a51c6d87f7e6 = Espere a que finalice la eliminación del inicio de sesión guardado.
-source-479471eae833c01b = Espere a que finalice la operación de adjunto actual
-source-b8457fb381a208ff = Espere a que las imágenes emoji actuales terminen de prepararse o cargarse.
-source-c2ea0f3651b8d482 = Espere a que termine el pegado actual.
-source-e55bd0d85dd08d0c = Espere a que finalice el guardado actual antes de cerrar.
-source-0e91eab83bc1da70 = Espere a que se abra el mensaje directo anterior.
-source-f92d939ac4327a15 = Esperando conexión.
-source-e430b4836da108ba = Esperando que inicie sesión en Discord
-source-4c565555b5817f89 = Esperando la discordia...
-source-e5742c5172b9acba = Esperando la solicitud...
-source-c181f3020df2bafc = Esperando a que se desconecte la llamada anterior.
-source-efe123eff3dc7ca5 = Esperando al transmisor...
-source-7101dd2deff8fb99 = Esperando borrar el historial almacenado en caché; historial en caché deshabilitado temporalmente
-source-c3fa29b962c8d811 = Carbón cálido y dorado, con controles espaciosos y redondeados.
-source-40868a9aa75f20f5 = Tonos cálidos de café y un toque cremoso de caramelo.
-source-34be76c6b1eadbef = Advertencia
-source-0a0a36c999741088 = Ver transmisión
-source-0ebc660e93c4b560 = Mirando
-source-6d3c94995c337799 = viendo la corriente
-source-9f300702cb64b834 = OLA
-source-b596f148a31b7d16 = Recomendamos encarecidamente configurar esto solo en @menciones para un servidor comunitario.
-source-f8e4d4474e5bc624 = Recomendamos una imagen de al menos 512×512.
-source-577977ef6b305426 = gancho web
-source-6d69fb7008bb9485 = Autor del webhook
-source-d3bb20d3231f4c6f = Ganchos web
-source-3bf3b24b6fcd677c = WebRTC
-source-6d5853b56f3f0766 = Bienvenido de nuevo
-source-ce18bd19ec376c06 = Bienvenido a Serein
-source-8f9c15bbb8ec6408 = ¿Qué tienes en mente?
-source-0d89b09e531af16a = Cuando se envió el mensaje
-source-ce5d20654a922851 = ¿Adónde te gustaría ir?
-source-476b4192dc7278a4 = que nunca caduca
-source-749b6c726c1960eb = Mientras está habilitado, al seleccionar emoji o stickers personalizados se envía una imagen adjunta de inmediato.
-source-ae3bcbd787941b05 = widget
-source-5c49cfa8045bc89d = Ventana
-source-ff204ac178603ceb = Fondo de ventana
-source-39215563bac98e77 = Esquinas de ventana
-source-820ebad499d4c0a3 = Efectos de ventana
-source-fcc663a2582664eb = gradiente de ventana
-source-58299ffc05b5c73a = Título de ventana y encabezado de conversación
-source-2d34c87f67f66c6a = ventanas
-source-3071ed12a0deedaa = Con usos ilimitados
-source-759ec4221a89f75c = palabra de fuente
-source-1216ca21d66069cb = trabajador creado
-source-73169ba3b8a0f98b = el trabajador es dueño de su receptor de limpieza
-source-f31ea692dc630aae = trabajador comenzó
-source-4ea3930603447c5a = Trabajando en tu última acción
-source-142e390b955f4f74 = Laboral…
-source-8864c20775805e00 = Envuelva el texto con marcadores de spoiler.
-source-de6362a1744a1bbc = Se acepta la arquitectura de AppImage incorrecta.
-source-af64154c86024d67 = incógnita
-source-d3448a1a1b8f2095 = X64
-source-40970cbe1010db29 = x7fELFx02x01x01
-source-b3394d570128d7b2 = XDG_SESSION_TYPE
-source-af64144c86024bb4 = Y
-source-dd583e56281a195e = YAML
-source-5b4abc92ede53bc7 = Ayer
-source-cb6a9c1a1757adbc = Tú
-source-d8e8412a1cb116ed = Ya eres miembro de este servidor.
-source-89c3d70ffc45603d = Ya eres miembro.
-source-1a402bf2c2585fdd = Ya estás en esta convocatoria.
-source-4a9c1c035a243d7f = Ya no puedes cambiar el ícono de este rol.
-source-c1c2537dfebd04ae = Ya no puedes administrar este servidor
-source-186ee238dbfc7285 = Ya no puedes subir emoji a este servidor
-source-cc3c58e5876b3d35 = Ya no puedes subir stickers a este servidor
-source-2c18dfb018d912b4 = No puedes iniciar un hilo en este canal.
-source-76ce3141a1c3fb53 = No puedes ver esta conversación.
-source-ac13390c7576a5dc = No tienes permiso para usar este comando en este canal.
-source-020a64b5155ccd31 = Tienes cambios sin guardar.
-source-b26b1a2412f8f712 = Necesita el permiso Crear invitación en un canal para crear una invitación.
-source-8f79586ed215c2f2 = Necesita Administrar canales y Administrar permisos para cambiar esta configuración.
-source-1c7a8eed90437231 = Ya no tienes permiso para cambiar esta conversación.
-source-0ab41190f558a2ba = Ya no tienes permiso para administrar este canal.
-source-9685685b933f743a = Aparecerás desconectado
-source-8aa748c099f4f5c4 = Necesitarás una invitación para volver a unirte.
-source-ad8a078d018c64f5 = No podrá volver a unirse a este servidor a menos que se le vuelva a invitar.
-source-2dc205839b740ab4 = No recibirás notificaciones de escritorio
-source-e6e4b6dcb80f5e9c = Eres miembro de
-source-12c21b402cd2d2a4 = Te han invitado a unirte a un servidor.
-source-48fd2ebd801bef61 = tu cuenta
-source-76b709858b643e8c = Tu cuenta utiliza una configuración de DM personalizada en el juego. Seleccione una opción para reemplazarla.
-source-b11634125ee78408 = Su cuenta utiliza una configuración de filtro de spam personalizada. Seleccione una opción para reemplazarla.
-source-f87d23e5aa7f501a = Su micrófono de llamadas mantiene su configuración actual.
-source-21e2b1dfd199a58b = Sus cambios no se han guardado.
-source-9415bd27ed29516a = Se perderán los cambios realizados en este servidor.
-source-e0100216ff74664c = Su enlace de invitación caduca en
-source-b846f844f8d62fe7 = Su enlace de invitación nunca caduca.
-source-a9d1dd5d6142477d = Su nombre
-source-b737b4083287e83d = Su imagen se eliminará cuando la guarde.
-source-5b880cce516ba3a2 = Su color primario en Apariencia tiene prioridad sobre este acento.
-source-6f577c0bdac1d0c6 = Tu privacidad
-source-865005865360b572 = Tu pantalla
-source-5a62d6c20c047243 = Tu pantalla · vista previa local
-source-d3aeef586c5f0477 = Tu servidor es donde tú y tus amigos pasan el rato. Haz el tuyo y empieza a hablar.
-source-6cb85de5133a3e86 = Tus pegatinas
-source-8b1b348158ebc95f = Se perderán los cambios no guardados en esta función.
-source-12ac16fdd201f4d1 = Se perderán los cambios del webhook no guardados.
-source-dcdd12bef40e339e = YouTube
-source-1f8972b051a58a65 = AAAA-MM-DD
-source-af64174c860250cd = z
-source-91f4da69d58dc6c1 = Zero desactiva el desenfoque; el compositor nativo controla su fuerza exacta.
-source-e457191a25288af1 = Zig
-source-166bd56d19670a72 = Zoom
-source-e480d638d81a9417 = Zyper (RPM)
-source-e7f56f26713340f4 = Čeština
-source-2271ddacfd0a1f7e = … atrás
-source-d431526dc3eb18ac = ← VOLVER
-source-547fba8644585336 = ← Volver a Roles
-source-3903e09ce17ed692 = ↑↓ elegir · Tabulador/Entrar insertar · Esc
-source-999c224c68c025f1 = ↪ Reenviado
-source-0bd7b459109bb979 = 🌙 semifluido en datos sintéticos
+# Context: list
+server-roles-list-delete-role = Eliminar rol
+# Context: list
+server-roles-list-edit-role = Editar rol
+# Context: list
+server-roles-list-edit-role-2 = Editar rol
+# Context: list
+server-roles-list-members = MIEMBROS
+# Context: list
+server-roles-list-members-use-the-color-of-the-highest-role-they-have = Los miembros usan el color del rol más alto que tienen en esta lista. Arrastra los roles para reordenarlos.
+# Context: list
+server-roles-list-move-down = Mover hacia abajo
+# Context: list
+server-roles-list-move-up = Subir
+# Context: list
+server-roles-list-role-actions = Acciones de rol
+# Context: list
+server-roles-list-roles = Roles
+# Context: list
+server-roles-list-roles-2 = FUNCIONES
+# Context: list
+server-roles-list-search-roles = Roles de búsqueda
+# Context: list
+server-roles-list-unknown = Desconocido
+# Context: list
+server-roles-list-use-roles-to-group-your-server-members-and-assign-permissions = Utilice roles para agrupar a los miembros de su servidor y asignar permisos.
+# Context: members
+server-roles-members-add = Agregar
+# Context: members
+server-roles-members-add-members = Agregar miembros
+# Context: members
+server-roles-members-back-to-role-members = Volver a miembros de rol
+# Context: members
+server-roles-members-first-page = Primera página
+# Context: members
+server-roles-members-next-page = Página siguiente
+# Context: members
+server-roles-members-remove = Eliminar
+# Context: members
+server-roles-members-search-members = Buscar miembros
+# Context: members
+server-roles-members-showing = Demostración
+# Context: navigation
+server-roles-navigation-back = ← VOLVER
+# Context: navigation
+server-roles-navigation-create-role = Crear rol
+# Context: permissions
+server-roles-permissions-search-permissions = Permisos de búsqueda
+# Context: save_bar
+server-roles-save-bar-saving-role = Guardando rol…
+# Context: show
+server-roles-show-loading-roles = Cargando roles...
+# Context: show
+server-roles-show-reload-roles = Recargar roles
+# Context: show
+server-roles-show-saving = Ahorro...
+
+## crates/ui/src/server_settings.rs
+# Context: channel_picker
+server-settings-channel-picker-no-accessible-channels-available = No hay canales accesibles disponibles.
+# Context: channel_picker
+server-settings-channel-picker-no-inactive-channel = Ningún canal inactivo
+# Context: channel_picker
+server-settings-channel-picker-no-system-messages-channel = Sin canal de mensajes del sistema
+# Context: channel_picker
+server-settings-channel-picker-none = Ninguno
+# Context: channel_picker
+server-settings-channel-picker-unavailable-channel = Canal no disponible
+# Context: delete_dialog
+server-settings-delete-dialog-are-you-sure-you-want-to-delete = ¿Estás seguro de que quieres eliminar?
+# Context: delete_dialog
+server-settings-delete-dialog-cancel = Cancelar
+# Context: delete_dialog
+server-settings-delete-dialog-delete = Borrar
+# Context: delete_dialog
+server-settings-delete-dialog-delete-server = Eliminar servidor
+# Context: delete_dialog
+server-settings-delete-dialog-deleting = Eliminando…
+# Context: delete_dialog
+server-settings-delete-dialog-enter-server-name = Introduzca el nombre del servidor
+# Context: delete_dialog
+server-settings-delete-dialog-offline-preview-no-server-changes = Vista previa sin conexión · sin cambios en el servidor
+# Context: delete_dialog
+server-settings-delete-dialog-this-action-cannot-be-undone = Esta acción no se puede deshacer.
+# Context: delete_server_button
+server-settings-delete-server-button-delete-server = Eliminar servidor
+# Context: engagement
+server-settings-engagement-activity-feed-settings = Configuración del feed de actividades
+# Context: engagement
+server-settings-engagement-all-messages = Todos los mensajes
+# Context: engagement
+server-settings-engagement-automatically-move-members-to-this-channel-and-mute-them-when = Mueva automáticamente a los miembros a este canal y siléntelos cuando hayan estado inactivos durante más tiempo que el tiempo de inactividad. Esto no afecta a los navegadores.
+# Context: engagement
+server-settings-engagement-configure-system-event-messages-sent-to-your-server = Configure los mensajes de eventos del sistema enviados a su servidor.
+# Context: engagement
+server-settings-engagement-default-notification-settings = Configuración de notificación predeterminada
+# Context: engagement
+server-settings-engagement-display-activity-feed-in-this-server = Mostrar fuente de actividad en este servidor
+# Context: engagement
+server-settings-engagement-engagement = Compromiso
+# Context: engagement
+server-settings-engagement-inactive-channel = Canal inactivo
+# Context: engagement
+server-settings-engagement-inactive-timeout = Tiempo de espera inactivo
+# Context: engagement
+server-settings-engagement-manage-settings-that-help-keep-your-server-active = Administre configuraciones que ayuden a mantener su servidor activo.
+# Context: engagement
+server-settings-engagement-only-mentions = Sólo @menciones
+# Context: engagement
+server-settings-engagement-server-default = Valor predeterminado del servidor
+# Context: engagement
+server-settings-engagement-shows-a-feed-of-activity-from-games-and-connected-apps = Muestra una fuente de actividad de juegos y aplicaciones conectadas en este servidor.
+# Context: engagement
+server-settings-engagement-system-messages = Mensajes del sistema
+# Context: engagement
+server-settings-engagement-system-messages-channel = Canal de mensajes del sistema
+# Context: engagement
+server-settings-engagement-this-is-the-channel-we-send-system-event-messages-to = Este es el canal al que enviamos mensajes de eventos del sistema.
+# Context: engagement
+server-settings-engagement-this-will-determine-whether-members-who-have-not-explicitly-set = Esto determinará si los miembros que no han configurado explícitamente su configuración de notificación recibirán una notificación por cada mensaje enviado en este servidor o no.
+# Context: engagement
+server-settings-engagement-we-highly-recommend-setting-this-to-only-mentions-for-a = Recomendamos encarecidamente configurar esto solo en @menciones para un servidor comunitario.
+# Context: label
+server-settings-page-audit-log = Registro de auditoría
+# Context: page_body
+server-settings-page-body-load-server-settings = Cargar la configuración del servidor
+# Context: page_body
+server-settings-page-body-loading-server-settings = Cargando configuración del servidor…
+# Context: page_body
+server-settings-page-body-reconnect-to-load-server-settings = Vuelva a conectarse para cargar la configuración del servidor.
+# Context: page_body
+server-settings-page-body-reload-server-settings = Recargar la configuración del servidor
+# Context: label
+server-settings-page-emoji = emojis
+# Context: label
+server-settings-page-engagement = Compromiso
+# Context: label
+server-settings-page-integrations = Integraciones
+# Context: label
+server-settings-page-invites = invita
+# Context: label
+server-settings-page-members = Miembros
+# Context: label
+server-settings-page-profile = Perfil del servidor
+# Context: label
+server-settings-page-roles = Roles
+# Context: label
+server-settings-page-stickers = Pegatinas
+# Context: preview
+server-settings-preview-established = Establecido
+# Context: preview
+server-settings-preview-members = Miembros
+# Context: preview
+server-settings-preview-online = En línea
+# Context: profile_form
+server-settings-profile-form-add-up-to-5-traits-to-show-off-your-server = Agregue hasta 5 rasgos para mostrar los intereses y la personalidad de su servidor.
+# Context: profile_form
+server-settings-profile-form-banner = Bandera
+# Context: profile_form
+server-settings-profile-form-change-server-icon = Cambiar icono de servidor
+# Context: profile_form
+server-settings-profile-form-customize-how-your-server-appears-in-invite-links-and-if = Personalice cómo aparece su servidor en los enlaces de invitación y, si está habilitado, en los mensajes del canal de anuncios y descubrimiento de servidores.
+# Context: profile_form
+server-settings-profile-form-description = Descripción
+# Context: profile_form
+server-settings-profile-form-how-did-your-server-get-started-why-should-people-join = ¿Cómo empezó su servidor? ¿Por qué la gente debería unirse?
+# Context: profile_form
+server-settings-profile-form-icon = Icono
+# Context: profile_form
+server-settings-profile-form-name = Nombre
+# Context: profile_form
+server-settings-profile-form-preparing-icon = Icono de preparación…
+# Context: profile_form
+server-settings-profile-form-remove-icon = Quitar icono
+# Context: profile_form
+server-settings-profile-form-remove-trait = Eliminar rasgo
+# Context: profile_form
+server-settings-profile-form-server-profile = Perfil del servidor
+# Context: profile_form
+server-settings-profile-form-tell-the-world-a-bit-about-this-server = Cuéntale al mundo un poco sobre este servidor.
+# Context: profile_form
+server-settings-profile-form-trait-name = nombre del rasgo
+# Context: profile_form
+server-settings-profile-form-traits = Rasgos
+# Context: profile_form
+server-settings-profile-form-we-recommend-an-image-of-at-least-512512 = Recomendamos una imagen de al menos 512×512.
+# Context: save_bar
+server-settings-save-bar-reconnect-to-save-changes = Vuelva a conectarse para guardar los cambios.
+# Context: save_bar
+server-settings-save-bar-reload-the-server-settings-before-saving-again-your-edits-will = Vuelva a cargar la configuración del servidor antes de guardar nuevamente. Se conservarán sus ediciones.
+# Context: save_bar
+server-settings-save-bar-saving-changes = Guardando cambios…
+# Context: show
+server-settings-show-apps = APLICACIONES
+# Context: show
+server-settings-show-expression = EXPRESIÓN
+# Context: show
+server-settings-show-moderation = MODERACIÓN
+# Context: show
+server-settings-show-people = GENTE
+# Context: timeout_picker
+server-settings-timeout-picker-minutes = minutos
+
+## crates/ui/src/server_stickers.rs
+# Context: dialog
+server-stickers-dialog-cancel = Cancelar
+# Context: dialog
+server-stickers-dialog-delete-sticker = Eliminar pegatina
+# Context: dialog
+server-stickers-dialog-description-optional = Descripción (opcional)
+# Context: dialog
+server-stickers-dialog-name = Nombre
+# Context: dialog
+server-stickers-dialog-related-emoji = Emojis relacionados
+# Context: dialog
+server-stickers-dialog-save = Ahorrar
+# Context: show
+server-stickers-show-add-custom-stickers-for-members-to-use-in-this-server = Agregue pegatinas personalizadas para que los miembros las utilicen en este servidor. La obra de arte se recorta y se cambia de tamaño a 320 × 320 píxeles antes de cargarla.
+# Context: show
+server-stickers-show-by = por
+# Context: show
+server-stickers-show-cancel = Cancelar
+# Context: show
+server-stickers-show-delete-sticker = Eliminar pegatina
+# Context: show
+server-stickers-show-description-optional = Descripción (opcional)
+# Context: show
+server-stickers-show-edit = Editar
+# Context: show
+server-stickers-show-for-example = Por ejemplo: 🐀
+# Context: show
+server-stickers-show-loading = Cargando…
+# Context: show
+server-stickers-show-name = Nombre
+# Context: show
+server-stickers-show-no-custom-stickers-yet = Aún no hay pegatinas personalizadas.
+# Context: show
+server-stickers-show-of = de
+# Context: show
+server-stickers-show-preparing-sticker-artwork = Preparando el arte de las pegatinas...
+# Context: show
+server-stickers-show-related-emoji = Emojis relacionados
+# Context: show
+server-stickers-show-reload = Recargar
+# Context: show
+server-stickers-show-review-sticker = Etiqueta de revisión
+# Context: show
+server-stickers-show-saving-changes = Guardando cambios…
+# Context: show
+server-stickers-show-slots-used = ranuras utilizadas
+# Context: show
+server-stickers-show-static-png-jpeg-and-webp-artwork-is-supported-up-to = Se admiten ilustraciones estáticas PNG, JPEG y WebP de hasta 8 MB. El PNG preparado debe ajustarse al límite de 512 KB de Discord.
+# Context: show
+server-stickers-show-sticker-actions = Acciones de pegatinas
+# Context: show
+server-stickers-show-stickers = Pegatinas
+# Context: show
+server-stickers-show-stickers-2 = pegatinas
+# Context: show
+server-stickers-show-upload = Subir
+# Context: show
+server-stickers-show-upload-sticker = Subir pegatina
+# Context: show
+server-stickers-show-use-a-230-character-name-an-optional-description-up-to = Utilice un nombre de 2 a 30 caracteres, una descripción opcional de hasta 100 caracteres y al menos un emoji relacionado.
+# Context: show
+server-stickers-show-your-stickers = Tus pegatinas
+
+## crates/ui/src/settings.rs
+# Context: account_page
+settings-account-page-closes-the-offline-fixture-nothing-is-stored-for-the-preview = Cierra el dispositivo fuera de línea. No se almacena nada para la vista previa.
+# Context: account_page
+settings-account-page-display-name = Nombre para mostrar
+# Context: account_page
+settings-account-page-edit-profile = Editar perfil
+# Context: account_page
+settings-account-page-email-password-and-security = Correo electrónico, contraseña y seguridad
+# Context: account_page
+settings-account-page-offline-preview-synthetic-account = Vista previa sin conexión · cuenta sintética
+# Context: account_page
+settings-account-page-removes-the-saved-login-and-clears-this-account-s-local = Elimina el inicio de sesión guardado y borra el caché y los borradores locales de esta cuenta.
+# Context: account_page
+settings-account-page-session = Sesión
+# Context: account_page
+settings-account-page-signed-in-with-your-discord-account = Iniciaste sesión con tu cuenta de Discord
+# Context: activity_settings
+settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = Detecta juegos en ejecución y pide a Discord que los comparta como actividad.
+# Context: activity_settings
+settings-activity-settings-share-game-activity = Compartir actividad de juego
+# Context: appearance_menu
+settings-appearance-menu-display = Mostrar
+# Context: appearance_menu
+settings-appearance-menu-mode = Modo
+# Context: appearance_menu
+settings-appearance-menu-theme = Tema
+# Context: appearance_settings
+settings-appearance-settings-accent = Acento
+# Context: appearance_settings
+settings-appearance-settings-apply-to-all-surfaces = Aplicar a todas las superficies.
+# Context: appearance_settings
+settings-appearance-settings-blur = Difuminar
+# Context: appearance_settings
+settings-appearance-settings-choose-primary-color = Elige color primario
+# Context: appearance_settings
+settings-appearance-settings-include-sidebars-server-rail-headers-and-composer = Incluya barras laterales, barra de servidor, encabezados y compositor.
+# Context: appearance_settings
+settings-appearance-settings-primary-color = color primario
+# Context: appearance_settings
+settings-appearance-settings-reset = Reiniciar
+# Context: appearance_settings
+settings-appearance-settings-restart-serein-after-changing-this-themes-can-customize-effects-while = Reinicie Serein después de cambiar esto. Los temas pueden personalizar los efectos mientras están habilitados.
+# Context: appearance_settings
+settings-appearance-settings-the-active-theme-brings-its-own-accent-it-takes-over = El tema activo aporta su propio acento; toma el control mientras el tema está en uso.
+# Context: appearance_settings
+settings-appearance-settings-theme = Tema
+# Context: appearance_settings
+settings-appearance-settings-transparency = Transparencia
+# Context: appearance_settings
+settings-appearance-settings-transparency-blur = Transparencia y desenfoque
+# Context: appearance_settings
+settings-appearance-settings-used-for-buttons-selection-and-message-highlights = Se utiliza para botones, selección y resaltado de mensajes.
+# Context: appearance_settings
+settings-appearance-settings-window-effects = Efectos de ventana
+# Context: appearance_settings
+settings-appearance-settings-zero-disables-blur-the-native-compositor-controls-its-exact-strength = Zero desactiva el desenfoque; el compositor nativo controla su fuerza exacta.
+# Context: chat_settings
+settings-chat-settings-channel-list = lista de canales
+# Context: chat_settings
+settings-chat-settings-show-channels-you-cannot-currently-access = Muestra canales a los que no puedes acceder actualmente.
+# Context: chat_settings
+settings-chat-settings-show-hidden-channels = Mostrar canales ocultos
+# Context: close_control
+settings-close-control-close-settings-esc = Cerrar configuración (Esc)
+# Context: colour_preset_settings
+settings-colour-preset-settings-colour-preset = Color preestablecido
+# Context: colour_preset_settings
+settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Guardado con tu apariencia. Los ajustes preestablecidos de degradado siempre utilizan texto oscuro.
+# Context: storage_page
+settings-storage-page-clear-cache = Borrar caché
+# Context: storage_page
+settings-storage-page-local-storage = Almacenamiento local
+# Context: storage_page
+settings-storage-page-messages-and-drafts-are-cached-on-this-device-inside-bounded = Los mensajes y borradores se almacenan en caché en este dispositivo dentro de archivos delimitados y aislados de la cuenta. Serein no cifra los datos de la caché; Los tokens de inicio de sesión guardados utilizan el almacén de credenciales del sistema operativo.
+# Context: storage_page
+settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-stay = Elimina mensajes y medios almacenados en caché. Los borradores y su inicio de sesión permanecen.
+# Context: storage_page
+settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein no recopila telemetría ni carga diagnósticos. Discord retiene datos del lado del servicio de acuerdo con sus propias políticas.
+# Context: storage_page
+settings-storage-page-your-privacy = Tu privacidad
+
+## crates/ui/src/slash_commands.rs
+# Context: argument
+slash-commands-argument-attachment-arguments-are-not-supported-yet = Los argumentos adjuntos aún no son compatibles.
+# Context: argument
+slash-commands-argument-choose = Elegir…
+# Context: argument
+slash-commands-argument-false = FALSO
+# Context: argument
+slash-commands-argument-id-or-choose = DNI o elige…
+# Context: argument
+slash-commands-argument-not-set = No establecido
+# Context: argument
+slash-commands-argument-true = Verdadero
+# Context: argument
+slash-commands-argument-unavailable = Indisponible
+# Context: composer
+slash-commands-composer-choose-a-different-command = elige un comando diferente
+# Context: composer
+slash-commands-composer-command-unavailable-your-arguments-are-kept = Comando no disponible. Tus argumentos se mantienen.
+# Context: footer
+slash-commands-footer-refresh-application-commands = Actualizar comandos de la aplicación
+
+## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-loading-sticker-details = Cargando detalles de la etiqueta...
+# Context: message
+stickers-message-retry-sticker-details = Reintentar detalles de la etiqueta
+# Context: message
+stickers-message-sticker = etiqueta engomada
+# Context: message
+stickers-message-sticker-details-unavailable = Los detalles de la pegatina no están disponibles.
+# Context: message
+stickers-message-this-is-a = Este es un
+# Context: message
+stickers-message-view-more-stickers = Ver más pegatinas
+# Context: show
+stickers-show-loading-sticker-packs = Cargando paquetes de pegatinas...
+# Context: show
+stickers-show-nitro-is-required-to-use-this-sticker-outside-its-server = Se requiere que Nitro use esta etiqueta fuera de su servidor.
+# Context: show
+stickers-show-no-stickers-found = No se encontraron pegatinas.
+# Context: show
+stickers-show-showing-the-first-500-stickers-search-to-narrow-the-results = Mostrando las primeras 500 pegatinas. Busque para limitar los resultados.
+# Context: show
+stickers-show-this-server-has-no-stickers-yet = Este servidor aún no tiene pegatinas.
+# Context: show
+stickers-show-this-sticker-is-unavailable-with-the-current-connection-or-permissions = Esta pegatina no está disponible con la conexión o los permisos actuales.
+
+## crates/ui/src/switcher.rs
+# Context: show
+switcher-show-close = Cerca
+# Context: show
+switcher-show-conversations-and-friends = Conversaciones y amigos
+# Context: show
+switcher-show-finish-composing-text-before-opening-or-closing = Termine de redactar el texto antes de abrirlo o cerrarlo.
+# Context: show
+switcher-show-no-conversations-or-friends-match = No coinciden conversaciones ni amigos
+# Context: show
+switcher-show-results = Resultados
+# Context: show
+switcher-show-try-a-channel-server-or-person-name = Pruebe con un canal, servidor o nombre de persona.
+# Context: show
+switcher-show-where-would-you-like-to-go = ¿Adónde te gustaría ir?
+
+## crates/ui/src/theme_editor.rs
+# Context: appearance_switch
+theme-editor-appearance-switch-colors-and-opacity-are-saved-separately-for-dark-and-light = Los colores y la opacidad se guardan por separado para una apariencia oscura y clara.
+# Context: appearance_switch
+theme-editor-appearance-switch-dark = Oscuro
+# Context: appearance_switch
+theme-editor-appearance-switch-editing = Edición
+# Context: appearance_switch
+theme-editor-appearance-switch-light = Luz
+# Context: color_input
+theme-editor-color-input-use-rrggbb-or-rrggbbaa = Utilice #RRGGBB o #RRGGBBAA
+# Context: color_override
+theme-editor-color-override-reset = Reiniciar
+# Context: color_override
+theme-editor-color-override-use-rrggbb-or-rrggbbaa = Utilice #RRGGBB o #RRGGBBAA.
+# Context: color_override
+theme-editor-color-override-use-the-default-color-for-this-appearance = Utilice el color predeterminado para esta apariencia.
+# Context: cover_card
+theme-editor-cover-card-automatic-preview = Vista previa automática
+# Context: cover_card
+theme-editor-cover-card-choose-cover = Elige portada
+# Context: cover_card
+theme-editor-cover-card-custom-cover = portada personalizada
+# Context: cover_card
+theme-editor-cover-card-png-or-jpeg-up-to-2-mib-this-image-does = PNG o JPEG, hasta 2 MiB. Esta imagen no cambia el fondo del chat.
+# Context: cover_card
+theme-editor-cover-card-remove = Eliminar
+# Context: cover_card
+theme-editor-cover-card-replace-cover = Reemplace la cubierta
+# Context: description
+theme-editor-description-direct-messages-and-channel-navigation = Mensajes directos y navegación por canales.
+# Context: description
+theme-editor-description-the-area-around-the-message-box = El área alrededor del cuadro de mensaje.
+# Context: description
+theme-editor-description-the-conversation-timeline = La línea de tiempo de la conversación
+# Context: description
+theme-editor-description-the-left-server-rail = El carril izquierdo del servidor
+# Context: description
+theme-editor-description-the-member-and-search-pane-on-the-right = El panel de búsqueda y miembros a la derecha
+# Context: description
+theme-editor-description-window-title-and-conversation-header = Título de ventana y encabezado de conversación
+# Context: image_card
+theme-editor-image-card-background-image = Imagen de fondo
+# Context: image_card
+theme-editor-image-card-choose-image = Elige imagen
+# Context: image_card
+theme-editor-image-card-no-image-selected = Ninguna imagen seleccionada
+# Context: image_card
+theme-editor-image-card-pixels = píxeles
+# Context: image_card
+theme-editor-image-card-png-or-jpeg-up-to-2-mib = PNG o JPEG, hasta 2 MiB
+# Context: image_card
+theme-editor-image-card-remove = Eliminar
+# Context: image_card
+theme-editor-image-card-replace-image = Reemplazar imagen
+# Context: label
+theme-editor-label-member-list = Lista de miembros
+# Context: label
+theme-editor-label-message-input-area = Área de entrada de mensajes
+# Context: label
+theme-editor-label-message-list = Lista de mensajes
+# Context: label
+theme-editor-label-people-channels = Personas y canales
+# Context: label
+theme-editor-label-server-list = Lista de servidores
+# Context: label
+theme-editor-label-top-bars = barras superiores
+# Context: metric_label
+theme-editor-metric-label-reset = Reiniciar
+# Context: metric_label
+theme-editor-metric-label-use-the-built-in-value = Utilice el valor incorporado
+# Context: section_controls
+theme-editor-section-controls-0-shows-the-image-100-is-a-solid-section-color = 0% muestra la imagen. 100% es un color de sección sólida.
+# Context: section_controls
+theme-editor-section-controls-selected-section = Sección seleccionada
+# Context: section_controls
+theme-editor-section-controls-surface-opacity = Opacidad de la superficie
+# Context: show
+theme-editor-show-additional-colors-app-controls-and-sharing-details = Colores adicionales, controles de aplicaciones y detalles para compartir.
+# Context: show
+theme-editor-show-advanced = Avanzado
+# Context: show
+theme-editor-show-app-background = Fondo de la aplicación
+# Context: show
+theme-editor-show-apply-to-all-surfaces = Aplicar a todas las superficies.
+# Context: show
+theme-editor-show-blend-two-colors-behind-the-app-s-surfaces = Mezcla dos colores detrás de las superficies de la aplicación.
+# Context: show
+theme-editor-show-blur = Difuminar
+# Context: show
+theme-editor-show-card-cover = cubierta de tarjeta
+# Context: show
+theme-editor-show-choose-an-image-to-adjust-the-top-bar-lists-and = Elija una imagen para ajustar la barra superior, las listas y el área de mensajes.
+# Context: show
+theme-editor-show-choose-the-image-shown-on-your-theme-card-in-themes = Elija la imagen que se muestra en su tarjeta temática en Temas.
+# Context: show
+theme-editor-show-click-a-swatch-to-choose-a-color-or-enter-its = Haga clic en una muestra para elegir un color o ingrese su valor hexadecimal.
+# Context: show
+theme-editor-show-conversation-colors = Colores de conversación
+# Context: show
+theme-editor-show-created-by = Creado por
+# Context: show
+theme-editor-show-creator-name-is-required = Se requiere el nombre del creador.
+# Context: show
+theme-editor-show-export-theme = Tema de exportación
+# Context: show
+theme-editor-show-fill-area = Rellenar área
+# Context: show
+theme-editor-show-fit-entire-image = Ajustar toda la imagen
+# Context: show
+theme-editor-show-how-your-theme-appears-in-the-gallery = Cómo aparece tu tema en la galería.
+# Context: show
+theme-editor-show-image-opacity = Opacidad de la imagen
+# Context: show
+theme-editor-show-include-sidebars-server-rail-headers-and-composer = Incluya barras laterales, barra de servidor, encabezados y compositor.
+# Context: show
+theme-editor-show-license = Licencia
+# Context: show
+theme-editor-show-license-and-version-are-required = Se requiere licencia y versión.
+# Context: show
+theme-editor-show-more-colors = Más colores
+# Context: show
+theme-editor-show-only-share-images-you-own-or-have-permission-to-use = Comparta únicamente imágenes de su propiedad o que tenga permiso para usar. Mantenga la atribución requerida.
+# Context: show
+theme-editor-show-override-the-default-appearance-setting-for-this-theme = Anule la configuración de Apariencia predeterminada para este tema.
+# Context: show
+theme-editor-show-requires-transparency-blur-in-appearance-then-an-app-restart = Requiere transparencia y desenfoque en la apariencia, luego reiniciar la aplicación.
+# Context: show
+theme-editor-show-section-opacity = Opacidad de la sección
+# Context: show
+theme-editor-show-select-an-area-then-choose-how-much-of-the-image = Seleccione un área y luego elija qué parte de la imagen se muestra.
+# Context: show
+theme-editor-show-sharing-export = Compartir y exportar
+# Context: show
+theme-editor-show-source-url = URL de origen
+# Context: show
+theme-editor-show-text-spacing-corners = Texto, espaciado y esquinas
+# Context: show
+theme-editor-show-the-license-and-version-are-required-a-source-url-is = Se requiere la licencia y la versión. Una URL de origen es opcional para los temas locales.
+# Context: show
+theme-editor-show-theme-details = Detalles del tema
+# Context: show
+theme-editor-show-theme-name = Nombre del tema
+# Context: show
+theme-editor-show-theme-name-is-required = El nombre del tema es obligatorio.
+# Context: show
+theme-editor-show-these-settings-apply-to-dark-and-light-appearances = Estas configuraciones se aplican a apariencias oscuras y claras.
+# Context: show
+theme-editor-show-this-older-theme-uses-its-original-image-placement = Este tema más antiguo utiliza la ubicación de la imagen original.
+# Context: show
+theme-editor-show-transparency = Transparencia
+# Context: show
+theme-editor-show-transparency-blur = Transparencia y desenfoque
+# Context: show
+theme-editor-show-use-a-gradient = Usa un degradado
+# Context: show
+theme-editor-show-use-a-valid-https-source-url-or-leave-this-blank = Utilice una URL de origen HTTPS válida o déjelo en blanco.
+# Context: show
+theme-editor-show-use-image-across-the-app = Usar imagen en toda la aplicación
+# Context: show
+theme-editor-show-use-one-image-behind-your-conversations-and-sidebars = Utilice una imagen detrás de sus conversaciones y barras laterales.
+# Context: show
+theme-editor-show-use-rrggbb-or-rrggbbaa = Utilice #RRGGBB o #RRGGBBAA.
+# Context: show
+theme-editor-show-version = Versión
+# Context: show
+theme-editor-show-window-effects = Efectos de ventana
+# Context: show
+theme-editor-show-window-gradient = gradiente de ventana
+# Context: show
+theme-editor-show-your-primary-color-in-appearance-takes-precedence-over-this-accent = Su color primario en Apariencia tiene prioridad sobre este acento.
+# Context: show
+theme-editor-show-zero-disables-blur-the-native-compositor-controls-its-exact-strength = Zero desactiva el desenfoque; el compositor nativo controla su fuerza exacta.
+# Context: key
+theme-editor-tab-advanced = Avanzado
+# Context: key
+theme-editor-tab-background = Fondo
+# Context: key
+theme-editor-tab-basics = Lo esencial
+# Context: key
+theme-editor-tab-colors = Bandera
+# Context: toolbar
+theme-editor-toolbar-back = Atrás
+# Context: toolbar
+theme-editor-toolbar-preview-in-app = Vista previa en la aplicación
+# Context: toolbar
+theme-editor-toolbar-save-and-apply = Guardar y aplicar
+# Context: toolbar
+theme-editor-toolbar-unsaved-changes = Cambios no guardados
+# Context: toolbar
+theme-editor-toolbar-working = Laboral…
+
+## crates/ui/src/thread_create.rs
+# Context: show
+thread-create-show-cancel = Cancelar
+# Context: show
+thread-create-show-create = Crear
+# Context: show
+thread-create-show-create-thread = Crear hilo
+# Context: show
+thread-create-show-everyone-who-can-see-this-channel-can-see-the-thread = Todos los que puedan ver este canal pueden ver el hilo.
+# Context: show
+thread-create-show-the-selected-message-starts-the-thread-everyone-who-can-see = El mensaje seleccionado inicia el hilo. Todos los que puedan ver este canal pueden ver el hilo.
+# Context: show
+thread-create-show-thread-name = Nombre del hilo
+
+## crates/ui/src/timeline.rs
+# Context: channel_welcome
+timeline-channel-welcome-this-is-the-beginning-of-the-conversation = Este es el comienzo de la conversación.
+# Context: deleted_message_actions
+timeline-deleted-message-actions-remove-message = Eliminar mensaje
+# Context: deleted_message_actions
+timeline-deleted-message-actions-toggle-deleted-highlight = Alternar resaltado eliminado
+# Context: loading_messages
+timeline-loading-messages-loading-messages = Cargando mensajes
+# Context: message_actions
+timeline-message-actions-copy = Copiar
+# Context: message_actions
+timeline-message-actions-create-thread = Crear hilo…
+# Context: message_actions
+timeline-message-actions-delete-message = Eliminar mensaje…
+# Context: message_actions
+timeline-message-actions-edit-message = Editar mensaje
+# Context: message_actions
+timeline-message-actions-extensions = Extensiones
+# Context: message_actions
+timeline-message-actions-forward = Adelante
+# Context: message_actions
+timeline-message-actions-mark-read-through-here = Mark leyó hasta aquí
+# Context: message_actions
+timeline-message-actions-mark-unread = Marcar como no leído
+# Context: message_actions
+timeline-message-actions-pin-message = Fijar mensaje
+# Context: message_actions
+timeline-message-actions-reply = Responder
+# Context: message_actions
+timeline-message-actions-unpin-message = Desanclar mensaje
+# Context: message_actions
+timeline-message-actions-view-reactions = Ver reacciones
+# Context: present_control
+timeline-present-control-jump-to-present = Saltar al presente
+# Context: present_control
+timeline-present-control-new-messages-below-jump-to-present = Nuevos mensajes a continuación · saltar al presente
+# Context: show_system
+timeline-show-system-open-this-channels-threads = Abrir los hilos de este canal.
+# Context: show_system
+timeline-show-system-see-all = . Ver todo
+# Context: show_with_scroll
+timeline-show-with-scroll-application-interaction-pending = Interacción de la aplicación pendiente...
+# Context: show_with_scroll
+timeline-show-with-scroll-deleted-message-had-no-text = [El mensaje eliminado no tenía texto]
+# Context: show_with_scroll
+timeline-show-with-scroll-dismiss-message = Descartar mensaje
+# Context: show_with_scroll
+timeline-show-with-scroll-display-limited-copy-message-for-the-full-text = Visualización limitada · Copiar mensaje para el texto completo
+# Context: show_with_scroll
+timeline-show-with-scroll-edited = (editado)
+# Context: show_with_scroll
+timeline-show-with-scroll-forwarded = ↪ Reenviado
+# Context: show_with_scroll
+timeline-show-with-scroll-hide-spoilers = Ocultar spoilers
+# Context: show_with_scroll
+timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = El historial aún no está disponible. Utilice Recargar para intentarlo de nuevo.
+# Context: show_with_scroll
+timeline-show-with-scroll-loading-messages = Cargando mensajes…
+# Context: show_with_scroll
+timeline-show-with-scroll-message-deleted = Mensaje eliminado
+# Context: show_with_scroll
+timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = El historial de mensajes no está disponible con la información de permisos actual.
+# Context: show_with_scroll
+timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Aún no hay mensajes. Inicie la conversación a continuación.
+# Context: show_with_scroll
+timeline-show-with-scroll-only-you-can-see-this = Sólo tú puedes ver esto •
+# Context: show_with_scroll
+timeline-show-with-scroll-open-in-discord = Abrir en discordia
+# Context: show_with_scroll
+timeline-show-with-scroll-reveal-spoiler-media = Revelar medios spoilers
+# Context: show_with_scroll
+timeline-show-with-scroll-view-original-message = Ver mensaje original
+# Context: show_with_scroll
+timeline-show-with-scroll-wait-for-readable-current-message-history = Espere a que el historial de mensajes sea legible y actual
+# Context: show_with_scroll
+timeline-show-with-scroll-you-cannot-view-this-conversation = No puedes ver esta conversación.
+# Context: starter_row
+timeline-starter-row-thread-started-from-this-message = Hilo iniciado con este mensaje.
+# Context: unread_banner
+timeline-unread-banner-unread-messages = Mensajes no leídos
+
+## crates/ui/src/toasts.rs
+# Context: show
+toasts-show-dismiss = Despedir
+
+## crates/ui/src/updates.rs
+# Context: shows_update_banner
+updates-shows-update-banner-on-top = encima
+# Context: shows_update_banner
+updates-shows-update-banner-restart-to-update = Reiniciar para actualizar
+# Context: shows_update_banner
+updates-shows-update-banner-update-available = Actualización disponible
+# Context: shows_update_banner
+updates-shows-update-banner-updating = Actualizando…
+# Context: update_banner
+updates-update-banner-dismiss-update = Descartar actualización
+# Context: update_settings
+updates-update-settings-auto-update = Actualización automática
+# Context: update_settings
+updates-update-settings-check-for-updates = Buscar actualizaciones
+# Context: update_settings
+updates-update-settings-copied = Copiado
+# Context: update_settings
+updates-update-settings-copy = Copiar
+# Context: update_settings
+updates-update-settings-copy-command = comando copiar
+# Context: update_settings
+updates-update-settings-copy-system-and-client-environment-details-formatted-for-github-issue = Copie los detalles del sistema y del entorno del cliente formateados para los informes de problemas de GitHub.
+# Context: update_settings
+updates-update-settings-could-not-load-or-save-update-preferences-changes-may-not = No se pudieron cargar ni guardar las preferencias de actualización. Es posible que los cambios no sobrevivan al reinicio.
+# Context: update_settings
+updates-update-settings-download-update = Descargar actualización
+# Context: update_settings
+updates-update-settings-download-updates-in-the-background-restart-when-you-are-ready = Descarga actualizaciones en segundo plano. Reinicie cuando esté listo. Serein todavía verifica al inicio y periódicamente cuando está desactivado.
+# Context: update_settings
+updates-update-settings-early-builds-with-the-newest-changes-nightly-releases-can-be = Construcciones tempranas con los cambios más recientes. Los lanzamientos nocturnos pueden ser menos confiables.
+# Context: update_settings
+updates-update-settings-finish-the-current-update-before-checking-again = Finalice la actualización actual antes de volver a comprobarla.
+# Context: update_settings
+updates-update-settings-flatpak-manages-updates-via-its-repository-run-flatpak-update-or = Flatpak gestiona las actualizaciones a través de su repositorio. Ejecute la `actualización de flatpak` o use el software GNOME/KDE Discover para instalar nuevas versiones.
+# Context: update_settings
+updates-update-settings-in-app-installation-requires-a-macos-or-windows-release-package = La instalación dentro de la aplicación requiere un paquete de versión de macOS o Windows, o una AppImage de Linux x86-64. Otras instalaciones de Linux utilizan su administrador de paquetes.
+# Context: update_settings
+updates-update-settings-issue-diagnostics = Diagnóstico de problemas
+# Context: update_settings
+updates-update-settings-nightly = Nocturno
+# Context: update_settings
+updates-update-settings-package-manager-updates = Actualizaciones del administrador de paquetes
+# Context: update_settings
+updates-update-settings-preferences = Preferencias
+# Context: update_settings
+updates-update-settings-production = Producción
+# Context: update_settings
+updates-update-settings-published-stable-releases-switching-channels-never-installs-an-older-ver = Lanzamientos estables publicados. Cambiar de canal nunca instala una versión anterior.
+# Context: update_settings
+updates-update-settings-release-channel = Canal de lanzamiento
+# Context: update_settings
+updates-update-settings-restart-to-update = Reiniciar para actualizar
+# Context: update_settings
+updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein se instaló a través de su distribución. Ejecute esto en una terminal para actualizar.
+# Context: update_settings
+updates-update-settings-support-diagnostics = Soporte y diagnóstico
+# Context: update_settings
+updates-update-settings-update-checks-are-disabled-in-debug-builds = Las comprobaciones de actualización están deshabilitadas en las compilaciones de depuración.
+
+## crates/ui/src/user_menu.rs
+# Context: contents
+user-menu-contents-add-friend-nickname = Agregar apodo de amigo
+# Context: contents
+user-menu-contents-add-note = Agregar nota
+# Context: contents
+user-menu-contents-block = Bloquear
+# Context: contents
+user-menu-contents-close-dm = Cerrar DM
+# Context: contents
+user-menu-contents-edit-friend-nickname = Editar apodo de amigo
+# Context: contents
+user-menu-contents-mention = Mencionar
+# Context: contents
+user-menu-contents-mute-conversation = Silenciar conversación
+# Context: contents
+user-menu-contents-mute-this-direct-message-s-notifications-until-you-unmute-it = Silencia las notificaciones de este mensaje directo hasta que lo reactives.
+# Context: contents
+user-menu-contents-no-open-direct-message-with-this-user = No hay mensajes directos abiertos con este usuario.
+# Context: contents
+user-menu-contents-pin-dm = Pin DM
+# Context: contents
+user-menu-contents-pinned-direct-messages-are-saved-on-this-device = Los mensajes directos fijados se guardan en este dispositivo.
+# Context: contents
+user-menu-contents-private-nicknames-are-available-for-confirmed-friends = Hay apodos privados disponibles para amigos confirmados.
+# Context: contents
+user-menu-contents-profile = Perfil
+# Context: contents
+user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Elimina esta conversación de tu lista de mensajes directos. Los mensajes se mantienen.
+# Context: contents
+user-menu-contents-unblock = Desatascar
+# Context: contents
+user-menu-contents-unmute-conversation = Activar conversación
+# Context: contents
+user-menu-contents-unpin-dm = Desanclar DM
+
+## crates/ui/src/verification.rs
+# Context: show
+verification-show-cancel = Cancelar
+# Context: show
+verification-show-complete-the-check-to-join-this-server = Complete la verificación para unirse a este servidor.
+# Context: show
+verification-show-complete-the-check-to-send-this-friend-request = Complete la verificación para enviar esta solicitud de amistad.
+# Context: show
+verification-show-discord-requires-a-security-check-before-you-can-add-this = Discord requiere un control de seguridad antes de poder agregar a esta persona.
+# Context: show
+verification-show-discord-requires-a-security-check-before-you-can-join = Discord requiere un control de seguridad antes de que puedas unirte.
+# Context: show
+verification-show-loading-verification = Cargando verificación…
+# Context: show
+verification-show-offline-preview-no-verification-service-is-contacted = Vista previa sin conexión · no se contacta con ningún servicio de verificación.
+# Context: show
+verification-show-one-quick-check = Una comprobación rápida
+# Context: show
+verification-show-verification-required = Se requiere verificación
+# Context: show
+verification-show-verify = Verificar
+
+## crates/ui/src/video.rs
+# Context: show_player
+video-show-player-a-download-is-already-active = Ya hay una descarga activa
+# Context: show_player
+video-show-player-cancel = Cancelar
+# Context: show_player
+video-show-player-downloads-are-disabled-for-synthetic-attachments = Las descargas están deshabilitadas para archivos adjuntos sintéticos.
+# Context: show_player
+video-show-player-pause = Pausa
+# Context: show_player
+video-show-player-play = Jugar
+# Context: show_player
+video-show-player-replay = Repetición
+# Context: show_player
+video-show-player-resume = Reanudar
+# Context: show_player
+video-show-player-retry = Rever
+# Context: show_player
+video-show-player-seek-video = buscar vídeo
+# Context: show_player
+video-show-player-video = video
+# Context: show_player
+video-show-player-video-volume = Volumen de vídeo
+
+## crates/ui/src/voice.rs
+# Context: call_bar
+voice-call-bar-call-in-progress = Llamada en curso
+# Context: call_bar
+voice-call-bar-incoming-call = Llamada entrante…
+# Context: call_bar
+voice-call-bar-join-call = Unirse a la llamada
+# Context: call_bar
+voice-call-bar-reconnect-to-refresh-call = Reconectarse para actualizar la llamada
+# Context: call_controls
+voice-call-controls-disconnect = Desconectar
+# Context: call_controls
+voice-call-controls-dismiss-call = Descartar llamada
+# Context: call_controls
+voice-call-controls-leaving-is-unavailable-in-the-offline-preview = Salir no está disponible en la vista previa sin conexión.
+# Context: call_failure
+voice-call-failure-copy-failure-reason = Motivo del error de copia
+# Context: camera_settings_content
+voice-camera-settings-content-camera-capture-is-unavailable-on-this-platform = La captura de cámara no está disponible en esta plataforma.
+# Context: camera_settings_content
+voice-camera-settings-content-camera-device = Dispositivo de cámara
+# Context: camera_settings_content
+voice-camera-settings-content-changing-devices-stops-your-camera-and-takes-effect-the-next = El cambio de dispositivo detiene la cámara y entra en vigor la próxima vez que la enciendes.
+# Context: camera_settings_content
+voice-camera-settings-content-refresh-cameras = Actualizar cámaras
+# Context: device_combo
+voice-device-combo-device-unavailable = Dispositivo no disponible
+# Context: device_combo
+voice-device-default = Valor predeterminado del sistema
+# Context: frame
+voice-frame-open-voice = voz abierta
+# Context: gain_controls
+voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% es el nivel original. Los niveles más altos pueden distorsionar.
+# Context: labels
+voice-labels-choose-camera = Elige cámara
+# Context: live_badge
+voice-live-badge-live = VIVIR
+# Context: live_badge
+voice-live-badge-live-2 = Vivir
+# Context: live_badge
+voice-live-badge-streaming = Transmisión
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-hear-yourself-through-your-selected-speakers-use-headphones-to-avoid = Escúchate a ti mismo a través de los oradores seleccionados. Utilice auriculares para evitar comentarios.
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-input-level = Nivel de entrada
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-leave-the-call-to-test-your-microphone-locally = Deje la llamada para probar su micrófono localmente.
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-microphone-test = Prueba de micrófono
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-start-testing = Empezar a probar
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-stop-testing = dejar de probar
+# Context: mute_toggle
+voice-mute-toggle-applies-to-your-next-call = se aplica a su próxima llamada.
+# Context: mute_toggle
+voice-mute-toggle-controls-are-unavailable-in-this-build-or-preview = Los controles no están disponibles en esta compilación o vista previa.
+# Context: mute_toggle
+voice-mute-toggle-deafen = Ensordecer
+# Context: mute_toggle
+voice-mute-toggle-mute = Silenciar
+# Context: mute_toggle
+voice-mute-toggle-speaking-is-unavailable-in-this-channel = Hablar no está disponible en este canal.
+# Context: mute_toggle
+voice-mute-toggle-undeafen = no sordo
+# Context: mute_toggle
+voice-mute-toggle-unmute = Dejar de silenciar
+# Context: mute_toggle_with_settings
+voice-mute-toggle-with-settings-input-settings = Configuración de entrada
+# Context: mute_toggle_with_settings
+voice-mute-toggle-with-settings-output-settings = Configuración de salida
+# Context: stream_audio_controls
+voice-stream-audio-controls-mute-stream-audio = Silenciar la transmisión de audio
+# Context: stream_audio_controls
+voice-stream-audio-controls-stream-volume = Volumen de transmisión
+# Context: stream_tile
+voice-stream-tile-stream-audio = Transmitir audio
+# Context: stream_tile
+voice-stream-tile-stream-muted = Transmisión silenciada
+# Context: voice_audio_controls
+voice-voice-audio-controls-microphone = Micrófono
+# Context: voice_audio_controls
+voice-voice-audio-controls-microphone-unavailable-a-choose-another-input-you-are-still-connected = Micrófono no disponible · elija otra entrada. Todavía estás conectado.
+# Context: voice_audio_controls
+voice-voice-audio-controls-refresh-devices = Actualizar dispositivos
+# Context: voice_audio_controls
+voice-voice-audio-controls-reset-levels = Restablecer niveles
+# Context: voice_audio_controls
+voice-voice-audio-controls-speakers = Altavoces
+# Context: voice_card_section
+voice-voice-card-section-camera-settings = Configuración de la cámara
+# Context: voice_card_section
+voice-voice-card-section-disconnect = Desconectar
+# Context: voice_card_section
+voice-voice-card-section-dismiss-call = Descartar llamada
+# Context: voice_card_section
+voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Micrófono no disponible · todavía conectado. Elija otra entrada en la configuración de Audio.
+# Context: voice_channel_button
+voice-voice-channel-button-connected = , conectado
+# Context: voice_channel_button
+voice-voice-channel-button-voice-channel = canal de voz
+# Context: voice_channel
+voice-voice-channel-last-known-participants-a-reconnect-to-refresh = Últimos participantes conocidos · vuelva a conectarse para actualizar
+# Context: voice_channel
+voice-voice-channel-no-one-s-here-yet = No hay nadie aquí todavía
+# Context: voice_channel
+voice-voice-channel-participant-list-unavailable-while-disconnected = La lista de participantes no está disponible mientras está desconectado
+# Context: voice_channel
+voice-voice-channel-participant-list-unavailable-with-the-current-access = Lista de participantes no disponible con el acceso actual.
+# Context: voice_participant
+voice-voice-participant-deafened = ensordecido
+# Context: voice_participant
+voice-voice-participant-deafened-by-server = Ensordecido por el servidor
+# Context: voice_participant_menu
+voice-voice-participant-menu-mute = Silenciar
+# Context: voice_participant_menu
+voice-voice-participant-menu-reset-volume = Restablecer volumen
+# Context: voice_participant_menu
+voice-voice-participant-menu-silence-this-person-on-this-device-only-nobody-else-is = Silencia a esta persona únicamente en este dispositivo. Nadie más se ve afectado.
+# Context: voice_participant_menu
+voice-voice-participant-menu-unmute = Dejar de silenciar
+# Context: voice_participant_menu
+voice-voice-participant-menu-user-volume = Volumen de usuarios
+# Context: voice_participant
+voice-voice-participant-microphone-muted = Micrófono silenciado
+# Context: voice_participant
+voice-voice-participant-muted-by-server = Silenciado por el servidor
+# Context: voice_participant
+voice-voice-participant-muted-for-you-on-this-device = Silenciado para ti en este dispositivo
+# Context: voice_popup_content
+voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Elija un algoritmo en todas las configuraciones de voz.
+# Context: voice_popup_content
+voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen apaga el audio entrante y silencia el micrófono con él.
+# Context: voice_popup_content
+voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Mantenga presionado su acceso directo configurado cuando quiera hablar.
+# Context: voice_popup_content
+voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Instale una compilación habilitada por voz para usar estos controles.
+# Context: voice_popup_content
+voice-voice-popup-content-microphone = Micrófono
+# Context: voice_popup_content
+voice-voice-popup-content-microphone-gain = Ganancia de micrófono
+# Context: voice_popup_content
+voice-voice-popup-content-microphone-unavailable-a-choose-another-input-you-are-still-connected = Micrófono no disponible · elija otra entrada. Todavía estás conectado.
+# Context: voice_popup_content
+voice-voice-popup-content-noise-suppression = Supresión de ruido
+# Context: voice_popup_content
+voice-voice-popup-content-push-to-talk = Empuja para hablar
+# Context: voice_popup_content
+voice-voice-popup-content-refresh-devices = Actualizar dispositivos
+# Context: voice_popup_content
+voice-voice-popup-content-reset-levels = Restablecer niveles
+# Context: voice_popup_content
+voice-voice-popup-content-speaker-volume = Volumen del altavoz
+# Context: voice_popup_content
+voice-voice-popup-content-speakers = Altavoces
+# Context: voice_popup_content
+voice-voice-popup-content-voice-privacy-code = Código de privacidad de voz
+# Context: voice_processing_controls
+voice-voice-processing-controls-adjust-microphone-loudness-automatically = Ajuste el volumen del micrófono automáticamente.
+# Context: voice_processing_controls
+voice-voice-processing-controls-applies-to-calls-and-your-local-microphone-test = Aplica para llamadas y tu prueba de micrófono local.
+# Context: voice_processing_controls
+voice-voice-processing-controls-automatic-gain-control = Control automático de ganancia
+# Context: voice_processing_controls
+voice-voice-processing-controls-echo-cancellation = Cancelación de eco
+# Context: voice_processing_controls
+voice-voice-processing-controls-hold-your-configured-shortcut-when-you-want-to-speak = Mantenga presionado su acceso directo configurado cuando quiera hablar.
+# Context: voice_processing_controls
+voice-voice-processing-controls-input-profile = Perfil de entrada
+# Context: voice_processing_controls
+voice-voice-processing-controls-input-threshold = Umbral de entrada
+# Context: voice_processing_controls
+voice-voice-processing-controls-mute-and-deafen-always-take-priority = Los mudos y los sordos siempre tienen prioridad.
+# Context: voice_processing_controls
+voice-voice-processing-controls-noise-suppression = Supresión de ruido
+# Context: voice_processing_controls
+voice-voice-processing-controls-off = Apagado
+# Context: voice_processing_controls
+voice-voice-processing-controls-only-transmit-sound-above-this-level-lower-values-pick-up = Transmita únicamente sonido por encima de este nivel. Los valores más bajos captan un habla más tranquila.
+# Context: voice_processing_controls
+voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-apply = Micrófono abierto. Silenciar y presionar para hablar aún se aplican.
+# Context: voice_processing_controls
+voice-voice-processing-controls-push-to-talk = Empuja para hablar
+# Context: voice_processing_controls
+voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = Reduzca el audio del altavoz captado por su micrófono.
+# Context: voice_processing_controls
+voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = Elimina el ruido del teclado, el ventilador y la habitación de su micrófono.
+# Context: voice_processing_controls
+voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see = Inicie la prueba del micrófono o únase a una llamada para ver su nivel de entrada.
+# Context: voice_processing_controls
+voice-voice-processing-controls-suppression-strength = Fuerza de supresión
+# Context: voice_settings_content
+voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = Las preferencias de audio se guardan en este dispositivo. Su micrófono se activa solo cuando se une a una llamada o comienza a realizar pruebas.
+# Context: voice_settings_content
+voice-voice-settings-content-camera = Cámara
+# Context: voice_settings_content
+voice-voice-settings-content-compare-with-the-other-participants-this-code-changes-with-the = Comparar con los demás participantes. Este código cambia con el grupo de llamadas cifradas.
+# Context: voice_settings_content
+voice-voice-settings-content-devices-levels = Dispositivos y niveles
+# Context: voice_settings_content
+voice-voice-settings-content-install-a-voice-enabled-build-to-use-these-controls = Instale una compilación habilitada por voz para usar estos controles.
+# Context: voice_settings_content
+voice-voice-settings-content-voice-privacy-code = Código de privacidad de voz
+# Context: voice_settings_content
+voice-voice-settings-content-voice-processing = Procesamiento de voz
+# Context: voice_settings_content
+voice-voice-settings-content-voice-processing-input-mode = Procesamiento de voz y modo de entrada
+# Context: voice_settings
+voice-voice-settings-output-settings = Configuración de salida
+# Context: voice_settings_popup
+voice-voice-settings-popup-all-voice-settings = Todas las configuraciones de voz
+# Context: voice_settings_popup
+voice-voice-settings-popup-input = Aporte
+# Context: voice_settings_popup
+voice-voice-settings-popup-output = Producción

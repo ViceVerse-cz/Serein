@@ -35,15 +35,15 @@ impl Page {
 	}
 	fn label(self) -> &'static str {
 		match self {
-			Self::Profile => "Server Profile",
-			Self::Engagement => "Engagement",
-			Self::Emoji => "Emoji",
-			Self::Stickers => "Stickers",
-			Self::Members => "Members",
-			Self::Roles => "Roles",
-			Self::Invites => "Invites",
-			Self::Integrations => "Integrations",
-			Self::AuditLog => "Audit Log",
+			Self::Profile => "server-settings-page-profile",
+			Self::Engagement => "server-settings-page-engagement",
+			Self::Emoji => "server-settings-page-emoji",
+			Self::Stickers => "server-settings-page-stickers",
+			Self::Members => "server-settings-page-members",
+			Self::Roles => "server-settings-page-roles",
+			Self::Invites => "server-settings-page-invites",
+			Self::Integrations => "server-settings-page-integrations",
+			Self::AuditLog => "server-settings-page-audit-log",
 		}
 	}
 }
@@ -540,14 +540,14 @@ impl Editor {
 									ui.add_space(12.0);
 									ui.label(design::eyebrow(
 										ui,
-										crate::i18n::translate(if page == Page::AuditLog {
-											"MODERATION"
+										crate::i18n::translate_if_key(if page == Page::AuditLog {
+											"server-settings-show-moderation"
 										} else if page == Page::Integrations {
-											"APPS"
+											"server-settings-show-apps"
 										} else if matches!(page, Page::Emoji | Page::Stickers) {
-											"EXPRESSION"
+											"server-settings-show-expression"
 										} else {
-											"PEOPLE"
+											"server-settings-show-people"
 										}),
 										colors.muted,
 									));
@@ -609,7 +609,7 @@ impl Editor {
 									ui.selectable_value(
 										&mut self.page,
 										page,
-										crate::i18n::translate(page.label()),
+										crate::i18n::translate_if_key(page.label()),
 									);
 								}
 								close = close_control(ui).clicked();
@@ -730,18 +730,21 @@ impl Editor {
 		let mut close = false;
 		let response = dialog::Dialog::new(
 			"delete-server",
-			format!("{} '{name}'", crate::i18n::translate("Delete")),
+			format!(
+				"{} '{name}'",
+				crate::i18n::translate("server-settings-delete-dialog-delete")
+			),
 		)
 		.subtitle(format!(
 			"{} {name}? {}",
-			crate::i18n::translate("Are you sure you want to delete"),
-			crate::i18n::translate("This action cannot be undone.")
+			crate::i18n::translate("server-settings-delete-dialog-are-you-sure-you-want-to-delete"),
+			crate::i18n::translate("server-settings-delete-dialog-this-action-cannot-be-undone")
 		))
 		.danger()
 		.width(520.0)
 		.show(ctx, |d| {
 			d.content(|ui| {
-				let label = dialog::label(ui, "Enter server name");
+				let label = dialog::label(ui, "server-settings-delete-dialog-enter-server-name");
 				dialog::input(
 					ui,
 					egui::TextEdit::singleline(&mut self.delete_name)
@@ -755,7 +758,10 @@ impl Editor {
 					dialog::notice(ui, dialog::Level::Error, status);
 				}
 				if state.demo {
-					dialog::hint(ui, "Offline preview · no server changes");
+					dialog::hint(
+						ui,
+						"server-settings-delete-dialog-offline-preview-no-server-changes",
+					);
 				}
 			});
 			d.footer(|ui| {
@@ -765,16 +771,21 @@ impl Editor {
 						delete = dialog::action(
 							ui,
 							if pending {
-								"Deleting…"
+								"server-settings-delete-dialog-deleting"
 							} else {
-								"Delete Server"
+								"server-settings-delete-dialog-delete-server"
 							},
 							dialog::Action::Danger,
 						)
 						.clicked();
 					},
 				);
-				close |= dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
+				close |= dialog::action(
+					ui,
+					"server-settings-delete-dialog-cancel",
+					dialog::Action::Neutral,
+				)
+				.clicked();
 			});
 		});
 		if delete && let Some(command) = state.delete_server(guild) {
@@ -844,7 +855,9 @@ impl Editor {
 			dialog::notice(ui, dialog::Level::Error, error);
 			if !state.server_settings.pending
 				&& ui
-					.button(crate::i18n::translate("Reload server settings"))
+					.button(crate::i18n::translate(
+						"server-settings-page-body-reload-server-settings",
+					))
 					.clicked() && let Some(command) = state.load_server_settings(guild)
 			{
 				commands.push(command);
@@ -854,12 +867,18 @@ impl Editor {
 			if state.server_settings.pending {
 				ui.horizontal(|ui| {
 					ui.spinner();
-					ui.label(crate::i18n::translate("Loading server settings…"));
+					ui.label(crate::i18n::translate(
+						"server-settings-page-body-loading-server-settings",
+					));
 				});
 			} else if !state.gateway_connected && !state.demo {
-				ui.weak(crate::i18n::translate("Reconnect to load server settings."));
+				ui.weak(crate::i18n::translate(
+					"server-settings-page-body-reconnect-to-load-server-settings",
+				));
 			} else if ui
-				.button(crate::i18n::translate("Load server settings"))
+				.button(crate::i18n::translate(
+					"server-settings-page-body-load-server-settings",
+				))
 				.clicked() && let Some(command) = state.load_server_settings(guild)
 			{
 				commands.push(command);
@@ -879,7 +898,10 @@ impl Editor {
 		let available = !state.server_settings.pending && !self.icon_pending;
 		let (save, reset) = design::save_bar(
 			ui,
-			state.server_settings.saving.then_some("Saving changes…"),
+			state
+				.server_settings
+				.saving
+				.then_some("server-settings-save-bar-saving-changes"),
 			available
 				&& !state.server_settings.needs_refresh
 				&& (state.demo || state.gateway_connected),
@@ -915,12 +937,16 @@ impl Editor {
 			dialog::notice(
 				ui,
 				dialog::Level::Warning,
-				"Reload the server settings before saving again. Your edits will be kept.",
+				"server-settings-save-bar-reload-the-server-settings-before-saving-again-your-edits-will",
 			);
 		}
 		if !state.demo && !state.gateway_connected {
 			ui.add_space(8.0);
-			dialog::notice(ui, dialog::Level::Warning, "Reconnect to save changes.");
+			dialog::notice(
+				ui,
+				dialog::Level::Warning,
+				"server-settings-save-bar-reconnect-to-save-changes",
+			);
 		}
 		if let Some(error) = self.form_error {
 			ui.add_space(8.0);
@@ -962,31 +988,43 @@ impl Editor {
 		// Column spacing must not leak into the swatch, trait and button rows.
 		ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 		ui.label(
-			design::semibold(ui, crate::i18n::translate("Server Profile"), 20.0)
-				.color(colors.text_strong),
+			design::semibold(
+				ui,
+				crate::i18n::translate("server-settings-profile-form-server-profile"),
+				20.0,
+			)
+			.color(colors.text_strong),
 		);
-		ui.label(crate::i18n::translate("Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."));
+		ui.label(crate::i18n::translate(
+			"server-settings-profile-form-customize-how-your-server-appears-in-invite-links-and-if",
+		));
 		ui.add_space(24.0);
-		let name_label = design::label(ui, &crate::i18n::translate("Name"));
+		let name_label = design::label(
+			ui,
+			&crate::i18n::translate("server-settings-profile-form-name"),
+		);
 		design::input(
 			ui,
 			egui::TextEdit::singleline(&mut draft.name).char_limit(100),
 		)
 		.labelled_by(name_label.id);
 		design::divider(ui);
-		design::label(ui, &crate::i18n::translate("Icon"));
+		design::label(
+			ui,
+			&crate::i18n::translate("server-settings-profile-form-icon"),
+		);
 		ui.weak(crate::i18n::translate(
-			"We recommend an image of at least 512×512.",
+			"server-settings-profile-form-we-recommend-an-image-of-at-least-512512",
 		));
 		ui.horizontal_wrapped(|ui| {
 			if ui
 				.add_enabled_ui(!self.icon_pending, |ui| {
 					design::button(
 						ui,
-						&crate::i18n::translate(if self.icon_pending {
-							"Preparing icon…"
+						&crate::i18n::translate_if_key(if self.icon_pending {
+							"server-settings-profile-form-preparing-icon"
 						} else {
-							"Change Server Icon"
+							"server-settings-profile-form-change-server-icon"
 						}),
 						design::ButtonKind::Primary,
 					)
@@ -1004,7 +1042,7 @@ impl Editor {
 					|ui| {
 						design::button(
 							ui,
-							&crate::i18n::translate("Remove Icon"),
+							&crate::i18n::translate("server-settings-profile-form-remove-icon"),
 							design::ButtonKind::Outline,
 						)
 					},
@@ -1022,7 +1060,10 @@ impl Editor {
 			design::notice(ui, design::Level::Error, error);
 		}
 		design::divider(ui);
-		design::label(ui, &crate::i18n::translate("Banner"));
+		design::label(
+			ui,
+			&crate::i18n::translate("server-settings-profile-form-banner"),
+		);
 		let swatches = [
 			0x2153dc, 0xf916a0, 0xed171a, 0xef7912, 0xf1cd29, 0x763a94, 0x04adf1, 0x46dcca,
 			0x496b00, 0x282828,
@@ -1059,9 +1100,12 @@ impl Editor {
 			});
 		}
 		design::divider(ui);
-		design::label(ui, &crate::i18n::translate("Traits"));
+		design::label(
+			ui,
+			&crate::i18n::translate("server-settings-profile-form-traits"),
+		);
 		ui.weak(crate::i18n::translate(
-			"Add up to 5 traits to show off your server's interests and personality.",
+			"server-settings-profile-form-add-up-to-5-traits-to-show-off-your-server",
 		));
 		let columns = if ui.available_width() >= 480.0 {
 			3
@@ -1094,13 +1138,17 @@ impl Editor {
 											.desired_width((cell_width - 90.0).max(24.0))
 											.frame(egui::Frame::NONE),
 									)
-									.on_hover_text(crate::i18n::translate("Trait name"));
+									.on_hover_text(crate::i18n::translate(
+										"server-settings-profile-form-trait-name",
+									));
 									if !entry.label.is_empty()
 										&& crate::icons::button(
 											ui,
 											crate::icons::Icon::Close,
 											18.0,
-											&crate::i18n::translate("Remove trait"),
+											&crate::i18n::translate(
+												"server-settings-profile-form-remove-trait",
+											),
 										)
 										.clicked()
 									{
@@ -1126,15 +1174,18 @@ impl Editor {
 		}
 		draft.traits = traits;
 		design::divider(ui);
-		let description_label = design::label(ui, &crate::i18n::translate("Description"));
+		let description_label = design::label(
+			ui,
+			&crate::i18n::translate("server-settings-profile-form-description"),
+		);
 		ui.weak(crate::i18n::translate(
-			"How did your server get started? Why should people join?",
+			"server-settings-profile-form-how-did-your-server-get-started-why-should-people-join",
 		));
 		design::input(
 			ui,
 			egui::TextEdit::multiline(&mut draft.description)
 				.hint_text(crate::i18n::translate(
-					"Tell the world a bit about this server.",
+					"server-settings-profile-form-tell-the-world-a-bit-about-this-server",
 				))
 				.char_limit(300)
 				.desired_width(f32::INFINITY)
@@ -1187,18 +1238,24 @@ impl Editor {
 						if let Some(count) = draft.online_count {
 							ui.colored_label(
 								colors.positive,
-								format!("● {count} {}", crate::i18n::translate("Online")),
+								format!(
+									"● {count} {}",
+									crate::i18n::translate("server-settings-preview-online")
+								),
 							);
 						}
 						if let Some(count) = draft.member_count {
-							ui.weak(format!("● {count} {}", crate::i18n::translate("Members")));
+							ui.weak(format!(
+								"● {count} {}",
+								crate::i18n::translate("server-settings-preview-members")
+							));
 						}
 					});
 					let seconds = ((draft.guild.0 >> 22) + 1_420_070_400_000) / 1000;
 					if let Ok(date) = time::OffsetDateTime::from_unix_timestamp(seconds as i64) {
 						ui.weak(format!(
 							"{} {} {}",
-							crate::i18n::translate("Established"),
+							crate::i18n::translate("server-settings-preview-established"),
 							date.month(),
 							date.year()
 						));
@@ -1267,20 +1324,20 @@ fn engagement(ui: &mut egui::Ui, state: &State, draft: &mut Settings) {
 	ui.spacing_mut().item_spacing.y = 8.0;
 	ui.label(design::semibold(
 		ui,
-		crate::i18n::translate("Engagement"),
+		crate::i18n::translate("server-settings-engagement-engagement"),
 		20.0,
 	));
 	ui.label(crate::i18n::translate(
-		"Manage settings that help keep your server active.",
+		"server-settings-engagement-manage-settings-that-help-keep-your-server-active",
 	));
 	ui.add_space(32.0);
 	ui.label(design::semibold(
 		ui,
-		crate::i18n::translate("System Messages"),
+		crate::i18n::translate("server-settings-engagement-system-messages"),
 		21.0,
 	));
 	ui.label(crate::i18n::translate(
-		"Configure system event messages sent to your server.",
+		"server-settings-engagement-configure-system-event-messages-sent-to-your-server",
 	));
 	for (bit, text) in [
 		(
@@ -1305,24 +1362,27 @@ fn engagement(ui: &mut egui::Ui, state: &State, draft: &mut Settings) {
 		}
 	}
 	ui.add_space(12.0);
-	design::label(ui, &crate::i18n::translate("System Messages Channel"));
+	design::label(
+		ui,
+		&crate::i18n::translate("server-settings-engagement-system-messages-channel"),
+	);
 	ui.weak(crate::i18n::translate(
-		"This is the channel we send system event messages to.",
+		"server-settings-engagement-this-is-the-channel-we-send-system-event-messages-to",
 	));
 	channel_picker(ui, state, draft.guild, &mut draft.system_channel_id, false);
 	design::divider(ui);
 	ui.label(design::semibold(
 		ui,
-		crate::i18n::translate("Activity Feed Settings"),
+		crate::i18n::translate("server-settings-engagement-activity-feed-settings"),
 		21.0,
 	));
 	ui.label(crate::i18n::translate(
-		"Shows a feed of activity from games and connected apps in this server.",
+		"server-settings-engagement-shows-a-feed-of-activity-from-games-and-connected-apps",
 	));
 	let mut enabled = draft.activity_feed.unwrap_or(false);
 	if design::switch(
 		ui,
-		"Display Activity Feed in this server",
+		"server-settings-engagement-display-activity-feed-in-this-server",
 		None,
 		&mut enabled,
 	)
@@ -1331,28 +1391,38 @@ fn engagement(ui: &mut egui::Ui, state: &State, draft: &mut Settings) {
 		draft.activity_feed = Some(enabled);
 	}
 	if draft.activity_feed.is_none() {
-		ui.weak(crate::i18n::translate("Server default"));
+		ui.weak(crate::i18n::translate(
+			"server-settings-engagement-server-default",
+		));
 	}
 	design::divider(ui);
-	design::label(ui, &crate::i18n::translate("Default Notification Settings"));
-	ui.weak(crate::i18n::translate("This will determine whether members who have not explicitly set their notification settings receive a notification for every message sent in this server or not."));
+	design::label(
+		ui,
+		&crate::i18n::translate("server-settings-engagement-default-notification-settings"),
+	);
+	ui.weak(crate::i18n::translate(
+		"server-settings-engagement-this-will-determine-whether-members-who-have-not-explicitly-set",
+	));
 	ui.radio_value(
 		&mut draft.default_message_notifications,
 		0,
-		crate::i18n::translate("All Messages"),
+		crate::i18n::translate("server-settings-engagement-all-messages"),
 	);
 	ui.radio_value(
 		&mut draft.default_message_notifications,
 		1,
-		crate::i18n::translate("Only @mentions"),
+		crate::i18n::translate("server-settings-engagement-only-mentions"),
 	);
 	ui.weak(crate::i18n::translate(
-		"We highly recommend setting this to only @mentions for a Community Server.",
+		"server-settings-engagement-we-highly-recommend-setting-this-to-only-mentions-for-a",
 	));
 	design::divider(ui);
 	if ui.available_width() >= 500.0 {
 		ui.columns(2, |columns| {
-			design::label(&mut columns[0], &crate::i18n::translate("Inactive Channel"));
+			design::label(
+				&mut columns[0],
+				&crate::i18n::translate("server-settings-engagement-inactive-channel"),
+			);
 			channel_picker(
 				&mut columns[0],
 				state,
@@ -1360,20 +1430,31 @@ fn engagement(ui: &mut egui::Ui, state: &State, draft: &mut Settings) {
 				&mut draft.afk_channel_id,
 				true,
 			);
-			design::label(&mut columns[1], &crate::i18n::translate("Inactive Timeout"));
+			design::label(
+				&mut columns[1],
+				&crate::i18n::translate("server-settings-engagement-inactive-timeout"),
+			);
 			columns[1].add_enabled_ui(draft.afk_channel_id.is_some(), |ui| {
 				timeout_picker(ui, &mut draft.afk_timeout)
 			});
 		});
 	} else {
-		design::label(ui, &crate::i18n::translate("Inactive Channel"));
+		design::label(
+			ui,
+			&crate::i18n::translate("server-settings-engagement-inactive-channel"),
+		);
 		channel_picker(ui, state, draft.guild, &mut draft.afk_channel_id, true);
-		design::label(ui, &crate::i18n::translate("Inactive Timeout"));
+		design::label(
+			ui,
+			&crate::i18n::translate("server-settings-engagement-inactive-timeout"),
+		);
 		ui.add_enabled_ui(draft.afk_channel_id.is_some(), |ui| {
 			timeout_picker(ui, &mut draft.afk_timeout)
 		});
 	}
-	ui.weak(crate::i18n::translate("Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers."));
+	ui.weak(crate::i18n::translate(
+		"server-settings-engagement-automatically-move-members-to-this-channel-and-mute-them-when",
+	));
 }
 fn channel_picker(
 	ui: &mut egui::Ui,
@@ -1399,12 +1480,12 @@ fn channel_picker(
 	let current = selected.and_then(|id| choices.iter().find(|channel| channel.id == id));
 	let label = current.map_or_else(
 		|| {
-			crate::i18n::translate(if selected.is_some() {
-				"Unavailable channel"
+			crate::i18n::translate_if_key(if selected.is_some() {
+				"server-settings-channel-picker-unavailable-channel"
 			} else if voice {
-				"No Inactive Channel"
+				"server-settings-channel-picker-no-inactive-channel"
 			} else {
-				"No System Messages Channel"
+				"server-settings-channel-picker-no-system-messages-channel"
 			})
 		},
 		|channel| channel.name.clone(),
@@ -1422,7 +1503,11 @@ fn channel_picker(
 		.selected_text(label)
 		.width(ui.available_width())
 		.show_ui(ui, |ui| {
-			ui.selectable_value(selected, None, crate::i18n::translate("None"));
+			ui.selectable_value(
+				selected,
+				None,
+				crate::i18n::translate("server-settings-channel-picker-none"),
+			);
 			for channel in choices {
 				ui.selectable_value(
 					selected,
@@ -1435,7 +1520,9 @@ fn channel_picker(
 			}
 		});
 	if empty {
-		ui.weak(crate::i18n::translate("No accessible channels available."));
+		ui.weak(crate::i18n::translate(
+			"server-settings-channel-picker-no-accessible-channels-available",
+		));
 	}
 }
 fn timeout_picker(ui: &mut egui::Ui, timeout: &mut u32) {
@@ -1443,7 +1530,7 @@ fn timeout_picker(ui: &mut egui::Ui, timeout: &mut u32) {
 		.selected_text(format!(
 			"{} {}",
 			*timeout / 60,
-			crate::i18n::translate("minutes")
+			crate::i18n::translate("server-settings-timeout-picker-minutes")
 		))
 		.width(ui.available_width())
 		.show_ui(ui, |ui| {
@@ -1451,14 +1538,18 @@ fn timeout_picker(ui: &mut egui::Ui, timeout: &mut u32) {
 				ui.selectable_value(
 					timeout,
 					seconds,
-					format!("{} {}", seconds / 60, crate::i18n::translate("minutes")),
+					format!(
+						"{} {}",
+						seconds / 60,
+						crate::i18n::translate("server-settings-timeout-picker-minutes")
+					),
 				);
 			}
 		});
 }
 
 fn delete_server_button(ui: &mut egui::Ui) -> egui::Response {
-	let label = crate::i18n::translate("Delete Server");
+	let label = crate::i18n::translate("server-settings-delete-server-button-delete-server");
 	let colors = design::palette(ui);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());

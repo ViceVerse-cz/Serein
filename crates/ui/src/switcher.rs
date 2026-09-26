@@ -525,7 +525,9 @@ impl Switcher {
 								})
 								.frame(egui::Frame::NONE)
 								.font(egui::FontId::proportional(16.0))
-								.hint_text(crate::i18n::translate("Where would you like to go?"))
+								.hint_text(crate::i18n::translate(
+									"switcher-show-where-would-you-like-to-go",
+								))
 								.char_limit(QUERY_CHARS)
 								.desired_width(ui.available_width().max(60.0)),
 						);
@@ -551,7 +553,7 @@ impl Switcher {
 			if blocked {
 				ui.label(
 					egui::RichText::new(crate::i18n::translate(
-						"Finish composing text before opening or closing.",
+						"switcher-show-finish-composing-text-before-opening-or-closing",
 					))
 					.size(12.0)
 					.color(colors.warning),
@@ -582,10 +584,10 @@ impl Switcher {
 			ui.add_space(2.0);
 			ui.label(design::eyebrow(
 				ui,
-				crate::i18n::translate(if self.query.trim().is_empty() {
-					"Conversations and friends"
+				crate::i18n::translate_if_key(if self.query.trim().is_empty() {
+					"switcher-show-conversations-and-friends"
 				} else {
-					"Results"
+					"switcher-show-results"
 				}),
 				colors.muted,
 			));
@@ -600,14 +602,16 @@ impl Switcher {
 							ui.label(
 								design::semibold(
 									ui,
-									crate::i18n::translate("No conversations or friends match"),
+									crate::i18n::translate(
+										"switcher-show-no-conversations-or-friends-match",
+									),
 									14.0,
 								)
 								.color(colors.text),
 							);
 							ui.label(
 								egui::RichText::new(crate::i18n::translate(
-									"Try a channel, server or person name.",
+									"switcher-show-try-a-channel-server-or-person-name",
 								))
 								.size(12.0)
 								.color(colors.muted),
@@ -655,7 +659,11 @@ impl Switcher {
 				}
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.add_enabled_ui(!blocked, |ui| {
-						if design::secondary_button(ui, &crate::i18n::translate("Close")).clicked()
+						if design::secondary_button(
+							ui,
+							&crate::i18n::translate("switcher-show-close"),
+						)
+						.clicked()
 						{
 							cancel = true;
 						}

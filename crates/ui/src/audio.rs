@@ -226,7 +226,7 @@ impl AudioUi {
 								.handle_shape(egui::style::HandleShape::Circle),
 						);
 						seek.widget_info(|| egui::WidgetInfo::slider(can_seek, position, "Seek"));
-						let seek = seek.on_hover_text(crate::i18n::translate("Seek"));
+						let seek = seek.on_hover_text(crate::i18n::translate("audio-show-seek"));
 						if seek.changed() {
 							self.command = Some(AudioCommand::Seek(position));
 						}
@@ -240,17 +240,15 @@ impl AudioUi {
 						"--:--".into()
 					};
 					ui.label(
-						egui::RichText::new(crate::i18n::translate(
-							&(if voice {
-								if duration > 0.0 {
-									timestamp((duration - position).max(0.0))
-								} else {
-									"--:--".into()
-								}
+						egui::RichText::new(if voice {
+							if duration > 0.0 {
+								timestamp((duration - position).max(0.0))
 							} else {
-								format!("{} / {duration_label}", timestamp(position))
-							}),
-						))
+								"--:--".into()
+							}
+						} else {
+							format!("{} / {duration_label}", timestamp(position))
+						})
 						.size(11.0)
 						.color(colors.muted),
 					);
@@ -274,7 +272,7 @@ impl AudioUi {
 							if volume
 								.on_hover_text(format!(
 									"{}: {:.0}%",
-									crate::i18n::translate("Volume"),
+									crate::i18n::translate("audio-show-volume"),
 									self.volume * 100.0
 								))
 								.changed()
@@ -292,7 +290,7 @@ impl AudioUi {
 				});
 				match state {
 					AudioState::Loading => {
-						ui.small(crate::i18n::translate("Loading audio…"));
+						ui.small(crate::i18n::translate("audio-show-loading-audio"));
 					}
 					AudioState::Failed(error) => {
 						ui.colored_label(colors.danger, error);
@@ -388,7 +386,7 @@ fn waveform(
 	response.widget_info(|| {
 		egui::WidgetInfo::slider(enabled && ui.is_enabled(), *position, "Seek voice message")
 	});
-	response.on_hover_text(crate::i18n::translate("Seek voice message"));
+	response.on_hover_text(crate::i18n::translate("audio-waveform-seek-voice-message"));
 	*position != before
 }
 

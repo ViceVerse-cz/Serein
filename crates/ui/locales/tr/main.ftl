@@ -1,4 +1,4 @@
-# tr translations. Machine-bootstrapped; refine through Weblate.
+# tr application translations. Edit with Weblate or any Fluent editor.
 
 language-system = Sistem
 language-group = Dil
@@ -154,3377 +154,3840 @@ friends-presence-unavailable = İletişim durumu mevcut değil
 friends-message = Mesaj
 friends-no-open-dm = Bu arkadaşla açık doğrudan mesaj yok
 friends-more = Daha
-source-e2ba7fbf33ab62fe = # genel
-source-9977d117b71711b0 = %2f
-source-9982c617b7210684 = %5c
-source-baf2dbcb41ca49a9 = (düzenlendi)
-source-e0ed93235f2a2ab9 = ) || app.to_string_lossy().contains(
-source-3d7f7d45f5797cde = ) || trimmed.starts_with(
-source-0779469a6798d2fc = )).ok().as_deref() != Bazı(b
-source-bb8d97aea98a947e = ), B
-source-59a720932871d607 = + Tarih ekle
-source-bf7ff2a762b953b2 = + Rol veya üye ekle
-source-1f2de94f6e6187ec = +hızlı başlangıç
-source-07e41807b4a8904c = +H
-source-40b22805b11260c7 = , arşivlendi
-source-c5b3f06b281de12c = , bağlı
-source-b83de214b3209bdf = , bir çağrıda
-source-fae85bb22e04597e = , okunmamış
-source-d33288cf3eeaad27 = --demo-ek=dosya
-source-0ea6d02e8844dd06 = --demo-ekleme=çoklu
-source-4fd3ebfc1710d76a = --demo-arama=
-source-9e006ae718da324b = --demo-tema=
-source-4dc61da1eeb8f3f6 = --verbose=4
-source-0f71f13f53a39740 = -ExecutionPolicy
-source-0d3da451019087ce = -Dosya
-source-2975f187c708676d = -Etkileşimli Değil
-source-6be0ff5bacd01f48 = -Profil Yok
-source-d09a059444612f6b = ../../../assets/fonts/Inter-Medium.ttf
-source-db87a62631254afc = ../../../assets/fonts/Inter-Regular.ttf
-source-b3f9bc5db076a85d = ../../../assets/fonts/Inter-SemiBold.ttf
-source-2174a82f7cb4d130 = ../../../assets/fonts/NotoSansArabic.ttf
-source-56798272dfae0cd3 = ../../../assets/fonts/NotoSansCJKjp-Regular.otf.zst
-source-6404e137c225dd0e = ../../../assets/fonts/NotoSansMath-Regular.otf
-source-6327c42f4782df6d = .AppImage
-source-b94d8847e8f94e30 = /gif [arama]
-source-1a2c133bb397554b = /ben metin
-source-449d520d45422fdf = /msg @kullanıcı [mesaj]
-source-674e308a38d8a4da = /omuz silkme [metin]
-source-e2c06636acbfd6cf = /spoiler metni
-source-c789a1242b2311ab = /etiket [arama]
-source-d6f5937541bfb796 = /tableflip [metin]
-source-fcfe9af1d2d30f5b = /çevirmeyi aç [metin]
-source-fdee446bfb652060 = %0 görüntüyü gösterir. %100 düz bir kesit rengidir.
-source-6d751d7dbb90136d = 0:a:0?
-source-d73e89fb5ca7534e = 1 gün
-source-44e1f16ea614011d = 1 arkadaşlık isteği
-source-9899f07ee811b5ca = 1 saat
-source-1aedef77d184c8ea = 1 Saat
-source-686ab4dd58b52fb3 = 1 mesaj
-source-f4744aa41d96cd8e = 1 mesaj isteği
-source-8734d3112c508504 = 1 dakika
-source-57a8c5a751acc7d8 = 1 Hafta
-source-36f5d5123da1d24d = 10 dakika
-source-8d13513f9c9a0c51 = 10 saniye
-source-9f884ca9528441cf = %100 orijinal seviyedir. Daha yüksek seviyeler bozulabilir.
-source-a6ab28c69299397d = 12 saat
-source-2a46c7c5730014aa = 15 dakika
-source-cb98233fc1fe95be = 15 saniye
-source-bef3027f2aba42c8 = 2 gün
-source-543610c88aecac7e = 2 saat
-source-e022bfbf21a62ea4 = 2 dakika
-source-b773629ac81b71c5 = 2026-01-01T00:00:00Z
-source-4c84831699a66c00 = 24 Saat
-source-1dc522a4a05cf0a5 = 3 Gün
-source-26156a5bcb44ac99 = 30 gün
-source-801744c4d83f671f = 30 dakika
-source-9a04d0509ccf2ae7 = 30 saniye
-source-7aa29984e3199a10 = 4 saat
-source-f40cb1ac8887e1a1 = 5 dakika
-source-89b8fbc44ee62b8d = 5 saniye
-source-1741ba7f5b595722 = 6 saat
-source-d636599a979f0d59 = 7 gün
-source-6f073b8cbdb4deae = < Entegrasyonlar
-source-70118e18301700fc = <a:
-source-60030d4518672b9d = =başla
-source-424af112b78b9f2d = =son
-source-ffb05029aca7283a = ?geçiş=yanlış
-source-fd566af54baa4d7c = ?boyut=64
-source-3502a329ea88a32a = @herkes
-source-04c60119a6feb209 = @Ben
-source-797a268358a38eba = [Silinen mesajda metin yoktu]
-source-304cfbbd9afd3d67 = [Spoiler gizlendi]
-source-dd1cd405fbf51642 = [yıl]-[ay]-[gün]
-source-ba5ad919bde9f91b = __DOSYA__
-source-ff2e9a5d05f1c407 = __ASTAR__
-source-60ed7e6fea310320 = __MACOSX
-source-af63fc4c860222ec = A
-source-ea0a5c65ac517e7c = Katalog güncellemesi yerel veya içe aktarılan bir paketin yerini alamaz
-source-07c471660b5c5b6d = bir komut
-source-8e8f3a23e0e9ece1 = Özel bir emoji.
-source-3427440866cf683e = bir gün
-source-832d6f9c21fe327c = Varsayılan bir emoji. Bu emojiyi Discord'un her yerinde kullanabilirsiniz.
-source-c87a72cf210bdf1a = Bir indirme zaten etkin
-source-036822775cb3d29d = Bir indirme veya pano temizleme işlemi zaten etkin
-source-b1d2a5473e87197b = birkaç saniye
-source-1bca120d5f0f6f59 = Hedefte bir dosya belirdi; başka bir ad seçin veya değiştirmeyi onaylayın
-source-90bed8158c1718ba = Bir forumda en fazla 20 etiket bulunabilir.
-source-196aa7589058fa81 = Bir oyun, okunamayan bir etkinlik gönderdi.
-source-d712e298601972c9 = Bir medya aktarımı zaten etkin
-source-c73f1143b7a6bd21 = Mesaj başarısız oldu — hedefi kontrol edin
-source-bc98b6217e0e3434 = bir dakika
-source-22bbef89386d92ba = bir ay
-source-b1ec16df76d9bd09 = açıkça başlatılan yeni bir çağrının kendi katılma işareti vardır
-source-d9ec4a79c83ebbeb = Bir gönderi en fazla 5 etiket taşıyabilir.
-source-547bd314aecb3f43 = Bir sunucu eylemi sürüyor.
-source-0dcbc262ee054e81 = desteklenen bir platformun işaretli paketinin indirilebilir bir arşivi var
-source-7ee589362716c195 = Yararlı bir mesaj okunabilir kalır
-source-9e94a28a5b802784 = Sesli arama zaten etkin
-source-ae6d213acd310fd5 = bir yıl
-source-1841cd89a01ce541 = a/CON.txt
-source-e6b9b11904eabd96 = a\b
-source-09efc23b583b2370 = HAKKIMDA
-source-e957aac89298c890 = Hakkımda
-source-5454fce28deb1dfc = Serein hakkında
-source-136526f9761a4d77 = Aksan
-source-d66c4767fa3dde28 = Vurgu rengi
-source-13be1af9766661e9 = Kabul etmek
-source-fa837eedde682e5a = Arkadaşlık İsteğini Kabul Et
-source-e0d1d6bd81fc1980 = Kabul edildi
-source-9be5c595be455b0e = Kabul edilen yaratıcı para kazanma koşulları
-source-2b9bacc0275f2f5e = Hesap uzantısı temizliği tamamlanmadı; Yeniden denemek için Uzantıları yeniden açın
-source-73af8d28f4d05959 = hesap ayarları
-source-f8acd75e4c30dec1 = Hesap başlatma anlık görüntüsü 128 MiB'yi aşıyor; bağlantı durduruldu
-source-afd252ca87254e0c = Hesap başlatma anlık görüntüsü zaten sıraya alınmış durumda; bağlantı durduruldu
-source-84ad5c38e8e5ac27 = Hesap senkronizasyon etkinliği 4 MiB'yi aşıyor; bağlantı durduruldu
-source-64fc952e3785ffac = Hesap senkronizasyonu etkinlik sırası dolu; bağlantı durduruldu
-source-229c11f32846b199 = Hesap senkronizasyon kuyruğu 32 MiB'yi aşıyor; bağlantı durduruldu
-source-a45a194b58837e4f = Aktif
-source-096271b572c564b1 = AKTİF DAVET BAĞLANTILARI
-source-c141f9a556c5ae3c = Etkin ileti dizileri oturumdan gelir; eski iş parçacıkları bir seferde 25 yükleniyor. Katılmadan mesajların açılması.
-source-6c76b294d740446c = Etkinlik
-source-b50206be65c022ef = Etkinlik rozeti
-source-ceafed983d9c999d = Etkinlik Akışı Ayarları
-source-303530211648923a = Etkinlik seçenekleri
-source-ec35beeb0a638889 = etkinlik ayarları
-source-78319537e3e40195 = Etkinlik paylaşımı kapalı
-source-f9aee319a006c9b4 = Eklemek
-source-a669985c2b3d37bc = Kaydetmeden önce bir lisans ve sürüm ekleyin.
-source-8188503ddfecb719 = Konuşmalarınıza yeni bir araç ekleyin.
-source-338cffe0ab083bd2 = Sunucu Ekle
-source-76dce2e228d13136 = Kaydetmeden önce bir tema adı ve yaratıcının adını ekleyin.
-source-c3ee70112775e610 = Hesap ekle
-source-2e8ec7ac529c0416 = İsteğe bağlı bir mesaj ekleyin…
-source-1906429c63e122c5 = Bu sunucuda herkesin kullanabileceği özel emojiler ekleyin. Animasyonlu GIF emojisi Discord Nitro'ya sahip üyeler tarafından kullanılabilir.
-source-65178f4c7396be95 = Üyelerin bu sunucuda kullanması için özel çıkartmalar ekleyin. Resim yüklenmeden önce kırpılır ve 320 × 320 piksele yeniden boyutlandırılır.
-source-9da45ad17e1e6254 = Arkadaş Ekle
-source-4eac18cd86d220b8 = Arkadaş Takma Adını Ekle
-source-b0f52633d46a24b4 = Resim veya dosya ekleyin. En fazla 10 dosya ve toplam 500 MB; hesap limitleri daha düşük olabilir.
-source-87814e07c665fc5d = Bu yazıya resim ekleyin
-source-5e155029a998ab6e = Üye Ekle
-source-76e253cb2e6ac247 = Üye Ekle
-source-63b2998e75bab548 = Not Ekle
-source-5769170fd14b80a7 = Tepki ekle
-source-76858359c87d089c = Tepki Ekle
-source-6a21eb86b7b0c950 = Eğik çizgi komutundan sonra bir miktar metin ekleyin.
-source-7b8a39d746ab6d28 = Hatırlanacak bir şeyler ekleyin…
-source-e591e3c5db7e2eb4 = Etiket ekle
-source-f83403c676525f14 = Etiket Ekle
-source-9514d033f7697c25 = Etiket ekle
-source-83ed914674d80cf4 = Favorilere Ekle
-source-a76a13082fdfd4cf = Sunucunuzun ilgi alanlarını ve kişiliğini göstermek için en fazla 5 özellik ekleyin.
-source-aa6e8f16f76de2d7 = Ekle
-source-9c72f57353a54264 = Bot eklendi
-source-37994d4488233fda = Tarafından eklendi
-source-7fa8d1166848bb78 = Ek renkler, uygulama kontrolleri ve paylaşım ayrıntıları.
-source-ce8c8aeef166296b = Ek yerleştirme içeriği desteklenmiyor
-source-7661fba1154cdbfa = Mikrofonun ses yüksekliğini otomatik olarak ayarlayın.
-source-071922eccfa99cca = Yönetici
-source-21b06c38fc4164db = Gelişmiş
-source-5125a792dfd0a6e7 = Gelişmiş İzinler
-source-510a499d8a643447 = Gelişmiş izinler
-source-d7b3e01ac0e72549 = Sonrasında
-source-7c88198b18340805 = Sonra, Önce'den önce olmalıdır.
-source-ce55bb99b12a1e10 = Akşam kızıllığı
-source-ed076a4658ba7d11 = Yaş kısıtlamalı kanal
-source-a2254e6216746711 = Yaş Kısıtlı Kanal
-source-c0d0e6fd009afbe7 = AIx02
-source-05ad6e8ac44c2505 = Alex
-source-1add6446d9c2c6f3 = Alex (sentetik)
-source-f993bb199fefbe04 = Tüm
-source-f91a6ea8de0be477 = Tüm Eylemler
-source-246e5886f3baf6c2 = Tüm komutlar
-source-524251a5dae81428 = Tüm Mesajlar
-source-4937fa8909079774 = Tüm sunucular
-source-1df0cb73b3272f74 = Tüm Kullanıcılar
-source-bd667a92c4cd3c47 = Tüm ses ayarları
-source-2ee366cbb0141712 = İzin vermek
-source-886fe15aec256d31 = Herkesin bu rolden @bahsetmesine izin ver
-source-47f07dde0c168ec4 = Diğer sunucu üyelerinden gelen DM'lere izin ver
-source-a4e76f5dccb52d8b = Listelenen her iznin devam etmesine izin verin.
-source-81f9e2079db57288 = Arkadaşlık isteklerine izin ver
-source-5ac5cb2de54a1f17 = Oyunlardaki arkadaşlarınızın doğrudan mesaj ve davet göndermesine izin verin
-source-05c4345683c31690 = Bu uzantıya izin ver
-source-7cdd3a5ec5457ec4 = İzin verilen dosyalar
-source-220be55e476bf0a9 = Diğer sunuculardan emojilere izin verir.
-source-83b73c30cce923ac = Üyelerin yeni emoji reaksiyonları eklemesine olanak tanır.
-source-83950361169d5b66 = Üyelerin kanal izinlerini değiştirmesine olanak tanır.
-source-9d15005aca6894c3 = Üyelerin web kancaları oluşturmasına, düzenlemesine ve silmesine olanak tanır.
-source-912736ad38e850de = Üyelerin ses kanallarında başkalarını sağır etmelerine olanak tanır.
-source-125f7af1d17ad206 = Üyelerin başkalarının mesajlarını silmesine izin verir.
-source-eea2b750d5a4d225 = Üyelerin kanal ayarlarını düzenlemesine ve kanalları silmesine olanak tanır.
-source-7685320fed317541 = Üyelerin kişileri bu sunucuya davet etmesine izin verir.
-source-703cd20eedcb1147 = Üyelerin ses kanallarına katılmasına olanak tanır.
-source-830e3ef937832855 = Üyelerin konuları yönetmesine ve silmesine izin verir.
-source-8913c6f15421e3cd = Üyelerin diğerlerini ses kanalları arasında taşımasına olanak tanır.
-source-6aeea27a0332bf80 = Üyelerin ses kanallarında diğerlerinin sesini kapatmasına olanak tanır.
-source-3e1c02061c383543 = Üyelerin mesajları sabitlemesine ve sabitlemesini kaldırmasına olanak tanır.
-source-16a831acff361802 = Üyelerin önceki mesajları okumasına izin verir.
-source-8090eb073263f9c5 = Üyelerin ileti dizilerinde yanıt vermesine olanak tanır.
-source-e895c2a95ae68653 = Üyelerin bu kanallarda mesaj göndermesine olanak tanır.
-source-5d5f8860271efc1e = Üyelerin videoyu ve ekranlarını paylaşmalarına olanak tanır.
-source-52edcb7075c3c816 = Üyelerin ses kanallarında konuşmasına olanak tanır.
-source-7a3edba6470612e7 = Üyelerin özel konu açmasına izin verir.
-source-b2021467ee0ca247 = Üyelerin herkese açık konu açmasına izin verir.
-source-ba93b08e5287739a = Üyelerin dosya ve medya yüklemesine izin verir.
-source-f5e65cbc9cb8cff3 = Üyelerin bu kanalları görüntülemesine izin verir.
-source-5d288a0a7bc7ebbc = Herkesi veya rollerin tamamını bilgilendiren bahsetmelere izin verir.
-source-6647891644c56ce6 = Metinden konuşmaya özelliğiyle mesajların yüksek sesle okunmasına olanak tanır.
-source-3dfe4fd0d1469bfc = Bas-konuş olmadan konuşmaya izin verir.
-source-287105702f89c0d9 = Diğer sunuculardan çıkartmalara izin verir.
-source-f993c3199fefcb9c = Alternatif
-source-09085707b5a0d793 = AM
-source-860f42a2624ffee0 = bir saat
-source-52ba681d9318b707 = Bir güncelleme dosyası belirtilen boyutunu aşıyor.
-source-172d209974e2f7bf = Bir güncelleme dosyası eksik.
-source-97ae740df3e7e45f = GIF'leri canlandırın
-source-03afdbb3158dcc1a = Çark hareketini canlandırın ve mesajlar arasında geçiş yapın.
-source-9804d4d3daf05e1c = Animasyonlu
-source-fa8f7cf29168c2b2 = Hareketli Emoji
-source-a3c34f09134f4c9a = Animasyonlu emoji en fazla 256 KB olmalıdır
-source-f68f660a60b3effa = Duyuru
-source-5dd67743cac44579 = Duyuru kanalı
-source-a6a92648588602bf = Cevap
-source-1e75e26f239524f1 = Aramayı cevapla
-source-f999d4199ff4542d = Herhangi
-source-f7cb0deec6345d60 = Herhangi bir içerik
-source-f9f2c719a04066ec = Uygulama
-source-fa5ee719a09bbc2c = UYGULAMA
-source-e0c960aa6d4b1440 = Uygulama arka planı
-source-ca4222f16f732223 = APPDIR
-source-f0e261e04eda82ff = Dış görünüş
-source-9c7b44ac9890fcf3 = görünüm özelleştirme yazı tipi tipografi içe aktarma ttf otf birincil vurgu altıgen pencere efektleri şeffaflık bulanıklık tema karanlık ışık sistem modu yakınlaştırma ölçek düzen kenar çubuğu genişlik insanlar üyeler üye listesi sıfırlama renk renk ön ayarı
-source-af77fc86744de8b0 = görünüm ayarları
-source-3b756cb60b2ac008 = Mesajınıza omuz silkme ekleyin.
-source-01b5724f92832a10 = Mesajınıza bir tablo çevirme ekleyin.
-source-eb0319b004b340c9 = UYGULAMA GÖRÜNTÜ
-source-fe3ddfcb791a4c94 = AppImage başlık doğrulaması başarısız oldu.
-source-f1e9d421f35b51e5 = Başvuru
-source-869f92af672408fc = Uygulama veri dizini mevcut değil.
-source-03bf6399542211e6 = Uygulama etkileşimi bekleniyor…
-source-bdb243be142632e2 = Uygulama tarafından oluşturulan mesaj
-source-17e3cd226501a372 = application/vnd.github+json
-source-77dfb31c5a778156 = Aramalar ve yerel mikrofon testiniz için geçerlidir.
-source-4d600e7f783b509e = bir sonraki aramanız için geçerlidir.
-source-b8f855b49234b81b = Uygula
-source-5418307528e56b20 = Filtreleri Uygula
-source-cc1343c30b0ee18d = Bestecide biçimlendirmeyi uygulayın veya kaldırın.
-source-56f684df5d2b61df = Bu yüklü temayı uygulamaya uygulayın.
-source-52086cb9e0b759b9 = Tüm yüzeylere uygulayın
-source-65e3ad889f1ac883 = Taslağa Uygula
-source-8e962433cd6f9865 = Uygula: Arama sesini değiştir
-source-b216c80781aafa05 = Uygula: Bildirimleri değiştir
-source-3220032dace63f56 = Uygula: Ayarları değiştir
-source-1a950908de179363 = Uygula: Eylemi onaylayın
-source-6bcc1017f44556a7 = Uygula: Metni kopyala
-source-5ab339284faf2ff1 = Uygula: Mesajı sil
-source-ba67f2122a76bf75 = Uygula: Kamerayı etkinleştir
-source-ea4dd3090e537c87 = Uygula: Çağrıya katıl
-source-c21eb09704067df4 = Uygula: Aramayı bırak
-source-ebac3d35dd0f2a1a = Uygula: Görünümü aç
-source-086772cbc4d478f5 = Uygula: Ara
-source-945918caa298ad68 = Uygula: Mesaj gönder
-source-94318c622e7cf16c = Uygula: Bildirimi göster
-source-0aff2f8be8a14bcd = UYGULAMALAR
-source-976b3daab8c4196e = APT (DEB)
-source-f9f8e219a045007b = Yay
-source-a0ca791d0f13f0e5 = Arşiv
-source-4bfc4d609ee1ab33 = Arşivlendi
-source-4619bd2bc2b40db0 = Arşivlenen gönderiler, geçmiş erişimi olan bağlantılı bir oturuma ihtiyaç duyar.
-source-1d9b4fe636d596a4 = Bağlantı kesildiğinde veya kanal erişimi olmadığında arşivler kullanılamaz.
-source-caa388e6c5fc4326 = Silmek istediğinizden emin misiniz?
-source-9197c793d6d2ccc4 = Ayrılmak istediğinden emin misin
-source-008f84cd357fb057 = ARM64
-source-6b36f3c18920c686 = Sıralamak
-source-35fb62ecb4a374ce = Aşağı Ok
-source-043f052f4aec0783 = OkSol
-source-59de5ee12528b90c = OkSağ
-source-faca44c6cb373cfb = Yukarı Ok
-source-aae07dc89c12fa36 = Sanat eseri animasyonunun çerçevesi yok
-source-b8915f6eb5cd0476 = Sanat eseri animasyonu güvenli bir şekilde hazırlanamayacak kadar büyük
-source-ef390e917b24934b = Dış bağlantıları açmadan önce sorunuz. Discord bağlantıları her zaman doğrudan açılır.
-source-c92c1a54034e21cc = Atamak
-source-089c4e07b545a968 = en
-source-457feeb54c5875de = Bu sunucunun üst kısmında · sunucu izinlerini kullanır
-source-5c100df97c50deeb = Dosya Ekle
-source-89be37e8c5404b10 = Mesaj başına en fazla 10 dosya ekleyin
-source-5539800782e2f20b = Burada dosya eklenemiyor
-source-54cd4879a3bba7db = Bu forumda dosya eklemek mümkün değildir.
-source-ddfc86d2b1251528 = EK
-source-7889b4c9bb168493 = Ek bağımsız değişkenleri henüz desteklenmiyor.
-source-e34ce9f170e16c8d = Ek indirilemedi
-source-2a1a2a8290e62d52 = Ek indirilemiyor
-source-13a28b769cbf5180 = Ek indirme sınırını aşıyor
-source-30d691ec3fb57874 = Ek boş olmamalı ve en fazla 100 MiB olmalıdır
-source-a6bebfb27bfc1707 = Ek işlemi zaten etkin veya seçim kapsamı yok
-source-7a8c3c959ac360c8 = Ek veya gömülü içerik
-source-438b547f3b2fa49d = Ek veya kısa mesaj olmayan mesaj
-source-0c2d7300f0ec5ecc = Ek kaydedildi ancak geçici dosyası kaldırılamadı
-source-14d1f1642694858c = Ek seçimi kesintiye uğradı
-source-e8f933d73c6d330b = Ek boyutu değiştirildi; konuşmayı yeniden yükle
-source-bb998de202e8ad59 = Ek aktarımı tamamlanmadı
-source-672347bb6174fe3d = Ek aktarımı kesintiye uğradı
-source-5678c2eb707f0ca2 = Ek kullanılamıyor; konuşmayı yeniden yükleyin ve tekrar deneyin
-source-7b1082149fccd857 = Ek yükleme işlemi kesintiye uğradı
-source-8704bfbe468883b3 = Eklerin toplamı en fazla 500 MB olmalıdır; hesap limitleri daha düşük olabilir
-source-310b9c448a16888c = Ses eki kullanılamıyor
-source-2e2cf3d3799a3412 = Ses cihazı keşfi durduruldu
-source-114ae209c86f5f2e = Ses cihazının açılması zaman aşımına uğradı; cihaz seçimini ve sistem mikrofon iznini kontrol edin
-source-d8e0780293e9d86c = Ses cihazı durduruldu veya bağlantısı kesildi; bir cihaz seçin ve tekrar arayın
-source-119877adf7f839af = Ses aygıtları açılmadı; cihaz seçimini ve mikrofon iznini kontrol edin.
-source-e1f7ff3be1e8c7c5 = Ses cihazları yüklendi · kulaklıklar mikrofon yankısını önler
-source-f14950f18436ef66 = Ses cihazları durduruldu; mikrofon iznini ve cihaz seçimini kontrol edin
-source-5a9bb212f461d36c = Ses indirme işlemi başarısız oldu
-source-73af3c43d8452c8d = Ses indirme işlemi tamamlanmadı
-source-3957a7ea8742ed39 = Ses indirme işlemi kesintiye uğradı
-source-51b3c0eb8ae86251 = Ses indirme kullanılamıyor
-source-60f3977cbe2e7785 = Ses çıkışı bağlantısı kesildi
-source-dda1c1f423130cfc = Ses çıkışı kullanılamıyor
-source-6b9dcab3577bc36c = Ses çıkışı kullanılamıyor. Sisteminizin ses ayarlarını kontrol edin.
-source-3bf634ef5284aee4 = Ses tercihleri ​​bu cihaza kaydedilir. Mikrofonunuz yalnızca bir çağrıya katıldığınızda veya teste başladığınızda başlar.
-source-256ba0dd9a05a9b4 = Ses önizleme sınırı: 20 MiB dosya, 64 MiB kodu çözülmüş, 10 dakika
-source-70c1adaa458e0015 = Ses sunucusu arabelleğe almayı desteklemez; harici olarak oynamak için indirin
-source-076accfc5c6c2ac8 = Ses boyutu veya kodlaması değişti; konuşmayı yeniden yükle
-source-deb1d5ae3d015f79 = ses ayırma işlemi de tamamlanmalı
-source-3672c2257bb7d439 = Ses kullanılamıyor; konuşmayı yeniden yükle
-source-5fa40d26e63c9500 = Ses çalışanı durduruldu; Serein'i yeniden başlat
-source-15c84f11ebb108aa = Denetim Günlüğü
-source-0e1b4276d5e667d2 = Yazar Türü
-source-13ddf6fb4d5195c4 = Yazar: son mesaj
-source-83ab87c5fd63149b = Otomatik güncelleme
-source-c2d16f8333e07d4f = Otomatik kazanç
-source-f80b58ea901de3e6 = Otomatik kazanç kontrolü
-source-44e8120bfc4bb088 = Otomatik önizleme
-source-606259d560d20e73 = Şüpheli spam iletilerini otomatik olarak filtrele
-source-03f20653bba79664 = Üyeleri otomatik olarak bu kanala taşıyın ve etkin olmayan zaman aşımından daha uzun süre boşta kaldıklarında onları sessize alın. Bu tarayıcıları etkilemez.
-source-fa54ad19a0930519 = AUX
-source-74f6b0957ffa5a96 = Avatar önbelleği temizleme işlemi başarısız oldu; önbelleğe alınan resimler diskte kalabilir
-source-0fd7c4b01e3427fb = avatar anahtarı
-source-d18a6ce639af3671 = avatar anahtar önbelleği
-source-af63ff4c86022805 = B
-source-c16e00a7a8b2fde2 = Geri
-source-dbbf848734787ad3 = GIF kategorilerine geri dön
-source-fa410955c0e55c75 = Inter'e geri dön
-source-daa09c73dd931e52 = Rol Üyelerine Geri Dön
-source-c5cea2143726eabf = canlı kenara geri dön
-source-9e48b3807e009b33 = Tema düzenleyicisine geri dön
-source-190ccbda2c8f9a3f = Temalara geri dön
-source-1efbfc3937d565bd = Arka plan
-source-cdbe8890bc1daf7e = Mesajlarınızın arkasındaki arka plan
-source-df34a5599d66f85c = Arka plan resmi
-source-a5d5f178f3876c3f = Arka plan resmi 2 MiB'ı aşıyor
-source-e56593eace60ba73 = Arka plan resmi çalışanı başarısız oldu.
-source-d64445ead33533cc = Geri tuşu
-source-327781c739315ba7 = Geri tıklama
-source-69583da04e5946b1 = Rozetler
-source-9758fb833fbf9c99 = Yasaklanan üye
-source-00e1a56a841e83af = Afiş
-source-15b6305e863792ea = Temel bilgiler
-source-1788737137ec6d9e = Önce
-source-1a0210d5a1a16b68 = Bio (boş olanı temizler)
-source-28475413927d5432 = Uygulamanın yüzeylerinin arkasında iki rengi karıştırın.
-source-2b2ae20d26f78ac2 = Engellemek
-source-7979901374f4c62d = AutoMod ile engellenen mesaj
-source-388f2b6f8d65658b = Blok boyutu
-source-ecf3bca7c1691718 = Bulanıklık
-source-fe80250010367cf8 = Gövde metni
-source-f7bdd5a7c820889d = Bool
-source-0b946f226c5700df = Boolean
-source-fa31adc78eb90e2c = Kenarlıklar
-source-16565219b102f81e = Bot
-source-15e97219b0a65c9e = YİD
-source-f8fa4f35c8f32435 = Bot hesabı
-source-7fbc9a48e98cecd6 = Botlar ve Uygulamalar
-source-a6ed12942709e3f8 = sınırlı istemci yuvaları
-source-e919affbc348568e = sınırlı depolama sonucu sıraya uyuyor
-source-16564e19b102f152 = Kutu
-source-9bd40e994f30dc8a = BuildContext
-source-cb163115768bced4 = Konuşmalar için daha sessiz bir yer oluşturmak.
-    { "**Yerel profil önizlemesi** · buradaki tüm ayrıntılar sentetiktir." }
-source-505fc202b5428fa5 = Dahili
-source-20184aa30888947e = yerleşik ön ayarlar yüklü temaları korur
-source-2518741c10420239 = paketlenmiş uygulama simgesi
-source-7c1a3b74345c8f74 = paketlenmiş atlas hücresi
-source-22b50e2162ad4c6b = paketlenmiş atlas formatı
-source-6b8894962f4570f8 = paketlenmiş CJK yazı tipi arşivi
-source-2d2f1029a0d2bc81 = birlikte verilen Discord emojisi
-source-0c3688231635a6a3 = paketlenmiş Discord adları
-source-59348fc67fb85749 = paketlenmiş emoji dizini
-source-5847ac6b7696ded8 = paketlenmiş emoji adı
-source-034cc54c0435fe1b = paketlenmiş simge atlası
-source-ad070bcf47f55000 = paketlenmiş simge hücresi
-source-f65bff42479f2ea8 = paketlenmiş simge dizini
-source-2ab12c6a6dfed8bf = Birlikte verilen eklenti etkinleştirilmedi
-source-0312976fe9da5951 = Düğme
-source-503a000f8677a058 = Düğme dolgusu
-source-12f0752a5e0574c6 = Düğmeler
-source-3d9f8a6530f33d7a = Düğmeler, seçim ve vurgulamalar
-source-e40567630146944d = Baypas
-source-af63fe4c86022652 = C
-source-090f8d07b5a75203 = C#
-source-0cd9ec19ab679810 = C++
-source-f6d0cc190dae8bb0 = c++
-source-3d9b3f96b413e48c = C:/mutlak
-source-1fbe4cf939e466f5 = C: Windows
-source-ce390f13a0ab7cce = Önbellek temizleme biriktirme listesi aşıldı; geçmiş önbelleği yeniden başlatılana kadar devre dışı bırakıldı; silinen mesajlar diskte kalabilir
-source-747d55f140839712 = bütçeyi aşan önbellek
-source-b2e0a1640a6a3a3f = Önbelleğe alınmış geçmişin temizlenmesi beklemede; Şimdi kapatmak, silinmiş mesajların diskte kalmasına neden olabilir.
-source-50a025b9afaf6ced = Önbelleğe alınmış geçmiş temizlendi; kaydedilen taslaklar korundu
-source-24b9d48a6bd44b00 = önbelleğe alınmış mesaj
-source-130875199ab8168c = Çağrı eyleminin süresi doldu; hiçbir arama isteği gönderilmedi
-source-36c6e380f765ea21 = Çağrı kontrolleri kullanılamıyor
-source-11acb9aa4b26baed = Çağrı ipucu hata ayıklama kontrolü başarılı oldu: yerel/uzaktan katılımlar, ayrılmalar, yeniden anahtarlama ve yeniden bağlanmayı engelleme. Hiçbir ses cihazı açılmadı.
-source-5131d536a3858d66 = Arama başarısız oldu
-source-a3da2c52c2a9b31b = Arama devam ediyor
-source-4696c55509a17d3a = Çağrı değiştirme iptal edildi: Önceki çağrının bağlantısının kesilmesi tamamlanmadı. Tekrar aramadan önce yeniden bağlanın.
-source-3a04ca28b431d65f = Çevrimdışı önizlemede çağrılar kullanılamaz. Hiçbir mikrofona erişilemiyor.
-source-65af94222c32b682 = Sakin orman yeşillikleri ve taze yapraklı vurgular.
-source-54d1b2a64667e32e = Kamera
-source-495ad228525627ba = Kamera yakalama kullanılamıyor
-source-b575b693165156cc = Bu platformda kamera çekimi kullanılamıyor
-source-a85c1deeec36a206 = Bu platformda kamera çekimi kullanılamıyor.
-source-8e3486751abad50e = Kamera değişti. Kullanmak için Kamerayı önizle'ye tıklayın.
-source-80f393ce10fddbb4 = Kamera kontrolleri kullanılamıyor
-source-3f129a081da91e1c = Kamera cihazı
-source-8e5a58aa4d687006 = Kamera cihazı değiştirildi. Seçilen cihazı kullanmak için kamerayı açın.
-source-9b6074b9e21ade9b = Kamera cihazı keşfi başarısız oldu
-source-a3fafbf6e92f8907 = Kamera cihazı keşfi durduruldu
-source-ea56f302bd3fae6a = Çevrimdışı önizlemede kamera kapalı
-source-282d982fc7b4708c = Kamera hâlâ kapanıyor; kısa süre sonra tekrar deneyin
-source-c39760087308f11e = Kamera mevcut kanal izinleriyle kullanılamıyor
-source-9b29587de4d8bac0 = Sesli kamera
-source-39e24f35327ace01 = Kamera açık · yerel önizleme
-source-7d5d998cd1808359 = Kamera, ses sunucusundan H264 desteği gerektirir
-source-9583bf45857e38cf = Kamera ayarları
-source-7ac57d624b358fdf = Kamera durduruldu; açmadan önce güvenli bir şekilde yeniden bağlayın
-source-57a446f4a69504a0 = Kameralar yüklendi
-source-2ceb11be2290bb1b = İptal etmek
-source-3b5fd0df6b2757e8 = Yüklemeyi iptal et
-source-3bb786d3b55ba37c = İptal edildi
-source-50aa63b5ed4a282e = İptal edilen delta taraması devam etti.
-source-96a025c4843e09f5 = Kaydetme hedefine erişilemiyor
-source-eb11ba4bbc079c84 = Bu reaksiyon şu anda eklenemiyor
-source-7fee991fd23e54b4 = Güncelleme macOS Gatekeeper ile değerlendirilemiyor.
-source-91d2f639e38f901b = Doğrulanmış güncelleme arşivi temizlenemiyor.
-source-98fe434d0ff0cda1 = Benzersiz bir yeniden başlatma aktarımı oluşturulamıyor.
-source-c4e2c91b78c4b3e2 = Güncelleme dosyası oluşturulamıyor.
-source-550ca743130fc596 = Katalog dizini oluşturulamıyor
-source-fe69767ffc391540 = Pano geçici dizini oluşturulamıyor
-source-611246d0f0372744 = İndirme dosyası oluşturulamıyor
-source-cb678d668236ab58 = Uzantı dizini oluşturulamıyor
-source-12f0f8ae44ad8973 = Yalıtılmış tema kontrol dizini oluşturulamıyor
-source-e29eb9638877eec4 = Sentetik ZIP oluşturulamıyor.
-source-dba43270224a1c83 = Tema dışa aktarımı oluşturulamıyor
-source-aada8f3a7f998386 = Güncelleme dizinleri oluşturulamıyor.
-source-61de5d46b1461a6b = Güncelleme hazırlama depolama alanı oluşturulamıyor.
-source-f1a4246aa7256879 = Uzantı paketi kodlanamıyor
-source-e561d54aef4b1013 = Güncelleme planı kodlanamıyor.
-source-aa6908c34ae96d11 = Tema paketi kodlanamıyor
-source-9453d1e7954bd36d = Güncelleme çıkarılamıyor. Kullanılabilir disk alanını kontrol edin.
-source-7597bd31c59de1ac = Uzantı verileri tamamlanamıyor
-source-b3e27aaa92a42065 = Sentetik ZIP tamamlanamıyor.
-source-a75d9b5807938c2a = Tema dışa aktarımı tamamlanamıyor
-source-3442c21e0e0f3860 = Uzatma bütçesi incelenemiyor
-source-d24d991f0805723b = Uzantı temizliği incelenemiyor
-source-8ca96e88f30b099a = Uzantı temizleme yolu incelenemiyor
-source-ab6867fcbba4df1b = Uzantı dosyası incelenemiyor
-source-51d061dd502f399b = AppImage incelenemiyor.
-source-3c239b46de6b4e60 = Uygulama imzalama kimliği incelenemiyor.
-source-04e4bfd18213af1b = Yüklü AppImage bulunamıyor.
-source-9156581959ab6693 = Yüklü uygulama bulunamıyor.
-source-08489b182eb8e837 = AppImage yürütülebilir hale getirilemiyor.
-source-b5b8ff65424ba781 = Güncelleme yardımcısı hazırlanamıyor.
-source-8e663a72d83db36e = Tema dışa aktarımı hazırlanamıyor
-source-e434e405766d282e = Güncelleme arşivi girişi okunamıyor.
-source-f7761496d1045727 = Uzantı girişi okunamıyor
-source-b633e237156af64f = Uzantı dosyası okunamıyor
-source-47b682d45e7e0540 = Uzantılar okunamıyor
-source-e6da628c0757efbf = AppImage okunamıyor.
-source-d62da5bfdb3664df = İndirilen güncelleme okunamıyor.
-source-658cc303b0edf413 = Yalıtılmış tema kontrol dizini kaldırılamıyor
-source-13054cc6d16d61e5 = Uzantı verileri değiştirilemiyor
-source-a6fba333ead59e13 = Tema dışa aktarımı değiştirilemiyor
-source-1102c73a0fe2af4d = Güncelleme aktarımı sıfırlanamıyor.
-source-fec2c407d532bf35 = Çıkarılan güncelleme kaydedilemiyor.
-source-00ce0b626ad4fae6 = Güncelleme planı kaydedilemiyor.
-source-f1300b1606e03c07 = Güncelleme dosyası izinleri ayarlanamıyor.
-source-3c8c66e6f4a2e791 = AppImage aşamalandırılamıyor.
-source-e8c6665e5504523c = Güncelleme yardımcısı başlatılamıyor.
-source-4f2684899e76b148 = Güncellemenin kod imzası doğrulanamıyor.
-source-5d8b893e4a0a707c = Uzantı verileri yazılamıyor
-source-da47383f8a97edda = Tema dışa aktarımı yazılamıyor
-source-0c0fa9a79632e928 = Kart kapağı
-source-c3c904bb6c80ed71 = Kartlar ve mesaj girişi
-source-07ceb14a7ae660dd = CARGO_MANIFEST_DIR
-source-7fae2dcb3491a8c1 = CARGO_PKG_VERSION
-source-6718e2e8c75b04e7 = Kategoriler ilgili kanalları düzenler.
-source-e8b92ef3f8e57128 = Kategori adı
-source-9c8b888be93af84e = Kategori Ayarları
-source-2254407e0c6b0121 = CC0-1.0
-source-2f64461723d3df5d = Değiştirmek
-source-8c9c54e0d22213b3 = Hesap mesajlaşma gizlilik ayarlarını değiştirme
-source-738d022128fb727a = Cihazın ses ayarlarını değiştirin:
-source-4c6420e9be4c25fb = Emojiyi değiştir
-source-eacd40e6c9e9d1e7 = Grup simgesini değiştir
-source-f1cce5f75027d1fc = Yerel bildirim ayarlarını değiştirin:
-source-35a761634348ebb7 = Yerel okuma ayarlarını değiştirin:
-source-a94c725865c0c9bc = Yerel ekran paylaşımı sesini değiştirin:
-source-c46090d1920616f7 = Takma Adı Değiştir
-source-189973aa29971817 = Takma adı değiştir
-source-f5f7f77ab9c1baaa = Profil resmini değiştir
-source-7a61c62c7be398d5 = Sunucu Simgesini Değiştir
-source-a0eff7e3c6e5f195 = Sunucu simgesini değiştir
-source-2d0c784b4fc7a0a1 = Discord profilinizi değiştirin:
-source-47758c080c0dff54 = Durumunuzu değiştirin:
-source-b8ff2266a932fe61 = Değişiklikler mevcut tüm sunuculara uygulanır ve yeni katılan sunucular için varsayılanı ayarlar.
-source-5d6ee817d178b6c4 = Değişiklikler yalnızca bu sunucuya uygulanır.
-source-37c3e6cfaf3a0a58 = Değişiklikler henüz kaydedilmedi
-source-2a7c73c8198aabaf = Cihazları değiştirmek kameranızı durdurur ve bir sonraki açışınızda etkili olur.
-source-1da50951bdd7a204 = Kanal
-source-9527d6265f36ae7e = Kanal işlemi
-source-62343e171ff192f3 = Geniş pencerelerde kanal ve konuşma listesi genişliği.
-source-69c1e8cf4951cfb8 = Kanal içeriği her zaman görünür.
-source-8e2d9e7c9c802934 = Kanal listesi
-source-b313538e5b8d8527 = Kanal adı
-source-d2c127e02b62df51 = Kanal Ayarları
-source-967c610c93b25fd3 = Kanal ayarları yüklenemedi.
-source-909f42012e8d4f5d = Kaydetmeden önce kanal ayarlarının yenilenmesi gerekir. Yeniden yükleme bu taslağın yerini alır.
-source-e34e204726493ce4 = Kanal türü
-source-f10300bf9b138705 = Kanal bu oturumda kullanılamıyor veya desteklenmiyor
-source-0fe04d43d78b3025 = Kanal, konuşma ve üye listeleri
-source-37cfc48bd4958d03 = Takip Edilen Kanallar
-source-abfe23c45dfe3050 = Karakter
-source-fbb5094ac57a1e81 = sohbet mesajları medya okuma canlandırma animasyonlu gifler otomatik oynatma görüntü bağlantılarını gizle onayı onayla harici tarayıcı düzgün kaydırma kaydırma hızı hareket izleme dörtgeni tekerleği gizli kanallar kanal listesi sıfırlama
-source-e283106b5bf0ddd0 = Sohbet seçim işaretçisi
-source-c0c8035281ee7caf = Tekrar kontrol edin
-source-56c14ca22284e07c = Karakter sınırlarını kontrol edin ve kontrol karakterlerini kaldırın. Görünen ad yalnızca boşluk içeremez.
-source-e6a8976fdb8243a6 = Güncellemeleri kontrol edin
-source-05e32526688edb30 = Daveti Kontrol Et
-source-522d640faa616902 = Tekrar göndermeden önce konuşmayı kontrol edin.
-source-08962d4ec5543300 = Lisansı, sürümü ve isteğe bağlı kaynak URL'sini kontrol edin.
-source-a6798194b7fea9e5 = Kaydetmeden önce kalan tema ayarlarını kontrol edin.
-source-4aa39e78a2a231aa = kontrol edilen paket
-source-7f3531a7d70170dc = kontrol edilen aşama
-source-4d261ee741ff1fee = Discord'un etkinlik paylaşımı ayarı kontrol ediliyor...
-source-17e321e241626a9c = Paketleri ve güncellemeleri kontrol etme
-source-4a2e5d013b4a17b4 = Güncellemeler kontrol ediliyor…
-source-7799725d5aaa9e0e = Davet kontrol ediliyor…
-source-f99a691b6ee82f79 = Kayıtlı giriş kontrol ediliyor…
-source-e9dda2df763e8699 = Ekran paylaşım ağı kontrol ediliyor…
-source-7713a7f7855b44b8 = Yayın ağı kontrol ediliyor…
-source-9818df49b00d2796 = Kayıtlı giriş bilgileriniz kontrol ediliyor
-source-93b19aa093b1cc8c = Sağlama toplamı doğrulaması başarısız oldu.
-source-f4d6ce8937dcc5c2 = Bir kamera seçin
-source-1d6dc20ffc2c3480 = Bir kanal seçin
-source-66a6694a9ed6c572 = Bir kanal türü ve adı seçin.
-source-7a8352bb844cd63c = Çalıştırmadan önce listeden bir komut seçin.
-source-caa3d81b0a0ad864 = Önce bir konuşma seçin
-source-c84fe964f86c6703 = farklı bir komut seç
-source-8e8af8325e0788ec = 8 MiB'a kadar bir yazı tipi seçin.
-source-07317b2c82e5fe30 = En fazla 120 kare içeren bir GIF seçin
-source-d77f86967c63aff1 = Desteklenen yola sahip yerel bir görsel seçin
-source-f2ea7ad2161d2c64 = PNG, JPEG, GIF veya WebP görseli seçin
-source-58a4ef5a34860544 = Bir alıcı seçin: /msg @user [mesaj]
-source-7ba7e226fa6c3c2c = Normal bir resim dosyası seçin
-source-977c9c7835c89fa7 = 8 MB'a kadar normal bir PNG, JPEG veya WebP resmi seçin
-source-c9aa294c80cb952d = Normal bir TTF veya OTF dosyası seçin.
-source-96281252536ecc66 = Bir ekran veya pencere seçin
-source-6c7f4300c97b067b = Daha küçük bir GIF animasyonu seçin
-source-68c451badf545216 = Kenar başına 4096 piksel ve 4 milyon piksel dahilinde statik bir PNG veya JPEG seçin
-source-0a009c026fd20e36 = Bir kullanıcı seçin
-source-2738ea9b5f44fb52 = Geçerli bir TTF veya OTF yazı tipi seçin.
-source-604a2c4b572aa02d = Tüm ses ayarlarında bir algoritma seçin.
-source-26acb9c01a437067 = Üst çubuğu, listeleri ve mesaj alanını ayarlamak için bir resim seçin.
-source-a1faed462867dbcf = 8 MB'a kadar bir resim seçin
-source-6ffe7deacadd53b4 = Tek seferde en fazla 10 emoji seçin
-source-94eed757d773fae1 = Yazar türünü seçin
-source-afdf1a951251ee6b = Kapak seç
-source-0b6b3c55bcde011e = Emojiyi seç
-source-c7b2cbad7fb7ec99 = Dosyaları seç…
-source-eeabd76984a63e34 = Grup simgesini seçin
-source-28fa2d57e568c9dd = Resim seç
-source-3f3f14b96f7f713d = Resim Seç
-source-ff37995b89189edf = 8 MB'a kadar görselleri seçin
-source-359e844a894bf49a = Onaylamak için Sunucuya Katıl'ı seçin.
-source-3ead32dc855ce5de = Seçenekleri seçin
-source-639568ef8bd0c33d = Ana rengi seçin
-source-660bc5185aff2b4e = Profil rengini seçin
-source-f4a7202b30c76817 = Profil resmini seç
-source-08fc428a9b5c119f = 8 MB'a kadar normal görüntü dosyalarını seçin
-source-01d98cd9e749e2f0 = Rol seç
-source-501383de6552d091 = Rol simgesini seçin
-source-941ac057595e9fdc = Sunucu simgesini seçin
-source-f3e72abe13f35f3f = Çıkartma resmini seçin
-source-df29793c3c78e143 = Temalar'da tema kartınızda gösterilen resmi seçin.
-source-05654046117b6800 = Sistem seçiciyi seçin veya X11'de masaüstünün tamamını açıkça paylaşın
-source-1a588a29c8803935 = Bu görüşmedeki kişilerin neler görebileceğini seçin.
-source-d394b2bb5287c2f3 = Gürültü bastırmayı, hassasiyeti ve işlemeyi seçin.
-source-b7b0f30bf8a9e8fc = Seçmek…
-source-c36c783ba211fa68 = Yazı tipi seçiliyor…
-source-27b2e81074b43ed6 = Resim seçiliyor…
-source-510fee4c4bd18d81 = CJK geri dönüşü
-source-ed4cbb11f68db8ea = CJK taraması
-source-90d53cfba1df4aff = Sınıf
-source-85664e5f8a2a16c0 = Temizleme bekleniyor
-source-b4f1dffbb6be6302 = Temizlemek
-source-3723aab495477797 = Açık vurgu rengi
-source-304e8ec60d78d88c = Şu tarihten sonra temizle:
-source-0ff31a87b91191ca = Saniyeler sonra temizle (0, hiçbir zaman anlamına gelmez)
-source-8cda828dac449ea5 = Tümünü temizle
-source-3ed5607ad78d4224 = Önbelleği temizle
-source-2f23747db0cea917 = Görünen adı temizle
-source-533291cfab68a4a9 = Filtreleri Temizle
-source-5f4586bc1e2740e6 = Aramayı temizle
-source-8f18916860db5d80 = Seçimi temizle
-source-75c0510570ce02b9 = /msg'yi kullanmadan önce taslakta bir miktar alan temizleyin. Taslağınız saklandı.
-source-17d528d50acb7068 = Hemen göndermek için bir GIF'e tıklayın
-source-a7c67fe777e8524b = Bir renk seçmek için bir renk örneğini tıklayın veya onaltılık değerini girin.
-source-5d9b531db15371bd = Izgaraya dönmek için tıklayın veya Escape tuşuna basın
-source-6c93f20e8a2f1482 = Büyütmek için tıklayın
-source-13a5756e3d78ce8b = Tıklanabilir imleç
-source-4548bf38f177532f = Pano okuması kesintiye uğradı
-source-0a6eb213e8a2dd1f = Pano okuması kesintiye uğradı; tekrar yapıştır
-source-b950b781c6930f87 = Pano kullanılamıyor
-source-5e8250fb85d64c23 = Kapalı
-source-2acb104372b0320d = İletişim kutusunu kapat (Esc)
-source-abda905ba90988be = DM'yi kapat
-source-19650afe47227f3b = Gönderiyi Kapat
-source-dec709236764aa73 = Önizlemeyi kapat
-source-4e606ce6a461df05 = Aramayı kapat
-source-61ee6c1b9f6d8128 = Ayarları kapat (Esc)
-source-fc575fba03440dad = Önce önceki emoji seçiciyi kapatın
-source-21cada6de8b98770 = Önce önceki resim seçiciyi kapatın
-source-85dab813db4af1c2 = Önce önceki çıkartma seçiciyi kapatın
-source-7297d0532524082d = Konuyu Kapat
-source-ea940c1c2cc66abb = Çevrimdışı fikstürü kapatır. Önizleme için hiçbir şey saklanmaz.
-source-3643189d1abbb7f4 = Kod
-source-4993444bfd3f3e5e = Yıkılmak
-source-7e860296d38b6351 = Renkler
-source-ebf5bdd0a2bdfc26 = Renkler ve opaklık, koyu ve açık görünüm için ayrı ayrı kaydedilir.
-source-7e9d0b96d39e517d = Renk
-source-04bd852225796670 = Renk ön ayarı
-source-1fe5309c7cbacabd = COM1
-source-1fe52d9c7cbac5a4 = COM2
-source-1fe52e9c7cbac757 = COM3
-source-1fe52b9c7cbac23e = COM4
-source-1fe52c9c7cbac3f1 = COM5
-source-1fe5299c7cbabed8 = COM6
-source-1fe52a9c7cbac08b = COM7
-source-1fe5279c7cbabb72 = COM8
-source-1fe5289c7cbabd25 = COM9
-source-2d076ef48fe289b8 = Virgül
-source-a41b36cc9c8142b9 = Komut kullanılamıyor. Argümanlarınız saklıdır.
-source-03902b205d60074e = eşleşen komutlar
-source-d0864ea6cb6ef22e = Toplum
-source-fcd5321822111ef3 = Diğer katılımcılarla karşılaştırın. Bu kod şifreli çağrı grubuna göre değişir.
-source-4fa5d909fda0653c = Yarışmak
-source-ff48acdfbbb52c1f = ekran görüşmesini tamamla
-source-4d78d4df27185ddb = akış anlaşmasını tamamla
-source-922be67cbebc66e5 = Bu sunucuya katılmak için kontrolü tamamlayın.
-source-21b734060282ca01 = Bu arkadaşlık isteğini göndermek için kontrolü tamamlayın.
-source-26c2471b57eed202 = Bileşenler · Önizleme kullanılamıyor
-source-69f6755a95647960 = Besteci kısayolları yalnızca siz yazarken etkindir.
-source-eb4816e7efbce6f2 = COM²
-source-eb4817e7efbce8a5 = COM³
-source-eb481de7efbcf2d7 = COM¹
-source-0ba0f119aa5d684b = Eksileri
-source-6b18bf707d9ae591 = Sunucunuza gönderilen sistem olay mesajlarını yapılandırın.
-source-b85774dc5d18ff0f = Onaylamak
-source-88d7a1d92a44533b = Bağlantıları açmadan önce onaylayın
-source-85f524dc46057d64 = Bu uzantıyı etkinleştirmeden önce istenen her özelliği onaylayın
-source-0202d9165ab141d4 = CONIN$
-source-7a4f059aaa029719 = Bağlamak
-source-0f32a0c2963f99b7 = Bir akışı izlemeden önce çağrıyı bağlayın
-source-79d93257d544d68c = Bu jetonla bağlanın
-source-4802c8e984c6a6f3 = Bağlantılı Oyunlar
-source-aad0e4f8b4bcfd9a = Ekran paylaşımı aktarımı bağlanıyor…
-source-3403635fea51ee2c = Discord'a bağlanma
-source-bb80973884ff1508 = Discord'a bağlanılıyor…
-source-ef7c9c08dd9a10a3 = Akışa bağlanılıyor…
-source-71f975916c82dcfa = Sağlanan oturuma bağlanma; kayıtlı giriş değişmedi
-source-b055b780a919f111 = Bağlanıyor…
-source-3a759fd0453a875a = Bağlantı yenilendi. Kaydedilen notu kaydetmeden önce yeniden yükleyin; taslağınız saklanır.
-source-bab3520cfd0bdd9b = CONOUT$
-source-fcab4b3574f6c9aa = Konsol
-source-cfcc1cdb98b249f6 = İçerik Görünürlüğü
-source-4c68496075c5e459 = Kayıtlı bir hesapla devam edin veya başka bir hesapla oturum açın.
-source-dd45f65613514d4c = Discord'a devam et
-source-f7c55521d2f5b718 = Kontrol köşeleri
-source-1f1ea04651424eb9 = Kontrol yüksekliği
-source-45288fbf4c660e7e = Bu bağlantının ne kadar süreceğini ve kaç kişinin kullanabileceğini kontrol edin.
-source-7c3889311343158f = Size kimlerin arkadaşlık isteği gönderebileceğini ve bunların nasıl görüneceğini kontrol edin.
-source-2e1cab55520bb563 = Bağlı bir arama sırasında mikrofonunuzu ve gelen sesi kontrol edin.
-source-a2915684ede2ecc7 = Bu yapıda veya önizlemede kontroller mevcut değil.
-source-41b4752c216d0b66 = Konuşma
-source-7fb1379f949cd722 = Konuşma renkleri
-source-4f6c201fb6bc940d = konuşma üyeleri
-source-30aecefef69c52da = konuşma araması
-source-589b1d6647c2b40f = Konuşmalar ve arkadaşlar
-source-00d2594f679cfdec = Dönüştürülen video 100 MiB önizleme sınırını aşıyor
-source-d499dac88619e933 = Taze deniz mavisi vurgulara sahip havalı mavi-yeşil yüzeyler.
-source-f4de3bfbfaca12e5 = Kopyalandı
-source-dfb2b12b255de30c = Kopyalandı!
-source-97093b9f8a5cfbfb = Ayarları ve izinleri kopyalar. Mesajlar kopyalanmaz.
-source-3687049d1af562c4 = Kopyala
-source-4651678b2be4607f = Yapıştırmadan önce bir dosyayı, resmi veya metni kopyalayın
-source-2345aff679a53331 = Etkinliği kopyala
-source-efc5f4f185331f48 = Kanal Kimliğini Kopyala
-source-4f013b4c82c08809 = Kodu kopyala
-source-c3dfe8bbcab1e985 = Komutu kopyala
-source-f26bb54b183d3b9a = Emojiyi kopyala
-source-5db56b585b0dcaa6 = Kopyalama hatası nedeni
-source-6c24d848b4294429 = Resmi kopyala
-source-51616e3c3d5fa46c = En fazla 4 milyon piksele sahip görüntüleri kopyalayın; bunun yerine daha büyük resimleri kaydedin
-source-884e6d14b13fbaa3 = Davet bağlantısını kopyala
-source-9a2a2fda9cfa1ddc = Bağlantıyı Kopyala
-source-67b8d96c4d75442b = Mesajı kopyala
-source-3abbc06a7163a20d = Kopyalama, görüntüleri ve videoları destekler
-source-c4489349aeb7af80 = GitHub sorun raporları için biçimlendirilmiş sistem ve istemci ortamı ayrıntılarını kopyalayın.
-source-316fc072ace20251 = Konu Kimliğini Kopyala
-source-8ea6139fefe0b028 = Kullanıcı Kimliğini Kopyala
-source-dc669220c7e57797 = Videoyu kopyala
-source-5bac5ad35db2fb72 = Web kancası kimliğini kopyala
-source-f890a5cbb8ccea58 = Web Kancası URL'sini kopyala
-source-4c92f4f120e7293d = Vurgulanan renk değerini düzeltin.
-source-b7b67b67af5d9ad6 = Vurgulanan degrade değerini düzeltin.
-source-acbbe370b0ef3900 = Bozuk delta sonucu kabul edildi.
-source-1684bc3c6a2c1527 = yapamadım
-source-86de852428ea3511 = Kopyalanan dosya kontrol edilemedi
-source-ead7d8c2081ce773 = Discord'un etkinlik paylaşımı ayarı kontrol edilemedi veya değiştirilemedi.
-source-410875fce2a5223a = Önbelleğe alınmış geçmiş temizlenemedi; geçmiş önbelleği yeniden başlatılana kadar devre dışı bırakıldı; mesajlar diskte kalabilir
-source-fef9a38a39447fd8 = Kopyalanan dosya temizlenemedi
-source-fe26fb8df04847b5 = Eski güncelleme depolama alanı temizlenemedi.
-source-1e3bfc0c190255d3 = Medya panoya kopyalanamadı
-source-d8d6551b496d86cd = Güncelleme indirmesi oluşturulamadı.
-source-e290c1f5b9d77ed9 = Bu eserin kodu güvenli bir şekilde çözülemedi
-source-748c4766e516891e = Bu görüntünün kodu güvenli bir şekilde çözülemedi
-source-690f607c1aa95192 = Kısmi güncelleme silinemedi.
-source-6d05a44fff2d620e = Bu görsel indirilemedi
-source-4a0d8859a2cbde7e = İndirme işlemi tamamlanamadı
-source-e08472b28ad3588a = Eki kaydetme işlemi tamamlanamadı; klasör izinlerini ve disk alanını kontrol edin
-source-e516e28ec1360b5a = Hazırlanan güncelleme devredilemedi. Yüklenen uygulama değiştirilmedi.
-source-91c6993d80362aa3 = Güncelleştirme yükleyiciye aktarılamadı.
-source-0a223fe9349f366e = Güvenli güncelleme aktarımı başlatılamadı.
-source-aff1fac5d872dd61 = Bu sanat eseri güvenli bir şekilde incelenemedi
-source-15feba1bd9932ffa = Güncelleme tercihleri ​​yüklenemedi veya kaydedilemedi. Değişiklikler yeniden başlatmadan sağ çıkamayabilir.
-source-e43bf4d38a946c13 = Kaydedilen görünüm yüklenemedi; sistem temasını kullanma
-source-3c918600e9b86d11 = Not yüklenemedi. Mevcut notunuz değiştirilmedi.
-source-c3d3ca6895000ef4 = Kaydedilen yazı tipi yüklenemedi.
-source-2c429b664987aac0 = Kaldırılmak üzere önbelleğe alınmış resimler bulunamadı
-source-03d6b9cf17dd4a4a = Seçilen emoji açılamadı
-source-cbc2e30fcded6959 = Seçilen resim açılamadı
-source-06547dd5f11eb83b = Seçilen çıkartma resmi açılamadı
-source-86f9d19087bad7cf = Yazı tipi açılamadı.
-source-0b703938d359f507 = Resim indirme işlemi hazırlanamadı
-source-1e131fb051efd470 = Yapıştırılan resim hazırlanamadı
-source-40e580bfa52ea94a = Yapay resim hazırlanamadı
-source-545c2a94ba912650 = Simge hazırlanamadı
-source-2ff4c03a5c918c0b = Güncellemenin yeniden başlatılması hazırlanamadı.
-source-60443163f395fd1e = Güncelleme depolama alanı hazırlanamadı.
-source-279768998b333a48 = Yerel hesap verilerinin kaldırılması sıraya alınamadı
-source-35b92371357fea8f = Kaydedilen oturum açma bilgileri sıraya alınamadı; yalnızca oturum
-source-57a1134e8eadb018 = GitHub'a ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.
-source-66bae12d3cf82db1 = Önbelleğe alınmış geçmiş okunamadı
-source-b9f37fd32738ed34 = Yerel depolama alanından kanal tercihleri ​​okunamadı.
-source-f1450ee473fadd92 = Kopyalanan dosyalar okunamadı; tekrar yapıştır
-source-89acca945c044c12 = Kopyalanan resim okunamadı
-source-feff082f2726f5b8 = Kaydedilen hesap listesi okunamadı veya güncellenemedi
-source-ca88d16116bbe5ae = Seçilen emoji okunamadı
-source-3e0dc47b42e139ed = Seçilen resim okunamadı
-source-cc37477b0740deef = Seçilen çıkartma resmi okunamadı
-source-fcf1df2942dc4d33 = Yazı tipi okunamadı.
-source-7803ddc4e9eddc1f = Pano geçici medyası yayınlanamadı
-source-b2ea8f7965f1e6c6 = Önbelleğe alınmış görüntüler kaldırılamadı; dosyalar diskte kalabilir
-source-9686ffd6cb092aac = Silinen önbelleğe alınmış iletiler kaldırılamadı; geçmiş önbelleği yeniden başlatılana kadar devre dışı bırakıldı; mesajlar diskte kalabilir
-source-85399400eefb7f1c = Yerel hesap verileri kaldırılamadı; geçmiş ve taslaklar diskte kalabilir
-source-c72c9cffe8bbbae1 = Kaydedilen giriş bilgileri kaldırılamadı; İşletim sistemi kimlik bilgileri yöneticinizdeki cz.viceverse.serein / discord-session'ı kaldırın
-source-825c7bcf6360d2ae = Bu hesabın kayıtlı giriş bilgileri işletim sistemi kimlik bilgileri deposundan kaldırılamadı
-source-9f7dd4b721282cbe = Seçilen dosya değiştirilemedi
-source-427137772d21ccdc = Ayar değişikliği istenemedi. Tekrar deneyin.
-source-7d63f72259e6669b = Bu sanat eseri yeniden boyutlandırılamadı
-source-898066a44cd4ce4f = Taslaklar yerel depolama alanından geri yüklenemedi
-source-bcf5f40e2b4e8248 = GIF favorileri yerel depolamadan geri yüklenemedi
-source-1c3504b673616163 = Taslak kaydedilemedi; en son metin yalnızca bellekte mevcut olabilir
-source-6a3d020d0b461bee = Görünüm kaydedilemedi; değişiklik yalnızca bu oturumda mevcut
-source-c4c116ce27e8582e = Önbelleğe alınmış geçmiş kaydedilemedi
-source-51c4cb36f21c48e5 = Kanal tercihleri ​​kaydedilemedi.
-source-c5a7a52ab143eb9c = Cihaz bildirim ayarları kaydedilemedi. Değişiklikler yalnızca yeniden başlatılıncaya kadar geçerlidir.
-source-1f370c0a888c3c32 = GIF favorileri kaydedilemedi; değişiklik yalnızca bu oturumda mevcut
-source-f9f5c3df74c23c80 = Oturum açma bilgileri kaydedilemedi; bu oturum otomatik olarak geri yüklenmeyecek
-source-87ae56ecb0ab5b7e = Durum Discord'a kaydedilemedi. Yeniden deneniyor; Discord kabul edene kadar bu cihazda kalır.
-source-c3f44402f7bbe8ef = Yazı tipi kaydedilemedi. Tekrar deneyin.
-source-69020184403337a9 = Yazı tipi kaydedilemedi. Tekrar içe aktarmayı deneyin.
-source-4077f70d91f8ec52 = Güncelleme paketi kaydedilemedi.
-source-339b56af46bfe110 = Bu değişiklikler kaydedilemedi. Seçilen kanalları kontrol edin, yeniden bağlanın veya sunucu ayarlarını yeniden yükleyin ve tekrar deneyin.
-source-6ae0e0aa6c767086 = Bu hesap değiştirici için kaydedilemedi; yeniden denemek için tekrar oturum açın
-source-59e8f6ad602f5217 = Bu rol kaydedilemedi. Adı, izinleri ve rol hiyerarşinizi kontrol edin.
-source-a344ce4a120ef253 = Ses cihazı keşfi başlatılamadı
-source-17f78518ca1760de = Ses çıkışı başlatılamadı
-source-d39420114623f4e9 = Ses çalışanı başlatılamadı
-source-8a7c5e3b833292d6 = Kamera cihazı keşfi başlatılamadı
-source-7283ba47445eb3d8 = Görüntü çalışanı başlatılamadı
-source-b0f74f585399a02c = Ekran kaynağı keşfi başlatılamadı
-source-90eeb7167d32e152 = Video çalışanı başlatılamadı
-source-e585bdfdf184d235 = Güncelleme paketi açılamadı.
-source-5f0fd7ad256ac233 = Entegrasyonlar güncellenemedi. İzinlerinizi ve bağlantınızı kontrol edip yeniden yükleyin.
-source-f5605ba53f7980d8 = Durum güncellenemedi: bağlantı kullanılamıyor.
-source-d9fac810d8c681e4 = Ek yazılamadı; kullanılabilir disk alanını kontrol et
-source-1e0b76ae10b2763e = Güncelleme yazılamadı. Kullanılabilir disk alanını kontrol edin.
-source-18758503d7689d02 = Kapak resmi 2 MiB'ı aşıyor
-source-60ba5f888a2079cc = Kapak resmi çalışanı başarısız oldu.
-source-382a2aa3984474dd = Yaratmak
-source-d92bb198b35a85b0 = Paylaşmak için bir bağlantı oluşturun
-source-835925acc21b68c7 = İnsanları bu sunucuya davet etmek için bir davet bağlantısı oluşturun.
-source-9c99d3f4a6cb88db = Kategori Oluştur
-source-0dcc3542d5b77e16 = Kanal Oluştur
-source-16dfe22ad782d6ce = İfadeler Oluştur
-source-5db57f2814942db2 = Davet oluştur
-source-461e523beecf9392 = Davet Oluştur
-source-ce67ba7d4c91848e = Davet Bağlantısı Oluştur
-source-1bb47213a314465b = Bağlantı oluştur
-source-0b2fa375fb5213b1 = Kendiminkini Yarat
-source-1ca952a0f10a7b63 = Özel Konular Oluşturun
-source-19c1a06f6aa91423 = Herkese Açık Konular Oluşturun
-source-c5f923729564fbf3 = Rol Oluştur
-source-f103b8dbbc4aac0d = Etiket Oluştur
-source-5c175b1f85652a68 = Tema oluştur
-source-020ba69b968d45a7 = Konu Oluştur
-source-765d7cdc51cba911 = Konu Oluştur…
-source-c2717258f120ae20 = Web Kancası Oluştur
-source-5e5cff69a6d9543f = Sunucunuzu Oluşturun
-source-0e48fdc1d25a3d3c = AutoMod kuralı oluşturuldu
-source-4aee34a672e5cfc0 = Tarafından oluşturuldu
-source-3bc00948402b2a88 = Kanal oluşturuldu
-source-c89bbbc22d30e61a = Oluşturulan kanal izninin üzerine yazma
-source-1a5ebc934f4dbad5 = Yaratıcılardan para kazanma isteği oluşturuldu
-source-43d0e5411c2bb8a9 = Emoji oluşturuldu
-source-3eb673cd7b5ee133 = Ev ayarları oluşturuldu
-source-d5b8032616b95e69 = Entegrasyon oluşturuldu
-source-d9f3af77938aa54c = Davet oluşturuldu
-source-ab60977dfb40c7a4 = İlk katılım oluşturuldu
-source-9b75aa85f4497ffa = İlk katılım istemi oluşturuldu
-source-0c3cebd9295125ed = Rol oluşturuldu
-source-6e26dd1f4afff88c = Planlanmış etkinlik oluşturuldu
-source-9fcbe25b846a3d67 = Ses tahtası sesi oluşturuldu
-source-0e490773e2d1f0d9 = Sahne oluşturuldu
-source-449696c884289800 = Çıkartma oluşturuldu
-source-553d3b576ececfa5 = Konu oluşturuldu
-source-4339d5f545a1f994 = Ses kanalı durumu oluşturuldu
-source-930b366c85da6dea = Web kancası oluşturuldu
-source-2a35392fddc81ba3 = Davet bağlantısı oluşturuluyor…
-source-4a58e62083970a56 = Oluşturuluyor…
-source-2d119c0d85bde088 = Oluşturulma tarihi
-source-11ee378934ab0f8d = Yaratılış Zamanı
-source-c593b0976a6268bf = Yaratıcının adı gerekli.
-source-2d3cbfb6158cc7c7 = Yaratıcı önizlemesi
-source-fbf6afadead4779b = Kimlik bilgisi araması kullanılamıyor; Discord'la tekrar oturum aç
-source-0beafa22dc30957b = Kimlik bilgisi kuyruğu kullanılamıyor; kayıtlı giriş bilgileri kalabilir
-source-0b423419aa0d45a0 = CSS
-source-6fb3409caa74b0a4 = Ctrl
-source-96fb2219ad3070ba = AKIM
-source-ab8b4cbbb1fa71fa = Akım
-source-65dcda4c5b6c0401 = geçerli kanal satırı
-source-d6aa66d42f812c4a = Geçerli kanal sesi
-source-f0cab2483f66aa2e = Gelenek
-source-1995a948733ac7bd = Özel renk
-source-f9b5bb48f1de4eb9 = Özel kapak
-source-6e247239c3b9115b = Özel yazı tipi
-source-e5a1cc2ee82bb2e3 = Özel yazı tipi
-source-5056fa9079a3d801 = Özel rol rengi
-source-722fda04606d8074 = Özel durum
-source-099d476cb54b6fa5 = Özel durum (boş bırakmak onu temizler)
-source-a89808f057cf9368 = Özel durum temizlendi
-source-e9eb6976f93dfb18 = Özelleştirmek
-source-efb0bccda1346d32 = Uygulama renklerini, tipografiyi ve kontrol stilini özelleştirin
-source-44c1ab78f3d57101 = Sunucunuzun davet bağlantılarında ve etkinleştirilmişse Sunucu Keşfi ve Duyuru Kanalı mesajlarında nasıl görüneceğini özelleştirin.
-source-9351cb6afb65528b = Ayarları ve burada kimin ne yapabileceğini özelleştirin.
-source-c5756436ff756f9e = Sunucunuzu Özelleştirin
-source-5e7acef59442f265 = Entegrasyonlarla sunucunuzu özelleştirin. Sunucunuza bağlı web kancalarını, takip edilen kanalları ve uygulamaları yönetin.
-source-af63f94c86021dd3 = D
-source-ac895c732f350ac5 = Karanlık
-source-ac896d732f3527a8 = Dart
-source-a603948a0cea6a15 = veri ve gizlilik ayarları
-source-3f9c26572c0dfd76 = veri gizliliği yerel depolama önbelleği temizle taslaklar kimlik bilgileri
-source-ac8252732f2edb19 = Tarih
-source-d57b24fa846b14b5 = tarihler, yazar türü ve daha fazlası
-source-b0c04a1592853742 = sağır
-source-57d2b7f1d6678c99 = Sağır Üyeler
-source-b5893bd6978e6395 = Sağır ses
-source-448181d18f640dee = Deafen gelen sesi kapatır ve onunla mikrofonunuzun sesini kapatır.
-source-1e16896b058b2d13 = Sağır
-source-6fe17c2844da1113 = Sunucu tarafından sağırlaştırıldı
-source-fda8ac5c5174a19e = Sunucu tarafından sağırlaştırıldı
-source-32322dc45e502559 = Reddetmek
-source-805b81fbfcb428f6 = Kodu çözülen görüntü bellek sınırını aşıyor
-source-657f80dffe736128 = Parlak okyanus vurgulu derin mavi yüzeyler.
-source-11326fd2590f4e5e = Varsayılan
-source-3d8d90ed798cda84 = Varsayılan Düzen
-source-d8fed10701008656 = Varsayılan Bildirim Ayarları
-source-62a3f74a862ecad6 = Varsayılan İzinler
+
+# Semantic application strings. Keys stay stable when English copy changes.
+
+## crates/ui/src/account_badge.rs
+# Context: name
+account-badge-app = UYGULAMA
+# Context: name
+account-badge-app-description = Uygulama tarafından oluşturulan mesaj
+# Context: name
+account-badge-bot = YİD
+# Context: name
+account-badge-bot-description = Bot hesabı
+# Context: name
+account-badge-webhook = web kancası
+# Context: name
+account-badge-webhook-description = Web kancası yazarı
+
+## crates/ui/src/account_menu.rs
+# Context: account_identity_card
+account-menu-account-identity-card-loading-profile = Profil yükleniyor…
+# Context: account_identity_card
+account-menu-account-identity-card-reload-profile = Profili yeniden yükle
+# Context: account_menu
+account-menu-account-menu-custom-status = Özel durum
+# Context: account_menu
+account-menu-account-menu-shown-next-to-your-name-across-discord = Discord'da adınızın yanında gösterilir.
+# Context: account_switcher
+account-menu-account-switcher-add-an-account = Hesap ekle
+# Context: account_switcher_row
+account-menu-account-switcher-row-forget = Unutmak
+# Context: account_switcher_row
+account-menu-account-switcher-row-forget-this-account-on-this-device = Bu hesabı bu cihazda unut
+# Context: account_switcher_row
+account-menu-account-switcher-row-switch-to = Geçiş yap
+# Context: account_switcher
+account-menu-account-switcher-switch-accounts = Hesapları değiştir
+# Context: clears_at
+account-menu-clears-at-at = en
+# Context: clears_at
+account-menu-clears-at-tomorrow = Yarın
+# Context: custom_status_actions
+account-menu-custom-status-actions-apply = Uygula
+# Context: custom_status_actions
+account-menu-custom-status-actions-clear = Temizlemek
+# Context: account_custom_status_row
+account-menu-custom-status-edit = Özel durumu düzenle
+# Context: custom_status_editor
+account-menu-custom-status-editor-clear-after = Şu tarihten sonra temizle:
+# Context: custom_status_editor
+account-menu-custom-status-editor-no-custom-status = Özel durum yok
+# Context: custom_status_editor
+account-menu-custom-status-editor-serein-clears-it = Serein temizliyor
+# Context: custom_status_editor
+account-menu-custom-status-editor-status-text = Durum metni
+# Context: custom_status_editor
+account-menu-custom-status-editor-use-up-to-128-characters-without-control-characters = Kontrol karakterleri olmadan en fazla 128 karakter kullanın.
+# Context: custom_status_editor
+account-menu-custom-status-editor-what-s-on-your-mind = Aklınızdan ne geçiyor?
+# Context: account_custom_status_row
+account-menu-custom-status-set = Özel bir durum ayarlayın
+# Context: label
+account-menu-label-1-hour = 1 saat
+# Context: label
+account-menu-label-30-minutes = 30 dakika
+# Context: label
+account-menu-label-4-hours = 4 saat
+# Context: label
+account-menu-label-don-t-clear = Temizleme
+# Context: label
+account-menu-label-today = Bugün
+# Context: presence_menu
+account-menu-presence-menu-you-will-appear-offline = Çevrimdışı görüneceksiniz
+# Context: presence_menu
+account-menu-presence-menu-you-will-not-receive-desktop-notifications = Masaüstü bildirimleri almayacaksınız
+# Context: account_status_row
+account-menu-status-invisible = Görünmez
+
+## crates/ui/src/archives.rs
+# Context: show
+archives-active-threads = AKTİF KONULAR
+# Context: show
+archives-show-active-threads-come-from-the-session-older-threads-load-25 = Etkin ileti dizileri oturumdan gelir; eski iş parçacıkları bir seferde 25 yükleniyor. Katılmadan mesajların açılması.
+# Context: show
+archives-show-archives-active-threads = aktif konuları arşivler
+# Context: show
+archives-show-archives-are-unavailable-while-disconnected-or-without-channel-access = Bağlantı kesildiğinde veya kanal erişimi olmadığında arşivler kullanılamaz.
+# Context: show
+archives-show-close = Kapalı
+# Context: show
+archives-show-create = Yaratmak
+# Context: show
+archives-show-loading-older-threads = Eski konular yükleniyor…
+# Context: show
+archives-show-no-active-thread-matches-this-search = Bu aramayla eşleşen aktif konu yok.
+# Context: show
+archives-show-no-older-threads-reported-by-the-service = Hizmet tarafından bildirilen eski ileti dizisi yok.
+# Context: show
+archives-show-no-older-threads-returned = Daha eski ileti dizileri geri dönmedi.
+# Context: show
+archives-show-older-threads = ESKİ KONULAR
+# Context: show
+archives-show-private-archives-require-permission-from-the-service = Özel arşivler hizmetten izin gerektirir.
+# Context: show
+archives-show-search-for-thread-name = Konu adını arayın
+# Context: show
+archives-show-threads = Konular
+# Context: show
+archives-show-you-cannot-start-a-thread-in-this-channel = Bu kanalda konu başlatamazsınız.
+# Context: thread_card
+archives-thread-card-open-thread = Konuyu aç
+# Context: thread_card
+archives-thread-card-started-by = Başlatan
+
+## crates/ui/src/attachments.rs
+# Context: download_button
+attachments-download-button-a-download-is-already-active = Bir indirme zaten etkin
+# Context: download_button
+attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Bu dosyanın nereye kaydedileceğini seçin · 100 MiB'a kadar
+# Context: download_button
+attachments-download-button-download = İndirmek
+# Context: download_button
+attachments-download-button-downloads-are-disabled-for-synthetic-attachments = Sentetik ekler için indirmeler devre dışı bırakıldı
+# Context: media_menu
+attachments-media-menu-a-media-transfer-is-already-active = Bir medya aktarımı zaten etkin
+# Context: media_menu
+attachments-media-menu-copy-image = Resmi kopyala
+# Context: media_menu
+attachments-media-menu-copy-link = Bağlantıyı kopyala
+# Context: media_menu
+attachments-media-menu-copy-video = Videoyu kopyala
+# Context: media_menu
+attachments-media-menu-open-original = Orijinali aç…
+# Context: media_menu
+attachments-media-menu-save-image-as = Resmi farklı kaydet…
+# Context: media_menu
+attachments-media-menu-save-video-as = Videoyu farklı kaydet…
+# Context: media_menu
+attachments-media-menu-unavailable-for-synthetic-attachments = Sentetik ataşmanlar için mevcut değildir
+# Context: open_original
+attachments-open-original-open-original = Orijinali aç…
+# Context: pending_card
+attachments-pending-card-remove-attachment = Eki kaldır
+# Context: show_status
+attachments-show-status-cancel-download = İndirmeyi iptal et
+# Context: show_status
+attachments-show-status-dismiss = Azletmek
+# Context: viewer
+attachments-viewer-a-download-is-already-active = Bir indirme zaten etkin
+# Context: viewer
+attachments-viewer-cancel = İptal etmek
+# Context: viewer
+attachments-viewer-downloads-are-disabled-for-synthetic-attachments = Sentetik ekler için indirmeler devre dışı bırakıldı
+# Context: viewer
+attachments-viewer-open-in-browser = Tarayıcıda aç
+# Context: viewer
+attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset = Yakınlaştırmak için kaydırın · Kaydırmak için sürükleyin · Sıfırlamak için çift tıklayın
+
+## crates/ui/src/audio.rs
+# Context: show
+audio-show-loading-audio = Ses yükleniyor…
+# Context: show
+audio-show-seek = Aramak
+# Context: show
+audio-show-volume = Hacim
+# Context: waveform
+audio-waveform-seek-voice-message = Sesli mesaj ara
+
+## crates/ui/src/avatars.rs
+# Context: show_profile_avatar
+avatars-show-profile-avatar-server-profile-picture = Sunucu profil resmi
+# Context: sticker_image
+avatars-sticker-image-image-unavailable = Resim kullanılamıyor
+
+## crates/ui/src/categories.rs
+# Context: category_header
+categories-category-header-category = kategori
+# Context: category_header
+categories-category-header-channels = kanallar
+# Context: category_header
+categories-category-header-collapse = Yıkılmak
+# Context: category_header
+categories-category-header-collapsed = çöktü
+# Context: category_header
+categories-category-header-expand = Genişletmek
+# Context: category_header
+categories-category-header-expanded = genişletilmiş
+# Context: channel_list
+categories-channel-list-notifications = bildirimler
+# Context: channel_list
+categories-channel-list-unread = , okunmamış
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-announcement-channel = Duyuru kanalı
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-direct-message = Doğrudan mesaj
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-directory-not-implemented = Dizin · uygulanmadı
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-forum-loaded-posts = Forum · yüklenen gönderiler
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-group-direct-message = Grup doğrudan mesajı
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-media-loaded-posts = Medya · yüklenen gönderiler
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-server-voice-channel = Sunucu ses kanalı
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-stage-channel-not-implemented = Aşama kanalı · uygulanmadı
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-text-channel = Metin kanalı
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-thread = İplik
+# Context: paint_shelf_rule
+categories-paint-shelf-rule-unknown-channel-type-not-implemented = Bilinmeyen kanal türü · uygulanmadı
+
+## crates/ui/src/shortcuts.rs
+# Context: key
+channel-list-heading-direct-messages = Doğrudan Mesajlar
+# Context: key
+channel-list-heading-favorites = Favoriler
+# Context: key
+channel-list-heading-pinned = Sabitlendi
+
+## crates/ui/src/channel_menu.rs
+# Context: context
+channel-menu-context-add-to-favorites = Favorilere Ekle
+# Context: context
+channel-menu-context-copy-channel-id = Kanal Kimliğini Kopyala
+# Context: context
+channel-menu-context-copy-link = Bağlantıyı Kopyala
+# Context: context
+channel-menu-context-create-category = Kategori Oluştur
+# Context: context
+channel-menu-context-create-channel = Kanal Oluştur
+# Context: context
+channel-menu-context-edit-category = Kategoriyi Düzenle
+# Context: context
+channel-menu-context-edit-channel = Kanalı Düzenle
+# Context: context
+channel-menu-context-favorites-are-saved-on-this-device = Favoriler bu cihaza kaydedilir.
+# Context: context
+channel-menu-context-invite-to-channel = Kanala Davet Et
+# Context: context
+channel-menu-context-mark-as-read = Okundu Olarak İşaretle
+# Context: context
+channel-menu-context-mute-channel = Kanalın Sesini Kapat
+# Context: context
+channel-menu-context-notification-settings = Bildirim Ayarları
+# Context: context
+channel-menu-context-remove-from-favorites = Favorilerden Kaldır
+# Context: context
+channel-menu-context-unmute-channel = Kanalın Sesini Aç
+# Context: context
+channel-menu-context-until-i-turn-it-back-on = Tekrar Açıncaya Kadar
+# Context: show
+channel-menu-delete-category-confirm = { $name } silinsin mi? Kanalları sunucuda kalacaktır. Bu geri alınamaz.
+# Context: show
+channel-menu-delete-channel-confirm = #{ $name }'i silmek istediğinizden emin misiniz? Mesajları kalıcı olarak silinecek. Bu geri alınamaz.
+# Context: editor
+channel-menu-editor-overview = Genel Bakış
+# Context: navigation
+channel-menu-navigation-delete-category = Kategoriyi Sil
+# Context: navigation
+channel-menu-navigation-delete-channel = Kanalı Sil
+# Context: overview
+channel-menu-overview-age-restricted-channel = Yaş kısıtlamalı kanal
+# Context: overview
+channel-menu-overview-category-name = Kategori adı
+# Context: overview
+channel-menu-overview-channel-name = Kanal adı
+# Context: overview
+channel-menu-overview-channel-type = Kanal türü
+# Context: overview
+channel-menu-overview-let-everyone-know-how-to-use-this-channel = Herkese bu kanalın nasıl kullanılacağını bildirin
+# Context: overview
+channel-menu-overview-members-must-confirm-they-are-of-age-before-viewing = Üyelerin izlemeden önce reşit olduklarını onaylamaları gerekmektedir.
+# Context: overview
+channel-menu-overview-members-will-be-restricted-to-one-message-in-this-interval = Üyeler bu aralıkta tek mesajla sınırlandırılacaktır.
+# Context: overview
+channel-menu-overview-new-category = yeni kategori
+# Context: overview
+channel-menu-overview-new-channel = yeni kanal
+# Context: overview
+channel-menu-overview-slowmode = Yavaş mod
+# Context: overview
+channel-menu-overview-topic = Başlık
+# Context: report_capacity
+channel-menu-report-capacity-all-messages = Tüm Mesajlar
+# Context: report_capacity
+channel-menu-report-capacity-create-channel = Kanal Oluştur
+# Context: report_capacity
+channel-menu-report-capacity-delete-category = Kategoriyi Sil
+# Context: report_capacity
+channel-menu-report-capacity-delete-channel = Kanalı Sil
+# Context: report_capacity
+channel-menu-report-capacity-duplicate-category = Yinelenen Kategori
+# Context: report_capacity
+channel-menu-report-capacity-duplicate-channel = Yinelenen Kanal
+# Context: report_capacity
+channel-menu-report-capacity-for-1-hour = 1 Saatlik
+# Context: report_capacity
+channel-menu-report-capacity-for-15-minutes = 15 Dakika İçin
+# Context: report_capacity
+channel-menu-report-capacity-for-24-hours = 24 Saat boyunca
+# Context: report_capacity
+channel-menu-report-capacity-for-3-hours = 3 Saatlik
+# Context: report_capacity
+channel-menu-report-capacity-for-8-hours = 8 Saatlik
+# Context: report_capacity
+channel-menu-report-capacity-nothing = Hiç bir şey
+# Context: report_capacity
+channel-menu-report-capacity-only-mentions = Yalnızca @bahisler
+# Context: report_capacity
+channel-menu-report-capacity-use-server-default = Sunucu Varsayılanını Kullan
+# Context: show
+channel-menu-show-at-the-top-of-this-server-uses-server-permissions = Bu sunucunun üst kısmında · sunucu izinlerini kullanır
+# Context: show
+channel-menu-show-cancel = İptal etmek
+# Context: show
+channel-menu-show-channel-settings-could-not-be-loaded = Kanal ayarları yüklenemedi.
+# Context: show
+channel-menu-show-channel-settings-need-to-be-refreshed-before-saving-reloading-replaces = Kaydetmeden önce kanal ayarlarının yenilenmesi gerekir. Yeniden yükleme bu taslağın yerini alır.
+# Context: show
+channel-menu-show-close = Kapalı
+# Context: show_feedback
+channel-menu-show-feedback-channel-action = Kanal işlemi
+# Context: show_feedback
+channel-menu-show-feedback-dismiss = Azletmek
+# Context: show
+channel-menu-show-in-this-channels-category-inherits-category-permissions = Bu kanalın kategorisinde · kategori izinlerini devralır
+# Context: show
+channel-menu-show-loading-channel-settings = Kanal ayarları yükleniyor…
+# Context: show
+channel-menu-show-offline-preview-no-server-changes = Çevrimdışı önizleme · sunucu değişikliği yok
+# Context: show
+channel-menu-show-reload-channel = Kanalı Yeniden Yükle
+# Context: show
+channel-menu-show-retry = Yeniden dene
+# Context: show
+channel-menu-show-you-no-longer-have-permission-to-manage-this-channel = Artık bu kanalı yönetme izniniz yok.
+# Context: sidebar_context
+channel-menu-sidebar-context-hide-muted-channels = Sessiz Kanalları Gizle
+# Context: sidebar_context
+channel-menu-sidebar-context-invite-to-server = Sunucuya Davet Et
+
+## crates/ui/src/channel_permissions.rs
+# Context: add
+channel-permissions-add-add-reactions = Tepki Ekle
+# Context: add
+channel-permissions-add-allow = İzin vermek
+# Context: add
+channel-permissions-add-allows-emoji-from-other-servers = Diğer sunuculardan emojilere izin verir.
+# Context: add
+channel-permissions-add-allows-members-to-add-new-emoji-reactions = Üyelerin yeni emoji reaksiyonları eklemesine olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-change-channel-permissions = Üyelerin kanal izinlerini değiştirmesine olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-create-edit-and-delete-webhooks = Üyelerin web kancaları oluşturmasına, düzenlemesine ve silmesine olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-deafen-others-in-voice-channels = Üyelerin ses kanallarında başkalarını sağır etmelerine olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-delete-others-messages = Üyelerin başkalarının mesajlarını silmesine izin verir.
+# Context: add
+channel-permissions-add-allows-members-to-edit-channel-settings-and-delete-channels = Üyelerin kanal ayarlarını düzenlemesine ve kanalları silmesine olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-invite-people-to-this-server = Üyelerin kişileri bu sunucuya davet etmesine izin verir.
+# Context: add
+channel-permissions-add-allows-members-to-join-voice-channels = Üyelerin ses kanallarına katılmasına olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-manage-and-delete-threads = Üyelerin konuları yönetmesine ve silmesine izin verir.
+# Context: add
+channel-permissions-add-allows-members-to-move-others-between-voice-channels = Üyelerin diğerlerini ses kanalları arasında taşımasına olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-mute-others-in-voice-channels = Üyelerin ses kanallarında diğerlerinin sesini kapatmasına olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-pin-and-unpin-messages = Üyelerin mesajları sabitlemesine ve sabitlemesini kaldırmasına olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-read-previous-messages = Üyelerin önceki mesajları okumasına izin verir.
+# Context: add
+channel-permissions-add-allows-members-to-reply-in-threads = Üyelerin ileti dizilerinde yanıt vermesine olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-send-messages-in-these-channels = Üyelerin bu kanallarda mesaj göndermesine olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-share-video-and-their-screen = Üyelerin videoyu ve ekranlarını paylaşmalarına olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-speak-in-voice-channels = Üyelerin ses kanallarında konuşmasına olanak tanır.
+# Context: add
+channel-permissions-add-allows-members-to-start-private-threads = Üyelerin özel konu açmasına izin verir.
+# Context: add
+channel-permissions-add-allows-members-to-start-public-threads = Üyelerin herkese açık konu açmasına izin verir.
+# Context: add
+channel-permissions-add-allows-members-to-upload-files-and-media = Üyelerin dosya ve medya yüklemesine izin verir.
+# Context: add
+channel-permissions-add-allows-members-to-view-these-channels = Üyelerin bu kanalları görüntülemesine izin verir.
+# Context: add
+channel-permissions-add-allows-mentions-that-notify-everyone-or-entire-roles = Herkesi veya rollerin tamamını bilgilendiren bahsetmelere izin verir.
+# Context: add
+channel-permissions-add-allows-messages-read-aloud-with-text-to-speech = Metinden konuşmaya özelliğiyle mesajların yüksek sesle okunmasına olanak tanır.
+# Context: add
+channel-permissions-add-allows-speaking-without-push-to-talk = Bas-konuş olmadan konuşmaya izin verir.
+# Context: add
+channel-permissions-add-allows-stickers-from-other-servers = Diğer sunuculardan çıkartmalara izin verir.
+# Context: add
+channel-permissions-add-attach-files = Dosya Ekle
+# Context: add
+channel-permissions-add-connect = Bağlamak
+# Context: add
+channel-permissions-add-create-invite = Davet Oluştur
+# Context: add
+channel-permissions-add-create-private-threads = Özel Konular Oluşturun
+# Context: add
+channel-permissions-add-create-public-threads = Herkese Açık Konular Oluşturun
+# Context: add
+channel-permissions-add-deafen-members = Sağır Üyeler
+# Context: add
+channel-permissions-add-deny = Reddetmek
+# Context: add
+channel-permissions-add-embed-links = Bağlantıları Göm
+# Context: add
+channel-permissions-add-general-category-permissions = Genel Kategori İzinleri
+# Context: add
+channel-permissions-add-general-channel-permissions = Genel Kanal İzinleri
+# Context: add
+channel-permissions-add-inherit = Devral
+# Context: add
+channel-permissions-add-manage-channels = Kanalları Yönet
+# Context: add
+channel-permissions-add-manage-messages = Mesajları Yönet
+# Context: add
+channel-permissions-add-manage-permissions = İzinleri Yönet
+# Context: add
+channel-permissions-add-manage-threads = Konuları Yönet
+# Context: add
+channel-permissions-add-manage-webhooks = Web Kancalarını Yönet
+# Context: add
+channel-permissions-add-membership-permissions = Üyelik İzinleri
+# Context: add
+channel-permissions-add-mention-everyone-here-and-all-roles = @Herkesten, @burada ve Tüm Rollerden bahsedin
+# Context: add
+channel-permissions-add-move-members = Üyeleri Taşı
+# Context: add
+channel-permissions-add-mute-members = Üyeleri Sessize Al
+# Context: add
+channel-permissions-add-pin-messages = Mesajları Sabitle
+# Context: add
+channel-permissions-add-read-message-history = Mesaj Geçmişini Oku
+# Context: add
+channel-permissions-add-send-messages = Mesaj Gönder
+# Context: add
+channel-permissions-add-send-messages-in-threads = Konularda Mesaj Gönder
+# Context: add
+channel-permissions-add-send-text-to-speech-messages = Metin-Konuşma Mesajları Gönderin
+# Context: add
+channel-permissions-add-shows-previews-for-links-members-send = Üyelerin gönderdiği bağlantıların önizlemelerini gösterir.
+# Context: add
+channel-permissions-add-speak = Konuşmak
+# Context: add
+channel-permissions-add-text-channel-permissions = Metin Kanalı İzinleri
+# Context: add
+channel-permissions-add-use-external-emoji = Harici Emoji Kullan
+# Context: add
+channel-permissions-add-use-external-stickers = Harici Çıkartmaları Kullan
+# Context: add
+channel-permissions-add-use-voice-activity = Ses Etkinliğini Kullan
+# Context: add
+channel-permissions-add-video = Video
+# Context: add
+channel-permissions-add-view-channels = Kanalları Görüntüle
+# Context: add
+channel-permissions-add-voice-channel-permissions = Ses Kanalı İzinleri
+# Context: permissions
+channel-permissions-permissions-remove-role-member = Rolü / Üyeyi Kaldır
+# Context: show
+channel-permissions-show-advanced-permissions = Gelişmiş izinler
+# Context: show
+channel-permissions-show-only-selected-members-and-roles-can-view-this-category-synced = Bu kategoriyi yalnızca seçilen üyeler ve roller görüntüleyebilir. Senkronize kanallar izinlerine uyar.
+# Context: show
+channel-permissions-show-only-selected-members-and-roles-can-view-this-channel-administrators = Bu kanalı yalnızca seçilen üyeler ve roller görüntüleyebilir. Yöneticiler erişime devam eder.
+# Context: show
+channel-permissions-show-private-category = Özel Kategori
+# Context: show
+channel-permissions-show-private-channel = Özel Kanal
+# Context: show
+channel-permissions-show-you-need-manage-channels-and-manage-permissions-to-change-these = Bu ayarları değiştirmek için Kanalları Yönet ve İzinleri Yönet'e ihtiyacınız vardır.
+# Context: targets
+channel-permissions-targets-add-member = Üye Ekle
+# Context: targets
+channel-permissions-targets-add-role-or-member = + Rol veya üye ekle
+# Context: targets
+channel-permissions-targets-member = Üye
+# Context: targets
+channel-permissions-targets-member-id = Üye kimliği
+# Context: targets
+channel-permissions-targets-role = Rol
+# Context: targets
+channel-permissions-targets-roles-members = ROLLER/ÜYELER
+# Context: targets
+channel-permissions-targets-search-roles-or-loaded-members = Rolleri veya yüklü üyeleri arayın
+
+## crates/ui/src/components.rs
+# Context: dialogs
+components-dialogs-submit = Göndermek
+# Context: dialogs
+components-dialogs-submitting = Gönderiliyor…
+# Context: field
+components-field-allowed-files = İzin verilen dosyalar
+# Context: field
+components-field-choose-files = Dosyaları seç…
+# Context: field
+components-field-confirm = Onaylamak
+# Context: field
+components-field-unsupported-form-field-type = Desteklenmeyen form alanı türü
+# Context: select
+components-select-choose-options = Seçenekleri seçin
+# Context: select
+components-select-clear-selection = Seçimi temizle
+# Context: select
+components-select-no-matching-options-loaded = Eşleşen seçenek yüklenmedi
+# Context: select
+components-select-refine-your-search-to-see-more-results = Daha fazla sonuç görmek için aramanızı hassaslaştırın
+# Context: select
+components-select-search-options = Arama seçenekleri
+# Context: select
+components-select-type-to-search-members-available-roles-and-channels-are-listed = Üyeleri aramak için yazın; mevcut roller ve kanallar listelenir
+# Context: show_component
+components-show-component-reveal-spoiler-component = Spoiler bileşenini açığa çıkar
+# Context: show_component
+components-show-component-reveal-spoiler-media = Spoiler medyasını açığa çıkarın
+# Context: show_component
+components-show-component-submit-selection = Seçimi gönder
+# Context: show_component
+components-show-component-unsupported-component-type = Desteklenmeyen bileşen türü
+# Context: show_media
+components-show-media-open-media = Medyayı aç
+# Context: show_media
+components-show-media-reveal-spoiler-attachment = Spoiler ekini açığa çıkar
+
+## crates/ui/src/contact_editor.rs
+# Context: show
+contact-editor-show-add-something-to-remember = Hatırlanacak bir şeyler ekleyin…
+# Context: show
+contact-editor-show-cancel = İptal etmek
+# Context: show
+contact-editor-show-connection-refreshed-reload-the-saved-note-before-saving-your-draft = Bağlantı yenilendi. Kaydedilen notu kaydetmeden önce yeniden yükleyin; taslağınız saklanır.
+# Context: show
+contact-editor-show-could-not-load-the-note-your-existing-note-has-not = Not yüklenemedi. Mevcut notunuz değiştirilmedi.
+# Context: show
+contact-editor-show-enter-a-nickname = Bir takma ad girin
+# Context: show
+contact-editor-show-friend-nickname = Arkadaş Takma Adı
+# Context: show
+contact-editor-show-loading-note = Not yükleniyor…
+# Context: show
+contact-editor-show-nickname = Takma ad
+# Context: show
+contact-editor-show-note = Not
+# Context: show
+contact-editor-show-only-you-can-see-this-nickname-it-does-not-change = Bu takma adı yalnızca siz görebilirsiniz. Sunucu adlarını değiştirmez.
+# Context: show
+contact-editor-show-only-you-can-see-this-note-it-is-saved-to = Bu notu yalnızca siz görebilirsiniz. Discord hesabınıza kaydedilir.
+# Context: show
+contact-editor-show-reload-saved-note = Kaydedilen notu yeniden yükle
+# Context: show
+contact-editor-show-retry = Yeniden dene
+# Context: show
+contact-editor-show-save = Kaydetmek
+# Context: show
+contact-editor-show-saving = Kaydediliyor…
+# Context: show
+contact-editor-show-this-user-is-no-longer-a-confirmed-friend = Bu kullanıcı artık onaylanmış bir arkadaş değil.
+
+## crates/ui/src/design.rs
+# Context: account_row_with_remove
+design-account-row-with-remove-forget = Unutmak
+# Context: account_row_with_remove
+design-account-row-with-remove-forget-this-account-on-this-device = Bu hesabı bu cihazda unut
+# Context: color_edit
+design-color-edit-hex-color-rrggbb-click-to-type-or-paste = Altıgen rengi: #RRGGBB. Yazmak veya yapıştırmak için tıklayın.
+# Context: save_bar
+design-save-bar-careful-you-have-unsaved-changes = Dikkatli olun; kaydedilmemiş değişiklikleriniz var!
+
+## crates/ui/src/dialog.rs
+# Context: header
+dialog-header-close-dialog-esc = İletişim kutusunu kapat (Esc)
+# Context: module
+dialog-module-cancel = İptal etmek
+# Context: module
+dialog-module-delete = Silmek
+# Context: module
+dialog-module-delete-channel = Kanal silinsin mi?
+# Context: module
+dialog-module-this-cannot-be-undone = Bu geri alınamaz.
+
+## crates/ui/src/embeds.rs
+# Context: gallery
+embeds-gallery-of = ile ilgili
+# Context: gallery
+embeds-gallery-open-embed-image = Yerleştirilmiş resmi aç
+# Context: gallery
+embeds-gallery-open-image = Resmi aç…
+# Context: image_preview
+embeds-image-preview-image-actions = Resim eylemleri
+# Context: link
+embeds-link-open-link = Bağlantıyı aç…
+# Context: show
+embeds-show-additional-embed-content-is-not-supported = Ek yerleştirme içeriği desteklenmiyor
+# Context: show
+embeds-show-embed-display-limited = Gömülü ekran sınırlı
+# Context: show
+embeds-show-favorite-gif = Favori GIF
+# Context: show
+embeds-show-open-image = Resmi aç
+# Context: show
+embeds-show-open-image-2 = Resmi aç…
+# Context: show
+embeds-show-remove-from-gif-favorites = GIF favorilerinden kaldır
+# Context: show
+embeds-show-save-to-gif-favorites = GIF favorilerine kaydet
+# Context: show
+embeds-show-video-preview-playback-opens-in-your-browser = Video önizlemesi · oynatma tarayıcınızda açılır
+# Context: text
+embeds-text-text-display-limited = Metin gösterimi sınırlı
+
+## crates/ui/src/emoji_details.rs
+# Context: show
+emoji-details-show-a-custom-emoji = Özel bir emoji.
+# Context: show
+emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on = Varsayılan bir emoji. Bu emojiyi Discord'un her yerinde kullanabilirsiniz.
+# Context: show
+emoji-details-show-copy-emoji = Emojiyi kopyala
+# Context: show
+emoji-details-show-from = İtibaren
+# Context: show
+emoji-details-show-source-server-unavailable-in-this-session = Kaynak sunucu bu oturumda kullanılamıyor.
+
+## crates/ui/src/emoji_picker.rs
+# Context: gif_body
+emoji-picker-gif-body-favorites = Favoriler
+# Context: gif_body
+emoji-picker-gif-body-gif-search-needs-a-connected-session = GIF aramasının bağlı bir oturuma ihtiyacı var.
+# Context: gif_body
+emoji-picker-gif-body-hover-a-gif-and-press-the-star-to-keep-it = Burada tutmak için bir GIF'in üzerine gelin ve yıldıza basın.
+# Context: gif_body
+emoji-picker-gif-body-loading-gifs = GIF'ler yükleniyor…
+# Context: gif_body
+emoji-picker-gif-body-no-favorites-yet = Henüz favori yok
+# Context: gif_body
+emoji-picker-gif-body-no-gifs-found = GIF bulunamadı
+# Context: gif_body
+emoji-picker-gif-body-searching-klipy = KLIPY aranıyor…
+# Context: gif_body
+emoji-picker-gif-body-trending-gifs = Trend olan GIF'ler
+# Context: gif_body
+emoji-picker-gif-body-try-a-different-search-term = Farklı bir arama terimi deneyin.
+# Context: gif_grid
+emoji-picker-gif-grid-favorite = Favori
+# Context: gif_grid
+emoji-picker-gif-grid-send-gif = GIF gönder
+# Context: gif_home
+emoji-picker-gif-home-loading-trending-categories = Trend olan kategoriler yükleniyor…
+# Context: popup
+emoji-picker-popup-back-to-gif-categories = GIF kategorilerine geri dön
+# Context: popup
+emoji-picker-popup-cannot-add-this-reaction-right-now = Bu reaksiyon şu anda eklenemiyor
+# Context: popup
+emoji-picker-popup-click-a-gif-to-send-it-right-away = Hemen göndermek için bir GIF'e tıklayın
+# Context: popup
+emoji-picker-popup-emoji = Emoji
+# Context: popup
+emoji-picker-popup-frequently-used = SIK KULLANILAN
+# Context: popup
+emoji-picker-popup-hover-a-sticker-to-preview-it = Önizlemek için bir çıkartmanın üzerine gelin
+# Context: popup
+emoji-picker-popup-hover-an-emoji-to-preview-it = Önizlemek için bir emojinin üzerine gelin
+# Context: popup
+emoji-picker-popup-no-matching-emoji = Eşleşen emoji yok.
+# Context: popup
+emoji-picker-popup-retry-sticker-packs = Çıkartma paketlerini yeniden dene
+# Context: popup
+emoji-picker-popup-search-results = Arama sonuçları
+# Context: popup
+emoji-picker-popup-showing-the-first-1-000-custom-emoji-refine-your-search = İlk 1000 özel emoji gösteriliyor. Daha fazlası için aramanızı daraltın.
+# Context: popup
+emoji-picker-popup-standard-emoji = Standart emoji
+# Context: popup
+emoji-picker-popup-this-server-has-no-custom-emoji = Bu sunucunun özel emojisi yok.
+# Context: popup
+emoji-picker-popup-this-server-s-emoji-list-is-not-loaded-yet = Bu sunucunun emoji listesi henüz yüklenmedi.
+# Context: popup
+emoji-picker-search-emoji = Mükemmel emojiyi bulun
+# Context: popup
+emoji-picker-search-emoji-label = Emojiyi ada göre ara
+# Context: popup
+emoji-picker-search-gifs-label = KLIPY'de GIF arayın
+# Context: popup
+emoji-picker-search-klipy = KLIPY'de ara
+# Context: popup
+emoji-picker-search-stickers = Mükemmel çıkartmayı bulun
+# Context: popup
+emoji-picker-search-stickers-label = Çıkartmaları ada göre arayın
+# Context: show
+emoji-picker-show-insert-an-emoji = Bir emoji ekleyin
+# Context: show_reaction
+emoji-picker-show-reaction-add-reaction = Tepki ekle
+# Context: show
+emoji-picker-show-send-a-gif = GIF gönder
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-choose-emoji = Emojiyi seç
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-remove-emoji = Emojiyi kaldır
+# Context: unicode_button_with
+emoji-picker-unicode-button-with-search-emoji = Emoji ara
+
+## crates/ui/src/extensions_ui.rs
+# Context: card_body
+extensions-ui-card-body-active = Aktif
+# Context: card_body
+extensions-ui-card-body-apply-this-installed-theme-to-the-app = Bu yüklü temayı uygulamaya uygulayın.
+# Context: card_body
+extensions-ui-card-body-by = ile
+# Context: card_body
+extensions-ui-card-body-cleanup-pending = Temizleme bekleniyor
+# Context: card_body
+extensions-ui-card-body-enabled = Etkinleştirilmiş
+# Context: card_body
+extensions-ui-card-body-finish-removing-this-extension-and-its-local-data = Bu uzantıyı ve yerel verilerini kaldırmayı tamamlayın.
+# Context: card_body
+extensions-ui-card-body-open-tool = Aracı aç
+# Context: card_body
+extensions-ui-card-body-plugin = Eklenti
+# Context: card_body
+extensions-ui-card-body-remove = Kaldırmak
+# Context: card_body
+extensions-ui-card-body-remove-this-theme-and-delete-its-local-data = Bu temayı kaldırın ve yerel verilerini silin.
+# Context: card_body
+extensions-ui-card-body-removes-this-extension-and-deletes-its-local-data = Bu uzantıyı kaldırır ve yerel verilerini siler.
+# Context: card_body
+extensions-ui-card-body-review-the-new-release-before-it-replaces-this-version = Bu sürümün yerini almadan önce yeni sürümü inceleyin.
+# Context: card_body
+extensions-ui-card-body-update = Güncelleme
+# Context: composer_menu
+extensions-ui-composer-menu-tools = Aletler
+# Context: consent_modal
+extensions-ui-consent-modal-allow-every-listed-permission-to-continue = Listelenen her iznin devam etmesine izin verin.
+# Context: consent_modal
+extensions-ui-consent-modal-allow-this-extension-to = Bu uzantıya izin ver
+# Context: consent_modal
+extensions-ui-consent-modal-by = ile
+# Context: consent_modal
+extensions-ui-consent-modal-cancel = İptal etmek
+# Context: consent_modal
+extensions-ui-consent-modal-disabling-removes-the-extension-and-its-local-data-re-enabling = Devre dışı bırakıldığında uzantı ve yerel verileri kaldırılır. Yeniden etkinleştirme yeniden başlar.
+# Context: consent_modal
+extensions-ui-consent-modal-enable = Olanak vermek
+# Context: consent_modal
+extensions-ui-consent-modal-enable-this-extension = Bu uzantıyı etkinleştir
+# Context: consent_modal
+extensions-ui-consent-modal-enable-this-theme = Bu temayı etkinleştir
+# Context: consent_modal
+extensions-ui-consent-modal-everything-it-may-touch-is-listed-below = Dokunabileceği her şey aşağıda listelenmiştir.
+# Context: consent_modal
+extensions-ui-consent-modal-no-access-to-conversations-or-composer-text = Konuşmalara veya besteci metnine erişim yok.
+# Context: consent_modal
+extensions-ui-consent-modal-reviewed = İncelendi
+# Context: consent_modal
+extensions-ui-consent-modal-unreviewed = İncelenmedi
+# Context: consent_modal
+extensions-ui-consent-modal-unreviewed-package-its-source-has-not-been-reviewed-for-the = İncelenmemiş paket — kaynağı katalog için incelenmemiştir.
+# Context: consent_modal
+extensions-ui-consent-modal-view-source = Kaynağı görüntüle
+# Context: preview_image
+extensions-ui-preview-image-preview = Önizleme
+# Context: preview_image
+extensions-ui-preview-image-view-preview = Önizlemeyi görüntüle
+# Context: preview_modal
+extensions-ui-preview-modal-close-preview = Önizlemeyi kapat
+# Context: preview_modal
+extensions-ui-preview-modal-creator-preview = Yaratıcı önizlemesi
+# Context: preview_modal
+extensions-ui-preview-modal-example-deleted-message-appearance = Örnek silinmiş mesaj görünümü
+# Context: preview_modal
+extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = Resim seçildiğinde resim eki olarak gönderilir.
+# Context: settings
+extensions-ui-settings-no-extensions-yet = Henüz uzantı yok
+# Context: settings
+extensions-ui-settings-no-matches = Eşleşme yok
+# Context: settings
+extensions-ui-settings-no-themes-yet = Henüz tema yok
+# Context: settings
+extensions-ui-settings-refresh-the-catalog-or-import-a-creator-s-package-to = Başlamak için kataloğu yenileyin veya bir yaratıcının paketini içe aktarın.
+# Context: settings
+extensions-ui-settings-try-a-different-name-or-creator = Farklı bir ad veya yaratıcı deneyin.
+# Context: show_result
+extensions-ui-show-result-apply-to-draft = Taslağa Uygula
+# Context: show_result
+extensions-ui-show-result-close = Kapalı
+# Context: show_result
+extensions-ui-show-result-dismiss = Azletmek
+# Context: show_result
+extensions-ui-show-result-extension-error = Uzantı hatası
+# Context: show_result
+extensions-ui-show-result-proposed-app-action = Önerilen uygulama eylemi
+# Context: show_result
+extensions-ui-show-result-proposed-composer-text = Önerilen besteci metni
+# Context: show_result
+extensions-ui-show-result-review-the-result-app-actions-and-draft-changes-need-your = Sonucu inceleyin. Uygulama işlemleri ve taslak değişiklikleri için onayınız gerekiyor.
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-back-to-theme-editor = Tema düzenleyicisine geri dön
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-back-to-themes = Temalara geri dön
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-changes-are-not-saved-yet = Değişiklikler henüz kaydedilmedi
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-customize = Özelleştirmek
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-previewing-theme = Tema önizleniyor
+# Context: theme_preview_bar
+extensions-ui-theme-preview-bar-theme-preview = Tema önizlemesi
+# Context: toolbar
+extensions-ui-toolbar-checking-for-packages-and-updates = Paketleri ve güncellemeleri kontrol etme
+# Context: toolbar
+extensions-ui-toolbar-clear-search = Aramayı temizle
+# Context: toolbar
+extensions-ui-toolbar-dismiss = Azletmek
+# Context: toolbar
+extensions-ui-toolbar-import-theme = Temayı içe aktar…
+# Context: toolbar
+extensions-ui-toolbar-look-for-new-packages-and-updates-nothing-installs-on-its = Yeni paketler ve güncellemeler arayın. Hiçbir şey kendi kendine kurulmuyor.
+# Context: toolbar
+extensions-ui-toolbar-open-a-package-file-from-this-computer = Bu bilgisayardan bir paket dosyası açın.
+# Context: toolbar
+extensions-ui-toolbar-refresh-catalog = Kataloğu yenile
+# Context: toolbar
+extensions-ui-toolbar-search-extensions = Uzantıları ara
+# Context: toolbar
+extensions-ui-toolbar-search-themes = Temaları arayın
+# Context: toolbar
+extensions-ui-toolbar-working-on-your-last-action = Son eyleminiz üzerinde çalışıyorum
+
+## crates/ui/src/fonts.rs
+# Context: show
+fonts-show-import-font = Yazı tipini içe aktar…
+# Context: show
+fonts-show-inter-default = Inter (varsayılan)
+# Context: show
+fonts-show-interface-font = Arayüz yazı tipi
+# Context: show
+fonts-show-reset = Sıfırla
+# Context: show
+fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Hızlı kahverengi tilki tembel köpeğin üzerinden atlıyor. 0123456789
+# Context: show
+fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF veya OTF, 8 MiB'ye kadar. Bu cihaza kaydedildi. Kod tek aralıklı yazı tipini korur.
+# Context: show
+fonts-show-typography = Tipografi
+
+## crates/ui/src/forum.rs
+# Context: archive_footer
+forum-archive-footer-archived-posts-need-a-connected-session-with-history-access = Arşivlenen gönderiler, geçmiş erişimi olan bağlantılı bir oturuma ihtiyaç duyar.
+# Context: archive_footer
+forum-archive-footer-load-archived-posts = Arşivlenmiş gönderileri yükle
+# Context: archive_footer
+forum-archive-footer-loading-archived-posts = Arşivlenmiş yayınlar yükleniyor…
+# Context: archive_footer
+forum-archive-footer-no-older-archived-posts-reported = Daha eski arşivlenmiş gönderi bildirilmedi.
+# Context: archive_footer
+forum-archive-footer-older-archived-posts = Daha eski arşivlenmiş yayınlar
+# Context: archive_footer
+forum-archive-footer-retry = Yeniden dene
+# Context: composer
+forum-composer-add-images-or-files-up-to-10-files-and-500 = Resim veya dosya ekleyin. En fazla 10 dosya ve toplam 500 MB; hesap limitleri daha düşük olabilir.
+# Context: composer
+forum-composer-add-images-to-this-post = Bu yazıya resim ekleyin
+# Context: composer
+forum-composer-attaching-files-is-unavailable-in-this-forum = Bu forumda dosya eklemek mümkün değildir.
+# Context: composer
+forum-composer-discard-this-post = Bu yayını sil
+# Context: composer
+forum-composer-enter-a-message = Bir mesaj girin...
+# Context: composer
+forum-composer-post = Postalamak
+# Context: composer
+forum-composer-posting = Yayınlanıyor…
+# Context: composer
+forum-composer-title = Başlık
+# Context: describe
+forum-describe-archived = , arşivlendi
+# Context: describe
+forum-describe-replies = cevaplar
+# Context: describe
+forum-describe-unknown = bilinmiyor
+# Context: describe
+forum-describe-unread = , okunmamış
+# Context: latest_row
+forum-latest-row-attachment-or-non-text-message = Ek veya kısa mesaj olmayan mesaj
+# Context: latest_row
+forum-latest-row-latest-message-unavailable = Son mesaj kullanılamıyor
+# Context: post_tags
+forum-post-tags-a-post-can-carry-up-to-5-tags = Bir gönderi en fazla 5 etiket taşıyabilir.
+# Context: post_tags
+forum-post-tags-add-tag = Etiket ekle
+# Context: post_tags
+forum-post-tags-add-tags = Etiket ekle
+# Context: post_tags
+forum-post-tags-only-moderators-can-apply-this-tag = Bu etiketi yalnızca moderatörler uygulayabilir.
+# Context: post_tags
+forum-post-tags-remove-tag = Etiketi kaldır
+# Context: post_tags
+forum-post-tags-select-tags = Etiketleri Seçin
+# Context: post_tags
+forum-post-tags-this-forum-requires-a-tag = Bu forum bir etiket gerektiriyor
+# Context: post_tags
+forum-post-tags-up-to = kadar
+# Context: posts_footer
+forum-posts-footer-load-more-posts = Daha fazla gönderi yükle
+# Context: posts_footer
+forum-posts-footer-loading-posts = Gönderiler yükleniyor…
+# Context: posts_footer
+forum-posts-footer-retry = Yeniden dene
+
+## crates/ui/src/forum_settings.rs
+# Context: chooser
+forum-settings-chooser-no-emoji-match = Emoji eşleşmesi yok
+# Context: chooser
+forum-settings-chooser-search-emoji = Emoji ara
+# Context: chooser
+forum-settings-chooser-server-emoji = sunucu emojisi
+# Context: chooser
+forum-settings-chooser-then-standard-emoji = sonra standart emoji
+# Context: chooser
+forum-settings-chooser-this-server = Bu sunucu
+# Context: module
+forum-settings-module-1-hour = 1 saat
+# Context: module
+forum-settings-module-1-minute = 1 dakika
+# Context: module
+forum-settings-module-10-minutes = 10 dakika
+# Context: module
+forum-settings-module-10-seconds = 10 saniye
+# Context: module
+forum-settings-module-15-minutes = 15 dakika
+# Context: module
+forum-settings-module-15-seconds = 15 saniye
+# Context: module
+forum-settings-module-2-hours = 2 saat
+# Context: module
+forum-settings-module-2-minutes = 2 dakika
+# Context: module
+forum-settings-module-30-minutes = 30 dakika
+# Context: module
+forum-settings-module-30-seconds = 30 saniye
+# Context: module
+forum-settings-module-5-minutes = 5 dakika
+# Context: module
+forum-settings-module-5-seconds = 5 saniye
+# Context: module
+forum-settings-module-6-hours = 6 saat
+# Context: module
+forum-settings-module-off = Kapalı
+# Context: show
+forum-settings-show-age-restricted-channel = Yaş Kısıtlı Kanal
+# Context: show
+forum-settings-show-channel-content-is-always-visible = Kanal içeriği her zaman görünür.
+# Context: show
+forum-settings-show-content-visibility = İçerik Görünürlüğü
+# Context: show
+forum-settings-show-creation-time = Yaratılış Zamanı
+# Context: show
+forum-settings-show-default = Varsayılan
+# Context: show
+forum-settings-show-default-layout = Varsayılan Düzen
+# Context: show
+forum-settings-show-default-reaction = Varsayılan Tepki
+# Context: show
+forum-settings-show-gallery-view = Galeri Görünümü
+# Context: show
+forum-settings-show-help-people-organize-their-posts-into-subcategories-by-creating-a = Bir etiket oluşturarak insanların gönderilerini alt kategoriler halinde düzenlemelerine yardımcı olun.
+# Context: show
+forum-settings-show-hide-after-inactivity = Hareketsizlikten Sonra Gizle
+# Context: show
+forum-settings-show-let-everyone-know-how-to-use-this-channel = Herkese bu kanalın nasıl kullanılacağını bildirin!
+# Context: show
+forum-settings-show-list-view = Liste Görünümü
+# Context: show
+forum-settings-show-match-all = Tümünü Eşleştir
+# Context: show
+forum-settings-show-match-some = Bazılarını Eşleştir
+# Context: show
+forum-settings-show-members-will-be-limited-to-one-message-per-this-interval = Üyeler, Yavaş Modu Atlama iznine sahip olmadıkları sürece, tüm yeni gönderiler için bu aralık başına bir mesajla sınırlı olacaktır.
+# Context: show
+forum-settings-show-members-will-be-restricted-to-creating-one-post-per-this = Üyelerin, Yavaş Modu Atlama iznine sahip olmadıkları sürece, bu aralıkta bir gönderi oluşturmaları sınırlandırılacaktır.
+# Context: show
+forum-settings-show-messages = Mesajlar
+# Context: show
+forum-settings-show-new-posts-stop-showing-in-the-channel-list-after-this = Bu kadar uzun süre etkinlik olmazsa kanal listesinde yeni gönderilerin gösterimi durdurulur.
+# Context: show
+forum-settings-show-pick-a-default-emoji-that-your-members-will-use-to = Üyelerinizin bu kanaldaki bir gönderiye tepki vermek için kullanacağı varsayılan bir emoji seçin.
+# Context: show
+forum-settings-show-post-guidelines = Gönderi Yönergeleri
+# Context: show
+forum-settings-show-posts = Gönderiler
+# Context: show
+forum-settings-show-recent-activity = Son Etkinlik
+# Context: show
+forum-settings-show-remove = Kaldırmak
+# Context: show
+forum-settings-show-require-people-to-select-tags-when-posting = İnsanların paylaşım yaparken etiketleri seçmesini zorunlu kılın
+# Context: show
+forum-settings-show-set-the-default-layout-view-to-a-media-focused-gallery = Varsayılan düzen görünümünü medya odaklı bir galeriye veya metin odaklı bir listeye ayarlayın. Üyeler yine de bu seçenekler arasında geçiş yapabilecektir.
+# Context: show
+forum-settings-show-set-the-default-sort-order-for-new-posts-members-will = Yeni gönderiler için varsayılan sıralama düzenini ayarlayın. Üyeler yine de bu seçenekler arasında geçiş yapabilecektir.
+# Context: show
+forum-settings-show-set-the-default-tag-matching-behaviour-members-will-still-be = Varsayılan etiket eşleştirme davranışını ayarlayın. Üyeler yine de bu seçenekler arasında geçiş yapabilecektir.
+# Context: show
+forum-settings-show-slowmode = Yavaş mod
+# Context: show
+forum-settings-show-sort-order = Sıralama Düzeni
+# Context: show
+forum-settings-show-tag-matching = Etiket Eşleştirme
+# Context: show
+forum-settings-show-tags = Etiketler
+# Context: show
+forum-settings-show-users-will-need-to-confirm-they-are-of-over-the = Kullanıcıların bu kanaldaki içeriği görüntüleyebilmeleri için yasal yaşın üzerinde olduklarını onaylamaları gerekecektir. Yaş kısıtlamalı kanallar uygunsuz içerik filtresinden muaftır.
+# Context: slowmode
+forum-settings-slowmode-forum-settings-slowmode-seconds = forum ayarları yavaş mod saniye
+# Context: slowmode
+forum-settings-slowmode-seconds = saniye
+# Context: tag_editor
+forum-settings-tag-editor-add-tag = Etiket Ekle
+# Context: tag_editor
+forum-settings-tag-editor-cancel = İptal etmek
+# Context: tag_editor
+forum-settings-tag-editor-create-tag = Etiket Oluştur
+# Context: tag_editor
+forum-settings-tag-editor-edit-tag = Etiketi Düzenle
+# Context: tag_editor
+forum-settings-tag-editor-emoji = Emoji
+# Context: tag_editor
+forum-settings-tag-editor-members-with-manage-threads-can-still-use-it = Konuları Yönetme özelliği olan üyeler bu özelliği kullanmaya devam edebilir.
+# Context: tag_editor
+forum-settings-tag-editor-only-allow-moderators-to-apply-this-tag = Yalnızca moderatörlerin bu etiketi uygulamasına izin ver
+# Context: tag_editor
+forum-settings-tag-editor-preview = Önizleme
+# Context: tag_editor
+forum-settings-tag-editor-question = Soru
+# Context: tag_editor
+forum-settings-tag-editor-remove-emoji = Emojiyi kaldır
+# Context: tag_editor
+forum-settings-tag-editor-save-tag = Etiketi Kaydet
+# Context: tag_editor
+forum-settings-tag-editor-tag-name = Etiket adı
+# Context: tags
+forum-settings-tags-a-forum-can-offer-up-to-20-tags = Bir forumda en fazla 20 etiket bulunabilir.
+# Context: tags
+forum-settings-tags-create-tag = Etiket Oluştur
+# Context: tags
+forum-settings-tags-delete-tag = Etiketi sil
+# Context: tags
+forum-settings-tags-edit-tag = Etiketi düzenle
+# Context: tags
+forum-settings-tags-moderators-only = Yalnızca moderatörler
+
+## crates/ui/src/forum.rs
+# Context: show
+forum-show-no-loaded-post-carries-the-selected-tags-load-more-or = Yüklenen hiçbir gönderi seçilen etiketleri taşımaz; daha fazla yükleyin veya filtreyi temizleyin.
+# Context: show
+forum-show-no-posts-loaded = Hiçbir gönderi yüklenmedi
+# Context: show
+forum-show-no-posts-match = Hiçbir gönderi eşleşmiyor
+# Context: show
+forum-show-nothing-is-posted-here-yet-archived-posts-load-on-request = Burada henüz hiçbir şey yayınlanmadı; arşivlenmiş gönderiler istek üzerine yüklenir.
+# Context: show
+forum-show-press-enter-to-start-a-post-with-this-title = Bu başlıkla bir gönderi başlatmak için Enter tuşuna basın.
+# Context: sort_label
+forum-sort-label-creation-date = Oluşturulma tarihi
+# Context: sort_label
+forum-sort-label-recent-activity = Son etkinlik
+# Context: sort_menu
+forum-sort-menu-gallery = Galeri
+# Context: sort_menu
+forum-sort-menu-gallery-2 = galeri
+# Context: sort_menu
+forum-sort-menu-list = Liste
+# Context: sort_menu
+forum-sort-menu-list-2 = liste
+# Context: sort_menu
+forum-sort-menu-sort-by = Göre sırala
+# Context: sort_menu
+forum-sort-menu-sort-view = Sırala ve Görüntüle
+# Context: sort_menu
+forum-sort-menu-sorted-by = Sıralama kriteri:
+# Context: sort_menu
+forum-sort-menu-view = görüş
+# Context: sort_menu
+forum-sort-menu-view-as = Farklı görüntüle
+# Context: stats_row
+forum-stats-row-archived = Arşivlendi
+# Context: stats_row
+forum-stats-row-new = Yeni
+# Context: tag_filter
+forum-tag-filter-all = Tüm
+# Context: tag_filter
+forum-tag-filter-clear-all = Tümünü temizle
+# Context: tag_filter
+forum-tag-filter-match = Kibrit
+# Context: tag_filter
+forum-tag-filter-more-tags = Daha fazla etiket
+# Context: tag_filter
+forum-tag-filter-select-tags = Etiketleri Seçin
+# Context: tag_filter
+forum-tag-filter-show-only-posts-with-every-selected-tag = Yalnızca seçilen her etikete sahip gönderileri göster
+# Context: tag_filter
+forum-tag-filter-show-posts-with-any-selected-tag = Seçilen herhangi bir etikete sahip gönderileri göster
+# Context: tag_filter
+forum-tag-filter-some = Bazı
+# Context: toolbar
+forum-toolbar-new-post = Yeni Gönderi
+# Context: toolbar
+forum-toolbar-posting-requires-a-connected-session-with-permission-to-send-here = Gönderme, buraya gönderme iznine sahip bağlı bir oturum gerektirir.
+# Context: toolbar
+forum-toolbar-search-or-create-a-post = Bir gönderi arayın veya oluşturun...
+
+## crates/ui/src/forwarding.rs
+# Context: show
+forwarding-show-a-message-failed-check-the-destination = Mesaj başarısız oldu — hedefi kontrol edin
+# Context: show
+forwarding-show-add-an-optional-message = İsteğe bağlı bir mesaj ekleyin…
+# Context: show
+forwarding-show-attachment-or-embedded-content = Ek veya gömülü içerik
+# Context: show
+forwarding-show-cancel = İptal etmek
+# Context: show
+forwarding-show-conversation = Konuşma
+# Context: show
+forwarding-show-destinations-selected = seçilen varış noktaları
+# Context: show
+forwarding-show-direct-messages = Doğrudan Mesajlar
+# Context: show
+forwarding-show-done = Tamamlamak
+# Context: show
+forwarding-show-forward-to = Şuraya İlet:
+# Context: show
+forwarding-show-no-matching-destinations = Eşleşen hedef yok
+# Context: show
+forwarding-show-outcome-unknown-check-the-destination-before-resending = Sonuç bilinmiyor — yeniden göndermeden önce hedefi kontrol edin
+# Context: show
+forwarding-show-search = Aramak
+# Context: show
+forwarding-show-select-where-you-want-to-share-this-message = Bu mesajı nerede paylaşmak istediğinizi seçin.
+# Context: show
+forwarding-show-send = Göndermek
+# Context: show
+forwarding-show-sending = Gönderiliyor…
+# Context: show
+forwarding-show-sent = Gönderilmiş
+# Context: show
+forwarding-show-source-message-is-no-longer-available = Kaynak mesaj artık mevcut değil
+
+## crates/ui/src/friends.rs
+# Context: add_friend_page
+friends-add-friend-page-offline-demo-actions-are-simulated = Çevrimdışı demo · eylemler simüle edilir.
+# Context: search
+friends-search-clear-search = Aramayı temizle
+
+## crates/ui/src/group_menu.rs
+# Context: dropdown
+group-menu-dropdown-group-menu = Grup menüsü
+# Context: frame
+group-menu-frame-synthetic-group = Sentetik grup
+# Context: menu
+group-menu-menu-edit-group = Grubu Düzenle
+# Context: menu
+group-menu-menu-group-actions-unavailable-while-disconnected-or-busy = Bağlantı kesildiğinde veya meşgulken grup işlemleri kullanılamaz.
+# Context: menu
+group-menu-menu-leave-group = Gruptan Ayrıl
+# Context: menu
+group-menu-menu-mute-conversation = Konuşmayı Sessize Al
+# Context: menu
+group-menu-menu-mute-notifications-until-you-unmute-this-conversation = Bu görüşmenin sesini açana kadar bildirimleri sessize alın.
+# Context: menu
+group-menu-menu-pin-dm = DM'yi sabitle
+# Context: menu
+group-menu-menu-pinned-direct-messages-are-saved-on-this-device = Sabitlenen doğrudan mesajlar bu cihaza kaydedilir.
+# Context: menu
+group-menu-menu-unmute-conversation = Konuşmanın Sesini Aç
+# Context: menu
+group-menu-menu-unpin-dm = DM'nin sabitlemesini kaldır
+# Context: show
+group-menu-show-cancel = İptal etmek
+# Context: show
+group-menu-show-change-group-icon = Grup simgesini değiştir
+# Context: show
+group-menu-show-choosing-image = Resim seçiliyor…
+# Context: show
+group-menu-show-edit-group = Grubu Düzenle
+# Context: show
+group-menu-show-give-this-group-a-name-and-an-icon-everyone-will = Bu gruba herkesin tanıyacağı bir isim ve simge verin.
+# Context: show
+group-menu-show-group-name = Grup adı
+# Context: show
+group-menu-show-leave-group = Gruptan ayrılmak istiyor musunuz?
+# Context: show
+group-menu-show-offline-preview-no-group-changes = Çevrimdışı önizleme · grup değişikliği yok
+# Context: show
+group-menu-show-remove-icon = Simgeyi kaldır
+# Context: show
+group-menu-show-you-will-need-an-invitation-to-rejoin = Yeniden katılmak için bir davetiyeye ihtiyacınız olacak
+
+## crates/ui/src/guild_folders.rs
+# Context: server_folders
+guild-folders-server-folders-cancel = İptal etmek
+# Context: server_folders
+guild-folders-server-folders-collapsed = çöktü
+# Context: server_folders
+guild-folders-server-folders-colour = Renk
+# Context: server_folders
+guild-folders-server-folders-expanded = genişletilmiş
+# Context: server_folders
+guild-folders-server-folders-folder-name = Klasör adı
+# Context: server_folders
+guild-folders-server-folders-folder-name-and-color = Klasör adı ve rengi…
+# Context: server_folders
+guild-folders-server-folders-folder-settings = Klasör Ayarları
+# Context: server_folders
+guild-folders-server-folders-group-with-server = Sunucuyla gruplandır
+# Context: server_folders
+guild-folders-server-folders-move-down = Aşağı taşı
+# Context: server_folders
+guild-folders-server-folders-move-outside-folders = Klasörlerin dışına taşı
+# Context: server_folders
+guild-folders-server-folders-move-up = Yukarı taşı
+# Context: server_folders
+guild-folders-server-folders-name-this-folder-and-pick-the-colour-shown-on-the = Bu klasöre bir ad verin ve sunucu rayında gösterilen rengi seçin.
+# Context: server_folders
+guild-folders-server-folders-refresh-folders-from-discord = Discord'dan klasörleri yenile
+# Context: server_folders
+guild-folders-server-folders-retry = Yeniden dene
+# Context: server_folders
+guild-folders-server-folders-save = Kaydetmek
+# Context: server_folders
+guild-folders-server-folders-servers = sunucular
+# Context: server_folders
+guild-folders-server-folders-sync = Senkronizasyon…
+# Context: server_folders
+guild-folders-server-folders-syncing-server-folders-with-discord = Sunucu klasörlerini Discord ile senkronize etme
+# Context: server_folders
+guild-folders-server-folders-ungroup-servers = Sunucuların grubunu çöz
+
+## crates/ui/src/invites.rs
+# Context: show
+invites-show-accepted = Kabul edildi
+# Context: show
+invites-show-fetching-server-details = Sunucu ayrıntıları getiriliyor…
+# Context: show
+invites-show-go-to-server = Sunucuya Git
+# Context: show
+invites-show-invite-expired-or-invalid = Davet süresi dolmuş veya geçersiz
+# Context: show
+invites-show-invite-unavailable = Davet kullanılamıyor
+# Context: show
+invites-show-join = Katılmak
+# Context: show
+invites-show-joining = Katılıyor…
+# Context: show
+invites-show-loading = Yükleniyor…
+# Context: show
+invites-show-preview-unavailable-offline = Önizleme çevrimdışı kullanılamıyor
+# Context: show
+invites-show-server-preview = Sunucu önizlemesi
+# Context: show
+invites-show-this-invite-may-have-expired = Bu davetin süresi dolmuş olabilir
+# Context: show
+invites-show-verification-required = Doğrulama gerekli
+# Context: show
+invites-show-verify = Doğrulamak
+# Context: show
+invites-show-you-re-a-member-of = üyesisin
+# Context: show
+invites-show-you-ve-been-invited-to-join-a-server = Bir sunucuya katılmaya davet edildiniz
+
+## crates/ui/src/join_server.rs
+# Context: audience
+join-server-audience-back = Geri
+# Context: audience
+join-server-audience-for-a-club-or-community = Bir kulüp veya topluluk için
+# Context: audience
+join-server-audience-for-me-and-my-friends = Ben ve arkadaşlarım için
+# Context: audience
+join-server-audience-for-now = şimdilik.
+# Context: audience
+join-server-audience-not-sure = Emin değil misiniz?
+# Context: body
+join-server-body-checking-invite = Davet kontrol ediliyor…
+# Context: body
+join-server-body-choose-join-server-to-confirm = Onaylamak için Sunucuya Katıl'ı seçin.
+# Context: body
+join-server-body-don-t-have-an-invite = Davetiniz yok mu?
+# Context: body
+join-server-body-explore-discoverable-communities-in-discord = Discord'daki keşfedilebilir toplulukları keşfedin ↗
+# Context: body
+join-server-body-fetching-server-details = Sunucu ayrıntıları getiriliyor…
+# Context: body
+join-server-body-htkzmak-discord-gg-htkzmak-discord-gg-wumpus-friends = hTKzmak · discord.gg/hTKzmak · discord.gg/wumpus-friends
+# Context: body
+join-server-body-invite-link = Bağlantıyı davet et
+# Context: body
+join-server-body-invites-look-like = Davetler şöyle görünüyor
+# Context: body
+join-server-body-review-this-server-then-choose-join-server = Bu sunucuyu inceleyin ve ardından Sunucuya Katıl'ı seçin.
+# Context: body
+join-server-body-you-are-already-a-member = Zaten üyesiniz.
+# Context: body
+join-server-body-you-are-already-a-member-of-this-server = Zaten bu sunucuya üyesiniz.
+# Context: choose
+join-server-choose-create-my-own = Kendiminkini Yarat
+# Context: choose
+join-server-choose-have-an-invite-already = Zaten bir davetiyeniz var mı?
+# Context: choose
+join-server-choose-join-a-server = Bir Sunucuya Katılın
+# Context: choose
+join-server-choose-offline-preview-creating-and-joining-servers-are-disabled = Çevrimdışı önizleme - sunucu oluşturma ve sunuculara katılma devre dışı bırakılır.
+# Context: customize
+join-server-customize-back = Geri
+# Context: customize
+join-server-customize-change-server-icon = Sunucu simgesini değiştir
+# Context: customize
+join-server-customize-create = Yaratmak
+# Context: customize
+join-server-customize-my-server = Sunucum
+# Context: customize
+join-server-customize-offline-preview-creation-is-disabled = Çevrimdışı önizleme - oluşturma devre dışı bırakıldı.
+# Context: customize
+join-server-customize-please-wait = Lütfen bekleyin...
+# Context: customize
+join-server-customize-server-created-waiting-for-discord-to-add-it-to-your = Sunucu oluşturuldu. Discord'un sunucu listenize eklenmesini bekliyorum.
+# Context: customize
+join-server-customize-server-name = Sunucu adı
+# Context: customize
+join-server-customize-upload-server-icon = Sunucu simgesini yükle
+# Context: show_join
+join-server-show-join-back = Geri
+# Context: show_join
+join-server-show-join-cancel = İptal etmek
+# Context: show_join
+join-server-show-join-enter-an-invite-below-to-join-an-existing-server = Mevcut bir sunucuya katılmak için aşağıya bir davet girin.
+# Context: show_join
+join-server-show-join-join-a-server = Bir Sunucuya Katılın
+# Context: body
+join-server-status-invite-accepted = Davet kabul edildi. Sunucu erişimi bekleniyor; Discord'daki tüm sunucu kurallarını tamamlayın.
+# Context: body
+join-server-status-offline-preview = Çevrimdışı önizleme — sunuculara katılma devre dışı bırakıldı.
+
+## crates/ui/src/keybinds.rs
+# Context: row
+keybinds-row-global = KÜRESEL
+# Context: row
+keybinds-row-reset = Sıfırla
+# Context: show_voice
+keybinds-show-voice-enable-global-keybinds = Genel tuş bağlantılarını etkinleştir
+# Context: show_voice
+keybinds-show-voice-global-availability = Küresel kullanılabilirlik
+# Context: show_voice
+keybinds-show-voice-use-voice-shortcuts-while-another-app-is-focused-when-off = Başka bir uygulamaya odaklanırken ses kısayollarını kullanın. Kapalıyken kısayollar yalnızca Serein odaklandığında çalışır.
+
+## crates/ui/src/lib.rs
+# Context: account_card
+lib-account-card-dnd = canı cehenneme
+# Context: account_card
+lib-account-card-idle = boşta
+# Context: account_card
+lib-account-card-online = çevrimiçi
+# Context: composer
+lib-composer-message-deleted-the-unchanged-edit-was-closed = Mesaj silindi. Değişmeyen düzenleme kapatıldı.
+# Context: debug_forward_check
+lib-debug-forward-check-forward-message = Mesajı ilet
+# Context: ime_updates_text
+lib-ime-updates-text-attach-files = Dosya ekle
+# Context: ime_updates_text
+lib-ime-updates-text-attaching-files-is-unavailable-here-remove-the-attachment-to-send = Burada dosya eklemek mümkün değildir. Yalnızca metin göndermek için eki kaldırın.
+# Context: ime_updates_text
+lib-ime-updates-text-attachments-unavailable-right-now = Ekler şu anda kullanılamıyor
+# Context: ime_updates_text
+lib-ime-updates-text-cancel-edit = Düzenlemeyi iptal et
+# Context: ime_updates_text
+lib-ime-updates-text-cancel-reply = Cevabı iptal et
+# Context: ime_updates_text
+lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Dosyaları seçin, bırakın veya yapıştırın (Ctrl/Cmd/Option+V). En fazla 10 dosya ve toplam 500 MB; hesap limitleri daha düşük olabilir. Gönder, yüklemeyi başlatır.
+# Context: ime_updates_text
+lib-ime-updates-text-clear-this-draft = Bu taslağı temizle
+# Context: ime_updates_text
+lib-ime-updates-text-copy-edit-text = Düzenleme metnini kopyala
+# Context: ime_updates_text
+lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = Taslak bütçe doldu. Devam etmek için mevcut bir taslağı temizleyin.
+# Context: ime_updates_text
+lib-ime-updates-text-drop-files-to-attach = Eklenecek dosyaları bırakın
+# Context: ime_updates_text
+lib-ime-updates-text-editing-message = Mesaj düzenleniyor
+# Context: ime_updates_text
+lib-ime-updates-text-editing-this-message-is-unavailable-your-text-is-kept-until = Bu mesajı düzenlemek mümkün değil. Siz iptal edene kadar mesajınız saklanır.
+# Context: ime_updates_text
+lib-ime-updates-text-message-unavailable-unsent-edit = Mesaj kullanılamıyor · gönderilmemiş düzenleme
+# Context: ime_updates_text
+lib-ime-updates-text-replying-to = Yanıtlanıyor
+# Context: ime_updates_text
+lib-ime-updates-text-return-to-an-available-conversation-after-the-current-operation-finishes = Geçerli işlem bittikten sonra mevcut bir konuşmaya dönme
+# Context: ime_updates_text
+lib-ime-updates-text-save-edit = Düzenlemeyi kaydet
+# Context: ime_updates_text
+lib-ime-updates-text-save-requested-check-the-connection-before-retrying = · İstenileni kaydedin, yeniden denemeden önce bağlantıyı kontrol edin
+# Context: ime_updates_text
+lib-ime-updates-text-send-command = Komut gönder
+# Context: ime_updates_text
+lib-ime-updates-text-send-message = Mesaj gönder
+# Context: ime_updates_text
+lib-ime-updates-text-sending-messages-is-unavailable-in-this-conversation-your-draft-is = Bu görüşmede mesaj gönderilemiyor. Taslağınız saklanıyor.
+# Context: ime_updates_text
+lib-ime-updates-text-the-original-message-was-deleted = Orijinal mesaj silindi
+# Context: ime_updates_text
+lib-ime-updates-text-up-to-10-files-500-mb-max-account-limit-applies = En fazla 10 dosya · Maksimum 500 MB · Hesap sınırı geçerlidir
+# Context: ime_updates_text
+lib-ime-updates-text-view-original = Orijinali görüntüle
+# Context: ime_updates_text
+lib-ime-updates-text-wait-for-readable-current-message-history = Okunabilir, güncel mesaj geçmişini bekleyin
+# Context: mention_switch
+lib-mention-switch-ping-the-original-author = Orijinal yazara ping atın
+# Context: title_bar
+lib-title-bar-offline-preview = ÇEVRİMDIŞI ÖNİZLEME
+# Context: title_bar
+lib-title-bar-sign-in-again = Tekrar oturum açın
+# Context: title_bar
+lib-title-bar-synthetic-data-no-network-or-local-storage = Sentetik veriler · ağ veya yerel depolama yok
+
+## apps/desktop/src/main.rs
+# Context: restoring
+main-restoring-checking-your-saved-login = Kayıtlı giriş bilgileriniz kontrol ediliyor
+# Context: restoring
+main-restoring-connecting-to-discord = Discord'a bağlanma
+# Context: restoring_screen
+main-restoring-screen-serein = Serin
+# Context: restoring_screen
+main-restoring-screen-use-a-different-account = Farklı bir hesap kullanın
+# Context: restoring_screen
+main-restoring-screen-welcome-back = tekrar hoşgeldiniz
+# Context: sign_in_accounts
+main-sign-in-accounts-saved-accounts = Kayıtlı hesaplar
+# Context: sign_in_consent
+main-sign-in-consent-i-own-this-account-and-authorize-this-session = Bu hesabın sahibiyim ve bu oturuma izin veriyorum.
+# Context: sign_in_consent
+main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page = Şifreler ve 2FA, Discord'un kendi giriş sayfasında kalır; İşletim sisteminizin kimlik bilgileri deposunda yalnızca oturum belirteci tutulur.
+# Context: sign_in_disclosures
+main-sign-in-disclosures-about-serein = Serein hakkında
+# Context: sign_in_disclosures
+main-sign-in-disclosures-connect-with-this-token = Bu jetonla bağlanın
+# Context: sign_in_disclosures
+main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token = Halihazırda geçerli bir Discord oturum jetonuna sahip olan sahipler için (örneğin oturum açılmış başka bir Serein kurulumundan). Şifreler ve 2FA burada asla kullanılmaz; bu, Discord'un barındırılan giriş sayfasını tamamen atlar.
+# Context: sign_in_disclosures
+main-sign-in-disclosures-forget-saved-login = Kayıtlı girişi unut
+# Context: sign_in_disclosures
+main-sign-in-disclosures-session-token = Oturum jetonu
+# Context: sign_in_disclosures
+main-sign-in-disclosures-sign-in-with-a-session-token = Oturum jetonuyla oturum açın
+# Context: sign_in_header
+main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another = Kayıtlı bir hesapla devam edin veya başka bir hesapla oturum açın.
+# Context: sign_in_header
+main-sign-in-header-sign-in-with-your-discord-account-to-get-started = Başlamak için Discord hesabınızla oturum açın.
+# Context: sign_in_header
+main-sign-in-header-welcome-back = tekrar hoşgeldiniz
+# Context: sign_in_header
+main-sign-in-header-welcome-to-serein = Serein'e hoş geldiniz
+# Context: sign_in_preview
+main-sign-in-preview-explore-the-offline-preview = Çevrimdışı önizlemeyi keşfedin
+# Context: sign_in_preview
+main-sign-in-preview-sample-conversations-no-discord-connection = Örnek konuşmalar. Discord bağlantısı yok.
+# Context: sign_in_screen
+main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord = Bağımsız ve açık kaynak. Discord'a bağlı değildir.
+# Context: sign_in_screen
+main-sign-in-screen-serein = Serin
+# Context: ui
+main-ui-cancel = İptal etmek
+# Context: ui
+main-ui-discord-com-temporary-login-window-passwords-and-2fa-never-leave = discord.com · geçici giriş penceresi · şifreler ve 2FA asla sayfadan ayrılmaz
+# Context: ui
+main-ui-loading-discord-com = discord.com yükleniyor…
+# Context: ui
+main-ui-sign-in-to-discord = Discord'da oturum aç
+
+## crates/ui/src/markdown.rs
+# Context: confirm_external_link
+markdown-confirm-external-link-cancel = İptal etmek
+# Context: confirm_external_link
+markdown-confirm-external-link-open-external-link = Harici bağlantı açılsın mı?
+# Context: confirm_external_link
+markdown-confirm-external-link-open-in-browser = Tarayıcıda Aç
+# Context: confirm_external_link
+markdown-confirm-external-link-this-destination-opens-in-your-default-browser = Bu hedef varsayılan tarayıcınızda açılır.
+# Context: show_emoji
+markdown-show-emoji-copy-emoji = Emojiyi kopyala
+# Context: show_run
+markdown-show-run-channel-unavailable-or-unsupported-in-this-session = Kanal bu oturumda kullanılamıyor veya desteklenmiyor
+# Context: show_run
+markdown-show-run-load-channel = Kanalı yükle
+# Context: show_run
+markdown-show-run-open-channel = Kanalı aç
+# Context: show_run
+markdown-show-run-open-user-profile = Kullanıcı profilini aç
+# Context: show_run
+markdown-show-run-reveal-spoiler = Spoiler'ı açığa çıkar
+# Context: show_run
+markdown-show-run-unknown-channel-load-channel = Bilinmeyen kanal, yükleme kanalı
+
+## crates/ui/src/mentions.rs
+# Context: show
+mentions-show-choose-tab-enter-insert-esc = ↑↓ seç · Sekme/Giriş ekle · Esc
+
+## crates/ui/src/timeline.rs
+# Context: message_actions
+message-menu-copy = Mesajı kopyala
+
+## crates/ui/src/messaging_permissions.rs
+# Context: heading
+messaging-permissions-heading-connected-games = Bağlantılı Oyunlarda Mesajlaşma
+# Context: heading
+messaging-permissions-heading-direct-messages = Doğrudan Mesaj (DM) İzinleri
+# Context: heading
+messaging-permissions-heading-friend-requests = Arkadaşlık İsteği İzinleri
+# Context: heading
+messaging-permissions-heading-spam = Spam Filtreleri
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-all-servers = Tüm sunucular
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-allow-friend-requests-from = Arkadaşlık isteklerine izin ver
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-automatically-filter-suspected-spam-messages = Şüpheli spam iletilerini otomatik olarak filtrele
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-changes-apply-to-all-current-servers-and-set-the-default = Değişiklikler mevcut tüm sunuculara uygulanır ve yeni katılan sunucular için varsayılanı ayarlar.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-changes-apply-to-this-server-only = Değişiklikler yalnızca bu sunucuya uygulanır.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-control-who-can-send-you-friend-requests-and-how-they = Size kimlerin arkadaşlık isteği gönderebileceğini ve bunların nasıl görüneceğini kontrol edin.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-discord-can-filter-out-some-messages-that-contain-spam-these = Discord, spam içeren bazı mesajları filtreleyebilir. Bu mesajlar Spam gelen kutunuza gider.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-loading-your-preferences = Tercihleriniz yükleniyor…
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-read-and-respond-to-dms-directly-from-in-game-chats = DM'leri doğrudan oyun içi sohbetlerden okuyun ve yanıtlayın.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-saving = Kaydediliyor…
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-server = Sunucu
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-settings-for-games-that-use-discord-to-power-their-social = Sosyal deneyimlerini güçlendirmek için Discord'u kullanan oyunların ayarları.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-show-direct-messages-in-games = Oyunlarda Doğrudan Mesajları göster
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-some-servers-have-different-preferences-choose-a-server-to-review = Bazı sunucuların farklı tercihleri ​​vardır. Ayarlarını gözden geçirmek için bir sunucu seçin.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-there-are-too-many-servers-to-update-together-choose-an = Birlikte güncellenemeyecek kadar çok sunucu var. Bireysel bir sunucu seçin.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-try-again = Tekrar deneyin
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-your-account-uses-a-custom-in-game-dm-setting-select = Hesabınız özel bir oyun içi DM ayarı kullanıyor. Değiştirmek için bir seçenek seçin.
+# Context: messaging_permissions_settings
+messaging-permissions-messaging-permissions-settings-your-account-uses-a-custom-spam-filter-setting-select-an = Hesabınızda özel bir spam filtresi ayarı kullanılıyor. Değiştirmek için bir seçenek seçin.
+# Context: label
+messaging-permissions-tab-connected-games = Bağlantılı Oyunlar
+# Context: label
+messaging-permissions-tab-direct-messages = Doğrudan Mesajlar
+# Context: label
+messaging-permissions-tab-friend-requests = Arkadaşlık İstekleri
+# Context: label
+messaging-permissions-tab-spam = Spam Filtreleri
+
+## crates/ui/src/notification_settings.rs
+# Context: notification_settings
+notification-settings-notification-settings-adjusts-the-volume-of-all-notification-sounds-and-ringtones = Tüm bildirim seslerinin ve zil seslerinin ses düzeyini ayarlar.
+# Context: notification_settings
+notification-settings-notification-settings-app-icon-badges-are-not-available-on-this-platform-yet = Uygulama simgesi rozetleri henüz bu platformda mevcut değil.
+# Context: notification_settings
+notification-settings-notification-settings-disable-all-notification-sounds = Tüm Bildirim Seslerini Devre Dışı Bırak
+# Context: notification_settings
+notification-settings-notification-settings-disables-notification-sounds-your-individual-sound-preferences-are-saved = Bildirim seslerini devre dışı bırakır. Bunu kapattığınızda bireysel ses tercihleriniz kaydedilir ve geri yüklenir.
+# Context: notification_settings
+notification-settings-notification-settings-enable-desktop-notifications = Masaüstü Bildirimlerini Etkinleştir
+# Context: notification_settings
+notification-settings-notification-settings-enable-unread-message-badge = Okunmamış Mesaj Rozetini Etkinleştir
+# Context: notification_settings
+notification-settings-notification-settings-for-per-channel-or-per-server-notifications-right-click-the = Kanal başına veya sunucu başına bildirimler için kanala veya sunucuya sağ tıklayın ve Bildirim Ayarları'nı seçin.
+# Context: notification_settings
+notification-settings-notification-settings-open = Açık
+# Context: notification_settings
+notification-settings-notification-settings-preview-sound = Sesi Önizle
+# Context: notification_settings
+notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing = Zil sesleri, çağrı cihazları ve mikrofon işleme.
+# Context: notification_settings
+notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you = Okunmamış mesajlarınız olduğunda uygulama simgesinde kırmızı bir rozet gösterir.
+# Context: notification_settings
+notification-settings-notification-settings-sound-volume = Ses Seviyesi
+# Context: notification_settings
+notification-settings-notification-settings-voice-video = Ses ve Video
+# Context: label
+notification-settings-tab-badges = Rozetler
+# Context: label
+notification-settings-tab-overview = Genel Bakış
+# Context: label
+notification-settings-tab-sounds = Sesler
+
+## crates/ui/src/notifications.rs
+# Context: notification_rail
+notifications-notification-rail-add-a-server = Sunucu Ekle
+# Context: notification_rail
+notifications-notification-rail-in-a-call = , bir çağrıda
+# Context: notification_rail
+notifications-notification-rail-notifications = bildirimler
+# Context: notification_rail
+notifications-notification-rail-open = Açık
+# Context: notification_rail
+notifications-notification-rail-unread = , okunmamış
+
+## crates/ui/src/pending.rs
+# Context: show
+pending-show-check-the-conversation-before-sending-again = Tekrar göndermeden önce konuşmayı kontrol edin.
+# Context: show
+pending-show-dismiss = Azletmek
+# Context: show
+pending-show-restore-to-composer = Besteciye geri yükle
+# Context: show
+pending-show-you = Sen
+# Context: upload_strip
+pending-upload-strip-cancel-upload = Yüklemeyi iptal et
+# Context: upload_strip
+pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = Mesaj zaten Discord'a ulaşmış olabilir. Tekrar göndermeden önce konuşmayı kontrol edin.
+
+## crates/ui/src/post_menu.rs
+# Context: context
+post-menu-context-add-to-favorites = Favorilere Ekle
+# Context: context
+post-menu-context-close-post = Gönderiyi Kapat
+# Context: context
+post-menu-context-close-thread = Konuyu Kapat
+# Context: context
+post-menu-context-copy-link = Bağlantıyı Kopyala
+# Context: context
+post-menu-context-copy-thread-id = Konu Kimliğini Kopyala
+# Context: context
+post-menu-context-delete-post = Gönderiyi Sil
+# Context: context
+post-menu-context-delete-thread = Konuyu Sil
+# Context: context
+post-menu-context-edit-post = Gönderiyi Düzenle
+# Context: context
+post-menu-context-edit-thread = Konuyu Düzenle
+# Context: context
+post-menu-context-favorites-are-saved-on-this-device = Favoriler bu cihaza kaydedilir.
+# Context: context
+post-menu-context-follow-post = Gönderiyi Takip Et
+# Context: context
+post-menu-context-follow-this-post-to-change-its-notifications = Bildirimlerini değiştirmek için bu gönderiyi takip edin.
+# Context: context
+post-menu-context-follow-this-thread-to-change-its-notifications = Bildirimlerini değiştirmek için bu konuyu takip edin.
+# Context: context
+post-menu-context-follow-thread = Konuyu Takip Et
+# Context: context
+post-menu-context-loading = Yükleniyor
+# Context: context
+post-menu-context-lock-post = Gönderiyi Kilitle
+# Context: context
+post-menu-context-lock-thread = Konuyu Kilitle
+# Context: context
+post-menu-context-mark-as-read = Okundu Olarak İşaretle
+# Context: context
+post-menu-context-mute-post = Gönderiyi Yoksay
+# Context: context
+post-menu-context-mute-thread = Konuyu Sessize Al
+# Context: context
+post-menu-context-notification-settings = Bildirim Ayarları
+# Context: context
+post-menu-context-open-post = Gönderiyi Aç
+# Context: context
+post-menu-context-open-thread = Konuyu Aç
+# Context: context
+post-menu-context-pin-post = Gönderiyi Pinle
+# Context: context
+post-menu-context-pin-thread = Konuyu Sabitle
+# Context: context
+post-menu-context-remove-from-favorites = Favorilerden Kaldır
+# Context: context
+post-menu-context-retry = Yeniden dene
+# Context: context
+post-menu-context-settings = ayarlar
+# Context: context
+post-menu-context-unfollow-post = Gönderiyi Takibi Bırak
+# Context: context
+post-menu-context-unfollow-thread = Konuyu Takibi Bırak
+# Context: context
+post-menu-context-unlock-post = Gönderinin Kilidini Aç
+# Context: context
+post-menu-context-unlock-thread = Konunun Kilidini Aç
+# Context: context
+post-menu-context-unmute-post = Gönderinin yoksayılmasını aç
+# Context: context
+post-menu-context-unmute-thread = Konuyu yoksaymaktan vazgeç
+# Context: context
+post-menu-context-unpin-post = Gönderinin Sabitlemesini Kaldır
+# Context: context
+post-menu-context-unpin-thread = Konunun Sabitlemesini Kaldır
+# Context: noun_action
+post-menu-noun-action-post = Postalamak
+# Context: noun
+post-menu-noun-post = Postalamak
+# Context: noun
+post-menu-noun-thread = İplik
+# Context: show
+post-menu-show-cancel = İptal etmek
+# Context: show
+post-menu-show-delete = Silmek
+# Context: show
+post-menu-show-dismiss = Azletmek
+# Context: show
+post-menu-show-edit = Düzenlemek
+# Context: show
+post-menu-show-its-messages-will-be-permanently-deleted-this-cannot-be-undone = Mesajları kalıcı olarak silinecek. Bu geri alınamaz.
+# Context: show
+post-menu-show-save-changes = Değişiklikleri Kaydet
+# Context: show
+post-menu-show-the-action-could-not-be-started = Eylem başlatılamadı.
+# Context: show
+post-menu-show-title = başlık
+# Context: show
+post-menu-show-you-no-longer-have-permission-to-change-this-conversation = Artık bu görüşmeyi değiştirme izniniz yok.
+
+## crates/ui/src/profile_edit.rs
+# Context: form
+profile-edit-form-change = Değiştirmek
+# Context: form
+profile-edit-form-choose-profile-color = Profil rengini seçin
+# Context: form
+profile-edit-form-custom-color = Özel renk
+# Context: form
+profile-edit-form-leave-blank-to-use-your-username = Kullanıcı adınızı kullanmak için boş bırakın.
+# Context: form
+profile-edit-form-new-picture-chosen-save-to-upload-it = Yeni resim seçildi. Yüklemek için kaydedin.
+# Context: form
+profile-edit-form-png-jpeg-gif-or-webp-up-to-8-mb-cropped = 8 MB'a kadar PNG, JPEG, GIF veya WebP. Bir kareye kırpıldı.
+# Context: form
+profile-edit-form-profile-color = Profil rengi
+# Context: form
+profile-edit-form-profile-picture = Profil resmi
+# Context: form
+profile-edit-form-remove = Kaldırmak
+# Context: form
+profile-edit-form-tints-your-banner-when-you-have-not-set-a-banner = Banner görseli ayarlamadığınızda banner'ınızın renk tonunu değiştirin.
+# Context: form
+profile-edit-form-undo = Geri al
+# Context: form
+profile-edit-form-use-default = Varsayılanı kullan
+# Context: form
+profile-edit-form-your-picture-will-be-removed-when-you-save = Kaydettiğinizde resminiz kaldırılacaktır.
+# Context: preview
+profile-edit-preview-about-me = Hakkımda
+# Context: preview
+profile-edit-preview-change-profile-picture = Profil resmini değiştir
+# Context: preview
+profile-edit-preview-preview = Önizleme
+# Context: show
+profile-edit-show-cancel = İptal etmek
+# Context: show
+profile-edit-show-check-character-limits-and-remove-control-characters-a-display-name = Karakter sınırlarını kontrol edin ve kontrol karakterlerini kaldırın. Görünen ad yalnızca boşluk içeremez.
+# Context: show
+profile-edit-show-loading-your-profile = Profiliniz yükleniyor…
+# Context: show
+profile-edit-show-profile-saved = Profil kaydedildi
+# Context: show
+profile-edit-show-reconnect-to-save-your-profile = Profilinizi kaydetmek için yeniden bağlanın.
+# Context: show
+profile-edit-show-reload-profile = Profili yeniden yükle
+# Context: show
+profile-edit-show-save-changes = Değişiklikleri kaydet
+# Context: show
+profile-edit-show-saved-in-preview = Önizlemede kaydedildi
+# Context: show
+profile-edit-show-saving-profile = Profil kaydediliyor…
+# Context: show
+profile-edit-show-you-have-unsaved-changes = Kaydedilmemiş değişiklikleriniz var.
+
+## crates/ui/src/profiles.rs
+# Context: activity_card
+profiles-activity-card-activity-options = Etkinlik seçenekleri
+# Context: activity_card
+profiles-activity-card-copy-activity = Etkinliği kopyala
+# Context: activity_card
+profiles-activity-card-listening-to-spotify = Spotify'ı dinlemek
+# Context: activity_row
+profiles-activity-row-show = Göstermek
+# Context: activity_verb
+profiles-activity-verb-activity = Etkinlik
+# Context: activity_verb
+profiles-activity-verb-competing-in = Yarışmak
+# Context: activity_verb
+profiles-activity-verb-listening-to = Dinleniyor
+# Context: activity_verb
+profiles-activity-verb-playing = Oynanıyor
+# Context: activity_verb
+profiles-activity-verb-streaming = Akış
+# Context: activity_verb
+profiles-activity-verb-watching = izliyorum
+# Context: more_menu
+profiles-more-menu-add-friend-nickname = Arkadaş Takma Adını Ekle
+# Context: more_menu
+profiles-more-menu-add-note = Not Ekle
+# Context: more_menu
+profiles-more-menu-block = Engellemek
+# Context: more_menu
+profiles-more-menu-copy-webhook-id = Web kancası kimliğini kopyala
+# Context: more_menu
+profiles-more-menu-edit-friend-nickname = Arkadaşın Takma Adını Düzenle
+# Context: more_menu
+profiles-more-menu-mute = Sesini kapatmak
+# Context: more_menu
+profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it = Sesi açana kadar bu doğrudan mesajın bildirimlerini sessize alın.
+# Context: more_menu
+profiles-more-menu-no-open-direct-message-with-this-user = Bu kullanıcıyla açık doğrudan mesaj yok.
+# Context: more_menu
+profiles-more-menu-private-nicknames-are-available-for-confirmed-friends = Onaylanmış arkadaşlar için özel takma adlar mevcuttur.
+# Context: more_menu
+profiles-more-menu-remove-friend = Arkadaşı Kaldır
+# Context: more_menu
+profiles-more-menu-unblock = Engellemeyi kaldır
+# Context: more_menu
+profiles-more-menu-unmute = Sesini açmak
+# Context: role_chips
+profiles-role-chips-show-remaining-roles = Kalan rolleri göster
+# Context: server_tag
+profiles-server-tag-server = sunucu
+# Context: server_tag
+profiles-server-tag-server-tag = Sunucu etiketi
+# Context: show
+profiles-show-about-me = HAKKIMDA
+# Context: show
+profiles-show-copy-webhook-id = Web kancası kimliğini kopyala
+# Context: show
+profiles-show-edit-profile = Profili düzenle
+# Context: show
+profiles-show-loading-profile = Profil yükleniyor…
+# Context: show
+profiles-show-member-since = BUGÜNE KADAR ÜYE
+# Context: show
+profiles-show-message = Mesaj
+# Context: show
+profiles-show-more = Daha
+# Context: show
+profiles-show-mutual-server = Ortak Sunucu
+# Context: show
+profiles-show-mutual-servers = Karşılıklı Sunucular
+# Context: show
+profiles-show-offline-preview-synthetic = Çevrimdışı önizleme · sentetik
+# Context: show
+profiles-show-retry-profile = Profili yeniden dene
+# Context: show
+profiles-show-roles = ROLLER
+# Context: show
+profiles-show-server = sunucu
+# Context: show
+profiles-show-server-2 = Sunucu
+# Context: show
+profiles-show-server-tag = Sunucu etiketi
+# Context: show
+profiles-show-unable-to-load-parts-of-profile = Profilin bazı bölümleri yüklenemiyor
+# Context: show
+profiles-show-view-banner = Banner'ı görüntüle
+# Context: show
+profiles-show-view-profile-picture = Profil resmini görüntüle
+
+## crates/ui/src/reactions.rs
+# Context: add_button
+reactions-add-button-add-reaction = Tepki ekle
+# Context: show
+reactions-show-reactions-unavailable = Tepkiler kullanılamıyor
+# Context: show
+reactions-show-reload-reactions = Reaksiyonları yeniden yükle
+# Context: show_users
+reactions-show-users-close = Kapalı
+# Context: show_users
+reactions-show-users-load-more = Daha fazlasını yükle
+# Context: show_users
+reactions-show-users-loading-reactions = Tepkiler yükleniyor…
+# Context: show_users
+reactions-show-users-nobody-currently-has-this-reaction = Şu anda kimsede bu tepki yok.
+# Context: show_users
+reactions-show-users-reactions = Tepkiler
+# Context: show_users
+reactions-show-users-retry = Yeniden dene
+# Context: show_users
+reactions-show-users-showing-the-first-1-000-reactions = İlk 1000 tepki gösteriliyor.
+
+## crates/ui/src/reading.rs
+# Context: chat_reading_settings
+reading-chat-reading-settings-animate-gifs = GIF'leri canlandırın
+# Context: chat_reading_settings
+reading-chat-reading-settings-animate-wheel-movement-and-jumps-between-messages = Çark hareketini canlandırın ve mesajlar arasında geçiş yapın.
+# Context: chat_reading_settings
+reading-chat-reading-settings-ask-before-opening-external-links-discord-links-always-open-directly = Dış bağlantıları açmadan önce sorunuz. Discord bağlantıları her zaman doğrudan açılır.
+# Context: chat_reading_settings
+reading-chat-reading-settings-confirm-before-opening-links = Bağlantıları açmadan önce onaylayın
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-image-and-gif-links = Resim ve GIF bağlantılarını gizle
+# Context: chat_reading_settings
+reading-chat-reading-settings-hide-standalone-links-when-their-image-or-gif-preview-is = Resimleri veya GIF önizlemesi gösterildiğinde bağımsız bağlantıları gizleyin.
+# Context: chat_reading_settings
+reading-chat-reading-settings-links = Bağlantılar
+# Context: chat_reading_settings
+reading-chat-reading-settings-messages-and-media = Mesajlar ve medya
+# Context: chat_reading_settings
+reading-chat-reading-settings-mouse-wheel-and-trackpad-movement-100-is-the-default = Fare tekerleği ve izleme paneli hareketi. %100 varsayılandır.
+# Context: chat_reading_settings
+reading-chat-reading-settings-reset-chat = Sohbeti sıfırla
+# Context: chat_reading_settings
+reading-chat-reading-settings-scrolling = Kaydırma
+# Context: chat_reading_settings
+reading-chat-reading-settings-scrolling-speed = Kaydırma hızı
+# Context: chat_reading_settings
+reading-chat-reading-settings-smooth-scrolling = Düzgün kaydırma
+# Context: chat_reading_settings
+reading-chat-reading-settings-visible-chat-gifs-play-automatically = Görünür sohbet GIF'leri otomatik olarak oynatılır.
+# Context: layout_settings
+reading-layout-settings-channel-and-conversation-list-width-in-wide-windows = Geniş pencerelerde kanal ve konuşma listesi genişliği.
+# Context: layout_settings
+reading-layout-settings-keep-the-member-list-open-whenever-the-window-is-wide = Pencere yeterince geniş olduğunda üye listesini açık tutun.
+# Context: layout_settings
+reading-layout-settings-layout = Düzen
+# Context: layout_settings
+reading-layout-settings-reset-layout = Düzeni sıfırla
+# Context: layout_settings
+reading-layout-settings-show-people-in-wide-windows = Kişileri geniş pencerelerde göster
+# Context: layout_settings
+reading-layout-settings-sidebar-width = Kenar çubuğu genişliği
+# Context: reading_save_notice
+reading-reading-save-notice-retry-saving-reading-settings = Okuma ayarlarını kaydetmeyi yeniden deneyin
+# Context: zoom_row
+reading-zoom-row-scales-text-and-controls-across-the-app = Metni ve kontrolleri uygulama genelinde ölçeklendirir.
+# Context: zoom_row
+reading-zoom-row-zoom = Yakınlaştır
+
+## crates/ui/src/screen.rs
+# Context: body
+screen-body-frame-rate = Kare hızı
+# Context: body
+screen-body-include-the-pointer-in-the-shared-video = İşaretçiyi paylaşılan videoya ekleyin.
+# Context: body
+screen-body-quality = Kalite
+# Context: body
+screen-body-quality-selection-does-not-require-nitro = Kaliteli seçim Nitro gerektirmez.
+# Context: body
+screen-body-refresh = Yenile
+# Context: body
+screen-body-screen-or-window = Ekran veya pencere
+# Context: body
+screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Mac'inizin oynattıklarını ekranla birlikte gönderin. Serein'in kendi çağrı sesi dışarıda bırakıldı.
+# Context: body
+screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Bir pencereyi paylaşırken bile diğer uygulamalardaki sesi paylaşın. Serein'in kendi sesi dışarıda bırakıldı.
+# Context: body
+screen-body-share-system-audio = Sistem sesini paylaş
+# Context: body
+screen-body-show-cursor = İmleci göster
+# Context: body
+screen-body-your-call-microphone-keeps-its-current-settings = Çağrı mikrofonunuz mevcut ayarlarını korur.
+# Context: show
+screen-show-cancel = İptal etmek
+# Context: show
+screen-show-choose-what-people-in-this-call-can-see = Bu görüşmedeki kişilerin neler görebileceğini seçin.
+# Context: show
+screen-show-share-screen = Ekranı Paylaş
+# Context: show
+screen-show-share-your-screen = Ekranınızı paylaşın
+# Context: source_list
+screen-source-list-no-screens-or-windows-are-available-yet = Henüz herhangi bir ekran veya pencere mevcut değil.
+
+## crates/ui/src/search_filters.rs
+# Context: choices
+search-filters-choices-any = Herhangi
+# Context: show
+search-filters-show-add-date = + Tarih ekle
+# Context: show
+search-filters-show-any = Herhangi
+# Context: show
+search-filters-show-any-content = Herhangi bir içerik
+# Context: show
+search-filters-show-apply-filters = Filtreleri Uygula
+# Context: show
+search-filters-show-bot = bot
+# Context: show
+search-filters-show-bot-2 = Bot
+# Context: show
+search-filters-show-cancel = İptal etmek
+# Context: show
+search-filters-show-choose-author-type = Yazar türünü seçin
+# Context: show
+search-filters-show-clear-filters = Filtreleri Temizle
+# Context: show
+search-filters-show-embed = gömmek
+# Context: show
+search-filters-show-embed-2 = Göm
+# Context: show
+search-filters-show-false = YANLIŞ
+# Context: show
+search-filters-show-false-2 = YANLIŞ
+# Context: show
+search-filters-show-file = dosya
+# Context: show
+search-filters-show-file-2 = Dosya
+# Context: show
+search-filters-show-filters = Filtreler
+# Context: show
+search-filters-show-image = görüntü
+# Context: show
+search-filters-show-image-2 = Resim
+# Context: show
+search-filters-show-link = bağlantı
+# Context: show
+search-filters-show-link-2 = Bağlantı
+# Context: show
+search-filters-show-narrow-this-search-down-to-the-messages-you-want = Bu aramayı istediğiniz iletilere kadar daraltın.
+# Context: show
+search-filters-show-remove-dates = Tarihleri ​​kaldır
+# Context: show
+search-filters-show-sound = ses
+# Context: show
+search-filters-show-sound-2 = Ses
+# Context: show
+search-filters-show-true = doğru
+# Context: show
+search-filters-show-true-2 = Doğru
+# Context: show
+search-filters-show-user = kullanıcı
+# Context: show
+search-filters-show-user-2 = Kullanıcı
+# Context: show
+search-filters-show-video = video
+# Context: show
+search-filters-show-video-2 = Video
+# Context: show
+search-filters-show-webhook = web kancası
+# Context: show
+search-filters-show-webhook-2 = Web kancası
+# Context: show
+search-filters-show-yyyy-mm-dd = YYYY-AA-GG
+# Context: user_picker
+search-filters-user-picker-choose-a-user = Bir kullanıcı seçin
+# Context: user_picker
+search-filters-user-picker-no-matching-users = Eşleşen kullanıcı yok
+# Context: user_picker
+search-filters-user-picker-search-users = Kullanıcıları ara
+
+## crates/ui/src/search.rs
+# Context: header_input
+search-header-input-close-search = Aramayı kapat
+# Context: header_input
+search-header-input-search = Aramak
+# Context: open_filters
+search-open-filters-dates-author-type-and-more = tarihler, yazar türü ve daha fazlası
+# Context: open_filters
+search-open-filters-from-a-specific-user = Belirli bir kullanıcıdan
+# Context: open_filters
+search-open-filters-from-user = Gönderen: kullanıcı
+# Context: open_filters
+search-open-filters-has-link-embed-or-file = Şuna sahiptir: bağlantı, yerleştirme veya dosya
+# Context: open_filters
+search-open-filters-includes-a-specific-type-of-data = Belirli bir veri türünü içerir
+# Context: open_filters
+search-open-filters-mentions-a-specific-user = Belirli bir kullanıcıdan bahseder
+# Context: open_filters
+search-open-filters-mentions-user = Bahsedilenler: kullanıcı
+# Context: open_filters
+search-open-filters-more-filters = Daha fazla filtre
+# Context: overlays
+search-overlays-filters = Filtreler
+# Context: overlays
+search-overlays-from = itibaren
+# Context: overlays
+search-overlays-from-user = Kullanıcıdan
+# Context: overlays
+search-overlays-mentions-user = Kullanıcıdan Bahsedilenler
+# Context: overlays
+search-overlays-no-matching-users-in-this-conversation = Bu görüşmede eşleşen kullanıcı yok.
+# Context: overlays
+search-overlays-search-for = Ara
+# Context: pane
+search-pane-close = Kapalı
+# Context: pane
+search-pane-hide-matching-text-highlight = Eşleşen metin vurgusunu gizle
+# Context: pane
+search-pane-indexing-is-incomplete-results-may-be-missing = Dizin oluşturma tamamlanmadı; sonuçlar eksik olabilir.
+# Context: pane
+search-pane-looking-for-matching-messages = Eşleşen mesajlar aranıyor.
+# Context: pane
+search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access = Bağlantı kesildiğinde veya kanal erişimi olmadığında mesajlar kullanılamaz.
+# Context: pane
+search-pane-newest-first = Önce en yeni
+# Context: pane
+search-pane-no-results = Sonuç yok
+# Context: pane
+search-pane-nothing-on-this-page-matches-the-query = Bu sayfadaki hiçbir şey sorguyla eşleşmiyor.
+# Context: pane
+search-pane-of = ile ilgili
+# Context: pane
+search-pane-oldest-first = Önce en eski
+# Context: pane
+search-pane-order-on-this-page = Bu sayfada sipariş verin
+# Context: pane
+search-pane-pinned-messages = Sabitlenmiş Mesajlar
+# Context: pane
+search-pane-reload-pins = Pimleri yeniden yükle
+# Context: pane
+search-pane-search-this-conversation = Bu görüşmeyi arayın
+# Context: pane
+search-pane-searching = Arama…
+# Context: pane
+search-pane-type-a-query-above-and-press-enter = Yukarıya bir sorgu yazın ve Enter tuşuna basın.
+# Context: pins_content
+search-pins-content-loading-older-pins = Eski pinler yükleniyor…
+# Context: pins_content
+search-pins-content-loading-pinned-messages = Sabitlenmiş mesajlar yükleniyor…
+# Context: pins_content
+search-pins-content-more-pins-may-exist-but-this-page-has-no-usable = Daha fazla pin mevcut olabilir, ancak bu sayfanın kullanılabilir bir devamı yoktur.
+# Context: pins_content
+search-pins-content-older-pins = Eski pinler
+# Context: pins_content
+search-pins-content-pinned-messages-are-unavailable-while-disconnected-or-without-channel-ac = Sabitlenen mesajlar, bağlantı kesildiğinde veya kanal erişimi olmadığında kullanılamaz.
+# Context: pins_content
+search-pins-content-retry-older-pins = Eski pinleri yeniden deneyin
+# Context: pins_empty
+search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet = Bu kanalda yok
+    sabitlenmiş mesaj var mı… henüz.
+# Context: pins_empty
+search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet = Bu doğrudan mesajın özelliği yok
+    sabitlenmiş mesaj var mı… henüz.
+# Context: pins_popout
+search-pins-popout-close = Kapalı
+# Context: pins_popout
+search-pins-popout-pinned-messages = Sabitlenmiş Mesajlar
+# Context: pins_popout
+search-pins-popout-reload-pins = Pimleri yeniden yükle
+# Context: result_card
+search-result-card-jump-to-message-from = Gönderen mesaja atla
+# Context: result_card
+search-result-card-spoiler-media-open-the-message-to-reveal-it = Spoiler ortamı - ortaya çıkarmak için mesajı açın.
+
+## crates/ui/src/select.rs
+# Context: on_end_pass
+select-on-end-pass-copy = Kopyala
+
+## crates/ui/src/server_admin.rs
+# Context: date
+server-admin-date-unknown = Bilinmiyor
+# Context: dialog
+server-admin-dialog-30-days = 30 gün
+# Context: dialog
+server-admin-dialog-7-days = 7 gün
+# Context: dialog
+server-admin-dialog-cancel = İptal etmek
+# Context: dialog
+server-admin-dialog-delete-emoji = Emojiyi Sil
+# Context: dialog
+server-admin-dialog-emoji-name = Emoji adı
+# Context: dialog
+server-admin-dialog-inactive-for = Şunun için etkin değil:
+# Context: dialog
+server-admin-dialog-kick-member = Üyeyi At
+# Context: dialog
+server-admin-dialog-leave-blank-to-use-their-username = Kullanıcı adını kullanmak için boş bırakın.
+# Context: dialog
+server-admin-dialog-nickname = Takma ad
+# Context: dialog
+server-admin-dialog-preview = Önizleme
+# Context: dialog
+server-admin-dialog-prune-members = Üyeleri Budama
+# Context: dialog
+server-admin-dialog-save = Kaydetmek
+# Context: dialog
+server-admin-dialog-use-their-username = Kullanıcı adlarını kullanın
+# Context: emojis
+server-admin-emojis-add-custom-emoji-that-anyone-can-use-in-this-server = Bu sunucuda herkesin kullanabileceği özel emojiler ekleyin. Animasyonlu GIF emojisi Discord Nitro'ya sahip üyeler tarafından kullanılabilir.
+# Context: emojis
+server-admin-emojis-animated = Animasyonlu
+# Context: emojis
+server-admin-emojis-animated-emoji = Hareketli Emoji
+# Context: emojis
+server-admin-emojis-cancel = İptal etmek
+# Context: emojis
+server-admin-emojis-delete-emoji = Emojiyi Sil
+# Context: emojis
+server-admin-emojis-drag-and-drop-up-to-10-images-onto-this-page = Bu sayfaya en fazla 10 resmi sürükleyip bırakın veya dosyaları seçin. Yüklemeden önce adlarını inceleyin.
+# Context: emojis
+server-admin-emojis-emoji = Emoji
+# Context: emojis
+server-admin-emojis-emoji-2 = emoji
+# Context: emojis
+server-admin-emojis-emoji-actions = Emoji eylemleri
+# Context: emojis
+server-admin-emojis-emoji-name-232-letters-numbers-or-underscores = Emoji adı: 2-32 harf, rakam veya alt çizgi
+# Context: emojis
+server-admin-emojis-emoji-names-must-use-232-letters-numbers-or-underscores = Emoji adlarında 2-32 harf, rakam veya alt çizgi kullanılmalıdır.
+# Context: emojis
+server-admin-emojis-image = Resim
+# Context: emojis
+server-admin-emojis-name = İsim
+# Context: emojis
+server-admin-emojis-none = HİÇBİRİ
+# Context: emojis
+server-admin-emojis-preparing-emoji-images = Emoji görselleri hazırlanıyor...
+# Context: emojis
+server-admin-emojis-remove = Kaldırmak
+# Context: emojis
+server-admin-emojis-rename = Yeniden isimlendirmek
+# Context: emojis
+server-admin-emojis-review-uploads = Yüklemeleri inceleyin
+# Context: emojis
+server-admin-emojis-slots-available = mevcut yuvalar
+# Context: emojis
+server-admin-emojis-static = Statik
+# Context: emojis
+server-admin-emojis-unknown = Bilinmiyor
+# Context: emojis
+server-admin-emojis-upload = Yüklemek
+# Context: emojis
+server-admin-emojis-upload-emoji = Emojiyi Yükle
+# Context: emojis
+server-admin-emojis-uploaded-by = Yükleyen:
+# Context: join_method
+server-admin-join-method-application = Başvuru
+# Context: join_method
+server-admin-join-method-bot = Bot
+# Context: join_method
+server-admin-join-method-discovery = Keşif
+# Context: join_method
+server-admin-join-method-integration = Entegrasyon
+# Context: join_method
+server-admin-join-method-invite = Davet etmek
+# Context: join_method
+server-admin-join-method-linked-lobby = Bağlantılı Lobi
+# Context: join_method
+server-admin-join-method-student-hub = Öğrenci Merkezi
+# Context: join_method
+server-admin-join-method-unknown = Bilinmiyor
+# Context: join_method
+server-admin-join-method-vanity-url = Özel URL
+# Context: member_card
+server-admin-member-card-invite = Davet etmek
+# Context: member_card
+server-admin-member-card-join-method = Katılma yöntemi
+# Context: member_card
+server-admin-member-card-joined-discord = Discord'a katıldım
+# Context: member_card
+server-admin-member-card-member-actions = Üye eylemleri
+# Context: member_card
+server-admin-member-card-member-details = Üye ayrıntıları
+# Context: member_card
+server-admin-member-card-member-since = Şu tarihten beri üye:
+# Context: member_menu
+server-admin-member-menu-block = Engellemek
+# Context: member_menu
+server-admin-member-menu-change-nickname = Takma Adı Değiştir
+# Context: member_menu
+server-admin-member-menu-copy-user-id = Kullanıcı Kimliğini Kopyala
+# Context: member_menu
+server-admin-member-menu-kick = Tekme atmak
+# Context: member_menu
+server-admin-member-menu-message = Mesaj
+# Context: member_menu
+server-admin-member-menu-profile = Profil
+# Context: member_menu
+server-admin-member-menu-roles = Roller
+# Context: member_menu
+server-admin-member-menu-unblock = Engellemeyi kaldır
+# Context: members
+server-admin-members-first-page = İlk sayfa
+# Context: members
+server-admin-members-joined-in-the-last-7-days = Son 7 gün içinde katıldınız
+# Context: members
+server-admin-members-member-actions = Üye eylemleri
+# Context: members
+server-admin-members-newest-discord-accounts = En yeni Discord hesapları
+# Context: members
+server-admin-members-newest-members = En yeni üyeler
+# Context: members
+server-admin-members-next-page = Sonraki sayfa
+# Context: members
+server-admin-members-no-members-match-this-search = Bu aramayla eşleşen üye yok.
+# Context: members
+server-admin-members-of = ile ilgili
+# Context: members
+server-admin-members-oldest-discord-accounts = En eski Discord hesapları
+# Context: members
+server-admin-members-oldest-members = En yaşlı üyeler
+# Context: members
+server-admin-members-prune = Budamak
+# Context: members
+server-admin-members-recent-members = Son Üyeler
+# Context: members
+server-admin-members-search-by-username-or-id = Kullanıcı adına veya kimliğe göre arayın
+# Context: members
+server-admin-members-server-members = Sunucu Üyeleri
+# Context: members
+server-admin-members-show-members-in-channel-list = Üyeleri Kanal Listesinde Göster
+# Context: members
+server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = En son katılımları ve olağandışı etkinlik nedeniyle işaretlenen üyeleri hızlı bir şekilde görmek için kanal listesinde üyeler sayfasını gösterin.
+# Context: members
+server-admin-members-showing = Gösterilen
+# Context: show
+server-admin-show-loading = Yükleniyor...
+# Context: show
+server-admin-show-reload = Yeniden yükle
+# Context: show
+server-admin-show-saving-changes = Değişiklikler kaydediliyor...
+# Context: signals
+server-admin-signals-rejoined = Tekrar katıldım
+# Context: signals
+server-admin-signals-server-tag-flagged = Sunucu etiketi işaretlendi
+# Context: signals
+server-admin-signals-timed-out = Zaman aşımına uğradı
+# Context: signals
+server-admin-signals-unusual-dm-activity = Olağandışı DM etkinliği
+# Context: signals
+server-admin-signals-username-flagged = Kullanıcı adı işaretlendi
+
+## crates/ui/src/server_audit_log.rs
+# Context: action_text
+server-audit-log-action-text-accepted-creator-monetization-terms = Kabul edilen yaratıcı para kazanma koşulları
+# Context: action_text
+server-audit-log-action-text-added-bot = Bot eklendi
+# Context: action_text
+server-audit-log-action-text-banned-member = Yasaklanan üye
+# Context: action_text
+server-audit-log-action-text-blocked-message-with-automod = AutoMod ile engellenen mesaj
+# Context: action_text
+server-audit-log-action-text-created-automod-rule = AutoMod kuralı oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-channel = Kanal oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-channel-permission-overwrite = Oluşturulan kanal izninin üzerine yazma
+# Context: action_text
+server-audit-log-action-text-created-creator-monetization-request = Yaratıcılardan para kazanma isteği oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-emoji = Emoji oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-home-settings = Ev ayarları oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-integration = Entegrasyon oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-invite = Davet oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-onboarding = İlk katılım oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-onboarding-prompt = İlk katılım istemi oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-role = Rol oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-scheduled-event = Planlanmış etkinlik oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-soundboard-sound = Ses tahtası sesi oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-stage = Sahne oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-sticker = Çıkartma oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-thread = Konu oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-voice-channel-status = Ses kanalı durumu oluşturuldu
+# Context: action_text
+server-audit-log-action-text-created-webhook = Web kancası oluşturuldu
+# Context: action_text
+server-audit-log-action-text-deleted-automod-rule = AutoMod kuralı silindi
+# Context: action_text
+server-audit-log-action-text-deleted-channel = Silinen kanal
+# Context: action_text
+server-audit-log-action-text-deleted-channel-permission-overwrite = Silinen kanal izninin üzerine yazma
+# Context: action_text
+server-audit-log-action-text-deleted-emoji = Silinen emoji
+# Context: action_text
+server-audit-log-action-text-deleted-integration = Silinen entegrasyon
+# Context: action_text
+server-audit-log-action-text-deleted-invite = Davet silindi
+# Context: action_text
+server-audit-log-action-text-deleted-message = Silinen mesaj
+# Context: action_text
+server-audit-log-action-text-deleted-messages = Silinen mesajlar
+# Context: action_text
+server-audit-log-action-text-deleted-onboarding-prompt = İlk katılım istemi silindi
+# Context: action_text
+server-audit-log-action-text-deleted-role = Silinen rol
+# Context: action_text
+server-audit-log-action-text-deleted-scheduled-event = Planlanan etkinlik silindi
+# Context: action_text
+server-audit-log-action-text-deleted-soundboard-sound = Ses tahtası sesi silindi
+# Context: action_text
+server-audit-log-action-text-deleted-stage = Silinen aşama
+# Context: action_text
+server-audit-log-action-text-deleted-sticker = Silinen çıkartma
+# Context: action_text
+server-audit-log-action-text-deleted-thread = Silinen konu
+# Context: action_text
+server-audit-log-action-text-deleted-voice-channel-status = Silinen ses kanalı durumu
+# Context: action_text
+server-audit-log-action-text-deleted-webhook = Web kancası silindi
+# Context: action_text
+server-audit-log-action-text-disconnected-member = Bağlantısı kesilen üye
+# Context: action_text
+server-audit-log-action-text-flagged-message-with-automod = AutoMod ile işaretlenen mesaj
+# Context: action_text
+server-audit-log-action-text-kicked-member = Üye atıldı
+# Context: action_text
+server-audit-log-action-text-moved-member = Üye taşındı
+# Context: action_text
+server-audit-log-action-text-pinned-message = Sabitlenmiş mesaj
+# Context: action_text
+server-audit-log-action-text-pruned-members = Budanmış üyeler
+# Context: action_text
+server-audit-log-action-text-quarantined-member-with-automod = AutoMod ile karantinaya alınan üye
+# Context: action_text
+server-audit-log-action-text-timed-out-member-with-automod = AutoMod ile üye zaman aşımına uğradı
+# Context: action_text
+server-audit-log-action-text-unbanned-member = Yasağı kaldırılan üye
+# Context: action_text
+server-audit-log-action-text-unpinned-message = Sabitlemesi kaldırılan mesaj
+# Context: action_text
+server-audit-log-action-text-updated-application-command-permissions = Uygulama komut izinleri güncellendi
+# Context: action_text
+server-audit-log-action-text-updated-automod-rule = AutoMod kuralı güncellendi
+# Context: action_text
+server-audit-log-action-text-updated-channel = Güncellenen kanal
+# Context: action_text
+server-audit-log-action-text-updated-channel-permission-overwrite = Güncellenen kanal izninin üzerine yazma
+# Context: action_text
+server-audit-log-action-text-updated-emoji = Güncellenen emoji
+# Context: action_text
+server-audit-log-action-text-updated-home-settings = Güncellenen ev ayarları
+# Context: action_text
+server-audit-log-action-text-updated-integration = Güncellenmiş entegrasyon
+# Context: action_text
+server-audit-log-action-text-updated-invite = Davet güncellendi
+# Context: action_text
+server-audit-log-action-text-updated-member = Üye güncellendi
+# Context: action_text
+server-audit-log-action-text-updated-member-roles = Güncellenen üye rolleri
+# Context: action_text
+server-audit-log-action-text-updated-onboarding = İlk katılım güncellendi
+# Context: action_text
+server-audit-log-action-text-updated-onboarding-prompt = Yeni katılım istemi güncellendi
+# Context: action_text
+server-audit-log-action-text-updated-role = Rol güncellendi
+# Context: action_text
+server-audit-log-action-text-updated-scheduled-event = Planlanan etkinlik güncellendi
+# Context: action_text
+server-audit-log-action-text-updated-server-settings = Güncellenen sunucu ayarları
+# Context: action_text
+server-audit-log-action-text-updated-soundboard-sound = Ses tahtası sesi güncellendi
+# Context: action_text
+server-audit-log-action-text-updated-stage = Güncellenen aşama
+# Context: action_text
+server-audit-log-action-text-updated-sticker = Güncellenmiş çıkartma
+# Context: action_text
+server-audit-log-action-text-updated-thread = Konu güncellendi
+# Context: action_text
+server-audit-log-action-text-updated-webhook = Web kancası güncellendi
+# Context: details
+server-audit-log-details-no-additional-details-were-provided-for-this-event = Bu etkinlik için ek ayrıntı verilmedi.
+# Context: event_icon
+server-audit-log-event-icon-unknown-action = Bilinmeyen Eylem
+# Context: show
+server-audit-log-show-all-actions = Tüm Eylemler
+# Context: show
+server-audit-log-show-all-users = Tüm Kullanıcılar
+# Context: show
+server-audit-log-show-audit-log = Denetim Günlüğü
+# Context: show
+server-audit-log-show-filter-by-action = Eyleme göre filtrele
+# Context: show
+server-audit-log-show-filter-by-user = Kullanıcıya göre filtrele
+# Context: show
+server-audit-log-show-load-more = Daha Fazla Yükle
+# Context: show
+server-audit-log-show-loading-audit-log = Denetim günlüğü yükleniyor…
+# Context: show
+server-audit-log-show-no-audit-log-entries-match-these-filters = Bu filtrelerle eşleşen denetim günlüğü girişi yok.
+# Context: show
+server-audit-log-show-reload = Yeniden yükle
+# Context: show
+server-audit-log-show-the-audit-log-reached-its-local-entry-or-memory-limit = Denetim günlüğü yerel girişine veya bellek sınırına ulaştı. Diğer etkinlikleri bulmak için filtreleri ayarlayın.
+# Context: summary
+server-audit-log-summary-performed-action = gerçekleştirilen eylem
+# Context: summary
+server-audit-log-summary-unknown-user = Bilinmeyen kullanıcı
+
+## crates/ui/src/server_integrations.rs
+# Context: app
+server-integrations-app-added-by = Tarafından eklendi
+# Context: app
+server-integrations-app-disabled = Engelli
+# Context: app
+server-integrations-app-enabled = Etkinleştirilmiş
+# Context: app
+server-integrations-app-remove-integration = Entegrasyonu Kaldır
+# Context: app
+server-integrations-app-service = Hizmet
+# Context: app
+server-integrations-app-this-integration-is-no-longer-available = Bu entegrasyon artık mevcut değil.
+# Context: copy_button
+server-integrations-copy-button-copied = Kopyalandı!
+# Context: copy_button
+server-integrations-copy-button-copy-webhook-url = Web Kancası URL'sini kopyala
+# Context: editor
+server-integrations-editor-cancel = İptal etmek
+# Context: editor
+server-integrations-editor-channel = Kanal
+# Context: editor
+server-integrations-editor-choose-a-channel = Bir kanal seçin
+# Context: editor
+server-integrations-editor-name = İsim
+# Context: editor
+server-integrations-editor-reset = Sıfırla
+# Context: editor
+server-integrations-editor-use-180-characters-without-control-characters-or-the-reserved-names = Kontrol karakterleri veya ayrılmış Discord ve Clyde adları olmadan 1-80 karakter kullanın.
+# Context: overview
+server-integrations-overview-added-by = Tarafından eklendi
+# Context: overview
+server-integrations-overview-bots-and-apps = Botlar ve Uygulamalar
+# Context: overview
+server-integrations-overview-customize-your-server-with-integrations-manage-webhooks-followed-channel = Entegrasyonlarla sunucunuzu özelleştirin. Sunucunuza bağlı web kancalarını, takip edilen kanalları ve uygulamaları yönetin.
+# Context: overview
+server-integrations-overview-learn-more-about-managing-integrations = Entegrasyonları yönetme hakkında daha fazla bilgi edinin.
+# Context: overview
+server-integrations-overview-manage = Yönet >
+# Context: overview
+server-integrations-overview-manage-webhooks-and-followed-channels-posting-to-this-channel = Bu kanala gönderilen web kancalarını ve takip edilen kanalları yönetin.
+# Context: overview
+server-integrations-overview-no-integrations-in-this-server = Bu sunucuda entegrasyon yok.
+# Context: overview
+server-integrations-overview-showing-the-first-50-integrations-returned-by-discord = Discord tarafından döndürülen ilk 50 entegrasyon gösteriliyor.
+# Context: show
+server-integrations-show-channels-followed = Takip Edilen Kanallar
+# Context: show
+server-integrations-show-create-webhook = Web Kancası Oluştur
+# Context: show
+server-integrations-show-edit-webhook = Web Kancasını Düzenle
+# Context: show
+server-integrations-show-integrations = < Entegrasyonlar
+# Context: show
+server-integrations-show-integrations-2 = Entegrasyonlar
+# Context: show
+server-integrations-show-loading-integrations = Entegrasyonlar yükleniyor...
+# Context: show
+server-integrations-show-manage-integration = Entegrasyonu Yönet
+# Context: show
+server-integrations-show-reload = Yeniden yükle
+# Context: show
+server-integrations-show-reload-integrations = Entegrasyonları yeniden yükle
+# Context: show
+server-integrations-show-reload-integrations-before-making-more-changes-your-draft-will-be = Daha fazla değişiklik yapmadan önce entegrasyonları yeniden yükleyin. Taslağınız saklanacaktır.
+# Context: show
+server-integrations-show-updating-integrations = Entegrasyonlar güncelleniyor...
+# Context: show
+server-integrations-show-webhooks = Web kancaları
+# Context: summary_card
+server-integrations-summary-card-app = Uygulama
+# Context: summary_card
+server-integrations-summary-card-bot = Bot
+# Context: summary_card
+server-integrations-summary-card-twitch = Seğirme
+# Context: summary_card
+server-integrations-summary-card-youtube = YouTube
+# Context: webhooks
+server-integrations-webhooks-delete = Silmek
+# Context: webhooks
+server-integrations-webhooks-edit = Düzenlemek
+# Context: webhooks
+server-integrations-webhooks-learn-more-about-following-channels = Kanalları takip etme hakkında daha fazla bilgi edinin
+# Context: webhooks
+server-integrations-webhooks-no-channels-followed = Hiçbir kanal takip edilmedi.
+# Context: webhooks
+server-integrations-webhooks-no-webhooks-yet = Henüz web kancası yok.
+# Context: webhooks
+server-integrations-webhooks-posting-to = Şuraya gönderiliyor:
+# Context: webhooks
+server-integrations-webhooks-posts-from-these-followed-channels-are-delivered-to-your-server = Takip edilen bu kanallardan gelen gönderiler sunucunuza iletilir.
+# Context: webhooks
+server-integrations-webhooks-send-updates-from-your-apps-and-services-to-a-channel = Uygulamalarınızdan ve hizmetlerinizden güncellemeleri bu sunucudaki bir kanala gönderin.
+# Context: webhooks
+server-integrations-webhooks-unfollow = Takibi bırak
+
+## crates/ui/src/server_invite.rs
+# Context: expiry_label
+server-invite-expiry-label-1-day = 1 gün
+# Context: expiry_label
+server-invite-expiry-label-1-hour = 1 saat
+# Context: expiry_label
+server-invite-expiry-label-12-hours = 12 saat
+# Context: expiry_label
+server-invite-expiry-label-30-days = 30 gün
+# Context: expiry_label
+server-invite-expiry-label-30-minutes = 30 dakika
+# Context: expiry_label
+server-invite-expiry-label-6-hours = 6 saat
+# Context: expiry_label
+server-invite-expiry-label-7-days = 7 gün
+# Context: expiry_label
+server-invite-expiry-label-never = Asla
+# Context: picker
+server-invite-picker-edit-link = Bağlantıyı düzenleyin.
+# Context: picker
+server-invite-picker-friends-are-not-available-yet = Arkadaşlar henüz mevcut değil.
+# Context: picker
+server-invite-picker-invite = Davet etmek
+# Context: picker
+server-invite-picker-no-eligible-channel = Uygun kanal yok
+# Context: picker
+server-invite-picker-no-friends-match-your-search = Aramanızla eşleşen arkadaş yok.
+# Context: picker
+server-invite-picker-no-friends-to-invite-yet-share-the-link-below = Henüz davet edilecek arkadaş yok. Aşağıdaki bağlantıyı paylaşın.
+# Context: picker
+server-invite-picker-or-send-a-server-invite-link-to-a-friend = Veya bir arkadaşınıza sunucu davet bağlantısı gönderin
+# Context: picker
+server-invite-picker-recipients-will-land-in = Alıcılar inecek
+# Context: picker
+server-invite-picker-retry = Yeniden dene
+# Context: picker
+server-invite-picker-search-for-friends = Arkadaşları ara
+# Context: picker
+server-invite-picker-sending = Gönderiliyor…
+# Context: picker
+server-invite-picker-sent = Gönderilmiş
+# Context: picker
+server-invite-picker-uncertain = Belirsiz
+# Context: picker
+server-invite-picker-you-need-create-invite-permission-in-a-channel-to-create = Davet oluşturmak için bir kanalda Davet Oluşturma iznine ihtiyacınız vardır.
+# Context: picker
+server-invite-picker-your-invite-link-expires-in = Davet bağlantınızın süresi şu tarihte doluyor:
+# Context: picker
+server-invite-picker-your-invite-link-never-expires = Davet bağlantınızın süresi hiçbir zaman dolmaz.
+# Context: settings
+server-invite-settings-cancel = İptal etmek
+# Context: settings
+server-invite-settings-expire-after = Şu Süreden Sonra Sona Ersin
+# Context: settings
+server-invite-settings-generate-a-new-link = Yeni Bir Bağlantı Oluştur
+# Context: settings
+server-invite-settings-generating = Oluşturuluyor…
+# Context: settings
+server-invite-settings-grant-temporary-membership = Geçici üyelik ver
+# Context: settings
+server-invite-settings-max-number-of-uses = Maksimum Kullanım Sayısı
+# Context: settings
+server-invite-settings-temporary-members-are-automatically-kicked-when-they-disconnect-unless-a = Bir rol atanmadığı sürece, geçici üyeler bağlantılarını kestiklerinde otomatik olarak atılır
+# Context: show
+server-invite-show-control-how-long-this-link-lasts-and-how-many-people = Bu bağlantının ne kadar süreceğini ve kaç kişinin kullanabileceğini kontrol edin.
+# Context: show
+server-invite-show-share-a-link-so-friends-can-join-this-server = Arkadaşlarınızın bu sunucuya katılabilmesi için bir bağlantı paylaşın.
+# Context: uses_label
+server-invite-uses-label-no-limit = Sınır yok
+
+## crates/ui/src/server_invites.rs
+# Context: show
+server-invites-show-active-invite-links = AKTİF DAVET BAĞLANTILARI
+# Context: show
+server-invites-show-copied = Kopyalandı!
+# Context: show
+server-invites-show-copy-invite-link = Davet bağlantısını kopyala
+# Context: show
+server-invites-show-create-an-invite-link-to-welcome-people-to-this-server = İnsanları bu sunucuya davet etmek için bir davet bağlantısı oluşturun.
+# Context: show
+server-invites-show-create-invite-link = Davet Bağlantısı Oluştur
+# Context: show
+server-invites-show-invite-links-paused = DAVET BAĞLANTILARI DURAKLATILDI
+# Context: show
+server-invites-show-invites = Davetler
+# Context: show
+server-invites-show-load-invites = Davetleri Yükle
+# Context: show
+server-invites-show-loading-invites = Davetler yükleniyor…
+# Context: show
+server-invites-show-no-active-invite-links = Etkin davet bağlantısı yok
+# Context: show
+server-invites-show-pause-invites = Davetleri Duraklat
+# Context: show
+server-invites-show-reload = Yeniden yükle
+# Context: show
+server-invites-show-reload-invites = Davetleri Yeniden Yükle
+# Context: show
+server-invites-show-resume-invites = Davetleri Devam Ettir
+# Context: show
+server-invites-show-revoke-invite = Daveti iptal et
+# Context: show
+server-invites-show-updating-invites = Davetler güncelleniyor…
+
+## crates/ui/src/server_menu.rs
+# Context: header
+server-menu-header-a-server-action-is-in-progress = Bir sunucu eylemi sürüyor.
+# Context: header
+server-menu-header-create-invite = Davet oluştur
+# Context: header
+server-menu-header-reconnect-to-manage-this-server = Bu sunucuyu yönetmek için yeniden bağlanın.
+# Context: header
+server-menu-header-server-menu = Sunucu menüsü
+# Context: leave_item
+server-menu-leave-item-leave-server = Sunucudan ayrıl
+# Context: read_item
+server-menu-read-item-mark-as-read = Okundu Olarak İşaretle
+# Context: settings_item
+server-menu-settings-item-server-settings = Sunucu Ayarları
+# Context: show
+server-menu-show-are-you-sure-you-want-to-leave = Ayrılmak istediğinden emin misin
+# Context: show
+server-menu-show-cancel = İptal etmek
+# Context: show
+server-menu-show-close = Kapalı
+# Context: show
+server-menu-show-leave-server = Sunucudan ayrılmak mı istiyorsunuz?
+# Context: show
+server-menu-show-leave-server-2 = Sunucudan Ayrıl
+# Context: show
+server-menu-show-leaving = Ayrılıyorum…
+# Context: show
+server-menu-show-offline-preview-no-server-changes = Çevrimdışı önizleme · sunucu değişikliği yok
+# Context: show
+server-menu-show-you-will-not-be-able-to-rejoin-this-server-unless = Yeniden davet edilmediğiniz sürece bu sunucuya yeniden katılamazsınız.
+
+## crates/ui/src/server_roles.rs
+# Context: display
+server-roles-display-allow-anyone-to-mention-this-role = Herkesin bu rolden @bahsetmesine izin ver
+# Context: display
+server-roles-display-choose-image = Resim Seç
+# Context: display
+server-roles-display-custom-role-color = Özel rol rengi
+# Context: display
+server-roles-display-default-role-color = Varsayılan rol rengi
+# Context: display
+server-roles-display-display-role-members-separately-from-online-members = Rol üyelerini çevrimiçi üyelerden ayrı olarak görüntüleyin
+# Context: display
+server-roles-display-members-use-the-color-of-their-highest-role-on-the = Üyeler, rol listesindeki en yüksek rolün rengini kullanır.
+# Context: display
+server-roles-display-members-with-permission-to-mention-all-roles-can-always-mention = Tüm rollerden bahsetme iznine sahip üyeler her zaman bu rolden bahsedebilir.
+# Context: display
+server-roles-display-preparing = Hazırlanıyor...
+# Context: display
+server-roles-display-preview = Önizleme
+# Context: display
+server-roles-display-remove-icon = Simgeyi Kaldır
+# Context: display
+server-roles-display-role-name = Rol adı
+# Context: display
+server-roles-display-sample-message = Örnek mesaj
+# Context: display
+server-roles-display-second-gradient-color = İkinci degrade rengi
+# Context: display
+server-roles-display-this-is-how-members-with-this-role-appear = Bu role sahip üyeler bu şekilde görünür.
+# Context: display
+server-roles-display-upload-an-image-under-256-kib-or-choose-a-unicode = 256 KiB'nin altında bir görsel yükleyin veya bir Unicode emoji seçin. En az 64×64 piksel öneriyoruz.
+# Context: editor
+server-roles-editor-back-to-roles = ← Roller'e geri dön
+# Context: editor
+server-roles-editor-choose-role = Rol seç
+# Context: editor
+server-roles-editor-delete-role = Rolü Sil
+# Context: editor
+server-roles-editor-display = Görüntülemek
+# Context: editor
+server-roles-editor-edit-role = ROLÜ DÜZENLE
+# Context: editor
+server-roles-editor-permissions = İzinler
+# Context: editor
+server-roles-editor-role-actions = Rol eylemleri
+# Context: editor
+server-roles-editor-this-role-is-above-your-highest-role-and-is-read = Bu rol, en yüksek rolünüzün üzerindedir ve salt okunurdur.
+# Context: editor
+server-roles-editor-this-role-is-managed-by-an-integration = Bu rol bir entegrasyon tarafından yönetilir.
+# Context: list
+server-roles-list-create-role = Rol Oluştur
+# Context: list
+server-roles-list-default-permissions-everyone-applies-to-all-server-members = Varsayılan İzinler
     @everyon · tüm sunucu üyeleri için geçerlidir
-source-8f9d22306e0812bd = Varsayılan Tepki
-source-99bb1f3a57417c91 = Varsayılan rol rengi
-source-b677b0431fa422a7 = tanımlanmış mı?
-source-dc673e73b5c13aea = Silmek
-source-702ed7930a08eab6 = Kategoriyi Sil
-source-a882d7da0d2686cb = Kategori Silinsin mi?
-source-ddcb7800631c50c9 = Kanalı Sil
-source-e3a17ec5ae465222 = Kanal silinsin mi?
-source-fd0ddea8691d9202 = Kanal Silinsin mi?
-source-3be470be232243f8 = Emojiyi Sil
-source-ff070701d8fe9ec5 = Emoji silinsin mi?
-source-0c35d0eb66e46e37 = Mesajı hemen sil
-source-59b7fa5bf0b28763 = Mesajı sil…
-source-e9f9d8094ba6a7b0 = Gönderiyi Sil
-source-9255ccfc892d27a6 = Rolü Sil
-source-153382b6a5a5d01b = Rol silinsin mi?
-source-8fc7840b4ddbcfd9 = Sunucuyu Sil
-source-abddbb71875116d1 = Çıkartmayı Sil
-source-4fd65b1ca1330a8a = Çıkartma silinsin mi?
-source-3e89f9151caf347e = Etiketi sil
-source-869ac8c6dd907cca = Konuyu Sil
-source-5deda14b53ea0218 = Web kancası silinsin mi?
-source-efdd22a490f5afb4 = Silindi - Mesaj silme koruyucusu tarafından saklanıyor
-source-0ace722d44ecfbbb = AutoMod kuralı silindi
-source-a6004317690ac4c9 = Silinen kanal
-source-3f26fc3b67d88481 = Silinen kanal izninin üzerine yazma
-source-b436a8b674ff97f8 = Silinen emoji
-source-6869b3afd5df2ac0 = Silinen entegrasyon
-source-a0cf9f30c0194d1f = Davet silindi
-source-0393235493e2649d = Silinen mesaj
-source-dfd01d7222af2a22 = Silinen mesaja erişim izni verilmedi
-source-f569f6b749b1806a = Silinen mesajlar
-source-28d2e7eeb608c55c = silinen mesajlar servis işlemlerini alamaz
-source-09c90a469e25a5df = İlk katılım istemi silindi
-source-f976bc0c686883a6 = Silinen rol
-source-c48b3c948d808d65 = Planlanan etkinlik silindi
-source-0f169d5b2ffb2d20 = Ses tahtası sesi silindi
-source-0b668f490227fb08 = Silinen aşama
-source-741286888d3f8ad1 = Silinen çıkartma
-source-d7a3e3b9f8a638ca = Silinen konu
-source-00574f84bc91ec10 = Silinen sondaki satırlar sayfalandırmayı geri sarmamalıdır
-source-ee6e4ff936a1f523 = Silinen ses kanalı durumu
-source-754d820b9e2c5017 = Web kancası silindi
-source-5fdee00c36940c47 = Bir kategori silindiğinde kanalları sunucuda kalır.
-source-e0192e6ddc3dcf18 = Bir kanalın silinmesi, kanaldaki mesajların herkes için kaldırılmasına neden olur.
-source-f520d1f154f4acf3 = Siliniyor…
-source-34767a171377d497 = Teslimat bilinmiyor
-source-e5f26ee02aff2e6e = Delta sağlama toplamı uyuşmazlığı.
-source-2118b6af69d5bf99 = Delta taraması iptal edildi veya süre sınırı aşıldı.
-source-9f8ec586afd02475 = Delta taraması çalışma sınırını aştı.
-source-c7159d9e9b77c9c9 = Delta güncellemesi çok parçalı.
-source-089b96777b594651 = demo sohbeti
-source-8515287ae0610deb = Demonun mevcut bir kullanıcısı var
-source-7fd4040204cec675 = Demo desteği dahil değildir; --features demosu ile yeniden oluşturun ve --demo ile çalıştırın
-source-8d09d6fd464b3bc5 = demo kullanıcısı
-source-d0680e7343dedb27 = Reddetmek
-source-63d894b1ddb06289 = Tanım
-source-4751dfb9fb0442c4 = Açıklama (isteğe bağlı)
-source-8fad0d62339a9f96 = Hedef mevcut veya normal bir dosya değil
-source-601620e3c5a1a625 = seçilen varış noktaları
-source-e4d062ad1e9bee7b = Çalışan oyunları tespit edin ve Discord'dan bunları etkinlik olarak paylaşmasını isteyin.
-source-e0a34a19921b0c5c = Geliştirici
-source-5bf365b61e35bb65 = Cihaz kullanılamıyor
-source-b39eef9408a202f5 = Cihazlar ve seviyeler
-source-3a37816f980a0be7 = diyalog düzeni ayarı
-source-2e498936822d8eb5 = Sözlük
-source-f48ac77358c2843a = Fark
-source-d137eebdef43fb93 = Doğrudan mesaj
-source-efaccdd898b84e4f = Doğrudan Mesaj (DM) İzinleri
-source-c5c64e1845bbca3d = Doğrudan mesaj açıldı. Mesajı gözden geçirin ve göndermek için Enter tuşuna basın.
-source-c64f7f67ac6b0f80 = Doğrudan Mesajlar
-source-8304a2831753a9fc = Doğrudan mesajlar ve kanalda gezinme
-source-76bb7cdba3f33c72 = Dizin · uygulanmadı
-source-10c8e4cae4e11503 = Devre dışı bırakmak
-source-c6a64d8d5e96b794 = Önce bir uzantıyı devre dışı bırakın; her kapsam sekiz yüklü uzantıya izin verir
-source-138e9bb4d2de4e69 = Sesleri devre dışı bırak
-source-641cd03dce2b8986 = Mevcut aramada kameranızı devre dışı bırakın
-source-66722bc2ea775e05 = Engelli
-source-6957b589eb6fe0ec = Engelli. İndirilen kod ve uzantı verileri kaldırıldı.
-source-8c3ebc65a2a0fe20 = Devre dışı bırakıldığında uzantı ve yerel verileri kaldırılır. Yeniden etkinleştirme yeniden başlar.
-source-c00a88b90cd60661 = At
-source-15455d8477f27ccd = At ve Devam Et
-source-f471ec2496f904cc = Değişiklikleri sil
-source-6b138c631a7d2a2c = Değişiklikleri İptal Et
-source-e7da4152c78d699f = Rol değişiklikleri silinsin mi?
-source-e050c6249a970e43 = Bu yayını sil
-source-838b97ac07fc3c77 = Kaydedilmemiş değişiklikler silinsin mi?
-source-a1f0e88bfb0b6a1f = Kaydedilmemiş tema silinsin mi?
-source-cde94ceb9f6ae176 = Webhook değişiklikleri silinsin mi?
-source-d2208cd1a767644b = Bağlantıyı kes
-source-fc2c3bd345c0128a = Bağlantı kesildi
-source-d4f49f46d2e3caa8 = Bağlantısı kesilen üye
-source-f60a41837fc67e7f = Discord, spam içeren bazı mesajları filtreleyebilir. Bu mesajlar Spam gelen kutunuza gider.
-source-11fc2c4ade9fe913 = Discord aktif ekran paylaşım sunucusunu değiştirdi
-source-8047181a374b49a1 = Discord oyunun görsellerini hazırlayamadı.
-source-77c1afb4005913c6 = Discord, ekran paylaşımının durdurulduğunu kabul etmedi; Tekrar paylaşmadan önce aramadan ayrılın
-source-cd302f33a2904b81 = Discord, oyununuzu herkese açık olarak listelemedi. Kayıtlı Oyunlarını ve sunucu paylaşım kontrollerini kontrol edin.
-source-77653f2765742d71 = Discord, 30 saniye içinde ekran paylaşımı bağlantı ayrıntılarını sağlamadı
-source-439e31aecc574cbf = Discord yayın bağlantısını sağlamadı; tekrar deneyin
-source-1b6796f5854806da = Discord, sesli bağlantı ayrıntıları sağlamadı; Bağlantı iznini ve kanal kapasitesini kontrol edin
-source-a5b50b349ec2088f = Discord oyununuzu gizliyor. Discord'da Kayıtlı Oyunları ve Etkinlik Paylaşımını kontrol edin.
-source-f59567662974ac88 = Discord oyununuzu listeler. Sunucu ve arkadaş gizlilik ayarları hâlâ geçerlidir.
-source-5b4ccd7d9c078776 = Discord giriş oturumu değişti; yeni bir arama başlat
-source-90b3d979169be771 = Discord ekran paylaşımı jetonunu çıkardı
-source-56ee937097d46fdb = Discord yayın bağlantı jetonunu atladı
-source-9735bc4dc9512511 = Discord sesli bağlantı belirtecini atladı
-source-90e31523e839c853 = Discord oyununuzu aldı ancak herkese açık olarak listelemedi.
-source-4fd724906e4ebb02 = Bu kişiyi ekleyebilmeniz için Discord'un bir güvenlik kontrolü yapması gerekiyor.
-source-a36824272b051dd4 = Discord'a katılabilmeniz için önce bir güvenlik kontrolü yapılması gerekiyor.
-source-42e59c7b25f2af40 = Discord ekran paylaşım sunucusu kullanılamıyor
-source-d5b4e387f6ffb382 = Discord'un hesap genelinde etkinlik paylaşımı kapalı.
-source-5ba91211f4c07a63 = discord.com · geçici giriş penceresi · şifreler ve 2FA asla sayfadan ayrılmaz
-source-fc33964aaa350cb5 = Keşif
-source-12d6dde9b30c3093 = Azletmek
-source-4118ac7f75bb8b6d = Aramayı reddet
-source-bcfafb587d8bba80 = Mesajı kapat
-source-f4e7d8d5af798928 = Güncellemeyi reddet
-source-1125d159f7e64df5 = Görüntülemek
-source-ec538d64cdfa22ae = Ekran 1 · Sentetik önizleme
-source-067e653b3284948e = Etkinlik Akışını bu sunucuda görüntüle
-source-55f9237cd5828604 = Sınırlı görüntüleme · Tam metin için mesajı kopyala
-source-e724e8e0ccb7f52c = Ekran adı
-source-38b9ff37adcd7fda = Rol üyelerini çevrimiçi üyelerden ayrı olarak görüntüleyin
-source-4c542c0d89e1db30 = Metni vurgulayarak görüntüleyin.
-source-f55a16619aa99c0f = DNF (RPM)
-source-f7e3e019e8facc9a = Rahatsız etmeyin
-source-dc43626df2960a28 = Temizleme
-source-70ef80bac94469da = Spam'i filtrelemeyin
-source-582da6fd7548ef92 = Davetiniz yok mu?
-source-9bd5f692274434de = DM'leri gösterme
-source-0379fc73608ab971 = Tamamlamak
-source-8e44d55a85b0b388 = Çift
-source-d3386a2ef42e80b9 = İndirmek
-source-53ae7df22cdebbf5 = İndirme durduruldu ancak geçici dosyası kaldırılamadı
-source-4f5103afe70a01cf = İndirme kullanılamıyor
-source-4e42a5a12275cada = Güncellemeyi indir
-source-8c43e770c12b17f8 = Güncellemeleri arka planda indirin. Hazır olduğunuzda yeniden başlayın. Serein hala başlangıçta ve bu kapalı olduğunda periyodik olarak kontrol ediyor.
-source-328805ef4c741437 = İndirme çalışanı kullanılamıyor
-source-1dc55b86a2bb722e = Sentetik ekler için indirmeler devre dışı bırakıldı
-source-a7da42c68521456d = Taslak bütçe doldu. /msg kullanmadan önce mevcut taslağı temizleyin.
-source-427830bfd51d27fc = Bu sayfaya en fazla 10 resmi sürükleyip bırakın veya dosyaları seçin. Yüklemeden önce adlarını inceleyin.
-source-d71c1fa8c318e52e = Desteklenen yola sahip yerel bir dosyayı bırakın
-source-7dd1239c563e1e1a = Yinelenen Kategori
-source-01d0558b426124e5 = Yinelenen Kanal
-source-fef3452e613bcee8 = Tekrarlanan gönderimler engellenmiş olarak kalır
-source-af63f84c86021c20 = e
-source-93bcd444a57e66a3 = Önceki mesaj · Orijinali görüntüle
-source-4ddbc4b081023d98 = En yeni değişikliklerle erken sürümler. Gecelik sürümler daha az güvenilir olabilir.
-source-5cbcad66665e15b0 = Erken önizleme
-source-285256231da6ca77 = Yankı iptali
-source-0fb54fc6dbcf011e = Tutulma
-source-64ef2a6c2dd1d3d1 = Düzenlemek
-source-d59edddb0404a407 = Kategoriyi Düzenle
-source-67d0f7ee857edbca = Kanalı Düzenle
-source-dbbe8d3af708ae12 = Özel durumu düzenle
-source-0004f244dcc1f92d = Arkadaşın Takma Adını Düzenle
-source-494e1ed913d9351a = Grubu Düzenle
-source-60ba551af0a9f02b = Bağlantıyı düzenleyin.
-source-bd41a390c6044e4a = Mesajı düzenle
-source-0a3a833266cb4585 = Gönderiyi Düzenle
-source-63182413f7631d4c = Profili düzenle
-source-4ce25a2df7d09227 = ROLÜ DÜZENLE
-source-33869f2cbda53587 = Rolü düzenle
-source-08f89e20bc34c1a7 = Rolü Düzenle
-source-ab68cb1163c86bbe = Çıkartmayı düzenle
-source-d6e313197e231741 = Etiketi Düzenle
-source-ecec331a1bdc23a1 = Etiketi düzenle
-source-934db4e7208236dc = Temayı düzenle
-source-1b10744423f05e8b = Konuyu Düzenle
-source-f6c727233c1b6da4 = Web Kancasını Düzenle
-source-05c44a5db696fcaf = Düzenleme
-source-b862157d53a6b703 = E-posta, şifre ve güvenlik
-source-cace301a88231cce = Göm
-source-245c5df82f276652 = Gömülü ekran sınırlı
-source-3d1a7baa39e2bd83 = Bağlantıları Göm
-source-a1e4b01cd0916852 = Gömülü resim
-source-76d9763b30b68cf4 = Gömülü resim indirilemiyor
-source-6a439f6898ac9710 = Gömülü görüntünün en fazla 16 MiB boş olmayan İçerik Uzunluğuna ihtiyacı var
-source-ac313f894a08b603 = Gömülü resim proxy'si PNG döndürmedi
-source-ea95c2cf6ba1321e = Gömülü resim, tam kalitede yükleniyor
-source-cace221a88230504 = Kor
-source-e3ed881a961f14bd = Emoji
-source-cee765c0e64432aa = Emoji eylemleri
-source-573c3ae1700a0304 = Emoji adı
-source-b155b53d8beb3523 = Emoji adı: 2-32 harf, rakam veya alt çizgi
-source-1218793cd20035e6 = Emoji adlarında 2-32 harf, rakam veya alt çizgi kullanılmalıdır.
-source-4f32846604c2dedb = Emoji hazırlığı iptal edildi
-source-d0bcb0176c225693 = Emoji hazırlığı yarıda kesildi; resimleri tekrar seç
-source-cbae70bda0745d59 = tr-TR
-source-9078ee819c18df6e = Olanak vermek
-source-1a2e69906e685d3e = Müstehcen emoji ve çıkartma görseli eki seçimini etkinleştir
-source-e2da94ab260a1992 = Genel tuş bağlantılarını etkinleştir
-source-67794c6150d44a83 = Discord'da etkinleştir
-source-58b1a0d3bafb9717 = Bu uzantıyı etkinleştir
-source-f69dd93b60605717 = Bu temayı etkinleştir
-source-3122c8f9c960ec25 = Mevcut aramada kameranızı etkinleştirin. Videonuz görüşme katılımcılarıyla paylaşılacak.
-source-965c503c3e42fdfe = Etkinleştirilmiş
-source-7c2f4458ff91247a = Güncellemelerde şifrelenmiş dosyalara, bağlantılara ve özel dosyalara izin verilmez.
-source-d8f923198e0c5c6a = Son
-source-0c026f63f4692281 = Bitiş rengi
-source-703c0aa2d894682e = Nişanlanmak
-source-4caed5b7a7e5d89b = İngilizce
-source-7e388025be643d0d = Girmek
-source-9645ed22476854f9 = Bir mesaj girin...
-source-53dff427018a39aa = Bir takma ad girin
-source-d971e783e8e1c230 = Geçerli bir Discord davet bağlantısı veya davet kodu girin.
-source-efc367168ba9d790 = Mevcut bir sunucuya katılmak için aşağıya bir davet girin.
-source-000e2a6e5c27aaa3 = Tarihleri ​​1 Ocak 2015'ten sonra YYYY-AA-GG olarak girin.
-source-a67c29835114dbff = Sunucu adını girin
-source-1856c582cabea9b4 = Eşittir
-source-d90625198e16ea2c = Hata
-source-5f343a43e7ea9f91 = Hata
-source-4c5ab8c67a3c8d06 = Hata ve tehlike
-source-d9763e198e761c5e = ESC
-source-d90a1e198e1ac71e = Esc
-source-1b61db587d3e3f26 = Kaçmak
-source-88ea71eff91fc3ad = Kurulmuş
-source-96cfdad16b1fc29a = her simge birlikte verilen atlastadır
-source-51a1dec7855d81f8 = Herkes
-source-05f85a15be408b30 = Bu kanalı görebilen herkes konuyu görebilir.
-source-79d584525abb8fe7 = Dokunabileceği her şey aşağıda listelenmiştir.
-source-4d8a5c34640b7c4c = Örnek silinmiş mesaj görünümü
-source-a6905be242387f36 = İstisna
-source-00f3434c37a595a2 = Tam ekrandan çık (Esc)
-source-b713c19435a32ea9 = Önizlemeden çık
-source-3b151ca64eb26ec1 = Genişletmek
-source-c53599bd0d514ea4 = Beklenen gönderi komutu
-source-3cc3d110acf1a01f = Beklenen okuma onayı
-source-18200f4abfc1aabf = İki başlangıç ​​eklentisi ve dokuz tema bekleniyordu
-source-0f204db3f00f224c = Şu Süreden Sonra Sona Ersin
-source-d923f95605fed7b2 = Günü geçmiş
-source-d924045605feea63 = Süresi doluyor
-source-84a21cf179dffbde = Son kullanma tarihi aralık dışında
-source-e2c575a9c8f6cf74 = Discord'daki keşfedilebilir toplulukları keşfedin ↗
-source-bb00c21107619a9c = Çevrimdışı önizlemeyi keşfedin
-source-b5541625a637dc5a = Dışa aktarma yolu çok uzun
-source-23d16d71268f4c6e = Temayı dışa aktar
-source-c2f8a5c18de21c0b = İFADE
-source-6e2b24864ce75735 = Uzantı hesabı verilerinin kaldırılması sıraya alınamadı
-source-8189793f185caef1 = Uzantı temizliği başarısız oldu; başlatıldığında yeniden deneyecek
-source-af020c5332d3c066 = Uzantı temizliği başarısız oldu; Uzantıları yeniden deneyin veya yeniden açın
-source-d61f3c801ebf657f = Uzantı hata ayıklama kontrolü başarılı oldu: başlangıç ​​paketleri, izin, tutulan silinmiş satır, eski geçmişi reddetme ve yerel kaldırma.
-source-34e24e528d7748fe = Uzantı dizini sembolik bir bağlantı olamaz
-source-195416e814190f6a = Uzantı indirme DNS'si başarısız oldu
-source-7bc4430b3ca9e66a = Uzantı indirmesi bayt bütçesini aşıyor
-source-d72deafa566af453 = Uzantı indirilemedi
-source-41b548cb2200222c = Uzantı indirme işlemi kesintiye uğradı
-source-3b84bd9a34acdeaf = Uzantı indirme boyutu değiştirildi
-source-4c48f0085e30f974 = Uzantı indirme boyutu veya kodlaması desteklenmiyor
-source-700a42dd85e66531 = Uzantı indirme zaman aşımına uğradı
-source-6249e4736b0dbc8c = Uzantı indirilemiyor; kataloğu yenileyin veya yerel bir paket kullanın
-source-c7738956d1c15997 = Uzantı indiricisi kullanılamıyor
-source-b4e5ec9a408b35a6 = Uzantı indirmeleri özel ağlara erişemez
-source-b101445a5213901f = Uzantı etkinleştirildi.
-source-deaef0955d655338 = Uzantı hatası
-source-b371d4a2fae90a84 = Uzantı dosyası bayt bütçesini aşıyor
-source-fd81ac1e8e40a740 = Uzantı dosyası seçimi sona erdi.
-source-49db7a4cf2a9e120 = Uzantı devre dışı bırakıldı; temizleme işleminin yeniden denenmesi gerekiyor
-source-f511b9389c28f278 = Uzatma işlemi iptal edildi
-source-3e15cb7b1adac780 = Uzantı paketi sağlama toplamı değişti; yayını tekrar inceleyin
-source-5390664b6a2f838f = Uzantı paketi depolama bütçesini aşıyor
-source-1b4d525a974ff43f = Uzantı paketi normal bir dosya olmalıdır
-source-8f683e089be62eb8 = Uzantı depolama alanı dolu; önce eski bir hesaptan çıkış yapın
-source-bc8382e62a862de8 = Uzatma aracı
-source-79f6edaaffc1fa63 = Uzantı çalışanı beklenmedik bir şekilde durduruldu
-source-9698888cf053484b = Uzantılar
-source-079f0684890eeede = Uzantılar meşgul. Mevcut eylem bittikten sonra tekrar deneyin.
-source-4b780885b35a030b = Uzantılar meşgul; mevcut işlemden sonra tekrar deneyin
-source-be17b4ce8cc085d6 = uzantılar eklentiler mağaza mağaza kataloğu içe aktarma topluluk araçları
-source-6af7709ae013ba4c = Uzantılar, kimlik bilgisi gerektirmeyen genel HTTPS URL'leri gerektirir
-source-56bcc58e283553fc = uzantı ayarları
-source-af63fb4c86022139 = F
-source-09050b07b59e2098 = F1
-source-f1b266199bb17d78 = F10
-source-f1b267199bb17f2b = F11
-source-f1b268199bb180de = F12
-source-09050e07b59e25b1 = F2
-source-09050d07b59e23fe = F3
-source-09051007b59e2917 = F4
-source-09050f07b59e2764 = F5
-source-09051207b59e2c7d = F6
-source-09051107b59e2aca = F7
-source-09050407b59e14b3 = F8
-source-09050307b59e1300 = F9
-source-772b6467f5681ff0 = başarısızlık kalkıştan sonra hayatta kalır
-source-09dccb2f68f0a098 = YANLIŞ
-source-7254ca27b16ae2d8 = YANLIŞ
-source-51ba5321a04109cd = Favori
-source-278894f14b3a2827 = Favori GIF
-source-20a500234e838dda = Favoriler
-source-71ddb2d7436549d4 = Favoriler bu cihaza kaydedilir.
-source-6da2a4faf81bb30a = Sunucu ayrıntıları getiriliyor…
-source-e79412858c13b923 = DOSYA
-source-d1f81284eeb7b503 = Dosya
-source-3b6f4c0ecc764f98 = Dosya eklenmemiş; bağlı bir konuşmaya geri dönün ve konuşmayı tekrar bırakın
-source-6c607f6de8bc4cda = Dosya gönderilmedi; eki yeniden bağlayın ve yeniden seçin
-source-c53eecba31441697 = Dosyalar gönderilmedi; toplamı en fazla 500 MB olan en fazla 10 dosya seçin
-source-2821bde3272e7dd1 = Alanı doldur
-source-8a904bc5734c26fd = Tüm spam'leri filtrele
-source-c78f2b11121d749e = Eyleme göre filtrele
-source-2eda83d21be9b20f = Kullanıcıya göre filtrele
-source-9bed178750df20c8 = Arkadaşınız olmayanlardan gelen mesajları filtreleyin
-source-9de4cfd6c4734ef5 = Tanımadığım sunucu üyelerinden gelen mesajları filtrele
-source-a8beb6b1182241ac = Filtreler
-source-cadf6c1ed80c4665 = Görüşme bul
-source-036454e59e47ba76 = Mükemmel emojiyi bulun
-source-77934b05d5db8b6f = Mükemmel çıkartmayı bulun
-source-49c572d8d6fe4f6f = Açmadan veya kapatmadan önce metni oluşturmayı bitirin.
-source-e9be2550c775902e = Eğik çizgi komutunu kullanmadan önce düzenlemeyi veya yüklemeyi bitirin.
-source-a51d57ef25091964 = Önce sunucu ayarlarını düzenlemeyi bitirin
-source-e179a19bdbd3fb98 = Bu uzantıyı ve yerel verilerini kaldırmayı tamamlayın.
-source-1d6b6bec2a02a75a = Tekrar kontrol etmeden önce mevcut güncellemeyi tamamlayın.
-source-4dc7a2f3b345afdb = Önce mevcut yüklemeleri tamamlayın. Bir seferde en fazla 10 resim seçin.
-source-9d6c49a1136d640d = Bu yazının ilk mesajı
-source-17d7735daef94b08 = İlk sayfa
-source-25abe5fd8011f5b0 = Resmin tamamını sığdır
-source-3ecb9c975b67b27e = Fikstür modu hiçbir zaman kimlik bilgisi deposunu veya ağı açmaz
-source-d9feb2de7b1d113f = AutoMod ile işaretlenen mesaj
-source-1845d941049117e8 = Flatpak, güncellemeleri deposu aracılığıyla yönetir. Yeni sürümleri yüklemek için 'flatpak update'i çalıştırın veya GNOME Yazılımını / KDE Discover'ı kullanın.
-source-8f9f6bf0d9e5f79d = Flatpak güncellemeleri, deposu veya 'flatpak güncellemesi' aracılığıyla yönetilir.
-source-62edc0fd99aa859a = FLATPAK_ID
-source-b64f4a0accc8a8c5 = Batmadan yüzmek
-source-41e1d3c9e15d4e44 = Klasör adı
-source-6991b88b59c28e86 = Klasör adı ve rengi…
-source-f314b2d4e233ff7a = Klasör Ayarları
-source-4fd78d90908a11f0 = Takip etmek
-source-a98d0892a081eeda = Gönderiyi Takip Et
-source-99e8e08708a9239f = Bildirimlerini değiştirmek için bu gönderiyi takip edin.
-source-d54073ff1cf10885 = Bildirimlerini değiştirmek için bu konuyu takip edin.
-source-ecd37261d5eae9e0 = Konuyu Takip Et
-source-40384403db2ea003 = Yazı tipi hata ayıklama kontrolü başarılı oldu: sınırlı içe aktarma, geçersiz giriş, kayıtlı kopya, CJK yükleme sırasında değiştirme, sıfırlama ve kayıtlı dekorasyon tercihi.
-source-339e2c08f4cbe486 = yazı tipi tanımları
-source-1cf0e3786ba7e88c = Yazı tipi içe aktarma işlemi kesintiye uğradı. Tekrar deneyin.
-source-f4668abd58e91513 = 1 Saatlik
-source-e3945a6cbdc056e3 = 15 Dakika İçin
-source-576080d0ab8b31d9 = 24 Saat boyunca
-source-50da0d6885986e32 = 3 Saatlik
-source-97ed643174870537 = 8 Saatlik
-source-304dda6df0046683 = Bir kulüp veya topluluk için
-source-88ec3800dc5b32e1 = Örneğin: 🐀
-source-7c0faf44b7599d62 = Ben ve arkadaşlarım için
-source-34d419a9f8685cb2 = şimdilik.
-source-fbcd6af7d9aff325 = Halihazırda geçerli bir Discord oturum jetonuna sahip olan sahipler için (örneğin oturum açılmış başka bir Serein kurulumundan). Şifreler ve 2FA burada asla kullanılmaz; bu, Discord'un barındırılan giriş sayfasını tamamen atlar.
-source-7175399dc6314dac = Unutmak
-source-9397a9369bb3db4b = Hesabı unut
-source-1d90f9eda8b4b1ca = Kayıtlı girişi unut
-source-adbe56978c9cfede = Bu hesabı bu cihazda unut
-source-a384dc1622f82116 = Forum
-source-eba3fab86485cfe5 = Forum · yüklenen gönderiler
-source-9fc3568ec8629bda = İleri
-source-7daf5bfa11898c81 = İleri hata ayıklama kontrolü başarılı oldu: seçici, sınırlı hedefler, isteğe bağlı not, taslak koruma ve kuyruk reddi.
-source-7ec11c0013933e6d = Mesajı ilet
-source-059f509c56a037f3 = Şuraya İlet:
-source-5ad0482fed792e59 = Yalnızca ileri ses
-source-9a937c330ddf4c7b = salt ileri kaynak kod çözme
-source-26c8265e79df99a5 = Kurucular
-source-8be13012c2c30e80 = Kare hızı
-source-f05c881aa97a3001 = Bir komut seçmeden önce bir miktar taslak alanı boşaltın.
-source-224d6be8ffada421 = SIK KULLANILAN
-source-9f57a2661b8a7e2d = Arkadaş
-source-70474ccb0dc33ce7 = Arkadaş Takma Adı
-source-c446ee72f0a45594 = Arkadaşlık İsteği İzinleri
-source-e9181d5845ed2006 = Arkadaşlık isteği gönderildi
-source-9369cfa7a815be46 = Arkadaşlık İsteği Gönderildi
-source-681dcadff37dc161 = Arkadaşlık İstekleri
-source-e33713c40cf8905a = Arkadaşlar / Ev
-source-9c2738fc2a406ace = Arkadaşlar henüz mevcut değil.
-source-65eb5bc01697d4e2 = Arkadaşların arkadaşları
-source-c9a69a60f64de5fb = Arkadaşlar ✓ · kaldırmak için tıklayın
-source-a6ab5184d6315895 = İtibaren
-source-6a22169a205e9ee5 = Belirli bir kullanıcıdan
-source-35af70bbb896f6dc = Kullanıcıdan
-source-bbaf771b88e35414 = Gönderen: kullanıcı
-source-706925c982e7f828 = ön kısım mevcut
-source-4b10acae683d2978 = Tam ekran
-source-07da69ddbc0d4c69 = İşlev
-source-140834e3da0cc236 = Gelecek
-source-af63fa4c86021f86 = G
-source-1e3a08abb66683bd = Galeri
-source-0a9a42586b09b675 = galeride görseller var
-source-1e34d0d25d7b3f62 = Galeri Görünümü
-source-b8e5f7265e112995 = Oyun etkinliği kullanılamıyor. Diğer Discord istemcilerini kapatın, ardından paylaşımı kapatıp açın.
-source-e7985c1f65a954c8 = oyun etkinliği oynama osu durumu iletişim durumu paylaşımı
-source-ec1fd5e3efcd9dce = Oyun etkinliği durduruldu. Yeniden denemek için paylaşımı kapatıp açın.
-source-4ca984ba718c3836 = Ağ geçidi bağlantısı: desteklenmeyen el sıkışma veya etkinlik
-source-a151ff7482693921 = Genel Kategori İzinleri
-source-681e7c486f10ddc4 = Genel Kanal İzinleri
-source-1a44957753e55a32 = Genel Sunucu İzinleri
-source-d7610725910c019c = genel ayarlar
-source-f10b658a307e86bd = genel windows macos linux oturum açma menü çubuğu başlatma otomatik başlatma otomatik olarak aç küçültülmüş simge durumuna küçült tepsiyi kapat arka plan başlık çubuğu resim yazısı pencere düğmeleri dekorasyonlar kenarlıksız döşeme grafikler gpu bağdaştırıcısı oluşturma ayrı tümleşik donanım hızlandırma performans pil
-source-9d8db15e76da6741 = Yeni Bir Bağlantı Oluştur
-source-923705a1daf9e84b = Oluşturuluyor…
-source-eaa7b519982a0e81 = GIF
-source-1e7afe9c575c706a = GIF'in çerçevesi yok
-source-ef523a043cb1a201 = GIF resmi çok büyük
-source-da334a907c5c26f7 = GIF araması kullanılamıyor
-source-06f6fe5fe2333748 = GIF aramasının bağlı bir oturuma ihtiyacı var.
-source-a99c5d408bd41e1f = GIF87a
-source-a97a61408bb73e85 = GIF89a
-source-e507ac7d8f776536 = GIF'ler
-source-a8c3b80277455232 = GitHub
-source-b6d9318313cb0848 = GitHub güncellemeyi sağlayamadı. Daha sonra tekrar deneyin.
-source-e7884a357ee4c9d2 = GitHub geçersiz sürüm meta verileri döndürdü.
-source-4de5f0ba822e25c8 = GitHub'ın güncelleme sınırına ulaşıldı. Daha sonra tekrar deneyin.
-source-a243636f80fc6cce = Bu gruba herkesin tanıyacağı bir isim ve simge verin.
-source-57f156fdd0c8dbef = Yeni sunucunuza bir ad ve simge verin. Bunları daha sonra değiştirebilirsiniz.
-source-bd4e2210817a1a0e = KÜRESEL
-source-4ba26827f64d38bd = Küresel kullanılabilirlik
-source-09023907b59c38eb = Gitmek
-source-20d5102dc78225fb = Sunucuya Git
-source-ea0cb350ea71bc45 = Gradyan
-source-3515e80533806a86 = Geçici üyelik ver
-source-41803f9fcd0f8de5 = Tüm izinleri verir ve kanal izni geçersiz kılmalarını atlar. Bunu yalnızca güvendiğiniz kişilere verin.
-source-ecbc78bca0822905 = Bağlantı kesildiğinde veya meşgulken grup işlemleri kullanılamaz.
-source-dd0585c25a191d3f = Grup görüşmesi kullanılamıyor
-source-39048d780c11ddc6 = Grup doğrudan mesajı
-source-366842f512dbbd93 = Grup simgesi boyut sınırını aşıyor
-source-9ed4b1216c365c5b = Grup menüsü
-source-030655287e89069f = Grup adı
-source-6312a7bbb63e7117 = Sunucuyla gruplandır
-source-1b2f61ae8f202f60 = Korunan ZIP meta verileri başarısız oldu.
-source-78d49005a4e852ba = Korunan ZIP yükünün kodunun çözülmesi başarısız oldu.
-source-af64054c86023237 = H
-source-1369c99f2e45df7a = Birlikte takılın ve konuşun.
-source-49613319cda8a1a3 = Sahip olmak
-source-909c6c31361a82c7 = Şuna sahiptir: bağlantı, yerleştirme veya dosya
-source-58cb9fd8758aebf1 = Doğramak
-source-439d260b478d6e91 = Hash-Uzunluklar
-source-3f51f5a6ced22f90 = Zaten bir davetiyeniz var mı?
-source-75d83fc3f0cfab40 = Başlık
-source-2e07cda805841012 = Başlıklar
-source-c241395cbd5f4876 = Seçtiğiniz konuşmacılar aracılığıyla kendinizi dinleyin. Geri bildirimi önlemek için kulaklık kullanın.
-source-9d35c5db61e86ce6 = Bir etiket oluşturarak insanların gönderilerini alt kategoriler halinde düzenlemelerine yardımcı olun.
-source-b291fc0e032d0d4f = Altıgen rengi: #RRGGBB. Yazmak veya yapıştırmak için tıklayın.
-source-9df212d89cab196d = Saklamak
-source-0ffbdc1726fb6ebb = Hareketsizlikten Sonra Gizle
-source-769ed34384d07576 = Resim ve GIF bağlantılarını gizle
-source-0aa873e6c2f28288 = Eşleşen metin vurgusunu gizle
-source-57e16ad6652e6134 = Medya bağlantılarını gizle
-source-725477d04a36a98a = Sessiz Kanalları Gizle
-source-762e679f62ae02c1 = Katılımcıları gizle
-source-8529bfe5e40476a8 = Spoilerleri gizle
-source-3dc515b39430e680 = Resimleri veya GIF önizlemesi gösterildiğinde bağımsız bağlantıları gizleyin.
-source-b162fba95c2ecba9 = Katılımcı şeridini büyütülmüş videonun altına gizleyin
-source-9deeefd89ca8a81d = Yüksek
-source-58c754018ec47b5f = Tarih
-source-877db9a965e78ff1 = Geçmiş henüz mevcut değil. Tekrar denemek için Yeniden Yükle'yi kullanın.
-source-e923cd10a1e399e1 = Konuşmak istediğinizde yapılandırılmış kısayolunuzu basılı tutun.
-source-a53a3619d24212cf = Holografik
-source-6abb1cd87fe0114e = Ev
-source-0b43e6e909895c89 = Yatay
-source-14b242e1c4820e0d = Vurgulu
-source-000ccf53f16fac4e = Burada tutmak için bir GIF'in üzerine gelin ve yıldıza basın.
-source-890ee07baf12f5d7 = Önizlemek için bir çıkartmanın üzerine gelin
-source-2f7a3edead4ab00c = Önizlemek için bir emojinin üzerine gelin
-source-b31ae534f0201385 = Sunucunuz nasıl başladı? İnsanlar neden katılmalı?
-source-81d5b23881088e83 = Temanızın galeride nasıl göründüğü.
-source-731d0208840a7800 = hTKzmak · discord.gg/hTKzmak · discord.gg/wumpus-friends
-source-c98fb2d8b57594f0 = HTML
-source-af64044c86023084 = BEN
-source-d10d2dc5f8e74c73 = Bu hesabın sahibiyim ve bu oturuma izin veriyorum.
-source-068d4dd16d9106d0 = Simge
-source-a553c9a0dce42642 = Kimlik veya seçin…
-source-411a4a19c9146569 = ID3
-source-49e91d0d9e0bf552 = ID3 yükü hiçbir zaman getirilmiyor
-source-411a5419c9147667 = kimlik=
-source-ae423d5fb59ebed9 = Tanımlayıcı=
-source-c92905d14a9421f3 = Boşta
-source-bdee1c54486ec63e = ISayılandırılabilir
-source-370a3dd62278a528 = Mesajın sabitlenip sabitlenmediği
-source-3d93f9ea0c5a13fa = Resim
-source-66b8dfd81d2ada15 = Resim eylemleri
-source-190b1f0db71908fb = Resim eki
-source-4a752a36999535a7 = Görüntü, kod çözme sınırı dahilinde kopyalanamıyor
-source-915dd15d1094d035 = Görüntünün kodu çözülemedi
-source-53d3f2aec75dc3ac = Resim indirme işlemi kesintiye uğradı
-source-28a63ec28a4d9cb5 = Görüntüye sığdırma
-source-8d53e3ace074daa4 = Resim 8 MiB'den büyük
-source-9a8bdf5e02fde283 = Resim çok büyük
-source-d66857039cf6aa8c = Resim desteklenmiyor veya çok büyük; en fazla 4096 × 4096 piksel kullanın
-source-8eb80838a31c6217 = Görüntü opaklığı
-source-b0e95a44c5832060 = Resim gönderisi
-source-cc44400cc9d4eeed = Görüntü hazırlama işlemi kesintiye uğradı
-source-21fd53a0c86b5494 = Görüntü hazırlama işlemi kesintiye uğradı; tekrar seç
-source-e9992f53ea8527e2 = Resim önizlemesi
-source-4f7a7453ede3db5b = Resim seçimi iptal edildi
-source-7b9e62201fc23913 = Resim paylaşımına erişim izni verilmedi
-source-f9e9fb8972db5290 = Resim kullanılamıyor
-source-824bcaa487aefa5f = Resim kullanılamıyor veya 8 MiB'den büyük
-source-0c002f31d0eccc90 = Resimler önbelleğe alınamadı; hafızada mevcut kalırlar
-source-7be593be34983abf = Yazı tipini içe aktar…
-source-536b11358e1bc3a0 = Paketi içe aktar…
-source-ed12d0d18b972087 = İçe aktarma yolu çok uzun
-source-aab9f9d1763e826f = Temayı içe aktar…
-source-b59092a018c8c220 = Bu kanalın kategorisinde · kategori izinlerini devralır
-source-5afd8800d125b01a = içinde …
-source-7b44be5f4de4f0e3 = Bu platformda uygulama içi kurulum desteklenmiyor.
-source-db4bd4b824a282f0 = Uygulama içi kurulum, Serein'in Geliştirici Kimliği imzalı sürümünü gerektirir.
-source-567e3276f0b0f009 = Uygulama içi kurulum, bir macOS veya Windows sürüm paketi ya da Linux x86-64 AppImage gerektirir. Diğer Linux kurulumları paket yöneticilerini kullanır.
-source-78bf951bc1632023 = Etkin Olmayan Kanal
-source-1b9310d53986c897 = Şunun için etkin değil:
-source-2220bd7f2217cf5b = Etkin Olmama Zaman Aşımı
-source-d2ef82d232067766 = Kenar çubuklarını, sunucu rayını, başlıkları ve oluşturucuyu ekleyin.
-source-10901dc29f1103bb = İşaretçiyi paylaşılan videoya ekleyin.
-source-fcbb9955a42abef4 = Belirli bir veri türünü içerir
-source-e30930ba8681baeb = Seçilen veri türlerinden herhangi birini içerir
-source-0372bce8ab8e7b45 = Gelen arama…
-source-2e80b701dc80533d = Gelen zil sesi
-source-4db54da3664c2055 = Eksik rol yaması
-source-a978564370e2b2f3 = Bağımsız ve açık kaynak. Discord'a bağlı değildir.
-source-72f8dbd6003e4624 = Dizin oluşturma tamamlanmadı; sonuçlar eksik olabilir.
-source-0c0230002435da99 = Sonsuzluk
-source-6b585ba37cdb8260 = Devral
-source-2256feb673e7874c = yukarıda başlatıldı
-source-88d374f8374273ec = Canlı mor vurgulu mürekkep rengi gece yarısı yüzeyleri.
-source-db1595f5c742dfbb = Giriş
-source-f735822173a46384 = Giriş kazancı (%)
-source-7dd9b019ce8d7d29 = Giriş seviyesi
-source-c78869b8c7b3e7b2 = Giriş profili
-source-e5ce0d4b7f1cdc2c = Giriş ayarları
-source-e07e2bf7e4687e74 = Giriş eşiği
-source-41a92219c98dd9b7 = Girişler
-source-5ada999b33ccc808 = Sokmak
-source-70d9d4fda21a48c5 = Bir emoji ekleyin
-source-ee5ac5102dcacf1a = Bu kontrolleri kullanmak için ses özellikli bir yapı yükleyin.
-source-c58d983d7f8dc085 = Temayı yükle
-source-0ee0c68d0024b96b = Yüklü uzantının parmak izi geçersiz
-source-80cb01ff2864c336 = Yüklü uzantı kimliği değiştirildi
-source-a93385788263bda8 = Yüklü uzantı meta verileri geçersiz
-source-4e89bcac7237882a = Yüklü eklenti kimliği değiştirildi
-source-54ee04e01df690b3 = yükleme önceki ön ayarları korur
-source-41a91f19c98dd49e = Dahili
-source-61d49062aaedbf65 = Tamsayı
-source-75c5a62c20aeb9f4 = Entegre Kamera (önizleme)
-source-03970aa76a09982d = Entegrasyon
-source-233f78792e4de7ba = Entegrasyonlar
-source-baaadff5b5886ee9 = Inter
-source-59d72bac7fa31a39 = Inter (varsayılan)
-source-13cc7c9a6045f074 = Ara Ortam
-source-ee3924f4b629eb16 = Inter Yarı Kalın
-source-1a81ae5aabe22de4 = Inter-Regular.ttf
-source-e6b26e433d821b85 = Inter-SemiBold.ttf
-source-1aea0acdc165591d = Arayüz yazı tipi
-source-51693b181594f130 = Geçersiz
-source-aff59fe0ca6f3337 = Geçersiz etkin tema
-source-f0ede5667e3c2368 = Geçersiz arşiv imleci
-source-d555edf4908c1d30 = Geçersiz toplu bildirim sesi
-source-3340ea4ac8a008ca = Geçersiz kanal tanımlayıcı
-source-fad7ba128f14189f = Geçersiz kanal türü
-source-98c63dbd9df31dd7 = Geçersiz sağlama toplamı.
-source-7647b72796eaac6e = Geçersiz temizleme işaretçisi
-source-6bb35ccac4214000 = Geçersiz özel emoji adı
-source-5bc866e5341fc71a = Geçersiz delta meta verileri kabul edildi.
-source-5a9316c0f55d2c1f = Geçersiz emoji resmi
-source-2a24647263ec3c22 = Geçersiz uzantı hesabı kapsamı
-source-7e2d0d6e28b10843 = Geçersiz uzantı indirme ana bilgisayarı
-source-f39ed7267460de3a = Geçersiz uzantı indirme URL'si
-source-c8a0d30bcb4932ac = Geçersiz uzantı tanımlayıcısı
-source-8d3e3fdf912b6247 = Geçersiz uzantı yönlendirmesi
-source-b914efe8a0101490 = Geçersiz GIF animasyonu
-source-841b936014dbdc07 = Geçersiz GIF resmi
-source-c92909345b3cc683 = Geçersiz tanımlayıcı
-source-2144d2fd528b11de = Geçersiz mesaj tanımlayıcı
-source-9e0a3f07d119818c = Geçersiz mikrofon işleme ayarları
-source-c88d54eb07eaa02d = Geçersiz mikrofon profili
-source-66a622ff6e253fcb = Geçersiz paket yolu.
-source-c24233b6611d0b96 = Geçersiz izin izin maskesi
-source-77cb31f8ce19f359 = Geçersiz izin reddetme maskesi
-source-e304160d5c17e0f9 = Geçersiz izin maskesi
-source-103b0e96130997a7 = Geçersiz pin imleci
-source-97991767f58bad16 = Geçersiz eklenti izinleri
-source-de7a9123467851fb = Geçersiz varlık tercihleri
-source-70e622bcaf00bb11 = Geçersiz iletişim durumu
-source-926da7ff753427e9 = Geçersiz tepki emojisi
-source-699b6984bf2adc2d = Geçersiz kaydetme hedefi
-source-efff269891a514d6 = Geçersiz ekran sesli oturumu
-source-890785553e903272 = Geçersiz akış ses oturumu
-source-b8efab09a838ede2 = Geçersiz bastırma modu
-source-8fe713d416554a32 = Geçersiz kullanıcı tanımlayıcı
-source-3c29996ee3f84135 = Geçersiz video araması
-source-3f4de05e737c4050 = Görünmez
-source-2afc9a717c161490 = Davet etmek
-source-552eee8a38a62007 = Davet kabul edildi. Sunucu erişimi bekleniyor; Discord'daki tüm sunucu kurallarını tamamlayın.
-source-8da3b13ecb71b7c5 = Kodu Davet Et
-source-e0cb011a27bd9365 = Davet süresi dolmuş veya geçersiz
-source-6c0826939c587680 = Bağlantıyı davet et
-source-29ee695e0f89c0cd = Bağlantı Ayarlarını Davet Et
-source-21c03de940770a05 = DAVET BAĞLANTILARI DURAKLATILDI
-source-b3675a0187b1e112 = Kanala Davet Et
-source-456d2642d56934d8 = Sunucuya Davet Et
-source-cc2c588519113d3a = Davet kullanılamıyor
-source-214f50d5d9857c06 = Davet eden
-source-214f51d5d9857db9 = Davetler
-source-ac6d5df486b78dcb = Davetler şöyle görünüyor
-source-2ae8be723608ca27 = IPC çerçeve sınırı
-source-76ec54b338997987 = Yeni sunucunuz birkaç arkadaş için mi yoksa daha büyük bir topluluk için mi?
-source-bf6fbda23925fcb4 = Sorun teşhisi
-source-0f39f43458e1606f = Öğe aralığı
-source-132e74c95d560583 = Tekrarlanabilir
-source-14c80c3d82ecfe2f = Mesajları kalıcı olarak silinecek. Bu geri alınamaz.
-source-c110b9e869ede5f2 = Bu cihazdaki kayıtlı oturum açma bilgileri, önbelleğe alınmış geçmiş ve taslaklar kaldırılır. Discord hesabına dokunulmamıştır; istediğiniz zaman tekrar oturum açabilirsiniz.
-source-af64074c8602359d = J
-source-c2af8aea5b96bba5 = Java
-source-1cdd68204da8bdaa = JavaScript
-source-6c6bf3ea2ad3d219 = Katılmak
-source-b2afbf038a6cfe9d = Bir Sunucuya Katılın
-source-60988f8dcf4afee1 = Sese katılın. Aramanın güvenliği sağlandıktan sonra mikrofonunuz başlar.
-source-e59e5884d3263eeb = Görüşmeye katıl
-source-f93c30c9e799811a = Katılma yöntemi
-source-29a7fede2fd2d558 = Sunucuya Katılın
-source-c57036386980e37f = Dinlemek için katılın. Bu kanalda konuşma yapılamıyor.
-source-958fd8a18d9097af = Voice'a katıl
-source-2a2b53f9a9998870 = Discord'a katıldım
-source-03499a0733b35e4c = Son 7 gün içinde katıldınız
-source-11042a37390cda1b = Özel olarak katıldı
-source-d2ae1a44fbc39082 = Bu görüşmeye katılmak artık mümkün değil
-source-07732f31ca518ea0 = Bu kanala katılmak mevcut izin bilgileriyle mümkün değildir.
-source-621bc36db6521411 = Katılıyor…
-source-34d46fe97a690403 = JSON
-source-15a477e9f9a165ad = Zıplamak
-source-8d29fb87378b5493 = Gönderen mesaja atla
-source-ea06f2fec89302d9 = Sunuma atla
-source-dc1660d3322d1da5 = Okunmamışlara atla
-source-84126fa92f00b4ef = Şu anda
-source-af64064c860233ea = k
-source-739c12da7c022020 = Katana'nın koyu kömür yüzeyleri ve keskin kırmızı vurguları. Işık modu yerleşik renkleri kullanır.
-source-d60a7dde73859828 = Kale
-source-ec6d1ce476382a2c = Düzenlemeye Devam Edin
-source-7b8db4b25760798c = Düzenlemeye devam et
-source-1884d8e4db1b7e44 = Görüntü ve bölüm opaklığını %0 ile %100 arasında tutun.
-source-b40ef363d7acbab2 = Etkin durumdayken yüklü silinmiş mesajları oturum belleğinde tut
-source-fefea061e3aef939 = Bu oturumda zaten görülen mesajları, silme işleminden sonra kırmızı renkte görünür halde tutun. Devre dışı bırakıldığında veya oturum kapatıldığında temizlenir.
-source-b37797ccd56f4513 = Pencere yeterince geniş olduğunda üye listesini açık tutun.
-source-5847ae7d38e846bb = Çalışmaya Devam Edin
-source-85e7706d883c1b1f = klavye kısayol ayarları
-source-70b984de3ae12f5f = Tekme atmak
-source-dcaaa6a6d1d2f80b = Üyeyi At
-source-c8f1a576897c33e8 = Üyeleri Atma
-source-010cab31d8ba72f4 = Üye atıldı
-source-beb0c3f65be90a4c = Kotlin
-source-af64014c86022b6b = L
-source-f6758693b338b2bf = Bilinen son katılımcılar Â· yenilemek için yeniden bağlanın
-source-02e61b83d7705416 = son kaydedilen
-source-9c6674b1ad79be87 = Daha sonra ağ geçidi bağlantısının kesilmesi
-source-05902840ffa77a6f = Son mesaj kullanılamıyor
-source-2e4818861000b13f = Düzen
-source-e04aaca8ea615571 = LD_LIBRARY_PATH
-source-4ebfefaed46645e7 = LD_PRELOAD
-source-7ba0310a53345190 = Kanalları takip etme hakkında daha fazla bilgi edinin
-source-24f216d03b0273ba = Entegrasyonları yönetme hakkında daha fazla bilgi edinin.
-source-e1bb5c90def98862 = Kullanıcı adını kullanmak için boş bırakın.
-source-b6f6eb378f7ed8d5 = Kullanıcı adınızı kullanmak için boş bırakın.
-source-c0b43e6938b15b03 = Gruptan Ayrıl
-source-23a148cb555e06f4 = Gruptan ayrılmak istiyor musunuz?
-source-c23ec1237701b64b = Sunucudan ayrıl
-source-304720e80cd0cb6b = Sunucudan Ayrıl
-source-1258a34337e9071c = Sunucudan ayrılmak mı istiyorsunuz?
-source-b95db8072a682ef3 = Mikrofonunuzu yerel olarak test etmek için aramadan çıkın.
-source-09127d64a1f32e14 = Geçerli sesli aramadan ayrıl
-source-52d5e2312cb98b44 = Bu hesaptan ayrılmak mı istiyorsunuz?
-source-bfd5fdbfbf8878c5 = Bu oturumdan ayrılmak istiyor musunuz?
-source-ad791b6a1cbe4edc = Çevrimdışı önizlemede ayrılmak mümkün değildir.
-source-757c3a7cd6e640a5 = Ayrılıyorum…
-source-d65688f2da9401db = Eski sürekli sağlama toplamı uyumluluğu başarısız oldu.
-source-202fffd5a2e1c595 = Uzunluk
-source-a566392b59057905 = Herkese bu kanalın nasıl kullanılacağını bildirin
-source-122c48a8444cd82c = Herkese bu kanalın nasıl kullanılacağını bildirin!
-source-060d1b267ab42d13 = Bağlı oyunlardaki arkadaşlarınızın oyun açık olmasa bile DM göndermesine ve sizi oynamaya davet etmesine izin verin.
-source-17597a8bb4810524 = Lisans
-source-ab004d8a9aa6ed5e = Lisans ve sürüm gereklidir.
-source-aeac80851d9f420d = LİSANS-APACHE
-source-c7fa97a208420daf = LİSANS-MİT
-source-3b0ab4b52326316f = Işık
-source-3cf89cb47fdde7e9 = Bağlantı
-source-32926f430c16efd8 = Bağlantılı Lobi
-source-7859e0b546108aae = Bağlantılar
-source-3d249bb480032121 = Liste
-source-70315aaffba9e636 = Liste Görünümü
-source-82d9a68d45439d03 = Dinleniyor
-source-e9c77e5b3a0fdc89 = Spotify'ı dinlemek
-source-52afd6b51d51164f = CANLI
-source-3d1396b47ff4a56f = Canlı
-source-11fa9d6c061afa16 = Arşivlenmiş gönderileri yükle
-source-3a2d89e9113caee2 = Kanalı yükle
-source-c986f57b00dd25bf = Davetleri Yükle
-source-9cacdfdfd5d7123e = Daha Fazla Yükle
-source-7584ded3d749c75e = Daha fazlasını yükle
-source-61556c6ba5dcfb6d = Daha fazla gönderi yükle
-source-95ef182cb1fd4feb = Geçerli görüşmedeki sabitlenmiş mesajları yükle
-source-8b95fbad9e9aef05 = Sunucu ayarlarını yükle
-source-31a65dd97cdf8a37 = Bu sunucunun ayarlarını değiştirmeden önce yükleyin
-source-8439ee25437e77d1 = Güncelleme tercihlerini yükleyin veya kontrolü etkinleştirmek için güncelleme ayarlarınızı seçin.
-source-6783077442c0dad3 = Yüklenen silme işlemleri, uzantı devre dışı bırakıldığında kayboluyor
-source-50f79eb3620799d6 = Yüklenen konular ziyaret değildir
-source-851ecddc366a2691 = Yüklenmiş okunmamış yerel olarak kaydırılmalıdır
-source-b59d68ed12d46377 = Yükleniyor
-source-3463bde1664305d3 = Uygulama komutları yükleniyor…
-source-17e508cdddf68e84 = Arşivlenmiş yayınlar yükleniyor…
-source-933c587eb7d7507f = Ses yükleniyor…
-source-09077a8228a5d71a = Denetim günlüğü yükleniyor…
-source-2667f1dca13f7227 = Kanal ayarları yükleniyor…
-source-7e00d690bf476c8c = discord.com yükleniyor…
-source-5d5a3b2949e254bb = Arkadaşlık durumu yükleniyor...
-source-8ca6703ab61779c6 = GIF'ler yükleniyor…
-source-2b71ebd4732fd0ea = Resim yükleniyor…
-source-b282c7ee62d8c2d8 = Entegrasyonlar yükleniyor...
-source-df5d55e82fc6013f = Davetler yükleniyor…
-source-51c132ed40a874ca = Yerel görünüm yükleniyor…
-source-10af059c2c92c925 = Mesajlar yükleniyor
-source-421d6e269a43d41b = Mesajlar yükleniyor…
-source-875cc33c8d2087f3 = Not yükleniyor…
-source-1a5772902a9d27a5 = Eski pinler yükleniyor…
-source-8f7234437c1583f4 = Eski konular yükleniyor…
-source-57ebd0152abc1eb3 = Sabitlenmiş mesajlar yükleniyor…
-source-7571d69557f1b608 = Gönderiler yükleniyor…
-source-a4e5c9890f31e1e3 = Önizleme yükleniyor...
-source-2c194c9c95937c4e = Profil yükleniyor…
-source-36a96cdf3de5b155 = Tepkiler yükleniyor…
-source-67ec529ae2ea432c = Roller yükleniyor...
-source-adf4a00a3ea3251f = Kaydedilen yazı tipi yükleniyor…
-source-7c0b644c42303aef = Kaydedilen okuma ve düzen yükleniyor…
-source-9b846168bcc5b3ed = Sunucu ayarları yükleniyor…
-source-c4848c001eaee8c5 = Başlangıç ​​ayarları yükleniyor…
-source-a86d4233d96c4c82 = Çıkartma ayrıntıları yükleniyor…
-source-152a12fc4255c012 = Çıkartma paketleri yükleniyor…
-source-166b779cf597cb90 = Trend olan kategoriler yükleniyor…
-source-b77be09763b48a7e = Doğrulama yükleniyor…
-source-a3f0b4f8e3f25240 = Tercihleriniz yükleniyor…
-source-71c7694cb9bded2d = Profiliniz yükleniyor…
-source-49730f3d5751a433 = Yükleniyor...
-source-5360d33e7f91fb81 = Yükleniyor…
-source-8c3a591524e36cac = Yerel kamera önizlemesi · paylaşılmıyor
-source-428841c1fafa8116 = Yerel değişiklikler kaydedildi
-source-86cb70463ce6ff8d = Yalnızca yerel önizleme. Discord'un paylaşımı onaylaması bekleniyor.
-source-dab3f9b1dd55cddd = yerel kaldırma, tutulan yükü azaltır
-source-b11508797a8874d9 = Yerel depolama
-source-587de31efff4f090 = Yerel depolama kullanılamıyor; kanal tercihleri ​​geri yüklenemedi.
-source-e516c47c18950d2d = Yerel depolama kuyruğu dolu; bazı değişiklikler kaydedilmedi
-source-af1860ae7538fce5 = Yerel depolama çalışanı durduruldu. Yazı tiplerini kaydetmek için Serein'i yeniden başlatın.
-source-25973456bb1171d4 = Yerel depolama çalışanı durduruldu; Kanal tercihlerini geri yüklemek için Serein'i yeniden başlatın.
-source-310dae92ee14c708 = Yerel olarak sessize alındı
-source-4f27f6b48a68b5c2 = Kilit
-source-aa1882f01fbba808 = Gönderiyi Kilitle
-source-06ff5c2b070ce282 = Konuyu Kilitle
-source-b64127e4e4f0b575 = Oturumu kapat
-source-4cb5ec320d30ec11 = Oturum açma işlemi işletim sistemi kimlik bilgileri deposuna kaydedildi
-source-d804b2e383880418 = Oturum açma zaman aşımına uğradı veya jeton aktarımı kullanılamıyor; oturum kabul edilmedi
-source-54f2f375d03c4ca9 = Discord bağlandıktan sonra giriş bilgileri kaydedilecek
-source-015a125837ba3808 = Oturum açma penceresi beklenmedik bir şekilde durduruldu (web işlemi sona erdi); oturum kabul edilmedi
-source-4efbcab48a433013 = Uzun
-source-22bafe4747c3804d = Yeni paketler ve güncellemeler arayın. Hiçbir şey kendi kendine kurulmuyor.
-source-50f5dacedd665cfd = Koşu oyunu arıyorum
-source-34b738b2a8d421ca = Ses cihazları aranıyor...
-source-3de54cb3d0707200 = Ses cihazları aranıyor…
-source-c8a84bc62f1d68fd = Kameralar aranıyor...
-source-690f47c9ef94f3af = Kameralar aranıyor…
-source-bd35252fcb8bab86 = Eşleşen mesajlar aranıyor.
-source-661ccb47375cc60c = Ekranlar ve pencereler aranıyor…
-source-24f3a319b88552c1 = Düşük
-source-2b5e7fb59815427a = LPT1
-source-2b5e7eb5981540c7 = LPT2
-source-2b5e7db598153f14 = LPT3
-source-2b5e7cb598153d61 = LPT4
-source-2b5e7bb598153bae = LPT5
-source-2b5e7ab5981539fb = LPT6
-source-2b5e79b598153848 = LPT7
-source-2b5e78b598153695 = LPT8
-source-2b5e77b5981534e2 = LPT9
-source-c62f43916b92feff = LPT²
-source-c62f42916b92fd4c = LPT³
-source-c62f4c916b930e4a = LPT¹
-source-254bb119b8cfe061 = Lua
-source-af64004c860229b8 = M
-source-12f523a52b843ea2 = macOS
-source-695b5c1e78455c03 = macOS Gatekeeper güncellemeyi kabul etmedi.
-source-43380c838d3e92b4 = Yönet >
-source-49373cba18a86ae2 = Kanalları Yönet
-source-7861b1e487bb2d99 = İfadeleri Yönet
-source-d1d4c6933d613834 = Entegrasyonu Yönet
-source-ecef5ad7748320ce = Mesajları Yönet
-source-554506ea893cc81f = Takma Adları Yönet
-source-5c5f4e5016610592 = İzinleri Yönet
-source-e72177b2b053f323 = Rolleri Yönet
-source-b57383903d2813f5 = Sunucuyu Yönet
-source-c5de1bfb54eb0516 = Sunucunuzu aktif tutmanıza yardımcı olacak ayarları yönetin.
-source-a56c26a6a5e193ff = Konuları Yönet
-source-b5981274d4d2d4a0 = Web Kancalarını Yönet
-source-043a9e1ac7396527 = Bu kanala gönderilen web kancalarını ve takip edilen kanalları yönetin.
-source-21ffd82809639845 = Discord'da yönetiliyor
-source-1e187919b52639f1 = Harita
-source-b82ecdfc78c29614 = Okundu Olarak İşaretle
-source-5bb4026da28b7914 = Okundu olarak işaretle
-source-76b4152e69e800b1 = Burayı sonuna kadar oku
-source-c8c3ee2f3d2dbb67 = Okunmadı Olarak İşaretle
-source-e0d773f122b8cbdc = Bu mesajı okunmadı olarak işaretleme özelliği kullanılamıyor
-source-837fcb0b70616656 = Kibrit
-source-b54a17494757f739 = Tümünü Eşleştir
-source-beecdafa6aa9f2ea = Bazılarını Eşleştir
-source-1f06583ace9c9d48 = eşleşen katalog
-source-d3523209cd4147d8 = eşleşen etkin çağrı
-source-49dd67aed00029ef = Matematik
-source-1a3191077684e8bd = Maksimum Kullanım Sayısı
-source-2b3441b8eece504f = Büyüt
-source-1e8f2719b58ad500 = MD4
-source-25a83280cea8df01 = MD4 uyumluluğu başarısız oldu.
-source-93360e02ae89685c = Medya · yüklenen gönderiler
-source-751678adb0aa2b23 = Üye
-source-ca695802849ab7f8 = Üye eylemleri
-source-b51d57449ddb6721 = Üye ayrıntıları
-source-5d9c2286b4ab1cdc = Üye kimliği
-source-fe9b5751b796a9c5 = Üye listesi
-source-87775b4ed01293bb = Üye arama hata ayıklama denetimi başarılı oldu: uzaktan bahsetmeler ve görünür yazar rolü renkleri, sınırlı, bağımsız Ağ Geçidi aramalarını kullanır.
-source-f0ae37fb42ebb259 = BUGÜNE KADAR ÜYE
-source-8847d64291996459 = Şu tarihten beri üye:
-source-9f5a5f23312798f0 = Üyeler
-source-5dc9a5bd59847870 = ÜYELER
-source-24fc7d6be45666e1 = Üyelerin izlemeden önce reşit olduklarını onaylamaları gerekmektedir.
-source-dd4296be53097fdf = Üyeler bu listede sahip oldukları en yüksek rolün rengini kullanır. Yeniden sıralamak için rolleri sürükleyin.
-source-6b9cbb8f892a14c1 = Üyeler, rol listesindeki en yüksek rolün rengini kullanır.
-source-070c455ea88183a5 = Üyeler, Yavaş Modu Atlama iznine sahip olmadıkları sürece, tüm yeni gönderiler için bu aralık başına bir mesajla sınırlı olacaktır.
-source-141072de886af452 = Üyelerin, Yavaş Modu Atlama iznine sahip olmadıkları sürece, bu aralıkta bir gönderi oluşturmaları sınırlandırılacaktır.
-source-2cc123a56a77d730 = Üyeler bu aralıkta tek mesajla sınırlandırılacaktır.
-source-142ee774bc3d2608 = Konuları Yönetme özelliği olan üyeler bu özelliği kullanmaya devam edebilir.
-source-36cf079496723195 = Tüm rollerden bahsetme iznine sahip üyeler her zaman bu rolden bahsedebilir.
-source-ffd32ee5baef934d = Üyelik İzinleri
-source-22c7a36f572f4655 = Değinmek
-source-66727c051d2eafc5 = @Herkesten, @burada ve Tüm Rollerden bahsedin
-source-60daedf441ee5363 = Arka plandan bahsetme
-source-084f35b0df88af58 = Bahsetme metni
-source-4880dc3125543292 = Bahsetmeler
-source-9a9ee511958b75b2 = BAHİSLER
-source-7fbc2482e27c1dd6 = Belirli bir kullanıcıdan bahseder
-source-ec24319a17f6fdaf = Seçilen kullanıcıların herhangi birinden bahseder
-source-4c136db0c6596249 = Kullanıcıdan Bahsedilenler
-source-0e7ff37095c562eb = Bahsedilenler: kullanıcı
-source-114813466431afcc = Menü köşeleri
-source-79e8cc71a5975b04 = Mesaj
-source-a20d073f8ff525e4 = Bir kullanıcıya mesaj gönderin.
-source-0f71c9b39094881d = Mesaj alanı
-source-143b695787cb5499 = Mesaj silindi
-source-de676f78fefde026 = Mesaj geçmişi mevcut izin bilgileriyle kullanılamaz.
-source-bdc54e8c8eec3bd9 = Mesaj giriş alanı
-source-daadc547b53eb434 = Mesaj listesi
-source-6620710a505ec258 = Mesaj sonucu bilinmiyor; tekrar denemeden önce konuşmayı kontrol edin
-source-51e4cf3810f0203c = Mesaja geri dönüş yapılmadı; kaldırılmış veya kullanılamıyor olabilir
-source-bdeedc1c60306b35 = Mesajlar
-source-695a7a586ff9dc47 = İletiler ve taslaklar yerel olarak önbelleğe alınır. Oturum açma belirteçleri işletim sisteminin kimlik bilgileri deposunu kullanır.
-source-69a9ca95cdb4d43b = Mesajlar ve taslaklar bu cihazda sınırlı, hesaptan yalıtılmış dosyalar içinde önbelleğe alınır. Önbellek verileri Serein tarafından şifrelenmez; kaydedilen oturum açma belirteçleri işletim sistemi kimlik bilgileri deposunu kullanır.
-source-b3a412920dd74a1c = Mesajlar ve medya
-source-121a1458f443325b = Mesajlar ve normal etiketler
-source-faa7e3d853d314b3 = Bağlantı kesildiğinde veya kanal erişimi olmadığında mesajlar kullanılamaz.
-source-ac4ea84963a5c8ae = Bağlantılı Oyunlarda Mesajlaşma
-source-43784ca2e0805b43 = mesajlaşma izin ayarları
-source-2fcb5047da233cf9 = mesajlaşma izinleri spam filtreleri doğrudan mesajlar dm arkadaşlık istekleri kişiselleştirilmiş bağlı oyunlar
-source-f4b9f0457a752170 = Mesajlaşma ayarları kullanılamıyor
-source-f8c5462180afce0f = Mesajlaşma, tepkiler, arama ve okuma işaretçileri çevrimdışı testlere sahiptir. Gerçek Discord'un birlikte çalışabilirliği hâlâ doğrulanmadı; ek yüklemeleri ve gelişmiş arama tamamlanmadı.
-source-557a4777f155d7c9 = Mikrofon/kamera önizleme hata ayıklama kontrolü başarılı oldu: ayarların oluşturulması, ayarların açılması hiçbir zaman yakalamayı başlatmaz, demo ve kapalı sayfa korumaları istekleri durdurur. Hiçbir ses cihazı açılmadı.
-source-232f88877550dfa9 = Mikrofon
-source-7a45f482436be672 = Mikrofon ve hoparlör ayarları
-source-742c9587b20bf8c4 = Mikrofon kazancı
-source-b1772b5e873910c2 = Mikrofonun sesi kapatıldı
-source-6bc439bdf9f4c792 = Mikrofon duyarlılığı (dBFS)
-source-9cfa09a28f797297 = Mikrofon hassasiyeti: her zaman açık
-source-75578a286f45007f = Mikrofon testi
-source-0f6afa4b0d4690ec = Mikrofon testi durduruldu; tekrar deneyin.
-source-5640005fd7b5c247 = Mikrofon kullanılamıyor Â· başka bir giriş seçin. Hala bağlısınız.
-source-af334fc235660586 = Mikrofon kullanılamıyor Â· hala bağlı. Ses ayarlarında başka bir giriş seçin.
-source-0ef20adcd014e5da = Mikrofon kullanılamıyor; izni kontrol edin veya başka bir giriş seçin. Yeniden deneniyor…
-source-1c109a21525649fd = Küçült
-source-41168fc929aacf0f = Eksi
-source-01757df2027f2c2e = AppImage bağlantısı eksik.
-source-e5ee1eb26ce8d9f6 = AppImage yolu eksik.
-source-5574e673374a2424 = Eksik ekran RTC kimliği
-source-180ea19db88c8920 = Eksik ekran sunucusu
-source-be7d1b0d3e9abe80 = Akış RTC kimliği eksik
-source-26f75402a3d7bcf4 = Eksik akış sunucusu
-source-6d190fc4ac1b7958 = Eksik ses sunucusu
-source-5540f7186b767545 = Eksik sesli oturum
-source-09d953226c6eb98c = modal başlatıldı
-source-37cbecaec58e2192 = Mod
-source-0f3b0ae12a710300 = Ilıman
-source-2b39cffedda9f40d = MODERASYON
-source-917d6cecbb170b11 = Yalnızca moderatörler
-source-37a9e8aec5713460 = Daha
-source-3f4b17dfab9fca4c = Daha fazla renk
-source-1c5099bc15997c73 = Daha fazla filtre
-source-0a6a710a7e87112c = Daha fazla pin mevcut olabilir, ancak bu sayfanın kullanılabilir bir devamı yoktur.
-source-c2dad3e4f7d52029 = Daha fazla etiket
-source-15528e06a6388237 = Fare tekerleği ve izleme paneli hareketi. %100 varsayılandır.
-source-02903e9b6f960b1e = mov,matroska,webm
-source-2d6036a5923caa65 = Fareye uzanmadan Serein'in etrafında hareket edin.
-source-b233557012dcb328 = Aşağı taşı
-source-87a55464116c3f48 = Aşağı Taşı
-source-0cd6ebb0a6c5eb67 = Üyeleri Taşı
-source-db6975c2435139a8 = Tanımadığınız kişilerden gelen mesajları Mesaj İsteklerine taşıyın.
-source-3dedc07c603ea4e6 = Klasörlerin dışına taşı
-source-4e33f21fc24666c1 = Yukarı Taşı
-source-4ea0f21fc2a338a1 = Yukarı taşı
-source-c1f9209fa25d8f42 = Üye taşındı
-source-e0f67eae944f8f94 = Sesini kapatmak
-source-14b69a74909a3502 = Dilsiz ve sağır her zaman önceliklidir.
-source-04a4026777a6f1bf = Kanalın Sesini Kapat
-source-90edce5e2bd42c7b = Konuşmayı Sessize Al
-source-f44ed5f8547f1267 = Üyeleri Sessize Al
-source-9e3d1452f996cc1e = Bu görüşmenin sesini açana kadar bildirimleri sessize alın.
-source-62dc808fe3900456 = Gönderiyi Yoksay
-source-90ed5ecbc62c0923 = Sesi kapat
-source-197fc2f02575b096 = Akış sesini kapat
-source-a53465e834b34952 = Sesi açana kadar bu doğrudan mesajın bildirimlerini sessize alın.
-source-1176ab7a5ecd28c4 = Konuyu Sessize Al
-source-926932a6033194d0 = Sessize alındı
-source-a6d9550b6a11485c = Sunucu tarafından sessize alındı
-source-9d5dce9a60eb77a1 = Sunucu tarafından sessize alındı
-source-98e0c76429ccb8ab = Bu cihazda sizin için sessize alındı
-source-98741bff7e329fe8 = Ortak Sunucu
-source-3feb2e2370053461 = Karşılıklı Sunucular
-source-c072f70b625c8489 = hesabım profil çıkış
-source-870b7417205fc44e = Sunucum
-source-77430f705c8adf0e = Benim temam
-source-af64034c86022ed1 = N
-source-d9297519ff36a94b = N mesaj · son aktivite
-source-ef49aec68fd1dc66 = İsim
-source-c67036ff3465d307 = Bu klasöre bir ad verin ve sunucu rayında gösterilen rengi seçin.
-source-10271936476ae359 = İsimlerde harf, rakam ve alt çizgi kullanılır.
-source-3734dc19c3200eba = NaN
-source-adb339355dde42b7 = Bu aramayı istediğiniz iletilere kadar daraltın.
-source-7cbf0f4086ba567e = Yerel Paket
-source-8f5ea921969a1238 = Yerel pencere kullanılamıyor
-source-07e6118e838b2e23 = Navigasyon
-source-8b97ea84af17c029 = Asla
-source-3741f519c32ac391 = Yeni
-source-c8337735ad89201d = Yeni mesaj sesi
-source-d3b60ec2f9fb421b = Yeni mesajlar
-source-a356fb968995728b = Yeni mesajlar aşağıda · sunuma atla
-source-a2be1021c91dc81f = Yeni resim seçildi. Yüklemek için kaydedin.
-source-f6f5d8ff2a4899c5 = Yeni Gönderi
-source-ba25eb1084928171 = Bu kadar uzun süre etkinlik olmazsa kanal listesinde yeni gönderilerin gösterimi durdurulur.
-source-6dafd7d212eeebe7 = yeni rol
-source-69a991c86e3136e4 = Yeni Web Kancası
-source-74dea8806e19236b = En yeni
-source-58b4c338dccaacb9 = En yeni Discord hesapları
-source-ba2a0427963d1a25 = Önce en yeni
-source-8355a903ea308554 = En yeni üyeler
-source-542ffff558768ea3 = Sonraki sayfa
-source-e9f30e4492cee2cd = Takma ad
-source-3bf424e632269e64 = Akşam vakti
-source-f6d4582d68e813ea = her gece
-source-fbeaef53d1906622 = gecelik versiyon
-source-86253e33bf1b2595 = Nitro'nun bu çıkartmayı sunucusunun dışında kullanması gerekir.
-source-e69565850af92ceb = Konuşmalara veya besteci metnine erişim yok.
-source-c1a4a71de3eb91bf = Erişilebilir kanal yok.
-source-f891e2d3321bffd8 = Etkin çağrı yok
-source-412ca900b5a9e6fc = Etkin davet bağlantısı yok
-source-6877eaa80d7c0b9d = Bu aramayla eşleşen aktif konu yok.
-source-9374e11f70cf90d8 = Bu etkinlik için ek ayrıntı verilmedi.
-source-775a56f606040475 = Ses çıkış cihazı yok
-source-6b4386d955528474 = Bu filtrelerle eşleşen denetim günlüğü girişi yok.
-source-82dff1fee5edf1bb = Hiçbir çağrı talep edilmedi
-source-36c0189ca94d214d = Kamera bulunamadı. Kamera bağlantısını veya sanal kamera kurulumunu kontrol edin ve ardından yenileyin.
-source-9cb8d641f192f378 = Hiçbir kanal takip edilmedi.
-source-27387fd3c754b0b5 = Hiçbir komut eşleşmiyor
-source-3ff935a531a0a05b = Hiçbir konuşma veya arkadaş eşleşmesi yok
-source-67f003d3e24e24a9 = Özel durum yok
-source-69681f96f888669d = Henüz özel çıkartma yok.
-source-bed4b879924ad0b8 = Uygun kanal yok
-source-7d1966d947ff9329 = Emoji eşleşmesi yok
-source-81387e9fe7913716 = Henüz uzantı yok
-source-8fe5bc6b6d3268c1 = Henüz favori yok
-source-e314fbc238f69037 = Aramanızla eşleşen arkadaş yok.
-source-4197f7bea1711182 = Henüz davet edilecek arkadaş yok. Aşağıdaki bağlantıyı paylaşın.
-source-3a0bef63461834bd = GIF bulunamadı
-source-91c660c697d54d5d = GPU bağdaştırıcısı bulunamadı; bir Vulkan, Metal, DirectX veya OpenGL sürücüsü yükleyin
-source-e8213494a59bc1f8 = Resim seçilmedi
-source-9a9b5ab1569a1290 = Aktif Olmayan Kanal Yok
-source-cdc25ae76471a84b = Bu sunucuda entegrasyon yok.
-source-fd0dcab6acf65c1d = Sınır yok
-source-e4f478b26d0417ba = Yüklenen hiçbir gönderi seçilen etiketleri taşımaz; daha fazla yükleyin veya filtreyi temizleyin.
-source-28d7266643f5992f = Eşleşme yok
-source-1986edeeac3f37be = Eşleşen hedef yok
-source-2a5ae75084b7609b = Eşleşen emoji yok.
-source-2d1193776029e430 = Eşleşen seçenek yüklenmedi
-source-d1362bc0288193e9 = Eşleşen kullanıcı yok
-source-965fe3510f5a42b7 = Bu görüşmede eşleşen kullanıcı yok.
-source-8fc8869bcb1445ae = Bu aramayla eşleşen üye yok.
-source-4476cd56b8e63a11 = Henüz mesaj yok. Aşağıdaki konuşmayı başlatın.
-source-615f59eca8642532 = Daha eski arşivlenmiş gönderi bildirilmedi.
-source-779ffe89d529b70d = Hizmet tarafından bildirilen eski ileti dizisi yok.
-source-0e044f85e1042122 = Daha eski ileti dizileri geri dönmedi.
-source-ff1c1c671f7adec0 = Henüz kimse burada değil
-source-7ea06611e5c78f03 = Bu kullanıcıyla açık doğrudan mesaj yok.
-source-d7e8c2c9062bf815 = İşletim sistemi anahtarlığı bulunamadı, bu nedenle bir sonraki açılışta tekrar oturum açmanız gerekecek
-source-c658f9978ab6c460 = İşletim sistemi anahtarlığı bulunamadı; her lansmanda oturum açın. Oturumunuzu açık tutmak için GNOME Keyring'i veya KWallet'i yükleyin.
-source-82128cb68caad8aa = Hiçbir gönderi yüklenmedi
-source-27074081d60f490c = Hiçbir gönderi eşleşmiyor
-source-921e1823a1d98984 = Bu kanalda henüz yayınlanmış bir yayın yok.
-source-05c0c6595d494ae4 = Henüz yanıt yok
-source-991d216e6efc157c = Sonuç yok
-source-d5a39946eef35ea9 = Yeniden kullanılabilir AppImage bloğu yok.
-source-b241cc46e92893ed = Bu cihazda söz konusu hesap için kayıtlı giriş bilgisi yok. Tekrar oturum açmak için başka bir hesap kullanın veya × ile unutun.
-source-ae6c9c892eb21c0a = Kayıtlı giriş bulunamadı. Bir tanesini kaydetmek için Discord ile oturum açın.
-source-ebfdb2373cfa2e7c = Henüz herhangi bir ekran veya pencere mevcut değil.
-source-a26acf212cef3ce1 = Paylaşılabilir ekran veya pencere bulunamadı
-source-15906936955a04c0 = Çıkartma bulunamadı.
-source-b252d7940cf58ff6 = Sistem Mesajları Kanalı Yok
-source-a7a7a87655c7b116 = Henüz tema yok
-source-3b9155e555d24852 = Hiçbir güncelleme yardımcısı hazır değil.
-source-077935c20c0ec158 = Henüz web kancası yok.
-source-0a1626700498d01f = Şu anda kimsede bu tepki yok.
-source-e384aa3a7f315eaa = Gürültü bastırma
-source-d025a053094e1944 = Bu yapıda veya önizlemede gürültü bastırma özelliği mevcut değil.
-source-cbae7aad79194203 = Gürültü bastırma, klavye gürültüsünü, nefes almayı ve fanları yerel olarak azaltır.
-source-669b18c6d2d9c95b = Hiçbiri
-source-50fed8c6357d587b = HİÇBİRİ
-source-5c2570a7140483ad = boş olmayan kuyruk
-source-70c407d0fdd69918 = normalleştirilmiş UTF-8
-source-ad5372e96bb9783e = yazı tipi değil
-source-5ca102bf327e771c = Bağlı değil; durum paylaşılmıyor.
-source-44cfb5f01f1202fd = Sağlanmadı
-source-739264aa3476b5b4 = Gönderilmedi
-source-0df0e8c4f3c2eba6 = Ayarlanmadı
-source-6ace63b336f8392c = Emin değil misiniz?
-source-6686fcc6d2c8f0bd = Not
-source-41d0639ac24cbb6a = Hiç bir şey
-source-e362807e48e942fd = Burada henüz hiçbir şey yayınlanmadı; arşivlenmiş gönderiler istek üzerine yüklenir.
-source-c04398572a2a89f4 = Bu sayfadaki hiçbir şey sorguyla eşleşmiyor.
-source-4b11696fddfe065f = Bildirim tıklaması hata ayıklama kontrolü başarılı oldu: DM/lonca gezinmesi ve eski tıklamanın reddedilmesi.
-source-e79d59a5fc01ae77 = bildirim ayarları
-source-039e128122096637 = Bildirim Ayarları
-source-518c2768c5c91b61 = bildirimler masaüstü sistem uyarıları genel bakış sesler rozetler mesaj halkası
-source-1f44178a49d67a46 = Noto Sans Arapça
-source-964005d08b147f56 = Noto Sans CJK JP
-source-64021dbff820a004 = Noto Sans Matematik
-source-369eba19c29ffe00 = BOŞ
-source-6fb485c5b5dd1b24 = HÜKÜMSÜZ
-source-8629c5c653f17cc4 = Hükümsüz
-source-370bdb19c2fd07f3 = Sayı
-source-862d0fc653f43059 = Sayı0
-source-862d0ec653f42ea6 = Sayı1
-source-862d0dc653f42cf3 = Sayı2
-source-862d0cc653f42b40 = Sayı3
-source-862d13c653f43725 = Num4
-source-862d12c653f43572 = Num5
-source-862d11c653f433bf = Sayı6
-source-862d10c653f4320c = Num7
-source-862d17c653f43df1 = Num8
-source-862d16c653f43c3e = Sayı9
-source-af64024c86022d1e = O
-source-730182ad28374cda = Nesne
-source-88b32bd40e072050 = Obsidyen mor yüzeyler ve açık ve koyu lavanta vurguları.
-source-302cbb19bf9a174a = Kapalı
-source-cde3342a428aaee8 = Çevrimdışı
-source-a9606d1529af3891 = Çevrimdışı demo · eylemler simüle edilir.
-source-9f59bb3aa71d6244 = Çevrimdışı demo: bunun yerine yerel paketi içe aktarın.
-source-55a15d18c0bb75c7 = Çevrimdışı fikstür · başlangıçta açılan hesap açılır
-source-e07092fc09a9d8b5 = Çevrimdışı fikstür · eylem yalnızca sentetik RAM'i etkiledi
-source-7124901374a06ca0 = Çevrimdışı fikstür · başlangıçta açılan emoji penceresi
-source-eb12a8c1836ae490 = Çevrimdışı fikstür · açık sistem bildirim testi
-source-deee7861bbc3a8f0 = Çevrimdışı fikstür · GIF açılır penceresi başlangıçta açıldı
-source-2419690b905611ef = Çevrimdışı fikstür · sunucuya katılma iletişim kutusu başlangıçta açıldı
-source-d695e4ecca4a2d01 = Çevrimdışı fikstür · medya görüntüleyici başlangıçta açıldı
-source-873b40bdebeaaaec = Çevrimdışı fikstür · sabitlenmiş mesajlar açılır penceresi başlangıçta açıldı
-source-52ad4c7f4c45267a = Çevrimdışı fikstür · başlangıçta gösterilen yanıt çubuğu ve yazma satırı
-source-d54514c41508c13f = Çevrimdışı fikstür · ekran paylaşımı seçici başlangıçta açıldı
-source-62252eee05c3d214 = Çevrimdışı fikstür · bestecide sahnelenen sentetik eklenti
-source-cd0059600f0b5278 = Çevrimdışı fikstür · bestecide sahnelenen sentetik dosya eki
-source-908ac39ced36aaf5 = Çevrimdışı fikstür · sentetik bekleyen mesaj; yükleme veya gönderme yok
-source-f562de210af35e07 = Çevrimdışı fikstür · başlangıçta açılan sentetik profil kartı
-source-3232bff487031902 = Çevrimdışı fikstür · sentetik arama başlangıçta açıldı
-source-f96c1d6edb549787 = Çevrimdışı fikstür · bestecide sahnelenen üç sentetik eklenti
-source-6d9aab6d994bebb1 = Çevrimdışı fikstür · okunmamış şerit ve eski mesajlar çubuğu gösteriliyor
-source-553a3751743895b0 = Çevrimdışı fikstür: çıkartma seçici
-source-9ddf685aefec8b0f = Çevrimdışı önizleme - sunucu oluşturma ve sunuculara katılma devre dışı bırakılır.
-source-4e646fd088f3393a = Çevrimdışı önizleme - oluşturma devre dışı bırakıldı.
-source-c8c672a12ac48707 = Çevrimdışı önizleme uygulamalarla bağlantı kurmuyor
-source-18e212d4261a8714 = Çevrimdışı önizleme · grup değişikliği yok
-source-1261d0321c701030 = Çevrimdışı önizleme · hiçbir ekran yakalanmıyor
-source-cecbb02d477a9ffc = Çevrimdışı önizleme · sunucu değişikliği yok
-source-cb4190bf096c91e9 = Çevrimdışı önizleme · hiçbir akış alınmıyor
-source-af75c1d6dae5d627 = Çevrimdışı önizleme · hiçbir doğrulama hizmetiyle iletişime geçilmez.
-source-fc0e345795c3f3a0 = Çevrimdışı önizleme · sentetik
-source-9f8ad73046bd4b7f = Çevrimdışı önizleme · sentetik hesap
-source-de78c36f144a8aec = Çevrimdışı önizleme — sunuculara katılma devre dışı bırakıldı.
-source-eb73c7bdb782670c = Çevrimdışı önizleme: paylaşılmaz veya kaydedilmez.
-source-05cc8574ed5844cd = Çevrimdışı önizleme: sentetik etkinlik, hiçbir zaman paylaşılmaz veya kaydedilmez.
-source-f71b0e953940852a = Çevrimdışı güncelleme akışı, tercih uyumluluğu ve ayarların oluşturulması başarılı oldu.
-source-c0337e59aed9a364 = çevrimdışı güncelleyici doğrulaması
-source-56293f4fa14777fe = Ogg başlangıcı başlıklardan sonra durmalıdır
-source-813e66c099d9d705 = OggS
-source-091d5d07b5b33dcf = Tamam
-source-c032b109be3096a1 = daha yaşlı
-source-50cad7d307c3dc6e = Daha eski arşivlenmiş yayınlar
-source-f3df2eaeb55cbf6b = Eski pinler
-source-8577fa7f8eaf5558 = ESKİ KONULAR
-source-3dc0668ec9ea5802 = En eski Discord hesapları
-source-f5e8ed5d0cb38be2 = en eski girdi
-source-da134a52656c41b0 = Önce en eski
-source-54508e71981dc175 = En yaşlı üyeler
-source-2e3f650df89cc65d = en eski doku
-source-f68c46468416704b = üstte
-source-6cbbe9055a28027f = sınırlı bir mesaj uyuyor
-source-4f0334407935a2e4 = Hızlı bir kontrol
-source-eadeb3a807d7478a = Çevrimiçi
-source-5ce39f9435dffd7c = Yalnızca @bahisler
-source-3706a26fc1ddab85 = Yalnızca bu üyenin bu sunucuda nasıl göründüğünü etkiler.
-source-f26a4de46f67d9f9 = Yalnızca moderatörlerin bu etiketi uygulamasına izin ver
-source-41d9e6546f59cec0 = Yalnızca Direkt Mesajlara da izin verdiğiniz sunuculardan.
-source-e536e25ff2aa4b75 = Bu etiketi yalnızca moderatörler uygulayabilir.
-source-fd228852d1bcb9d1 = Bu kategoriyi yalnızca seçilen üyeler ve roller görüntüleyebilir. Senkronize kanallar izinlerine uyar.
-source-5e3d80e43fcc9836 = Bu kanalı yalnızca seçilen üyeler ve roller görüntüleyebilir. Yöneticiler erişime devam eder.
-source-7e9c04b4f18898ba = Yalnızca sahip olduğunuz veya kullanma izniniz olan görselleri paylaşın. Gerekli ilişkilendirmeyi koruyun.
-source-3c4a2c49190583dd = Yalnızca bu seviyenin üzerindeki sesleri iletin. Daha düşük değerler daha sessiz konuşmayı algılar.
-source-b66f498db84b2acd = Bunu yalnızca siz görebilirsiniz •
-source-2e2fc90b53ae3732 = Bu takma adı yalnızca siz görebilirsiniz. Sunucu adlarını değiştirmez.
-source-66cf0d1df45a433c = Bu notu yalnızca siz görebilirsiniz. Discord hesabınıza kaydedilir.
-source-1f7698c061c208c9 = Açık
-source-bdfaf2ff4591e9cb = Önce bu kullanıcıyla bir DM açın veya /msg ile bir arkadaşınızı seçin.
-source-0d9f361f14a27471 = Bu bilgisayardan bir paket dosyası açın.
-source-c8c458e4ded64fe2 = Kanalı aç
-source-a6b9589dd15b27f1 = Yerleştirilmiş resmi aç
-source-bfa4880bcf9c2305 = Harici bağlantı açılsın mı?
-source-210095d367b65ea8 = Arkadaşlar / Ana Sayfayı Aç
-source-f491b07a7bdbffd0 = Resmi aç
-source-cccb44350fd2de2c = Resmi aç…
-source-c2345660b578ed10 = Tarayıcıda Aç
-source-0cd0e08453708738 = Discord'da aç
-source-3ea798aa0afd48e9 = Bağlantıyı aç…
-source-e121164e43f8460d = Medyayı aç
-source-aeb8874e785ef329 = Bastırma, yankı giderme veya otomatik kazanç olmadan mikrofonu açın.
-source-d433ca9090866e62 = Mikrofonu açın. Sessize alma ve bas-konuş hâlâ geçerlidir.
-source-ffd1f97b3bf2cc6c = Orijinali aç…
-source-c85c20c423dd80bd = Gönderiyi Aç
-source-6a81f2f29c9f775e = Açık kaynak…
-source-d6046ba0da6c33c1 = Geçerli görüşmenin okunmamış mesajlarını aç
-source-d7968f13927ad944 = Geçerli arama için yerel ekran paylaşımı seçiciyi aç
-source-0e59ff1e05a0917f = Bu kanalın konularını aç
-source-27dfb882d39365e3 = Konuyu Aç
-source-3f77e56ef959b303 = Konuyu aç
-source-a34407db7a1a8005 = Aracı aç
-source-827a6534f458557d = Kullanıcı profilini aç
-source-9df9322e025638d6 = Videoyu aç…
-source-dcea0d284cab270e = Kamera açılıyor…
-source-b9c26c5608299e42 = Mikrofon ve hoparlörler açılıyor…
-source-8e9ebbb06e3b9b4c = Bu doğrudan görüşmeyi açmak artık mümkün değil
-source-ddf803060176952b = yerel ses çıkış cihazını sıfır ses seviyesinde açar; açık çevrimdışı oynatma kontrolü
-source-4802e47fe2e95134 = Seçenek
-source-cc7a3682dd25ae19 = İsteğe bağlı
-source-74dbe7e55e4505d4 = OpusHead
-source-c21492c1a4675423 = OpusEtiketler
-source-f87721294366a17d = Veya bir arkadaşınıza sunucu davet bağlantısı gönderin
-source-672ba61ecccbe297 = Bu sayfada sipariş verin
-source-e7ebc29bb47e8edd = Tartışmaları ayrı gönderiler halinde düzenleyin.
-source-ed9a8bb45c917185 = işte!
-source-1d27698210c63656 = Sonuç bilinmiyor — yeniden göndermeden önce hedefi kontrol edin
-source-54a47864c5da0977 = Giden zil sesi
-source-fd77270c3f54f664 = Çıkış
-source-eb50b65932353935 = Çıkış kazancı (%)
-source-c907ffeeafb021d1 = Çıkış ayarları
-source-2a7536b72e043644 = Dıştan
-source-4ff8804ab63f5bdd = Bu tema için varsayılan Görünüm ayarını geçersiz kılın.
-source-4fc0dcc5fb30fe93 = Büyük boyutlu ZIP dizini kabul edildi.
-source-3d197283cb019b5a = Genel Bakış
-source-af640d4c86023fcf = P
-source-608cd4ccb45f9d99 = Paket, incelenen manifest dosyasıyla eşleşmiyor
-source-e60d2800ca6a8831 = Paket incelendi. Etkinleştirmeden önce kaynağını ve yeteneklerini inceleyin.
-source-74f3b83071bf24e6 = Paket yöneticisi güncellemeleri
-source-72ee704e9e1cb74f = package.AppImage
-source-fc643e610604d927 = paket/Serein.app
-source-15831592a43c6b50 = Pacman (Arch)
-source-952c26cac2583cfe = Sayfa Aşağı
-source-c205408d70cf40cb = Sayfa Yukarı
-source-db590927fb6744da = Kısmi
-source-7c89ad4312eaf268 = kısmi dosya
-source-b9db2ac3aa496f0e = Katılımcı
-source-5a46f9e4d4d9b108 = Bağlantı kesildiğinde katılımcı listesi kullanılamaz
-source-a7613d2b90c0d422 = Katılımcı listesi mevcut erişimle kullanılamıyor.
-source-3b154d612405d624 = Şifreler ve 2FA, Discord'un kendi giriş sayfasında kalır; İşletim sisteminizin kimlik bilgileri deposunda yalnızca oturum belirteci tutulur.
-source-7b3ab5a0027e0e72 = Desteklenen bir yola sahip yerel bir dosyayı yapıştırın
-source-851e38fdfc135937 = En fazla 4 milyon piksele sahip bir görsel yapıştırın
-source-f8fb8cb5fd5efb91 = Yapıştırılan metin taslak sınırını aşıyor
-source-061cc20e3432dead = Duraklat
-source-c0aad3bada6a2503 = Davetleri Duraklat
-source-806181d6767cb523 = Bekleyen mesaj yüksekliği belirlendi
-source-6bc837237e36cfdd = müzakere bekleniyor
-source-27978edca84ba459 = Bekleyen yayın, yüklenmesine izin vermelidir
-source-95f78e7bf229fee0 = bekleyen anahtar
-source-9cace6ede455728e = İNSANLAR
-source-4854cd48f30ff8ee = İnsanlar
-source-ddacfd6303ecdff4 = Kişiler ve kanallar
-source-9dc321f25a233e8b = gerçekleştirilen eylem
-source-ea2adb1f2047d144 = Dönem
-source-e8dca0132c66ae03 = İzinler
-source-f8dd3a19ce935eae = PgDn
-source-f8aa2a19ce67e9e5 = PgUp
-source-36be3358a306d616 = Fosfor Simgeleri 2.1.1
-source-8d4ea219f3be900f = PHP
-source-b58a986d783bbebf = Üyelerinizin bu kanaldaki bir gönderiye tepki vermek için kullanacağı varsayılan bir emoji seçin.
-source-8db89619f41917b4 = Sabitle
-source-e696eb8987efa89f = DM'yi sabitle
-source-c706b4e457ebf5db = Mesajı sabitle
-source-d0dc1cd29b880358 = Mesajları Sabitle
-source-a78a6609e99b31b6 = Gönderiyi Pinle
-source-5cea80fa4be26124 = Konuyu Sabitle
-source-44851a8adf059eef = Sabitlendi
-source-5f9d5d7b441e1c46 = Sabitlenen doğrudan mesajlar bu cihaza kaydedilir.
-source-4ae3dd42749e1c7c = Sabitlenmiş mesaj
-source-fcc1234c7817b89d = sabitlenmiş mesajlar
-source-8e7a241393fbd55d = Sabitlenmiş Mesajlar
-source-fecf630a50860c61 = Sabitlenmiş mesajlar kullanılamıyor
-source-89e846d82b9845bb = Sabitlenen mesajlar, bağlantı kesildiğinde veya kanal erişimi olmadığında kullanılamaz.
-source-c8025afb9e1c4f57 = PKx01x02
-source-7f387ed820dbcb8f = PKx05x06
-source-a83631951ce5cdaa = Platform oturum açma web görünümü kullanılamıyor
-source-5917a63ad0123578 = Platform oturum açma web görünümü kullanılamıyor; platform-support.md'ye bakın
-source-cd105819b5a10243 = Oynamak
-source-2e38f0c09c71f2a7 = oynatma gerçek zamana ayak uyduramadı
-source-bf037cc5a99f1763 = oynatma, tam kod çözme işleminden önce PCM alır
-source-c6a07b2c2125e503 = oynatma zaman aşımına uğradı
-source-308604b3ae13fbb5 = Oynanıyor
-source-1073b7e447f13237 = Sentetik bir ritim haritası oynatma
-source-66af460c96888f1b = Bildirim sesi çalınıyor...
-source-e392b792763e0ccf = Osu oynuyorum!
-source-6a81ff5f272ff64f = Mikrofonunuz seçilen hoparlörler aracılığıyla çalınıyor.
-source-1f5c2638403b9a3c = Lütfen güncelleme kontrolleri arasında bir dakika bekleyin.
-source-6b16791d5fc658ea = Lütfen bekleyin...
-source-71b80d1e85384a60 = Lütfen bekleyin…
-source-3409ff086bb765da = Eklenti
-source-c1b7b852fe0a84b7 = Eklenti erişimine izin verilmedi
-source-c807e1906c25af4f = Eklenti aktivasyonu açık izin gerektirmelidir
-source-cd408d41d1afb470 = Eklenti verileri verilen depolama bütçesini aşıyor
-source-1ed1dcb59d31ed31 = Eklenti verileri geçersiz
-source-a222bb43d16f0578 = Eklenti girişi 256 KiB'yi aşıyor
-source-8c009332ddf5525e = Eklenti devre dışı bırakıldı
-source-09421b07b5d1e9e6 = ÖĞLEDEN SONRA
-source-958641a82284fd77 = PNG veya JPEG, 2 MiB'a kadar
-source-915028b5e911d855 = PNG veya JPEG, 2 MiB'a kadar. Bu resim sohbet arka planını değiştirmez.
-source-52b0dc220084dd64 = 8 MB'a kadar PNG, JPEG, GIF veya WebP. Bir kareye kırpıldı.
-source-7678cc553d3d561d = Anket · Önizleme kullanılamıyor
-source-b357ea19a722d827 = Postalamak
-source-ce759dc1c73bbf36 = Gönderi Yönergeleri
-source-73bdcc27b99cad54 = Gönderi oluşturulmadı; eki yeniden bağlayın ve yeniden seçin
-source-330cbe4bb25a6fe9 = Gönderi başlığı
-source-d877d3e3a6593bb5 = Gönderme, buraya gönderme iznine sahip bağlı bir oturum gerektirir.
-source-d7d4b30bc730d74e = Şuraya gönderiliyor:
-source-c17d6e0a994ce337 = Yayınlanıyor…
-source-e13b1d97003596bc = Gönderiler
-source-9b3a5b083b2ec2da = Takip edilen bu kanallardan gelen gönderiler sunucunuza iletilir.
-source-2b5047d39b9baf3d = Tercihler
-source-78e8154150f1977e = Hazırlanan simgenin boyutu 256 KB'yi aşıyor; daha basit bir resim seçin
-source-e0c04be2d16bf1d6 = Hazırlanan simge çok büyük
-source-7b6f8c5a694fbe72 = Hazırlanan resim çok büyük; daha basit bir resim seçin
-source-000ed08319e7d0a3 = Hazırlanan çıkartma 512 KB'ı aşıyor
-source-046dc2e760ebd389 = Emoji görselleri hazırlanıyor...
-source-a722c7fde3b3e7c4 = Simge hazırlanıyor…
-source-6c41aeaf07b17248 = Çıkartma çizimi hazırlanıyor…
-source-623ca9d324559af9 = Yeniden başlatmaya hazırlanıyor…
-source-07e50975ca0e4ac0 = Yükleme hazırlanıyor…
-source-896a051b3f1da3ab = Hazırlanıyor...
-source-672a868be614a8de = İletişim durumu mevcut değil
-source-4f7cb4cd7a37fd0e = Bu başlıkla bir gönderi başlatmak için Enter tuşuna basın.
-source-edc3b8c9924eeef4 = Tuşlara basın…
-source-417b90913e05bc17 = Önizleme
-source-bec5b05becb3347e = Kamerayı önizleyin
-source-70d21c5075061f99 = Uygulamada önizleme
-source-69f799735cdb45ef = Önizleme yüklenmedi
-source-607442e5b633da35 = Yalnızca önizleme; bu yazı tipi kaydedilmedi.
-source-ef3473bcf41edf90 = Budamayı önizleyin
-source-a4d57f3d68d8be6e = önizleme başladı
-source-0351d58cf249e2f9 = Önizleme kullanılamıyor
-source-7092f4397b838b02 = Önizleme çevrimdışı kullanılamıyor
-source-1f781bc7f55b602c = Tema önizleniyor
-source-1edfaa976c0a475f = Önceki ses cihazları hâlâ kapanıyor; kısa süre sonra tekrar deneyin
-source-09d3d29472e6bed0 = Önceki ekran paylaşımı hâlâ kapanıyor
-source-937563e328c2fafa = Ana renk
-source-e7bee6e9a9b5394c = Özel
-source-b3d2106827312041 = Özel arşivler hizmetten izin gerektirir.
-source-dba9ca43fb346bdc = Özel Kategori
-source-2dee345e9f30cdf7 = Özel Kanal
-source-94d813c08226af7f = Onaylanmış arkadaşlar için özel takma adlar mevcuttur.
-source-8d995819f3fdfdcb = PRN
-source-b15099c45ca2861a = Üretme
-source-b061ff5a347a296e = Profil
-source-045ae58f3ba2c27d = Profil rengi
-source-fb413a6520f68e8f = profil düzenle görünen ad hakkımda biyo zamirler renk renk
-source-578611d7a6031374 = Profil kullanılamıyor
-source-7de0ee8b863c0b30 = Profil resmi
-source-4b4c06aa2b6e5629 = Profil kaydedildi
-source-fb347c129f6ffa2f = profil ayarları
-source-c497ffe6d9fc987f = Proje notları · Sentetik pencere
-source-52f7171195e80782 = Söz
-source-bdba2b9136c15a98 = Üyelerden karşılama mesajlarına bir çıkartmayla yanıt vermelerini isteyin.
-source-213dc586881c44d1 = Zamirler
-source-c9ad04c067ea282d = Zamirler (boşluk onları temizler)
-source-7282a96b438fc64a = Tepkilerimi onay için eklemeyi veya kaldırmayı öner
-source-e7f8aebfc62a6415 = Çağrıyı sessize almayı/sağırlaştırmayı, yayından ayrılmayı veya onay için izlemeyi önerin
-source-39c5c81e8e260e06 = Onay için kamera, ekran paylaşımı ve yerel medya cihazı değişikliklerini önerin
-source-09fcf0a85d0fb0f3 = Onay için kanal, kategori, grup görüşmesi önerin ve değişiklikleri sessize alın
-source-e536168f636b2100 = Onay için pano metnini önerin
-source-1d7492217bf79895 = Onay için konu veya forum gönderileri oluşturmayı ve yönetmeyi önerin
-source-fe4b1913abb988b5 = Onay için iletilerin düzenlenmesini, silinmesini veya sabitlenmesini önerin
-source-41262dff8fd077fc = Onay için kameramı etkinleştirmeyi veya devre dışı bırakmayı öner
-source-0455ece182e22b78 = Onay için arkadaş, engelleme, takma ad ve not değişiklikleri önerin
-source-5a1f61408bf792c4 = Onay için çağrıları birleştirmeyi, çalmayı veya reddetmeyi önerin
-source-76483ae3668f8cb7 = Onay için yerel bildirimler önerin
-source-689e4cb487e341e8 = Konuşmaları onay için okundu veya okunmadı olarak işaretlemeyi önerin
-source-43fb381909abad5b = Onay için üye rolü, takma ad, tekme ve budama eylemlerini önerin
-source-14ae041eeff7a613 = Açılış konuşmalarını, profilleri, arama ve uygulama görünümlerini önerin
-source-9173a3df312b14d5 = Onay için mesaj göndermeyi önerin
-source-b11009ae0b877e3d = Onay için sunucu rolü değişikliklerini önerin
-source-c7c3a103c9e1e7a1 = Onay için sunucu ayarlarını, davetleri, emojileri ve üyelik değişikliklerini önerin
-source-34539d164ee47142 = Önerilen uygulama eylemi
-source-bd834b5296a9853e = Önerilen besteci metni
-source-0fd50e8b10d74cd7 = Budamak
-source-6818b1e815d43260 = Üyeleri Budama
-source-d8f81a1a34abe300 = Üyeleri budayın
-source-f7ff1e5e5e370b2e = Budanmış üyeler
-source-dd1ff479d04ac140 = Halk
-source-c82192ae4dc0141b = Kararlı sürümler yayınlandı. Kanalları değiştirmek asla eski bir sürümü yüklemez.
-source-40bbf4a98d873400 = Konuşmak için bas
-source-88b0d524c6412bea = Burada konuşmak için bas-konuş gereklidir. Ses ayarlarında bunu etkinleştirin.
-source-3f1a318ed131a6ea = Masayı geri koy.
-source-39938159c7a334f7 = Python
-source-af640c4c86023e1c = Q
-source-f675f879b1c892c6 = Kalite
-source-15daee76414a1a07 = Kaliteli seçim Nitro gerektirmez.
-source-8a77d6a7eb6beb80 = AutoMod ile karantinaya alınan üye
-source-b4f593d4c6b311a5 = Soru
-source-af640f4c86024335 = R
-source-09495507b5d86b22 = RC
-source-a8ca1cbccf57963e = Tepki ayrıntıları mevcut değil
-source-9ff2ac475c7b07db = Tepkiler
-source-eb6ea6df7a71fe4d = Tepkiler kullanılamıyor
-source-6299f50a2d3ff2f2 = Hesap mesajlaşma gizlilik değişikliklerini okuyun ve onay için önerin
-source-a1b3e4532467f761 = Onay için sunucu klasörü değişikliklerini okuyun ve önerin
-source-3a9359ab859312f3 = DM'leri doğrudan oyun içi sohbetlerden okuyun ve yanıtlayın.
-source-2c24298259ec0c00 = Ses tercihlerini okuyun; onay için ses ayarları, katılımcı ve akış ses seviyesi değişiklikleri önerin
-source-f37afea1a173f345 = Mevcut çağrı durumunu ve katılımcı tanımlayıcılarını okuyun
-source-2a7b20fd76f6b569 = Mevcut kanal meta verilerini, alıcılarını ve izinlerini okuyun
-source-7d005268991292a2 = Mevcut yazan kullanıcıları ve yüklü pinleri okuyun; reaksiyonları gözlemlemek
-source-fad63586871c2fe2 = Aktif görüşmedeki canlı mesaj etkinliklerini ve metni okuyun
-source-859c08b09812e56c = Yüklenen kanal konularını, kategorilerini, konu ayrıntılarını ve izinleri okuyun
-source-77d979bd73d4cd06 = Yüklenen yerleştirme metnini, çıkartmaları ve mesaj referans meta verilerini okuyun
-source-17793c0ef8605662 = Yüklenen forumu ve konu özetlerini okuyun
-source-02e5f347c88a415c = Etkin görüşmenin yüklü üyelerini okuyun
-source-43ddc17f33dccbc5 = Yüklenen mesaj yanıtlarını, bahsi geçenleri, ek meta verilerini ve tepkileri okuyun
-source-d4bce7f7e4daf2bf = Etkin görüşmedeki yüklü mesajları oku
-source-7cc838753603fd19 = Yüklenen sunucu üyelerini, rollerini ve sunucu profillerini okuyun
-source-a0afe7e3c1222ed4 = Yüklenen kullanıcı varlığı durumunu oku
-source-47bf117cb8a9b601 = Yerel okuma ayarlarını okuyun ve onay için değişiklik önerin
-source-2927e08a4d9b2110 = Yerel ses ve bildirim ayarlarını okuyun ve değişiklikleri onay için önerin
-source-8bc338a1d0f91e8a = Mesaj Geçmişini Oku
-source-dc989f7ff528e0cf = Hesabımı ve mevcut görüşme ayrıntılarını oku
-source-0e699df0b74a19f1 = Taslağımı oku ve metin değişiklikleri öner
-source-11779c5d2f35d080 = Yüklenen arkadaşlarımı, isteklerimi, engellenen ve görmezden gelinen kullanıcıları oku
-source-4704ba3b0a399b9a = Biyografi ve zamirler de dahil olmak üzere yüklü profilimi oku
-source-65805f3b6661acc8 = Yüklenen sunucu adlarımı ve tanımlayıcılarımı oku
-source-0f1570eaf9c5cba2 = Kendi varlığınızı ve etkinlik paylaşımı tercihlerinizi okuyun; onay için hesap değişiklikleri önerme
-source-bece36aa13c1b03c = Yüklenen, okunabilir konuşmaların listesini okuyun
-source-98a2bd0bd50d001f = Bir eylem için seçtiğim mesajı oku
-source-0642a2732ddb25fe = Aktif görüşmedeki okunmamış ve bahsetme sayılarını okuma
-source-8fd59126eed71205 = Oturum kapatıldıktan sonra da dahil olmak üzere okuma ve düzen bu cihaza kaydedilir. Sıfırla, varsayılanları geri yükler.
-source-8154305d6b50855c = Okuma ve düzen kaydedilemedi; değişiklikler yalnızca bu oturumda mevcut
-source-83e6f73b3e37c43f = Söz konusu hesaba ait kayıtlı giriş bilgileri okunuyor…
-source-3f15cf6f633a5d62 = README.md
-source-59dc812c244f088a = talebi takip et okur
-source-c678f2190f974ca7 = Etkinleştirildiğinde uygulama yaşam döngüsü ve gezinme olaylarını alın
-source-f2871427d0d11bd6 = Ayrı olarak verilen hesap ve görüşme verilerindeki değişiklikleri alın
-source-05902f6b5cbe9380 = Bu katılımcının ekran paylaşımını al
-source-01fdf50020983183 = Onaylanmış bir uygulama eyleminin Serein tarafından kabul edilip edilmediğini alın
-source-e449f1215ef49707 = Son Etkinlik
-source-ef5005edac8b82e7 = Son etkinlik
-source-e260d8331149ff45 = Son Üyeler
-source-a9300eb10e34199e = Son Kullanılanlar
-source-14263cc7cff0feb3 = Alıcılar inecek
-source-075e2cb33cb16386 = tanınan yerleşik
-source-12f6b3b9aa6fe76c = Tavsiye edilen
-source-df78e162dbbb41fc = Aramadan önce Discord'a yeniden bağlanın.
-source-7029a59905b2d0b1 = Sunucu ayarlarını yüklemek için yeniden bağlanın.
-source-a86ada92edab6a6d = Bu sunucuyu yönetmek için yeniden bağlanın.
-source-48c518388bfa1e7c = Aramayı yenilemek için yeniden bağlanın
-source-009a8c415421a515 = Değişiklikleri kaydetmek için yeniden bağlanın.
-source-1cf6f6c7006bf73c = Profilinizi kaydetmek için yeniden bağlanın.
-source-8a4ff2bd9c13498c = Kayıt
-source-ba6de1cb37f26d0f = Mikrofonunuzun aldığı hoparlör sesini azaltın.
-source-a7ad7555a637e0a0 = Daha fazla sonuç görmek için aramanızı hassaslaştırın
-source-7b7163270e57e8b4 = Yenile
-source-e6c863c3adb1623c = Uygulama komutlarını yenile
-source-0b7b28d123a8ae88 = Kameraları yenile
-source-15f7f0a931709203 = Kataloğu yenile
-source-ff3380d0a231883f = Cihazları yenile
-source-3b58c1b7f6fce277 = Discord'dan klasörleri yenile
-source-cfce14e5038df525 = Yerel mikrofonları, hoparlörleri ve kameraları yenileyin
-source-bfca1ed1418f03d1 = Başlamak için kataloğu yenileyin veya bir yaratıcının paketini içe aktarın.
-source-93787245395a7f94 = Kataloğu yenileyin veya bu paketi tekrar içe aktarın.
-source-123da0f92f97dd86 = Reddetmek
-source-38ace4d40716aac1 = Tekrar katıldım
-source-c83246e618430136 = İlgili emoji
-source-f948766d516f998d = Yayın kanalı
-source-03edf13757dea515 = Sürüm meta verileri boyut sınırını aşıyor.
-source-d5b6130b4937488c = Yeniden yükle
-source-a1e19fe0d955f8b7 = Kanalı Yeniden Yükle
-source-91896afddbd4830f = Entegrasyonları yeniden yükle
-source-f333c9173a2427ec = Daha fazla değişiklik yapmadan önce entegrasyonları yeniden yükleyin. Taslağınız saklanacaktır.
-source-3d6a71c726a586ea = Davetleri Yeniden Yükle
-source-998c0beb7bc529e0 = Pimleri yeniden yükle
-source-775b73a686645051 = Profili yeniden yükle
-source-7f8dd350b6c07e64 = Reaksiyonları yeniden yükle
-source-1080b5a97d104d2d = Rolleri Yeniden Yükle
-source-2f92ab35eb987085 = Kaydedilen notu yeniden yükle
-source-f56c4fca7d746608 = Sunucu ayarlarını yeniden yükle
-source-bb44a7c8f0f78637 = Tekrar kaydetmeden önce sunucu ayarlarını yeniden yükleyin. Düzenlemeleriniz saklanacaktır.
-source-1ebe8baf644039da = kalan metin
-source-16835bc2c441b2fe = uzak çerçeve eklendi
-source-ea4f08110bb8f15d = Kaldırmak
-source-f80f4b704dba8250 = Tarihleri ​​kaldır
-source-c6687f397e3927fb = Emojiyi kaldır
-source-1bc32fa2cf4113eb = Arkadaşı Kaldır
-source-6dbdc5a62b94b13c = Arkadaş Kaldırılsın mı?
-source-1f499e8a73feea66 = Favorilerden Kaldır
-source-340de08a838127e4 = GIF favorilerinden kaldır
-source-53a9310a10c88406 = Simgeyi kaldır
-source-7e363216123744e6 = Simgeyi Kaldır
-source-7c136cb4e38bacf7 = Entegrasyonu Kaldır
-source-61d7d450d8f46878 = Entegrasyon kaldırılsın mı?
-source-139e9afa047d2fc6 = Mesajı Kaldır
-source-72d51f6b2abacc40 = Rolü / Üyeyi Kaldır
-source-65345193d57a242d = Etiketi kaldır
-source-5ee8fe87cb64e8a6 = Bu konuşmayı DM listenizden kaldırın. Mesajlar saklanıyor.
-source-53cee0fb23fcda55 = Bu temayı kaldırın ve yerel verilerini silin.
-source-1755b68c3ebf1f0d = Özelliği kaldır
-source-068bc98e26b78314 = Kaldır
-source-910b11ba5f4300d5 = Önbelleğe alınmış mesajları ve medyayı kaldırır. Taslaklar ve giriş bilgileriniz.
-source-84aa5a4911f9ba02 = Ek rolü olmayan etkin olmayan üyeleri kaldırır.
-source-4cb60b1130d12dcb = Mikrofonunuzdan klavye, fan ve oda gürültüsünü ortadan kaldırır.
-source-8b107f398988112f = Kaydedilen oturum açma bilgilerini kaldırır ve bu hesabın yerel önbelleğini ve taslaklarını temizler.
-source-4d869154c93ddc21 = Bu uzantıyı kaldırır ve yerel verilerini siler.
-source-43059e2db8e43abf = Kapatmadan önce uzantı verileri kaldırılıyor.
-source-4b27cb66aaf37dac = Kayıtlı giriş bilgileri kaldırılıyor…
-source-60320a18282b2b33 = Yeniden isimlendirmek
-source-cdc372fbaad1ecc1 = Emojiyi yeniden adlandır
-source-76a1cf16e19609aa = Tekrarlanan tohum blokları eşleşen bütçeyi aştı.
-source-e5359052096240f4 = Kapağı değiştirin
-source-e9a18580e9728abe = Resmi değiştir
-source-e1f33b64570245fb = Hesabın sunucu klasörü düzenini değiştirin
-source-32679eb7255a58c7 = Yenisiyle değiştirme
-source-8e53316cda490a28 = Yedek yazı tipi
-source-10673825f65de969 = yedek arama
-source-81a19821f3e4a3d2 = Tekrar oynat
-source-0b7ae9543c001867 = Cevap vermek
-source-17d1e647b0f606c1 = Yanıt kullanılamıyor veya giriş bütçesi aşılıyor
-source-73c51ecc6e5c0c5f = Sınırlı arama, pin, konu, üye, profil ve GIF sonuçlarını isteyin ve okuyun
-source-3f0b9f0cbcb49e15 = İstenen geçmiş temizliği tamamlandı; geçmiş önbelleği, depolama hatasından sonra yeniden başlatılıncaya kadar devre dışı kalır
-source-1665e9eda5973238 = Ekran paylaşımı bağlantısı isteniyor…
-source-16f6b159aabbcffd = Akış isteniyor…
-source-a826e11988d49785 = İnsanların paylaşım yaparken etiketleri seçmesini zorunlu kılın
-source-3e240030b195eb63 = Görünümde Şeffaflık ve bulanıklık, ardından uygulamanın yeniden başlatılması gerekir.
-source-255857544a9d5ec0 = Sıfırla
-source-6a50ce44affe0376 = Sohbeti sıfırla
-source-b527763ec611e3e6 = Düzeni sıfırla
-source-dacf92c51c3c97ef = Seviyeleri sıfırla
-source-61f6e5c28e45b092 = Sesi sıfırla
-source-6e959439db98d247 = Yeniden boyutlandırılan sanat eseri 8 MiB'den büyük
-source-1a59de325dfe58c2 = çözümlenmiş meta veriler
-source-b4b933c406aeef60 = Bunu değiştirdikten sonra Serein'i yeniden başlatın. Temalar etkinleştirildiğinde efektleri özelleştirebilir.
-source-9b9794a36a84b666 = Güncellemek için yeniden başlatın
-source-26f91b6796e33111 = Eski haline getirmek
-source-4c045ad8386da940 = Besteciye geri yükle
-source-890e983a7be64da4 = Sonuç
-source-e943126c0c2298bf = Konuşma veya taslak değiştiği için sonuç iptal edildi.
-source-ca1a826088564455 = Sonuçlar
-source-89118d3a7be870ca = Sürdürmek
-source-99e7b2125d2dd2a4 = Davetleri Devam Ettir
-source-2c8189544e3ea679 = Yeniden dene
-source-8fb4a8104dc5099d = Temizlemeyi yeniden dene
-source-77ce63b9a6354a49 = Eski pinleri yeniden deneyin
-source-ebfd03fb647684c4 = Profili yeniden dene
-source-6c41549f2b41c8ae = Okuma ayarlarını kaydetmeyi yeniden deneyin
-source-c5d9d91a0e98a190 = Çıkartma ayrıntılarını yeniden dene
-source-473beb2d5bbf13b8 = Çıkartma paketlerini yeniden dene
-source-31964fcdbe2dc0c2 = Spoiler'ı açığa çıkar
-source-532133fec0ac1263 = Spoiler ekini açığa çıkar
-source-569ae3a37cb09c55 = Spoiler bileşenini açığa çıkar
-source-d0beaa7f86071516 = Spoiler medyasını açığa çıkarın
-source-a71f3a7d439a96e6 = İncele ve etkinleştir
-source-4168c0b41e00280e = Çıkartmayı incele
-source-9b40a2cbdfe94e10 = Bu sürümün yerini almadan önce yeni sürümü inceleyin.
-source-e1b5b5200f58e174 = Sonucu inceleyin. Uygulama işlemleri ve taslak değişiklikleri için onayınız gerekiyor.
-source-18499f72bb532165 = Bu sunucuyu inceleyin ve ardından Sunucuya Katıl'ı seçin.
-source-988da3045445ce0f = Yüklemeleri inceleyin
-source-b89d8d8bc0c08e98 = İncelendi
-source-d8e1fc7538c8d924 = Daveti İptal Et
-source-48d753e395f68144 = Daveti iptal et
-source-bc6506b7d1de0401 = Davet iptal edilsin mi?
-source-f3449c2c980f8250 = RIFF
-source-3435c3f0cd8719cd = RNGürültü
-source-0adfce032fa95288 = RNGürültü bastırma, yankı giderme ve konuşma için otomatik kazanç.
-source-c1f392a7dc96341b = Robin
-source-ca7fed2bef53cb99 = Rol
-source-8c8a7845700d51fe = Rol eylemleri
-source-aba5f3b627a900fa = Rol rengi
-source-ba16b16dc887a7aa = Rol simgesi
-source-62ff009599ec1ff3 = Rol üyeleri yüklenemedi. Tekrar denemek için aramayı yeniden yükleyin veya değiştirin.
-source-17986a8a77d86200 = Rol adı
-source-47a0237a20e2cb3c = Rol Stili
-source-6b2beba7ab637e9e = Roller
-source-801cecb30f763b5e = ROLLER
-source-b4f157ed71280936 = ROLLER/ÜYELER
-source-ea52df2b70a5c10d = Yakut
-source-fe66f627e8bf06bc = Güncellemeleri yüklemek için Serein'i AppImage'dan çalıştırın.
-source-ea8ce02b70d73b07 = Pas
-source-af640e4c86024182 = S
-source-4d40406fca0909da = Sam (sentetik)
-source-590fc8d846a78850 = Örnek konuşmalar. Discord bağlantısı yok.
-source-59a8c35c86b563e4 = Örnek mesaj
-source-33f85f24c0f5f008 = Kaydetmek
-source-f6bd38782a811135 = Kaydet ve uygula
-source-870f7b2f8c27e219 = Değişiklikleri kaydet
-source-031945e67717bf79 = Değişiklikleri Kaydet
-source-6c634d114bce0615 = Resmi farklı kaydet…
-source-4f128a472e319de2 = Konuşmayı açmadan önce sunucu ayarları değişikliklerinizi kaydedin veya atın.
-source-f25bcf5c9ab907a8 = Etiketi Kaydet
-source-d9ee4197b17aab46 = GIF favorilerine kaydet
-source-14decb5195aa34af = Videoyu farklı kaydet…
-source-0bdb473d4fe0066b = Kayıtlı hesap bu cihazdan kaldırıldı
-source-db47c9175c2af7b0 = Kayıtlı hesaplar
-source-666717eb96d5e498 = Kaydedilen kanal tercihleri ​​hasarlı veya bu yapıyla uyumlu değil.
-source-7bf59be69a16cd3f = Kayıtlı kanal tercihleri ​​dolu. Bir favoriyi veya raptiyeyi kaldırın ya da bir kategoriyi genişletin.
-source-71b2680c91e113b9 = Kaydedilen taslaklar geri yüklendi; kurtarılan metni tekrar göndermeden önce konuşmayı kontrol edin
-source-305b3f3ed2a17e73 = Önizlemede kaydedildi
-source-b36cd269570070f5 = Kayıtlı giriş bulundu; Discord'a bağlanma
-source-fd2b16647eb92918 = Kaydedilen giriş geçersiz. Discord'la tekrar oturum açın.
-source-ce33d3429a3dc5d1 = Kayıtlı giriş kaldırıldı
-source-f790510720d5a8fd = Kayıtlı giriş kullanılamıyor; kimlik bilgisi araması başlatılamadı
-source-5c6f84e96503da2a = Kayıtlı giriş kullanılamıyor; Discord'la oturum açın. Düz metin geri dönüşü yok.
-source-40a16d07a72ea80a = Kaydedilen okuma ve düzen yüklenemedi; varsayılanları kullanma
-source-2bd3f521b037d156 = Kaydedilen metin taslakları çıkışta hayatta kalır; seçilen dosyaların yeniden seçilmesi gerekir. Oturumu kapatmak yerel hesap verilerini kaldırır.
-source-fd29a34b05fe1d6d = Kaydedilen metin taslakları geçişten etkilenmez; seçilen dosyaların yeniden seçilmesi gerekir. Bu hesap değiştiricide kalır.
-source-4d318e067bd48668 = Görünümünüzle birlikte kaydedildi. Degrade hazır ayarları her zaman koyu metin kullanır.
-source-b34cec0d614c6ad0 = Kayıtlı giriş kontrolü zaman aşımına uğradı. Discord'la oturum açın; kimlik bilgisi deposu yanıt vermedi.
-source-0001573615d2e279 = Kaydedildi-giriş geri yüklemesi iptal edildi
-source-c83d273276aa51bc = Değişiklikler kaydediliyor...
-source-07c0db31793104ae = Değişiklikler kaydediliyor…
-source-4248894fbd7aa5d0 = Yazı tipi kaydediliyor…
-source-fb7b74cdca8cc83b = Yerel değişiklikler kaydediliyor…
-source-10ec6769ba70fc4a = Profil kaydediliyor…
-source-a0fd9c241cd68d88 = Okuma ve düzen kaydediliyor…
-source-61c51a921de4855b = Rol kaydediliyor…
-source-7572c5bd72e919f9 = Ayar kaydediliyor…
-source-1bdc0b745a2497a9 = Başlangıç ​​ayarları kaydediliyor…
-source-717d4a2cd3f7d66f = Kaydediliyor...
-source-329e062dd1fdf61d = Kaydediliyor…
-source-2f1ff26c6453749a = ölçek=w='maks(2,min(1920,iw))':h='maks(2,min(1080,ih))':force_original_aspect_ratio=decrease:force_divisible_by=2
-source-9b8312fad4a3f6eb = Metni ve kontrolleri uygulama genelinde ölçeklendirir.
-source-744d993d03f29851 = Ekran
-source-b69cf5b21faba122 = Ekran yakalama durduruldu
-source-fa63b7f287b06bfa = Ekran veya pencere
-source-50b181964fcd13fb = Ekran önizlemesi · diğerlerini bekliyorum
-source-70017df1375408ed = Ekran paylaşımı sesi
-source-86c1783939f223ec = İzlediğiniz ekran paylaşımı
-source-ad8a45267315dc52 = Mevcut görüşmede ekran paylaşımı kullanılamıyor
-source-8a01cce72e5665a1 = Bu platformda ekran paylaşımı kullanılamıyor
-source-4739e0051c41d4d0 = Ekran paylaşımı, desteklenen bir masaüstünde bağlı bir çağrı ve video izni gerektirir.
-source-08e5a969a8e0ce42 = Ekran paylaşımı mevcut bağlı çağrıyı gerektirir
-source-6d81d7ebe44dfb44 = Ekran paylaşımı durduruldu
-source-eaca8c23bd1c5b2d = Ekran kaynağı keşfi durduruldu
-source-305c701964bc64eb = Ekran paylaşma eylemi gönderilmedi; ses kuyruğu dolu
-source-1a7b38e67d731ab1 = Ekran paylaşımı bağlantısı sona erdi
-source-bc59488feecdff2c = Ekran paylaşımı izni kaldırıldı; paylaşımı durdurma
-source-c2536e077514accc = Kaydırma
-source-f6bf0e7886e7dc6f = Kaydırma hızı
-source-5d929ff1619ac0c9 = Aramak
-source-ac2b1f7c96f136d9 = Animasyonlu GIF'leri arayın.
-source-511cf4ad87d404c8 = Kullanıcı adına veya kimliğe göre arayın
-source-a9d13f71e8de590f = Emoji ara
-source-c678b06185ed372f = Emojiyi ada göre ara
-source-01d0dd8e57c5856d = Uzantıları ara
-source-d54fce8458776b2e = Ara
-source-1dba3a368b42bbdf = Arkadaşları ara
-source-ec07ac2e601c3b11 = Konu adını arayın
-source-1b844e05478f6f04 = KLIPY'de GIF arayın
-source-9d4f40b2b35982d7 = Bağlantı kesildiğinde arama kullanılamaz
-source-fd20b1e076872634 = KLIPY'de ara
-source-86dae239544ca363 = Yüklenen gönderileri arayın veya yeni bir gönderi başlatın
-source-71c69d9e6f99a34e = Üye ara
-source-ef00bdf45313e7e1 = Bu görüşmedeki mesajları ara
-source-d278d4db5324488f = Arama seçenekleri
-source-e35d22bb1a71307d = Bir gönderi arayın veya oluşturun...
-source-045291a4cc6001dd = Arama izinleri
-source-5643568b7c038f43 = Arama sonuçları
-source-b9eb9a734a9361f4 = Rolleri Ara
-source-7bc3a4a5a8382329 = Rolleri veya yüklü üyeleri arayın
-source-b901449675b474d6 = Arama ayarları
-source-64d6b96e444f3b15 = Aramaya izin verilmeli
-source-0c2fb89655eb7eff = Çıkartmaları ada göre arayın
-source-8cdffd7c5229b4a5 = Temaları arayın
-source-6941bde74e3b3492 = Bu görüşmeyi arayın
-source-a637bb8f70a4a981 = Kullanıcıları ara
-source-5e0c26d1eb4983fe = Çıkartmalarınızı arayın.
-source-8f7a05e1cd7b166e = KLIPY aranıyor…
-source-fe515bf2902cac81 = Arama…
-source-8161d3e880287d94 = İkinci degrade rengi
-source-35b679156b635a64 = İkincil metin
-source-4eb7f7fecd1fe546 = bölüm loncaya aittir
-source-0929c5f49b0019b1 = Bölüm opaklığı
-source-043db9078fc00072 = Ekran videosunun güvenliği sağlanıyor…
-source-6dfce8fa9f22b62c = Akışın güvenliği sağlanıyor…
-source-5788d924d55d3ff1 = Aramak
-source-08e41fcb00632f3e = Video ara
-source-59a2050d3144eda4 = Sesli mesaj ara
-source-b2fb42aeaa1672d2 = Eklentileri etkinleştirmeden önce bir hesap seçin
-source-6a86404d6e509af4 = Bir alan seçin, ardından görüntünün ne kadarının görüneceğini seçin.
-source-487bfc8b355fe465 = Mevcut bir DM veya sunucu ses kanalını seçin
-source-3b84d9505bae0fcb = Emojiyi seçin
-source-c14632800a845f4a = Etiketleri Seçin
-source-fb483eabd7e724b2 = Bu mesajı nerede paylaşmak istediğinizi seçin.
-source-669cf054132226bb = Seçilen bölüm
-source-d0f64e831fda5436 = Resim seçildiğinde resim eki olarak gönderilir.
-source-0380652457f8ba15 = Seçim
-source-57a6e624d5765397 = öz
-source-57adf424d57c8a0f = Göndermek
-source-357e0427bcca1f7a = GIF gönder
-source-c30077075bd6557a = Birisi bu sunucuyu güçlendirdiğinde mesaj gönderin.
-source-23f23b682f286960 = Birisi bu sunucuya katıldığında rastgele bir hoş geldiniz mesajı gönderin.
-source-8c33074f7ead1f59 = GIF gönder
-source-9395e47754f7303a = Sunucu kurulumu için yararlı ipuçları gönderin.
-source-d2632761f8bc7cbd = Mesaj Gönder
-source-60b71a5bfe59d6dd = Konularda Mesaj Gönder
-source-f706fa9a8fec5f9f = Mesaj, resim ve dosya gönderin.
-source-f1fce0d77a9ad6cc = Bir görseli seçmeden önce mevcut ekleri gönderin veya kaldırın
-source-65bbc49271a82f81 = /msg kullanmadan önce seçilen ekleri gönderin veya kaldırın.
-source-04a336a5c2a847ab = Metin-Konuşma Mesajları Gönderin
-source-1ba1e394bad0e4d8 = Uygulamalarınızdan ve hizmetlerinizden güncellemeleri bu sunucudaki bir kanala gönderin.
-source-6e91488cc098227f = Mac'inizin oynattıklarını ekranla birlikte gönderin. Serein'in kendi çağrı sesi dışarıda bırakıldı.
-source-f44572f297b915c0 = Ayrılmış geçmişten gönderim mevcut sayfayı talep etmelidir
-source-41e2e5317dd14289 = Gönderim yapılamıyor veya giriş bütçesini aşıyor
-source-0392ff1b723d0682 = Mesaj gönderiliyor…
-source-0d1ec2ca1edf2abf = Gönderiliyor…
-source-57ade424d57c6edf = Gönderilmiş
-source-167e5a02e3f6ba3c = Seçilen yazar türlerinden herhangi biri tarafından gönderildi
-source-266899d6441ecba1 = Seçilen kullanıcılardan herhangi biri tarafından gönderildi
-source-cad2d591cadc16af = Serin
-source-f392efddac5fb934 = Serein temizliyor
-source-f590eb8e7c5e4be6 = Serein Özel
-source-7574ac78ac482f41 = Serein Özel Ortam
-source-03365973b729d5e7 = Serein Özel Yarı Kalın
-source-c23a4b40071920f0 = Serein telemetri toplamaz veya tanılamayı yüklemez. Discord, hizmet tarafındaki verileri kendi politikalarına göre saklar.
-source-be324a622506b819 = Serein bu kanalda günceldir.
-source-2acf1f5854f87516 = Serein dağıtımınız aracılığıyla kuruldu. Güncellemek için bunu bir terminalde çalıştırın.
-source-42736cb61d724206 = Serein.app
-source-662d070cf6f7c46a = Serein.app/Contents/MacOS/serein
-source-805766bbb3fa3b80 = Serin/
-source-371d829bf04998db = SEREIN_CHANNEL
-source-93a967981cf6e20e = SEREIN_FRAME_DIAGNOSTICS
-source-62721c625b369749 = SEREIN_GATEWAY_DIAGNOSTICS
-source-4bb1680ded56386d = SEREIN_MEMBER_DIAGNOSTICS
-source-21628c14859268ae = SEREIN_VIDEO_SAMPLE
-source-b5782c425a21b019 = SEREIN_VIDEO_SAMPLE yolu
-source-7552f6fd66393ff6 = SEREIN_VIDEO_SAMPLE çevrimdışı bir klip sağlıyor; sessiz yerel çıkışı açar
-source-111425d6402a4445 = SEREIN_VOICE_DIAGNOSTICS
-source-5afcaa918bbb91b2 = Sunucu
-source-334ca50e41e21afc = Sunucu yönetimi mevcut izinlerle kullanılamıyor
-source-e9672a634396a285 = Sunucu Takviyesi
-source-3789bdaf8e3545c8 = Sunucu oluşturuldu. Discord'un sunucu listenize eklenmesini bekliyorum.
-source-c81750b3ca90cec2 = Sunucu oluşturma çevrimdışı olarak kullanılamıyor
-source-6f6b7f965d7e403b = Sunucu varsayılanı
-source-874c0225e3ba1def = Sunucu istenen delta aralığını sağlamadı.
-source-9e517ef8b9209a80 = sunucu emojisi
-source-69b1694fa80d6fa6 = Sunucu klasörü
-source-3a02197c375e684b = Sunucu klasörleri kullanılamıyor
-source-35c6b3835c23cc5b = Sunucuya katılım çevrimdışı kullanılamıyor
-source-b677b74fd7583842 = Sunucu listesi
-source-01f35e54078ae209 = Sunucu Üyeleri
-source-752efe92882bde69 = Sunucu üyeleri
-source-0099285ad19604c9 = Sunucu menüsü
-source-9125243e17ee4435 = Sunucu adı
-source-9ea06069ddfbdb4a = Sunucu önizlemesi
-source-2c796ad52f701a3b = Sunucu Profili
-source-26fc973905937715 = Sunucu profil resmi
-source-576d94964775efa3 = Sunucu Ayarları
-source-194b9b5b8956f706 = Sunucu etiketi
-source-b4f75a4ab92c8179 = Sunucu etiketi rozeti
-source-06709c30707789c8 = Sunucu etiketi işaretlendi
-source-f587b273e6310223 = Sunucu ses kanalı
-source-f1bbac50373377e4 = Hizmet
-source-62278f512692e037 = Oturum
-source-fdf17bfb44b28042 = Oturum jetonu
-source-9844a719fa9b1a83 = Ayarlamak
-source-eae627a1f8088c8b = Özel bir durum ayarlayın
-source-3f97421d89b18351 = Varsayılan düzen görünümünü medya odaklı bir galeriye veya metin odaklı bir listeye ayarlayın. Üyeler yine de bu seçenekler arasında geçiş yapabilecektir.
-source-82e715834c9f4fe1 = Yeni gönderiler için varsayılan sıralama düzenini ayarlayın. Üyeler yine de bu seçenekler arasında geçiş yapabilecektir.
-source-705f21e6ce3719d7 = Varsayılan etiket eşleştirme davranışını ayarlayın. Üyeler yine de bu seçenekler arasında geçiş yapabilecektir.
-source-0ce9a5aecc6dd3b7 = Ayar kaydedilemedi veya yüklenemedi. Kaydetmeyi yeniden denemek için bunu değiştirin.
-source-5a872471095707a2 = Sosyal deneyimlerini güçlendirmek için Discord'u kullanan oyunların ayarları.
-source-115b51c0b3e792f1 = Birkaç kullanıcı eşleşiyor. /msg ile bir kullanıcıdan bahsetme veya kimliği kullanın.
-source-da68df88bd08f5f4 = SHA256SUMS.txt
-source-ba4076b03255c1e5 = Arkadaşlarınızın bu sunucuya katılabilmesi için bir bağlantı paylaşın.
-source-aaf9b84edaab407e = Bir ekranı veya pencereyi paylaşma
-source-2c3c34153ac74ed3 = Oyun etkinliğini paylaş
-source-45424021c300477c = Ekranı Paylaş
-source-ac20e718c073966e = Bir pencereyi paylaşırken bile diğer uygulamalardaki sesi paylaşın. Serein'in kendi sesi dışarıda bırakıldı.
-source-0271a8f65fe94e07 = Sistem sesini paylaş
-source-201311c687d03fd1 = Güncellemeleri paylaşın. Topluluk sunucusu gerektirir.
-source-3d85ff460396575d = Ekranınızı paylaşın
-source-3fe52fe70d27121d = Seçtiğiniz kamerayı bu çağrıyla paylaşın
-source-f1b4a3f1947fb4d5 = Paylaşma ve dışa aktarma
-source-5f0298f79747ad16 = Ekranınızı paylaşma
-source-0ce8eeaf9aa0c421 = Kabuk
-source-e93a3eaf86201ae7 = Vardiya
-source-d209ee27e7449876 = kaydırılmış önek
-source-3c2b7ef8ccd3cd5a = Daha güzel bir görünüm sunmak
-source-716a6024e3fe999c = Göstermek
-source-93d8b6aded340643 = Tüm DM'leri göster
-source-b2f8ae3e6b28ba6c = Şu anda erişemediğiniz kanalları gösterin.
-source-833dfcfd41dcd086 = İmleci göster
-source-79b0a69cbcda8649 = Oyunlarda Doğrudan Mesajları göster
-source-9bc560cd5b46bcf0 = Gizli kanalları göster
-source-a0afec0f61baf4af = Üyeleri göster
-source-7495fa2d565710c7 = Üyeleri Kanal Listesinde Göster
-source-66bcca373589a989 = Yalnızca oyunu oynayan kişilerin DM'lerini göster
-source-f72fef5a1834b24d = Yalnızca seçilen her etikete sahip gönderileri göster
-source-0251c868653fce26 = Katılımcıları göster
-source-a40e169498ad656c = Kişileri geniş pencerelerde göster
-source-72682125748dbcae = Kişiselleştirilmiş mesajları göster
-source-7d16f2b5d14c2056 = Gelen arkadaşlık isteklerinde kişiselleştirilmiş mesajları gösterin. Kabul ederseniz mesaj DM'lerinizde görünmeye devam edecektir.
-source-14f0c7b11300c270 = Seçilen herhangi bir etikete sahip gönderileri göster
-source-b1ae69c3dd991fe9 = Kalan rolleri göster
-source-e809b405a7655b0b = En son katılımları ve olağandışı etkinlik nedeniyle işaretlenen üyeleri hızlı bir şekilde görmek için kanal listesinde üyeler sayfasını gösterin.
-source-9bc15080170ef0cd = Büyütülmüş videonun altında diğer katılımcıları gösterin
-source-40664bffa760c01c = Gösterilen
-source-68ba74051d2c1613 = İlk 1000 özel emoji gösteriliyor. Daha fazlası için aramanızı daraltın.
-source-dae76222d45285b8 = İlk 1000 tepki gösteriliyor.
-source-237f621c4b72e005 = Discord tarafından döndürülen ilk 50 entegrasyon gösteriliyor.
-source-93f2c7a47f67a615 = İlk 500 çıkartma gösteriliyor. Sonuçları daraltmak için arayın.
-source-eb9a0b75e7e33bb3 = Discord'da adınızın yanında gösterilir.
-source-84708053633f5ef9 = Bu sunucudaki oyunlara ve bağlı uygulamalara ait etkinliklerin akışını gösterir.
-source-a7d70cb93b5b638b = Üyelerin gönderdiği bağlantıların önizlemelerini gösterir.
-source-09f8960ef0b013c7 = Kenar çubuğu
-source-301079349cba0c9f = Kenar çubuğu genişliği
-source-d1053f7b262d7006 = Aramadan önce oturum açın
-source-462be028720a0ebb = Profil resminizi değiştirmeden önce oturum açın
-source-627980e85ae679a7 = Discord aracılığıyla oturum açın; kayıtlı oturum açma araması durduruldu
-source-a57736e4dc6a3128 = Discord'da oturum aç
-source-019d32c2a20341db = Oturum jetonuyla oturum açın
-source-c9fb496771461b85 = Başlamak için Discord hesabınızla oturum açın.
-source-3d3b4f88fa2273ee = Sinyaller
-source-5e71e0ce66a10d54 = Discord hesabınızla oturum açtınız
-source-c72d860b4f85d6ba = Bu hesaptan çıkış yapıldı; kayıtlı giriş bilgileri tutulur
-source-69f3ca37b52fc2fe = Bu kişiyi yalnızca bu cihazda susturun. Başka kimse etkilenmiyor.
-source-818767abdf5c33cc = boyut=128
-source-d273ff03a1219b3d = boyut=2048
-source-8dbe3ba5e7e01776 = ID3 yükünü atla
-source-97ad1f22200db972 = Bu soruyu atla
-source-2f280ccd5811f80a = Eğik çizgi
-source-d98aa872d5169f33 = Eğik çizgi komutu oturumun giriş bütçesini aşıyor. Taslağınız saklandı.
-source-2f3231cd581a8b6e = Arduvaz
-source-75806bc79fc741a1 = mevcut yuvalar
-source-c4317264317eda93 = kullanılan yuvalar
-source-4e060e976cc3db2b = Yavaş mod
-source-54903ffa7010b013 = Küçük metin
-source-768a84a167fc5784 = Düzgün kaydırma
-source-7fc5fe39edc3d58d = kar tanesi zaman damgası aralık dahilinde
-source-4cc269f8aebca984 = Sıcak pembe vurgulu yumuşak gül yüzeyleri.
-source-fe31d1c784d29ef4 = Sağlam
-source-8ac6d324f22e6d8a = Solo
-source-8ac2dd24f22a95b1 = Bazı
-source-9a503971735f80de = Etkinlik kuyruğu dolu olduğundan bazı eklenti etkinlikleri atlandı.
-source-6d78f54795cdbb71 = Bazı sunucuların farklı tercihleri ​​vardır. Ayarlarını gözden geçirmek için bir sunucu seçin.
-source-bc62c50f0c4496f8 = Birisi yazıyor…
-source-8a7bee24f1eeaff1 = Düzenlemek
-source-d1410e2def3cb910 = Sırala ve Görüntüle
-source-3606b9d856cdbafe = Göre sırala
-source-6fa38d7884c5e4e5 = Sıralama Düzeni
-source-9b3904e0c710f295 = Sıralama kriteri:
-source-2593d0c70a1c5074 = Ses
-source-f67bc9362e1bfbe5 = Sesler
-source-dc5c829684625bbb = kaynak taslağı
-source-16379c0e7bfc97de = Kaynak mesaj artık mevcut değil
-source-cf524002408649be = Kaynak sunucu bu oturumda kullanılamıyor.
-source-a39e9b837556f159 = Kaynak URL'si
-source-032cd9f1245d3645 = Uzay
-source-6b771a67c2e45fbb = Spam Filtreleri
-source-e23357f112296589 = Konuşmak
-source-c5f07bd7a271b5b8 = Hoparlör sesi
-source-b6a535fede052183 = Hoparlörler
-source-cfdd134ddcd54f6e = Bu görüşmede konuşma kullanılamıyor
-source-0e303e22b5c99089 = Bu kanalda konuşma yapılamıyor.
-source-0e6572337b972b29 = Bu kanalda konuşma yapılamıyor. Hala dinleyebilirsiniz.
-source-9290f6af0cafb479 = Spoiler
-source-396418a002dfa719 = Spoiler ortamı - ortaya çıkarmak için mesajı açın.
-source-82cb7c14b78eba12 = SPOILER_
-source-6b8e309703900e15 = Spotify
-source-f73fdea270dfc174 = Bahar - 12. Gün
-source-98007f19fa6109bf = SQL
-source-97f5df19fa57a55a = SRN
-source-27cc88818cc46ff6 = Stabil
-source-779f20a1a5b8312e = kararlı sürüm
-source-61b3c49fc1cb3850 = Aşama kanalı · uygulanmadı
-source-cd979411b94e9181 = bayat geçmiş bir silme işlemini yeniden canlandıramaz
-source-8448e0151316470b = eski sonuç göz ardı edilmelidir
-source-1a26a190d73fe746 = Standart emoji
-source-54775a219415a2fe = Stardew Vadisi
-source-f11add05cecc2474 = bir konu başlat
-source-4474425c0472ac00 = Rengi başlat
-source-41bbcf9b780998b3 = Teste başlayın
-source-45f0f7e853ab3e87 = Giriş seviyenizi görmek için mikrofon testini başlatın veya bir çağrıya katılın.
-source-d702c26b4032d893 = Sesli aramayı başlat
-source-35c0a92f334aeafb = bir konu başlattım
-source-f78fab1fe68a47c3 = Başlatan
-source-423411ccd80dbe86 = Başlatıcı sağlama toplamı veya bayt uzunluğu değişti
-source-c014e78b57090011 = Başlatıcı bildirimi değiştirildi
-source-5abc7c9625324f00 = başlangıç ​​paketleri izinle etkinleştirilir
-source-29e87af8077c4457 = Başlatıcı kaynağı paketlenmelidir
-source-b225dfbb31111b9e = başlangıç ​​ses yükünü okumamalıdır
-source-09aa16017b259c70 = Başlangıç ​​ayarları çalışanı durduruldu. Yeniden denemek için ayarı değiştirin.
-source-ad9d5481474d4f5b = Statik
-source-a5dc0fbd822ef066 = Statik PNG, JPEG ve WebP resimleri 8 MB'a kadar desteklenir. Hazırlanan PNG, Discord'un 512 KB sınırına uymalıdır.
-source-ad3e3c8146fc920f = Durum
-source-0dbe98129d79639a = Durum, satır sonu veya çevresindeki boşluklar olmadan en fazla 128 karakterden oluşmalıdır.
-source-6c512cba41aedf26 = Durum metni
-source-653552905397a5d1 = Görüşmede kalın
-source-5819616c806e7d5f = Çıkartma eylemleri
-source-21333a6cfc8e7282 = Çıkartma ayrıntıları mevcut değil.
-source-d341d0e6f7bce206 = Çıkartma hazırlığı iptal edildi
-source-8b20702650fe2eba = Çıkartma hazırlığı yarıda kesildi; tekrar seç
-source-14f45a93be2170d1 = Çıkartma · Önizleme kullanılamıyor
-source-f12094936eee025d = Çıkartmalar
-source-76b82e61ed8f8b2f = ilk paketten sonra dur
-source-f83bedb815ca8289 = Önizlemeyi durdur
-source-89648382f1f45770 = Bu ekran paylaşımının alınmasını durdur
-source-ba31db18366c5881 = Paylaşımı durdur
-source-b2be9288f555d69f = Kameranızı paylaşmayı durdurma
-source-04becc1144bf8534 = Ekranınızı paylaşmayı durdurma
-source-bb5cd017e0e50c57 = Geçerli görüşmede ekranınızı paylaşmayı durdurun
-source-c9e6a10c2529c1ed = Testi durdur
-source-9241f1191921699a = İzlemeyi bırak
-source-7f34423867339160 = Mevcut akışı izlemeyi bırak
-source-f96b615e5b8b96cf = İzlemeyi bıraktım
-source-c2773f63f685229d = Ekran paylaşımı durduruluyor…
-source-17a6948ef43cdaa5 = Bu hesap için 1 MiB'a kadar yerel veri depolayın
-source-37d209ecc2ca2c65 = Aktarım
-source-467498fe13dea55b = Ses akışı
-source-169f89a55a8e0cd6 = Akışın sesi kapatıldı
-source-98d422af31a33c48 = Akış isteği gönderilmedi; ses kuyruğu dolu
-source-93c48a92bcd69322 = Akış güvenli · video bekleniyor
-source-0dbcb46b880ae0f9 = Akış hacmi
-source-ecb7fa88a28ecbfb = Akış
-source-58b4b3ecd4eb6238 = Sicim
-source-165ca6348a9c9ef1 = Güçlü Hash Algoritması
-source-3476c9192da21f2f = Öğrenci Merkezi
-source-735851282b7922a3 = Stüdyo
-source-b3d4f79d9d8b71e5 = Göndermek
-source-bd1f8a89447f778b = Seçimi gönder
-source-ed2e6e6a15556e6b = Gönderiliyor…
-source-92a0d19a28995530 = Başarı
-source-10fab4d1211b0790 = sudo apt update && sudo apt install --only-upgrade serein
-source-ff044d576bf0e0b6 = sudo dnf yükseltme serein
-source-dfd89cc7e078553c = sudo pacman -Syu serein
-source-b9f7595a2b6d4047 = sudo zypper güncellemesi serein
-source-7cfbd463d799bd73 = Öneri işaretçisi hata ayıklama kontrolü başarılı oldu: üyeler, emojiler ve kanallar tıklamayla göndermeden eklenir.
-source-74563c12985d7846 = Destek ve teşhis
-source-588fbd0ca5948e09 = Bastırma gücü
-source-641060b2512a5241 = Yüzey opaklığı
-source-63d61d08bd63f538 = Süratli
-source-1dbc50b9bbfadfcf = Hesapları değiştir
-source-3629497c7cacd5b3 = Aramayı değiştir
-source-3a29dfd6e4b7e6cd = Aramalar değiştirilsin mi?
-source-ac48c1c773dcfbf4 = geçiş onay gerektiriyor
-source-af6ed9336c14c8ae = Geçiş yap
-source-d083d3aa96af5af1 = Sembol
-source-1dcc203233cc2f68 = yukarıda yönlendirilen senkronizasyon ve akış eylemleri
-source-fbd2c35742165dbf = Sistemle senkronizasyon
-source-ca5ada25afc84d10 = Sunucu klasörlerini Discord ile senkronize etme
-source-bf866859d6f1167a = Senkronizasyon…
-source-1710991edf84bdbe = Sentetik etkinlik, hiçbir zaman paylaşılmaz veya kaydedilmez.
-source-aca0751c7e3f2843 = Sentetik rozet bir
-source-72fe2e1cee5c544d = Sentetik rozet iki
-source-2057457bddfb2197 = Sentetik fikstür arızası · Discord'la iletişime geçilmedi
-source-1fca9c49a9fb4bff = Sentetik görüntü paylaşımı bir demo yapısı gerektirir
-source-fb3de286999a0f18 = sentetik Ogg/Opus kod çözümlemeleri
-source-b90c22917f0993e9 = sentetik Opus başlıkları
-source-0180fec134076ba8 = Sentetik katılımcıların mikrofonu ve hoparlörleri kapalıdır.
-source-61133cb873cb14ec = Sentetik önizleme
-source-2671b43d99c7f8ff = Sentetik önizleme: yeniden başlatma simülasyonu. Hiçbir kurulum değiştirilmedi.
-source-ea58bb2f4280e7e3 = Sentetik önizleme: Serein 99.0.0 mevcuttur. Hiçbir ağ isteği yapılmadı.
-source-583e44aa4b2738f8 = Sentetik önizleme: güncelleme yeniden başlatılmaya hazır. Hiçbir dosya indirilmedi.
-source-938b4ed3dcc78c3b = sentetik WAV başlığı
-source-89b157ba3f1b6209 = Sentetik ZIP kod çözme başarısız oldu.
-source-81d24911585379df = Sentetik ZIP girişi eksik.
-source-a81e2cdaf6921adc = Sistem
-source-087d4afac2b493b2 = Sistem saati aralık dışında
-source-89308fc80241f110 = Sistem saati kullanılamıyor
-source-bb6d50f39cffc429 = sistem varsayılanı
-source-612cd3419dafd909 = Sistem varsayılanı
-source-7ddb86b52fd2a7d2 = sistem tuş bağlantıları klavye kısayolları özel varsayılan biçimlendirme gezinme
-source-5f10d417345d5280 = Sistem Mesajları
-source-dc75454d9f19606b = Sistem Mesajları Kanalı
-source-1c1fec5705346635 = Sistem izin iletişim kutusu
-source-fe2eb47cb9ba0693 = System32WindowsPowerShellv1.0powershell.exe
-source-f82865b371985dec = SistemKökü
-source-af64094c86023903 = T
-source-6ce0ce19e201b66c = Sekme
-source-08a36c89cf51d8ae = Etiket Eşleştirme
-source-8d69b56d26a90f82 = Etiket adı
-source-03aa3cfb08dff960 = Etiketler
-source-03ee3cfb0919c62c = Görev
-source-dad2dcc683d8a766 = Takım Tanımlayıcısı=
-source-746b56ce7029b76b = Dünyaya bu sunucu hakkında biraz bilgi verin.
-source-e7bf0e7337589780 = Bize Sunucunuz Hakkında Daha Fazla Bilgi Verin
-source-aef3e9d1cc99d338 = Geçici dosya kullanılamıyor
-source-9e3e0736bc5d7860 = Bir rol atanmadığı sürece, geçici üyeler bağlantılarını kestiklerinde otomatik olarak atılır
-source-937d74f8bf96bf5b = Geçici video temizleme işlemi başarısız oldu; Serin-video dosyalarını sistemin geçici klasöründen kaldırın
-source-b178575c95e40d30 = Sentetik çiftliğin bakımı
-source-2492f5fb1b05b45e = Metin
-source-bb05b66479f06f51 = Metin rozeti
-source-a49452caee01d78d = Metin kanalı
-source-3c519fae24775b41 = Metin Kanalı İzinleri
-source-fcc00f8f38e5bf7a = METİN KANALLARI
-source-528fae7409467be2 = Metin gösterimi sınırlı
-source-5260a7bb5d853a61 = Metin Biçimlendirmesi
-source-b90a3d15ef7d8e53 = Vurgulu metin
-source-3c0df60c6f7aa0c3 = Metin, aralık ve köşeler
-source-a604668fceafd191 = bütçeyi aşan doku önbelleği
-source-091aebf4ee6b9f05 = Bu hesabın kayıtlı giriş bilgileri eksik; yenilemek için tekrar oturum açın
-source-031665bb4e89f563 = Bu resim çok büyük; daha basit bir resim seçin
-source-36c648e5ea87aa0b = Hesap veya görüşme değişti; uzantıyı tekrar çalıştırın.
-source-94c943f7ec6d2dc8 = Eylem başlatılamadı.
-source-d76bab451d4bf7cb = Aktif tema kendi aksanını da beraberinde getiriyor; tema kullanımdayken görevi devralır.
-source-7cf5fcdaa69d6c47 = Mesaj kutusunun etrafındaki alan
-source-9c8070771ed73bb5 = Varlık, Serein yayın deposundan değil.
-source-229e001c5175ed0f = Denetim günlüğü yerel girişine veya bellek sınırına ulaştı. Diğer etkinlikleri bulmak için filtreleri ayarlayın.
-source-c3196c758d12cc48 = Çağrı değişti; uzantıyı tekrar çalıştırın.
-source-a15081404de6bc72 = Kamera artık kullanılamıyor
-source-b79502bea259a921 = Kanal işlemi başlatılamadı.
-source-1a0af5cf522a9054 = Sağlama toplamı dosyası geçersiz.
-source-f81d25e4d1c1899a = Sağlama toplamı listesi boyut sınırını aşıyor.
-source-b12e17f9000854ca = Konuşma zaman çizelgesi
-source-ba988ea53a32cc15 = Algılanabilir oyun listesi mevcut değil.
-source-f86a8e16e87115aa = DM alıcısına ulaşılamıyor
-source-5f2300da2b60d32e = İndirilen paket boyut sınırını aşıyor.
-source-bdc63c63aaaeb1ed = Taslak değişti veya teklif taslak sınırını aşıyor.
-source-fbf3ed7f982fb65e = Uzantı artık etkin değil
-source-07b80e5c8ff386bf = Yazı tipi adı geçersiz.
-source-117878dc34eae50f = Arkadaşınız kullanılamıyor veya sunucu ayarlarıyla ilgilenilmesi gerekiyor
-source-c4503990ff7ce3d7 = Kurulum yolu güncelleme yardımcısı tarafından temsil edilemiyor.
-source-cbb0a5913c0f6e2c = Yüklenen AppImage taşındı; güncellemeden önce yeniden başlatın.
-source-304e87861c085c7c = Sol sunucu rayı
-source-320896c4f3df853a = Lisans ve sürüm gereklidir. Yerel temalar için kaynak URL'si isteğe bağlıdır.
-source-2fb81c63ceea1998 = Yerel katılımcıyı sessize alma sınırına ulaşıldı
-source-aab8c25b9ea50e1f = Sağdaki üye ve arama bölmesi
-source-819b3188c4971ddb = Mesaj zaten Discord'a ulaşmış olabilir. Tekrar göndermeden önce konuşmayı kontrol edin.
-source-5444864190449fef = Mikrofon artık kullanılamıyor
-source-444c3556ad692b08 = Paket sağlama toplamı geçersiz veya kopyalanmış.
-source-58391f0c869e8ae4 = Paket boyutu, yayın meta verileriyle eşleşmiyor.
-source-db49b01ade45e432 = Pin imleci değişti; mevcut sayfayı tekrar iste
-source-c7e6f9a9a5b4a6df = Hazırlanan simge çok büyük.
-source-8561c4e8d417ddf8 = Hazırlanan rol simgesi görsel sınırlarını aşıyor.
-source-d4295415cd723b49 = Hızlı kahverengi tilki tembel köpeğin üzerinden atlıyor. 0123456789
-source-3f3748f1a9ae3941 = Sürüm öğesi meta verileri geçersiz.
-source-12ad90dff902ac5d = Sürüm güvenilmeyen bir indirme adresi içeriyor.
-source-6bd719d95bada4ae = Sürüm çok fazla öğe içeriyor.
-source-bfdc7f5bf0b94022 = Sürümün bu paket için sağlama toplamı yok.
-source-6d484d49e5cf5483 = Sürüm listesi sınırını aşıyor.
-source-bd3a5c5eb515b096 = seçilen kanal
-source-03af15a71ea80f0f = Seçilen görüşme değişti veya artık erişilemiyor
-source-366286d1db0c0313 = Seçilen görüşme artık mevcut değil
-source-92d605c7427fe559 = Seçilen görseller emoji yükleme sınırlarını aşıyor.
-source-ecf43b5cfcc3f4fd = Seçilen mesaj konuyu başlatır. Bu kanalı görebilen herkes konuyu görebilir.
-source-a4b7054956079671 = Sunucu klasörü düzeni değişti; uzantıyı tekrar çalıştırın
-source-f722c523147309b7 = Sunucunun erişilebilir kanalı yok
-source-729ec7dfae966f27 = Sunucuda davetlerin oluşturulabileceği bir kanal yok
-source-4f922921c10c2c92 = Sunucunun yönetilebilir bir kanalı yok
-source-836114ff46dcadf3 = Eğik çizgi komutunun sonucu mesaj uzunluğu sınırını aşıyor.
-source-de5ba51cb9bbb804 = Hoparlör cihazı artık mevcut değil
-source-648cf56c28900fa8 = Akış bağlantısı sona erdi
-source-9c284b6c9b5c8f10 = Yayın sona erdi
-source-eeca86112f872aa2 = Güncelleme arşivi güvenli olmayan bir dosya adı içeriyor.
-source-9476118a60cb760b = Güncelleme arşivi yinelenen dosya adları içeriyor.
-source-3c0768502ae27c24 = Güncelleme arşivi çok fazla dosya içeriyor.
-source-31711f87cbc616b0 = Güncelleme arşivi çıkarılan boyut sınırını aşıyor.
-source-1982d0aeae946bf2 = Güncelleme arşivi bozuk.
-source-cf38693eb82dfd70 = Güncelleme sağlama toplamı veya uzunluğu eşleşmedi. Hiçbir şey yüklenmedi.
-source-0b9202c72e03d4aa = Güncelleştirme beklenmeyen paket içeriği içeriyor.
-source-207e7bd4a938ab90 = Güncelleme Serein.app'i içermiyor.
-source-1288bddb87e6c5ce = Güncelleme indirme işlemi kesintiye uğradı.
-source-5a3e6d7ab01c3c34 = Güncelleştirmenin paket imzalama tanımlayıcısı yok.
-source-8c4050514d1503b5 = Güncelleme yardımcısı başlamadı. Serein açık kalacak.
-source-d59c2878915ac2e9 = Güncelleştirmenin yürütülebilir dosyası veya paket halindeki bildirimleri eksik.
-source-a7ee90ed89a6d45e = Güncelleme desteklenen bir x86-64 Type 2 AppImage değil.
-source-7d447391bb1fe8a6 = Güncelleme geçerli bir ZIP paketi değil.
-source-6a619001565cad53 = Güncelleme yanıtı kesintiye uğradı.
-source-61b02cc5807beee4 = Güncelleme bu Serein yayıncısı tarafından imzalanmadı.
-source-ff87e05e9b79be51 = Güncelleme çalışanı durdu. Lütfen tekrar deneyin.
-source-2fa629cb4b3b6374 = Güncelleme ZIP dizini geçersiz veya sınırlarını aşıyor.
-source-d2589a7c8c135c63 = Güncellemenin macOS imzası geçersiz.
-source-5ca44460d06c3e41 = Sesli arama değişti veya kontrolleri kullanılamıyor; uzantıyı tekrar çalıştırın.
-source-82d50f99118cbbad = Ses kanalı kullanılamıyor
-source-a50392afda5ed27a = İzlenen yayın değişti; uzantıyı tekrar çalıştırın.
-source-aab875d8cfcfe712 = Tema
-source-eb2d074b1c7450a5 = Tema temizliği bekleniyor
-source-995c0cb1dc44620c = Tema ayrıntıları
-source-326b63ca34a0da40 = Tema istenen paketle eşleşmiyor
-source-5900ea3902ac3c64 = tema düzenleyicisi her zaman bir temayı tutar
-source-8f99c67a7474e728 = Tema düzenleyici yalnızca temaları kabul eder
-source-a0aa3f3d19cc32b9 = Tema dışa aktarıldı.
-source-8fa63933d6a259d8 = Tema dosyası seçimi sona erdi.
-source-e894186aade09550 = Tema yerel olarak kullanılamıyor
-source-96225dc374daea97 = Tema paketlenmemiş
-source-457be27a66849bf5 = Tema yüklü değil
-source-c5659913f6096315 = Tema adı
-source-158bf59c4a5f5e4e = Tema adı gerekli.
-source-9dcad5b0faa3464e = Tema paketi 16 MiB'ı aşıyor
-source-cda89cefef512daa = Tema önizlemesi
-source-aeeccb48a983e8c4 = Tema kaldırıldı.
-source-058f7d5c23975083 = tema ayarları
-source-5d6f5166d7611031 = Tema başlatıcı yalnızca geçerli bir palet sağlamalıdır
-source-3b9241edd1cb076b = temalar mağaza mağaza kataloğu içe aktarma topluluk görünüm renkleri
-source-1988bbfa1d43f9a1 = sonra standart emoji
-source-d07ee197637159ae = Birlikte güncellenemeyecek kadar çok sunucu var. Bireysel bir sunucu seçin.
-source-649d4c6bf7d1d183 = Aktif ekran paylaşımı yok
-source-6e286eff60bc0746 = Aktif sesli arama yok
-source-c9d06fbde78f3a20 = İzlenen yayın yok
-source-5976a9ab9dbecb62 = Bu ayarlar koyu ve açık görünümler için geçerlidir.
-source-4642fa585a9d5014 = onlar / onlar
-source-cfb4fc36243ce25a = Yeni bir davet kullanarak yeniden katılabilirler.
-source-1f9d1894af8dce52 = THIRD_PARTY_NOTICES.md
-source-042d8e499a4ef676 = bu hesap
-source-3b3fe4e829af3e8e = Bu eylem geri alınamaz.
-source-13135ba78d840d02 = Bu eylem artık kullanılamıyor; uygulama verilerini yenile
-source-4ce21aadf845122c = Bu eylem mevcut izinler, veriler veya beklemedeki işlemle kullanılamaz
-source-dfe333b3c0bb720f = Bu eylem mevcut izinler, yüklü veriler veya beklemedeki işlemle kullanılamaz
-source-3b3c3da1df9874d7 = Bu yapının geçersiz bir sürümü var.
-source-cb2f6eed034bed6e = Bu geri alınamaz.
-source-4fd7904698faaefc = Bu kanalda yok
-    sabitlenmiş mesaj var mı… henüz.
-source-707517521dfcc516 = Bu kanal mevcut oturumda okunamıyor
-source-3e593875a0c6a513 = Bu komut kullanılamıyor. Argümanlarınız saklıdır.
-source-4c857ba61c1b8e7a = Bu görüşmeye artık erişilemiyor
-source-1561d5a524b51ffb = Bu hedef varsayılan tarayıcınızda açılır.
-source-3601a9a67180f781 = Bu doğrudan mesajın özelliği yok
-    sabitlenmiş mesaj var mı… henüz.
-source-a4d8ec041d3dcff7 = Bu DM'nin zaten bir taslağı var. /msg metniniz orijinal görüşmede tutuldu.
-source-b10a8f60d67ebd26 = Bu emoji yüklenemiyor. Adını, kullanılabilir yuvaları ve izinlerinizi kontrol edin.
-source-71794532ecd13de1 = Bu yazı tipinde okunabilir metin veya ana hatlar eksik.
-source-7df10ece44880997 = Bu forum bir etiket gerektiriyor
-source-bda837b1cf24f07d = Bu grup artık mevcut değil
-source-fbf1c5583ada88cc = Bu gelen aramaya artık ulaşılamıyor
-source-64d95f6ebf138c84 = Bu entegrasyon artık mevcut değil.
-source-8e108f5640c03166 = Bu davetin süresi dolmuş olabilir
-source-f87f9f46087a1aec = Bu bir
-source-7191b9a9f8aaf247 = Bu role sahip üyeler bu şekilde görünür.
-source-0d25765d35fe3d6e = Bu, oturum açtığınız hesaptır: Oturumunuz kapatılacak ve bu cihazdaki kayıtlı oturum açma bilgileri, önbelleğe alınmış geçmiş ve taslaklar kaldırılacaktır.
-source-b4a63cbef3d9a730 = Bu konuşmanın başlangıcıdır.
-source-86255480b6339b5b = Sistem olay mesajlarını gönderdiğimiz kanaldır.
-source-a6e7aedea22b0d1d = Bu eski tema, orijinal resim yerleşimini kullanır.
-source-77968b5f7dd56753 = Bu platform, uygulama içi güncellemeleri yükleyemez.
-source-21c6fe9bbefdb3e0 = Bu uzaktaki katılımcı artık görüşmede değil
-source-2b0f39bdb3a934b7 = bu rol
-source-7909fbef160a71cb = Bu rol taşınamaz. Rolleri yeniden yükleyin ve izinlerinizi kontrol edin.
-source-2cbf54163f5500c5 = Bu rol, en yüksek rolünüzün üzerindedir ve salt okunurdur.
-source-d005eb8b27dbe57c = Bu rol bir entegrasyon tarafından yönetilir.
-source-61289a85eb22830f = Bu arama kullanılamıyor veya geçersiz
-source-ff7c20ca699ff4f0 = Bu sunucu
-source-3d778964d89d4a72 = Bu sunucu taslağı artık mevcut değil
-source-c2006cfaea6b0b4e = Bu sunucunun özel emojisi yok.
-source-53d2e311cb54d2bf = Bu sunucunun henüz çıkartması yok.
-source-d3e60090d1ef570e = Bu sunucunun emoji listesi henüz yüklenmedi.
-source-9c6fa9a111096b28 = Bu çıkartma mevcut görüşmede kullanılamıyor
-source-9e221a2b4712ce9b = Bu çıkartma mevcut bağlantı veya izinlerle kullanılamıyor.
-source-b7b0f7be8590123a = Bu akış artık kullanılamıyor
-source-d89880e8920c9e64 = Bu sentetik mesaj konuyu başlattı; Cevaplar aşağıda devam ediyor.
-source-62432088ac9f6108 = Bu tema başka bir pakete ait; kaydetmeden önce kopyalayın
-source-52e53b1e3a32527c = Bu kullanıcı artık onaylanmış bir arkadaş değil.
-source-565e7a0170cb18d3 = Bu kullanıcı mevcut oturumda mevcut değil
-source-54d079df157eb6f3 = Bu kullanıcı mevcut oturumda bilinmiyor
-source-26ab1d6dc7d4884f = Bu video oynatma için dönüştürülemedi
-source-b2308466af951f68 = Bu videonun oynatılabilmesi için FFmpeg'e ihtiyacı var. FFmpeg'i yükleyin ve tekrar deneyin.
-source-d660fedd50fc7600 = Bu, bildirim ayarlarını açıkça yapmamış üyelerin bu sunucuya gönderilen her mesaj için bildirim alıp almayacağını belirleyecektir.
-source-9843eeda70cff191 = İplik
-source-bf3d9db84273773d = Konu hata ayıklama kontrolü başarılı: resim gönderi gönderme izni, oluşturulan gönderiler, dört açılan konu, en yenisi önce.
-source-d088e9af77a6bc48 = Konu adı
-source-52aa5293477aa3c3 = Konu bu mesajdan başlatıldı
-source-8b60bf2db1580306 = Konular
-source-e8a4a7f2b614d5a6 = Bu görüşmede konular kullanılamıyor
-source-ce141c82a8513704 = Zaman aşımına uğradı
-source-d484a2bc8ec7434b = AutoMod ile üye zaman aşımına uğradı
-source-52988c02510c87dc = Zaman çizelgesi canlı sınırı belirlendi
-source-935f34d5f97f5ad4 = Zaman çizelgesi mesaj yükseklikleri belirlendi
-source-a61c1b7a70d8d13b = Zaman Aşımı Üyeleri
-source-4ee230b71ef2280d = Zaman damgaları ve destekleyici metin
-source-5b74edbe25f7d75c = Banner görseli ayarlamadığınızda banner'ınızın renk tonunu değiştirin.
-source-99f110d27e30b289 = Başlık
-source-63d040e37887f17e = Bugün
-source-1cc759a3bd3d3eb8 = Silinen Vurgulamayı Aç/Kapat
-source-44ced5fa9cb07445 = TOML
-source-480b227ca618e526 = Yarın
-source-5c7042a5045f335e = Çok fazla uzantı indirme yönlendirmesi var
-source-4838fdc9562c3eb8 = Çok fazla yüklü uzantı
-source-c26501e3ade7da3c = Aletler
-source-6d02dc19e21eb49c = Tepe
-source-eddea32341d37146 = Üst çubuklar
-source-11cc72e3db49fec4 = Başlık
-source-fe090d65673b8ac5 = izlenen etkiler gönderilmeden önce normalleştirilir
-source-35f050478b2b516a = Özellik adı
-source-b43b9774a77751c8 = Özellikler
-source-08e22a2dc90d9557 = Şeffaflık
-source-8f7f491559b25d06 = Şeffaflık ve bulanıklık
-source-61124b362cbc1517 = Tepsi kullanılamıyor. Bir StatusNotifier ana bilgisayarını başlatın, ardından tepsiyi kapatıp açın.
-source-8b109f5e2f5cc247 = Tepsi kullanılamıyor. Pencere görünür kalacaktır.
-source-d0dc7e9089e3a6a7 = Trend olan GIF'ler
-source-704e59fab561c2a5 = DOĞRU
-source-85ea99fb52be3385 = Doğru
-source-635784d63b82506c = Bir kanal, sunucu veya kişi adını deneyin.
-source-034caf9874550626 = Farklı bir ad veya yaratıcı deneyin.
-source-68ec73f5474c88b4 = Farklı bir arama terimi deneyin.
-source-cd1dd6ff53d0d01a = Tekrar deneyin
-source-18d16b5d097b1d40 = TTF veya OTF, 8 MiB'ye kadar. Bu cihaza kaydedildi. Kod tek aralıklı yazı tipini korur.
-source-49c2a4ee7987367a = Kamerayı kapat
-source-d8347c2715f51c83 = Gelen sesi kapat
-source-ff918c14d2ef950d = Mikrofonu kapat
-source-f49e43ecc2b661a6 = Gürültü bastırmayı kapatın
-source-876fdaf82de17a4e = Kamerayı aç
-source-452c31207918c2e7 = Gelen sesi aç
-source-09cb00c31da2f2c9 = Mikrofonu aç
-source-8434cc9287f005ca = Gürültü bastırmayı açın
-source-8755e35dddf6b4fb = İkimoji 17.0.3
-source-de3bc2bfb3a73e2a = Seğirme
-source-6997ea31ebe06cf3 = Yukarıya bir sorgu yazın ve Enter tuşuna basın.
-source-d3e7d077a37a663a = Üyeleri aramak için yazın; mevcut roller ve kanallar listelenir
-source-89758ae8b9a73e02 = TypeScript
-source-4b4afa8bcb02d5ac = Tipografi
-source-af64084c86023750 = sen
-source-4dd1f7efd08e6421 = Unt
-source-6597cbdc04319ae9 = ulimit -f 131072 || çıkış 1; yürütücü "$@"
-source-74d3b973117d6a0e = Bu sunucu şu anda oluşturulamıyor.
-source-27007d1e259af30d = Profilin bazı bölümleri yüklenemiyor
-source-c3aff5e6f92347ed = Devam edilemiyor. Bağlantınızı kontrol edin veya mevcut istekten sonra tekrar deneyin.
-source-f71a90bc017f1e80 = Arşivden kaldır
-source-43e9aef7aa01fca9 = Kullanılamıyor
-source-cac61dd87983a242 = Kullanılamayan kanal
-source-50f5271061b2eeeb = Sentetik ataşmanlar için mevcut değildir
-source-64ceb1abd74fcbd0 = Yasağı kaldırılan üye
-source-865b6f4c6920e17f = Engellemeyi kaldır
-source-4bab7c95bcfbd464 = Belirsiz
-source-f30bda2b29ab6cd5 = Sağır olmayan
-source-f2ad55e2808940b6 = Sağır olmayan ses
-source-8f4be9f086eb530f = Geri al
-source-33e83ac676f67e20 = Beklenmeyen ek kodlaması; konuşmayı yeniden yükle
-source-0f048c425eaa1ec4 = Beklenmeyen video ses parçası
-source-5da7d55d65cc6e32 = Beklenmeyen video parçası
-source-7f6c9aa6ca96b7c7 = Takibi bırak
-source-5c9aef301d36cfc7 = Gönderiyi Takibi Bırak
-source-b52e8dfdaf5e5d31 = Konuyu Takibi Bırak
-source-0adf9fe574fae88d = Sunucuların grubunu çöz
-source-8f26e0f086cc2787 = Birim
-source-c592307ea80f16b9 = Bilinmiyor
-source-9e33a77f873f41f9 = Bilinmeyen Eylem
-source-a8a87669cabacf92 = Bilinmeyen kanal
-source-b968b22d700c2690 = Bilinmeyen kanal türü · uygulanmadı
-source-cf313c941485315d = Bilinmeyen kanal, yükleme kanalı
-source-a7ee0e617cd83e3c = Bilinmeyen davetli
-source-2d93c7d5885f85b2 = Bilinmeyen zaman
-source-88e4a2cee2cad378 = Bilinmeyen kullanıcı
-source-5d303fbc88281c15 = Kilidi aç
-source-abc02fbabb75c121 = Gönderinin Kilidini Aç
-source-89b287e09039529f = Konunun Kilidini Aç
-source-c07837c309cc699b = Sesini açmak
-source-0a9380677e9f27e8 = Kanalın Sesini Aç
-source-205f3418f8897e4a = Konuşmanın Sesini Aç
-source-3352e14c87c097d3 = Gönderinin yoksayılmasını aç
-source-c26538522ff378d8 = Sesi aç
-source-7aa13a7b5cae8285 = Konuyu yoksaymaktan vazgeç
-source-b26035b596566abf = İsimsiz
-source-3e65416219e37321 = Resmi olmayan müşteriler Discord hesabınızı riske atabilir.
-source-bc0cd0b4dfb7dde1 = Sabitlemeyi kaldır
-source-3d803329fa4ff8a8 = DM'nin sabitlemesini kaldır
-source-ea5244afaa2e399a = Mesajın sabitlemesini kaldır
-source-ea740aa67a0ee115 = Gönderinin Sabitlemesini Kaldır
-source-ca6ad52d56f739bb = Konunun Sabitlemesini Kaldır
-source-32f3b79fc535d32b = Sabitlemesi kaldırılan mesaj
-source-ec898b17fe11a51d = Okunmamış rozet
-source-f222181de7c67922 = Okunmamış mesajlar
-source-d1f156e084917946 = Okunmamış gezinme kullanılamıyor
-source-a28269a53e5be713 = İncelenmedi
-source-309de19bfe7b8d61 = İncelenmemiş paket — kaynağı katalog için incelenmemiştir.
-source-5dd76b398166e864 = kaydedilmemiş değişiklikler
-source-6e6e4d288ea76fc4 = Kaydedilmemiş değişiklikler
-source-ae896376665aaf83 = Kaydedilmemiş tema değişiklikleri silinecek.
-source-a8cfdfb1a70389b3 = Desteklenmeyen uygulama işlemi
-source-8281e54007e43760 = Desteklenmeyen sanat eseri resim formatı
-source-3f12316c0f1e4e22 = Desteklenmeyen ses çıkış formatı
-source-4d6d8f6628ae83c5 = Desteklenmeyen bileşen türü
-source-b7364a3171008634 = Desteklenmeyen emoji veya çıkartma resmi
-source-2644d45f02f86682 = Desteklenmeyen form alanı türü
-source-053b201d40c22d36 = Desteklenmeyen veya hasarlı ses; harici olarak oynamak için indirin
-source-e2515175ae6a110d = Desteklenmeyen veya geçersiz delta meta verileri.
-source-b98c3cc9dacb86bd = Desteklenmeyen veya geçersiz resim verileri
-source-a309fe24d6f91895 = Desteklenmeyen video ses örnek hızı
-source-ac3807db50413d01 = Desteklenmeyen video ses zamanlaması
-source-bd929eeedda18cc0 = Tekrar Açıncaya Kadar
-source-f317a756638a78e4 = Güvenilmeyen kaynak kabul edildi.
-source-f3c2534cc5bfb6d2 = Güvenilmeyen güncelleme yönlendirmesi
-source-197d8f717bef5c90 = Olağandışı DM etkinliği
-source-1c9de3571623fb49 = kadar
-source-8b0432eecbd8b034 = Güncelleme
-source-6c410fedda2a575f = Güncelleme mevcut
-source-018198064ad0e0fb = Güncelleme iptal edildi.
-source-566c2f6082f1215e = Hata ayıklama yapılarında güncelleme kontrolleri devre dışı bırakılır.
-source-06b36f3061f9d3a9 = Güncelleme indirildi ve doğrulandı. Hazır olduğunuzda yeniden başlayın.
-source-2332eba59310a2ad = Güncelleme hazır. Yüklemek ve yeniden başlatmak için Serein'i kapatın.
-source-da78e3983d6fb761 = ayarları güncelle
-source-97a98b40b90f56b1 = Boyut taşmasını güncelleyin.
-source-b6ec4dcb17961197 = Çıkartma adını, açıklamasını ve ilgili emojiyi güncelleyin.
-source-5e50246c00d5a4d7 = Uygulama komut izinleri güncellendi
-source-b56f7e456ae1c6f1 = AutoMod kuralı güncellendi
-source-19648a7f257a967b = Güncellenen kanal
-source-717a5ce99cd89cb7 = Güncellenen kanal izninin üzerine yazma
-source-ebc9fe298e29d18e = Güncellenen emoji
-source-c7475879f840e9c8 = Güncellenen ev ayarları
-source-1ec12f34a4ac8fe2 = Güncellenmiş entegrasyon
-source-83862a8c345f2f79 = Davet güncellendi
-source-98d292e3f05569e2 = Üye güncellendi
-source-f54d6f3bc3f1cf27 = Güncellenen üye rolleri
-source-ef65ac31dca18ef1 = İlk katılım güncellendi
-source-ceff81aa55954521 = Yeni katılım istemi güncellendi
-source-434cbdc689391a60 = Rol güncellendi
-source-730f88e345d0cffb = Planlanan etkinlik güncellendi
-source-6d38e9960d2648ac = Güncellenen sunucu ayarları
-source-f119284fd21a88fe = Ses tahtası sesi güncellendi
-source-82d0a94a8e0653ee = Güncellenen aşama
-source-7db69c1f76797287 = Güncellenmiş çıkartma
-source-f60be1ebfea12600 = Konu güncellendi
-source-9412f1a3e9e7a721 = Web kancası güncellendi
-source-10d2d2c4613388a5 = Güncellemeler
-source-8dbc700d7081bf16 = güncellemeler otomatik güncelleme yayın kanalı üretim kararlı her gece indir sürümü yeniden başlat tanıyı kontrol et sorun hata sistem bilgisi hata ayıklama
-source-4f2fb98ab3211849 = Bu kanalda güncellemeler henüz kontrol edilmedi.
-source-8fe6d943a7280051 = Güncellemeler henüz kontrol edilmedi.
-source-cb56be2d0ad7f517 = Kanal ayarları güncelleniyor…
-source-772b714e708eac24 = Discord'un etkinlik paylaşım ayarı güncelleniyor...
-source-606696257ed9bdc8 = Entegrasyonlar güncelleniyor...
-source-2e6d61e5f98af3af = Davetler güncelleniyor…
-source-963cace19c8b2f91 = Güncelleniyor…
-source-96668830629e0dfc = Yüklemek
-source-26649309e06f29a8 = 256 KiB'nin altında bir görsel yükleyin veya bir Unicode emoji seçin. En az 64×64 piksel öneriyoruz.
-source-4925cebfca644a52 = Emojiyi Yükle
-source-0c20b6d9b4589ba9 = Yükleme kuyruğu dolu; dosyayı yeniden seç
-source-2c2b41ea67ee7540 = Sunucu simgesini yükle
-source-08817a547ee51553 = Çıkartma Yükle
-source-e6a492ac4ce9294e = Yükleme kullanılamıyor; yeniden denemek için dosyayı yeniden seçin
-source-70a85d0fe45a6f62 = Yükleyen:
-source-16184f457965bc4d = URL ayrıştırma
-source-baa3fde841a694a3 = USB Kamera (önizleme)
-source-c0e9c95310a2e311 = #RRGGBB veya #RRGGBBAA kullanın
-source-7024572544c8240d = #RRGGBB veya #RRGGBBAA kullanın.
-source-4cc45c54ecb5cbb2 = --demo --demo-friends --demo-frame-sample=WARMUP,SAMPLE kullanın (tam saniye, ısınma 1..600, örnek 1..600)
-source-1505ac2b2b85b71f = Kontrol karakterleri veya ayrılmış Discord ve Clyde adları olmadan 1-80 karakter kullanın.
-source-39af8d17c90b393f = 2-30 karakterlik bir ad, 100 karaktere kadar isteğe bağlı bir açıklama ve ilgili en az bir emoji kullanın.
-source-e91102eec4179879 = Farklı bir hesap kullanın
-source-0e8db6c5b0897f25 = Degrade kullanma
-source-22af7f67b411f1b6 = 2-100 karakterden oluşan bir sunucu adı, en fazla 300 karakterden oluşan bir açıklama ve kontrol karakterleri olmayan geçerli özellikler kullanın.
-source-394f5beef344430e = 512 KB boyutuna sığabilecek statik bir PNG, JPEG veya WebP görüntüsü kullanın
-source-38e2b9e2903cbda2 = Geçerli bir HTTPS kaynak URL'si kullanın veya bunu boş bırakın.
-source-8506875a9d95f22c = Başka bir hesap kullan
-source-e2aa0fdd031da211 = Varsayılanı Kullan
-source-082eda98d60c2a71 = Varsayılanı kullan
-source-da9efeda30622cb9 = Harici Emoji Kullan
-source-b6e401e855387999 = Harici Çıkartmaları Kullan
-source-a61278258feeb5fe = Uygulama genelinde görseli kullanın
-source-80f2c74955ce0f1a = Konuşmalarınızın ve kenar çubuklarınızın arkasında tek bir resim kullanın.
-source-ac82a2bf4d34f3cc = Sunucu üyelerinizi gruplandırmak ve izinleri atamak için rolleri kullanın.
-source-373963a757aad586 = Sunucu Varsayılanını Kullan
-source-bdf2acbd8baed86c = Yerleşik değeri kullan
-source-3e7a7d098fd26e18 = Bu görünüm için varsayılan rengi kullanın
-source-deeb874684a76a88 = Kullanıcı adlarını kullanın
-source-359c1b2800819e19 = Temayı kullan
-source-db4138b28731611a = Kontrol karakterleri olmadan en fazla 128 karakter kullanın.
-source-085e386bc279d562 = GIF veya çıkartma aramasında en fazla 64 karakter kullanın.
-source-ea30f5ebc20a0def = Ses Etkinliğini Kullan
-source-f2d7f3f661f7ea12 = Başka bir uygulamaya odaklanırken ses kısayollarını kullanın. Kapalıyken kısayollar yalnızca Serein odaklandığında çalışır.
-source-7cd026b3d5b072b8 = Serein'i güncellemek veya bir AppImage sürümünü çalıştırmak için paket yöneticinizi kullanın.
-source-bdbd3d7392e197ab = Düğmeler, seçim ve mesaj vurgulamaları için kullanılır.
-source-4ccf7f0157938ae0 = aynı kimliği kullandı
-source-a48f81f001b893d2 = Kullanıcı
-source-438b40ecd6a71435 = Kullanıcı katılma sesi
-source-393eb187dca41d36 = Kullanıcı çıkış sesi
-source-1894386083bb21c9 = Kullanıcı menüsü eylemi
-source-dbf32ffb36a04cfc = Kullanıcı bulunamadı. Bilinen bir kullanıcının adını, kimliğini veya tam kullanıcı adını /msg ile kullanın.
-source-99222edc4ca94f28 = Kullanıcı hacmi
-source-dee96918fab12b37 = Kullanıcı adı işaretlendi
-source-d48d652058c99bc6 = Kullanıcıların bu kanaldaki içeriği görüntüleyebilmeleri için yasal yaşın üzerinde olduklarını onaylamaları gerekecektir. Yaş kısıtlamalı kanallar uygunsuz içerik filtresinden muaftır.
-source-a48f82f001b89585 = Kullanım Alanları
-source-af640b4c86023c69 = V
-source-7f960a7f6584a6ae = Geçerli arşiv yolu reddedildi.
-source-1e8c3529ec60fc49 = doğrulanmış odak
-source-d2528a48cacb6207 = Özel URL
-source-7bb42119e9b1a3e5 = Vec
-source-37c408c8adb26d03 = Yeşil
-source-83f718b99a74cfa2 = Doğrulamanın süresi doldu. Kontrolü tekrar başlatın.
-source-df6f4d3511e31903 = Doğrulama gerekli
-source-ca4fb8fafd9b52e5 = Doğrulandı
-source-c2b6c18334a4a2c4 = Doğrulamak
-source-f4122b220926be97 = Sürüm
-source-4adb303afb07fa10 = Sürüm sıralaması veya etiket doğrulaması başarısız oldu.
-source-2fba71bd651bdbfb = Dikey
-source-ace35f00865c76df = Çok yüksek
-source-85186a61e0d55bac = Video
-source-b88f655e46b2eb87 = Video eki kullanılamıyor
-source-d062b52546761372 = Video ses çıkışı durduruldu
-source-4ac2f745c380142e = Videonun ara belleğe alınması durduruldu; harici olarak oynatmak için yeniden deneyin veya indirin
-source-e677a5e19187c3da = Video dönüştürme iptal edildi veya iki dakikayı aştı
-source-687f454c60e0c80a = Video indirme işlemi başarısız oldu veya değiştirildi; konuşmayı yeniden yükle
-source-7a3ffa8eba6f9db8 = Video önizleme sınırı: 100 MiB
-source-d58ec87d257ef933 = Video önizlemesi · oynatma tarayıcınızda açılır
-source-9fcdaf9ce2522c7e = Video sunucusu arabelleğe almayı desteklemez; harici olarak oynamak için indirin
-source-fb9d6822e9069125 = video kuyruğu durdu
-source-6b61a1918b56fc96 = Video hacmi
-source-61edf6112c6fa5cb = Video çalışanı durduruldu; Serein'i yeniden başlat
-source-a6dfc67975360f88 = Farklı görüntüle
-source-3835a2eb415fc406 = Banner'ı görüntüle
-source-f0984f41d2753eb0 = Kanalları Görüntüle
-source-8cce57368168970f = Daha Fazla Çıkartma Görüntüle
-source-a5cd74c2a87ead44 = Orijinal mesajı görüntüle
-source-e064be780d0366cc = Önizlemeyi görüntüle
-source-4cbf8491b23782cf = Profil resmini görüntüle
-source-1eedbe2fbc47b270 = Tepkileri görüntüle
-source-3082d635c024691d = Kaynağı görüntüle
-source-c9995b81bd83d770 = Konuyu görüntüle ›
-source-bfbbe039b5b9cb62 = görünür yazar aramasına izin verilmelidir
-source-038776cdc40e51d3 = Görünür sohbet GIF'leri otomatik olarak oynatılır.
-source-47a9f592c61daa59 = Ses
-source-6a69760da73a4f0b = Çevrimdışı önizlemede sesli aramalar kullanılamıyor
-source-1eeca30f38c7f552 = ses kanalı
-source-b5a9b8bf580de49e = Ses Kanalı İzinleri
-source-16d935854997f12e = Ses Bağlantılı
-source-961efd6c1cf29f9a = Ses bağlantısı sona erdi; açıkça yeni bir arama başlatmak
-source-fb05803dcf7ce939 = ses donanımının bir çağrısı var
-source-12ef480e9aec4d92 = Ses bağlantısı kesildi; çağrı başlatılmadı
-source-e1b4d34ae94916a2 = Ses bu oturumda kullanılamıyor.
-source-ee6b1d49fb8920a1 = Ses Yalıtımı
-source-c4b32afb9184bfad = Ses önizlemesi
-source-38aae4c91fbd94ee = Ses gizlilik kodu
-source-470d360ad8905858 = Ses işleme
-source-2096e82cc9a23dad = Ses işleme ve giriş modu
-source-b011ccab2cbc9798 = Ses sunucusu değişti; yeni bir şifreli arama başlat
-source-dfd722899e87de45 = Bağlantı sırasında ses oturumu değiştirildi; yeni bir arama yapmayı dene
-source-e417beddf681f205 = Ses oturumu değiştirildi; yeni bir arama başlat
-source-80c69d6618332cc6 = Ses ayarları
-source-e4e08cf3df7c04e6 = ses ayarları
-source-577b531ff67a120b = Sesli sinyal bağlantısı kesildi; ekran paylaşma eylemi gönderilmedi
-source-ef55814d0fce6335 = Sesli sinyal bağlantısı kesildi; akış isteği gönderilmedi
-source-90a1996ca8517413 = ses video kamera önizleme ses mikrofon hoparlörler cihazlar ses seviyesi kazancı gürültü bastırma bas-konuş
-source-4c5725b06e1f2cb7 = Ses · liste
-source-b286ca07fcecaabf = Geçersiz
-source-5b528a7f6c0c40af = Hacim
-source-ef927d35d549b315 = Hacim (%)
-source-af640a4c86023ab6 = K
-source-37f4274bc7c4e275 = Okunabilir, güncel mesaj geçmişini bekleyin
-source-28d6a51c6d87f7e6 = Kayıtlı oturum açma işleminin kaldırılmasının tamamlanmasını bekleyin.
-source-479471eae833c01b = Mevcut ekleme işleminin bitmesini bekleyin
-source-b8457fb381a208ff = Mevcut emoji görsellerinin hazırlanma veya yüklenme işleminin bitmesini bekleyin.
-source-c2ea0f3651b8d482 = Mevcut yapıştırmanın bitmesini bekleyin
-source-e55bd0d85dd08d0c = Kapatmadan önce geçerli kaydetme işleminin bitmesini bekleyin.
-source-0e91eab83bc1da70 = Önceki doğrudan mesajın açılmasını bekleyin.
-source-f92d939ac4327a15 = Bağlantı bekleniyor.
-source-e430b4836da108ba = Discord girişi bekleniyor
-source-4c565555b5817f89 = Discord'u Bekliyorum...
-source-e5742c5172b9acba = Başvuru bekleniyor…
-source-c181f3020df2bafc = Önceki aramanın bağlantısının kesilmesi bekleniyor.
-source-efe123eff3dc7ca5 = Yayıncıyı bekliyorum…
-source-7101dd2deff8fb99 = Önbelleğe alınmış geçmişin temizlenmesi bekleniyor; önbelleğe alınmış geçmiş geçici olarak devre dışı bırakıldı
-source-c3fa29b962c8d811 = Yuvarlak, geniş kontrollerle sıcak kömür ve altın rengi.
-source-40868a9aa75f20f5 = Sıcak kahve tonları ve kremsi karamel vurgusu.
-source-34be76c6b1eadbef = Uyarı
-source-0a0a36c999741088 = Yayını izle
-source-0ebc660e93c4b560 = izliyorum
-source-6d3c94995c337799 = Akışı izleme
-source-9f300702cb64b834 = DALGA
-source-b596f148a31b7d16 = Bunu bir Topluluk Sunucusu için yalnızca @bahsetmeler olarak ayarlamanızı kesinlikle öneririz.
-source-f8e4d4474e5bc624 = En az 512×512 boyutunda bir resim öneriyoruz.
-source-577977ef6b305426 = Web kancası
-source-6d69fb7008bb9485 = Web kancası yazarı
-source-d3bb20d3231f4c6f = Web kancaları
-source-3bf3b24b6fcd677c = WebRTC
-source-6d5853b56f3f0766 = tekrar hoşgeldiniz
-source-ce18bd19ec376c06 = Serein'e hoş geldiniz
-source-8f9c15bbb8ec6408 = Aklınızdan ne geçiyor?
-source-0d89b09e531af16a = Mesaj gönderildiğinde
-source-ce5d20654a922851 = Nereye gitmek istersin?
-source-476b4192dc7278a4 = Asla süresi dolmayan
-source-749b6c726c1960eb = Etkinleştirildiğinde, özel emoji veya çıkartmalar seçildiğinde hemen bir resim eki gönderilir.
-source-ae3bcbd787941b05 = Widget
-source-5c49cfa8045bc89d = Pencere
-source-ff204ac178603ceb = Pencere arka planı
-source-39215563bac98e77 = Pencere köşeleri
-source-820ebad499d4c0a3 = Pencere efektleri
-source-fcc663a2582664eb = Pencere gradyanı
-source-58299ffc05b5c73a = Pencere başlığı ve konuşma başlığı
-source-2d34c87f67f66c6a = Windows
-source-3071ed12a0deedaa = Sınırsız kullanım imkanıyla
-source-759ec4221a89f75c = kaynaktan gelen kelime
-source-1216ca21d66069cb = işçi yaratıldı
-source-73169ba3b8a0f98b = işçi temizleme alıcısının sahibidir
-source-f31ea692dc630aae = işçi başladı
-source-4ea3930603447c5a = Son eyleminiz üzerinde çalışıyorum
-source-142e390b955f4f74 = Çalışma…
-source-8864c20775805e00 = Metni spoiler işaretleyicilerine sarın.
-source-de6362a1744a1bbc = Yanlış AppImage mimarisi kabul edildi.
-source-af64154c86024d67 = X
-source-d3448a1a1b8f2095 = X64
-source-40970cbe1010db29 = x7fELFx02x01x01
-source-b3394d570128d7b2 = XDG_SESSION_TYPE
-source-af64144c86024bb4 = e
-source-dd583e56281a195e = YAML
-source-5b4abc92ede53bc7 = Dün
-source-cb6a9c1a1757adbc = Sen
-source-d8e8412a1cb116ed = Zaten bu sunucuya üyesiniz.
-source-89c3d70ffc45603d = Zaten üyesiniz.
-source-1a402bf2c2585fdd = Zaten bu görüşmedesiniz.
-source-4a9c1c035a243d7f = Artık bu rol simgesini değiştiremezsiniz
-source-c1c2537dfebd04ae = Artık bu sunucuyu yönetemezsiniz
-source-186ee238dbfc7285 = Artık bu sunucuya emoji yükleyemezsiniz
-source-cc3c58e5876b3d35 = Artık bu sunucuya çıkartma yükleyemezsiniz
-source-2c18dfb018d912b4 = Bu kanalda konu başlatamazsınız.
-source-76ce3141a1c3fb53 = Bu konuşmayı görüntüleyemezsiniz.
-source-ac13390c7576a5dc = Bu komutu bu kanalda kullanma izniniz yok.
-source-020a64b5155ccd31 = Kaydedilmemiş değişiklikleriniz var.
-source-b26b1a2412f8f712 = Davet oluşturmak için bir kanalda Davet Oluşturma iznine ihtiyacınız vardır.
-source-8f79586ed215c2f2 = Bu ayarları değiştirmek için Kanalları Yönet ve İzinleri Yönet'e ihtiyacınız vardır.
-source-1c7a8eed90437231 = Artık bu görüşmeyi değiştirme izniniz yok.
-source-0ab41190f558a2ba = Artık bu kanalı yönetme izniniz yok.
-source-9685685b933f743a = Çevrimdışı görüneceksiniz
-source-8aa748c099f4f5c4 = Yeniden katılmak için bir davetiyeye ihtiyacınız olacak
-source-ad8a078d018c64f5 = Yeniden davet edilmediğiniz sürece bu sunucuya yeniden katılamazsınız.
-source-2dc205839b740ab4 = Masaüstü bildirimleri almayacaksınız
-source-e6e4b6dcb80f5e9c = üyesisin
-source-12c21b402cd2d2a4 = Bir sunucuya katılmaya davet edildiniz
-source-48fd2ebd801bef61 = Hesabınız
-source-76b709858b643e8c = Hesabınız özel bir oyun içi DM ayarı kullanıyor. Değiştirmek için bir seçenek seçin.
-source-b11634125ee78408 = Hesabınızda özel bir spam filtresi ayarı kullanılıyor. Değiştirmek için bir seçenek seçin.
-source-f87d23e5aa7f501a = Çağrı mikrofonunuz mevcut ayarlarını korur.
-source-21e2b1dfd199a58b = Değişiklikleriniz kaydedilmedi.
-source-9415bd27ed29516a = Bu sunucuda yaptığınız değişiklikler kaybolacak.
-source-e0100216ff74664c = Davet bağlantınızın süresi şu tarihte doluyor:
-source-b846f844f8d62fe7 = Davet bağlantınızın süresi hiçbir zaman dolmaz.
-source-a9d1dd5d6142477d = Adınız
-source-b737b4083287e83d = Kaydettiğinizde resminiz kaldırılacaktır.
-source-5b880cce516ba3a2 = Görünümdeki ana renginiz bu vurguya göre önceliklidir.
-source-6f577c0bdac1d0c6 = Gizliliğiniz
-source-865005865360b572 = Ekranınız
-source-5a62d6c20c047243 = Ekranınız Â· yerel önizleme
-source-d3aeef586c5f0477 = Sunucunuz sizin ve arkadaşlarınızın takıldığı yerdir. Kendinizinkini yapın ve konuşmaya başlayın.
-source-6cb85de5133a3e86 = Çıkartmalarınız
-source-8b1b348158ebc95f = Bu rolde yaptığınız kaydedilmemiş değişiklikler kaybolacak.
-source-12ac16fdd201f4d1 = Kaydedilmemiş webhook değişiklikleriniz kaybolacak.
-source-dcdd12bef40e339e = YouTube
-source-1f8972b051a58a65 = YYYY-AA-GG
-source-af64174c860250cd = Z
-source-91f4da69d58dc6c1 = Sıfır bulanıklığı devre dışı bırakır; yerel dizgici onun tam gücünü kontrol eder.
-source-e457191a25288af1 = Zig
-source-166bd56d19670a72 = Yakınlaştır
-source-e480d638d81a9417 = Zypper (RPM)
-source-e7f56f26713340f4 = Čeština
-source-2271ddacfd0a1f7e = … evvel
-source-d431526dc3eb18ac = ← GERİ
-source-547fba8644585336 = ← Roller'e geri dön
-source-3903e09ce17ed692 = ↑↓ seç · Sekme/Giriş ekle · Esc
-source-999c224c68c025f1 = ↪ İletildi
-source-0bd7b459109bb979 = 🌙 sentetik verilerde yarı akıcı
+# Context: list
+server-roles-list-delete-role = Rolü Sil
+# Context: list
+server-roles-list-edit-role = Rolü düzenle
+# Context: list
+server-roles-list-edit-role-2 = Rolü Düzenle
+# Context: list
+server-roles-list-members = ÜYELER
+# Context: list
+server-roles-list-members-use-the-color-of-the-highest-role-they-have = Üyeler bu listede sahip oldukları en yüksek rolün rengini kullanır. Yeniden sıralamak için rolleri sürükleyin.
+# Context: list
+server-roles-list-move-down = Aşağı Taşı
+# Context: list
+server-roles-list-move-up = Yukarı Taşı
+# Context: list
+server-roles-list-role-actions = Rol eylemleri
+# Context: list
+server-roles-list-roles = Roller
+# Context: list
+server-roles-list-roles-2 = ROLLER
+# Context: list
+server-roles-list-search-roles = Rolleri Ara
+# Context: list
+server-roles-list-unknown = Bilinmiyor
+# Context: list
+server-roles-list-use-roles-to-group-your-server-members-and-assign-permissions = Sunucu üyelerinizi gruplandırmak ve izinleri atamak için rolleri kullanın.
+# Context: members
+server-roles-members-add = Eklemek
+# Context: members
+server-roles-members-add-members = Üye Ekle
+# Context: members
+server-roles-members-back-to-role-members = Rol Üyelerine Geri Dön
+# Context: members
+server-roles-members-first-page = İlk sayfa
+# Context: members
+server-roles-members-next-page = Sonraki sayfa
+# Context: members
+server-roles-members-remove = Kaldırmak
+# Context: members
+server-roles-members-search-members = Üye ara
+# Context: members
+server-roles-members-showing = Gösterilen
+# Context: navigation
+server-roles-navigation-back = ← GERİ
+# Context: navigation
+server-roles-navigation-create-role = Rol Oluştur
+# Context: permissions
+server-roles-permissions-search-permissions = Arama izinleri
+# Context: save_bar
+server-roles-save-bar-saving-role = Rol kaydediliyor…
+# Context: show
+server-roles-show-loading-roles = Roller yükleniyor...
+# Context: show
+server-roles-show-reload-roles = Rolleri Yeniden Yükle
+# Context: show
+server-roles-show-saving = Kaydediliyor...
+
+## crates/ui/src/server_settings.rs
+# Context: channel_picker
+server-settings-channel-picker-no-accessible-channels-available = Erişilebilir kanal yok.
+# Context: channel_picker
+server-settings-channel-picker-no-inactive-channel = Aktif Olmayan Kanal Yok
+# Context: channel_picker
+server-settings-channel-picker-no-system-messages-channel = Sistem Mesajları Kanalı Yok
+# Context: channel_picker
+server-settings-channel-picker-none = Hiçbiri
+# Context: channel_picker
+server-settings-channel-picker-unavailable-channel = Kullanılamayan kanal
+# Context: delete_dialog
+server-settings-delete-dialog-are-you-sure-you-want-to-delete = Silmek istediğinizden emin misiniz?
+# Context: delete_dialog
+server-settings-delete-dialog-cancel = İptal etmek
+# Context: delete_dialog
+server-settings-delete-dialog-delete = Silmek
+# Context: delete_dialog
+server-settings-delete-dialog-delete-server = Sunucuyu Sil
+# Context: delete_dialog
+server-settings-delete-dialog-deleting = Siliniyor…
+# Context: delete_dialog
+server-settings-delete-dialog-enter-server-name = Sunucu adını girin
+# Context: delete_dialog
+server-settings-delete-dialog-offline-preview-no-server-changes = Çevrimdışı önizleme · sunucu değişikliği yok
+# Context: delete_dialog
+server-settings-delete-dialog-this-action-cannot-be-undone = Bu eylem geri alınamaz.
+# Context: delete_server_button
+server-settings-delete-server-button-delete-server = Sunucuyu Sil
+# Context: engagement
+server-settings-engagement-activity-feed-settings = Etkinlik Akışı Ayarları
+# Context: engagement
+server-settings-engagement-all-messages = Tüm Mesajlar
+# Context: engagement
+server-settings-engagement-automatically-move-members-to-this-channel-and-mute-them-when = Üyeleri otomatik olarak bu kanala taşıyın ve etkin olmayan zaman aşımından daha uzun süre boşta kaldıklarında onları sessize alın. Bu tarayıcıları etkilemez.
+# Context: engagement
+server-settings-engagement-configure-system-event-messages-sent-to-your-server = Sunucunuza gönderilen sistem olay mesajlarını yapılandırın.
+# Context: engagement
+server-settings-engagement-default-notification-settings = Varsayılan Bildirim Ayarları
+# Context: engagement
+server-settings-engagement-display-activity-feed-in-this-server = Etkinlik Akışını bu sunucuda görüntüle
+# Context: engagement
+server-settings-engagement-engagement = Nişanlanmak
+# Context: engagement
+server-settings-engagement-inactive-channel = Etkin Olmayan Kanal
+# Context: engagement
+server-settings-engagement-inactive-timeout = Etkin Olmama Zaman Aşımı
+# Context: engagement
+server-settings-engagement-manage-settings-that-help-keep-your-server-active = Sunucunuzu aktif tutmanıza yardımcı olacak ayarları yönetin.
+# Context: engagement
+server-settings-engagement-only-mentions = Yalnızca @bahisler
+# Context: engagement
+server-settings-engagement-server-default = Sunucu varsayılanı
+# Context: engagement
+server-settings-engagement-shows-a-feed-of-activity-from-games-and-connected-apps = Bu sunucudaki oyunlara ve bağlı uygulamalara ait etkinliklerin akışını gösterir.
+# Context: engagement
+server-settings-engagement-system-messages = Sistem Mesajları
+# Context: engagement
+server-settings-engagement-system-messages-channel = Sistem Mesajları Kanalı
+# Context: engagement
+server-settings-engagement-this-is-the-channel-we-send-system-event-messages-to = Sistem olay mesajlarını gönderdiğimiz kanaldır.
+# Context: engagement
+server-settings-engagement-this-will-determine-whether-members-who-have-not-explicitly-set = Bu, bildirim ayarlarını açıkça yapmamış üyelerin bu sunucuya gönderilen her mesaj için bildirim alıp almayacağını belirleyecektir.
+# Context: engagement
+server-settings-engagement-we-highly-recommend-setting-this-to-only-mentions-for-a = Bunu bir Topluluk Sunucusu için yalnızca @bahsetmeler olarak ayarlamanızı kesinlikle öneririz.
+# Context: label
+server-settings-page-audit-log = Denetim Günlüğü
+# Context: page_body
+server-settings-page-body-load-server-settings = Sunucu ayarlarını yükle
+# Context: page_body
+server-settings-page-body-loading-server-settings = Sunucu ayarları yükleniyor…
+# Context: page_body
+server-settings-page-body-reconnect-to-load-server-settings = Sunucu ayarlarını yüklemek için yeniden bağlanın.
+# Context: page_body
+server-settings-page-body-reload-server-settings = Sunucu ayarlarını yeniden yükle
+# Context: label
+server-settings-page-emoji = Emoji
+# Context: label
+server-settings-page-engagement = Nişanlanmak
+# Context: label
+server-settings-page-integrations = Entegrasyonlar
+# Context: label
+server-settings-page-invites = Davetler
+# Context: label
+server-settings-page-members = Üyeler
+# Context: label
+server-settings-page-profile = Sunucu Profili
+# Context: label
+server-settings-page-roles = Roller
+# Context: label
+server-settings-page-stickers = Çıkartmalar
+# Context: preview
+server-settings-preview-established = Kurulmuş
+# Context: preview
+server-settings-preview-members = Üyeler
+# Context: preview
+server-settings-preview-online = Çevrimiçi
+# Context: profile_form
+server-settings-profile-form-add-up-to-5-traits-to-show-off-your-server = Sunucunuzun ilgi alanlarını ve kişiliğini göstermek için en fazla 5 özellik ekleyin.
+# Context: profile_form
+server-settings-profile-form-banner = Afiş
+# Context: profile_form
+server-settings-profile-form-change-server-icon = Sunucu Simgesini Değiştir
+# Context: profile_form
+server-settings-profile-form-customize-how-your-server-appears-in-invite-links-and-if = Sunucunuzun davet bağlantılarında ve etkinleştirilmişse Sunucu Keşfi ve Duyuru Kanalı mesajlarında nasıl görüneceğini özelleştirin.
+# Context: profile_form
+server-settings-profile-form-description = Tanım
+# Context: profile_form
+server-settings-profile-form-how-did-your-server-get-started-why-should-people-join = Sunucunuz nasıl başladı? İnsanlar neden katılmalı?
+# Context: profile_form
+server-settings-profile-form-icon = Simge
+# Context: profile_form
+server-settings-profile-form-name = İsim
+# Context: profile_form
+server-settings-profile-form-preparing-icon = Simge hazırlanıyor…
+# Context: profile_form
+server-settings-profile-form-remove-icon = Simgeyi Kaldır
+# Context: profile_form
+server-settings-profile-form-remove-trait = Özelliği kaldır
+# Context: profile_form
+server-settings-profile-form-server-profile = Sunucu Profili
+# Context: profile_form
+server-settings-profile-form-tell-the-world-a-bit-about-this-server = Dünyaya bu sunucu hakkında biraz bilgi verin.
+# Context: profile_form
+server-settings-profile-form-trait-name = Özellik adı
+# Context: profile_form
+server-settings-profile-form-traits = Özellikler
+# Context: profile_form
+server-settings-profile-form-we-recommend-an-image-of-at-least-512512 = En az 512×512 boyutunda bir resim öneriyoruz.
+# Context: save_bar
+server-settings-save-bar-reconnect-to-save-changes = Değişiklikleri kaydetmek için yeniden bağlanın.
+# Context: save_bar
+server-settings-save-bar-reload-the-server-settings-before-saving-again-your-edits-will = Tekrar kaydetmeden önce sunucu ayarlarını yeniden yükleyin. Düzenlemeleriniz saklanacaktır.
+# Context: save_bar
+server-settings-save-bar-saving-changes = Değişiklikler kaydediliyor…
+# Context: show
+server-settings-show-apps = UYGULAMALAR
+# Context: show
+server-settings-show-expression = İFADE
+# Context: show
+server-settings-show-moderation = MODERASYON
+# Context: show
+server-settings-show-people = İNSANLAR
+# Context: timeout_picker
+server-settings-timeout-picker-minutes = dakika
+
+## crates/ui/src/server_stickers.rs
+# Context: dialog
+server-stickers-dialog-cancel = İptal etmek
+# Context: dialog
+server-stickers-dialog-delete-sticker = Çıkartmayı Sil
+# Context: dialog
+server-stickers-dialog-description-optional = Açıklama (isteğe bağlı)
+# Context: dialog
+server-stickers-dialog-name = İsim
+# Context: dialog
+server-stickers-dialog-related-emoji = İlgili emoji
+# Context: dialog
+server-stickers-dialog-save = Kaydetmek
+# Context: show
+server-stickers-show-add-custom-stickers-for-members-to-use-in-this-server = Üyelerin bu sunucuda kullanması için özel çıkartmalar ekleyin. Resim yüklenmeden önce kırpılır ve 320 × 320 piksele yeniden boyutlandırılır.
+# Context: show
+server-stickers-show-by = ile
+# Context: show
+server-stickers-show-cancel = İptal etmek
+# Context: show
+server-stickers-show-delete-sticker = Çıkartmayı Sil
+# Context: show
+server-stickers-show-description-optional = Açıklama (isteğe bağlı)
+# Context: show
+server-stickers-show-edit = Düzenlemek
+# Context: show
+server-stickers-show-for-example = Örneğin: 🐀
+# Context: show
+server-stickers-show-loading = Yükleniyor…
+# Context: show
+server-stickers-show-name = İsim
+# Context: show
+server-stickers-show-no-custom-stickers-yet = Henüz özel çıkartma yok.
+# Context: show
+server-stickers-show-of = ile ilgili
+# Context: show
+server-stickers-show-preparing-sticker-artwork = Çıkartma çizimi hazırlanıyor…
+# Context: show
+server-stickers-show-related-emoji = İlgili emoji
+# Context: show
+server-stickers-show-reload = Yeniden yükle
+# Context: show
+server-stickers-show-review-sticker = Çıkartmayı incele
+# Context: show
+server-stickers-show-saving-changes = Değişiklikler kaydediliyor…
+# Context: show
+server-stickers-show-slots-used = kullanılan yuvalar
+# Context: show
+server-stickers-show-static-png-jpeg-and-webp-artwork-is-supported-up-to = Statik PNG, JPEG ve WebP resimleri 8 MB'a kadar desteklenir. Hazırlanan PNG, Discord'un 512 KB sınırına uymalıdır.
+# Context: show
+server-stickers-show-sticker-actions = Çıkartma eylemleri
+# Context: show
+server-stickers-show-stickers = Çıkartmalar
+# Context: show
+server-stickers-show-stickers-2 = çıkartmalar
+# Context: show
+server-stickers-show-upload = Yüklemek
+# Context: show
+server-stickers-show-upload-sticker = Çıkartma Yükle
+# Context: show
+server-stickers-show-use-a-230-character-name-an-optional-description-up-to = 2-30 karakterlik bir ad, 100 karaktere kadar isteğe bağlı bir açıklama ve ilgili en az bir emoji kullanın.
+# Context: show
+server-stickers-show-your-stickers = Çıkartmalarınız
+
+## crates/ui/src/settings.rs
+# Context: account_page
+settings-account-page-closes-the-offline-fixture-nothing-is-stored-for-the-preview = Çevrimdışı fikstürü kapatır. Önizleme için hiçbir şey saklanmaz.
+# Context: account_page
+settings-account-page-display-name = Ekran adı
+# Context: account_page
+settings-account-page-edit-profile = Profili düzenle
+# Context: account_page
+settings-account-page-email-password-and-security = E-posta, şifre ve güvenlik
+# Context: account_page
+settings-account-page-offline-preview-synthetic-account = Çevrimdışı önizleme · sentetik hesap
+# Context: account_page
+settings-account-page-removes-the-saved-login-and-clears-this-account-s-local = Kaydedilen oturum açma bilgilerini kaldırır ve bu hesabın yerel önbelleğini ve taslaklarını temizler.
+# Context: account_page
+settings-account-page-session = Oturum
+# Context: account_page
+settings-account-page-signed-in-with-your-discord-account = Discord hesabınızla oturum açtınız
+# Context: activity_settings
+settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = Çalışan oyunları tespit edin ve Discord'dan bunları etkinlik olarak paylaşmasını isteyin.
+# Context: activity_settings
+settings-activity-settings-share-game-activity = Oyun etkinliğini paylaş
+# Context: appearance_menu
+settings-appearance-menu-display = Görüntülemek
+# Context: appearance_menu
+settings-appearance-menu-mode = Mod
+# Context: appearance_menu
+settings-appearance-menu-theme = Tema
+# Context: appearance_settings
+settings-appearance-settings-accent = Aksan
+# Context: appearance_settings
+settings-appearance-settings-apply-to-all-surfaces = Tüm yüzeylere uygulayın
+# Context: appearance_settings
+settings-appearance-settings-blur = Bulanıklık
+# Context: appearance_settings
+settings-appearance-settings-choose-primary-color = Ana rengi seçin
+# Context: appearance_settings
+settings-appearance-settings-include-sidebars-server-rail-headers-and-composer = Kenar çubuklarını, sunucu rayını, başlıkları ve oluşturucuyu ekleyin.
+# Context: appearance_settings
+settings-appearance-settings-primary-color = Ana renk
+# Context: appearance_settings
+settings-appearance-settings-reset = Sıfırla
+# Context: appearance_settings
+settings-appearance-settings-restart-serein-after-changing-this-themes-can-customize-effects-while = Bunu değiştirdikten sonra Serein'i yeniden başlatın. Temalar etkinleştirildiğinde efektleri özelleştirebilir.
+# Context: appearance_settings
+settings-appearance-settings-the-active-theme-brings-its-own-accent-it-takes-over = Aktif tema kendi aksanını da beraberinde getiriyor; tema kullanımdayken görevi devralır.
+# Context: appearance_settings
+settings-appearance-settings-theme = Tema
+# Context: appearance_settings
+settings-appearance-settings-transparency = Şeffaflık
+# Context: appearance_settings
+settings-appearance-settings-transparency-blur = Şeffaflık ve bulanıklık
+# Context: appearance_settings
+settings-appearance-settings-used-for-buttons-selection-and-message-highlights = Düğmeler, seçim ve mesaj vurgulamaları için kullanılır.
+# Context: appearance_settings
+settings-appearance-settings-window-effects = Pencere efektleri
+# Context: appearance_settings
+settings-appearance-settings-zero-disables-blur-the-native-compositor-controls-its-exact-strength = Sıfır bulanıklığı devre dışı bırakır; yerel dizgici onun tam gücünü kontrol eder.
+# Context: chat_settings
+settings-chat-settings-channel-list = Kanal listesi
+# Context: chat_settings
+settings-chat-settings-show-channels-you-cannot-currently-access = Şu anda erişemediğiniz kanalları gösterin.
+# Context: chat_settings
+settings-chat-settings-show-hidden-channels = Gizli kanalları göster
+# Context: close_control
+settings-close-control-close-settings-esc = Ayarları kapat (Esc)
+# Context: colour_preset_settings
+settings-colour-preset-settings-colour-preset = Renk ön ayarı
+# Context: colour_preset_settings
+settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Görünümünüzle birlikte kaydedildi. Degrade hazır ayarları her zaman koyu metin kullanır.
+# Context: storage_page
+settings-storage-page-clear-cache = Önbelleği temizle
+# Context: storage_page
+settings-storage-page-local-storage = Yerel depolama
+# Context: storage_page
+settings-storage-page-messages-and-drafts-are-cached-on-this-device-inside-bounded = Mesajlar ve taslaklar bu cihazda sınırlı, hesaptan yalıtılmış dosyalar içinde önbelleğe alınır. Önbellek verileri Serein tarafından şifrelenmez; kaydedilen oturum açma belirteçleri işletim sistemi kimlik bilgileri deposunu kullanır.
+# Context: storage_page
+settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-stay = Önbelleğe alınmış mesajları ve medyayı kaldırır. Taslaklar ve giriş bilgileriniz.
+# Context: storage_page
+settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein telemetri toplamaz veya tanılamayı yüklemez. Discord, hizmet tarafındaki verileri kendi politikalarına göre saklar.
+# Context: storage_page
+settings-storage-page-your-privacy = Gizliliğiniz
+
+## crates/ui/src/slash_commands.rs
+# Context: argument
+slash-commands-argument-attachment-arguments-are-not-supported-yet = Ek bağımsız değişkenleri henüz desteklenmiyor.
+# Context: argument
+slash-commands-argument-choose = Seçmek…
+# Context: argument
+slash-commands-argument-false = YANLIŞ
+# Context: argument
+slash-commands-argument-id-or-choose = Kimlik veya seçin…
+# Context: argument
+slash-commands-argument-not-set = Ayarlanmadı
+# Context: argument
+slash-commands-argument-true = Doğru
+# Context: argument
+slash-commands-argument-unavailable = Kullanılamıyor
+# Context: composer
+slash-commands-composer-choose-a-different-command = farklı bir komut seç
+# Context: composer
+slash-commands-composer-command-unavailable-your-arguments-are-kept = Komut kullanılamıyor. Argümanlarınız saklıdır.
+# Context: footer
+slash-commands-footer-refresh-application-commands = Uygulama komutlarını yenile
+
+## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-loading-sticker-details = Çıkartma ayrıntıları yükleniyor…
+# Context: message
+stickers-message-retry-sticker-details = Çıkartma ayrıntılarını yeniden dene
+# Context: message
+stickers-message-sticker = etiket
+# Context: message
+stickers-message-sticker-details-unavailable = Çıkartma ayrıntıları mevcut değil.
+# Context: message
+stickers-message-this-is-a = Bu bir
+# Context: message
+stickers-message-view-more-stickers = Daha Fazla Çıkartma Görüntüle
+# Context: show
+stickers-show-loading-sticker-packs = Çıkartma paketleri yükleniyor…
+# Context: show
+stickers-show-nitro-is-required-to-use-this-sticker-outside-its-server = Nitro'nun bu çıkartmayı sunucusunun dışında kullanması gerekir.
+# Context: show
+stickers-show-no-stickers-found = Çıkartma bulunamadı.
+# Context: show
+stickers-show-showing-the-first-500-stickers-search-to-narrow-the-results = İlk 500 çıkartma gösteriliyor. Sonuçları daraltmak için arayın.
+# Context: show
+stickers-show-this-server-has-no-stickers-yet = Bu sunucunun henüz çıkartması yok.
+# Context: show
+stickers-show-this-sticker-is-unavailable-with-the-current-connection-or-permissions = Bu çıkartma mevcut bağlantı veya izinlerle kullanılamıyor.
+
+## crates/ui/src/switcher.rs
+# Context: show
+switcher-show-close = Kapalı
+# Context: show
+switcher-show-conversations-and-friends = Konuşmalar ve arkadaşlar
+# Context: show
+switcher-show-finish-composing-text-before-opening-or-closing = Açmadan veya kapatmadan önce metni oluşturmayı bitirin.
+# Context: show
+switcher-show-no-conversations-or-friends-match = Hiçbir konuşma veya arkadaş eşleşmesi yok
+# Context: show
+switcher-show-results = Sonuçlar
+# Context: show
+switcher-show-try-a-channel-server-or-person-name = Bir kanal, sunucu veya kişi adını deneyin.
+# Context: show
+switcher-show-where-would-you-like-to-go = Nereye gitmek istersin?
+
+## crates/ui/src/theme_editor.rs
+# Context: appearance_switch
+theme-editor-appearance-switch-colors-and-opacity-are-saved-separately-for-dark-and-light = Renkler ve opaklık, koyu ve açık görünüm için ayrı ayrı kaydedilir.
+# Context: appearance_switch
+theme-editor-appearance-switch-dark = Karanlık
+# Context: appearance_switch
+theme-editor-appearance-switch-editing = Düzenleme
+# Context: appearance_switch
+theme-editor-appearance-switch-light = Işık
+# Context: color_input
+theme-editor-color-input-use-rrggbb-or-rrggbbaa = #RRGGBB veya #RRGGBBAA kullanın
+# Context: color_override
+theme-editor-color-override-reset = Sıfırla
+# Context: color_override
+theme-editor-color-override-use-rrggbb-or-rrggbbaa = #RRGGBB veya #RRGGBBAA kullanın.
+# Context: color_override
+theme-editor-color-override-use-the-default-color-for-this-appearance = Bu görünüm için varsayılan rengi kullanın
+# Context: cover_card
+theme-editor-cover-card-automatic-preview = Otomatik önizleme
+# Context: cover_card
+theme-editor-cover-card-choose-cover = Kapak seç
+# Context: cover_card
+theme-editor-cover-card-custom-cover = Özel kapak
+# Context: cover_card
+theme-editor-cover-card-png-or-jpeg-up-to-2-mib-this-image-does = PNG veya JPEG, 2 MiB'a kadar. Bu resim sohbet arka planını değiştirmez.
+# Context: cover_card
+theme-editor-cover-card-remove = Kaldırmak
+# Context: cover_card
+theme-editor-cover-card-replace-cover = Kapağı değiştirin
+# Context: description
+theme-editor-description-direct-messages-and-channel-navigation = Doğrudan mesajlar ve kanalda gezinme
+# Context: description
+theme-editor-description-the-area-around-the-message-box = Mesaj kutusunun etrafındaki alan
+# Context: description
+theme-editor-description-the-conversation-timeline = Konuşma zaman çizelgesi
+# Context: description
+theme-editor-description-the-left-server-rail = Sol sunucu rayı
+# Context: description
+theme-editor-description-the-member-and-search-pane-on-the-right = Sağdaki üye ve arama bölmesi
+# Context: description
+theme-editor-description-window-title-and-conversation-header = Pencere başlığı ve konuşma başlığı
+# Context: image_card
+theme-editor-image-card-background-image = Arka plan resmi
+# Context: image_card
+theme-editor-image-card-choose-image = Resim seç
+# Context: image_card
+theme-editor-image-card-no-image-selected = Resim seçilmedi
+# Context: image_card
+theme-editor-image-card-pixels = piksel
+# Context: image_card
+theme-editor-image-card-png-or-jpeg-up-to-2-mib = PNG veya JPEG, 2 MiB'a kadar
+# Context: image_card
+theme-editor-image-card-remove = Kaldırmak
+# Context: image_card
+theme-editor-image-card-replace-image = Resmi değiştir
+# Context: label
+theme-editor-label-member-list = Üye listesi
+# Context: label
+theme-editor-label-message-input-area = Mesaj giriş alanı
+# Context: label
+theme-editor-label-message-list = Mesaj listesi
+# Context: label
+theme-editor-label-people-channels = Kişiler ve kanallar
+# Context: label
+theme-editor-label-server-list = Sunucu listesi
+# Context: label
+theme-editor-label-top-bars = Üst çubuklar
+# Context: metric_label
+theme-editor-metric-label-reset = Sıfırla
+# Context: metric_label
+theme-editor-metric-label-use-the-built-in-value = Yerleşik değeri kullan
+# Context: section_controls
+theme-editor-section-controls-0-shows-the-image-100-is-a-solid-section-color = %0 görüntüyü gösterir. %100 düz bir kesit rengidir.
+# Context: section_controls
+theme-editor-section-controls-selected-section = Seçilen bölüm
+# Context: section_controls
+theme-editor-section-controls-surface-opacity = Yüzey opaklığı
+# Context: show
+theme-editor-show-additional-colors-app-controls-and-sharing-details = Ek renkler, uygulama kontrolleri ve paylaşım ayrıntıları.
+# Context: show
+theme-editor-show-advanced = Gelişmiş
+# Context: show
+theme-editor-show-app-background = Uygulama arka planı
+# Context: show
+theme-editor-show-apply-to-all-surfaces = Tüm yüzeylere uygulayın
+# Context: show
+theme-editor-show-blend-two-colors-behind-the-app-s-surfaces = Uygulamanın yüzeylerinin arkasında iki rengi karıştırın.
+# Context: show
+theme-editor-show-blur = Bulanıklık
+# Context: show
+theme-editor-show-card-cover = Kart kapağı
+# Context: show
+theme-editor-show-choose-an-image-to-adjust-the-top-bar-lists-and = Üst çubuğu, listeleri ve mesaj alanını ayarlamak için bir resim seçin.
+# Context: show
+theme-editor-show-choose-the-image-shown-on-your-theme-card-in-themes = Temalar'da tema kartınızda gösterilen resmi seçin.
+# Context: show
+theme-editor-show-click-a-swatch-to-choose-a-color-or-enter-its = Bir renk seçmek için bir renk örneğini tıklayın veya onaltılık değerini girin.
+# Context: show
+theme-editor-show-conversation-colors = Konuşma renkleri
+# Context: show
+theme-editor-show-created-by = Tarafından oluşturuldu
+# Context: show
+theme-editor-show-creator-name-is-required = Yaratıcının adı gerekli.
+# Context: show
+theme-editor-show-export-theme = Temayı dışa aktar
+# Context: show
+theme-editor-show-fill-area = Alanı doldur
+# Context: show
+theme-editor-show-fit-entire-image = Resmin tamamını sığdır
+# Context: show
+theme-editor-show-how-your-theme-appears-in-the-gallery = Temanızın galeride nasıl göründüğü.
+# Context: show
+theme-editor-show-image-opacity = Görüntü opaklığı
+# Context: show
+theme-editor-show-include-sidebars-server-rail-headers-and-composer = Kenar çubuklarını, sunucu rayını, başlıkları ve oluşturucuyu ekleyin.
+# Context: show
+theme-editor-show-license = Lisans
+# Context: show
+theme-editor-show-license-and-version-are-required = Lisans ve sürüm gereklidir.
+# Context: show
+theme-editor-show-more-colors = Daha fazla renk
+# Context: show
+theme-editor-show-only-share-images-you-own-or-have-permission-to-use = Yalnızca sahip olduğunuz veya kullanma izniniz olan görselleri paylaşın. Gerekli ilişkilendirmeyi koruyun.
+# Context: show
+theme-editor-show-override-the-default-appearance-setting-for-this-theme = Bu tema için varsayılan Görünüm ayarını geçersiz kılın.
+# Context: show
+theme-editor-show-requires-transparency-blur-in-appearance-then-an-app-restart = Görünümde Şeffaflık ve bulanıklık, ardından uygulamanın yeniden başlatılması gerekir.
+# Context: show
+theme-editor-show-section-opacity = Bölüm opaklığı
+# Context: show
+theme-editor-show-select-an-area-then-choose-how-much-of-the-image = Bir alan seçin, ardından görüntünün ne kadarının görüneceğini seçin.
+# Context: show
+theme-editor-show-sharing-export = Paylaşma ve dışa aktarma
+# Context: show
+theme-editor-show-source-url = Kaynak URL'si
+# Context: show
+theme-editor-show-text-spacing-corners = Metin, aralık ve köşeler
+# Context: show
+theme-editor-show-the-license-and-version-are-required-a-source-url-is = Lisans ve sürüm gereklidir. Yerel temalar için kaynak URL'si isteğe bağlıdır.
+# Context: show
+theme-editor-show-theme-details = Tema ayrıntıları
+# Context: show
+theme-editor-show-theme-name = Tema adı
+# Context: show
+theme-editor-show-theme-name-is-required = Tema adı gerekli.
+# Context: show
+theme-editor-show-these-settings-apply-to-dark-and-light-appearances = Bu ayarlar koyu ve açık görünümler için geçerlidir.
+# Context: show
+theme-editor-show-this-older-theme-uses-its-original-image-placement = Bu eski tema, orijinal resim yerleşimini kullanır.
+# Context: show
+theme-editor-show-transparency = Şeffaflık
+# Context: show
+theme-editor-show-transparency-blur = Şeffaflık ve bulanıklık
+# Context: show
+theme-editor-show-use-a-gradient = Degrade kullanma
+# Context: show
+theme-editor-show-use-a-valid-https-source-url-or-leave-this-blank = Geçerli bir HTTPS kaynak URL'si kullanın veya bunu boş bırakın.
+# Context: show
+theme-editor-show-use-image-across-the-app = Uygulama genelinde görseli kullanın
+# Context: show
+theme-editor-show-use-one-image-behind-your-conversations-and-sidebars = Konuşmalarınızın ve kenar çubuklarınızın arkasında tek bir resim kullanın.
+# Context: show
+theme-editor-show-use-rrggbb-or-rrggbbaa = #RRGGBB veya #RRGGBBAA kullanın.
+# Context: show
+theme-editor-show-version = Sürüm
+# Context: show
+theme-editor-show-window-effects = Pencere efektleri
+# Context: show
+theme-editor-show-window-gradient = Pencere gradyanı
+# Context: show
+theme-editor-show-your-primary-color-in-appearance-takes-precedence-over-this-accent = Görünümdeki ana renginiz bu vurguya göre önceliklidir.
+# Context: show
+theme-editor-show-zero-disables-blur-the-native-compositor-controls-its-exact-strength = Sıfır bulanıklığı devre dışı bırakır; yerel dizgici onun tam gücünü kontrol eder.
+# Context: key
+theme-editor-tab-advanced = Gelişmiş
+# Context: key
+theme-editor-tab-background = Arka plan
+# Context: key
+theme-editor-tab-basics = Temel bilgiler
+# Context: key
+theme-editor-tab-colors = Renkler
+# Context: toolbar
+theme-editor-toolbar-back = Geri
+# Context: toolbar
+theme-editor-toolbar-preview-in-app = Uygulamada önizleme
+# Context: toolbar
+theme-editor-toolbar-save-and-apply = Kaydet ve uygula
+# Context: toolbar
+theme-editor-toolbar-unsaved-changes = Kaydedilmemiş değişiklikler
+# Context: toolbar
+theme-editor-toolbar-working = Çalışma…
+
+## crates/ui/src/thread_create.rs
+# Context: show
+thread-create-show-cancel = İptal etmek
+# Context: show
+thread-create-show-create = Yaratmak
+# Context: show
+thread-create-show-create-thread = Konu Oluştur
+# Context: show
+thread-create-show-everyone-who-can-see-this-channel-can-see-the-thread = Bu kanalı görebilen herkes konuyu görebilir.
+# Context: show
+thread-create-show-the-selected-message-starts-the-thread-everyone-who-can-see = Seçilen mesaj konuyu başlatır. Bu kanalı görebilen herkes konuyu görebilir.
+# Context: show
+thread-create-show-thread-name = Konu adı
+
+## crates/ui/src/timeline.rs
+# Context: channel_welcome
+timeline-channel-welcome-this-is-the-beginning-of-the-conversation = Bu konuşmanın başlangıcıdır.
+# Context: deleted_message_actions
+timeline-deleted-message-actions-remove-message = Mesajı Kaldır
+# Context: deleted_message_actions
+timeline-deleted-message-actions-toggle-deleted-highlight = Silinen Vurgulamayı Aç/Kapat
+# Context: loading_messages
+timeline-loading-messages-loading-messages = Mesajlar yükleniyor
+# Context: message_actions
+timeline-message-actions-copy = Kopyala
+# Context: message_actions
+timeline-message-actions-create-thread = Konu Oluştur…
+# Context: message_actions
+timeline-message-actions-delete-message = Mesajı sil…
+# Context: message_actions
+timeline-message-actions-edit-message = Mesajı düzenle
+# Context: message_actions
+timeline-message-actions-extensions = Uzantılar
+# Context: message_actions
+timeline-message-actions-forward = İleri
+# Context: message_actions
+timeline-message-actions-mark-read-through-here = Burayı sonuna kadar oku
+# Context: message_actions
+timeline-message-actions-mark-unread = Okunmadı Olarak İşaretle
+# Context: message_actions
+timeline-message-actions-pin-message = Mesajı sabitle
+# Context: message_actions
+timeline-message-actions-reply = Cevap vermek
+# Context: message_actions
+timeline-message-actions-unpin-message = Mesajın sabitlemesini kaldır
+# Context: message_actions
+timeline-message-actions-view-reactions = Tepkileri görüntüle
+# Context: present_control
+timeline-present-control-jump-to-present = Sunuma atla
+# Context: present_control
+timeline-present-control-new-messages-below-jump-to-present = Yeni mesajlar aşağıda · sunuma atla
+# Context: show_system
+timeline-show-system-open-this-channels-threads = Bu kanalın konularını aç
+# Context: show_system
+timeline-show-system-see-all = . Tümünü gör
+# Context: show_with_scroll
+timeline-show-with-scroll-application-interaction-pending = Uygulama etkileşimi bekleniyor…
+# Context: show_with_scroll
+timeline-show-with-scroll-deleted-message-had-no-text = [Silinen mesajda metin yoktu]
+# Context: show_with_scroll
+timeline-show-with-scroll-dismiss-message = Mesajı kapat
+# Context: show_with_scroll
+timeline-show-with-scroll-display-limited-copy-message-for-the-full-text = Sınırlı görüntüleme · Tam metin için mesajı kopyala
+# Context: show_with_scroll
+timeline-show-with-scroll-edited = (düzenlendi)
+# Context: show_with_scroll
+timeline-show-with-scroll-forwarded = ↪ İletildi
+# Context: show_with_scroll
+timeline-show-with-scroll-hide-spoilers = Spoilerleri gizle
+# Context: show_with_scroll
+timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = Geçmiş henüz mevcut değil. Tekrar denemek için Yeniden Yükle'yi kullanın.
+# Context: show_with_scroll
+timeline-show-with-scroll-loading-messages = Mesajlar yükleniyor…
+# Context: show_with_scroll
+timeline-show-with-scroll-message-deleted = Mesaj silindi
+# Context: show_with_scroll
+timeline-show-with-scroll-message-history-is-unavailable-with-current-permission-information = Mesaj geçmişi mevcut izin bilgileriyle kullanılamaz.
+# Context: show_with_scroll
+timeline-show-with-scroll-no-messages-yet-start-the-conversation-below = Henüz mesaj yok. Aşağıdaki konuşmayı başlatın.
+# Context: show_with_scroll
+timeline-show-with-scroll-only-you-can-see-this = Bunu yalnızca siz görebilirsiniz •
+# Context: show_with_scroll
+timeline-show-with-scroll-open-in-discord = Discord'da aç
+# Context: show_with_scroll
+timeline-show-with-scroll-reveal-spoiler-media = Spoiler medyasını açığa çıkarın
+# Context: show_with_scroll
+timeline-show-with-scroll-view-original-message = Orijinal mesajı görüntüle
+# Context: show_with_scroll
+timeline-show-with-scroll-wait-for-readable-current-message-history = Okunabilir, güncel mesaj geçmişini bekleyin
+# Context: show_with_scroll
+timeline-show-with-scroll-you-cannot-view-this-conversation = Bu konuşmayı görüntüleyemezsiniz.
+# Context: starter_row
+timeline-starter-row-thread-started-from-this-message = Konu bu mesajdan başlatıldı
+# Context: unread_banner
+timeline-unread-banner-unread-messages = Okunmamış mesajlar
+
+## crates/ui/src/toasts.rs
+# Context: show
+toasts-show-dismiss = Azletmek
+
+## crates/ui/src/updates.rs
+# Context: shows_update_banner
+updates-shows-update-banner-on-top = üstte
+# Context: shows_update_banner
+updates-shows-update-banner-restart-to-update = Güncellemek için yeniden başlatın
+# Context: shows_update_banner
+updates-shows-update-banner-update-available = Güncelleme mevcut
+# Context: shows_update_banner
+updates-shows-update-banner-updating = Güncelleniyor…
+# Context: update_banner
+updates-update-banner-dismiss-update = Güncellemeyi reddet
+# Context: update_settings
+updates-update-settings-auto-update = Otomatik güncelleme
+# Context: update_settings
+updates-update-settings-check-for-updates = Güncellemeleri kontrol edin
+# Context: update_settings
+updates-update-settings-copied = Kopyalandı
+# Context: update_settings
+updates-update-settings-copy = Kopyala
+# Context: update_settings
+updates-update-settings-copy-command = Komutu kopyala
+# Context: update_settings
+updates-update-settings-copy-system-and-client-environment-details-formatted-for-github-issue = GitHub sorun raporları için biçimlendirilmiş sistem ve istemci ortamı ayrıntılarını kopyalayın.
+# Context: update_settings
+updates-update-settings-could-not-load-or-save-update-preferences-changes-may-not = Güncelleme tercihleri ​​yüklenemedi veya kaydedilemedi. Değişiklikler yeniden başlatmadan sağ çıkamayabilir.
+# Context: update_settings
+updates-update-settings-download-update = Güncellemeyi indir
+# Context: update_settings
+updates-update-settings-download-updates-in-the-background-restart-when-you-are-ready = Güncellemeleri arka planda indirin. Hazır olduğunuzda yeniden başlayın. Serein hala başlangıçta ve bu kapalı olduğunda periyodik olarak kontrol ediyor.
+# Context: update_settings
+updates-update-settings-early-builds-with-the-newest-changes-nightly-releases-can-be = En yeni değişikliklerle erken sürümler. Gecelik sürümler daha az güvenilir olabilir.
+# Context: update_settings
+updates-update-settings-finish-the-current-update-before-checking-again = Tekrar kontrol etmeden önce mevcut güncellemeyi tamamlayın.
+# Context: update_settings
+updates-update-settings-flatpak-manages-updates-via-its-repository-run-flatpak-update-or = Flatpak, güncellemeleri deposu aracılığıyla yönetir. Yeni sürümleri yüklemek için 'flatpak update'i çalıştırın veya GNOME Yazılımını / KDE Discover'ı kullanın.
+# Context: update_settings
+updates-update-settings-in-app-installation-requires-a-macos-or-windows-release-package = Uygulama içi kurulum, bir macOS veya Windows sürüm paketi ya da Linux x86-64 AppImage gerektirir. Diğer Linux kurulumları paket yöneticilerini kullanır.
+# Context: update_settings
+updates-update-settings-issue-diagnostics = Sorun teşhisi
+# Context: update_settings
+updates-update-settings-nightly = her gece
+# Context: update_settings
+updates-update-settings-package-manager-updates = Paket yöneticisi güncellemeleri
+# Context: update_settings
+updates-update-settings-preferences = Tercihler
+# Context: update_settings
+updates-update-settings-production = Üretme
+# Context: update_settings
+updates-update-settings-published-stable-releases-switching-channels-never-installs-an-older-ver = Kararlı sürümler yayınlandı. Kanalları değiştirmek asla eski bir sürümü yüklemez.
+# Context: update_settings
+updates-update-settings-release-channel = Yayın kanalı
+# Context: update_settings
+updates-update-settings-restart-to-update = Güncellemek için yeniden başlatın
+# Context: update_settings
+updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein dağıtımınız aracılığıyla kuruldu. Güncellemek için bunu bir terminalde çalıştırın.
+# Context: update_settings
+updates-update-settings-support-diagnostics = Destek ve teşhis
+# Context: update_settings
+updates-update-settings-update-checks-are-disabled-in-debug-builds = Hata ayıklama yapılarında güncelleme kontrolleri devre dışı bırakılır.
+
+## crates/ui/src/user_menu.rs
+# Context: contents
+user-menu-contents-add-friend-nickname = Arkadaş Takma Adını Ekle
+# Context: contents
+user-menu-contents-add-note = Not Ekle
+# Context: contents
+user-menu-contents-block = Engellemek
+# Context: contents
+user-menu-contents-close-dm = DM'yi kapat
+# Context: contents
+user-menu-contents-edit-friend-nickname = Arkadaşın Takma Adını Düzenle
+# Context: contents
+user-menu-contents-mention = Değinmek
+# Context: contents
+user-menu-contents-mute-conversation = Konuşmayı Sessize Al
+# Context: contents
+user-menu-contents-mute-this-direct-message-s-notifications-until-you-unmute-it = Sesi açana kadar bu doğrudan mesajın bildirimlerini sessize alın.
+# Context: contents
+user-menu-contents-no-open-direct-message-with-this-user = Bu kullanıcıyla açık doğrudan mesaj yok.
+# Context: contents
+user-menu-contents-pin-dm = DM'yi sabitle
+# Context: contents
+user-menu-contents-pinned-direct-messages-are-saved-on-this-device = Sabitlenen doğrudan mesajlar bu cihaza kaydedilir.
+# Context: contents
+user-menu-contents-private-nicknames-are-available-for-confirmed-friends = Onaylanmış arkadaşlar için özel takma adlar mevcuttur.
+# Context: contents
+user-menu-contents-profile = Profil
+# Context: contents
+user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept = Bu konuşmayı DM listenizden kaldırın. Mesajlar saklanıyor.
+# Context: contents
+user-menu-contents-unblock = Engellemeyi kaldır
+# Context: contents
+user-menu-contents-unmute-conversation = Konuşmanın Sesini Aç
+# Context: contents
+user-menu-contents-unpin-dm = DM'nin sabitlemesini kaldır
+
+## crates/ui/src/verification.rs
+# Context: show
+verification-show-cancel = İptal etmek
+# Context: show
+verification-show-complete-the-check-to-join-this-server = Bu sunucuya katılmak için kontrolü tamamlayın.
+# Context: show
+verification-show-complete-the-check-to-send-this-friend-request = Bu arkadaşlık isteğini göndermek için kontrolü tamamlayın.
+# Context: show
+verification-show-discord-requires-a-security-check-before-you-can-add-this = Bu kişiyi ekleyebilmeniz için Discord'un bir güvenlik kontrolü yapması gerekiyor.
+# Context: show
+verification-show-discord-requires-a-security-check-before-you-can-join = Discord'a katılabilmeniz için önce bir güvenlik kontrolü yapılması gerekiyor.
+# Context: show
+verification-show-loading-verification = Doğrulama yükleniyor…
+# Context: show
+verification-show-offline-preview-no-verification-service-is-contacted = Çevrimdışı önizleme · hiçbir doğrulama hizmetiyle iletişime geçilmez.
+# Context: show
+verification-show-one-quick-check = Hızlı bir kontrol
+# Context: show
+verification-show-verification-required = Doğrulama gerekli
+# Context: show
+verification-show-verify = Doğrulamak
+
+## crates/ui/src/video.rs
+# Context: show_player
+video-show-player-a-download-is-already-active = Bir indirme zaten etkin
+# Context: show_player
+video-show-player-cancel = İptal etmek
+# Context: show_player
+video-show-player-downloads-are-disabled-for-synthetic-attachments = Sentetik ekler için indirmeler devre dışı bırakıldı
+# Context: show_player
+video-show-player-pause = Duraklat
+# Context: show_player
+video-show-player-play = Oynamak
+# Context: show_player
+video-show-player-replay = Tekrar oynat
+# Context: show_player
+video-show-player-resume = Sürdürmek
+# Context: show_player
+video-show-player-retry = Yeniden dene
+# Context: show_player
+video-show-player-seek-video = Video ara
+# Context: show_player
+video-show-player-video = video
+# Context: show_player
+video-show-player-video-volume = Video hacmi
+
+## crates/ui/src/voice.rs
+# Context: call_bar
+voice-call-bar-call-in-progress = Arama devam ediyor
+# Context: call_bar
+voice-call-bar-incoming-call = Gelen arama…
+# Context: call_bar
+voice-call-bar-join-call = Görüşmeye katıl
+# Context: call_bar
+voice-call-bar-reconnect-to-refresh-call = Aramayı yenilemek için yeniden bağlanın
+# Context: call_controls
+voice-call-controls-disconnect = Bağlantıyı kes
+# Context: call_controls
+voice-call-controls-dismiss-call = Aramayı reddet
+# Context: call_controls
+voice-call-controls-leaving-is-unavailable-in-the-offline-preview = Çevrimdışı önizlemede ayrılmak mümkün değildir.
+# Context: call_failure
+voice-call-failure-copy-failure-reason = Kopyalama hatası nedeni
+# Context: camera_settings_content
+voice-camera-settings-content-camera-capture-is-unavailable-on-this-platform = Bu platformda kamera çekimi kullanılamıyor.
+# Context: camera_settings_content
+voice-camera-settings-content-camera-device = Kamera cihazı
+# Context: camera_settings_content
+voice-camera-settings-content-changing-devices-stops-your-camera-and-takes-effect-the-next = Cihazları değiştirmek kameranızı durdurur ve bir sonraki açışınızda etkili olur.
+# Context: camera_settings_content
+voice-camera-settings-content-refresh-cameras = Kameraları yenile
+# Context: device_combo
+voice-device-combo-device-unavailable = Cihaz kullanılamıyor
+# Context: device_combo
+voice-device-default = Sistem varsayılanı
+# Context: frame
+voice-frame-open-voice = Sesi aç
+# Context: gain_controls
+voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = %100 orijinal seviyedir. Daha yüksek seviyeler bozulabilir.
+# Context: labels
+voice-labels-choose-camera = Kamera seç
+# Context: live_badge
+voice-live-badge-live = CANLI
+# Context: live_badge
+voice-live-badge-live-2 = Canlı
+# Context: live_badge
+voice-live-badge-streaming = Akış
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-hear-yourself-through-your-selected-speakers-use-headphones-to-avoid = Seçtiğiniz konuşmacılar aracılığıyla kendinizi dinleyin. Geri bildirimi önlemek için kulaklık kullanın.
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-input-level = Giriş seviyesi
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-leave-the-call-to-test-your-microphone-locally = Mikrofonunuzu yerel olarak test etmek için aramadan çıkın.
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-microphone-test = Mikrofon testi
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-start-testing = Teste başlayın
+# Context: microphone_preview_controls
+voice-microphone-preview-controls-stop-testing = Testi durdur
+# Context: mute_toggle
+voice-mute-toggle-applies-to-your-next-call = bir sonraki aramanız için geçerlidir.
+# Context: mute_toggle
+voice-mute-toggle-controls-are-unavailable-in-this-build-or-preview = Bu yapıda veya önizlemede kontroller mevcut değil.
+# Context: mute_toggle
+voice-mute-toggle-deafen = sağır
+# Context: mute_toggle
+voice-mute-toggle-mute = Sesini kapatmak
+# Context: mute_toggle
+voice-mute-toggle-speaking-is-unavailable-in-this-channel = Bu kanalda konuşma yapılamıyor.
+# Context: mute_toggle
+voice-mute-toggle-undeafen = Sağır olmayan
+# Context: mute_toggle
+voice-mute-toggle-unmute = Sesini açmak
+# Context: mute_toggle_with_settings
+voice-mute-toggle-with-settings-input-settings = Giriş ayarları
+# Context: mute_toggle_with_settings
+voice-mute-toggle-with-settings-output-settings = Çıkış ayarları
+# Context: stream_audio_controls
+voice-stream-audio-controls-mute-stream-audio = Akış sesini kapat
+# Context: stream_audio_controls
+voice-stream-audio-controls-stream-volume = Akış hacmi
+# Context: stream_tile
+voice-stream-tile-stream-audio = Ses akışı
+# Context: stream_tile
+voice-stream-tile-stream-muted = Akışın sesi kapatıldı
+# Context: voice_audio_controls
+voice-voice-audio-controls-microphone = Mikrofon
+# Context: voice_audio_controls
+voice-voice-audio-controls-microphone-unavailable-a-choose-another-input-you-are-still-connected = Mikrofon kullanılamıyor Â· başka bir giriş seçin. Hala bağlısınız.
+# Context: voice_audio_controls
+voice-voice-audio-controls-refresh-devices = Cihazları yenile
+# Context: voice_audio_controls
+voice-voice-audio-controls-reset-levels = Seviyeleri sıfırla
+# Context: voice_audio_controls
+voice-voice-audio-controls-speakers = Hoparlörler
+# Context: voice_card_section
+voice-voice-card-section-camera-settings = Kamera ayarları
+# Context: voice_card_section
+voice-voice-card-section-disconnect = Bağlantıyı kes
+# Context: voice_card_section
+voice-voice-card-section-dismiss-call = Aramayı reddet
+# Context: voice_card_section
+voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Mikrofon kullanılamıyor Â· hala bağlı. Ses ayarlarında başka bir giriş seçin.
+# Context: voice_channel_button
+voice-voice-channel-button-connected = , bağlı
+# Context: voice_channel_button
+voice-voice-channel-button-voice-channel = ses kanalı
+# Context: voice_channel
+voice-voice-channel-last-known-participants-a-reconnect-to-refresh = Bilinen son katılımcılar Â· yenilemek için yeniden bağlanın
+# Context: voice_channel
+voice-voice-channel-no-one-s-here-yet = Henüz kimse burada değil
+# Context: voice_channel
+voice-voice-channel-participant-list-unavailable-while-disconnected = Bağlantı kesildiğinde katılımcı listesi kullanılamaz
+# Context: voice_channel
+voice-voice-channel-participant-list-unavailable-with-the-current-access = Katılımcı listesi mevcut erişimle kullanılamıyor.
+# Context: voice_participant
+voice-voice-participant-deafened = Sağır
+# Context: voice_participant
+voice-voice-participant-deafened-by-server = Sunucu tarafından sağırlaştırıldı
+# Context: voice_participant_menu
+voice-voice-participant-menu-mute = Sesini kapatmak
+# Context: voice_participant_menu
+voice-voice-participant-menu-reset-volume = Sesi sıfırla
+# Context: voice_participant_menu
+voice-voice-participant-menu-silence-this-person-on-this-device-only-nobody-else-is = Bu kişiyi yalnızca bu cihazda susturun. Başka kimse etkilenmiyor.
+# Context: voice_participant_menu
+voice-voice-participant-menu-unmute = Sesini açmak
+# Context: voice_participant_menu
+voice-voice-participant-menu-user-volume = Kullanıcı hacmi
+# Context: voice_participant
+voice-voice-participant-microphone-muted = Mikrofonun sesi kapatıldı
+# Context: voice_participant
+voice-voice-participant-muted-by-server = Sunucu tarafından sessize alındı
+# Context: voice_participant
+voice-voice-participant-muted-for-you-on-this-device = Bu cihazda sizin için sessize alındı
+# Context: voice_popup_content
+voice-voice-popup-content-choose-an-algorithm-in-all-voice-settings = Tüm ses ayarlarında bir algoritma seçin.
+# Context: voice_popup_content
+voice-voice-popup-content-deafen-turns-off-incoming-audio-and-mutes-your-microphone-with = Deafen gelen sesi kapatır ve onunla mikrofonunuzun sesini kapatır.
+# Context: voice_popup_content
+voice-voice-popup-content-hold-your-configured-shortcut-when-you-want-to-speak = Konuşmak istediğinizde yapılandırılmış kısayolunuzu basılı tutun.
+# Context: voice_popup_content
+voice-voice-popup-content-install-a-voice-enabled-build-to-use-these-controls = Bu kontrolleri kullanmak için ses özellikli bir yapı yükleyin.
+# Context: voice_popup_content
+voice-voice-popup-content-microphone = Mikrofon
+# Context: voice_popup_content
+voice-voice-popup-content-microphone-gain = Mikrofon kazancı
+# Context: voice_popup_content
+voice-voice-popup-content-microphone-unavailable-a-choose-another-input-you-are-still-connected = Mikrofon kullanılamıyor Â· başka bir giriş seçin. Hala bağlısınız.
+# Context: voice_popup_content
+voice-voice-popup-content-noise-suppression = Gürültü bastırma
+# Context: voice_popup_content
+voice-voice-popup-content-push-to-talk = Konuşmak için bas
+# Context: voice_popup_content
+voice-voice-popup-content-refresh-devices = Cihazları yenile
+# Context: voice_popup_content
+voice-voice-popup-content-reset-levels = Seviyeleri sıfırla
+# Context: voice_popup_content
+voice-voice-popup-content-speaker-volume = Hoparlör sesi
+# Context: voice_popup_content
+voice-voice-popup-content-speakers = Hoparlörler
+# Context: voice_popup_content
+voice-voice-popup-content-voice-privacy-code = Ses gizlilik kodu
+# Context: voice_processing_controls
+voice-voice-processing-controls-adjust-microphone-loudness-automatically = Mikrofonun ses yüksekliğini otomatik olarak ayarlayın.
+# Context: voice_processing_controls
+voice-voice-processing-controls-applies-to-calls-and-your-local-microphone-test = Aramalar ve yerel mikrofon testiniz için geçerlidir.
+# Context: voice_processing_controls
+voice-voice-processing-controls-automatic-gain-control = Otomatik kazanç kontrolü
+# Context: voice_processing_controls
+voice-voice-processing-controls-echo-cancellation = Yankı iptali
+# Context: voice_processing_controls
+voice-voice-processing-controls-hold-your-configured-shortcut-when-you-want-to-speak = Konuşmak istediğinizde yapılandırılmış kısayolunuzu basılı tutun.
+# Context: voice_processing_controls
+voice-voice-processing-controls-input-profile = Giriş profili
+# Context: voice_processing_controls
+voice-voice-processing-controls-input-threshold = Giriş eşiği
+# Context: voice_processing_controls
+voice-voice-processing-controls-mute-and-deafen-always-take-priority = Dilsiz ve sağır her zaman önceliklidir.
+# Context: voice_processing_controls
+voice-voice-processing-controls-noise-suppression = Gürültü bastırma
+# Context: voice_processing_controls
+voice-voice-processing-controls-off = Kapalı
+# Context: voice_processing_controls
+voice-voice-processing-controls-only-transmit-sound-above-this-level-lower-values-pick-up = Yalnızca bu seviyenin üzerindeki sesleri iletin. Daha düşük değerler daha sessiz konuşmayı algılar.
+# Context: voice_processing_controls
+voice-voice-processing-controls-open-microphone-mute-and-push-to-talk-still-apply = Mikrofonu açın. Sessize alma ve bas-konuş hâlâ geçerlidir.
+# Context: voice_processing_controls
+voice-voice-processing-controls-push-to-talk = Konuşmak için bas
+# Context: voice_processing_controls
+voice-voice-processing-controls-reduce-speaker-audio-picked-up-by-your-microphone = Mikrofonunuzun aldığı hoparlör sesini azaltın.
+# Context: voice_processing_controls
+voice-voice-processing-controls-removes-keyboard-fan-and-room-noise-from-your-microphone = Mikrofonunuzdan klavye, fan ve oda gürültüsünü ortadan kaldırır.
+# Context: voice_processing_controls
+voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see = Giriş seviyenizi görmek için mikrofon testini başlatın veya bir çağrıya katılın.
+# Context: voice_processing_controls
+voice-voice-processing-controls-suppression-strength = Bastırma gücü
+# Context: voice_settings_content
+voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = Ses tercihleri ​​bu cihaza kaydedilir. Mikrofonunuz yalnızca bir çağrıya katıldığınızda veya teste başladığınızda başlar.
+# Context: voice_settings_content
+voice-voice-settings-content-camera = Kamera
+# Context: voice_settings_content
+voice-voice-settings-content-compare-with-the-other-participants-this-code-changes-with-the = Diğer katılımcılarla karşılaştırın. Bu kod şifreli çağrı grubuna göre değişir.
+# Context: voice_settings_content
+voice-voice-settings-content-devices-levels = Cihazlar ve seviyeler
+# Context: voice_settings_content
+voice-voice-settings-content-install-a-voice-enabled-build-to-use-these-controls = Bu kontrolleri kullanmak için ses özellikli bir yapı yükleyin.
+# Context: voice_settings_content
+voice-voice-settings-content-voice-privacy-code = Ses gizlilik kodu
+# Context: voice_settings_content
+voice-voice-settings-content-voice-processing = Ses işleme
+# Context: voice_settings_content
+voice-voice-settings-content-voice-processing-input-mode = Ses işleme ve giriş modu
+# Context: voice_settings
+voice-voice-settings-output-settings = Çıkış ayarları
+# Context: voice_settings_popup
+voice-voice-settings-popup-all-voice-settings = Tüm ses ayarları
+# Context: voice_settings_popup
+voice-voice-settings-popup-input = Giriş
+# Context: voice_settings_popup
+voice-voice-settings-popup-output = Çıkış

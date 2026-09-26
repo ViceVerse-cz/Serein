@@ -15,8 +15,13 @@ pub(super) fn name(
 	let colors = design::palette(ui);
 	let account_label = user.account_label();
 	let badge = account_label.map(|text| {
+		let key = match text {
+			"BOT" => "account-badge-bot",
+			"APP" => "account-badge-app",
+			_ => "account-badge-webhook",
+		};
 		ui.painter().layout_no_wrap(
-			crate::i18n::translate(text),
+			crate::i18n::translate_if_key(key),
 			egui::FontId::proportional(10.0),
 			colors.accent_text,
 		)
@@ -41,12 +46,12 @@ pub(super) fn name(
 		ui.painter().rect_filled(rect, 3, colors.accent);
 		ui.painter()
 			.galley(rect.center() - text.size() * 0.5, text, colors.accent_text);
-		let description = match account_label {
-			Some("BOT") => "Bot account",
-			Some("APP") => "Application-generated message",
-			_ => "Webhook author",
+		let description_key = match account_label {
+			Some("BOT") => "account-badge-bot-description",
+			Some("APP") => "account-badge-app-description",
+			_ => "account-badge-webhook-description",
 		};
-		let description = crate::i18n::translate(description);
+		let description = crate::i18n::translate_if_key(description_key);
 		badge.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &description));
 		badge.on_hover_text(description);
 	}

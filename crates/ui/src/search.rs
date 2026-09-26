@@ -173,7 +173,7 @@ impl SearchUi {
 					let output = egui::TextEdit::singleline(&mut self.query)
 						.char_limit(256)
 						.frame(egui::Frame::NONE)
-						.hint_text(crate::i18n::translate("Search"))
+						.hint_text(crate::i18n::translate("search-header-input-search"))
 						.desired_width((ui.available_width() - 28.0).max(30.0))
 						.show(ui);
 					let input = output
@@ -205,7 +205,7 @@ impl SearchUi {
 						ui,
 						icons::Icon::Close,
 						22.0,
-						&crate::i18n::translate("Close search"),
+						&crate::i18n::translate("search-header-input-close-search"),
 					)
 					.clicked()
 					{
@@ -286,11 +286,13 @@ impl SearchUi {
 								ui.label(
 									design::semibold(
 										ui,
-										crate::i18n::translate(if key == "from" {
-											"From User"
-										} else {
-											"Mentions User"
-										}),
+										crate::i18n::translate_if_key(
+											if key == "search-overlays-from" {
+												"search-overlays-from-user"
+											} else {
+												"search-overlays-mentions-user"
+											},
+										),
 										13.0,
 									)
 									.color(colors.muted),
@@ -336,7 +338,7 @@ impl SearchUi {
 										}
 										if matching.is_empty() {
 											ui.label(crate::i18n::translate(
-												"No matching users in this conversation.",
+												"search-overlays-no-matching-users-in-this-conversation",
 											));
 										}
 									});
@@ -359,7 +361,9 @@ impl SearchUi {
 												"search",
 												&format!(
 													"{} {}",
-													crate::i18n::translate("Search for"),
+													crate::i18n::translate(
+														"search-overlays-search-for"
+													),
 													self.query
 												),
 												"",
@@ -375,27 +379,39 @@ impl SearchUi {
 									ui.label(
 										design::semibold(
 											ui,
-											crate::i18n::translate("Filters"),
+											crate::i18n::translate("search-overlays-filters"),
 											13.0,
 										)
 										.color(colors.muted),
 									);
 								});
 								for (title, detail, key) in [
-									("From a specific user", "from: user", "from"),
 									(
-										"Includes a specific type of data",
-										"has: link, embed or file",
+										"search-open-filters-from-a-specific-user",
+										"search-open-filters-from-user",
+										"from",
+									),
+									(
+										"search-open-filters-includes-a-specific-type-of-data",
+										"search-open-filters-has-link-embed-or-file",
 										"has",
 									),
-									("Mentions a specific user", "mentions: user", "mentions"),
-									("More filters", "dates, author type, and more", ""),
+									(
+										"search-open-filters-mentions-a-specific-user",
+										"search-open-filters-mentions-user",
+										"mentions",
+									),
+									(
+										"search-open-filters-more-filters",
+										"search-open-filters-dates-author-type-and-more",
+										"",
+									),
 								] {
 									let row = filters::suggestion_row(
 										ui,
 										key,
-										&crate::i18n::translate(title),
-										&crate::i18n::translate(detail),
+										&crate::i18n::translate_if_key(title),
+										&crate::i18n::translate_if_key(detail),
 									);
 									if row.clicked() {
 										if key == "from" || key == "mentions" {
@@ -501,7 +517,9 @@ impl SearchUi {
 									ui.label(
 										design::semibold(
 											ui,
-											crate::i18n::translate("Pinned Messages"),
+											crate::i18n::translate(
+												"search-pins-popout-pinned-messages",
+											),
 											16.0,
 										)
 										.color(colors.text_strong),
@@ -513,7 +531,7 @@ impl SearchUi {
 												ui,
 												icons::Icon::Close,
 												28.0,
-												&crate::i18n::translate("Close"),
+												&crate::i18n::translate("search-pins-popout-close"),
 											)
 											.clicked()
 											{
@@ -525,7 +543,9 @@ impl SearchUi {
 														ui,
 														icons::Icon::Reload,
 														28.0,
-														&crate::i18n::translate("Reload pins"),
+														&crate::i18n::translate(
+															"search-pins-popout-reload-pins",
+														),
 													)
 												})
 												.inner;
@@ -603,10 +623,10 @@ impl SearchUi {
 					ui.label(
 						design::medium(
 							ui,
-							crate::i18n::translate(if dm {
-								"This direct message doesn't have\nany pinned messages… yet."
+							crate::i18n::translate_if_key(if dm {
+								"search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet"
 							} else {
-								"This channel doesn't have\nany pinned messages… yet."
+								"search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet"
 							}),
 							15.0,
 						)
@@ -633,7 +653,7 @@ impl SearchUi {
 		if !allowed {
 			ui.label(
 				RichText::new(crate::i18n::translate(
-					"Pinned messages are unavailable while disconnected or without channel access.",
+					"search-pins-content-pinned-messages-are-unavailable-while-disconnected-or-without-channel-ac",
 				))
 				.small()
 				.color(colors.muted),
@@ -642,11 +662,13 @@ impl SearchUi {
 		if let Some(view) = state.search.as_ref().filter(|view| view.pins) {
 			if view.loading {
 				ui.label(
-					RichText::new(crate::i18n::translate(if view.pin_before.is_some() {
-						"Loading older pins…"
-					} else {
-						"Loading pinned messages…"
-					}))
+					RichText::new(crate::i18n::translate_if_key(
+						if view.pin_before.is_some() {
+							"search-pins-content-loading-older-pins"
+						} else {
+							"search-pins-content-loading-pinned-messages"
+						},
+					))
 					.small()
 					.color(colors.muted),
 				);
@@ -665,11 +687,11 @@ impl SearchUi {
 					.push_id("older-pins", |ui| {
 						ui.add_enabled(
 							allowed && !view.loading,
-							egui::Button::new(crate::i18n::translate(
+							egui::Button::new(crate::i18n::translate_if_key(
 								&(if retry {
-									crate::i18n::translate("Retry older pins")
+									crate::i18n::translate("search-pins-content-retry-older-pins")
 								} else {
-									crate::i18n::translate("Older pins")
+									crate::i18n::translate("search-pins-content-older-pins")
 								}),
 							)),
 						)
@@ -704,7 +726,7 @@ impl SearchUi {
 				if page.pin_cursor.is_none() && !view.loading && page.partial {
 					ui.label(
 						RichText::new(crate::i18n::translate(
-							"More pins may exist, but this page has no usable continuation.",
+							"search-pins-content-more-pins-may-exist-but-this-page-has-no-usable",
 						))
 						.small()
 						.color(colors.muted),
@@ -742,15 +764,19 @@ impl SearchUi {
 		if self.pins {
 			ui.horizontal(|ui| {
 				ui.label(
-					design::semibold(ui, crate::i18n::translate("Pinned Messages"), 16.0)
-						.color(colors.text_strong),
+					design::semibold(
+						ui,
+						crate::i18n::translate("search-pane-pinned-messages"),
+						16.0,
+					)
+					.color(colors.text_strong),
 				);
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					if icons::button(
 						ui,
 						icons::Icon::Close,
 						28.0,
-						&crate::i18n::translate("Close"),
+						&crate::i18n::translate("search-pane-close"),
 					)
 					.clicked()
 					{
@@ -758,7 +784,7 @@ impl SearchUi {
 					}
 					let reload = ui.add_enabled(
 						allowed,
-						egui::Button::new(crate::i18n::translate("Reload pins")),
+						egui::Button::new(crate::i18n::translate("search-pane-reload-pins")),
 					);
 					if self.focus {
 						reload.request_focus();
@@ -805,24 +831,24 @@ impl SearchUi {
 					egui::Popup::menu(&settings).show(|ui| {
 						ui.checkbox(
 							&mut self.hide_highlight,
-							crate::i18n::translate("Hide matching-text highlight"),
+							crate::i18n::translate("search-pane-hide-matching-text-highlight"),
 						);
 					});
 					let sort = chip(ui, Chip::new(icons::Icon::SortArrows, "Sort"));
 					egui::Popup::menu(&sort).show(|ui| {
 						ui.label(
-							RichText::new(crate::i18n::translate("Order on this page"))
+							RichText::new(crate::i18n::translate("search-pane-order-on-this-page"))
 								.color(colors.muted),
 						);
 						ui.radio_value(
 							&mut self.oldest_first,
 							false,
-							crate::i18n::translate("Newest first"),
+							crate::i18n::translate("search-pane-newest-first"),
 						);
 						ui.radio_value(
 							&mut self.oldest_first,
 							true,
-							crate::i18n::translate("Oldest first"),
+							crate::i18n::translate("search-pane-oldest-first"),
 						);
 					});
 					let label = if filter_count > 0 {
@@ -842,7 +868,7 @@ impl SearchUi {
 				ui,
 				design::Level::Warning,
 				&crate::i18n::translate(
-					"Messages are unavailable while disconnected or without channel access.",
+					"search-pane-messages-are-unavailable-while-disconnected-or-without-channel-access",
 				),
 			);
 		}
@@ -850,8 +876,8 @@ impl SearchUi {
 			design::empty_state(
 				ui,
 				icons::Icon::Search,
-				&crate::i18n::translate("Search this conversation"),
-				&crate::i18n::translate("Type a query above and press Enter."),
+				&crate::i18n::translate("search-pane-search-this-conversation"),
+				&crate::i18n::translate("search-pane-type-a-query-above-and-press-enter"),
 			);
 			return;
 		};
@@ -863,8 +889,8 @@ impl SearchUi {
 				design::empty_state(
 					ui,
 					icons::Icon::Search,
-					&crate::i18n::translate("Searching…"),
-					&crate::i18n::translate("Looking for matching messages."),
+					&crate::i18n::translate("search-pane-searching"),
+					&crate::i18n::translate("search-pane-looking-for-matching-messages"),
 				);
 			}
 			None => {}
@@ -884,7 +910,7 @@ impl SearchUi {
 						if page.partial {
 							ui.label(
 								RichText::new(crate::i18n::translate(
-									"Indexing is incomplete; results may be missing.",
+									"search-pane-indexing-is-incomplete-results-may-be-missing",
 								))
 								.small()
 								.color(colors.muted),
@@ -894,8 +920,10 @@ impl SearchUi {
 							design::empty_state(
 								ui,
 								icons::Icon::Search,
-								&crate::i18n::translate("No results"),
-								&crate::i18n::translate("Nothing on this page matches the query."),
+								&crate::i18n::translate("search-pane-no-results"),
+								&crate::i18n::translate(
+									"search-pane-nothing-on-this-page-matches-the-query",
+								),
 							);
 						}
 						for index in 0..page.hits.len() {
@@ -957,7 +985,7 @@ impl SearchUi {
 												RichText::new(format!(
 													"{} {} {}",
 													page.hits.len(),
-													crate::i18n::translate("of"),
+													crate::i18n::translate("search-pane-of"),
 													page.total
 												))
 												.size(12.0)
@@ -1078,7 +1106,7 @@ impl SearchUi {
 					jumpable,
 					format!(
 						"{} {}",
-						crate::i18n::translate("Jump to message from"),
+						crate::i18n::translate("search-result-card-jump-to-message-from"),
 						hit.author.name
 					),
 				)
@@ -1200,7 +1228,7 @@ impl SearchUi {
 							if crate::embeds::has_media_spoilers(preview) {
 								ui.label(
 									RichText::new(crate::i18n::translate(
-										"Spoiler media - open the message to reveal it.",
+										"search-result-card-spoiler-media-open-the-message-to-reveal-it",
 									))
 									.small()
 									.italics()

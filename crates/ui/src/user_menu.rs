@@ -98,7 +98,10 @@ pub(super) fn contents(
 	let colors = crate::design::palette(ui);
 	ui.set_min_width(200.0);
 	ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
-	if ui.button(crate::i18n::translate("Profile")).clicked() {
+	if ui
+		.button(crate::i18n::translate("user-menu-contents-profile"))
+		.clicked()
+	{
 		profile.command_open(user.clone());
 		ui.close();
 	}
@@ -107,7 +110,9 @@ pub(super) fn contents(
 			state
 				.channel(id)
 				.is_some_and(|channel| channel.supports_text())
-		}) && ui.button(crate::i18n::translate("Mention")).clicked()
+		}) && ui
+		.button(crate::i18n::translate("user-menu-contents-mention"))
+		.clicked()
 	{
 		*action = Some(Action::Mention(user.clone()));
 		ui.close();
@@ -124,7 +129,7 @@ pub(super) fn contents(
 	if ui
 		.add_enabled(
 			enabled,
-			egui::Button::new(crate::i18n::translate("Add Note")),
+			egui::Button::new(crate::i18n::translate("user-menu-contents-add-note")),
 		)
 		.clicked()
 	{
@@ -134,16 +139,16 @@ pub(super) fn contents(
 	if ui
 		.add_enabled(
 			enabled && state.friends().any(|friend| friend.id == user.id),
-			egui::Button::new(crate::i18n::translate(
+			egui::Button::new(crate::i18n::translate_if_key(
 				&(if state.friend_nickname(user.id).is_some() {
-					crate::i18n::translate("Edit Friend Nickname")
+					crate::i18n::translate("user-menu-contents-edit-friend-nickname")
 				} else {
-					crate::i18n::translate("Add Friend Nickname")
+					crate::i18n::translate("user-menu-contents-add-friend-nickname")
 				}),
 			)),
 		)
 		.on_disabled_hover_text(crate::i18n::translate(
-			"Private nicknames are available for confirmed friends.",
+			"user-menu-contents-private-nicknames-are-available-for-confirmed-friends",
 		))
 		.clicked()
 	{
@@ -157,16 +162,16 @@ pub(super) fn contents(
 			if ui
 				.add_enabled(
 					view.available(),
-					egui::Button::new(crate::i18n::translate(
+					egui::Button::new(crate::i18n::translate_if_key(
 						&(if pinned {
-							crate::i18n::translate("Unpin DM")
+							crate::i18n::translate("user-menu-contents-unpin-dm")
 						} else {
-							crate::i18n::translate("Pin DM")
+							crate::i18n::translate("user-menu-contents-pin-dm")
 						}),
 					)),
 				)
 				.on_hover_text(crate::i18n::translate(
-					"Pinned direct messages are saved on this device.",
+					"user-menu-contents-pinned-direct-messages-are-saved-on-this-device",
 				))
 				.clicked()
 			{
@@ -178,16 +183,16 @@ pub(super) fn contents(
 		if ui
 			.add_enabled(
 				enabled,
-				egui::Button::new(crate::i18n::translate(
+				egui::Button::new(crate::i18n::translate_if_key(
 					&(if muted {
-						crate::i18n::translate("Unmute Conversation")
+						crate::i18n::translate("user-menu-contents-unmute-conversation")
 					} else {
-						crate::i18n::translate("Mute Conversation")
+						crate::i18n::translate("user-menu-contents-mute-conversation")
 					}),
 				)),
 			)
 			.on_hover_text(crate::i18n::translate(
-				"Mute this direct message's notifications until you unmute it.",
+				"user-menu-contents-mute-this-direct-message-s-notifications-until-you-unmute-it",
 			))
 			.clicked()
 		{
@@ -200,10 +205,10 @@ pub(super) fn contents(
 		if ui
 			.add_enabled(
 				enabled,
-				egui::Button::new(crate::i18n::translate("Close DM")),
+				egui::Button::new(crate::i18n::translate("user-menu-contents-close-dm")),
 			)
 			.on_hover_text(crate::i18n::translate(
-				"Remove this conversation from your DM list. Messages are kept.",
+				"user-menu-contents-remove-this-conversation-from-your-dm-list-messages-are-kept",
 			))
 			.clicked()
 		{
@@ -213,10 +218,12 @@ pub(super) fn contents(
 	} else {
 		ui.add_enabled(
 			false,
-			egui::Button::new(crate::i18n::translate("Mute Conversation")),
+			egui::Button::new(crate::i18n::translate(
+				"user-menu-contents-mute-conversation",
+			)),
 		)
 		.on_disabled_hover_text(crate::i18n::translate(
-			"No open direct message with this user.",
+			"user-menu-contents-no-open-direct-message-with-this-user",
 		));
 	}
 	ui.separator();
@@ -225,10 +232,10 @@ pub(super) fn contents(
 		.add_enabled(
 			enabled,
 			egui::Button::new(
-				egui::RichText::new(crate::i18n::translate(if blocked {
-					"Unblock"
+				egui::RichText::new(crate::i18n::translate_if_key(if blocked {
+					"user-menu-contents-unblock"
 				} else {
-					"Block"
+					"user-menu-contents-block"
 				}))
 				.color(colors.danger),
 			),

@@ -449,9 +449,9 @@ impl Avatars {
 			let placeholder = rect.shrink(8.0);
 			ui.painter().rect_filled(placeholder, 8, colors.raised);
 			if failed || !supported {
-				response
-					.clone()
-					.on_hover_text(crate::i18n::translate("Image unavailable"));
+				response.clone().on_hover_text(crate::i18n::translate(
+					"avatars-sticker-image-image-unavailable",
+				));
 			}
 			if !demo && supported {
 				// Retry uses the shared bounded cooldown, including when the pointer is idle.
@@ -669,7 +669,7 @@ impl Avatars {
 			egui::WidgetInfo::labeled(
 				egui::Role::Image,
 				ui.is_enabled(),
-				crate::i18n::translate("Server profile picture"),
+				crate::i18n::translate("avatars-show-profile-avatar-server-profile-picture"),
 			)
 		});
 		response

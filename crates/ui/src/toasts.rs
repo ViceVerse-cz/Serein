@@ -114,7 +114,7 @@ impl Toasts {
 											ui,
 											icons::Icon::Close,
 											22.0,
-											&crate::i18n::translate("Dismiss"),
+											&crate::i18n::translate("toasts-show-dismiss"),
 										)
 										.clicked();
 										ui.with_layout(
