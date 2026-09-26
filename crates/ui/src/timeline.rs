@@ -1130,6 +1130,7 @@ fn show_system(
 }
 impl TimelineView {
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
+		self.video.show_web_player(ctx, &mut self.opening);
 		if self.video.is_fullscreen() {
 			let current = self
 				.video
@@ -1149,27 +1150,40 @@ impl TimelineView {
 						.filter(|message| {
 							state.selected == Some(*channel)
 								&& message.channel == *channel
-								&& message.attachments.contains(attachment)
-								&& (self.component_viewing
-									== Some((
-										message.id,
-										egui::Id::unique((
-											&message.components,
-											&message.attachments,
-										))
+								&& (message.attachments.contains(attachment)
+									|| message.embeds.iter().any(|embed| {
+										crate::embeds::native_video(embed).as_ref()
+											== Some(attachment)
+									})) && (self.component_viewing
+								== Some((
+									message.id,
+									egui::Id::unique((&message.components, &message.attachments))
 										.value(),
-									)) || !crate::embeds::has_media_spoilers(message)
-									|| self.revealed.get(id).is_some_and(|reveal| {
-										reveal.media && reveal.matches(message)
-									}))
+								)) || !crate::embeds::has_media_spoilers(message)
+								|| self
+									.revealed
+									.get(id)
+									.is_some_and(|reveal| reveal.media && reveal.matches(message)))
 						})
 						.map(|message| (message, attachment.clone()))
 				});
 			if let Some((message, attachment)) = current {
+				let original = if crate::video::is_embedded(&attachment) {
+					message
+						.embeds
+						.iter()
+						.find(|embed| {
+							crate::embeds::native_video(embed).as_ref() == Some(&attachment)
+						})
+						.and_then(|embed| embed.url.clone())
+				} else {
+					attachment.media.url.clone()
+				};
 				self.video.show_fullscreen(
 					ctx,
 					message,
 					&attachment,
+					original.as_deref(),
 					&mut self.download,
 					&mut self.opening,
 					state.demo,
@@ -2353,6 +2367,7 @@ impl TimelineView {
 													&mut self.opening,
 													&mut self.download,
 													profile,
+													&mut self.video,
 													state,
 												) {
 													self.gif_favorite = Some(gif);
@@ -7476,6 +7491,7 @@ mod tests {
 					&mut None,
 					&mut crate::attachments::DownloadUi::default(),
 					&mut profile,
+					&mut crate::video::VideoUi::default(),
 					&State {
 						demo: true,
 						..Default::default()

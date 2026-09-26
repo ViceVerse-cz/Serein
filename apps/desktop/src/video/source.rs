@@ -22,7 +22,7 @@ pub(super) fn source(
 	cancelled: Arc<AtomicBool>,
 	runtime: Handle,
 ) -> Result<Box<dyn platform::video::ReadSeek>, &'static str> {
-	if expected == 0 || expected > MAX_BYTES {
+	if expected > MAX_BYTES {
 		return Err("Video preview limit: 100 MiB");
 	}
 	let (input, len) = if let Some(url) = url {
@@ -40,13 +40,21 @@ pub(super) fn source(
 			.timeout(Duration::from_secs(15))
 			.build()
 			.map_err(|_| INVALID)?;
+		let len = if expected == 0 {
+			probe(&client, &url, &cancelled, &runtime)?
+		} else {
+			expected
+		};
+		if len == 0 || len > MAX_BYTES {
+			return Err("Video preview limit: 100 MiB");
+		}
 		(
 			Input::Http {
 				client,
 				url,
 				runtime,
 			},
-			expected,
+			len,
 		)
 	} else {
 		#[cfg(not(feature = "demo"))]
@@ -67,6 +75,45 @@ pub(super) fn source(
 		position: 0,
 		cache: VecDeque::new(),
 	}))
+}
+
+/// Reads the total length of a size-less embed video from a one-byte range response.
+fn probe(
+	client: &reqwest::Client,
+	url: &url::Url,
+	cancelled: &AtomicBool,
+	runtime: &Handle,
+) -> Result<usize, &'static str> {
+	runtime.block_on(async {
+		let cancelled = async {
+			while !cancelled.load(Ordering::Acquire) {
+				tokio::time::sleep(Duration::from_millis(20)).await;
+			}
+		};
+		let transfer = async {
+			let response = client
+				.get(url.clone())
+				.header(reqwest::header::ACCEPT_ENCODING, "identity")
+				.header(reqwest::header::RANGE, "bytes=0-0")
+				.send()
+				.await
+				.map_err(|_| INVALID)?;
+			if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+				return Err(UNSUPPORTED);
+			}
+			response
+				.headers()
+				.get(reqwest::header::CONTENT_RANGE)
+				.and_then(|value| value.to_str().ok())
+				.and_then(|value| value.strip_prefix("bytes 0-0/"))
+				.and_then(|total| total.parse::<usize>().ok())
+				.ok_or(INVALID)
+		};
+		tokio::select! { biased;
+			_ = cancelled => Err(INVALID),
+			result = transfer => result,
+		}
+	})
 }
 
 enum Input {

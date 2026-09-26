@@ -119,11 +119,14 @@ impl Video {
 		ctx: &eframe::egui::Context,
 		demo: bool,
 	) -> Result<(), &'static str> {
-		if !attachment.is_video() || attachment.size == 0 || attachment.size > 100 * 1024 * 1024 {
+		if !attachment.is_video() || attachment.size > 100 * 1024 * 1024 {
 			return Err("Video preview limit: 100 MiB");
 		}
 		let url = if demo {
 			None
+		} else if attachment.size == 0 {
+			// Embed videos have no declared size; the worker probes it before decoding.
+			Some(embed_url(&attachment.media).ok_or("Video embed unavailable")?)
 		} else {
 			Some(
 				crate::downloads::original_url(&attachment)
@@ -167,6 +170,20 @@ impl Video {
 		self.session = Some(session);
 		Ok(())
 	}
+}
+/// Only Discord's media proxy copy of an external MP4/MOV; never the third-party origin.
+fn embed_url(media: &model::EmbedMedia) -> Option<url::Url> {
+	let url = url::Url::parse(media.url.as_deref()?).ok()?;
+	(url.scheme() == "https"
+		&& url.host_str() == Some("media.discordapp.net")
+		&& url.port_or_known_default() == Some(443)
+		&& url.username().is_empty()
+		&& url.password().is_none()
+		&& url.fragment().is_none()
+		&& url.path().starts_with("/external/")
+		&& !url.path().contains('\\')
+		&& ui::is_motion_video(url.path()))
+	.then_some(url)
 }
 impl Drop for Video {
 	fn drop(&mut self) {

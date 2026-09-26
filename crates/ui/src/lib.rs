@@ -7,7 +7,7 @@ mod audio;
 mod forwarding;
 pub use audio::{AudioCommand, AudioState, AudioUi};
 mod video;
-pub use video::{VideoCommand, VideoState, VideoUi};
+pub use video::{VideoCommand, VideoState, VideoUi, WebVideo};
 mod attachments;
 pub use attachments::DownloadUi;
 mod avatars;
