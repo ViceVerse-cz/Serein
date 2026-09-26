@@ -530,12 +530,14 @@ impl ThemeEditor {
 						changed |= row(ui, "Image fit", |ui| {
 							let mut changed = false;
 							egui::ComboBox::from_id_salt("image-fit")
-								.selected_text(match background.fit {
-									BackgroundFit::Cover => crate::i18n::translate("Fill area"),
-									BackgroundFit::Contain => {
-										crate::i18n::translate("Fit entire image")
-									}
-								})
+								.selected_text(crate::i18n::translate(
+									&(match background.fit {
+										BackgroundFit::Cover => crate::i18n::translate("Fill area"),
+										BackgroundFit::Contain => {
+											crate::i18n::translate("Fit entire image")
+										}
+									}),
+								))
 								.show_ui(ui, |ui| {
 									changed |= ui
 										.selectable_value(
@@ -1000,11 +1002,11 @@ impl ThemeEditor {
 				ui.vertical(|ui| {
 					ui.label(design::medium(
 						ui,
-						if self.cover.is_some() {
+						crate::i18n::translate(if self.cover.is_some() {
 							"Custom cover"
 						} else {
 							"Automatic preview"
-						},
+						}),
 						14.0,
 					));
 					ui.horizontal_wrapped(|ui| {
@@ -1089,15 +1091,23 @@ impl ThemeEditor {
 					let selected = self.image.is_some();
 					ui.label(design::medium(
 						ui,
-						if selected {
+						crate::i18n::translate(if selected {
 							"Background image"
 						} else {
 							"No image selected"
-						},
+						}),
 						14.0,
 					));
 					if let Some(image) = &self.image {
-						design::hint(ui, &format!("{} × {} pixels", image.size[0], image.size[1]));
+						design::hint(
+							ui,
+							&format!(
+								"{} × {} {}",
+								image.size[0],
+								image.size[1],
+								crate::i18n::translate("pixels")
+							),
+						);
 					}
 					ui.horizontal_wrapped(|ui| {
 						if dialog::action(
@@ -1226,7 +1236,7 @@ fn section_controls(
 					ImageRegion::MemberList,
 					ImageRegion::InputArea,
 				] {
-					ui.selectable_value(selected, region, region.label());
+					ui.selectable_value(selected, region, crate::i18n::translate(&region.label()));
 				}
 			});
 		design::hint(ui, &selected.description());
@@ -1332,9 +1342,14 @@ fn section_diagram(
 				ui.scope_id().with((region as u8, part)),
 				egui::Sense::click(),
 			)
-			.on_hover_text(region.label());
-		response
-			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, region.label()));
+			.on_hover_text(crate::i18n::translate(&region.label()));
+		response.widget_info(|| {
+			egui::WidgetInfo::labeled(
+				egui::Role::Button,
+				true,
+				crate::i18n::translate(&region.label()),
+			)
+		});
 		if response.clicked()
 			|| response.has_focus()
 				&& ui.input(|input| {
@@ -1492,10 +1507,12 @@ fn settings_row(
 	controls: impl FnOnce(&mut egui::Ui) -> bool,
 ) -> bool {
 	ui.push_id(label, |ui| {
+		let label = crate::i18n::translate(label);
+		let description = description.map(crate::i18n::translate);
 		ui.add_space(4.0);
 		let height = if description.is_some() { 54.0 } else { 42.0 };
 		let heading = |ui: &mut egui::Ui| {
-			ui.label(design::medium(ui, label, 14.0).color(design::palette(ui).text_strong));
+			ui.label(design::medium(ui, &label, 14.0).color(design::palette(ui).text_strong));
 			if let Some(description) = description {
 				ui.add(
 					egui::Label::new(
@@ -1554,8 +1571,10 @@ fn text_field(
 	hint: &str,
 ) -> bool {
 	ui.push_id(label, |ui| {
+		let label = crate::i18n::translate(label);
+		let hint = crate::i18n::translate(hint);
 		let colors = design::palette(ui);
-		let label = ui.label(design::medium(ui, label, 13.0).color(colors.text_strong));
+		let label = ui.label(design::medium(ui, &label, 13.0).color(colors.text_strong));
 		let changed = design::input(
 			ui,
 			egui::TextEdit::singleline(value)
@@ -1640,9 +1659,10 @@ fn metric(
 
 /// Metric title with a quiet Reset on the right; returns whether Reset was pressed.
 fn metric_label(ui: &mut egui::Ui, label: &str, overridden: bool) -> bool {
+	let label = crate::i18n::translate(label);
 	let mut reset = false;
 	ui.horizontal(|ui| {
-		ui.label(design::medium(ui, label, 14.0).color(design::palette(ui).text_strong));
+		ui.label(design::medium(ui, &label, 14.0).color(design::palette(ui).text_strong));
 		if overridden {
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				reset = design::text_action(ui, &crate::i18n::translate("Reset"))

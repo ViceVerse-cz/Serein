@@ -213,11 +213,11 @@ impl Admin {
 		if state.server_admin.pending {
 			ui.horizontal(|ui| {
 				ui.spinner();
-				ui.weak(if state.server_admin.saving {
+				ui.weak(crate::i18n::translate(if state.server_admin.saving {
 					"Saving changes..."
 				} else {
 					"Loading..."
-				});
+				}));
 			});
 		}
 		ui.add_enabled_ui(!state.server_admin.needs_refresh, |ui| {
@@ -259,10 +259,10 @@ impl Admin {
 				self.queue_files(Vec::new());
 			}
 			ui.add_space(18.0);
-			ui.small("Drag and drop up to 10 images onto this page, or choose files. Review their names before uploading.");
+			ui.small(crate::i18n::translate("Drag and drop up to 10 images onto this page, or choose files. Review their names before uploading."));
 		}
 		if self.preparing {
-			ui.weak("Preparing emoji images...");
+			ui.weak(crate::i18n::translate("Preparing emoji images..."));
 		}
 		if !self.uploads.is_empty() {
 			egui::Frame::new()
@@ -292,11 +292,11 @@ impl Admin {
 								.on_hover_text(crate::i18n::translate(
 									"Emoji name: 2–32 letters, numbers, or underscores",
 								));
-								ui.weak(if upload.animated {
+								ui.weak(crate::i18n::translate(if upload.animated {
 									"Animated"
 								} else {
 									"Static"
-								});
+								}));
 								if ui
 									.add_enabled(
 										!self.uploading,
@@ -356,7 +356,7 @@ impl Admin {
 		for animated in [false, true] {
 			ui.label(design::semibold(
 				ui,
-				if animated { "Animated Emoji" } else { "Emoji" },
+				crate::i18n::translate(if animated { "Animated Emoji" } else { "Emoji" }),
 				21.0,
 			));
 			let count = catalog
@@ -370,8 +370,14 @@ impl Admin {
 				catalog.static_limit
 			};
 			ui.label(limit.map_or_else(
-				|| format!("{count} emoji"),
-				|limit| format!("{} slots available", limit.saturating_sub(count)),
+				|| format!("{count} {}", crate::i18n::translate("emoji")),
+				|limit| {
+					format!(
+						"{} {}",
+						limit.saturating_sub(count),
+						crate::i18n::translate("slots available")
+					)
+				},
 			));
 			ui.add_space(12.0);
 			if count == 0 {
@@ -436,7 +442,7 @@ impl Admin {
 												profile.person_click(ui, &avatar, None, user);
 												ui.add(egui::Label::new(&user.name).truncate());
 											} else {
-												ui.weak("Unknown");
+												ui.weak(crate::i18n::translate("Unknown"));
 											}
 										},
 									);
@@ -732,7 +738,7 @@ impl Admin {
 										},
 									);
 								} else {
-									cell_text(ui, join_method(member), method, false);
+									cell_text(ui, &join_method(member), method, false);
 								}
 								ui.allocate_ui_with_layout(
 									egui::vec2(roles, 44.0),
@@ -794,8 +800,10 @@ impl Admin {
 			}
 			ui.horizontal_wrapped(|ui| {
 				ui.weak(format!(
-					"Showing {} of {} members",
+					"{} {} {} {}",
+					crate::i18n::translate("Showing"),
 					members.items.len(),
+					crate::i18n::translate("of"),
 					members.total
 				));
 				if self.query.after.is_some()
@@ -822,7 +830,7 @@ impl Admin {
 				}
 			});
 			if members.items.is_empty() {
-				ui.weak("No members match this search.");
+				ui.weak(crate::i18n::translate("No members match this search."));
 			}
 		}
 		if let Some(action) = action
@@ -889,7 +897,8 @@ impl Admin {
 				.show(|ui| self.member_menu(ui, state, guild, member, roles, profile, action));
 			ui.label(
 				RichText::new(format!(
-					"Member since {}",
+					"{} {}",
+					crate::i18n::translate("Member since"),
 					date(member.joined_at).replace('\n', " · ")
 				))
 				.color(colors.muted),
@@ -900,15 +909,20 @@ impl Admin {
 			}
 			egui::CollapsingHeader::new(crate::i18n::translate("Member details")).show(ui, |ui| {
 				ui.label(format!(
-					"Joined Discord: {}",
+					"{}: {}",
+					crate::i18n::translate("Joined Discord"),
 					date(Some(i128::from(
 						(member.user.id.0 >> 22) + 1_420_070_400_000
 					)))
 					.replace('\n', " · ")
 				));
-				ui.label(format!("Join method: {}", join_method(member)));
+				ui.label(format!(
+					"{}: {}",
+					crate::i18n::translate("Join method"),
+					join_method(member)
+				));
 				if let Some(code) = &member.invite_code {
-					ui.label(format!("Invite: {code}"));
+					ui.label(format!("{}: {code}", crate::i18n::translate("Invite")));
 				}
 				ui.horizontal_wrapped(|ui| {
 					for role in roles
@@ -971,8 +985,12 @@ impl Admin {
 				.add_enabled(
 					!state.user_action_pending(),
 					egui::Button::new(
-						RichText::new(if blocked { "Unblock" } else { "Block" })
-							.color(colors.danger),
+						RichText::new(crate::i18n::translate(if blocked {
+							"Unblock"
+						} else {
+							"Block"
+						}))
+						.color(colors.danger),
 					),
 				)
 				.clicked()
@@ -1014,7 +1032,14 @@ impl Admin {
 		}
 		if state.can_kick_guild_member(guild, member.user.id)
 			&& ui
-				.button(RichText::new(format!("Kick {}", member.user.name)).color(colors.danger))
+				.button(
+					RichText::new(format!(
+						"{} {}",
+						crate::i18n::translate("Kick"),
+						member.user.name
+					))
+					.color(colors.danger),
+				)
 				.clicked()
 		{
 			self.dialog = Some(Dialog::Kick {
@@ -1233,6 +1258,8 @@ impl Admin {
 	}
 }
 fn cell_text(ui: &mut egui::Ui, text: &str, width: f32, heading: bool) {
+	let translated = heading.then(|| crate::i18n::translate(text));
+	let text = translated.as_deref().unwrap_or(text);
 	ui.allocate_ui_with_layout(
 		egui::vec2(width, if heading { 32.0 } else { 44.0 }),
 		egui::Layout::left_to_right(egui::Align::Center),
@@ -1257,11 +1284,11 @@ fn cell_text(ui: &mut egui::Ui, text: &str, width: f32, heading: bool) {
 		},
 	);
 }
-fn join_method(member: &Member) -> &'static str {
+fn join_method(member: &Member) -> String {
 	if member.invite_code.is_some() {
-		return "Invite";
+		return crate::i18n::translate("Invite");
 	}
-	match member.join_source {
+	crate::i18n::translate(match member.join_source {
 		Some(1) => "Bot",
 		Some(2) => "Integration",
 		Some(3) => "Discovery",
@@ -1271,14 +1298,14 @@ fn join_method(member: &Member) -> &'static str {
 		Some(7) => "Application",
 		Some(8) => "Linked Lobby",
 		_ => "Unknown",
-	}
+	})
 }
 fn date(millis: Option<i128>) -> String {
 	millis
 		.and_then(|millis| millis.checked_mul(1_000_000))
 		.and_then(|nanos| time::OffsetDateTime::from_unix_timestamp_nanos(nanos).ok())
 		.map_or_else(
-			|| "Unknown".into(),
+			|| crate::i18n::translate("Unknown"),
 			|date| {
 				let date = crate::local_time::local(date);
 				format!(
@@ -1300,20 +1327,20 @@ fn signals(member: &Member) -> String {
 	let now = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
 	let mut signals = Vec::new();
 	if member.timeout_until.is_some_and(|until| until > now) {
-		signals.push("Timed out");
+		signals.push(crate::i18n::translate("Timed out"));
 	}
 	if member.unusual_dm_until.is_some_and(|until| until > now) {
-		signals.push("Unusual DM activity");
+		signals.push(crate::i18n::translate("Unusual DM activity"));
 	}
 	if let Some(flags) = member.flags {
 		if flags & (1 << 7) != 0 {
-			signals.push("Username flagged");
+			signals.push(crate::i18n::translate("Username flagged"));
 		}
 		if flags & (1 << 10) != 0 {
-			signals.push("Server tag flagged");
+			signals.push(crate::i18n::translate("Server tag flagged"));
 		}
 		if flags & 1 != 0 {
-			signals.push("Rejoined");
+			signals.push(crate::i18n::translate("Rejoined"));
 		}
 	}
 	signals.join(", ")

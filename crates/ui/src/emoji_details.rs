@@ -93,7 +93,14 @@ pub(crate) fn show(
 					if custom.is_some() {
 						ui.label(crate::i18n::translate("A custom emoji."));
 						if let Some((guild, _)) = source {
-							ui.add(egui::Label::new(format!("From {}", guild.name)).wrap());
+							ui.add(
+								egui::Label::new(format!(
+									"{} {}",
+									crate::i18n::translate("From"),
+									guild.name
+								))
+								.wrap(),
+							);
 						} else {
 							ui.add(
 								egui::Label::new(crate::i18n::translate(

@@ -93,11 +93,11 @@ impl ThreadCreateUi {
 			("create-thread", channel),
 			crate::i18n::translate("Create Thread"),
 		)
-		.subtitle(if request.message.is_some() {
+		.subtitle(crate::i18n::translate(if request.message.is_some() {
 			"The selected message starts the thread. Everyone who can see this channel can see the thread."
 		} else {
 			"Everyone who can see this channel can see the thread."
-		})
+		}))
 		.width(420.0)
 		.show(ctx, |d| {
 			d.content(|ui| {

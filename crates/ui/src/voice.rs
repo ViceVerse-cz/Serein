@@ -145,11 +145,13 @@ impl MessagingUi {
 				if state.user.as_ref().is_some_and(|own| own.id.0 != id) {
 					let muted = self.voice_user_locally_muted(entry.participant.user);
 					if ui
-						.button(if muted {
-							crate::i18n::translate("Unmute")
-						} else {
-							crate::i18n::translate("Mute")
-						})
+						.button(crate::i18n::translate(
+							&(if muted {
+								crate::i18n::translate("Unmute")
+							} else {
+								crate::i18n::translate("Mute")
+							}),
+						))
 						.on_hover_text(crate::i18n::translate(
 							"Silence this person on this device only. Nobody else is affected.",
 						))
@@ -312,10 +314,15 @@ impl MessagingUi {
 				viewable,
 				selected,
 				format!(
-					"{} voice channel{}{}",
+					"{} {}{}{}",
 					channel.name,
+					crate::i18n::translate("voice channel"),
 					channel_marks::label(access),
-					if connected { ", connected" } else { "" }
+					if connected {
+						crate::i18n::translate(", connected")
+					} else {
+						String::new()
+					}
 				),
 			)
 		});
@@ -491,11 +498,11 @@ impl MessagingUi {
 					ui.label(
 						design::semibold(
 							ui,
-							if !state.demo && !state.gateway_connected {
+							crate::i18n::translate(if !state.demo && !state.gateway_connected {
 								"Participant list unavailable while disconnected"
 							} else {
 								"No one's here yet"
-							},
+							}),
 							18.0,
 						)
 						.color(STAGE_TEXT),
@@ -841,11 +848,11 @@ impl MessagingUi {
 				egui::vec2(110.0_f32.min((rect.width() - 16.0).max(0.0)), 26.0),
 			),
 			egui::Button::new(
-				RichText::new(if self.voice_stream_volume() == 0 {
+				RichText::new(crate::i18n::translate(if self.voice_stream_volume() == 0 {
 					"Stream muted"
 				} else {
 					"Stream audio"
-				})
+				}))
 				.size(12.0)
 				.color(egui::Color32::WHITE),
 			)
@@ -1366,12 +1373,14 @@ impl MessagingUi {
 		} else {
 			"Join to listen. Speaking is unavailable in this channel."
 		});
+		let label = crate::i18n::translate(label);
+		let hint = crate::i18n::translate(hint);
 		// Guild channels keep Discord's green Join Voice button; DM headers use an icon.
 		let response = if guild {
 			let colors = design::palette(ui);
 			ui.add_enabled(
 				unavailable.is_none(),
-				egui::Button::new(design::medium(ui, label, 15.0).color(egui::Color32::WHITE))
+				egui::Button::new(design::medium(ui, &label, 15.0).color(egui::Color32::WHITE))
 					.fill(colors.positive)
 					.stroke(egui::Stroke::NONE)
 					.corner_radius(8)
@@ -1379,11 +1388,11 @@ impl MessagingUi {
 			)
 		} else {
 			ui.add_enabled_ui(unavailable.is_none(), |ui| {
-				crate::icons::button(ui, crate::icons::Icon::Phone, 32.0, label)
+				crate::icons::button(ui, crate::icons::Icon::Phone, 32.0, &label)
 			})
 			.inner
 		}
-		.on_hover_text(hint)
+		.on_hover_text(&hint)
 		.on_disabled_hover_text(hint);
 		if response.clicked() {
 			self.request_call(state, channel, !guild && !incoming, commands);
@@ -1438,7 +1447,7 @@ impl MessagingUi {
 				ui.spacing_mut().item_spacing.y = 10.0;
 				ui.label(design::semibold(
 					ui,
-					if input { "Input" } else { "Output" },
+					crate::i18n::translate(if input { "Input" } else { "Output" }),
 					18.0,
 				));
 				egui::ScrollArea::vertical()
@@ -1491,7 +1500,7 @@ impl MessagingUi {
 					);
 					ui.label(design::medium(
 						ui,
-						if input { "Microphone" } else { "Speakers" },
+						crate::i18n::translate(if input { "Microphone" } else { "Speakers" }),
 						15.0,
 					))
 				})
@@ -1569,7 +1578,7 @@ impl MessagingUi {
 		}
 		if !self.voice_device_status.is_empty() {
 			ui.label(
-				RichText::new(self.voice_device_status)
+				RichText::new(crate::i18n::translate(self.voice_device_status))
 					.size(12.0)
 					.color(colors.muted),
 			);
@@ -1598,11 +1607,11 @@ impl MessagingUi {
 			15.0,
 		));
 		ui.label(
-			RichText::new(if active {
+			RichText::new(crate::i18n::translate(if active {
 				"Leave the call to test your microphone locally."
 			} else {
 				"Hear yourself through your selected speakers. Use headphones to avoid feedback."
-			})
+			}))
 			.size(13.0)
 			.color(colors.muted),
 		);
@@ -1611,11 +1620,11 @@ impl MessagingUi {
 			ui.add_enabled_ui(!active, |ui| {
 				if design::button(
 					ui,
-					if self.voice_preview_requested {
+					&crate::i18n::translate(if self.voice_preview_requested {
 						"Stop testing"
 					} else {
 						"Start testing"
-					},
+					}),
 					if self.voice_preview_requested {
 						design::ButtonKind::Outline
 					} else {
@@ -1633,9 +1642,12 @@ impl MessagingUi {
 			if self.voice_preview_requested || active {
 				let db = self.voice_preview_level.unwrap_or(-100.0);
 				ui.label(
-					RichText::new(format!("Input level {db:.0} dBFS"))
-						.size(13.0)
-						.color(colors.muted),
+					RichText::new(format!(
+						"{} {db:.0} dBFS",
+						crate::i18n::translate("Input level")
+					))
+					.size(13.0)
+					.color(colors.muted),
 				);
 			}
 		});
@@ -1668,7 +1680,7 @@ impl MessagingUi {
 		}
 		if !self.voice_preview_status.is_empty() {
 			ui.label(
-				RichText::new(self.voice_preview_status)
+				RichText::new(crate::i18n::translate(self.voice_preview_status))
 					.size(13.0)
 					.color(colors.muted),
 			);
@@ -1801,7 +1813,7 @@ impl MessagingUi {
 			});
 			if !self.voice_camera_device_status.is_empty() && !demo {
 				ui.label(
-					RichText::new(self.voice_camera_device_status)
+					RichText::new(crate::i18n::translate(self.voice_camera_device_status))
 						.size(12.0)
 						.color(colors.muted),
 				);
@@ -1915,7 +1927,7 @@ impl MessagingUi {
 					);
 					ui.label(design::medium(
 						ui,
-						if input { "Microphone" } else { "Speakers" },
+						crate::i18n::translate(if input { "Microphone" } else { "Speakers" }),
 						15.0,
 					))
 				})
@@ -1955,7 +1967,7 @@ impl MessagingUi {
 			}
 			if !self.voice_device_status.is_empty() {
 				ui.label(
-					RichText::new(self.voice_device_status)
+					RichText::new(crate::i18n::translate(self.voice_device_status))
 						.size(12.0)
 						.color(colors.muted),
 				);
@@ -2204,7 +2216,10 @@ impl MessagingUi {
 					self.queue_voice_toggle_cue(false, !active);
 				}
 			}
-			return response.on_hover_text(format!("{label}; applies to your next call."));
+			return response.on_hover_text(format!(
+				"{label}; {}",
+				crate::i18n::translate("applies to your next call.")
+			));
 		};
 		let channel = call.channel;
 		let can_speak = state.can_speak(channel);
@@ -2247,13 +2262,15 @@ impl MessagingUi {
 				response
 			})
 			.inner
-			.on_hover_text(if enabled {
-				label.clone()
-			} else if !can_speak && !deafen {
-				crate::i18n::translate("Speaking is unavailable in this channel.")
-			} else {
-				crate::i18n::translate("Controls are unavailable in this build or preview.")
-			});
+			.on_hover_text(crate::i18n::translate(
+				&(if enabled {
+					label.clone()
+				} else if !can_speak && !deafen {
+					crate::i18n::translate("Speaking is unavailable in this channel.")
+				} else {
+					crate::i18n::translate("Controls are unavailable in this build or preview.")
+				}),
+			));
 		if response.clicked() {
 			if deafen {
 				deafened = !deafened;
@@ -2446,11 +2463,13 @@ impl MessagingUi {
 				});
 				response
 					.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
-				response.on_hover_text(if enabled {
-					label.clone()
-				} else {
-					crate::i18n::translate("Leaving is unavailable in the offline preview.")
-				})
+				response.on_hover_text(crate::i18n::translate(
+					&(if enabled {
+						label.clone()
+					} else {
+						crate::i18n::translate("Leaving is unavailable in the offline preview.")
+					}),
+				))
 			};
 			leave = hang_up.clicked() && !state.demo;
 		});
@@ -2691,13 +2710,13 @@ impl MessagingUi {
 											.truncate(),
 										);
 										ui.label(
-											RichText::new(if incoming {
+											RichText::new(crate::i18n::translate(if incoming {
 												unavailable.unwrap_or("Incoming call…")
 											} else if !state.gateway_connected {
 												"Reconnect to refresh call"
 											} else {
 												"Call in progress"
-											})
+											}))
 											.size(13.0)
 											.color(colors.muted),
 										);
@@ -2794,11 +2813,11 @@ impl MessagingUi {
 									ui,
 									crate::icons::Icon::HangUp,
 									32.0,
-									if phase == Phase::Failed {
+									&crate::i18n::translate(if phase == Phase::Failed {
 										"Dismiss call"
 									} else {
 										"Disconnect"
-									},
+									}),
 								)
 							})
 							.inner;
@@ -2956,11 +2975,11 @@ impl MessagingUi {
 			ui,
 			crate::icons::Icon::ChevronDown,
 			20.0,
-			if deafen {
+			&crate::i18n::translate(if deafen {
 				"Output settings"
 			} else {
 				"Input settings"
-			},
+			}),
 		);
 		self.voice_settings_popup(&chevron, state.demo, state.voice.active.is_some(), !deafen);
 		self.mute_toggle(ui, state, commands, deafen, 32.0);
@@ -3451,6 +3470,7 @@ pub(super) fn participant_user(state: &State, channel: Id, user: Id) -> Option<&
 
 /// Labelled percentage slider shared by the voice popout and the settings page.
 fn gain_slider(ui: &mut egui::Ui, value: &mut u16, title: &str) -> egui::Response {
+	let title = crate::i18n::translate(title);
 	ui.scope(|ui| {
 		let colors = design::palette(ui);
 		ui.spacing_mut().item_spacing.y = 4.0;
@@ -3496,9 +3516,10 @@ fn elapsed_label(call: &client_core::voice::Call) -> Option<String> {
 }
 
 fn status_icon(ui: &mut egui::Ui, icon: crate::icons::Icon, color: egui::Color32, label: &str) {
+	let label = crate::i18n::translate(label);
 	let (rect, response) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::hover());
 	crate::icons::paint(ui.painter(), icon, rect.shrink(1.0), color);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &label));
 	response.on_hover_text(label);
 }
 
@@ -3510,7 +3531,7 @@ fn live_badge(ui: &mut egui::Ui) {
 	ui.painter().text(
 		rect.center(),
 		egui::Align2::CENTER_CENTER,
-		"LIVE",
+		crate::i18n::translate("LIVE"),
 		egui::FontId::new(9.0, design::medium_family(ui.ctx())),
 		egui::Color32::WHITE,
 	);

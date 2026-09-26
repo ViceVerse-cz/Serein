@@ -69,6 +69,7 @@ impl MessagingUi {
 		} else {
 			("Update available", icons::Icon::Download)
 		};
+		let label = crate::i18n::translate(label);
 		let status = self.updates.status.clone();
 		// Reserve the row and interact with it *before* the dismiss button below is added, so
 		// that button (registered after, "on top") keeps first claim on an overlapping click.
@@ -97,7 +98,7 @@ impl MessagingUi {
 		let (mark, _) = ui.allocate_exact_size(egui::vec2(15.0, 15.0), egui::Sense::hover());
 		icons::paint(ui.painter(), icon, mark, colors.accent);
 		ui.add(
-			egui::Label::new(design::medium(ui, label, 12.0).color(colors.accent))
+			egui::Label::new(design::medium(ui, &label, 12.0).color(colors.accent))
 				.truncate()
 				.selectable(false),
 		);
@@ -112,8 +113,11 @@ impl MessagingUi {
 			.clicked();
 		});
 		response
-			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
-		let open = !dismiss && response.on_hover_text(status).clicked();
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
+		let open = !dismiss
+			&& response
+				.on_hover_text(crate::i18n::translate(&status))
+				.clicked();
 		if dismiss {
 			self.updates.banner_dismissed = Some(ready);
 		}
@@ -273,11 +277,13 @@ impl MessagingUi {
 								&crate::i18n::translate("Check for updates"),
 								design::ButtonKind::Outline,
 							)
-							.on_disabled_hover_text(if cfg!(debug_assertions) && !demo {
-								"Update checks are disabled in debug builds."
-							} else {
-								"Finish the current update before checking again."
-							})
+							.on_disabled_hover_text(crate::i18n::translate(
+								if cfg!(debug_assertions) && !demo {
+									"Update checks are disabled in debug builds."
+								} else {
+									"Finish the current update before checking again."
+								},
+							))
 							.clicked()
 							{
 								self.updates.check_requested = true;
@@ -329,11 +335,13 @@ impl MessagingUi {
 				}),
 				|ui| {
 					egui::ComboBox::from_id_salt("update-release-channel")
-						.selected_text(if self.updates.nightly {
-							crate::i18n::translate("Nightly")
-						} else {
-							crate::i18n::translate("Production")
-						})
+						.selected_text(crate::i18n::translate(
+							&(if self.updates.nightly {
+								crate::i18n::translate("Nightly")
+							} else {
+								crate::i18n::translate("Production")
+							}),
+						))
 						.width(ui.available_width().min(160.0))
 						.show_ui(ui, |ui| {
 							ui.selectable_value(
@@ -374,7 +382,11 @@ impl MessagingUi {
 							|ui| {
 								if design::button(
 									ui,
-									if copied_cmd { "Copied" } else { "Copy command" },
+									&crate::i18n::translate(if copied_cmd {
+										"Copied"
+									} else {
+										"Copy command"
+									}),
 									design::ButtonKind::Outline,
 								)
 								.clicked()
@@ -420,7 +432,7 @@ impl MessagingUi {
 				|ui| {
 					design::button(
 						ui,
-						if copied { "Copied" } else { "Copy" },
+						&crate::i18n::translate(if copied { "Copied" } else { "Copy" }),
 						design::ButtonKind::Outline,
 					)
 				},

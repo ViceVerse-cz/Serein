@@ -18,11 +18,11 @@ const PREVIEW: f32 = 72.0;
 /// Narrowest gallery tile before a row drops a column.
 const GALLERY_TILE: f32 = 300.0;
 
-fn sort_label(sort: Sort) -> &'static str {
-	match sort {
+fn sort_label(sort: Sort) -> String {
+	crate::i18n::translate(match sort {
 		Sort::Activity => "Recent activity",
 		Sort::Created => "Creation date",
-	}
+	})
 }
 
 #[derive(Default)]
@@ -174,23 +174,23 @@ impl ForumUi {
 								ui.label(
 									design::semibold(
 										ui,
-										if filtered {
+										crate::i18n::translate(if filtered {
 											"No posts match"
 										} else {
 											"No posts loaded"
-										},
+										}),
 										16.0,
 									)
 									.color(colors.text_strong),
 								);
 								ui.label(
-									RichText::new(if !query.is_empty() {
+									RichText::new(crate::i18n::translate(if !query.is_empty() {
 										"Press Enter to start a post with this title."
 									} else if filtered {
 										"No loaded post carries the selected tags; load more or clear the filter."
 									} else {
 										"Nothing is posted here yet; archived posts load on request."
-									})
+									}))
 									.color(colors.muted),
 								);
 							});
@@ -375,12 +375,14 @@ impl ForumUi {
 			false,
 		)
 		.on_hover_text(format!(
-			"Sorted by {}, {} view",
+			"{} {}, {} {}",
+			crate::i18n::translate("Sorted by"),
 			sort_label(self.sort).to_lowercase(),
-			match self.layout {
+			crate::i18n::translate(match self.layout {
 				Layout::List => "list",
 				Layout::Gallery => "gallery",
-			}
+			}),
+			crate::i18n::translate("view")
 		));
 		egui::Popup::menu(&button)
 			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
@@ -401,8 +403,16 @@ impl ForumUi {
 					crate::i18n::translate("View as"),
 					colors.muted,
 				));
-				ui.radio_value(&mut self.layout, Layout::List, "List");
-				ui.radio_value(&mut self.layout, Layout::Gallery, "Gallery");
+				ui.radio_value(
+					&mut self.layout,
+					Layout::List,
+					crate::i18n::translate("List"),
+				);
+				ui.radio_value(
+					&mut self.layout,
+					Layout::Gallery,
+					crate::i18n::translate("Gallery"),
+				);
 			});
 	}
 
@@ -490,9 +500,9 @@ impl ForumUi {
 							.size(13.0)
 							.color(colors.muted),
 					);
-					ui.radio_value(&mut self.match_all, false, "Some")
+					ui.radio_value(&mut self.match_all, false, crate::i18n::translate("Some"))
 						.on_hover_text(crate::i18n::translate("Show posts with any selected tag"));
-					ui.radio_value(&mut self.match_all, true, "All")
+					ui.radio_value(&mut self.match_all, true, crate::i18n::translate("All"))
 						.on_hover_text(crate::i18n::translate(
 							"Show only posts with every selected tag",
 						));
@@ -661,15 +671,17 @@ impl ForumUi {
 								if response.clicked() {
 									*staged.choose = true;
 								}
-								response.on_hover_text(if files_allowed {
-									crate::i18n::translate(
-										"Add images or files. Up to 10 files and 500 MB total; account limits may be lower.",
-									)
-								} else {
-									crate::i18n::translate(
-										"Attaching files is unavailable in this forum.",
-									)
-								});
+								response.on_hover_text(crate::i18n::translate(
+									&(if files_allowed {
+										crate::i18n::translate(
+											"Add images or files. Up to 10 files and 500 MB total; account limits may be lower.",
+										)
+									} else {
+										crate::i18n::translate(
+											"Attaching files is unavailable in this forum.",
+										)
+									}),
+								));
 							});
 						});
 						if !staged.files.is_empty() {
@@ -889,9 +901,13 @@ fn post_tags(
 					);
 					count_badge(ui, picked.len());
 					ui.label(
-						RichText::new(format!("up to {}", model::forum::MAX_APPLIED_TAGS))
-							.size(12.0)
-							.color(colors.muted),
+						RichText::new(format!(
+							"{} {}",
+							crate::i18n::translate("up to"),
+							model::forum::MAX_APPLIED_TAGS
+						))
+						.size(12.0)
+						.color(colors.muted),
 					);
 				});
 				ui.horizontal_wrapped(|ui| {
@@ -945,14 +961,15 @@ fn action_pill(
 	height: f32,
 	active: bool,
 ) -> egui::Response {
+	let label = crate::i18n::translate(label);
 	let colors = design::palette(ui);
 	let count = usize::from(leading.is_some()) + usize::from(trailing.is_some());
 	let (rect, response) = ui.allocate_exact_size(
-		egui::vec2(action_width(ui, label, height, count), height),
+		egui::vec2(action_width(ui, &label, height, count), height),
 		egui::Sense::click(),
 	);
 	let enabled = ui.is_enabled();
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
 	if !ui.is_rect_visible(rect) {
 		return response;
 	}
@@ -997,7 +1014,7 @@ fn action_pill(
 		icons::paint(painter, icon, icon_rect(x), text);
 		x += icon_size + 6.0;
 	}
-	let galley = painter.layout_no_wrap(label.to_owned(), tag_font(ui, height), text);
+	let galley = painter.layout_no_wrap(label, tag_font(ui, height), text);
 	let width = galley.size().x;
 	painter.galley(
 		egui::pos2(x, rect.center().y - galley.size().y / 2.0),
@@ -1305,11 +1322,13 @@ fn latest_row(ui: &mut egui::Ui, state: &State, post: &Channel) {
 		ui.label(design::semibold(ui, format!("{}:", latest.author), 14.0).color(author_color));
 		ui.add(
 			egui::Label::new(
-				RichText::new(if latest.excerpt.trim().is_empty() {
-					"Attachment or non-text message"
-				} else {
-					&latest.excerpt
-				})
+				RichText::new(crate::i18n::translate(
+					if latest.excerpt.trim().is_empty() {
+						"Attachment or non-text message"
+					} else {
+						&latest.excerpt
+					},
+				))
 				.size(14.0)
 				.color(colors.text),
 			)
@@ -1342,9 +1361,13 @@ fn stats_row(
 		if unread {
 			let label = match state.post_new_count(post) {
 				Some((count, exact)) if count > 0 => {
-					format!("({count}{} New)", if exact { "" } else { "+" })
+					format!(
+						"({count}{} {})",
+						if exact { "" } else { "+" },
+						crate::i18n::translate("New")
+					)
 				}
-				_ => "(New)".to_owned(),
+				_ => format!("({})", crate::i18n::translate("New")),
 			};
 			ui.label(design::medium(ui, label, 13.0).color(colors.accent));
 		}
@@ -1371,12 +1394,21 @@ fn describe(response: &egui::Response, post: &Channel, (archived, unread): (bool
 			egui::Role::Button,
 			true,
 			format!(
-				"{}{}{}; {} replies",
+				"{}{}{}; {} {}",
 				post.name,
-				if unread { ", unread" } else { "" },
-				if archived { ", archived" } else { "" },
+				if unread {
+					crate::i18n::translate(", unread")
+				} else {
+					String::new()
+				},
+				if archived {
+					crate::i18n::translate(", archived")
+				} else {
+					String::new()
+				},
 				post.message_count
-					.map_or("unknown".to_owned(), |n| n.to_string())
+					.map_or_else(|| crate::i18n::translate("unknown"), |n| n.to_string()),
+				crate::i18n::translate("replies")
 			),
 		)
 	});

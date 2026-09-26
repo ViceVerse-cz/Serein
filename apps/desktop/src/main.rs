@@ -3800,11 +3800,11 @@ impl Desktop {
 	}
 	/// Boot stage while a saved login is being restored, so launch shows progress
 	/// instead of a welcome card the user cannot act on yet.
-	fn restoring(&self) -> Option<&'static str> {
+	fn restoring(&self) -> Option<String> {
 		// Fixture-only preview of the restore screen, e.g. `--demo --demo-restoring`.
 		#[cfg(feature = "demo")]
 		if self.fixture_only && std::env::args().any(|arg| arg == "--demo-restoring") {
-			return Some("Checking your saved login");
+			return Some(ui::i18n::translate("Checking your saved login"));
 		}
 		if self.fixture_only
 			|| self.state.demo
@@ -3821,13 +3821,15 @@ impl Desktop {
 			.as_ref()
 			.is_some_and(|store| store.remaining(std::time::Instant::now()).is_some())
 		{
-			return Some("Checking your saved login");
+			return Some(ui::i18n::translate("Checking your saved login"));
 		}
-		self.connection.is_some().then_some("Connecting to Discord")
+		self.connection
+			.is_some()
+			.then(|| ui::i18n::translate("Connecting to Discord"))
 	}
 	/// Restore screen for returning accounts: no sign-in controls, just the stage,
 	/// an indeterminate bar and a way out to the welcome screen.
-	fn restoring_screen(&mut self, ui: &mut egui::Ui, stage: &'static str) {
+	fn restoring_screen(&mut self, ui: &mut egui::Ui, stage: &str) {
 		let p = ui::design::palette(ui);
 		egui::CentralPanel::default()
 			.frame(egui::Frame::NONE.fill(ui::design::window_palette(ui).canvas))
@@ -4195,11 +4197,11 @@ impl Desktop {
 			ui.label(
 				ui::design::semibold(
 					ui,
-					if returning {
+					ui::i18n::translate(if returning {
 						"Welcome back"
 					} else {
 						"Welcome to Serein"
-					},
+					}),
 					22.0,
 				)
 				.color(p.text_strong),
@@ -4207,11 +4209,11 @@ impl Desktop {
 			ui.add_space(5.0);
 			ui.add(
 				egui::Label::new(
-					egui::RichText::new(if returning {
+					egui::RichText::new(ui::i18n::translate(if returning {
 						"Continue with a saved account, or sign in with another one."
 					} else {
 						"Sign in with your Discord account to get started."
-					})
+					}))
 					.size(14.0)
 					.color(p.muted),
 				)
@@ -6406,7 +6408,7 @@ impl eframe::App for Desktop {
 				self.request_session_end(&ctx, SessionEnd::Logout);
 			}
 		} else if let Some(stage) = self.restoring() {
-			self.restoring_screen(ui, stage);
+			self.restoring_screen(ui, &stage);
 		} else {
 			self.sign_in_screen(ui);
 		}

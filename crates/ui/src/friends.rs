@@ -331,17 +331,19 @@ impl MessagingUi {
 								);
 								text.add(
 									egui::Label::new(
-										RichText::new(if *incoming {
-											format!(
-												"{name} · {}",
-												language.text("friends-incoming-request")
-											)
-										} else {
-											format!(
-												"{name} · {}",
-												language.text("friends-outgoing-request")
-											)
-										})
+										RichText::new(crate::i18n::translate(
+											&(if *incoming {
+												format!(
+													"{name} · {}",
+													language.text("friends-incoming-request")
+												)
+											} else {
+												format!(
+													"{name} · {}",
+													language.text("friends-outgoing-request")
+												)
+											}),
+										))
 										.size(13.0)
 										.color(colors.muted),
 									)

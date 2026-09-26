@@ -96,7 +96,7 @@ pub fn show(
 		ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
 		ui.spacing_mut().interact_size.y = 26.0;
 		let Some(reactions) = reactions else {
-			ui.weak("Reactions unavailable");
+			ui.weak(crate::i18n::translate("Reactions unavailable"));
 			if ui
 				.add_enabled(
 					enabled,

@@ -342,11 +342,11 @@ impl RolesUi {
 		if state.server_admin.pending {
 			ui.horizontal(|ui| {
 				ui.spinner();
-				ui.weak(if state.server_admin.saving {
+				ui.weak(crate::i18n::translate(if state.server_admin.saving {
 					"Saving..."
 				} else {
 					"Loading roles..."
-				});
+				}));
 			});
 		}
 		if self.selected.is_some() {
@@ -440,8 +440,18 @@ impl RolesUi {
 		let query = self.search.to_lowercase();
 		let count = catalog.items.iter().filter(|role| role.id != guild).count();
 		ui.horizontal(|ui| {
-			fixed_label(ui, &format!("ROLES — {count}"), width * 0.52, true);
-			fixed_label(ui, "MEMBERS", (width * 0.48 - 108.0).max(48.0), true);
+			fixed_label(
+				ui,
+				&format!("{} — {count}", crate::i18n::translate("ROLES")),
+				width * 0.52,
+				true,
+			);
+			fixed_label(
+				ui,
+				&crate::i18n::translate("MEMBERS"),
+				(width * 0.48 - 108.0).max(48.0),
+				true,
+			);
 		});
 		ui.separator();
 		let mut action = None;
@@ -484,7 +494,7 @@ impl RolesUi {
 							egui::WidgetInfo::labeled(
 								egui::Role::Button,
 								true,
-								format!("Edit role {}", role.name),
+								format!("{} {}", crate::i18n::translate("Edit role"), role.name),
 							)
 						});
 						if response.clicked() {
@@ -502,9 +512,10 @@ impl RolesUi {
 						}
 						fixed_label(
 							ui,
-							&role
-								.member_count
-								.map_or_else(|| "Unknown".into(), |count| count.to_string()),
+							&role.member_count.map_or_else(
+								|| crate::i18n::translate("Unknown"),
+								|count| count.to_string(),
+							),
 							(width * 0.48 - 116.0).max(48.0),
 							false,
 						);
@@ -624,7 +635,7 @@ impl RolesUi {
 		ui.horizontal(|ui| {
 			fixed_label(
 				ui,
-				&format!("EDIT ROLE — {}", draft.name),
+				&format!("{} — {}", crate::i18n::translate("EDIT ROLE"), draft.name),
 				(width - 40.0).max(80.0),
 				true,
 			);
@@ -672,11 +683,11 @@ impl RolesUi {
 		ui.separator();
 		ui.add_space(20.0);
 		if !state.can_edit_guild_role(guild, role) {
-			ui.weak(if draft.managed {
+			ui.weak(crate::i18n::translate(if draft.managed {
 				"This role is managed by an integration."
 			} else {
 				"This role is above your highest role and is read-only."
-			});
+			}));
 		}
 		if self.tab == Tab::Members {
 			if state.can_open_member_settings(guild) {
@@ -840,7 +851,9 @@ impl RolesUi {
 			}
 		});
 		section(ui, "Role color");
-		ui.weak("Members use the color of their highest role on the roles list.");
+		ui.weak(crate::i18n::translate(
+			"Members use the color of their highest role on the roles list.",
+		));
 		let palette = [
 			0x1abc9c, 0x2ecc71, 0x3498db, 0x9b59b6, 0xe91e63, 0xf1c40f, 0xe67e22, 0xe74c3c,
 			0x95a5a6, 0x607d8b, 0x11806a, 0x1f8b4c, 0x206694, 0x71368a, 0xad1457, 0xc27c0e,
@@ -928,18 +941,20 @@ impl RolesUi {
 		}
 		if state.can_edit_role_icon(guild, draft.id) {
 			section(ui, "Role icon");
-			ui.weak(
+			ui.weak(crate::i18n::translate(
 				"Upload an image under 256 KiB or choose a Unicode emoji. We recommend at least 64×64 pixels.",
-			);
+			));
 			ui.horizontal(|ui| {
 				if ui
 					.add_enabled(
 						!self.icon_pending,
-						egui::Button::new(if self.icon_pending {
-							crate::i18n::translate("Preparing...")
-						} else {
-							crate::i18n::translate("Choose Image")
-						})
+						egui::Button::new(crate::i18n::translate(
+							&(if self.icon_pending {
+								crate::i18n::translate("Preparing...")
+							} else {
+								crate::i18n::translate("Choose Image")
+							}),
+						))
 						.min_size(egui::vec2(120.0, 36.0)),
 					)
 					.clicked()
@@ -1102,11 +1117,13 @@ impl RolesUi {
 			if ui
 				.add_enabled(
 					!state.server_admin.pending,
-					egui::Button::new(if self.adding_members {
-						crate::i18n::translate("Back to Role Members")
-					} else {
-						crate::i18n::translate("Add Members")
-					}),
+					egui::Button::new(crate::i18n::translate(
+						&(if self.adding_members {
+							crate::i18n::translate("Back to Role Members")
+						} else {
+							crate::i18n::translate("Add Members")
+						}),
+					)),
 				)
 				.clicked()
 			{
@@ -1185,7 +1202,12 @@ impl RolesUi {
 				ui.separator();
 			}
 			ui.horizontal(|ui| {
-				ui.weak(format!("Showing {} members", members.items.len()));
+				ui.weak(format!(
+					"{} {} {}",
+					crate::i18n::translate("Showing"),
+					members.items.len(),
+					crate::i18n::translate("members")
+				));
 				if self.member_query.after.is_some()
 					&& ui
 						.add_enabled(
@@ -1283,9 +1305,10 @@ fn rgb(color: u32) -> Color32 {
 	}
 }
 fn tab_button(ui: &mut egui::Ui, tab: &mut Tab, value: Tab, label: &str) {
+	let label = crate::i18n::translate(label);
 	let colors = design::palette(ui);
 	let response = ui.add(
-		egui::Button::new(design::medium(ui, label, 15.0).color(if *tab == value {
+		egui::Button::new(design::medium(ui, &label, 15.0).color(if *tab == value {
 			colors.text
 		} else {
 			colors.muted
@@ -1308,18 +1331,19 @@ fn tab_button(ui: &mut egui::Ui, tab: &mut Tab, value: Tab, label: &str) {
 			egui::Role::RadioButton,
 			ui.is_enabled(),
 			*tab == value,
-			label,
+			&label,
 		)
 	});
 }
 fn boxed_icon(ui: &mut egui::Ui, icon: icons::Icon, label: &str) -> egui::Response {
+	let label = crate::i18n::translate(label);
 	let colors = design::palette(ui);
 	let response = ui.add_sized(
 		[36.0, 36.0],
 		egui::Button::new(()).fill(colors.raised).corner_radius(8),
 	);
 	icons::paint(ui.painter(), icon, response.rect.shrink(9.0), colors.text);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
 	response.on_hover_text(label)
 }
 fn colored_name(ui: &mut egui::Ui, text: &str, colors: Colors, size: f32) {

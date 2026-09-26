@@ -686,11 +686,11 @@ impl MessagingUi {
 									.truncate(),
 								);
 								ui.label(
-									RichText::new(if state.demo {
+									RichText::new(crate::i18n::translate(if state.demo {
 										"Offline preview · synthetic account"
 									} else {
 										"Signed in with your Discord account"
-									})
+									}))
 									.size(13.0)
 									.color(colors.muted),
 								);
@@ -1085,7 +1085,10 @@ impl MessagingUi {
 			ui.add_space(4.0);
 			ui.label(
 				RichText::new(format!(
-					"{active_label} · saved with your appearance. Gradient presets always use dark text."
+					"{active_label} · {}",
+					crate::i18n::translate(
+						"Saved with your appearance. Gradient presets always use dark text."
+					)
 				))
 				.size(12.0)
 				.color(colors.muted),
@@ -1187,6 +1190,7 @@ impl MessagingUi {
 }
 
 fn account_row(ui: &mut egui::Ui, label: &str, value: &str) {
+	let label = crate::i18n::translate(label);
 	let colors = design::palette(ui);
 	ui.horizontal(|ui| {
 		ui.vertical(|ui| {
@@ -1300,10 +1304,12 @@ fn preset_swatch(
 	swatch: &design::Palette,
 	selected: bool,
 ) -> egui::Response {
+	let label = crate::i18n::translate(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(egui::vec2(76.0, 70.0), egui::Sense::click());
-	response
-		.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, label));
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &label)
+	});
 	let painter = &ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
 	if response.hovered() || response.has_focus() {
 		painter.rect_filled(rect, 6, colors.hover);
@@ -1343,7 +1349,7 @@ fn preset_swatch(
 	painter.text(
 		egui::pos2(rect.center().x, rect.bottom() - 10.0),
 		egui::Align2::CENTER_CENTER,
-		label,
+		&label,
 		egui::FontId::proportional(11.0),
 		if selected {
 			colors.text_strong
@@ -1374,11 +1380,12 @@ fn theme_preference_cards(ui: &mut egui::Ui) {
 				},
 			),
 		] {
+			let label = crate::i18n::translate(label);
 			let selected = current == preference;
 			let (rect, response) =
 				ui.allocate_exact_size(egui::vec2(width, 76.0), egui::Sense::click());
 			response.widget_info(|| {
-				egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, label)
+				egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &label)
 			});
 			let painter = ui.painter();
 			painter.rect(
@@ -1454,7 +1461,7 @@ fn theme_preference_cards(ui: &mut egui::Ui) {
 			painter.text(
 				egui::pos2(rect.left() + 12.0, rect.bottom() - 14.0),
 				egui::Align2::LEFT_CENTER,
-				label,
+				&label,
 				egui::FontId::new(14.0, design::medium_family(ui.ctx())),
 				if selected {
 					colors.text_strong

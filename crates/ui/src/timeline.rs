@@ -1001,11 +1001,13 @@ fn present_control(ui: &mut egui::Ui, rect: egui::Rect, unread: bool) -> bool {
 		)
 	});
 	response
-		.on_hover_text(if unread {
-			crate::i18n::translate("New messages below · jump to present")
-		} else {
-			crate::i18n::translate("Jump to present")
-		})
+		.on_hover_text(crate::i18n::translate(
+			&(if unread {
+				crate::i18n::translate("New messages below · jump to present")
+			} else {
+				crate::i18n::translate("Jump to present")
+			}),
+		))
 		.clicked()
 }
 /// Frameless text action with a trailing arrow glyph, for use inside [`overlay_bar`].
@@ -1560,7 +1562,9 @@ impl TimelineView {
 				.and_then(|id| state.channel(id))
 				.is_some_and(|channel| channel.guild.is_some() && channel.supports_text());
 		if !history_available {
-			ui.weak("Message history is unavailable with current permission information.");
+			ui.weak(crate::i18n::translate(
+				"Message history is unavailable with current permission information.",
+			));
 		}
 		if history_available && state.freshness == model::Freshness::Loading && empty {
 			let area = ui.available_rect_before_wrap().intersect(ui.clip_rect());
@@ -1584,12 +1588,12 @@ impl TimelineView {
 			}
 			return;
 		} else if empty && history_available && !welcome {
-			ui.label(match state.freshness {
+			ui.label(crate::i18n::translate(match state.freshness {
 				model::Freshness::Loading => "Loading messages…",
 				model::Freshness::Unavailable => "You cannot view this conversation.",
 				model::Freshness::Stale => "History is not available yet. Use Reload to try again.",
 				model::Freshness::Fresh => "No messages yet. Start the conversation below.",
-			});
+			}));
 		}
 		let area = ui.available_rect_before_wrap().intersect(ui.clip_rect());
 		let autoscroll_delta =
@@ -2499,7 +2503,9 @@ impl TimelineView {
 											if state.interactions.pending.as_ref().is_some_and(
 												|pending| pending.message == Some(message.id),
 											) {
-												ui.small("Application interaction pending…");
+												ui.small(crate::i18n::translate(
+													"Application interaction pending…",
+												));
 											}
 											if !message.components.is_empty()
 												&& let Some(error) = state.interactions.error

@@ -53,17 +53,17 @@ impl ContactEditor {
 		};
 		let response = crate::dialog::Dialog::new(
 			"contact-editor",
-			if self.nickname {
+			crate::i18n::translate(if self.nickname {
 				"Friend Nickname"
 			} else {
 				"Note"
-			},
+			}),
 		)
-		.subtitle(if self.nickname {
+		.subtitle(crate::i18n::translate(if self.nickname {
 			"Only you can see this nickname. It does not change their server name."
 		} else {
 			"Only you can see this note. It is saved to your Discord account."
-		})
+		}))
 		.width(420.0)
 		.show(ctx, |d| {
 			d.content(|ui| {
@@ -100,11 +100,13 @@ impl ContactEditor {
 						};
 						crate::dialog::input(
 							ui,
-							edit.char_limit(limit).hint_text(if self.nickname {
-								crate::i18n::translate("Enter a nickname")
-							} else {
-								crate::i18n::translate("Add something to remember…")
-							}),
+							edit.char_limit(limit).hint_text(crate::i18n::translate(
+								&(if self.nickname {
+									crate::i18n::translate("Enter a nickname")
+								} else {
+									crate::i18n::translate("Add something to remember…")
+								}),
+							)),
 						)
 						.labelled_by(label.id);
 					});

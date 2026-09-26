@@ -532,11 +532,13 @@ fn media_menu(
 		for (copy, label) in actions {
 			if ui
 				.add_enabled(idle, egui::Button::new(label))
-				.on_disabled_hover_text(if demo {
-					crate::i18n::translate("Unavailable for synthetic attachments")
-				} else {
-					crate::i18n::translate("A media transfer is already active")
-				})
+				.on_disabled_hover_text(crate::i18n::translate(
+					&(if demo {
+						crate::i18n::translate("Unavailable for synthetic attachments")
+					} else {
+						crate::i18n::translate("A media transfer is already active")
+					}),
+				))
 				.clicked()
 			{
 				action = Some(copy);
@@ -599,11 +601,11 @@ fn download_button(
 		.on_hover_text(crate::i18n::translate(
 			"Choose where to save this file · up to 100 MiB",
 		))
-		.on_disabled_hover_text(if demo {
+		.on_disabled_hover_text(crate::i18n::translate(if demo {
 			"Downloads are disabled for synthetic attachments"
 		} else {
 			"A download is already active"
-		});
+		}));
 	if response.clicked() {
 		download.request = Some(attachment.clone());
 	}
@@ -885,11 +887,11 @@ pub fn viewer(
 							glass_button(ui, Icon::Download, 40.0, "Download")
 						})
 						.inner
-						.on_disabled_hover_text(if demo {
+						.on_disabled_hover_text(crate::i18n::translate(if demo {
 							"Downloads are disabled for synthetic attachments"
 						} else {
 							"A download is already active"
-						})
+						}))
 						.clicked()
 					{
 						if attachment.id == Id(0) {

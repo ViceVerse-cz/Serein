@@ -240,15 +240,17 @@ impl AudioUi {
 						"--:--".into()
 					};
 					ui.label(
-						egui::RichText::new(if voice {
-							if duration > 0.0 {
-								timestamp((duration - position).max(0.0))
+						egui::RichText::new(crate::i18n::translate(
+							&(if voice {
+								if duration > 0.0 {
+									timestamp((duration - position).max(0.0))
+								} else {
+									"--:--".into()
+								}
 							} else {
-								"--:--".into()
-							}
-						} else {
-							format!("{} / {duration_label}", timestamp(position))
-						})
+								format!("{} / {duration_label}", timestamp(position))
+							}),
+						))
 						.size(11.0)
 						.color(colors.muted),
 					);
@@ -270,7 +272,11 @@ impl AudioUi {
 								)
 							});
 							if volume
-								.on_hover_text(format!("Volume: {:.0}%", self.volume * 100.0))
+								.on_hover_text(format!(
+									"{}: {:.0}%",
+									crate::i18n::translate("Volume"),
+									self.volume * 100.0
+								))
 								.changed()
 							{
 								self.command = Some(AudioCommand::Volume(self.volume));
@@ -286,7 +292,7 @@ impl AudioUi {
 				});
 				match state {
 					AudioState::Loading => {
-						ui.small("Loading audio…");
+						ui.small(crate::i18n::translate("Loading audio…"));
 					}
 					AudioState::Failed(error) => {
 						ui.colored_label(colors.danger, error);

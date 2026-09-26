@@ -100,11 +100,11 @@ impl InvitesUi {
 					ui.set_width(label_width);
 					ui.label(design::eyebrow(
 						ui,
-						if paused {
+						crate::i18n::translate(if paused {
 							"INVITE LINKS PAUSED"
 						} else {
 							"ACTIVE INVITE LINKS"
-						},
+						}),
 						colors.muted,
 					));
 				},
@@ -114,11 +114,11 @@ impl InvitesUi {
 					.add_enabled(
 						writable,
 						egui::Button::new(
-							RichText::new(if paused {
+							RichText::new(crate::i18n::translate(if paused {
 								"Resume Invites"
 							} else {
 								"Pause Invites"
-							})
+							}))
 							.color(if paused { colors.text } else { colors.danger }),
 						)
 						.min_size(Vec2::new(136.0, 38.0)),
@@ -162,11 +162,11 @@ impl InvitesUi {
 		if state.server_admin.pending {
 			ui.horizontal(|ui| {
 				ui.spinner();
-				ui.weak(if state.server_admin.saving {
+				ui.weak(crate::i18n::translate(if state.server_admin.saving {
 					"Updating invites…"
 				} else {
 					"Loading invites…"
-				});
+				}));
 			});
 		}
 		if let Some(snapshot) = &state.server_admin.invites {
@@ -178,7 +178,9 @@ impl InvitesUi {
 					18.0,
 				));
 				if state.invite_channel(guild).is_some() {
-					ui.weak("Create an invite link to welcome people to this server.");
+					ui.weak(crate::i18n::translate(
+						"Create an invite link to welcome people to this server.",
+					));
 				}
 			} else {
 				let now = time::OffsetDateTime::now_utc().unix_timestamp_nanos();
@@ -314,11 +316,13 @@ impl InvitesUi {
 											if ui
 												.add(
 													egui::Label::new(
-														RichText::new(if copied {
-															"Copied!"
-														} else {
-															&invite.code
-														})
+														RichText::new(crate::i18n::translate(
+															if copied {
+																"Copied!"
+															} else {
+																&invite.code
+															},
+														))
 														.monospace()
 														.size(13.0),
 													)

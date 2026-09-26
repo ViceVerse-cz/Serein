@@ -40,7 +40,12 @@ pub(crate) fn server_tag(
 			ui.add(egui::Label::new(RichText::new(&tag.tag).size(10.0).strong()).selectable(false));
 		})
 		.response
-		.on_hover_text(format!("Server tag · server {}", tag.guild))
+		.on_hover_text(format!(
+			"{} · {} {}",
+			crate::i18n::translate("Server tag"),
+			crate::i18n::translate("server"),
+			tag.guild
+		))
 }
 
 pub enum Action {
@@ -354,6 +359,7 @@ fn actions_enabled(state: &State) -> bool {
 }
 /// Translucent round button over the banner; disabled circles still show their tooltip.
 fn header_circle(ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool) -> egui::Response {
+	let label = crate::i18n::translate(label);
 	let (rect, response) = ui.allocate_exact_size(
 		Vec2::splat(CIRCLE),
 		if enabled {
@@ -382,7 +388,7 @@ fn header_circle(ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool) -> e
 			Color32::from_white_alpha(120)
 		},
 	);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
 	response.on_hover_text(label)
 }
 /// Add-friend circle; hidden for blocked users, whose relationship lives in the overflow menu.
@@ -469,11 +475,13 @@ fn more_menu(
 	if ui
 		.add_enabled(
 			enabled && friend,
-			egui::Button::new(if state.friend_nickname(user.id).is_some() {
-				crate::i18n::translate("Edit Friend Nickname")
-			} else {
-				crate::i18n::translate("Add Friend Nickname")
-			}),
+			egui::Button::new(crate::i18n::translate(
+				&(if state.friend_nickname(user.id).is_some() {
+					crate::i18n::translate("Edit Friend Nickname")
+				} else {
+					crate::i18n::translate("Add Friend Nickname")
+				}),
+			)),
 		)
 		.on_disabled_hover_text(crate::i18n::translate(
 			"Private nicknames are available for confirmed friends.",
@@ -491,11 +499,13 @@ fn more_menu(
 		if ui
 			.add_enabled(
 				enabled,
-				egui::Button::new(if muted {
-					crate::i18n::translate("Unmute")
-				} else {
-					crate::i18n::translate("Mute")
-				}),
+				egui::Button::new(crate::i18n::translate(
+					&(if muted {
+						crate::i18n::translate("Unmute")
+					} else {
+						crate::i18n::translate("Mute")
+					}),
+				)),
 			)
 			.on_hover_text(crate::i18n::translate(
 				"Mute this direct message's notifications until you unmute it.",
@@ -531,11 +541,13 @@ fn more_menu(
 		.add_enabled(
 			enabled,
 			egui::Button::new(
-				RichText::new(if blocked {
-					crate::i18n::translate("Unblock")
-				} else {
-					crate::i18n::translate("Block")
-				})
+				RichText::new(crate::i18n::translate(
+					&(if blocked {
+						crate::i18n::translate("Unblock")
+					} else {
+						crate::i18n::translate("Block")
+					}),
+				))
 				.color(colors.danger),
 			),
 		)
@@ -939,6 +951,7 @@ impl Theme {
 }
 /// Section title; adds breathing room before every section after the first.
 fn section(ui: &mut egui::Ui, theme: &Theme, count: &mut usize, text: &str) {
+	let text = crate::i18n::translate(text);
 	if *count > 0 {
 		ui.add_space(10.0);
 	}
@@ -1556,7 +1569,9 @@ pub fn show(
 										})
 										.response
 										.on_hover_text(format!(
-											"Server tag · server {}",
+											"{} · {} {}",
+											crate::i18n::translate("Server tag"),
+											crate::i18n::translate("server"),
 											clan.guild
 										));
 								}
@@ -1718,7 +1733,10 @@ pub fn show(
 																	known.id == g.guild
 																})
 															})
-															.map_or("Server", |g| g.name.as_str());
+															.map_or_else(
+																|| crate::i18n::translate("Server"),
+																|g| g.name.clone(),
+															);
 													ui.label(
 														RichText::new("•")
 															.size(13.0)
@@ -1767,9 +1785,15 @@ pub fn show(
 													);
 													ui.label(
 														RichText::new(format!(
-															"{} Mutual Server{}",
+															"{} {}",
 															names.len(),
-															if names.len() == 1 { "" } else { "s" }
+															crate::i18n::translate(
+																if names.len() == 1 {
+																	"Mutual Server"
+																} else {
+																	"Mutual Servers"
+																}
+															)
 														))
 														.size(13.0)
 														.strong(),
@@ -1804,9 +1828,13 @@ pub fn show(
 							.add_sized(
 								[ui.available_width(), 32.0],
 								egui::Button::new(
-									RichText::new(format!("Message @{}", user.name))
-										.color(colors.accent_text)
-										.strong(),
+									RichText::new(format!(
+										"{} @{}",
+										crate::i18n::translate("Message"),
+										user.name
+									))
+									.color(colors.accent_text)
+									.strong(),
 								)
 								.fill(colors.accent)
 								.stroke(Stroke::NONE)

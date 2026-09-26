@@ -243,7 +243,12 @@ impl PostMenu {
 					ui.close();
 				}
 				if self.load.is_some() || state.channel_action_pending() {
-					ui.label(format!("Loading {} settings…", noun.to_lowercase()));
+					ui.label(format!(
+						"{} {} {}…",
+						crate::i18n::translate("Loading"),
+						crate::i18n::translate(noun).to_lowercase(),
+						crate::i18n::translate("settings")
+					));
 				} else if let Some(error) = state
 					.channel_action_status(post.id)
 					.filter(|_| !state.channel_action_succeeded(post.id))
@@ -383,25 +388,48 @@ impl PostMenu {
 		let mut close = false;
 		let noun = noun(state, editor.channel);
 		let title = if editor.delete {
-			format!("Delete {noun}?")
+			format!(
+				"{} {}?",
+				crate::i18n::translate("Delete"),
+				crate::i18n::translate(noun)
+			)
 		} else {
-			format!("Edit {noun}")
+			format!(
+				"{} {}",
+				crate::i18n::translate("Edit"),
+				crate::i18n::translate(noun)
+			)
 		};
 		let mut builder =
 			dialog::Dialog::new(("post-editor", self.generation), &title).width(420.0);
 		if editor.delete {
 			builder = builder.danger();
 		}
-		let delete_label = format!("Delete {noun}");
+		let delete_label = format!(
+			"{} {}",
+			crate::i18n::translate("Delete"),
+			crate::i18n::translate(noun)
+		);
 		let result = builder.show(ctx, |d| {
 			d.content(|ui| {
 				if editor.delete {
 					ui.label(format!(
-						"Delete {}? Its messages will be permanently deleted. This cannot be undone.",
-						editor.name
+						"{} {}? {}",
+						crate::i18n::translate("Delete"),
+						editor.name,
+						crate::i18n::translate(
+							"Its messages will be permanently deleted. This cannot be undone."
+						)
 					));
 				} else {
-					let label = dialog::label(ui, &format!("{noun} title"));
+					let label = dialog::label(
+						ui,
+						&format!(
+							"{} {}",
+							crate::i18n::translate(noun),
+							crate::i18n::translate("title")
+						),
+					);
 					dialog::input(
 						ui,
 						egui::TextEdit::singleline(&mut editor.name).char_limit(100),

@@ -419,6 +419,7 @@ impl PermissionsUi {
 			design::section(ui, group, None);
 			for &(bit, label, help) in values {
 				ui.push_id(bit, |ui| {
+					let label = crate::i18n::translate(label);
 					let overwrite = rows.iter().find(|o| (o.kind, o.id) == key);
 					let mut value = overwrite.map_or(0, |o| {
 						if o.deny & bit != 0 {
@@ -438,7 +439,7 @@ impl PermissionsUi {
 							egui::Layout::top_down(egui::Align::Min),
 							|ui| {
 								ui.set_width(width);
-								ui.label(design::medium(ui, label, 15.0));
+								ui.label(design::medium(ui, &label, 15.0));
 								dialog::hint(ui, help);
 							},
 						);
@@ -457,7 +458,8 @@ impl PermissionsUi {
 									.min_size(egui::vec2(34.0, 30.0))
 									.corner_radius(3),
 								);
-								let accessible = format!("{name} {label}");
+								let accessible =
+									format!("{} {label}", crate::i18n::translate(name));
 								response.widget_info(|| {
 									egui::WidgetInfo::selected(
 										egui::Role::RadioButton,

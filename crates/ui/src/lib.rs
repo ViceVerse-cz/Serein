@@ -1671,8 +1671,8 @@ impl MessagingUi {
 													);
 													ui.add(
 														egui::Label::new(
-															RichText::new(
-																if !self
+															RichText::new(crate::i18n::translate(
+																&(if !self
 																	.own_presence
 																	.custom_status
 																	.is_empty()
@@ -1706,8 +1706,8 @@ impl MessagingUi {
 																	)
 																} else {
 																	language.text("reconnecting")
-																},
-															)
+																}),
+															))
 															.size(12.0)
 															.color(colors.muted),
 														)
@@ -2150,7 +2150,9 @@ impl MessagingUi {
 		if closed_here || (had_edit && self.editing.is_none()) {
 			egui::text_edit::TextEditState::default()
 				.store(ctx, ui.make_persistent_id("message-edit"));
-			ui.weak("Message deleted. The unchanged edit was closed.");
+			ui.weak(crate::i18n::translate(
+				"Message deleted. The unchanged edit was closed.",
+			));
 			ctx.request_repaint();
 			return;
 		}
@@ -2259,20 +2261,20 @@ impl MessagingUi {
 					ui.set_min_width((ui.available_width() - 2.0).max(0.0));
 					ui.label(design::semibold(
 						ui,
-						if available {
+						crate::i18n::translate(if available {
 							"Drop files to attach"
 						} else {
 							"Attachments unavailable right now"
-						},
+						}),
 						18.0,
 					));
 					ui.add_space(6.0);
 					ui.label(
-						egui::RichText::new(if available {
+						egui::RichText::new(crate::i18n::translate(if available {
 							"Up to 10 files · 500 MB max · Account limit applies"
 						} else {
 							"Return to an available conversation after the current operation finishes"
-						})
+						}))
 						.color(colors.muted),
 					);
 				});
@@ -2284,11 +2286,11 @@ impl MessagingUi {
 			let unavailable = editing_key.is_some_and(|(_, id)| state.timeline.get(id).is_none());
 			let cap = composer_cap(ui, &colors, |ui| {
 				ui.label(
-					RichText::new(if unavailable {
+					RichText::new(crate::i18n::translate(if unavailable {
 						"Message unavailable · unsent edit"
 					} else {
 						"Editing message"
-					})
+					}))
 					.size(13.0)
 					.color(colors.muted),
 				);
@@ -2365,11 +2367,13 @@ impl MessagingUi {
 							)
 							.frame(false),
 						)
-						.on_disabled_hover_text(if state.timeline.is_deleted(reply.target()) {
-							"The original message was deleted"
-						} else {
-							"Wait for readable, current message history"
-						})
+						.on_disabled_hover_text(crate::i18n::translate(
+							if state.timeline.is_deleted(reply.target()) {
+								"The original message was deleted"
+							} else {
+								"Wait for readable, current message history"
+							},
+						))
 						.clicked()
 					{
 						self.timeline.request_reply_target(reply.target());
@@ -2688,7 +2692,7 @@ impl MessagingUi {
                                     ui,
                                     icons::Icon::Send,
                                     28.0,
-                                    if editing_here { "Save edit" } else if application_command { "Send command" } else { "Send message" },
+                                    &crate::i18n::translate(if editing_here { "Save edit" } else if application_command { "Send command" } else { "Send message" }),
                                 )
                             })
                             .inner;
@@ -3032,11 +3036,11 @@ impl MessagingUi {
                     });
                 });
                 if let Some((edit_channel, message)) = editing_key {
-                    if state.freshness != Freshness::Fresh || !state.can_edit(edit_channel, message) { ui.weak("Editing this message is unavailable. Your text is kept until you cancel."); }
+                    if state.freshness != Freshness::Fresh || !state.can_edit(edit_channel, message) { ui.weak(crate::i18n::translate("Editing this message is unavailable. Your text is kept until you cancel.")); }
                 } else if !state.can_send(channel) && !application_command {
-                    ui.weak("Sending messages is unavailable in this conversation. Your draft is kept.");
+                    ui.weak(crate::i18n::translate("Sending messages is unavailable in this conversation. Your draft is kept."));
                 } else if self.attachment.is_some() && !state.can_attach(channel) {
-                    ui.weak("Attaching files is unavailable here. Remove the attachment to send only text.");
+                    ui.weak(crate::i18n::translate("Attaching files is unavailable here. Remove the attachment to send only text."));
                 }
             });
 		if editing_here {

@@ -533,9 +533,14 @@ impl MessagingUi {
 									egui::Role::Button,
 									true,
 									format!(
-										"{name}, {} servers, {}",
+										"{name}, {} {}, {}",
 										folder.guild_ids.len(),
-										if open { "expanded" } else { "collapsed" }
+										crate::i18n::translate("servers"),
+										crate::i18n::translate(if open {
+											"expanded"
+										} else {
+											"collapsed"
+										})
 									),
 								)
 							});

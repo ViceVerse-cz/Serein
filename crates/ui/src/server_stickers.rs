@@ -151,11 +151,11 @@ impl StickersUi {
 		if state.server_admin.pending {
 			ui.horizontal(|ui| {
 				ui.spinner();
-				ui.weak(if state.server_admin.saving {
+				ui.weak(crate::i18n::translate(if state.server_admin.saving {
 					"Saving changes…"
 				} else {
 					"Loading…"
-				});
+				}));
 			});
 		}
 
@@ -176,10 +176,10 @@ impl StickersUi {
 			{
 				self.choose();
 			}
-			ui.small("Static PNG, JPEG and WebP artwork is supported up to 8 MB. The prepared PNG must fit within Discord's 512 KB limit.");
+			ui.small(crate::i18n::translate("Static PNG, JPEG and WebP artwork is supported up to 8 MB. The prepared PNG must fit within Discord's 512 KB limit."));
 		}
 		if self.choosing {
-			ui.weak("Preparing sticker artwork…");
+			ui.weak(crate::i18n::translate("Preparing sticker artwork…"));
 		}
 		if let Some(upload) = &mut self.upload {
 			let colors = design::palette(ui);
@@ -244,14 +244,21 @@ impl StickersUi {
 			));
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				ui.weak(catalog.limit.map_or_else(
-					|| format!("{count} stickers"),
-					|limit| format!("{} of {limit} slots used", count.min(limit)),
+					|| format!("{count} {}", crate::i18n::translate("stickers")),
+					|limit| {
+						format!(
+							"{} {} {limit} {}",
+							count.min(limit),
+							crate::i18n::translate("of"),
+							crate::i18n::translate("slots used")
+						)
+					},
 				));
 			});
 		});
 		ui.add_space(10.0);
 		if catalog.items.is_empty() {
-			ui.vertical_centered(|ui| ui.weak("No custom stickers yet."));
+			ui.vertical_centered(|ui| ui.weak(crate::i18n::translate("No custom stickers yet.")));
 		} else {
 			let available = ui.available_width();
 			let columns = ((available / 190.0).floor() as usize).clamp(1, 4);
@@ -288,7 +295,11 @@ impl StickersUi {
 											.truncate(),
 										);
 										if let Some(user) = &row.uploader {
-											ui.weak(format!("by {}", user.name));
+											ui.weak(format!(
+												"{} {}",
+												crate::i18n::translate("by"),
+												user.name
+											));
 										}
 										if state.can_edit_guild_sticker(guild, row.sticker.id) {
 											let button = icons::button(

@@ -174,7 +174,7 @@ impl AuditLogUi {
 			}
 			if state.server_admin.pending {
 				ui.spinner();
-				ui.weak("Loading audit log…");
+				ui.weak(crate::i18n::translate("Loading audit log…"));
 			}
 		});
 		if let Some(error) = state.server_admin.error {
@@ -191,7 +191,9 @@ impl AuditLogUi {
 			}
 			if page.entries.is_empty() && !state.server_admin.pending {
 				ui.add_space(24.0);
-				ui.weak("No audit log entries match these filters.");
+				ui.weak(crate::i18n::translate(
+					"No audit log entries match these filters.",
+				));
 			}
 			// The list is the page's only scroller: it takes the remaining height and keeps
 			// the paging controls pinned below it.
@@ -202,7 +204,7 @@ impl AuditLogUi {
 				ui.add_space(12.0);
 			}
 			if state.server_admin.audit_limit_reached {
-				ui.weak("The audit log reached its local entry or memory limit. Adjust the filters to find other events.");
+				ui.weak(crate::i18n::translate("The audit log reached its local entry or memory limit. Adjust the filters to find other events."));
 			} else if page.has_more
 				&& let Some(last) = page.entries.last()
 				&& ui
@@ -485,7 +487,9 @@ fn details(ui: &mut egui::Ui, entry: &Entry, state: &State) {
 		line(ui, format!("Reason: {reason}"));
 	}
 	if index == 1 {
-		ui.weak("No additional details were provided for this event.");
+		ui.weak(crate::i18n::translate(
+			"No additional details were provided for this event.",
+		));
 	}
 }
 fn change_text(change: &Change, state: &State) -> String {

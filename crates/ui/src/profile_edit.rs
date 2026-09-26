@@ -294,11 +294,11 @@ impl Editor {
 						);
 					} else if self.saved {
 						ui.label(
-							egui::RichText::new(if state.demo {
+							egui::RichText::new(crate::i18n::translate(if state.demo {
 								"Saved in preview"
 							} else {
 								"Profile saved"
-							})
+							}))
 							.size(13.0)
 							.color(colors.positive),
 						);

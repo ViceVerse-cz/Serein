@@ -105,7 +105,9 @@ impl GroupMenu {
 			}
 		});
 		if !enabled {
-			ui.small("Group actions unavailable while disconnected or busy.");
+			ui.small(crate::i18n::translate(
+				"Group actions unavailable while disconnected or busy.",
+			));
 		}
 	}
 	pub fn context(
@@ -209,11 +211,11 @@ impl GroupMenu {
 		let busy = dialog.submitted.is_some() || state.group_action_pending();
 		let mut builder = crate::dialog::Dialog::new(
 			"group-editor",
-			if dialog.edit {
+			crate::i18n::translate(if dialog.edit {
 				"Edit Group"
 			} else {
 				"Leave Group?"
-			},
+			}),
 		)
 		.width(440.0);
 		builder = if dialog.edit {
@@ -222,7 +224,8 @@ impl GroupMenu {
 			))
 		} else {
 			builder.danger().subtitle(format!(
-				"You will need an invitation to rejoin {}.",
+				"{} {}.",
+				crate::i18n::translate("You will need an invitation to rejoin"),
 				dialog.name
 			))
 		};

@@ -385,6 +385,7 @@ impl ScreenUi {
 
 /// Compact segmented choice used by the quality and frame-rate rows.
 fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
+	let label = crate::i18n::translate(label);
 	let colors = crate::design::palette(ui);
 	let galley = ui.painter().layout_no_wrap(
 		label.to_owned(),
@@ -416,8 +417,9 @@ fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
 		galley,
 		color,
 	);
-	response
-		.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, label));
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &label)
+	});
 	response
 }
 

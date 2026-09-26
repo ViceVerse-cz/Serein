@@ -1484,7 +1484,11 @@ pub fn account_row_with_remove(
 			);
 		}
 		remove.widget_info(|| {
-			egui::WidgetInfo::labeled(egui::Role::Button, enabled, format!("Forget {name}"))
+			egui::WidgetInfo::labeled(
+				egui::Role::Button,
+				enabled,
+				format!("{} {name}", crate::i18n::translate("Forget")),
+			)
 		});
 		remove.on_hover_text(crate::i18n::translate("Forget this account on this device"))
 	});

@@ -90,7 +90,10 @@ pub fn show(
 								ui.label(
 									design::medium(
 										ui,
-										state.user.as_ref().map_or("You", |u| &u.name),
+										state.user.as_ref().map_or_else(
+											|| crate::i18n::translate("You"),
+											|u| u.name.clone(),
+										),
 										15.5,
 									)
 									.color(colors.muted),
@@ -194,11 +197,13 @@ pub fn show(
 							);
 						}
 						if ui
-							.button(if pending.sticker.is_some() {
-								crate::i18n::translate("Dismiss")
-							} else {
-								crate::i18n::translate("Restore to composer")
-							})
+							.button(crate::i18n::translate(
+								&(if pending.sticker.is_some() {
+									crate::i18n::translate("Dismiss")
+								} else {
+									crate::i18n::translate("Restore to composer")
+								}),
+							))
 							.clicked()
 						{
 							*restore = Some(pending.nonce.clone());

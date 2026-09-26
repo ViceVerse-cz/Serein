@@ -42,10 +42,11 @@ fn invite_input(ui: &mut egui::Ui, text: &mut String, focus: bool) -> egui::Resp
 }
 
 fn option_row(ui: &mut egui::Ui, icon: icons::Icon, label: &str) -> egui::Response {
+	let label = crate::i18n::translate(label);
 	let colors = design::palette(ui);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 56.0), egui::Sense::click());
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
 	let hot = response.hovered() || response.has_focus();
 	ui.painter().rect(
 		rect,
@@ -70,7 +71,7 @@ fn option_row(ui: &mut egui::Ui, icon: icons::Icon, label: &str) -> egui::Respon
 	ui.painter().text(
 		egui::pos2(rect.left() + 50.0, rect.center().y),
 		egui::Align2::LEFT_CENTER,
-		label,
+		&label,
 		egui::FontId::new(15.0, design::medium_family(ui.ctx())),
 		colors.text,
 	);
@@ -375,11 +376,11 @@ impl JoinDialog {
 					egui::WidgetInfo::labeled(
 						egui::Role::Button,
 						!self.icon_pending,
-						if self.icon.is_some() {
+						crate::i18n::translate(if self.icon.is_some() {
 							"Change server icon"
 						} else {
 							"Upload server icon"
-						},
+						}),
 					)
 				});
 				ui.painter().circle(
@@ -603,9 +604,9 @@ impl JoinDialog {
 								egui::Label::new(
 									design::semibold(
 										ui,
-										preview
-											.and_then(|p| p.embed.title.as_deref())
-											.unwrap_or("Checking invite…"),
+										preview.and_then(|p| p.embed.title.clone()).unwrap_or_else(
+											|| crate::i18n::translate("Checking invite…"),
+										),
 										17.0,
 									)
 									.color(colors.text_strong),
@@ -637,13 +638,15 @@ impl JoinDialog {
 								None => {
 									ui.add(
 										egui::Label::new(
-											egui::RichText::new(if member {
-												"You are already a member."
-											} else if loading {
-												"Fetching server details…"
-											} else {
-												"Review this server, then choose Join Server."
-											})
+											egui::RichText::new(crate::i18n::translate(
+												if member {
+													"You are already a member."
+												} else if loading {
+													"Fetching server details…"
+												} else {
+													"Review this server, then choose Join Server."
+												},
+											))
 											.size(13.0)
 											.color(colors.muted),
 										)
@@ -654,11 +657,11 @@ impl JoinDialog {
 							if preview.is_some() {
 								ui.add(
 									egui::Label::new(
-										egui::RichText::new(if member {
+										egui::RichText::new(crate::i18n::translate(if member {
 											"You are already a member of this server."
 										} else {
 											"Choose Join Server to confirm."
-										})
+										}))
 										.size(12.0)
 										.color(colors.muted),
 									)
@@ -687,6 +690,7 @@ impl JoinDialog {
 			((!self.status.is_empty()).then_some(self.status), false),
 		] {
 			let Some(text) = text else { continue };
+			let text = crate::i18n::translate(text);
 			ui.add_space(12.0);
 			let (fill, color) = if danger {
 				(colors.danger.gamma_multiply(0.14), colors.danger)

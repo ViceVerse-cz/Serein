@@ -57,6 +57,7 @@ impl MessagingUi {
 
 	/// Header eyebrow with a quiet reset on the right, so the reset stays reachable above a tall card.
 	fn header_with_reset(ui: &mut egui::Ui, title: &str, reset: &str) -> bool {
+		let title = crate::i18n::translate(title);
 		let colors = design::palette(ui);
 		let mut clicked = false;
 		ui.add_space(4.0);

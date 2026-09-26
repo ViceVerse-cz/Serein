@@ -87,7 +87,7 @@ fn text(
 		(images, demo, guilds),
 	);
 	if formatted.limited {
-		ui.small("Text display limited");
+		ui.small(crate::i18n::translate("Text display limited"));
 	}
 }
 pub fn standalone_media_links(message: &Message) -> bool {
@@ -202,7 +202,13 @@ fn gallery(
 							egui::Role::Image
 						},
 						ui.is_enabled(),
-						format!("Open embed image {} of {}", index + 1, embeds.len()),
+						format!(
+							"{} {} {} {}",
+							crate::i18n::translate("Open embed image"),
+							index + 1,
+							crate::i18n::translate("of"),
+							embeds.len()
+						),
 					)
 				});
 				if response.has_focus() {
@@ -327,7 +333,7 @@ pub fn show(
 			if count > 1 && inline_image(embed).is_some() {
 				gallery(ui, group, images, opening, download, demo);
 				if group.iter().any(|e| e.limited) {
-					ui.small("Embed display limited");
+					ui.small(crate::i18n::translate("Embed display limited"));
 				}
 				ui.add_space(6.0);
 				return;
@@ -401,11 +407,13 @@ pub fn show(
 					if star.clicked() {
 						favorite_action = Some(gif);
 					}
-					star.on_hover_text(if favorite {
-						crate::i18n::translate("Remove from GIF favorites")
-					} else {
-						crate::i18n::translate("Save to GIF favorites")
-					})
+					star.on_hover_text(crate::i18n::translate(
+						&(if favorite {
+							crate::i18n::translate("Remove from GIF favorites")
+						} else {
+							crate::i18n::translate("Save to GIF favorites")
+						}),
+					))
 				});
 				if !star
 					.as_ref()
@@ -584,7 +592,9 @@ pub fn show(
 							if embed.video.is_some()
 								|| matches!(embed.kind.as_str(), "video" | "gifv")
 							{
-								ui.small("Video preview · playback opens in your browser");
+								ui.small(crate::i18n::translate(
+									"Video preview · playback opens in your browser",
+								));
 								link(
 									ui,
 									"Open video…",
@@ -623,13 +633,15 @@ pub fn show(
 								ui.small(timestamp);
 							}
 							if group.iter().any(|e| e.limited) {
-								ui.small("Embed display limited");
+								ui.small(crate::i18n::translate("Embed display limited"));
 							}
 							if !matches!(
 								embed.kind.as_str(),
 								"rich" | "article" | "link" | "image" | "video" | "gifv"
 							) {
-								ui.small("Additional embed content is not supported");
+								ui.small(crate::i18n::translate(
+									"Additional embed content is not supported",
+								));
 							}
 						});
 				});

@@ -364,18 +364,20 @@ impl ExtensionUi {
 							ui.spacing_mut().item_spacing.y = 1.0;
 							ui.label(design::eyebrow(
 								ui,
-								if gallery.is_some() {
+								crate::i18n::translate(if gallery.is_some() {
 									"Previewing theme"
 								} else {
 									"Theme preview"
-								},
+								}),
 								colors.muted,
 							));
 							ui.add(
 								egui::Label::new(
 									design::semibold(
 										ui,
-										gallery.as_deref().unwrap_or("Changes are not saved yet"),
+										gallery.clone().unwrap_or_else(|| {
+											crate::i18n::translate("Changes are not saved yet")
+										}),
 										14.0,
 									)
 									.color(colors.text_strong),
@@ -388,11 +390,11 @@ impl ExtensionUi {
 						ui.spacing_mut().item_spacing.x = 8.0;
 						back = design::button(
 							ui,
-							if gallery.is_some() {
+							&crate::i18n::translate(if gallery.is_some() {
 								"Back to themes"
 							} else {
 								"Back to theme editor"
-							},
+							}),
 							design::ButtonKind::Primary,
 						)
 						.clicked();
@@ -609,11 +611,19 @@ impl ExtensionUi {
 				egui::WidgetInfo::labeled(
 					egui::Role::Button,
 					true,
-					format!("Preview {}", entry.manifest.name),
+					format!(
+						"{} {}",
+						crate::i18n::translate("Preview"),
+						entry.manifest.name
+					),
 				)
 			});
 			if response
-				.on_hover_text(format!("Preview {}", entry.manifest.name))
+				.on_hover_text(format!(
+					"{} {}",
+					crate::i18n::translate("Preview"),
+					entry.manifest.name
+				))
 				.clicked()
 			{
 				self.open_preview(ui.ctx(), entry);
@@ -690,7 +700,11 @@ impl ExtensionUi {
 					egui::WidgetInfo::labeled(
 						egui::Role::Button,
 						true,
-						format!("Preview {}", entry.manifest.name),
+						format!(
+							"{} {}",
+							crate::i18n::translate("Preview"),
+							entry.manifest.name
+						),
 					)
 				});
 				if response
@@ -1016,22 +1030,26 @@ impl ExtensionUi {
 							24.0 * f32::from(u8::from(working) + u8::from(!self.query.is_empty()));
 						ui.add(
 							egui::TextEdit::singleline(&mut self.query)
-								.hint_text(if self.themes {
-									crate::i18n::translate("Search themes")
-								} else {
-									crate::i18n::translate("Search extensions")
-								})
+								.hint_text(crate::i18n::translate(
+									&(if self.themes {
+										crate::i18n::translate("Search themes")
+									} else {
+										crate::i18n::translate("Search extensions")
+									}),
+								))
 								.char_limit(128)
 								.frame(egui::Frame::NONE)
 								.desired_width((ui.available_width() - trailing).max(60.0)),
 						);
 						if working {
 							ui.add(egui::Spinner::new().size(16.0).color(colors.muted))
-								.on_hover_text(if self.catalog_refreshing {
-									crate::i18n::translate("Checking for packages and updates")
-								} else {
-									crate::i18n::translate("Working on your last action")
-								});
+								.on_hover_text(crate::i18n::translate(
+									&(if self.catalog_refreshing {
+										crate::i18n::translate("Checking for packages and updates")
+									} else {
+										crate::i18n::translate("Working on your last action")
+									}),
+								));
 						}
 						if !self.query.is_empty() {
 							let (rect, response) = ui
@@ -1351,22 +1369,22 @@ impl ExtensionUi {
 						ui.label(
 							design::semibold(
 								ui,
-								match (query.is_empty(), self.themes) {
+								crate::i18n::translate(match (query.is_empty(), self.themes) {
 									(false, _) => "No matches",
 									(true, true) => "No themes yet",
 									(true, false) => "No extensions yet",
-								},
+								}),
 								17.0,
 							)
 							.color(colors.text_strong),
 						);
 						ui.add_space(3.0);
 						ui.label(
-							egui::RichText::new(if query.is_empty() {
+							egui::RichText::new(crate::i18n::translate(if query.is_empty() {
 								"Refresh the catalog or import a creator's package to get started."
 							} else {
 								"Try a different name or creator."
-							})
+							}))
 							.size(13.0)
 							.color(colors.muted),
 						);
@@ -1415,12 +1433,17 @@ impl ExtensionUi {
 					if entry.cleanup_pending {
 						badge(
 							ui,
-							"Cleanup pending",
+							&crate::i18n::translate("Cleanup pending"),
 							colors.warning,
 							design::mix(colors.raised, colors.warning, 0.16),
 						);
 					} else if entry.enabled && active {
-						badge(ui, "Active", colors.accent_text, colors.accent);
+						badge(
+							ui,
+							&crate::i18n::translate("Active"),
+							colors.accent_text,
+							colors.accent,
+						);
 					} else if entry.enabled && entry.update_available {
 						update_requested = ui
 							.add_enabled(
@@ -1471,9 +1494,13 @@ impl ExtensionUi {
 					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new(format!("by {}", entry.manifest.author))
-									.size(12.0)
-									.color(colors.muted),
+								egui::RichText::new(format!(
+									"{} {}",
+									crate::i18n::translate("by"),
+									entry.manifest.author
+								))
+								.size(12.0)
+								.color(colors.muted),
 							)
 							.truncate(),
 						)
@@ -1493,21 +1520,21 @@ impl ExtensionUi {
 					if entry.cleanup_pending {
 						badge(
 							ui,
-							"Cleanup pending",
+							&crate::i18n::translate("Cleanup pending"),
 							colors.warning,
 							design::mix(colors.raised, colors.warning, 0.16),
 						);
 					} else if entry.enabled {
 						badge(
 							ui,
-							"Enabled",
+							&crate::i18n::translate("Enabled"),
 							colors.positive,
 							design::mix(colors.raised, colors.positive, 0.16),
 						);
 						if entry.update_available {
 							badge(
 								ui,
-								"Update",
+								&crate::i18n::translate("Update"),
 								colors.accent,
 								design::mix(colors.raised, colors.accent, 0.2),
 							);
@@ -1524,9 +1551,13 @@ impl ExtensionUi {
 			ui.spacing_mut().item_spacing.y = 2.0;
 			ui.add(
 				egui::Label::new(
-					egui::RichText::new(format!("by {}", entry.manifest.author))
-						.size(12.0)
-						.color(colors.muted),
+					egui::RichText::new(format!(
+						"{} {}",
+						crate::i18n::translate("by"),
+						entry.manifest.author
+					))
+					.size(12.0)
+					.color(colors.muted),
 				)
 				.truncate(),
 			)
@@ -1794,11 +1825,11 @@ impl ExtensionUi {
 				});
 		let response = crate::dialog::Dialog::new(
 			"extension-consent",
-			if theme {
+			crate::i18n::translate(if theme {
 				"Enable this theme"
 			} else {
 				"Enable this extension"
-			},
+			}),
 		)
 		.subtitle(crate::i18n::translate(
 			"Everything it may touch is listed below.",
@@ -1850,7 +1881,8 @@ impl ExtensionUi {
 								ui.add(
 									egui::Label::new(
 										egui::RichText::new(format!(
-											"by {}",
+											"{} {}",
+											crate::i18n::translate("by"),
 											consent.entry.manifest.author
 										))
 										.size(12.0)
@@ -1863,14 +1895,14 @@ impl ExtensionUi {
 									if consent.entry.reviewed {
 										badge(
 											ui,
-											"Reviewed",
+											&crate::i18n::translate("Reviewed"),
 											colors.positive,
 											design::mix(colors.raised, colors.positive, 0.16),
 										);
 									} else {
 										badge(
 											ui,
-											"Unreviewed",
+											&crate::i18n::translate("Unreviewed"),
 											colors.warning,
 											design::mix(colors.raised, colors.warning, 0.16),
 										);
@@ -2512,6 +2544,7 @@ fn quiet_action(
 	color: egui::Color32,
 	hover: egui::Color32,
 ) -> egui::Response {
+	let label = crate::i18n::translate(label);
 	let galley = ui.painter().layout_no_wrap(
 		label.to_owned(),
 		egui::FontId::new(12.0, design::medium_family(ui.ctx())),
@@ -2519,7 +2552,7 @@ fn quiet_action(
 	);
 	let (rect, response) =
 		ui.allocate_exact_size(galley.size() + egui::vec2(8.0, 4.0), egui::Sense::click());
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
 	let enabled = ui.is_enabled();
 	let hot = enabled && (response.hovered() || response.has_focus());
 	let color = if !enabled {

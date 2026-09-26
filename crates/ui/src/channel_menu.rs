@@ -534,11 +534,11 @@ impl ChannelMenu {
 					let colors = design::palette(ui);
 					ui.add(
 						egui::Label::new(
-							egui::RichText::new(if category {
+							egui::RichText::new(crate::i18n::translate(&(if category {
 								format!("Delete {}? Its channels will remain in the server. This cannot be undone.", dialog.draft.name)
 							} else {
 								format!("Are you sure you want to delete #{}? Its messages will be permanently deleted. This cannot be undone.", dialog.draft.name)
-							})
+							})))
 							.size(14.0)
 							.color(colors.text),
 						)
@@ -798,11 +798,13 @@ impl Dialog {
 		let name = dialog::input(
 			ui,
 			egui::TextEdit::singleline(&mut self.draft.name)
-				.hint_text(if self.kind == Kind::CreateCategory {
-					crate::i18n::translate("new-category")
-				} else {
-					crate::i18n::translate("new-channel")
-				})
+				.hint_text(crate::i18n::translate(
+					&(if self.kind == Kind::CreateCategory {
+						crate::i18n::translate("new-category")
+					} else {
+						crate::i18n::translate("new-channel")
+					}),
+				))
 				.char_limit(100),
 		)
 		.labelled_by(label.id);

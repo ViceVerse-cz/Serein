@@ -140,7 +140,7 @@ impl ServerMenu {
 				egui::WidgetInfo::labeled(
 					egui::Role::Button,
 					ui.is_enabled(),
-					format!("Server menu, {title}"),
+					format!("{}, {title}", crate::i18n::translate("Server menu")),
 				)
 			});
 			egui::Popup::menu(&button)
@@ -182,11 +182,11 @@ impl ServerMenu {
 					ui.separator();
 					self.leave_item(ui, state, guild);
 					if !available {
-						ui.small(if state.server_action_pending() {
+						ui.small(crate::i18n::translate(if state.server_action_pending() {
 							"A server action is in progress."
 						} else {
 							"Reconnect to manage this server."
-						});
+						}));
 					}
 				});
 			button
@@ -235,50 +235,61 @@ impl ServerMenu {
 		let reason = state.leave_server_reason(guild);
 		let mut leave = false;
 		let mut close = false;
-		let response = dialog::Dialog::new("server-action-dialog", crate::i18n::translate("Leave server?"))
-			.danger()
-			.width(440.0)
-			.show(ctx, |d| {
-				d.content(|ui| {
-					let colors = design::palette(ui);
-					ui.spacing_mut().item_spacing.y = 10.0;
-					ui.add(
-						egui::Label::new(
-							egui::RichText::new(format!(
-								"Are you sure you want to leave {name}? You will not be able to rejoin this server unless you are re-invited."
-							))
-							.size(14.0)
-							.color(colors.text),
-						)
-						.wrap(),
-					);
-					if let Some(reason) = reason {
-						dialog::notice(ui, dialog::Level::Warning, reason);
-					}
-					if let Some(status) = state.server_action_status(guild) {
-						dialog::notice(ui, dialog::Level::Error, status);
-					}
-					if state.demo {
-						dialog::hint(ui, "Offline preview · no server changes");
-					}
-				});
-				d.footer(|ui| {
-					ui.add_enabled_ui(!pending && reason.is_none(), |ui| {
-						leave = dialog::action(
-							ui,
-							if pending { "Leaving…" } else { "Leave Server" },
-							dialog::Action::Danger,
-						)
-						.clicked();
-					});
-					close |= dialog::action(
+		let response = dialog::Dialog::new(
+			"server-action-dialog",
+			crate::i18n::translate("Leave server?"),
+		)
+		.danger()
+		.width(440.0)
+		.show(ctx, |d| {
+			d.content(|ui| {
+				let colors = design::palette(ui);
+				ui.spacing_mut().item_spacing.y = 10.0;
+				ui.add(
+					egui::Label::new(
+						egui::RichText::new(format!(
+							"{} {name}? {}",
+							crate::i18n::translate("Are you sure you want to leave"),
+							crate::i18n::translate(
+								"You will not be able to rejoin this server unless you are re-invited."
+							)
+						))
+						.size(14.0)
+						.color(colors.text),
+					)
+					.wrap(),
+				);
+				if let Some(reason) = reason {
+					dialog::notice(ui, dialog::Level::Warning, reason);
+				}
+				if let Some(status) = state.server_action_status(guild) {
+					dialog::notice(ui, dialog::Level::Error, status);
+				}
+				if state.demo {
+					dialog::hint(ui, "Offline preview · no server changes");
+				}
+			});
+			d.footer(|ui| {
+				ui.add_enabled_ui(!pending && reason.is_none(), |ui| {
+					leave = dialog::action(
 						ui,
-						if pending { "Close" } else { "Cancel" },
-						dialog::Action::Neutral,
+						if pending {
+							"Leaving…"
+						} else {
+							"Leave Server"
+						},
+						dialog::Action::Danger,
 					)
 					.clicked();
 				});
+				close |= dialog::action(
+					ui,
+					if pending { "Close" } else { "Cancel" },
+					dialog::Action::Neutral,
+				)
+				.clicked();
 			});
+		});
 		if leave && let Some(command) = state.leave_server(guild) {
 			commands.push(command);
 		}

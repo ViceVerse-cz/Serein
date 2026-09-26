@@ -135,6 +135,21 @@ mod tests {
 		assert_eq!(Language::Czech.source("Create invite"), "Vytvořit pozvánku");
 		assert_eq!(Language::Czech.source("Direct Messages"), "Přímé zprávy");
 		assert_eq!(Language::Czech.source("Online"), "Online");
+		for source in [
+			"Manage settings that help keep your server active.",
+			"Use roles to group your server members and assign permissions.",
+			"Default Permissions\n@everyone · applies to all server members",
+			"Members use the color of the highest role they have on this list. Drag roles to reorder them.",
+			"Delete Server",
+			"ROLES",
+			"MEMBERS",
+			"EXPRESSION",
+			"PEOPLE",
+			"APPS",
+			"MODERATION",
+		] {
+			assert_ne!(Language::Czech.source(source), source);
+		}
 		for (source, translated) in [
 			("Copy message", "Kopírovat zprávu"),
 			("Reply", "Odpovědět"),

@@ -227,13 +227,16 @@ impl Browser {
 												}
 												if !enabled {
 													response.on_disabled_hover_text(
-														if !as_image
-															&& state.sticker_requires_nitro(sticker)
-														{
-															"Nitro is required to use this sticker outside its server."
-														} else {
-															"This sticker is unavailable with the current connection or permissions."
-														},
+														crate::i18n::translate(
+															if !as_image
+																&& state
+																	.sticker_requires_nitro(sticker)
+															{
+																"Nitro is required to use this sticker outside its server."
+															} else {
+																"This sticker is unavailable with the current connection or permissions."
+															},
+														),
 													);
 												}
 											});
@@ -246,9 +249,9 @@ impl Browser {
 								self.target = None;
 							}
 							if !query.is_empty() && results >= 500 {
-								ui.small(
+								ui.small(crate::i18n::translate(
 									"Showing the first 500 stickers. Search to narrow the results.",
-								);
+								));
 								break;
 							}
 						}
@@ -322,16 +325,19 @@ pub(crate) fn message(
 				.wrap(),
 			);
 			if let Some(section) = section {
-				ui.label(format!("This is a {} sticker.", section.name));
+				ui.label(format!(
+					"{} {} {}.",
+					crate::i18n::translate("This is a"),
+					section.name,
+					crate::i18n::translate("sticker")
+				));
 			} else if state.stickers.detail_loading == Some(sticker.id) {
 				ui.label(crate::i18n::translate("Loading sticker details…"));
 			} else {
-				ui.label(
-					state
-						.stickers
-						.detail_error
-						.unwrap_or("Sticker details unavailable."),
-				);
+				ui.label(state.stickers.detail_error.map_or_else(
+					|| crate::i18n::translate("Sticker details unavailable."),
+					str::to_owned,
+				));
 				if ui
 					.button(crate::i18n::translate("Retry sticker details"))
 					.clicked()

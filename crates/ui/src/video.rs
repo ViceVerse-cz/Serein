@@ -245,14 +245,14 @@ impl VideoUi {
 		if active && self.is_fullscreen() && !fullscreen {
 			return response;
 		}
-		let label = match state {
+		let label = crate::i18n::translate(match state {
 			VideoState::Loading => "Cancel",
 			VideoState::Playing => "Pause",
 			VideoState::Paused => "Resume",
 			VideoState::Ended => "Replay",
 			VideoState::Failed(_) => "Retry",
 			VideoState::Idle => "Play",
-		};
+		});
 		let painter = ui.painter().with_clip_rect(stage);
 		painter.rect_filled(stage, CORNER, egui::Color32::BLACK);
 		if let Some(texture) = self.texture.as_ref().filter(|_| active) {
@@ -287,7 +287,11 @@ impl VideoUi {
 			egui::WidgetInfo::labeled(
 				egui::Role::Button,
 				ui.is_enabled(),
-				format!("{label} video {}", attachment.filename),
+				format!(
+					"{label} {} {}",
+					crate::i18n::translate("video"),
+					attachment.filename
+				),
 			)
 		});
 		let center = if show_controls {
@@ -648,11 +652,11 @@ impl VideoUi {
 						)
 					})
 					.inner
-					.on_disabled_hover_text(if demo {
+					.on_disabled_hover_text(crate::i18n::translate(if demo {
 						"Downloads are disabled for synthetic attachments"
 					} else {
 						"A download is already active"
-					})
+					}))
 					.clicked()
 				{
 					download.request = Some(attachment.clone());

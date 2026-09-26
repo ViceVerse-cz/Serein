@@ -774,18 +774,26 @@ impl Menu {
 						egui::WidgetInfo::labeled(
 							egui::Role::Button,
 							true,
-							format!("/{} · choose a different command", active.name),
+							format!(
+								"/{} · {}",
+								active.name,
+								crate::i18n::translate("choose a different command")
+							),
 						)
 					});
-					name.on_hover_text(format!("/{} · choose a different command", active.name));
+					name.on_hover_text(format!(
+						"/{} · {}",
+						active.name,
+						crate::i18n::translate("choose a different command")
+					));
 					if !allowed {
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new(if command.is_some() {
+								egui::RichText::new(crate::i18n::translate(if command.is_some() {
 									NO_PERMISSION
 								} else {
 									"Command unavailable. Your arguments are kept."
-								})
+								}))
 								.color(colors.muted),
 							)
 							.truncate(),
@@ -1252,11 +1260,13 @@ fn argument(
 			.map_or(value.as_str(), |choice| choice.name.as_str());
 		egui::ComboBox::from_id_salt(id)
 			.width(ui.available_width())
-			.selected_text(if label.is_empty() {
-				crate::i18n::translate("Choose…")
-			} else {
-				label.to_owned()
-			})
+			.selected_text(crate::i18n::translate(
+				&(if label.is_empty() {
+					crate::i18n::translate("Choose…")
+				} else {
+					label.to_owned()
+				}),
+			))
 			.show_ui(ui, |ui| {
 				ui.selectable_value(value, String::new(), crate::i18n::translate("Not set"));
 				if option.kind == 5 {

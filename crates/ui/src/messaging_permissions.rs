@@ -54,7 +54,7 @@ impl Navigation {
 		}
 		let heading = ui.label(design::eyebrow(
 			ui,
-			tab.heading(),
+			crate::i18n::translate(tab.heading()),
 			design::palette(ui).muted,
 		));
 		if heading.rect.top() <= ui.clip_rect().top() + 28.0 {
@@ -73,7 +73,7 @@ fn toggle(ui: &mut egui::Ui, label: &str, detail: Option<&str>, mut value: bool)
 }
 fn detail(ui: &mut egui::Ui, text: &str) {
 	ui.label(
-		RichText::new(text)
+		RichText::new(crate::i18n::translate(text))
 			.size(13.0)
 			.color(design::palette(ui).muted),
 	);

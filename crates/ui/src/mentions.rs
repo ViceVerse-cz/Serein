@@ -847,14 +847,16 @@ fn row(
 			egui::Role::Button,
 			true,
 			selected,
-			match candidate {
-				Candidate::User { name, .. } => name.clone(),
-				Candidate::Mass { name } => format!("@{name}"),
-				Candidate::Role { name, .. } => format!("@{name}, role"),
-				Candidate::Channel { name, .. } => name.clone(),
-				Candidate::Unicode { code, .. } => (*code).to_owned(),
-				Candidate::Custom { name, server, .. } => format!("{name} from {server}"),
-			},
+			crate::i18n::translate(
+				&(match candidate {
+					Candidate::User { name, .. } => name.clone(),
+					Candidate::Mass { name } => format!("@{name}"),
+					Candidate::Role { name, .. } => format!("@{name}, role"),
+					Candidate::Channel { name, .. } => name.clone(),
+					Candidate::Unicode { code, .. } => (*code).to_owned(),
+					Candidate::Custom { name, server, .. } => format!("{name} from {server}"),
+				}),
+			),
 		)
 	});
 	response

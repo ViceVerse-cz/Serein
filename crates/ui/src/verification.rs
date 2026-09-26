@@ -49,11 +49,11 @@ impl VerificationUi {
 			},
 			crate::i18n::translate("Verification required"),
 		)
-		.subtitle(if friend {
+		.subtitle(crate::i18n::translate(if friend {
 			"Complete the check to send this friend request."
 		} else {
 			"Complete the check to join this server."
-		})
+		}))
 		.width(520.0)
 		.show(ctx, |d| {
 			d.content(|ui| {
@@ -78,23 +78,23 @@ impl VerificationUi {
 						ui.add_space(if self.active { 28.0 } else { 12.0 });
 						ui.label(design::semibold(
 							ui,
-							if self.active {
+							crate::i18n::translate(if self.active {
 								"Loading verification…"
 							} else {
 								"One quick check"
-							},
+							}),
 							18.0,
 						));
 						ui.add_space(8.0);
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new(if state.demo {
+								egui::RichText::new(crate::i18n::translate(if state.demo {
 									"Offline preview · no verification service is contacted."
 								} else if friend {
 									"Discord requires a security check before you can add this person."
 								} else {
 									"Discord requires a security check before you can join."
-								})
+								}))
 								.size(13.0)
 								.color(colors.muted),
 							)

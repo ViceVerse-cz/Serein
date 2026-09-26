@@ -958,10 +958,11 @@ impl Picker {
 													.id(ui.scope_id().with("picker-search"))
 													.char_limit(64)
 													.frame(egui::Frame::NONE)
-													.hint_text(hint)
+													.hint_text(crate::i18n::translate(hint))
 													.desired_width(ui.available_width()),
 											);
-											let search = search.accessible_name(label);
+											let search = search
+												.accessible_name(crate::i18n::translate(label));
 											if self.focus {
 												search.request_focus();
 												self.focus = false;
@@ -1160,9 +1161,12 @@ impl Picker {
 										.server
 										.and_then(|id| state.guilds.iter().find(|g| g.id == id));
 									let heading = if searching {
-										"Search results"
+										crate::i18n::translate("Search results")
 									} else {
-										guild.map_or("Emoji", |g| g.name.as_str())
+										guild.map_or_else(
+											|| crate::i18n::translate("Emoji"),
+											|g| g.name.clone(),
+										)
 									};
 									ui.add(
 										egui::Label::new(
@@ -1188,13 +1192,13 @@ impl Picker {
 									};
 									let count = custom.len() + unicode.len();
 									if count == 0 {
-										let text = if searching {
+										let text = crate::i18n::translate(if searching {
 											"No matching emoji."
 										} else if guild.is_some_and(|g| g.emojis.is_none()) {
 											"This server's emoji list is not loaded yet."
 										} else {
 											"This server has no custom emoji."
-										};
+										});
 										ui.label(egui::RichText::new(text).color(colors.muted));
 									}
 									if searching && custom.len() == CUSTOM_LIMIT {
@@ -1301,9 +1305,13 @@ impl Picker {
 																.inner;
 															let response = if !enabled {
 																response.on_hover_text(
-																	unavailable.unwrap_or(
-																		"Cannot add this reaction right now",
-																	),
+																	unavailable
+																		.map(str::to_owned)
+																		.unwrap_or_else(|| {
+																			crate::i18n::translate(
+																				"Cannot add this reaction right now",
+																			)
+																		}),
 																)
 															} else {
 																response
@@ -1542,8 +1550,8 @@ impl Picker {
 				ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 				let heading = match mode {
 					GifMode::Home | GifMode::Waiting => None,
-					GifMode::Favorites => Some("Favorites".to_owned()),
-					GifMode::Remote(None) => Some("Trending GIFs".to_owned()),
+					GifMode::Favorites => Some(crate::i18n::translate("Favorites")),
+					GifMode::Remote(None) => Some(crate::i18n::translate("Trending GIFs")),
 					GifMode::Remote(Some(query)) => Some(query.clone()),
 				};
 				if let Some(heading) = heading {
@@ -1646,6 +1654,7 @@ const TILE_GAP: f32 = 8.0;
 const TILE_HEIGHT: f32 = 92.0;
 
 fn status_row(ui: &mut egui::Ui, colors: &crate::design::Palette, spinner: bool, text: &str) {
+	let text = crate::i18n::translate(text);
 	ui.add_space(24.0);
 	ui.vertical_centered(|ui| {
 		if spinner {
@@ -1954,9 +1963,9 @@ fn gif_grid(
 					});
 				}
 				let label = if gif.title.is_empty() {
-					"Send GIF".to_owned()
+					crate::i18n::translate("Send GIF")
 				} else {
-					format!("Send GIF: {}", gif.title)
+					format!("{}: {}", crate::i18n::translate("Send GIF"), gif.title)
 				};
 				response
 					.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));

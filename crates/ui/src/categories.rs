@@ -377,8 +377,10 @@ fn category_header(
 		.galley(label_rect.min, label, color);
 	let response = response.on_hover_text_with(|| {
 		format!(
-			"{name} category · {count} channels · {}",
-			if collapsed { "Expand" } else { "Collapse" }
+			"{name} {} · {count} {} · {}",
+			crate::i18n::translate("category"),
+			crate::i18n::translate("channels"),
+			crate::i18n::translate(if collapsed { "Expand" } else { "Collapse" })
 		)
 	});
 	response.widget_info(|| {
@@ -386,8 +388,10 @@ fn category_header(
 			egui::Role::Button,
 			true,
 			format!(
-				"{name} category, {}, {count} channels",
-				if collapsed { "collapsed" } else { "expanded" }
+				"{name} {}, {}, {count} {}",
+				crate::i18n::translate("category"),
+				crate::i18n::translate(if collapsed { "collapsed" } else { "expanded" }),
+				crate::i18n::translate("channels")
 			),
 		)
 	});
@@ -1061,11 +1065,16 @@ impl MessagingUi {
 									egui::Role::Button,
 									enabled,
 									format!(
-										"{}{}{}; {} notifications",
+										"{}{}{}; {} {}",
 										channel.name,
 										channel_marks::label(access),
-										if unread { ", unread" } else { "" },
-										count
+										if unread {
+											crate::i18n::translate(", unread")
+										} else {
+											String::new()
+										},
+										count,
+										crate::i18n::translate("notifications")
 									),
 								)
 							});

@@ -108,7 +108,7 @@ pub(super) fn dot_stat(ui: &mut egui::Ui, color: egui::Color32, value: &str, lab
 	ui.painter().circle_filled(rect.center(), 4.0, color);
 	ui.add_space(-2.0);
 	ui.label(
-		egui::RichText::new(format!("{value} {label}"))
+		egui::RichText::new(format!("{value} {}", crate::i18n::translate(label)))
 			.size(13.0)
 			.color(colors.muted),
 	);
@@ -161,13 +161,13 @@ pub fn show(
 							ui.set_width(width - 32.0);
 							ui.set_height(CARD_HEIGHT - 32.0);
 							ui.spacing_mut().item_spacing.y = 0.0;
-							let eyebrow = if member {
+							let eyebrow = crate::i18n::translate(if member {
 								"You're a member of"
 							} else if failed {
 								"Invite unavailable"
 							} else {
 								"You've been invited to join a server"
-							};
+							});
 							ui.label(crate::design::eyebrow(ui, eyebrow, colors.muted));
 							ui.add_space(12.0);
 							ui.horizontal(|ui| {
@@ -202,7 +202,7 @@ pub fn show(
 								}
 
 								// Action first so the text column gets whatever width remains.
-								let label = if member {
+								let label = crate::i18n::translate(if member {
 									"Go To Server"
 								} else if verification {
 									"Verify"
@@ -212,7 +212,7 @@ pub fn show(
 									"Accepted"
 								} else {
 									"Join"
-								};
+								});
 								ui.with_layout(
 									egui::Layout::right_to_left(egui::Align::Center),
 									|ui| {
@@ -257,13 +257,15 @@ pub fn show(
 												ui.spacing_mut().item_spacing.y = 4.0;
 												ui.add_space(4.0);
 												let title = embed
-													.and_then(|e| e.title.as_deref())
-													.unwrap_or(if failed {
-														"Invite expired or invalid"
-													} else if demo {
-														"Server preview"
-													} else {
-														"Loading…"
+													.and_then(|e| e.title.clone())
+													.unwrap_or_else(|| {
+														crate::i18n::translate(if failed {
+															"Invite expired or invalid"
+														} else if demo {
+															"Server preview"
+														} else {
+															"Loading…"
+														})
 													});
 												ui.add(
 													egui::Label::new(
@@ -298,24 +300,32 @@ pub fn show(
 														}
 														None => {
 															let text = if verification {
-																"Verification required"
+																crate::i18n::translate(
+																	"Verification required",
+																)
 															} else if let Some(f) = join_error {
-																f.label()
+																f.label().to_owned()
 															} else if let Some(d) =
 																embed.and_then(|e| {
 																	e.description.as_deref()
 																}) {
-																d
+																d.to_owned()
 															} else if demo {
-																"Preview unavailable offline"
+																crate::i18n::translate(
+																	"Preview unavailable offline",
+																)
 															} else if failed {
-																"This invite may have expired"
+																crate::i18n::translate(
+																	"This invite may have expired",
+																)
 															} else {
-																"Fetching server details…"
+																crate::i18n::translate(
+																	"Fetching server details…",
+																)
 															};
 															ui.add(
 																egui::Label::new(
-																	egui::RichText::new(text)
+																	egui::RichText::new(&text)
 																		.size(13.0)
 																		.color(if verification {
 																			colors.accent
@@ -330,7 +340,7 @@ pub fn show(
 																.truncate()
 																.selectable(false),
 															)
-															.on_hover_text(text);
+															.on_hover_text(&text);
 														}
 													}
 												});

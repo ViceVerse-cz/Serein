@@ -286,11 +286,11 @@ impl SearchUi {
 								ui.label(
 									design::semibold(
 										ui,
-										if key == "from" {
+										crate::i18n::translate(if key == "from" {
 											"From User"
 										} else {
 											"Mentions User"
-										},
+										}),
 										13.0,
 									)
 									.color(colors.muted),
@@ -357,7 +357,11 @@ impl SearchUi {
 											filters::suggestion_row(
 												ui,
 												"search",
-												&format!("Search for {}", self.query),
+												&format!(
+													"{} {}",
+													crate::i18n::translate("Search for"),
+													self.query
+												),
 												"",
 											)
 										},
@@ -387,7 +391,12 @@ impl SearchUi {
 									("Mentions a specific user", "mentions: user", "mentions"),
 									("More filters", "dates, author type, and more", ""),
 								] {
-									let row = filters::suggestion_row(ui, key, title, detail);
+									let row = filters::suggestion_row(
+										ui,
+										key,
+										&crate::i18n::translate(title),
+										&crate::i18n::translate(detail),
+									);
 									if row.clicked() {
 										if key == "from" || key == "mentions" {
 											let query = format!("{} {key}:", self.query.trim());
@@ -594,11 +603,11 @@ impl SearchUi {
 					ui.label(
 						design::medium(
 							ui,
-							if dm {
+							crate::i18n::translate(if dm {
 								"This direct message doesn't have\nany pinned messages… yet."
 							} else {
 								"This channel doesn't have\nany pinned messages… yet."
-							},
+							}),
 							15.0,
 						)
 						.color(colors.text_strong),
@@ -633,11 +642,11 @@ impl SearchUi {
 		if let Some(view) = state.search.as_ref().filter(|view| view.pins) {
 			if view.loading {
 				ui.label(
-					RichText::new(if view.pin_before.is_some() {
+					RichText::new(crate::i18n::translate(if view.pin_before.is_some() {
 						"Loading older pins…"
 					} else {
 						"Loading pinned messages…"
-					})
+					}))
 					.small()
 					.color(colors.muted),
 				);
@@ -656,11 +665,13 @@ impl SearchUi {
 					.push_id("older-pins", |ui| {
 						ui.add_enabled(
 							allowed && !view.loading,
-							egui::Button::new(if retry {
-								crate::i18n::translate("Retry older pins")
-							} else {
-								crate::i18n::translate("Older pins")
-							}),
+							egui::Button::new(crate::i18n::translate(
+								&(if retry {
+									crate::i18n::translate("Retry older pins")
+								} else {
+									crate::i18n::translate("Older pins")
+								}),
+							)),
 						)
 					})
 					.inner
@@ -803,8 +814,16 @@ impl SearchUi {
 							RichText::new(crate::i18n::translate("Order on this page"))
 								.color(colors.muted),
 						);
-						ui.radio_value(&mut self.oldest_first, false, "Newest first");
-						ui.radio_value(&mut self.oldest_first, true, "Oldest first");
+						ui.radio_value(
+							&mut self.oldest_first,
+							false,
+							crate::i18n::translate("Newest first"),
+						);
+						ui.radio_value(
+							&mut self.oldest_first,
+							true,
+							crate::i18n::translate("Oldest first"),
+						);
 					});
 					let label = if filter_count > 0 {
 						format!("Filters ({filter_count})")
@@ -936,8 +955,9 @@ impl SearchUi {
 										|ui| {
 											ui.label(
 												RichText::new(format!(
-													"{} of {}",
+													"{} {} {}",
 													page.hits.len(),
+													crate::i18n::translate("of"),
 													page.total
 												))
 												.size(12.0)
@@ -1056,7 +1076,11 @@ impl SearchUi {
 				egui::WidgetInfo::labeled(
 					egui::Role::Button,
 					jumpable,
-					format!("Jump to message from {}", hit.author.name),
+					format!(
+						"{} {}",
+						crate::i18n::translate("Jump to message from"),
+						hit.author.name
+					),
 				)
 			});
 			if response.clicked() && jumpable {

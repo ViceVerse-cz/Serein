@@ -51,11 +51,11 @@ impl InviteDialog {
 			format!("Invite friends to {name}")
 		};
 		let response = crate::dialog::Dialog::new("server-invite-dialog", title)
-			.subtitle(if settings_open {
+			.subtitle(crate::i18n::translate(if settings_open {
 				"Control how long this link lasts and how many people can use it."
 			} else {
 				"Share a link so friends can join this server."
-			})
+			}))
 			.width(540.0)
 			.show(ctx, |d| {
 				if settings_open {
@@ -241,7 +241,7 @@ impl InviteDialog {
 										},
 									);
 									let status = state.server_invite_status(guild, user.id);
-									let label = match status {
+									let label = crate::i18n::translate(match status {
 										Some(InviteStatus::Sending) => "Sending…",
 										Some(InviteStatus::Sent) => "Sent",
 										Some(InviteStatus::Failed(
@@ -249,7 +249,7 @@ impl InviteDialog {
 										)) => "Uncertain",
 										Some(InviteStatus::Failed(_)) => "Retry",
 										None => "Invite",
-									};
+									});
 									let can_send = enabled
 										&& !matches!(
 											status,
@@ -262,7 +262,7 @@ impl InviteDialog {
 										);
 									let button = ui
 										.add_enabled_ui(can_send, |ui| {
-											design::button(ui, label, design::ButtonKind::Outline)
+											design::button(ui, &label, design::ButtonKind::Outline)
 										})
 										.inner;
 									button.widget_info(|| {
@@ -286,13 +286,13 @@ impl InviteDialog {
 				if friends.is_empty() {
 					ui.colored_label(
 						colors.muted,
-						if !state.friends_known() {
+						crate::i18n::translate(if !state.friends_known() {
 							"Friends are not available yet."
 						} else if query.is_empty() {
 							"No friends to invite yet. Share the link below."
 						} else {
 							"No friends match your search."
-						},
+						}),
 					);
 				}
 			});
@@ -322,10 +322,11 @@ impl InviteDialog {
 			let options = state.created_invite_options(guild).unwrap_or(self.options);
 			ui.label(
 				egui::RichText::new(if options.max_age == 0 {
-					"Your invite link never expires.".to_owned()
+					crate::i18n::translate("Your invite link never expires.")
 				} else {
 					format!(
-						"Your invite link expires in {}.",
+						"{} {}.",
+						crate::i18n::translate("Your invite link expires in"),
 						expiry_label(options.max_age)
 					)
 				})
@@ -461,11 +462,11 @@ impl InviteDialog {
 					|ui| {
 						design::button(
 							ui,
-							if pending {
+							&crate::i18n::translate(if pending {
 								"Generating…"
 							} else {
 								"Generate a New Link"
-							},
+							}),
 							design::ButtonKind::Primary,
 						)
 					},

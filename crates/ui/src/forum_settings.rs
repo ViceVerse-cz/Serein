@@ -367,11 +367,11 @@ impl ForumSettingsUi {
 			ui.label(
 				design::semibold(
 					ui,
-					if draft.index.is_some() {
+					crate::i18n::translate(if draft.index.is_some() {
 						"Edit Tag"
 					} else {
 						"Create Tag"
-					},
+					}),
 					15.0,
 				)
 				.color(design::palette(ui).text_strong),
@@ -594,9 +594,13 @@ impl ForumSettingsUi {
 				);
 				if server > 0 {
 					ui.label(
-						RichText::new(format!("{server} server emoji, then standard emoji"))
-							.size(11.0)
-							.color(design::palette(ui).muted),
+						RichText::new(format!(
+							"{server} {}, {}",
+							crate::i18n::translate("server emoji"),
+							crate::i18n::translate("then standard emoji")
+						))
+						.size(11.0)
+						.color(design::palette(ui).muted),
 					);
 				}
 			});

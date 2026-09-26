@@ -321,7 +321,11 @@ fn thread_card(
 		);
 	}
 	ui.add_space(CARD_GAP);
-	response.on_hover_text(format!("Open thread “{}”", thread.name))
+	response.on_hover_text(format!(
+		"{} “{}”",
+		crate::i18n::translate("Open thread"),
+		thread.name
+	))
 }
 
 #[cfg(test)]

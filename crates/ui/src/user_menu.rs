@@ -134,11 +134,13 @@ pub(super) fn contents(
 	if ui
 		.add_enabled(
 			enabled && state.friends().any(|friend| friend.id == user.id),
-			egui::Button::new(if state.friend_nickname(user.id).is_some() {
-				crate::i18n::translate("Edit Friend Nickname")
-			} else {
-				crate::i18n::translate("Add Friend Nickname")
-			}),
+			egui::Button::new(crate::i18n::translate(
+				&(if state.friend_nickname(user.id).is_some() {
+					crate::i18n::translate("Edit Friend Nickname")
+				} else {
+					crate::i18n::translate("Add Friend Nickname")
+				}),
+			)),
 		)
 		.on_disabled_hover_text(crate::i18n::translate(
 			"Private nicknames are available for confirmed friends.",
@@ -155,11 +157,13 @@ pub(super) fn contents(
 			if ui
 				.add_enabled(
 					view.available(),
-					egui::Button::new(if pinned {
-						crate::i18n::translate("Unpin DM")
-					} else {
-						crate::i18n::translate("Pin DM")
-					}),
+					egui::Button::new(crate::i18n::translate(
+						&(if pinned {
+							crate::i18n::translate("Unpin DM")
+						} else {
+							crate::i18n::translate("Pin DM")
+						}),
+					)),
 				)
 				.on_hover_text(crate::i18n::translate(
 					"Pinned direct messages are saved on this device.",
@@ -174,11 +178,13 @@ pub(super) fn contents(
 		if ui
 			.add_enabled(
 				enabled,
-				egui::Button::new(if muted {
-					crate::i18n::translate("Unmute Conversation")
-				} else {
-					crate::i18n::translate("Mute Conversation")
-				}),
+				egui::Button::new(crate::i18n::translate(
+					&(if muted {
+						crate::i18n::translate("Unmute Conversation")
+					} else {
+						crate::i18n::translate("Mute Conversation")
+					}),
+				)),
 			)
 			.on_hover_text(crate::i18n::translate(
 				"Mute this direct message's notifications until you unmute it.",
@@ -219,7 +225,12 @@ pub(super) fn contents(
 		.add_enabled(
 			enabled,
 			egui::Button::new(
-				egui::RichText::new(if blocked { "Unblock" } else { "Block" }).color(colors.danger),
+				egui::RichText::new(crate::i18n::translate(if blocked {
+					"Unblock"
+				} else {
+					"Block"
+				}))
+				.color(colors.danger),
 			),
 		)
 		.clicked()

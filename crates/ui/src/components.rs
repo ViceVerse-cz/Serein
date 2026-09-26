@@ -480,7 +480,11 @@ impl Components {
 				_ => {
 					ui.colored_label(
 						colors.muted,
-						format!("Unsupported component (type {})", c.kind),
+						format!(
+							"{} ({})",
+							crate::i18n::translate("Unsupported component type"),
+							c.kind
+						),
 					);
 				}
 			}
@@ -688,11 +692,13 @@ fn select(
 	egui::ComboBox::from_id_salt("selection")
 		.width(width)
 		.height(360.0)
-		.selected_text(if selected_text.is_empty() {
-			crate::i18n::translate(c.placeholder.as_deref().unwrap_or("Choose options"))
-		} else {
-			selected_text.clone()
-		})
+		.selected_text(crate::i18n::translate(
+			&(if selected_text.is_empty() {
+				crate::i18n::translate(c.placeholder.as_deref().unwrap_or("Choose options"))
+			} else {
+				selected_text.clone()
+			}),
+		))
 		.show_ui(ui, |ui| {
 			ui.set_min_width((width - 16.0).max(40.0));
 			if (c.min_values == Some(0) || !c.required)
@@ -838,11 +844,15 @@ fn select(
 				ui.label(crate::i18n::translate("No matching options loaded"));
 			}
 			if options.len() == 100 {
-				ui.small("Refine your search to see more results");
+				ui.small(crate::i18n::translate(
+					"Refine your search to see more results",
+				));
 			}
 		});
 	if matches!(c.kind, 5..=8) {
-		ui.small("Type to search members; available roles and channels are listed");
+		ui.small(crate::i18n::translate(
+			"Type to search members; available roles and channels are listed",
+		));
 	}
 	changed
 }
@@ -982,7 +992,9 @@ fn field(
 			23 => {
 				ui.checkbox(
 					c.checked.get_or_insert(false),
-					c.label.as_deref().unwrap_or("Confirm"),
+					c.label
+						.clone()
+						.unwrap_or_else(|| crate::i18n::translate("Confirm")),
 				);
 				valid = true;
 			}
@@ -1012,7 +1024,11 @@ fn field(
 			}
 			19 => {
 				if !c.file_types.is_empty() {
-					ui.small(format!("Allowed files: {}", c.file_types.join(", ")));
+					ui.small(format!(
+						"{}: {}",
+						crate::i18n::translate("Allowed files"),
+						c.file_types.join(", ")
+					));
 				}
 				if ui.button(crate::i18n::translate("Choose files…")).clicked() {
 					*file_request = c.custom_id.clone();
@@ -1034,7 +1050,11 @@ fn field(
 						&& c.values.len() <= usize::from(c.max_values.unwrap_or(1)));
 			}
 			_ => {
-				ui.label(format!("Unsupported form field (type {}).", c.kind));
+				ui.label(format!(
+					"{} ({}).",
+					crate::i18n::translate("Unsupported form field type"),
+					c.kind
+				));
 				valid = false;
 			}
 		}

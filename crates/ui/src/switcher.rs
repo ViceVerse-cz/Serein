@@ -582,11 +582,11 @@ impl Switcher {
 			ui.add_space(2.0);
 			ui.label(design::eyebrow(
 				ui,
-				if self.query.trim().is_empty() {
+				crate::i18n::translate(if self.query.trim().is_empty() {
 					"Conversations and friends"
 				} else {
 					"Results"
-				},
+				}),
 				colors.muted,
 			));
 			ui.spacing_mut().item_spacing.y = 2.0;

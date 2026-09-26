@@ -301,16 +301,18 @@ impl MessagingUi {
 									egui::Role::Button,
 									true,
 									format!(
-										"Open {}{}, {} notifications",
+										"{} {}{}, {} {}",
+										crate::i18n::translate("Open"),
 										channel.name,
 										if in_call {
-											", in a call"
+											crate::i18n::translate(", in a call")
 										} else if unread {
-											", unread"
+											crate::i18n::translate(", unread")
 										} else {
-											""
+											String::new()
 										},
-										count
+										count,
+										crate::i18n::translate("notifications")
 									),
 								)
 							});
