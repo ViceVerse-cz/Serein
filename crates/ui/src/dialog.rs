@@ -340,8 +340,8 @@ impl Confirm {
 		Self {
 			dialog: Dialog::new(id, title).width(420.0),
 			message: message.into(),
-			confirm: "Confirm".to_owned(),
-			cancel: "Cancel".to_owned(),
+			confirm: "components-field-confirm".to_owned(),
+			cancel: "dialog-module-cancel".to_owned(),
 			tone: Tone::Neutral,
 			enabled: true,
 			note: None,

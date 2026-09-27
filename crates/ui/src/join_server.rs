@@ -369,8 +369,13 @@ impl JoinDialog {
 			self.name = state
 				.user
 				.as_ref()
-				.map(|user| format!("{}'s server", user.name))
-				.unwrap_or_else(|| "My server".to_owned());
+				.map(|user| {
+					crate::i18n::translate_args(
+						"join-server-customize-users-server",
+						&[("user", &user.name)],
+					)
+				})
+				.unwrap_or_else(|| crate::i18n::translate("join-server-customize-my-server"));
 		}
 		self.page = Page::Customize;
 		self.name_focus = true;

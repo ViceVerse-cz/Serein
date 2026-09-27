@@ -1001,16 +1001,26 @@ impl MessagingUi {
 						ui.spacing_mut().item_spacing.x = 10.0;
 						if self.updates.available || self.updates.ready {
 							let (label, icon) = if self.updates.ready {
-								("Restart to update", icons::Icon::Reload)
+								(
+									"updates-shows-update-banner-restart-to-update",
+									icons::Icon::Reload,
+								)
 							} else if self.updates.busy {
-								("Updating…", icons::Icon::Download)
+								(
+									"updates-shows-update-banner-updating",
+									icons::Icon::Download,
+								)
 							} else {
-								("Update available", icons::Icon::Download)
+								(
+									"updates-shows-update-banner-update-available",
+									icons::Icon::Download,
+								)
 							};
+							let label = crate::i18n::translate(label);
 							let font = egui::FontId::new(12.0, design::medium_family(ui.ctx()));
 							let galley =
 								ui.painter()
-									.layout_no_wrap(label.to_owned(), font, colors.accent);
+									.layout_no_wrap(label.clone(), font, colors.accent);
 							let icon_size = 13.0;
 							let gap = 5.0;
 							let pad = egui::vec2(6.0, 2.0);
@@ -1042,7 +1052,10 @@ impl MessagingUi {
 								galley,
 								colors.accent,
 							);
-							if response.on_hover_text(&self.updates.status).clicked() {
+							if response
+								.on_hover_text(crate::i18n::translate_if_key(&self.updates.status))
+								.clicked()
+							{
 								self.open_update_settings();
 							}
 						} else {
@@ -1230,7 +1243,12 @@ impl MessagingUi {
 									true,
 									format!(
 										"{name}, {}, {}",
-										status.map_or("presence unknown", profiles::presence_label),
+										status.map_or_else(
+											|| crate::i18n::translate(
+												"friends-presence-unavailable"
+											),
+											profiles::presence_label,
+										),
 										subtitle.as_deref().unwrap_or_default()
 									),
 								)

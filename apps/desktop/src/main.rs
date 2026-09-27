@@ -4048,7 +4048,7 @@ impl Desktop {
 										};
 									egui::containers::menu::MenuButton::from_button(quiet(
 										ui,
-										"Appearance",
+										&ui::i18n::translate("page-appearance"),
 										p.muted,
 									))
 									.config(sticky())
@@ -4056,17 +4056,18 @@ impl Desktop {
 									ui.add_space(8.0);
 									let updates = &self.messaging.updates;
 									let (label, color) = if updates.ready {
-										("Restart to update", p.link)
+										("updates-shows-update-banner-restart-to-update", p.link)
 									} else if updates.busy {
-										("Updating…", p.muted)
+										("updates-shows-update-banner-updating", p.muted)
 									} else if updates.available {
-										("Update available", p.link)
+										("updates-shows-update-banner-update-available", p.link)
 									} else {
-										("Updates", p.muted)
+										("page-updates", p.muted)
 									};
+									let label = ui::i18n::translate(label);
 									let demo = self.fixture_only || self.state.demo;
 									egui::containers::menu::MenuButton::from_button(quiet(
-										ui, label, color,
+										ui, &label, color,
 									))
 									.config(sticky())
 									.ui(ui, |ui| self.messaging.updates_menu(ui, demo));

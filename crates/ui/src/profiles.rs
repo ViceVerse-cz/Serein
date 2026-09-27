@@ -408,25 +408,25 @@ fn friend_circle(ui: &mut egui::Ui, state: &State, user: &User) -> Option<Action
 	let (icon, label, action) = if friend {
 		(
 			Icon::Check,
-			"Friends \u{2713} · click to remove",
+			"profiles-friend-action-remove",
 			Some(Action::RemoveFriend),
 		)
 	} else if let Some((_, _, incoming)) = request {
 		if *incoming {
 			(
 				Icon::AddPeople,
-				"Accept Friend Request",
+				"profiles-friend-action-accept",
 				Some(Action::AcceptFriend(user.id)),
 			)
 		} else {
-			(Icon::AddPeople, "Friend Request Sent", None)
+			(Icon::AddPeople, "profiles-friend-action-sent", None)
 		}
 	} else if !state.friends_known() || !state.friend_requests_known() {
-		(Icon::AddPeople, "Loading friendship status...", None)
+		(Icon::AddPeople, "profiles-friend-action-loading", None)
 	} else {
 		(
 			Icon::AddPeople,
-			"Add Friend",
+			"friends-add",
 			Some(Action::AddFriend(user.id)),
 		)
 	};
@@ -434,7 +434,7 @@ fn friend_circle(ui: &mut egui::Ui, state: &State, user: &User) -> Option<Action
 		&& state.friends_known()
 		&& state.friend_requests_known()
 		&& actions_enabled(state);
-	if header_circle(ui, icon, label, enabled).clicked() {
+	if header_circle(ui, icon, &crate::i18n::translate(label), enabled).clicked() {
 		action
 	} else {
 		None
@@ -586,14 +586,11 @@ impl crate::MessagingUi {
 		}
 		let result = crate::dialog::Confirm::new(
 			("remove-profile-friend", user.id),
-			"Remove Friend?",
-			format!(
-				"Are you sure you want to remove {} from your friends?",
-				user.name
-			),
+			"profiles-remove-friend-title",
+			crate::i18n::translate_args("profiles-remove-friend-message", &[("user", &user.name)]),
 		)
 		.danger()
-		.confirm_label("Remove Friend")
+		.confirm_label("profiles-more-menu-remove-friend")
 		.enabled(
 			!state.user_action_pending()
 				&& state.friends_known()
@@ -616,14 +613,14 @@ impl crate::MessagingUi {
 	}
 }
 
-pub fn presence_label(status: &str) -> &'static str {
-	match status {
-		"online" => "Online",
-		"idle" => "Idle",
-		"dnd" => "Do Not Disturb",
-		"offline" => "Offline",
-		_ => "Presence unavailable",
-	}
+pub fn presence_label(status: &str) -> String {
+	crate::i18n::translate(match status {
+		"online" => "status-online",
+		"idle" => "status-idle",
+		"dnd" => "status-dnd",
+		"offline" => "status-offline",
+		_ => "friends-presence-unavailable",
+	})
 }
 pub(crate) fn presence_color(status: &str) -> Color32 {
 	match status {

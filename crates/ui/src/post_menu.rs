@@ -208,12 +208,21 @@ impl PostMenu {
 					);
 					ui.menu_button(mute, |ui| {
 						for (label, mute) in [
-							("For 15 Minutes", Mute::For(900)),
-							("For 1 Hour", Mute::For(3600)),
-							("For 3 Hours", Mute::For(10800)),
-							("For 8 Hours", Mute::For(28800)),
-							("For 24 Hours", Mute::For(86400)),
-							("Until I Turn It Back On", Mute::Forever),
+							(
+								"channel-menu-report-capacity-for-15-minutes",
+								Mute::For(900),
+							),
+							("channel-menu-report-capacity-for-1-hour", Mute::For(3600)),
+							("channel-menu-report-capacity-for-3-hours", Mute::For(10800)),
+							("channel-menu-report-capacity-for-8-hours", Mute::For(28800)),
+							(
+								"channel-menu-report-capacity-for-24-hours",
+								Mute::For(86400),
+							),
+							(
+								"channel-menu-context-until-i-turn-it-back-on",
+								Mute::Forever,
+							),
 						] {
 							if row(ui, label, true, false).clicked() {
 								intent = Some(Intent::Write(Action::PostMute(mute)));
@@ -224,10 +233,10 @@ impl PostMenu {
 						crate::i18n::translate("post-menu-context-notification-settings"),
 						|ui| {
 							for (level, label) in [
-								(0, "All Messages"),
-								(1, "Only @mentions"),
-								(2, "Nothing"),
-								(3, "Use Default"),
+								(0, "channel-menu-report-capacity-all-messages"),
+								(1, "channel-menu-report-capacity-only-mentions"),
+								(2, "channel-menu-report-capacity-nothing"),
+								(3, "profile-edit-form-use-default"),
 							] {
 								if ui
 									.selectable_label(

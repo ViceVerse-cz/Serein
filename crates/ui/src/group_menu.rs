@@ -354,14 +354,14 @@ impl GroupMenu {
 				};
 				let label = if busy {
 					if dialog.edit {
-						"Saving…"
+						"group-menu-action-saving"
 					} else {
-						"Leaving…"
+						"group-menu-action-leaving"
 					}
 				} else if dialog.edit {
-					"Save"
+					"group-menu-action-save"
 				} else {
-					"Leave Group"
+					"group-menu-menu-leave-group"
 				};
 				let kind = if dialog.edit {
 					crate::dialog::Action::Primary

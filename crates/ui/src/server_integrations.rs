@@ -323,11 +323,19 @@ impl IntegrationsUi {
 			&& let Some(webhooks) = &snapshot.webhooks
 		{
 			let followed = webhooks.iter().filter(|w| w.kind == 2).count();
+			let webhook_count = webhooks.len() - followed;
 			if summary_card(
 				ui,
 				icons::Icon::Link,
-				"Webhooks",
-				&format!("{} webhooks", webhooks.len() - followed),
+				&crate::i18n::translate("server-integrations-show-webhooks"),
+				&crate::i18n::translate_args(
+					if webhook_count == 1 {
+						"server-integrations-count-one-webhook"
+					} else {
+						"server-integrations-count-many-webhooks"
+					},
+					&[("count", &webhook_count.to_string())],
+				),
 			) {
 				self.page = Page::Webhooks;
 			}
@@ -335,8 +343,15 @@ impl IntegrationsUi {
 			if summary_card(
 				ui,
 				icons::Icon::Threads,
-				"Channels Followed",
-				&format!("{followed} channel{}", if followed == 1 { "" } else { "s" }),
+				&crate::i18n::translate("server-integrations-show-channels-followed"),
+				&crate::i18n::translate_args(
+					if followed == 1 {
+						"server-integrations-count-one-channel"
+					} else {
+						"server-integrations-count-many-channels"
+					},
+					&[("count", &followed.to_string())],
+				),
 			) {
 				self.page = Page::Follows;
 			}
@@ -493,11 +508,16 @@ impl IntegrationsUi {
 					&& self.channel.is_none_or(|id| c.id == id)
 					&& matches!(c.kind, 0 | 5 | 15 | 16)
 					&& state.can_manage_webhook_channel(guild, c.id)
-			}) && primary(ui, "New Webhook", writable(state)).clicked()
+			}) && primary(
+				ui,
+				"server-integrations-show-create-webhook",
+				writable(state),
+			)
+			.clicked()
 			{
 				self.draft = Some(Draft {
 					id: None,
-					name: "Updates".into(),
+					name: crate::i18n::translate("page-updates"),
 					channel: Some(channel.id),
 				});
 				self.baseline = None;
@@ -695,8 +715,15 @@ impl IntegrationsUi {
 				&& summary_card(
 					ui,
 					icons::Icon::Link,
-					"Webhooks",
-					&format!("{count} linked webhooks"),
+					&crate::i18n::translate("server-integrations-show-webhooks"),
+					&crate::i18n::translate_args(
+						if count == 1 {
+							"server-integrations-count-one-linked-webhook"
+						} else {
+							"server-integrations-count-many-linked-webhooks"
+						},
+						&[("count", &count.to_string())],
+					),
 				) {
 				self.page = Page::Webhooks;
 			}
@@ -829,9 +856,9 @@ impl IntegrationsUi {
 			if primary(
 				ui,
 				if self.submitted {
-					"Saving..."
+					"server-roles-show-saving"
 				} else {
-					"Save Changes"
+					"profile-edit-show-save-changes"
 				},
 				valid && writable(state) && self.draft != self.baseline,
 			)

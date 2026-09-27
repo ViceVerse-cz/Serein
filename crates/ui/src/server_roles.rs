@@ -1493,81 +1493,135 @@ fn permissions(
 	let query = search.to_lowercase();
 	for (group, values) in [
 		(
-			"General Server Permissions",
+			"server-roles-permissions-general-server",
 			&[
-				(p::VIEW_CHANNEL, "View Channels"),
-				(p::MANAGE_CHANNELS, "Manage Channels"),
-				(p::MANAGE_ROLES, "Manage Roles"),
-				(p::MANAGE_GUILD, "Manage Server"),
-				(p::CREATE_GUILD_EXPRESSIONS, "Create Expressions"),
-				(p::MANAGE_GUILD_EXPRESSIONS, "Manage Expressions"),
+				(p::VIEW_CHANNEL, "channel-permissions-add-view-channels"),
+				(
+					p::MANAGE_CHANNELS,
+					"channel-permissions-add-manage-channels",
+				),
+				(p::MANAGE_ROLES, "server-roles-permissions-manage-roles"),
+				(p::MANAGE_GUILD, "server-roles-permissions-manage-server"),
+				(
+					p::CREATE_GUILD_EXPRESSIONS,
+					"server-roles-permissions-create-expressions",
+				),
+				(
+					p::MANAGE_GUILD_EXPRESSIONS,
+					"server-roles-permissions-manage-expressions",
+				),
 			][..],
 		),
 		(
-			"Membership Permissions",
+			"channel-permissions-add-membership-permissions",
 			&[
-				(p::CHANGE_NICKNAME, "Change Nickname"),
-				(p::MANAGE_NICKNAMES, "Manage Nicknames"),
-				(p::KICK_MEMBERS, "Kick Members"),
-				(p::MODERATE_MEMBERS, "Timeout Members"),
+				(
+					p::CHANGE_NICKNAME,
+					"server-admin-member-menu-change-nickname",
+				),
+				(
+					p::MANAGE_NICKNAMES,
+					"server-roles-permissions-manage-nicknames",
+				),
+				(p::KICK_MEMBERS, "server-roles-permissions-kick-members"),
+				(
+					p::MODERATE_MEMBERS,
+					"server-roles-permissions-timeout-members",
+				),
 			][..],
 		),
 		(
-			"Text Channel Permissions",
+			"channel-permissions-add-text-channel-permissions",
 			&[
-				(p::SEND_MESSAGES, "Send Messages"),
-				(p::SEND_MESSAGES_IN_THREADS, "Send Messages in Threads"),
-				(p::CREATE_PUBLIC_THREADS, "Create Public Threads"),
-				(p::CREATE_PRIVATE_THREADS, "Create Private Threads"),
-				(p::EMBED_LINKS, "Embed Links"),
-				(p::ATTACH_FILES, "Attach Files"),
-				(p::ADD_REACTIONS, "Add Reactions"),
-				(p::USE_EXTERNAL_EMOJIS, "Use External Emoji"),
-				(p::USE_EXTERNAL_STICKERS, "Use External Stickers"),
+				(p::SEND_MESSAGES, "channel-permissions-add-send-messages"),
+				(
+					p::SEND_MESSAGES_IN_THREADS,
+					"channel-permissions-add-send-messages-in-threads",
+				),
+				(
+					p::CREATE_PUBLIC_THREADS,
+					"channel-permissions-add-create-public-threads",
+				),
+				(
+					p::CREATE_PRIVATE_THREADS,
+					"channel-permissions-add-create-private-threads",
+				),
+				(p::EMBED_LINKS, "channel-permissions-add-embed-links"),
+				(p::ATTACH_FILES, "channel-permissions-add-attach-files"),
+				(p::ADD_REACTIONS, "channel-permissions-add-add-reactions"),
+				(
+					p::USE_EXTERNAL_EMOJIS,
+					"channel-permissions-add-use-external-emoji",
+				),
+				(
+					p::USE_EXTERNAL_STICKERS,
+					"channel-permissions-add-use-external-stickers",
+				),
 				(
 					p::MENTION_EVERYONE,
-					"Mention @everyone, @here, and All Roles",
+					"channel-permissions-add-mention-everyone-here-and-all-roles",
 				),
-				(p::MANAGE_MESSAGES, "Manage Messages"),
-				(p::PIN_MESSAGES, "Pin Messages"),
-				(p::MANAGE_THREADS, "Manage Threads"),
-				(p::READ_MESSAGE_HISTORY, "Read Message History"),
-				(p::SEND_TTS_MESSAGES, "Send Text-to-Speech Messages"),
+				(
+					p::MANAGE_MESSAGES,
+					"channel-permissions-add-manage-messages",
+				),
+				(p::PIN_MESSAGES, "channel-permissions-add-pin-messages"),
+				(p::MANAGE_THREADS, "channel-permissions-add-manage-threads"),
+				(
+					p::READ_MESSAGE_HISTORY,
+					"channel-permissions-add-read-message-history",
+				),
+				(
+					p::SEND_TTS_MESSAGES,
+					"channel-permissions-add-send-text-to-speech-messages",
+				),
 			][..],
 		),
 		(
-			"Voice Channel Permissions",
+			"channel-permissions-add-voice-channel-permissions",
 			&[
-				(p::CONNECT, "Connect"),
-				(p::SPEAK, "Speak"),
-				(p::STREAM, "Video"),
-				(p::USE_VAD, "Use Voice Activity"),
-				(p::MUTE_MEMBERS, "Mute Members"),
-				(p::DEAFEN_MEMBERS, "Deafen Members"),
-				(p::MOVE_MEMBERS, "Move Members"),
+				(p::CONNECT, "channel-permissions-add-connect"),
+				(p::SPEAK, "channel-permissions-add-speak"),
+				(p::STREAM, "channel-permissions-add-video"),
+				(p::USE_VAD, "channel-permissions-add-use-voice-activity"),
+				(p::MUTE_MEMBERS, "channel-permissions-add-mute-members"),
+				(p::DEAFEN_MEMBERS, "channel-permissions-add-deafen-members"),
+				(p::MOVE_MEMBERS, "channel-permissions-add-move-members"),
 			][..],
 		),
 		(
-			"Advanced Permissions",
-			&[(p::ADMINISTRATOR, "Administrator")][..],
+			"channel-permissions-show-advanced-permissions",
+			&[(p::ADMINISTRATOR, "server-roles-permissions-administrator")][..],
 		),
 	] {
-		if !values
-			.iter()
-			.any(|(_, label)| label.to_lowercase().contains(&query))
-		{
+		if !values.iter().any(|(_, label)| {
+			crate::i18n::translate(label)
+				.to_lowercase()
+				.contains(&query)
+		}) {
 			continue;
 		}
 		section(ui, group);
-		for &(bit, label) in values
-			.iter()
-			.filter(|(_, label)| label.to_lowercase().contains(&query))
-		{
+		for &(bit, label) in values.iter().filter(|(_, label)| {
+			crate::i18n::translate(label)
+				.to_lowercase()
+				.contains(&query)
+		}) {
 			let mut enabled = role.permissions & bit != 0;
-			ui.add_enabled_ui(editable && (enabled || state.can_grant_role_permission(guild, bit)), |ui| {
-				let detail = (bit == p::ADMINISTRATOR).then_some("Grants every permission and bypasses channel permission overrides. Only grant this to people you trust.");
-				if design::switch(ui, label, detail, &mut enabled).changed() { if enabled { role.permissions |= bit; } else { role.permissions &= !bit; } }
-			});
+			ui.add_enabled_ui(
+				editable && (enabled || state.can_grant_role_permission(guild, bit)),
+				|ui| {
+					let detail = (bit == p::ADMINISTRATOR)
+						.then_some("server-roles-permissions-administrator-detail");
+					if design::switch(ui, label, detail, &mut enabled).changed() {
+						if enabled {
+							role.permissions |= bit;
+						} else {
+							role.permissions &= !bit;
+						}
+					}
+				},
+			);
 		}
 	}
 }

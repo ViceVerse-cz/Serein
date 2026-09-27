@@ -179,7 +179,9 @@ impl SearchUi {
 					let input = output
 						.response
 						.response
-						.accessible_name("Search messages in this conversation");
+						.accessible_name(crate::i18n::translate(
+							"search-pane-search-this-conversation",
+						));
 					if self.focus {
 						input.request_focus();
 						self.focus = false;
@@ -806,13 +808,16 @@ impl SearchUi {
 		}
 		let loading = state.search.as_ref().is_some_and(|view| view.loading);
 		let title = match state.search.as_ref().and_then(|view| view.page.as_ref()) {
-			Some(page) if !loading => format!(
-				"{} Result{}",
-				page.total,
-				if page.total == 1 { "" } else { "s" }
+			Some(page) if !loading => crate::i18n::translate_args(
+				if page.total == 1 {
+					"search-pane-one-result"
+				} else {
+					"search-pane-many-results"
+				},
+				&[("count", &page.total.to_string())],
 			),
-			_ if loading => "Searching…".to_owned(),
-			_ => "Search".to_owned(),
+			_ if loading => crate::i18n::translate("search-pane-searching"),
+			_ => crate::i18n::translate("search-header-input-search"),
 		};
 		let active_query = state
 			.search
@@ -827,14 +832,16 @@ impl SearchUi {
 				ui.label(design::semibold(ui, title, 16.0).color(colors.text_strong));
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.spacing_mut().item_spacing.x = 8.0;
-					let settings = chip(ui, Chip::icon(icons::Icon::Gear, "Search settings"));
+					let settings_label = crate::i18n::translate("search-pane-settings");
+					let settings = chip(ui, Chip::icon(icons::Icon::Gear, &settings_label));
 					egui::Popup::menu(&settings).show(|ui| {
 						ui.checkbox(
 							&mut self.hide_highlight,
 							crate::i18n::translate("search-pane-hide-matching-text-highlight"),
 						);
 					});
-					let sort = chip(ui, Chip::new(icons::Icon::SortArrows, "Sort"));
+					let sort_label = crate::i18n::translate("search-pane-sort");
+					let sort = chip(ui, Chip::new(icons::Icon::SortArrows, &sort_label));
 					egui::Popup::menu(&sort).show(|ui| {
 						ui.label(
 							RichText::new(crate::i18n::translate("search-pane-order-on-this-page"))
@@ -852,9 +859,12 @@ impl SearchUi {
 						);
 					});
 					let label = if filter_count > 0 {
-						format!("Filters ({filter_count})")
+						crate::i18n::translate_args(
+							"search-pane-filter-count",
+							&[("count", &filter_count.to_string())],
+						)
 					} else {
-						"Filters".to_owned()
+						crate::i18n::translate("search-overlays-filters")
 					};
 					if chip(ui, Chip::new(icons::Icon::Sliders, &label)).clicked() {
 						self.open_filters();

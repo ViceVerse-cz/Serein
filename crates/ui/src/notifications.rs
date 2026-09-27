@@ -369,7 +369,10 @@ impl MessagingUi {
 								),
 							)
 						});
-						design::rail_name(&response, "Add a Server");
+						design::rail_name(
+							&response,
+							crate::i18n::translate("notifications-notification-rail-add-a-server"),
+						);
 						if response.clicked() {
 							self.join_server.open_picker(state.generation);
 						}

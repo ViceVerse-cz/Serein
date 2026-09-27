@@ -1685,7 +1685,7 @@ impl ExtensionUi {
 						.add_enabled_ui(!self.busy && self.theme_editor.is_none(), |ui| {
 							card_button(
 								ui,
-								"Customize",
+								"extensions-ui-theme-preview-bar-customize",
 								egui::vec2(ui.available_width().max(1.0), FOOTER_HEIGHT),
 								colors.raised,
 								outline,
@@ -1747,7 +1747,7 @@ impl ExtensionUi {
 								if entry.local_theme {
 									"Edit theme"
 								} else {
-									"Customize"
+									"extensions-ui-theme-preview-bar-customize"
 								},
 								egui::vec2(ui.available_width().max(1.0), FOOTER_HEIGHT),
 								if active { neutral } else { colors.raised },
@@ -1790,7 +1790,7 @@ impl ExtensionUi {
 					.add_enabled_ui(!self.busy, |ui| {
 						card_button(
 							ui,
-							"Update",
+							"extensions-ui-card-body-update",
 							egui::vec2(each, FOOTER_HEIGHT),
 							colors.accent,
 							egui::Stroke::NONE,
@@ -2544,6 +2544,7 @@ fn paint_button(
 	text: egui::Color32,
 	enabled: bool,
 ) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
 	let (rect, response) = ui.allocate_exact_size(
 		size,
 		if enabled {
@@ -2552,7 +2553,7 @@ fn paint_button(
 			egui::Sense::hover()
 		},
 	);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
 	let fill = if !enabled {
 		fill.gamma_multiply(0.5)
 	} else if response.is_pointer_button_down_on() {
@@ -2570,7 +2571,7 @@ fn paint_button(
 	let painter = ui.painter();
 	painter.rect(rect, 8, fill, stroke, egui::StrokeKind::Inside);
 	let galley = painter.layout_no_wrap(
-		label.to_owned(),
+		label,
 		egui::FontId::new(13.5, design::medium_family(ui.ctx())),
 		text,
 	);

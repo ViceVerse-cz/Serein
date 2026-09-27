@@ -474,10 +474,10 @@ impl InvitesUi {
 		commands: &mut Vec<Command>,
 	) {
 		if let Some(dialog) = &mut self.create {
-			let name = state
-				.guild(guild)
-				.map_or("Server", |guild| guild.name.as_str())
-				.to_owned();
+			let name = state.guild(guild).map_or_else(
+				|| crate::i18n::translate("switcher-kind-server"),
+				|guild| guild.name.clone(),
+			);
 			let close = dialog.show(
 				ctx,
 				state,
@@ -499,13 +499,11 @@ impl InvitesUi {
 			}
 			let mut confirm = dialog::Confirm::new(
 				"revoke-server-invite",
-				"Revoke invite?",
-				format!(
-					"People will no longer be able to join this server with discord.gg/{code}."
-				),
+				"server-invites-revoke-title",
+				crate::i18n::translate_args("server-invites-revoke-message", &[("code", code)]),
 			)
 			.danger()
-			.confirm_label("Revoke Invite")
+			.confirm_label("server-invites-show-revoke-invite")
 			.enabled(!state.server_admin.pending && !state.server_admin.needs_refresh);
 			if let Some(error) = state.server_admin.error {
 				confirm = confirm.note(dialog::Level::Error, error);
@@ -755,7 +753,7 @@ mod tests {
 			&mut state,
 			&mut commands,
 			vec![],
-			"Revoke Invite",
+			&crate::i18n::translate("server-invites-show-revoke-invite"),
 		)
 		.0
 		.unwrap();

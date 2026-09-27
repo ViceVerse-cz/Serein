@@ -324,8 +324,9 @@ impl ForumUi {
 									.font(egui::TextStyle::Body)
 									.desired_width(ui.available_width().max(60.0)),
 							);
-							let input =
-								input.accessible_name("Search loaded posts or start a new one");
+							let input = input.accessible_name(crate::i18n::translate(
+								"forum-toolbar-search-or-create-a-post",
+							));
 							if input.lost_focus()
 								&& ui.input(|i| i.key_pressed(egui::Key::Enter))
 								&& !self.query.trim().is_empty()
@@ -434,9 +435,12 @@ impl ForumUi {
 		let (rule, _) = ui.allocate_exact_size(egui::vec2(1.0, 20.0), egui::Sense::hover());
 		ui.painter().rect_filled(rule, 0, colors.border);
 		let menu_label = if self.tags.is_empty() {
-			"All".to_owned()
+			crate::i18n::translate("forum-tag-filter-all")
 		} else {
-			format!("{} selected", self.tags.len())
+			crate::i18n::translate_args(
+				"forum-tag-filter-selected",
+				&[("count", &self.tags.len().to_string())],
+			)
 		};
 		let menu_width = action_width(ui, &menu_label, TAG_HEIGHT, 1);
 		let mut folded = false;
@@ -621,7 +625,9 @@ impl ForumUi {
 										)
 										.desired_width(f32::INFINITY),
 								);
-								let title = title.accessible_name("Post title");
+								let title = title.accessible_name(crate::i18n::translate(
+									"forum-composer-title",
+								));
 								if draft.focus {
 									title.request_focus();
 									draft.focus = false;
@@ -640,7 +646,9 @@ impl ForumUi {
 										.desired_rows(3)
 										.desired_width(f32::INFINITY),
 								);
-								body.accessible_name("First message of this post");
+								body.accessible_name(crate::i18n::translate(
+									"forum-composer-enter-a-message",
+								));
 								post_tags(ui, state, forum, &mut draft.tags, images);
 							});
 							// Discord parks the image control beside the fields, not under them.

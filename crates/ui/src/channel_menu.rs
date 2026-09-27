@@ -478,32 +478,38 @@ impl ChannelMenu {
 		let (title, subtitle) = match dialog.kind {
 			Kind::Edit => (
 				if category {
-					"Category Settings"
+					"channel-menu-dialog-category-settings"
 				} else {
-					"Channel Settings"
+					"channel-menu-dialog-channel-settings"
 				},
-				"Customize settings and who can do what here.",
+				"channel-menu-dialog-settings-subtitle",
 			),
 			Kind::Duplicate => (
 				if category {
-					"Duplicate Category"
+					"channel-menu-report-capacity-duplicate-category"
 				} else {
-					"Duplicate Channel"
+					"channel-menu-report-capacity-duplicate-channel"
 				},
-				"Copies settings and permissions. Messages are not copied.",
+				"channel-menu-dialog-duplicate-subtitle",
 			),
-			Kind::Create => ("Create Channel", "Choose a channel type and name."),
-			Kind::CreateCategory => ("Create Category", "Categories organize related channels."),
+			Kind::Create => (
+				"channel-menu-report-capacity-create-channel",
+				"channel-menu-dialog-create-channel-subtitle",
+			),
+			Kind::CreateCategory => (
+				"channel-menu-context-create-category",
+				"channel-menu-dialog-create-category-subtitle",
+			),
 			Kind::Delete => (
 				if category {
-					"Delete Category?"
+					"channel-menu-dialog-delete-category-title"
 				} else {
-					"Delete Channel?"
+					"dialog-module-delete-channel"
 				},
 				if category {
-					"Deleting a category leaves its channels in the server."
+					"channel-menu-dialog-delete-category-subtitle"
 				} else {
-					"Deleting a channel removes its messages for everyone."
+					"channel-menu-dialog-delete-channel-subtitle"
 				},
 			),
 		};
@@ -591,7 +597,10 @@ impl ChannelMenu {
 						if let Some(parent) = parent {
 							dialog::hint(
 								ui,
-								&format!("In {} · inherits category permissions", parent.name),
+								&crate::i18n::translate_args(
+									"channel-menu-dialog-in-category",
+									&[("category", &parent.name)],
+								),
 							);
 						} else if channel.parent_id.is_some() {
 							dialog::hint(
@@ -643,24 +652,24 @@ impl ChannelMenu {
 						client_core::channel_actions::valid_name(&dialog.draft.name)
 					};
 				let label = if pending_now {
-					"Working…"
+					"theme-editor-toolbar-working"
 				} else {
 					match dialog.kind {
-						Kind::Edit => "Save Changes",
+						Kind::Edit => "profile-edit-show-save-changes",
 						Kind::Duplicate => {
 							if category {
-								"Duplicate Category"
+								"channel-menu-report-capacity-duplicate-category"
 							} else {
-								"Duplicate Channel"
+								"channel-menu-report-capacity-duplicate-channel"
 							}
 						}
-						Kind::Create => "Create Channel",
-						Kind::CreateCategory => "Create Category",
+						Kind::Create => "channel-menu-report-capacity-create-channel",
+						Kind::CreateCategory => "channel-menu-context-create-category",
 						Kind::Delete => {
 							if category {
-								"Delete Category"
+								"channel-menu-report-capacity-delete-category"
 							} else {
-								"Delete Channel"
+								"channel-menu-report-capacity-delete-channel"
 							}
 						}
 					}
@@ -925,9 +934,9 @@ impl Dialog {
 		);
 		ui.add_space(12.0);
 		let pages: Vec<(Page, &str)> = [
-			(Page::Overview, "Overview"),
-			(Page::Permissions, "Permissions"),
-			(Page::Integrations, "Integrations"),
+			(Page::Overview, "channel-menu-editor-overview"),
+			(Page::Permissions, "server-roles-editor-permissions"),
+			(Page::Integrations, "server-settings-page-integrations"),
 		]
 		.into_iter()
 		.filter(|(page, _)| *page != Page::Integrations || can_integrate)
@@ -1383,7 +1392,9 @@ mod tests {
 			h.click(
 				&ctx,
 				text.iter()
-					.find(|(s, _)| s == "New Webhook")
+					.find(|(s, _)| {
+						s == &crate::i18n::translate("server-integrations-show-create-webhook")
+					})
 					.unwrap()
 					.1
 					.center(),
@@ -1404,7 +1415,11 @@ mod tests {
 				);
 			}
 			let (_, text) = h.frame(&ctx, vec![]);
-			let save = text.iter().find(|(s, _)| s == "Save Changes").unwrap().1;
+			let save = text
+				.iter()
+				.find(|(s, _)| s == &crate::i18n::translate("profile-edit-show-save-changes"))
+				.unwrap()
+				.1;
 			assert!(Rect::from_min_size(Pos2::ZERO, egui::vec2(width, 760.0)).contains_rect(save));
 			h.click(&ctx, save.center(), PointerButton::Primary);
 			assert!(h.commands.iter().any(|c| matches!(c, Command::ServerAdmin { action, .. } if matches!(action.as_ref(), model::server_admin::Action::Integrations(IntegrationAction::CreateWebhook { scope: Some(Id(20)), channel: Id(20), .. })))), "width {width}; commands {}; text {text:?}; error {:?}", h.commands.len(), h.state.server_admin.error);
@@ -1596,7 +1611,11 @@ mod tests {
 				PointerButton::Primary,
 			);
 			let (_, text) = h.frame(&ctx, vec![]);
-			let save = text.iter().find(|(s, _)| s == "Save Changes").unwrap().1;
+			let save = text
+				.iter()
+				.find(|(s, _)| s == &crate::i18n::translate("profile-edit-show-save-changes"))
+				.unwrap()
+				.1;
 			assert!(Rect::from_min_size(Pos2::ZERO, egui::vec2(width, 760.0)).contains_rect(save));
 			h.click(&ctx, save.center(), PointerButton::Primary);
 			let Command::ChannelAction {

@@ -482,9 +482,10 @@ impl MessagingUi {
 				let name = profile
 					.and_then(|p| p.global_name.as_deref())
 					.or_else(|| state.user.as_ref().map(|u| u.name.as_str()))
-					.unwrap_or("Your account");
+					.map(str::to_owned)
+					.unwrap_or_else(|| crate::i18n::translate("your-account"));
 				ui.add(
-					egui::Label::new(design::semibold(ui, name, 20.0).color(colors.text_strong))
+					egui::Label::new(design::semibold(ui, &name, 20.0).color(colors.text_strong))
 						.wrap(),
 				);
 				if let Some(profile) = profile {
@@ -784,9 +785,10 @@ impl MessagingUi {
 							.as_ref()
 							.and_then(|p| p.global_name.as_deref())
 							.unwrap_or(user.name.as_str())
+							.to_owned()
 					} else {
-						design::avatar(ui, "You", 40.0);
-						"Your account"
+						design::avatar(ui, &crate::i18n::translate("pending-show-you"), 40.0);
+						crate::i18n::translate("your-account")
 					};
 					let width = ui.available_width();
 					ui.vertical(|ui| {
@@ -794,7 +796,7 @@ impl MessagingUi {
 						ui.spacing_mut().item_spacing.y = 2.0;
 						ui.add(
 							egui::Label::new(
-								design::semibold(ui, name, 15.0).color(colors.text_strong),
+								design::semibold(ui, &name, 15.0).color(colors.text_strong),
 							)
 							.truncate(),
 						);

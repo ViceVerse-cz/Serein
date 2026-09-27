@@ -150,7 +150,7 @@ impl ArchivesUi {
 						})
 						.inner
 					};
-					let reload = action(ui, allowed, "Reload");
+					let reload = action(ui, allowed, "archives-action-reload");
 					if self.focus {
 						reload.request_focus();
 						self.focus = false;
@@ -159,11 +159,11 @@ impl ArchivesUi {
 						request = Some((view.kind, None));
 					}
 					if view.error.is_some() {
-						if action(ui, allowed && !view.loading, "Retry").clicked() {
+						if action(ui, allowed && !view.loading, "archives-action-retry").clicked() {
 							request = Some((view.kind, view.before));
 						}
 					} else if let Some(before) = view.page.as_ref().and_then(|page| page.next)
-						&& action(ui, allowed && !view.loading, "Older").clicked()
+						&& action(ui, allowed && !view.loading, "archives-action-older").clicked()
 					{
 						request = Some((view.kind, Some(before)));
 					}

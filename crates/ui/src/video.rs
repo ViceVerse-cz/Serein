@@ -460,7 +460,13 @@ impl VideoUi {
 							.show_value(false)
 							.trailing_fill(true),
 					);
-					seek.widget_info(|| egui::WidgetInfo::slider(can_seek, position, "Seek video"));
+					seek.widget_info(|| {
+						egui::WidgetInfo::slider(
+							can_seek,
+							position,
+							crate::i18n::translate("video-show-player-seek-video"),
+						)
+					});
 					controls_focused |= seek.has_focus();
 					response |= seek.clone();
 					if seek

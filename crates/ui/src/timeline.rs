@@ -177,8 +177,15 @@ fn channel_welcome(ui: &mut egui::Ui, channel: &model::Channel, height: f32) {
 	let colors = crate::design::palette(ui);
 	let width = (ui.available_width() - 32.0).max(1.0);
 	let heading = egui::WidgetText::from(
-		crate::design::semibold(ui, format!("Welcome to #{}", channel.name), 28.0)
-			.color(colors.text_strong),
+		crate::design::semibold(
+			ui,
+			crate::i18n::translate_args(
+				"timeline-channel-welcome-title",
+				&[("channel", &channel.name)],
+			),
+			28.0,
+		)
+		.color(colors.text_strong),
 	)
 	.into_galley(
 		ui,
@@ -391,17 +398,23 @@ fn system_icon(kind: u8, colors: &crate::design::Palette) -> (crate::icons::Icon
 /// "N messages · last activity" summary for a thread row, built from synced metadata only.
 pub(crate) fn thread_activity(thread: &model::Channel) -> String {
 	let count = match thread.message_count {
-		Some(0) => "No replies yet".to_owned(),
-		Some(1) => "1 message".to_owned(),
-		Some(n) => format!("{n} messages"),
-		None => "Thread".to_owned(),
+		Some(0) => crate::i18n::translate("timeline-thread-activity-no-replies"),
+		Some(1) => crate::i18n::translate("timeline-thread-activity-one-message"),
+		Some(n) => crate::i18n::translate_args(
+			"timeline-thread-activity-many-messages",
+			&[("count", &n.to_string())],
+		),
+		None => crate::i18n::translate("timeline-thread-activity-thread"),
 	};
 	let Some(last) = thread.last_message else {
 		return count;
 	};
-	format!(
-		"{count} · Last active {}",
-		crate::local_time::ago(timestamp(last))
+	crate::i18n::translate_args(
+		"timeline-thread-activity-last-active",
+		&[
+			("count", &count),
+			("time", &crate::local_time::ago(timestamp(last))),
+		],
 	)
 }
 /// Discord-style card under a message that started a thread: name, activity, open affordance.
@@ -477,7 +490,10 @@ fn thread_card(
 			colors.muted,
 		);
 	}
-	response.on_hover_text(format!("Open thread “{}”", thread.name))
+	response.on_hover_text(crate::i18n::translate_args(
+		"timeline-open-thread",
+		&[("thread", &thread.name)],
+	))
 }
 /// The message a thread hangs off, shown above its replies like Discord's thread view.
 fn starter_row(
@@ -1148,7 +1164,10 @@ fn show_system(
 						let response = ui
 							.add(egui::Label::new(text).sense(egui::Sense::click()))
 							.on_hover_cursor(egui::CursorIcon::PointingHand)
-							.on_hover_text(format!("Open thread \u{201c}{}\u{201d}", segment.text));
+							.on_hover_text(crate::i18n::translate_args(
+								"timeline-open-thread",
+								&[("thread", &segment.text)],
+							));
 						surface.keep(&response);
 						if response.clicked() {
 							*open_thread = Some(id);
@@ -1182,7 +1201,12 @@ fn show_system(
 				let all = ui
 					.add(
 						egui::Label::new(
-							crate::design::medium(ui, "threads", 15.0).color(colors.text_strong),
+							crate::design::medium(
+								ui,
+								crate::i18n::translate("timeline-threads"),
+								15.0,
+							)
+							.color(colors.text_strong),
 						)
 						.sense(egui::Sense::click()),
 					)
@@ -2025,13 +2049,17 @@ impl TimelineView {
 									surface.keep(&name);
 									let used = ui.add(
 										egui::Label::new(
-											RichText::new("used").size(13.0).color(colors.muted),
+											RichText::new(crate::i18n::translate(
+												"timeline-command-used",
+											))
+											.size(13.0)
+											.color(colors.muted),
 										)
 										.truncate(),
 									);
 									surface.keep(&used);
 									let label = if interaction.command.is_empty() {
-										"a command".to_owned()
+										crate::i18n::translate("timeline-command-a-command")
 									} else {
 										format!("/{}", interaction.command)
 									};
@@ -2871,13 +2899,19 @@ impl TimelineView {
 								egui::Stroke::new(1.0, colors.border),
 								egui::StrokeKind::Inside,
 							);
-							let menu =
-								action_button(&mut toolbar, crate::icons::Icon::More, "More");
+							let menu = action_button(
+								&mut toolbar,
+								crate::icons::Icon::More,
+								"profiles-show-more",
+							);
 							menu.widget_info(|| {
 								egui::WidgetInfo::labeled(
 									egui::Role::Button,
 									toolbar.is_enabled(),
-									format!("Deleted message actions for {}", message.author.name),
+									crate::i18n::translate_args(
+										"timeline-deleted-message-actions-for",
+										&[("user", &message.author.name)],
+									),
 								)
 							});
 							let mut popup = egui::Popup::menu(&menu);
@@ -2951,7 +2985,11 @@ impl TimelineView {
 							let can_delete = state.can_delete(message.channel, id);
 							if toolbar
 								.add_enabled_ui(can_reply, |ui| {
-									action_button(ui, crate::icons::Icon::Reply, "Reply")
+									action_button(
+										ui,
+										crate::icons::Icon::Reply,
+										"timeline-message-actions-reply",
+									)
 								})
 								.inner
 								.clicked()
@@ -2963,7 +3001,7 @@ impl TimelineView {
 									action_button(
 										ui,
 										crate::icons::Icon::Forward,
-										"Forward message",
+										"timeline-message-actions-forward",
 									)
 								})
 								.inner
@@ -2977,7 +3015,7 @@ impl TimelineView {
 										action_button(
 											ui,
 											crate::icons::Icon::Pencil,
-											"Edit message",
+											"timeline-message-actions-edit-message",
 										)
 									})
 									.inner
@@ -2995,7 +3033,7 @@ impl TimelineView {
 										action_button(
 											ui,
 											crate::icons::Icon::Trash,
-											"Delete message immediately",
+											"timeline-message-actions-delete-message",
 										)
 									})
 									.inner
@@ -3004,13 +3042,19 @@ impl TimelineView {
 									self.quick_delete = Some((message.channel, id));
 								}
 							} else {
-								let menu =
-									action_button(&mut toolbar, crate::icons::Icon::More, "More");
+								let menu = action_button(
+									&mut toolbar,
+									crate::icons::Icon::More,
+									"profiles-show-more",
+								);
 								menu.widget_info(|| {
 									egui::WidgetInfo::labeled(
 										egui::Role::Button,
 										toolbar.is_enabled(),
-										format!("Message actions for {}", message.author.name),
+										crate::i18n::translate_args(
+											"timeline-message-actions-for",
+											&[("user", &message.author.name)],
+										),
 									)
 								});
 								let mut popup = egui::Popup::menu(&menu);

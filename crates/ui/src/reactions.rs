@@ -14,9 +14,13 @@ fn reacting_names<'a>(names: impl Iterator<Item = &'a str>, count: u32) -> Strin
 	if remaining == 0 {
 		names
 	} else {
-		format!(
-			"{names}, and {remaining} other{}",
-			if remaining == 1 { "" } else { "s" }
+		crate::i18n::translate_args(
+			if remaining == 1 {
+				"reactions-tooltip-one-other"
+			} else {
+				"reactions-tooltip-many-others"
+			},
+			&[("names", &names), ("count", &remaining.to_string())],
 		)
 	}
 }
@@ -186,11 +190,14 @@ pub fn show(
 								value.users.iter().map(|user| user.name.as_str()),
 								reaction.count,
 							);
-							format!("{} reacted by {reactors}", reaction.emoji.label())
+							crate::i18n::translate_args(
+								"reactions-tooltip-reacted-by",
+								&[("emoji", &reaction.emoji.label()), ("reactors", &reactors)],
+							)
 						} else if matching.is_some_and(|value| value.error.is_some()) {
-							"Reaction details unavailable".into()
+							crate::i18n::translate("reactions-tooltip-unavailable")
 						} else {
-							"Loading reactions…".into()
+							crate::i18n::translate("reactions-show-users-loading-reactions")
 						};
 						ui.add(
 							egui::Label::new(
@@ -386,14 +393,18 @@ mod tests {
 
 	#[test]
 	fn truncated_reaction_names_include_the_hidden_count() {
-		assert_eq!(
-			reacting_names(["A", "B", "C", "D"].into_iter(), 9),
-			"A, B, C, and 6 others"
+		let many = reacting_names(["A", "B", "C", "D"].into_iter(), 9);
+		assert!(
+			["A", "B", "C", "6"]
+				.into_iter()
+				.all(|part| many.contains(part))
 		);
 		assert_eq!(reacting_names(["A", "B", "C"].into_iter(), 3), "A, B, C");
-		assert_eq!(
-			reacting_names(["A", "B", "C"].into_iter(), 4),
-			"A, B, C, and 1 other"
+		let one = reacting_names(["A", "B", "C"].into_iter(), 4);
+		assert!(
+			["A", "B", "C", "1"]
+				.into_iter()
+				.all(|part| one.contains(part))
 		);
 	}
 

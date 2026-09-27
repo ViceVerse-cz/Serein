@@ -438,7 +438,7 @@ fn form(
 	ui.add_space(10.0);
 	field(
 		ui,
-		"Display name",
+		"profile-edit-form-display-name",
 		"profile-display-name",
 		&mut draft.name,
 		model::MAX_PROFILE_NAME_CHARS,
@@ -454,7 +454,7 @@ fn form(
 	ui.add_space(8.0);
 	field(
 		ui,
-		"Pronouns",
+		"profile-edit-form-pronouns",
 		"profile-pronouns",
 		&mut draft.pronouns,
 		model::MAX_PROFILE_PRONOUNS_CHARS,
@@ -463,7 +463,7 @@ fn form(
 	ui.add_space(8.0);
 	field(
 		ui,
-		"About Me",
+		"profile-edit-form-about-me",
 		"profile-about-me",
 		&mut draft.bio,
 		model::MAX_PROFILE_BIO_CHARS,
@@ -517,9 +517,10 @@ fn field(
 	multiline: bool,
 ) {
 	let colors = design::palette(ui);
+	let label = crate::i18n::translate_if_key(label);
 	let label_id = ui
 		.horizontal(|ui| {
-			let label = ui.label(design::eyebrow(ui, label, colors.muted));
+			let label = ui.label(design::eyebrow(ui, &label, colors.muted));
 			if multiline {
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.label(

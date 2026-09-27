@@ -685,14 +685,14 @@ impl Admin {
 					let roles = width - names - dates * 2.0 - method - 136.0;
 					ui.horizontal(|ui| {
 						for (text, width) in [
-							("Name", names),
-							("Member since", dates),
-							("Joined Discord", dates),
-							("Join method", method),
-							("Roles", roles),
-							("Signals", 64.0),
+							("server-stickers-show-name", names),
+							("server-admin-member-card-member-since", dates),
+							("server-admin-member-card-joined-discord", dates),
+							("server-admin-member-card-join-method", method),
+							("server-settings-page-roles", roles),
+							("server-admin-members-signals", 64.0),
 						] {
-							cell_text(ui, text, width, true);
+							cell_text(ui, &crate::i18n::translate(text), width, true);
 						}
 					});
 					ui.separator();

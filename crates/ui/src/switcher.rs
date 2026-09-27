@@ -48,10 +48,15 @@ impl Candidate {
 	fn label(&self) -> String {
 		let kind = match self.kind {
 			Kind::Text => "#",
-			Kind::Voice => "Voice · roster",
+			Kind::Voice => "switcher-kind-voice-roster",
 			Kind::Direct | Kind::Group => "",
 		};
-		format!("{kind} {} · {}", self.name, self.scope)
+		format!(
+			"{} {} · {}",
+			crate::i18n::translate_if_key(kind),
+			self.name,
+			self.scope
+		)
 	}
 }
 
@@ -148,22 +153,24 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 		.map(|channel| {
 			let name = state.conversation_name(channel);
 			let name = if name.is_empty() && channel.guild.is_none() {
-				channel
-					.recipients
-					.first()
-					.map_or("Direct message", |user| state.user_display_name(user))
+				channel.recipients.first().map_or_else(
+					|| crate::i18n::translate("switcher-kind-direct-message"),
+					|user| state.user_display_name(user).to_owned(),
+				)
 			} else {
-				name
+				name.to_owned()
 			};
-			let scope = channel.guild.and_then(|id| state.guild(id)).map_or(
-				if channel.guild.is_some() {
-					"Server"
-				} else if channel.kind == 3 {
-					"Group direct message"
-				} else {
-					"Direct message"
+			let scope = channel.guild.and_then(|id| state.guild(id)).map_or_else(
+				|| {
+					crate::i18n::translate(if channel.guild.is_some() {
+						"switcher-kind-server"
+					} else if channel.kind == 3 {
+						"switcher-kind-group-direct-message"
+					} else {
+						"switcher-kind-direct-message"
+					})
 				},
-				|g| g.name.as_str(),
+				|g| g.name.clone(),
 			);
 			let kind = if channel.kind == 2 {
 				Kind::Voice
@@ -177,8 +184,8 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 			Candidate {
 				target: Target::Channel(channel.id),
 				kind,
-				name: bounded(name),
-				scope: bounded(scope),
+				name: bounded(&name),
+				scope: bounded(&scope),
 				current: Some(channel.id) == state.selected,
 				user: if kind == Kind::Direct {
 					channel.recipients.first().cloned()
@@ -531,7 +538,8 @@ impl Switcher {
 								.char_limit(QUERY_CHARS)
 								.desired_width(ui.available_width().max(60.0)),
 						);
-						let input = input.accessible_name("Find conversation");
+						let input =
+							input.accessible_name(crate::i18n::translate("find-conversation"));
 						if self.focus {
 							input.request_focus();
 							self.focus = false;
@@ -650,10 +658,17 @@ impl Switcher {
 			ui.horizontal(|ui| {
 				ui.spacing_mut().item_spacing.x = 4.0;
 				if !narrow {
-					for (keys, action) in [("↑↓", "choose"), ("↵", "open"), ("Esc", "close")]
-					{
+					for (keys, action) in [
+						("↑↓", "switcher-footer-choose"),
+						("↵", "switcher-footer-open"),
+						("Esc", "switcher-show-close"),
+					] {
 						key_hint(ui, keys, colors);
-						ui.label(egui::RichText::new(action).size(12.0).color(colors.muted));
+						ui.label(
+							egui::RichText::new(crate::i18n::translate(action))
+								.size(12.0)
+								.color(colors.muted),
+						);
 						ui.add_space(6.0);
 					}
 				}

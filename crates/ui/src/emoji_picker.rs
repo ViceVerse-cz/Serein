@@ -841,14 +841,15 @@ impl Picker {
 								ui.spacing_mut().item_spacing.x = 20.0;
 								let family = crate::design::semibold_family(ui.ctx());
 								for (tab, label) in [
-									(Tab::Gifs, "GIFs"),
-									(Tab::Stickers, "Stickers"),
-									(Tab::Emoji, "Emoji"),
+									(Tab::Gifs, "emoji-picker-popup-gifs"),
+									(Tab::Stickers, "emoji-picker-popup-stickers"),
+									(Tab::Emoji, "emoji-picker-popup-emoji"),
 								] {
 									if self.reaction.is_some() && tab != Tab::Emoji {
 										continue;
 									}
 									let active = self.tab == tab;
+									let label = crate::i18n::translate(label);
 									let galley = ui.painter().layout_no_wrap(
 										label.to_owned(),
 										egui::FontId::new(15.0, family.clone()),
@@ -888,7 +889,7 @@ impl Picker {
 											egui::Role::Button,
 											true,
 											active,
-											label,
+											&label,
 										)
 									});
 									if response.clicked() && !active {
@@ -1828,7 +1829,7 @@ fn gif_home(
 			if tile(
 				ui,
 				cell(0),
-				"Favorites",
+				"emoji-picker-gif-body-favorites",
 				Some(crate::icons::Icon::StarFill),
 				favorite_art,
 				0,
@@ -1841,7 +1842,7 @@ fn gif_home(
 			if tile(
 				ui,
 				cell(1),
-				"Trending GIFs",
+				"emoji-picker-gif-body-trending-gifs",
 				Some(crate::icons::Icon::Fire),
 				trending_art,
 				1,

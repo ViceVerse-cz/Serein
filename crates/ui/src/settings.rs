@@ -1416,14 +1416,20 @@ fn theme_preference_cards(ui: &mut egui::Ui) {
 		let width = ((ui.available_width() - 20.0) / 3.0).clamp(88.0, 240.0);
 		// Narrow cards (the signed-out appearance popup) cannot hold the long system label.
 		for (preference, label) in [
-			(egui::ThemePreference::Dark, "Dark"),
-			(egui::ThemePreference::Light, "Light"),
+			(
+				egui::ThemePreference::Dark,
+				"theme-editor-appearance-switch-dark",
+			),
+			(
+				egui::ThemePreference::Light,
+				"theme-editor-appearance-switch-light",
+			),
 			(
 				egui::ThemePreference::System,
 				if width < 140.0 {
-					"System"
+					"language-system"
 				} else {
-					"Sync with system"
+					"settings-appearance-sync-with-system"
 				},
 			),
 		] {

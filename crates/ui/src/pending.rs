@@ -47,12 +47,12 @@ pub fn show(
 	let sending = pending.delivery == Delivery::Sending;
 	let artwork = pending.attachments.len() == 1
 		&& attachments::artwork_edge(&pending.attachments[0]).is_some();
-	let status = match pending.delivery {
-		Delivery::Sending => "Sending…",
-		Delivery::Ambiguous => "Delivery unknown",
-		Delivery::Rejected => "Not sent",
-		Delivery::Confirmed => "Sent",
-	};
+	let status = crate::i18n::translate(match pending.delivery {
+		Delivery::Sending => "pending-status-sending",
+		Delivery::Ambiguous => "pending-status-unknown",
+		Delivery::Rejected => "pending-status-not-sent",
+		Delivery::Confirmed => "pending-status-sent",
+	});
 	egui::Frame::NONE
 		.inner_margin(egui::Margin {
 			left: 16,
@@ -99,7 +99,7 @@ pub fn show(
 									.color(colors.muted),
 								);
 							}
-							ui.label(RichText::new(status).size(12.0).color(
+							ui.label(RichText::new(&status).size(12.0).color(
 								if pending.delivery == Delivery::Rejected {
 									colors.danger
 								} else {
