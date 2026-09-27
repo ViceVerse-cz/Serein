@@ -189,7 +189,9 @@ work checks. macOS registers a per-user `~/Library/LaunchAgents/cz.viceverse.ser
 for the next graphical login, with the same launch flags. Turning it off removes only
 that file. It does not launch a second client when enabled or restart after Quit.
 Re-enable startup after moving the executable; disable it before uninstalling. macOS
-Login Items settings can independently block launch. Linux autostart remains unavailable.
+Login Items settings can independently block launch. Built-in Linux autostart remains
+unavailable; desktop-session entries can launch `serein --start-minimized`, while ordinary
+launches without the flag remain visible.
 Native macOS sign-out/sign-in remains unverified.
 Offline tests cover isolated registry writes/removal, launch flags and settings
 interaction; an actual Windows sign-out/sign-in has not been exercised.
