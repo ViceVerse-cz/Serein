@@ -3159,6 +3159,7 @@ impl MessagingUi {
 		let mut commands = Vec::new();
 		if (side.back || side.forward)
 			&& !self.timeline.video.is_fullscreen()
+			&& !self.is_voice_fullscreen()
 			&& !self.channel_menu.is_open()
 		{
 			if self.settings.open {

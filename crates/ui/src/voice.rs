@@ -33,25 +33,37 @@ impl MessagingUi {
 		}
 	}
 
-	pub(super) fn show_fullscreen_voice(&mut self, ctx: &egui::Context, state: &State) -> bool {
-		let Some((focus, _, _, _)) = &self.voice_fullscreen else {
-			return false;
-		};
-		let focus = *focus;
-		let Some(channel) = state
+	pub(super) fn is_voice_fullscreen(&self) -> bool {
+		self.voice_fullscreen.is_some()
+	}
+
+	/// The fullscreen share's call channel, while it is still the tile the stage would show.
+	fn voice_fullscreen_channel(&self, state: &State) -> Option<Id> {
+		let (focus, _, _, _) = self.voice_fullscreen.as_ref()?;
+		state
 			.voice
 			.active
 			.as_ref()
 			.filter(|call| {
 				call.phase != Phase::Failed
 					&& match focus {
-						StageFocus::LocalScreen => self.screen.preview.is_some(),
-						StageFocus::Stream(user) => call.watching == Some(user),
+						StageFocus::LocalScreen => {
+							self.screen.context
+								== Some((state.generation, call.channel, call.request))
+								&& self.screen.busy && self.screen.preview.is_some()
+						}
+						StageFocus::Stream(user) => call.watching == Some(*user),
 						StageFocus::Participant(_) => false,
 					}
 			})
 			.map(|call| call.channel)
-		else {
+	}
+
+	pub(super) fn show_fullscreen_voice(&mut self, ctx: &egui::Context, state: &mut State) -> bool {
+		let Some((focus, _, _, _)) = self.voice_fullscreen else {
+			return false;
+		};
+		let Some(channel) = self.voice_fullscreen_channel(state) else {
 			self.exit_voice_fullscreen();
 			return false;
 		};
@@ -98,7 +110,9 @@ impl MessagingUi {
 				});
 				exit |= button.on_hover_text("Exit fullscreen (Esc)").clicked();
 			});
-		exit |= overlay.should_close();
+		// "Stop watching" inside the fullscreen tile applies now, not after leaving fullscreen.
+		self.apply_watch_request(state);
+		exit |= overlay.should_close() || self.voice_fullscreen_channel(state).is_none();
 		if exit {
 			self.exit_voice_fullscreen();
 		}
@@ -3329,18 +3343,12 @@ fn fullscreen_control(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response
 		ui.painter()
 			.rect_filled(rect.shrink(4.0), 8, egui::Color32::from_white_alpha(28));
 	}
-	let icon = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.0));
-	for (x, y) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
-		let corner = icon.center() + egui::vec2(x * 8.0, y * 8.0);
-		ui.painter().add(egui::Shape::line(
-			vec![
-				corner - egui::vec2(x * 6.0, 0.0),
-				corner,
-				corner - egui::vec2(0.0, y * 6.0),
-			],
-			egui::Stroke::new(1.8, color),
-		));
-	}
+	crate::icons::paint(
+		ui.painter(),
+		crate::icons::Icon::Fullscreen,
+		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.0)),
+		color,
+	);
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Fullscreen"));
 	response.on_hover_text("View this screen share in fullscreen")
 }

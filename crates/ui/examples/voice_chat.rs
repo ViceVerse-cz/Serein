@@ -51,6 +51,18 @@ fn frame(
 	labels
 }
 
+fn click(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
+	vec![
+		egui::Event::PointerMoved(pos),
+		egui::Event::PointerButton {
+			pos,
+			button: egui::PointerButton::Primary,
+			pressed,
+			modifiers: egui::Modifiers::NONE,
+		},
+	]
+}
+
 fn main() {
 	for (width, right_click) in [
 		(1400.0, false),
@@ -235,6 +247,54 @@ fn main() {
 					}],
 				);
 				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
+				let enter = |view: &mut ui::MessagingUi, state: &mut State| {
+					// Hit testing uses the previous frame's widgets, so lay out the stage first.
+					frame(&ctx, view, state, width, vec![]);
+					for pressed in [true, false] {
+						frame(&ctx, view, state, width, click(pos, pressed));
+					}
+					assert_eq!(view.take_voice_fullscreen_request(), Some(true));
+				};
+				// Side buttons must not navigate the hidden conversation, and Stop watching
+				// must apply from the fullscreen tile.
+				let other = state
+					.channels
+					.iter()
+					.find(|c| c.id != channel && c.supports_text())
+					.unwrap()
+					.id;
+				let _ = state.select(other);
+				let _ = state.select(channel);
+				enter(&mut view, &mut state);
+				view.side_buttons(ui::scroll::SidePress {
+					back: true,
+					forward: false,
+				});
+				frame(&ctx, &mut view, &mut state, width, vec![]);
+				assert_eq!(state.selected, Some(channel));
+				assert_eq!(view.take_voice_fullscreen_request(), None);
+				let labels = frame(&ctx, &mut view, &mut state, width, vec![]);
+				let stop = labels
+					.iter()
+					.find(|(text, _)| text == "Stop watching")
+					.unwrap()
+					.1
+					.center();
+				for pressed in [true, false] {
+					frame(&ctx, &mut view, &mut state, width, click(stop, pressed));
+				}
+				assert_eq!(state.voice.active.as_ref().unwrap().watching, None);
+				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
+				// A share that ends while fullscreen restores the window on its own.
+				state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
+				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
+				frame(&ctx, &mut view, &mut state, width, vec![]);
+				enter(&mut view, &mut state);
+				state.voice.active.as_mut().unwrap().watching = None;
+				frame(&ctx, &mut view, &mut state, width, vec![]);
+				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
+				state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
+				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
 			}
 		}
 		for (label, expected_volume) in [
