@@ -191,11 +191,13 @@ impl ArchivesUi {
 				});
 			},
 			|ui| {
-				ui.horizontal(|ui| {
-					let create_width = 88.0;
-					let field_width = (ui.available_width() - create_width - 12.0).max(80.0);
-					let field = ui
-						.allocate_ui(egui::vec2(field_width, 0.0), |ui| {
+				let create_width = 88.0;
+				let field_width = (ui.available_width() - create_width - 12.0).max(80.0);
+				let field = ui
+					.allocate_ui_with_layout(
+						egui::vec2(field_width, 38.0),
+						egui::Layout::left_to_right(egui::Align::Center),
+						|ui| {
 							crate::dialog::input(
 								ui,
 								egui::TextEdit::singleline(&mut self.filter)
@@ -204,30 +206,29 @@ impl ArchivesUi {
 										"archives-show-search-for-thread-name",
 									)),
 							)
-						})
-						.inner;
-					self.filter.shrink_to_fit();
-					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-						ui.add_enabled_ui(can_create && !action_pending, |ui| {
-							create = crate::dialog::action(
-								ui,
-								"archives-show-create",
-								crate::dialog::Action::Primary,
-							)
-							.on_disabled_hover_text(crate::i18n::translate(
-								"archives-show-you-cannot-start-a-thread-in-this-channel",
-							))
-							.clicked();
-						});
-					});
-					if field.changed() {
-						ui.ctx().request_repaint();
-					}
-					if self.focus {
-						field.request_focus();
-						self.focus = false;
-					}
+						},
+					)
+					.inner;
+				self.filter.shrink_to_fit();
+				ui.add_space(12.0);
+				ui.add_enabled_ui(can_create && !action_pending, |ui| {
+					create = crate::dialog::action(
+						ui,
+						"archives-show-create",
+						crate::dialog::Action::Primary,
+					)
+					.on_disabled_hover_text(crate::i18n::translate(
+						"archives-show-you-cannot-start-a-thread-in-this-channel",
+					))
+					.clicked();
 				});
+				if field.changed() {
+					ui.ctx().request_repaint();
+				}
+				if self.focus {
+					field.request_focus();
+					self.focus = false;
+				}
 			},
 		);
 		if create {

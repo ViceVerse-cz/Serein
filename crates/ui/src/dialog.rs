@@ -276,30 +276,37 @@ fn toolbar_header(
 		})
 		.show(ui, |ui| {
 			ui.set_width(ui.available_width());
-			ui.horizontal(|ui| {
-				header_icon(ui, tone, icon, &colors);
-				ui.add(
-					egui::Label::new(design::semibold(ui, title, 19.0).color(colors.text_strong))
+			let width = ui.available_width();
+			ui.allocate_ui_with_layout(
+				egui::vec2(width, 38.0),
+				egui::Layout::left_to_right(egui::Align::Center),
+				|ui| {
+					header_icon(ui, tone, icon, &colors);
+					ui.add(
+						egui::Label::new(
+							design::semibold(ui, title, 19.0).color(colors.text_strong),
+						)
 						.wrap_mode(egui::TextWrapMode::Extend),
-				);
-				ui.separator();
-				let toolbar_width =
-					(ui.available_width() - if dismissable { 38.0 } else { 0.0 }).max(80.0);
-				ui.allocate_ui_with_layout(
-					egui::vec2(toolbar_width, 38.0),
-					egui::Layout::left_to_right(egui::Align::Center),
-					toolbar,
-				);
-				if dismissable {
-					close = icons::button(
-						ui,
-						icons::Icon::Close,
-						30.0,
-						&crate::i18n::translate("dialog-header-close-dialog-esc"),
-					)
-					.clicked();
-				}
-			});
+					);
+					ui.separator();
+					let toolbar_width =
+						(ui.available_width() - if dismissable { 38.0 } else { 0.0 }).max(80.0);
+					ui.allocate_ui_with_layout(
+						egui::vec2(toolbar_width, 38.0),
+						egui::Layout::left_to_right(egui::Align::Center),
+						toolbar,
+					);
+					if dismissable {
+						close = icons::button(
+							ui,
+							icons::Icon::Close,
+							30.0,
+							&crate::i18n::translate("dialog-header-close-dialog-esc"),
+						)
+						.clicked();
+					}
+				},
+			);
 		});
 	ui.add_space(8.0);
 	close
