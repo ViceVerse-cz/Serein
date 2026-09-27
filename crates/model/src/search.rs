@@ -76,6 +76,7 @@ pub struct SearchHit {
 	pub id: Id,
 	pub channel: Id,
 	pub author: crate::User,
+	pub mentions: Vec<crate::User>,
 	pub excerpt: String,
 	/// Media shown under the excerpt, bounded like message attachments.
 	pub attachments: Vec<crate::Attachment>,
@@ -96,6 +97,7 @@ impl SearchPage {
 				.iter()
 				.map(|h| {
 					h.author.heap_bytes()
+						+ crate::mention_bytes(&h.mentions)
 						+ h.excerpt.capacity()
 						+ h.attachments.capacity() * size_of::<crate::Attachment>()
 						+ h.attachments
@@ -120,6 +122,7 @@ impl SearchPage {
 				h.id.0 > 0
 					&& h.channel == channel
 					&& h.author.name.len() <= 512
+					&& crate::valid_mentions(&h.mentions)
 					&& h.attachments.len() <= crate::MAX_ATTACHMENTS
 					&& h.embeds.len() <= crate::MAX_EMBEDS
 					&& h.excerpt.len() <= 8192

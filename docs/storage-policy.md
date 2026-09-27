@@ -1316,6 +1316,8 @@ catalog polling is introduced.
 
 Search rich-text previews retain at most 25 messages / 256 KiB per page, with
 8 KiB of source per message; oversized messages show an explicit preview-limit notice.
+Each hit may retain at most 100 service-supplied mentioned users within that same page cap;
+unknown channel references reuse the bounded on-demand channel lookup rather than a directory.
 Formatting reuses the 512-entry / 1 MiB bounded parser cache, pruned to the current
 page and cleared when search closes. Spoilers remain concealed until revealed;
 custom emoji reuse the existing visible-only image requests. No search persistence

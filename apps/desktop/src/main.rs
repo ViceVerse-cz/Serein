@@ -3472,6 +3472,7 @@ impl Desktop {
 								message.content.chars().take(200).collect::<String>()
 							),
 							author: message.author,
+							mentions: message.mentions,
 							attachments: message.attachments,
 							embeds: message.embeds,
 						}
@@ -3563,6 +3564,7 @@ impl Desktop {
 									id: message.id,
 									channel,
 									author: message.author,
+									mentions: message.mentions,
 									excerpt: message.content.clone(),
 									attachments: message.attachments,
 									embeds: message.embeds,

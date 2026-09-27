@@ -47,6 +47,7 @@ pub struct SearchUi {
 	viewing: Option<(Id, Id)>,
 	pub opening: Option<String>,
 	pub channel_reference: Option<Id>,
+	pub channel_reference_load: Option<Id>,
 }
 
 impl SearchUi {
@@ -1060,7 +1061,7 @@ impl SearchUi {
 				author_roles: vec![],
 				author_nick: None,
 				content: String::new(),
-				mentions: vec![],
+				mentions: hit.mentions.clone(),
 				mention_roles: vec![],
 				mention_everyone: false,
 				suppress_notifications: false,
@@ -1210,10 +1211,15 @@ impl SearchUi {
 							state,
 							channel: hit.channel,
 						};
-						self.formats.get(hit.id, &hit.excerpt).show_search(
+						let formatted = self.formats.get(hit.id, &hit.excerpt);
+						if self.channel_reference_load.is_none() {
+							self.channel_reference_load =
+								formatted.missing_channel_reference(state, revealed);
+						}
+						formatted.show_search(
 							ui,
 							&mut self.opening,
-							&crate::mentions::known_users(state, hit.channel),
+							&hit.mentions,
 							Some(&source),
 							profile,
 							(
@@ -1615,6 +1621,7 @@ mod tests {
 							discriminator: 0,
 							primary_guild: None,
 						},
+						mentions: vec![],
 						excerpt: "Synthetic pinned message".into(),
 						attachments: vec![],
 						embeds: vec![],
@@ -1759,5 +1766,78 @@ mod tests {
 			output.textures_delta.clear();
 			assert!(state.search.is_none());
 		}
+	}
+	#[test]
+	fn search_results_resolve_payload_mentions_and_queue_unknown_channels() {
+		let channel = model::Channel {
+			id: Id(1),
+			guild: Some(Id(10)),
+			parent_id: None,
+			position: 0,
+			name: "Synthetic".into(),
+			kind: 0,
+			recipients: vec![],
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+			last_message: None,
+		};
+		let user = model::User {
+			kind: model::AccountKind::Human,
+			webhook: false,
+			id: Id(42),
+			name: "Mentioned".into(),
+			avatar: None,
+			discriminator: 0,
+			primary_guild: None,
+		};
+		let state = State {
+			demo: true,
+			channels: vec![channel],
+			..State::default()
+		};
+		let hit = model::SearchHit {
+			id: Id(1 << 22),
+			channel: Id(1),
+			author: user.clone(),
+			mentions: vec![user],
+			excerpt: "Hello <@42> in <#99>".into(),
+			attachments: vec![],
+			embeds: vec![],
+		};
+		let ctx = egui::Context::default();
+		let mut view = SearchUi {
+			pins: true,
+			..SearchUi::default()
+		};
+		let mut output = ctx.run_ui(Default::default(), |ui| {
+			view.result_card(
+				ui,
+				&state,
+				&hit,
+				"",
+				&mut crate::avatars::Avatars::default(),
+				&mut MediaUi {
+					download: &mut crate::attachments::DownloadUi::default(),
+					audio: &mut crate::audio::AudioUi::default(),
+					video: &mut crate::video::VideoUi::default(),
+				},
+				&mut crate::profiles::ProfileSession::default(),
+				&mut None,
+			);
+		});
+		let text = output
+			.shapes
+			.iter()
+			.filter_map(|shape| match &shape.shape {
+				egui::Shape::Text(text) => Some(text.galley.text()),
+				_ => None,
+			})
+			.collect::<String>();
+		output.textures_delta.clear();
+		assert!(text.contains("@Mentioned"), "rendered text: {text}");
+		assert!(!text.contains("@42"), "rendered text: {text}");
+		assert_eq!(view.channel_reference_load, Some(Id(99)));
 	}
 }

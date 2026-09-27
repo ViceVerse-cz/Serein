@@ -4160,6 +4160,9 @@ impl MessagingUi {
 		if let Some(channel) = self.search.channel_reference.take() {
 			self.timeline.channel_reference = Some(channel);
 		}
+		if let Some(channel) = self.search.channel_reference_load.take() {
+			self.timeline.channel_reference_load = Some(channel);
+		}
 		// A forum pane lists its own archived posts inline instead of the floating window.
 		if !(selected_forum
 			&& state

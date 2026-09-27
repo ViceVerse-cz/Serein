@@ -1,4 +1,4 @@
-use crate::UserDto;
+use crate::{MentionList, UserDto};
 use model::{Id, SearchHit, SearchPage};
 use serde::{
 	Deserialize, Deserializer,
@@ -28,6 +28,8 @@ pub(crate) struct Hit {
 	id: Id,
 	channel_id: Id,
 	author: UserDto,
+	#[serde(default)]
+	mentions: MentionList,
 	#[serde(default)]
 	content: String,
 	#[serde(default)]
@@ -99,6 +101,12 @@ impl Hit {
 			id: self.id,
 			channel: self.channel_id,
 			author: self.author.into_model(),
+			mentions: self
+				.mentions
+				.0
+				.into_iter()
+				.map(UserDto::into_model)
+				.collect(),
 			excerpt,
 			attachments: self.attachments.0,
 			embeds: crate::embeds::bounded(self.embeds.0),
@@ -117,8 +125,9 @@ mod tests {
 			|value: serde_json::Value| crate::decode::<Reply>(&serde_json::to_vec(&value).unwrap());
 		let mut context = hit(2, 1, "context");
 		context["hit"] = json!(false);
-		let mut matched = hit(3, 1, "hidden ||synthetic spoiler||");
+		let mut matched = hit(3, 1, "hidden ||synthetic spoiler|| <@42>");
 		matched["hit"] = json!(true);
+		matched["mentions"] = json!([{"id":"42","username":"Mentioned"}]);
 		let page = decode(
 			json!({"total_results":8,"messages":[[context,matched]],"doing_deep_historical_index":true}),
 		)
@@ -128,7 +137,8 @@ mod tests {
 		assert_eq!(page.hits.len(), 1);
 		assert_eq!(page.hits[0].id, Id(3));
 		assert!(page.partial);
-		assert_eq!(page.hits[0].excerpt, "hidden ||synthetic spoiler||");
+		assert_eq!(page.hits[0].excerpt, "hidden ||synthetic spoiler|| <@42>");
+		assert_eq!(page.hits[0].mentions[0].name, "Mentioned");
 		for value in [
 			json!({"total_results":1}),
 			json!({"total_results":1,"messages":[[hit(3,2,"wrong channel")]]}),
