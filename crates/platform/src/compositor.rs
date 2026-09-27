@@ -96,12 +96,18 @@ fn move_window(
 		return Err("invalid workspace address".into());
 	}
 	// Workspace names are data, never Lua source. Control characters are rejected above.
-	let quoted = workspace.replace('\\', "\\\\").replace('"', "\\\"");
 	let pid = std::process::id();
+	let reply = request(
+		socket,
+		&format!("dispatch movetoworkspacesilent {workspace},pid:{pid}"),
+	)?;
+	if reply.trim_ascii() == b"ok" {
+		return Ok(());
+	}
+	let quoted = workspace.replace('\\', "\\\\").replace('"', "\\\"");
 	let command = format!(
 		"dispatch hl.dsp.window.move({{ window = \"pid:{pid}\", workspace = \"{quoted}\", follow = false }})"
 	);
-	// Transport failures are not retried: only a compositor rejection allows the old syntax.
 	let reply = request(socket, &command)?;
 	if reply.trim_ascii() == b"ok" {
 		return Ok(());
