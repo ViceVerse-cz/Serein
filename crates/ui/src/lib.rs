@@ -868,9 +868,12 @@ impl MessagingUi {
 		self.avatars.accept(ctx, key, image);
 	}
 	pub fn clear(&mut self) {
+		// The native window must not stay in screen-share fullscreen after the account is gone.
+		self.exit_voice_fullscreen();
 		// Window preferences belong to the application, not the account being cleared.
 		*self = Self {
 			build: self.build,
+			voice_fullscreen_request: self.voice_fullscreen_request.take(),
 			// The switcher roster belongs to the device, not to the account being cleared.
 			accounts: std::mem::take(&mut self.accounts),
 			updates: std::mem::take(&mut self.updates),

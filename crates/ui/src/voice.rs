@@ -25,7 +25,7 @@ pub(super) struct CallSwitch {
 }
 
 impl MessagingUi {
-	fn exit_voice_fullscreen(&mut self) {
+	pub(super) fn exit_voice_fullscreen(&mut self) {
 		if let Some((_, ctx, previous, focus)) = self.voice_fullscreen.take() {
 			self.voice_fullscreen_request = Some(previous);
 			ctx.memory_mut(|memory| memory.request_focus(focus));

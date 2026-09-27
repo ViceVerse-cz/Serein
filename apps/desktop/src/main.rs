@@ -6153,13 +6153,6 @@ impl eframe::App for Desktop {
 					}),
 				);
 			}
-			if let Some(fullscreen) = self.messaging.take_voice_fullscreen_request() {
-				self.window.set_fullscreen(
-					fullscreen.then(|| {
-						winit::window::Fullscreen::Borderless(self.window.current_monitor())
-					}),
-				);
-			}
 			self.notifications.set_enabled(
 				self.messaging.notifications_enabled
 					&& (!self.fixture_only || self.messaging.notification_test_available),
@@ -6466,6 +6459,13 @@ impl eframe::App for Desktop {
 			self.restoring_screen(ui, &stage);
 		} else {
 			self.sign_in_screen(ui);
+		}
+		// Outside the signed-in branch so leaving an account still restores the window mode.
+		if let Some(fullscreen) = self.messaging.take_voice_fullscreen_request() {
+			self.window.set_fullscreen(
+				fullscreen
+					.then(|| winit::window::Fullscreen::Borderless(self.window.current_monitor())),
+			);
 		}
 		#[cfg(feature = "demo")]
 		if let Some(diagnostic) = &self.rendering_demo {

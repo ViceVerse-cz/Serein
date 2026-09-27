@@ -297,6 +297,19 @@ fn main() {
 				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
 				state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
 				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
+				// Signing out while fullscreen still hands the desktop a restore request.
+				enter(&mut view, &mut state);
+				view.clear();
+				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
+				view.language = ui::i18n::Language::English;
+				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
+				if right_click {
+					view.voice_stream_view = Some(ctx.load_texture(
+						"synthetic stream",
+						egui::ColorImage::filled([320, 180], egui::Color32::GRAY),
+						egui::TextureOptions::LINEAR,
+					));
+				}
 			}
 		}
 		for (label, expected_volume) in [
