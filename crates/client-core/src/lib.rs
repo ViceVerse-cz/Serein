@@ -1053,6 +1053,19 @@ impl State {
 		}
 		self.last_viewed_channels.push((guild, channel));
 	}
+	/// Restores saved server visits (oldest first) behind the ones made this session.
+	pub fn seed_viewed_channels(&mut self, saved: &[(Id, Id)]) {
+		let room = MAX_VIEWED_SERVERS.saturating_sub(self.last_viewed_channels.len());
+		let mut fresh: Vec<_> = saved
+			.iter()
+			.rev()
+			.filter(|(guild, _)| !self.last_viewed_channels.iter().any(|(id, _)| id == guild))
+			.take(room)
+			.copied()
+			.collect();
+		fresh.reverse();
+		self.last_viewed_channels.splice(0..0, fresh);
+	}
 	pub fn select_guild(&mut self, guild: Id) -> Option<Command> {
 		self.guild(guild)?;
 		let available = |id| {
@@ -2225,6 +2238,9 @@ impl State {
 			Event::ThreadChanged { guild, patch } => Some((*guild, patch.id)),
 			_ => None,
 		};
+		if let Some((_, id)) = archive_mutation {
+			self.forget_channel_reference_name(id);
+		}
 		if archive_mutation.is_some_and(|(guild, id)| {
 			self.archives.as_ref().is_some_and(|view| {
 				view.guild == guild

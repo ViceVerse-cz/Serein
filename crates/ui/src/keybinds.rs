@@ -70,13 +70,15 @@ pub(super) fn show_voice(
 	let colors = design::palette(ui);
 	voice_section(ui, bindings, capturing);
 	ui.add_space(10.0);
-	ui.label(design::eyebrow(ui, "Global availability", colors.muted));
+	ui.label(design::eyebrow(
+		ui,
+		crate::i18n::translate("keybinds-show-voice-global-availability"),
+		colors.muted,
+	));
 	design::switch(
 		ui,
-		"Enable global keybinds",
-		Some(
-			"Use voice shortcuts while another app is focused. When off, shortcuts only work while Serein is focused.",
-		),
+		"keybinds-show-voice-enable-global-keybinds",
+		Some("keybinds-show-voice-use-voice-shortcuts-while-another-app-is-focused-when-off"),
 		&mut bindings.global_enabled,
 	);
 	if bindings.global_enabled {
@@ -235,7 +237,11 @@ fn row(
 			|ui| {
 				ui.label(action.label());
 				if action.is_global() && bindings.global_enabled {
-					ui.label(RichText::new("GLOBAL").size(10.0).color(colors.accent));
+					ui.label(
+						RichText::new(crate::i18n::translate("keybinds-row-global"))
+							.size(10.0)
+							.color(colors.accent),
+					);
 				}
 				if let Some(ref msg) = conflict_text.filter(|_| fade_alpha > 0.0) {
 					let text_color = colors.danger.gamma_multiply(fade_alpha);
@@ -245,7 +251,7 @@ fn row(
 			},
 		);
 		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-			if design::text_action(ui, "Reset").clicked() {
+			if design::text_action(ui, &crate::i18n::translate("keybinds-row-reset")).clicked() {
 				*bindings.chord_mut(action) = Keybinds::default().chord(action).clone();
 				if *capturing == Some(action) {
 					*capturing = None;

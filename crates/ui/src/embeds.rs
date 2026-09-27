@@ -54,7 +54,10 @@ fn link(
 	if let Some(target) = target {
 		response
 			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), label));
-		if response.on_hover_text("Open link…").clicked() {
+		if response
+			.on_hover_text(crate::i18n::translate("embeds-link-open-link"))
+			.clicked()
+		{
 			*opening = Some(target);
 		}
 	}
@@ -84,7 +87,7 @@ fn text(
 		(images, demo, guilds),
 	);
 	if formatted.limited {
-		ui.small("Text display limited");
+		ui.small(crate::i18n::translate("embeds-text-text-display-limited"));
 	}
 }
 pub fn standalone_media_links(message: &Message) -> bool {
@@ -199,7 +202,13 @@ fn gallery(
 							egui::Role::Image
 						},
 						ui.is_enabled(),
-						format!("Open embed image {} of {}", index + 1, embeds.len()),
+						format!(
+							"{} {} {} {}",
+							crate::i18n::translate("embeds-gallery-open-embed-image"),
+							index + 1,
+							crate::i18n::translate("embeds-gallery-of"),
+							embeds.len()
+						),
 					)
 				});
 				if response.has_focus() {
@@ -211,7 +220,9 @@ fn gallery(
 					);
 				}
 				if let Some(target) = target
-					&& response.on_hover_text("Open image…").clicked()
+					&& response
+						.on_hover_text(crate::i18n::translate("embeds-gallery-open-image"))
+						.clicked()
 				{
 					*opening = Some(target);
 				}
@@ -284,7 +295,11 @@ fn image_preview(
 		.response;
 	let response = ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
 	response.widget_info(|| {
-		egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Image actions")
+		egui::WidgetInfo::labeled(
+			egui::Role::Button,
+			ui.is_enabled(),
+			crate::i18n::translate("embeds-image-preview-image-actions"),
+		)
 	});
 	embed_context_menu(&response, image, download, demo);
 }
@@ -318,7 +333,7 @@ pub fn show(
 			if count > 1 && inline_image(embed).is_some() {
 				gallery(ui, group, images, opening, download, demo);
 				if group.iter().any(|e| e.limited) {
-					ui.small("Embed display limited");
+					ui.small(crate::i18n::translate("embeds-show-embed-display-limited"));
 				}
 				ui.add_space(6.0);
 				return;
@@ -339,7 +354,11 @@ pub fn show(
 				let response =
 					ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
 				response.widget_info(|| {
-					egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Open image")
+					egui::WidgetInfo::labeled(
+						egui::Role::Button,
+						ui.is_enabled(),
+						crate::i18n::translate("embeds-show-open-image"),
+					)
 				});
 				embed_context_menu(&response, image, download, demo);
 				let star = gif.map(|gif| {
@@ -382,22 +401,26 @@ pub fn show(
 							egui::Role::CheckBox,
 							ui.is_enabled(),
 							favorite,
-							"Favorite GIF",
+							crate::i18n::translate("embeds-show-favorite-gif"),
 						)
 					});
 					if star.clicked() {
 						favorite_action = Some(gif);
 					}
-					star.on_hover_text(if favorite {
-						"Remove from GIF favorites"
-					} else {
-						"Save to GIF favorites"
-					})
+					star.on_hover_text(crate::i18n::translate_if_key(
+						&(if favorite {
+							crate::i18n::translate("embeds-show-remove-from-gif-favorites")
+						} else {
+							crate::i18n::translate("embeds-show-save-to-gif-favorites")
+						}),
+					))
 				});
 				if !star
 					.as_ref()
 					.is_some_and(|star| star.hovered() || star.clicked())
-					&& response.on_hover_text("Open image…").clicked()
+					&& response
+						.on_hover_text(crate::i18n::translate("embeds-show-open-image-2"))
+						.clicked()
 				{
 					*opening = embed
 						.url
@@ -569,7 +592,9 @@ pub fn show(
 							if embed.video.is_some()
 								|| matches!(embed.kind.as_str(), "video" | "gifv")
 							{
-								ui.small("Video preview · playback opens in your browser");
+								ui.small(crate::i18n::translate(
+									"embeds-show-video-preview-playback-opens-in-your-browser",
+								));
 								link(
 									ui,
 									"Open video…",
@@ -608,13 +633,17 @@ pub fn show(
 								ui.small(timestamp);
 							}
 							if group.iter().any(|e| e.limited) {
-								ui.small("Embed display limited");
+								ui.small(crate::i18n::translate(
+									"embeds-show-embed-display-limited",
+								));
 							}
 							if !matches!(
 								embed.kind.as_str(),
 								"rich" | "article" | "link" | "image" | "video" | "gifv"
 							) {
-								ui.small("Additional embed content is not supported");
+								ui.small(crate::i18n::translate(
+									"embeds-show-additional-embed-content-is-not-supported",
+								));
 							}
 						});
 				});

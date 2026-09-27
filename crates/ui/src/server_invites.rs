@@ -64,13 +64,18 @@ impl InvitesUi {
 		let colors = design::palette(ui);
 		let mut action = None;
 		ui.horizontal(|ui| {
-			ui.label(design::semibold(ui, "Invites", 22.0));
+			ui.label(design::semibold(
+				ui,
+				crate::i18n::translate("server-invites-show-invites"),
+				22.0,
+			));
 			if ui
 				.add_enabled(
 					!state.server_admin.pending,
-					egui::Button::new("Reload").frame(false),
+					egui::Button::new(crate::i18n::translate("server-invites-show-reload"))
+						.frame(false),
 				)
-				.on_hover_text("Reload Invites")
+				.on_hover_text(crate::i18n::translate("server-invites-show-reload-invites"))
 				.clicked()
 			{
 				action = Some(Action::Load);
@@ -96,11 +101,11 @@ impl InvitesUi {
 					ui.set_width(label_width);
 					ui.label(design::eyebrow(
 						ui,
-						if paused {
-							"INVITE LINKS PAUSED"
+						crate::i18n::translate_if_key(if paused {
+							"server-invites-show-invite-links-paused"
 						} else {
-							"ACTIVE INVITE LINKS"
-						},
+							"server-invites-show-active-invite-links"
+						}),
 						colors.muted,
 					));
 				},
@@ -110,11 +115,11 @@ impl InvitesUi {
 					.add_enabled(
 						writable,
 						egui::Button::new(
-							RichText::new(if paused {
-								"Resume Invites"
+							RichText::new(crate::i18n::translate_if_key(if paused {
+								"server-invites-show-resume-invites"
 							} else {
-								"Pause Invites"
-							})
+								"server-invites-show-pause-invites"
+							}))
 							.color(if paused { colors.text } else { colors.danger }),
 						)
 						.min_size(Vec2::new(136.0, 38.0)),
@@ -126,7 +131,11 @@ impl InvitesUi {
 			if state.invite_channel(guild).is_some()
 				&& ui
 					.add_enabled_ui(writable && !paused, |ui| {
-						design::button(ui, "Create Invite Link", design::ButtonKind::Primary)
+						design::button(
+							ui,
+							&crate::i18n::translate("server-invites-show-create-invite-link"),
+							design::ButtonKind::Primary,
+						)
 					})
 					.inner
 					.clicked()
@@ -144,7 +153,7 @@ impl InvitesUi {
 			if ui
 				.add_enabled(
 					!state.server_admin.pending,
-					egui::Button::new("Reload Invites"),
+					egui::Button::new(crate::i18n::translate("server-invites-show-reload-invites")),
 				)
 				.clicked()
 			{
@@ -154,19 +163,27 @@ impl InvitesUi {
 		if state.server_admin.pending {
 			ui.horizontal(|ui| {
 				ui.spinner();
-				ui.weak(if state.server_admin.saving {
-					"Updating invites…"
-				} else {
-					"Loading invites…"
-				});
+				ui.weak(crate::i18n::translate_if_key(
+					if state.server_admin.saving {
+						"server-invites-show-updating-invites"
+					} else {
+						"server-invites-show-loading-invites"
+					},
+				));
 			});
 		}
 		if let Some(snapshot) = &state.server_admin.invites {
 			if snapshot.items.is_empty() {
 				ui.add_space(32.0);
-				ui.label(design::semibold(ui, "No active invite links", 18.0));
+				ui.label(design::semibold(
+					ui,
+					crate::i18n::translate("server-invites-show-no-active-invite-links"),
+					18.0,
+				));
 				if state.invite_channel(guild).is_some() {
-					ui.weak("Create an invite link to welcome people to this server.");
+					ui.weak(crate::i18n::translate(
+						"server-invites-show-create-an-invite-link-to-welcome-people-to-this-server",
+					));
 				}
 			} else {
 				let now = time::OffsetDateTime::now_utc().unix_timestamp_nanos();
@@ -302,18 +319,24 @@ impl InvitesUi {
 											if ui
 												.add(
 													egui::Label::new(
-														RichText::new(if copied {
-															"Copied!"
-														} else {
-															&invite.code
-														})
+														RichText::new(
+															crate::i18n::translate_if_key(
+																if copied {
+																	"server-invites-show-copied"
+																} else {
+																	&invite.code
+																},
+															),
+														)
 														.monospace()
 														.size(13.0),
 													)
 													.truncate()
 													.sense(egui::Sense::click()),
 												)
-												.on_hover_text("Copy invite link")
+												.on_hover_text(crate::i18n::translate(
+													"server-invites-show-copy-invite-link",
+												))
 												.clicked()
 											{
 												ui.ctx().copy_text(format!(
@@ -389,7 +412,9 @@ impl InvitesUi {
 													egui::WidgetInfo::labeled(
 														egui::Role::Button,
 														writable,
-														"Revoke invite",
+														crate::i18n::translate(
+															"server-invites-show-revoke-invite",
+														),
 													)
 												});
 												if hovered
@@ -406,8 +431,11 @@ impl InvitesUi {
 														},
 													);
 												}
-												if response.on_hover_text("Revoke invite").clicked()
-													&& writable
+												if response
+													.on_hover_text(crate::i18n::translate(
+														"server-invites-show-revoke-invite",
+													))
+													.clicked() && writable
 												{
 													self.revoke = Some(invite.code.clone());
 												}
@@ -424,7 +452,9 @@ impl InvitesUi {
 			}
 		} else if !state.server_admin.pending
 			&& state.server_admin.error.is_none()
-			&& ui.button("Load Invites").clicked()
+			&& ui
+				.button(crate::i18n::translate("server-invites-show-load-invites"))
+				.clicked()
 		{
 			action = Some(Action::Load);
 		}
@@ -444,10 +474,10 @@ impl InvitesUi {
 		commands: &mut Vec<Command>,
 	) {
 		if let Some(dialog) = &mut self.create {
-			let name = state
-				.guild(guild)
-				.map_or("Server", |guild| guild.name.as_str())
-				.to_owned();
+			let name = state.guild(guild).map_or_else(
+				|| crate::i18n::translate("switcher-kind-server"),
+				|guild| guild.name.clone(),
+			);
 			let close = dialog.show(
 				ctx,
 				state,
@@ -469,13 +499,11 @@ impl InvitesUi {
 			}
 			let mut confirm = dialog::Confirm::new(
 				"revoke-server-invite",
-				"Revoke invite?",
-				format!(
-					"People will no longer be able to join this server with discord.gg/{code}."
-				),
+				"server-invites-revoke-title",
+				crate::i18n::translate_args("server-invites-revoke-message", &[("code", code)]),
 			)
 			.danger()
-			.confirm_label("Revoke Invite")
+			.confirm_label("server-invites-show-revoke-invite")
 			.enabled(!state.server_admin.pending && !state.server_admin.needs_refresh);
 			if let Some(error) = state.server_admin.error {
 				confirm = confirm.note(dialog::Level::Error, error);
@@ -725,7 +753,7 @@ mod tests {
 			&mut state,
 			&mut commands,
 			vec![],
-			"Revoke Invite",
+			&crate::i18n::translate("server-invites-show-revoke-invite"),
 		)
 		.0
 		.unwrap();

@@ -98,7 +98,6 @@ enum Placement {
 enum Edit {
 	Drop(Item, Item, Placement),
 	Outside(Id),
-	Shift(Item, bool),
 	Dissolve(u64),
 	Customize(u64, String, u32),
 }
@@ -138,29 +137,6 @@ fn edit(settings: &mut Settings, edit: Edit) {
 				f.guild_ids.retain(|g| *g != id);
 			}
 			settings.folders.push(standalone(id));
-		}
-		Edit::Shift(item, down) => {
-			if let Some(i) = entry(settings, item) {
-				if let Item::Server(id) = item
-					&& settings.folders[i].id.is_some()
-				{
-					let ids = &mut settings.folders[i].guild_ids;
-					let j = ids.iter().position(|g| *g == id).unwrap();
-					let k = if down {
-						(j + 1).min(ids.len() - 1)
-					} else {
-						j.saturating_sub(1)
-					};
-					ids.swap(j, k);
-				} else {
-					let j = if down {
-						(i + 1).min(settings.folders.len() - 1)
-					} else {
-						i.saturating_sub(1)
-					};
-					settings.folders.swap(i, j);
-				}
-			}
 		}
 		Edit::Drop(source, target, placement) => {
 			if source == target {
@@ -316,16 +292,17 @@ impl MessagingUi {
 			.input(|input| input.pointer.is_decidedly_dragging());
 		egui::Popup::from_response(response)
 			.kind(egui::PopupKind::Tooltip)
+			.align(egui::RectAlign::RIGHT)
 			.open(
 				!dragging
 					&& (response.contains_pointer() || response.hovered() || response.has_focus()),
 			)
 			.gap(8.0)
-			.width(220.0)
+			.width(200.0)
 			.interactable(false)
 			.show(|ui| {
-				ui.label(egui::RichText::new(&guild.name).strong());
-				ui.add_space(4.0);
+				ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+				ui.label(design::semibold(ui, &guild.name, 14.0));
 				for (icon, streaming) in [(Icon::Speaker, false), (Icon::ScreenShare, true)] {
 					let entries = guild_voice(state, guild.id, streaming);
 					if entries.clone().next().is_none() {
@@ -333,7 +310,7 @@ impl MessagingUi {
 					}
 					ui.horizontal(|ui| {
 						let (rect, _) =
-							ui.allocate_exact_size(egui::Vec2::splat(20.0), Sense::hover());
+							ui.allocate_exact_size(egui::Vec2::splat(16.0), Sense::hover());
 						icons::paint(ui.painter(), icon, rect, design::palette(ui).text);
 						const VISIBLE: usize = 5;
 						let count = entries.clone().count();
@@ -532,9 +509,16 @@ impl MessagingUi {
 									egui::Role::Button,
 									true,
 									format!(
-										"{name}, {} servers, {}",
+										"{name}, {} {}, {}",
 										folder.guild_ids.len(),
-										if open { "expanded" } else { "collapsed" }
+										crate::i18n::translate(
+											"guild-folders-server-folders-servers"
+										),
+										crate::i18n::translate_if_key(if open {
+											"guild-folders-server-folders-expanded"
+										} else {
+											"guild-folders-server-folders-collapsed"
+										})
 									),
 								)
 							});
@@ -565,52 +549,64 @@ impl MessagingUi {
 						if ui
 							.add_enabled(
 								!state.folders_pending,
-								egui::Button::new("Refresh folders from Discord"),
+								egui::Button::new(crate::i18n::translate(
+									"guild-folders-server-folders-refresh-folders-from-discord",
+								)),
 							)
 							.clicked()
 						{
 							refresh = true;
 							ui.close();
 						}
-						ui.add_enabled_ui(enabled, |ui| {
-							if ui.button("Move up").clicked() {
-								change = Some(Edit::Shift(item, false));
-								ui.close();
-							}
-							if ui.button("Move down").clicked() {
-								change = Some(Edit::Shift(item, true));
-								ui.close();
-							}
-							match item {
-								Item::Folder(id) => {
-									if ui.button("Folder name and color…").clicked() {
-										let f = state
-											.guild_folders
-											.as_ref()
-											.unwrap()
-											.folders
-											.iter()
-											.find(|f| f.id == Some(id))
-											.unwrap();
-										let color = f.color.unwrap_or(design::DEFAULT_PRIMARY_RGB);
-										self.folder_ui.editor = Some((
-											id,
-											f.name.clone().unwrap_or_default(),
-											[(color >> 16) as u8, (color >> 8) as u8, color as u8],
-										));
-										ui.close();
-									}
-									if ui.button("Ungroup servers").clicked() {
-										change = Some(Edit::Dissolve(id));
-										ui.close();
-									}
+						ui.add_enabled_ui(enabled, |ui| match item {
+							Item::Folder(id) => {
+								if ui
+									.button(crate::i18n::translate(
+										"guild-folders-server-folders-folder-name-and-color",
+									))
+									.clicked()
+								{
+									let f = state
+										.guild_folders
+										.as_ref()
+										.unwrap()
+										.folders
+										.iter()
+										.find(|f| f.id == Some(id))
+										.unwrap();
+									let color = f.color.unwrap_or(design::DEFAULT_PRIMARY_RGB);
+									self.folder_ui.editor = Some((
+										id,
+										f.name.clone().unwrap_or_default(),
+										[(color >> 16) as u8, (color >> 8) as u8, color as u8],
+									));
+									ui.close();
 								}
-								Item::Server(id) => {
-									if ui.button("Move outside folders").clicked() {
-										change = Some(Edit::Outside(id));
-										ui.close();
-									}
-									ui.menu_button("Group with server", |ui| {
+								if ui
+									.button(crate::i18n::translate(
+										"guild-folders-server-folders-ungroup-servers",
+									))
+									.clicked()
+								{
+									change = Some(Edit::Dissolve(id));
+									ui.close();
+								}
+							}
+							Item::Server(id) => {
+								if ui
+									.button(crate::i18n::translate(
+										"guild-folders-server-folders-move-outside-folders",
+									))
+									.clicked()
+								{
+									change = Some(Edit::Outside(id));
+									ui.close();
+								}
+								ui.menu_button(
+									crate::i18n::translate(
+										"guild-folders-server-folders-group-with-server",
+									),
+									|ui| {
 										for guild in state.guilds.iter().filter(|g| g.id != id) {
 											if ui.button(&guild.name).clicked() {
 												change = Some(Edit::Drop(
@@ -621,8 +617,8 @@ impl MessagingUi {
 												ui.close();
 											}
 										}
-									});
-								}
+									},
+								);
 							}
 						});
 					});
@@ -749,53 +745,76 @@ impl MessagingUi {
 				});
 		}
 		if state.folders_pending {
-			ui.label(egui::RichText::new("Sync…").small())
-				.on_hover_text("Syncing server folders with Discord");
+			ui.label(
+				egui::RichText::new(crate::i18n::translate("guild-folders-server-folders-sync"))
+					.small(),
+			)
+			.on_hover_text(crate::i18n::translate(
+				"guild-folders-server-folders-syncing-server-folders-with-discord",
+			));
 		}
 		if let Some(error) = state.folders_error
-			&& ui.small_button("Retry").on_hover_text(error).clicked()
+			&& ui
+				.small_button(crate::i18n::translate("guild-folders-server-folders-retry"))
+				.on_hover_text(error)
+				.clicked()
 			&& let Some(command) = state.load_guild_folders()
 		{
 			commands.push(command);
 		}
 		let mut close = false;
 		if let Some((id, name, color)) = &mut self.folder_ui.editor {
-			let response = crate::dialog::Dialog::new("folder-settings", "Folder Settings")
-				.subtitle("Name this folder and pick the colour shown on the server rail.")
-				.width(400.0)
-				.show(ui.ctx(), |d| {
-					d.content(|ui| {
-						let label = crate::dialog::label(ui, "Folder name");
-						crate::dialog::input(
-							ui,
-							egui::TextEdit::singleline(name)
-								.hint_text("Folder name")
-								.char_limit(100),
-						)
-						.labelled_by(label.id);
-						ui.add_space(14.0);
-						crate::dialog::label(ui, "Colour");
-						design::color_edit(ui, color);
-					});
-					d.footer(|ui| {
-						ui.add_enabled_ui(enabled, |ui| {
-							if crate::dialog::action(ui, "Save", crate::dialog::Action::Primary)
-								.clicked()
-							{
-								change = Some(Edit::Customize(
-									*id,
-									name.clone(),
-									((color[0] as u32) << 16)
-										| ((color[1] as u32) << 8) | color[2] as u32,
-								));
-								close = true;
-							}
-						});
-						close |=
-							crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral)
-								.clicked();
-					});
+			let response = crate::dialog::Dialog::new(
+				"folder-settings",
+				crate::i18n::translate("guild-folders-server-folders-folder-settings"),
+			)
+			.subtitle(crate::i18n::translate(
+				"guild-folders-server-folders-name-this-folder-and-pick-the-colour-shown-on-the",
+			))
+			.width(400.0)
+			.show(ui.ctx(), |d| {
+				d.content(|ui| {
+					let label =
+						crate::dialog::label(ui, "guild-folders-server-folders-folder-name");
+					crate::dialog::input(
+						ui,
+						egui::TextEdit::singleline(name)
+							.hint_text(crate::i18n::translate(
+								"guild-folders-server-folders-folder-name",
+							))
+							.char_limit(100),
+					)
+					.labelled_by(label.id);
+					ui.add_space(14.0);
+					crate::dialog::label(ui, "guild-folders-server-folders-colour");
+					design::color_edit(ui, color);
 				});
+				d.footer(|ui| {
+					ui.add_enabled_ui(enabled, |ui| {
+						if crate::dialog::action(
+							ui,
+							"guild-folders-server-folders-save",
+							crate::dialog::Action::Primary,
+						)
+						.clicked()
+						{
+							change = Some(Edit::Customize(
+								*id,
+								name.clone(),
+								((color[0] as u32) << 16)
+									| ((color[1] as u32) << 8) | color[2] as u32,
+							));
+							close = true;
+						}
+					});
+					close |= crate::dialog::action(
+						ui,
+						"guild-folders-server-folders-cancel",
+						crate::dialog::Action::Neutral,
+					)
+					.clicked();
+				});
+			});
 			close |= response.close;
 		}
 		if close {
@@ -1020,7 +1039,10 @@ mod tests {
 			]
 		);
 		let mut changed = state.guild_folders.clone().unwrap();
-		edit(&mut changed, Edit::Shift(Item::Server(Id(2)), false));
+		edit(
+			&mut changed,
+			Edit::Drop(Item::Server(Id(2)), Item::Server(Id(1)), Placement::Before),
+		);
 		edit(
 			&mut changed,
 			Edit::Customize(7, "New name".into(), 0xabcdef),

@@ -216,6 +216,7 @@ mod tests {
 				badges: vec![],
 				connections: vec![],
 				mutual_guilds: vec![],
+				mutual_friends: vec![],
 				guild: Some(model::GuildProfile {
 					guild,
 					roles: vec![],

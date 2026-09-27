@@ -47,7 +47,6 @@ font sizes are whole logical pixels, before the user's display scale.
 | `transparency_blur` | `true` (requires Appearance opt-in) | `true` or `false` |
 | `transparency` | user Appearance setting | 0–100 |
 | `blur` | user Appearance setting | 0–100 |
-| `transparent_all` | user Appearance setting | `true` or `false` |
 | `body_size` | 15 | 10–28 |
 | `heading_size` | 20 | 12–40 |
 | `button_size` | 14 | 10–28 |
@@ -89,11 +88,14 @@ native window and GPU surface, with no blur or transparency compositor requests.
 Themes cannot enable window effects while this switch is off. Once enabled, the
 optional theme `transparency_blur` value can disable effects for that theme;
 omitting it permits effects. Theme percentages override the Appearance defaults.
-`transparency` controls how much desktop shows through the conversation;
-`transparent_all` extends it to sidebars, the server rail, headers and composer.
+`transparency` controls how much desktop shows through every surface: the server rail,
+sidebars, headers, conversation and composer. The retired `transparent_all` field is
+still accepted for older themes and ignored.
 These values and theme overrides update live within an enabled session.
-`blur` at zero disables native compositor blur; nonzero values request it, but the
-compositor chooses the exact radius. Systems without native blur keep translucency.
+`blur` at zero disables native compositor blur; nonzero values request it. Every
+supported compositor (macOS, Windows 11 acrylic, KDE and Wayland blur) applies its own
+fixed radius, so Appearance and the theme editor show blur as a switch. Systems without
+native blur keep translucency.
 Setting transparency to zero disables blur and restores the native opaque-window
 hint where supported; only restarting with the Appearance switch off releases the
 alpha-capable GPU surface. X11 cannot change its native hint after window creation.

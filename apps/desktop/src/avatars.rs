@@ -290,11 +290,9 @@ impl AvatarWorker {
 		account: Id,
 		ctx: egui::Context,
 	) -> Result<Self, &'static str> {
-		let root = dirs::data_local_dir().map(|root| {
-			root.join("serein")
-				.join("avatars")
-				.join(account.to_string())
-		});
+		let root = local_store::data_dir()
+			.ok()
+			.map(|root| root.join("avatars").join(account.to_string()));
 		Self::start_at(runtime, root, ctx)
 	}
 	fn start_at(
@@ -801,9 +799,8 @@ pub(crate) fn notification_image_path(account: Id, key: &str) -> Option<String> 
 	if name.len() > 160 {
 		return None;
 	}
-	let root = dirs::data_local_dir()?;
-	root.join("serein")
-		.join("avatars")
+	let root = local_store::data_dir().ok()?;
+	root.join("avatars")
 		.join(account.to_string())
 		.join(format!("{name}.png"))
 		.to_str()

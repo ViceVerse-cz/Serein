@@ -2045,6 +2045,26 @@ pub struct VoiceServerDto {
 	pub endpoint: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ChannelInfoDto {
+	pub guild_id: Id,
+	#[serde(default)]
+	pub channels: Vec<ChannelInfoChannelDto>,
+}
+#[derive(Deserialize)]
+pub struct ChannelInfoChannelDto {
+	pub id: Id,
+	#[serde(default)]
+	pub voice_start_time: Option<u64>,
+}
+#[derive(Deserialize)]
+pub struct VoiceChannelStartTimeDto {
+	pub id: Id,
+	pub guild_id: Id,
+	#[serde(default)]
+	pub voice_start_time: Option<u64>,
+}
+
 /// READY_SUPPLEMENTAL member identities can reference the READY users array.
 #[derive(Deserialize)]
 pub struct VoiceMemberDto {

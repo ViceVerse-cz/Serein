@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+development-data = []
+
 [dependencies]
 model.workspace = true
 serde_json.workspace = true

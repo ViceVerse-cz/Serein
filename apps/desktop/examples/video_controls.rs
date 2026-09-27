@@ -73,6 +73,8 @@ fn main() {
 	ctx.enable_accesskit();
 	ui::design::apply(&ctx);
 	let mut view = ui::MessagingUi::default();
+	// Labels below are English; the default follows the host locale.
+	view.language = ui::i18n::Language::English;
 	let mut state = test_support::video_demo_state();
 	let mut message = state.timeline.get(model::Id(601)).unwrap().clone();
 	message.attachments[0].media.url = Some("https://example.com/synthetic-video.mp4".into());
@@ -222,7 +224,29 @@ fn main() {
 			})
 			.drop_without_applying_deltas();
 	}
+	// Signing out during fullscreen playback still hands the desktop a restore request.
+	view.clear();
+	view.language = ui::i18n::Language::English;
+	frame(&ctx, &mut view, &mut state, vec![], false).drop_without_applying_deltas();
+	let message = state.timeline.get(model::Id(601)).unwrap();
+	let video = view.video();
+	video.active = Some((message.channel, message.id, message.attachments[0].clone()));
+	video.state = ui::VideoState::Paused;
+	let output = frame(&ctx, &mut view, &mut state, vec![], false);
+	let enter = button(&output, "Fullscreen");
+	output.drop_without_applying_deltas();
+	for pressed in [true, false] {
+		frame(&ctx, &mut view, &mut state, pointer(enter, pressed), false)
+			.drop_without_applying_deltas();
+	}
+	assert_eq!(view.video().take_fullscreen_request(), Some(true));
+	view.clear();
+	assert_eq!(
+		view.video().take_fullscreen_request(),
+		Some(false),
+		"Clearing the session must restore the window"
+	);
 	println!(
-		"Offline video UI passed: seek range stays stable during loading; fullscreen fills the viewport; Escape restores playback; Open original exits fullscreen and awaits confirmation."
+		"Offline video UI passed: seek range stays stable during loading; fullscreen fills the viewport; Escape restores playback; Open original exits fullscreen and awaits confirmation; sign-out restores the window."
 	);
 }

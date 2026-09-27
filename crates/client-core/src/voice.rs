@@ -5,7 +5,7 @@ use crate::{
 	screen,
 };
 use model::{Id, Member};
-use std::time::Instant;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub const MAX_PARTICIPANTS: usize = 64;
 pub const MAX_DM_CALLS: usize = 64;
 pub const MAX_DM_CALL_BYTES: usize = MAX_DM_CALLS * size_of::<Id>();
@@ -101,6 +101,7 @@ pub struct Call {
 	pub channel: Id,
 	pub guild: Option<Id>,
 	pub connected_at: Option<Instant>,
+	pub channel_started_at: Option<Instant>,
 	pub server_muted: bool,
 	pub server_deafened: bool,
 	pub request: u64,
@@ -207,6 +208,11 @@ pub enum Event {
 	},
 	Deleted {
 		channel: Id,
+	},
+	ChannelStarted {
+		guild: Id,
+		channel: Id,
+		unix_seconds: Option<u64>,
 	},
 	State {
 		guild: Option<Id>,
@@ -380,6 +386,7 @@ impl ClientState {
 			channel,
 			guild,
 			connected_at: None,
+			channel_started_at: None,
 			server_muted,
 			server_deafened,
 			request,
@@ -600,6 +607,25 @@ impl ClientState {
 				}
 			}
 			Event::Deleted { channel } => self.end_voice_channel(channel),
+			Event::ChannelStarted {
+				guild,
+				channel,
+				unix_seconds,
+			} => {
+				if let Some(call) = &mut self.voice.active
+					&& call.guild == Some(guild)
+					&& call.channel == channel
+				{
+					call.channel_started_at = unix_seconds.and_then(|timestamp| {
+						let age = SystemTime::now()
+							.duration_since(UNIX_EPOCH)
+							.ok()?
+							.as_secs()
+							.checked_sub(timestamp)?;
+						Instant::now().checked_sub(Duration::from_secs(age))
+					});
+				}
+			}
 			Event::State {
 				guild,
 				member,
@@ -944,7 +970,29 @@ mod tests {
 		let request = call.request;
 		assert_eq!(call.guild, Some(Id(10)));
 		assert!(call.connected_at.is_none());
+		assert!(call.channel_started_at.is_none());
 		assert_eq!(call.participants.len(), 1);
+		let unix_seconds = SystemTime::now()
+			.duration_since(UNIX_EPOCH)
+			.unwrap()
+			.as_secs()
+			- 3663;
+		state.apply_voice(Event::ChannelStarted {
+			guild: Id(10),
+			channel: Id(20),
+			unix_seconds: Some(unix_seconds),
+		});
+		assert!(
+			state
+				.voice
+				.active
+				.as_ref()
+				.unwrap()
+				.channel_started_at
+				.unwrap()
+				.elapsed()
+				.as_secs() >= 3663
+		);
 		state.apply_voice(Event::Progress {
 			channel: Id(20),
 			request,

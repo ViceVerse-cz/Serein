@@ -705,6 +705,7 @@ mod tests {
 			favorites: vec![Id(19)],
 			pinned: vec![Id(20)],
 			collapsed_categories: vec![Id(21)],
+			last_channels: vec![(Id(22), Id(23))],
 		};
 		store
 			.as_ref()
@@ -898,6 +899,8 @@ mod tests {
 			zoom_percent: 125,
 			sidebar_width: 300,
 			show_members: false,
+			show_members_dms: false,
+			compact_messages: false,
 			animate_gifs: false,
 			smooth_scrolling: true,
 			scroll_speed_percent: 100,

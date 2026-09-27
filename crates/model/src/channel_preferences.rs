@@ -24,11 +24,15 @@ pub struct ChannelPreferences {
 	pub favorites: Vec<Id>,
 	pub pinned: Vec<Id>,
 	pub collapsed_categories: Vec<Id>,
+	/// Last opened channel per server, oldest first; bounded separately from the lists above.
+	pub last_channels: Vec<(Id, Id)>,
 }
 
 impl ChannelPreferences {
 	pub const MAX_ENTRIES: usize = 256;
 	pub const MAX_JSON_BYTES: usize = 8192;
+	/// Keeps the worst case (256 list IDs plus these pairs of 20-digit IDs) under the JSON cap.
+	pub const MAX_LAST_CHANNELS: usize = 32;
 
 	pub fn is_valid(&self) -> bool {
 		// ponytail: duplicate scans are capped at 256 IDs; use a set if this limit grows.
@@ -43,13 +47,23 @@ impl ChannelPreferences {
 				.saturating_add(self.pinned.capacity())
 				.saturating_add(self.collapsed_categories.capacity())
 				<= Self::MAX_ENTRIES * 3
-			&& [&self.favorites, &self.pinned, &self.collapsed_categories]
-				.into_iter()
-				.all(|ids| {
-					ids.iter()
-						.enumerate()
-						.all(|(index, id)| id.0 != 0 && !ids[..index].contains(id))
-				})
+			&& self.last_channels.capacity() <= Self::MAX_LAST_CHANNELS * 2
+			&& self
+				.last_channels
+				.iter()
+				.enumerate()
+				.all(|(index, (guild, channel))| {
+					guild.0 != 0
+						&& channel.0 != 0 && !self.last_channels[..index]
+						.iter()
+						.any(|(id, _)| id == guild)
+				}) && [&self.favorites, &self.pinned, &self.collapsed_categories]
+			.into_iter()
+			.all(|ids| {
+				ids.iter()
+					.enumerate()
+					.all(|(index, id)| id.0 != 0 && !ids[..index].contains(id))
+			})
 	}
 
 	fn list(&self, kind: Shortcut) -> &Vec<Id> {
@@ -121,12 +135,32 @@ impl ChannelPreferences {
 		PreferenceEdit::Changed
 	}
 
+	/// Records the channel a server reopens to; returns whether anything changed.
+	pub fn remember_channel(&mut self, guild: Id, channel: Id) -> bool {
+		if guild.0 == 0 || channel.0 == 0 || self.last_channels.last() == Some(&(guild, channel)) {
+			return false;
+		}
+		self.last_channels.retain(|(id, _)| *id != guild);
+		if self.last_channels.len() >= Self::MAX_LAST_CHANNELS {
+			self.last_channels.remove(0);
+		}
+		self.last_channels.push((guild, channel));
+		true
+	}
+
 	/// Drops a confirmed-deleted channel from every local navigation list.
 	pub fn forget(&mut self, channel: Id) -> bool {
-		let before = self.favorites.len() + self.pinned.len() + self.collapsed_categories.len();
+		let count = |value: &Self| {
+			value.favorites.len()
+				+ value.pinned.len()
+				+ value.collapsed_categories.len()
+				+ value.last_channels.len()
+		};
+		let before = count(self);
 		self.favorites.retain(|id| *id != channel);
 		self.pinned.retain(|id| *id != channel);
 		self.collapsed_categories.retain(|id| *id != channel);
-		before != self.favorites.len() + self.pinned.len() + self.collapsed_categories.len()
+		self.last_channels.retain(|(_, id)| *id != channel);
+		before != count(self)
 	}
 }

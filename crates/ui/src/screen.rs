@@ -118,31 +118,37 @@ impl ScreenUi {
 		}
 		let mut cancel = false;
 		let mut share = false;
-		let response = crate::dialog::Dialog::new("screen-share-settings", "Share your screen")
-			.subtitle("Choose what people in this call can see.")
-			.width(460.0)
-			.show(ctx, |d| {
-				d.scroll(260.0, |ui| self.body(ui, state));
-				d.footer(|ui| {
-					let allowed = !state.demo
-						&& self.supported && !self.busy
-						&& self.settings().is_some()
-						&& state.voice.active.as_ref().is_some_and(|call| {
-							matches!(call.phase, Phase::Connected | Phase::Waiting)
-								&& state.can_stream(call.channel)
-						});
-					ui.add_enabled_ui(allowed, |ui| {
-						share = crate::dialog::action(
-							ui,
-							"Share Screen",
-							crate::dialog::Action::Primary,
-						)
-						.clicked();
+		let response = crate::dialog::Dialog::new(
+			"screen-share-settings",
+			crate::i18n::translate("screen-show-share-your-screen"),
+		)
+		.subtitle(crate::i18n::translate(
+			"screen-show-choose-what-people-in-this-call-can-see",
+		))
+		.width(460.0)
+		.show(ctx, |d| {
+			d.scroll(260.0, |ui| self.body(ui, state));
+			d.footer(|ui| {
+				let allowed = !state.demo
+					&& self.supported
+					&& !self.busy && self.settings().is_some()
+					&& state.voice.active.as_ref().is_some_and(|call| {
+						matches!(call.phase, Phase::Connected | Phase::Waiting)
+							&& state.can_stream(call.channel)
 					});
-					cancel |= crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral)
-						.clicked();
+				ui.add_enabled_ui(allowed, |ui| {
+					share = crate::dialog::action(
+						ui,
+						"screen-show-share-screen",
+						crate::dialog::Action::Primary,
+					)
+					.clicked();
 				});
+				cancel |=
+					crate::dialog::action(ui, "screen-show-cancel", crate::dialog::Action::Neutral)
+						.clicked();
 			});
+		});
 		cancel |= response.close;
 		if share && !cancel {
 			self.request = self.settings().map(Request::Start);
@@ -156,11 +162,18 @@ impl ScreenUi {
 	fn body(&mut self, ui: &mut egui::Ui, state: &State) {
 		let colors = crate::design::palette(ui);
 		ui.horizontal(|ui| {
-			ui.label(crate::design::eyebrow(ui, "Screen or window", colors.muted));
+			ui.label(crate::design::eyebrow(
+				ui,
+				crate::i18n::translate("screen-body-screen-or-window"),
+				colors.muted,
+			));
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				if ui
 					.add_enabled_ui(!state.demo && !cfg!(target_os = "linux"), |ui| {
-						crate::design::text_action(ui, "Refresh")
+						crate::design::text_action(
+							ui,
+							&crate::i18n::translate("screen-body-refresh"),
+						)
 					})
 					.inner
 					.clicked()
@@ -178,7 +191,11 @@ impl ScreenUi {
 			.max_height(196.0)
 			.show(ui, |ui| self.source_list(ui));
 		ui.add_space(14.0);
-		ui.label(crate::design::eyebrow(ui, "Quality", colors.muted));
+		ui.label(crate::design::eyebrow(
+			ui,
+			crate::i18n::translate("screen-body-quality"),
+			colors.muted,
+		));
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
@@ -189,7 +206,11 @@ impl ScreenUi {
 			}
 		});
 		ui.add_space(8.0);
-		ui.label(crate::design::eyebrow(ui, "Frame rate", colors.muted));
+		ui.label(crate::design::eyebrow(
+			ui,
+			crate::i18n::translate("screen-body-frame-rate"),
+			colors.muted,
+		));
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
@@ -202,28 +223,30 @@ impl ScreenUi {
 		ui.add_space(4.0);
 		ui.add(
 			egui::Label::new(
-				egui::RichText::new("Quality selection does not require Nitro.")
-					.size(12.0)
-					.color(colors.muted),
+				egui::RichText::new(crate::i18n::translate(
+					"screen-body-quality-selection-does-not-require-nitro",
+				))
+				.size(12.0)
+				.color(colors.muted),
 			)
 			.wrap(),
 		);
 		ui.add_space(10.0);
 		crate::design::switch(
 			ui,
-			"Show cursor",
-			Some("Include the pointer in the shared video."),
+			"screen-body-show-cursor",
+			Some("screen-body-include-the-pointer-in-the-shared-video"),
 			&mut self.cursor,
 		);
 		if self.supported {
 			ui.add_space(6.0);
 			crate::design::switch(
 				ui,
-				"Share system audio",
+				"screen-body-share-system-audio",
 				Some(if cfg!(target_os = "macos") {
-					"Send what your Mac plays along with the screen. Serein's own call audio is left out."
+					"screen-body-send-what-your-mac-plays-along-with-the-screen-serein"
 				} else {
-					"Share sound from other apps, even when sharing one window. Serein's own audio is left out."
+					"screen-body-share-sound-from-other-apps-even-when-sharing-one-window"
 				}),
 				&mut self.audio,
 			);
@@ -231,9 +254,11 @@ impl ScreenUi {
 		ui.add_space(4.0);
 		ui.add(
 			egui::Label::new(
-				egui::RichText::new("Your call microphone keeps its current settings.")
-					.size(12.0)
-					.color(colors.muted),
+				egui::RichText::new(crate::i18n::translate(
+					"screen-body-your-call-microphone-keeps-its-current-settings",
+				))
+				.size(12.0)
+				.color(colors.muted),
 			)
 			.wrap(),
 		);
@@ -269,9 +294,11 @@ impl ScreenUi {
 					ui.set_width(ui.available_width());
 					ui.add(
 						egui::Label::new(
-							egui::RichText::new("No screens or windows are available yet.")
-								.size(13.0)
-								.color(colors.muted),
+							egui::RichText::new(crate::i18n::translate(
+								"screen-source-list-no-screens-or-windows-are-available-yet",
+							))
+							.size(13.0)
+							.color(colors.muted),
 						)
 						.wrap(),
 					);
@@ -365,6 +392,7 @@ impl ScreenUi {
 
 /// Compact segmented choice used by the quality and frame-rate rows.
 fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = crate::design::palette(ui);
 	let galley = ui.painter().layout_no_wrap(
 		label.to_owned(),
@@ -396,8 +424,9 @@ fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
 		galley,
 		color,
 	);
-	response
-		.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, label));
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &label)
+	});
 	response
 }
 
