@@ -44,7 +44,7 @@ pub struct VideoUi {
 	/// Keep the viewport's previous mode so leaving playback restores the window.
 	fullscreen: Option<(egui::Context, bool, egui::Id)>,
 	/// Native window transition for the desktop to apply after this UI frame.
-	fullscreen_request: Option<bool>,
+	pub(super) fullscreen_request: Option<bool>,
 }
 impl Default for VideoUi {
 	fn default() -> Self {
@@ -77,7 +77,7 @@ impl VideoUi {
 		self.seen = false;
 		self.command = Some(VideoCommand::Stop);
 	}
-	fn exit_fullscreen(&mut self) {
+	pub(super) fn exit_fullscreen(&mut self) {
 		if let Some((ctx, previous, focus)) = self.fullscreen.take() {
 			self.fullscreen_request = Some(previous);
 			ctx.memory_mut(|memory| memory.request_focus(focus));

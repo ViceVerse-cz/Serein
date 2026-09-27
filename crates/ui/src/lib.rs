@@ -868,8 +868,10 @@ impl MessagingUi {
 		self.avatars.accept(ctx, key, image);
 	}
 	pub fn clear(&mut self) {
-		// The native window must not stay in screen-share fullscreen after the account is gone.
+		// The native window must not stay in media fullscreen after the account is gone.
 		self.exit_voice_fullscreen();
+		self.timeline.video.exit_fullscreen();
+		let video_fullscreen_request = self.timeline.video.fullscreen_request.take();
 		// Window preferences belong to the application, not the account being cleared.
 		*self = Self {
 			build: self.build,
@@ -888,6 +890,7 @@ impl MessagingUi {
 			startup_disable_requested: self.startup_disable_requested,
 			..Self::default()
 		};
+		self.timeline.video.fullscreen_request = video_fullscreen_request;
 	}
 	pub fn restore_channel_preferences(&mut self, preferences: model::ChannelPreferences) {
 		if !self.channel_preferences_changed && preferences.is_valid() {

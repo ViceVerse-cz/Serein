@@ -6146,13 +6146,6 @@ impl eframe::App for Desktop {
 					self.fixture_only || self.state.demo,
 				);
 			}
-			if let Some(fullscreen) = player.take_fullscreen_request() {
-				self.window.set_fullscreen(
-					fullscreen.then(|| {
-						winit::window::Fullscreen::Borderless(self.window.current_monitor())
-					}),
-				);
-			}
 			self.notifications.set_enabled(
 				self.messaging.notifications_enabled
 					&& (!self.fixture_only || self.messaging.notification_test_available),
@@ -6461,7 +6454,9 @@ impl eframe::App for Desktop {
 			self.sign_in_screen(ui);
 		}
 		// Outside the signed-in branch so leaving an account still restores the window mode.
-		if let Some(fullscreen) = self.messaging.take_voice_fullscreen_request() {
+		let video = self.messaging.video().take_fullscreen_request();
+		let voice = self.messaging.take_voice_fullscreen_request();
+		for fullscreen in [video, voice].into_iter().flatten() {
 			self.window.set_fullscreen(
 				fullscreen
 					.then(|| winit::window::Fullscreen::Borderless(self.window.current_monitor())),
