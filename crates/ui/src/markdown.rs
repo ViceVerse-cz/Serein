@@ -506,6 +506,25 @@ struct Render<'a> {
 	line: Option<f32>,
 }
 
+fn channel_reference_name<'a>(
+	id: Id,
+	channels: &'a [model::Channel],
+	source: Option<&'a crate::mentions::MentionSource<'a>>,
+) -> Option<&'a str> {
+	source
+		.and_then(|source| source.state.channel_reference_name(id))
+		.or_else(|| {
+			channels
+				.iter()
+				.find(|channel| {
+					channel.id == id
+						&& channel.guild.is_some()
+						&& matches!(channel.kind, 0 | 5 | 10..=12 | 15 | 16)
+				})
+				.map(|channel| channel.name.as_str())
+		})
+}
+
 /// Discord's quote rail and the gap between it and the quoted text.
 const QUOTE_RAIL: i8 = 4;
 const QUOTE_GAP: i8 = 8;
@@ -824,6 +843,24 @@ impl Formatted {
 		output.artwork = has_artwork(&output.spans);
 		output.jumbo = only_emoji(&output.spans, &output.blocks, output.mention_count);
 		output
+	}
+	pub fn missing_channel_reference(
+		&self,
+		state: &client_core::State,
+		revealed: u32,
+	) -> Option<Id> {
+		self.spans.iter().find_map(|(_, style)| {
+			style
+				.channel
+				.filter(|_| {
+					style
+						.spoiler
+						.is_none_or(|region| revealed & 1 << region != 0)
+				})
+				.filter(|id| {
+					state.channel(*id).is_none() && state.channel_reference_name(*id).is_none()
+				})
+		})
 	}
 	fn limited_literal(input: &str, concealed: bool) -> Self {
 		let mut formatted = Self {
@@ -1234,12 +1271,9 @@ impl Formatted {
 					if let Some(id) = spans[start].1.channel {
 						reserve(ui);
 						let colors = crate::design::palette(ui);
-						if let Some(target) = render.channels.iter().find(|target| {
-							target.id == id
-								&& target.guild.is_some()
-								&& matches!(target.kind, 0 | 5 | 10..=12 | 15 | 16)
-						}) {
-							let label = format!("#{}", target.name);
+						let name = channel_reference_name(id, render.channels, render.source);
+						if let Some(name) = name {
+							let label = format!("#{name}");
 							let response = ui
 								.add(egui::Link::new(
 									egui::RichText::new(&label)
@@ -1985,15 +2019,12 @@ impl Formatted {
 				format.font_id = pill.font_id.clone();
 				(format!("@{name}"), format)
 			} else if let Some(id) = style.channel {
-				match channels.iter().find(|channel| channel.id == id) {
-					Some(channel)
-						if channel.guild.is_some()
-							&& matches!(channel.kind, 0 | 5 | 10..=12 | 15 | 16) =>
-					{
-						(format!("#{}", channel.name), pill.clone())
-					}
-					Some(_) => (text.clone(), muted.clone()),
-					None => ("#unknown-channel".into(), pill.clone()),
+				if let Some(name) = channel_reference_name(id, channels, source) {
+					(format!("#{name}"), pill.clone())
+				} else if channels.iter().any(|channel| channel.id == id) {
+					(text.clone(), muted.clone())
+				} else {
+					("#unknown-channel".into(), pill.clone())
 				}
 			} else if let Some((seconds, kind)) = style.timestamp {
 				(
@@ -3130,6 +3161,37 @@ mod tests {
 			assert_eq!(channel, matches!(id, 4 | 5).then_some(Id(id)));
 			assert!(opening.is_none() && profile.open_user().is_none());
 		}
+	}
+
+	#[test]
+	fn thread_reference_names_queue_only_missing_channels() {
+		let mut state = client_core::State::default();
+		state.channels.push(model::Channel {
+			id: Id(4),
+			guild: Some(Id(2)),
+			parent_id: None,
+			position: 0,
+			name: "loaded".into(),
+			kind: 0,
+			recipients: vec![],
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+			last_message: None,
+		});
+		assert_eq!(
+			Formatted::parse("<#4> <#5>").missing_channel_reference(&state, u32::MAX),
+			Some(Id(5))
+		);
+		assert_eq!(
+			Formatted::parse("<#4>").missing_channel_reference(&state, u32::MAX),
+			None
+		);
+		assert_eq!(
+			Formatted::parse("||<#5>||").missing_channel_reference(&state, 0),
+			None
+		);
 	}
 	#[test]
 	fn selecting_across_images_copies_unicode_and_custom_markup() {

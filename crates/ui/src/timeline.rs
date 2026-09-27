@@ -1,5 +1,5 @@
 use crate::design::LazyHover;
-use crate::markdown::{FormatCache, discord_url};
+use crate::markdown::{FormatCache, Formatted, discord_url};
 use client_core::State;
 use egui::RichText;
 use model::{Id, Message};
@@ -53,6 +53,7 @@ pub struct TimelineView {
 	pub(super) reply_started: bool,
 	pub(super) quick_delete: Option<(Id, Id)>,
 	pub(super) channel_reference: Option<Id>,
+	pub(super) channel_reference_load: Option<Id>,
 	pub(super) pending_channel_reference: Option<Id>,
 	pub(super) reply_target: Option<Id>,
 	pending_reveal: Option<TargetReveal>,
@@ -614,6 +615,16 @@ fn display_message(state: &State, id: Id) -> Option<&Message> {
 			.iter()
 			.find(|message| message.id == id && Some(message.channel) == state.selected)
 	})
+}
+fn queue_missing_channel_reference(
+	queued: &mut Option<Id>,
+	formatted: &Formatted,
+	state: &State,
+	revealed: u32,
+) {
+	if queued.is_none() {
+		*queued = formatted.missing_channel_reference(state, revealed);
+	}
 }
 /// The curved gutter connector shared by reply and command-invocation headers.
 fn reference_spine(ui: &mut egui::Ui, colors: &crate::design::Palette) {
@@ -2160,19 +2171,26 @@ impl TimelineView {
 																	state,
 																	channel: original.channel,
 																};
-															self.formatted
-																.get(reply, &original.content)
-																.append_inline_preview(
-																	&mut preview,
-																	ui,
-																	&original.mentions,
-																	Some(&source),
-																	crate::mentions::known_roles(
-																		state,
-																		original.channel,
-																	),
-																	&state.channels,
-																);
+															let formatted = self
+																.formatted
+																.get(reply, &original.content);
+															queue_missing_channel_reference(
+																&mut self.channel_reference_load,
+																formatted,
+																state,
+																u32::MAX,
+															);
+															formatted.append_inline_preview(
+																&mut preview,
+																ui,
+																&original.mentions,
+																Some(&source),
+																crate::mentions::known_roles(
+																	state,
+																	original.channel,
+																),
+																&state.channels,
+															);
 														}
 													} else {
 														preview.append(
@@ -2382,6 +2400,12 @@ impl TimelineView {
 											});
 											let mut text =
 												if formatted.spoilers { before.0 } else { 0 };
+											queue_missing_channel_reference(
+												&mut self.channel_reference_load,
+												formatted,
+												state,
+												text,
+											);
 											let mut media = before.1;
 											let content_shown =
 												system.as_ref().is_some_and(|s| s.content_shown);

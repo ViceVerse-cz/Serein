@@ -4125,6 +4125,17 @@ impl MessagingUi {
 		}
 		self.thread_create.show(&ctx, state, &mut commands);
 		self.screen.show(&ctx, state);
+		if let Some(id) = self.timeline.channel_reference_load.take()
+			&& state.channel(id).is_none()
+			&& state.channel_reference_name(id).is_none()
+			&& let Some(guild) = state
+				.selected
+				.and_then(|selected| state.channel(selected))
+				.and_then(|source| source.guild)
+			&& let Some(command) = state.request_channel_reference(guild, id)
+		{
+			commands.push(command);
+		}
 		if let Some(id) = self.timeline.channel_reference.take() {
 			state.clear_channel_action_result(id);
 			self.timeline.pending_channel_reference = Some(id);

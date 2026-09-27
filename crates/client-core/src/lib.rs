@@ -2225,6 +2225,9 @@ impl State {
 			Event::ThreadChanged { guild, patch } => Some((*guild, patch.id)),
 			_ => None,
 		};
+		if let Some((_, id)) = archive_mutation {
+			self.forget_channel_reference_name(id);
+		}
 		if archive_mutation.is_some_and(|(guild, id)| {
 			self.archives.as_ref().is_some_and(|view| {
 				view.guild == guild
