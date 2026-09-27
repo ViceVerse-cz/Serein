@@ -3592,7 +3592,11 @@ fn elapsed_label(call: &client_core::voice::Call) -> Option<String> {
 	if !matches!(call.phase, Phase::Waiting | Phase::Connected) {
 		return None;
 	}
-	let seconds = call.connected_at?.elapsed().as_secs();
+	let seconds = call
+		.channel_started_at
+		.or(call.connected_at)?
+		.elapsed()
+		.as_secs();
 	Some(format!(
 		"{:02}:{:02}:{:02}",
 		seconds / 3600,
@@ -4380,6 +4384,9 @@ mod tests {
 		call.connected_at = Some(std::time::Instant::now() - std::time::Duration::from_secs(3663));
 		call.phase = Phase::Waiting;
 		assert_eq!(elapsed_label(call).as_deref(), Some("01:01:03"));
+		call.channel_started_at =
+			Some(std::time::Instant::now() - std::time::Duration::from_secs(7540));
+		assert_eq!(elapsed_label(call).as_deref(), Some("02:05:40"));
 		call.phase = Phase::Failed;
 		assert!(elapsed_label(call).is_none());
 		state.demo = true;
