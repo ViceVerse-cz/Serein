@@ -1467,19 +1467,48 @@ impl Formatted {
 					if let Some(index) = target {
 						let url = &self.links[index];
 						let label: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-						let response = Self::show_emoji(
-							spans,
-							ui,
-							true,
-							render.images,
-							render.demo,
-							render.guilds,
-							render.surface,
-							render.query,
-						)
-						.on_hover_text(url);
+						let message_link = (label == *url)
+							.then(|| discord_chat_link(url))
+							.flatten()
+							.filter(|link| link.message.is_some());
+						let pill_label = message_link.as_ref().map(|link| {
+							channel_reference_name(link.channel, render.channels, render.source)
+								.map_or_else(
+									|| "#unknown-channel".into(),
+									|name| format!("#{name}"),
+								)
+						});
+						let response = if let Some(label) = &pill_label {
+							let colors = crate::design::palette(ui);
+							let response = ui
+								.add(egui::Link::new(
+									egui::RichText::new(label)
+										.strong()
+										.color(colors.mention_text)
+										.background_color(colors.mention_bg),
+								))
+								.on_hover_text(url);
+							render.surface.keep(&response);
+							response
+						} else {
+							Self::show_emoji(
+								spans,
+								ui,
+								true,
+								render.images,
+								render.demo,
+								render.guilds,
+								render.surface,
+								render.query,
+							)
+							.on_hover_text(url)
+						};
 						response.widget_info(|| {
-							egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), &label)
+							egui::WidgetInfo::labeled(
+								egui::Role::Link,
+								ui.is_enabled(),
+								pill_label.as_deref().unwrap_or(&label),
+							)
 						});
 						if response.clicked() {
 							*render.opening = Some(url.clone());

@@ -5008,6 +5008,11 @@ mod composer_tests {
 				None,
 			),
 			(
+				"https://discord.com/channels/100/11/25",
+				"#Synthetic edit conversation",
+				Some(Id(25)),
+			),
+			(
 				"[Other chat](https://discord.com/channels/100/11/25)",
 				"Other chat",
 				Some(Id(25)),
