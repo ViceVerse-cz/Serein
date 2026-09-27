@@ -2001,6 +2001,10 @@ profiles-show-message = Сообщение
 # Context: show
 profiles-show-more = Более
 # Context: show
+profiles-show-mutual-friend = Общий друг
+# Context: show
+profiles-show-mutual-friends = Общие друзья
+# Context: show
 profiles-show-mutual-server = Взаимный сервер
 # Context: show
 profiles-show-mutual-servers = Взаимные серверы

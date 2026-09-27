@@ -2001,6 +2001,10 @@ profiles-show-message = メッセージ
 # Context: show
 profiles-show-more = もっと
 # Context: show
+profiles-show-mutual-friend = 共通のフレンド
+# Context: show
+profiles-show-mutual-friends = 共通のフレンド
+# Context: show
 profiles-show-mutual-server = 相互サーバー
 # Context: show
 profiles-show-mutual-servers = 相互サーバー

@@ -2001,6 +2001,10 @@ profiles-show-message = Mesaj
 # Context: show
 profiles-show-more = Daha
 # Context: show
+profiles-show-mutual-friend = Ortak Arkadaş
+# Context: show
+profiles-show-mutual-friends = Ortak Arkadaşlar
+# Context: show
 profiles-show-mutual-server = Ortak Sunucu
 # Context: show
 profiles-show-mutual-servers = Karşılıklı Sunucular

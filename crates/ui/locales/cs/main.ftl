@@ -2001,6 +2001,10 @@ profiles-show-message = Zpráva
 # Context: show
 profiles-show-more = Více
 # Context: show
+profiles-show-mutual-friend = Vzájemný přítel
+# Context: show
+profiles-show-mutual-friends = Vzájemní přátelé
+# Context: show
 profiles-show-mutual-server = Vzájemný server
 # Context: show
 profiles-show-mutual-servers = Vzájemné servery

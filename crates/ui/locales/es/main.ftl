@@ -2001,6 +2001,10 @@ profiles-show-message = Mensaje
 # Context: show
 profiles-show-more = Más
 # Context: show
+profiles-show-mutual-friend = Amigo en común
+# Context: show
+profiles-show-mutual-friends = Amigos en común
+# Context: show
 profiles-show-mutual-server = Servidor mutuo
 # Context: show
 profiles-show-mutual-servers = Servidores mutuos

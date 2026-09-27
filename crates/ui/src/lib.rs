@@ -958,7 +958,13 @@ impl MessagingUi {
 		}
 	}
 	/// Window title strip: traffic-light inset, centred context title and session state.
-	fn title_bar(&mut self, ui: &mut egui::Ui, state: &State, title: &str) {
+	fn title_bar(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		title: &str,
+	) {
 		let colors = design::palette(ui);
 		egui::Panel::top("title-bar")
 			.exact_size(36.0)
@@ -976,6 +982,41 @@ impl MessagingUi {
 				let title_rect = egui::Rect::from_center_size(
 					rect.center(),
 					egui::vec2(rect.width() * 0.3, rect.height()),
+				);
+				ui.scope_builder(
+					egui::UiBuilder::new()
+						.max_rect(egui::Rect::from_min_max(
+							egui::pos2(rect.left() + design::TRAFFIC_LIGHT_INSET + 8.0, rect.top()),
+							egui::pos2(title_rect.left() - 10.0, rect.bottom()),
+						))
+						.layout(egui::Layout::left_to_right(egui::Align::Center)),
+					|ui| {
+						ui.spacing_mut().item_spacing.x = 4.0;
+						if ui
+							.add_enabled_ui(
+								self.settings.open
+									|| self.server_settings.is_open()
+									|| state.trail.can_go_back(),
+								|ui| icons::button(ui, icons::Icon::ArrowLeft, 28.0, "Back"),
+							)
+							.inner
+							.clicked()
+						{
+							self.navigate_history(state, commands, true);
+						}
+						if ui
+							.add_enabled_ui(
+								!self.settings.open
+									&& !self.server_settings.is_open()
+									&& state.trail.can_go_forward(),
+								|ui| icons::button(ui, icons::Icon::ArrowRight, 28.0, "Forward"),
+							)
+							.inner
+							.clicked()
+						{
+							self.navigate_history(state, commands, false);
+						}
+					},
 				);
 				ui.scope_builder(
 					egui::UiBuilder::new().max_rect(title_rect).layout(
@@ -1092,6 +1133,28 @@ impl MessagingUi {
 					},
 				);
 			});
+	}
+	fn navigate_history(&mut self, state: &mut State, commands: &mut Vec<Command>, back: bool) {
+		if self.timeline.video.is_fullscreen() || self.channel_menu.is_open() {
+			return;
+		}
+		if self.settings.open {
+			if back {
+				self.settings.open = false;
+			}
+		} else if self.server_settings.is_open() {
+			if back {
+				let _ = self.server_settings.navigate_away(state);
+			}
+		} else if let Some(NavStep {
+			command: Some(command),
+		}) = if back {
+			state.navigate_back()
+		} else {
+			state.navigate_forward()
+		} {
+			commands.push(command);
+		}
 	}
 	fn member_rows(&mut self, ui: &mut egui::Ui, state: &mut State, commands: &mut Vec<Command>) {
 		let colors = design::palette(ui);
@@ -3283,31 +3346,8 @@ impl MessagingUi {
 		self.timeline.video.seen = false;
 		let side = self.drain_side_press();
 		let mut commands = Vec::new();
-		if (side.back || side.forward)
-			&& !self.timeline.video.is_fullscreen()
-			&& !self.channel_menu.is_open()
-		{
-			if self.settings.open {
-				if side.back {
-					self.settings.open = false;
-				}
-			} else if self.server_settings.is_open() {
-				if side.back {
-					let _ = self.server_settings.navigate_away(state);
-				}
-			} else {
-				let step = if side.back {
-					state.navigate_back()
-				} else {
-					state.navigate_forward()
-				};
-				if let Some(NavStep {
-					command: Some(command),
-				}) = step
-				{
-					commands.push(command);
-				}
-			}
+		if side.back || side.forward {
+			self.navigate_history(state, &mut commands, side.back);
 		}
 		// Fullscreen playback owns the whole client surface, including during native resizing.
 		if self.timeline.show_fullscreen_video(ui.ctx(), state) {
@@ -3466,7 +3506,7 @@ impl MessagingUi {
 			.and_then(|id| state.guild(id))
 			.map_or_else(|| language.text("direct-messages"), |g| g.name.clone());
 		if self.shows_title_bar() {
-			self.title_bar(ui, state, &title);
+			self.title_bar(ui, state, &mut commands, &title);
 		}
 		// Server rail and channel list share one resizable column so the account card can
 		// span both, like Discord's bottom-left user pill.

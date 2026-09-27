@@ -127,6 +127,7 @@ pub struct UserProfile {
 	pub badges: Vec<ProfileBadge>,
 	pub connections: Vec<ProfileConnection>,
 	pub mutual_guilds: Vec<ProfileGuild>,
+	pub mutual_friends: Vec<User>,
 	pub guild: Option<GuildProfile>,
 	/// Two profile theme colors (top, bottom) when the account configured them.
 	pub theme_colors: Option<[u32; 2]>,
@@ -219,6 +220,12 @@ impl UserProfile {
 				.iter()
 				.map(|g| bytes(&g.nick))
 				.sum::<usize>()
+			+ self.mutual_friends.capacity() * size_of::<User>()
+			+ self
+				.mutual_friends
+				.iter()
+				.map(User::heap_bytes)
+				.sum::<usize>()
 			+ self.guild.as_ref().map_or(0, |g| {
 				size_of::<GuildProfile>()
 					+ g.roles.capacity() * size_of::<Id>()
@@ -253,6 +260,7 @@ impl UserProfile {
 			&& self.badges.len() <= 16
 			&& self.connections.len() <= 16
 			&& self.mutual_guilds.len() <= 50
+			&& self.mutual_friends.len() <= 50
 			&& self.badges.iter().all(|b| {
 				b.id.len() <= 64
 					&& b.description.len() <= 1024
@@ -265,19 +273,23 @@ impl UserProfile {
 				.mutual_guilds
 				.iter()
 				.all(|g| g.id.0 != 0 && g.nick.as_ref().is_none_or(|n| n.len() <= 512))
-			&& self.guild.as_ref().is_none_or(|g| {
-				g.guild.0 != 0
-					&& g.roles.len() <= crate::permissions::MAX_MEMBER_ROLES
-					&& g.roles.iter().all(|id| id.0 != 0)
-					&& g.roles.windows(2).all(|ids| ids[0] < ids[1])
-					&& g.nick.as_ref().is_none_or(|n| n.len() <= 512)
-					&& g.bio.len() <= 4096
-					&& g.pronouns.len() <= 256
-					&& g.joined_at.as_ref().is_none_or(|s| s.len() <= 64)
-					&& [&g.avatar, &g.banner]
-						.into_iter()
-						.all(|h| h.as_deref().is_none_or(valid_avatar_hash))
-			})
+			&& self.mutual_friends.iter().all(|friend| {
+				friend.id.0 != 0
+					&& friend.name.len() <= 512
+					&& friend.avatar.as_deref().is_none_or(valid_avatar_hash)
+			}) && self.guild.as_ref().is_none_or(|g| {
+			g.guild.0 != 0
+				&& g.roles.len() <= crate::permissions::MAX_MEMBER_ROLES
+				&& g.roles.iter().all(|id| id.0 != 0)
+				&& g.roles.windows(2).all(|ids| ids[0] < ids[1])
+				&& g.nick.as_ref().is_none_or(|n| n.len() <= 512)
+				&& g.bio.len() <= 4096
+				&& g.pronouns.len() <= 256
+				&& g.joined_at.as_ref().is_none_or(|s| s.len() <= 64)
+				&& [&g.avatar, &g.banner]
+					.into_iter()
+					.all(|h| h.as_deref().is_none_or(valid_avatar_hash))
+		})
 	}
 	pub fn banner_key(&self) -> Option<String> {
 		if let Some(guild) = &self.guild
@@ -370,6 +382,7 @@ mod banner_tests {
 			badges: vec![],
 			connections: vec![],
 			mutual_guilds: vec![],
+			mutual_friends: vec![],
 			guild: None,
 			theme_colors: None,
 			clan: None,
