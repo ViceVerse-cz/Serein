@@ -152,6 +152,7 @@ impl From<rusqlite::Error> for StoreError {
 	}
 }
 
+/// Resolves an explicit absolute root without falling back when it is invalid.
 fn resolve_data_dir(configured: Option<OsString>, default: Option<PathBuf>) -> Result<PathBuf> {
 	match configured {
 		Some(root) => {
@@ -165,15 +166,32 @@ fn resolve_data_dir(configured: Option<OsString>, default: Option<PathBuf>) -> R
 	}
 }
 
+/// Keeps source-build data persistent but separate from installed Serein data.
 fn default_data_dir() -> Option<PathBuf> {
 	#[cfg(feature = "development-data")]
 	{
-		let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?.parent()?;
-		Some(workspace.join("target").join("development-data"))
+		dirs::data_local_dir().map(|root| root.join("serein-development"))
 	}
 	#[cfg(not(feature = "development-data"))]
 	{
 		dirs::data_local_dir().map(|root| root.join("serein"))
+	}
+}
+
+/// Creates only missing directories privately on Unix and preserves existing permissions.
+fn create_data_dir(root: &Path) -> Result<()> {
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::DirBuilderExt;
+		std::fs::DirBuilder::new()
+			.recursive(true)
+			.mode(0o700)
+			.create(root)
+			.map_err(|_| StoreError::Unavailable)
+	}
+	#[cfg(not(unix))]
+	{
+		std::fs::create_dir_all(root).map_err(|_| StoreError::Unavailable)
 	}
 }
 
@@ -215,15 +233,10 @@ impl<'de> serde::Deserialize<'de> for CachedEmbeds {
 	}
 }
 impl LocalStore {
+	/// Opens the SQLite store beneath the selected application-data root.
 	pub fn open_default() -> Result<Self> {
 		let root = data_dir()?;
-		std::fs::create_dir_all(&root).map_err(|_| StoreError::Unavailable)?;
-		#[cfg(unix)]
-		{
-			use std::os::unix::fs::PermissionsExt;
-			std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
-				.map_err(|_| StoreError::Unavailable)?;
-		}
+		create_data_dir(&root)?;
 		Self::open(&root.join("client.sqlite3"))
 	}
 	pub fn open(path: &Path) -> Result<Self> {
@@ -1468,19 +1481,35 @@ mod tests {
 
 	#[cfg(feature = "development-data")]
 	#[test]
-	fn development_data_directory_is_worktree_local() {
+	fn development_data_directory_is_persistent_and_separate() {
 		let root = default_data_dir().unwrap();
 		assert!(root.is_absolute());
 		assert_eq!(
 			root.file_name().and_then(|name| name.to_str()),
-			Some("development-data")
+			Some("serein-development")
 		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn existing_data_directory_permissions_are_preserved() {
+		use std::os::unix::fs::PermissionsExt;
+		let root = std::env::temp_dir().join(format!(
+			"serein-existing-permissions-{}-{}",
+			std::process::id(),
+			std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.unwrap()
+				.as_nanos()
+		));
+		std::fs::create_dir(&root).unwrap();
+		std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+		create_data_dir(&root).unwrap();
 		assert_eq!(
-			root.parent()
-				.and_then(Path::file_name)
-				.and_then(|name| name.to_str()),
-			Some("target")
+			std::fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+			0o755
 		);
+		std::fs::remove_dir(root).unwrap();
 	}
 
 	#[cfg(not(feature = "development-data"))]

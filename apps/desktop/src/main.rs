@@ -5071,7 +5071,7 @@ impl Desktop {
 						// Nothing could have been saved without a credential store.
 						Err(platform::CredentialError::NoStore) => "",
 						Err(_) => {
-							"Could not remove saved login; remove cz.viceverse.serein / discord-session in your OS credential manager"
+							"Could not remove the Serein saved login in your OS credential manager"
 						}
 					};
 				}

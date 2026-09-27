@@ -230,11 +230,11 @@ cargo run --locked --features demo -- --demo
 cargo run --locked
 ```
 
-Default source builds keep SQLite, image caches, extensions and game metadata under
-the worktree's `target/development-data`, isolated from an installed Serein profile. Set
-`SEREIN_DATA_DIR` to another absolute path when development copies need separate profiles;
-packaged builds use the normal OS application-data directory when the variable is absent.
-Login tokens always remain in the operating-system credential store.
+Default source builds keep SQLite, image caches, extensions and game metadata in the OS-local
+`serein-development` directory, isolated from installed Serein data and safe from `cargo clean`.
+Set `SEREIN_DATA_DIR` to another absolute path when development copies need separate data roots;
+packaged builds use the normal `serein` directory when the variable is absent. Login tokens remain
+in the operating-system credential store under separate development and packaged-build entries.
 
 ### Workspace Commands
 

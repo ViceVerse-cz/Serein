@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+development-data = []
+
 [dependencies]
 client-core.workspace = true
 model.workspace = true
