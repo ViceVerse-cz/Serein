@@ -2075,3 +2075,37 @@ improvement from these short runs. The demo disables downloaded-image workers, s
 it controls for idle regressions rather than measuring the queue fix. System/GPU
 resources are not fully represented by process RSS. Frame/startup latency remains
 unmeasured; the frame diagnostic only confirmed matching viewport and scale.
+
+## Windows DirectComposition transparency layering — September 28, 2026
+
+Baseline `e6c68bf2`, compared with this change on Windows x64, Rust 1.98.1 and locked
+dependencies. The native control used debug demo builds with
+`--demo --demo-transparency --demo-friends`, a five-second warmup and ten one-second
+samples on each of three launches. CPU is the median sample from the median launch;
+working set is the median launch peak and median of each launch's last five samples.
+No compiler ran during sampling. The short idle run does not measure frame or input
+latency.
+
+| Native idle metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Median sampled CPU | 0.00% | 0.00% | At sampling floor |
+| Sampled peak working set, bytes | 303,509,504 | 303,366,144 | -143,360 / -0.05% |
+| Settled working set, bytes | 303,509,504 | 303,366,144 | -143,360 / -0.05% |
+
+The working-set difference is noise; no runtime improvement is claimed. Both native
+captures used synthetic data and DirectComposition on DX12. No Discord account,
+message, call, microphone or camera was used.
+
+Both standard voice-enabled `cargo xtask package` builds passed. `makensis` was not
+installed, so the installer executable was not produced. Installed size sums the 198
+files in `dist`; portable ZIPs use PowerShell `Compress-Archive -CompressionLevel
+Optimal` over that directory.
+
+| Package metric, bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 73,533,440 | 73,533,440 | 0 |
+| Full installed package | 77,636,266 | 77,636,266 | 0 |
+| Portable ZIP | 43,362,194 | 43,361,601 | -593 / -0.0014% |
+
+The ZIP delta is compression metadata noise, not a size optimization. Runtime assets,
+licenses and notices are unchanged.

@@ -356,6 +356,12 @@ fn main() -> eframe::Result {
 				builder
 			}
 		},
+		#[cfg(target_os = "windows")]
+		// DirectComposition supplies per-pixel alpha; winit's DWM transparency
+		// adds a second redirection layer that duplicates the custom chrome.
+		window_builder: transparency_available.then(|| {
+			Box::new(|builder: egui::ViewportBuilder| builder.with_transparent(false)) as _
+		}),
 		renderer: eframe::Renderer::Wgpu,
 		wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
 			wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(
@@ -5380,6 +5386,7 @@ impl Desktop {
 		let effects = ui::design::window_effects();
 		let transparent = effects.0 && effects.1 > 0;
 		if transparent != self.window_transparent {
+			#[cfg(not(target_os = "windows"))]
 			self.window.set_transparent(transparent);
 			self.window_transparent = transparent;
 		}
