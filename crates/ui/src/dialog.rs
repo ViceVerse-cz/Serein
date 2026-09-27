@@ -106,6 +106,26 @@ impl Dialog {
 		self
 	}
 	pub fn show<R>(self, ctx: &egui::Context, add: impl FnOnce(&mut Body<'_>) -> R) -> Response<R> {
+		self.show_inner(ctx, None::<fn(&mut egui::Ui)>, add)
+	}
+	/// Uses the title row for compact search or action controls.
+	pub fn show_with_toolbar<R>(
+		self,
+		ctx: &egui::Context,
+		add: impl FnOnce(&mut Body<'_>) -> R,
+		toolbar: impl FnOnce(&mut egui::Ui),
+	) -> Response<R> {
+		self.show_inner(ctx, Some(toolbar), add)
+	}
+	fn show_inner<R, T>(
+		self,
+		ctx: &egui::Context,
+		toolbar: Option<T>,
+		add: impl FnOnce(&mut Body<'_>) -> R,
+	) -> Response<R>
+	where
+		T: FnOnce(&mut egui::Ui),
+	{
 		let Self {
 			id,
 			title,
@@ -118,6 +138,7 @@ impl Dialog {
 		let available = ctx.content_rect().size();
 		let width = width.min(available.x - 32.0).max(200.0);
 		let mut close = false;
+		let mut toolbar = toolbar;
 		let modal = egui::Modal::new(id)
 			.backdrop_color(backdrop(ctx))
 			.frame(frame(ctx))
@@ -125,7 +146,11 @@ impl Dialog {
 				ui.set_width(width);
 				ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
 				ui.spacing_mut().item_spacing.y = 8.0;
-				close |= header(ui, &title, subtitle.as_deref(), tone, icon, dismissable);
+				close |= if let Some(toolbar) = toolbar.take() {
+					toolbar_header(ui, &title, tone, icon, dismissable, toolbar)
+				} else {
+					header(ui, &title, subtitle.as_deref(), tone, icon, dismissable)
+				};
 				let mut body = Body {
 					ui,
 					available_height: available.y,
@@ -231,6 +256,75 @@ impl Body<'_> {
 	}
 }
 
+fn toolbar_header(
+	ui: &mut egui::Ui,
+	title: &str,
+	tone: Tone,
+	icon: Option<icons::Icon>,
+	dismissable: bool,
+	toolbar: impl FnOnce(&mut egui::Ui),
+) -> bool {
+	let title = crate::i18n::translate_if_key(title);
+	let colors = design::palette(ui);
+	let mut close = false;
+	egui::Frame::new()
+		.inner_margin(egui::Margin {
+			left: PAD as i8,
+			right: PAD as i8 - 4,
+			top: PAD as i8,
+			bottom: 4,
+		})
+		.show(ui, |ui| {
+			ui.set_width(ui.available_width());
+			ui.horizontal(|ui| {
+				header_icon(ui, tone, icon, &colors);
+				ui.add(
+					egui::Label::new(design::semibold(ui, title, 19.0).color(colors.text_strong))
+						.wrap_mode(egui::TextWrapMode::Extend),
+				);
+				ui.separator();
+				let toolbar_width =
+					(ui.available_width() - if dismissable { 38.0 } else { 0.0 }).max(80.0);
+				ui.allocate_ui_with_layout(
+					egui::vec2(toolbar_width, 38.0),
+					egui::Layout::left_to_right(egui::Align::Center),
+					toolbar,
+				);
+				if dismissable {
+					close = icons::button(
+						ui,
+						icons::Icon::Close,
+						30.0,
+						&crate::i18n::translate("dialog-header-close-dialog-esc"),
+					)
+					.clicked();
+				}
+			});
+		});
+	ui.add_space(8.0);
+	close
+}
+
+fn header_icon(ui: &mut egui::Ui, tone: Tone, icon: Option<icons::Icon>, colors: &design::Palette) {
+	if tone == Tone::Danger {
+		let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(32.0), egui::Sense::hover());
+		ui.painter()
+			.rect_filled(rect, 8, colors.danger.gamma_multiply(0.16));
+		icons::paint(
+			ui.painter(),
+			icons::Icon::ShieldWarning,
+			rect.shrink(7.0),
+			colors.danger,
+		);
+		ui.add_space(4.0);
+	}
+	if let Some(icon) = icon.filter(|_| tone != Tone::Danger) {
+		let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(30.0), egui::Sense::hover());
+		icons::paint(ui.painter(), icon, rect.shrink(3.0), colors.muted);
+		ui.add_space(6.0);
+	}
+}
+
 /// Title, optional subtitle and the round close control. Returns whether close was clicked.
 fn header(
 	ui: &mut egui::Ui,
@@ -254,25 +348,7 @@ fn header(
 		.show(ui, |ui| {
 			ui.set_width(ui.available_width());
 			ui.horizontal_top(|ui| {
-				if tone == Tone::Danger {
-					let (rect, _) =
-						ui.allocate_exact_size(egui::Vec2::splat(32.0), egui::Sense::hover());
-					ui.painter()
-						.rect_filled(rect, 8, colors.danger.gamma_multiply(0.16));
-					icons::paint(
-						ui.painter(),
-						icons::Icon::ShieldWarning,
-						rect.shrink(7.0),
-						colors.danger,
-					);
-					ui.add_space(4.0);
-				}
-				if let Some(icon) = icon.filter(|_| tone != Tone::Danger) {
-					let (rect, _) =
-						ui.allocate_exact_size(egui::Vec2::splat(30.0), egui::Sense::hover());
-					icons::paint(ui.painter(), icon, rect.shrink(3.0), colors.muted);
-					ui.add_space(6.0);
-				}
+				header_icon(ui, tone, icon, &colors);
 				let text_width = (ui.available_width() - 34.0).max(1.0);
 				ui.allocate_ui_with_layout(
 					egui::vec2(text_width, 0.0),
