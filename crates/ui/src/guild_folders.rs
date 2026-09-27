@@ -98,7 +98,6 @@ enum Placement {
 enum Edit {
 	Drop(Item, Item, Placement),
 	Outside(Id),
-	Shift(Item, bool),
 	Dissolve(u64),
 	Customize(u64, String, u32),
 }
@@ -138,29 +137,6 @@ fn edit(settings: &mut Settings, edit: Edit) {
 				f.guild_ids.retain(|g| *g != id);
 			}
 			settings.folders.push(standalone(id));
-		}
-		Edit::Shift(item, down) => {
-			if let Some(i) = entry(settings, item) {
-				if let Item::Server(id) = item
-					&& settings.folders[i].id.is_some()
-				{
-					let ids = &mut settings.folders[i].guild_ids;
-					let j = ids.iter().position(|g| *g == id).unwrap();
-					let k = if down {
-						(j + 1).min(ids.len() - 1)
-					} else {
-						j.saturating_sub(1)
-					};
-					ids.swap(j, k);
-				} else {
-					let j = if down {
-						(i + 1).min(settings.folders.len() - 1)
-					} else {
-						i.saturating_sub(1)
-					};
-					settings.folders.swap(i, j);
-				}
-			}
 		}
 		Edit::Drop(source, target, placement) => {
 			if source == target {
@@ -582,88 +558,67 @@ impl MessagingUi {
 							refresh = true;
 							ui.close();
 						}
-						ui.add_enabled_ui(enabled, |ui| {
-							if ui
-								.button(crate::i18n::translate(
-									"guild-folders-server-folders-move-up",
-								))
-								.clicked()
-							{
-								change = Some(Edit::Shift(item, false));
-								ui.close();
-							}
-							if ui
-								.button(crate::i18n::translate(
-									"guild-folders-server-folders-move-down",
-								))
-								.clicked()
-							{
-								change = Some(Edit::Shift(item, true));
-								ui.close();
-							}
-							match item {
-								Item::Folder(id) => {
-									if ui
-										.button(crate::i18n::translate(
-											"guild-folders-server-folders-folder-name-and-color",
-										))
-										.clicked()
-									{
-										let f = state
-											.guild_folders
-											.as_ref()
-											.unwrap()
-											.folders
-											.iter()
-											.find(|f| f.id == Some(id))
-											.unwrap();
-										let color = f.color.unwrap_or(design::DEFAULT_PRIMARY_RGB);
-										self.folder_ui.editor = Some((
-											id,
-											f.name.clone().unwrap_or_default(),
-											[(color >> 16) as u8, (color >> 8) as u8, color as u8],
-										));
-										ui.close();
-									}
-									if ui
-										.button(crate::i18n::translate(
-											"guild-folders-server-folders-ungroup-servers",
-										))
-										.clicked()
-									{
-										change = Some(Edit::Dissolve(id));
-										ui.close();
-									}
+						ui.add_enabled_ui(enabled, |ui| match item {
+							Item::Folder(id) => {
+								if ui
+									.button(crate::i18n::translate(
+										"guild-folders-server-folders-folder-name-and-color",
+									))
+									.clicked()
+								{
+									let f = state
+										.guild_folders
+										.as_ref()
+										.unwrap()
+										.folders
+										.iter()
+										.find(|f| f.id == Some(id))
+										.unwrap();
+									let color = f.color.unwrap_or(design::DEFAULT_PRIMARY_RGB);
+									self.folder_ui.editor = Some((
+										id,
+										f.name.clone().unwrap_or_default(),
+										[(color >> 16) as u8, (color >> 8) as u8, color as u8],
+									));
+									ui.close();
 								}
-								Item::Server(id) => {
-									if ui
-										.button(crate::i18n::translate(
-											"guild-folders-server-folders-move-outside-folders",
-										))
-										.clicked()
-									{
-										change = Some(Edit::Outside(id));
-										ui.close();
-									}
-									ui.menu_button(
-										crate::i18n::translate(
-											"guild-folders-server-folders-group-with-server",
-										),
-										|ui| {
-											for guild in state.guilds.iter().filter(|g| g.id != id)
-											{
-												if ui.button(&guild.name).clicked() {
-													change = Some(Edit::Drop(
-														item,
-														Item::Server(guild.id),
-														Placement::Inside,
-													));
-													ui.close();
-												}
+								if ui
+									.button(crate::i18n::translate(
+										"guild-folders-server-folders-ungroup-servers",
+									))
+									.clicked()
+								{
+									change = Some(Edit::Dissolve(id));
+									ui.close();
+								}
+							}
+							Item::Server(id) => {
+								if ui
+									.button(crate::i18n::translate(
+										"guild-folders-server-folders-move-outside-folders",
+									))
+									.clicked()
+								{
+									change = Some(Edit::Outside(id));
+									ui.close();
+								}
+								ui.menu_button(
+									crate::i18n::translate(
+										"guild-folders-server-folders-group-with-server",
+									),
+									|ui| {
+										for guild in state.guilds.iter().filter(|g| g.id != id) {
+											if ui.button(&guild.name).clicked() {
+												change = Some(Edit::Drop(
+													item,
+													Item::Server(guild.id),
+													Placement::Inside,
+												));
+												ui.close();
 											}
-										},
-									);
-								}
+										}
+									},
+								);
 							}
 						});
 					});
@@ -1084,7 +1039,10 @@ mod tests {
 			]
 		);
 		let mut changed = state.guild_folders.clone().unwrap();
-		edit(&mut changed, Edit::Shift(Item::Server(Id(2)), false));
+		edit(
+			&mut changed,
+			Edit::Drop(Item::Server(Id(2)), Item::Server(Id(1)), Placement::Before),
+		);
 		edit(
 			&mut changed,
 			Edit::Customize(7, "New name".into(), 0xabcdef),
