@@ -119,7 +119,7 @@ Select an existing server voice channel to inspect its roster, then explicitly J
 
 An authenticated empty room displays “Connected · waiting for others”; audio devices open for local microphone detection, respecting mute, deafen, push-to-talk and SPEAK permission. Captured audio is consumed locally while alone; transmission waits until another participant joins and DAVE is secured. The client does not transmit unencrypted microphone audio to make an empty room appear connected. A server move, changed voice endpoint/session or main Gateway failure requires an explicit rejoin. The roster is session-only, bounded to 4,096 entries and 1 MiB, and is cleared on fresh login/resync and relevant access invalidation; during a resumable disconnect it is labeled last-known until missed events replay. Missing user details use a fallback identity rather than fetching a whole guild directory.
 
-Clicking a participant marked LIVE opens a compact still preview when Discord supplies one.
+Hovering a participant marked LIVE opens a compact still preview when Discord supplies one.
 **Watch Stream** joins that voice channel when no call is active, then starts the existing
 receive-only stream path after the call connects. It never silently switches an active call;
 hidden or unavailable previews remain explicit. The preview request requires current roster

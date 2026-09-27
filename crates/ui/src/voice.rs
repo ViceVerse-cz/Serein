@@ -552,140 +552,114 @@ impl MessagingUi {
 		entry: &RosterEntry,
 	) {
 		let target = (entry.guild, entry.channel, entry.participant.user);
-		if row.clicked() {
-			if self.stream_preview_open == Some(target) {
-				self.stream_preview_open = None;
-			} else {
-				self.stream_preview_open = Some(target);
-				self.stream_preview_request = Some(target);
-			}
-		}
-		let mut open = self.stream_preview_open == Some(target);
-		let colors = design::palette(ui);
-		let mut watched = false;
-		egui::Popup::from_response(row)
-			.id(row.id.with("stream-preview"))
-			.open_bool(&mut open)
-			.align(egui::RectAlign::RIGHT_START)
+		let mut tooltip = egui::Tooltip::for_enabled(row)
 			.gap(8.0)
 			.width(324.0)
-			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-			.frame(
-				egui::Frame::popup(&row.ctx.style_of(row.ctx.theme()))
-					.fill(colors.raised)
-					.inner_margin(12)
-					.corner_radius(10),
-			)
-			.show(|ui| {
-				ui.set_width(300.0);
-				ui.spacing_mut().item_spacing.y = 10.0;
-				ui.horizontal(|ui| {
-					ui.label(design::semibold(ui, "Streaming Now", 15.0).color(colors.text_strong));
-					live_badge(ui);
+			.accessible_name("Stream preview");
+		tooltip.popup = tooltip.popup.align(egui::RectAlign::RIGHT_START).frame(
+			egui::Frame::popup(&row.ctx.style_of(row.ctx.theme()))
+				.fill(design::palette(ui).raised)
+				.inner_margin(12)
+				.corner_radius(10),
+		);
+		let open = tooltip.popup.is_open();
+		if open && self.stream_preview_open != Some(target) {
+			self.stream_preview_open = Some(target);
+			self.stream_preview_request = Some(target);
+		}
+		let colors = design::palette(ui);
+		tooltip.show(|ui| {
+			ui.set_width(300.0);
+			ui.spacing_mut().item_spacing.y = 10.0;
+			ui.horizontal(|ui| {
+				ui.label(design::semibold(ui, "Streaming Now", 15.0).color(colors.text_strong));
+				live_badge(ui);
+			});
+			let url = state
+				.voice
+				.preview
+				.as_ref()
+				.filter(|preview| (preview.guild, preview.channel, preview.user) == target)
+				.and_then(|preview| preview.url.clone())
+				.or_else(|| {
+					state.demo.then(|| {
+						format!(
+							"https://cdn.discordapp.com/streams/guild:{}:{}:{}/0123456789abcdef.png",
+							entry.guild, entry.channel, entry.participant.user
+						)
+					})
 				});
-				let url = state
+			if let Some(url) = url {
+				self.avatars.show_media(
+					ui,
+					&model::EmbedMedia {
+						url: Some(url),
+						width: 512,
+						height: 288,
+						..Default::default()
+					},
+					egui::vec2(300.0, 169.0),
+					state.demo,
+					crate::avatars::Surface::Banner,
+				);
+			} else {
+				let (rect, _) =
+					ui.allocate_exact_size(egui::vec2(300.0, 169.0), egui::Sense::hover());
+				ui.painter().rect_filled(rect, 8, colors.canvas);
+				let preview = state
 					.voice
 					.preview
 					.as_ref()
-					.filter(|preview| (preview.guild, preview.channel, preview.user) == target)
-					.and_then(|preview| preview.url.clone())
-					.or_else(|| {
-						state.demo.then(|| {
-							format!(
-								"https://cdn.discordapp.com/streams/guild:{}:{}:{}/0123456789abcdef.png",
-								entry.guild, entry.channel, entry.participant.user
-							)
-						})
-					});
-				if let Some(url) = url {
-					self.avatars.show_media(
-						ui,
-						&model::EmbedMedia {
-							url: Some(url),
-							width: 512,
-							height: 288,
-							..Default::default()
-						},
-						egui::vec2(300.0, 169.0),
-						state.demo,
-						crate::avatars::Surface::Banner,
+					.filter(|preview| (preview.guild, preview.channel, preview.user) == target);
+				if preview.is_some_and(|preview| preview.loading) {
+					ui.put(
+						egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(24.0)),
+						egui::Spinner::new().color(colors.muted),
 					);
 				} else {
-					let (rect, _) =
-						ui.allocate_exact_size(egui::vec2(300.0, 169.0), egui::Sense::hover());
-					ui.painter().rect_filled(rect, 8, colors.canvas);
-					let preview =
-						state.voice.preview.as_ref().filter(|preview| {
-							(preview.guild, preview.channel, preview.user) == target
-						});
-					if preview.is_some_and(|preview| preview.loading) {
-						ui.put(
-							egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(24.0)),
-							egui::Spinner::new().color(colors.muted),
-						);
-					} else {
-						ui.painter().text(
-							rect.center(),
-							egui::Align2::CENTER_CENTER,
-							preview
-								.and_then(|preview| preview.error)
-								.unwrap_or("Preview hidden or unavailable"),
-							egui::FontId::proportional(13.0),
-							colors.muted,
-						);
-					}
+					ui.painter().text(
+						rect.center(),
+						egui::Align2::CENTER_CENTER,
+						preview
+							.and_then(|preview| preview.error)
+							.unwrap_or("Preview hidden or unavailable"),
+						egui::FontId::proportional(13.0),
+						colors.muted,
+					);
 				}
-				let watching = state.voice.active.as_ref().is_some_and(|call| {
-					call.channel == entry.channel && call.watching == Some(entry.participant.user)
-				});
-				let connected = state.voice.active.as_ref().is_some_and(|call| {
-					call.channel == entry.channel
-						&& matches!(call.phase, Phase::Connected | Phase::Waiting)
-				});
-				let can_watch = !watching
-					&& (connected
-						|| (state.voice.active.is_none() && state.can_call(entry.channel)))
-					&& state
-						.user
-						.as_ref()
-						.is_none_or(|user| user.id != entry.participant.user);
-				let button = ui
-					.add_enabled(
-						can_watch,
-						egui::Button::new(
-							RichText::new(if watching { "Watching" } else { "Watch Stream" })
-								.color(egui::Color32::WHITE),
-						)
-						.fill(colors.positive)
-						.min_size(egui::vec2(300.0, 38.0)),
-					)
-					.on_disabled_hover_text(if watching {
-						"Already watching this stream"
-					} else {
-						"Join this voice channel before watching"
-					});
-				crate::icons::paint(
-					ui.painter(),
-					crate::icons::Icon::ScreenShare,
-					egui::Rect::from_center_size(
-						button.rect.center() - egui::vec2(62.0, 0.0),
-						egui::Vec2::splat(18.0),
-					),
-					if can_watch {
-						egui::Color32::WHITE
-					} else {
-						colors.muted
-					},
-				);
-				if button.clicked() {
-					self.stream_preview_watch = Some((entry.channel, entry.participant.user));
-					watched = true;
-					ui.close();
-				}
+			}
+			let watching = state.voice.active.as_ref().is_some_and(|call| {
+				call.channel == entry.channel && call.watching == Some(entry.participant.user)
 			});
-		if watched {
-			open = false;
-		}
+			let connected = state.voice.active.as_ref().is_some_and(|call| {
+				call.channel == entry.channel
+					&& matches!(call.phase, Phase::Connected | Phase::Waiting)
+			});
+			let can_watch = !watching
+				&& (connected || (state.voice.active.is_none() && state.can_call(entry.channel)))
+				&& state
+					.user
+					.as_ref()
+					.is_none_or(|user| user.id != entry.participant.user);
+			let button = ui
+				.add_enabled_ui(can_watch, |ui| {
+					design::positive_icon_button(
+						ui,
+						crate::icons::Icon::ScreenShare,
+						if watching { "Watching" } else { "Watch Stream" },
+					)
+				})
+				.inner
+				.on_disabled_hover_text(if watching {
+					"Already watching this stream"
+				} else {
+					"Join this voice channel before watching"
+				});
+			if button.clicked() {
+				self.stream_preview_watch = Some((entry.channel, entry.participant.user));
+				ui.close();
+			}
+		});
 		if !open && self.stream_preview_open == Some(target) {
 			self.stream_preview_open = None;
 		}
@@ -4845,7 +4819,7 @@ mod tests {
 	}
 
 	#[test]
-	fn streaming_roster_popup_has_preview_and_watch_action() {
+	fn streaming_roster_hover_has_preview_and_watch_action() {
 		let mut state = test_support::demo_state();
 		state.voice.roster = vec![RosterEntry {
 			guild: Id(10),
@@ -4861,11 +4835,9 @@ mod tests {
 			},
 			member: None,
 		}];
-		let mut messaging = MessagingUi {
-			stream_preview_open: Some((Id(10), Id(25), Id(2))),
-			..Default::default()
-		};
+		let mut messaging = MessagingUi::default();
 		let ctx = egui::Context::default();
+		ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
 		let first = ctx.run_ui(
 			egui::RawInput {
 				screen_rect: Some(egui::Rect::from_min_size(
@@ -4909,6 +4881,10 @@ mod tests {
 		assert!(
 			text.contains("Streaming Now") && text.contains("Watch Stream"),
 			"{text}"
+		);
+		assert_eq!(
+			messaging.stream_preview_request,
+			Some((Id(10), Id(25), Id(2)))
 		);
 	}
 

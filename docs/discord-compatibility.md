@@ -457,7 +457,7 @@ and clears delayed mixer output after a stall. Decoder input is bounded to 16 pi
 and 16 MiB, with a 150 ms age limit and keyframe recovery. These bounds reduce backlog;
 they do not implement sender-clock audio/video synchronization or establish live sync.
 
-September 27 preview update: clicking a currently streaming guild participant requests
+September 27 preview update: hovering a currently streaming guild participant requests
 Discord's still preview and shows it in a compact 16:9 popover with a Watch Stream action.
 The response is accepted only when it names the requested stream under Discord's CDN/media
 host and passes the existing bounded image decoder. One newer request cancels the previous

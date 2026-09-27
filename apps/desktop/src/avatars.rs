@@ -594,6 +594,12 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 		|| (model::valid_gif_preview(source)
 			&& (path.ends_with(".gif") || path.ends_with(".webp")));
 	let (primary, fallback) = match rendition.motion {
+		Motion::Still
+			if path.starts_with("https://cdn.discordapp.com/streams/")
+				|| path.starts_with("https://media.discordapp.net/streams/") =>
+		{
+			(proxy_base(source).map(String::from), None)
+		}
 		Motion::Still => (proxy_url(source, size, ProxyFormat::LosslessWebp), None),
 		Motion::Animated if let Some(video) = motion_video_source(source) => (Some(video), None),
 		Motion::Animated if provider => (Some(source.to_owned()), None),
@@ -767,7 +773,7 @@ fn proxy_base(source: &str) -> Option<url::Url> {
 		) {
 		return None;
 	}
-	if host == "cdn.discordapp.com" {
+	if host == "cdn.discordapp.com" && !path.starts_with("/streams/") {
 		url.set_host(Some("media.discordapp.net")).ok()?;
 	}
 	Some(url)
@@ -2119,7 +2125,9 @@ mod tests {
 	fn stream_preview_urls_are_confined_to_discord_cdn() {
 		let source = "https://cdn.discordapp.com/streams/guild:1:2:3/0123456789abcdef.png";
 		assert!(embed_url(source, 512).is_some());
-		assert!(disk_key(&format!("media:is:e512:{source}")).is_none());
+		let key = format!("media:is:e512:{source}");
+		assert_eq!(job_urls(&key).unwrap().primary, source);
+		assert!(disk_key(&key).is_none());
 		assert!(
 			embed_url(
 				"https://cdn.discordapp.com/streams/guild:1:2:3/../token.png",

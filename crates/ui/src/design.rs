@@ -1316,6 +1316,21 @@ pub fn primary_icon_button(
 	let p = palette(ui);
 	wide_button(ui, label, Some(icon), p.accent, Stroke::NONE, p.accent_text)
 }
+pub fn positive_icon_button(
+	ui: &mut egui::Ui,
+	icon: crate::icons::Icon,
+	label: &str,
+) -> egui::Response {
+	let p = palette(ui);
+	wide_button(
+		ui,
+		label,
+		Some(icon),
+		p.positive,
+		Stroke::NONE,
+		Color32::WHITE,
+	)
+}
 /// Full-width neutral companion to [`primary_button`].
 /// Outlined companion to `primary_icon_button`, for the quieter of two full-width actions.
 pub fn secondary_icon_button(
