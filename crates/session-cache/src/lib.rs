@@ -328,22 +328,22 @@ impl Timeline {
 		}
 		Ok(())
 	}
-	pub fn finish_page(&mut self, items: Vec<Message>, older: bool) -> Result<(), &'static str> {
+	pub fn finish_page(
+		&mut self,
+		mut items: Vec<Message>,
+		older: bool,
+	) -> Result<(), &'static str> {
 		self.retain_older = older;
-		let prior: BTreeMap<_, _> = self
-			.messages
-			.iter()
-			.filter_map(|(id, message)| {
-				let message = message.as_ref()?;
-				if message.author_roles.is_empty() && message.author_nick.is_none() {
-					return None;
-				}
-				Some((
-					*id,
-					(message.author_roles.clone(), message.author_nick.clone()),
-				))
-			})
-			.collect();
+		// Inherit only requested rows, before replacement or eviction removes their metadata.
+		for item in &mut items {
+			if let Some(previous) = self.get_display(item.id) {
+				keep_author_membership(
+					item,
+					&previous.author_roles,
+					previous.author_nick.as_deref(),
+				);
+			}
+		}
 		if self.replace {
 			self.messages.retain(|id, message| {
 				let keep = self.changed.contains(id)
@@ -355,10 +355,7 @@ impl Timeline {
 				keep
 			});
 		}
-		for mut item in items {
-			if let Some((roles, nick)) = prior.get(&item.id) {
-				keep_author_membership(&mut item, roles, nick.as_deref());
-			}
+		for item in items {
 			self.insert(item, false, older)?;
 		}
 		self.loading = false;
@@ -1091,6 +1088,104 @@ mod tests {
 		assert!(timeline.is_empty());
 		assert!(timeline.get_display(Id(1)).is_none());
 		assert_eq!(timeline.bytes(), 0);
+	}
+
+	#[test]
+	fn page_membership_preserves_original_and_explicit_values() {
+		for older in [false, true] {
+			let mut timeline = Timeline::default();
+			for id in 1..=3 {
+				let mut row = message(id);
+				row.author_roles = vec![Id(10)];
+				row.author_nick = Some("Original nickname".into());
+				timeline.insert(row, false, false).unwrap();
+			}
+			timeline.begin_page(older);
+			let mut explicit = message(2);
+			explicit.author_roles = vec![Id(20)];
+			explicit.author_nick = Some("Explicit nickname".into());
+			let mut duplicate = explicit.clone();
+			duplicate.id = Id(3);
+			timeline
+				.finish_page(vec![message(1), explicit, duplicate, message(3)], older)
+				.unwrap();
+			for id in [1, 3] {
+				let row = timeline.get(Id(id)).unwrap();
+				assert_eq!(row.author_roles, [Id(10)]);
+				assert_eq!(row.author_nick.as_deref(), Some("Original nickname"));
+			}
+			let row = timeline.get(Id(2)).unwrap();
+			assert_eq!(row.author_roles, [Id(20)]);
+			assert_eq!(row.author_nick.as_deref(), Some("Explicit nickname"));
+		}
+		let mut timeline = Timeline::default();
+		for id in 100..164 {
+			let mut row = message(id);
+			row.content = "x".repeat(64 * 1024);
+			row.author_roles = vec![Id(10)];
+			row.author_nick = Some("Original nickname".into());
+			timeline.insert(row, false, false).unwrap();
+		}
+		timeline.begin_page(true);
+		let mut first = message(1);
+		first.content = "x".repeat(64 * 1024);
+		// First evict the highest ID, then free bytes before reinserting it.
+		timeline
+			.finish_page(vec![first, message(1), message(163)], true)
+			.unwrap();
+		let row = timeline.get(Id(163)).unwrap();
+		assert_eq!(row.author_roles, [Id(10)]);
+		assert_eq!(row.author_nick.as_deref(), Some("Original nickname"));
+	}
+
+	#[test]
+	#[ignore = "synthetic release benchmark; run with --release --ignored --nocapture"]
+	fn page_membership_benchmark() {
+		for mode in ["recent", "older", "append"] {
+			let mut samples = Vec::new();
+			for sample in 0..6 {
+				let mut elapsed = std::time::Duration::ZERO;
+				for _ in 0..100 {
+					let mut timeline = Timeline::default();
+					for id in 1000..1500 {
+						let mut row = message(id);
+						row.author_roles = (1..=512).map(Id).collect();
+						row.author_nick = Some("Synthetic nickname".into());
+						timeline.insert(row, false, false).unwrap();
+					}
+					let older = mode == "older";
+					if mode == "append" {
+						timeline.begin_append();
+					} else {
+						timeline.begin_page(older);
+					}
+					let first = match mode {
+						"older" => 950,
+						"append" => 1500,
+						_ => 1450,
+					};
+					let items = (first..first + 50).map(message).collect();
+					let start = std::time::Instant::now();
+					std::hint::black_box(&mut timeline)
+						.finish_page(items, older)
+						.unwrap();
+					elapsed += start.elapsed();
+					assert_eq!(
+						timeline.get(Id(first)).unwrap().author_roles.len(),
+						if mode == "recent" { 512 } else { 0 }
+					);
+					assert!(timeline.bytes() <= MAX_BYTES);
+				}
+				if sample != 0 {
+					samples.push(elapsed.as_secs_f64() * 1_000_000.0 / 100.0);
+				}
+			}
+			samples.sort_by(f64::total_cmp);
+			eprintln!(
+				"page_membership {mode}: median {:.3} us; five 100-page samples {samples:?}",
+				samples[2]
+			);
+		}
 	}
 
 	#[test]

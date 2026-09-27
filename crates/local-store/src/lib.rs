@@ -35,17 +35,19 @@ pub struct LocalStore(Connection);
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct AppPreferences {
+	/// `None` follows the operating-system locale; otherwise this is a bounded BCP 47 tag.
+	pub language: Option<String>,
 	pub notifications_enabled: bool,
 	pub auto_update: bool,
 	pub update_nightly: bool,
 	pub notification_options: model::notification_preferences::Device,
 	pub show_hidden_channels: bool,
 	pub hide_title_bar: bool,
+	pub hide_window_decorations: bool,
 	pub primary_color: Option<[u8; 3]>,
 	pub transparency_blur: bool,
 	pub transparency: u8,
 	pub blur: u8,
-	pub transparent_all: bool,
 	#[serde(default)]
 	pub voice_noise_suppression: bool,
 	/// Absent in older preferences; migrate using the legacy suppression setting.
@@ -72,17 +74,18 @@ pub struct AppPreferences {
 impl Default for AppPreferences {
 	fn default() -> Self {
 		Self {
+			language: None,
 			notifications_enabled: true,
 			auto_update: false,
 			update_nightly: true,
 			notification_options: Default::default(),
 			show_hidden_channels: false,
 			hide_title_bar: false,
+			hide_window_decorations: false,
 			primary_color: None,
 			transparency_blur: false,
 			transparency: 15,
 			blur: 50,
-			transparent_all: false,
 			voice_noise_suppression: true,
 			voice_processing: Some(model::voice_settings::VoiceProcessing::default()),
 			voice_push_to_talk: false,
@@ -102,7 +105,13 @@ impl Default for AppPreferences {
 }
 impl AppPreferences {
 	pub fn is_valid(&self) -> bool {
-		self.transparency <= 100
+		self.language.as_ref().is_none_or(|language| {
+			!language.is_empty()
+				&& language.len() <= 35
+				&& language
+					.bytes()
+					.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+		}) && self.transparency <= 100
 			&& self.blur <= 100
 			&& self.input_percent <= 200
 			&& self.output_percent <= 200
@@ -334,6 +343,10 @@ impl LocalStore {
 		transaction.execute_batch("CREATE TABLE IF NOT EXISTS app_preferences(
             singleton INTEGER PRIMARY KEY CHECK(singleton=1),
             value TEXT NOT NULL CHECK(typeof(value)='text' AND length(CAST(value AS BLOB))<=16384));")?;
+		transaction.execute_batch("CREATE TABLE IF NOT EXISTS custom_font(
+            singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+            name TEXT NOT NULL CHECK(typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128),
+            data BLOB NOT NULL CHECK(typeof(data)='blob' AND length(data) BETWEEN 1 AND 8388608));")?;
 		if !has_reply_deleted {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN reply_deleted INTEGER NOT NULL DEFAULT 0 CHECK(typeof(reply_deleted)='integer' AND reply_deleted IN (0,1));")?;
 		}
@@ -454,6 +467,35 @@ impl LocalStore {
 			return Err(StoreError::Incompatible);
 		}
 		Ok(value)
+	}
+	/// One device-local font, atomically replaced; account logout leaves it intact.
+	pub fn custom_font(&self) -> Result<Option<(String, Vec<u8>)>> {
+		self.0.query_row(
+			"SELECT
+             CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128 THEN name ELSE NULL END,
+             CASE WHEN typeof(data)='blob' AND length(data) BETWEEN 1 AND 8388608 THEN data ELSE NULL END
+             FROM custom_font WHERE singleton=1",
+			[], |row| Ok((row.get(0)?, row.get(1)?)),
+		).optional().map_err(Into::into)
+	}
+	pub fn save_custom_font(&self, font: Option<(&str, &[u8])>) -> Result<()> {
+		if let Some((name, bytes)) = font {
+			if name.is_empty()
+				|| name.len() > 128
+				|| bytes.is_empty()
+				|| bytes.len() > 8 * 1024 * 1024
+			{
+				return Err(StoreError::Capacity);
+			}
+			self.0.execute(
+				"INSERT INTO custom_font VALUES(1,?1,?2)
+                 ON CONFLICT(singleton) DO UPDATE SET name=excluded.name,data=excluded.data",
+				params![name, bytes],
+			)?;
+		} else {
+			self.0.execute("DELETE FROM custom_font", [])?;
+		}
+		Ok(())
 	}
 	pub fn save_app_preferences(&self, value: &AppPreferences) -> Result<()> {
 		if !value.is_valid() {
@@ -674,13 +716,13 @@ impl LocalStore {
 		let mut window: BTreeMap<_, _> = existing
 			.iter()
 			.filter(|m| retained.contains(&m.id))
-			.map(|m| (m.id, m.clone()))
+			.map(|m| (m.id, m))
 			.collect();
 		for message in messages {
 			if !retained.contains(&message.id) {
 				return Err(StoreError::Capacity);
 			}
-			window.insert(message.id, message.clone());
+			window.insert(message.id, message);
 		}
 		self.save_channel_loaded(
 			account,
@@ -694,17 +736,26 @@ impl LocalStore {
 			return Err(StoreError::Capacity);
 		}
 		let existing = self.load_channel(account, channel)?;
-		self.save_channel_loaded(account, channel, messages, &existing)
+		self.save_channel_loaded(
+			account,
+			channel,
+			&messages.iter().collect::<Vec<_>>(),
+			&existing,
+		)
 	}
 	fn save_channel_loaded(
 		&mut self,
 		account: Id,
 		channel: Id,
-		messages: &[Message],
+		messages: &[&Message],
 		existing: &[Message],
 	) -> Result<()> {
 		if messages.len() > 500
-			|| messages.iter().map(Message::bytes).sum::<usize>() > MAX_WINDOW_BYTES
+			|| messages
+				.iter()
+				.map(|message| message.bytes())
+				.sum::<usize>()
+				> MAX_WINDOW_BYTES
 			|| messages.iter().any(|m| {
 				m.channel != channel
 					|| (m.reply_deleted
@@ -745,7 +796,7 @@ impl LocalStore {
 		for message in messages {
 			if previous
 				.get(&message.id)
-				.is_some_and(|old| **old == *message)
+				.is_some_and(|old| *old == *message)
 			{
 				continue;
 			}
@@ -1361,6 +1412,113 @@ impl LocalStore {
 #[cfg(test)]
 mod tests {
 	#[test]
+	fn changed_rows_preserve_retained_data_and_rollback_invalid_updates() {
+		let mut store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		for (account, channel, id) in [(1, 2, 10), (1, 2, 20), (1, 2, 30), (9, 2, 10), (1, 9, 10)] {
+			store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES(?1,?2,?3,'4','Synthetic','original',0,0)", params![account.to_string(), channel.to_string(), id.to_string()]).unwrap();
+		}
+		let original = store.load_channel(Id(1), Id(2)).unwrap();
+		let mut edited = original[1].clone();
+		edited.content = "edited".into();
+		edited.edited = true;
+		let mut added = original[0].clone();
+		added.id = Id(40);
+		let mut superseded = edited.clone();
+		superseded.content = "superseded".into();
+		let retained = [Id(10), Id(20), Id(40)];
+		store
+			.save_changes(
+				Id(1),
+				Id(2),
+				&[superseded, edited.clone(), added.clone()],
+				&retained,
+			)
+			.unwrap();
+		let expected = vec![original[0].clone(), edited.clone(), added];
+		assert!(store.load_channel(Id(1), Id(2)).unwrap() == expected);
+		assert_eq!(
+			store.load_channel(Id(9), Id(2)).unwrap()[0].content,
+			"original"
+		);
+		assert_eq!(
+			store.load_channel(Id(1), Id(9)).unwrap()[0].content,
+			"original"
+		);
+		// Invalid author metadata is discovered after deletions begin: roll them back too.
+		edited.author_roles = vec![Id(0)];
+		assert_eq!(
+			store.save_changes(Id(1), Id(2), std::slice::from_ref(&edited), &[Id(20)]),
+			Err(StoreError::Capacity)
+		);
+		assert!(store.load_channel(Id(1), Id(2)).unwrap() == expected);
+		edited.author_roles.clear();
+		assert_eq!(
+			store.save_changes(Id(1), Id(2), std::slice::from_ref(&edited), &[Id(10)]),
+			Err(StoreError::Capacity)
+		);
+		edited.ephemeral = true;
+		assert_eq!(
+			store.save_changes(Id(1), Id(2), std::slice::from_ref(&edited), &retained),
+			Err(StoreError::Capacity)
+		);
+		edited.ephemeral = false;
+		// The changed batch fits by itself, but its retained neighbors exceed the window budget.
+		edited.content = "x".repeat(MAX_WINDOW_BYTES - edited.bytes() + edited.content.capacity());
+		assert_eq!(edited.bytes(), MAX_WINDOW_BYTES);
+		assert_eq!(
+			store.save_changes(Id(1), Id(2), std::slice::from_ref(&edited), &retained),
+			Err(StoreError::Capacity)
+		);
+		assert!(store.load_channel(Id(1), Id(2)).unwrap() == expected);
+		store.save_changes(Id(1), Id(2), &[], &[]).unwrap();
+		assert!(store.load_channel(Id(1), Id(2)).unwrap().is_empty());
+	}
+
+	#[test]
+	#[ignore = "manual release benchmark; synthetic in-memory SQLite, not disk or UI latency"]
+	fn benchmark_changed_row_save() {
+		use std::{hint::black_box, time::Instant};
+		let mut store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		let content = "x".repeat(7000);
+		for id in 1..=500 {
+			store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES('1','2',?1,'4','Synthetic',?2,0,0)", params![id.to_string(), content]).unwrap();
+		}
+		let messages = store.load_channel(Id(1), Id(2)).unwrap();
+		assert_eq!(messages.len(), 500);
+		let window_bytes = messages.iter().map(Message::bytes).sum::<usize>();
+		assert!(window_bytes <= MAX_WINDOW_BYTES);
+		let retained: Vec<_> = messages.iter().map(|message| message.id).collect();
+		let mut changed = messages[250].clone();
+		drop(messages);
+		let mut samples = Vec::new();
+		for run in 0..6 {
+			let start = Instant::now();
+			for _ in 0..200 {
+				changed.edited = !changed.edited;
+				store
+					.save_changes(
+						Id(1),
+						Id(2),
+						black_box(std::slice::from_ref(&changed)),
+						black_box(&retained),
+					)
+					.unwrap();
+			}
+			if run != 0 {
+				samples.push(start.elapsed());
+			}
+		}
+		samples.sort_unstable();
+		println!(
+			"200 changed-row saves, 500 rows / {window_bytes} estimated bytes: median {:?}, samples {:?}",
+			samples[2], samples
+		);
+		let loaded = store.load_channel(Id(1), Id(2)).unwrap();
+		assert_eq!(loaded.len(), 500);
+		assert!(loaded[250] == changed);
+	}
+
+	#[test]
 	fn channel_order_index_upgrades_existing_cache_and_preserves_unsigned_ids() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
 		let ids = [9, 10, 99, 100, i64::MAX as u64 + 1, u64::MAX];
@@ -1683,13 +1841,13 @@ mod tests {
 		assert!(legacy.voice_processing.is_none());
 		assert!(legacy.voice_noise_suppression);
 		let mut value = AppPreferences {
+			language: Some("cs".into()),
 			notifications_enabled: true,
 			hide_title_bar: true,
 			primary_color: Some([80, 120, 220]),
 			transparency_blur: true,
 			transparency: 30,
 			blur: 60,
-			transparent_all: true,
 			notification_options: model::notification_preferences::Device {
 				current_channel: true,
 				disable_sounds: true,
@@ -1750,6 +1908,9 @@ mod tests {
 			store.app_preferences().unwrap().gpu_preference,
 			model::GpuPreference::PowerSaving
 		);
+		value.voice_input = None;
+		value.language = Some("../cs".into());
+		assert!(store.save_app_preferences(&value).is_err());
 	}
 	#[test]
 	fn app_preferences_tolerate_an_unknown_gpu_preference() {

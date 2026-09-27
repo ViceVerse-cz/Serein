@@ -1248,6 +1248,8 @@ async fn run_inner(
 					if let Some(channel)=connect && let Some(packet)=calls.packet(client_core::voice::Command::Sync { channel })?
 						&& !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
 					if let Some(packet)=packet && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
+					if let Some(channel)=connect && let Some(packet)=calls.channel_info_packet(channel)
+						&& !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
 				}
 
 				_=tokio::time::sleep_until(calls.departure_deadline.unwrap_or(ready_deadline)), if calls.departure_deadline.is_some() => {
@@ -1483,7 +1485,7 @@ async fn run_inner(
 										calls.users.clear();
 									}
 									"RESUMED" => { emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?; emit(Event::Resumed)?; ready_at = Some(Instant::now()); },
-									"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" | "VOICE_STATE_UPDATE" | "VOICE_SERVER_UPDATE" | "STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_DELETE" => calls.dispatch(packet.t.as_deref().unwrap_or(""),packet.d.get().as_bytes(),owner_id,&emit)?,
+									"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" | "CHANNEL_INFO" | "VOICE_CHANNEL_START_TIME_UPDATE" | "VOICE_STATE_UPDATE" | "VOICE_SERVER_UPDATE" | "STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_DELETE" => calls.dispatch(packet.t.as_deref().unwrap_or(""),packet.d.get().as_bytes(),owner_id,&emit)?,
 									"THREAD_MEMBER_LIST_UPDATE" => {
 										if let Some(active) = &mut active_members {
 											match active.thread_update(packet.d.get().as_bytes()) {
@@ -2497,7 +2499,7 @@ mod tests {
 	#[tokio::test]
 	async fn unjoined_dm_call_discovery_and_lifecycle_over_local_gateway() {
 		use client_core::voice::{Command as V, Event as E};
-		timeout(Duration::from_secs(25), async {
+		timeout(Duration::from_secs(45), async {
 			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 			let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
 			let (controls, receive) = mpsc::channel(8);

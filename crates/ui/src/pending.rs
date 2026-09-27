@@ -47,12 +47,12 @@ pub fn show(
 	let sending = pending.delivery == Delivery::Sending;
 	let artwork = pending.attachments.len() == 1
 		&& attachments::artwork_edge(&pending.attachments[0]).is_some();
-	let status = match pending.delivery {
-		Delivery::Sending => "Sending…",
-		Delivery::Ambiguous => "Delivery unknown",
-		Delivery::Rejected => "Not sent",
-		Delivery::Confirmed => "Sent",
-	};
+	let status = crate::i18n::translate(match pending.delivery {
+		Delivery::Sending => "pending-status-sending",
+		Delivery::Ambiguous => "pending-status-unknown",
+		Delivery::Rejected => "pending-status-not-sent",
+		Delivery::Confirmed => "pending-status-sent",
+	});
 	egui::Frame::NONE
 		.inner_margin(egui::Margin {
 			left: 16,
@@ -90,13 +90,16 @@ pub fn show(
 								ui.label(
 									design::medium(
 										ui,
-										state.user.as_ref().map_or("You", |u| &u.name),
+										state.user.as_ref().map_or_else(
+											|| crate::i18n::translate("pending-show-you"),
+											|u| u.name.clone(),
+										),
 										15.5,
 									)
 									.color(colors.muted),
 								);
 							}
-							ui.label(RichText::new(status).size(12.0).color(
+							ui.label(RichText::new(&status).size(12.0).color(
 								if pending.delivery == Delivery::Rejected {
 									colors.danger
 								} else {
@@ -186,17 +189,21 @@ pub fn show(
 					} else if pending.delivery != Delivery::Confirmed {
 						if pending.delivery == Delivery::Ambiguous {
 							ui.label(
-								RichText::new("Check the conversation before sending again.")
-									.small()
-									.color(colors.muted),
+								RichText::new(crate::i18n::translate(
+									"pending-show-check-the-conversation-before-sending-again",
+								))
+								.small()
+								.color(colors.muted),
 							);
 						}
 						if ui
-							.button(if pending.sticker.is_some() {
-								"Dismiss"
-							} else {
-								"Restore to composer"
-							})
+							.button(crate::i18n::translate_if_key(
+								&(if pending.sticker.is_some() {
+									crate::i18n::translate("pending-show-dismiss")
+								} else {
+									crate::i18n::translate("pending-show-restore-to-composer")
+								}),
+							))
 							.clicked()
 						{
 							*restore = Some(pending.nonce.clone());
@@ -342,11 +349,16 @@ fn upload_strip(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>, c
 				ui.spacing_mut().item_spacing.x = 8.0;
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					if upload.is_some()
-						&& icons::button(ui, icons::Icon::Close, 24.0, "Cancel upload")
-							.on_hover_text(
-								"The message may already have reached Discord. Check the conversation before sending again.",
-							)
-							.clicked()
+						&& icons::button(
+							ui,
+							icons::Icon::Close,
+							24.0,
+							&crate::i18n::translate("pending-upload-strip-cancel-upload"),
+						)
+						.on_hover_text(crate::i18n::translate(
+							"pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation",
+						))
+						.clicked()
 					{
 						*cancel = true;
 					}
@@ -371,10 +383,8 @@ fn upload_strip(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>, c
 					});
 				});
 			});
-			let (bar, _) = ui.allocate_exact_size(
-				egui::vec2(ui.available_width(), 6.0),
-				egui::Sense::hover(),
-			);
+			let (bar, _) =
+				ui.allocate_exact_size(egui::vec2(ui.available_width(), 6.0), egui::Sense::hover());
 			ui.painter().rect_filled(bar, 3, colors.hover);
 			if fraction > 0.0 {
 				let fill = egui::Rect::from_min_size(

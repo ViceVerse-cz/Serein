@@ -60,6 +60,10 @@ cargo xtask package --format dir    # dist/linux-root/usr, for the Flatpak SDK b
 cargo xtask package --format appimage # requires packaging/appimage/install-tools.sh first
 ```
 
+Arch packaging also accepts derivatives such as CachyOS and EndeavourOS when their
+`/etc/os-release` lists `arch` in `ID_LIKE`. Packages use the build host's installed
+dependency versions; this does not guarantee compatibility with other Arch derivatives.
+
 `install-build-deps.sh` installs build dependencies as root on the explicitly
 supported CI distributions. It is intended for fresh build containers. Normal
 packaging runs without root and never installs or starts Serein. RPM uses

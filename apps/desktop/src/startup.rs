@@ -98,21 +98,15 @@ impl Startup {
 	}
 }
 
-pub fn minimized_launch(demo: bool, args: impl Iterator<Item = String>) -> bool {
-	let mut autostart = false;
-	let mut minimized = false;
-	for arg in args {
-		autostart |= arg == "--autostart";
-		minimized |= arg == "--start-minimized";
-	}
-	!demo && autostart && minimized
+pub fn minimized_launch(demo: bool, mut args: impl Iterator<Item = String>) -> bool {
+	!demo && args.any(|arg| arg == "--start-minimized")
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 	#[test]
-	fn startup_completion_rolls_back_errors_and_only_autostart_can_minimize() {
+	fn startup_completion_rolls_back_errors_and_explicit_flag_minimizes() {
 		let mut startup = Startup::default();
 		let mut view = ui::MessagingUi::default();
 		for result in [
@@ -143,7 +137,7 @@ mod tests {
 			] {
 				assert_eq!(
 					minimized_launch(demo, args.iter().map(|s| s.to_string())),
-					!demo && args.len() == 2
+					!demo && args.contains(&"--start-minimized")
 				);
 			}
 		}

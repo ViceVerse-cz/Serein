@@ -1,3 +1,37 @@
+# Lazy Fluent catalog loading - September 27, 2026
+
+Compared `a07ed34` before and after replacing Fluent's all-catalog static loader
+with one replaceable bundle for the selected language. Windows x64, Ryzen 7
+7800X3D, 32 GB RAM, Rust 1.98.1; release desktop with
+`--features developer-session`, without demo. Each localization build ran beside
+the same installed production executable after a 15-second warmup. Twenty samples
+were taken two seconds apart with no compiler running. CPU is process CPU time as
+a percentage of all 16 logical processors; memory is Windows `WorkingSet64` and
+`PrivateMemorySize64`.
+
+| Metric | All 11 catalogs | Selected catalog | Delta |
+| --- | ---: | ---: | ---: |
+| Average CPU | 0.894% | 0.935% | +0.041 percentage points; noise |
+| Maximum CPU | 1.118% | 1.167% | +0.049 percentage points; noise |
+| Average working set | 185.7 MiB | 162.9 MiB | -22.8 MiB / -12.3% |
+| Maximum working set | 186.2 MiB | 162.9 MiB | -23.3 MiB / -12.5% |
+| Average private memory | 370.8 MiB | 351.3 MiB | -19.5 MiB / -5.3% |
+| Maximum private memory | 371.1 MiB | 351.4 MiB | -19.7 MiB / -5.3% |
+
+The simultaneous installed-production controls measured 162.0/348.2 MiB
+working/private memory during the baseline run and 163.9/352.7 MiB during the
+updated run. The updated localization build therefore no longer has a measurable
+idle-memory premium in this sample. Its 0.087-percentage-point average CPU excess
+over the updated control is too small for a performance claim.
+
+All eleven FTL files remain embedded in the executable for offline language
+switching, but only the selected catalog is parsed into a Fluent bundle. Switching
+language replaces and drops the previous bundle. The 76,410,880-byte developer
+executable includes debug information; standard package, compressed distribution,
+startup latency, frame timing, GPU memory, and cross-platform memory remain
+unmeasured. Both live-session processes stayed responsive; no messages, calls,
+microphone, or camera actions were performed.
+
 # Animated profile review fixes - September 22, 2026
 
 Compared the PR head `ffa38ae` with `dda91ab` on Windows x64, Ryzen 7 7800X3D,
@@ -1931,3 +1965,147 @@ idle CPU was not measured on any platform.
 Rejected after measurement: a zstd raw-RGBA Twemoji atlas would save 929 KB but decodes in
 44.5 ms against 24.3 ms for the PNG at startup. Writing zlib output straight into the
 growing buffer saved 0.3 ms per 8 MiB. No live Discord session was used.
+
+## Windows WebM container admission - September 25, 2026
+
+Baseline: `7bdf862`. Windows x86_64, Rust 1.98.1. Both standard release packages include
+voice and contain 198 files. ZIPs use PowerShell `Compress-Archive -CompressionLevel Optimal`.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| `dist/serein.exe` | 73,463,296 bytes | 73,463,808 bytes | +512 (+0.0007%) |
+| Installed `dist` bytes | 77,566,012 | 77,566,632 | +620 (+0.0008%) |
+| Portable ZIP bytes | 43,341,577 | 43,341,880 | +303 (+0.0007%; compression noise) |
+
+A three-second 320x180 VP9/Opus WebM synthesized from the existing fixture decoded its
+first video frame through Media Foundation with 48 kHz audio metadata. The existing MOV
+decode/seek tests also passed. Native UI CPU, memory, frame timing and screenshots were
+not measured because desktop capture/control is unavailable; no performance improvement
+or universal Windows codec coverage is claimed.
+
+## Windows rounded corners - September 25, 2026
+
+Compared clean baseline `9013b20` with the Windows DWM corner-preference change on Windows
+x64, Rust 1.98.1. Both standard `cargo xtask package` builds include voice and contain 198
+files. ZIPs use .NET `ZipFile` with Optimal compression over the complete `dist` directory.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| `dist/serein.exe` | 73,463,808 bytes | 73,463,808 bytes | 0 |
+| Installed `dist` bytes | 77,566,604 | 77,566,604 | 0 |
+| Portable ZIP bytes | 43,341,873 | 43,341,978 | +105 (+0.0002%; compression noise) |
+
+Native UI CPU, memory, frame timing and before/after screenshots remain unmeasured because
+the untouched baseline's offline demo does not compile: existing fixtures omit the new
+`Member.clients` field and a demo-only slider check is not exported to the binary. The
+standard authenticated build was not launched for evidence. No performance change is claimed.
+
+## History copies and decoded-image backpressure — September 26, 2026
+
+Baseline `dad3c26c`, compared with this PR on macOS 27.0 (26A428), Apple M1 Pro,
+16 GiB RAM, pinned Rust 1.98.1 and locked dependencies. Component timing uses
+release builds, one warmup and five measured batches, with no concurrent Cargo
+build during sampling. The image queue workload measures allocated pixel capacity
+in debug tests; it is not a timing or desktop-process RSS comparison.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Recent history completion, µs/page | 193.722 | 108.413 | -85.309 / -44.04% |
+| Older history completion, µs/page | 101.516 | 12.237 | -89.279 / -87.95% |
+| Append history completion, µs/page | 102.810 | 15.397 | -87.413 / -85.02% |
+| 200 incremental SQLite saves, ms | 303.007 | 249.976 | -53.031 / -17.50% |
+| Paused image consumer, queued pixel bytes | 536,870,912 | 130,023,424 | -406,847,488 / -75.78% |
+| Queue workload process peak RSS, bytes | 555,302,912 | 151,552,000 | -403,750,912 / -72.71% |
+| 100,000-event reducer replay, ms | 158.133 | 155.741 | -2.392 / -1.51%, small/noise |
+| Retained replay timeline, estimated bytes / rows | 331,992–332,477 / 500 | 331,992–332,477 / 500 | Unchanged |
+
+The history workload starts with 500 rows, each carrying the maximum 512 author
+roles and a synthetic nickname, then completes a 50-row recent/older/append page.
+Each sample averages 100 completions, excluding fixture construction. This is a
+membership-heavy stress case, not a claim about typical chats. Incoming rows now
+inherit directly from the prior timeline before replacement or eviction. This
+removes a map containing 2,048,000 bytes of copied role IDs plus nickname/node
+allocations per page in this fixture; it is not a measured RSS reduction.
+
+The storage workload uses an in-memory SQLite database with 500 rows / 3,736,500
+estimated message bytes, toggling one row's edited flag for every save. It includes
+loading, validation, comparison and SQL work; it excludes filesystem latency.
+Borrowed rows replace a second owned message window. Full saves add only a bounded
+vector of at most 500 references. Transactions, account isolation and eviction
+limits are unchanged.
+
+The paused-consumer workload offers up to 128 separate 1024×1024 RGBA results.
+Its explicit legacy comparator bypasses byte admission to reproduce the original
+128-item channel. The new sender admits 31 results (124 MiB of pixels, 130,027,919
+charged bytes including metadata), then waits on the next result. The workload
+cancels that waiting send before draining. The production queue permits at most
+128 items / 128 MiB of charged allocations, including results being consumed;
+optional previews drop under pressure, final results wait cancellably. Eight
+active/completed jobs, one coordinator result awaiting admission, decoder scratch,
+UI/GPU caches and allocator overhead remain additional. This is not a 128 MiB
+whole-app cap. The queue now requests another frame when a partial UI drain leaves
+results behind.
+
+Queue peak RSS uses macOS `/usr/bin/time -l` around the emitted `serein` debug test
+executable, invoked directly with
+`avatars::tests::decoded_result_queue_workload --ignored --exact --nocapture`.
+There was one separate process per mode, with `SEREIN_IMAGE_QUEUE_LEGACY=1` only
+for the original item-only comparator; no compiler was running. This includes the
+test runtime and the next producer allocation before it blocks, unlike the queued
+pixel count. It is an isolated component process, not the running desktop app.
+
+Replay uses one warmup and five direct executable runs after building each revision.
+Its ordinary message stream scarcely exercises these changes; the small timing
+variation is not claimed as a general reducer improvement. No live Discord account,
+voice call, microphone or camera was used. There is no new dependency, schema or
+asset change. The bundle audit retained existing fat LTO, stripping, compressed CJK
+fonts and Twemoji artwork rather than reducing language/emoji coverage.
+
+Reproduce the focused workloads:
+
+```sh
+cargo test --locked --release -p session-cache page_membership_benchmark -- --ignored --nocapture
+cargo test --locked --release -p local-store benchmark_changed_row_save -- --ignored --nocapture
+SEREIN_IMAGE_QUEUE_LEGACY=1 cargo test --locked -p serein avatars::tests::decoded_result_queue_workload -- --ignored --exact --nocapture
+cargo test --locked -p serein avatars::tests::decoded_result_queue_workload -- --ignored --exact --nocapture
+cargo replay
+```
+
+For historical history/storage comparisons, apply only the added benchmark tests
+to `dad3c26c`; keep its production implementations unchanged. The queue comparator
+runs from the new source and uses identical pixel allocations in both modes.
+
+Both standard voice-enabled `cargo xtask package` builds passed, without demo or
+developer-session features. Baseline and runtime commit `dbe18e56` outputs were
+preserved separately. Installed size sums all 205 files in each complete `dist`;
+ZIPs use `ditto -c -k --sequesterRsrc` over that directory, without `--keepParent`.
+The macOS bundles are locally ad-hoc signed and verified, not notarized releases.
+
+| Package metric, bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 57,932,160 | 57,915,712 | -16,448 / -0.0284% |
+| Full installed package | 63,938,384 | 63,921,936 | -16,448 / -0.0257% |
+| Compressed distribution | 41,948,935 | 41,932,334 | -16,601 / -0.0396% |
+
+These are small artifact deltas, not a substantive bundle-size optimization;
+archive metadata and compression can vary between builds. Licenses/notices and
+runtime assets are unchanged.
+
+The native idle control uses release builds with `--features demo`, launched with
+`--demo --demo-friends --demo-frame-sample=1,1`: 1120×760 logical pixels, 2× scale,
+Apple M1 Pro Metal backend. Each revision has one launch, a ten-second warmup and
+twenty `ps -p PID -o %cpu=,rss=` samples one second apart, with no input after
+launch and no concurrent build. Settled RSS is the median of the last five samples;
+peak RSS covers the sampling interval, not startup. Only the demo PID is included.
+
+| Native idle metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Median sampled CPU | 0.75% | 0.45% | -0.30 percentage points; noisy |
+| Sampled peak RSS, KiB | 146,192 | 146,352 | +160 / +0.11% |
+| Settled RSS, KiB | 130,032 | 130,224 | +192 / +0.15% |
+
+Idle RSS is essentially unchanged. The CPU difference is not claimed as a stable
+improvement from these short runs. The demo disables downloaded-image workers, so
+it controls for idle regressions rather than measuring the queue fix. System/GPU
+resources are not fully represented by process RSS. Frame/startup latency remains
+unmeasured; the frame diagnostic only confirmed matching viewport and scale.

@@ -33,7 +33,7 @@ impl ServerMenu {
 				menu_row(
 					ui,
 					icons::Icon::Check,
-					"Mark As Read",
+					&crate::i18n::translate("server-menu-read-item-mark-as-read"),
 					design::palette(ui).text,
 				)
 			})
@@ -56,7 +56,7 @@ impl ServerMenu {
 			&& menu_row(
 				ui,
 				icons::Icon::Gear,
-				"Server Settings",
+				&crate::i18n::translate("server-menu-settings-item-server-settings"),
 				design::palette(ui).text,
 			)
 			.clicked()
@@ -79,7 +79,7 @@ impl ServerMenu {
 				menu_row(
 					ui,
 					icons::Icon::ArrowRight,
-					"Leave server",
+					&crate::i18n::translate("server-menu-leave-item-leave-server"),
 					design::palette(ui).danger,
 				)
 			})
@@ -140,7 +140,10 @@ impl ServerMenu {
 				egui::WidgetInfo::labeled(
 					egui::Role::Button,
 					ui.is_enabled(),
-					format!("Server menu, {title}"),
+					format!(
+						"{}, {title}",
+						crate::i18n::translate("server-menu-header-server-menu")
+					),
 				)
 			});
 			egui::Popup::menu(&button)
@@ -160,7 +163,12 @@ impl ServerMenu {
 					self.settings_item(ui, state, guild);
 					if ui
 						.add_enabled_ui(available, |ui| {
-							menu_row(ui, icons::Icon::AddPeople, "Create invite", colors.text)
+							menu_row(
+								ui,
+								icons::Icon::AddPeople,
+								&crate::i18n::translate("server-menu-header-create-invite"),
+								colors.text,
+							)
 						})
 						.inner
 						.clicked()
@@ -177,11 +185,13 @@ impl ServerMenu {
 					ui.separator();
 					self.leave_item(ui, state, guild);
 					if !available {
-						ui.small(if state.server_action_pending() {
-							"A server action is in progress."
-						} else {
-							"Reconnect to manage this server."
-						});
+						ui.small(crate::i18n::translate_if_key(
+							if state.server_action_pending() {
+								"server-menu-header-a-server-action-is-in-progress"
+							} else {
+								"server-menu-header-reconnect-to-manage-this-server"
+							},
+						));
 					}
 				});
 			button
@@ -230,50 +240,67 @@ impl ServerMenu {
 		let reason = state.leave_server_reason(guild);
 		let mut leave = false;
 		let mut close = false;
-		let response = dialog::Dialog::new("server-action-dialog", "Leave server?")
-			.danger()
-			.width(440.0)
-			.show(ctx, |d| {
-				d.content(|ui| {
-					let colors = design::palette(ui);
-					ui.spacing_mut().item_spacing.y = 10.0;
-					ui.add(
-						egui::Label::new(
-							egui::RichText::new(format!(
-								"Are you sure you want to leave {name}? You will not be able to rejoin this server unless you are re-invited."
-							))
-							.size(14.0)
-							.color(colors.text),
-						)
-						.wrap(),
-					);
-					if let Some(reason) = reason {
-						dialog::notice(ui, dialog::Level::Warning, reason);
-					}
-					if let Some(status) = state.server_action_status(guild) {
-						dialog::notice(ui, dialog::Level::Error, status);
-					}
-					if state.demo {
-						dialog::hint(ui, "Offline preview · no server changes");
-					}
-				});
-				d.footer(|ui| {
-					ui.add_enabled_ui(!pending && reason.is_none(), |ui| {
-						leave = dialog::action(
-							ui,
-							if pending { "Leaving…" } else { "Leave Server" },
-							dialog::Action::Danger,
-						)
-						.clicked();
-					});
-					close |= dialog::action(
+		let response = dialog::Dialog::new(
+			"server-action-dialog",
+			crate::i18n::translate("server-menu-show-leave-server"),
+		)
+		.danger()
+		.width(440.0)
+		.show(ctx, |d| {
+			d.content(|ui| {
+				let colors = design::palette(ui);
+				ui.spacing_mut().item_spacing.y = 10.0;
+				ui.add(
+					egui::Label::new(
+						egui::RichText::new(format!(
+							"{} {name}? {}",
+							crate::i18n::translate(
+								"server-menu-show-are-you-sure-you-want-to-leave"
+							),
+							crate::i18n::translate(
+								"server-menu-show-you-will-not-be-able-to-rejoin-this-server-unless"
+							)
+						))
+						.size(14.0)
+						.color(colors.text),
+					)
+					.wrap(),
+				);
+				if let Some(reason) = reason {
+					dialog::notice(ui, dialog::Level::Warning, reason);
+				}
+				if let Some(status) = state.server_action_status(guild) {
+					dialog::notice(ui, dialog::Level::Error, status);
+				}
+				if state.demo {
+					dialog::hint(ui, "server-menu-show-offline-preview-no-server-changes");
+				}
+			});
+			d.footer(|ui| {
+				ui.add_enabled_ui(!pending && reason.is_none(), |ui| {
+					leave = dialog::action(
 						ui,
-						if pending { "Close" } else { "Cancel" },
-						dialog::Action::Neutral,
+						if pending {
+							"server-menu-show-leaving"
+						} else {
+							"server-menu-show-leave-server-2"
+						},
+						dialog::Action::Danger,
 					)
 					.clicked();
 				});
+				close |= dialog::action(
+					ui,
+					if pending {
+						"server-menu-show-close"
+					} else {
+						"server-menu-show-cancel"
+					},
+					dialog::Action::Neutral,
+				)
+				.clicked();
 			});
+		});
 		if leave && let Some(command) = state.leave_server(guild) {
 			commands.push(command);
 		}
@@ -291,6 +318,7 @@ fn menu_row(
 	label: &str,
 	color: egui::Color32,
 ) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
 	ui.scope(|ui| {
 		ui.spacing_mut().button_padding = egui::vec2(36.0, 8.0);
 		let response = ui.add_sized(

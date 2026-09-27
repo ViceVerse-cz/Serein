@@ -224,13 +224,16 @@ permission checks, confirmation UI and request lanes as the existing channel and
 server menus.
 
 Text/announcement editing (name, topic, slowmode and age restriction), channel
-duplication, text/voice/forum channel and category creation, and confirmed deletion use the documented
+duplication, text/voice/announcement/forum channel and category creation, and confirmed deletion use the documented
 [channel routes](https://docs.discord.com/developers/resources/channel#modify-channel)
 and [guild channel creation route](https://docs.discord.com/developers/resources/guild#create-guild-channel).
 Duplication reads current settings and permission overwrites first; creating under
 a category copies that category's overwrites. Admin actions require known View
 Channel and Manage Channels permissions and surface server rejection.
-The Create Channel dialog selects Text, Voice, or Forum (posts). The selected type
+The Create Channel dialog groups Text, Voice, Announcement, and Forum (posts) choices
+with a name field and category permission inheritance context. Announcement sends type 5;
+the dialog explains that it requires a Community server. Guild feature eligibility remains
+service-authoritative, with rejection shown in the existing channel action notice. The selected type
 is checked against the creation response before admitting the new channel. Voice
 settings and forum layout use service defaults; private access remains available
 through the existing channel Permissions editor. Coverage is synthetic; live
@@ -633,7 +636,7 @@ discord.com route is an integration assumption, not a new API guarantee. Headles
 construction and explicit confirmation; native launch, browser account selection and destination
 resolution remain owner-unverified. The browser uses its own session and Discord authorization.
 
-Loaded threads (September 10): READY guild thread arrays follow the original [discord.py-self guild parser](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py); active create/update/delete, scoped sync, archive eviction and owner-removal handling are informed by its [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py). Discord's [Gateway thread events](https://docs.discord.com/developers/events/gateway-events#thread-list-sync) document the guild/parent scope and membership fields. These primary sources establish wire evidence, not normal-account acceptance; no implementation blocks were copied. Active discovery is limited to service-supplied snapshots/events; explicit archive reads are described below, with existing subscriptions unchanged. Clicking an unresolved channel mention performs one bounded documented channel read and admits only a same-guild thread whose loaded parent remains viewable. Unknown updates do not otherwise hydrate a missing thread. See native navigation scope.
+Loaded threads (September 10): READY guild thread arrays follow the original [discord.py-self guild parser](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py); active create/update/delete, scoped sync, archive eviction and owner-removal handling are informed by its [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py). Discord's [Gateway thread events](https://docs.discord.com/developers/events/gateway-events#thread-list-sync) document the guild/parent scope and membership fields. These primary sources establish wire evidence, not normal-account acceptance; no implementation blocks were copied. Active discovery is limited to service-supplied snapshots/events; explicit archive reads are described below, with existing subscriptions unchanged. A visible unresolved channel mention performs one bounded documented channel read and admits only a same-guild thread whose loaded parent remains viewable; resolved names are retained in a bounded session-only cache. Unknown updates do not otherwise hydrate a missing thread. See native navigation scope.
 
 Serein is unofficial and not endorsed by Discord. No normal-user live session has been tested. Technical compatibility does not imply approval. Discord forbids normal-account automation outside its OAuth2/bot API and warns of account termination ([policy](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots)); its [terms](https://discord.com/terms) also apply.
 
@@ -1373,7 +1376,8 @@ Synthetic tests exercise UI actions, bounds, coalescing, clearing and reconnect.
 
 ### Inline attachment video (September 12, 2026)
 
-MOV/MP4 attachments play inside the message with Discord-style overlay controls: a
+MOV/MP4 attachments, plus WebM/Matroska where the platform provides codecs, play
+inside the message with Discord-style overlay controls: a
 centered play button on the picture, and a translucent bar over its lower edge with seek,
 elapsed/total time, volume and fullscreen that hides while playing until the pointer or keyboard
 focus returns. Fullscreen reuses the active player and texture; Escape or its exit button restores
@@ -1386,7 +1390,8 @@ switches between audio and video. Linux polls both bounded output queues without
 on one track while the other needs draining. Clock-only UI updates run at 10 Hz; decoded
 frames and playback-state changes request immediate repaint.
 
-* Windows: Media Foundation. Windows codec availability controls playback (including HEVC).
+* Windows: Media Foundation. MPEG-4/MOV and EBML-based WebM/Matroska containers are admitted;
+  installed Windows codec availability still controls their video/audio coverage (including HEVC).
   GPU frames use their actual row layout, and track rotation is applied once; an unavailable
   native rotation control falls back to the software reader.
 * macOS: a bounded Rust MPEG-4 demuxer feeds VideoToolbox (H.264 and HEVC, including

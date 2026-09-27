@@ -84,6 +84,7 @@ fn main() {
 					roles: vec![],
 					status: Some("online".into()),
 					custom_status: None,
+					clients: model::ClientPlatforms::default(),
 					activities: vec![],
 				}))
 			})
@@ -123,6 +124,7 @@ fn main() {
 				user: Id(1),
 				status: status.map(str::to_owned),
 				custom_status: online.then(|| "Synthetic status".into()),
+				clients: model::ClientPlatforms::default(),
 				activities: if online {
 					vec![model::RichActivity {
 						kind: 0,

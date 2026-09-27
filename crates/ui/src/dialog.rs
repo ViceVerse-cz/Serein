@@ -6,13 +6,13 @@
 //! second theme.
 //!
 //! ```ignore
-//! let response = dialog::Dialog::new("delete-channel", "Delete channel?")
+//! let response = dialog::Dialog::new("delete-channel", &crate::i18n::translate("dialog-module-delete-channel"))
 //!     .danger()
 //!     .show(ctx, |d| {
-//!         d.content(|ui| { ui.label("This cannot be undone."); });
+//!         d.content(|ui| { ui.label(&crate::i18n::translate("dialog-module-this-cannot-be-undone")); });
 //!         d.footer(|ui| {
-//!             confirmed = dialog::action(ui, "Delete", dialog::Action::Danger).clicked();
-//!             cancelled = dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
+//!             confirmed = dialog::action(ui, "dialog-module-delete", dialog::Action::Danger).clicked();
+//!             cancelled = dialog::action(ui, "dialog-module-cancel", dialog::Action::Neutral).clicked();
 //!         });
 //!     });
 //! ```
@@ -240,6 +240,8 @@ fn header(
 	icon: Option<icons::Icon>,
 	dismissable: bool,
 ) -> bool {
+	let title = crate::i18n::translate_if_key(title);
+	let subtitle = subtitle.map(crate::i18n::translate_if_key);
 	let colors = design::palette(ui);
 	let mut close = false;
 	egui::Frame::new()
@@ -296,8 +298,13 @@ fn header(
 				);
 				if dismissable {
 					ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-						close = icons::button(ui, icons::Icon::Close, 30.0, "Close dialog (Esc)")
-							.clicked();
+						close = icons::button(
+							ui,
+							icons::Icon::Close,
+							30.0,
+							&crate::i18n::translate("dialog-header-close-dialog-esc"),
+						)
+						.clicked();
 					});
 				}
 			});
@@ -333,8 +340,8 @@ impl Confirm {
 		Self {
 			dialog: Dialog::new(id, title).width(420.0),
 			message: message.into(),
-			confirm: "Confirm".to_owned(),
-			cancel: "Cancel".to_owned(),
+			confirm: "components-field-confirm".to_owned(),
+			cancel: "dialog-module-cancel".to_owned(),
 			tone: Tone::Neutral,
 			enabled: true,
 			note: None,
@@ -376,6 +383,7 @@ impl Confirm {
 			enabled,
 			note,
 		} = self;
+		let message = crate::i18n::translate_if_key(&message);
 		let dialog_id = dialog.id;
 		let mut choice = None;
 		let response = dialog.show(ctx, |d| {

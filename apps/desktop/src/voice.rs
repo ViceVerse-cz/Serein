@@ -129,12 +129,20 @@ impl CallCues {
 			*slot = participant.user.0;
 		}
 		// ponytail: membership scans are capped at 64 IDs; no per-frame set allocation.
-		let departed = self.peers.replace(peers).is_some_and(|previous| {
-			previous
+		let membership_cue = self.peers.replace(peers).and_then(|previous| {
+			if previous
 				.iter()
 				.any(|user| *user != 0 && !peers.contains(user))
+			{
+				Some(Sound::UserLeave)
+			} else {
+				peers
+					.iter()
+					.any(|user| *user != 0 && !previous.contains(user))
+					.then_some(Sound::UserJoin)
+			}
 		});
-		cue.or(departed.then_some(Sound::UserLeave))
+		cue.or(membership_cue)
 	}
 }
 /// Remote cameras kept as textures at once; matches the transport's source limit.
@@ -1361,62 +1369,79 @@ pub fn debug_mic_preview_check() {
 	);
 }
 
+/// Offline cue selection check; no Discord connection or audio devices are opened.
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+pub fn debug_call_cues_check() {
+	let participant = |id| voice::Participant {
+		user: Id(id),
+		muted: false,
+		deafened: false,
+		server_muted: false,
+		server_deafened: false,
+		video: false,
+		streaming: false,
+	};
+	let owner = participant(1);
+	let peer = participant(2);
+	let mut cues = CallCues::default();
+	assert_eq!(cues.poll(false, true, owner.user, &[owner, peer]), None);
+	assert_eq!(
+		cues.poll(true, true, owner.user, &[owner, peer]),
+		Some(Sound::UserJoin)
+	);
+	let mut muted_peer = peer;
+	muted_peer.muted = true;
+	assert_eq!(
+		cues.poll(true, true, owner.user, &[muted_peer, owner]),
+		None
+	);
+	// Device reopening and rekeying do not announce this same call again.
+	assert_eq!(cues.poll(false, true, owner.user, &[owner, peer]), None);
+	assert_eq!(cues.poll(true, true, owner.user, &[owner, peer]), None);
+	// Compare identities rather than counts; departures can themselves trigger rekeying.
+	let replacement = participant(3);
+	assert_eq!(
+		cues.poll(false, true, owner.user, &[owner, replacement]),
+		Some(Sound::UserLeave)
+	);
+	assert_eq!(
+		cues.poll(true, true, owner.user, &[owner, replacement]),
+		None
+	);
+	assert_eq!(cues.poll(false, false, owner.user, &[]), None);
+	assert_eq!(cues.poll(true, true, owner.user, &[owner]), None);
+	// A remote join is audible even while it rekeys media, and only once.
+	assert_eq!(
+		cues.poll(false, true, owner.user, &[owner, peer]),
+		Some(Sound::UserJoin)
+	);
+	assert_eq!(cues.poll(true, true, owner.user, &[peer, owner]), None);
+	assert_eq!(
+		cues.poll(true, true, owner.user, &[owner, muted_peer]),
+		None
+	);
+	assert_eq!(
+		cues.poll(true, true, owner.user, &[owner]),
+		Some(Sound::UserLeave)
+	);
+	assert_eq!(cues.poll(true, true, owner.user, &[owner]), None);
+	assert_eq!(
+		CallCues::default().poll(true, true, owner.user, &[owner]),
+		Some(Sound::UserJoin),
+		"a new explicitly started call has its own join cue"
+	);
+	println!(
+		"Call cue debug check passed: local/remote joins, departures, rekeying and reconnect suppression. No audio devices opened."
+	);
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
 
 	#[test]
-	fn call_cues_join_once_and_track_remote_departures_without_reconnect_noise() {
-		let participant = |id| voice::Participant {
-			user: Id(id),
-			muted: false,
-			deafened: false,
-			server_muted: false,
-			server_deafened: false,
-			video: false,
-			streaming: false,
-		};
-		let owner = participant(1);
-		let peer = participant(2);
-		let mut cues = CallCues::default();
-		assert_eq!(cues.poll(false, true, owner.user, &[owner, peer]), None);
-		assert_eq!(
-			cues.poll(true, true, owner.user, &[owner, peer]),
-			Some(Sound::UserJoin)
-		);
-		let mut muted_peer = peer;
-		muted_peer.muted = true;
-		assert_eq!(
-			cues.poll(true, true, owner.user, &[muted_peer, owner]),
-			None
-		);
-		// Device reopening and rekeying do not announce this same call again.
-		assert_eq!(cues.poll(false, true, owner.user, &[owner, peer]), None);
-		assert_eq!(cues.poll(true, true, owner.user, &[owner, peer]), None);
-		// Compare identities rather than counts; departures can themselves trigger rekeying.
-		let replacement = participant(3);
-		assert_eq!(
-			cues.poll(false, true, owner.user, &[owner, replacement]),
-			Some(Sound::UserLeave)
-		);
-		assert_eq!(
-			cues.poll(true, true, owner.user, &[owner, replacement]),
-			None
-		);
-		assert_eq!(cues.poll(false, false, owner.user, &[]), None);
-		assert_eq!(cues.poll(true, true, owner.user, &[owner]), None);
-		// Remote joins only update the baseline; the requested join cue is for this device.
-		assert_eq!(cues.poll(true, true, owner.user, &[owner, peer]), None);
-		assert_eq!(
-			cues.poll(true, true, owner.user, &[owner]),
-			Some(Sound::UserLeave)
-		);
-		assert_eq!(cues.poll(true, true, owner.user, &[owner]), None);
-		assert_eq!(
-			CallCues::default().poll(true, true, owner.user, &[owner]),
-			Some(Sound::UserJoin),
-			"a new explicitly started call has its own join cue"
-		);
+	fn call_cues_track_joins_and_departures_without_reconnect_noise() {
+		debug_call_cues_check();
 	}
 
 	#[test]

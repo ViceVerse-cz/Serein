@@ -245,14 +245,14 @@ impl VideoUi {
 		if active && self.is_fullscreen() && !fullscreen {
 			return response;
 		}
-		let label = match state {
-			VideoState::Loading => "Cancel",
-			VideoState::Playing => "Pause",
-			VideoState::Paused => "Resume",
-			VideoState::Ended => "Replay",
-			VideoState::Failed(_) => "Retry",
-			VideoState::Idle => "Play",
-		};
+		let label = crate::i18n::translate_if_key(match state {
+			VideoState::Loading => "video-show-player-cancel",
+			VideoState::Playing => "video-show-player-pause",
+			VideoState::Paused => "video-show-player-resume",
+			VideoState::Ended => "video-show-player-replay",
+			VideoState::Failed(_) => "video-show-player-retry",
+			VideoState::Idle => "video-show-player-play",
+		});
 		let painter = ui.painter().with_clip_rect(stage);
 		painter.rect_filled(stage, CORNER, egui::Color32::BLACK);
 		if let Some(texture) = self.texture.as_ref().filter(|_| active) {
@@ -287,7 +287,11 @@ impl VideoUi {
 			egui::WidgetInfo::labeled(
 				egui::Role::Button,
 				ui.is_enabled(),
-				format!("{label} video {}", attachment.filename),
+				format!(
+					"{label} {} {}",
+					crate::i18n::translate("video-show-player-video"),
+					attachment.filename
+				),
 			)
 		});
 		let center = if show_controls {
@@ -456,10 +460,19 @@ impl VideoUi {
 							.show_value(false)
 							.trailing_fill(true),
 					);
-					seek.widget_info(|| egui::WidgetInfo::slider(can_seek, position, "Seek video"));
+					seek.widget_info(|| {
+						egui::WidgetInfo::slider(
+							can_seek,
+							position,
+							crate::i18n::translate("video-show-player-seek-video"),
+						)
+					});
 					controls_focused |= seek.has_focus();
 					response |= seek.clone();
-					if seek.on_hover_text("Seek video").changed() && !context_click {
+					if seek
+						.on_hover_text(crate::i18n::translate("video-show-player-seek-video"))
+						.changed() && !context_click
+					{
 						self.command = Some(VideoCommand::Seek(position));
 					}
 					ui.horizontal(|ui| {
@@ -598,7 +611,12 @@ impl VideoUi {
 							});
 							controls_focused |= volume.has_focus();
 							response |= volume.clone();
-							if volume.on_hover_text("Video volume").changed() && !context_click {
+							if volume
+								.on_hover_text(crate::i18n::translate(
+									"video-show-player-video-volume",
+								))
+								.changed() && !context_click
+							{
 								self.volume = volume_value;
 								self.command = Some(VideoCommand::Volume(self.volume));
 							}
@@ -637,11 +655,11 @@ impl VideoUi {
 						)
 					})
 					.inner
-					.on_disabled_hover_text(if demo {
-						"Downloads are disabled for synthetic attachments"
+					.on_disabled_hover_text(crate::i18n::translate_if_key(if demo {
+						"video-show-player-downloads-are-disabled-for-synthetic-attachments"
 					} else {
-						"A download is already active"
-					})
+						"video-show-player-a-download-is-already-active"
+					}))
 					.clicked()
 				{
 					download.request = Some(attachment.clone());

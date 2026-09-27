@@ -63,7 +63,11 @@ impl AuditLogUi {
 				))
 				.layout(egui::Layout::left_to_right(egui::Align::Center)),
 		);
-		heading.label(design::semibold(&heading, "Audit Log", 20.0));
+		heading.label(design::semibold(
+			&heading,
+			crate::i18n::translate("server-audit-log-show-audit-log"),
+			20.0,
+		));
 		let filter_start = header.min
 			+ if wide {
 				Vec2::new(heading_width + 12.0, 0.0)
@@ -83,17 +87,25 @@ impl AuditLogUi {
 			if !available {
 				ui.disable();
 			}
-			ui.label(design::medium(ui, "Filter by User", 14.0));
+			ui.label(design::medium(
+				ui,
+				crate::i18n::translate("server-audit-log-show-filter-by-user"),
+				14.0,
+			));
 			let selected = query
 				.user
 				.map(|id| user_name(state.server_admin.audit_log.as_ref(), id))
-				.unwrap_or_else(|| "All Users".into());
+				.unwrap_or_else(|| crate::i18n::translate("server-audit-log-show-all-users"));
 			egui::ComboBox::from_id_salt("audit-user")
 				.selected_text(selected)
 				.width(picker_width)
 				.truncate()
 				.show_ui(ui, |ui| {
-					ui.selectable_value(&mut query.user, None, "All Users");
+					ui.selectable_value(
+						&mut query.user,
+						None,
+						crate::i18n::translate("server-audit-log-show-all-users"),
+					);
 					if let Some(page) = &state.server_admin.audit_log {
 						for user in page.users.iter().filter(|user| {
 							page.entries
@@ -118,19 +130,31 @@ impl AuditLogUi {
 			if !available {
 				ui.disable();
 			}
-			ui.label(design::medium(ui, "Filter by Action", 14.0));
+			ui.label(design::medium(
+				ui,
+				crate::i18n::translate("server-audit-log-show-filter-by-action"),
+				14.0,
+			));
 			let selected = query
 				.action
-				.map(|action| action_text(action).to_owned())
-				.unwrap_or_else(|| "All Actions".into());
+				.map(|action| crate::i18n::translate_if_key(action_text(action)))
+				.unwrap_or_else(|| crate::i18n::translate("server-audit-log-show-all-actions"));
 			egui::ComboBox::from_id_salt("audit-action")
 				.selected_text(selected)
 				.width(picker_width)
 				.truncate()
 				.show_ui(ui, |ui| {
-					ui.selectable_value(&mut query.action, None, "All Actions");
+					ui.selectable_value(
+						&mut query.action,
+						None,
+						crate::i18n::translate("server-audit-log-show-all-actions"),
+					);
 					for &(action, label) in ACTIONS {
-						ui.selectable_value(&mut query.action, Some(action), label);
+						ui.selectable_value(
+							&mut query.action,
+							Some(action),
+							crate::i18n::translate_if_key(label),
+						);
 					}
 				});
 		}
@@ -144,14 +168,20 @@ impl AuditLogUi {
 		};
 		ui.horizontal(|ui| {
 			if ui
-				.add_enabled(available, egui::Button::new("Reload").frame(false))
+				.add_enabled(
+					available,
+					egui::Button::new(crate::i18n::translate("server-audit-log-show-reload"))
+						.frame(false),
+				)
 				.clicked()
 			{
 				requested = Some(query.clone());
 			}
 			if state.server_admin.pending {
 				ui.spinner();
-				ui.weak("Loading audit log…");
+				ui.weak(crate::i18n::translate(
+					"server-audit-log-show-loading-audit-log",
+				));
 			}
 		});
 		if let Some(error) = state.server_admin.error {
@@ -168,7 +198,9 @@ impl AuditLogUi {
 			}
 			if page.entries.is_empty() && !state.server_admin.pending {
 				ui.add_space(24.0);
-				ui.weak("No audit log entries match these filters.");
+				ui.weak(crate::i18n::translate(
+					"server-audit-log-show-no-audit-log-entries-match-these-filters",
+				));
 			}
 			// The list is the page's only scroller: it takes the remaining height and keeps
 			// the paging controls pinned below it.
@@ -179,13 +211,18 @@ impl AuditLogUi {
 				ui.add_space(12.0);
 			}
 			if state.server_admin.audit_limit_reached {
-				ui.weak("The audit log reached its local entry or memory limit. Adjust the filters to find other events.");
+				ui.weak(crate::i18n::translate(
+					"server-audit-log-show-the-audit-log-reached-its-local-entry-or-memory-limit",
+				));
 			} else if page.has_more
 				&& let Some(last) = page.entries.last()
 				&& ui
 					.add_enabled(
 						available,
-						egui::Button::new("Load More").min_size(Vec2::new(120.0, 36.0)),
+						egui::Button::new(crate::i18n::translate(
+							"server-audit-log-show-load-more",
+						))
+						.min_size(Vec2::new(120.0, 36.0)),
 					)
 					.clicked()
 			{
@@ -386,11 +423,15 @@ fn summary(entry: &Entry, page: &Page, state: &State) -> String {
 	let actor = entry
 		.user_id
 		.map(|id| user_name(Some(page), id))
-		.unwrap_or_else(|| "Unknown user".into());
-	let action = if action_text(entry.action_type) == "Unknown Action" {
-		format!("performed action {}", entry.action_type)
+		.unwrap_or_else(|| crate::i18n::translate("server-audit-log-summary-unknown-user"));
+	let action = if action_text(entry.action_type) == "server-audit-log-event-icon-unknown-action" {
+		format!(
+			"{} {}",
+			crate::i18n::translate("server-audit-log-summary-performed-action"),
+			entry.action_type
+		)
 	} else {
-		action_text(entry.action_type).to_lowercase()
+		crate::i18n::translate_if_key(action_text(entry.action_type)).to_lowercase()
 	};
 	let name = entry
 		.changes
@@ -457,7 +498,9 @@ fn details(ui: &mut egui::Ui, entry: &Entry, state: &State) {
 		line(ui, format!("Reason: {reason}"));
 	}
 	if index == 1 {
-		ui.weak("No additional details were provided for this event.");
+		ui.weak(crate::i18n::translate(
+			"server-audit-log-details-no-additional-details-were-provided-for-this-event",
+		));
 	}
 }
 fn change_text(change: &Change, state: &State) -> String {
@@ -524,81 +567,126 @@ fn event_icon(action: u16) -> icons::Icon {
 	}
 }
 fn action_text(action: u16) -> &'static str {
-	ACTIONS
-		.iter()
-		.find(|(value, _)| *value == action)
-		.map_or("Unknown Action", |(_, label)| *label)
+	ACTIONS.iter().find(|(value, _)| *value == action).map_or(
+		"server-audit-log-event-icon-unknown-action",
+		|(_, label)| *label,
+	)
 }
 const ACTIONS: &[(u16, &str)] = &[
-	(1, "Updated server settings"),
-	(10, "Created channel"),
-	(11, "Updated channel"),
-	(12, "Deleted channel"),
-	(13, "Created channel permission overwrite"),
-	(14, "Updated channel permission overwrite"),
-	(15, "Deleted channel permission overwrite"),
-	(20, "Kicked member"),
-	(21, "Pruned members"),
-	(22, "Banned member"),
-	(23, "Unbanned member"),
-	(24, "Updated member"),
-	(25, "Updated member roles"),
-	(26, "Moved member"),
-	(27, "Disconnected member"),
-	(28, "Added bot"),
-	(30, "Created role"),
-	(31, "Updated role"),
-	(32, "Deleted role"),
-	(40, "Created invite"),
-	(41, "Updated invite"),
-	(42, "Deleted invite"),
-	(50, "Created webhook"),
-	(51, "Updated webhook"),
-	(52, "Deleted webhook"),
-	(60, "Created emoji"),
-	(61, "Updated emoji"),
-	(62, "Deleted emoji"),
-	(72, "Deleted message"),
-	(73, "Deleted messages"),
-	(74, "Pinned message"),
-	(75, "Unpinned message"),
-	(80, "Created integration"),
-	(81, "Updated integration"),
-	(82, "Deleted integration"),
-	(83, "Created stage"),
-	(84, "Updated stage"),
-	(85, "Deleted stage"),
-	(90, "Created sticker"),
-	(91, "Updated sticker"),
-	(92, "Deleted sticker"),
-	(100, "Created scheduled event"),
-	(101, "Updated scheduled event"),
-	(102, "Deleted scheduled event"),
-	(110, "Created thread"),
-	(111, "Updated thread"),
-	(112, "Deleted thread"),
-	(121, "Updated application command permissions"),
-	(130, "Created soundboard sound"),
-	(131, "Updated soundboard sound"),
-	(132, "Deleted soundboard sound"),
-	(140, "Created AutoMod rule"),
-	(141, "Updated AutoMod rule"),
-	(142, "Deleted AutoMod rule"),
-	(143, "Blocked message with AutoMod"),
-	(144, "Flagged message with AutoMod"),
-	(145, "Timed out member with AutoMod"),
-	(146, "Quarantined member with AutoMod"),
-	(150, "Created creator monetization request"),
-	(151, "Accepted creator monetization terms"),
-	(163, "Created onboarding prompt"),
-	(164, "Updated onboarding prompt"),
-	(165, "Deleted onboarding prompt"),
-	(166, "Created onboarding"),
-	(167, "Updated onboarding"),
-	(190, "Created home settings"),
-	(191, "Updated home settings"),
-	(192, "Created voice channel status"),
-	(193, "Deleted voice channel status"),
+	(1, "server-audit-log-action-text-updated-server-settings"),
+	(10, "server-audit-log-action-text-created-channel"),
+	(11, "server-audit-log-action-text-updated-channel"),
+	(12, "server-audit-log-action-text-deleted-channel"),
+	(
+		13,
+		"server-audit-log-action-text-created-channel-permission-overwrite",
+	),
+	(
+		14,
+		"server-audit-log-action-text-updated-channel-permission-overwrite",
+	),
+	(
+		15,
+		"server-audit-log-action-text-deleted-channel-permission-overwrite",
+	),
+	(20, "server-audit-log-action-text-kicked-member"),
+	(21, "server-audit-log-action-text-pruned-members"),
+	(22, "server-audit-log-action-text-banned-member"),
+	(23, "server-audit-log-action-text-unbanned-member"),
+	(24, "server-audit-log-action-text-updated-member"),
+	(25, "server-audit-log-action-text-updated-member-roles"),
+	(26, "server-audit-log-action-text-moved-member"),
+	(27, "server-audit-log-action-text-disconnected-member"),
+	(28, "server-audit-log-action-text-added-bot"),
+	(30, "server-audit-log-action-text-created-role"),
+	(31, "server-audit-log-action-text-updated-role"),
+	(32, "server-audit-log-action-text-deleted-role"),
+	(40, "server-audit-log-action-text-created-invite"),
+	(41, "server-audit-log-action-text-updated-invite"),
+	(42, "server-audit-log-action-text-deleted-invite"),
+	(50, "server-audit-log-action-text-created-webhook"),
+	(51, "server-audit-log-action-text-updated-webhook"),
+	(52, "server-audit-log-action-text-deleted-webhook"),
+	(60, "server-audit-log-action-text-created-emoji"),
+	(61, "server-audit-log-action-text-updated-emoji"),
+	(62, "server-audit-log-action-text-deleted-emoji"),
+	(72, "server-audit-log-action-text-deleted-message"),
+	(73, "server-audit-log-action-text-deleted-messages"),
+	(74, "server-audit-log-action-text-pinned-message"),
+	(75, "server-audit-log-action-text-unpinned-message"),
+	(80, "server-audit-log-action-text-created-integration"),
+	(81, "server-audit-log-action-text-updated-integration"),
+	(82, "server-audit-log-action-text-deleted-integration"),
+	(83, "server-audit-log-action-text-created-stage"),
+	(84, "server-audit-log-action-text-updated-stage"),
+	(85, "server-audit-log-action-text-deleted-stage"),
+	(90, "server-audit-log-action-text-created-sticker"),
+	(91, "server-audit-log-action-text-updated-sticker"),
+	(92, "server-audit-log-action-text-deleted-sticker"),
+	(100, "server-audit-log-action-text-created-scheduled-event"),
+	(101, "server-audit-log-action-text-updated-scheduled-event"),
+	(102, "server-audit-log-action-text-deleted-scheduled-event"),
+	(110, "server-audit-log-action-text-created-thread"),
+	(111, "server-audit-log-action-text-updated-thread"),
+	(112, "server-audit-log-action-text-deleted-thread"),
+	(
+		121,
+		"server-audit-log-action-text-updated-application-command-permissions",
+	),
+	(130, "server-audit-log-action-text-created-soundboard-sound"),
+	(131, "server-audit-log-action-text-updated-soundboard-sound"),
+	(132, "server-audit-log-action-text-deleted-soundboard-sound"),
+	(140, "server-audit-log-action-text-created-automod-rule"),
+	(141, "server-audit-log-action-text-updated-automod-rule"),
+	(142, "server-audit-log-action-text-deleted-automod-rule"),
+	(
+		143,
+		"server-audit-log-action-text-blocked-message-with-automod",
+	),
+	(
+		144,
+		"server-audit-log-action-text-flagged-message-with-automod",
+	),
+	(
+		145,
+		"server-audit-log-action-text-timed-out-member-with-automod",
+	),
+	(
+		146,
+		"server-audit-log-action-text-quarantined-member-with-automod",
+	),
+	(
+		150,
+		"server-audit-log-action-text-created-creator-monetization-request",
+	),
+	(
+		151,
+		"server-audit-log-action-text-accepted-creator-monetization-terms",
+	),
+	(
+		163,
+		"server-audit-log-action-text-created-onboarding-prompt",
+	),
+	(
+		164,
+		"server-audit-log-action-text-updated-onboarding-prompt",
+	),
+	(
+		165,
+		"server-audit-log-action-text-deleted-onboarding-prompt",
+	),
+	(166, "server-audit-log-action-text-created-onboarding"),
+	(167, "server-audit-log-action-text-updated-onboarding"),
+	(190, "server-audit-log-action-text-created-home-settings"),
+	(191, "server-audit-log-action-text-updated-home-settings"),
+	(
+		192,
+		"server-audit-log-action-text-created-voice-channel-status",
+	),
+	(
+		193,
+		"server-audit-log-action-text-deleted-voice-channel-status",
+	),
 ];
 #[cfg(test)]
 mod tests {
@@ -682,6 +770,9 @@ mod tests {
 		change.old = Patch::Value("3600".into());
 		change.new = Patch::Absent;
 		assert_eq!(change_text(&change, &state), "Removed max age: 3600");
-		assert_eq!(action_text(65535), "Unknown Action");
+		assert_eq!(
+			crate::i18n::Language::English.text(action_text(65535)),
+			"Unknown Action"
+		);
 	}
 }

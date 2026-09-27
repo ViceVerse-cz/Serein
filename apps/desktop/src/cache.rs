@@ -52,6 +52,8 @@ fn message_bytes(messages: &Vec<Message>) -> usize {
 }
 #[allow(clippy::large_enum_variant)]
 pub enum Operation {
+	LoadCustomFont,
+	SaveCustomFont(Option<ui::fonts::CustomFont>),
 	LoadAppPreferences,
 	SaveAppPreferences(Box<local_store::AppPreferences>),
 	LoadAppearance,
@@ -102,6 +104,7 @@ pub enum Operation {
 }
 #[allow(clippy::large_enum_variant)]
 pub enum Outcome {
+	CustomFont(Result<Option<ui::fonts::CustomFont>, &'static str>),
 	AppPreferences(Result<Box<local_store::AppPreferences>, StoreError>),
 	AppPreferencesSaved(Result<(), StoreError>),
 	/// Saved appearance plus the saved theme preset key, if any.
@@ -233,6 +236,9 @@ impl Cache {
 			return false;
 		}
 		let payload = match &operation {
+			Operation::SaveCustomFont(font) => font
+				.as_ref()
+				.map_or(0, |font| font.bytes().len() + font.name.capacity()),
 			Operation::SaveChannel { messages, .. } | Operation::SaveChanges { messages, .. } => {
 				if messages.len() > 500
 					|| messages.iter().map(Message::bytes).sum::<usize>() > WINDOW_BYTES
@@ -324,6 +330,9 @@ impl Cache {
 				let outcome = execute(&mut store, &worker_history, account, epoch, operation);
 				drop(reservation);
 				let bytes = match &outcome {
+					Outcome::CustomFont(Ok(Some(font))) => {
+						font.bytes().len() + font.name.capacity()
+					}
 					Outcome::Channel { messages, .. } => message_bytes(messages),
 					Outcome::Drafts(drafts) => drafts.values().map(String::capacity).sum(),
 					Outcome::GifFavorites(favorites) => {
@@ -367,6 +376,29 @@ fn execute(
 ) -> Outcome {
 	// Settings completions have their own pending/error state, independent of history.
 	match &operation {
+		Operation::LoadCustomFont => {
+			return Outcome::CustomFont((|| {
+				let store = store
+					.as_ref()
+					.map_err(|_| "Could not load the saved font.")?;
+				store
+					.custom_font()
+					.map_err(|_| "Could not load the saved font.")?
+					.map(|(name, bytes)| ui::fonts::CustomFont::new(name, bytes))
+					.transpose()
+			})());
+		}
+		Operation::SaveCustomFont(font) => {
+			return Outcome::CustomFont((|| {
+				let store = store
+					.as_ref()
+					.map_err(|_| "Could not save the font. Try importing it again.")?;
+				store
+					.save_custom_font(font.as_ref().map(|font| (font.name.as_str(), font.bytes())))
+					.map_err(|_| "Could not save the font. Try again.")?;
+				Ok(font.clone())
+			})());
+		}
 		Operation::LoadChannelPreferences => {
 			return Outcome::ChannelPreferences(match store {
 				Ok(store) => store.channel_preferences(account),
@@ -516,7 +548,9 @@ fn execute(
 			"Could not save GIF favorites; the change exists only in this session"
 		}
 		Operation::LoadChannel { .. } => "Could not read cached history",
-		Operation::LoadAppPreferences
+		Operation::LoadCustomFont
+		| Operation::SaveCustomFont(_)
+		| Operation::LoadAppPreferences
 		| Operation::LoadAccounts
 		| Operation::SaveAccount(_)
 		| Operation::SetAccountToken { .. }
@@ -534,7 +568,9 @@ fn execute(
 	};
 	let result = match store {
 		Ok(store) => match operation {
-			Operation::LoadAppPreferences
+			Operation::LoadCustomFont
+			| Operation::SaveCustomFont(_)
+			| Operation::LoadAppPreferences
 			| Operation::LoadAccounts
 			| Operation::SaveAccount(_)
 			| Operation::SetAccountToken { .. }

@@ -1564,6 +1564,7 @@ mod tests {
 			badges: vec![],
 			connections: vec![],
 			mutual_guilds: vec![],
+			mutual_friends: vec![],
 			guild: None,
 			theme_colors: None,
 			clan: None,
@@ -1949,6 +1950,7 @@ mod tests {
 			nick: None,
 			status: Some("online".into()),
 			custom_status: None,
+			clients: model::ClientPlatforms::default(),
 			activities: Vec::new(),
 		};
 		state.members = Some(model::MemberList {

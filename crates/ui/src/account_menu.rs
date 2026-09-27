@@ -36,14 +36,14 @@ impl ClearAfter {
 		Self::Hours4,
 		Self::Today,
 	];
-	fn label(self) -> &'static str {
-		match self {
-			Self::Never => "Don't clear",
-			Self::Minutes30 => "30 minutes",
-			Self::Hour => "1 hour",
-			Self::Hours4 => "4 hours",
-			Self::Today => "Today",
-		}
+	fn label(self) -> String {
+		crate::i18n::translate_if_key(match self {
+			Self::Never => "account-menu-label-don-t-clear",
+			Self::Minutes30 => "account-menu-label-30-minutes",
+			Self::Hour => "account-menu-label-1-hour",
+			Self::Hours4 => "account-menu-label-4-hours",
+			Self::Today => "account-menu-label-today",
+		})
 	}
 	/// Absolute deadline in milliseconds since the Unix epoch; `None` never clears.
 	fn deadline(self) -> Option<u64> {
@@ -76,9 +76,16 @@ impl ClearAfter {
 		};
 		let clock = format!("{:02}:{:02}", at.hour(), at.minute());
 		Some(if at.date() == now.date() {
-			format!("at {clock}")
+			format!(
+				"{} {clock}",
+				crate::i18n::translate("account-menu-clears-at-at")
+			)
 		} else {
-			format!("at {clock} tomorrow")
+			format!(
+				"{} {clock} {}",
+				crate::i18n::translate("account-menu-clears-at-at"),
+				crate::i18n::translate("account-menu-clears-at-tomorrow")
+			)
 		})
 	}
 	/// Nearest choice for an existing deadline, so reopening the editor shows what is set.
@@ -180,13 +187,18 @@ impl MessagingUi {
 		self.account_menu.open = open && !std::mem::take(&mut self.account_menu.close);
 		if self.account_menu.custom_open {
 			let ctx = anchor.ctx.clone();
-			let response = crate::dialog::Dialog::new("custom-status-editor", "Custom status")
-				.subtitle("Shown next to your name across Discord.")
-				.width(420.0)
-				.show(&ctx, |d| {
-					d.content(|ui| self.custom_status_editor(ui, state));
-					d.footer(|ui| self.custom_status_actions(ui));
-				});
+			let response = crate::dialog::Dialog::new(
+				"custom-status-editor",
+				crate::i18n::translate("account-menu-account-menu-custom-status"),
+			)
+			.subtitle(crate::i18n::translate(
+				"account-menu-account-menu-shown-next-to-your-name-across-discord",
+			))
+			.width(420.0)
+			.show(&ctx, |d| {
+				d.content(|ui| self.custom_status_editor(ui, state));
+				d.footer(|ui| self.custom_status_actions(ui));
+			});
 			if response.close {
 				self.account_menu.custom_open = false;
 			}
@@ -296,7 +308,11 @@ impl MessagingUi {
 			ui.allocate_exact_size(vec2(ui.available_width(), 1.0), egui::Sense::hover());
 		ui.painter().rect_filled(line, 0, colors.border);
 		ui.add_space(10.0);
-		ui.label(design::eyebrow(ui, "Switch accounts", colors.muted));
+		ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("account-menu-account-switcher-switch-accounts"),
+			colors.muted,
+		));
 		ui.add_space(4.0);
 		for account in &others {
 			self.account_switcher_row(ui, account, state.demo);
@@ -308,7 +324,14 @@ impl MessagingUi {
 				ui.add(
 					egui::Button::new(())
 						.left_text(
-							design::medium(ui, "Add an account", 14.0).color(colors.text_strong),
+							design::medium(
+								ui,
+								crate::i18n::translate(
+									"account-menu-account-switcher-add-an-account",
+								),
+								14.0,
+							)
+							.color(colors.text_strong),
 						)
 						.frame_when_inactive(false)
 						.corner_radius(6)
@@ -410,17 +433,27 @@ impl MessagingUi {
 			egui::WidgetInfo::labeled(
 				egui::Role::Button,
 				true,
-				format!("Switch to {}", account.label()),
+				format!(
+					"{} {}",
+					crate::i18n::translate("account-menu-account-switcher-row-switch-to"),
+					account.label()
+				),
 			)
 		});
 		forget.widget_info(|| {
 			egui::WidgetInfo::labeled(
 				egui::Role::Button,
 				true,
-				format!("Forget {}", account.label()),
+				format!(
+					"{} {}",
+					crate::i18n::translate("account-menu-account-switcher-row-forget"),
+					account.label()
+				),
 			)
 		});
-		let forget = forget.on_hover_text("Forget this account on this device");
+		let forget = forget.on_hover_text(crate::i18n::translate(
+			"account-menu-account-switcher-row-forget-this-account-on-this-device",
+		));
 		if forget.clicked() {
 			self.forget_account_requested = Some(account.id);
 			self.account_menu.close = true;
@@ -449,9 +482,10 @@ impl MessagingUi {
 				let name = profile
 					.and_then(|p| p.global_name.as_deref())
 					.or_else(|| state.user.as_ref().map(|u| u.name.as_str()))
-					.unwrap_or("Your account");
+					.map(str::to_owned)
+					.unwrap_or_else(|| crate::i18n::translate("your-account"));
 				ui.add(
-					egui::Label::new(design::semibold(ui, name, 20.0).color(colors.text_strong))
+					egui::Label::new(design::semibold(ui, &name, 20.0).color(colors.text_strong))
 						.wrap(),
 				);
 				if let Some(profile) = profile {
@@ -490,9 +524,11 @@ impl MessagingUi {
 				if state.own_profile.loading {
 					ui.add_space(6.0);
 					ui.label(
-						RichText::new("Loading profile…")
-							.small()
-							.color(colors.muted),
+						RichText::new(crate::i18n::translate(
+							"account-menu-account-identity-card-loading-profile",
+						))
+						.small()
+						.color(colors.muted),
 					);
 				}
 				if let Some(error) = state.own_profile.error {
@@ -501,8 +537,11 @@ impl MessagingUi {
 						egui::Label::new(RichText::new(error).size(12.0).color(colors.danger))
 							.wrap(),
 					);
-					if ui.button("Reload profile").clicked()
-						&& let Some(command) = state.load_own_profile()
+					if ui
+						.button(crate::i18n::translate(
+							"account-menu-account-identity-card-reload-profile",
+						))
+						.clicked() && let Some(command) = state.load_own_profile()
 					{
 						commands.push(command);
 					}
@@ -514,7 +553,12 @@ impl MessagingUi {
 	fn account_status_row(&mut self, ui: &mut egui::Ui) {
 		let colors = design::palette(ui);
 		let status = self.own_presence.status;
-		let label = design::medium(ui, status.label(), 14.0).color(colors.text_strong);
+		let label = design::medium(
+			ui,
+			crate::i18n::translate_if_key(presence_status_key(status)),
+			14.0,
+		)
+		.color(colors.text_strong);
 		let response = ui
 			.scope(|ui| {
 				let width = ui.available_width();
@@ -558,11 +602,14 @@ impl MessagingUi {
 		let colors = design::palette(ui);
 		ui.set_width(260.0_f32.min(ui.ctx().content_rect().width() - 48.0));
 		for status in PresenceStatus::ALL {
-			let description = match status {
-				PresenceStatus::DoNotDisturb => "You will not receive desktop notifications",
-				PresenceStatus::Invisible => "You will appear offline",
+			let label = crate::i18n::translate_if_key(presence_status_key(status));
+			let description = crate::i18n::translate_if_key(match status {
+				PresenceStatus::DoNotDisturb => {
+					"account-menu-presence-menu-you-will-not-receive-desktop-notifications"
+				}
+				PresenceStatus::Invisible => "account-menu-presence-menu-you-will-appear-offline",
 				_ => "",
-			};
+			});
 			let height = if description.is_empty() { 40.0 } else { 62.0 };
 			let response = ui.add_sized(
 				[ui.available_width(), height],
@@ -570,9 +617,7 @@ impl MessagingUi {
 					.frame_when_inactive(false)
 					.corner_radius(6),
 			);
-			response.widget_info(|| {
-				egui::WidgetInfo::labeled(egui::Role::Button, true, status.label())
-			});
+			response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
 			let x = response.rect.left() + 34.0;
 			let y = response.rect.top() + if description.is_empty() { 11.0 } else { 10.0 };
 			let background = if response.hovered() || response.has_focus() {
@@ -590,13 +635,13 @@ impl MessagingUi {
 			ui.painter().text(
 				egui::pos2(x, y),
 				egui::Align2::LEFT_TOP,
-				status.label(),
+				&label,
 				egui::FontId::new(14.0, design::medium_family(ui.ctx())),
 				colors.text_strong,
 			);
 			if !description.is_empty() {
 				let galley = ui.painter().layout(
-					description.into(),
+					description,
 					egui::FontId::proportional(12.0),
 					colors.muted,
 					(response.rect.width() - 46.0).max(80.0),
@@ -622,11 +667,12 @@ impl MessagingUi {
 		let colors = design::palette(ui);
 		let set = !self.own_presence.custom_status.is_empty();
 		let label = if set {
-			"Edit custom status"
+			"account-menu-custom-status-edit"
 		} else {
-			"Set a custom status"
+			"account-menu-custom-status-set"
 		};
-		let text = design::medium(ui, label, 14.0).color(colors.text_strong);
+		let text = design::medium(ui, crate::i18n::translate_if_key(label), 14.0)
+			.color(colors.text_strong);
 		let response = ui
 			.scope(|ui| {
 				let width = ui.available_width();
@@ -739,9 +785,10 @@ impl MessagingUi {
 							.as_ref()
 							.and_then(|p| p.global_name.as_deref())
 							.unwrap_or(user.name.as_str())
+							.to_owned()
 					} else {
-						design::avatar(ui, "You", 40.0);
-						"Your account"
+						design::avatar(ui, &crate::i18n::translate("pending-show-you"), 40.0);
+						crate::i18n::translate("your-account")
 					};
 					let width = ui.available_width();
 					ui.vertical(|ui| {
@@ -749,14 +796,19 @@ impl MessagingUi {
 						ui.spacing_mut().item_spacing.y = 2.0;
 						ui.add(
 							egui::Label::new(
-								design::semibold(ui, name, 15.0).color(colors.text_strong),
+								design::semibold(ui, &name, 15.0).color(colors.text_strong),
 							)
 							.truncate(),
 						);
 						let (status, color) = if draft.is_empty() {
-							("No custom status", colors.muted)
+							(
+								crate::i18n::translate(
+									"account-menu-custom-status-editor-no-custom-status",
+								),
+								colors.muted,
+							)
 						} else {
-							(draft.as_str(), colors.text)
+							(draft.clone(), colors.text)
 						};
 						ui.add(
 							egui::Label::new(RichText::new(status).size(13.0).color(color))
@@ -766,12 +818,14 @@ impl MessagingUi {
 				});
 			});
 		ui.add_space(16.0);
-		let label = dialog::label(ui, "Status text");
+		let label = dialog::label(ui, "account-menu-custom-status-editor-status-text");
 		dialog::input(
 			ui,
 			egui::TextEdit::singleline(&mut self.account_menu.draft)
 				.id_salt(("account-custom-status", state.generation))
-				.hint_text("What's on your mind?")
+				.hint_text(crate::i18n::translate(
+					"account-menu-custom-status-editor-what-s-on-your-mind",
+				))
 				.char_limit(128),
 		)
 		.labelled_by(label.id);
@@ -795,19 +849,25 @@ impl MessagingUi {
 			});
 		});
 		ui.add_space(12.0);
-		let label = dialog::label(ui, "Clear after");
+		let label = dialog::label(ui, "account-menu-custom-status-editor-clear-after");
 		self.clear_after_row(ui).labelled_by(label.id);
 		// The deadline is local to this client, so name the moment rather than implying
 		// Discord will clear it for you.
 		if let Some(clears) = self.account_menu.clear_after.clears_at() {
-			dialog::hint(ui, &format!("Serein clears it {clears}."));
+			dialog::hint(
+				ui,
+				&format!(
+					"{} {clears}.",
+					crate::i18n::translate("account-menu-custom-status-editor-serein-clears-it")
+				),
+			);
 		}
 		if !valid {
 			ui.add_space(8.0);
 			dialog::notice(
 				ui,
 				dialog::Level::Error,
-				"Use up to 128 characters without control characters.",
+				"account-menu-custom-status-editor-use-up-to-128-characters-without-control-characters",
 			);
 		}
 		if !self.own_presence_status.is_empty() {
@@ -835,7 +895,11 @@ impl MessagingUi {
 		let (draft, valid, changed) = self.custom_status_draft();
 		if ui
 			.add_enabled_ui(valid && changed, |ui| {
-				dialog::action(ui, "Apply", dialog::Action::Primary)
+				dialog::action(
+					ui,
+					"account-menu-custom-status-actions-apply",
+					dialog::Action::Primary,
+				)
 			})
 			.inner
 			.clicked()
@@ -854,7 +918,11 @@ impl MessagingUi {
 			!self.own_presence.custom_status.is_empty() || !self.account_menu.draft.is_empty();
 		if ui
 			.add_enabled_ui(clearable, |ui| {
-				dialog::action(ui, "Clear", dialog::Action::Outline)
+				dialog::action(
+					ui,
+					"account-menu-custom-status-actions-clear",
+					dialog::Action::Outline,
+				)
 			})
 			.inner
 			.clicked()
@@ -868,6 +936,15 @@ impl MessagingUi {
 				self.own_presence_changed = true;
 			}
 		}
+	}
+}
+
+pub(super) fn presence_status_key(status: PresenceStatus) -> &'static str {
+	match status {
+		PresenceStatus::Online => "status-online",
+		PresenceStatus::Idle => "status-idle",
+		PresenceStatus::DoNotDisturb => "status-dnd",
+		PresenceStatus::Invisible => "account-menu-status-invisible",
 	}
 }
 

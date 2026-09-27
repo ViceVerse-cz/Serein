@@ -455,8 +455,10 @@ Retry saving is deliberate. Closing with pending/failed writes prompts before di
 In-app preview edits are not saved; a write already requested outside preview still completes.
 The standalone --demo does not start the SQLite worker. Narrow People overlays and outer window geometry remain session-local.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
-input profile/custom processing, push-to-talk and gain are saved in the device-wide `app_preferences`
-SQLite singleton (16 KiB maximum), using the existing background worker. These survive
+input profile/custom processing, push-to-talk, gain, keyboard bindings and the global-keybind
+switch (enabled by default) are saved in the device-wide `app_preferences`
+SQLite singleton (16 KiB maximum), using the existing background worker. The Linux
+hide-window-decorations boolean is stored in this same record and defaults to false. These survive
 restart/logout; demo controls never read or write them. Save failures remain visible.
 The optional voice profile preserves older records: an absent profile migrates the legacy
 suppression boolean to Custom with RNNoise/Off, AEC on, and no AGC/sensitivity gate.
@@ -555,12 +557,18 @@ until completion; capacity defers new requests rather than evicting pending work
 Failed entries expire five seconds after failure, permitting an on-demand retry.
 
 Current image limits include the GIF and larger-viewer features added after September 10.
-One worker decodes serially while up to eight credential-free downloads overlap.
-The UI tracks 128 requests. The worker holds at most 1,024 keys, and viewer keys run before inline keys.
+One coordinator owns disk access while up to eight credential-free download/decode jobs overlap.
+The request channel and coordinator backlog each hold at most 1,024 keys; viewer keys run before inline keys.
 Ordinary encoded bodies are capped at 2 MiB. Animation bodies are capped at 16 MiB.
 A still message picture accepts at most 32 MiB encoded.
 Eight overlapping downloads can hold one body each, separately from decoder memory.
 The completed encoded source is released before waiting to deliver its decoded result.
+Decoded results have a shared 128-item / 128 MiB allocation budget, including pixel-vector
+capacity, frame/key metadata and the result being consumed by the UI. Final results wait for
+capacity and remain cancellable; optional first-frame previews are skipped when either bound
+is full. Pending results schedule another UI frame after a partial drain. The eight active
+or completed jobs and one coordinator result waiting for admission are additional working
+sets, not part of that queue ceiling; this is not a whole-process memory cap.
 Avatar/icon decoding accepts at most 512 KiB encoded, 256×256 source, 1 MiB decoder
 allocations and 128×128 output. Previews/banners use 1024×1024 source, 8 MiB decoder
 allocations and a 512-pixel output edge. A still message picture allows an 8192 canvas and 128 MiB of decoder allocations.
@@ -595,9 +603,10 @@ allowances and are released when work/results are consumed or dropped. Byte exha
 rejects command admission through the existing unsaved/cleanup handling; the storage worker
 waits for result capacity without dropping completions. One completed result awaiting
 admission and the SQLite working set are additional. History payloads retain the 500-row /
-4 MiB limit. A connection-local byte total avoids rescanning all history on each save;
-SQLite write/version counters invalidate it after other writes. The disk schema and
-transactional eviction limits are unchanged.
+4 MiB limit. Incremental saves borrow the loaded and changed rows instead of cloning the
+window. Occupied SQLite pages skip the global payload sum while below the history budget;
+larger stores sum payload bytes inside the transaction. The disk schema and transactional
+eviction limits are unchanged.
 
 Each remote-video decoder queue admits at most 64 access units and 16 MiB of allocated
 encoded capacity, including the access unit being decoded. Exhaustion uses the existing
@@ -845,10 +854,19 @@ use the existing SHA-256 disk filenames. No new cache, schema or dependency is i
 
 Eframe `system_fonts` enumerates installed fonts on a background thread and uses
 read-only memory-mapped OS font files for missing glyphs, including native color
-emoji. No font download or font-file copy is added. Upstream fallback can wait
+emoji. System fallback does not download or copy font files. Upstream fallback can wait
 for enumeration on its first missing glyph; its font/cache memory is framework
 overhead, separate from Serein message/image budgets. OS font availability and
 emoji coverage vary by platform. Bundled text faces and Twemoji remain in use.
+
+Explicit Appearance → Typography import accepts one local TTF/OTF up to 8 MiB. A native
+picker feeds one bounded background read and validation; no file path is saved. The existing
+SQLite worker atomically replaces one `custom_font` row (name ≤128 UTF-8 bytes, font ≤8 MiB),
+within the database's existing total size ceiling. Reset deletes that row; logout retains it.
+The prior font stays active if importing or saving fails. The three proportional weight
+definitions share the imported bytes; the active font and one pending replacement can each
+retain up to 8 MiB, in addition to renderer/font-atlas overhead. Cache queue reservations
+include font payload bytes. Demo imports stay in memory and do not read or write this row.
 
 
 ### Inline MP3/WAV preview (September 11, 2026)

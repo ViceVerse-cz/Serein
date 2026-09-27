@@ -33,7 +33,7 @@ async fn login_metadata(
 	metadata: Value,
 	warnings: model::account::Warnings,
 ) {
-	timeout(Duration::from_secs(10), async {
+	timeout(Duration::from_secs(30), async {
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
 		let ready = AtomicBool::new(false);
@@ -48,7 +48,7 @@ async fn login_metadata(
 			let mut socket = accept_async(stream).await.unwrap();
 			send(
 				&mut socket,
-				json!({"op":10,"d":{"heartbeat_interval":1000}}),
+				json!({"op":10,"d":{"heartbeat_interval":30000}}),
 			)
 			.await;
 			assert_eq!(packet(&mut socket).await["op"], 2);

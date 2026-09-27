@@ -16,6 +16,14 @@ pub struct Trail {
 const MAX_PLACES: usize = 32;
 
 impl Trail {
+	pub fn can_go_back(&self) -> bool {
+		self.cursor > 0
+	}
+
+	pub fn can_go_forward(&self) -> bool {
+		self.cursor + 1 < self.places.len()
+	}
+
 	pub(super) fn is_empty(&self) -> bool {
 		self.places.is_empty()
 	}

@@ -170,6 +170,7 @@ mod tests {
 						roles: (1..=40).map(model::Id).collect(),
 						status: None,
 						custom_status: None,
+						clients: model::ClientPlatforms::default(),
 						activities: vec![],
 					}))
 				})
@@ -215,6 +216,7 @@ mod tests {
 				badges: vec![],
 				connections: vec![],
 				mutual_guilds: vec![],
+				mutual_friends: vec![],
 				guild: Some(model::GuildProfile {
 					guild,
 					roles: vec![],

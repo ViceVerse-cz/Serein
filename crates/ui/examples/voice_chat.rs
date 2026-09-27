@@ -93,6 +93,8 @@ fn main() {
 		let ctx = egui::Context::default();
 		ui::design::apply(&ctx);
 		let mut view = ui::MessagingUi::default();
+		// Labels below are English; the default follows the host locale.
+		view.language = ui::i18n::Language::English;
 		for (label, open) in [("Show chat", true), ("Hide chat", false)] {
 			let mut labels = vec![];
 			for _ in 0..100 {
