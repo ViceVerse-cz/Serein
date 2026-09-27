@@ -3610,6 +3610,20 @@ impl Desktop {
 					request,
 					result: Err(Failure::Protocol),
 				},
+				Command::StreamPreview {
+					guild,
+					channel,
+					user,
+					request,
+				} => Event::StreamPreview {
+					guild,
+					channel,
+					user,
+					request,
+					result: Ok(format!(
+						"https://cdn.discordapp.com/streams/guild:{guild}:{channel}:{user}/0123456789abcdef.png"
+					)),
+				},
 				Command::EditProfile {
 					user,
 					request,
