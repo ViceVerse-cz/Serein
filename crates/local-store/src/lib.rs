@@ -5,7 +5,8 @@ use model::{Id, Message, ReadingPreferences, User};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{
 	collections::{BTreeMap, BTreeSet},
-	path::Path,
+	ffi::OsString,
+	path::{Path, PathBuf},
 };
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
@@ -150,6 +151,37 @@ impl From<rusqlite::Error> for StoreError {
 		Self::Unavailable
 	}
 }
+
+fn resolve_data_dir(configured: Option<OsString>, default: Option<PathBuf>) -> Result<PathBuf> {
+	match configured {
+		Some(root) => {
+			let root = PathBuf::from(root);
+			if root.as_os_str().is_empty() || !root.is_absolute() {
+				return Err(StoreError::Unavailable);
+			}
+			Ok(root)
+		}
+		None => default.ok_or(StoreError::Unavailable),
+	}
+}
+
+fn default_data_dir() -> Option<PathBuf> {
+	#[cfg(feature = "development-data")]
+	{
+		let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?.parent()?;
+		Some(workspace.join("target").join("development-data"))
+	}
+	#[cfg(not(feature = "development-data"))]
+	{
+		dirs::data_local_dir().map(|root| root.join("serein"))
+	}
+}
+
+/// Shared root for local application data. Developers may select an isolated absolute path.
+pub fn data_dir() -> std::result::Result<PathBuf, StoreError> {
+	resolve_data_dir(std::env::var_os("SEREIN_DATA_DIR"), default_data_dir())
+}
+
 /// Reject excess entries during parsing, before allocating a whole malformed array.
 struct CachedEmbeds(Vec<model::Embed>);
 impl<'de> serde::Deserialize<'de> for CachedEmbeds {
@@ -184,9 +216,7 @@ impl<'de> serde::Deserialize<'de> for CachedEmbeds {
 }
 impl LocalStore {
 	pub fn open_default() -> Result<Self> {
-		let root = dirs::data_local_dir()
-			.ok_or(StoreError::Unavailable)?
-			.join("serein");
+		let root = data_dir()?;
 		std::fs::create_dir_all(&root).map_err(|_| StoreError::Unavailable)?;
 		#[cfg(unix)]
 		{
@@ -1413,6 +1443,55 @@ impl LocalStore {
 }
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn data_directory_override_is_absolute_and_never_falls_back() {
+		let default = std::env::temp_dir();
+		assert!(default.is_absolute());
+		assert_eq!(
+			resolve_data_dir(None, Some(default.clone())),
+			Ok(default.clone())
+		);
+		let configured = default.join("serein-development");
+		assert_eq!(
+			resolve_data_dir(Some(configured.clone().into_os_string()), None),
+			Ok(configured)
+		);
+		assert_eq!(
+			resolve_data_dir(Some(OsString::new()), Some(default.clone())),
+			Err(StoreError::Unavailable)
+		);
+		assert_eq!(
+			resolve_data_dir(Some(OsString::from("relative")), Some(default)),
+			Err(StoreError::Unavailable)
+		);
+	}
+
+	#[cfg(feature = "development-data")]
+	#[test]
+	fn development_data_directory_is_worktree_local() {
+		let root = default_data_dir().unwrap();
+		assert!(root.is_absolute());
+		assert_eq!(
+			root.file_name().and_then(|name| name.to_str()),
+			Some("development-data")
+		);
+		assert_eq!(
+			root.parent()
+				.and_then(Path::file_name)
+				.and_then(|name| name.to_str()),
+			Some("target")
+		);
+	}
+
+	#[cfg(not(feature = "development-data"))]
+	#[test]
+	fn packaged_data_directory_uses_the_os_default() {
+		assert_eq!(
+			default_data_dir(),
+			dirs::data_local_dir().map(|root| root.join("serein"))
+		);
+	}
+
 	#[test]
 	fn changed_rows_preserve_retained_data_and_rollback_invalid_updates() {
 		let mut store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();

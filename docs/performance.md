@@ -2109,3 +2109,22 @@ improvement from these short runs. The demo disables downloaded-image workers, s
 it controls for idle regressions rather than measuring the queue fix. System/GPU
 resources are not fully represented by process RSS. Frame/startup latency remains
 unmeasured; the frame diagnostic only confirmed matching viewport and scale.
+
+## Development data isolation (September 27, 2026)
+
+Windows x86_64 package measurements compare clean `672ee68` with
+`fix/isolate-development-storage`, both built using Rust 1.98.1 and
+`cargo xtask package`. The package command disables default features, so this measures the
+shipping OS-data-directory path rather than the worktree-local development path. NSIS was
+unavailable; the installed-directory total covers the complete unsigned `dist` tree and the
+compressed total is an optimal PowerShell ZIP of that same tree.
+
+| Metric | Baseline | After | Delta | Method |
+|---|---:|---:|---:|---|
+| Packaged executable | 76,558,336 B | 76,556,800 B | -1,536 B (-0.002%) | `dist/serein.exe` file size |
+| Installed package directory | 80,661,162 B | 80,660,045 B | -1,117 B (-0.001%) | Sum of 198 files under `dist` |
+| Compressed distribution | 44,140,603 B | 44,141,033 B | +430 B (+0.001%) | PowerShell `Compress-Archive -CompressionLevel Optimal` |
+
+The deltas are immaterial build/link/compression noise. CPU, RSS and rendering measurements are
+not applicable because the change only selects the persistent-data root before those existing
+workers open their files; it adds no polling, queue, network request or render work.

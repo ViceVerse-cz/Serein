@@ -5,7 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = []
+default = ["development-data"]
+development-data = ["local-store/development-data"]
 # No-op: token sign-in used to require this flag; it is now always built in.
 # Kept only so `--features developer-session` in older scripts keeps building.
 developer-session = []
@@ -33,7 +34,6 @@ local-store.workspace = true
 winit.workspace = true
 reqwest.workspace = true
 rasterlottie.workspace = true
-dirs.workspace = true
 getrandom.workspace = true
 url.workspace = true
 sha2 = "=0.10.9"

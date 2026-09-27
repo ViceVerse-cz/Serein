@@ -6253,7 +6253,6 @@ dependencies = [
  "arboard",
  "client-core",
  "cpal",
- "dirs",
  "discord-api",
  "discord-gateway",
  "discord-protocol",

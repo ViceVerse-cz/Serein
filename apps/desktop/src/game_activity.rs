@@ -744,7 +744,9 @@ const LIST_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_CACHED_LIST: u64 = 8 * 1024 * 1024;
 
 fn list_path() -> Option<PathBuf> {
-	dirs::data_local_dir().map(|root| root.join("serein").join("detectable.json"))
+	local_store::data_dir()
+		.ok()
+		.map(|root| root.join("detectable.json"))
 }
 
 async fn detectable<A: Applications>(service: &A) -> Option<Vec<Game>> {
