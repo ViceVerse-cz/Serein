@@ -2128,3 +2128,20 @@ compressed total is an optimal PowerShell ZIP of that same tree.
 The deltas are immaterial build/link/compression noise. CPU, RSS and rendering measurements are
 not applicable because the change only selects the persistent-data root before those existing
 workers open their files; it adds no polling, queue, network request or render work.
+
+## Live stream preview (September 27, 2026)
+
+Windows x86_64 package measurements compare `origin/main` at `1ecf8d16` with
+`feat/live-stream-preview` at `c1bb773f`, both built using Rust 1.98.1 and
+`cargo xtask package`. Each installed-directory total covers the same 198 files; ZIPs use
+PowerShell `Compress-Archive -CompressionLevel Optimal`. NSIS was unavailable.
+
+| Metric | Baseline | After | Delta |
+|---|---:|---:|---:|
+| Packaged executable | 76,688,384 B | 76,732,416 B | +44,032 B (+0.0574%) |
+| Installed package directory | 80,791,700 B | 80,835,732 B | +44,032 B (+0.0545%) |
+| Compressed distribution | 44,171,707 B | 44,182,973 B | +11,266 B (+0.0255%) |
+
+The preview adds no polling or closed-popover rendering work: one explicit click starts one
+latest-wins request capped at 4 KiB, and the still uses the existing 512-pixel media bounds.
+Native CPU/RSS and frame timing were not measured because desktop capture/control was unavailable.
