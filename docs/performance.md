@@ -1,3 +1,37 @@
+# Lazy Fluent catalog loading - September 27, 2026
+
+Compared `a07ed34` before and after replacing Fluent's all-catalog static loader
+with one replaceable bundle for the selected language. Windows x64, Ryzen 7
+7800X3D, 32 GB RAM, Rust 1.98.1; release desktop with
+`--features developer-session`, without demo. Each localization build ran beside
+the same installed production executable after a 15-second warmup. Twenty samples
+were taken two seconds apart with no compiler running. CPU is process CPU time as
+a percentage of all 16 logical processors; memory is Windows `WorkingSet64` and
+`PrivateMemorySize64`.
+
+| Metric | All 11 catalogs | Selected catalog | Delta |
+| --- | ---: | ---: | ---: |
+| Average CPU | 0.894% | 0.935% | +0.041 percentage points; noise |
+| Maximum CPU | 1.118% | 1.167% | +0.049 percentage points; noise |
+| Average working set | 185.7 MiB | 162.9 MiB | -22.8 MiB / -12.3% |
+| Maximum working set | 186.2 MiB | 162.9 MiB | -23.3 MiB / -12.5% |
+| Average private memory | 370.8 MiB | 351.3 MiB | -19.5 MiB / -5.3% |
+| Maximum private memory | 371.1 MiB | 351.4 MiB | -19.7 MiB / -5.3% |
+
+The simultaneous installed-production controls measured 162.0/348.2 MiB
+working/private memory during the baseline run and 163.9/352.7 MiB during the
+updated run. The updated localization build therefore no longer has a measurable
+idle-memory premium in this sample. Its 0.087-percentage-point average CPU excess
+over the updated control is too small for a performance claim.
+
+All eleven FTL files remain embedded in the executable for offline language
+switching, but only the selected catalog is parsed into a Fluent bundle. Switching
+language replaces and drops the previous bundle. The 76,410,880-byte developer
+executable includes debug information; standard package, compressed distribution,
+startup latency, frame timing, GPU memory, and cross-platform memory remain
+unmeasured. Both live-session processes stayed responsive; no messages, calls,
+microphone, or camera actions were performed.
+
 # Animated profile review fixes - September 22, 2026
 
 Compared the PR head `ffa38ae` with `dda91ab` on Windows x64, Ryzen 7 7800X3D,

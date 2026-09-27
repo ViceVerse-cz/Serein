@@ -1,20 +1,15 @@
 //! Embedded application translations. Discord content and protocol locale stay untouched.
-use fluent_templates::{LanguageIdentifier, Loader, fluent_bundle::FluentValue};
+use fluent_templates::{
+	FluentBundle, LanguageIdentifier,
+	fluent_bundle::{FluentArgs, FluentResource},
+};
 use std::{
-	borrow::Cow,
-	collections::HashMap,
+	cell::RefCell,
 	sync::{
 		LazyLock,
 		atomic::{AtomicU8, Ordering},
 	},
 };
-
-fluent_templates::static_loader! {
-	static TRANSLATIONS = {
-		locales: "./locales",
-		fallback_language: "en-US",
-	};
-}
 
 static ENGLISH: LazyLock<LanguageIdentifier> = LazyLock::new(|| "en-US".parse().unwrap());
 static SPANISH: LazyLock<LanguageIdentifier> = LazyLock::new(|| "es".parse().unwrap());
@@ -30,6 +25,15 @@ static CZECH: LazyLock<LanguageIdentifier> = LazyLock::new(|| "cs".parse().unwra
 static SYSTEM: LazyLock<Language> =
 	LazyLock::new(|| language_from_tag(sys_locale::get_locale().as_deref().unwrap_or("en-US")));
 static CURRENT: AtomicU8 = AtomicU8::new(Language::System as u8);
+
+struct ActiveBundle {
+	language: Language,
+	bundle: FluentBundle<FluentResource>,
+}
+
+thread_local! {
+	static ACTIVE_BUNDLE: RefCell<Option<ActiveBundle>> = const { RefCell::new(None) };
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Language {
@@ -99,20 +103,21 @@ impl Language {
 	}
 
 	pub fn text(self, key: &str) -> String {
-		let language = self.identifier();
-		TRANSLATIONS.lookup(language, key)
+		self.lookup(key, None)
+			.unwrap_or_else(|| format!("Unknown localization key: {key:?}"))
 	}
 
 	fn try_text(self, key: &str) -> Option<String> {
-		TRANSLATIONS.try_lookup(self.identifier(), key)
+		self.lookup(key, None)
 	}
 
 	fn text_with_args(self, key: &str, values: &[(&'static str, &str)]) -> String {
-		let args: HashMap<_, _> = values
-			.iter()
-			.map(|(name, value)| (Cow::Borrowed(*name), FluentValue::from(*value)))
-			.collect();
-		TRANSLATIONS.lookup_with_args(self.identifier(), key, &args)
+		let mut args = FluentArgs::with_capacity(values.len());
+		for &(name, value) in values {
+			args.set(name, value);
+		}
+		self.lookup(key, Some(&args))
+			.unwrap_or_else(|| format!("Unknown localization key: {key:?}"))
 	}
 
 	pub fn name(self, current: Self) -> String {
@@ -139,6 +144,60 @@ impl Language {
 		*SYSTEM
 	}
 
+	fn source(self) -> &'static str {
+		match self.resolved() {
+			Self::Spanish => include_str!("../locales/es/main.ftl"),
+			Self::French => include_str!("../locales/fr/main.ftl"),
+			Self::German => include_str!("../locales/de/main.ftl"),
+			Self::Russian => include_str!("../locales/ru/main.ftl"),
+			Self::PortugueseBrazil => include_str!("../locales/pt-BR/main.ftl"),
+			Self::Turkish => include_str!("../locales/tr/main.ftl"),
+			Self::Japanese => include_str!("../locales/ja/main.ftl"),
+			Self::Polish => include_str!("../locales/pl/main.ftl"),
+			Self::Italian => include_str!("../locales/it/main.ftl"),
+			Self::Czech => include_str!("../locales/cs/main.ftl"),
+			_ => include_str!("../locales/en-US/main.ftl"),
+		}
+	}
+
+	fn load(self) -> ActiveBundle {
+		let language = self.resolved();
+		let resource = FluentResource::try_new(language.source().to_owned())
+			.unwrap_or_else(|(_, errors)| panic!("invalid Fluent catalog: {errors:?}"));
+		let mut bundle = FluentBundle::new_concurrent(vec![language.identifier().clone()]);
+		bundle
+			.add_resource(resource)
+			.unwrap_or_else(|errors| panic!("invalid Fluent messages: {errors:?}"));
+		ActiveBundle { language, bundle }
+	}
+
+	fn lookup(self, key: &str, args: Option<&FluentArgs<'_>>) -> Option<String> {
+		let language = self.resolved();
+		ACTIVE_BUNDLE.with_borrow_mut(|active| {
+			if active
+				.as_ref()
+				.is_none_or(|active| active.language != language)
+			{
+				*active = Some(language.load());
+			}
+			let bundle = &active.as_ref()?.bundle;
+			let pattern = if let Some((message, attribute)) = key.split_once('.') {
+				bundle
+					.get_message(message)?
+					.attributes()
+					.find(|value| value.id() == attribute)?
+					.value()
+			} else {
+				bundle.get_message(key)?.value()?
+			};
+			let mut errors = Vec::new();
+			let value = bundle
+				.format_pattern(pattern, args, &mut errors)
+				.into_owned();
+			errors.is_empty().then_some(value)
+		})
+	}
+
 	fn identifier(self) -> &'static LanguageIdentifier {
 		match self.resolved() {
 			Self::Spanish => &SPANISH,
@@ -157,7 +216,9 @@ impl Language {
 }
 
 pub fn set_current(language: Language) {
-	CURRENT.store(language as u8, Ordering::Relaxed);
+	if CURRENT.swap(language as u8, Ordering::Relaxed) != language as u8 {
+		ACTIVE_BUNDLE.with_borrow_mut(|active| *active = None);
+	}
 }
 
 pub fn translate(key: &str) -> String {
@@ -243,5 +304,24 @@ mod tests {
 			),
 			"Delete \u{2068}General\u{2069}? Its channels will remain in the server. This cannot be undone."
 		);
+	}
+
+	#[test]
+	fn keeps_only_the_last_requested_catalog_loaded() {
+		ACTIVE_BUNDLE.with_borrow_mut(|active| *active = None);
+		assert_eq!(Language::English.text("page-general"), "General");
+		ACTIVE_BUNDLE.with_borrow(|active| {
+			assert_eq!(
+				active.as_ref().map(|active| active.language),
+				Some(Language::English)
+			);
+		});
+		assert_eq!(Language::Czech.text("page-general"), "Obecné");
+		ACTIVE_BUNDLE.with_borrow(|active| {
+			assert_eq!(
+				active.as_ref().map(|active| active.language),
+				Some(Language::Czech)
+			);
+		});
 	}
 }
