@@ -1283,33 +1283,9 @@ pub fn window_controls(ui: &mut egui::Ui) {
 	let (toggle, rect, color) = caption(ui, if maximized { "Restore" } else { "Maximize" }, false);
 	let c = rect.center();
 	let stroke = Stroke::new(1.0, color);
-	if maximized {
-		let back = egui::Rect::from_center_size(c + egui::vec2(1.5, -1.5), egui::Vec2::splat(9.0));
-		let front = egui::Rect::from_center_size(c + egui::vec2(-1.5, 1.5), egui::Vec2::splat(9.0));
-		ui.painter().line_segment(
-			[back.left_top() + egui::vec2(0.0, 0.0), back.right_top()],
-			stroke,
-		);
-		ui.painter()
-			.line_segment([back.right_top(), back.right_bottom()], stroke);
-		ui.painter().line_segment(
-			[back.left_top(), back.left_top() + egui::vec2(0.0, 3.0)],
-			stroke,
-		);
-		ui.painter().line_segment(
-			[
-				back.right_bottom(),
-				back.right_bottom() - egui::vec2(3.0, 0.0),
-			],
-			stroke,
-		);
-		ui.painter()
-			.rect_stroke(front, 1, stroke, egui::StrokeKind::Middle);
-	} else {
-		let square = egui::Rect::from_center_size(c, egui::Vec2::splat(10.0));
-		ui.painter()
-			.rect_stroke(square, 1, stroke, egui::StrokeKind::Middle);
-	}
+	let square = egui::Rect::from_center_size(c, egui::Vec2::splat(10.0));
+	ui.painter()
+		.rect_stroke(square, 1, stroke, egui::StrokeKind::Middle);
 	if toggle.clicked() {
 		ui.ctx()
 			.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
