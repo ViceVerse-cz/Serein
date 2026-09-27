@@ -2132,16 +2132,16 @@ workers open their files; it adds no polling, queue, network request or render w
 ## Live stream preview (September 27, 2026)
 
 Windows x86_64 package measurements compare `origin/main` at `1ecf8d16` with
-`feat/live-stream-preview` at `c1bb773f`, both built using Rust 1.98.1 and
+`feat/live-stream-preview` at `54c34e66`, both built using Rust 1.98.1 and
 `cargo xtask package`. Each installed-directory total covers the same 198 files; ZIPs use
 PowerShell `Compress-Archive -CompressionLevel Optimal`. NSIS was unavailable.
 
 | Metric | Baseline | After | Delta |
 |---|---:|---:|---:|
-| Packaged executable | 76,688,384 B | 76,732,416 B | +44,032 B (+0.0574%) |
-| Installed package directory | 80,791,700 B | 80,835,732 B | +44,032 B (+0.0545%) |
-| Compressed distribution | 44,171,707 B | 44,182,973 B | +11,266 B (+0.0255%) |
+| Packaged executable | 76,688,384 B | 76,739,072 B | +50,688 B (+0.0661%) |
+| Installed package directory | 80,791,700 B | 80,842,358 B | +50,658 B (+0.0627%) |
+| Compressed distribution | 44,171,707 B | 44,184,003 B | +12,296 B (+0.0278%) |
 
-The preview adds no polling or closed-popover rendering work: one explicit click starts one
+The preview adds no polling or closed-popover rendering work: one visible hover starts one
 latest-wins request capped at 4 KiB, and the still uses the existing 512-pixel media bounds.
 Native CPU/RSS and frame timing were not measured because desktop capture/control was unavailable.
