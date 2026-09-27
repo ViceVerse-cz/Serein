@@ -27,8 +27,7 @@ impl ArchivesUi {
 		}
 		let parent = view.parent;
 		let allowed = state.can_archive(parent, view.kind);
-		let private = state.channel(parent).is_some_and(|c| c.kind == 0);
-		let mut close = false;
+		let supports_private = state.channel(parent).is_some_and(|c| c.kind == 0);
 		let mut request = None;
 		let mut target = None;
 		let mut active_target = None;
@@ -79,6 +78,10 @@ impl ArchivesUi {
 					if field.changed() {
 						ui.ctx().request_repaint();
 					}
+					if self.focus {
+						field.request_focus();
+						self.focus = false;
+					}
 				});
 				ui.add_space(14.0);
 				let shown: Vec<_> = active
@@ -114,68 +117,61 @@ impl ArchivesUi {
 						});
 					ui.add_space(12.0);
 				}
-				section(
-					ui,
-					&crate::i18n::translate("archives-show-older-threads"),
-					&colors,
-				);
-				// A plain row, not `horizontal_wrapped`: the enabled scopes below are child
-				// uis, which would break wrapping.
 				ui.horizontal(|ui| {
-					ui.spacing_mut().item_spacing.x = 6.0;
-					let kinds: Vec<(Kind, &str)> = [
-						(Kind::Public, "Public"),
-						(Kind::JoinedPrivate, "Joined private"),
-						(Kind::Private, "Private"),
-					]
-					.into_iter()
-					.filter(|(kind, _)| *kind == Kind::Public || private)
-					.collect();
-					let names: Vec<&str> = kinds.iter().map(|(_, name)| *name).collect();
-					let selected = kinds
-						.iter()
-						.position(|(kind, _)| *kind == view.kind)
-						.unwrap_or(usize::MAX);
-					if let Some(index) = ui
-						.add_enabled_ui(allowed && !view.loading, |ui| {
-							crate::design::segmented(ui, &names, selected)
-						})
-						.inner
-					{
-						request = Some((kinds[index].0, None));
-					}
-					let action = |ui: &mut egui::Ui, enabled: bool, label: &str| {
-						ui.add_enabled_ui(enabled, |ui| {
-							crate::dialog::action(ui, label, crate::dialog::Action::Neutral)
-						})
-						.inner
-					};
-					let reload = action(ui, allowed, "archives-action-reload");
-					if self.focus {
-						reload.request_focus();
-						self.focus = false;
-					}
-					if reload.clicked() {
-						request = Some((view.kind, None));
-					}
-					if view.error.is_some() {
-						if action(ui, allowed && !view.loading, "archives-action-retry").clicked() {
-							request = Some((view.kind, view.before));
+					ui.label(
+						crate::design::semibold(
+							ui,
+							crate::i18n::translate("archives-show-older-threads"),
+							12.0,
+						)
+						.color(colors.muted),
+					);
+					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+						if supports_private {
+							let mut kind = view.kind;
+							ui.add_enabled_ui(allowed && !view.loading, |ui| {
+								egui::ComboBox::from_id_salt(("archive-kind", parent))
+									.width(112.0)
+									.selected_text(match kind {
+										Kind::Public => "Public",
+										Kind::JoinedPrivate => "Joined private",
+										Kind::Private => "Private",
+									})
+									.show_ui(ui, |ui| {
+										ui.selectable_value(&mut kind, Kind::Public, "Public");
+										ui.selectable_value(
+											&mut kind,
+											Kind::JoinedPrivate,
+											"Joined private",
+										);
+										ui.selectable_value(&mut kind, Kind::Private, "Private");
+									});
+							});
+							if kind != view.kind {
+								request = Some((kind, None));
+							}
 						}
-					} else if let Some(before) = view.page.as_ref().and_then(|page| page.next)
-						&& action(ui, allowed && !view.loading, "archives-action-older").clicked()
-					{
-						request = Some((view.kind, Some(before)));
-					}
+						let action = if view.error.is_some() {
+							Some(("archives-action-retry", view.before))
+						} else {
+							view.page
+								.as_ref()
+								.and_then(|page| page.next)
+								.map(|before| ("archives-action-older", Some(before)))
+						};
+						if let Some((label, before)) = action
+							&& ui
+								.add_enabled_ui(allowed && !view.loading, |ui| {
+									crate::dialog::action(ui, label, crate::dialog::Action::Neutral)
+								})
+								.inner
+								.clicked()
+						{
+							request = Some((view.kind, before));
+						}
+					});
 				});
 				ui.add_space(6.0);
-				if view.kind == Kind::Private {
-					crate::dialog::notice(
-						ui,
-						crate::dialog::Level::Info,
-						"archives-show-private-archives-require-permission-from-the-service",
-					);
-				}
 				if !allowed {
 					crate::dialog::notice(
 						ui,
@@ -195,9 +191,6 @@ impl ArchivesUi {
 					});
 				}
 				if let Some(page) = &view.page {
-					if page.threads.is_empty() {
-						crate::dialog::hint(ui, "archives-show-no-older-threads-returned");
-					}
 					let older: Vec<_> = page
 						.threads
 						.iter()
@@ -219,31 +212,16 @@ impl ArchivesUi {
 								});
 							}
 						});
-					if page.next.is_none() && !view.loading {
-						crate::dialog::hint(
-							ui,
-							"archives-show-no-older-threads-reported-by-the-service",
-						);
+					if older.is_empty() && !view.loading {
+						crate::dialog::hint(ui, "archives-show-no-older-threads-returned");
 					}
 				}
-				crate::dialog::hint(
-					ui,
-					"archives-show-active-threads-come-from-the-session-older-threads-load-25",
-				);
-			});
-			d.footer(|ui| {
-				close |= crate::dialog::action(
-					ui,
-					"archives-show-close",
-					crate::dialog::Action::Neutral,
-				)
-				.clicked();
 			});
 		});
 		if create {
 			self.create_requested = Some(parent);
 		}
-		if response.close || close {
+		if response.close {
 			self.filter.clear();
 			commands.push(state.clear_archives());
 		} else if let Some((kind, before)) = request {
@@ -263,7 +241,7 @@ impl ArchivesUi {
 	}
 }
 
-const CARD_HEIGHT: f32 = 74.0;
+const CARD_HEIGHT: f32 = 64.0;
 const CARD_GAP: f32 = 8.0;
 
 fn section(ui: &mut egui::Ui, label: &str, colors: &crate::design::Palette) {
@@ -288,16 +266,16 @@ fn thread_card(
 	if ui.is_rect_visible(rect) {
 		let frame = crate::design::interactive_card_frame(ui, &response);
 		ui.painter().add(frame.paint(rect));
-		let inner = rect.shrink2(egui::vec2(16.0, 12.0));
+		let inner = rect.shrink2(egui::vec2(14.0, 9.0));
 		ui.scope_builder(
 			egui::UiBuilder::new()
 				.max_rect(inner)
 				.layout(egui::Layout::top_down(egui::Align::Min)),
 			|ui| {
-				ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+				ui.spacing_mut().item_spacing = egui::vec2(5.0, 4.0);
 				ui.add(
 					egui::Label::new(
-						crate::design::semibold(ui, thread.name.as_str(), 15.5)
+						crate::design::semibold(ui, thread.name.as_str(), 15.0)
 							.color(colors.text_strong),
 					)
 					.truncate()
@@ -306,13 +284,13 @@ fn thread_card(
 				ui.horizontal(|ui| {
 					// The thread shares its id with its starter, so the open channel may hold it.
 					if let Some(starter) = state.timeline.get(thread.id) {
-						avatars.show_plain(ui, &starter.author, 18.0, state.demo);
+						avatars.show_plain(ui, &starter.author, 16.0, state.demo);
 						ui.add(
 							egui::Label::new(
 								egui::RichText::new(crate::i18n::translate(
 									"archives-thread-card-started-by",
 								))
-								.size(13.0)
+								.size(12.5)
 								.color(colors.muted),
 							)
 							.selectable(false),
@@ -324,7 +302,7 @@ fn thread_card(
 							});
 						ui.add(
 							egui::Label::new(
-								crate::design::medium(ui, state.message_author_name(starter), 13.0)
+								crate::design::medium(ui, state.message_author_name(starter), 12.5)
 									.color(color),
 							)
 							.truncate()
@@ -332,7 +310,7 @@ fn thread_card(
 						);
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new("•").size(13.0).color(colors.muted),
+								egui::RichText::new("•").size(12.5).color(colors.muted),
 							)
 							.selectable(false),
 						);
@@ -340,7 +318,7 @@ fn thread_card(
 					ui.add(
 						egui::Label::new(
 							egui::RichText::new(crate::timeline::thread_activity(thread))
-								.size(13.0)
+								.size(12.5)
 								.color(colors.muted),
 						)
 						.truncate()
