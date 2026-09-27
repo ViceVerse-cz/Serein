@@ -11,6 +11,13 @@ const MAX_DEPTH: usize = 16;
 const MAX_LINKS: usize = 16;
 const MAX_SPOILERS: u8 = 32;
 const MAX_BLOCKS: usize = 32;
+const PREVIEW_EMOJI_SIZE: f32 = 16.0;
+
+pub(crate) struct PreviewEmoji {
+	at: usize,
+	text: String,
+	cell: usize,
+}
 
 /// True when the raw source escapes the token at `at` with an odd run of backslashes.
 fn escaped(source: &str, at: usize) -> bool {
@@ -1996,7 +2003,7 @@ impl Formatted {
 			.find(|(text, _)| !text.is_empty())
 			.is_none_or(|(text, _)| text.ends_with('\n'))
 	}
-	pub fn append_inline_preview(
+	pub(crate) fn append_inline_preview(
 		&self,
 		job: &mut LayoutJob,
 		ui: &egui::Ui,
@@ -2004,7 +2011,7 @@ impl Formatted {
 		source: Option<&crate::mentions::MentionSource<'_>>,
 		roles: &[model::permissions::Role],
 		channels: &[model::Channel],
-	) {
+	) -> Vec<PreviewEmoji> {
 		let colors = crate::design::palette(ui);
 		let muted = TextFormat {
 			font_id: FontId::proportional(13.0),
@@ -2018,6 +2025,7 @@ impl Formatted {
 			..Default::default()
 		};
 		let mut remaining = 120;
+		let mut emojis = Vec::new();
 		for (text, style) in &self.spans {
 			if remaining == 0 {
 				break;
@@ -2073,8 +2081,69 @@ impl Formatted {
 			};
 			let take: String = display.chars().take(remaining).collect();
 			remaining -= take.chars().count();
-			if !take.is_empty() {
-				job.append(&take, 0.0, format);
+			let mut start = 0;
+			if !style.code {
+				for (offset, cluster) in take.grapheme_indices(true) {
+					let Some(cell) = crate::emoji::lookup(cluster) else {
+						continue;
+					};
+					job.append(&take[start..offset], 0.0, format.clone());
+					emojis.push(PreviewEmoji {
+						at: job.text.len(),
+						text: cluster.into(),
+						cell,
+					});
+					job.append(
+						" ",
+						0.0,
+						crate::emoji::inline_format(ui, PREVIEW_EMOJI_SIZE, PREVIEW_EMOJI_SIZE),
+					);
+					start = offset + cluster.len();
+				}
+			}
+			job.append(&take[start..], 0.0, format);
+		}
+		emojis
+	}
+	pub(crate) fn inline_preview_text(job: &LayoutJob, emojis: &[PreviewEmoji]) -> String {
+		let mut text = job.text.clone();
+		for emoji in emojis.iter().rev() {
+			text.replace_range(emoji.at..emoji.at + 1, &emoji.text);
+		}
+		text
+	}
+	pub(crate) fn paint_inline_preview_emojis(
+		ui: &egui::Ui,
+		galley_pos: egui::Pos2,
+		galley: &egui::Galley,
+		emojis: &[PreviewEmoji],
+	) {
+		let Some(atlas) = crate::emoji::atlas(ui.ctx()) else {
+			return;
+		};
+		let mut next = 0;
+		for placed in &galley.rows {
+			for glyph in &placed.glyphs {
+				if next >= emojis.len()
+					|| glyph.chr != ' '
+					|| glyph.line_height != PREVIEW_EMOJI_SIZE
+				{
+					continue;
+				}
+				let rect = egui::Rect::from_min_size(
+					galley_pos + placed.pos.to_vec2() + egui::vec2(glyph.pos.x, 0.0),
+					egui::vec2(PREVIEW_EMOJI_SIZE, placed.row.size.y),
+				);
+				let emoji = &emojis[next];
+				crate::emoji::image_cell(atlas, &emoji.text, emoji.cell, PREVIEW_EMOJI_SIZE)
+					.paint_at(
+						ui,
+						egui::Rect::from_center_size(
+							rect.center(),
+							egui::Vec2::splat(PREVIEW_EMOJI_SIZE),
+						),
+					);
+				next += 1;
 			}
 		}
 	}
@@ -3480,6 +3549,30 @@ mod tests {
 		}
 	}
 	#[test]
+	fn inline_previews_paint_twemoji_without_system_font_fallback() {
+		let ctx = egui::Context::default();
+		crate::emoji::install(&ctx).unwrap();
+		let source = format!("before {} after", '\u{1f600}');
+		let parsed = Formatted::parse(&source);
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let mut job = LayoutJob::default();
+			let emojis = parsed.append_inline_preview(&mut job, ui, &[], None, &[], &[]);
+			assert_eq!(emojis.len(), 1);
+			assert_eq!(Formatted::inline_preview_text(&job, &emojis), source);
+			assert!(!job.text.contains('\u{1f600}'));
+			let (pos, galley, _) = egui::Label::new(job).truncate().layout_in_ui(ui);
+			Formatted::paint_inline_preview_emojis(ui, pos, &galley, &emojis);
+		});
+		let images = output
+			.shapes
+			.iter()
+			.filter(|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.brush.is_some()))
+			.count();
+		output.drop_without_applying_deltas();
+		assert_eq!(images, 1);
+	}
+
+	#[test]
 	fn loading_emoji_reserve_the_same_message_space_without_font_fallback() {
 		let ctx = egui::Context::default();
 		let parsed = Formatted::parse("😀👩🏽‍💻❤️🇨🇿");
@@ -3952,7 +4045,7 @@ mod tests {
 		output.drop_without_applying_deltas();
 		let mut job = LayoutJob::default();
 		ctx.run_ui(Default::default(), |ui| {
-			parsed.append_inline_preview(&mut job, ui, &[], None, &[], &[]);
+			let _ = parsed.append_inline_preview(&mut job, ui, &[], None, &[], &[]);
 		})
 		.drop_without_applying_deltas();
 		assert!(job.text.contains("ago"), "relative style: {}", job.text);

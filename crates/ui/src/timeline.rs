@@ -2122,6 +2122,7 @@ impl TimelineView {
 												|ui| {
 													let mut preview =
 														egui::text::LayoutJob::default();
+													let mut preview_emojis = Vec::new();
 													if let Some(original) =
 														state.timeline.get(reply)
 													{
@@ -2180,17 +2181,18 @@ impl TimelineView {
 																state,
 																u32::MAX,
 															);
-															formatted.append_inline_preview(
-																&mut preview,
-																ui,
-																&original.mentions,
-																Some(&source),
-																crate::mentions::known_roles(
-																	state,
-																	original.channel,
-																),
-																&state.channels,
-															);
+															preview_emojis = formatted
+																.append_inline_preview(
+																	&mut preview,
+																	ui,
+																	&original.mentions,
+																	Some(&source),
+																	crate::mentions::known_roles(
+																		state,
+																		original.channel,
+																	),
+																	&state.channels,
+																);
 														}
 													} else {
 														preview.append(
@@ -2205,12 +2207,37 @@ impl TimelineView {
 															},
 														);
 													}
-													let reply_preview = ui
-														.add(
-															egui::Label::new(preview)
-																.truncate()
-																.sense(egui::Sense::click()),
+													let accessible = Formatted::inline_preview_text(
+														&preview,
+														&preview_emojis,
+													);
+													let (
+														preview_pos,
+														preview_galley,
+														reply_preview,
+													) = egui::Label::new(preview)
+														.truncate()
+														.sense(egui::Sense::click())
+														.layout_in_ui(ui);
+													reply_preview.widget_info(|| {
+														egui::WidgetInfo::labeled(
+															egui::Role::Link,
+															ui.is_enabled(),
+															&accessible,
 														)
+													});
+													surface.embed(
+														&reply_preview,
+														preview_pos,
+														preview_galley.clone(),
+													);
+													Formatted::paint_inline_preview_emojis(
+														ui,
+														preview_pos,
+														&preview_galley,
+														&preview_emojis,
+													);
+													let reply_preview = reply_preview
 														.on_hover_cursor(
 															egui::CursorIcon::PointingHand,
 														)

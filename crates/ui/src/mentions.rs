@@ -1581,7 +1581,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 			assert_ne!(role_color, colors.mention_text);
 			let roles = known_roles(state, channel);
 			let mut preview = egui::text::LayoutJob::default();
-			crate::markdown::Formatted::parse(&draft).append_inline_preview(
+			let _ = crate::markdown::Formatted::parse(&draft).append_inline_preview(
 				&mut preview,
 				ui,
 				&[],
