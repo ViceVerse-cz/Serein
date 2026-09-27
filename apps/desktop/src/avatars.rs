@@ -751,6 +751,11 @@ fn proxy_base(source: &str) -> Option<url::Url> {
                     && hash.rsplit_once('.').is_some_and(|(hash, _)| model::valid_avatar_hash(hash)))
 			|| matches!(parts.as_slice(), ["embed", "avatars", index]
                 if matches!(*index, "0.png" | "1.png" | "2.png" | "3.png" | "4.png" | "5.png"))
+			|| matches!(parts.as_slice(), ["streams", key, hash]
+				if valid_stream_key(key)
+					&& hash.strip_suffix(".png").unwrap_or(hash).len() >= 16
+					&& hash.strip_suffix(".png").unwrap_or(hash).len() <= 128
+					&& hash.strip_suffix(".png").unwrap_or(hash).bytes().all(|byte| byte.is_ascii_hexdigit()))
 	};
 	if !valid_path
 		|| !matches!(
@@ -768,6 +773,15 @@ fn proxy_base(source: &str) -> Option<url::Url> {
 	Some(url)
 }
 
+fn valid_stream_key(key: &str) -> bool {
+	let mut parts = key.split(':');
+	parts.next() == Some("guild")
+		&& parts.next().is_some_and(|id| id.parse::<Id>().is_ok())
+		&& parts.next().is_some_and(|id| id.parse::<Id>().is_ok())
+		&& parts.next().is_some_and(|id| id.parse::<Id>().is_ok())
+		&& parts.next().is_none()
+}
+
 fn application_icon_url(key: &str, bytes: &[u8]) -> Option<String> {
 	if bytes.len() > MAX_APPLICATION_METADATA {
 		return None;
@@ -781,6 +795,12 @@ fn application_icon_url(key: &str, bytes: &[u8]) -> Option<String> {
 }
 
 fn disk_key(key: &str) -> Option<String> {
+	if Rendition::parse(key).is_some_and(|rendition| {
+		url::Url::parse(rendition.source.as_str())
+			.is_ok_and(|url| url.path().starts_with("/streams/"))
+	}) {
+		return None;
+	}
 	let url = cdn_url(key)?;
 	if key.starts_with("anim:")
 		|| key.starts_with("embed:")
@@ -835,12 +855,18 @@ async fn run(
 			let Some(MediaUrls { primary, fallback }) = job_urls(&key) else {
 				continue;
 			};
-			let mut error = disk.is_none().then_some(CACHE_ERROR);
-			let cached = disk.as_mut().and_then(|disk| match disk.read(&key) {
-				Ok(bytes) => bytes,
-				Err(_) => {
-					error = Some(CACHE_ERROR);
-					None
+			let persistent = disk_key(&key).is_some();
+			let mut error = (persistent && disk.is_none()).then_some(CACHE_ERROR);
+			let cached = disk.as_mut().and_then(|disk| {
+				if !persistent {
+					return None;
+				}
+				match disk.read(&key) {
+					Ok(bytes) => bytes,
+					Err(_) => {
+						error = Some(CACHE_ERROR);
+						None
+					}
 				}
 			});
 			jobs.spawn(load(Job {
@@ -885,7 +911,8 @@ async fn run(
 		if *cancelled.borrow() {
 			break;
 		}
-		if let (Some(disk), Some(bytes)) = (&mut disk, &fetched)
+		if disk_key(&key).is_some()
+			&& let (Some(disk), Some(bytes)) = (&mut disk, &fetched)
 			&& disk.write(&key, bytes).is_err()
 		{
 			error = Some(CACHE_ERROR);
@@ -2088,6 +2115,20 @@ mod tests {
 			.unwrap();
 		encoded.into_inner()
 	}
+	#[test]
+	fn stream_preview_urls_are_confined_to_discord_cdn() {
+		let source = "https://cdn.discordapp.com/streams/guild:1:2:3/0123456789abcdef.png";
+		assert!(embed_url(source, 512).is_some());
+		assert!(disk_key(&format!("media:is:e512:{source}")).is_none());
+		assert!(
+			embed_url(
+				"https://cdn.discordapp.com/streams/guild:1:2:3/../token.png",
+				512,
+			)
+			.is_none()
+		);
+	}
+
 	#[test]
 	fn bounded_images_cache_reopen_eviction_and_cancelled_cleanup() {
 		assert!(cdn_url("../token").is_none());

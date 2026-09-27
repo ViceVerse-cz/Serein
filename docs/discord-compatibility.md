@@ -457,6 +457,14 @@ and clears delayed mixer output after a stall. Decoder input is bounded to 16 pi
 and 16 MiB, with a 150 ms age limit and keyframe recovery. These bounds reduce backlog;
 they do not implement sender-clock audio/video synchronization or establish live sync.
 
+September 27 preview update: clicking a currently streaming guild participant requests
+Discord's still preview and shows it in a compact 16:9 popover with a Watch Stream action.
+The response is accepted only when it names the requested stream under Discord's CDN/media
+host and passes the existing bounded image decoder. One newer request cancels the previous
+one; hidden previews show an unavailable state. Watching while idle first joins the voice
+channel and then reuses the existing receive-only stream negotiation. The request route and
+normal-account response remain unofficial and live-unverified.
+
 A device-free localhost test runs the actual sender and viewer through an MLS exchange,
 stereo Opus and H.264, encrypted UDP forwarding, decoded audio and video. It verifies the
 local media handoff, not PulseAudio/WASAPI capture, speaker output, or Discord forwarding.

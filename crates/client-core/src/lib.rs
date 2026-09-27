@@ -205,6 +205,12 @@ pub enum Command {
 		request: u64,
 	},
 	CancelProfile,
+	StreamPreview {
+		guild: Id,
+		channel: Id,
+		user: Id,
+		request: u64,
+	},
 	/// None loads the account's global profile; Some writes only explicitly changed fields.
 	EditProfile {
 		user: Id,
@@ -488,6 +494,13 @@ pub enum Event {
 		guild: Option<Id>,
 		request: u64,
 		result: Result<Box<UserProfile>, auth::Failure>,
+	},
+	StreamPreview {
+		guild: Id,
+		channel: Id,
+		user: Id,
+		request: u64,
+		result: Result<String, auth::Failure>,
 	},
 	ProfileEdited {
 		user: Id,
@@ -2035,6 +2048,16 @@ impl State {
 		if matches!(command, Command::CancelProfile) {
 			return;
 		}
+		if let Command::StreamPreview {
+			guild,
+			channel,
+			user,
+			request,
+		} = command
+		{
+			self.apply_stream_preview(guild, channel, user, request, Err(auth::Failure::Capacity));
+			return;
+		}
 
 		if let Command::Voice(control) = command {
 			match control {
@@ -2570,6 +2593,16 @@ impl State {
 				self.apply_profile(user, guild, request, result);
 				Ok(())
 			}
+			Event::StreamPreview {
+				guild,
+				channel,
+				user,
+				request,
+				result,
+			} => {
+				self.apply_stream_preview(guild, channel, user, request, result);
+				Ok(())
+			}
 
 			Event::GuildEmojis { guild, emojis } => {
 				if let Some(index) = self.guilds.iter().position(|g| g.id == guild) {
@@ -2976,6 +3009,7 @@ impl State {
 					self.freshness = Freshness::Stale;
 				}
 				self.voice.roster.clear();
+				self.voice.preview = None;
 				self.voice.dm_calls.clear();
 				self.voice.dm_participants.clear();
 				self.members = None;
@@ -3850,6 +3884,7 @@ impl Event {
 				Self::Profile { result, .. } | Self::ProfileEdited { result, .. } => {
 					result.as_ref().map_or(0, |p| p.bytes())
 				}
+				Self::StreamPreview { result, .. } => result.as_ref().map_or(0, String::capacity),
 				Self::Voice(event) => event.bytes(),
 				Self::Permissions(event) => event.bytes(),
 				Self::GuildEmojis { emojis, .. } => custom_emoji_bytes(emojis),

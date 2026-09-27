@@ -61,6 +61,35 @@ enum RequestContent {
 	Json(serde_json::Value),
 	Multipart { content_type: String, body: Vec<u8> },
 }
+
+fn stream_preview_url(bytes: &[u8], key: &str) -> Result<String, Failure> {
+	#[derive(serde::Deserialize)]
+	struct Preview {
+		url: String,
+	}
+	let url = decode::<Preview>(bytes).map_err(|_| Failure::Protocol)?.url;
+	let path = [
+		format!("https://cdn.discordapp.com/streams/{key}/"),
+		format!("https://media.discordapp.net/streams/{key}/"),
+	]
+	.into_iter()
+	.find_map(|prefix| url.strip_prefix(&prefix));
+	let Some(path) = path else {
+		return Err(Failure::Protocol);
+	};
+	let hash = path.split_once('?').map_or(path, |(path, _)| path);
+	let hash = hash.strip_suffix(".png").unwrap_or(hash);
+	if url.len() > 2048
+		|| url
+			.bytes()
+			.any(|byte| byte.is_ascii_control() || byte == b'\\')
+		|| !(16..=128).contains(&hash.len())
+		|| !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+	{
+		return Err(Failure::Protocol);
+	}
+	Ok(url)
+}
 // Unofficial wire fields: discord.py-self errors.py CaptchaRequired and http.py request.
 // Borrow ordinary fields; escaped JSON strings are bounded by the 64 KiB wire cap.
 fn invite_captcha(bytes: &[u8]) -> Option<client_core::captcha::Challenge> {
@@ -938,6 +967,25 @@ impl DiscordApi {
 					result,
 				}
 			}
+			Command::StreamPreview {
+				guild,
+				channel,
+				user,
+				request,
+			} => {
+				let key = format!("guild:{guild}:{channel}:{user}");
+				let result = self
+					.request_limited(Method::GET, &format!("/streams/{key}/preview"), None, 4096)
+					.await
+					.and_then(|bytes| stream_preview_url(&bytes, &key));
+				Event::StreamPreview {
+					guild,
+					channel,
+					user,
+					request,
+					result,
+				}
+			}
 			Command::EditProfile {
 				user,
 				request,
@@ -1442,6 +1490,22 @@ fn safe_delay(seconds: Option<f64>) -> Result<Duration, Failure> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn stream_preview_accepts_only_the_requested_discord_cdn_path() {
+		let key = "guild:1:2:3";
+		let good =
+			br#"{"url":"https://cdn.discordapp.com/streams/guild:1:2:3/0123456789abcdef.png"}"#;
+		assert!(stream_preview_url(good, key).is_ok());
+		for bad in [
+			br#"{"url":"https://evil.example/streams/guild:1:2:3/0123456789abcdef.png"}"#
+				.as_slice(),
+			br#"{"url":"https://cdn.discordapp.com/streams/guild:1:2:4/0123456789abcdef.png"}"#,
+			br#"{"url":"https://cdn.discordapp.com/streams/guild:1:2:3/../token.png"}"#,
+		] {
+			assert_eq!(stream_preview_url(bad, key), Err(Failure::Protocol));
+		}
+	}
+
 	#[tokio::test]
 	async fn guild_creation_posts_once_and_waits_for_gateway_state() {
 		use tokio::{

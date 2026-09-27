@@ -356,6 +356,9 @@ pub struct MessagingUi {
 	pub voice_chat_open: bool,
 	/// Tile click to start (`Some(user)`) or stop (`None`) watching, applied by the stage.
 	watch_request: Option<Option<Id>>,
+	stream_preview_open: Option<(Id, Id, Id)>,
+	stream_preview_request: Option<(Id, Id, Id)>,
+	stream_preview_watch: Option<(Id, Id)>,
 	pub voice_inputs: Vec<(String, String)>,
 	pub voice_outputs: Vec<(String, String)>,
 	pub voice_input: Option<String>,
@@ -1678,6 +1681,13 @@ impl MessagingUi {
 					}
 				}
 				let select = self.channel_list(ui, state);
+				if let Some((guild, channel, user)) = self.stream_preview_request.take()
+					&& let Some(command) = state.request_stream_preview(guild, channel, user)
+				{
+					commands.push(command);
+				}
+				self.apply_stream_preview_watch(state, commands);
+				self.apply_watch_request(state);
 				if let Some((channel, action)) = self.channel_move.take()
 					&& let Some(command) = state.request_channel_action(channel, action)
 				{

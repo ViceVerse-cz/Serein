@@ -97,6 +97,16 @@ impl RosterEntry {
 		size_of::<Self>() + self.member.as_ref().map_or(0, Member::bytes)
 	}
 }
+
+pub struct StreamPreview {
+	pub guild: Id,
+	pub channel: Id,
+	pub user: Id,
+	pub request: u64,
+	pub loading: bool,
+	pub url: Option<String>,
+	pub error: Option<&'static str>,
+}
 pub struct Call {
 	pub channel: Id,
 	pub guild: Option<Id>,
@@ -127,6 +137,7 @@ pub struct State {
 	/// Last reported members of each known DM call, so answering or joining shows them at once.
 	pub(crate) dm_participants: Vec<(Id, Vec<Participant>)>,
 	pub roster: Vec<RosterEntry>,
+	pub preview: Option<StreamPreview>,
 	sequence: u64,
 }
 impl State {
@@ -296,6 +307,71 @@ impl Event {
 	}
 }
 impl ClientState {
+	pub fn request_stream_preview(
+		&mut self,
+		guild: Id,
+		channel: Id,
+		user: Id,
+	) -> Option<crate::Command> {
+		self.voice.sequence = self.voice.sequence.wrapping_add(1);
+		let request = self.voice.sequence;
+		let allowed = !self.demo
+			&& self.auth == AuthState::Authenticated
+			&& self.gateway_connected
+			&& self.has_voice_access(channel)
+			&& self.voice.roster.iter().any(|entry| {
+				entry.guild == guild
+					&& entry.channel == channel
+					&& entry.participant.user == user
+					&& entry.participant.streaming
+			});
+		self.voice.preview = Some(StreamPreview {
+			guild,
+			channel,
+			user,
+			request,
+			loading: allowed,
+			url: None,
+			error: (!allowed).then_some("Stream preview unavailable while disconnected"),
+		});
+		allowed.then_some(crate::Command::StreamPreview {
+			guild,
+			channel,
+			user,
+			request,
+		})
+	}
+
+	pub(crate) fn apply_stream_preview(
+		&mut self,
+		guild: Id,
+		channel: Id,
+		user: Id,
+		request: u64,
+		result: Result<String, Failure>,
+	) {
+		if let Err(failure) = &result
+			&& failure.ends_session()
+		{
+			self.fail(*failure);
+			return;
+		}
+		let Some(preview) = self.voice.preview.as_mut().filter(|preview| {
+			preview.guild == guild
+				&& preview.channel == channel
+				&& preview.user == user
+				&& preview.request == request
+		}) else {
+			return;
+		};
+		preview.loading = false;
+		match result {
+			Ok(url) if url.len() <= 2048 => preview.url = Some(url),
+			Ok(_) => preview.error = Some("Stream preview response was too large"),
+			Err(_) => preview.error = Some("Stream preview hidden or unavailable"),
+		}
+	}
+
 	pub fn outgoing_ring(&mut self) -> Option<Id> {
 		let (channel, request, confirmed) = self.voice.outgoing?;
 		if !self.can_call(channel)
@@ -505,6 +581,16 @@ impl ClientState {
 						break;
 					}
 				}
+				if self.voice.preview.as_ref().is_some_and(|preview| {
+					!self.voice.roster.iter().any(|entry| {
+						entry.guild == preview.guild
+							&& entry.channel == preview.channel
+							&& entry.participant.user == preview.user
+							&& entry.participant.streaming
+					})
+				}) {
+					self.voice.preview = None;
+				}
 				self.refresh_voice_participants();
 			}
 			Event::Call {
@@ -691,6 +777,14 @@ impl ClientState {
 						self.remember_dm_participants(channel, vec![participant]);
 					}
 				}
+				if self.voice.preview.as_ref().is_some_and(|preview| {
+					preview.user == user
+						&& (guild != Some(preview.guild)
+							|| channel != Some(preview.channel)
+							|| !streaming)
+				}) {
+					self.voice.preview = None;
+				}
 				let Some(call) = &mut self.voice.active else {
 					return;
 				};
@@ -852,6 +946,14 @@ impl ClientState {
 		self.voice.dm_calls.retain(|id| *id != channel);
 		self.voice.dm_participants.retain(|(id, _)| *id != channel);
 		self.voice.roster.retain(|r| r.channel != channel);
+		if self
+			.voice
+			.preview
+			.as_ref()
+			.is_some_and(|preview| preview.channel == channel)
+		{
+			self.voice.preview = None;
+		}
 		if self.voice.incoming == Some(channel) {
 			self.voice.incoming = None;
 		}
@@ -869,6 +971,7 @@ impl ClientState {
 		self.voice.dm_calls.clear();
 		self.voice.dm_participants.clear();
 		self.voice.roster.clear();
+		self.voice.preview = None;
 		self.voice.incoming = None;
 		if let Some(call) = &mut self.voice.active {
 			call.phase = Phase::Failed;
@@ -885,6 +988,74 @@ mod tests {
 	use super::*;
 	use crate::{Envelope, Event as CoreEvent};
 	use model::{Channel, User};
+	#[test]
+	fn stream_preview_is_scoped_to_the_current_streamer_request() {
+		let mut state = ClientState {
+			auth: AuthState::Authenticated,
+			gateway_connected: true,
+			user: Some(User {
+				id: Id(1),
+				name: "Owner".into(),
+				avatar: None,
+				webhook: false,
+				kind: Default::default(),
+				discriminator: 0,
+				primary_guild: None,
+			}),
+			guilds: vec![model::Guild {
+				id: Id(10),
+				name: "Synthetic".into(),
+				icon: None,
+				emojis: None,
+				stickers: None,
+			}],
+			channels: vec![Channel {
+				id: Id(20),
+				guild: Some(Id(10)),
+				kind: 2,
+				name: "Voice".into(),
+				last_message: None,
+				parent_id: None,
+				position: 0,
+				recipients: vec![],
+				icon: None,
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+			}],
+			voice: State {
+				roster: vec![RosterEntry {
+					guild: Id(10),
+					channel: Id(20),
+					participant: Participant {
+						user: Id(30),
+						muted: false,
+						deafened: false,
+						server_muted: false,
+						server_deafened: false,
+						video: false,
+						streaming: true,
+					},
+					member: None,
+				}],
+				..Default::default()
+			},
+			..Default::default()
+		};
+		crate::tests::grant_permissions(&mut state);
+		let Some(crate::Command::StreamPreview { request, .. }) =
+			state.request_stream_preview(Id(10), Id(20), Id(30))
+		else {
+			panic!("stream preview was not requested");
+		};
+		state.apply_stream_preview(Id(10), Id(20), Id(30), request + 1, Ok("stale".into()));
+		assert!(state.voice.preview.as_ref().unwrap().loading);
+		state.apply_stream_preview(Id(10), Id(20), Id(30), request, Ok("preview".into()));
+		let preview = state.voice.preview.as_ref().unwrap();
+		assert!(!preview.loading);
+		assert_eq!(preview.url.as_deref(), Some("preview"));
+	}
+
 	#[test]
 	fn guild_roster_moves_mutes_limits_and_selection_never_join_implicitly() {
 		let mut state = ClientState {

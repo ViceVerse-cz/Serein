@@ -889,6 +889,11 @@ stream/buffers on cancellation. Pausing retains the current bounded decoded clip
 
 Screen/window labels, selected source identifiers, settings, raw pixels and encoded video exist only in session memory. They are not written to SQLite, diagnostics, previews or video files. Sources and video queues use the limits in [screen-sharing compatibility](discord-compatibility.md#outgoing-screen-sharing--september-11-2026). Stream credentials and DAVE identities are ephemeral and redacted; the signing key is shared with the active voice call and zeroized when its final owner drops. Native OS/driver capture surfaces are distinct from application-owned frame buffers. Synthetic PR screenshots are development evidence, excluded from runtime assets.
 
+An opened live-stream preview retains one URL of at most 2,048 bytes and one bounded still in
+the existing 512-pixel media working set. Preview responses are capped at 4 KiB, and a newer
+request cancels the previous one. `/streams/` media has no disk-cache key, so neither its URL
+nor pixels enter SQLite or the account image cache. No new schema or persistent queue is added.
+
 Outgoing packet pacing retains the already packetized access unit across transport turns,
 at most 2,048 packets of 1,200 wire bytes each, instead of sending it in one uninterrupted
 loop. It does not admit another access unit until the pending one drains; DAVE transitions

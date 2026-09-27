@@ -175,6 +175,7 @@ impl Connection {
                 }));
                 let mut history:Option<AbortTask>=None;
                 let mut profile:Option<AbortTask>=None;
+				let mut stream_preview:Option<AbortTask>=None;
                 let mut invite:Option<AbortTask>=None;
                 let mut search:Option<AbortTask>=None;
                 let mut gifs:Option<AbortTask>=None;
@@ -191,8 +192,8 @@ impl Connection {
                         _=&mut gateway_task.0=>{break;}
                         _=&mut writes.0=>{break;}
                         changed=voice_availability.changed()=> {
-                            if changed.is_err() {break;}
-                            if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(profile.take());drop(search.take());voice_request=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
+							if changed.is_err() {break;}
+							if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());voice_request=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
                         }
                         request=upload_receive.recv()=>{
                             let Some(request)=request else {break;};
@@ -369,6 +370,18 @@ impl Connection {
                                 continue;
                             }
                             if matches!(command,Command::CancelProfile) {drop(profile.take());continue;}
+							if matches!(command,Command::StreamPreview{..}) {
+								drop(stream_preview.take());
+								let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+								stream_preview=Some(AbortTask(tokio::spawn(async move {
+									let event=api.execute(command).await;
+									let failure=match &event {Event::StreamPreview{result:Err(f),..} if f.ends_session()=>Some(*f),_=>None};
+									let error=emit(event).err().or(failure);
+									if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+									wake.request_repaint();
+								})));
+								continue;
+							}
                             if matches!(command,Command::Profile{..}) {
                                 drop(profile.take());
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
