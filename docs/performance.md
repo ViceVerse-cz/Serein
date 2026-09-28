@@ -1,3 +1,24 @@
+# Custom Rich Presence - September 28, 2026
+
+Baseline: `5dd38dde6432e7efe4484c450652a9c8849ec357`; task branch
+`feat/custom-rpc`, Windows x64, pinned Rust 1.98.1. The bundled plugin is
+404,606 bytes (SHA-256 `aa4ac3855855708e65430e73000eda62b176301b47cc79ecad10bc4889cb05b0`).
+This is an artifact-size measurement, not a runtime benchmark.
+
+Standard `cargo xtask package` baseline compilation failed with `rustc-LLVM
+ERROR: out of memory` during desktop release linking. The workspace check also
+exhausted the Windows paging file (OS error 1455), then LLVM memory with one
+Cargo job. Consequently executable, installed/compressed package deltas, native
+CPU/memory, reducer replay and frame latency are unmeasured; no performance
+improvement or non-regression is claimed. Other task builds were running on this
+machine, so it was not an isolated measurement environment.
+
+The editor uses existing native widgets; artwork resolution runs in the existing
+background activity worker. Configuration and resolved activity are each capped
+at 3 KiB, latest requests replace earlier requests, and Gateway publication keeps
+its existing rate limit. The combined event has a 4-KiB budget and omits secondary
+Spotify when necessary. These are enforced resource bounds, not measurements.
+
 # Lazy Fluent catalog loading - September 27, 2026
 
 Compared `a07ed34` before and after replacing Fluent's all-catalog static loader

@@ -200,7 +200,7 @@ exceed it, the host omits Spotify for that update and preserves custom activity
 and account status.
 
 Creators use `RichPresenceOutput` and the `rich_presence` capability; `storage`
-remains a separate grant. The [typed contract](extension-sdk-reference.md#custom-rich-presence)
+remains a separate grant. The [typed contract](extension-sdk-actions.md#custom-rich-presence)
 documents Set/Clear, bounds, timers and `Element::ActivityPreview`. Existing ABI v1
 plugins and original SDK output literals stay compatible. Unsupported older hosts
 reject the new capability. This is an unofficial service path: synthetic preview

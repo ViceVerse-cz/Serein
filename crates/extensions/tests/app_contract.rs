@@ -904,9 +904,10 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 		surface: Surface::AppEvent,
 	});
 	supported.validate().unwrap();
-	assert_eq!(caps.len(), 51);
+	assert!(host.supports("rich_presence"));
+	assert_eq!(caps.len(), 52);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 51);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 52);
 }
 
 #[test]

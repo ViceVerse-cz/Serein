@@ -462,7 +462,7 @@ Import the package into an offline `--demo` host first. A synthetic preview does
 not contact Discord or prove live interoperability. The real host requires the
 user's separate activity-sharing preference, resolves artwork outside rendering,
 and honors account visibility. The plugin cannot read credentials or perform
-network requests. Read the [full field/lifecycle reference](../../docs/extension-sdk-reference.md#custom-rich-presence)
+network requests. Read the [full field/lifecycle reference](../../docs/extension-sdk-actions.md#custom-rich-presence)
 before building a different presence editor.
 
 ## ABI version 1
