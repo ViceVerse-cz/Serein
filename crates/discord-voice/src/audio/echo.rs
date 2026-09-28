@@ -1,4 +1,7 @@
 //! Worker-owned speech processing; never runs in device callbacks.
+#[path = "dsp.rs"]
+mod dsp;
+use dsp::DspPlugin;
 use model::voice_settings::{NoiseSuppression, Processing, VoiceProcessing};
 use nnnoiseless::DenoiseState;
 use sonora::{
@@ -11,6 +14,8 @@ pub struct Echo {
 	processor: AudioProcessing,
 	gain: Option<AudioProcessing>,
 	noise: Option<Box<DenoiseState<'static>>>,
+	plugin: Option<DspPlugin>,
+	plugin_error: Option<&'static str>,
 	settings: Processing,
 }
 
@@ -35,6 +40,8 @@ impl Echo {
 			}),
 			gain: None,
 			noise: None,
+			plugin: None,
+			plugin_error: None,
 			settings: VoiceProcessing::from_legacy(false).effective(),
 		}
 	}
@@ -44,7 +51,13 @@ impl Echo {
 			return Err("Invalid microphone processing settings");
 		}
 		if settings == self.settings {
-			return Ok(());
+			return self.plugin_error.take().map_or(Ok(()), Err);
+		}
+		if settings.suppression != NoiseSuppression::Plugin {
+			self.plugin = None;
+			self.plugin_error = None;
+		} else if self.settings.suppression != NoiseSuppression::Plugin {
+			self.load_plugin();
 		}
 		if settings.suppression == NoiseSuppression::RnNoise && self.noise.is_none() {
 			self.noise = Some(noise_state());
@@ -89,7 +102,16 @@ impl Echo {
 			self.gain = None;
 		}
 		self.settings = settings;
-		Ok(())
+		self.plugin_error.take().map_or(Ok(()), Err)
+	}
+
+	fn load_plugin(&mut self) {
+		// Destroy history before creating another session; never retain two sessions.
+		self.plugin = None;
+		match DspPlugin::load() {
+			Ok(plugin) => self.plugin = Some(plugin),
+			Err(error) => self.plugin_error = Some(error),
+		}
 	}
 
 	pub fn reset(&mut self) {
@@ -100,6 +122,9 @@ impl Echo {
 		}
 		if self.noise.is_some() {
 			self.noise = Some(noise_state());
+		}
+		if self.plugin.is_some() {
+			self.load_plugin();
 		}
 	}
 
@@ -129,6 +154,7 @@ impl Echo {
 			};
 		}
 		let mut noise_time = Duration::ZERO;
+		let mut plugin_result = Ok(());
 		for chunk in frame.as_chunks_mut::<480>().0 {
 			let mut output = *chunk;
 			if self.settings.echo_cancellation
@@ -152,6 +178,21 @@ impl Echo {
 					noise_time += start.elapsed();
 				}
 			}
+			if let Some(plugin) = &mut self.plugin {
+				let start = time_noise.then(Instant::now);
+				let mut pcm = output.map(|s| (s * 32768.0).clamp(-32768.0, 32767.0) as i16);
+				match plugin.process(&mut pcm) {
+					Ok(()) => output = pcm.map(|s| (f32::from(s) / 32768.0).clamp(-1.0, 1.0)),
+					Err(error) => {
+						// Discard failed output and bypass until the user selects Plugin again.
+						self.plugin = None;
+						plugin_result = Err(error);
+					}
+				}
+				if let Some(start) = start {
+					noise_time += start.elapsed();
+				}
+			}
 			chunk.copy_from_slice(&output);
 		}
 		if let Some(gain) = &mut self.gain {
@@ -169,6 +210,6 @@ impl Echo {
 				0.0
 			};
 		}
-		Ok(noise_time)
+		plugin_result.map(|()| noise_time)
 	}
 }

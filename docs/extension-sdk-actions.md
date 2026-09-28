@@ -485,7 +485,7 @@ field, so JSON `null` is invalid.
 | `output_percent` | `Option<u16>` / integer or null | Output gain, 0-200 percent. |
 | `push_to_talk` | `Option<bool>` / boolean or null | Set the native push-to-talk preference. |
 | `input_profile` | `Option<String>` / string or null | `voice_isolation`, `studio` or `custom`. |
-| `suppression` | `Option<String>` / string or null | `off`, `rnnoise` or `webrtc`. |
+| `suppression` | `Option<String>` / string or null | `off`, `rnnoise`, `webrtc` or `plugin` (preview). |
 | `suppression_level` | `Option<u8>` / integer or null | Suppression level, 0-3. |
 | `echo_cancellation` | `Option<bool>` / boolean or null | Enable/disable echo cancellation. |
 | `automatic_gain` | `Option<bool>` / boolean or null | Enable/disable automatic gain. |
@@ -498,6 +498,14 @@ processing field, the selected profile supplies those starting values and the
 result becomes custom. Gain/push-to-talk-only changes do not change the profile.
 Settings use native runtime/persistence handling; hardware support and the
 existing call's mute controls still apply.
+
+`plugin` selects an externally installed native DSP library through the same
+Apply flow. It does not install a library or start a microphone. If the library
+is unavailable, Echo bypasses suppression and returns a microphone processing
+error. In this draft the unchanged worker treats that error as fatal and stops
+the call/preview; continuous Off fallback remains blocked on worker recovery.
+Other selected processing settings remain intact. Older hosts
+reject this new value. No proprietary library or model is included with Serein.
 
 ```json
 {"effects":[{"type":"app_action","action":{"type":"set_audio_settings","settings":{"output_percent":80,"input_profile":"studio","sensitivity_db":-50}}}]}

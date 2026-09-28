@@ -1501,7 +1501,7 @@ impl AudioSettingsPatch {
 			|| self
 				.suppression
 				.as_deref()
-				.is_some_and(|value| !matches!(value, "off" | "rnnoise" | "webrtc"))
+				.is_some_and(|value| !matches!(value, "off" | "rnnoise" | "webrtc" | "plugin"))
 			|| self.suppression_level.is_some_and(|value| value > 3)
 			|| self
 				.sensitivity_db

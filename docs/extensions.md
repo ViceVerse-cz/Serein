@@ -1,5 +1,9 @@
 # Community extensions
 
+The [native microphone DSP seam](native-dsp.md) is a separate, trusted-code
+interface. It is not a community Wasm package and does not inherit the sandbox
+or capability restrictions described on this page.
+
 Serein extensions are local, opt-in tools for the native client. The Extensions
 and Themes pages in Settings contain packages, links to their source, their
 requested capabilities and their review status. A plugin cannot directly call Discord, read credentials, open files or make

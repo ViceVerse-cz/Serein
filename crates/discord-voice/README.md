@@ -72,8 +72,9 @@ The offline debug example uses the same AEC wrapper as the worker. Hardware
 delay, long-term clock drift and echo quality remain unverified.
 
 macOS microphone authorization uses a small isolated Objective-C boundary in
-`src/audio/permission_macos.rs`. Only that module permits unsafe code; the rest
-of this crate denies it. The two AVFoundation class calls use the framework audio
+`src/audio/permission_macos.rs`. These OS calls permit unsafe code only in that
+module; the crate default remains deny. The optional native DSP loader has its
+own narrow boundary in `src/audio/dsp.rs`. The two AVFoundation class calls use the framework audio
 media constant and an owned completion block with a one-item result channel.
 Authorization runs on the device worker, before input creation; no callback or
 render-thread blocking and no camera/system-audio permissions are requested.
@@ -90,7 +91,8 @@ checks batched capture continuity and gate/stall flushing alongside synthetic AE
 The desktop persists Voice Isolation, Studio and Custom profiles via the shared
 `VoiceProcessing` model. Voice Isolation selects RNNoise, AEC3, digital AGC and
 −55 dBFS sensitivity; Studio retains only manual gain and privacy/permission gates.
-Custom selects Off, RNNoise (nnnoiseless 0.5.2), or WebRTC (levels 0–3),
+Custom selects Off, RNNoise (nnnoiseless 0.5.2), WebRTC (levels 0–3), or an
+owner-installed [native DSP plugin](../../docs/native-dsp.md), with
 independent echo cancellation/AGC and optional −80..=0 dBFS sensitivity. Sensitivity
 uses 3 dB hysteresis, 200 ms release and a 5 ms ramp. Local activity uses the selected
 threshold, or −70 dBFS when open; remote indicators remain display-only at −45 dBFS.

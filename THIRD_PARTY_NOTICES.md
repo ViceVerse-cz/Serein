@@ -1,5 +1,11 @@
 # Third-party notices
 
+Optional native microphone DSP loading directly uses **libloading 0.8.9** (ISC),
+already present in the workspace lockfile. The unmodified upstream license is
+bundled at `assets/licenses/files/libloading-0.8.9-LICENSE`. Only the open loader
+and ABI ship with Serein; externally installed native DSP implementations and
+their models/licenses are not bundled or covered by these notices.
+
 Discord Lottie sticker previews use **rasterlottie 0.2.2** (MIT OR Apache-2.0)
 with default features disabled. Serein uses the MIT option; its unmodified MIT
 license is retained in `assets/licenses/files/rasterlottie-0.2.2-LICENSE-MIT`.
