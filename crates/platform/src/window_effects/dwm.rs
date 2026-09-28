@@ -6,6 +6,9 @@
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::UI::Controls::MARGINS;
+use windows::Win32::UI::WindowsAndMessaging::{
+	SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
+};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
@@ -22,6 +25,19 @@ pub fn extend_frame(window: &Window, extended: bool) -> Result<(), String> {
 		cyBottomHeight: inset,
 	};
 	// SAFETY: winit keeps this HWND alive for the borrowed window, and `margins` outlives the call.
-	unsafe { DwmExtendFrameIntoClientArea(HWND(handle.hwnd.get() as _), &margins) }
-		.map_err(|error| error.to_string())
+	let hwnd = HWND(handle.hwnd.get() as _);
+	// Re-run winit's undecorated WM_NCCALCSIZE handling after DWM changes the frame.
+	unsafe { DwmExtendFrameIntoClientArea(hwnd, &margins) }.map_err(|error| error.to_string())?;
+	unsafe {
+		SetWindowPos(
+			hwnd,
+			None,
+			0,
+			0,
+			0,
+			0,
+			SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+		)
+	}
+	.map_err(|error| error.to_string())
 }
