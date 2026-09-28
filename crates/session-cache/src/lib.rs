@@ -552,14 +552,28 @@ fn patch_bytes(patch: &MessagePatch) -> usize {
 		_ => 0,
 	}
 }
+// Reuse ordinary edit allocations, but do not retain a large field after it shrinks.
+// The fourfold / 1 KiB hysteresis avoids reallocating on small or oscillating edits.
+fn oversized_capacity(capacity: usize, len: usize, item_size: usize) -> bool {
+	capacity.saturating_mul(item_size) > 1024 && capacity > len.saturating_mul(4)
+}
+fn clone_compact_vec<T: Clone>(target: &mut Vec<T>, source: &Vec<T>) {
+	if source.is_empty() {
+		*target = Vec::new();
+	} else if oversized_capacity(target.capacity(), source.len(), size_of::<T>()) {
+		*target = source.clone();
+	} else {
+		target.clone_from(source);
+	}
+}
 /// Apply a previously bounded patch (the caller must validate component and payload limits).
 pub fn apply_patch(message: &mut Message, patch: &MessagePatch) {
 	if matches!(patch.edited,Patch::Value(new) if message.edited_at.is_some_and(|old|new<old)) {
 		return;
 	}
 	match &patch.mentions {
-		Patch::Value(users) => message.mentions.clone_from(users),
-		Patch::Null => message.mentions.clear(),
+		Patch::Value(users) => clone_compact_vec(&mut message.mentions, users),
+		Patch::Null => message.mentions = Vec::new(),
 		Patch::Absent => {}
 	}
 	match &patch.reactions {
@@ -584,13 +598,13 @@ pub fn apply_patch(message: &mut Message, patch: &MessagePatch) {
 		return;
 	}
 	match &patch.sticker_items {
-		Patch::Value(s) => message.sticker_items.clone_from(s),
-		Patch::Null => message.sticker_items.clear(),
+		Patch::Value(s) => clone_compact_vec(&mut message.sticker_items, s),
+		Patch::Null => message.sticker_items = Vec::new(),
 		Patch::Absent => {}
 	}
 	match &patch.components {
-		Patch::Value(c) => message.components.clone_from(c),
-		Patch::Null => message.components.clear(),
+		Patch::Value(c) => clone_compact_vec(&mut message.components, c),
+		Patch::Null => message.components = Vec::new(),
 		Patch::Absent => {}
 	}
 	match &patch.application_id {
@@ -599,8 +613,14 @@ pub fn apply_patch(message: &mut Message, patch: &MessagePatch) {
 		Patch::Absent => {}
 	}
 	match &patch.content {
-		Patch::Value(s) => message.content.clone_from(s),
-		Patch::Null => message.content.clear(),
+		Patch::Value(s) => {
+			if s.is_empty() || oversized_capacity(message.content.capacity(), s.len(), 1) {
+				message.content = s.clone();
+			} else {
+				message.content.clone_from(s);
+			}
+		}
+		Patch::Null => message.content = String::new(),
 		Patch::Absent => {}
 	}
 	match &patch.edited {
@@ -615,13 +635,13 @@ pub fn apply_patch(message: &mut Message, patch: &MessagePatch) {
 		Patch::Absent => {}
 	}
 	match &patch.embeds {
-		Patch::Value(embeds) => message.embeds.clone_from(embeds),
-		Patch::Null => message.embeds.clear(),
+		Patch::Value(embeds) => clone_compact_vec(&mut message.embeds, embeds),
+		Patch::Null => message.embeds = Vec::new(),
 		Patch::Absent => {}
 	}
 	match &patch.attachments {
-		Patch::Value(attachments) => message.attachments.clone_from(attachments),
-		Patch::Null => message.attachments.clear(),
+		Patch::Value(attachments) => clone_compact_vec(&mut message.attachments, attachments),
+		Patch::Null => message.attachments = Vec::new(),
 		Patch::Absent => {}
 	}
 	match patch.embeds_suppressed {
@@ -636,6 +656,175 @@ pub fn apply_patch(message: &mut Message, patch: &MessagePatch) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	fn empty_patch(id: u64) -> MessagePatch {
+		MessagePatch {
+			id: Id(id),
+			channel: Id(1),
+			sticker_items: Patch::Absent,
+			flags: Patch::Absent,
+			components: Patch::Absent,
+			application_id: Patch::Absent,
+			extra_content: Default::default(),
+			reactions: Patch::Absent,
+			content: Patch::Absent,
+			mentions: Patch::Absent,
+			edited: Patch::Absent,
+			embeds: Patch::Absent,
+			embeds_suppressed: Patch::Absent,
+			attachments: Patch::Absent,
+		}
+	}
+
+	#[test]
+	fn empty_patches_release_field_allocations() {
+		for null in [false, true] {
+			let mut row = message(1);
+			row.content = "x".repeat(8192);
+			row.mentions = Vec::with_capacity(100);
+			row.sticker_items = Vec::with_capacity(3);
+			row.components = Vec::with_capacity(40);
+			row.embeds = Vec::with_capacity(10);
+			row.attachments = Vec::with_capacity(10);
+			let mut patch = empty_patch(1);
+			patch.content = if null {
+				Patch::Null
+			} else {
+				Patch::Value(String::new())
+			};
+			patch.mentions = if null {
+				Patch::Null
+			} else {
+				Patch::Value(vec![])
+			};
+			patch.sticker_items = if null {
+				Patch::Null
+			} else {
+				Patch::Value(vec![])
+			};
+			patch.components = if null {
+				Patch::Null
+			} else {
+				Patch::Value(vec![])
+			};
+			patch.embeds = if null {
+				Patch::Null
+			} else {
+				Patch::Value(vec![])
+			};
+			patch.attachments = if null {
+				Patch::Null
+			} else {
+				Patch::Value(vec![])
+			};
+			apply_patch(&mut row, &patch);
+			assert!(row.content.is_empty());
+			assert_eq!(row.content.capacity(), 0);
+			assert_eq!(row.mentions.capacity(), 0);
+			assert_eq!(row.sticker_items.capacity(), 0);
+			assert_eq!(row.components.capacity(), 0);
+			assert_eq!(row.embeds.capacity(), 0);
+			assert_eq!(row.attachments.capacity(), 0);
+		}
+	}
+
+	#[test]
+	fn shrinking_patches_release_excess_capacity_and_preserve_budget_accounting() {
+		let mut timeline = Timeline::default();
+		let mut row = message(1);
+		row.content = "x".repeat(8192);
+		row.mentions = Vec::with_capacity(100);
+		row.mentions.push(row.author.clone());
+		timeline.insert(row, false, false).unwrap();
+		let before = timeline.bytes();
+		let mut patch = empty_patch(1);
+		patch.content = Patch::Value("short".into());
+		patch.mentions = Patch::Value(vec![message(1).author]);
+		timeline.begin_page(false);
+		timeline.patch(patch).unwrap();
+		let row = timeline.get(Id(1)).unwrap();
+		assert_eq!(row.content, "short");
+		assert_eq!(row.content.capacity(), 5);
+		assert_eq!(row.mentions.len(), 1);
+		assert_eq!(row.mentions.capacity(), 1);
+		assert_eq!(timeline.bytes(), row.bytes());
+		assert!(before - timeline.bytes() >= 8192 - 5 + 99 * size_of::<model::User>());
+		// The smaller allocation must not weaken protection against an older history page.
+		timeline.finish_page(vec![message(1)], false).unwrap();
+		assert_eq!(timeline.get(Id(1)).unwrap().content, "short");
+	}
+
+	#[test]
+	fn ordinary_edits_reuse_capacity_and_stale_or_absent_patches_keep_content() {
+		let mut row = message(1);
+		row.content = "x".repeat(8192);
+		let pointer = row.content.as_ptr();
+		let mut patch = empty_patch(1);
+		apply_patch(&mut row, &patch);
+		assert_eq!(row.content.as_ptr(), pointer);
+		patch.content = Patch::Value("y".repeat(4096));
+		patch.edited = Patch::Value(2);
+		apply_patch(&mut row, &patch);
+		assert_eq!(row.content.as_ptr(), pointer);
+		assert_eq!(row.content.capacity(), 8192);
+		patch.content = Patch::Null;
+		patch.edited = Patch::Value(1);
+		apply_patch(&mut row, &patch);
+		assert_eq!(row.content.len(), 4096);
+		assert_eq!(row.content.as_ptr(), pointer);
+	}
+
+	#[test]
+	#[ignore = "synthetic release workload; run with --release --ignored --nocapture"]
+	fn edited_message_capacity_workload() {
+		for source_len in [64, 7000] {
+			let mut samples = Vec::new();
+			let mut retained = (0, 0, 0);
+			for sample in 0..6 {
+				let mut elapsed = std::time::Duration::ZERO;
+				for _ in 0..100 {
+					let mut timeline = Timeline::default();
+					for id in 1..=MAX_MESSAGES as u64 {
+						let mut row = message(id);
+						row.content = "x".repeat(source_len);
+						timeline.insert(row, false, false).unwrap();
+					}
+					assert_eq!(timeline.len(), MAX_MESSAGES);
+					let before = timeline.bytes();
+					let patches: Vec<_> = (1..=MAX_MESSAGES as u64)
+						.map(|id| {
+							let mut patch = empty_patch(id);
+							patch.content = Patch::Value("edited".into());
+							patch
+						})
+						.collect();
+					let start = std::time::Instant::now();
+					for patch in patches {
+						std::hint::black_box(&mut timeline).patch(patch).unwrap();
+					}
+					elapsed += start.elapsed();
+					assert_eq!(timeline.len(), MAX_MESSAGES);
+					assert!(timeline.iter().all(|row| row.content == "edited"));
+					retained = (
+						before,
+						timeline.bytes(),
+						timeline
+							.iter()
+							.map(|row| row.content.capacity())
+							.sum::<usize>(),
+					);
+				}
+				if sample != 0 {
+					samples.push(elapsed.as_secs_f64() * 1_000_000.0 / 100.0);
+				}
+			}
+			samples.sort_by(f64::total_cmp);
+			eprintln!(
+				"edited_message_capacity {source_len}->6 bytes: 500 rows; before {} / after {} estimated bytes; content capacity {}; median {:.3} us per 500 edits; five samples {samples:?}",
+				retained.0, retained.1, retained.2, samples[2]
+			);
+		}
+	}
+
 	#[test]
 	fn forwarded_snapshot_survives_outer_body_updates() {
 		let mut original = message(1);
