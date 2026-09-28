@@ -59,7 +59,7 @@ may not be available in a released build.
 | [Conversation Inspector](conversation-inspector/src/lib.rs) | Rich summaries, forum flags, typing/pins and host discovery |
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
 | [Message Delete Protector](message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
-| [Emoji & Sticker Images](emoji-sticker-images/src/lib.rs) | Activation enabling image attachment mode |
+| [Emoji & Sticker Images](emoji-sticker-images/src/lib.rs) | Activation enabling image attachment fallback |
 | [Custom Rich Presence](custom-rpc/README.md) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
 
 For this tutorial, use `app-toolbox/` in a development copy. Keep its `Cargo.toml`,
@@ -429,10 +429,12 @@ are never supplied to this plugin, written to disk, or recovered from before the
 were loaded. Disable, logout, permission revocation and eviction release them.
 
 Emoji & Sticker Images requests `image_sharing` and returns `image_sharing: true`
-from activation. Selecting artwork authorizes an immediate image send after
-validation, preserving text drafts. Wasm receives no image bytes and cannot fetch
-or send anything. Disable/logout revoke the option. Only an activation action
-with the grant may enable this mode.
+from activation. Emoji and stickers that are usable in the conversation keep their
+normal Discord send path; otherwise selecting artwork authorizes an immediate image
+fallback after validation, preserving text drafts. Animated APNG sticker fallbacks
+are sent as GIF attachments. Wasm receives no image bytes and cannot fetch or send
+anything. Disable/logout revoke the option. Only an activation action with the grant
+may enable this mode.
 
 There is at most one activation action per plugin, run on enable/account load.
 Activation itself does not require deleted-message access. Granted `appearance`

@@ -307,6 +307,15 @@ mod tests {
 	}
 
 	#[test]
+	fn artwork_fallback_hint_is_available_in_every_language() {
+		for language in Language::ALL {
+			let hint = language
+				.try_text("extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images");
+			assert!(hint.is_some_and(|hint| !hint.is_empty()), "{language:?}");
+		}
+	}
+
+	#[test]
 	fn keeps_only_the_last_requested_catalog_loaded() {
 		ACTIVE_BUNDLE.with_borrow_mut(|active| *active = None);
 		assert_eq!(Language::English.text("page-general"), "General");

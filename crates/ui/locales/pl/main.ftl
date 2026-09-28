@@ -934,6 +934,7 @@ extensions-ui-preview-modal-creator-preview = Podgląd twórcy
 extensions-ui-preview-modal-example-deleted-message-appearance = Przykładowy wygląd usuniętej wiadomości
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = Wybranie grafiki powoduje wysłanie jej jako załącznika graficznego.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Niedostępne emoji i naklejki są wysyłane jako załączniki graficzne.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = Nie ma jeszcze żadnych rozszerzeń
 # Context: settings

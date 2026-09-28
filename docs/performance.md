@@ -19,6 +19,31 @@ at 3 KiB, latest requests replace earlier requests, and Gateway publication keep
 its existing rate limit. The combined event has a 4-KiB budget and omits secondary
 Spotify when necessary. These are enforced resource bounds, not measurements.
 
+# Native-first plugin artwork fallback - September 26, 2026
+
+Baseline `48e442715a0db51f54eedfabd99d1f8dba4369a3`, compared with `5f4dfdb` on
+Windows 11 Home 10.0.26200, Ryzen 7 7800X3D, 31.1 GiB RAM and pinned Rust 1.98.1.
+Both standard voice-enabled `cargo xtask package` builds used locked dependencies
+without demo/developer features. Complete distribution ZIPs use .NET `ZipFile`
+with `CompressionLevel.Optimal`; baseline and updated distributions were separate.
+NSIS was unavailable, so installer executables were not generated. The updated
+package's first final link hit MSVC `LNK1318` on its PDB; a serialized retry against
+the same compiled artifacts passed.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable bytes | 73,543,168 | 73,545,216 | +2,048 / +0.0028% |
+| Installed package bytes | 77,645,994 | 77,648,042 | +2,048 / +0.0026% |
+| Portable ZIP bytes | 43,363,325 | 43,363,214 | -111 / -0.0003% (compression noise) |
+
+While the picker is open, eligibility and permission checks run for visible cells
+on each frame, not only when artwork is chosen. The review follow-up reuses each
+cell's known guild/emoji for composer eligibility instead of scanning all guild
+emoji catalogs again. Actual selection still resolves the emoji ID against current
+state; reaction eligibility retains the existing core validation path. No polling
+or additional cache is introduced. Native CPU/RSS/frame timing remains unmeasured;
+synthetic routing and multi-frame GIF tests do not establish live interoperability.
+
 # Lazy Fluent catalog loading - September 27, 2026
 
 Compared `a07ed34` before and after replacing Fluent's all-catalog static loader

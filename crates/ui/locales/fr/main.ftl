@@ -934,6 +934,7 @@ extensions-ui-preview-modal-creator-preview = Aperçu du créateur
 extensions-ui-preview-modal-example-deleted-message-appearance = Exemple d'apparence d'un message supprimé
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = La sélection d’une œuvre d’art l’envoie sous forme de pièce jointe.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Les émojis et autocollants indisponibles sont envoyés en pièces jointes sous forme d’images.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = Aucune extension pour l'instant
 # Context: settings

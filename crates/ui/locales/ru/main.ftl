@@ -934,6 +934,7 @@ extensions-ui-preview-modal-creator-preview = Предварительный п�
 extensions-ui-preview-modal-example-deleted-message-appearance = Пример появления удаленного сообщения
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = При выборе изображения оно отправляется как вложение изображения.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Недоступные эмодзи и стикеры отправляются как вложения с изображениями.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = Расширений пока нет
 # Context: settings

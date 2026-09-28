@@ -72,7 +72,7 @@ impl Browser {
 		state: &State,
 		avatars: &mut Avatars,
 		hovered: &mut Option<(Sticker, String)>,
-		as_image: bool,
+		image_fallback: bool,
 	) -> Option<Sticker> {
 		let colors = design::palette(ui);
 		let sections = sections(state);
@@ -195,15 +195,13 @@ impl Browser {
 									ui.horizontal(|ui| {
 										for sticker in row {
 											ui.push_id(sticker.id, |ui| {
-												let enabled = if as_image {
-													sticker.valid()
+												let enabled = state.can_send_sticker(sticker)
+													|| (image_fallback
+														&& sticker.valid() && sticker.available
 														&& state.selected.is_some_and(|channel| {
 															state.can_send(channel)
 																&& state.can_attach(channel)
-														})
-												} else {
-													state.can_send_sticker(sticker)
-												};
+														}));
 												let response = ui
 													.add_enabled_ui(enabled, |ui| {
 														avatars.sticker_image(
@@ -228,7 +226,7 @@ impl Browser {
 												if !enabled {
 													response.on_disabled_hover_text(
 														crate::i18n::translate_if_key(
-															if !as_image
+															if !image_fallback
 																&& state
 																	.sticker_requires_nitro(sticker)
 															{

@@ -113,6 +113,10 @@ entitlements do not unlock external stickers. Local selection and send checks
 share this gate; Discord remains authoritative. There is no purchase flow. See
 [Discord subscription benefits](https://support.discord.com/hc/en-us/articles/115000435108-What-are-Nitro-Nitro-Basic).
 
+When the Emoji & Sticker Images plugin is enabled, stickers that pass this native
+gate still send as stickers. Only unavailable native selections use the attachment
+fallback; animated APNG fallbacks are transcoded to GIF to retain animation.
+
 Received `sticker_items` and legacy `stickers` render transparent artwork in chat.
 Clicking opens details and related previews; View More Stickers opens the source
 in the picker. Standard packs and missing metadata load only on demand. Guild
@@ -817,8 +821,10 @@ Catalog entries must be explicitly available and unmanaged, with known role rest
 matched against the account's known source-server roles. A destination guild must allow
 USE_EXTERNAL_EMOJIS for another server's emoji; DMs have no guild permission gate. New custom
 reactions use the same eligibility rules, while existing reaction/removal semantics remain.
-Unknown eligibility remains disabled. Account/Nitro entitlement inference is not implemented;
-Discord remains authoritative for actual sends and reactions, including entitlement rejection.
+Unknown eligibility remains disabled. With the Emoji & Sticker Images plugin enabled,
+the current session's confirmed Nitro entitlement chooses the normal custom-emoji path
+when available and the image fallback otherwise. Discord remains authoritative for actual
+sends and reactions, including entitlement rejection.
 Animated emoji are inserted with their original animated markup and shown as still previews.
 Clicking a rendered message, embed or profile emoji opens a native information card. Standard
 emoji show their shortcode and default-emoji explanation; customs use their catalog name and

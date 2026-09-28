@@ -935,6 +935,7 @@ extensions-ui-preview-modal-creator-preview = Creator preview
 extensions-ui-preview-modal-example-deleted-message-appearance = Example deleted-message appearance
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = Selecting artwork sends it as an image attachment.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Unavailable emoji and stickers fall back to image attachments.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = No extensions yet
 # Context: settings

@@ -799,7 +799,7 @@ impl ExtensionUi {
 									.capabilities
 									.contains(&Capability::ImageSharing)
 								{
-									"extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment"
+									"extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images"
 								} else {
 									"extensions-ui-preview-modal-example-deleted-message-appearance"
 								},
