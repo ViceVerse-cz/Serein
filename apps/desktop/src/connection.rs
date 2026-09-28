@@ -25,6 +25,7 @@ pub struct Connection {
 	pub typing: mpsc::Receiver<Envelope>,
 	pub terminal: watch::Receiver<Option<Failure>>,
 	pub share_activity: watch::Sender<bool>,
+	pub custom_rich_presence: watch::Sender<Option<extensions::CustomRichPresence>>,
 	pub own_presence: watch::Sender<model::OwnPresence>,
 	/// Local edits only. Seeding from Discord does not publish through this watch.
 	pub presence_edits: watch::Sender<Option<model::OwnPresence>>,
@@ -71,6 +72,7 @@ impl Connection {
 		let (typing_send, typing) = mpsc::channel(8);
 		let (finished, terminal) = watch::channel(None);
 		let (share_activity, share_receive) = watch::channel(false);
+		let (custom_rich_presence, custom_receive) = watch::channel(None);
 		let (own_presence, presence_receive) = watch::channel(model::OwnPresence::default());
 		let (presence_edits, presence_edit_events) = watch::channel(None);
 		let (account_presence_send, account_presence) = watch::channel(None);
@@ -128,7 +130,7 @@ impl Connection {
 				let (activity_send,activity_receive)=watch::channel(None);
 				let (member_query_send, member_query_receive) = watch::channel([None, None]);
 				let _sharing_task=AbortTask(tokio::spawn(run_activity_sharing(api.clone(),share_receive.clone(),sharing_requests,sharing_report,finished.clone(),wake.clone())));
-				let _activity_task=AbortTask(tokio::spawn(crate::game_activity::run(share_receive,activity_send,game_report,invite_send,wake.clone(),user.clone(),api.clone())));
+				let _activity_task=AbortTask(tokio::spawn(crate::game_activity::run((share_receive,custom_receive),activity_send,game_report,invite_send,wake.clone(),user.clone(),api.clone())));
 				let _spotify_task=AbortTask(tokio::spawn(crate::spotify::run(api.clone(),user.id,presence_receive.clone(),spotify_send,wake.clone())));
                 let dm_channels=Arc::new(Mutex::new(BTreeSet::new()));
                 let gateway_channels=dm_channels.clone();
@@ -442,6 +444,7 @@ impl Connection {
 			account_presence,
 			presence_error,
 			game_activity,
+			custom_rich_presence,
 			spotify_activity,
 			rpc_invite,
 			activity_observation,

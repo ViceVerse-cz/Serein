@@ -260,6 +260,9 @@ fn extension_fixture(
 	Box<dyn std::error::Error>,
 > {
 	let bytes: &[u8] = match id {
+		"custom-rpc" => {
+			include_bytes!("../../../examples/extensions/packages/custom-rpc.serein-extension")
+		}
 		"serein-ocean" => include_bytes!("../../../extensions/ocean.serein-extension"),
 		"message-delete-protector" => include_bytes!(
 			"../../../examples/extensions/packages/message-delete-protector.serein-extension"
@@ -279,7 +282,29 @@ fn extension_fixture(
 	};
 	let package = extensions::parse_package(bytes)?;
 	let invocation = extensions::Invocation {
-		action: "activate".into(),
+		action: if id == "custom-rpc" {
+			"preview"
+		} else {
+			"activate"
+		}
+		.into(),
+		values: if id == "custom-rpc" {
+			[
+				("application-id", "123456789"),
+				("name", "Stargazing"),
+				("details", "Exploring the night sky"),
+				("state", "In the observatory"),
+				("button1-label", "Visit the observatory"),
+				("button1-url", "https://example.com/observatory"),
+				("party-current", "2"),
+				("party-max", "4"),
+			]
+			.into_iter()
+			.map(|(k, v)| (k.into(), v.into()))
+			.collect()
+		} else {
+			Default::default()
+		},
 		..Default::default()
 	};
 	let output = if package.theme.is_none() {
@@ -609,13 +634,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					}))],
 				});
 				messaging.preview_profile(user);
-			} else if let Some((package, _invocation, result)) = fixture {
+			} else if let Some((package, invocation, result)) = fixture {
 				prime_extension_chat(&mut state);
 				if let Some(theme) = package.theme.as_ref() {
 					ui::design::set_extension_theme(Some(theme));
 					ui::design::apply(&cc.egui_ctx);
 				}
 				if let Some(output) = result {
+					if package.manifest.id == "custom-rpc" {
+						messaging.extensions.set_entries(vec![ui::ExtensionEntry {
+							description: "Custom activity editor".into(),
+							preview: None,
+							theme_preview: None,
+							cover_image: None,
+							local_theme: false,
+							manifest: package.manifest.clone(),
+							reviewed: true,
+							sha256: String::new(),
+							download_bytes: 0,
+							enabled: true,
+							cleanup_pending: false,
+							update_available: false,
+							update_manifest: None,
+						}]);
+						messaging.extensions.present_output(
+							"custom-rpc".into(),
+							invocation,
+							ui::ExtensionContext::panel(&state),
+							output.clone(),
+							&state,
+						);
+					}
 					messaging.image_sharing_enabled = output.image_sharing;
 					if output.image_sharing {
 						test_support::seed_stickers(&mut state);

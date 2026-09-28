@@ -33,6 +33,7 @@ mod extension_admin_actions;
 mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
+mod rich_presence;
 mod theme_editor;
 mod thread_create;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
@@ -3442,6 +3443,8 @@ impl MessagingUi {
 			state,
 			&mut self.draft_changes,
 			self.editing.is_some(),
+			&mut self.avatars,
+			(self.game_activity_status, self.share_game_activity),
 		) && let Err(error) = self.apply_extension_effect(&ctx, state, effect, &mut commands)
 		{
 			self.extensions.report_error(error);

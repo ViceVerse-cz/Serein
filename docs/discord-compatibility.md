@@ -1,5 +1,30 @@
 # Discord compatibility — checked 2026-09-10
 
+## Custom Rich Presence - September 28, 2026
+
+The bundled **Custom Rich Presence** plugin adds an independent native implementation of
+[Vencord CustomRPC](https://vencord.dev/plugins/CustomRPC). Enable it in Extensions, open its
+editor, enter a nonzero Discord application ID and name, then Preview or Apply. Playing,
+Streaming, Listening, Watching and Competing support details/state links, two artwork slots,
+two link buttons, party size and elapsed/local-midnight/custom UTC timers. A draft preview
+uses placeholder artwork; Apply resolves registered keys and public HTTPS images using the
+existing Discord asset service. The editor reports sharing and resolution errors.
+
+Saved settings resume on plugin activation. Stop preserves settings but disables resume;
+disabling removes the contribution and extension data. Custom presence overrides detected
+activity while sharing is enabled, and Stop restores detected activity. Invisible suppresses
+publication. LocalDay refreshes once a minute and fails explicitly if native timezone lookup
+is unavailable. The plugin requires an application ID even for text-only presence.
+
+Both author configuration and resolved activity are bounded to 3 KiB of serialized JSON.
+The aggregate Gateway packet stays within the documented 4-KiB sending limit; linked Spotify
+is omitted when it cannot fit alongside the chosen activity and custom status. All limits are
+byte limits, including JSON escaping. No plugin networking, credentials or reactive publishing
+is exposed. The native card shows text, artwork and timers; the editor additionally previews
+button labels and party size. Peer visibility and service acceptance of these unofficial
+normal-account rich-presence fields remain unverified; synthetic tests do not establish them.
+
+
 ## Message pictures and gifv - September 23, 2026
 
 A single chat image fits inside 550 by 350 points, the 11 to 7 mosaic cap used by the official client.

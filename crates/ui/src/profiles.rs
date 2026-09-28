@@ -199,9 +199,8 @@ pub(crate) fn activity_card(
 								},
 							);
 						});
-					} else if let Some(elapsed) = activity
-						.started_at
-						.and_then(|start| activity_elapsed(start, now))
+					} else if let Some(elapsed) =
+						activity_timer(activity.started_at, activity.ends_at, now)
 					{
 						let color = design::palette(ui).positive;
 						ui.horizontal(|ui| {
@@ -219,7 +218,11 @@ pub(crate) fn activity_card(
 							ui.label(RichText::new(elapsed).monospace().size(12.0).color(color));
 						});
 					}
-					if activity.started_at.is_some() && ui.is_rect_visible(ui.min_rect()) {
+					if activity
+						.ends_at
+						.map_or(activity.started_at.is_some(), |end| end > now)
+						&& ui.is_rect_visible(ui.min_rect())
+					{
 						ui.ctx()
 							.request_repaint_after(std::time::Duration::from_secs(1));
 					}
@@ -329,6 +332,15 @@ fn activity_row(
 			.selectable(false),
 	);
 	response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn activity_timer(start: Option<u64>, end: Option<u64>, now: u64) -> Option<String> {
+	match end {
+		Some(end) => {
+			activity_elapsed(0, end.saturating_sub(now)).map(|time| format!("{time} remaining"))
+		}
+		None => start.and_then(|start| activity_elapsed(start, now)),
+	}
 }
 
 fn activity_elapsed(start: u64, now: u64) -> Option<String> {
@@ -2429,6 +2441,26 @@ mod tests {
 			[false, true, false]
 		);
 	}
+	#[test]
+	fn countdown_takes_precedence_and_stops_at_zero() {
+		assert_eq!(
+			activity_timer(None, Some(131_000), 1_000).as_deref(),
+			Some("2:10 remaining")
+		);
+		assert_eq!(
+			activity_timer(Some(0), Some(131_000), 1_000).as_deref(),
+			Some("2:10 remaining")
+		);
+		assert_eq!(
+			activity_timer(None, Some(131_000), 132_000).as_deref(),
+			Some("0:00 remaining")
+		);
+		assert_eq!(
+			activity_timer(Some(1_000), None, 131_000).as_deref(),
+			Some("2:10")
+		);
+	}
+
 	#[test]
 	fn rich_activity_card_keeps_compact_text_badge_and_elapsed_time() {
 		assert_eq!(activity_elapsed(1_000, 131_000).as_deref(), Some("2:10"));

@@ -24,6 +24,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "custom-rpc"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serein-extension-sdk",
+]
+
+[[package]]
 name = "emoji-sticker-images"
 version = "1.0.0"
 dependencies = [

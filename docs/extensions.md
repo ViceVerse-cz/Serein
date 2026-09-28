@@ -120,7 +120,7 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 51 capabilities, with at most 64 distinct declarations per manifest.
+supports 52 capabilities, with at most 64 distinct declarations per manifest.
 
 > **Preview SDK — PR #411, not yet released.** `channel_control`,
 > `server_control`, `role_control`, `moderation_control` and `media_control`, plus
@@ -132,6 +132,7 @@ supports 51 capabilities, with at most 64 distinct declarations per manifest.
 | `selected_message` | Read selected message text | A user-invoked `message` action only |
 | `composer` | Read the current draft and propose replacement | A `composer` action; replacement requires Apply |
 | `storage` | Read/replace one opaque local UTF-8 value | Per-account/plugin; 1 MiB disk limit and 256 KiB invocation budget |
+| `rich_presence` | Contribute one bounded custom activity and restore it during activation | Preview; explicit panel/activation actions only; separate activity-sharing preference; revoked on disable/account change |
 | `deleted_messages` | Enable host retention of already-loaded deleted messages | Activation only; bounded session memory, no deleted text sent to Wasm |
 | `image_sharing` | Enable host emoji/sticker image attachment mode | Activation only; picker selection authorizes sending, Wasm receives no image bytes |
 | `appearance` | Return a bounded declarative theme overlay | Native colors/control metrics; no arbitrary drawing |
@@ -176,6 +177,34 @@ supports 51 capabilities, with at most 64 distinct declarations per manifest.
 | `role_control` | Propose creating, editing, moving or deleting roles | Apply; native role hierarchy and permission checks |
 | `moderation_control` | Propose role assignment, nicknames, kicks, prune preview/execution and member-list visibility | Apply; native hierarchy/permission checks; destructive actions are identified |
 | `media_control` | Propose opening the native screen-share picker or stopping screen share | Apply; current-call checks; no source list or captured media reaches Wasm |
+
+### Custom Rich Presence
+
+The preview [Custom Rich Presence plugin](../examples/extensions/custom-rpc)
+provides a native editor with validated fields and a local preview. It covers
+activity type, application ID/name, details/state and links, large/small artwork,
+two buttons, party size and timers. **Preview changes** is local; **Apply presence**
+saves the configuration and contributes it through the host's presence pipeline.
+Sharing must be enabled separately in Serein; the plugin does not turn it on.
+
+**Stop presence** removes the contribution and disables saved automatic resume
+while retaining the last applied fields. **Disable** removes the package and its
+saved settings under the ordinary extension lifecycle. Account changes and logout
+also revoke pending/current contributions. When several plugins contribute an
+activity, the first in ascending plugin-ID order wins, within the existing limit
+of eight installed plugins. Custom activity takes precedence over detected game
+activity, which can resume when it is cleared.
+Custom configurations and resolved activities each have a 3-KiB serialized limit.
+The complete Gateway presence payload has a 4-KiB cap; when adding Spotify would
+exceed it, the host omits Spotify for that update and preserves custom activity
+and account status.
+
+Creators use `RichPresenceOutput` and the `rich_presence` capability; `storage`
+remains a separate grant. The [typed contract](extension-sdk-reference.md#custom-rich-presence)
+documents Set/Clear, bounds, timers and `Element::ActivityPreview`. Existing ABI v1
+plugins and original SDK output literals stay compatible. Unsupported older hosts
+reject the new capability. This is an unofficial service path: synthetic preview
+and sandbox checks are not proof of cross-client Discord behavior.
 
 ### App snapshots and confirmed commands
 
@@ -428,7 +457,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 10,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 64 distinct | Only the 51 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 64 distinct | Only the 52 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |

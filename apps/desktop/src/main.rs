@@ -2680,6 +2680,15 @@ impl Desktop {
 		let mut own_activity = None;
 		self.messaging.game_activity_status = self.game_activity.status();
 		if let Some(connection) = &self.connection {
+			let custom_changed = self.extensions.take_rich_presence_change();
+			let custom = self.extensions.rich_presence();
+			connection.custom_rich_presence.send_if_modified(|current| {
+				if !custom_changed && current.as_ref() == custom {
+					return false;
+				}
+				*current = custom.cloned();
+				true
+			});
 			connection.share_activity.send_if_modified(|enabled| {
 				if *enabled == self.game_activity.enabled {
 					return false;

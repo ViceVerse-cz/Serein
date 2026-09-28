@@ -119,6 +119,10 @@ pub struct Starter {
 
 pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 	let packages: &[(&'static [u8], &'static str)] = &[
+		(
+			include_bytes!("../../../examples/extensions/packages/custom-rpc.serein-extension"),
+			"Create a custom profile activity with artwork, buttons and timers. Preview, apply or stop it from a native editor.",
+		),
 		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!(
@@ -202,13 +206,13 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 #[cfg(feature = "demo")]
 pub fn demo_check_examples() -> Result<bool, String> {
 	let starters = starters()?;
-	if starters.len() != 11
+	if starters.len() != 12
 		|| starters
 			.iter()
 			.filter(|entry| entry.theme.is_some())
 			.count() != 9
 	{
-		return Err("Expected two starter plugins and nine themes".into());
+		return Err("Expected three starter plugins and nine themes".into());
 	}
 	let gate = Gate {
 		epoch: 0,
@@ -248,6 +252,7 @@ pub fn demo_check_examples() -> Result<bool, String> {
 			let ok = match manifest.id.as_str() {
 				"message-delete-protector" => summary.preserve_deleted_messages,
 				"emoji-sticker-images" => summary.image_sharing,
+				"custom-rpc" => summary.rich_presence.is_none(),
 				_ => false,
 			};
 			if !ok {
@@ -328,6 +333,7 @@ pub struct InstalledExtension {
 	pub error: Option<String>,
 	pub preserve_deleted_messages: bool,
 	pub image_sharing: bool,
+	pub rich_presence: Option<Box<extensions::CustomRichPresence>>,
 }
 
 pub enum Event {
@@ -575,6 +581,15 @@ impl Stored {
 			sha256: self.sha256.clone(),
 			download_bytes: self.download_bytes,
 			image_sharing: result.as_ref().is_ok_and(|output| output.image_sharing),
+			rich_presence: result
+				.as_ref()
+				.ok()
+				.and_then(|output| match &output.rich_presence {
+					Some(extensions::RichPresenceUpdate::Set { presence }) => {
+						Some(presence.clone())
+					}
+					_ => None,
+				}),
 			// Current protector packages have a no-op activation; consent still opts in.
 			preserve_deleted_messages: activation.is_some()
 				&& result.is_ok()
@@ -841,6 +856,10 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			let mut output =
 				extensions::invoke(&stored.package, &invocation).map_err(|e| e.to_string())?;
 			gate.check()?;
+			if output.rich_presence.is_some() && !stored.grants.contains(&Capability::RichPresence)
+			{
+				return Err("Rich presence access was not granted".into());
+			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
 					return Err("Plugin data exceeds its granted storage budget".into());
@@ -1108,6 +1127,7 @@ fn load(
 							summary.theme = None;
 							summary.preserve_deleted_messages = false;
 							summary.image_sharing = false;
+							summary.rich_presence = None;
 							summary.error = Some(error);
 							summary
 						}
@@ -1136,6 +1156,7 @@ fn load(
 						error: Some(error),
 						preserve_deleted_messages: false,
 						image_sharing: false,
+						rich_presence: None,
 					},
 				});
 			}
@@ -2224,7 +2245,7 @@ mod tests {
 	#[test]
 	fn shop_preview_demo_catalog_and_images_are_local_and_hash_pinned() {
 		let starters = starters().unwrap();
-		assert_eq!(starters.len(), 11);
+		assert_eq!(starters.len(), 12);
 		let mut ids = std::collections::BTreeSet::new();
 		for starter in starters {
 			let InstallSource::Bundled {

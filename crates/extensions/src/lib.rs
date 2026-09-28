@@ -5,6 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod runtime;
 pub use runtime::invoke;
+mod rich_presence;
+pub use rich_presence::*;
 mod discovery;
 pub use discovery::*;
 mod conversation_activity;
@@ -85,6 +87,7 @@ pub enum ExtensionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+	RichPresence,
 	RelationshipControl,
 	AccountControl,
 	AudioSettings,
@@ -434,6 +437,8 @@ impl MessageEvent {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub rich_presence: Option<RichPresenceUpdate>,
 	#[serde(default)]
 	pub image_sharing: bool,
 	#[serde(default)]
@@ -453,6 +458,9 @@ pub struct Output {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Element {
+	ActivityPreview {
+		presence: Box<CustomRichPresence>,
+	},
 	Text {
 		text: String,
 	},
@@ -957,6 +965,16 @@ impl Output {
 			.find(|action| action.id == input.action)
 			.ok_or(Error::Invalid)?
 			.surface;
+		if let Some(update) = &self.rich_presence {
+			if !manifest.capabilities.contains(&Capability::RichPresence)
+				|| !matches!(surface, Surface::Activation | Surface::Panel)
+			{
+				return Err(Error::Capability);
+			}
+			if let RichPresenceUpdate::Set { presence } = update {
+				presence.validate()?;
+			}
+		}
 		if !self.panel.is_empty() && matches!(surface, Surface::MessageEvent | Surface::AppEvent) {
 			return Err(Error::Capability);
 		}
@@ -1035,6 +1053,10 @@ fn validate_elements(
 			return Err(Error::Limit);
 		}
 		let (id, label) = match element {
+			Element::ActivityPreview { presence } => {
+				presence.validate()?;
+				continue;
+			}
 			Element::Text { text } => {
 				if text.len() > 4096 {
 					return Err(Error::Limit);
