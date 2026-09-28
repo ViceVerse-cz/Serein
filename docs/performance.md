@@ -2184,3 +2184,39 @@ bit instead of always restoring it. Its expanded native-window regression test,
 focused Clippy, and normal debug build passed, followed by owner confirmation.
 The package sizes and screenshots above predate that correction; release sizes
 and performance have not been remeasured for the review follow-up.
+
+## Stream preview review fixes (September 28, 2026)
+
+The comparison is the pre-review branch at `d65e5bfa` versus the five review fixes
+at `cb26f2a9`, not the complete feature versus main. Both standard voice-enabled
+packages passed `cargo xtask package` using Rust 1.98.1 on Windows 11 x64, a Ryzen
+7 7800X3D and 32 GB RAM. The same isolated worktree/target built both revisions;
+the baseline package was preserved before rebuilding. NSIS was unavailable.
+Installed totals include all 198 files; portable ZIPs use .NET `ZipFile` with
+Optimal compression and no enclosing directory.
+
+| Package metric, bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 76,755,968 | 76,756,992 | +1,024 / +0.00133% |
+| Installed directory | 80,859,284 | 80,860,308 | +1,024 / +0.00127% |
+| Portable ZIP | 44,192,527 | 44,192,549 | +22 / +0.00005% |
+
+The release `replay-bench` executables process 100,000 synthetic message events.
+Each batch below discards one warmup per revision and takes the median of five
+direct executable runs; the second batch alternates baseline/after to reduce
+time-varying machine load. No build was started by this task during sampling;
+other desktop/background activity was not controlled.
+
+| Replay timing, ms | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| First, separate batches | 132.50 | 145.87 | +13.37 / +10.09% |
+| Paired rerun | 138.50 | 137.27 | -1.23 / -0.89% |
+| Paired five-run range | 135.83-142.11 | 135.95-149.05 | overlapping |
+
+The inconsistent timing delta does not establish a speedup or a repeatable
+regression. Every run retained 500 records and 331,992-332,477 estimated timeline
+bytes. This is a generic reducer control, not preview latency, process RSS, UI
+frame timing or live Discord evidence. The fixes add no dependency, worker or
+polling and preserve the one-request, 4 KiB response and 512-pixel media bounds.
+Native interaction screenshots and CPU/RSS measurements remain unavailable:
+the Computer Use module could not connect to its native pipe (`os error 2`).
